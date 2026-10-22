@@ -157,7 +157,7 @@ def bash_constants(source: str) -> list[tuple[int, str, str]]:
     out = []
     for index, line in enumerate(lines):
         match = BASH_CONSTANT.match(line)
-        if match:
+        if match and match.group(2) not in ('""', "''"):
             out.append((index + 1, match.group(1), " ".join([*_comment_above(lines, index), match.group(3) or ""])))
     return out
 
@@ -253,6 +253,7 @@ OWNED: tuple[tuple[str, str, str], ...] = (
     ("helpers/agent_bus/health.py", "INSTALL_STATE_ROOT", PATH),
     ("helpers/agent_bus/declare.py", "PIN_FILE", ANYWHERE),
     ("src-go/internal/teams/hot/cc.go", "ccUnguarded", ANYWHERE),
+    ("src-go/internal/teams/hot/remove.go", "removedHomeserverDown", ANYWHERE),
 )
 #: A text constant with placeholders (`{name}` or a `%` verb) is matched by each fixed part
 #: between them, its ends stripped; a part shorter than this is not distinctive enough.
@@ -391,6 +392,8 @@ FIXTURE_BASH = textwrap.dedent('''\
     # The session home (helpers/pingbus/seat.py SESSION_HOME), from the launcher's own variable.
     HOME_DIR="${CCY_PINGBUS_HOME}"  # ok: an expansion, not a literal copy
         INDENTED_TEXT_KEY="agent_bus.text"  # ok: protocol.py TEXT_KEY, not top level
+    # The guard, set by the reader from helpers/pingbus/seat.py STATUS_LINE_GUARD.
+    GUARD=""  # ok: empty until read, not a copy
 ''')
 
 

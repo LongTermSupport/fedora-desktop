@@ -308,7 +308,9 @@ m4_status_down() {
 }
 
 m4_check_homeserver_down() {
-    local seat
+    local seat removed_down
+    # What a remove says with the homeserver down: ccy-teams' remove.go removedHomeserverDown.
+    removed_down="$("${M3_CHECK[@]}" product-value src-go/internal/teams/hot/remove.go removedHomeserverDown)" || return 1
     seat="$(python3 -I -c 'import json, sys; d = json.load(open(sys.argv[1])); print([s["seat"] for s in d["seats"] if s["team"] == sys.argv[2]][0])' \
         "${M3_CCY_DIRS:?}/${M4_A}/${M3_DESIRED:?}" "${M4_TEAM_B}")" || return 1
     sudo -n systemctl stop "agent-bus-hs@${M4_TEAM_B}.service" || return 1
@@ -319,7 +321,7 @@ m4_check_homeserver_down() {
     m4_run down-role 1 role "${M4_A}" "${M4_TEAM_B}" coordinator --yes || return 1
     m4_said down-role "^\\Q${M3_MARK_DONE:?}\\E role" no || return 1
     m4_run down-remove 1 remove "${M4_A}" "${M4_TEAM_B}" --yes || return 1
-    m4_said down-remove 'goodbye and status not sent: homeserver down' || return 1
+    m4_said down-remove "\\Q${removed_down}\\E" || return 1
     m4_desired_is "${M4_A}" "${M4_TEAM_A}" || return 1
     m4_seat_free "${M4_TEAM_B}" "${seat}" || return 1
     sudo -n systemctl start "agent-bus-hs@${M4_TEAM_B}.service" || return 1

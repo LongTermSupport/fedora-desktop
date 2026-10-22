@@ -11,6 +11,10 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
+// removedHomeserverDown is what a remove says when the seat is out but its homeserver is down,
+// so the goodbye and the status wait for the next run.
+const removedHomeserverDown = "Removed, but goodbye and status not sent: homeserver down. Run the same command again once it is up."
+
 // removeFrom is H23: the role settled, the seat out of the desired file with a farewell,
 // released, re-baselined, its goodbye posted, then the farewell dropped. A farewell still owed
 // (H19) is finished by the next run.
@@ -125,7 +129,7 @@ func (x *Hot) farewell(ctx context.Context, t *target, r request, team, seat str
 	said := x.pingbus(ctx, "goodbye", handle+" left the team: removed by the owner", "seat", "farewell", "--root", t.seatsRoot(), ref)
 	if !retired || !said {
 		if !up {
-			x.say("Removed, but goodbye and status not sent: homeserver down. Run the same command again once it is up.")
+			x.say(removedHomeserverDown)
 		} else {
 			x.say("Removed, but the goodbye or the re-baseline is still owed: run the same command again to finish it.")
 		}

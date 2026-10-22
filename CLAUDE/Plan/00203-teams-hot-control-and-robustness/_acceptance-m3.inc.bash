@@ -64,8 +64,10 @@ M3_TOKEN=""
 #: and failed step marks of `ccy-teams session` (hot.go), and the status line's teams row
 #: head and the variable that has it draw only the bus segment (statusline.go); then, by
 #: m7_check product-value: the checkout's seat and session directories (seat.py), the applied
-#: membership's file name (membership.py), the human's Element acceptance (config.py), and the
-#: homeserver's and the installer's state roots (render.py, health.py).
+#: membership's file name (membership.py), the human's Element acceptance (config.py), the
+#: homeserver's and the installer's state roots (render.py, health.py), the joined and left
+#: notices up to their team (hooks.py TEMPLATES) and the MEMBERSHIP and HUMAN kind lines of a
+#: delivery (envelope.py KIND_LINES).
 M3_PB_HOME=""
 M3_WATCH_LOG=""
 M3_DESIRED=""
@@ -82,6 +84,10 @@ M3_APPLIED=""
 M3_ACCEPTED=""
 M3_STATE_ROOT=""
 M3_INSTALL_ROOT=""
+M3_JOINED_HEAD=""
+M3_LEFT_HEAD=""
+M3_KIND_MEMBERSHIP=""
+M3_KIND_HUMAN=""
 
 m3_ev() { printf '%s/%s' "${M3_EV}" "$1"; }
 
@@ -109,7 +115,7 @@ m3_value() {
 }
 
 m3_read_names() {
-    local seats sessions accepted_dir accepted_file
+    local seats sessions accepted_dir accepted_file joined left
     m3_lines 4 session-paths || return 1
     M3_PB_HOME="${M3_LINES[0]}" M3_DESIRED="${M3_LINES[3]}"
     m3_lines 3 session-names || return 1
@@ -129,6 +135,15 @@ m3_read_names() {
     M3_ACCEPTED="${HOME:?}/${accepted_dir}/${accepted_file}"
     m3_value M3_STATE_ROOT helpers/agent_bus/render.py STATE_ROOT || return 1
     m3_value M3_INSTALL_ROOT helpers/agent_bus/health.py INSTALL_STATE_ROOT || return 1
+    m3_value joined helpers/pingbus/hooks.py 'TEMPLATES[joined]' || return 1
+    m3_value left helpers/pingbus/hooks.py 'TEMPLATES[left]' || return 1
+    M3_JOINED_HEAD="${joined%%\{team\}*}" M3_LEFT_HEAD="${left%%\{team\}*}"
+    if [[ "${M3_JOINED_HEAD}" == "${joined}" || "${M3_LEFT_HEAD}" == "${left}" ]]; then
+        printf '[FAIL] hooks.py TEMPLATES joined %q or left %q names no {team}\n' "${joined}" "${left}" >&2
+        return 1
+    fi
+    m3_value M3_KIND_MEMBERSHIP helpers/pingbus/envelope.py 'KIND_LINES[MEMBERSHIP]' || return 1
+    m3_value M3_KIND_HUMAN helpers/pingbus/envelope.py 'KIND_LINES[HUMAN]' || return 1
     printf '==> session home %s (watcher log %s), membership %s in %s and %s (relaunch %s), step marks %s %s, teams row head %q, %s\n' \
         "${M3_PB_HOME}" "${M3_WATCH_LOG}" "${M3_DESIRED}" "${M3_CCY_DIRS}" "${M3_CC_DIRS}" "${M3_RELAUNCH}" \
         "${M3_MARK_DONE}" "${M3_MARK_FAILED}" "${M3_SEG_HEAD}" "${M3_INNER_VAR}"
@@ -319,8 +334,8 @@ m3_status_line() {
 }
 
 m3_check_notice_and_status() {
-    m3_poll "${M3_SEEN_S}" "the joined notice in the transcript" m3_seen "you joined team ${M3_TEAM_B}" || return 1
-    m3_seen "kind: MEMBERSHIP" || { printf '[FAIL] the notice is not a MEMBERSHIP envelope\n' >&2; return 1; }
+    m3_poll "${M3_SEEN_S}" "the joined notice in the transcript" m3_seen "${M3_JOINED_HEAD}${M3_TEAM_B}" || return 1
+    m3_seen "${M3_KIND_MEMBERSHIP}" || { printf '[FAIL] the notice is not a MEMBERSHIP envelope\n' >&2; return 1; }
     m3_poll 10 "the status line naming both teams" m3_status_line || {
         [[ ! -s "$(m3_ev status-line.why)" ]] || cat "$(m3_ev status-line.why)" >&2
         return 1
@@ -330,7 +345,7 @@ m3_check_notice_and_status() {
 m3_check_message() {
     m3_human_says "${M3_MARK_IN}" || return 1
     m3_poll "${M3_SEEN_S}" "the human's message in the conversation" m3_seen "${M3_MARK_IN}" || return 1
-    m3_seen "kind: HUMAN" || { printf '[FAIL] the message did not arrive as a HUMAN delivery\n' >&2; return 1; }
+    m3_seen "${M3_KIND_HUMAN}" || { printf '[FAIL] the message did not arrive as a HUMAN delivery\n' >&2; return 1; }
 }
 
 m3_seat_free() {
@@ -361,7 +376,7 @@ m3_check_remove() {
     cat -- "${err}"
     [[ "${status}" -eq 0 ]] || { printf '[FAIL] session remove exited %d\n' "${status}" >&2; return 1; }
     grep -qP "^\\Q${M3_MARK_DONE}\\E re-baseline" "${err}" || { printf '[FAIL] no re-baseline step\n' >&2; return 1; }
-    m3_poll "${M3_SEEN_S}" "the left notice in the transcript" m3_seen "you left team ${M3_TEAM_B}" || return 1
+    m3_poll "${M3_SEEN_S}" "the left notice in the transcript" m3_seen "${M3_LEFT_HEAD}${M3_TEAM_B}" || return 1
     m3_poll 30 "the goodbye in the room" m3_room_has "${goodbye}" || return 1
     m3_poll 10 "the seat free" m3_seat_free || return 1
     status=0
@@ -378,7 +393,7 @@ m3_check_no_backlog() {
     m3_human_says "${M3_MARK_OUT}" || return 1
     sleep 5
     m3_add again || return 1
-    m3_poll "${M3_SEEN_S}" "the joined notice of the re-add" m3_seen "you joined team ${M3_TEAM_B}" 2 || return 1
+    m3_poll "${M3_SEEN_S}" "the joined notice of the re-add" m3_seen "${M3_JOINED_HEAD}${M3_TEAM_B}" 2 || return 1
     sleep "${M3_QUIET_S}"
     if grep -qF -- "${M3_MARK_OUT}" "$(m3_transcript)"; then
         printf '[FAIL] a message posted while the seat was out was delivered on the re-add (H23a)\n' >&2
