@@ -1,6 +1,8 @@
 package seat
 
 import (
+	"context"
+	"crypto/rand"
 	"errors"
 	"net/http"
 	"strings"
@@ -13,6 +15,60 @@ import (
 func TestPasswordIsThePasswordKind(t *testing.T) {
 	if (Password{}).Kind() != KindPassword {
 		t.Errorf("Password's kind is %q", Password{}.Kind())
+	}
+}
+
+// poolToken is DESIGN-v2 7.1's (d1) behind the seam: the pool keeps a token, Mint answers it
+// and Retire ends nothing.
+type poolToken struct{ retired int }
+
+func (*poolToken) Kind() Kind { return KindToken }
+
+func (*poolToken) Mint(_ context.Context, _ Bundle, pool Secret) (Secret, error) {
+	return pool, nil
+}
+
+func (p *poolToken) Retire(context.Context, Bundle, Secret) error {
+	p.retired++
+	return nil
+}
+
+// SC1, n2c-D7: another credential is a store configuration, not a change to the store: a token
+// credential is placed into the pool's token file, taken and released by the same code.
+func TestATokenCredentialBehindTheSeam(t *testing.T) {
+	w := newWorld(t)
+	cred := &poolToken{}
+	cfg := w.config()
+	cfg.Credential = cred
+	s, err := Open(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if closeErr := s.Close(); closeErr != nil {
+			t.Error(closeErr)
+		}
+	})
+	w.store = s
+	token := rand.Text()
+	a := w.lock()
+	c, err := s.Claim(a, w.seat)
+	if err == nil {
+		err = c.Fill(Issued{Seat: w.bundle(), Kind: KindToken, Secret: mustSecret(t, token)})
+	}
+	w.unlock(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if readFile(t, w.pool().Token()) != token || exists(t, w.pool().Password()) {
+		t.Fatalf("the pool keeps its credential in the wrong file")
+	}
+	taken := w.take("s1")
+	if readFile(t, taken.Dir+"/token") != token {
+		t.Errorf("the session copy's token is not what Mint answered")
+	}
+	if err := w.release("s1", true); err != nil || cred.retired != 1 {
+		t.Errorf("release: %v, retired %d times", err, cred.retired)
 	}
 }
 

@@ -343,18 +343,7 @@ func TestAnIncompleteHeldWithTheLockBusy(t *testing.T) {
 func TestAResumedReleaseLeavesAnotherSeatsCopy(t *testing.T) {
 	w := newWorld(t)
 	w.seed()
-	const handleB = "repo.2+site.podman"
-	w.hs.AddUser(handleB, testPassword, false)
-	seatB := Seat{Team: w.seat.Team, Name: mustSeatName(t, handleB)}
-	poolB := w.store.store.PoolSeat(w.key, seatB.Team, seatB.Name)
-	bundleB := w.bundle()
-	bundleB.UserID = "@" + handleB + ":" + paths.ServerName(w.seat.Team)
-	data, err := bundleB.Encode()
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, poolB.Password(), testPassword)
-	writeFile(t, poolB.Bundle(), string(data))
+	seatB := w.seedSeatB(t)
 	w.take("s1")
 	w.hs.Inject(fakehs.Fault{Method: http.MethodPost, Path: "/logout", Status: http.StatusBadGateway})
 	if stopped := w.release("s1", true); stopped == nil {
@@ -373,6 +362,136 @@ func TestAResumedReleaseLeavesAnotherSeatsCopy(t *testing.T) {
 	}
 	if !exists(t, takenB.Dir+"/token") || exists(t, w.pool().Held()) {
 		t.Errorf("B's session copy was moved, or A's holding kept")
+	}
+}
+
+// seedSeatB is a second complete pool seat of the world's team, for a session taking two.
+func (w *world) seedSeatB(t *testing.T) Seat {
+	t.Helper()
+	const handleB = "repo.2+site.podman"
+	w.hs.AddUser(handleB, testPassword, false)
+	seatB := Seat{Team: w.seat.Team, Name: mustSeatName(t, handleB)}
+	poolB := w.store.store.PoolSeat(w.key, seatB.Team, seatB.Name)
+	bundleB := w.bundle()
+	bundleB.UserID = "@" + handleB + ":" + paths.ServerName(w.seat.Team)
+	data, err := bundleB.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, poolB.Password(), testPassword)
+	writeFile(t, poolB.Bundle(), string(data))
+	return seatB
+}
+
+// SX1, SX2, C41, n2c-D12: whether steps 1 and 2 are done is judged from host-owned state, never
+// from the session's copy, which its container may rewrite: a forged claim in the copy does not
+// skip the wait for a live keeper.
+func TestAForgedCopyClaimDoesNotSkipTheWait(t *testing.T) {
+	w := newWorld(t)
+	w.seed()
+	taken := w.take("s3")
+	end := w.keep("s3", lockRecord)
+	defer end()
+	w.sessions.set("s3", true)
+	b, err := DecodeHeldBundle([]byte(readFile(t, taken.Dir+"/seat.json")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Claim, err = newClaim(); err != nil {
+		t.Fatal(err)
+	}
+	forged, err := b.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, taken.Dir+"/seat.json", string(forged))
+	token := readFile(t, w.pool().HeldToken())
+	if err := w.release("s3", true); !errors.Is(err, ErrBusy) {
+		t.Errorf("a leave with the keeper live: %v (want ErrBusy)", err)
+	}
+	if !exists(t, taken.Dir) || !exists(t, w.pool().Held()) || !w.alive(token) {
+		t.Errorf("the live holding was released under its keeper")
+	}
+}
+
+// SX2, C41: the copy's seat.json is never read, so a link put there by the container stops
+// neither the release nor a later take by another session.
+func TestALinkedCopyDoesNotStopTheRelease(t *testing.T) {
+	w := newWorld(t)
+	w.seed()
+	taken := w.take("s1")
+	if err := os.Remove(taken.Dir + "/seat.json"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(w.pool().Password(), taken.Dir+"/seat.json"); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.release("s1", false); err != nil {
+		t.Errorf("the release of a session that is over: %v", err)
+	}
+	if _, err := w.tryTake("s2", StateActive); err != nil {
+		t.Errorf("a take by another session: %v", err)
+	}
+}
+
+// SX2: a session seat directory present at step 1 and gone by step 2 (another release of the
+// holding moved it) is already gone, and the release goes on.
+func TestADirectoryGoneByStepTwoGoesOn(t *testing.T) {
+	w := newWorld(t)
+	w.seed()
+	taken := w.take("s3")
+	end := w.keep("s3", lockRecord)
+	w.sessions.set("s3", true)
+	g := &gateClock{fakeClock: w.clock, waiting: make(chan struct{}), goOn: make(chan struct{})}
+	w.store.clock = g
+	done := make(chan error)
+	go func() {
+		done <- w.store.Release(context.Background(), Release{Seat: w.seat, Session: mustSession(t, "s3"), Leaving: true})
+	}()
+	<-g.waiting
+	end()
+	if err := os.Rename(taken.Dir, w.home+"/moved-away"); err != nil {
+		t.Fatal(err)
+	}
+	close(g.goOn)
+	if err := <-done; err != nil {
+		t.Errorf("release: %v", err)
+	}
+	if exists(t, w.pool().Held()) {
+		t.Errorf("the holding was kept")
+	}
+}
+
+// SX1, SX2, n2c-D12: a session seat directory gone at step 1 counts as gone at step 2, so a
+// directory that a take of another seat of the team made between them, under the lock, is left
+// in place.
+func TestADirectoryMadeAfterStepOneIsNotMoved(t *testing.T) {
+	w := newWorld(t)
+	w.seed()
+	seatB := w.seedSeatB(t)
+	takenA := w.take("s1")
+	if err := os.RemoveAll(takenA.Dir); err != nil {
+		t.Fatal(err)
+	}
+	a := w.lock()
+	g := &gateClock{fakeClock: w.clock, waiting: make(chan struct{}), goOn: make(chan struct{})}
+	w.store.clock = g
+	done := make(chan error)
+	go func() {
+		done <- w.store.Release(context.Background(), Release{Seat: w.seat, Session: mustSession(t, "s1"), Leaving: true})
+	}()
+	<-g.waiting
+	takenB, err := w.store.Take(t.Context(), a, Take{Seat: seatB, Session: mustSession(t, "s1"), State: StateActive})
+	w.unlock(a)
+	close(g.goOn)
+	if err != nil {
+		t.Fatalf("take of B: %v", err)
+	}
+	if err := <-done; err != nil {
+		t.Errorf("release of A: %v", err)
+	}
+	if !exists(t, takenB.Dir+"/token") || exists(t, w.releasedSession("s1", takenA)) {
+		t.Errorf("B's live session copy was moved by A's release")
 	}
 }
 

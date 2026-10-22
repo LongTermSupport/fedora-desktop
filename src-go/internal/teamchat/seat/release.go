@@ -83,16 +83,18 @@ func (s *Store) releaseHeld(ctx context.Context, r Release, locked locker, pool 
 	}
 	seat := s.store.SessionSeat(r.Session, r.Seat.Team)
 	moved := s.store.ReleasedSession(r.Session, r.Seat.Team, rec.Claim)
-	another, err := s.copyOfAnother(seat, rec.Claim)
+	moveDone, err := s.root.exists(moved.Dir())
 	if err != nil {
 		return err
 	}
 	var lock lockProbe
 	present := false
-	if !another {
+	if !moveDone {
 		if lock, present, err = s.awaitFree(ctx, r, seat); err != nil {
 			return err
 		}
+	}
+	if present {
 		if err = locked(ctx, func() error { return s.moveSessionSeat(seat, moved) }); err != nil {
 			return err
 		}
@@ -108,23 +110,11 @@ func (s *Store) releaseHeld(ctx context.Context, r Release, locked locker, pool 
 	return locked(ctx, func() error { return s.finish(r.Seat, pool, rec.Claim) })
 }
 
-// copyOfAnother is whether the session seat directory holds another holding's complete copy:
-// a release resumed after step 2, once its session took another seat of the team into the same
-// directory (n2c-D12). Steps 1 and 2 are then done for this holding.
-func (s *Store) copyOfAnother(seat paths.Seat, claim paths.ClaimID) (bool, error) {
-	data, err := s.root.read(seat.Bundle(), maxRecord)
-	if errors.Is(err, unix.ENOENT) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	b, decErr := DecodeHeldBundle(data)
-	return decErr == nil && b.Claim != claim, nil
-}
-
 // moveSessionSeat is step 2: the session's seat directory, whatever is there and never
-// followed, renamed into quarantine; already gone goes on.
+// followed, renamed into quarantine; already gone goes on. Whether steps 1 and 2 are owed is
+// judged from host-owned state only, never from the copy its container may rewrite (C41,
+// n2c-D12): this holding's quarantine name already taken means they are done, and a directory
+// gone at step 1 is gone, so one a take of another seat of the team made since is left alone.
 func (s *Store) moveSessionSeat(seat, moved paths.Seat) error {
 	err := s.root.rename(seat.Dir(), moved.Dir(), unix.RENAME_NOREPLACE)
 	if errors.Is(err, unix.ENOENT) {
