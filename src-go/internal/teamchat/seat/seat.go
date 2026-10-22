@@ -14,7 +14,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
-// ErrBusy is a lock still held when its bounded wait ends (SL1, SX1).
+// ErrBusy is the allocation lock still held when its bounded wait ends (SL1).
 var ErrBusy = errors.New("seat: busy")
 
 // Clock is the store's time: now for its records, and the waits of its bounded retries.

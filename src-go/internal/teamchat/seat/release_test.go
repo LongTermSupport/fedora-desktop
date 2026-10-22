@@ -24,9 +24,9 @@ func (w *world) releasedPool(taken Taken) string {
 	return w.store.store.ReleasedPool(w.key, w.seat.Team, w.seat.Name, taken.Claim)
 }
 
-// releasedSession is where a release moves a session's seat directory for a claim.
-func (w *world) releasedSession(session string, taken Taken) string {
-	return w.store.store.ReleasedSession(mustSession(w.t, session), w.seat.Team, taken.Claim).Dir()
+// releasedSession is where a release moves session s1's seat directory for a claim.
+func (w *world) releasedSession(taken Taken) string {
+	return w.store.store.ReleasedSession(mustSession(w.t, "s1"), w.seat.Team, taken.Claim).Dir()
 }
 
 // SX2, SX4, SX5: a leave moves the session seat and held/ to quarantine, logs the token out,
@@ -41,7 +41,7 @@ func TestReleaseOfALeave(t *testing.T) {
 	if err := w.release("s1", true); err != nil {
 		t.Fatal(err)
 	}
-	pool, sess := w.releasedPool(taken), w.releasedSession("s1", taken)
+	pool, sess := w.releasedPool(taken), w.releasedSession(taken)
 	if exists(t, taken.Dir) || exists(t, w.pool().Held()) || !exists(t, sess+"/seat.json") || !exists(t, pool+"/held.json") {
 		t.Errorf("the release did not move the seat to quarantine")
 	}
@@ -93,7 +93,7 @@ func TestReleaseRetriesATransientNotice(t *testing.T) {
 	if err := w.release("s1", false); err == nil {
 		t.Fatal("a transient notice failure completed the release")
 	}
-	if !exists(t, w.pool().HeldToken()) || exists(t, taken.Dir) || !exists(t, w.releasedSession("s1", taken)) {
+	if !exists(t, w.pool().HeldToken()) || exists(t, taken.Dir) || !exists(t, w.releasedSession(taken)) {
 		t.Errorf("after the failed notice: held/ kept, session seat in quarantine")
 	}
 	w.notices.answer(Outcome{Posted: false, Why: "token refused"}, nil)
@@ -135,28 +135,41 @@ func TestReleaseSkipsANoticeWithNoRun(t *testing.T) {
 	}
 }
 
-// SX1: a held seat lock is waited for, bounded, unless the session is over.
+// SX1, n2c-D14: a held seat lock is waited for, bounded; at the bound the release goes on and
+// the token is retired, as a keeper that never lets go must not keep it live.
 func TestReleaseWaitsForTheSeatLock(t *testing.T) {
 	w := newWorld(t)
 	w.seed()
 	taken := w.take("s1")
 	end := w.keep("s1", lockRecord)
 	w.sessions.set("s1", true)
+	token := readFile(t, w.pool().HeldToken())
 	before := w.clock.Now()
-	if err := w.release("s1", true); !errors.Is(err, ErrBusy) {
+	if err := w.release("s1", true); err != nil {
 		t.Fatalf("a held seat lock: %v", err)
 	}
 	if waited := w.clock.Now().Sub(before); waited < releaseWait || waited > releaseWait+allocPoll {
 		t.Errorf("waited %v", waited)
 	}
-	if !exists(t, taken.Dir) || !exists(t, w.pool().Held()) {
-		t.Errorf("a busy release moved the seat")
-	}
-	w.sessions.set("s1", false)
-	if err := w.release("s1", true); err != nil {
-		t.Errorf("a session that is over, its lock still held: %v", err)
-	}
+	w.revoked(taken, token)
 	end()
+}
+
+// SX1: a session that is over is not waited for, its lock still held.
+func TestReleaseOfAnEndedSessionDoesNotWait(t *testing.T) {
+	w := newWorld(t)
+	w.seed()
+	taken := w.take("s1")
+	token := readFile(t, w.pool().HeldToken())
+	w.keep("s1", lockRecord)
+	before := w.clock.Now()
+	if err := w.release("s1", true); err != nil {
+		t.Fatalf("a session that is over, its lock still held: %v", err)
+	}
+	if waited := w.clock.Now().Sub(before); waited != 0 {
+		t.Errorf("waited %v", waited)
+	}
+	w.revoked(taken, token)
 }
 
 // SX4: a transient logout failure stops the release with held/ kept; the retry completes.
@@ -406,12 +419,14 @@ func TestAForgedCopyClaimDoesNotSkipTheWait(t *testing.T) {
 	}
 	writeFile(t, taken.Dir+"/seat.json", string(forged))
 	token := readFile(t, w.pool().HeldToken())
-	if err := w.release("s3", true); !errors.Is(err, ErrBusy) {
-		t.Errorf("a leave with the keeper live: %v (want ErrBusy)", err)
+	before := w.clock.Now()
+	if err := w.release("s3", true); err != nil {
+		t.Errorf("a leave with the keeper live: %v", err)
 	}
-	if !exists(t, taken.Dir) || !exists(t, w.pool().Held()) || !w.alive(token) {
-		t.Errorf("the live holding was released under its keeper")
+	if waited := w.clock.Now().Sub(before); waited < releaseWait {
+		t.Errorf("the wait for the live keeper was skipped: waited %v", waited)
 	}
+	w.revoked(taken, token)
 }
 
 // SX2, C41: the copy's seat.json is never read, so a link put there by the container stops
@@ -490,7 +505,7 @@ func TestADirectoryMadeAfterStepOneIsNotMoved(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Errorf("release of A: %v", err)
 	}
-	if !exists(t, takenB.Dir+"/token") || exists(t, w.releasedSession("s1", takenA)) {
+	if !exists(t, takenB.Dir+"/token") || exists(t, w.releasedSession(takenA)) {
 		t.Errorf("B's live session copy was moved by A's release")
 	}
 }

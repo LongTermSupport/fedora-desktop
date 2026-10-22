@@ -188,10 +188,18 @@ func (s *Store) clearHeld(ctx context.Context, seat Seat, pool paths.PoolSeat) e
 	if held {
 		return fmt.Errorf("%w: by session %s", ErrHeld, rec.Session)
 	}
-	return s.release(ctx, Release{Seat: seat, Session: rec.Session}, alreadyLocked)
+	err = s.release(ctx, Release{Seat: seat, Session: rec.Session}, alreadyLocked)
+	if errors.Is(err, ErrCopyKept) {
+		// The ended holding is released, its token retired; the copy its container kept is
+		// that session's, and never stops another session's take (n2c-D14).
+		return nil
+	}
+	return err
 }
 
 // sessionHolds is whether a session holds its seat: its seat lock is held, or it is restorable.
+// What decides is the host's: held/ and the session record. The lock only adds a live keeper,
+// so a lock its container made refused, like a deleted one, holds nothing (n2c-D14).
 func (s *Store) sessionHolds(session paths.SessionName, team paths.TeamID) (bool, error) {
 	got, err := s.probe(s.store.SessionSeat(session, team))
 	if err != nil {

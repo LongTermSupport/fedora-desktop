@@ -15,6 +15,12 @@ import (
 // releaseWait bounds a release's wait for the session's seat lock (C 3.7.3 release step 1).
 const releaseWait = 60 * time.Second
 
+// ErrCopyKept is a release that ended its holding, its token retired and held/ in quarantine,
+// but could not move the session's seat directory: the container set a mode or owner on it, or
+// on sessions/<session>/, that denies the owner. The copy stays where it is, holding a dead token
+// (n2c-D14).
+var ErrCopyKept = errors.New("seat: the session's seat directory is kept")
+
 // Release asks for one seat a session holds to be released.
 type Release struct {
 	Seat    Seat
@@ -88,14 +94,19 @@ func (s *Store) releaseHeld(ctx context.Context, r Release, locked locker, pool 
 		return err
 	}
 	var lock lockProbe
-	present := false
+	present, kept := false, false
 	if !moveDone {
 		if lock, present, err = s.awaitFree(ctx, r, seat); err != nil {
 			return err
 		}
 	}
 	if present {
-		if err = locked(ctx, func() error { return s.moveSessionSeat(seat, moved) }); err != nil {
+		err = locked(ctx, func() error {
+			var moveErr error
+			kept, moveErr = s.moveSessionSeat(seat, moved)
+			return moveErr
+		})
+		if err != nil {
 			return err
 		}
 	}
@@ -107,20 +118,28 @@ func (s *Store) releaseHeld(ctx context.Context, r Release, locked locker, pool 
 	if err = s.retire(ctx, h, pool); err != nil {
 		return err
 	}
-	return locked(ctx, func() error { return s.finish(r.Seat, pool, rec.Claim) })
+	if err = locked(ctx, func() error { return s.finish(r.Seat, pool, rec.Claim) }); err != nil || !kept {
+		return err
+	}
+	return fmt.Errorf("%w: %s", ErrCopyKept, seat.Dir())
 }
 
 // moveSessionSeat is step 2: the session's seat directory, whatever is there and never
-// followed, renamed into quarantine; already gone goes on. Whether steps 1 and 2 are owed is
-// judged from host-owned state only, never from the copy its container may rewrite (C41,
-// n2c-D12): this holding's quarantine name already taken means they are done, and a directory
-// gone at step 1 is gone, so one a take of another seat of the team made since is left alone.
-func (s *Store) moveSessionSeat(seat, moved paths.Seat) error {
+// followed, renamed into quarantine; already gone goes on, and one its container made the owner
+// unable to move is kept, so nothing the container can write stops steps 3 to 5 (n2c-D14).
+// Whether steps 1 and 2 are owed is judged from host-owned state only, never from the copy its
+// container may rewrite (C41, n2c-D12): this holding's quarantine name already taken means they
+// are done, and a directory gone at step 1 is gone, so one a take of another seat of the team
+// made since is left alone.
+func (s *Store) moveSessionSeat(seat, moved paths.Seat) (bool, error) {
 	err := s.root.rename(seat.Dir(), moved.Dir(), unix.RENAME_NOREPLACE)
 	if errors.Is(err, unix.ENOENT) {
-		return nil
+		return false, nil
 	}
-	return err
+	if memberRefused(err) {
+		return true, nil
+	}
+	return false, err
 }
 
 // noticeStep is step 3 for a session that is over. A release resumed after step 2 reads the
@@ -183,9 +202,15 @@ func (s *Store) openHeld(pool paths.PoolSeat) (*dir, HeldRecord, bool, error) {
 }
 
 // awaitFree is step 1: unless the session's seat directory is gone (present false), wait at
-// most releaseWait for its seat lock to be free or the session to be over.
+// most releaseWait for its seat lock to be free or the session to be over. The lock is the
+// member's, so the wait is advisory, a drain for its keeper: at the bound the release goes on,
+// and a directory its container made the owner unable to look into is present with its lock
+// refused (n2c-D14).
 func (s *Store) awaitFree(ctx context.Context, r Release, seat paths.Seat) (lockProbe, bool, error) {
 	present, err := s.root.exists(seat.Dir())
+	if memberRefused(err) {
+		return lockProbe{state: lockRefused}, true, nil
+	}
 	if err != nil || !present {
 		return lockProbe{}, false, err
 	}
@@ -199,11 +224,8 @@ func (s *Store) awaitFree(ctx context.Context, r Release, seat paths.Seat) (lock
 		if err != nil {
 			return lockProbe{}, true, fmt.Errorf("seat: the record of session %s: %w", r.Session, err)
 		}
-		if !restorable {
+		if !restorable || !s.clock.Now().Before(deadline) {
 			return lock, true, nil
-		}
-		if !s.clock.Now().Before(deadline) {
-			return lockProbe{}, true, fmt.Errorf("%w: the seat lock of %s in session %s is held", ErrBusy, r.Seat.Name, r.Session)
 		}
 		if err := s.clock.Sleep(ctx, allocPoll); err != nil {
 			return lockProbe{}, true, err

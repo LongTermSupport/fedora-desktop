@@ -29,7 +29,8 @@ func TestSeatLockProbe(t *testing.T) {
 	}
 }
 
-// SX1: the probe refuses a link, a FIFO or a directory at the lock, and a linked seat directory.
+// SX1, n2c-D14: the probe refuses a link, a FIFO or a directory at the lock, and a linked seat
+// directory, as free and naming no run, never as an error that would stop a release or a take.
 func TestSeatLockProbeRefusals(t *testing.T) {
 	w := newWorld(t)
 	seat := w.sessionSeat("s1")
@@ -47,8 +48,8 @@ func TestSeatLockProbeRefusals(t *testing.T) {
 		if err := plant(seat.Lock()); err != nil {
 			t.Fatal(err)
 		}
-		if got, err := w.store.probe(seat); err == nil {
-			t.Errorf("%s: probed as %+v", name, got)
+		if got, err := w.store.probe(seat); err != nil || got.state != lockRefused || got.record != nil {
+			t.Errorf("%s: probed as %+v, %v", name, got, err)
 		}
 	}
 	if err := os.RemoveAll(seat.Dir()); err != nil {
@@ -57,7 +58,7 @@ func TestSeatLockProbeRefusals(t *testing.T) {
 	if err := os.Symlink(t.TempDir(), seat.Dir()); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := w.store.probe(seat); err == nil {
-		t.Errorf("a linked seat directory: probed as %+v", got)
+	if got, err := w.store.probe(seat); err != nil || got.state != lockRefused {
+		t.Errorf("a linked seat directory: probed as %+v, %v", got, err)
 	}
 }
