@@ -79,7 +79,9 @@
 # and, after one yes, applies the team (play-agent-bus.yml) without writing; declared otherwise,
 # it names each differing key and offers to update the entry or stop. A refusal of the
 # host_vars file stops at once, naming the file, instead of asking the same question three
-# times. Check: run `ccy-teams lxc-add <team>` for the member that was refused before. /var/local/claude-yolo/claude-yolo becomes a Go program (built here from
+# times; `ccy-teams create` stops the same way, and a gh lookup that fails for any reason but
+# GitHub's 404 (no network, a login gone stale) ends it with gh's words instead of asking for
+# another name. Check: run `ccy-teams lxc-add <team>` for the member that was refused before. /var/local/claude-yolo/claude-yolo becomes a Go program (built here from
 # src-go/cmd/claude-yolo, installed only when its checksum changes) that answers --version,
 # --help, --list-tokens, --token-usage [--json], --prevent and --export-token NAME itself
 # (everything else, --top and the interactive export included, stays in the bash) and execs

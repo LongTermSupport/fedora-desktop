@@ -424,10 +424,26 @@ func isExit(err error) bool {
 	return errors.As(err, &exit)
 }
 
-// isRefusal is err being declare.py refusing a value, as opposed to failing to run.
-func isRefusal(err error) bool {
-	var refusal *declare.Error
-	return errors.As(err, &refusal)
+// ghNotFound is a gh api call GitHub answered with 404: no such name, or none this login can
+// see. Any other failure (no network, bad credentials, a rate limit, a server error) says
+// nothing about the name, so it is not this.
+func ghNotFound(err error) bool {
+	exit, ok := errors.AsType[*execx.ExitError](err)
+	return ok && strings.Contains(exit.Stderr, "(HTTP 404)")
+}
+
+// ghLookup is gh api path with args: nil when GitHub has it, found false on its 404, and an
+// error carrying gh's own words for any other failure, which ends the run.
+func (c *Wizard) ghLookup(ctx context.Context, path string, args ...string) (execx.Result, bool, error) {
+	res, err := c.Runner.Run(ctx, execx.Cmd{Name: "gh", Args: append([]string{"api", path}, args...)})
+	switch {
+	case err == nil:
+		return res, true, nil
+	case ghNotFound(err):
+		return res, false, nil
+	default:
+		return res, false, fmt.Errorf("gh api %s: %w", path, err)
+	}
 }
 
 // askScope is what the team works on, first: its name defaults to that.
@@ -597,11 +613,11 @@ func (c *Wizard) askHumans(ctx context.Context, o *createOpts) error {
 	}
 	login := strings.TrimSpace(string(res.Stdout))
 	if checkErr := c.Declare.Check(ctx, declare.Entry{Humans: []string{login}}); checkErr != nil {
-		de, ok := errors.AsType[*declare.Error](checkErr)
-		if !ok {
-			return checkErr
+		refusal, end := c.unanswerable(checkErr)
+		if end != nil {
+			return end
 		}
-		c.term.Printf("Your login name, %s, cannot be an account name here (%s), so there is no default.\n", login, de.Message())
+		c.term.Printf("Your login name, %s, cannot be an account name here (%s), so there is no default.\n", login, refusal)
 		login = ""
 	}
 	if err = c.step(ctx, "People", "Each gets an Element login to the room; the installer creates the accounts. Add others after a comma."); err != nil {
@@ -700,18 +716,40 @@ func (c *Wizard) problem(msg string, tryAgain bool) {
 	c.term.Printf("  %s.\n", msg)
 }
 
-// checked is the outcome of a declare.py check: accepted, refused (said, and false), or a
-// failure to run it (an error).
+// checked is the outcome of a declare.py check: accepted, the value refused (said, and false),
+// or an error that ends the run (unanswerable).
 func (c *Wizard) checked(err error, tryAgain bool) (bool, error) {
 	if err == nil {
 		return true, nil
 	}
-	de, ok := errors.AsType[*declare.Error](err)
-	if !ok {
-		return false, err
+	refusal, end := c.unanswerable(err)
+	if end != nil {
+		return false, end
 	}
-	c.problem(de.Error(), tryAgain)
+	c.problem(refusal, tryAgain)
 	return false, nil
+}
+
+// unanswerable sorts a failed declare.py check: a refusal of the value just given
+// (declare.ErrUsage) comes back for the caller to say, as another answer can pass; anything
+// else is the error that ends the run. An interrupt cancels. A refusal of the host_vars file
+// as it stands (its entries, or the file itself) is said with the file, and stops at once: the
+// same file refuses every answer, so asking again cannot help.
+func (c *Wizard) unanswerable(err error) (string, error) {
+	de, ok := errors.AsType[*declare.Error](err)
+	switch {
+	case !ok:
+		return "", err
+	case errors.Is(err, declare.ErrUsage):
+		return de.Message(), nil
+	case errors.Is(err, declare.ErrInterrupted):
+		return "", c.cancelled()
+	}
+	file := term.AbbrevHome(c.HostVars, c.Home)
+	c.problem(de.Error(), false)
+	c.term.Printf("That is a refusal of %s, not of the answer, so it is not asked again: fix what it names in %s, "+
+		"then run ccy-teams create again; nothing was changed.\n", file, file)
+	return "", &stop{term.ExitCode(de.Code)}
 }
 
 // splitCommas is one name per comma-separated part, the spaces around each dropped. A
@@ -729,23 +767,19 @@ func splitCommas(text string) []string {
 
 // checkOwner is a GitHub user or organisation that exists (GitHub's names are not
 // case-sensitive, so it is checked lower-cased, as the team file holds it). On a terminal
-// the lookup has a spinner; only an answer in a question invites another try.
-func (c *Wizard) checkOwner(ctx context.Context, answer string, spin, tryAgain bool) (bool, error) {
+// the lookup is said; only an answer in a question invites another try. Only GitHub's 404 is
+// "no such owner": any other gh failure ends the run with gh's words.
+func (c *Wizard) checkOwner(ctx context.Context, answer string, say, tryAgain bool) (bool, error) {
 	owner := strings.ToLower(answer)
 	if good, err := c.checked(c.Declare.Check(ctx, declare.Entry{Org: owner}), tryAgain); !good || err != nil {
 		return false, err
 	}
-	var err error
-	if spin {
-		err = c.Gum.Spin(ctx, "Looking up "+owner+" on GitHub…", "gh", "api", "users/"+owner, "--silent")
-	} else {
-		_, err = c.Runner.Run(ctx, execx.Cmd{Name: "gh", Args: []string{"api", "users/" + owner, "--silent"}})
+	if say {
+		c.term.Printf("  Looking up %s on GitHub…\n", owner)
 	}
-	if err == nil {
-		return true, nil
-	}
-	if !isExit(err) {
-		return false, err
+	_, found, err := c.ghLookup(ctx, "users/"+owner, "--silent")
+	if found || err != nil {
+		return found, err
 	}
 	c.problem("GitHub has no user or organisation called '"+owner+"' that your gh login can see", tryAgain)
 	return false, nil
@@ -784,19 +818,19 @@ func (c *Wizard) checkRepos(ctx context.Context, repos []string, tryAgain bool) 
 }
 
 func (c *Wizard) checkRepo(ctx context.Context, repo string) (bool, error) {
-	if err := c.Declare.Check(ctx, declare.Entry{Repos: []string{repo}}); err != nil {
-		if !isRefusal(err) {
-			return false, err
+	if checkErr := c.Declare.Check(ctx, declare.Entry{Repos: []string{repo}}); checkErr != nil {
+		if _, end := c.unanswerable(checkErr); end != nil {
+			return false, end
 		}
 		c.term.Printf("  %s: not OWNER/REPO (lower-case; the name not ., .. or ending .git).\n", repo)
 		return false, nil
 	}
 	c.term.Printf("  Checking %s on GitHub…\n", repo)
-	res, err := c.Runner.Run(ctx, execx.Cmd{Name: "gh", Args: []string{"api", "repos/" + repo, "--jq", ".permissions.push"}})
+	res, found, err := c.ghLookup(ctx, "repos/"+repo, "--jq", ".permissions.push")
 	if err != nil {
-		if !isExit(err) {
-			return false, err
-		}
+		return false, err
+	}
+	if !found {
 		c.term.Printf("  %s: not found, or your gh login cannot see it.\n", repo)
 		return false, nil
 	}

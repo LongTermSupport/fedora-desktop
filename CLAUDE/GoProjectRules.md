@@ -439,6 +439,11 @@ guessing; the catalogue claims no more than the code does.
   check against a real sudoers file. A known gap: a passing `sudo -n true` shows that `true` runs
   unprompted, not the commands after it, so a host whose NOPASSWD entries cover `true` but not
   the tools would skip the prompt and then fail.
+  A second instance, fixed in `teams/create` (Plan 00201): `ccy-teams create` read any failing
+  `gh api users/<owner>` or `gh api repos/<repo>` as "GitHub has no such name", so no network,
+  bad credentials or a rate limit asked the person for another name. Only gh's `(HTTP 404)` is
+  not found now (`ghNotFound`); any other failure ends the run with gh's own words. What holds
+  it: the wizard's tests, which run a 404 against no network, a 401, a 403 and a 502.
 
 ## Control
 

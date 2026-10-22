@@ -243,6 +243,25 @@ a repository is no longer offered for a checkout of it. Report:
   by hand wait for a ccy-teams hold as ccy-teams now waits for theirs. Pending the owner's
   decision: it changes how every caller of run.bash behaves, and run.bash is on the bash-limits
   ratchet, so the wait belongs in the Python helper.
+- [ ] 🔄 **Task 2.20**: `ccy-teams lxc-add` asked three times over "entries 5 and 6 both
+  declare <user>@<container>" for a member an earlier run had declared (branch
+  `fix/lxc-add-already-declared`, CCY 3.99.14.13 / container 2.78.16, the image's declare.py).
+  DBF class: a declare.py refusal read by its type and not its kind, so a refusal of the
+  host_vars file is asked again as a wrong answer; defence `project_refusal_kind`
+  ([GoProjectRules.md](../../GoProjectRules.md)), red at 0ca99358c with 4 findings (lxcadd
+  `checked`; create `checked`, `isRefusal`, `askHumans`), green over both modules after the
+  fix. declare.py now gives a value alone 64 and an entry against the file 78; lxc-add says a
+  member declared as given is declared already and applies after one yes, names each key that
+  differs and offers to update, and stops at once on a refusal of the file, naming it. The
+  create wizard stops the same way, and an interrupt cancels. Found and fixed with it: the
+  wizard read any failing `gh api` as "no such name" (a probe read as a verdict, the class in
+  GoProjectRules.md "cannot be a rule"): only gh's `(HTTP 404)` is not found, any other failure
+  ends the run with gh's words. Also D1 of the M7 acceptance (`m7_check.py`) reads the list's
+  columns from its heading (64d5bc3b6). Left: the host run (meta-deploy, play-claude-yolo.yml
+  entry) and the owner's `ccy-teams lxc-add` of the member refused before. Not changed, recorded:
+  `declare.py create`'s "team X is already declared" stays a 64 (another name can pass); its
+  message could name `ccy-teams apply <team>` as the way on. Reports:
+  `subagent-reports/261022-lxc-add-*.md`.
 
 ## Success Criteria
 
