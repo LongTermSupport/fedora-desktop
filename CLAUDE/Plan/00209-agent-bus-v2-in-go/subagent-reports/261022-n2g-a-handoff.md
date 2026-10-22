@@ -91,3 +91,32 @@ The research is done; no A4 code is written.
   `inProcessChild`.
 
 A5: nothing in A.
+
+## Part C's `restore.Child`
+
+From n2g-c. C writes it in `restore/deps.go` on `feat/bus-v2-n2g-restore`, and A4's admin type
+must satisfy it structurally:
+
+- `Secure(ctx, team, unit []string, a SecureArgs) ([]string, error)`, run through the secure
+  unit argv `unit` (RU2) and judged as ExecChild judges;
+- `Check(ctx, team, unit []string, a CheckArgs) (Epoch, error)`: a nil `unit` means the live
+  server, and Port 0 with Token "" means null;
+- `Swap(ctx, team, a SwapArgs) ([]string, error)`;
+- `Export(ctx, team, a ExportArgs) (Export, error)`;
+- `Finish(ctx, team, teamFile []byte) ([]string, error)`;
+- `Revert(ctx, team, teamFile []byte) ([]string, error)`.
+
+The argument and result types:
+
+- `SecureArgs{TeamFile []byte; Port int; Token string; Rooms proto.RoomIDs; Roster apply.RosterFile; Retire, Revoke, RevokeHumans, Lock []string}`;
+- `CheckArgs{TeamFile, Port, Token}`;
+- `SwapArgs{TeamFile, Token, Rooms, Roster}`;
+- `ExportArgs{TeamFile; Backup, SinceMS int64}`;
+- `Export{Count, FirstMS, EndMS int64; Truncated bool}`;
+- `Epoch{RestoreEpoch, Rev int64}`.
+
+A failed answer comes back as `*admin.ChildError`. C also asks `host` for two exports, neither
+built nor answered yet:
+
+- `ReadUnitsVersion(root, team) (paths.ServerVersion, error)`, for RU1's binary;
+- `RegKeyOf`, for RS7's bootstrap.
