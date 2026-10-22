@@ -78,11 +78,11 @@ func (x *Hot) sessionKeeper(ctx context.Context, container string, pane int) (bo
 }
 
 // rowState is a listed session's STATE: a cc session with no keeper cannot be repaired.
-func rowState(name, kind string, alive bool, aliveErr, seatsErr error, down, unheld []string) string {
+func rowState(name, kind string, alive bool, aliveErr, seatsErr, reportErr error, down, unheld []string) string {
 	if kind == membership.KindCC && aliveErr == nil && !alive {
 		return ccUnguarded
 	}
-	return stateWord(name, alive, aliveErr, seatsErr, down, unheld)
+	return stateWord(name, alive, aliveErr, seatsErr, reportErr, down, unheld)
 }
 
 // ccKeeperAlive is whether a seat keeper runs in the process tree under the cc session's pane.

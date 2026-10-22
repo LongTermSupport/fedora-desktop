@@ -206,6 +206,41 @@ write_launcher 1.0.1 2.0
 check "a one-key agent change with CCY_VERSION bumped passes" "0" "$(hook_status)"
 baseline
 
+echo "=== the CCY version gate: the launcher's Go front (Plan 00191 Task 4.5) ==="
+
+# The front is installed as the launcher and carries CCY_VERSION, so its own sources need the
+# bump; its tests and the differential harness under it do not change the program.
+front_files=(src-go/cmd/claude-yolo/main.go src-go/internal/ccylaunch/front.go src-go/internal/ccylaunch/help.txt
+    src-go/internal/ccylaunch/front_test.go src-go/internal/ccylaunch/difftest/parity_test.go)
+for f in "${front_files[@]}"; do
+    mkdir -p "$(dirname "$repo/$f")"
+    printf 'package x\n' >"$repo/$f"
+done
+git -C "$repo" add -A
+git -C "$repo" commit -q --no-verify -m 'add the front'
+# front_restore — put the front's files back to the committed state.
+front_restore() {
+    for f in "${front_files[@]}"; do git -C "$repo" show "HEAD:$f" >"$repo/$f"; done
+    git -C "$repo" add -A
+}
+for f in "${front_files[@]:0:3}"; do
+    printf 'package x\nvar changed = 1\n' >"$repo/$f"
+    check "a change to $f without a CCY_VERSION bump is rejected" "1" "$(hook_status)"
+    check "…and says to bump CCY_VERSION" "yes" "$(has 'CCY version bump required')"
+    front_restore
+done
+printf 'package x\nvar changed = 1\n' >"$repo/src-go/internal/ccylaunch/front.go"
+write_launcher 1.0.1 2.0
+check "a front change with CCY_VERSION bumped passes" "0" "$(hook_status)"
+front_restore
+baseline
+for f in "${front_files[@]:3}"; do
+    printf 'package x\nvar changed = 1\n' >"$repo/$f"
+    check "a change to the test file $f needs no bump" "0" "$(hook_status)"
+    check "…and prints no CCY check" "no" "$(has 'Checking CCY version bump requirement')"
+    front_restore
+done
+
 echo "=== a diff larger than a pipe buffer is still judged ==="
 
 # Both gates read `git diff` through a pipe into a reader that stops at the first changed code
