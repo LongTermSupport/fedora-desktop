@@ -203,6 +203,25 @@ func TestARunningCcySessionWithoutTheSupervisorFails(t *testing.T) {
 	}
 }
 
+// A session whose container is stopped is offline (CLAUDE/AgentNotes.md): named and left as it
+// is, never a failure, and the owner is not told to start it.
+func TestASessionWhoseContainerIsStoppedIsOfflineNotAFailure(t *testing.T) {
+	m := newMachine(t)
+	m.noLxc()
+	m.sessions[0].containerGone = true
+	if got := m.run("alpha", "--yes"); got != term.ExitOK {
+		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
+	}
+	m.errHas(t,
+		"- ccy-proj: offline: its container is stopped (its tmux session is still open), so there is nothing to restart in place",
+		"alpha: 0 restarted, 0 failed, 1 left as it is.",
+	)
+	m.errLacks(t, "to start it")
+	if pending, err := membership.RelaunchPending(m.dir("ccy-proj")); err != nil || pending {
+		t.Fatalf("a request was written: %v %v", pending, err)
+	}
+}
+
 // B3: a seat no session record names has nothing to restart.
 func TestASeatNoRecordNamesIsLeftOut(t *testing.T) {
 	m := newMachine(t)
