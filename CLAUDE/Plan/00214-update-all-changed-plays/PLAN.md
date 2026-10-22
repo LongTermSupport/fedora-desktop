@@ -68,10 +68,12 @@ one definition, read by both.
 
 ### Phase 2: name the command (gap 1)
 
-- [ ] ⬜ **Task 2.1**: Test first, then `login_message`: when the document's plays include
-  a `stale` or `failed` one, the full report ends with the command that runs them, this
-  checkout's path (from the helper's own location, quoted) plus `run.bash --changed`, and
-  the one-line reminder names the same command. No real path is written into the repo.
+- [x] ✅ **Task 2.1**: Test first, then `login_message`: when the document's plays include
+  a `stale` or `failed` one, the full report prints, below the faults, the command that
+  runs them, this checkout's path (from the helper's own location, quoted) plus
+  `run.bash --changed`, and the one-line reminder names the same command. No real path is
+  written into the repo. The desktop notification is left alone: it cannot be copied
+  from, and it already sends the reader to `fedora-desktop-health`.
 
 ### Phase 3: meta-deploy can say "every changed play" (gap 3)
 

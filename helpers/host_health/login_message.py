@@ -14,6 +14,8 @@ one-line reminder naming `fedora-desktop-health` after that, because every tmux 
 a new interactive shell and the same wall of findings on each is how a report gets muted.
 `--on-demand` is that command's: it always answers, with a positive sentence on a clean
 host, because silence is the right reply at login and the wrong one to a direct question.
+When plays have to run again, the report and the reminder both end with the command that
+runs them, this checkout's own `run.bash --changed` (Plan 00214, issue #110).
 
 What makes this affordable is that the checks no longer run here. They run on their own
 schedule and leave the document behind; this prints what they left. A `git fetch` at every
@@ -49,11 +51,12 @@ import argparse
 import datetime
 import hashlib
 import os
+import shlex
 import sys
 from typing import TextIO
 
 from helpers.host_health import probe, status_document
-from helpers.play_ledger import ledger, repo
+from helpers.play_ledger import freshness, ledger, repo
 
 #: The command that prints this report on demand (Plan 00136). Installed by
 #: `play-host-health-login-report.yml` into the user's `~/.local/bin`; the panel builds
@@ -82,6 +85,28 @@ FUTURE_TOLERANCE_DAYS = 1
 
 _HEADER = "fedora-desktop: this machine needs attention"
 _NOT_CHECKED = "Not checked — these are NOT clean results, nothing is known about them:"
+_RUNS_CHANGED = "every play that changed or failed since it ran here"
+
+#: The play states `run.bash --changed` runs, as `play_runner.runnable` writes them into
+#: the document.
+_RUN_STATES = frozenset({freshness.STALE, freshness.FAILED})
+
+
+def _checkout() -> str:
+    """This file is `<repo>/helpers/host_health/login_message.py`: the checkout the
+    command that runs here belongs to, wherever it was cloned."""
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+
+
+def run_changed_command(document: object, *, checkout: str) -> str:
+    """`<checkout>/run.bash --changed`, ready to paste, when the document lists a play
+    that command would run; `""` otherwise, or for a `plays` list this cannot read."""
+    plays = document.get("plays") if isinstance(document, dict) else None
+    if not isinstance(plays, list):
+        return ""
+    if not any(isinstance(row, dict) and row.get("state") in _RUN_STATES for row in plays):
+        return ""
+    return f"{shlex.quote(os.path.join(checkout, 'run.bash'))} --changed"
 
 
 def _age_days(generated_at: object, now: str) -> int | None:
@@ -128,11 +153,12 @@ def _texts(section: object, key: str) -> list[str]:
     return [line for line in lines if isinstance(line, str)]
 
 
-def render(document: object, *, now: str, running_kernel: str) -> str:
+def render(document: object, *, now: str, running_kernel: str, command: str = "") -> str:
     """The message, or `""` to say nothing.
 
     Known faults first — something broken now outranks something merely unknown — then
-    the not-checked group under a heading that says in terms that these are not clean
+    `command` (`run_changed_command`'s answer) when there is one, then the not-checked
+    group under a heading that says in terms that these are not clean
     results. Keeping those two apart is the whole value of the report; a list that mixes
     them and distinguishes neither reads like a complete picture of a machine, which is
     how this plan's incident happened.
@@ -234,6 +260,9 @@ def render(document: object, *, now: str, running_kernel: str) -> str:
 
     lines = [_HEADER]
     lines.extend(f"  - {text}" for text in broken)
+    if command:
+        # Not a `  - ` line, so `item_counts` does not count the remedy as a finding.
+        lines.append(f"  To run {_RUNS_CHANGED}: {command}")
     if unchecked:
         lines.append(f"  {_NOT_CHECKED}")
         lines.extend(f"  - {text}" for text in unchecked)
@@ -301,18 +330,22 @@ def _plural(count: int, noun: str) -> str:
     return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
 
 
-def reminder(message: str) -> str:
-    """The one line a later shell gets on a day the message has already been shown."""
+def reminder(message: str, *, command: str = "") -> str:
+    """The one line a later shell gets on a day the message has already been shown,
+    naming `command` too when plays have to run again, so one paste clears them."""
     faults, unchecked = item_counts(message)
     parts = []
     if faults:
         parts.append(_plural(faults, "fault"))
     if unchecked:
         parts.append(_plural(unchecked, "unchecked item"))
-    return (
+    line = (
         f"fedora-desktop: {' and '.join(parts)} in the health report (shown in full "
         f"earlier today) — run {ON_DEMAND_COMMAND} for the details"
     )
+    if command:
+        line += f", or {command} to run {_RUNS_CHANGED}"
+    return line
 
 
 def _day_of(now: str) -> str:
@@ -351,7 +384,7 @@ def _write_stamp(path: str, *, day: str, digest: str) -> None:
         return
 
 
-def once_a_day(message: str, *, stamp: str, now: str) -> str:
+def once_a_day(message: str, *, stamp: str, now: str, command: str = "") -> str:
     """The message in full the first time today, the reminder after that.
 
     Keyed on the message's bytes as well as the day: a document rewritten with different
@@ -364,7 +397,7 @@ def once_a_day(message: str, *, stamp: str, now: str) -> str:
     day = _day_of(now)
     digest = _digest(message)
     if _read_stamp(stamp) == (day, digest):
-        return reminder(message)
+        return reminder(message, command=command)
     _write_stamp(stamp, day=day, digest=digest)
     return message
 
@@ -426,6 +459,9 @@ def main(
     )
     current = now if now is not None else repo.utc_now()
     document = status_document.read(status_document.path(state_dir))
+    # The checkout this code runs from, not one written in: the login snippet and
+    # `fedora-desktop-health` both run it with PYTHONPATH set to the checkout.
+    command = run_changed_command(document, checkout=_checkout())
     message = render(
         document,
         now=current,
@@ -434,6 +470,7 @@ def main(
         running_kernel=(
             running_kernel if running_kernel is not None else probe.running_kernel()
         ),
+        command=command,
     )
     if arguments.on_demand and not message:
         message = clean_statement(document, now=current)
@@ -442,6 +479,7 @@ def main(
             message,
             stamp=stamp_path(arguments.stamp_dir or state_dir),
             now=current,
+            command=command,
         )
     if message:
         out.write(f"{message}\n")
