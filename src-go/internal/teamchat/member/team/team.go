@@ -128,6 +128,10 @@ type Team interface {
 	Wake()
 	// FlushFloor puts the teamchat.floor marker, at a removal before the store goes (SY10).
 	FlushFloor(ctx context.Context) error
+	// FloorRaised is the store's main floor raised outside a sync answer (an ack or a drop
+	// settled what it owed, B 2.3.2), once written; the marker follows. It must not block: the
+	// engine's state goroutine calls it.
+	FloorRaised(floor int64)
 }
 
 // Notices is the matrix calls the ends make, on the team's client.

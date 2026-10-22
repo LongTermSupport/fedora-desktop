@@ -143,6 +143,8 @@ type fakeTeam struct {
 	historyErr  error
 	flushes     int
 	flushErr    error
+	// raised are the floors FloorRaised was told, in order.
+	raised []int64
 	// ended is set once Run returns; flushedLive counts the flushes made while it ran.
 	ended       bool
 	flushedLive int
@@ -203,6 +205,12 @@ func (f *fakeTeam) FlushFloor(context.Context) error {
 		f.flushedLive++
 	}
 	return f.flushErr
+}
+
+func (f *fakeTeam) FloorRaised(floor int64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.raised = append(f.raised, floor)
 }
 
 func (f *fakeTeam) setVerdict(id string, v proto.Verdict) {

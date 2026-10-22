@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -227,8 +228,42 @@ func TestARestoredItemThatIsGoneIsDroppedAndHoldsNothing(t *testing.T) {
 	if p := w.store(ops).Pending; len(p) != 1 || p[0].ID != evID(2) {
 		t.Fatalf("pending = %+v", p)
 	}
+	if got := w.store(ops).Sync.FloorMS[proto.PurposeMain]; got != 199 {
+		t.Fatalf("floor %d after the drop", got)
+	}
 	if !strings.Contains(w.log.String(), "restored item "+evID(1)+" dropped: it can no longer be fetched") {
 		t.Fatalf("link.log = %q", w.log.String())
+	}
+}
+
+// A4 (B 2.3.2): an ack that leaves the store owing less raises the floor, to just below the
+// oldest item still owed, or to the newest settled item when it owes none, and tells the team
+// goroutine, so a quiet room's marker follows.
+func TestAnAckRaisesTheFloor(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	f := w.held(ops)
+	first := team.Batch{Team: ops, NextBatch: "s1", Floors: map[string]int64{proto.PurposeMain: 500}, Items: []team.Item{humanItem(ops, 1, 100, "a")}}
+	if got := w.persistBatch(first); got != 99 {
+		t.Fatalf("floor %d", got)
+	}
+	ack1 := w.done(wire.OpRecv, wire.TeamsArgs{}).Ack
+	w.persist(ops, humanItem(ops, 2, 200, "b"))
+	check(t, w.e.Ack(t.Context(), ack1))
+	if got := w.store(ops).Sync.FloorMS[proto.PurposeMain]; got != 199 {
+		t.Fatalf("floor after the first ack %d", got)
+	}
+	ack2 := w.done(wire.OpRecv, wire.TeamsArgs{}).Ack
+	check(t, w.e.Ack(t.Context(), ack2))
+	if got := w.store(ops).Sync.FloorMS[proto.PurposeMain]; got != 200 {
+		t.Fatalf("floor after the last ack %d", got)
+	}
+	check(t, w.e.Return(t.Context(), "ffffffff"))
+	f.mu.Lock()
+	raised := slices.Clone(f.raised)
+	f.mu.Unlock()
+	if !slices.Equal(raised, []int64{199, 200}) {
+		t.Fatalf("FloorRaised %v", raised)
 	}
 }
 

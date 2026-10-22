@@ -265,6 +265,37 @@ func ownedFloors(s *state.Store) {
 	}
 }
 
+// raiseFloors is B 2.3.2's floor rule after items left pending outside a sync answer (an ack,
+// a drop): each room they were in is raised to just below the oldest item it still owes, or,
+// owing none, to the newest that left; a floor is never lowered here. It is main's floor, and
+// whether that moved.
+func raiseFloors(s *state.Store, left []state.Pending) (int64, bool) {
+	newest := map[string]int64{}
+	for _, p := range left {
+		newest[p.Room] = max(newest[p.Room], p.SentMS)
+	}
+	before := s.Sync.FloorMS[proto.PurposeMain]
+	for room, to := range newest {
+		owes, oldest := false, int64(0)
+		for _, p := range s.Pending {
+			if p.Room == room && (!owes || p.SentMS < oldest) {
+				owes, oldest = true, p.SentMS
+			}
+		}
+		if owes {
+			to = oldest - 1
+		}
+		if s.Sync.FloorMS == nil {
+			s.Sync.FloorMS = map[string]int64{}
+		}
+		if floor, ok := s.Sync.FloorMS[room]; !ok || to > floor {
+			s.Sync.FloorMS[room] = max(to, 0)
+		}
+	}
+	after := s.Sync.FloorMS[proto.PurposeMain]
+	return after, after != before
+}
+
 func addCounts(a, b team.Counts) team.Counts {
 	return team.Counts{
 		Ignored: a.Ignored + b.Ignored, Dropped: a.Dropped + b.Dropped, Unheard: a.Unheard + b.Unheard,

@@ -99,6 +99,7 @@ func (*fakeTeam) History(context.Context, string, int) ([]records.History, error
 func (f *fakeTeam) Notices() team.Notices          { return f.notices }
 func (*fakeTeam) Wake()                            {}
 func (*fakeTeam) FlushFloor(context.Context) error { return nil }
+func (*fakeTeam) FloorRaised(int64)                {}
 
 func (f *fakeTeam) didRun() bool {
 	f.mu.Lock()

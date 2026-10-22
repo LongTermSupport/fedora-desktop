@@ -152,10 +152,15 @@ func rosters(teams map[paths.TeamID]team.Team) map[paths.TeamID]namer {
 // items chosen within the caps marked handed by ack, one write per store, before any record is
 // sent.
 func (e *Engine) handOut(p plan, got map[key]fetched, names map[paths.TeamID]namer, ack string) handout {
-	c := copies{e: e, stores: map[paths.TeamID]*state.Store{}}
+	c := copies{e: e, stores: map[paths.TeamID]*state.Store{}, raised: map[paths.TeamID]int64{}}
 	e.rejudgeAll(got, &c)
 	chosen, recs := e.choose(p, names, ack, &c)
 	failed := e.commit(c.stores)
+	for id, floor := range c.raised {
+		if !failed[id] {
+			e.floorRaised(id, floor)
+		}
+	}
 	out := handout{}
 	for i, k := range chosen {
 		if !failed[k.team] {
@@ -171,10 +176,12 @@ func (e *Engine) handOut(p plan, got map[key]fetched, names map[paths.TeamID]nam
 	return out
 }
 
-// copies are a hand-out's store copies, one per team touched, written together at its end.
+// copies are a hand-out's store copies, one per team touched, written together at its end;
+// raised is each copy's main floor where a drop raised it.
 type copies struct {
 	e      *Engine
 	stores map[paths.TeamID]*state.Store
+	raised map[paths.TeamID]int64
 }
 
 func (c *copies) of(h *held) *state.Store {
@@ -210,7 +217,15 @@ func (e *Engine) rejudgeAll(got map[key]fetched, c *copies) {
 			continue
 		}
 		if s := c.of(h); s != nil {
-			s.Pending = slices.DeleteFunc(s.Pending, func(it state.Pending) bool { return it.ID == k.id })
+			i := slices.IndexFunc(s.Pending, func(it state.Pending) bool { return it.ID == k.id })
+			if i < 0 {
+				continue
+			}
+			left := s.Pending[i]
+			s.Pending = slices.Delete(s.Pending, i, i+1)
+			if floor, moved := raiseFloors(s, []state.Pending{left}); moved {
+				c.raised[h.id] = floor
+			}
 			e.logf("team %s: restored item %s dropped: %s", h.id, k.id, why)
 		}
 	}
@@ -470,9 +485,19 @@ func (e *Engine) settle(ctx context.Context, ack string, deliver func(*state.Sto
 			if !eligible(e.teams[id], nil) {
 				continue
 			}
-			errs = append(errs, e.changeLocked(id, func(h *held, s *state.Store) (bool, error) {
-				return settleStore(h, s, ack, now, deliver), nil
-			}))
+			var (
+				floor int64
+				moved bool
+			)
+			err := e.changeLocked(id, func(h *held, s *state.Store) (bool, error) {
+				left, changed := settleStore(h, s, ack, now, deliver)
+				floor, moved = raiseFloors(s, left)
+				return changed, nil
+			})
+			if err == nil && moved {
+				e.floorRaised(id, floor)
+			}
+			errs = append(errs, err)
 		}
 	}); err != nil {
 		return err
@@ -480,8 +505,10 @@ func (e *Engine) settle(ctx context.Context, ack string, deliver func(*state.Sto
 	return errors.Join(errs...)
 }
 
-// settleStore is settle in one store's copy; it is whether anything was handed by ack.
-func settleStore(h *held, s *state.Store, ack string, now int64, deliver func(*state.Store, state.Pending, int64) bool) bool {
+// settleStore is settle in one store's copy; it is the items that left pending, and whether
+// anything was handed by ack.
+func settleStore(h *held, s *state.Store, ack string, now int64, deliver func(*state.Store, state.Pending, int64) bool) ([]state.Pending, bool) {
+	var left []state.Pending
 	changed := false
 	kept := s.Pending[:0]
 	for _, it := range s.Pending {
@@ -492,11 +519,20 @@ func settleStore(h *held, s *state.Store, ack string, now int64, deliver func(*s
 		changed = true
 		if deliver(s, it, now) {
 			delete(h.content, it.ID)
+			left = append(left, it)
 			continue
 		}
 		it.Handed, it.Repeat = nil, true
 		kept = append(kept, it)
 	}
 	s.Pending = kept
-	return changed
+	return left, changed
+}
+
+// floorRaised tells t's team goroutine its store's main floor rose outside a sync answer, once
+// the store holds it, so the marker follows (SY10); on the state goroutine.
+func (e *Engine) floorRaised(t paths.TeamID, floor int64) {
+	if h := e.teams[t]; h != nil && h.team != nil {
+		h.team.FloorRaised(floor)
+	}
 }

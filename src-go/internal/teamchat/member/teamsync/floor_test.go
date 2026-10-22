@@ -109,6 +109,33 @@ func TestAFloorMovedDownIsPutAtOnce(t *testing.T) {
 	}
 }
 
+// SY10, A4: a floor the engine raised outside a sync answer is the marker's next put; one that
+// is not above the floor known, or with no floor known, changes nothing.
+func TestAFloorRaisedIsTheMarkersNext(t *testing.T) {
+	w := newWorld(t)
+	tm := w.newTeam()
+	tm.FloorRaised(5)
+	check(t, tm.FlushFloor(t.Context()))
+	if n := w.markerPuts(); n != 0 {
+		t.Fatalf("%d puts with no floor known", n)
+	}
+	r := w.startTeam(tm)
+	w.batch()
+	r.poll(t)
+	owed := w.say(alice, human("for me", user(me)))
+	w.batch()
+	r.poll(t)
+	if f := w.marker(); f != w.ts(owed)-1 {
+		t.Fatalf("marker %d", f)
+	}
+	tm.FloorRaised(w.ts(owed) - 5)
+	tm.FloorRaised(w.ts(owed))
+	check(t, tm.FlushFloor(t.Context()))
+	if f := w.marker(); f != w.ts(owed) {
+		t.Fatalf("marker %d, want %d", f, w.ts(owed))
+	}
+}
+
 // SY10: FlushFloor puts the floor at once; with none known it puts nothing; a failed put is one
 // line.
 func TestFlushFloor(t *testing.T) {

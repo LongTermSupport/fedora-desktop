@@ -751,6 +751,17 @@ func (t *Team) floorMoved(floor, epoch int64) {
 	f.ms, f.epoch, f.known, f.dirty = floor, epoch, true, true
 }
 
+// FloorRaised is the store's main floor raised outside a sync answer (team.Team): the marker's
+// next put carries it, coalesced as any move up. A floor not above the one known, or with none
+// known (so no epoch), changes nothing.
+func (t *Team) FloorRaised(floor int64) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.floor.known && floor > t.floor.ms {
+		t.floor.ms, t.floor.dirty = floor, true
+	}
+}
+
 // putFloorIfDue is SY10's coalescing without a timer: a moved floor is put after an answer once
 // floorPutGap has passed since the last put, and a floor moved down at once.
 func (t *Team) putFloorIfDue(ctx context.Context, c *matrix.Client, a proto.Anchors) {
@@ -767,7 +778,9 @@ func (t *Team) putFloorIfDue(ctx context.Context, c *matrix.Client, a proto.Anch
 func (t *Team) putFloor(ctx context.Context, c *matrix.Client, a proto.Anchors) error {
 	t.mu.Lock()
 	f := t.floor
-	t.floor.put, t.floor.putAt = true, t.cfg.Clock.Boot()
+	if f.known {
+		t.floor.put, t.floor.putAt = true, t.cfg.Clock.Boot()
+	}
 	t.mu.Unlock()
 	if !f.known {
 		return nil
