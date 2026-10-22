@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Unit-test taking over a CCY session that is open in another terminal: the library's
-# ccy_tmux_take_over and its helpers (files/var/local/claude-yolo/lib/tmux-session.bash),
-# and the Ctrl-T key in the ccy-sessions picker (the Go binary, src-go/cmd/ccy-sessions).
+# Unit-test taking over a CCY session that is open in another terminal: the Ctrl-T key in
+# the ccy-sessions picker (the Go binary, src-go/cmd/ccy-sessions), and the library's attach
+# and session lookup it shares a fake tmux with (files/var/local/claude-yolo/lib/tmux-session.bash).
 #
 # WHY THIS EXISTS. A session can be attached from one terminal only, so a terminal that
 # dropped without letting go — an SSH connection that died while its tmux client stayed
@@ -242,121 +242,32 @@ detaches() { grep -c '^detach-client' "$LOG"; }
 export CCY_TMUX_TAKE_OVER_WAIT_TENTHS=3
 
 # ── the Go packages the binary uses ───────────────────────────────────────────────────
-# The same behaviour as the library cases below (idle words, client words, other terminals,
-# take over, attach) is tested in the Go port by internal/tmuxccy's tests; the picker cases
-# further down drive the binary through the same fake tmux.
-echo "== the Go packages that carry the library's take-over, idle words and attach"
+# Idle words, client words, other terminals, take over and attach are tested in
+# internal/tmuxccy's tests; the picker cases further down drive the binary through the same
+# fake tmux.
+echo "== the Go packages that carry take-over, idle words and attach"
 # Without the fake tmux first on PATH: those tests run a real tmux of their own.
 go_unit="$(cd "$REPO_ROOT/src-go" && PATH="${PATH#"$BIN":}" go test -count=1 ./internal/tmuxccy/ 2>&1)"
 check "tmuxccy's tests pass" "ok" "$([[ "$go_unit" == ok* ]] && echo ok || echo "$go_unit")"
 
-# ── the library, sourced: the bash take-over the Go port was written from ──────────────────────────────────────
+# ── the library, sourced: the attach and the session lookup the launcher uses ──────────
 # shellcheck source=/dev/null
 source "$LIB_DIR/common-pure.bash"
 # shellcheck source=/dev/null
 source "$LIB_DIR/tmux-session.bash"
 
-for fn in ccy_tmux_idle_words ccy_tmux_client_words ccy_tmux_take_over; do
+for fn in ccy_tmux_attach ccy_tmux_current_session ccy_tmux_single_attach_hook; do
     if ! declare -F "$fn" >/dev/null; then
         echo "FAIL: $fn is not defined after sourcing the libraries" >&2
         exit 1
     fi
 done
 
-echo "== how long a terminal has been idle, in one word a person reads"
-check "seconds" "idle 40 s" "$(ccy_tmux_idle_words 40)"
-check "minutes, rounded down" "idle 12 min" "$(ccy_tmux_idle_words 779)"
-check "hours, rounded down" "idle 3 h" "$(ccy_tmux_idle_words $((3 * 3600 + 3599)))"
-check "days" "idle 2 d" "$(ccy_tmux_idle_words $((2 * 86400 + 5)))"
-check "a clock that moved backwards reads as just now, not negative" "idle 0 s" "$(ccy_tmux_idle_words -5)"
-
-echo "== the other terminals, named"
-check "one terminal" "/dev/pts/3 (idle 3 h)" \
-    "$(ccy_tmux_client_words "/dev/pts/3 1000" $((1000 + 3 * 3600)))"
-check "two terminals" "/dev/pts/3 (idle 3 h), /dev/pts/7 (idle 2 min)" \
-    "$(ccy_tmux_client_words $'/dev/pts/3 1000\n/dev/pts/7 11680' $((1000 + 3 * 3600)))"
-
-echo "== take over: the other terminal is detached, this one attached, nothing killed"
-reset "ccy-a:/dev/pts/3"
-err="$(ccy_tmux_take_over ccy-a 2>&1 >/dev/null)"
-check "taking over an open session succeeds" "0" "$?"
-check "the other terminal is detached, then this one attaches" "detach-client attach-session" \
-    "$(awk '$1 == "detach-client" || $1 == "attach-session" { print $1 }' "$LOG" | paste -sd' ' -)"
-check "this terminal is the one left on the session" "yes" "$(cat "$STATE/attached")"
-check "the detach names the session exactly" "1" "$(grep -cx 'detach-client -s =ccy-a' "$LOG")"
-check "no session is killed" "0" "$(grep -c 'kill' "$LOG")"
-check_has "it says which terminal it detached" "/dev/pts/3" "$err"
-
-echo "== take over: a session that ended meanwhile is reported, not attached"
-reset
-err="$(ccy_tmux_take_over ccy-a 2>&1 >/dev/null)"
-check "return 2" "2" "$?"
-check "nothing is detached or attached" "0 0" "$(detaches) $(grep -c '^attach-session' "$LOG")"
-check_has "it says the session has ended" "has ended" "$err"
-
-echo "== take over: tmux refusing the detach stops it"
-reset "ccy-a:/dev/pts/3"
-err="$(TEST_TMUX_DETACH_FAIL=1 ccy_tmux_take_over ccy-a 2>&1 >/dev/null)"
-check "return 1" "1" "$?"
-check "nothing is attached" "0" "$(grep -c 'attach-session' "$LOG")"
-check_has "tmux's own reason is shown" "server exited unexpectedly" "$err"
-
-echo "== take over: a terminal that does not let go stops it"
-reset "ccy-a:/dev/pts/3"
-err="$(TEST_TMUX_STICKY=1 ccy_tmux_take_over ccy-a 2>&1 >/dev/null)"
-check "return 1" "1" "$?"
-check "nothing is attached" "0" "$(grep -c 'attach-session' "$LOG")"
-check_has "it names the terminal that held on" "/dev/pts/3" "$err"
-
-echo "== take over: a session nobody holds is simply attached"
-reset "ccy-a"
-err="$(ccy_tmux_take_over ccy-a 2>&1 >/dev/null)"
-check "return 0" "0" "$?"
-check "no detach is sent" "0" "$(detaches)"
-check "it attaches" "1" "$(grep -cx 'attach-session -t =ccy-a' "$LOG")"
-
-# The wait must use the hook's own view. A client told to leave drops out of
-# #{session_attached} at once but stays in list-clients until it has gone; attaching in
-# between is kicked straight back off by the hook.
-echo "== take over: it waits until the old terminal is gone from list-clients, the hook's view"
-reset "ccy-a:/dev/pts/3"
-printf '3\n' >"$STATE/linger"
-err="$(CCY_TMUX_TAKE_OVER_WAIT_TENTHS=20 ccy_tmux_take_over ccy-a 2>&1 >/dev/null)"
-check "return 0" "0" "$?"
-check "this terminal is the one left on the session, not kicked by the hook" "yes" "$(cat "$STATE/attached")"
-
-echo "== take over: a terminal flagged leaving that never goes stops it"
-reset "ccy-a:/dev/pts/3"
-err="$(TEST_TMUX_STICKY=1 ccy_tmux_take_over ccy-a 2>&1 >/dev/null)"
-check "return 1" "1" "$?"
-check "nothing is attached" "0" "$(grep -c '^attach-session' "$LOG")"
-
-echo "== take over: the old terminal left just before the detach"
-reset "ccy-a:/dev/pts/3"
-err="$(TEST_TMUX_DETACH_GONE=1 ccy_tmux_take_over ccy-a 2>&1 >/dev/null)"
-check "the failed detach is not a failure: the session is free, so return 0" "0" "$?"
-check "this terminal is attached" "yes" "$(cat "$STATE/attached")"
-
-echo "== take over: a session that ends during the wait is reported at once"
-reset "ccy-a:/dev/pts/3"
-start="${EPOCHREALTIME/[.,]/}"
-err="$(TEST_TMUX_STICKY=1 TEST_TMUX_END_ON_DETACH=1 CCY_TMUX_TAKE_OVER_WAIT_TENTHS=50 \
-    ccy_tmux_take_over ccy-a 2>&1 >/dev/null)"
-rc=$?
-elapsed_ms=$(((${EPOCHREALTIME/[.,]/} - start) / 1000))
-check "return 2" "2" "$rc"
-check_has "it says the session ended" "ended" "$err"
-check "it does not sit out the five-second wait" "yes" "$([ "$elapsed_ms" -lt 2000 ] && echo yes || echo "no: ${elapsed_ms} ms")"
-check "nothing is attached" "0" "$(grep -c '^attach-session' "$LOG")"
-
 echo "== attach: kicked by the hook is not success"
 reset "ccy-a"
 err="$(TEST_TMUX_RACE_ATTACH=1 ccy_tmux_attach ccy-a 2>&1 >/dev/null)"
 check "ccy_tmux_attach returns 3 when this terminal was not left attached" "3" "$?"
 check_has "and says so" "was not attached" "$err"
-reset "ccy-a:/dev/pts/3"
-err="$(TEST_TMUX_RACE_ATTACH=1 ccy_tmux_take_over ccy-a 2>&1 >/dev/null)"
-check "a take-over whose attach was kicked returns 3, not 0" "3" "$?"
 
 echo "== which CCY session this launcher IS (its label, its membership, where it records its SSH key)"
 ccy_sock="/tmp/tmux-1000/$CCY_TMUX_SOCKET,123,0"

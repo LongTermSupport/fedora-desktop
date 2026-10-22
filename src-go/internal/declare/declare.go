@@ -1,7 +1,16 @@
-// Package declare calls helpers/agent_bus/declare.py, which owns the host_vars editing, the
-// team-file validation and the applied-state digests, and parses the marker lines it
-// prints on stdout. Its exit codes (64 usage, 78 refused, 130 Ctrl-C) become typed errors
-// that carry its "declare: <message>" stderr line.
+// Package declare is ccy-teams' one door to the host_vars file. The reads (Declared, Limited,
+// Undescribed, ElementTeams, TeamsFor, Choices, GithubRemote, Address, Settings, NextSteps and
+// LxcMembers) answer in-process through internal/bus/declare, the read side of
+// helpers/agent_bus/declare.py (Plan 00209 SPEC-view.md V1-V23). Everything else calls
+// declare.py, which owns the host_vars editing, the team-file validation, the LXC checks and
+// the applied-state digests, and the marker lines it prints on stdout are parsed here: the
+// edits, check, check-address, suggest-team, the lxc-* subcommands other than lxc-members, and
+// status. Overview is Declared in-process beside one status run, whose answer is kept and given
+// again while every input it is computed from is unchanged (verdict.go, SPEC-view.md V40).
+//
+// Either way a refusal is an *Error with declare.py's exit code (64 usage, 78 refused, 130
+// Ctrl-C, 1 for the reader's crash class) and its "declare: <message>" line, so a caller cannot
+// tell which side answered.
 package declare
 
 import (
@@ -12,9 +21,9 @@ import (
 	"io"
 	"os"
 	"slices"
-	"strconv"
 	"strings"
 
+	busdeclare "github.com/LongTermSupport/fedora-desktop/src-go/internal/bus/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/marker"
 )
@@ -71,6 +80,16 @@ type Client struct {
 	Root   string
 	File   string
 	Err    io.Writer
+	// Bridge is the LXC bridge's IPv4 addresses, one input of the APPLIED verdict; nil reads
+	// lxcBridge in-process. Its error is part of the verdict's key, never a refusal: the
+	// status run judges the bridge itself.
+	Bridge func() ([]string, error)
+	// Edited, when set, is told after every editing run of declare.py, whether it passed or not:
+	// what a caller kept of the declaration is read again.
+	Edited func()
+
+	// verdict is the last status answer and the key of the inputs it was computed from (V40).
+	verdict verdict
 }
 
 // NewClient is a Client whose stderr notes go to the process's stderr.
@@ -78,27 +97,42 @@ func NewClient(r execx.Runner, root, file string) *Client {
 	return &Client{Runner: r, Root: root, File: file, Err: os.Stderr}
 }
 
-// Team is a TEAM line of "declare declared".
-type Team struct {
-	Name       string
-	Port       int // 0 when the entry sets none
-	Present    bool
-	ServerName string
-	URL        string // empty when the entry has no address to reach it on
-	// Description is what the team is for; empty when the entry sets none (or a vaulted one).
-	Description string
-	// DescriptionState is set when the entry has a description that cannot be shown: it is
-	// vaulted, or fails the team file's grammar. Description is then empty.
-	DescriptionState DescriptionState
-}
+// The answers of the reads are the reader's own types, whose fields and meanings are
+// declare.py's marker lines'; internal/bus/declare documents each.
+type (
+	// Team is one agent_bus_teams entry (declare declared).
+	Team = busdeclare.Team
+	// DescriptionState says why a team's description is not shown.
+	DescriptionState = busdeclare.DescriptionState
+	// Limit is a team still limited to some folders (declare limited).
+	Limit = busdeclare.Limit
+	// Undescribed is a present team that has no description yet (declare undescribed).
+	Undescribed = busdeclare.Undescribed
+	// Profile is a team's Element profile and the homeserver it uses (declare element-teams).
+	Profile = busdeclare.Profile
+	// Standing is how a present team stands to a repository (declare choices).
+	Standing = busdeclare.Standing
+	// Choice is a present team, its standing to a repository and what it is for.
+	Choice = busdeclare.Choice
+	// Setting is one key of a present team's entry (declare settings).
+	Setting = busdeclare.Setting
+	// SettingState says why a setting's value is not shown.
+	SettingState = busdeclare.SettingState
+	// LxcMember is an agent_bus_lxc_members entry as the play reads it (declare lxc-members).
+	LxcMember = busdeclare.LxcMember
+)
 
-// DescriptionState says why a team's description is not shown.
-type DescriptionState string
-
-// The two states declare.py marks with !vaulted and !invalid.
+// The words declare.py prints for a description or setting it cannot show, and the standings
+// of declare.py choices.
 const (
-	DescriptionVaulted DescriptionState = "vaulted"
-	DescriptionInvalid DescriptionState = "invalid"
+	DescriptionVaulted = busdeclare.DescriptionVaulted
+	DescriptionInvalid = busdeclare.DescriptionInvalid
+	SettingVaulted     = busdeclare.SettingVaulted
+	SettingInvalid     = busdeclare.SettingInvalid
+	StandingCovers     = busdeclare.StandingCovers
+	StandingWiden      = busdeclare.StandingWiden
+	StandingExcluded   = busdeclare.StandingExcluded
+	StandingUnreadable = busdeclare.StandingUnreadable
 )
 
 // Status is a STATUS line: whether a team is applied as declared.
@@ -123,25 +157,6 @@ const (
 	ApplyDecide     ApplyState = "decide"
 	ApplyUnreadable ApplyState = "unreadable"
 )
-
-// Limit is a LIMITED line: a team still limited to some folders.
-type Limit struct {
-	Team     string
-	Prefixes string // "docs/, CLAUDE/Plan/"
-	Trusts   string // what the team trusts, in words
-}
-
-// Undescribed is an UNDESCRIBED line: a present team that has no description yet.
-type Undescribed struct {
-	Team   string
-	Trusts string // what the team trusts, in words
-}
-
-// Profile is an ELEMENT line: a team's Element profile and the homeserver it uses.
-type Profile struct {
-	Team    string
-	BaseURL string
-}
 
 // Change is the CHANGED or UNCHANGED line of a command that edits the host_vars.
 type Change struct {
@@ -190,83 +205,18 @@ func (e Entry) args() []string {
 func plain(out string) string { return strings.TrimRight(out, "\r\n") }
 
 // Declared is the teams of the host_vars, in file order.
-func (c *Client) Declared(ctx context.Context) ([]Team, error) {
-	out, err := c.runFile(ctx, "declared")
-	if err != nil {
-		return nil, err
-	}
-	return parseTeams(out)
+func (c *Client) Declared(context.Context) ([]Team, error) {
+	return read(c, busdeclare.HostVars.Declared)
 }
 
-func parseTeams(out string) ([]Team, error) {
-	rows, err := marker.Fields(out, "TEAM", 7)
-	if err != nil {
-		return nil, fmt.Errorf("declare declared: %w", err)
-	}
-	teams := make([]Team, 0, len(rows))
-	for _, f := range rows {
-		team := Team{Name: f[1], ServerName: f[4], URL: marker.DashEmpty(f[5])}
-		if f[2] != "-" {
-			if team.Port, err = strconv.Atoi(f[2]); err != nil {
-				return nil, fmt.Errorf("declare declared: team %s: port %q is not a number", f[1], f[2])
-			}
-		}
-		if team.Description, team.DescriptionState, err = parseDescription(f[6]); err != nil {
-			return nil, fmt.Errorf("declare declared: team %s: %w", f[1], err)
-		}
-		switch f[3] {
-		case "present":
-			team.Present = true
-		case "absent":
-		default:
-			return nil, fmt.Errorf("declare declared: team %s: state %q is neither present nor absent", f[1], f[3])
-		}
-		teams = append(teams, team)
-	}
-	return teams, nil
-}
-
-// parseDescription reads declare.py's description field: a JSON string, "-" for none, or
-// !vaulted / !invalid for one that cannot be shown.
-func parseDescription(field string) (string, DescriptionState, error) {
-	switch field {
-	case "-":
-		return "", "", nil
-	case "!vaulted":
-		return "", DescriptionVaulted, nil
-	case "!invalid":
-		return "", DescriptionInvalid, nil
-	}
-	var text string
-	if err := json.Unmarshal([]byte(field), &text); err != nil {
-		return "", "", fmt.Errorf("description %q is not a JSON string", field)
-	}
-	return text, "", nil
-}
-
-// Status compares each team's applied stamp in appliedDir with the declaration and the
-// software in source. installed names the teams that have a homeserver unit; the flags are
-// passed sorted so the call is the same whatever order a map gave them in.
-func (c *Client) Status(ctx context.Context, source, appliedDir string, installed []string) ([]Status, error) {
-	out, err := c.runFile(ctx, "status", statusArgs(source, appliedDir, installed)...)
-	if err != nil {
-		return nil, err
-	}
-	return parseStatuses(out)
-}
-
-// Overview is Declared and Status from one run of declare.py: the list redraws on every key,
-// and starting Python twice for it doubled the cost of a redraw.
+// Overview is Declared, read in-process, and Status, the one run of declare.py the list
+// needs: it redraws on every key. A file the reader refuses starts no process.
 func (c *Client) Overview(ctx context.Context, source, appliedDir string, installed []string) ([]Team, []Status, error) {
-	out, err := c.runFile(ctx, "overview", statusArgs(source, appliedDir, installed)...)
+	teams, err := c.Declared(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
-	teams, err := parseTeams(out)
-	if err != nil {
-		return nil, nil, err
-	}
-	states, err := parseStatuses(out)
+	states, err := c.Status(ctx, source, appliedDir, installed)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -295,134 +245,41 @@ func parseStatuses(out string) ([]Status, error) {
 }
 
 // Limited is the present teams that still limit the paths their agents may name.
-func (c *Client) Limited(ctx context.Context) ([]Limit, error) {
-	out, err := c.runFile(ctx, "limited")
-	if err != nil {
-		return nil, err
-	}
-	rows, err := marker.Fields(out, "LIMITED", 4)
-	if err != nil {
-		return nil, fmt.Errorf("declare limited: %w", err)
-	}
-	limits := make([]Limit, 0, len(rows))
-	for _, f := range rows {
-		limits = append(limits, Limit{Team: f[1], Prefixes: f[2], Trusts: f[3]})
-	}
-	return limits, nil
+func (c *Client) Limited(context.Context) ([]Limit, error) {
+	return read(c, busdeclare.HostVars.Limited)
 }
 
 // Undescribed is the present teams that have no description.
-func (c *Client) Undescribed(ctx context.Context) ([]Undescribed, error) {
-	out, err := c.runFile(ctx, "undescribed")
-	if err != nil {
-		return nil, err
-	}
-	rows, err := marker.Fields(out, "UNDESCRIBED", 3)
-	if err != nil {
-		return nil, fmt.Errorf("declare undescribed: %w", err)
-	}
-	teams := make([]Undescribed, 0, len(rows))
-	for _, f := range rows {
-		teams = append(teams, Undescribed{Team: f[1], Trusts: f[2]})
-	}
-	return teams, nil
+func (c *Client) Undescribed(context.Context) ([]Undescribed, error) {
+	return read(c, busdeclare.HostVars.Undescribed)
 }
 
 // ElementTeams is the teams that have an Element profile entry.
-func (c *Client) ElementTeams(ctx context.Context) ([]Profile, error) {
-	out, err := c.runFile(ctx, "element-teams")
-	if err != nil {
-		return nil, err
-	}
-	rows, err := marker.Fields(out, "ELEMENT", 3)
-	if err != nil {
-		return nil, fmt.Errorf("declare element-teams: %w", err)
-	}
-	profiles := make([]Profile, 0, len(rows))
-	for _, f := range rows {
-		profiles = append(profiles, Profile{Team: f[1], BaseURL: f[2]})
-	}
-	return profiles, nil
+func (c *Client) ElementTeams(context.Context) ([]Profile, error) {
+	return read(c, busdeclare.HostVars.ElementTeams)
 }
 
-// TeamsFor is the present teams whose trust covers the repository (OWNER/REPO).
-func (c *Client) TeamsFor(ctx context.Context, repo string) ([]string, error) {
-	out, err := c.runFile(ctx, "teams-for", "--repo", repo)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := marker.Fields(out, "TEAM", 2)
-	if err != nil {
-		return nil, fmt.Errorf("declare teams-for: %w", err)
-	}
-	names := make([]string, 0, len(rows))
-	for _, f := range rows {
-		names = append(names, f[1])
-	}
-	return names, nil
-}
-
-// Standing is how a present team stands to a repository, the word declare.py choices prints.
-type Standing string
-
-// The standings of declare.py choices.
-const (
-	// StandingCovers: the team trusts the repository now.
-	StandingCovers Standing = "covers"
-	// StandingWiden: it does not, and adding the repository to its scope would make it.
-	StandingWiden Standing = "widen"
-	// StandingExcluded: the team's org owns it and excludes it on purpose.
-	StandingExcluded Standing = "excluded"
-	// StandingUnreadable: the team's scope cannot be read (vaulted), so nothing can be said.
-	StandingUnreadable Standing = "unreadable"
-)
-
-// Choice is a CHOICE line: a present team, how it stands to the repository, what it is for.
-type Choice struct {
-	Team             string
-	Standing         Standing
-	Description      string
-	DescriptionState DescriptionState
+// TeamsFor is the present teams whose trust covers the repository (OWNER/REPO); a repository
+// that is not a lower-case OWNER/REPO is refused (ErrUsage).
+func (c *Client) TeamsFor(_ context.Context, repo string) ([]string, error) {
+	return read(c, func(hv busdeclare.HostVars) ([]string, error) { return hv.TeamsFor(repo) })
 }
 
 // Choices is every present team with its standing to the repository (OWNER/REPO), in file
 // order. Unlike TeamsFor it also names the teams that would need their scope widened.
-func (c *Client) Choices(ctx context.Context, repo string) ([]Choice, error) {
-	out, err := c.runFile(ctx, "choices", "--repo", repo)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := marker.Fields(out, "CHOICE", 4)
-	if err != nil {
-		return nil, fmt.Errorf("declare choices: %w", err)
-	}
-	choices := make([]Choice, 0, len(rows))
-	for _, f := range rows {
-		standing := Standing(f[2])
-		switch standing {
-		case StandingCovers, StandingWiden, StandingExcluded, StandingUnreadable:
-		default:
-			return nil, fmt.Errorf("declare choices: team %s: standing %q is not one this build knows", f[1], f[2])
-		}
-		choice := Choice{Team: f[1], Standing: standing}
-		if choice.Description, choice.DescriptionState, err = parseDescription(f[3]); err != nil {
-			return nil, fmt.Errorf("declare choices: team %s: %w", f[1], err)
-		}
-		choices = append(choices, choice)
-	}
-	return choices, nil
+func (c *Client) Choices(_ context.Context, repo string) ([]Choice, error) {
+	return read(c, func(hv busdeclare.HostVars) ([]Choice, error) { return hv.Choices(repo) })
 }
 
-// GithubRemote is the lower-case OWNER/REPO a GitHub remote URL names, or "" when it names none.
-func (c *Client) GithubRemote(ctx context.Context, url string) (string, error) {
-	out, err := c.run(ctx, "github-remote", "--url", url)
-	return plain(out), err
+// GithubRemote is the lower-case OWNER/REPO a GitHub remote URL names, or "" when it names
+// none. It reads no file and cannot fail; the error is kept so callers do not change.
+func (c *Client) GithubRemote(_ context.Context, url string) (string, error) {
+	return busdeclare.GithubRemote(url), nil
 }
 
 // Address is the machine's bus address, or "" when none is declared yet.
-func (c *Client) Address(ctx context.Context) (string, error) {
-	out, err := c.runFile(ctx, "address")
-	return plain(out), err
+func (c *Client) Address(context.Context) (string, error) {
+	return read(c, busdeclare.HostVars.Address)
 }
 
 // CheckAddress refuses (ErrUsage) an address that cannot be the bus address.
@@ -444,9 +301,8 @@ func (c *Client) SuggestTeam(ctx context.Context, name string) (string, error) {
 }
 
 // NextSteps is the text saying what is left to do once the team is installed.
-func (c *Client) NextSteps(ctx context.Context, team string) (string, error) {
-	out, err := c.runFile(ctx, "next-steps", "--team", team)
-	return out, err
+func (c *Client) NextSteps(_ context.Context, team string) (string, error) {
+	return read(c, func(hv busdeclare.HostVars) (string, error) { return hv.NextSteps(team) })
 }
 
 // change reads the CHANGED or UNCHANGED line of an editing subcommand's output.
@@ -495,50 +351,17 @@ func (c *Client) DropLimit(ctx context.Context, team string) (Change, error) {
 	return c.edit(ctx, "drop-limit", "--team", team)
 }
 
-// Setting is a SETTING line of "declare settings": one key of a present team's entry.
-type Setting struct {
-	Key string
-	// Value is the key's value as JSON; nil when the entry does not set it or it cannot be read.
-	Value json.RawMessage
-	// State is set when the entry has a value that cannot be shown.
-	State SettingState
-}
-
-// SettingState says why a setting's value is not shown.
-type SettingState string
-
-// The two states declare.py marks with !vaulted and !invalid.
-const (
-	SettingVaulted SettingState = "vaulted"
-	SettingInvalid SettingState = "invalid"
-)
-
-// Settings is every key of the present team's entry, in the order declare.py lists them.
-func (c *Client) Settings(ctx context.Context, team string) ([]Setting, error) {
-	out, err := c.runFile(ctx, "settings", flagTeam, team)
+// Settings is every key of the present team's entry, in the order declare.py lists them. A
+// value json.dumps wrote that is not JSON (NaN, Infinity) is refused: a Value is JSON.
+func (c *Client) Settings(_ context.Context, team string) ([]Setting, error) {
+	settings, err := read(c, func(hv busdeclare.HostVars) ([]Setting, error) { return hv.Settings(team) })
 	if err != nil {
 		return nil, err
 	}
-	rows, err := marker.Fields(out, "SETTING", 3)
-	if err != nil {
-		return nil, err
-	}
-	settings := make([]Setting, 0, len(rows))
-	for _, f := range rows {
-		s := Setting{Key: f[1]}
-		switch f[2] {
-		case "-":
-		case "!vaulted":
-			s.State = SettingVaulted
-		case "!invalid":
-			s.State = SettingInvalid
-		default:
-			if !json.Valid([]byte(f[2])) {
-				return nil, fmt.Errorf("SETTING %s: the value is not JSON: %q", f[1], f[2])
-			}
-			s.Value = json.RawMessage(f[2])
+	for _, s := range settings {
+		if s.Value != nil && !json.Valid(s.Value) {
+			return nil, fmt.Errorf("SETTING %s: the value is not JSON: %q", s.Key, string(s.Value))
 		}
-		settings = append(settings, s)
 	}
 	return settings, nil
 }
@@ -580,8 +403,34 @@ func (c *Client) Remove(ctx context.Context, team string, purge bool) (Change, e
 
 // systemPython runs the helper: the interpreter agent-bus itself runs on, named by path because a
 // bare python3 resolves through a pyenv shim on a host that has one, a bash script that costs a
-// tenth of a second before Python starts, on every redraw.
+// tenth of a second before Python starts.
 const systemPython = "/usr/bin/python3"
+
+// hostVars reads the file as declare.py read it (SPEC-view.md V1).
+func (c *Client) hostVars() (busdeclare.HostVars, error) {
+	text, err := busdeclare.Read(c.File, os.ReadFile)
+	return busdeclare.HostVars(text), fromReader(err)
+}
+
+// fromReader is the reader's refusal as the *Error the run of declare.py gave: its exit code
+// and its "declare: <message>" line; the reader's error stays the cause.
+func fromReader(err error) error {
+	if e, ok := errors.AsType[*busdeclare.Error](err); ok {
+		return &Error{Code: e.Code(), Stderr: "declare: " + e.Message, cause: err}
+	}
+	return err
+}
+
+// read is one query of the reader over the file.
+func read[T any](c *Client, query func(busdeclare.HostVars) (T, error)) (T, error) {
+	hv, err := c.hostVars()
+	if err != nil {
+		var none T
+		return none, err
+	}
+	found, err := query(hv)
+	return found, fromReader(err)
+}
 
 func (c *Client) run(ctx context.Context, sub string, args ...string) (string, error) {
 	res, err := c.Runner.Run(ctx, execx.Cmd{Name: "env", Args: slices.Concat(
@@ -615,6 +464,9 @@ func (c *Client) runFile(ctx context.Context, sub string, args ...string) (strin
 
 func (c *Client) edit(ctx context.Context, sub string, args ...string) (Change, error) {
 	out, err := c.runFile(ctx, sub, args...)
+	if c.Edited != nil {
+		c.Edited()
+	}
 	if err != nil {
 		return Change{}, err
 	}

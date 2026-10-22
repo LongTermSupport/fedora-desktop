@@ -458,7 +458,8 @@ handler_case() {
     fi
     [ "$body" = "-" ] || printf '%s' "$body" >"$proj/.claude/ccy/state/restart-request.json"
     local rc=0
-    SCRIPT_DIR="$work/stub" VERSION_CHECK_CACHE="$work/cache-$name" IMAGE_NAME="img:tag" \
+    SCRIPT_DIR="$work/stub" CCY_LAUNCHER_PATH="$work/stub/claude-yolo" \
+        VERSION_CHECK_CACHE="$work/cache-$name" IMAGE_NAME="img:tag" \
         CCY_RESTART_HISTORY_DIR="$hist_dir" PATH="$work/bin:$PATH" CCY_SESSION_NAME="ccy-named" \
         HC_BUILDER_FAILS="${HC_BUILDER_FAILS:-}" \
         HC_LIB_DIR="$LIB_DIR" HC_WORK="$work" HC_PROJ="$proj" \
@@ -635,7 +636,7 @@ check "…and the handler keeps no history in the update-check cache" "0" \
 # launcher calls inside the window, so the closed stdin covers them too.
 marker_line=$(grep -n -x 'ccy_restart_marker_take || exit 1' "$LAUNCHER" | cut -d: -f1)
 restore_line=$(grep -n -F "exec <&\"\$CCY_RESTART_TTY_FD\"" "$LAUNCHER" | cut -d: -f1)
-run_line=$(grep -n -E "^container_cmd run \\\$DOCKER_FLAGS --rm" "$LAUNCHER" | cut -d: -f1)
+run_line=$(grep -n -F "CLAUDE_CODE_OAUTH_TOKEN=\"\$CLAUDE_OAUTH_TOKEN\" GH_TOKEN=\"\$GH_TOKEN\" container_cmd run \$DOCKER_FLAGS --rm" "$LAUNCHER" | cut -d: -f1)
 check "the launcher reads the restart mark, closes stdin and hands it back and closes the saved descriptor once each" "1 1 1 1" \
     "$(grep -c -x 'ccy_restart_marker_take || exit 1' "$LAUNCHER") $(grep -c -F 'exec {CCY_RESTART_TTY_FD}<&0 </dev/null' "$LAUNCHER") $(grep -c -F "exec <&\"\$CCY_RESTART_TTY_FD\"" "$LAUNCHER") $(grep -c -F 'exec {CCY_RESTART_TTY_FD}<&-' "$LAUNCHER")"
 mapfile -t prompt_lines < <(grep -n -E 'read -r?p ' "$LAUNCHER" | cut -d: -f1)

@@ -93,9 +93,8 @@ Custom configurations in `/etc/profile.d/zz_lts-fedora-desktop.bash`:
   fetch), it failed (with the SSH key not in the agent, for one; the last background fetch's
   error is in `~/.cache/git-prompt-fetch.log`), or the remote has no branches to fetch yet.
   The background fetch runs `git-prompt-fetch`, which puts ssh in BatchMode, so it never asks
-  for a passphrase. `/usr/local/bin/git-fetch-age` draws the
-  mark from `FETCH_HEAD`'s age and size; it never fetches, so the prompt never waits on the
-  network or asks for a passphrase.
+  for a passphrase. `/usr/local/bin/git-fetch-age` draws the mark from `FETCH_HEAD`'s age and
+  size and never fetches, so the prompt never waits on the network.
 
 User-specific includes in `~/.bashrc-includes/`:
 

@@ -140,14 +140,14 @@ a repository is no longer offered for a checkout of it. Report:
   Element, "Talking to agents from Element" in docs/agent-bus.md, and
   [ACCEPTANCE-owner.md](ACCEPTANCE-owner.md) matched to the code with a Morning start and the
   00194 H1-H7 checks. Report: `subagent-reports/261015-ux-fixes-opus.md`.
-- [ ] 🔄 **Task 2.11**: the client-side findings of the end-to-end security audit, CCY 3.98.10 /
+- [x] ✅ **Task 2.11**: the client-side findings of the end-to-end security audit, CCY 3.98.10 /
   container 2.65, plugin 1.2.2, branch `fix/teams-security-client`. H1: `agent-bus seat take` and
   `seat remove` end with `sudo -k` however they end, and a `ccy-teams` run that made sudo ready
   drops it before exiting (`sudo.Forget`); the `sudo -v` advice is gone. H2: cc's settings deny
   Bash the plain routes to the keyring and Element's profile, and the consent says ccy is the
   safe choice. M2, M3, permission laundering and L7 in the skill and the delivery frame; L1 in
   the consent and the launch block; L4: a copied password serves one paste (`wl-copy --paste-once`); M1, H2,
-  L1 in the docs' Limits. Host run pending (meta-deploy). Report:
+  L1 in the docs' Limits. Deployed at F44 c3391ba9 (Plan 00194 journal, 2026-10-19 20:53). Report:
   `subagent-reports/261015-security-client-opus.md`.
   Plan 00209 carries this as an expectation ("Requirements carried from other plans").
 - [ ] 🔄 **Task 2.12**: the final release security review's findings
@@ -157,23 +157,23 @@ a repository is no longer offered for a checkout of it. Report:
   the read receipt waits for the transcript check (SPEC-inject E16). N2: the sign-in lock in
   Limits. N3: JSON-decode before comparing, in the skill and frame. N4: SPEC-inject E2 names
   the nonce. N5: the pre-swap backup also runs on a rendered config change
-  (`helpers/agent_bus/config_restart.py`). Host run pending (meta-deploy). Report:
+  (`helpers/agent_bus/config_restart.py`). Deployed at F44 c3391ba9; left: the owner's check 11. Report:
   `subagent-reports/261015-final-review-fixes.md`.
   Plan 00209 carries this as an expectation ("Requirements carried from other plans").
-- [ ] 🔄 **Task 2.13**: the Morning start dry run's ccy-teams defects (branch
+- [x] ✅ **Task 2.13**: the Morning start dry run's ccy-teams defects (branch
   `fix/teams-signin-first-run`; ccy-teams only, no CCY or container bump). After a first
   password, Open in Element no longer says "Copy it now" (it said so with Clipboard Indicator
   on); the new-password question defaults to Yes for someone with no Element session, No
-  otherwise; "Create a team for OWNER/REPO now?" defaults to No (S-B15). Host run pending
-  (meta-deploy: play-claude-yolo.yml).
+  otherwise; "Create a team for OWNER/REPO now?" defaults to No (S-B15). Deployed at F44
+  c3391ba9 (play-claude-yolo.yml).
 - [ ] 🔄 **Task 2.14**: shut down every session of a team from ccy-teams (the owner: "pass /exit
   to all members of a team"), branch `feat/teams-shutdown`, ccy-teams only. Spec:
   [SPEC-shutdown.md](SPEC-shutdown.md) (SD1-SD16). `ccy-teams shutdown <team> [--yes]` and a
   team row's menu line show the team's live sessions and what cannot be reached from here,
   ask (default No), type `/exit` into each session's pane through tmux (Escape first when
   busy), stop one that has not ended in time, check each seat is released, and report each
-  member. Local only: nothing on the bus. Host run pending (meta-deploy:
-  play-claude-yolo.yml); the owner's check is in ACCEPTANCE-owner.md.
+  member. Local only: nothing on the bus. Deployed at F44 c3391ba9 (play-claude-yolo.yml);
+  left: the owner's check in ACCEPTANCE-owner.md.
 - [ ] 🔄 **Task 2.15**: a team's settings from ccy-teams (the owner: "a single update config
   thing … that then opens a pane that then has all of the different things editable"), branch
   `feat/team-settings`, CCY 3.99.12.5 / container 2.77.4 (helpers/agent_bus is in the image). A removed person
@@ -185,17 +185,20 @@ a repository is no longer offered for a checkout of it. Report:
   `declare.py set --check`; Save and apply shows each change and what applying does, writes
   them in one `declare.py set` and applies through `ops.ApplyTeams`. The coordinator changes at
   once through `seats.ChangeRole`; name, port, listen, server name and forge API are fixed,
-  each saying why. `describe` and `drop-limit` are now `set` with one key. Host run pending
-  (meta-deploy: play-claude-yolo.yml); the owner's check is in ACCEPTANCE-owner.md step 13.
+  each saying why. `describe` and `drop-limit` are now `set` with one key. Deployed at F44
+  c3391ba9 (play-claude-yolo.yml); left: the owner's check, ACCEPTANCE-owner.md step 13.
   Report: `subagent-reports/261016-team-settings-opus.md`.
   Plan 00209 carries this as an expectation ("Requirements carried from other plans").
-- [ ] ⬜ **Task 2.16**: rename a team, end to end. Not built: the settings screen shows the name
+- [ ] ❌ **Task 2.16**: Folded into Plan 00209 (agent-bus v2), carried there as a requirement:
+  a rename touches the homeserver, accounts, rooms, tokens and every seat, which v2 rebuilds,
+  so a v1 rename would be built twice. v1 keeps the installer's refusal of a changed name.
+  (Was: rename a team, end to end. Not built: the settings screen shows the name
   as fixed, with the reason. A rename must make the new team (homeserver unit, data folder,
   server name, accounts, room), carry over or re-create its history, re-issue every member's
   token and bundle, move every seat and session record, re-point every running session, then
   take the old team down; today the installer refuses a changed name (`render.check_unchanged`).
-  Needs its own research and spec first (SPEC-many-teams.md section F, "Rename").
-- [ ] 🔄 **Task 2.17**: three picker defects the owner reported (branch `fix/teams-full-handles`,
+  Needs its own research and spec first (SPEC-many-teams.md section F, "Rename").)
+- [x] ✅ **Task 2.17**: three picker defects the owner reported (branch `fix/teams-full-handles`,
   ccy-teams and ccy-sessions only, no CCY or container bump). (1) Every member is shown by its
   whole handle, the coordinator's with `(coordinator)` beside it, through one renderer
   (`agentbus.Label`, `board.Row.Label`): the list, `--list`, the menus, the seat messages,
@@ -215,10 +218,11 @@ a repository is no longer offered for a checkout of it. Report:
   the description no longer cut, the last bare seats labelled. Re-review's FIX-FIRST
   (`subagent-reports/261019-teams-full-handles-rereview-fable.md`): the session menus' last
   bare seats labelled; `fix/context-headings` merged in, its headings' crumbs and context lines
-  naming seats by handle and its truncation dropped. Host run pending (meta-deploy:
-  play-claude-yolo.yml, one block for both branches). Report: `subagent-reports/261016-teams-full-handles-opus.md`.
+  naming seats by handle and its truncation dropped. Final review:
+  `subagent-reports/261019-teams-full-handles-final-fable.md`. Deployed at F44 c3391ba9
+  (play-claude-yolo.yml). Report: `subagent-reports/261016-teams-full-handles-opus.md`.
   Plan 00209 carries this as an expectation ("Requirements carried from other plans").
-- [ ] 🔄 **Task 2.18**: ccy-teams waits for the play lock instead of dying on it (the owner:
+- [x] ✅ **Task 2.18**: ccy-teams waits for the play lock instead of dying on it (the owner:
   "hits the lock then just chokes and dies"; a description applied while a meta-deploy unit
   held the lock, exit 75). Branch `fix/teams-wait-play-lock`, ccy-teams only, no CCY or
   container bump. Spec: [SPEC-many-teams.md](SPEC-many-teams.md) section G (S-G1 to S-G11). New
@@ -230,8 +234,7 @@ a repository is no longer offered for a checkout of it. Report:
   F44 merged after `fix/context-headings`' final: the wait screen is headed through `ui.Heading`
   at the width `tput cols` gives through the runner, and its lines (the holder's play and pid)
   wrap to the window (`ui.PickSpec.WrapHeader`), never cut. Numbered 2.17 until F44's
-  full-handles task took that number. Host run pending (meta-deploy: play-claude-yolo.yml, one
-  block with F44's). Report:
+  full-handles task took that number. Deployed at F44 c3391ba9 (play-claude-yolo.yml). Report:
   `subagent-reports/261016-teams-wait-play-lock-opus.md`. Spec section G was written after the
   code (journal correction); Fable's review: `subagent-reports/` on `review/teams-wait-play-lock`.
   Plan 00209 carries this as an expectation ("Requirements carried from other plans").

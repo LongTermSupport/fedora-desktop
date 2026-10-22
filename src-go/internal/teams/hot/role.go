@@ -2,7 +2,9 @@ package hot
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -263,6 +265,11 @@ func (x *Hot) waitTold(ctx context.Context, t *target, team, handle, role string
 			return term.ExitOK
 		}
 		if x.Now().Sub(start) >= x.Waits.Apply || x.ended(ctx, t) {
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				x.mark(markFailed, "session: not told within "+seconds(x.Waits.Apply)+" that it is "+roleWords(team, role)+
+					": the session's report could not be read: "+err.Error()+"; fix or remove that file, then run the same command again")
+				return term.ExitFailure
+			}
 			x.mark(markFailed, "session: not told within "+seconds(x.Waits.Apply)+" that it is "+roleWords(team, role)+
 				": its watcher tells it at its next sync of "+team+", or its next prompt does; run the same command again to wait for it")
 			return term.ExitFailure

@@ -107,8 +107,8 @@ const subChooseTeams = "choose-teams"
 func Wire(h *host.Host) *App {
 	h.Wire()
 	kit := flow.New(h)
-	b := board.New(h)
-	o := ops.New(h, b.Statuses, func() { b.ForgetDevices("") })
+	b := board.Wired(h)
+	o := ops.New(h, b.Statuses, b.Changed)
 	l := login.New(h, kit, b, o)
 	o.SignInGap = l.SignInGap
 	s := seats.New(h, kit, o)

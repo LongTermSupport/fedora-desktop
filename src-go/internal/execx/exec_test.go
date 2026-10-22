@@ -67,12 +67,50 @@ func TestCombinedPropagatesRunnerFailures(t *testing.T) {
 
 func TestChildEnvAddsAndRemoves(t *testing.T) {
 	got := ChildEnv([]string{"A=1", "B=2", "C=3"}, []string{"D=4", "A=9"}, []string{"B", "C"})
-	want := []string{"A=1", "D=4", "A=9"}
+	want := []string{"D=4", "A=9"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("got %v", got)
 	}
 	if got := ChildEnv([]string{"X=1"}, nil, nil); !slices.Equal(got, []string{"X=1"}) {
 		t.Fatalf("got %v", got)
+	}
+}
+
+// syscall.Exec passes the list as it is and getenv reads the first entry, so a name the child
+// is given must appear once: the parent's copy and an earlier added copy are dropped.
+func TestChildEnvGivesEachAddedNameOnce(t *testing.T) {
+	got := ChildEnv([]string{"A=parent", "AB=kept", "B=parent"}, []string{"A=1", "B=2", "A=3"}, nil)
+	if want := []string{"AB=kept", "B=2", "A=3"}; !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+// A Secret whose name the parent still exports (NewSecret, not TakeSecret) reaches an exec'd
+// child once, with the secret's value, and so does an Env key the parent already has.
+func TestOSExecGivesTheChildOneValueOfEachName(t *testing.T) {
+	var gotEnv []string
+	old := syscallExec
+	syscallExec = func(_ string, _, env []string) error { gotEnv = env; return nil }
+	t.Cleanup(func() { syscallExec = old })
+	t.Setenv("EXECX_TOKEN", "the-parents-value")
+	t.Setenv("EXECX_MODE", "parent")
+	s, err := NewSecret("EXECX_TOKEN", "the-secrets-value")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (OS{}).Exec(Cmd{Name: "sh", Env: []string{"EXECX_MODE=child"}, Secrets: []Secret{s}}); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{"EXECX_TOKEN": "the-secrets-value", "EXECX_MODE": "child"} {
+		var values []string
+		for _, kv := range gotEnv {
+			if k, v, ok := strings.Cut(kv, "="); ok && k == name {
+				values = append(values, v)
+			}
+		}
+		if !slices.Equal(values, []string{want}) {
+			t.Errorf("%s in the child = %q, want only %q", name, values, want)
+		}
 	}
 }
 

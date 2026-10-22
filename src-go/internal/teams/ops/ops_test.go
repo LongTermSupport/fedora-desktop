@@ -27,7 +27,6 @@ import (
 const (
 	opsPlay        = "/root/play-agent-bus.yml"
 	opsElementPlay = "/root/play-agent-bus-element.yml"
-	opsHostVars    = "/home/u/hv/localhost.yml"
 	opsDeclare     = "env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare "
 )
 
@@ -44,6 +43,9 @@ type opsRig struct {
 	checkout  error
 	files     map[string]bool
 	tools     map[string]bool
+	// home is the user's home, a scratch folder; hostVars is the host_vars file in it that the
+	// reads answer from (empty unless a test declares Element teams in it).
+	home, hostVars string
 	// The play lock: its runtime directory, the clock only the fake sleep moves, the sleeps
 	// taken, and a hook run at each (where a test lets another holder go).
 	runDir string
@@ -59,6 +61,9 @@ func newOpsRig(t *testing.T) *opsRig {
 		files: map[string]bool{}, tools: map[string]bool{"gum": true, "fzf": true},
 	}
 	r.statuses = []map[string]declare.Status{{}}
+	r.home = t.TempDir()
+	r.hostVars = filepath.Join(r.home, "hv", "localhost.yml")
+	teamtest.MustWrite(t, r.hostVars, "")
 	r.runDir = filepath.Join(t.TempDir(), "run")
 	if err := os.Mkdir(r.runDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -79,9 +84,9 @@ func newOpsRig(t *testing.T) *opsRig {
 		},
 	}
 	r.ops = &Ops{
-		Cfg:        config.Config{RootDir: "/root", HostVars: opsHostVars, Play: opsPlay, ElementPlay: opsElementPlay, Home: "/home/u"},
+		Cfg:        config.Config{RootDir: "/root", HostVars: r.hostVars, Play: opsPlay, ElementPlay: opsElementPlay, Home: r.home},
 		Runner:     r.fake,
-		Declare:    &declare.Client{Runner: r.fake, Root: "/root", File: opsHostVars, Err: r.err},
+		Declare:    &declare.Client{Runner: r.fake, Root: "/root", File: r.hostVars, Err: r.err},
 		Sudo:       su,
 		Bus:        &agentbus.Client{Runner: r.fake, Root: su, Err: r.err},
 		Gum:        &ui.Gum{Runner: r.fake, Stdin: strings.NewReader(""), Stderr: r.err, Plain: true},
@@ -135,6 +140,17 @@ func (r *opsRig) on(prefix string, res execx.Result) {
 // onExit scripts a command that exits with code.
 func (r *opsRig) onExit(prefix string, code int, stderr string) {
 	r.on(prefix, execx.Result{ExitCode: code, Stderr: []byte(stderr)})
+}
+
+// declareElement makes the host_vars declare an Element profile for each team, in order.
+func (r *opsRig) declareElement(t *testing.T, teams ...string) {
+	t.Helper()
+	var text strings.Builder
+	text.WriteString("agent_bus_element_teams:\n")
+	for _, team := range teams {
+		text.WriteString("  - team: " + team + "\n    base_url: http://192.0.2.10:6167\n")
+	}
+	teamtest.MustWrite(t, r.hostVars, text.String())
 }
 
 // sudoOK makes sudo ready without asking.
@@ -196,7 +212,9 @@ func TestEveryFlowThatMayChangeATeamSaysSo(t *testing.T) {
 	if changed != 3 {
 		t.Fatalf("apply, remove and restore said so %d times, want 3", changed)
 	}
-	if err := r.ops.ApplyTeams(ctx, []string{"alpha"}); err == nil || changed != 4 {
+	// ApplyTeams says so twice: once its play has run, before the stamps are read back (so a read
+	// of the teams an open kept is not given to that check, SPEC-view.md V41), and as it returns.
+	if err := r.ops.ApplyTeams(ctx, []string{"alpha"}); err == nil || changed != 5 {
 		t.Fatalf("applyTeams: err %v, said so %d times in all", err, changed)
 	}
 }
@@ -213,16 +231,15 @@ func TestPlayJSONIsExactlyPythonsDumps(t *testing.T) {
 func TestApplyTeamsRunsPlayThenElementThenSays(t *testing.T) {
 	r := newOpsRig(t)
 	r.on(opsPlay, execx.Result{})
-	r.on(opsDeclare+"element-teams", execx.Result{Stdout: []byte("ELEMENT\tbeta\thttp://192.0.2.10:6167\nELEMENT\tother\thttp://192.0.2.10:6168\n")})
+	r.declareElement(t, "beta", "other")
 	r.on(opsElementPlay, execx.Result{})
-	r.files["/home/u/.local/share/applications/agent-bus-beta-element.desktop"] = true
+	r.files[r.home+"/.local/share/applications/agent-bus-beta-element.desktop"] = true
 	r.statuses = []map[string]declare.Status{{"beta": st("current", ""), "delta": st("current", "")}}
 	if err := r.ops.ApplyTeams(context.Background(), []string{"beta", "delta"}); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{
 		opsPlay + ` -e {"agent_bus_only_teams": ["beta", "delta"]}`,
-		opsDeclare + "element-teams --file " + opsHostVars,
 		opsElementPlay,
 	}
 	if got := r.lines(); !slices.Equal(got, want) {
@@ -249,7 +266,6 @@ func TestApplyTeamsSaysTheLxcMembersTheRunHeldBack(t *testing.T) {
 		{"container": "container-b", "user": "agent", "state": "present", "status": "deferred", "handle": null,
 		 "why": "LXC container container-b is STOPPED: start it"}]}`)
 	r.on(opsPlay, execx.Result{})
-	r.on(opsDeclare+"element-teams", execx.Result{})
 	r.statuses = []map[string]declare.Status{{"beta": st("current", "")}}
 	if err := r.ops.ApplyTeams(t.Context(), []string{"beta"}); err != nil {
 		t.Fatal(err)
@@ -284,7 +300,6 @@ func TestApplyTeamsWithAnUnreadableLxcRecordFails(t *testing.T) {
 func TestApplyTeamsPlayStreamsToStdoutAndStderr(t *testing.T) {
 	r := newOpsRig(t)
 	r.on(opsPlay, execx.Result{Stdout: []byte("PLAY RECAP\n")})
-	r.on(opsDeclare+"element-teams", execx.Result{})
 	r.statuses = []map[string]declare.Status{{"beta": st("current", "")}}
 	if err := r.ops.ApplyTeams(context.Background(), []string{"beta"}); err != nil {
 		t.Fatal(err)
@@ -325,6 +340,8 @@ func TestApplyTeamsStillBehind(t *testing.T) {
 	r := newOpsRig(t)
 	r.on(opsPlay, execx.Result{})
 	r.statuses = []map[string]declare.Status{{"a": st("current", ""), "b": st("outdated", "config"), "c": st("", "")}}
+	// Element teams the reader refuses: had the profiles been read, the refusal would be said.
+	teamtest.MustWrite(t, r.hostVars, elementTwice)
 	if err := r.ops.ApplyTeams(context.Background(), []string{"a", "b", "c"}); err == nil {
 		t.Fatal("want an error")
 	}
@@ -332,20 +349,23 @@ func TestApplyTeamsStillBehind(t *testing.T) {
 	if !strings.Contains(r.said(), want) {
 		t.Errorf("said %q", r.said())
 	}
-	if r.called(opsDeclare + "element-teams") {
+	if r.called(opsElementPlay) || strings.Contains(r.said(), "declared twice") {
 		t.Error("element profile attempted though the homeserver side is not applied")
 	}
 }
 
+// elementTwice is a host_vars whose Element teams the reader refuses (78): a team twice.
+const elementTwice = "agent_bus_element_teams:\n  - team: a\n    base_url: x\n  - team: a\n    base_url: y\n"
+
 func TestApplyTeamsElementTeamsDeclareFailure(t *testing.T) {
 	r := newOpsRig(t)
 	r.on(opsPlay, execx.Result{})
-	r.onExit(opsDeclare+"element-teams", 78, "declare: refused")
+	teamtest.MustWrite(t, r.hostVars, elementTwice)
 	r.statuses = []map[string]declare.Status{{"beta": st("current", "")}}
 	if err := r.ops.ApplyTeams(context.Background(), []string{"beta"}); err == nil {
 		t.Fatal("want an error")
 	}
-	if !strings.Contains(r.said(), "declare: refused") {
+	if !strings.Contains(r.said(), "declare: team a is declared twice in agent_bus_element_teams") {
 		t.Errorf("declare's own words not shown: %q", r.said())
 	}
 }
@@ -353,7 +373,7 @@ func TestApplyTeamsElementTeamsDeclareFailure(t *testing.T) {
 func TestApplyTeamsElementPlayFailure(t *testing.T) {
 	r := newOpsRig(t)
 	r.on(opsPlay, execx.Result{})
-	r.on(opsDeclare+"element-teams", execx.Result{Stdout: []byte("ELEMENT\tbeta\thttp://192.0.2.10:6167\n")})
+	r.declareElement(t, "beta")
 	r.onExit(opsElementPlay, 2, "")
 	r.statuses = []map[string]declare.Status{{"beta": st("current", "")}}
 	if err := r.ops.ApplyTeams(context.Background(), []string{"beta"}); err == nil {
@@ -375,7 +395,7 @@ func TestApplyTeamsElementPlayFailure(t *testing.T) {
 func TestApplyTeamsElementLauncherMissing(t *testing.T) {
 	r := newOpsRig(t)
 	r.on(opsPlay, execx.Result{})
-	r.on(opsDeclare+"element-teams", execx.Result{Stdout: []byte("ELEMENT\tbeta\thttp://192.0.2.10:6167\n")})
+	r.declareElement(t, "beta")
 	r.on(opsElementPlay, execx.Result{})
 	r.statuses = []map[string]declare.Status{{"beta": st("current", "")}}
 	if err := r.ops.ApplyTeams(context.Background(), []string{"beta"}); err == nil {
@@ -388,7 +408,7 @@ func TestApplyTeamsElementLauncherMissing(t *testing.T) {
 
 func TestElementTeamsKeepsDeclaredOrderAndOnlyNamed(t *testing.T) {
 	r := newOpsRig(t)
-	r.on(opsDeclare+"element-teams", execx.Result{Stdout: []byte("ELEMENT\tz\tu\nELEMENT\ta\tu\nELEMENT\tq\tu\n")})
+	r.declareElement(t, "z", "a", "q")
 	got, err := r.ops.elementTeams(context.Background(), []string{"a", "z"})
 	if err != nil {
 		t.Fatal(err)
@@ -401,8 +421,8 @@ func TestElementTeamsKeepsDeclaredOrderAndOnlyNamed(t *testing.T) {
 func TestRunElementPlayDirectly(t *testing.T) {
 	r := newOpsRig(t)
 	r.on(opsElementPlay, execx.Result{})
-	r.files["/home/u/.local/share/applications/agent-bus-a-element.desktop"] = true
-	r.files["/home/u/.local/share/applications/agent-bus-b-element.desktop"] = true
+	r.files[r.home+"/.local/share/applications/agent-bus-a-element.desktop"] = true
+	r.files[r.home+"/.local/share/applications/agent-bus-b-element.desktop"] = true
 	if err := r.ops.RunElementPlay(context.Background(), []string{"a", "b"}); err != nil {
 		t.Fatal(err)
 	}
@@ -447,7 +467,6 @@ func TestApplyRefreshFailureExitsOne(t *testing.T) {
 func TestApplyAllSortedTargetsAndWaiting(t *testing.T) {
 	r := newOpsRig(t)
 	r.on(opsPlay, execx.Result{})
-	r.on(opsDeclare+"element-teams", execx.Result{})
 	r.statuses = []map[string]declare.Status{
 		{
 			"delta": st("unbuilt", ""), "beta": st("outdated", "config"), "ok": st("current", ""),
@@ -533,7 +552,6 @@ func TestApplyOneTeamStates(t *testing.T) {
 	for _, c := range cases {
 		r := newOpsRig(t)
 		r.on(opsPlay, execx.Result{})
-		r.on(opsDeclare+"element-teams", execx.Result{})
 		r.statuses = []map[string]declare.Status{{"t": c.state}, {"t": st("current", "")}}
 		if c.state.State == "" {
 			r.statuses = []map[string]declare.Status{{}}
@@ -569,7 +587,6 @@ func TestApplyLooksAtSignInAfterAPassedAndAFailedApply(t *testing.T) {
 	for _, exit := range []int{0, 2} {
 		r := newOpsRig(t)
 		r.onExit(opsPlay, exit, "")
-		r.on(opsDeclare+"element-teams", execx.Result{})
 		r.statuses = []map[string]declare.Status{{"t": st("unbuilt", "")}, {"t": st("current", "")}}
 		var teams []string
 		var asked []bool
@@ -597,7 +614,6 @@ func TestApplyLooksAtSignInAfterAPassedAndAFailedApply(t *testing.T) {
 func TestApplyThatCannotFinishTheSignInOfferFailsEvenWhenTheApplyPassed(t *testing.T) {
 	r := newOpsRig(t)
 	r.on(opsPlay, execx.Result{})
-	r.on(opsDeclare+"element-teams", execx.Result{})
 	r.statuses = []map[string]declare.Status{{"t": st("unbuilt", "")}, {"t": st("current", "")}}
 	r.ops.SignInGap = func(context.Context, []string, bool) error { return errors.New("gum broke") }
 	if code := r.ops.Apply(context.Background(), []string{"t"}); code != term.ExitFailure {

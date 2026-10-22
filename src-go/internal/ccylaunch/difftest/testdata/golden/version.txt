@@ -1,0 +1,7 @@
+=== exit 0
+=== stdout
+ccy version {ccy_version}
+Hash: {ccy_hash}
+=== stderr
+=== calls
+=== files

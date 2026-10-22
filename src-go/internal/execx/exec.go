@@ -46,16 +46,31 @@ func Combined(ctx context.Context, r Runner, c Cmd) (string, error) {
 	return out, err
 }
 
-// ChildEnv is the environment of a child: base with every variable named in unset removed,
-// then the KEY=VALUE entries of add appended, so an added entry wins over an inherited one.
+// ChildEnv is the environment of a child: base with every variable named in unset or in add
+// removed, then the KEY=VALUE entries of add, the last of each name only. Each name appears
+// once, because syscall.Exec passes the list as it is and getenv reads the first entry.
 func ChildEnv(base, add, unset []string) []string {
+	added := make([]string, 0, len(add))
+	for _, kv := range add {
+		added = append(added, envKey(kv))
+	}
 	env := make([]string, 0, len(base)+len(add))
 	for _, kv := range base {
-		if !slices.Contains(unset, strings.SplitN(kv, "=", 2)[0]) {
+		if key := envKey(kv); !slices.Contains(unset, key) && !slices.Contains(added, key) {
 			env = append(env, kv)
 		}
 	}
-	return append(env, add...)
+	for i, kv := range add {
+		if !slices.Contains(added[i+1:], added[i]) {
+			env = append(env, kv)
+		}
+	}
+	return env
+}
+
+// envKey is the name of a KEY=VALUE entry.
+func envKey(kv string) string {
+	return strings.SplitN(kv, "=", 2)[0]
 }
 
 // Execer replaces the running process with a program. A successful Exec does not return; it
@@ -71,7 +86,7 @@ var syscallExec = syscall.Exec
 // Exec implements Execer: it looks the program up on PATH (a name with a slash is used as
 // given) and replaces this process with it, in the environment c describes.
 func (OS) Exec(c Cmd) error {
-	if err := c.check(); err != nil {
+	if err := errors.Join(c.check(), c.checkSecrets(), c.refuseFeed()); err != nil {
 		return err
 	}
 	if c.Credential != nil {
@@ -94,8 +109,8 @@ func (OS) Exec(c Cmd) error {
 			return fmt.Errorf("enter %s: %w", c.Dir, err)
 		}
 	}
-	env := c.environ()
-	if env == nil {
+	env, changed := c.childEnv()
+	if !changed {
 		env = os.Environ()
 	}
 	if err := syscallExec(path, c.argv(), env); err != nil {

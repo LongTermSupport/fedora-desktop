@@ -141,7 +141,17 @@ jobs:
           fi
           echo "QA_BASH_LIMITS_BASE=${base}" >> "$GITHUB_ENV"
 
+      # The ONE exemption, and it is made here, in the open, not by the gate. The hook-handlers
+      # gate (scripts/qa-hook-handlers.bash) runs the project's hooks-daemon handler tests under
+      # the daemon's own venv, and this checkout has no daemon: .claude/hooks-daemon/ is
+      # gitignored, and building it (.claude/provision.sh) clones the daemon release, builds its
+      # venv with uv and starts the daemon, and the tests then need a pytest of the venv's Python
+      # version, which nothing here pins. The gate honours this variable on GitHub Actions only
+      # (anywhere else it is exit 2), prints HOOK-HANDLERS-EXEMPT with the reason, and runs for
+      # real in every local qa-all and qa-changed, where the daemon is provisioned.
       - name: Run full QA suite
+        env:
+          QA_HOOK_HANDLERS_EXEMPT: "CI has no hooks daemon (gitignored); the handler tests run in every local qa-all"
         run: ./scripts/qa-all.bash
 
       - name: Upload QA results
