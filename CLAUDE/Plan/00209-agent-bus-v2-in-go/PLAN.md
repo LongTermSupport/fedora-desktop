@@ -369,10 +369,22 @@ its first caller.
 - [ ] ⬜ **Task 3.2**: The `teamchat` binary: CLI, member state, the keeper (`run`) and the link, locks, sync,
   delivery, hooks, status line, plugin and skill (B 2.1-2.12).
 
+  - **n3a built** on `feat/bus-v2-n3a` (SPEC-n3 sections 1, 2, 9 and 10): `cmd/teamchat`, the
+    CLI, the member files' codecs and store writer, the seat and run locks, the kit's layout
+    and the guest operations. Coverage: bundle 93.1, cli 99.1, exits 98.9, guest 93.8, homefs
+    93.5, kit 93.3, lock 93.3, records 100, state 99.7, reexec 92.3, paths 100, seat 91.0,
+    health 91.9; `cmd/teamchat` 50.0 (its `main` only). Three Opus review rounds
+    (`subagent-reports/261022-n3a-review*.md`): FIX-FIRST, FIX-FIRST, MERGE. Report and the
+    design-text fixes it proposes: `subagent-reports/261022-n3a.md`. n3b to n3f are left.
+
 - [ ] ⬜ **Task 3.3**: LXC members: guest operations (B 2.13), LXC apply from the host (C 3.9),
   `teamchat-session-<user>.service`; the container's own config stays with its own play (seam 52).
   **Gate A** (Task 0.5): its play tasks and units merge to F44 only after the owner's
   confirmation.
+
+  - The guest side of B 2.13 (GU1-GU5, SA1) is built in n3a; the host side (C 3.9) is n3b's.
+  - The install build must run `go test -tags teamchatrelease ./internal/teamchat/member/cli/`,
+    the CL2 gate, before it installs the binary.
 
 - [ ] ⬜ **Task 3.4**: Acceptance: B 2.15's tests, the resident-cost bars by
   `acceptance-member-cost.bash` (B 2.14), an LXC member on a real team in the VM lab;
