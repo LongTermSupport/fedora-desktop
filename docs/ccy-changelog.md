@@ -17,6 +17,20 @@ Two version numbers move independently — see
 
 ---
 
+## 3.100.12 — container 2.79.7
+
+Follows 3.100.11 (container 2.79.6). 3.100.9 and container 2.79.4 were this change's earlier
+cut on its own branch and were never released. The image changes, so the next launch rebuilds
+it once.
+
+- **pingbus `wait` and `watch` hand their helpers a real text stream** (Plan 00214): the
+  stderr wrapper that keeps their threads' lines whole was a stand-in with only `write()`, so
+  the first `writelines`, `flush` or `print(file=)` on it would have raised. It is now an
+  `io.TextIOBase` that locks every write and flushes the stream it wraps. Nothing a user sees
+  changes; no helper they reach calls those methods today (CLAUDE/QA.md
+  "stream-stand-in-not-a-text-stream"). The same pingbus reaches the host, the kit and the
+  LXC members through `play-agent-bus.yml`.
+
 ## 3.100.11 — container 2.79.6
 
 Follows 3.100.8 (3.100.9, 3.100.10 and containers 2.79.4 and 2.79.5 were never released: this

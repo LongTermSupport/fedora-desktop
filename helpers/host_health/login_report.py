@@ -29,6 +29,7 @@ Design: CLAUDE/Plan/00109-desktop-drift-detection-and-fedora-desktop-panel/DESIG
 from __future__ import annotations
 
 import argparse
+import io
 import os
 import shlex
 import subprocess
@@ -375,17 +376,15 @@ def _repo_root_default() -> str:
     return os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 
 
-class _Sink:
-    """Collects one channel's output. Two of these, never one shared between both."""
+def _lines(sink: io.StringIO) -> list[str]:
+    """One channel's non-blank lines.
 
-    def __init__(self) -> None:
-        self._chunks: list[str] = []
-
-    def write(self, text: str) -> None:
-        self._chunks.append(text)
-
-    def lines(self) -> list[str]:
-        return [line for line in "".join(self._chunks).splitlines() if line.strip()]
+    Each channel is a real `io.StringIO`, one per channel and never one shared. The check
+    is typed to take a text stream and may call any of its methods; a stand-in with only
+    `write()` crashed on its first `writelines` (CLAUDE/QA.md
+    "stream-stand-in-not-a-text-stream").
+    """
+    return [line for line in sink.getvalue().splitlines() if line.strip()]
 
 
 def _fold_detail_lines(lines: list[str]) -> list[str]:
@@ -466,7 +465,7 @@ def freshness_findings(
     # Three sinks, one per meaning: findings, diagnostics, and findings that mean
     # nothing was checked. The check knows which is which; a consumer reading the
     # wording does not.
-    out, diagnostics, not_checked = _Sink(), _Sink(), _Sink()
+    out, diagnostics, not_checked = io.StringIO(), io.StringIO(), io.StringIO()
     status = run(
         base=base,
         repo_root=repo_root,
@@ -479,7 +478,7 @@ def freshness_findings(
 
     # Diagnostics are not findings, and they are not discarded either — they go where
     # diagnostics go (CLAUDE/StderrHygiene.md).
-    for line in diagnostics.lines():
+    for line in _lines(diagnostics):
         stderr.write(f"{line}\n")
 
     if status == check_freshness.EXIT_UNTRUSTWORTHY:
@@ -488,7 +487,7 @@ def freshness_findings(
         # exact defect this plan exists for. It carries the REASON: the sentinel
         # exists to say why, and a finding that pointed at "its stderr output above"
         # sent the reader looking for something never shown to them.
-        reason = _diagnostic_sentence(diagnostics.lines(), repo_root) or "it gave no reason"
+        reason = _diagnostic_sentence(_lines(diagnostics), repo_root) or "it gave no reason"
         return [
             probe_results.unchecked(
                 f"play-freshness could not give an answer, so no play was judged: {reason}"
@@ -497,8 +496,8 @@ def freshness_findings(
     if status == check_freshness.EXIT_OK:
         return []
     return [
-        probe_results.broken(text) for text in _fold_detail_lines(out.lines())
-    ] + [probe_results.unchecked(text) for text in not_checked.lines()]
+        probe_results.broken(text) for text in _fold_detail_lines(_lines(out))
+    ] + [probe_results.unchecked(text) for text in _lines(not_checked)]
 
 
 def freshness_section(
