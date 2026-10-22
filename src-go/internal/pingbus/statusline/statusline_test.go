@@ -38,14 +38,29 @@ func TestTerminalColumnsAcceptsOnlySixDigitPositiveNumbers(t *testing.T) {
 // S29: a piece joins the row while the row stays within COLUMNS; a later row is indented under
 // the first, and a piece wider than the terminal keeps a row of its own.
 func TestWrappedBreaksBetweenPiecesAndIndentsLaterRows(t *testing.T) {
-	got := wrapped(cyan, []string{"alpha (worker),", "beta (worker)"}, 22)
-	want := "\x1b[36m👥 alpha (worker),\x1b[0m\n\x1b[36m   beta (worker)\x1b[0m"
+	got := wrapped(red, []string{"alpha (worker),", "beta (worker)"}, 22)
+	want := "\x1b[31m👥 alpha (worker),\x1b[0m\n\x1b[31m   beta (worker)\x1b[0m"
 	if got != want {
 		t.Fatalf("got %q\nwant %q", got, want)
 	}
-	unbroken := wrapped(cyan, []string{"alpha (worker),", "beta (worker)"}, 0)
-	if unbroken != "\x1b[36m👥 alpha (worker), beta (worker)\x1b[0m" {
+	unbroken := wrapped(red, []string{"alpha (worker),", "beta (worker)"}, 0)
+	if unbroken != "\x1b[31m👥 alpha (worker), beta (worker)\x1b[0m" {
 		t.Fatalf("unbroken row: %q", unbroken)
+	}
+}
+
+// C10: each team piece is its own span of its colour, the label and the joining spaces plain;
+// the rows break as S29's, measured on the plain pieces.
+func TestTeamRowsColourEachPieceAlone(t *testing.T) {
+	pieces := []string{"alpha: myrepo.1 (w),", "beta: myrepo.1 (w)"}
+	colours := []string{"#e879f9", "#22d3ee"}
+	one := "👥 \x1b[38;2;232;121;249malpha: myrepo.1 (w),\x1b[0m \x1b[38;2;34;211;238mbeta: myrepo.1 (w)\x1b[0m"
+	if got := teamRows(pieces, colours, 42); got != one {
+		t.Fatalf("one row: %q", got)
+	}
+	two := "👥 \x1b[38;2;232;121;249malpha: myrepo.1 (w),\x1b[0m\n   \x1b[38;2;34;211;238mbeta: myrepo.1 (w)\x1b[0m"
+	if got := teamRows(pieces, colours, 41); got != two {
+		t.Fatalf("two rows: %q", got)
 	}
 }
 

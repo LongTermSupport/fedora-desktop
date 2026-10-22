@@ -188,10 +188,10 @@ class FilterTest(unittest.TestCase):
         flt = json.loads(recorded["query"]["filter"])
         room = flt["room"]["rooms"][0]
         ours = syncer.sync_filter(room, flt["room"]["timeline"]["limit"])
-        # The probe predates the description and the rooms index (Plan 00211): those two
-        # types are the ones added to it.
+        # The probe predates the description, the rooms index (Plan 00211) and the colour (Plan
+        # 00217): those three types are the ones added to it.
         for part in ("state", "timeline"):
-            for added in (syncer.TOPIC, protocol.EVENT_ROOMS):
+            for added in (syncer.TOPIC, protocol.EVENT_ROOMS, protocol.EVENT_COLOUR):
                 self.assertIn(added, ours["room"][part]["types"])
                 ours["room"][part]["types"].remove(added)
         self.assertEqual(ours, flt)
@@ -421,6 +421,63 @@ class AboutTest(TeamCase):
 
         s.client.get_state = forbidden
         self.assertIsNone(s._read_about())
+
+
+class ColourTest(TeamCase):
+    """Plan 00217 C9: the team's colour override is the admin's `agent_bus.colour` state, kept in
+    `colour.json` and followed while the watcher runs; anything else is no colour, never a loss
+    of trust."""
+
+    def colour(self, uid: str, content: dict) -> None:
+        self.put_state(uid, protocol.EVENT_COLOUR, "", content)
+
+    def test_both_filters_name_the_event(self):
+        self.assertIn(protocol.EVENT_COLOUR, syncer.STATE_TYPES)
+        self.assertIn(protocol.EVENT_COLOUR, syncer.TIMELINE_TYPES)
+        self.assertEqual(protocol.EVENT_COLOUR, "agent_bus.colour")
+
+    def test_a_colour_set_before_the_join_is_read_when_the_room_is_verified(self):
+        self.colour(self.admin, {"colour": "#60a5fa"})
+        self.ready()
+        self.assertEqual(self.state.colour(), "#60a5fa")
+
+    def test_a_colour_change_mid_stream_is_followed_without_a_restart(self):
+        s = self.ready()
+        self.assertIsNone(self.state.colour())
+        self.colour(self.admin, {"colour": "#60a5fa"})
+        s.sync_once()
+        self.assertEqual(self.state.colour(), "#60a5fa")
+        self.colour(self.admin, {"colour": "#a78bfa"})
+        s.sync_once()
+        self.assertEqual(self.state.colour(), "#a78bfa")
+        self.colour(self.admin, {})
+        s.sync_once()
+        self.assertIsNone(self.state.colour())
+        self.assertIsNone(self.state.untrusted_reason())
+
+    def test_only_the_admins_exact_legible_colour_counts(self):
+        s = self.ready()
+        good = {"sender": self.admin, "content": {"colour": "#60a5fa"}}
+        self.assertEqual(s._colour_of(good), "#60a5fa")
+        for bad in ({"sender": self.alice, "content": {"colour": "#60a5fa"}},
+                    {"sender": self.admin, "content": {"colour": "#60A5FA"}},
+                    {"sender": self.admin, "content": {"colour": "blue"}},
+                    {"sender": self.admin, "content": {"colour": "#202020"}},
+                    {"sender": self.admin, "content": {"colour": "#60a5fa", "x": 1}},
+                    {"sender": self.admin, "content": {}},
+                    {"sender": self.admin, "content": "x"},
+                    "not an event"):
+            with self.subTest(bad=bad):
+                self.assertIsNone(s._colour_of(bad))
+
+    def test_a_forbidden_colour_read_is_no_colour_and_costs_no_trust(self):
+        s = self.ready()
+
+        def forbidden(*args, **kwargs):
+            raise matrix.Forbidden("no")
+
+        s.client.get_state = forbidden
+        self.assertIsNone(s._read_colour())
 
 
 class HumanPipelineTest(TeamCase):

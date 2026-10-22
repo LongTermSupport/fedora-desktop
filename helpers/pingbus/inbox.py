@@ -46,7 +46,7 @@ import stat
 import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 
-from helpers.pingbus import config, limits, protocol
+from helpers.pingbus import colours, config, limits, protocol
 
 STATE_VERSION = 1
 INBOX_DIR = "inbox"
@@ -68,6 +68,9 @@ IGNORED_LOG = "ignored.log"
 ROOM_FILE = "room.json"
 #: The team's description, read by the syncer from the admin's room topic (informational).
 ABOUT_FILE = "about.json"
+#: Plan 00217 C9: the team's colour override, read by the syncer from the admin's
+#: `agent_bus.colour` state (informational); the status line reads it (statusline.COLOUR_FILE).
+COLOUR_FILE = "colour.json"
 ROOM_MEMBERSHIPS = ("join", "invite")
 ROOM_MEMBERS_MAX = 4096
 TEAM_RECORD_MAX_BYTES = 65536
@@ -551,6 +554,28 @@ class TeamState:
             raise StateError(f"{self.path / ABOUT_FILE} is not a description file")
         return data["description"]
 
+    def save_colour(self, colour: str | None) -> None:
+        """Replace `colour.json` with the override the syncer read from the admin's colour
+        state, lower-case #rrggbb, or remove it when the team has none."""
+        if colour is None:
+            (self.path / COLOUR_FILE).unlink(missing_ok=True)
+            return
+        if not colours.is_stored_colour(colour):
+            raise ValueError("a colour is stored as lower-case #rrggbb")
+        self.ensure_dirs()
+        write_json_file(self.path / COLOUR_FILE, {"v": STATE_VERSION, "colour": colour})
+
+    def colour(self) -> str | None:
+        """The cached override, or None when there is none; `StateError` when the file is not
+        what `save_colour` writes."""
+        data = read_json_file(self.path / COLOUR_FILE)
+        if data is None:
+            return None
+        if (not isinstance(data, dict) or set(data) != {"v", "colour"} or data["v"] != STATE_VERSION
+                or not colours.is_stored_colour(data["colour"])):
+            raise StateError(f"{self.path / COLOUR_FILE} is not a colour file")
+        return data["colour"]
+
     def mark_untrusted(self, reason: str) -> None:
         """Record why the room stopped being trusted, and remove `team.json`."""
         if not _is_reason(reason):
@@ -559,6 +584,7 @@ class TeamState:
         _write_atomic(self.path / UNTRUSTED_FILE, _dump({"v": STATE_VERSION, "reason": reason}))
         self.forget_team_record()
         (self.path / ABOUT_FILE).unlink(missing_ok=True)
+        (self.path / COLOUR_FILE).unlink(missing_ok=True)
         (self.path / SIDE_ROOMS_FILE).unlink(missing_ok=True)
         _fsync_dir(self.path)
 

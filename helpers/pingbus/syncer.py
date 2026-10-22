@@ -41,7 +41,7 @@ import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
 
-from helpers.pingbus import config, forge, inbox, limits, matrix, protocol
+from helpers.pingbus import colours, config, forge, inbox, limits, matrix, protocol
 
 EXIT_UNTRUSTED = 10
 
@@ -54,11 +54,11 @@ TRUST_TYPES = (CREATE, POWER_LEVELS, protocol.EVENT_TEAM, protocol.EVENT_ROOMS)
 #: A change to any of these in a side room re-verifies that room alone (Plan 00211 SPEC §4.3).
 SIDE_TRUST_TYPES = (*TRUST_TYPES, protocol.JOIN_RULES, protocol.EVENT_ROOM_LINK)
 #: The filter probe H4 recorded against Tuwunel 1.9.3 (fixtures 040, 044, 071), with the
-#: topic and the rooms index added.
+#: topic, the rooms index and the colour added.
 STATE_TYPES = (CREATE, POWER_LEVELS, MEMBER, protocol.EVENT_TEAM, protocol.EVENT_STATUS, TOPIC,
-               protocol.EVENT_ROOMS)
+               protocol.EVENT_ROOMS, protocol.EVENT_COLOUR)
 TIMELINE_TYPES = (protocol.EVENT_MESSAGE, MEMBER, POWER_LEVELS, protocol.EVENT_TEAM, protocol.EVENT_STATUS, TOPIC,
-                  protocol.EVENT_ROOMS)
+                  protocol.EVENT_ROOMS, protocol.EVENT_COLOUR)
 #: Read too while the filter names a side room, so a change to its trust is seen.
 SIDE_TYPES = (protocol.JOIN_RULES, protocol.EVENT_ROOM_LINK)
 TIMELINE_LIMIT = 50
@@ -325,6 +325,7 @@ class Syncer:
             raise self._lose_trust("not joined, or the room or its team record is missing") from None
         self.state.save_team_record(content)
         self.state.save_about(self._read_about())
+        self.state.save_colour(self._read_colour())
         if self.record is None or self.record.forge_api != record.forge_api:
             self._forge = None
         self.record = record
@@ -357,6 +358,27 @@ class Syncer:
                 or topic == protocol.ROOM_TOPIC):
             return None
         return topic
+
+    def _read_colour(self) -> str | None:
+        """Plan 00217 C9: the team's colour override, from the admin's colour state when its
+        content is exactly a colour the team file accepts. Informational, as the topic is."""
+        try:
+            event = self.client.get_state(self.member.room, protocol.EVENT_COLOUR, "", as_event=True)
+        except (matrix.NotFound, matrix.Forbidden):
+            return None
+        return self._colour_of(event)
+
+    def _colour_of(self, event: object) -> str | None:
+        """The colour a colour-state event gives, or None for anything else."""
+        if not isinstance(event, dict) or event.get("sender") != self.member.admin:
+            return None
+        content = event.get("content")
+        if not isinstance(content, dict) or set(content) != {"colour"} or not colours.is_stored_colour(content["colour"]):
+            return None
+        try:
+            return colours.parse_colour(content["colour"])
+        except colours.ColourError:
+            return None
 
     def _check_create(self, room: str) -> None:
         create = self.client.get_state(room, CREATE, "", as_event=True)
@@ -629,8 +651,11 @@ class Syncer:
             self.verify_room()
         if limited:
             events = self._fill_gap(self.member.room, since, timeline.get("prev_batch")) + events
-        elif any(_type_of(e) == TOPIC for e in state_events + events):
-            self.state.save_about(self._read_about())
+        else:
+            if any(_type_of(e) == TOPIC for e in state_events + events):
+                self.state.save_about(self._read_about())
+            if any(_type_of(e) == protocol.EVENT_COLOUR for e in state_events + events):
+                self.state.save_colour(self._read_colour())
         self._read_room_state(state_events + events)
         return self._receive(events, next_batch, self._questions_events(rooms, questions, since))
 
