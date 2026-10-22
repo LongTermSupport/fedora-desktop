@@ -168,16 +168,21 @@ func (r *run) target(req MemberRequest) (string, error) {
 	if issues(req.Op) && req.Credential != CredPassword && req.Credential != CredToken {
 		return "", refusedf("the credential is password or token")
 	}
-	if req.Op != OpMemberAdd {
-		h, ok := proto.ParseHandle(req.Handle)
-		switch {
-		case !ok || h.String() != req.Handle:
-			return "", refusedf("%q is not a member handle", req.Handle)
-		case h.IsProbe():
-			return "", refusedf("the probe handle is the migrate verbs' only")
-		}
-		return req.Handle, nil
+	if req.Op == OpMemberAdd {
+		return r.addTarget(req)
 	}
+	h, ok := proto.ParseHandle(req.Handle)
+	switch {
+	case !ok || h.String() != req.Handle:
+		return "", refusedf("%q is not a member handle", req.Handle)
+	case h.IsProbe():
+		return "", refusedf("the probe handle is the migrate verbs' only")
+	}
+	return req.Handle, nil
+}
+
+// addTarget is the handle an `add` claims: the prefix numbered by the seat, or the next (MO4).
+func (r *run) addTarget(req MemberRequest) (string, error) {
 	p, ok := proto.ParsePrefix(req.Prefix)
 	switch {
 	case !ok || p.String() != req.Prefix:

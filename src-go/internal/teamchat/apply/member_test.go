@@ -139,6 +139,15 @@ func TestMemberAdd(t *testing.T) {
 		res.Changed[len(res.Changed)-1] != "notice added "+third {
 		t.Fatalf("changed %v", res.Changed)
 	}
+	if strings.Contains(strings.Join(res.Changed, "\n"), res.Credential.Secret) {
+		t.Fatal("a CHANGED line carries the secret")
+	}
+	w.checkAdded(t)
+}
+
+// checkAdded is the world after `member add` of the third seat.
+func (w *world) checkAdded(t *testing.T) {
+	t.Helper()
 	f := w.file(t).roster
 	m := f.Members[third]
 	if m.State != MemberActive || m.Cred != credPassword || m.CredSeq == 0 || m.Needs != "" || f.Counters[prefix] != 3 || f.Pending != nil {
@@ -149,9 +158,6 @@ func TestMemberAdd(t *testing.T) {
 	}
 	if w.membership(t, w.file(t).rooms.Main, third) != "invite" {
 		t.Fatal("not invited to main")
-	}
-	if strings.Contains(strings.Join(res.Changed, "\n"), res.Credential.Secret) {
-		t.Fatal("a CHANGED line carries the secret")
 	}
 }
 
@@ -262,6 +268,17 @@ func TestMemberLifecycle(t *testing.T) {
 	if w.file(t).roster.Members[third].HumanText {
 		t.Fatal("human_text not set")
 	}
+	w.reissueParkReturn(t, team)
+	w.retireThird(t, team, main)
+	w.addMember(t, other, active())
+	mark := w.mark()
+	if res := w.member(t, team, on(OpMemberSet, other)); len(res.Changed) != 0 || len(w.writes(mark)) != 0 {
+		t.Fatalf("a set that changes nothing: %v %v", res.Changed, w.writes(mark))
+	}
+}
+
+func (w *world) reissueParkReturn(t *testing.T, team declare.Team) {
+	t.Helper()
 	issued := w.member(t, team, on(OpMemberReissue, third))
 	if issued.Credential == nil || !w.signsIn(t, third, issued.Credential.Secret) {
 		t.Fatal("reissue gave no working password")
@@ -274,6 +291,10 @@ func TestMemberLifecycle(t *testing.T) {
 	if back.Credential == nil || !w.signsIn(t, third, back.Credential.Secret) || w.file(t).roster.Members[third].State != MemberActive {
 		t.Fatalf("return %+v", back)
 	}
+}
+
+func (w *world) retireThird(t *testing.T, team declare.Team, main string) {
+	t.Helper()
 	retired := w.member(t, team, on(OpMemberRetire, third))
 	if !slices.Contains(retired.Changed, "room main kicked "+user(third)) || !slices.Contains(retired.Changed, "member "+third+" deactivated") {
 		t.Fatalf("retire %v", retired.Changed)
@@ -290,11 +311,6 @@ func TestMemberLifecycle(t *testing.T) {
 	}
 	if w.file(t).roster.Pending != nil {
 		t.Fatal("pending left")
-	}
-	w.addMember(t, other, active())
-	mark := w.mark()
-	if res := w.member(t, team, on(OpMemberSet, other)); len(res.Changed) != 0 || len(w.writes(mark)) != 0 {
-		t.Fatalf("a set that changes nothing: %v %v", res.Changed, w.writes(mark))
 	}
 }
 
@@ -362,6 +378,7 @@ func TestRoleApply(t *testing.T) {
 // landed first when landed (the answer lost). It records each password it set.
 type crashing struct {
 	Admin
+
 	method    string
 	n, calls  int
 	landed    bool
@@ -370,7 +387,54 @@ type crashing struct {
 
 var errCrash = errors.New("the process died here")
 
-func (c *crashing) hit(method string, call func() error) error {
+type found struct {
+	a  matrix.Account
+	ok bool
+}
+
+func (c *crashing) Account(ctx context.Context, id string) (matrix.Account, bool, error) {
+	got, err := hit(c, "Account", func() (found, error) {
+		a, ok, err := c.Admin.Account(ctx, id)
+		return found{a, ok}, err
+	})
+	return got.a, got.ok, err
+}
+
+func (c *crashing) CreateAccount(ctx context.Context, id, pw, name string) (matrix.Account, error) {
+	return hit(c, "CreateAccount", func() (matrix.Account, error) { return c.Admin.CreateAccount(ctx, id, pw, name) })
+}
+
+func (c *crashing) ResetPassword(ctx context.Context, id, pw string) error {
+	c.passwords = append(c.passwords, pw)
+	return hitErr(c, "ResetPassword", func() error { return c.Admin.ResetPassword(ctx, id, pw) })
+}
+
+func (c *crashing) LoginDevice(ctx context.Context, name, pw, device string) (matrix.Session, error) {
+	return hit(c, "LoginDevice", func() (matrix.Session, error) { return c.Admin.LoginDevice(ctx, name, pw, device) })
+}
+
+func (c *crashing) SetDeactivated(ctx context.Context, id string, off bool) error {
+	return hitErr(c, "SetDeactivated", func() error { return c.Admin.SetDeactivated(ctx, id, off) })
+}
+
+func (c *crashing) Invite(ctx context.Context, room, id string) error {
+	return hitErr(c, "Invite", func() error { return c.Admin.Invite(ctx, room, id) })
+}
+
+func (c *crashing) Kick(ctx context.Context, room, id, reason string) error {
+	return hitErr(c, "Kick", func() error { return c.Admin.Kick(ctx, room, id, reason) })
+}
+
+func (c *crashing) PutState(ctx context.Context, room, typ, key string, content json.RawMessage) (string, error) {
+	return hit(c, "PutState", func() (string, error) { return c.Admin.PutState(ctx, room, typ, key, content) })
+}
+
+func (c *crashing) Send(ctx context.Context, room, typ, txn string, content json.RawMessage) (string, error) {
+	return hit(c, "Send", func() (string, error) { return c.Admin.Send(ctx, room, typ, txn, content) })
+}
+
+// hit makes call, failing it with errCrash when it is the n-th call of the crashing method.
+func hit[T any](c *crashing, method string, call func() (T, error)) (T, error) {
 	if method != c.method {
 		return call()
 	}
@@ -378,60 +442,18 @@ func (c *crashing) hit(method string, call func() error) error {
 	if c.calls != c.n {
 		return call()
 	}
+	var zero T
 	if c.landed {
-		if err := call(); err != nil {
-			return err
+		if _, err := call(); err != nil {
+			return zero, err
 		}
 	}
-	return errCrash
+	return zero, errCrash
 }
 
-func (c *crashing) Account(ctx context.Context, id string) (matrix.Account, bool, error) {
-	var a matrix.Account
-	var found bool
-	err := c.hit("Account", func() (err error) { a, found, err = c.Admin.Account(ctx, id); return err })
-	return a, found, err
-}
-
-func (c *crashing) CreateAccount(ctx context.Context, id, pw, name string) (matrix.Account, error) {
-	var a matrix.Account
-	err := c.hit("CreateAccount", func() (err error) { a, err = c.Admin.CreateAccount(ctx, id, pw, name); return err })
-	return a, err
-}
-
-func (c *crashing) ResetPassword(ctx context.Context, id, pw string) error {
-	c.passwords = append(c.passwords, pw)
-	return c.hit("ResetPassword", func() error { return c.Admin.ResetPassword(ctx, id, pw) })
-}
-
-func (c *crashing) LoginDevice(ctx context.Context, name, pw, device string) (matrix.Session, error) {
-	var s matrix.Session
-	err := c.hit("LoginDevice", func() (err error) { s, err = c.Admin.LoginDevice(ctx, name, pw, device); return err })
-	return s, err
-}
-
-func (c *crashing) SetDeactivated(ctx context.Context, id string, off bool) error {
-	return c.hit("SetDeactivated", func() error { return c.Admin.SetDeactivated(ctx, id, off) })
-}
-
-func (c *crashing) Invite(ctx context.Context, room, id string) error {
-	return c.hit("Invite", func() error { return c.Admin.Invite(ctx, room, id) })
-}
-
-func (c *crashing) Kick(ctx context.Context, room, id, reason string) error {
-	return c.hit("Kick", func() error { return c.Admin.Kick(ctx, room, id, reason) })
-}
-
-func (c *crashing) PutState(ctx context.Context, room, typ, key string, content json.RawMessage) (string, error) {
-	var id string
-	err := c.hit("PutState", func() (err error) { id, err = c.Admin.PutState(ctx, room, typ, key, content); return err })
-	return id, err
-}
-
-func (c *crashing) Send(ctx context.Context, room, typ, txn string, content json.RawMessage) (string, error) {
-	var id string
-	err := c.hit("Send", func() (err error) { id, err = c.Admin.Send(ctx, room, typ, txn, content); return err })
-	return id, err
+func hitErr(c *crashing, method string, call func() error) error {
+	_, err := hit(c, method, func() (struct{}, error) { return struct{}{}, call() })
+	return err
 }
 
 type crash struct {
@@ -453,43 +475,50 @@ func TestAddRollsForwardFromEveryStep(t *testing.T) {
 		{"Send", 2, true, "role promoted " + coord},
 	}
 	for _, c := range crashes {
-		t.Run(c.method+"/"+c.step, func(t *testing.T) {
-			w := newWorld(t)
-			team := w.team(t)
-			req := add(1, credPassword)
-			if c.method == "CreateAccount" {
-				req = add(3, credPassword)
-			}
-			bad := &crashing{Admin: w.admin, method: c.method, n: c.n, landed: c.landed}
-			_, err := RunMember(t.Context(), w.memberDeps(bad), team, req)
-			if e, ok := errors.AsType[*Error](err); !ok || e.Step != c.step || !errors.Is(err, errCrash) {
-				t.Fatalf("err = %v, want the crash at %s", err, c.step)
-			}
-			if p := w.file(t).roster.Pending; p == nil || p.Op != OpMemberAdd {
-				t.Fatalf("pending %+v", p)
-			}
-			res := w.member(t, team, req)
-			if res.Credential == nil || !w.signsIn(t, res.Handle, res.Credential.Secret) {
-				t.Fatalf("the retry's credential %+v", res.Credential)
-			}
-			f := w.file(t).roster
-			if f.Pending != nil || f.Members[res.Handle].State != MemberActive || f.Members[res.Handle].Needs != "" {
-				t.Fatalf("roster %+v", f)
-			}
-			added := 0
-			for _, n := range w.notices(t) {
-				if strings.HasPrefix(n, "added ") {
-					added++
-				}
-			}
-			if added != 1 {
-				t.Fatalf("notices %v", w.notices(t))
-			}
-			if res.Handle == coord && f.Coordinator != coord {
-				t.Fatal("not promoted")
-			}
-		})
+		t.Run(c.method+"/"+c.step, func(t *testing.T) { addRollsForward(t, c) })
 	}
+}
+
+func addRollsForward(t *testing.T, c crash) {
+	t.Helper()
+	w := newWorld(t)
+	team := w.team(t)
+	req := add(1, credPassword)
+	if c.method == "CreateAccount" {
+		req = add(3, credPassword)
+	}
+	bad := &crashing{Admin: w.admin, method: c.method, n: c.n, landed: c.landed}
+	_, err := RunMember(t.Context(), w.memberDeps(bad), team, req)
+	if e, ok := errors.AsType[*Error](err); !ok || e.Step != c.step || !errors.Is(err, errCrash) {
+		t.Fatalf("err = %v, want the crash at %s", err, c.step)
+	}
+	if p := w.file(t).roster.Pending; p == nil || p.Op != OpMemberAdd {
+		t.Fatalf("pending %+v", p)
+	}
+	res := w.member(t, team, req)
+	if res.Credential == nil || !w.signsIn(t, res.Handle, res.Credential.Secret) {
+		t.Fatalf("the retry's credential %+v", res.Credential)
+	}
+	f := w.file(t).roster
+	if f.Pending != nil || f.Members[res.Handle].State != MemberActive || f.Members[res.Handle].Needs != "" {
+		t.Fatalf("roster %+v", f)
+	}
+	if n := countPrefixed(w.notices(t), "added "); n != 1 {
+		t.Fatalf("notices %v", w.notices(t))
+	}
+	if res.Handle == coord && f.Coordinator != coord {
+		t.Fatal("not promoted")
+	}
+}
+
+func countPrefixed(lines []string, prefix string) int {
+	n := 0
+	for _, l := range lines {
+		if strings.HasPrefix(l, prefix) {
+			n++
+		}
+	}
+	return n
 }
 
 // TestAnotherVerbRollsAPendingAddForward: a later verb on the team completes the add to active
@@ -525,15 +554,16 @@ func TestAnotherVerbRollsAPendingAddForward(t *testing.T) {
 
 func TestParkAndRetireRollForward(t *testing.T) {
 	cases := []struct {
-		op string
 		crash
+
+		op     string
 		notice string
 	}{
-		{OpMemberPark, crash{"ResetPassword", 1, false, StepRevoke}, "parked"},
-		{OpMemberPark, crash{"Send", 1, true, StepNotice}, "parked"},
-		{OpMemberRetire, crash{"Kick", 1, false, StepRooms}, "removed"},
-		{OpMemberRetire, crash{"SetDeactivated", 1, true, StepDeactivate}, "removed"},
-		{OpMemberRetire, crash{"Send", 1, false, StepNotice}, "removed"},
+		{crash{"ResetPassword", 1, false, StepRevoke}, OpMemberPark, "parked"},
+		{crash{"Send", 1, true, StepNotice}, OpMemberPark, "parked"},
+		{crash{"Kick", 1, false, StepRooms}, OpMemberRetire, "removed"},
+		{crash{"SetDeactivated", 1, true, StepDeactivate}, OpMemberRetire, "removed"},
+		{crash{"Send", 1, false, StepNotice}, OpMemberRetire, "removed"},
 	}
 	for _, c := range cases {
 		t.Run(c.op+"/"+c.step, func(t *testing.T) {
