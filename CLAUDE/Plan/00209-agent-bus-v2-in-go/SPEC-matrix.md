@@ -219,7 +219,8 @@ is the shape the endpoint promises).
   ASCII without a space is refused before a request. The answer must name the device asked for,
   or it is malformed. The device's earlier tokens stay valid: host check H-C13 found that
   Tuwunel 1.9.4 does not end them, where the Matrix specification would, so a take ends the
-  previous holder's token by `Logout` or `DeleteDevice` (M52), not by its login. A login whose
+  previous holder's token by `Logout` (C 3.7.3), not by its login; `DeleteDevice` (M52) is the
+  client's alternative, not used by the take. A login whose
   answer was lost is not retried by the client.
 - **M46.** `Logout` (`POST /logout` with `{}`) ends every token of the client's device, not only
   its own, and the device (C 3.7.3 release step 4; H-C13 recorded it). A token already dead is `ErrAuthRefused` with `Errcode` `M_UNKNOWN_TOKEN`, which the caller
@@ -258,13 +259,13 @@ is the shape the endpoint promises).
   Receiving presence (the filter's presence section, presence events in a sync, for `status`,
   A 6.6) is not built: it is owed to N3, with HC-A1.
 - **M52.** `DeleteDevice` (`DELETE /devices/{d}`) deletes one of the account's devices, which ends
-  every token of it: C 3.7.3's take, with the H-C13 fallback (a second login does not end the
-  previous holder's token). The device ID is checked as M45 checks it. The first request (body
-  `{}`) is answered with a user-interactive auth challenge: a 401 with no errcode, a `session`
-  (M4's token grammar) and a flow whose only stage is `m.login.password`, else it is malformed
-  (no session, not an object) or `ErrRefused` (no such flow). The second request answers it,
-  `{"auth": {"type": "m.login.password", "identifier": {"type": "m.id.user", "user": u},
-  "password": p, "session": s}}`, and must be answered 200 with an object. A wrong password (401
+  every token of it. It is the client's alternative to `Logout`; C 3.7.3's take ends the previous
+  holder's token by `Logout` (a second login does not end it, H-C13), not by this. The device ID
+  is checked as M45 checks it. The first request (body `{}`) is answered with a
+  user-interactive auth challenge: a 401 with no errcode, a `session` (M4's token grammar) and a
+  flow whose only stage is `m.login.password`, else it is malformed (no session, not an object)
+  or `ErrRefused` (no such flow). The second request answers it,
+  `{"auth": {"type": "m.login.password", "identifier": {"type": "m.id.user", "user": u}, "password": p, "session": s}}`, and must be answered 200 with an object. A wrong password (401
   `M_FORBIDDEN`) is `ErrForbidden`; any other 401 is `ErrAuthRefused` (a dead token answers
   `M_UNKNOWN_TOKEN` at the first request); a first answer that is not a 401, or a 401 with an
   errcode, is judged as M10 says, so a server that asks no auth is done in one request. Neither

@@ -204,17 +204,19 @@ name rooms and events by ID only and carry fixed text (v1 lesson, `protocol.py:2
 
 **Agents.** The localpart is the handle `<repo>.<seat>+<site>.<type>`:
 
-| Part     | Grammar                                    | Meaning                                                          |
-| -------- | ------------------------------------------ | ---------------------------------------------------------------- |
-| `<repo>` | `[a-z0-9][a-z0-9_-]{0,47}`                 | the checkout's repository name, normalised as P17                |
-| `<seat>` | `[1-9][0-9]{0,5}` or `[a-z][a-z0-9]{0,11}` | a counter-issued number or an owner-chosen seat name             |
-| `<site>` | `[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?`     | the install's site label (v1 called it `host`), never a hostname |
-| `<type>` | `podman`, `lxc`, `docker`, `vm`, `host`    | what the member runs in                                          |
+| Part     | Grammar                                    | Meaning                                                                               |
+| -------- | ------------------------------------------ | ------------------------------------------------------------------------------------- |
+| `<repo>` | `[a-z0-9][a-z0-9_-]{0,47}`                 | the checkout's repository name, normalised as P17 but folding ASCII case only (below) |
+| `<seat>` | `[1-9][0-9]{0,5}` or `[a-z][a-z0-9]{0,11}` | a counter-issued number or an owner-chosen seat name                                  |
+| `<site>` | `[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?`     | the install's site label (v1 called it `host`), never a hostname                      |
+| `<type>` | `podman`, `lxc`, `docker`, `vm`, `host`    | what the member runs in                                                               |
 
 Normalisation of a repository name or a site label folds ASCII case only; every other character
 outside the part's grammar, a non-ASCII one included, becomes `-` (`NormaliseRepo`,
-`NormaliseSite`); a site label whose result fails the grammar, or a repository name with nothing
-left, is refused.
+`NormaliseSite`); a repository name then loses leading `-` and `_` and is cut to 48 characters;
+a site label whose result fails the grammar, or a repository name with nothing left, is refused.
+This differs from v1's P17, whose Python `str.lower()` also folds some non-ASCII letters (U+212A
+KELVIN SIGN, U+0130) to ASCII, so such a checkout derives a different `<repo>` in v2 (D 5.1).
 
 The short name is `<repo>.<seat>`; it names a member in `--to` and in reply commands only when no
 other member of the team has the same short name (v1 `cli.py:891-910`).
@@ -244,9 +246,9 @@ as a handle.
 **Reserved.** `humans` (a fixed word in the envelope, 13.2, so no human may be named it), `admin`
 (the team's admin account, the bundle pins `@admin:<server_name>`), `teamchat` (the literal `from:`
 of a MEMBERSHIP entry, 13.3, so a human account named `teamchat` cannot pass for it) and the
-homeserver's own service account localparts: `conduit` and `tuwunel` are reserved (whichever
-homeserver HC-A6 chooses; v1 reserved `conduit`, and host check HC-A6 found Tuwunel 1.9.4's
-service account is `@conduit`; the list is fixed in `teamchat/proto`).
+homeserver's own service account localparts: `conduit` (Tuwunel 1.9.4's service account, host
+check HC-A6, and v1's reservation) and `tuwunel` (held against a later pin that renames it) are
+reserved; the list is fixed in `teamchat/proto`.
 The seat name `probe` is reserved for the acceptance probe (5.1 role `probe`; C 3.3): its handle is
 `teamchat.probe+<site>.host`, made by C for a team's first acceptance check and parked between
 checks, so it is never counter-issued, never removed and never reused for anything else (R9
@@ -451,8 +453,9 @@ an extra rule. Owner decision OD-A5 lets the owner open reactions to humans for 
 A parked member stays joined in main and reports (its token is revoked, so it can neither read nor
 post): parked members stay in the desired membership of main and reports, which proto's `Desired`
 gives C with the invites, and C diffs it against the room (`MembershipDiff`); a removed member is
-kicked from every room and deactivated (C). A demoted or parked coordinator is kicked from questions before any new coordinator is invited (00211 section 3; R10
-demote before promote), and while the roster names no non-parked coordinator, questions is closed.
+kicked from every room and deactivated (C). A demoted or parked coordinator is kicked from
+questions before any new coordinator is invited (00211 section 3; R10 demote before promote), and
+while the roster names no non-parked coordinator, questions is closed.
 
 ### 4.4 Topics
 
@@ -526,8 +529,9 @@ only source of who is in the team, what each may do, and the team's policy. It r
 | `limits`                                         | optional; keys and bounds of section 11; an absent key takes its default; a value outside its bounds makes the roster invalid (never clamped)                                                                                                                                                                                                                                                                                                 | P59           |
 
 Unknown keys are ignored (section 3). `name`, `rooms` and `forge` are required. `parked` makes a
-member's events drop `sender` and makes it unaddressable; its account stays in the rooms. A removed member is absent from `members` (C kicks
-and deactivates it). No `orchestrator` alias: v2 writes and reads `coordinator` only.
+member's events drop `sender` and makes it unaddressable; its account stays in the rooms. A
+removed member is absent from `members` (C kicks and deactivates it). No `orchestrator` alias:
+v2 writes and reads `coordinator` only.
 
 **Why `human_text` and `limits` move from the bundle to the roster.** In v1 each bundle carried
 them, so two members of one team could apply different flood limits, and a sender could not know an
@@ -855,7 +859,8 @@ other types, so every event a human should see is one; the meaning is in exactly
 | `teamchat.thread` otherwise                            | `m.notice` | follow-ups are quiet                                            |
 
 The relation each key allows. An agent's relation is an exact shape (no extra key); any other is
-`schema`. A human's malformed relation or mention is none, never a drop (7.5).
+`schema`. A human's malformed reply, thread relation or mention is none, never a drop (an edit's
+is `edit`, 7.5).
 
 | Key                                                                      | `m.relates_to`                                                                                          |
 | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
@@ -976,7 +981,7 @@ The envelope's `event:` line (13.2) shows each event with its fixed gloss:
   must learn once that its old commands are gone; humans see it pinned in Element. On receipt a
   notice's `to` holds only the listed humans and the non-parked coordinator, never the subject,
   and a `moved` notice's only the addressable agents. An admin notice's subject is a roster
-  member, except for `removed`.
+  member, except for `removed` (and `moved`, which has no subject).
 - These are the team's view. The subject's own session learns of its changes from the local
   MEMBERSHIP notice (R30, 00203 H12), never from a notice in the room (AR17).
 - A notice whose `event` is unknown is dropped `schema`; a new event needs every member to run a
@@ -1020,7 +1025,7 @@ A human writes in Element; nothing of `teamchat` is on the event. The member rea
 4. it is in a thread whose root this member sent.
 
 A human's relation and mentions are read leniently, as v1's `_addressed` does: a human's malformed
-relation or mention is none, never a drop.
+reply, thread relation or mention is none, never a drop (an edit's is `edit`, below).
 
 Rules 3 and 4 are new. Element adds the replied-to sender to `m.mentions` for a plain reply, but a
 "Reply in thread" is not a mention, so in v1 a human answering an agent inside a thread was unheard.
@@ -1362,9 +1367,9 @@ Plan 00211's behaviour, on v2's schema. Its decisions D2-D16 hold unless a line 
 
 - Any active coordinator or worker (the probe sends no text, notice or report: `role`, as the
   receiver's rule 08); humans cannot post (power 0). The text is the `body`: the first line is the
-  headline (1-120 code points after trimming Unicode white space; one that starts with a section
-  name is refused `body`, as v1), the whole at most 1500 bytes; over the cap it is
-  refused `body`, never cut. Secret shapes and the member's own token are refused (P51).
+  headline (1-120 code points after trimming Unicode white space), the whole at most 1500 bytes;
+  over the cap it is refused `body`, never cut. Secret shapes and the member's own token are
+  refused (P51).
 - No mentions and `m.notice`, so Element never notifies (00211 D14); no agent reads the room, so
   nobody is woken.
 - Rate: the send bucket and duplicate window, and `report_per_hour` (11.1).
@@ -1409,8 +1414,9 @@ coordinator in main (00211 D7).
   The admin names a question's `n` when it composes one (a re-posted open v1 question, 7.7); the
   coordinator never does: its question takes that next number, and a coordinator naming one is
   refused `schema`.
-- `asked_by` 0-16 user IDs of roster members (else `target`); `re` 0-16 main-room event IDs the
-  question came from, checked for grammar only.
+- `asked_by` 0-16 distinct user IDs; the sender refuses one that is not a roster member
+  (`target`), and a receiver does not check membership. `re` 0-16 main-room event IDs the question
+  came from, checked for grammar only.
 - `remind_after_s` optional, 600-604800 (10.5).
 - A question not yet closed (open or answered, as v1's `open_duplicate`) whose `Question:` section
   equals the new one (whitespace collapsed) refuses the new one `duplicate`, naming that `Q<n>`. The
@@ -1863,7 +1869,8 @@ the item itself, so one form serves every room: `teamchat reply '<id>'` for HUMA
 questions, attached or not, 10.4) and PEER; `teamchat reply '<id>' --verb <VERB>` for PING and a
 NOTICE carrying a ping (7.7), with `<VERB>` literal for the agent to replace by an answer verb (B4).
 A `not shown:` line takes its first form when the event ID passed its own grammar, else its second.
-`question: Q<n>` (no headline) is for an indexed question whose first line could not be read.
+`question: Q<n>` (no headline) is the form for an entry given no headline; proto's index always
+has one.
 Event IDs are always single-quoted: a shell would expand the leading `$` (E6).
 
 So every line but `body:` and a `question:` line with a headline is printable ASCII whose only
@@ -1912,9 +1919,11 @@ rule gives no `is for:` line (4.4: it has no description).
 
 proto renders the notice from a typed value, `Membership{Left, Joined, Roles, Teams}.Render(nonce)`
 (`teamchat/proto` `membership.go`, which holds the templates): v1's `hooks.py` `left`, `joined`,
-`team_about`, `role_*`, `teams_now` and `teams_none` lines, with `agent-bus` made `teamchat`. The
-one farewell reason is `removed`. The role lines are the first clause of H12's `role_*` templates
-(`in team <t> you are the coordinator.`, `... you are a worker; the coordinator is <h>.`,
+`team_about`, `role_*`, `teams_now` and `teams_none` lines, with `agent-bus` made `teamchat`.
+B's farewell reasons are `released`, `removed` and `parked` (B 2.10); proto renders `removed` only
+(`FarewellRemoved`, v1's one reason) and refuses any other (`reason`), so the left-line texts for
+`released` and `parked` are owed to N3 with B. The role lines are the first clause of H12's `role_*`
+templates (`in team <t> you are the coordinator.`, `... you are a worker; the coordinator is <h>.`,
 `... you are a worker; the team has no coordinator now.`): how a role works is told at
 SessionStart (B), not in the notice, since v1's longer text names `pingbus` flags B's CLI may not
 have. The joined line names the handle, which carries the seat, so v1's `seat` slot is dropped.

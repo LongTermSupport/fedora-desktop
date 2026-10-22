@@ -114,6 +114,39 @@ follows the code, and the row says so. Chapter letters are the DESIGN-v2-\*.md c
   tests it against the fake. No member code exists yet (N3), so no code decides between the two.
   Adding a second detector is a design choice for N3, not a description of N1 code.
 
+- **The MEMBERSHIP farewell reasons `released` and `parked`** (review round 1, finding 01). B 2.10
+  and C 3.7.5 give three reasons; proto renders `removed` only and refuses the others. A 13.3 now
+  says so; the left-line texts for `released` and `parked` are owed to N3 with B.
+
+- **`matrix/seat.go`'s doc comments** (lines 26-27 and 90-91) still say a take may end a previous
+  holder's token by `DeleteDevice`. C 3.7.3 and SPEC-matrix M45 and M52 now say the take uses
+  `Logout` only; the comments are code and are owed to N2.
+
+## Review round 1 (`261021-n1-design-sync-review.md`, FIX-FIRST, 2 major, 9 minor, 4 nit)
+
+Every finding is fixed:
+
+- 01: A 13.3, the three farewell reasons and what proto renders (above).
+- 02: A 10.1 no longer claims a section-name headline is refused for a report (proto 40 applies
+  to questions only, `QuestionForm`).
+- 03: C 3.8's `team` field and the migrated-id sentences in C 3.8 and DESIGN-v2.md name the
+  reserved ids.
+- 04: D 5.4's M0 row checks and refuses a reserved id.
+- 05: INT3 in PLAN.md, DESIGN-v2.md (two places) and D 12 is widened to a reserved v1 name; its
+  state words are unchanged.
+- 06: SPEC-matrix M45 and M52 say the take uses `Logout`, `DeleteDevice` being the alternative.
+- 07: A 7.1 and 7.5: a human's malformed reply, thread relation or mention is none; an edit's is
+  `edit`.
+- 08: A 10.2: only the sender checks `asked_by` membership.
+- 09: A 2.3 and D 5.1 state the ASCII-only fold's difference from v1's `str.lower()`.
+- 10: A 2.3's service localparts reworded (HC-A6 chose no homeserver); PLAN.md Task 2.3 names
+  `tuwunel` too.
+- 11: four prose lines rewrapped.
+- 12: A 13.2: `question: Q<n>` is the form for an entry given no headline.
+- 13: A 7.4: `moved` has no subject either.
+- 14: A 2.3: `NormaliseRepo`'s trim and 48-character cut.
+- 15: C's test row and H-C15 say "changed".
+
 ## Gate check (Task 0.5, gates A and B, the IRREVERSIBLE list)
 
 No applied fix changes an answered decision:
