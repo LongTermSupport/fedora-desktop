@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"slices"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
@@ -422,7 +421,7 @@ func (r *run) waitFree(ctx context.Context, g *guestBox, m *member) (seatWait, e
 	deadline := r.d.Clock.Now().Add(SeatFreeWait)
 	for {
 		held, record, err := g.root.ProbeLock(lock)
-		if refused(err) || errors.Is(err, fs.ErrNotExist) {
+		if lockFree(err) {
 			return seatWait{}, nil
 		}
 		if err != nil {

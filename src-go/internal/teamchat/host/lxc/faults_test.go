@@ -3,6 +3,7 @@ package lxc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -19,7 +20,11 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
-var errFault = errors.New("planted fault")
+var (
+	errFault = errors.New("planted fault")
+	// errStall is a guest call abandoned at its bound, as guestroot answers it.
+	errStall = fmt.Errorf("%w: /x did not answer within 10s", guestroot.ErrStalled)
+)
 
 // failedAt checks that err is a host.Error of step.
 func failedAt(t *testing.T, err error, step string) {
@@ -314,19 +319,21 @@ func TestGoneAskedOfAFailingLXCInfoIsNotOffline(t *testing.T) {
 // The L3 wait: a probe error in a running container fails the leaver, as does lxc-info failing
 // after one; only an answered stop is offline.
 func TestAbsentWaitProbeFailures(t *testing.T) {
-	w := leaving(t)
-	w.lxc.boxes["c1"].probeErr = errFault
-	_, err := w.apply(PhaseAbsent)
-	failedAt(t, err, "wait")
-	if slices.Contains(w.lxc.verbs(), "c1 guest remove") {
-		t.Fatal("a seat whose lock could not be probed was removed")
+	for _, probeErr := range []error{errFault, errStall} {
+		w := leaving(t)
+		w.lxc.boxes["c1"].probeErr = probeErr
+		_, err := w.apply(PhaseAbsent)
+		failedAt(t, err, "wait")
+		if slices.Contains(w.lxc.verbs(), "c1 guest remove") {
+			t.Fatalf("%v: a seat whose lock could not be probed was removed", probeErr)
+		}
 	}
 
-	w = leaving(t)
+	w := leaving(t)
 	b := w.lxc.boxes["c1"]
 	holdSeat(t, b, `{"v":1,"run":"`+runID+`","started_ms":1}`)
 	w.clock.onSleep = func() { b.stateErr = errFault }
-	_, err = w.apply(PhaseAbsent)
+	_, err := w.apply(PhaseAbsent)
 	if !errors.Is(err, errFault) {
 		t.Fatalf("err %v", err)
 	}

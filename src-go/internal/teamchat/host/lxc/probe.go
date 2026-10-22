@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"slices"
 	"time"
 
@@ -147,7 +146,7 @@ func seatLockOf(root Root, id lxcstate.SeatID, user paths.GuestUser) (health.Gue
 			held, record, err = root.ProbeLock(layout.Seat(id.Team).Lock())
 		}
 	}
-	if refused(err) || errors.Is(err, fs.ErrNotExist) {
+	if lockFree(err) {
 		return probeFree, nil
 	}
 	if err != nil {

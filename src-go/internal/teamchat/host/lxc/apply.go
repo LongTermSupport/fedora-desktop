@@ -499,6 +499,12 @@ func refused(err error) bool {
 	return errors.Is(err, guestfacts.ErrRefused) || errors.Is(err, guestroot.ErrRefused) || errors.Is(err, guestroot.ErrTooLarge)
 }
 
+// lockFree is a lock probe's error that reads as a free seat with no record (LP1): a lock not
+// there yet, or one TB1 refuses. A stall is a probe that failed, never a free seat.
+func lockFree(err error) bool {
+	return !errors.Is(err, guestroot.ErrStalled) && (refused(err) || errors.Is(err, fs.ErrNotExist))
+}
+
 // present is C 3.9.2 steps 02-09.
 func (r *run) present(ctx context.Context) {
 	r.only(declare.StatePresent)
