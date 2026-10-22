@@ -76,8 +76,9 @@ with sources) and [research/agent-bus-member-facts.md](research/agent-bus-member
   file is in place, and `ccy --opencode` starts opencode in its tmux session; hand check that
   ctrl+z in it does not freeze the session. Check it in a project whose image is built on
   `claude-yolo:latest` (the default): the play builds `:latest` only, so a project Dockerfile
-  that opts into `FROM claude-yolo:base` keeps the old base, without opencode, until `:base` is
-  rebuilt (a gap in the play's build from Plan 00216, raised with the coordinator).
+  that opts into `FROM claude-yolo:base` keeps the old base, without opencode, until
+  `ccy --rebuild` (the full rebuild, which builds `:base` too) is run there. The play has built
+  `:latest` only since the two-stage image (fe9fb6877); raised with the coordinator.
 
 ### Phase 2: bus membership design (no code)
 
