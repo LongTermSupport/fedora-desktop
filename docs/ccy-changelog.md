@@ -17,10 +17,10 @@ Two version numbers move independently — see
 
 ---
 
-## 3.99.14.14 — container 2.78.17
+## 3.99.14.15 — container 2.78.18
 
-Follows 3.99.14.12 (3.99.14.13 and container 2.78.16 were this branch's first cut, never
-released). The image changes, so the next launch rebuilds it once.
+Follows 3.99.14.12 (3.99.14.13 and .14, containers 2.78.16 and 2.78.17, were this branch's
+earlier cuts, never released). The image changes, so the next launch rebuilds it once.
 
 - **The image's declare.py recognises an LXC member declared already** (Plan 00201). `lxc-add`
   of a member the host_vars declare as given answers UNCHANGED instead of refusing it as a
@@ -31,8 +31,9 @@ released). The image changes, so the next launch rebuilds it once.
 - **Refusal kinds in the rest of declare.py.** A team the file does not declare present is 78,
   not 64 (`set`, `describe`, `element`, `settings`, `add-repo`, `lxc-check`), so the settings
   screen stops instead of asking for a value no answer can pass. `set` gives 78 for an entry
-  refused as it stands only when the key at fault is one the change leaves alone; a wrong value
-  for that key is 64 and asked again. `add-repo` of a repository the team already trusts is
+  refused as it stands only when the rule at fault reads no key the change sets (`exclude`
+  reads `org` and `repos`, a removed name in `humans` reads `removed_humans`, a missing `org`
+  reads `repos`); a value another answer could pass is 64 and asked again. `add-repo` of a repository the team already trusts is
   UNCHANGED (exit 0), not 64. `create`'s "team X is already declared" names
   `ccy-teams apply X` as the way on.
 

@@ -245,7 +245,7 @@ a repository is no longer offered for a checkout of it. Report:
   ratchet, so the wait belongs in the Python helper.
 - [ ] 🔄 **Task 2.20**: `ccy-teams lxc-add` asked three times over "entries 5 and 6 both
   declare <user>@<container>" for a member an earlier run had declared (branch
-  `fix/lxc-add-already-declared`, CCY 3.99.14.14 / container 2.78.17, the image's declare.py).
+  `fix/lxc-add-already-declared`, CCY 3.99.14.15 / container 2.78.18, the image's declare.py).
   DBF class: a declare.py refusal read by its type and not its kind, so a refusal of the
   host_vars file is asked again as a wrong answer; defence `project_refusal_kind`
   ([GoProjectRules.md](../../GoProjectRules.md)), red at 0ca99358c with 4 findings (lxcadd
@@ -257,9 +257,16 @@ a repository is no longer offered for a checkout of it. Report:
   as a failure, not a refusal of the file. After the DBF conformance review and Opus round 1 the
   rule clears a function only on `ErrUsage` or the exit code handed on whole (red on three new
   fixture shapes; its one new real-tree finding, lxc-add's dry-run refusal, stops with the code
-  in `&stop{...}`, so the rule now counts a code handed on inside a returned literal); in declare.py a team not declared present is 78, `set` gives 78 only for a key the
-  change leaves alone, `lxc-add --update` refuses to lose a comment, and `create`'s "already
-  declared" names `ccy-teams apply`. lxc-add's Stop on a member declared otherwise names
+  in `&stop{...}`, so the rule now counts a code handed on inside a returned literal). After
+  review round 2 a code handed on clears only the recovery whose block returns it
+  unconditionally (red at 7e40c23a9 on a code handed on for an interrupt only); the shapes the
+  rule still misses are listed in GoProjectRules.md and referred to the owner as a rule
+  narrower than the hazard. In declare.py a team not declared present is 78 (`ccy-teams apply`
+  and `lxc-add` of an absent team keep their own 64, `ops.go:160`, `adder.go:341`: a command-line
+  argument, never asked again), `set` gives 78 only when the refusing rule reads no key the
+  change sets (a table of the keys `exclude`, `humans` and `org` read), `add-repo` of a
+  repository the team trusts already is UNCHANGED, `lxc-add --update` refuses to lose a comment,
+  and `create`'s "already declared" names `ccy-teams apply`. lxc-add's Stop on a member declared otherwise names
   `ccy-teams apply <team>`. Found and fixed with it: the
   wizard read any failing `gh api` as "no such name" (a probe read as a verdict, the class in
   GoProjectRules.md "cannot be a rule"): only gh's `(HTTP 404)` is not found, any other failure

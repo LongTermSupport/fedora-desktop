@@ -167,6 +167,15 @@ EXIT_INTERRUPTED = 130
 
 # The key a team-file refusal names, as teamfile._fail writes it: "team file: <key>: <rule>".
 _REFUSED_KEY_RE = re.compile(r"team file: (?P<key>[a-z_]+): ")
+# The keys a refusal naming one key may read, where that is more than the key itself:
+# teamfile._exclude reads org and repos, _removed_humans refuses a name in humans by
+# removed_humans, and parse_team_file requires org only when repos is empty. Changing any of
+# them may clear the refusal, so it is not the file's alone.
+_REFUSAL_READS = {
+    "exclude": {"exclude", "org", "repos"},
+    "humans": {"humans", "removed_humans"},
+    "org": {"org", "repos"},
+}
 _KEY_LINE_RE = re.compile(r"(?P<key>[a-z_]+):(?P<rest>(?:\s.*)?)")
 _ADDRESS_RE = re.compile(rf"{ADDRESS_KEY}\s*:(?P<rest>.*)")
 
@@ -1146,10 +1155,12 @@ def set_values(text: str, name: str, changes: Mapping[str, object | None]) -> st
     problem = refusal(after)
     if problem is not None:
         named = _REFUSED_KEY_RE.match(problem)
-        if problem == refusal(before) and named is not None and named["key"] not in changes:
-            # The entry is refused as it stands, for a key the change leaves alone: the file is
-            # at fault, and no value given for these keys could pass (exit 78). A refusal that
-            # names a changed key, or no key, may pass with another value (64).
+        reads = set() if named is None else _REFUSAL_READS.get(named["key"], {named["key"]})
+        if problem == refusal(before) and reads and reads.isdisjoint(changes):
+            # The entry is refused as it stands, by a rule reading only keys the change leaves
+            # alone: the file is at fault, and no value given for these keys could pass (exit
+            # 78). A refusal whose rule reads a changed key, or names no key, may pass with
+            # another value (64).
             raise DeclareError(f"team {name}'s entry in {TEAMS_KEY} is refused as it stands ({problem}); "
                                "fix it in the file first")
         raise UsageError(problem)

@@ -948,6 +948,25 @@ class SetTest(CommandCase):
         self.assertNotIn("refused as it stands", err)
         self.assertEqual(self.path.read_text(), broken)
 
+    def test_a_refusal_whose_rule_reads_a_changed_key_is_the_values_refusal(self) -> None:
+        """exclude's rule reads repos too: the file excludes a repository it also lists, and
+        the change sets repos to a list that still holds it. Another repos value passes, so it
+        is a usage refusal (64), asked again; a key the rule does not read stays 78."""
+        broken = STATUS_HV.replace('    org: "example-org"\n', '    org: "example-org"\n'
+                                   '    repos: [{"repo": "example-org/foo"}]\n    exclude: ["foo"]\n', 1)
+        self.path.write_text(broken, encoding="utf-8")
+        code, _, err = self.run_cmd("set", "--team", "alpha", "--value", "repos",
+                                    '["example-org/foo", "example-org/bar"]')
+        self.assertEqual(code, 64, err)
+        self.assertIn("exclude", err)
+        self.assertNotIn("refused as it stands", err)
+        self.assertEqual(self.path.read_text(), broken)
+        code, _, err = self.run_cmd("set", "--team", "alpha", "--value", "humans", '["owner", "second"]')
+        self.assertEqual(code, 78, err)
+        self.assertEqual(self.path.read_text(), broken)
+        code, _, err = self.run_cmd("set", "--team", "alpha", "--value", "repos", '["example-org/bar"]')
+        self.assertEqual(code, 0, err)
+
     def test_a_block_list_is_replaced_whole(self) -> None:
         code, _, err = self.run_cmd("set", "--team", "beta", "--value", "humans", '["owner"]')
         self.assertEqual(code, 0, err)

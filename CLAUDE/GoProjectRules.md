@@ -476,8 +476,8 @@ guessing; the catalogue claims no more than the code does.
   not a shape in the syntax tree: semgrep runs over Python here, but no pattern can tell
   `UsageError` from `DeclareError` by meaning. What holds it: `tests/helpers/agent_bus/test_declare.py`
   pins the kind of each refusal (a value alone 64; the file's entries, an answer against them, a
-  team not declared present, an entry refused as it stands for a key the change leaves alone,
-  78).
+  team not declared present, an entry refused as it stands by a rule that reads no key the
+  change sets, 78; `declare.py`'s `_REFUSAL_READS` says which keys a rule reads beyond its own).
 - **An add that refuses what is already there** (Plan 00201): `lxc-add` of a member the file
   declares as given was refused as a duplicate of itself, so a run after a failed play could never
   get on. Whether a second add of the same thing is "nothing to do" or a conflict depends on what
