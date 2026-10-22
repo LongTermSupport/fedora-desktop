@@ -152,7 +152,7 @@ func (s *Store) noticeStep(ctx context.Context, h *dir, pool paths.PoolSeat, rec
 			return err
 		}
 	}
-	return s.announce(ctx, h, pool, rec, lock)
+	return s.announce(ctx, h, pool, rec, lock, true)
 }
 
 // heldRecord is held/, opened by fd (the caller closes it), and its held.json; h is nil when
@@ -253,7 +253,7 @@ func (s *Store) announceHeld(ctx context.Context, seat Seat, session paths.Sessi
 	if err != nil || lock.state != lockFree {
 		return err
 	}
-	return s.announce(ctx, h, pool, rec, lock)
+	return s.announce(ctx, h, pool, rec, lock, false)
 }
 
 // noticeBound is how long a transient notice failure holds a release (n2e-D7): a member that
@@ -273,8 +273,10 @@ const (
 // holding h, which is this claim's whatever has happened to held/ since. A transient failure is
 // recorded with until_ms and stops for the retry; at until_ms the notice is given up and the
 // caller goes on. The bound is the claim's, whatever run the member's lock names by then, so a
-// member that rewrites its run id cannot start the bound again.
-func (s *Store) announce(ctx context.Context, h *dir, pool paths.PoolSeat, rec HeldRecord, lock lockProbe) error {
+// member that rewrites its run id cannot start the bound again. A release's give-up keeps
+// until_ms, so a release retried after it (its retire failed) gives the notice up again whatever
+// the run; the crashed-session path's give-up does not, as a later run's crash is due its own.
+func (s *Store) announce(ctx context.Context, h *dir, pool paths.PoolSeat, rec HeldRecord, lock lockProbe, releasing bool) error {
 	run, ok := runOf(lock)
 	if !ok {
 		return nil
@@ -288,7 +290,11 @@ func (s *Store) announce(ctx context.Context, h *dir, pool paths.PoolSeat, rec H
 		case thisClaim && prev.UntilMS == 0 && prev.Run == run:
 			return nil
 		case thisClaim && prev.UntilMS != 0 && s.clock.Now().UnixMilli() >= prev.UntilMS:
-			return s.recordNotice(h, pool, NoticeRecord{V: recordVersion, Claim: rec.Claim, Run: run, Why: whyNotInTime})
+			gaveUp := NoticeRecord{V: recordVersion, Claim: rec.Claim, Run: run, Why: whyNotInTime}
+			if releasing {
+				gaveUp.UntilMS = prev.UntilMS
+			}
+			return s.recordNotice(h, pool, gaveUp)
 		case thisClaim && prev.UntilMS != 0:
 			until = prev.UntilMS
 		}

@@ -203,7 +203,8 @@ type ReleasedRecord struct {
 
 // NoticeRecord is held/notice.json, the disconnected notice judged for one run (C 3.7.3
 // release step 3): posted (or a goodbye found), or not possible for good, and why. A not-posted
-// record with UntilMS is a transient failure still being retried until then (n2e-D7).
+// record with UntilMS is a transient failure still being retried until then, or, past it, one a
+// release gave up (n2e-D7).
 type NoticeRecord struct {
 	V       int           `json:"v"`
 	Claim   paths.ClaimID `json:"claim"`
