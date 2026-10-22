@@ -8,9 +8,13 @@
 //     `agent-bus set-role` as root, so the team's record, which routes messages, changes live;
 //   - a member whose role is declared, an agent_bus_lxc_members entry, also has its entry set
 //     (`declare lxc-role`), first, so the next apply keeps the role instead of putting the old
-//     one back. The entry an LXC handle belongs to is read from each candidate entry's
-//     checkout, as the play derives a handle from it; an entry that cannot be read stops the
-//     change before anything is changed.
+//     one back. The entry an LXC handle belongs to is told by the LXC member record the play
+//     writes (lxcrecord): an entry it names with a handle is that handle, with nothing read,
+//     so a stopped container is no obstacle; one it holds back with no handle never joined and
+//     is passed over, named offline. Any other candidate entry's checkout is read, as the play
+//     derives a handle from it; one that cannot be read is offline and passed over when there
+//     is a record (the last apply did not join it), and stops the change before anything is
+//     changed when there is none, since nothing else can say which entry the handle is.
 //
 // A step that fails puts back every step before it. Change applies the team when an entry was
 // written, through the same ops.ApplyTeams every flow uses, and holds the play lock
@@ -29,6 +33,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/lxcfreeze"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/lxcrecord"
 )
 
 // Reach is how a role change reaches the member, the same for every kind: the team's record
@@ -63,6 +68,8 @@ type Setter struct {
 	// Apply inside it is the same hold); nil runs fn alone.
 	Locked      func(ctx context.Context, purpose string, fn func(context.Context) error) error
 	ReadTimeout time.Duration
+	// AppliedDir holds the LXC member record the play writes.
+	AppliedDir string
 }
 
 // New is the Setter over a host; apply is ops.ApplyTeams and locked ops.Locked.
@@ -71,7 +78,7 @@ func New(h *host.Host, kit *flow.Kit, apply func(ctx context.Context, teams ...s
 ) *Setter {
 	return &Setter{
 		Kit: kit, Declare: h.Declare, SetRole: h.Bus.SetRole, Reader: &lxcfreeze.Lister{Sudo: h.Sudo, LookPath: h.LookPath},
-		Apply: apply, Locked: locked, ReadTimeout: readTimeout,
+		Apply: apply, Locked: locked, ReadTimeout: readTimeout, AppliedDir: h.AppliedDir,
 	}
 }
 
@@ -124,7 +131,7 @@ func (d Done) Undo(ctx context.Context) error {
 // nothing. A change with no entry to write is live only and takes no lock. A failed apply leaves
 // the roles changed, live and in the entries, which agree; the error says how to finish.
 func (s *Setter) Change(ctx context.Context, team string, said func(string), steps ...Step) (Done, error) {
-	resolved, err := s.resolve(ctx, team, steps)
+	resolved, err := s.resolve(ctx, team, said, steps)
 	if err != nil {
 		return Done{}, err
 	}
@@ -164,7 +171,7 @@ func (s *Setter) Change(ctx context.Context, team string, said func(string), ste
 // lock (a caller that writes the host_vars, as lxc-add does, holds the play lock around it).
 // Sudo must be ready: the registry and a container's checkout are root's.
 func (s *Setter) Set(ctx context.Context, team string, said func(string), steps ...Step) (Done, error) {
-	resolved, err := s.resolve(ctx, team, steps)
+	resolved, err := s.resolve(ctx, team, said, steps)
 	if err != nil {
 		return Done{}, err
 	}
@@ -179,9 +186,10 @@ func (s *Setter) locked(ctx context.Context, purpose string, fn func(context.Con
 	return s.Locked(ctx, purpose, fn)
 }
 
-// resolve finds each step's entry when the caller gave none: only reads, nothing changes.
-func (s *Setter) resolve(ctx context.Context, team string, steps []Step) ([]Step, error) {
-	found := &entries{s: s, team: team}
+// resolve finds each step's entry when the caller gave none: only reads, nothing changes; an
+// entry passed over as offline is said.
+func (s *Setter) resolve(ctx context.Context, team string, said func(string), steps []Step) ([]Step, error) {
+	found := &entries{s: s, team: team, said: said}
 	resolved := make([]Step, len(steps))
 	for i, st := range steps {
 		if st.Entry == nil && st.Handle != "" {
@@ -255,13 +263,17 @@ func who(st Step) string {
 	return st.Entry.User + "@" + st.Entry.Container
 }
 
-// entries finds the entry an LXC handle is, reading the declaration and the root reader once.
+// entries finds the entry an LXC handle is, reading the declaration, the LXC member record and
+// the root reader once; said names an entry passed over as offline.
 type entries struct {
-	s       *Setter
-	team    string
-	members []declare.LxcMember
-	read    bool
-	script  string
+	s        *Setter
+	team     string
+	said     func(string)
+	members  []declare.LxcMember
+	record   lxcrecord.Record
+	recorded bool
+	read     bool
+	script   string
 }
 
 // parsed is a handle in its parts: <repo>.<seat>+<host>.<kind>.
@@ -294,8 +306,7 @@ func (h parsed) couldBe(team string, m declare.LxcMember) bool {
 
 // of is the declared entry that is handle, and whether there is one: none for a member of any
 // kind but lxc, or an LXC agent joined by hand, whose role lives in the registry only. Only the
-// present entries of the team that could give handle are read: each one's checkout, as the
-// play derives the handle from it.
+// present entries of the team that could give handle are judged (isMember).
 func (e *entries) of(ctx context.Context, handle string) (declare.LxcMember, bool, error) {
 	h, ok := parseHandle(handle)
 	if !ok || h.kind != lxcKind {
@@ -309,11 +320,11 @@ func (e *entries) of(ctx context.Context, handle string) (declare.LxcMember, boo
 		if !h.couldBe(e.team, m) {
 			continue
 		}
-		identity, err := e.identity(ctx, m, handle)
+		is, err := e.isMember(ctx, m, h, handle)
 		if err != nil {
 			return declare.LxcMember{}, false, err
 		}
-		if identity.Repo == h.repo && orDerived(m.Host, identity.Host) == h.host {
+		if is {
 			matched = append(matched, m)
 		}
 	}
@@ -346,35 +357,56 @@ func (e *entries) load(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("the declared LXC members could not be read (%w)", err)
 	}
-	e.members, e.read = members, true
+	record, recorded, err := lxcrecord.Read(e.s.AppliedDir, e.team)
+	if err != nil {
+		return err
+	}
+	e.members, e.record, e.recorded, e.read = members, record, recorded, true
 	return nil
 }
 
-// identity is the repo and host of the handles m's checkout gives; handle is the member being
-// looked for, which a failure names with the entry that blocked it.
-func (e *entries) identity(ctx context.Context, m declare.LxcMember, handle string) (declare.Identity, error) {
+// isMember is whether m is the member h, whose handle is handle. The record's handle for m decides it
+// with nothing read; an entry the record holds back with no handle never joined, so it is not h
+// and is passed over, named offline. Otherwise m's checkout is read: one that cannot be read is
+// passed over, named offline, when the record exists (the last apply did not join it), and
+// stops the change when there is none. A checkout read that does not tell its identity is a
+// running member that is wrong, and always stops the change.
+func (e *entries) isMember(ctx context.Context, m declare.LxcMember, h parsed, handle string) (bool, error) {
+	label := m.User + "@" + m.Container
+	if item, ok := e.record.Find(m.Container, m.User); e.recorded && ok {
+		if item.Handle != "" {
+			return item.Handle == handle, nil
+		}
+		e.said(label + " is offline (" + item.Words() + "): it has not joined, so its entry is passed over")
+		return false, nil
+	}
 	if e.script == "" {
 		script, err := e.s.Declare.LxcScript(ctx, rootReader)
 		if err != nil {
-			return declare.Identity{}, err
+			return false, err
 		}
 		e.script = script
 	}
 	bounded, cancel := context.WithTimeout(ctx, e.s.ReadTimeout)
 	defer cancel()
 	probe, err := e.s.Reader.ReadCheckout(bounded, e.script, "probe", m.Container, m.User, m.Checkout)
-	if err != nil {
-		advice := "Start container " + m.Container
+	switch {
+	case err != nil && e.recorded:
+		e.said(label + " is offline (its checkout could not be read: " + err.Error() + "); the last apply did not join it, " +
+			"so its entry is passed over")
+		return false, nil
+	case err != nil:
+		advice := "ccy-teams apply " + e.team + " records which entry each member is, so no checkout need be read"
 		if m.Seat == "" {
-			advice += ", or give each of team " + e.team + "'s entries its seat in the host_vars"
+			advice += "; or give each of team " + e.team + "'s entries its seat in the host_vars"
 		}
-		return declare.Identity{}, fmt.Errorf("the entry of %s@%s blocks the change of %s: its checkout is read to "+
-			"tell whether it is %s, and that read failed (%w). %s", m.User, m.Container, handle, handle, err, advice)
+		return false, fmt.Errorf("the entry of %s blocks the change of %s: no LXC member record says which entry it is, "+
+			"so its checkout is read to tell whether it is %s, and that read failed (%w). %s", label, handle, handle, err, advice)
 	}
 	identity, err := e.s.Declare.LxcIdentity(ctx, probe)
 	if err != nil {
-		return declare.Identity{}, fmt.Errorf("the entry of %s@%s blocks the change of %s: whether it is %s could not be "+
-			"told from its checkout (%w)", m.User, m.Container, handle, handle, err)
+		return false, fmt.Errorf("the entry of %s blocks the change of %s: whether it is %s could not be "+
+			"told from its checkout (%w)", label, handle, handle, err)
 	}
-	return identity, nil
+	return identity.Repo == h.repo && orDerived(m.Host, identity.Host) == h.host, nil
 }

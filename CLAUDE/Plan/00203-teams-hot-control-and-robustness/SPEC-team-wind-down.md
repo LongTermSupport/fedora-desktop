@@ -52,14 +52,18 @@ the agent working against the wind-down.
   progress the wind-down asks to be saved half done.
 - D3. **Text in the box is never typed over.** A member whose box holds text before anything is
   typed fails, naming why (as `shutdown` does).
-- D4. **A member out of reach is a failure, not a skip** (exit 1): an LXC member whose container
-  is stopped or was held back, or that no LXC member record of this host names, or any LXC
-  member when sudo is not ready (F3); members on another machine; a held seat no record names; a
-  team whose members could not be read. An LXC member in a running container whose service
-  session is missing is a failed job. Each is named with how to wind it down by hand, and the
-  instruction text is printed once so it can be pasted. sudo is asked for only when the team
-  has an LXC member that can be reached. A stopped session, a free seat and a parked member have no agent to tell: each is
-  named on its own line and is not a failure.
+- D4. **A member out of reach is a failure, not a skip** (exit 1): an LXC member that no LXC
+  member record of this host names, or any LXC member when sudo is not ready (F3); members on
+  another machine; a held seat no record names; a team whose members could not be read. An LXC
+  member in a running container whose service session is missing is a failed job. Each is named
+  with how to wind it down by hand, and the instruction text is printed once so it can be
+  pasted. sudo is asked for only when the team has an LXC member that can be reached. A stopped
+  session, a free seat and a parked member have no agent to tell: each is named on its own line
+  and is not a failure. **An offline LXC member is not out of reach**: one whose container is
+  stopped, or that the last apply held back (record status `stopped` or `deferred`), is named
+  under "Not running" as `offline (container <name> stopped)` and is not a failure (Plan 00211,
+  rule `offline-member-blocks`; CLAUDE/AgentNotes.md, "An offline team member never blocks
+  anything"). This departs from the first version of D4, which failed the run on them.
 
 ## 3. Expectations
 

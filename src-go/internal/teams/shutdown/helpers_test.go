@@ -72,6 +72,7 @@ func newMachine(t *testing.T) *machine {
 // under the home folder as the preview shows it.
 func (m *machine) build() {
 	h := m.Host
+	h.LookPath = func(name string) (string, error) { return "/usr/bin/" + name, nil }
 	m.s = New(h, flow.New(h), board.New(h))
 	m.s.Home = m.Root
 	m.s.Now = func() time.Time { return m.now }
@@ -222,6 +223,15 @@ func (m *machine) errHas(t *testing.T, want ...string) {
 	for _, w := range want {
 		if !strings.Contains(m.ErrOut.String(), w) {
 			t.Fatalf("stderr lacks %q:\n%s", w, m.ErrOut.String())
+		}
+	}
+}
+
+func (m *machine) errLacks(t *testing.T, unwanted ...string) {
+	t.Helper()
+	for _, w := range unwanted {
+		if strings.Contains(m.ErrOut.String(), w) {
+			t.Fatalf("stderr has %q:\n%s", w, m.ErrOut.String())
 		}
 	}
 }

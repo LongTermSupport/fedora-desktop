@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -172,15 +173,19 @@ func TestAnEntryThatCannotMatchTheHandleIsNotRead(t *testing.T) {
 	}
 }
 
-func TestAnEntryWhoseCheckoutCannotBeReadStopsTheChangeBeforeAnything(t *testing.T) {
+// With no LXC member record, nothing says which entry a handle is but the checkout: one that
+// cannot be read stops the change before anything, and the way on is the apply that writes the
+// record, never starting the container.
+func TestAnEntryWhoseCheckoutCannotBeReadWithNoRecordStopsTheChangeBeforeAnything(t *testing.T) {
 	g := newRig(t)
 	g.WriteHostVars(t, teamtest.HostVarsWithLxc(entryA))
 	g.r.errs = map[string]error{"container-a": errors.New("/srv/agent/one of agent@container-a could not be read from the host: not running")}
 	_, err := g.s.Set(t.Context(), "alpha", g.say, Step{Handle: lxcHandle, From: agentbus.RoleWorker, To: agentbus.RoleCoordinator})
 	if err == nil || !strings.Contains(err.Error(), "not running") ||
 		!strings.Contains(err.Error(), "the entry of agent@container-a blocks the change of "+lxcHandle) ||
+		!strings.Contains(err.Error(), "ccy-teams apply alpha records which entry each member is") ||
 		!strings.Contains(err.Error(), "give each of team alpha's entries its seat") ||
-		!strings.Contains(err.Error(), "no role was changed") {
+		!strings.Contains(err.Error(), "no role was changed") || strings.Contains(err.Error(), "Start container") {
 		t.Fatalf("err %v", err)
 	}
 	if got := g.changes(); len(got) != 0 {
@@ -197,12 +202,89 @@ func TestAnEntryThatGivesItsSeatAndCannotBeReadIsNotToldToGiveItsSeat(t *testing
 	g.WriteHostVars(t, teamtest.HostVarsWithLxc(seated))
 	g.r.errs = map[string]error{"container-a": errors.New("not running")}
 	_, err := g.s.Set(t.Context(), "alpha", g.say, Step{Handle: lxcHandle, From: agentbus.RoleWorker, To: agentbus.RoleCoordinator})
-	if err == nil || !strings.Contains(err.Error(), "Start container container-a") ||
+	if err == nil || !strings.Contains(err.Error(), "ccy-teams apply alpha records which entry each member is") ||
+		strings.Contains(err.Error(), "Start container") ||
 		strings.Contains(err.Error(), "its seat") || strings.Contains(err.Error(), "gives no seat") {
 		t.Fatalf("err %v", err)
 	}
 	if got := g.changes(); len(got) != 0 {
 		t.Fatalf("changes %q", got)
+	}
+}
+
+// record writes team alpha's LXC member record, the play's account of each entry's member.
+func (g *rig) record(t *testing.T, items ...string) {
+	t.Helper()
+	teamtest.MustWrite(t, filepath.Join(g.Host.AppliedDir, "lxc", "alpha.json"),
+		`{"version": 1, "team": "alpha", "members": [`+strings.Join(items, ", ")+`]}`)
+}
+
+func item(container, status, handle string) string {
+	return `{"container": "` + container + `", "user": "agent", "state": "present", "status": "` + status +
+		`", "handle": "` + handle + `", "checkout": "/srv/agent", "why": "container not running", "since": 1}`
+}
+
+// An offline member is normal lifecycle (CLAUDE/AgentNotes.md, "An offline team member never
+// blocks anything"): the record names the entry's handle, so a stopped container is not read
+// and its role is changed in its entry and live.
+func TestAnEntryTheRecordNamesIsJudgedByItsHandleWithNoRead(t *testing.T) {
+	g := newRig(t)
+	g.WriteHostVars(t, teamtest.HostVarsWithLxc(entryA, entryB))
+	g.record(t, item("container-a", "stopped", lxcHandle), item("container-b", "joined", "other.1+worker.lxc"))
+	g.r.errs = map[string]error{"container-a": errors.New("not running"), "container-b": errors.New("not running")}
+	done, err := g.s.Set(t.Context(), "alpha", g.say, Step{Handle: lxcHandle, From: agentbus.RoleWorker, To: agentbus.RoleCoordinator})
+	if err != nil || !done.Declared {
+		t.Fatalf("%+v %v", done, err)
+	}
+	want := []string{"lxc-role container-a coordinator", "set-role " + lxcHandle + " --role=coordinator"}
+	if got := g.changes(); !slices.Equal(got, want) {
+		t.Fatalf("changes %q, want %q", got, want)
+	}
+	if len(g.r.reads) != 0 {
+		t.Fatalf("reads %q", g.r.reads)
+	}
+}
+
+// A deferred entry with no handle never joined, so it is not the member: passed over, named
+// offline, with no read; the entry that is the member is still found by its checkout.
+func TestAnEntryTheRecordDeferredUnjoinedIsPassedOverAsOffline(t *testing.T) {
+	g := newRig(t)
+	g.WriteHostVars(t, teamtest.HostVarsWithLxc(entryB, entryA))
+	g.record(t, item("container-b", "deferred", ""))
+	g.r.errs = map[string]error{"container-b": errors.New("not running")}
+	done, err := g.s.Set(t.Context(), "alpha", g.say, Step{Handle: lxcHandle, From: agentbus.RoleWorker, To: agentbus.RoleCoordinator})
+	if err != nil || !done.Declared {
+		t.Fatalf("%+v %v", done, err)
+	}
+	if got := g.changes(); !slices.Contains(got, "lxc-role container-a coordinator") {
+		t.Fatalf("changes %q", got)
+	}
+	if slices.ContainsFunc(g.r.reads, func(r string) bool { return strings.Contains(r, "container-b") }) {
+		t.Fatalf("the deferred entry was read: %q", g.r.reads)
+	}
+	if !slices.ContainsFunc(g.said, func(s string) bool { return strings.HasPrefix(s, "agent@container-b is offline") }) {
+		t.Fatalf("said %q", g.said)
+	}
+}
+
+// With a record, an entry it does not name was not joined by the last apply, so it is not the
+// member: a checkout that cannot be read passes it over, named offline, and the change goes on.
+func TestAnEntryTheRecordDoesNotNameAndCannotBeReadIsPassedOverAsOffline(t *testing.T) {
+	g := newRig(t)
+	g.WriteHostVars(t, teamtest.HostVarsWithLxc(entryA))
+	g.record(t, item("container-z", "joined", "other.1+worker.lxc"))
+	g.r.errs = map[string]error{"container-a": errors.New("not running")}
+	done, err := g.s.Set(t.Context(), "alpha", g.say, Step{Handle: lxcHandle, From: agentbus.RoleWorker, To: agentbus.RoleCoordinator})
+	if err != nil || done.Declared {
+		t.Fatalf("%+v %v", done, err)
+	}
+	if got := g.changes(); !slices.Equal(got, []string{"set-role " + lxcHandle + " --role=coordinator"}) {
+		t.Fatalf("changes %q", got)
+	}
+	if !slices.ContainsFunc(g.said, func(s string) bool {
+		return strings.HasPrefix(s, "agent@container-a is offline") && strings.Contains(s, "not running")
+	}) {
+		t.Fatalf("said %q", g.said)
 	}
 }
 
