@@ -155,14 +155,16 @@ func DecodeArgs(raw json.RawMessage, out any) error {
 	return nil
 }
 
-// WaitArgs are wait's.
+// WaitArgs are wait's: the --team, null for every active team, and the timeout.
 type WaitArgs struct {
-	TimeoutS int64 `json:"timeout_s"`
+	Team     *paths.TeamID `json:"team"`
+	TimeoutS int64         `json:"timeout_s"`
 }
 
-// VerifyArgs are verify's: the event id.
+// VerifyArgs are verify's: the --team, null for the one active team, and the event id.
 type VerifyArgs struct {
-	ID string `json:"id"`
+	Team *paths.TeamID `json:"team"`
+	ID   string        `json:"id"`
 }
 
 // HistoryArgs are history's.

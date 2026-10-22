@@ -242,9 +242,12 @@ func TestDeadlineIsLN2sTable(t *testing.T) {
 
 func TestArgsDecodeStrictly(t *testing.T) {
 	var w WaitArgs
-	check(t, DecodeArgs(json.RawMessage(`{"timeout_s":110}`), &w))
-	if w.TimeoutS != 110 {
+	check(t, DecodeArgs(json.RawMessage(`{"team":"alpha","timeout_s":110}`), &w))
+	if w.Team == nil || w.Team.String() != "alpha" || w.TimeoutS != 110 {
 		t.Fatalf("%+v", w)
+	}
+	if err := DecodeArgs(json.RawMessage(`{"timeout_s":110}`), &w); err == nil {
+		t.Error("wait's args with no team key decoded")
 	}
 	var h HistoryArgs
 	check(t, DecodeArgs(json.RawMessage(`{"team":"alpha","room":"main","limit":20}`), &h))
@@ -256,18 +259,29 @@ func TestArgsDecodeStrictly(t *testing.T) {
 	if tm.Team != nil {
 		t.Fatalf("%+v", tm)
 	}
+	if err := DecodeArgs(json.RawMessage(`{"team":"no such team!"}`), &tm); err == nil {
+		t.Error("a team that is not a team id decoded")
+	}
+}
+
+// P2 note 7: verify's args carry its --team; every refusal is 10 schema.
+func TestVerifyArgsDecodeStrictly(t *testing.T) {
 	var v VerifyArgs
-	check(t, DecodeArgs(json.RawMessage(`{"id":"$abc"}`), &v))
+	check(t, DecodeArgs(json.RawMessage(`{"team":null,"id":"$abc"}`), &v))
+	if v.Team != nil || v.ID != "$abc" {
+		t.Fatalf("%+v", v)
+	}
 	for name, raw := range map[string]string{
-		"unknown key": `{"id":"$abc","x":1}`, "missing key": `{}`, "wrong type": `{"id":1}`,
-		"not json": `{`, "null": `null`, "repeated": `{"id":"a","id":"b"}`,
+		"unknown key": `{"team":null,"id":"$abc","x":1}`,
+		"missing key": `{"id":"$abc"}`,
+		"wrong type":  `{"team":null,"id":1}`,
+		"not json":    `{`,
+		"null":        `null`,
+		"repeated":    `{"team":null,"id":"a","id":"b"}`,
 	} {
 		err := DecodeArgs(json.RawMessage(raw), &v)
 		if exit, code := refused(t, err); exit != 10 || code != exits.CodeSchema {
 			t.Errorf("%s: exit %d code %s", name, exit, code)
 		}
-	}
-	if err := DecodeArgs(json.RawMessage(`{"team":"no such team!"}`), &tm); err == nil {
-		t.Error("a team that is not a team id decoded")
 	}
 }

@@ -4,8 +4,9 @@
 // origin_server_ts. Its waits (Sleep, AfterFunc, Hold) run on the runtime's timers, which do
 // not advance while the machine is suspended.
 //
-// Clock meets lock.Clock, matrix.Clock, matrix.Timers and fakehs's Hold structurally, so this
-// package imports none of them. Fake is the clock every test drives: it moves only when told,
+// Clock meets lock.Clock and matrix.Clock structurally, so this package imports neither; its
+// AfterFunc and Hold have the shapes of matrix.Timers and fakehs's Hold, which the sync engine's
+// tests assert. Fake is the clock every test drives: it moves only when told,
 // and a test waits on its armed waiters (BlockUntil), never on time.
 package clock
 

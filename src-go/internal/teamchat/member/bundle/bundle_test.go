@@ -267,26 +267,65 @@ func TestReadPairDirectoryNotATeam(t *testing.T) {
 // EN5: a host-held --bundle DIR is named for no team; the team is the caller's, and the pair
 // is read and refused as a seat's is.
 func TestReadPairAtReadsADirectoryNamedForNoTeam(t *testing.T) {
+	w := claimWorld(t)
+	ops, dev := team(t, "ops"), team(t, "dev")
+	p, err := ReadPairAt(w.root, w.seat.Dir(), &ops)
+	check(t, err)
+	if p.Team.String() != "ops" || p.Token.Reveal() != testToken {
+		t.Errorf("pair %+v", p)
+	}
+	if _, err := ReadPairAt(w.root, w.seat.Dir(), &dev); configCode(t, err) != exits.CodeBundle || errTeam(err) != "dev" {
+		t.Errorf("a seat.json of another team: %v", err)
+	}
+	if _, err := ReadPairAt(w.root, "relative/dir", &ops); configCode(t, err) != exits.CodeBundle {
+		t.Errorf("a relative directory: %v", err)
+	}
+	if _, err := ReadPairAt(w.root, w.layout.State()+"/none", &ops); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("no directory: %v", err)
+	}
+}
+
+// EN5 (P2 note 12): with no team, the pair's team is seat.json's own, and a refusal names none.
+func TestReadPairAtWithNoTeamTakesSeatJSONs(t *testing.T) {
+	w := claimWorld(t)
+	p, err := ReadPairAt(w.root, w.seat.Dir(), nil)
+	check(t, err)
+	if p.Team.String() != "ops" {
+		t.Errorf("team %v, want seat.json's ops", p.Team)
+	}
+	w.store(userID(team(t, "ops"), 2))
+	if _, err := ReadPairAt(w.root, w.seat.Dir(), nil); configCode(t, err) != exits.CodeBundle || errTeam(err) != "" {
+		t.Errorf("another user's store: %v", err)
+	}
+	check(t, os.Chmod(w.seat.Token(), 0o644))
+	if _, err := ReadPairAt(w.root, w.seat.Dir(), nil); configCode(t, err) != exits.CodeBundle || errTeam(err) != "" {
+		t.Errorf("a token open to others: %v", err)
+	}
+	if _, err := ReadPairAt(w.root, "relative/dir", nil); configCode(t, err) != exits.CodeBundle || errTeam(err) != "" {
+		t.Errorf("a relative directory: %v", err)
+	}
+}
+
+// claimWorld is a world whose pair for seat 1 of ops is placed in a claim directory, which is
+// named for no team.
+func claimWorld(t *testing.T) *world {
+	t.Helper()
 	w := newWorld(t)
 	claim, err := paths.ParseClaimID("00112233aabbccdd")
 	check(t, err)
 	w.seat = w.layout.SeatClaim(team(t, "ops"), claim)
 	check(t, os.Mkdir(w.seat.Dir(), 0o700))
 	w.place()
-	p, err := ReadPairAt(w.root, w.seat.Dir(), team(t, "ops"))
-	check(t, err)
-	if p.Team.String() != "ops" || p.Token.Reveal() != testToken {
-		t.Errorf("pair %+v", p)
+	return w
+}
+
+// errTeam is the team an *exits.Error names, "" for none.
+func errTeam(err error) string {
+	var e *exits.Error
+	if !errors.As(err, &e) || e.Team == nil {
+		return ""
 	}
-	if _, err := ReadPairAt(w.root, w.seat.Dir(), team(t, "dev")); configCode(t, err) != exits.CodeBundle {
-		t.Errorf("a seat.json of another team: %v", err)
-	}
-	if _, err := ReadPairAt(w.root, "relative/dir", team(t, "ops")); configCode(t, err) != exits.CodeBundle {
-		t.Errorf("a relative directory: %v", err)
-	}
-	if _, err := ReadPairAt(w.root, w.layout.State()+"/none", team(t, "ops")); !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("no directory: %v", err)
-	}
+	return e.Team.String()
 }
 
 // B11: two held seats' pairs sharing a user id or a token are 78 bundle; distinct ones pass.

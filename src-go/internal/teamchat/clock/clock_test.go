@@ -19,12 +19,8 @@ import (
 var (
 	_ lock.Clock   = clock.Clock(nil)
 	_ matrix.Clock = clock.Clock(nil)
-	// matrix.Timers (P1, gap 12) has this method set; W replaces this with matrix.Timers.
-	_ interface {
-		AfterFunc(d time.Duration, f func()) (stop func() bool)
-	} = clock.Clock(nil)
-	_ clock.Clock = clock.System()
-	_ clock.Clock = (*clock.Fake)(nil)
+	_ clock.Clock  = clock.System()
+	_ clock.Clock  = (*clock.Fake)(nil)
 )
 
 // hold is fakehs.Options.Hold's type (P1, gap 12).
