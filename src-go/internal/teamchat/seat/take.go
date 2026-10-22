@@ -16,7 +16,9 @@ import (
 
 // The refusals of a take (C 3.7.3 take step 1).
 var (
-	// ErrHeld is a seat whose held/ names a session that is live or restorable.
+	// ErrHeld is a seat whose held/ names a session that is live or restorable, or a session that
+	// has the team's seat directory already (n2c-D12): another pool seat cannot be taken into it
+	// either, so seat choice does not answer it by trying the next seat.
 	ErrHeld = errors.New("seat: the seat is held")
 	// ErrReturn is a parked or lost handle: `member return` places it again.
 	ErrReturn = errors.New("seat: the handle needs member return")
@@ -79,7 +81,7 @@ func (s *Store) Take(ctx context.Context, a *Alloc, t Take) (Taken, error) {
 	if err != nil {
 		return Taken{}, err
 	}
-	if err = s.hold(pool, t.Session, claim); err != nil {
+	if err = s.hold(t.Seat, pool, t.Session, claim); err != nil {
 		return Taken{}, err
 	}
 	heldBundle, token, err := s.mint(ctx, pool, bundle, claim)
@@ -237,15 +239,37 @@ func (s *Store) refuseSessionSeat(seat paths.Seat) error {
 }
 
 // hold is step 2: held/ made, and held.json with the claim and now.
-func (s *Store) hold(pool paths.PoolSeat, session paths.SessionName, claim paths.ClaimID) error {
-	if err := s.root.mkdirFresh(pool.Held()); err != nil {
+func (s *Store) hold(seat Seat, pool paths.PoolSeat, session paths.SessionName, claim paths.ClaimID) error {
+	since, err := s.nextSince(seat, session)
+	if err != nil {
 		return err
 	}
-	data, err := encodeRecord(HeldRecord{V: recordVersion, Session: session, Claim: claim, SinceMS: s.clock.Now().UnixMilli()})
+	if err = s.root.mkdirFresh(pool.Held()); err != nil {
+		return err
+	}
+	data, err := encodeRecord(HeldRecord{V: recordVersion, Session: session, Claim: claim, SinceMS: since})
 	if err != nil {
 		return err
 	}
 	return s.root.create(pool.HeldRecord(), data)
+}
+
+// nextSince is a new holding's since_ms: now, or one past the newest other holding of the team
+// that names the session, so since_ms orders a session's holdings of a team strictly, whatever
+// the wall clock does, and a release can tell whose its session seat directory is (n2c-D12).
+// The take holds the allocation lock, so no other holding is made meanwhile.
+func (s *Store) nextSince(seat Seat, session paths.SessionName) (int64, error) {
+	holdings, err := s.teamHoldings(seat.Team)
+	if err != nil {
+		return 0, err
+	}
+	since := s.clock.Now().UnixMilli()
+	for _, h := range holdings {
+		if h.Seat != seat && h.Complete && h.Record.Session == session && h.Record.SinceMS >= since {
+			since = h.Record.SinceMS + 1
+		}
+	}
+	return since, nil
 }
 
 // mint is steps 3 and 4: the credential's token, then held/token and held/seat.json. A refused

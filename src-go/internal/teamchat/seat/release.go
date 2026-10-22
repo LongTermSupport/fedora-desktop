@@ -285,6 +285,10 @@ func (s *Store) announceHeld(ctx context.Context, seat Seat, session paths.Sessi
 	if rec.Session != session {
 		return fmt.Errorf("%w: %s by session %s, not %s", ErrHeld, seat.Name, rec.Session, session)
 	}
+	own, err := s.mayOwnCopy(Release{Seat: seat, Session: session}, rec)
+	if err != nil || !own {
+		return err
+	}
 	lock, err := s.probe(s.store.SessionSeat(session, seat.Team))
 	if err != nil || lock.state != lockFree {
 		return err
