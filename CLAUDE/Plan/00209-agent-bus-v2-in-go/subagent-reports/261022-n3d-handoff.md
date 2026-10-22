@@ -382,7 +382,9 @@ type Forge interface {
 	Check(ctx context.Context, need proto.ForgeCheck, f proto.Forge) (ForgeResult, error)
 }
 // Engine gains two methods (D1 gives the engine and teamsync's test fake one-line bodies that
-// return nil, so everything compiles; D3 and D6a write the real ones):
+// return nil, so everything compiles; D3 and D6a write the real ones). P6's ends tests have a
+// fake team.Engine too: whichever of D1 and P6 merges second adds the same two one-line methods
+// to that fake, in the merge commit.
 //   SaveRoster(ctx context.Context, t paths.TeamID, rev int64, content json.RawMessage) error // D3
 //   RecoverSends(ctx context.Context, t paths.TeamID, n Notices) error                         // D6a
 
@@ -574,7 +576,14 @@ Package: `member/engine`: new files `outbox.go`, `timeout.go` and `roster.go`, p
 - **The roster cache** (n3d-D3): `SaveRoster(ctx, t, rev, content)` writes `roster.json` on the
   state goroutine through `state.Write`, only when `rev` differs from the one held; `Add` reads it
   (a missing or undecodable file is no cache, logged), decodes `content` with proto's roster
-  decoder, and holds the roster per team for D6a. `Remove` unlinks it with the store.
+  decoder, and holds the roster per team for D6a. `Remove` unlinks it with the store. Two paths
+  move or delete a store without the link, and must take `roster.json` too: the keeper's deletion
+  after a timed-out removal (D3 adds the unlink beside `StoreWriter.Remove` in `member/keeper`,
+  one hunk) and `seat set-aside` (D3 moves it aside with the store in `member/guest`, one hunk). A
+  stale cache is only ever a composing aid (receivers and n3d-D27 check again), but a re-added
+  seat should not start from a removed team's roster.
+- **The lookup's ledger `Verb`**: `seam.go`'s `view` fills a ledger entry's `Related.Verb` from the
+  new `verb` (one place, used by the receive side and by D6a's send Composer).
 - **`status`'s `outbox` records** (LN5): after a team's `room` records, one per outbox ping, oldest
   `sent_ms` first: `to` and `timed_out` as short names (P4's `namer`), `due_ms`, and `answers` one per
   answered index plus one per late answer in the memory table (`late` true); `verb` and `id` from the
@@ -619,7 +628,7 @@ forge-checked ping dropped `unresolved`, tests only).
 ### Facts it needs, digested
 
 - **Answers** (SY4, A 8.2): after `Judge`, each verdict that answers an own ping (the `Record`
-  outcome for an `ack`; a PING verdict whose `Answer` names an own ping for `nack`, `done`,
+  outcome, for an `ack` or a stale answer, A 8.5; a PING verdict whose `Answer` names an own ping for `nack`, `done`,
   `blocked`) gives `team.Answer{Ping, From, Verb, ID, OriginMS}` in `Batch.Answered`; `OnTime` is not
   passed (D3 judges). A PING answer is still queued as its item; an `ack` queues nothing.
 - **An answer whose reference fails its forge check** (n3d-D25) is dropped and gives no `Answer`, so
@@ -726,9 +735,14 @@ Package: `member/engine`: new files `send.go` and `sender.go`, with the hunks in
   `cli.ResolveTeam` over the candidates); in none, 64 `unknown-member`; a name matching two members
   of the chosen team, 64 `ambiguous-member`. The room is main. `ping` with `ack` or `nack` is 64
   pointing at `reply --verb`, where the built parser does not already refuse it (n3d-D15).
-- **The sender**, one goroutine per held team, started at `Add`, ended with the team. It always uses
-  the team's current `team.Team` (a retried team is a new `NewTeam`), never one captured at `Add`.
-  The engine tells it of health changes by a non-blocking send, so the state goroutine never waits.
+- **The sender**, one goroutine per held team, started at `Add`, ended at `Remove` or `Shutdown`; it
+  lives through a stop and a retry (n3d-D2). It always uses the team's current `team.Team` (a
+  retried team is a new `NewTeam`), never one captured at `Add`. The engine tells it of health
+  changes by a non-blocking send, so the state goroutine never waits.
+  - It posts nothing until that start's `RecoverSends` has returned successfully (each `Add`, and
+    each retried team, starts a new recovery), so a `tried` entry is never PUT while the search
+    for it runs; a recovery that keeps failing transiently leaves the queue waiting, as a down
+    team's does.
   - It takes `sending` entries oldest first. Before a post, it re-checks the content against the
     current verified roster (proto's decode and roster rules, as the composer runs them): an entry the
     roster now refuses is removed with one log line naming the reason, and the team's `unsent` count
