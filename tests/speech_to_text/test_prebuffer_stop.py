@@ -28,13 +28,25 @@ wsi_stream = stt_stubs.load_script("wsi-stream", "wsi_stream_prebuffer")
 
 
 class StubRecorder:
-    """AudioToTextRecorder stand-in: slow to construct, counts what it is fed."""
+    """AudioToTextRecorder stand-in: slow to construct, counts what it is fed.
 
+    load_seconds None is a model that finishes loading only once the microphone has closed
+    (its result file exists), at most LOAD_CAP_SECONDS: a stop that waited for the model
+    shows as a microphone closed after `ready`, however loaded the host.
+    """
+
+    LOAD_CAP_SECONDS = 30
     load_seconds = 0.0
+    mic_result = None
     instance = None
 
     def __init__(self, **config):
-        time.sleep(self.load_seconds)
+        if self.load_seconds is None:
+            cap = time.monotonic() + self.LOAD_CAP_SECONDS
+            while not self.mic_result.exists() and time.monotonic() < cap:
+                time.sleep(0.01)
+        else:
+            time.sleep(self.load_seconds)
         self.ready_at = time.monotonic()
         self.fed_bytes = 0
         self.started = False
@@ -111,21 +123,40 @@ class PrebufferStopTest(unittest.TestCase):
                 os.environ[k] = v
         self.tmp.cleanup()
 
-    def run_mode(self, load_seconds, grace, term_after):
-        """Run pre-buffer mode, SIGTERM at each offset in term_after; returns facts."""
+    def run_mode(self, load_seconds, grace, term_after, after="mic"):
+        """Run pre-buffer mode, SIGTERM at each offset in term_after; returns facts.
+
+        The offsets count from the moment `after` is ready: "mic", the fake pw-record's stop
+        handler installed (its ready file), or "model", the stub recorder loaded. A timer
+        from the start raced both on a loaded host.
+        """
         StubRecorder.load_seconds = load_seconds
+        StubRecorder.mic_result = self.events / "pw-record.json"
+        StubRecorder.instance = None
         args = argparse.Namespace(
             language="en", timeout=30, claude_process=False, wrap_marker=False,
             auto_paste=False, clipboard=False, no_auto_enter=True, paste_with_shift=1,
         )
         stop = wsi_stream.GracefulStop(grace)
         terms = []
-        for offset in term_after:
-            def send():
+        seen = []
+        ready = {"mic": lambda: (self.events / "pw-record.ready").exists(),
+                 "model": lambda: StubRecorder.instance is not None}[after]
+
+        def send_terms():
+            cap = time.monotonic() + 30
+            while not ready() and time.monotonic() < cap:
+                time.sleep(0.005)
+            seen.append(ready())
+            start = time.monotonic()
+            for offset in term_after:
+                time.sleep(max(0.0, start + offset - time.monotonic()))
                 terms.append(time.monotonic())
                 os.kill(os.getpid(), signal.SIGTERM)
-            threading.Timer(offset, send).start()
+
+        threading.Thread(target=send_terms, daemon=True).start()
         rc = wsi_stream.run_prebuffered_streaming(args, stop)
+        self.assertEqual(seen, [True], f"the {after} never became ready, so no TERM was timed from it")
         mic = stt_stubs.pw_record_result(self.events)
         return {
             "rc": rc,
@@ -136,12 +167,18 @@ class PrebufferStopTest(unittest.TestCase):
             "ready": StubRecorder.instance.ready_at,
         }
 
+    # The model below loads only once the microphone has closed, so a stop that waited for
+    # it shows as mic_stopped after ready. The ceilings on a gap are 3 s past what the code
+    # waits, ten times the 0.3 s grace and far below the 30 s one (CLAUDE/QA.md
+    # test-wall-clock-ceiling-under-a-second).
+    SLACK_SECONDS = 3.0
+
     def test_term_during_the_load_closes_the_microphone_after_the_grace(self):
-        r = self.run_mode(load_seconds=2.0, grace=0.3, term_after=[0.3])
+        r = self.run_mode(load_seconds=None, grace=0.3, term_after=[0.3])
         self.assertEqual(r["rc"], 0)
         gap = r["mic_stopped"] - r["terms"][0]
         self.assertGreaterEqual(gap, 0.25, "microphone closed before the grace ran out")
-        self.assertLess(gap, 0.9, "microphone stayed open after the grace")
+        self.assertLess(gap, 0.3 + self.SLACK_SECONDS, "microphone stayed open after the grace")
         self.assertLess(r["mic_stopped"], r["ready"], "waited for the model before closing the mic")
         self.assertEqual(r["fed"], r["written"], "audio captured before the stop was dropped")
         self.assertIn("TRANSCRIBING", self.states)
@@ -149,18 +186,20 @@ class PrebufferStopTest(unittest.TestCase):
         self.assertEqual(self.pasted, ["Words so far"])
 
     def test_second_term_during_the_load_stops_at_once(self):
-        r = self.run_mode(load_seconds=2.0, grace=30, term_after=[0.3, 0.6])
+        r = self.run_mode(load_seconds=None, grace=30, term_after=[0.3, 0.6])
         self.assertEqual(r["rc"], 0)
-        self.assertLess(r["mic_stopped"] - r["terms"][1], 0.4)
+        self.assertLess(r["mic_stopped"] - r["terms"][1], self.SLACK_SECONDS,
+                        "the second TERM did not stop at once (the grace is 30 s)")
         self.assertLess(r["mic_stopped"], r["ready"])
         self.assertEqual(r["fed"], r["written"])
 
     def test_term_after_the_load_keeps_recording_for_the_grace(self):
-        r = self.run_mode(load_seconds=0.3, grace=0.5, term_after=[1.0])
+        # The TERM comes 1 s after the model is ready, so the recording loop has taken over
+        r = self.run_mode(load_seconds=0.3, grace=0.5, term_after=[1.0], after="model")
         self.assertEqual(r["rc"], 0)
         gap = r["mic_stopped"] - r["terms"][0]
         self.assertGreaterEqual(gap, 0.45)
-        self.assertLess(gap, 1.1)
+        self.assertLess(gap, 0.5 + self.SLACK_SECONDS)
         self.assertEqual(r["fed"], r["written"], "the pipe was not drained at stop")
         self.assertIn("RECORDING", self.states)
         self.assertEqual(self.pasted, ["Words so far"])

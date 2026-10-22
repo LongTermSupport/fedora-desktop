@@ -195,9 +195,14 @@ class FileJobTest(FileJobCase):
         with mock.patch.object(server, "session", dictating), \
                 mock.patch.object(server, "DICTATION_POLL_SECONDS", 0.01):
             self.start({"paths": self.parts, "language": "en"})
+            # Wait for the job to say it is paused (a fixed 0.2 s raced its thread on a loaded
+            # host), then let it poll the dictation many more times before judging it
+            deadline = time.monotonic() + 10
+            while not self.progress(0).get("paused") and time.monotonic() < deadline:
+                time.sleep(0.01)
             time.sleep(0.2)
             reply = self.progress(0)
-            self.assertEqual((reply["status"], reply["count"], reply["paused"]), ("running", 0, True),
+            self.assertEqual((reply["status"], reply["count"], reply.get("paused")), ("running", 0, True),
                              "no window of the file may run while a dictation is active")
             dictating.busy.return_value = False
             reply = self.finished()

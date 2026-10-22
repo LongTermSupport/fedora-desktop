@@ -126,10 +126,13 @@ class SessionCase(unittest.TestCase):
     def mic_stopped(self):
         return self.session.capture_returncode() is not None
 
-    def mic_capturing(self):
+    def mic_capturing(self, session=None):
         """Wait until the microphone stub has sent audio: its stop handler is installed
-        before its first write, so a stop sent sooner on a loaded host would kill it."""
-        self.assertTrue(self.wait_until(lambda: self.session.captured_bytes > 0),
+        before its first write, so a stop sent sooner on a loaded host would kill it, and
+        the dictation would end with no audio and no text. A fixed sleep before a stop
+        raced the stub's start-up."""
+        session = session or self.session
+        self.assertTrue(self.wait_until(lambda: session.captured_bytes > 0),
                         "the microphone stub never sent audio")
 
 
@@ -181,6 +184,7 @@ class StopTest(SessionCase):
 
     def test_an_empty_segment_is_counted_and_its_audio_kept(self):
         s = self.start(transcriber=StubTranscriber(empty_on=0), mic="plain")
+        self.mic_capturing()
         time.sleep(0.3)
         s.stop("stop requested")
         p = self.finished()
@@ -246,6 +250,7 @@ class StatsLineTest(SessionCase):
 
     def test_a_whole_clip_says_so(self):
         s = self.start(mic="plain", continuous=False, vad=None)
+        self.mic_capturing()
         time.sleep(0.3)
         s.stop("stop requested")
         self.finished()
@@ -282,7 +287,9 @@ class FailureTest(SessionCase):
         self.assertEqual(s.progress()["status"], "failed")
 
     def test_the_microphone_dying_fails_the_session(self):
-        self.start(env={"STUB_EXIT_AFTER": "0.3"})
+        # 1 s, ten times the 0.1 s start() waits before checking the microphone opened: a
+        # stub that died inside that wait would be "exited at once", a refused start
+        self.start(env={"STUB_EXIT_AFTER": "1.0"})
         p = self.finished()
         self.assert_failed(p, "microphone")
 
@@ -295,10 +302,13 @@ class FailureTest(SessionCase):
     def test_the_drain_deadline_fails_the_session_and_keeps_pending_audio(self):
         block = threading.Event()
         self.addCleanup(block.set)
-        s = self.start(transcriber=StubTranscriber(block=block), drain_base_seconds=0.3,
+        transcriber = StubTranscriber(block=block)
+        s = self.start(transcriber=transcriber, drain_base_seconds=0.3,
                        drain_rtf_factor=0,
                        env={"STUB_PATTERN": "speech=1.5,silence=1.0", "STUB_SPEED": "8"})
-        time.sleep(0.6)
+        # Stop once a segment is held in the model, not after a fixed 0.6 s: a stop before
+        # the stub's first write killed it and left nothing pending
+        self.assertTrue(self.wait_until(lambda: transcriber.calls), "no segment reached the model")
         s.stop("stop requested")
         p = self.finished()
         self.assert_failed(p, "still pending")
@@ -331,6 +341,7 @@ class FailureTest(SessionCase):
                 pass
 
         s._journal = BrokenJournal()
+        self.mic_capturing()
         time.sleep(0.3)
         s.stop("stop requested")
         p = self.finished()
@@ -365,8 +376,10 @@ class SafetyStopTest(SessionCase):
         self.assertLessEqual(heard, {1}, "only the stub's stop burst may reach the transcriber")
 
     def test_speech_resets_the_no_speech_timer(self):
+        # At 8 times real time each 0.4 s pause lasts 0.05 s, a twentieth of the 1 s limit,
+        # and the run lasts 2.5 times that limit, so only the speech can keep it recording
         s = self.start(silence_seconds=1,
-                       env={"STUB_PATTERN": "speech=0.5,silence=0.4", "STUB_SPEED": "1"})
+                       env={"STUB_PATTERN": "speech=0.5,silence=0.4", "STUB_SPEED": "8"})
         time.sleep(2.5)
         self.assertEqual(s.progress()["status"], "recording")
         s.stop("stop requested")
@@ -405,6 +418,7 @@ class WholeClipTest(SessionCase):
 
     def test_without_continuous_the_whole_clip_is_one_transcription_and_no_vad_runs(self):
         s = self.start(mic="plain", continuous=False, vad=None)
+        self.mic_capturing()
         time.sleep(0.5)
         s.stop("stop requested")
         p = self.finished()
@@ -501,6 +515,7 @@ class CommandTest(SessionCase):
                          "a second START while recording")
         self.assertEqual(self.send("KEEPALIVE")["status"], "recording")
         self.assertTrue(server.is_busy())
+        self.mic_capturing(server.session)
         time.sleep(0.3)
         reply = self.send("STOP")
         self.assertIn(reply["status"], ("draining", "done"))
@@ -556,10 +571,19 @@ class CommandTest(SessionCase):
         self.assertTrue(self.wait_until(lambda: server.session.progress()["status"] == state),
                         server.session.progress())
 
+    def keep_alive_until_capturing(self):
+        """KEEPALIVE until the microphone stub has sent audio, then fall silent as a client
+        that vanished does. A heartbeat that ran out first ended a dictation with no text."""
+        self.assertTrue(self.wait_until(lambda: self.send("KEEPALIVE")["status"] == "recording"
+                                        and server.session.captured_bytes > 0),
+                        "the microphone stub never sent audio while the client kept it alive")
+
     def test_text_nobody_collected_survives_and_the_next_start_hands_it_over(self):
-        with mock.patch.object(server, "HEARTBEAT_SECONDS", 0.3):
+        # A heartbeat of 1 s is fifty of keep_alive_until_capturing's 0.02 s polls
+        with mock.patch.object(server, "HEARTBEAT_SECONDS", 1.0):
             self.send("START", {"continuous": True, "max_seconds": 600, "silence_seconds": 0})
             first = server.session
+            self.keep_alive_until_capturing()
             self.wait_for_state("done")
         self.assertIn("heartbeat", first.progress()["stop_reason"])
         journal = pathlib.Path(first.progress()["session_dir"]) / "journal.jsonl"
@@ -624,6 +648,7 @@ class CommandTest(SessionCase):
                 mock.patch.object(server, "DRAIN_BASE_SECONDS", 0.3), \
                 mock.patch.object(server, "DRAIN_RTF_FACTOR", 0):
             self.send("START", {"max_seconds": 60})
+            self.mic_capturing(server.session)
             time.sleep(0.3)
             self.send("STOP")
             self.wait_for_state("failed")
@@ -654,8 +679,9 @@ class CommandTest(SessionCase):
         patcher = mock.patch.object(server, "transcriber", lambda samples, prompt: text)
         patcher.start()
         self.addCleanup(patcher.stop)
-        with mock.patch.object(server, "HEARTBEAT_SECONDS", 0.3):
+        with mock.patch.object(server, "HEARTBEAT_SECONDS", 1.0):
             self.send("START", {"continuous": True, "max_seconds": 600, "silence_seconds": 0})
+            self.keep_alive_until_capturing()
             self.wait_for_state("done")
         return server.session
 
@@ -686,6 +712,7 @@ class CommandTest(SessionCase):
         long_text = "word " * 5000
         with mock.patch.object(server, "transcriber", lambda samples, prompt: long_text):
             self.send("START", {"max_seconds": 60})
+            self.mic_capturing(server.session)
             time.sleep(0.3)
             self.send("STOP")
             self.assertTrue(self.wait_until(lambda: self.send("PROGRESS")["status"] == "done"))

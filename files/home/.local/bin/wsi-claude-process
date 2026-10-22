@@ -28,8 +28,10 @@ LOG_DIR="${HOME}/.local/share/speech-to-text"
 LOG_FILE="${LOG_DIR}/debug.log"
 TOKEN_CHOOSER="$(dirname "$(readlink -f "$0")")/wsi-claude-token"
 # The whole run, choosing the token included, stays below the callers' own limits
-# (180 s), so this script reports a timeout itself; claude gets what is left of it
-CLAUDE_TIMEOUT_SECONDS="${WSI_CLAUDE_TIMEOUT_SECONDS-170}"
+# (180 s), so this script reports a timeout itself; claude gets what is left of it. The
+# start is in microseconds: bash's SECONDS counts whole seconds of the clock, so a run
+# that crossed a second boundary in 0.01 s counted as 1 s and a 1 s limit left nothing
+CLAUDE_TIMEOUT_SECONDS="${WSI_CLAUDE_TIMEOUT_SECONDS-170}" STARTED_US=${EPOCHREALTIME/[.,]/}
 DEBUG_MODE=false
 CLAUDE_MODEL="sonnet"
 STYLE="corporate"
@@ -130,11 +132,11 @@ TWEAK_LINE="${TWEAK:+$'\n'Additional instruction: $TWEAK}"
 FULL_PROMPT="${FULL_PROMPT//\{TWEAK\}/$TWEAK_LINE}"
 
 
-# Call Claude CLI in headless mode, within what choosing the token left (SECONDS counts
-# from the start of this script; `timeout 0` would mean no limit at all)
-CLAUDE_BUDGET=$((CLAUDE_TIMEOUT_SECONDS - SECONDS))
+# Call Claude CLI in headless mode, within what choosing the token left (whole seconds
+# since the start of this script; `timeout 0` would mean no limit at all)
+CLAUDE_BUDGET=$((CLAUDE_TIMEOUT_SECONDS - (${EPOCHREALTIME/[.,]/} - STARTED_US) / 1000000))
 if (( CLAUDE_BUDGET < 1 )); then
-    error_exit "choosing the token took ${SECONDS} s of the ${CLAUDE_TIMEOUT_SECONDS} s this run has; claude was not run"
+    error_exit "choosing the token took $((CLAUDE_TIMEOUT_SECONDS - CLAUDE_BUDGET)) s of the ${CLAUDE_TIMEOUT_SECONDS} s this run has; claude was not run"
 fi
 log "Calling claude with model=$CLAUDE_MODEL as the $ACCOUNT, within ${CLAUDE_BUDGET} s (prompt ${#FULL_PROMPT} chars, from a ${#PROMPT_TEMPLATE}-char template)"
 claude_rc=0

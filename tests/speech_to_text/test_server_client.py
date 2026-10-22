@@ -172,6 +172,26 @@ def scripted(before_stop, after_stop=()):
     return answer
 
 
+def signal_when(answer, when, signum=signal.SIGTERM):
+    """`answer`, which sends this process `signum` once, the first time `when(command)` is
+    true, before answering that command.
+
+    The client is waiting for this reply, and Python runs a signal handler in the main
+    thread before the next line after the read, so the client meets the signal at exactly
+    this point of its run however late the host schedules it. A timer from the start of
+    the run raced the client to that point.
+    """
+    sent = []
+
+    def answer_and_signal(command, params):
+        if not sent and when(command):
+            sent.append(command)
+            os.kill(os.getpid(), signum)
+        return answer(command, params)
+
+    return answer_and_signal
+
+
 RECORDING = {"status": "recording", "elapsed_seconds": 3, "segments_pending": 2,
              "backlog_seconds": 9, "rtf": 0.4}
 DONE = {"status": "done", "transcription": "hello there world", "stop_reason": "stop requested"}
@@ -673,8 +693,10 @@ class SessionOwnershipTest(ClientCase):
                             "message": "The previous dictation (draining) is still finishing"}
             return base(command, params)
 
-        self.serve(answer)
-        self.assertEqual(self.run_client(signal_after=0.6), 0)
+        # Insert once recording has begun (its first PROGRESS), not 0.6 s in: a loaded host
+        # could still be in the third START's wait then
+        self.serve(signal_when(answer, lambda command: command == "PROGRESS"))
+        self.assertEqual(self.run_client(), 0)
         self.assertEqual(len(starts), 3)
         states = self.states()
         self.assertIn("WAITING", states)
@@ -690,8 +712,11 @@ class SessionOwnershipTest(ClientCase):
         self.assertNotIn("STOP", self.server.commands(), "nothing was recording to stop")
         self.assertNotIn("ABORT", self.server.commands(), "nothing was recording to abort")
 
-    def slow_start_accepted(self, delay=0.4):
-        """A server that takes `delay` to answer START, then starts recording."""
+    def slow_start_accepted(self, signum=signal.SIGTERM, delay=0.4):
+        """A server that takes `delay` to answer START, then starts recording, and is sent
+        `signum` (the key) as START reaches it: the key is pressed while START is in
+        flight, whatever the host's load. A 0.1 s timer had to land between the client
+        sending START and this 0.4 s answer."""
         base = scripted([RECORDING], [DONE])
 
         def answer(command, params):
@@ -699,19 +724,19 @@ class SessionOwnershipTest(ClientCase):
                 threading.Event().wait(delay)
             return base(command, params)
 
-        self.serve(answer)
+        self.serve(signal_when(answer, lambda command: command == "START", signum))
 
     def test_insert_while_start_is_in_flight_aborts_what_the_server_started(self):
         self.slow_start_accepted()
-        self.assertEqual(self.run_client(signal_after=0.1), 1)
+        self.assertEqual(self.run_client(), 1)
         self.assertEqual(self.server.commands(), ["START", "ABORT"],
                          "the server was left recording for no client")
         self.assertNotIn("RECORDING", self.states())
         self.assertEqual(self.states()[-1], "IDLE", self.states())
 
     def test_escape_while_start_is_in_flight_aborts_what_the_server_started(self):
-        self.slow_start_accepted()
-        self.assertEqual(self.run_client(signal_after=0.1, signum=signal.SIGUSR1), 1)
+        self.slow_start_accepted(signal.SIGUSR1)
+        self.assertEqual(self.run_client(), 1)
         self.assertEqual(self.server.commands(), ["START", "ABORT"])
         self.assertNotIn("RECORDING", self.states())
 
@@ -728,8 +753,8 @@ class SessionOwnershipTest(ClientCase):
                     return {"status": "error", "message": "ABORT: timed out"}
             return base(command, params)
 
-        self.serve(answer)
-        self.assertEqual(self.run_client(signal_after=0.1), 1)
+        self.serve(signal_when(answer, lambda command: command == "START"))
+        self.assertEqual(self.run_client(), 1)
         self.assertEqual(self.server.commands(), ["START", "ABORT", "ABORT"])
 
     def test_a_server_still_finishing_after_the_wait_is_an_error(self):

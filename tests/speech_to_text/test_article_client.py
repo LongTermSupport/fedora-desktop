@@ -80,6 +80,9 @@ def segment(seq, text, status="ok"):
 
 
 RECORDING = {"status": "recording", "elapsed_seconds": 3, "segments_pending": 0}
+# A test that presses Insert on an event of the server's (scripted's insert_when) is also
+# stopped this long after its start, so one whose event never comes fails, not hangs
+NEVER_PRESSED_SECONDS = 30
 
 
 def done(text):
@@ -131,14 +134,33 @@ class ArticleCase(unittest.TestCase):
             for line in lines:
                 f.write((line if isinstance(line, str) else json.dumps(line)) + "\n")
 
-    def scripted(self, before_stop, after_stop=(), on_start=None):
+    def scripted(self, before_stop, after_stop=(), on_start=None, insert_when=None):
         """A server answering PROGRESS from `before_stop` until STOP, then from `after_stop`.
 
         Each entry is (reply, journal lines appended just before that reply). The last
         entry of each list repeats, its journal lines only once. STOP answers draining.
+
+        `insert_when` presses Insert (SIGTERM) once, as the server answers: "spent" when
+        it first gives the last `before_stop` entry, or a function of the command that
+        says when. The client meets it right after that reply, however late a loaded host
+        runs it; a timer from the start raced the client's polls.
         """
         queues = {"before": list(before_stop), "after": list(after_stop)}
         stopped = []
+        pressed = []
+
+        def press_insert_now(command):
+            if insert_when == "spent":
+                return command == "PROGRESS" and not stopped and len(queues["before"]) == 1
+            return insert_when is not None and insert_when(command)
+
+        def answer_and_press(command, params):
+            press = not pressed and press_insert_now(command)
+            reply = answer(command, params)
+            if press:
+                pressed.append(command)
+                os.kill(os.getpid(), signal.SIGTERM)
+            return reply
 
         def next_entry(name):
             queue = queues[name]
@@ -170,7 +192,7 @@ class ArticleCase(unittest.TestCase):
                 return {"status": "aborted"}
             return {"status": "error", "message": f"unexpected {command}"}
 
-        self.server = StubServer(stream.SERVER_SOCKET, answer)
+        self.server = StubServer(stream.SERVER_SOCKET, answer_and_press)
         self.addCleanup(self.server.close)
 
     def run_client(self, signal_after=None, signum=signal.SIGTERM, session_token="article-A"):
@@ -244,8 +266,9 @@ class ArticleClientTest(ArticleCase):
     def test_segments_reach_the_window_and_the_final_flush_writes_one_paragraph(self):
         self.scripted(
             [(RECORDING, [segment(0, "first phrase")]), (RECORDING, [segment(1, "second phrase")])],
-            [(done("first phrase second phrase third phrase"), [segment(2, "third phrase")])])
-        rc = self.run_client(signal_after=0.5)
+            [(done("first phrase second phrase third phrase"), [segment(2, "third phrase")])],
+            insert_when="spent")
+        rc = self.run_client(signal_after=NEVER_PRESSED_SECONDS)
         self.assertEqual(rc, 0)
         self.assertEqual(self.raw(), "First phrase second phrase third phrase\n\n")
         self.assertTrue(wsi_article.ARTICLE_TRIGGER_FILE.exists(), "the window is told to polish")
@@ -262,26 +285,33 @@ class ArticleClientTest(ArticleCase):
                     seen["buffer"] = buffer_file.read_text()  # the latest one seen
             return None
 
+        # Insert once a KEEPALIVE has seen both phrases in the buffer
         self.scripted([(RECORDING, [segment(0, "alpha")]), (RECORDING, [segment(1, "beta")])],
-                      [(done("alpha beta"), ())])
+                      [(done("alpha beta"), ())],
+                      insert_when=lambda command: seen.get("buffer") == "alpha\nbeta")
         original = self.server.answer
         self.server.answer = lambda command, params: (snoop(command, params)
                                                       or original(command, params))
-        self.run_client(signal_after=0.8)
+        self.run_client(signal_after=NEVER_PRESSED_SECONDS)
         self.assertEqual(seen.get("buffer"), "alpha\nbeta")
 
     def test_a_chunk_is_flushed_when_the_flush_interval_has_passed(self):
         wsi_article.FLUSH_SECONDS = 0.3
+        # Insert once the interval has flushed alpha, not 1.5 s in, which a loaded host
+        # could reach before the 0.3 s flush had run
+        raw = wsi_article.ARTICLE_RAW_FILE
         self.scripted([(RECORDING, [segment(0, "alpha")]), (RECORDING, ())],
-                      [(done("alpha beta"), [segment(1, "beta")])])
-        rc = self.run_client(signal_after=1.5)
+                      [(done("alpha beta"), [segment(1, "beta")])],
+                      insert_when=lambda command: raw.exists() and raw.read_text() == "Alpha\n\n")
+        rc = self.run_client(signal_after=NEVER_PRESSED_SECONDS)
         self.assertEqual(rc, 0)
         self.assertEqual(self.raw(), "Alpha\n\nBeta\n\n",
                          "alpha flushed on the interval, beta at the final flush")
 
     def test_the_marker_files_exist_while_recording_and_are_gone_after(self):
-        self.scripted([(RECORDING, [segment(0, "alpha")])], [(done("alpha"), ())])
-        self.run_client(signal_after=0.5)
+        self.scripted([(RECORDING, [segment(0, "alpha")])], [(done("alpha"), ())],
+                      insert_when="spent")
+        self.run_client(signal_after=NEVER_PRESSED_SECONDS)
         self.assertTrue(self.seen_while_recording["active"])
         self.assertTrue(self.seen_while_recording["pid"])
         self.assertEqual(self.marker_files_left(), [])
@@ -289,8 +319,8 @@ class ArticleClientTest(ArticleCase):
     def test_a_stop_waits_for_however_long_the_server_drains(self):
         draining = {"status": "draining", "drain_seconds_left": 5}
         self.scripted([(RECORDING, [segment(0, "alpha")])],
-                      [(draining, ())] * 40 + [(done("alpha"), ())])
-        rc = self.run_client(signal_after=0.3)
+                      [(draining, ())] * 40 + [(done("alpha"), ())], insert_when="spent")
+        rc = self.run_client(signal_after=NEVER_PRESSED_SECONDS)
         self.assertEqual(rc, 0, "2 s of draining is far past the window's old 3 s kill")
         self.assertEqual(self.raw(), "Alpha\n\n")
 
@@ -336,8 +366,9 @@ class ArticleClientTest(ArticleCase):
 
     def test_a_journal_that_disagrees_with_the_final_text_fails_loudly(self):
         self.scripted([(RECORDING, [segment(0, "alpha")])],
-                      [(done("alpha and something the journal never had"), ())])
-        rc = self.run_client(signal_after=0.4)
+                      [(done("alpha and something the journal never had"), ())],
+                      insert_when="spent")
+        rc = self.run_client(signal_after=NEVER_PRESSED_SECONDS)
         self.assertEqual(rc, 1)
         self.assertTrue(any("journal" in n and "final text" in n for n in self.notes), self.notes)
         self.assertEqual(self.raw(), "Alpha\n\n", "what the journal gave is still kept")
@@ -378,8 +409,9 @@ class ArticleSessionTest(ArticleCase):
                 return {"status": "error", "busy": "finishing", "message": "still finishing"}
             return {"status": "recording", "session_dir": str(self.session_dir)}
 
-        self.scripted([(RECORDING, [segment(0, "alpha")])], [(done("alpha"), ())], on_start=on_start)
-        self.assertEqual(self.run_client(signal_after=0.6), 0)
+        self.scripted([(RECORDING, [segment(0, "alpha")])], [(done("alpha"), ())], on_start=on_start,
+                      insert_when="spent")
+        self.assertEqual(self.run_client(signal_after=NEVER_PRESSED_SECONDS), 0)
         self.assertEqual(len(starts), 3)
         self.assertIn("WAITING", self.states())
         self.assertEqual(self.raw(), "Alpha\n\n")
@@ -389,8 +421,11 @@ class ArticleSessionTest(ArticleCase):
             threading.Event().wait(0.4)
             return {"status": "recording", "session_dir": str(self.session_dir)}
 
-        self.scripted([(RECORDING, ())], on_start=on_start)
-        self.assertEqual(self.run_client(signal_after=0.1), 1)
+        # Insert as the server answers START: the key is pressed while START is in flight,
+        # where a 0.1 s timer had to land between the client sending START and this answer
+        self.scripted([(RECORDING, ())], on_start=on_start,
+                      insert_when=lambda command: command == "START")
+        self.assertEqual(self.run_client(), 1)
         self.assertEqual(self.server.commands(), ["START", "ABORT"],
                          "the server was left recording for no client")
         self.assertNotIn("PREPARING", self.states())

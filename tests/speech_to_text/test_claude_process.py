@@ -16,6 +16,7 @@ import pathlib
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 
 # STT_TEST_BIN points at another copy of the scripts, e.g. an older revision, for a
@@ -63,7 +64,9 @@ class ClaudeProcessTest(unittest.TestCase):
         if fail:
             stub.write_text(f"#!/bin/bash\necho 'wsi-claude-token: {fail}' >&2\nexit 1\n")
         else:
-            stub.write_text(f"#!/bin/bash\nsleep {seconds}\necho 'using the stub account' >&2\n"
+            # No sleep at all for 0: the stub answers at once, so a 1 s limit is never close
+            pause = f"sleep {seconds}\n" if seconds else ""
+            stub.write_text(f"#!/bin/bash\n{pause}echo 'using the stub account' >&2\n"
                             f"printf '%s' '{token_file}'\n")
         stub.chmod(0o755)
 
@@ -129,13 +132,14 @@ class ClaudeProcessTest(unittest.TestCase):
         # The callers stop waiting at 180 s; the script's own limit (170 s) covers the
         # chooser too, so a slow usage read cannot push claude past the callers' limit and
         # turn the real reason into the caller's generic timeout.
-        # The reason names the budget claude was given: 4 s undeducted, 1-2 s after a chooser
-        # that took 2 s. No wall-clock bound, so a loaded machine cannot fail it.
+        # The reason names the budget claude was given: 6 s undeducted, 4 s after a chooser
+        # that took 2 s, less on a loaded machine, which has 3 s before the chooser uses up
+        # the run (test-wall-clock-ceiling-under-a-second in CLAUDE/QA.md).
         self.chooser(seconds=2)
-        result = self.run_script("slow", budget=4)
+        result = self.run_script("slow", budget=6)
         self.assertEqual((result.returncode, result.stdout), (1, ""))
         self.assertRegex(result.stderr, r"claude failed as the desktop login \(exit 124\): "
-                         r"no answer within [12] s of the 4 s this run has")
+                         r"no answer within [1-4] s of the 6 s this run has")
 
     def test_a_limit_outside_1_to_170_seconds_is_refused_before_anything_runs(self):
         # The callers pass the session environment through: a limit above 170 s would let
@@ -163,7 +167,20 @@ class ClaudeProcessTest(unittest.TestCase):
         for value in ("1", "170"):
             with self.subTest(value=value):
                 result = self.run_script(budget=value)
-                self.assertEqual((result.returncode, result.stdout.strip()), (0, "Rewritten by Claude."))
+                self.assertEqual((result.returncode, result.stdout.strip()), (0, "Rewritten by Claude."),
+                                 result.stderr)
+
+    def test_a_run_that_crosses_a_second_of_the_clock_keeps_a_1_s_limit(self):
+        # The run starts 0.01 s before the clock's next whole second and the chooser takes
+        # 0.03 s, so the run crosses it about 0.05 s in, a twentieth of the limit. bash's
+        # SECONDS, which counts whole seconds of the clock, called that 1 s, left claude
+        # nothing and failed the 1 s limit test_a_limit_inside_1_to_170_seconds_is_used
+        # accepts, at random, and more often the longer a loaded host made the run.
+        self.chooser(seconds=0.03)
+        time.sleep((0.99 - time.time() % 1) % 1)
+        result = self.run_script(budget=1)
+        self.assertEqual((result.returncode, result.stdout.strip()), (0, "Rewritten by Claude."),
+                         result.stderr)
 
     def test_a_chooser_that_used_up_the_limit_leaves_claude_unrun(self):
         self.chooser(seconds=3)

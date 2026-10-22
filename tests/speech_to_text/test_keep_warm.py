@@ -22,8 +22,8 @@ import pathlib
 import subprocess
 import sys
 import tempfile
-import threading
 import time
+import types
 import unittest
 from unittest import mock
 
@@ -111,18 +111,39 @@ class ServerPidLockTest(unittest.TestCase):
         return subprocess.Popen([sys.executable, "-c", code, *args], stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True)
 
+    @staticmethod
+    def wait_for(predicate, timeout=30.0):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if predicate():
+                return True
+            time.sleep(0.01)
+        return False
+
     def race(self, starts=6):
-        """Start servers that all claim at the same moment; return how many won."""
-        go = pathlib.Path(self.tmp.name) / "go"
+        """Start servers that all claim at the same moment; return how many won.
+
+        Each says when it is waiting and when it has tried, and the winner holds the lock
+        until every one has tried: no sleep has to outlast a loaded host's start-up.
+        """
+        run = pathlib.Path(self.tmp.name) / "race"
+        run.mkdir()
         body = (
-            "go = pathlib.Path(sys.argv[1])\n"
-            "while not go.exists(): time.sleep(0.001)\n"
+            "run = pathlib.Path(sys.argv[1])\n"
+            "(run / f'ready-{os.getpid()}').touch()\n"
+            "while not (run / 'go').exists(): time.sleep(0.001)\n"
             "won = s.claim_pid_file()\n"
             "print('won' if won else 'lost', flush=True)\n"
-            "time.sleep(1.0)\n")  # hold the lock while the others try
-        procs = [self.server_process(body, str(go)) for _ in range(starts)]
-        time.sleep(0.5)  # let every process load the script and reach the wait
-        go.touch()
+            "(run / f'tried-{os.getpid()}').touch()\n"
+            "while not (run / 'release').exists(): time.sleep(0.01)\n")
+        procs = [self.server_process("import os\n" + body, str(run)) for _ in range(starts)]
+        self.addCleanup(lambda: [p.kill() for p in procs if p.poll() is None])
+        self.assertTrue(self.wait_for(lambda: len(list(run.glob("ready-*"))) == starts),
+                        "not every server reached the start line")
+        (run / "go").touch()
+        self.assertTrue(self.wait_for(lambda: len(list(run.glob("tried-*"))) == starts),
+                        "not every server tried to claim the PID file")
+        (run / "release").touch()
         results = []
         for proc in procs:
             out, err = proc.communicate(timeout=30)
@@ -166,10 +187,21 @@ class ServerPidLockTest(unittest.TestCase):
         probe_fd = os.open(self.pid_file, os.O_RDONLY)
         self.addCleanup(os.close, probe_fd)
         fcntl.flock(probe_fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
-        releaser = threading.Timer(0.05, fcntl.flock, args=(probe_fd, fcntl.LOCK_UN))
-        releaser.start()
-        self.addCleanup(releaser.cancel)
-        self.assertTrue(server.claim_pid_file())
+        # The probe ends while the server waits between its first tries, not on a timer that
+        # a loaded host could run after the 0.2 s grace (CLAUDE/QA.md
+        # test-wall-clock-ceiling-under-a-second, "What neither rule sees")
+        retries = []
+
+        def probe_ends_during_the_wait(seconds):
+            if not retries:
+                fcntl.flock(probe_fd, fcntl.LOCK_UN)
+            retries.append(seconds)
+            time.sleep(seconds)
+
+        clock = types.SimpleNamespace(monotonic=time.monotonic, sleep=probe_ends_during_the_wait)
+        with mock.patch.object(server, "time", clock):
+            self.assertTrue(server.claim_pid_file())
+        self.assertTrue(retries, "the lock was free at the first try: nothing was waited out")
         self.assertEqual(self.pid_file.read_text(), str(os.getpid()))
 
     def test_a_lock_held_past_the_grace_still_refuses(self):
