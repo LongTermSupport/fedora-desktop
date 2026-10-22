@@ -1,0 +1,13 @@
+teamchat delivery 3f9c2a71: a membership notice from teamchat: this session's teams changed
+<<teamchat 3f9c2a71 1/1>>
+kind: MEMBERSHIP (teamchat's own notice: the owner changed this session's teams on the host)
+from: teamchat
+to: this session
+teamchat: you left team oldteam: removed by the owner. Commands for it are refused from now on.
+teamchat: you joined team myteam as myrepo.3+desk.lxc.
+teamchat: team myteam is for: The docs team — site and blog
+teamchat: in team myteam you are a worker; the coordinator is myrepo.1+desk.podman.
+teamchat: in team otherteam you are the coordinator.
+teamchat: this session's teams are now: myteam, otherteam.
+authority: the owner's change, made on the host. A fact about this session's teams; no team member sent it, and none can.
+<<end teamchat 3f9c2a71 1/1>>

@@ -151,14 +151,17 @@ its first caller.
 
 - [x] ✅ **Task 1.1**: `internal/teamchat/paths`, the one source of every name and path (D 3.3).
   Built on `feat/bus-v2-n1-paths`, 100% coverage. Review round 3 was FIX-FIRST; its five findings
-  are fixed in cb3736fa and were not reviewed again (`261021-n1-paths.md`).
+  are fixed in cb3736fa, and a narrow check of them is MERGE (`261021-n1-paths.md`,
+  `261021-n1-paths-check.md`).
 - [x] ✅ **Task 1.2**: The static gate `teamchat-keeps-off-v1` with its v1 name list (D 4.1), in
   `qa-changed.bash` and `qa-all.bash` before the first v2 package merges. The merge into
   `feat/bus-v2-n1` adds to `allowed.tsv` the three rows for the matrix replay test
   (`261021-n1-paths.md`), and that merge is gated on `qa-teamchat-separate` exit 0.
-- [ ] ⬜ **Task 1.3**: `teamchat/proto`, test first: the wire, the roster type, the verdict and
+- [x] ✅ **Task 1.3**: `teamchat/proto`, test first: the wire, the roster type, the verdict and
   room-trust check, kinds, references, limits, the envelope, the shared corpus (A 2-13), and the
-  room specs exported as data (seam 13).
+  room specs exported as data (seam 13). Built on `feat/bus-v2-n1-proto`, reviewed to MERGE in
+  two rounds; its 57 decisions and their design-text fixes are in
+  `subagent-reports/261021-n1-proto.md`.
 - [x] ✅ **Task 1.4**: A's host checks HC-A1 to HC-A7 (host or VM lab), before `proto` fixes the
   rules they decide. The server checks (HC-A1, HC-A2's server half, HC-A4, HC-A6, HC-A7, H-C12
   to H-C14) are judged in the container against the pinned Tuwunel 1.9.4 binary (the asset's

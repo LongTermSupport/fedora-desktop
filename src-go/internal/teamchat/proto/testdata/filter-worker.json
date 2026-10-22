@@ -1,0 +1,43 @@
+{
+  "account_data": {"types": []},
+  "event_format": "client",
+  "presence": {
+    "senders": [
+      "@alice:myteam.teamchat.internal",
+      "@myrepo.1+desk.podman:myteam.teamchat.internal",
+      "@myrepo.2+desk.podman:myteam.teamchat.internal",
+      "@myrepo.3+desk.lxc:myteam.teamchat.internal",
+      "@other.4+desk.podman:myteam.teamchat.internal",
+      "@teamchat.probe+desk.host:myteam.teamchat.internal"
+    ]
+  },
+  "room": {
+    "rooms": ["!MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM"],
+    "timeline": {
+      "types": [
+        "m.room.message",
+        "m.room.redaction",
+        "m.room.create",
+        "m.room.power_levels",
+        "m.room.join_rules",
+        "teamchat.roster",
+        "teamchat.room",
+        "m.room.member"
+      ],
+      "limit": 100
+    },
+    "state": {
+      "types": [
+        "m.room.create",
+        "m.room.power_levels",
+        "m.room.join_rules",
+        "teamchat.roster",
+        "teamchat.room",
+        "m.room.member"
+      ],
+      "lazy_load_members": false
+    },
+    "ephemeral": {"types": []},
+    "account_data": {"types": []}
+  }
+}

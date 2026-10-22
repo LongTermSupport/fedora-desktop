@@ -10,6 +10,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/charmbracelet/x/ansi v0.11.9
 	golang.org/x/sys v0.47.0
+	golang.org/x/text v0.39.0
 )
 
 require (

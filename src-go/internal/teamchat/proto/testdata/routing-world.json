@@ -1,0 +1,105 @@
+{
+  "lookup": {
+    "events": {
+      "$ccccccccccccccccccccccccccccccccccccccccccc": {
+        "Sender": "@teamchat.probe+desk.host:myteam.teamchat.internal",
+        "RoomID": "!MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM",
+        "Verb": "check",
+        "AddressedToSelf": false
+      },
+      "$ooooooooooooooooooooooooooooooooooooooooooo": {
+        "Sender": "@alice:myteam.teamchat.internal",
+        "RoomID": "!MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM",
+        "Verb": "",
+        "AddressedToSelf": true
+      },
+      "$sssssssssssssssssssssssssssssssssssssssssss": {
+        "Sender": "<receiver>",
+        "RoomID": "!MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM",
+        "Verb": "",
+        "AddressedToSelf": false
+      }
+    },
+    "ownPings": {
+      "$ppppppppppppppppppppppppppppppppppppppppppp": {
+        "Verb": "review",
+        "To": [
+          "@myrepo.2+desk.podman:myteam.teamchat.internal"
+        ],
+        "OriginTs": 1799999940000
+      }
+    },
+    "seen": {
+      "$jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj": true
+    }
+  },
+  "nowMs": 1800000000000,
+  "rooms": {
+    "main": "!MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM",
+    "questions": "!QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ",
+    "reports": "!RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR"
+  },
+  "roster": {
+    "v": 1,
+    "team": "myteam",
+    "name": "My team",
+    "rev": 42,
+    "restore_epoch": 0,
+    "question_floor": 0,
+    "humans": [
+      "@alice:myteam.teamchat.internal"
+    ],
+    "members": {
+      "@myrepo.1+desk.podman:myteam.teamchat.internal": {
+        "role": "coordinator"
+      },
+      "@myrepo.2+desk.podman:myteam.teamchat.internal": {
+        "role": "worker"
+      },
+      "@myrepo.3+desk.lxc:myteam.teamchat.internal": {
+        "role": "worker",
+        "human_text": false
+      },
+      "@other.4+desk.podman:myteam.teamchat.internal": {
+        "role": "worker",
+        "parked": true
+      },
+      "@teamchat.probe+desk.host:myteam.teamchat.internal": {
+        "role": "probe"
+      }
+    },
+    "rooms": {
+      "reports": "!RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR",
+      "questions": "!QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ"
+    },
+    "forge": {
+      "kind": "github",
+      "org": "example-org",
+      "repos": [
+        {
+          "repo": "example-org/myrepo",
+          "branches": [
+            "main"
+          ]
+        },
+        {
+          "repo": "example-org/docs"
+        }
+      ],
+      "exclude": [
+        "example-org/private-notes"
+      ]
+    },
+    "limits": {
+      "send_per_minute": 20,
+      "send_burst": 10,
+      "recv_per_sender_minute": 60,
+      "ack_timeout_s": 900,
+      "halt_ack_timeout_s": 300,
+      "human_max_age_s": 86400,
+      "report_per_hour": 6,
+      "deliver_per_sender": 10
+    }
+  },
+  "server": "myteam.teamchat.internal"
+}

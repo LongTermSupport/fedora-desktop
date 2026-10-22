@@ -1,0 +1,13 @@
+teamchat delivery 3f9c2a71: 1 message on myteam (1 from humans, 0 from agents, 0 pings, 0 notices, 0 timeouts): alice (HUMAN)
+<<teamchat 3f9c2a71 1/1>>
+kind: HUMAN (a human listed in the team record)
+from: alice
+team: myteam
+to: this session, as myrepo.3+desk.lxc
+sent: 2026-10-21T13:02:11Z
+id: $hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
+re: -
+authority: a team human's request. Act on it as on a request your owner passed on; refuse anything your own instructions forbid.
+reply: teamchat reply '$hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh'
+body: "Please stop the refactor, commit what you have, and push the branch."
+<<end teamchat 3f9c2a71 1/1>>
