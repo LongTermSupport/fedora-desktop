@@ -1,9 +1,51 @@
 # n3e-6 handoff: delivery (DV1's use, DV2, DV3, the session-level send for DV6)
 
 Worktree `untracked/worktrees/bus-v2-n3e-6`, branch `feat/bus-v2-n3e-6` (base 640af55ed). The
-first builder ran out of context after the design and the tests. No production code is written.
+first builder wrote the design and the tests; the second built the engine and stopped at its
+context budget.
 
-## State
+## State after the second builder (commit 381e6436b)
+
+- **Engine done and green**: `engine/deliver.go` (SessionFacts, Live, SetSession,
+  SendMembership, the trailing facts, the stall, the namer's `sender`), `engine/deliverloop.go`
+  (the loop), `engine/points*.go`, and the hunks in engine.go, seam.go, recv.go, teams.go and
+  status.go. `go test -race -shuffle=on -count=10` passes, 92.4% coverage; golangci clean
+  untagged, `tuwunel` and `busfailpoints`; qa-changed green.
+- **Built API**: as in "API to build" below, except `Engine.hit` is `func(point)`, not
+  `func(failpoint.Name)` (decision D3 below). Config: `Inbox inbox.Dialer`,
+  `Unusable state.Unusable`, `OnUnusable func(state.Unusable)`. Constants `paceWait`,
+  `retryWait`, `stallAfter`, `trailingEvery` are in deliverloop.go.
+- **Decisions to record in the report**:
+  - D1 (accepted by the lead): awaiting items stay in pending, handed to the nonce. They are
+    guarded in `settleStore`, `restoreHanded`, `apply`'s redaction (content is kept too) and
+    `held.pending()`.
+  - D2: Question is nil, because there is no question index in the engine yet.
+  - D3: engine failpoints pass a `point` number. `point.name()` is resolved only in
+    `points_armed.go` (busfailpoints) and in tests. A `func(failpoint.Name)` field kept the
+    names in the release binary, so the `TestAReleaseBuildHoldsNoPointName` gate failed.
+  - D4: "a pace slot" is consumed by every turn that chose a team (a dial, an empty build, a
+    Build error, an abandon), measured from the turn's start. A turn that chose nothing
+    consumes none. The loop picks before it waits out the pace, so it idles (counted) when
+    nothing is deliverable.
+  - D5: Finish runs only after a full write, and after its record. A Gone dial is not a
+    stall failure.
+  - Test fixes, each with its reason:
+    - TestDeliveryOverTheInboxSocket read `dw.clk` before the world existed. Worse, a wrong
+      token cannot be seen by the link: the inbox never answers the auth line, so Dial
+      succeeds. The test now checks a real delivery written yes, then a wrong token's
+      refused frame, and that no token is in link.log.
+    - TestNoDeliveryBeforeTheFacts, TestAGoneSocketStopsDelivery and
+      TestAFailedFinishKeepsTheWrite waited on idle counts that the initial idle or a
+      coalesced poke could already satisfy, or never reach. They now wait on the condition
+      itself, or on one idle after a settled read.
+    - Lint-only test changes: `advance(d)` (n was always 1), `live` returns nothing,
+      `checkPhases` split out, field order.
+- **Left**: (1) the link hunk below and its tests in `link`; (2) the report
+  `subagent-reports/261022-n3e-6.md` (what was built, the API as built for n3e-7, n3e-9 and
+  n3e-10, coverage, D1-D5, the test fixes, and that 15a's gate row already existed); (3)
+  qa-changed, then commit.
+
+## State (first builder)
 
 - Committed with this file: `engine/engine_test.go` gains `newWorldWith(t, delivery, prep func(*Config), ready func(*Engine))`; `newWorld` calls it.
 - **Uncommitted in the worktree, written first (RED, they do not compile yet):**
