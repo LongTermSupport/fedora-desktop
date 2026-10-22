@@ -529,3 +529,36 @@ func TestReadsOnADeadRootAreGone(t *testing.T) {
 		}
 	}
 }
+
+// TestALeasedFileIsRefused is B1: a guest user's write lease on a file it owns makes the
+// reopen's O_NONBLOCK open answer EWOULDBLOCK, which is that file refused (the member's own
+// failure), never a host fault; the lock probe reads it as free.
+func TestALeasedFileIsRefused(t *testing.T) {
+	g := newTree(t)
+	g.file("/leased", "x", 0o600)
+	g.file(lockPath, `{"run":"r1"}`, 0o600)
+	r := g.root(newRecorder())
+	for _, p := range []string{"/leased", lockPath} {
+		holder, err := os.Open(g.host(p))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := unix.FcntlInt(holder.Fd(), unix.F_SETLEASE, unix.F_WRLCK); err != nil {
+			t.Fatalf("take a lease on %s: %v", p, err)
+		}
+		t.Cleanup(func() {
+			if _, err := unix.FcntlInt(holder.Fd(), unix.F_SETLEASE, unix.F_UNLCK); err != nil {
+				t.Error(err)
+			}
+			if err := holder.Close(); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	if got := readFile(r, "/leased", 10); !errors.Is(got.err, ErrRefused) || !strings.Contains(got.err.Error(), "/leased") {
+		t.Errorf("a leased file: %v", got.err)
+	}
+	if _, _, err := r.ProbeLock(lockPath); !errors.Is(err, ErrRefused) {
+		t.Errorf("a leased lock: %v", err)
+	}
+}

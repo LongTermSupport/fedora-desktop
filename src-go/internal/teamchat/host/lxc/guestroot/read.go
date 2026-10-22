@@ -244,7 +244,8 @@ func (r *Root) opath(p string) (int, Info, error) {
 }
 
 // reopen is TB1's read open of path: O_PATH, a regular file by fstat, then that inode reopened
-// for reading through /proc/self/fd/<n> and checked to be the same by device and inode.
+// for reading through /proc/self/fd/<n> and checked to be the same by device and inode. A
+// write lease its owner holds makes the O_NONBLOCK reopen answer EWOULDBLOCK: refused (B1).
 func (r *Root) reopen(p string, info *Info) (int, error) {
 	pfd, i, err := r.opath(p)
 	if err != nil {
@@ -266,6 +267,9 @@ func (r *Root) reopenFD(pfd int, info Info, p string) (int, error) {
 		return -1, fmt.Errorf("%w: %s is %s, not a regular file", ErrRefused, p, kind(info.Mode))
 	}
 	fd, err := r.sys.openat(unix.AT_FDCWD, "/proc/self/fd/"+strconv.Itoa(pfd), reopenFlags, 0)
+	if errors.Is(err, unix.EWOULDBLOCK) {
+		return -1, fmt.Errorf("%w: %s is leased by its owner", ErrRefused, p)
+	}
 	if err != nil {
 		return -1, fmt.Errorf("guestroot: reopen %s: %w", p, err)
 	}
