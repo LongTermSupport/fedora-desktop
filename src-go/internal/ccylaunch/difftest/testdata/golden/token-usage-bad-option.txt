@@ -1,0 +1,11 @@
+=== exit 64
+=== stdout
+=== stderr
+ccy --token-usage: unknown option --fast (usage: ccy --token-usage [--json])
+=== calls
+=== files
+dir  home/.claude-tokens 0700
+dir  home/.claude-tokens/ccy 0700
+dir  home/.claude-tokens/ccy/tokens 0700
+file home/.claude-tokens/ccy/tokens/work.2030-06-01.token 0600
+     | {token:work}

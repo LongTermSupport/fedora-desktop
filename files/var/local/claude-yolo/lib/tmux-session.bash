@@ -22,10 +22,7 @@
 # Session names mirror container names: ccy-<project>, then ccy-<project>-2, and so on.
 # Running ccy in a project that has a detached session — the one a dead terminal left
 # behind — offers to re-attach it; a session open in another terminal is never offered
-# there. ccy_tmux_take_over (with ccy_tmux_client_words and ccy_tmux_idle_words) can take one
-# over, detaching the other terminal, but nothing calls them now: the Go ccy-sessions does its
-# own take-over. They stay until the owner decides when dead bash goes (decision D8 in
-# ASSESS-ccy-launcher.md of the Go tooling plan).
+# there. Taking one over from another terminal is the Go ccy-sessions' (Ctrl-T in its picker).
 #
 # Requires print_error (common-pure.bash, always loaded first) and lib/session-registry.bash:
 # every session started here is recorded so a reboot can be undone, and the record's removal
@@ -143,43 +140,6 @@ ccy_tmux_attach() {
     return 0
 }
 
-# ── taking a session over from another terminal ──────────────────────────────────────────
-#
-# A terminal that dropped without letting go — an SSH connection that died while its tmux
-# client stayed connected — holds its session, and the one-terminal rule then refuses it to
-# every other terminal. Taking over detaches that other terminal and attaches this one. Only
-# the client is detached: the session and everything in it keep running.
-
-# How long a detached terminal is given to let go, in tenths of a second. tmux detaches a
-# client by telling it to leave, so the session shows no client only once it has.
-: "${CCY_TMUX_TAKE_OVER_WAIT_TENTHS:=50}"
-
-# ccy_tmux_idle_words <seconds> — "idle 40 s", "idle 12 min", "idle 3 h", "idle 2 d",
-# rounded down. PURE. A negative age (the clock moved back) reads as 0.
-ccy_tmux_idle_words() {
-    local s=$(($1 < 0 ? 0 : $1))
-    if [[ "$s" -lt 60 ]]; then
-        printf 'idle %s s' "$s"
-    elif [[ "$s" -lt 3600 ]]; then
-        printf 'idle %s min' "$((s / 60))"
-    elif [[ "$s" -lt 86400 ]]; then
-        printf 'idle %s h' "$((s / 3600))"
-    else
-        printf 'idle %s d' "$((s / 86400))"
-    fi
-}
-
-# ccy_tmux_client_words <clients> <now> — "<tty> (idle …), <tty> (idle …)". PURE.
-#   <clients> "<tty> <last-activity-epoch>" per line, as _ccy_tmux_clients asks tmux
-ccy_tmux_client_words() {
-    local clients="$1" now="$2" tty activity out=""
-    while read -r tty activity; do
-        [[ -n "$tty" ]] || continue
-        out+="${out:+, }${tty} ($(ccy_tmux_idle_words "$((now - activity))"))"
-    done <<<"$clients"
-    printf '%s' "$out"
-}
-
 # _ccy_tmux_clients <name> — the "<tty> <last-activity-epoch>" lines for every client on a
 # session, as list-clients — and therefore the single-attach hook — sees them. Returns 2,
 # silently, when the session (or the whole server) is gone; 1 after any other error.
@@ -194,57 +154,6 @@ _ccy_tmux_clients() {
         return 1
     fi
     printf '%s\n' "$out"
-}
-
-# ccy_tmux_take_over <name> — detach every other terminal from the session, wait until
-# list-clients shows none (the hook's view; see ccy_tmux_is_detached), and attach this one
-# through ccy_tmux_attach. Returns 2 when the session has ended, or was taken again just
-# before the attach; 1 when tmux refuses the detach or the other terminal does not let go in
-# time; 3 when the attach was kicked off again (ccy_tmux_attach). Nothing is attached on 1
-# or 2. Never kills the session or anything in it.
-ccy_tmux_take_over() {
-    local name="${1:?ccy_tmux_take_over requires a session name}" clients words out rc=0 waited=0 detach_failed=false
-    clients=$(_ccy_tmux_clients "$name") || rc=$?
-    if [[ "$rc" -eq 2 ]]; then
-        print_error "'$name' has ended; there is nothing to take over."
-        return 2
-    elif [[ "$rc" -ne 0 ]]; then
-        return 1
-    fi
-    if [[ -n "$clients" ]]; then
-        words=$(ccy_tmux_client_words "$clients" "$EPOCHSECONDS")
-        if out=$(ccy_tmux detach-client -s "=$name" 2>&1); then
-            echo "Detached '$name' from ${words}; the session keeps running." >&2
-        else
-            # The other terminal may have left between the listing and the detach, and tmux
-            # then fails the detach for want of a client. That is the outcome wanted, so it
-            # is only a failure if a client is still there.
-            detach_failed=true
-            echo "The detach from ${words} failed (${out}); checking whether '$name' is free anyway." >&2
-        fi
-        while :; do
-            rc=0
-            clients=$(_ccy_tmux_clients "$name") || rc=$?
-            if [[ "$rc" -eq 2 ]]; then
-                print_error "'$name' ended while it was being taken over; nothing was attached."
-                return 2
-            elif [[ "$rc" -ne 0 ]]; then
-                return 1
-            fi
-            [[ -n "$clients" ]] || break
-            if [[ "$detach_failed" == true ]]; then
-                print_error "could not detach '$name' from ${words}: $out"
-                return 1
-            fi
-            if [[ "$waited" -ge "$CCY_TMUX_TAKE_OVER_WAIT_TENTHS" ]]; then
-                print_error "'$name' was told to leave ${words}, but it is still open there after $((CCY_TMUX_TAKE_OVER_WAIT_TENTHS / 10)) s. Nothing was attached; the session keeps running."
-                return 1
-            fi
-            sleep 0.1
-            waited=$((waited + 1))
-        done
-    fi
-    ccy_tmux_attach "$name"
 }
 
 # ccy_tmux_teams_arg [args...] — the value of the launcher's --teams (`--teams <list>` or
@@ -484,7 +393,8 @@ ccy_tmux_insulate() {
         if [[ "$attach_rc" -eq 0 || "$attach_rc" -eq 3 ]]; then
             exit 0
         fi
-        exec "$@"
+        # The GitHub token hand-off file's path (lib/token-handoff.bash), never the token.
+        CCY_GH_TOKEN_HANDOFF="${CCY_GH_TOKEN_HANDOFF:-}" exec "$@"
         ;;
     esac
 
@@ -505,8 +415,11 @@ ccy_tmux_insulate() {
     ccy_registry_write "$name" "$PWD" "$launcher" "$CCY_TMUX_SESSION_PREFIX" "$restore" "${replay[@]}" || return 1
 
     # A record with no session behind it would be restored at the next boot as a session
-    # that was never running, so a failed start takes its record with it.
-    if ! ccy_tmux_start_detached "$name" "$PWD" "$launcher" "${launch[@]}"; then
+    # that was never running, so a failed start takes its record with it. A GitHub token
+    # hand-off (lib/token-handoff.bash) goes on the pane's command as the file's path alone,
+    # so it reaches this session's launcher and not tmux's environment, which every later
+    # session would inherit.
+    if ! ccy_tmux_start_detached "$name" "$PWD" ${CCY_GH_TOKEN_HANDOFF:+env "CCY_GH_TOKEN_HANDOFF=$CCY_GH_TOKEN_HANDOFF"} "$launcher" "${launch[@]}"; then
         ccy_registry_remove "$name"
         return 1
     fi

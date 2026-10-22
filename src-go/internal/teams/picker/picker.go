@@ -122,11 +122,14 @@ func (p *Picker) run(ctx context.Context) term.ExitCode {
 	return term.ExitFailure
 }
 
-// pickerSession is the start-up offers, then the loop. It always ends in a leaveError.
+// pickerSession is the start-up offers, then the loop. It always ends in a leaveError. The
+// start-up (this first read, the offers' and the loop's first pass) shares one read of the
+// teams unless an offer changes them (SPEC-view.md V41).
 func (p *Picker) pickerSession(ctx context.Context) error {
 	if err := p.Kit.Interrupted(ctx); err != nil {
 		return err
 	}
+	p.Board.HoldTeams()
 	first, err := p.Board.Refresh(ctx)
 	if err != nil {
 		return flow.Leave(term.ExitFailure)

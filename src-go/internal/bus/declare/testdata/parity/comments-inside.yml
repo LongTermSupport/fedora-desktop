@@ -1,0 +1,13 @@
+agent_bus_teams:
+  - team: alpha   # the first
+# a column-0 comment inside the list
+
+    port: 6167 # port
+    # a comment line
+    org: example#org
+    description: 'x # y'
+    server_name: "s#n" # c
+  - team: beta
+    port: '6168'
+    org: "example-org" # quoted
+    description: "hash # inside" # and a comment

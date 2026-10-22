@@ -22,6 +22,7 @@ import pathlib
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -465,7 +466,9 @@ def write_exe(path: pathlib.Path, text: str) -> None:
 
 class LauncherTest(unittest.TestCase):
     def setUp(self) -> None:
-        tmp = tempfile.TemporaryDirectory()
+        # As root the launcher drops to `nobody`, which must search every ancestor of the
+        # scratch tree; /tmp can be mode 0700, /var/tmp is 0755.
+        tmp = tempfile.TemporaryDirectory(dir="/var/tmp" if os.geteuid() == 0 else None)
         self.addCleanup(tmp.cleanup)
         self.root = pathlib.Path(tmp.name).resolve()
         self.kit = self.root / "kit"
@@ -621,6 +624,9 @@ class LauncherTest(unittest.TestCase):
         self.assertIsNotNone(setpriv, "setpriv is needed to drop root for this case")
         for directory in (self.root, self.bin, self.root / "tools", self.home):
             directory.chmod(0o755)
+        for ancestor in self.root.parents:
+            if not ancestor.stat().st_mode & stat.S_IXOTH:
+                self.fail(f"nobody cannot search {ancestor}, an ancestor of the scratch tree")
         for path in (self.kit, *self.kit.rglob("*")):
             path.chmod(0o755 if path.is_dir() or path.name == "agent-bus-claude" else 0o644)
         return subprocess.run(

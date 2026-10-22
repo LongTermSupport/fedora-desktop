@@ -20,7 +20,9 @@ var addedAfterPort = []struct{ name, reason string }{
 	{"ccy-container-name", "Plan 00203, the container name race: ccy's name claim (ccy-teams internal claim-container-name) gets its own suite"},
 	{"go-deps", "Plan 00204 D2: src-go may have dependencies, vendored, pinned and allowlisted, and this gate holds them to that"},
 	{"go-vuln", "Plan 00204 D2: govulncheck over src-go's vendored dependencies"},
+	{"hook-handlers", "Plan 00191 Task 4.6: the project hooks-daemon handlers' tests, under the daemon's interpreter"},
 	{"run-bash-pipx-inject", "Plan 00188: run.bash injects only the missing Ansible dependencies, and its own suite proves it"},
+	{"ccy-token-handoff", "Plan 00191 Task 4.4b: an exported GH_TOKEN handed to the launcher ccy re-runs inside tmux, by a private file, and its own suite proves it"},
 }
 
 func isAddedAfterPort(name string) bool {

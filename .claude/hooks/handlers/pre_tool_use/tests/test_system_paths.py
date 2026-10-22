@@ -8,6 +8,7 @@ import pytest
 # Add handler directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import system_paths
 from system_paths import SystemPathsHandler
 
 
@@ -177,6 +178,55 @@ class TestSystemPathsHandler:
         }
         assert handler.matches(hook_input) is False
 
+    # The exemptions are judged on the path the write would reach, not its spelling.
+    @pytest.mark.parametrize(
+        "file_path",
+        [
+            "/root/.claude/projects/../../../etc/passwd",
+            "/home/u/.claude/projects/x/../../../../../etc/passwd",
+            "/home/u/work/.claude/projects/-x/memory/MEMORY.md",
+            "//etc/hosts",
+            "/./etc/hosts",
+            "/tmp/../etc/hosts",
+        ],
+    )
+    def test_matches_a_system_path_however_it_is_spelt(self, handler, file_path):
+        """`..`, `.`, a doubled leading slash and another project's .claude are not exempt."""
+        assert handler.matches({"tool_name": "Write", "tool_input": {"file_path": file_path}}) is True
+
+    def test_matches_a_climb_out_of_the_project_directory(self, handler):
+        """The project prefix followed by `..` out of it is not the project."""
+        project = system_paths._resolve_project_root()
+        climb = project + "../" * project.count("/") + "etc/hosts"
+        assert handler.matches({"tool_name": "Edit", "tool_input": {"file_path": climb}}) is True
+
+    def test_resolves_under_follows_a_symlinked_root(self, tmp_path):
+        """The exempt directory may be a link (CCY's /root/.claude); a file under it is exempt."""
+        target = tmp_path / "ccy" / "projects"
+        (target / "-p" / "memory").mkdir(parents=True)
+        link = tmp_path / "projects"
+        link.symlink_to(target)
+        assert system_paths._resolves_under(f"{link}/-p/memory/MEMORY.md", str(link)) is True
+
+    def test_resolves_under_refuses_a_link_that_leaves_the_root(self, tmp_path):
+        """A link planted inside the exempt directory that points out of it is not exempt."""
+        root = tmp_path / "projects"
+        outside = tmp_path / "etc"
+        root.mkdir()
+        outside.mkdir()
+        (root / "escape").symlink_to(outside)
+        assert system_paths._resolves_under(f"{root}/escape/passwd", str(root)) is False
+
+    def test_resolves_under_resolves_dotdot_after_a_link_as_the_kernel_does(self, tmp_path):
+        """`link/../x` with link -> /etc/ssh lands in /etc, though it normalises to root/x."""
+        root = tmp_path / "projects"
+        sub = tmp_path / "etc" / "ssh"
+        root.mkdir()
+        sub.mkdir(parents=True)
+        (root / "link").symlink_to(sub)
+        assert system_paths._resolves_under(f"{root}/link/../passwd", str(root)) is False
+        assert system_paths._resolves_under(f"{root}/plain/../passwd", str(root)) is True
+
     def test_matches_read_tool_returns_false(self, handler):
         """Should NOT match Read tool (reading system files is allowed)."""
         hook_input = {"tool_name": "Read", "tool_input": {"file_path": "/etc/fstab"}}
@@ -335,6 +385,21 @@ class TestSystemPathsHandler:
         }
         result = handler.handle(hook_input)
         assert "files/var/local/" in result.reason
+
+    def test_handle_maps_deployed_bash_launcher_to_its_source(self, handler):
+        """The play installs files/var/local/claude-yolo/claude-yolo as claude-yolo.bash."""
+        result = handler.handle(
+            {"tool_name": "Edit", "tool_input": {"file_path": "/var/local/claude-yolo/claude-yolo.bash"}}
+        )
+        assert "Edit the project file in: files/var/local/claude-yolo/claude-yolo\n" in result.reason
+
+    def test_handle_maps_deployed_go_front_to_its_source(self, handler):
+        """/var/local/claude-yolo/claude-yolo is the Go front, built from src-go."""
+        result = handler.handle(
+            {"tool_name": "Write", "tool_input": {"file_path": "/var/local/claude-yolo/claude-yolo"}}
+        )
+        assert "Edit the project file in: src-go/cmd/claude-yolo" in result.reason
+        assert "Edit the project file in: files/var/local/claude-yolo/claude-yolo\n" not in result.reason
 
     def test_handle_maps_usr_local_to_files_usr_local(self, handler):
         """handle() should suggest files/usr/local/ for /usr/local/ paths."""
