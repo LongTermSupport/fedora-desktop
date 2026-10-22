@@ -92,8 +92,11 @@ type Quirks struct {
 	// LoginFailuresAllowed is how many wrong passwords an account may give before its password
 	// logins are answered 429; 0 is no limit. Restart empties the count.
 	LoginFailuresAllowed int
-	// AdminRoom joins an account made an admin (seeded, registered or set by the admin API) to
-	// the server's own admin room, which the server user created, as Tuwunel does.
+	// AdminRoom joins an account registered (or seeded) as an admin to the server's own admin
+	// room, which the server user created, as Tuwunel does for a shared-secret registration
+	// with admin true (the rooms engine's tagged run). The room is made with the first admin;
+	// its name, topic, alias, power levels and join rules, an admin made by the admin API, and a
+	// demotion are not modelled.
 	AdminRoom bool
 }
 

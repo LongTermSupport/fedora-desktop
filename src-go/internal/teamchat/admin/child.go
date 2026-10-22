@@ -144,7 +144,9 @@ func oneLine(s string) string {
 const cutMark = "..."
 
 // breaksLine is a character a reader of root's lines could take as a line end or an escape: a
-// control (C0, DEL, C1), a format character, or the Unicode line or paragraph separator.
+// control (C0, DEL, C1), a format character, or the Unicode line or paragraph separator. It is
+// stricter than A 13.3's membership line (proto), a protocol rule, by the format characters: no
+// child-written text root prints needs one.
 func breaksLine(r rune) bool {
 	return unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == 0x2028 || r == 0x2029
 }

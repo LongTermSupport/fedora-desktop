@@ -140,7 +140,9 @@ IDs known so far. It answers the room IDs, the `CHANGED` lines and the roster `r
   `ErrRateLimited` 69; anything else 1. The matrix client's own `ExitCode` is the member
   side's table and is never used by the host (n2a-D13). A failure still answers what changed
   before it: the room IDs, the `CHANGED` lines so far, and the roster `rev` once the server
-  accepted the roster write, so the caller can print and record them (C 3.6.1, C 3.6.2).
+  accepted the roster write, so the caller can print and record them (C 3.6.1, C 3.6.2). A room
+  created whose ID could not then be recorded is not in that answer; the next run adopts it and
+  prints `room <purpose> adopted <id>`.
 - **RE10. Trusted.** The rooms the engine makes pass proto's own trust checks: `VerifyMain`
   over main's state gives the roster the engine wrote, and `VerifySide` accepts reports and
   questions (A 6.4). With `-tags tuwunel` and `FAKEHS_TUWUNEL_BIN` the same round trip (create,

@@ -212,7 +212,13 @@ func TestConvergeIsIdempotent(t *testing.T) {
 // the engine made.
 func TestConvergedRoomsAreTrusted(t *testing.T) {
 	w := newWorld(t)
-	ids := w.built(t)
+	w.trusted(t, w.built(t))
+}
+
+// trusted checks that proto's trust checks accept the rooms as the server holds them, and that
+// main's roster reads back as the one written at rev 1.
+func (w *world) trusted(t *testing.T, ids proto.RoomIDs) {
+	t.Helper()
 	anchors := proto.Anchors{Server: server, Team: team, MainRoom: ids.Main, Self: worker}
 	got, err := proto.VerifyMain(w.state(t, ids.Main), anchors)
 	if err != nil {
@@ -325,7 +331,7 @@ func TestConvergeRefusesALinkToAnotherMain(t *testing.T) {
 	}
 }
 
-func TestConvergeIgnoresOtherTeamsAndPurposes(t *testing.T) {
+func TestConvergeIgnoresOtherPurposes(t *testing.T) {
 	w := newWorld(t)
 	ids := w.built(t)
 	w.createLinked(t, team, proto.PurposeQuestions, ids.Main)
@@ -430,6 +436,16 @@ func TestConvergeReportsWhatChangedBeforeAFailure(t *testing.T) {
 	}
 	if !slices.Equal(res.Changed, want) || res.RosterRev != 2 || res.Rooms != ids {
 		t.Fatalf("partial result %+v, want changed:\n%s", res, strings.Join(want, "\n"))
+	}
+
+	fresh := newWorld(t)
+	res, err = Converge(t.Context(), fresh.admin, &recorder{fail: "intent reports"}, fresh.team, proto.RoomIDs{})
+	if e, ok := errors.AsType[*Error](err); !ok || e.Purpose != proto.PurposeReports || e.Step != StepCreate {
+		t.Fatalf("intent failure for reports = %v", err)
+	}
+	if res.Rooms.Main == "" || res.Rooms.Reports != "" || res.Rooms.Questions != "" || res.RosterRev != 0 ||
+		!slices.Equal(res.Changed, []string{"room main created " + res.Rooms.Main}) {
+		t.Fatalf("partial result after main was created: %+v", res)
 	}
 }
 

@@ -210,9 +210,6 @@ func (s *Server) updateAccount(u *user, body map[string]any) error {
 		u.displayName = name
 	}
 	if admin, ok := body[keyAdmin].(bool); ok {
-		if admin && !u.admin {
-			s.madeAdmin(u.id)
-		}
 		u.admin = admin
 	}
 	if password, ok := body["password"].(string); ok {

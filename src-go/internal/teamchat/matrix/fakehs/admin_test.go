@@ -25,8 +25,8 @@ func (tm *team) joined(uid string) []any {
 }
 
 // TestAdminRoom is Tuwunel's own admin room (seen against the real server by the rooms engine's
-// tagged run): an account made an admin, seeded, registered or set by the admin API, is joined to
-// the one room the server user created, with no state of the team's.
+// tagged run): an account seeded or registered as an admin is joined to the one room the server
+// user created, with no state of the team's.
 func TestAdminRoom(t *testing.T) {
 	tm := newTeam(t)
 	rooms := tm.joined(tm.admin)
@@ -43,10 +43,6 @@ func TestAdminRoom(t *testing.T) {
 		if !ok || ev["type"] == createType && ev["sender"] != "@conduit:"+teamServerName {
 			t.Errorf("admin room event %v", raw)
 		}
-	}
-	tm.ok(tm.putUser(tm.agent, map[string]any{"admin": true}))
-	if got := tm.joined(tm.agent); len(got) != 2 || got[0] != adminRoom {
-		t.Errorf("an account set admin is in %v, want the admin room too", got)
 	}
 	nonce := text(t, tm.ok(tm.call("", "GET", "/_synapse/admin/v1/register", nil, nil))["nonce"])
 	registered := tm.ok(tm.call("", "POST", "/_synapse/admin/v1/register", nil, map[string]any{

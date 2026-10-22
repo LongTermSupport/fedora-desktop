@@ -56,6 +56,11 @@ func TestTuwunelConverge(t *testing.T) {
 	defer cancel()
 	hs := tuwunelhs.Start(ctx, t, server)
 	w := &world{admin: realAdmin(ctx, t, hs), team: Team{Server: server, Team: team, Roster: roster()}}
+	// The server answer fakehs's AdminRoom quirk records: the registered admin is in one room,
+	// the server's own, which it did not create.
+	if joined, err := w.admin.JoinedRooms(ctx); err != nil || len(joined) != 1 || len(w.adminCreated(t)) != 0 {
+		t.Fatalf("a registered admin is in %v (%v), want the server's admin room alone", joined, err)
+	}
 
 	rec := &recorder{}
 	first, err := Converge(ctx, w.admin, rec, w.team, proto.RoomIDs{})
@@ -78,20 +83,5 @@ func TestTuwunelConverge(t *testing.T) {
 		t.Fatalf("second run with nothing changed = %+v", again)
 	}
 
-	ids := first.Rooms
-	anchors := proto.Anchors{Server: server, Team: team, MainRoom: ids.Main, Self: worker}
-	got, err := proto.VerifyMain(w.state(t, ids.Main), anchors)
-	if err != nil {
-		t.Fatalf("VerifyMain: %v", err)
-	}
-	want := roster()
-	want.Rev, want.Rooms = 1, proto.SideRooms{Reports: ids.Reports, Questions: ids.Questions}
-	if !got.Encode().Equal(want.Encode()) {
-		t.Fatalf("roster read back %s, want %s", got.Encode().Compact(), want.Encode().Compact())
-	}
-	for purpose, id := range map[string]string{proto.PurposeReports: ids.Reports, proto.PurposeQuestions: ids.Questions} {
-		if err := proto.VerifySide(purpose, id, w.state(t, id), got, anchors); err != nil {
-			t.Errorf("VerifySide(%s): %v", purpose, err)
-		}
-	}
+	w.trusted(t, first.Rooms)
 }
