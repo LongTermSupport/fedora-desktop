@@ -306,6 +306,15 @@ its first caller.
   (`TestTuwunelSeatWatch`), and each passed (`subagent-reports/261022-n2-qafix.md`).
   The team lock is one package, `teamchat/teamlock` (TL1), used by host, admin and health
   (`subagent-reports/261022-n2-lock.md`).
+  Slice n2g (`feat/bus-v2-n2g`, `SPEC-n2g.md`, report `subagent-reports/261022-n2g.md`) covers
+  C 3.12 as inert code: backups (`backup`: BT, BK, BV, HB1), the restore engine (`restore`:
+  RG, RM, RS, RO, RE, the renames), the child's restore ops and the secure unit's child
+  (`admin`: RC, RU), the `backup`, `backups` and `restore` verbs, and their wiring (`admin/wire`).
+  RT1-RT4 pass against the pinned Tuwunel 1.9.4 (`-tags tuwunel`). An Opus review went
+  FIX-FIRST, then MERGE in round 2 (`261022-n2g-review.md`, `-review-2.md`). `backup --all`
+  goes on past a team that is down. Not done: `restore` stays refused in production
+  (`restore.ErrUnproven`, n2g-D8, until H-C15); the units, timers and install (gate A,
+  Task 2.5); the review's nits 5-11, listed in the report.
 
   **Six N2 packages had no caller; slice n2f gives four of them one** (by import:
   `go list -deps ./cmd/teamchat-admin`). A Go package merges to F44 with its first caller
