@@ -94,8 +94,8 @@ type Launch struct {
 	Generation      int64       `json:"generation"`
 	ClaudeConfigDir *string     `json:"claude_config_dir"`
 	Cwd             string      `json:"cwd"`
-	// Seats is how many add messages follow launch; the link sends ready once that many are
-	// handled (n3c-D24), so the first SessionStart sees every team's backlog.
+	// Seats is how many add messages follow the launch; the link is ready only once it has
+	// handled that many, a failed add included (n3c-D24).
 	Seats int `json:"seats"`
 }
 
