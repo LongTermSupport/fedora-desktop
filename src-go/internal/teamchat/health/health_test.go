@@ -170,9 +170,28 @@ func (s *space) Space() (int64, int64, error) { return s.free, s.total, nil }
 type guests struct {
 	probes map[string]GuestProbe
 	err    error
+	// together, when set, holds each probe until need probes have started: probes run one at a
+	// time never get there.
+	together chan struct{}
+	need     int
+	mu       sync.Mutex
+	started  int
 }
 
 func (g *guests) Probe(_ context.Context, _ paths.TeamID, handle string) (GuestProbe, error) {
+	if g.together != nil {
+		g.mu.Lock()
+		g.started++
+		if g.started == g.need {
+			close(g.together)
+		}
+		g.mu.Unlock()
+		select {
+		case <-g.together:
+		case <-time.After(10 * time.Second):
+			return GuestProbe{}, errors.New("the probes ran one at a time")
+		}
+	}
 	return g.probes[handle], g.err
 }
 
@@ -951,6 +970,24 @@ func TestAGuestProbeThatFailsIsAProblem(t *testing.T) {
 	rec := w.record(t, "alpha")
 	if *rec.Members[1].Online || !membersProblem(rec, "the seat of "+lxcA+" could not be probed", lxcA) {
 		t.Fatalf("problems %v", whats(rec.Problems))
+	}
+}
+
+func TestATeamsGuestProbesRunTogether(t *testing.T) {
+	w := newWorld(t, "alpha")
+	handles := []string{lxcA, "web.3+box.lxc", "web.4+box.lxc", "web.5+box.lxc"}
+	w.viewer.view.Members = w.viewer.view.Members[:1]
+	w.guests.together, w.guests.need = make(chan struct{}), len(handles)
+	for _, h := range handles {
+		w.viewer.view.Members = append(w.viewer.view.Members, status.Member{Handle: h, Kind: status.KindLXC, Role: "worker", State: "active", Rooms: map[string]string{"main": "join"}})
+		w.guests.probes[h] = GuestProbe{Held: true, Record: lockRecord(runA, false)}
+	}
+	w.run(t)
+	rec := w.record(t, "alpha")
+	for i, h := range handles {
+		if m := rec.Members[i+1]; m.Handle != h || !*m.Online {
+			t.Fatalf("member %d %+v; problems %v", i+1, m, whats(rec.Problems))
+		}
 	}
 }
 
