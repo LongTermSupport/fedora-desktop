@@ -37,7 +37,13 @@ how, so builders can be briefed. Paths are under `src-go/internal/teamchat/`.
   one container collide in the gate and in `approved.json`. It gains `Checkout` and `Seat`;
   `who()` becomes the (container, checkout, seat) form, `String`/`ParseLXCEntry` and
   `readLXCEntries` (its `keyCheckout`, `keySeat`, its duplicate check) follow; `User` stays a
-  gated field of the entry. The approved-file encoding at gate.go:422 gains the two keys. C 3.5.1's
+  gated field of the entry. The approved-file encoding at gate.go:422 gains the two keys.
+  `String`/`ParseLXCEntry` use SPEC-n2b AG3's text,
+  `<container>/<seat>,user=<user>,human_text=<bool>,checkout=<checkout>`: split at the first
+  three commas only, everything after `checkout=` is the path (it may hold `,` or `=`); AG6's
+  `--set` matches by (container, checkout, seat), so a `user` change is one `--set`.
+- `values.go`'s `validCheckout` also refuses a checkout that is not one line (SPEC-n2b DR4, CC6's
+  rule), so the SECURITY line and the key input stay one line each. C 3.5.1's
   security-field list now names checkout and seat (C line "each `teamchat_lxc_members` entry's
   team, container, checkout, seat, user and `human_text`").
 - `input.go`'s `encode` writes `seat` always.
@@ -54,8 +60,11 @@ how, so builders can be briefed. Paths are under `src-go/internal/teamchat/`.
   `GuestUnitFile`, `GuestUnitWantsLink` follow `SessionUnit`; a new `GuestTmuxSocket(k)`.
 - `GuestRuntimeParents(u, uid)` returns the login parent only; the unit parents are listed by
   the caller from the guest's `/run` (a new `IsGuestRuntimeDirName(name)` grammar check).
-- New `LXCLayout(home string, k SeatKey) (Layout, error)`: state `~/.config/teamchat/lxc/<key>/seats`,
-  desired `.../membership`, run root under `GuestRuntimeDir(k)`. `HomeLayout` stays for host `cc`.
+- New `LXCLayout(home, runtimeDir string, k SeatKey) (Layout, error)`: state
+  `~/.config/teamchat/lxc/<key>/seats` and desired `.../membership` from the key, the run root
+  from `runtimeDir` (`$XDG_RUNTIME_DIR`, as `HomeLayout` takes it): the unit sets it to
+  `GuestRuntimeDir(k)`, and a hand-run `service: false` seat has its login session's
+  `/run/user/<uid>`, both of which the kit scan reads (LX5). `HomeLayout` stays for host `cc`.
 - Tests in lxc_test.go, member_test.go, paths_test.go, separation_test.go, zero_test.go change;
   new: the unit name at its longest (94 bytes), the runtime directory's B socket paths within 107
   bytes, the repo label's normalisation cases.
@@ -64,7 +73,11 @@ how, so builders can be briefed. Paths are under `src-go/internal/teamchat/`.
 
 - `Entry` gains `Checkout string` and `Seat int`; `key()` becomes (container, checkout, seat);
   `User` stays a field. `check` validates checkout and seat; `Record.check` enforces one entry
-  per key (it already enforces one per handle).
+  per key, and changes its handle rule (lxcstate.go:193-204 refuses two entries with one handle
+  in any status): one handle is held by at most one entry that is not `StatusLeft`, and `left`
+  entries may share it (C 3.9.3, LX9). `ByHandle` (lxcstate.go:146) returns the entry that is
+  not `left`, and none when only `left` entries hold the handle (LP1). Tests: a `left` and a
+  `joined` entry sharing a handle round-trip; two live entries with one handle are refused.
 - `Find(c, u)`, `Drop(c, u)` and `Set`'s lookup become `(c, checkout, seat)`; `compareEntries`
   sorts by the new key.
 - `ReadCopy`/`WriteCopy(root, c, u, ...)` become `(root, c, k SeatKey, ...)`; `Copy` gains `Team`,
@@ -77,8 +90,9 @@ how, so builders can be briefed. Paths are under `src-go/internal/teamchat/`.
 - `Spec` gains `Team`, `Seat`, `Key` (and the repo label from `Checkout`); `Render` writes
   C 3.9.4's new text: `Description=`, `RuntimeDirectory=teamchat-session-<key>`,
   `XDG_RUNTIME_DIR`, `ExecStart` with `tmux -S <socket> new-session -d -s <unit stem>` and
-  `--state`/`--desired` from `paths.LXCLayout`. `testdata/session.service` is regenerated; the
-  CL5 parse test of the `ExecStart` keeps passing (`--state` with `--desired` is allowed).
+  `teamchat run --claude --kind lxc --key <key> --resume-recorded -- claude` (no `--state` or
+  `--desired`: with `--key` they are 64). `testdata/session.service` is regenerated; the CL5
+  parse test of this `ExecStart` follows the `--key` rule.
 
 ### `host/lxc/guestbus`
 
@@ -102,7 +116,8 @@ how, so builders can be briefed. Paths are under `src-go/internal/teamchat/`.
 ### `member/guest` (places.go, identity.go) and `member/cli/guest.go`
 
 - `Identity.layout()` (places.go:61) uses `paths.HomeLayout(home, GuestRuntimeDir(user))`; it
-  becomes `paths.LXCLayout(home, key)`, with `Key` on the op's input (from `--key`).
+  becomes `paths.LXCLayout(home, paths.GuestRuntimeDir(key), key)`, with `Key` on the op's
+  input (from `--key`); the guest ops use only its state and desired directories.
 - `Membership`'s session check (places.go:264) `d.Session != paths.LXCSession(h.User)` becomes
   `!= paths.LXCSession(key)`.
 - `PlaceBundle` writes under the key's state root and makes `lxc/<key>/` and `seats/` 0700 when
@@ -114,15 +129,25 @@ how, so builders can be briefed. Paths are under `src-go/internal/teamchat/`.
 ### `member/cli` `run`
 
 - CL5 gains `--key K`: `--kind lxc` only and required there (64 without it, or with `--state`,
-  `--desired` or `--seat`); `run` derives `<v2-state>` and `<v2-desired>` from `paths.LXCLayout`
-  (the same function the host uses), so the unit and a hand-run `service: false` seat share one
-  line. `--kind lxc` loses its default roots. The CL5 test parsing C 3.9.4's `ExecStart` follows.
+  `--desired` or `--seat`); `run` derives `<v2-state>` and `<v2-desired>` from
+  `paths.LXCLayout(home, $XDG_RUNTIME_DIR, key)` (the same function the host uses), so the unit
+  and a hand-run `service: false` seat share one line, each with its own run root. `--kind lxc`
+  loses its default roots. The CL5 test parsing C 3.9.4's `ExecStart` follows.
+- `seat set-aside` (member/cli/verbs.go:215) is unchanged: its `--state DIR` is the LXC seat's
+  repair (`--state ~/.config/teamchat/lxc/<key>/seats`, B 2.3.2, SA1), which the verb's help
+  text names; test: two keys of one user and team, only the named one set aside.
 
 ### `apply` (the child's `member add`, SPEC-n2d MO4)
 
 - `--seat next` loses its only caller (`lxc apply` passes the entry's seat): remove it and its
-  n2d-D15/D21 paths, or keep it unused; YAGNI says remove. The deactivated-account refusal of an
-  explicit seat (n2d-D21) is now met by `lxc apply`, which maps it to that entry's `DEFERRED`.
+  n2d-D15 retry-by-prefix path (YAGNI).
+- `member.go`'s `admit` (:182-199) records `retired` only when `req.Seat == 0`; it changes to
+  SPEC-n2d MO4: an `add --seat S` or a `return` whose account is deactivated records the handle
+  `retired` (one write) and returns a refusal of the new error class `retired`, not `refused`.
+  `refuse` (:288-302) is where `return` meets the deactivated account. The answer codec and
+  root's class-to-exit map (SPEC-n2a CC5/CC6) gain `retired`, exit 70. Tests: `add --seat S`
+  and `return` of a deactivated account each answer `retired` and leave the roster member
+  `retired`; asked again, MO3 refuses it as `retired` with class `refused`.
 
 ## WIP on feat/bus-v2-n3b-p4 (read by grep only)
 
@@ -141,17 +166,26 @@ how, so builders can be briefed. Paths are under `src-go/internal/teamchat/`.
   and writing the host copy by key; `unit(ctx, g, u)` and `removeUnit(ctx, g, u)` (849-931)
   become per member; `/etc/passwd` read once per container and each checkout read once
   (cache by checkout); the `guest check` call deduplicated per (user, team); `--seat next`
-  replaced by `--seat <m.decl.Seat>` in the step 06 join, whose deactivated-account refusal
-  becomes that entry's `DEFERRED` (recorded `deferred`, the phase not failed); at step 03, equal
-  handles across entries of a team (derived, or recorded and not `left`) and a handle the
-  roster holds `retired` are refused by name.
+  replaced by `--seat <m.decl.Seat>` in the step 06 join; a join answered with the child's error
+  class `retired` (an `add` or a `return`), and no other refusal, becomes that entry's
+  `DEFERRED` (recorded `deferred`, the phase not failed); at step 03, equal handles across
+  entries of a team (derived, or recorded and not `left`) and a handle the roster holds
+  `retired` are refused by name, with the message "the checkout's origin changed; give the
+  entry another seat to take a new handle" for a changed derivation; the roster's state of the
+  handle chooses the join verb (none or a pending `add`: `add`; `parked`/`lost`: `return`;
+  `active`: `reissue`, with or without a record entry); a present entry held back while its
+  key's record entry is `left` under another user leaves that entry as it is (no `offline`
+  over it).
 - `absent.go`: the `declared` set keyed by `Target{Container, User}` (69-79) becomes keyed by
   (container, checkout, seat); the synthesized `declare.LXCMember` for a record-only leaver gains
   `Checkout` and `Seat` from the record entry; `ReadCopy`/`WriteCopy` by key (132-138, 219);
   `removeUnit` per seat, unconditionally for a leaving seat (no more "user holds no team",
-  224); `HomeLayout(..., GuestRuntimeDir(user))` (284) becomes `LXCLayout(home, key)`; the host
-  copy deleted and the record entry dropped after `guest remove`; a recorded key whose declared
-  user changed leaves under the record's user (the user move).
+  224); `HomeLayout(..., GuestRuntimeDir(user))` (284) becomes
+  `LXCLayout(home, GuestRuntimeDir(key), key)`; the host copy deleted and the record entry
+  dropped after `guest remove`; a recorded key whose declared user changed leaves under the
+  record's user (the user move), and its completed removal rewrites the record entry with the
+  declared user, status `deferred` and the same handle instead of dropping it; a `left` entry
+  is never parked again (absent.go:100's `prior.Status != StatusLeft` stays).
 - `kit.go`: `GuestRuntimeParents(m.decl.User, uid)` (222) becomes the login parent per uid plus
   a TB1 listing of the guest's `/run` for `teamchat-session-<key>` directories.
 - `restart.go`: `Restart(ctx, d, container, user)` becomes `(ctx, d, container, key)`; the
@@ -159,8 +193,8 @@ how, so builders can be briefed. Paths are under `src-go/internal/teamchat/`.
 
 ## Not built yet, shaped by this decision
 
-- LP1 (`health.Guests`): map (team, handle) to the record entry (container, checkout, seat,
-  user) and probe `~<user>/.config/teamchat/lxc/<key>/seats/<team>/seat.lock`.
+- LP1 (`health.Guests`): map (team, handle) to the record entry not `left` (container,
+  checkout, seat, user), a handle only `left` entries hold being free, and probe `~<user>/.config/teamchat/lxc/<key>/seats/<team>/seat.lock`.
 - `ccy-teams lxc-add` (N5's ccy-teams side): writes `seat` (lowest number no LXC entry of the
   team declares, in any container or checkout, and no LXC handle of the team's roster holds),
   computes `<key>` for `--member` and `lxc restart --member`; the board shows each seat's key.
@@ -174,7 +208,8 @@ how, so builders can be briefed. Paths are under `src-go/internal/teamchat/`.
 - The member's store, seat lock, link, keeper and their files (B 2.3-2.11): they live under
   whatever `<v2-state>` and `<v2-desired>` they are given.
 - The ccy seat pool and sessions (C 3.7), host `cc`'s `HomeLayout`, the health tick's logic
-  (HT rows), the child's member verbs other than `--seat next` (above), the record's
+  (HT rows), the child's member verbs other than `--seat next` and the deactivated account's
+  `retired` class (above), the record's
   status set and `since_ms` rule, n3b-D1's offline behaviour (now per seat, same rules).
 - `apply`'s team-level `coordinator` (DC6): unchanged; one coordinator per team holds by
   construction.

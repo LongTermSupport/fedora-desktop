@@ -867,13 +867,13 @@ which rewrites the roster event and the membership of each room, the questions r
 included), posts the admin's notice for the change (below), refreshes the status record, and
 answers one JSON document on stdout. Verbs and their state machine:
 
-| Verb                                                                                        | From state         | Steps (each recorded in `pending` before it runs)                                                                                                  | To state  |
-| ------------------------------------------------------------------------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
-| `member add --prefix P --seat S\|next --kind K --human-text B --credential password\|token` | (none)             | claim the handle in the roster (counter raised); create the account; issue the credential; converge the rooms (invite per A's specs); post `added` | `active`  |
-| `member return --handle H --credential password\|token`                                     | `parked`, `lost`   | revoke (password reset with device logout), or for `lost` create the account; issue the credential; converge the rooms; post `added`               | `active`  |
-| `member reissue --handle H --credential password\|token`                                    | `active`           | revoke; issue the credential (the lost-bundle recovery, C21)                                                                                       | `active`  |
-| `member park --handle H`                                                                    | `active`           | revoke; mark; converge the rooms; post `parked`                                                                                                    | `parked`  |
-| `member retire --handle H`                                                                  | `active`, `parked` | mark; converge the rooms (kick from every room); deactivate; post `removed`                                                                        | `retired` |
+| Verb                                                                                  | From state         | Steps (each recorded in `pending` before it runs)                                                                                                  | To state  |
+| ------------------------------------------------------------------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| `member add --prefix P --seat S --kind K --human-text B --credential password\|token` | (none)             | claim the handle in the roster (counter raised); create the account; issue the credential; converge the rooms (invite per A's specs); post `added` | `active`  |
+| `member return --handle H --credential password\|token`                               | `parked`, `lost`   | revoke (password reset with device logout), or for `lost` create the account; issue the credential; converge the rooms; post `added`               | `active`  |
+| `member reissue --handle H --credential password\|token`                              | `active`           | revoke; issue the credential (the lost-bundle recovery, C21)                                                                                       | `active`  |
+| `member park --handle H`                                                              | `active`           | revoke; mark; converge the rooms; post `parked`                                                                                                    | `parked`  |
+| `member retire --handle H`                                                            | `active`, `parked` | mark; converge the rooms (kick from every room); deactivate; post `removed`                                                                        | `retired` |
 
 **The credential** (decision DC16). A seat's bundle carries one of two credentials, chosen by the
 caller:
@@ -914,7 +914,10 @@ any time (C23).
   sudo is named by the seat (3.7.3). `lxc apply` passes the entry's declared seat too (n3b-D2,
   3.9.1), so every caller passes `--seat S` and `--seat next` has no caller (its removal is in
   the n3b-D2 rework scope). A number is never handed out twice: parked and lost members keep
-  theirs for their return, and a retired number is refused.
+  theirs for their return, and a retired number is refused. An `add --seat S` or `return` whose
+  account is deactivated on the server records the handle `retired` and is refused with the
+  error class `retired` (SPEC-n2d MO4), which `lxc apply` alone among refusals turns into the
+  entry's `DEFERRED` (3.9.2 step 06).
 - `--human-text` sets the member's `human_text` in the roster, which is its one home: A's verdict
   and B's invite rule read it from the roster event (A §5.1), and the bundle does not carry it
   (3.7.2). Changing it is `member set --handle H --human-text B`, which converges the rooms like
@@ -1609,8 +1612,11 @@ An entry is one member, named by (team, container, checkout, seat). Its `user` i
 it, never part of its name. A container holds any number of entries, for any number of users and
 checkouts: several repos in one container, and a coordinator and a worker on one checkout, are
 each an entry of their own, with a seat, a desired membership, a session and a unit of their own.
-`seat` is required, so every name below is known from the declaration alone, before the first
-join and for a stopped container; when the owner names none, `ccy-teams lxc-add` writes the
+`seat` is required in every entry: it is part of the member's identity, so it is declared and
+stable, and every name below is known from the declaration alone, before the first join and for
+a stopped container. `lxc apply` never uses `--seat next`; it passes the entry's seat. The tool
+that adds an entry picks the seat when it writes the declaration, and the declaration records
+it: when the owner names none, `ccy-teams lxc-add` writes the
 lowest number that no LXC entry of the team declares, in any container or checkout, and no LXC
 handle in the team's roster holds, in any state. Counting across the whole team needs no guest
 read and keeps two clones of one origin in different containers off one handle (seat numbers
@@ -1619,7 +1625,7 @@ container, checkout, seat) are refused at step 01. The role is the entry's, thro
 truth: an entry is its team's coordinator when the team's `coordinator` names its handle, so a
 team has at most one, and an entry has no `role` key. A seat lives in one container: two entries,
 in any containers, whose handles derive equal are refused at step 03, and the record maps each
-handle to one entry (3.9.3).
+handle to at most one entry that is not `left` (3.9.3).
 
 The names a seat takes, each made by one function of the paths package from the entry, never
 parsed back:
@@ -1721,8 +1727,9 @@ any group but the agent user's own, and refuses to run as uid 0.
     not `left`, team declared present and its homeserver active) before touching any container.
     A failure here is a declaration error: the phase fails naming the entries, before any
     change, whatever runs or not. An entry whose key the record holds for another `user` is not refused: the absent
-    phase, which runs first, has already moved the seat off the old user (below), and this
-    phase joins it for the new one by `member return`.
+    phase, which runs first, moves the seat off the old user (below), and this phase joins it
+    for the new one by `member return`, or holds it back while the key's entry stays `left`
+    under the old user.
 02. For each container: `lxc-info -sH`. Not `RUNNING` (stopped or frozen) is held back, and so is
     missing, its line saying `container missing` (3.9.3). Neither fails the phase, under any
     `--only-teams` scope: the other entries are applied as if alone.
@@ -1755,9 +1762,16 @@ any group but the agent user's own, and refuses to run as uid 0.
       refused), each at most 64 KiB;
     - derive the handle (3.7.4), at the member's first join only: once the LXC record holds a
       handle for (container, checkout, seat) in the team, that handle is kept, and a derivation
-      that differs is refused by name ("the checkout's origin changed; retire and add the member
-      to change its handle"), so a guest's files never make a new account. The seat number is
-      the entry's (`member add --seat <seat>`). Two entries of a team, in any containers, whose
+      that differs is refused by name ("the checkout's origin changed; give the entry another
+      seat to take a new handle"), so a guest's files never make a new account. The seat number
+      is the entry's (`member add --seat <seat>`). The roster's state of the handle, read here
+      before any change, chooses step 06's verb: no member, or a pending `add` of it, is `add`
+      (which completes the pending one, SPEC-n2d MO5); `parked` or `lost` is `return`; `active`
+      is `reissue`, also when no record entry holds it (a join that an earlier phase made and
+      failed before its step 10 record write, or a record restored older than the roster: the
+      handle carries the LXC kind and no other entry derives it, so it is this entry's); and
+      `retired` is refused below. So no join reaches the child to be refused for its state.
+      Two entries of a team, in any containers, whose
       handles are equal (derived here, or held by a record entry not `left`; a stopped
       container's never-joined entry has none yet and is compared when it next runs) are
       refused by name, naming both; and an entry whose handle the team's roster holds as
@@ -1799,10 +1813,12 @@ any group but the agent user's own, and refuses to run as uid 0.
     the phase before any roster change (but see "A container that stops during the phase" below).
 06. Roster changes, under each team's lock in turn: every demotion of every team first, then every
     join (`member add --seat <seat>`, `return` or `reissue` with `--credential token`, as the
-    state requires, 3.6.3; an `add` refused because the seat's account is deactivated on the
-    server, which the child records `retired`, is that entry's
-    `DEFERRED ... seat <seat>'s account is deactivated; give the entry another seat`, recorded
-    `deferred`, and the next apply's step 03 refuses it by name), then every promotion, including each team's `coordinator_wanted` that one of these
+    state requires, 3.6.3; an `add` or `return` refused because the seat's account is
+    deactivated on the server is answered with the child's error class `retired`, having
+    recorded the handle `retired` (SPEC-n2d MO4). That class, and no other refusal, is that
+    entry's `DEFERRED ... seat <seat>'s account is deactivated; give the entry another seat`,
+    recorded `deferred`, the phase not failed, and the next apply's step 03 refuses the retired
+    number by name; any other refusal fails the phase), then every promotion, including each team's `coordinator_wanted` that one of these
     joins has just created (3.6.4).
 07. Place each new bundle: `teamchat guest place-bundle --user <user> --key <key>` as the agent
     user, bundle (with its team) on stdin. A seat directory that does not exist is written as
@@ -1846,9 +1862,14 @@ leaving member is parked on a live server. A member leaves when its entry says `
 or when the team's LXC record names a (container, checkout, seat) that no entry declares any
 more. A seat also leaves its old user when the record's entry for a declared key names another
 `user`: steps 1-5 remove it under the old user from the record, and the present phase then
-joins it for the new one (`member return`); while the old user's files are pending (a stopped
-container), the entry stays `left` under the old user and the present phase holds the new one
-back as `DEFERRED` (`the seat's files under its old user are not yet removed`). Each seat leaves
+joins it for the new one (`member return`); while the record entry for the key stays `left`
+under the old user (a stopped container, or a seat still held after step 4), the present phase
+holds the new one back as `DEFERRED` (`the seat's files under its old user are not yet removed`), since the new user's seat would share the old one's unit, runtime directory and host
+copy, which the retry of steps 2-5 removes. A user move keeps its handle: when its step 5
+completes, the record entry is not dropped but rewritten with the declared `user`, status
+`deferred` and its handle, so the present phase (this play's or a later one's) finds the handle
+recorded, joins it by `member return` and never derives it again, and a changed origin still
+meets step 03's refusal. Each seat leaves
 on its own: the other seats of its container, its checkout and its user are untouched. For each
 leaving member of a running container, under its team's lock, which the
 health tick then cannot take (3.11.2):
@@ -1870,7 +1891,7 @@ health tick then cannot take (3.11.2):
    takes the seat lock itself, so it cannot race a keeper that took the seat again, and removes
    the seat's files and its desired file below `~/.config/teamchat/lxc/<key>/`, all but
    `seat.lock`, which is never unlinked (B 2.5). The host copy is deleted after it, and the
-   record entry is dropped: a `left` entry exists only while guest files are pending, and takes
+   record entry is dropped (a user move's is rewritten for the new user, above): a `left` entry exists only while guest files are pending, and takes
    no part in step 01's key rule or step 03's equal-handle rule (its handle is parked, so a
    newcomer with the same handle joins by `member return`).
 
@@ -1885,7 +1906,9 @@ does can delay step 1.
 For a stopped container, each leaving seat's handle the record holds is parked from the host side at once
 (revoking its token, so a guest started later cannot use it) and the guest's files are left: the
 record entry stays `left`, guest files pending, and the next phase that finds the container
-running runs steps 2-5 for them, with the token already dead. A missing container is treated as a
+running runs steps 2-5 for them, with the token already dead. A `left` entry is never parked
+again: its handle may meanwhile have joined elsewhere by `member return` (a seat moved to
+another container), and parking it would park that live member. A missing container is treated as a
 stopped one in this phase, never as an error: its handle is parked from the host side the same
 way, and its record entry and host copy are dropped, since there are no guest files left to clean. A running
 container and a stopped one now follow the same order: the park comes first in both. The absent
@@ -1894,7 +1917,9 @@ phase writes the LXC record when it changed it, as the present phase does after 
 
 Whether an LXC seat is held (C27) is probed from the host through the same `/proc/<init pid>/root`
 fd: the member's seat lock, `~<user>/.config/teamchat/lxc/<key>/seats/<team>/seat.lock` with the
-user, checkout and seat from the record entry that holds the handle, by the L3 probe (open `O_PATH`
+user, checkout and seat from the record entry that holds the handle and is not `left` (the
+absent phase's step 4 probes the leaving entry's own key; a handle that only `left` entries hold
+has no live seat and is not held), by the L3 probe (open `O_PATH`
 with `RESOLVE_IN_ROOT|RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS`, `fstat` a regular file, reopen
 that inode `O_RDONLY|O_NONBLOCK` through `/proc/self/fd/<n>`, then `LOCK_SH|LOCK_NB` on the
 reopened fd; a link, a FIFO or any other file on the path is free with no record). The host never
@@ -1928,8 +1953,14 @@ change:
 ```
 
 `status` is `joined`, `offline`, `deferred` or `left`; `since_ms` stays while status and handle stay.
-An entry is keyed (container, checkout, seat), at most one per key and one per handle; `user` is
-a field of it, who runs the seat, not part of the key. The record is the host's map from (team,
+An entry is keyed (container, checkout, seat), at most one per key; a handle is held by at most
+one entry that is not `left`, and `left` entries may share it with that entry and with each other
+(a seat moved to another container while its old seat's files are pending, 3.9.2's absent
+phase). `user`
+is a field of it, who runs the seat, not part of the key. A `left` entry is changed only by the
+absent phase: a present entry held back on its key while the key's entry is `left` under another
+`user` (a user move) prints the user move's `DEFERRED` and leaves the record entry as it is,
+never `offline` over it. The record is the host's map from (team,
 container, checkout, seat) to handle and user, so the guest's bundle is a copy of what the host
 knows, not the only place it is known (LR 7 item 4). A record ccy-teams cannot read fails `apply`
 and `lxc-add` and shows on the team row.
