@@ -43,11 +43,9 @@ func (o OS) session(ctx context.Context, c Cmd, pipes *sessionPipes) (Result, er
 	// A cancel before the child exits kills the group from exec's own watch too; one after it
 	// exited (a grandchild holding stdout) is the await below.
 	cmd.Cancel = func() error { return killGroup(cmd.Process.Pid) }
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.SysProcAttr = c.sysProcAttr(true)
 	cmd.Dir = c.Dir
-	if len(c.Env) > 0 || len(c.Unset) > 0 {
-		cmd.Env = ChildEnv(os.Environ(), c.Env, c.Unset)
-	}
+	cmd.Env = c.environ()
 	cmd.ExtraFiles = c.ExtraFiles
 	var out, errOut bytes.Buffer
 	if err := pipes.wire(cmd, c, &out, &errOut); err != nil {
