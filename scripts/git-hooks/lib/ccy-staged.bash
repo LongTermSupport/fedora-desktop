@@ -13,21 +13,31 @@ set -euo pipefail
 launcher=$1 lib_dir=$2 helper_dir=$3
 shift 3
 
-closure=""
+closure="" closure_module=""
 in_closure() {
     [ -f src-go/cmd/claude-yolo/main.go ] || return 1
     case "$1" in src-go/go.mod | src-go/go.sum) return 0 ;; esac
+    # Judged by import path, never by filesystem path: the Go tool takes its directory from $PWD,
+    # so a checkout reached through a symlink prints directories that disagree with pwd -P.
+    # Each package is listed with its embedded files, which may sit in subdirectories.
     if [ -z "$closure" ]; then
-        local root dirs
-        root=$(pwd -P)
-        dirs=$(cd src-go && GOFLAGS=-mod=vendor GOTOOLCHAIN=local go list -deps -f '{{if not .Standard}}{{.Dir}}{{end}}' ./cmd/claude-yolo) ||
+        local paths module
+        paths=$(cd src-go && GOFLAGS=-mod=vendor GOTOOLCHAIN=local go list -deps \
+            -f '{{if not .Standard}}{{.ImportPath}}{{range .EmbedFiles}}{{"\n"}}{{$.ImportPath}}/{{.}}{{end}}{{end}}' ./cmd/claude-yolo) ||
             {
                 echo "COMMIT REJECTED: go list could not name the packages the CCY Go front builds from." >&2
                 exit 1
             }
-        closure=$'\n'"${dirs//"$root/"/}"$'\n'
+        module=$(grep -m1 '^module ' src-go/go.mod) && module=${module#module }
+        closure=$'\n'"$paths"$'\n'
+        closure_module=$module
     fi
-    [[ "$closure" == *$'\n'"$(dirname "$1")"$'\n'* ]]
+    local mapped
+    case "$1" in
+    src-go/vendor/*) mapped=${1#src-go/vendor/} ;;
+    *) mapped=$closure_module/${1#src-go/} ;;
+    esac
+    [[ "$closure" == *$'\n'"$mapped"$'\n'* || "$closure" == *$'\n'"$(dirname "$mapped")"$'\n'* ]]
 }
 
 for file in "$@"; do

@@ -99,9 +99,10 @@ playbooks/imports/play-agent-bus.yml
 # guide). /var/local/claude-yolo/claude-yolo becomes a Go program (built here from
 # src-go/cmd/claude-yolo, installed only when its checksum changes) that answers --version,
 # --help, --list-tokens, --token-usage [--json], --prevent and --export-token NAME itself
-# (everything else, --top and the interactive export included, stays in the bash) and execs the bash launcher, now installed beside it as claude-yolo.bash, for
-# every other run with the same arguments and environment plus CCY_LAUNCHER_FRONT, its own
-# path, which the bash takes (only if it is the claude-yolo beside it) and unsets so its sessions re-run the Go program. If it
+# (everything else, --top and the interactive export included, stays in the bash) and execs
+# the bash launcher, now installed beside it as claude-yolo.bash, for every other run with the
+# same arguments and environment plus CCY_LAUNCHER_FRONT, its own path, which the bash takes
+# (only if it is the claude-yolo beside it) and unsets so its sessions re-run the Go program. If it
 # misbehaves, CCY_LEGACY=1 ccy ... runs the bash launcher for everything; if it will not start,
 # /var/local/claude-yolo/claude-yolo.bash run directly keeps the whole session on the bash;
 # to go back entirely, run this play from the revision
@@ -112,8 +113,10 @@ playbooks/imports/play-agent-bus.yml
 # a session started by running claude-yolo.bash directly, which records that file: after a
 # rollback, restoring such a session runs the stale .bash copy). Check after
 # the run:
-# `ccy --version`, `ccy --help`, `ccy --list-tokens` and `ccy --token-usage` print the same
-# bytes as `CCY_LEGACY=1 ccy ...` with the same flag. lib/tmux-session.bash no longer carries the unused bash take-over
+# `ccy --version`, `ccy --help`, `ccy --list-tokens`, `ccy --token-usage`, `ccy --prevent`
+# and `ccy --export-token NAME` print the same bytes as `CCY_LEGACY=1 ccy ...` with the same
+# flag (run --prevent and --export-token with a throwaway token name: they change state).
+# lib/tmux-session.bash no longer carries the unused bash take-over
 # (taking a session over stays the ccy-sessions picker's Ctrl-T); the new lib/host-paths.bash
 # lets the launcher's differential harness point the build context, GPU directory and zone
 # database elsewhere (unset, nothing changes) and refuses a bad or relative override at
