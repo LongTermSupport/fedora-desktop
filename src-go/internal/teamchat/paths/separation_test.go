@@ -331,6 +331,8 @@ func teamDerived(t *testing.T, team TeamID) map[string][]string {
 		"FenceFile":              FenceFile(team),
 		"FirewallRecord":         FirewallRecord(team),
 		"CtlState":               CtlState(team),
+		"RosterFile":             RosterFile(team),
+		"RoomsFile":              RoomsFile(team),
 		"TeamLock":               TeamLock(team),
 		"StatusTeamDir":          StatusTeamDir(team),
 		"StampFile":              StampFile(team),

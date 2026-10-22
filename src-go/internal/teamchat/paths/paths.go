@@ -223,6 +223,12 @@ func FirewallRecord(t TeamID) string { return AdminState(t) + "/firewall.json" }
 // CtlState is the team's admin token, roster and rooms, owned by CtlUser.
 func CtlState(t TeamID) string { return CtlStateRoot + "/" + t.text() }
 
+// RosterFile is the team's roster file (C 3.6.1).
+func RosterFile(t TeamID) string { return CtlState(t) + "/roster.json" }
+
+// RoomsFile is the team's room IDs (C 3.6.1).
+func RoomsFile(t TeamID) string { return CtlState(t) + "/rooms.json" }
+
 // TeamLock is root's lock for the team.
 func TeamLock(t TeamID) string { return AdminRunDir + "/team-" + t.text() + ".lock" }
 

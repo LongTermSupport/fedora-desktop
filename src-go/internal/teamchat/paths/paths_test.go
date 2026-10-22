@@ -28,6 +28,8 @@ func TestTeamDerivedNames(t *testing.T) {
 		{FenceFile(team), "/var/lib/teamchat-admin/ops/migration/fence.nft"},
 		{FirewallRecord(team), "/var/lib/teamchat-admin/ops/firewall.json"},
 		{CtlState(team), "/var/lib/teamchat-ctl/ops"},
+		{RosterFile(team), "/var/lib/teamchat-ctl/ops/roster.json"},
+		{RoomsFile(team), "/var/lib/teamchat-ctl/ops/rooms.json"},
 		{TeamLock(team), "/run/teamchat-admin/team-ops.lock"},
 		{StatusTeamDir(team), "/var/lib/teamchat-status/teams/ops"},
 		{StampFile(team), "/var/lib/teamchat-status/teams/ops/stamp.json"},

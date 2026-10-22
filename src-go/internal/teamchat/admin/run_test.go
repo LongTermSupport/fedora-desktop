@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/rooms"
@@ -272,11 +274,15 @@ func TestExitCodeOf(t *testing.T) {
 		err  error
 		want term.ExitCode
 	}{
-		"drift":        {&rooms.Error{Purpose: "main", Step: rooms.StepAdopt, Drift: true, Err: errors.New("two")}, ExitRefused},
-		"unreachable":  {&rooms.Error{Purpose: "main", Step: rooms.StepRead, Err: matrix.ErrUnreachable}, ExitUnreachable},
-		"rate limited": {fmt.Errorf("x: %w", matrix.ErrRateLimited), ExitUnreachable},
-		"forbidden":    {&rooms.Error{Purpose: "main", Step: rooms.StepKick, Err: matrix.ErrForbidden}, term.ExitFailure},
-		"recorder":     {&rooms.Error{Purpose: "main", Step: rooms.StepRecord, Err: errors.New("disk full")}, term.ExitFailure},
+		"drift":             {&rooms.Error{Purpose: "main", Step: rooms.StepAdopt, Drift: true, Err: errors.New("two")}, ExitRefused},
+		"unreachable":       {&rooms.Error{Purpose: "main", Step: rooms.StepRead, Err: matrix.ErrUnreachable}, ExitUnreachable},
+		"rate limited":      {fmt.Errorf("x: %w", matrix.ErrRateLimited), ExitUnreachable},
+		"forbidden":         {&rooms.Error{Purpose: "main", Step: rooms.StepKick, Err: matrix.ErrForbidden}, term.ExitFailure},
+		"recorder":          {&rooms.Error{Purpose: "main", Step: rooms.StepRecord, Err: errors.New("disk full")}, term.ExitFailure},
+		"apply drift":       {&apply.Error{Step: apply.StepGate, Drift: true, Err: errors.New("not approved")}, ExitRefused},
+		"apply unreachable": {&apply.Error{Step: apply.StepHumans, Err: matrix.ErrUnreachable}, ExitUnreachable},
+		"apply failure":     {&apply.Error{Step: apply.StepRooms, Err: errors.New("disk full")}, term.ExitFailure},
+		"approve refused":   {&declare.RefusedError{Problem: "planted"}, ExitRefused},
 	}
 	for name, c := range cases {
 		if got := ExitCodeOf(c.err); got != c.want {
