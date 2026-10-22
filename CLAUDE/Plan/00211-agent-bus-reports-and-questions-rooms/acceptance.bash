@@ -246,10 +246,14 @@ if [[ "${FAKE}" -eq 1 ]]; then
     reject_leg "A3 (fake) the report was consumed" inbox_clear "a fixture inbox" $'STATE\tpresent\n$r1\tconsumed\tkept'
     reject_leg "A3 (fake) a session with no state directory proves nothing" \
         inbox_clear "a fixture inbox" $'STATE\tmissing\n$r1\t-\tkept'
-    check_leg "A3 (fake) the worker is a linked seat, which pingbus runs beside an accepted Element profile" \
-        fake_a3_seat accepted
-    check_leg "A3 (fake) the same seat beside an Element profile never accepted is refused for that profile, as pingbus refuses it" \
-        fake_a3_seat unaccepted
+    check_leg "A3 (fake) the worker is a linked seat beside an accepted Element profile, joins the team room it was only invited to, and reports" \
+        fake_a3_seat accepted ok
+    check_leg "A3 (fake) the same seat beside an Element profile never accepted is refused for that profile, and the owner is told to accept" \
+        fake_a3_seat unaccepted ok
+    check_leg "A3 (fake) a join the homeserver refuses fails with its own error, not the Element step" \
+        fake_a3_seat accepted join-refused
+    check_leg "A3 (fake) a report pingbus refuses fails with its own error, not the Element step" \
+        fake_a3_seat accepted report-refused
     check_leg "A3 (fake) 403 M_FORBIDDEN is a refusal" fake_refused 403 '{"errcode":"M_FORBIDDEN","error":"no"}'
     reject_leg "A3 (fake) 200 is no refusal" fake_refused 200 '{"event_id":"x"}'
     reject_leg "A3 (fake) another 403 is no refusal" fake_refused 403 '{"errcode":"M_UNKNOWN_TOKEN"}'

@@ -107,12 +107,20 @@ probe 'the installed displaylink package, whose version tracks evdi not the pin'
 # Not a verdict — the report IS the fact. Run from the repo root so the helpers
 # package imports, and with --no-notify so a triage run never pops a desktop
 # notification at the operator.
+# Its findings status is read from the helper, never copied; any other non-zero is the report
+# itself failing, and is said so rather than read as findings.
 printf '### the login-time health report, as it would run at login\n'
-if (cd "${PLAN_REPO_ROOT}" \
-    && python3 -m helpers.host_health.login_report --no-notify --no-handoff 2>&1); then
+findings_rc="$(cd "${PLAN_REPO_ROOT}" && python3 -c 'from helpers.host_health import login_report
+print(login_report.EXIT_FINDINGS)')"
+report_rc=0
+(cd "${PLAN_REPO_ROOT}" \
+    && python3 -m helpers.host_health.login_report --no-notify --no-handoff 2>&1) || report_rc=$?
+if [[ "${report_rc}" -eq 0 ]]; then
     printf '(exit 0 — the report found nothing to say, which is the clean case)\n'
+elif [[ "${report_rc}" -eq "${findings_rc}" ]]; then
+    printf '(exit %d — the findings above are what a login would surface)\n' "${report_rc}"
 else
-    printf '(exit non-zero — the findings above are what a login would surface)\n'
+    printf '(exit %d — the report itself FAILED, so the output above is its error, not findings)\n' "${report_rc}"
 fi
 printf '\n'
 

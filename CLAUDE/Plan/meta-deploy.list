@@ -83,18 +83,29 @@ playbooks/imports/play-agent-bus.yml
 # finds the first team's coordinator in its running ccy session or LXC member; with no team
 # coordinator it is REJECTED, named, before it changes anything. It adds and removes one
 # throwaway worker that must be refused the questions room and whose test report must reach no
-# online inbox. The last run stopped at that check (A3) because its worker was a plain bundle,
-# which pingbus refuses beside an Element profile; it is now taken as a seat, its bundle in a
-# seat directory linked into a session home as agent-bus seat take makes one. That runs beside
-# Element only once you have accepted it at cc --teams' confirm: if A3 says so, run cc --teams
-# once from a terminal, accept, and run this again. Nothing after A3 has run yet. It also posts a second test report from inside an online LXC member (with none, that
+# online inbox. The last run (at b0eb800fa) got further: the worker was taken as a seat, then
+# its report was refused, "the team room is not trusted: not joined", because add-member only
+# invites and the checker never synced as the worker. A3 now has the worker join by one
+# pingbus recv, the sync a real seat's keeper runs, before it reports (Plan 00211 Task 2.11).
+# A seat runs beside Element only once you have accepted it at cc --teams' confirm: if A3 says
+# that is what refused it, run cc --teams once from a terminal, accept, and run this again; any
+# other A3 failure prints pingbus's own error instead. Nothing after A3 has run yet. It also posts a second test report from inside an online LXC member (with none, that
 # check is NOT JUDGED), and has the coordinator ask a test question (NOT JUDGED when the
 # coordinator is offline). Needs sudo once. Afterwards, if the test question was asked, do the
 # Element steps of the plan's ACCEPTANCE-owner.md.
 00211-agent-bus-reports-and-questions-rooms/deploy-stage-2.bash
 # Plan 00201 Task 2.7 (M7): the automated two-team acceptance again, because its M3 check
 # (the session's status line) changed since it last passed, and Plan 00213's cut-over made
-# that status line the Go one. The last run stopped at M3 because the checker still expected
+# that status line the Go one. The last run (at b0eb800fa) stopped before any check, at
+# "session multi's container running: not within 600 s": the base image had just been rebuilt,
+# so the headless launch first rebuilt the project image (a 24-step build), and the wait
+# counted the build. The launch's waits now start their 600 s again while any ccy image build
+# runs (a held build lock, judged as `ccy --build-lock` judges it), with no cap on the build
+# itself; a build that fails ends the launch, which still fails at once (Plan 00201 Task
+# 2.23). So a first launch after the ccy play may sit through one project image build before
+# the checks start, saying once a minute whose build it waits for; if one has hung, see it and
+# stop it with `ccy --build-lock` in another terminal. The run
+# before that stopped at M3 because the checker still expected
 # the Python `exec pingbus status-line`; it now expects exactly what this checkout's seat.py
 # writes for a seated session, whose guard runs the kit's pingbus-status-line, and the teams
 # drawn as Plan 00217 draws them (`accept201a: <member> (c), ...`, each team in its own colour),
@@ -176,10 +187,18 @@ playbooks/imports/play-claude-yolo.yml
 # where --changed ran 25), then runs one collection as host-health.service does (a git fetch,
 # and the status document and handoff file rewritten) and checks that fedora-desktop-health and
 # the login shell's second reminder of the day print this checkout's run.bash --changed. With
-# no play to run it says NOT JUDGED (exit 2). Run it again: its last run failed that second
-# leg because the collection crashed with "'_Sink' object has no attribute 'writelines'"
-# whenever a play was stale; the login report now hands the check real text streams. The
-# collection runs the helper from this checkout, so the fix is live without a play.
+# no play to run it says NOT JUDGED (exit 2). Run it again: its last run (at b0eb800fa) failed
+# that second leg with "the collection exited 3", a checker defect: 3 is the collection's
+# normal "findings" result, and a stale play is a finding, so the leg could never pass. It now
+# accepts 0 and 3, fails on any other status, and fails on 0 when a play is to run (Plan 00214
+# Task 4.3c). The run before that found the collection crashing on "'_Sink' object has no
+# attribute 'writelines'", fixed since. The collection runs the helper from this checkout, so
+# both fixes are live without a play. It is judged only while a play is stale: the
+# changed-plays entry below is expected to find play-host-health-login-report.yml,
+# play-fedora-desktop-panel.yml, play-speech-to-text.yml and play-displaylink.yml stale (none
+# has run since it changed), so a judged run is expected. If it says NOT JUDGED, every play
+# has run since its last change: that is the expected result then, not a failure, and it is
+# judged on the first run after a commit changes a play that has run here.
 00214-update-all-changed-plays
 # Every play that has to run again here (issue #110 gap 3), after the acceptance above, which
 # needs them still stale: ./run.bash --changed --yes, in playbook-main.yml order, stopping at

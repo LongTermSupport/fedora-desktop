@@ -38,6 +38,10 @@ source "${LIB}"
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../CLAUDE/Plan/_members.inc.bash
 source "${REPO_ROOT}/CLAUDE/Plan/_members.inc.bash"
+# And the image build library (plan_image_build), tested after it.
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../CLAUDE/Plan/_image-build.inc.bash
+source "${REPO_ROOT}/CLAUDE/Plan/_image-build.inc.bash"
 
 LIB_SRC="$(cat "${LIB}")"
 readonly LIB_SRC
@@ -888,6 +892,81 @@ RC=$?
 assert_eq "plan_lxc_online_named fails as plan_lxc_online does" "1" "${RC}"
 PLAN_RUN_DIR="${SAVED_RUN_DIR}"
 PLAN_LXC_INFO=(sudo -n lxc-info)
+
+# ── plan_image_build: a launch's image build is seen, so a start wait can allow for it ────
+
+SAVED_XDG="${XDG_RUNTIME_DIR:-}"
+export XDG_RUNTIME_DIR="${TMPROOT}/rt"
+BUILDS="${XDG_RUNTIME_DIR}/ccy/image-builds"
+LOCK="${BUILDS}/claude-yolo_latest.lock"
+CCY_BUILD_LOCK_LIB="${REPO_ROOT}/files/var/local/claude-yolo/lib/image-build-lock.bash"
+FOUND="$(plan_image_build 2>"${CAPTURE_FILE}")"
+RC=$?
+assert_eq "no build lock directory is no build" "3" "${RC}"
+# A real build, as the launcher runs one: its own ccy_image_build_locked takes the lock and
+# writes the record (a check of `false` always builds); the build is a sleep.
+bash -c 'source "$1" && ccy_image_build_locked claude-yolo:latest false -- sleep 8' _ "${CCY_BUILD_LOCK_LIB}" &
+BUILDER=$!
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+    if [[ -s "${LOCK}" ]] || ! kill -0 "${BUILDER}" 2>/dev/null; then
+        break
+    fi
+    sleep 0.2
+done
+FOUND="$(plan_image_build 2>"${CAPTURE_FILE}")"
+RC=$?
+assert_eq "the launcher's own build, holding its lock, is a build" "0" "${RC}"
+assert_eq "it names the builder and the image" "${BUILDER} claude-yolo:latest" "${FOUND}"
+run_capture plan_image_build_grace "a fixture wait" 600
+assert_eq "plan_image_build_grace says a build is running" "0" "${RC}"
+assert_contains "and says the wait starts again after it" "a fixture wait: waiting for the image build of claude-yolo:latest (pid ${BUILDER}) to end; the 600 s wait starts again then" "${OUT}"
+assert_contains "and how to stop a hung one" "ccy --build-lock" "${OUT}"
+run_capture plan_image_build_grace "a fixture wait" 600
+assert_eq "it says so at most once a minute" "" "${OUT}"
+REAL_RECORD="$(cat "${LOCK}")"
+# The lock still held, its record rewritten as ccy --build-lock must refuse it.
+printf '%s %s claude-yolo:latest\n' "${BUILDER}" "$((EPOCHSECONDS - 100))" >"${LOCK}"
+FOUND="$(plan_image_build 2>"${CAPTURE_FILE}")"
+RC=$?
+assert_eq "a held lock whose pid started after its build began (a reused pid) is no build" "3" "${RC}"
+bash -c 'exit 0' &
+GONE=$!
+wait "${GONE}"
+printf '%s %s claude-yolo:latest\n' "${GONE}" "${EPOCHSECONDS}" >"${LOCK}"
+FOUND="$(plan_image_build 2>"${CAPTURE_FILE}")"
+RC=$?
+assert_eq "a held lock whose record names a process that has gone is no build" "3" "${RC}"
+printf 'half a rec' >"${LOCK}"
+FOUND="$(plan_image_build 2>"${CAPTURE_FILE}")"
+RC=$?
+assert_eq "a held lock with no record yet is a build starting" "0" "${RC}"
+assert_eq "named by its lock file's image" "? claude-yolo:latest" "${FOUND}"
+printf '%s\n' "${REAL_RECORD}" >"${LOCK}"
+wait "${BUILDER}"
+RC=$?
+assert_eq "the launcher's build ran" "0" "${RC}"
+FOUND="$(plan_image_build 2>"${CAPTURE_FILE}")"
+RC=$?
+assert_eq "once the build has ended (record emptied, lock let go) there is no build" "3" "${RC}"
+printf '%s %s claude-yolo:latest\n' "$$" "${EPOCHSECONDS}" >"${LOCK}"
+FOUND="$(plan_image_build 2>"${CAPTURE_FILE}")"
+RC=$?
+assert_eq "a live-looking record with nothing holding its lock is stale, no build" "3" "${RC}"
+rm -f -- "${LOCK}"
+chmod 0000 "${BUILDS}"
+FOUND="$(plan_image_build 2>"${CAPTURE_FILE}")"
+RC=$?
+chmod 0700 "${BUILDS}"
+if [[ "${EUID}" -eq 0 ]]; then
+    unverified "an unreadable lock directory is a failure" "root reads a mode 0000 directory"
+else
+    assert_eq "an unreadable lock directory is a failure" "1" "${RC}"
+fi
+if [[ -n "${SAVED_XDG}" ]]; then
+    XDG_RUNTIME_DIR="${SAVED_XDG}"
+else
+    unset XDG_RUNTIME_DIR
+fi
 
 # ── summary ──────────────────────────────────────────────────────────────────────────────
 

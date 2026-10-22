@@ -143,10 +143,13 @@ m2_ended_early() {
     cat -- "${log}.err" >&2
 }
 
-# m2_container_up <name> — the running container labelled ccy-session=<name>; 120 s at most.
+# m2_container_up <name> — the running container labelled ccy-session=<name>; 120 s at most,
+# counted from the end of any image build the launch runs or waits for first (the project
+# image after a base image change takes as long as it takes: plan_image_build_grace,
+# CLAUDE/Plan/_image-build.inc.bash). A failed build ends the session, which fails at once.
 m2_container_up() {
-    local name="$1" id="" i
-    for ((i = 0; i < 120; i++)); do
+    local name="$1" id="" deadline=$((SECONDS + 120)) status
+    while ((SECONDS < deadline)); do
         id="$(podman ps --filter "label=ccy-session=${name}" --filter status=running --format '{{.ID}}')" || return 1
         if [[ -n "${id}" ]]; then
             M2_CTR[${name}]="${id}"
@@ -159,6 +162,13 @@ m2_container_up() {
             m2_ended_early "${name}"
             return 1
         fi
+        status=0
+        plan_image_build_grace "the container of ${name}" 120 || status=$?
+        case "${status}" in
+            0) deadline=$((SECONDS + 120)) ;;
+            3) ;;
+            *) return 1 ;;
+        esac
         sleep 1
     done
     printf '[FAIL] no running container labelled ccy-session=%s after 120 s\n' "${name}" >&2

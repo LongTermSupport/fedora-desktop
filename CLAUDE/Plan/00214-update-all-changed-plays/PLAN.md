@@ -113,6 +113,12 @@ one definition, read by both.
   instances fixed (the login report's channels are `io.StringIO`, pingbus's `_LockedStream`
   an `io.TextIOBase`, CCY 3.100.9, container 2.79.4); a test drives the real check through
   the login report's streams with a stale play. Report in `subagent-reports/`.
+- [x] ✅ **Task 4.3c**: The host rerun's report leg failed "the collection exited 3": a
+  checker defect. 3 is `login_report.EXIT_FINDINGS`, its normal result while a play is stale,
+  which is this leg's precondition, so the leg could never pass. It now accepts 0 and
+  `EXIT_FINDINGS` (read from the helper, never a copy), fails on any other status, and fails
+  on 0 when a play is to run. `test_check_changed_plays.py`, red first, drives the leg over a
+  stand-in checkout. Report `subagent-reports/261022-report-leg-findings-exit.md`.
 - [ ] ⬜ **Task 4.4**: The owner runs meta-deploy: the acceptance passes on the host, then
   the `changed-plays` entry runs every changed play.
 
