@@ -104,7 +104,7 @@ func TestServeRefusesBadArgumentsAndUnbuiltOps(t *testing.T) {
 			t.Fatalf("%s with bad arguments = %+v", op, d)
 		}
 	}
-	if d := w.e.Serve(t.Context(), wire.Request{Op: wire.OpReply}, &recorder{}); d.Error == nil || d.Error.Code != exits.CodeInternal {
+	if d := w.e.Serve(t.Context(), wire.Request{Op: wire.OpQuestions}, &recorder{}); d.Error == nil || d.Error.Code != exits.CodeInternal {
 		t.Fatalf("an unbuilt op = %+v", d)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
