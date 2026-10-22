@@ -363,8 +363,8 @@ its first caller.
   - **n3f**: the side rooms of Plan 00211, from a SPEC-n3 addendum reviewed before it starts.
 
   2.0e: the switch (RS2) is CMD exit 75 alone and is turned on with its host half (Task 4.2);
-  2.0g: `empty` counts as unheard (UH1). Gate A binds the play, kit and unit placement; N3's LXC seats are
-  token seats, so gate B binds only the ccy hot reissue's host run (Task 4.4).
+  2.0g: `empty` counts as unheard (UH1). Gate A binds the play, kit and unit placement; N3's LXC
+  seats are token seats, so gate B binds only the ccy hot reissue's host run (Task 4.4).
 
 - [ ] ⬜ **Task 3.2**: The `teamchat` binary: CLI, member state, the keeper (`run`) and the link, locks, sync,
   delivery, hooks, status line, plugin and skill (B 2.1-2.12).

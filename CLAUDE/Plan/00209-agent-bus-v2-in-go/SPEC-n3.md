@@ -662,7 +662,7 @@ through the supervisor is taken as a restart too, which is accepted.
   test pins it. So humans see a `left exit` with no following notice (`back` follows only
   `disconnected`) for each relaunch: today's 2.0e harm, carried knowingly until RS3 lands.
 - **RS2. The switch.** For `--kind ccy` only (LXC and host kinds run no supervisor), when CMD
-  exited 75 the end is `restart`: the link posts nothing and records
+  exited 75 and no stop was forwarded (B 2.4.2's order), the end is `restart`: the link posts nothing and records
   `run.ended = {"notice":"none","reason":"restart","state":"skipped","txn":null,"at_ms":N}`
   (n3-D2); the next link on the seat closes it with no post and no `back`. Any other status, or a
   75 from an LXC or host member, is an ordinary `exit` end, decided by B 2.11's table (`left exit`

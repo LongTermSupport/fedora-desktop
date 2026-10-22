@@ -1186,9 +1186,8 @@ bytes, mode 0600 (S19). Its one other copy is in the pool's `held/`, for the rel
 
 - For an LXC member, placement is the same code inside the guest: `teamchat guest place-bundle` run as the
   agent user, reading the same JSON on stdin, placed by 3.9.2 step 07's rule (an existing seat
-  directory keeps `store.json` and `seat.lock`; `token` then `seat.json` are replaced inside
-  it). The held-seat refusal above is for pool
-  seats; `lxc apply` reissues a guest's seat only when the guest's bundle is missing or its token
+  directory keeps `store.json` and `seat.lock`; `token` then `seat.json` are replaced inside it).
+  The held-seat refusal above is for pool seats; `lxc apply` reissues a guest's seat only when the guest's bundle is missing or its token
   refused, so no keeper is running on it.
 
 **Taking a seat for a session** (ccy-teams or the launcher, as the owner, under the checkout's
@@ -1252,11 +1251,13 @@ never queues behind a draining keeper; the lock is taken only for steps 2 and 5.
 
 1. Wait, bounded (60 s), for the session's seat lock to be free, or for the session to be over.
    The probe is L3, made safe against the container that owns the path: from the dirfd of
-   `sessions/<session>/`, `openat2(<team>/<seat lock>, O_PATH, RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS)`, then `fstat` a regular file, then
-   that inode reopened `O_RDONLY|O_NONBLOCK` through `/proc/self/fd/<n>` (device and inode checked
-   again), then `LOCK_SH|LOCK_NB` on the reopened fd. The read-only open comes last, so a FIFO is
-   never opened and the owner never becomes its reader. A link anywhere on the path, a FIFO or a device is refused, never followed,
-   so a planted link cannot point the owner's lock probe at the play lock or any other owner
+   `sessions/<session>/`,
+   `openat2(<team>/<seat lock>, O_PATH, RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS)`,
+   then `fstat` a regular file, then that inode reopened `O_RDONLY|O_NONBLOCK` through
+   `/proc/self/fd/<n>` (device and inode checked again), then `LOCK_SH|LOCK_NB` on the reopened
+   fd. The read-only open comes last, so a FIFO is never opened and the owner never becomes its
+   reader. A link anywhere on the path, a FIFO or a device is refused, never followed, so a
+   planted link cannot point the owner's lock probe at the play lock or any other owner
    file. A wait that ends with the lock still held exits 75 naming the holder; the seat stays
    held and the board shows it as leaving. The seat sweep and the board (in the background, 3.7.5, 3.13) re-run the release for every seat whose
    `held/held.json` names a live session that no longer desires it (a timed-out leave).
@@ -1665,7 +1666,8 @@ any group but the agent user's own, and refuses to run as uid 0.
 
 01. Validate every entry (types, `(team, container, user)` unique, team declared present and its
     homeserver active) before touching any container.
-02. For each container: `lxc-info -sH`. Missing fails the present phase. Not `RUNNING` is held back (3.9.3).
+02. For each container: `lxc-info -sH`. Missing fails the present phase. Not `RUNNING` is held
+    back (3.9.3).
 03. For each running container, read from the host side and change nothing yet:
     - the container config (a host file, root-owned): network link, `lxc.start.auto`; an
       unprivileged (`lxc.idmap`) container is refused by name, as v1 does;
@@ -1734,10 +1736,10 @@ any group but the agent user's own, and refuses to run as uid 0.
     renamed in as `~/.config/teamchat/seats/<team>/` with `RENAME_NOREPLACE`. One that exists keeps
     its `store.json` and `seat.lock` (B 2.5): `token`, then `seat.json`, are each replaced inside it
     by an `O_EXCL` temporary file and a rename. When its `seat.json` names a different identity (a
-    retire and add, a new seat number; an undecodable `seat.json` counts as one), the op first
-    takes the seat lock and sets the store aside (B 2.13 `seat set-aside`), and exits 75 if the
-    seat is held, which is `DEFERRED` naming the seat and retried at the next apply. Then the
-    member's own config (area B).
+    retire and add, a new seat number; an undecodable `seat.json` counts as one), the op takes
+    the seat lock, sets the store aside as `seat set-aside` does (B 2.3.2) and places the files,
+    releasing the lock last; it exits 75 if the seat is held, which is `DEFERRED` naming the seat
+    and retried at the next apply. Then the member's own config (area B).
 08. Membership: for each guest user whose desired membership differs from the host's record of it
     (3.9.3), write the record first, then run `teamchat guest membership --user <user>` as the agent
     user with the whole `desired.json` on stdin (3.7.5's schema): `session` is `lxc-<user>`,
@@ -2366,15 +2368,15 @@ window operations 5 closed.
 
 An open (picker or `--list`) reads, all in-process, as the owner:
 
-| Read                                                          | Cost on a desktop     | Notes                                                                                                                                                                                                                                                                     |
-| ------------------------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| host_vars: one strict decode of the v2 keys                   | ~2 ms                 | once per open, shared by every view (fixes v1's three `declare overview` runs)                                                                                                                                                                                            |
-| `/var/lib/teamchat-status/installed.json`                     | \<1 ms                | installed `teamchat-admin` digest, Tuwunel version, kit digest                                                                                                                                                                                                            |
-| per team: `stamp.json`, `status.json`, `lxc/<team>.json`      | \<1 ms each           | three small files per team, whatever the number of members or people                                                                                                                                                                                                      |
-| one D-Bus `ListUnitsByPatterns(['teamchat-server@*'])` (DC17) | ~5 ms                 | live unit states, in case the status record is up to a minute old                                                                                                                                                                                                         |
-| the seat store: pool and session directories                  | ~1 ms per seat        | the pool's `seat.json`, `released.json` and `held/held.json` of each seat, and the L3 probe of the seat lock in the holding session's directory, through `openat2` with `RESOLVE_BENEATH\|RESOLVE_NO_SYMLINKS` from that directory's fd, `O_NONBLOCK` and `fstat` (3.7.3) |
-| the checkout's source digest                                  | ~5 ms, cached by stat | for "software out of date" (below)                                                                                                                                                                                                                                        |
-| session records, tmux list, git probes for "join here"        | ~30 ms                | as the stage-1 board already does                                                                                                                                                                                                                                         |
+| Read                                                          | Cost on a desktop     | Notes                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------------------------------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| host_vars: one strict decode of the v2 keys                   | ~2 ms                 | once per open, shared by every view (fixes v1's three `declare overview` runs)                                                                                                                                                                                                                                                               |
+| `/var/lib/teamchat-status/installed.json`                     | \<1 ms                | installed `teamchat-admin` digest, Tuwunel version, kit digest                                                                                                                                                                                                                                                                               |
+| per team: `stamp.json`, `status.json`, `lxc/<team>.json`      | \<1 ms each           | three small files per team, whatever the number of members or people                                                                                                                                                                                                                                                                         |
+| one D-Bus `ListUnitsByPatterns(['teamchat-server@*'])` (DC17) | ~5 ms                 | live unit states, in case the status record is up to a minute old                                                                                                                                                                                                                                                                            |
+| the seat store: pool and session directories                  | ~1 ms per seat        | the pool's `seat.json`, `released.json` and `held/held.json` of each seat, and the L3 probe of the seat lock in the holding session's directory, as 3.7.3 release step 1 opens it (`O_PATH` with `RESOLVE_BENEATH\|RESOLVE_NO_SYMLINKS\|RESOLVE_NO_MAGICLINKS` from that directory's fd, `fstat`, then a reopen through `/proc/self/fd/<n>`) |
+| the checkout's source digest                                  | ~5 ms, cached by stat | for "software out of date" (below)                                                                                                                                                                                                                                                                                                           |
+| session records, tmux list, git probes for "join here"        | ~30 ms                | as the stage-1 board already does                                                                                                                                                                                                                                                                                                            |
 
 Seat releases the board finds due (a timed-out leave, a session that is over, 3.7.3) are never
 run on the open path: the board draws from files first, shows those seats as "leaving" or
