@@ -449,7 +449,8 @@ an extra rule. Owner decision OD-A5 lets the owner open reactions to humans for 
 | questions | admin invite                           | admin invites the coordinator; the member accepts it per 6.3              | admin kick on removal or demotion |
 
 A parked member stays joined in main and reports (its token is revoked, so it can neither read nor
-post); a removed member is kicked from every room and deactivated (C). A demoted or parked
+post): parked members stay in the desired membership of main and reports, which proto's `Desired`
+gives C with the invites, and C diffs it against the room (`MembershipDiff`); a removed member is kicked from every room and deactivated (C). A demoted or parked
 coordinator is kicked from questions before any new coordinator is invited (00211 section 3; R10
 demote before promote), and while the roster names no non-parked coordinator, questions is closed.
 
@@ -457,7 +458,9 @@ demote before promote), and while the roster names no non-parked coordinator, qu
 
 The topic is display only and never affects trust (R41). C sets:
 
-- main: the team's description (1-120 code points, no `Cc` or `Cf`, equal to its trimmed self, P16),
+- main: the team's description (1-120 code points, no `Cc` or `Cf`, equal to its trimmed self, P16;
+  U+2028 and U+2029, `Zl` and `Zp`, pass it, and 13.3's MEMBERSHIP line rule keeps them out of the
+  `is for:` line),
   else `Agent team: the team's agents and the humans who direct them. Mention an agent to reach it.`
 - reports: 00211's sentence: `Reports from the team's agents, for you to read. To reach an agent, write in the main room; answer questions in the questions room.`
 - questions open: `Questions the coordinator <handle> could not answer itself. Answer here; the coordinator reads every message in this room.`
@@ -514,15 +517,15 @@ only source of who is in the team, what each may do, and the team's policy. It r
 | `restore_epoch`                                  | integer 0-999999999, default 0; raised by one by a restore of the team's homeserver (a fresh random value from the range's lower half under `--roster-from-backup`, so later raises stay in range) and changed by nothing else (C 3.12.2); a member that sees it differ drops its sync position and resumes from the server, reading it after every sync answer, before persisting it, by a direct state request, not by sync (B 2.6 step 08) | new           |
 | `question_floor`                                 | integer 0-999999999, default 0; written by the admin only, by a migration (area D) to seed question numbering above v1's questions (6.5, 10.2)                                                                                                                                                                                                                                                                                                | new           |
 | `humans`                                         | 1-16 distinct human user IDs                                                                                                                                                                                                                                                                                                                                                                                                                  | P43, P59      |
-| `members`                                        | 0-64 agent user IDs; each value has `role` (`coordinator`, `worker` or `probe`), optional `human_text` (default `true`), optional `parked` (default `false`); `probe` only for the reserved probe handle (2.3), at most one, never a coordinator                                                                                                                                                                                              | P18, P43, R10 |
+| `members`                                        | 0-64 agent user IDs; each value has `role` (`coordinator`, `worker` or `probe`), optional `human_text` (default `true`), optional `parked` (default `false`); role `probe` is the probe handle's alone (2.3), and the probe handle's only role, so at most one and never a coordinator                                                                                                                                                        | P18, P43, R10 |
 | at most one coordinator                          | a roster naming two non-parked coordinators is invalid                                                                                                                                                                                                                                                                                                                                                                                        | R10           |
-| coordinator `human_text`                         | a coordinator with `human_text: false` is invalid (it would drop every questions-room message, 00211 lesson g)                                                                                                                                                                                                                                                                                                                                | 00211         |
+| coordinator `human_text`                         | a coordinator has `human_text: true`: one with `human_text: false` is invalid, parked or not (it would drop every questions-room message, 00211 lesson g)                                                                                                                                                                                                                                                                                     | 00211         |
 | `rooms`                                          | both `reports` and `questions`, distinct room IDs, neither the main room                                                                                                                                                                                                                                                                                                                                                                      | P47           |
 | `forge.kind`                                     | `github` (the only forge v2 checks; a second forge is a new feature); the API origin is fixed per kind in `teamchat/proto` (`https://api.github.com`), never taken from the roster                                                                                                                                                                                                                                                            | R16           |
-| `forge.org`, `repos`, `exclude`, `path_prefixes` | v1's allow-list, P15 and P27 semantics, P59 counts; at least one of `org` or a repo; an excluded repo is not also listed                                                                                                                                                                                                                                                                                                                      | P15, P27, P59 |
+| `forge.org`, `repos`, `exclude`, `path_prefixes` | v1's allow-list, P15 and P27 semantics, P59 counts; at least one of `org` or a repo; an excluded repo is not also listed; `repos`: optional, absent is none; `exclude`: each `OWNER/REPO`, of any owner (v1 had bare names under `org`); an empty `exclude` or `path_prefixes` list is none, and is not written (11.2)                                                                                                                        | P15, P27, P59 |
 | `limits`                                         | optional; keys and bounds of section 11; an absent key takes its default; a value outside its bounds makes the roster invalid (never clamped)                                                                                                                                                                                                                                                                                                 | P59           |
 
-Unknown keys are ignored (section 3). `parked` makes a member's events drop `sender` and makes it
+Unknown keys are ignored (section 3). `name`, `rooms` and `forge` are required. `parked` makes a member's events drop `sender` and makes it
 unaddressable; its account stays in the rooms. A removed member is absent from `members` (C kicks
 and deactivates it). No `orchestrator` alias: v2 writes and reads `coordinator` only.
 
@@ -608,9 +611,11 @@ other invite and logs it by room ID only (v1 `syncer.py:177-220`, 00211 section 
 | main      | room ID equals the bundle's; inviter and the stripped `m.room.create` sender are the admin                                                                 |
 | questions | main is verified; the roster names this room under `questions`; inviter and stripped create sender are the admin; the roster names this member coordinator |
 
-An admin invite to a room the verified roster does not yet name is left pending, not rejected, so a
-roster write racing an invite does not cost a re-invite (00211). Reports needs no invite: the member
-joins it by the restricted rule once main is verified.
+An admin invite is pending until main verifies and names the room: an admin invite to a room the
+verified roster does not yet name, or any admin invite before main verifies, is left pending, not
+rejected, so a roster write racing an invite does not cost a re-invite (00211). An invite to reports
+is refused (agents join it by its rule): the member joins it by the restricted rule once main is
+verified.
 
 ### 6.4 Verifying a room
 
@@ -633,6 +638,8 @@ the largest of `users_default` and every value in `users`. A room passes when:
 - I2. `invite`, `kick`, `ban` and `redact` are each > `top`;
 - I3. every key in `events` other than `m.room.message` has a value > `top`;
 - I4. `events_default` > `top`.
+
+Absent keys take Matrix's defaults; a non-integer level fails the check (`power levels`).
 
 Every sentence of 4.2's "nobody but the admin can..." follows from I1-I4, and they hold for every
 form in 4.2. They are what trust needs: no one but the admin can change room state, invite, kick,
@@ -691,7 +698,9 @@ numbering, counting starts from the roster's `question_floor` (5.1) rather than 
 question counts only when its `n` is exactly 1 plus the highest counted so far (at first,
 `question_floor`), in stream order; any other `n` from an agent is ignored for numbering, so one bad
 post (a client bypassed, 6.9) cannot push the numbering past the `Q` grammar for ever. A question the
-**admin** posts is counted whatever its `n`, and raises the highest counted to its `n` when higher. An uncounted question is not in the index:
+**admin** posts is counted whatever its `n`, and raises the highest counted to its `n` when higher.
+A number already in the index is not counted again, the admin's included; the first in stream
+order holds it. An uncounted question, or one whose body fails 10.2's form, is not in the index:
 nothing attaches to it (10.4), it has no reminder (10.5) and no headline (13.2).
 
 `rev` is shown in `status` and on the board beside the host's expected value, so a member that lags
@@ -801,7 +810,7 @@ pending item (7.6 rule 01) and every re-verification trigger (6.5).
 | `room.state.types`                    | the six types above (`lazy_load_members` off, so this member's own `m.room.member` always comes)                                                                                   | the same                                |
 | `room.timeline.limit`                 | 100 (step 03's page size, B 2.6)                                                                                                                                                   | the same                                |
 | `room.ephemeral`, `room.account_data` | none (receipts and typing are display; the resume marker is read by a direct request, B 2.3.2)                                                                                     | the same                                |
-| `presence`                            | the team's members only, for `status` (6.6)                                                                                                                                        | the same                                |
+| `presence`                            | the team's members only, for `status` (6.6): `senders`, the team's humans and every roster member, sorted                                                                          | the same                                |
 | `account_data`                        | none                                                                                                                                                                               | the same                                |
 | `event_format`                        | `client`                                                                                                                                                                           | the same                                |
 
@@ -844,6 +853,17 @@ other types, so every event a human should see is one; the meaning is in exactly
 | `teamchat.report`                                      | `m.notice` | reports never notify (00211 D14)                                |
 | `teamchat.question`; `teamchat.thread` that asks again | `m.text`   | a question is what humans must be told about (00211 D14)        |
 | `teamchat.thread` otherwise                            | `m.notice` | follow-ups are quiet                                            |
+
+The relation each key allows. An agent's relation is an exact shape (no extra key); any other is
+`schema`. A human's malformed relation or mention is none, never a drop (7.5).
+
+| Key                                                                      | `m.relates_to`                                                                                          |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `teamchat.text`                                                          | none, or a reply                                                                                        |
+| `teamchat.notice`, `teamchat.report`, `teamchat.question`, carried (7.7) | none                                                                                                    |
+| `teamchat.thread` with `n`                                               | the thread form (10.3)                                                                                  |
+| `teamchat.thread` without `n`                                            | exactly a reply, and no `close`                                                                         |
+| `teamchat.ping`                                                          | by its verb (8.1); an optional relation is none or the answer form (7.2), and a plain reply is `schema` |
 
 **Why `body` is not checked.** v1 dropped an event whose `body` differed from a render of its typed
 object, so the Element text could never change without a protocol version, and every field lived
@@ -901,8 +921,10 @@ receivers read the typed object only.
   over the pinned tables, P33) or holding its own token (R43), refusal `secret`. It applies to every
   free text a member posts: agent text, reports (10.1), questions (10.2) and thread posts (10.3).
   No member can withdraw what it posted (redaction is closed, 4.2; only the owner can, after the
-  fact, 12.4), so the check is the guard.
+  fact, 12.4), so the check is the guard. The secret check covers every free text, `body`
+  included: the display text of every agent event is free text the member posts.
   Receivers do not run it.
+- Receivers do not check the coordinator copy of P21: it is the sender's alone.
 
 ### 7.4 Notice
 
@@ -951,7 +973,10 @@ The envelope's `event:` line (13.2) shows each event with its fixed gloss:
 - `to` is the team's humans and the coordinator, at most 17, never the subject (R28: "to humans
   and coordinators only"; each agent addressed costs a model turn). `moved` is the exception: it is
   to every non-parked agent member (at most 64) and to no human, because every session of the team
-  must learn once that its old commands are gone; humans see it pinned in Element.
+  must learn once that its old commands are gone; humans see it pinned in Element. On receipt a
+  notice's `to` holds only the listed humans and the non-parked coordinator, never the subject,
+  and a `moved` notice's only the addressable agents. An admin notice's subject is a roster
+  member, except for `removed`.
 - These are the team's view. The subject's own session learns of its changes from the local
   MEMBERSHIP notice (R30, 00203 H12), never from a notice in the room (AR17).
 - A notice whose `event` is unknown is dropped `schema`; a new event needs every member to run a
@@ -962,7 +987,8 @@ The envelope's `event:` line (13.2) shows each event with its fixed gloss:
 - **The probe has no notices.** C posts no `added`, `removed`, `parked` or `role` for the probe
   handle (2.3), and the probe's link posts no `left`, `disconnected` or `back` (B 2.11): an
   acceptance check must not interrupt the humans and the coordinator with lifecycle facts about an
-  account that is not a team member in any sense they act on. Its roster entry is visible in
+  account that is not a team member in any sense they act on. A notice is never about the
+  probe: the admin's composer refuses one `target`. Its roster entry is visible in
   Element's room state, and C's acceptance report records each check.
 - `removed`, `parked`, `role` and `added` come from the admin because the admin made the change:
   the notice no longer depends on the subject's session being alive to post its own farewell. There
@@ -981,10 +1007,10 @@ A human writes in Element; nothing of `teamchat` is on the event. The member rea
 | Field     | Rule                                                                                                                                                                                                                                                                                                                                             |
 | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `msgtype` | `m.text`; anything else (`m.emote`, files, images): ignored `type` and counted as unheard                                                                                                                                                                                                                                                        |
-| `body`    | a string of at most 16384 bytes, else drop `size`; `format`/`formatted_body` ignored                                                                                                                                                                                                                                                             |
+| `body`    | a string; `body` as sent, before the reply fallback is removed, at most 16384 bytes, else drop `size`; blank after trimming: ignored `empty`; `format`/`formatted_body` ignored                                                                                                                                                                  |
 | reply     | `m.relates_to.m.in_reply_to.event_id`; when present and the body's first line has the reply-fallback form `> <@user:server> ...`, the leading `>` lines and one blank line after them are removed (P37); empty after that: ignored `empty`. A body that merely opens with a quote is left alone (current Element sends no fallback, Matrix 1.13) |
 | thread    | `rel_type` `m.thread` in main is read as a reply to the thread root                                                                                                                                                                                                                                                                              |
-| edit      | `rel_type` `m.replace` with `m.new_content` (`msgtype` `m.text`, `body` string): delivered as a revision (below)                                                                                                                                                                                                                                 |
+| edit      | `rel_type` `m.replace` with `m.new_content` (`msgtype` `m.text`, `body` string): delivered as a revision (below); a malformed edit (a bad original ID, no `m.new_content`, or not `m.text`) is dropped `edit`                                                                                                                                    |
 
 **Addressing.** A human message in main is addressed to this member when any holds:
 
@@ -992,6 +1018,9 @@ A human writes in Element; nothing of `teamchat` is on the event. The member rea
 2. `m.mentions.room` is `true` (humans hold the `@room` power);
 3. it replies to an event this member sent (not a thread fallback reply);
 4. it is in a thread whose root this member sent.
+
+A human's relation and mentions are read leniently, as v1's `_addressed` does: a human's malformed
+relation or mention is none, never a drop.
 
 Rules 3 and 4 are new. Element adds the replied-to sender to `m.mentions` for a plain reply, but a
 "Reply in thread" is not a mention, so in v1 a human answering an agent inside a thread was unheard.
@@ -1012,21 +1041,24 @@ A human message gets no `teamchat` key and is never read for anything but the ab
 
 The receiver judges each event once, in this order; the first rule that decides wins. The outcome is
 **deliver** with a kind, **ignore** (silent, not logged except where noted), or **drop** (logged with
-a reason from the closed set below).
+a reason from the closed set below). The verdict names four more outcomes for the rules that end
+otherwise: `redact` (rule 01), `index` (rule 03), `fault` (rule 05) and `record` (rule 09).
 
 01. `type` is not `m.room.message`: ignore `type` (state is the trust path's). One exception
     acts before the ignore: an `m.room.redaction` sent by the admin removes the item it names from
     whatever the member still holds undelivered (12.4); a redaction from anyone else is ignored.
+    The target is `content.redacts` (room version 12).
 02. `event_id` fails its grammar, `state_key` present, `unsigned.redacted_because` present, `content`
     not an object, or `origin_server_ts` not a non-negative integer: drop `schema`.
 03. Already judged: ignore `seen`. In questions, a `teamchat.question` or `teamchat.thread` from any agent
     account, this member's own included, or a `teamchat.question` from the admin (a carried open
     question, 7.7), feeds the question index (6.5, 10.4) once it passes its
-    shape rules, and is judged no further. Sent by this member: ignore `self` (B records its own
+    shape rules, and is judged no further; a post that fails its shape is dropped with that
+    reason. Sent by this member: ignore `self` (B records its own
     ping's `origin_server_ts`, 8.2).
 04. Sender class (6.7) none: drop `sender`.
 05. Room:
-    - reports: no member reads it (00211); a member that does is a fault.
+    - reports: no member reads it (00211); a member that does is a fault: the outcome `fault`.
     - questions: this member not the coordinator: ignore `not-coordinator`. A human: the human path,
       every message addressed; kind HUMAN with the room lines (13.2); rule 10 applies `rate` but not
       `stale`, since the index already tracks which questions are open and answered, and a
@@ -1037,7 +1069,8 @@ a reason from the closed set below).
     `teamchat.carried` object (7.7): the carried path, kind NOTICE. Anything else: ignore `admin`
     (the admin's display posts, if any, are for humans).
 07. Human: the human path (7.5), kind HUMAN. A member whose roster entry says `human_text: false`
-    drops it `sender` (R21 per-member mitigation, v1 `protocol.py:823`).
+    drops it `sender` before the message is decoded (R21 per-member mitigation, v1
+    `protocol.py:823`).
 08. Agent: content holding a `teamchat.carried` key: drop `sender` (only the admin carries, 7.7).
     From the probe (6.7), anything but a `teamchat.ping`: drop `role`.
     Otherwise the typed-key rule (7.1), then by key: `teamchat.ping` the ping path (8.1), kind PING;
@@ -1051,7 +1084,10 @@ a reason from the closed set below).
     non-stale `nack`, `done` or `blocked` is recorded only when rule 10 delivers it; if rule 10
     drops it, it is not recorded and its TIMEOUT still falls due, so a ping never waits unseen.
 10. Local checks, in order: age (`stale`), receive flood (`rate`), forge check for a ping with a
-    reference (section 9). Then deliver.
+    reference (section 9). Then deliver. The admin is not flood-limited and its items are never
+    stale, so a migration's carried items are never lost to `rate`. The forge check is the
+    verdict's `Forge`, which B runs: its three drops, `provenance`, `unresolved` and `forge-rate`,
+    are B's, after the verdict, and the corpus has no rows for them (14).
 
 TIMEOUT and MEMBERSHIP never come from the room: TIMEOUT from the member's own ping records (8.3)
 and question reminders (10.5); MEMBERSHIP from the host's desired-membership file (B, 00203 H12).
@@ -1088,12 +1124,17 @@ one member. It exists so that a migration loses nothing silently, and it is neve
 
 - `kind` is one of `ping`, `text`, `human`, `timeout`, `forwarded`. `verb` and `ref` appear only with
   `ping` and follow 8.1 and 9.1; `ref` is not forge-checked again, because the item is history and
-  the entry says so. `to` is exactly one user ID. `text` is at most 4096 bytes and passes the secret
-  check. `from` is the old sender's mapped handle or human (D 5.1) and need not be a current member.
+  the entry says so; a carried ping's unknown verb is dropped `verb`, and a reference that fails
+  its verb's grammar `ref`. `to` is exactly one user ID. `text` is optional, 0-4096 bytes, and
+  passes the secret check. `from` is the old sender's mapped handle or human (D 5.1): a human or
+  agent user ID of the server, else `schema`, and need not be a current member.
   `sent_ms` is the v1 `origin_server_ts`; `v1_event` the v1 event ID.
 - Sender: the admin only, in main. Any other sender, or any other room: dropped `sender`. An open v1
   question is not a carried item: the admin posts it again in the questions room as a
-  `teamchat.question` with its v1 `n` (counted whatever its `n`, 6.5). Reports-room posts are not
+  `teamchat.question` with its v1 `n` (counted whatever its `n`, 6.5). The admin names a
+  question's `n` when it composes one, and the coordinator never does (10.2, `schema`); the
+  admin's re-posted questions skip
+  the duplicate check (10.2), because v1 may hold two that are the same. Reports-room posts are not
   carried; nobody syncs the reports room, and they are in the export (D 5.6).
 - **Nothing from v1's questions room is carried.** Only humans and the coordinator could read that
   room, and main is read by every member and, through `shared` history, every future one. A human
@@ -1147,8 +1188,8 @@ the table, "Reply relation" means the answer form of 7.2 (a reply in the ping's 
 | `run-qa`  | required  | commit, pr       | forbidden      | yes             | coordinator, worker | no           |
 | `halt`    | forbidden | -                | forbidden      | yes             | coordinator         | no           |
 | `check`   | forbidden | -                | forbidden      | yes             | probe               | no           |
-| `ack`     | forbidden | -                | required       | no              | any role            | no           |
-| `nack`    | optional  | any              | required       | no              | any role            | yes          |
+| `ack`     | forbidden | -                | required       | no              | coordinator, worker | no           |
+| `nack`    | optional  | any              | required       | no              | coordinator, worker | yes          |
 | `done`    | required  | any              | optional       | no              | coordinator, worker | yes          |
 | `blocked` | required  | any              | optional       | no              | coordinator, worker | yes          |
 
@@ -1158,7 +1199,8 @@ the table, "Reply relation" means the answer form of 7.2 (a reply in the ping's 
 - `check` is the acceptance probe's one verb (D 6.1 A4, A7): it asks the addressee for nothing but
   an answer, so a live team proves it reaches an agent and hears back without asking any agent
   for real work. Its authority sentence (13.3) says so, it carries no reference to check, and its
-  `to` is exactly one member: a coordinator or worker, or the probe itself for A4's round trip
+  `to` is exactly one addressee (else `target`): a coordinator or worker, or the probe itself for
+  A4's round trip
   (sent, then read back with `history`, since 7.6 rule 03 ignores a member's own event). A
   `check` from anyone but the probe is dropped `role`; it is the one
   verb the probe may send, and the probe cannot send text or notices (6.7).
@@ -1294,6 +1336,13 @@ only to the same origin, 429 handled as 11.3.
 The receiver never fetches the referenced artefact for the session; the envelope's authority line
 says it is a document to read, never a command (13.3).
 
+**The send order.** One order holds for every composer, and the first failure wins: a sender
+refuses in this order: class and role; the question index's number and relation (`schema`,
+`target`); the body form (10.1-10.3, `body`); the receiver's own rules over the built content
+(decode, then the roster); the secret check (`secret`); an open duplicate question (`duplicate`);
+then, in B, the forge check, then the flood budget (`Admit`, 11.1-11.2), which a refused send never
+spends. A send the forge check refuses spends no token and does not enter the duplicate window.
+
 ---
 
 ## 10. Reports, questions and threads
@@ -1311,8 +1360,10 @@ Plan 00211's behaviour, on v2's schema. Its decisions D2-D16 hold unless a line 
 }
 ```
 
-- Any active member; humans cannot post (power 0). The text is the `body`: the first line is the
-  headline (1-120 code points after trimming), the whole at most 1500 bytes; over the cap it is
+- Any active coordinator or worker (the probe sends no text, notice or report: `role`, as the
+  receiver's rule 08); humans cannot post (power 0). The text is the `body`: the first line is the
+  headline (1-120 code points after trimming Unicode white space; one that starts with a section
+  name is refused `body`, as v1), the whole at most 1500 bytes; over the cap it is
   refused `body`, never cut. Secret shapes and the member's own token are refused (P51).
 - No mentions and `m.notice`, so Element never notifies (00211 D14); no agent reads the room, so
   nobody is woken.
@@ -1345,7 +1396,8 @@ coordinator in main (00211 D7).
 }
 ```
 
-- Form (P54): headline 1-120 code points, then `Context:` and `Question:` sections (required) and
+- Form (P54): headline 1-120 code points (trimmed of Unicode white space; one that starts with a
+  section name is `body`, as v1), then `Context:` and `Question:` sections (required) and
   `Options:` (optional, lines `1. ` to at most `9. ` in order); the whole at most 8000 bytes; `body`
   starts `Q<n> `. A form error is refused `body`, naming the section.
 - The secret check of 7.3 runs over the whole text: secret shapes and the sender's own token are
@@ -1354,10 +1406,15 @@ coordinator in main (00211 D7).
 - `n` is 1 plus the larger of the roster's `question_floor` (5.1) and the highest counted `n` of the
   question index (6.5), so a replacement coordinator numbers the same way
   with no session state (00211).
-- `asked_by` 0-16 user IDs of members; `re` 0-16 main-room event IDs the question came from.
+  The admin names a question's `n` when it composes one (a re-posted open v1 question, 7.7); the
+  coordinator never does: its question takes that next number, and a coordinator naming one is
+  refused `schema`.
+- `asked_by` 0-16 user IDs of roster members (else `target`); `re` 0-16 main-room event IDs the
+  question came from, checked for grammar only.
 - `remind_after_s` optional, 600-604800 (10.5).
-- An open question whose `Question:` section equals the new one (whitespace collapsed) refuses the
-  new one `duplicate`, naming the open `Q<n>`.
+- A question not yet closed (open or answered, as v1's `open_duplicate`) whose `Question:` section
+  equals the new one (whitespace collapsed) refuses the new one `duplicate`, naming that `Q<n>`. The
+  admin's re-posted questions skip this check, because v1 may hold two that are the same.
 - `m.text` mentioning every human, so Element notifies (00211 D14). Each question is a thread root,
   so the room's timeline shows one line per question (00211 D5).
 
@@ -1397,7 +1454,10 @@ The coordinator's follow-ups inside a question's thread:
   name the same post would only be a second thing to get wrong. `thread Q<n>` stays for posting
   into a question without answering a particular post (a follow-up, `--ask`, `--close`).
 - The secret check of 7.3 runs over the text, as for questions (10.2).
-- `close: true` closes the question; text may then be empty and the body is `Q<n> closed.`.
+- The sender's index check: a reply without `n` must name a human post the index saw unattached;
+  with `n`, an answered post must be attached to that question; otherwise `target`.
+- `close: true` closes the question; text may then be empty and the body is `Q<n> closed.`. A
+  blank post that does not close is refused `body`.
 - A post that asks the humans something again is `m.text` and mentions them; otherwise `m.notice`
   and no mentions (00211 `--ask`).
 - At most 4000 bytes. `teamchat.thread` replaces v1's `agent_bus.question_state`, so every post the
@@ -1410,8 +1470,10 @@ by the first rule that holds (00211 section 8.3):
 
 1. it is in the thread of a question (`rel_type` `m.thread`, root a question);
 2. it replies to a question or to a post in a question's thread;
-3. its body starts with `Q<n>` (any case) then a space, `:` or `.`;
-4. it is an edit: the original's attachment, or its new body's `Q<n>`;
+3. it is a message that is not an edit, and its body starts with `Q<n>` (any case) then a space,
+   `:` or `.`;
+4. it is an edit: the original's attachment, or its new body's `Q<n>` (an edit is attached by this
+   rule alone);
 5. otherwise unattached: delivered with `question: none`, and the coordinator decides.
 
 A question's state is `closed` once a valid closing post exists, else `answered` once any human
@@ -1460,7 +1522,7 @@ Set in the roster's `limits`, the same for every member (AR25). Values from v1 (
 | ------------------------ | ------- | ----------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `send_per_minute`        | 20      | 1-60        | sender                  | token bucket refill per minute (P61)                                                                                                                                                                                                  |
 | `send_burst`             | 10      | 1-30        | sender                  | bucket capacity                                                                                                                                                                                                                       |
-| `recv_per_sender_minute` | 60      | 10-600      | receiver                | events admitted per sender per sliding minute; refusals not counted (P65)                                                                                                                                                             |
+| `recv_per_sender_minute` | 60      | 10-600      | receiver                | events admitted per sender per sliding minute; refusals not counted (P65); the admin is not flood-limited and its items are never stale (7.6 rule 10)                                                                                 |
 | `ack_timeout_s`          | 900     | 60-86400    | sender and receiver     | answer deadline; ping staleness                                                                                                                                                                                                       |
 | `halt_ack_timeout_s`     | 300     | 30-3600     | sender and receiver     | the same for `halt`                                                                                                                                                                                                                   |
 | `human_max_age_s`        | 86400   | 3600-604800 | receiver                | human and agent text staleness                                                                                                                                                                                                        |
@@ -1469,19 +1531,22 @@ Set in the roster's `limits`, the same for every member (AR25). Values from v1 (
 
 `wait_timeout_s` is a property of B's CLI, not of the team, and leaves this table.
 
+The sender rows apply to a member; the admin's posts are not limited (no bucket, no duplicate
+window, no report window). They are C's and D's, bounded by the change they record.
+
 ### 11.2 Fixed limits
 
-| What                            | Limit                                                                                                                          | Source  |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------- |
-| any agent event content         | 16384 bytes                                                                                                                    | new     |
-| ping object                     | 4096 bytes; `to` 1-32                                                                                                          | P26     |
-| agent text                      | 1-4096 bytes; `to` 1-16                                                                                                        | P32     |
-| notice `to`                     | 1-17; `moved` 1-64 (7.4)                                                                                                       | R28     |
-| human body                      | 16384 bytes                                                                                                                    | P36     |
-| report / question / thread post | 1500 / 8000 / 4000 bytes; headline 1-120 code points                                                                           | P51-P54 |
-| duplicate window                | 60 s on `[verb or kind, ref, re, sorted to, text digest]`; notices exempt (v1 lesson: it can only lose a second, true goodbye) | P62     |
-| reference                       | 700 characters                                                                                                                 | P13     |
-| roster lists                    | humans 1-16; members 0-64; repos 0-32; branches 1-8 per repo; exclude 1-32; path prefixes 1-32                                 | P59     |
+| What                            | Limit                                                                                                                                                                                                                                              | Source  |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| any agent event content         | 16384 bytes                                                                                                                                                                                                                                        | new     |
+| ping object                     | 4096 bytes; `to` 1-32                                                                                                                                                                                                                              | P26     |
+| agent text                      | 1-4096 bytes; `to` 1-16                                                                                                                                                                                                                            | P32     |
+| notice `to`                     | 1-17; `moved` 1-64 (7.4)                                                                                                                                                                                                                           | R28     |
+| human body                      | 16384 bytes                                                                                                                                                                                                                                        | P36     |
+| report / question / thread post | 1500 / 8000 / 4000 bytes; headline 1-120 code points                                                                                                                                                                                               | P51-P54 |
+| duplicate window                | 60 s on `[verb or kind, ref, re, sorted to, text digest]`; absent parts are empty; a ping's digest is empty; notices exempt (v1 lesson: it can only lose a second, true goodbye); a send refused earlier in the send order (9.3) does not enter it | P62     |
+| reference                       | 700 characters                                                                                                                                                                                                                                     | P13     |
+| roster lists                    | humans 1-16; members 0-64; repos 0-32; branches 1-8 per repo; exclude 0-32; path prefixes 0-32; an empty list is none                                                                                                                              | P59     |
 
 The duplicate key's text digest is the SHA-256 of the free text: `teamchat.text`'s `text` for agent
 text, and the event's `body` for a report, question or thread post (their `body` is the content,
