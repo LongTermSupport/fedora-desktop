@@ -127,6 +127,8 @@ type world struct {
 	desired string
 	kit     string
 	agent   string
+	// arm is the failpoints the next processes arm, once each (armOnce).
+	arm string
 }
 
 func newWorld(t *testing.T, hs homeserver) *world {
@@ -318,7 +320,11 @@ func eventually(t *testing.T, cond func() bool, what func() string) {
 // env is a member process's environment: the world's home and runtime directory, and a race
 // detector that does not sleep at exit.
 func (w *world) env(extra ...string) []string {
-	return append([]string{"HOME=" + w.home, "XDG_RUNTIME_DIR=" + w.rt, "GORACE=atexit_sleep_ms=0"}, extra...)
+	env := []string{"HOME=" + w.home, "XDG_RUNTIME_DIR=" + w.rt, "GORACE=atexit_sleep_ms=0"}
+	if w.arm != "" {
+		env = append(env, envArm+"="+w.arm, envArmDir+"="+w.dir)
+	}
+	return append(env, extra...)
 }
 
 // session is one `teamchat run` and its CMD.
@@ -364,9 +370,8 @@ func (l *lines) find(prefix string) (string, bool) {
 	return l.all[i], true
 }
 
-// launch is `teamchat run --plain --kind other <flags> --kit <kit> -- agent`, once its CMD has
-// started.
-func (w *world) launch(flags ...string) *session {
+// start is `teamchat run --plain --kind other <flags> --kit <kit> -- agent`, started.
+func (w *world) start(flags ...string) *session {
 	w.t.Helper()
 	args := append([]string{"run", "--plain", "--kind", "other"}, flags...)
 	args = append(args, "--kit", w.kit, "--", w.agent)
@@ -393,6 +398,13 @@ func (w *world) launch(flags ...string) *session {
 		s.ended <- st
 	}()
 	w.t.Cleanup(s.cleanup)
+	return s
+}
+
+// launch is start, once its CMD has started.
+func (w *world) launch(flags ...string) *session {
+	w.t.Helper()
+	s := w.start(flags...)
 	eventually(w.t, func() bool {
 		_, ok := s.out.find(agentName + " ")
 		return ok || s.exited()
@@ -402,8 +414,9 @@ func (w *world) launch(flags ...string) *session {
 		w.t.Fatalf("the session ended before CMD started: %s", s.describe())
 	}
 	fields := strings.Fields(line)
-	s.agent, err = strconv.Atoi(fields[1])
+	pid, err := strconv.Atoi(fields[1])
 	check(w.t, err)
+	s.agent = pid
 	if len(fields) == 3 {
 		s.runtime = fields[2]
 	}
@@ -426,10 +439,16 @@ func (s *session) describe() string {
 
 // log is a file of the session's runtime directory, or why it cannot be read.
 func (s *session) log(name string) string {
-	if s.runtime == "" {
-		return "(no runtime directory)"
+	dir := s.runtime
+	if dir == "" {
+		// CMD never said it: the world's one runtime directory, when it has one.
+		runs, err := filepath.Glob(s.w.rt + "/teamchat/run/*")
+		if err != nil || len(runs) != 1 {
+			return "(no runtime directory)"
+		}
+		dir = runs[0]
 	}
-	data, err := os.ReadFile(filepath.Join(s.runtime, name))
+	data, err := os.ReadFile(filepath.Join(dir, name))
 	if err != nil {
 		return err.Error()
 	}
@@ -496,6 +515,9 @@ func (s *session) recvUntil(ids ...string) []map[string]any {
 // kill sends sig to pid: the keeper this test started, or the CMD it started.
 func kill(t *testing.T, pid int, sig syscall.Signal) {
 	t.Helper()
+	if pid <= 0 {
+		t.Fatalf("no process to signal: pid %d", pid)
+	}
 	check(t, syscall.Kill(pid, sig))
 }
 
@@ -513,10 +535,11 @@ func (s *session) wait() {
 }
 
 // cleanup ends what the session left running, before its directories are removed: CMD and the
-// keeper by SIGKILL, then a wait for each link the keeper started, which ends by itself.
+// keeper by SIGKILL, then a wait for each link the keeper started, which ends by itself. A
+// session whose CMD never started has no pid for it: a kill of pid 0 is the test's own group.
 func (s *session) cleanup() {
-	for _, pid := range []int{s.agent} {
-		if err := syscall.Kill(pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+	if s.agent > 0 {
+		if err := syscall.Kill(s.agent, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
 			s.w.t.Error(err)
 		}
 	}
