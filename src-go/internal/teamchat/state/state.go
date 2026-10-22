@@ -7,7 +7,6 @@ package state
 
 import (
 	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -18,18 +17,14 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// tempSuffixBytes is the random part of a temporary file's name.
-const tempSuffixBytes = 8
+// chown gives an open file its group; a variable so a test can make it fail as root.
+var chown = func(f *os.File, gid int) error { return f.Chown(-1, gid) }
 
 // WriteFile replaces path with data, mode and (unless gid is -1) group gid, so a reader sees
 // either the old content or the new, never a part (ST1).
 func WriteFile(path string, data []byte, mode fs.FileMode, gid int) error {
 	dir := filepath.Dir(path)
-	suffix := make([]byte, tempSuffixBytes)
-	if _, err := rand.Read(suffix); err != nil {
-		return fmt.Errorf("cannot name a temporary file for %s: %w", path, err)
-	}
-	temp := filepath.Join(dir, "."+filepath.Base(path)+"."+hex.EncodeToString(suffix)+".tmp")
+	temp := filepath.Join(dir, "."+filepath.Base(path)+"."+rand.Text()+".tmp")
 	f, err := os.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_EXCL|unix.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return fmt.Errorf("cannot create a temporary file for %s: %w", path, err)
@@ -47,7 +42,7 @@ func WriteFile(path string, data []byte, mode fs.FileMode, gid int) error {
 func fill(f *os.File, data []byte, mode fs.FileMode, gid int) error {
 	err := f.Chmod(mode)
 	if err == nil && gid != -1 {
-		err = f.Chown(-1, gid)
+		err = chown(f, gid)
 	}
 	if err == nil {
 		_, err = f.Write(data)

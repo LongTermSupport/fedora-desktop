@@ -142,3 +142,39 @@ func TestReadFileRefusesWhatIsNotARegularFile(t *testing.T) {
 		t.Fatal("a FIFO was read")
 	}
 }
+
+func TestWriteFileChownFailureLeavesTheOldContent(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "roster.json")
+	if err := WriteFile(target, []byte("old"), 0o600, -1); err != nil {
+		t.Fatal(err)
+	}
+	refused := errors.New("chown refused")
+	saved := chown
+	chown = func(*os.File, int) error { return refused }
+	t.Cleanup(func() { chown = saved })
+	if err := WriteFile(target, []byte("new"), 0o600, 1); !errors.Is(err, refused) {
+		t.Fatalf("err = %v, want the chown failure", err)
+	}
+	got, _, err := ReadFile(target, 16)
+	if err != nil || string(got) != "old" {
+		t.Fatalf("after a failed write: %q, %v", got, err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("a failed write left %d entries", len(entries))
+	}
+}
+
+func TestReadFileOpenFailure(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := ReadFile(filepath.Join(file, "below"), 8); found || err == nil {
+		t.Fatalf("a path below a file: found %v, err %v", found, err)
+	}
+}
