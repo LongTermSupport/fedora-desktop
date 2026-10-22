@@ -201,6 +201,9 @@ requirement states the need and section 5 states the drop.
   (process group, 10 s timeout, cancel, never runs itself), refreshes every 25 s, inside the
   hooks-daemon supervisor's 30 s sidecar freshness, and costs one exec and one file read for the
   team segment, which has its own cache separate from the hooks-daemon line [R26; ST; Plan 00213].
+  It keeps what Plan 00217 gives v1's status line: each team in its own colour, and the
+  session's own short member name beside the team (for example `alpha: fedora-desktop.2 (c)`).
+  A team's colour override is a room event that only the admin writes [Plan 00217].
 - **B28.** Goodbye once per real session end, never on `/clear` or `/resume`, to humans and
   coordinators only, and not lost when Claude Code's SessionEnd budget is short; it is posted when
   the session's process has ended, never on a hook's word alone, and it is actually sent on every
