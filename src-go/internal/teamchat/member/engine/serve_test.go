@@ -147,6 +147,27 @@ func TestPersistAddsEachItemOnceAppliesRedactionsAndFloors(t *testing.T) {
 	}
 }
 
+// B 2.3.2: a room's floor is just below the oldest item the store owes there, so every owed item
+// is newer than its floor and a restart restores it (B44); with none owed it is the high-water.
+func TestPersistFloorsSitBelowTheOldestOwedItem(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	w.held(ops)
+	check(t, w.e.Persist(t.Context(), team.Batch{
+		Team: ops, NextBatch: "s1", Floors: map[string]int64{proto.PurposeMain: 300},
+		Items: []team.Item{humanItem(ops, 2, 200, "b"), humanItem(ops, 1, 100, "a")},
+	}))
+	if got := w.store(ops).Sync.FloorMS[proto.PurposeMain]; got != 99 {
+		t.Fatalf("the floor with items owed = %d", got)
+	}
+	d := w.done(wire.OpRecv, wire.TeamsArgs{})
+	check(t, w.e.Ack(t.Context(), d.Ack))
+	check(t, w.e.Persist(t.Context(), team.Batch{Team: ops, NextBatch: "s2", Floors: map[string]int64{proto.PurposeMain: 500}}))
+	if got := w.store(ops).Sync.FloorMS[proto.PurposeMain]; got != 500 {
+		t.Fatalf("the floor with none owed = %d", got)
+	}
+}
+
 func TestAFullPendingListRefusesTheWholeBatch(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)
 	ops := tid(t, "ops")
