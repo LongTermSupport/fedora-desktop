@@ -209,6 +209,15 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
   rule `homeserver-list-narrow-grammar` (`test_identifier_grammar.py`, CLAUDE/QA.md); the fake
   homeserver now models the admin room. CCY 3.99.14.12, container 2.78.15. Done in code, on
   `fix/agent-bus-room-id-shapes`; reports `subagent-reports/261022-room-id-*`.
+- [x] ✅ **Task 2.8** (the owner's rule): a declared team member that is offline (container
+  stopped, session not running, coordinator invited but not joined) is named offline and never
+  blocks a play, deploy, acceptance or tool; a running member that is wrong still fails
+  (CLAUDE/AgentNotes.md). Defence: the rule `offline-member-blocks`
+  (`tests/helpers/agent_bus_lxc/test_offline_member_rule.py`, CLAUDE/QA.md). Fixed: the 00211
+  and 00213 acceptances (`CLAUDE/Plan/_members.inc.bash`), `agent-bus check-rooms` (an invited
+  coordinator is an `OFFLINE` line, exit 0), the LXC play's deferred wording, and ccy-teams'
+  roles, wind-down and shutdown; Plan 00203's R9. CCY 3.99.14.13, container 2.78.16. Done in
+  code, on `fix/offline-members-never-block`; reports `subagent-reports/261022-offline-members-*`.
 
 ### Phase 3: the owner's view (Go)
 

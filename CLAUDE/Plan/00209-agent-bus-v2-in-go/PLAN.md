@@ -254,6 +254,10 @@ its first caller.
   then its own commits cherry-picked from ce87e241 and d342732b on, skipping the f460abb7 merge.
 - [ ] ⬜ **Task 7.3**: Plan 00213's status-line golden pins the Python's exact stdout; it is
   loosened to what callers parse when the Go status line takes over from the Python one.
+- [ ] ⬜ **Task 7.4** (follow-up from Plan 00211 Task 2.8): the board shows an offline member
+  live: a ccy seat's stopped session and a stopped LXC container both read `offline`, from the
+  live state, not the last apply's record. Not done in v1 because Task 7.1's acceptance compares
+  `ccy-teams --list` bytes with the build before stage 1; v2's board follows the owner's rule.
 
 ## Success Criteria
 
