@@ -1,6 +1,7 @@
 package proto
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -38,8 +39,8 @@ func TestDeliveryFirstLine(t *testing.T) {
 		"none": {nil, "0 messages on myteam (0 from humans, 0 from agents, 0 pings, 0 notices, 0 timeouts): -"},
 		"one":  {[]Entry{reminderEntry()}, "1 message on myteam (0 from humans, 0 from agents, 0 pings, 0 notices, 1 timeouts): humans (TIMEOUT)"},
 		"distinct": {
-			[]Entry{humanEntry(), humanEntry(), ping, timeoutEntry(), noticeEntry(EventParked), check},
-			"6 messages on myteam (2 from humans, 0 from agents, 2 pings, 1 notices, 1 timeouts): alice (HUMAN), " + envCoord + " (PING), " + envWorker + " (TIMEOUT) and 2 more",
+			[]Entry{humanEntry(), humanEntry(), ping, check, timeoutEntry(), noticeEntry(EventParked)},
+			"6 messages on myteam (2 from humans, 0 from agents, 2 pings, 1 notices, 1 timeouts): alice (HUMAN), " + envCoord + " (PING), " + envProbe + " (PING) and 2 more",
 		},
 	}
 	for name, tc := range cases {
@@ -142,33 +143,56 @@ func TestTheLargestEntryFitsAlone(t *testing.T) {
 	}
 }
 
-func TestDeliveryFit(t *testing.T) {
-	many := make([]Entry, 10)
-	for i := range many {
-		many[i] = humanEntry()
+func mustFit(t *testing.T, d Delivery) Delivery {
+	t.Helper()
+	fit, err := d.Fit()
+	if err != nil {
+		t.Fatalf("Fit: %v", err)
 	}
-	if n, err := (Delivery{Nonce: envNonce, Team: envTeam, Entries: many}).Fit(); err != nil || n != MaxDeliveryEntries {
-		t.Errorf("small entries: %d %v", n, err)
+	return fit
+}
+
+func TestDeliveryFit(t *testing.T) {
+	many := slices.Repeat([]Entry{humanEntry()}, 10)
+	if fit := mustFit(t, Delivery{Nonce: envNonce, Team: envTeam, Entries: many}); len(fit.Entries) != MaxDeliveryEntries || fit.Pending != 2 {
+		t.Errorf("small entries: %d, %d pending", len(fit.Entries), fit.Pending)
 	}
 	big := humanEntry()
 	big.Body = strings.Repeat(string(rune(0xE9)), 1000)
-	d := Delivery{Nonce: envNonce, Team: envTeam, Entries: []Entry{big, big, big}, Pending: 2}
-	n, err := d.Fit()
-	if err != nil || n != 1 {
-		t.Fatalf("big entries: %d %v", n, err)
+	if fit := mustFit(t, Delivery{Nonce: envNonce, Team: envTeam, Entries: []Entry{big, big, big}, Pending: 2}); len(fit.Entries) != 1 || fit.Pending != 4 {
+		t.Errorf("big entries: %d, %d pending", len(fit.Entries), fit.Pending)
 	}
-	d.Entries, d.Pending = d.Entries[:2], d.Pending+1
-	text, err := d.Render()
-	if err != nil || WireBytes(text) <= MaxDeliveryBytes {
-		t.Errorf("two big entries fit after all: %v", err)
-	}
-	if n, err := (Delivery{Nonce: envNonce, Team: envTeam}).Fit(); err != nil || n != 0 {
-		t.Errorf("no entries: %d %v", n, err)
+	if fit := mustFit(t, Delivery{Nonce: envNonce, Team: envTeam, Gap: true}); len(fit.Entries) != 0 || !fit.Gap {
+		t.Errorf("no entries: %+v", fit)
 	}
 	bad := humanEntry()
 	bad.EventID = ""
 	if _, err := (Delivery{Nonce: envNonce, Team: envTeam, Entries: []Entry{bad}}).Fit(); slotOf(err) != "id" {
 		t.Errorf("a bad entry fits: %v", err)
+	}
+}
+
+func TestDeliveryRenderHoldsTheCapsAndOrder(t *testing.T) {
+	big := humanEntry()
+	big.Body = strings.Repeat(string(rune(0xE9)), 1000)
+	older, newer := peerEntry(), pingEntry()
+	older.SentMs, newer.SentMs = envSent-1, envSent
+	cases := map[string]struct {
+		entries []Entry
+		slot    string
+	}{
+		"nine entries":      {slices.Repeat([]Entry{humanEntry()}, MaxDeliveryEntries+1), "size"},
+		"too many bytes":    {[]Entry{big, big}, "size"},
+		"peer before human": {[]Entry{peerEntry(), humanEntry()}, "order"},
+		"notice first":      {[]Entry{noticeEntry(EventParked), timeoutEntry()}, "order"},
+		"newer first":       {[]Entry{newer, older}, "order"},
+		"in order":          {[]Entry{humanEntry(), older, newer, timeoutEntry(), noticeEntry(EventParked)}, ""},
+	}
+	for name, tc := range cases {
+		_, err := Delivery{Nonce: envNonce, Team: envTeam, Entries: tc.entries}.Render()
+		if got := slotOf(err); got != tc.slot || (err == nil) != (tc.slot == "") {
+			t.Errorf("%s: slot %q (%v), want %q", name, got, err, tc.slot)
+		}
 	}
 }
 
@@ -182,21 +206,31 @@ func fullTrailing(d *Delivery) {
 	d.Gap, d.Stopped, d.Pending = true, true, maxCount-MaxDeliveryEntries
 }
 
-func TestFactsThatCrowdOutAnEntryGoAlone(t *testing.T) {
+func TestFactsThatCrowdOutAnEntryAreSummarised(t *testing.T) {
 	e := largestEntry()
 	d := Delivery{Nonce: envNonce, Team: e.Team, Entries: []Entry{e, e}}
 	fullTrailing(&d)
-	if n, err := d.Fit(); err != nil || n != 0 {
-		t.Fatalf("Fit beside every fact: %d %v", n, err)
+	if _, err := d.Render(); slotOf(err) != "size" {
+		t.Fatalf("the largest entry beside every fact renders: %v", err)
 	}
-	d.Entries = nil
-	text, err := d.Render()
-	if err != nil || WireBytes(text) > MaxDeliveryBytes {
-		t.Fatalf("the facts alone do not fit: %v", err)
+	fit := mustFit(t, d)
+	text, err := fit.Render()
+	if err != nil || len(fit.Entries) != 1 {
+		t.Fatalf("Fit beside every fact: %d entries, %v", len(fit.Entries), err)
 	}
-	d = Delivery{Nonce: envNonce, Team: e.Team, Entries: []Entry{e, e}, Pending: maxCount - 1}
-	if n, err := d.Fit(); err != nil || n != 1 {
-		t.Fatalf("Fit with only pending: %d %v", n, err)
+	lines := strings.Split(text, "\n")
+	history := "teamchat history --team " + e.Team
+	wantLines(t, "summaries", lines[len(lines)-6:],
+		"answered: 9 more; see teamchat status --team "+e.Team,
+		"held back: 999999999 more from other senders; see "+history,
+		"not shown: 9 more; see "+history,
+		"gap: some messages could not be fetched; read them with "+history,
+		"stopped: this team stopped on a failure that does not clear by itself; run teamchat status --team "+e.Team+" and tell a human",
+		"999999992 more pending: they follow in the next delivery",
+	)
+	d.Entries, d.Team = []Entry{humanEntry()}, envTeam
+	if fit := mustFit(t, d); len(fit.Entries) != 1 || fit.summarised {
+		t.Errorf("a small entry is summarised needlessly: %d", len(fit.Entries))
 	}
 }
 

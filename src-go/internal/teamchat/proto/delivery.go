@@ -1,6 +1,7 @@
 package proto
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -50,16 +51,23 @@ type Delivery struct {
 	NotShown     []string
 	Gap, Stopped bool
 	Pending      int
+	// summarised gives each kind of answered, held back and not shown as its summary line
+	// alone (Fit sets it when the facts crowd out the first entry).
+	summarised bool
 }
 
 // Render is the delivery's text, lines joined by a newline, or the first slot that failed;
-// an entry's failure names the entry, counted from 1.
+// an entry's failure names the entry, counted from 1. More than MaxDeliveryEntries entries, or
+// a text over MaxDeliveryBytes on the wire, is `size`; entries out of A 13.7's order `order`.
 func (d Delivery) Render() (string, error) {
 	if !nonceRe.MatchString(d.Nonce) {
 		return "", &SlotError{Slot: "nonce"}
 	}
 	if !ValidTeamID(d.Team) {
 		return "", &SlotError{Slot: slotTeam}
+	}
+	if len(d.Entries) > MaxDeliveryEntries {
+		return "", &SlotError{Slot: slotSize}
 	}
 	out := []string{d.firstLine()}
 	n := strconv.Itoa(len(d.Entries))
@@ -71,6 +79,9 @@ func (d Delivery) Render() (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("entry %d: %w", i+1, err)
 		}
+		if i > 0 && outOfOrder(d.Entries[i-1], e) {
+			return "", fmt.Errorf("entry %d: %w", i+1, &SlotError{Slot: "order"})
+		}
 		marker := d.Nonce + " " + strconv.Itoa(i+1) + "/" + n + ">>"
 		out = append(append(append(out, "<<teamchat "+marker), lines...), "<<end teamchat "+marker)
 	}
@@ -78,37 +89,78 @@ func (d Delivery) Render() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return strings.Join(append(out, trailing...), "\n"), nil
+	text := strings.Join(append(out, trailing...), "\n")
+	if WireBytes(text) > MaxDeliveryBytes {
+		return "", &SlotError{Slot: slotSize}
+	}
+	return text, nil
 }
 
-// Fit is how many of the entries, in order, one delivery takes: at most MaxDeliveryEntries,
-// and at most MaxDeliveryBytes on the wire with the rest counted as pending. None only when the
-// delivery's facts (every trailing line but pending) leave no room for the first entry: they
-// go alone, and the entry starts the next delivery, where it fits (MaxEntryBytes).
-func (d Delivery) Fit() (int, error) {
-	best := 0
+const slotSize = "size"
+
+// orderRank is an entry's group in A 13.7's order: HUMAN, then PEER and PING together, then
+// TIMEOUT, then NOTICE.
+func orderRank(kind string) int {
+	switch kind {
+	case KindHuman:
+		return 0
+	case KindPeer, KindPing:
+		return 1
+	case KindTimeout:
+		return 2
+	default:
+		return 3
+	}
+}
+
+// outOfOrder is whether next may not follow prev (A 13.7): a lower group, or an older entry in
+// the HUMAN or PEER and PING group. TIMEOUTs keep the order they fell due in, which B owns.
+func outOfOrder(prev, next Entry) bool {
+	p, n := orderRank(prev.Kind), orderRank(next.Kind)
+	return n < p || n == p && n <= 1 && next.SentMs < prev.SentMs
+}
+
+// Fit is the delivery to send: the most of the entries, in order, that render within the caps
+// (at most MaxDeliveryEntries and MaxDeliveryBytes), the rest added to Pending. When the facts
+// (the trailing lines) leave no room for the first entry, they are summarised and the entries
+// fitted again; the largest entry fits beside the summaries (a test renders it), so an error
+// is a slot that failed, never the size of the entries.
+func (d Delivery) Fit() (Delivery, error) {
+	if len(d.Entries) == 0 {
+		_, err := d.Render()
+		return d, err
+	}
+	best, err := d.fitted()
+	if err != nil && slotOf(err) == slotSize && !d.summarised {
+		d.summarised = true
+		best, err = d.fitted()
+	}
+	return best, err
+}
+
+// fitted is the delivery with the most entries that render, or the error of the first entry.
+func (d Delivery) fitted() (Delivery, error) {
+	var best Delivery
 	for count := 1; count <= min(len(d.Entries), MaxDeliveryEntries); count++ {
 		part := d
 		part.Entries, part.Pending = d.Entries[:count], d.Pending+len(d.Entries)-count
-		text, err := part.Render()
-		if err != nil {
-			return 0, err
+		if _, err := part.Render(); err != nil {
+			if count > 1 && slotOf(err) == slotSize {
+				break
+			}
+			return Delivery{}, err
 		}
-		if WireBytes(text) > MaxDeliveryBytes {
-			break
-		}
-		best = count
-	}
-	if best == 0 && len(d.Entries) > 0 && !d.hasFacts() {
-		return 0, &SlotError{Slot: "size"}
+		best = part
 	}
 	return best, nil
 }
 
-// hasFacts is whether the delivery carries a trailing line other than pending, which shows
-// once and so cannot crowd an entry out for ever.
-func (d Delivery) hasFacts() bool {
-	return len(d.Answered) > 0 || len(d.HeldBack) > 0 || len(d.NotShown) > 0 || d.Gap || d.Stopped
+// slotOf is the slot of a SlotError err wraps, or "".
+func slotOf(err error) string {
+	if s, ok := errors.AsType[*SlotError](err); ok {
+		return s.Slot
+	}
+	return ""
 }
 
 // firstLine is `teamchat delivery <nonce>: ...` with its counts and `<who>`.
@@ -141,17 +193,23 @@ func (d Delivery) firstLine() string {
 }
 
 // trailingLines are A 13.1's facts after the last entry, in its order, each kind at most
-// MaxTrailingLines and then its summary.
+// MaxTrailingLines and then its summary; a summarised delivery gives each kind its summary alone.
 func (d Delivery) trailingLines() ([]string, error) {
 	history := "teamchat history --team " + d.Team
-	var out []string
-	for i, a := range d.Answered {
-		if i == MaxTrailingLines {
-			out = append(out, "answered: "+strconv.Itoa(len(d.Answered)-i)+" more; see teamchat status --team "+d.Team)
-			break
-		}
+	for _, a := range d.Answered {
 		if !validSender(a.From) || !IsAnswerVerb(a.Answer) || Verbs[a.Verb].Senders == nil || !ValidEventID(a.PingID) {
 			return nil, &SlotError{Slot: "answered"}
+		}
+	}
+	shown := MaxTrailingLines
+	if d.summarised {
+		shown = 0
+	}
+	var out []string
+	for i, a := range d.Answered {
+		if i == shown {
+			out = append(out, "answered: "+strconv.Itoa(len(d.Answered)-i)+" more; see teamchat status --team "+d.Team)
+			break
 		}
 		line := "answered: " + a.From + " sent " + a.Answer + " to your " + a.Verb + " '" + a.PingID + "'"
 		if a.AfterTimeout {
@@ -159,13 +217,13 @@ func (d Delivery) trailingLines() ([]string, error) {
 		}
 		out = append(out, line)
 	}
-	held, err := d.heldBackLines(history)
+	held, err := d.heldBackLines(history, shown)
 	if err != nil {
 		return nil, err
 	}
 	out = append(out, held...)
 	for i, id := range d.NotShown {
-		if i == MaxTrailingLines {
+		if i == shown {
 			out = append(out, "not shown: "+strconv.Itoa(len(d.NotShown)-i)+" more; see "+history)
 			break
 		}
@@ -178,21 +236,21 @@ func (d Delivery) trailingLines() ([]string, error) {
 	return d.closingFacts(out, history)
 }
 
-func (d Delivery) heldBackLines(history string) ([]string, error) {
+func (d Delivery) heldBackLines(history string, shown int) ([]string, error) {
 	var out []string
 	rest := 0
 	for i, h := range d.HeldBack {
 		if !validSender(h.From) || h.Count < 1 || h.Count > maxCount {
 			return nil, &SlotError{Slot: "held back"}
 		}
-		if i >= MaxTrailingLines {
-			rest += h.Count
+		if i >= shown {
+			rest = min(rest+h.Count, maxCount)
 			continue
 		}
 		out = append(out, "held back: "+strconv.Itoa(h.Count)+" from "+h.From+" (flood limit), not delivered; read them with "+history)
 	}
 	if rest > 0 {
-		out = append(out, "held back: "+strconv.Itoa(min(rest, maxCount))+" more from other senders; see "+history)
+		out = append(out, "held back: "+strconv.Itoa(rest)+" more from other senders; see "+history)
 	}
 	return out, nil
 }

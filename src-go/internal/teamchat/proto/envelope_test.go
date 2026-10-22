@@ -1,7 +1,6 @@
 package proto
 
 import (
-	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -273,13 +272,6 @@ func TestEntryTimeouts(t *testing.T) {
 	e := timeoutEntry()
 	e.Silent, e.Ref, e.Repeat = "alice", "", true
 	wantLines(t, "to a human", mustLines(t, e)[5:8], "ref: -", "silent: alice", "repeat: this may be a second copy of an earlier delivery; the id is the same")
-}
-
-func slotOf(err error) string {
-	if s, ok := errors.AsType[*SlotError](err); ok {
-		return s.Slot
-	}
-	return ""
 }
 
 func TestEntrySlotsFullMatch(t *testing.T) {
