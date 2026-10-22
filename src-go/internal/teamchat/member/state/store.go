@@ -3,7 +3,6 @@ package state
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -289,10 +288,8 @@ func (s *Sync) check(c *rules) {
 }
 
 func (a *Awaiting) check(c *rules) {
-	path := a.Transcript.Path
 	c.need(nonceRe.MatchString(a.Nonce) && itemIDs(a.IDs) && validMS(a.AtMS), "an awaiting entry is not well formed")
-	c.need(filepath.IsAbs(path) && filepath.Clean(path) == path && strings.HasSuffix(path, ".jsonl") && len(path) <= maxTranscriptPath &&
-		a.Transcript.Offset >= 0, "an awaiting entry's transcript is not an absolute .jsonl path and an offset")
+	c.need(validTranscript(a.Transcript.Path) && a.Transcript.Offset >= 0, "an awaiting entry's transcript is not an absolute .jsonl path and an offset")
 	c.need((a.Written == WrittenUnknown || a.Written == WrittenYes) && (a.StopMS == nil || validMS(*a.StopMS)), "an awaiting entry's written or stop_ms is not well formed")
 }
 
