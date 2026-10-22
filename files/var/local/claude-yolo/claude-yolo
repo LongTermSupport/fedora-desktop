@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.99.15.2"  # One image build at a time: a launch waits for another's and uses it; ccy --build-lock (Plan 00216). See docs/ccy-changelog.md.
+CCY_VERSION="3.99.15.3"  # One image build at a time: a launch waits for another's and uses it; ccy --build-lock (Plan 00216). See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -2025,7 +2025,7 @@ if [ "$FORCE_REBUILD" = true ]; then
             echo "Updating Claude Code in-place (fast path)..."
             if ! container_cmd image inspect "$IMAGE_NAME" &>/dev/null; then
                 echo "No base image found - running full build first..."
-                ccy_image_build_locked "$IMAGE_NAME" false -- ccy_base_image_build --no-cache
+                ccy_image_build_locked "$IMAGE_NAME" ccy_base_image_current "$REQUIRED_CONTAINER_VERSION" -- ccy_base_image_build --no-cache
             else
                 ccy_image_build_locked "$IMAGE_NAME" --unless-changed "$IMAGE_NAME" -- update_claude_inplace "$IMAGE_NAME"
                 if container_cmd image inspect "$BASE_IMAGE_NAME" &>/dev/null; then

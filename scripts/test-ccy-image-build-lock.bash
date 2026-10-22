@@ -186,6 +186,7 @@ lift '^ +run_project_build[(][)] [{]$' >"$SCRATCH/project-build.bash"
 mapfile -t launcher_calls <<'EOF'
 ccy_image_build_locked "$IMAGE_NAME" ccy_base_image_current "$REQUIRED_CONTAINER_VERSION" -- ccy_base_image_build ""
 ccy_image_build_locked "$IMAGE_NAME" false -- ccy_base_image_build --no-cache
+ccy_image_build_locked "$IMAGE_NAME" ccy_base_image_current "$REQUIRED_CONTAINER_VERSION" -- ccy_base_image_build --no-cache
 ccy_image_build_locked "$image_name" ccy_claude_is "$image_name" "$latest_version" -- update_claude_inplace "$image_name"
 ccy_image_build_locked "$IMAGE_NAME" --unless-changed "$IMAGE_NAME" -- update_claude_inplace "$IMAGE_NAME"
 project_current=(ccy_project_image_current "$rebuild_reason" "$PROJECT_IMAGE_NAME"
@@ -211,6 +212,8 @@ VERSION_CHECK_CACHE="$TEST_STATE/update-checks"
 set -e
 if [ "${1:-current}" = force ]; then
     ccy_image_build_locked "$IMAGE_NAME" false -- ccy_base_image_build --no-cache
+elif [ "$1" = missing-for-claude ]; then
+    ccy_image_build_locked "$IMAGE_NAME" ccy_base_image_current "$REQUIRED_CONTAINER_VERSION" -- ccy_base_image_build --no-cache
 else
     ccy_image_build_locked "$IMAGE_NAME" ccy_base_image_current "$REQUIRED_CONTAINER_VERSION" -- ccy_base_image_build ""
 fi
@@ -330,6 +333,12 @@ check "both launches succeed" "0 0" "$(race base.bash)"
 check "one rebuild" 2 "$(builds)"
 check "both use the rebuilt image" 1 "$(distinct "$SCRATCH/a.out" "$SCRATCH/b.out")"
 unset TEST_VERSION
+
+echo "== --rebuild=claude with no image: two launches at once build it once"
+reset_world
+check "both launches succeed" "0 0" "$(race base.bash missing-for-claude)"
+check "one build" 2 "$(builds)"
+check "both use it" 1 "$(distinct "$SCRATCH/a.out" "$SCRATCH/b.out")"
 
 echo "== a forced rebuild waits for the build before it, then builds its own"
 reset_world

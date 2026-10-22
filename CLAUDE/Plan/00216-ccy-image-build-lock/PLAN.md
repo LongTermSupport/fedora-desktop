@@ -56,7 +56,8 @@ one after a `[y/N]`.
   latest (`ccy_claude_is`), the launcher's own question. An explicitly asked in-place update
   (`--rebuild=claude|project`, the restart path): `--unless-changed`, the image's ID taken just
   before the wait; another launch's commit changes it. An explicit `--rebuild=full` (check
-  `false`) builds again after waiting: it asked for a fresh build. A build that fails is tried
+  `false`) builds again after waiting: it asked for a fresh build. `--rebuild=claude` with no
+  image yet uses the base image's own check, so two of them build once. A build that fails is tried
   again by each waiter in turn (each finds the image still not current), which is the
   requirement's "wait, then use the result" when there is no result.
 - **D5. Stale data, never a stale lock.** The kernel releases the flock when its holder exits
@@ -79,7 +80,12 @@ one after a `[y/N]`.
   before it takes the lock: accepted. Also accepted: a stopped in-place update leaves its
   temporary `ccy-claude-update-<pid>` container (as Ctrl-C always has), and a wall clock that
   steps forward just before a holder writes its record can make the front refuse that holder
-  (the safe side).
+  (the safe side). Round 3 accepted: a build ending in the instant between the last re-check and
+  the SIGTERM (the pid is still the same process, so only the launch that was asked about is
+  signalled); the rootless buildah cache purge and retry of a project build running between two
+  holds of the lock; a holder killed during an update running its EXIT trap with the descriptor
+  open (short-lived programs); and "Project image built successfully" printed by a launch that
+  only waited (after the lock's own line saying it used the holder's build).
 - **D7. Bash within the limits.** The launcher and lib/common.bash are on the ratchet
   allowlist; both shrank (the three duplicated Dockerfile checks moved into
   `ccy_base_image_build`). The two new libraries are within every limit.
@@ -97,7 +103,7 @@ one after a `[y/N]`.
 - [x] ✅ **Task 1.3**: `ccy --build-lock` in the Go front, `buildlock_test.go` first (F14), help
   text in both launchers, difftest goldens re-recorded (one build where the missing-image
   scenario built twice; the lock file in the run directory).
-- [x] ✅ **Task 1.4**: CCY 3.99.15.2 with its changelog entry, docs/ccy.md, QA.md and the gate
+- [x] ✅ **Task 1.4**: CCY 3.99.15.3 with its changelog entry, docs/ccy.md, QA.md and the gate
   row, and the play-claude-yolo.yml entry of meta-deploy.list.
 
 ### Phase 2: Review and deploy
