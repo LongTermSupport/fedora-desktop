@@ -17,7 +17,11 @@ var RefusalKind = &analysis.Analyzer{
 	Doc: `project_refusal_kind flags a function that recovers a *declare.Error (errors.AsType,
 errors.As, a type assertion or a type switch) and never tells the one kind asking again can fix
 from the rest: it names no declare.ErrUsage (errors.Is(err, declare.ErrUsage), .Is(declare.ErrUsage))
-and does not hand the exit code on whole (a return of .Code, or of .Code converted). Naming
+and does not hand the exit code on whole (a return of .Code, or of .Code converted) whatever the
+recovery finds. A code handed on counts only where the return is unconditional in the block
+that recovers: a direct statement of the if body whose Init or Cond recovers, a later direct
+statement of the block whose assignment recovers, a direct statement of the type switch case.
+A code handed on for one kind inside a branch of its own leaves the rest asked again. Naming
 another kind (ErrInterrupted, ErrRefused) or reading .Code to print it does not count: either way
 the rest are still asked again.
 
@@ -53,31 +57,93 @@ func runRefusalKind(pass *analysis.Pass) {
 }
 
 // checkRefusalKind judges one function body; each function literal in it is judged on its own.
+// ErrUsage named anywhere in the body reads the kind for every recovery in it; a code handed on
+// reads it only for the recoveries whose block hands it on unconditionally (codeHandedOn).
 func checkRefusalKind(pass *analysis.Pass, body *ast.BlockStmt) {
 	var recovered []token.Pos
-	kindRead := false
+	var handedOn []ast.Node
+	usageNamed := false
 	ast.Inspect(body, func(n ast.Node) bool {
 		switch n := n.(type) {
 		case *ast.FuncLit:
 			checkRefusalKind(pass, n.Body)
 			return false
-		case *ast.ReturnStmt:
-			for _, r := range n.Results {
-				kindRead = kindRead || handsCodeOn(pass, r)
-			}
 		case *ast.Ident:
-			kindRead = kindRead || isUsageKind(pass.TypesInfo.Uses[n])
+			usageNamed = usageNamed || isUsageKind(pass.TypesInfo.Uses[n])
+		case *ast.BlockStmt:
+			handedOn = append(handedOn, codeHandedOn(pass, n.List)...)
+		case *ast.CaseClause:
+			handedOn = append(handedOn, codeHandedOn(pass, n.Body)...)
+			if returnsCode(pass, n.Body) {
+				for _, e := range n.List {
+					handedOn = append(handedOn, e)
+				}
+			}
+			recovered = append(recovered, refusalsAt(pass, n)...)
+		case *ast.CommClause:
+			handedOn = append(handedOn, codeHandedOn(pass, n.Body)...)
 		default:
 			recovered = append(recovered, refusalsAt(pass, n)...)
 		}
 		return true
 	})
-	if kindRead {
+	if usageNamed {
 		return
 	}
 	for _, pos := range recovered {
-		pass.Reportf(pos, "a *declare.Error is read without its kind: re-ask only on declare.ErrUsage, stop on the rest naming the file")
+		if !within(pos, handedOn) {
+			pass.Reportf(pos, "a *declare.Error is read without its kind: re-ask only on declare.ErrUsage, stop on the rest naming the file")
+		}
 	}
+}
+
+// codeHandedOn is the parts of a statement list whose recoveries are followed, whatever they
+// find, by a return that hands the code on: an if's Init and Cond when its body returns the code
+// as a direct statement, and a simple statement (an assignment, a declaration, a call) when a
+// later direct statement of the list returns it. A return inside a branch of its own hands the
+// code on for that branch only, so the other kinds may still be asked again.
+func codeHandedOn(pass *analysis.Pass, stmts []ast.Stmt) []ast.Node {
+	var parts []ast.Node
+	for i, s := range stmts {
+		switch s := s.(type) {
+		case *ast.IfStmt:
+			if returnsCode(pass, s.Body.List) {
+				if s.Init != nil {
+					parts = append(parts, s.Init)
+				}
+				parts = append(parts, s.Cond)
+			}
+		case *ast.AssignStmt, *ast.DeclStmt, *ast.ExprStmt:
+			if returnsCode(pass, stmts[i+1:]) {
+				parts = append(parts, s)
+			}
+		}
+	}
+	return parts
+}
+
+// returnsCode is whether a direct statement of stmts returns a declare.Error's Code (handsCodeOn).
+func returnsCode(pass *analysis.Pass, stmts []ast.Stmt) bool {
+	for _, s := range stmts {
+		if ret, ok := s.(*ast.ReturnStmt); ok {
+			for _, r := range ret.Results {
+				if handsCodeOn(pass, r) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// within is whether pos lies inside one of nodes.
+func within(pos token.Pos, nodes []ast.Node) bool {
+	for _, n := range nodes {
+		if n.Pos() <= pos && pos < n.End() {
+			return true
+		}
+	}
+	return false
 }
 
 // refusalsAt is where n recovers a *declare.Error by its type: a call (recoversRefusal), a type
