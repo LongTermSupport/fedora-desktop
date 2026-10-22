@@ -5,7 +5,7 @@
 # The handlers import claude_code_hooks_daemon, which only the daemon's venv has, and that venv has
 # no pytest. The tool runs the tests under the daemon's interpreter (found by the daemon's own
 # resolver, never a guessed venv name; a linked worktree reads the main checkout's daemon, which
-# is gitignored) with the project's pytest, the one the interpreter of the same Python version
+# is gitignored) with the project's pytest, the one the interpreter the venv was built from
 # carries, appended to its path. A missing daemon, venv or pytest is exit 2 naming the fix.
 # CI's checkout has no daemon: .github/workflows/qa.yml exempts it there, by name and reason.
 #

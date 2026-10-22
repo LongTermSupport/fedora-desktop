@@ -15,6 +15,7 @@ const (
 	daemonDir  = "/repo/.claude/hooks-daemon"
 	resolver   = daemonDir + "/scripts/lib/resolve_venv.sh"
 	daemonPy   = daemonDir + "/untracked/venv-x/bin/python"
+	basePy     = "/usr/bin/python3.11"
 	pytestPath = "/usr/lib/python3/dist-packages"
 	passOutput = "....\n101 passed in 0.17s\n"
 )
@@ -68,8 +69,8 @@ func (w *world) Run(ctx context.Context, c proc.Cmd) (proc.Result, error) {
 	case resolver:
 		return proc.Result{Stdout: daemonPy + "\n"}, nil
 	case "probe":
-		return proc.Result{Stdout: "3.11\n"}, nil
-	case "python3.11":
+		return proc.Result{Stdout: "3.11 " + basePy + "\n"}, nil
+	case basePy:
 		return proc.Result{Stdout: pytestPath + "\n"}, nil
 	case "run":
 		return proc.Result{Stdout: passOutput}, nil
@@ -119,7 +120,7 @@ func mustContain(t *testing.T, text string, wants ...string) {
 }
 
 // K7, K8: a provisioned machine runs the handler tests under the daemon's interpreter with the
-// same-minor interpreter's pytest appended, and says how many passed.
+// venv's base interpreter's pytest appended, and says how many passed.
 func TestAProvisionedMachinePasses(t *testing.T) {
 	w := goodWorld()
 	w.run(t, ExitOK)
@@ -270,11 +271,16 @@ func TestTheDaemonsInterpreterComesFromItsResolver(t *testing.T) {
 	mustContain(t, w.err.String(), "permission denied")
 }
 
-// K5: an interpreter that cannot import the daemon, or does not say its version, is exit 2.
+// K5: an interpreter that cannot import the daemon, or does not say its version and the absolute
+// interpreter its venv was built from, is exit 2.
 func TestTheDaemonsInterpreterMustImportTheDaemon(t *testing.T) {
 	for name, res := range map[string]proc.Result{
-		"import fails": {Code: 1, Stderr: "ModuleNotFoundError: claude_code_hooks_daemon"},
-		"bad version":  {Stdout: "three\n"},
+		"import fails":     {Code: 1, Stderr: "ModuleNotFoundError: claude_code_hooks_daemon"},
+		"bad version":      {Stdout: "three " + basePy + "\n"},
+		"no base":          {Stdout: "3.11\n"},
+		"empty base":       {Stdout: "3.11 \n"},
+		"relative base":    {Stdout: "3.11 python3.11\n"},
+		"version and junk": {Stdout: "3.11x " + basePy + "\n"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			w := goodWorld()
@@ -289,15 +295,25 @@ func TestTheDaemonsInterpreterMustImportTheDaemon(t *testing.T) {
 	mustContain(t, w.err.String(), "no such file")
 }
 
-// K6: pytest is the one the interpreter of the daemon's minor version carries; none is exit 2
+// K6: pytest is the one the interpreter the daemon's venv was built from carries, never whatever
+// python<X.Y> is first on PATH (a pyenv shim there must not change the answer); none is exit 2
 // naming where the project installs it.
-func TestPytestComesFromTheSameMinorVersion(t *testing.T) {
+func TestPytestComesFromTheVenvsBaseInterpreter(t *testing.T) {
 	w := goodWorld()
-	w.answers["probe"] = proc.Result{Stdout: "3.14\n"}
-	w.answers["python3.14"] = proc.Result{Stdout: "/usr/lib/python3.14/site-packages\n"}
+	w.answers["probe"] = proc.Result{Stdout: "3.14 /usr/bin/python3.14\n"}
+	w.answers["/usr/bin/python3.14"] = proc.Result{Stdout: "/usr/lib/python3.14/site-packages\n"}
+	w.answers["python3.14"] = proc.Result{Stdout: "/home/u/.pyenv/versions/3.14.0/lib/python3.14/site-packages\n"}
 	w.run(t, ExitOK)
 	if got := w.cmd(t, "run").Argv[5]; got != "/usr/lib/python3.14/site-packages" {
 		t.Fatalf("pytest path %q", got)
+	}
+	if probe := w.cmd(t, "/usr/bin/python3.14"); !slices.Equal(probe.Argv, []string{"/usr/bin/python3.14", "-I", "-c", probePytest}) {
+		t.Fatalf("pytest probe argv %q", probe.Argv)
+	}
+	for _, c := range w.ran {
+		if c.Argv[0] == "python3.14" {
+			t.Fatalf("the PATH python3.14 was asked: %q", c.Argv)
+		}
 	}
 
 	for name, res := range map[string]proc.Result{
@@ -306,13 +322,13 @@ func TestPytestComesFromTheSameMinorVersion(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			sw := goodWorld()
-			sw.answers["python3.11"] = res
+			sw.answers[basePy] = res
 			sw.run(t, ExitCannotRun)
-			mustContain(t, sw.err.String(), "python3.11", "python3-pytest", "play-python.yml", ".claude/ccy/Dockerfile")
+			mustContain(t, sw.err.String(), basePy, "built from", "python3-pytest", "play-python.yml", ".claude/ccy/Dockerfile")
 		})
 	}
 	w = goodWorld()
-	w.fails["python3.11"] = errors.New("executable file not found")
+	w.fails[basePy] = errors.New("executable file not found")
 	w.run(t, ExitCannotRun)
 	mustContain(t, w.err.String(), "executable file not found", "python3-pytest")
 }

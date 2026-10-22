@@ -412,8 +412,9 @@ command package.
 `qa/hookhandlers` + `qa/cmd/qa-hook-handlers` (same nested module) are `scripts/qa-hook-handlers.bash`,
 the gate on the project's hooks-daemon handler tests (Plan 00191 Task 4.6): the script only builds
 and runs the command. pytest stays the engine, run by the daemon venv's interpreter (its own
-resolver names it) with the pytest of the same-version `python<X.Y>` appended to its path; the Go
-owns finding the daemon, the version match, the isolation and the judgement. K1-K8 in its package
+resolver names it) with the pytest of the interpreter that venv was built from
+(`sys._base_executable`) appended to its path; the Go owns finding the daemon and that
+interpreter, the isolation and the judgement. K1-K8 in its package
 doc are the specification, proven by unit tests over a fake runner.
 
 `qa/python` + `qa/cmd/qa-python` (same nested module) are `scripts/qa-python.bash`, the Python gate:

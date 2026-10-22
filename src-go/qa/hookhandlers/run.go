@@ -16,12 +16,13 @@
 //   - K4 The daemon's interpreter is what its own resolver answers
 //     (<daemon>/scripts/lib/resolve_venv.sh python <daemon>), never a venv name guessed here: one
 //     absolute path, or exit 2.
-//   - K5 That interpreter must import claude_code_hooks_daemon and say its X.Y version, or exit 2.
-//   - K6 pytest is the one the interpreter of the SAME X.Y on PATH (python3.11 for a 3.11 venv)
-//     imports: the project's own pytest (the CCY image's python3-pytest, the host's from
-//     play-python.yml). The directory that holds it is asked of that interpreter. Choosing it by
-//     version means the two Pythons are never mixed across versions. None is exit 2 naming
-//     where the project installs it.
+//   - K5 That interpreter must import claude_code_hooks_daemon and say its X.Y version and the
+//     absolute interpreter its venv was built from (sys._base_executable), or exit 2.
+//   - K6 pytest is the one that base interpreter imports: the project's own pytest (the CCY
+//     image's python3-pytest, the host's from play-python.yml). The directory that holds it is
+//     asked of that interpreter, never of whatever python<X.Y> is first on PATH, so a pyenv
+//     global set later does not change the answer, and the two Pythons are one installation.
+//     None is exit 2 naming where the project installs it.
 //   - K7 The run is the daemon's interpreter, isolated (-I: no PYTHONPATH, no user site, no
 //     current directory) and writing no bytecode (-B), with pytest's directory APPENDED to its
 //     path, so every module the daemon's venv has is the venv's own and only what it lacks
@@ -69,8 +70,9 @@ const testsRoot = ".claude/hooks/handlers"
 // launcher appends pytest's directory (argv[1]) to the path and runs pytest on the rest.
 const launcher = "import sys; sys.path.append(sys.argv.pop(1)); import pytest; raise SystemExit(pytest.main(sys.argv[1:]))"
 
-// probeDaemon imports the daemon and prints the interpreter's X.Y.
-const probeDaemon = "import sys, claude_code_hooks_daemon; print('%d.%d' % sys.version_info[:2])"
+// probeDaemon imports the daemon and prints the interpreter's X.Y and the interpreter its venv
+// was built from.
+const probeDaemon = "import sys, claude_code_hooks_daemon; print('%d.%d' % sys.version_info[:2], sys._base_executable)"
 
 // probePytest prints the directory pytest is imported from.
 const probePytest = "import os, pytest; print(os.path.dirname(os.path.dirname(os.path.abspath(pytest.__file__))))"
@@ -113,8 +115,8 @@ type Env struct {
 const usageText = `usage: qa-hook-handlers [--root DIR] [--scripts DIR]
 
 Runs the tests of the project's hooks-daemon handlers (.claude/hooks/handlers/**/tests) under the
-daemon's own interpreter, with the project's pytest (the one the interpreter of the daemon's Python
-version carries) appended to its path.
+daemon's own interpreter, with the project's pytest (the one the interpreter the daemon's venv was
+built from carries) appended to its path.
 
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory; the root is its parent
@@ -196,11 +198,11 @@ func (g *gate) check() (ExitCode, string, error) {
 	if err != nil {
 		return ExitCannotRun, "", err
 	}
-	version, err := g.daemonVersion(python)
+	base, err := g.baseInterpreter(python)
 	if err != nil {
 		return ExitCannotRun, "", err
 	}
-	pytestDir, err := g.pytestDir(version)
+	pytestDir, err := g.pytestDir(base)
 	if err != nil {
 		return ExitCannotRun, "", err
 	}
@@ -246,27 +248,32 @@ func (g *gate) interpreter(daemon string) (string, error) {
 // version is an interpreter's X.Y.
 var version = regexp.MustCompile(`^3\.[0-9]+$`)
 
-// daemonVersion is the X.Y of an interpreter that imports the daemon (K5).
-func (g *gate) daemonVersion(python string) (string, error) {
+// baseInterpreter is the interpreter the venv of an interpreter that imports the daemon was
+// built from (K5).
+func (g *gate) baseInterpreter(python string) (string, error) {
 	got, err := g.ask([]string{python, "-I", "-c", probeDaemon}, python+" cannot import claude_code_hooks_daemon: "+provisionFix)
 	if err != nil {
 		return "", err
 	}
-	if !version.MatchString(got) {
-		return "", cannot("%s says its version is %q, not 3.N", python, got)
+	ver, base, saidBase := strings.Cut(got, " ")
+	if !version.MatchString(ver) {
+		return "", cannot("%s says its version is %q, not 3.N", python, ver)
 	}
-	return got, nil
+	if !saidBase || !filepath.IsAbs(base) {
+		return "", cannot("%s says its venv was built from %q, not an absolute interpreter path: %s", python, base, provisionFix)
+	}
+	return base, nil
 }
 
-// pytestDir is the directory the same-version interpreter imports pytest from (K6).
-func (g *gate) pytestDir(version string) (string, error) {
-	python := "python" + version
-	dir, err := g.ask([]string{python, "-I", "-c", probePytest}, python+" (the daemon's Python version) cannot import pytest: "+pytestFix)
+// pytestDir is the directory the venv's base interpreter imports pytest from (K6).
+func (g *gate) pytestDir(base string) (string, error) {
+	const whose = " (the interpreter the daemon's venv was built from)"
+	dir, err := g.ask([]string{base, "-I", "-c", probePytest}, base+whose+" cannot import pytest: "+pytestFix)
 	if err != nil {
 		return "", err
 	}
 	if !filepath.IsAbs(dir) {
-		return "", cannot("%s says pytest is in %q, not an absolute directory: %s", python, dir, pytestFix)
+		return "", cannot("%s%s says pytest is in %q, not an absolute directory: %s", base, whose, dir, pytestFix)
 	}
 	return dir, nil
 }

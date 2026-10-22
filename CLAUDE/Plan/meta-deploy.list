@@ -151,5 +151,6 @@ playbooks/imports/play-claude-yolo.yml
 # daemon's venv (the CCY image already has it). It also re-asserts the pinned QA toolchain
 # (ruff, semgrep, shellcheck, golangci-lint) and imports play-golang.yml. Needs sudo once.
 # Afterwards ./scripts/qa-hook-handlers.bash on the host must print HOOK-HANDLERS-OK; if it
-# says the daemon's Python version has no pytest, the daemon venv is not on Fedora's python3.
+# says the interpreter the daemon's venv was built from has no pytest, that venv was not built
+# from Fedora's python3.
 playbooks/imports/play-python.yml

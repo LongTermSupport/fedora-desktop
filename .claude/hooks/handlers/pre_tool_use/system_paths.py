@@ -109,6 +109,34 @@ def _is_claude_projects_path(file_path: str) -> bool:
     return root is not None and _resolves_under(file_path, root)
 
 
+def _project_spellings(real_root: str) -> list[str]:
+    """Return the prefixes (trailing slash) the project root may be written as.
+
+    The resolved root, and the root as this file was loaded and as CLAUDE_PROJECT_DIR
+    names it, each only when it resolves to the same directory: a checkout reached
+    through a symlinked parent is still the project, and nothing else becomes it.
+    """
+    candidates = [str(Path(__file__).parents[4]), os.environ.get("CLAUDE_PROJECT_DIR", "").strip()]
+    spellings = [real_root]
+    for candidate in candidates:
+        if candidate and os.path.realpath(candidate) + "/" == real_root:
+            spellings.append(_normalise(candidate).rstrip("/") + "/")
+    return spellings
+
+
+def _is_project_path(file_path: str) -> bool:
+    """Return True if *file_path* is in the project both as written and where it lands.
+
+    `<project>/link/x` with link -> /etc is written to /etc/x, so the lexical prefix
+    alone does not make a path the project's.
+    """
+    real_root = _resolve_project_root()
+    lexical = _normalise(file_path)
+    if not any(lexical.startswith(prefix) for prefix in _project_spellings(real_root)):
+        return False
+    return os.path.realpath(file_path).startswith(real_root)
+
+
 class SystemPathsHandler(Handler):
     """Block Write/Edit operations on deployed system files.
 
@@ -158,10 +186,6 @@ class SystemPathsHandler(Handler):
         file_path = get_file_path(hook_input)
         if not file_path:
             return False
-        # Every prefix below is judged on the folded path, so `/workspace/../etc/x`,
-        # `//etc/x` and `/./etc/x` are the /etc/x they reach.
-        path = _normalise(file_path)
-
         # Exempt the active Claude Code project directory. When Claude runs on
         # the HOST (not inside a /workspace CCY container), the project itself
         # lives under /home/<user>/..., and legitimately editing its own files
@@ -169,8 +193,7 @@ class SystemPathsHandler(Handler):
         # _resolve_project_root() verifies the derived path against a sentinel
         # so a wrong parents[N] depth fails loudly instead of silently
         # over-exempting an unrelated directory.
-        project_dir = _resolve_project_root()
-        if path.startswith(project_dir):
+        if _is_project_path(file_path):
             return False
 
         # Exempt the Claude Code agent's own runtime directory. This holds
@@ -181,12 +204,11 @@ class SystemPathsHandler(Handler):
         if _is_claude_projects_path(file_path):
             return False
 
-        # Check if file_path starts with any blocked system path
-        for blocked_path in self.BLOCKED_PATHS:
-            if path.startswith(blocked_path):
-                return True
-
-        return False
+        # Blocked if either the folded path (`//etc/x`, `/tmp/../etc/x`) or the path the
+        # write lands on once symlinks are followed (`/bin/x` -> /usr/bin/x,
+        # `/proc/self/root/etc/x`) is under a system prefix.
+        reached = (_normalise(file_path), os.path.realpath(file_path))
+        return any(path.startswith(blocked) for path in reached for blocked in self.BLOCKED_PATHS)
 
     def handle(self, hook_input: dict[str, Any]) -> HookResult:
         """Block the operation with helpful message about infrastructure-as-code.
