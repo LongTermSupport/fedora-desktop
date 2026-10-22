@@ -121,6 +121,7 @@ func envelopeCorpus() map[string]func() (string, error) {
 	}
 	cases["membership-alone"] = func() (string, error) { return workerAlone().Render(envNonce) }
 	cases["membership-none"] = func() (string, error) { return onNoTeam().Render(envNonce) }
+	cases["membership-reasons"] = func() (string, error) { return everyReason().Render(envNonce) }
 	cases["frame"] = func() (string, error) { return FrameText, nil }
 	return cases
 }
@@ -219,7 +220,8 @@ func membershipTemplates(team, handle string) []string {
 		`kind: MEMBERSHIP \(teamchat's own notice: the owner changed this session's teams on the host\)`,
 		`from: teamchat`, `to: this session`,
 		`authority: the owner's change, made on the host\. A fact about this session's teams; no team member sent it, and none can\.`,
-		`teamchat: you left team ` + team + `: removed by the owner\. Commands for it are refused from now on\.`,
+		`teamchat: you left team ` + team + `: (?:removed by the owner|released from this session by the owner; you are still on the team|` +
+			`parked by the owner|taken out of this session)\. Commands for it are refused from now on\.`,
 		`teamchat: you joined team ` + team + ` as ` + handle + `\.`,
 		`teamchat: team ` + team + ` is for: ` + description,
 		`teamchat: in team ` + team + ` you are the coordinator\.`,

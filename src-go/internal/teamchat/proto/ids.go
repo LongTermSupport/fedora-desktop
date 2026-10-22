@@ -49,6 +49,7 @@ var (
 	humanRe     = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 	handleRe    = regexp.MustCompile(`^(` + repoPattern + `)\.(` + seatPattern + `)\+(` + sitePattern + `)\.(` + typePattern + `)$`)
 	prefixRe    = regexp.MustCompile(`^(` + repoPattern + `)\+(` + sitePattern + `)\.(` + typePattern + `)$`)
+	shortRe     = regexp.MustCompile(`^(?:` + repoPattern + `)\.(?:` + seatPattern + `)$`)
 	seatRe      = regexp.MustCompile(`^(?:` + seatPattern + `)$`)
 	siteRe      = regexp.MustCompile(`^(?:` + sitePattern + `)$`)
 	seatDigitRe = regexp.MustCompile(`^[1-9][0-9]{0,5}$`)
@@ -87,6 +88,9 @@ func ValidFeature(s string) bool { return featureRe.MatchString(s) }
 
 // ValidSeat is a handle's `<seat>` (A 2.3): a counter-issued number or an owner-named word.
 func ValidSeat(s string) bool { return seatRe.MatchString(s) }
+
+// ValidShortName is a handle's short name, `<repo>.<seat>` (A 2.3), what Handle.Short gives.
+func ValidShortName(s string) bool { return shortRe.MatchString(s) }
 
 // ValidQuestion is A 2.2's question name, `Q<n>`.
 func ValidQuestion(s string) bool { return questionRe.MatchString(s) }

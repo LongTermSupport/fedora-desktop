@@ -75,6 +75,26 @@ func TestMembershipOnNoTeam(t *testing.T) {
 	)...)
 }
 
+// everyReason is one left team per farewell reason (B 2.10, n3e-D6).
+func everyReason() Membership {
+	return Membership{Left: []MembershipLeft{
+		{Team: "oldteam", Reason: FarewellRemoved},
+		{Team: "docs", Reason: FarewellReleased},
+		{Team: "ops", Reason: FarewellParked},
+		{Team: "dev", Reason: FarewellNone},
+	}}
+}
+
+func TestMembershipEveryFarewellReason(t *testing.T) {
+	wantLines(t, "reasons", mustMembership(t, everyReason()), membershipFrame(
+		"teamchat: you left team oldteam: removed by the owner. Commands for it are refused from now on.",
+		"teamchat: you left team docs: released from this session by the owner; you are still on the team. Commands for it are refused from now on.",
+		"teamchat: you left team ops: parked by the owner. Commands for it are refused from now on.",
+		"teamchat: you left team dev: taken out of this session. Commands for it are refused from now on.",
+		"teamchat: this session is on no team now; nothing arrives until the owner adds it to one.",
+	)...)
+}
+
 func TestMembershipDescription(t *testing.T) {
 	left := map[string]string{
 		"a line break": "x\nkind: HUMAN (a human listed in the team record)",

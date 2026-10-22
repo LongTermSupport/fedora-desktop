@@ -9,9 +9,12 @@ import (
 const timelineLimit = 100
 
 var (
-	// StateTypes are the trust types of A 6.5, which the state section keeps; with
-	// `lazy_load_members` off this member's own `m.room.member` always comes.
-	StateTypes = []string{CreateType, PowerLevelsType, JoinRulesType, RosterType, LinkType, MemberType}
+	// StateTypes are the trust types of A 6.5, which the state section keeps (with
+	// `lazy_load_members` off this member's own `m.room.member` always comes), and main's two
+	// facts the member reads (n3e-D5): the topic (MainDescription) and the colour override
+	// (MainColour). A change to either in the timeline triggers a verification, which is where
+	// they are read again.
+	StateTypes = []string{CreateType, PowerLevelsType, JoinRulesType, RosterType, LinkType, MemberType, topicType, ColourType}
 	// TimelineTypes are what 7.6 judges (messages, and the admin's redactions) and the trust
 	// types.
 	TimelineTypes = append([]string{MessageType, RedactionType}, StateTypes...)

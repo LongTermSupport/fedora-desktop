@@ -22,3 +22,15 @@ const (
 	KeeperBeforeEnd             Name = "keeper-before-end"
 	LinkAfterJudgeBeforePersist Name = "link-after-judge-before-persist"
 )
+
+// n3e's points (gap 9, PT1's list): a delivery between the inbox's auth and the awaiting
+// entry's write, between that write and the user line, between the user line and `written:
+// "yes"`; between two stores' writes of recv's hand-out, Ack or Return (n3e-D8); and the link
+// after a `missing` is persisted.
+const (
+	LinkAfterAuth          Name = "link-after-auth"
+	LinkAfterAwaiting      Name = "link-after-awaiting"
+	LinkAfterUserLine      Name = "link-after-user-line"
+	LinkBetweenStoreWrites Name = "link-between-store-writes"
+	LinkAfterMissing       Name = "link-after-missing"
+)

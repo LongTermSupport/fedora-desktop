@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/colour"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/records"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
@@ -126,6 +127,60 @@ func TestStatusJSONAndTheKeepersReport(t *testing.T) {
 		t.Fatalf("the refused row = %+v", st.Teams[1])
 	}
 	checkReports(t, w.sentStates())
+}
+
+// B27: a held team's member name is its handle's short name; a refused team's is null, as this
+// session holds no seat there. Each colour is the automatic one with no override.
+func TestStatusJSONNamesTheMemberAndTheColour(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops, dev := tid(t, "ops"), tid(t, "dev")
+	w.held(ops)
+	check(t, w.e.Refuse(t.Context(), dev, w.run))
+	st := w.status()
+	if len(st.Teams) != 2 {
+		t.Fatalf("status.json = %+v", st)
+	}
+	held, refused := st.Teams[0], st.Teams[1]
+	if held.Member == nil || *held.Member != "repo.1" || refused.Member != nil {
+		t.Fatalf("member names %v, %v", held.Member, refused.Member)
+	}
+	if held.Colour != colour.Auto("ops") || refused.Colour != colour.Auto("dev") {
+		t.Fatalf("colours %s, %s", held.Colour, refused.Colour)
+	}
+}
+
+// OF1: a stopped team is shown beside a running one, each with its member name and colour, so
+// the status line draws both.
+func TestAStoppedTeamIsDrawnBesideARunningOne(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops, dev := tid(t, "ops"), tid(t, "dev")
+	w.held(ops)
+	w.held(dev)
+	w.e.SetHealth(dev, team.Health{Down: true, Stopped: exits.CodeToken})
+	st := w.status()
+	if len(st.Teams) != 2 {
+		t.Fatalf("status.json = %+v", st)
+	}
+	for _, row := range st.Teams {
+		if row.Member == nil || row.Colour != colour.Auto(row.Team.String()) {
+			t.Errorf("row %+v", row)
+		}
+	}
+	if stopped := st.Teams[0]; stopped.Team != dev || !stopped.Down || stopped.Failed == nil || st.Teams[1].Down {
+		t.Fatalf("rows %+v", st.Teams)
+	}
+}
+
+// B27: the admin's override, held in Health, is the colour status.json carries.
+func TestStatusJSONCarriesTheColourOverride(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	w.held(ops)
+	override := "#ffffff"
+	w.e.SetHealth(ops, team.Health{Colour: &override})
+	if c := w.status().Teams[0].Colour; c != override {
+		t.Fatalf("colour %s", c)
+	}
 }
 
 // checkReports is the keeper's reports: the last with its sync time, and none sent twice.

@@ -6,11 +6,23 @@ import (
 	"unicode/utf8"
 )
 
-// FarewellRemoved is the one reason a session leaves a team (v1 membership.FAREWELL_REASONS):
-// the owner took it off the team on the host.
-const FarewellRemoved = "removed"
+// The reasons a session leaves a team (B 2.10, wire.Remove's farewell): removed or parked, the
+// member left the team; released, the owner took the seat out of this session and the member
+// stays on the team; none, no reason was given.
+const (
+	FarewellRemoved  = "removed"
+	FarewellReleased = "released"
+	FarewellParked   = "parked"
+	FarewellNone     = ""
+)
 
-var farewellText = map[string]string{FarewellRemoved: "removed by the owner"}
+// farewellText is each reason's words in the left line (n3e-D6).
+var farewellText = map[string]string{
+	FarewellRemoved:  "removed by the owner",
+	FarewellReleased: "released from this session by the owner; you are still on the team",
+	FarewellParked:   "parked by the owner",
+	FarewellNone:     "taken out of this session",
+}
 
 // MembershipLeft is a team this session left, and why.
 type MembershipLeft struct{ Team, Reason string }
