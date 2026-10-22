@@ -293,8 +293,8 @@ if [[ "${AFTER_OWNER}" -eq 1 ]]; then
     plan_deploy_leg "A5 the test question and its coordinator" a5_find
     if [[ -z "${A5_SESSION}" ]]; then
         not_judged "A5 the owner's reply and its edit reached the coordinator, and its session took both" \
-            "the coordinator ${A5_HANDLE} of team ${A5_TEAM} is offline"
-        printf '\nACCEPTED, A5 NOT JUDGED: the coordinator is offline; run acceptance-after-owner.bash again once it is online\n' |
+            "the coordinator ${A5_HANDLE} of team ${A5_TEAM} is not driven from here (offline, or a host member)"
+        printf '\nACCEPTED, A5 NOT JUDGED: the coordinator is not driven from here (offline, or a host member); run acceptance-after-owner.bash again once it is online in a session this host drives\n' |
             tee -a "${REPORT}"
         plan_finish
     fi
@@ -331,15 +331,19 @@ plan_deploy_leg "A3 add a throwaway worker (removed on cleanup)" a3_take
 check_leg "A3 a worker reports, and is refused the questions room" a3_check
 # unjudged — the checks this run had nothing to run on, `, `-joined, for the verdict's
 # `ACCEPTED, <check> NOT JUDGED: ...` form (SPEC §11.2); each one's reason is its NOT JUDGED line.
+# judged — those of the same checks that ran and passed, for the same line.
 unjudged=""
+judged=""
 if [[ -n "$(qteam_sessions)" ]]; then
     check_leg "A3 the worker's report is in no inbox of its team" a3_inbox_check
+    judged="kept its report out of every inbox"
 else
     not_judged "A3 the worker's report is in no inbox of its team" "no member of team ${QTEAM} is online"
     unjudged="A3 inbox"
 fi
 if [[ -n "$(a4_member)" ]]; then
     check_leg "A4 an LXC member reports from inside its container" a4_check
+    judged="${judged:+${judged}, }took an LXC member's report"
 elif [[ -n "$(declared_containers)" ]]; then
     not_judged "A4 an LXC member reports from inside its container" "no online LXC member"
     unjudged="${unjudged:+${unjudged}, }A4"
@@ -350,14 +354,15 @@ else
 fi
 if [[ -n "${COORD}" ]]; then
     check_leg "the test question, asked by the coordinator in its own session" ask_test_question
+    judged="${judged:+${judged}, }asked the test question"
 else
     not_judged "the test question, asked by the coordinator in its own session" \
         "the coordinator ${QHANDLE} of team ${QTEAM} is not driven from here (offline, or a host member)"
     unjudged="${unjudged:+${unjudged}, }the test question"
 fi
 if [[ -n "${unjudged}" ]]; then
-    printf '\nACCEPTED, %s NOT JUDGED (each named above): every other check passed; deploy 2 made every team'\''s side rooms and kept a worker out of questions\n' \
-        "${unjudged}" | tee -a "${REPORT}"
+    printf '\nACCEPTED, %s NOT JUDGED (each named above): every other check passed; deploy 2 made every team'\''s side rooms and kept a worker out of questions%s\n' \
+        "${unjudged}" "${judged:+, ${judged}}" | tee -a "${REPORT}"
 else
     printf '\nACCEPTED: deploy 2 made every team'\''s side rooms, kept a worker out of questions and every inbox, took an LXC member'\''s report, and asked the test question\n' |
         tee -a "${REPORT}"
