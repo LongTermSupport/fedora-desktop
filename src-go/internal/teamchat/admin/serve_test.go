@@ -134,8 +134,8 @@ func TestErrorClassIsTheExitCodesClass(t *testing.T) {
 	}
 }
 
-func failingOpener(context.Context, paths.TeamID, string) (apply.Deps, error) {
-	return apply.Deps{}, errors.New("no token")
+func failingOpener(context.Context, paths.TeamID, int, string) (Opened, error) {
+	return Opened{}, errors.New("no token")
 }
 
 // TestServeAnOpenerThatFails: the child's own files are its configuration (78).

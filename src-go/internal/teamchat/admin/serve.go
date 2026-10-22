@@ -7,14 +7,24 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
 
-// Opener is the child's own reach to one team (CV1): the admin client over the team's admin
-// token and its files under `ctl/<team>/`. regKey is the registration secret `team.apply`
-// carries for bootstrap's first admin, "" for every other op.
-type Opener func(ctx context.Context, team paths.TeamID, regKey string) (apply.Deps, error)
+// Opener is the child's own reach to one team (CV1, OP1): the admin client over the team's
+// admin token on loopback at port, and its files under `ctl/<team>/`. regKey is the
+// registration secret `team.apply` carries for bootstrap's first admin (OP3), "" for every
+// other op.
+type Opener func(ctx context.Context, team paths.TeamID, port int, regKey string) (Opened, error)
+
+// Opened is one team as the child reaches it: apply's dependencies, and a client of the same
+// homeserver as a member with its own token (CO2).
+type Opened struct {
+	apply.Deps
+
+	Member func(token string) (*matrix.Client, error)
+}
 
 // argKeys are the exact args of each op the child serves (CV1, n2d-D7).
 var argKeys = map[string][]string{
@@ -63,14 +73,14 @@ func Serve(ctx context.Context, open Opener, req Request) Answer {
 			return failure(ClassFailed, "op "+req.Op+" args: "+err.Error())
 		}
 	}
-	d, err := open(ctx, req.Team, "")
+	o, err := open(ctx, req.Team, team.Port, "")
 	if err != nil {
 		return failure(ClassConfig, "the team's admin files: "+err.Error())
 	}
 	if req.Op == apply.OpRoleApply {
-		return answerOf(apply.RoleApply(ctx, d, team))
+		return answerOf(apply.RoleApply(ctx, o.Deps, team))
 	}
-	return answerOf(apply.RunMember(ctx, d, team, mr))
+	return answerOf(apply.RunMember(ctx, o.Deps, team, mr))
 }
 
 func failure(class ErrorClass, message string) Answer {
@@ -161,10 +171,11 @@ func serveTeamApply(ctx context.Context, open Opener, id paths.TeamID, args map[
 	if key.Kind() != proto.KindString {
 		return failure(ClassFailed, "op team.apply reg_key is not a string")
 	}
-	d, err := open(ctx, id, key.Str())
+	o, err := open(ctx, id, in.Team.Port, key.Str())
 	if err != nil {
 		return failure(ClassConfig, "the team's admin files: "+err.Error())
 	}
+	d := o.Deps
 	d.Approvals = carried{g}
 	return answerOf(apply.Run(ctx, d, in))
 }

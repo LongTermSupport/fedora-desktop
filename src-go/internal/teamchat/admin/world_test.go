@@ -94,6 +94,7 @@ type world struct {
 	crash   *crashing
 	lie     func(*Answer) // a child that answers what it was not asked
 	regKeys []string
+	ports   []int
 	gidErr  error
 }
 
@@ -240,17 +241,18 @@ func (w *world) ownerGroup() (int, error) { return -1, w.gidErr }
 
 // open is the child's reach to alpha: the admin client over fakehs, wrapped by the crash the
 // test set, and the team's files under ctl/.
-func (w *world) open(_ context.Context, team paths.TeamID, regKey string) (apply.Deps, error) {
+func (w *world) open(_ context.Context, team paths.TeamID, port int, regKey string) (Opened, error) {
 	w.regKeys = append(w.regKeys, regKey)
+	w.ports = append(w.ports, port)
 	var a apply.Admin = w.admin
 	if w.crash != nil {
 		w.crash.Admin = w.admin
 		a = w.crash
 	}
-	return apply.Deps{
+	return Opened{Deps: apply.Deps{
 		Admin: a, Now: w.now, RosterPath: w.root + paths.RosterFile(team), RoomsPath: w.root + paths.RoomsFile(team),
 		GuestDir: w.root + paths.GuestTokenDir(team),
-	}, nil
+	}}, nil
 }
 
 type fakeSystemd struct{ w *world }

@@ -166,6 +166,9 @@ func TestApproveThenApply(t *testing.T) {
 	if len(w.regKeys) != 1 || len(w.regKeys[0]) != 128 {
 		t.Fatalf("the child was given registration keys %q", w.regKeys)
 	}
+	if !slices.Equal(w.ports, []int{8448}) {
+		t.Fatalf("the child opened ports %v, not the declared 8448 (OP6)", w.ports)
+	}
 	if w.rooms(t).Main == "" || w.roster(t).CoordinatorWanted != coord {
 		t.Fatalf("rooms %+v roster %+v", w.rooms(t), w.roster(t))
 	}
