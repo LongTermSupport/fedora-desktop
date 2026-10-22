@@ -1209,7 +1209,7 @@ v2's, in that order. P4's stopped LXC member asserts this.
 A stopped container is deferred by both plays, as v1 already does (RL 1.5, LESSON 6). The next run
 of both plays with the container up completes the move. ccy-teams shows the member as `deferred`
 until then, and its carried items wait on the server. A guest whose session the human runs by hand
-in tmux is listed in the report with its restart command, `teamchat run --claude --kind lxc --desired <v2-desired> --resume-recorded -- claude` (B 2.4.1), the same line the supervised unit runs (C 3.9.4).
+in tmux is listed in the report with its restart command, `teamchat run --claude --kind lxc --key <key> --resume-recorded -- claude` (B 2.4.1, C 3.9.1), the same line the supervised unit runs (C 3.9.4).
 
 The stopped-container path was not yet proven live on the host for v1 (LESSON 6). The pilot P4
 includes a stopped LXC member for that reason.

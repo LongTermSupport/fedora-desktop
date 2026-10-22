@@ -113,9 +113,16 @@ how, so builders can be briefed. Paths are under `src-go/internal/teamchat/`.
 
 ### `member/cli` `run`
 
-- No grammar change: `--state` with `--desired` already parses (CL5). B's text now names the LXC
-  unit as a `--state` user; the "existing 0700 directory" rule holds because `place-bundle` makes
-  it before the unit's first start.
+- CL5 gains `--key K`: `--kind lxc` only and required there (64 without it, or with `--state`,
+  `--desired` or `--seat`); `run` derives `<v2-state>` and `<v2-desired>` from `paths.LXCLayout`
+  (the same function the host uses), so the unit and a hand-run `service: false` seat share one
+  line. `--kind lxc` loses its default roots. The CL5 test parsing C 3.9.4's `ExecStart` follows.
+
+### `apply` (the child's `member add`, SPEC-n2d MO4)
+
+- `--seat next` loses its only caller (`lxc apply` passes the entry's seat): remove it and its
+  n2d-D15/D21 paths, or keep it unused; YAGNI says remove. The deactivated-account refusal of an
+  explicit seat (n2d-D21) is now met by `lxc apply`, which maps it to that entry's `DEFERRED`.
 
 ## WIP on feat/bus-v2-n3b-p4 (read by grep only)
 
@@ -126,21 +133,25 @@ how, so builders can be briefed. Paths are under `src-go/internal/teamchat/`.
   prints `<user>@<container>/<repo>-<seat>-<key>`; `V1.Holds(ctx, r, u, team)` unaffected (v1 is
   per user).
 - `apply.go`: the duplicate key at apply.go:208 becomes (team, container, checkout, seat) plus the
-  per-container seat-key collision check across every team's records, and the "recorded for
-  another user" refusal; `rec.Find(c, m.User)` (219) and `rec.Drop`/the `Entry` literal
+  per-container seat-key collision check across every team's record entries not `left` (a
+  declaration error failing the phase); a recorded key with another user is a user move, held
+  `DEFERRED` while the old user's files are pending; `rec.Find(c, m.User)` (219) and `rec.Drop`/the `Entry` literal
   (993-995) use the new key; `users(g)` and `group(g, u)` (405-412, 757-760), which batch per
   user for step 08, go: `membership(ctx, g, u)` (771-808) becomes per member (per key), reading
   and writing the host copy by key; `unit(ctx, g, u)` and `removeUnit(ctx, g, u)` (849-931)
   become per member; `/etc/passwd` read once per container and each checkout read once
   (cache by checkout); the `guest check` call deduplicated per (user, team); `--seat next`
-  replaced by `--seat <m.decl.Seat>` in the step 06 join; equal derived handles across entries
-  of a team refused at step 03.
+  replaced by `--seat <m.decl.Seat>` in the step 06 join, whose deactivated-account refusal
+  becomes that entry's `DEFERRED` (recorded `deferred`, the phase not failed); at step 03, equal
+  handles across entries of a team (derived, or recorded and not `left`) and a handle the
+  roster holds `retired` are refused by name.
 - `absent.go`: the `declared` set keyed by `Target{Container, User}` (69-79) becomes keyed by
   (container, checkout, seat); the synthesized `declare.LXCMember` for a record-only leaver gains
   `Checkout` and `Seat` from the record entry; `ReadCopy`/`WriteCopy` by key (132-138, 219);
   `removeUnit` per seat, unconditionally for a leaving seat (no more "user holds no team",
   224); `HomeLayout(..., GuestRuntimeDir(user))` (284) becomes `LXCLayout(home, key)`; the host
-  copy deleted after `guest remove`.
+  copy deleted and the record entry dropped after `guest remove`; a recorded key whose declared
+  user changed leaves under the record's user (the user move).
 - `kit.go`: `GuestRuntimeParents(m.decl.User, uid)` (222) becomes the login parent per uid plus
   a TB1 listing of the guest's `/run` for `teamchat-session-<key>` directories.
 - `restart.go`: `Restart(ctx, d, container, user)` becomes `(ctx, d, container, key)`; the
@@ -150,9 +161,9 @@ how, so builders can be briefed. Paths are under `src-go/internal/teamchat/`.
 
 - LP1 (`health.Guests`): map (team, handle) to the record entry (container, checkout, seat,
   user) and probe `~<user>/.config/teamchat/lxc/<key>/seats/<team>/seat.lock`.
-- `ccy-teams lxc-add` (N5's ccy-teams side): writes `seat` (lowest number no entry of the team
-  and checkout declares and no LXC handle of the team's roster holds), computes `<key>` for
-  `--member` and `lxc restart --member`.
+- `ccy-teams lxc-add` (N5's ccy-teams side): writes `seat` (lowest number no LXC entry of the
+  team declares, in any container or checkout, and no LXC handle of the team's roster holds),
+  computes `<key>` for `--member` and `lxc restart --member`; the board shows each seat's key.
 - Area D's M1 writes `seat` into each staged `teamchat_lxc_members` entry (D's M1 row).
 
 ## Unaffected
@@ -163,7 +174,7 @@ how, so builders can be briefed. Paths are under `src-go/internal/teamchat/`.
 - The member's store, seat lock, link, keeper and their files (B 2.3-2.11): they live under
   whatever `<v2-state>` and `<v2-desired>` they are given.
 - The ccy seat pool and sessions (C 3.7), host `cc`'s `HomeLayout`, the health tick's logic
-  (HT rows), the child's member verbs (`member add --seat N` already exists), the record's
+  (HT rows), the child's member verbs other than `--seat next` (above), the record's
   status set and `since_ms` rule, n3b-D1's offline behaviour (now per seat, same rules).
 - `apply`'s team-level `coordinator` (DC6): unchanged; one coordinator per team holds by
   construction.
