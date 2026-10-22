@@ -112,7 +112,7 @@ func TestEstablishOpensTheHome(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-	if id.User != agentUser(t) || id.UID != agentUID || id.GID != agentGID || id.Home.Path() != dir {
+	if id.User != agentUser(t) || id.UID != agentUID || id.GID != agentGID || id.Root.Path() != dir {
 		t.Errorf("identity = %+v", id)
 	}
 	if sys.umask != 0o077 || len(sys.calls) == 0 || sys.calls[0] != "umask" {

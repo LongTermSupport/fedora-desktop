@@ -68,7 +68,6 @@ func TestAnUnbuiltVerbNamesItsSlice(t *testing.T) {
 		msg  string
 	}{
 		{[]string{"recv"}, "teamchat recv is not built in this binary; it lands with slice n3c"},
-		{[]string{"seat", "set-aside", "--team", "alpha"}, "teamchat seat set-aside is not built in this binary; it lands with slice n3a guest"},
 		{[]string{"hook", "stop"}, "teamchat hook is not built in this binary; it lands with slice n3e"},
 		{[]string{"run", "--plain", "--kind", "other", "--", "bash"}, "teamchat run is not built in this binary; it lands with slice n3c"},
 	} {

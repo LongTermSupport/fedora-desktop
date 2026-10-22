@@ -101,7 +101,7 @@ func (c Checker) check(ctx context.Context, id *Identity, team paths.TeamID, std
 		return err
 	}
 	name := exits.Name(id.User.String())
-	unitPath := UnitPath(id.Home.Path(), c.SystemDirs)
+	unitPath := UnitPath(id.Root.Path(), c.SystemDirs)
 	found := map[string]string{}
 	for _, p := range []struct{ name, code string }{{"gh", exits.CodeGh}, {"tmux", exits.CodeTmux}, {"claude", exits.CodeClaude}} {
 		path, ok := lookPath(unitPath, p.name)
@@ -110,13 +110,13 @@ func (c Checker) check(ctx context.Context, id *Identity, team paths.TeamID, std
 		}
 		found[p.name] = path
 	}
-	if err := c.ghLoggedIn(ctx, found["gh"], unitPath, id.Home.Path()); err != nil {
+	if err := c.ghLoggedIn(ctx, found["gh"], unitPath, id.Root.Path()); err != nil {
 		return exits.New(exits.CodeGh, &team, msgGh, name)
 	}
 	if err := c.Kernel.Pidfd(); err != nil {
 		return exits.New(exits.CodeKernel, &team, msgKernel, name, exits.Words("pidfd"))
 	}
-	if err := c.Kernel.Inotify(id.Home.Path()); err != nil {
+	if err := c.Kernel.Inotify(id.Root.Path()); err != nil {
 		return exits.New(exits.CodeKernel, &team, msgKernel, name, exits.Words("inotify"))
 	}
 	return reach(ctx, f, team)

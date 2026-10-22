@@ -52,11 +52,11 @@ type Identity struct {
 	User paths.GuestUser
 	UID  int
 	GID  int
-	Home *homefs.Root
+	Root *homefs.Root
 }
 
 // Close releases the home's fd.
-func (id *Identity) Close() error { return id.Home.Close() }
+func (id *Identity) Close() error { return id.Root.Close() }
 
 const (
 	// umask is set before anything else, so nothing an op makes is ever group or other
@@ -98,7 +98,7 @@ func Establish(sys System, u paths.GuestUser) (*Identity, error) {
 	if err != nil {
 		return nil, exits.New(exits.CodeHome, nil, msgHome, name)
 	}
-	return &Identity{User: u, UID: uid, GID: acct.GID, Home: root}, nil
+	return &Identity{User: u, UID: uid, GID: acct.GID, Root: root}, nil
 }
 
 func identityError(t exits.Template, name exits.Fill) error {
