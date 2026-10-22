@@ -1769,8 +1769,8 @@ any group but the agent user's own, and refuses to run as uid 0.
       is the entry's (`member add --seat <seat>`). The roster's state of the handle, read here
       before any change, chooses step 06's verb: no member, or a pending `add` of it, is `add`
       (which completes the pending one, SPEC-n2d MO5); `parked` or `lost` is `return`; `active`
-      is `reissue`, also when no record entry holds it (a crash inside the step 06 record write,
-      step 10, or a record restored older than the roster: the
+      is `reissue`, also when no record entry holds it (a crash between a join and the
+      record write that follows it, step 10, or a record restored older than the roster: the
       handle carries the LXC kind and no other entry derives it, so it is this entry's); and
       `retired` is refused below. So no join reaches the child to be refused for its state.
       Two entries of a team, in any containers, whose
@@ -1849,13 +1849,14 @@ any group but the agent user's own, and refuses to run as uid 0.
     the old identity's seat and the next apply places the new one.
 09. Supervised session (`service: true`): see 3.9.4.
 10. Write the LXC record (3.9.3) at the end of every phase, failed or not, when it changed. A
-    handle a join made must never be unrecorded, or removing its entry later would park
-    nothing and leave its token valid: so the record is also written under each team's lock
+    handle a join made is recorded at once, since an unrecorded one would be parked by nothing
+    when its entry is removed, leaving its token valid: so the record is also written under each team's lock
     as soon as that team's step 06 joins return, before step 07, with each joined entry's
     handle (status `deferred` until its later steps complete, then `joined`, or `offline` when
     deferred mid-phase). An entry whose steps a failed phase did not reach keeps the status it
     had. `active` with no record entry (step 03's `reissue`) is then left only to a record
-    restored older than the roster, or a crash inside the step 06 write itself.
+    restored older than the roster, or a crash between a join and that write; the next
+    apply's `reissue` then records it.
 
 **A container that stops during the phase** is offline, never the phase's failure. An
 `lxc-attach` that fails or times out (each has a 60 s bound), a step 04 kit write or a 3.9.4
@@ -1933,8 +1934,8 @@ that user, and its token is already dead from step 1. Steps 2, 4 and 5 are skipp
 removes its unit (root's write), the host copy is deleted, and the record entry is dropped, or
 for a user move rewritten for the new user, as step 5 does. It is never held `left` for ever. A running
 container and a stopped one now follow the same order: the park comes first in both. The absent
-phase writes the LXC record when it changed it, as the present phase does after it succeeded
-(step 10).
+phase writes the LXC record when it changed it, at its end whether it failed or not, as the
+present phase does (step 10).
 
 Whether an LXC seat is held (C27) is probed from the host through the same `/proc/<init pid>/root`
 fd: the member's seat lock, `~<user>/.config/teamchat/lxc/<key>/seats/<team>/seat.lock` with the
