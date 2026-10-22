@@ -8,7 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix/fakehs"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
 const (
@@ -316,6 +319,60 @@ func TestTwoReleasesOfOneHolding(t *testing.T) {
 	rec, err := decodeReleasedRecord([]byte(readFile(t, w.pool().ReleasedRecord())))
 	if err != nil || rec.Claim != taken.Claim || exists(t, w.pool().Held()) || len(quarantined(t, w)) != 1 {
 		t.Errorf("released %+v, %v; quarantine %v", rec, err, quarantined(t, w))
+	}
+}
+
+// SL1, SX6: an incomplete held/ met while another holds the allocation lock is ErrBusy, its
+// fd closed once.
+func TestAnIncompleteHeldWithTheLockBusy(t *testing.T) {
+	w := newWorld(t)
+	w.seed()
+	if err := os.Mkdir(w.pool().Held(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	a := w.lock()
+	defer w.unlock(a)
+	err := w.store.Announce(t.Context(), w.seat, mustSession(t, "s1"))
+	if !errors.Is(err, ErrBusy) || errors.Is(err, unix.EBADF) {
+		t.Errorf("announce: %v", err)
+	}
+}
+
+// SX1, SX2, n2c-D12: a release resumed after step 2, once its session has taken another seat of
+// the same team into the same session seat directory, leaves that directory alone and completes.
+func TestAResumedReleaseLeavesAnotherSeatsCopy(t *testing.T) {
+	w := newWorld(t)
+	w.seed()
+	const handleB = "repo.2+site.podman"
+	w.hs.AddUser(handleB, testPassword, false)
+	seatB := Seat{Team: w.seat.Team, Name: mustSeatName(t, handleB)}
+	poolB := w.store.store.PoolSeat(w.key, seatB.Team, seatB.Name)
+	bundleB := w.bundle()
+	bundleB.UserID = "@" + handleB + ":" + paths.ServerName(w.seat.Team)
+	data, err := bundleB.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, poolB.Password(), testPassword)
+	writeFile(t, poolB.Bundle(), string(data))
+	w.take("s1")
+	w.hs.Inject(fakehs.Fault{Method: http.MethodPost, Path: "/logout", Status: http.StatusBadGateway})
+	if stopped := w.release("s1", true); stopped == nil {
+		t.Fatal("the release of A did not stop at step 4")
+	}
+	a := w.lock()
+	takenB, err := w.store.Take(t.Context(), a, Take{Seat: seatB, Session: mustSession(t, "s1"), State: StateActive})
+	w.unlock(a)
+	if err != nil {
+		t.Fatalf("take of B: %v", err)
+	}
+	end := w.keep("s1", lockRecord)
+	defer end()
+	if err := w.release("s1", true); err != nil {
+		t.Fatalf("the resumed release of A: %v", err)
+	}
+	if !exists(t, takenB.Dir+"/token") || exists(t, w.pool().Held()) {
+		t.Errorf("B's session copy was moved, or A's holding kept")
 	}
 }
 
