@@ -85,7 +85,9 @@ const (
 	CtlStateRoot        = "/var/lib/" + CtlUser
 	StatusRoot          = "/var/lib/" + Product + "-status"
 	StatusInstalledFile = StatusRoot + "/installed.json"
-	AdminRunDir         = "/run/" + AdminBinary
+	// LXCRecordDir holds every team's LXC record, which `lxc restart` searches by seat key.
+	LXCRecordDir = StatusRoot + "/lxc"
+	AdminRunDir  = "/run/" + AdminBinary
 )
 
 // Units and the names inside them (D 3.5). The health, backup and seats units are one each per
@@ -285,7 +287,7 @@ func ApprovedFile(t TeamID) string { return StatusTeamDir(t) + "/approved.json" 
 func LXCOnlineFile(t TeamID) string { return StatusTeamDir(t) + "/lxc-online.json" }
 
 // LXCRecord is the team's LXC record.
-func LXCRecord(t TeamID) string { return StatusRoot + "/lxc/" + t.text() + ".json" }
+func LXCRecord(t TeamID) string { return LXCRecordDir + "/" + t.text() + ".json" }
 
 // SetRecord is a migration set's record, the one source of which system a migrating team is
 // live on (D 5.3).

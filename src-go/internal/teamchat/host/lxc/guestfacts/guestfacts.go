@@ -37,6 +37,10 @@ const (
 // member (n3b-D1), and the owner fixes the guest.
 var ErrRefused = errors.New("refused")
 
+// ErrNoAccount is a passwd with no account for the user, a refusal of its own: the absent phase
+// skips a leaver's guest steps for it, since no file is reachable as that user (C 3.9.2).
+var ErrNoAccount = errors.New("no account for the user")
+
 func refuse(file, format string, args ...any) error {
 	return fmt.Errorf("%w: %s: %s", ErrRefused, file, fmt.Sprintf(format, args...))
 }
@@ -135,7 +139,7 @@ func Passwd(data []byte, u paths.GuestUser, hostUIDs map[int]bool) (Account, err
 		found = &Account{User: u, UID: uid, GID: gid, Home: f[5]}
 	}
 	if found == nil {
-		return Account{}, refuse(guestUsersFile, "no account for the user")
+		return Account{}, fmt.Errorf("%w: %s: %w", ErrRefused, guestUsersFile, ErrNoAccount)
 	}
 	if err := checkAccount(*found, hostUIDs); err != nil {
 		return Account{}, err
@@ -375,11 +379,11 @@ func repoName(origin string, hasOrigin bool, checkout string) (string, error) {
 	return repo, nil
 }
 
-// SameMember refuses a derived prefix that differs from the recorded handle's (n3-D10): the
-// handle names the member, so a checkout that moved is a new member.
-func SameMember(derived proto.Prefix, recorded proto.Handle) error {
-	if recorded.Prefix() != derived {
-		return refuse("the handle", "the checkout's origin changed; retire and add the member to change its handle")
+// SameMember refuses a derived handle that differs from the recorded one (n3-D10, n3b-D2): the
+// handle names the member, so a checkout that moved is a new member, under another seat.
+func SameMember(derived, recorded proto.Handle) error {
+	if recorded != derived {
+		return refuse("the handle", "the checkout's origin changed; give the entry another seat to take a new handle")
 	}
 	return nil
 }

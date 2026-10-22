@@ -38,6 +38,7 @@ func TestTeamDerivedNames(t *testing.T) {
 		{ApprovedFile(team), "/var/lib/teamchat-status/teams/ops/approved.json"},
 		{LXCOnlineFile(team), "/var/lib/teamchat-status/teams/ops/lxc-online.json"},
 		{LXCRecord(team), "/var/lib/teamchat-status/lxc/ops.json"},
+		{LXCRecordDir, "/var/lib/teamchat-status/lxc"},
 		{ElementProfile(team), "teamchat-ops"},
 	} {
 		if c.got != c.want {
