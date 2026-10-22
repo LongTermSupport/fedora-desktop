@@ -13,6 +13,8 @@ func TestOpenNeedsEveryPart(t *testing.T) {
 	w := newWorld(t)
 	for name, change := range map[string]func(*Config){
 		"no clock":      func(c *Config) { c.Clock = nil },
+		"no credential": func(c *Config) { c.Credential = nil },
+		"no sessions":   func(c *Config) { c.Sessions = nil },
 		"relative home": func(c *Config) { c.StateHome = "state" },
 		"relative run":  func(c *Config) { c.RuntimeDir = "run" },
 		"no checkout":   func(c *Config) { c.Checkout = paths.CheckoutKey{} },

@@ -202,6 +202,9 @@ func (d *dir) exists(full string) (bool, error) {
 		found = err == nil
 		return err
 	})
+	if errors.Is(err, unix.ENOENT) {
+		return false, nil
+	}
 	return found, err
 }
 

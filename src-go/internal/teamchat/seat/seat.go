@@ -32,6 +32,15 @@ type Config struct {
 	// Checkout is the checkout whose pool seats this store allocates.
 	Checkout paths.CheckoutKey
 	Clock    Clock
+	// Credential is the pool seats' credential (SC1).
+	Credential Credential
+	// Sessions answers whether a session is restorable (its record exists, 00203 H5).
+	Sessions Sessions
+}
+
+// Sessions is the session records, which the store asks and never writes.
+type Sessions interface {
+	Restorable(n paths.SessionName) (bool, error)
 }
 
 // Seat is one pool seat: its team and its handle (n2c-D1).
@@ -42,18 +51,20 @@ type Seat struct {
 
 // Store is one owner's seat store for one checkout, its root held open by fd.
 type Store struct {
-	store     paths.Store
-	checkout  paths.CheckoutKey
-	root      *dir
-	allocLock string
-	clock     Clock
+	store      paths.Store
+	checkout   paths.CheckoutKey
+	root       *dir
+	allocLock  string
+	clock      Clock
+	credential Credential
+	sessions   Sessions
 }
 
 // Open opens the seat store, making its root 0700 when missing. A config that lacks a part, or
 // a root that is not the owner's 0700 directory, is ErrConfig.
 func Open(cfg Config) (*Store, error) {
-	if cfg.Clock == nil || cfg.Checkout.String() == "" {
-		return nil, fmt.Errorf("%w: a clock and a checkout are required", ErrConfig)
+	if cfg.Clock == nil || cfg.Credential == nil || cfg.Sessions == nil || cfg.Checkout.String() == "" {
+		return nil, fmt.Errorf("%w: a clock, a credential, the session records and a checkout are required", ErrConfig)
 	}
 	if !filepath.IsAbs(cfg.StateHome) || !filepath.IsAbs(cfg.RuntimeDir) {
 		return nil, fmt.Errorf("%w: the state home and the runtime directory must be absolute", ErrConfig)
@@ -70,7 +81,10 @@ func Open(cfg Config) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Store{store: store, checkout: cfg.Checkout, root: root, allocLock: allocLock, clock: cfg.Clock}, nil
+	return &Store{
+		store: store, checkout: cfg.Checkout, root: root, allocLock: allocLock, clock: cfg.Clock,
+		credential: cfg.Credential, sessions: cfg.Sessions,
+	}, nil
 }
 
 // Close releases the store root's fd.
