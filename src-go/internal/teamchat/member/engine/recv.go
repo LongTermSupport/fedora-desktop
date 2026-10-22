@@ -93,7 +93,8 @@ func (e *Engine) plan(only *paths.TeamID) plan {
 }
 
 // refetch re-fetches the restored items among the first maxEntries candidates (B 2.7.3
-// "Content"), each team on its own goroutine, its items in order until one fails; bounded by
+// "Content"), each team on its own goroutine, its items in order until one fails transiently
+// (an item that is gone is dropped by rejudgeAll and holds none after it); bounded by
 // refetchWait, so one team that does not answer holds no other team's items.
 func (e *Engine) refetch(ctx context.Context, p plan) map[key]fetched {
 	byTeam := map[paths.TeamID][]candidate{}
@@ -122,7 +123,7 @@ func (e *Engine) refetch(ctx context.Context, p plan) map[key]fetched {
 				mu.Lock()
 				out[key{id, c.id}] = fetched{v: v, err: err}
 				mu.Unlock()
-				if err != nil {
+				if err != nil && !errors.Is(err, team.ErrItemGone) {
 					e.logf("team %s: restored item %s not re-fetched: %v", id, c.id, err)
 					return
 				}
@@ -189,14 +190,21 @@ func (c *copies) of(h *held) *state.Store {
 	return &s
 }
 
-// rejudgeAll keeps each re-fetched item's verdict in memory, or drops the item from its copy.
+// rejudgeAll keeps each re-fetched item's verdict in memory, or drops the item from its copy:
+// one that no longer passes, and one the server will never serve again (team.ErrItemGone).
 func (e *Engine) rejudgeAll(got map[key]fetched, c *copies) {
 	for k, f := range got {
 		h := e.teams[k.team]
-		if f.err != nil || h == nil || !eligible(h, nil) {
+		gone := errors.Is(f.err, team.ErrItemGone)
+		if (f.err != nil && !gone) || h == nil || !eligible(h, nil) {
 			continue
 		}
-		why := e.rejudge(h, k.id, f.v)
+		var why string
+		if gone {
+			why = "it can no longer be fetched (" + f.err.Error() + ")"
+		} else {
+			why = e.rejudge(h, k.id, f.v)
+		}
 		if why == "" {
 			h.content[k.id] = f.v
 			continue

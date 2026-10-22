@@ -133,14 +133,16 @@ type fakeTeam struct {
 
 	verdicts   map[string]proto.Verdict
 	refetchErr error
-	block      bool
-	refetched  []string
-	verified   records.Verified
-	verifyErr  error
-	history    []records.History
-	historyErr error
-	flushes    int
-	flushErr   error
+	// refetchErrs answers one id's re-fetch with its error, over refetchErr.
+	refetchErrs map[string]error
+	block       bool
+	refetched   []string
+	verified    records.Verified
+	verifyErr   error
+	history     []records.History
+	historyErr  error
+	flushes     int
+	flushErr    error
 }
 
 func (f *fakeTeam) Run(ctx context.Context) error {
@@ -161,6 +163,9 @@ func (f *fakeTeam) Refetch(ctx context.Context, _, id string) (proto.Verdict, er
 	f.mu.Lock()
 	f.refetched = append(f.refetched, id)
 	block, v, err := f.block, f.verdicts[id], f.refetchErr
+	if e, ok := f.refetchErrs[id]; ok {
+		err = e
+	}
 	f.mu.Unlock()
 	if block {
 		<-ctx.Done()

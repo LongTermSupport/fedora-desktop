@@ -88,6 +88,11 @@ type Health struct {
 // ErrRemoved is a write for a team the engine has removed.
 var ErrRemoved = errors.New("team: the team was removed")
 
+// ErrItemGone is a Refetch whose event the server will never serve again (404, 403, a room the
+// member does not read): the engine drops the restored item with its reason (B 2.7.3), where a
+// transient failure keeps it pending.
+var ErrItemGone = errors.New("team: the item can no longer be fetched")
+
 // Engine is the link's state goroutine as a team goroutine and the ends see it.
 type Engine interface {
 	// Load is the team's store as loaded, or created for userID (the pair's user id); a copy.
@@ -112,7 +117,7 @@ type Engine interface {
 type Team interface {
 	// Run runs until ctx ends or a permanent stop.
 	Run(ctx context.Context) error
-	// Refetch judges a restored item again (B 2.7.3).
+	// Refetch judges a restored item again (B 2.7.3); ErrItemGone when it never can be.
 	Refetch(ctx context.Context, room, id string) (proto.Verdict, error)
 	// Verify is LN6.
 	Verify(ctx context.Context, id string) (records.Verified, error)

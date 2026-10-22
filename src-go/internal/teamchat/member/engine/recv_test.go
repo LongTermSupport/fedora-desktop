@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"runtime"
 	"strings"
 	"testing"
@@ -204,6 +205,30 @@ func TestARefetchThatFailsKeepsTheItemPending(t *testing.T) {
 	f.mu.Unlock()
 	if tried != 1 || len(w.store(ops).Pending) != 2 {
 		t.Fatalf("re-fetched %d, pending %d: the team must stop at its first error", tried, len(w.store(ops).Pending))
+	}
+}
+
+// A1: a restored item the server will never serve again (404, 403) is dropped with its reason,
+// and the team's later restored items are still re-fetched and delivered.
+func TestARestoredItemThatIsGoneIsDroppedAndHoldsNothing(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	s := w.newStore(ops)
+	s.Pending = []state.Pending{humanItem(ops, 1, 100, "").Pending, humanItem(ops, 2, 200, "").Pending}
+	f := w.add(ops, encodeStore(t, s))
+	f.mu.Lock()
+	f.refetchErrs = map[string]error{evID(1): fmt.Errorf("%w: not found", team.ErrItemGone)}
+	f.mu.Unlock()
+	f.setVerdict(evID(2), humanItem(ops, 2, 200, "kept").Verdict)
+	d, out := w.serve(t.Context(), wire.OpRecv, wire.TeamsArgs{})
+	if d.Ack == "" || out.kinds() != "human" {
+		t.Fatalf("recv = %+v %s", d, out.kinds())
+	}
+	if p := w.store(ops).Pending; len(p) != 1 || p[0].ID != evID(2) {
+		t.Fatalf("pending = %+v", p)
+	}
+	if !strings.Contains(w.log.String(), "restored item "+evID(1)+" dropped: it can no longer be fetched") {
+		t.Fatalf("link.log = %q", w.log.String())
 	}
 }
 
