@@ -79,7 +79,8 @@ that play.
    takes them or the highlighted one), each marked team gets its own seat question, headed
    with which team it is (`New session › Team 2 of 3: beta`), and the
    launch prints which teams the session is on, with seat, role and what each is for; the status
-   line shows `👥 alpha (worker), beta (coordinator)`, in any checkout (see
+   line shows `👥 alpha: fedora-desktop.2 (w), beta: fedora-desktop.1 (c)`, each team in its own
+   colour, in any checkout (see
    [A session's status line](#a-sessions-status-line)). With several teams, pingbus's send and say commands work out the
    team from `--re` or `--to` when only one fits, and otherwise list the teams and ask for `--team`.
    It then goes on as `ccy --teams <team>` (no seat), which shows this
@@ -693,13 +694,24 @@ dedicated agent user.
 ### A session's status line
 
 Every session on a team (ccy, cc or `agent-bus-claude`, in any checkout) ends its status
-line with `👥 alpha (coordinator), beta (worker)`: the teams it is on, each with this session's
-role in it (👥 is the team counterpart of the hooks daemon's 👤 account). The role is read on
-every refresh from the same team record the live role notice reads, so a role change from
-`ccy-teams` shows at the next refresh with no restart. A role that cannot be read shows as
-`(role?)`, never a guess, and says why in one line on the status line command's stderr. A team
-whose homeserver does not answer is marked `(down)` after its role: each team is shown as its
-name, its role, then its marks. The member kit's `settings.json`
+line with `👥 alpha: fedora-desktop.2 (c), beta: fedora-desktop.2 (w)`: the teams it is on,
+each with this session's member in it (its handle up to the `+`) and its role, `c` for
+coordinator and `w` for worker (👥 is the team counterpart of the hooks daemon's 👤 account).
+The role is read on every refresh from the same team record the live role notice reads, so a
+role change from `ccy-teams` shows at the next refresh with no restart. A member or role that
+cannot be read shows as `member?` or `(role?)`, never a guess, and says why in one line on the
+status line command's stderr. A team whose homeserver does not answer is marked `(down)` after
+its role: each team is shown as its name, its member and role, then its marks.
+
+Each team is drawn in its own colour, the same in every session and on every machine: one of
+ten colours legible on a dark terminal (teal, cyan, sky, blue, indigo, violet, purple, magenta,
+pink, mint), chosen from the team's name. To choose it yourself, give the team's
+`agent_bus_teams` entry `colour: violet` (a name from that list) or `colour: "#rrggbb"` (quoted:
+`#` starts a YAML comment; a hex too dark to read is refused), and run `play-agent-bus.yml`; the
+team's admin passes it to every member as room state, and each member's status line draws it
+at its next refresh. A member whose pingbus predates the colour ignores it and shows the
+automatic colour. A colour file that cannot be read gives the automatic colour, the mark
+`(colour?)` and one stderr line. The member kit's `settings.json`
 makes `pingbus-status-line` the status line command (a Go binary that starts in milliseconds,
 built into the kit and the ccy image by the plays; `pingbus status-line` is the same command in
 Python, kept as its reference), and settings given on the command line

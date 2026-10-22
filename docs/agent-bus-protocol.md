@@ -886,11 +886,15 @@ teammates then see only that the seat is no longer held.
   the `statusLine` command the session would otherwise have had (the first of the project's
   `.claude/settings.local.json`, `.claude/settings.json`, then `$CLAUDE_CONFIG_DIR` or
   `~/.claude` `settings.json`; never either form of itself) with the same stdin, prints its output and adds
-  `👥 A (role), B (role)` on rows of its own below it, from the record for the payload's
-  `session_id` (wrapped after a comma at `COLUMNS`, one unbroken row when `COLUMNS` is not a
-  positive number; never cut). Each role is read on every render from the bundle's cached team
-  record (`inbox.cached_role`, what the role notice reads); one that cannot be read is
-  `(role?)`, with one line on stderr. A team's marks (`(down)`) follow its role. It always exits 0
+  `👥 A: <member> (r), B: <member> (r)` on rows of its own below it, from the record for the
+  payload's `session_id` (wrapped after a comma at `COLUMNS`, one unbroken row when `COLUMNS` is
+  not a positive number; never cut). `<member>` is this member's handle up to its `+`, and `r` is
+  `c` (coordinator) or `w` (worker). Each role is read on every render from the bundle's cached
+  team record (`inbox.cached_role`, what the role notice reads); a member or role that cannot be
+  read is `member?` or `(role?)`, with one line on stderr. A team's marks (`(down)`, then
+  `(colour?)`) follow its role. Each team's piece is one 24-bit colour span, the colour of
+  `state/colour.json` (§8, `agent_bus.colour`) or else the automatic one from the team's name
+  (Plan 00217's SPEC-team-colours C1 to C12). It always exits 0
   (a non-zero exit blanks Claude Code's status line): that command's non-zero exit, a 10 s
   timeout (its process group is then killed, as it is when `status-line` itself gets SIGTERM,
   SIGINT or SIGHUP) or an unreadable settings file is shown as red text. With `PINGBUS_TEAMS` set and no usable record it shows `👥 no record of this session's teams (pingbus status)` in red instead; with neither, nothing is added.

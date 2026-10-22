@@ -246,7 +246,7 @@ func (cw *cacheWorld) cachedThenPoisoned(want string) {
 }
 
 // renderAfterChange renders settled past the latest change, and fails on a stale segment.
-func (cw *cacheWorld) renderAfterChange(what, want string, absent ...string) {
+func (cw *cacheWorld) renderAfterChange(what, want string, absent ...string) string {
 	cw.t.Helper()
 	got := cw.render(cw.settled(0))
 	if strings.Contains(got.out, "POISON") || !strings.Contains(got.out, want) {
@@ -257,6 +257,7 @@ func (cw *cacheWorld) renderAfterChange(what, want string, absent ...string) {
 			cw.t.Errorf("after %s: %q still shows %q", what, got.out, a)
 		}
 	}
+	return got.out
 }
 
 func (cw *cacheWorld) betaBundle() {
@@ -300,7 +301,9 @@ func TestCacheShowsAMembershipChangeAtOnce(t *testing.T) {
 
 	cw.file("membership/membership.json", membershipRecord("alpha", "beta"), 0o644)
 	cw.file("pingbus/applied.json", appliedRecord("alpha", "beta"), 0o600)
-	cw.renderAfterChange("a seat added", "alpha: myrepo.1 (c),")
+	if out := cw.renderAfterChange("a seat added", "alpha: myrepo.1 (c),"); !strings.Contains(out, "beta: myrepo.1 (w)") {
+		t.Errorf("after a seat added: %q, want beta's piece too", out)
+	}
 
 	cw.cachedThenPoisoned("beta: myrepo.1 (w)")
 	cw.file("membership/membership.json", membershipRecord("beta"), 0o644)
