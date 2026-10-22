@@ -341,19 +341,42 @@ func vanished(err error) bool {
 	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ESRCH)
 }
 
-// cgroupUnit is the last element of the cgroup v2 path (`0::<path>`) when it is a service,
-// and "" otherwise.
+// cgroupUnit is the system service a process sits directly in, from its cgroup v2 path
+// (`0::<path>`), and "" for any other process (n2f-D11). The path must be `/system.slice/`,
+// zero or more `*.slice` elements, then the `*.service` as the last element. Only systemd
+// makes cgroups there: a delegated subtree (a user's `user@<uid>.service`, a container's)
+// hangs under a `.service` or outside `/system.slice`, so a name the owner chose cannot match.
 func cgroupUnit(raw []byte) string {
 	for line := range strings.SplitSeq(string(raw), "\n") {
 		path, ok := strings.CutPrefix(line, "0::")
 		if !ok {
 			continue
 		}
-		last := path[strings.LastIndex(path, "/")+1:]
-		if strings.HasSuffix(last, ".service") {
-			return last
-		}
-		return ""
+		return systemService(path)
 	}
 	return ""
+}
+
+func systemService(path string) string {
+	rest, ok := strings.CutPrefix(path, "/system.slice/")
+	if !ok {
+		return ""
+	}
+	elems := strings.Split(rest, "/")
+	unit := elems[len(elems)-1]
+	for _, slice := range elems[:len(elems)-1] {
+		if !named(slice, ".slice") {
+			return ""
+		}
+	}
+	if !named(unit, ".service") {
+		return ""
+	}
+	return unit
+}
+
+// named is an element with a non-empty name before its unit-type suffix.
+func named(elem, suffix string) bool {
+	name, ok := strings.CutSuffix(elem, suffix)
+	return ok && name != ""
 }

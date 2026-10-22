@@ -155,6 +155,21 @@ func TestCgroupUnit(t *testing.T) {
 		"12:cpu:/legacy\n0::/system.slice/chronyd.service\n": "chronyd.service",
 		"12:cpu:/legacy.service\n":                           "",
 		"":                                                   "",
+		// n2f-D11: only systemd makes cgroups under /system.slice/ through *.slice elements.
+		"0::/system.slice/system-teamchat\\x2dserver.slice/teamchat-server@alpha.service\n":          "teamchat-server@alpha.service",
+		"0::/user.slice/user-1000.slice/user@1000.service/app.slice/teamchat-server@alpha.service\n": "",
+		"0::/system.slice/foo.service/x.slice/teamchat-server@alpha.service\n":                       "",
+		"0::/system.slice/teamchat-server@alpha.service/child\n":                                     "",
+		"0::/system.slice/system-teamchat\\x2dserver.slice/teamchat-server@alpha.service/child\n":    "",
+		"0::/machine.slice/teamchat-server@alpha.service\n":                                          "",
+		"0::/lxc.payload.c1/system.slice/teamchat-server@alpha.service\n":                            "",
+		"0::/lxc.payload.c1/teamchat-server@alpha.service\n":                                         "",
+		"0::/teamchat-server@alpha.service\n":                                                        "",
+		"0::/system.slice//teamchat-server@alpha.service\n":                                          "",
+		"0::/system.slice/.slice/teamchat-server@alpha.service\n":                                    "",
+		"0::/system.slice/.service\n":                                                                "",
+		"0::system.slice/teamchat-server@alpha.service\n":                                            "",
+		"0::/system.slice/teamchat-server@alpha.service":                                             "teamchat-server@alpha.service",
 	}
 	for in, want := range cases {
 		if got := cgroupUnit([]byte(in)); got != want {
