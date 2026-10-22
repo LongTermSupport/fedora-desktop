@@ -81,6 +81,7 @@ type world struct {
 	admin    *matrix.Admin
 	approved approvals
 	dir      string
+	clock    func() time.Time
 }
 
 func newWorld(t *testing.T) *world {
@@ -110,7 +111,7 @@ func newWorld(t *testing.T) *world {
 		t.Fatal(err)
 	}
 	t.Cleanup(a.Close)
-	return &world{srv: srv, admin: a, approved: approvals{}, dir: t.TempDir()}
+	return &world{srv: srv, admin: a, approved: approvals{}, dir: t.TempDir(), clock: ticking()}
 }
 
 func (w *world) deps() Deps {
@@ -372,13 +373,13 @@ func TestATeamNeverApprovedIsRefusedBeforeAnyCall(t *testing.T) {
 	}
 }
 
-// Another operation's pending record is its own to finish (C 3.6.3): apply refuses it before
-// any change and leaves the file as it is.
-func TestAnotherOperationPendingIsRefused(t *testing.T) {
+// A pending record with a step no build wrote is refused before any change (MO5 rolls forward
+// only the steps it knows); the file is left as it is.
+func TestAnUnknownPendingStepIsRefused(t *testing.T) {
 	w := newWorld(t)
 	w.applied(t, teamDoc())
 	s := w.file(t)
-	s.roster.Pending = &Pending{Op: "member.add", Step: "account", SinceMS: 1, Handle: other}
+	s.roster.Pending = &Pending{Op: "member.add", Step: "fly", SinceMS: 1, Handle: other}
 	if err := s.saveRoster(); err != nil {
 		t.Fatal(err)
 	}
@@ -386,7 +387,7 @@ func TestAnotherOperationPendingIsRefused(t *testing.T) {
 	mark := w.mark()
 	res, err := Run(t.Context(), w.deps(), input(t, teamDoc()))
 	e, ok := errors.AsType[*Error](err)
-	if !ok || e.Step != StepFiles || !e.Drift || !strings.Contains(err.Error(), "member.add") {
+	if !ok || e.Step != StepFiles || !e.Drift || !strings.Contains(err.Error(), `"fly"`) {
 		t.Fatalf("err = %v", err)
 	}
 	if len(res.Changed) != 0 || len(w.writes(mark)) != 0 || string(w.file(t).roster.Encode()) != before {

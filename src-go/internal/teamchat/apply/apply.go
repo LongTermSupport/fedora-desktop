@@ -9,6 +9,7 @@ package apply
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -29,6 +30,10 @@ type Admin interface {
 	Account(ctx context.Context, userID string) (matrix.Account, bool, error)
 	CreateAccount(ctx context.Context, userID, password, displayName string) (matrix.Account, error)
 	SetLocked(ctx context.Context, userID string, locked bool) error
+	ResetPassword(ctx context.Context, userID, password string) error
+	SetDeactivated(ctx context.Context, userID string, deactivated bool) error
+	LoginDevice(ctx context.Context, userName, password, deviceID string) (matrix.Session, error)
+	Send(ctx context.Context, roomID, eventType, txnID string, content json.RawMessage) (string, error)
 }
 
 // Deps is what a run uses: the admin client, the approvals, the team's two files
@@ -50,14 +55,21 @@ const (
 	StepRoles  = "roles"
 )
 
-// Error is a failed run: the step, and whether it is drift apply refuses (exit 70).
+// Error is a failed run: the operation ("" for `team apply`), the step, and whether it is
+// drift a rule refuses (exit 70).
 type Error struct {
-	Step  string
-	Drift bool
-	Err   error
+	Op, Step string
+	Drift    bool
+	Err      error
 }
 
-func (e *Error) Error() string { return "team apply, step " + e.Step + ": " + e.Err.Error() }
+func (e *Error) Error() string {
+	op := e.Op
+	if op == "" || op == OpTeamApply {
+		op = "team apply"
+	}
+	return op + ", step " + e.Step + ": " + e.Err.Error()
+}
 
 func (e *Error) Unwrap() error { return e.Err }
 
@@ -69,8 +81,7 @@ func failed(step string, err error) error {
 	return &Error{Step: step, Drift: ok && re.Drift, Err: err}
 }
 
-// The role changes a run answers (n2b-D9): the verb that posts notices posts the admin's
-// `role` notice for each.
+// The role changes a run answers; each is posted as the admin's `role` notice (MO6).
 const (
 	RoleDemoted  = "demoted"
 	RolePromoted = "promoted"
@@ -81,20 +92,32 @@ type RoleChange struct {
 	Handle, Change string
 }
 
-// Result is what a run changed: `team.json` of the approved team, the CHANGED lines, the role
-// changes and the rooms. On a failure it is what changed before it.
+// Result is what a run changed: `team.json` of the approved team (`team apply`), the CHANGED
+// lines, the role changes and the rooms; for a member verb its handle, the credential when the
+// caller asked for one, and notes for the status record (MO8). On a failure it is what changed
+// before it.
 type Result struct {
-	TeamFile []byte
-	Changed  []string
-	Roles    []RoleChange
-	Rooms    proto.RoomIDs
+	TeamFile   []byte
+	Changed    []string
+	Roles      []RoleChange
+	Rooms      proto.RoomIDs
+	Handle     string
+	Credential *Credential
+	Notes      []string
 }
 
+// run is one operation over a team's files; op is the operation a role change records as
+// pending when none is (MO6).
 type run struct {
 	d     Deps
+	op    string
 	team  declare.Team
 	files *store
 	res   Result
+}
+
+func newRun(d Deps, team declare.Team, op string) *run {
+	return &run{d: d, op: op, team: team, files: &store{team: team.ID, rosterPath: d.RosterPath, roomsPath: d.RoomsPath}}
 }
 
 // Run converges the team of the input, which must be approved (AP5).
@@ -106,10 +129,7 @@ func Run(ctx context.Context, d Deps, in declare.Input) (Result, error) {
 	if err = declare.Hold(approved, in); err != nil {
 		return Result{}, refused(StepGate, err)
 	}
-	r := &run{
-		d: d, team: asApproved(in.Team, *approved),
-		files: &store{team: in.ID(), rosterPath: d.RosterPath, roomsPath: d.RoomsPath},
-	}
+	r := newRun(d, asApproved(in.Team, *approved), OpTeamApply)
 	r.res.TeamFile = r.team.Canonical()
 	for _, step := range []func(context.Context) error{r.admins, r.load, r.checkRoles, r.humans, r.rooms, r.lockRemoved, r.roles, r.finish} {
 		if err = step(ctx); err != nil {
@@ -152,14 +172,20 @@ func (r *run) admins(ctx context.Context) error {
 	return nil
 }
 
-// load reads the two files. Another operation's pending record is that operation's to finish
-// (C 3.6.3), so it is refused before any change; a `team.apply` one is this verb's own.
-func (r *run) load(context.Context) error {
+// load reads the two files and completes a pending record (MO5): another operation's is rolled
+// forward, and a role step of this verb's own is finished; this verb's other steps are what it
+// runs anyway.
+func (r *run) load(ctx context.Context) error {
 	if err := r.files.load(); err != nil {
 		return &Error{Step: StepFiles, Err: err}
 	}
-	if p := r.files.roster.Pending; p != nil && p.Op != OpTeamApply {
-		return refused(StepFiles, fmt.Errorf("operation %q is pending at step %q; the verb that started it, asked again, finishes it before the team is applied", p.Op, p.Step))
+	switch p := r.files.roster.Pending; {
+	case p == nil:
+		return nil
+	case p.Op != OpTeamApply:
+		return r.rollForward(ctx)
+	case isRoleStep(p.Step):
+		return r.finishRole(ctx, p)
 	}
 	return nil
 }
@@ -322,28 +348,46 @@ func (r *run) roles(ctx context.Context) error {
 	return r.save(StepRoles)
 }
 
+// role records the change as a step of the pending operation (one this run's op starts when
+// none is), written with the coordinator change, then finishes it: the rooms and the `role`
+// notice (MO6, n2d-D2). The step the operation was at is kept for its next write.
 func (r *run) role(ctx context.Context, handle, change string) error {
 	r.note("role " + handle + " " + change)
 	r.res.Roles = append(r.res.Roles, RoleChange{Handle: handle, Change: change})
-	if err := r.save(StepRoles); err != nil {
+	f := &r.files.roster
+	if f.Pending == nil {
+		f.Pending = &Pending{Op: r.op, Step: StepRoles, SinceMS: r.now()}
+	}
+	p := f.Pending
+	at := p.Step
+	p.Step = StepRole + " " + change + " " + handle
+	if err := r.save(p.Step); err != nil {
 		return err
 	}
-	return r.converge(ctx, StepRoles)
+	if err := r.finishRole(ctx, p); err != nil {
+		return err
+	}
+	p.Step = at
+	return nil
 }
 
-// finish clears the pending step a room create left (n2b-D8).
+// finish clears the pending record a room create or a role change left (n2b-D8).
 func (r *run) finish(context.Context) error {
 	if r.files.roster.Pending == nil {
 		return nil
 	}
-	r.files.roster.Pending = nil
-	return r.save(StepRooms)
+	return r.clear(StepRooms)
 }
 
-// recorder is the rooms engine's Recorder over the two files (AP3).
+// recorder is the rooms engine's Recorder over the two files (AP3). A create during another
+// operation leaves that operation's record: a room created and not recorded is adopted by the
+// next run (RE9).
 type recorder struct{ r *run }
 
 func (rec recorder) Intent(purpose string) error {
+	if p := rec.r.files.roster.Pending; p != nil && p.Op != OpTeamApply {
+		return nil
+	}
 	rec.r.files.roster.Pending = &Pending{Op: OpTeamApply, Step: "create " + purpose, SinceMS: rec.r.now()}
 	return rec.r.files.saveRoster()
 }
@@ -363,7 +407,7 @@ func (rec recorder) Record(purpose, roomID string) error {
 	if err := rec.r.files.saveRooms(); err != nil {
 		return err
 	}
-	if p := rec.r.files.roster.Pending; p != nil {
+	if p := rec.r.files.roster.Pending; p != nil && p.Op == OpTeamApply {
 		p.Step = StepRooms
 		return rec.r.files.saveRoster()
 	}
