@@ -49,10 +49,11 @@ and `element`, `desired.json` (C 3.7.5; the sweep asks it through a seam), and c
   a link, not a directory, not mode 0700 or not owned by the euid is refused. The file
   `team-<team>.lock` is opened relative to that directory's descriptor,
   `O_RDWR|O_CREAT|O_NOFOLLOW|O_CLOEXEC` 0600, and must be a regular file. `flock(LOCK_EX|LOCK_NB)`
-  is tried every 250 ms by the clock until `wait` is spent (0 is one try), and ctx ends it.
-  The holder writes `<verb> <team> pid=<n> since=<ms>`, the verb matching
-  `^[a-z][a-z.-]{0,31}$`. A busy lock is a `*BusyError{Path, Holder}` that is `ErrBusy`
-  (`errors.Is`), naming the holder's line as read: one printable line of at most 256 bytes,
+  is tried every 250 ms by the clock until `wait` is spent (0 is one try); an ended ctx takes no
+  lock, even a free one. The holder writes `<verb> <team> pid=<n> since=<ms>` over the old line
+  and then cuts the rest, so the file is never empty while held, the verb matching
+  `^[a-z][a-z.-]{0,31}$`. A busy lock is the `*BusyError{Path, Holder}` itself, which is
+  `ErrBusy` (`errors.Is`), naming the holder's line as read: one printable line of at most 256 bytes,
   else "an unreadable holder". `Release` clears the line and frees the lock; the file is never
   unlinked.
 

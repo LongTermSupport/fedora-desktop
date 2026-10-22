@@ -1,5 +1,5 @@
 // Package host is `team apply`'s host steps and `team remove` of `teamchat-admin` (Plan 00209,
-// DESIGN-v2-C-host.md 3.2.2-3.2.5, 3.5.2, 3.5.3; SPEC-n2d.md section 4, HS1-HS14): the team
+// DESIGN-v2-C-host.md 3.2.2-3.2.5, 3.5.2, 3.5.3; SPEC-n2d.md section 4, HS1-HS15): the team
 // lock taken through teamlock, the refusals before any change, the in-memory render of a
 // team's homeserver config, unit drop-in and `team.json` with the five-way answer, the first
 // apply's files, the firewall, the backup, the unit, readiness, the bound addresses, and the

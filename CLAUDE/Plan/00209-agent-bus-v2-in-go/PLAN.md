@@ -234,7 +234,7 @@ its first caller.
   step 1, `team approve`'s verb and password-sudo boundary, `team remove`, and the member verbs.
   Carried to the member verbs: `team apply` refuses another operation's `pending` record
   (n2b-D22); when those verbs land it becomes C 3.6.3's roll-forward.
-  Slice n2d (`feat/bus-v2-n2d`, `SPEC-n2d.md` MO1-MO8, CV1-CV6 and HS1-HS14, report
+  Slice n2d (`feat/bus-v2-n2d`, `SPEC-n2d.md` MO1-MO8, CV1-CV6 and HS1-HS15, report
   `subagent-reports/261022-n2d.md`) covers, as inert code: the member operations
   (`add|return|reissue|park|retire|set`) and `role apply` with their `pending` roll-forward
   (n2b-D22's refusal replaced), the admin's notices (n2b-D9 replaced), the guest token copy;

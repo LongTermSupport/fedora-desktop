@@ -3,6 +3,7 @@ package teamlock
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -227,25 +228,92 @@ func TestTakeRefusals(t *testing.T) {
 	if err := os.WriteFile(notDir, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for name, c := range map[string]struct{ dir, verb string }{
-		"lock file is a link":     {linked, "team.apply"},
-		"lock file is a fifo":     {fifo, "team.apply"},
-		"directory is not 0700":   {loose, "team.apply"},
-		"directory is a link":     {dirLink, "team.apply"},
-		"directory is not a dir":  {notDir, "team.apply"},
-		"directory parent absent": {filepath.Join(t.TempDir(), "a", "b"), "team.apply"},
-		"empty verb":              {lockDir(t), ""},
-		"verb with a space":       {lockDir(t), "team apply"},
-		"verb in capitals":        {lockDir(t), "Apply"},
-		"verb too long":           {lockDir(t), strings.Repeat("a", 33)},
+	for name, c := range map[string]struct{ dir, verb, why string }{
+		"lock file is a link":     {linked, "team.apply", "symbolic links"},
+		"lock file is a fifo":     {fifo, "team.apply", "not a regular file"},
+		"directory is not 0700":   {loose, "team.apply", "mode 0700, not 0600"},
+		"directory is a link":     {dirLink, "team.apply", "must be a directory, not a link"},
+		"directory is not a dir":  {notDir, "team.apply", "not a directory"},
+		"directory parent absent": {filepath.Join(t.TempDir(), "a", "b"), "team.apply", "cannot make the lock directory"},
+		"empty verb":              {lockDir(t), "", "verb"},
+		"verb with a space":       {lockDir(t), "team apply", "verb"},
+		"verb in capitals":        {lockDir(t), "Apply", "verb"},
+		"verb too long":           {lockDir(t), strings.Repeat("a", 33), "verb"},
 	} {
 		l, err := Take(t.Context(), c.dir, team, c.verb, 0, newClock())
-		if err == nil {
+		switch {
+		case err == nil:
 			releaseOrFail(t, l)
 			t.Errorf("%s: taken", name)
-		} else if errors.Is(err, ErrBusy) {
+		case errors.Is(err, ErrBusy):
 			t.Errorf("%s: %v is not busy", name, err)
+		case !strings.Contains(err.Error(), c.why):
+			t.Errorf("%s: %v, want it to say %q", name, err, c.why)
 		}
+	}
+}
+
+// TL1: the owner check reads the real euid: a lock directory chowned away from root is refused.
+func TestTakeRefusesAChownedDirectory(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("chown needs root; TestTakeRefusesADirectoryOfAnotherOwner covers the check")
+	}
+	dir := lockDir(t)
+	if err := os.Chown(dir, 65534, 65534); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", 0, newClock()); err == nil || !strings.Contains(err.Error(), "owned by uid 65534, not by uid 0") {
+		t.Errorf("got %v, want the owner refused", err)
+	}
+}
+
+// TL1: a context that has ended takes no lock, even a free one.
+func TestTakeRefusesAnEndedContextOnAFreeLock(t *testing.T) {
+	dir := lockDir(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if l, err := Take(ctx, dir, mustTeam(t, "ops"), "team.apply", 0, newClock()); !errors.Is(err, context.Canceled) {
+		if err == nil {
+			releaseOrFail(t, l)
+		}
+		t.Fatalf("got %v, want context.Canceled", err)
+	}
+	l, err := Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", 0, newClock())
+	if err != nil {
+		t.Fatalf("the lock was left held: %v", err)
+	}
+	releaseOrFail(t, l)
+}
+
+// TL1: the busy error is the *BusyError itself, not wrapped, so a plain assertion sees it.
+func TestTakeBusyIsTheBusyErrorItself(t *testing.T) {
+	dir := lockDir(t)
+	first, err := Take(t.Context(), dir, mustTeam(t, "ops"), "backup", 0, newClock())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseOrFail(t, first)
+	_, err = Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", 0, newClock())
+	if got := fmt.Sprintf("%T", err); got != "*teamlock.BusyError" {
+		t.Errorf("busy error is a %s", got)
+	}
+}
+
+// TL1: a stale line longer than the new holder's (a holder that died without Release) is
+// replaced whole.
+func TestTakeReplacesAStaleLongerLine(t *testing.T) {
+	dir := lockDir(t)
+	path := filepath.Join(dir, "team-ops.lock")
+	if err := os.WriteFile(path, []byte(strings.Repeat("s", 300)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	l, err := Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", 0, newClock())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseOrFail(t, l)
+	if got, want := string(readFile(t, path)), holderLine("team.apply", t0.UnixMilli())+"\n"; got != want {
+		t.Errorf("holder line %q, want %q", got, want)
 	}
 }
 

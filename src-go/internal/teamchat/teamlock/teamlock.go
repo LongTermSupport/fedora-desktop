@@ -101,7 +101,10 @@ func take(ctx context.Context, dir string, team paths.TeamID, verb string, wait 
 		return nil, err
 	}
 	if err := flockWait(ctx, f, path, wait, clock); err != nil {
-		return nil, errors.Join(err, f.Close())
+		if closeErr := f.Close(); closeErr != nil {
+			return nil, errors.Join(err, closeErr)
+		}
+		return nil, err
 	}
 	line := verb + " " + team.String() + " pid=" + strconv.Itoa(os.Getpid()) + " since=" + strconv.FormatInt(clock.Now().UnixMilli(), 10) + "\n"
 	if err := writeHolder(f, line); err != nil {
@@ -167,6 +170,9 @@ func lockDirectory(dir string, euid int) (int, error) {
 func flockWait(ctx context.Context, f *os.File, path string, wait time.Duration, clock Clock) error {
 	start := clock.Now()
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB)
 		if err == nil {
 			return nil
@@ -194,12 +200,13 @@ func holderOf(f *os.File) string {
 	return line
 }
 
+// writeHolder writes the line over the old one and then cuts what is left, so a waiter never
+// reads an empty file between the two.
 func writeHolder(f *os.File, line string) error {
-	if err := f.Truncate(0); err != nil {
+	if _, err := f.WriteAt([]byte(line), 0); err != nil {
 		return err
 	}
-	_, err := f.WriteAt([]byte(line), 0)
-	return err
+	return f.Truncate(int64(len(line)))
 }
 
 // Release clears the holder line and lets the lock go; the file stays.
