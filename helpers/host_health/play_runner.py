@@ -1,8 +1,9 @@
 """The panel's play runner: which plays it lists, and the gate a requested play passes
 (Plan 00109, Task 4.3).
 
-**The list** is the plays this host's ledger has seen, each with the state
-`check_freshness` judged for it — fresh, stale, failed or unresolved. It is derived from that
+**The list** is the plays under `playbooks/imports/` this host's ledger has seen, the
+ones `changed_plays.judge` judges, each with the state `check_freshness` reports for it —
+fresh, stale, failed or unresolved. It is derived from that
 check's own verdicts, never recomputed: a freshness rule reimplemented here, or in the
 panel's JavaScript, would be a second check that drifts from the one under test
 (DESIGN-panel.md §8). A GONE play is left out, because there is nothing to run and the
@@ -50,8 +51,9 @@ class PlayRefused(ValueError):
 
 
 def runnable(verdicts: Iterable[freshness.Verdict]) -> list[dict[str, str]]:
-    """The runner's rows: `{"play", "state"}` per ledgered play under `playbooks/`,
-    GONE ones left out, sorted by path so two documents diff cleanly."""
+    """The runner's rows: `{"play", "state"}` per judged play under `playbooks/` (which the
+    judgement limits to `playbooks/imports/`), GONE ones left out, sorted by path so two
+    documents diff cleanly."""
     return sorted(
         (
             {"play": verdict.play, "state": verdict.state}

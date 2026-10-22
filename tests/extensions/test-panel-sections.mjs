@@ -608,7 +608,8 @@ test('a clean host gets no copy row', () => {
 /**
  * The play re-runner (Plan 00109, Task 4.3; Plan 00141). ONE row, "Re-run a play…",
  * opens `run.bash --rerun` in a visible terminal; the label carries the count of plays the
- * document marks as not fresh (carried from `check_freshness`, never recomputed here). The
+ * document marks as ones `run.bash --changed` runs (judged by `changed_plays.judge` and
+ * carried in the document, never recomputed here; an unresolved play is not counted). The
  * panel says what it launched; whether a play ran is the ledger's answer at the next
  * refresh.
  */

@@ -12,7 +12,8 @@ rounds 1 and 2.
 - `bash scripts/test-meta-deploy.bash`: passed 26, including the 5 new `changed-plays` cases.
 - `./scripts/qa-changed.bash --base F44`: every check green (toolchain, bash-syntax,
   shellcheck, semgrep, ruff, unit-tests, docs, go, bash-limits, plan-script-logging, node,
-  eslint), and every suite that had reported by the time of writing passed. Its file list
+  eslint) and every suite passed; exit 0. The one "not covered" file
+  (`tests/helpers/pingbus/test_identifier_grammar.py`) is F44's, not this branch's. Its file list
   includes F44's 9 newer commits (the 00211 merge), because `--base` diffs F44 against the
   tree, not against the merge base.
 - `git merge-tree --write-tree F44 HEAD`: merges cleanly. In the merged list the 00214 entry is

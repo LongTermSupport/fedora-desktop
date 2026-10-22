@@ -174,5 +174,6 @@ playbooks/imports/play-git-configure-and-tools.yml
 # and the status document and handoff file rewritten) and checks that fedora-desktop-health and
 # the login shell's second reminder of the day print this checkout's run.bash --changed. With
 # no play to run it says NOT JUDGED (exit 2). Afterwards, paste the printed command to run
-# every changed play, or add a changed-plays line here.
+# every changed play, or add a changed-plays line here; that also runs
+# play-host-health-login-report.yml, whose fedora-desktop-health --help text this plan changed.
 00214-update-all-changed-plays
