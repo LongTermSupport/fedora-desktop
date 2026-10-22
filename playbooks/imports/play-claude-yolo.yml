@@ -494,6 +494,8 @@
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/session-lifecycle.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/agent-bus-membership.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/agent-bus-seats.bash"
+        - "{{ root_dir }}/files/var/local/claude-yolo/lib/image-build-lock.bash"
+        - "{{ root_dir }}/files/var/local/claude-yolo/lib/image-build.bash"
         # ccy's one-key agent, run by path from ssh-handling.bash (stdlib Python, TDD'd in helpers/).
         - "{{ root_dir }}/helpers/ssh_agent_filter/ssh_agent_filter.py"
       # `launchers` is on the lib and on every script that sources it (ccy, cc,
@@ -1256,12 +1258,26 @@
       register: image_id_before
       changed_when: false
 
+    # Under the image's build lock, the one every ccy launch takes (lib/image-build-lock.bash,
+    # Plan 00216): a launch started while the play builds waits for this build and uses it, and
+    # the play waits for a launch's build. The check is false: the play always builds.
     - name: Build Claude YOLO Container Image with Hash
-      ansible.builtin.command: >
-        {{ container_engine }} build
-        --build-arg DOCKERFILE_HASH={{ dockerfile_hash.stdout }}
-        -t claude-yolo:latest
-        /opt/claude-yolo
+      ansible.builtin.command:
+        argv:
+          - bash
+          - -c
+          - source "$0" && ccy_image_build_locked "$@"
+          - /var/local/claude-yolo/lib/image-build-lock.bash
+          - claude-yolo:latest
+          - "false"
+          - --
+          - "{{ container_engine }}"
+          - build
+          - --build-arg
+          - DOCKERFILE_HASH={{ dockerfile_hash.stdout }}
+          - -t
+          - claude-yolo:latest
+          - /opt/claude-yolo
       register: container_build
       changed_when: false
 

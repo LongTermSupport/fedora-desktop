@@ -310,6 +310,8 @@ chmod +x "$work/bin/ccy-teams"
 # token file, no keys, no network, and a restart history inside the case's own cache.
 cat >"$work/update-stub.bash" <<STUB
 update_claude_inplace() { return 0; }
+# The image build lock runs the update it is given (scripts/test-ccy-image-build-lock.bash tests the lock).
+ccy_image_build_locked() { while [ "\$1" != -- ]; do shift; done; shift; "\$@"; }
 cleanup() { :; }
 SSH_AGENT_SENTINEL="$(awk -F'"' '/^readonly SSH_AGENT_SENTINEL=/ {print $2}' "$LIB_DIR/ssh-handling.bash")"
 SELECTED_TOKEN="$work/token"

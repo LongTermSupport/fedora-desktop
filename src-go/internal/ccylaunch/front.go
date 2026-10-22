@@ -81,6 +81,15 @@
 //     bash's error and exit 1, the pool listed after "not found". It hands over for a name outside
 //     the token grammar, a file the bash's glob of the name matches that is not one of the name's
 //     dated files, or a chosen token unreadable or holding a NUL.
+//   - F14. `--build-lock` alone (buildlock.go, Plan 00216) reports the image builds in progress
+//     from the locks lib/image-build-lock.bash takes, and offers to stop each live one. It is
+//     the front's own flag: the bash has none, so only CCY_LEGACY hands it over (and the bash
+//     refuses it), and another argument is exit 64. A record in a lock nothing holds is stale,
+//     said so and ignored; a held lock is offered only when its record's pid is a running
+//     process that started before the build began (else stale, or not written yet: nothing
+//     to stop). On yes ([y/N] on stderr, through ui.Lines) the holder and every process under
+//     it get SIGTERM, holder first; still held after 10 s, SIGKILL; still held after 5 s more,
+//     exit 1 naming it. No live build, or a no, is exit 0; the input ending, exit 130.
 //
 // Intended divergences from the bash, where it only replicated incidental behaviour that the
 // goldens (C locale, UTC, a pinned clock) do not exercise; each goes when the bash retires:
@@ -134,6 +143,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"syscall"
+	"time"
 	"unicode/utf8"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/engine"
@@ -197,6 +208,14 @@ type Front struct {
 	// CreateTemp makes a temporary file (curl's dumped headers and body, D6); os.CreateTemp
 	// when nil.
 	CreateTemp func(dir, pattern string) (*os.File, error)
+	// Stdin is where --build-lock reads its answer (F14); no input when nil.
+	Stdin io.Reader
+	// ProcRoot is where processes are looked up (F14); /proc when "".
+	ProcRoot string
+	// Signal sends a signal to a process (F14); syscall.Kill when nil.
+	Signal func(pid int, sig syscall.Signal) error
+	// Pause waits between looks at a lock being let go (F14); time.Sleep when nil.
+	Pause func(time.Duration)
 }
 
 // launcher is what the front read of the bash launcher beside it.
@@ -208,6 +227,10 @@ type launcher struct {
 // Run answers the run or hands it to the bash launcher.
 func (f Front) Run(ctx context.Context) term.ExitCode {
 	bash := filepath.Join(filepath.Dir(f.Self), BashName)
+	if len(f.Args) > 0 && f.Args[0] == buildLockFlag && !f.legacy() {
+		// F14: the bash has no answer of its own, so nothing about it decides this one.
+		return f.buildLock(ctx)
+	}
 	kind, l, flag, why := f.plan(bash)
 	if why != "" {
 		return f.handOver(bash)
@@ -318,7 +341,7 @@ func (f Front) answer(ctx context.Context, flag flagKind) (term.ExitCode, string
 
 // plan is the engine and the launcher the front answers with, or why it hands over instead.
 func (f Front) plan(bash string) (engine.Kind, launcher, flagKind, string) {
-	if v := f.getenv(LegacyEnv); v != "" && v != "0" {
+	if f.legacy() {
 		return "", launcher{}, flagNone, LegacyEnv
 	}
 	flag := flagOf(f.Args)
@@ -463,6 +486,12 @@ func (f Front) fail(msg string) term.ExitCode {
 	var p term.Printer
 	p.Print(f.Stderr, msg+"\n")
 	return term.ExitFailure
+}
+
+// legacy is F3: CCY_LEGACY set to anything but empty or 0.
+func (f Front) legacy() bool {
+	v := f.getenv(LegacyEnv)
+	return v != "" && v != "0"
 }
 
 // getenv is the first value of name in the environment, as getenv(3) reads it.

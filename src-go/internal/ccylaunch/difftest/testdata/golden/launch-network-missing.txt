@@ -24,7 +24,7 @@ podman info --format '{{.Host.Security.Rootless}}'
 podman ps -a --filter name=_yolo --filter status=exited --format '{{.Names}}'
 podman ps --filter name=_yolo --format '{{.Names}}'
 podman ps --filter name=difftest-project_yolo --format '{{.Names}}'
-podman image inspect claude-yolo:latest
+podman image inspect claude-yolo:latest --format '{{.Id}}'
 podman image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-version"}}'
 podman image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-dockerfile-hash"}}'
 podman run --rm --entrypoint claude claude-yolo:latest --version

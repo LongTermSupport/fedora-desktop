@@ -15,7 +15,7 @@ Required:      v{image_version}
 Rebuilding container with latest changes...
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-✓ Container image rebuilt with version {image_version}
+✓ Container image built
 Checking for Claude Code updates (daily, image: claude-yolo:latest)...
 ✓ Claude Code is up to date (2.0.0)
 ✓ Token: Long-lived OAuth (CLAUDE_CODE_OAUTH_TOKEN)
@@ -76,7 +76,10 @@ podman info --format '{{.Host.Security.Rootless}}'
 podman ps -a --filter name=_yolo --filter status=exited --format '{{.Names}}'
 podman ps --filter name=_yolo --format '{{.Names}}'
 podman ps --filter name=difftest-project_yolo --format '{{.Names}}'
-podman image inspect claude-yolo:latest
+podman image inspect claude-yolo:latest --format '{{.Id}}'
+podman image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-version"}}'
+podman image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-dockerfile-hash"}}'
+podman image inspect claude-yolo:latest --format '{{.Id}}'
 podman image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-version"}}'
 podman image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-dockerfile-hash"}}'
 podman build --build-arg 'DOCKERFILE_HASH={image_hash}' --target base -t claude-yolo:base '{sandbox}/opt/claude-yolo'
@@ -170,3 +173,7 @@ file project/.claude/ccy/ccy.env.local.dist 0600
      | # A team is chosen by each launch, never here: the container refuses to start when
      | # this file sets a bus variable.
      | #export HOOKS_DAEMON_HOSTNAME=<role-name>
+dir  run/ccy 0700
+dir  run/ccy/image-builds 0700
+file run/ccy/image-builds/claude-yolo_latest.lock 0600
+     | 

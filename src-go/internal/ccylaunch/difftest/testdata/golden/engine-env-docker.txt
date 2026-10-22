@@ -72,7 +72,7 @@ docker info --format '{{.SecurityOptions}}'
 docker ps -a --filter name=_yolo --filter status=exited --format '{{.Names}}'
 docker ps --filter name=_yolo --format '{{.Names}}'
 docker ps --filter name=difftest-project_yolo --format '{{.Names}}'
-docker image inspect claude-yolo:latest
+docker image inspect claude-yolo:latest --format '{{.Id}}'
 docker image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-version"}}'
 docker image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-dockerfile-hash"}}'
 docker run --rm --entrypoint claude claude-yolo:latest --version

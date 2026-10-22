@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00216-ccy-image-build-lock](00216-ccy-image-build-lock/) - In Progress. Only one ccy image build at a time: a launch waits for another's build of the same image and uses it (a kernel flock per image, no timeout, progress on stderr), and `ccy --build-lock` shows and stops a hung build
+
 - [00213-agent-bus-performance-go-carve-out](00213-agent-bus-performance-go-carve-out/) - In Progress. pingbus starts a Python interpreter on every status-line refresh and hook event, costing several CPU threads across a team; cut the refresh rate, skip the host pyenv shim, then port `pingbus status-line` to Go with a parity test (the hooks port moved to Plan 00209)
 
 - [00212-stt-pauses-media-while-recording](00212-stt-pauses-media-while-recording/) - In Progress. A speech-to-text recording lowers the playing media to a third of its own volume and restores it exactly when the microphone closes (a player whose sound is not found is paused instead); a panel menu switch, on by default
