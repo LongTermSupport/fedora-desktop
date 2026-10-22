@@ -14,7 +14,8 @@ import (
 )
 
 var helpers = reexec.Helpers{
-	"main": runMain,
+	"main":   runMain,
+	"keeper": runKeeperChild,
 	"wait": func(h *reexec.Helper) int {
 		if err := h.Ready(); err != nil {
 			return 1
