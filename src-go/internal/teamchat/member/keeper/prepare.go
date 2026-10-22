@@ -205,7 +205,11 @@ func (k *keeper) currentKit() (paths.Kit, string, error) {
 // kitVersion is the digest the kit's binary prints: one line, a digest.
 func (k *keeper) kitVersion(ctx context.Context) (string, error) {
 	bin := k.kit.Binary()
-	res, err := k.cfg.Runner.Run(ctx, execx.Cmd{Name: bin, Args: []string{"--version"}})
+	bound, cancel := context.WithCancel(ctx)
+	stop := k.cfg.Clock.AfterFunc(versionWait, cancel)
+	res, err := k.cfg.Runner.Run(bound, execx.Cmd{Name: bin, Args: []string{"--version"}})
+	stop()
+	cancel()
 	if err != nil || res.ExitCode != 0 {
 		k.logf("%s --version: exit %d, %v", bin, res.ExitCode, err)
 		return "", fault(exits.CodeRuntime, msgKitVersion, exits.Name(k.kit.String()))

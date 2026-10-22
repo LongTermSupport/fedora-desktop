@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -109,6 +110,14 @@ func TestOtherKitIsReexecuted(t *testing.T) {
 }
 
 // A kit named by its digest must print that digest; a mismatch under --kit is 78, never a loop.
+// hangingRunner is a kit whose --version never answers: Run returns only when ctx ends.
+type hangingRunner struct{}
+
+func (hangingRunner) Run(ctx context.Context, _ execx.Cmd) (execx.Result, error) {
+	<-ctx.Done()
+	return execx.Result{ExitCode: -1}, ctx.Err()
+}
+
 func TestKitVersionChecks(t *testing.T) {
 	t.Run("named kit prints another", func(t *testing.T) {
 		w := newWorld(t, plainLaunch...)
@@ -138,6 +147,18 @@ func TestKitVersionChecks(t *testing.T) {
 		w := newWorld(t, plainLaunch...)
 		w.runner.On([]string{w.kit.Binary(), "--version"}, execx.Result{Stdout: []byte(digest + "\n"), ExitCode: 1})
 		w.refused(exits.CodeRuntime)
+	})
+	t.Run("version hangs", func(t *testing.T) {
+		w := newWorld(t, plainLaunch...)
+		cfg := w.config()
+		cfg.Runner = hangingRunner{}
+		res := w.startWith(cfg)
+		mustDo(t, w.clk.BlockUntil(t.Context(), 1))
+		w.clk.Advance(versionWait)
+		exitOf(t, res, exits.ExitConfig)
+		if !strings.Contains(w.stderr.String(), `"code":"`+exits.CodeRuntime+`"`) {
+			t.Fatalf("stderr %q", w.stderr.String())
+		}
 	})
 	t.Run("version cannot run", func(t *testing.T) {
 		w := newWorld(t, plainLaunch...)

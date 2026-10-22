@@ -109,6 +109,8 @@ const (
 	stableRun     = 10 * time.Minute
 	failedAfter   = 6
 	maxSettings   = 64 << 10
+	// versionWait bounds the kit's --version: a kit that does not answer is 78 runtime.
+	versionWait = 5 * time.Second
 )
 
 const (
