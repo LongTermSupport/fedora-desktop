@@ -717,7 +717,9 @@ which nothing trusts:
   is a direct request: room state, `/messages`, an event fetch or account data, none of which
   touches presence. A sync cannot be made presence-neutral on Tuwunel: HC-A1 found that
   `set_presence=offline` sets the member offline, and leaving it out marks the member online.
-  On a clean release the link sets presence `offline` (PUT /presence) before it ends;
+  On a clean release the link sets presence `offline` (PUT /presence, the client's `SetPresence`;
+  a sync's own value is `SyncRequest.SetPresence`, left empty for the default, SPEC-matrix M50)
+  before it ends;
   the keeper makes no network call (B14). A member that dies stops syncing, and the server's two
   timers mark it `unavailable` and then `offline` (C 3.2.4 sets both).
 - No `status_msg` is set and none is read.

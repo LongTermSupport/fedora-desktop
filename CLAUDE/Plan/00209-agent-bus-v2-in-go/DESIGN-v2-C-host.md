@@ -1002,7 +1002,10 @@ posting as agents have (A 7.3), and without a way to remove it the leak spreads 
 and to a migration's export. `teamchat-admin redact --team T --event ID --reason secret` (root,
 password sudo from ccy-teams, under the team lock) has the child redact that one event as the
 admin, the only account A lets redact; the reason is the fixed word `secret`, so the verb is not a
-general moderation tool. Members already drop an event that carries `redacted_because` (A 7.6
+general moderation tool. The client's `Redact` (SPEC-matrix M49) makes one try: whether Tuwunel
+stores a replayed redact once is not recorded, so a lost answer is a transient failure and the
+child reads whether the event is redacted before it tries again. Members already drop an event
+that carries `redacted_because` (A 7.6
 rule 2), so nothing on the member side changes. The answer says that backups taken before the
 redaction still hold the text until Tuwunel prunes them (seven, 3.12.1), and so does any
 migration export already taken (D 5.6), and names them. Area A's
@@ -1215,7 +1218,11 @@ allocation lock):
    limit, which 3.2.4 doubles for them. A 429 is retried as M6 says. Past its retries, a refused
    first login fails the take with the device's earlier tokens untouched (the next take's logout
    ends them), and a refused last login is a failure between the logout and the last login
-   (above). A homeserver that is still starting is waited for as 3.7.4 says.
+   (above). A homeserver that is still starting is waited for as 3.7.4 says. The client's calls
+   are `LoginDevice` (a login as the fixed device id) and `Logout` (SPEC-matrix M45, M46). It
+   also carries `DeleteDevice` (M52): `DELETE /devices/{id}` with user-interactive auth by
+   password, which ends every token of the device and is the fallback to the logout; a wrong
+   password is `ErrForbidden`, as at the login, and nothing is retried. The take does not use it.
 4. Write `held/token`, then `held/seat.json` (the pool's `seat.json` with `claim` and
    `released_ms`, 3.7.2), `O_EXCL|O_NOFOLLOW`, 0600, fsync each and the directory. `held/` is now
    a complete bundle that only the pool can reach, used by the release (below).
