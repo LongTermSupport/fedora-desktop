@@ -107,7 +107,8 @@ func parseID(s, file, what string) (int, error) {
 }
 
 // Passwd finds u in a guest passwd file: uid and gid nonzero, home absolute and clean in the
-// unit's grammar, the name exactly u and on one line only. hostUIDs is every uid the host's own
+// unit's grammar, the name exactly u and on one line only, and its uid no other account's
+// (which would own the agent's files as well). hostUIDs is every uid the host's own
 // passwd names (n3-D29); a uid among them is refused naming K15. A nil set checks none (the
 // L3 probe, after the apply enforced it).
 func Passwd(data []byte, u paths.GuestUser, hostUIDs map[int]bool) (Account, error) {
@@ -116,6 +117,7 @@ func Passwd(data []byte, u paths.GuestUser, hostUIDs map[int]bool) (Account, err
 		return Account{}, err
 	}
 	var found *Account
+	uids := map[int]int{}
 	for _, f := range entries {
 		uid, err := parseID(f[2], guestUsersFile, "uid")
 		if err != nil {
@@ -125,6 +127,7 @@ func Passwd(data []byte, u paths.GuestUser, hostUIDs map[int]bool) (Account, err
 		if err != nil {
 			return Account{}, err
 		}
+		uids[uid]++
 		if f[0] != u.String() {
 			continue
 		}
@@ -138,6 +141,9 @@ func Passwd(data []byte, u paths.GuestUser, hostUIDs map[int]bool) (Account, err
 	}
 	if err := checkAccount(*found, hostUIDs); err != nil {
 		return Account{}, err
+	}
+	if uids[found.UID] > 1 {
+		return Account{}, refuse(guestUsersFile, "another account shares the user's uid")
 	}
 	return *found, nil
 }
@@ -450,9 +456,25 @@ func (g *gitScan) section(line string) error {
 		return refuse(gitFile, "it includes another file")
 	}
 	g.inSection = true
-	g.inOrigin = strings.EqualFold(m[1], "remote") && m[2] == "origin"
+	g.inOrigin = strings.EqualFold(m[1], "remote") && unescapeSubsection(m[2]) == "origin"
 	g.sawOrigin = g.sawOrigin || g.inOrigin
 	return nil
+}
+
+// unescapeSubsection is a subsection as git reads it: a backslash drops, and the byte after it
+// is taken as it is, so `orig\in` is origin.
+func unescapeSubsection(sub string) string {
+	var b strings.Builder
+	escaped := false
+	for i := range len(sub) {
+		if !escaped && sub[i] == '\\' {
+			escaped = true
+			continue
+		}
+		escaped = false
+		b.WriteByte(sub[i])
+	}
+	return b.String()
 }
 
 func (g *gitScan) key(line string) error {

@@ -77,6 +77,7 @@ func TestPasswdRefusals(t *testing.T) {
 		"home specifier":   {line("agent:x:1001:1002::/srv/%h:/bin/sh"), nil, "home"},
 		"home dollar":      {line("agent:x:1001:1002::/srv/$x:/bin/sh"), nil, "home"},
 		"twice":            {line("agent:x:1001:1002::/srv/agent:/bin/sh\nagent:x:1004:1004::/srv/b:/bin/sh"), nil, "twice"},
+		"uid shared":       {line("other:x:1001:1003::/srv/o:/bin/sh\nagent:x:1001:1002::/srv/agent:/bin/sh"), nil, "shares"},
 		"six fields":       {line("agent:x:1001:1002::/srv/agent"), nil, "line"},
 		"eight fields":     {line("agent:x:1001:1002::/srv/agent:/bin/sh:x"), nil, "line"},
 		"other line bad":   {[]byte("broken\n" + guestAccounts), nil, "line"},
@@ -248,27 +249,28 @@ func TestPrefixRefusesTheEnvFile(t *testing.T) {
 
 func TestPrefixRefusesTheGitConfig(t *testing.T) {
 	for name, cfg := range map[string]string{
-		"insteadOf":              "[url \"https://evil.example/\"]\n\tinsteadOf = https://github.com/\n" + string(gitConfig("https://github.com/o/r.git")),
-		"pushInsteadOf any case": string(gitConfig("https://github.com/o/r.git")) + "[url \"x\"]\n\tPUSHINSTEADOF = y\n",
-		"insteadOf in origin":    "[remote \"origin\"]\n\turl = https://github.com/o/r.git\n\tinsteadof = z\n",
-		"include":                "[include]\n\tpath = other\n" + string(gitConfig("https://github.com/o/r.git")),
-		"includeIf":              "[includeIf \"gitdir:/x/\"]\n\tpath = other\n" + string(gitConfig("https://github.com/o/r.git")),
-		"two urls":               "[remote \"origin\"]\n\turl = https://a.example/o/r.git\n\turl = https://b.example/o/s.git\n",
-		"two sections two urls":  "[remote \"origin\"]\n\turl = https://a.example/o/r.git\n[remote \"origin\"]\n\turl = https://b.example/o/s.git\n",
-		"origin with no url":     "[remote \"origin\"]\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n",
-		"quoted url":             "[remote \"origin\"]\n\turl = \"https://a.example/o/r.git\"\n",
-		"continuation":           "[core]\n\teditor = vi \\\n[remote \"origin\"]\n\turl = https://a.example/o/r.git\n",
-		"key before section":     "url = https://a.example/o/r.git\n",
-		"key on header":          "[remote \"origin\"] url = https://a.example/o/r.git\n",
-		"bad key":                "[core]\n\t-x = 1\n",
-		"bad header":             "[remote \"origin\"\n",
-		"dotted header":          "[remote.origin]\n\turl = https://b.example/o/s.git\n" + string(gitConfig("https://github.com/o/r.git")),
-		"url with no component":  "[remote \"origin\"]\n\turl = host:\n",
-		"url normalises to none": "[remote \"origin\"]\n\turl = https://a.example/o/---.git\n",
-		"empty url":              "[remote \"origin\"]\n\turl =\n",
-		"not utf-8":              "[core]\n\tx = \xff\n",
-		"control":                "[core]\n\tx = \x1b[2J\n",
-		"over the cap":           strings.Repeat("#", MaxCheckout+1),
+		"insteadOf":                "[url \"https://evil.example/\"]\n\tinsteadOf = https://github.com/\n" + string(gitConfig("https://github.com/o/r.git")),
+		"pushInsteadOf any case":   string(gitConfig("https://github.com/o/r.git")) + "[url \"x\"]\n\tPUSHINSTEADOF = y\n",
+		"insteadOf in origin":      "[remote \"origin\"]\n\turl = https://github.com/o/r.git\n\tinsteadof = z\n",
+		"include":                  "[include]\n\tpath = other\n" + string(gitConfig("https://github.com/o/r.git")),
+		"includeIf":                "[includeIf \"gitdir:/x/\"]\n\tpath = other\n" + string(gitConfig("https://github.com/o/r.git")),
+		"two urls":                 "[remote \"origin\"]\n\turl = https://a.example/o/r.git\n\turl = https://b.example/o/s.git\n",
+		"two sections two urls":    "[remote \"origin\"]\n\turl = https://a.example/o/r.git\n[remote \"origin\"]\n\turl = https://b.example/o/s.git\n",
+		"origin with no url":       "[remote \"origin\"]\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n",
+		"quoted url":               "[remote \"origin\"]\n\turl = \"https://a.example/o/r.git\"\n",
+		"continuation":             "[core]\n\teditor = vi \\\n[remote \"origin\"]\n\turl = https://a.example/o/r.git\n",
+		"key before section":       "url = https://a.example/o/r.git\n",
+		"key on header":            "[remote \"origin\"] url = https://a.example/o/r.git\n",
+		"bad key":                  "[core]\n\t-x = 1\n",
+		"bad header":               "[remote \"origin\"\n",
+		"dotted header":            "[remote.origin]\n\turl = https://b.example/o/s.git\n" + string(gitConfig("https://github.com/o/r.git")),
+		"url with no component":    "[remote \"origin\"]\n\turl = host:\n",
+		"url normalises to none":   "[remote \"origin\"]\n\turl = https://a.example/o/---.git\n",
+		"empty url":                "[remote \"origin\"]\n\turl =\n",
+		"an escaped second origin": "[remote \"origin\"]\n\turl = https://a.example/o/r.git\n[remote \"orig\\in\"]\n\turl = https://b.example/o/s.git\n",
+		"not utf-8":                "[core]\n\tx = \xff\n",
+		"control":                  "[core]\n\tx = \x1b[2J\n",
+		"over the cap":             strings.Repeat("#", MaxCheckout+1),
 	} {
 		_, err := Prefix(member(t, ""), []byte(cfg), nil)
 		refused(t, name, err, ".git/config")
@@ -295,6 +297,20 @@ func TestPrefixOriginIsCaseSensitive(t *testing.T) {
 	p, err = Prefix(member(t, ""), []byte("[Remote \"origin\"]\n\tURL = https://a.example/o/r.git\n"), nil)
 	if err != nil || p.Repo != "r" {
 		t.Fatalf("section and key case: prefix %v, %v", p, err)
+	}
+}
+
+// B6: git reads a subsection's backslash as an escape of the next byte, so orig\in is origin.
+func TestPrefixOriginSubsectionEscapes(t *testing.T) {
+	for _, header := range []string{`[remote "orig\in"]`, `[remote "\o\r\i\g\i\n"]`} {
+		p, err := Prefix(member(t, ""), []byte(header+"\n\turl = https://a.example/o/r.git\n"), nil)
+		if err != nil || p.Repo != "r" {
+			t.Errorf("%s: prefix %v, %v", header, p, err)
+		}
+	}
+	p, err := Prefix(member(t, ""), []byte(`[remote "origin\"x"]`+"\n\turl = https://a.example/o/r.git\n"), nil)
+	if err != nil || p.Repo != "my-thing" {
+		t.Errorf("an escaped quote: prefix %v, %v", p, err)
 	}
 }
 
