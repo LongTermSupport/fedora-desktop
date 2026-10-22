@@ -251,6 +251,8 @@ func (p *probes) ReadCheckout(context.Context, string, string, string, string, s
 	return "{}", nil
 }
 
+func (p *probes) Containers(context.Context) ([]string, []string, error) { return nil, nil, nil }
+
 // declaredRig is roleRig with the LXC member declared by an entry, which the play keeps.
 func declaredRig(t *testing.T, oneIs, lxcIs string) (rig, *[]string) {
 	t.Helper()

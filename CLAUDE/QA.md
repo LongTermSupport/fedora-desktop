@@ -972,6 +972,49 @@ A replacement that puts a literal backslash before the group (three backslashes 
 backslash as `[\\]` or `\x5c`, so it does not read as a backreference. The rule does not read
 `.j2` template files. There Jinja unescapes, so `'\\1'` is the correct spelling.
 
+### offline-member-blocks
+
+**What it is.** Code that treats a declared team member whose container or session is not
+running as a failure or a precondition. Three detectors, run by
+`tests/helpers/agent_bus_lxc/test_offline_member_rule.py` (in `qa-helper-tests.bash`), which
+proves each against its fixture first:
+
+- **A.** Bash that reads the declared LXC members (it names `agent_bus_lxc_members` or
+  `MEMBERS_JSON`), in an active plan folder, `files/` or `scripts/`, that reads a container's
+  state itself (`lxc-info -s`, a `${LXC_INFO[@]}` call), or enters a container (`lxc-attach -n`,
+  a `${LXC_ATTACH[@]}` call) when neither the file nor another bash file of its plan folder
+  calls `plan_lxc_online` or `plan_lxc_online_named` (which calls it) on a code line. That
+  exemption exists because a plan's scripts are sourced together, so an entry in one file is
+  of a container another file listed; a comment or a document naming the helper does not count.
+- **B.** In team-member code (`helpers/agent_bus*`, `helpers/pingbus`, ccy-teams' packages,
+  `declare`, `agentbus`, the `agent-bus-*` sbin tools, and the bash of A), a message that makes
+  starting a member the way on: "start it, then ...", "restart that session, then ...",
+  "Start container ...", "... with the container running", "then run <tool> again to start it".
+- **C.** A Go flow under `src-go/internal/teams` that collects its LXC member rows into a list
+  and returns `term.ExitFailure` when that list is not empty.
+
+**Why it exists.** An offline member is normal lifecycle: members go offline and come back
+([AgentNotes.md](AgentNotes.md#an-offline-team-member-never-blocks-anything)). A deploy's
+pre-flight that refused a stopped LXC member stopped the whole deploy, and the same refusal
+was copied into the next plan's acceptance.
+
+**How to fix a finding.** In bash, list the containers with `plan_lxc_online_named <report>`
+(in `CLAUDE/Plan/_members.inc.bash`). It prints the running ones and names each other one,
+with its lxc-info state, as `<container> (container stopped): offline, not judged` on stderr
+and in the report, never failing on it; it fails on a container lxc-info cannot read or one
+that is ABORTING. Its base, `plan_lxc_online`, writes the offline names with the fixed prefix
+`offline: ` so a caller tells them from other stderr. In Go or Python, ask the
+container list or the member record. Then judge only the online members. A check that needs an
+online member and has none says NOT JUDGED and does not fail the run. Do not weaken a check of
+a running member: a running member with the wrong binary still fails.
+
+**The one known instance it does not flag.** ccy-teams' role change
+(`src-go/internal/teams/roles/roles.go`, `isMember`) still stops when a declared LXC entry's
+checkout cannot be read and the team has no LXC member record at all, because nothing else says
+whether the handle is that entry's. It advises `ccy-teams apply <team>`, never a start. It is
+exactly one path, held under the method's allowance for a single recorded known instance, and
+Plan 00211 Task 2.9 narrows it (an entry giving `host`, `seat` and `repo` is decided by them).
+
 ---
 
 ## Changing a Gate

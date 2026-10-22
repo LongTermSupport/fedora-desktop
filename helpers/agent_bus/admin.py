@@ -47,6 +47,7 @@ import string
 import sys
 import tarfile
 import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -888,17 +889,28 @@ def _sync_questions_members(api: _Api, main: str, changes: list[str]) -> None:
     _invite(api, room, purpose, [*team.humans(), *coordinators], changes)
 
 
-def check_rooms(team: Team, transport: Transport) -> list[str]:
+@dataclass(frozen=True)
+class RoomCheck:
+    """`check_rooms`' answer: what is wrong, and each coordinator that is offline (no live
+    `agent_bus.status` in the team room), which is normal lifecycle and never a problem."""
+
+    problems: list[str]
+    offline: list[str]
+
+
+def check_rooms(team: Team, transport: Transport, *, now_ms: int | None = None) -> RoomCheck:
     """SPEC §5.4, read-only: each side room that is missing or has drifted, each human not in
-    one, a worker in questions, and each coordinator not joined to both. Empty when sound."""
+    one, a worker in questions, and each coordinator not joined to both. A coordinator with no
+    live `agent_bus.status` (no session of it is on the bus) is offline: named, never a problem. Both
+    lists empty when sound. `now_ms` is the clock (Unix ms) a status is judged against."""
     api = _session(team, transport)
     main = _room_id(team)
     coordinators = _coordinators(team)
     repair = f"run the agent-bus play (agent-bus bootstrap {team.name})"
-    restart = ("restart that agent's session (`invite`: it is not running; `leave`: its pingbus is older "
-               "than 0.2.0), then run the agent-bus play")
     index = _current_index(api, main)
     problems: list[str] = []
+    offline: list[str] = []
+    seen: dict[str, Mapping[str, str]] = {}
     for purpose in protocol.PURPOSES:
         room = _side_room_id(team, purpose)
         if room is None:
@@ -925,11 +937,46 @@ def check_rooms(team: Team, transport: Transport) -> list[str]:
                     and protocol.is_agent_user_id(user_id, team.server_name) and user_id not in coordinators):
                 problems.append(f"team {team.name}: {_handle(user_id)} is not the coordinator but is in questions "
                                 f"({membership}): {repair}")
-        for user_id in coordinators:
-            if members.get(user_id) != "join":
-                problems.append(f"team {team.name}: {_handle(user_id)} has not joined {purpose} "
-                                f"({members.get(user_id) or '-'}): {restart}")
-    return problems
+        seen[purpose] = members
+    ctx = protocol.Context(server_name=team.server_name, humans=frozenset(team.humans()),
+                           roles=dict.fromkeys(coordinators, protocol.ROLE_COORDINATOR), repos={},
+                           path_prefixes=())
+    now = int(time.time() * 1000) if now_ms is None else now_ms
+    for user_id in coordinators:
+        until = protocol.read_status(api.state(main, protocol.EVENT_STATUS, user_id, event=True), ctx)
+        _judge_coordinator(team, user_id, seen, until is not None and until > now, problems, offline)
+    return RoomCheck(problems, offline)
+
+
+def _judge_coordinator(team: Team, user_id: str, seen: Mapping[str, Mapping[str, str]], live: bool,
+                       problems: list[str], offline: list[str]) -> None:
+    """One coordinator against the side rooms `check_rooms` could read. `live`: its session's
+    `agent_bus.status` in the team room says listening, not lapsed. Not live and not joined
+    (invited, or reports never joined) is offline, named once. Live and not joined is a running
+    member that is wrong; `leave`, a questions room it was never invited to, and every other
+    membership (`ban`, `knock`) are problems whether it runs or not."""
+    who = f"team {team.name}: {_handle(user_id)}"
+    play = f"run the agent-bus play (agent-bus bootstrap {team.name})"
+    for purpose, members in seen.items():
+        membership = members.get(user_id)
+        if membership == "join":
+            continue
+        if membership == "leave":
+            problems.append(f"{who} has left {purpose}: its pingbus is older than 0.2.0, which leaves a side room; "
+                            f"update it, then {play}")
+        elif membership is None and purpose == protocol.PURPOSE_QUESTIONS:
+            problems.append(f"{who} has not joined questions (-): {play}")
+        elif membership in ("invite", None) and live:
+            problems.append(f"{who} is running (listening in the team room) but has not joined {purpose} "
+                            f"({membership or '-'}): `pingbus status` in its session names why (a bundle that "
+                            f"takes no human text leaves the questions invite pending), then {play}")
+        elif membership in ("invite", None):
+            line = (f"{who} is offline (no live status in the team room, not joined to the side rooms); "
+                    "it joins them when its session next runs")
+            if line not in offline:
+                offline.append(line)
+        else:
+            problems.append(f"{who} is {membership} in {purpose}: {play}")
 
 
 # ---------------------------------------------------------------- members

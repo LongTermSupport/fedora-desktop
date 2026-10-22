@@ -1053,6 +1053,22 @@ or a `{ ...; } 2>&1 | cat` group, so both streams are a pipe. In Go (`lxcfreeze`
 renewal) the call goes through `sudo.Capture`, which hands the runner no writers, so both
 streams are captured pipes; never pass `os.Stderr` to it.
 
+### An offline team member never blocks anything
+
+The owner's rule for agent-bus teams: a declared team member whose container or session is
+not running is offline, and offline is normal lifecycle. Members go offline and come back.
+Every play, deploy, acceptance, triage script and tool treats such a member as offline, says
+so plainly (`<member> is offline (container stopped)`), and carries on with the rest. It is
+never a failure, a refusal or an exit code that stops a run, and never a reason to ask the
+owner to start something. A check that needs an online member and has none says NOT JUDGED
+and does not fail the run. A running member is still checked in full: a running member with
+the wrong binary still fails. This applies to designs too: a new team flow, the bus v2
+included, is built so that an offline member is shown as offline and blocks nothing.
+
+In plan bash, list the declared containers with `plan_lxc_online`
+(`CLAUDE/Plan/_members.inc.bash`). Its tests are in `scripts/test-planlib.bash`. The rule
+`offline-member-blocks` ([QA.md](QA.md#offline-member-blocks)) holds this.
+
 ---
 
 ## Already Documented Elsewhere

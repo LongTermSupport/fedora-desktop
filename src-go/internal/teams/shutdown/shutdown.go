@@ -2,8 +2,10 @@
 // <team>" (Plan 00201 SPEC-shutdown.md). Every live ccy or cc session that a session record
 // names for a seat of the team is sent /exit through its tmux pane, as if typed, and stopped
 // only when it has not ended in time; each seat it held is then read again until it is free.
-// Members this host cannot reach (an LXC container's agent, a session on another machine, a
-// held seat no record names) are listed as not shut down, never acted on.
+// Members this host cannot reach (an LXC container's agent in a running container, a session
+// on another machine, a held seat no record names) are listed as not shut down, never acted
+// on. An LXC member whose container is stopped, or that the last apply held back for it, is
+// offline: named, with nothing to shut down, and never a failure.
 //
 // It is local only: it acts through tmux, the session registry and `agent-bus seat list` as
 // the user. Nothing goes on the bus, and nothing from the bus can start it.
@@ -19,10 +21,13 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/lxcfreeze"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/lxcrecord"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
 )
@@ -66,6 +71,11 @@ type Shutdown struct {
 	Tmux     *tmuxccy.Tmux
 	Bus      *agentbus.Client
 	Registry func() (*registry.Store, error)
+	// Lxc says which containers run; Sudo is made ready for it; AppliedDir holds the play's LXC
+	// member record.
+	Lxc        Containers
+	Sudo       *sudo.Sudo
+	AppliedDir string
 
 	Term   *term.Term
 	Out    *term.Printer
@@ -85,6 +95,7 @@ type Shutdown struct {
 func New(h *host.Host, kit *flow.Kit, b *board.Collector) *Shutdown {
 	return &Shutdown{
 		Kit: kit, Collect: b.Collect, Tmux: h.Tmux, Bus: h.Bus, Registry: h.Registry,
+		Lxc: &lxcfreeze.Lister{Sudo: h.Sudo, LookPath: h.LookPath}, Sudo: h.Sudo, AppliedDir: h.AppliedDir,
 		Term: h.Term, Out: h.Out, Stderr: h.Stderr, Payload: h.Payload, Stdin: h.Stdin, IsTerminal: h.IsTerminal, Home: h.Home,
 		Now: time.Now, Sleep: time.Sleep, Waits: DefaultWaits,
 	}
@@ -94,11 +105,14 @@ const helpText = `Usage: ccy-teams shutdown <team> [--yes]
 
 Sends /exit to every ccy session of the team, as if typed, and waits for each to end;
 a session that has not ended within 60 s is stopped (its tmux session killed), and its
-seat is released. The homeserver keeps running. Without --yes it asks first.
+seat is released. The homeserver keeps running. Without --yes it asks first. An LXC
+member whose container is stopped is offline: it is named, with nothing to shut down.
 
 Exit codes:
   0   every session exited cleanly or stopped, or nothing was shut down on request
-  1   a session failed, or a member is not reachable from here (an LXC member)
+      (offline members included)
+  1   a session failed, or a member is not reachable from here (an LXC member whose
+      container runs)
   64  usage error
 `
 
@@ -147,7 +161,8 @@ func (s *Shutdown) forTeam(ctx context.Context, team string, yes bool) term.Exit
 		return term.ExitFailure
 	}
 	p := planFor(snap, team)
-	if len(p.jobs) == 0 && len(p.unreached) == 0 {
+	s.resolveLxc(ctx, team, &p)
+	if len(p.jobs) == 0 && len(p.unreached) == 0 && len(p.offline) == 0 {
 		s.tell("Team " + team + " has no running session.")
 		return term.ExitOK
 	}
@@ -193,10 +208,13 @@ func (r seatRef) String() string { return r.seat + "@" + r.team }
 // unreached is a member that cannot be shut down from here, and why.
 type unreached struct{ member, why string }
 
-// plan is what a shutdown acts on and what it cannot reach.
+// plan is what a shutdown acts on, what it cannot reach and what is offline; lxc is the LXC
+// member rows still to be resolved (resolveLxc).
 type plan struct {
 	jobs      []*job
 	unreached []unreached
+	offline   []unreached
+	lxc       []board.Row
 }
 
 // planFor is the team's live sessions, one job each, and its members out of reach (SD4, SD5).
@@ -210,8 +228,10 @@ func planFor(snap *board.Snapshot, team string) plan {
 		case row.Kind == board.KindTeam, row.Kind == board.KindHuman, row.State == wordParked:
 		case row.Kind == board.KindCcy && row.Dir != "-":
 			p.addSeat(snap, team, row)
+		case row.Kind == kindLxc && row.State == lxcrecord.StatusDeferred:
+			p.offline = append(p.offline, unreached{row.Member, whyLxcDeferred})
 		case row.Kind == kindLxc:
-			p.unreached = append(p.unreached, unreached{row.Handle, whyLxc})
+			p.lxc = append(p.lxc, row)
 		default:
 			p.unreached = append(p.unreached, unreached{row.Handle, whyElsewhere})
 		}
@@ -289,6 +309,12 @@ func (s *Shutdown) preview(team string, p plan) {
 			s.tell("  " + u.member + "   " + u.why)
 		}
 	}
+	if len(p.offline) > 0 {
+		s.tell("Offline, nothing to shut down:")
+		for _, u := range p.offline {
+			s.tell("  " + u.member + "   " + u.why)
+		}
+	}
 	if len(p.jobs) > 0 {
 		s.tell("Each session is sent /exit, as if typed; one that has not ended within " + seconds(s.Waits.Exit) +
 			" is stopped (its tmux session killed). The homeserver keeps running.")
@@ -324,9 +350,15 @@ func (s *Shutdown) report(team string, p plan) term.ExitCode {
 	for _, u := range p.unreached {
 		s.tell(u.member + ": not shut down: " + u.why)
 	}
+	for _, u := range p.offline {
+		s.tell(u.member + ": " + u.why + ", nothing to shut down")
+	}
 	count := fmt.Sprintf("%s: %d exited cleanly, %d stopped, %d failed", team, exitedN, stoppedN, failedN)
 	if n := len(p.unreached); n > 0 {
 		count += "; " + strconv.Itoa(n) + " member" + plural(n) + " not reachable from here"
+	}
+	if n := len(p.offline); n > 0 {
+		count += "; " + strconv.Itoa(n) + " member" + plural(n) + " offline"
 	}
 	s.tell(count + ".")
 	if failedN > 0 || len(p.unreached) > 0 {

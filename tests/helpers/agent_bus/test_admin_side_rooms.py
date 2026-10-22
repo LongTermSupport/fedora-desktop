@@ -32,6 +32,10 @@ WORKER = "myrepo.1+workstation.podman"
 SECOND = "myrepo.2+workstation.podman"
 
 
+#: The clock check-rooms is given when a test publishes a status (Unix ms).
+NOW_MS = 1_900_000_000_000
+
+
 def uid(handle: str) -> str:
     return f"@{handle}:{SN}"
 
@@ -337,13 +341,74 @@ class ListAndCheckTest(SideRoomsCase):
             f"ROOM\t{uid(worker)}\tquestions\t-",
         ])
 
-    def test_check_rooms_names_a_coordinator_not_joined_and_passes_once_it_is(self) -> None:
+    def test_check_rooms_names_an_invited_coordinator_offline_and_passes(self) -> None:
+        """An invited coordinator with no live status is not on the bus, which is offline,
+        never a problem (CLAUDE/AgentNotes.md, an offline team member never blocks anything)."""
         coordinator, token = self.member(role="coordinator")
-        problems = admin.check_rooms(self.ctx(), self.transport)
-        self.assertTrue(any(coordinator in p and "questions" in p and "invite" in p for p in problems), problems)
+        check = admin.check_rooms(self.ctx(), self.transport)
+        self.assertEqual(check.problems, [])
+        self.assertTrue(any(coordinator in o and "is offline" in o for o in check.offline),
+                        check.offline)
         for room in (self.room(), self.side(REPORTS), self.side(QUESTIONS)):
             self.assertEqual(self.join(room, token), 200)
-        self.assertEqual(admin.check_rooms(self.ctx(), self.transport), [])
+        self.assertEqual(admin.check_rooms(self.ctx(), self.transport), admin.RoomCheck([], []))
+
+    def test_check_rooms_names_a_coordinator_that_left_a_problem(self) -> None:
+        """`leave` is a running session whose pingbus left the room: wrong, so it still fails."""
+        coordinator, token = self.member(role="coordinator")
+        room = self.side(QUESTIONS)
+        self.assertEqual(self.fake.request("POST", f"/_matrix/client/v3/rooms/{q(room)}/leave",
+                                           body={}, token=token)[0], 200)
+        check = admin.check_rooms(self.ctx(), self.transport)
+        self.assertTrue(any(coordinator in p and "has left questions" in p for p in check.problems),
+                        check.problems)
+        self.assertFalse(any("questions" in o for o in check.offline), check.offline)
+
+    def listening(self, coordinator: str, token: str, until: int) -> None:
+        """The member's session publishes `agent_bus.status` in the team room, as a listener does."""
+        self.assertEqual(self.join(self.room(), token), 200)
+        path = f"/_matrix/client/v3/rooms/{q(self.room())}/state/{protocol.EVENT_STATUS}/{q(uid(coordinator))}"
+        content = {"v": protocol.PROTOCOL_VERSION, "state": protocol.STATUS_LISTENING, "until": until}
+        self.assertEqual(self.fake.request("PUT", path, body=content, token=token)[0], 200)
+
+    def test_check_rooms_names_a_running_coordinator_not_in_reports_a_problem(self) -> None:
+        """Its session is listening; reports not joined is wrong, whatever questions holds."""
+        coordinator, token = self.member(role="coordinator")
+        self.assertEqual(self.join(self.side(QUESTIONS), token), 200)
+        self.listening(coordinator, token, until=NOW_MS + 60_000)
+        check = admin.check_rooms(self.ctx(), self.transport, now_ms=NOW_MS)
+        self.assertTrue(any(coordinator in p and "reports (-)" in p and "pingbus status" in p
+                            for p in check.problems), check.problems)
+        self.assertEqual(check.offline, [])
+
+    def test_check_rooms_names_a_listening_coordinator_still_invited_a_problem(self) -> None:
+        """A running coordinator can leave the questions invite pending on purpose (its bundle
+        takes no human text): running and wrong, so a problem, never offline."""
+        coordinator, token = self.member(role="coordinator")
+        self.listening(coordinator, token, until=NOW_MS + 60_000)
+        check = admin.check_rooms(self.ctx(), self.transport, now_ms=NOW_MS)
+        self.assertTrue(any(coordinator in p and "questions (invite)" in p for p in check.problems),
+                        check.problems)
+        self.assertEqual(check.offline, [])
+
+    def test_check_rooms_takes_a_lapsed_status_as_offline(self) -> None:
+        coordinator, token = self.member(role="coordinator")
+        self.listening(coordinator, token, until=NOW_MS - 1)
+        check = admin.check_rooms(self.ctx(), self.transport, now_ms=NOW_MS)
+        self.assertEqual(check.problems, [])
+        self.assertTrue(any(coordinator in o and "offline" in o for o in check.offline), check.offline)
+
+    def test_check_rooms_names_any_other_membership_a_problem(self) -> None:
+        """A `ban` or `knock` is a problem whether the coordinator runs or not (the fake
+        homeserver cannot ban, so the judgement is asked directly)."""
+        for live in (False, True):
+            problems: list[str] = []
+            offline: list[str] = []
+            seen = {REPORTS: {"@c:x": "join"}, QUESTIONS: {"@c:x": "ban"}}
+            admin._judge_coordinator(self.ctx(), "@c:x", seen, live, problems, offline)
+            self.assertEqual(len(problems), 1, problems)
+            self.assertIn("is ban in questions", problems[0])
+            self.assertEqual(offline, [])
 
     def test_check_rooms_reads_only(self) -> None:
         self.member(role="coordinator")
@@ -355,7 +420,7 @@ class ListAndCheckTest(SideRoomsCase):
         reports = self.side(REPORTS)
         self.assertEqual(self.as_admin("PUT", f"/_matrix/client/v3/rooms/{q(reports)}/state/m.room.join_rules/",
                                        {"join_rule": "invite"})[0], 200)
-        problems = admin.check_rooms(self.ctx(), self.transport)
+        problems = admin.check_rooms(self.ctx(), self.transport).problems
         self.assertTrue(any("reports" in p and "join rules" in p for p in problems), problems)
 
     def test_check_rooms_names_a_missing_room_and_a_worker_in_questions(self) -> None:
@@ -365,10 +430,10 @@ class ListAndCheckTest(SideRoomsCase):
         # The worker reached questions somehow (an invite by hand): check-rooms must say so.
         self.assertEqual(self.as_admin("POST", f"/_matrix/client/v3/rooms/{q(self.side(QUESTIONS))}/invite",
                                        {"user_id": uid(worker)})[0], 200)
-        problems = admin.check_rooms(self.ctx(), self.transport)
+        problems = admin.check_rooms(self.ctx(), self.transport).problems
         self.assertTrue(any(worker in p and "questions" in p for p in problems), problems)
         (self.team_dir / "room_id.reports").unlink()
-        problems = admin.check_rooms(self.ctx(), self.transport)
+        problems = admin.check_rooms(self.ctx(), self.transport).problems
         self.assertTrue(any("no reports room" in p for p in problems), problems)
 
 

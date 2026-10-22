@@ -7,8 +7,10 @@
 #      built by play-claude-yolo.yml and baked into the image) are root:root 0755, static, and
 #      byte for byte this checkout's build;
 #   C2 both copies of the kit's settings.json run `pingbus-status-line`;
-#   C3 every LXC container a present agent_bus_lxc_members entry names is RUNNING, its kit
-#      holds that same binary, and it runs there;
+#   C3 in every online LXC container a present agent_bus_lxc_members entry names, the kit
+#      holds that same binary, and it runs there; an offline one (container stopped) is named
+#      and not judged, never a failure (CLAUDE/AgentNotes.md); with none online, the verdict
+#      is `ACCEPTED, C3 NOT JUDGED`, never "installed everywhere";
 #   C4 the recorded Python goldens pass for the installed Python (`pingbus status-line`, the
 #      host's zipapp) and for both installed Go binaries, so the two print the same over every
 #      fixture. A failure for the Python alone means this host's Python prints differently from
@@ -23,7 +25,7 @@
 # WHAT IT CHANGES: nothing. It builds this checkout's binary into its run directory, copies
 # agent_bus_lxc_members there through ad-hoc Ansible, and runs renders in a scratch world there.
 #
-# EXIT CODES: 0 ACCEPTED; 1 REJECTED (each failed check is named); 64 usage.
+# EXIT CODES: 0 ACCEPTED (a NOT JUDGED check is named in the verdict); 1 REJECTED (each failed check is named); 64 usage.
 set -euo pipefail
 
 # ── R1 bootstrap: script-relative, filesystem-only, bounded at the repo boundary ──────────
@@ -43,6 +45,9 @@ done
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../_planlib.inc.bash
 source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../_members.inc.bash
+source "${repoRoot}/CLAUDE/Plan/_members.inc.bash"
 plan_init "${BASH_SOURCE[0]}"
 
 PLAN_USAGE="usage: acceptance.bash [-h|--help]
@@ -96,14 +101,13 @@ plan_gather_leg "this checkout's pingbus-status-line, built static" build_refere
 plan_gather_leg "C1 the member kit's and the ccy build context's binaries are this checkout's" c1_installed
 plan_gather_leg "C2 both kit settings run pingbus-status-line" c2_settings
 plan_gather_leg "read agent_bus_lxc_members" read_members
-plan_gather_leg "C3 every declared LXC member is running with this binary in its kit" c3_lxc
+plan_gather_leg "C3 every online declared LXC member has this binary in its kit (offline ones named)" c3_lxc
 plan_gather_leg "C4 the installed Python and Go both pass the recorded goldens" c4_parity
 plan_gather_leg "C5 one Go render costs under a fifth of one Python render's CPU" c5_cpu
 
 if [[ -n "${PLAN_FAILED_LEGS}" ]]; then
     printf '\nREJECTED: %s\n' "${PLAN_FAILED_LEGS}" | tee -a "${REPORT}"
 else
-    printf '\nACCEPTED: the Go status line is installed everywhere, matches the Python and costs a fraction of it\n' |
-        tee -a "${REPORT}"
+    printf '\n%s\n' "$(accepted_line)" | tee -a "${REPORT}"
 fi
 plan_finish

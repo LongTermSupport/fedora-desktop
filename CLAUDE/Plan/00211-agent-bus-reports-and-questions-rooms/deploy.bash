@@ -13,8 +13,8 @@
 #
 # STAGE 2, the admin side, once deploy 1 is accepted and the sessions are restarted:
 #   1. pre-flight: the newest spike report holds the PASS verdict, and acceptance.bash --stage 1
-#      passes again (the host's and every declared LXC member's pingbus are 0.2.0, and no
-#      declared container is down: containers can stop between deploys);
+#      passes again (the host's and every online declared LXC member's pingbus are 0.2.0; a
+#      member whose container is stopped is named offline and never blocks the deploy);
 #   2. play-agent-bus.yml, the whole play: the agent-bus admin tool, whose `bootstrap` creates
 #      each team's reports room, and its questions room once the team has a coordinator, writes
 #      the index, and invites the humans and every coordinator; and the LXC members again;
@@ -118,7 +118,7 @@ plan_prime_sudo
 plan_start_log auto
 
 if [[ "${STAGE}" == "2" ]]; then
-    plan_deploy_leg "pre-flight: acceptance.bash --stage 1 (every pingbus 0.2.0, no declared container down)" \
+    plan_deploy_leg "pre-flight: acceptance.bash --stage 1 (every online pingbus 0.2.0, offline members named)" \
         "${PLAN_SCRIPT_DIR}/acceptance.bash" --stage 1
 fi
 plan_deploy_leg "play-agent-bus.yml (the whole play)" \
