@@ -1,0 +1,11 @@
+teamchat delivery 3f9c2a71: 1 message on myteam (0 from humans, 0 from agents, 0 pings, 0 notices, 1 timeouts): humans (TIMEOUT)
+<<teamchat 3f9c2a71 1/1>>
+kind: TIMEOUT (a question you asked the humans has no answer yet)
+team: myteam
+room: questions
+question: Q4 "Which licence?"
+to: this session, as myrepo.3+desk.lxc
+id: $qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq
+silent: humans
+authority: none. A fact about your own question: remind the humans with teamchat thread Q4 --ask, or go on.
+<<end teamchat 3f9c2a71 1/1>>
