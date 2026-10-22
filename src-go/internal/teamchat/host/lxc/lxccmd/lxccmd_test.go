@@ -10,7 +10,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
 
-func info(f *execx.Fake) LXC { return LXC{Runner: f, DesktopUID: 1000} }
+func info(f *execx.Fake) LXC { return LXC{Runner: f} }
 
 func TestContainers(t *testing.T) {
 	f := &execx.Fake{}

@@ -53,7 +53,7 @@ func TestGuestArgv(t *testing.T) {
 		stdin = b
 		return execx.Result{Stdout: []byte("CHANGED\tseat\nCHANGED\ttoken\n")}, err
 	})
-	res, err := LXC{Runner: f, DesktopUID: 1000}.Guest(t.Context(), a, guest.OpPlaceBundle, []string{"--team", "t1"}, []byte(token))
+	res, err := LXC{Runner: f}.Guest(t.Context(), a, guest.OpPlaceBundle, []string{"--team", "t1"}, []byte(token))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,13 +80,13 @@ func TestGuestArgv(t *testing.T) {
 
 func TestGuestHasADeadline(t *testing.T) {
 	r := &deadlineRunner{}
-	if _, err := (LXC{Runner: r, DesktopUID: 1000}).Guest(t.Context(), attach(t), guest.OpCheck, nil, nil); err == nil || !r.hadDeadline {
+	if _, err := (LXC{Runner: r}).Guest(t.Context(), attach(t), guest.OpCheck, nil, nil); err == nil || !r.hadDeadline {
 		t.Fatalf("deadline %v, %v", r.hadDeadline, err)
 	}
 	// A deadline already passed stands for GuestWait running out.
 	expired, cancel := context.WithDeadline(t.Context(), time.Time{})
 	defer cancel()
-	_, err := LXC{Runner: r, DesktopUID: 1000}.Guest(expired, attach(t), guest.OpCheck, nil, nil)
+	_, err := LXC{Runner: r}.Guest(expired, attach(t), guest.OpCheck, nil, nil)
 	if !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "guest check") {
 		t.Fatalf("got %v", err)
 	}
@@ -109,7 +109,6 @@ func TestGuestRefusesBeforeRunning(t *testing.T) {
 		"uid 0":           func(a *Attach) { a.UID = 0 },
 		"gid 0":           func(a *Attach) { a.GID = 0 },
 		"a negative uid":  func(a *Attach) { a.UID = -1 },
-		"the desktop uid": func(a *Attach) { a.UID = 1000 },
 		"a bad container": func(a *Attach) { a.Container = "a b" },
 		"no kit":          func(a *Attach) { a.Kit = paths.Kit{} },
 		"the current kit": func(a *Attach) { a.Kit = paths.HostKitCurrent() },
@@ -124,7 +123,7 @@ func TestGuestRefusesBeforeRunning(t *testing.T) {
 			f := &execx.Fake{}
 			a := attach(t)
 			mutate(&a)
-			if _, err := (LXC{Runner: f, DesktopUID: 1000}).Guest(t.Context(), a, guest.OpCheck, nil, nil); !errors.Is(err, ErrRefused) {
+			if _, err := (LXC{Runner: f}).Guest(t.Context(), a, guest.OpCheck, nil, nil); !errors.Is(err, ErrRefused) {
 				t.Fatalf("got %v", err)
 			}
 			if len(f.Calls()) != 0 {
@@ -133,16 +132,16 @@ func TestGuestRefusesBeforeRunning(t *testing.T) {
 		})
 	}
 	f := &execx.Fake{}
-	if _, err := (LXC{Runner: f, DesktopUID: 1000}).Guest(t.Context(), attach(t), guest.Op{Verb: "guest evil"}, nil, nil); !errors.Is(err, ErrRefused) {
+	if _, err := (LXC{Runner: f}).Guest(t.Context(), attach(t), guest.Op{Verb: "guest evil"}, nil, nil); !errors.Is(err, ErrRefused) {
 		t.Fatalf("an unknown op: %v", err)
 	}
-	if _, err := (LXC{Runner: f, DesktopUID: 1000}).Guest(t.Context(), attach(t), guest.OpCheck, []string{"a\x00b"}, nil); !errors.Is(err, ErrRefused) {
+	if _, err := (LXC{Runner: f}).Guest(t.Context(), attach(t), guest.OpCheck, []string{"a\x00b"}, nil); !errors.Is(err, ErrRefused) {
 		t.Fatalf("a NUL in an argument: %v", err)
 	}
 	noKey := attach(t)
 	noKey.Key = paths.SeatKey{}
 	for _, op := range []guest.Op{guest.OpPlaceBundle, guest.OpMembership, guest.OpRemove} {
-		if _, err := (LXC{Runner: f, DesktopUID: 1000}).Guest(t.Context(), noKey, op, nil, nil); !errors.Is(err, ErrRefused) {
+		if _, err := (LXC{Runner: f}).Guest(t.Context(), noKey, op, nil, nil); !errors.Is(err, ErrRefused) {
 			t.Fatalf("%s with no key: %v", op.Verb, err)
 		}
 	}
@@ -168,7 +167,7 @@ func TestGuestStdoutGrammar(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f := &execx.Fake{}
 			f.On([]string{"lxc-attach"}, execx.Result{Stdout: []byte(out)})
-			_, err := LXC{Runner: f, DesktopUID: 1000}.Guest(t.Context(), attach(t), guest.OpPlaceBundle, nil, []byte(token))
+			_, err := LXC{Runner: f}.Guest(t.Context(), attach(t), guest.OpPlaceBundle, nil, []byte(token))
 			if !errors.Is(err, ErrOutput) || !strings.Contains(err.Error(), "guest place-bundle") {
 				t.Fatalf("got %v", err)
 			}
@@ -179,11 +178,11 @@ func TestGuestStdoutGrammar(t *testing.T) {
 	}
 	f := &execx.Fake{}
 	f.On([]string{"lxc-attach"}, execx.Result{Stdout: []byte("CHANGED\tseat\n")})
-	if _, err := (LXC{Runner: f, DesktopUID: 1000}).Guest(t.Context(), attach(t), guest.OpCheck, nil, nil); !errors.Is(err, ErrOutput) {
+	if _, err := (LXC{Runner: f}).Guest(t.Context(), attach(t), guest.OpCheck, nil, nil); !errors.Is(err, ErrOutput) {
 		t.Fatalf("guest check printing: %v", err)
 	}
 	f.On([]string{"lxc-attach"}, execx.Result{})
-	if res, err := (LXC{Runner: f, DesktopUID: 1000}).Guest(t.Context(), attach(t), guest.OpCheck, nil, nil); err != nil || len(res.Changed) != 0 {
+	if res, err := (LXC{Runner: f}).Guest(t.Context(), attach(t), guest.OpCheck, nil, nil); err != nil || len(res.Changed) != 0 {
 		t.Fatalf("guest check silent: %v %v", res, err)
 	}
 }
@@ -196,7 +195,7 @@ func TestGuestOutputIsCapped(t *testing.T) {
 	} {
 		f := &execx.Fake{}
 		f.On([]string{"lxc-attach"}, res)
-		if _, err := (LXC{Runner: f, DesktopUID: 1000}).Guest(t.Context(), attach(t), guest.OpPlaceBundle, nil, nil); !errors.Is(err, ErrOutput) {
+		if _, err := (LXC{Runner: f}).Guest(t.Context(), attach(t), guest.OpPlaceBundle, nil, nil); !errors.Is(err, ErrOutput) {
 			t.Errorf("%s over the cap: %v", name, err)
 		}
 	}
@@ -223,7 +222,7 @@ func TestGuestErrors(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			f := &execx.Fake{}
 			f.On([]string{"lxc-attach"}, c.res)
-			_, err := LXC{Runner: f, DesktopUID: 1000}.Guest(t.Context(), attach(t), c.op, nil, []byte(token))
+			_, err := LXC{Runner: f}.Guest(t.Context(), attach(t), c.op, nil, []byte(token))
 			var ge *GuestError
 			if !errors.As(err, &ge) {
 				t.Fatalf("got %v", err)
@@ -257,7 +256,7 @@ func TestGuestAttachFailures(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f := &execx.Fake{}
 			script(f)
-			_, err := LXC{Runner: f, DesktopUID: 1000}.Guest(t.Context(), attach(t), guest.OpMembership, nil, []byte(token))
+			_, err := LXC{Runner: f}.Guest(t.Context(), attach(t), guest.OpMembership, nil, []byte(token))
 			var ae *AttachError
 			if !errors.As(err, &ae) || ae.Container != "c1" || ae.Op != "guest membership" {
 				t.Fatalf("got %v", err)
@@ -269,7 +268,7 @@ func TestGuestAttachFailures(t *testing.T) {
 	}
 	f := &execx.Fake{}
 	f.OnError([]string{"lxc-attach"}, boom)
-	if _, err := (LXC{Runner: f, DesktopUID: 1000}).Guest(t.Context(), attach(t), guest.OpCheck, nil, nil); !errors.Is(err, boom) {
+	if _, err := (LXC{Runner: f}).Guest(t.Context(), attach(t), guest.OpCheck, nil, nil); !errors.Is(err, boom) {
 		t.Errorf("the start failure is not wrapped: %v", err)
 	}
 }
@@ -280,7 +279,7 @@ func TestOnlyASeatOpTakesTheKey(t *testing.T) {
 	for _, a := range []Attach{attach(t), func() Attach { a := attach(t); a.Key = paths.SeatKey{}; return a }()} {
 		f := &execx.Fake{}
 		f.On([]string{"lxc-attach"}, execx.Result{})
-		if _, err := (LXC{Runner: f, DesktopUID: 1000}).Guest(t.Context(), a, guest.OpCheck, []string{"--team", "t1"}, nil); err != nil {
+		if _, err := (LXC{Runner: f}).Guest(t.Context(), a, guest.OpCheck, []string{"--team", "t1"}, nil); err != nil {
 			t.Fatal(err)
 		}
 		calls := f.Calls()

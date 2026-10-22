@@ -147,8 +147,6 @@ func (l LXC) checkGuest(a Attach, op guest.Op, args []string) (guest.Op, error) 
 	switch {
 	case a.UID <= 0 || a.GID <= 0:
 		return guest.Op{}, fmt.Errorf("%w: an attach as uid %d gid %d", ErrRefused, a.UID, a.GID)
-	case a.UID == l.DesktopUID:
-		return guest.Op{}, fmt.Errorf("%w: an attach as the desktop's uid %d", ErrRefused, a.UID)
 	case a.User == paths.GuestUser{}:
 		return guest.Op{}, fmt.Errorf("%w: an attach with no user", ErrRefused)
 	case !filepath.IsAbs(a.Home) || filepath.Clean(a.Home) != a.Home || strings.ContainsFunc(a.Home, isControl):

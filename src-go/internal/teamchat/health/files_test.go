@@ -19,7 +19,6 @@ import (
 var (
 	_ Teams       = Stamps{}
 	_ Backups     = NoBackups{}
-	_ Guests      = GuestsNotBuilt{}
 	_ host.Status = StatusFiles{}
 )
 
@@ -80,6 +79,28 @@ func TestStampsListsTheStampedTeams(t *testing.T) {
 	}
 	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("Stamped = %+v", got)
+	}
+}
+
+// Origin is one stamped team's origin, as Stamped gives it; a team with no stamp, or a stamp
+// that does not decode, is an error.
+func TestStampsOriginOfOneTeam(t *testing.T) {
+	root := t.TempDir()
+	s := Stamps{Root: root}
+	if _, err := s.Origin(t.Context(), id(t, "alpha")); err == nil || !strings.Contains(err.Error(), "alpha is not stamped") {
+		t.Fatalf("unstamped: %v", err)
+	}
+	installTeam(t, root, "alpha", "Alpha")
+	installTeam(t, root, "beta", "Beta")
+	writeAt(t, filepath.Join(root, paths.MigrationDir(id(t, "beta")), "state.json"), `{}`)
+	for team, want := range map[string]string{"alpha": status.OriginV2, "beta": status.OriginMigration} {
+		if got, err := s.Origin(t.Context(), id(t, team)); err != nil || got != want {
+			t.Fatalf("%s: %q, %v", team, got, err)
+		}
+	}
+	writeAt(t, filepath.Join(root, paths.StampFile(id(t, "alpha"))), `{`)
+	if _, err := s.Origin(t.Context(), id(t, "alpha")); err == nil {
+		t.Fatal("a stamp that does not decode")
 	}
 }
 
@@ -278,17 +299,13 @@ func TestNoBackups(t *testing.T) {
 	}
 }
 
-// HR5: every guest probe fails; the tick records the member offline with the probe's problem,
+// HR5: a guest probe that errors; the tick records the member offline with the probe's problem,
 // and asks for no notice.
-func TestGuestsNotBuilt(t *testing.T) {
-	_, err := GuestsNotBuilt{}.Probe(context.Background(), id(t, "alpha"), lxcA)
-	if !errors.Is(err, ErrGuestProbeNotBuilt) || err.Error() != "the LXC guest probe is not built yet" {
-		t.Fatalf("Probe = %v", err)
-	}
+func TestTickRecordsAFailingGuestProbe(t *testing.T) {
 	w := newWorld(t, "alpha")
 	tick, err := New(Config{
 		Clock: w.clock, Teams: w.teams, Units: w.units, Prober: w.prober, Viewer: w.viewer,
-		Backups: w.backups, Space: w.space, Guests: GuestsNotBuilt{}, Announcer: w.announcer, Locks: w.locks,
+		Backups: w.backups, Space: w.space, Guests: failingGuests{}, Announcer: w.announcer, Locks: w.locks,
 		StatusPath:    func(team paths.TeamID) string { return filepath.Join(w.dir, team.String(), "status.json") },
 		LXCOnlinePath: func(team paths.TeamID) string { return filepath.Join(w.dir, team.String(), "lxc-online.json") },
 		GID:           -1,
@@ -306,4 +323,11 @@ func TestGuestsNotBuilt(t *testing.T) {
 	if len(w.announcer.asked) != 0 {
 		t.Fatalf("asked %+v", w.announcer.asked)
 	}
+}
+
+// failingGuests is a Guests whose every probe fails, as a probe that cannot reach its seat does.
+type failingGuests struct{}
+
+func (failingGuests) Probe(context.Context, paths.TeamID, string) (GuestProbe, error) {
+	return GuestProbe{}, errors.New("the probe failed")
 }

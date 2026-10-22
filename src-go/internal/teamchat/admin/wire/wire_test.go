@@ -11,6 +11,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/admin"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestroot"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/units"
 )
@@ -27,6 +28,7 @@ type fakeMachine struct {
 	selfErr, userErr, groupErr error
 	pinErr                     error
 	noCtl                      bool
+	kitOwner                   int
 	n                          counts
 }
 
@@ -43,7 +45,7 @@ func (f *fakeMachine) machine() machine {
 		},
 		ownerGroup: func() (int, error) { f.n.groups++; return 1000, f.groupErr },
 		readPin:    func() (host.Pin, error) { f.n.pins++; return host.Pin{MemoryHigh: "512M"}, f.pinErr },
-		runner:     &execx.Fake{},
+		runner:     &execx.Fake{}, kernel: guestroot.LinuxKernel{}, kitOwner: f.kitOwner,
 		dial: func(context.Context) (units.Conn, error) {
 			f.n.dials++
 			return nil, errors.New("no bus here")
