@@ -157,9 +157,10 @@ also	vars/vm-test-scenarios.yml	vmtest-manifest	covered
 also	vars/fedora-version.yml,helpers/vmtest/scenarios.py,helpers/vmtest/upstream.py,helpers/vmtest/validate_manifest.py,files/home/.local/share/vmtest/guest-acceptance-*,files/home/.local/share/vmtest/guest-prepare-*	vmtest-manifest	-
 also	scripts/qa-vmtest-manifest.bash,src-go/qa/vmtestmanifest/*,src-go/qa/cmd/qa-vmtest-manifest/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash,scripts/qa-trees.tsv,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	vmtest-manifest	-
 # The project-owned hooks-daemon handlers and their tests run whole (it is fast) when one changes
-# or is deleted, or the gate's script does. It needs the daemon's interpreter, so it is a gate, not
-# a per-file check; the handlers' Python still gets its per-file ruff and unit-test routing.
-also	.claude/hooks/handlers/*,scripts/qa-hook-handlers.bash	hook-handlers	-
+# or is deleted, or the gate's wrapper, Go package or command does. It needs the daemon's
+# interpreter, so it is a gate, not a per-file check; the handlers' Python still gets its per-file
+# ruff and unit-test routing.
+also	.claude/hooks/handlers/*,scripts/qa-hook-handlers.bash,src-go/qa/hookhandlers/*,src-go/qa/cmd/qa-hook-handlers/*,scripts/lib/go-tool.bash,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	hook-handlers	-
 also	src-go/qa/ansible/*,src-go/qa/cmd/qa-ansible/*,src-go/qa/internal/cmdmain/*,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*	ansible-patterns	-
 # Each .semgrep/ file is read by one gate and no per-file check applies to it (.semgrep is an
 # excluded shell tree, so the rows below would only report it skipped). These rows end the search

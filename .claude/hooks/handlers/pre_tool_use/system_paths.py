@@ -76,6 +76,27 @@ def _claude_projects_root(path: str) -> str | None:
     return None
 
 
+def _normalise(file_path: str) -> str:
+    """Return *file_path* with `.`, `..` and repeated slashes folded, leading ones included.
+
+    POSIX keeps a leading `//`, and `//etc/hosts` would then match no blocked prefix.
+    """
+    path = os.path.normpath(file_path)
+    if path.startswith("//"):
+        path = "/" + path.lstrip("/")
+    return path
+
+
+def _resolves_under(file_path: str, root: str) -> bool:
+    """Return True if *file_path*, resolved as the kernel would, lies under *root*'s target.
+
+    The ORIGINAL path is resolved, not its lexical normalisation: `root/link/../x` with
+    link -> /etc/ssh normalises to root/x but is written to /etc/x.
+    """
+    real_root = os.path.realpath(root)
+    return os.path.realpath(file_path).startswith(real_root + os.sep)
+
+
 def _is_claude_projects_path(file_path: str) -> bool:
     """Return True if *file_path* is under a Claude Code agent runtime directory.
 
@@ -84,12 +105,8 @@ def _is_claude_projects_path(file_path: str) -> bool:
     the projects directory, and, once symlinks are followed, still under the projects
     directory's own target. A link planted inside it that leaves it is not exempt.
     """
-    lexical = os.path.normpath(file_path)
-    root = _claude_projects_root(lexical)
-    if root is None:
-        return False
-    real_root = os.path.realpath(root)
-    return os.path.realpath(lexical).startswith(real_root + os.sep)
+    root = _claude_projects_root(_normalise(file_path))
+    return root is not None and _resolves_under(file_path, root)
 
 
 class SystemPathsHandler(Handler):
@@ -141,6 +158,9 @@ class SystemPathsHandler(Handler):
         file_path = get_file_path(hook_input)
         if not file_path:
             return False
+        # Every prefix below is judged on the folded path, so `/workspace/../etc/x`,
+        # `//etc/x` and `/./etc/x` are the /etc/x they reach.
+        path = _normalise(file_path)
 
         # Exempt the active Claude Code project directory. When Claude runs on
         # the HOST (not inside a /workspace CCY container), the project itself
@@ -150,7 +170,7 @@ class SystemPathsHandler(Handler):
         # so a wrong parents[N] depth fails loudly instead of silently
         # over-exempting an unrelated directory.
         project_dir = _resolve_project_root()
-        if file_path.startswith(project_dir):
+        if path.startswith(project_dir):
             return False
 
         # Exempt the Claude Code agent's own runtime directory. This holds
@@ -163,7 +183,7 @@ class SystemPathsHandler(Handler):
 
         # Check if file_path starts with any blocked system path
         for blocked_path in self.BLOCKED_PATHS:
-            if file_path.startswith(blocked_path):
+            if path.startswith(blocked_path):
                 return True
 
         return False

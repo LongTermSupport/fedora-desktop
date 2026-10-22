@@ -834,13 +834,15 @@ func TestADependencyChangeRunsTheDependencyGates(t *testing.T) {
 }
 
 // The project hook handlers' tests run whole, under the daemon's interpreter, for a change to a
-// handler, a handler test or the gate's script, and for a deleted handler; an ordinary helper
-// does not run them (Plan 00191 Task 4.6).
+// handler, a handler test or the gate's script, Go package or command, and for a deleted handler;
+// an ordinary helper does not run them (Plan 00191 Task 4.6).
 func TestAHookHandlerChangeRunsTheHookHandlersGate(t *testing.T) {
 	for _, f := range []string{
 		".claude/hooks/handlers/pre_tool_use/system_paths.py",
 		".claude/hooks/handlers/pre_tool_use/tests/test_system_paths.py",
 		"scripts/qa-hook-handlers.bash",
+		"src-go/qa/hookhandlers/run.go",
+		"src-go/qa/cmd/qa-hook-handlers/main.go",
 	} {
 		w := newWorld(t)
 		w.touch(f, "x = 1\n")

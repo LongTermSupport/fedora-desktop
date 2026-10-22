@@ -47,7 +47,7 @@ drift	deployed-drift	scripts/qa-deployed-drift.bash	repo-owned scripts differ fr
 helpers	helper-tests	scripts/qa-helper-tests.bash	the helper unit suite failed
 # The project-owned hooks-daemon handlers' tests, run with the daemon's own interpreter. It fails
 # when the daemon or its pytest is missing; only GitHub Actions (no daemon in the checkout) skips.
-gate	hook-handlers	scripts/qa-hook-handlers.bash	a hook handler test failed, or the hooks daemon (its venv or pytest) is missing	detail:HOOK-HANDLERS-(OK [0-9]+ test[(]s[)] under|SKIPPED) .+
+gate	hook-handlers	scripts/qa-hook-handlers.bash	a hook handler test failed, or the hooks daemon, its venv or the project's pytest is missing	detail:HOOK-HANDLERS-(OK [0-9]+ test[(]s[)] under|EXEMPT) .+
 # The unit suites and rule gates. The count reader wants a 'passed: N' line.
 gate	secret-scan-tests	scripts/test-secret-scan.bash	secret scanner unit tests failed	count
 gate	planlib-tests	scripts/test-planlib.bash	plan-script library regression tests failed	detail:PASSED [(]library version [0-9.]+[)]
