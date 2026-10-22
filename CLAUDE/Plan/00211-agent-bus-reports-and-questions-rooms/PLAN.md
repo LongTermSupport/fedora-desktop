@@ -200,6 +200,15 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
   acceptance, whose first leg is the joins wait (it primes sudo again first). Written and queued as `deploy-stage-2.bash`, whose
   description asks the owner to restart every team's sessions first; the merge and the run are
   left. `acceptance-after-owner.bash` is queued only once the owner has done the Element steps.
+- [x] ✅ **Task 2.7**: Fix the rc 70 the host's play hit on every team ("list the admin's rooms:
+  the homeserver answered with no list of room IDs"). Tuwunel joins each team admin to its own
+  server admin room, room version 11 (`!opaque:server`), and `joined_rooms()` refused the whole
+  list with the bus's version-12-only `is_room_id`. The list is now checked with the spec's
+  grammar (`protocol.is_any_room_id`); only version-12 IDs are side-room candidates, the rest
+  are named on stderr, and a 403 on a candidate's state means "not a side room". Defence: the
+  rule `homeserver-list-narrow-grammar` (`test_identifier_grammar.py`, CLAUDE/QA.md); the fake
+  homeserver now models the admin room. CCY 3.99.14.12, container 2.78.15. Done in code, on
+  `fix/agent-bus-room-id-shapes`; reports `subagent-reports/261022-room-id-*`.
 
 ### Phase 3: the owner's view (Go)
 

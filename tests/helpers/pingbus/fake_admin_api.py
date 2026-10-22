@@ -1,4 +1,4 @@
-"""A fake of Tuwunel 1.9.3's Synapse-compatible admin API, sharing fake_client_api's state.
+"""A fake of Tuwunel 1.9.x's Synapse-compatible admin API, sharing fake_client_api's state.
 
 Models the calls DESIGN.md section 4 makes, as probe H4 recorded them: shared-secret
 registration (`GET`/`POST /_synapse/admin/v1/register`, single-use nonce, HMAC-SHA1 MAC),
@@ -6,6 +6,8 @@ registration (`GET`/`POST /_synapse/admin/v1/register`, single-use nonce, HMAC-S
 (`POST /_synapse/admin/v1/users/{id}/login`) and `POST /_synapse/admin/v1/reset_password`.
 A `PUT v2/users` carrying `"admin": false` for a non-admin answers Tuwunel's 500; whether
 Tuwunel keeps the account it was creating was not recorded, so the fake creates none.
+A registration with `"admin": true` joins the account to Tuwunel's server admin room, a
+room version 11 room with an `!opaque:server` ID, as Tuwunel 1.9.4 does.
 Fields H4 did not exercise (`deactivated`, `locked`, `valid_until_ms`, ...) raise
 `Unmodelled`, so a unit that needs one records Tuwunel's answer before modelling it.
 """
@@ -20,10 +22,12 @@ from collections.abc import Callable
 
 from tests.helpers.pingbus.fake_client_api import (
     DEFAULT_SERVER_NAME,
+    MEMBER,
     FakeHomeserver,
     Handler,
     MatrixError,
     Req,
+    Room,
     Unmodelled,
     User,
     forbidden,
@@ -58,6 +62,8 @@ class FakeAdminHomeserver(FakeHomeserver):
                  clock: Callable[[], float] = time.time, shared_secret: str | None = None) -> None:
         self.shared_secret = shared_secret or secrets.token_hex(32)
         self._nonces: set[str] = set()
+        #: Tuwunel's server admin room, made when the first server admin registers.
+        self.server_admin_room: str | None = None
         super().__init__(server_name, clock)
 
     def _route_table(self) -> list[tuple[str, str, Handler, str]]:
@@ -105,9 +111,28 @@ class FakeAdminHomeserver(FakeHomeserver):
             raise forbidden("M_FORBIDDEN: HMAC check failed")
         user = self._create_user(body["username"], body["password"], bool(body.get("admin", False)),
                                  body.get("displayname"))
+        if user.admin:
+            self._join_server_admin_room(user.user_id)
         token, device = self._new_token(user.user_id)
         return {"access_token": token, "device_id": device, "home_server": self.server_name,
                 "user_id": user.user_id}
+
+    def _join_server_admin_room(self, user_id: str) -> None:
+        """Tuwunel's own server admin room, which it joins a new server admin to. Tuwunel
+        1.9.4 creates it as room version 11 (src/service/admin/create.rs: `RoomId::new_v1`,
+        `RoomVersionId::V11`), so its ID has the `!opaque:server` shape; the host probe of
+        Plan 00211 found it, named `<server> Admin Room` with the alias `#admins:<server>`,
+        in every team admin's `joined_rooms`."""
+        if self.server_admin_room is None:
+            room = Room(f"!{secrets.token_hex(9)[:18]}:{self.server_name}", f"@conduit:{self.server_name}")
+            self.rooms[room.room_id] = room
+            self._append(room, "m.room.create", room.creator, {"room_version": "11", "creator": room.creator}, "")
+            self._append(room, MEMBER, room.creator, {"membership": "join"}, room.creator)
+            self._append(room, "m.room.name", room.creator, {"name": f"{self.server_name} Admin Room"}, "")
+            self._append(room, "m.room.canonical_alias", room.creator, {"alias": f"#admins:{self.server_name}"}, "")
+            self.server_admin_room = room.room_id
+        room = self.rooms[self.server_admin_room]
+        self._append(room, MEMBER, user_id, self._member_content(user_id, "join"), user_id)
 
     def _list_users(self, req: Req) -> dict:
         if set(req.query) - {"admins"}:

@@ -35,7 +35,9 @@
 # session keeps the pingbus it started with, and an old one rejects its questions invite): this
 # play's team step runs `agent-bus bootstrap` for every team, which now creates each team's
 # reports room, and its questions room when it has a coordinator, and invites you and the
-# coordinators. The play rebuilds the host's pingbus.pyz and the member kit, so pingbus
+# coordinators. That step no longer stops with rc 70 ("list the admin's rooms: the homeserver
+# answered with no list of room IDs"): Tuwunel's own server admin room, room version 11, which
+# every team admin is in, is now accepted and set aside by name on stderr. The play rebuilds the host's pingbus.pyz and the member kit, so pingbus
 # refuses a list or object farewell reason instead of crashing, and re-runs the member kit step
 # (README.lxc step 1) for every LXC member: each member's copy of pingbus names that member's
 # own newest Python 3.11 or later (the last run stopped there with exit 78 on an EL9 member,
@@ -48,8 +50,8 @@ playbooks/imports/play-agent-bus.yml
 # play-agent-bus.yml again (no change after the entry above), then the whole
 # play-claude-yolo.yml, then acceptance.bash. The kit's settings.json runs the static Go
 # pingbus-status-line, copied into every running LXC member. The ccy play gives the host CCY
-# 3.99.14.11 (the Go front: see the play-claude-yolo.yml entry below) and puts the binary in the
-# image's build context (container 2.78.14, rebuilt once at the next ccy launch; the image
+# 3.99.14.12 (the Go front: see the play-claude-yolo.yml entry below) and puts the binary in the
+# image's build context (container 2.78.15, rebuilt once at the next ccy launch; the image
 # also carries the farewell-reason fix, the reports and questions admin tool and Go 1.26.10 in the project image): a seated session's status line is
 # the Go one and refreshes every 25 s. The acceptance checks the kit's, the image's and each
 # declared LXC member's binary are this checkout's build (a declared container that is down is
@@ -66,7 +68,7 @@ playbooks/imports/play-agent-bus.yml
 # member's pingbus is 0.2.0, and a declared container that is down is refused, named). Then the
 # whole play-agent-bus.yml keeps each team's reports and questions rooms (created by the entry
 # above), the index and the invites; the whole play-claude-yolo.yml finds the ccy image already
-# at container 2.78.14. Then acceptance.bash --stage 2 waits up to 180 s for every coordinator
+# at container 2.78.15. Then acceptance.bash --stage 2 waits up to 180 s for every coordinator
 # to join its questions room and every running ccy seat its reports room, naming any that has
 # not, and checks the rooms. It finds the first team's coordinator in its running ccy session
 # or LXC member; with no team coordinator, or one whose session is not running, it is
@@ -86,8 +88,8 @@ playbooks/imports/play-agent-bus.yml
 # launched interactively in this checkout once (Quick Launch), and the hooks daemon installed.
 00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker
 # play-claude-yolo.yml, the whole play (Plan 00191 Tasks 4.3, 4.4, 4.4b and 4.5): the host's ccy
-# becomes CCY 3.99.14.11 (container 2.78.14: the next launch rebuilds the image once, for its
-# guide). /var/local/claude-yolo/claude-yolo becomes a Go program (built here from
+# becomes CCY 3.99.14.12 (container 2.78.15: the next launch rebuilds the image once, for its
+# guide and the room-ID fix in its pingbus). /var/local/claude-yolo/claude-yolo becomes a Go program (built here from
 # src-go/cmd/claude-yolo, installed only when its checksum changes) that answers --version,
 # --help, --list-tokens, --token-usage [--json], --prevent and --export-token NAME itself
 # (everything else, --top and the interactive export included, stays in the bash) and execs

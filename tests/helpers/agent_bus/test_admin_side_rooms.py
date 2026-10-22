@@ -11,6 +11,7 @@ Against the same fake homeserver and `Stubbed` kicks as test_admin.py.
 
 from __future__ import annotations
 
+import contextlib
 import io
 import pathlib
 import stat
@@ -369,6 +370,55 @@ class ListAndCheckTest(SideRoomsCase):
         (self.team_dir / "room_id.reports").unlink()
         problems = admin.check_rooms(self.ctx(), self.transport)
         self.assertTrue(any("no reports room" in p for p in problems), problems)
+
+
+class ServerAdminRoomTest(SideRoomsCase):
+    """Tuwunel joins the team admin to its own server admin room, room version 11, whose ID is
+    `!opaque:server`; the host's `joined_rooms` held it beside the team room on every team."""
+
+    def joined(self) -> list[str]:
+        status, obj = self.as_admin("GET", "/_matrix/client/v3/joined_rooms")
+        self.assertEqual(status, 200)
+        return obj["joined_rooms"]
+
+    def test_bootstrap_finds_side_rooms_beside_the_v11_admin_room(self) -> None:
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            changes = self.bootstrap()
+        self.assertIn("reports room", changes)
+        admin_room = self.fake.server_admin_room
+        self.assertIn(admin_room, self.joined())
+        self.assertTrue(protocol.is_any_room_id(admin_room))
+        self.assertFalse(protocol.is_room_id(admin_room))
+        self.assertIn(f"left aside 1 joined room of an earlier room version: {admin_room}", err.getvalue())
+
+    def test_a_second_run_still_changes_nothing(self) -> None:
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.bootstrap()
+            self.assertEqual(self.bootstrap(), [])
+
+    def test_a_garbage_entry_still_refuses_the_whole_answer(self) -> None:
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.bootstrap()
+        (self.team_dir / "room_id.reports").unlink()
+        self.fake.inject("GET", r"/joined_rooms$", 200, {"joined_rooms": [self.room(), "!no-server-part"]})
+        with self.assertRaisesRegex(admin.AdminError, "list the admin's rooms: the homeserver answered "
+                                                      "with no list of room IDs"):
+            self.bootstrap()
+
+    def test_a_room_the_admin_cannot_read_is_not_a_side_room(self) -> None:
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.bootstrap()
+        other = self.fake.add_user("other", "pw")
+        _, login = self.fake.request("POST", "/_matrix/client/v3/login", body={
+            "type": "m.login.password", "identifier": {"type": "m.id.user", "user": "other"}, "password": "pw"})
+        status, made = self.fake.request("POST", "/_matrix/client/v3/createRoom",
+                                         body={"preset": "private_chat"}, token=login["access_token"])
+        self.assertEqual(status, 200, other)
+        unreadable = made["room_id"]
+        self.assertEqual(self.room_state(unreadable, "m.room.create", event=True)[0], 403)
+        api = admin._session(self.ctx(), self.transport)
+        self.assertFalse(admin._is_side_room(api, unreadable, REPORTS, self.room()))
 
 
 if __name__ == "__main__":
