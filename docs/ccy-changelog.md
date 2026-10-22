@@ -19,8 +19,8 @@ Two version numbers move independently — see
 
 ## 3.99.15.5 — container 2.78.18
 
-Follows 3.99.15.4 (3.99.14.13 to 3.99.14.15, containers 2.78.16 to 2.78.18, were this
-branch's earlier cuts, never released). The image changes, so the next launch rebuilds it once.
+Follows 3.99.15.4 (3.99.14.13 to 3.99.14.15 were this branch's earlier cuts, never released;
+containers 2.78.16 and 2.78.17 with them, and 2.78.18 first released here). The image changes, so the next launch rebuilds it once.
 
 - **The image's declare.py recognises an LXC member declared already** (Plan 00201). `lxc-add`
   of a member the host_vars declare as given answers UNCHANGED instead of refusing it as a

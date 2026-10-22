@@ -94,9 +94,9 @@
 # moment: the second prints the waiting line and starts its own build only when the first has
 # finished (an explicit rebuild always builds); while one builds, `ccy --build-lock` in a third
 # terminal names it, and `n` leaves it running. Container 2.78.18 (the next launch rebuilds the
-# image once, for its guide, the room-ID fix in its pingbus and Plan 00201's declare.py). Plan
-# 00201: the play rebuilds ~/.local/bin/ccy-teams with Plan 00201's lxc-add fix: `ccy-teams lxc-add <team>` for a member
-# the host_vars already declare says "<user>@<container> is already declared in team <team>"
+# image once, for its guide, the room-ID fix in its pingbus and Plan 00201's declare.py).
+# Plan 00201: the play rebuilds ~/.local/bin/ccy-teams with the lxc-add fix: `ccy-teams lxc-add
+# <team>` for a member the host_vars already declare says "<user>@<container> is already declared in team <team>"
 # and, after one yes, applies the team (play-agent-bus.yml) without writing; declared otherwise,
 # it names each differing key and offers to update the entry or stop. A refusal of the
 # host_vars file stops at once, naming the file, instead of asking the same question three
