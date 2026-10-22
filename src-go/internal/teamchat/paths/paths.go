@@ -456,6 +456,10 @@ func (s Seat) Report() string { return s.Dir() + "/report.json" }
 // LastLog is the last session's log, kept with the seat.
 func (s Seat) LastLog() string { return s.Dir() + "/last.log" }
 
+// RosterCache is the team's last verified roster, which composes sends before the first
+// verification of a link (n3d-D3).
+func (s Seat) RosterCache() string { return s.Dir() + "/roster.json" }
+
 // Run is one session's runtime directory: the keeper (teamchat run) and the link
 // (teamchat link) and what each holds (B 2.4).
 type Run struct{ dir string }

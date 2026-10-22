@@ -58,7 +58,7 @@ func TestStoreWriterWritesAndLoads(t *testing.T) {
 	check(t, sw.Write(got))
 	loaded, err := sw.Load()
 	check(t, err)
-	if len(loaded.Ledger) != 2 {
+	if len(loaded.Ledger) != len(s.Ledger)+1 {
 		t.Fatalf("the second write was not loaded: %+v", loaded.Ledger)
 	}
 }

@@ -285,3 +285,42 @@ func TestVerifyArgsDecodeStrictly(t *testing.T) {
 		}
 	}
 }
+
+// n3d: reply's, say's and ping's args decode strictly; a missing team key or an unknown key is
+// 10 schema.
+func TestN3dSendArgsDecodeStrictly(t *testing.T) {
+	var r ReplyArgs
+	check(t, DecodeArgs(json.RawMessage(`{"team":"alpha","id":"$abc","verb":"ack","ref":null,"to_coordinator":false}`), &r))
+	if r.Team == nil || r.Team.String() != "alpha" || r.ID != "$abc" || *r.Verb != "ack" || r.Ref != nil || r.ToCoordinator {
+		t.Fatalf("reply %+v", r)
+	}
+	var s SayArgs
+	check(t, DecodeArgs(json.RawMessage(`{"team":null,"to":["repo.3+site.lxc"],"to_coordinator":true}`), &s))
+	if s.Team != nil || len(s.To) != 1 || !s.ToCoordinator {
+		t.Fatalf("say %+v", s)
+	}
+	var p PingArgs
+	check(t, DecodeArgs(json.RawMessage(`{"team":null,"verb":"review","ref":"pr:o/r#1@x","to":[],"to_coordinator":false,"branch":"feat/x"}`), &p))
+	if p.Verb != "review" || *p.Ref != "pr:o/r#1@x" || len(p.To) != 0 || *p.Branch != "feat/x" {
+		t.Fatalf("ping %+v", p)
+	}
+}
+
+func TestN3dSendArgsRefuseAMissingTeamOrAnUnknownKey(t *testing.T) {
+	for name, c := range map[string]struct {
+		raw string
+		out any
+	}{
+		"reply no team":     {`{"id":"$abc","verb":null,"ref":null,"to_coordinator":false}`, &ReplyArgs{}},
+		"reply unknown key": {`{"team":null,"id":"$abc","verb":null,"ref":null,"to_coordinator":false,"x":1}`, &ReplyArgs{}},
+		"say no team":       {`{"to":[],"to_coordinator":false}`, &SayArgs{}},
+		"say unknown key":   {`{"team":null,"to":[],"to_coordinator":false,"text":"hi"}`, &SayArgs{}},
+		"ping no team":      {`{"verb":"halt","ref":null,"to":[],"to_coordinator":false,"branch":null}`, &PingArgs{}},
+		"ping unknown key":  {`{"team":null,"verb":"halt","ref":null,"to":[],"to_coordinator":false,"branch":null,"x":1}`, &PingArgs{}},
+	} {
+		err := DecodeArgs(json.RawMessage(c.raw), c.out)
+		if exit, code := refused(t, err); exit != 10 || code != exits.CodeSchema {
+			t.Errorf("%s: exit %d code %s", name, exit, code)
+		}
+	}
+}

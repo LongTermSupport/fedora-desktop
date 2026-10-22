@@ -313,14 +313,15 @@ func teamDerived(t *testing.T, team TeamID) map[string][]string {
 	for _, l := range []Layout{CCYLayout(), home} {
 		seat := l.Seat(team)
 		for name, value := range map[string]string{
-			"Layout.Seat":  seat.Dir(),
-			"Seat.Dir":     seat.Dir(),
-			"Seat.Bundle":  seat.Bundle(),
-			"Seat.Token":   seat.Token(),
-			"Seat.Lock":    seat.Lock(),
-			"Seat.Store":   seat.Store(),
-			"Seat.Report":  seat.Report(),
-			"Seat.LastLog": seat.LastLog(),
+			"Layout.Seat":      seat.Dir(),
+			"Seat.Dir":         seat.Dir(),
+			"Seat.Bundle":      seat.Bundle(),
+			"Seat.Token":       seat.Token(),
+			"Seat.Lock":        seat.Lock(),
+			"Seat.Store":       seat.Store(),
+			"Seat.Report":      seat.Report(),
+			"Seat.LastLog":     seat.LastLog(),
+			"Seat.RosterCache": seat.RosterCache(),
 		} {
 			names[name] = append(names[name], value)
 		}

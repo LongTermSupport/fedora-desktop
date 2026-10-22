@@ -140,8 +140,12 @@ func TestDeliversAgentItems(t *testing.T) {
 	if p := b.Items[0].Pending; p.ID != text || p.Item != records.KindPeer || p.From != user(peer) {
 		t.Errorf("peer %+v", p)
 	}
-	if p := b.Items[1].Pending; p.ID != ping || p.Item != records.KindPing {
+	// n3d-D30: a ping item carries its verb; no other item does.
+	if p := b.Items[1].Pending; p.ID != ping || p.Item != records.KindPing || p.Verb == nil || *p.Verb != proto.VerbHalt {
 		t.Errorf("ping %+v", p)
+	}
+	if b.Items[0].Pending.Verb != nil {
+		t.Errorf("a peer item with a verb %+v", b.Items[0].Pending)
 	}
 }
 

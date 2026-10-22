@@ -338,3 +338,22 @@ func TestInboxListsEveryItemOwedAndConsumesNothing(t *testing.T) {
 		t.Fatalf("inbox with a failed flush = %+v", d)
 	}
 }
+
+// n3d-D30: a delivered ping keeps its verb in the ledger, so reply --verb knows it from the
+// store alone.
+func TestN3dD30AnAckedPingKeepsItsVerb(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	w.held(ops)
+	ping := team.Item{
+		Pending: state.Pending{ID: evID(1), Room: proto.PurposeMain, Item: records.KindPing, SentMS: 1, From: agent(ops, 3), Verb: new("review")},
+		Verdict: proto.Verdict{Outcome: proto.Deliver, Event: proto.Event{ID: evID(1), OriginTs: 1}, Content: proto.Content{Ping: proto.Ping{Verb: "review", Ref: "pr:1"}}},
+	}
+	w.persist(ops, ping)
+	d := w.done(wire.OpRecv, wire.TeamsArgs{})
+	check(t, w.e.Ack(t.Context(), d.Ack))
+	s := w.store(ops)
+	if len(s.Ledger) != 1 || s.Ledger[0].Verb == nil || *s.Ledger[0].Verb != "review" {
+		t.Fatalf("the ledger = %+v", s.Ledger)
+	}
+}

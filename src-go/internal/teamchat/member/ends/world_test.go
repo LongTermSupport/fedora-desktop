@@ -299,6 +299,12 @@ func (e *fakeEngine) SetEnded(_ context.Context, t paths.TeamID, end state.RunEn
 	return nil
 }
 
+func (*fakeEngine) SaveRoster(context.Context, paths.TeamID, int64, json.RawMessage) error {
+	return nil
+}
+
+func (*fakeEngine) RecoverSends(context.Context, paths.TeamID, team.Notices) error { return nil }
+
 func (e *fakeEngine) of(t paths.TeamID) []state.RunEnd {
 	e.mu.Lock()
 	defer e.mu.Unlock()

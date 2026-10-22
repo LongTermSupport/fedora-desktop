@@ -486,6 +486,12 @@ func (e *fakeEngine) SetHealth(_ paths.TeamID, h team.Health) {
 	}
 }
 
+func (*fakeEngine) SaveRoster(context.Context, paths.TeamID, int64, json.RawMessage) error {
+	return nil
+}
+
+func (*fakeEngine) RecoverSends(context.Context, paths.TeamID, team.Notices) error { return nil }
+
 // preload gives the engine a store of an earlier run, positioned at since when it is not "".
 func (e *fakeEngine) preload(userID string, run paths.RunID, since string, epoch int64) {
 	s := state.NewStore(e.tm, userID, state.StoreRun{ID: run, StartedMS: startMS - 5000}, state.Gate{})
