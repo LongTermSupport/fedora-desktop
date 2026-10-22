@@ -137,3 +137,39 @@ tested with `go test -race -cover`.
    - `team` imports `notice`.
 3. **The final part report**, `subagent-reports/261022-n3c-p2.md`: copy the API section above and
    add control and team.
+
+## The brief review changes P2's API (lead, after this handoff was written)
+
+These come from section 8a of the brief review on `feat/bus-v2-n3c` at bb34f0e69. Read it with
+`git show bb34f0e69:CLAUDE/Plan/00209-agent-bus-v2-in-go/subagent-reports/261022-n3c-handoff.md`
+before building. Each change applies to the plan above and overrides it. Record each change in
+the report as built.
+
+**Already built, so it needs changing:**
+
+- **7.** `WaitArgs` and `VerifyArgs` gain `Team *paths.TeamID` (`json:"team"`). Every Args type
+  carries json tags. Update `request.go` and its args test.
+- **9.** clock asserts only `lock.Clock` and `matrix.Clock`. Timers, Hold and the deadline test
+  go to P5.
+  - Remove `AfterFunc` and `Hold` from `Clock` and `Fake`, along with their tests and the local
+    Timers interface assertion.
+  - Keep `BlockUntil` and `Waiters`, which serve Sleep.
+  - Before removing, check 8a: it may keep the methods and drop only the assertions.
+- **12.** `ReadPairAt`'s team becomes `*paths.TeamID`, where nil means seat.json's own team.
+  Update `bundle.go` and its test. When nil, the error templates name no team.
+
+**Not built yet, so build it this way:**
+
+- **1.** `Notices` gains `Token() string`.
+- **2.** `Engine.Load(t paths.TeamID, userID string)`.
+- **3.** Add `Engine.BeginRun(ctx context.Context, t paths.TeamID)`. 8a gives its result type.
+- **4.** `team.Team` gains `FlushFloor(ctx context.Context) error`.
+- **5.** `session_started` leaves the `state` message. It becomes a session-level `started {}`
+  message (`KindStarted`), which a session with no team can send (T6).
+- **6.** The `state` message gains `handle` and drops `link`.
+- **8.** The control message cap is **64 KiB**, not 8 KiB.
+  - Refuse `MSG_TRUNC` and `MSG_CTRUNC`, and use `MSG_CMSG_CLOEXEC`.
+  - Close the fds of a refused message.
+  - The control design above already planned these, apart from the cap.
+- **10.** `Health` gains `LastSyncOKMS`. 8a gives its type.
+- **11.** `Batch.Floors` is keyed by room purpose, not room id. 8a gives the key type.
