@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
@@ -26,16 +27,30 @@ func (e *configError) Error() string { return e.problem }
 // maxChildStderr caps the child's stderr, which is only ever shown as an explanation.
 const maxChildStderr = maxLine
 
+// ChildWait bounds every child op: no op may outlive the play's wait for the team lock, so a
+// child that never answers cannot hold the lock (or root's read of it) for longer.
+const ChildWait = 10 * time.Minute
+
 // ExecChild is the production Child (CS1-CS5): Self started as `ctl-child` under the
 // teamchat-ctl account Lookup finds, through Runner.
 type ExecChild struct {
 	Runner execx.Runner
 	Self   string
 	Lookup func(name string) (User, bool, error)
+
+	bound func(context.Context) (context.Context, context.CancelFunc) // a test's bound; nil is ChildWait
 }
 
 // Ask implements Child.
 func (c ExecChild) Ask(ctx context.Context, req Request) (Answer, error) {
+	bound := c.bound
+	if bound == nil {
+		bound = func(ctx context.Context) (context.Context, context.CancelFunc) {
+			return context.WithTimeout(ctx, ChildWait)
+		}
+	}
+	ctx, cancel := bound(ctx)
+	defer cancel()
 	spec, err := c.spec()
 	if err != nil {
 		return Answer{}, err

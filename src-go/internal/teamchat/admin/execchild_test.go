@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
@@ -217,6 +218,42 @@ func TestExecChildEndsWithTheContext(t *testing.T) {
 	})
 	_, err := ExecChild{Runner: f, Self: testSelf, Lookup: lookupCtl}.Ask(ctx, parkRequest(t))
 	if !errors.Is(err, context.Canceled) || errors.Is(err, ErrChild) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+// deadlineRunner records whether a run's context carries a deadline.
+type deadlineRunner struct {
+	fake    *execx.Fake
+	bounded bool
+}
+
+func (r *deadlineRunner) Run(ctx context.Context, c execx.Cmd) (execx.Result, error) {
+	_, r.bounded = ctx.Deadline()
+	return r.fake.Run(ctx, c)
+}
+
+// TestExecChildIsBoundedByChildWait is CS5's bound: every child runs under a deadline of
+// ChildWait, and a child that outlives it is the deadline's error, never its answer.
+func TestExecChildIsBoundedByChildWait(t *testing.T) {
+	if ChildWait != 10*time.Minute {
+		t.Fatalf("ChildWait = %v", ChildWait)
+	}
+	c := childAnswering(`{"v":1,"ok":true,"changed":[]}`+"\n", "", 0, nil)
+	fake, isFake := c.Runner.(*execx.Fake)
+	if !isFake {
+		t.Fatal("not the fake")
+	}
+	r := &deadlineRunner{fake: fake}
+	c.Runner = r
+	if _, err := c.Ask(t.Context(), parkRequest(t)); err != nil || !r.bounded {
+		t.Fatalf("err %v, bounded %v", err, r.bounded)
+	}
+	c.bound = func(ctx context.Context) (context.Context, context.CancelFunc) {
+		return context.WithDeadline(ctx, time.Time{})
+	}
+	_, err := c.Ask(t.Context(), parkRequest(t))
+	if !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, ErrChild) {
 		t.Fatalf("got %v", err)
 	}
 }

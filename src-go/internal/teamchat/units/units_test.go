@@ -359,6 +359,27 @@ func TestAContextThatEndsFirstIsTheError(t *testing.T) {
 	}
 }
 
+// TestAJobWaitIsBounded: a JobRemoved that never comes ends the wait at the Manager's bound,
+// which is JobWait unless a test sets it (zero here, so the bound has passed when the wait
+// starts and no clock is read).
+func TestAJobWaitIsBounded(t *testing.T) {
+	if JobWait != 10*time.Minute || NewManager(nil, nil).jobWait != JobWait {
+		t.Fatalf("JobWait = %v, a new Manager's bound %v", JobWait, NewManager(nil, nil).jobWait)
+	}
+	r := newRig(t)
+	r.m.jobWait = 0
+	unit := testUnit(t)
+	r.conn.on(managerStartUnit, func(fakeCall) ([]any, error) { return []any{jobPath}, nil })
+	err := r.m.Host().Start(t.Context(), unit)
+	if !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), unit) ||
+		!strings.Contains(err.Error(), "no JobRemoved") {
+		t.Fatalf("err = %v", err)
+	}
+	if r.dials != 1 || r.conn.closes != 0 {
+		t.Errorf("dials %d closes %d: a job that outlived its bound is not a lost bus", r.dials, r.conn.closes)
+	}
+}
+
 func TestAContextEndedInTheCallIsTheError(t *testing.T) {
 	r := newRig(t)
 	unit := testUnit(t)

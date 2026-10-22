@@ -66,6 +66,10 @@ const (
 	idBytes     = 16
 )
 
+// JobWait bounds the wait for a job's JobRemoved. It is above any homeserver unit's start
+// timeout, so only a JobRemoved that is never sent reaches it.
+const JobWait = 10 * time.Minute
+
 // The classes of error a call ends in (SD7).
 var (
 	ErrUnitName     = errors.New("not a teamchat homeserver unit name")
@@ -95,8 +99,9 @@ type Conn interface {
 
 // Manager is systemd over one lazily opened bus connection. Safe for concurrent use.
 type Manager struct {
-	dial func(context.Context) (Conn, error)
-	run  execx.Runner
+	dial    func(context.Context) (Conn, error)
+	run     execx.Runner
+	jobWait time.Duration
 
 	mu sync.Mutex
 	s  *session
@@ -109,7 +114,7 @@ type Manager struct {
 // NewManager is a Manager that dials with dial on first use and runs systemctl and journalctl
 // through r.
 func NewManager(dial func(context.Context) (Conn, error), r execx.Runner) *Manager {
-	return &Manager{dial: dial, run: r}
+	return &Manager{dial: dial, run: r, jobWait: JobWait}
 }
 
 // Host is the Manager as host.Systemd.
@@ -456,6 +461,8 @@ func (m *Manager) job(ctx context.Context, verb, method, unit string) error {
 	if err != nil {
 		return m.failed(s, what, err)
 	}
+	wait, cancel := context.WithTimeout(ctx, m.jobWait)
+	defer cancel()
 	select {
 	case result, ok := <-done:
 		if !ok {
@@ -469,9 +476,12 @@ func (m *Manager) job(ctx context.Context, verb, method, unit string) error {
 			return fmt.Errorf("systemd %s: %w: it ended %s", what, ErrJobFailed, shown)
 		}
 		return nil
-	case <-ctx.Done():
+	case <-wait.Done():
 		s.forget(job)
-		return fmt.Errorf("systemd %s: %w", what, ctx.Err())
+		if ctx.Err() != nil {
+			return fmt.Errorf("systemd %s: %w", what, ctx.Err())
+		}
+		return fmt.Errorf("systemd %s: no JobRemoved within %v: %w", what, m.jobWait, wait.Err())
 	}
 }
 

@@ -65,7 +65,8 @@ The packages:
   wrapped with what happened, which the verbs report as 1 and the health tick as
   `health.ErrViewChild`.
 - **CS5.** A context that ends stops the child (execx's TERM, then KILL after the grace) and is
-  the context's error.
+  the context's error. Every `Ask` runs under a deadline of `ChildWait` (10 minutes, one
+  constant for every op): no op may outlive the play's wait for the team lock.
 
 ## 3. The child's new operations (CO, C 3.11.2)
 
@@ -155,7 +156,9 @@ context. `Manager.Host()` is `host.Systemd` and
   `StopUnit` with mode `replace`, having subscribed (`Subscribe`) and matched `JobRemoved` before
   the call, and return when the job's `JobRemoved` arrives: `done` is success; `failed`,
   `timeout`, `canceled`, `dependency`, `skipped` or any other result is an error naming the
-  unit, the verb and the result (n2e-D13). A context that ends first is its error.
+  unit, the verb and the result (n2e-D13). A context that ends first is its error, and a
+  JobRemoved that has not come within `JobWait` (10 minutes, above any unit's start timeout)
+  ends the wait as a deadline error.
 - **SD2. Reload.** `DaemonReload` is `Reload`, which systemd answers when it is done.
 - **SD3. Enable and disable.** `EnableUnitFiles([unit], false, false)` and
   `DisableUnitFiles([unit], false)`, then `Reload`.
