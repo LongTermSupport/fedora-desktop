@@ -190,22 +190,28 @@ def _verdict(judgement: changed_plays.Judgement, play: str) -> freshness.Verdict
 
 def coverage_sentence(judgement: changed_plays.Judgement) -> str:
     """What the play-freshness section judged, and what it leaves out, in one sentence."""
+    # Counted from the judgement, which includes a successor that takes over a removed play
+    # and has not run here itself, so it says "judged", not "run here".
     judged_count = len(judgement.states) + len(judgement.gone)
     sentence = (
-        f"{judged_count} plays run here under playbooks/imports/, judged as run.bash --changed "
-        "judges them: their own file and every checkout path they deploy, their last run's "
-        "outcome, and whether that run was from a dirty checkout"
+        f"{judged_count} {'play' if judged_count == 1 else 'plays'} under playbooks/imports/ "
+        "judged as run.bash --changed judges them: their own file and every checkout path "
+        "they deploy, their last run's outcome, and whether that run was from a dirty checkout"
     )
-    if judgement.unresolved:
+    unresolved = len(judgement.unresolved)
+    if unresolved:
         sentence += (
-            f"; {len(judgement.unresolved)} of them hold a reference that cannot be followed, "
-            f"so a change there is not seen: {', '.join(sorted(judgement.unresolved))}"
+            f"; {unresolved} of them {'holds' if unresolved == 1 else 'hold'} a reference that "
+            "cannot be followed, so a change there is not seen: "
+            f"{', '.join(sorted(judgement.unresolved))}"
         )
-    if judgement.not_judged:
+    others = len(judgement.not_judged)
+    if others:
         sentence += (
-            f"; {len(judgement.not_judged)} other ledgered plays are not host plays and are "
-            f"not judged: {', '.join(judgement.not_judged)}"
-        )
+            "; 1 other ledgered play is not a host play and is not judged"
+            if others == 1
+            else f"; {others} other ledgered plays are not host plays and are not judged"
+        ) + f": {', '.join(judgement.not_judged)}"
     return sentence
 
 

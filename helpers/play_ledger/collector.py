@@ -133,8 +133,8 @@ class RunCollector:
         """The play's real path, and whether it is tracked, from Ansible's `<file>:<line>` form.
 
         A play outside the root comes back with `tracked=False`: not an error, a play
-        the ledger does not track. It cannot be compared against this repo's
-        HEAD, so a row for it would be unanswerable — the same reasoning by which
+        the ledger does not track. Its file is not in this repo's history or working
+        tree, so a row for it would be unanswerable — the same reasoning by which
         `changed_plays.judge` leaves out a play the repo never tracked. A private play
         run from a linked worktree is the usual case: it lives in the main checkout's
         untracked/.

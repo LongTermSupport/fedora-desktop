@@ -1053,8 +1053,9 @@ The `fedora-desktop` GNOME Shell panel — **it offers; a person decides**:
 - **"Re-run a play…"** is one row, not a list of plays. It opens
   `fedora-desktop-health --rerun --hold` in the default terminal, which runs
   `./run.bash --rerun`: a numbered menu of the plays that have run here, changed or failed
-  ones marked, to pick from. The label carries a count when the freshness check has
-  marked any play not fresh, for example "Re-run a play… (2 changed)". The panel says what
+  ones marked, to pick from. The label carries a count of the plays `./run.bash --changed`
+  would run, the changed and failed ones, for example "Re-run a play… (2 changed)"; a play
+  the check cannot judge is not counted. The panel says what
   it launched, never that a play ran — the next report reads the outcome from the ledger.
   The row does not change the icon
 - **"Open the full report in a terminal"**, one row under the collection time, opens

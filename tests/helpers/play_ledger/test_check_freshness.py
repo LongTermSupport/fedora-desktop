@@ -343,7 +343,7 @@ class TestCoverage(unittest.TestCase):
     def test_it_states_the_count_and_the_rule_it_judged_by(self) -> None:
         coverage = self._sentence(_judgement({A: changed_plays.STATE_CURRENT}, gone=(OLD,)))
         self.assertEqual(len(coverage), 1)
-        self.assertTrue(coverage[0].startswith("2 plays run here under playbooks/imports/, judged as "
+        self.assertTrue(coverage[0].startswith("2 plays under playbooks/imports/ judged as "
                                                "run.bash --changed judges them"), coverage[0])
         self.assertNotIn("not judged", coverage[0])
 
@@ -351,9 +351,16 @@ class TestCoverage(unittest.TestCase):
         dev = "playbooks/dev/play-tool.yml"
         coverage = self._sentence(_judgement({A: changed_plays.STATE_UNRESOLVED},
                                              unresolved={A: ["x"]}, not_judged=(dev,)))
-        self.assertIn(f"1 of them hold a reference that cannot be followed, so a change there is not seen: {A}",
+        self.assertIn(f"1 of them holds a reference that cannot be followed, so a change there is not seen: {A}",
                       coverage[0])
-        self.assertIn(f"1 other ledgered plays are not host plays and are not judged: {dev}", coverage[0])
+        self.assertIn(f"1 other ledgered play is not a host play and is not judged: {dev}", coverage[0])
+
+    def test_many_are_counted_in_the_plural(self) -> None:
+        dev = ("playbooks/dev/play-a.yml", "playbooks/dev/play-b.yml")
+        coverage = self._sentence(_judgement({A: changed_plays.STATE_UNRESOLVED, B: changed_plays.STATE_UNRESOLVED},
+                                             unresolved={A: ["x"], B: ["y"]}, not_judged=dev))
+        self.assertIn("2 of them hold a reference", coverage[0])
+        self.assertIn("2 other ledgered plays are not host plays and are not judged", coverage[0])
 
     def test_no_answer_states_no_coverage(self) -> None:
         self.assertEqual(self._sentence(changed_plays.NoAnswer("x")), [])
