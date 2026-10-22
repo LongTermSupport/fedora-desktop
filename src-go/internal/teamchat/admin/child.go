@@ -73,7 +73,9 @@ func accountID(id int) (uint32, error) {
 	return uint32(id), nil
 }
 
-// checkStarted is the child's check that root started it by the spec (CC2).
+// checkStarted is the child's check that root started it by the spec (CC2). Its own gid as the
+// one supplementary group is the secure unit's start, which systemd's initgroups for User= gives
+// (RC7, n2g-D16).
 func checkStarted(p Process) error {
 	if env := p.Environ(); !slices.Equal(env, []string{"PATH=" + childPath}) {
 		return fmt.Errorf("its environment holds %d variables, not PATH=%s alone", len(env), childPath)
@@ -89,8 +91,8 @@ func checkStarted(p Process) error {
 	if err != nil {
 		return fmt.Errorf("its groups: %w", err)
 	}
-	if len(groups) > 0 {
-		return fmt.Errorf("it has %d supplementary groups", len(groups))
+	if len(groups) > 0 && !slices.Equal(groups, []int{p.Getgid()}) {
+		return fmt.Errorf("it has %d supplementary groups, not none or its own gid alone", len(groups))
 	}
 	return nil
 }

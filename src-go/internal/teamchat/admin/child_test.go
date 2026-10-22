@@ -361,6 +361,8 @@ func TestCtlChildChecksHowItWasStarted(t *testing.T) {
 		"cwd":            func(p *fakeProc) { p.wd = "/root" },
 		"cwd error":      func(p *fakeProc) { p.wdErr = errors.New("gone") },
 		"groups":         func(p *fakeProc) { p.groups = []int{10} },
+		"own and other":  func(p *fakeProc) { p.groups = []int{ctlGID, 10} },
+		"own twice":      func(p *fakeProc) { p.groups = []int{ctlGID, ctlGID} },
 		"groups error":   func(p *fakeProc) { p.groupsErr = errors.New("eperm") },
 	}
 	for name, change := range cases {
@@ -370,6 +372,17 @@ func TestCtlChildChecksHowItWasStarted(t *testing.T) {
 		if got.code != ExitConfig || got.stdout != "" || !strings.HasPrefix(got.stderr, "teamchat-admin: ctl-child was not started by root's child spec: ") {
 			t.Errorf("%s: %+v", name, got)
 		}
+	}
+}
+
+// TestCtlChildTakesItsOwnGroup is RC7: systemd's initgroups for User= gives the secure unit's
+// child its own gid as its one supplementary group (n2g-D16).
+func TestCtlChildTakesItsOwnGroup(t *testing.T) {
+	p := childProc()
+	p.groups = []int{ctlGID}
+	got := run(t, p, goodRequest, "ctl-child")
+	if got.code != term.ExitFailure || got.stderr != "" || !strings.Contains(got.stdout, "is not served by this build") {
+		t.Fatalf("own gid as the one group = %+v", got)
 	}
 }
 
