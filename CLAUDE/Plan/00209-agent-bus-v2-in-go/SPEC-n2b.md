@@ -60,8 +60,10 @@ reports each role change for the caller to post).
   `proto.DecodeForge` (seam 16).
 - **DR4. LXC values.** `team` names a team declared present. `container` is an LXC name
   (`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`); `user` passes `paths.ParseGuestUser`; `checkout` is an
-  absolute, clean path other than `/` that is one line (CC6's rule: no control, format,
-  U+2028 or U+2029 character), so AG3's SECURITY line holds it; `site` passes
+  absolute, clean path other than `/`, valid UTF-8, that is one line (CC6's rule: no control,
+  format, U+2028 or U+2029 character; `paths.ValidGuestPath`), so AG3's SECURITY line holds
+  it, and for a `service: true` entry only `[A-Za-z0-9/._-]`, the unit's character set
+  (`paths.ValidUnitPath`); `site` passes
   `proto.NormaliseSite` unchanged; `seat` is required, 1 to 9999; `human_text` (default true)
   and `service` (default false) are booleans; `state` is `present` or `absent` (default
   `present`). No two entries share a team, container, checkout and seat (SPEC-n3 n3b-D2: an

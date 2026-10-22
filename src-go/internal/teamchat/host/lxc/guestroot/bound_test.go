@@ -79,6 +79,55 @@ func TestAStalledReadEndsAtItsBound(t *testing.T) {
 	}
 }
 
+// Every write below a stalled directory ends at the same bound as a read, as ErrStalled (that
+// member alone), while a write beside it still lands; nothing it opened outlives it, and the
+// root is released only once the last stalled write ends.
+func TestAStalledWriteEndsAtItsBound(t *testing.T) {
+	g := newTree(t)
+	g.mkdir("/w/tree")
+	g.file("/w/f", "x", 0o644)
+	rec := newRecorder()
+	r, err := openDirWith(rec, g.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.bound = 20 * time.Millisecond
+	rootFD := r.fd
+	closes := make(chan int, 64)
+	stall := make(chan struct{})
+	rec.mu.Lock()
+	rec.stallPath, rec.stall, rec.closes = "w", stall, closes
+	rec.mu.Unlock()
+	w := r.Writer()
+	for name, err := range map[string]error{
+		"MkdirAll":   second(w.MkdirAll("/w/new")),
+		"WriteFile":  second(w.WriteFile("/w", "g", []byte("y"), 0o644)),
+		"PlaceDir":   second(w.PlaceDir("/w", "kit", fillKit)),
+		"Symlink":    second(w.Symlink("/w", "l", "f")),
+		"Remove":     second(w.Remove("/w", "f")),
+		"RemoveTree": second(w.RemoveTree("/w", "tree")),
+	} {
+		if !errors.Is(err, ErrStalled) || !errors.Is(err, ErrRefused) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	r.bound = time.Minute
+	if changed, err := w.WriteFile("/", "beside", []byte("ok"), 0o644); err != nil || !changed {
+		t.Fatalf("a write beside stalled ones: %v %v", changed, err)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatalf("Close with writes in flight: %v", err)
+	}
+	if !slices.ContainsFunc(rec.leaked(), func(l string) bool { return strings.HasPrefix(l, strconv.Itoa(rootFD)+" ") }) {
+		t.Errorf("the root was released under a write in flight: %v", rec.leaked())
+	}
+	close(stall)
+	waitClosed(t, closes, rootFD)
+	if l := rec.leaked(); len(l) != 0 {
+		t.Errorf("leaked %v", l)
+	}
+}
+
 // A dial that ends after its bound closes the connection it made, which no one holds.
 func TestALateDialIsClosed(t *testing.T) {
 	g := newTree(t)

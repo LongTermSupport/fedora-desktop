@@ -218,8 +218,8 @@ func flagArg(name, v string) (proto.Value, error) {
 	switch name {
 	case keySeat:
 		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 || n > maxSeat || strconv.Itoa(n) != v {
-			return proto.Value{}, usagef("--seat is a number from 1 to %d", maxSeat)
+		if err != nil || !paths.ValidLXCSeat(n) || strconv.Itoa(n) != v {
+			return proto.Value{}, usagef("--seat is a number from 1 to %d", paths.MaxLXCSeat)
 		}
 		return proto.Int(int64(n)), nil
 	case flagHumanText:

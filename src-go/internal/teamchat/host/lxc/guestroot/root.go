@@ -107,8 +107,8 @@ type Pinner struct {
 }
 
 // Root is one running guest's root directory, held open with its init pinned (LX3, n3-D7).
-// Every read and write below it keeps TB1, and each read is bounded (B5). Safe for one
-// goroutine at a time; a read abandoned at its bound ends on its own.
+// Every read and write below it keeps TB1, and each is bounded (B5). Safe for one
+// goroutine at a time; a call abandoned at its bound ends on its own.
 type Root struct {
 	sys    sys
 	kernel Kernel
@@ -161,7 +161,7 @@ func (p Pinner) pinWith(ctx context.Context, s sys, pid func(context.Context) (i
 	if err != nil {
 		return nil, fmt.Errorf("guestroot: pidfd of %d: %w", first, err)
 	}
-	r := &Root{sys: s, kernel: p.Kernel, fd: -1, pidfd: pidfd, pid: first, proc: p.Proc, bound: readBound}
+	r := &Root{sys: s, kernel: p.Kernel, fd: -1, pidfd: pidfd, pid: first, proc: p.Proc, bound: callBound}
 	rootPath := p.Proc + "/" + strconv.Itoa(first) + "/root"
 	fd, err := s.openat(unix.AT_FDCWD, rootPath, rootFlags|unix.O_DIRECTORY, 0)
 	if err != nil {
@@ -196,7 +196,7 @@ func openDirWith(s sys, dir string) (*Root, error) {
 	if err != nil {
 		return nil, fmt.Errorf("guestroot: %s: %w", dir, err)
 	}
-	r := &Root{sys: s, fd: fd, pidfd: -1, bound: readBound}
+	r := &Root{sys: s, fd: fd, pidfd: -1, bound: callBound}
 	info, err := r.statFD(fd, dir)
 	if err == nil && !info.Mode.IsDir() {
 		err = fmt.Errorf("%w: %s is %s", ErrRefused, dir, kind(info.Mode))
@@ -232,9 +232,9 @@ func (r *Root) Alive() error {
 	return nil
 }
 
-// Close releases the root's descriptors, or, while a read abandoned at its bound is still in
-// flight, leaves the last such read to release them, so no descriptor number it may still use
-// is reused under it. Its error holds any abandoned read's error kept since the last Close.
+// Close releases the root's descriptors, or, while a call abandoned at its bound is still in
+// flight, leaves the last such call to release them, so no descriptor number it may still use
+// is reused under it. Its error holds any abandoned call's error kept since the last Close.
 func (r *Root) Close() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -283,7 +283,8 @@ func (r *Root) release() error {
 }
 
 // live runs op between two looks at the init, counted in flight: a root whose init died
-// before or during it answers ErrGone. A write and InitExe, a host path, run so, unbounded.
+// before or during it answers ErrGone. Only InitExe runs so, unbounded: its open is of the
+// host's /proc, which no guest mount lies under.
 func (r *Root) live(op func() error) error {
 	if err := r.Alive(); err != nil {
 		return err

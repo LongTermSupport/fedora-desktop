@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -468,6 +469,7 @@ func TestVerbFlagsAreStrict(t *testing.T) {
 		"positional":          {"member", "park", "--team", "alpha", "--handle", sampleHandle, "extra"},
 		"bad team":            {"member", "park", "--team", "Alpha!", "--handle", sampleHandle},
 		"seat zero":           addArgs("0", "password"),
+		"seat past the bound": addArgs(strconv.Itoa(paths.MaxLXCSeat+1), "password"),
 		"seat word":           addArgs("three", "password"),
 		"seat next":           addArgs("next", "password"),
 		"credential":          addArgs("3", "key"),
