@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
@@ -191,47 +192,58 @@ func roomID(h *held, r proto.Roster, purpose string) string {
 // or delivered is not added twice. A full pending list refuses the whole batch, loudly (B
 // 2.3.2), so nothing is dropped and the batch is fetched again.
 func (e *Engine) Persist(ctx context.Context, b team.Batch) error {
-	var added map[string]proto.Verdict
-	err := e.change(ctx, b.Team, func(h *held, s *state.Store) (bool, error) {
-		added = map[string]proto.Verdict{}
-		s.Sync.NextBatch, s.Sync.RestoreEpoch, s.Sync.Fresh = b.NextBatch, b.RestoreEpoch, b.Fresh
-		if len(b.Floors) > 0 && s.Sync.FloorMS == nil {
-			s.Sync.FloorMS = map[string]int64{}
+	var out error
+	if err := e.do(ctx, func() {
+		var added map[string]proto.Verdict
+		out = e.changeLocked(b.Team, func(_ *held, s *state.Store) (bool, error) {
+			var err error
+			added, err = apply(s, b)
+			return err == nil, err
+		})
+		if out != nil {
+			return
 		}
-		for room, ms := range b.Floors {
-			s.Sync.FloorMS[room] = ms
-		}
-		known := map[string]bool{}
-		for _, p := range s.Pending {
-			known[p.ID] = true
-		}
-		for _, l := range s.Ledger {
-			known[l.ID] = true
-		}
-		for _, it := range b.Items {
-			if known[it.Pending.ID] {
-				continue
-			}
-			if err := s.AddPending(it.Pending); err != nil {
-				return false, fmt.Errorf("engine: team %s: %w", b.Team, err)
-			}
-			known[it.Pending.ID] = true
-			added[it.Pending.ID] = it.Verdict
-		}
-		s.Pending = slices.DeleteFunc(s.Pending, func(p state.Pending) bool { return slices.Contains(b.Redacts, p.ID) })
-		for id, v := range added {
-			h.content[id] = v
-		}
+		// Memory follows the disk: only a written batch's content and counts are kept.
+		h := e.teams[b.Team]
+		maps.Copy(h.content, added)
 		for _, id := range b.Redacts {
 			delete(h.content, id)
 		}
 		h.counts = addCounts(h.counts, b.Counts)
-		return true, nil
-	})
-	if err == nil {
 		e.wake()
+	}); err != nil {
+		return err
 	}
-	return err
+	return out
+}
+
+// apply is b in a copy of its store; it is the items added, with their verdicts.
+func apply(s *state.Store, b team.Batch) (map[string]proto.Verdict, error) {
+	added := map[string]proto.Verdict{}
+	s.Sync.NextBatch, s.Sync.RestoreEpoch, s.Sync.Fresh = b.NextBatch, b.RestoreEpoch, b.Fresh
+	if len(b.Floors) > 0 && s.Sync.FloorMS == nil {
+		s.Sync.FloorMS = map[string]int64{}
+	}
+	maps.Copy(s.Sync.FloorMS, b.Floors)
+	known := map[string]bool{}
+	for _, p := range s.Pending {
+		known[p.ID] = true
+	}
+	for _, l := range s.Ledger {
+		known[l.ID] = true
+	}
+	for _, it := range b.Items {
+		if known[it.Pending.ID] {
+			continue
+		}
+		if err := s.AddPending(it.Pending); err != nil {
+			return nil, fmt.Errorf("engine: team %s: %w", b.Team, err)
+		}
+		known[it.Pending.ID] = true
+		added[it.Pending.ID] = it.Verdict
+	}
+	s.Pending = slices.DeleteFunc(s.Pending, func(p state.Pending) bool { return slices.Contains(b.Redacts, p.ID) })
+	return added, nil
 }
 
 func addCounts(a, b team.Counts) team.Counts {

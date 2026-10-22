@@ -74,10 +74,7 @@ func doneOf(err error) wire.Done {
 
 // internal is a failure inside the link. Its message is a fixed template, which never quotes
 // err; err itself is in link.log when the caller logged it.
-func internal(err error) wire.Done {
-	if err == nil {
-		err = errors.New("engine: no error")
-	}
+func internal(error) wire.Done {
 	return wire.Done{Exit: int(exits.ExitInternal), Error: exits.New(exits.CodeInternal, nil, msgInternal)}
 }
 

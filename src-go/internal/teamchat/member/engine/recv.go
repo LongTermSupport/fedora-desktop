@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"maps"
 	"slices"
 	"sync"
 	"time"
@@ -149,80 +150,10 @@ func rosters(teams map[paths.TeamID]team.Team) map[paths.TeamID]namer {
 // items chosen within the caps marked handed by ack, one write per store, before any record is
 // sent.
 func (e *Engine) handOut(p plan, got map[key]fetched, names map[paths.TeamID]namer, ack string) handout {
-	stores := map[paths.TeamID]*state.Store{}
-	storeOf := func(h *held) *state.Store {
-		if s, ok := stores[h.id]; ok {
-			return s
-		}
-		s, err := clone(*h.store)
-		if err != nil {
-			e.logf("team %s: %v", h.id, err)
-			return nil
-		}
-		stores[h.id] = &s
-		return &s
-	}
-	for k, f := range got {
-		h := e.teams[k.team]
-		if f.err != nil || h == nil || !eligible(h, nil) {
-			continue
-		}
-		if why := e.rejudge(h, k.id, f.v); why != "" {
-			if s := storeOf(h); s != nil {
-				s.Pending = slices.DeleteFunc(s.Pending, func(it state.Pending) bool { return it.ID == k.id })
-				e.logf("team %s: restored item %s dropped: %s", h.id, k.id, why)
-			}
-			continue
-		}
-		h.content[k.id] = f.v
-	}
-	var (
-		chosen []key
-		recs   []records.Record
-		total  int
-	)
-	for _, c := range p.cands {
-		h := e.teams[c.team]
-		if h == nil || !eligible(h, nil) || len(chosen) == maxEntries {
-			continue
-		}
-		s := storeOf(h)
-		if s == nil {
-			continue
-		}
-		i := slices.IndexFunc(s.Pending, func(it state.Pending) bool { return it.ID == c.id && it.Handed == nil })
-		if i < 0 {
-			continue
-		}
-		v, known := h.content[c.id]
-		if needsContent(s.Pending[i]) && !known {
-			continue
-		}
-		r := itemRecord(c.team, s.Pending[i], v, names[c.team], s.Outbox.Pings)
-		line, err := records.Encode(r)
-		if err != nil {
-			e.logf("team %s: item %s has no record: %v", c.team, c.id, err)
-			continue
-		}
-		if len(chosen) > 0 && total+len(line)+1 > maxBytes {
-			break
-		}
-		total += len(line) + 1
-		handed := ack
-		s.Pending[i].Handed = &handed
-		chosen = append(chosen, key{c.team, c.id})
-		recs = append(recs, r)
-	}
-	failed := map[paths.TeamID]bool{}
-	for id, s := range stores {
-		h := e.teams[id]
-		if err := h.writer.Write(*s); err != nil {
-			e.logf("team %s: the hand-out was not persisted, its items stay pending: %v", id, err)
-			failed[id] = true
-			continue
-		}
-		h.store = s
-	}
+	c := copies{e: e, stores: map[paths.TeamID]*state.Store{}}
+	e.rejudgeAll(got, &c)
+	chosen, recs := e.choose(p, names, ack, &c)
+	failed := e.commit(c.stores)
 	out := handout{}
 	for i, k := range chosen {
 		if !failed[k.team] {
@@ -231,15 +162,130 @@ func (e *Engine) handOut(p plan, got map[key]fetched, names map[paths.TeamID]nam
 	}
 	for id := range p.teams {
 		if h := e.teams[id]; h != nil && eligible(h, nil) {
-			for _, it := range h.store.Pending {
-				if it.Handed == nil {
-					out.remaining++
-				}
-			}
+			out.remaining += unhanded(h.store)
 		}
 	}
 	e.publish()
 	return out
+}
+
+// copies are a hand-out's store copies, one per team touched, written together at its end.
+type copies struct {
+	e      *Engine
+	stores map[paths.TeamID]*state.Store
+}
+
+func (c *copies) of(h *held) *state.Store {
+	if s, ok := c.stores[h.id]; ok {
+		return s
+	}
+	s, err := clone(*h.store)
+	if err != nil {
+		c.e.logf("team %s: %v", h.id, err)
+		return nil
+	}
+	c.stores[h.id] = &s
+	return &s
+}
+
+// rejudgeAll keeps each re-fetched item's verdict in memory, or drops the item from its copy.
+func (e *Engine) rejudgeAll(got map[key]fetched, c *copies) {
+	for k, f := range got {
+		h := e.teams[k.team]
+		if f.err != nil || h == nil || !eligible(h, nil) {
+			continue
+		}
+		why := e.rejudge(h, k.id, f.v)
+		if why == "" {
+			h.content[k.id] = f.v
+			continue
+		}
+		if s := c.of(h); s != nil {
+			s.Pending = slices.DeleteFunc(s.Pending, func(it state.Pending) bool { return it.ID == k.id })
+			e.logf("team %s: restored item %s dropped: %s", h.id, k.id, why)
+		}
+	}
+}
+
+// choose marks the candidates within the caps handed by ack, in their copies, and is their
+// keys and records in order.
+func (e *Engine) choose(p plan, names map[paths.TeamID]namer, ack string, c *copies) ([]key, []records.Record) {
+	var (
+		chosen []key
+		recs   []records.Record
+		total  int
+	)
+	for _, cand := range p.cands {
+		if len(chosen) == maxEntries {
+			break
+		}
+		s, i, r, ok := e.render(cand, names, c)
+		if !ok {
+			continue
+		}
+		line, err := records.Encode(r)
+		if err != nil {
+			e.logf("team %s: item %s has no record: %v", cand.team, cand.id, err)
+			continue
+		}
+		if len(chosen) > 0 && total+len(line)+1 > maxBytes {
+			break
+		}
+		total += len(line) + 1
+		handed := ack
+		s.Pending[i].Handed = &handed
+		chosen = append(chosen, key{cand.team, cand.id})
+		recs = append(recs, r)
+	}
+	return chosen, recs
+}
+
+// render is a candidate's record, its copy and its index there; false when it can no longer
+// go (its team gone, the item settled or dropped, or its content not in memory).
+func (e *Engine) render(cand candidate, names map[paths.TeamID]namer, c *copies) (*state.Store, int, records.Record, bool) {
+	h := e.teams[cand.team]
+	if h == nil || !eligible(h, nil) {
+		return nil, 0, nil, false
+	}
+	s := c.of(h)
+	if s == nil {
+		return nil, 0, nil, false
+	}
+	i := slices.IndexFunc(s.Pending, func(it state.Pending) bool { return it.ID == cand.id && it.Handed == nil })
+	if i < 0 {
+		return nil, 0, nil, false
+	}
+	v, known := h.content[cand.id]
+	if needsContent(s.Pending[i]) && !known {
+		return nil, 0, nil, false
+	}
+	return s, i, itemRecord(cand.team, s.Pending[i], v, names[cand.team], s.Outbox.Pings), true
+}
+
+// commit writes each copy, keeping it in memory only once written; it is the teams whose write
+// failed, whose items stay pending.
+func (e *Engine) commit(stores map[paths.TeamID]*state.Store) map[paths.TeamID]bool {
+	failed := map[paths.TeamID]bool{}
+	for _, id := range slices.SortedFunc(maps.Keys(stores), compareTeams) {
+		s, h := stores[id], e.teams[id]
+		if err := h.writer.Write(*s); err != nil {
+			e.logf("team %s: the hand-out was not persisted, its items stay pending: %v", id, err)
+			failed[id] = true
+			continue
+		}
+		h.store = s
+	}
+	return failed
+}
+
+func unhanded(s *state.Store) int64 {
+	n := int64(0)
+	for _, it := range s.Pending {
+		if it.Handed == nil {
+			n++
+		}
+	}
+	return n
 }
 
 // rejudge is why a re-fetched item no longer passes: its verdict, or its room's floor; "" when
@@ -409,27 +455,32 @@ func (e *Engine) settle(ctx context.Context, ack string, deliver func(*state.Sto
 				continue
 			}
 			errs = append(errs, e.changeLocked(id, func(h *held, s *state.Store) (bool, error) {
-				changed := false
-				kept := s.Pending[:0]
-				for _, it := range s.Pending {
-					if it.Handed == nil || *it.Handed != ack {
-						kept = append(kept, it)
-						continue
-					}
-					changed = true
-					if deliver(s, it, now) {
-						delete(h.content, it.ID)
-						continue
-					}
-					it.Handed, it.Repeat = nil, true
-					kept = append(kept, it)
-				}
-				s.Pending = kept
-				return changed, nil
+				return settleStore(h, s, ack, now, deliver), nil
 			}))
 		}
 	}); err != nil {
 		return err
 	}
 	return errors.Join(errs...)
+}
+
+// settleStore is settle in one store's copy; it is whether anything was handed by ack.
+func settleStore(h *held, s *state.Store, ack string, now int64, deliver func(*state.Store, state.Pending, int64) bool) bool {
+	changed := false
+	kept := s.Pending[:0]
+	for _, it := range s.Pending {
+		if it.Handed == nil || *it.Handed != ack {
+			kept = append(kept, it)
+			continue
+		}
+		changed = true
+		if deliver(s, it, now) {
+			delete(h.content, it.ID)
+			continue
+		}
+		it.Handed, it.Repeat = nil, true
+		kept = append(kept, it)
+	}
+	s.Pending = kept
+	return changed
 }

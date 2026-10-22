@@ -157,45 +157,55 @@ func (e *Engine) status(ctx context.Context, only *paths.TeamID, out RecordWrite
 		views   []teamView
 		refused []paths.TeamID
 	)
-	if err := e.do(ctx, func() {
-		for _, id := range e.order() {
-			h := e.teams[id]
-			if h.removed || only != nil && *only != id {
-				continue
-			}
-			views = append(views, teamView{id: id, tm: h.team, userID: h.userID, handle: h.handle(), health: h.health,
-				counts: h.counts, pending: h.pending()})
-		}
-		for _, id := range slices.SortedFunc(maps.Keys(e.refused), compareTeams) {
-			if only == nil || *only == id {
-				refused = append(refused, id)
-			}
-		}
-	}); err != nil {
+	if err := e.do(ctx, func() { views, refused = e.snapshot(only) }); err != nil {
 		return internal(err)
 	}
 	if only != nil && len(views) == 0 && len(refused) == 0 {
 		return notHeld(*only)
 	}
+	var recs []records.Record
 	for _, v := range views {
-		if err := writeAll(out, teamRecords(v, e.cfg.Delivery)); err != nil {
-			return internal(err)
-		}
+		recs = append(recs, teamRecords(v, e.cfg.Delivery)...)
 	}
 	for _, id := range refused {
-		if err := out.Record(records.Team{Team: id, Name: id.String(), Trust: trustUnverified, Delivery: state.DeliveryNone, Down: true}); err != nil {
-			return internal(err)
-		}
+		recs = append(recs, records.Team{Team: id, Name: id.String(), Trust: trustUnverified, Delivery: state.DeliveryNone, Down: true})
 	}
-	rt, err := e.cfg.Runtime()
-	if err != nil {
+	if rt, err := e.cfg.Runtime(); err != nil {
 		e.logf("status: the runtime cost was not read: %v", err)
-		return wire.Done{}
+	} else {
+		recs = append(recs, rt)
 	}
-	if err := out.Record(rt); err != nil {
+	if err := writeAll(out, recs); err != nil {
+		return internal(err)
+	}
+	if err := out.Flush(); err != nil {
 		return internal(err)
 	}
 	return wire.Done{}
+}
+
+// snapshot is the held teams and refused adds status shows, on the state goroutine.
+func (e *Engine) snapshot(only *paths.TeamID) ([]teamView, []paths.TeamID) {
+	var (
+		views   []teamView
+		refused []paths.TeamID
+	)
+	for _, id := range e.order() {
+		h := e.teams[id]
+		if h.removed || only != nil && *only != id {
+			continue
+		}
+		views = append(views, teamView{
+			id: id, tm: h.team, userID: h.userID, handle: h.handle(), health: h.health,
+			counts: h.counts, pending: h.pending(),
+		})
+	}
+	for _, id := range slices.SortedFunc(maps.Keys(e.refused), compareTeams) {
+		if only == nil || *only == id {
+			refused = append(refused, id)
+		}
+	}
+	return views, refused
 }
 
 func writeAll(out RecordWriter, rs []records.Record) error {

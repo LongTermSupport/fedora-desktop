@@ -78,7 +78,7 @@ func (e *Engine) Add(ctx context.Context, t paths.TeamID, l *lock.SeatLock, remo
 	if err != nil {
 		e.logf("team %s: no team goroutine: %v", t, err)
 	}
-	return e.do(ctx, func() { e.start(h, tm) })
+	return e.do(ctx, func() { e.start(ctx, h, tm) })
 }
 
 // load is Add's local half, on the state goroutine.
@@ -91,8 +91,8 @@ func (e *Engine) load(h *held) error {
 		return fmt.Errorf("engine: team %s: %w", h.id, err)
 	}
 	h.writer = w
-	if b, err := e.readBundle(h); err != nil {
-		e.logf("team %s: seat.json: %v", h.id, err)
+	if b, bundleErr := e.readBundle(h); bundleErr != nil {
+		e.logf("team %s: seat.json: %v", h.id, bundleErr)
 	} else {
 		h.userID = b.UserID
 		h.anchors = proto.Anchors{Server: b.ServerName, Team: h.id.String(), MainRoom: b.MainRoom, Self: b.UserID}
@@ -153,8 +153,9 @@ func restoreHanded(s *state.Store) int {
 	return n
 }
 
-// start runs tm for h, unless the team was removed meanwhile or its store is refused.
-func (e *Engine) start(h *held, tm team.Team) {
+// start runs tm for h, unless the team was removed meanwhile or its store is refused. The team
+// goroutine outlives the add's request: its context keeps ctx's values, never its end.
+func (e *Engine) start(ctx context.Context, h *held, tm team.Team) {
 	h.team = tm
 	if tm == nil {
 		h.health.Stopped = "bundle"
@@ -164,11 +165,11 @@ func (e *Engine) start(h *held, tm team.Team) {
 		e.publish()
 		return
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	h.cancel = cancel
 	go func() {
 		defer close(h.stopped)
-		if err := tm.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		if err := tm.Run(runCtx); err != nil && !errors.Is(err, context.Canceled) {
 			e.logf("team %s: the team goroutine ended: %v", h.id, err)
 		}
 	}()

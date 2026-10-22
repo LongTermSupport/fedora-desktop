@@ -146,8 +146,11 @@ func (e *Engine) Run(ctx context.Context) error {
 }
 
 // do runs f on the state goroutine and waits for it. Once accepted, f runs to its end: it is
-// local work only.
+// local work only. A context already ended is refused before the goroutine is asked.
 func (e *Engine) do(ctx context.Context, f func()) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	finished := make(chan struct{})
 	op := func() {
 		defer close(finished)
