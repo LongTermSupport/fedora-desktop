@@ -266,3 +266,43 @@ Record n3c-D24 in the part report.
    busfailpoints run; then commit, and write `261022-n3c-p4.md`, with the owner-rule section:
    how an offline member never blocks anything (the goroutine makes no network call; the
    re-fetch is 2 s per team, in parallel; the removal is bounded at 4 s; the ends are bounded).
+
+## P4c state (the third builder stopped at its context budget)
+
+The link package `src-go/internal/teamchat/member/link` is written, test first, and committed
+as WIP. Read its files, not the design: they are the state.
+
+- `proc.go` (+`proc_test.go`): `Proc` {PPid, StartTicks, Cost}, `Cost`, `OSProc{Dir}`. Green.
+- `facts.go` (+`facts_test.go`): `Facts`, `Session` (session.json's writer), `newSession`,
+  `SetSessionPID`, `SetClaude`, `EndReason`, `AcceptFacts` (LN7: chain of at most 64 parent
+  steps, the socket only `paths.InboxSocket` of a chain pid at or below the session's, the
+  transcript only the derived path with no link below the config dir, the id swap rule, one
+  Claude Code pid with the fixed line, session.json then conversation.json, `started` once).
+  Decision: "a new link's first op" is the first facts this link accepts; a corrupt
+  session.json is logged and started afresh. Green.
+- `server.go` (+`server_test.go`): `listen` (unlink stale, bind, 0600), `server` over a
+  `served` interface (Serve/Ack/Return): SO_PEERCRED uid, 64 KiB line (10 size), 10 schema,
+  another kit 78 runtime, past deadline closed unacted, deadline via `Clock.AfterFunc`,
+  `readLimit` 5 s for the line (my bound), `ackWait` 10 s, failpoint `LinkWhileHanded` after
+  done, a refusal drains the client's input so the answer is not lost to a reset. Green.
+- `link.go` (+`link_test.go`): `Config`, `Parent`, `Run`, the control loop (every kind),
+  n3c-D24's ready (`addsWait` 10 s on `Clock.Hold`, covering launch too), remove/owed/leave
+  (30 s), finish (End + presence offline, 5 s), state coalescing, runtime. JUST WRITTEN: its
+  tests had not yet been seen to pass when the budget was hit (a run was in flight). Run
+  `go test -race -cover ./internal/teamchat/member/link/` and fix what fails.
+
+Left:
+
+1. Make `link_test.go` green; golangci (with and without `--build-tags tuwunel`); the lint
+   left at the stop: `tid`, `agent` in world_test.go may be unused; check `funcorder`.
+2. `main.go`: `Main(w Wiring) cli.RunFunc` (decision: Main needs W's NewTeam/NewEnds, so it
+   is a constructor, `type Wiring struct{ NewTeam; NewEnds }`); fd 3 via `wire.NewConn`
+   (SOCK_SEQPACKET), its `PeerPID` must be `os.Getppid()`; `--run <dir>` gives the run id
+   (base name) and the layout (`paths.CCYLayout()` when its run dir is that, else
+   `HomeLayout(home, $XDG_RUNTIME_DIR)`, else usage); `signal.Ignore(SIGTERM, SIGINT, SIGHUP)`; roots by `homefs.Open`; the real `Parent` (pidfd_open on getppid, then getppid
+   re-checked, a poll goroutine closing Exited; a pipe to stop it on Close).
+3. `reexec.StartFiles` in its own hunk (ExtraFiles from fd 3) and the real-process tests:
+   signals ignored, EOF gives keeper-died within 5 s, P11's SIGKILL while handed (busfailpoints
+   build, `LinkWhileHanded`), restart repeats the items.
+4. qa-changed, the report `261022-n3c-p4.md` (engine and link exported API as built, the
+   decisions above, D24, the owner rule section).
