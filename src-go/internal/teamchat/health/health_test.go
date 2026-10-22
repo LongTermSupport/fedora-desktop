@@ -721,9 +721,10 @@ func TestTheLXCDisconnectedNotice(t *testing.T) {
 		t.Fatal("a held seat was announced")
 	}
 
-	// The run ended; a new run B has already written its id into the lock file and failed.
+	// The run ended; a new run B has already written its id into the lock file and failed to
+	// launch. B is never announced (INT7), but the ended run A still is.
 	w.clock.advance(time.Minute)
-	w.guests.probes[lxcA] = GuestProbe{Record: lockRecord(runB, false)}
+	w.guests.probes[lxcA] = GuestProbe{Record: lockRecord(runB, true)}
 	w.run(t)
 	if len(w.announcer.asked) != 1 || w.announcer.asked[0] != (asked{lxcA, runA, t0.UnixMilli()}) {
 		t.Fatalf("asked %+v, want the ended run A with its since", w.announcer.asked)

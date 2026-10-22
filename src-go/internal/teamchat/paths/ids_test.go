@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -131,6 +132,37 @@ func TestParseSeatNameIsOneHandleSegment(t *testing.T) {
 		if _, err := ParseSeatName(s); !errors.Is(err, ErrInvalid) {
 			t.Errorf("ParseSeatName(%q) = %v, want ErrInvalid", s, err)
 		}
+	}
+}
+
+// A claim's name is told from a seat's by the one suffix the store joins claims with.
+func TestIsClaimNameIsTheStoresClaimSuffix(t *testing.T) {
+	s, err := SeatStore("/home/u/.local/state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	k, err := ParseCheckoutKey(strings.Repeat("0123456789abcdef", 2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	team, err := ParseTeamID("t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seat, err := ParseSeatName("r.1+s.host")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := ParseClaimID("fedcba9876543210")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim := filepath.Base(s.PoolClaim(k, team, seat, c).Dir())
+	if !IsClaimName(claim) {
+		t.Errorf("IsClaimName(%q) = false, want true", claim)
+	}
+	if IsClaimName(seat.text()) {
+		t.Errorf("IsClaimName(%q) = true, want false", seat.text())
 	}
 }
 

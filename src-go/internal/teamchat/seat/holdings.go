@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"strings"
 
 	"golang.org/x/sys/unix"
 
@@ -18,9 +17,6 @@ type Holding struct {
 	Record   HeldRecord
 	Complete bool
 }
-
-// claimMark is in the name of a placement's claim directory beside the pool seat it fills.
-const claimMark = ".new-"
 
 // Holdings lists every pool seat of the checkout with a held/, by team and seat name. The pool
 // is the owner's alone, so a name in it the store never makes is ErrInvalid, not skipped.
@@ -60,7 +56,7 @@ func (s *Store) teamHoldings(team paths.TeamID) ([]Holding, error) {
 	}
 	var out []Holding
 	for _, name := range names {
-		if strings.Contains(name, claimMark) {
+		if paths.IsClaimName(name) {
 			continue
 		}
 		seatName, err := paths.ParseSeatName(name)
