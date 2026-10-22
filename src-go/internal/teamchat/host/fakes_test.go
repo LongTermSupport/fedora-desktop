@@ -328,6 +328,12 @@ func (s *fakeStatus) Refresh(_ context.Context, _ paths.TeamID, first bool) erro
 	return s.w.call("status.refresh")
 }
 
+// Remove answers removeLine once, as the record's writer does: a second remove finds nothing.
 func (s *fakeStatus) Remove(context.Context, paths.TeamID) (string, error) {
-	return s.removeLine, s.w.call("status.remove")
+	if err := s.w.call("status.remove"); err != nil {
+		return "", err
+	}
+	line := s.removeLine
+	s.removeLine = ""
+	return line, nil
 }

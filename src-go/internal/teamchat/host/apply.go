@@ -20,9 +20,11 @@ import (
 )
 
 // The steps a failure names (C 3.5.2, 3.5.3). StepRefusals is step 2 and StepRender step 3;
-// StepFiles is step 4's first-apply files, and in `team remove` the records it deletes.
+// StepFiles is step 4's first-apply files, and in `team remove` the drop-in and stamp it
+// deletes; StepInstalled is `team remove` asking whether the team is installed at all.
 const (
 	StepLock      = "lock"
+	StepInstalled = "installed"
 	StepRefusals  = "refusals"
 	StepRender    = "render"
 	StepFiles     = "files"
