@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"testing"
 )
 
@@ -20,5 +21,32 @@ func TestClass(t *testing.T) {
 		if got := Class(err); got != want {
 			t.Errorf("Class(%v) = %q, want %q", err, got, want)
 		}
+	}
+}
+
+// StatusError is the error a call answered with status gets, classed as the call itself would
+// class it, so a package that judges failures can be tested without a server.
+func TestStatusError(t *testing.T) {
+	cases := []struct {
+		status    int
+		kind      error
+		transient bool
+	}{
+		{401, ErrAuthRefused, false},
+		{403, ErrForbidden, false},
+		{404, ErrNotFound, false},
+		{502, ErrRefused, true},
+		{302, ErrRefused, false},
+		{204, ErrRefused, false},
+		{400, ErrRefused, false},
+	}
+	for _, c := range cases {
+		e := StatusError(http.MethodGet, "/x", c.status, "M_X")
+		if !errors.Is(e, c.kind) || e.Transient() != c.transient || e.Status != c.status || e.Errcode != "M_X" || e.Method != http.MethodGet || e.Path != "/x" {
+			t.Errorf("StatusError(%d) = %+v", c.status, e)
+		}
+	}
+	if e := StatusError(http.MethodGet, "/x", 200, ""); e != nil {
+		t.Errorf("a 200 is an error: %v", e)
 	}
 }
