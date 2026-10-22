@@ -9,6 +9,8 @@ package rooms
 
 import (
 	"context"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -62,6 +64,9 @@ func TestTuwunelConverge(t *testing.T) {
 	}
 	if first.RosterRev != 1 || rec.ids != first.Rooms {
 		t.Fatalf("first run: roster rev %d (want 1), recorded %+v, rooms %+v", first.RosterRev, rec.ids, first.Rooms)
+	}
+	if want := newTeamChanges(first.Rooms); !slices.Equal(first.Changed, want) {
+		t.Fatalf("first run changed:\n%s\nwant:\n%s", strings.Join(first.Changed, "\n"), strings.Join(want, "\n"))
 	}
 	w.team.Roster.Rev = first.RosterRev
 

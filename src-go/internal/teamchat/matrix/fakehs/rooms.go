@@ -69,7 +69,7 @@ func (r *room) membership(userID string) string {
 	if e == nil {
 		return ""
 	}
-	return stringAt(e.content, "membership")
+	return stringAt(e.content, keyMembership)
 }
 
 func (r *room) levels() map[string]any {
@@ -187,11 +187,11 @@ func (s *Server) joinedRoom(id, userID string) (*room, error) {
 }
 
 func (s *Server) memberContent(userID, membership string) map[string]any {
-	return map[string]any{keyDisplayName: s.users[userID].displayName, "membership": membership}
+	return map[string]any{keyDisplayName: s.users[userID].displayName, keyMembership: membership}
 }
 
 var createRoomKeys = map[string]bool{
-	"preset": true, "room_version": true, keyName: true, "topic": true, "initial_state": true,
+	"preset": true, keyRoomVersion: true, keyName: true, "topic": true, "initial_state": true,
 	"power_level_content_override": true, "visibility": true, membershipInvite: true,
 }
 
@@ -226,7 +226,7 @@ func privateV12(body map[string]any) error {
 			return unmodelled("createRoom beyond a private v12 room: %s", key)
 		}
 	}
-	if v, ok := body["room_version"]; ok && v != roomVersion {
+	if v, ok := body[keyRoomVersion]; ok && v != roomVersion {
 		return unmodelled("createRoom with room_version %v", v)
 	}
 	if v, ok := body["preset"]; ok && v != "private_chat" {
@@ -302,7 +302,7 @@ func (s *Server) createRoom(r *request, _ []string) (any, error) {
 	rm := &room{id: "!" + idBody, creator: creator, state: map[stateKey]*event{}}
 	s.rooms[rm.id] = rm
 	s.roomOrder = append(s.roomOrder, rm.id)
-	s.appendEvent(rm, createType, creator, map[string]any{"room_version": roomVersion}, new(""), "$"+idBody, nil)
+	s.appendEvent(rm, createType, creator, map[string]any{keyRoomVersion: roomVersion}, new(""), "$"+idBody, nil)
 	s.appendEvent(rm, memberType, creator, s.memberContent(creator, membershipJoin), new(creator), "", nil)
 	levels := defaultLevels()
 	maps.Copy(levels, plan.override)
@@ -492,7 +492,7 @@ func (s *Server) kick(r *request, args []string) (any, error) {
 	if err := mayKick(rm, r.userID, target); err != nil {
 		return nil, err
 	}
-	content := map[string]any{"membership": membershipLeave}
+	content := map[string]any{keyMembership: membershipLeave}
 	if reason, ok := body["reason"].(string); ok {
 		content["reason"] = reason
 	}

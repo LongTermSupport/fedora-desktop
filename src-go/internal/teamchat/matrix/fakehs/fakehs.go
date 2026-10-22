@@ -56,6 +56,8 @@ const (
 	keyUserID      = "user_id"
 	keyEventID     = "event_id"
 	keyDisplayName = "displayname"
+	keyMembership  = "membership"
+	keyRoomVersion = "room_version"
 	keyEvents      = "events"
 	loginPassword  = "m.login.password"
 	errUnknown     = "M_UNKNOWN"
@@ -90,7 +92,13 @@ type Quirks struct {
 	// LoginFailuresAllowed is how many wrong passwords an account may give before its password
 	// logins are answered 429; 0 is no limit. Restart empties the count.
 	LoginFailuresAllowed int
+	// AdminRoom joins an account made an admin (seeded, registered or set by the admin API) to
+	// the server's own admin room, which the server user created, as Tuwunel does.
+	AdminRoom bool
 }
+
+// serverUserLocalpart is the server user's, Tuwunel's default (HC-A6).
+const serverUserLocalpart = "conduit"
 
 // TuwunelQuirks are the quirks of Tuwunel as the installer configures it.
 func TuwunelQuirks() Quirks {
@@ -98,6 +106,7 @@ func TuwunelQuirks() Quirks {
 		MaxRequestBytes:      tuwunelMaxRequestBytes,
 		AdminFalseIs500:      true,
 		LoginFailuresAllowed: tuwunelLoginFailures,
+		AdminRoom:            true,
 	}
 }
 
@@ -179,6 +188,7 @@ type Server struct {
 	tokens        map[string]session
 	rooms         map[string]*room
 	roomOrder     []string
+	adminRoom     *room
 	txns          map[txnKey]string
 	faults        []*pendingFault
 	nonces        map[string]bool
@@ -616,7 +626,27 @@ func (s *Server) createUser(localpart, password string, hasPassword, admin bool,
 	}
 	u := &user{id: id, password: password, hasPassword: hasPassword, admin: admin, displayName: displayName}
 	s.users[id] = u
+	if admin {
+		s.madeAdmin(id)
+	}
 	return u, nil
+}
+
+// madeAdmin joins a new admin to the server's admin room under the AdminRoom quirk, creating
+// the room, as the server user, for the first.
+func (s *Server) madeAdmin(userID string) {
+	if !s.quirks.AdminRoom {
+		return
+	}
+	if s.adminRoom == nil {
+		serverUser, idBody := s.userIDOf(serverUserLocalpart), s.newIDBody()
+		s.adminRoom = &room{id: "!" + idBody, creator: serverUser, state: map[stateKey]*event{}}
+		s.rooms[s.adminRoom.id] = s.adminRoom
+		s.roomOrder = append(s.roomOrder, s.adminRoom.id)
+		s.appendEvent(s.adminRoom, createType, serverUser, map[string]any{keyRoomVersion: roomVersion}, new(""), "$"+idBody, nil)
+		s.appendEvent(s.adminRoom, memberType, serverUser, map[string]any{keyMembership: membershipJoin}, new(serverUser), "", nil)
+	}
+	s.appendEvent(s.adminRoom, memberType, userID, s.memberContent(userID, membershipJoin), new(userID), "", nil)
 }
 
 // newToken signs userID in on a new device.

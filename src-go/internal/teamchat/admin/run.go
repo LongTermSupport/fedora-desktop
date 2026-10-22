@@ -83,7 +83,7 @@ func usage(stderr io.Writer) term.ExitCode {
 			}
 		}
 	}
-	return fail(stderr, term.ExitUsage, b.String())
+	return fail(stderr, term.ExitUsage, strings.TrimSuffix(b.String(), "\n"))
 }
 
 // version prints the source digest the build carries (CA6).

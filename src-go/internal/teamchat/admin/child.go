@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
@@ -120,14 +122,31 @@ func childFailed(e Env, message string) term.ExitCode {
 	return term.ExitFailure
 }
 
-// oneLine is s with every control character a space, so an error's text fits one line.
+// oneLine is s with every character that could break a line a space, cut to maxLine bytes, so
+// any error's text is one line an answer carries.
 func oneLine(s string) string {
-	return strings.Map(func(r rune) rune {
-		if r < 0x20 || r == 0x7f {
+	s = strings.Map(func(r rune) rune {
+		if breaksLine(r) {
 			return ' '
 		}
 		return r
 	}, s)
+	if len(s) <= maxLine {
+		return s
+	}
+	cut := maxLine - len(cutMark)
+	for !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + cutMark
+}
+
+const cutMark = "..."
+
+// breaksLine is a character a reader of root's lines could take as a line end or an escape: a
+// control (C0, DEL, C1), a format character, or the Unicode line or paragraph separator.
+func breaksLine(r rune) bool {
+	return unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == 0x2028 || r == 0x2029
 }
 
 // Request is one operation asked of the child (CC3).
@@ -270,7 +289,7 @@ func (a Answer) validate() error {
 }
 
 func validLine(s string) bool {
-	return s != "" && len(s) <= maxLine && !strings.ContainsFunc(s, func(r rune) bool { return r < 0x20 || r == 0x7f })
+	return s != "" && len(s) <= maxLine && !strings.ContainsFunc(s, breaksLine)
 }
 
 // EncodeAnswer is the answer on the wire.

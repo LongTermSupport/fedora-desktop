@@ -15,6 +15,55 @@ func (tm *team) whoami(uid string) answer {
 	return tm.call(uid, "GET", "/_matrix/client/v3/account/whoami", nil, nil)
 }
 
+// joined are the rooms uid has joined.
+func (tm *team) joined(uid string) []any {
+	rooms, ok := tm.ok(tm.call(uid, "GET", "/_matrix/client/v3/joined_rooms", nil, nil))["joined_rooms"].([]any)
+	if !ok {
+		tm.t.Fatal("joined_rooms is not a list")
+	}
+	return rooms
+}
+
+// TestAdminRoom is Tuwunel's own admin room (seen against the real server by the rooms engine's
+// tagged run): an account made an admin, seeded, registered or set by the admin API, is joined to
+// the one room the server user created, with no state of the team's.
+func TestAdminRoom(t *testing.T) {
+	tm := newTeam(t)
+	rooms := tm.joined(tm.admin)
+	if len(rooms) != 2 || rooms[1] != tm.room {
+		t.Fatalf("the admin's rooms %v, want the admin room and then %s", rooms, tm.room)
+	}
+	adminRoom := text(t, rooms[0])
+	state := tm.call(tm.admin, "GET", "/_matrix/client/v3/rooms/"+q(adminRoom)+"/state", nil, nil)
+	if state.status != 200 || len(state.list) != 3 {
+		t.Fatalf("admin room state %d %v, want its create, the server user's join and the admin's", state.status, state.list)
+	}
+	for _, raw := range state.list {
+		ev, ok := raw.(map[string]any)
+		if !ok || ev["type"] == createType && ev["sender"] != "@conduit:"+teamServerName {
+			t.Errorf("admin room event %v", raw)
+		}
+	}
+	tm.ok(tm.putUser(tm.agent, map[string]any{"admin": true}))
+	if got := tm.joined(tm.agent); len(got) != 2 || got[0] != adminRoom {
+		t.Errorf("an account set admin is in %v, want the admin room too", got)
+	}
+	nonce := text(t, tm.ok(tm.call("", "GET", "/_synapse/admin/v1/register", nil, nil))["nonce"])
+	registered := tm.ok(tm.call("", "POST", "/_synapse/admin/v1/register", nil, map[string]any{
+		"nonce": nonce, "username": "op", "password": "pw", "admin": true,
+		"mac": synapseMAC(tm.s.RegistrationKey(), nonce, "op", "pw", true),
+	}))
+	tm.tok[text(t, registered["user_id"])] = text(t, registered["access_token"])
+	if got := tm.joined(text(t, registered["user_id"])); len(got) != 1 || got[0] != adminRoom {
+		t.Errorf("a registered admin is in %v, want the admin room", got)
+	}
+
+	plain := New(Options{ServerName: teamServerName, Now: fixedNow})
+	if plain.AddUser("admin", "", true); len(plain.rooms) != 0 {
+		t.Errorf("without the quirk an admin has rooms %v", plain.rooms)
+	}
+}
+
 func TestRegistrationNeedsAFreshNonceAndTheMAC(t *testing.T) {
 	tm := newTeam(t)
 	nonce := text(t, tm.ok(tm.call("", "GET", "/_synapse/admin/v1/register", nil, nil))["nonce"])

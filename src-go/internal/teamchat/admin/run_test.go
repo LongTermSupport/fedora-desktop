@@ -208,7 +208,7 @@ func TestUsage(t *testing.T) {
 	} {
 		got := run(t, rootProc(), "", args...)
 		if got.code != term.ExitUsage || got.stdout != "" || !strings.HasPrefix(got.stderr, "teamchat-admin: ") ||
-			!strings.Contains(got.stderr, "usage: teamchat-admin <verb>") {
+			!strings.Contains(got.stderr, "usage: teamchat-admin <verb>") || strings.HasSuffix(got.stderr, "\n\n") {
 			t.Errorf("%s: %+v", name, got)
 		}
 	}

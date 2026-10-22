@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
@@ -143,6 +144,56 @@ func TestAnswerRoundTrip(t *testing.T) {
 		if _, err := EncodeAnswer(a); err == nil {
 			t.Errorf("%s: encoded", name)
 		}
+	}
+}
+
+func TestEncodeAnswerRefusesLineBreakers(t *testing.T) {
+	for _, r := range lineBreakers {
+		for name, a := range map[string]Answer{
+			"changed": {OK: true, Changed: []string{"a" + r + "b"}},
+			"message": {Error: &AnswerError{Class: ClassFailed, Message: "a" + r + "b"}},
+		} {
+			if _, err := EncodeAnswer(a); err == nil {
+				t.Errorf("%s holding %q: encoded", name, r)
+			}
+		}
+	}
+}
+
+// lineBreakers are the characters a reader of root's lines could take as a line end or an
+// escape: a C1 control (NEL, CSI), the Unicode line and paragraph separators, a format character.
+var lineBreakers = []string{string(rune(0x85)), string(rune(0x9b)), string(rune(0x2028)), string(rune(0x2029)), string(rune(0x200e))}
+
+func TestOneLineAnswersAnyMessage(t *testing.T) {
+	for _, msg := range append([]string{strings.Repeat("é", maxLine), "a\nb\x7f"}, lineBreakers...) {
+		got := oneLine(msg)
+		if !validLine(got) || !utf8.ValidString(got) {
+			t.Errorf("oneLine(%q) = %q, not one line", msg, got)
+		}
+	}
+	if got := oneLine(strings.Repeat("a", maxLine+1)); !strings.HasSuffix(got, "...") || len(got) > maxLine {
+		t.Errorf("a long message cut to %d bytes, %q at the end", len(got), got[len(got)-3:])
+	}
+}
+
+func TestDecodeAnswerRefusesLineBreakers(t *testing.T) {
+	for _, r := range lineBreakers {
+		for _, raw := range []string{
+			`{"v":1,"ok":true,"changed":["a` + r + `b"]}`,
+			`{"v":1,"ok":false,"error":{"class":"failed","message":"a` + r + `b"}}`,
+		} {
+			if _, err := DecodeAnswer([]byte(raw)); err == nil {
+				t.Errorf("%s: accepted", raw)
+			}
+		}
+	}
+}
+
+func TestCtlChildAnswersALongBadRequest(t *testing.T) {
+	got := run(t, childProc(), `{"v":1,"`+strings.Repeat("k", 10<<10)+`":1}`, "ctl-child")
+	answer, err := DecodeAnswer([]byte(strings.TrimSuffix(got.stdout, "\n")))
+	if got.code != term.ExitFailure || err != nil || answer.ExitCode() != term.ExitFailure {
+		t.Fatalf("a 10 KiB unknown key = %+v, %v", got, err)
 	}
 }
 

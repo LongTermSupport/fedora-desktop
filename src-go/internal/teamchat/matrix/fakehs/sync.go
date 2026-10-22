@@ -128,7 +128,7 @@ func (s *Server) syncOnce(r *request, since int, flt filterSpec) map[string]any 
 		if member == nil || (flt.rooms != nil && !slices.Contains(flt.rooms, id)) {
 			continue
 		}
-		switch stringAt(member.content, "membership") {
+		switch stringAt(member.content, keyMembership) {
 		case membershipInvite:
 			if since < 0 || member.pos > since {
 				invited[id] = map[string]any{"invite_state": map[string]any{keyEvents: inviteState(rm, member)}}
@@ -261,7 +261,7 @@ func summary(rm *room, self string) map[string]any {
 		if k.typ != memberType {
 			continue
 		}
-		switch stringAt(e.content, "membership") {
+		switch stringAt(e.content, keyMembership) {
 		case membershipJoin:
 			joined++
 		case membershipInvite:

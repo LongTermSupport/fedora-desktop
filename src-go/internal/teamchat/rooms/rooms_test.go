@@ -160,6 +160,18 @@ func (w *world) kinds(mark int) []string {
 
 func (w *world) mark() int { return len(w.srv.Requests()) }
 
+// newTeamChanges are the CHANGED lines of a new team's first run: the rooms created with A's
+// state as their initial state (n2a-D12), so only the roster is written, then the invites.
+func newTeamChanges(ids proto.RoomIDs) []string {
+	return []string{
+		"room main created " + ids.Main, "room reports created " + ids.Reports, "room questions created " + ids.Questions,
+		"room main state teamchat.roster",
+		"room main invited " + alice, "room main invited " + bob, "room main invited " + coord, "room main invited " + worker,
+		"room reports invited " + alice, "room reports invited " + bob,
+		"room questions invited " + alice, "room questions invited " + bob, "room questions invited " + coord,
+	}
+}
+
 func TestConvergeNewTeam(t *testing.T) {
 	w := newWorld(t)
 	rec := &recorder{}
@@ -167,15 +179,7 @@ func TestConvergeNewTeam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, r, q := res.Rooms.Main, res.Rooms.Reports, res.Rooms.Questions
-	want := []string{
-		"room main created " + m, "room reports created " + r, "room questions created " + q,
-		"room main state teamchat.roster",
-		"room main invited " + alice, "room main invited " + bob, "room main invited " + coord, "room main invited " + worker,
-		"room reports invited " + alice, "room reports invited " + bob,
-		"room questions invited " + alice, "room questions invited " + bob, "room questions invited " + coord,
-	}
-	if !slices.Equal(res.Changed, want) {
+	if want := newTeamChanges(res.Rooms); !slices.Equal(res.Changed, want) {
 		t.Fatalf("changed:\n%s\nwant:\n%s", strings.Join(res.Changed, "\n"), strings.Join(want, "\n"))
 	}
 	if res.RosterRev != 1 || rec.ids != res.Rooms {
@@ -247,11 +251,7 @@ func TestConvergeAdoptsAfterACrash(t *testing.T) {
 		if e, ok := errors.AsType[*Error](err); !ok || e.Purpose != purpose || e.Step != StepRecord || e.Drift {
 			t.Fatalf("%s: crash = %v", purpose, err)
 		}
-		joined, err := w.admin.JoinedRooms(t.Context())
-		if err != nil {
-			t.Fatal(err)
-		}
-		lost := slices.DeleteFunc(joined, func(id string) bool {
+		lost := slices.DeleteFunc(w.adminCreated(t), func(id string) bool {
 			return id == crashed.ids.Main || id == crashed.ids.Reports || id == crashed.ids.Questions
 		})
 		if len(lost) != 1 {
@@ -264,15 +264,30 @@ func TestConvergeAdoptsAfterACrash(t *testing.T) {
 		if !slices.Contains(res.Changed, "room "+purpose+" adopted "+lost[0]) {
 			t.Errorf("%s: no adoption of %s in %v", purpose, lost[0], res.Changed)
 		}
-		if after, err := w.admin.JoinedRooms(t.Context()); err != nil || len(after) != 3 {
-			t.Errorf("%s: %d rooms after adoption (%v), want 3", purpose, len(after), err)
+		if after := w.adminCreated(t); len(after) != 3 {
+			t.Errorf("%s: %d rooms after adoption, want 3", purpose, len(after))
 		}
 	}
 }
 
-func (w *world) createLinked(t *testing.T, purpose, mainID string) string {
+// adminCreated are the rooms the admin has joined and created: the server's own admin room,
+// which every admin is in on Tuwunel (fakehs's AdminRoom quirk), is not one.
+func (w *world) adminCreated(t *testing.T) []string {
 	t.Helper()
-	link := proto.Obj(proto.M("v", proto.Int(1)), proto.M("team", proto.Str(team)), proto.M("purpose", proto.Str(purpose)),
+	joined, err := w.admin.JoinedRooms(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return slices.DeleteFunc(joined, func(id string) bool {
+		return !slices.ContainsFunc(w.state(t, id), func(ev proto.StateEvent) bool {
+			return ev.Type == proto.CreateType && ev.Sender == admin
+		})
+	})
+}
+
+func (w *world) createLinked(t *testing.T, teamID, purpose, mainID string) string {
+	t.Helper()
+	link := proto.Obj(proto.M("v", proto.Int(1)), proto.M("team", proto.Str(teamID)), proto.M("purpose", proto.Str(purpose)),
 		proto.M("main", proto.Str(mainID)))
 	id, err := w.admin.CreateRoom(t.Context(), matrix.CreateRoomRequest{
 		Preset: "private_chat", RoomVersion: proto.RoomVersion,
@@ -287,7 +302,7 @@ func (w *world) createLinked(t *testing.T, purpose, mainID string) string {
 func TestConvergeRefusesTwoCandidates(t *testing.T) {
 	w := newWorld(t)
 	ids := w.built(t)
-	extra := w.createLinked(t, proto.PurposeReports, ids.Main)
+	extra := w.createLinked(t, team, proto.PurposeReports, ids.Main)
 	mark := w.mark()
 	_, err := Converge(t.Context(), w.admin, &recorder{}, w.team, proto.RoomIDs{Main: ids.Main, Questions: ids.Questions})
 	e, ok := errors.AsType[*Error](err)
@@ -303,7 +318,7 @@ func TestConvergeRefusesTwoCandidates(t *testing.T) {
 func TestConvergeRefusesALinkToAnotherMain(t *testing.T) {
 	w := newWorld(t)
 	other := "!" + strings.Repeat("X", 43)
-	w.createLinked(t, proto.PurposeReports, other)
+	w.createLinked(t, team, proto.PurposeReports, other)
 	_, err := Converge(t.Context(), w.admin, &recorder{}, w.team, proto.RoomIDs{})
 	if e, ok := errors.AsType[*Error](err); !ok || !e.Drift || e.Step != StepAdopt || !strings.Contains(err.Error(), other) {
 		t.Fatalf("link to another main = %v", err)
@@ -313,7 +328,7 @@ func TestConvergeRefusesALinkToAnotherMain(t *testing.T) {
 func TestConvergeIgnoresOtherTeamsAndPurposes(t *testing.T) {
 	w := newWorld(t)
 	ids := w.built(t)
-	w.createLinked(t, proto.PurposeQuestions, ids.Main)
+	w.createLinked(t, team, proto.PurposeQuestions, ids.Main)
 	res := w.converge(t, proto.RoomIDs{Main: ids.Main, Questions: ids.Questions})
 	if !slices.Equal(res.Changed, []string{"room reports adopted " + ids.Reports}) {
 		t.Fatalf("changed %v", res.Changed)
@@ -333,30 +348,94 @@ func TestConvergeRefusesTwoMainCandidates(t *testing.T) {
 	}
 }
 
-// TestConvergeIgnoresARoomTheAdminDidNotCreate is the server's own admin room, which Tuwunel
-// creates as its server user and joins a server admin to (seen against the real server): it has
-// no link, but it is not the team's main room (n2a-D7).
-func TestConvergeIgnoresARoomTheAdminDidNotCreate(t *testing.T) {
+// TestConvergeIgnoresTheServersAdminRoom is the server's own admin room, which Tuwunel creates
+// as its server user and joins a server admin to (seen against the real server; fakehs's
+// AdminRoom quirk): it has no link, but it is not the team's main room (n2a-D7).
+func TestConvergeIgnoresTheServersAdminRoom(t *testing.T) {
 	w := newWorld(t)
-	token, err := w.srv.MintToken(alice)
-	if err != nil {
-		t.Fatal(err)
-	}
-	other, err := matrix.NewMember(matrix.Config{BaseURL: w.srv.URL(), PlainHTTPHosts: []string{"127.0.0.1"}, Token: token, Clock: noWait{}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(other.Close)
-	foreign, err := other.CreateRoom(t.Context(), matrix.CreateRoomRequest{Preset: "private_chat", Invite: []string{admin}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := w.admin.Join(t.Context(), foreign); err != nil {
-		t.Fatal(err)
+	joined, err := w.admin.JoinedRooms(t.Context())
+	if err != nil || len(joined) != 1 {
+		t.Fatalf("a new server's admin is in %v (%v), want the admin room alone", joined, err)
 	}
 	res := w.converge(t, proto.RoomIDs{})
-	if res.Rooms.Main == foreign || !slices.Contains(res.Changed, "room main created "+res.Rooms.Main) {
-		t.Fatalf("main %s from a room %s the admin did not create: %v", res.Rooms.Main, foreign, res.Changed)
+	if res.Rooms.Main == joined[0] || !slices.Contains(res.Changed, "room main created "+res.Rooms.Main) {
+		t.Fatalf("main %s from the admin room %s: %v", res.Rooms.Main, joined[0], res.Changed)
+	}
+}
+
+// TestConvergeAdoptsOnlyTheTeamsSideRoom is RE2 for a side room: beside the real reports room,
+// a room with a link naming another team, a link another user sent, or a correct link in a room
+// another user created is not a candidate, so the one real room is adopted rather than two
+// refused.
+func TestConvergeAdoptsOnlyTheTeamsSideRoom(t *testing.T) {
+	cases := map[string]struct {
+		team string
+		edit func([]map[string]any) []map[string]any
+	}{
+		"another team":         {team: "otherteam", edit: setOn(proto.LinkType, func(map[string]any) {})},
+		"link from another":    {team: team, edit: setOn(proto.LinkType, func(ev map[string]any) { ev["sender"] = alice })},
+		"created by another":   {team: team, edit: setOn(proto.CreateType, func(ev map[string]any) { ev["sender"] = alice })},
+		"the team's own (ctl)": {team: team},
+	}
+	for name, c := range cases {
+		w := newWorld(t)
+		ids := w.built(t)
+		extra := w.createLinked(t, c.team, proto.PurposeReports, ids.Main)
+		var client Client = w.admin
+		if c.edit != nil {
+			client = editing{Client: w.admin, roomID: extra, edit: c.edit}
+		}
+		res, err := Converge(t.Context(), client, &recorder{}, w.team, proto.RoomIDs{Main: ids.Main, Questions: ids.Questions})
+		if c.edit == nil {
+			if e, ok := errors.AsType[*Error](err); !ok || !e.Drift || e.Step != StepAdopt {
+				t.Errorf("%s: two real candidates = %v", name, err)
+			}
+			continue
+		}
+		if err != nil || !slices.Equal(res.Changed, []string{"room reports adopted " + ids.Reports}) {
+			t.Errorf("%s: %v, %v", name, res.Changed, err)
+		}
+	}
+}
+
+func TestConvergeRefusesOneRoomForTwoPurposes(t *testing.T) {
+	w := newWorld(t)
+	ids := w.built(t)
+	mark := w.mark()
+	_, err := Converge(t.Context(), w.admin, &recorder{}, w.team, proto.RoomIDs{Main: ids.Main, Reports: ids.Main, Questions: ids.Questions})
+	if e, ok := errors.AsType[*Error](err); !ok || !e.Drift || e.Step != StepRead || e.Purpose != proto.PurposeReports ||
+		!strings.Contains(err.Error(), ids.Main) {
+		t.Fatalf("one room for main and reports = %v", err)
+	}
+	if writes := w.kinds(mark); len(writes) != 0 {
+		t.Fatalf("refusal wrote %v", writes)
+	}
+}
+
+// TestConvergeReportsWhatChangedBeforeAFailure is RE9's partial result: the CHANGED lines and
+// the roster rev the server accepted before the failed step.
+func TestConvergeReportsWhatChangedBeforeAFailure(t *testing.T) {
+	w := newWorld(t)
+	ids := w.built(t)
+	w.team.Roster.Humans = []string{alice, carol}
+	w.srv.Inject(fakehs.Fault{Method: http.MethodPost, Path: "/invite", Status: http.StatusForbidden, Body: []byte(`{"errcode":"M_FORBIDDEN"}`)})
+	res, err := Converge(t.Context(), w.admin, &recorder{}, w.team, ids)
+	if e, ok := errors.AsType[*Error](err); !ok || e.Step != StepInvite {
+		t.Fatalf("invite failure = %v", err)
+	}
+	want := []string{
+		"room main kicked " + bob, "room reports kicked " + bob, "room questions kicked " + bob,
+		"room main state m.room.power_levels", "room main state teamchat.roster",
+		"room reports state m.room.power_levels", "room questions state m.room.power_levels",
+	}
+	if !slices.Equal(res.Changed, want) || res.RosterRev != 2 || res.Rooms != ids {
+		t.Fatalf("partial result %+v, want changed:\n%s", res, strings.Join(want, "\n"))
+	}
+}
+
+func TestSlotRefusesAnUnknownPurpose(t *testing.T) {
+	if _, err := (&engine{}).slot("lobby"); err == nil {
+		t.Fatal("an unknown purpose was set")
 	}
 }
 
@@ -602,8 +681,8 @@ func TestConvergeIntentFailureStopsTheCreate(t *testing.T) {
 	if e, ok := errors.AsType[*Error](err); !ok || e.Step != StepCreate || e.Drift {
 		t.Fatalf("intent failure = %v", err)
 	}
-	if joined, err := w.admin.JoinedRooms(t.Context()); err != nil || len(joined) != 0 {
-		t.Fatalf("a room was created without its intent: %v %v", joined, err)
+	if created := w.adminCreated(t); len(created) != 0 {
+		t.Fatalf("a room was created without its intent: %v", created)
 	}
 }
 

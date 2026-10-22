@@ -76,7 +76,8 @@ interface its caller implements; the team lock; bootstrap steps 1-3 and 5; every
   (proto's strict decoder: no repeated key, nothing after the value; unknown keys refused):
   `{"v": 1, "op": "<op>", "team": "<team>", "args": {...}}`, `v` exactly 1, `op` a dotted
   lower-case word (`member.add`), `team` a `paths.ParseTeamID` team, `args` an object. A bad
-  request is answered as a `failed` error (CC5) and exits 1.
+  request is answered as a `failed` error (CC5) and exits 1, however long the text it quotes:
+  the child's own message is made one line (CC6) and cut to 4096 bytes, ending `...`.
 - **CC4.** An operation the child does not serve is answered `failed`, `op <op> is not served by this build`. This slice serves none.
 - **CC5.** The answer is one JSON document on stdout:
   `{"v": 1, "ok": true, "changed": ["..."]}` or
@@ -85,7 +86,10 @@ interface its caller implements; the team lock; bootstrap steps 1-3 and 5; every
 - **CC6.** Root decodes the answer strictly, because it is the one thing root parses that a
   less-privileged process wrote: at most 1 MiB, no repeated or unknown key, `v` exactly 1, `ok`
   a boolean, `changed` (only with `ok` true) an array of at most 4096 one-line strings, `error`
-  (only with `ok` false) exactly `class` and `message`, the message one line. A `bundle` key is
+  (only with `ok` false) exactly `class` and `message`, the message one line. One line is
+  non-empty, at most 4096 bytes, and holds no control (C0, DEL, C1), no format character (Cf)
+  and no U+2028 or U+2029, so nothing a reader of root's `CHANGED` lines could split on or take
+  as an escape gets through. A `bundle` key is
   refused until Task 2.4 gives it a type (decision n2a-D5). Root maps the error class to its
   own exit code (1, 70, 69, 78); the child's process exit code is never passed through (I-B3).
 
@@ -93,8 +97,8 @@ interface its caller implements; the team lock; bootstrap steps 1-3 and 5; every
 
 The engine is `rooms.Converge(ctx, admin, recorder, team, ids)`: the team (server name, team
 id, A's roster as the host derived it, the description, the roster file's `rev`) and the room
-IDs known so far. It answers the room IDs, the `CHANGED` lines and the roster `rev` now in the
-room.
+IDs known so far. It answers the room IDs, the `CHANGED` lines and the roster `rev` it wrote
+(0 when it wrote none).
 
 - **RE1. Find.** The engine asks `proto.Desired(server, roster, ids, description)`. For the
   first spec with no room ID it adopts or creates the room, records its ID, and asks `Desired`
@@ -109,14 +113,15 @@ room.
 - **RE3. Create.** With no candidate the engine records the intent (`Recorder.Intent`), creates
   the room, then records its ID (`Recorder.Record`) and prints `room <purpose> created <id>`.
   The create is a private room of the spec's version, its power levels as
-  `power_level_content_override`, and every other state event of the spec as initial state
-  (the name and topic too, so their stored content is A's exactly, n2a-D12), with no invite:
-  invites go out in RE7 only.
+  `power_level_content_override`, and every other state event of the spec but the roster as
+  initial state (the name and topic too, so their stored content is A's exactly, n2a-D12; main
+  is created with no roster, A 5.2), with no invite: invites go out in RE7 only.
 - **RE4. Read and refuse drift it must not repair.** Every room's full state is read. The engine
   refuses (exit 70), naming the room, a room whose create event the admin did not send, whose
   `room_version` is not the spec's, or that has `additional_creators` (another creator has
   unlimited power, A 4.1), or that carries `m.room.encryption` (A 4.1; it cannot be turned
-  off). A recorded room the admin cannot read fails with the homeserver's error.
+  off). A recorded room the admin cannot read fails with the homeserver's error. Before any of
+  this, one room ID known for two purposes is refused (step `read`), as no run could converge it.
 - **RE5. Kicks first, in every room.** Each user joined or invited who is not in the spec's
   `Members`, the admin aside (`proto.MembershipDiff`), is kicked, `room <purpose> kicked <user>`.
   Every kick of every room happens before any state write of any room (C 3.6.2 step 4.2, C15).
@@ -133,7 +138,9 @@ room.
   `kick`, `state`, `invite`), and say whether they are drift. `teamchat-admin` maps a failure
   to C 3.3's table (`admin.ExitCodeOf`): drift 70; a matrix failure that is `ErrUnreachable` or
   `ErrRateLimited` 69; anything else 1. The matrix client's own `ExitCode` is the member
-  side's table and is never used by the host (n2a-D13).
+  side's table and is never used by the host (n2a-D13). A failure still answers what changed
+  before it: the room IDs, the `CHANGED` lines so far, and the roster `rev` once the server
+  accepted the roster write, so the caller can print and record them (C 3.6.1, C 3.6.2).
 - **RE10. Trusted.** The rooms the engine makes pass proto's own trust checks: `VerifyMain`
   over main's state gives the roster the engine wrote, and `VerifySide` accepts reports and
   questions (A 6.4). With `-tags tuwunel` and `FAKEHS_TUWUNEL_BIN` the same round trip (create,

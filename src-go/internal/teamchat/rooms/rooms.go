@@ -76,36 +76,60 @@ func (e *Error) Error() string {
 
 func (e *Error) Unwrap() error { return e.Err }
 
-// Converge makes the team's rooms what A's specs say, starting from the room IDs known.
+// Converge makes the team's rooms what A's specs say, starting from the room IDs known. On a
+// failure the result is what changed before it (RE9).
 func Converge(ctx context.Context, c Client, rec Recorder, t Team, ids proto.RoomIDs) (Result, error) {
 	e := &engine{c: c, rec: rec, t: t, ids: ids, admin: proto.AdminID(t.Server)}
+	err := e.converge(ctx)
+	return Result{Rooms: e.ids, Changed: e.changed, RosterRev: e.rosterRev}, err
+}
+
+func (e *engine) converge(ctx context.Context) error {
+	if err := e.distinct(); err != nil {
+		return err
+	}
 	specs, err := e.find(ctx)
 	if err != nil {
-		return Result{}, err
+		return err
 	}
 	rooms, err := e.read(ctx, specs)
 	if err != nil {
-		return Result{}, err
+		return err
 	}
 	rosterWrite, err := e.planRoster(rooms[0])
 	if err != nil {
-		return Result{}, err
+		return err
 	}
 	for _, step := range []func(context.Context, []room, *stateWrite) error{e.kick, e.writeState, e.invite} {
 		if err := step(ctx, rooms, rosterWrite); err != nil {
-			return Result{}, err
+			return err
 		}
 	}
-	return Result{Rooms: e.ids, Changed: e.changed, RosterRev: rosterWrite.rev}, nil
+	return nil
 }
 
 type engine struct {
-	c       Client
-	rec     Recorder
-	t       Team
-	ids     proto.RoomIDs
-	admin   string
-	changed []string
+	c         Client
+	rec       Recorder
+	t         Team
+	ids       proto.RoomIDs
+	admin     string
+	changed   []string
+	rosterRev int64
+}
+
+// distinct refuses a room ID known for two purposes, which no run could converge (RE4).
+func (e *engine) distinct() error {
+	seen := map[string]string{}
+	for _, p := range []struct{ purpose, id string }{
+		{proto.PurposeMain, e.ids.Main}, {proto.PurposeReports, e.ids.Reports}, {proto.PurposeQuestions, e.ids.Questions},
+	} {
+		if first, twice := seen[p.id]; twice && p.id != "" {
+			return drift(p.purpose, StepRead, "room %s is recorded for both %s and %s", p.id, first, p.purpose)
+		}
+		seen[p.id] = p.purpose
+	}
+	return nil
 }
 
 func (e *engine) note(purpose, what string) { e.changed = append(e.changed, "room "+purpose+" "+what) }
@@ -135,6 +159,10 @@ func (e *engine) find(ctx context.Context) ([]proto.RoomSpec, error) {
 
 func (e *engine) place(ctx context.Context, spec proto.RoomSpec) error {
 	p := spec.Purpose
+	slot, err := e.slot(p)
+	if err != nil {
+		return failed(p, StepFind, err)
+	}
 	id, found, err := e.adoptable(ctx, p)
 	if err != nil {
 		return err
@@ -152,20 +180,23 @@ func (e *engine) place(ctx context.Context, spec proto.RoomSpec) error {
 	if err := e.rec.Record(p, id); err != nil {
 		return failed(p, StepRecord, err)
 	}
-	e.set(p, id)
+	*slot = id
 	e.note(p, what+id)
 	return nil
 }
 
-func (e *engine) set(purpose, id string) {
+// slot is where the purpose's room ID is kept; a purpose the engine does not know is refused
+// before anything is created for it.
+func (e *engine) slot(purpose string) (*string, error) {
 	switch purpose {
 	case proto.PurposeMain:
-		e.ids.Main = id
+		return &e.ids.Main, nil
 	case proto.PurposeReports:
-		e.ids.Reports = id
+		return &e.ids.Reports, nil
 	case proto.PurposeQuestions:
-		e.ids.Questions = id
+		return &e.ids.Questions, nil
 	}
+	return nil, fmt.Errorf("no room is kept for purpose %q", purpose)
 }
 
 // adoptable is the one room the admin has joined that is this purpose's and not yet known
@@ -368,6 +399,9 @@ func (e *engine) writeState(ctx context.Context, rooms []room, roster *stateWrit
 			}
 			if _, err := e.c.PutState(ctx, r.spec.RoomID, ev.Type, ev.StateKey, content.Compact()); err != nil {
 				return failed(r.spec.Purpose, StepState, err)
+			}
+			if ev.Type == proto.RosterType {
+				e.rosterRev = roster.rev
 			}
 			e.note(r.spec.Purpose, "state "+ev.Type)
 		}
