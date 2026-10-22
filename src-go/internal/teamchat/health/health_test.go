@@ -217,6 +217,7 @@ type world struct {
 	prober    *prober
 	viewer    *viewer
 	backups   *backups
+	restores  *restores
 	space     *space
 	guests    *guests
 	announcer *announcer
@@ -240,6 +241,7 @@ func newWorld(t *testing.T, names ...string) *world {
 			Humans: []status.Human{{Name: "ann", State: "active", Rooms: map[string]string{"main": "join"}, Devices: 1}},
 		}},
 		backups:   &backups{state: BackupState{Newest: &status.Newest{ID: 3, TimeMS: t0.Add(-time.Hour).UnixMilli()}, LastRun: status.RunOK}},
+		restores:  &restores{},
 		space:     &space{free: 100 << 30, total: 200 << 30},
 		guests:    &guests{probes: map[string]GuestProbe{lxcA: {Held: true, Record: lockRecord(runA, false)}}},
 		announcer: &announcer{out: Notice{Posted: true}},
@@ -266,7 +268,7 @@ func (w *world) tick(t *testing.T) *Tick {
 	t.Helper()
 	tick, err := New(Config{
 		Clock: w.clock, Teams: w.teams, Units: w.units, Prober: w.prober, Viewer: w.viewer,
-		Backups: w.backups, Space: w.space, Guests: w.guests, Announcer: w.announcer, Locks: w.locks,
+		Backups: w.backups, Restores: w.restores, Space: w.space, Guests: w.guests, Announcer: w.announcer, Locks: w.locks,
 		StatusPath:    func(team paths.TeamID) string { return filepath.Join(w.dir, team.String(), "status.json") },
 		LXCOnlinePath: func(team paths.TeamID) string { return filepath.Join(w.dir, team.String(), "lxc-online.json") },
 		GID:           -1,

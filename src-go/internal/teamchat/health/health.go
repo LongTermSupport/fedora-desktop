@@ -117,6 +117,7 @@ type Config struct {
 	Prober    Prober
 	Viewer    Viewer
 	Backups   Backups
+	Restores  Restores
 	Space     Space
 	Guests    Guests
 	Announcer Announcer
@@ -134,7 +135,7 @@ type Tick struct{ cfg Config }
 
 // New is a tick; a config that lacks a part is refused.
 func New(cfg Config) (*Tick, error) {
-	parts := []any{cfg.Clock, cfg.Teams, cfg.Units, cfg.Prober, cfg.Viewer, cfg.Backups, cfg.Space, cfg.Guests, cfg.Announcer, cfg.Locks}
+	parts := []any{cfg.Clock, cfg.Teams, cfg.Units, cfg.Prober, cfg.Viewer, cfg.Backups, cfg.Restores, cfg.Space, cfg.Guests, cfg.Announcer, cfg.Locks}
 	if slices.Contains(parts, nil) || cfg.StatusPath == nil || cfg.LXCOnlinePath == nil {
 		return nil, errors.New("health: every part of the config is required")
 	}
@@ -184,8 +185,11 @@ type facts struct {
 	guests     map[string]guestSeen
 	problems   []status.Problem
 	backup     status.Backup
-	disk       status.Disk
-	restarted  bool
+	// restore is the recorded restore, nil for none; while one is recorded the unit is never
+	// restarted (HB3).
+	restore   *status.Restore
+	disk      status.Disk
+	restarted bool
 	// held is a caller holding the team lock (Refresh): no re-probe and no restart.
 	held bool
 }
@@ -209,6 +213,9 @@ func (t *Tick) gather(ctx context.Context, team Team, held bool) (*facts, error)
 	prev, found, err := status.Read(t.cfg.StatusPath(team.ID), team.ID)
 	if err == nil && found {
 		f.prev, f.seq = &prev, prev.Seq
+	}
+	if rsErr := t.restore(ctx, team.ID, f); rsErr != nil {
+		return nil, rsErr
 	}
 	if hsErr := t.homeserver(ctx, team, f); hsErr != nil {
 		return nil, hsErr
@@ -332,14 +339,14 @@ func (t *Tick) record(team Team, f *facts, members []status.Member, problems []s
 		rec.Homeserver.SinceMS = f.unit.ActiveSince.UnixMilli()
 	}
 	rec.Members, rec.Humans = members, f.view.Humans
-	rec.Backup, rec.Disk = f.backup, f.disk
+	rec.Backup, rec.Disk, rec.Restore = f.backup, f.disk, f.restore
 	rec.Problems = slices.Concat(f.problems, problems)
 	rec.Events = status.KeepEvents(slices.Concat(rec.Events, f.events), t.cfg.Clock.Now())
 	return rec
 }
 
 // base is the next record after prev with the name and the origin set: a field another writer
-// owns (the migration's, the restore's) is kept as it was.
+// owns (the migration's) is kept as it was.
 func (t *Tick) base(team Team, prev *status.Record) status.Record {
 	rec := status.Next(prev, team.ID, t.cfg.Clock.Now())
 	rec.Name = team.Name

@@ -168,7 +168,7 @@ func statusWorld(t *testing.T) (*world, StatusFiles) {
 	}
 	tick, err := New(Config{
 		Clock: w.clock, Teams: Stamps{Root: root}, Units: w.units, Prober: w.prober, Viewer: w.viewer,
-		Backups: w.backups, Space: w.space, Guests: w.guests, Announcer: w.announcer, Locks: w.locks,
+		Backups: w.backups, Restores: w.restores, Space: w.space, Guests: w.guests, Announcer: w.announcer, Locks: w.locks,
 		StatusPath:    func(team paths.TeamID) string { return root + paths.StatusFile(team) },
 		LXCOnlinePath: func(team paths.TeamID) string { return root + paths.LXCOnlineFile(team) },
 		GID:           -1,
@@ -261,7 +261,7 @@ func TestNoBackups(t *testing.T) {
 	w := newWorld(t, "alpha")
 	tick, err := New(Config{
 		Clock: w.clock, Teams: w.teams, Units: w.units, Prober: w.prober, Viewer: w.viewer,
-		Backups: NoBackups{}, Space: w.space, Guests: w.guests, Announcer: w.announcer, Locks: w.locks,
+		Backups: NoBackups{}, Restores: w.restores, Space: w.space, Guests: w.guests, Announcer: w.announcer, Locks: w.locks,
 		StatusPath:    func(team paths.TeamID) string { return filepath.Join(w.dir, team.String(), "status.json") },
 		LXCOnlinePath: func(team paths.TeamID) string { return filepath.Join(w.dir, team.String(), "lxc-online.json") },
 		GID:           -1,
@@ -288,7 +288,7 @@ func TestGuestsNotBuilt(t *testing.T) {
 	w := newWorld(t, "alpha")
 	tick, err := New(Config{
 		Clock: w.clock, Teams: w.teams, Units: w.units, Prober: w.prober, Viewer: w.viewer,
-		Backups: w.backups, Space: w.space, Guests: GuestsNotBuilt{}, Announcer: w.announcer, Locks: w.locks,
+		Backups: w.backups, Restores: w.restores, Space: w.space, Guests: GuestsNotBuilt{}, Announcer: w.announcer, Locks: w.locks,
 		StatusPath:    func(team paths.TeamID) string { return filepath.Join(w.dir, team.String(), "status.json") },
 		LXCOnlinePath: func(team paths.TeamID) string { return filepath.Join(w.dir, team.String(), "lxc-online.json") },
 		GID:           -1,
