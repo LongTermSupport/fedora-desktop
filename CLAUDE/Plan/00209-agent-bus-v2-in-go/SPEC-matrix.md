@@ -208,7 +208,7 @@ is the shape the endpoint promises).
   device delete by password from another device ends the device's token and not its own, a
   token deleting its own device ends itself (C 3.7.3's fallback), an admin password reset ends
   a fresh token, and the `teamchat.floor` marker, decoded, outlives them all. It is also host
-  check HC-A1's lasting regression (M50): a default sync marks the member online, a sync with
+  check HC-A1's lasting regression, for the presence calls of M50: a default sync marks the member online, a sync with
   `set_presence=offline` sets it offline, a `SetPresence` of offline sets it, and a member that
   stops syncing goes `unavailable` and then `offline` by the server's timers, set short for the
   test. The test reads presence through the client's call path, as the client has no presence

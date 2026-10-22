@@ -192,7 +192,7 @@ its first caller.
   following the Task 1.4 facts. M44, the tagged test, was run in the container against the
   pinned Tuwunel 1.9.4 binary (`-race`, three runs) and passes, HC-A1's presence case included,
   once its config carried v2's login limits and `db_pool_workers = 4` (`261021-n1-matrix.md`,
-  the M44 run; review in `261021-n1-m44-review.md`). Its only red check is GO-2026-6809 (Task 1.6). It stays on the
+  section "The M44 run"; review in `261021-n1-m44-review.md`). Its only red check is GO-2026-6809 (Task 1.6). It stays on the
   N1 branch until its first caller (N2 or N3) is ready to merge with it.
 - [ ] ⬜ **Task 1.6**: GO-2026-6809: the Go toolchain bump, with the coordinator, before the matrix
   client merges.

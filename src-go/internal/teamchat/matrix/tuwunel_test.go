@@ -374,7 +374,8 @@ func presenceOf(ctx context.Context, t *testing.T, observer *Client, uid string)
 // presenceCycle is host check HC-A1 as a lasting regression (A 6.6, C 3.2.4): a default sync
 // marks the member online, a sync with set_presence=offline sets it offline (Tuwunel 1.9.4
 // does not leave it unchanged), a PUT of offline sets it, and a member that stops syncing goes
-// unavailable and then offline by the server's timers.
+// unavailable and then offline by the server's timers, set short for the test (a team's are C
+// 3.2.4's 120 s and 60 s).
 func presenceCycle(ctx context.Context, t *testing.T, member, observer *Client, uid string) {
 	t.Helper()
 	filter := &RoomFilter{Rooms: []string{}}
