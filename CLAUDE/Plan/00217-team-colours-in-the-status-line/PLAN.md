@@ -72,7 +72,7 @@ re-recorded from the Python.
 
 ### Phase 4: Deploy and review
 
-- [ ] ⬜ **Task 4.1**: Versions the pre-commit hook asks for; the meta-deploy entry
+- [x] ✅ **Task 4.1**: Versions the pre-commit hook asks for; the meta-deploy entry
   (play-agent-bus.yml installs the kit's status line and pingbus and applies each team, so its
   admin writes the colour event; the ccy image takes the new pingbus at its next build).
 - [ ] ⬜ **Task 4.2**: Adversarial Opus review of the diff until MERGE, then the qa-reviewer agent.

@@ -82,7 +82,8 @@ class TestProtocolDoc(unittest.TestCase):
         self.assertIn(f"content key `{p.PING_KEY}`", body)
         rows = {r[0]: r for r in tables(body)[0]}
         self.assertEqual(set(rows), {"ping", "human message", "agent text", "team record", "status",
-                                     "rooms index", "room link", "report", "question"})
+                                     "rooms index", "room link", "report", "question", "colour"})
+        self.assertEqual(code(rows["colour"][1]), p.EVENT_COLOUR)
         self.assertEqual(code(rows["rooms index"][1]), p.EVENT_ROOMS)
         self.assertEqual(code(rows["room link"][1]), p.EVENT_ROOM_LINK)
         self.assertIn(f"`{p.MSGTYPE_TEXT}`", rows["report"][2])

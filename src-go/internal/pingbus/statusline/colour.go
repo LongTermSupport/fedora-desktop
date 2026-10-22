@@ -25,9 +25,16 @@ const (
 
 // palette is colours.PALETTE: name and #rrggbb, in order (C1).
 var palette = [paletteSize][2]string{
-	{"teal", "#2dd4bf"}, {"cyan", "#22d3ee"}, {"sky", "#7dd3fc"}, {"blue", "#60a5fa"},
-	{"indigo", "#a5b4fc"}, {"violet", "#a78bfa"}, {"purple", "#d8b4fe"},
-	{"magenta", "#e879f9"}, {"pink", "#f9a8d4"}, {"mint", "#99f6e4"},
+	{"teal", "#2dd4bf"},
+	{"cyan", "#22d3ee"},
+	{"sky", "#7dd3fc"},
+	{"blue", "#60a5fa"},
+	{"indigo", "#a5b4fc"},
+	{"violet", "#a78bfa"},
+	{"purple", "#d8b4fe"},
+	{"magenta", "#e879f9"},
+	{"pink", "#f9a8d4"},
+	{"mint", "#99f6e4"},
 }
 
 // darkBackgrounds is colours.DARK_BACKGROUNDS, the references of C2's contrast test.
