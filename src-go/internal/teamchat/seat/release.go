@@ -293,17 +293,35 @@ type seatLockRecord struct {
 	LaunchFailedMS *int64      `json:"launch_failed_ms,omitempty"`
 }
 
+// LockRecord is a seat lock record decoded: the run, when it started, and whether the keeper
+// recorded a launch failure (INT7).
+type LockRecord struct {
+	Run          paths.RunID
+	StartedMS    int64
+	LaunchFailed bool
+}
+
+// DecodeLockRecord reads B 2.5's seat lock record strictly, the run id by its grammar; the
+// health tick reads an LXC seat's by the same rule.
+func DecodeLockRecord(data []byte) (LockRecord, error) {
+	var rec seatLockRecord
+	if err := decodeStrict(data, []string{"v", "run", "started_ms"}, &rec); err != nil {
+		return LockRecord{}, err
+	}
+	if rec.V != recordVersion {
+		return LockRecord{}, invalid("seat lock record: v is not 1")
+	}
+	return LockRecord{Run: rec.Run, StartedMS: rec.StartedMS, LaunchFailed: rec.LaunchFailedMS != nil}, nil
+}
+
 // runOf is the ended run a free seat lock names (SD1): none when the lock is missing or its
 // record is empty, undecodable, of a run id that fails its grammar, or of a failed launch.
 func runOf(lock lockProbe) (paths.RunID, bool) {
 	if lock.state != lockFree || len(lock.record) == 0 {
 		return paths.RunID{}, false
 	}
-	var rec seatLockRecord
-	if err := decodeStrict(lock.record, []string{"v", "run", "started_ms"}, &rec); err != nil {
-		return paths.RunID{}, false
-	}
-	if rec.V != recordVersion || rec.LaunchFailedMS != nil {
+	rec, err := DecodeLockRecord(lock.record)
+	if err != nil || rec.LaunchFailed {
 		return paths.RunID{}, false
 	}
 	return rec.Run, true
