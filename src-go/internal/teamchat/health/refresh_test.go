@@ -111,3 +111,27 @@ func TestRefreshFailures(t *testing.T) {
 		t.Fatal("Refresh over a broken lxc-online.json succeeded")
 	}
 }
+
+// VB2: One ticks one stamped team as RunAll would, its lock taken (busy is dropped); a team with
+// no stamp, or stamps that cannot be listed, is an error.
+func TestOneTicksOneStampedTeam(t *testing.T) {
+	w := newWorld(t, "alpha")
+	out, err := w.tick(t).One(t.Context(), id(t, "alpha"))
+	if err != nil || out.Result != ResultWritten || out.Team != id(t, "alpha") {
+		t.Fatalf("One = %+v, %v", out, err)
+	}
+	if rec := w.record(t, "alpha"); rec.Seq != 1 {
+		t.Fatalf("record %+v", rec)
+	}
+	w.locks.busy[id(t, "alpha")] = true
+	if out, err = w.tick(t).One(t.Context(), id(t, "alpha")); err != nil || out.Result != ResultDropped {
+		t.Fatalf("One while busy = %+v, %v", out, err)
+	}
+	if _, err = w.tick(t).One(t.Context(), id(t, "beta")); err == nil || !strings.Contains(err.Error(), "beta has no stamp") {
+		t.Fatalf("One of an unstamped team = %v", err)
+	}
+	w.teams.err = errors.New("unreadable")
+	if _, err = w.tick(t).One(t.Context(), id(t, "alpha")); err == nil || !strings.Contains(err.Error(), "unreadable") {
+		t.Fatalf("One with the stamps failing = %v", err)
+	}
+}

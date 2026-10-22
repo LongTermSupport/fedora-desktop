@@ -143,6 +143,11 @@ var dynamicNames = []allowance{
 		reason: "the Element play, run by its own shebang; its path is configuration",
 	},
 	{
+		pkg:    "internal/teamchat/admin",
+		fn:     "ExecChild.Ask",
+		reason: "teamchat-admin itself, run as the teamchat-ctl child: the running binary resolved from /proc/self/exe (SPEC-n2f CS2)",
+	},
+	{
 		pkg:    "internal/wsi",
 		fn:     "run.sibling",
 		reason: "wsi-stop-grace, wsi-setting or wsi-resolve-model, run from the directory the wsi binary is in",
