@@ -358,7 +358,9 @@ func guestErrno(p string, errno syscall.Errno) error {
 	return fmt.Errorf("%w: guestroot: %s: %w", guestroot.ErrGuest, p, errno)
 }
 
-var guestErrnos = []syscall.Errno{syscall.EACCES, syscall.EIO}
+// guestErrnos are errnos a guest's FUSE server can answer, those that look like the host out of
+// descriptors or memory included (C1).
+var guestErrnos = []syscall.Errno{syscall.EACCES, syscall.EIO, syscall.EMFILE, syscall.ENFILE, syscall.ENOMEM}
 
 // R2-1: a guest user's run root that cannot be listed, whatever the errno, keeps every digest
 // and fails no seat; the kit sweep goes on for the rest.
@@ -411,20 +413,24 @@ func TestCheckoutReadFaultFailsThatSeatAlone(t *testing.T) {
 	}
 }
 
-// R2-3: a stall is waited out once per user and run. Two seats of agent1 on a stalled checkout
-// fail at the reads after one bound in all; agent2's seat on another checkout of the same
-// container waits nothing and applies.
-func TestAStallIsWaitedOutOncePerUser(t *testing.T) {
-	const other = "/srv/agent2/src/repo"
+// R2-3 with C2: a stall is waited out once per seat and run, and fails that seat alone. agent1's
+// seat 1 on a stalled checkout fails at the reads after one bound; agent1's seat 2 on a healthy
+// checkout of the same container, and agent2's seat on another, wait nothing and apply.
+func TestAStallFailsOnlyItsSeat(t *testing.T) {
+	const (
+		healthy = "/srv/agent1/src/zrepo"
+		other   = "/srv/agent2/src/repo"
+	)
 	w := newWorld(t)
 	b := w.addBox("c1")
-	writeTree(t, b.dir, map[string]string{
-		other[1:] + gitConfig: "[remote \"origin\"]\n\turl = https://github.com/example/repo.git\n",
-	})
+	origin := "[remote \"origin\"]\n\turl = https://github.com/example/repo.git\n"
+	writeTree(t, b.dir, map[string]string{healthy[1:] + gitConfig: origin, other[1:] + gitConfig: origin})
 	b.stalls = &stallLog{paths: map[string]bool{checkout + gitConfig: true}, stalled: map[*guestroot.Memo]bool{}}
+	second := w.memberAt("t1", "c1", 2)
+	second.Checkout = healthy
 	third := w.memberAt("t1", "c1", 3)
 	third.User, third.Checkout = agent2(t), other
-	w.declare([]string{"t1"}, w.member("t1", "c1"), w.memberAt("t1", "c1", 2), third)
+	w.declare([]string{"t1"}, w.member("t1", "c1"), second, third)
 	_, err := w.apply(PhasePresent)
 	if !errors.Is(err, guestroot.ErrStalled) {
 		t.Fatalf("err %v", err)
@@ -432,13 +438,16 @@ func TestAStallIsWaitedOutOncePerUser(t *testing.T) {
 	if b.stalls.waits != 1 {
 		t.Fatalf("the stall was waited out %d times", b.stalls.waits)
 	}
-	for seat := 1; seat <= 2; seat++ {
-		if e, found := w.entryAt("c1", seat); found && e.Status == lxcstate.StatusJoined {
-			t.Fatalf("seat %d on the stalled checkout joined: %+v", seat, e)
-		}
+	if e, found := w.entryAt("c1", 1); found && e.Status == lxcstate.StatusJoined {
+		t.Fatalf("the seat on the stalled checkout joined: %+v", e)
 	}
-	if e, found := w.record().Find(mustBox(t, "c1"), other, 3); !found || e.Status != lxcstate.StatusJoined {
-		t.Fatalf("agent2's seat %+v %v", e, found)
+	for _, s := range []struct {
+		checkout string
+		seat     int
+	}{{healthy, 2}, {other, 3}} {
+		if e, found := w.record().Find(mustBox(t, "c1"), s.checkout, s.seat); !found || e.Status != lxcstate.StatusJoined {
+			t.Fatalf("seat %d on %s: %+v %v", s.seat, s.checkout, e, found)
+		}
 	}
 }
 

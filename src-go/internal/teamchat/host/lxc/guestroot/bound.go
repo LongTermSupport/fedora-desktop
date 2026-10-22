@@ -7,8 +7,6 @@ import (
 	"net"
 	"sync"
 	"time"
-
-	"golang.org/x/sys/unix"
 )
 
 // ErrStalled is a guest read or write that did not end within its bound: a mount below the
@@ -105,16 +103,15 @@ func bounded[T any](r *Root, p string, op func() (T, error), late func(T) error)
 	return zero, stall
 }
 
-// guestFault is an error of a call below the root classed by its origin, not its errno (R2-1):
-// ErrGuest, unless it is already classed (a refusal, a cap, a path not there), the host is out
-// of descriptors or memory, or it is a connect the guest's socket did not answer, which its
-// caller reads as the bus down.
+// guestFault is an error of a call below the root classed by its origin, not its errno (R2-1,
+// C1): ErrGuest, unless it is already classed (a refusal, a cap, a path not there) or it is a
+// connect the guest's socket did not answer, which its caller reads as the bus down. No errno is
+// the host's here: a guest FUSE server chooses every errno it answers, EMFILE, ENFILE and ENOMEM
+// too, so a real host exhaustion fails each member alone.
 func guestFault(err error) error {
 	switch {
 	case err == nil, errors.Is(err, ErrRefused), errors.Is(err, ErrTooLarge), errors.Is(err, ErrGuest),
 		errors.Is(err, fs.ErrNotExist), errors.Is(err, errClosed):
-		return err
-	case errors.Is(err, unix.EMFILE), errors.Is(err, unix.ENFILE), errors.Is(err, unix.ENOMEM):
 		return err
 	}
 	if oe, ok := errors.AsType[*net.OpError](err); ok && oe != nil {
