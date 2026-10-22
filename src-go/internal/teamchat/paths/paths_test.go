@@ -178,6 +178,45 @@ func TestHomeLayout(t *testing.T) {
 	}
 }
 
+// RN1's --state DIR replaces the state root, and with it every seat (so <v2-bundle>), and
+// nothing else.
+func TestWithStateReplacesTheStateRootAlone(t *testing.T) {
+	home, err := HomeLayout("/home/u", "/run/user/1000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range []Layout{CCYLayout(), home} {
+		moved, err := l.WithState("/srv/probe/state")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range []struct{ got, want string }{
+			{moved.State(), "/srv/probe/state"},
+			{moved.Seat(mustTeam(t, "ops")).Bundle(), "/srv/probe/state/ops/seat.json"},
+			{moved.ConversationFile(), "/srv/probe/state/conversation.json"},
+			{moved.KitRoot(), l.KitRoot()},
+			{moved.CurrentKit().String(), l.CurrentKit().String()},
+			{moved.Desired(), l.Desired()},
+			{moved.RunRoot(), l.RunRoot()},
+		} {
+			if c.got != c.want {
+				t.Errorf("got %q, want %q", c.got, c.want)
+			}
+		}
+	}
+}
+
+// EN5's --bundle DIR is a seat directory outside any layout, named for no team.
+func TestSeatAtIsASeatDirectoryOfItsOwn(t *testing.T) {
+	s, err := SeatAt("/srv/host-held/bundle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Dir() != "/srv/host-held/bundle" || s.Bundle() != "/srv/host-held/bundle/seat.json" || s.Token() != "/srv/host-held/bundle/token" {
+		t.Errorf("seat %q, bundle %q, token %q", s.Dir(), s.Bundle(), s.Token())
+	}
+}
+
 func TestSessionRuntimeFiles(t *testing.T) {
 	r := CCYLayout().Run(mustRun(t))
 	for _, c := range []struct{ got, want string }{
@@ -363,6 +402,8 @@ func TestBaseDirectoriesMustBeAbsoluteAndClean(t *testing.T) {
 		"ElementLauncher":    func(d string) error { _, err := ElementLauncher(d, team); return err },
 		"ElementConsentFile": func(d string) error { _, err := ElementConsentFile(d); return err },
 		"ProbeState":         func(d string) error { _, err := ProbeState(d, team); return err },
+		"Layout.WithState":   func(d string) error { _, err := CCYLayout().WithState(d); return err },
+		"SeatAt":             func(d string) error { _, err := SeatAt(d); return err },
 	}
 	for name, call := range calls {
 		// The root is refused too: joined to it, a name would begin with two slashes.

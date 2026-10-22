@@ -213,7 +213,12 @@ func baseNames(t *testing.T) map[string][]string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	seatAt, err := SeatAt("/srv/" + Product + "/bundle")
+	if err != nil {
+		t.Fatal(err)
+	}
 	return map[string][]string{
+		"SeatAt":                   {seatAt.Dir()},
 		"StateHome":                {stateHome},
 		"SeatStore":                {store.Root()},
 		"Store.Root":               {store.Root()},
@@ -239,7 +244,12 @@ func layoutNames(t *testing.T) map[string][]string {
 	names := map[string][]string{}
 	for ident, l := range map[string]Layout{"CCYLayout": CCYLayout(), "HomeLayout": home} {
 		r := l.Run(sampleRunID(t))
+		moved, err := l.WithState("/srv/" + Product + "/state")
+		if err != nil {
+			t.Fatal(err)
+		}
 		for name, value := range map[string][]string{
+			"Layout.WithState":        {moved.State()},
 			ident:                     {l.KitRoot(), l.CurrentKit().String(), l.State(), l.Desired(), l.RunRoot()},
 			"Layout.DesiredFile":      {l.DesiredFile()},
 			"Layout.ConversationFile": {l.ConversationFile()},

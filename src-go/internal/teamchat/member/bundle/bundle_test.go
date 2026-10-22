@@ -264,6 +264,31 @@ func TestReadPairDirectoryNotATeam(t *testing.T) {
 	}
 }
 
+// EN5: a host-held --bundle DIR is named for no team; the team is the caller's, and the pair
+// is read and refused as a seat's is.
+func TestReadPairAtReadsADirectoryNamedForNoTeam(t *testing.T) {
+	w := newWorld(t)
+	claim, err := paths.ParseClaimID("00112233aabbccdd")
+	check(t, err)
+	w.seat = w.layout.SeatClaim(team(t, "ops"), claim)
+	check(t, os.Mkdir(w.seat.Dir(), 0o700))
+	w.place()
+	p, err := ReadPairAt(w.root, w.seat.Dir(), team(t, "ops"))
+	check(t, err)
+	if p.Team.String() != "ops" || p.Token.Reveal() != testToken {
+		t.Errorf("pair %+v", p)
+	}
+	if _, err := ReadPairAt(w.root, w.seat.Dir(), team(t, "dev")); configCode(t, err) != exits.CodeBundle {
+		t.Errorf("a seat.json of another team: %v", err)
+	}
+	if _, err := ReadPairAt(w.root, "relative/dir", team(t, "ops")); configCode(t, err) != exits.CodeBundle {
+		t.Errorf("a relative directory: %v", err)
+	}
+	if _, err := ReadPairAt(w.root, w.layout.State()+"/none", team(t, "ops")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("no directory: %v", err)
+	}
+}
+
 // B11: two held seats' pairs sharing a user id or a token are 78 bundle; distinct ones pass.
 func TestDistinct(t *testing.T) {
 	ops, dev := team(t, "ops"), team(t, "dev")

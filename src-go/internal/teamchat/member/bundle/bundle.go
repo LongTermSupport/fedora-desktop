@@ -64,12 +64,27 @@ func ReadPair(root *homefs.Root, s paths.Seat) (Pair, error) {
 	return readPair(root, s, func() {})
 }
 
+// ReadPairAt reads the pair in dir, a seat directory of team below root that no layout
+// names (EN5's host-held --bundle DIR), by ReadPair's rules; dir must be absolute and clean.
+func ReadPairAt(root *homefs.Root, dir string, team paths.TeamID) (Pair, error) {
+	s, err := paths.SeatAt(dir)
+	if err != nil {
+		return Pair{}, exits.New(exits.CodeBundle, &team, notAsMust, exits.Name(dir))
+	}
+	return readPairOf(root, s, team, func() {})
+}
+
 // readPair is ReadPair with between run after the token's read, before seat.json's second.
 func readPair(root *homefs.Root, s paths.Seat, between func()) (Pair, error) {
 	team, err := paths.ParseTeamID(filepath.Base(s.Dir()))
 	if err != nil {
 		return Pair{}, exits.New(exits.CodeBundle, nil, notATeam, exits.Name(s.Dir()))
 	}
+	return readPairOf(root, s, team, between)
+}
+
+// readPairOf reads team's pair in the seat directory s.
+func readPairOf(root *homefs.Root, s paths.Seat, team paths.TeamID, between func()) (Pair, error) {
 	dir, err := root.Sub(s.Dir(), homefs.Private)
 	if errors.Is(err, fs.ErrNotExist) {
 		return Pair{}, err

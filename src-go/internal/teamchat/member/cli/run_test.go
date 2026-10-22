@@ -89,6 +89,38 @@ func TestAnUnbuiltVerbNamesItsSlice(t *testing.T) {
 	}
 }
 
+// n3c-D5: a verb the binary passes in Env.Verbs runs, given the Env and its parsed line; a
+// verb it does not pass is still unbuilt, and version and help stay cli's own.
+func TestEnvVerbsRunsTheVerbsTheBinaryPasses(t *testing.T) {
+	var got Invocation
+	var gotEnv Env
+	recv := func(e Env, inv Invocation) term.ExitCode {
+		got, gotEnv = inv, e
+		return exits.ExitTimedOut
+	}
+	version := func(Env, Invocation) term.ExitCode { return exits.ExitBusy }
+	var out, errOut strings.Builder
+	e := Env{
+		Args: []string{"recv", "--team", "alpha"}, Stdout: &out, Stderr: &errOut, Digest: digest,
+		Getenv: func(string) string { return "set" },
+		Verbs:  map[string]RunFunc{"recv": recv, "version": version},
+	}
+	if code := Run(e); code != exits.ExitTimedOut {
+		t.Fatalf("recv: exit %d, stderr %q", code, errOut.String())
+	}
+	if got.Verb.Name != "recv" || got.Team == nil || got.Team.String() != "alpha" || gotEnv.Getenv("X") != "set" {
+		t.Fatalf("recv was given %+v", got)
+	}
+	e.Args = []string{"version"}
+	if code := Run(e); code != term.ExitOK {
+		t.Fatalf("version: exit %d, not cli's own", code)
+	}
+	e.Args = []string{"wait"}
+	if code := Run(e); code != term.ExitFailure || !strings.Contains(errOut.String(), "teamchat wait is not built") {
+		t.Fatalf("wait: exit %d, stderr %q", code, errOut.String())
+	}
+}
+
 func TestAUsageErrorIs64(t *testing.T) {
 	var w world
 	if w.run(digest, "--team", "alpha", "recv") != term.ExitUsage {

@@ -367,6 +367,27 @@ func HomeLayout(home, runtimeDir string) (Layout, error) {
 	}, nil
 }
 
+// WithState is the layout with dir as its state root, and so every seat and bundle below it,
+// and nothing else changed (RN1's --state DIR). dir must be absolute and clean; its owner and
+// 0700 mode are checked where it is opened (homefs Private).
+func (l Layout) WithState(dir string) (Layout, error) {
+	must("layout", l.state)
+	if err := checkBase("state", dir); err != nil {
+		return Layout{}, err
+	}
+	l.state = dir
+	return l, nil
+}
+
+// SeatAt is a seat directory of its own, outside any layout: EN5's host-held --bundle DIR,
+// read as a seat's bundle is. dir must be absolute and clean.
+func SeatAt(dir string) (Seat, error) {
+	if err := checkBase("seat", dir); err != nil {
+		return Seat{}, err
+	}
+	return Seat{dir: dir}, nil
+}
+
 // DesiredFile is the session's desired membership.
 func (l Layout) DesiredFile() string { return l.Desired() + "/" + desiredFile }
 

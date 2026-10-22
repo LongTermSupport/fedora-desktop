@@ -242,6 +242,26 @@ func HoldSeat(ctx context.Context, clock Clock, root *homefs.Root, seat paths.Se
 // Release closes the hold.
 func (h *SeatHold) Release() error { return h.end(false) }
 
+// Probe is whether another process holds the lock file full exclusively (a keeper, a link,
+// a session's seat), by a momentary LOCK_SH|LOCK_NB on a description of its own, closed before
+// it returns; it makes no file and holds nothing after. A missing file is not held, with
+// fs.ErrNotExist (LN3's keeper.lock probe, the status line's link.lock).
+func Probe(root *homefs.Root, full string) (bool, error) {
+	f, err := root.OpenExistingLock(full)
+	if err != nil {
+		return false, err
+	}
+	err = unix.Flock(int(f.Fd()), unix.LOCK_SH|unix.LOCK_NB)
+	held := errors.Is(err, unix.EWOULDBLOCK)
+	if held {
+		err = nil
+	}
+	if err != nil {
+		err = fmt.Errorf("lock: probe %s: %w", full, err)
+	}
+	return held, errors.Join(err, f.Close())
+}
+
 // acquire opens path through root and takes LOCK_EX|LOCK_NB on it, trying tries times gap
 // apart; the file is closed unless it is returned held.
 func acquire(ctx context.Context, clock Clock, root *homefs.Root, path string) (*os.File, error) {

@@ -12,19 +12,24 @@ import (
 )
 
 // Env is what a run of the binary is given: its arguments after the program name, its
-// standard streams, and the source digest the build set.
+// standard streams, the source digest the build set, its environment, and the verbs built
+// outside this package. cmd/teamchat passes those in Verbs, so cli imports none of the
+// packages that build them (the keeper imports cli for its launch line; n3c-D5).
 type Env struct {
 	Args   []string
 	Stdin  io.Reader
 	Stdout io.Writer
 	Stderr io.Writer
 	Digest string
+	Getenv func(string) string
+	Verbs  map[string]RunFunc
 }
 
-type runFunc func(Env, Invocation) term.ExitCode
+// RunFunc is one verb's body: the binary's Env and its parsed command line, to its exit.
+type RunFunc func(Env, Invocation) term.ExitCode
 
-// runs are the verbs this binary builds.
-var runs = map[string]runFunc{
+// runs are the verbs this package builds.
+var runs = map[string]RunFunc{
 	verbVersion: runVersion,
 	verbHelp:    runHelp,
 }
@@ -69,6 +74,9 @@ func Run(e Env) term.ExitCode {
 		return exits.Write(e.Stderr, err)
 	}
 	if run, ok := runs[inv.Verb.Name]; ok {
+		return run(e, inv)
+	}
+	if run, ok := e.Verbs[inv.Verb.Name]; ok {
 		return run(e, inv)
 	}
 	return exits.Write(e.Stderr, exits.New(exits.CodeInternal, inv.Team, msgUnbuilt,
