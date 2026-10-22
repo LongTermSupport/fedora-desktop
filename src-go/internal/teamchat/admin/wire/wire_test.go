@@ -80,7 +80,8 @@ func nilFields(v reflect.Value, skip ...string) []string {
 func TestEverySeamIsSetAndNothingIsRead(t *testing.T) {
 	f := &fakeMachine{root: t.TempDir()}
 	sys := build(t, f)
-	if missing := nilFields(reflect.ValueOf(*sys)); len(missing) > 0 {
+	// Backup is wired with the units manager's adapter (RW1); until then the verbs say so.
+	if missing := nilFields(reflect.ValueOf(*sys), "Backup"); len(missing) > 0 {
 		t.Errorf("System seams left nil: %v", missing)
 	}
 	if missing := nilFields(reflect.ValueOf(sys.Host), "Bootstrap"); len(missing) > 0 {

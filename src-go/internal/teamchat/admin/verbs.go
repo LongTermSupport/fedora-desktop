@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/backup"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
@@ -22,8 +23,9 @@ import (
 
 // System is what the verbs reach beyond the process, each a seam (CV3-CV5): the host's
 // (host.Deps; Bootstrap and LockWait are the verb's, and Pin, CtlUID and CtlGID team apply's
-// from Pin and CtlIDs), the child, the seat side's bundles, the owner group, the health tick
-// and the account database's homes; for the child, its Opener. A seam that reads a host file
+// from Pin and CtlIDs), the child, the seat side's bundles, the owner group, the health tick,
+// the account database's homes and the backups' effects (nil while unwired); for the child,
+// its Opener. A seam that reads a host file
 // reads it when a verb calls it, so a verb fails only on what it needs (n2f-W1).
 type System struct {
 	Host       host.Deps
@@ -35,6 +37,7 @@ type System struct {
 	CtlIDs     func() (User, error)
 	Health     func() (HealthTick, error)
 	Home       func(uid int) (string, error)
+	Backup     *backup.Deps
 }
 
 // Child asks the teamchat-ctl child one request (CC1); its start is the seam's (n2a-D6).
@@ -88,6 +91,7 @@ func rootRuns() map[string]func(context.Context, Env, []string) term.ExitCode {
 		"team apply": teamApply, "team approve": teamApprove, "team remove": teamRemove,
 		"role apply": memberVerb(apply.OpRoleApply),
 		"health":     healthVerb, "element check": elementVerb(false), "element apply": elementVerb(true),
+		"backup": backupVerb, "backups": backupsVerb,
 	}
 	for _, op := range []string{apply.OpMemberAdd, apply.OpMemberReturn, apply.OpMemberReissue, apply.OpMemberPark, apply.OpMemberRetire, apply.OpMemberSet} {
 		runs["member "+strings.TrimPrefix(op, "member.")] = memberVerb(op)
