@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
 
 var helpers = Helpers{
@@ -50,6 +52,12 @@ var helpers = Helpers{
 		}
 		return 0
 	},
+	"echo": func(h *Helper) int {
+		if _, err := io.WriteString(h.out, strings.Join(h.Args, ",")); err != nil {
+			return 2
+		}
+		return 5
+	},
 	"late": func(h *Helper) int {
 		if err := h.Ready(); err != nil {
 			return 2
@@ -69,6 +77,16 @@ func TestStartRunsTheHelperAsASecondProcess(t *testing.T) {
 		t.Fatalf("the helper is not alive while held: %v", err)
 	}
 	p.Release()
+}
+
+func TestCommandIsAFreeRunningHelper(t *testing.T) {
+	c := Command(t, "echo", "a b", "--")
+	var out bytes.Buffer
+	c.Stdout = &out
+	res, err := execx.OS{}.Run(t.Context(), c)
+	if res.ExitCode != 5 || out.String() != "a b,--" {
+		t.Fatalf("the helper exited %d (%v) and said %q", res.ExitCode, err, out.String())
+	}
 }
 
 func TestTheHelperGetsItsArgumentsUnchanged(t *testing.T) {

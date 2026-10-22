@@ -54,8 +54,12 @@ func (s *SeatRef) UnmarshalText(b []byte) error {
 	return nil
 }
 
+// WhyLaunchFailed is a report's why when Claude Code could not be started or ended before its
+// first SessionStart (B 2.4.1 step 7, n3c-D21); CMD's own text is never in the report.
+const WhyLaunchFailed = "launch-failed"
+
 // Report is B 2.3.3's report.json, the keeper's report of one held seat for area C's views,
-// never authority.
+// never authority. Why is null, crash-loop or config with a failed link, or launch-failed.
 type Report struct {
 	V             int           `json:"v"`
 	Run           paths.RunID   `json:"run"`
@@ -63,6 +67,7 @@ type Report struct {
 	Seat          SeatRef       `json:"seat"`
 	Handle        string        `json:"handle"`
 	Link          string        `json:"link"`
+	Why           *string       `json:"why"`
 	LastSyncOKMS  *int64        `json:"last_sync_ok_ms"`
 	Pending       int64         `json:"pending"`
 	Delivery      string        `json:"delivery"`
@@ -99,6 +104,9 @@ func (r Report) check(c *rules) {
 	h, ok := proto.ParseHandle(r.Handle)
 	c.need(ok && h.Seat == r.Seat.Seat, "handle is not a handle of the seat")
 	c.need(slices.Contains(links, r.Link), "link is not running, restarting or failed")
+	failedWhy := r.Why != nil && (*r.Why == WhyCrashLoop || *r.Why == WhyConfig)
+	c.need(optionalOf(r.Why, []string{WhyCrashLoop, WhyConfig, WhyLaunchFailed}), "why is not crash-loop, config, launch-failed or null")
+	c.need(failedWhy == (r.Link == LinkFailed), "why is not crash-loop or config exactly for a failed link")
 	c.need(optionalMS(r.LastSyncOKMS), "last_sync_ok_ms is not a time or null")
 	c.need(r.Pending >= 0 && r.Pending <= capPending, "pending is not a count the store holds")
 	c.need(slices.Contains(deliveries, r.Delivery), "delivery is not socket, wait or none")

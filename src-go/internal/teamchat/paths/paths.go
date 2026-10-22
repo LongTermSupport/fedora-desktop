@@ -367,6 +367,38 @@ func HomeLayout(home, runtimeDir string) (Layout, error) {
 	}, nil
 }
 
+// WithDesired is the layout with dir as its desired membership directory (run's --desired DIR),
+// nothing else changed. dir must be absolute and clean.
+func (l Layout) WithDesired(dir string) (Layout, error) {
+	must("layout", l.desired)
+	if err := checkBase("desired", dir); err != nil {
+		return Layout{}, err
+	}
+	l.desired = dir
+	return l, nil
+}
+
+// WithKitRoot is the layout with its kits under dir, a root of digest directories and its
+// current link (a relocated kit root, a test's), nothing else changed. dir must be absolute and
+// clean.
+func (l Layout) WithKitRoot(dir string) (Layout, error) {
+	must("layout", l.kitRoot)
+	if err := checkBase("kit", dir); err != nil {
+		return Layout{}, err
+	}
+	l.kitRoot, l.currentKit = dir, Kit{dir + "/current"}
+	return l, nil
+}
+
+// KitAt is the kit directory dir given whole: run's --kit DIR, which names the kit run resolved
+// before its re-exec (B 2.4.1 step 2). dir must be absolute and clean.
+func KitAt(dir string) (Kit, error) {
+	if err := checkBase("kit", dir); err != nil {
+		return Kit{}, err
+	}
+	return Kit{dir}, nil
+}
+
 // WithState is the layout with dir as its state root, and so every seat and bundle below it,
 // and nothing else changed (RN1's --state DIR). dir must be absolute and clean; its owner and
 // 0700 mode are checked where it is opened (homefs Private).

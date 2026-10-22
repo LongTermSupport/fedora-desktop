@@ -147,10 +147,36 @@ func StartFiles(tb testing.TB, files []*os.File, name string, args ...string) *P
 	return p
 }
 
-func start(name string, args []string, files []*os.File) (*Process, error) {
+// Command is helper name in a re-run of the test binary with args, as a command the caller
+// starts itself (a keeper's link, a session's CMD). Its helper is free-running: it never calls
+// Ready, and its stdin, stdout and stderr are the caller's to give.
+func Command(tb testing.TB, name string, args ...string) execx.Cmd {
+	tb.Helper()
+	c, err := command(name, args)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return c
+}
+
+func command(name string, args []string) (execx.Cmd, error) {
 	self, err := os.Executable()
 	if err != nil {
-		return nil, fmt.Errorf("reexec: find the test binary: %w", err)
+		return execx.Cmd{}, fmt.Errorf("reexec: find the test binary: %w", err)
+	}
+	return execx.Cmd{
+		Name: self,
+		Args: append([]string{"-test.run=^$", "-test.count=1", argsMark}, args...),
+		// A -race binary sleeps a second at exit unless told not to; the parent's own race
+		// options are kept.
+		Env: []string{helperEnv + "=" + name, "GORACE=" + strings.TrimSpace(os.Getenv("GORACE")+" atexit_sleep_ms=0")},
+	}, nil
+}
+
+func start(name string, args []string, files []*os.File) (*Process, error) {
+	cmd, err := command(name, args)
+	if err != nil {
+		return nil, err
 	}
 	given, err := dupAll(files)
 	if err != nil {
@@ -167,17 +193,7 @@ func start(name string, args []string, files []*os.File) (*Process, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &Process{stdin: inW, done: make(chan struct{})}
 	var errBuf strings.Builder
-	cmd := execx.Cmd{
-		Name: self,
-		Args: append([]string{"-test.run=^$", "-test.count=1", argsMark}, args...),
-		// A -race binary sleeps a second at exit unless told not to; the parent's own race
-		// options are kept.
-		Env:        []string{helperEnv + "=" + name, "GORACE=" + strings.TrimSpace(os.Getenv("GORACE")+" atexit_sleep_ms=0")},
-		Stdin:      inR,
-		Stdout:     outW,
-		Stderr:     &errBuf,
-		ExtraFiles: given,
-	}
+	cmd.Stdin, cmd.Stdout, cmd.Stderr, cmd.ExtraFiles = inR, outW, &errBuf, given
 	go func() {
 		defer cancel()
 		res, runErr := execx.OS{}.Run(ctx, cmd)

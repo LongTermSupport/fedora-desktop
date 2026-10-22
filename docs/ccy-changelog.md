@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.14.12 — container 2.78.14
+
+Follows 3.99.14.11. The image is unchanged, so there is no rebuild.
+
+- **`execx` gains `Start`**, a child started beside its parent and waited for later (the
+  teamchat keeper's link and session, Plan 00209). The launcher does not call it; its
+  behaviour is unchanged.
+
 ## 3.99.14.11 — container 2.78.14
 
 Follows 3.99.14.10. The image is unchanged, so there is no rebuild.
