@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -164,6 +165,109 @@ func TestServeMemberDisconnectedPostsTheNotice(t *testing.T) {
 	if got := w.notices(t); !slices.Contains(got, "disconnected "+sampleHandle) {
 		t.Fatalf("notices %q", got)
 	}
+}
+
+// stateEventsOf reads a room's state as the verifier takes it.
+func stateEventsOf(t *testing.T, raw []json.RawMessage) []proto.StateEvent {
+	t.Helper()
+	out := make([]proto.StateEvent, 0, len(raw))
+	for _, r := range raw {
+		v, err := proto.Parse(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var f [4]string
+		for i, name := range []string{"type", "state_key", "sender", "event_id"} {
+			if s, ok := v.Get(name); ok && s.Kind() == proto.KindString {
+				f[i] = s.Str()
+			}
+		}
+		content, ok := v.Get("content")
+		if !ok || content.Kind() != proto.KindObject {
+			continue
+		}
+		out = append(out, proto.StateEvent{Type: f[0], StateKey: f[1], Sender: f[2], EventID: f[3], Content: content})
+	}
+	return out
+}
+
+// sendOwnNotice posts the member's own lifecycle notice, as its link would.
+func sendOwnNotice(t *testing.T, w *world, token, event, reason string) {
+	t.Helper()
+	c, err := w.member(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	main := w.rooms(t).Main
+	raw, err := c.RoomState(t.Context(), main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	self := proto.UserID(sampleHandle, server)
+	roster, err := proto.VerifyMain(stateEventsOf(t, raw), proto.Anchors{Server: server, Team: "alpha", MainRoom: main, Self: self})
+	if err != nil {
+		t.Fatal(err)
+	}
+	to := []string{proto.UserID("alice", server)}
+	out, err := proto.Composer{Server: server, Self: self, Token: token, Roster: roster}.Notice(proto.Notice{Event: event, Subject: self, Reason: reason, To: to}, event)
+	if err != nil {
+		t.Fatalf("compose %s: %v", event, err)
+	}
+	if _, err := c.Send(t.Context(), main, proto.MessageType, "tc-test-"+event, out.Content.Compact()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func countOf(notices []string, want string) int {
+	n := 0
+	for _, got := range notices {
+		if got == want {
+			n++
+		}
+	}
+	return n
+}
+
+// LP2: the disconnected notice is posted once however often it is asked, never after the
+// member's own left, and a transient failure posts nothing.
+func TestServeMemberDisconnectedPostsOnceAndNotAfterLeft(t *testing.T) {
+	disconnected := "disconnected " + sampleHandle
+	t.Run("once however often", func(t *testing.T) {
+		w := withMember(t)
+		joinedWithCopy(t, w)
+		for range 3 {
+			if a := w.serve(t, OpMemberDisconnected, runArgs(t, w, sampleHandle)...); !a.OK || a.Notice == nil || !a.Notice.Posted {
+				t.Fatalf("answer %+v %+v", a, a.Error)
+			}
+		}
+		if n := countOf(w.notices(t), disconnected); n != 1 {
+			t.Fatalf("%d disconnected notices: %q", n, w.notices(t))
+		}
+	})
+	t.Run("none after the member's own left, answered as already said", func(t *testing.T) {
+		w := withMember(t)
+		token := joinedWithCopy(t, w)
+		sendOwnNotice(t, w, token, proto.EventLeft, "exit")
+		if a := w.serve(t, OpMemberDisconnected, runArgs(t, w, sampleHandle)...); !a.OK || a.Notice == nil || !a.Notice.Posted {
+			t.Fatalf("answer %+v %+v", a, a.Notice)
+		}
+		got := w.notices(t)
+		if n := countOf(got, disconnected); n != 0 || countOf(got, "left "+sampleHandle) != 1 {
+			t.Fatalf("notices %q", got)
+		}
+	})
+	t.Run("a transient failure posts nothing", func(t *testing.T) {
+		w := withMember(t)
+		joinedWithCopy(t, w)
+		before := w.notices(t)
+		w.srv.Inject(fakehs.Fault{Method: "GET", Path: "/state", Drop: true, Times: 1000})
+		if a := w.serve(t, OpMemberDisconnected, runArgs(t, w, sampleHandle)...); a.OK || a.Error.Class != ClassUnreachable {
+			t.Fatalf("answer %+v", a)
+		}
+		if after := w.notices(t); !slices.Equal(before, after) {
+			t.Fatalf("notices %q then %q", before, after)
+		}
+	})
 }
 
 func TestServeMemberDisconnectedClassesItsFailures(t *testing.T) {
