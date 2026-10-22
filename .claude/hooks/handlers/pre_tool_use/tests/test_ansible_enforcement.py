@@ -305,21 +305,29 @@ class TestAnsibleEnforcementHandler:
         assert handler.matches(hook_input) is False
 
     # matches() - Edge Cases
-    def test_matches_dnf_in_comment_returns_false(self, handler):
-        """Should NOT match dnf in comments (not actual command)."""
+    def test_matches_dnf_in_quoted_text_is_still_a_match(self, handler):
+        """Quoting is not parsed: `bash -c 'dnf install x'` is quoted too, so quoted text must block."""
         hook_input = {
             "tool_name": "Bash",
             "tool_input": {"command": "echo 'Use dnf install to add packages'"},
         }
-        assert handler.matches(hook_input) is False
+        assert handler.matches(hook_input) is True
 
-    def test_matches_dnf_in_string_returns_false(self, handler):
-        """Should NOT match dnf in string literals."""
+    def test_matches_dnf_in_grep_pattern_is_still_a_match(self, handler):
+        """A quoted `dnf install` is a match for the same reason: the handler fails closed."""
         hook_input = {
             "tool_name": "Bash",
             "tool_input": {"command": "grep 'dnf install' logfile.txt"},
         }
-        assert handler.matches(hook_input) is False
+        assert handler.matches(hook_input) is True
+
+    def test_matches_dnf_hidden_in_bash_dash_c_returns_true(self, handler):
+        """The bypass a quote-aware matcher would open."""
+        hook_input = {
+            "tool_name": "Bash",
+            "tool_input": {"command": "bash -c 'dnf install vim'"},
+        }
+        assert handler.matches(hook_input) is True
 
     def test_matches_case_insensitive_dnf(self, handler):
         """Should match DNF in any case (DNF, Dnf, dnf)."""

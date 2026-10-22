@@ -146,3 +146,11 @@ playbooks/imports/play-claude-yolo.yml
 # its update on every open, so it blocks S3 until play-agent-bus.yml has applied it; its entry
 # above normally has.
 00209-agent-bus-v2-in-go/acceptance-s1.bash
+# play-python.yml, the whole play (Plan 00191 Task 4.6): installs Fedora's python3-pytest, the
+# pytest the hook-handlers QA gate borrows to run the hooks-daemon handler tests under the
+# daemon's venv (the CCY image already has it). It also re-asserts the pinned QA toolchain
+# (ruff, semgrep, shellcheck, golangci-lint) and imports play-golang.yml. Needs sudo once.
+# Afterwards ./scripts/qa-hook-handlers.bash on the host must print HOOK-HANDLERS-OK; if it
+# says the interpreter the daemon's venv was built from has no pytest, that venv was not built
+# from Fedora's python3.
+playbooks/imports/play-python.yml

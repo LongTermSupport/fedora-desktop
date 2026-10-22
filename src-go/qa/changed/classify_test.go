@@ -833,6 +833,38 @@ func TestADependencyChangeRunsTheDependencyGates(t *testing.T) {
 	}
 }
 
+// The project hook handlers' tests run whole, under the daemon's interpreter, for a change to a
+// handler, a handler test or the gate's script, Go package or command, and for a deleted handler;
+// an ordinary helper does not run them (Plan 00191 Task 4.6).
+func TestAHookHandlerChangeRunsTheHookHandlersGate(t *testing.T) {
+	for _, f := range []string{
+		".claude/hooks/handlers/pre_tool_use/system_paths.py",
+		".claude/hooks/handlers/pre_tool_use/tests/test_system_paths.py",
+		"scripts/qa-hook-handlers.bash",
+		"src-go/qa/hookhandlers/run.go",
+		"src-go/qa/cmd/qa-hook-handlers/main.go",
+	} {
+		w := newWorld(t)
+		w.touch(f, "x = 1\n")
+		p := w.classify([]string{f})
+		if !p.has("hook-handlers") {
+			t.Errorf("%s does not run hook-handlers: %v", f, keys(p))
+		}
+		if len(p.uncovered) != 0 {
+			t.Errorf("%s is uncovered: %v", f, p.uncovered)
+		}
+	}
+	w := newWorld(t)
+	if p := w.classify(nil, ".claude/hooks/handlers/pre_tool_use/gone.py"); !p.has("hook-handlers") {
+		t.Errorf("a deleted handler owes the gate: %v", keys(p))
+	}
+	w = newWorld(t)
+	w.touch("helpers/other.py", "x = 1")
+	if p := w.classify([]string{"helpers/other.py"}); p.has("hook-handlers") {
+		t.Errorf("an ordinary helper must not run hook-handlers: %v", keys(p))
+	}
+}
+
 // Any deleted file owes the docs check: a document may link to it (SPEC-qa-changed B47).
 func TestAnyDeletionOwesTheDocsCheck(t *testing.T) {
 	for _, f := range []string{"scripts/gone.bash", "helpers/gone.py", "playbooks/gone.yml", "scripts/gone.tsv", "files/gone.json"} {

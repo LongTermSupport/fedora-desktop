@@ -615,14 +615,40 @@ today; rewriting them is out of scope.
       green after the fix, real temporary git repositories including `café/README.md`.
     - The failing project handler test is Task 4.6.
 
-- [ ] ⬜ **Task 4.6**: The project hook handler tests are run by no gate.
-  `test_matches_write_to_root_claude_projects_returns_false` in
-  `.claude/hooks/handlers/pre_tool_use/tests/test_system_paths.py` fails on F44 (identical on
-  the base). `qa-all.bash` does not run them: `scripts/qa-helper-tests.bash` runs only
-  `tests/helpers/**/test_*.py`, and no other gate names `.claude/hooks`. Wire the project
-  handler tests into qa (a gate, or the helper-tests gate's scope, run with the daemon's
-  interpreter, which the gate must fail loudly without), then fix the failing test or justify
-  it in writing. Not done in the review-fix pass.
+- [ ] 🔄 **Task 4.6**: The project hook handler tests were run by no gate. Now
+  `scripts/qa-hook-handlers.bash` (gate `hook-handlers` in `qa-gates.tsv`; `qa-changed` routes
+  `.claude/hooks/handlers/*` and the gate's own Go to it) runs them. The tool is Go
+  (`src-go/qa/hookhandlers`, expectations K1-K8 in its package doc): the daemon's interpreter
+  (`<daemon>/scripts/lib/resolve_venv.sh python`, the daemon found in the main checkout from a
+  linked worktree) runs pytest isolated (`-I -B`, no plugin autoload) with the project's pytest
+  appended to its path: the one the interpreter the venv was built from (`sys._base_executable`,
+  never a `python<X.Y>` on PATH, which a pyenv global would change) imports (the CCY
+  image's `python3-pytest`; the host's from `play-python.yml`, added here), so the venv's own
+  modules always win and two Python versions never mix. A missing daemon, venv or pytest is
+  exit 2 naming the fix. CI's checkout has no daemon: `.github/workflows/qa.yml` sets
+  `QA_HOOK_HANDLERS_EXEMPT` with its reason (honoured on GitHub Actions only, exit 2 elsewhere)
+  and the gate prints `HOOK-HANDLERS-EXEMPT`. Three tests failed on F44.
+  `test_matches_write_to_root_claude_projects_returns_false`: the handler was wrong,
+  `Path.resolve()` followed the container's `/root/.claude` symlink (to `.claude/ccy`) so the
+  runtime-directory exemption never matched; it now judges the path lexically and again after
+  symlinks against the projects directory's own target (a link leaving it is not exempt).
+  Review of that fix: it resolved the normalised path, so `projects/link/../x` (link to
+  `/etc/ssh`) was exempt though the kernel writes `/etc/x`; it now resolves the original path.
+  The block side compared the raw path, so `//etc/x`, `/./etc/x` and `<project>/../etc/x`
+  passed; every prefix is now judged on the folded path. Real-symlink tests cover both.
+  Second review (`subagent-reports/261022-hook-handlers-review-opus.md`, FIX-FIRST): the block
+  never followed symlinks, so `/bin/x`, `/lib/x`, `/sbin/x` (links into `/usr`),
+  `/proc/self/root/etc/hosts` and `<project>/link/x` or `<project>/link/../x` (link to a system
+  directory) were allowed. A path is now blocked if its folded spelling or its resolved target
+  (`os.path.realpath`, a missing tail allowed) is under a system prefix, and it is the project's
+  only if both are under the project; a checkout reached through a symlinked parent is still
+  the project when `CLAUDE_PROJECT_DIR` or the handler's own load path spells it that way and
+  resolves to the root (the old host false positive). Red: 9 new tests failed; green: 124
+  passed. The gate now asks the venv's base interpreter for pytest (red: the Go tests failed on
+  the new probe; green after). The two `ansible_enforcement` "dnf in a quoted string" tests were wrong: the handler
+  deliberately matches quoted text (`bash -c 'dnf install x'` is quoted), so they now assert
+  that. Open: the host run of `play-python.yml` (queued in `meta-deploy.list`), then the
+  gate passing on the host.
 
 ### Phase 5: Review
 
