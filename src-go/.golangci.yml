@@ -258,6 +258,11 @@ linters:
       - path: internal/teamchat/matrix/(admin|fakehs/admin|fakehs/replay_test)\.go
         linters: [gosec]
         text: "G401|G505"
+      # The host's state files are opened by the path their caller names (a paths function of a
+      # parsed team id), never following a link and refusing anything but a regular file.
+      - path: internal/teamchat/state/state\.go
+        linters: [gosec]
+        text: "G304"
   settings:
     tagliatelle:
       case:
