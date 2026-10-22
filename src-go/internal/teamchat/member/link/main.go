@@ -39,7 +39,11 @@ func Main(w Wiring) cli.RunFunc {
 	return func(e cli.Env, inv cli.Invocation) term.ExitCode {
 		signal.Ignore(syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
 		dir, given := inv.Flag("run")
-		layout, run, err := layoutFor(dir, e.Getenv)
+		stateDir := ""
+		if s, ok := inv.Flag("state"); ok {
+			stateDir = s
+		}
+		layout, run, err := layoutFor(dir, stateDir, e.Getenv)
 		if !given {
 			err = exits.New(exits.CodeUsage, nil, msgRunDir)
 		}
@@ -76,8 +80,20 @@ func Main(w Wiring) cli.RunFunc {
 }
 
 // layoutFor is the layout whose runtime directory for its base name is dir: a ccy session's,
-// else the home member's under $HOME and $XDG_RUNTIME_DIR.
-func layoutFor(dir string, getenv func(string) string) (paths.Layout, paths.RunID, error) {
+// else the home member's under $HOME and $XDG_RUNTIME_DIR; with state ("" for none) as its
+// state root, run's --state the keeper passes on.
+func layoutFor(dir, state string, getenv func(string) string) (paths.Layout, paths.RunID, error) {
+	l, run, err := runLayout(dir, getenv)
+	if err != nil || state == "" {
+		return l, run, err
+	}
+	if l, err = l.WithState(state); err != nil {
+		return paths.Layout{}, paths.RunID{}, exits.New(exits.CodeUsage, nil, msgRunDir)
+	}
+	return l, run, nil
+}
+
+func runLayout(dir string, getenv func(string) string) (paths.Layout, paths.RunID, error) {
 	run, err := paths.ParseRunID(filepath.Base(dir))
 	if err != nil {
 		return paths.Layout{}, paths.RunID{}, exits.New(exits.CodeUsage, nil, msgRunDir)
