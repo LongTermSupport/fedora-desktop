@@ -435,6 +435,9 @@ func (e *fakeEngine) View(_ paths.TeamID, ids, relations []string, _ proto.Roste
 	return v, nil
 }
 
+// Persist keeps the batch and answers the floor the store keeps. Its floor loop is a stand-in
+// for engine.ownedFloors, enough for the marker tests here; the rule itself is proven by the
+// engine's own tests and by the Tuwunel run over the real engine, not by these.
 func (e *fakeEngine) Persist(_ context.Context, b team.Batch) (int64, error) {
 	e.mu.Lock()
 	hook := e.persistErr

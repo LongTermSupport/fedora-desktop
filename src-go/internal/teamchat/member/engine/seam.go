@@ -253,7 +253,9 @@ func apply(s *state.Store, b team.Batch) (map[string]proto.Verdict, error) {
 
 // ownedFloors is B 2.3.2's floor rule: a room the store owes items in has its floor just below
 // the oldest of them, so each is newer than its floor and survives a restart (B44); a room it
-// owes none in keeps the batch's high-water.
+// owes none in keeps the batch's high-water. B 2.3.2 counts `awaiting` too, whose entries carry
+// ids only: whatever writes them must give them a sent time, or set the floor before moving
+// items there.
 func ownedFloors(s *state.Store) {
 	for _, p := range s.Pending {
 		if s.Sync.FloorMS == nil {
