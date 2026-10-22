@@ -35,9 +35,13 @@ type ThreadPost struct {
 	Answers    string
 }
 
-// Composer builds what a sender posts, and refuses what a receiver would drop: every event is
-// decoded and judged by the receiver's own rules before it is sent, then held to the sender's
-// own (the secret check, the body forms, duplicates, flood). Token is the sender's own access
+// Composer builds what a sender posts, and refuses what a receiver would drop. Every composer
+// refuses in one order, the first failure winning: the sender's class and role; what the
+// content is built from (the question index's number and relation, `schema` and `target`; the
+// body form of A 10.1-10.3, `body`); the receiver's own rules over the built content (decode,
+// then the roster: `schema`, `size`, `target` and the rest); the secret check (`secret`); an
+// open question asking the same (`duplicate`). The sender then runs the forge check and Admit
+// spends the flood budget (the duplicate window, `rate`). Token is the sender's own access
 // token (R43). Gate and Reports are the sender's flood state; the admin has neither (its posts
 // are C's and D's, bounded by the change they record). Questions is the questions room's
 // index, for the coordinator.
@@ -203,11 +207,6 @@ func (c Composer) Question(q QuestionPost) (Outgoing, error) {
 	if err != nil {
 		return Outgoing{}, err
 	}
-	for _, id := range q.AskedBy {
-		if _, member := c.Roster.Members[id]; !member {
-			return Outgoing{}, refused(ReasonTarget, "asked_by names members")
-		}
-	}
 	obj := []Member{M("v", Int(WireMajor)), M("n", Int(n)), M("asked_by", strArray(q.AskedBy)), M("re", strArray(q.Re))}
 	if q.RemindAfterS != 0 {
 		obj = append(obj, M("remind_after_s", Int(q.RemindAfterS)))
@@ -215,6 +214,11 @@ func (c Composer) Question(q QuestionPost) (Outgoing, error) {
 	content := agentContent(MsgText, body, c.Roster.Humans, Relation{}, KeyQuestion, Obj(obj...))
 	if _, err := decodeSent(content, QuestionKeys); err != nil {
 		return Outgoing{}, err
+	}
+	for _, id := range q.AskedBy {
+		if _, member := c.Roster.Members[id]; !member {
+			return Outgoing{}, refused(ReasonTarget, "asked_by names members")
+		}
 	}
 	if err := c.screen(q.Text); err != nil {
 		return Outgoing{}, err

@@ -278,3 +278,41 @@ func TestAdmitDuplicatesAndRate(t *testing.T) {
 	other := mustSend(t)(c.Text(Text{To: []string{coordID}, Text: "other"}, "", "other"))
 	refusedWith(t, "an empty bucket", c.Admit(other), ReasonRate)
 }
+
+// TestSendRefusalOrder pins the one order every composer refuses in (Composer): a text that
+// fails two checks is refused by the first.
+func TestSendRefusalOrder(t *testing.T) {
+	gone := UserID("gone.9+desk.podman", testServer)
+	carried := Carried{Kind: CarriedPing, Verb: "review", Ref: commitRef, From: workerID, SentMs: 1, V1Event: otherEvent, To: gone, Text: ownSample}
+	cases := map[string]struct {
+		send   func() (Outgoing, error)
+		reason string
+	}{
+		"ping: target, then secret": {func() (Outgoing, error) {
+			return composer(t, coordID).Ping(Ping{Verb: "review", To: []string{parkedID}, Ref: commitRef}, "", "review "+ownSample)
+		}, ReasonTarget},
+		"text: target, then secret": {func() (Outgoing, error) {
+			return composer(t, coordID).Text(Text{To: []string{parkedID}, Text: ownSample}, "", "x")
+		}, ReasonTarget},
+		"notice: target, then secret": {func() (Outgoing, error) {
+			return composer(t, adminID).Notice(Notice{Event: EventParked, Subject: gone, To: []string{aliceID}}, ownSample)
+		}, ReasonTarget},
+		"carried: target, then secret": {func() (Outgoing, error) { return composer(t, adminID).Carried(carried, "x") }, ReasonTarget},
+		"report: form, then secret":    {func() (Outgoing, error) { return composer(t, workerID).Report("\n" + ownSample) }, ReasonBody},
+		"question: form, then target": {func() (Outgoing, error) {
+			return composer(t, coordID).Question(QuestionPost{Text: "Head\nQuestion: x", AskedBy: []string{aliceID}})
+		}, ReasonBody},
+		"question: target, then secret": {func() (Outgoing, error) {
+			return composer(t, coordID).Question(QuestionPost{Text: "Head\nContext: " + ownSample + "\nQuestion: x", AskedBy: []string{aliceID}})
+		}, ReasonTarget},
+		"question: secret, then duplicate": {func() (Outgoing, error) {
+			return asked(t).Question(QuestionPost{Text: "Again\nContext: " + ownSample + "\nQuestion: MIT  or\nCC-BY?"})
+		}, ReasonSecret},
+		"thread: target, then secret": {func() (Outgoing, error) { return asked(t).Thread(ThreadPost{N: 4, Text: ownSample}) }, ReasonTarget},
+		"thread: role, then target":   {func() (Outgoing, error) { return composer(t, workerID).Thread(ThreadPost{N: 4, Text: "x"}) }, ReasonRole},
+	}
+	for name, tc := range cases {
+		_, err := tc.send()
+		refusedWith(t, name, err, tc.reason)
+	}
+}
