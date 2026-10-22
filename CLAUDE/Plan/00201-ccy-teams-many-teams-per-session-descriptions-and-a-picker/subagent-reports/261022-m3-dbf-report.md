@@ -69,8 +69,9 @@ on what is an instance; the rule stays narrower than the class, and the excess i
 Scope: every `.py` and bash file in active plan folders, `tests/` and `scripts/` (the test
 suites; widened after conformance round 1, with no new finding). Excluded: `JOURNAL/` and
 `subagent-reports/` (records), completed plans (they cannot be run), and the rule's own
-fixtures. The independent search read the plan folders only. 4 findings at the red, 0 at the
-green.
+fixtures. The independent search first read the plan folders only; tests/ and scripts/ were
+searched after conformance round 2 (`261022-m3-round2-fixes.md` Task 3; 4 copies fixed). 4
+findings at the red, 0 at the green.
 
 ## Fixes
 
@@ -92,9 +93,14 @@ read. The drifted Tuwunel pin is now v1.9.4, read from `tuwunel.pin`.
 
 ## Decisions referred to the owner
 
-Count fixed: every named or computed copy (16 rows) plus `DISCONNECT_TEXT`. Count remaining:
-the 16 copies of inline message or command text (A4, A5, B2-B15, B9 in part); A15's subject is a
-plan script, not product. What stopped me: each text lives inside a product call, not in a
+Count fixed: every named or computed copy of the search (A1-A3 and A6-A19; A15 since
+round 2), B9's `DISCONNECT_TEXT`, round 2's B3, B6, B13 and B7's step marks
+(`261022-m3-round2-fixes.md`), its 3 UNSURE rows ruled INSTANCE, and 4 copies in tests/ and
+scripts/. Count remaining, referred: the inline message or command text A4, A5, B2, B4 (in
+part), B5, B7 (in part), B8, B10-B12, B14 and B15, and Plan 00211's seat refusal text. Split off
+by the coordinator as Plan 00201 Task 2.22, not blocking this merge: about 25 copies of the
+same class in Plan 00203's M4, M6, `m2-check.bash` and `_triage-hs.inc.bash` (the sites are
+listed there), and the second Tuwunel pin parser. What stopped me on the inline text: each text lives inside a product call, not in a
 named value, so the checker can read it only once the product names it. That changes deployed
 code (pingbus, Go tools, run.bash, the speech-to-text extension), needs their version bumps and
 host deploys, and is a product change made for the checkers' sake, which is the owner's call.

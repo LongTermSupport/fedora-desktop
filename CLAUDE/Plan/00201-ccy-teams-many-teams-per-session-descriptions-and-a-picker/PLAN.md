@@ -292,18 +292,31 @@ a repository is no longer offered for a checkout of it. Report:
   already read. M7's and 00203 M3's teams segment is judged by `m7_check expect-segment` /
   `expect-segment-rows`, read from statusline.py (`_team_piece`, `ROLE_LETTERS`) since Plan
   00217 changed it.
-  LEFT, CHECKER FIXES: about 25 copies round 2 found and did not fix, in Plan 00203's
-  `_acceptance-m4/m6.inc.bash` (step marks, `/tmp/pingbus-home`, `PINGBUS_STATUS_LINE_INNER`,
-  `membership.json`), `m2-check.bash:25` and `_triage-hs.inc.bash` (`/tmp/pingbus-home`);
-  `m7_check session-paths`, `hot-marks` and `status-line-names` read each. And Plan 00161's
-  `triage_probe.pinned_tuwunel_version` repeats `declare.declared_software`'s inline pin
-  parse (round 2 F3): both strict, but they can drift; declare.py should expose the reader.
+  LEFT, CHECKER FIXES: split off by the coordinator as Task 2.22 (below); they do not block
+  this task's merge.
   REFERRED TO THE OWNER: the inline message or command text (A4, A5, B2, B4, B5, B7's
   "relaunches once"/"re-baseline", B8, B10-B12, B14, B15), and Plan 00211's
   `_acceptance-stage2.inc.bash` fake A3 seat grep for `a host member must not run as a user with an Element profile` (inline in config.py's `ConfigError` and roles.go). The product holds each
   as text inside a call, not a named value, so the checker can read it only once the product
   names it: deployed code changes with version bumps and host deploys, a product decision.
   Report: `subagent-reports/261022-m3-dbf-report.md`.
+- [ ] **Task 2.22**: Follow-up to Task 2.21, split off by the coordinator so that Task 2.21's
+  branch could merge: the copies of product values that Task 2.21's search found in other
+  plans' checkers and left unfixed. Each one reads its value through the `m7_check`
+  commands Task 2.21 added (`session-paths`, `hot-marks`, `status-line-names`), as Plan
+  00203's M3 already does in `m3_read_names`. The sites, all in Plan 00203:
+  - `_acceptance-m4.inc.bash`: the `✓` step mark at 238, 239, 242, 251, 256, 284, 322, 330,
+    346, 358 and 366; `/tmp/pingbus-home` and `PINGBUS_STATUS_LINE_INNER` at 306;
+    `ccy/membership/.../membership.json` at 109 and 315.
+  - `_acceptance-m6.inc.bash`: the `✓`/`✗` marks at 281, 282, 341, 363 and 387;
+    `membership.json` at 94.
+  - `m2-check.bash:25`: `HOME_IN=/tmp/pingbus-home`.
+  - `_triage-hs.inc.bash`: `/tmp/pingbus-home/watch.log` at 157, 161 and 171.
+  - Also Plan 00161's `triage_probe.pinned_tuwunel_version`, which repeats
+    `declare.declared_software`'s inline pin parse (round 2 F3). Both are strict, but they
+    can drift, so declare.py should expose the reader.
+  - Also the inline-text copies Task 2.21 refers to the owner: the product has to name each
+    text as a constant before a checker can read it.
 
 ## Success Criteria
 
