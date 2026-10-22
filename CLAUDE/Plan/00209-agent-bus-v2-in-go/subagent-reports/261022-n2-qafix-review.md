@@ -147,3 +147,48 @@ The scratch tests are in `untracked/scratch/qafix-review/zz_review_test.go` (run
   - The Task 2.2 progress line matches n2d.
   - `go-deps.allowlist:44` and the hostvars doc wording are fixed.
   - The n2c open item is marked fixed, but see findings 1 and 2.
+
+## Round 2 (39ce1171..HEAD: 97e75b80, 156dca87)
+
+**Verdict: MERGE.** All six round-1 findings are resolved. One new nit, which does not block.
+
+- **Finding 1 (Announce).** `announceHeld` now checks `mayOwnCopy` before probing. The check
+  reads the pool only, and its error is returned (fail fast).
+  - My scratch reproduction (`TestReviewAnnounceOfAHoldingWithNoCopy`) now records one
+    notice, B's.
+  - Mutation: removing the gate turns `TestAnnounceOfAHoldingWithNoCopyIsTheOthers` red.
+- **Finding 2 (strict order).** `nextSince` is `max(now, newest other complete holding of the team naming the session + 1)`. It runs under the allocation lock and reads host-owned
+  `held/` only.
+  - The update is monotone, so the order the holdings are scanned in does not matter.
+  - Only live holdings take part in the ordering, and every live holding is in the scan, so a
+    later take always sorts above an older live holding, whatever the clock does. A holding
+    that is already released cannot invert the order: it has left the scan, and it no longer
+    takes part in `mayOwnCopy`.
+  - Incomplete holdings are skipped. Under the lock, an incomplete holding can only be a take
+    that died at step 2, which has no copy.
+  - Scratch reproductions:
+    - Clock stepped back: the wait is now 0 s, and B's live copy stays where it is.
+    - Tie with B released first: B moves its own copy and posts its own notice once, and A's
+      release then posts nothing more.
+  - Concurrent tied releases can no longer strand a copy, because a tie can no longer happen.
+  - Mutation: `nextSince` set to plain now turns `TestSinceOrdersTheHoldingsOfASessionStrictly`
+    and `TestTheNewerHoldingReleasedFirstMovesItsCopy` red.
+- **Finding 3 (pool scan).** The fail-fast is kept, recorded in the addendum and pinned by
+  `TestAStrangePoolNameStopsTheRelease`. This is acceptable: the pool is the owner's alone.
+- **Finding 4 (report).** `261022-n2-qafix.md` is now committed.
+- **Finding 5 (`ErrHeld` doc).** The doc is widened, and it says seat choice must not answer the
+  error by trying the next seat. That is sufficient while `seat.Take` has no caller.
+- **Finding 6 (test gaps).** The clearHeld path, the FIFO `IN_OPEN` case and the B-first order
+  each now have a test.
+- **At HEAD,** `go test -race -shuffle=on -count=2` on the seat package passes.
+
+### New finding
+
+1. **Nit: `nextSince` can overflow.** `take.go` (`nextSince`) and `records.go:224`.
+   - **Scenario.** A sibling `held.json` holds `since_ms` equal to `MaxInt64`. The decoder
+     accepts it, because it checks only `< 0`. `+1` then wraps to a negative value, and the new
+     `held.json` that is written no longer decodes, so a later release sends the holding to
+     quarantine.
+   - Only the host writes these records, so no member can cause this.
+   - **Fix (optional).** Bound `since_ms` in `decodeHeldRecord`, for example to a few centuries
+     past the epoch, or refuse it in `nextSince` with `ErrInvalid` naming the sibling.
