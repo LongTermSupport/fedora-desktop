@@ -114,12 +114,13 @@ playbooks/imports/play-claude-yolo.yml
 # is this checkout's build, builds the ccy-teams from before stage 1 from git, and runs each three
 # times in turn: `--list` must print the same bytes (a difference in every round rejects, one in
 # some rounds only is a live change and a note) and run faster (it took 9-23 s before), and an
-# open, drawn on this terminal and answered with Esc at its first screen, must be faster and
-# start exactly one declare status and no agent-bus seat list. A live member.json that sets
-# report_per_hour must be listed, not refused. Needs sudo once (so both read the member rosters)
-# and a terminal. A failure names the check, and a --list diff is in the report. An open that
-# asks a question first (a team to describe, an update) leaves S3 NOT JUDGED (exit 2, COULD NOT
-# ESTABLISH in the summary): answer it in ccy-teams and run again. An out-of-date team is offered
-# its update on every open, so it blocks S3 until play-agent-bus.yml has applied it; its entry
-# above normally has.
+# open, drawn on this terminal from an empty folder under TMPDIR that is in no checkout and
+# answered with Esc at its first screen, must be faster and start exactly one declare status and
+# no agent-bus seat list. A member.json that sets report_per_hour must be listed, not refused:
+# on a fixture in the run directory (always, and the report says so) and on any live seat. Needs
+# sudo once (so both read the member rosters) and a terminal. A failure names the check, and a
+# --list diff is in the report. An open whose first screen is a question (a team limited to some
+# folders or with no description, teams out of date, no team) leaves S3 NOT JUDGED (exit 2,
+# COULD NOT ESTABLISH in the summary), and the run log names the question: answer it in
+# ccy-teams and run again.
 00209-agent-bus-v2-in-go/acceptance-s1.bash

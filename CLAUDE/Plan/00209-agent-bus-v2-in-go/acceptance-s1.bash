@@ -17,27 +17,36 @@
 #      a departure, one in some rounds only is a live change between the halves of a pair and
 #      a note; the new one is faster (median, with the load average beside it). The old
 #      figures were 9-23 s on this host;
-#   S3 an open of each, in the same rounds, timed to its first screen. PATH starts with
-#      _s1-shim.bash under the names env, agent-bus, fzf and gum, which log every declare.py run
-#      and every agent-bus call and answer the first screen with Esc. Each new open starts
-#      exactly one `declare status` and no `agent-bus seat list`; the old opens must start a
-#      seat list and more than one declare.py, which proves the shims see them;
-#   S4 every seat whose live member.json sets limits.report_per_hour, in a checkout a session
-#      record names, is on the new `--list` and not refused.
+#   S3 an open of each, in the same rounds, timed to its first screen, every open started in
+#      one empty folder under TMPDIR that is in no git checkout: started in a checkout,
+#      ccy-teams offers a session there before its table. PATH starts with _s1-shim.bash under
+#      the names env, agent-bus, fzf and gum, which log every declare.py run and every agent-bus
+#      call and answer the first screen with Esc. Each new open starts exactly one `declare
+#      status` and no `agent-bus seat list`; the old opens must start a seat list and more than
+#      one declare.py, which proves the shims see them;
+#   S4 a member.json that sets limits.report_per_hour is on the new `--list` and not refused:
+#      always on a fixture in the run directory (a session record in a registry of its own,
+#      through CCY_STATE_DIR, naming a folder with two seats of an applied team, one in bounds
+#      and one out of them, which must be refused), read by the installed binary; and on every
+#      live seat that sets it, in a checkout a session record names. The report says which.
 #
 # RUN ON THE HOST, in a terminal, as the desktop user (not root): the opens draw on /dev/tty, so
 # meta-deploy.bash must run in one. The one prompt is sudo's, before the log opens (R3), so the
-# member rosters read the same for both binaries. If ccy-teams asks a question when it opens (a
-# team to describe, an update to apply), S3 is not judged: answer it in ccy-teams and run again.
-# An update offer comes back on every open while a team is out of date, so S3 cannot be judged
-# until play-agent-bus.yml has applied the update (its meta-deploy.list entry runs earlier).
+# member rosters read the same for both binaries. If an open's first screen is a question rather
+# than the table, S3 is not judged and the run log names the question: ccy-teams asks one on
+# every open, until it is answered, for a team limited to some folders, a team with no
+# description, teams out of date or declared and not built, or no team at all. Answer it in
+# ccy-teams and run again.
 #
-# WHAT IT CHANGES: nothing. It builds two binaries and keeps every output in its run directory.
+# WHAT IT CHANGES: nothing outside its run directory, where it builds two binaries and the S4
+# fixture and keeps every output; the two folders it starts ccy-teams in, under TMPDIR, are
+# removed.
 #
 # EXIT CODES: 0 ACCEPTED; 1 REJECTED (each failed check is named); 2 NOT JUDGED (nothing failed,
 # but S3 or S4 had no evidence to judge on: an open asked a question first, no old open showed
-# the shims seeing a seat list, no terminal, or no live member.json sets report_per_hour; each
-# named), which meta-deploy.bash reports as COULD NOT ESTABLISH; 64 usage.
+# the shims seeing a seat list, no terminal, or no applied team for the S4 fixture and no live
+# member.json that sets report_per_hour; each named), which meta-deploy.bash reports as COULD
+# NOT ESTABLISH; 64 usage.
 set -euo pipefail
 
 # ── R1 bootstrap: script-relative, filesystem-only, bounded at the repo boundary ──────────
@@ -63,8 +72,9 @@ PLAN_USAGE="usage: acceptance-s1.bash [-h|--help]
 
 Plan 00209 stage 1 on the host: the installed ccy-teams is this checkout's (S0); against the
 ccy-teams from before stage 1, built from git (S1), --list prints the same bytes and is faster
-(S2), an open is faster and starts one declare status and no seat list (S3); a live member.json
-with report_per_hour set is listed (S4). Exit 0 ACCEPTED, 1 REJECTED, 2 NOT JUDGED (nothing
+(S2), an open is faster and starts one declare status and no seat list (S3); a member.json
+with report_per_hour set is listed, on a fixture and on any live seat (S4). Exit 0 ACCEPTED,
+1 REJECTED, 2 NOT JUDGED (nothing
 failed, but S3 or S4 had no evidence), 64 usage. Prompts for sudo once, before the run log
 opens; run it in a terminal."
 
@@ -84,7 +94,7 @@ if [[ "${EUID}" -eq 0 ]]; then
     printf '[FATAL] run this as the desktop user, not root: ccy-teams reads that user'\''s sessions\n' >&2
     exit 1
 fi
-for tool in go git tar timeout gum agent-bus sha256sum cmp diff paste; do
+for tool in go git tar timeout gum agent-bus sha256sum cmp diff paste mktemp; do
     if ! command -v "${tool}" >/dev/null; then
         printf '[FATAL] %s is not installed: its play has not run on this host\n' "${tool}" >&2
         exit 1
@@ -111,7 +121,7 @@ plan_gather_leg "S0 the installed ccy-teams is this checkout's build" check_inst
 plan_gather_leg "S1 the ccy-teams from before stage 1, built from git" build_old
 plan_gather_leg "S2 --list prints the same bytes, faster" check_list
 plan_gather_leg "S3 an open is faster and starts one declare status and no seat list" judge S3 check_open
-plan_gather_leg "S4 a live member.json with report_per_hour set is listed" judge S4 check_report_per_hour
+plan_gather_leg "S4 a member.json with report_per_hour set is listed" judge S4 check_report_per_hour
 
 if [[ -n "${PLAN_FAILED_LEGS}" ]]; then
     printf '\nREJECTED: %s%s\n' "${PLAN_FAILED_LEGS}" "${NOT_JUDGED:+ (not judged: ${NOT_JUDGED})}" | tee -a "${REPORT}"
