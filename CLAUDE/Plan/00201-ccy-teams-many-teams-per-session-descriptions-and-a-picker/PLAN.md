@@ -274,6 +274,23 @@ a repository is no longer offered for a checkout of it. Report:
   columns from its heading (64d5bc3b6). Left: the host run (meta-deploy, play-claude-yolo.yml
   entry) and the owner's `ccy-teams lxc-add` of the member refused before. Reports:
   `subagent-reports/261022-lxc-add-*.md`.
+- [ ] 🔄 **Task 2.21**: M7's host run stopped at M3: the checker still expected the Python
+  `exec pingbus status-line` guard after Plan 00213 made it run `pingbus-status-line`. A
+  checker defect: `m7_check.py` copied seat.py's value. It now expects exactly what this
+  checkout's `seat.session_settings` writes for a seated session, and that its guard ends by
+  running the kit settings' command; `DESCRIPTION_MAX` is read from protocol.py, and Plan
+  00194's `goodbye_check.py` reads `TEXT_KEY`, the goodbye template and `DISCONNECT_TEXT` from
+  pingbus. Defence: `checker-copies-cited-constant` (`tests/helpers/plan_acceptance/`,
+  CLAUDE/QA.md), red with 4 findings. Done in code; left: the host rerun (meta-deploy).
+  REFERRED TO THE OWNER: the independent search
+  (`subagent-reports/261022-m3-owned-value-independent-search.md`) found copies no sound rule
+  catches, because they carry no comment naming the product's constant: 11 more of a named or
+  computed value (its A3, A6, A9-A14, A16-A18; A15's subject is a plan script; A1, A2, A7,
+  A8 and A19 are fixed here) and 16 of inline message or command text (A4, A5, B2-B15; B9's
+  DISCONNECT_TEXT is fixed here), the second needing the product to name
+  each text as a constant first. One has drifted: Plan 00161's `triage_probe.py` pins Tuwunel
+  v1.9.3, the product v1.9.4. Fixing them is per plan, in the checker each plan reruns next;
+  the method leaves the decision with the owner. Report: `subagent-reports/261022-m3-dbf-report.md`.
 
 ## Success Criteria
 

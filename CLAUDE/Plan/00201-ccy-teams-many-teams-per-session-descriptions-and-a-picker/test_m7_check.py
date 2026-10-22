@@ -422,17 +422,40 @@ class SegmentTest(TempDir):
         self.assertEqual(run("expect-segment", broken, "a,b")[0], 1)
 
     def test_expect_session_settings(self) -> None:
-        guard = '[ -e "$PINGBUS_HOME/active" ] || exec sh "$PINGBUS_HOME/statusline-inner"; exec pingbus status-line'
-        seated = self.write("seated.json", json.dumps({
-            "crossSessionInbound": "accept",
-            "statusLine": {"type": "command", "command": guard, "refreshInterval": 1}}))
-        kit = self.write("kit.json", json.dumps({
-            "crossSessionInbound": "accept",
-            "statusLine": {"type": "command", "command": "pingbus status-line"}}))
-        plain = self.write("plain.json", json.dumps({"statusLine": {"type": "command", "command": guard}}))
+        """What a seated session's settings must hold is what this checkout's seat.py writes,
+        never a copy: the copy said `exec pingbus status-line` after Plan 00213 made the kit
+        run `pingbus-status-line`, and failed M3 on a correct session."""
+        seat = importlib.import_module("helpers.pingbus.seat")
+        written = seat.session_settings(None, seated=True)
+        seated = self.write("seated.json", json.dumps(written))
+        padded = dict(written, statusLine=dict(written["statusLine"], padding=1))
+        python_era = dict(written, statusLine=dict(
+            written["statusLine"], command=written["statusLine"]["command"].replace(
+                "exec pingbus-status-line", "exec pingbus status-line")))
+        kit = dict(written, statusLine={"type": "command", "command": "pingbus-status-line"})
+        slow = dict(written, statusLine=dict(written["statusLine"], refreshInterval=1))
+        plain = dict(written, crossSessionInbound="refuse")
         self.assertEqual(run("expect-session-settings", seated)[0], 0)
-        self.assertEqual(run("expect-session-settings", kit)[0], 1, "not the shell guard")
-        self.assertEqual(run("expect-session-settings", plain)[0], 1, "no inbound accept")
+        self.assertEqual(run("expect-session-settings", self.write("padded.json", json.dumps(padded)))[0], 0,
+                         "Claude Code's own padding may be added")
+        self.assertEqual(run("expect-session-settings", self.write("old.json", json.dumps(python_era)))[0], 1,
+                         "the guard of the Python status line is not what the kit runs now")
+        self.assertEqual(run("expect-session-settings", self.write("kit.json", json.dumps(kit)))[0], 1,
+                         "not the shell guard")
+        self.assertEqual(run("expect-session-settings", self.write("slow.json", json.dumps(slow)))[0], 1,
+                         "not the seated refresh interval")
+        self.assertEqual(run("expect-session-settings", self.write("plain.json", json.dumps(plain)))[0], 1,
+                         "no inbound accept")
+
+    def test_the_seated_guard_runs_the_kit_command(self) -> None:
+        """The checkout's seat.py guard and its kit settings agree, and the check says so when
+        they do not."""
+        kit = json.loads((_repo_root() / mc.KIT_SETTINGS).read_text(encoding="utf-8"))
+        self.assertEqual(mc.kit_command(), kit["statusLine"]["command"])
+        self.assertTrue(mc.seated_status_line()["command"].endswith("exec " + mc.kit_command()))
+        settings = {"crossSessionInbound": "accept", "statusLine": mc.seated_status_line()}
+        with self.assertRaises(mc.Failed):
+            mc.expect_session_settings(settings, kit="pingbus status-line")
 
 
 class SessionStatusLineTest(TempDir):

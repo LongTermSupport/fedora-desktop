@@ -4,8 +4,8 @@
 _acceptance-m7.inc.bash drives the host (agent-bus-install, agent-bus, ccy-teams, two headless
 ccy sessions, podman exec into them, the human's curl); this module writes what it hands them
 and judges what comes back. Every judgement rests on what a tool printed or recorded, never on
-the model's prose. Standard library only, and only `bus-ports` imports from this checkout
-(declare.py, lazily). Commands (stdout is the payload, reasons on stderr):
+the model's prose. Standard library only; two commands import from this checkout, lazily:
+`bus-ports` (declare.py) and `expect-session-settings` (seat.py, and the kit's settings.json). Commands (stdout is the payload, reasons on stderr):
 
   team-file TEAM PORT ADDRESS HUMAN ORG DESCRIPTION   a throwaway team file (JSON)
   host-vars TEAMFILE...              a host_vars file declaring those teams (agent_bus_teams)
@@ -31,7 +31,7 @@ the model's prose. Standard library only, and only `bus-ports` imports from this
   expect-about STATUS TEAM DESCRIPTION   that team's ABOUT line carries DESCRIPTION
   expect-sent OUT TEAM               one SENT line, for TEAM; prints its event ID
   expect-choices STDERR (TEAM DESCRIPTION)...   the "several teams are active" refusal, listing each
-  expect-session-settings SETTINGS   a seated ccy session's own settings.json: inbound accepted, the guarded status line
+  expect-session-settings SETTINGS   a seated ccy session's own settings.json: inbound accepted, the seated status line this checkout's seat.py writes
   session-status-line PROC           IN THE SESSION'S CONTAINER: the status line its claude draws, the payload on stdin
   expect-segment OUT TEAMS           the status line printed the session's own line, then 👥 TEAMS on rows of its own
   expect-plain LABELS_JSON ENV_JSON  a ccy session container with no seat label or PINGBUS_ variable but PINGBUS_MEMBERSHIP=off
@@ -63,8 +63,6 @@ GITHUB_API = "https://api.github.com"
 #: A documentation network (CLAUDE/ExampleValues.md): the team admits nothing real beyond loopback
 #: and the bus address, as Plan 00161's acceptance team does.
 ALLOW_FROM_EXAMPLE = "192.0.2.0/24"
-#: helpers/pingbus/protocol.py DESCRIPTION_MAX; the installer applies the full rule again.
-DESCRIPTION_MAX = 120
 SESSION_ID_RE = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 )
@@ -89,9 +87,15 @@ class Failed(Exception):
 # ---------------------------------------------------------------- the throwaway teams
 
 
+def description_max() -> int:
+    """The longest description, from this checkout's helpers/pingbus/protocol.py; the
+    installer applies the full rule again."""
+    return _checkout_module("helpers.pingbus.protocol").DESCRIPTION_MAX
+
+
 def is_description(value: str) -> bool:
     return (
-        1 <= len(value) <= DESCRIPTION_MAX
+        1 <= len(value) <= description_max()
         and value == value.strip()
         and not any(unicodedata.category(ch) in ("Cc", "Cf") for ch in value)
     )
@@ -105,7 +109,7 @@ def team_file(
     meaningless."""
     if not is_description(description):
         raise ValueError(
-            f"description must be 1 to {DESCRIPTION_MAX} characters, stripped, "
+            f"description must be 1 to {description_max()} characters, stripped, "
             "with no control or format character"
         )
     return {
@@ -157,20 +161,30 @@ def bus_ports(
     return ports
 
 
-def _declare() -> object:
-    """helpers.agent_bus.declare from this checkout, imported only by the host-side commands
-    that need it."""
+def _checkout_root() -> pathlib.Path:
+    """This checkout's top: the first directory above this file holding ansible.cfg."""
     here = pathlib.Path(__file__).resolve().parent
     for candidate in (here, *here.parents):
         if (candidate / "ansible.cfg").exists():
-            if str(candidate) not in sys.path:
-                sys.path.insert(0, str(candidate))
-            return importlib.import_module("helpers.agent_bus.declare")
+            return candidate
         if (candidate / ".git").exists():
             break
     raise ValueError(
         f"no ansible.cfg above {here}: not inside a fedora-desktop checkout"
     )
+
+
+def _checkout_module(name: str) -> object:
+    """A module of this checkout's helpers, imported only by the host-side commands that
+    need it."""
+    root = str(_checkout_root())
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    return importlib.import_module(name)
+
+
+def _declare() -> object:
+    return _checkout_module("helpers.agent_bus.declare")
 
 
 def owner_bus_ports(count: int, host_vars_path: str) -> list[int]:
@@ -433,23 +447,47 @@ def expect_choices(stderr: str, teams: Sequence[tuple[str, str]]) -> None:
         raise Failed(f"the refusal does not list {missing!r}: {stderr!r}")
 
 
-#: How the shell guard a seated ccy session's settings name ends (helpers/pingbus/seat.py
-#: STATUS_LINE_GUARD, Plan 00203 H34): with the `active` flag, `pingbus status-line` runs.
-GUARD_TAIL = "exec pingbus status-line"
+#: The member kit's settings in this checkout, whose status line command a seated session's
+#: guard runs (the ccy image's /opt/claude-yolo/optional/agent-bus/settings.json).
+KIT_SETTINGS = pathlib.PurePosixPath("files/opt/claude-yolo/optional/agent-bus/settings.json")
 #: Each status line command is given this long before the leg calls it hung.
 STATUS_LINE_TIMEOUT_S = 30
 
 
-def expect_session_settings(settings: object) -> None:
-    """The settings `pingbus seat exec` wrote for a seated ccy session (H34): inbound accepted,
-    and the status line the shell guard that ends in `pingbus status-line`."""
-    line = settings.get("statusLine") if isinstance(settings, dict) else None
+def seated_status_line() -> dict:
+    """The status line `pingbus seat exec` writes for a seated session, from this checkout's
+    own helpers/pingbus/seat.py (Plan 00203 H34): never a copy, so it cannot drift from the kit."""
+    seat = _checkout_module("helpers.pingbus.seat")
+    return seat.session_settings(None, seated=True)["statusLine"]
+
+
+def kit_command() -> str:
+    """The status line command of this checkout's member kit settings."""
+    path = _checkout_root() / KIT_SETTINGS
+    line = json.loads(path.read_text(encoding="utf-8")).get("statusLine")
     command = line.get("command") if isinstance(line, dict) else None
+    if not isinstance(command, str) or not command.strip():
+        raise Failed(f"{path} names no status line command: {line!r}")
+    return command
+
+
+def expect_session_settings(settings: object, want: dict | None = None, kit: str | None = None) -> None:
+    """The settings `pingbus seat exec` wrote for a seated ccy session (H34): inbound accepted,
+    and the status line exactly what this checkout's seat.py writes for a seated session (each
+    key it sets; Claude Code's own padding may be added), a shell guard that ends by running
+    the kit's status line command. `want` and `kit` default to this checkout's."""
+    want = seated_status_line() if want is None else want
+    kit = kit_command() if kit is None else kit
+    guard = want.get("command")
+    if not isinstance(guard, str) or not guard.startswith("[ -e ") or not guard.endswith(f"exec {kit}"):
+        raise Failed(f"this checkout's seat.py guard {guard!r} does not end by running the kit's "
+                     f"status line command {kit!r} ({KIT_SETTINGS})")
+    line = settings.get("statusLine") if isinstance(settings, dict) else None
     problems = []
     if not isinstance(settings, dict) or settings.get("crossSessionInbound") != "accept":
         problems.append("no crossSessionInbound accept")
-    if not isinstance(command, str) or not command.startswith("[ -e ") or not command.endswith(GUARD_TAIL):
-        problems.append(f"the status line is {line!r}, not the shell guard ending {GUARD_TAIL!r}")
+    if not isinstance(line, dict) or any(line.get(key) != value for key, value in want.items()):
+        problems.append(f"the status line is {line!r}, not the seated guard this checkout writes, {want!r}")
     if problems:
         raise Failed(f"the session's settings: {'; '.join(problems)}")
 

@@ -1081,6 +1081,29 @@ host refused it for a reason that is not the product's, and nothing after A3 ran
 owned by the user who ran sudo) and link `<home>/<team>` to it with an absolute `ln -s`, as the
 keeper does. Do not loosen the check in `config.py`.
 
+### checker-copies-cited-constant
+
+**What it is.** In an active plan folder, a checker constant holding a literal (Python: a
+module-level `NAME = <literal>`; bash: a top-level `[readonly] NAME=` with no expansion) whose
+own comment, the lines directly above it or a trailing one, names a product source file
+(`.py` or `.go` under `helpers/`, `src-go/internal/`, `files/` or `extensions/`) together with
+a constant that file defines: a word of the comment, or the checker constant's own name. Run by
+`tests/helpers/plan_acceptance/test_cited_constant_copy_rule.py` (in `qa-helper-tests.bash`),
+which proves the rule against its fixtures first.
+
+**Why it exists.** The comment says the value is the product's, and a copy of it drifts. Plan
+00201's `m7_check.py` held `GUARD_TAIL = "exec pingbus status-line"`, a copy of `seat.py`
+`STATUS_LINE_GUARD`'s tail; Plan 00213 changed the guard and check M3 failed a correct
+session. The rule catches only the copies a comment admits to. A wider rule (any checker
+literal inside a product constant) would report the Matrix spec, GitHub's address and install
+paths, which the product does not own either; the copies it cannot see soundly are listed in
+Plan 00201 Task 2.21.
+
+**How to fix a finding.** Read the value from the product: import its module from this checkout,
+lazily, through the repo root above the checker (`m7_check.py` `_checkout_module`). A checker
+that runs where no checkout is mounted is handed the value by the script that starts it. Do not
+delete the comment to quiet the rule: the copy is still a copy.
+
 ---
 
 ## Changing a Gate

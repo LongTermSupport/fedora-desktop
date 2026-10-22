@@ -73,14 +73,20 @@
 # finds the first team's coordinator in its running ccy session or LXC member; with no team
 # coordinator it is REJECTED, named, before it changes anything. It adds and removes one
 # throwaway worker that must be refused the questions room and whose test report must reach no
-# online inbox, posts a second test report from inside an online LXC member (with none, that
+# online inbox. The last run stopped at that check (A3) because its worker was a plain bundle,
+# which pingbus refuses beside an Element profile; it is now taken as a seat, its bundle in a
+# seat directory linked into a session home as agent-bus seat take makes one. That runs beside
+# Element only once you have accepted it at cc --teams' confirm: if A3 says so, run cc --teams
+# once from a terminal, accept, and run this again. Nothing after A3 has run yet. It also posts a second test report from inside an online LXC member (with none, that
 # check is NOT JUDGED), and has the coordinator ask a test question (NOT JUDGED when the
 # coordinator is offline). Needs sudo once. Afterwards, if the test question was asked, do the
 # Element steps of the plan's ACCEPTANCE-owner.md.
 00211-agent-bus-reports-and-questions-rooms/deploy-stage-2.bash
 # Plan 00201 Task 2.7 (M7): the automated two-team acceptance again, because its M3 check
 # (the session's status line) changed since it last passed, and Plan 00213's cut-over made
-# that status line the Go one. acceptance.bash only: it makes two throwaway teams declared
+# that status line the Go one. The last run stopped at M3 because the checker still expected
+# the Python `exec pingbus status-line`; it now expects exactly what this checkout's seat.py
+# writes for a seated session, whose guard runs the kit's pingbus-status-line. acceptance.bash only: it makes two throwaway teams declared
 # in a run-directory host_vars (your host_vars and teams are never touched), runs one headless
 # ccy session on both and a plain one (each one short turn on haiku), checks descriptions,
 # launch block, per-session record, status line, `say` and SessionEnd, then purges both teams
