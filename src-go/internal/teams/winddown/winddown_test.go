@@ -319,7 +319,6 @@ func TestNothingGoesOnTheBusAndNothingIsEnded(t *testing.T) {
 		line := c.Line()
 		switch {
 		case c.Name == "tmux" && !slices.Contains(c.Args, "kill-session"), c.Name == "systemctl", c.Name == "git", c.Name == "env",
-			strings.HasPrefix(line, "agent-bus seat list"),
 			strings.HasPrefix(line, teamtest.SudoBus+"list "),
 			strings.HasPrefix(line, teamtest.SudoBus+"human devices "),
 			line == "sudo -k":
@@ -345,7 +344,7 @@ func TestOfferAsksThenGoesBackToTheList(t *testing.T) {
 func TestOtherKindsAreNotReachedAndASessionIsOneJob(t *testing.T) {
 	m := newMachine(t)
 	m.On(teamtest.SudoBus+"list alpha", teamtest.BusList+"MEMBER\tother.1+box.host\tdev\tjoin\tactive\n", 0)
-	m.On("agent-bus seat list", "SEAT\talpha\t1\theld\tself\tproj.1+local.podman\nSEAT\talpha\tdev\theld\tself\tproj.dev+local.podman\n", 0)
+	m.HoldSeat(t, m.Checkout(), "alpha", "dev", true)
 	m.record("ccy-proj", "ccy", m.Checkout(), "1@alpha,dev@alpha,3@gamma,2@beta")
 	m.build()
 	if got := m.run("alpha", "--yes"); got != term.ExitFailure {
@@ -380,7 +379,8 @@ func TestAHeldSeatNoSessionNamesIsNotReached(t *testing.T) {
 func TestATeamWithNoMemberSaysSo(t *testing.T) {
 	m := newMachine(t)
 	m.On(teamtest.SudoBus+"list alpha", "HUMAN\towner\tjoin\n", 0)
-	m.On("agent-bus seat list", "", 0)
+	m.RemoveSeat(t, m.Checkout(), "alpha", "1")
+	m.RemoveSeat(t, m.Checkout(), "alpha", "dev")
 	m.sessions = nil
 	if got := m.run("alpha", "--yes"); got != term.ExitOK {
 		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())

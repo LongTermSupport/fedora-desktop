@@ -20,12 +20,16 @@ const (
 	lxcHandle  = "proj.1+worker.lxc"
 	ccyHandle  = "proj.3+local.podman"
 	setRole    = teamtest.SudoBus + "set-role alpha "
-	entryA     = "LXCMEMBER\talpha\tcontainer-a\tagent\t-\tworker\tpresent\t/srv/agent/one\t-\n"
-	entryB     = "LXCMEMBER\talpha\tcontainer-b\tagent\t-\tworker\tpresent\t/srv/agent/two\t-\n"
 	probeOfA   = `{"probe":"a"}`
 	probeOfB   = `{"probe":"b"}`
 	identProj  = "IDENTITY\tproj\tworker\n"
 	identOther = "IDENTITY\tother\tworker\n"
+)
+
+// entryA and entryB are two present worker entries of team alpha that leave host and seat out.
+var (
+	entryA = declare.LxcMember{Team: "alpha", Container: "container-a", User: "agent", Role: "worker", State: "present", Checkout: "/srv/agent/one"}
+	entryB = declare.LxcMember{Team: "alpha", Container: "container-b", User: "agent", Role: "worker", State: "present", Checkout: "/srv/agent/two"}
 )
 
 // reader is the host-side reader of a container's checkout, by container.
@@ -62,7 +66,6 @@ func newRig(t *testing.T) *rig {
 	}, nil)
 	g.s.Reader = g.r
 	w.On(setRole, "", 0)
-	w.OnDeclare("lxc-members", "")
 	w.OnDeclare("lxc-script", "THE-READER")
 	w.OnDeclare("lxc-role", "CHANGED\tLXC member\n")
 	g.identities(map[string]string{probeOfA: identProj, probeOfB: identOther})
@@ -96,6 +99,9 @@ func (g *rig) changes() []string {
 
 func TestAMemberWhoseRoleIsNotDeclaredIsChangedLiveAndNothingIsRead(t *testing.T) {
 	g := newRig(t)
+	// The entries are read in-process: a file the reader refuses proves they were not read, as
+	// a Set that read them would fail.
+	g.WriteHostVars(t, teamtest.HostVarsWithLxc(declare.LxcMember{Team: "alpha", Container: "container-a", User: "agent", State: "gone", Checkout: "/srv/agent/one"}))
 	done, err := g.s.Set(t.Context(), "alpha", g.say, Step{Handle: ccyHandle, From: agentbus.RoleWorker, To: agentbus.RoleCoordinator})
 	if err != nil || done.Declared {
 		t.Fatalf("%+v %v", done, err)
@@ -103,7 +109,7 @@ func TestAMemberWhoseRoleIsNotDeclaredIsChangedLiveAndNothingIsRead(t *testing.T
 	if got := g.changes(); !slices.Equal(got, []string{"set-role " + ccyHandle + " --role=coordinator"}) {
 		t.Fatalf("changes %q", got)
 	}
-	if g.Fake.Called(g.DeclarePrefix("lxc-members")) || len(g.r.reads) != 0 {
+	if len(g.r.reads) != 0 {
 		t.Fatal("a ccy member's declaration was looked for")
 	}
 	if !slices.Equal(g.said, []string{ccyHandle + " set to coordinator"}) {
@@ -113,7 +119,7 @@ func TestAMemberWhoseRoleIsNotDeclaredIsChangedLiveAndNothingIsRead(t *testing.T
 
 func TestADeclaredLxcMemberHasItsEntryChangedAsWellAsItsLiveRole(t *testing.T) {
 	g := newRig(t)
-	g.OnDeclare("lxc-members", entryA+entryB)
+	g.WriteHostVars(t, teamtest.HostVarsWithLxc(entryA, entryB))
 	done, err := g.s.Set(t.Context(), "alpha", g.say, Step{Handle: lxcHandle, From: agentbus.RoleWorker, To: agentbus.RoleCoordinator})
 	if err != nil || !done.Declared {
 		t.Fatalf("%+v %v", done, err)
@@ -131,16 +137,18 @@ func TestADeclaredLxcMemberHasItsEntryChangedAsWellAsItsLiveRole(t *testing.T) {
 }
 
 func TestAnLxcMemberNoEntryDeclaresIsChangedLive(t *testing.T) {
-	for name, members := range map[string]string{
-		"no entries":               "",
-		"another team's entry":     strings.Replace(entryA, "alpha", "beta", 1),
-		"an absent entry":          strings.Replace(entryA, "present", "absent", 1),
-		"an entry of another repo": entryB,
-		"an entry of another host": "LXCMEMBER\talpha\tcontainer-a\tagent\tdesk\tworker\tpresent\t/srv/agent/one\t-\n",
-		"an entry of another seat": "LXCMEMBER\talpha\tcontainer-a\tagent\t-\tworker\tpresent\t/srv/agent/one\tdev\n",
+	otherTeam, absent, otherHost, otherSeat := entryA, entryA, entryA, entryA
+	otherTeam.Team, absent.State, otherHost.Host, otherSeat.Seat = "beta", "absent", "desk", "dev"
+	for name, members := range map[string][]declare.LxcMember{
+		"no entries":               nil,
+		"another team's entry":     {otherTeam},
+		"an absent entry":          {absent},
+		"an entry of another repo": {entryB},
+		"an entry of another host": {otherHost},
+		"an entry of another seat": {otherSeat},
 	} {
 		g := newRig(t)
-		g.OnDeclare("lxc-members", members)
+		g.WriteHostVars(t, teamtest.HostVarsWithLxc(members...))
 		done, err := g.s.Set(t.Context(), "alpha", g.say, Step{Handle: lxcHandle, From: agentbus.RoleWorker, To: agentbus.RoleCoordinator})
 		if err != nil || done.Declared {
 			t.Fatalf("%s: %+v %v", name, done, err)
@@ -153,8 +161,9 @@ func TestAnLxcMemberNoEntryDeclaresIsChangedLive(t *testing.T) {
 
 func TestAnEntryThatCannotMatchTheHandleIsNotRead(t *testing.T) {
 	g := newRig(t)
-	g.OnDeclare("lxc-members", "LXCMEMBER\talpha\tcontainer-a\tagent\tdesk\tworker\tpresent\t/srv/agent/one\t-\n"+
-		"LXCMEMBER\talpha\tcontainer-b\tagent\t-\tworker\tpresent\t/srv/agent/two\tdev\n")
+	onDesk, onDev := entryA, entryB
+	onDesk.Host, onDev.Seat = "desk", "dev"
+	g.WriteHostVars(t, teamtest.HostVarsWithLxc(onDesk, onDev))
 	if _, err := g.s.Set(t.Context(), "alpha", g.say, Step{Handle: lxcHandle, From: agentbus.RoleWorker, To: agentbus.RoleWorker}); err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +174,7 @@ func TestAnEntryThatCannotMatchTheHandleIsNotRead(t *testing.T) {
 
 func TestAnEntryWhoseCheckoutCannotBeReadStopsTheChangeBeforeAnything(t *testing.T) {
 	g := newRig(t)
-	g.OnDeclare("lxc-members", entryA)
+	g.WriteHostVars(t, teamtest.HostVarsWithLxc(entryA))
 	g.r.errs = map[string]error{"container-a": errors.New("/srv/agent/one of agent@container-a could not be read from the host: not running")}
 	_, err := g.s.Set(t.Context(), "alpha", g.say, Step{Handle: lxcHandle, From: agentbus.RoleWorker, To: agentbus.RoleCoordinator})
 	if err == nil || !strings.Contains(err.Error(), "not running") ||
@@ -183,7 +192,9 @@ func TestAnEntryWhoseCheckoutCannotBeReadStopsTheChangeBeforeAnything(t *testing
 // to give each entry its seat could not help and is not given.
 func TestAnEntryThatGivesItsSeatAndCannotBeReadIsNotToldToGiveItsSeat(t *testing.T) {
 	g := newRig(t)
-	g.OnDeclare("lxc-members", "LXCMEMBER\talpha\tcontainer-a\tagent\t-\tworker\tpresent\t/srv/agent/one\t1\n")
+	seated := entryA
+	seated.Seat = "1"
+	g.WriteHostVars(t, teamtest.HostVarsWithLxc(seated))
 	g.r.errs = map[string]error{"container-a": errors.New("not running")}
 	_, err := g.s.Set(t.Context(), "alpha", g.say, Step{Handle: lxcHandle, From: agentbus.RoleWorker, To: agentbus.RoleCoordinator})
 	if err == nil || !strings.Contains(err.Error(), "Start container container-a") ||
@@ -197,7 +208,7 @@ func TestAnEntryThatGivesItsSeatAndCannotBeReadIsNotToldToGiveItsSeat(t *testing
 
 func TestTwoEntriesThatGiveTheHandleAreRefused(t *testing.T) {
 	g := newRig(t)
-	g.OnDeclare("lxc-members", entryA+entryB)
+	g.WriteHostVars(t, teamtest.HostVarsWithLxc(entryA, entryB))
 	g.identities(map[string]string{probeOfA: identProj, probeOfB: identProj})
 	_, err := g.s.Set(t.Context(), "alpha", g.say, Step{Handle: lxcHandle, From: agentbus.RoleWorker, To: agentbus.RoleCoordinator})
 	if err == nil || !strings.Contains(err.Error(), "agent@container-a") || !strings.Contains(err.Error(), "agent@container-b") {
@@ -222,7 +233,7 @@ func TestAStepGivenItsEntryWritesTheEntryAloneWhenTheMemberHasNoHandle(t *testin
 
 func TestATakeoverWhoseSecondStepFailsPutsTheFirstBack(t *testing.T) {
 	g := newRig(t)
-	g.OnDeclare("lxc-members", entryA)
+	g.WriteHostVars(t, teamtest.HostVarsWithLxc(entryA))
 	g.OnErr(setRole+ccyHandle+" --role=coordinator", "agent-bus: refused\n", 1)
 	_, err := g.s.Set(t.Context(), "alpha", g.say,
 		Step{Handle: lxcHandle, From: agentbus.RoleCoordinator, To: agentbus.RoleWorker, Note: " (it was alpha's coordinator)"},
@@ -271,7 +282,7 @@ func TestChangeAppliesTheTeamOnlyWhenAnEntryWasWritten(t *testing.T) {
 	if len(g.applied) != 0 {
 		t.Fatalf("applied %v", g.applied)
 	}
-	g.OnDeclare("lxc-members", entryA)
+	g.WriteHostVars(t, teamtest.HostVarsWithLxc(entryA))
 	done, err := g.s.Change(t.Context(), "alpha", g.say, Step{Handle: lxcHandle, From: agentbus.RoleWorker, To: agentbus.RoleCoordinator})
 	if err != nil {
 		t.Fatal(err)
@@ -309,7 +320,7 @@ func (l *locker) locked(ctx context.Context, purpose string, fn func(context.Con
 
 func TestADeclaredChangeWritesTheEntryTheLiveRoleAndAppliesInOneHoldOfThePlayLock(t *testing.T) {
 	g := newRig(t)
-	g.OnDeclare("lxc-members", entryA)
+	g.WriteHostVars(t, teamtest.HostVarsWithLxc(entryA))
 	l := &locker{}
 	g.s.Locked = l.locked
 	var inHold []string
@@ -335,7 +346,7 @@ func TestADeclaredChangeWritesTheEntryTheLiveRoleAndAppliesInOneHoldOfThePlayLoc
 
 func TestAStoppedWaitForThePlayLockChangesNothing(t *testing.T) {
 	g := newRig(t)
-	g.OnDeclare("lxc-members", entryA)
+	g.WriteHostVars(t, teamtest.HostVarsWithLxc(entryA))
 	stopped := fmt.Errorf("the play lock was not taken: %w", playlock.ErrStopped)
 	g.s.Locked = (&locker{refused: stopped}).locked
 	_, err := g.s.Change(t.Context(), "alpha", g.say, Step{Handle: lxcHandle, From: agentbus.RoleWorker, To: agentbus.RoleCoordinator})
@@ -361,7 +372,7 @@ func TestALiveOnlyChangeTakesNoPlayLock(t *testing.T) {
 
 func TestAFailedApplySaysTheRoleIsChangedAndHowToFinish(t *testing.T) {
 	g := newRig(t)
-	g.OnDeclare("lxc-members", entryA)
+	g.WriteHostVars(t, teamtest.HostVarsWithLxc(entryA))
 	g.s.Apply = func(context.Context, ...string) error { return errors.New("play failed") }
 	_, err := g.s.Change(t.Context(), "alpha", g.say, Step{Handle: lxcHandle, From: agentbus.RoleWorker, To: agentbus.RoleCoordinator})
 	if err == nil || !strings.Contains(err.Error(), "ccy-teams apply alpha") || !strings.Contains(err.Error(), lxcHandle+" is a coordinator now") {
