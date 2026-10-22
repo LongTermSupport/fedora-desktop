@@ -82,6 +82,9 @@ const (
 func Serve(ctx context.Context, open Opener, req Request) Answer {
 	want, served := argKeys[req.Op]
 	if !served {
+		want, served = restoreArgKeys[req.Op]
+	}
+	if !served {
 		return failure(ClassFailed, "op "+req.Op+" is not served by this build")
 	}
 	args, err := exactKeys(req.Args, want...)
@@ -100,6 +103,8 @@ func Serve(ctx context.Context, open Opener, req Request) Answer {
 		return serveView(ctx, open, team)
 	case OpMemberDisconnected:
 		return serveDisconnected(ctx, open, team, args)
+	case OpRestoreSecure, OpRestoreCheck, OpRestoreSwap, OpRestoreExport, OpRestoreFinish, OpRestoreRevert:
+		return serveRestore(ctx, open, req.Op, team, args)
 	}
 	var mr apply.MemberRequest
 	if req.Op != apply.OpRoleApply {

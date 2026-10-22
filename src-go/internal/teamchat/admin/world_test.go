@@ -97,6 +97,10 @@ type world struct {
 	regKeys []string
 	ports   []int
 	gidErr  error
+
+	files       memFiles
+	stagedPorts []int
+	stagedErr   error
 }
 
 func newWorld(t *testing.T) *world {
@@ -263,8 +267,50 @@ func (w *world) open(_ context.Context, team paths.TeamID, port int, regKey stri
 			Admin: a, Now: w.now, RosterPath: w.root + paths.RosterFile(team), RoomsPath: w.root + paths.RoomsFile(team),
 			GuestDir: w.root + paths.GuestTokenDir(team),
 		},
-		Member: w.member,
+		Member:  w.member,
+		Restore: &w.files,
+		Staged:  w.staged,
 	}, nil
+}
+
+// staged is the staging server as the child reaches it: alpha's own homeserver, with the token
+// given, the port remembered.
+func (w *world) staged(_ context.Context, port int, token string) (*matrix.Admin, error) {
+	w.stagedPorts = append(w.stagedPorts, port)
+	if w.stagedErr != nil {
+		return nil, w.stagedErr
+	}
+	a, err := matrix.NewAdmin(matrix.Config{BaseURL: w.srv.URL(), Token: token, Clock: w})
+	if err == nil {
+		w.t.Cleanup(a.Close)
+	}
+	return a, err
+}
+
+// memFiles is the child's restore files as a test reads them: what each op was given, the
+// names Finish and Revert answer, and a failure for every op.
+type memFiles struct {
+	token, rooms, roster []byte
+	lost                 map[int64][]byte
+	previous             []string
+	err                  error
+}
+
+func (f *memFiles) Swap(token, rooms, roster []byte) error {
+	f.token, f.rooms, f.roster = token, rooms, roster
+	return f.err
+}
+
+func (f *memFiles) Finish() ([]string, error) { return f.previous, f.err }
+
+func (f *memFiles) Revert() ([]string, error) { return f.previous, f.err }
+
+func (f *memFiles) WriteLost(n int64, data []byte) error {
+	if f.lost == nil {
+		f.lost = map[int64][]byte{}
+	}
+	f.lost[n] = data
+	return f.err
 }
 
 // member is a member client of alpha's homeserver with token.
