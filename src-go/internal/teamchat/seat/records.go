@@ -1,5 +1,3 @@
-// Package seat is the owner's seat store of the v2 agent-team bus (Plan 00209 SPEC-n2c.md,
-// C 3.7): the pool seat records and the bundle, written and read by directory fd.
 package seat
 
 import (
