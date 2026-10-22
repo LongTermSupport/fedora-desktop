@@ -175,21 +175,22 @@ class ClaudeProcessTest(unittest.TestCase):
     SLOW_RUN_TRIES = 5
 
     def run_within_a_second(self, budget, before_each=lambda: None):
-        """run_script with a 1 s limit, judged against the wall clock: a run refused in
-        under a second of real time is the defect (the script miscounted), and fails at
-        once. A host that stalls the run for a second or more makes a refusal correct,
-        and proves nothing either way, so such a run is tried again, up to SLOW_RUN_TRIES
+        """run_script, judged against the wall clock: only a run that took under a second
+        of real time is returned, so a refusal of a 1 s limit in under a second (the
+        script miscounted) fails the caller's assertions. A run the host stalled for a
+        second or more is correctly refused at 1 s, and correctly given a second less at
+        170 s, so it proves nothing either way and is tried again, up to SLOW_RUN_TRIES
         times. The script normally takes 20-150 ms; stalls of 1-8 s were seen at load 85-100.
         """
         for _ in range(self.SLOW_RUN_TRIES):
             before_each()
             started = time.monotonic()
             result = self.run_script(budget=budget)
-            took = time.monotonic() - started
-            if result.returncode == 0 or took < 1.0:
+            if time.monotonic() - started < 1.0:
                 return result
-        self.fail(f"every one of {self.SLOW_RUN_TRIES} runs was stalled past its 1 s limit by "
-                  f"the host, so the limit could not be judged: {result.stderr}")
+        self.fail(f"every one of {self.SLOW_RUN_TRIES} runs took a second or more, so the limit "
+                  "could not be judged: the host stalled them, or the script itself has become "
+                  f"slow (exit {result.returncode}: {result.stderr})")
 
     def test_a_limit_inside_1_to_170_seconds_is_used(self):
         # claude is given the whole limit (the chooser answers at once) through the stub

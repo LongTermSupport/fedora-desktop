@@ -807,9 +807,8 @@ thing banned.
 
 **What it is.** An assertion, in any Python file, that bounds an elapsed time from above
 by less than a second: `assertLess`, `assertLessEqual` or `assert ... <` / `<=` on a
-difference (`now - started`, or a variable assigned one), against a number literal under
-
-1. Run by `qa-speech-to-text-rules.bash` over every tracked Python file.
+difference (`now - started`, or a variable assigned one), against a number literal below
+one second. Run by `qa-speech-to-text-rules.bash` over every tracked Python file.
 
 **Why it exists.** `qa-all` runs while other agents build and test on the same host, and
 a ceiling under a second is used up by scheduling alone. The speech-to-text tests failed
