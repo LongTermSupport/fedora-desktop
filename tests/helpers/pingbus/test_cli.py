@@ -1057,5 +1057,41 @@ class StreamTest(BusCase):
             self.assert_stdout_kinds(out)
 
 
+class LockedStreamTest(unittest.TestCase):
+    """`wait` and `watch` hand their helpers `_LockedStream(err)` as the `err: TextIO`.
+
+    A stand-in with only `write()` passes every helper that only writes and raises on the
+    first `writelines`, `flush` or `print(file=)` (CLAUDE/QA.md
+    "stream-stand-in-not-a-text-stream"), so the wrapper is held to the whole interface.
+    """
+
+    def test_every_way_of_writing_reaches_the_wrapped_stream(self) -> None:
+        wrapped = io.StringIO()
+        err = cli._LockedStream(wrapped)
+        self.assertIsInstance(err, io.TextIOBase)
+        err.write("one\n")
+        err.writelines(["two\n", "three\n"])
+        print("four", file=err)
+        err.flush()
+        self.assertEqual(wrapped.getvalue(), "one\ntwo\nthree\nfour\n")
+
+    def test_flush_reaches_the_wrapped_stream(self) -> None:
+        flushed: list[bool] = []
+
+        class Watched(io.StringIO):
+            def flush(self) -> None:
+                flushed.append(True)
+                super().flush()
+
+        wrapped = Watched()
+        err = cli._LockedStream(wrapped)
+        err.flush()
+        self.assertEqual(flushed, [True])
+        err.close()
+        del err
+        self.assertEqual(flushed, [True], "closing the wrapper does not flush what it wraps")
+        self.assertFalse(wrapped.closed, "nor close it")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.100.9 — container 2.79.4
+
+Follows 3.100.8 (container 2.79.3). The image changes: the play builds it, and a host that has
+not run the play rebuilds it once at its next launch.
+
+- **pingbus `wait` and `watch` hand their helpers a real text stream** (Plan 00214): the
+  stderr wrapper that keeps their threads' lines whole was a stand-in with only `write()`, so
+  the first `writelines`, `flush` or `print(file=)` on it would have raised. It is now an
+  `io.TextIOBase` that locks every write and flushes the stream it wraps. Nothing a user sees
+  changes; no helper they reach calls those methods today (CLAUDE/QA.md
+  "stream-stand-in-not-a-text-stream").
+
 ## 3.100.8 — container 2.79.3
 
 Follows 3.99.15.7 (3.100.0 to 3.100.8 and containers 2.79.0 to 2.79.3 were never released:

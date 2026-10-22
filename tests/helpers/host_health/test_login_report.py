@@ -28,7 +28,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 from helpers.host_health import login_report, probe_results, status_document
-from helpers.play_ledger import check_freshness, freshness, ledger, plugin_support, store
+from helpers.play_ledger import changed_plays, check_freshness, freshness, ledger, plugin_support, store
 from helpers.version_pins import check_pins
 
 RUNNING_KERNEL = "7.2.4-200.fc44.x86_64"
@@ -483,6 +483,62 @@ class TestTheFreshnessSeamKeepsItsChannelsApart(unittest.TestCase):
             check_freshness.EXIT_FINDINGS, out="    aaa1111  an orphan\n"
         )
         self.assertEqual([f.text for f in findings], ["aaa1111  an orphan"])
+
+
+class TestTheRealFreshnessCheckThroughTheSeam(unittest.TestCase):
+    """The REAL `check_freshness.run`, handed the streams this module gives it.
+
+    The fake above writes with `write()` alone, so it proved nothing about what the
+    real check calls. When the check began writing a stale play's detail and a no-answer
+    reason with `writelines`, the login report's write-only stand-in crashed on both:
+    `'_Sink' object has no attribute 'writelines'` (Plan 00214). Only the git fetch and
+    the judgement are replaced here; everything the check writes goes through the seam.
+    """
+
+    PLAY = "playbooks/imports/play-a.yml"
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.base = self._tmp.name
+        stamp = "2026-09-14T09:00:00Z"
+        store.ensure_ledger(self.base, commit="e" * 40, at=stamp)
+        store.append_record(self.base, ledger.build_record(
+            play=self.PLAY, name=self.PLAY, commit="e" * 40, dirty=False,
+            play_sha256="1" * 64, outcome="ok", changed=0, started=stamp, finished=stamp,
+        ))
+
+    def _findings(self, judge) -> tuple[list[probe_results.Finding], str]:
+        def run(**arguments) -> int:
+            return check_freshness.run(fetch=lambda root: None, judge=judge, **arguments)
+
+        errors = io.StringIO()
+        findings = login_report.freshness_findings(self.base, "/repo", stderr=errors, run=run)
+        return findings, errors.getvalue()
+
+    def test_a_stale_play_is_one_finding_carrying_what_changed(self) -> None:
+        def judge(latest: dict, root: str) -> changed_plays.Judgement:
+            return changed_plays.Judgement(
+                order=(self.PLAY,), states={self.PLAY: changed_plays.STATE_STALE}, gone=(),
+                unresolved={}, changed_inputs={self.PLAY: ["files/home/a.conf"]},
+                dirty=frozenset(), took_over={}, not_judged=(),
+            )
+
+        findings, _ = self._findings(judge)
+        self.assertEqual(
+            [f.text for f in findings],
+            [f"{self.PLAY} — changed since it was run here; changed: files/home/a.conf"],
+        )
+
+    def test_no_answer_is_an_unchecked_finding_carrying_its_reason(self) -> None:
+        def judge(latest: dict, root: str) -> changed_plays.Judgement:
+            raise changed_plays.NoAnswer("the play order cannot be read.", "Run it again.")
+
+        findings, errors = self._findings(judge)
+        self.assertEqual(len(findings), 1, findings)
+        self.assertIn("could not give an answer", findings[0].text)
+        self.assertIn("the play order cannot be read", findings[0].text)
+        self.assertIn("play-freshness: Run it again.", errors)
 
 
 class TestSectionsKeepTheirIdentity(unittest.TestCase):

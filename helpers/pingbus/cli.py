@@ -39,7 +39,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from typing import BinaryIO, TextIO
 
 from helpers.agent_bus import registry
@@ -812,16 +812,48 @@ class _Backoff:
         self._next = self.first_s
 
 
-class _LockedStream:
-    """A text stream several threads write whole lines to."""
+class _LockedStream(io.TextIOBase):
+    """A text stream several threads write whole lines to.
+
+    A real `io.TextIOBase`, because it is handed over as the `err: TextIO` of every helper
+    `wait` and `watch` call: a stand-in with only `write()` raises on the first
+    `writelines`, `flush` or `print(file=)` (CLAUDE/QA.md
+    "stream-stand-in-not-a-text-stream").
+    """
 
     def __init__(self, stream: TextIO) -> None:
+        super().__init__()
         self._stream = stream
         self._lock = threading.Lock()
+        self._releasing = False
 
-    def write(self, text: str) -> None:
+    def writable(self) -> bool:
+        return True
+
+    def write(self, text: str) -> int:
         with self._lock:
             self._stream.write(text)
+        return len(text)
+
+    def writelines(self, lines: Iterable[str]) -> None:
+        text = "".join(lines)
+        with self._lock:
+            self._stream.write(text)
+
+    def flush(self) -> None:
+        if self._releasing:
+            return
+        with self._lock:
+            self._stream.flush()
+
+    def close(self) -> None:
+        """Close the wrapper only. `IOBase` closes on collection and flushes as it closes;
+        the wrapped stream is not this object's, so neither reaches it."""
+        self._releasing = True
+        super().close()
+
+    def isatty(self) -> bool:
+        return self._stream.isatty()
 
 
 #: Failures a command reports with their §14 exit code; anything else is a bug (exit 1).
