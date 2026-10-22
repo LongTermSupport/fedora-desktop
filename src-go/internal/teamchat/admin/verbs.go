@@ -153,7 +153,7 @@ func memberVerb(op string) func(context.Context, Env, []string) term.ExitCode {
 		if err != nil {
 			return failWith(e, err)
 		}
-		lock, err := teamlock.Take(ctx, sys.Host.LockDir, team, op, SeatWait, sys.Host.Clock)
+		lock, err := teamlock.Take(ctx, sys.Host.LockDir, team, op, SeatWait, sys.Host.Clock, sys.Host.Guard)
 		if err != nil {
 			return failWith(e, err)
 		}

@@ -7,6 +7,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/rooms"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -14,7 +15,7 @@ import (
 
 // ExitCodeOf is C 3.3's exit code for a failure (RE9, AP11, CV3): a team lock held is 75; a
 // child's failure is its class's code; drift the rooms engine, apply or the host steps refused,
-// a verb's own refusal, and an approve the gate refused, is 70,
+// a verb's own refusal, a restore under way (RG2), and an approve the gate refused, is 70,
 // a homeserver that did not answer usably or kept rate-limiting is 69, anything else 1. The
 // matrix client's own ExitCode is the member side's table and is not used (n2a-D13).
 func ExitCodeOf(err error) term.ExitCode {
@@ -36,11 +37,14 @@ func ExitCodeOf(err error) term.ExitCode {
 	return term.ExitFailure
 }
 
-// verbExit is the code of a failure the verbs' own layer names: the lock, the child, a refusal
-// of a verb's or of the host steps.
+// verbExit is the code of a failure the verbs' own layer names: the lock and its guard, the
+// child, a refusal of a verb's or of the host steps.
 func verbExit(err error) (term.ExitCode, bool) {
 	if errors.Is(err, teamlock.ErrBusy) {
 		return ExitBusy, true
+	}
+	if errors.Is(err, restore.ErrPending) {
+		return ExitRefused, true
 	}
 	if e, ok := errors.AsType[*ChildError](err); ok {
 		return classExit[e.Class], true

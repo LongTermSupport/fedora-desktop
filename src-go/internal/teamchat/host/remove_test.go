@@ -250,7 +250,7 @@ func TestRemoveFileFailures(t *testing.T) {
 // HS2: a team lock held by another verb is busy, with the holder named.
 func TestRemoveBusy(t *testing.T) {
 	w := applied(t)
-	held, err := teamlock.Take(t.Context(), w.at(paths.AdminRunDir), ops(t), "backup", 0, w.clock)
+	held, err := teamlock.Take(t.Context(), w.at(paths.AdminRunDir), ops(t), "backup", 0, w.clock, teamlock.Unguarded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,4 +269,20 @@ func mkdirAllOrFail(t *testing.T, dir string) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// RG3: Remove runs Deps.Guard under the lock; its refusal stops every step and frees the lock.
+func TestRemoveIsRefusedByTheGuard(t *testing.T) {
+	w := applied(t)
+	w.log, w.guarded = nil, nil
+	refused := errors.New("a restore is under way")
+	w.guardErr = refused
+	lines, err := Remove(t.Context(), w.deps(), ops(t), true)
+	if !errors.Is(err, refused) || stepOf(t, err).Step != StepLock || len(lines) != 0 {
+		t.Fatalf("lines %q, err %v", lines, err)
+	}
+	if len(w.log) != 0 || !slices.Equal(w.guarded, []paths.TeamID{ops(t)}) {
+		t.Errorf("log %q, guarded %v", w.log, w.guarded)
+	}
+	lockIsFree(t, w)
 }

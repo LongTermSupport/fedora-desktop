@@ -205,7 +205,7 @@ func (l *locks) TryLock(ctx context.Context, team paths.TeamID) (Releaser, error
 	if l.busy[team] {
 		return nil, &teamlock.BusyError{Path: filepath.Join(l.dir, "team-"+team.String()+".lock"), Holder: "apply " + team.String() + " pid=9 since=1"}
 	}
-	return teamlock.Take(ctx, l.dir, team, "health", 0, &clock{now: t0})
+	return teamlock.Take(ctx, l.dir, team, "health", 0, &clock{now: t0}, teamlock.Unguarded)
 }
 
 // world is one tick's fakes over a temporary status tree.

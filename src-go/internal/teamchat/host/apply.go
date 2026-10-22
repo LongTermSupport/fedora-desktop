@@ -150,7 +150,7 @@ type Bootstrap struct {
 
 // Deps is what `team apply` and `team remove` use. Root prefixes every host path ("" on a
 // host); LockDir is paths.AdminRunDir on a host; the owner ids are teamchat-ctl's, for
-// ctl/<team>/. Backup takes the team's backup under the held lock; Bootstrap runs step 10 in
+// ctl/<team>/. Guard is judged under the lock before any step (restore.Guard, RG3). Backup takes the team's backup under the held lock; Bootstrap runs step 10 in
 // the teamchat-ctl child and answers its CHANGED lines.
 type Deps struct {
 	Root, LockDir  string
@@ -166,6 +166,7 @@ type Deps struct {
 	Network        Network
 	Ready          Readiness
 	Status         Status
+	Guard          teamlock.Guard
 	Backup         func(ctx context.Context, held *teamlock.Lock) error
 	Bootstrap      func(ctx context.Context, b Bootstrap) ([]string, error)
 }
@@ -238,7 +239,7 @@ type applying struct {
 // Deps.Bootstrap. It answers the CHANGED lines, those before a failure included.
 func Apply(ctx context.Context, d Deps, in declare.Input) ([]string, error) {
 	a := &applying{d: d, in: in, team: in.ID(), unit: paths.ServerUnit(in.ID())}
-	lock, err := teamlock.Take(ctx, d.LockDir, a.team, "team.apply", d.LockWait, d.Clock)
+	lock, err := teamlock.Take(ctx, d.LockDir, a.team, "team.apply", d.LockWait, d.Clock, d.Guard)
 	if err != nil {
 		return nil, a.fail(StepLock, err)
 	}

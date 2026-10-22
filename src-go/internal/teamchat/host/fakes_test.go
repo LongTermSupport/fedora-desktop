@@ -88,6 +88,8 @@ type world struct {
 	boots    []Bootstrap
 	backups  int
 	onBackup func()
+	guarded  []paths.TeamID
+	guardErr error
 }
 
 func newWorld(t *testing.T) *world {
@@ -173,6 +175,10 @@ func (w *world) deps() Deps {
 		Rand: bytes.NewReader(bytes.Repeat([]byte{0xab}, 64)), Pin: p, Software: "d1g3st",
 		CtlUID: os.Getuid(), CtlGID: os.Getgid(), Approvals: w, Systemd: w.sd, Firewall: w.fw,
 		Network: w.net, Ready: w.ready, Status: w.status,
+		Guard: func(team paths.TeamID) error {
+			w.guarded = append(w.guarded, team)
+			return w.guardErr
+		},
 		Backup: func(_ context.Context, held *teamlock.Lock) error {
 			if held == nil {
 				w.t.Error("the backup was not given the held lock")

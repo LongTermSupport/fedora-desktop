@@ -198,7 +198,7 @@ func TestApplyOfAnUnapprovedChangeIs70(t *testing.T) {
 
 func (w *world) lockIsFree(t *testing.T) {
 	t.Helper()
-	lock, err := teamlock.Take(t.Context(), w.root+paths.AdminRunDir, alpha(t), "test", 0, w)
+	lock, err := teamlock.Take(t.Context(), w.root+paths.AdminRunDir, alpha(t), "test", 0, w, teamlock.Unguarded)
 	if err != nil {
 		t.Fatalf("the lock was not released: %v", err)
 	}
@@ -440,7 +440,7 @@ func TestVerbRefusals(t *testing.T) {
 func TestVerbBusy(t *testing.T) {
 	w := newWorld(t)
 	w.applied(t)
-	lock, err := teamlock.Take(t.Context(), w.root+paths.AdminRunDir, alpha(t), "team.apply", 0, w)
+	lock, err := teamlock.Take(t.Context(), w.root+paths.AdminRunDir, alpha(t), "team.apply", 0, w, teamlock.Unguarded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -615,4 +615,32 @@ func TestExitCodeOfTheHostAndTheChild(t *testing.T) {
 			t.Errorf("%v: %d, want %d", err, got, want)
 		}
 	}
+}
+
+// RG3: while a restore is recorded, team apply and every member or role verb exit 70 naming
+// the resume and the discard, change nothing, and leave the lock free.
+func TestVerbsAreRefusedWhileARestoreIsRecorded(t *testing.T) {
+	w := newWorld(t)
+	w.applied(t)
+	refreshed := len(w.status)
+	if err := os.WriteFile(w.root+paths.RestoreRecord(alpha(t)), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		stdin string
+		args  []string
+	}{
+		{encodeDoc(t, alphaDoc()), []string{"team", "apply"}},
+		{"", addArgs("3", "password")},
+		{"", []string{"role", "apply", "--team", "alpha"}},
+	} {
+		out := w.verb(c.stdin, c.args...)
+		if out.code != ExitRefused || out.stdout != "" || !strings.Contains(out.stderr, "restore --team alpha --resume") || !strings.Contains(out.stderr, "--discard") {
+			t.Fatalf("%v: %+v", c.args, out)
+		}
+	}
+	if len(w.status) != refreshed {
+		t.Error("a refused verb refreshed the status")
+	}
+	w.lockIsFree(t)
 }

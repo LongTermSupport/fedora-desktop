@@ -84,6 +84,7 @@ func zeroDerivations() map[string]func() string {
 		"GuestTokenCopy":         func() string { return GuestTokenCopy(team, SeatName{}) },
 	}
 	maps.Copy(derivations, hostZeroDerivations())
+	maps.Copy(derivations, restoreZeroDerivations())
 	return derivations
 }
 

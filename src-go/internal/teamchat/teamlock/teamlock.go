@@ -84,13 +84,39 @@ type Lock struct {
 // Team is the team the lock is held for.
 func (l *Lock) Team() paths.TeamID { return l.team }
 
+// Guard is what a verb must hold true of the team before it acts, judged under the lock (RG1):
+// restore.Guard refuses while a restore is recorded.
+type Guard func(paths.TeamID) error
+
+// Unguarded is the guard of a taker that refuses nothing for itself, as the health tick, which
+// refuses only its restart (HB3).
+func Unguarded(paths.TeamID) error { return nil }
+
+// ErrNoGuard is a take given no guard: each taker must name its own, so none is left out.
+var ErrNoGuard = errors.New("teamlock: a take must be given a guard")
+
 // Take takes the team's lock in dir (paths.AdminRunDir on a host), waiting up to wait by clock
-// (0 is one try), and writes the holder line `<verb> <team> pid=<n> since=<ms>` into it.
-func Take(ctx context.Context, dir string, team paths.TeamID, verb string, wait time.Duration, clock Clock) (*Lock, error) {
-	return take(ctx, dir, team, verb, wait, clock, os.Geteuid())
+// (0 is one try), writes the holder line `<verb> <team> pid=<n> since=<ms>` into it, and then
+// runs guard; a guard's refusal is returned once the lock is released again.
+func Take(ctx context.Context, dir string, team paths.TeamID, verb string, wait time.Duration, clock Clock, guard Guard) (*Lock, error) {
+	return take(ctx, dir, team, verb, wait, clock, guard, os.Geteuid())
 }
 
-func take(ctx context.Context, dir string, team paths.TeamID, verb string, wait time.Duration, clock Clock, euid int) (*Lock, error) {
+func take(ctx context.Context, dir string, team paths.TeamID, verb string, wait time.Duration, clock Clock, guard Guard, euid int) (*Lock, error) {
+	if guard == nil {
+		return nil, ErrNoGuard
+	}
+	l, err := lock(ctx, dir, team, verb, wait, clock, euid)
+	if err != nil {
+		return nil, err
+	}
+	if err := guard(team); err != nil {
+		return nil, errors.Join(err, l.Release())
+	}
+	return l, nil
+}
+
+func lock(ctx context.Context, dir string, team paths.TeamID, verb string, wait time.Duration, clock Clock, euid int) (*Lock, error) {
 	if !verbRe.MatchString(verb) {
 		return nil, fmt.Errorf("the lock's verb %q is not a lower-case word of at most 32 bytes", verb)
 	}

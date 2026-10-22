@@ -52,7 +52,8 @@ type TeamLocks struct {
 	Clock Clock
 }
 
-// TryLock takes team's lock without waiting (C 3.4: the health timer never waits).
+// TryLock takes team's lock without waiting (C 3.4: the health timer never waits). It is
+// unguarded: a recorded restore refuses only the tick's restart (HB3, RG3).
 func (l TeamLocks) TryLock(ctx context.Context, team paths.TeamID) (Releaser, error) {
-	return teamlock.Take(ctx, l.Dir, team, "health", 0, l.Clock)
+	return teamlock.Take(ctx, l.Dir, team, "health", 0, l.Clock, teamlock.Unguarded)
 }

@@ -3,6 +3,7 @@ package wire
 import (
 	"context"
 	"errors"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/admin"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/units"
 )
 
@@ -195,5 +197,27 @@ func TestSystemClock(t *testing.T) {
 	cancel()
 	if err := c.Sleep(ctx, 1<<40); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Sleep after cancel = %v", err)
+	}
+}
+
+// RG3: the host steps and the member verbs are guarded by the restore record under the root.
+func TestTheGuardIsTheRestoreRecordUnderTheRoot(t *testing.T) {
+	f := &fakeMachine{root: t.TempDir()}
+	sys := build(t, f)
+	team, err := paths.ParseTeamID("ops")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sys.Host.Guard(team); err != nil {
+		t.Fatalf("Guard with no record = %v", err)
+	}
+	if err := os.MkdirAll(f.root+paths.AdminState(team), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(f.root+paths.RestoreRecord(team), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := sys.Host.Guard(team); !errors.Is(err, restore.ErrPending) {
+		t.Fatalf("Guard with a record = %v, want restore.ErrPending", err)
 	}
 }
