@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,6 +34,8 @@ const (
 	tuwunelStopLimit  = 10 * time.Second
 	tuwunelTestLimit  = 2 * time.Minute
 	messageType       = "m.room.message"
+	presenceIdleS     = 3
+	presenceOfflineS  = 3
 )
 
 // tuwunel is a running homeserver on a loopback port, stopped when the test ends; regKey is
@@ -159,7 +162,12 @@ func freePort(t *testing.T) int {
 }
 
 // writeTuwunelConfig renders the settings the installer gives a team (render.py toml_values)
-// that the client meets, with room creation allowed so a member can make the test's room.
+// that the client meets, with room creation allowed so a member can make the test's room, and
+// the login limits a v2 team gets (C 3.2.4: a seat's takes are password logins, which
+// seatCycle makes six of). Two keys differ from a team's, for the test alone: db_pool_workers
+// is fixed small, as Tuwunel's default pool, sized to the host's cores, hits EAGAIN under a
+// container's pids limit (host check run, Task 1.4); and the presence timers are short, so
+// presenceCycle sees them fire.
 func writeTuwunelConfig(t *testing.T, dir string, port int, regKey string) string {
 	t.Helper()
 	keyFile := filepath.Join(dir, "registration-key")
@@ -180,8 +188,19 @@ allow_room_creation = true
 auto_accept_invites = false
 default_room_version = "12"
 max_request_size = 10000000
+db_pool_workers = 4
+presence_idle_timeout_s = %d
+presence_offline_timeout_s = %d
 log = "warn"
-`, serverName, loopback, port, filepath.Join(dir, "db"), keyFile)
+
+[rate_limiting.login.failed]
+per_second = 0.0033
+burst_count = 3
+
+[rate_limiting.login.account]
+per_second = 0.006
+burst_count = 10
+`, serverName, loopback, port, filepath.Join(dir, "db"), keyFile, presenceIdleS, presenceOfflineS)
 	path := filepath.Join(dir, "tuwunel.toml")
 	if err := os.WriteFile(path, []byte(config), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
@@ -331,7 +350,90 @@ func TestTuwunel(t *testing.T) {
 		t.Fatalf("ReadReceipt: %v", err)
 	}
 	seatCycle(ctx, t, hs, admin, alice, room)
+	presenceCycle(ctx, t, alice, bob, aliceID)
 	retire(ctx, t, admin, bob, bobID)
+}
+
+// presenceOf is uid's presence as the observer reads it (GET /presence/{uid}/status, which
+// the client has no caller for, so the test asks it through the client's own call path).
+func presenceOf(ctx context.Context, t *testing.T, observer *Client, uid string) string {
+	t.Helper()
+	path, err := pathf(clientPrefix+"/presence/%s/status", uid)
+	if err != nil {
+		t.Fatalf("presence path: %v", err)
+	}
+	var got struct {
+		Presence string `json:"presence"`
+	}
+	if err := observer.object(ctx, call{method: http.MethodGet, path: path}, &got); err != nil {
+		t.Fatalf("read the presence of %s: %v", uid, err)
+	}
+	return got.Presence
+}
+
+// presenceCycle is host check HC-A1 as a lasting regression (A 6.6, C 3.2.4): a default sync
+// marks the member online, a sync with set_presence=offline sets it offline (Tuwunel 1.9.4
+// does not leave it unchanged), a PUT of offline sets it, and a member that stops syncing goes
+// unavailable and then offline by the server's timers, set short for the test (a team's are C
+// 3.2.4's 120 s and 60 s).
+func presenceCycle(ctx context.Context, t *testing.T, member, observer *Client, uid string) {
+	t.Helper()
+	filter := &RoomFilter{Rooms: []string{}}
+	syncAs := func(presence string) {
+		t.Helper()
+		if _, err := member.Sync(ctx, SyncRequest{Filter: filter, SetPresence: presence}); err != nil {
+			t.Fatalf("Sync with set_presence %q: %v", presence, err)
+		}
+	}
+	want := func(what, presence string) {
+		t.Helper()
+		if got := presenceOf(ctx, t, observer, uid); got != presence {
+			t.Fatalf("presence %s = %q, want %q", what, got, presence)
+		}
+	}
+	syncAs("")
+	want("after a default sync", "online")
+	syncAs("offline")
+	want("after a sync with set_presence=offline", "offline")
+	syncAs("")
+	want("after a default sync again", "online")
+	if err := member.SetPresence(ctx, uid, "offline"); err != nil {
+		t.Fatalf("SetPresence: %v", err)
+	}
+	want("after a PUT of offline", "offline")
+	syncAs("")
+	want("after a default sync before the timers", "online")
+	presenceTimers(ctx, t, observer, uid)
+}
+
+// presenceTimers polls the presence of a member that has stopped syncing until it is offline,
+// and checks it went through unavailable and took no longer than the timers allow.
+func presenceTimers(ctx context.Context, t *testing.T, observer *Client, uid string) {
+	t.Helper()
+	start := time.Now()
+	limit := time.Duration(presenceIdleS+presenceOfflineS+10) * time.Second
+	seen := []string{"online"}
+	tick := time.NewTicker(250 * time.Millisecond)
+	defer tick.Stop()
+	for seen[len(seen)-1] != "offline" {
+		select {
+		case <-ctx.Done():
+			t.Fatalf("presence timers: %v after %v", ctx.Err(), seen)
+		case <-tick.C:
+		}
+		if now := presenceOf(ctx, t, observer, uid); now != seen[len(seen)-1] {
+			seen = append(seen, now)
+		}
+		if took := time.Since(start); took > limit {
+			t.Fatalf("presence %v after %v, want offline within %v", seen, took, limit)
+		}
+	}
+	if !slices.Equal(seen, []string{"online", "unavailable", "offline"}) {
+		t.Fatalf("presence went %v, want online, unavailable, offline", seen)
+	}
+	if took := time.Since(start); took < time.Duration(presenceIdleS+presenceOfflineS-1)*time.Second {
+		t.Fatalf("offline after %v, before the timers (%d s and %d s) could fire", took, presenceIdleS, presenceOfflineS)
+	}
 }
 
 // seatRun signs the account "seat" in and checks its tokens, for seatCycle.

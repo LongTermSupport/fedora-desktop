@@ -207,9 +207,15 @@ is the shape the endpoint promises).
   answers the same, a wrong password is `ErrForbidden` for a login and for a device delete, a
   device delete by password from another device ends the device's token and not its own, a
   token deleting its own device ends itself (C 3.7.3's fallback), an admin password reset ends
-  a fresh token, and the `teamchat.floor` marker, decoded, outlives them all. Presence is not in
-  the tagged test (the client reads none; HC-A1 is Task 1.4's probe). Without the variable the test skips with its
-  reason; without the tag it is not built.
+  a fresh token, and the `teamchat.floor` marker, decoded, outlives them all. It is also host
+  check HC-A1's lasting regression, for the presence calls of M50: a default sync marks the member online, a sync with
+  `set_presence=offline` sets it offline, a `SetPresence` of offline sets it, and a member that
+  stops syncing goes `unavailable` and then `offline` by the server's timers, set short for the
+  test. The test reads presence through the client's call path, as the client has no presence
+  read. Its config is a team's key set (C 3.2.4) with v2's login limits (a seat cycle makes six
+  password logins, past Tuwunel's default burst of five), plus `db_pool_workers = 4`, without
+  which Tuwunel's default pool hits EAGAIN under a container's pids limit. Without the variable
+  the test skips with its reason; without the tag it is not built.
 
 ## 7a. Seat sessions and the resume marker (Task 1.5; B 2.3.2, B 2.6 step 01 (b), C 3.7.3)
 
