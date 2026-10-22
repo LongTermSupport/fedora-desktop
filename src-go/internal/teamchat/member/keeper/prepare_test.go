@@ -350,16 +350,27 @@ func TestLeftoverSweep(t *testing.T) {
 	keeperAlive := mk("ffffffffffffffff", spid("ffffffffffffffff", `{"pid":900,"start_ticks":90}`, "null"))
 	mustDo(t, os.WriteFile(rr+"/not-a-run", nil, 0o600))
 	mustDo(t, os.Mkdir(rr+"/not-a-run-id", 0o700))
+	// A run being built is a staging directory named by its keeper: removed once that keeper
+	// is gone, left while it lives.
+	buildGone := mk(".building-800-1", "")
+	buildAlive := mk(".building-901-91", "")
 	holder := holdFile(t, rr, held+"/keeper.lock")
 	p := w.startPlain(w.config())
 	holder.release(t)
-	for dir, want := range map[string]bool{gone: false, bare: false, alive: true, bad: true, held: true, keeperAlive: true} {
+	for dir, want := range map[string]bool{
+		gone: false, bare: false, alive: true, bad: true, held: true, keeperAlive: true,
+		buildGone: false, buildAlive: true,
+	} {
 		if exists(t, dir) != want {
 			t.Errorf("%s: exists %v, want %v", dir, !want, want)
 		}
 	}
 	if !strings.Contains(w.logOf(p.run), "dddddddddddddddd") {
 		t.Fatalf("keeper.log %q", w.logOf(p.run))
+	}
+	// The keeper's own run was built under its staging name and renamed into place whole.
+	if exists(t, w.layout.Staging(os.Getpid(), 7).Dir()) || !exists(t, p.run.PID()) {
+		t.Fatal("the run was not renamed into place with its session.pid")
 	}
 	p.finish(0)
 }
