@@ -98,6 +98,11 @@ CCY_VERSION="3.0.1"  # Fix: persist sessions in .claude/ccy/
   change must stage the launcher too in order to bump it. Both the `pre-commit`
   gate and `CCY_HASH` derive this set from the directory; do not restate a count
   here, because a count is what went wrong (see 3.49.2).
+- **The launcher's Go front**, `src-go/cmd/claude-yolo/` and `src-go/internal/ccylaunch/`
+  (tests and the `difftest` harness aside): installed as `claude-yolo` with the bash
+  launcher beside it, it is built with `CCY_VERSION` (`-X main.Version`), so the same gate
+  demands the bump. `CCY_HASH` stays the bash launcher's hash; the front refuses
+  `--version` when its version is not the bash's (Plan 00191 Task 4.5).
 - **`files/var/local/claude-yolo/Dockerfile`** — image content carries its own
   version: bump `LABEL claude-yolo-version` in the Dockerfile **and**
   `REQUIRED_CONTAINER_VERSION` in the launcher, which must match.

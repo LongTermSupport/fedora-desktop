@@ -28,9 +28,11 @@
 # Order is the contract. The src-go row precedes the YAML row so src-go/.golangci.yml runs the
 # Go gate; a Python script with a shell word in its shebang is Python because @py precedes @sh.
 #
-# The Go tests execute these files as parity references, so a change to one must run the Go gate.
-also	files/var/local/claude-yolo/lib/common-pure.bash	go	-
-also	files/var/local/claude-yolo/lib/session-registry.bash	go	-
+# The Go tests execute these files as parity references, so a change to one must run the Go gate:
+# lib/common-pure.bash and lib/session-registry.bash are sourced by Go tests, and the launcher's
+# differential harness (src-go/internal/ccylaunch/difftest) runs the launcher, every library
+# and the Dockerfile whose label and hash it reports, against its goldens.
+also	files/var/local/claude-yolo/claude-yolo,files/var/local/claude-yolo/lib/*.bash,files/var/local/claude-yolo/Dockerfile	go	-
 also	helpers/agent_bus/declare.py	go	-
 # The status line's writer test runs these writers of the files it reads (SPEC-status-line.md 8).
 also	helpers/pingbus/*.py,helpers/agent_bus/admin.py,helpers/agent_bus/checkout.py	go	-

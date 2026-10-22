@@ -1,0 +1,25 @@
+agent_bus_teams:
+  - team: alpha
+    port: 6167
+    org: example-org
+    description: "Org wide"
+  - team: beta
+    port: 6168
+    org: example-org
+    exclude: ["legacy", "proj"]
+  - team: gamma
+    port: 6169
+    repos: [{"repo": "example-org/legacy"}, {"repo": "other-org/tool"}]
+  - team: delta
+    port: 6170
+    org: other-org
+    repos:
+      - repo: example-org/proj
+  - team: eps
+    port: 6171
+    org: other-org
+    exclude: tool
+  - team: old
+    port: 6172
+    state: absent
+    org: example-org
