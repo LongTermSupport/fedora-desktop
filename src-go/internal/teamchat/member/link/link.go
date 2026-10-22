@@ -279,14 +279,19 @@ func (l *link) build(launch wire.Launch) term.ExitCode {
 	return term.ExitOK
 }
 
-// awaitAdds handles launch's seats adds (n3c-D24): a failed add counts, and the wait ends at
-// addsWait or at another kind of message, which is returned to be handled after ready.
+// awaitAdds handles launch's seats adds (n3c-D24): a failed add counts, an owed leave (which
+// the keeper sends before its adds) is handled in place, and the wait ends at addsWait or at
+// another kind of message, which is returned to be handled after ready.
 func (l *link) awaitAdds(ctx context.Context, hold <-chan time.Time, seats int) *received {
 	for n := 0; n < seats; {
 		select {
 		case r := <-l.msgs:
 			if errors.Is(r.err, wire.ErrProtocol) {
 				l.logf("link: %v", r.err)
+				continue
+			}
+			if r.err == nil && r.m.Kind == wire.KindOwed {
+				l.owed(ctx, r.m.Owed)
 				continue
 			}
 			if r.err != nil || r.m.Kind != wire.KindAdd {

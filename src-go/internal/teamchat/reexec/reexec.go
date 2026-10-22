@@ -125,7 +125,14 @@ type exitInfo struct {
 // ready. Its stderr is shown if it fails.
 func Start(tb testing.TB, name string, args ...string) *Process {
 	tb.Helper()
-	p, err := start(name, args)
+	return StartFiles(tb, nil, name, args...)
+}
+
+// StartFiles is Start with files given to the helper from descriptor 3 on, in order (a socket
+// the helper is to speak on, as a keeper gives its link). The caller keeps and closes its own.
+func StartFiles(tb testing.TB, files []*os.File, name string, args ...string) *Process {
+	tb.Helper()
+	p, err := start(name, args, files)
 	if err != nil {
 		tb.Fatal(err)
 	}
@@ -140,18 +147,22 @@ func Start(tb testing.TB, name string, args ...string) *Process {
 	return p
 }
 
-func start(name string, args []string) (*Process, error) {
+func start(name string, args []string, files []*os.File) (*Process, error) {
 	self, err := os.Executable()
 	if err != nil {
 		return nil, fmt.Errorf("reexec: find the test binary: %w", err)
 	}
+	given, err := dupAll(files)
+	if err != nil {
+		return nil, err
+	}
 	inR, inW, err := os.Pipe()
 	if err != nil {
-		return nil, fmt.Errorf("reexec: %w", err)
+		return nil, errors.Join(fmt.Errorf("reexec: %w", err), closeAll(given))
 	}
 	outR, outW, err := os.Pipe()
 	if err != nil {
-		return nil, errors.Join(fmt.Errorf("reexec: %w", err), inR.Close(), inW.Close())
+		return nil, errors.Join(fmt.Errorf("reexec: %w", err), inR.Close(), inW.Close(), closeAll(given))
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &Process{stdin: inW, done: make(chan struct{})}
@@ -161,10 +172,11 @@ func start(name string, args []string) (*Process, error) {
 		Args: append([]string{"-test.run=^$", "-test.count=1", argsMark}, args...),
 		// A -race binary sleeps a second at exit unless told not to; the parent's own race
 		// options are kept.
-		Env:    []string{helperEnv + "=" + name, "GORACE=" + strings.TrimSpace(os.Getenv("GORACE")+" atexit_sleep_ms=0")},
-		Stdin:  inR,
-		Stdout: outW,
-		Stderr: &errBuf,
+		Env:        []string{helperEnv + "=" + name, "GORACE=" + strings.TrimSpace(os.Getenv("GORACE")+" atexit_sleep_ms=0")},
+		Stdin:      inR,
+		Stdout:     outW,
+		Stderr:     &errBuf,
+		ExtraFiles: given,
 	}
 	go func() {
 		defer cancel()
@@ -172,7 +184,7 @@ func start(name string, args []string) (*Process, error) {
 		p.end = endOf(res, runErr, errBuf.String())
 		// The child's ends close here, so a reader of its stdout sees the end even if it never
 		// printed its ready line.
-		p.end.err = errors.Join(p.end.err, inR.Close(), outW.Close())
+		p.end.err = errors.Join(p.end.err, inR.Close(), outW.Close(), closeAll(given))
 		close(p.done)
 	}()
 	line, err := bufio.NewReader(outR).ReadString('\n')
@@ -193,6 +205,28 @@ func start(name string, args []string) (*Process, error) {
 		return nil, errors.Join(err, closeErr)
 	}
 	return p, closeErr
+}
+
+// dupAll is a copy of each file, which the run owns and closes when the child ends, so the
+// caller may close its own as soon as StartFiles returns.
+func dupAll(files []*os.File) ([]*os.File, error) {
+	out := make([]*os.File, 0, len(files))
+	for _, f := range files {
+		fd, err := unix.FcntlInt(f.Fd(), unix.F_DUPFD_CLOEXEC, 0)
+		if err != nil {
+			return nil, errors.Join(fmt.Errorf("reexec: copy a file for the helper: %w", err), closeAll(out))
+		}
+		out = append(out, os.NewFile(uintptr(fd), f.Name()))
+	}
+	return out, nil
+}
+
+func closeAll(files []*os.File) error {
+	var err error
+	for _, f := range files {
+		err = errors.Join(err, f.Close())
+	}
+	return err
 }
 
 // childOf is nil when pid is a child of this process, the only process a helper's Kill may

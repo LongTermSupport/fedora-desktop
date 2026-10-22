@@ -461,6 +461,37 @@ func TestReadyWaitsTenSecondsForTheAdds(t *testing.T) {
 	until(t, func() bool { return w.team(b) != nil })
 }
 
+// The keeper sends each owed leave between launch and the adds: owed is handled in place and
+// the wait for the adds goes on.
+func TestOwedBeforeTheAddsKeepsTheWait(t *testing.T) {
+	w := newLinkWorld(t)
+	a, b := tid(t, "alpha"), tid(t, "beta")
+	w.start()
+	w.launch(1)
+	txn := "tc" + strings.Repeat("ef", 16)
+	w.send(wire.Msg{Kind: wire.KindOwed, Owed: &wire.Owed{Team: b, Txn: txn}}, nil)
+	w.add(a)
+	// The leave runs beside the adds, so left and ready come in either order.
+	kinds := []string{}
+	for len(kinds) < 2 {
+		g := <-w.in
+		check(t, g.err)
+		if g.m.Kind != wire.KindState {
+			kinds = append(kinds, g.m.Kind)
+		}
+	}
+	slices.Sort(kinds)
+	if kinds[0] != wire.KindLeft || kinds[1] != wire.KindReady {
+		t.Fatalf("got %q", kinds)
+	}
+	if s := w.status(); !strings.Contains(s, a.String()) {
+		t.Fatalf("status %q", s)
+	}
+	if strings.Contains(w.log.String(), "ready without the rest") {
+		t.Fatalf("log %q", w.log.String())
+	}
+}
+
 func TestAnotherKindEndsTheAddsWait(t *testing.T) {
 	w := newLinkWorld(t)
 	w.start()
