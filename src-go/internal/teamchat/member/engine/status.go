@@ -148,6 +148,8 @@ type teamView struct {
 	health  team.Health
 	counts  team.Counts
 	pending int64
+	pings   []state.Ping
+	answers map[string][]answerNote
 }
 
 // status is LN5: per held team its team, member and room records, then the refused adds, then
@@ -190,14 +192,16 @@ func (e *Engine) snapshot(only *paths.TeamID) ([]teamView, []paths.TeamID) {
 		views   []teamView
 		refused []paths.TeamID
 	)
+	now := e.cfg.Clock.WallMS()
 	for _, id := range e.order() {
 		h := e.teams[id]
 		if h.removed || only != nil && *only != id {
 			continue
 		}
+		pings, answers := shownPings(h, now)
 		views = append(views, teamView{
 			id: id, tm: h.team, userID: h.userID, handle: h.handle(), health: h.health,
-			counts: h.counts, pending: h.pending(),
+			counts: h.counts, pending: h.pending(), pings: pings, answers: answers,
 		})
 	}
 	for _, id := range slices.SortedFunc(maps.Keys(e.refused), compareTeams) {
@@ -245,11 +249,17 @@ func teamRecords(v teamView, delivery string) []records.Record {
 			tr.Role = m.Role
 		}
 	}
-	out := []records.Record{tr}
-	if !verified {
-		return out
-	}
 	server := paths.ServerName(v.id)
+	out := []records.Record{tr}
+	if verified {
+		out = append(out, memberRecords(v, roster, server)...)
+	}
+	return append(out, outboxRecords(v.id, v.pings, v.answers, namer{server: server, roster: roster, verified: verified})...)
+}
+
+// memberRecords are a verified team's member and room records.
+func memberRecords(v teamView, roster proto.Roster, server string) []records.Record {
+	var out []records.Record
 	for _, id := range slices.Sorted(maps.Keys(roster.Members)) {
 		hd, ok := proto.AgentHandle(id, server)
 		if !ok {

@@ -101,6 +101,8 @@ type Engine struct {
 	waiters []chan struct{}
 	acks    map[string]bool
 	sent    map[paths.TeamID]wire.State
+	// timer disarms the one TIMEOUT timer, nil while none is armed (n3d-D7).
+	timer func() bool
 }
 
 // New is an engine over cfg; its goroutine runs from Run.

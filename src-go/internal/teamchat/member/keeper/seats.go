@@ -301,6 +301,10 @@ func (k *keeper) deleteStore(s *seat) {
 	if err := w.Remove(); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		k.logf("seat %s: delete its store: %v", s.team, err)
 	}
+	// n3d-D3: the roster cache goes with the store, so a re-added seat starts from none.
+	if err := k.stateRoot.Unlink(s.path.RosterCache()); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		k.logf("seat %s: delete its roster cache: %v", s.team, err)
+	}
 	k.closeQuietly(w)
 }
 
