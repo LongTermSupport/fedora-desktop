@@ -60,7 +60,28 @@ func violationLines(out string) []string {
 }
 
 func scenarios() []scenario {
-	return slices.Concat(failFastScenarios(), fileAndQuoteScenarios(), scopeAndFactScenarios())
+	return slices.Concat(failFastScenarios(), fileAndQuoteScenarios(), scopeAndFactScenarios(), regexBackrefScenarios())
+}
+
+func regexBackrefScenarios() []scenario {
+	return []scenario{
+		// Check 7: regex backreferences.
+		{
+			name: "regex backref in every search directory, roles/vendor skipped", code: ExitFailed,
+			files: with(map[string]string{
+				"vars/rb.yml":          "v: >-\n  {{ s | regex_search('a(b)', '\\\\1') }}\n",
+				"environment/rb.yml":   "when: \"s | regex_search('a(b)', '\\\\1')\"\n",
+				"roles/vendor/v/t.yml": "v: >-\n  {{ s | regex_search('a(b)', '\\\\1') }}\n",
+				"tasks/ok.yml":         "v: >-\n  {{ s | regex_search('a(b)', '\\1') }}\n",
+			}),
+			want: []string{
+				"  ERROR (regex-backref-escape): vars/rb.yml:1: regex_search group argument '\\\\1' reaches the filter as 2 backslashes, not 1; in a block scalar's {{ }} write '\\1'",
+				regexBackrefAdvice,
+				"  ERROR (regex-backref-escape): environment/rb.yml:1: regex_search group argument '\\\\1' reaches the filter as a control character, not a backslash; in a double-quoted scalar's conditional write '\\\\\\\\1'",
+				regexBackrefAdvice,
+			},
+		},
+	}
 }
 
 func failFastScenarios() []scenario {
@@ -130,9 +151,13 @@ func fileAndQuoteScenarios() []scenario {
 			want:  []string{"  ERROR (fail-fast): tasks/a:b.yml:1:      failed_when: false # still a violation"},
 		},
 		{
-			name: "ff in a file with a NUL byte is found", code: ExitFailed,
+			name: "ff in a file with a NUL byte is found, and the file is not YAML", code: ExitFailed,
 			files: with(map[string]string{"tasks/bin.yml": ff + "\x00\n"}),
-			want:  []string{"  ERROR (fail-fast): tasks/bin.yml:1:      failed_when: false"},
+			want: []string{
+				"  ERROR (fail-fast): tasks/bin.yml:1:      failed_when: false",
+				"  ERROR (regex-backref-escape): tasks/bin.yml:1: cannot be parsed as YAML, so its backreferences cannot be judged: yaml: control characters are not allowed",
+				regexBackrefAdvice,
+			},
 		},
 		{
 			name: "ff with carriage returns", code: ExitFailed,

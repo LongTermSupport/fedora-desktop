@@ -577,12 +577,13 @@
 
     # The front carries CCY_VERSION from -ldflags and refuses --version and --help when it
     # differs from the bash launcher's, so the build reads it from the same file the copy above
-    # installs.
+    # installs. The group is one backslash: a >- scalar keeps it and {{ }} hands it to the filter
+    # as written (CLAUDE/QA.md, regex-backref-escape).
     - name: Read CCY_VERSION for the Go Front's Build
       ansible.builtin.set_fact:
         ccy_front_version: >-
           {{ lookup('ansible.builtin.file', root_dir ~ '/files/var/local/claude-yolo/claude-yolo')
-          | regex_search('^CCY_VERSION="([0-9][0-9.]*)"', '\\1', multiline=True)
+          | regex_search('^CCY_VERSION="([0-9][0-9.]*)"', '\1', multiline=True)
           | default([], true) | first | default('') }}
       tags:
         - scripts
