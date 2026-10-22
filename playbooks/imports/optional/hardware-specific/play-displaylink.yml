@@ -8,11 +8,11 @@
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     # Version configuration
-    displaylink_version: "v6.3.0-2"
+    displaylink_version: "v6.4.0"
     evdi_version: "1.15.1"
     # RPM release suffix of the evdi package — drifts independently of the
-    # evdi version itself (e.g. v6.3.0 shipped evdi 1.14.16-2, v6.3.0-1 1.15.0-1, v6.3.0-2 ships 1.15.1-1).
-    evdi_rpm_release: "1"
+    # evdi version itself (e.g. v6.3.0-2 shipped evdi 1.15.1-1, v6.4.0 ships 1.15.1-2).
+    evdi_rpm_release: "2"
     # Set to true to bypass version check (use with caution)
     force_install: false
     unlock_extension_name: dock-recovery-on-unlock@fedora-desktop
@@ -108,7 +108,9 @@
           1. Update the playbook with the latest version:
              - Edit: playbooks/imports/optional/hardware-specific/play-displaylink.yml
              - Update 'displaylink_version' variable to: {{ latest_version }}
-             - Update the download URL in 'Install DisplayLink RPM' task
+             - Update 'evdi_version' and 'evdi_rpm_release' to match the release's
+               fedora-{{ fedora_version }}-displaylink-<evdi>-<release>.github_evdi.x86_64.rpm
+               asset (the download URL is built from these three variables)
 
           2. Check the latest release at:
              https://github.com/displaylink-rpm/displaylink-rpm/releases/latest
