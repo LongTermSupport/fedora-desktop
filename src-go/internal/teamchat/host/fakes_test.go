@@ -8,15 +8,65 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
 )
 
 var errFault = errors.New("injected fault")
+
+// t0 is the fake clock's start: a fixed instant, never the wall clock.
+var t0 = time.UnixMilli(1_760_000_000_000)
+
+// fakeClock is a clock whose Sleep only moves its time forward.
+type fakeClock struct {
+	now   time.Time
+	slept []time.Duration
+}
+
+func newClock() *fakeClock { return &fakeClock{now: t0} }
+
+func (c *fakeClock) Now() time.Time { return c.now }
+
+func (c *fakeClock) Sleep(ctx context.Context, d time.Duration) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	c.now = c.now.Add(d)
+	c.slept = append(c.slept, d)
+	return nil
+}
+
+func mustTeam(t *testing.T, s string) paths.TeamID {
+	t.Helper()
+	team, err := paths.ParseTeamID(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return team
+}
+
+func readFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func releaseOrFail(t *testing.T, l *teamlock.Lock) {
+	t.Helper()
+	if err := l.Release(); err != nil {
+		t.Error(err)
+	}
+}
 
 // world is one host under a temporary root: the installed directories, the base unit, and a
 // fake for every seam, sharing one call log.
@@ -123,7 +173,7 @@ func (w *world) deps() Deps {
 		Rand: bytes.NewReader(bytes.Repeat([]byte{0xab}, 64)), Pin: p, Software: "d1g3st",
 		CtlUID: os.Getuid(), CtlGID: os.Getgid(), Approvals: w, Systemd: w.sd, Firewall: w.fw,
 		Network: w.net, Ready: w.ready, Status: w.status,
-		Backup: func(_ context.Context, held *Lock) error {
+		Backup: func(_ context.Context, held *teamlock.Lock) error {
 			if held == nil {
 				w.t.Error("the backup was not given the held lock")
 			}

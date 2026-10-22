@@ -42,10 +42,19 @@ and `element`, `desired.json` (C 3.7.5; the sweep asks it through a seam), and c
 
 ## 2. The team lock (`teamchat/teamlock`, C 3.4)
 
-- **TL1.** `TryLock(path, holder)` takes `flock(LOCK_EX|LOCK_NB)` on the file, opened
-  `O_RDWR|O_CREAT|O_NOFOLLOW|O_CLOEXEC` 0600, and writes the holder line
-  `<verb> <team> pid=<n> since=<ms>` into it. A busy lock is `ErrBusy`, naming the holder's line
-  as read (one line, at most 256 bytes, printable). The lock is never unlinked. `Unlock` frees it.
+- **TL1.** `Take(ctx, dir, team, verb, wait, clock)` is the one team lock: every root verb
+  (`host` apply and remove, the `admin` member and role verbs, the `health` tick) takes it here,
+  and each caller owns its wait (`host.PlayWait` 10 minutes, `admin.SeatWait` 60 s, the tick 0).
+  The directory `dir` is made 0700 when missing and opened `O_DIRECTORY|O_NOFOLLOW`; one that is
+  a link, not a directory, not mode 0700 or not owned by the euid is refused. The file
+  `team-<team>.lock` is opened relative to that directory's descriptor,
+  `O_RDWR|O_CREAT|O_NOFOLLOW|O_CLOEXEC` 0600, and must be a regular file. `flock(LOCK_EX|LOCK_NB)`
+  is tried every 250 ms by the clock until `wait` is spent (0 is one try), and ctx ends it.
+  The holder writes `<verb> <team> pid=<n> since=<ms>`, the verb matching
+  `^[a-z][a-z.-]{0,31}$`. A busy lock is a `*BusyError{Path, Holder}` that is `ErrBusy`
+  (`errors.Is`), naming the holder's line as read: one printable line of at most 256 bytes,
+  else "an unreadable holder". `Release` clears the line and frees the lock; the file is never
+  unlinked.
 
 ## 3. The health tick (`teamchat/health`, C 3.11.1-3.11.2)
 

@@ -278,9 +278,9 @@ its first caller.
   view (`health`, `health/view`), the disconnected notice (`notice`), and NT3's bound and
   `Holdings` in `seat`; the owner's seat sweep (`sweep`, DC21, INT7); and Element profiles of
   C 3.10 (`element`). Not covered: the D-Bus, probe, child and announcer adapters (DC17); the
-  units and timers; backups and restore (C 3.12). The team lock is built twice: n2d's
-  `host/lock.go` is the design that survives, moved into `teamlock` at merge by the steps in
-  the report.
+  units and timers; backups and restore (C 3.12).
+  The team lock is one package, `teamchat/teamlock` (TL1), used by host, admin and health
+  (`subagent-reports/261022-n2-lock.md`).
 
 - [ ] ⬜ **Task 2.5**: Acceptance: C 3.14's tests; the M44 real-Tuwunel test, and Tuwunel's answers
   for a locked and a deactivated account recorded into `fakehs` (host or VM lab); VM-lab scenario

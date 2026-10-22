@@ -148,7 +148,7 @@ var errRemoved = errors.New("the team was removed")
 // restart restarts the unit under the team lock taken without waiting, and writes its event
 // at once with seq raised; a busy lock means the holder owns the team, so nothing is done.
 func (t *Tick) restart(ctx context.Context, team Team, unit string, f *facts) error {
-	lock, err := t.cfg.Locks.TryLock(team.ID)
+	lock, err := t.cfg.Locks.TryLock(ctx, team.ID)
 	if err != nil {
 		if isBusy(err) {
 			return nil
@@ -156,8 +156,8 @@ func (t *Tick) restart(ctx context.Context, team Team, unit string, f *facts) er
 		return err
 	}
 	err = t.restartLocked(ctx, team, unit, f)
-	if unlockErr := lock.Unlock(); err == nil {
-		err = unlockErr
+	if releaseErr := lock.Release(); err == nil {
+		err = releaseErr
 	}
 	return err
 }

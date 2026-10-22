@@ -11,6 +11,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
 )
 
 // ops is the sample team's id.
@@ -64,7 +65,7 @@ func mode(t *testing.T, path string) os.FileMode {
 
 func lockIsFree(t *testing.T, w *world) {
 	t.Helper()
-	l, err := TakeLock(t.Context(), w.at(paths.AdminRunDir), ops(t), "check", 0, w.clock)
+	l, err := teamlock.Take(t.Context(), w.at(paths.AdminRunDir), ops(t), "check", 0, w.clock)
 	if err != nil {
 		t.Errorf("the lock was not released: %v", err)
 		return
@@ -329,7 +330,7 @@ func TestBootstrapFailureKeepsItsLines(t *testing.T) {
 // HS2: a team lock held by another verb is busy, with the holder named.
 func TestApplyBusy(t *testing.T) {
 	w := newWorld(t)
-	held, err := TakeLock(t.Context(), w.at(paths.AdminRunDir), ops(t), "backup", 0, w.clock)
+	held, err := teamlock.Take(t.Context(), w.at(paths.AdminRunDir), ops(t), "backup", 0, w.clock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +338,7 @@ func TestApplyBusy(t *testing.T) {
 	d := w.deps()
 	d.LockWait = 0
 	_, err = Apply(t.Context(), d, approved(w, teamDoc()))
-	busy, ok := errors.AsType[*BusyError](err)
+	busy, ok := errors.AsType[*teamlock.BusyError](err)
 	if !ok || !strings.HasPrefix(busy.Holder, "backup ops pid=") || stepOf(t, err).Step != StepLock {
 		t.Errorf("got %v", err)
 	}

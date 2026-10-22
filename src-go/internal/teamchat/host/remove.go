@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
 )
 
 type removing struct {
@@ -27,7 +28,7 @@ type removing struct {
 // before a failure included.
 func Remove(ctx context.Context, d Deps, team paths.TeamID, purge bool) ([]string, error) {
 	r := &removing{d: d, team: team, unit: paths.ServerUnit(team), purge: purge}
-	lock, err := TakeLock(ctx, d.LockDir, team, "team.remove", d.LockWait, d.Clock)
+	lock, err := teamlock.Take(ctx, d.LockDir, team, "team.remove", d.LockWait, d.Clock)
 	if err != nil {
 		return nil, r.fail(StepLock, err)
 	}

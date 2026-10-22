@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
 )
 
 // remove runs Remove over the sample team with a fresh log.
@@ -249,7 +250,7 @@ func TestRemoveFileFailures(t *testing.T) {
 // HS2: a team lock held by another verb is busy, with the holder named.
 func TestRemoveBusy(t *testing.T) {
 	w := applied(t)
-	held, err := TakeLock(t.Context(), w.at(paths.AdminRunDir), ops(t), "backup", 0, w.clock)
+	held, err := teamlock.Take(t.Context(), w.at(paths.AdminRunDir), ops(t), "backup", 0, w.clock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +258,7 @@ func TestRemoveBusy(t *testing.T) {
 	d := w.deps()
 	d.LockWait = 0
 	_, err = Remove(t.Context(), d, ops(t), false)
-	busy, ok := errors.AsType[*BusyError](err)
+	busy, ok := errors.AsType[*teamlock.BusyError](err)
 	if !ok || !strings.HasPrefix(busy.Holder, "backup ops pid=") || stepOf(t, err).Step != StepLock || stepOf(t, err).Verb != "team remove" {
 		t.Errorf("got %v", err)
 	}

@@ -8,6 +8,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/rooms"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -38,7 +39,7 @@ func ExitCodeOf(err error) term.ExitCode {
 // verbExit is the code of a failure the verbs' own layer names: the lock, the child, a refusal
 // of a verb's or of the host steps.
 func verbExit(err error) (term.ExitCode, bool) {
-	if e, ok := errors.AsType[*host.BusyError](err); ok && e != nil {
+	if errors.Is(err, teamlock.ErrBusy) {
 		return ExitBusy, true
 	}
 	if e, ok := errors.AsType[*ChildError](err); ok {

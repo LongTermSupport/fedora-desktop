@@ -15,6 +15,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -193,7 +194,7 @@ func TestApplyOfAnUnapprovedChangeIs70(t *testing.T) {
 
 func (w *world) lockIsFree(t *testing.T) {
 	t.Helper()
-	lock, err := host.TakeLock(t.Context(), w.root+paths.AdminRunDir, alpha(t), "test", 0, w)
+	lock, err := teamlock.Take(t.Context(), w.root+paths.AdminRunDir, alpha(t), "test", 0, w)
 	if err != nil {
 		t.Fatalf("the lock was not released: %v", err)
 	}
@@ -435,7 +436,7 @@ func TestVerbRefusals(t *testing.T) {
 func TestVerbBusy(t *testing.T) {
 	w := newWorld(t)
 	w.applied(t)
-	lock, err := host.TakeLock(t.Context(), w.root+paths.AdminRunDir, alpha(t), "team.apply", 0, w)
+	lock, err := teamlock.Take(t.Context(), w.root+paths.AdminRunDir, alpha(t), "team.apply", 0, w)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -572,7 +573,7 @@ func TestVerbsNeedTheirSeams(t *testing.T) {
 
 func TestExitCodeOfTheHostAndTheChild(t *testing.T) {
 	cases := map[error]term.ExitCode{
-		&host.Error{Verb: "team apply", Step: "lock", Err: &host.BusyError{Path: "p", Holder: "h"}}:              ExitBusy,
+		&host.Error{Verb: "team apply", Step: "lock", Err: &teamlock.BusyError{Path: "p", Holder: "h"}}:          ExitBusy,
 		&host.Error{Verb: "team apply", Step: "refusals", Drift: true, Err: errors.New("no")}:                    ExitRefused,
 		&host.Error{Verb: "team apply", Step: "bootstrap", Err: &ChildError{Class: ClassRefused, Message: "no"}}: ExitRefused,
 		&ChildError{Class: ClassUnreachable, Message: "down"}:                                                    ExitUnreachable,

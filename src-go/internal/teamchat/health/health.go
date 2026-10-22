@@ -101,12 +101,12 @@ type Space interface {
 	Space() (free, total int64, err error)
 }
 
-// Unlocker frees a team lock.
-type Unlocker interface{ Unlock() error }
+// Releaser frees a held team lock.
+type Releaser interface{ Release() error }
 
 // Locks takes a team's lock without waiting; a busy lock is teamlock.ErrBusy.
 type Locks interface {
-	TryLock(team paths.TeamID) (Unlocker, error)
+	TryLock(ctx context.Context, team paths.TeamID) (Releaser, error)
 }
 
 // Config is what a tick is made from; every part is required.
@@ -270,12 +270,12 @@ func (t *Tick) disk(f *facts) error {
 
 // write is steps 5 and 6, under the team lock taken without waiting.
 func (t *Tick) write(ctx context.Context, team Team, f *facts) Outcome {
-	lock, err := t.cfg.Locks.TryLock(team.ID)
+	lock, err := t.cfg.Locks.TryLock(ctx, team.ID)
 	if err != nil {
 		return dropOrFail(team.ID, err)
 	}
 	out := t.locked(ctx, team, f)
-	if err := lock.Unlock(); err != nil && out.Err == nil {
+	if err := lock.Release(); err != nil && out.Err == nil {
 		out = Outcome{Team: team.ID, Result: ResultFailed, Err: err}
 	}
 	return out

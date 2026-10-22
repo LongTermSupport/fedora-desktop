@@ -2,7 +2,9 @@ package health
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
@@ -19,17 +21,21 @@ func TestStatfsSpace(t *testing.T) {
 }
 
 func TestTeamLocks(t *testing.T) {
-	dir := t.TempDir()
-	locks := TeamLocks{Path: func(string) string { return filepath.Join(dir, "team.lock") }, PID: 5, Clock: &clock{now: t0}}
+	dir := filepath.Join(t.TempDir(), "teamchat-admin")
+	locks := TeamLocks{Dir: dir, Clock: &clock{now: t0}}
 	team := id(t, "alpha")
-	held, err := locks.TryLock(team)
+	held, err := locks.TryLock(t.Context(), team)
 	if err != nil {
 		t.Fatalf("TryLock: %v", err)
 	}
-	if _, err := locks.TryLock(team); !errors.Is(err, teamlock.ErrBusy) {
+	line, err := os.ReadFile(filepath.Clean(filepath.Join(dir, "team-alpha.lock")))
+	if err != nil || !strings.HasPrefix(string(line), "health alpha pid=") {
+		t.Fatalf("holder line %q, %v", line, err)
+	}
+	if _, err := locks.TryLock(t.Context(), team); !errors.Is(err, teamlock.ErrBusy) {
 		t.Fatalf("second TryLock = %v, want busy", err)
 	}
-	if err := held.Unlock(); err != nil {
+	if err := held.Release(); err != nil {
 		t.Fatal(err)
 	}
 }

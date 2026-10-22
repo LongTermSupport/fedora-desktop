@@ -1,3 +1,11 @@
+// Package host is `team apply`'s host steps and `team remove` of `teamchat-admin` (Plan 00209,
+// DESIGN-v2-C-host.md 3.2.2-3.2.5, 3.5.2, 3.5.3; SPEC-n2d.md section 4, HS1-HS14): the team
+// lock taken through teamlock, the refusals before any change, the in-memory render of a
+// team's homeserver config, unit drop-in and `team.json` with the five-way answer, the first
+// apply's files, the firewall, the backup, the unit, readiness, the bound addresses, and the
+// records written last. Every host effect (systemd, firewalld, the network, the readiness
+// probe, the backup, the status record, bootstrap) is a seam in Deps; the files are written
+// under Deps.Root.
 package host
 
 import (
@@ -17,7 +25,18 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
 )
+
+// PlayWait is how long a play step waits for a team lock (C 3.4).
+const PlayWait = 10 * time.Minute
+
+// Clock is the time the lock wait and the readiness wait are measured by; it is a
+// teamlock.Clock.
+type Clock interface {
+	Now() time.Time
+	Sleep(ctx context.Context, d time.Duration) error
+}
 
 // The steps a failure names (C 3.5.2, 3.5.3). StepRefusals is step 2 and StepRender step 3;
 // StepFiles is step 4's first-apply files, and in `team remove` the drop-in and stamp it
@@ -147,12 +166,12 @@ type Deps struct {
 	Network        Network
 	Ready          Readiness
 	Status         Status
-	Backup         func(ctx context.Context, held *Lock) error
+	Backup         func(ctx context.Context, held *teamlock.Lock) error
 	Bootstrap      func(ctx context.Context, b Bootstrap) ([]string, error)
 }
 
 // Error is a failed verb: the step, and whether it is drift a rule refused (exit 70); anything
-// else is 1, except a BusyError it wraps (75).
+// else is 1, except a teamlock.BusyError it wraps (75).
 type Error struct {
 	Verb, Step string
 	Drift      bool
@@ -195,7 +214,7 @@ type applying struct {
 	in      declare.Input
 	team    paths.TeamID
 	unit    string
-	lock    *Lock
+	lock    *teamlock.Lock
 	changed []string
 
 	first, stamped bool
@@ -219,7 +238,7 @@ type applying struct {
 // Deps.Bootstrap. It answers the CHANGED lines, those before a failure included.
 func Apply(ctx context.Context, d Deps, in declare.Input) ([]string, error) {
 	a := &applying{d: d, in: in, team: in.ID(), unit: paths.ServerUnit(in.ID())}
-	lock, err := TakeLock(ctx, d.LockDir, a.team, "team.apply", d.LockWait, d.Clock)
+	lock, err := teamlock.Take(ctx, d.LockDir, a.team, "team.apply", d.LockWait, d.Clock)
 	if err != nil {
 		return nil, a.fail(StepLock, err)
 	}

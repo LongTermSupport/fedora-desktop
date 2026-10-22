@@ -16,6 +16,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -123,7 +124,7 @@ func memberVerb(op string) func(context.Context, Env, []string) term.ExitCode {
 		if err != nil {
 			return failWith(e, err)
 		}
-		lock, err := host.TakeLock(ctx, sys.Host.LockDir, team, op, SeatWait, sys.Host.Clock)
+		lock, err := teamlock.Take(ctx, sys.Host.LockDir, team, op, SeatWait, sys.Host.Clock)
 		if err != nil {
 			return failWith(e, err)
 		}

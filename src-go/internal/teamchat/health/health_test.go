@@ -198,11 +198,11 @@ type locks struct {
 	busy map[paths.TeamID]bool
 }
 
-func (l *locks) TryLock(team paths.TeamID) (Unlocker, error) {
+func (l *locks) TryLock(ctx context.Context, team paths.TeamID) (Releaser, error) {
 	if l.busy[team] {
-		return nil, &teamlock.BusyError{Holder: "apply " + team.String() + " pid=9 since=1"}
+		return nil, &teamlock.BusyError{Path: filepath.Join(l.dir, "team-"+team.String()+".lock"), Holder: "apply " + team.String() + " pid=9 since=1"}
 	}
-	return teamlock.TryLock(filepath.Join(l.dir, team.String()+".lock"), teamlock.Holder{Verb: "health", Team: team, PID: 1, Since: t0})
+	return teamlock.Take(ctx, l.dir, team, "health", 0, &clock{now: t0})
 }
 
 // world is one tick's fakes over a temporary status tree.

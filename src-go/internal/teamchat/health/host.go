@@ -1,6 +1,7 @@
 package health
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -45,14 +46,13 @@ func bytesOf(blocks, bsize uint64) (int64, bool) {
 	return int64(n), true
 }
 
-// TeamLocks takes a team's lock (paths.TeamLock on the host) as the health tick.
+// TeamLocks takes a team's lock in Dir (paths.AdminRunDir on the host) as the health tick.
 type TeamLocks struct {
-	Path  func(team string) string
-	PID   int
+	Dir   string
 	Clock Clock
 }
 
-// TryLock takes team's lock without waiting.
-func (l TeamLocks) TryLock(team paths.TeamID) (Unlocker, error) {
-	return teamlock.TryLock(l.Path(team.String()), teamlock.Holder{Verb: "health", Team: team, PID: l.PID, Since: l.Clock.Now()})
+// TryLock takes team's lock without waiting (C 3.4: the health timer never waits).
+func (l TeamLocks) TryLock(ctx context.Context, team paths.TeamID) (Releaser, error) {
+	return teamlock.Take(ctx, l.Dir, team, "health", 0, l.Clock)
 }

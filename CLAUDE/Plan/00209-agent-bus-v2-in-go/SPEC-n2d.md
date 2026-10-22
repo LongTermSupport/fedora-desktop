@@ -164,14 +164,12 @@ step, drift). Every host effect is a seam of `Deps`: systemd, firewalld, the net
 readiness probe, the status record, the backup, the bootstrap and the approvals; files are read
 and written under `Deps.Root`.
 
-- **HS1. The lock file.** `TakeLock` opens `<LockDir>/team-<team>.lock`, 0600, never through a
-  link, in a directory of mode 0700 (made 0700 when missing, refused otherwise), and while held
-  the file holds the line `<verb> <team> pid=<n> since=<ms>`; `Release` clears the line and
-  keeps the file. A verb that is not one printable word is refused.
-- **HS2. Busy and wait.** A held lock with no wait is a `*BusyError` at once, carrying the
-  holder's line; a wait polls on the clock it is given and ends at its bound (a play waits
-  `PlayWait`, 10 minutes); a holder that lets go during the wait hands the lock over; two
-  teams' locks are independent. Apply and Remove fail at step `lock` wrapping the BusyError.
+- **HS1. The lock file.** The lock is `teamlock.Take` (SPEC-n2e TL1, which owns the file, the
+  directory rule, the holder line and `Release`), taken in `Deps.LockDir` as `team.apply` or
+  `team.remove`.
+- **HS2. Busy and wait.** Apply and Remove wait `Deps.LockWait` (a play waits `host.PlayWait`,
+  10 minutes) and fail at step `lock` wrapping the `*teamlock.BusyError` (exit 75); the wait
+  itself, the hand-over and the independence of two teams' locks are TL1's.
 - **HS3. The refusals (step 2)**, each drift (exit 70), before anything changes: a
   `server_name` other than the one `server-name` fixed at the first apply (even when that first
   apply failed after fixing it); an unapproved declaration (`declare.Hold`); a listen address
