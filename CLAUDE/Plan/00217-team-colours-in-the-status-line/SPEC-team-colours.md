@@ -78,7 +78,7 @@ the Python (SPEC-status-line S40).
 ## 3. The status line
 
 - **C10** **A colour span per team.** A team row is the label (or the indent), then each team's
-  piece (`<team> (<role>)` and its marks, with its comma) in its own span,
+  piece (C15's text and its marks, with its comma) in its own span,
   `ESC[38;2;<r>;<g>;<b>m<piece>ESC[0m` (decimal components), the pieces joined by one plain
   space. The label `👥`, the indent and the joining spaces carry no colour. Wrapping (S27 to S29)
   is unchanged: escapes take no columns, and rows break only between pieces.
@@ -104,7 +104,32 @@ the Python (SPEC-status-line S40).
   (it writes `ESC[36m` and `ESC[31m` to every terminal), so it gains no 256-colour fallback;
   tmux and the GNOME terminals map 24-bit colour themselves.
 
-## 4. Not built
+## 4. This member's own name (the owner's second requirement)
+
+With many members, several of them in one repository, a status line did not say which member it
+belongs to. Each team piece now names this session's member in that team, in the team's colour.
+
+- **C15** **The piece.** `<team>: <member> (<r>)`, then its marks: `alpha: fedora-desktop.2 (c)`.
+  This replaces SPEC-status-line S26's `<team> (<role>)`.
+  - `<member>` is the short member name: this member's handle (the localpart of `member.json`'s
+    `user_id`, `<repo>.<seat>+<host>.<kind>`) up to its `+`, so `fedora-desktop.2+local.host`
+    is `fedora-desktop.2`. The repository name is kept whole and the seat is always shown.
+  - `<r>` is the role in one letter, `c` for coordinator and `w` for worker (the legacy
+    `orchestrator` is read as coordinator, S22).
+  - The colon keeps the team and the member apart however long either is, and reads as "on team
+    alpha, I am fedora-desktop.2".
+- **C16** **What cannot be read is said, never guessed.** The member comes from the bundle that
+  SPEC-status-line S21 loads, the role from the record of S22. A bundle that does not load gives
+  `<team>: member? (role?)`; a bundle that loads with a record that does not give the role gives
+  `<team>: <member> (role?)`. The role diagnostic of S24 is unchanged, and covers both.
+- **C17** The marks follow as before: `alpha: fedora-desktop.2 (c) (down) (colour?)`. Each piece
+  is one unit for wrapping (S29): a long repository name makes a long piece, which keeps a row of
+  its own whole rather than being cut.
+- **C18** Under PINGBUS_MEMBERSHIP (a seated session) the bundle is the seat's own (the session
+  home's link to it), so `<member>` is the seat this session holds, the same as the seat's handle
+  `pingbus status` prints.
+
+## 5. Not built
 
 - **A light-background palette.** Future work only: a second palette judged against light
   references, chosen by a setting or by the terminal's reported background (OSC 11). Not built,

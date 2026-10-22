@@ -46,13 +46,16 @@ re-recorded from the Python.
 ### Phase 1: Spec and colour module
 
 - [x] ✅ **Task 1.1**: SPEC-team-colours.md, the palette chosen and measured (C1 to C5).
-- [ ] 🔄 **Task 1.2**: `helpers/pingbus/colours.py`, test first: the palette, the contrast,
+- [x] ✅ **Task 1.2**: `helpers/pingbus/colours.py`, test first: the palette, the contrast,
   hue band and distance tests, the FNV-1a auto colour and the override grammar (C1 to C7).
+- [x] ✅ **Task 1.3**: The owner's second requirement, this member's short name on each team piece
+  (`alpha: fedora-desktop.2 (c)`), specified as C15 to C18; built with Phase 2.
 
 ### Phase 2: The status line, both implementations
 
 - [ ] ⬜ **Task 2.1**: Python `statusline.py`: a colour span per team, `colour.json` read, the
-  `(colour?)` mark and stderr line (C10 to C12), test first.
+  `(colour?)` mark and stderr line (C10 to C12), and the member name piece (C15 to C18), test
+  first.
 - [ ] ⬜ **Task 2.2**: Go `statusline`: the palette copy with its Python parity and contrast tests,
   the same rendering, the cache fingerprinting `colour.json` (C6, C10 to C13), test first.
 - [ ] ⬜ **Task 2.3**: The oracle: new scenarios in `scenarios.json` (auto colours, an override, each
@@ -76,6 +79,17 @@ re-recorded from the Python.
 - [ ] ⬜ **Task 4.3**: On the host, after the deploy: every team's row is in its own colour in a
   ccy session, a host session and an LXC member, and a `colour:` set on one team and the play run
   again changes that team's colour in each without a restart.
+
+## Owner Decisions
+
+- **D1, long repository names** (C15, C17). Default taken: the repository part of the member name
+  is never shortened; a long one makes a long piece, which wraps onto a row of its own whole.
+  The alternative is to cut it past a length (for example 20 characters, with `~` where it was
+  cut, ASCII so S27's width measure stays exact) and keep the seat; the cost is that two
+  repositories with the same first 20 characters would look alike. Say if you want the cut.
+- **D2, a hand-set hex must be legible** (C7). Default taken: `colour: "#rrggbb"` below 4.5:1
+  contrast on any reference dark background is refused, as the palette is held to. Say if you
+  want any hex accepted.
 
 ## Follow-ups
 

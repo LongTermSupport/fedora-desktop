@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.15.6 — container 2.78.19
+
+Follows 3.99.15.5. The image changes, so the next launch rebuilds it once.
+
+- **Team colours, first part** (Plan 00217). The image's pingbus carries
+  `helpers/pingbus/colours.py`, the palette and the `colour:` override grammar the status line's
+  team colours will use; nothing draws them yet.
+
 ## 3.99.15.5 — container 2.78.18
 
 Follows 3.99.15.4 (3.99.14.13 to 3.99.14.15 were this branch's earlier cuts, never released;
