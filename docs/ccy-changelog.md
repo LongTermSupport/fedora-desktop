@@ -17,9 +17,9 @@ Two version numbers move independently — see
 
 ---
 
-## 3.99.15.3 — container 2.78.14
+## 3.99.15.4 — container 2.78.14
 
-Follows 3.99.14.11 (3.99.15.0 to 3.99.15.2 were never released on their own). The image is unchanged, so there
+Follows 3.99.14.11 (3.99.15.0 to 3.99.15.3 were never released on their own). The image is unchanged, so there
 is no rebuild.
 
 - **One image build at a time** (Plan 00216). Two sessions started together each rebuilt the

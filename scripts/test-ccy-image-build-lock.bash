@@ -442,10 +442,25 @@ wait "$holder"
 
 echo "== the play's form: one build under the lock, from bash -c"
 reset_world
-# The script is the play's, word for word: its own $0 and $@, expanded by the inner bash.
-play_script="source \"\$0\" && ccy_image_build_locked \"\$@\""
-timeout 60 bash -c "$play_script" "$LIB_DIR/image-build-lock.bash" \
-    claude-yolo:latest false -- podman build --build-arg DOCKERFILE_HASH=x -t claude-yolo:latest "$CONTEXT"
+# The argv is read from the play's own task (each "- word" under its argv:, quotes taken off),
+# with the installed paths and the play's variables pointed at this sandbox.
+PLAY="$REPO_ROOT/playbooks/imports/play-claude-yolo.yml"
+mapfile -t play_argv < <(awk '
+    /- name: Build Claude YOLO Container Image with Hash/ { task = 1 }
+    task && /^ *argv:/ { in_argv = 1; next }
+    in_argv && /^ *- / { sub(/^ *- /, ""); if ($0 ~ /^".*"$/) $0 = substr($0, 2, length($0) - 2); print; next }
+    in_argv { exit }' "$PLAY")
+check "the play's build argv was found" 14 "${#play_argv[@]}"
+for i in "${!play_argv[@]}"; do
+    case "${play_argv[$i]}" in
+    /var/local/claude-yolo/lib/image-build-lock.bash) play_argv[i]="$LIB_DIR/image-build-lock.bash" ;;
+    /opt/claude-yolo) play_argv[i]="$CONTEXT" ;;
+    "{{ container_engine }}") play_argv[i]=podman ;;
+    *"{{ dockerfile_hash.stdout }}"*) play_argv[i]="${play_argv[$i]/"{{ dockerfile_hash.stdout }}"/x}" ;;
+    esac
+done
+check "the play builds through the lock" "bash -c" "${play_argv[0]} ${play_argv[1]}"
+timeout 60 "${play_argv[@]}"
 check "it succeeds" 0 "$?"
 check "one build" 1 "$(builds)"
 check "the record is emptied" 0 "$(wc -c <"$LOCK" | tr -d ' ')"

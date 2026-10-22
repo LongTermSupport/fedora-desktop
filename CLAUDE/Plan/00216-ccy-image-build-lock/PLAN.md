@@ -103,13 +103,16 @@ one after a `[y/N]`.
 - [x] ✅ **Task 1.3**: `ccy --build-lock` in the Go front, `buildlock_test.go` first (F14), help
   text in both launchers, difftest goldens re-recorded (one build where the missing-image
   scenario built twice; the lock file in the run directory).
-- [x] ✅ **Task 1.4**: CCY 3.99.15.3 with its changelog entry, docs/ccy.md, QA.md and the gate
+- [x] ✅ **Task 1.4**: CCY 3.99.15.4 with its changelog entry, docs/ccy.md, QA.md and the gate
   row, and the play-claude-yolo.yml entry of meta-deploy.list.
 
 ### Phase 2: Review and deploy
 
-- [ ] ⬜ **Task 2.1**: Adversarial Opus review rounds until MERGE (subagent-reports/).
-- [ ] ⬜ **Task 2.2**: The qa-reviewer agent, and its findings fixed.
+- [x] ✅ **Task 2.1**: Adversarial Opus review rounds until MERGE (subagent-reports/): rounds
+  1-3 FIX-FIRST, each answered; round 4 MERGE.
+- [x] ✅ **Task 2.2**: The qa-reviewer agent (PASS WITH NITS), and its findings fixed: the suite
+  runs the play's build argv read from the play itself; a missing final newline. Its other nit
+  (the daily update's extra version probe before the lock) is round 2's accepted note.
 - [ ] ⬜ **Task 2.3**: The owner runs meta-deploy (the play-claude-yolo.yml entry) and its check.
 
 ## Success Criteria
