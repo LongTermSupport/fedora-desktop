@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -149,7 +148,7 @@ func (l LXC) checkGuest(a Attach, op guest.Op, args []string) (guest.Op, error) 
 		return guest.Op{}, fmt.Errorf("%w: an attach as uid %d gid %d", ErrRefused, a.UID, a.GID)
 	case a.User == paths.GuestUser{}:
 		return guest.Op{}, fmt.Errorf("%w: an attach with no user", ErrRefused)
-	case !filepath.IsAbs(a.Home) || filepath.Clean(a.Home) != a.Home || strings.ContainsFunc(a.Home, isControl):
+	case !paths.ValidGuestPath(a.Home):
 		return guest.Op{}, fmt.Errorf("%w: the home is not a clean absolute path", ErrRefused)
 	case a.Kit == paths.HostKitCurrent() || !strings.HasPrefix(a.Kit.String(), paths.HostKitRoot+"/"):
 		return guest.Op{}, fmt.Errorf("%w: the kit is not one digest's directory in %s", ErrRefused, paths.HostKitRoot)
@@ -176,8 +175,6 @@ func registered(a Attach, op guest.Op) (guest.Op, error) {
 	}
 	return guest.Op{}, fmt.Errorf("%w: %q is not a guest op", ErrRefused, op.Verb)
 }
-
-func isControl(r rune) bool { return r < 0x20 || r == 0x7f }
 
 // failed is a guest op that did not exit 0: a GuestError when stderr's last line is an error
 // object, else an AttachError.

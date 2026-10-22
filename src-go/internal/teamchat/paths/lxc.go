@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
@@ -62,22 +64,44 @@ func (k *SeatKey) UnmarshalText(b []byte) error { return unmarshal(k, ParseSeatK
 
 func (k SeatKey) text() string { return must("seat key", k.s) }
 
-// maxLXCSeat is declare's highest seat number (DR4); the unit name's bound counts its 4 digits.
-const maxLXCSeat = 9999
+// MaxLXCSeat is the highest seat number an LXC entry may name (DR4); the unit name's bound
+// counts its 4 digits.
+const MaxLXCSeat = 9999
+
+// ValidLXCSeat is the one seat bound: 1-MaxLXCSeat.
+func ValidLXCSeat(n int) bool { return n >= 1 && n <= MaxLXCSeat }
+
+// ValidGuestPath is the one checkout grammar (DR4), which declare, the approval gate, the seat
+// key, the record and the apply hold a checkout to, and lxc-attach a home: an absolute, clean
+// path below /, valid UTF-8, with no control or format character (tab, ESC, NUL, DEL, C1, a
+// bidi override, a line separator), so the SECURITY line and the key's input stay one plain
+// line each.
+func ValidGuestPath(p string) bool {
+	return filepath.IsAbs(p) && filepath.Clean(p) == p && p != "/" && utf8.ValidString(p) &&
+		!strings.ContainsFunc(p, func(r rune) bool {
+			return unicode.IsControl(r) || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp)
+		})
+}
+
+// unitPathGrammar is the characters a path in a session unit, or in a shell it runs, may hold.
+var unitPathGrammar = regexp.MustCompile(`^[A-Za-z0-9/._-]+$`)
+
+// ValidUnitPath is a checkout or a home a session unit can carry (C 3.9.4): ValidGuestPath, of
+// [A-Za-z0-9/._-] only, so nothing a unit file or a shell reads specially.
+func ValidUnitPath(p string) bool { return ValidGuestPath(p) && unitPathGrammar.MatchString(p) }
 
 // maxRepoLabel is the repo label's length (C 3.9.1).
 const maxRepoLabel = 24
 
 // LXCSeatKey is the seat key of (team, checkout, seat): the first 16 lowercase hex of SHA-256
 // of `<team>\n<checkout>\n<seat>`, the seat in decimal. checkout and seat are declare's
-// values (an absolute, clean path on one line; 1-9999); any other panics, as a zero team does,
+// values (ValidGuestPath and ValidLXCSeat); any other panics, as a zero team does,
 // since the key would name no declared seat.
 func LXCSeatKey(team TeamID, checkout string, seat int) SeatKey {
-	if !filepath.IsAbs(checkout) || filepath.Clean(checkout) != checkout || checkout == "/" ||
-		strings.ContainsAny(checkout, "\n\r") {
+	if !ValidGuestPath(checkout) {
 		panic("paths: a seat key of a checkout declare refuses")
 	}
-	if seat < 1 || seat > maxLXCSeat {
+	if !ValidLXCSeat(seat) {
 		panic("paths: a seat key of a seat number declare refuses")
 	}
 	sum := sha256.Sum256([]byte(team.text() + "\n" + checkout + "\n" + strconv.Itoa(seat)))

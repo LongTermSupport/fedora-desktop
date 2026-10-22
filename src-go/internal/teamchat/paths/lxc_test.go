@@ -115,6 +115,9 @@ func TestLXCSeatKeyPanicsOnAnInputDeclareRefuses(t *testing.T) {
 		"not clean":  func() string { return LXCSeatKey(ops, "/srv/../x", 1).String() },
 		"root":       func() string { return LXCSeatKey(ops, "/", 1).String() },
 		"two lines":  func() string { return LXCSeatKey(ops, "/srv/a\nb", 1).String() },
+		"a tab":      func() string { return LXCSeatKey(ops, "/srv/a\tb", 1).String() },
+		"an escape":  func() string { return LXCSeatKey(ops, "/srv/\x1b[31m", 1).String() },
+		"a NUL":      func() string { return LXCSeatKey(ops, "/srv/a\x00b", 1).String() },
 		"seat 0":     func() string { return LXCSeatKey(ops, sampleCheckout, 0).String() },
 		"seat 10000": func() string { return LXCSeatKey(ops, sampleCheckout, 10000).String() },
 	} {
@@ -265,4 +268,35 @@ func sampleSeatKey(t *testing.T) SeatKey {
 		t.Fatal(err)
 	}
 	return v
+}
+
+// B4: the one checkout grammar, the one a session unit can carry, and the seat bounds, which
+// declare, the seat key, the record, the apply, the unit and the guest facts all use.
+func TestTheCheckoutGrammarAndSeatBounds(t *testing.T) {
+	for _, p := range []string{"/srv/a", "/srv/a,b=c", "/srv/a b", "/srv/caf\u00e9", "/home/u/My.Repo"} {
+		if !ValidGuestPath(p) {
+			t.Errorf("checkout %q refused", p)
+		}
+	}
+	for _, p := range []string{
+		"", "srv/a", "/", "/srv/../a", "/srv/a/", "/srv//a", "/srv/a\nb", "/srv/a\rb", "/srv/a\tb", "/srv/\x1b[31m",
+		"/srv/a\x00b", "/srv/a\x7fb", "/srv/a\u0085b", "/srv/a\u202eb", "/srv/a\u200bb", "/srv/a\u2028b", "/srv/a\xffb",
+	} {
+		if ValidGuestPath(p) || ValidUnitPath(p) {
+			t.Errorf("checkout %q accepted", p)
+		}
+	}
+	for p, want := range map[string]bool{"/srv/a-b_c.d/e": true, "/srv/a b": false, "/srv/a,b": false, "/srv/caf\u00e9": false} {
+		if ValidUnitPath(p) != want {
+			t.Errorf("unit path %q: want %v", p, want)
+		}
+	}
+	for n, want := range map[int]bool{-1: false, 0: false, 1: true, MaxLXCSeat: true, MaxLXCSeat + 1: false} {
+		if ValidLXCSeat(n) != want {
+			t.Errorf("seat %d: want %v", n, want)
+		}
+	}
+	if MaxLXCSeat != 9999 {
+		t.Errorf("MaxLXCSeat %d", MaxLXCSeat)
+	}
 }

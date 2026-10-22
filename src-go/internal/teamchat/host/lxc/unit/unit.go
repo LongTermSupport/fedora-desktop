@@ -8,8 +8,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"path"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -31,21 +29,15 @@ type Session struct {
 	Seat     int
 }
 
-// maxSeat is declare's highest seat number (DR4).
-const maxSeat = 9999
-
 // Tmux is the tmux the unit runs, the one path the LX4 check requires of the guest.
 const Tmux = "/usr/bin/tmux"
-
-// pathGrammar is the characters a home or checkout may hold in the unit text.
-var pathGrammar = regexp.MustCompile(`^[A-Za-z0-9/._-]+$`)
 
 const execStartKey = "ExecStart="
 
 // Render is C 3.9.4's unit text with the values filled in, byte for byte. A value outside its
-// grammar is refused by name: group by the user-name grammar; home and checkout absolute,
-// clean, not "/", and only [A-Za-z0-9/._-] (no space, no '%' specifier, no '$', no newline);
-// a team; a seat 1-9999.
+// grammar is refused by name: group by the user-name grammar; home and checkout by
+// paths.ValidUnitPath (no space, no '%' specifier, no '$', no control character); a team; a
+// seat by paths.ValidLXCSeat.
 func Render(s Session) ([]byte, error) {
 	if s.User.String() == "" {
 		return nil, fmt.Errorf("%w user: none", ErrInvalid)
@@ -62,8 +54,8 @@ func Render(s Session) ([]byte, error) {
 	if s.Team.String() == "" {
 		return nil, fmt.Errorf("%w team: none", ErrInvalid)
 	}
-	if s.Seat < 1 || s.Seat > maxSeat {
-		return nil, fmt.Errorf("%w seat %d: not 1-%d", ErrInvalid, s.Seat, maxSeat)
+	if !paths.ValidLXCSeat(s.Seat) {
+		return nil, fmt.Errorf("%w seat %d: not 1-%d", ErrInvalid, s.Seat, paths.MaxLXCSeat)
 	}
 	user := s.User.String()
 	key := paths.LXCSeatKey(s.Team, s.Checkout, s.Seat)
@@ -108,9 +100,9 @@ func Render(s Session) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-// checkPath holds a home or checkout to an absolute, clean path of the unit's characters.
+// checkPath holds a home or checkout to paths.ValidUnitPath.
 func checkPath(name, p string) error {
-	if !pathGrammar.MatchString(p) || !path.IsAbs(p) || path.Clean(p) != p || p == "/" {
+	if !paths.ValidUnitPath(p) {
 		return fmt.Errorf("%w %s %q: not an absolute, clean path below / of [A-Za-z0-9/._-]", ErrInvalid, name, p)
 	}
 	return nil

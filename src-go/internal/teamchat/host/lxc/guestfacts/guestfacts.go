@@ -59,12 +59,7 @@ const (
 	maxID          = 1<<32 - 2 // (uid_t)-1 is no id
 )
 
-var (
-	idGrammar = regexp.MustCompile(`^(0|[1-9][0-9]{0,9})$`)
-	// unitPath is the unit's grammar for a path (C 3.9.4): nothing a unit file or a shell reads
-	// as a specifier, a variable, a quote or a separator.
-	unitPath = regexp.MustCompile(`^[A-Za-z0-9/._-]+$`)
-)
+var idGrammar = regexp.MustCompile(`^(0|[1-9][0-9]{0,9})$`)
 
 // lines splits a passwd-form file into its entries of n colon-separated fields; blank lines
 // and # comments are skipped, and any other form refuses the file.
@@ -155,15 +150,11 @@ func checkAccount(a Account, hostUIDs map[int]bool) error {
 		return refuse(guestUsersFile, "the user's gid is 0")
 	case hostUIDs[a.UID]:
 		return refuse(guestUsersFile, "the user's uid is a host account's (K15): a host account sharing it could reach the agent's files")
-	case !validHome(a.Home):
+	case !paths.ValidUnitPath(a.Home):
 		return refuse(guestUsersFile, "the user's home is not an absolute clean path of [A-Za-z0-9/._-] other than /")
 	default:
 		return nil
 	}
-}
-
-func validHome(s string) bool {
-	return filepath.IsAbs(s) && filepath.Clean(s) == s && s != "/" && unitPath.MatchString(s)
 }
 
 // HostUIDs is the uid set of the host's own passwd (read by state.ReadFile), for K15.

@@ -209,6 +209,13 @@ func memberRefusals() []refusal {
 		{"lxc checkout root", "teamchat_lxc_members[0].checkout", "", func(d map[string]any) { lxc0(d)["checkout"] = "/" }},
 		{"lxc site", "teamchat_lxc_members[0].site", "", func(d map[string]any) { lxc0(d)["site"] = "Desk" }},
 		{"lxc checkout two lines", "teamchat_lxc_members[0].checkout", "", func(d map[string]any) { lxc0(d)["checkout"] = "/srv/a\nb" }},
+		{"lxc checkout tab", "teamchat_lxc_members[0].checkout", "", func(d map[string]any) { lxc0(d)["checkout"] = "/srv/a\tb" }},
+		{"lxc checkout escape", "teamchat_lxc_members[0].checkout", "", func(d map[string]any) { lxc0(d)["checkout"] = "/srv/\x1b[31mx" }},
+		{"lxc checkout NUL", "teamchat_lxc_members[0].checkout", "", func(d map[string]any) { lxc0(d)["checkout"] = "/srv/a\x00b" }},
+		{"lxc checkout bidi", "teamchat_lxc_members[0].checkout", "", func(d map[string]any) { lxc0(d)["checkout"] = "/srv/a\u202eb" }},
+		{"lxc service checkout a unit cannot carry", "teamchat_lxc_members[0].checkout", "", func(d map[string]any) {
+			lxc0(d)["checkout"], lxc0(d)["service"] = "/srv/a b", true
+		}},
 		{"lxc seat", "teamchat_lxc_members[0].seat", "", func(d map[string]any) { lxc0(d)["seat"] = 0 }},
 		{"lxc seat missing", "teamchat_lxc_members[0].seat", "", func(d map[string]any) { delete(lxc0(d), "seat") }},
 		{"lxc seat too high", "teamchat_lxc_members[0].seat", "", func(d map[string]any) { lxc0(d)["seat"] = 10000 }},

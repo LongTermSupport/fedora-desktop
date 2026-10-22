@@ -8,10 +8,8 @@ import (
 	"io/fs"
 	"net/netip"
 	"path"
-	"path/filepath"
 	"slices"
 	"strconv"
-	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
@@ -65,7 +63,6 @@ const (
 	gitConfig    = "/.git/config"
 	envLocal     = "/.claude/ccy/ccy.env.local"
 	maxUnit      = 64 << 10
-	maxSeat      = 9999
 )
 
 // The record statuses a phase uses beyond lxcstate's: the entry dropped, left as it is, or
@@ -312,11 +309,11 @@ func (r *run) team(ctx context.Context, in declare.Input, targets map[Target]boo
 // key of any other panics.
 func seatOf(team paths.TeamID, m declare.LXCMember) (lxcstate.SeatID, error) {
 	c := m.Checkout
-	if m.Seat < 1 || m.Seat > maxSeat {
-		return lxcstate.SeatID{}, fmt.Errorf("seat %d is not 1-9999", m.Seat)
+	if !paths.ValidLXCSeat(m.Seat) {
+		return lxcstate.SeatID{}, fmt.Errorf("seat %d is not 1-%d", m.Seat, paths.MaxLXCSeat)
 	}
-	if !filepath.IsAbs(c) || filepath.Clean(c) != c || c == "/" || strings.ContainsAny(c, "\n\r") {
-		return lxcstate.SeatID{}, errors.New("the checkout is not an absolute, clean path below / on one line")
+	if !paths.ValidGuestPath(c) {
+		return lxcstate.SeatID{}, errors.New("the checkout is not an absolute, clean path below / with no control or format character")
 	}
 	return lxcstate.SeatID{Team: team, Checkout: c, Seat: m.Seat}, nil
 }

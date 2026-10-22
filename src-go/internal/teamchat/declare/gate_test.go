@@ -100,7 +100,9 @@ func TestParseLXCEntry(t *testing.T) {
 		"box-1/0,user=agent,human_text=true,checkout=/srv/x", "box-1/10000,user=agent,human_text=true,checkout=/srv/x",
 		"box-1/01,user=agent,human_text=true,checkout=/srv/x", "box-1/x,user=agent,human_text=true,checkout=/srv/x",
 		"box-1/1,user=agent,human_text=true,checkout=srv/x", "box-1/1,user=agent,human_text=true,checkout=/srv/../x",
-		"box-1/1,user=agent,human_text=true,checkout=/srv/a\nb", "box-1/1,human_text=true,user=agent,checkout=/srv/x",
+		"box-1/1,user=agent,human_text=true,checkout=/srv/a\nb",
+		"box-1/1,user=agent,human_text=true,checkout=/srv/a\tb", "box-1/1,user=agent,human_text=true,checkout=/srv/\x1b[0m",
+		"box-1/1,human_text=true,user=agent,checkout=/srv/x",
 		"box-1/1,user=agent,human_text=true,path=/srv/x", "box-1/1/2,user=agent,human_text=true,checkout=/srv/x",
 	} {
 		if _, err := ParseLXCEntry(bad); err == nil {

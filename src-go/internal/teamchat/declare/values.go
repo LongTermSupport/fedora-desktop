@@ -3,10 +3,8 @@ package declare
 import (
 	"net/netip"
 	"net/url"
-	"path/filepath"
 	"regexp"
 	"strconv"
-	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
@@ -17,7 +15,6 @@ const (
 	maxHumans    = 16
 	maxListen    = 8
 	maxAllowFrom = 32
-	maxSeat      = 9999
 	maxDNSName   = 253
 )
 
@@ -84,22 +81,19 @@ func validContainer(s string) bool {
 	return err == nil
 }
 
-// validCheckout is an absolute, clean path below / on one line (DR4), so the SECURITY line and
-// the seat key's input stay one line each.
-func validCheckout(s string) bool {
-	return filepath.IsAbs(s) && filepath.Clean(s) == s && s != "/" && !strings.ContainsAny(s, "\n\r")
-}
+// msgCheckout is a checkout's refusal: paths.ValidGuestPath's grammar.
+const msgCheckout = "is not an absolute, clean path below / with no control or format character"
 
-func validSeat(n int64) bool { return n >= 1 && n <= maxSeat }
+func validSeat(n int64) bool { return n >= 1 && n <= paths.MaxLXCSeat }
 
-// seat reads a seat number, 1-9999 (DR4).
+// seat reads a seat number, 1-paths.MaxLXCSeat (DR4).
 func (n node) seat() (int, error) {
 	v, err := n.integer()
 	if err != nil {
 		return 0, err
 	}
 	if !validSeat(v) {
-		return 0, n.fail("is not a seat number, 1-9999")
+		return 0, n.fail("is not a seat number, 1-" + strconv.Itoa(paths.MaxLXCSeat))
 	}
 	return int(v), nil
 }

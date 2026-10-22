@@ -340,7 +340,7 @@ func TestKeyOwnersClaim(t *testing.T) {
 func TestBadSeatsRefusedBeforeAKeyIsMade(t *testing.T) {
 	for name, bad := range map[string]func(m *declare.LXCMember){
 		"seat 0":              func(m *declare.LXCMember) { m.Seat = 0 },
-		"seat 10000":          func(m *declare.LXCMember) { m.Seat = maxSeat + 1 },
+		"seat 10000":          func(m *declare.LXCMember) { m.Seat = paths.MaxLXCSeat + 1 },
 		"a relative checkout": func(m *declare.LXCMember) { m.Checkout = "src/repo" },
 		"the root checkout":   func(m *declare.LXCMember) { m.Checkout = "/" },
 		"an unclean checkout": func(m *declare.LXCMember) { m.Checkout = "/srv/agent1/src/../repo" },
