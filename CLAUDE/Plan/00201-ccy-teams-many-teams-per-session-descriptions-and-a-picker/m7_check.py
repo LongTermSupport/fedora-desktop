@@ -342,15 +342,20 @@ def seat_containers(listing: str, teams: Sequence[str]) -> list[str]:
 
 
 def expect_list_row(listing: str, team: str, description: str) -> None:
-    """The team row of `ccy-teams --list`, piped: TEAM padded to 24, then the MEMBER cell, which
-    is the description printed whole (padded to 36 when shorter), then the KIND `team`."""
-    row = re.compile(re.escape(f"{team:<24}  {description}") + r" *  team  ")
-    rows = [
-        line
-        for line in listing.splitlines()
-        if line.startswith(f"{team} ") or line == team
-    ]
-    if not any(row.match(line) for line in rows):
+    """The team row of `ccy-teams --list`, piped: the TEAM cell, the MEMBER cell, which is the
+    description printed whole, then the KIND `team`, each cell starting exactly where its
+    heading does. The board sizes each column to its longest value (board.measure), so the
+    widths are read from the heading line, never assumed."""
+    lines = listing.splitlines()
+    heading = lines[0] if lines else ""
+    starts = [heading.find(f"  {name}  ") + 2 for name in ("MEMBER", "KIND", "STATE")]
+    if not heading.startswith("TEAM ") or min(starts) < 2 or starts != sorted(starts):
+        raise Failed(f"ccy-teams --list did not start with its TEAM MEMBER KIND STATE heading: {heading!r}")
+    member, kind, state = starts
+    row = (team.ljust(member - 2) + "  " + description.ljust(kind - member - 2) + "  "
+           + "team".ljust(state - kind - 2) + "  ")
+    rows = [line for line in lines[1:] if line.startswith(f"{team} ") or line == team]
+    if not any(line[:state] == row for line in rows):
         raise Failed(
             f"ccy-teams --list shows no team row for {team} with its description whole; "
             f"its rows: {rows!r}"
