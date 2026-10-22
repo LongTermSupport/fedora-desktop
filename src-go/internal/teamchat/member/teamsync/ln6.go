@@ -19,7 +19,38 @@ const (
 	notInMain    exits.Template = "event {} is not in the team's main room"
 	notAuthentic exits.Template = "event {} is from no member of the team, or does not read as its sender's"
 	notARoom     exits.Template = "{} is not a room this member reads"
+
+	verbUnreachable exits.Template = "the homeserver of team {} did not answer; the link keeps retrying"
+	verbToken       exits.Template = "the homeserver of team {} refused the member's token"
+	verbForbidden   exits.Template = "the homeserver of team {} forbade the request"
+	verbRate        exits.Template = "the homeserver of team {} is rate limiting the member"
 )
+
+// verbErr is a verb's homeserver failure as B 2.2's exit, never internal: a refused token, a
+// forbidden request, a rate limit, or no usable answer. Anything else, a context's end and an
+// exits error included, is returned as it is.
+func (t *Team) verbErr(err error) error {
+	var (
+		code string
+		msg  exits.Template
+	)
+	switch {
+	case err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
+		return err
+	case errors.Is(err, matrix.ErrAuthRefused):
+		code, msg = exits.CodeToken, verbToken
+	case errors.Is(err, matrix.ErrForbidden):
+		code, msg = exits.CodeForbidden, verbForbidden
+	case errors.Is(err, matrix.ErrRateLimited):
+		code, msg = exits.CodeServerRate, verbRate
+	case errors.Is(err, matrix.ErrUnreachable) || errors.Is(err, matrix.ErrRefused):
+		code, msg = exits.CodeUnreachable, verbUnreachable
+	default:
+		return err
+	}
+	t.log.Printf("a verb's call failed: %s", matrix.Class(err))
+	return exits.New(code, &t.cfg.Team, msg, exits.Team(t.cfg.Team))
+}
 
 // maxHistory is the most events one History reads.
 const maxHistory = 100
@@ -102,6 +133,11 @@ func (t *Team) rosterFor(ctx context.Context, c *matrix.Client, a proto.Anchors)
 // Verify is LN6: the event re-fetched from main and judged authentic, with its full text and
 // that text's SHA-256.
 func (t *Team) Verify(ctx context.Context, id string) (records.Verified, error) {
+	v, err := t.verify(ctx, id)
+	return v, t.verbErr(err)
+}
+
+func (t *Team) verify(ctx context.Context, id string) (records.Verified, error) {
 	c, pair, err := t.current()
 	if err != nil {
 		return records.Verified{}, err
@@ -132,6 +168,11 @@ func (t *Team) Verify(ctx context.Context, id string) (records.Verified, error) 
 // History is LN6: a room's messages read backwards, at most limit (and maxHistory), given oldest
 // first; it consumes nothing. An event that does not read as its sender's is left out.
 func (t *Team) History(ctx context.Context, room string, limit int) ([]records.History, error) {
+	hs, err := t.history(ctx, room, limit)
+	return hs, t.verbErr(err)
+}
+
+func (t *Team) history(ctx context.Context, room string, limit int) ([]records.History, error) {
 	c, pair, err := t.current()
 	if err != nil {
 		return nil, err
