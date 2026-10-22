@@ -7,10 +7,11 @@ are the bus's own grammar (room version 12 only), so applying one of them throug
 is how Tuwunel's own server admin room, room version 11 (`!opaque:server`), stopped every
 team's side-room discovery.
 
-The rule reads code rather than running it: in first-party Python, a function that calls the
-homeserver (a method of HOMESERVER_CALLS: `.call(`, `.sync(`, `.state(`, ...) and applies
-`is_room_id` or `is_event_id` inside `all(...)` or `any(...)`, or in a loop's `if` that raises,
-is a finding. Check such a list with the spec's grammar
+The rule reads code rather than running it: in first-party Python, homeserver data (an answer
+from a method of HOMESERVER_CALLS: `.call(`, `.sync(`, `.state(`, ...), followed through
+assignments, loop targets and the parameters of same-module functions it is passed to, checked
+with `is_room_id` or `is_event_id` inside `all(...)` or `any(...)`, or in a loop's `if` that
+raises, is a finding. Check such a list with the spec's grammar
 (`protocol.is_any_room_id`) and then select what the bus can use, naming what it set aside.
 """
 
