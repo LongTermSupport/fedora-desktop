@@ -1251,8 +1251,10 @@ never queues behind a draining keeper; the lock is taken only for steps 2 and 5.
 
 1. Wait, bounded (60 s), for the session's seat lock to be free, or for the session to be over.
    The probe is L3, made safe against the container that owns the path: from the dirfd of
-   `sessions/<session>/`, `openat2(<team>/<seat lock>, O_RDONLY|O_NONBLOCK, RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS)`, then `fstat` a regular file, then
-   `LOCK_SH|LOCK_NB`. A link anywhere on the path, a FIFO or a device is refused, never followed,
+   `sessions/<session>/`, `openat2(<team>/<seat lock>, O_PATH, RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS)`, then `fstat` a regular file, then
+   that inode reopened `O_RDONLY|O_NONBLOCK` through `/proc/self/fd/<n>` (device and inode checked
+   again), then `LOCK_SH|LOCK_NB` on the reopened fd. The read-only open comes last, so a FIFO is
+   never opened and the owner never becomes its reader. A link anywhere on the path, a FIFO or a device is refused, never followed,
    so a planted link cannot point the owner's lock probe at the play lock or any other owner
    file. A wait that ends with the lock still held exits 75 naming the holder; the seat stays
    held and the board shows it as leaving. The seat sweep and the board (in the background, 3.7.5, 3.13) re-run the release for every seat whose
@@ -1374,6 +1376,9 @@ session records and the status record's roster:
   separately (`--seat`) or counted. A §2.3 owns the grammar, and A's formatter joins the two.
 - The offered seat is the lowest number that is free in this checkout and held by no active member
   of the same prefix; a parked handle's number is offered for its return first.
+- An LXC member's prefix is derived from its guest checkout at its first join only; after that
+  the LXC record's handle is kept, and a checkout whose origin now derives another prefix is
+  refused by name (3.9.2 step 03).
 - `seat take` waits, bounded, for a homeserver that is still starting (up to 180 s, after a boot),
   and tells "built but stopped" from "not a team" with different messages naming `ccy-teams apply`
   or `create` (R14).
@@ -1591,7 +1596,8 @@ lock and runs the play scoped to the team, as v1 does. The play stays the one ro
 
 The rules the apply keeps from v1 (R33, R48, LR 1, LR 6): the checkout is read from the host side;
 everything checkable is checked for every running container before anything changes; demotions
-before promotions; a stopped container is ordinary and a missing one is an error; a running and
+before promotions; a stopped container is ordinary and a missing one is an error in the present
+phase (the absent phase parks its member, 3.9.2); a running and
 correct member is left alone (no new token on every run).
 
 What changes: no container program ever runs as root, and no container needs Python. There are
@@ -1664,22 +1670,28 @@ any group but the agent user's own, and refuses to run as uid 0.
       unprivileged (`lxc.idmap`) container is refused by name, as v1 does;
     - for an entry with `service: true`, v1's pre-checks, all host-side: the config has
       `lxc.start.auto = 1` (so the supervised session comes back with the host), the guest's init
-      (`/proc/<init pid>/exe` resolved in the guest) is systemd, and `tmux` is in the guest's
+      is systemd (the host's `/proc/<init pid>/exe`, opened `O_PATH`, has the device and inode of
+      the guest's `/usr/lib/systemd/systemd` opened as below, so no magic link inside the guest is
+      resolved), and `tmux` is in the guest's
       `PATH` directories. A miss fails the phase naming the setting and the play that owns the
       container's config (section 7, D7); the apply never edits the container config;
     - every guest file below is read through one path: `/proc/<init pid>/root` of the running
       container, opened once as a directory fd, with `openat2(RESOLVE_IN_ROOT|RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS)`
       relative to it. That is the container's own view, its bind mounts included, whatever the
       store type, so the design neither reads the rootfs directly nor re-implements LXC's mounts.
-      Every open adds `O_NONBLOCK` and is followed by `fstat`: anything but a regular file (a FIFO
-      would stall a blocking open) is refused by name. A stopped container is not read at all
-      (3.9.3);
+      Every read opens `O_PATH` first and `fstat`s it: anything but a regular file is refused by
+      name. Only then is that inode reopened `O_RDONLY|O_NONBLOCK` through `/proc/self/fd/<n>`
+      (device and inode checked again) and read, up to its cap, so a FIFO is never opened and the
+      host never becomes its reader. A stopped container is not read at all (3.9.3);
     - the agent user from `/etc/passwd` (uid, gid, home), at most 1 MiB;
     - the checkout: `.git/config` (`origin`; `insteadOf` rewrites refused), and
       `.claude/ccy/ccy.env.local` (owned by the agent user's uid, else refused), each at most
       64 KiB;
-    - derive the handle (3.7.4); the seat is the entry's, else the one the LXC record holds, else the
-      lowest free;
+    - derive the handle (3.7.4), at the member's first join only: once the LXC record holds a
+      handle for (container, user, team), that handle is kept, and a derivation that differs is
+      refused by name ("the checkout's origin changed; retire and add the member to change its
+      handle"), so a guest's files never make a new account; the seat is the entry's, else the one
+      the LXC record holds, else the lowest free;
     - check the source address: one of the guest's addresses inside the team's `allow_from` (which
       includes the live bridge subnet), on a link that is a host bridge;
     - for a team whose `origin` is `migration` (D §3.9), whether the guest still runs this member on
@@ -1698,8 +1710,9 @@ any group but the agent user's own, and refuses to run as uid 0.
     written are the host's, whose digest the build recorded, so there is nothing to check inside
     the guest and no guest program runs. An old digest is deleted only when it is not `current`
     and no live session names it: the host reads each `session.pid` (B 2.4.1) under the guest's
-    runtime parents (`/run/user/<uid>/teamchat/run/*/` and the session unit's runtime directory,
-    3.9.4) through the root fd, decoded strictly and size-capped, and checks the recorded pid's
+    two runtime parents, both read every time (`/run/user/<uid>/teamchat/run/*/` and the session
+    unit's `/run/teamchat-session-<user>/teamchat/run/*/`, 3.9.4; an absent parent is no session)
+    through the root fd, decoded strictly and size-capped, and checks the recorded pid's
     start time in the guest's own `/proc`. The records are the guest's writing, which is safe in
     this one direction: a forged or undecodable record can only make the host keep a digest
     (costing disk), never delete one a session uses. The same rule, over the owner's runtime
@@ -1713,9 +1726,14 @@ any group but the agent user's own, and refuses to run as uid 0.
     3.6.3), then every promotion, including each team's `coordinator_wanted` that one of these
     joins has just created (3.6.4).
 07. Place each new bundle: `teamchat guest place-bundle --user <user>` as the agent user, bundle
-    (with its team) on stdin; it writes `~/.config/teamchat/seats/<team>.new-<claim>/` (0700) with
-    `token` and `seat.json` (0600) and swaps it in as `~/.config/teamchat/seats/<team>/`, by the
-    same code as 3.7.3, and the member's own config (area B).
+    (with its team) on stdin. A seat directory that does not exist is written as
+    `~/.config/teamchat/seats/<team>.new-<claim>/` (0700) with `token` and `seat.json` (0600) and
+    renamed in as `~/.config/teamchat/seats/<team>/` with `RENAME_NOREPLACE`. One that exists keeps
+    its `store.json` and `seat.lock` (B 2.5): `token`, then `seat.json`, are each replaced inside it
+    by an `O_EXCL` temporary file and a rename. When its `seat.json` names a different identity (a
+    retire and add, a new seat number), the op first takes the seat lock and sets the store aside
+    (B 2.13 `seat set-aside`), and exits 75 if the seat is held, which is `DEFERRED` naming the seat
+    and retried at the next apply. Then the member's own config (area B).
 08. Membership: for each guest user whose desired membership differs from the host's record of it
     (3.9.3), write the record first, then run `teamchat guest membership --user <user>` as the agent
     user with the whole `desired.json` on stdin (3.7.5's schema): `session` is `lxc-<user>`,
@@ -1724,8 +1742,10 @@ any group but the agent user's own, and refuses to run as uid 0.
     directory, 0600 file) atomically, and the guest's keeper reconciles it at once (B 2.10). A
     converged apply writes nothing. A user's seats span teams, so this step runs once per user
     after every team's placement, under the play lock that every apply runs under (3.5.1).
+    `--only-teams` limits which entries a phase acts on, never what this file lists: `seats` still
+    names every team the user is placed in, the ones outside `--only-teams` taken from the host copy.
 09. Supervised session (`service: true`): see 3.9.4.
-10. Write the LXC record (3.9.3), only after the phase succeeded.
+10. Write the LXC record (3.9.3), only after the phase succeeded and only when it changed.
 
 **The absent phase** runs first in the play, before any team is removed (3.5.1 step 10), so a
 leaving member is parked on a live server. A member leaves when its entry says `state: absent`,
@@ -1758,13 +1778,20 @@ does can delay step 1.
 
 For a stopped container, the handle the record holds is parked from the host side at once
 (revoking its token, so a guest started later cannot use it) and the guest's files are left: the
-next phase that finds the container running runs steps 2-5 for them, with the token already dead.
-A running container and a stopped one now follow the same order: the park comes first in both.
+record entry stays `left`, guest files pending, and the next phase that finds the container
+running runs steps 2-5 for them, with the token already dead. A missing container is treated as a
+stopped one in this phase, never as an error: its handle is parked from the host side the same
+way, and its record entry is dropped, since there are no guest files left to clean. A running
+container and a stopped one now follow the same order: the park comes first in both. The absent
+phase writes the LXC record when it changed it, as the present phase does after it succeeded
+(step 10).
 
 Whether an LXC seat is held (C27) is probed from the host through the same `/proc/<init pid>/root`
-fd: the member's seat lock under the agent user's seat directory, by the L3 probe (open
-`O_RDONLY|O_NOFOLLOW|O_NONBLOCK` with `RESOLVE_IN_ROOT`, `fstat` a regular file,
-`LOCK_SH|LOCK_NB`). The host never enters the container for it. A stopped container's seat is not
+fd: the member's seat lock under the agent user's seat directory, by the L3 probe (open `O_PATH`
+with `RESOLVE_IN_ROOT|RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS`, `fstat` a regular file, reopen
+that inode `O_RDONLY|O_NONBLOCK` through `/proc/self/fd/<n>`, then `LOCK_SH|LOCK_NB` on the
+reopened fd; a link, a FIFO or any other file on the path is free with no record). The host never
+enters the container for it. A stopped container's seat is not
 held. Opening another process's `/proc/<pid>/root` needs ptrace read access to it, which root has
 in the play and which the health unit is given for this one purpose (3.11.1).
 
@@ -1809,10 +1836,15 @@ rendered declaration would heal it on its own; it is held as decision DC10 and n
 
 `service: true` gives the agent user a supervised session: B's `teamchat run --claude --kind lxc` in a tmux
 pane, restarted on exit (area B owns what runs and its arguments, B 2.2). v1 wrote a system unit
-with a guest script as root and ran the guest's `systemctl` as root. v2 writes the unit file and its
-`multi-user.target.wants` link into the guest from the host side (3.9.1's rules), and asks the
-guest's own systemd to reload and start it over the guest's private manager socket, reached as
-`/proc/<init pid>/root/run/systemd/private` from the host: a host process speaking peer-to-peer
+with a guest script as root and ran the guest's `systemctl` as root. v2 writes the unit file,
+`/etc/systemd/system/teamchat-session-<user>.service`, and its wants link, an absolute link in
+`/etc/systemd/system/multi-user.target.wants/` made by `symlinkat` to a temporary name and
+`renameat2`, into the guest from the host side (3.9.1's rules), so the unit also starts at the
+next boot with no `systemctl enable` (DC13 (b) relies on that). It asks the guest's own systemd to
+reload and start the unit over the guest's private manager socket, `run/systemd/private` below
+the guest root: opened `O_PATH` through the root fd (3.9.2 step 03's flags), `fstat`ed as a socket
+owned by root, and connected through `/proc/self/fd/<n>`, never by a `connect` to a
+`/proc/<init pid>/root/...` path. That is a host process speaking peer-to-peer
 D-Bus (DC17) to a process that already runs as the guest's root, with no guest program run. Host
 check H-C9 proves this on a real privileged container. If it cannot be made to work, the fallback
 is decision DC13 (start at the next container start only); running the guest's `systemctl` as root
@@ -1924,7 +1956,7 @@ verb, was weighed and rejected: it loses the LXC disconnected notice (3.11.2), w
 tick's probe is for. The capability is held by this unit only, never by the backup unit or the
 child; the system call filter takes away ptrace itself and cross-process memory access, so what
 remains is the path access to `/proc/<pid>/root` and `/proc/<pid>/mem` of other processes. The
-tick opens only the fixed paths the probe names, by `openat2` with `RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS` below the guest root fd (3.9.2), and nothing
+tick opens only the fixed paths the probe names, by `openat2` with `RESOLVE_IN_ROOT|RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS` below the guest root fd (3.9.2), and nothing
 reads `/proc/<pid>/mem`; the remaining reach is risk K14. Host check H-C10 runs the probe inside
 this unit's sandbox, not as plain root.
 
@@ -2457,7 +2489,7 @@ on v2.
 | K7  | Reaching a guest's systemd from the host over its private socket is unproven                                                                                                                                                                                                                                                                                                                                                                                         | H-C9; DC13's fallback                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | K8  | Restoring into a staging database path inside a private network namespace is unproven                                                                                                                                                                                                                                                                                                                                                                                | H-C5 and H-C15; the swap-back covers failure either way                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | K9  | Root installs programs built from a checkout the owner can write, and every agent running as the owner (a host `cc` session, and ccy containers, whose root is the owner's uid) can change that checkout, the declaration in `host_vars` and the version pins before the next play                                                                                                                                                                                   | the repository-wide boundary of every play, unchanged from v1 and stated, not solved here; the build runs as the user so no toolchain runs as root. DC18's gate stops a data edit to a team's security fields, not a code edit; a changed Tuwunel pin is printed on its own (3.5.1)                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| K10 | `openat2` through `/proc/<pid>/root` of a running guest: the root itself is a magic link                                                                                                                                                                                                                                                                                                                                                                             | the directory fd is opened first with a plain `open` of `/proc/<pid>/root` (pid checked against `lxc-info` before and after); every later path is resolved from it with `RESOLVE_IN_ROOT\|RESOLVE_NO_SYMLINKS\|RESOLVE_NO_MAGICLINKS`; H-C10                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| K10 | `openat2` through `/proc/<pid>/root` of a running guest: the root itself is a magic link                                                                                                                                                                                                                                                                                                                                                                             | the init is pinned by a pidfd (`pidfd_open` on `lxc-info -pH`'s pid), then the directory fd is opened with a plain `open` of `/proc/<pid>/root`, then the pidfd is checked alive and `lxc-info -pH` asked again (a different or dead pid refuses the container for the phase), so a reused pid cannot hand over another process's root; every later path is resolved from it with `RESOLVE_IN_ROOT\|RESOLVE_NO_SYMLINKS\|RESOLVE_NO_MAGICLINKS`; H-C10                                                                                                                                                                                                                                                                                                  |
 | K11 | One host-wide health process: a crash in it leaves every team unchecked                                                                                                                                                                                                                                                                                                                                                                                              | the unit fails visibly, and every team's status record expires within five minutes and shows as a problem on the board                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | K12 | A host `cc` session runs as the owner with no container, so it can read every seat under `~/.local/state/teamchat/seats` (the pool's passwords included) and every Element profile, and can re-seat sessions and change their desired teams. With a pool seat's password it can also pass UIA on that seat's account: change the password, deactivate the account (a coordinator's included), or log in another device that no release logs out (DC16's stated cost) | stated, as for Element (3.10): C25's isolation is between ccy sessions only, and DC19 (b) is the option that would close the re-seating and the account power. The account power is watched: the health tick reports a foreign device or a deactivated account within a minute with its fix (3.11.2 step 3), and the config refuses password change and self-deactivation where the pinned Tuwunel allows it (H-C13). The option offered, not built: refuse a coordinator seat in a checkout while a host-kind member runs there                                                                                                                                                                                                                        |
 | K13 | A session that held a seat and was hostile keeps a copy of its token after release: it could go on reading the seat's traffic, and move the seat's `teamchat.floor` resume marker forward so the next holder's store-less start silently skips what came in between                                                                                                                                                                                                  | closed by DC16 (c'): the release logs the token out, and the next take logs the seat's device out before its own login, which ends every token of the device, so a token whose release never ran (a crash) lives at most until that release or the seat's next take, and one minted by a take that died before `held/token` was never written anywhere and dies at the next take (H-C13: a second login alone would keep either). `released_ms` bounds the start whatever the marker says. A restore cannot bring a released token back: it revokes every pool seat's token from the backup in the staged copy and reissues (3.12.2), and it keeps every account's room account data as the backup holds it, so the marker can only move back (B 6 C13) |
@@ -2645,7 +2677,7 @@ Each runs on the host through meta-deploy once the code exists; each states what
 | H-C6  | `firewall-cmd --query-rich-rule` exit status, and the zone chosen for a CIDR whose interface has no zone                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | DC12                                     |
 | H-C7  | `ccy-teams --list` and the interactive open timed with several teams, checkouts and humans; a redraw timed; an open with a seat release due, which must draw before the release ends                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | C39                                      |
 | H-C8  | a seat taken into a running ccy container's mounted session directory (mkdirat and openat copies) is visible inside it; `desired.json` in the read-only control mount cannot be written from inside; the host's probe of a seat lock held inside reports held; a release leaves nothing of that seat visible inside                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | DC5, C27                                 |
-| H-C9  | from the host, the guest's systemd over `/proc/<pid>/root/run/systemd/private`: reload, start, stop a unit                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | DC13                                     |
+| H-C9  | from the host, the guest's systemd over its `run/systemd/private`, connected as 3.9.4 says: reload, start, stop a unit                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | DC13                                     |
 | H-C10 | run inside `teamchat-health.service`'s sandbox (3.11.1), not as plain root: `openat2` with `RESOLVE_IN_ROOT` through `/proc/<pid>/root` of a running overlay-store privileged guest, and the seat lock probe; the same open refused without `CAP_SYS_PTRACE`; `lxc-attach -u -g --clear-env --set-var` running the host-written `teamchat` with `HOME` set and no supplementary group (`getgroups()` empty but the agent's own)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | 3.9.1, 3.11.1, K10, K14                  |
 | H-C11 | the play with no v2 team: nothing resident, no timer enabled, no port bound; v1's units, users, paths and rules unchanged                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | C40                                      |
 | H-C12 | under the real Tuwunel: a restricted join to a room A's layout restricts, a power-0 post refused, pending invites left pending. **Recorded on 1.9.4 (Task 1.4):** holds                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | the S11 probes, carried                  |

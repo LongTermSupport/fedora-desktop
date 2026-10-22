@@ -129,7 +129,8 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   check: post a plain-text `@room` from Element, then `pingbus status` in a member shows
   `ignored=1`. Report:
   [261019-ignored-human-visible-opus.md](subagent-reports/261019-ignored-human-visible-opus.md).
-- [ ] ❌ **Task 2.0g**: Folded into Plan 00209 Task 7.2 (6b); decided in its receive spec.
+- [ ] ❌ **Task 2.0g**: Folded into Plan 00209's N3 (Task 3.1); decided in SPEC-n3 UH1: `empty`
+  counts as unheard at every member.
   (Was: Follow-up to 2.0f (Fable review finding 3): an addressed reply whose
   body is only the quote fallback is ignored as `empty` at the addressee, and every other
   member sees a mention naming an agent, so no one logs it although it reached no agent.

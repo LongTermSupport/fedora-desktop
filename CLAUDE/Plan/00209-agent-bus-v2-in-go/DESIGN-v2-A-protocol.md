@@ -1029,8 +1029,18 @@ reply, thread relation or mention is none, never a drop (an edit's is `edit`, be
 
 Rules 3 and 4 are new. Element adds the replied-to sender to `m.mentions` for a plain reply, but a
 "Reply in thread" is not a mention, so in v1 a human answering an agent inside a thread was unheard.
-Checking the replied-to event's sender takes one event fetch, which B caches. A human message
-addressed to no agent is counted as unheard, as v1 (P41).
+Checking the replied-to event's sender takes one event fetch, which B caches in memory (1024
+entries, oldest evicted, lost at a link restart, when a miss costs one more fetch). A related event
+the server answers 404 or 403 for has an unknown sender: the message is not addressed through it,
+and is not counted as unheard for it, so the count may undercount and never miscounts. A transient
+failure holds the batch, never a guess.
+
+A human message that reached no agent is counted as unheard, as v1 (P41), once per event by each
+member. "Addressed to no agent" is judged over the verified roster's agents: no roster agent in
+`m.mentions.user_ids`, no `@room`, no reply to or thread root sent by a roster agent, and no edit of
+a message addressed to one; a message addressed to agent X is not unheard at Y. A message ignored
+`type` or `empty` (a reply that is only the quote fallback included) reached no agent and is
+counted at every member, because it is refused before any addressing rule runs.
 
 **Edits.** A human's edit is delivered as a new HUMAN entry with `revises: <original event ID>`, in
 main and in questions alike (00211 D6 had questions only; OD-A8). It is accepted only when the
