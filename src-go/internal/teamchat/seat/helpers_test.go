@@ -2,6 +2,8 @@ package seat
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
@@ -72,4 +74,44 @@ func decodeJSON(t *testing.T, data string) map[string]any {
 		t.Fatalf("%s: %v", data, err)
 	}
 	return out
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func writeFile(t *testing.T, path, data string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func mode(t *testing.T, path string) os.FileMode {
+	t.Helper()
+	fi, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fi.Mode()
+}
+
+func exists(t *testing.T, path string) bool {
+	t.Helper()
+	_, err := os.Lstat(path)
+	if err == nil {
+		return true
+	}
+	if !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	return false
 }
