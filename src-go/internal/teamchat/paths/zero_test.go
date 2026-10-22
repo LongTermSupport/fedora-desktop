@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"maps"
 	"os"
 	"reflect"
 	"slices"
@@ -39,7 +40,7 @@ func zeroDerivations() map[string]func() string {
 		display DisplayName
 		key     CheckoutKey
 	)
-	return map[string]func() string{
+	derivations := map[string]func() string{
 		"HomeserverUser":         func() string { return HomeserverUser(team) },
 		"ServerName":             func() string { return ServerName(team) },
 		"ServerUnit":             func() string { return ServerUnit(team) },
@@ -80,6 +81,8 @@ func zeroDerivations() map[string]func() string {
 		"ProbeState":             func() string { return orError(ProbeState("/home/u/.local/state", team)) },
 		"AllocLock":              func() string { return orError(AllocLock("/run/user/1000", key)) },
 	}
+	maps.Copy(derivations, hostZeroDerivations())
+	return derivations
 }
 
 // panics is whether f panics; got is what it returned otherwise.
