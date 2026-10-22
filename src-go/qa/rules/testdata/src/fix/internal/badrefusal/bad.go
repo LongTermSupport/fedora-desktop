@@ -80,6 +80,25 @@ func printsCodeThenReasks(err error) (bool, error) {
 	return false, err
 }
 
+// stopCode ends a run with an exit code, as the flows' own stop does.
+type stopCode struct{ code int }
+
+func (s *stopCode) Error() string { return "stopped" }
+
+// stopsOnOneKindThenReasks hands the code on for an interrupt only, and asks again on every
+// other kind, a refusal of the file included.
+func stopsOnOneKindThenReasks(err error) (bool, error) {
+	de, ok := errors.AsType[*declare.Error](err) // want `a \*declare.Error is read without its kind`
+	if !ok {
+		return false, err
+	}
+	if errors.Is(err, declare.ErrInterrupted) {
+		return false, &stopCode{code: de.Code}
+	}
+	fmt.Printf("  %s. Try again.\n", de.Error())
+	return false, nil
+}
+
 // asksTheWrongKind asks whether the file refused, so a crash of declare.py is asked again too.
 func asksTheWrongKind(err error) bool {
 	var de *declare.Error
