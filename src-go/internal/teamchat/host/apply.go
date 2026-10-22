@@ -429,7 +429,7 @@ func (a *applying) readInstalled() error {
 		return err
 	}
 	if found {
-		if a.regKey = regKeyOf(a.config); a.regKey == "" {
+		if a.regKey = RegKeyOf(a.config); a.regKey == "" {
 			return errors.New("the installed config holds no registration key")
 		}
 	} else {

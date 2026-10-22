@@ -16,14 +16,7 @@ import (
 func Serve(ctx context.Context, d Deps, team paths.TeamID) error {
 	unit := paths.ServerUnit(team)
 	fail := func(step string, err error) error { return &Error{Verb: verbServe, Step: step, Err: err} }
-	raw, found, err := state.ReadFile(d.Root+paths.UnitsRecord(team), fileMax)
-	if err == nil && !found {
-		err = errors.New("no units.json: the team was never applied")
-	}
-	if err != nil {
-		return fail(StepUnit, err)
-	}
-	units, err := decodeUnits(raw, team)
+	units, err := readUnits(d.Root, team)
 	if err != nil {
 		return fail(StepUnit, err)
 	}
@@ -37,6 +30,25 @@ func Serve(ctx context.Context, d Deps, team paths.TeamID) error {
 		return fail(StepAddresses, err)
 	}
 	return nil
+}
+
+// ReadUnitsVersion is the server version units.json under root records for team, the
+// version its database was last served by, which a restore's staging unit runs (RU1).
+func ReadUnitsVersion(root string, team paths.TeamID) (paths.ServerVersion, error) {
+	units, err := readUnits(root, team)
+	return units.version, err
+}
+
+// readUnits is the team's units.json under root, which must exist and decode.
+func readUnits(root string, team paths.TeamID) (unitsRecord, error) {
+	raw, found, err := state.ReadFile(root+paths.UnitsRecord(team), fileMax)
+	if err == nil && !found {
+		err = errors.New("no units.json: the team was never applied")
+	}
+	if err != nil {
+		return unitsRecord{}, err
+	}
+	return decodeUnits(raw, team)
 }
 
 // startUnit reloads systemd and starts the unit unless it is active.

@@ -96,7 +96,7 @@ func TestFirstApply(t *testing.T) {
 		t.Errorf("server-name %q", got)
 	}
 	key := strings.Repeat("ab", 64)
-	if got := regKeyOf([]byte(w.read(paths.ServerConfig(team)))); got != key {
+	if got := RegKeyOf([]byte(w.read(paths.ServerConfig(team)))); got != key {
 		t.Errorf("config key %q", got)
 	}
 	firstApplyModes(t, w, team)

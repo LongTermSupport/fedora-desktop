@@ -144,8 +144,8 @@ func TestRenderTheTeam(t *testing.T) {
 	if string(r.teamFile) != string(in.Team.Canonical()) {
 		t.Errorf("team.json %s", r.teamFile)
 	}
-	if got := regKeyOf(r.config); got != regKey {
-		t.Errorf("regKeyOf the config: %q", got)
+	if got := RegKeyOf(r.config); got != regKey {
+		t.Errorf("RegKeyOf the config: %q", got)
 	}
 }
 
@@ -288,10 +288,10 @@ func TestDeviceUnit(t *testing.T) {
 	}
 }
 
-// regKeyOf finds no key in a config without one of the right shape.
+// RegKeyOf finds no key in a config without one of the right shape.
 func TestRegKeyOfAConfigWithoutOne(t *testing.T) {
 	for _, config := range []string{"", "registration_shared_secret = \"short\"\n", "x = 1\n"} {
-		if got := regKeyOf([]byte(config)); got != "" {
+		if got := RegKeyOf([]byte(config)); got != "" {
 			t.Errorf("%q: %q", config, got)
 		}
 	}
