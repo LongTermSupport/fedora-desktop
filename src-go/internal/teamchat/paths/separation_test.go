@@ -123,7 +123,7 @@ var sampleTeams = []string{"x", "ops", strings.Repeat("z", 22)}
 func sampleNames(t *testing.T) map[string][]string {
 	t.Helper()
 	names := constNames()
-	for _, add := range []map[string][]string{idNames(t), baseNames(t), layoutNames(t), teamNames(t)} {
+	for _, add := range []map[string][]string{idNames(t), baseNames(t), layoutNames(t), teamNames(t), hostNames(t)} {
 		for ident, values := range add {
 			names[ident] = append(names[ident], values...)
 		}
@@ -337,6 +337,7 @@ func teamDerived(t *testing.T, team TeamID) map[string][]string {
 		"CtlState":               CtlState(team),
 		"RosterFile":             RosterFile(team),
 		"RoomsFile":              RoomsFile(team),
+		"GuestTokenDir":          GuestTokenDir(team),
 		"TeamLock":               TeamLock(team),
 		"StatusTeamDir":          StatusTeamDir(team),
 		"StampFile":              StampFile(team),

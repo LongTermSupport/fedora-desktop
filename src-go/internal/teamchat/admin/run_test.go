@@ -73,7 +73,7 @@ type outcome struct {
 func run(t *testing.T, proc Process, stdin string, args ...string) outcome {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
-	code := Run(Env{Args: args, Stdin: strings.NewReader(stdin), Stdout: &stdout, Stderr: &stderr, Proc: proc, Digest: digest})
+	code := Run(t.Context(), Env{Args: args, Stdin: strings.NewReader(stdin), Stdout: &stdout, Stderr: &stderr, Proc: proc, Digest: digest})
 	return outcome{code, stdout.String(), stderr.String()}
 }
 
@@ -139,6 +139,14 @@ func procFor(c Class) *fakeProc {
 	return ownerProc()
 }
 
+// unbuilt is what a verb this build lacks says, or one built whose seams are not wired.
+func unbuilt(name string) string {
+	if _, built := rootRuns()[name]; built {
+		return "teamchat-admin: this build has its verbs but no host seams: they are not wired yet\n"
+	}
+	return "teamchat-admin: " + name + " is not built yet\n"
+}
+
 // TestEveryVerbEveryClass is C 3.14's one table test: every verb asked by every class (CA3,
 // CA5).
 func TestEveryVerbEveryClass(t *testing.T) {
@@ -155,8 +163,7 @@ func TestEveryVerbEveryClass(t *testing.T) {
 				}
 			case name == "version" || name == "ctl-child":
 			default:
-				want := "teamchat-admin: " + name + " is not built yet\n"
-				if got.code != term.ExitFailure || got.stderr != want || got.stdout != "" {
+				if want := unbuilt(name); got.code != term.ExitFailure || got.stderr != want || got.stdout != "" {
 					t.Errorf("%s by %v = %+v, want 1 %q", name, caller, got, want)
 				}
 			}
@@ -226,11 +233,7 @@ func TestUsageNamesEveryVerb(t *testing.T) {
 }
 
 func TestFlagsBelongToTheVerb(t *testing.T) {
-	got := run(t, rootProc(), "", "team", "apply", "--team", "x")
-	if got.code != term.ExitFailure || got.stderr != "teamchat-admin: team apply is not built yet\n" {
-		t.Fatalf("team apply --team x = %+v", got)
-	}
-	got = run(t, rootProc(), "", "restore", "--resume")
+	got := run(t, rootProc(), "", "restore", "--resume")
 	if got.code != term.ExitFailure || got.stderr != "teamchat-admin: restore is not built yet\n" {
 		t.Fatalf("restore --resume = %+v", got)
 	}
@@ -249,7 +252,7 @@ func TestVersion(t *testing.T) {
 	}
 	for name, d := range map[string]string{"missing": "", "malformed": "not-a-digest"} {
 		var stdout, stderr bytes.Buffer
-		code := Run(Env{Args: []string{"version"}, Stdout: &stdout, Stderr: &stderr, Proc: ownerProc(), Digest: d})
+		code := Run(t.Context(), Env{Args: []string{"version"}, Stdout: &stdout, Stderr: &stderr, Proc: ownerProc(), Digest: d})
 		if code != term.ExitFailure || stdout.Len() != 0 ||
 			stderr.String() != "teamchat-admin: this build carries no valid source digest\n" {
 			t.Errorf("%s digest: %d %q %q", name, code, stdout.String(), stderr.String())
@@ -298,7 +301,7 @@ func (failWriter) Write([]byte) (int, error) { return 0, errors.New("closed") }
 
 func TestUnwritableStdoutFails(t *testing.T) {
 	var stderr bytes.Buffer
-	code := Run(Env{Args: []string{"version"}, Stdout: failWriter{}, Stderr: &stderr, Proc: ownerProc(), Digest: digest})
+	code := Run(t.Context(), Env{Args: []string{"version"}, Stdout: failWriter{}, Stderr: &stderr, Proc: ownerProc(), Digest: digest})
 	if code != term.ExitFailure || stderr.String() != "teamchat-admin: cannot write the answer: closed\n" {
 		t.Fatalf("unwritable stdout: %d %q", code, stderr.String())
 	}

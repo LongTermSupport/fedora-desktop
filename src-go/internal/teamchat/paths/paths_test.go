@@ -30,6 +30,7 @@ func TestTeamDerivedNames(t *testing.T) {
 		{CtlState(team), "/var/lib/teamchat-ctl/ops"},
 		{RosterFile(team), "/var/lib/teamchat-ctl/ops/roster.json"},
 		{RoomsFile(team), "/var/lib/teamchat-ctl/ops/rooms.json"},
+		{GuestTokenDir(team), "/var/lib/teamchat-ctl/ops/guest"},
 		{TeamLock(team), "/run/teamchat-admin/team-ops.lock"},
 		{StatusTeamDir(team), "/var/lib/teamchat-status/teams/ops"},
 		{StampFile(team), "/var/lib/teamchat-status/teams/ops/stamp.json"},

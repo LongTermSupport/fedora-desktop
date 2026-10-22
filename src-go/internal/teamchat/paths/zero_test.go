@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"maps"
 	"os"
 	"reflect"
 	"slices"
@@ -39,7 +40,7 @@ func zeroDerivations() map[string]func() string {
 		display DisplayName
 		key     CheckoutKey
 	)
-	return map[string]func() string{
+	derivations := map[string]func() string{
 		"HomeserverUser":         func() string { return HomeserverUser(team) },
 		"ServerName":             func() string { return ServerName(team) },
 		"ServerUnit":             func() string { return ServerUnit(team) },
@@ -64,6 +65,7 @@ func zeroDerivations() map[string]func() string {
 		"CtlState":               func() string { return CtlState(team) },
 		"RosterFile":             func() string { return RosterFile(team) },
 		"RoomsFile":              func() string { return RoomsFile(team) },
+		"GuestTokenDir":          func() string { return GuestTokenDir(team) },
 		"TeamLock":               func() string { return TeamLock(team) },
 		"SetLock":                func() string { return SetLock(set) },
 		"StatusTeamDir":          func() string { return StatusTeamDir(team) },
@@ -81,6 +83,8 @@ func zeroDerivations() map[string]func() string {
 		"AllocLock":              func() string { return orError(AllocLock("/run/user/1000", key)) },
 		"GuestTokenCopy":         func() string { return GuestTokenCopy(team, SeatName{}) },
 	}
+	maps.Copy(derivations, hostZeroDerivations())
+	return derivations
 }
 
 // panics is whether f panics; got is what it returned otherwise.
