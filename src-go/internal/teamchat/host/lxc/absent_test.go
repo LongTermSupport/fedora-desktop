@@ -1,6 +1,7 @@
 package lxc
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -9,6 +10,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxccmd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxcstate"
@@ -204,6 +206,64 @@ func TestAbsentHeldByOp75IsDeferred(t *testing.T) {
 		t.Fatal(err)
 	}
 	hasLine(t, r, lineOf(t, "DEFERRED", "c1", "seat still held; token revoked"))
+}
+
+// Only an active handle is parked: one the roster has parked, lost or retired already (a crash
+// after the park, a return answered retired) leaves without a park, and the seat still goes.
+func TestAbsentParksOnlyAnActiveHandle(t *testing.T) {
+	for _, state := range []string{apply.MemberParked, apply.MemberLost, apply.MemberRetired, ""} {
+		w := leaving(t)
+		if state == "" {
+			delete(w.roster.roster[mustTeam(t, "t1")], firstHandle)
+		} else {
+			w.roster.roster[mustTeam(t, "t1")][firstHandle] = state
+		}
+		r, err := w.apply(PhaseAbsent)
+		if err != nil {
+			t.Fatalf("%q: %v", state, err)
+		}
+		if len(w.roster.parks) != 0 {
+			t.Fatalf("%q: parked %v", state, w.roster.parks)
+		}
+		hasLine(t, r, lineOf(t, "CHANGED", "c1", lineLeft))
+		if _, found := w.record().Find(mustBox(t, "c1"), checkout, 1); found {
+			t.Fatalf("%q: the seat kept its entry", state)
+		}
+	}
+}
+
+// The park is recorded, the entry left, before any guest step, so a crash in the wait cannot
+// leave a joined entry over a parked handle.
+func TestAbsentRecordsTheParkBeforeTheGuest(t *testing.T) {
+	w := leaving(t)
+	var seen []string
+	w.lxc.answer = func(c guestCall) error {
+		e := w.entry("c1")
+		seen = append(seen, c.Verb+" "+e.Status)
+		return nil
+	}
+	if _, err := w.apply(PhaseAbsent); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(seen, []string{"guest membership left", "guest remove left"}) {
+		t.Fatalf("the record during the guest steps: %v", seen)
+	}
+}
+
+// A failing roster read fails the team's leavers with handles, and the lock is still released.
+func TestAbsentRosterFailureFailsTheLeavers(t *testing.T) {
+	w := leaving(t)
+	w.roster.membersErr = errors.New("child down")
+	if _, err := w.apply(PhaseAbsent); err == nil || !strings.Contains(err.Error(), "child down") {
+		t.Fatalf("err %v", err)
+	}
+	if e := w.entry("c1"); e.Status != lxcstate.StatusJoined {
+		t.Fatalf("entry %+v", e)
+	}
+	w.roster.membersErr = nil
+	if _, err := w.apply(PhaseAbsent); err != nil {
+		t.Fatalf("the lock was kept: %v", err)
+	}
 }
 
 // An absent entry the record does not hold has nothing to leave: no line, the steady state

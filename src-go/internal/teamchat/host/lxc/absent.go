@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"slices"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestfacts"
@@ -109,29 +110,78 @@ func (r *run) declared(team paths.TeamID, e lxcstate.Entry) (declare.LXCMember, 
 	return declare.LXCMember{}, false
 }
 
+// leaveTeam is the team's leavers under its lock: every park first, recorded left before any
+// guest step, then each seat's remaining steps.
 func (r *run) leaveTeam(ctx context.Context, team paths.TeamID, leavers []*member) error {
 	lock, err := teamlock.Take(ctx, r.d.LockDir, team, lockVerb, host.PlayWait, r.d.Clock)
 	if err != nil {
 		return &host.Error{Verb: verb, Step: host.StepLock, Err: err}
 	}
+	defer func() {
+		if releaseErr := lock.Release(); releaseErr != nil {
+			r.errs = append(r.errs, releaseErr)
+		}
+	}()
+	parked := r.parks(ctx, team, leavers)
 	for _, m := range leavers {
-		r.leave(ctx, m)
+		if !m.done {
+			r.leave(ctx, m, slices.Contains(parked, m))
+		}
 	}
-	return lock.Release()
+	return nil
 }
 
-// leave is one seat's steps 1-5. A left entry is never parked again: its handle may have joined
-// elsewhere since.
-func (r *run) leave(ctx context.Context, m *member) {
-	parked := false
-	if m.handle != "" && m.prior.Status != lxcstate.StatusLeft {
-		if err := r.d.Roster.Park(ctx, m.team.ID, m.handle); err != nil {
-			r.fail(m, &host.Error{Verb: verb, Step: "park", Err: err})
-			return
+// parks is step 1 for the team's leavers: each handle the roster has active parked (the child
+// parks no other; parked, lost and retired are parked already). A left entry is never parked
+// again: its handle may have joined elsewhere since. Each park is recorded left at once, so a
+// crash after it cannot leave the entry over a parked handle. A seat whose park, or its record,
+// fails is failed; the other leavers go on.
+func (r *run) parks(ctx context.Context, team paths.TeamID, leavers []*member) []*member {
+	var parkable []*member
+	for _, m := range leavers {
+		if m.handle != "" && m.prior.Status != lxcstate.StatusLeft {
+			parkable = append(parkable, m)
 		}
-		parked = true
-		r.changed[m.team.ID] = true
 	}
+	if len(parkable) == 0 {
+		return nil
+	}
+	roster, err := r.d.Roster.Members(ctx, team)
+	if err != nil {
+		r.failAll(parkable, "roster", err)
+		return nil
+	}
+	var parked []*member
+	for _, m := range parkable {
+		if roster[m.handle] != apply.MemberActive {
+			continue
+		}
+		if err := r.d.Roster.Park(ctx, team, m.handle); err != nil {
+			r.fail(m, &host.Error{Verb: verb, Step: "park", Err: err})
+			continue
+		}
+		parked = append(parked, m)
+		r.changed[team] = true
+	}
+	if len(parked) == 0 {
+		return nil
+	}
+	rec, now := r.records[team], r.d.Clock.Now().UnixMilli()
+	for _, m := range parked {
+		e := m.prior
+		e.Status, e.Why = lxcstate.StatusLeft, whyPending
+		rec = rec.Set(e, now)
+	}
+	if _, err := lxcstate.WriteRecord(r.d.Root, rec, r.d.OwnerGID); err != nil {
+		r.failAll(parked, stepRecord, err)
+		return nil
+	}
+	r.records[team] = rec
+	return parked
+}
+
+// leave is one seat's steps 2-5, after its park.
+func (r *run) leave(ctx context.Context, m *member, parked bool) {
 	if m.handle == "" {
 		m.done, m.status = true, statusDrop
 		r.line(m, Changed, lineNoHandle)
