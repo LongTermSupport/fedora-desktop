@@ -17,6 +17,11 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.14.2 — container 2.78.14
+
+Follows 3.99.14.1. The image changes only in its guide, which now lists `claude-yolo` (the Go
+front) and `claude-yolo.bash`; the next launch rebuilds it once.
+
 ## 3.99.14.1 — container 2.78.13
 
 Follows 3.99.14.0. The image is unchanged, so there is no rebuild.

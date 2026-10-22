@@ -1686,7 +1686,9 @@ hash, the one Quick Launch files keep.
 If the Go program misbehaves, run any `ccy` command with **`CCY_LEGACY=1`** (for example
 `CCY_LEGACY=1 ccy --version`, or `export CCY_LEGACY=1` in your shell) and every run goes
 straight to the bash launcher. If `claude-yolo.bash` is missing, `ccy` stops with an error
-naming its path rather than doing nothing. Going back to a bash-only install is running
+naming its path rather than doing nothing. `CCY_LEGACY` is read by the Go program, so if the
+Go program itself will not start, run `/var/local/claude-yolo/claude-yolo.bash` directly, with
+the same arguments. Going back to a bash-only install is running
 `play-claude-yolo.yml` from a checkout before this change: it copies the bash launcher over
 `claude-yolo` again.
 
