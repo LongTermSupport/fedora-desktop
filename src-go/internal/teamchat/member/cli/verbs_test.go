@@ -70,8 +70,7 @@ func TestUnbuiltAreTheLaterSlices(t *testing.T) {
 		"reply": "n3d", "say": "n3d", "ping": "n3d",
 		"hook": "n3e", "status-line": "n3e",
 		"report": "n3f", "ask": "n3f", "thread": "n3f", "questions": "n3f",
-		"guest check": "n3a guest", "guest place-bundle": "n3a guest", "guest membership": "n3a guest",
-		"guest remove": "n3a guest", "seat set-aside": "n3a guest",
+		"guest check": "n3a guest",
 	}
 	for name, slice := range want {
 		if unbuilt[name] != slice {
