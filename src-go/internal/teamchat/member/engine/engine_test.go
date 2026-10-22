@@ -278,6 +278,13 @@ type world struct {
 
 func newWorld(t *testing.T, delivery string) *world {
 	t.Helper()
+	return newWorldWith(t, delivery, func(*Config) {}, func(*Engine) {})
+}
+
+// newWorldWith is newWorld with prep run on the engine's config, and ready on the engine before
+// it runs.
+func newWorldWith(t *testing.T, delivery string, prep func(*Config), ready func(*Engine)) *world {
+	t.Helper()
 	home := filepath.Join(t.TempDir(), "home")
 	check(t, os.Mkdir(home, 0o700))
 	root, err := homefs.Open(home, homefs.Private)
@@ -296,8 +303,11 @@ func newWorld(t *testing.T, delivery string) *world {
 		t: t, root: root, layout: layout, run: run, keeper: k, clk: clock.NewFake(time.Hour, startWall),
 		log: &logBuf{}, fakes: map[paths.TeamID]*fakeTeam{},
 	}
-	w.e, err = New(w.config(delivery))
+	cfg := w.config(delivery)
+	prep(&cfg)
+	w.e, err = New(cfg)
 	check(t, err)
+	ready(w.e)
 	ctx, cancel := context.WithCancel(context.Background())
 	ran := make(chan error, 1)
 	go func() { ran <- w.e.Run(ctx) }()
