@@ -125,9 +125,11 @@ its first caller.
 - [ ] ⬜ **Task 1.1**: `internal/teamchat/paths`, the one source of every name and path (D 3.3).
 - [ ] ⬜ **Task 1.2**: The static gate `teamchat-keeps-off-v1` with its v1 name list (D 4.1), in
   `qa-changed.bash` and `qa-all.bash` before the first v2 package merges.
-- [ ] ⬜ **Task 1.3**: `teamchat/proto`, test first: the wire, the roster type, the verdict and
+- [x] ✅ **Task 1.3**: `teamchat/proto`, test first: the wire, the roster type, the verdict and
   room-trust check, kinds, references, limits, the envelope, the shared corpus (A 2-13), and the
-  room specs exported as data (seam 13).
+  room specs exported as data (seam 13). Built on `feat/bus-v2-n1-proto`, reviewed to MERGE in
+  two rounds; its 57 decisions and their design-text fixes are in
+  `subagent-reports/261021-n1-proto.md`.
 - [ ] ⬜ **Task 1.4**: A's host checks HC-A1 to HC-A7 (host or VM lab), before `proto` fixes the
   rules they decide.
 - [ ] ⬜ **Task 1.5**: The matrix client and `fakehs`, built and reviewed on

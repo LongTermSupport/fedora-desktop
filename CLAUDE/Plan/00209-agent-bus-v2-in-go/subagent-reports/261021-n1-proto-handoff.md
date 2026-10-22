@@ -1,5 +1,7 @@
 # N1 Task 1.3 `teamchat/proto`: handoff 5
 
+Superseded: the work below is done and Task 1.3 is complete; see `261021-n1-proto.md`.
+
 Branch `feat/bus-v2-n1-proto`, worktree `untracked/worktrees/bus-v2-n1-proto`. The fifth builder
 stopped at the context soft budget during review round 1's fixes. Read `untracked/scratch/n1-common.txt`
 (main checkout) first. Handoffs 3 and 4 (`git show 7d57950d:<this file>`, `git show 61dcd6bf:<this file>`)
