@@ -105,6 +105,13 @@ linters:
       - path: internal/ccylaunch/difftest/.*_test\.go
         linters: [gosec]
         text: "G302|G304|G306|G401|G501|G703"
+      # The launcher's Go front reads the bash launcher beside its own executable and the
+      # libraries in its lib/, by computed path, and hashes them with md5 because that is the
+      # bash launcher's own integrity hash (CCY_HASH, md5sum), which Quick Launch files hold:
+      # a change-detection checksum the two halves must agree on, not a use for security.
+      - path: internal/ccylaunch/[^/]+\.go
+        linters: [gosec]
+        text: "G304|G401|G501|G703"
       # The play lock's tests give the runtime directory a mode others can write: the state the
       # lock must refuse to use.
       - path: internal/playlock/playlock_test\.go

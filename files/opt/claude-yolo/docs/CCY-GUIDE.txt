@@ -203,7 +203,9 @@ INSIDE THE CONTAINER:
   /usr/local/bin/lightpanda            Lightpanda engine binary
 
 ON THE HOST (not accessible from container):
-  /var/local/claude-yolo/claude-yolo   CCY wrapper script
+  /var/local/claude-yolo/claude-yolo   CCY launcher (Go front; runs claude-yolo.bash)
+  /var/local/claude-yolo/claude-yolo.bash
+                                       CCY bash launcher
   /opt/claude-yolo/Dockerfile          CCY base Dockerfile
   ~/.claude-tokens/ccy/tokens/         OAuth token pool
   ~/.cache/claude-yolo-version-check   Version check cache

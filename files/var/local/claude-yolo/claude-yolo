@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.99.13.19"  # Container 2.78.13: the GH_TOKEN hand-off checks ownership against id -u, not an exported EUID, and refuses a newline-only file as empty (Plan 00191). See docs/ccy-changelog.md.
+CCY_VERSION="3.99.14.4"  # Records and re-runs name the program that started the launch: the Go front, or claude-yolo.bash run directly (Plan 00191). See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -33,7 +33,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CCY_LIBS=(token-handoff common host-paths token-management ssh-handling network-management dockerfile-custom docker-health session-registry restart-request session-lifecycle tmux-session agent-bus-membership agent-bus-seats)
 
 # First, before anything that can end this launch: a GitHub token handed on by the launch
-# that started this one is taken, and its file deleted, at once.
+# that started this one is taken, and its file deleted, at once; and the Go front's path, when
+# the front started it, is taken as CCY_LAUNCHER_PATH (lib/launcher-path.bash, which it sources).
 # shellcheck source=lib/token-handoff.bash
 source "$SCRIPT_DIR/lib/token-handoff.bash" || exit 1
 # print_error is not loaded yet: a missing common.bash is reported by bash, naming the path.
@@ -85,7 +86,7 @@ source "$SCRIPT_DIR/lib/agent-bus-seats.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.78.13"
+REQUIRED_CONTAINER_VERSION="2.78.14"
 
 set -e
 
@@ -1156,13 +1157,13 @@ fi
 
 # Handle custom mode (doesn't need SSH/GH setup)
 if [ "$CUSTOM_MODE" = true ]; then
-    custom_dockerfile "$0" ".claude/ccy" "ccy"
+    custom_dockerfile "$CCY_LAUNCHER_PATH" ".claude/ccy" "ccy"
     exit 0
 fi
 
 # Handle custom-docker mode (AI-guided Dockerfile creation)
 if [ "$CUSTOM_DOCKER_MODE" = true ]; then
-    create_dockerfile_guided "$0" ".claude/ccy" "ccy"
+    create_dockerfile_guided "$CCY_LAUNCHER_PATH" ".claude/ccy" "ccy"
     exit 0
 fi
 
@@ -1174,9 +1175,11 @@ fi
 # create/renew modes, which prompt but exit without a session. On the way back in (TMUX
 # set to the ccy server) ccy_tmux_insulate is a no-op and the banner says how to detach
 # and return. A GitHub token the caller exported is handed to the re-run launcher through a
-# private file, never tmux's environment (lib/token-handoff.bash).
+# private file, never tmux's environment (lib/token-handoff.bash). The session runs, and its
+# record names, CCY_LAUNCHER_PATH (lib/launcher-path.bash): the Go front when it started this
+# launch, so every restore and team restart runs the front; this file when it was run directly.
 if [ "$HEADLESS_MODE" != true ] && [ "$CREATE_TOKEN_MODE" != true ] && [ "$UPDATE_TOKEN_MODE" != true ]; then
-    ccy_token_handoff_insulate "$PROJECT_NAME" "$SCRIPT_DIR/$(basename "$0")" "$@" || exit 1
+    ccy_token_handoff_insulate "$PROJECT_NAME" "$CCY_LAUNCHER_PATH" "$@" || exit 1
     ccy_tmux_banner || exit 1
 fi
 # The session this launch IS, or none (lib/tmux-session.bash): the one answer every record
@@ -3842,7 +3845,7 @@ ccy_handle_restart_exit() {
     # offer to stop it.
     unset CCY_KEY_STAGE_DIR CLAUDE_CODE_OAUTH_TOKEN GH_TOKEN
     echo "Relaunching session $session_id..." >&2
-    exec "$SCRIPT_DIR/claude-yolo" "${choice_args[@]}" "${relaunch_args[@]}"
+    exec "$CCY_LAUNCHER_PATH" "${choice_args[@]}" "${relaunch_args[@]}"
 }
 
 # A request file left by an earlier run must never be mistaken for this run's.

@@ -475,7 +475,95 @@ today; rewriting them is out of scope.
     would take the first line typed to a later `Foreground` child (give `Lines` a `Close`, or
     exit the flow after a cancel); the send at `lines.go:187` sits outside the `select`, so a
     copied `Lines` can hang (move it in, or use `Lines` by pointer only).
-  - Phase 2 (the standalone-mode cut-overs) follows.
+  - Phase 2 built, CCY 3.99.14.0 (host run pending: `meta-deploy.list`, play-claude-yolo.yml).
+    `src-go/cmd/claude-yolo` over `internal/ccylaunch` (F1-F9 in its package doc), installed by
+    the play at `/var/local/claude-yolo/claude-yolo` (root, 0755, checksum-compared copy, built
+    with `-X main.Version=<CCY_VERSION>` read from the bash launcher and asserted); the bash
+    launcher is copied first, beside it, as `claude-yolo.bash` (same owner and mode), so a
+    failed build leaves the old launcher working. The image does not copy the launcher.
+    - Handled in Go: `--version`/`-v` and `--help`/`-h` only (help text embedded as
+      `help.txt`, held byte for byte to the bash heredoc by a test; the engine's two help
+      questions are `engine` E10). Everything else is `execx.Exec` of `claude-yolo.bash`, no
+      shell, argv and environment unchanged. Not cut over: `--list-tokens`, `--token-usage`,
+      `--export-token`, `--prevent`, `--top`. They cannot pass the harness byte for byte yet:
+      the harness pins the clock through the fake `date`, which a Go reading its own clock
+      never asks, and `tokens` colours expiry only on a terminal (a decided departure) where
+      the goldens hold bash's colours; `--token-usage` would need its HTTP and the curl fake
+      reconciled. None uses `ui.Lines`, so its two follow-ups above stay open for the first
+      flag that prompts.
+    - Routing and fail-safe: the front answers a handled flag only where the bash would reach
+      its own answer as modelled, and otherwise hands over (F4: `CCY_GH_TOKEN_HANDOFF` set,
+      `BASH_ENV`-like variables or an exported function, an engine name or program not found,
+      a tool the bash runs first missing, a library or the launcher missing or unreadable, an
+      override `ccy_host_dir` refuses, by a Go `realpath -m` checked against the real one).
+      `CCY_LEGACY` set to anything but empty or 0 sends every run to the bash (risk 10). A
+      hand-over that cannot exec exits 1 naming the path. Documented in `docs/ccy.md`.
+    - D3, the version and hash rule: `--version` prints the front's `-X main.Version` and, as
+      `Hash:`, the bash launcher's own `CCY_HASH` rule (its text less `CCY_HASH=` lines, then
+      `lib/*.bash` and `lib/*.py`, md5, 16 hex), computed by `ccylaunch.IntegrityHash` and held
+      to the bash block itself by a test. So Quick Launch's check is unchanged: the bash writes
+      and compares the same value the front prints. The front refuses `--version` and `--help`
+      when its version is not the bash's `CCY_VERSION` (two checkouts' halves), which is what
+      pins the binary. The pre-commit gate demands the bump for `src-go/cmd/claude-yolo/` and
+      `src-go/internal/ccylaunch/` (tests and `difftest/` aside;
+      `test-ccy-container-version-hook.bash` red 6 on the old hook, green 105). Narrowed from
+      D3's "hash over the binary itself", for the owner to overrule: a binary's bytes change
+      with every edit to a shared package (`execx`, `engine`, `term`) and every Go toolchain
+      upgrade, none of which the gate can see, so Quick Launch would report a "developer
+      error" after each. Not covered, by either rule: a change to a shared package alters the
+      front's behaviour without a bump.
+    - Acceptance in the container: the harness green against bash unchanged (82), against the
+      front in-process (`TestFrontParity`, 82; `TestFrontAnswersItself` with the bash's two
+      answers broken; `TestFrontHandsOver` with a launch flag mutated), and by hand with
+      `LAUNCHER=` the built binary beside a copy of the bash (82 of 82);
+      `test-ccy-info-flags.bash` now runs every case against the bash and the built front, and
+      the legacy and missing-launcher cases (90 of 90). `--help` byte for byte: the help
+      scenarios with and without an image.
+    - Review (`subagent-reports/261022-launcher-phase2-review-opus.md`, FIX-FIRST) fixed,
+      CCY 3.99.14.2, container 2.78.14: the tmux insulation recorded `$0`, which behind the
+      front is `claude-yolo.bash`, as the session's `launcher=`, so restores and team restarts
+      would skip the front; it and both custom-Dockerfile modes now name
+      `$SCRIPT_DIR/claude-yolo`, as the restart relaunch did (`test-ccy-token-handoff.bash`
+      runs the launcher's own lines from a file named `claude-yolo.bash`: red 2, green 103).
+      Plan scripts of 00092, 00161, 00169 and 00203 that read the deployed launcher as text
+      read `claude-yolo` while it is a script, else `claude-yolo.bash`. `docs/ccy.md` gives the
+      way past a front that will not start; `ContainerRules.md` states the gate's blind spot;
+      the in-image guide names both files; the meta-deploy rollback note says what the
+      leftover `claude-yolo.bash` does.
+    - Review round 2 (`subagent-reports/261022-launcher-phase2-review-2-opus.md`, FIX-FIRST)
+      fixed, CCY 3.99.14.3 (container unchanged): a direct run of `claude-yolo.bash`, the
+      documented way past a front that will not start, still opened a pane on that front. The
+      front now execs the bash with `CCY_LAUNCHER_FRONT=<its own path>` (F2); the new
+      `lib/launcher-path.bash`, sourced at the end of `lib/token-handoff.bash` (so the launcher
+      gains no line; the front's F4 checks it as it checks `common-pure`, and the play
+      installs it), reads it once into `CCY_LAUNCHER_PATH`, unsets it, and falls back to the
+      bash's own file, warning, on a value that is not an absolute executable file; the pane,
+      the record, the restart relaunch and both custom-Dockerfile modes use it.
+      `token-handoff.bash`'s drop lost two statements to stay within the bash limits. Red
+      then green: `ccylaunch` 33 failing (no variable on the exec), then ok;
+      `TestFrontParity` 45 failing on the new front-leak check (`getenforce`, `podman`, `gh`
+      inherited the variable from the old bash), then 82 of 82, with
+      `TestFrontLeakCheckCanFail` proving the check; `test-ccy-token-handoff.bash` 22 of 116
+      failing (front start, direct start, three invalid values, no tmux call given the
+      variable), then 116 of 116. `docs/ccy.md` says what each start records. The plan
+      scripts fail on a missing or unreadable `claude-yolo` instead of falling through. The
+      project-owned `system_paths` handler maps `claude-yolo.bash` to the bash source and
+      `claude-yolo` to `src-go` (its two new tests red, then green).
+    - Review round 3 (`subagent-reports/261022-launcher-phase2-review-3-opus.md`, FIX-FIRST)
+      fixed, CCY 3.99.14.4: `lib/launcher-path.bash` took any executable file as the front, so
+      a stray `CCY_LAUNCHER_FRONT` became the program every later restore ran; it now takes
+      only the file that resolves to `$SCRIPT_DIR/claude-yolo`, else warns naming the variable
+      and records the bash itself (`test-ccy-token-handoff.bash`, `/usr/bin/env` case: 3
+      failing, then 0). The "unset before anything runs" comments and `docs/ccy.md` now say
+      before tmux, the engine and claude start (a few system tools run earlier and never read
+      it), and the meta-deploy rollback note says a session started by running
+      `claude-yolo.bash` directly restores onto the stale copy.
+    - Follow-up, not fixed: the project handler test
+      `test_matches_write_to_root_claude_projects_returns_false` in
+      `.claude/hooks/handlers/pre_tool_use/tests/test_system_paths.py` already fails on F44
+      (identical on the base). `qa-all.bash` does not run the project handler tests:
+      `scripts/qa-helper-tests.bash` runs only `tests/helpers/**/test_*.py`, and no other
+      gate names `.claude/hooks`. Decide whether a gate should run them, then fix the test.
 
 ### Phase 5: Review
 

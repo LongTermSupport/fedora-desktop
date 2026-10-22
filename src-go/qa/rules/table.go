@@ -131,6 +131,11 @@ var dynamicNames = []allowance{
 		reason: "the ccy launcher's container engine, podman or docker: an Engine's kind is unexported and set only by engine.New, which refuses any other name",
 	},
 	{
+		pkg:    "internal/ccylaunch",
+		fn:     "Front.handOver",
+		reason: "the bash launcher, claude-yolo.bash beside the Go front's own executable: the strangler's hand-over (Plan 00191 Task 4.5)",
+	},
+	{
 		pkg:    hostPkg,
 		fn:     "launcherVia",
 		reason: "the ccy launcher path the process is replaced with, given by the environment",

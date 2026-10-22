@@ -74,6 +74,11 @@ originals are gone.
   the session bus through `busctl`, their streams' volumes through `pactl --format=json`, held
   until the panel's TERM or the parent's end; a stream still at the volume it set is restored
   exactly, and a player with no stream found is paused and played again instead.
+- `internal/ccylaunch/` — `claude-yolo`, the ccy launcher's Go front (Plan 00191 Task 4.5,
+  F1-F9 in its package doc): installed as the launcher with the bash launcher beside it as
+  `claude-yolo.bash`, it answers `--version` and `--help` and execs the bash for every other
+  run, and for those two wherever the bash might answer otherwise; `CCY_LEGACY=1` sends every
+  run to the bash. Its `difftest` package is the launcher's differential harness.
 - `internal/ccproject/` — `cc-project-dir`, the directory host `cc` starts its session in
   (Plan 00167, P1-P7 in its package doc): the top of the git work tree, or outside one the
   fedora-desktop checkout baked in with `-X main.RootDir`, offered `[Y/n]` at a terminal.
@@ -209,6 +214,9 @@ gh, curl and the rest, which record argv and the names of the environment variab
 program reads, so bash's leftover exports are not pinned);
 `testdata/golden/` is recorded from the bash launcher with `-update`. `LAUNCHER=<path>` runs the
 matrix against any other program, and `TestOracleCanFail` proves a one-flag change is caught.
+`TestFrontParity` runs the matrix against the Go front (`internal/ccylaunch`, the test binary
+copied in as `claude-yolo`, the bash launcher beside it), `TestFrontAnswersItself` proves its
+answers are not the bash's, and `TestFrontHandsOver` that every other run reaches the bash.
 
 ## Build and deploy
 
@@ -216,8 +224,9 @@ matrix against any other program, and `TestOracleCanFail` proves a one-flag chan
 (`go build -trimpath -buildvcs=false` with `GOFLAGS=-mod=vendor`, offline from `vendor/`, as
 the login user, into `~/.cache/ccy-go-build`) and
 installs it with a checksum-compared `copy`; it takes the command name, install path, mode and
-optional ldflags. `playbooks/imports/play-claude-yolo.yml` imports it for both ccy binaries
-and `cc-project-dir` (`ccy-teams` and `cc-project-dir` also get
+optional ldflags. `playbooks/imports/play-claude-yolo.yml` imports it for both ccy binaries,
+the launcher's front `claude-yolo` (root-owned at `/var/local/claude-yolo/claude-yolo`, with
+`-X main.Version=<CCY_VERSION>` read from the bash launcher) and `cc-project-dir` (`ccy-teams` and `cc-project-dir` also get
 `-ldflags "-X main.RootDir=<checkout>"` and refuse to run without it), and `tasks/deploy-freeze.yml` for the freeze tools, which `play-podfreeze.yml` and
 `play-lxcfreeze.yml` import (both import `play-golang.yml` first for the toolchain), and
 `play-vm-test-lab.yml` for `vmtest`, `play-ftp-camera.yml` for `ftp-camera`,

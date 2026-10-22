@@ -12,7 +12,7 @@
 # command's environment (GH_TOKEN="${GH_TOKEN:-}" exec ...), as the caller's export did.
 
 # Function to create/update custom Dockerfile for project
-# Args: $1 = script_path ($0), $2 = project_subdir (".claude/ccy"), $3 = tool_name (for display)
+# Args: $1 = script_path (the launcher to re-run: CCY_LAUNCHER_PATH, the program that started this launch), $2 = project_subdir (".claude/ccy"), $3 = tool_name (for display)
 custom_dockerfile() {
     local script_path="$1"
     local project_subdir="$2"
@@ -695,7 +695,7 @@ PROMPT_EOF
 }
 
 # Guided Dockerfile creation with comprehensive AI planning
-# Args: $1 = script_path ($0), $2 = project_subdir (".claude/ccy"), $3 = tool_name (for display)
+# Args: $1 = script_path (the launcher to re-run: CCY_LAUNCHER_PATH, the program that started this launch), $2 = project_subdir (".claude/ccy"), $3 = tool_name (for display)
 create_dockerfile_guided() {
     local script_path="$1"
     local project_subdir="$2"

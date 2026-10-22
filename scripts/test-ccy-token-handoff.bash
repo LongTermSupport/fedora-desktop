@@ -59,7 +59,7 @@ TOKEN="handoff-test-token-$$-not-a-real-one"
 
 echo "=== the launcher's entry point ==="
 # The call the launcher wraps a session with, and whether it loads the hand-off library.
-ENTRY_CALL=" \"\$PROJECT_NAME\" \"\$SCRIPT_DIR/\$(basename \"\$0\")\" \"\$@\" || exit 1"
+ENTRY_CALL=" \"\$PROJECT_NAME\" \"\$CCY_LAUNCHER_PATH\" \"\$@\" || exit 1"
 ENTRY="$(grep -F -- "$ENTRY_CALL" "$LAUNCHER" | awk '{ print $1 }')"
 check "the launcher has one terminal-insulation entry point" "1" "$(grep -c . <<<"$ENTRY")"
 LIBS=(common-pure session-registry tmux-session)
@@ -89,7 +89,8 @@ export T_INNER="$SCRATCH/inner-launcher" T_TOKEN="$TOKEN" T_FZF=esc
 cat >"$BIN/tmux" <<'EOF'
 #!/usr/bin/env bash
 { printf 'ARGV'; printf ' %q' "$@"; printf '\n'
-  printf 'ENV GH_TOKEN=%s HANDOFF=%s\n' "${GH_TOKEN-unset}" "${CCY_GH_TOKEN_HANDOFF-unset}"; } >>"$T_LOG"
+  printf 'ENV GH_TOKEN=%s HANDOFF=%s\n' "${GH_TOKEN-unset}" "${CCY_GH_TOKEN_HANDOFF-unset}"
+  printf 'TMUXFRONT %s\n' "${CCY_LAUNCHER_FRONT-unset}"; } >>"$T_LOG"
 [ "$1" = -L ] && shift 2
 case "$1" in
 list-sessions) [ -f "$T_STATE" ] && cat "$T_STATE"; exit 0 ;;
@@ -220,6 +221,74 @@ echo "=== no token: nothing is written, and the inner launcher asks gh as before
 drive terminal ""
 check "the inner launcher has no GH_TOKEN" "INNER GH_TOKEN=unset HANDOFF=unset CHILD=unset/unset" "$(line INNER)"
 check "no hand-off file was named" "" "$(line MODES)"
+
+echo ""
+echo "=== the session record names the program that started the launch ==="
+# Deployed, /var/local/claude-yolo/claude-yolo is the Go front and the bash is claude-yolo.bash
+# beside it. The front execs the bash with CCY_LAUNCHER_FRONT naming itself: then a record, and
+# the pane, must name the front, or every restore and team restart would skip it. Run directly
+# (the way round a front that will not start), the bash must name itself, or the pane would run
+# that front. The launcher's own SCRIPT_DIR line and insulation line run here from a file
+# called claude-yolo.bash, with a front beside it; the variable must reach no program it starts.
+INSTALL="$SCRATCH/install"
+mkdir -p "$INSTALL"
+{
+    printf '#!/usr/bin/env bash\n'
+    grep -m1 '^SCRIPT_DIR=' "$LAUNCHER"
+    cat <<'EOF'
+for lib in $T_LIBS; do source "$T_LIB/$lib.bash" || exit 1; done
+PROJECT_NAME=proj
+set -- --no-ssh
+EOF
+    grep -E '^ +ccy_token_handoff_insulate ' "$LAUNCHER"
+    # Reached only in the pane (no terminal there, so no insulation): what it was started as.
+    cat <<'EOF'
+printf 'RAN %s FRONTVAR=%s\n' "$(grep -h '^launcher=' "$CCY_STATE_DIR"/sessions/*)" "${CCY_LAUNCHER_FRONT-unset}"
+EOF
+} >"$INSTALL/claude-yolo.bash"
+cat >"$INSTALL/claude-yolo" <<'EOF'
+#!/usr/bin/env bash
+for lib in $T_LIBS; do
+    # shellcheck source=/dev/null
+    source "$T_LIB/$lib.bash" || exit 1
+done
+printf 'FRONT %s FRONTVAR=%s\n' "$(grep -h '^launcher=' "$CCY_STATE_DIR"/sessions/*)" "${CCY_LAUNCHER_FRONT-unset}"
+EOF
+printf '#!/usr/bin/env bash\n' >"$INSTALL/not-executable"
+chmod 755 "$INSTALL/claude-yolo" "$INSTALL/claude-yolo.bash"
+chmod 644 "$INSTALL/not-executable"
+# started_as [CCY_LAUNCHER_FRONT value] — run claude-yolo.bash on a terminal, given that value
+# (none: unset); stdout+stderr in $OUT.
+started_as() {
+    rm -f "$T_STATE"
+    rm -rf "$SCRATCH/front-state"
+    : >"$T_LOG"
+    OUT="$(cd "$PROJ" && env -u TMUX -u TMUX_PANE -u GH_TOKEN -u CCY_LAUNCHER_FRONT PATH="$BIN:$PATH" \
+        XDG_RUNTIME_DIR="$RUNTIME" CCY_STATE_DIR="$SCRATCH/front-state" ${1+CCY_LAUNCHER_FRONT="$1"} \
+        script -qec "bash $(printf '%q' "$INSTALL/claude-yolo.bash")" /dev/null </dev/null 2>&1)"
+}
+pane_runs() { grep '^ARGV.* new-session ' "$T_LOG" | grep -cF -- "ccy-tmux $1 --no-ssh"; }
+front_given() { grep '^TMUXFRONT' "$T_LOG" | grep -vc '^TMUXFRONT unset$'; }
+started_as "$INSTALL/claude-yolo"
+check "started by the front: the record's launcher is the front" \
+    "FRONT launcher=$INSTALL/claude-yolo FRONTVAR=unset" "$(line FRONT)"
+check "  and the pane runs the front" "1" "$(pane_runs "$INSTALL/claude-yolo")"
+check "  and no tmux call has CCY_LAUNCHER_FRONT in its environment" "0" "$(front_given)"
+check "  and nothing is warned" "0" "$(grep -c 'CCY_LAUNCHER_FRONT' <<<"$OUT")"
+started_as
+check "run directly: the record's launcher is claude-yolo.bash" \
+    "RAN launcher=$INSTALL/claude-yolo.bash FRONTVAR=unset" "$(line RAN)"
+check "  and the pane runs claude-yolo.bash, never the front" "1 0" \
+    "$(pane_runs "$INSTALL/claude-yolo.bash") $(grep -c '^FRONT' "$T_LOG")"
+for bad in claude-yolo "$INSTALL/not-executable" "$INSTALL" /usr/bin/env; do
+    started_as "$bad"
+    check "CCY_LAUNCHER_FRONT=${bad#"$SCRATCH"/} (not the sibling front): the launcher names itself" \
+        "RAN launcher=$INSTALL/claude-yolo.bash FRONTVAR=unset" "$(line RAN)"
+    check "  warning on stderr, naming the value" "1" \
+        "$(grep -cF -- "WARNING: CCY_LAUNCHER_FRONT=$bad " <<<"$OUT")"
+    check "  and no tmux call has the variable" "0" "$(front_given)"
+    check "  and the pane runs claude-yolo.bash, never $bad" "1" "$(pane_runs "$INSTALL/claude-yolo.bash")"
+done
 
 echo ""
 echo "=== a runtime directory that is not there fails the launch, starting nothing ==="
@@ -459,6 +528,19 @@ GH_TOKEN="${GH_TOKEN:-}" exec "$script_path"
 EOF
 check "dockerfile-custom.bash re-runs the launcher by exec four times" "4" "$(grep -cF -- "$EXEC_CALL" "$DFC")"
 check "and every one is given the caller's GH_TOKEN" "4" "$(grep -cF -- "$EXEC_GIVEN" "$DFC")"
+# What they re-run, and what a restart relaunches, is the program that started this launch
+# (CCY_LAUNCHER_PATH: the Go front, or claude-yolo.bash run directly), never a fixed name.
+read -r FRONT_ARG <<'EOF'
+"$CCY_LAUNCHER_PATH" ".claude/ccy" "ccy"
+EOF
+read -r RELAUNCH <<'EOF'
+exec "$CCY_LAUNCHER_PATH" "${choice_args[@]}" "${relaunch_args[@]}"
+EOF
+read -r FIXED_NAME <<'EOF'
+"$SCRIPT_DIR/claude-yolo"
+EOF
+check "the launcher gives both modes, and the restart, the launch's own program; no fixed name" "2 1 0" \
+    "$(grep -cF -- "$FRONT_ARG" "$LAUNCHER") $(grep -cF -- "$RELAUNCH" "$LAUNCHER") $(grep -cF -- "$FIXED_NAME" "$LAUNCHER")"
 cat >"$SCRATCH/show-token" <<'EOF'
 #!/usr/bin/env bash
 printf '%s' "${GH_TOKEN-unset}"

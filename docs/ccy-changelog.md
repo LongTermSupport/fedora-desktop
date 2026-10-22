@@ -17,6 +17,66 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.14.4 — container 2.78.14
+
+Follows 3.99.14.3. The image is unchanged, so there is no rebuild.
+
+- **`CCY_LAUNCHER_FRONT` is accepted only when it is the front beside the launcher.** Any
+  executable file was taken before, so a stray value would have run that program in the tmux
+  pane and in every later restore. The value must now resolve to the same file as
+  `claude-yolo` in the launcher's own directory; anything else is warned of on stderr, naming
+  the variable, and the launch records `claude-yolo.bash` instead. The variable is unset before
+  the launcher starts tmux, the engine or claude; a few system tools (`dirname`, `id`, `find`,
+  `rm`) run earlier and do not read it.
+
+## 3.99.14.3 — container 2.78.14
+
+Follows 3.99.14.2. The image is unchanged, so there is no rebuild.
+
+- **Running `claude-yolo.bash` directly now stays clear of the Go front.** Under 3.99.14.1 and
+  3.99.14.2 the bash launcher always named the front beside it as the program a session runs,
+  so a direct run of `/var/local/claude-yolo/claude-yolo.bash`, the way round a front that will
+  not start, opened a tmux session whose pane ran that front. The front now hands its own path
+  to the bash in `CCY_LAUNCHER_FRONT`, which the bash reads once and unsets, so no program it
+  starts inherits it. The tmux pane, the session record, the restart relaunch and the
+  custom-Dockerfile modes name the front when the front started the launch, and
+  `claude-yolo.bash` itself when it was run directly. A value that is not an absolute path to
+  an executable file is warned of on stderr and not used.
+
+## 3.99.14.2 — container 2.78.14
+
+Follows 3.99.14.1. The image changes only in its guide, which now lists `claude-yolo` (the Go
+front) and `claude-yolo.bash`; the next launch rebuilds it once.
+
+## 3.99.14.1 — container 2.78.13
+
+Follows 3.99.14.0. The image is unchanged, so there is no rebuild.
+
+- **Session records name the Go front again.** Under 3.99.14.0 the bash launcher recorded its
+  own path, `claude-yolo.bash`, as the session's launcher, so restores and team restarts ran
+  the bash directly and skipped the front. It now records `/var/local/claude-yolo/claude-yolo`,
+  as the restart relaunch already did, and the custom-Dockerfile modes re-run the front too. A
+  record written by 3.99.14.0 still names `claude-yolo.bash`, which runs the same launcher
+  without the front; a session started afresh from a terminal records the front.
+
+## 3.99.14.0 — container 2.78.13
+
+Follows 3.99.13.19. The image is unchanged, so there is no rebuild.
+
+- **`ccy` is now a Go program in front of the bash launcher** (Plan 00191 Task 4.5, phase 2).
+  `play-claude-yolo.yml` builds `src-go/cmd/claude-yolo` and installs it as
+  `/var/local/claude-yolo/claude-yolo`, and installs the bash launcher beside it as
+  `claude-yolo.bash`. The Go program answers `--version`/`-v` and `--help`/`-h` with the same
+  output as before, and execs the bash launcher, unchanged arguments and environment, for every
+  other run, and for these two too wherever the bash might answer differently (a token hand-off
+  to take, a refused path override, an engine not found, and the like).
+- **`CCY_LEGACY=1`** sends every run to the bash launcher: the way back if the Go program
+  misbehaves ([docs](ccy.md#the-go-front-and-ccy_legacy)).
+- `--version`'s `Hash:` is still the bash launcher's own hash, so Quick Launch files compare as
+  before; the Go program refuses both flags if its version is not the bash launcher's.
+- The pre-commit version gate covers the Go program's sources (`src-go/cmd/claude-yolo`,
+  `src-go/internal/ccylaunch`, tests aside).
+
 ## 3.99.13.19 — container 2.78.13
 
 Follows 3.99.13.18. The image is unchanged, so there is no rebuild.

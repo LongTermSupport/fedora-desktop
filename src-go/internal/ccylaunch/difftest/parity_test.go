@@ -47,11 +47,20 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccylaunch"
 )
 
 var update = flag.Bool("update", false, "re-record testdata/golden/ from the launcher under test")
 
 func TestMain(m *testing.M) {
+	if isFront() {
+		code := runFront()
+		if err := silenceStderr(); err != nil {
+			os.Exit(fakeBroken)
+		}
+		os.Exit(code)
+	}
 	if tool, ok := fakeTool(); ok {
 		code := runFake(tool)
 		// A coverage build's runtime may write a warning to stderr at exit, which the launcher
@@ -74,8 +83,14 @@ func TestLauncherParity(t *testing.T) {
 		t.Fatal("-update records the goldens from the bash launcher; unset LAUNCHER")
 	}
 	m := loadMatrix(t)
-	l := probe(t, m, launcherUnderTest(t))
-	for _, sc := range m.Scenarios {
+	matchGoldens(t, m, probe(t, m, launcherUnderTest(t)), m.Scenarios)
+}
+
+// matchGoldens runs each scenario against l and compares it with its golden, or under -update
+// records it.
+func matchGoldens(t *testing.T, m matrix, l launcher, scenarios []scenario) {
+	t.Helper()
+	for _, sc := range scenarios {
 		t.Run(sc.Name, func(t *testing.T) {
 			t.Parallel()
 			got := runScenario(t, m, l, sc)
@@ -90,6 +105,68 @@ func TestLauncherParity(t *testing.T) {
 				t.Errorf("scenario %s (%s) differs from its golden:\n%s", sc.Name, sc.About, lineDiff(want, text))
 			}
 		})
+	}
+}
+
+// skipFront skips a test of the Go front where it cannot run: with LAUNCHER naming another
+// program, or under -update, which records the bash's goldens.
+func skipFront(t *testing.T) {
+	t.Helper()
+	if os.Getenv("LAUNCHER") != "" {
+		t.Skip("LAUNCHER names the program under test")
+	}
+	if *update {
+		t.Skip("-update records the goldens from the bash launcher")
+	}
+}
+
+// TestFrontParity is the Go front's cut-over gate (Plan 00191 Task 4.5): installed as the play
+// installs it, with the checkout's bash launcher beside it, it passes every scenario, the flags
+// it answers itself and every run it hands to the bash.
+func TestFrontParity(t *testing.T) {
+	skipFront(t)
+	m := loadMatrix(t)
+	matchGoldens(t, m, probe(t, m, installFront(t, nil)), m.Scenarios)
+}
+
+// frontAnswers are the scenarios the front answers itself.
+var frontAnswers = []string{"version", "version-short", "help-no-image", "help-image", "help-short-image-broken"}
+
+// TestFrontAnswersItself proves the front's answers are its own: with the bash launcher's
+// --version and --help answers broken, those scenarios still match, so the bash never ran them.
+func TestFrontAnswersItself(t *testing.T) {
+	skipFront(t)
+	m := loadMatrix(t)
+	breaks := []string{
+		`printf 'ccy version %s\nHash: %s\n' "$CCY_VERSION" "$CCY_HASH"`,
+		"Claude Code YOLO Mode (ccy) - Container-based execution with --dangerously-skip-permissions",
+	}
+	path := installFront(t, func(text string) string {
+		for _, from := range breaks {
+			if strings.Count(text, from) != 1 {
+				t.Fatalf("%q is not in the launcher exactly once", from)
+			}
+			text = strings.Replace(text, from, `echo "the bash answered"`, 1)
+		}
+		return text
+	})
+	scenarios := make([]scenario, 0, len(frontAnswers))
+	for _, name := range frontAnswers {
+		scenarios = append(scenarios, scenarioNamed(t, m, name))
+	}
+	matchGoldens(t, m, probe(t, m, path), scenarios)
+}
+
+// TestFrontHandsOver proves a launch reaches the bash launcher beside the front: the launch
+// mutation in that copy fails launch-plain on the line it changed.
+func TestFrontHandsOver(t *testing.T) {
+	skipFront(t)
+	m := loadMatrix(t)
+	mu := mutations[0]
+	path := installFront(t, func(text string) string { return strings.Replace(text, mu.from, mu.to, 1) })
+	got := runScenario(t, m, probe(t, m, path), scenarioNamed(t, m, mu.scenario)).render()
+	if want := readFile(t, goldenPath(mu.scenario)); !lostLine(want, got, mu.shows) {
+		t.Fatalf("with the bash launcher beside the front changed, %s still shows %q:\n%s", mu.scenario, mu.shows, lineDiff(want, got))
 	}
 }
 
@@ -117,6 +194,20 @@ func checkRun(t *testing.T, m matrix, sc scenario, got outcome) {
 	for _, leak := range secretLeaks(got) {
 		t.Errorf("scenario %s: %s", sc.Name, leak)
 	}
+	for _, leak := range frontLeaks(got) {
+		t.Errorf("scenario %s: %s", sc.Name, leak)
+	}
+}
+
+// frontLeaks are the calls whose environment still held the front's hand-over variable.
+func frontLeaks(got outcome) []string {
+	var leaks []string
+	for _, c := range got.calls {
+		if c.Front {
+			leaks = append(leaks, c.Tool+" inherited "+ccylaunch.FrontEnv+": "+strings.Join(c.Args, " "))
+		}
+	}
+	return leaks
 }
 
 // secretLeaks are the calls that were given a secret in a variable they do not read.
@@ -199,6 +290,28 @@ func TestSecretCheckCanFail(t *testing.T) {
 	leaks := secretLeaks(got)
 	if !slices.ContainsFunc(leaks, func(l string) bool { return strings.HasPrefix(l, "getenforce was given the secret in GH_TOKEN") }) {
 		t.Errorf("with the caller's GH_TOKEN left exported, getenforce was not reported; leaks: %q", leaks)
+	}
+}
+
+// handoffSource is the launcher's line that takes what a starting program hands it, the front's
+// variable included (lib/token-handoff.bash unsets it).
+const handoffSource = "source \"$SCRIPT_DIR/lib/token-handoff.bash\" || exit 1\n"
+
+// TestFrontLeakCheckCanFail proves checkRun sees the front's variable reach a child: with the
+// bash beside the front exporting it again after the library unset it, getenforce has it.
+func TestFrontLeakCheckCanFail(t *testing.T) {
+	skipFront(t)
+	t.Parallel()
+	m := loadMatrix(t)
+	path := installFront(t, func(text string) string {
+		if strings.Count(text, handoffSource) != 1 {
+			t.Fatalf("%q is not in the launcher exactly once", handoffSource)
+		}
+		return strings.Replace(text, handoffSource, handoffSource+"export "+ccylaunch.FrontEnv+"=\"$CCY_LAUNCHER_PATH\"\n", 1)
+	})
+	leaks := frontLeaks(runScenario(t, m, probe(t, m, path), scenarioNamed(t, m, "launch-plain")))
+	if !slices.ContainsFunc(leaks, func(l string) bool { return strings.HasPrefix(l, "getenforce inherited "+ccylaunch.FrontEnv) }) {
+		t.Errorf("with %s exported again, getenforce was not reported; leaks: %q", ccylaunch.FrontEnv, leaks)
 	}
 }
 
