@@ -279,6 +279,12 @@ linters:
       - path: internal/teamchat/seat/.*_test\.go
         linters: [gosec]
         text: "G301|G302|G304|G306"
+      # A member's own files refuse a directory or file others can write or enter, and a lock
+      # file of any mode but 0600 (SPEC-n3 TB4, GU1); their tests build those states, and read
+      # back by computed path what was written under a temporary directory.
+      - path: internal/teamchat/member/.*_test\.go
+        linters: [gosec]
+        text: "G301|G302|G304|G306"
       # The Element profiles refuse a consent others can read and put back a profile directory
       # others can enter (SPEC-n2e.md EL3, EL4); their tests build those states, and read back
       # what was written under a temporary home.
