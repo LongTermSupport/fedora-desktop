@@ -28,8 +28,17 @@ ccy_base_image_build() {
         return 1
     fi
     build_container_with_hash "$IMAGE_NAME" "$DOCKERFILE_DIR" "${1:-}" "$BASE_IMAGE_NAME" || return 1
-    rm -rf "$VERSION_CHECK_CACHE"
+    rm -rf "$VERSION_CHECK_CACHE" || return 1
     echo "✓ Container image built"
+}
+
+# ccy_claude_is <image> <version> — the image's Claude Code is that version, as the daily
+# update asks it (claude --version in a throwaway container): an update another launch made
+# while this one waited is seen, and a change to the image for any other reason is not.
+ccy_claude_is() {
+    local probe
+    probe="$(container_cmd run --rm --entrypoint claude "$1" --version 2>&1)" &&
+        [[ "$probe" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]] && [ "${BASH_REMATCH[1]}" = "$2" ]
 }
 
 # ccy_project_image_current <reason> <image> <hash file> <hash> <base file> <base> — the

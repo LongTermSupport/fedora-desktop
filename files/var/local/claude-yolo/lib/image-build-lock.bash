@@ -17,7 +17,8 @@
 # A waiter waits for as long as the build takes, because a real build takes many minutes, and
 # says on stderr every CCY_IMAGE_BUILD_REPORT_SECONDS (30) whose build it waits for and how to
 # stop it. Once it holds the lock it runs the check again, so it uses the image the holder built
-# instead of building it again.
+# instead of building it again. The build it runs gets no errexit (it runs as `build || rc=$?`),
+# so every build function checks each of its own steps.
 
 # ccy_image_build_locked <image> <check> [args...] -- <build> [args...]
 #   The check succeeds when no build is needed: it runs first without the lock, and again once

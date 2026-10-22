@@ -152,10 +152,15 @@ func (f Front) offerStop(ctx context.Context, rec buildRecord, path string) (ter
 	case !yes:
 		p.Print(f.Stdout, "Nothing was stopped.\n")
 	default:
-		if err := f.stopBuild(rec, path); err != nil {
+		stopped, err := f.stopBuild(rec, path)
+		if err != nil {
 			return f.fail("ccy: " + err.Error()), true
 		}
-		p.Print(f.Stdout, fmt.Sprintf("The build of %s by process %d was stopped.\n", rec.image, rec.pid))
+		if stopped {
+			p.Print(f.Stdout, fmt.Sprintf("The build of %s by process %d was stopped.\n", rec.image, rec.pid))
+		} else {
+			p.Print(f.Stdout, fmt.Sprintf("The build of %s by process %d ended while you answered; nothing was stopped.\n", rec.image, rec.pid))
+		}
 	}
 	if err := p.Err(); err != nil {
 		return f.fail("ccy: could not write the answer: " + err.Error()), true
@@ -163,49 +168,149 @@ func (f Front) offerStop(ctx context.Context, rec buildRecord, path string) (ter
 	return term.ExitOK, false
 }
 
-// stopBuild sends SIGTERM to the holder and every process under it, holder first, and waits for
-// the lock to be let go; then SIGKILL to whatever of them is left, and waits again.
-func (f Front) stopBuild(rec buildRecord, path string) error {
-	tree, err := f.processTree(rec.pid)
-	if err != nil {
-		return err
+// treeProc is a process of the build's tree as first seen: a pid is signalled only while it is
+// still that process (the same start tick), never a later process given the number.
+type treeProc struct {
+	pid   int
+	start int64
+}
+
+// stopBuild stops the build the person said yes to, if it is still that build: the lock is
+// still held with the same record by the same process, checked again after the answer, since
+// the build may have ended (and its launcher gone on to run a session) while the question was
+// open. SIGTERM to the holder and every process under it, holder first; when the lock is not
+// let go, or any of them is left, within termWait, SIGKILL to those still the same processes
+// and to any the holder has started since. stopped is false when the build had already ended.
+func (f Front) stopBuild(rec buildRecord, path string) (bool, error) {
+	if still, err := f.stillHolds(rec, path); err != nil || !still {
+		return false, err
 	}
-	for _, sig := range []struct {
+	tree, err := f.snapshotTree(rec.pid, nil)
+	if err != nil {
+		return false, err
+	}
+	for _, round := range []struct {
 		signal syscall.Signal
 		wait   time.Duration
 	}{{syscall.SIGTERM, termWait}, {syscall.SIGKILL, killWait}} {
-		if sig.signal == syscall.SIGKILL {
-			later, treeErr := f.processTree(rec.pid)
-			if treeErr != nil {
-				return treeErr
-			}
-			tree = append(tree, slices.DeleteFunc(later, func(pid int) bool { return slices.Contains(tree, pid) })...)
-		}
-		for _, pid := range tree {
-			if err := f.signal(pid, sig.signal); err != nil && !errors.Is(err, syscall.ESRCH) {
-				return fmt.Errorf("could not send %s to process %d: %w", sig.signal, pid, err)
+		if round.signal == syscall.SIGKILL {
+			if tree, err = f.snapshotTree(rec.pid, tree); err != nil {
+				return false, err
 			}
 		}
-		free, err := f.waitFree(path, sig.wait)
-		if err != nil || free {
-			return err
+		if err := f.signalTree(tree, round.signal); err != nil {
+			return false, err
+		}
+		done, err := f.waitDone(rec, path, tree, round.wait)
+		if err != nil || done {
+			return done, err
 		}
 	}
-	return fmt.Errorf("could not stop the build of %s: the lock %s is still held after SIGTERM and SIGKILL to process %d and every process it started", rec.image, path, rec.pid)
+	return false, fmt.Errorf("could not stop the build of %s: after SIGTERM and SIGKILL to process %d and every process it started, the lock %s is still held or one of them still runs", rec.image, rec.pid, path)
 }
 
-// waitFree is whether the lock was let go within wait.
-func (f Front) waitFree(path string, wait time.Duration) (bool, error) {
+// stillHolds is whether the lock is still held with rec as its record, by a process vouched for.
+func (f Front) stillHolds(rec buildRecord, path string) (bool, error) {
+	held, text, err := probeLock(path)
+	if err != nil || !held {
+		return false, err
+	}
+	if now, ok := parseBuildRecord(text); !ok || now != rec {
+		return false, nil
+	}
+	why, err := f.unvouched(rec)
+	return why == "", err
+}
+
+// snapshotTree is the holder and every process under it, each with its start tick, after the
+// processes of earlier that are still the same; the holder's new children only while the
+// holder is itself still the same process.
+func (f Front) snapshotTree(holder int, earlier []treeProc) ([]treeProc, error) {
+	var tree []treeProc
+	for _, p := range earlier {
+		same, err := f.sameProcess(p)
+		if err != nil {
+			return nil, err
+		}
+		if same {
+			tree = append(tree, p)
+		}
+	}
+	if len(earlier) > 0 && (len(tree) == 0 || tree[0].pid != holder) {
+		return tree, nil
+	}
+	pids, err := f.processTree(holder)
+	if err != nil {
+		return nil, err
+	}
+	for _, pid := range pids {
+		if slices.ContainsFunc(tree, func(p treeProc) bool { return p.pid == pid }) {
+			continue
+		}
+		st, alive, err := f.procStat(pid)
+		if err != nil {
+			return nil, err
+		}
+		if alive {
+			tree = append(tree, treeProc{pid: pid, start: st.start})
+		}
+	}
+	return tree, nil
+}
+
+// signalTree sends sig to every process of the tree that is still the same process.
+func (f Front) signalTree(tree []treeProc, sig syscall.Signal) error {
+	for _, p := range tree {
+		same, err := f.sameProcess(p)
+		if err != nil {
+			return err
+		}
+		if !same {
+			continue
+		}
+		if err := f.signal(p.pid, sig); err != nil && !errors.Is(err, syscall.ESRCH) {
+			return fmt.Errorf("could not send %s to process %d: %w", sig, p.pid, err)
+		}
+	}
+	return nil
+}
+
+// waitDone is whether, within wait, the build's record left the lock and every process of the
+// tree ended.
+func (f Front) waitDone(rec buildRecord, path string, tree []treeProc, wait time.Duration) (bool, error) {
 	for tries := int(wait / pollEvery); ; tries-- {
-		held, _, err := probeLock(path)
-		if err != nil || !held {
-			return !held, err
+		done, err := f.buildDone(rec, path, tree)
+		if err != nil || done {
+			return done, err
 		}
 		if tries == 0 {
 			return false, nil
 		}
 		f.pause(pollEvery)
 	}
+}
+
+func (f Front) buildDone(rec buildRecord, path string, tree []treeProc) (bool, error) {
+	held, text, err := probeLock(path)
+	if err != nil {
+		return false, err
+	}
+	if now, ok := parseBuildRecord(text); held && ok && now == rec {
+		return false, nil
+	}
+	for _, p := range tree {
+		same, err := f.sameProcess(p)
+		if err != nil || same {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+// sameProcess is whether p's pid is still the process first seen.
+func (f Front) sameProcess(p treeProc) (bool, error) {
+	st, alive, err := f.procStat(p.pid)
+	return alive && st.start == p.start, err
 }
 
 // unvouched is why the record's process is not its build's holder: gone, or a later process

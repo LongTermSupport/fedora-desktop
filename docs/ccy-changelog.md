@@ -17,9 +17,10 @@ Two version numbers move independently — see
 
 ---
 
-## 3.99.15.0 — container 2.78.14
+## 3.99.15.1 — container 2.78.14
 
-Follows 3.99.14.11. The image is unchanged, so there is no rebuild.
+Follows 3.99.14.11 (3.99.15.0 was never released on its own). The image is unchanged, so there
+is no rebuild.
 
 - **One image build at a time** (Plan 00216). Two sessions started together each rebuilt the
   image. Every build and in-place Claude Code update, the launcher's and the play's, now holds

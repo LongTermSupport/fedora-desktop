@@ -2,6 +2,7 @@ package ccylaunch
 
 import (
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -31,6 +32,7 @@ type lockRig struct {
 	held   map[string]*os.File // lock file name -> the descriptor holding it
 	sent   []string            // "<pid> <signal>", in order
 	dies   map[syscall.Signal]bool
+	onTerm func(pid int) // runs when a pid is sent SIGTERM, before it would die of it
 	pauses int
 }
 
@@ -92,6 +94,9 @@ func (r *lockRig) lock(t *testing.T, name, record string, held bool) {
 // the holder's death lets every lock go.
 func (r *lockRig) signal(pid int, sig syscall.Signal) error {
 	r.sent = append(r.sent, strconv.Itoa(pid)+" "+sig.String())
+	if sig == syscall.SIGTERM && r.onTerm != nil {
+		r.onTerm(pid)
+	}
 	if !r.dies[sig] {
 		return nil
 	}
@@ -251,6 +256,82 @@ func TestBuildLockKillsAHolderThatIgnoresTerm(t *testing.T) {
 	mustContain(t, "stderr", r.stderr(), "could not stop", "process 4242")
 	if strings.Contains(out, "was stopped") {
 		t.Errorf("claimed a stop: %q", out)
+	}
+}
+
+// answerAfter is the person's answer, read only after the world changed while the question
+// was open (the hook runs at the first read, before the answer is given).
+type answerAfter struct {
+	answer io.Reader
+	hook   func() error
+	ran    bool
+	err    error
+}
+
+func (a *answerAfter) Read(p []byte) (int, error) {
+	if !a.ran {
+		a.ran = true
+		a.err = a.hook()
+	}
+	return a.answer.Read(p)
+}
+
+// F14: a yes stops only the build that was asked about. When, while the question was open,
+// the lock was let go, the record changed, or the holder's pid became another process, nothing
+// is signalled: the launcher may have gone on to run a session.
+func TestBuildLockStopsNothingWhenTheBuildEndedWhileAsking(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(t *testing.T, r *lockRig) error
+	}{
+		{"the lock was let go", func(_ *testing.T, r *lockRig) error {
+			h := r.held["claude-yolo_latest.lock"]
+			delete(r.held, "claude-yolo_latest.lock")
+			return h.Close()
+		}},
+		{"another build took the lock", func(_ *testing.T, r *lockRig) error {
+			return os.WriteFile(filepath.Join(r.runDir, "ccy", "image-builds", "claude-yolo_latest.lock"), []byte("4243 1650 claude-yolo:latest\n"), 0o600)
+		}},
+		{"the pid is another process", func(t *testing.T, r *lockRig) error {
+			t.Helper()
+			r.process(t, holderPID, 1, 70000)
+			return nil
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := liveBuild(t, "")
+			hooked := &answerAfter{answer: strings.NewReader("y\n"), hook: func() error { return tc.change(t, r) }}
+			r.run.front.Stdin = hooked
+			code, out := r.start(t)
+			if hooked.err != nil {
+				t.Fatal(hooked.err)
+			}
+			if code != term.ExitOK || len(r.sent) != 0 {
+				t.Fatalf("exit %d, signals %q, stdout %q", code, r.sent, out)
+			}
+			mustContain(t, "stdout", out, "ended while you answered; nothing was stopped")
+		})
+	}
+}
+
+// F14: a process of the tree that became another process between SIGTERM and SIGKILL is not
+// killed.
+func TestBuildLockKillsOnlyTheSameProcesses(t *testing.T) {
+	r := liveBuild(t, "y\n")
+	r.dies = map[syscall.Signal]bool{syscall.SIGKILL: true}
+	r.onTerm = func(pid int) {
+		if pid == childPID {
+			r.process(t, childPID, 1, 90000)
+		}
+	}
+	if code, out := r.start(t); code != term.ExitOK {
+		t.Fatalf("exit %d, stdout %q, stderr %q", code, out, r.stderr())
+	}
+	if slices.Contains(r.sent, "4243 killed") {
+		t.Fatalf("killed the pid another process now has: %q", r.sent)
+	}
+	if !slices.Contains(r.sent, "4242 killed") || !slices.Contains(r.sent, "4244 killed") {
+		t.Fatalf("signals %q, want the holder and the grandchild killed", r.sent)
 	}
 }
 

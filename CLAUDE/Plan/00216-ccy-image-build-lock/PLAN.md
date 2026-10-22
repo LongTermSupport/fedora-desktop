@@ -52,9 +52,13 @@ one after a `[y/N]`.
 - **D4. What a waiter re-checks.** The base image: its labels (`validate_container_version`),
   atomic with the image tag. The project image: its hash files, which `run_project_build` now
   writes itself, inside the lock (they were written after it returned, so a waiter re-checking
-  at once would rebuild). An in-place update: `--unless-changed`, the image's ID taken before
-  the wait; another launch's commit changes it. An explicit `--rebuild=full` (check `false`)
-  builds again after waiting: it asked for a fresh build.
+  at once would rebuild). The daily update: the image's Claude Code version against the
+  latest (`ccy_claude_is`), the launcher's own question. An explicitly asked in-place update
+  (`--rebuild=claude|project`, the restart path): `--unless-changed`, the image's ID taken just
+  before the wait; another launch's commit changes it. An explicit `--rebuild=full` (check
+  `false`) builds again after waiting: it asked for a fresh build. A build that fails is tried
+  again by each waiter in turn (each finds the image still not current), which is the
+  requirement's "wait, then use the result" when there is no result.
 - **D5. Stale data, never a stale lock.** The kernel releases the flock when its holder exits
   or dies. The holder's descriptor is closed in every program the build starts (`{fd}>&-`), so
   a child that outlives the build (podman's pause process) cannot keep it; the cost is that a
@@ -65,9 +69,14 @@ one after a `[y/N]`.
   began (a reused pid), so it never offers to stop an unrelated process.
 - **D6. `--build-lock` is the Go front's own flag.** The bash launcher has no answer for it,
   so the front answers whatever the bash's state; only `CCY_LEGACY` hands it over, and the
-  bash refuses it naming the front. The stop sends SIGTERM to the holder and every process
-  under it, then SIGKILL after 10 s if the lock is still held, and fails naming it after 5 s
-  more.
+  bash refuses it naming the front. After the yes it checks again that the lock still holds the
+  same record by the same process (the build may have ended, and its launcher gone on to run a
+  session, while the question was open); if not, nothing is signalled. The stop sends SIGTERM
+  to the holder and every process under it, each pid only while it is still the process first
+  seen (its start tick), then SIGKILL to those left after 10 s unless the record has left the
+  lock and every one has ended, and fails naming it after 5 s more. Its probe takes a shared
+  lock for an instant, so a launch arriving at that instant says once that it is waiting
+  before it takes the lock: accepted.
 - **D7. Bash within the limits.** The launcher and lib/common.bash are on the ratchet
   allowlist; both shrank (the three duplicated Dockerfile checks moved into
   `ccy_base_image_build`). The two new libraries are within every limit.
@@ -85,7 +94,7 @@ one after a `[y/N]`.
 - [x] ✅ **Task 1.3**: `ccy --build-lock` in the Go front, `buildlock_test.go` first (F14), help
   text in both launchers, difftest goldens re-recorded (one build where the missing-image
   scenario built twice; the lock file in the run directory).
-- [x] ✅ **Task 1.4**: CCY 3.99.15.0 with its changelog entry, docs/ccy.md, QA.md and the gate
+- [x] ✅ **Task 1.4**: CCY 3.99.15.1 with its changelog entry, docs/ccy.md, QA.md and the gate
   row, and the play-claude-yolo.yml entry of meta-deploy.list.
 
 ### Phase 2: Review and deploy

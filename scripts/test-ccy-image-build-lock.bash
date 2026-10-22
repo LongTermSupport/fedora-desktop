@@ -77,7 +77,9 @@ if [ "$build_rc" -ne 0 ]; then
     exit 1
 fi
 
-# The fake engine. An image is a file in $TEST_STATE/images holding "<id> <version> <hash>".
+# The fake engine. An image is a file in $TEST_STATE/images holding "<id> <version> <hash>
+# <Claude Code version>": a build has Claude Code 2.0.0, a commit (the in-place update) 2.0.1,
+# and `run --entrypoint claude <image> --version` says which.
 # `build` and `commit` append a line to builds.log naming the image and the launch (its parent,
 # the launcher's bash), sleep $TEST_BUILD_SLEEP, then write the image; `build` fails when
 # $TEST_STATE/build-fails exists, and with $TEST_BUILD_LINGER leaves a child behind that
@@ -99,7 +101,7 @@ image)
     done
     f="$(img_file "$name")"
     [ -f "$f" ] || { echo "Error: $name: image not known" >&2; exit 125; }
-    read -r id version hash <"$f"
+    read -r id version hash claude <"$f"
     case "$format" in
     *claude-yolo-version*) echo "$version" ;;
     *dockerfile-hash*) echo "$hash" ;;
@@ -128,15 +130,20 @@ build)
     fi
     sleep "${TEST_BUILD_SLEEP:-0}"
     if [ -e "$TEST_STATE/build-fails" ]; then echo "Error: the build failed" >&2; exit 1; fi
-    printf '%s %s %s\n' "id-$RANDOM$RANDOM" "${version:-0}" "${hash:-unknown}" >"$(img_file "$tag")" ;;
-run) ;;
+    printf '%s %s %s 2.0.0\n' "id-$RANDOM$RANDOM" "${version:-0}" "${hash:-unknown}" >"$(img_file "$tag")" ;;
+run)
+    if [ "${!#}" = --version ]; then
+        args=("$@")
+        read -r id version hash claude <"$(img_file "${args[$# - 2]}")"
+        echo "$claude (Claude Code)"
+    fi ;;
 commit)
     image="${!#}"
     echo "commit $image by $PPID" >>"$TEST_STATE/builds.log"
     sleep "${TEST_BUILD_SLEEP:-0}"
     f="$(img_file "$image")"
-    read -r id version hash <"$f"
-    printf '%s %s %s\n' "id-$RANDOM$RANDOM" "$version" "$hash" >"$f" ;;
+    read -r id version hash claude <"$f"
+    printf '%s %s %s 2.0.1\n' "id-$RANDOM$RANDOM" "$version" "$hash" >"$f" ;;
 rm) ;;
 *) echo "fake podman: unexpected call: $*" >&2; exit 97 ;;
 esac
@@ -175,6 +182,18 @@ lift() {
 lift '^update_claude_inplace[(][)] [{]$' >"$SCRATCH/update.bash"
 lift '^remove_temp_container[(][)] [{]$' >>"$SCRATCH/update.bash"
 lift '^ +run_project_build[(][)] [{]$' >"$SCRATCH/project-build.bash"
+# The launch scripts below call the lock as the launcher does; these are the launcher's own lines.
+mapfile -t launcher_calls <<'EOF'
+ccy_image_build_locked "$IMAGE_NAME" ccy_base_image_current "$REQUIRED_CONTAINER_VERSION" -- ccy_base_image_build ""
+ccy_image_build_locked "$IMAGE_NAME" false -- ccy_base_image_build --no-cache
+ccy_image_build_locked "$image_name" ccy_claude_is "$image_name" "$latest_version" -- update_claude_inplace "$image_name"
+ccy_image_build_locked "$IMAGE_NAME" --unless-changed "$IMAGE_NAME" -- update_claude_inplace "$IMAGE_NAME"
+project_current=(ccy_project_image_current "$rebuild_reason" "$PROJECT_IMAGE_NAME"
+ccy_image_build_locked "$PROJECT_IMAGE_NAME" "${project_current[@]}" -- run_project_build
+EOF
+for line in "${launcher_calls[@]}"; do
+    has "the launcher calls: ${line:0:60}" "$LAUNCHER" "$line"
+done
 check "update_claude_inplace was found in the launcher" yes "$(grep -q 'container_cmd commit' "$SCRATCH/update.bash" && echo yes || echo no)"
 check "run_project_build was found in the launcher" yes "$(grep -q 'container_cmd build' "$SCRATCH/project-build.bash" && echo yes || echo no)"
 
@@ -198,14 +217,22 @@ fi
 echo "ready $(podman image inspect "$IMAGE_NAME" --format '{{.Id}}')"
 EOF
 
-# One launch's in-place update of claude-yolo:latest, as the restart path and the daily update run it.
+# One launch's in-place update of claude-yolo:latest. $1 restart: as the restart path and
+# --rebuild=claude run it (--unless-changed). $1 daily: as auto_update_claude_code runs it, which
+# has asked the image's Claude Code version and the latest one first (ccy_claude_is).
 cat >"$SCRATCH/update-launch.bash" <<'EOF'
 source "$LIB_DIR/common.bash" || exit 90
 source "$LIB_DIR/image-build-lock.bash" || exit 91
+source "$LIB_DIR/image-build.bash" || exit 92
 debug() { :; }
 source "$TEST_UPDATE" || exit 93
 set -e
-ccy_image_build_locked claude-yolo:latest --unless-changed claude-yolo:latest -- update_claude_inplace claude-yolo:latest
+if [ "$1" = daily ]; then
+    podman run --rm --entrypoint claude claude-yolo:latest --version
+    ccy_image_build_locked claude-yolo:latest ccy_claude_is claude-yolo:latest 2.0.1 -- update_claude_inplace claude-yolo:latest
+else
+    ccy_image_build_locked claude-yolo:latest --unless-changed claude-yolo:latest -- update_claude_inplace claude-yolo:latest
+fi
 echo "ready $(podman image inspect claude-yolo:latest --format '{{.Id}}')"
 EOF
 export TEST_UPDATE="$SCRATCH/update.bash"
@@ -319,9 +346,19 @@ echo "== two in-place updates at once: one commit, both on its image"
 reset_world
 run_launch base.bash >>"$QUIET" 2>&1
 : >"$TEST_STATE/builds.log"
-check "both succeed" "0 0" "$(race update-launch.bash)"
+check "both succeed" "0 0" "$(race update-launch.bash restart)"
 check "one commit" 1 "$(grep -c '^commit claude-yolo:latest' "$TEST_STATE/builds.log")"
 check "both use the updated image" 1 "$(distinct "$SCRATCH/a.out" "$SCRATCH/b.out")"
+
+echo "== two daily updates at once: one commit, judged by the Claude Code version"
+reset_world
+run_launch base.bash >>"$QUIET" 2>&1
+: >"$TEST_STATE/builds.log"
+check "both succeed" "0 0" "$(race update-launch.bash daily)"
+check "one commit" 1 "$(grep -c '^commit claude-yolo:latest' "$TEST_STATE/builds.log")"
+check "both use the updated image" 1 "$(distinct "$SCRATCH/a.out" "$SCRATCH/b.out")"
+run_launch update-launch.bash daily >>"$QUIET" 2>&1
+check "an image already at the latest version is not updated again" 1 "$(grep -c '^commit claude-yolo:latest' "$TEST_STATE/builds.log")"
 
 echo "== two project launches at once build the project image once"
 reset_world
@@ -431,15 +468,18 @@ wait "$pid_a"
 check "the holder is gone" no "$(alive "$victim")"
 check "the lock is free" yes "$(lock_free)"
 has "it says the build was stopped" "$SCRATCH/s.out" "stopped"
+: >"$TEST_STATE/builds.log"
 TEST_BUILD_SLEEP=30 run_launch base.bash force >>"$QUIET" 2>&1 &
 pid_a=$!
 wait_for "$pid_a" "$TEST_STATE/builds.log" "build claude-yolo:base"
-victim="$(holder_pid)"
-kill -9 "$victim"
+second="$(holder_pid)"
+check "a new holder wrote its record" yes "$([ -n "$second" ] && [ "$second" != "$victim" ] && [ "$(alive "$second")" = yes ] && echo yes || echo "no: '$second'")"
+kill -9 "$second"
+check "the new holder was killed" 0 "$?"
 wait "$pid_a"
 "$BIN/claude-yolo" --build-lock </dev/null >"$SCRATCH/s.out" 2>"$SCRATCH/s.err"
 check "a killed holder's record: exit 0" 0 "$?"
-has "it is named stale" "$SCRATCH/s.out" "stale"
+has "it is named stale, by its own pid" "$SCRATCH/s.out" "the record of process $second is stale"
 has "and ignored" "$SCRATCH/s.out" "No image build is running."
 
 printf 'passed: %d\nfailed: %d\n' "$passed" "$failed"

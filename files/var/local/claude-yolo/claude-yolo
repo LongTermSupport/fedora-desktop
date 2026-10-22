@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.99.15.0"  # One image build at a time: a launch waits for another's and uses it; ccy --build-lock (Plan 00216). See docs/ccy-changelog.md.
+CCY_VERSION="3.99.15.1"  # One image build at a time: a launch waits for another's and uses it; ccy --build-lock (Plan 00216). See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -262,7 +262,7 @@ Options:
   --top                  Container manager: list/stop all CCY containers
   --build-lock           Show the image build in progress (a launch waits for another's build
                          of the same image), and stop one that has hung, after asking
-  --prevent             Disable CCY for this project folder (writes 'never' to .claude/ccy/allowed-hostnames)
+  --prevent              Disable CCY for this project folder (writes 'never' to .claude/ccy/allowed-hostnames)
   --help, -h             Show this help message
   --                     End of ccy options; everything after is forwarded raw to claude
 
@@ -1954,7 +1954,7 @@ auto_update_claude_code() {
     echo "📦 Updating Claude Code in $image_name: $container_version → $latest_version"
     echo "   (fast in-place npm update — no full rebuild; first launch today only)"
     echo ""
-    if ccy_image_build_locked "$image_name" --unless-changed "$image_name" -- update_claude_inplace "$image_name"; then
+    if ccy_image_build_locked "$image_name" ccy_claude_is "$image_name" "$latest_version" -- update_claude_inplace "$image_name"; then
         touch "$cache_file"
         echo "✓ Claude Code auto-updated to $latest_version"
     else
@@ -2175,8 +2175,7 @@ if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
                 -t "$PROJECT_IMAGE_NAME" \
                 -f "$PROJECT_DOCKERFILE" \
                 . 2>&1 | tee "$build_log" || return
-            echo "$current_project_hash" > "$PROJECT_DOCKERFILE_HASH_FILE"
-            echo "$current_base_image" > "$PROJECT_BASE_IMAGE_FILE"
+            echo "$current_project_hash" > "$PROJECT_DOCKERFILE_HASH_FILE" && echo "$current_base_image" > "$PROJECT_BASE_IMAGE_FILE"
         }
         project_current=(ccy_project_image_current "$rebuild_reason" "$PROJECT_IMAGE_NAME"
             "$PROJECT_DOCKERFILE_HASH_FILE" "$current_project_hash" "$PROJECT_BASE_IMAGE_FILE" "$current_base_image")
@@ -2206,7 +2205,7 @@ if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
             rm -f "$build_log"
             echo ""
             echo "✓ Project image built successfully: $PROJECT_IMAGE_NAME"
-            [ -n "$rebuild_reason" ] && echo "  Rebuild reason: $rebuild_reason"
+            echo "  Rebuild reason: $rebuild_reason"
         else
             # Build failed — save full log and auto-start in diagnostic mode.
             # Rather than exiting, fall through to start CCY with the base image

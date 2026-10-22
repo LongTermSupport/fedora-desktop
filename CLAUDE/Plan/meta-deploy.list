@@ -48,7 +48,7 @@ playbooks/imports/play-agent-bus.yml
 # play-agent-bus.yml again (no change after the entry above), then the whole
 # play-claude-yolo.yml, then acceptance.bash. The kit's settings.json runs the static Go
 # pingbus-status-line, copied into every running LXC member. The ccy play gives the host CCY
-# 3.99.15.0 (the Go front and the image build lock: see the play-claude-yolo.yml entry below) and puts the binary in the
+# 3.99.15.1 (the Go front and the image build lock: see the play-claude-yolo.yml entry below) and puts the binary in the
 # image's build context (container 2.78.14, rebuilt once at the next ccy launch; the image
 # also carries the farewell-reason fix, the reports and questions admin tool and Go 1.26.10 in the project image): a seated session's status line is
 # the Go one and refreshes every 25 s. The acceptance checks the kit's, the image's and each
@@ -86,7 +86,7 @@ playbooks/imports/play-agent-bus.yml
 # launched interactively in this checkout once (Quick Launch), and the hooks daemon installed.
 00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker
 # play-claude-yolo.yml, the whole play (Plan 00191 Tasks 4.3, 4.4, 4.4b and 4.5, Plan 00216): the
-# host's ccy becomes CCY 3.99.15.0. Plan 00216: only one image build runs at a time; two ccy
+# host's ccy becomes CCY 3.99.15.1. Plan 00216: only one image build runs at a time; two ccy
 # launches started together build the image once, the second waiting (it says on stderr every
 # 30 s whose build it waits for) and then using that build. The play's own image build takes the
 # same lock (lib/image-build-lock.bash, newly installed with lib/image-build.bash), so it waits
