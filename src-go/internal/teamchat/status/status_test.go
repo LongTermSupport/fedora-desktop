@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -258,6 +259,46 @@ func TestShown(t *testing.T) {
 	broken := Shown(Record{}, false, errors.New("boom"), written)
 	if broken.Current || len(broken.Problems) != 1 || broken.Problems[0].What != "the status record cannot be read" {
 		t.Fatalf("broken %+v", broken)
+	}
+}
+
+// TeamProblems is what judges a team (SR1, SR5): every problem shown but a member's own.
+func TestTeamProblemsLeaveOutAMembersOwn(t *testing.T) {
+	rec := decoded(t)
+	own := Problem{What: "web.2+box.lxc launch-failed", Fix: "ccy-teams restart web.2+box.lxc", Member: "web.2+box.lxc"}
+	rec.Problems = append(rec.Problems, own)
+	written := time.UnixMilli(rec.WrittenMS)
+	fresh := Shown(rec, true, nil, written)
+	if len(fresh.Problems) != 2 || !slices.Equal(fresh.TeamProblems(), rec.Problems[:1]) {
+		t.Fatalf("shown %+v, team %+v", fresh.Problems, fresh.TeamProblems())
+	}
+	expired := Shown(rec, true, nil, written.Add(Lifetime))
+	if team := expired.TeamProblems(); len(team) != 2 || !strings.HasPrefix(team[0].What, "health has not run since ") {
+		t.Fatalf("expired team %+v", team)
+	}
+}
+
+// A member's own liveness problem names the member (FRAME, offline members never block): it
+// round-trips, and one naming no member entry of the record, or no handle, is refused.
+func TestAProblemNamesItsMember(t *testing.T) {
+	own := strings.Replace(example, `"fix":"ccy-teams apply alpha"}`, `"fix":"ccy-teams restart web.2+box.lxc","member":"web.2+box.lxc"}`, 1)
+	rec, err := Decode([]byte(own), team)
+	if err != nil || rec.Problems[0].Member != "web.2+box.lxc" {
+		t.Fatalf("Decode = %+v, %v", rec.Problems, err)
+	}
+	if out := mustEncode(t, rec); !strings.Contains(string(out), `"member":"web.2+box.lxc"`) {
+		t.Fatalf("encoded %s", out)
+	}
+	for name, doc := range map[string]string{
+		"no such member": strings.Replace(own, `"member":"web.2+box.lxc"`, `"member":"web.3+box.lxc"`, 1),
+		"not a handle":   strings.Replace(own, `"member":"web.2+box.lxc"`, `"member":"LX 1"`, 1),
+		"empty":          strings.Replace(own, `"member":"web.2+box.lxc"`, `"member":""`, 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Decode([]byte(doc), team); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("Decode = %v, want ErrInvalid", err)
+			}
+		})
 	}
 }
 

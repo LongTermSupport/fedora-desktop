@@ -40,6 +40,15 @@ func TestAnswerCarriesAViewANoticeAndTheMainRoom(t *testing.T) {
 			Answer{OK: true, View: &health.View{}},
 			`{"v":1,"ok":true,"changed":[],"view":{"members":[],"humans":[],"problems":[]}}`,
 		},
+		"member's problem": {
+			Answer{OK: true, View: &health.View{
+				Members:  sampleView().Members[:1],
+				Problems: []status.Problem{{What: "a member's own", Fix: "ccy-teams restart " + sampleHandle, Member: sampleHandle}},
+			}},
+			`{"v":1,"ok":true,"changed":[],"view":{"members":[` +
+				`{"handle":"` + sampleHandle + `","kind":"podman","role":"worker","state":"active","rooms":{"main":"join","reports":"invite"}}],` +
+				`"humans":[],"problems":[{"what":"a member's own","fix":"ccy-teams restart ` + sampleHandle + `","member":"` + sampleHandle + `"}]}}`,
+		},
 		"posted":     {Answer{OK: true, Notice: &health.Notice{Posted: true}}, `{"v":1,"ok":true,"changed":[],"notice":{"posted":true,"why":""}}`},
 		"not posted": {Answer{OK: true, Notice: &health.Notice{Why: "the member has no token copy"}}, `{"v":1,"ok":true,"changed":[],"notice":{"posted":false,"why":"the member has no token copy"}}`},
 	}
@@ -83,6 +92,7 @@ func TestEncodeAnswerRefusesABadViewOrNotice(t *testing.T) {
 		"human name":           {OK: true, View: with(func(v *health.View) { v.Humans[0].Name = "Alice!" })},
 		"devices":              {OK: true, View: with(func(v *health.View) { v.Humans[0].Devices = -1 })},
 		"problem lines":        {OK: true, View: with(func(v *health.View) { v.Problems[0].Fix = "a\nb" })},
+		"problem's member":     {OK: true, View: with(func(v *health.View) { v.Problems[0].Member = "myrepo.9+desk.lxc" })},
 		"posted with why":      {OK: true, Notice: &health.Notice{Posted: true, Why: "x"}},
 		"not posted, no why":   {OK: true, Notice: &health.Notice{}},
 		"why two lines":        {OK: true, Notice: &health.Notice{Why: "a\nb"}},
@@ -129,6 +139,9 @@ func TestDecodeAnswerReadsAViewStrictly(t *testing.T) {
 		"human extra key":       view(member, `{"name":"alice","state":"active","rooms":{},"devices":0,"last_seen_ms":0,"x":1}`, ""),
 		"human devices string":  view(member, `{"name":"alice","state":"active","rooms":{},"devices":"0","last_seen_ms":0}`, ""),
 		"problem extra key":     view(member, "", `{"what":"a","fix":"b","x":"c"}`),
+		"problem member none":   view(member, "", `{"what":"a","fix":"b","member":"myrepo.9+desk.lxc"}`),
+		"problem member empty":  view(member, "", `{"what":"a","fix":"b","member":""}`),
+		"problem member number": view(member, "", `{"what":"a","fix":"b","member":1}`),
 		"problem not one line":  view(member, "", `{"what":"a b","fix":"b"}`),
 		"notice extra key":      ok + `"notice":{"posted":true,"why":"","x":1}}`,
 		"notice no why":         ok + `"notice":{"posted":false}}`,
