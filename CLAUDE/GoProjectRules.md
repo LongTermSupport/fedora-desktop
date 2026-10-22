@@ -89,12 +89,16 @@ assignment to `.Name`; test files are exempt, a test spells out the argv it expe
   on the session bus), `git` by `internal/gitx`, `ps` and `docker` by
   `internal/sessprobe`, `podman` by `internal/sessprobe` (a session's container) and
   `internal/podfreeze` (pause, unpause, networks: a table entry may list several owners), and the
-  `lxc-*` tools by `internal/lxcfreeze`, and `nmcli` by `internal/lxcfreeze` (inside a
+  `lxc-*` tools by `internal/lxcfreeze` (`lxc-ls`, `lxc-info` and `lxc-attach` also by
+  `internal/teamchat/host/lxc/lxccmd`, teamchat-admin's as root, which may not link
+  lxcfreeze's TUI or sudo), and `nmcli` by `internal/lxcfreeze` (inside a
   container) and `internal/ftpcamera` (the hotspot). Any other program (`wl-copy`, `gh`, `id`, `tput`, `systemd-escape`,
   `python3`, ...) is unowned and free. The owner's own program is trusted: what the owner puts
   after it is not examined here, except behind `lxc-attach`, a wrapper that stays judged even for
   its owner (`lxc-attach -n X -- prog` is judged as `prog`, so `nmcli` is lxcfreeze's and `git`
-  inside a container is still a finding).
+  inside a container is still a finding). A function with a `dynamicNames` row may hand
+  `lxc-attach --` a program chosen at run time (lxccmd's `LXC.Guest`, the host-written kit
+  binary); without the row the program it cannot see is a finding.
 - A call of a **program runner** is judged as the `Cmd` it would build. `programRunners` lists the
   entry points that take a program and its arguments with no `Cmd` at the call site:
   `sudo.Sudo.Capture`, `AsRoot` and `Run`, lxcfreeze's `runAct` and `probe`, and ftpcamera's

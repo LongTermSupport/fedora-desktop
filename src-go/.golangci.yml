@@ -117,6 +117,11 @@ linters:
       - path: internal/playlock/playlock_test\.go
         linters: [gosec]
         text: "G302"
+      # The guest-root tests build fixtures with modes such as 0755, 0775 and 0757, because
+      # those modes are what the reads and writes must check or refuse.
+      - path: internal/teamchat/host/lxc/guestroot/.*_test\.go
+        linters: [gosec]
+        text: "G301|G302|G306"
       # The QA module cannot import execx (it is a separate module), so its process runner is
       # its own one process seam, for the same reason.
       - path: qa/internal/proc/proc\.go
