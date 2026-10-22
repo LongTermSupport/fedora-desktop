@@ -302,9 +302,10 @@ same release:
 3. C's raise operation, which derives what each non-removed member accepts from the `teamchat`
    version it recorded for that seat (6.6) and refuses while any live member (its seat lock held,
    R27) does not accept 2, naming it. An offline member on an old kit never holds the raise back:
-   it is named as lagging, and when it returns its link refuses its own team with a NOTICE ("kit
-   too old: apply its container") until its kit is upgraded;
-4. then the admin rewrites the roster with `"send": 2`, and once no member sends 1, a later release
+   it is named as lagging;
+4. then the admin rewrites the roster with `"send": 2`, listing `proto` under the roster's
+   `features`, so by 3.1 a returning member whose kit does not know it treats its own team as
+   untrusted, naming the upgrade, until its kit is upgraded; and once no member sends 1, a later release
    may stop accepting it.
 
 The first feature follows the same path: C adds it only when every live member's version knows it.
