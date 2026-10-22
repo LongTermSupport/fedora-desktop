@@ -169,6 +169,101 @@ func TestWriteFileChownFailureLeavesTheOldContent(t *testing.T) {
 	}
 }
 
+// ownedFile is a file of mode holding x, owned by this test's euid.
+func ownedFile(t *testing.T, dir, name string, mode fs.FileMode) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, mode); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// ownerOf is the uid that owns path.
+func ownerOf(t *testing.T, path string) uint32 {
+	t.Helper()
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		t.Fatal("no owner")
+	}
+	return st.Uid
+}
+
+// TestReadOwnedFile is ST3: ReadFile's rules, and the file must be owned by the uid given and
+// writable by neither its group nor others.
+func TestReadOwnedFile(t *testing.T) {
+	dir := t.TempDir()
+	good := ownedFile(t, dir, "good", 0o644)
+	uid := ownerOf(t, good)
+	if got, found, err := ReadOwnedFile(good, 8, uid); err != nil || !found || string(got) != "x" {
+		t.Fatalf("an owned file: %q %v %v", got, found, err)
+	}
+	if _, found, err := ReadOwnedFile(filepath.Join(dir, "none"), 8, uid); found || err != nil {
+		t.Fatalf("a missing file: found %v, err %v", found, err)
+	}
+	if _, _, err := ReadOwnedFile(good, 0, uid); err == nil || !strings.Contains(err.Error(), "over 0 bytes") {
+		t.Fatalf("over the cap: %v", err)
+	}
+}
+
+func TestReadOwnedFileRefusals(t *testing.T) {
+	dir := t.TempDir()
+	good := ownedFile(t, dir, "good", 0o644)
+	uid := ownerOf(t, good)
+	if _, _, err := ReadOwnedFile(good, 8, uid+1); err == nil || !strings.Contains(err.Error(), "owned by uid") {
+		t.Fatalf("another owner: %v", err)
+	}
+	for name, mode := range map[string]fs.FileMode{"group": 0o664, "other": 0o646} {
+		path := ownedFile(t, dir, name, mode)
+		if _, _, err := ReadOwnedFile(path, 8, uid); err == nil || !strings.Contains(err.Error(), "writable by its group or by others") {
+			t.Fatalf("%s writable: %v", name, err)
+		}
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(good, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ReadOwnedFile(link, 8, uid); err == nil {
+		t.Fatal("a link was followed")
+	}
+	fifo := filepath.Join(dir, "fifo")
+	if err := syscall.Mkfifo(fifo, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ReadOwnedFile(fifo, 8, uid); err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		t.Fatalf("a FIFO: %v", err)
+	}
+}
+
+// TestReadOwnedTarget is ST3 for a name the distribution ships as a link: the link is followed
+// and the file it names is held to the same rules.
+func TestReadOwnedTarget(t *testing.T) {
+	dir := t.TempDir()
+	good := ownedFile(t, dir, "good", 0o644)
+	uid := ownerOf(t, good)
+	bad := ownedFile(t, dir, "bad", 0o664)
+	for target, ok := range map[string]bool{good: true, bad: false} {
+		link := target + ".link"
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatal(err)
+		}
+		got, found, err := ReadOwnedTarget(link, 8, uid)
+		if ok != (err == nil) || ok && (!found || string(got) != "x") {
+			t.Errorf("a link to %s: %q %v %v", filepath.Base(target), got, found, err)
+		}
+	}
+	if _, found, err := ReadOwnedTarget(filepath.Join(dir, "none"), 8, uid); found || err != nil {
+		t.Fatalf("a missing file: found %v, err %v", found, err)
+	}
+}
+
 func TestReadFileOpenFailure(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "file")
 	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {

@@ -1,0 +1,9 @@
+agent_bus_teams:
+  - team: alpha
+    port: 6167
+    org: example-org     description: x
+  - team: beta    port: 6168
+    description: ab
+    humans: ["a"]
+  - team: gamma    port: 6169
+    server_name: g .example.com

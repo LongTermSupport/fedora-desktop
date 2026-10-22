@@ -1,0 +1,6 @@
+=== exit 1
+=== stdout
+=== stderr
+[0;31mERROR:[0m CCY_GPU_DEVICE_DIR=/dev resolves to /dev, in a system tree (/, /proc, /sys, /dev) ccy will not build from or mount. Unset CCY_GPU_DEVICE_DIR to use /dev/dri.
+=== calls
+=== files

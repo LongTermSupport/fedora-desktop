@@ -48,6 +48,9 @@ func verbExit(err error) (term.ExitCode, bool) {
 	if e, ok := errors.AsType[*refusal](err); ok && e != nil {
 		return ExitRefused, true
 	}
+	if e, ok := errors.AsType[*configError](err); ok && e != nil {
+		return ExitConfig, true
+	}
 	if e, ok := errors.AsType[*host.Error](err); ok && e.Drift {
 		return ExitRefused, true
 	}

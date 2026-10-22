@@ -11,7 +11,11 @@ set -euo pipefail
 CHECK="${1:?usage: probe-host.bash <H1|H2|H3|H4>}"
 
 BUILD_CTX="/opt/claude-yolo"
+# The deployed bash launcher, read as text: claude-yolo while it is a script (before CCY
+# 3.99.14.0, or rolled back), else claude-yolo.bash beside the Go front claude-yolo became.
 DEPLOYED_LAUNCHER="/var/local/claude-yolo/claude-yolo"
+[[ -r "${DEPLOYED_LAUNCHER}" ]] || { echo "ERROR: ${DEPLOYED_LAUNCHER} is missing or unreadable: re-run play-claude-yolo.yml" >&2; exit 1; }
+[[ "$(head -c 2 "${DEPLOYED_LAUNCHER}")" == '#!' ]] || DEPLOYED_LAUNCHER="/var/local/claude-yolo/claude-yolo.bash"
 WRAPPER_REL="optional/child-claude/bin/ccy-claude"
 SKILL_REL="optional/child-claude/skills/child-claude/SKILL.md"
 

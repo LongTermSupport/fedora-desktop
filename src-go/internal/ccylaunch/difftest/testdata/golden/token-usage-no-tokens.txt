@@ -1,0 +1,6 @@
+=== exit 1
+=== stdout
+=== stderr
+ccy --token-usage: no token directory at {sandbox}/home/.claude-tokens/ccy/tokens (create a token with: ccy --create-token)
+=== calls
+=== files

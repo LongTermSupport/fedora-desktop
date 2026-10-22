@@ -125,8 +125,10 @@ func (d Desired) checkEntries() error {
 	switch {
 	case d.Seats == nil || d.Farewell == nil:
 		return errors.New("seats or farewell is missing")
-	case len(d.Seats) > maxSeats || len(d.Farewell) > maxFarewells:
-		return fmt.Errorf("more than %d seats or %d farewells", maxSeats, maxFarewells)
+	case len(d.Seats) > maxSeats:
+		return fmt.Errorf("more than %d seats", maxSeats)
+	case len(d.Farewell) > maxFarewells:
+		return fmt.Errorf("more than %d farewells", maxFarewells)
 	}
 	teams := map[string]bool{}
 	for _, s := range d.Seats {
@@ -167,13 +169,38 @@ func Canonical(seats []Seat) string {
 // Write replaces the desired membership in dir atomically, making dir and its two parents
 // private to the owner.
 func Write(dir string, d Desired) error {
-	if err := d.checkWrite(); err != nil {
+	ok, err := d.validate()
+	if err != nil {
 		return fmt.Errorf("refusing to write the desired membership: %w", err)
 	}
-	return writeDesired(dir, d)
+	return writeDesired(dir, ok)
 }
 
-// checkWrite is check for a membership about to be written, by Write or the launcher.
+// checked is a Desired that passed checkWrite. Only validate sets d, and writeDesired refuses a
+// checked whose d is nil or fails the check again, so a zero or hand-filled value never
+// reaches the disk.
+type checked struct{ d *Desired }
+
+// validate is the one way to a checked membership.
+func (d Desired) validate() (checked, error) {
+	if err := d.checkWrite(); err != nil {
+		return checked{}, err
+	}
+	return checked{d: &d}, nil
+}
+
+// desired is the membership checked holds, judged again; a zero checked is refused.
+func (c checked) desired() (Desired, error) {
+	if c.d == nil {
+		return Desired{}, errors.New("refusing to write a membership that was not checked")
+	}
+	if err := c.d.checkWrite(); err != nil {
+		return Desired{}, fmt.Errorf("refusing to write the desired membership: %w", err)
+	}
+	return *c.d, nil
+}
+
+// checkWrite is check for a membership about to be written.
 // encoding/json writes each byte of invalid UTF-8 as U+FFFD, so a checkout that is not UTF-8
 // would be written as another checkout. That includes the lone surrogate a read file may hold
 // (pyjson keeps it as generalised UTF-8): such a membership is read, but never rewritten.

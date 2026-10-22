@@ -2,6 +2,7 @@ package board
 
 import (
 	"io"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -89,7 +90,8 @@ func TestListNoColourWithNoColor(t *testing.T) {
 
 func TestListWithNoTeams(t *testing.T) {
 	h := newRig(t)
-	h.OnDeclare("declared", "")
+	h.WriteHostVars(t, "")
+	h.OnDeclare("status", "")
 	h.On("systemctl list-units", "", 0)
 	if code := h.c.List(t.Context()); code != term.ExitOK {
 		t.Fatalf("exit %d", code)
@@ -130,11 +132,13 @@ func TestListFailsWhenMembersCannotBeRead(t *testing.T) {
 	}
 }
 
+// The seats cannot be read at all: a member.json nested too deep for v1's decoder, on which
+// its seat list crashed (SPEC-view B-S3).
 func TestListWithAnUnreadableSeatFails(t *testing.T) {
 	h := populated(t)
-	h.OnErr("agent-bus seat list", "boom", 1)
+	teamtest.MustWrite(t, filepath.Join(teamtest.SeatDir(h.Checkout(), "alpha", "dev"), "member.json"), strings.Repeat("[", 30000))
 	if code := h.c.List(t.Context()); code != term.ExitFailure {
-		t.Fatalf("exit %d", code)
+		t.Fatalf("exit %d\n%s\n%s", code, h.Out.String(), h.ErrOut.String())
 	}
 	if !strings.Contains(h.Out.String(), "a seat is unreadable (above)") {
 		t.Fatalf("stdout %q", h.Out.String())
@@ -154,7 +158,7 @@ func TestListDownTeamIsStateNotFailure(t *testing.T) {
 
 func TestListCollectionFailureExitsOne(t *testing.T) {
 	h := newRig(t)
-	h.OnErr(h.DeclarePrefix("overview"), "declare: bad", 78)
+	h.WriteHostVars(t, "agent_bus_teams:\n  - team: alpha\n    port: port\n")
 	if code := h.c.List(t.Context()); code != term.ExitFailure {
 		t.Fatalf("exit %d", code)
 	}

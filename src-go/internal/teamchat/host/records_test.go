@@ -2,9 +2,13 @@ package host
 
 import (
 	"net/netip"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
 func sampleUnits(t *testing.T) unitsRecord {
@@ -153,5 +157,55 @@ func TestStamp(t *testing.T) {
 		if _, err := decodeStamp([]byte(raw), team); err == nil {
 			t.Errorf("%s: decoded", name)
 		}
+	}
+}
+
+// HR2: ReadStamp is a team's stamp under root, read by the trust rule; none is not found.
+func TestReadStamp(t *testing.T) {
+	team := mustTeam(t, "ops")
+	root := t.TempDir()
+	file := filepath.Join(root, paths.StampFile(team))
+	if _, found, err := ReadStamp(root, team); found || err != nil {
+		t.Fatalf("no stamp: %v, %v", found, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(file), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	s := stamp{config: digest([]byte("{}")), software: "abc123", tuwunel: "1.9.4", appliedMS: 42}
+	if err := os.WriteFile(file, s.encode(team), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, found, err := ReadStamp(root, team)
+	want := Stamp{Config: s.config, Software: "abc123", Tuwunel: "1.9.4", AppliedMS: 42}
+	if !found || err != nil || got != want {
+		t.Fatalf("ReadStamp = %+v, %v, %v", got, found, err)
+	}
+	if _, _, err := ReadStamp(root, mustTeam(t, "dev")); err != nil {
+		t.Fatalf("another team: %v", err)
+	}
+}
+
+// HR2: a stamp that does not decode, or is a link, is an error and not found.
+func TestReadStampRefuses(t *testing.T) {
+	team := mustTeam(t, "ops")
+	root := t.TempDir()
+	file := filepath.Join(root, paths.StampFile(team))
+	if err := os.MkdirAll(filepath.Dir(file), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte(`{`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := ReadStamp(root, team); found || err == nil {
+		t.Fatalf("a broken stamp: %v, %v", found, err)
+	}
+	if err := os.Remove(file); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "elsewhere"), file); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := ReadStamp(root, team); found || err == nil {
+		t.Fatalf("a linked stamp: %v, %v", found, err)
 	}
 }

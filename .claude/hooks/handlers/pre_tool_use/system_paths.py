@@ -57,28 +57,84 @@ def _resolve_project_root() -> str:
     )
 
 
-def _is_claude_projects_path(resolved: str) -> bool:
-    """Return True if *resolved* is under a Claude Code agent runtime directory.
+def _claude_projects_root(path: str) -> str | None:
+    """Return the Claude Code projects directory *path* lies lexically under, else None.
 
     Matches /root/.claude/projects/... and /home/<user>/.claude/projects/...
-    using a resolved-prefix check, not a substring match, so a crafted path
-    like /var/evil/.claude/projects/../../etc/passwd cannot bypass the block.
+    by prefix on the normalised path, not a substring match, so a crafted path
+    like /var/evil/.claude/projects/../../etc/passwd (normalised to /etc/passwd)
+    cannot bypass the block.
     """
-    if resolved.startswith("/root/.claude/projects/"):
-        return True
+    if path.startswith("/root/.claude/projects/"):
+        return "/root/.claude/projects"
     # /home/<user>/.claude/projects/  — match exactly three leading components
     # before .claude so we don't accidentally exempt /home/user/work/.claude/...
-    if resolved.startswith("/home/"):
-        parts = Path(resolved).parts  # ('/', 'home', '<user>', '.claude', ...)
-        # parts[0]='/', parts[1]='home', parts[2]=<user>, parts[3]='.claude',
-        # parts[4]='projects'
-        if (
-            len(parts) >= 5
-            and parts[3] == ".claude"
-            and parts[4] == "projects"
-        ):
-            return True
-    return False
+    if path.startswith("/home/"):
+        parts = Path(path).parts  # ('/', 'home', '<user>', '.claude', 'projects', ...)
+        if len(parts) >= 5 and parts[3] == ".claude" and parts[4] == "projects":
+            return "/".join(parts[:5]).replace("//", "/")
+    return None
+
+
+def _normalise(file_path: str) -> str:
+    """Return *file_path* with `.`, `..` and repeated slashes folded, leading ones included.
+
+    POSIX keeps a leading `//`, and `//etc/hosts` would then match no blocked prefix.
+    """
+    path = os.path.normpath(file_path)
+    if path.startswith("//"):
+        path = "/" + path.lstrip("/")
+    return path
+
+
+def _resolves_under(file_path: str, root: str) -> bool:
+    """Return True if *file_path*, resolved as the kernel would, lies under *root*'s target.
+
+    The ORIGINAL path is resolved, not its lexical normalisation: `root/link/../x` with
+    link -> /etc/ssh normalises to root/x but is written to /etc/x.
+    """
+    real_root = os.path.realpath(root)
+    return os.path.realpath(file_path).startswith(real_root + os.sep)
+
+
+def _is_claude_projects_path(file_path: str) -> bool:
+    """Return True if *file_path* is under a Claude Code agent runtime directory.
+
+    The exempt directory may itself be a symlink (in the CCY container /root/.claude
+    links to the project's .claude/ccy), so the path is judged twice: lexically under
+    the projects directory, and, once symlinks are followed, still under the projects
+    directory's own target. A link planted inside it that leaves it is not exempt.
+    """
+    root = _claude_projects_root(_normalise(file_path))
+    return root is not None and _resolves_under(file_path, root)
+
+
+def _project_spellings(real_root: str) -> list[str]:
+    """Return the prefixes (trailing slash) the project root may be written as.
+
+    The resolved root, and the root as this file was loaded and as CLAUDE_PROJECT_DIR
+    names it, each only when it resolves to the same directory: a checkout reached
+    through a symlinked parent is still the project, and nothing else becomes it.
+    """
+    candidates = [str(Path(__file__).parents[4]), os.environ.get("CLAUDE_PROJECT_DIR", "").strip()]
+    spellings = [real_root]
+    for candidate in candidates:
+        if candidate and os.path.realpath(candidate) + "/" == real_root:
+            spellings.append(_normalise(candidate).rstrip("/") + "/")
+    return spellings
+
+
+def _is_project_path(file_path: str) -> bool:
+    """Return True if *file_path* is in the project both as written and where it lands.
+
+    `<project>/link/x` with link -> /etc is written to /etc/x, so the lexical prefix
+    alone does not make a path the project's.
+    """
+    real_root = _resolve_project_root()
+    lexical = _normalise(file_path)
+    if not any(lexical.startswith(prefix) for prefix in _project_spellings(real_root)):
+        return False
+    return os.path.realpath(file_path).startswith(real_root)
 
 
 class SystemPathsHandler(Handler):
@@ -101,6 +157,14 @@ class SystemPathsHandler(Handler):
         "/home/",
     ]
 
+    # Deployed files whose source is not the files/ mirror of their path
+    # (play-claude-yolo.yml installs the bash launcher as claude-yolo.bash and builds
+    # the Go front as claude-yolo).
+    INSTALLED_UNDER_ANOTHER_NAME: ClassVar[dict[str, str]] = {
+        "/var/local/claude-yolo/claude-yolo.bash": "files/var/local/claude-yolo/claude-yolo",
+        "/var/local/claude-yolo/claude-yolo": "src-go/cmd/claude-yolo and src-go/internal/ccylaunch (the Go front)",
+    }
+
     def __init__(self) -> None:
         super().__init__(name="prevent-system-file-edits", priority=8, terminal=True)
 
@@ -122,7 +186,6 @@ class SystemPathsHandler(Handler):
         file_path = get_file_path(hook_input)
         if not file_path:
             return False
-
         # Exempt the active Claude Code project directory. When Claude runs on
         # the HOST (not inside a /workspace CCY container), the project itself
         # lives under /home/<user>/..., and legitimately editing its own files
@@ -130,8 +193,7 @@ class SystemPathsHandler(Handler):
         # _resolve_project_root() verifies the derived path against a sentinel
         # so a wrong parents[N] depth fails loudly instead of silently
         # over-exempting an unrelated directory.
-        project_dir = _resolve_project_root()
-        if file_path.startswith(project_dir):
+        if _is_project_path(file_path):
             return False
 
         # Exempt the Claude Code agent's own runtime directory. This holds
@@ -139,16 +201,14 @@ class SystemPathsHandler(Handler):
         # deployed system config.
         # Use a resolved-prefix check (not a substring match) so a crafted
         # path containing /.claude/projects/ mid-string cannot bypass the block.
-        resolved = str(Path(file_path).resolve())
-        if _is_claude_projects_path(resolved):
+        if _is_claude_projects_path(file_path):
             return False
 
-        # Check if file_path starts with any blocked system path
-        for blocked_path in self.BLOCKED_PATHS:
-            if file_path.startswith(blocked_path):
-                return True
-
-        return False
+        # Blocked if either the folded path (`//etc/x`, `/tmp/../etc/x`) or the path the
+        # write lands on once symlinks are followed (`/bin/x` -> /usr/bin/x,
+        # `/proc/self/root/etc/x`) is under a system prefix.
+        reached = (_normalise(file_path), os.path.realpath(file_path))
+        return any(path.startswith(blocked) for path in reached for blocked in self.BLOCKED_PATHS)
 
     def handle(self, hook_input: dict[str, Any]) -> HookResult:
         """Block the operation with helpful message about infrastructure-as-code.
@@ -232,6 +292,8 @@ class SystemPathsHandler(Handler):
         Returns:
             Suggested project path for editing
         """
+        if file_path in self.INSTALLED_UNDER_ANOTHER_NAME:
+            return self.INSTALLED_UNDER_ANOTHER_NAME[file_path]
         if file_path.startswith("/var/local/"):
             return f"files/var/local/{file_path.split('/var/local/', 1)[1]}"
         if file_path.startswith("/etc/"):

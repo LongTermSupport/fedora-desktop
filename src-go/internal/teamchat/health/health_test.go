@@ -156,9 +156,12 @@ func (v *viewer) View(context.Context, paths.TeamID) (View, error) {
 	return v.view, v.err
 }
 
-type backups struct{ state BackupState }
+type backups struct {
+	state BackupState
+	err   error
+}
 
-func (b *backups) State(context.Context, paths.TeamID) (BackupState, error) { return b.state, nil }
+func (b *backups) State(context.Context, paths.TeamID) (BackupState, error) { return b.state, b.err }
 
 type space struct{ free, total int64 }
 

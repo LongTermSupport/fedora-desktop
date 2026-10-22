@@ -21,14 +21,20 @@ import (
 )
 
 // System is what the verbs reach beyond the process, each a seam (CV3-CV5): the host's
-// (host.Deps; Bootstrap and LockWait are the verb's), the child, the seat side's bundles and
-// the owner group for root; for the child, its Opener.
+// (host.Deps; Bootstrap and LockWait are the verb's, and Pin, CtlUID and CtlGID team apply's
+// from Pin and CtlIDs), the child, the seat side's bundles, the owner group, the health tick
+// and the account database's homes; for the child, its Opener. A seam that reads a host file
+// reads it when a verb calls it, so a verb fails only on what it needs (n2f-W1).
 type System struct {
 	Host       host.Deps
 	Child      Child
 	Bundles    Bundles
 	OwnerGroup func() (int, error)
 	Open       Opener
+	Pin        func() (host.Pin, error)
+	CtlIDs     func() (User, error)
+	Health     func() (HealthTick, error)
+	Home       func(uid int) (string, error)
 }
 
 // Child asks the teamchat-ctl child one request (CC1); its start is the seam's (n2a-D6).
@@ -36,9 +42,10 @@ type Child interface {
 	Ask(ctx context.Context, req Request) (Answer, error)
 }
 
-// Bundles is the seat side's bundle for a credential the child issued (C 3.7.2).
+// Bundles is the seat side's bundle for a credential the child issued (C 3.7.2), with the
+// team's main room the child answered beside it (BU1).
 type Bundles interface {
-	Bundle(ctx context.Context, team declare.Team, handle string, c apply.Credential) (proto.Value, error)
+	Bundle(ctx context.Context, team declare.Team, handle, mainRoom string, c apply.Credential) (proto.Value, error)
 }
 
 // SeatWait is how long a member or role verb waits for the team lock: a launcher's seat take
@@ -80,6 +87,7 @@ func rootRuns() map[string]func(context.Context, Env, []string) term.ExitCode {
 	runs := map[string]func(context.Context, Env, []string) term.ExitCode{
 		"team apply": teamApply, "team approve": teamApprove, "team remove": teamRemove,
 		"role apply": memberVerb(apply.OpRoleApply),
+		"health":     healthVerb, "element check": elementVerb(false), "element apply": elementVerb(true),
 	}
 	for _, op := range []string{apply.OpMemberAdd, apply.OpMemberReturn, apply.OpMemberReissue, apply.OpMemberPark, apply.OpMemberRetire, apply.OpMemberSet} {
 		runs["member "+strings.TrimPrefix(op, "member.")] = memberVerb(op)
@@ -98,11 +106,32 @@ var memberFlags = map[string][]string{
 	apply.OpRoleApply:     {},
 }
 
+// system is the verb's System: Sys, else what Wire builds (WR1); a wiring that fails is 78.
 func (e Env) system() (*System, term.ExitCode) {
-	if e.Sys == nil {
-		return nil, fail(e.Stderr, term.ExitFailure, "this build has its verbs but no host seams: they are not wired yet")
+	sys, err := e.wired()
+	switch {
+	case errors.Is(err, errUnwired):
+		return nil, fail(e.Stderr, term.ExitFailure, err.Error())
+	case err != nil:
+		return nil, fail(e.Stderr, ExitConfig, err.Error())
 	}
-	return e.Sys, term.ExitOK
+	return sys, term.ExitOK
+}
+
+var errUnwired = errors.New("this build has its verbs but no host seams: they are not wired yet")
+
+func (e Env) wired() (*System, error) {
+	switch {
+	case e.Sys != nil:
+		return e.Sys, nil
+	case e.Wire == nil:
+		return nil, errUnwired
+	}
+	sys, err := e.Wire()
+	if err != nil {
+		return nil, fmt.Errorf("the wiring: %w", err)
+	}
+	return sys, nil
 }
 
 func failWith(e Env, err error) term.ExitCode {
@@ -260,7 +289,7 @@ func underLock(ctx context.Context, sys *System, op string, team paths.TeamID, a
 		members = append(members, proto.M("notes", lineArray(a.Notes)))
 	}
 	if a.Credential != nil {
-		b, berr := sys.Bundles.Bundle(ctx, decl, a.Handle, *a.Credential)
+		b, berr := sys.Bundles.Bundle(ctx, decl, a.Handle, a.MainRoom, *a.Credential)
 		if berr != nil {
 			err = errors.Join(err, fmt.Errorf("the bundle of %s: %w; member reissue issues a new credential", a.Handle, berr))
 		} else {
@@ -283,20 +312,35 @@ func asked(op string, args []proto.Member, a Answer) error {
 	if err != nil {
 		return err
 	}
-	lie := func(what string) error {
-		return fmt.Errorf("the %s child answered %s, not what it was asked: no bundle is made", paths.CtlUser, what)
-	}
+	lie := func(what string) error { return childLie(what, "no bundle is made") }
 	if !answeredHandle(req, a.Handle) {
 		return lie("handle " + strconv.Quote(a.Handle))
 	}
+	if err := answerFits(op, a); err != nil {
+		return lie("a view or a notice")
+	}
 	issues := op == apply.OpMemberAdd || op == apply.OpMemberReturn || op == apply.OpMemberReissue
 	switch {
-	case issues && a.Credential == nil:
-		return lie("no credential")
-	case !issues && a.Credential != nil:
-		return lie("a credential")
+	case issues && (a.Credential == nil || a.MainRoom == ""):
+		return lie("no credential or no main room")
+	case !issues && (a.Credential != nil || a.MainRoom != ""):
+		return lie("a credential or a main room")
 	case issues && a.Credential.Kind != req.Credential:
 		return lie("a " + a.Credential.Kind + " credential")
+	}
+	return nil
+}
+
+// childLie is an answer that is not what the child was asked; then says what root does not do.
+func childLie(what, then string) error {
+	return fmt.Errorf("the %s child answered %s, not what it was asked: %s", paths.CtlUser, what, then)
+}
+
+// teamApplyAnswered refuses a team.apply answer that carries more than changed lines: it
+// names no member and issues no credential.
+func teamApplyAnswered(a Answer) error {
+	if a.Handle != "" || len(a.Notes) > 0 || a.Credential != nil || a.MainRoom != "" {
+		return childLie("a handle, notes, a credential or a main room", "its changes are not reported")
 	}
 	return nil
 }
@@ -382,11 +426,26 @@ func teamApply(ctx context.Context, e Env, args []string) term.ExitCode {
 	if len(args) > 0 {
 		return fail(e.Stderr, term.ExitUsage, "team apply takes no arguments: its input is the team's declaration on stdin")
 	}
-	in, err := readInput(e.Stdin)
+	owner, err := rootOwner(sys.Host.Root)
+	if err == nil {
+		err = checkFedora(sys.Host.Root, owner)
+	}
 	if err != nil {
 		return failWith(e, err)
 	}
 	d := sys.Host
+	if d.Pin, err = sys.Pin(); err != nil {
+		return fail(e.Stderr, ExitConfig, "the server pin: "+err.Error())
+	}
+	ctl, err := sys.CtlIDs()
+	if err != nil {
+		return fail(e.Stderr, ExitConfig, "the "+paths.CtlUser+" account: "+err.Error())
+	}
+	d.CtlUID, d.CtlGID = ctl.UID, ctl.GID
+	in, err := readInput(e.Stdin)
+	if err != nil {
+		return failWith(e, err)
+	}
 	d.LockWait = host.PlayWait
 	d.Bootstrap = func(ctx context.Context, b host.Bootstrap) ([]string, error) { return bootstrap(ctx, sys, b) }
 	lines, err := host.Apply(ctx, d, in)
@@ -415,6 +474,11 @@ func bootstrap(ctx context.Context, sys *System, b host.Bootstrap) ([]string, er
 	a, err := ask(ctx, sys, apply.OpTeamApply, id, proto.Obj(proto.M("input", in), proto.M("approved", g), proto.M("reg_key", proto.Str(b.RegKey))))
 	if a == nil {
 		return nil, err
+	}
+	if a.OK {
+		if lie := teamApplyAnswered(*a); lie != nil {
+			return nil, lie
+		}
 	}
 	return a.Changed, err
 }

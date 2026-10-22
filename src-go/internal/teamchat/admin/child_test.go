@@ -158,8 +158,8 @@ func TestAnswerCarriesAMemberVerbsFields(t *testing.T) {
 		wire   string
 	}{
 		{
-			Answer{OK: true, Changed: []string{"member x issued"}, Handle: sampleHandle, Credential: &apply.Credential{Kind: apply.CredToken, Secret: "syt_abc~1"}, Notes: []string{"a note"}},
-			`{"v":1,"ok":true,"changed":["member x issued"],"handle":"` + sampleHandle + `","credential":{"kind":"token","secret":"syt_abc~1"},"notes":["a note"]}`,
+			Answer{OK: true, Changed: []string{"member x issued"}, Handle: sampleHandle, Credential: &apply.Credential{Kind: apply.CredToken, Secret: "syt_abc~1"}, Notes: []string{"a note"}, MainRoom: sampleRoom},
+			`{"v":1,"ok":true,"changed":["member x issued"],"handle":"` + sampleHandle + `","credential":{"kind":"token","secret":"syt_abc~1"},"notes":["a note"],"main_room":"` + sampleRoom + `"}`,
 		},
 		{
 			Answer{OK: true, Handle: sampleHandle},
@@ -177,7 +177,7 @@ func TestAnswerCarriesAMemberVerbsFields(t *testing.T) {
 			continue
 		}
 		back, err := DecodeAnswer(raw)
-		if err != nil || back.Handle != c.answer.Handle || !slices.Equal(back.Changed, c.answer.Changed) || !slices.Equal(back.Notes, c.answer.Notes) {
+		if err != nil || back.Handle != c.answer.Handle || back.MainRoom != c.answer.MainRoom || !slices.Equal(back.Changed, c.answer.Changed) || !slices.Equal(back.Notes, c.answer.Notes) {
 			t.Errorf("decode %s = %+v, %v", raw, back, err)
 		}
 		if (back.Credential == nil) != (c.answer.Credential == nil) || back.Credential != nil && *back.Credential != *c.answer.Credential {
@@ -208,10 +208,10 @@ func TestAnswerRefusesABadMemberField(t *testing.T) {
 	for name, raw := range map[string]string{
 		"issued on a failure":  `{"v":1,"ok":false,"credential":{"kind":"token","secret":"s"},"error":{"class":"failed","message":"x"}}`,
 		"failure no lines":     `{"v":1,"ok":false,"changed":[],"error":{"class":"failed","message":"x"}}`,
-		"issued, an extra key": `{"v":1,"ok":true,"changed":[],"credential":{"kind":"token","secret":"s","x":1}}`,
+		"issued, an extra key": `{"v":1,"ok":true,"changed":[],"main_room":"` + sampleRoom + `","credential":{"kind":"token","secret":"s","x":1}}`,
 		"issued as a string":   `{"v":1,"ok":true,"changed":[],"credential":"s"}`,
-		"issued as a number":   `{"v":1,"ok":true,"changed":[],"credential":{"kind":"token","secret":1}}`,
-		"issued with a space":  `{"v":1,"ok":true,"changed":[],"credential":{"kind":"token","secret":"` + secret + `"}}`,
+		"issued as a number":   `{"v":1,"ok":true,"changed":[],"main_room":"` + sampleRoom + `","credential":{"kind":"token","secret":1}}`,
+		"issued with a space":  `{"v":1,"ok":true,"changed":[],"main_room":"` + sampleRoom + `","credential":{"kind":"token","secret":"` + secret + `"}}`,
 		"handle empty":         `{"v":1,"ok":true,"changed":[],"handle":""}`,
 		"handle number":        `{"v":1,"ok":true,"changed":[],"handle":3}`,
 		"notes empty":          `{"v":1,"ok":true,"changed":[],"notes":[]}`,

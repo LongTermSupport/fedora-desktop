@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/health"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -111,10 +112,14 @@ func ctlChild(ctx context.Context, e Env, args []string) term.ExitCode {
 	if err != nil {
 		return childFailed(e, "bad request: "+err.Error())
 	}
-	if e.Sys == nil || e.Sys.Open == nil {
+	sys, err := e.wired()
+	if err != nil && !errors.Is(err, errUnwired) {
+		return childFailed(e, err.Error())
+	}
+	if sys == nil || sys.Open == nil {
 		return childFailed(e, "op "+req.Op+" is not served by this build")
 	}
-	a := Serve(ctx, e.Sys.Open, req)
+	a := Serve(ctx, sys.Open, req)
 	raw, err = EncodeAnswer(a)
 	if err != nil {
 		return childFailed(e, "cannot encode the answer: "+err.Error())
@@ -268,15 +273,19 @@ var classExit = map[ErrorClass]term.ExitCode{
 	ClassFailed: term.ExitFailure, ClassRefused: ExitRefused, ClassUnreachable: ExitUnreachable, ClassConfig: ExitConfig,
 }
 
-// Answer is the child's one answer (CC5, CV2): what changed, and for a member verb its handle,
-// the credential the caller asked for and notes for the status record; or the failure, with
-// the lines that changed before it.
+// Answer is the child's one answer (CC5, CV2, CO1-CO3, BU1): what changed, and for a member
+// verb its handle, the credential the caller asked for with the team's main room, and notes for
+// the status record; for team.view the view, for member.disconnected the notice; or the
+// failure, with the lines that changed before it.
 type Answer struct {
 	OK         bool
 	Changed    []string
 	Handle     string
 	Credential *apply.Credential
+	MainRoom   string
 	Notes      []string
+	View       *health.View
+	Notice     *health.Notice
 	Error      *AnswerError
 }
 
@@ -312,12 +321,15 @@ func (a Answer) validate() error {
 			return err
 		}
 	}
-	return validLines("notes", a.Notes, maxNotes)
+	if err := validLines("notes", a.Notes, maxNotes); err != nil {
+		return err
+	}
+	return a.validateOps()
 }
 
 func (a Answer) validateFailure() error {
-	if a.Handle != "" || a.Credential != nil || len(a.Notes) > 0 {
-		return errors.New("a failed answer carries no handle, credential or notes")
+	if a.Handle != "" || a.Credential != nil || a.MainRoom != "" || len(a.Notes) > 0 || a.View != nil || a.Notice != nil {
+		return errors.New("a failed answer carries no handle, credential, main room, notes, view or notice")
 	}
 	if _, ok := classExit[a.Error.Class]; !ok {
 		return fmt.Errorf("error class %s", strconv.Quote(string(a.Error.Class)))
@@ -383,7 +395,7 @@ func EncodeAnswer(a Answer) ([]byte, error) {
 	if len(a.Notes) > 0 {
 		members = append(members, proto.M("notes", lineArray(a.Notes)))
 	}
-	return proto.Obj(members...).Compact(), nil
+	return proto.Obj(append(members, a.encodeOps()...)...).Compact(), nil
 }
 
 func lineArray(lines []string) proto.Value {
@@ -415,7 +427,7 @@ func DecodeAnswer(raw []byte) (Answer, error) {
 }
 
 func decodeDone(v proto.Value) (Answer, error) {
-	obj, err := keys(v, []string{"v", "ok", "changed"}, "handle", "credential", "notes")
+	obj, err := keys(v, []string{"v", "ok", "changed"}, "handle", "credential", "notes", keyMainRoom, keyView, keyNotice)
 	if err != nil {
 		return Answer{}, err
 	}
@@ -444,6 +456,9 @@ func decodeDone(v proto.Value) (Answer, error) {
 		if len(a.Notes) == 0 {
 			return Answer{}, errors.New("notes is empty")
 		}
+	}
+	if err = decodeOps(&a, obj); err != nil {
+		return Answer{}, err
 	}
 	return a, a.validate()
 }

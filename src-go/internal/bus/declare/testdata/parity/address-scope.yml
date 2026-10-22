@@ -1,0 +1,4 @@
+agent_bus_address: "fe80::1%eth0"
+agent_bus_teams:
+  - team: alpha
+    port: 6167

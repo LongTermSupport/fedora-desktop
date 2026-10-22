@@ -186,11 +186,13 @@ type facts struct {
 	backup     status.Backup
 	disk       status.Disk
 	restarted  bool
+	// held is a caller holding the team lock (Refresh): no re-probe and no restart.
+	held bool
 }
 
 // Team ticks one team (C 3.11.2).
 func (t *Tick) Team(ctx context.Context, team Team) Outcome {
-	f, err := t.gather(ctx, team)
+	f, err := t.gather(ctx, team, false)
 	if errors.Is(err, errRemoved) {
 		return Outcome{Team: team.ID, Result: ResultDropped, Why: errRemoved.Error()}
 	}
@@ -200,9 +202,10 @@ func (t *Tick) Team(ctx context.Context, team Team) Outcome {
 	return t.write(ctx, team, f)
 }
 
-// gather is steps 1 to 4, without the team lock and changing nothing but a restart.
-func (t *Tick) gather(ctx context.Context, team Team) (*facts, error) {
-	f := &facts{}
+// gather is steps 1 to 4, changing nothing but a restart: without the team lock, or with
+// held its caller's, which allows no restart.
+func (t *Tick) gather(ctx context.Context, team Team, held bool) (*facts, error) {
+	f := &facts{held: held}
 	prev, found, err := status.Read(t.cfg.StatusPath(team.ID), team.ID)
 	if err == nil && found {
 		f.prev, f.seq = &prev, prev.Seq

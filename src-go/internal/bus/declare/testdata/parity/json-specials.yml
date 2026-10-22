@@ -1,0 +1,9 @@
+agent_bus_teams:
+  - team: alpha
+    port: 6167
+    allow_from: [NaN, Infinity, -Infinity, 1e400, -0.0, 1E5, 1e16, 1e-5, 0.0001, 123456789012345678901234567890]
+    humans: ["\u00e9", "\ud83d\ude00", "\u2028", "\\", "\/", "\b\f\n\r\t", "\u0001"]
+    exclude: {"a": 1, "a": 2, "b": {"c": [true, false, null]}}
+    removed_humans: [ 1 , 2 ]
+    server_name: café.example.com
+    description: "caf\u00e9 \ud83d\ude00"

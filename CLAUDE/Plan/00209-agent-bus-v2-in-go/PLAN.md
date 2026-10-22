@@ -76,6 +76,7 @@ milestone that acts on it.
 | VISIBLE      | OD-A10, BD9, BD15, BD16, DC4, DC16, DC17, DC18, DC19, DC21, OD-D6, INT4, INT5, INT7, and DC8                                                            | accepted (Task 0.5); DC17 with its go-deps allowlist rows and govulncheck clean; DC8 comes back to the coordinator if H-C5 or H-C15 fails; DC16's and DC19's stated cost is INT6's, below                                                                      |
 | IRREVERSIBLE | OD-A7, DC1, DC5, DC15, OD-D1 (`teamchat`), OD-D5, and TID above                                                                                         | accepted with gate A (Task 0.5): N1-N4 build on them; no host install that writes an owner-visible name or path, and no migration of any team, until the owner confirms                                                                                        |
 | INT6         | owner-uid processes holding a pool seat's password have power over that account (DC16, DC19)                                                            | owner only, with gate B (Task 0.5): built as defaulted; the first deploy that gives any process a pool seat's password waits for the owner, who may choose [DESIGN-v2.md 7.1](DESIGN-v2.md#71-int6s-narrower-alternative-a-pool-seat-with-no-password) instead |
+| n2f-D12      | the admin token goes to whatever holds the team's loopback port: only `team apply` checks the holder ([SPEC-n2f.md](SPEC-n2f.md) section 11)            | owner only, before the first install (gate A): accepted as residual in the inert code; the alternative is the admin client over a unix socket only the server and `teamchat-ctl` reach, which removes the race                                                 |
 | others       | OD-A1-A6, OD-A8, OD-A9, OD-A11, BD1-BD8, BD10-BD14, BD17, BD18, DC2, DC3, DC6, DC7, DC9-DC14, DC20, OD-D2-D4, OD-D7, INT1, INT2                         | defaulted, not flagged                                                                                                                                                                                                                                         |
 
 DESIGN.md's D1-D20 belonged to the in-place design and are superseded with it.
@@ -253,6 +254,13 @@ its first caller.
   covered: the `-tags tuwunel` round trip of the verbs (CV6's last line); the production
   `Child`, `Opener`, `Bundles` and `OwnerGroup` (`cmd/teamchat-admin` wires no `Sys`); the
   play's install tasks and C 3.5.2 step 1's Fedora check (gate A).
+  Slice n2f (`feat/bus-v2-n2f`, `SPEC-n2f.md`, report `subagent-reports/261022-n2f.md`) covers,
+  as inert code, the production side of every seam: the `teamchat-ctl` child started by
+  `ExecChild` (proven as two real processes), the Opener, bundles and owner group, the units
+  seam over D-Bus (godbus, n2f-D4), the listener and firewall probes (`hostnet`, n2f-D11), the
+  `health` and `element` verbs, and `main` building the real `System` (`admin/wire`). Not
+  covered: the play, units and tmpfiles (gate A); C 3.12's backups (n2f-D6); C 3.9.2's LXC
+  probe (n2f-D7). Owner residual: n2f-D12 (Decisions, above).
 
 - [ ] 🔄 **Task 2.4**: Seats and bundles in the seat store (C 3.7), the declarations (C 3.8),
   Element profiles (C 3.10), health and the status records (C 3.11), backups and restore (C 3.12).
@@ -299,27 +307,21 @@ its first caller.
   The team lock is one package, `teamchat/teamlock` (TL1), used by host, admin and health
   (`subagent-reports/261022-n2-lock.md`).
 
-  **Six N2 packages have no caller yet, so the N2 stack stays on the plan branch, off F44, until
-  their callers land** (a Go package merges to F44 with its first caller, above). Each one's
-  caller-to-come:
+  **Six N2 packages had no caller; slice n2f gives four of them one** (by import:
+  `go list -deps ./cmd/teamchat-admin`). A Go package merges to F44 with its first caller
+  (above), so the N2 stack stays on the plan branch, off F44, until the last two land.
 
-  - `declare/hostvars`: ccy-teams, its only importer, when its flows read and write the v2
-    declarations in host_vars (HV4's writer; Task 4.3).
-  - `health`: the `teamchat-admin health --all` verb, in `teamchat-admin`'s production wiring
-    (the `teamchat-ctl` child, the units seam's D-Bus adapter with godbus, the opener, bundles
-    and owner group), run by `teamchat-health.{service,timer}` (C 3.11; the units are play
-    tasks under gate A, Task 2.5).
-  - `health/view`: the `teamchat-ctl` child's view op (n2a-D6's child start, the same
-    production wiring), which `health` reads through its `Viewer` seam.
-  - `notice`: the announcer adapter behind `seat.Announcer`, in the same production wiring for
-    the health tick's LXC notices, and in ccy-teams' `seats sweep` for the owner's seats.
-  - `sweep`: ccy-teams' `seats sweep` (Task 4.3), run by the owner's
+  - `health`: called. `teamchat-admin health` (`admin/wiring.go`, `admin/wire`); its run by
+    `teamchat-health.{service,timer}` (C 3.11) is play work under gate A (Task 2.5).
+  - `health/view`: called, by the child's `team.view` op (`admin/serveview.go`).
+  - `notice`: called, by the child's `member.disconnected` op (`admin/serveview.go`). ccy-teams'
+    `seats sweep` is its second caller, still to come.
+  - `element`: called. `teamchat-admin element check|apply` (`admin/wiring.go`); the optional
+    Element play that runs it is gate A.
+  - `declare/hostvars`: still waits, on ccy-teams, its only importer, when its flows read and
+    write the v2 declarations in host_vars (HV4's writer; Task 4.3).
+  - `sweep`: still waits, on ccy-teams' `seats sweep` (Task 4.3), run by the owner's
     `teamchat-seats.{service,timer}` (C 3.7.5; user units under gate A, Task 2.5).
-  - `element`: the `teamchat-admin element check|apply` verb in the production wiring, run as
-    the desktop user by the optional Element play (C 3.10; gate A).
-
-  None of this wiring is in N2: it is the later slices named above, and its host parts are
-  owner-gated.
 
 - [ ] ⬜ **Task 2.5**: Acceptance: C 3.14's tests; the M44 real-Tuwunel test, and Tuwunel's answers
   for a locked and a deactivated account recorded into `fakehs` (host or VM lab); VM-lab scenario

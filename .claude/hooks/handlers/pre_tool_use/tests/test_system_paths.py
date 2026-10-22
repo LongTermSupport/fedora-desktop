@@ -1,5 +1,6 @@
 """Comprehensive tests for SystemPathsHandler - Infrastructure-as-Code enforcement."""
 
+import os
 import sys
 from pathlib import Path
 
@@ -8,6 +9,7 @@ import pytest
 # Add handler directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import system_paths
 from system_paths import SystemPathsHandler
 
 
@@ -177,6 +179,125 @@ class TestSystemPathsHandler:
         }
         assert handler.matches(hook_input) is False
 
+    # The exemptions are judged on the path the write would reach, not its spelling.
+    @pytest.mark.parametrize(
+        "file_path",
+        [
+            "/root/.claude/projects/../../../etc/passwd",
+            "/home/u/.claude/projects/x/../../../../../etc/passwd",
+            "/home/u/work/.claude/projects/-x/memory/MEMORY.md",
+            "//etc/hosts",
+            "/./etc/hosts",
+            "/tmp/../etc/hosts",
+        ],
+    )
+    def test_matches_a_system_path_however_it_is_spelt(self, handler, file_path):
+        """`..`, `.`, a doubled leading slash and another project's .claude are not exempt."""
+        assert handler.matches({"tool_name": "Write", "tool_input": {"file_path": file_path}}) is True
+
+    def test_matches_a_climb_out_of_the_project_directory(self, handler):
+        """The project prefix followed by `..` out of it is not the project."""
+        project = system_paths._resolve_project_root()
+        climb = project + "../" * project.count("/") + "etc/hosts"
+        assert handler.matches({"tool_name": "Edit", "tool_input": {"file_path": climb}}) is True
+
+    def test_resolves_under_follows_a_symlinked_root(self, tmp_path):
+        """The exempt directory may be a link (CCY's /root/.claude); a file under it is exempt."""
+        target = tmp_path / "ccy" / "projects"
+        (target / "-p" / "memory").mkdir(parents=True)
+        link = tmp_path / "projects"
+        link.symlink_to(target)
+        assert system_paths._resolves_under(f"{link}/-p/memory/MEMORY.md", str(link)) is True
+
+    def test_resolves_under_refuses_a_link_that_leaves_the_root(self, tmp_path):
+        """A link planted inside the exempt directory that points out of it is not exempt."""
+        root = tmp_path / "projects"
+        outside = tmp_path / "etc"
+        root.mkdir()
+        outside.mkdir()
+        (root / "escape").symlink_to(outside)
+        assert system_paths._resolves_under(f"{root}/escape/passwd", str(root)) is False
+
+    def test_resolves_under_resolves_dotdot_after_a_link_as_the_kernel_does(self, tmp_path):
+        """`link/../x` with link -> /etc/ssh lands in /etc, though it normalises to root/x."""
+        root = tmp_path / "projects"
+        sub = tmp_path / "etc" / "ssh"
+        root.mkdir()
+        sub.mkdir(parents=True)
+        (root / "link").symlink_to(sub)
+        assert system_paths._resolves_under(f"{root}/link/../passwd", str(root)) is False
+        assert system_paths._resolves_under(f"{root}/plain/../passwd", str(root)) is True
+
+    # The block is judged on where the write lands too: symlinks are followed.
+    @staticmethod
+    def _write(file_path):
+        return {"tool_name": "Write", "tool_input": {"file_path": file_path}}
+
+    @pytest.fixture
+    def project(self, tmp_path, monkeypatch):
+        """A stand-in project root, so links can be planted in it without touching the checkout."""
+        root = Path(os.path.realpath(tmp_path)) / "project"
+        (root / "sub").mkdir(parents=True)
+        monkeypatch.setattr(system_paths, "_resolve_project_root", lambda: f"{root}/")
+        monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
+        return root
+
+    def test_matches_a_link_outside_the_project_into_a_system_dir(self, handler, tmp_path):
+        """A constructed /bin -> usr/bin: the path as written is nowhere blocked, its target is."""
+        (tmp_path / "bin").symlink_to("/usr/bin")
+        assert handler.matches(self._write(f"{tmp_path}/bin/foo")) is True
+
+    @pytest.mark.parametrize("file_path", ["/bin/foo", "/lib/x", "/sbin/x"])
+    def test_matches_the_merged_usr_top_level_links(self, handler, file_path):
+        """On a merged-/usr system /bin, /lib and /sbin are links into /usr."""
+        top = "/" + file_path.split("/")[1]
+        if not os.path.islink(top):
+            pytest.skip(f"{top} is not a symlink on this machine; the constructed-link test covers it")
+        assert os.path.realpath(top).startswith("/usr/")
+        assert handler.matches(self._write(file_path)) is True
+
+    def test_matches_proc_self_root(self, handler):
+        """/proc/self/root/etc/hosts writes /etc/hosts."""
+        assert handler.matches(self._write("/proc/self/root/etc/hosts")) is True
+
+    def test_matches_a_project_link_into_a_system_dir(self, handler, project):
+        """<project>/link/x with link -> /usr/bin is a write to /usr/bin, not to the project."""
+        (project / "link").symlink_to("/usr/bin")
+        assert handler.matches(self._write(f"{project}/link/x")) is True
+
+    def test_matches_dotdot_after_a_project_link(self, handler, project):
+        """<project>/link/../x folds to <project>/x but lands in /usr/x."""
+        (project / "link").symlink_to("/usr/bin")
+        assert handler.matches(self._write(f"{project}/link/../x")) is True
+
+    def test_allows_the_project_with_a_link_that_stays_in_it(self, handler, project):
+        """A link inside the project to the project, and a file not yet created, stay allowed."""
+        (project / "inner").symlink_to(project / "sub")
+        assert handler.matches(self._write(f"{project}/sub/new-dir/new-file")) is False
+        assert handler.matches(self._write(f"{project}/inner/x")) is False
+
+    def test_a_project_reached_through_a_symlinked_parent_is_the_project(self, project, tmp_path, monkeypatch):
+        """CLAUDE_PROJECT_DIR spelt through a link is the project, when it resolves to the root."""
+        alias = tmp_path / "alias"
+        alias.symlink_to(project)
+        assert system_paths._is_project_path(f"{alias}/x") is False
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(alias))
+        assert system_paths._is_project_path(f"{alias}/x") is True
+        assert system_paths._is_project_path(f"{alias}/../alias/x") is True
+
+    def test_a_project_dir_variable_that_is_not_the_project_exempts_nothing(self, project, tmp_path, monkeypatch):
+        """CLAUDE_PROJECT_DIR naming somewhere else is not taken as a spelling of the project."""
+        other = tmp_path / "other"
+        other.mkdir()
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(other))
+        assert system_paths._is_project_path(f"{other}/x") is False
+
+    @pytest.mark.parametrize("relative", ["x.md", "untracked/scratch/x", ".claude/worktrees/w/files/etc/x"])
+    def test_allows_the_real_project_tree(self, handler, relative):
+        """The checkout's own files, untracked/ and worktrees under it stay allowed."""
+        root = system_paths._resolve_project_root()
+        assert handler.matches(self._write(root + relative)) is False
+
     def test_matches_read_tool_returns_false(self, handler):
         """Should NOT match Read tool (reading system files is allowed)."""
         hook_input = {"tool_name": "Read", "tool_input": {"file_path": "/etc/fstab"}}
@@ -335,6 +456,21 @@ class TestSystemPathsHandler:
         }
         result = handler.handle(hook_input)
         assert "files/var/local/" in result.reason
+
+    def test_handle_maps_deployed_bash_launcher_to_its_source(self, handler):
+        """The play installs files/var/local/claude-yolo/claude-yolo as claude-yolo.bash."""
+        result = handler.handle(
+            {"tool_name": "Edit", "tool_input": {"file_path": "/var/local/claude-yolo/claude-yolo.bash"}}
+        )
+        assert "Edit the project file in: files/var/local/claude-yolo/claude-yolo\n" in result.reason
+
+    def test_handle_maps_deployed_go_front_to_its_source(self, handler):
+        """/var/local/claude-yolo/claude-yolo is the Go front, built from src-go."""
+        result = handler.handle(
+            {"tool_name": "Write", "tool_input": {"file_path": "/var/local/claude-yolo/claude-yolo"}}
+        )
+        assert "Edit the project file in: src-go/cmd/claude-yolo" in result.reason
+        assert "Edit the project file in: files/var/local/claude-yolo/claude-yolo\n" not in result.reason
 
     def test_handle_maps_usr_local_to_files_usr_local(self, handler):
         """handle() should suggest files/usr/local/ for /usr/local/ paths."""

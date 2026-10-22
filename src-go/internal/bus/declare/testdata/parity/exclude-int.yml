@@ -1,0 +1,5 @@
+agent_bus_teams:
+  - team: alpha
+    port: 6167
+    org: example-org
+    exclude: 7

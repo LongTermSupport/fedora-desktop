@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/admin"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/admin/wire"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -20,7 +21,14 @@ func main() {
 }
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer, digest string) term.ExitCode {
-	return admin.Run(context.Background(), admin.Env{
+	return admin.Run(context.Background(), newEnv(args, stdin, stdout, stderr, digest))
+}
+
+// newEnv is one run over this process, the System built by wire.New at the first verb that
+// needs it (WR1, WR3).
+func newEnv(args []string, stdin io.Reader, stdout, stderr io.Writer, digest string) admin.Env {
+	return admin.Env{
 		Args: args, Stdin: stdin, Stdout: stdout, Stderr: stderr, Proc: admin.OSProcess(), Digest: digest,
-	})
+		Wire: wire.New(digest),
+	}
 }

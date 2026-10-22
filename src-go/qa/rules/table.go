@@ -45,14 +45,16 @@ const (
 // commandOwners maps a program to the packages that own every use of it, so its flags and
 // target forms are decided once (the gum and fzf prompts, the sudo and tmux argument forms).
 // A program with two owners is used for two different jobs: podman is read for a session's
-// container by sessprobe and driven (pause, unpause, networks) by podfreeze. A program absent
+// container by sessprobe and driven (pause, unpause, networks) by podfreeze, and systemctl is
+// the desktop's units through sudo in systemd and `clean --what=state` of a teamchat homeserver
+// as root in teamchat/units (whose other unit calls are D-Bus). A program absent
 // from the table is unowned: any package may run it.
 var commandOwners = map[string][]string{
 	"sudo":         {sudoPkg},
 	"tmux":         {"internal/tmuxccy"},
 	"gum":          {"internal/ui"},
 	"fzf":          {"internal/ui"},
-	"systemctl":    {"internal/systemd"},
+	"systemctl":    {"internal/systemd", "internal/teamchat/units"},
 	"busctl":       {"internal/systemd", "internal/wsimedia"},
 	"git":          {"internal/gitx"},
 	"ps":           {sessprobePkg},
@@ -126,6 +128,16 @@ var dynamicNames = []allowance{
 		reason: "a project's daemon CLI path, or the container engine that execs it inside the project's container",
 	},
 	{
+		pkg:    "internal/engine",
+		fn:     "Engine.cmd",
+		reason: "the ccy launcher's container engine, podman or docker: an Engine's kind is unexported and set only by engine.New, which refuses any other name",
+	},
+	{
+		pkg:    "internal/ccylaunch",
+		fn:     "Front.handOver",
+		reason: "the bash launcher, claude-yolo.bash beside the Go front's own executable: the strangler's hand-over (Plan 00191 Task 4.5)",
+	},
+	{
 		pkg:    hostPkg,
 		fn:     "launcherVia",
 		reason: "the ccy launcher path the process is replaced with, given by the environment",
@@ -139,6 +151,11 @@ var dynamicNames = []allowance{
 		pkg:    opsPkg,
 		fn:     "Ops.runElementPlay",
 		reason: "the Element play, run by its own shebang; its path is configuration",
+	},
+	{
+		pkg:    "internal/teamchat/admin",
+		fn:     "ExecChild.Ask",
+		reason: "teamchat-admin itself, run as the teamchat-ctl child: the running binary resolved from /proc/self/exe (SPEC-n2f CS2)",
 	},
 	{
 		pkg:    "internal/wsi",

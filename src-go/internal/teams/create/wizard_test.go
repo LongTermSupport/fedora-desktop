@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -22,11 +24,31 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
-const (
-	wzRoot     = "/root"
-	wzHostVars = "/home/u/fd/localhost.yml"
-	wzHome     = "/home/u"
-)
+const wzRoot = "/root"
+
+// wzHome is the person's home and wzHostVars the host_vars file in it, a real file the reads
+// answer from (Plan 00209 SPEC-view.md V10-V23): TestMain makes them in a scratch directory,
+// and each harness writes the file afresh. The tests do not run in parallel.
+var wzHome, wzHostVars string
+
+func TestMain(m *testing.M) {
+	home, err := os.MkdirTemp("", "create-test-home-")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	wzHome, wzHostVars = home, filepath.Join(home, "fd", "localhost.yml")
+	if err := os.Mkdir(filepath.Dir(wzHostVars), 0o700); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	code := m.Run()
+	if err := os.RemoveAll(home); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	os.Exit(code)
+}
 
 // wzScript answers the calls a flow makes more than once with different answers (each gum
 // question in turn), and hands every other call to the Fake. Every call is recorded.
@@ -160,6 +182,72 @@ type wzHarness struct {
 	elemErr error
 	execd   [][]string
 	execErr error
+	// address is the bus address the host_vars declares ("" for none); others is agent_bus_teams
+	// items already declared; created is the item the faked create wrote. hostVars writes them.
+	address string
+	others  string
+	created string
+	// createWrites, when set, is the item the faked create writes instead of the one its flags
+	// make: a test that needs the machine to read differently after the create.
+	createWrites string
+}
+
+// hostVars writes the host_vars the harness's machine has.
+func (h *wzHarness) hostVars() error {
+	text := "agent_bus_teams:\n" + h.created + h.others
+	if h.address != "" {
+		text = "agent_bus_address: " + h.address + "\n" + text
+	}
+	return os.WriteFile(wzHostVars, []byte(text), 0o600)
+}
+
+// setHostVars rewrites the host_vars after a test changed what the machine declares.
+func (h *wzHarness) setHostVars(t *testing.T) {
+	t.Helper()
+	if err := h.hostVars(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// create is declare.py create, faked: a dry run writes nothing; otherwise the team's entry is
+// written as declare.py writes it (port 6169), with the bus address it was given, and the
+// CHANGED line printed.
+func (h *wzHarness) create(c execx.Cmd) (execx.Result, error) {
+	flags := map[string][]string{}
+	for i := 8; i+1 < len(c.Args); i += 2 { // after env's argv up to "--file PATH"
+		flags[c.Args[i]] = append(flags[c.Args[i]], c.Args[i+1])
+	}
+	if c.Args[len(c.Args)-1] == "--dry-run" {
+		return wzOK("CHANGED\tteam proj, port 6169, in " + wzHostVars + "\n"), nil
+	}
+	item := "  - team: " + flags["--team"][0] + "\n    port: 6169\n"
+	if d := flags["--description"]; len(d) > 0 {
+		item += "    description: " + strconv.Quote(d[0]) + "\n"
+	}
+	if humans := flags["--human"]; len(humans) > 0 {
+		item += "    humans: [\"" + strings.Join(humans, "\", \"") + "\"]\n"
+	}
+	if org := flags["--org"]; len(org) > 0 {
+		item += "    org: " + org[0] + "\n"
+	}
+	if repos := flags["--repo"]; len(repos) > 0 {
+		var list strings.Builder
+		for _, r := range repos {
+			list.WriteString("      - repo: " + r + "\n")
+		}
+		item += "    repos:\n" + list.String()
+	}
+	if a := flags["--address"]; len(a) > 0 {
+		h.address = a[0]
+	}
+	h.created = item
+	if h.createWrites != "" {
+		h.created = h.createWrites
+	}
+	if err := h.hostVars(); err != nil {
+		return execx.Result{}, err
+	}
+	return wzOK("CHANGED\tteam proj, port 6169, in " + wzHostVars + "\n"), nil
 }
 
 // newWzHarness is a creator in a checkout of example-org/proj, on a terminal, with an
@@ -169,8 +257,9 @@ func newWzHarness(t *testing.T) *wzHarness {
 	t.Helper()
 	h := &wzHarness{
 		fake: &execx.Fake{}, stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, declErr: &bytes.Buffer{},
-		tty: true, missing: map[string]bool{},
+		tty: true, missing: map[string]bool{}, address: "192.0.2.10",
 	}
+	h.setHostVars(t)
 	h.run = &wzScript{fake: h.fake, queues: map[string][]execx.Result{}}
 	f := h.fake
 	f.On([]string{"tput", "cols"}, wzOK("100\n"))
@@ -186,23 +275,15 @@ func newWzHarness(t *testing.T) *wzHarness {
 	f.On([]string{"gh", "api", "repos/other/missing"}, execx.Result{ExitCode: 1, Stderr: []byte("gh: Not Found (HTTP 404)")})
 	f.On([]string{"gh", "api", "users/nope"}, execx.Result{ExitCode: 1})
 	f.On([]string{"git", "rev-parse", "--is-inside-work-tree"}, wzOK("true\n"))
-	f.On([]string{"git", "rev-parse", "--show-toplevel"}, wzOK("/home/u/proj\n"))
+	f.On([]string{"git", "rev-parse", "--show-toplevel"}, wzOK(wzHome+"/proj\n"))
 	f.On([]string{"git", "remote", "get-url", "origin"}, wzOK("git@github.com:Example-Org/Proj.git\n"))
-	f.On(wzDPBare("github-remote"), wzOK("example-org/proj\n"))
-	f.On(wzDP("address"), wzOK("192.0.2.10\n"))
 	f.On(wzDP("check"), wzOK(""))
 	f.On(wzDPBare("check-address"), wzOK(""))
 	f.On(wzDP("suggest-team"), wzOK(""))
 	f.On(wzDP("suggest-team", "--name", "proj"), wzOK("proj\n"))
 	f.On(wzDP("suggest-team", "--name", "example-org"), wzOK("example-org\n"))
-	f.On(wzDP("create"), wzOK("CHANGED\tteam proj, port 6169, in "+wzHostVars+"\n"))
+	f.OnFunc(wzDP("create"), h.create)
 	f.On(wzDP("element"), wzOK("CHANGED\tteam proj Element profile\n"))
-	f.On(wzDP("teams-for"), wzOK("TEAM\tproj\n"))
-	f.On(wzDP("next-steps"), wzOK("Team proj is up. Later, in ccy-teams:\n"+
-		"  Sign in      Enter on your name under the team, then choose Sign in: it sets a password and shows it.\n"+
-		"  Element      Enter on the team, then choose Open in Element.\n"+
-		"  Agents       in a checkout of any repository of example-org, run ccy --teams proj\n"+
-		"               (ccy-teams run there offers it; Enter on the team, then Start a ccy session, does it too).\n"))
 
 	client := declare.NewClient(h.run, wzRoot, wzHostVars)
 	client.Err = h.declErr
@@ -214,7 +295,7 @@ func newWzHarness(t *testing.T) *wzHarness {
 			return &term.Term{Err: h.stderr, IsTerminal: func(any) bool { return h.tty }, Getenv: wzNoColour}
 		},
 		Runner: h.run, Stdin: strings.NewReader(""), Stdout: h.stdout,
-		Cwd: "/home/u/proj/sub", HostVars: wzHostVars, Home: wzHome, Launcher: "/opt/ccy/launcher",
+		Cwd: wzHome + "/proj/sub", HostVars: wzHostVars, Home: wzHome, Launcher: "/opt/ccy/launcher",
 		LookPath: func(name string) (string, error) {
 			if h.missing[name] {
 				return "", exec.ErrNotFound
@@ -393,7 +474,7 @@ func TestWizardInACheckoutAcceptsEveryDefault(t *testing.T) {
 	if len(h.pwd) != 0 || len(h.element) != 0 {
 		t.Errorf("declined offers ran: %v %v", h.pwd, h.element)
 	}
-	if len(h.execd) != 1 || !slices.Equal(h.execd[0], []string{"/home/u/proj", "/opt/ccy/launcher", "--teams", "proj"}) {
+	if len(h.execd) != 1 || !slices.Equal(h.execd[0], []string{wzHome + "/proj", "/opt/ccy/launcher", "--teams", "proj"}) {
 		t.Errorf("exec %v", h.execd)
 	}
 	wzContain(t, "stdout", h.stdout.String(), "CHANGED\tteam proj, port 6169")
@@ -458,8 +539,7 @@ func TestWizardRunsItsStepsInTheDocumentedOrder(t *testing.T) {
 		"env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare element",
 		"gum confirm --default=true Sign owner in",
 		"gum confirm --default=true Open proj",
-		"env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare next-steps",
-		"env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare teams-for",
+		// the next steps and the teams covering the checkout are read in-process, no process
 		"gum confirm --default=true Start a ccy session",
 	}
 	last := -1
@@ -676,11 +756,14 @@ func TestNoOtherMachinesIsAnsweredInWords(t *testing.T) {
 
 func TestAMachineWithNoBusAddressAsksForOneAndDeclaresItWithTheTeam(t *testing.T) {
 	h := newWzHarness(t)
-	h.fake.On(wzDP("address"), wzOK(""))
+	h.address = ""
+	h.setHostVars(t)
 	h.fake.On(wzDPBare("check-address", "--address", "=not-an-ip"), wzRefuse("declare: --address: not an IP address"))
 	h.run.queue("gum choose", wzOK(scopeOwner+"\n"))
 	h.run.queue("gum input", wzOK("example-org\n"), wzOK("example-org\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"), wzOK("=not-an-ip\n"), wzOK("192.0.2.10\n"))
-	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1))
+	// team example-org trusts all of example-org, so it covers this checkout: the session is
+	// offered, and declined
+	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1), wzExit(1))
 	wzCode(t, h.invoke(), 0, h)
 	e := h.err()
 	wzContain(t, "stderr", e, "7/7  Bus address", "not an IP address. Try again.", "✓ 192.0.2.10")
@@ -780,7 +863,7 @@ func TestYesWithEveryValueCreatesInstallsAndPrintsTheNextSteps(t *testing.T) {
 		t.Errorf("applied %v", h.applied)
 	}
 	e := h.err()
-	wzContain(t, "stderr", e, "ccy --teams proj", "Sign in", "Element ")
+	wzContain(t, "stderr", e, "ccy --teams beta", "any repository of example-org", "Sign in", "Element ")
 	wzLack(t, "stderr", e, "meta-deploy")
 	for _, l := range h.run.lines() {
 		if strings.HasPrefix(l, "gum ") {
@@ -793,12 +876,12 @@ func TestYesWithEveryValueCreatesInstallsAndPrintsTheNextSteps(t *testing.T) {
 	if h.run.called("env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare create --file " + wzHostVars + " --team beta --human owner --org example-org --dry-run") {
 		t.Error("--yes dry-ran")
 	}
-	// the team, then Element, then the install
+	// the team, then Element, then the install; the next steps, read in-process from the file
+	// the create wrote, name team beta (above)
 	create := h.run.first("env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare create")
 	elem := h.run.first("env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare element")
-	steps := h.run.first("env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare next-steps")
-	if create < 0 || elem < create || steps < elem {
-		t.Errorf("order create %d element %d next-steps %d", create, elem, steps)
+	if create < 0 || elem < create {
+		t.Errorf("order create %d element %d", create, elem)
 	}
 }
 
@@ -914,9 +997,7 @@ func TestAFailedInstallSaysHowToRetry(t *testing.T) {
 	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "beta", "--human", "owner", "--org", "example-org"), 1, h)
 	wzContain(t, "stderr", h.err(),
 		"ERROR: team beta is declared in ~/fd/localhost.yml but not applied as declared. Once the cause above is fixed, ccy-teams apply beta applies it.")
-	if h.run.called("env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare next-steps") {
-		t.Error("next steps after a failed install")
-	}
+	wzLack(t, "stderr", h.err(), "is up. Later") // no next steps after a failed install
 }
 
 // The play made the person's account before the apply failed, so the sign-in is still looked
@@ -982,6 +1063,9 @@ func TestAnElementEntryThatCannotBeDeclaredFailsBeforeTheInstall(t *testing.T) {
 func TestAnUnchangedCreatePrintsUNCHANGED(t *testing.T) {
 	h := newWzHarness(t)
 	h.tty = false
+	// beta is already declared as asked, so create changes nothing
+	h.others = "  - team: beta\n    port: 6169\n    description: \"Builds the site\"\n    humans: [\"owner\"]\n    org: example-org\n"
+	h.setHostVars(t)
 	h.fake.On(wzDP("create"), wzOK("UNCHANGED\tbeta\n"))
 	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "beta", "--human", "owner", "--org", "example-org"), 0, h)
 	if got := h.stdout.String(); got != "UNCHANGED\tbeta\n" {
@@ -1009,8 +1093,13 @@ func TestFlagsNeedValuesAndUnknownOnesAreRefused(t *testing.T) {
 func TestAFlagValueMayLookLikeAFlag(t *testing.T) {
 	h := newWzHarness(t)
 	h.tty = false
-	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "--yes", "--human", "owner", "--org", "example-org"), 0, h)
+	// The create (faked: the checks accept) carries the value whole. No host_vars can declare a
+	// team named --yes, so the next steps, read from the file, cannot be read for it and the run
+	// ends there with the reader's refusal; the old fake answered them, which no file can.
+	h.createWrites = "  - team: proj\n    port: 6169\n"
+	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "--yes", "--human", "owner", "--org", "example-org"), 64, h)
 	wzContain(t, "create", strings.Join(h.run.matching("env "), "\n"), "--team --yes")
+	wzContain(t, "stderr", h.err(), "declare: --team: team --yes is not declared present, with a port, in agent_bus_teams")
 }
 
 func TestWithoutATerminalAndWithoutYesTheQuestionsCannotBeAsked(t *testing.T) {
@@ -1066,11 +1155,14 @@ func TestAGhThatIsNotLoggedInIsSaidWithItsOwnWords(t *testing.T) {
 
 func TestTheRemoteIsReducedByDeclareAndAnAddressErrorEndsTheRun(t *testing.T) {
 	h := newWzHarness(t)
-	h.fake.On(wzDP("address"), execx.Result{ExitCode: 78, Stderr: []byte("declare: cannot read\n")})
+	h.others = "agent_bus_address: 192.0.2.11\n" // a second address, which the reader refuses
+	h.setHostVars(t)
 	wzCode(t, h.invoke(), 78, h)
-	wzContain(t, "stderr", h.err(), "declare: cannot read")
-	if !h.run.called("env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare github-remote --url git@github.com:Example-Org/Proj.git") {
-		t.Errorf("remote not reduced: %v", h.run.lines())
+	wzContain(t, "stderr", h.err(), "declare: agent_bus_address is set more than once")
+	// The remote is reduced in-process (its reduced value is the default the happy path
+	// offers, example-org/proj); here the origin was read before the address ended the run.
+	if !h.run.called("git remote get-url origin") {
+		t.Errorf("remote not read: %v", h.run.lines())
 	}
 }
 
@@ -1081,9 +1173,6 @@ func TestACheckoutWithNoRemoteHasNoDefaultRepository(t *testing.T) {
 	h.run.queue("gum input", wzOK("example-org\n"), wzOK("example-org\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
 	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1))
 	wzCode(t, h.invoke(), 0, h)
-	if h.run.called("env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare github-remote") {
-		t.Error("reduced a remote that is not there")
-	}
 	wzContain(t, "choose", strings.Join(h.run.matching("gum choose"), "\n"), "--selected "+scopeOwner+" ")
 }
 
@@ -1173,8 +1262,10 @@ func TestTheNextStepsKeepEveryLineWhenNothingWasOffered(t *testing.T) {
 func TestNextStepsThatCannotBeReadEndTheRun(t *testing.T) {
 	h := newWzHarness(t)
 	h.tty = false
-	h.fake.On(wzDP("next-steps"), execx.Result{ExitCode: 78, Stderr: []byte("declare: team beta is not declared\n")})
+	// the entry written has a vaulted org, which the next steps cannot put in words
+	h.createWrites = "  - team: beta\n    port: 6169\n    org: !vault x\n"
 	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "beta", "--human", "owner", "--org", "example-org"), 78, h)
+	wzContain(t, "stderr", h.err(), "declare: beta's org on line 5 is tagged (vault-encrypted?); ccy-teams reads only plain values")
 }
 
 // ── offer_join ───────────────────────────────────────────────────────────────────────────
@@ -1193,7 +1284,8 @@ func TestNoSessionIsOfferedOutsideACheckout(t *testing.T) {
 func TestNoSessionIsOfferedForATeamThatDoesNotCoverTheCheckout(t *testing.T) {
 	h := newWzHarness(t)
 	h.happyAnswers()
-	h.fake.On(wzDP("teams-for"), wzOK("TEAM\tother\n"))
+	// the team written trusts only other/tool, not this checkout's example-org/proj
+	h.createWrites = "  - team: proj\n    port: 6169\n    repos:\n      - repo: other/tool\n"
 	h.run.queues["gum confirm"] = []execx.Result{wzOK(""), wzExit(1), wzExit(1)}
 	wzCode(t, h.invoke(), 0, h)
 	if h.run.called("gum confirm --default=true Start a ccy session") {
@@ -1215,10 +1307,12 @@ func TestADeclinedSessionStartsNothing(t *testing.T) {
 func TestTeamsForThatFailsIsSaidAndTheOfferSkipped(t *testing.T) {
 	h := newWzHarness(t)
 	h.happyAnswers()
-	h.fake.On(wzDP("teams-for"), execx.Result{ExitCode: 78, Stderr: []byte("declare: cannot read\n")})
+	// another team's scope is vaulted: teams-for cannot judge it
+	h.others = "  - team: other\n    port: 6170\n    repos: !vault x\n"
+	h.setHostVars(t)
 	h.run.queues["gum confirm"] = []execx.Result{wzOK(""), wzExit(1), wzExit(1)}
 	wzCode(t, h.invoke(), 0, h)
-	wzContain(t, "stderr", h.err(), "declare: cannot read")
+	wzContain(t, "stderr", h.err(), "declare: other's repos on line 11 is tagged (vault-encrypted?); ccy-teams reads only plain values")
 }
 
 func TestALauncherThatCannotBeExecutedIsAnError(t *testing.T) {
