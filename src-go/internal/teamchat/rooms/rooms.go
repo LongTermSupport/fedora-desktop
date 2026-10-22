@@ -202,9 +202,13 @@ func (e *engine) adoptable(ctx context.Context, purpose string) (string, bool, e
 	return "", false, drift(purpose, StepAdopt, "more than one room could be it: %s", strings.Join(candidates, ", "))
 }
 
-// candidate is whether the room is purpose's: main has no link, a side room an admin-sent link
-// naming this team and purpose. A side room linking another main is drift (n2a-D8).
+// candidate is whether the room is purpose's: one the admin created, main with no link, a side
+// room with an admin-sent link naming this team and purpose (n2a-D7). A side room linking
+// another main is drift (n2a-D8).
 func (e *engine) candidate(purpose, id string, events map[key]proto.StateEvent) (bool, error) {
+	if create, ok := events[key{proto.CreateType, ""}]; !ok || create.Sender != e.admin {
+		return false, nil
+	}
 	link, linked := events[key{proto.LinkType, ""}]
 	if purpose == proto.PurposeMain {
 		return !linked, nil

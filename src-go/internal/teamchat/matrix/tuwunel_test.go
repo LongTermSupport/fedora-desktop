@@ -9,215 +9,46 @@ package matrix
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"net"
 	"net/http"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"slices"
-	"strconv"
-	"syscall"
 	"testing"
 	"time"
 
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix/tuwunelhs"
 )
 
 const (
-	tuwunelBinEnv     = "FAKEHS_TUWUNEL_BIN"
-	tuwunelStartLimit = 30 * time.Second
-	tuwunelStopLimit  = 10 * time.Second
-	tuwunelTestLimit  = 2 * time.Minute
-	messageType       = "m.room.message"
-	presenceIdleS     = 3
-	presenceOfflineS  = 3
+	tuwunelTestLimit = 2 * time.Minute
+	messageType      = "m.room.message"
+	presenceIdleS    = tuwunelhs.PresenceIdleS
+	presenceOfflineS = tuwunelhs.PresenceOfflineS
 )
 
-// tuwunel is a running homeserver on a loopback port, stopped when the test ends; regKey is
-// its registration shared secret.
-type tuwunel struct {
-	base   string
-	regKey string
-}
-
-// served is how the server's run ended: its error and everything it printed.
-type served struct {
-	err    error
-	output string
-}
+// tuwunel is the running homeserver the client is tested against.
+type tuwunel struct{ tuwunelhs.Server }
 
 func startTuwunel(ctx context.Context, t *testing.T) tuwunel {
 	t.Helper()
-	bin := os.Getenv(tuwunelBinEnv)
-	if bin == "" {
-		t.Skipf("%s names no Tuwunel binary, so the client is not run against a real homeserver", tuwunelBinEnv)
-	}
-	path, err := exec.LookPath(bin)
-	if err != nil {
-		t.Fatalf("%s=%q: %v", tuwunelBinEnv, bin, err)
-	}
-	dir := t.TempDir()
-	hs := tuwunel{regKey: randomKey(t)}
-	port := freePort(t)
-	hs.base = "http://" + net.JoinHostPort(loopback, strconv.Itoa(port))
-	config := writeTuwunelConfig(t, dir, port, hs.regKey)
-
-	runCtx, stop := context.WithCancel(ctx)
-	ended := make(chan served, 1)
-	go func() {
-		res, runErr := execx.OS{Grace: tuwunelStopLimit}.Run(runCtx, execx.Cmd{
-			Name: path, Env: []string{"TUWUNEL_CONFIG=" + config}, Interrupt: syscall.SIGTERM,
-		})
-		ended <- served{err: runErr, output: string(res.Stdout) + string(res.Stderr)}
-	}()
-	var end *served
-	t.Cleanup(func() {
-		stop()
-		if end == nil {
-			got := <-ended
-			end = &got
-		}
-		if !stoppedCleanly(end.err) {
-			t.Errorf("tuwunel: %v\n%s", end.err, end.output)
-		}
-	})
-
-	if awaitErr := hs.await(ctx, ended, &end); awaitErr != nil {
-		output := ""
-		if end != nil {
-			output = end.output
-		}
-		t.Fatalf("tuwunel: %v\n%s", awaitErr, output)
-	}
-	return hs
+	return tuwunel{tuwunelhs.Start(ctx, t, serverName)}
 }
 
-// stoppedCleanly is a run that ended on the test's SIGTERM: exit 0 after the cancel (which
-// exec reports as context.Canceled; the test's deadline is DeadlineExceeded and fails), or the
-// signal itself.
-func stoppedCleanly(err error) bool {
-	if err == nil || errors.Is(err, context.Canceled) {
-		return true
-	}
-	exitErr, ok := errors.AsType[*execx.ExitError](err)
-	return ok && exitErr.Signal == syscall.SIGTERM
-}
-
-// await polls the versions endpoint until the server answers, it exits (recorded in *end), or
-// the start limit passes.
-func (hs tuwunel) await(ctx context.Context, ended <-chan served, end **served) error {
-	probe, err := NewAdmin(Config{BaseURL: hs.base})
-	if err != nil {
-		return err
-	}
-	defer probe.Close()
-	ctx, cancel := context.WithTimeout(ctx, tuwunelStartLimit)
-	defer cancel()
-	tick := time.NewTicker(100 * time.Millisecond)
-	defer tick.Stop()
-	for {
-		if _, versionsErr := probe.Versions(ctx); versionsErr == nil {
-			return nil
-		}
-		select {
-		case got := <-ended:
-			*end = &got
-			return fmt.Errorf("exited before it answered: %w", got.err)
-		case <-ctx.Done():
-			return fmt.Errorf("no answer within %v: %w", tuwunelStartLimit, ctx.Err())
-		case <-tick.C:
-		}
-	}
-}
-
-// randomKey is 32 random bytes in hex, for a password or the registration key.
 func randomKey(t *testing.T) string {
 	t.Helper()
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		t.Fatalf("random key: %v", err)
-	}
-	return hex.EncodeToString(b)
-}
-
-func freePort(t *testing.T) int {
-	t.Helper()
-	ln, err := net.Listen("tcp", net.JoinHostPort(loopback, "0"))
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	addr, ok := ln.Addr().(*net.TCPAddr)
-	if !ok {
-		t.Fatalf("listener address %v is not TCP", ln.Addr())
-	}
-	if err := ln.Close(); err != nil {
-		t.Fatalf("close listener: %v", err)
-	}
-	return addr.Port
-}
-
-// writeTuwunelConfig renders the settings the installer gives a team (render.py toml_values)
-// that the client meets, with room creation allowed so a member can make the test's room, and
-// the login limits a v2 team gets (C 3.2.4: a seat's takes are password logins, which
-// seatCycle makes six of). Two keys differ from a team's, for the test alone: db_pool_workers
-// is fixed small, as Tuwunel's default pool, sized to the host's cores, hits EAGAIN under a
-// container's pids limit (host check run, Task 1.4); and the presence timers are short, so
-// presenceCycle sees them fire.
-func writeTuwunelConfig(t *testing.T, dir string, port int, regKey string) string {
-	t.Helper()
-	keyFile := filepath.Join(dir, "registration-key")
-	if err := os.WriteFile(keyFile, []byte(regKey), 0o600); err != nil {
-		t.Fatalf("write the registration key: %v", err)
-	}
-	config := fmt.Sprintf(`server_name = %q
-address = [%q]
-port = %d
-database_path = %q
-allow_registration = false
-allow_guest_registration = false
-registration_shared_secret_file = %q
-grant_admin_to_first_user = false
-allow_federation = false
-allow_encryption = false
-allow_room_creation = true
-auto_accept_invites = false
-default_room_version = "12"
-max_request_size = 10000000
-db_pool_workers = 4
-presence_idle_timeout_s = %d
-presence_offline_timeout_s = %d
-log = "warn"
-
-[rate_limiting.login.failed]
-per_second = 0.0033
-burst_count = 3
-
-[rate_limiting.login.account]
-per_second = 0.006
-burst_count = 10
-`, serverName, loopback, port, filepath.Join(dir, "db"), keyFile, presenceIdleS, presenceOfflineS)
-	path := filepath.Join(dir, "tuwunel.toml")
-	if err := os.WriteFile(path, []byte(config), 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-	return path
+	return tuwunelhs.RandomKey(t)
 }
 
 // operator registers the server admin through the registration key and checks the admin API
 // lists it.
 func (hs tuwunel) operator(ctx context.Context, t *testing.T) *Admin {
 	t.Helper()
-	anon, err := NewAdmin(Config{BaseURL: hs.base})
+	anon, err := NewAdmin(Config{BaseURL: hs.Base})
 	if err != nil {
 		t.Fatalf("NewAdmin: %v", err)
 	}
 	t.Cleanup(anon.Close)
-	sess, err := anon.Register(ctx, hs.regKey, Registration{Username: "operator", Password: randomKey(t), Admin: true})
+	sess, err := anon.Register(ctx, hs.RegKey, Registration{Username: "operator", Password: randomKey(t), Admin: true})
 	if err != nil {
 		t.Fatalf("Register: %v", err)
 	}
@@ -254,7 +85,7 @@ func (hs tuwunel) signedIn(ctx context.Context, t *testing.T, admin *Admin, uid 
 	if err != nil || len(devices) == 0 {
 		t.Fatalf("Devices %s = %+v, %v; want the minted token's device", uid, devices, err)
 	}
-	c, err := NewMember(Config{BaseURL: hs.base, PlainHTTPHosts: []string{loopback}, Token: token.Reveal()})
+	c, err := NewMember(Config{BaseURL: hs.Base, PlainHTTPHosts: []string{loopback}, Token: token.Reveal()})
 	if err != nil {
 		t.Fatalf("NewMember %s: %v", uid, err)
 	}
@@ -513,7 +344,7 @@ func seatCycle(ctx context.Context, t *testing.T, hs tuwunel, admin *Admin, invi
 	if err := inviter.Invite(ctx, room, seatID); err != nil {
 		t.Fatalf("Invite: %v", err)
 	}
-	anon, err := NewMember(Config{BaseURL: hs.base, PlainHTTPHosts: []string{loopback}, Token: "unused"})
+	anon, err := NewMember(Config{BaseURL: hs.Base, PlainHTTPHosts: []string{loopback}, Token: "unused"})
 	if err != nil {
 		t.Fatalf("NewMember: %v", err)
 	}

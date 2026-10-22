@@ -333,6 +333,33 @@ func TestConvergeRefusesTwoMainCandidates(t *testing.T) {
 	}
 }
 
+// TestConvergeIgnoresARoomTheAdminDidNotCreate is the server's own admin room, which Tuwunel
+// creates as its server user and joins a server admin to (seen against the real server): it has
+// no link, but it is not the team's main room (n2a-D7).
+func TestConvergeIgnoresARoomTheAdminDidNotCreate(t *testing.T) {
+	w := newWorld(t)
+	token, err := w.srv.MintToken(alice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := matrix.NewMember(matrix.Config{BaseURL: w.srv.URL(), PlainHTTPHosts: []string{"127.0.0.1"}, Token: token, Clock: noWait{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(other.Close)
+	foreign, err := other.CreateRoom(t.Context(), matrix.CreateRoomRequest{Preset: "private_chat", Invite: []string{admin}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.admin.Join(t.Context(), foreign); err != nil {
+		t.Fatal(err)
+	}
+	res := w.converge(t, proto.RoomIDs{})
+	if res.Rooms.Main == foreign || !slices.Contains(res.Changed, "room main created "+res.Rooms.Main) {
+		t.Fatalf("main %s from a room %s the admin did not create: %v", res.Rooms.Main, foreign, res.Changed)
+	}
+}
+
 // TestConvergeOrder is C 3.14's "kicks before state before invites" and "a removed human gone
 // from every room before power levels change".
 func TestConvergeOrder(t *testing.T) {
