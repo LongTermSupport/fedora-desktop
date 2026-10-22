@@ -273,11 +273,12 @@ not_table() {
     printf 'open %s showed %s before the teams table, so the open is not judged. What %s was given:\n' "$1" "$2" "$2" >&2
     cat -v -- "$3" >&2 || return 1
     printf '%s\n' \
-        'ccy-teams asks before its table, on every open until it is answered: for a team made limited to some' \
-        'folders (Folder limit), for a team with no description (Description), for teams out of date or declared' \
-        'and not built (Update: ccy-teams apply, or play-agent-bus.yml), and with no team at all (Create a team).' \
-        'The opens start outside any checkout, so the offer of a session in the folder ccy-teams starts in is not' \
-        'among them. Answer the question in ccy-teams (now, or never for the first two) and run again.' >&2
+        'ccy-teams asks before its table on every open: for a team limited to some folders, until the limit is' \
+        'lifted or you choose never (Folder limit); for a team with no description, until one is written or you' \
+        'choose never (Description); while teams are out of date or declared and not built, until they are' \
+        'applied (Update: answer yes, or ccy-teams apply --all, or play-agent-bus.yml); and with no team at all,' \
+        'until one is made (Create a team). The opens start outside any checkout, so the offer of a session in' \
+        'the folder ccy-teams starts in is not among them. Settle the question in ccy-teams and run again.' >&2
 }
 
 # check_open — an open of each binary, a pair a round for RUNS rounds, timed to its first
@@ -401,6 +402,11 @@ fixture_report_per_hour() {
         printf 'the fixture is not run: the installed binary was not shown to be this checkout'\''s (S0)\n' >&2
         return 1
     fi
+    if [[ -e "${applied}" && (! -r "${applied}" || ! -x "${applied}") ]]; then
+        printf 'the applied-state directory %s cannot be read by this user, so no team can be found for the fixture\n' "${applied}" >&2
+        printf '(ccy-teams --list fails on it too)\n' >&2
+        return 1
+    fi
     for stamp in "${applied}"/*.json; do
         name="$(basename "${stamp}" .json)" || return 1
         if [[ -f "${stamp}" && "${name}" =~ ^[a-z][a-z0-9-]{0,23}$ ]]; then
@@ -425,6 +431,10 @@ fixture_report_per_hour() {
     (cd "${cwd}" && CCY_STATE_DIR="${state}" "${INSTALLED}" --list </dev/null >"${fx}/stdout" 2>"${fx}/stderr") || code=$?
     if ! rmdir "${cwd}"; then
         printf 'the folder the fixture --list ran in, %s, is not empty: the --list wrote there\n' "${cwd}" >&2
+        return 1
+    fi
+    if [[ ! -f "${fx}/stdout" || ! -f "${fx}/stderr" ]]; then
+        printf 'the fixture --list did not start in %s (exit %s): nothing to judge it on\n' "${cwd}" "${code}" >&2
         return 1
     fi
     say_report "- S4 on a fixture, not a live seat: ${INSTALLED} --list with CCY_STATE_DIR=${state} (exit ${code}) over two seats of team ${team} in ${top}" || return 1

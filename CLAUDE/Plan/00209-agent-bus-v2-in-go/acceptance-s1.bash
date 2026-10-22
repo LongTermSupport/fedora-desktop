@@ -33,10 +33,10 @@
 # RUN ON THE HOST, in a terminal, as the desktop user (not root): the opens draw on /dev/tty, so
 # meta-deploy.bash must run in one. The one prompt is sudo's, before the log opens (R3), so the
 # member rosters read the same for both binaries. If an open's first screen is a question rather
-# than the table, S3 is not judged and the run log names the question: ccy-teams asks one on
-# every open, until it is answered, for a team limited to some folders, a team with no
-# description, teams out of date or declared and not built, or no team at all. Answer it in
-# ccy-teams and run again.
+# than the table, S3 is not judged and the run log names the question. ccy-teams asks one on
+# every open: for a team limited to some folders or with no description, until that is settled
+# or never chosen; while teams are out of date or declared and not built, until they are
+# applied; with no team at all, until one is made. Settle it in ccy-teams and run again.
 #
 # WHAT IT CHANGES: nothing outside its run directory, where it builds two binaries and the S4
 # fixture and keeps every output; the two folders it starts ccy-teams in, under TMPDIR, are
@@ -44,9 +44,9 @@
 #
 # EXIT CODES: 0 ACCEPTED; 1 REJECTED (each failed check is named); 2 NOT JUDGED (nothing failed,
 # but S3 or S4 had no evidence to judge on: an open asked a question first, no old open showed
-# the shims seeing a seat list, no terminal, or no applied team for the S4 fixture and no live
-# member.json that sets report_per_hour; each named), which meta-deploy.bash reports as COULD
-# NOT ESTABLISH; 64 usage.
+# the shims seeing a seat list, no terminal, a TMPDIR that git places in a work tree (or GIT_DIR
+# set), or no applied team for the S4 fixture and no live member.json that sets
+# report_per_hour; each named), which meta-deploy.bash reports as COULD NOT ESTABLISH; 64 usage.
 set -euo pipefail
 
 # ── R1 bootstrap: script-relative, filesystem-only, bounded at the repo boundary ──────────

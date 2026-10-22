@@ -119,8 +119,9 @@ playbooks/imports/play-claude-yolo.yml
 # no agent-bus seat list. A member.json that sets report_per_hour must be listed, not refused:
 # on a fixture in the run directory (always, and the report says so) and on any live seat. Needs
 # sudo once (so both read the member rosters) and a terminal. A failure names the check, and a
-# --list diff is in the report. An open whose first screen is a question (a team limited to some
-# folders or with no description, teams out of date, no team) leaves S3 NOT JUDGED (exit 2,
-# COULD NOT ESTABLISH in the summary), and the run log names the question: answer it in
-# ccy-teams and run again.
+# --list diff is in the report. An open whose first screen is a question leaves S3 NOT JUDGED
+# (exit 2, COULD NOT ESTABLISH in the summary), and the run log names the question. It comes
+# back on every open: for a team limited to some folders or with no description, until that is
+# settled or never chosen; while teams are out of date, until they are applied; with no team,
+# until one is made. Settle it in ccy-teams and run again.
 00209-agent-bus-v2-in-go/acceptance-s1.bash
