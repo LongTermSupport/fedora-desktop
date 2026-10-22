@@ -523,3 +523,34 @@ func TestLoad(t *testing.T) {
 		t.Fatalf("another team's team.json: %v", err)
 	}
 }
+
+// A colour override the team file declares and main does not hold is a problem the view only
+// reads, and one main holds is none.
+func TestADeclaredColourNotInMainIsAProblem(t *testing.T) {
+	w := newWorld(t)
+	team := w.in.Team
+	team.Colour = "#2dd4bf"
+	if err := os.WriteFile(w.path(teamName), team.Canonical(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	v := w.read(t)
+	if got := whats(v.Problems); len(got) != 1 || !strings.Contains(got[0], proto.ColourType) {
+		t.Fatalf("problems %v, want one naming %s", got, proto.ColourType)
+	}
+	if _, err := apply.Run(t.Context(), apply.Deps{
+		Admin: w.admin, Approvals: approvals{"alpha": mustApprove(t, declare.Input{Team: team, Address: w.in.Address})},
+		Now: fixedNow, RosterPath: w.path(rosterName), RoomsPath: w.path(roomsName),
+	}, declare.Input{Team: team, Address: w.in.Address}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	wantProblems(t, w.read(t))
+}
+
+func mustApprove(t *testing.T, in declare.Input) *declare.Gated {
+	t.Helper()
+	g, err := declare.Approve(nil, in, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &g
+}

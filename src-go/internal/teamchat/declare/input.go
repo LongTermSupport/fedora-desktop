@@ -108,7 +108,11 @@ func (t Team) members() []proto.Member {
 	if t.Coordinator != "" {
 		members = append(members, proto.M(keyCoordinator, proto.Str(t.Coordinator)))
 	}
-	return append(members, proto.M(keyTrust, t.Trust.Encode()))
+	members = append(members, proto.M(keyTrust, t.Trust.Encode()))
+	if t.Colour != "" {
+		members = append(members, proto.M(keyColour, proto.Str(t.Colour)))
+	}
+	return members
 }
 
 // Canonical is the team's `team.json` (DR8).
@@ -127,7 +131,7 @@ func DecodeTeamFile(raw []byte) (Team, error) {
 	if err != nil {
 		return Team{}, err
 	}
-	f, err := node{path: "team.json", v: v}.object(teamFileKeys, keyCoordinator)
+	f, err := node{path: "team.json", v: v}.object(teamFileKeys, keyCoordinator, keyColour)
 	if err != nil {
 		return Team{}, err
 	}

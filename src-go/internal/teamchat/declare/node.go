@@ -5,6 +5,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/colour"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
 
@@ -160,6 +161,19 @@ func (n node) strings(low, high int, check func(string) bool, problem string) ([
 		out = append(out, s)
 	}
 	return out, nil
+}
+
+// colour reads n as C7's override: a palette name or a legible #rrggbb, kept as stored hex.
+func (n node) colour() (string, error) {
+	s, err := n.str()
+	if err != nil {
+		return "", err
+	}
+	hex, err := colour.Parse(s)
+	if err != nil {
+		return "", n.fail(err.Error())
+	}
+	return hex, nil
 }
 
 // checked reads n as a string passing check.
