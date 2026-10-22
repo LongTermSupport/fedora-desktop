@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
@@ -80,24 +83,30 @@ func TestATakeRefusesASessionThatHasTheTeamsSeat(t *testing.T) {
 	}
 }
 
-// ST1, n2c-D12: a session directory the take cannot look into (a link where it was) is ErrHeld
-// too, before held/ is made: the take mints nothing it could not copy.
+// ST1, n2c-D12: a session directory the take cannot look into (a link or a FIFO where it was)
+// is ErrHeld too, before held/ is made: the take mints nothing it could not copy, and the FIFO is
+// never opened, so it cannot hold the take.
 func TestATakeRefusesASessionItCannotLookInto(t *testing.T) {
-	w := newWorld(t)
-	w.seed()
-	dir := w.store.store.Session(mustSession(t, "s1"))
-	writeFile(t, w.home+"/elsewhere/x", "")
-	if err := os.MkdirAll(dir[:strings.LastIndex(dir, "/")], 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(w.home+"/elsewhere", dir); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := w.tryTake("s1", StateActive); !errors.Is(err, ErrHeld) || !strings.Contains(err.Error(), w.sessionSeat("s1").Dir()) {
-		t.Fatalf("a take into a linked session directory: %v", err)
-	}
-	if exists(t, w.pool().Held()) {
-		t.Errorf("held/ was made for a take that was refused")
+	for name, plant := range map[string]plant{
+		"a link": func(w *world, p string) error { return os.Symlink(w.home+"/elsewhere", p) },
+		"a FIFO": func(_ *world, p string) error { return unix.Mkfifo(p, 0o600) },
+	} {
+		w := newWorld(t)
+		w.seed()
+		dir := w.store.store.Session(mustSession(t, "s1"))
+		writeFile(t, w.home+"/elsewhere/x", "")
+		if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := plant(w, dir); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.tryTake("s1", StateActive); !errors.Is(err, ErrHeld) || !strings.Contains(err.Error(), w.sessionSeat("s1").Dir()) {
+			t.Errorf("%s: a take into the session: %v", name, err)
+		}
+		if exists(t, w.pool().Held()) {
+			t.Errorf("%s: held/ was made for a take that was refused", name)
+		}
 	}
 }
 
