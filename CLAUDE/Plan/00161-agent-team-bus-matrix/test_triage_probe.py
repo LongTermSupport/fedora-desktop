@@ -54,7 +54,7 @@ class PrefixTest(unittest.TestCase):
 
 class TuwunelPinTest(unittest.TestCase):
     def test_the_default_version_is_the_checkout_pin(self) -> None:
-        pin = (tp._checkout_root() / tp.TUWUNEL_PIN).read_text(encoding="utf-8")
+        pin = (tp._checkout_root() / tp._product("helpers.agent_bus.declare").PIN_FILE).read_text(encoding="utf-8")
         version = tp.pinned_tuwunel_version()
         self.assertIn(f"\ntuwunel_version: {version}\n", pin)
         self.assertRegex(version, r"^v[0-9]+\.[0-9]+\.[0-9]+$")

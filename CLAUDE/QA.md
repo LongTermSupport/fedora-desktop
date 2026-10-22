@@ -1116,7 +1116,8 @@ keeper does. Do not loosen the check in `config.py`.
 
 **What it is.** In an active plan folder, `tests/` or `scripts/` (the test suites), a checker
 constant holding a literal (Python: a
-module-level `NAME = <literal>`; bash: a top-level `[readonly] NAME=` with no expansion) whose
+module-level `NAME = <literal>`, or a literal wrapped in one call such as `pathlib.Path("...")`;
+bash: a top-level `[readonly] NAME=` with no expansion) whose
 own comment, the lines directly above it or a trailing one, names a product source file
 (`.py` or `.go` under `helpers/`, `src-go/internal/`, `files/` or `extensions/`) together with
 a constant that file defines: a word of the comment, or the checker constant's own name. Run by

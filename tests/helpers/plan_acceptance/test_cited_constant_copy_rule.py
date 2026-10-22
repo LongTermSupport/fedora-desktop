@@ -8,7 +8,8 @@ Plan 00213 changed the guard to run `pingbus-status-line` the copy failed check 
 session.
 
 The rule reads code rather than running it. A finding is a constant of a checker in an active
-plan folder, `tests/` or `scripts/` (Python: a module-level `NAME = <literal>`; bash: a top-level `[readonly] NAME=`
+plan folder, `tests/` or `scripts/` (Python: a module-level `NAME = <literal>`, or a literal
+wrapped in one call such as `pathlib.Path("...")`; bash: a top-level `[readonly] NAME=`
 with no expansion in its value) whose own comment (the comment lines directly above it, or a
 trailing comment) names a product source file (under helpers/, src-go/internal/, files/ or
 extensions/) together with a module-level constant that file defines: a token of the comment,
@@ -135,8 +136,11 @@ def python_constants(source: str) -> list[tuple[int, str, str]]:
         targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
         if len(targets) != 1 or not isinstance(targets[0], ast.Name):
             continue
+        value = statement.value
+        if isinstance(value, ast.Call) and len(value.args) == 1 and not value.keywords:
+            value = value.args[0]
         try:
-            ast.literal_eval(statement.value)
+            ast.literal_eval(value)
         except ValueError:
             continue
         index = statement.lineno - 1
@@ -338,6 +342,7 @@ FIXTURE_SUBJECT: Subject = {
     "helpers/pingbus/protocol.py": {"TEXT_KEY", "DESCRIPTION_MAX"},
     "helpers/pingbus/cli.py": {"DISCONNECT_TEXT"},
     "src-go/internal/fetchage/fetchage.go": {"FailedMark"},
+    "helpers/agent_bus/declare.py": {"PIN_FILE"},
 }
 
 #: Plan 00201's m7_check.py as it failed check M3, and its neighbours.
@@ -350,6 +355,8 @@ FIXTURE_PYTHON = textwrap.dedent('''\
     #: What the host says of a session that ended without one (helpers/pingbus/cli.py).
     DISCONNECT_TEXT = "{handle} disconnected: session ended without a goodbye"  # ruleid
     TEXT_KEY = "agent_bus.text"  # ruleid: protocol.py TEXT_KEY
+    #: The pin agent-bus-install installs (declare.py's PIN_FILE).
+    PIN = pathlib.PurePosixPath("files/usr/local/share/agent-bus/tuwunel.pin")  # ruleid
     #: Each status line command is given this long before the leg calls it hung.
     STATUS_LINE_TIMEOUT_S = 30  # ok: the checker's own
     #: The guard, read from helpers/pingbus/seat.py STATUS_LINE_GUARD.
