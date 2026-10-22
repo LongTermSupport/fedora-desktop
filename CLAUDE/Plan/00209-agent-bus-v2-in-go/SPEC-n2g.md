@@ -44,16 +44,19 @@ units rendered as code; the offline restore for a homeserver whose database will
 
 **Trust rule.**
 
-- Root never decides from a file another account can write, except `teamchat-ctl`'s files in
-  `ctl/<team>/`, which it reads by I-B6 (owner checked).
+- Root never decides from a file another account can write, with two exceptions:
+  `teamchat-ctl`'s files in `ctl/<team>/`, which it reads by I-B6 (owner checked), and
+  Tuwunel's backup numbers in `backups/meta/` (n2g-D2: a forged number costs only that team's
+  own tars).
 - Every file root reads is opened `O_RDONLY|O_NOFOLLOW|O_NONBLOCK`, `fstat`ed, regular, and
   capped. That is `state.ReadFile`, and `ReadOwnedFile` for root's own files (uid 0).
 - The homeserver's tree (`/var/lib/private/teamchat/<t>/`) is owned by the dynamic uid at
   every level below `/var/lib/private/teamchat`, so `O_NOFOLLOW`, which guards only the last
   component, is not enough there. Every path in it is resolved by
   `openat2(RESOLVE_NO_SYMLINKS|RESOLVE_BENEATH|RESOLVE_NO_XDEV)` from a root-owned fd of
-  `/var/lib/private/teamchat` (`O_DIRECTORY|O_NOFOLLOW`, `fstat`ed uid 0). Every entry is
-  then listed, read, renamed or removed relative to the fd so found.
+  `/var/lib/private/teamchat` (`O_DIRECTORY|O_NOFOLLOW`, `fstat`ed as owned by
+  `StateOwnerUID`, which is 0 in `wire` and the test's own uid in tests). Every entry is then
+  listed, read, renamed or removed relative to the fd so found.
 - A tree root removes there (`db.previous`, `db.restore-<N>`) is removed level by level: each
   directory is opened no-follow relative to its parent's fd, and each entry is removed by
   `unlinkat`. A link is removed, never followed (`teamchat/restore`'s `RemoveTree`; a test
@@ -70,9 +73,14 @@ Packages:
   fd-relative renames, the guard.
 - `admin`: the verbs and the child's ops.
 - `ctl`: the child's swap files.
-- `units`: `KillUnit`, and the restore unit's name.
+- `units`: `KillUnit`, and the restore unit names.
+- `paths`: the one source of every name below. That covers `restore.json`, `restore.block`,
+  `restore-epoch.json`, `config.restore.toml`, `db.restore-<N>`, `db.previous`, `backups/`,
+  `backups/<n>.tar`, `backups/last-run.json`, `restore-<N>-lost.jsonl`, `backups/meta/`, and
+  the units `teamchat-restore@` and `teamchat-restore-ctl@`.
 - `health`: real backups, the restore record, no restart while a restore is recorded.
-- `host`: the start and readiness steps exported, `Deps.Guard`.
+- `host`: `Serve` (SM3), `BaseSandbox`, and `Deps.Guard`. `Status.Refresh` gains an events
+  argument (today `Refresh(ctx, team, bool)`), and every caller is updated.
 - `teamlock`: a guard on every `Take`.
 - `admin/wire`.
 
@@ -81,27 +89,40 @@ Packages:
 Every effect goes through one of these, and each has a fake in the package's tests.
 
 - **SM1. `backup.Deps`:**
+
   - `Root` (the host prefix, "" on a host);
   - `Units` (`State`, which gives `ActiveState`, `InvocationID`, `NRestarts` and `Result`, and
     `Kill`, SD10);
   - `Ready` (`hostnet.Readiness`'s `ServerVersion` on the team's port);
   - `Clock` (`Now`, and `Sleep` for BT2's poll);
-  - `CtlUID`.
+  - `CtlUID` and `StateOwnerUID` (the trust rule).
+
 - **SM2. `host.Deps.Backup`** stays `func(ctx, held *teamlock.Lock) error`. `wire` closes over
   `backup.Deps` and passes `keep` nil (BT7).
+
 - **SM3. `host.Serve(ctx, d host.Deps, team paths.TeamID) error`** is the start of C 3.5.2
   steps 7 and 8 for a team already applied: reload when needed, start, then wait ready (60 s)
   on `units.json`'s port and listen addresses. It is refactored out of `applying`, which then
   calls it. It reads `units.json` and never renders.
+
 - **SM4. `restore.Deps`:**
-  - `Root`, `CtlUID`;
-  - `Units` (SM1's, plus `Stop`);
+
+  - `Root`, `CtlUID`, `StateOwnerUID`;
+  - `Units` (SM1's, plus `Stop`) and `Ready` (SM1's);
   - `Run` (`execx.Runner`, for RU1's and RU2's `systemd-run`);
   - `Child` (the RC ops, declared in `restore`, implemented in `admin`);
-  - `FS` (the state directory's `Open`, `Stat`, `Rename` (`renameat2` `RENAME_NOREPLACE`) and
-    `RemoveTree`, all fd-relative by the trust rule, with a fake over a temp directory);
+  - `FS`: in the state directory, `Open`, `Stat`, `ReadDir`, `Rename` (`renameat2`
+    `RENAME_NOREPLACE`), `RemoveTree`, `Fsync` (of the directory fd) and `Syncfs`, all
+    fd-relative by the trust rule; in `root/<team>/`, `WriteFile` (`state.WriteFile`) and
+    `Remove`. A fake over a temp directory implements both;
   - `Backup` (`backup.Take`), `Serve` (SM3) and `Bootstrap` (`host.Deps.Bootstrap`);
+  - `Approvals` (`declare.Approvals`, for RV6);
+  - `StatusRecord func(paths.TeamID) (*status.Record, error)` (RM11);
   - `Status` (`host.Status`), `Rand` and `Clock`.
+
+  Every file root writes or removes in `root/<team>/` during a restore goes through `FS`, so
+  each one is a kill point of SM5.
+
 - **SM5. A kill** is modelled by a fake that calls `runtime.Goexit` at its k-th call. The
   engine never cleans up in a `defer`: every clean-up is an explicit step, so a `Goexit` leaves
   the disk as a kill would. The lock's release is the one deferred call, and a real kill
@@ -216,7 +237,7 @@ a lock: the held lock is its argument (C 3.4).
   `status.Restore{step, backup, pre}` and a problem:
 
   - `staged`: "restore staged", fix `restore --team T --resume` or `--discard`;
-  - `staging`, `swap`, `start` or `revert`: "restore interrupted", fix
+  - `staging`, `swap`, `start`, `clean` or `revert`: "restore interrupted", fix
     `restore --team T --resume`;
   - an offline record adds "(offline)" to the problem.
 
@@ -275,7 +296,8 @@ roster's `seq`, and "after N" means a `seq` above `B`.
   - one with `revoked_seq > B` gets `needs: password` and goes in `password`;
   - if the backup roster has that human too, it also goes in `revoke_humans`;
   - one only in the current roster gets `needs: password` and nothing is revoked (n2g-D11);
-  - one `removed` in the current roster goes in `lock`;
+  - one `removed` in the current roster goes in `lock`. Only `active` and `removed` exist
+    today (n2b-D7); when `human lock` is built, its state must reach `lock` too;
   - a password a human changed from Element after `N` is no roster write, so root cannot see
     it. The answer carries one fixed line saying so, and nothing is guessed (n2g-D19).
 
@@ -290,18 +312,35 @@ roster's `seq`, and "after N" means a `seq` above `B`.
 - **RM10.** `seq` is `max(current.seq, B) + 1` and `rev` is `current.rev + 1`; the roster event
   written in step 5 carries exactly this `rev` (n2g-D12). `restore_epoch` is
   `max(current.restore_epoch, H) + 1`, where `H` is the high-water in
-  `root/<team>/restore-epoch.json` (0 when absent, read by `ReadOwnedFile` uid 0, strict
-  `{"v": 1, "epoch": n}`). At A 5.1's maximum the merge refuses (n2g-D20).
+  `root/<team>/restore-epoch.json` (both fields 0 when absent, read by `ReadOwnedFile` uid 0,
+  strict `{"v": 1, "epoch": n, "min_backup": n}`). At A 5.1's maximum the merge refuses
+  (n2g-D20).
 
 - **RM11. `--roster-from-backup`** (the current roster unreadable):
 
   - The backup roster is the base. Every handle in the status record's members raises its
     prefix's counter to at least its seat number, and is `lost` when the base lacks it; none is
     revived.
-  - `restore_epoch` is a value from the injected random source in `[0, 500000000)` that differs
-    from the backup's and from `H`, and is drawn again until it does. C 3.12.2's "status
-    record's copy" does not exist, since `status.Record` holds no epoch; `H` stands in for it,
-    and is the stronger bound.
+  - With the current roster unknown, every credential counts as changed after `N`, since
+    RM4 to RM7 cannot be judged. Every handle not `retired` in the base goes in `revoke`; an
+    `active` one also gets `needs: reissue` and goes in `reissue`. Every human in the base
+    goes in `revoke_humans` and `password`. `seq` is `B + 1` and `rev` is `base.rev + 1`.
+    RT2 runs its rows in this mode too (a handle reissued after `N` has its `N`-era token
+    refused).
+  - `restore_epoch` is drawn from the injected random source, uniformly in
+    `(max(H, backup epoch), 500000000)`; when that range is empty the merge refuses. RS6's
+    first step then always raises `H`, so no epoch that served is ever repeated (RE1). C
+    3.12.2's "status record's copy" does not exist, since `status.Record` holds no epoch; `H`
+    stands in for it.
+  - The status record is read through `restore.Deps.StatusRecord` (the status package's
+    strict reader).
+  - `seq` restarts from `B + 1`, below seqs the lost roster may already have used. A backup
+    taken before this restore could then be judged against reused seqs. So RS6's first step
+    also sets `min_backup` to one above the highest number in `meta/`, and RV4 refuses any
+    `N` below `min_backup`, saying why.
+  - `M` cannot be taken, since its tar needs the unreadable roster (BK4). RS4 is skipped as
+    under `--offline`, and the answer's `notes` say so. The export still runs when the live
+    server serves.
   - LXC records (C 3.9, not built) and the pool's `seat.json` files (owner-writable, so the trust
     rule keeps root from deciding from them) are not read (n2g-D13).
   - The answer names what is unknown.
@@ -309,7 +348,9 @@ roster's `seq`, and "after N" means a `seq` above `B`.
 - **RM12. A pending operation under `--offline`** (RO4) is resolved in the safe direction, and
   the answer names it:
 
-  - `team.apply` is cleared, since step 9's bootstrap is that apply;
+  - `team.apply` is cleared, since step 9's bootstrap is that apply. It bootstraps the
+    applied `team.json`, so a newer declaration that apply was writing waits for the next
+    `team apply`, and the answer's `notes` say so;
   - a member `retire` makes its handle `retired`, in `retire`;
   - any other member operation sends its handle to `revoke`. It is `needs: reissue` when
     `active` in both rosters, and `lost` otherwise.
@@ -333,14 +374,20 @@ Nothing is written before all of these pass.
   `server-name`. On a fresh restore, `meta/<N>` exists too. A resume validates `<N>.tar` and
   the record only: `M`'s prune may have removed `meta/<N>`, whose copy is now
   `db.restore-<N>`. `<N>.tar` survives a resume, because BT4 keeps it and the guard refuses
-  every other backup while the record exists.
+  every other backup while the record exists. An `N` below `restore-epoch.json`'s
+  `min_backup` is refused, naming the `--roster-from-backup` restore that set it (RM11).
 - **RV5.** Neither roster has a `pending`. A current one's refusal names the verb that completes
   it: `team apply` for `team.apply`, and `member <verb> --team T --handle <h>` for a member op.
   Under `--offline`, the current roster's `pending` is RM12's instead.
 - **RV6.** The approval holds the applied `team.json` (`declare.Hold`), so step 9's bootstrap
   cannot be refused by the gate: "an approval is not applied: run team apply first".
-- **RV7.** Without `--offline`, the live homeserver must be active and answer `ServerVersion`,
-  since step 6 and step 7 need it. A refusal names `--offline` and what it loses (RO1).
+- **RV7.** A live unit that is `inactive` (stopped, not `failed`, `NRestarts` 0) is first
+  started by `host.Serve` (SM3), so a team that is merely stopped is never taken for one that
+  cannot start. This start is the one write before validation ends; it changes nothing that
+  RV1 to RV6 read. Then, without `--offline`, the live homeserver must be active and answer
+  `ServerVersion`, since step 6 and step 7 need it. A refusal (70) names `--offline` and what
+  it loses (RO1), and quotes the start's failure. Test: a stopped, healthy unit is started and
+  restored online; with `--offline` it is refused (70) and left serving.
 
 ## 7. The engine (RS, steps 02-10)
 
@@ -348,7 +395,8 @@ Nothing is written before all of these pass.
 The record `root/<team>/restore.json` (0600, `state.WriteFile`, so it is fsynced) is
 `{"v": 1, "team": T, "backup": N, "offline": bool, "pre": M|null, "step": "...", "roster": <merged file>, "lists": {...}, "lost": {"count", "first_ms", "end_ms", "truncated"}|null}`
 (n2g-D10). It holds what a resume needs, since the tar in memory dies with the process. Its
-steps are `staging`, `staged`, `swap`, `start` and `revert`.
+steps are `staging`, `staged`, `swap`, `start`, `clean` and `revert`, and `stuck` (RS13) is
+set only beside `revert`.
 
 - **RE1. The epoch invariant** (A 5.1, B 2.6 step 08, C13). No request a member can send ever
   reaches a restored database whose roster event holds an epoch other than the merged one.
@@ -357,12 +405,14 @@ steps are `staging`, `staged`, `swap`, `start` and `revert`.
 
   - the staging server is reachable only from its own network namespace (RU1, H-C5, H-C15);
   - RC1 writes the roster event before the staging stop;
-  - after the stop, the state directory is synced (RS3), so the write is on disk;
+  - RS3's verify reopens the stopped copy and reads the merged epoch back before `staged`, and
+    the state directory is then synced, so the write is on disk and proven there;
   - the staging unit never restarts (RU1, RS3), so the secured copy is never restored over;
-  - the block covers every rename (RS6, RS11);
-  - RS7 reads the served epoch before anything else is done.
+  - the block covers every rename, and the renames are fsynced before it goes (RS6, RS11);
+  - RS7's read after the start is a second check: it detects, and RS3 prevents.
 
-  The epoch never repeats a value a database has served (RM10's high-water, n2g-D20).
+  The epoch never repeats a value a database has served: RM10 and RM11 always raise above
+  the high-water `H`, which RS6 writes before a secured database can serve (n2g-D20).
 
 - **RS1. Record** (step 03): before anything is created, the record is written at `staging`.
 
@@ -370,19 +420,29 @@ steps are `staging`, `staged`, `swap`, `start` and `revert`.
   `config.toml` with exactly its one `database_path = ` line set to `db.restore-<N>` in the
   state directory and its one `address = ` line set to `["127.0.0.1", "::1"]`; a config without
   exactly one of each fails. The rendered `database_path` must differ from the live one, and
-  `database_backup_path` must be present and unchanged (the spike's (d)). Right before the
+  `database_backup_path` must be present and unchanged, since the restore reads the backups from it (preamble). Right before the
   staging unit is started by RU1, `db.restore-<N>` is checked absent fd-relative (`ENOENT`), so
   a path planted after RV2 is refused before Tuwunel can wipe it.
 
 - **RS3. Secure** (step 05). The staging unit's `InvocationID` is read. The secure unit (RU2)
   is run with `restore.secure` (RC1). After it answers, the staging unit's state must show the
   same `InvocationID` and `NRestarts=0`; otherwise step 05 fails. The staging unit is then
-  stopped (units `Stop`, SD8 extended) and must be inactive or unloaded (`--collect`). The
-  state directory is then `syncfs`ed through its fd: the stopped process's writes are in the
-  page cache, and the sync makes them survive a power loss before the swap. Only then is the
-  record set to `staged`. RC1 writes the roster event last, and RocksDB recovers a prefix of
-  its log, so a roster event that is on disk proves the revocations before it are too. RT3
-  proves it on the pinned Tuwunel.
+  stopped (units `Stop`, SD8 extended) and must be stopped (RS18).
+
+  **Verify.** The staging unit is started again by RU1's argv without `--restore-backup`, so
+  Tuwunel opens `db.restore-<N>` as it is, and nothing is restored over it. RU2 then runs
+  `restore.check` (RC8) through the staging namespace. It must answer the merged
+  `restore_epoch` and `rev`, and the same check as before (`InvocationID`, `NRestarts=0`)
+  applies. The unit is stopped again (RS18). RC1 writes the roster event last, and RocksDB
+  recovers a prefix of its log, so a reopened database that serves the event proves the
+  revocations before it are on disk too. This is what makes RE1 hold, and not only be
+  detected.
+
+  The state directory is then `syncfs`ed through its fd, so the stopped process's writes
+  survive a power loss before the swap. Only then is the record set to `staged`. RT3 proves
+  the reopen on the pinned Tuwunel. Tests over fakes: `staged` is written only after the
+  verify answered and `Syncfs` returned (fake call order), and a verify that answers the
+  backup's epoch fails step 05.
 
 - **RS4. Pre-restore backup** (step 06): `backup.Take(held, keep=[N])`; the record's `pre` is set
   to `M`. Under `--resume` it is skipped when `pre` is set. It is skipped under `--offline`
@@ -395,29 +455,43 @@ steps are `staging`, `staged`, `swap`, `start` and `revert`.
 
 - **RS6. Swap** (step 08), in this order:
 
-  1. `restore-epoch.json` is written (`state.WriteFile`) with the merged epoch, if that is
-     above the one it holds (RM10's high-water, n2g-D20);
+  1. `restore-epoch.json` is written (`FS.WriteFile`) with the merged epoch, if that is above
+     the one it holds (RM10's high-water, n2g-D20), and with RM11's `min_backup` under
+     `--roster-from-backup`;
   2. the record goes to `swap`, and `restore.block` is written;
-  3. the live unit is stopped. The live unit and both staging units must then be inactive or
-     unloaded, or the step fails before any rename;
-  4. the renames of RS16, toward `swapped`;
+  3. the live unit is stopped. The live unit and both staging units must then be stopped
+     (RS18), or the step fails before any rename;
+  4. the renames of RS16, toward `swapped`, then `FS.Fsync` of the state directory, so no
+     power loss can bring back a directory without `db` after the block is gone;
   5. the child runs `restore.swap` (RC2);
   6. the record goes to `start`, and the block is removed.
 
+  A fake test asserts that the `Fsync` comes before the record's `start` write, and RS6
+  refuses (before any rename) while a staging unit is still `active`.
+
 - **RS7. Start** (step 09) uses `host.Serve` (SM3), behind RS17's check. Before anything else,
-  the child's `restore.check` (RC8) reads the served roster event. Its `restore_epoch` and
-  `rev` must be the merged ones; otherwise step 09 fails (RE1). Then comes the normal
+  the child's `restore.check` (RC8) reads the served roster event. Its `restore_epoch` must
+  be the merged one, and its `rev` at least the merged one, since a bootstrap that ran before
+  a kill may have written the next `rev`; otherwise step 09 fails (RE1). Test: a kill after
+  the bootstrap's roster write, then a resume, completes. Then comes the normal
   bootstrap, the child's `team.apply` with `Input{Team: team.json}`, the approval and the
   config's registration key.
 
 - **RS8. Clean** (step 10), in this order:
 
-  1. `db.previous` is removed by `RemoveTree` (the trust rule);
-  2. `config.restore.toml` is removed;
-  3. the child runs `restore.finish` (RC4);
-  4. the record is removed;
-  5. the status record is refreshed with the event "restored backup N, <count> events lost,
+  1. the record goes to `clean` (fsync). From here on nothing is reverted: the restored
+     database serves and has passed RC8;
+  2. `db.previous` is removed by `RemoveTree` (the trust rule);
+  3. `config.restore.toml` is removed;
+  4. the child runs `restore.finish` (RC4);
+  5. the record is removed;
+  6. the status record is refreshed with the event "restored backup N, <count> events lost,
      export at <path>" (`host.Status.Refresh` takes events), or RO5's event when offline.
+
+  Every sub-step counts "already absent" as done. A failure in 2 to 5 leaves the record at
+  `clean` and answers "restored; clean-up failed: <error>; restore --team T --resume" (1). A
+  failure of 6 answers "restored; status refresh failed: <error>" (1), with the full answer on
+  stdout.
 
 - **RS9. The answer** is
   `{"v": 1, "team": T, "backup": N, "offline": bool, "pre": M|null, "lost": {"count", "first_ms", "end_ms", "truncated", "path"}|{"exported": false, "since_ms": <N's time>}, "reissue": [...], "return": [...], "password": [...], "unknown": [...], "pending": <RM12's resolution>|null, "notes": [...], "changed": [...]}`.
@@ -425,48 +499,66 @@ steps are `staging`, `staged`, `swap`, `start` and `revert`.
 
 - **RS10. Failures in steps 03 to 05.**
 
-  1. The staging units are stopped (a unit that is not loaded counts as stopped).
+  1. The staging units are stopped (RS18).
   2. `db.restore-<N>` and `config.restore.toml` are removed, then the record.
   3. The answer is "restore not done" (1).
 
   If the clean-up itself fails, the record stays at `staging` with both errors.
 
 - **RS11. Failures in steps 06 to 09.** Whatever step 8 swapped is swapped back. A failure in
-  step 06 or 07 has swapped nothing, so the record stays `staged` and the team serves. From
-  step 08 on, in this order:
+  step 06 or 07 has swapped nothing, so the record stays `staged`, the team serves, and the
+  answer is "restore not done, staged: <error>; restore --team T --resume or --discard" (1).
+  From step 08 on, in this order:
 
   1. the record goes to `revert` (fsync), before anything is touched;
   2. the block is written again;
-  3. the live unit is stopped and must be inactive;
-  4. the renames of RS16, toward `unswapped`;
+  3. the live unit is stopped (RS18);
+  4. the renames of RS16, toward `unswapped`, then `FS.Fsync` of the state directory;
   5. the child runs `restore.revert` (RC5);
   6. the block is removed;
   7. the old database is started (RS17) and waited for; under `--offline` it is not started
      (RO6);
   8. the record is set to `staged`, with `pre` kept.
 
-  A failure of the swap-back leaves the record at `revert` and the block in place. It is
-  reported as "team <t> is down: restore --resume or --discard after fixing <error>" (1).
+  A failure in steps 2 to 6 leaves the record at `revert` and the block in place. A failure at
+  step 7 leaves the record at `revert`, no block, and the unit failed. Either is reported as
+  "team <t> is down: restore --resume or --discard after fixing <error>" (1), and `--resume`
+  repeats from step 2.
+
+  An RS16 refusal during a revert is the one state no step can repair: the directory holds
+  something the engine did not make. It is reported with the directory's listing, and the
+  record and block stay, so nothing starts. Recovery is `--discard`, which is allowed at
+  `revert` only after RS16 has refused (RS13).
 
 - **RS12. `--resume`** reads the record and goes on from it:
 
   - `staging`: RS10, then "not done";
   - `staged`: from RS4;
-  - `swap`: forward. The block is ensured and the live unit stopped, then RS16 toward
-    `swapped`, the control swap repeated, then RS7 and RS8;
+  - `swap`: RS6 from its step 2 (the block written if absent), so the record goes to `start`
+    and the block is removed, then RS7 and RS8;
   - `start`: RS7 and RS8;
+  - `clean`: RS8 from its step 2;
   - `revert`: RS11 from its step 2, then "not done", with the record at `staged`.
 
-- **RS13. `--discard`** works at `staging` or `staged` only. It stops the units, and removes
-  `db.restore-<N>` (by `RemoveTree`), `config.restore.toml` and the record. It leaves
-  `restore-epoch.json`. At `swap`, `start` or `revert` it is refused, naming `--resume`.
+  SM5 asserts the end state after a kill at every call of every row.
+
+- **RS13. `--discard`** works at `staging` or `staged`. It stops the two staging units only
+  (RS18): at `staged` the live unit serves and is left alone. It removes `db.restore-<N>` (by
+  `RemoveTree`), `config.restore.toml` and the record, and leaves `restore-epoch.json`. When
+  `pre` is set and `meta/<N>` is gone, the answer says the discarded copy was the only copy of
+  backup `N`. At `swap`, `start` or `clean` it is refused, naming `--resume`. At `revert` it is
+  refused too, unless RS16 has refused there. In that case the record holds `"stuck": "<listing>"`,
+  and the discard removes only the record and leaves the block: the owner has a directory to
+  inspect, and `team apply` will not start it.
 
 - **RS14. `--lost --backup N`** prints `ctl/<team>/restore-<N>-lost.jsonl`. The file is read by
   the trust rule as the `teamchat-ctl` uid, capped at 64 MiB. Each line must be one JSON object,
   and is re-encoded compact, so no control byte reaches a terminal.
 
-- **RS15. Exits.** A refusal is 70. A busy lock is 75. A failure is 1, or 69 for an unreachable
-  homeserver. `--lost` takes no lock and writes nothing.
+- **RS15. Exits.** A refusal is 70: RV7's homeserver that does not answer is a refusal. A busy
+  lock is 75. A failure is 1, or 69 when a homeserver that answered at validation is lost
+  mid-step (RC3, RC8). BV1 follows the same rule: BT1's "not running" is 70, and a server lost
+  during BT2's wait is 69. `--lost` takes no lock and writes nothing.
 
 - **RS16. The renames** are made in the state directory's fd by `renameat2(RENAME_NOREPLACE)`.
   Before each one, the directory is read (`d` for `db`, `p` for `db.previous` and `r` for
@@ -487,6 +579,15 @@ steps are `staging`, `staged`, `swap`, `start` and `revert`.
   directory, and that `restore.block` is absent. Otherwise the start is refused, so no path of
   the engine can make Tuwunel create an empty database and serve it.
 
+- **RS18. Stopped** means `inactive`, `failed` or not loaded, read after `Stop` returns.
+  `activating` (an auto-restart included) and every other state is refused. systemd keeps a
+  crash-looping unit, or one whose `AssertPathExists=` refused a start, `failed` after a stop,
+  so `failed` counts as stopped. Fake tests report `failed` after `Stop` in RO7's crash loop
+  and on the online revert path.
+
+- **Tests over fakes for the spike's hazards:** a `db.restore-<N>` planted between RV2 and RU1
+  is refused, and nothing is started (RS2). RS3's and RS6's call-order tests are above.
+
 ## 7a. The offline restore (RO, n2g-D14)
 
 The case backups exist for is a homeserver whose database will not start. The staged copy is
@@ -496,7 +597,9 @@ cannot be made). `--offline` gives up those two, and nothing else.
 
 - **RO1. The flag.** `restore --team T --backup N --offline`. It is refused (70) when the live
   homeserver answers `ServerVersion` at any probe within 30 s ("the homeserver serves: restore
-  without --offline"), so a serving team cannot lose its export by mistake. Without the flag, a
+  without --offline"), so a serving team cannot lose its export by mistake. The probe comes
+  after RV7's start of an `inactive` unit, so a team that was only stopped is started and then
+  refused. Without the flag, a
   team that does not answer is RV7's refusal. That refusal names `--offline` and its loss:
   "every event after \<N's time> is lost and not exported; there is no pre-restore backup".
 - **RO2. Recorded.** The record holds `"offline": true`. `--resume` and `--discard` take no
@@ -562,9 +665,11 @@ cannot be made). `--offline` gives up those two, and nothing else.
   `restore.export`, and `epoch` only with `restore.check`. Every restore op's answer carries
   no handle, credential, main room, view or notice.
 
-- **RC8. `restore.check`.** Args: `{team_file}`, on the live homeserver with the current
-  token. It reads the main room's roster event by a direct state request, decodes it by A's
-  decoder, and answers `epoch: {restore_epoch, rev}` (RS7, RE1).
+- **RC8. `restore.check`.** Args: `{team_file, port, token}`. In RS3's verify, `port` and
+  `token` are RC1's (the staged server, through RU2). In RS7 both are null, and the child uses
+  the live homeserver with the current token, as its other ops do. It reads the main room's
+  roster event by a direct state request, decodes it by A's decoder, and answers
+  `epoch: {restore_epoch, rev}` (RS3, RS7, RE1).
 
 - **RC7. The secure child's start.** `checkStarted` also accepts a supplementary group list
   that holds only its own gid, which systemd's `initgroups` for `User=` produces (n2g-D16).
@@ -580,8 +685,11 @@ cannot be made). `--offline` gives up those two, and nothing else.
     (`DynamicUser` to `InaccessiblePaths`, with `UMask`, `IPAddressDeny=any` and
     `SocketBindDeny=any`). They are not the lifecycle lines (`Type`, `NotifyAccess`,
     `WatchdogSec`, `Timeout*`, `Restart*`), nor `LoadCredential` and `Environment`.
-  - Its own lifecycle is `Restart=no`, `NotifyAccess=main` and `TimeoutStopSec=330`. A restart
-    would run `--restore-backup` again over the secured copy and wipe it (the spike's (b)). A
+  - Its own lifecycle is `Restart=no`, `NotifyAccess=main`, `TimeoutStartSec=15min` (the start
+    job ends at READY, after the restore; H-C5 confirms that READY is sent under
+    `--restore-backup` and that the time fits H-C1's largest database) and
+    `TimeoutStopSec=330`. A restart
+    would run `--restore-backup` again over the secured copy and wipe it, since a non-empty target is wiped (preamble). A
     test asserts the argv has `Restart=no` and no other `Restart` line.
   - It runs as `DynamicUser=yes`, `User=teamchat-<t>` and `StateDirectory=teamchat/<t>`, with
     `PrivateNetwork=yes`.
@@ -589,7 +697,8 @@ cannot be made). `--offline` gives up those two, and nothing else.
     `LoadCredential=config.toml:/var/lib/teamchat-admin/<t>/config.restore.toml`, and
     `TUWUNEL_CONFIG=/run/credentials/<it>/config.toml` (n2g-D18).
   - It may reach `IPAddressAllow=127.0.0.1/32 ::1/128` and `SocketBindAllow=tcp:<port>`.
-  - Its command is the binary that `units.json`'s version names, with `--restore-backup <N>`.
+  - Its command is the binary that `units.json`'s version names, with `--restore-backup <N>`;
+    RS3's verify run uses the same argv without it (`restore.StagingArgv(t, n, restoring bool)`).
 - **RU2. The secure unit** is `teamchat-restore-ctl@<t>.service`, run as
   `systemd-run --pipe --wait --collect --quiet`. Its properties are
   `JoinsNamespaceOf=<staging unit>`, `PrivateNetwork=yes`, `User=teamchat-ctl`,
@@ -620,7 +729,8 @@ cannot be made). `--offline` gives up those two, and nothing else.
   - `backup`.
 
   `restore` passes its own: a fresh restore refuses as RG2, and `--resume` and `--discard`
-  need the record. The health tick passes `teamlock.Unguarded` and refuses only its restart
+  need the record. The other verbs C names (human, `lxc apply`, `redact`, `migrate`) are not
+  built. Because RG1 refuses a nil guard, each must pass one when it is built. The health tick passes `teamlock.Unguarded` and refuses only its restart
   (HB3).
 
 ## 11. Wiring (RW)
@@ -681,4 +791,5 @@ cannot be made). `--offline` gives up those two, and nothing else.
 | n2g-D17 | The base unit's sandbox lines are one Go list. The play's template must be rendered from it (gate A, Task 2.5), so the staging unit cannot drift from the base unit. The list holds identity, hardening and deny lines only; the lifecycle lines stay per unit, since the base unit's `Restart=always` would let a staging restart wipe the secured copy.                                                                                                                                                                                                           |
 | n2g-D18 | The staging unit names its credential path in full: a transient unit's command line expands no `%d`. H-C5 confirms it.                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | n2g-D19 | A password a human changed from Element after `N` is no roster write, so root cannot know it. The answer carries one fixed line saying the old password is back for any such human; nobody is revoked on a guess.                                                                                                                                                                                                                                                                                                                                                   |
-| n2g-D20 | `root/<team>/restore-epoch.json` is the highest epoch any restore put in place, written at RS6 before a secured database can serve, and kept by `--discard`. Without it, an attempt that served E+1, was swapped back and discarded would let the next restore merge E+1 again from another database, and a member paused across both would keep a stale `since` (H-C14).                                                                                                                                                                                           |
+| n2g-D20 | `root/<team>/restore-epoch.json` is the highest epoch any restore put in place, written at RS6 before a secured database can serve, and kept by `--discard`. Without it, an attempt that served E+1, was swapped back and discarded would let the next restore merge E+1 again from another database, and a member paused across both would keep a stale `since` (H-C14). Its `min_backup` (RM11) refuses, after a `--roster-from-backup` restore, every older backup, whose seqs can no longer be ordered against today's roster.                                  |
+| n2g-D21 | Under `--roster-from-backup` nothing after `N` can be judged, so every credential in the base is revoked and every active handle and human needs a new one. `M` is skipped, since its tar needs the roster. C 3.12.2 is silent on both.                                                                                                                                                                                                                                                                                                                             |
