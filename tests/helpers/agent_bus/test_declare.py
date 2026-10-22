@@ -916,6 +916,18 @@ class SetTest(CommandCase):
         self.assertEqual(self.backups(), 1)
         self.assertEqual([t.team for t in declare.parse(text).teams], ["alpha", "beta", "gamma", "delta", "vaulted"])
 
+    def test_an_entry_the_file_already_holds_wrong_is_the_files_refusal(self) -> None:
+        """A value refused before any change is the file's fault (78), so the settings screen
+        does not ask again for a value that could never pass (Plan 00201)."""
+        broken = STATUS_HV.replace('    org: "example-org"\n', '    org: "example-org"\n    description: "a\\tb"\n', 1)
+        self.path.write_text(broken, encoding="utf-8")
+        code, _, err = self.run_cmd("set", "--team", "alpha", "--value", "humans", '["owner", "second"]')
+        self.assertEqual(code, 78, err)
+        self.assertIn("team alpha's entry in agent_bus_teams is refused as it stands", err)
+        self.assertEqual(self.path.read_text(), broken)
+        code, _, err = self.run_cmd("set", "--team", "alpha", "--value", "description", '"Builds the site"')
+        self.assertEqual(code, 0, err)
+
     def test_a_block_list_is_replaced_whole(self) -> None:
         code, _, err = self.run_cmd("set", "--team", "beta", "--value", "humans", '["owner"]')
         self.assertEqual(code, 0, err)
@@ -1131,12 +1143,13 @@ class AddRepoTest(CommandCase):
         self.assertEqual(declare.entry_of(declare.parse(text).teams[1])["repos"],
                          [{"repo": "example-org/one", "branches": ["main"]}, {"repo": "other/tool"}])
 
-    def test_already_trusted_is_a_usage_error_and_writes_nothing(self) -> None:
+    def test_already_trusted_is_unchanged_and_writes_nothing(self) -> None:
+        """Adding what is there already is the add done, not a refusal (Plan 00201)."""
         for team, repo in (("beta", "example-org/one"), ("alpha", "example-org/two")):
-            code, _, err = self.run_cmd("add-repo", "--team", team, "--repo", repo)
-            self.assertEqual(code, 64, err)
-            self.assertIn("already trusts", err)
+            self.assertEqual(self.run_cmd("add-repo", "--team", team, "--repo", repo),
+                             (0, f"UNCHANGED\tteam {team} already trusts {repo}\n", ""))
         self.assertEqual(self.path.read_text(), STATUS_HV)
+        self.assertEqual(list(self.tmp.glob("localhost.yml.backup.*")), [])
 
     def test_a_repository_the_team_excludes_is_refused_naming_the_exclude(self) -> None:
         self.path.write_text(STATUS_HV.replace('    org: "example-org"\n',
@@ -1351,8 +1364,9 @@ class LxcMemberTest(CommandCase):
     def test_a_second_coordinator_is_refused_but_an_absent_one_does_not_count(self) -> None:
         # alpha's container-a is a present coordinator (read as orchestrator): a second is refused.
         code, _, err = self.run_cmd("lxc-add", *LXC_FLAGS, "--role", "coordinator")
-        self.assertEqual(code, 64)
-        self.assertIn("coordinator", err)
+        self.assertEqual(code, 78)
+        self.assertIn("entries 1 and 4 both declare the coordinator of team alpha; a team has one "
+                      "(entry 4 is the one given)", err)
         self.assertEqual(self.path.read_text(), LXC_HV)
         # beta's only coordinator entry is absent, so beta can have one.
         beta = ("--team", "beta", "--container", "container-d", "--user", "agent",
@@ -1366,8 +1380,13 @@ class LxcMemberTest(CommandCase):
             merged = dict(base, **{f"--{k}": v for k, v in changes.items()})
             return [part for pair in merged.items() for part in pair]
 
+        # Against the file's entries: the file is at fault, or the answer against it (exit 78).
+        for name, argv in {"declared, and differs": flags(container="container-a"),
+                           "a second coordinator": flags(role="coordinator")}.items():
+            code, out, err = self.run_cmd("lxc-add", *argv)
+            self.assertEqual((code, out), (78, ""), f"{name}: {err}")
+            self.assertEqual(self.path.read_text(), LXC_HV, name)
         cases = {
-            "duplicate": flags(container="container-a"),
             "unknown team": flags(team="nosuch"),
             "team declared absent": flags(team="gamma"),
             "bad role": flags(role="boss"),
@@ -1404,13 +1423,15 @@ class LxcMemberTest(CommandCase):
     def test_check_judges_what_it_is_given(self) -> None:
         for argv in (("--role", "worker"), ("--role", "orchestrator"), ("--host", "worker"),
                      ("--user", "agent"), ("--checkout", "/srv/agent/x"), ("--container", "container-z"),
-                     ("--team", "alpha"), LXC_FLAGS):
+                     ("--team", "alpha"), LXC_FLAGS,
+                     # a member already declared is judged as the entry it would replace
+                     ("--team", "alpha", "--container", "container-a", "--user", "agent")):
             self.assertEqual(self.run_cmd("lxc-check", *argv)[:2], (0, ""), argv)
         for argv in (("--role", "boss"), ("--host", "My Host"), ("--user", "A"), ("--checkout", "x"),
-                     ("--container", "-x"), ("--team", "nosuch"), ("--team", "gamma"),
-                     ("--team", "alpha", "--container", "container-a", "--user", "agent"),
-                     ("--team", "alpha", "--role", "coordinator", "--container", "container-z", "--user", "agent")):
+                     ("--container", "-x"), ("--team", "nosuch"), ("--team", "gamma")):
             self.assertEqual(self.run_cmd("lxc-check", *argv)[0], 64, argv)
+        second = ("--team", "alpha", "--role", "coordinator", "--container", "container-z", "--user", "agent")
+        self.assertEqual(self.run_cmd("lxc-check", *second)[0], 78)
         self.assertEqual(self.path.read_text(), LXC_HV)
 
     def test_listed_with_the_role_as_the_play_reads_it(self) -> None:
@@ -1448,7 +1469,7 @@ class LxcMemberTest(CommandCase):
         self.assertEqual(self.run_cmd("lxc-check", *probe)[:2], (0, ""))
         self.assertEqual(self.run_cmd("lxc-check", *probe, "--host", "worker")[:2], (0, ""))
         code, _, err = self.run_cmd("lxc-check", *probe, "--host", "other")
-        self.assertEqual(code, 64)
+        self.assertEqual(code, 78)
         self.assertIn("two hosts", err)
         add = (*probe, "--checkout", "/srv/agent/two")
         self.assertEqual(self.run_cmd("lxc-add", *add)[0], 0)
@@ -1461,13 +1482,133 @@ class LxcMemberTest(CommandCase):
         flags = ("--team", "alpha", "--container", "container-two", "--user", "agent", "--host", "worker",
                  "--checkout", "/srv/agent/two")
         code, _, err = self.run_cmd("lxc-add", *flags, "--seat", "dev")
-        self.assertEqual(code, 64)
+        self.assertEqual(code, 78)
         self.assertIn("seat dev of team alpha", err)
+
+    def test_a_refusal_of_the_files_own_entries_is_the_files_not_the_answers(self) -> None:
+        """A clash already in the file is exit 78 for any answer: asking again cannot help."""
+        self.path.write_text(STATUS_HV + "agent_bus_lxc_members:\n"
+                             "  - team: alpha\n    container: container-a\n    user: agent\n    checkout: /srv/a\n"
+                             "  - team: alpha\n    container: container-a\n    user: agent\n    checkout: /srv/b\n",
+                             encoding="utf-8")
+        before = self.path.read_text()
+        code, _, err = self.run_cmd("lxc-check", "--team", "alpha", "--container", "container-z", "--user", "agent")
+        self.assertEqual(code, 78, err)
+        self.assertIn("entries 1 and 2 both declare agent@container-a in team alpha", err)
+        self.assertEqual(self.run_cmd("lxc-add", *LXC_FLAGS)[0], 78)
+        self.assertEqual(self.path.read_text(), before)
 
     def test_the_questions_about_a_host_word_and_a_seat_are_gone(self) -> None:
         code, out, err = self.run_cmd("lxc-suggest-seat", "--team", "alpha", "--container", "c")
         self.assertEqual((code, out), (64, ""))
         self.assertIn("invalid choice", err)
+
+
+#: The owner's host_vars after an lxc-add whose play failed: the member is entry 2, written.
+DECLARED_HV = STATUS_HV + """\
+agent_bus_lxc_members:
+  - team: alpha
+    container: container-a
+    user: agent
+    checkout: /srv/agent/one
+  - team: alpha
+    container: container-c
+    user: "agent"
+    checkout: "/srv/agent/three"
+other_key: 1
+"""
+
+
+class LxcAlreadyDeclaredTest(CommandCase):
+    """Plan 00201: lxc-add of a member the file already declares is not a duplicate of itself.
+    The owner saw "entries 5 and 6 both declare <user>@<container>": 6 was the answer, 5 the
+    entry an earlier lxc-add had written before its play failed."""
+
+    TEXT = DECLARED_HV
+
+    def backups(self) -> int:
+        return len(list(self.tmp.glob("localhost.yml.backup.*")))
+
+    def test_the_same_entry_again_is_unchanged_not_a_duplicate(self) -> None:
+        code, out, err = self.run_cmd("lxc-add", *LXC_FLAGS)
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(out, f"UNCHANGED\tLXC member agent@container-c is already declared in team alpha, in {self.path}\n")
+        self.assertEqual(self.path.read_text(), DECLARED_HV)
+        self.assertEqual(self.backups(), 0)
+        self.assertEqual(self.run_cmd("lxc-add", *LXC_FLAGS, "--dry-run")[:2], (0, out))
+        self.assertEqual(self.run_cmd("lxc-add", *LXC_FLAGS, "--role", "worker")[0], 0)
+
+    def test_checking_the_member_judges_it_as_the_entry_it_would_replace(self) -> None:
+        self.assertEqual(self.run_cmd("lxc-check", "--team", "alpha", "--container", "container-c", "--user", "agent"),
+                         (0, "", ""))
+
+    def test_a_different_entry_says_which_keys_differ_and_writes_nothing(self) -> None:
+        code, out, err = self.run_cmd("lxc-add", "--team", "alpha", "--container", "container-c", "--user", "agent",
+                                      "--checkout", "/srv/agent/four", "--role", "coordinator")
+        self.assertEqual((code, out), (78, ""))
+        self.assertEqual(err, "declare: agent_bus_lxc_members entry 2 already declares agent@container-c in team "
+                              'alpha, and differs on checkout (the file: "/srv/agent/three", given: "/srv/agent/four"), '
+                              'role (the file: "worker", given: "coordinator"); --update replaces the entry\n')
+        self.assertEqual(self.path.read_text(), DECLARED_HV)
+
+    def test_compare_lists_the_entry_and_its_differences(self) -> None:
+        self.assertEqual(self.run_cmd("lxc-compare", *LXC_FLAGS), (0, "DECLARED\t2\n", ""))
+        code, out, _ = self.run_cmd("lxc-compare", "--team", "alpha", "--container", "container-c", "--user", "agent",
+                                    "--checkout", "/srv/agent/four")
+        self.assertEqual((code, out), (0, 'DECLARED\t2\nDIFFERS\tcheckout\t"/srv/agent/three"\t"/srv/agent/four"\n'))
+        other = ("--team", "beta", "--container", "container-c", "--user", "agent", "--checkout", "/srv/agent/three")
+        self.assertEqual(self.run_cmd("lxc-compare", *other), (0, "", ""))
+
+    def test_a_key_the_entry_has_and_the_answer_does_not_is_a_difference(self) -> None:
+        self.path.write_text(DECLARED_HV.replace('    checkout: "/srv/agent/three"\n',
+                                                 '    checkout: "/srv/agent/three"\n    seat: dev\n    state: absent\n'),
+                             encoding="utf-8")
+        code, out, _ = self.run_cmd("lxc-compare", *LXC_FLAGS)
+        self.assertEqual((code, out), (0, 'DECLARED\t2\nDIFFERS\tseat\t"dev"\t-\nDIFFERS\tstate\t"absent"\t"present"\n'))
+
+    def test_update_makes_the_entry_the_answer_and_keeps_the_rest(self) -> None:
+        code, out, err = self.run_cmd("lxc-add", "--team", "alpha", "--container", "container-c", "--user", "agent",
+                                      "--checkout", "/srv/agent/four", "--role", "coordinator", "--update")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, f"CHANGED\tLXC member agent@container-c in team alpha updated, in {self.path}\n")
+        self.assertEqual(self.path.read_text(), DECLARED_HV.replace(
+            '    checkout: "/srv/agent/three"\n', '    checkout: "/srv/agent/four"\n    role: "coordinator"\n'))
+        self.assertEqual(self.backups(), 1)
+
+    def test_update_drops_the_keys_the_answer_does_not_give(self) -> None:
+        self.path.write_text(DECLARED_HV.replace('    checkout: "/srv/agent/three"\n',
+                                                 '    checkout: "/srv/agent/three"\n    seat: dev\n    state: absent\n'),
+                             encoding="utf-8")
+        self.assertEqual(self.run_cmd("lxc-add", *LXC_FLAGS, "--update")[0], 0)
+        self.assertEqual(self.path.read_text(), DECLARED_HV)
+
+    def test_update_of_an_identical_entry_is_unchanged_and_a_dry_run_writes_nothing(self) -> None:
+        self.assertEqual(self.run_cmd("lxc-add", *LXC_FLAGS, "--update")[1],
+                         f"UNCHANGED\tLXC member agent@container-c is already declared in team alpha, in {self.path}\n")
+        code, out, _ = self.run_cmd("lxc-add", "--team", "alpha", "--container", "container-c", "--user", "agent",
+                                    "--checkout", "/srv/agent/four", "--update", "--dry-run")
+        self.assertEqual(code, 0)
+        self.assertIn('    checkout: "/srv/agent/four"\n', out)
+        self.assertEqual(self.path.read_text(), DECLARED_HV)
+
+    def test_an_update_the_other_entries_refuse_is_refused_as_the_files(self) -> None:
+        self.path.write_text(DECLARED_HV.replace("    checkout: /srv/agent/one\n",
+                                                 "    checkout: /srv/agent/one\n    role: coordinator\n"),
+                             encoding="utf-8")
+        before = self.path.read_text()
+        code, _, err = self.run_cmd("lxc-add", *LXC_FLAGS, "--role", "coordinator", "--update")
+        self.assertEqual(code, 78, err)
+        self.assertIn("both declare the coordinator of team alpha", err)
+        self.assertEqual(self.path.read_text(), before)
+
+    def test_update_with_nested_lines_under_a_key_is_left_to_a_hand(self) -> None:
+        self.path.write_text(DECLARED_HV.replace('    checkout: "/srv/agent/three"\n',
+                                                 '    checkout: "/srv/agent/three"\n    repo:\n      x\n'),
+                             encoding="utf-8")
+        before = self.path.read_text()
+        code, _, err = self.run_cmd("lxc-add", *LXC_FLAGS, "--update")
+        self.assertIn(code, (78,), err)
+        self.assertEqual(self.path.read_text(), before)
 
 
 class LxcDeriveTest(CommandCase):
@@ -1515,7 +1656,7 @@ class LxcDeriveTest(CommandCase):
     def test_a_user_whose_other_entry_has_another_host_is_refused_as_the_play_would(self) -> None:
         # alpha's container-b entry says host "other"; this checkout assigns "worker".
         code, _, err = self.derive(self.probe(), container="container-b", team="beta")
-        self.assertEqual(code, 64)
+        self.assertEqual(code, 78)
         self.assertIn("two hosts", err)
 
     def test_what_the_container_printed_is_judged(self) -> None:

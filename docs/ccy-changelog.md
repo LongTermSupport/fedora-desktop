@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.14.13 — container 2.78.16
+
+Follows 3.99.14.12. The image changes, so the next launch rebuilds it once.
+
+- **The image's declare.py recognises an LXC member declared already** (Plan 00201). `lxc-add`
+  of a member the host_vars declare as given answers UNCHANGED instead of refusing it as a
+  duplicate of itself; declared otherwise it names each key that differs, and `--update`
+  replaces the entry. A refusal of the file's own entries, or of an answer against them, is
+  exit 78, not 64, so no question asks it again.
+
 ## 3.99.14.12 — container 2.78.15
 
 Follows 3.99.14.11. The image changes, so the next launch rebuilds it once.
