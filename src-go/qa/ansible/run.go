@@ -49,8 +49,9 @@ const usageText = `usage: qa-ansible [--root DIR] [--scripts DIR]
 
 Static Ansible QA over playbooks/ tasks/ vars/ environment/ roles/: error-hiding directives
 without FAIL-FAST-OK, playbook shebang and execute bit, self-default variables, vars.scope and
-the canonical scope guard, deprecated top-level ansible_<fact> variables, and a guessed uid in
-a /run/user path.
+the canonical scope guard, deprecated top-level ansible_<fact> variables, a guessed uid in
+a /run/user path, and a regex backreference with the wrong backslash count for its YAML style
+and Jinja context (CLAUDE/QA.md, regex-backref-escape).
 
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory; the root is its parent
@@ -143,7 +144,7 @@ func finish(findings Findings, path string, write func(string, []byte) error, ou
 	return ExitOK
 }
 
-// Scan runs the six checks over the tree and returns what they found. An error is a run that
+// Scan runs the seven checks over the tree and returns what they found. An error is a run that
 // could not complete: no search directory, no playbooks directory, a file that cannot be read.
 func Scan(fsys fs.FS, root string) (Findings, error) {
 	var dirs []string
@@ -196,7 +197,10 @@ func scanPatterns(fsys fs.FS, root string, dirs []string, f *Findings) error {
 	}
 	sc := scope(playbooks, root)
 	f.Out, f.Scope = append(f.Out, sc.out...), sc.entries
-	return scanFacts(fsys, dirs, f)
+	if err := scanFacts(fsys, dirs, f); err != nil {
+		return err
+	}
+	return scanRegexBackrefs(fsys, dirs, f)
 }
 
 // scanFacts runs checks 5 and 6: deprecated fact variables, then guessed uids in runtime paths.

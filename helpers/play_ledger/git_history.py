@@ -1,7 +1,7 @@
 """The git side of the play-freshness check (Plan 00109, Task 2.1).
 
-Answers, for one play, what `freshness.classify` needs: which commits have touched
-it since the run the ledger recorded, and what the file hashes to at HEAD.
+Refreshes the remote refs (whose age the offline finding reports) and answers whether a
+path is in a commit's tree, which the retired-plays rule and `changed_plays` ask.
 
 **Fetch only.** This runs at the end of a login on a machine somebody is using.
 Moving their working tree is a Non-Goal of Plan 00109, so nothing here merges,
@@ -13,17 +13,11 @@ Every call names the repo with `-C`: the caller's cwd is not the checkout.
 
 from __future__ import annotations
 
-import hashlib
 import os
 import subprocess
 from collections.abc import Callable
 
 Runner = Callable[..., subprocess.CompletedProcess]
-
-#: Separator between short sha and subject. A unit separator cannot occur in a
-#: sha and is vanishingly unlikely in a subject — and if one does contain it, the
-#: split below still keeps the subject whole.
-_FIELD_SEP = "\x1f"
 
 
 #: The one genuinely network-bound call on the login path, so the one that needs a
@@ -53,72 +47,14 @@ def fetch(repo_root: str, *, run: Runner = subprocess.run) -> None:
     )
 
 
-def changes_since(
-    repo_root: str, commit: str, play: str, *, run: Runner = subprocess.run
-) -> list[tuple[str, str]]:
-    """`(short_sha, subject)` for each commit touching `play` in `commit..HEAD`.
-
-    Raises if git cannot resolve the range — a ledgered commit missing from this
-    clone (a dropped branch, a shallow clone) exits non-zero, and reading that as
-    "no commits touched it" would report every such play fresh for ever.
-    """
-    result = run(
-        ["git", "-C", repo_root, "log", f"--format=%h{_FIELD_SEP}%s", f"{commit}..HEAD", "--", play],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    commits: list[tuple[str, str]] = []
-    for line in result.stdout.splitlines():
-        if not line.strip():
-            continue
-        # Split once: a subject is free text and may contain anything.
-        short, separator, subject = line.partition(_FIELD_SEP)
-        if not separator:
-            raise ValueError(
-                f"git log line {line!r} has no {_FIELD_SEP!r} separator; refusing to "
-                "under-report churn by skipping it"
-            )
-        commits.append((short, subject))
-    return commits
-
-
-def play_sha256_at_head(
-    repo_root: str, play: str, *, run: Runner = subprocess.run
-) -> str | None:
-    """The play file's hash at HEAD, or None if it is not there any more.
-
-    None is the GONE signal — distinct from a hash that merely differs, and the
-    difference decides whether "re-run this play" is sane advice.
-
-    Bytes, not text: the ledger's hash is over the file's bytes, and letting Python
-    decode and re-encode would diverge on any line ending or encoding surprise.
-    """
-    try:
-        result = run(
-            ["git", "-C", repo_root, "show", f"HEAD:{play}"],
-            check=True,
-            capture_output=True,
-        )
-    except subprocess.CalledProcessError:
-        # Any non-zero git becomes GONE, which would be too generous on its own — a
-        # broken repository is not a deleted play. It is safe here because the caller
-        # runs `changes_since` FIRST with `check=True` and no catch, so a repository
-        # git cannot read has already become UNTRUSTWORTHY before this line runs. That
-        # ordering is the guard; without it this branch would report a dead clone as
-        # "the play was deleted".
-        return None
-    return hashlib.sha256(result.stdout).hexdigest()
-
-
 def path_exists_at(
     repo_root: str, commit: str, path: str, *, run: Runner = subprocess.run
 ) -> bool:
     """Whether `path` is in the tree of `commit`.
 
     `ls-tree` prints nothing for an absent path and exits non-zero only when the
-    commit itself cannot be read — so, unlike `play_sha256_at_head`, "absent" and
-    "git failed" are told apart here, and a failure raises. The retired-plays rule
+    commit itself cannot be read — so "absent" and "git failed" are told apart here,
+    and a failure raises. The retired-plays rule
     retires a finding on an absent answer, so a dead clone must not produce one.
     """
     result = run(

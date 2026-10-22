@@ -1,11 +1,10 @@
 """The retired-plays map: which play absorbed each play that has been removed.
 
-A play the ledger has seen and HEAD no longer has is GONE, and GONE on its own has
-no remedy — there is nothing to re-run, so the finding would stand for ever. When a
+A play the ledger has seen and the checkout does not have is GONE, and GONE on its own
+has no remedy — there is nothing to re-run, so the finding would stand for ever. When a
 play is merged into another, `retired-plays.json` beside this file records the
-successor. `freshness.retire` then turns the advice into "run the successor", and
-drops the finding once the successor has run SUCCESSFULLY at a commit without the old
-play.
+successor. `changed_plays.judge` then runs the successor in its place, and drops the
+old play once the successor has run SUCCESSFULLY at a commit without it.
 
 **Remove the old play and merge its tasks into the successor in ONE commit.** "The old
 play is absent at that commit" is the only evidence the successor carried its tasks,

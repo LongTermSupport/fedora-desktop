@@ -15,7 +15,7 @@
 # measurer: 2
 .claude/ccy/claude-supervise	68	4	74	-
 CLAUDE/Plan/_planlib.inc.bash	395	25	430	-
-CLAUDE/Plan/meta-deploy.bash	162	0	181	assoc
+CLAUDE/Plan/meta-deploy.bash	161	0	180	assoc
 extensions/scripts/gnome-shell-extract-js.bash	85	6	105	-
 fedora-install/pull-projects.bash	226	5	249	-
 fedora-install/push.bash	454	9	400	assoc,data

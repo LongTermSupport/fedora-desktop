@@ -12,25 +12,27 @@ type Findings struct {
 	// Out is the violation lines as printed, in check order.
 	Out                         []string
 	FailFast, SelfRef, FactVars []string
-	Hygiene, Scope              []Entry
-	Playbooks                   int
+	// RegexBackref is the regex-backref-escape findings, "<file>:<line>: <why>".
+	RegexBackref   []string
+	Hygiene, Scope []Entry
+	Playbooks      int
 }
 
 // Errors is how many violations there are.
 func (f Findings) Errors() int {
-	return len(f.FailFast) + len(f.Hygiene) + len(f.SelfRef) + len(f.Scope) + len(f.FactVars)
+	return len(f.FailFast) + len(f.Hygiene) + len(f.SelfRef) + len(f.Scope) + len(f.FactVars) + len(f.RegexBackref)
 }
 
 // Summary is the closing stdout lines: one tick, or the cross with the counts and the pointers.
 func (f Findings) Summary(reportPath string) []string {
 	if f.Errors() == 0 {
 		return []string{fmt.Sprintf("✓ ansible: fail-fast patterns OK; no self-referential vars; no deprecated ansible_<fact> vars; "+
-			"scope+guard declarations OK; %d playbook(s) have correct shebang+exec "+
+			"regex backreferences escaped right; scope+guard declarations OK; %d playbook(s) have correct shebang+exec "+
 			"(scoped to playbooks/ tasks/ vars/ environment/ roles/ — qa-ansible-syntax counts repo-wide and will be higher)", f.Playbooks)}
 	}
 	return []string{
-		fmt.Sprintf("✗ ansible: %d violation(s) — %d fail-fast, %d hygiene, %d self-ref var, %d scope/guard, %d deprecated fact var",
-			f.Errors(), len(f.FailFast), len(f.Hygiene), len(f.SelfRef), len(f.Scope), len(f.FactVars)),
+		fmt.Sprintf("✗ ansible: %d violation(s) — %d fail-fast, %d hygiene, %d self-ref var, %d scope/guard, %d deprecated fact var, %d regex backref",
+			f.Errors(), len(f.FailFast), len(f.Hygiene), len(f.SelfRef), len(f.Scope), len(f.FactVars), len(f.RegexBackref)),
 		"  Hygiene fixer: ./scripts/make-playbooks-executable.bash",
 		"  Details: jq '.failures[]' " + reportPath,
 	}
@@ -66,11 +68,12 @@ type jsonFailure struct {
 }
 
 type jsonChecks struct {
-	FailFast []string `json:"fail_fast"`
-	Hygiene  []string `json:"hygiene"`
-	SelfRef  []string `json:"self_ref"`
-	Scope    []string `json:"scope"`
-	FactVars []string `json:"fact_vars"`
+	FailFast     []string `json:"fail_fast"`
+	Hygiene      []string `json:"hygiene"`
+	SelfRef      []string `json:"self_ref"`
+	Scope        []string `json:"scope"`
+	FactVars     []string `json:"fact_vars"`
+	RegexBackref []string `json:"regex_backref"`
 }
 
 type jsonReport struct {
@@ -115,6 +118,9 @@ func (f Findings) JSON() ([]byte, error) {
 	for _, entry := range f.FactVars {
 		add(entry, "top-level ansible_<fact> var (removed in ansible-core 2.24)")
 	}
+	for _, entry := range f.RegexBackref {
+		add(entry, "regex-backref-escape: a backreference with the wrong backslash count for its YAML style and context")
+	}
 	report := jsonReport{
 		Type:     "ansible",
 		Status:   status,
@@ -123,7 +129,7 @@ func (f Findings) JSON() ([]byte, error) {
 		Results:  []string{},
 		Checks: jsonChecks{
 			FailFast: nonNil(f.FailFast), Hygiene: entryStrings(f.Hygiene), SelfRef: nonNil(f.SelfRef),
-			Scope: entryStrings(f.Scope), FactVars: nonNil(f.FactVars),
+			Scope: entryStrings(f.Scope), FactVars: nonNil(f.FactVars), RegexBackref: nonNil(f.RegexBackref),
 		},
 	}
 	var body bytes.Buffer

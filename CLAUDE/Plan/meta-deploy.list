@@ -8,7 +8,7 @@
 # for the script to do. A triage-only plan is run once, read-only. Words after the folder
 # name are passed to that plan's triage.bash, both runs.
 #
-# One entry per line, three kinds:
+# One entry per line, four kinds:
 #   <plan folder>                  its triage, deploy and acceptance scripts, in order
 #   playbooks/<path>.yml           a change no plan owns; run as one unit through its own
 #                                  shebang, which goes through run.bash, exactly as
@@ -17,6 +17,17 @@
 #                                  fits; run as one unit, like a playbook entry, except
 #                                  that a script named *acceptance*.bash may exit 2 for
 #                                  COULD NOT ESTABLISH, as an acceptance.bash may
+#   changed-plays                  every play that has run here and has to run again, as
+#                                  one unit: the checkout's ./run.bash --changed --yes, in
+#                                  playbook-main.yml order, stopping at the first failure
+#
+# changed-plays runs WHERE IT STANDS in the list, like every other entry, and decides which
+# plays it runs when it starts, so the entries above it have already run (a play an entry
+# above ran is no longer changed, and is not run twice). Put it above the plan entries whose
+# deploy or acceptance expects the changed plays to have run, which is the usual case, and
+# below an entry it must follow. It replaces a hand-copied list of stale plays: name a
+# playbooks/ entry only for a play that must run at a fixed point between two plan steps.
+# Its description says which changed plays the agent expects it to pick up and why.
 #
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
@@ -29,25 +40,8 @@
 # has mapped, and the terminals' font and GPU settings. Start meta-deploy from the terminal that
 # draws the wrong emoji, and leave that window open while it runs.
 00185-terminal-emoji-glyphs
-# play-agent-bus.yml, the whole play (Plan 00213's LXC fix, the farewell-reason fix, Plan 00211
-# Phase 2's admin tool). BEFORE starting meta-deploy, restart every team's agent sessions, ccy
-# and LXC alike, so each coordinator runs pingbus 0.2.0 (deploy 1 installed it; a running
-# session keeps the pingbus it started with, and an old one rejects its questions invite): this
-# play's team step runs `agent-bus bootstrap` for every team, which now creates each team's
-# reports room, and its questions room when it has a coordinator, and invites you and the
-# coordinators. That step no longer stops with rc 70 ("list the admin's rooms: the homeserver
-# answered with no list of room IDs"): Tuwunel's own server admin room, room version 11, which
-# every team admin is in, is now accepted and set aside by name on stderr. The play rebuilds the host's pingbus.pyz and the member kit, so pingbus
-# refuses a list or object farewell reason instead of crashing, and re-runs the member kit step
-# (README.lxc step 1) for every LXC member: each member's copy of pingbus names that member's
-# own newest Python 3.11 or later (the last run stopped there with exit 78 on an EL9 member,
-# whose /usr/bin/python3 is 3.9, before replacing anything). A member with no Python 3.11 or
-# later fails the play, naming what to install. It also builds the Go pingbus-status-line into
-# the kit (used by the 00213 deploy below). Teams are not restarted unless the Tuwunel pin or
-# the units changed, which this does not do. Needs sudo.
-playbooks/imports/play-agent-bus.yml
 # Plan 00213 Tasks 1.3, 1.4 and 2.3 (the bus status line in Go): deploy.bash runs the whole
-# play-agent-bus.yml again (no change after the entry above), then the whole
+# play-agent-bus.yml again (it passed on its own at 67033c224, so no change), then the whole
 # play-claude-yolo.yml, then acceptance.bash. The kit's settings.json runs the static Go
 # pingbus-status-line, copied into every running LXC member. The ccy play gives the host CCY
 # 3.100.5 (the Go front and --opencode: see the play-claude-yolo.yml entry below) and puts the binary in the
@@ -61,13 +55,14 @@ playbooks/imports/play-agent-bus.yml
 # its old status line.
 00213-agent-bus-performance-go-carve-out/deploy.bash
 # Plan 00211 deploy 2 (Task 2.6), the reports and questions rooms, LAST. It needs every team's
-# agent sessions restarted first, ccy and LXC alike, so each coordinator runs pingbus 0.2.0 (see
-# the play-agent-bus.yml entry above: restart them before meta-deploy starts). This runs
+# agent sessions restarted since pingbus 0.2.0 was installed, ccy and LXC alike, which the
+# host reboot did, and every declared LXC member's container RUNNING: the last run refused, at
+# its pre-flight, a declared member whose container was stopped. This runs
 # deploy.bash --stage 2: it refuses unless the spike report says every fact holds, then runs
 # acceptance.bash --stage 1 again as the pre-flight (the host's and every declared LXC
 # member's pingbus is 0.2.0, and a declared container that is down is refused, named). Then the
-# whole play-agent-bus.yml keeps each team's reports and questions rooms (created by the entry
-# above), the index and the invites; the whole play-claude-yolo.yml finds the ccy image already
+# whole play-agent-bus.yml keeps each team's reports and questions rooms (created when
+# play-agent-bus.yml passed at 67033c224), the index and the invites; the whole play-claude-yolo.yml finds the ccy image already
 # at container 2.79.1. Then acceptance.bash --stage 2 waits up to 180 s for every coordinator
 # to join its questions room and every running ccy seat its reports room, naming any that has
 # not, and checks the rooms. It finds the first team's coordinator in its running ccy session
@@ -145,22 +140,19 @@ playbooks/imports/play-claude-yolo.yml
 # its update on every open, so it blocks S3 until play-agent-bus.yml has applied it; its entry
 # above normally has.
 00209-agent-bus-v2-in-go/acceptance-s1.bash
-# play-python.yml, the whole play (Plan 00191 Task 4.6): installs Fedora's python3-pytest, the
-# pytest the hook-handlers QA gate borrows to run the hooks-daemon handler tests under the
-# daemon's venv (the CCY image already has it). It also re-asserts the pinned QA toolchain
-# (ruff, semgrep, shellcheck, golangci-lint) and imports play-golang.yml. Needs sudo once.
-# Afterwards ./scripts/qa-hook-handlers.bash on the host must print HOOK-HANDLERS-OK; if it
-# says the interpreter the daemon's venv was built from has no pytest, that venv was not built
-# from Fedora's python3.
-playbooks/imports/play-python.yml
-# play-git-configure-and-tools.yml, the whole play (Plan 00183, the qa-reviewer's fixes): moves
-# ~/.bash-git-prompt to the pinned upstream commit 4501746 (every run now fetches it from GitHub;
-# edited tracked files in that checkout stop the play, untracked ones do not), then stops the
-# play, naming the problem, if gitprompt.sh calls async_run for anything but its git fetch,
-# before the bashrc override is written. Makes ~/.cache itself, at 0700, for the prompt fetch's
-# log. The rest of the play is unchanged. Needs sudo once.
-playbooks/imports/play-git-configure-and-tools.yml
-# Plan 00183 acceptance, after the play above, read-only: its override and prompt legs judge the
-# pinned checkout. Afterwards, the owner's hand check (PLAN.md Task 2.3): the yellow mark in a
-# stale checkout's prompt.
-00183-prompt-shows-stale-tracking-ref/acceptance.bash
+# Plan 00214 acceptance (issue #110), LAST, with no changed-plays entry above it: it needs plays
+# still to run. Runs no play and needs no sudo. It checks that the health report's
+# play-freshness check and run.bash --changed's helper name the same plays (the report said 10
+# where --changed ran 25), then runs one collection as host-health.service does (a git fetch,
+# and the status document and handoff file rewritten) and checks that fedora-desktop-health and
+# the login shell's second reminder of the day print this checkout's run.bash --changed. With
+# no play to run it says NOT JUDGED (exit 2).
+00214-update-all-changed-plays
+# Every play that has to run again here (issue #110 gap 3), after the acceptance above, which
+# needs them still stale: ./run.bash --changed --yes, in playbook-main.yml order, stopping at
+# the first failure. It is expected to pick up play-host-health-login-report.yml (Plan 00214
+# changed fedora-desktop-health's --help) and play-fedora-desktop-panel.yml (the panel's
+# "Re-run a play…" count now leaves out plays --changed does not run), plus every other play
+# the acceptance listed as changed or failed. Needs sudo. Afterwards log out and back in so
+# the panel loads its new code (Wayland), and fedora-desktop-health should list no play.
+changed-plays

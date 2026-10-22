@@ -445,11 +445,13 @@ def freshness_findings(
     stderr: TextIO,
     run: Callable[..., int] = check_freshness.run,
     judged: list[freshness.Verdict] | None = None,
+    coverage: list[str] | None = None,
 ) -> list[probe_results.Finding]:
     """The freshness check's findings, via its real entry point.
 
-    `judged` is handed straight to the check, so the panel's play runner rows come from
-    the very run whose findings the freshness section shows.
+    `judged` and `coverage` are handed straight to the check, so the panel's play runner
+    rows and the section's statement of what it judged come from the very run whose
+    findings the freshness section shows.
 
     Its two channels are kept apart deliberately. Sharing one sink between them made
     every diagnostic a user-facing finding: "git fetch failed" was reported as a
@@ -472,6 +474,7 @@ def freshness_findings(
         stderr=diagnostics,
         unchecked=not_checked,
         judged=judged,
+        coverage=coverage,
     )
 
     # Diagnostics are not findings, and they are not discarded either — they go where
@@ -496,6 +499,29 @@ def freshness_findings(
     return [
         probe_results.broken(text) for text in _fold_detail_lines(out.lines())
     ] + [probe_results.unchecked(text) for text in not_checked.lines()]
+
+
+def freshness_section(
+    base: str,
+    repo_root: str,
+    *,
+    stderr: TextIO,
+    judged: list[freshness.Verdict],
+    stated_coverage: dict[str, str],
+    run: Callable[..., int] = check_freshness.run,
+) -> list[probe_results.Finding]:
+    """The play-freshness section's findings, with its coverage stated under its id.
+
+    Only a run that judged states a coverage, the same way the pins do: a run that could
+    not judge has examined nothing, and a zero would claim it had.
+    """
+    coverage: list[str] = []
+    found = freshness_findings(
+        base, repo_root, stderr=stderr, run=run, judged=judged, coverage=coverage
+    )
+    if coverage:
+        stated_coverage[FRESHNESS] = coverage[0]
+    return found
 
 
 def main(
@@ -560,8 +586,9 @@ def main(
     sections = collect_sections(
         health=lambda: probe.collect(running_kernel=probe.running_kernel()),
         ledger_present=lambda: ledger_presence.findings(base),
-        freshness=lambda: freshness_findings(
-            base, arguments.repo_root, stderr=diagnostics, judged=judged
+        freshness=lambda: freshness_section(
+            base, arguments.repo_root, stderr=diagnostics, judged=judged,
+            stated_coverage=stated_coverage,
         ),
         pins=pins_findings,
         self_update=lambda: self_update_check.findings(
