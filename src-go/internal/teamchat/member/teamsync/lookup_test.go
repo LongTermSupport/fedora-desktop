@@ -133,6 +133,33 @@ func TestResolveOrder(t *testing.T) {
 	}
 }
 
+// A5: the resolver holds no lock across a fetch, so an own send recorded meanwhile (a say that
+// has sent, the ends' back) does not wait on a slow homeserver.
+func TestAFetchHoldsNoLock(t *testing.T) {
+	r := newTestResolver(&syncBuffer{})
+	fetching, answer := make(chan struct{}), make(chan struct{})
+	get := func(context.Context, string) (json.RawMessage, error) {
+		close(fetching)
+		<-answer
+		return json.RawMessage(rawEvent(t, user(alice), human("hi"))), nil
+	}
+	in := resolveInput{self: user(me), room: "!main", roster: baseRoster(), get: get}
+	done := make(chan error, 1)
+	go func() {
+		_, err := r.resolve(context.Background(), in, []relation{{event: evMsg, id: evRel1}})
+		done <- err
+	}()
+	<-fetching
+	r.recordOwnSend(evRel2, proto.Related{Sender: user(me)})
+	close(answer)
+	check(t, <-done)
+	got, err := r.resolve(t.Context(), in, []relation{{event: evMsg, id: evRel1}, {event: evMsg, id: evRel2}})
+	check(t, err)
+	if got[evRel1].Sender != user(alice) || got[evRel2].Sender != user(me) {
+		t.Fatalf("resolved %+v", got)
+	}
+}
+
 // SY4a: a 404 or 403 is an unknown sender for the link's life, fetched once; a transient failure
 // holds the answer, and after 5 in a row the relation is unknown with one log line (n3c-D9).
 func TestResolveFailures(t *testing.T) {

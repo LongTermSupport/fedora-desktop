@@ -253,7 +253,9 @@ func apply(s *state.Store, b team.Batch) (map[string]proto.Verdict, error) {
 
 // ownedFloors is B 2.3.2's floor rule: a room the store owes items in has its floor just below
 // the oldest of them, so each is newer than its floor and survives a restart (B44); a room it
-// owes none in keeps the batch's high-water.
+// owes none in keeps the batch's high-water. B 2.3.2 counts `awaiting` too, whose entries carry
+// ids only: whatever writes them must give them a sent time, or set the floor before moving
+// items there.
 func ownedFloors(s *state.Store) {
 	for _, p := range s.Pending {
 		if s.Sync.FloorMS == nil {
@@ -263,6 +265,37 @@ func ownedFloors(s *state.Store) {
 			s.Sync.FloorMS[p.Room] = max(p.SentMS-1, 0)
 		}
 	}
+}
+
+// raiseFloors is B 2.3.2's floor rule after items left pending outside a sync answer (an ack,
+// a drop): each room they were in is raised to just below the oldest item it still owes, or,
+// owing none, to the newest that left; a floor is never lowered here. It is main's floor, and
+// whether that moved.
+func raiseFloors(s *state.Store, left []state.Pending) (int64, bool) {
+	newest := map[string]int64{}
+	for _, p := range left {
+		newest[p.Room] = max(newest[p.Room], p.SentMS)
+	}
+	before := s.Sync.FloorMS[proto.PurposeMain]
+	for room, to := range newest {
+		owes, oldest := false, int64(0)
+		for _, p := range s.Pending {
+			if p.Room == room && (!owes || p.SentMS < oldest) {
+				owes, oldest = true, p.SentMS
+			}
+		}
+		if owes {
+			to = oldest - 1
+		}
+		if s.Sync.FloorMS == nil {
+			s.Sync.FloorMS = map[string]int64{}
+		}
+		if floor, ok := s.Sync.FloorMS[room]; !ok || to > floor {
+			s.Sync.FloorMS[room] = max(to, 0)
+		}
+	}
+	after := s.Sync.FloorMS[proto.PurposeMain]
+	return after, after != before
 }
 
 func addCounts(a, b team.Counts) team.Counts {

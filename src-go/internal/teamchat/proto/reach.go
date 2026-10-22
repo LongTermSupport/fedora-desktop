@@ -10,8 +10,10 @@ func (r Roster) HumanReader(id string) bool { return r.AddressableAgent(id) && r
 // ReachedNoAgent is the "reached no agent" predicate of UH1 over a decoded human message (gap
 // 11): no HumanReader in its mentions, no `@room`, no reply to or thread rooted at an event a
 // HumanReader sent, and no edit of a message whose Related.AddressedToRosterAgent is set. A
-// related event the lookup does not hold reaches no agent (n3-D20's undercount). It has no
-// self: a message addressed to agent X has reached an agent at every member.
+// related event the lookup does not hold (the server refused it, 404 or 403, or it was poisoned)
+// may have reached an agent, so a message relating to it is never unheard (n3-D20: the count
+// undercounts and never miscounts). It has no self: a message addressed to agent X has
+// reached an agent at every member.
 func ReachedNoAgent(h Human, r Roster, l Lookup) bool {
 	if h.MentionRoom || slices.ContainsFunc(h.Mentions, r.HumanReader) {
 		return false
@@ -23,14 +25,14 @@ func ReachedNoAgent(h Human, r Roster, l Lookup) bool {
 	return !relatedReaches(l, h.Revises, func(rel Related) bool { return rel.AddressedToRosterAgent })
 }
 
-// relatedReaches is whether the event id names is held by the lookup and reaches by its rule;
-// no id reaches nothing.
+// relatedReaches is whether the event id names may reach: held by the lookup and reaching by
+// its rule, or not held at all (n3-D20); no id reaches nothing.
 func relatedReaches(l Lookup, id string, reaches func(Related) bool) bool {
 	if id == "" {
 		return false
 	}
 	rel, ok := l.Event(id)
-	return ok && reaches(rel)
+	return !ok || reaches(rel)
 }
 
 // RelationIDs are the related event ids a human's message reads for its addressing, in the

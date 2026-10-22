@@ -260,11 +260,13 @@ type Team struct {
 // TeamCounts are a team's events this link judged and did not deliver, by why (SPEC-n3 LN5,
 // UH1), since the link started.
 type TeamCounts struct {
-	Ignored   int64 `json:"ignored"`
-	Dropped   int64 `json:"dropped"`
-	Unheard   int64 `json:"unheard"`
-	Gaps      int64 `json:"gaps"`
-	Redacted  int64 `json:"redacted"`
+	Ignored  int64 `json:"ignored"`
+	Dropped  int64 `json:"dropped"`
+	Unheard  int64 `json:"unheard"`
+	Gaps     int64 `json:"gaps"`
+	Redacted int64 `json:"redacted"`
+	// SeenTwice is P9's count of items recv already showed when a missing delivery is found
+	// later; n3e's proof sets it, and until then it is 0.
 	SeenTwice int64 `json:"seen_twice"`
 }
 

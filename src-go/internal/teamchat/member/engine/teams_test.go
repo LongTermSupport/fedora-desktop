@@ -225,6 +225,29 @@ func TestEndTeamsAndShutdown(t *testing.T) {
 	}
 }
 
+// SY10, A2: a shutdown puts each running team's floor marker at its clean end, after its team
+// goroutine stopped, so no later move is left unput; a failed put is logged and blocks nothing.
+func TestShutdownPutsTheFloorMarkers(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops, dev := tid(t, "ops"), tid(t, "dev")
+	fo, fd := w.held(ops), w.held(dev)
+	fd.mu.Lock()
+	fd.flushErr = errors.New("homeserver down")
+	fd.mu.Unlock()
+	check(t, w.e.Shutdown(t.Context()))
+	for _, f := range []*fakeTeam{fo, fd} {
+		f.mu.Lock()
+		flushes, live := f.flushes, f.flushedLive
+		f.mu.Unlock()
+		if flushes != 1 || live != 0 {
+			t.Fatalf("%s: %d flushes, %d while its goroutine ran", f.cfg.Team, flushes, live)
+		}
+	}
+	if !strings.Contains(w.log.String(), "team "+dev.String()+": the floor marker was not put at the shutdown") {
+		t.Fatalf("link.log = %q", w.log.String())
+	}
+}
+
 func TestTheStoreSeamsWriteTheStore(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)
 	ops, dev := tid(t, "ops"), tid(t, "dev")

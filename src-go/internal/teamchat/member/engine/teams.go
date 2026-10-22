@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"sync"
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/failpoint"
@@ -254,9 +255,39 @@ func (e *Engine) drop(h *held) error {
 	return errors.Join(err, h.writer.Close(), h.lock.Close())
 }
 
-// Shutdown stops every team goroutine and closes every store writer and seat descriptor: the
-// link's last act before it exits.
+// Shutdown stops every team goroutine, puts each running team's floor marker (SY10's clean
+// end; the teams in parallel, each bounded as a removal's is, so an offline homeserver delays
+// the exit by about 4 s at most), and closes every store writer and seat descriptor: the link's
+// last act before it exits.
 func (e *Engine) Shutdown(ctx context.Context) error {
+	type running struct {
+		id      paths.TeamID
+		tm      team.Team
+		cancel  context.CancelFunc
+		stopped chan struct{}
+	}
+	var live []running
+	if err := e.do(ctx, func() {
+		for _, id := range e.order() {
+			if h := e.teams[id]; h.cancel != nil && !h.removed {
+				live = append(live, running{id: id, tm: h.team, cancel: h.cancel, stopped: h.stopped})
+			}
+		}
+	}); err != nil {
+		return err
+	}
+	var wg sync.WaitGroup
+	for _, r := range live {
+		wg.Go(func() {
+			e.stop(r.id, r.cancel, r.stopped)
+			fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), flushWait)
+			defer cancel()
+			if err := r.tm.FlushFloor(fctx); err != nil {
+				e.logf("team %s: the floor marker was not put at the shutdown: %v", r.id, err)
+			}
+		})
+	}
+	wg.Wait()
 	var errs []error
 	if err := e.do(ctx, func() {
 		for _, h := range e.teams {
