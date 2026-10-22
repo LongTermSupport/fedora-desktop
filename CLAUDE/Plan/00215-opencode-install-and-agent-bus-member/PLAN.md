@@ -79,9 +79,9 @@ O2 and O4.
   tests and host checks H-OC1 to H-OC5 (design section 7). **Depends on** Plan 00209 N3
   (Task 3.2) merged.
 - [ ] ⬜ **Task 3.3**: The opencode member kind where O2 places it: an LXC guest (**depends
-  on** Plan 00209 N4, Tasks 4.1-4.4), or a host member (**depends on** Plan 00209 Task 5.1,
-  seam 56, and its **Gate B**), or the ccy image (**depends on** Plan 00209 N4 and a CCY
-  version bump).
+  on** Plan 00209 Task 3.3, N3's LXC members), or a host member (**depends on** Plan 00209
+  Task 5.1, seam 56, and its **Gate B**), or the ccy image (**depends on** Plan 00209 N4,
+  Task 4.1's v2 kit in the image, and a CCY version bump).
 - [ ] ⬜ **Task 3.4**: Acceptance: one opencode worker on a throwaway v2 team answers a HUMAN
   message, a PEER message and a closed-verb ping from the coordinator, and its HUMAN items get
   read receipts only after proof. **Depends on** Tasks 3.2-3.3.
@@ -113,7 +113,8 @@ Each has the default the design assumes.
 ## Success Criteria
 
 - [ ] The play has run on the host and `opencode --version` prints the pin (Task 1.4).
-- [ ] `scripts/check-pinned-versions.bash` lists `opencodeVersion` against `anomalyco/opencode`.
+- [x] `scripts/check-pinned-versions.bash` lists `opencodeVersion` against `anomalyco/opencode`
+  (checked in the container: `1.19.3`, up to date).
 - [x] The design covers join, wake, delivery, reply, authority, the differences and the seam,
   and leaves Gate A untouched.
 - [ ] The owner has answered O1-O7.

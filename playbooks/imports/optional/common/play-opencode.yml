@@ -104,9 +104,10 @@
     - name: Find opencode versions other than the pinned one
       ansible.builtin.find:
         paths: "{{ opencodeLibDir }}"
-        patterns: "opencode-*"
+        patterns: '^opencode-[0-9]+\.[0-9]+\.[0-9]+$'
+        use_regex: true
         file_type: directory
-        excludes: "opencode-{{ opencodeVersion }}"
+        excludes: "^opencode-{{ opencodeVersion | regex_escape }}$"
       register: opencode_old_versions
       become: true
       become_user: "{{ user_login }}"

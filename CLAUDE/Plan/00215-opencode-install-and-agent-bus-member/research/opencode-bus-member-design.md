@@ -61,22 +61,42 @@ owner decision O4) and `--kind` for where it runs, then `-- opencode serve`. Fol
    only into CMD's environment as `OPENCODE_SERVER_PASSWORD`, upstream's own variable, and to
    the link with the launch facts (held in memory, never on disk, as the inbox token is,
    B 2.7.1). A CMD that already sets `--hostname`, `--port`, `--mdns` or `--cors`, or is not
-   `opencode serve`, is exit 64.
+   `opencode serve`, is exit 64. **The port** is drawn at random from the ephemeral range and
+   checked free by a bind the keeper closes at once; opencode has no Unix-socket listener
+   (upstream `server/server.ts` listens on TCP only), so the window between that check and
+   opencode's own bind cannot be closed. Two rules make it safe: a port opencode cannot bind
+   ends CMD, which is step 7's launch failure (`launch-failed`, exit 78), and the member
+   kind's own restart draws a new port; and before the link sends the password or any
+   envelope, it checks that the socket listening on the port belongs to CMD or a descendant
+   (the socket inode in `/proc/net/tcp` found among that process tree's `/proc/<pid>/fd`),
+   so a process of another user that took the port first is never handed the password or a
+   message.
 3. Step 7: CMD starts as the keeper's child. The link polls `GET /global/health` with basic
    auth until it answers (within the same 30 s bound as the link's own ready), checks the
    reported `version` against the version the kind is pinned to, then **creates the member's
-   session** with `POST /session` (title: the session name from the desired membership). A
-   resume (`--resume-recorded`, B 2.4.1) reuses the recorded opencode session id when
-   `GET /session/:id` finds it, else creates a new one and says so, as Claude's resume does.
-   The session id is recorded in `session.json` (B 2.3.3).
-4. The link subscribes to `GET /event` (server-sent events) for the session's status and
+   session** with `POST /session` (title: the session name from the desired membership). The
+   opencode session id is kept in `session.json` (B 2.3.3) for the live run and a link
+   restart, and written to `<v2-state>/conversation.json` as Claude Code's session id is, the
+   hint that outlives the run (`<v2-run>` and its `session.json` are removed at the end,
+   B 2.4.2). A resume (`--resume-recorded`, B 2.4.1 step 5, B43) reads that hint and reuses the
+   opencode session when `GET /session/:id` finds it, else creates a new one and says so in
+   `keeper.log`, as Claude's resume does.
+4. **Inbound.** The launch's `inbound` decision (B 2.4.1 step 5) keeps its meaning: `accept`
+   allows push delivery; `refuse` (a launch with no team yet) means the link makes no
+   `prompt_async` push, so delivery mode is `wait` and items wait for `recv`/`wait` until the
+   first join relaunches the session, exactly as for Claude Code (B35, 2.10).
+5. The link subscribes to `GET /event` (server-sent events) for the session's status and
    messages. This replaces the hook ops of B 2.4.4: **the session's facts come from the link's
    own authenticated client, not from processes that call it**, so no peer-ancestry rule is
-   needed for them.
+   needed for them. The HTTP and event-stream client runs in its own goroutine, beside the
+   delivery goroutine, and hands observations to the state goroutine, which makes no network
+   call (B 2.4.3).
 
-A human who wants to watch or type runs `opencode attach http://127.0.0.1:<p> --session <id>`
-with the password (the board can show the command); what they type there is the owner at the
-keyboard, as in a Claude Code pane, not a bus message.
+Upstream lets a TUI join a running server (`opencode attach <url> --session <id>`), but it
+needs the server password, which only the keeper and the link hold. This design gives a human
+no route to it: a worker is watched through the board, `report.json` and `teamchat history`.
+A route to attach (and what a human typing there would count as) is a later choice, not
+assumed here.
 
 ### 3.2 Woken: delivery
 
@@ -100,7 +120,8 @@ keyboard, as in a Claude Code pane, not a bus message.
   failed, B 2.8) go the same way, as `noReply` messages, at most once per state change. The
   Stop hook's "block once while items are pending" has no counterpart and needs none: with
   push delivery, the next delivery is what wakes the session.
-- **A link restart** finds the session id in `session.json` and the password from the keeper,
+- **A link restart** finds the session id in `session.json`, is handed the password by the
+  keeper (as a restarted link is handed the inbox token, B 2.4.2),
   re-subscribes and resolves `awaiting` entries from the message list, as B 2.7.3 does from the
   transcript.
 
@@ -115,9 +136,8 @@ whole path for a session whose server cannot be reached, delivery mode `wait`, B
 opencode has no SessionEnd hook. The keeper already judges the end from CMD's exit and the
 signal it forwarded (B 2.4.2): a forwarded `SIGTERM` is `stop` and posts `left`; an exit or a
 kill it did not cause posts `disconnected`. That is correct for opencode without an end
-reason; the one loss is that a deliberate `/exit` typed in an attached TUI reads as
-`disconnected`, not `left` (the TUI ends, the server does not, so this arises only if the
-owner stops the server some other way).
+reason; the one loss is that a server that exits by itself (a crash, or a clean exit nobody
+asked the keeper for) reads as `disconnected`, never `left`, which is the safe side.
 
 ## 4. What differs from a Claude Code member
 
@@ -131,7 +151,7 @@ owner stops the server some other way).
 | Idle / busy          | Stop and UserPromptSubmit hooks                                   | `session.status` / `session.idle` events                                    |
 | Frame text and skill | SessionStart hook and the `teamchat:teamchat` plugin skill        | `noReply` messages at creation and after compaction                         |
 | Status line          | the kit's status line (B 2.9)                                     | none; `report.json` and the board only                                      |
-| Resume               | `--resume <session_id>` from `conversation.json`                  | reuse the recorded opencode session id                                      |
+| Resume               | `--resume <session_id>` from `conversation.json`                  | reuse the opencode session id recorded in `conversation.json`               |
 | End reason           | SessionEnd hook records it                                        | none; the keeper's own judgement                                            |
 | Guard rails          | Claude Code permissions plus the hooks daemon's PreToolUse guards | opencode's own `permission` rules only (defaults allow nearly everything)   |
 | Reads `CLAUDE.md`    | yes                                                               | yes by default, and `.claude/skills/` too (`OPENCODE_DISABLE_CLAUDE_CODE*`) |
@@ -167,8 +187,9 @@ an owner-visible name; final placement is v2's call). The link calls it; the kee
 it only at launch.
 
 ```go
-// Kind is the agent program a launch runs. Exactly one per run (B 2.4.1 step 5).
-type Kind string // "claude", "opencode", "plain"
+// Agent is the agent program a launch runs: session.pid's `launch` value. Exactly one
+// per run (B 2.4.1 step 5). Not the member kind, which stays --kind ccy|lxc|host|other.
+type Agent string // "claude", "opencode", "plain"
 
 // Launch is what an adapter may add to CMD before the keeper starts it.
 type Launch struct {
@@ -177,7 +198,7 @@ type Launch struct {
 	Files []RunFile         // written under <v2-run>, 0600, O_EXCL (Claude's settings.json)
 }
 
-// Prepare validates CMD for this kind (exit 64 on a CMD it cannot drive) and returns
+// Prepare validates CMD for this agent (exit 64 on a CMD it cannot drive) and returns
 // what the keeper adds. secrets is the keeper's per-run random material.
 type Preparer interface {
 	Prepare(cmd []string, inbound Inbound, secrets RunSecrets) (Launch, error)
@@ -192,7 +213,7 @@ type Channel interface {
 	// for B 2.7.3's "unknown" and "yes".
 	Deliver(ctx context.Context, envelope []byte) (Written, error)
 	// Context adds text without starting a turn (frame text, notices).
-	// ErrUnsupported where the kind has no such route (Claude uses hooks).
+	// ErrUnsupported where the agent has no such route (Claude uses hooks).
 	Context(ctx context.Context, text []byte) error
 	// Observations streams what the link needs to judge proof and the quiet
 	// clock: proof of a nonce, idle, busy, compacted, delivery error, gone.
@@ -205,11 +226,15 @@ type Capabilities struct {
 	Proof      ProofKind    // transcript | api | none
 	Facts      FactSource   // hooks | client      (who may set session facts)
 	StatusLine bool
-	EndReason  bool         // whether the kind reports one (Claude's SessionEnd)
+	EndReason  bool         // whether the agent reports one (Claude's SessionEnd)
 }
 ```
 
-How each kind fills it:
+A `Channel` runs in its own goroutines and only sends `Observation`s to the state goroutine,
+which keeps every transition and makes no network call (B 2.4.3). `Delivery` is the agent's
+best mode; the launch's `inbound: refuse` lowers it to `wait` for that run.
+
+How each agent fills it:
 
 - **claude**: `Prepare` is B 2.4.1 step 5 as written (settings file, `--plugin-dir`,
   `--settings`, the `claude` argument rule). Facts arrive from hook ops (B 2.4.4); the
@@ -223,15 +248,15 @@ How each kind fills it:
 
 What stays outside the seam, deliberately: envelope rendering (A 13), item states and the
 ledger (B 2.7.3), receipts, the flood budget, the end and its notices (B 2.11), seats and
-locks. An adapter cannot reach them, so a new kind cannot weaken them. The hook ops of
-B 2.4.4 remain Claude-only and keep their trust rule; a kind whose `Facts` is `client` never
+locks. An adapter cannot reach them, so a new agent cannot weaken them. The hook ops of
+B 2.4.4 remain Claude-only and keep their trust rule; an agent whose `Facts` is `client` never
 accepts them (a hook op on an opencode run is refused).
 
 ### 5.3 What the seam needs from v2's design text, and Gate A
 
 - B 2.4.1 step 5 and B 2.7 are re-worded as "the Claude Code adapter"; the behaviour of a
   Claude Code launch does not change by a byte, which the n3e tests prove.
-- `session.pid`'s `launch` field and `status`'s `delivery` value take the kind's values.
+- `session.pid`'s `launch` field and `status`'s `delivery` value take the agent's values.
 - A host check per pinned opencode version, as Claude Code has (H-OC1 to H-OC5, section 7).
 
 **Gate A is untouched.** The seam and the opencode kind add no binary, unit, path, plugin,
@@ -250,10 +275,11 @@ directly as the login user on the host, it can read and change everything that u
 vault password file, other checkouts, the owner's GitHub token). So the recommendation is to
 run workers where v2 already isolates members:
 
-- **an LXC guest** (v2 N4's LXC member kind, B 2.13), with opencode installed in the guest by
-  the guest's own play; or
+- **an LXC guest** (v2 N3's LXC member kind, Plan 00209 Task 3.3, B 2.13), with opencode
+  installed in the guest by the guest's own play; or
 - **the ccy container**, which would put opencode into the ccy image: a ccy image change with a
-  CCY version bump, and the image is itself held by Gate A for its v2 parts.
+  CCY version bump, after v2's kit is in the image (Plan 00209 N4, Task 4.1), which is itself
+  held by Gate A.
 
 A host member is v2's seam 56 (Plan 00209 Task 5.1, N5), refused until defined and held by
 **Gate B** (a host member's seat is a pool seat). This is decision O2.

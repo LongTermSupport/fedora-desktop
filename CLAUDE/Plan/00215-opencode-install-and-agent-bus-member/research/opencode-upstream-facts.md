@@ -88,7 +88,15 @@ otherwise. Doc paths are under `packages/web/src/content/docs/` in
   `OPENCODE_DISABLE_AUTOUPDATE` is set, **but it reads `cfg.getGlobal()`, the user's global
   file only**, so the managed `autoupdate: false` the play writes does not silence the
   notice in 1.19.3; it is set so every reader of the merged config sees it. A notice is
-  harmless: it installs nothing, and the play's next run restores the pinned binary.
+  harmless: it installs nothing.
+- **Upgrading is what to avoid.** `installation/index.ts` names the install method `curl` when
+  the executable's path holds `.opencode/bin` or `.local/bin`, else, past the package-manager
+  checks, `unknown`. For `curl`, `opencode upgrade` fetches `https://opencode.ai/install` and
+  runs it, and that script installs to `$HOME/.opencode/bin` (`install`, `INSTALL_DIR`). The
+  play neither manages nor checks that path, so an upgrade would leave a second, unpinned
+  copy beside the pinned one. Which method the play's symlinked binary reports is not
+  established here (it depends on how Bun resolves `process.execPath` through the link); the
+  rule in `docs/playbooks.md` is not to run it.
 
 ## Non-interactive and server modes (what Phase 2 builds on)
 

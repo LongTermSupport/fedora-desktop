@@ -81,9 +81,9 @@ version_pins:
       kind: untracked
       why: >-
         An optional play, and `kind: command` reports a missing binary as a finding on every
-        host that never ran it. The play asserts `opencode --version` equals the pin on every
-        run and puts the pinned binary back, so drift on a host that ran it is caught and
-        undone the next time it runs.
+        host that never ran it. The play asserts that the binary it installs reports the pin on
+        every run. It does not see a copy `opencode upgrade` may put in ~/.opencode/bin, which
+        docs/playbooks.md tells the owner not to run.
 
   - playbook: playbooks/imports/optional/common/play-md-viewer.yml
     var: md_viewer_version
