@@ -16,6 +16,7 @@ import importlib.util
 import io
 import json
 import pathlib
+import subprocess
 import sys
 import tempfile
 import types
@@ -743,6 +744,86 @@ class ReviewFixesTest(TempDir):
         self.assertEqual(run("say-outcome", "64", unverified)[0], 3)
         self.assertEqual(run("say-outcome", "64", other)[0], 1)
         self.assertEqual(run("say-outcome", "0", other)[0], 0)
+
+
+#: Sources _acceptance-m7.inc.bash and runs one wait of it ($1: grace, timeout or launch).
+#: $2 is the lock record's kind: live (a build that ends after BUILD_S), stale (its process has
+#: gone), reused (its pid was started after the build began) or none. $3: the session ends
+#: (exit 1) after 1 s, or lives. The check passes once the build has ended.
+WAIT_DRIVER = r"""
+set -u
+here="$1" tmp="$2" mode="$3" kind="$4" session="$5"
+PLAN_RUN_DIR="${tmp}/run" PLAN_REPO_ROOT="${tmp}" PLAN_SCRIPT_DIR="${here}" TEAM_A=a TEAM_B=b
+export XDG_RUNTIME_DIR="${tmp}/rt"
+mkdir -p -- "${PLAN_RUN_DIR}/s" "${XDG_RUNTIME_DIR}/ccy/image-builds"
+: >"${PLAN_RUN_DIR}/s/session.err"
+source "${here}/_acceptance-m7.inc.bash"
+m7_sudo_alive() { :; }
+lock="${XDG_RUNTIME_DIR}/ccy/image-builds/claude-yolo_latest.lock"
+: >"${lock}"
+case "${kind}" in
+    live)
+        bash -c 'sleep "$1"; : >"$2"; : >"$3"' _ 5 "${lock}" "${tmp}/built" &
+        printf '%s %s claude-yolo:latest\n' "$!" "${EPOCHSECONDS}" >"${lock}" ;;
+    stale)
+        bash -c 'exit 0' & wait "$!"
+        printf '%s %s claude-yolo:latest\n' "$!" "${EPOCHSECONDS}" >"${lock}" ;;
+    reused)
+        sleep 8 &
+        printf '%s %s claude-yolo:latest\n' "$!" "$((EPOCHSECONDS - 100))" >"${lock}" ;;
+    none) ;;
+esac
+SESSION_NAME=s SESSION_PID=""
+if [[ "${session}" == ends ]]; then
+    bash -c 'sleep 1; exit 1' &
+    SESSION_PID=$!
+fi
+built() { [[ -e "${tmp}/built" ]] || return 3; }
+case "${mode}" in
+    grace) M7_BUILD_GRACE=1 m7_poll 2 "the fixture wait" built ;;
+    timeout) m7_poll 2 "the fixture wait" built ;;
+    launch) declare -f m7_start ;;
+esac
+"""
+
+
+class LaunchWaitTest(TempDir):
+    """The launch's waits allow for an image build (the host run that failed at 600 s had
+    rebuilt the project image for 16 minutes) and still fail fast when the launch ends."""
+
+    def wait(self, mode: str, kind: str, session: str = "lives") -> tuple[int, str, str]:
+        done = subprocess.run(["bash", "-c", WAIT_DRIVER, "driver", str(_HERE), str(self.dir), mode, kind, session],
+                              capture_output=True, text=True, timeout=60, check=False)
+        return done.returncode, done.stdout, done.stderr
+
+    def test_a_live_build_restarts_the_wait_until_it_ends(self) -> None:
+        status, out, err = self.wait("grace", "live")
+        self.assertEqual(status, 0, err)
+        self.assertIn("waiting for the image build of claude-yolo:latest", out)
+
+    def test_a_launch_that_ends_during_the_build_fails_at_once(self) -> None:
+        status, _out, err = self.wait("grace", "live", "ends")
+        self.assertEqual(status, 1)
+        self.assertIn("the ccy session s ended", err)
+
+    def test_no_build_or_a_stale_record_keeps_the_timeout(self) -> None:
+        for kind in ("none", "stale", "reused"):
+            with self.subTest(kind=kind):
+                status, _out, err = self.wait("grace", kind)
+                self.assertEqual(status, 1)
+                self.assertIn("not within 2 s", err)
+
+    def test_without_the_grace_a_build_does_not_extend_the_wait(self) -> None:
+        status, _out, err = self.wait("timeout", "live")
+        self.assertEqual(status, 1)
+        self.assertIn("not within 2 s", err)
+
+    def test_both_start_waits_of_a_launch_allow_for_a_build(self) -> None:
+        status, out, err = self.wait("launch", "none")
+        self.assertEqual(status, 0, err)
+        self.assertIn('m7_poll_launch "session $1\'s container running" m7_container_up', out)
+        self.assertIn('m7_poll_launch "seats ${SEAT_LIST} held" m7_seats_held', out)
+        self.assertNotIn("M7_START_S", out)
 
 
 if __name__ == "__main__":

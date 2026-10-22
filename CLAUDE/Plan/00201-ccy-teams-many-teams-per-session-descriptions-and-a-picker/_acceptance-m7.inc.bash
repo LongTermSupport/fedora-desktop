@@ -65,7 +65,8 @@ if sys.argv[1] == "read":
 else:
     print("present" if os.path.lexists(path) else "absent")
 '
-#: Bounds, in seconds. A ccy launch may update Claude Code in the image first.
+#: Bounds, in seconds. A ccy launch may update Claude Code in the image or rebuild the project
+#: image first: M7_START_S counts from the end of any image build (m7_poll_launch).
 readonly M7_START_S=600
 readonly M7_TURN_S=240
 readonly M7_EXIT_S=60
@@ -115,10 +116,38 @@ m7_alive() {
     return 1
 }
 
+# m7_image_build — a live image build on this host: prints `<pid> <image>` and returns 0, or 3
+# with none. Read from the records lib/image-build-lock.bash keeps while it holds an image's
+# build lock (`<pid> <began> <image>` in $XDG_RUNTIME_DIR/ccy/image-builds/*.lock, emptied when
+# the build ends), judged as `ccy --build-lock` judges them: a record whose pid has gone, or
+# was started after the build began, is stale. A record not written yet is a build starting.
+m7_image_build() {
+    local dir file pid began image age
+    dir="${XDG_RUNTIME_DIR:-/run/user/${EUID}}/ccy/image-builds"
+    for file in "${dir}"/*.lock; do
+        if [[ ! -s "${file}" ]]; then
+            continue
+        fi
+        read -r pid began image _ <"${file}" || return 1
+        if [[ ! "${pid} ${began}" =~ ^[0-9]+\ [0-9]+$ ]]; then
+            printf '%s %s\n' "?" "${file##*/}"
+            return 0
+        fi
+        age="$(ps -o etimes= -p "${pid}")" || continue
+        if ((EPOCHSECONDS - age <= began + 1)); then
+            printf '%s %s\n' "${pid}" "${image}"
+            return 0
+        fi
+    done
+    return 3
+}
+
 # m7_poll <timeout-s> <what> <cmd...> — run cmd every M7_POLL_S s until it returns 0; 3 is "not
-# yet", anything else, a session that ended, a lapsed sudo or the timeout is a FAIL.
+# yet", anything else, a session that ended, a lapsed sudo or the timeout is a FAIL. With
+# M7_BUILD_GRACE=1 (m7_poll_launch), the timeout starts again while an image build runs.
+M7_BUILD_GRACE=0
 m7_poll() {
-    local timeout="$1" what="$2" status deadline
+    local timeout="$1" what="$2" status deadline build said=0
     shift 2
     deadline=$((SECONDS + timeout))
     while true; do
@@ -134,6 +163,25 @@ m7_poll() {
         esac
         m7_alive || return 1
         m7_sudo_alive || return 1
+        if [[ "${M7_BUILD_GRACE}" == 1 ]]; then
+            status=0
+            build="$(m7_image_build)" || status=$?
+            case "${status}" in
+                0)
+                    deadline=$((SECONDS + timeout))
+                    if ((SECONDS >= said)); then
+                        printf '==> %s: waiting for the image build of %s (pid %s) to end; the %d s wait starts again then\n' \
+                            "${what}" "${build#* }" "${build%% *}" "${timeout}"
+                        said=$((SECONDS + 60))
+                    fi
+                    ;;
+                3) ;;
+                *)
+                    printf '[FAIL] %s: the image build locks could not be read\n' "${what}" >&2
+                    return 1
+                    ;;
+            esac
+        fi
         if ((SECONDS >= deadline)); then
             printf '[FAIL] %s: not within %d s (evidence: %s)\n' "${what}" "${timeout}" "${PLAN_RUN_DIR}" >&2
             return 1
@@ -538,6 +586,15 @@ m7_session_id() {
     SESSION_ID="$("${CHECK[@]}" session-id "$(m7_ev "${SESSION_NAME}/session.out")")"
 }
 
+# m7_poll_launch <what> <cmd...> — m7_poll for what a launch does before its container runs:
+# M7_START_S, counted from the end of any image build. A launch rebuilds the project image when
+# the base image changed (a 24-step build can take a quarter of an hour), and the build takes as
+# long as it takes; a failed build ends the launch, which m7_poll's m7_alive fails at once.
+m7_poll_launch() {
+    local M7_BUILD_GRACE=1
+    m7_poll "${M7_START_S}" "$@"
+}
+
 # m7_start <name> <seats|""> — launch, wait for its container (and its seats held), give it its
 # one turn, and read its session ID.
 m7_start() {
@@ -547,10 +604,10 @@ m7_start() {
         m7_ccy_containers >"$(m7_ev "$1/containers-before")" || return 1
     fi
     m7_launch "$1" "$2" || return 1
-    m7_poll "${M7_START_S}" "session $1's container running" m7_container_up "$([[ -n "$2" ]] && printf seated || printf plain)" || return 1
+    m7_poll_launch "session $1's container running" m7_container_up "$([[ -n "$2" ]] && printf seated || printf plain)" || return 1
     printf '==> session %s: container %s\n' "$1" "${SESSION_CTR}"
     if [[ -n "$2" ]]; then
-        m7_poll "${M7_START_S}" "seats ${SEAT_LIST} held" m7_seats_held || return 1
+        m7_poll_launch "seats ${SEAT_LIST} held" m7_seats_held || return 1
     fi
     "${CHECK[@]}" user-line "${M7_TURN}" >&"${SESSION_FD}" || return 1
     m7_poll "${M7_TURN_S}" "session $1's turn ended" m7_turns_above_zero || return 1

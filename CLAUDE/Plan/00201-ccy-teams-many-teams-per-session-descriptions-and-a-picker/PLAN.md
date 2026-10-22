@@ -318,6 +318,15 @@ a repository is no longer offered for a checkout of it. Report:
     can drift, so declare.py should expose the reader.
   - Also the inline-text copies Task 2.21 refers to the owner: the product has to name each
     text as a constant before a checker can read it.
+- [ ] 🔄 **Task 2.23** (done in code; left: the host rerun, queued in meta-deploy): the host
+  run failed "session multi's container running: not within 600 s". The base image had just
+  been rebuilt, so the launch first rebuilt the project image (a 24-step build). A checker
+  defect: the container wait counted the build. The launch's two start waits are now
+  `m7_poll_launch`: while an image build runs (a live record in
+  `$XDG_RUNTIME_DIR/ccy/image-builds/*.lock`, judged as `ccy --build-lock` judges it) the
+  wait starts again, with no cap on the build; a failed build ends the launch, which still
+  fails at once. Tests in `test_m7_check.py` (`LaunchWaitTest`), red first against the old
+  waits. Report: `subagent-reports/261022-launch-waits-for-image-build.md`.
 
 ## Success Criteria
 
