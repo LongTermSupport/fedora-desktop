@@ -36,9 +36,10 @@ type Child interface {
 	Ask(ctx context.Context, req Request) (Answer, error)
 }
 
-// Bundles is the seat side's bundle for a credential the child issued (C 3.7.2).
+// Bundles is the seat side's bundle for a credential the child issued (C 3.7.2), with the
+// team's main room the child answered beside it (BU1).
 type Bundles interface {
-	Bundle(ctx context.Context, team declare.Team, handle string, c apply.Credential) (proto.Value, error)
+	Bundle(ctx context.Context, team declare.Team, handle, mainRoom string, c apply.Credential) (proto.Value, error)
 }
 
 // SeatWait is how long a member or role verb waits for the team lock: a launcher's seat take
@@ -260,7 +261,7 @@ func underLock(ctx context.Context, sys *System, op string, team paths.TeamID, a
 		members = append(members, proto.M("notes", lineArray(a.Notes)))
 	}
 	if a.Credential != nil {
-		b, berr := sys.Bundles.Bundle(ctx, decl, a.Handle, *a.Credential)
+		b, berr := sys.Bundles.Bundle(ctx, decl, a.Handle, a.MainRoom, *a.Credential)
 		if berr != nil {
 			err = errors.Join(err, fmt.Errorf("the bundle of %s: %w; member reissue issues a new credential", a.Handle, berr))
 		} else {

@@ -172,7 +172,10 @@ func (c inProcessChild) Ask(ctx context.Context, req Request) (Answer, error) {
 }
 
 // Bundle is the seat side's bundle as a test reads it: the handle and the credential.
-func (w *world) Bundle(_ context.Context, team declare.Team, handle string, c apply.Credential) (proto.Value, error) {
+func (w *world) Bundle(_ context.Context, team declare.Team, handle, mainRoom string, c apply.Credential) (proto.Value, error) {
+	if mainRoom != w.rooms(w.t).Main {
+		return proto.Value{}, errors.New("the bundle's main room is not the team's")
+	}
 	w.bundled = append(w.bundled, handle)
 	return proto.Obj(
 		proto.M("team", proto.Str(team.ID.String())), proto.M("handle", proto.Str(handle)),
