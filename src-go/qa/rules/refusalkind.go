@@ -20,7 +20,7 @@ from the rest: it names no declare.ErrUsage (errors.Is(err, declare.ErrUsage), .
 and does not hand the exit code on whole (a return of .Code, or of .Code converted) whatever the
 recovery finds. A code handed on counts only where the return is unconditional in the block
 that recovers: a direct statement of the if body whose Init or Cond recovers, when the Cond is
-the bare recovery result (the ok its Init declares, the errors.As call) or that && .Code != 0; a later direct statement
+the bare recovery result (the found result of an Init that is one recovery alone, or the errors.As call) or that && .Code != 0; a later direct statement
 after an assignment that recovers, or after an if whose Cond is the negated bare result; a direct
 statement of the type switch case. A kind or a particular code tested in the Cond is a filter.
 A code handed on for one kind inside a branch of its own leaves the rest asked again. Naming
@@ -130,20 +130,38 @@ func codeHandedOn(pass *analysis.Pass, stmts []ast.Stmt) []ast.Node {
 }
 
 // unfiltered is an if condition true for every refusal recovered, whatever its kind: the bare
-// result of the recovery (an ok the if's Init declares, or the errors.As call itself), or that
-// && a non-zero .Code. Any other test (a kind, a particular code, a bool from elsewhere) leaves
-// the rest to the statements after the if.
+// result of the recovery (recoveryOk, or the errors.As call itself), or that && a non-zero
+// .Code. Any other test (a kind, a particular code, a bool from elsewhere) leaves the rest to the
+// statements after the if.
 func unfiltered(pass *analysis.Pass, init ast.Stmt, cond ast.Expr) bool {
 	switch c := ast.Unparen(cond).(type) {
 	case *ast.Ident:
-		obj := pass.TypesInfo.Uses[c]
-		return init != nil && obj != nil && init.Pos() <= obj.Pos() && obj.Pos() < init.End()
+		return recoveryOk(pass, init, c)
 	case *ast.CallExpr:
 		return recoversRefusal(pass, c)
 	case *ast.BinaryExpr:
 		return c.Op == token.LAND && unfiltered(pass, init, c.X) && codeNonZero(pass, c.Y)
 	}
 	return false
+}
+
+// recoveryOk is whether id is the found result an if's Init assigns from one recovery and
+// nothing else: the last name of `de, ok := errors.AsType[...](err)` or `de, ok := err.(...)`,
+// or the one name of `ok := errors.As(err, &de)`.
+func recoveryOk(pass *analysis.Pass, init ast.Stmt, id *ast.Ident) bool {
+	as, isAssign := init.(*ast.AssignStmt)
+	if !isAssign || len(as.Rhs) != 1 || len(as.Lhs) == 0 || len(refusalsAt(pass, ast.Unparen(as.Rhs[0]))) == 0 {
+		return false
+	}
+	last, isIdent := as.Lhs[len(as.Lhs)-1].(*ast.Ident)
+	if !isIdent {
+		return false
+	}
+	obj := pass.TypesInfo.Defs[last]
+	if obj == nil {
+		obj = pass.TypesInfo.Uses[last]
+	}
+	return obj != nil && obj == pass.TypesInfo.Uses[id]
 }
 
 // codeNonZero is `de.Code != 0` or `0 != de.Code`.

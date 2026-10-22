@@ -88,7 +88,11 @@ case); the driver over both modules reports nothing there. Third tightening: `fi
 `filtersByCode`, `filtersAfterAs` (bad.go) and `guardsThenExits` (good.go) red in their own
 commit, e5ec1bab1 (bad.go:119, :128, :138 not reported; good.go:97 reported); two bool-variable
 filters (bad.go:148, :158) added with the rule change were red under the e5ec1bab1 rule too
-(checked by running it against the new fixture); all green at the commit after, driver clean.
+(checked by running it against the new fixture); all green at 92054fb44, driver clean. Fourth
+tightening (re-review 4, Opus round 4: any name the Init declared passed as the found result):
+`filtersInTheInit`, `filtersBesideTheInit`, `filtersByTheSecondName` and `asInTheInit` red in
+74d67de9d (bad.go:168, :188 not reported); the Cond's bare name now counts only as the last name
+of an Init that is one recovery and nothing else; green at the commit after, driver clean.
 Owner's symptom: red at 0ca99358c by
 `TestAMemberDeclaredAlreadyIsRecognisedAndTheTeamApplied` (lxcadd/declared_test.go), whose
 stderr held "entries 1 and 2 both declare agent@container-a in team alpha. Try again."; the
@@ -142,8 +146,8 @@ re-asks on a 78 and passes the rule. Closing them needs data flow (which branch 
 error a kind is read of) or meaning (a re-ask told from another early return), which a
 syntactic `go/analysis` rule does not do; widening it to every retry loop would flag loops over
 values with no file behind them. What would close each is given with it below. The owner decides
-whether to keep the rule as it stands; this report does not decide whether the branch merges
-before that answer, which is the coordinator's and the owner's call.
+whether to keep the rule as it stands; the merge of this branch is held for that answer: the hand-back
+to the coordinator says so, and only the owner can release it.
 
 ## Permanence
 

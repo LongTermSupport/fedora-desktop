@@ -406,7 +406,7 @@ named anywhere in the function clears every recovery in it; a code handed on cle
 recovery whose block returns it unconditionally: a direct statement of the `if` body whose Init
 or Cond recovers (`if de, ok := ...; ok { return de.Code }`, the real tree's `create.Wizard.run`,
 `lxcadd.Adder.Run` and `summary`, `chooser.failed`, `ops.childExit`) when the Cond is the bare
-recovery result (the `ok` the `if`'s Init declares, the `errors.As` call) or that `&& de.Code != 0`; a later direct statement
+recovery result (the found result of an Init that is one recovery and nothing else, `de, ok := errors.AsType[...](err)` or `ok := errors.As(err, &de)`; or the `errors.As` call) or that `&& de.Code != 0`; a later direct statement
 after an assignment that recovers (`de, ok := ...; if !ok {...}; return de.Code`) or after an
 `if` whose Cond is the negated bare result (`if !errors.As(err, &de) {...}; return de.Code`); or
 a direct statement of the type switch case. A code handed on for one kind inside a branch of its
@@ -427,7 +427,8 @@ recoverable input mistake).
   read of a different error, an interrupt cancelled then every other kind re-asked, `.Code`
   only printed, `.Is(declare.ErrRefused)`, the code handed on for an interrupt only and every
   other kind re-asked, the same filtered in the recovering `if`'s Cond by a kind, by a code,
-  after `errors.As`, and by a bool variable; `good.go`: a retry on `ErrUsage` only, an exit with `.Code` bare,
+  after `errors.As`, by a bool variable, folded into the Init's `ok` and declared beside the
+  recovery in the Init; `good.go`: a retry on `ErrUsage` only, an exit with `.Code` bare,
   converted and inside a returned `&stop{...}`, after an assignment, after a negated `errors.As`
   guard, under `ok && de.Code != 0` and from a type switch case, `.Is(declare.ErrUsage)`, a bare `errors.Is`). The stub
   `fix/internal/declare` has the real shape.
@@ -447,6 +448,8 @@ recoverable input mistake).
     (`if !errors.Is(err, declare.ErrInterrupted) { ...; return false, nil }; return de.Code`):
     the return is direct, so it clears; telling a re-ask from any other early return is meaning.
   - A declare refusal re-wrapped in another error type before it is read: the type is hidden.
+- Not caught, hazard-free as far as found: `ok && other.Code != 0` counts the `Code` of any
+  `*declare.Error`, not only the one recovered.
 - Flagged though hazard-free: a code handed on through a local (`code := de.Code; return code`);
   return the field itself.
 - The other half of the class, declare.py giving a refusal the right kind, is in
