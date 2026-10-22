@@ -496,9 +496,15 @@ func (r *run) account(ctx context.Context, p *Pending) error {
 	case found && acct.Deactivated:
 		m := r.files.roster.Members[p.Handle]
 		m.State, m.SinceMS = MemberRetired, r.now()
-		r.files.roster.Members[p.Handle] = m
+		r.files.roster.Members[p.Handle] = r.revoked(m)
 		r.note("member " + p.Handle + " retired")
-		return errors.Join(deactivated(p.Handle), r.clear(StepAccount))
+		if err := r.guestCopy(StepAccount, p.Handle, ""); err != nil {
+			return err
+		}
+		if err := r.clear(StepAccount); err != nil {
+			return err
+		}
+		return deactivated(p.Handle)
 	case found && r.files.roster.Members[p.Handle].State == MemberClaimed:
 		r.note("member " + p.Handle + " account adopted")
 	case !found:

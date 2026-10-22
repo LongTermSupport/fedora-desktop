@@ -1,6 +1,7 @@
 package apply
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"os"
@@ -8,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 )
 
 // MO5: a `member add --seat next` that crashed, asked again the same way (lxc apply's retry),
@@ -214,6 +217,80 @@ func TestAClaimWhoseAccountIsDeactivatedIsDropped(t *testing.T) {
 	refusedAt(t, "the retry", err, StepAccount, "deactivated")
 	if f := w.file(t).roster; f.Pending != nil || f.Members[third].State != MemberRetired {
 		t.Fatalf("roster %+v", f)
+	}
+}
+
+// sabotage breaks the roster file's path the first time the pending handle's account is read,
+// so the save that ends the pending operation fails.
+type sabotage struct {
+	Admin
+
+	roster, id string
+	done       bool
+}
+
+func (s *sabotage) Account(ctx context.Context, id string) (matrix.Account, bool, error) {
+	if id == s.id && !s.done {
+		s.done = true
+		if err := os.Rename(s.roster, s.roster+".orig"); err != nil {
+			return matrix.Account{}, false, err
+		}
+		if err := os.MkdirAll(filepath.Join(s.roster, "x"), 0o700); err != nil {
+			return matrix.Account{}, false, err
+		}
+	}
+	return s.Admin.Account(ctx, id)
+}
+
+// n2d-D17: a retirement whose save fails is the verb's failure, not a note.
+func TestARetirementThatCannotBeSavedFails(t *testing.T) {
+	w := newWorld(t)
+	team := w.team(t)
+	if _, err := RunMember(t.Context(), w.memberDeps(&crashing{Admin: w.admin, method: "Account", n: 2}), team, add(3, credPassword)); !errors.Is(err, errCrash) {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := w.admin.CreateAccount(t.Context(), user(third), "x-pass-1", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.admin.SetDeactivated(t.Context(), user(third), true); err != nil {
+		t.Fatal(err)
+	}
+	w.addMember(t, other, active())
+	s := &sabotage{Admin: w.admin, roster: filepath.Join(w.dir, "roster.json"), id: user(third)}
+	_, err := RunMember(t.Context(), w.memberDeps(s), team, MemberRequest{Op: OpMemberSet, Handle: other, HumanText: true})
+	if e, ok := errors.AsType[*Error](err); !ok || e.Drift || errors.Is(err, errDeactivated) {
+		t.Fatalf("err = %v, want the save's failure", err)
+	}
+}
+
+// n2d-D17, D18: a pending return retired for a deactivated account takes its credential and its
+// token copy with it.
+func TestARetiredReturnTakesItsTokenCopy(t *testing.T) {
+	w := newWorld(t)
+	team := w.team(t)
+	w.member(t, team, add(3, credToken))
+	s := w.file(t)
+	m := s.roster.Members[third]
+	m.State = MemberLost
+	s.roster.Members[third] = m
+	if err := s.saveRoster(); err != nil {
+		t.Fatal(err)
+	}
+	req := on(OpMemberReturn, third)
+	req.Credential = credToken
+	if _, err := RunMember(t.Context(), w.memberDeps(&crashing{Admin: w.admin, method: "Account", n: 2}), team, req); !errors.Is(err, errCrash) {
+		t.Fatalf("err = %v", err)
+	}
+	if err := w.admin.SetDeactivated(t.Context(), user(third), true); err != nil {
+		t.Fatal(err)
+	}
+	w.addMember(t, other, active())
+	w.member(t, team, MemberRequest{Op: OpMemberSet, Handle: other, HumanText: false})
+	if m := w.file(t).roster.Members[third]; m.State != MemberRetired || m.Cred != "" {
+		t.Fatalf("member %+v", m)
+	}
+	if _, err := os.Stat(filepath.Join(w.dir, "guest", third+".token")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the token copy: %v", err)
 	}
 }
 

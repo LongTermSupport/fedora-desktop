@@ -96,7 +96,7 @@ in-process over the real codecs; `member` verbs for the probe handle (D's `migra
   SHA-256 over the op, the handle, `since_ms` and the step, so a re-post after a lost answer or a
   crash is stored once (M22). None is posted for the probe.
 
-- **MO8. Answers.** Each op answers its `CHANGED` lines (`member <handle> claimed|account created|issued|revoked|parked|retired|deactivated|human_text <bool>`, `notice <event> <handle>`, the rooms engine's and the role lines), the handle, and for `add`, `return` and
+- **MO8. Answers.** Each op answers its `CHANGED` lines (`member <handle> claimed|account created|account adopted|issued|revoked|parked|retired|deactivated|human_text <bool>`, `notice <event> <handle>`, the rooms engine's and the role lines), the handle, and for `add`, `return` and
   `reissue` asked by the caller the credential (kind and secret, never in an error or a line).
   A failure keeps what changed before it and names the op and the step: a roll-forward's
   failure names the pending op, not the caller's.
