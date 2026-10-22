@@ -84,6 +84,7 @@ func zeroDerivations() map[string]func() string {
 		"GuestTokenCopy":         func() string { return GuestTokenCopy(team, SeatName{}) },
 	}
 	maps.Copy(derivations, hostZeroDerivations())
+	maps.Copy(derivations, memberZeroDerivations())
 	return derivations
 }
 
@@ -175,6 +176,8 @@ func TestEveryMethodOfAZeroValuePanics(t *testing.T) {
 		reflect.TypeFor[CheckoutKey](): reflect.ValueOf(sampleCheckoutKey(t)),
 		reflect.TypeFor[SeatName]():    reflect.ValueOf(sampleSeatName(t)),
 		reflect.TypeFor[ClaimID]():     reflect.ValueOf(sampleClaimID(t)),
+		// A set-aside time, whose zero panics as a zero id does.
+		reflect.TypeFor[int64](): reflect.ValueOf(int64(1760000000000)),
 	}
 	for _, recv := range []struct{ zero, valid any }{
 		{PoolSeat{}, store.PoolSeat(sampleCheckoutKey(t), mustTeam(t, "ops"), sampleSeatName(t))},

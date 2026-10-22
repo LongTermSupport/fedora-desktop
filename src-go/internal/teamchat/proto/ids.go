@@ -85,6 +85,9 @@ func ValidBranch(s string) bool { return branchRe.MatchString(s) }
 // ValidFeature is A 2.2's feature name grammar.
 func ValidFeature(s string) bool { return featureRe.MatchString(s) }
 
+// ValidSeat is a handle's `<seat>` (A 2.3): a counter-issued number or an owner-named word.
+func ValidSeat(s string) bool { return seatRe.MatchString(s) }
+
 // ValidQuestion is A 2.2's question name, `Q<n>`.
 func ValidQuestion(s string) bool { return questionRe.MatchString(s) }
 

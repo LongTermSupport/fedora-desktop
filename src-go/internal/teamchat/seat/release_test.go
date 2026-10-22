@@ -527,7 +527,7 @@ func TestAForgedCopyClaimDoesNotSkipTheWait(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b.Claim, err = newClaim(); err != nil {
+	if b.Claim, err = NewClaim(); err != nil {
 		t.Fatal(err)
 	}
 	forged, err := b.Encode()

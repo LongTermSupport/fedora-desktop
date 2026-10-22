@@ -395,7 +395,7 @@ func (s Seat) Token() string { return s.Dir() + "/token" }
 func (s Seat) Lock() string { return s.Dir() + "/seat.lock" }
 
 // Store is the member's state for the team.
-func (s Seat) Store() string { return s.Dir() + "/store.json" }
+func (s Seat) Store() string { return s.Dir() + "/" + storeFile }
 
 // Report is the seat's report, which carries the run id of the session that wrote it.
 func (s Seat) Report() string { return s.Dir() + "/report.json" }
@@ -544,7 +544,7 @@ type PoolSeat struct{ dir string }
 func (p PoolSeat) Dir() string { return must("pool seat", p.dir) }
 
 // Password is the seat account's password (DC16 (c')), never copied out of the pool.
-func (p PoolSeat) Password() string { return p.Dir() + "/password" }
+func (p PoolSeat) Password() string { return p.Dir() + "/" + passwordFile }
 
 // Token is the pool's token in place of the password, should the owner choose DESIGN-v2.md 7.1.
 func (p PoolSeat) Token() string { return p.Dir() + "/token" }

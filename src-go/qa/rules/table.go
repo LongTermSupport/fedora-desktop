@@ -232,6 +232,16 @@ var dynamicNames = []allowance{
 		fn:     "cli.execVault",
 		reason: "the checkout's vault.bash, whose path is REPO_PATH in /etc/ftp-camera/config",
 	},
+	{
+		pkg:    "internal/teamchat/reexec",
+		fn:     "start",
+		reason: "the test binary itself, re-run as a second process (SPEC-n3 gap 8)",
+	},
+	{
+		pkg:    "internal/teamchat/member/guest",
+		fn:     "Checker.ghLoggedIn",
+		reason: "gh (unowned) at the path guest check found on the session unit's PATH, never the attach's own (SPEC-n3 GU2)",
+	},
 }
 
 // shellStrings are the functions that may hand a shell a string with -c, because the program's
