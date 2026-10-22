@@ -1,7 +1,7 @@
 """Tests for helpers.self_update.affected_plays — which plays a set of changed paths touches.
 
-The play ledger watches only each play's own file, so a change to the ccy lib or launcher
-never marks `play-claude-yolo.yml` stale (Plan 00137 research §2). This maps changed paths
+A play's own file is not all it deploys: a change to the ccy lib or launcher changes what
+`play-claude-yolo.yml` puts on the host (Plan 00137 research §2). This maps changed paths
 to the plays that deploy them, then splits the result by the unattended allowlist (D2).
 
 A reference the mapper cannot follow is REPORTED, never dropped: a missed dependency is a

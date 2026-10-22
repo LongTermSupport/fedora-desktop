@@ -40,8 +40,8 @@ usage() {
 Usage: fedora-desktop-health [--hold] [--run-play <playbooks/...yml> | --rerun]
 
 Prints this machine's fedora-desktop health report: what is broken now, what could not
-be checked, plays that have changed since they last ran here, and installed versions
-that differ from the repo's pins. Says so plainly when there is nothing to report.
+be checked, plays that have to run again here (changed or failed since they ran) with the
+command that runs them, and pins that differ from what is installed. Or says it is clean.
 
 Options:
   --hold                after it finishes, wait for Enter before exiting (keeps a
