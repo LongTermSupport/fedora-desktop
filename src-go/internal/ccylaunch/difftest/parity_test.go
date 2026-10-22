@@ -44,7 +44,9 @@
 package difftest
 
 import (
+	"errors"
 	"flag"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -106,7 +108,7 @@ func matchGoldens(t *testing.T, m matrix, l launcher, scenarios []scenario) {
 				return
 			}
 			want := readFile(t, goldenPath(sc.Name))
-			if text != want && !colourAllowed(l, sc.Name, want, text) {
+			if text != want && !colourAllowed(t, l, sc.Name, want, text) {
 				t.Errorf("scenario %s (%s) differs from its golden:\n%s", sc.Name, sc.About, lineDiff(want, text))
 			}
 		})
@@ -119,29 +121,71 @@ func matchGoldens(t *testing.T, m matrix, l launcher, scenarios []scenario) {
 var colourAllowance = []struct{ scenario, reason string }{
 	{"list-tokens-one", "the Go front colours the expiry only on a terminal (ccylaunch D2)"},
 	{"list-tokens-states", "the Go front colours the expiry only on a terminal (ccylaunch D2)"},
+	{"export-token-missing", "the Go front colours the listing and the error's ERROR: only on a terminal (ccylaunch D2, D10)"},
 }
 
 // sgr is a colour escape sequence.
 var sgr = regexp.MustCompile("\x1b\\[[0-9;]*m")
 
-// colourAllowed reports whether got is the golden less its colour, in a scenario of
-// colourAllowance, run by a launcher that is not the checkout's bash.
-func colourAllowed(l launcher, scenario, want, got string) bool {
+// colourAllowed reports whether got is the golden less its colour, holding no colour at all, in
+// a scenario of colourAllowance, run by a launcher that is not a bash launcher.
+func colourAllowed(t *testing.T, l launcher, scenario, want, got string) bool {
+	t.Helper()
 	named := slices.ContainsFunc(colourAllowance, func(a struct{ scenario, reason string }) bool { return a.scenario == scenario })
-	if !named || l.isBash() {
+	if !named || isBash(t, l.path) {
 		return false
 	}
-	return sgr.ReplaceAllString(want, "") == sgr.ReplaceAllString(got, "")
+	return !sgr.MatchString(got) && sgr.ReplaceAllString(want, "") == got
 }
 
-// isBash reports whether the launcher is the checkout's bash launcher: no LAUNCHER, and no bash
-// launcher beside it (a Go front's install has one).
-func (l launcher) isBash() bool {
-	if os.Getenv("LAUNCHER") != "" {
-		return false
+// shebangRead is enough of a program to hold its first line when it is a script.
+const shebangRead = 256
+
+// isBash reports whether the program at path is a bash script (the checkout's launcher, or
+// LAUNCHER naming one), not a Go front: its first line is a shebang naming bash.
+func isBash(t *testing.T, path string) bool {
+	t.Helper()
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
 	}
-	_, err := os.Stat(filepath.Join(filepath.Dir(l.path), ccylaunch.BashName))
-	return err != nil
+	head := make([]byte, shebangRead)
+	n, err := io.ReadFull(file, head)
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	first := string(head[:n])
+	if end := strings.IndexByte(first, '\n'); end >= 0 {
+		first = first[:end]
+	}
+	return strings.HasPrefix(first, "#!") && strings.Contains(first, "bash")
+}
+
+// TestColourAllowanceIsNotTheBashs holds the allowance to Go fronts: a bash launcher, wherever
+// it is installed or however LAUNCHER names it, gets none, and a Go front's output must hold no
+// colour at all.
+func TestColourAllowanceIsNotTheBashs(t *testing.T) {
+	skipFront(t)
+	bash := installBash(t, nil)
+	front := installFront(t, nil)
+	beside := filepath.Join(filepath.Dir(front), ccylaunch.BashName)
+	for _, path := range []string{bash, beside} {
+		if !isBash(t, path) || colourAllowed(t, launcher{path: path}, "list-tokens-one", "\x1b[32mx\x1b[0m", "x") {
+			t.Errorf("%s is given the colour allowance", path)
+		}
+	}
+	if isBash(t, front) || !colourAllowed(t, launcher{path: front}, "list-tokens-one", "\x1b[32mx\x1b[0m", "x") {
+		t.Error("the Go front is not given the colour allowance")
+	}
+	if colourAllowed(t, launcher{path: front}, "list-tokens-one", "\x1b[32mx\x1b[0m", "\x1b[31mx\x1b[0m") {
+		t.Error("the allowance took another colour")
+	}
+	if colourAllowed(t, launcher{path: front}, "version", "\x1b[32mx\x1b[0m", "x") {
+		t.Error("the allowance reached a scenario it does not name")
+	}
 }
 
 // skipFront skips a test of the Go front where it cannot run: with LAUNCHER naming another
@@ -171,6 +215,7 @@ var frontAnswers = []string{
 	"list-tokens-bare", "list-tokens-one", "list-tokens-states",
 	"token-usage-no-tokens", "token-usage-expired-only", "token-usage-disabled", "token-usage-bad-option",
 	"token-usage-table", "token-usage-json", "token-usage-api-down",
+	"prevent", "export-token-named", "export-token-missing",
 }
 
 // frontAnswerLines are the bash launcher's lines that answer frontAnswers, each in its text once:
@@ -180,6 +225,8 @@ var frontAnswerLines = []string{
 	"Claude Code YOLO Mode (ccy) - Container-based execution with --dangerously-skip-permissions",
 	"if [ \"$#\" -eq 1 ] && [ \"$1\" = \"--list-tokens\" ]; then\n    list_tokens \"$TOKEN_DIR\" \"ccy\"",
 	`usage_report "$TOKEN_DIR" "$@" || ccy_token_usage_rc=$?`,
+	`echo "never" >> "$allowed_file"`,
+	`export_token "$TOKEN_DIR" "$EXPORT_TOKEN_NAME"`,
 }
 
 // TestFrontAnswersItself proves the front's answers are its own: with the bash launcher's

@@ -52,9 +52,5 @@ func (f Front) listTokens() (term.ExitCode, string) {
 
 // colourOn is T3: the expiry is coloured only on a terminal, and never with NO_COLOR (D2).
 func (f Front) colourOn() bool {
-	isTerminal := f.IsTerminal
-	if isTerminal == nil {
-		isTerminal = term.FileIsTerminal
-	}
-	return isTerminal(f.Stdout) && f.getenv("NO_COLOR") == ""
+	return f.colourOnFor(f.Stdout)
 }

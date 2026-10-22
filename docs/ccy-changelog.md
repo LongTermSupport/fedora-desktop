@@ -17,6 +17,38 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.14.10 — container 2.78.14
+
+Follows 3.99.14.9. The image is unchanged, so there is no rebuild.
+
+- **The Go front hands over wherever git would quote a tracked path under `.claude/ccy`.** A name
+  with a byte outside printable ASCII, a `"` or a `\` is listed quoted, and the bash judges it with
+  the quote on, so it may refuse where the unquoted name looks safe. Anything git prints on stderr
+  while listing also hands over, and so does a version number with a leading nought (the bash
+  prints it as written).
+
+## 3.99.14.9 — container 2.78.14
+
+Follows 3.99.14.8. The image is unchanged, so there is no rebuild.
+
+- **`ccy --prevent` and `ccy --export-token NAME` are answered by the Go front.** It first sets
+  up `.claude/ccy/` as a launch does (the `.gitignore`, the `ccy.env.local.dist` template, the
+  `ccy.env.local` warnings, the token directories), with the same words and files, then writes
+  `never` or prints the import script. It hands the run to the bash wherever the bash would ask,
+  refuse or warn at length there: not at a repository's root, old session directories, an
+  `allowed-hostnames` file, a custom Dockerfile, a tracked file that must not be, a restart. The
+  warnings and the `ERROR:` are coloured only on a terminal. `--export-token` with no name, and
+  `--top`, stay the bash's.
+
+## 3.99.14.8 — container 2.78.14
+
+Follows 3.99.14.7. The image is unchanged, so there is no rebuild.
+
+- **`ccy --token-usage` with an unusual `TMPDIR` hands over instead of failing.** The Go
+  front checks a junk token file against the start of its temporary names as they are really
+  made, so a `TMPDIR` with a doubled slash or `./` in it no longer ends the run with exit 1
+  after 64 tries; the bash answers it, as for any other junk token a curl argument would hold.
+
 ## 3.99.14.7 — container 2.78.14
 
 Follows 3.99.14.6. The image is unchanged, so there is no rebuild.
