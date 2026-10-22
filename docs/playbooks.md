@@ -60,7 +60,9 @@ offers the same plays each time, and it warns about this before it asks. A remov
 that has a successor in `helpers/play_ledger/retired-plays.json` runs that successor
 instead. It also names any play it cannot judge (one holding a reference it cannot
 follow), and any other play that is no longer in the checkout. It runs neither.
-`./run.bash --changed --yes` runs the list without asking, for an unattended caller.
+`./run.bash --changed --yes` runs the list without asking, for an unattended caller. The
+health report judges plays the same way, so the plays it lists as changed or failed are
+the plays `--changed` runs, and it prints this command with the checkout's full path.
 
 **To pick the plays yourself, run `./run.bash --rerun`.** It lists every play that has run
 on this machine as a numbered menu, in the same order, and marks with `*` the ones that
@@ -947,16 +949,23 @@ below):
   step, or a refusal that left the machine up; one boot only, so it does not linger;
   silence from a system journal this user cannot read is reported as unchecked), whether
   the play ledger is there
-  to read at all, plays that have changed since they were last run here, and repo pins
+  to read at all, plays that have to run again here, and repo pins
   that differ from what is installed. Where `play-self-update.yml` is enabled, also the
   unattended cycle's last result (below)
-- A play that was run here and has since been deleted is reported as "no longer exists
-  at HEAD". When a play is merged into another, add it to
+- **Plays that have to run again are exactly the plays `./run.bash --changed` runs**,
+  because both use one judgement (`helpers/play_ledger/changed_plays.py`): a play whose
+  own file or any file it deploys changed since the commit it last ran from (each finding
+  names up to three changed paths), whose last run failed, or which last ran from a
+  checkout with uncommitted changes. Below them the report prints the command that runs
+  them all, ready to paste: this checkout's full path, found where the code runs, plus
+  `run.bash --changed`. The section's coverage names the plays it cannot judge (a
+  reference it cannot follow) and the ledgered plays outside `playbooks/imports/`
+- A play that was run here and has since been deleted is reported as "no longer in the
+  checkout". When a play is merged into another, add it to
   `helpers/play_ledger/retired-plays.json` (`{"<removed play>": "<successor>"}`): the
-  finding then says to run the successor, and clears once the successor has run
-  successfully after the removal. Delete the old play in the same commit that merges its
-  tasks, because the check uses the deletion commit as proof the tasks arrived. An entry whose play still exists, or whose successor does not, is
-  reported as an error rather than ignored
+  successor is then reported as changed, and clears once it has run successfully at a
+  commit without the old play. An entry whose play still exists, or whose successor does
+  not, is reported as an error rather than ignored
 - **"The ledger is marked BROKEN"** means a play ran without being recorded. The reason
   line says why. Once the cause is fixed, clear it from the checkout with
   `python3 -m helpers.play_ledger.check_freshness --clear-broken`, which is the command the
@@ -999,7 +1008,8 @@ collector left at the next interactive shell, locally or over SSH, and
 - **In full once a day, then one line.** Every tmux pane and terminal tab is a new
   interactive shell, and the same wall of findings on each is how a report gets muted. The
   snippet prints the full report the first time a given message is seen on a given day and
-  a one-line reminder naming `fedora-desktop-health` after that. Changed findings are shown
+  a one-line reminder naming `fedora-desktop-health` after that, and the checkout's
+  `run.bash --changed` too when plays have to run again. Changed findings are shown
   in full again at once. The stamp lives beside the status document; if it cannot be
   written the report prints in full, which costs noise rather than a finding
 - **`fedora-desktop-health` always answers.** A clean host gets a sentence saying so and

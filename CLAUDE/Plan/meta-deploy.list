@@ -167,3 +167,12 @@ playbooks/imports/play-git-configure-and-tools.yml
 # pinned checkout. Afterwards, the owner's hand check (PLAN.md Task 2.3): the yellow mark in a
 # stale checkout's prompt.
 00183-prompt-shows-stale-tracking-ref/acceptance.bash
+# Plan 00214 acceptance (issue #110), LAST, with no changed-plays entry above it: it needs plays
+# still to run. Runs no play and needs no sudo. It checks that the health report's
+# play-freshness check and run.bash --changed's helper name the same plays (the report said 10
+# where --changed ran 25), then runs one collection as host-health.service does (a git fetch,
+# and the status document and handoff file rewritten) and checks that fedora-desktop-health and
+# the login shell's second reminder of the day print this checkout's run.bash --changed. With
+# no play to run it says NOT JUDGED (exit 2). Afterwards, paste the printed command to run
+# every changed play, or add a changed-plays line here.
+00214-update-all-changed-plays

@@ -89,11 +89,14 @@ one definition, read by both.
 
 ### Phase 4: host check and review
 
-- [ ] ⬜ **Task 4.1**: A read-only `acceptance.bash` that runs the report's check and the
-  runner's helper on the host and requires they name the same plays, and that the report
-  prints this checkout's `run.bash --changed`; queued in `meta-deploy.list`.
-- [ ] ⬜ **Task 4.2**: Docs (`docs/playbooks.md`) say the report and `--changed` share one
-  judgement, and what the startup notice now prints.
+- [x] ✅ **Task 4.1**: `acceptance.bash` (legs in `check-changed-plays.bash`) runs no play
+  and needs no sudo: on the host it requires the report's check and the runner's helper
+  to name the same plays, then runs one collection and requires `fedora-desktop-health` and
+  the login shell's second reminder to print this checkout's `run.bash --changed`. With no
+  play to run those two are NOT JUDGED (exit 2). Queued last in `meta-deploy.list`, with no
+  `changed-plays` entry above it.
+- [x] ✅ **Task 4.2**: Docs (`docs/playbooks.md`) say the report and `--changed` share one
+  judgement, what a finding names, and what the report and the reminder now print.
 - [ ] ⬜ **Task 4.3**: Adversarial Opus review to MERGE, then the qa-reviewer agent.
 
 ## Success Criteria
