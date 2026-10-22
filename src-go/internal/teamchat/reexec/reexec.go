@@ -157,9 +157,11 @@ func start(name string, args []string) (*Process, error) {
 	p := &Process{stdin: inW, done: make(chan struct{})}
 	var errBuf strings.Builder
 	cmd := execx.Cmd{
-		Name:   self,
-		Args:   append([]string{"-test.run=^$", "-test.count=1", argsMark}, args...),
-		Env:    []string{helperEnv + "=" + name},
+		Name: self,
+		Args: append([]string{"-test.run=^$", "-test.count=1", argsMark}, args...),
+		// A -race binary sleeps a second at exit unless told not to; the parent's own race
+		// options are kept.
+		Env:    []string{helperEnv + "=" + name, "GORACE=" + strings.TrimSpace(os.Getenv("GORACE")+" atexit_sleep_ms=0")},
 		Stdin:  inR,
 		Stdout: outW,
 		Stderr: &errBuf,
