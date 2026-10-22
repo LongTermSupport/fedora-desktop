@@ -566,6 +566,8 @@ class SegmentTest(TempDir):
                                          ("helpers/pingbus/membership.py", "NOPE", [], None),
                                          ("helpers/pingbus/hooks.py", "GOODBYE_REASONS", [], None),
                                          ("helpers/pingbus/statusline.py", "SESSIONS_DIR_TEMPLATE", ["x=1"], None),
+                                         ("helpers/pingbus/statusline.py", "SESSIONS_DIR_TEMPLATE[uid]", [], None),
+                                         ("helpers/pingbus/hooks.py", "GOODBYE_REASONS[nope]", [], None),
                                          ("docs/x.md", "A", [], None)):
             with self.subTest(rel=rel, name=name), self.assertRaises(mc.Failed):
                 mc.product_value(rel, name, fills, source)

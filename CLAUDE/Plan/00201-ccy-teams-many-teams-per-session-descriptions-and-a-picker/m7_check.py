@@ -658,8 +658,8 @@ def product_value(rel: str, name: str, fills: Sequence[str] = (), source: str | 
         raise Failed(f"{name!r} is not a constant name")
     if rel.startswith("helpers/") and rel.endswith(".py"):
         value = getattr(_checkout_module(rel.removesuffix(".py").replace("/", ".")), match["name"], None)
-        if match["key"] is not None and isinstance(value, dict):
-            value = value.get(match["key"])
+        if match["key"] is not None:
+            value = value.get(match["key"]) if isinstance(value, dict) else None
         if isinstance(value, pathlib.PurePath):
             value = str(value)
         if fills and isinstance(value, str):
