@@ -187,7 +187,8 @@ const (
 func LaunchedWithBus(rec registry.Record) bool {
 	args := launcherArgs(rec)
 	if rec.Prefix != membership.KindCC {
-		return !slices.Contains(args, flagNoBus)
+		// ccy --opencode (-oc, Plan 00215) leaves the bus kit out, as --no-bus does.
+		return !slices.Contains(args, flagNoBus) && !registry.Opencode(rec.Prefix, rec.Args)
 	}
 	return slices.ContainsFunc(args, func(a string) bool {
 		return a == ccyenv.FlagTeams || a == flagBus || strings.HasPrefix(a, ccyenv.FlagTeams+"=")

@@ -1,7 +1,7 @@
 {
   "v": 1,
   "now": "2030-01-15T12:00:00Z",
-  "secrets": ["difftest-gh-token"],
+  "secrets": ["difftest-gh-token", "difftest-provider-key"],
   "worlds": {
     "usage-api": {"about": "the usage endpoint answers 200 with the five-hour and seven-day figures in its headers", "rules": [{"tool": "curl", "args": ["--config", "-"], "stdout": "200", "argFiles": {"--dump-header": "HTTP/2 200\r\ncontent-type: application/json\r\nanthropic-ratelimit-unified-5h-utilization: 0.25\r\nanthropic-ratelimit-unified-7d-utilization: 0.6\r\nanthropic-ratelimit-unified-5h-reset: 1894712400\r\nanthropic-ratelimit-unified-7d-reset: 1895000000\r\nanthropic-ratelimit-unified-representative-claim: five_hour\r\n\r\n"}}]},
     "bare": {"about": "nothing installed, nothing logged in"},
@@ -17,6 +17,13 @@
       "files": [
         {"path": "home/.claude-tokens/ccy/tokens/play.2030-12-31.token", "mode": "0600",
          "content": "{token:play}\n"}
+      ]
+    },
+    "provider-key": {
+      "about": "one model provider key for --opencode, named for the variable opencode reads it from",
+      "files": [
+        {"path": "home/.claude-tokens/ccy/provider-keys/OPENROUTER_API_KEY", "mode": "0600",
+         "content": "difftest-provider-key\n"}
       ]
     },
     "expired-token": {
@@ -189,6 +196,10 @@
                {"tool": "podman", "args": ["commit"], "stdout": "sha256:0000\n"},
                {"tool": "podman", "args": ["rm"]}]},
     {"name": "launch-plain", "area": "launch", "about": "a plain launch", "worlds": ["common", "podman", "token"], "args": ["--token", "work"]},
+    {"name": "launch-opencode", "area": "launch", "about": "--opencode runs opencode --auto with the arguments, the provider key by name only, no bus kit and no supervisor; everything else as a plain launch", "worlds": ["common", "podman", "token", "provider-key"], "args": ["--token", "work", "--no-ssh", "--opencode", "--model", "openrouter/x"]},
+    {"name": "launch-opencode-short-prompt", "area": "launch", "about": "-oc is --opencode; --prompt becomes opencode's --prompt", "worlds": ["common", "podman", "token", "provider-key"], "args": ["-oc", "--token", "work", "--no-ssh", "--prompt", "fix the bug"]},
+    {"name": "launch-opencode-no-key", "area": "launch", "about": "--opencode with no provider key fails before anything is asked or started", "worlds": ["common", "podman", "token"], "args": ["--opencode", "--token", "work", "--no-ssh"]},
+    {"name": "launch-opencode-headless", "area": "launch", "about": "--opencode with --headless is refused (64)", "worlds": ["common", "podman", "token", "provider-key"], "args": ["--opencode", "--headless", "--prompt", "x", "--token", "work", "--no-ssh"]},
     {"name": "token-usage-table", "area": "standalone", "about": "--token-usage with one token: one API call, the token on stdin, the table", "worlds": ["token", "usage-api"], "args": ["--token-usage"], "cwd": "outside"},
     {"name": "token-usage-json", "area": "standalone", "about": "--token-usage --json with two tokens: two API calls, the JSON report, the cache written", "worlds": ["token", "two-tokens", "usage-api"], "args": ["--token-usage", "--json"], "cwd": "outside"},
     {"name": "token-usage-api-down", "area": "standalone", "about": "--token-usage when curl gets no response: status 000", "worlds": ["token"], "args": ["--token-usage", "--json"], "cwd": "outside", "rules": [{"tool": "curl", "args": ["--config", "-"], "stdout": "000", "exit": 7}]},

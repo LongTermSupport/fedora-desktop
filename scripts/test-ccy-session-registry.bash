@@ -165,7 +165,11 @@ echo "=== every launcher flag has a replay decision ==="
 LAUNCHER="$REPO_ROOT/files/var/local/claude-yolo/claude-yolo"
 mapfile -t loop_flags < <(grep -oE 'arg" ==? "--[a-z0-9-]+' "$LAUNCHER" | grep -oE -- '--[a-z0-9-]+' | sort -u)
 mapfile -t positional_flags < <(grep -oE '1" ==? "-[a-z0-9-]+' "$LAUNCHER" | grep -oE -- '-[a-z0-9-]+$' | sort -u)
-mapfile -t parsed_flags < <(printf '%s\n' "${loop_flags[@]}" "${positional_flags[@]}" | sort -u)
+# The parse's last branch hands every other word to lib/agent-choice.bash, whose `case` takes
+# --opencode and -oc (Plan 00215): its patterns are the third parse site.
+mapfile -t choice_flags < <(grep -oE '^    -[^)]+\)' "$REPO_ROOT/files/var/local/claude-yolo/lib/agent-choice.bash" | grep -oE -- '-{1,2}[a-z][a-z0-9-]*' | sort -u)
+check "the agent choice's flags were found" "--opencode -oc" "${choice_flags[*]}"
+mapfile -t parsed_flags < <(printf '%s\n' "${loop_flags[@]}" "${positional_flags[@]}" "${choice_flags[@]}" | sort -u)
 # A parse site that stopped matching would shrink the population and still pass, so each
 # bucket is floored and printed.
 printf '  COVERAGE: %s flags from the argument loop, %s from the positional checks\n' \
@@ -218,6 +222,13 @@ if ccy_registry_wants_restore --token work -- --no-restore; then
 else
     check "--no-restore after -- is claude's problem, not an opt-out" "yes" "no"
 fi
+# Plan 00215: an opencode session has no Claude conversation to resume, so it is not restored.
+for oc in --opencode -oc; do
+    check "$oc means no restore" "no" "$(ccy_registry_wants_restore --token work "$oc" && echo yes || echo no)"
+done
+check "-oc after -- is claude's word" "yes" "$(ccy_registry_wants_restore -- -oc && echo yes || echo no)"
+check "the opencode flags are kept in the launch and the replay" "--token|work|-oc" \
+    "$(joined ccy_registry_replay_args ccy --token work -oc)"
 # The argv the launcher is actually re-executed with: the opt-out removed, nothing else
 # touched — the launcher never learns the flag existed.
 check "launch args drop only --no-restore" "--rebuild|--token|work|--|--no-restore" \

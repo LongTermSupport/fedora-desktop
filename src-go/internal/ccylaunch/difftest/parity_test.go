@@ -362,6 +362,44 @@ func TestLaunchHandsTokensOn(t *testing.T) {
 	}
 }
 
+// TestOpencodeLaunchHandsKeyOn holds an opencode launch (Plan 00215) to the same narrowing: the
+// session's container run, and no other program, is given the provider key's value, by the name
+// of its file, beside both tokens.
+func TestOpencodeLaunchHandsKeyOn(t *testing.T) {
+	m := loadMatrix(t)
+	l := probe(t, m, launcherUnderTest(t))
+	for _, name := range []string{"launch-opencode", "launch-opencode-short-prompt"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			got := runScenario(t, m, l, scenarioNamed(t, m, name))
+			idx := slices.IndexFunc(got.calls, func(c call) bool {
+				return c.Tool == "podman" && len(c.Args) > 0 && c.Args[0] == "run" && slices.Contains(c.Args, "opencode")
+			})
+			if idx < 0 {
+				t.Fatalf("scenario %s started no opencode container", name)
+			}
+			checkKeyOnlyTo(t, name, got.calls, idx)
+		})
+	}
+}
+
+// checkKeyOnlyTo holds the provider key, and both tokens, to calls[idx] by name, and the key to
+// no other call.
+func checkKeyOnlyTo(t *testing.T, name string, calls []call, idx int) {
+	t.Helper()
+	run := calls[idx]
+	for _, secret := range []string{"OPENROUTER_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "GH_TOKEN"} {
+		if !slices.Contains(run.Carries, secret) || !slices.Contains(passedByName(run.Args), secret) {
+			t.Errorf("scenario %s: the session container was not given %s by name (carries %q)", name, secret, run.Carries)
+		}
+	}
+	for i, c := range calls {
+		if i != idx && slices.Contains(c.Carries, "OPENROUTER_API_KEY") {
+			t.Errorf("scenario %s: %s was given the provider key too: %s", name, c.Tool, strings.Join(c.Args, " "))
+		}
+	}
+}
+
 // TestSecretCheckCanFail proves checkRun's secret check sees a token handed to every child: with
 // the caller's GH_TOKEN left exported, getenforce (the first program the launch starts) has it.
 func TestSecretCheckCanFail(t *testing.T) {
@@ -452,10 +490,17 @@ type mutation struct {
 var mutations = []mutation{
 	{
 		about:    "the container command loses --dangerously-skip-permissions",
-		from:     `    claude --dangerously-skip-permissions "${CLAUDE_CMD_ARGS[@]}"`,
-		to:       `    claude "${CLAUDE_CMD_ARGS[@]}"`,
+		from:     `    "${CCY_AGENT_CMD[@]}" || container_rc=$?`,
+		to:       `    "${CCY_AGENT_CMD[@]:0:1}" "${CCY_AGENT_CMD[@]:2}" || container_rc=$?`,
 		scenario: "launch-plain",
 		shows:    "--dangerously-skip-permissions",
+	},
+	{
+		about:    "an opencode launch's provider key is not passed to the container",
+		from:     `"${CCY_SEAT_RUN_ARGS[@]}" "${CCY_AGENT_RUN_ARGS[@]}" \`,
+		to:       `"${CCY_SEAT_RUN_ARGS[@]}" \`,
+		scenario: "launch-opencode",
+		shows:    "-e OPENROUTER_API_KEY",
 	},
 	{
 		about:    "--version answers to -V instead of -v",

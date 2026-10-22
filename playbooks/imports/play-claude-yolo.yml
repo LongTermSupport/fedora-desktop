@@ -496,6 +496,7 @@
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/agent-bus-seats.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/image-build-lock.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/image-build.bash"
+        - "{{ root_dir }}/files/var/local/claude-yolo/lib/agent-choice.bash"
         # ccy's one-key agent, run by path from ssh-handling.bash (stdlib Python, TDD'd in helpers/).
         - "{{ root_dir }}/helpers/ssh_agent_filter/ssh_agent_filter.py"
       # `launchers` is on the lib and on every script that sources it (ccy, cc,
@@ -1242,6 +1243,16 @@
     - name: Create Claude YOLO Projects Directory
       ansible.builtin.file:
         path: /home/{{ user_login }}/.claude-tokens/ccy/projects
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0700"
+
+    # ccy --opencode's model provider keys (lib/agent-choice.bash): the directory only; which
+    # provider, and so which key file, is the owner's choice.
+    - name: Create Claude YOLO Provider Keys Directory
+      ansible.builtin.file:
+        path: /home/{{ user_login }}/.claude-tokens/ccy/provider-keys
         state: directory
         owner: "{{ user_login }}"
         group: "{{ user_login }}"

@@ -125,6 +125,22 @@ func TestResumeIDAndSupervisedGolden(t *testing.T) {
 			t.Errorf("%v: bash %q, want %q", c.args, out, c.want)
 		}
 	}
+	opencodeCases := []struct {
+		prefix string
+		args   []string
+		want   bool
+	}{
+		{"ccy", []string{"--token", "work", "--opencode"}, true},
+		{"ccy", []string{"-oc", "--", "x"}, true},
+		{"ccy", []string{"--", "--opencode"}, false},
+		{"ccy", []string{"--no-supervise"}, false},
+		{"cc", []string{"--opencode"}, false},
+	}
+	for _, c := range opencodeCases {
+		if got := Opencode(c.prefix, c.args); got != c.want {
+			t.Errorf("Opencode %s %v: got %v", c.prefix, c.args, got)
+		}
+	}
 	supCases := []struct {
 		prefix string
 		args   []string

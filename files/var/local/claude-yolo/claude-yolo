@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.99.15.7"  # Container 2.78.19: the image's agent-bus check-rooms judges a coordinator online by its live status (Plan 00211). See docs/ccy-changelog.md.
+CCY_VERSION="3.100.8"  # ccy --opencode (-oc) runs opencode instead of Claude Code (Plan 00215). See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -30,7 +30,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # from lib/ (see CCY_HASH), because a hand-written list of what the program
 # consists of is a list that goes stale — this one omitted common-pure.bash,
 # which common.bash sources, for two months.
-CCY_LIBS=(token-handoff common host-paths token-management ssh-handling network-management dockerfile-custom docker-health session-registry restart-request session-lifecycle tmux-session agent-bus-membership agent-bus-seats image-build-lock image-build)
+CCY_LIBS=(token-handoff common host-paths token-management ssh-handling network-management dockerfile-custom docker-health session-registry restart-request session-lifecycle tmux-session agent-bus-membership agent-bus-seats image-build-lock image-build agent-choice)
 
 # First, before anything that can end this launch: a GitHub token handed on by the launch
 # that started this one is taken, and its file deleted, at once; and the Go front's path, when
@@ -84,13 +84,15 @@ source "$SCRIPT_DIR/lib/agent-bus-seats.bash"
 source "$SCRIPT_DIR/lib/image-build-lock.bash"
 # shellcheck source=lib/image-build.bash
 source "$SCRIPT_DIR/lib/image-build.bash"
+# shellcheck source=lib/agent-choice.bash
+source "$SCRIPT_DIR/lib/agent-choice.bash"
 
 # IMPORTANT: When modifying the Dockerfile, ALWAYS increment REQUIRED_CONTAINER_VERSION!
 # This ensures users automatically rebuild when critical container changes are made.
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.78.19"
+REQUIRED_CONTAINER_VERSION="2.79.3"
 
 set -e
 
@@ -249,6 +251,8 @@ Options:
                          before claude runs.
   --no-supervise         Run claude unwrapped. Disables auto-compaction AND the
                          ctrl+z guard, so ctrl+z can freeze the session.
+  --opencode, -oc        Run opencode instead of Claude Code, with no bus kit or supervisor.
+                         Needs a provider key file; see "opencode" in docs/ccy.md
   --max-age DURATION     Restart the session on a fresh container (and so the newest Claude
                          Code) once it has run this long, at the first idle point after a
                          warning to the session. DURATION is days, hours and minutes:
@@ -635,7 +639,8 @@ NEXT_IS_COMPOSE=false
 HEADLESS_MODE=false
 SUPERVISE_MODE=false
 NO_SUPERVISE_MODE=false
-NO_BUS_MODE=false
+# A saved team a Quick Launch with no bus kit leaves alone, written back for the next launch.
+NO_BUS_MODE=false quick_kept_team=""
 PROMPT_TEXT=""
 NEXT_IS_MAX_AGE=false
 NEXT_IS_RUN_FOR=false
@@ -843,9 +848,11 @@ for arg in "$@"; do
     elif [ "$arg" = "--prevent" ]; then
         PREVENT_MODE=true
     else
-        CLAUDE_ARGS+=("$arg")
+        ccy_agent_arg "$arg"
     fi
 done
+# --opencode (-oc): its refusals and provider key, before anything else is checked or asked.
+ccy_agent_options || exit $?
 
 # --teams <team>|<seat>@<team>[,...] (lib/agent-bus-seats.bash). Checked here, before any
 # prompt, SSH or token work, by `agent-bus seat check`, which holds the seat and team grammar
@@ -980,7 +987,7 @@ if [ ${#suspect_flags[@]} -gt 0 ]; then
                 --max-age --run-for --until
                 --teams
                 --update-token --list-tokens --token-usage --export-token --network --compose --connect --disconnect
-                --custom --custom-docker --top --prevent --help
+                --custom --custom-docker --top --prevent --opencode --help
             )
             claude_known=$(grep -oE -- '--[a-zA-Z][a-zA-Z0-9-]*' <<< "$claude_help" | sort -u)
 
@@ -1014,10 +1021,7 @@ fi
 
 # Handle debug layer selection
 if [ "$SHOW_DEBUG_CHOOSER" = true ]; then
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo "Debug Layer Selection"
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
+    printf '%s\nDebug Layer Selection\n%s\n\n' "════════════════════════════════════════════════════════════════════════════════" "════════════════════════════════════════════════════════════════════════════════"
     echo "Select which layers to debug (enter numbers separated by commas):"
     echo ""
     echo "  1. CCY wrapper (bash -x in ccy script)"
@@ -1265,6 +1269,7 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
         if [ "$SESSION_RESTORE" = true ]; then quick_unasked="Session restore" quick_team=""
         elif [ "$HEADLESS_MODE" = true ]; then quick_unasked="Headless launch" quick_team=""
         elif ccy_nobody_to_ask; then quick_unasked="No terminal to ask on" quick_team=""
+        elif [ "$NO_BUS_MODE" = true ]; then quick_team="" quick_kept_team="$LAST_TEAMS" # --no-bus/--opencode: on no team, the saved one kept
         fi
         ccy-teams describe-seats --prefix "  Team:    " "${TEAMS_LIST:-$quick_team}"
         echo ""
@@ -1292,8 +1297,8 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
                     # --teams wins: joining a team is not a preference, so a restore takes --teams
                     # only from the session's own record. The seats go into that record, as an
                     # explicit --teams would be, so a restore of this session replays them.
-                    if [[ -n "$LAST_TEAMS" && "$TEAMS_GIVEN" = false && "$use_config" != unasked ]]; then
-                        TEAMS_LIST="$LAST_TEAMS"
+                    if [[ -n "$quick_team" && "$TEAMS_GIVEN" = false && "$use_config" != unasked ]]; then
+                        TEAMS_LIST="$quick_team"
                         ccy_launch_teams
                         CCY_ORIG_ARGS+=(--teams "$CCY_SEATS")
                         [ -z "$CCY_SESSION_NAME" ] || ccy-teams record-seats "$CCY_SESSION_NAME" "$CCY_SEATS" || exit 1
@@ -3453,7 +3458,7 @@ SAVED_CCY_HASH="${CCY_HASH}"
 LAST_TOKEN="${TOKEN_NAME_FOR_CONFIG}"
 LAST_SSH_KEYS="${SSH_KEYS[*]}"
 LAST_NETWORK="${AUTO_CONNECT_NETWORK}"
-LAST_TEAMS="${CCY_SEATS}"
+LAST_TEAMS="${CCY_SEATS:-${quick_kept_team:-}}"
 LAST_LAUNCH_DATE="$(date '+%Y-%m-%d')"
 EOF
 chmod 600 .claude/ccy/.last-launch.conf
@@ -3595,12 +3600,8 @@ if [[ -t 0 ]]; then
     stty susp undef
 fi
 
-# Show the exact command that will be executed (for debugging)
-echo "════════════════════════════════════════════════════════════════════════════════"
-echo "Executing Claude Code with arguments:"
-echo "  claude --dangerously-skip-permissions ${CLAUDE_CMD_ARGS[*]}"
-echo "════════════════════════════════════════════════════════════════════════════════"
-echo ""
+# The command the container runs, claude or opencode (lib/agent-choice.bash), shown as it runs.
+ccy_agent_command
 
 # Safety net: remove any leftover container with this name
 # Handles "external entity" edge case where container storage has the name
@@ -3874,17 +3875,17 @@ ccy_lifecycle_finalize || exit 1
 # Unattended: a headless launch (HEADLESS_MODE true), else whatever CCY_UNATTENDED_LAUNCH says.
 ccy_seats_take "$CCY_SEATS" "${HEADLESS_MODE/false/$CCY_UNATTENDED_LAUNCH}" "$NO_BUS_MODE" "$CONTAINER_NAME" || exit $?
 container_rc=0
-# BSH-09: the two secrets go by env NAME (-e VAR, no '=value'), so their values never appear in
-# the `podman run` argv (world-readable via /proc/<pid>/cmdline for the lifetime of this
-# long-lived process); they are set in this one command's environment, never exported.
-CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_OAUTH_TOKEN" GH_TOKEN="$GH_TOKEN" container_cmd run $DOCKER_FLAGS --rm \
+# BSH-09: the secrets go by env NAME (-e VAR, no '=value'), never in the `podman run` argv
+# (world-readable in /proc/<pid>/cmdline), set in this one command's environment only, as are
+# an opencode launch's provider keys (ccy_agent_container, lib/agent-choice.bash).
+CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_OAUTH_TOKEN" GH_TOKEN="$GH_TOKEN" ccy_agent_container run $DOCKER_FLAGS --rm \
     --name "$CONTAINER_NAME" \
     --label ccy=true \
     --label "ccy-project=$PROJECT_NAME" \
     --label "ccy-github=$CCY_LABEL_GITHUB" \
     --label "ccy-token=$CCY_LABEL_TOKEN" \
     --label "ccy-ssh-keys=$CCY_LABEL_SSH_KEYS" \
-    "${CCY_SEAT_RUN_ARGS[@]}" \
+    "${CCY_SEAT_RUN_ARGS[@]}" "${CCY_AGENT_RUN_ARGS[@]}" \
     $NETWORK_FLAG \
     "${GPU_DEVICE_FLAGS[@]}" \
     "${DOCKER_MOUNTS[@]}" \
@@ -3917,7 +3918,7 @@ CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_OAUTH_TOKEN" GH_TOKEN="$GH_TOKEN" container_cmd
     -e "FORCE_COLOR=1" \
     -w /workspace \
     "$IMAGE_NAME" \
-    claude --dangerously-skip-permissions "${CLAUDE_CMD_ARGS[@]}" || container_rc=$?
+    "${CCY_AGENT_CMD[@]}" || container_rc=$?
 
 if [ "$container_rc" -eq "$CCY_RESTART_EXIT_STATUS" ]; then
     ccy_handle_restart_exit

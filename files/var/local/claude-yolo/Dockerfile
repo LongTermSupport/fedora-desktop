@@ -33,7 +33,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.78.19"
+LABEL claude-yolo-version="2.79.3"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 # NOTE: the claude-yolo-dockerfile-hash LABEL is set at the END of the final `full` stage
 # (PERF-02) so a Dockerfile edit — which changes DOCKERFILE_HASH — only invalidates that
@@ -354,6 +354,34 @@ RUN set -eu \
     && agent-browser-headless --version >/dev/null \
     && agent-browser-lite-headless --version >/dev/null \
     && if agent-browser --version >/dev/null 2>&1; then echo "bare agent-browser must be blocked" >&2; exit 1; fi
+
+# opencode, the open-source terminal coding agent (anomalyco/opencode), which `ccy --opencode`
+# runs instead of Claude Code (Plan 00215). The release publishes no checksum file; the sha256 is
+# the release API's `digest` for this asset (an immutable release whose attestation lists it), so a
+# substituted tarball fails the build. Bump the version and the sha256 together (the
+# update-versions skill). The tarball holds the one self-contained binary.
+#
+# /etc/opencode/ is opencode's managed config, which no user or project config overrides: sessions
+# are never shared to upstream's share service, and the updater is off (the env var is what 1.19.x
+# reads; the image's pin is the version). tui.json, named by OPENCODE_TUI_CONFIG, unbinds ctrl+z:
+# opencode suspends itself on it, and a suspended process in a container cannot be resumed. The
+# PTY supervisor that guards Claude Code's ctrl+z is Claude Code's, so an opencode session has none.
+ARG OPENCODE_VERSION="1.19.3"
+ARG OPENCODE_SHA256="13a8fb2978302071b86f9d7e00da9c8895f9cd846978379c3bdc6a5333536c9b"
+ENV OPENCODE_DISABLE_AUTOUPDATE=1 OPENCODE_TUI_CONFIG=/etc/opencode/tui.json
+RUN curl -fsSL --retry 5 -o /tmp/opencode.tar.gz \
+    "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-x64.tar.gz" \
+    && echo "${OPENCODE_SHA256}  /tmp/opencode.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/opencode.tar.gz -C /tmp opencode \
+    && install -m 0755 /tmp/opencode /usr/local/bin/opencode \
+    && rm -f /tmp/opencode.tar.gz /tmp/opencode \
+    && test "$(opencode --version)" = "${OPENCODE_VERSION}" \
+    && mkdir -p /etc/opencode \
+    && printf '%s\n' '{' '  "$schema": "https://opencode.ai/config.json",' '  "share": "disabled",' '  "autoupdate": false' '}' \
+        > /etc/opencode/opencode.json \
+    && printf '%s\n' '{' '  "$schema": "https://opencode.ai/tui.json",' '  "keybinds": { "terminal_suspend": "none" }' '}' \
+        > /etc/opencode/tui.json \
+    && jq -e . /etc/opencode/opencode.json /etc/opencode/tui.json >/dev/null
 
 # ctrl+z / SIGSTOP suppression is NOT done here any more. The image used to
 # byte-patch Ink's hardcoded suspend handler out of Claude Code; that job now

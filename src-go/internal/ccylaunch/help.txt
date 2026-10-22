@@ -74,6 +74,8 @@ Options:
                          before claude runs.
   --no-supervise         Run claude unwrapped. Disables auto-compaction AND the
                          ctrl+z guard, so ctrl+z can freeze the session.
+  --opencode, -oc        Run opencode instead of Claude Code, with no bus kit or supervisor.
+                         Needs a provider key file; see "opencode" in docs/ccy.md
   --max-age DURATION     Restart the session on a fresh container (and so the newest Claude
                          Code) once it has run this long, at the first idle point after a
                          warning to the session. DURATION is days, hours and minutes:

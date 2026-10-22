@@ -160,6 +160,19 @@ func TestCurrentKeepsOnlyTheMembershipsTheirRecordsLaunchedWithTheBus(t *testing
 	}
 }
 
+// Plan 00215: ccy --opencode (-oc) launches with no bus kit, as --no-bus does, so its record is
+// not a bus session; after "--" the word is claude's.
+func TestAnOpencodeLaunchCarriesNoBus(t *testing.T) {
+	for _, args := range [][]string{{"--opencode"}, {"--token", "w", "-oc"}} {
+		if LaunchedWithBus(registry.Record{Name: "ccy-o", Prefix: "ccy", Args: args}) {
+			t.Errorf("%q launched with the bus", args)
+		}
+	}
+	if !LaunchedWithBus(registry.Record{Name: "ccy-c", Prefix: "ccy", Args: []string{"--", "-oc"}}) {
+		t.Error("an -oc after -- is claude's word, and the launch carries the bus")
+	}
+}
+
 func TestReadDesiredOfNoDirectoryIsNothing(t *testing.T) {
 	desired, unreadable, err := ReadDesired(t.TempDir())
 	if err != nil || len(desired) != 0 || len(unreadable) != 0 {
