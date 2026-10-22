@@ -156,7 +156,8 @@ then C. C's last step (C7, the wiring and RT) runs after the merge of all three.
   - `ErrUnproven` (RW2).
 - **Steps:**
   - **C1.** The record codec, `EpochFloor`, and `Merge` with all of RM, as pure functions with
-    table tests;
+    table tests. `EpochFloor`'s epoch is written at RS6 step 1, and its `min_backup` at RS8
+    step 2;
   - **C2.** The unit argvs RU1 and RU2, as pure functions whose properties are asserted
     (`Restart=no`, no other `Restart` line, the `BaseSandbox` lines, no secret in argv);
   - **C3.** `FS` over the trust rule: `openat2`, `RemoveTree`, `renameat2` and `Fsync`/`Syncfs`.
@@ -166,7 +167,10 @@ then C. C's last step (C7, the wiring and RT) runs after the merge of all three.
   - **C5.** The engine (RE1, RS1 to RS18, RO1 to RO7) over fakes: every fault, and SM5's
     `Goexit` kill at every call with a resume after it. Also RS18's `failed` after `Stop`, RO7's
     crash loop, and the call-order tests of RS3 (verify, then `Syncfs`, then `staged`) and RS6
-    (`Fsync` before `start`);
+    (`Fsync` before `start`). Also: the kill between `start` and the block's removal (RS12);
+    a resume under `--roster-from-backup` at `swap`, `start` and `clean`, which RV4 does not
+    refuse; the verify's wait for the staging unit to unload (RS3); and a revert from `start`
+    then `--discard`, whose answer names the served events (RS11, RS13);
   - **C6.** The `restore` verb, with RS14, RS15 and the 64 cases, then health's HB2 and HB3;
   - **C7 (after A, B and C are merged).** `wire` (RW1, with `host.Deps.Backup` closing over
     `backup.Deps`; RW2's `ErrUnproven`, so the verb exits 70 before the lock); then RT2, RT3 and

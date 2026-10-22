@@ -328,16 +328,22 @@ roster's `seq`, and "after N" means a `seq` above `B`.
     RT2 runs its rows in this mode too (a handle reissued after `N` has its `N`-era token
     refused).
   - `restore_epoch` is drawn from the injected random source, uniformly in
-    `(max(H, backup epoch), 500000000)`; when that range is empty the merge refuses. RS6's
+    `(m, min(m + 1000000, 500000000))`, where `m` is `max(H, backup epoch)`. `H` is never
+    below the live epoch, so the window stays a million wide and does not shrink with each
+    such restore; when it is empty the merge refuses. RS6's
     first step then always raises `H`, so no epoch that served is ever repeated (RE1). C
     3.12.2's "status record's copy" does not exist, since `status.Record` holds no epoch; `H`
     stands in for it.
   - The status record is read through `restore.Deps.StatusRecord` (the status package's
     strict reader).
   - `seq` restarts from `B + 1`, below seqs the lost roster may already have used. A backup
-    taken before this restore could then be judged against reused seqs. So RS6's first step
-    also sets `min_backup` to one above the highest number in `meta/`, and RV4 refuses any
-    `N` below `min_backup`, saying why.
+    taken before this restore could then be judged against reused seqs. So RS8's step 2, once
+    the merged roster stays (after `clean`, before the record is removed), sets `min_backup`
+    to one above the highest number in `meta/`, and RV4 refuses, on a fresh restore, any `N`
+    below `min_backup`, saying why. RS6's first step leaves `min_backup` unchanged, so a
+    resume or a discard is never refused its own `N`, and a reverted restore raises nothing.
+    The guard (RG2) blocks every `backup` until the record goes, so no backup is taken
+    between the swap and the write.
   - `M` cannot be taken, since its tar needs the unreadable roster (BK4). RS4 is skipped as
     under `--offline`, and the answer's `notes` say so. The export still runs when the live
     server serves.
@@ -374,8 +380,9 @@ Nothing is written before all of these pass.
   `server-name`. On a fresh restore, `meta/<N>` exists too. A resume validates `<N>.tar` and
   the record only: `M`'s prune may have removed `meta/<N>`, whose copy is now
   `db.restore-<N>`. `<N>.tar` survives a resume, because BT4 keeps it and the guard refuses
-  every other backup while the record exists. An `N` below `restore-epoch.json`'s
-  `min_backup` is refused, naming the `--roster-from-backup` restore that set it (RM11).
+  every other backup while the record exists. On a fresh restore only, an `N` below
+  `restore-epoch.json`'s `min_backup` is refused, naming the `--roster-from-backup` restore
+  that set it (RM11, RS8 step 2).
 - **RV5.** Neither roster has a `pending`. A current one's refusal names the verb that completes
   it: `team apply` for `team.apply`, and `member <verb> --team T --handle <h>` for a member op.
   Under `--offline`, the current roster's `pending` is RM12's instead.
@@ -393,7 +400,7 @@ Nothing is written before all of these pass.
 
 `restore.Run(ctx, deps, req)` runs under the team lock the verb took with RG1's restore guard.
 The record `root/<team>/restore.json` (0600, `state.WriteFile`, so it is fsynced) is
-`{"v": 1, "team": T, "backup": N, "offline": bool, "pre": M|null, "step": "...", "roster": <merged file>, "lists": {...}, "lost": {"count", "first_ms", "end_ms", "truncated"}|null}`
+`{"v": 1, "team": T, "backup": N, "offline": bool, "pre": M|null, "step": "...", "roster": <merged file>, "lists": {...}, "lost": {"count", "first_ms", "end_ms", "truncated"}|null, "served": bool}`
 (n2g-D10). It holds what a resume needs, since the tar in memory dies with the process. Its
 steps are `staging`, `staged`, `swap`, `start`, `clean` and `revert`, and `stuck` (RS13) is
 set only beside `revert`.
@@ -429,7 +436,10 @@ set only beside `revert`.
   same `InvocationID` and `NRestarts=0`; otherwise step 05 fails. The staging unit is then
   stopped (units `Stop`, SD8 extended) and must be stopped (RS18).
 
-  **Verify.** The staging unit is started again by RU1's argv without `--restore-backup`, so
+  **Verify.** RS18 accepts `failed`, and `systemd-run` refuses a unit name that is still loaded
+  until `--collect` unloads it. So the staging unit is first polled on `Clock.Sleep`, up to
+  10 s, until it is not loaded; if it is still loaded then, step 05 fails. It is then started
+  again by RU1's argv without `--restore-backup`, so
   Tuwunel opens `db.restore-<N>` as it is, and nothing is restored over it. RU2 then runs
   `restore.check` (RC8) through the staging namespace. It must answer the merged
   `restore_epoch` and `rev`, and the same check as before (`InvocationID`, `NRestarts=0`)
@@ -456,8 +466,8 @@ set only beside `revert`.
 - **RS6. Swap** (step 08), in this order:
 
   1. `restore-epoch.json` is written (`FS.WriteFile`) with the merged epoch, if that is above
-     the one it holds (RM10's high-water, n2g-D20), and with RM11's `min_backup` under
-     `--roster-from-backup`;
+     the one it holds (RM10's high-water, n2g-D20). `min_backup` is left unchanged (RS8
+     step 2 writes it);
   2. the record goes to `swap`, and `restore.block` is written;
   3. the live unit is stopped. The live unit and both staging units must then be stopped
      (RS18), or the step fails before any rename;
@@ -481,21 +491,25 @@ set only beside `revert`.
 
   1. the record goes to `clean` (fsync). From here on nothing is reverted: the restored
      database serves and has passed RC8;
-  2. `db.previous` is removed by `RemoveTree` (the trust rule);
-  3. `config.restore.toml` is removed;
-  4. the child runs `restore.finish` (RC4);
-  5. the record is removed;
-  6. the status record is refreshed with the event "restored backup N, <count> events lost,
+  2. under `--roster-from-backup`, `restore-epoch.json` is written (`FS.WriteFile`) with
+     RM11's `min_backup`, if that is above the one it holds; otherwise nothing is written;
+  3. `db.previous` is removed by `RemoveTree` (the trust rule);
+  4. `config.restore.toml` is removed;
+  5. the child runs `restore.finish` (RC4);
+  6. the record is removed;
+  7. the status record is refreshed with the event "restored backup N, <count> events lost,
      export at <path>" (`host.Status.Refresh` takes events), or RO5's event when offline.
 
-  Every sub-step counts "already absent" as done. A failure in 2 to 5 leaves the record at
-  `clean` and answers "restored; clean-up failed: <error>; restore --team T --resume" (1). A
-  failure of 6 answers "restored; status refresh failed: <error>" (1), with the full answer on
+  Every sub-step counts "already absent" (or, for 2, "already as high") as done. A failure in
+  2 to 6 leaves the record at `clean` and answers "restored; clean-up failed: <error>;
+  restore --team T --resume" (1). A failure of 7 answers "restored; status refresh failed: <error>" (1), with the full answer on
   stdout.
 
 - **RS9. The answer** is
   `{"v": 1, "team": T, "backup": N, "offline": bool, "pre": M|null, "lost": {"count", "first_ms", "end_ms", "truncated", "path"}|{"exported": false, "since_ms": <N's time>}, "reissue": [...], "return": [...], "password": [...], "unknown": [...], "pending": <RM12's resolution>|null, "notes": [...], "changed": [...]}`.
-  `notes` holds RM7's fixed line about Element passwords, and RO5's line when offline.
+  `notes` holds RM7's fixed line about Element passwords, and RO5's line when offline. Online,
+  it also holds "events posted between the export's end (\<end_ms>) and the stop are lost and
+  were not exported", quoting the record's `end_ms` (C 3.12.2 step 07).
 
 - **RS10. Failures in steps 03 to 05.**
 
@@ -510,7 +524,9 @@ set only beside `revert`.
   answer is "restore not done, staged: <error>; restore --team T --resume or --discard" (1).
   From step 08 on, in this order:
 
-  1. the record goes to `revert` (fsync), before anything is touched;
+  1. the record goes to `revert` (fsync), before anything is touched. When it comes from
+     `start`, the record also gets `"served": true`, since the restored copy may have served
+     events that the revert puts back with it;
   2. the block is written again;
   3. the live unit is stopped (RS18);
   4. the renames of RS16, toward `unswapped`, then `FS.Fsync` of the state directory;
@@ -518,7 +534,7 @@ set only beside `revert`.
   6. the block is removed;
   7. the old database is started (RS17) and waited for; under `--offline` it is not started
      (RO6);
-  8. the record is set to `staged`, with `pre` kept.
+  8. the record is set to `staged`, with `pre` and `served` kept.
 
   A failure in steps 2 to 6 leaves the record at `revert` and the block in place. A failure at
   step 7 leaves the record at `revert`, no block, and the unit failed. Either is reported as
@@ -536,17 +552,23 @@ set only beside `revert`.
   - `staged`: from RS4;
   - `swap`: RS6 from its step 2 (the block written if absent), so the record goes to `start`
     and the block is removed, then RS7 and RS8;
-  - `start`: RS7 and RS8;
+  - `start`: `restore.block` is removed if present, then RS7 and RS8. A kill between RS6
+    step 6's record write and the block's removal leaves both, and RS17 would refuse every
+    start for ever. The removal is safe, since `start` is written only after the renames are
+    fsynced and RC2 has run;
   - `clean`: RS8 from its step 2;
   - `revert`: RS11 from its step 2, then "not done", with the record at `staged`.
 
-  SM5 asserts the end state after a kill at every call of every row.
+  SM5 asserts the end state after a kill at every call of every row, the kill between RS6
+  step 6's record write and the block's removal included (the resume serves).
 
 - **RS13. `--discard`** works at `staging` or `staged`. It stops the two staging units only
   (RS18): at `staged` the live unit serves and is left alone. It removes `db.restore-<N>` (by
   `RemoveTree`), `config.restore.toml` and the record, and leaves `restore-epoch.json`. When
   `pre` is set and `meta/<N>` is gone, the answer says the discarded copy was the only copy of
-  backup `N`. At `swap`, `start` or `clean` it is refused, naming `--resume`. At `revert` it is
+  backup `N`. When the record holds `"served": true` (RS11 step 1), the answer says that the
+  events posted while the restored copy served are discarded with it. At `swap`, `start` or
+  `clean` it is refused, naming `--resume`. At `revert` it is
   refused too, unless RS16 has refused there. In that case the record holds `"stuck": "<listing>"`,
   and the discard removes only the record and leaves the block: the owner has a directory to
   inspect, and `team apply` will not start it.
@@ -770,26 +792,26 @@ cannot be made). `--offline` gives up those two, and nothing else.
 
 ## 13. Decisions where the design is silent or wrong
 
-| ID      | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| n2g-D1  | The tar carries a manifest `backup.json` (team, number, time, server name), so a tar renamed to another number or copied from another team is refused, and the restore knows `N`'s time without reading the homeserver's files.                                                                                                                                                                                                                                                                                                                                     |
-| n2g-D2  | Root reads Tuwunel's numbers from `meta/`, resolved by `openat2` with no symlinks from a root-owned fd (the trust rule). A compromised homeserver could hide a number, which costs its own team's tars only (C 3.2.2: it can forge its team anyway).                                                                                                                                                                                                                                                                                                                |
-| n2g-D3  | The last run is a root-only record, `backups/last-run.json`, written by every run, timer or not. The design names "the record" without a format.                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| n2g-D4  | The backup never starts a homeserver. Only `team apply` does, for step 6.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| n2g-D5  | `backup --all` runs the teams in sequence and reports on stderr only, as `health --all` does.                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| n2g-D6  | The backup's own JSON answer and the `backups` list are this slice's formats; ccy-teams reads them (C 3.13).                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| n2g-D7  | DC4 is honoured by the caller class and the absence of any NOPASSWD rule. The code does not inspect `SUDO_*`, which a root caller sets as it likes.                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| n2g-D8  | Restore is refused in production until H-C5 and H-C15 pass (DC8, Task 2.5).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| n2g-D9  | A migration-origin team's restore is refused until D's verbs exist, so `--accept-carry-loss` waits for them.                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| n2g-D10 | `restore.json` holds the merged roster, the lists and the export's result, so a resume never recomputes a merge (a second merge would raise `seq` and the epoch again). The pre-restore backup keeps `N.tar` from its prune, because the swap needs its token and rooms.                                                                                                                                                                                                                                                                                            |
-| n2g-D11 | A handle only in the backup roster is retired. A human only in the current roster needs a password but is not revoked, since it has no account to revoke.                                                                                                                                                                                                                                                                                                                                                                                                           |
-| n2g-D12 | The secured roster event's `rev` is exactly the live `rev` + 1, which root fixes, so no `rev` comes back from the child.                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| n2g-D13 | `--roster-from-backup` raises counters only from the status record. LXC records are not built, and the pool is owner-writable.                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| n2g-D14 | The design's restore needs a serving homeserver (`M` and the export), yet the case backups exist for is a database that will not start. The offline restore (RO) is built. Every credential guarantee comes from the staged copy, which needs no live server; only `M` and the export are given up, and the answer says so. **The owner confirms only the defaults:** the flag's name `--offline`; the 30 s "not answering" probe; a pending operation resolved by RM12 rather than refused; and the database that would not start removed at RS8 rather than kept. |
-| n2g-D15 | The export is capped at 64 MiB, with `truncated` in the answer.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| n2g-D16 | The child's start check allows its own gid as the one supplementary group (systemd `User=`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| n2g-D17 | The base unit's sandbox lines are one Go list. The play's template must be rendered from it (gate A, Task 2.5), so the staging unit cannot drift from the base unit. The list holds identity, hardening and deny lines only; the lifecycle lines stay per unit, since the base unit's `Restart=always` would let a staging restart wipe the secured copy.                                                                                                                                                                                                           |
-| n2g-D18 | The staging unit names its credential path in full: a transient unit's command line expands no `%d`. H-C5 confirms it.                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| n2g-D19 | A password a human changed from Element after `N` is no roster write, so root cannot know it. The answer carries one fixed line saying the old password is back for any such human; nobody is revoked on a guess.                                                                                                                                                                                                                                                                                                                                                   |
-| n2g-D20 | `root/<team>/restore-epoch.json` is the highest epoch any restore put in place, written at RS6 before a secured database can serve, and kept by `--discard`. Without it, an attempt that served E+1, was swapped back and discarded would let the next restore merge E+1 again from another database, and a member paused across both would keep a stale `since` (H-C14). Its `min_backup` (RM11) refuses, after a `--roster-from-backup` restore, every older backup, whose seqs can no longer be ordered against today's roster.                                  |
-| n2g-D21 | Under `--roster-from-backup` nothing after `N` can be judged, so every credential in the base is revoked and every active handle and human needs a new one. `M` is skipped, since its tar needs the roster. C 3.12.2 is silent on both.                                                                                                                                                                                                                                                                                                                             |
+| ID      | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| n2g-D1  | The tar carries a manifest `backup.json` (team, number, time, server name), so a tar renamed to another number or copied from another team is refused, and the restore knows `N`'s time without reading the homeserver's files.                                                                                                                                                                                                                                                                                                                                                  |
+| n2g-D2  | Root reads Tuwunel's numbers from `meta/`, resolved by `openat2` with no symlinks from a root-owned fd (the trust rule). A compromised homeserver could hide a number, which costs its own team's tars only (C 3.2.2: it can forge its team anyway).                                                                                                                                                                                                                                                                                                                             |
+| n2g-D3  | The last run is a root-only record, `backups/last-run.json`, written by every run, timer or not. The design names "the record" without a format.                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| n2g-D4  | The backup never starts a homeserver. Only `team apply` does, for step 6.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| n2g-D5  | `backup --all` runs the teams in sequence and reports on stderr only, as `health --all` does.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| n2g-D6  | The backup's own JSON answer and the `backups` list are this slice's formats; ccy-teams reads them (C 3.13).                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| n2g-D7  | DC4 is honoured by the caller class and the absence of any NOPASSWD rule. The code does not inspect `SUDO_*`, which a root caller sets as it likes.                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| n2g-D8  | Restore is refused in production until H-C5 and H-C15 pass (DC8, Task 2.5).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| n2g-D9  | A migration-origin team's restore is refused until D's verbs exist, so `--accept-carry-loss` waits for them.                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| n2g-D10 | `restore.json` holds the merged roster, the lists and the export's result, so a resume never recomputes a merge (a second merge would raise `seq` and the epoch again). The pre-restore backup keeps `N.tar` from its prune, because the swap needs its token and rooms.                                                                                                                                                                                                                                                                                                         |
+| n2g-D11 | A handle only in the backup roster is retired. A human only in the current roster needs a password but is not revoked, since it has no account to revoke.                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| n2g-D12 | The secured roster event's `rev` is exactly the live `rev` + 1, which root fixes, so no `rev` comes back from the child.                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| n2g-D13 | `--roster-from-backup` raises counters only from the status record. LXC records are not built, and the pool is owner-writable.                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| n2g-D14 | The design's restore needs a serving homeserver (`M` and the export), yet the case backups exist for is a database that will not start. The offline restore (RO) is built. Every credential guarantee comes from the staged copy, which needs no live server; only `M` and the export are given up, and the answer says so. **The owner confirms only the defaults:** the flag's name `--offline`; the 30 s "not answering" probe; a pending operation resolved by RM12 rather than refused; and the database that would not start removed at RS8 rather than kept.              |
+| n2g-D15 | The export is capped at 64 MiB, with `truncated` in the answer.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| n2g-D16 | The child's start check allows its own gid as the one supplementary group (systemd `User=`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| n2g-D17 | The base unit's sandbox lines are one Go list. The play's template must be rendered from it (gate A, Task 2.5), so the staging unit cannot drift from the base unit. The list holds identity, hardening and deny lines only; the lifecycle lines stay per unit, since the base unit's `Restart=always` would let a staging restart wipe the secured copy.                                                                                                                                                                                                                        |
+| n2g-D18 | The staging unit names its credential path in full: a transient unit's command line expands no `%d`. H-C5 confirms it.                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| n2g-D19 | A password a human changed from Element after `N` is no roster write, so root cannot know it. The answer carries one fixed line saying the old password is back for any such human; nobody is revoked on a guess.                                                                                                                                                                                                                                                                                                                                                                |
+| n2g-D20 | `root/<team>/restore-epoch.json` is the highest epoch any restore put in place, written at RS6 before a secured database can serve, and kept by `--discard`. Without it, an attempt that served E+1, was swapped back and discarded would let the next restore merge E+1 again from another database, and a member paused across both would keep a stale `since` (H-C14). Its `min_backup` (RM11), written at RS8 once the merged roster stays, refuses, after a `--roster-from-backup` restore, every older backup, whose seqs can no longer be ordered against today's roster. |
+| n2g-D21 | Under `--roster-from-backup` nothing after `N` can be judged, so every credential in the base is revoked and every active handle and human needs a new one. `M` is skipped, since its tar needs the roster. C 3.12.2 is silent on both.                                                                                                                                                                                                                                                                                                                                          |
