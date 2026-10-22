@@ -128,9 +128,9 @@ func TestLXCSeatKeyPanicsOnAnInputDeclareRefuses(t *testing.T) {
 // `-` and `_` trimmed, `checkout` when nothing is left.
 func TestLXCRepoLabel(t *testing.T) {
 	for checkout, want := range map[string]string{
-		"/srv/checkouts/thing":                     "thing",
-		"/home/u/My.Repo":                      "my-repo",
-		"/srv/__x__":                               "x",
+		"/srv/checkouts/thing": "thing",
+		"/home/u/My.Repo":      "my-repo",
+		"/srv/__x__":           "x",
 		"/srv/" + strings.Repeat("a", 23) + "-bcd": strings.Repeat("a", 23),
 		"/srv/" + strings.Repeat("a", 23) + "_-z":  strings.Repeat("a", 23),
 		"/srv/" + strings.Repeat("b", 30):          strings.Repeat("b", 24),
