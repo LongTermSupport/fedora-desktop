@@ -70,6 +70,31 @@ func TestStartWithPlacesTheDatabaseAndSignals(t *testing.T) {
 	}
 }
 
+// Stop ends the server with the signal given and waits for it; the database can then be opened
+// again by a later run, which takes Args (RT2 proves them with --restore-backup). A SIGKILL is
+// the test's own, so the cleanup does not report it.
+func TestStopThenStartAgainOnTheSamePath(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 2*StartLimit)
+	defer cancel()
+	db := filepath.Join(t.TempDir(), "db")
+	for _, sig := range []syscall.Signal{syscall.SIGTERM, syscall.SIGKILL} {
+		hs := StartWith(ctx, t, "example.org", Options{DatabasePath: db})
+		if err := hs.Stop(sig); err != nil {
+			t.Fatalf("stop by %v: %v", sig, err)
+		}
+		if hs.answers(ctx) {
+			t.Fatalf("the server answers after its stop by %v", sig)
+		}
+		if err := hs.Stop(sig); err == nil {
+			t.Fatalf("a second stop by %v found a server", sig)
+		}
+	}
+	hs := StartWith(ctx, t, "example.org", Options{DatabasePath: db, Args: []string{"-O", "max_request_size=20000000"}})
+	if !hs.answers(ctx) {
+		t.Fatal("the run with an option does not answer")
+	}
+}
+
 func TestClockSleepEndsWithTheContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()

@@ -53,19 +53,46 @@ type Server struct {
 	Port   int
 	RegKey string
 	config string
+	run    *running
 }
 
 // Options are a run's departures from the default: where the database goes (the test's own
-// directory when empty), and extra top-level settings, one `key = value` per line.
+// directory when empty), extra top-level settings, one `key = value` per line, and arguments
+// after the command (`--restore-backup N`).
 type Options struct {
 	DatabasePath string
 	Extra        string
+	Args         []string
 }
 
 // served is how the server's run ended: its error and everything it printed.
 type served struct {
 	err    error
 	output string
+}
+
+// running is one run's end: the channel it arrives on, the end once read, and whether the test
+// killed the run itself (Stop with SIGKILL), which the cleanup then accepts.
+type running struct {
+	ended  chan served
+	end    *served
+	killed bool
+}
+
+// wait reads the run's end once, within limit.
+func (r *running) wait(limit time.Duration) error {
+	if r.end != nil {
+		return nil
+	}
+	timer := time.NewTimer(limit)
+	defer timer.Stop()
+	select {
+	case got := <-r.ended:
+		r.end = &got
+		return nil
+	case <-timer.C:
+		return fmt.Errorf("tuwunel: still running %v after the stop", limit)
+	}
 }
 
 // Start runs the binary BinEnv names for serverName and waits until it answers.
@@ -95,33 +122,45 @@ func StartWith(ctx context.Context, t *testing.T, serverName string, o Options) 
 	hs.config = config
 
 	runCtx, stop := context.WithCancel(ctx)
-	ended := make(chan served, 1)
+	hs.run = &running{ended: make(chan served, 1)}
 	go func() {
 		res, runErr := execx.OS{Grace: stopLimit}.Run(runCtx, execx.Cmd{
-			Name: path, Env: []string{"TUWUNEL_CONFIG=" + config}, Interrupt: syscall.SIGTERM,
+			Name: path, Args: slices.Clone(o.Args), Env: []string{"TUWUNEL_CONFIG=" + config}, Interrupt: syscall.SIGTERM,
 		})
-		ended <- served{err: runErr, output: string(res.Stdout) + string(res.Stderr)}
+		hs.run.ended <- served{err: runErr, output: string(res.Stdout) + string(res.Stderr)}
 	}()
-	var end *served
 	t.Cleanup(func() {
 		stop()
-		if end == nil {
-			got := <-ended
-			end = &got
+		if hs.run.end == nil {
+			got := <-hs.run.ended
+			hs.run.end = &got
 		}
-		if !stoppedCleanly(end.err) {
-			t.Errorf("tuwunel: %v\n%s", end.err, end.output)
+		if !stoppedCleanly(hs.run.end.err, hs.run.killed) {
+			t.Errorf("tuwunel: %v\n%s", hs.run.end.err, hs.run.end.output)
 		}
 	})
 
-	if awaitErr := hs.await(ctx, ended, &end); awaitErr != nil {
+	if awaitErr := hs.await(ctx, hs.run.ended, &hs.run.end); awaitErr != nil {
 		output := ""
-		if end != nil {
-			output = end.output
+		if hs.run.end != nil {
+			output = hs.run.end.output
 		}
 		t.Fatalf("tuwunel: %v\n%s", awaitErr, output)
 	}
 	return hs
+}
+
+// Stop sends sig (SIGTERM or SIGKILL) to the server and waits for its run to end, so a later
+// run can open the same database. A run already ended is an error.
+func (hs Server) Stop(sig syscall.Signal) error {
+	if hs.run.end != nil {
+		return errors.New("tuwunel: the server has already stopped")
+	}
+	if err := hs.Signal(sig); err != nil {
+		return err
+	}
+	hs.run.killed = sig == syscall.SIGKILL
+	return hs.run.wait(stopLimit)
 }
 
 // Signal sends sig to the server's own process, the one process whose environment names its
@@ -155,13 +194,13 @@ func (hs Server) Signal(sig syscall.Signal) error {
 
 // stoppedCleanly is a run that ended on the test's SIGTERM: exit 0 after the cancel (which
 // exec reports as context.Canceled; the test's deadline is DeadlineExceeded and fails), or the
-// signal itself.
-func stoppedCleanly(err error) bool {
+// signal itself; or on the test's own SIGKILL when killed.
+func stoppedCleanly(err error, killed bool) bool {
 	if err == nil || errors.Is(err, context.Canceled) {
 		return true
 	}
 	exitErr, ok := errors.AsType[*execx.ExitError](err)
-	return ok && exitErr.Signal == syscall.SIGTERM
+	return ok && (exitErr.Signal == syscall.SIGTERM || killed && exitErr.Signal == syscall.SIGKILL)
 }
 
 // await polls the versions endpoint until the server answers 200, it exits (recorded in *end),
