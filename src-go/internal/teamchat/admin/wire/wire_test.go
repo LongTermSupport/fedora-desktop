@@ -44,7 +44,7 @@ func (f *fakeMachine) machine() machine {
 		ownerGroup: func() (int, error) { f.n.groups++; return 1000, f.groupErr },
 		readPin:    func() (host.Pin, error) { f.n.pins++; return host.Pin{MemoryHigh: "512M"}, f.pinErr },
 		runner:     &execx.Fake{},
-		dial: func() (units.Conn, error) {
+		dial: func(context.Context) (units.Conn, error) {
 			f.n.dials++
 			return nil, errors.New("no bus here")
 		},

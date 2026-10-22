@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -155,7 +156,7 @@ func newRig(t *testing.T) *rig {
 		conn: newFakeConn(), run: &execx.Fake{},
 		handled: make(chan *dbus.Signal, 16), waiting: make(chan dbus.ObjectPath, 16),
 	}
-	r.m = NewManager(func() (Conn, error) {
+	r.m = NewManager(func(context.Context) (Conn, error) {
 		r.dials++
 		if r.dialErr != nil {
 			return nil, r.dialErr
@@ -906,8 +907,8 @@ func TestHealthStateWrongTypesAreErrors(t *testing.T) {
 func TestCleanStateAndJournalTailRunThroughExecx(t *testing.T) {
 	r := newRig(t)
 	unit := testUnit(t)
-	r.run.On([]string{"systemctl", "clean", "--what=state", unit}, execx.Result{})
-	r.run.On([]string{"journalctl", "-u", unit, "-n", "20", "--no-pager", "-o", "cat"}, execx.Result{Stdout: []byte("line 1\nline 2\n")})
+	r.run.On([]string{"/usr/bin/systemctl", "clean", "--what=state", unit}, execx.Result{})
+	r.run.On([]string{"/usr/bin/journalctl", "-u", unit, "-n", "20", "--no-pager", "-o", "cat"}, execx.Result{Stdout: []byte("line 1\nline 2\n")})
 	if err := r.m.Host().CleanState(t.Context(), unit); err != nil {
 		t.Fatal(err)
 	}
@@ -918,8 +919,13 @@ func TestCleanStateAndJournalTailRunThroughExecx(t *testing.T) {
 	if r.dials != 0 {
 		t.Error("the programs dialled the bus")
 	}
-	r.run.On([]string{"systemctl"}, execx.Result{ExitCode: 1, Stderr: []byte("busy")})
-	r.run.On([]string{"journalctl"}, execx.Result{ExitCode: 1})
+	for _, c := range r.run.Calls() {
+		if !c.CleanEnv || !slices.Equal(c.Env, []string{"PATH=/usr/bin:/bin", "LANG=C"}) {
+			t.Errorf("%s ran with CleanEnv %v and Env %q", c.Name, c.CleanEnv, c.Env)
+		}
+	}
+	r.run.On([]string{"/usr/bin/systemctl"}, execx.Result{ExitCode: 1, Stderr: []byte("busy")})
+	r.run.On([]string{"/usr/bin/journalctl"}, execx.Result{ExitCode: 1})
 	if err := r.m.Host().CleanState(t.Context(), unit); err == nil || !strings.Contains(err.Error(), "clean "+unit) {
 		t.Errorf("clean err = %v", err)
 	}

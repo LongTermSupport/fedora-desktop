@@ -145,7 +145,10 @@ the state root (`paths.CtlStateRoot` under a test root), the clock and the rando
 ## 6. systemd over D-Bus (SD, DC17)
 
 `units.Manager` holds one system-bus connection, opened on first use (so a verb that needs no
-systemd never connects) and closed by `Close`. `Manager.Host()` is `host.Systemd` and
+systemd never connects) and closed by `Close`. The bus is always
+`unix:path=/run/dbus/system_bus_socket`, dialled, authenticated by EXTERNAL and sent its Hello,
+never the environment's `DBUS_SYSTEM_BUS_ADDRESS`; the dial is raced against the call's
+context. `Manager.Host()` is `host.Systemd` and
 `Manager.Health()` is `health.Units`.
 
 - **SD1. Jobs.** `Start`, `Restart` and `Stop` call the Manager's `StartUnit`, `RestartUnit` and
@@ -163,7 +166,8 @@ systemd never connects) and closed by `Close`. `Manager.Host()` is `host.Systemd
   (microseconds; 0 is the zero time). A property of the wrong D-Bus type is an error, never a
   zero.
 - **SD6. Clean and journal.** `CleanState` and `JournalTail` are `systemctl clean --what=state`
-  and `journalctl -u <unit> -n 20 --no-pager -o cat` through `execx` (the tail is only shown).
+  and `journalctl -u <unit> -n 20 --no-pager -o cat` through `execx` (the tail is only shown),
+  each as `/usr/bin/<name>` with `CleanEnv` and the environment `PATH=/usr/bin:/bin`, `LANG=C`.
 - **SD7. Error mapping.** A D-Bus error is one line naming the call, the unit and the error's
   class: `NoSuchUnit`, `AccessDenied` and `InteractiveAuthorizationRequired` ("not permitted"),
   a bus that cannot be reached or a lost connection ("systemd is not reachable on the system
@@ -200,6 +204,7 @@ systemd never connects) and closed by `Close`. `Manager.Host()` is `host.Systemd
   is an error naming the code. A zone name is `^[A-Za-z0-9_-]{1,32}$`.
 - **FW2. Query, add, remove** are `firewall-cmd [--permanent] --zone=<z> --query-rich-rule=<rule>`, `--add-rich-rule=` and `--remove-rich-rule=`, with the rule as one
   argument; query 0 is present, 1 absent, anything else an error naming the code (C 3.2.5).
+  Every run is `/usr/bin/firewall-cmd` with `CleanEnv` and `PATH=/usr/bin:/bin`, `LANG=C`.
 - **RD1. Readiness** (host step 8) is `GET http://127.0.0.1:<port>/_tuwunel/server_version`
   answering 200 within 5 s; **RD2. the probe** (health step 2) is
   `GET http://127.0.0.1:<port>/_matrix/client/versions` answering 200 within 5 s, the port from

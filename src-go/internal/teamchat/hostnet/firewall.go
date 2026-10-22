@@ -25,8 +25,15 @@ const (
 	exitNoZone    = 2
 	exitAbsent    = 1
 	firewallCmd   = "firewall-cmd"
+	firewallPath  = "/usr/bin/" + firewallCmd
 	maxIPv6Length = 128
 )
+
+// firewallCommand is firewall-cmd by its absolute path in an environment of its own: nothing of
+// the caller's PATH or locale reaches what root runs.
+func firewallCommand(args []string) execx.Cmd {
+	return execx.Cmd{Name: firewallPath, Args: args, CleanEnv: true, Env: []string{"PATH=/usr/bin:/bin", "LANG=C"}}
+}
 
 var zoneName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
 
@@ -114,7 +121,7 @@ func (f Firewall) change(ctx context.Context, permanent bool, r host.Rule, flag 
 	if err != nil {
 		return err
 	}
-	if _, err = f.Runner.Run(ctx, execx.Cmd{Name: firewallCmd, Args: args}); err != nil {
+	if _, err = f.Runner.Run(ctx, firewallCommand(args)); err != nil {
 		return fmt.Errorf("hostnet: %s %s of %s: %w", firewallCmd, flag, r, err)
 	}
 	return nil
@@ -123,7 +130,7 @@ func (f Firewall) change(ctx context.Context, permanent bool, r host.Rule, flag 
 // run runs firewall-cmd; a command that ran and exited non-zero is its code, not an error, and
 // one that could not start, or was killed, is.
 func (f Firewall) run(ctx context.Context, args ...string) (execx.Result, int, error) {
-	res, err := f.Runner.Run(ctx, execx.Cmd{Name: firewallCmd, Args: args})
+	res, err := f.Runner.Run(ctx, firewallCommand(args))
 	var exit *execx.ExitError
 	if errors.As(err, &exit) && exit.Signal == 0 {
 		return res, exit.Code, nil

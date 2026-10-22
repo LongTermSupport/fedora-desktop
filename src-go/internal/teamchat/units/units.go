@@ -95,7 +95,7 @@ type Conn interface {
 
 // Manager is systemd over one lazily opened bus connection. Safe for concurrent use.
 type Manager struct {
-	dial func() (Conn, error)
+	dial func(context.Context) (Conn, error)
 	run  execx.Runner
 
 	mu sync.Mutex
@@ -108,7 +108,7 @@ type Manager struct {
 
 // NewManager is a Manager that dials with dial on first use and runs systemctl and journalctl
 // through r.
-func NewManager(dial func() (Conn, error), r execx.Runner) *Manager {
+func NewManager(dial func(context.Context) (Conn, error), r execx.Runner) *Manager {
 	return &Manager{dial: dial, run: r}
 }
 
@@ -160,7 +160,7 @@ func (m *Manager) connect(ctx context.Context) (*session, error) {
 			return nil, fmt.Errorf("%w: close the lost connection: %w", ErrUnreachable, err)
 		}
 	}
-	conn, err := m.dial()
+	conn, err := m.dial(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrUnreachable, err)
 	}
@@ -629,7 +629,7 @@ func (m *Manager) cleanState(ctx context.Context, unit string) error {
 	if err := checkUnit(unit); err != nil {
 		return err
 	}
-	if _, err := m.run.Run(ctx, execx.Cmd{Name: "systemctl", Args: []string{"clean", "--what=state", unit}}); err != nil {
+	if _, err := m.run.Run(ctx, program(execx.Cmd{Name: "/usr/bin/systemctl", Args: []string{"clean", "--what=state", unit}})); err != nil {
 		return fmt.Errorf("systemctl clean %s: %w", unit, err)
 	}
 	return nil
@@ -640,11 +640,18 @@ func (m *Manager) journalTail(ctx context.Context, unit string) (string, error) 
 	if err := checkUnit(unit); err != nil {
 		return "", err
 	}
-	res, err := m.run.Run(ctx, execx.Cmd{Name: "journalctl", Args: []string{"-u", unit, "-n", "20", "--no-pager", "-o", "cat"}})
+	res, err := m.run.Run(ctx, program(execx.Cmd{Name: "/usr/bin/journalctl", Args: []string{"-u", unit, "-n", "20", "--no-pager", "-o", "cat"}}))
 	if err != nil {
 		return "", fmt.Errorf("the journal of %s: %w", unit, err)
 	}
 	return string(res.Stdout), nil
+}
+
+// program is c, a system program named by its absolute path, in an environment of its own, so
+// nothing of the caller's PATH or locale reaches what root runs.
+func program(c execx.Cmd) execx.Cmd {
+	c.CleanEnv, c.Env = true, []string{"PATH=/usr/bin:/bin", "LANG=C"}
+	return c
 }
 
 // hostUnits is the Manager as host.Systemd.

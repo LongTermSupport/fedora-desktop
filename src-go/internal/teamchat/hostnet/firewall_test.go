@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/netip"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -53,11 +54,11 @@ func newFirewall(t *testing.T, route, route6 string) firewallWorld {
 }
 
 func zoneOf(w firewallWorld, dev string, code int, out string) {
-	w.fake.On([]string{"firewall-cmd", "--get-zone-of-interface=" + dev}, execx.Result{ExitCode: code, Stdout: []byte(out)})
+	w.fake.On([]string{fwPath, "--get-zone-of-interface=" + dev}, execx.Result{ExitCode: code, Stdout: []byte(out)})
 }
 
 func defaultZone(w firewallWorld, code int, out string) {
-	w.fake.On([]string{"firewall-cmd", "--get-default-zone"}, execx.Result{ExitCode: code, Stdout: []byte(out)})
+	w.fake.On([]string{fwPath, "--get-default-zone"}, execx.Result{ExitCode: code, Stdout: []byte(out)})
 }
 
 func TestZoneIsTheZoneOfTheInterfaceThatRoutesTheSource(t *testing.T) {
@@ -72,6 +73,20 @@ func TestZoneIsTheZoneOfTheInterfaceThatRoutesTheSource(t *testing.T) {
 	}
 	if len(w.fake.Calls()) != 1 {
 		t.Fatalf("calls = %v", w.fake.Calls())
+	}
+	checkProgramEnv(t, w.fake.Calls())
+}
+
+// fwPath is firewall-cmd by its absolute path: root never finds a program on a PATH it inherited.
+const fwPath = "/usr/bin/firewall-cmd"
+
+// checkProgramEnv holds every firewall-cmd run to an environment of its own.
+func checkProgramEnv(t *testing.T, calls []execx.Cmd) {
+	t.Helper()
+	for _, c := range calls {
+		if !c.CleanEnv || !slices.Equal(c.Env, []string{"PATH=/usr/bin:/bin", "LANG=C"}) {
+			t.Errorf("%s ran with CleanEnv %v and Env %q", c.Line(), c.CleanEnv, c.Env)
+		}
 	}
 }
 
@@ -108,7 +123,7 @@ func TestZoneWithNoRouteIsTheDefaultZone(t *testing.T) {
 	if err != nil || got != "public" {
 		t.Fatalf("Zone = %q, %v", got, err)
 	}
-	if w.fake.Called("firewall-cmd --get-zone-of-interface") {
+	if w.fake.Called(fwPath + " --get-zone-of-interface") {
 		t.Fatal("asked for an interface's zone without a route")
 	}
 }
@@ -190,7 +205,7 @@ func TestZoneErrorsFromFirewalld(t *testing.T) {
 		"empty zone":              {func(w firewallWorld) { zoneOf(w, "eth1", 0, "\n") }, "zone name"},
 		"overlong zone":           {func(w firewallWorld) { zoneOf(w, "eth1", 0, strings.Repeat("a", 33)+"\n") }, "zone name"},
 		"not installed": {func(w firewallWorld) {
-			w.fake.OnFunc([]string{"firewall-cmd"}, func(execx.Cmd) (execx.Result, error) {
+			w.fake.OnFunc([]string{fwPath}, func(execx.Cmd) (execx.Result, error) {
 				return execx.Result{}, &execx.NotInstalledError{Name: "firewall-cmd"}
 			})
 		}, "firewall-cmd"},
@@ -219,14 +234,14 @@ func TestQueryReadsTheExitStatus(t *testing.T) {
 		fails     bool
 		argv      string
 	}{
-		{0, false, true, false, "firewall-cmd --zone=public --query-rich-rule=" + rule.Rich()},
-		{1, true, false, false, "firewall-cmd --permanent --zone=public --query-rich-rule=" + rule.Rich()},
+		{0, false, true, false, fwPath + " --zone=public --query-rich-rule=" + rule.Rich()},
+		{1, true, false, false, fwPath + " --permanent --zone=public --query-rich-rule=" + rule.Rich()},
 		{2, false, false, true, ""},
 		{252, true, false, true, ""},
 	}
 	for _, c := range cases {
 		fake := &execx.Fake{}
-		fake.On([]string{"firewall-cmd"}, execx.Result{ExitCode: c.code})
+		fake.On([]string{fwPath}, execx.Result{ExitCode: c.code})
 		got, err := Firewall{Runner: fake}.Query(context.Background(), c.permanent, rule)
 		if c.fails {
 			if err == nil {
@@ -244,13 +259,14 @@ func TestQueryReadsTheExitStatus(t *testing.T) {
 		if last := args[len(args)-1]; last != "--query-rich-rule="+rule.Rich() {
 			t.Errorf("rule argument = %q", last)
 		}
+		checkProgramEnv(t, fake.Calls())
 	}
 }
 
 func TestAddAndRemoveRunTheirFlagWithTheRuleAsOneArgument(t *testing.T) {
 	for _, permanent := range []bool{false, true} {
 		fake := &execx.Fake{}
-		fake.On([]string{"firewall-cmd"}, execx.Result{})
+		fake.On([]string{fwPath}, execx.Result{})
 		fw := Firewall{Runner: fake}
 		if err := fw.Add(context.Background(), permanent, rule); err != nil {
 			t.Fatal(err)
@@ -263,18 +279,19 @@ func TestAddAndRemoveRunTheirFlagWithTheRuleAsOneArgument(t *testing.T) {
 			prefix = "--permanent "
 		}
 		calls := fake.Calls()
-		if got, want := calls[0].Line(), "firewall-cmd "+prefix+"--zone=public --add-rich-rule="+rule.Rich(); got != want {
+		if got, want := calls[0].Line(), fwPath+" "+prefix+"--zone=public --add-rich-rule="+rule.Rich(); got != want {
 			t.Errorf("add argv = %q, want %q", got, want)
 		}
-		if got, want := calls[1].Line(), "firewall-cmd "+prefix+"--zone=public --remove-rich-rule="+rule.Rich(); got != want {
+		if got, want := calls[1].Line(), fwPath+" "+prefix+"--zone=public --remove-rich-rule="+rule.Rich(); got != want {
 			t.Errorf("remove argv = %q, want %q", got, want)
 		}
+		checkProgramEnv(t, calls)
 	}
 }
 
 func TestAddAndRemoveNameAFailure(t *testing.T) {
 	fake := &execx.Fake{}
-	fake.On([]string{"firewall-cmd"}, execx.Result{ExitCode: 12, Stderr: []byte("INVALID_RULE")})
+	fake.On([]string{fwPath}, execx.Result{ExitCode: 12, Stderr: []byte("INVALID_RULE")})
 	fw := Firewall{Runner: fake}
 	for name, err := range map[string]error{
 		"add":    fw.Add(context.Background(), false, rule),
@@ -308,7 +325,7 @@ func TestARuleInAnInvalidZoneIsRefusedBeforeFirewallCmdRuns(t *testing.T) {
 
 func TestAFirewallCmdThatCannotStartFailsTheQuery(t *testing.T) {
 	fake := &execx.Fake{}
-	fake.OnFunc([]string{"firewall-cmd"}, func(execx.Cmd) (execx.Result, error) {
+	fake.OnFunc([]string{fwPath}, func(execx.Cmd) (execx.Result, error) {
 		return execx.Result{}, &execx.NotInstalledError{Name: "firewall-cmd"}
 	})
 	if _, err := (Firewall{Runner: fake}).Query(context.Background(), false, rule); !execx.IsNotInstalled(err) {

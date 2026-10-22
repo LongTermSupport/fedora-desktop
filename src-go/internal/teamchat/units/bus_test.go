@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -181,7 +183,7 @@ func exportSystemd(t *testing.T, address, unit string) *fakeSystemd {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if cerr := (busConn{conn}).Close(); cerr != nil {
+		if cerr := closeConn(conn); cerr != nil {
 			t.Errorf("close the fake: %v", cerr)
 		}
 	})
@@ -211,12 +213,19 @@ func TestSystemdOverARealBus(t *testing.T) {
 	bus := scratchBus(t.Context(), t)
 	unit := testUnit(t)
 	f := exportSystemd(t, bus.address, unit)
-	t.Setenv("DBUS_SYSTEM_BUS_ADDRESS", bus.address)
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
 
 	lost := make(chan struct{}, 4)
-	m := NewManager(SystemBus, &execx.Fake{})
+	var address atomic.Value
+	address.Store(bus.address)
+	m := NewManager(func(ctx context.Context) (Conn, error) {
+		a, ok := address.Load().(string)
+		if !ok {
+			return nil, errors.New("no address")
+		}
+		return dialBus(ctx, a)
+	}, &execx.Fake{})
 	m.onSignal = func(s *dbus.Signal) {
 		if s == nil {
 			lost <- struct{}{}
@@ -239,7 +248,7 @@ func TestSystemdOverARealBus(t *testing.T) {
 		t.Errorf("systemd saw:\n%s\nwant:\n%s", got, want)
 	}
 
-	redial(ctx, t, m, bus, lost, unit)
+	redial(ctx, t, m, bus, lost, unit, &address)
 }
 
 // wireJobs is every job and unit-file call against the fake systemd.
@@ -293,7 +302,7 @@ func wireStates(ctx context.Context, t *testing.T, m *Manager, unit string) {
 }
 
 // redial stops the bus: the next call fails as unreachable, and the one after dials the new bus.
-func redial(ctx context.Context, t *testing.T, m *Manager, bus scratch, lost <-chan struct{}, unit string) {
+func redial(ctx context.Context, t *testing.T, m *Manager, bus scratch, lost <-chan struct{}, unit string, address *atomic.Value) {
 	t.Helper()
 	h := m.Host()
 	if err := bus.stop(); err != nil {
@@ -309,7 +318,7 @@ func redial(ctx context.Context, t *testing.T, m *Manager, bus scratch, lost <-c
 	}
 	next := scratchBus(ctx, t)
 	f2 := exportSystemd(t, next.address, unit)
-	t.Setenv("DBUS_SYSTEM_BUS_ADDRESS", next.address)
+	address.Store(next.address)
 	if err := h.DaemonReload(ctx); err != nil {
 		t.Fatalf("reload on the new bus: %v", err)
 	}
@@ -321,9 +330,99 @@ func redial(ctx context.Context, t *testing.T, m *Manager, bus scratch, lost <-c
 	}
 }
 
+// TestSystemBusIgnoresTheEnvironment: a DBUS_SYSTEM_BUS_ADDRESS naming another bus is never
+// dialled; the system socket is, whether or not this machine has one.
+func TestSystemBusIgnoresTheEnvironment(t *testing.T) {
+	bus := scratchBus(t.Context(), t)
+	t.Setenv("DBUS_SYSTEM_BUS_ADDRESS", bus.address)
+	conn, err := SystemBus(t.Context())
+	if err != nil {
+		if !strings.Contains(err.Error(), "/run/dbus/system_bus_socket") || strings.Contains(err.Error(), bus.address) {
+			t.Fatalf("err = %v", err)
+		}
+		return
+	}
+	t.Cleanup(func() {
+		if cerr := conn.Close(); cerr != nil {
+			t.Error(cerr)
+		}
+	})
+	other, err := dialBus(t.Context(), bus.address)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if cerr := other.Close(); cerr != nil {
+			t.Error(cerr)
+		}
+	})
+	if busID(t, conn) == busID(t, other) {
+		t.Fatal("SystemBus dialled the bus the environment names")
+	}
+}
+
+func busID(t *testing.T, c Conn) string {
+	t.Helper()
+	body, err := c.Call(t.Context(), busName, busPath, busName+".GetId")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := reply[string](body, "GetId")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+// TestTheDialEndsWithTheContext: a socket that accepts and never authenticates holds the dial
+// only until the context ends.
+func TestTheDialEndsWithTheContext(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "silent")
+	l, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		c, aerr := l.Accept()
+		if aerr == nil {
+			accepted <- c
+		}
+		close(accepted)
+	}()
+	t.Cleanup(func() {
+		if cerr := l.Close(); cerr != nil {
+			t.Error(cerr)
+		}
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	dialled := make(chan error, 1)
+	go func() {
+		c, derr := dialBus(ctx, "unix:path="+sock)
+		if c != nil {
+			derr = errors.Join(errors.New("the dial succeeded"), c.Close())
+		}
+		dialled <- derr
+	}()
+	c, ok := <-accepted
+	if !ok {
+		t.Fatal("nothing connected")
+	}
+	t.Cleanup(func() {
+		if cerr := c.Close(); cerr != nil {
+			t.Error(cerr)
+		}
+	})
+	cancel()
+	if err := <-dialled; !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestSystemBusThatCannotBeReached(t *testing.T) {
-	t.Setenv("DBUS_SYSTEM_BUS_ADDRESS", "unix:path="+filepath.Join(t.TempDir(), "absent"))
-	m := NewManager(SystemBus, &execx.Fake{})
+	absent := "unix:path=" + filepath.Join(t.TempDir(), "absent")
+	m := NewManager(func(ctx context.Context) (Conn, error) { return dialBus(ctx, absent) }, &execx.Fake{})
 	err := m.Host().DaemonReload(t.Context())
 	if !errors.Is(err, ErrUnreachable) || strings.Contains(err.Error(), "\n") {
 		t.Fatalf("err = %v", err)

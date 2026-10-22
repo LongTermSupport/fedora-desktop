@@ -44,7 +44,7 @@ type machine struct {
 	ownerGroup func() (int, error)
 	readPin    func() (host.Pin, error)
 	runner     execx.Runner
-	dial       func() (units.Conn, error)
+	dial       func(context.Context) (units.Conn, error)
 }
 
 func production() machine {
