@@ -380,7 +380,8 @@ its first caller.
     design-text fixes it proposes: `subagent-reports/261022-n3a.md`. n3b to n3f are left.
 
 - [ ] ⬜ **Task 3.3**: LXC members: guest operations (B 2.13), LXC apply from the host (C 3.9),
-  `teamchat-session-<user>.service`; the container's own config stays with its own play (seam 52).
+  one `teamchat-session-<...>.service` per seat (n3b-D2: a member is (team, container, checkout,
+  seat), any number per container); the container's own config stays with its own play (seam 52).
   **Gate A** (Task 0.5): its play tasks and units merge to F44 only after the owner's
   confirmation.
 
