@@ -13,6 +13,8 @@ type verdict struct {
 	findings []string
 	// unjudged are the steps that could not judge (G12): exit 2 unless there is a finding.
 	unjudged []string
+	// keepouts are the keepout rows, which deps holds to go list (GD1).
+	keepouts []row
 	modules  int
 	pseudo   int
 	replaced int
@@ -47,6 +49,10 @@ func judge(goMod []byte, allow allowlist) (verdict, error) {
 		need(kindReplace, rep.Old.Path, fmt.Sprintf("go.mod replaces %s with %s: remove the replace directive, or add a replace row saying why", rep.Old.Path, rep.New.Path))
 	}
 	for _, r := range allow.rows {
+		if r.kind == kindKeepout {
+			v.keepouts = append(v.keepouts, r)
+			continue
+		}
 		if !needed[row{kind: r.kind, module: r.module}] {
 			v.findings = append(v.findings, fmt.Sprintf("%s:%d: %s %s is allowed but go.mod does not need it: remove the row", allowlistFile, r.line, r.kind, r.module))
 		}

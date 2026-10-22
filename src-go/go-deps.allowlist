@@ -9,6 +9,9 @@
 #   module   may be required, directly or indirectly
 #   pseudo   may be required at a pseudo-version (an untagged commit) instead of a tag
 #   replace  go.mod may carry a replace directive for it
+#   keepout  the module is kept out of a command: four fields, kind <TAB> module <TAB> ./cmd/<name>
+#            <TAB> reason; go list -deps over the command must not reach the module, directly or
+#            through a shared package. The module needs its own module row.
 #
 # Adding a module is a decision: say why it is needed and who needs it. A module pulled in by
 # another one names the module that requires it.
@@ -39,3 +42,4 @@ module	golang.org/x/sys	The ioctl and system calls of terminal handling, from th
 # The teamchat protocol (Plan 00209).
 module	golang.org/x/text	Unicode NFKC normalisation (unicode/norm), from the Go project: the delivery envelope's escaper shows a character only when its NFKC form holds no quote, backslash, angle bracket or control (teamchat/proto, A 13.4); its tables are pinned equal to unicode.Version by a test.
 module	go.yaml.in/yaml/v3	The YAML parser, maintained by the YAML organisation (the v3 line of gopkg.in/yaml.v3, which src-go/qa already uses): the host_vars reader of the teamchat declarations (teamchat/declare/hostvars, DC17), which only ccy-teams imports; the keepout row below keeps it out of teamchat-admin.
+keepout	go.yaml.in/yaml/v3	./cmd/teamchat-admin	teamchat-admin runs as root and reads its declarations as JSON only (DC17, security 13): no YAML parser in the root binary.

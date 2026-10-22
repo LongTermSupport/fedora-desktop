@@ -52,6 +52,8 @@ func subcommand(argv []string) string {
 		return "vendor"
 	case slices.Equal(argv[:3], []string{"go", "tool", "govulncheck"}):
 		return "govulncheck"
+	case slices.Equal(argv[:3], []string{"go", "list", "-deps"}):
+		return "list " + argv[len(argv)-1]
 	}
 	return strings.Join(argv, " ")
 }
