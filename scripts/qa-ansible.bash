@@ -12,6 +12,9 @@
 #                 guard on gnome and server plays only
 #   fact vars     top-level ansible_<fact> variables (removed in ansible-core 2.24), the
 #                 unprefixed getent_* ones, and a guessed uid in a /run/user path
+#   regex backref a regex_search/regex_replace/regex_findall backreference with the wrong
+#                 backslash count for its YAML style and Jinja context (CLAUDE/QA.md,
+#                 regex-backref-escape); a file that is not YAML is reported too
 #
 # The tool is Go (src-go/qa/ansible, command src-go/qa/cmd/qa-ansible); lib/go-tool.bash builds
 # it into a private directory under the cache and runs it, so the exit code reaches the caller.
@@ -24,7 +27,7 @@
 #   jq '.status'                          # "pass" or "fail"
 #   jq '.summary'                         # {total, passed, failed}
 #   jq '.failures[]'                      # all violations
-#   jq '.checks.fail_fast[]'              # one check's list (hygiene, self_ref, scope, fact_vars)
+#   jq '.checks.fail_fast[]'              # one check's list (hygiene, self_ref, scope, fact_vars, regex_backref)
 #
 # Exit codes: 0 no violation, 1 a violation, 2 bad usage or the run could not complete (no
 # Ansible directory, a missing playbooks/, an unreadable file, a build failure of the tool).

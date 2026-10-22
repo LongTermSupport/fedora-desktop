@@ -99,14 +99,27 @@ Numbers are cited by the tests.
   trailing comment on a live line does not exempt it. Output `  ERROR (deprecated fact var): <path>:<n>:<text>` and `    Use ansible_facts['<name>'] — top-level injection is removed in ansible-core 2.24.`
 - E16. **Guessed uid**: `/run/user/` followed by a digit, or by `{{` with no `getent_passwd` later
   on the line; comment-only lines skipped. Output `  ERROR (guessed uid in a runtime path): <path>:<n>:<text>` and `    Resolve it: ansible.builtin.getent + ansible_facts['getent_passwd'][user_login][1].`
+- E16a. **Regex backreference escapes** (Plan 00191; the rule `regex-backref-escape` in
+  `CLAUDE/QA.md`): each file is parsed as YAML (every document). In each string scalar, the
+  expression text is a conditional's whole value (a `when`, `changed_when`, `failed_when`,
+  `until` or `that` value or list item not wholly in delimiters: Jinja unescapes), else its
+  `{{ }}` bodies (backslashes reach the filter as written) and `{% %}` bodies (Jinja unescapes);
+  `{# #}`, raw blocks and `!unsafe` scalars are not read. Every string constant passed to
+  `regex_search`, `regex_replace` or `regex_findall` (as a filter, any namespace, or by name to
+  `map`/`select`) is judged at each run of `k` backslashes before a digit or `g<`: it reaches the
+  filter as `k`, or in an unescaping context as `k/2` (`k` even) or a control character (`k`
+  odd). A `regex_search` group argument must receive exactly 1; any other argument an odd
+  number. Output `  ERROR (regex-backref-escape): <path>:<n>: <filter> [group ]argument <literal> reaches the filter as <what>; in a <style> scalar's <context> write <fix>` (`<n>` the scalar's
+  first line, the literal and the fix as written in the file) and `    Why and how to fix: CLAUDE/QA.md#regex-backref-escape`. A file the YAML library cannot parse is one finding at the
+  line its error names (else 1), `<path>:<n>: cannot be parsed as YAML, so its backreferences cannot be judged: <error>`; the other checks still read it as text (E9).
 
 ### Output
 
 - E17. Ordering is deterministic: checks in the order above, files by name. *(Bash printed in
   `grep`/`find` directory order, which differs between file systems.)*
-- E18. No violation: `✓ ansible: fail-fast patterns OK; no self-referential vars; no deprecated ansible_<fact> vars; scope+guard declarations OK; <P> playbook(s) have correct shebang+exec (scoped to playbooks/ tasks/ vars/ environment/ roles/ — qa-ansible-syntax counts repo-wide and will be higher)`, exit 0. Otherwise `✗ ansible: <E> violation(s) — <ff> fail-fast, <hy> hygiene, <sr> self-ref var, <sc> scope/guard, <fv> deprecated fact var` (`fv` counts E15 and
-  E16), `  Hygiene fixer: ./scripts/make-playbooks-executable.bash`, `  Details: jq '.failures[]' <report path>`, exit 1.
-- E19. The report is `{type:"ansible", status, summary:{total,passed,failed}, failures:[…], results:[], checks:{fail_fast,hygiene,self_ref,scope,fact_vars}}`, two-space JSON. `total` is
+- E18. No violation: `✓ ansible: fail-fast patterns OK; no self-referential vars; no deprecated ansible_<fact> vars; regex backreferences escaped right; scope+guard declarations OK; <P> playbook(s) have correct shebang+exec (scoped to playbooks/ tasks/ vars/ environment/ roles/ — qa-ansible-syntax counts repo-wide and will be higher)`, exit 0. Otherwise `✗ ansible: <E> violation(s) — <ff> fail-fast, <hy> hygiene, <sr> self-ref var, <sc> scope/guard, <fv> deprecated fact var, <rb> regex backref` (`fv` counts E15 and
+  E16, `rb` E16a), `  Hygiene fixer: ./scripts/make-playbooks-executable.bash`, `  Details: jq '.failures[]' <report path>`, exit 1.
+- E19. The report is `{type:"ansible", status, summary:{total,passed,failed}, failures:[…], results:[], checks:{fail_fast,hygiene,self_ref,scope,fact_vars,regex_backref}}`, two-space JSON. `total` is
   playbooks + 1, `failed` the violation count, `passed` is `total - failed` but never below 0.
   *(Bash let it go negative.)* A failure is `{file, type:"ansible", status:"fail", error}`; for
   hygiene and scope `file` is the path and `error` is `hygiene: <why>` / `scope: <why>`; for the

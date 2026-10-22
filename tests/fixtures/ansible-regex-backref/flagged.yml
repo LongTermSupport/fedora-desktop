@@ -1,0 +1,80 @@
+---
+# Fixture for the regex-backref-escape check of src-go/qa/ansible: every value marked
+# EXPECT-FINDING must be reported, and no other line. Each value is a regex filter whose
+# backreference reaches the filter with the wrong number of backslashes, given s = "ab".
+# The scratch probe of Plan 00191 renders each one with Ansible's own Templar and confirms it
+# fails or does not give "b". A task list, not a play, so no gate syntax-checks it.
+
+- name: Folded block, template, two backslashes (the play-claude-yolo.yml defect)
+  ansible.builtin.set_fact:
+    folded: >-  # EXPECT-FINDING
+      {{ s | regex_search('a(b)', '\\1') | first }}
+
+- name: Literal block, template, two backslashes
+  ansible.builtin.set_fact:
+    literal: |-  # EXPECT-FINDING
+      {{ s | regex_search('a(b)', '\\1') | first }}
+
+- name: Plain scalar, template, two backslashes
+  ansible.builtin.set_fact:
+    plain: x{{ s | regex_search('a(b)', '\\1') | first }}  # EXPECT-FINDING
+
+- name: Single-quoted scalar, template, two backslashes
+  ansible.builtin.set_fact:
+    single: '{{ s | regex_search("a(b)", "\\1") | first }}'  # EXPECT-FINDING
+
+- name: Double-quoted scalar, template, four backslashes
+  ansible.builtin.set_fact:
+    double: "{{ s | regex_search('a(b)', '\\\\1') | first }}"  # EXPECT-FINDING
+
+- name: Fully qualified filter name, template, two backslashes
+  ansible.builtin.set_fact:
+    qualified: >-  # EXPECT-FINDING
+      {{ s | ansible.builtin.regex_search('a(b)', '\\1') | first }}
+
+- name: Named group, template, two backslashes
+  ansible.builtin.set_fact:
+    named: >-  # EXPECT-FINDING
+      {{ s | regex_search('a(?P<v>b)', '\\g<v>') | first }}
+
+- name: Replacement, template, two backslashes (a literal backslash-one, silently)
+  ansible.builtin.set_fact:
+    replaced: >-  # EXPECT-FINDING
+      {{ s | regex_replace('a(b)', '\\1') }}
+
+- name: Replacement through map, template, two backslashes
+  ansible.builtin.set_fact:
+    mapped: >-  # EXPECT-FINDING
+      {{ [s] | map('regex_replace', 'a(b)', '\\1') | first }}
+
+- name: Statement in a template, one backslash (Jinja reads it as the character 0x01)
+  ansible.builtin.set_fact:
+    statement: >-  # EXPECT-FINDING
+      {% set r = s | regex_search('a(b)', '\1') | first %}{{ r }}
+
+- name: Bare conditional, folded block, one backslash
+  ansible.builtin.debug:
+    msg: unreachable
+  when: >-  # EXPECT-FINDING
+    (s | regex_search('a(b)', '\1') | first) == 'b'
+
+- name: Bare conditional, double-quoted, two backslashes (YAML leaves one)
+  ansible.builtin.debug:
+    msg: unreachable
+  changed_when: "(s | regex_search('a(b)', '\\1') | first) == 'b'"  # EXPECT-FINDING
+
+- name: Conditional list item, plain, one backslash
+  ansible.builtin.debug:
+    msg: unreachable
+  failed_when:
+    - (s | regex_search('a(b)', '\1') | first) != 'b'  # EXPECT-FINDING
+
+- name: Assert that, one backslash
+  ansible.builtin.assert:
+    that:
+      - (s | regex_replace('a(b)', '\1')) == 'b'  # EXPECT-FINDING
+
+- name: Until, one backslash
+  ansible.builtin.debug:
+    msg: unreachable
+  until: (s | regex_search('a(b)', '\1') | first) == 'b'  # EXPECT-FINDING

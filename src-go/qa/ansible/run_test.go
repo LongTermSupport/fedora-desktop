@@ -153,6 +153,7 @@ func TestMainReportsEveryCheckInOrder(t *testing.T) {
 	files["vars/sr.yml"] = "foo: \"{{ foo | default(1) }}\"\n"
 	files["environment/e.yml"] = "x: ansible_env\n"
 	files["roles/r/rd.yml"] = "p: /run/user/1000\n"
+	files["tasks/rb.yml"] = "v: >-\n  {{ s | regex_search('a(b)', '\\\\1') }}\n"
 	files["playbooks/b.yml"] = playbookShebang + "\n- hosts: all\n"
 	root := writeTree(t, files)
 	chmodX(t, root, "playbooks/a.yml")
@@ -166,11 +167,11 @@ func TestMainReportsEveryCheckInOrder(t *testing.T) {
 			order = append(order, line[len("  ERROR ("):i])
 		}
 	}
-	want := "fail-fast hygiene self-ref var scope deprecated fact var guessed uid in a runtime path"
+	want := "fail-fast hygiene self-ref var scope deprecated fact var guessed uid in a runtime path regex-backref-escape"
 	if got := strings.Join(order, " "); got != want {
 		t.Fatalf("order %q want %q\n%s", got, want, res.out)
 	}
-	if !strings.Contains(res.out, "✗ ansible: 6 violation(s) — 1 fail-fast, 1 hygiene, 1 self-ref var, 1 scope/guard, 2 deprecated fact var\n") {
+	if !strings.Contains(res.out, "✗ ansible: 7 violation(s) — 1 fail-fast, 1 hygiene, 1 self-ref var, 1 scope/guard, 2 deprecated fact var, 1 regex backref\n") {
 		t.Fatalf("summary:\n%s", res.out)
 	}
 }

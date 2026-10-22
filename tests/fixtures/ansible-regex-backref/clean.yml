@@ -1,0 +1,99 @@
+---
+# Fixture for the regex-backref-escape check of src-go/qa/ansible: nothing here may be
+# reported. Each value is the correct spelling of a backreference for its YAML scalar style and
+# Ansible evaluation context, given s = "ab" (every one gives "b", or true). The scratch probe of
+# Plan 00191 renders each one with Ansible's own Templar and confirms it. A task list, not a
+# play, so no gate syntax-checks it.
+
+- name: Folded block, template, one backslash
+  ansible.builtin.set_fact:
+    folded: >-
+      {{ s | regex_search('a(b)', '\1') | first }}
+
+- name: Literal block, template, one backslash
+  ansible.builtin.set_fact:
+    literal: |-
+      {{ s | regex_search('a(b)', '\1') | first }}
+
+- name: Plain scalar, template, one backslash
+  ansible.builtin.set_fact:
+    plain: x{{ s | regex_search('a(b)', '\1') | first }}
+
+- name: Single-quoted scalar, template, one backslash
+  ansible.builtin.set_fact:
+    single: '{{ s | regex_search("a(b)", "\1") | first }}'
+
+- name: Double-quoted scalar, template, two backslashes (YAML leaves one)
+  ansible.builtin.set_fact:
+    double: "{{ s | regex_search('a(b)', '\\1') | first }}"
+
+- name: Named group, template, one backslash
+  ansible.builtin.set_fact:
+    named: >-
+      {{ s | regex_search('a(?P<v>b)', '\g<v>') | first }}
+
+- name: Replacement, template, one backslash
+  ansible.builtin.set_fact:
+    replaced: >-
+      {{ s | regex_replace('a(b)', '\1') }}
+
+- name: Replacement through map, template, one backslash
+  ansible.builtin.set_fact:
+    mapped: >-
+      {{ [s] | map('regex_replace', 'a(b)', '\1') | first }}
+
+- name: Statement in a template, two backslashes (Jinja unescapes statements)
+  ansible.builtin.set_fact:
+    statement: >-
+      {% set r = s | regex_search('a(b)', '\\1') | first %}{{ r }}
+
+- name: Bare conditional, folded block, two backslashes (Jinja unescapes conditionals)
+  ansible.builtin.debug:
+    msg: reached
+  when: >-
+    (s | regex_search('a(b)', '\\1') | first) == 'b'
+
+- name: Bare conditional, double-quoted, four backslashes (YAML leaves two)
+  ansible.builtin.debug:
+    msg: reached
+  changed_when: "(s | regex_search('a(b)', '\\\\1') | first) == 'b'"
+
+- name: Conditional list item, plain, two backslashes
+  ansible.builtin.debug:
+    msg: reached
+  failed_when:
+    - (s | regex_search('a(b)', '\\1') | first) != 'b'
+
+- name: Assert that, two backslashes
+  ansible.builtin.assert:
+    that:
+      - (s | regex_replace('a(b)', '\\1')) == 'b'
+
+- name: A conditional wholly in delimiters is a template, one backslash
+  ansible.builtin.debug:
+    msg: reached
+  when: "{{ (s | regex_search('a(b)', '\\1') | first) == 'b' }}"
+
+- name: A pattern escape is not a backreference
+  ansible.builtin.set_fact:
+    pattern: >-
+      {{ 'a.b' | regex_search('a\.(b)', '\1') | first }}
+
+- name: Backslashes outside a template are not Jinja
+  ansible.builtin.set_fact:
+    shell_text: >-
+      sed 's/a\(b\)/\\1/' regex_search('a(b)', '\\1')
+
+- name: An unsafe value is never templated
+  ansible.builtin.set_fact:
+    unsafe: !unsafe "{{ s | regex_search('a(b)', '\\\\1') }}"
+
+- name: A raw block is not templated
+  ansible.builtin.set_fact:
+    raw: >-
+      {% raw %}{{ s | regex_search('a(b)', '\\1') }}{% endraw %}b
+
+- name: A string that is not a regex filter argument
+  ansible.builtin.set_fact:
+    other: >-
+      {{ s | replace('\\1', 'x') | regex_replace('a', '') }}

@@ -1,7 +1,8 @@
 // Package ansible is qa-ansible: the static Ansible gate. It scans the Ansible source trees with
-// text patterns and runs six checks that ansible-playbook --syntax-check cannot: error-hiding
+// text patterns and runs seven checks that ansible-playbook --syntax-check cannot: error-hiding
 // directives, playbook shebang and execute bit, self-default variables, provisioning scope and
-// guard, deprecated top-level fact variables and guessed runtime-directory uids. It starts no
+// guard, deprecated top-level fact variables, guessed runtime-directory uids and, parsing each
+// file as YAML, regex backreference escapes (regexbackref.go). It starts no
 // process (the bash it replaced ran grep, find, awk, head and jq); the list of gitignored files,
 // which it leaves unread, is injected through Env.Ignored. SPEC-qa-ansible.md is its specification.
 package ansible

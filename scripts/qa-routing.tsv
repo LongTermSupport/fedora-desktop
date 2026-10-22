@@ -162,6 +162,8 @@ also	scripts/qa-vmtest-manifest.bash,src-go/qa/vmtestmanifest/*,src-go/qa/cmd/qa
 # ruff and unit-test routing.
 also	.claude/hooks/handlers/*,scripts/qa-hook-handlers.bash,src-go/qa/hookhandlers/*,src-go/qa/cmd/qa-hook-handlers/*,scripts/lib/go-tool.bash,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	hook-handlers	-
 also	src-go/qa/ansible/*,src-go/qa/cmd/qa-ansible/*,src-go/qa/internal/cmdmain/*,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*	ansible-patterns	-
+# The regex-backref-escape fixtures of qa-ansible are read only by the Go tests of the rule.
+also	tests/fixtures/ansible-regex-backref/*	go	covered
 # Each .semgrep/ file is read by one gate and no per-file check applies to it (.semgrep is an
 # excluded shell tree, so the rows below would only report it skipped). These rows end the search
 # with no check and no cover: the patterns row above, or the suite that names the file in
