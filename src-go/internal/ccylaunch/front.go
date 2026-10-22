@@ -43,24 +43,53 @@
 //     fails ("no output" when it said none). Exit 0, as the bash.
 //   - F9. Output that could not be written is exit 1.
 //   - F10. `--list-tokens` as the only argument prints the token pool as the bash's list_tokens
-//     does (tokens.List), expiry coloured whatever the output is, as the bash colours it; exit 1
-//     for an empty pool. It hands over wherever the bash could read the pool otherwise
-//     (poolWhy: an unclean path, a zone Go reads otherwise, an entry that is not a regular
-//     file, a collation that could sort it otherwise, a name the bash dates otherwise (T1), a
-//     day the clocks change), and, for this flag and every later one, to a bash of another
-//     version (F6 refuses only --version and --help).
+//     does (tokens.List), but in the front's own order and colour (D1 to D5); exit 1 for an
+//     empty pool. It hands over only where a file could mean something else to the bash
+//     (poolWhy: an entry that is not a regular file, a name the bash dates otherwise, T1), and,
+//     for this flag and every later one, to a bash of another version (F6 refuses only
+//     --version and --help).
 //   - F11. `--token-usage` first, with nothing after it but `--json`, prints every token's usage
-//     as the bash's usage_report does (tokenusage.go): a table, or one JSON document; exit 0
-//     when any token's usage was read, 1 when none was, 64 for another option. A token a launch
-//     could use is asked of the API once, by curl with the token fed on its stdin (execx.Feed),
-//     unless the cache holds a fresh answer from that very file; the answer is cached as the
-//     bash caches it. It hands over wherever the bash could read the pool, a setting, a cache
-//     entry or the API's headers otherwise: poolWhy's reasons, an undated file, a name, HOME,
-//     TMPDIR or setting outside printable ASCII, a TTL that is not a plain decimal above
-//     nought, an unreadable token or one holding a NUL, a setting holding a token, a cache that
-//     is not a directory or an entry that is not a regular file, and, once the API has
-//     answered, a rate-limit header outside printable ASCII (not cached) or a reset time the
-//     bash's arithmetic or date reads otherwise.
+//     as the bash's usage_report does (tokenusage.go): a table, or one JSON document (the one
+//     wsi-claude-token parses); exit 0 when any token's usage was read, 1 when none was, 64 for
+//     another option. A token a launch could use is asked of the API once, by curl with the
+//     token fed on its stdin (execx.Feed), unless the cache holds a fresh answer from that very
+//     file; the answer is cached in the format and with the TTL the bash uses, so either reads
+//     the other's. It hands over where the bash could read the pool, a setting, a token or a
+//     cache entry otherwise: poolWhy's reasons, an undated file, a name, HOME or setting
+//     outside printable ASCII, a TTL that is not a whole number, an unreadable token or one
+//     holding a NUL, a token curl's argv would hold (a setting holds it, or it is junk such as
+//     `on` that a fixed argument or the start of a temporary name holds: the bash sends it,
+//     execx refuses to), a cache that is not a directory or an entry that is not a regular file
+//     or not printable ASCII. Every hand-over is decided before anything is printed or written.
+//
+// Intended divergences from the bash, where it only replicated incidental behaviour that the
+// goldens (C locale, UTC, a pinned clock) do not exercise; each goes when the bash retires:
+//
+//   - D1. The pool is listed in byte order whatever the locale; the bash's glob sorts by the
+//     collation, so under en_GB.UTF-8 `Work` and `work-2` can come in another order. Display
+//     only: two files of one name differ only in their date digits, which every collation
+//     orders alike, so the file a name launches with is the same.
+//   - D2. The expiry is coloured only when stdout is a terminal and NO_COLOR is unset (T3); the
+//     bash colours whatever stdout is. The harness allows exactly this, by name, in the
+//     list-tokens scenarios (colourAllowance in difftest).
+//   - D3. The expiry colour counts calendar days (tokens.DaysLeft); the bash counts the seconds
+//     between two local midnights and truncates, so on a day the clocks change a date on a
+//     colour boundary (15 days, 1 day) can be coloured one band otherwise.
+//   - D4. The local zone is Go's reading of TZ (an unknown zone is UTC; ZONEINFO, not TZDIR);
+//     the bash's date is glibc's. It changes only the printed zone of a reset and D3's count.
+//   - D5. Paths are printed as filepath.Join makes them (a doubled or trailing slash in HOME
+//     cleaned); the bash prints them as built.
+//   - D6. curl dumps its headers and body into os.CreateTemp files, tmp.<digits> in TMPDIR
+//     (else /tmp), not mktemp's tmp.<ten letters>; a TMPDIR that cannot hold one fails the run
+//     (exit 1, naming the error) where mktemp complains and curl writes nowhere.
+//   - D7. A fraction is printed as x*100 to two places, trailing noughts dropped; the bash
+//     rounds to four places in awk first, so a value on a rounding boundary can differ in its
+//     last digit.
+//   - D8. Reset times and CCY_USAGE_TTL are read as decimal; the bash's arithmetic reads a
+//     leading nought as octal (and 08 as an error), and its date prints a reset past the year
+//     9999 otherwise or not at all.
+//   - D9. A rate-limit header holding a byte outside printable ASCII is not read (no figure);
+//     the bash lower-cases and prints it by the locale.
 //
 // The front tells the time by its Clock: the machine's (SystemClock) in the installed program;
 // the differential harness's pinned clock only in a build with the difftest tag.
@@ -103,8 +132,9 @@ const (
 //go:embed help.txt
 var helpText string
 
-// shellEnv are the variables that change what bash or the tools it runs first do.
-var shellEnv = []string{"BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS", "POSIXLY_CORRECT", "GREP_OPTIONS"}
+// shellEnv are the variables that change what bash or the tools it runs first do. GLOBSORT
+// (bash 5.3, which Fedora 44 ships) reorders a glob, and so which file of a name is first.
+var shellEnv = []string{"BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS", "POSIXLY_CORRECT", "GREP_OPTIONS", "GLOBSORT"}
 
 // bashTools are the programs the bash launcher runs before it answers --version or --help:
 // dirname for its own directory, and the hash and library count. realpath is added when an
@@ -131,8 +161,10 @@ type Front struct {
 	Execer   execx.Execer
 	Stdout   io.Writer
 	Stderr   io.Writer
-	Clock    Clock  // the time it answers by; the system's when nil
-	Dir      string // the directory the run started in; "" is this process's
+	Clock    Clock // the time it answers by; the system's when nil
+	// IsTerminal reports whether a stream is a terminal (the listing's colour, T3);
+	// term.FileIsTerminal when nil.
+	IsTerminal func(any) bool
 }
 
 // launcher is what the front read of the bash launcher beside it.
@@ -217,7 +249,8 @@ var flagTools = map[flagKind][]string{
 }
 
 // answer runs a flag the front answers past --version and --help: its exit code, or why the
-// bash should answer it instead, decided before anything is written.
+// bash should answer it instead. Every hand-over is decided before anything is written or
+// printed: once a flag has begun its answer, the front finishes it.
 func (f Front) answer(ctx context.Context, flag flagKind) (term.ExitCode, string) {
 	switch flag {
 	case flagListTokens:

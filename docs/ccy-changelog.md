@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.14.7 — container 2.78.14
+
+Follows 3.99.14.6. The image is unchanged, so there is no rebuild.
+
+- **The Go front answers `--list-tokens` and `--token-usage` for a typical desktop.** It no
+  longer hands these to the bash under a non-C locale, a time zone, a day the clocks change or
+  an unusual TTL or reset time: it lists the pool in byte order, colours the expiry only on a
+  terminal (and never with `NO_COLOR`), and reads numbers as decimal. The JSON document
+  (`wsi-claude-token` reads it), the usage cache and the API call are unchanged. It still hands
+  over where a file or setting could mean something else to the bash, and now also for a junk
+  token file a curl argument would hold (it used to exit 1), and when `GLOBSORT` is set.
+
 ## 3.99.14.6 — container 2.78.14
 
 Follows 3.99.14.5. The image is unchanged, so there is no rebuild.

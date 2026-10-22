@@ -190,6 +190,7 @@ func TestHandsOverWhereTheBashWouldNotAnswerAsModelled(t *testing.T) {
 		{"a GitHub token hand-off to take", env("CCY_GH_TOKEN_HANDOFF=/run/user/1/ccy-gh-token.abcdef/token")},
 		{"BASH_ENV", env("BASH_ENV=/x")},
 		{"SHELLOPTS", env("SHELLOPTS=xtrace")},
+		{"GLOBSORT", env("GLOBSORT=-name")},
 		{"an exported function", env("BASH_FUNC_podman%%=() { :; }")},
 		{"an engine ccy does not drive", env("CCY_CONTAINER_ENGINE=nerdctl")},
 		{"an engine not on PATH", missing("podman", "X=1")},

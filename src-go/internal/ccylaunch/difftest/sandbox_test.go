@@ -671,7 +671,8 @@ func (l launcher) normalise(o outcome, root string, pid pidMarker, marks *string
 }
 
 // volatile are the parts of a run that differ every time by design, each written as a fixed
-// mark: a name mktemp chose, and $RANDOM.
+// mark: a name mktemp chose (or, for the usage fetch's tmp.*, os.CreateTemp, whose random part
+// is one to ten digits: ccylaunch D6), and $RANDOM.
 var volatile = []struct {
 	re   *regexp.Regexp
 	with string
@@ -679,7 +680,7 @@ var volatile = []struct {
 	{regexp.MustCompile(`(/tmp/claude-yolo-)[A-Za-z0-9]{6}\b`), "${1}XXXXXX"},
 	{regexp.MustCompile(`(/tmp/ccy-[a-z-]+-)[A-Za-z0-9]{6}(\.log|\.txt)`), "${1}XXXXXX${2}"},
 	{regexp.MustCompile(`(launch-[0-9]+-\{pid\}-)[0-9]+`), "${1}{random}"},
-	{regexp.MustCompile(`(\{sandbox\}/tmp/tmp\.)[A-Za-z0-9]{10}\b`), "${1}XXXXXXXXXX"},
+	{regexp.MustCompile(`(\{sandbox\}/tmp/tmp\.)(?:[A-Za-z0-9]{10}|[0-9]{1,9})\b`), "${1}XXXXXXXXXX"},
 }
 
 // render is the golden text of one outcome.

@@ -568,9 +568,22 @@ today; rewriting them is out of scope.
       could read otherwise (F11 lists them). Difftest: `TestLauncherParity` 82/82 against
       bash and against `LAUNCHER=` a `-tags difftest` build; `TestFrontParity` 82/82;
       `TestFrontAnswersItself` covers the seven `token-usage-*` scenarios the front answers
-      (`token-usage-not-first` stays the bash's). Left: `--prevent` and the named
-      `--export-token NAME` (they need the in-repo prelude). Stay in bash: `--top` and the
-      interactive `--export-token` (read loops that need a terminal).
+      (`token-usage-not-first` stays the bash's).
+      CCY 3.99.14.7, the token flags simplified (review
+      `subagent-reports/261022-launcher-token-flags-review-opus.md`, SIMPLIFY): kept the JSON
+      document, the cache format and TTL, the fed fetch and the table; dropped the byte-for-byte
+      copies the goldens do not exercise, each declared in the package doc (D1 to D9: byte
+      order, colour only on a terminal, calendar-day colour, Go's zone, cleaned paths,
+      `os.CreateTemp` names, no awk round trip, decimal resets and TTL, a non-ASCII header not
+      read). Go now answers a non-C locale with ordinary names (tests in `listtokens_test.go`
+      and `tokenusage_test.go`). Review findings: 3, a junk token a curl argument holds hands
+      over before anything is written, a random temp name holding it is made again; 4, no
+      hand-over remains after the fetch, so the comment is true; 5, `Front.Dir` removed; 7,
+      `GLOBSORT` added to `shellEnv` (the host's bash is 5.3, per Plan 00138's research). The
+      harness names its one allowance, colour, for `list-tokens-one` and `list-tokens-states`
+      (`colourAllowance`), and its temp-name mark takes Go's digits. Left, in the same style:
+      `--prevent` and the named `--export-token NAME` (they need the in-repo prelude). Stay in
+      bash: `--top` and the interactive `--export-token` (read loops that need a terminal).
     - Follow-up, not fixed: the project handler test
       `test_matches_write_to_root_claude_projects_returns_false` in
       `.claude/hooks/handlers/pre_tool_use/tests/test_system_paths.py` already fails on F44

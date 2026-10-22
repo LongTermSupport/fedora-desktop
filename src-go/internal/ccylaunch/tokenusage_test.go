@@ -139,7 +139,7 @@ func (r *run) checkCurl(t *testing.T, c execx.Cmd) {
 	tmp := r.front.getenv("TMPDIR")
 	args := slices.Clone(c.Args)
 	for i, a := range args {
-		if strings.HasPrefix(a, tmp+"/tmp.") && len(a) == len(tmp)+len("/tmp.")+10 {
+		if digits, ok := strings.CutPrefix(a, tmp+"/tmp."); ok && digits != "" && strings.Trim(digits, "0123456789") == "" {
 			args[i] = "TMP"
 		}
 	}
@@ -377,16 +377,19 @@ func TestTokenUsageErrors(t *testing.T) {
 func TestTokenUsageHandsOver(t *testing.T) {
 	cases := map[string]func(t *testing.T, r *run){
 		"a TTL that is not a number": func(_ *testing.T, r *run) { r.env("CCY_USAGE_TTL=15m") },
-		"a TTL of nought":            func(_ *testing.T, r *run) { r.env("CCY_USAGE_TTL=0") },
-		"a TTL with a leading nought": func(_ *testing.T, r *run) {
-			r.env("CCY_USAGE_TTL=0900")
+		"a junk token a curl argument holds": func(t *testing.T, r *run) {
+			t.Helper()
+			r.tokenHolding(t, "user")
+		},
+		"a junk token the temporary names start with": func(t *testing.T, r *run) {
+			t.Helper()
+			r.tokenHolding(t, "tmp.")
 		},
 		"an undated token file":       func(t *testing.T, r *run) { t.Helper(); r.token(t, "plain.token") },
 		"a name outside ASCII":        func(t *testing.T, r *run) { t.Helper(); r.token(t, "wörk.2030-06-01.token") },
 		"a setting outside ASCII":     func(_ *testing.T, r *run) { r.env("CCY_USAGE_MODEL=modèle") },
 		"a home outside ASCII":        func(_ *testing.T, r *run) { r.front.Environ[0] += "/\u00e9" },
 		"a setting holding the token": func(_ *testing.T, r *run) { r.env("CCY_USAGE_ENDPOINT=https://x/secret-work.2030-06-01.token") },
-		"a TMPDIR that is not there":  func(_ *testing.T, r *run) { r.setenv("TMPDIR=/nonexistent/tmp") },
 		"a token holding a NUL": func(t *testing.T, r *run) {
 			t.Helper()
 			if err := os.WriteFile(filepath.Join(r.pool(), "work.2030-06-01.token"), []byte("a\x00b"), 0o600); err != nil {
@@ -418,18 +421,6 @@ func TestTokenUsageHandsOver(t *testing.T) {
 			t.Helper()
 			r.result(t, "work.2030-06-01.token\n200\n0.25\t\t0.6\t\tfünf\n", pinnedNow)
 		},
-		"an answer outside ASCII": func(_ *testing.T, r *run) {
-			r.curl("200", "anthropic-ratelimit-unified-5h-utilization: 0.25\nanthropic-ratelimit-unified-representative-claim: fünf\n", 0)
-		},
-		"a header name outside ASCII": func(_ *testing.T, r *run) {
-			r.curl("200", "anthropic-ratelimit-unified-5h-utilization: 0.25\nanthropic-ratelimit-unified-7d-utilizatİon: 1\n", 0)
-		},
-		"a reset with a leading nought": func(_ *testing.T, r *run) {
-			r.curl("200", "anthropic-ratelimit-unified-5h-utilization: 0.25\nanthropic-ratelimit-unified-5h-reset: 0189\n", 0)
-		},
-		"a reset past any date": func(_ *testing.T, r *run) {
-			r.curl("200", "anthropic-ratelimit-unified-5h-utilization: 0.25\nanthropic-ratelimit-unified-5h-reset: 99999999999999\n", 0)
-		},
 		"another version": func(_ *testing.T, r *run) { r.front.Version = "0.0.1" },
 	}
 	for name, change := range cases {
@@ -444,6 +435,76 @@ func TestTokenUsageHandsOver(t *testing.T) {
 				t.Fatalf("printed %q before handing over", r.stdout)
 			}
 		})
+	}
+}
+
+// tokenHolding makes the work token file hold token.
+func (r *run) tokenHolding(t *testing.T, token string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(r.pool(), "work.2030-06-01.token"), []byte(token+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// D1, D4, D8, D9: what only the bash's own reading made special is answered by the front.
+func TestTokenUsageAnswersWhatTheBashOnlyReadOtherwise(t *testing.T) {
+	cases := map[string]struct {
+		change func(t *testing.T, r *run)
+		want   string
+	}{
+		"a TTL with a leading nought": {func(_ *testing.T, r *run) { r.env("CCY_USAGE_TTL=0900") }, `"five_hour_pct": 25`},
+		"a TTL of nought":             {func(_ *testing.T, r *run) { r.env("CCY_USAGE_TTL=0") }, `"five_hour_pct": 25`},
+		"a reset with a leading nought": {func(_ *testing.T, r *run) {
+			r.curl("200", "anthropic-ratelimit-unified-5h-utilization: 0.25\nanthropic-ratelimit-unified-5h-reset: 0"+reset5h+"\n", 0)
+		}, `"five_hour": "2030-01-15T13:00:00Z"`},
+		"an answer outside ASCII": {func(_ *testing.T, r *run) {
+			r.curl("200", "anthropic-ratelimit-unified-5h-utilization: 0.25\nanthropic-ratelimit-unified-representative-claim: fünf\n", 0)
+		}, `"binding_limit": null`},
+		"a typical desktop": {func(t *testing.T, r *run) {
+			t.Helper()
+			r.setenv("LANG=en_GB.UTF-8")
+			r.setenv("TZ=Europe/London")
+			r.env("LC_ALL=en_GB.UTF-8")
+			r.token(t, "Work-2.2030-07-01.token")
+		}, `"name": "Work-2"`},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			r := usageRun(t, []string{"work.2030-06-01.token"}, "200", usageHeaders, "--json")
+			c.change(t, r)
+			r.answered(t, term.ExitOK)
+			if !strings.Contains(r.stdout.String(), c.want) {
+				t.Fatalf("stdout lacks %q:\n%s", c.want, r.stdout)
+			}
+		})
+	}
+}
+
+// D6: a TMPDIR that cannot hold the temporary files fails the run, naming the error.
+func TestTokenUsageTMPDIRMissingFails(t *testing.T) {
+	r := usageRun(t, []string{"work.2030-06-01.token"}, "200", usageHeaders)
+	r.setenv("TMPDIR=/nonexistent/tmp")
+	r.answered(t, term.ExitFailure)
+	if !strings.Contains(r.stderr.String(), usagePrefix+"open /nonexistent/tmp/tmp.") || r.stdout.Len() != 0 {
+		t.Fatalf("stdout %q stderr %q", r.stdout, r.stderr)
+	}
+}
+
+// Finding 3 of the review: a temporary name that happens to hold the token is made again, so a
+// short token is still fetched rather than failing the run.
+func TestTokenUsageRetriesATemporaryNameHoldingTheToken(t *testing.T) {
+	r := usageRun(t, []string{"work.2030-06-01.token"}, "200", usageHeaders, "--json")
+	// A digit neither a fixed argument nor /tmp/tmp. holds: only a random name can, and the
+	// two names of one try nearly always do.
+	const token = "7"
+	r.setenv("TMPDIR=/tmp")
+	r.tokenHolding(t, token)
+	r.answered(t, term.ExitOK)
+	if len(r.curls()) != 1 || !strings.Contains(r.stdout.String(), `"five_hour_pct": 25`) {
+		t.Fatalf("%d calls\n%s", len(r.curls()), r.stdout)
+	}
+	if args := strings.Join(r.curls()[0].Args, " "); strings.Contains(args, token) {
+		t.Fatalf("curl's argv holds the token: %q", args)
 	}
 }
 

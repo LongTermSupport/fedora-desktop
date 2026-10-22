@@ -3,7 +3,6 @@ package ccylaunch
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -20,9 +19,10 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
-// F11, `--token-usage [--json]`: the bash's usage_report (lib/token-management.bash), the
-// usage of every token as a table or one JSON document, read from the API's rate-limit headers
-// by one small request per account unless the cache holds a fresh answer.
+// F11, `--token-usage [--json]`: the usage of every token as a table or one JSON document (the
+// document wsi-claude-token parses), read from the API's rate-limit headers by one small
+// request per account unless the cache (the format a bash launch reads too) holds a fresh
+// answer.
 
 const (
 	usageJSONOption = "--json"
@@ -33,22 +33,22 @@ const (
 	usageScaleFrac  = "fraction"
 	curlHeader      = "--header"
 	jsonNull        = "null"
-	// maxUsageEpoch is the last second of the year 9999: a later reset the bash's date
-	// prints otherwise, or not at all.
-	maxUsageEpoch = 253402300799
-	tempRandLen   = 10
-	tempAlphabet  = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+	tempPrefix      = "tmp."
+	// maxTempTries bounds the search for a temporary name that does not hold the token
+	// (readToken has refused a token the fixed part of every name holds).
+	maxTempTries  = 64
 	minutesBelow  = 5400
 	hoursBelow    = 172800
 	secondsPerMin = 60
 	secondsPerHr  = 3600
+	secondsPerDay = 86400
 	fractionLimit = 2
 	percentLimit  = 200
 	percentOfOne  = 100
 )
 
 var (
-	usageTTLText = regexp.MustCompile(`^[1-9][0-9]{0,17}$`)
+	usageTTLText = regexp.MustCompile(`^[0-9]+$`)
 	usageNumber  = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?$`)
 	usageEpoch   = regexp.MustCompile(`^[0-9]+$`)
 	usageStatus  = regexp.MustCompile(`^[1-9][0-9]{2}$`)
@@ -90,7 +90,8 @@ type usageReport struct {
 	rows               []usageRow
 }
 
-// tokenUsage is F11: its exit code, or why the bash should answer instead.
+// tokenUsage is F11: its exit code, or why the bash should answer instead, decided before
+// anything is written.
 func (f Front) tokenUsage(ctx context.Context) (term.ExitCode, string) {
 	r := usageReport{f: f}
 	for _, arg := range f.Args[1:] {
@@ -107,36 +108,30 @@ func (f Front) tokenUsage(ctx context.Context) (term.ExitCode, string) {
 	if why := r.prepare(); why != "" {
 		return term.ExitFailure, why
 	}
-	if code, why := r.fetchAll(ctx); code != term.ExitOK || why != "" {
-		return code, why
+	if code := r.fetchAll(ctx); code != term.ExitOK {
+		return code, ""
 	}
-	if why := r.readRows(); why != "" {
-		return term.ExitFailure, why
-	}
+	r.readRows()
 	return r.print(), ""
 }
 
-// fetchAll says what it is about to ask (in the table's run) and asks it: a failure's exit
-// code, or why the bash should answer after all.
-func (r *usageReport) fetchAll(ctx context.Context) (term.ExitCode, string) {
+// fetchAll says what it is about to ask (in the table's run) and asks it: a failure's exit code.
+func (r *usageReport) fetchAll(ctx context.Context) term.ExitCode {
 	fetch := r.toFetch()
 	if len(fetch) == 0 {
-		return term.ExitOK, ""
+		return term.ExitOK
 	}
 	if !r.json {
 		var p term.Printer
 		p.Print(r.f.Stderr, fmt.Sprintf("Reading usage for %d account(s): 1 small API call each, unless read in the last %s seconds...\n", len(fetch), r.s.ttlText))
 		if err := p.Err(); err != nil {
-			return r.f.fail(usagePrefix + "could not write: " + err.Error()), ""
+			return r.f.fail(usagePrefix + "could not write: " + err.Error())
 		}
 	}
-	why, err := r.prime(ctx, fetch)
-	if err != nil {
-		return r.f.fail(usagePrefix + err.Error()), ""
+	if err := r.prime(ctx, fetch); err != nil {
+		return r.f.fail(usagePrefix + err.Error())
 	}
-	// After a hand-over here the bash prints the progress line again, and finds the entries
-	// the front wrote fresh, so the API is not asked twice.
-	return term.ExitOK, why
+	return term.ExitOK
 }
 
 // usageSettings reads the settings, or why the bash could read them otherwise.
@@ -161,14 +156,9 @@ func (f Front) usageSettings() (usageSettings, string) {
 			return s, "a CCY_USAGE_ setting is not printable ASCII"
 		}
 	}
-	// A leading nought is octal to the bash's printf; nought itself would have the bash fetch
-	// again what the front hands it after a fetch.
-	if !usageTTLText.MatchString(s.ttlText) {
-		return s, "CCY_USAGE_TTL is not a number the front reads as the bash does"
-	}
 	ttl, err := strconv.ParseInt(s.ttlText, 10, 64)
-	if err != nil {
-		return s, "CCY_USAGE_TTL: " + err.Error()
+	if !usageTTLText.MatchString(s.ttlText) || err != nil {
+		return s, "CCY_USAGE_TTL is not a whole number of seconds"
 	}
 	s.ttl = ttl
 	return s, ""
@@ -182,14 +172,12 @@ func (r *usageReport) prepare() string {
 		return why
 	}
 	r.s = s
-	if !zoneReadsAlike(r.f.getenv) {
-		return "the local zone could be read otherwise"
-	}
 	if !printableASCII(r.f.getenv("HOME")) {
 		return "HOME is not printable ASCII"
 	}
-	if why := r.tempDir(); why != "" {
-		return why
+	r.tmp = r.f.getenv("TMPDIR")
+	if r.tmp == "" {
+		r.tmp = "/tmp"
 	}
 	r.now = r.f.clock().Now()
 	r.today = r.now.Format(time.DateOnly)
@@ -213,18 +201,6 @@ func (r *usageReport) prepare() string {
 	return r.checkFetch()
 }
 
-// tempDir is mktemp's directory: TMPDIR, else /tmp.
-func (r *usageReport) tempDir() string {
-	r.tmp = r.f.getenv("TMPDIR")
-	if r.tmp == "" {
-		r.tmp = "/tmp"
-	}
-	if !filepath.IsAbs(r.tmp) || filepath.Clean(r.tmp) != r.tmp || !printableASCII(r.tmp) || !isDir(r.tmp) {
-		return "TMPDIR is not a clean directory: " + r.tmp
-	}
-	return ""
-}
-
 func (f Front) found(tool string) bool {
 	_, err := f.LookPath(tool)
 	return err == nil
@@ -235,10 +211,10 @@ func isDir(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-// readNames is the pool as the bash groups it: one name per first file of the name, in glob
+// readNames is the pool as the bash groups it: one name per first file of the name, in byte
 // order, and the later files of the name as its shadows.
 func (r *usageReport) readNames() string {
-	files, why := r.f.poolWhy(r.dir, r.now)
+	files, why := poolWhy(r.dir)
 	if why != "" {
 		return why
 	}
@@ -265,17 +241,14 @@ func (r *usageReport) readNames() string {
 // checkFetch reads the token of every name a launch could use, and every cache entry the run
 // reads: why the bash could read one otherwise, or "".
 func (r *usageReport) checkFetch() string {
-	if !r.anyValid() {
+	if len(r.toFetch()) == 0 {
 		return ""
 	}
 	if info, err := os.Lstat(r.cacheDir); err == nil && !info.IsDir() {
 		return "the usage cache is not a directory"
 	}
-	for i := range r.names {
+	for _, i := range r.toFetch() {
 		n := &r.names[i]
-		if !n.valid {
-			continue
-		}
 		if why := r.readToken(n); why != "" {
 			return why
 		}
@@ -287,7 +260,9 @@ func (r *usageReport) checkFetch() string {
 }
 
 // readToken is $(cat "$token_file") as a secret (none when it is empty), or why the bash could
-// read it otherwise or would put it in curl's argv.
+// read it otherwise, or why curl's argv could not be made without it: a token that curl's fixed
+// arguments or the start of every temporary name hold (a junk file such as "on"), which the
+// bash sends and the front cannot.
 func (r *usageReport) readToken(n *usageName) string {
 	raw, err := os.ReadFile(filepath.Join(r.dir, n.file))
 	if err != nil {
@@ -300,9 +275,10 @@ func (r *usageReport) readToken(n *usageName) string {
 	if token == "" {
 		return ""
 	}
-	for _, word := range []string{r.s.endpoint, r.s.model, r.s.timeout, r.s.connect, r.tmp} {
+	start := filepath.Join(r.tmp, tempPrefix)
+	for _, word := range r.curlArgs(start, start) {
 		if strings.Contains(word, token) {
-			return "a curl argument would hold a token"
+			return "a curl argument would hold the token of " + n.file
 		}
 	}
 	secret, err := execx.NewSecret("CCY_USAGE_TOKEN", token)
@@ -311,15 +287,6 @@ func (r *usageReport) readToken(n *usageName) string {
 	}
 	n.token = &secret
 	return ""
-}
-
-func (r *usageReport) anyValid() bool {
-	for _, n := range r.names {
-		if n.valid {
-			return true
-		}
-	}
-	return false
 }
 
 func (r *usageReport) toFetch() []int {
@@ -366,17 +333,15 @@ func line(lines []string, i int) string {
 }
 
 // prime is usage_prime_cache: every name of fetch whose entry is not fresh for its file is
-// asked of the API, in parallel. why is set when an answer is one the front does not model;
-// that entry is not written.
-func (r *usageReport) prime(ctx context.Context, fetch []int) (string, error) {
+// asked of the API, in parallel.
+func (r *usageReport) prime(ctx context.Context, fetch []int) error {
 	if err := os.MkdirAll(r.cacheDir, dirMode); err != nil {
-		return "", err
+		return err
 	}
 	if err := os.Chmod(r.cacheDir, dirMode); err != nil {
-		return "", err
+		return err
 	}
 	now := r.f.clock().Now()
-	whys := make([]string, len(r.names))
 	errs := make([]error, len(r.names))
 	var wg sync.WaitGroup
 	for _, i := range fetch {
@@ -384,18 +349,10 @@ func (r *usageReport) prime(ctx context.Context, fetch []int) (string, error) {
 		if r.fresh(n, now) || n.token == nil {
 			continue
 		}
-		wg.Go(func() { whys[i], errs[i] = r.fetch(ctx, n) })
+		wg.Go(func() { errs[i] = r.fetch(ctx, n) })
 	}
 	wg.Wait()
-	if err := errors.Join(errs...); err != nil {
-		return "", err
-	}
-	for _, why := range whys {
-		if why != "" {
-			return why, nil
-		}
-	}
-	return "", nil
+	return errors.Join(errs...)
 }
 
 const (
@@ -418,23 +375,43 @@ func (r *usageReport) fresh(n usageName, now time.Time) bool {
 }
 
 // fetch is _usage_fetch_one and the worker's publication: one request, its status and figures
-// written as name's entry.
-func (r *usageReport) fetch(ctx context.Context, n usageName) (string, error) {
+// written as name's entry. A temporary name that happens to hold the token is refused by the
+// runner before curl starts, and the request is made again with new names.
+func (r *usageReport) fetch(ctx context.Context, n usageName) error {
+	for range maxTempTries {
+		err := r.fetchVia(ctx, n)
+		if !errors.Is(err, execx.ErrSecretInArgv) {
+			return err
+		}
+	}
+	return errors.New("every temporary name held the token of " + n.file)
+}
+
+func (r *usageReport) fetchVia(ctx context.Context, n usageName) error {
 	hdr, err := makeTemp(r.tmp)
 	if err != nil {
-		return "", err
+		return err
 	}
 	body, err := makeTemp(r.tmp)
 	if err != nil {
-		return "", errors.Join(err, fsx.RemoveIfPresent(hdr))
+		return errors.Join(err, fsx.RemoveIfPresent(hdr))
 	}
-	why, err := r.ask(ctx, n, hdr, body)
-	return why, errors.Join(err, fsx.RemoveIfPresent(hdr), fsx.RemoveIfPresent(body))
+	return errors.Join(r.ask(ctx, n, hdr, body), fsx.RemoveIfPresent(hdr), fsx.RemoveIfPresent(body))
 }
 
-func (r *usageReport) ask(ctx context.Context, n usageName, hdr, body string) (string, error) {
+// makeTemp is a new empty file of mode 0600 in dir, named tmp. and digits (D6).
+func makeTemp(dir string) (string, error) {
+	file, err := os.CreateTemp(dir, tempPrefix)
+	if err != nil {
+		return "", err
+	}
+	return file.Name(), file.Close()
+}
+
+// curlArgs is curl's argv: the settings, the header and body files, and never the token.
+func (r *usageReport) curlArgs(hdr, body string) []string {
 	data := `{"model":"` + r.s.model + `","max_tokens":1,"messages":[{"role":"user","content":"."}]}`
-	args := []string{
+	return []string{
 		"--config", "-", "--silent", "--request", "POST",
 		curlHeader, "content-type: application/json",
 		curlHeader, "anthropic-version: 2023-06-01",
@@ -443,78 +420,51 @@ func (r *usageReport) ask(ctx context.Context, n usageName, hdr, body string) (s
 		"--connect-timeout", r.s.connect, "--max-time", r.s.timeout,
 		"--output", body, "--write-out", "%{http_code}", r.s.endpoint,
 	}
+}
+
+func (r *usageReport) ask(ctx context.Context, n usageName, hdr, body string) error {
 	res, err := r.f.Runner.Run(ctx, execx.Cmd{
-		Name: usageCurl, Args: args,
+		Name: usageCurl, Args: r.curlArgs(hdr, body),
 		Feed: &execx.Feed{Secret: *n.token, Before: usageFeedBefore, After: usageFeedAfter},
 	})
 	code := "000"
 	switch {
 	case errors.Is(err, execx.ErrSecretInArgv):
-		return "", err
+		return err
 	case err == nil:
 		// As $(...) gives it: NULs dropped, trailing newlines removed.
 		code = strings.TrimRight(strings.ReplaceAll(string(res.Stdout), "\x00", ""), "\n")
 	}
 	raw, err := os.ReadFile(hdr)
 	if err != nil {
-		return "", err
+		return err
 	}
-	record, ok := usageRecord(raw)
-	if !ok {
-		return "the API sent a rate-limit header the front does not read as the bash does", nil
-	}
-	content := n.file + "\n" + code + "\n" + record + "\n"
+	content := n.file + "\n" + code + "\n" + usageRecord(raw) + "\n"
 	path := r.entryPath(n.name)
 	if err := fsx.WriteAtomic(path, "usage cache entry", []byte(content), fileMode); err != nil {
-		return "", err
+		return err
 	}
-	return "", os.Chmod(path, fileMode)
-}
-
-// makeTemp is mktemp: a new empty file of mode 0600 named tmp. and ten letters or digits.
-func makeTemp(dir string) (string, error) {
-	for {
-		buf := make([]byte, tempRandLen)
-		if _, err := rand.Read(buf); err != nil {
-			return "", err
-		}
-		for i, b := range buf {
-			buf[i] = tempAlphabet[int(b)%len(tempAlphabet)]
-		}
-		path := filepath.Join(dir, "tmp."+string(buf))
-		file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, fileMode)
-		if errors.Is(err, fs.ErrExist) {
-			continue
-		}
-		if err != nil {
-			return "", err
-		}
-		return path, file.Close()
-	}
+	return os.Chmod(path, fileMode)
 }
 
 // usageRecord is _usage_extract: the figures of the dumped headers as one record,
-// u5 TAB r5 TAB u7 TAB r7 TAB claim, "" when neither bucket was sent. ok is false for a
-// rate-limit header holding a byte outside printable ASCII, which the bash's lower-casing
-// and output read by the locale.
-func usageRecord(raw []byte) (string, bool) {
+// u5 TAB r5 TAB u7 TAB r7 TAB claim, "" when neither bucket was sent. A rate-limit header
+// holding a byte outside printable ASCII is not read (D9).
+func usageRecord(raw []byte) string {
 	lines := strings.Split(strings.ReplaceAll(string(raw), "\x00", ""), "\n")
 	var u5, u7, r5, r7, claim string
 	// Only lines a newline ends: read's last, unterminated line is not read.
 	for _, l := range lines[:len(lines)-1] {
 		l = strings.TrimSuffix(l, "\r")
-		if !usageHeader.MatchString(l) {
+		if !usageHeader.MatchString(l) || !cacheText([]byte(l)) {
 			continue
-		}
-		if !cacheText([]byte(l)) {
-			return "", false
 		}
 		name, value := l, l
 		if at := strings.IndexByte(l, ':'); at >= 0 {
 			name, value = l[:at], l[at+1:]
 		}
 		value = strings.TrimPrefix(value, " ")
-		switch asciiLower(name) {
+		switch strings.ToLower(name) {
 		case "anthropic-ratelimit-unified-5h-utilization":
 			u5 = value
 		case "anthropic-ratelimit-unified-7d-utilization":
@@ -531,19 +481,9 @@ func usageRecord(raw []byte) (string, bool) {
 		claim = ""
 	}
 	if u5 == "" && u7 == "" {
-		return "", true
+		return ""
 	}
-	return strings.Join([]string{u5, r5, u7, r7, claim}, "\t"), true
-}
-
-func asciiLower(s string) string {
-	b := []byte(s)
-	for i, c := range b {
-		if c >= 'A' && c <= 'Z' {
-			b[i] = c + ('a' - 'A')
-		}
-	}
-	return string(b)
+	return strings.Join([]string{u5, r5, u7, r7, claim}, "\t")
 }
 
 // printableASCII reports whether s is only printable ASCII, which every locale reads alike.
@@ -567,13 +507,10 @@ func cacheText(b []byte) bool {
 }
 
 // readRows is _usage_report_row for every name, and the shadow warnings.
-func (r *usageReport) readRows() string {
+func (r *usageReport) readRows() {
 	ok := 0
 	for _, n := range r.names {
-		row, why := r.row(n)
-		if why != "" {
-			return why
-		}
+		row := r.row(n)
 		if len(n.shadows) > 0 {
 			if n.valid {
 				row.warn = append(row.warn, "shadows a later file of this name, which ccy never uses: remove the one you do not want")
@@ -589,10 +526,9 @@ func (r *usageReport) readRows() string {
 	if r.err == "" && ok == 0 {
 		r.err = "usage could not be read for any token"
 	}
-	return ""
 }
 
-func (r *usageReport) row(n usageName) (usageRow, string) {
+func (r *usageReport) row(n usageName) usageRow {
 	row := usageRow{status: "unavailable"}
 	if !n.valid {
 		if n.expires == r.today {
@@ -600,19 +536,13 @@ func (r *usageReport) row(n usageName) (usageRow, string) {
 		} else {
 			row.reason = "token expired on " + n.expires + "; renew: ccy --update-token=" + n.name
 		}
-		return row, ""
+		return row
 	}
 	lines, why := r.entry(n.name)
-	if why != "" {
-		return row, why
-	}
-	if line(lines, 0) != n.file {
-		row.reason = "no figures were fetched for this token file"
-		return row, ""
-	}
 	info, err := os.Stat(r.entryPath(n.name))
-	if err != nil {
-		return row, "a usage cache entry went away: " + n.name
+	if why != "" || err != nil || line(lines, 0) != n.file {
+		row.reason = "no figures were fetched for this token file"
+		return row
 	}
 	mtime := r.f.clock().ModTime(info).Unix()
 	row.fetched = strconv.FormatInt(mtime, 10)
@@ -627,15 +557,13 @@ func (r *usageReport) row(n usageName) (usageRow, string) {
 	case record == "":
 		row.reason = usageStatusReason(code)
 	default:
-		if why := r.figures(&row, record); why != "" {
-			return row, why
-		}
+		r.figures(&row, record)
 	}
-	return row, ""
+	return row
 }
 
 // figures reads one record into the row: the percentages, the warnings, the resets.
-func (r *usageReport) figures(row *usageRow, record string) string {
+func (r *usageReport) figures(row *usageRow, record string) {
 	f := strings.SplitN(record, "\t", 5)
 	for len(f) < 5 {
 		f = append(f, "")
@@ -657,22 +585,12 @@ func (r *usageReport) figures(row *usageRow, record string) string {
 	} else {
 		row.reason = "the API sent no usable figures"
 	}
-	for _, reset := range []struct {
-		raw string
-		to  *string
-	}{{r5, &row.r5}, {r7, &row.r7}} {
-		if !usageEpoch.MatchString(reset.raw) {
-			continue
-		}
-		if len(reset.raw) > 1 && reset.raw[0] == '0' {
-			return "a reset time has a leading nought, which the bash's arithmetic reads as octal"
-		}
-		if e, err := strconv.ParseInt(reset.raw, 10, 64); err != nil || e > maxUsageEpoch {
-			return "a reset time is past any date the bash prints"
-		}
-		*reset.to = reset.raw
+	if usageEpoch.MatchString(r5) {
+		row.r5 = r5
 	}
-	return ""
+	if usageEpoch.MatchString(r7) {
+		row.r7 = r7
+	}
 }
 
 // pct is _usage_report_pct: the percentage as the report prints it, or the warning.
@@ -680,30 +598,21 @@ func (r *usageReport) pct(raw string) (string, string) {
 	if raw == "" {
 		return "", "the API did not report it"
 	}
-	if !usageNumber.MatchString(raw) {
-		return "", "the API sent a value that is not a number (" + raw + ")"
-	}
 	x, err := strconv.ParseFloat(raw, 64)
-	if err != nil && !errors.Is(err, strconv.ErrRange) {
+	if !usageNumber.MatchString(raw) || err != nil && !errors.Is(err, strconv.ErrRange) {
 		return "", "the API sent a value that is not a number (" + raw + ")"
 	}
-	fraction := r.s.scale == usageScaleFrac
 	limit := float64(percentLimit)
-	if fraction {
+	if r.s.scale == usageScaleFrac {
 		limit = fractionLimit
 	}
 	if x > limit {
 		return "", "SCALE MISMATCH, the API sent " + raw + ", impossible under CCY_USAGE_SCALE=" + r.s.scale
 	}
-	if fraction {
-		// awk's printf "%.4f", x * 100, read back.
-		x, err = strconv.ParseFloat(fmt.Sprintf("%.4f", x*percentOfOne), 64)
-		if err != nil {
-			return "", "the API sent a value that is not a number (" + raw + ")"
-		}
+	if r.s.scale == usageScaleFrac {
+		x *= percentOfOne
 	}
-	s := strings.TrimSuffix(strings.TrimRight(fmt.Sprintf("%.2f", x), "0"), ".")
-	return s, ""
+	return strings.TrimSuffix(strings.TrimRight(fmt.Sprintf("%.2f", x), "0"), "."), ""
 }
 
 // usageStatusReason is _usage_status_reason.

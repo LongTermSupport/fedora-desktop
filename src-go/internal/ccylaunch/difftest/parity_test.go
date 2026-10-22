@@ -47,6 +47,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -105,11 +106,42 @@ func matchGoldens(t *testing.T, m matrix, l launcher, scenarios []scenario) {
 				return
 			}
 			want := readFile(t, goldenPath(sc.Name))
-			if text != want {
+			if text != want && !colourAllowed(l, sc.Name, want, text) {
 				t.Errorf("scenario %s (%s) differs from its golden:\n%s", sc.Name, sc.About, lineDiff(want, text))
 			}
 		})
 	}
+}
+
+// colourAllowance names the scenarios where a launcher other than the bash may leave out the
+// expiry's colour, and why: the bash colours the listing whatever stdout is, and the Go front
+// colours it only on a terminal (ccylaunch D2, tokens T3). The harness's stdout is a pipe.
+var colourAllowance = []struct{ scenario, reason string }{
+	{"list-tokens-one", "the Go front colours the expiry only on a terminal (ccylaunch D2)"},
+	{"list-tokens-states", "the Go front colours the expiry only on a terminal (ccylaunch D2)"},
+}
+
+// sgr is a colour escape sequence.
+var sgr = regexp.MustCompile("\x1b\\[[0-9;]*m")
+
+// colourAllowed reports whether got is the golden less its colour, in a scenario of
+// colourAllowance, run by a launcher that is not the checkout's bash.
+func colourAllowed(l launcher, scenario, want, got string) bool {
+	named := slices.ContainsFunc(colourAllowance, func(a struct{ scenario, reason string }) bool { return a.scenario == scenario })
+	if !named || l.isBash() {
+		return false
+	}
+	return sgr.ReplaceAllString(want, "") == sgr.ReplaceAllString(got, "")
+}
+
+// isBash reports whether the launcher is the checkout's bash launcher: no LAUNCHER, and no bash
+// launcher beside it (a Go front's install has one).
+func (l launcher) isBash() bool {
+	if os.Getenv("LAUNCHER") != "" {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(filepath.Dir(l.path), ccylaunch.BashName))
+	return err != nil
 }
 
 // skipFront skips a test of the Go front where it cannot run: with LAUNCHER naming another
