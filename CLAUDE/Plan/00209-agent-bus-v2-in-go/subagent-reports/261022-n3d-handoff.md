@@ -9,9 +9,14 @@ and D6b, and a closing wiring step W. Each part is one worktree, one branch and 
 merges into `feat/bus-v2-n3d`. Round 1 of the brief review (`261022-n3d-brief-review.md`) is
 applied throughout.
 
-Base: `feat/bus-v2-n3d` at 6c3a64ab0, cut from `feat/bus-v2-n3c`. n3c's P1-P5 are merged there.
-**P6 (`member/ends`, `member/client`) is still being built**: D5 waits for it, and every P6 API
-below is marked "as designed, not yet built".
+Base: `feat/bus-v2-n3d`, cut from `feat/bus-v2-n3c` at 6c3a64ab0; `feat/bus-v2-n3c` was merged in
+again at e32fe4719, so P1-P6 are all in.
+
+**Lead's note: P6 is now BUILT.** Where this brief marks a P6 API (`member/ends`,
+`member/client`, `seat disconnected`, `reach`) "as designed, not yet built", the API as built
+in `261022-n3c-p6.md` overrides it. D5 need not wait. Any part that adds methods to
+`team.Engine` also updates P6's fake `team.Engine` (in the member/ends and member/client tests)
+in the same commit.
 
 Every API quoted as "built" is taken from the part reports named in each quote (`261022-n3c-p2.md`
 to `-p5.md`, `261022-n3a*.md`, `261021-n1-*.md`), or, where marked "(review)", from what the brief
