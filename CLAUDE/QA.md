@@ -1061,6 +1061,26 @@ whether the handle is that entry's. It advises `ccy-teams apply <team>`, never a
 exactly one path, held under the method's allowance for a single recorded known instance, and
 Plan 00211 Task 2.9 narrows it (an entry giving `host`, `seat` and `repo` is decided by them).
 
+### fixture-plain-member-bundle
+
+**What it is.** Bash in an active plan folder, `scripts/`, `files/` or `tests/` that runs
+`agent-bus add-member --out=<home>/<entry>`, where `<home>` is a value the same program (a plan
+folder, whose scripts are sourced together, or one file elsewhere) gives `PINGBUS_HOME` on the
+host. Names are followed through the program's assignments. `--out=-`, `--setenv=PINGBUS_HOME=`
+(systemd-run, a dedicated agent user's own home) and `-e PINGBUS_HOME=` (podman exec) are not
+findings. Run by `tests/helpers/plan_acceptance/test_plain_member_bundle_rule.py` (in
+`qa-helper-tests.bash`), which proves the rule against its fixtures first.
+
+**Why it exists.** A bundle the invoking user's pingbus loads is, in production, a seat: its own
+0700 directory (`agent-bus seat take`), linked into the session home (the keeper). pingbus judges
+the two shapes differently: `config.load_bundle` runs a `host` member beside the owner's Element
+profile only through the link. Plan 00211's A3 wrote its worker straight into the home, so the
+host refused it for a reason that is not the product's, and nothing after A3 ran.
+
+**How to fix a finding.** Give the bundle a directory of its own (add-member makes `--out` 0700,
+owned by the user who ran sudo) and link `<home>/<team>` to it with an absolute `ln -s`, as the
+keeper does. Do not loosen the check in `config.py`.
+
 ---
 
 ## Changing a Gate

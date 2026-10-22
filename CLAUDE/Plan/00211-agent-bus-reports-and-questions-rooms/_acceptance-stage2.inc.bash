@@ -348,15 +348,20 @@ sent_ok() {
 }
 
 # a3_take — a throwaway worker for this run in the coordinator's team, a host member on
-# loopback. a3_release is registered before add-member runs, so a failure at any later step
-# still removes it.
+# loopback, taken as a seat the way `agent-bus seat take` and the keeper make one: the bundle in
+# a seat directory of its own (add-member makes --out 0700, the user's), and a session home
+# whose team entry is an absolute link to it. pingbus runs a host member beside the owner's
+# Element profile only through that link (helpers/pingbus/config.py load_bundle), so a plain
+# bundle in the home is refused. a3_release is registered before add-member runs, so a failure
+# at any later step still removes it.
 a3_take() {
     A3_HOME="${PLAN_RUN_DIR}/a3-pingbus"
-    A3_DIR="${A3_HOME}/${QTEAM}"
-    mkdir -m 0700 "${A3_HOME}" || return 1
+    A3_DIR="${PLAN_RUN_DIR}/a3-seats/${QTEAM}/${RUN_TAG}"
+    mkdir -m 0700 "${A3_HOME}" "${PLAN_RUN_DIR}/a3-seats" "${PLAN_RUN_DIR}/a3-seats/${QTEAM}" || return 1
     plan_on_cleanup a3_release || return 1
     "${AGENT_BUS[@]}" add-member "${QTEAM}" --repo=fedora-desktop --seat="${RUN_TAG}" --host=acceptance \
         --type=host --role=worker --address=127.0.0.1 --out="${A3_DIR}" || return 1
+    ln -s -- "${A3_DIR}" "${A3_HOME}/${QTEAM}" || return 1
     A3_HANDLE="$(jq -r '.user_id | ltrimstr("@") | split(":")[0]' "${A3_DIR}/member.json")" || return 1
     A3_BASE="$(jq -r '.base_url' "${A3_DIR}/member.json")" || return 1
     (umask 077 && printf 'Authorization: Bearer %s\n' "$(cat -- "${A3_DIR}/token")" >"${A3_DIR}/auth.header") || return 1
@@ -398,7 +403,8 @@ a3_check() {
     out="$(printf 'Plan 00211 acceptance %s: a worker report\n\nA3 checks that a worker posts here and wakes nobody. Nothing to do.\n' \
         "${RUN_TAG}" | env -i PATH="${GUEST_PATH}" HOME="${HOME}" PINGBUS_HOME="${A3_HOME}" PINGBUS_TEAMS="${QTEAM}" \
         "${HOST_PINGBUS}" report --team "${QTEAM}")" || {
-        printf 'A3: pingbus report failed for %s\n' "${A3_HANDLE}" >&2
+        printf 'A3: pingbus report failed for %s, for the reason above (a refusal to run a host member beside an Element profile means this user has not accepted that yet: run cc --teams once from a terminal and accept, then run meta-deploy again)\n' \
+            "${A3_HANDLE}" >&2
         return 1
     }
     sent_ok "A3 a worker's pingbus report" "${out}" || return 1
@@ -767,6 +773,52 @@ attached_are() {
     got="$(attached_ids "$2" "$3" | paste -sd ' ')"
     if [[ "${got}" != "$1" ]]; then
         printf 'attached to %s: "%s", not "%s"\n' "$2" "${got}" "$1" >&2
+        return 1
+    fi
+}
+
+# fake_a3_seat <accepted|unaccepted> — a3_take over a fake agent-bus whose add-member places a
+# host bundle under --out as the wrapper does (0700 directory, 0600 token), then this
+# checkout's pingbus loads the team from A3_HOME as `pingbus report` does, for a user with an
+# Element profile who has (or has not) accepted a seat beside it.
+readonly FAKE_A3_LOAD='import pathlib, sys
+sys.path.insert(0, sys.argv[1])
+from helpers.pingbus import config
+member = config.load_bundle(pathlib.Path(sys.argv[2]), sys.argv[3], user_home=pathlib.Path(sys.argv[4]))
+print(member.member_type)'
+fake_a3_seat() {
+    local user="${FIX}/a3-user-$1" type
+    cat >"${FIX}/a3-agent-bus" <<'EOF' || return 1
+#!/usr/bin/env bash
+set -euo pipefail
+case "$1" in
+    remove-member) exit 0 ;;
+    add-member) ;;
+    *) exit 64 ;;
+esac
+out=""
+for arg in "$@"; do
+    case "${arg}" in --out=*) out="${arg#--out=}" ;; esac
+done
+install -d -m 0700 -- "${out}"
+sn="$2.agent-bus.internal"
+printf '{"protocol": 1, "team": "%s", "user_id": "@fedora-desktop.a1+acceptance.host:%s", "server_name": "%s", "base_url": "http://127.0.0.1:8448", "plain_http_hosts": ["127.0.0.1"], "token_file": "token", "admin": "@admin:%s", "room": "!AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}\n' \
+    "$2" "${sn}" "${sn}" "${sn}" >"${out}/member.json"
+(umask 077 && printf 'syt_ZXhhbXBsZQ_notarealtoken_0123' >"${out}/token")
+EOF
+    chmod 0755 "${FIX}/a3-agent-bus" || return 1
+    AGENT_BUS=("${FIX}/a3-agent-bus")
+    QTEAM=t1
+    local PLAN_RUN_DIR="${FIX}/a3-run-$1"
+    mkdir -p -- "${PLAN_RUN_DIR}" "${user}/.var/app/im.riot.Riot" || return 1
+    if [[ "$1" == "accepted" ]]; then
+        mkdir -p -- "${user}/.config/pingbus" || return 1
+        (umask 077 && printf 'accepted\n' >"${user}/.config/pingbus/element-accepted") || return 1
+    fi
+    a3_take || return 1
+    type="$(python3 -I -c "${FAKE_A3_LOAD}" "${PLAN_REPO_ROOT}" "${A3_HOME}" "${QTEAM}" "${user}")" || return 1
+    if [[ "${type}" != "host" ]]; then
+        printf 'the A3 worker loaded as a %s member, not host\n' "${type}" >&2
         return 1
     fi
 }
