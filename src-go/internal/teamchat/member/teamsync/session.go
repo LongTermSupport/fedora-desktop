@@ -135,7 +135,7 @@ func (s *sess) readd(ctx context.Context) (string, error) {
 	if err := s.epochCheck(ctx); err != nil {
 		return "", err
 	}
-	if err := s.persist(ctx, team.Batch{NextBatch: resp.NextBatch}); err != nil {
+	if _, err := s.persist(ctx, team.Batch{NextBatch: resp.NextBatch}); err != nil {
 		return "", err
 	}
 	s.t.recovered()
@@ -449,13 +449,15 @@ func (s *sess) handle(ctx context.Context, since string, a answer) error {
 		return err
 	}
 	j.batch.NextBatch = a.resp.NextBatch
+	floor := s.floor
 	if a.first || !empty(j.batch) {
 		failpoint.Hit(failpoint.LinkAfterJudgeBeforePersist)
-		if err := s.persist(ctx, j.batch); err != nil {
+		var err error
+		if floor, err = s.persist(ctx, j.batch); err != nil {
 			return err
 		}
 	}
-	s.commit(j)
+	s.commit(j, floor)
 	t.putFloorIfDue(ctx, s.c, s.a)
 	t.recovered()
 	return nil
@@ -479,8 +481,8 @@ func (s *sess) eventsOf(ctx context.Context, since string, a answer, main matrix
 }
 
 // commit is what a persisted answer leaves: the flood window, UH1's counted ids, the log lines
-// and the floor.
-func (s *sess) commit(j judged) {
+// and the floor f the store keeps, which the marker carries (B 2.3.2).
+func (s *sess) commit(j judged, f int64) {
 	t := s.t
 	t.flood = j.flood
 	for _, id := range j.unheard {
@@ -489,7 +491,7 @@ func (s *sess) commit(j judged) {
 	for _, line := range j.lines {
 		t.log.Print(line)
 	}
-	if f, moved := j.batch.Floors[proto.PurposeMain]; moved {
+	if f > 0 && f != s.floor {
 		s.floor = f
 		t.floorMoved(f, s.epoch)
 	}
@@ -501,10 +503,10 @@ func empty(b team.Batch) bool {
 
 // persist is SY5's one store write, after which the team's position is the batch's; a failed
 // write is SY13's, said once per streak.
-func (s *sess) persist(ctx context.Context, b team.Batch) error {
+func (s *sess) persist(ctx context.Context, b team.Batch) (int64, error) {
 	t := s.t
 	b.Team, b.RestoreEpoch, b.Fresh = t.cfg.Team, s.epoch, false
-	err := t.cfg.Engine.Persist(ctx, b)
+	floor, err := t.cfg.Engine.Persist(ctx, b)
 	switch {
 	case err == nil:
 		t.persistSaid = false
@@ -513,7 +515,7 @@ func (s *sess) persist(ctx context.Context, b team.Batch) error {
 		t.persistSaid = true
 		t.log.Printf("the store write failed; the team takes no items until it succeeds: %v", err)
 	}
-	return err
+	return floor, err
 }
 
 // invites is SY11 over the answer's invites, in room order; a failed join or leave is a log

@@ -26,7 +26,7 @@ func TestTheRunDirectoryNamesTheLayoutAndTheRun(t *testing.T) {
 		"a home member":     {h.layout.Run(h.run).Dir(), env, h.layout},
 		"a ccy without env": {ccy.Run(h.run).Dir(), map[string]string{}, ccy},
 	} {
-		layout, run, err := layoutFor(c.dir, func(k string) string { return c.env[k] })
+		layout, run, err := layoutFor(c.dir, "", func(k string) string { return c.env[k] })
 		check(t, err)
 		if run != h.run || layout.Run(run).Dir() != c.dir || layout.State() != c.want.State() {
 			t.Fatalf("%s: layout %s run %s", name, layout.Run(run).Dir(), run)
@@ -37,10 +37,25 @@ func TestTheRunDirectoryNamesTheLayoutAndTheRun(t *testing.T) {
 		"not a run id":       h.layout.RunRoot() + "/not-a-run",
 		"no home to compare": h.layout.Run(h.run).Dir() + "x",
 	} {
-		_, _, err := layoutFor(dir, func(k string) string { return env[k] })
+		_, _, err := layoutFor(dir, "", func(k string) string { return env[k] })
 		if xe, ok := errors.AsType[*exits.Error](err); !ok || xe.Code != exits.CodeUsage {
 			t.Fatalf("%s: err %v", name, err)
 		}
+	}
+}
+
+// The keeper passes run's --state on, so the link reads the seats it holds (RN1).
+func TestStateIsTheKeepersStateRoot(t *testing.T) {
+	h := newHome(t)
+	env := map[string]string{"HOME": h.dir, "XDG_RUNTIME_DIR": h.dir + "/r"}
+	layout, _, err := layoutFor(h.layout.Run(h.run).Dir(), "/srv/state", func(k string) string { return env[k] })
+	check(t, err)
+	if layout.State() != "/srv/state" || layout.Seat(tid(t, "alpha")).Dir() != "/srv/state/alpha" {
+		t.Fatalf("state %s", layout.State())
+	}
+	_, _, err = layoutFor(h.layout.Run(h.run).Dir(), "state", func(k string) string { return env[k] })
+	if xe, ok := errors.AsType[*exits.Error](err); !ok || xe.Code != exits.CodeUsage {
+		t.Fatalf("a relative state: err %v", err)
 	}
 }
 

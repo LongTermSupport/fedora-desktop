@@ -33,6 +33,14 @@ func (w *world) later(body string) string {
 	return w.say(alice, human(body, user(me)))
 }
 
+// quiet posts a human message that mentions no one: it moves the batch's high-water and owes
+// nothing.
+func (w *world) quiet(body string) string {
+	w.t.Helper()
+	w.clk.StepWall(1000)
+	return w.say(alice, human(body))
+}
+
 func itemIDs(b team.Batch) []string {
 	out := make([]string, 0, len(b.Items))
 	for _, it := range b.Items {

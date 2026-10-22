@@ -61,7 +61,7 @@ func runLinkHelper(h *reexec.Helper) int {
 		NewTeam: func(cfg engine.TeamConfig) (team.Team, error) {
 			return &fakeTeam{notices: &fakeNotices{self: agent(cfg.Team)}, deliver: true}, nil
 		},
-		NewEnds: func(team.Engine) team.Ends { return &fakeEnds{} },
+		NewEnds: func(engine.EndsConfig) team.Ends { return &fakeEnds{} },
 	}
 	e := cli.Env{Stdout: os.Stdout, Stderr: os.Stderr, Digest: kitHex, Getenv: func(k string) string { return env[k] }}
 	return int(Main(w)(e, inv))

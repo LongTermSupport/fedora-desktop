@@ -87,7 +87,8 @@ type Config struct {
 	Runner  execx.Runner
 	Execer  execx.Execer
 	Starter execx.Starter
-	// LinkCmd is the link's command: <kit>/bin/teamchat link --run <dir> in production.
+	// LinkCmd is the link's command: <kit>/bin/teamchat link --run <dir> [--state DIR] in
+	// production.
 	LinkCmd func(run paths.Run, kit paths.Kit) execx.Cmd
 	Proc    Proc
 	Pidfds  Pidfds
@@ -203,10 +204,14 @@ func production(e cli.Env, inv cli.Invocation) (Config, error) {
 	if err != nil {
 		return Config{}, fault(exits.CodeRuntime, msgInternal, exits.Words("read the working directory"))
 	}
+	state := ""
+	if l.State != "" {
+		state = layout.State()
+	}
 	return Config{
 		Launch: l, Layout: layout, RuntimeParent: parent, Digest: e.Digest, Args: inv.Args,
 		Env: e.Getenv, Cwd: cwd, Stdin: e.Stdin, Clock: clock.System(), Locks: lock.SystemClock(),
-		Runner: execx.OS{}, Execer: execx.OS{}, Starter: execx.OS{}, LinkCmd: linkCmd,
+		Runner: execx.OS{}, Execer: execx.OS{}, Starter: execx.OS{}, LinkCmd: linkCmd(state),
 		Proc: procStat{}, Pidfds: osPidfds{},
 	}, nil
 }
@@ -227,9 +232,16 @@ func applyDirs(layout paths.Layout, l cli.Launch) (paths.Layout, error) {
 	return layout, nil
 }
 
-// linkCmd is the link's command in production.
-func linkCmd(run paths.Run, kit paths.Kit) execx.Cmd {
-	return execx.Cmd{Name: kit.Binary(), Args: []string{"link", "--run", run.Dir()}}
+// linkCmd is the link's command in production: with run's --state passed on, so the link
+// reads the seats the keeper holds.
+func linkCmd(state string) func(run paths.Run, kit paths.Kit) execx.Cmd {
+	return func(run paths.Run, kit paths.Kit) execx.Cmd {
+		c := execx.Cmd{Name: kit.Binary(), Args: []string{"link", "--run", run.Dir()}}
+		if state != "" {
+			c.Args = append(c.Args, "--state", state)
+		}
+		return c
+	}
 }
 
 // fault is an error object of code with a filled template.

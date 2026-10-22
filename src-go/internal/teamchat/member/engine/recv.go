@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/failpoint"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/records"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
@@ -347,7 +348,7 @@ func (e *Engine) write(out RecordWriter, h handout) error {
 }
 
 // wait is LN4's wait: it sleeps until something is pending, then acts as recv; at its
-// deadline with nothing handed it ends with no records (n3c-D7).
+// deadline with nothing handed it ends with no records, exit 4 timed-out (n3c-D7).
 func (e *Engine) wait(ctx context.Context, only *paths.TeamID, out RecordWriter) wire.Done {
 	for {
 		var (
@@ -373,18 +374,25 @@ func (e *Engine) wait(ctx context.Context, only *paths.TeamID, out RecordWriter)
 		case <-retry:
 		case <-ctx.Done():
 			release()
-			return wire.Done{}
+			return waitTimedOut()
 		}
 		release()
 	}
 }
 
-// done is a wait's answer to err: none at its own deadline, else internal.
+// done is a wait's answer to err: timed-out at its own deadline, else internal.
 func done(ctx context.Context, err error) wire.Done {
 	if ctx.Err() != nil {
-		return wire.Done{}
+		return waitTimedOut()
 	}
 	return internal(err)
+}
+
+const msgWaitTimedOut exits.Template = "nothing arrived before wait's deadline"
+
+// waitTimedOut is wait's end at its deadline with nothing handed: exit 4, no records.
+func waitTimedOut() wire.Done {
+	return doneOf(exits.New(exits.CodeTimedOut, nil, msgWaitTimedOut))
 }
 
 func (e *Engine) hasPending(only *paths.TeamID) bool {

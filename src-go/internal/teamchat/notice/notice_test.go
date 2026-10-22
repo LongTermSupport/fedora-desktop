@@ -168,7 +168,7 @@ func (w *world) post(t *testing.T, local, event, reason string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, err := proto.VerifyMain(stateEvents(raw), proto.Anchors{Server: server, Team: team, MainRoom: w.main, Self: user(local)})
+	r, err := proto.VerifyMain(proto.StateEvents(raw), proto.Anchors{Server: server, Team: team, MainRoom: w.main, Self: user(local)})
 	if err != nil {
 		t.Fatal(err)
 	}

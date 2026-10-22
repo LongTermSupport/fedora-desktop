@@ -191,13 +191,17 @@ func roomID(h *held, r proto.Roster, purpose string) string {
 // removing items still pending or handed; then a wake of every wait. An item already pending
 // or delivered is not added twice. A full pending list refuses the whole batch, loudly (B
 // 2.3.2), so nothing is dropped and the batch is fetched again.
-func (e *Engine) Persist(ctx context.Context, b team.Batch) error {
-	var out error
+func (e *Engine) Persist(ctx context.Context, b team.Batch) (int64, error) {
+	var (
+		out   error
+		floor int64
+	)
 	if err := e.do(ctx, func() {
 		var added map[string]proto.Verdict
 		out = e.changeLocked(b.Team, func(_ *held, s *state.Store) (bool, error) {
 			var err error
 			added, err = apply(s, b)
+			floor = s.Sync.FloorMS[proto.PurposeMain]
 			return err == nil, err
 		})
 		if out != nil {
@@ -212,9 +216,9 @@ func (e *Engine) Persist(ctx context.Context, b team.Batch) error {
 		h.counts = addCounts(h.counts, b.Counts)
 		e.wake()
 	}); err != nil {
-		return err
+		return 0, err
 	}
-	return out
+	return floor, out
 }
 
 // apply is b in a copy of its store; it is the items added, with their verdicts.
@@ -243,7 +247,22 @@ func apply(s *state.Store, b team.Batch) (map[string]proto.Verdict, error) {
 		added[it.Pending.ID] = it.Verdict
 	}
 	s.Pending = slices.DeleteFunc(s.Pending, func(p state.Pending) bool { return slices.Contains(b.Redacts, p.ID) })
+	ownedFloors(s)
 	return added, nil
+}
+
+// ownedFloors is B 2.3.2's floor rule: a room the store owes items in has its floor just below
+// the oldest of them, so each is newer than its floor and survives a restart (B44); a room it
+// owes none in keeps the batch's high-water.
+func ownedFloors(s *state.Store) {
+	for _, p := range s.Pending {
+		if s.Sync.FloorMS == nil {
+			s.Sync.FloorMS = map[string]int64{}
+		}
+		if floor, ok := s.Sync.FloorMS[p.Room]; !ok || p.SentMS <= floor {
+			s.Sync.FloorMS[p.Room] = max(p.SentMS-1, 0)
+		}
+	}
 }
 
 func addCounts(a, b team.Counts) team.Counts {

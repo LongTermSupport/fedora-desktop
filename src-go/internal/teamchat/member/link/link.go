@@ -75,7 +75,7 @@ type Config struct {
 	Log              io.Writer
 	Engine           func(engine.Config) (*engine.Engine, error)
 	NewTeam          func(engine.TeamConfig) (team.Team, error)
-	NewEnds          func(team.Engine) team.Ends
+	NewEnds          func(engine.EndsConfig) team.Ends
 
 	// started, when set, is told the link once it is ready (tests).
 	started func(*link)
@@ -385,7 +385,7 @@ func (l *link) remove(ctx context.Context, rm *wire.Remove) {
 func (l *link) owed(ctx context.Context, o *wire.Owed) {
 	l.bg.Go(func() {
 		t, err := l.cfg.NewTeam(engine.TeamConfig{
-			Team: o.Team, Seat: l.cfg.Layout.Seat(o.Team), Engine: l.eng, Ends: l.eng.Ends(),
+			Team: o.Team, Seat: l.cfg.Layout.Seat(o.Team), Run: l.cfg.Run, Engine: l.eng, Ends: l.eng.Ends(),
 			Root: l.cfg.StateRoot, Plain: l.launch.Launch == state.LaunchPlain,
 			FirstSessionStart: l.first, Clock: l.cfg.Clock, Log: l.cfg.Log,
 		})

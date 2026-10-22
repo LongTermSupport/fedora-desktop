@@ -95,7 +95,7 @@ func Disconnected(ctx context.Context, c Client, n Notice) (Outcome, error) {
 // verify is main's roster when main verifies under A 6.4 with the subject an unparked member,
 // else why not.
 func verify(raw []json.RawMessage, n Notice, self string) (proto.Roster, string) {
-	r, err := proto.VerifyMain(stateEvents(raw), proto.Anchors{Server: n.Server, Team: n.Team, MainRoom: n.MainRoom, Self: self})
+	r, err := proto.VerifyMain(proto.StateEvents(raw), proto.Anchors{Server: n.Server, Team: n.Team, MainRoom: n.MainRoom, Self: self})
 	if te, ok := errors.AsType[*proto.TrustError](err); ok && te.Check == "member" {
 		return proto.Roster{}, whyInactive
 	}
@@ -203,7 +203,7 @@ func Roster(ctx context.Context, c Client, a proto.Anchors) (proto.Roster, error
 	if err != nil {
 		return proto.Roster{}, err
 	}
-	return proto.VerifyMain(stateEvents(raw), a)
+	return proto.VerifyMain(proto.StateEvents(raw), a)
 }
 
 // Addressees are A 7.4's `to`: the humans and the coordinator when it is not parked, never the
@@ -219,27 +219,3 @@ func Addressees(r proto.Roster, self string) []string {
 
 // display is the notice's body: the subject's handle and A 7.4's gloss.
 func display(handle string) string { return handle + ": the member's session ended without a goodbye" }
-
-// stateEvents is a room's state as proto's trust checks take it; an event that does not read
-// is left out, so the checks find what is missing.
-func stateEvents(raw []json.RawMessage) []proto.StateEvent {
-	out := make([]proto.StateEvent, 0, len(raw))
-	for _, r := range raw {
-		v, err := proto.Parse(r)
-		if err != nil || v.Kind() != proto.KindObject {
-			continue
-		}
-		strs := map[string]string{}
-		for _, name := range []string{"type", "state_key", "sender", "event_id"} {
-			if f, ok := v.Get(name); ok && f.Kind() == proto.KindString {
-				strs[name] = f.Str()
-			}
-		}
-		content, ok := v.Get("content")
-		if !ok || content.Kind() != proto.KindObject || len(strs) != 4 {
-			continue
-		}
-		out = append(out, proto.StateEvent{Type: strs["type"], StateKey: strs["state_key"], Sender: strs["sender"], EventID: strs["event_id"], Content: content})
-	}
-	return out
-}
