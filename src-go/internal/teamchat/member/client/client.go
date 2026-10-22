@@ -58,6 +58,8 @@ const (
 	msgLimit     exits.Template = "history --limit is 1 to 100"
 	msgLink      exits.Template = "the link answered with a line that is not a record or a done; tell a human"
 	msgInternal  exits.Template = "the client could not {}; tell a human"
+	// msgWaitTimedOut is the engine's wording for the same end, reached with no link up.
+	msgWaitTimedOut exits.Template = "nothing arrived before wait's deadline"
 )
 
 // deps are what a request waits on and connects through.
@@ -196,7 +198,8 @@ type outcome struct {
 	gone   bool
 }
 
-// serve sends req until a link answers it; wait retries a missing link until its deadline.
+// serve sends req until a link answers it; wait retries a missing link until its deadline, and
+// is timed-out there (n3c-D7): a request sent past it would be discarded unanswered.
 func (c conn) serve(req wire.Request, wait time.Duration) term.ExitCode {
 	deadline := time.Duration(req.DeadlineMS) * time.Millisecond
 	delay := retryFirst
@@ -206,12 +209,18 @@ func (c conn) serve(req wire.Request, wait time.Duration) term.ExitCode {
 			return o.code
 		}
 		answer := c.noLink()
-		left := deadline - c.clock.Boot()
-		if wait == 0 || o.copied || answer.Code == exits.CodeLinkFailed || left <= 0 {
+		if wait == 0 || o.copied || answer.Code == exits.CodeLinkFailed {
 			return exits.Write(c.stderr, answer)
 		}
-		if err := c.clock.Sleep(context.Background(), min(delay, left)); err != nil {
-			return exits.Write(c.stderr, err)
+		left := deadline - c.clock.Boot()
+		if left > 0 {
+			if err := c.clock.Sleep(context.Background(), min(delay, left)); err != nil {
+				return exits.Write(c.stderr, err)
+			}
+			left = deadline - c.clock.Boot()
+		}
+		if left <= 0 {
+			return exits.Write(c.stderr, exits.New(exits.CodeTimedOut, c.team, msgWaitTimedOut))
 		}
 		delay = min(2*delay, retryMax)
 	}
@@ -220,7 +229,8 @@ func (c conn) serve(req wire.Request, wait time.Duration) term.ExitCode {
 // once is one connection: the request, the records copied, the done.
 func (c conn) once(req wire.Request, deadline time.Duration) outcome {
 	sock, err := c.dial(c.run.LinkSock())
-	if errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ECONNREFUSED) {
+	// EAGAIN is a link whose backlog is full: as good as gone for this try.
+	if errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.EAGAIN) {
 		return outcome{gone: true}
 	}
 	if err != nil {

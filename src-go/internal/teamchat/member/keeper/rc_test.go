@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"errors"
 	"os"
 	"slices"
 	"strings"
@@ -71,7 +72,7 @@ func TestDesiredRefused(t *testing.T) {
 }
 
 // RC1: an overflow re-reads the file; an event about another name does not; a watch that
-// ends is logged.
+// ends is watched again and the file re-read, and a change after it is followed.
 func TestDesiredEvents(t *testing.T) {
 	w, l, c, res := claudeWorld(t)
 	w.watch.events <- WatchEvent{Name: ".desired.tmp", Op: unix.IN_CREATE}
@@ -81,12 +82,52 @@ func TestDesiredEvents(t *testing.T) {
 		t.Fatalf("desired %+v", d)
 	}
 	w.logged("generation 2 applied", 1)
-	close(w.watch.events)
+	w.watch.end()
 	w.logged("no longer watched")
+	if d := l.expect(t, wire.KindDesired).Desired; d.Generation != 2 || d.State != state.DesiredApplied {
+		t.Fatalf("desired after the watch came back %+v", d)
+	}
+	if n := w.watch.watches(); n != 2 {
+		t.Fatalf("%d watches", n)
+	}
+	w.writeDesired(desiredJSON(3, state.InboundAccept))
+	w.changed()
+	if d := l.expect(t, wire.KindDesired).Desired; d.Generation != 3 {
+		t.Fatalf("desired %+v", d)
+	}
 	c.code(0)
 	ended(t, l, res, wire.EndExit, 0, 0)
 	if n := strings.Count(w.stderr.String()+w.stdout.String(), "desired"); n != 0 {
 		t.Fatal("the keeper wrote to the terminal")
+	}
+}
+
+// RC1: the desired directory going (its watch ignored) is refused missing and published, the
+// watch is tried again until the directory is back, and then the file applies again.
+func TestDesiredDirectoryGoes(t *testing.T) {
+	for _, op := range []uint32{unix.IN_IGNORED, unix.IN_DELETE_SELF, unix.IN_MOVE_SELF} {
+		w, l, c, res := claudeWorld(t, "alpha/1")
+		alpha := w.layout.Seat(mustTeam(t, "alpha"))
+		w.reported(l, alpha)
+		w.watch.fail(errors.New("no such directory"))
+		w.watch.events <- WatchEvent{Op: op}
+		d := l.expect(t, wire.KindDesired).Desired
+		if d.State != state.DesiredRefused || d.Code == nil || *d.Code != state.CodeMissing {
+			t.Fatalf("%#x: desired %+v", op, d)
+		}
+		if k := w.keeperJSON(); k.Desired != state.DesiredRefused {
+			t.Fatalf("%#x: keeper.json %+v", op, k)
+		}
+		w.watch.fail(nil)
+		w.advance(1, rewatchGap)
+		if d := l.expect(t, wire.KindDesired).Desired; d.State != state.DesiredApplied || d.Generation != 1 {
+			t.Fatalf("%#x: desired once watched again %+v", op, d)
+		}
+		if !w.held(alpha) {
+			t.Fatalf("%#x: the seat was let go", op)
+		}
+		c.code(0)
+		ended(t, l, res, wire.EndExit, 0, 0)
 	}
 }
 
@@ -172,6 +213,50 @@ func TestRemoveWithoutFarewell(t *testing.T) {
 	ended(t, l, res, wire.EndExit, 0, 0)
 }
 
+// LN8: a removed with no user id is a removal the link could not make: the keeper deletes the
+// store under the lock itself and lets the seat go, with no user id kept for a later add.
+func TestRemovedWithoutUserID(t *testing.T) {
+	w, l, c, res := claudeWorld(t, "alpha/1")
+	alpha := w.layout.Seat(mustTeam(t, "alpha"))
+	mustDo(t, os.WriteFile(alpha.Store(), []byte("store"), 0o600))
+	w.writeDesired(desiredJSON(2, state.InboundAccept))
+	w.changed()
+	l.expect(t, wire.KindDesired)
+	rm := l.expect(t, wire.KindRemove).Remove
+	l.send(t, wire.Msg{Kind: wire.KindRemoved, Removed: &wire.Removed{Team: rm.Team}})
+	w.logged("seat alpha released")
+	if exists(t, alpha.Store()) || w.held(alpha) {
+		t.Fatal("the store or the seat outlived the removal")
+	}
+	w.writeDesired(desiredJSON(3, state.InboundAccept, "alpha/1"))
+	w.changed()
+	l.expect(t, wire.KindDesired)
+	if a := l.expect(t, wire.KindAdd).Add; len(a.RemovedUserIDs) != 0 {
+		t.Fatalf("add %+v", a)
+	}
+	c.code(0)
+	ended(t, l, res, wire.EndExit, 0, 0)
+}
+
+// N2: a removed with a user id whose store the link could not delete still leaves no store,
+// so a later add of the team does not load the old one.
+func TestRemovedWithAStoreLeftBehind(t *testing.T) {
+	w, l, c, res := claudeWorld(t, "alpha/1")
+	alpha := w.layout.Seat(mustTeam(t, "alpha"))
+	mustDo(t, os.WriteFile(alpha.Store(), []byte("store"), 0o600))
+	w.writeDesired(desiredJSON(2, state.InboundAccept))
+	w.changed()
+	l.expect(t, wire.KindDesired)
+	rm := l.expect(t, wire.KindRemove).Remove
+	l.send(t, wire.Msg{Kind: wire.KindRemoved, Removed: &wire.Removed{Team: rm.Team, UserID: agentOf(t, "alpha")}})
+	w.logged("seat alpha released")
+	if exists(t, alpha.Store()) || w.held(alpha) {
+		t.Fatal("the store or the seat outlived the removal")
+	}
+	c.code(0)
+	ended(t, l, res, wire.EndExit, 0, 0)
+}
+
 // LN8: a remove unanswered in 10 s kills the link; the keeper deletes the store under the lock
 // and restarts the link at once, uncounted.
 func TestRemoveTimeout(t *testing.T) {
@@ -207,7 +292,9 @@ func TestChangesWhileRestarting(t *testing.T) {
 	mustDo(t, w.clk.BlockUntil(t.Context(), 1))
 	w.writeDesired(desiredJSON(2, state.InboundAccept, "beta/1"))
 	w.changed()
+	// The removal is logged before the add takes its seat: wait for both.
 	w.logged("seat alpha released")
+	w.logged("seat beta/1 held")
 	if exists(t, alpha.Store()) || w.held(alpha) || !w.held(beta) {
 		t.Fatal("the removal or the add did not happen with no link")
 	}

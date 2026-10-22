@@ -118,13 +118,18 @@ type Team struct {
 // pageBound is a backwards read's page size and page count.
 type pageBound struct{ size, max int }
 
-// floorMarker is SY10's state: the floor to put, and when it was last put.
+// floorMarker is SY10's state: the floor to put, whether it is owed (dirty) and owed at once
+// (urgent, a move down), when a put was last tried, and what the last put that succeeded held.
 type floorMarker struct {
 	ms, epoch int64
 	known     bool
 	dirty     bool
+	urgent    bool
 	put       bool
 	putAt     time.Duration
+	sent      bool
+	sentMS    int64
+	sentEpoch int64
 }
 
 // New is the team goroutine for cfg; it makes no request until Run or a notice.

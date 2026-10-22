@@ -42,14 +42,6 @@ func (w *world) heldWith(id paths.TeamID, s state.Store) {
 	<-w.add(id, encodeStore(w.t, s)).running
 }
 
-func (w *world) persistBatch(b team.Batch) {
-	w.t.Helper()
-	if b.NextBatch == "" {
-		b.NextBatch = "s1"
-	}
-	check(w.t, w.e.Persist(w.t.Context(), b))
-}
-
 // advanceTo moves the fake clock until its wall clock reads ms.
 func (w *world) advanceTo(ms int64) {
 	w.t.Helper()
@@ -404,9 +396,9 @@ func TestSY7_4AnAnswerInARefusedBatchLeavesThePingUnanswered(t *testing.T) {
 		Pending: state.Pending{ID: evID(9), Room: proto.PurposeMain, Item: records.KindPeer, SentMS: startWall, From: agent(ops, 3)},
 		Verdict: proto.Verdict{Outcome: proto.Deliver, Event: proto.Event{ID: evID(9), OriginTs: startWall}},
 	}
-	err := w.e.Persist(t.Context(), team.Batch{Team: ops, NextBatch: "s1", Items: []team.Item{peer}, Answered: []team.Answer{ans(p, agent(ops, 2), 50, startWall+1)}})
-	if err == nil {
-		t.Fatal("a batch into a full pending was persisted")
+	floor, err := w.e.Persist(t.Context(), team.Batch{Team: ops, NextBatch: "s1", Items: []team.Item{peer}, Answered: []team.Answer{ans(p, agent(ops, 2), 50, startWall+1)}})
+	if err == nil || floor != 0 {
+		t.Fatalf("a batch into a full pending was persisted (floor %d)", floor)
 	}
 	w.advanceTo(p.DueMS + timeoutGraceMS + 1)
 	got := w.store(ops)

@@ -61,13 +61,17 @@ func TestProduction(t *testing.T) {
 		t.Fatalf("config %+v", cfg)
 	}
 	run, kit := cfg.Layout.Run(mustRunID(t)), w0Kit(t)
-	if c := cfg.LinkCmd(run, kit); !hasArgs(c, kit.Binary(), "link", "--run", run.Dir()) {
+	// The link reads the seats from the same state root (RN1's --state).
+	if c := cfg.LinkCmd(run, kit); !hasArgs(c, kit.Binary(), "link", "--run", run.Dir(), "--state", "/srv/state") {
 		t.Fatalf("link %v", c.Line())
 	}
 	ccy, err := production(e, launch(cli.Launch{Kind: cli.KindCCY, Cmd: []string{"sleep"}}))
 	mustDo(t, err)
 	if ccy.RuntimeParent != "" || ccy.Layout.RunRoot() != paths.CCYLayout().RunRoot() {
 		t.Fatalf("ccy config %+v", ccy)
+	}
+	if c := ccy.LinkCmd(run, kit); !hasArgs(c, kit.Binary(), "link", "--run", run.Dir()) {
+		t.Fatalf("ccy link %v", c.Line())
 	}
 	refused := map[string]struct {
 		inv  cli.Invocation

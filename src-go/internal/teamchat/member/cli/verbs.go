@@ -203,7 +203,10 @@ var table = []Verb{
 		Does: "the verbs and their flags, one verb's usage, or the exit-code table",
 	},
 	{Name: verbRun, Flags: launchFlags, Does: "the keeper: launches CMD as its child and stays its parent for the session's life"},
-	{Name: "link", Flags: []Flag{{Name: "run", Value: valueDir, Required: true, check: checkDir}}, Does: "the link; started by the keeper only"},
+	{
+		Name: "link", Flags: []Flag{{Name: "run", Value: valueDir, Required: true, check: checkDir}, {Name: flagState, Value: valueDir, check: checkDir}},
+		Does: "the link; started by the keeper only, given run's --state",
+	},
 	{Name: "hook", Args: []Arg{{Name: "event", Form: strings.Join(HookEvents, "|"), check: checkHook}}, Does: "one Claude Code hook, run from the plugin's hooks.json"},
 	{Name: "status-line", Does: "the status line, run by Claude Code from the session's settings"},
 	{Name: "reach", Flags: []Flag{required(teamFlag)}, Does: "an unauthenticated GET of the team homeserver's versions, so a route is proven from the member side"},

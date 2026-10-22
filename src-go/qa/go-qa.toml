@@ -24,3 +24,29 @@ driver = "./driver"
 # code landing, not ordinary drift. Raise it as coverage rises; never lower it to let a change in.
 [coverage]
 fail_under_statements = 90
+
+# teamchat's armed failpoints, and the crash scenarios they drive, exist only in the busfailpoints
+# build (Plan 00209 SPEC-n3 PT1, gap 9); the built-in tools never set the tag, so these stages
+# lint, vet, build and test that build.
+[[stage]]
+name = "teamchat-failpoints-lint"
+phase = "detectors"
+says = "golangci-lint over internal/teamchat built with -tags busfailpoints"
+fix = "Fix what golangci-lint reports in the busfailpoints build"
+command = ["golangci-lint", "run", "--allow-parallel-runners", "--build-tags", "busfailpoints", "./internal/teamchat/..."]
+
+[[stage]]
+name = "teamchat-failpoints-vet"
+phase = "detectors"
+says = "go vet over internal/teamchat built with -tags busfailpoints"
+fix = "Fix what go vet reports in the busfailpoints build"
+command = ["go", "vet", "-tags", "busfailpoints", "./internal/teamchat/..."]
+
+[[stage]]
+name = "teamchat-failpoints-test"
+phase = "runners"
+says = "go test -race over internal/teamchat built with -tags busfailpoints, the failpoint crash scenarios among them"
+fix = "Make the failing busfailpoints test pass"
+# No -count=1, unlike the built-in runner: no stage takes {files}, so qa-changed runs this whole
+# for any src-go change, and go's test cache keeps an unchanged teamchat a cache hit.
+command = ["go", "test", "-race", "-shuffle=on", "-tags", "busfailpoints", "./internal/teamchat/..."]

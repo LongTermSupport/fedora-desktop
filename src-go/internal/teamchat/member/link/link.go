@@ -75,7 +75,7 @@ type Config struct {
 	Log              io.Writer
 	Engine           func(engine.Config) (*engine.Engine, error)
 	NewTeam          func(engine.TeamConfig) (team.Team, error)
-	NewEnds          func(team.Engine) team.Ends
+	NewEnds          func(engine.EndsConfig) team.Ends
 
 	// started, when set, is told the link once it is ready (tests).
 	started func(*link)
@@ -364,18 +364,17 @@ func (l *link) add(ctx context.Context, a *wire.Add, fd *os.File) {
 }
 
 // remove is LN8's link half: the engine's removal, removed to the keeper, then from memory
-// within leaveWait presence offline, the leave when the farewell is released, and left.
+// within leaveWait presence offline, the leave when the farewell is released, and left. Every
+// remove is answered: one the engine could not make goes with no user id and posts nothing.
 func (l *link) remove(ctx context.Context, rm *wire.Remove) {
 	removed, err := l.eng.Remove(ctx, rm.Team)
 	if err != nil {
 		l.logf("link: remove %s: %v", rm.Team, err)
-		return
 	}
 	if removed.UserID == "" {
-		l.logf("link: remove %s: no user id to answer removed with", rm.Team)
-	} else {
-		l.send(wire.Msg{Kind: wire.KindRemoved, Removed: &wire.Removed{Team: rm.Team, UserID: removed.UserID}})
+		l.logf("link: remove %s: no user id; the keeper deletes the store", rm.Team)
 	}
+	l.send(wire.Msg{Kind: wire.KindRemoved, Removed: &wire.Removed{Team: rm.Team, UserID: removed.UserID}})
 	failpoint.Hit(failpoint.LinkAfterRemoveAnswered)
 	post := rm.Farewell != nil && *rm.Farewell == state.FarewellReleased
 	l.bg.Go(func() { l.leave(ctx, rm.Team, removed.Notices, post, rm.Txn) })
@@ -385,7 +384,7 @@ func (l *link) remove(ctx context.Context, rm *wire.Remove) {
 func (l *link) owed(ctx context.Context, o *wire.Owed) {
 	l.bg.Go(func() {
 		t, err := l.cfg.NewTeam(engine.TeamConfig{
-			Team: o.Team, Seat: l.cfg.Layout.Seat(o.Team), Engine: l.eng, Ends: l.eng.Ends(),
+			Team: o.Team, Seat: l.cfg.Layout.Seat(o.Team), Run: l.cfg.Run, Engine: l.eng, Ends: l.eng.Ends(),
 			Root: l.cfg.StateRoot, Plain: l.launch.Launch == state.LaunchPlain,
 			FirstSessionStart: l.first, Clock: l.cfg.Clock, Log: l.cfg.Log,
 		})

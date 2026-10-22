@@ -179,7 +179,7 @@ func (s *sess) readd(ctx context.Context) (string, error) {
 	if err := s.epochCheck(ctx); err != nil {
 		return "", err
 	}
-	if err := s.persist(ctx, team.Batch{NextBatch: resp.NextBatch}); err != nil {
+	if _, err := s.persist(ctx, team.Batch{NextBatch: resp.NextBatch}); err != nil {
 		return "", err
 	}
 	s.t.recovered()
@@ -493,13 +493,15 @@ func (s *sess) handle(ctx context.Context, since string, a answer) error {
 		return err
 	}
 	j.batch.NextBatch = a.resp.NextBatch
+	floor := s.floor
 	if a.first || !empty(j.batch) {
 		failpoint.Hit(failpoint.LinkAfterJudgeBeforePersist)
-		if err := s.persist(ctx, j.batch); err != nil {
+		var err error
+		if floor, err = s.persist(ctx, j.batch); err != nil {
 			return err
 		}
 	}
-	s.commit(j)
+	s.commit(j, floor)
 	t.putFloorIfDue(ctx, s.c, s.a)
 	t.recovered()
 	return nil
@@ -523,8 +525,8 @@ func (s *sess) eventsOf(ctx context.Context, since string, a answer, main matrix
 }
 
 // commit is what a persisted answer leaves: the flood window, UH1's counted ids, the log lines
-// and the floor.
-func (s *sess) commit(j judged) {
+// and the floor f the store keeps, which the marker carries (B 2.3.2).
+func (s *sess) commit(j judged, f int64) {
 	t := s.t
 	t.flood = j.flood
 	for _, id := range j.unheard {
@@ -534,7 +536,7 @@ func (s *sess) commit(j judged) {
 		t.log.Print(line)
 	}
 	t.noteForge(j.forge)
-	if f, moved := j.batch.Floors[proto.PurposeMain]; moved {
+	if f > 0 && f != s.floor {
 		s.floor = f
 		t.floorMoved(f, s.epoch)
 	}
@@ -547,10 +549,10 @@ func empty(b team.Batch) bool {
 
 // persist is SY5's one store write, after which the team's position is the batch's; a failed
 // write is SY13's, said once per streak.
-func (s *sess) persist(ctx context.Context, b team.Batch) error {
+func (s *sess) persist(ctx context.Context, b team.Batch) (int64, error) {
 	t := s.t
 	b.Team, b.RestoreEpoch, b.Fresh = t.cfg.Team, s.epoch, false
-	err := t.cfg.Engine.Persist(ctx, b)
+	floor, err := t.cfg.Engine.Persist(ctx, b)
 	switch {
 	case err == nil:
 		t.persistSaid = false
@@ -559,7 +561,7 @@ func (s *sess) persist(ctx context.Context, b team.Batch) error {
 		t.persistSaid = true
 		t.log.Printf("the store write failed; the team takes no items until it succeeds: %v", err)
 	}
-	return err
+	return floor, err
 }
 
 // invites is SY11 over the answer's invites, in room order; a failed join or leave is a log
@@ -805,26 +807,45 @@ func copyWindow(w proto.Window) proto.Window {
 	return c
 }
 
-// knowFloor is the floor a session starts from, which FlushFloor puts.
+// knowFloor is the floor a session starts from, which FlushFloor puts. Unless this goroutine
+// already put that floor, it is owed: the last link may have ended, or been killed, before its
+// coalesced put, and the marker may lag the store (A2).
 func (t *Team) knowFloor(floor, epoch int64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if floor > 0 {
-		t.floor.ms, t.floor.epoch, t.floor.known = floor, epoch, true
+		f := &t.floor
+		f.ms, f.epoch, f.known = floor, epoch, true
+		f.dirty = !f.sent || f.sentMS != floor || f.sentEpoch != epoch
 	}
 }
 
+// floorMoved is a persisted floor move; a move down is owed at once, never coalesced, so a
+// seat taken with no store never cuts the item it was lowered for.
 func (t *Team) floorMoved(floor, epoch int64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.floor.ms, t.floor.epoch, t.floor.known, t.floor.dirty = floor, epoch, true, true
+	f := &t.floor
+	f.urgent = f.urgent || f.known && floor < f.ms
+	f.ms, f.epoch, f.known, f.dirty = floor, epoch, true, true
+}
+
+// FloorRaised is the store's main floor raised outside a sync answer (team.Team): the marker's
+// next put carries it, coalesced as any move up. A floor not above the one known, or with none
+// known (so no epoch), changes nothing.
+func (t *Team) FloorRaised(floor int64) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.floor.known && floor > t.floor.ms {
+		t.floor.ms, t.floor.dirty = floor, true
+	}
 }
 
 // putFloorIfDue is SY10's coalescing without a timer: a moved floor is put after an answer once
-// floorPutGap has passed since the last put.
+// floorPutGap has passed since the last put, and a floor moved down at once.
 func (t *Team) putFloorIfDue(ctx context.Context, c *matrix.Client, a proto.Anchors) {
 	t.mu.Lock()
-	due := t.floor.dirty && (!t.floor.put || t.cfg.Clock.Boot()-t.floor.putAt >= floorPutGap)
+	due := t.floor.dirty && (t.floor.urgent || !t.floor.put || t.cfg.Clock.Boot()-t.floor.putAt >= floorPutGap)
 	t.mu.Unlock()
 	if due {
 		if err := t.putFloor(ctx, c, a); err != nil {
@@ -836,7 +857,9 @@ func (t *Team) putFloorIfDue(ctx context.Context, c *matrix.Client, a proto.Anch
 func (t *Team) putFloor(ctx context.Context, c *matrix.Client, a proto.Anchors) error {
 	t.mu.Lock()
 	f := t.floor
-	t.floor.put, t.floor.putAt = true, t.cfg.Clock.Boot()
+	if f.known {
+		t.floor.put, t.floor.putAt = true, t.cfg.Clock.Boot()
+	}
 	t.mu.Unlock()
 	if !f.known {
 		return nil
@@ -846,8 +869,9 @@ func (t *Team) putFloor(ctx context.Context, c *matrix.Client, a proto.Anchors) 
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.floor.ms == f.ms {
-		t.floor.dirty = false
+	t.floor.sent, t.floor.sentMS, t.floor.sentEpoch = true, f.ms, f.epoch
+	if t.floor.ms == f.ms && t.floor.epoch == f.epoch {
+		t.floor.dirty, t.floor.urgent = false, false
 	}
 	return nil
 }

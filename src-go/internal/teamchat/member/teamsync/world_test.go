@@ -450,13 +450,16 @@ func (e *fakeEngine) View(_ paths.TeamID, ids, relations []string, _ proto.Roste
 	return v, nil
 }
 
-func (e *fakeEngine) Persist(_ context.Context, b team.Batch) error {
+// Persist keeps the batch and answers the floor the store keeps. Its floor loop is a stand-in
+// for engine.ownedFloors, enough for the marker tests here; the rule itself is proven by the
+// engine's own tests and by the Tuwunel run over the real engine, not by these.
+func (e *fakeEngine) Persist(_ context.Context, b team.Batch) (int64, error) {
 	e.mu.Lock()
 	hook := e.persistErr
 	e.mu.Unlock()
 	if hook != nil {
 		if err := hook(b); err != nil {
-			return err
+			return 0, err
 		}
 	}
 	e.mu.Lock()
@@ -469,9 +472,16 @@ func (e *fakeEngine) Persist(_ context.Context, b team.Batch) error {
 		}
 	}
 	e.persisted++
+	floor := s.Sync.FloorMS[proto.PurposeMain]
+	for _, p := range s.Pending {
+		if p.Room == proto.PurposeMain && p.SentMS <= floor {
+			floor = p.SentMS - 1
+			s.Sync.FloorMS[proto.PurposeMain] = floor
+		}
+	}
 	e.mu.Unlock()
 	e.batches <- b
-	return nil
+	return floor, nil
 }
 
 func (e *fakeEngine) ResetPosition(_ context.Context, _ paths.TeamID, epoch int64) error {

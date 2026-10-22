@@ -68,6 +68,7 @@ func (n *fakeNotices) presences() []string {
 type fakeTeam struct {
 	notices *fakeNotices
 	deliver bool
+	madeFor paths.RunID
 	mu      sync.Mutex
 	ran     bool
 }
@@ -98,6 +99,7 @@ func (*fakeTeam) History(context.Context, string, int) ([]records.History, error
 func (f *fakeTeam) Notices() team.Notices          { return f.notices }
 func (*fakeTeam) Wake()                            {}
 func (*fakeTeam) FlushFloor(context.Context) error { return nil }
+func (*fakeTeam) FloorRaised(int64)                {}
 
 func (f *fakeTeam) didRun() bool {
 	f.mu.Lock()
@@ -201,7 +203,7 @@ func newLinkWorld(t *testing.T) *linkWorld {
 		StateRoot: w.root, RunRoot: w.root, Layout: w.layout, Run: w.run, Control: linkConn,
 		Clock: w.clk, Proc: w.proc, Parent: func() (Parent, error) { return w.parent, nil },
 		UID: os.Getuid(), Kit: kit, RuntimeDir: w.dir + "/xdg", Home: w.dir, Log: w.log,
-		Engine: engine.New, NewTeam: w.newTeam, NewEnds: func(team.Engine) team.Ends { return w.ends },
+		Engine: engine.New, NewTeam: w.newTeam, NewEnds: func(engine.EndsConfig) team.Ends { return w.ends },
 		started: func(l *link) {
 			w.mu.Lock()
 			defer w.mu.Unlock()
@@ -257,7 +259,7 @@ func (w *linkWorld) connect() *os.File {
 func (w *linkWorld) newTeam(cfg engine.TeamConfig) (team.Team, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	f := &fakeTeam{notices: &fakeNotices{self: agent(cfg.Team)}}
+	f := &fakeTeam{notices: &fakeNotices{self: agent(cfg.Team)}, madeFor: cfg.Run}
 	w.teams[cfg.Team] = f
 	return f, nil
 }
@@ -688,12 +690,26 @@ func TestRemoveAnswersThenLeaves(t *testing.T) {
 	}
 }
 
-func TestARemoveOfNoTeamIsLogged(t *testing.T) {
+// LN8: the link answers every remove; one of a team it does not hold has no user id, so the
+// keeper deletes the store itself, and posts nothing.
+func TestARemoveOfNoTeamIsAnswered(t *testing.T) {
 	w := newLinkWorld(t)
 	w.ready()
 	a := tid(t, "alpha")
-	w.send(wire.Msg{Kind: wire.KindRemove, Remove: &wire.Remove{Team: a, Txn: "tc" + strings.Repeat("0", 32)}}, nil)
-	until(t, func() bool { return strings.Contains(w.log.String(), "remove "+a.String()) })
+	released := state.FarewellReleased
+	w.send(wire.Msg{Kind: wire.KindRemove, Remove: &wire.Remove{Team: a, Farewell: &released, Txn: "tc" + strings.Repeat("0", 32)}}, nil)
+	if r := w.next(wire.KindRemoved); r.Removed.Team != a || r.Removed.UserID != "" {
+		t.Fatalf("removed %+v", r.Removed)
+	}
+	if l := w.next(wire.KindLeft); l.Left.Team != a {
+		t.Fatalf("left %+v", l.Left)
+	}
+	if leave := w.ends.leaveCalls(); len(leave) != 0 {
+		t.Fatalf("leave %q", leave)
+	}
+	if !strings.Contains(w.log.String(), "remove "+a.String()) {
+		t.Fatalf("log %q", w.log.String())
+	}
 }
 
 func TestOwedLeavesWithoutRunning(t *testing.T) {
@@ -707,6 +723,9 @@ func TestOwedLeavesWithoutRunning(t *testing.T) {
 	}
 	if leave := w.ends.leaveCalls(); len(leave) != 1 || leave[0] != a.String()+" "+txn {
 		t.Fatalf("leave %q", leave)
+	}
+	if w.team(a).madeFor != w.run {
+		t.Fatalf("the owed team was made for run %v", w.team(a).madeFor)
 	}
 	if w.team(a).didRun() {
 		t.Fatal("an owed team was run")

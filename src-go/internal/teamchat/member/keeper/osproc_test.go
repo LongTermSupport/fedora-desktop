@@ -132,6 +132,46 @@ func TestInotifyWatcher(t *testing.T) {
 	}
 }
 
+// A directory that goes ends its watch with IN_IGNORED; watched again once it is back, its events
+// come on the same channel, from the one reader of the instance.
+func TestInotifyWatchAfterTheDirectoryGoes(t *testing.T) {
+	dir := t.TempDir() + "/desired"
+	mustDo(t, os.Mkdir(dir, 0o700))
+	w, err := newInotify()
+	mustDo(t, err)
+	defer func() { mustDo(t, w.Close()) }()
+	ch, err := w.Watch(dir)
+	mustDo(t, err)
+	mustDo(t, os.Remove(dir))
+	ctx, cancel := context.WithTimeout(context.Background(), bound)
+	defer cancel()
+	await := func(want func(WatchEvent) bool, what string) {
+		t.Helper()
+		for {
+			select {
+			case ev, open := <-ch:
+				if !open {
+					t.Fatalf("the channel closed waiting for %s", what)
+				}
+				if want(ev) {
+					return
+				}
+			case <-ctx.Done():
+				t.Fatalf("no %s", what)
+			}
+		}
+	}
+	await(func(ev WatchEvent) bool { return ev.Op&unix.IN_IGNORED != 0 }, "IN_IGNORED")
+	mustDo(t, os.Mkdir(dir, 0o700))
+	again, err := w.Watch(dir)
+	mustDo(t, err)
+	if again != ch {
+		t.Fatal("a second watch has a channel of its own")
+	}
+	mustDo(t, os.WriteFile(dir+"/desired.json", []byte("{}"), 0o600))
+	await(func(ev WatchEvent) bool { return ev.Name == "desired.json" }, "event after the watch came back")
+}
+
 func TestInotifyWatchRefused(t *testing.T) {
 	w, err := newInotify()
 	mustDo(t, err)

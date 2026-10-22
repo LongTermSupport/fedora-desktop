@@ -103,11 +103,14 @@ func (p *pidfd) wait() {
 }
 
 // inotify is the production Watcher: one inotify instance, non-blocking, so a read waits in
-// the runtime's poller and Close ends it.
+// the runtime's poller and Close ends it. It has one reader at a time: every watch added while
+// it reads shares its channel, and a watch after it ended starts another.
 type inotify struct {
 	f    *os.File
 	done chan struct{}
 	once sync.Once
+	mu   sync.Mutex
+	ch   chan WatchEvent
 }
 
 func newInotify() (*inotify, error) {
@@ -134,9 +137,13 @@ func (w *inotify) Watch(dir string) (<-chan WatchEvent, error) {
 	if werr != nil {
 		return nil, fmt.Errorf("keeper: watch %s: %w", dir, werr)
 	}
-	ch := make(chan WatchEvent, 16)
-	go w.read(ch)
-	return ch, nil
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.ch == nil {
+		w.ch = make(chan WatchEvent, 16)
+		go w.read(w.ch)
+	}
+	return w.ch, nil
 }
 
 func (w *inotify) Close() error {
@@ -144,8 +151,13 @@ func (w *inotify) Close() error {
 	return w.f.Close()
 }
 
-func (w *inotify) read(ch chan<- WatchEvent) {
-	defer close(ch)
+func (w *inotify) read(ch chan WatchEvent) {
+	defer func() {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		w.ch = nil
+		close(ch)
+	}()
 	buf := make([]byte, 64<<10)
 	for {
 		n, err := w.f.Read(buf)

@@ -4,14 +4,17 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix/fakehs"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/bundle"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/homefs"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/records"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
@@ -116,6 +119,30 @@ func TestRefetch(t *testing.T) {
 	}
 }
 
+// A restored item the server will never serve again (404, 403, a room other than main) is
+// team.ErrItemGone, which the engine drops; a transient failure is not (A1).
+func TestARefetchOfAnEventThatIsGoneSaysSo(t *testing.T) {
+	w := newWorld(t)
+	tm := w.newTeam()
+	id := w.say(alice, human("for me", user(me)))
+	missing := "$" + "nosucheventanywhere_aaaaaaaaaaaaaaaaaaaaaaa"
+	refetch := func(room, id string) error { _, err := tm.Refetch(t.Context(), room, id); return err }
+	if err := refetch(proto.PurposeMain, missing); !errors.Is(err, team.ErrItemGone) {
+		t.Errorf("404: %v", err)
+	}
+	if err := refetch(proto.PurposeQuestions, id); !errors.Is(err, team.ErrItemGone) || !isCode(err, exits.CodeUsage) {
+		t.Errorf("questions: %v", err)
+	}
+	w.srv.Inject(fakehs.Fault{Method: http.MethodGet, Path: "/event/", Status: http.StatusForbidden, Body: []byte(`{"errcode":"M_FORBIDDEN","error":"x"}`)})
+	if err := refetch(proto.PurposeMain, id); !errors.Is(err, team.ErrItemGone) {
+		t.Errorf("403: %v", err)
+	}
+	w.srv.Inject(fakehs.Fault{Method: http.MethodGet, Path: "/event/", Status: http.StatusBadGateway, Body: []byte(`{}`), Times: 10})
+	if err := refetch(proto.PurposeMain, id); err == nil || errors.Is(err, team.ErrItemGone) {
+		t.Errorf("502: %v", err)
+	}
+}
+
 // The ends' calls work before Run, on the pair as it reads; with no pair they fail, and the
 // anchors and token are empty.
 func TestNotices(t *testing.T) {
@@ -165,6 +192,39 @@ func TestNotices(t *testing.T) {
 		if !errors.Is(err, bundle.ErrTorn) {
 			t.Errorf("with a torn pair: %v", err)
 		}
+	}
+}
+
+// B 2.2.4's exit table: a verb's homeserver failure is its own exit, never internal: no usable
+// answer is 20 unreachable, a refused token 21, a forbidden room 22, a rate limit 14.
+func TestLN6ServerFailuresAreTheirExits(t *testing.T) {
+	limited := []byte(`{"errcode":"M_LIMIT_EXCEEDED","error":"x","retry_after_ms":0}`)
+	for name, tc := range map[string]struct {
+		fault fakehs.Fault
+		code  string
+	}{
+		"dropped":      {fakehs.Fault{Drop: true, Times: 10}, exits.CodeUnreachable},
+		"bad gateway":  {fakehs.Fault{Status: http.StatusBadGateway, Body: []byte(`{}`), Times: 10}, exits.CodeUnreachable},
+		"token":        {fakehs.Fault{Status: http.StatusUnauthorized, Body: []byte(`{"errcode":"M_UNKNOWN_TOKEN","error":"x"}`)}, exits.CodeToken},
+		"forbidden":    {fakehs.Fault{Status: http.StatusForbidden, Body: []byte(`{"errcode":"M_FORBIDDEN","error":"x"}`)}, exits.CodeForbidden},
+		"rate limited": {fakehs.Fault{Status: http.StatusTooManyRequests, Body: limited, Times: 10}, exits.CodeServerRate},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t)
+			tm := w.newTeam()
+			hid := w.say(alice, human("one"))
+			messages, event := tc.fault, tc.fault
+			messages.Method, messages.Path = http.MethodGet, "/messages"
+			event.Method, event.Path = http.MethodGet, "/event/"
+			w.srv.Inject(messages)
+			w.srv.Inject(event)
+			if _, err := tm.History(t.Context(), proto.PurposeMain, 2); !isCode(err, tc.code) {
+				t.Errorf("History: %v", err)
+			}
+			if _, err := tm.Verify(t.Context(), hid); !isCode(err, tc.code) {
+				t.Errorf("Verify: %v", err)
+			}
+		})
 	}
 }
 
