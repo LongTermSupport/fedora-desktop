@@ -54,6 +54,19 @@ func (s Stamps) Stamped(_ context.Context) ([]Team, error) {
 	return teams, nil
 }
 
+// Origin is one stamped team's origin, as Stamped gives it (lxc.Deps.Origin); a team with no
+// stamp is an error.
+func (s Stamps) Origin(_ context.Context, team paths.TeamID) (string, error) {
+	_, found, err := host.ReadStamp(s.Root, team)
+	if err != nil {
+		return "", err
+	}
+	if !found {
+		return "", fmt.Errorf("health: %s is not stamped", team)
+	}
+	return s.origin(team)
+}
+
 // Stamp is whether team has a stamp.
 func (s Stamps) Stamp(_ context.Context, team paths.TeamID) (bool, error) {
 	_, found, err := host.ReadStamp(s.Root, team)

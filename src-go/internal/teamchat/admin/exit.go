@@ -6,6 +6,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/rooms"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
@@ -16,8 +17,15 @@ import (
 // child's failure is its class's code; drift the rooms engine, apply or the host steps refused,
 // a verb's own refusal, and an approve the gate refused, is 70,
 // a homeserver that did not answer usably or kept rate-limiting is 69, anything else 1. The
-// matrix client's own ExitCode is the member side's table and is not used (n2a-D13).
+// matrix client's own ExitCode is the member side's table and is not used (n2a-D13). An LXC
+// member offline that the run targeted is 69, but only when every joined error is one: else the
+// first error that is not offline decides (n3b-D3).
 func ExitCodeOf(err error) term.ExitCode {
+	if offline(err) {
+		if err = decisive(err); offline(err) {
+			return ExitUnreachable
+		}
+	}
 	if code, ok := verbExit(err); ok {
 		return code
 	}
@@ -55,4 +63,24 @@ func verbExit(err error) (term.ExitCode, bool) {
 		return ExitRefused, true
 	}
 	return 0, false
+}
+
+func offline(err error) bool {
+	e, ok := errors.AsType[*lxc.OfflineError](err)
+	return ok && e != nil
+}
+
+// decisive is n3b-D3's error of a join: the first, depth first, that is not offline, or err when
+// every one is.
+func decisive(err error) error {
+	j, ok := err.(interface{ Unwrap() []error })
+	if !ok {
+		return err
+	}
+	for _, e := range j.Unwrap() {
+		if d := decisive(e); !offline(d) {
+			return d
+		}
+	}
+	return err
 }

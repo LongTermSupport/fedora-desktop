@@ -83,6 +83,28 @@ func TestStampsListsTheStampedTeams(t *testing.T) {
 	}
 }
 
+// Origin is one stamped team's origin, as Stamped gives it; a team with no stamp, or a stamp
+// that does not decode, is an error.
+func TestStampsOriginOfOneTeam(t *testing.T) {
+	root := t.TempDir()
+	s := Stamps{Root: root}
+	if _, err := s.Origin(t.Context(), id(t, "alpha")); err == nil || !strings.Contains(err.Error(), "alpha is not stamped") {
+		t.Fatalf("unstamped: %v", err)
+	}
+	installTeam(t, root, "alpha", "Alpha")
+	installTeam(t, root, "beta", "Beta")
+	writeAt(t, filepath.Join(root, paths.MigrationDir(id(t, "beta")), "state.json"), `{}`)
+	for team, want := range map[string]string{"alpha": status.OriginV2, "beta": status.OriginMigration} {
+		if got, err := s.Origin(t.Context(), id(t, team)); err != nil || got != want {
+			t.Fatalf("%s: %q, %v", team, got, err)
+		}
+	}
+	writeAt(t, filepath.Join(root, paths.StampFile(id(t, "alpha"))), `{`)
+	if _, err := s.Origin(t.Context(), id(t, "alpha")); err == nil {
+		t.Fatal("a stamp that does not decode")
+	}
+}
+
 func TestStampsWithNoTeamsDirectoryIsNone(t *testing.T) {
 	got, err := Stamps{Root: t.TempDir()}.Stamped(context.Background())
 	if err != nil || len(got) != 0 {
