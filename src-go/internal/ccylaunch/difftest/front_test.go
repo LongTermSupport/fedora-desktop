@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccylaunch"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccylaunch/difftest/pinclock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
 
@@ -37,9 +38,13 @@ func runFront() int {
 			version = string(m[1])
 		}
 	}
+	clock, err := pinclock.FromEnv()
+	if err != nil {
+		return brokenFake(frontName, err)
+	}
 	front := ccylaunch.Front{
 		Version: version, Self: self, Args: os.Args[1:], Environ: os.Environ(), LookPath: exec.LookPath,
-		Runner: execx.OS{}, Execer: execx.OS{}, Stdout: os.Stdout, Stderr: os.Stderr,
+		Runner: execx.OS{}, Execer: execx.OS{}, Stdout: os.Stdout, Stderr: os.Stderr, Clock: clock,
 	}
 	return int(front.Run(context.Background()))
 }

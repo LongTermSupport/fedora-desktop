@@ -30,9 +30,16 @@ func run(args []string, version string) term.ExitCode {
 		}
 		return term.ExitFailure
 	}
+	c, err := clock()
+	if err != nil {
+		if _, werr := fmt.Fprintf(os.Stderr, "ccy: %v\n", err); werr != nil {
+			return term.ExitFailure
+		}
+		return term.ExitFailure
+	}
 	front := ccylaunch.Front{
 		Version: version, Self: self, Args: args, Environ: os.Environ(), LookPath: exec.LookPath,
-		Runner: execx.OS{}, Execer: execx.OS{}, Stdout: os.Stdout, Stderr: os.Stderr,
+		Runner: execx.OS{}, Execer: execx.OS{}, Stdout: os.Stdout, Stderr: os.Stderr, Clock: c,
 	}
 	return front.Run(context.Background())
 }

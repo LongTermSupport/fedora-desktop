@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.14.5 — container 2.78.14
+
+Follows 3.99.14.4. The image is unchanged, so there is no rebuild.
+
+- **`ccy --list-tokens` is answered by the Go front.** The output is the bash launcher's, byte
+  for byte, expiry colours included (they are printed whatever the output is, as the bash
+  prints them). The front hands the run to the bash wherever the two could differ: a token file
+  name the bash reads another way, an entry that is not a regular file, a collation other than
+  C that could sort the pool otherwise, a zone setting Go reads otherwise, the day the clocks
+  change, or a bash of another version beside it. `--list-tokens` with other options is the
+  bash's, as before.
+
 ## 3.99.14.4 — container 2.78.14
 
 Follows 3.99.14.3. The image is unchanged, so there is no rebuild.
