@@ -1678,8 +1678,8 @@ banner prints it verbatim, so it must stay short.
 
 The launcher is being ported to Go one flag at a time (Plan 00191). `/var/local/claude-yolo/claude-yolo`
 is a Go program that answers `--version`, `--help`, `--list-tokens` (on its own) and
-`--token-usage [--json]` itself, with the bash launcher's output (and the same usage cache and
-API call, the token fed to curl on its stdin), and runs the bash launcher,
+`--token-usage [--json]` itself, with the bash launcher's output (and the same JSON document,
+usage cache and API call, the token fed to curl on its stdin), and runs the bash launcher,
 installed beside it as `claude-yolo.bash`, for everything else, with the same arguments and
 environment plus `CCY_LAUNCHER_FRONT`, its own path. The bash launcher reads that once, takes
 it only if it is the `claude-yolo` beside it, and unsets it before it starts tmux, the engine
@@ -1688,8 +1688,11 @@ a restore or a team restart), a restart and the custom-Dockerfile modes run the 
 again. Both carry the same `CCY_VERSION`; the Go program refuses `--version` and
 `--help` if they differ (re-run `play-claude-yolo.yml`), and hands its other flags to the bash;
 `Hash:` is the bash launcher's own hash, the one Quick Launch files keep. Wherever the bash
-could answer a flag differently (an unusual token file name, a non-C collation, the day the
-clocks change), the Go program hands that run to the bash as well.
+could read a token file, setting or cache entry with another meaning (an undated or unusual
+token file name, a setting outside plain ASCII), the Go program hands that run to the bash as
+well. In display it is its own: the token list is in plain byte order and coloured only on a
+terminal (`NO_COLOR` turns colour off), whatever the locale; the package doc of
+`src-go/internal/ccylaunch` lists each such difference (D1 to D9).
 
 If the Go program misbehaves, run any `ccy` command with **`CCY_LEGACY=1`** (for example
 `CCY_LEGACY=1 ccy --version`, or `export CCY_LEGACY=1` in your shell) and every run goes
