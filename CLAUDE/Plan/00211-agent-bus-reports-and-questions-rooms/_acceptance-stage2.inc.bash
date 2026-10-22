@@ -35,8 +35,12 @@ stage2_value() {
 # log there (inbox.py), which WHERE_PY is handed; and the human's Element acceptance record and
 # the Flatpak Element profile under a home (config.py), which the A3 fixture writes.
 TEAM_STATE_DIR="$(stage2_value helpers/pingbus/config.py STATE_DIR)"
-INBOX_NAMES=("$(stage2_value helpers/pingbus/inbox.py INBOX_DIR)" "$(stage2_value helpers/pingbus/inbox.py CONSUMED_DIR)"
-    "$(stage2_value helpers/pingbus/inbox.py DROPPED_LOG)")
+# One read per assignment: in an array literal only the last substitution's status reaches errexit.
+INBOX_NAMES=()
+for inbox_name in INBOX_DIR CONSUMED_DIR DROPPED_LOG; do
+    INBOX_NAMES+=("$(stage2_value helpers/pingbus/inbox.py "${inbox_name}")")
+done
+unset inbox_name
 ELEMENT_ACCEPTED_DIR="$(stage2_value helpers/pingbus/config.py ELEMENT_ACCEPTED_DIR)"
 ELEMENT_ACCEPTED_FILE="$(stage2_value helpers/pingbus/config.py ELEMENT_ACCEPTED_FILE)"
 ELEMENT_FLATPAK_DIR="$(stage2_value helpers/pingbus/config.py ELEMENT_FLATPAK_DIR)"
