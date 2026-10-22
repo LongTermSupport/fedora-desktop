@@ -47,7 +47,23 @@ HANDLE_RE = re.compile(
 
 class PrefixTest(unittest.TestCase):
     def test_prefix_is_the_protocol_one(self) -> None:
-        self.assertEqual(tp.PREFIX, "agent_bus")
+        """Read from this checkout's helpers/pingbus/protocol.py, not copied."""
+        self.assertEqual(tp.prefix(), "agent_bus")
+        self.assertEqual(tp.ping_content("review", None, ["@a:x"])["agent_bus.ping"]["verb"], "review")
+
+
+class TuwunelPinTest(unittest.TestCase):
+    def test_the_default_version_is_the_checkout_pin(self) -> None:
+        pin = (tp._checkout_root() / tp.TUWUNEL_PIN).read_text(encoding="utf-8")
+        version = tp.pinned_tuwunel_version()
+        self.assertIn(f"\ntuwunel_version: {version}\n", pin)
+        self.assertRegex(version, r"^v[0-9]+\.[0-9]+\.[0-9]+$")
+
+    def test_the_pin_is_parsed_narrowly(self) -> None:
+        self.assertEqual(tp.pinned_tuwunel_version("# tuwunel_version: v0\ntuwunel_version: v2.0.1\n"), "v2.0.1")
+        for broken in ("", "tuwunel_version:\n", "tuwunel_version: v1\ntuwunel_version: v2\n"):
+            with self.assertRaises(tp.ProbeError):
+                tp.pinned_tuwunel_version(broken)
 
     def test_server_name_is_reserved_internal(self) -> None:
         self.assertTrue(tp.PROBE_SERVER_NAME.endswith(".agent-bus.internal"))
@@ -176,30 +192,16 @@ class RegistrationMacTest(unittest.TestCase):
 
 
 class PowerLevelsTest(unittest.TestCase):
-    def test_team_room_levels_are_exactly_protocol_section_8(self) -> None:
+    def test_team_room_levels_are_the_ones_pingbus_trusts(self) -> None:
+        """The levels are this checkout's protocol.expected_power_levels, which its own
+        check_power_levels accepts: never a copy of PROTOCOL.md section 8 that could drift."""
         human = "@probehuman:probe.agent-bus.internal"
-        self.assertEqual(
-            tp.team_power_levels([human]),
-            {
-                "users": {human: 50},
-                "users_default": 0,
-                "events_default": 0,
-                "state_default": 100,
-                "invite": 100,
-                "kick": 100,
-                "ban": 100,
-                "redact": 100,
-                "notifications": {"room": 50},
-                "events": {
-                    "m.room.power_levels": 100,
-                    "m.room.tombstone": 150,
-                    "m.room.redaction": 100,
-                    "m.reaction": 50,
-                    "m.sticker": 100,
-                    "agent_bus.status": 0,
-                },
-            },
-        )
+        protocol = tp._protocol()
+        levels = tp.team_power_levels([human])
+        self.assertEqual(levels, protocol.expected_power_levels([human]))
+        protocol.check_power_levels(levels, [human])
+        self.assertIn(human, levels["users"])
+        self.assertIn(f"{tp.prefix()}.status", levels["events"])
 
 
 class HandleTest(unittest.TestCase):

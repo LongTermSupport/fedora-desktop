@@ -71,9 +71,10 @@ _GITHUB_RE = re.compile(
     r"(?P<owner>[A-Za-z0-9-]+)/[A-Za-z0-9._-]+?(?:\.git)?/?"
 )
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
-#: How `pingbus status-line` starts its teams row, and indents a wrapped one under it.
-SEGMENT_LABEL = "👥 "
-SEGMENT_INDENT = "   "
+#: The Go `pingbus-status-line` that draws the segment, in this checkout; its `label` constant
+#: is read from the source, not copied (expect-segment runs on the host).
+STATUS_LINE_GO = pathlib.PurePosixPath("src-go/internal/pingbus/statusline/statusline.go")
+_GO_LABEL_RE = re.compile(r'^\s*label\s*=\s*"([^"\\]+)"\s*$', re.MULTILINE)
 #: One team of the segment: its name, the role it was read to have, then its marks.
 _SEGMENT_TEAM_RE = re.compile(r"(?P<team>[a-z][a-z0-9-]*) \((?:worker|coordinator)\)(?: \([a-z]+\))*")
 #: pingbus cli.py, word for word: the refusal when several teams are active and none is inferred.
@@ -534,22 +535,38 @@ def session_status_line(proc: pathlib.Path, payload: bytes) -> str:
     return text.rstrip("\n")
 
 
-def expect_segment(text: str, teams: str) -> None:
+def segment_label(source: str | None = None) -> tuple[str, str]:
+    """How the status line starts its teams row and indents a wrapped one under it: the Go
+    drawer's `label` constant (read from `source`, default this checkout's statusline.go) and a
+    space, and as many spaces as that takes columns, by helpers/pingbus/statusline.py's
+    display_width, the reference Go's displayWidth is the port of."""
+    if source is None:
+        source = (_checkout_root() / STATUS_LINE_GO).read_text(encoding="utf-8")
+    found = _GO_LABEL_RE.findall(source)
+    if len(found) != 1:
+        raise Failed(f"want exactly one `label = \"...\"` constant in {STATUS_LINE_GO}, found {found!r}")
+    head = f"{found[0]} "
+    return head, " " * _checkout_module("helpers.pingbus.statusline").display_width(head)
+
+
+def expect_segment(text: str, teams: str, label: tuple[str, str] | None = None) -> None:
     """`pingbus status-line` prints the session's own status line, then `👥 TEAMS` on rows of its
     own: the first row starts with the label, later rows are indented under it (it wraps after a
     comma at COLUMNS). Each team is `team (role)`, then any marks such as `(down)`, its role one
-    that was read (Plan 00203 Task 3.8); TEAMS is the team names alone, comma-separated."""
+    that was read (Plan 00203 Task 3.8); TEAMS is the team names alone, comma-separated. `label`
+    is (head, indent), default segment_label()."""
+    head, indent = segment_label() if label is None else label
     lines = _ANSI_RE.sub("", text).strip("\n").splitlines()
-    starts = [index for index, line in enumerate(lines) if line.startswith(SEGMENT_LABEL)]
+    starts = [index for index, line in enumerate(lines) if line.startswith(head)]
     first = starts[-1] if starts else len(lines)
     inner, rows = lines[:first], lines[first:]
     shown = None
-    if rows and all(row.startswith(SEGMENT_INDENT) and row.strip() for row in rows[1:]):
-        joined = " ".join([rows[0].removeprefix(SEGMENT_LABEL), *(row.removeprefix(SEGMENT_INDENT) for row in rows[1:])])
+    if rows and all(row.startswith(indent) and row.strip() for row in rows[1:]):
+        joined = " ".join([rows[0].removeprefix(head), *(row.removeprefix(indent) for row in rows[1:])])
         pieces = [_SEGMENT_TEAM_RE.fullmatch(piece.strip()) for piece in joined.split(",")]
         shown = ",".join(match["team"] for match in pieces if match) if all(pieces) else None
     if not any(line.strip() for line in inner) or shown != teams:
-        raise Failed(f"the status line is {lines!r}, want the session's own line then {SEGMENT_LABEL}"
+        raise Failed(f"the status line is {lines!r}, want the session's own line then {head}"
                      f"{', '.join(f'{team} (worker|coordinator)' for team in teams.split(','))}")
 
 

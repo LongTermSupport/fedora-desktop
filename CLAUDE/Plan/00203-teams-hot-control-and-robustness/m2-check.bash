@@ -34,6 +34,14 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly PROBE_REL="CLAUDE/Plan/${HERE#*/CLAUDE/Plan/}/m2_inbound.py"
 #: The bus-process probe, likewise.
 readonly PROCS_REL="CLAUDE/Plan/${HERE#*/CLAUDE/Plan/}/m2_procs.py"
+# The checkout's top, by PlanScriptStandards R1's bounded walk.
+repoRoot="${HERE}"
+while [[ "${repoRoot}" != "/" ]] && [[ ! -e "${repoRoot}/ansible.cfg" ]]; do
+    [[ ! -e "${repoRoot}/.git" ]] || { echo "ERROR: no ansible.cfg between ${HERE} and the repo root ${repoRoot}" >&2; exit 1; }
+    repoRoot="$(dirname "${repoRoot}")"
+done
+[[ -e "${repoRoot}/ansible.cfg" ]] || { echo "ERROR: no ansible.cfg above ${HERE}" >&2; exit 1; }
+readonly repoRoot
 
 fail() {
     printf '[FAIL] %s\n' "$*" >&2
@@ -104,7 +112,7 @@ write_fails() {
 }
 
 cmd_plain() {
-    local ctr="${1:?plain needs the container}" json settings out rc=0
+    local ctr="${1:?plain needs the container}" json settings out guard rc=0
     json="$(podman exec "${ctr}" cat "${MOUNT}/membership.json")"
     [[ "$(jq -r '.v, (.seats | length)' <<<"${json}" | paste -sd' ')" == "1 0" ]] \
         || fail "the plain session's membership is not version 1 with no seat: ${json}"
@@ -115,8 +123,12 @@ cmd_plain() {
     [[ "$(podman exec "${ctr}" cat "${MOUNT}/membership.json")" == "${json}" ]] || fail "the membership changed"
     if podman exec "${ctr}" test -e "${HOME_IN}/active"; then fail "the plain session has the active flag"; fi
     settings="$(podman exec "${ctr}" cat "${HOME_IN}/settings.json")"
-    jq -e '.statusLine.command | startswith("[ -e \"$PINGBUS_HOME/active\" ] || exec sh")' <<<"${settings}" >/dev/null \
-        || fail "the session's status line is not the shell guard (H34): ${settings}"
+    # The guard is this checkout's seat.py STATUS_LINE_GUARD, read from it rather than copied.
+    guard="$(python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); from helpers.pingbus import seat; print(seat.STATUS_LINE_GUARD)' "${repoRoot}")" \
+        || fail "STATUS_LINE_GUARD cannot be read from ${repoRoot}/helpers/pingbus/seat.py (above)"
+    [[ -n "${guard}" ]] || fail "${repoRoot}/helpers/pingbus/seat.py has an empty STATUS_LINE_GUARD"
+    jq -e --arg guard "${guard}" '.statusLine.command == $guard' <<<"${settings}" >/dev/null \
+        || fail "the session's status line is not the shell guard this checkout's seat.py writes (H34), ${guard}: ${settings}"
     ok "(b) no active flag; the status line is the guard, so it runs the session's own: $(podman exec "${ctr}" cat "${HOME_IN}/statusline-inner")"
     # Decision 1 (H34): Claude Code binds its inbox socket in every session, so the socket
     # proves nothing; what claude was started with decides whether a message on it is a turn.

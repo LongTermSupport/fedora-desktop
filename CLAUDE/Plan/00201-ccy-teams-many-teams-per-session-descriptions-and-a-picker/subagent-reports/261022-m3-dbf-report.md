@@ -66,8 +66,11 @@ on what is an instance; the rule stays narrower than the class, and the excess i
 
 ## Sweep and count
 
-Scope: every `.py` and bash file in active plan folders (`JOURNAL/`, `subagent-reports/`
-excluded; completed plans are not runnable). 4 findings at the red, 0 at the green.
+Scope: every `.py` and bash file in active plan folders, `tests/` and `scripts/` (the test
+suites; widened after conformance round 1, with no new finding). Excluded: `JOURNAL/` and
+`subagent-reports/` (records), completed plans (they cannot be run), and the rule's own
+fixtures. The independent search read the plan folders only. 4 findings at the red, 0 at the
+green.
 
 ## Fixes
 
@@ -80,15 +83,25 @@ neither can be stale; `DESCRIPTION_MAX` is read from `protocol.py`. `goodbye_che
 `DISCONNECT_TEXT` are read from pingbus. Both import from the checkout lazily through the repo
 root, as `m7_check.py` already did for `declare.py`; both run on the host.
 
+After conformance round 1, the search's other 11 copies of named or computed values were
+fixed too, each examined individually and none by pattern, with no product code changed:
+A3, A6, A9-A14 and A16-A18 (`261022-m3-referred-fixes.md`). Each now reads its value from the
+product source: a Python import, an `ast` parse where the checker runs in a container with only
+`/workspace`, or a narrow read of a Go const or a bash `readonly`. Each one's tests cover the
+read. The drifted Tuwunel pin is now v1.9.4, read from `tuwunel.pin`.
+
 ## Decisions referred to the owner
 
-The search's remaining instances: 11 named or computed values (A3, A6, A9-A14, A16-A18) and
-16 inline texts (A4, A5, B2-B15, B9 in part), plus A15 whose subject is a plan script. One is
-drifted: Plan 00161 `triage_probe.py` pins Tuwunel v1.9.3, the product v1.9.4 (a triage
-default with an override). Fixing the inline texts needs the product to name each text as a
-constant first; several checkers run in a container with no checkout (A6). Recorded in Plan
-00201 Task 2.21. Not merged weakened: the rule as built is sound for what it claims, and the
-excess is a referral, not an exclusion.
+Count fixed: every named or computed copy (16 rows) plus `DISCONNECT_TEXT`. Count remaining:
+the 16 copies of inline message or command text (A4, A5, B2-B15, B9 in part); A15's subject is a
+plan script, not product. What stopped me: each text lives inside a product call, not in a
+named value, so the checker can read it only once the product names it. That changes deployed
+code (pingbus, Go tools, run.bash, the speech-to-text extension), needs their version bumps and
+host deploys, and is a product change made for the checkers' sake, which is the owner's call.
+What to try next: name each text as a constant in its product module, then have the checker
+read it, plan by plan, when that plan's checker next runs. Recorded in Plan 00201 Task 2.21.
+The rule is merged as it stands: it is sound for what it claims. The excess is a referral, not
+an exclusion.
 
 ## Permanence
 
@@ -100,6 +113,20 @@ the module run and `./scripts/qa-changed.bash` (rc 0).
 
 No manifest declaration; no register-graded detector for this, so the rule is a Python test
 reading Python and bash.
+
+Gaps in the project's toolchain, recorded here and not closed, because gates are outside this
+remediation:
+
+- `qa-changed.bash` reruns a `tests/helpers` rule only when the rule module changes, so a new
+  copy in a scanned checker is caught only by `qa-all.bash` and CI.
+- No QA gate runs a plan's checker tests (`test_m7_check.py`, `test_goodbye_check.py` and the
+  others touched here). They were run by hand at the tip, all passing.
+- The QA.md section arrived in the fix commit, not the red `2722a74c6`, so at the red the
+  printed identifier resolved only to the test module's docstring.
+
+Reviews: conformance round 1 (Plan 00211 `subagent-reports/261022-a3-m3-conformance-round1.md`,
+NOT YET CONFORMING; its major finding answered by the fixes above) and Opus round 1
+(`261022-a3-m3-review-round1.md`, MERGE).
 
 ## The original defect
 

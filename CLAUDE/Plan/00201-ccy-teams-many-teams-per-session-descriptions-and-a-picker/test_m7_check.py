@@ -421,6 +421,17 @@ class SegmentTest(TempDir):
         self.assertEqual(run("expect-segment", unindented, "a,b")[0], 1)
         self.assertEqual(run("expect-segment", broken, "a,b")[0], 1)
 
+    def test_the_label_is_read_from_the_go_drawer(self) -> None:
+        """The label is the Go statusline's `label` constant and the indent its display width:
+        this checkout's, and a changed one followed rather than failed."""
+        self.assertEqual(mc.segment_label(), ("👥 ", "   "))
+        self.assertEqual(mc.segment_label('const (\n\tlabel       = "T"\n\tother = "x"\n)\n'), ("T ", "  "))
+        mc.expect_segment("model\nT a (worker),\n  b (worker)\n", "a,b", label=("T ", "  "))
+        with self.assertRaises(mc.Failed):
+            mc.segment_label('const (\n\tnolabel = "T"\n)\n')
+        with self.assertRaises(mc.Failed):
+            mc.segment_label('label = "A"\nlabel = "B"\n')
+
     def test_expect_session_settings(self) -> None:
         """What a seated session's settings must hold is what this checkout's seat.py writes,
         never a copy: the copy said `exec pingbus status-line` after Plan 00213 made the kit

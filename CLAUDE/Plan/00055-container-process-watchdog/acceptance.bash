@@ -140,6 +140,19 @@ if ! REPO_ROOT="$(cd "$SCRIPT_DIR" && git rev-parse --show-toplevel 2>&1)"; then
     exit 1
 fi
 
+# The DBus interface and signal the watchdog emits, read from this checkout's
+# helpers/containerwatch/cli.py (DBUS_INTERFACE, DBUS_SIGNAL) rather than copied.
+if ! cw_dbus_names="$(python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); from helpers.containerwatch import cli; print(cli.DBUS_INTERFACE); print(cli.DBUS_SIGNAL)' "$REPO_ROOT")"; then
+    echo "Cannot read DBUS_INTERFACE and DBUS_SIGNAL from $REPO_ROOT/helpers/containerwatch/cli.py (above)" >&2
+    exit 1
+fi
+mapfile -t cw_dbus <<<"$cw_dbus_names"
+if [ "${#cw_dbus[@]}" -ne 2 ] || [ -z "${cw_dbus[0]}" ] || [ -z "${cw_dbus[1]}" ]; then
+    echo "helpers/containerwatch/cli.py gave no DBus interface and signal: $cw_dbus_names" >&2
+    exit 1
+fi
+readonly CW_DBUS_INTERFACE="${cw_dbus[0]}" CW_DBUS_SIGNAL="${cw_dbus[1]}"
+
 # Resolve the CLI robustly: prefer the deployed wrapper on PATH; else the module
 # form. CW[] is the argv prefix every invocation reuses.
 declare -a CW
@@ -576,7 +589,7 @@ run_lxc_block() {
 # Cross-cutting: DBus emission on a PRIVATE session bus.
 # =========================================================================== #
 run_dbus_block() {
-    hdr "DBus — FindingsChanged fires on the session bus"
+    hdr "DBus — $CW_DBUS_SIGNAL fires on the session bus"
 
     if ! command -v gdbus >/dev/null; then
         skip "DBus: gdbus not present — skipping DBus emission check"
@@ -624,11 +637,11 @@ JSON
     # Only $cw_quoted is spliced in via an outer expansion. SC2016 is therefore
     # the intended behaviour, not a bug.
     # shellcheck disable=SC2016
-    CW_BUS_FIXTURE="$fixture" CW_BUS_MON="$monitor_out" CW_BUS_SCAN="$scan_out" \
+    CW_BUS_DEST="$CW_DBUS_INTERFACE" CW_BUS_FIXTURE="$fixture" CW_BUS_MON="$monitor_out" CW_BUS_SCAN="$scan_out" \
     dbus-run-session -- bash -c '
         set -uo pipefail
         gdbus monitor --session \
-            --dest org.fedoradesktop.ContainerWatch \
+            --dest "$CW_BUS_DEST" \
             > "$CW_BUS_MON" 2>&1 &
         mon_pid=$!
         # Give the monitor a beat to subscribe.
@@ -648,10 +661,10 @@ JSON
         fail "DBus: private-session driver / scan exited non-zero ($rc)"
         echo "  --- scan output ---" >&2
         while IFS= read -r line; do echo "    $line" >&2; done < "$scan_out"
-    elif grep -q 'FindingsChanged' "$monitor_out"; then
-        pass "DBus: FindingsChanged signal observed on the session bus"
+    elif grep -qF -- "$CW_DBUS_SIGNAL" "$monitor_out"; then
+        pass "DBus: $CW_DBUS_SIGNAL signal observed on the session bus"
     else
-        fail "DBus: FindingsChanged NOT observed — monitor capture follows"
+        fail "DBus: $CW_DBUS_SIGNAL NOT observed — monitor capture follows"
         echo "  --- gdbus monitor capture ---" >&2
         while IFS= read -r line; do echo "    $line" >&2; done < "$monitor_out"
     fi

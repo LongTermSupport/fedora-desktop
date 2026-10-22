@@ -33,6 +33,7 @@ import contextlib
 import dataclasses
 import hashlib
 import hmac
+import importlib
 import ipaddress
 import json
 import os
@@ -54,9 +55,9 @@ from collections import Counter
 from collections.abc import Callable, Iterator
 from typing import Any
 
-PREFIX = "agent_bus"
 PROBE_SERVER_NAME = "probe.agent-bus.internal"
-TUWUNEL_VERSION = "v1.9.3"
+#: The Tuwunel pin agent-bus-install installs, in this checkout (declare.py's PIN_FILE).
+TUWUNEL_PIN = pathlib.PurePosixPath("files/usr/local/share/agent-bus/tuwunel.pin")
 RELEASE_API = "https://api.github.com/repos/matrix-construct/tuwunel/releases/tags/{version}"
 UNKNOWN_KEY = "agent_bus_probe_unknown_key"
 # Response fields that carry a credential; every value found must be a registered secret.
@@ -171,27 +172,44 @@ def registration_mac(secret: str, nonce: str, user: str, password: str, admin: b
     return hmac.new(secret.encode(), message, hashlib.sha1).hexdigest()
 
 
+def _checkout_root() -> pathlib.Path:
+    """This checkout's top: the first directory above this file holding ansible.cfg."""
+    here = pathlib.Path(__file__).resolve().parent
+    for candidate in (here, *here.parents):
+        if (candidate / "ansible.cfg").exists():
+            return candidate
+        if (candidate / ".git").exists():
+            break
+    raise ProbeError(f"no ansible.cfg above {here}: not inside a fedora-desktop checkout")
+
+
+def _protocol() -> Any:
+    """This checkout's helpers/pingbus/protocol.py, imported when a leg first needs it."""
+    root = str(_checkout_root())
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    return importlib.import_module("helpers.pingbus.protocol")
+
+
+def prefix() -> str:
+    """The protocol's event type and content key prefix (PROTOCOL.md section 2)."""
+    return _protocol().PREFIX
+
+
+def pinned_tuwunel_version(text: str | None = None) -> str:
+    """The `tuwunel_version:` of the pin (`text`, default this checkout's pin file), read as
+    declare.py reads it."""
+    if text is None:
+        text = (_checkout_root() / TUWUNEL_PIN).read_text(encoding="utf-8")
+    versions = [line.partition(":")[2].strip() for line in text.splitlines() if line.startswith("tuwunel_version:")]
+    if len(versions) != 1 or not versions[0]:
+        raise ProbeError(f"{TUWUNEL_PIN} names no single tuwunel_version: {versions!r}")
+    return versions[0]
+
+
 def team_power_levels(humans: list[str]) -> dict[str, Any]:
-    """PROTOCOL.md section 8, exactly."""
-    return {
-        "users": {human: 50 for human in humans},
-        "users_default": 0,
-        "events_default": 0,
-        "state_default": 100,
-        "invite": 100,
-        "kick": 100,
-        "ban": 100,
-        "redact": 100,
-        "notifications": {"room": 50},
-        "events": {
-            "m.room.power_levels": 100,
-            "m.room.tombstone": 150,
-            "m.room.redaction": 100,
-            "m.reaction": 50,
-            "m.sticker": 100,
-            f"{PREFIX}.status": 0,
-        },
-    }
+    """PROTOCOL.md section 8, exactly: the levels pingbus trusts (expected_power_levels)."""
+    return _protocol().expected_power_levels(humans)
 
 
 def probe_handle(n: int, sep: str) -> str:
@@ -212,7 +230,7 @@ def ping_content(verb: str, ref: str | None, to: list[str]) -> dict[str, Any]:
         "msgtype": "m.notice",
         "body": body,
         "m.mentions": {"user_ids": targets},
-        f"{PREFIX}.ping": ping,
+        f"{prefix()}.ping": ping,
     }
 
 
@@ -863,7 +881,7 @@ def leg_h3_asset(args: argparse.Namespace, report: Report) -> None:
 
 
 def _sync_filter(room: str, limit: int) -> str:
-    types = [f"{PREFIX}.team", f"{PREFIX}.status"]
+    types = [f"{prefix()}.team", f"{prefix()}.status"]
     return json.dumps(
         {
             "presence": {"types": []},
@@ -1083,7 +1101,7 @@ class _Flows:
                 "topic": "agent bus probe",
                 "room_version": "12",
                 "power_level_content_override": team_power_levels([human]),
-                "initial_state": [{"type": f"{PREFIX}.team", "state_key": "", "content": record}],
+                "initial_state": [{"type": f"{prefix()}.team", "state_key": "", "content": record}],
             },
             token=admin, expect=200,
         )
@@ -1100,7 +1118,7 @@ class _Flows:
             token=admin, expect=200,
         )
         self.fact("power levels read back equal PROTOCOL §8", levels == team_power_levels([human]))
-        call("state-team-record", "GET", f"/_matrix/client/v3/rooms/{rq}/state/{PREFIX}.team/",
+        call("state-team-record", "GET", f"/_matrix/client/v3/rooms/{rq}/state/{prefix()}.team/",
              token=admin, expect=200)
         for label, uid in (("sender", sender), ("receiver", receiver), ("human", human)):
             call(f"invite-{label}", "POST", f"/_matrix/client/v3/rooms/{rq}/invite",
@@ -1151,9 +1169,9 @@ class _Flows:
         status_content = {"v": 1, "state": "listening", "until": int(time.time() * 1000) + 600_000}
         for name, key in (("status-own-key", sender), ("status-other-at-key", receiver),
                           ("status-non-at-key", "probe")):
-            status, _ = call(name, "PUT", f"/_matrix/client/v3/rooms/{rq}/state/{PREFIX}.status/{q(key)}",
+            status, _ = call(name, "PUT", f"/_matrix/client/v3/rooms/{rq}/state/{prefix()}.status/{q(key)}",
                              status_content, token=self.tokens["sender"])
-            self.fact(f"`{PREFIX}.status` {name}", status)
+            self.fact(f"`{prefix()}.status` {name}", status)
         for name, who, method, path, body in (
             ("agent-sets-room-name", "sender", "PUT", f"/rooms/{rq}/state/m.room.name/", {"name": "x"}),
             ("human-sets-topic", "human", "PUT", f"/rooms/{rq}/state/m.room.topic/", {"topic": "x"}),
@@ -1707,8 +1725,13 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--bus-address", default="")
     parser.add_argument("--docker-image", default="")
     parser.add_argument("--element-seconds", type=int, default=60)
-    parser.add_argument("--tuwunel-version", default=TUWUNEL_VERSION)
+    parser.add_argument("--tuwunel-version", default="", help="default: the checkout's pin")
     args = parser.parse_args(argv)
+    if not args.tuwunel_version:
+        try:
+            args.tuwunel_version = pinned_tuwunel_version()
+        except (ProbeError, OSError) as error:
+            parser.error(f"the Tuwunel version: {error}")
     for name in ("scratch", "fixtures"):
         if getattr(args, name):
             setattr(args, name, str(pathlib.Path(getattr(args, name)).resolve()))

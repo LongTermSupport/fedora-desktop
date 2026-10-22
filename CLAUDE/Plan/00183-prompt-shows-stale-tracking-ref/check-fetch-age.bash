@@ -25,7 +25,35 @@ readonly BIN="${CHECK_FETCH_AGE_BIN:-/usr/local/bin/git-fetch-age}"
 readonly PROMPT_FILE=/var/local/ps1-prompt
 readonly FETCHER="${CHECK_PROMPT_FETCH_BIN:-/usr/local/bin/git-prompt-fetch}"
 readonly GITPROMPT="${HOME}/.bash-git-prompt/gitprompt.sh"
-readonly FAILED_MARK=' [fetch failed or running]'
+
+# The repo root, by PlanScriptStandards R1's bounded walk: git-fetch-age's own source is there.
+scriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+repoRoot="${scriptDir}"
+while [[ "${repoRoot}" != "/" ]] && [[ ! -e "${repoRoot}/ansible.cfg" ]]; do
+    if [[ -e "${repoRoot}/.git" ]]; then
+        printf '[FATAL] no ansible.cfg between %s and the repo root %s\n' "${scriptDir}" "${repoRoot}" >&2
+        exit 1
+    fi
+    repoRoot="$(dirname "${repoRoot}")"
+done
+[[ -e "${repoRoot}/ansible.cfg" ]] || { printf '[FATAL] no ansible.cfg above %s\n' "${scriptDir}" >&2; exit 1; }
+readonly FETCHAGE_GO="${repoRoot}/src-go/internal/fetchage/fetchage.go"
+
+# The failed-fetch mark is git-fetch-age's FailedMark constant, read from its Go source rather
+# than copied: exactly one `const FailedMark = "..."` line, with no escape in the string.
+FAILED_MARK=""
+marks=0
+while IFS= read -r line; do
+    if [[ "${line}" =~ ^const\ FailedMark\ =\ \"([^\"\\]*)\"$ ]]; then
+        FAILED_MARK="${BASH_REMATCH[1]}"
+        marks=$((marks + 1))
+    fi
+done <"${FETCHAGE_GO}"
+if [[ "${marks}" -ne 1 || -z "${FAILED_MARK}" ]]; then
+    printf '[FATAL] want exactly one plain const FailedMark = "..." in %s, found %s\n' "${FETCHAGE_GO}" "${marks}" >&2
+    exit 1
+fi
+readonly FAILED_MARK
 
 scratch="$(mktemp -d)"
 cleanup() { rm -rf "${scratch}"; }
