@@ -43,6 +43,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_package_tests`   | a package with no `_test.go` file, whose code the module-wide coverage floor can hide behind the rest of the module                       | the old Go gate's every-package-has-tests check, kept when go-qa-ci replaced it |
 | `project_homeabbrev`      | a hand-rolled `~` home abbreviation (a bare prefix replace turned `/home/<user>X` into `~X`)                                              | `teams` tests: `strings.Replace(..., "~", 1)` twice                             |
 | `project_hidden_bindings` | an action reachable only by a key, with no visible, named choice for it (also in shell fzf and Python Textual: `qa-hidden-bindings.bash`) | `teams` picker: Ctrl-A/X/O on Running sessions; `ccy-sessions`: Ctrl-T/X/N      |
+| `project_lifecycle_turn`  | a member's lifecycle notice decided from a read of main and posted outside the team's turn, so another post of the run can come between   | teamchat `ends`: `back` posted after the run's own `disconnected` (Plan 00209)  |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -392,6 +393,37 @@ are the bindings handed to the help view in `View`), which would tie the Tab exc
 hint on the same screen rather than to the package. Not built yet: it needs the two methods of
 one model read together, and `internal/ui/pathinput` is its only case; Plan 00204 Task 2.4
 tracks it.
+
+### project_lifecycle_turn
+
+In teamchat's ends package (`internal/teamchat/member/ends`), a use of `notice.LatestOwn`,
+`notice.Disconnected` or `notice.Client`'s `Messages` or `Send` (so `team.Notices`' too) that is
+not inside a function argument of the package's `turn` method, or of a package function that
+reaches one outside a turn. A run's lifecycle notices are posted from several goroutines (back
+from the team's goroutine at the run's start, the end from the link's finish, a leave from a
+removal), and back is decided from what main says: read outside the turn, the decision can be
+overtaken. `(*ends).turn(ctx, team, fn)` runs one lifecycle step per team at a time, and an end
+or a leave refuses a back still to come. A helper is judged where it is used; a function literal
+started by `go` or handed to a method named `Go` is outside the turn even when written inside it.
+
+- Red, fixture: `testdata/src/fix/internal/teamchat/member/ends` (`bad.go`: the original
+  `Back`, a read and a post outside the turn, an end through a helper, `notice.Disconnected`;
+  `evade.go`: an import alias, a method value of `Send` and of a helper, a goroutine and a
+  `WaitGroup.Go` started inside the turn, a direct `Messages`, a chain of helpers; `good.go`:
+  the read and post inside one turn, a helper called only from turns, `RoomState`, clean). The
+  notice package and a host-side caller beside it carry no finding.
+- Red, real tree: seven uses in `ends.go`, in `Back` (the race: `TestE2ECmdKilled` and
+  `TestE2EKeeperKilled` saw `back` after the run's own `disconnected` under load), `End`,
+  `Close` and `Leave`.
+- Green: each of the four runs its reads and posts inside `turn`.
+- Not caught: that `turn` serialises per team and refuses a back after an end (the ends tests
+  hold that), a read or post through another package's function other than the named ones.
+
+**The next wider rule, not built:** every read-then-post of a lifecycle notice anywhere in
+teamchat ordered against the member's other posts. Not built because the only other posters
+(the host's `notice.Disconnected` callers in `admin` and `member/client`) run in other
+processes, where no in-process turn can order them; they are made safe by the run's
+transaction id (`tc-disc-<run>`), which is a different defence for a different hazard.
 
 ## Defect classes that cannot be a rule
 
