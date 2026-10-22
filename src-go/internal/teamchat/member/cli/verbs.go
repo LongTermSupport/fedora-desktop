@@ -73,6 +73,11 @@ func validUser(s string) bool {
 	return err == nil
 }
 
+func validKey(s string) bool {
+	_, err := paths.ParseSeatKey(s)
+	return err == nil
+}
+
 func validCount(s string) bool {
 	n, err := strconv.ParseInt(s, 10, 64)
 	return err == nil && n >= 0 && strconv.FormatInt(n, 10) == s
@@ -95,6 +100,7 @@ var historyRooms = []string{"main", roomQuestions}
 var (
 	checkTeam   = &checker{validTeam, "--{} takes a team id"}
 	checkUser   = &checker{validUser, "--{} takes a user name"}
+	checkKey    = &checker{validKey, "--{} takes a seat key: 16 lowercase hex"}
 	checkCount  = &checker{validCount, "--{} takes a whole number"}
 	checkDir    = &checker{absDir, msgDir}
 	checkList   = &checker{validList, "--{} takes a comma-separated list with no empty item"}
@@ -128,6 +134,7 @@ const (
 // The flags the code names.
 const (
 	flagTeam = "team"
+	flagKey  = "key"
 	flagTo   = "to"
 	flagToC  = "to-coordinator"
 	flagAsk  = "ask"
@@ -157,6 +164,7 @@ var (
 	}
 	eventArg = Arg{Name: "event-id", check: checkEvent}
 	userFlag = Flag{Name: "user", Value: "U", Required: true, check: checkUser}
+	keyFlag  = Flag{Name: flagKey, Value: "K", Required: true, check: checkKey}
 )
 
 // table is B 2.2.1's verbs in its order: the agent verbs, then the lifecycle ones. An agent verb
@@ -214,9 +222,9 @@ var table = []Verb{
 	},
 	{Name: verbSetAside, Flags: []Flag{required(teamFlag), {Name: "state", Value: valueDir, check: checkDir}}, Does: "renames a seat's store.json aside under the seat lock"},
 	{Name: verbGuestCheck, Flags: []Flag{userFlag, required(teamFlag)}, Does: "checks an LXC guest's user can run a member session; stdin the team's reach facts"},
-	{Name: verbPlaceBundle, Flags: []Flag{userFlag}, Does: "places the seat bundle on stdin in the user's home"},
-	{Name: verbMembership, Flags: []Flag{userFlag}, Does: "writes the desired membership on stdin as the user's desired.json"},
-	{Name: verbGuestRemove, Flags: []Flag{userFlag, required(teamFlag)}, Does: "removes a team's seat files but seat.lock, under the seat lock"},
+	{Name: verbPlaceBundle, Flags: []Flag{userFlag, keyFlag}, Does: "places the seat bundle on stdin as the keyed seat in the user's home"},
+	{Name: verbMembership, Flags: []Flag{userFlag, keyFlag}, Does: "writes the desired membership on stdin as the keyed seat's desired.json"},
+	{Name: verbGuestRemove, Flags: []Flag{userFlag, keyFlag, required(teamFlag)}, Does: "removes a team's seat files but seat.lock under the seat lock, then the keyed seat's desired.json"},
 }
 
 // Verbs is the table, each agent verb with its --team; a copy the caller may change.

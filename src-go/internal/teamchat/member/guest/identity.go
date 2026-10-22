@@ -1,6 +1,7 @@
 // Package guest is the guest operations an LXC member's user runs inside its container (Plan
 // 00209 B 2.13, SPEC-n3 GU1-GU5): the host's `lxc-attach` runs `teamchat guest <op> --user U`
-// as that user, and each op acts only on that user's own home.
+// as that user (with `--key K`, the seat's key, for an op that acts on one seat), and each op
+// acts only on that user's own home.
 //
 // Every op starts from Establish (GU1, identity.go): umask 077 first, then the caller must be
 // the user named, by uid and by passwd name, not root, with no group but the user's own, and

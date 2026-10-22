@@ -1,7 +1,7 @@
-// Package unit is an LXC guest's session unit text (Plan 00209 SPEC-n3 SU1, C 3.9.4): the one
-// unit area C places in a guest, rendered from four values the host read. Each value is
-// grammar-checked before it reaches the text, so no value can carry a systemd specifier, a
-// variable, a space that splits ExecStart, or a newline that adds a directive.
+// Package unit is an LXC seat's session unit text (Plan 00209 SPEC-n3 SU1, C 3.9.4): one unit
+// per seat, rendered from the values the host read and declared. Each value is grammar-checked
+// before it reaches the text, so no value can carry a systemd specifier, a variable, a space
+// that splits ExecStart, or a newline that adds a directive.
 package unit
 
 import (
@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
@@ -18,13 +19,20 @@ import (
 // ErrInvalid is a value outside its grammar, or unit text with no single ExecStart.
 var ErrInvalid = errors.New("unit: invalid")
 
-// Session is a guest session unit's four host-read values, each grammar-checked by Render.
+// Session is a seat's session unit values, each grammar-checked by Render: the user, group and
+// home the host read, and the seat's declared team, checkout and seat number, which name the
+// unit and give its key.
 type Session struct {
 	User     paths.GuestUser
 	Group    string
 	Home     string
 	Checkout string
+	Team     paths.TeamID
+	Seat     int
 }
+
+// maxSeat is declare's highest seat number (DR4).
+const maxSeat = 9999
 
 // pathGrammar is the characters a home or checkout may hold in the unit text.
 var pathGrammar = regexp.MustCompile(`^[A-Za-z0-9/._-]+$`)
@@ -33,7 +41,8 @@ const execStartKey = "ExecStart="
 
 // Render is C 3.9.4's unit text with the values filled in, byte for byte. A value outside its
 // grammar is refused by name: group by the user-name grammar; home and checkout absolute,
-// clean, not "/", and only [A-Za-z0-9/._-] (no space, no '%' specifier, no '$', no newline).
+// clean, not "/", and only [A-Za-z0-9/._-] (no space, no '%' specifier, no '$', no newline);
+// a team; a seat 1-9999.
 func Render(s Session) ([]byte, error) {
 	if s.User.String() == "" {
 		return nil, fmt.Errorf("%w user: none", ErrInvalid)
@@ -47,20 +56,27 @@ func Render(s Session) ([]byte, error) {
 	if err := checkPath("checkout", s.Checkout); err != nil {
 		return nil, err
 	}
-	user := s.User.String()
-	desired, err := paths.HomeLayout(s.Home, paths.GuestRuntimeDir(s.User))
-	if err != nil {
-		return nil, fmt.Errorf("%w home %q: %w", ErrInvalid, s.Home, err)
+	if s.Team.String() == "" {
+		return nil, fmt.Errorf("%w team: none", ErrInvalid)
 	}
+	if s.Seat < 1 || s.Seat > maxSeat {
+		return nil, fmt.Errorf("%w seat %d: not 1-%d", ErrInvalid, s.Seat, maxSeat)
+	}
+	user := s.User.String()
+	key := paths.LXCSeatKey(s.Team, s.Checkout, s.Seat)
+	runtimeDir := paths.GuestRuntimeDir(key)
+	seat := strconv.Itoa(s.Seat)
 	execStart := strings.Join([]string{
-		"/usr/bin/tmux", "-L", paths.TmuxSocket, "new-session", "-d", "-s", paths.TmuxSession,
-		paths.MemberBinaryPath, "run", "--claude", "--kind", "lxc", "--desired", desired.Desired(),
+		"/usr/bin/tmux", "-S", paths.GuestTmuxSocket(key), "new-session", "-d", "-s",
+		paths.GuestTmuxSession(s.Team, s.Checkout, s.Seat),
+		paths.MemberBinaryPath, "run", "--claude", "--kind", "lxc", "--key", key.String(),
 		"--resume-recorded", "--", "claude",
 	}, " ")
 	var b bytes.Buffer
 	for _, line := range []string{
 		"[Unit]",
-		"Description=" + paths.Product + " session for " + user,
+		"Description=" + paths.Product + " session for " + user + ": team " + s.Team.String() + ", " +
+			paths.LXCRepoLabel(s.Checkout) + ", seat " + seat,
 		"After=network-online.target",
 		"Wants=network-online.target",
 		"StartLimitIntervalSec=600",
@@ -71,9 +87,9 @@ func Render(s Session) ([]byte, error) {
 		"User=" + user,
 		"Group=" + s.Group,
 		"WorkingDirectory=" + s.Checkout,
-		"RuntimeDirectory=" + strings.TrimPrefix(paths.GuestRuntimeDir(s.User), "/run/"),
+		"RuntimeDirectory=" + strings.TrimPrefix(runtimeDir, "/run/"),
 		"RuntimeDirectoryMode=0700",
-		"Environment=XDG_RUNTIME_DIR=" + paths.GuestRuntimeDir(s.User) + " HOME=" + s.Home,
+		"Environment=XDG_RUNTIME_DIR=" + runtimeDir + " HOME=" + s.Home,
 		"Environment=PATH=" + s.Home + "/.local/bin:/usr/local/bin:/usr/bin:/bin",
 		execStartKey + execStart,
 		"TimeoutStopSec=30",

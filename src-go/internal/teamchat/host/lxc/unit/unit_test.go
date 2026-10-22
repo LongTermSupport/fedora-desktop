@@ -18,7 +18,11 @@ func session(t *testing.T) Session {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Session{User: u, Group: "agents", Home: "/srv/agent1", Checkout: "/srv/agent1/src/repo.1"}
+	team, err := paths.ParseTeamID("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return Session{User: u, Group: "agents", Home: "/srv/agent1", Checkout: "/srv/agent1/src/repo.1", Team: team, Seat: 2}
 }
 
 // The golden file is C 3.9.4's unit (DESIGN-v2-C-host.md, the session unit) with its values in.
@@ -59,6 +63,9 @@ func TestRenderRefusesAValueOutsideItsGrammar(t *testing.T) {
 		"a checkout with a quote": {func(s *Session) { s.Checkout = `/home/"x"` }, "checkout"},
 		"the root as checkout":    {func(s *Session) { s.Checkout = "/" }, "checkout"},
 		"a relative checkout":     {func(s *Session) { s.Checkout = "./repo" }, "checkout"},
+		"no team":                 {func(s *Session) { s.Team = paths.TeamID{} }, "team"},
+		"seat 0":                  {func(s *Session) { s.Seat = 0 }, "seat"},
+		"seat 10000":              {func(s *Session) { s.Seat = 10000 }, "seat"},
 	}
 	for name, c := range cases {
 		s := session(t)
@@ -81,7 +88,12 @@ func TestExecStartParsesAsAnLXCLaunch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tmux := []string{"/usr/bin/tmux", "-L", paths.TmuxSocket, "new-session", "-d", "-s", paths.TmuxSession}
+	s := session(t)
+	key := paths.LXCSeatKey(s.Team, s.Checkout, s.Seat)
+	tmux := []string{
+		"/usr/bin/tmux", "-S", paths.GuestTmuxSocket(key), "new-session", "-d", "-s",
+		paths.GuestTmuxSession(s.Team, s.Checkout, s.Seat),
+	}
 	if !slices.Equal(words[:len(tmux)], tmux) {
 		t.Fatalf("tmux's arguments: %q", words)
 	}
@@ -93,12 +105,12 @@ func TestExecStartParsesAsAnLXCLaunch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	checkLXCLaunch(t, l)
+	checkLXCLaunch(t, l, key)
 }
 
-func checkLXCLaunch(t *testing.T, l cli.Launch) {
+func checkLXCLaunch(t *testing.T, l cli.Launch, key paths.SeatKey) {
 	t.Helper()
-	if l.Mode != cli.LaunchClaude || l.Kind != cli.KindLXC || l.Desired != "/srv/agent1/.config/teamchat/membership" ||
+	if l.Mode != cli.LaunchClaude || l.Kind != cli.KindLXC || l.Key != key || l.Desired != "" ||
 		!l.ResumeRecorded || !slices.Equal(l.Cmd, []string{"claude"}) || l.Claude != 0 || l.State != "" || l.Kit != "" || l.Seats != nil {
 		t.Errorf("%+v", l)
 	}
@@ -121,5 +133,26 @@ func TestExecStartRefusesAnythingButOneSingleSpacedLine(t *testing.T) {
 	words, err := ExecStart([]byte("[Service]\nExecStart=/bin/a b c\nRestart=always"))
 	if err != nil || !slices.Equal(words, []string{"/bin/a", "b", "c"}) {
 		t.Errorf("%q %v", words, err)
+	}
+}
+
+// Two seats of one user on one checkout are two units: each its own runtime directory, tmux
+// server and key (C 3.9.1).
+func TestTwoSeatsOfOneUserRenderApart(t *testing.T) {
+	first, second := session(t), session(t)
+	second.Seat = 3
+	a, err := Render(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := Render(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ka, kb := paths.LXCSeatKey(first.Team, first.Checkout, first.Seat), paths.LXCSeatKey(second.Team, second.Checkout, second.Seat)
+	if ka == kb || !bytes.Contains(a, []byte("RuntimeDirectory=teamchat-session-"+ka.String()+"\n")) ||
+		!bytes.Contains(b, []byte("RuntimeDirectory=teamchat-session-"+kb.String()+"\n")) ||
+		!bytes.Contains(b, []byte("seat 3\n")) {
+		t.Errorf("%s\n%s", a, b)
 	}
 }

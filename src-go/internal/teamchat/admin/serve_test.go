@@ -107,6 +107,7 @@ func TestServeRefusesWhatTheArgsCannotMean(t *testing.T) {
 		{"another team's file", apply.OpMemberPark, replaced(good[apply.OpMemberPark], 0, parsed(t, beta.Team.Canonical())), "team beta"},
 		{"a team file that does not decode", apply.OpRoleApply, []proto.Member{proto.M("team_file", proto.Obj())}, "team.json"},
 		{"a seat below zero", apply.OpMemberAdd, replaced(good[apply.OpMemberAdd], 2, proto.Int(-1)), "seat"},
+		{"seat zero", apply.OpMemberAdd, replaced(good[apply.OpMemberAdd], 2, proto.Int(0)), "seat"},
 		{"another team's input", apply.OpTeamApply, replaced(good[apply.OpTeamApply], 0, parsed(t, beta.Encode())), "team beta"},
 		{"an input that does not decode", apply.OpTeamApply, replaced(good[apply.OpTeamApply], 0, proto.Obj()), "input"},
 		{"an approval that does not decode", apply.OpTeamApply, replaced(good[apply.OpTeamApply], 1, proto.Obj()), "approved"},
@@ -122,10 +123,11 @@ func TestServeRefusesWhatTheArgsCannotMean(t *testing.T) {
 // TestErrorClassIsTheExitCodesClass: the child answers the class root maps back to C 3.3's code.
 func TestErrorClassIsTheExitCodesClass(t *testing.T) {
 	cases := map[error]ErrorClass{
-		&apply.Error{Step: "x", Drift: true, Err: errors.New("no")}: ClassRefused,
-		&apply.Error{Step: "x", Err: errors.New("boom")}:            ClassFailed,
-		fmt.Errorf("send: %w", matrix.ErrUnreachable):               ClassUnreachable,
-		errors.New("anything"):                                      ClassFailed,
+		&apply.Error{Step: "x", Drift: true, Err: errors.New("no")}:                                            ClassRefused,
+		&apply.Error{Step: "account", Drift: true, Err: fmt.Errorf("member x's account %w", apply.ErrRetired)}: ClassRetired,
+		&apply.Error{Step: "x", Err: errors.New("boom")}:                                                       ClassFailed,
+		fmt.Errorf("send: %w", matrix.ErrUnreachable):                                                          ClassUnreachable,
+		errors.New("anything"): ClassFailed,
 	}
 	for err, want := range cases {
 		if got := errorClass(err); got != want {

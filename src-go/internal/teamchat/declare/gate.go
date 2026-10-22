@@ -28,38 +28,57 @@ const maxApproved = 256 << 10
 const approvedFileMode = 0o640
 
 const (
-	keyApproved     = "approved"
-	humanTextMarker = ",human_text="
+	keyApproved = "approved"
+	userTag     = "user="
+	humanTag    = "human_text="
+	checkoutTag = "checkout="
 )
 
-// LXCEntry is an LXC member as the gate sees it (AG1): who it is, and whether it may talk to
-// the humans.
+// LXCEntry is an LXC member as the gate sees it (AG1): which seat it is (container, checkout,
+// seat), the user it runs as, and whether it may talk to the humans.
 type LXCEntry struct {
 	Container string
+	Checkout  string
+	Seat      int
 	User      paths.GuestUser
 	HumanText bool
 }
 
-// String is the entry as AG3 prints it and AG6 takes it: `<container>/<user>,human_text=<bool>`.
+// String is the entry as AG3 prints it and AG6 takes it:
+// `<container>/<seat>,user=<user>,human_text=<bool>,checkout=<checkout>`, the checkout last.
 func (e LXCEntry) String() string {
-	return e.who() + humanTextMarker + strconv.FormatBool(e.HumanText)
+	return e.Container + "/" + strconv.Itoa(e.Seat) + "," + userTag + e.User.String() + "," +
+		humanTag + strconv.FormatBool(e.HumanText) + "," + checkoutTag + e.Checkout
 }
 
-func (e LXCEntry) who() string { return e.Container + "/" + e.User.String() }
+// who is the entry's name (AG3): its container, checkout and seat.
+func (e LXCEntry) who() string {
+	return e.Container + "\x00" + e.Checkout + "\x00" + strconv.Itoa(e.Seat)
+}
 
-// ParseLXCEntry reads an entry in exactly the form String prints.
+// ParseLXCEntry reads an entry in exactly the form String prints: split at its first three
+// commas, everything after `checkout=` is the path, whatever `,` or `=` it holds.
 func ParseLXCEntry(s string) (LXCEntry, error) {
-	who, flag, found := strings.Cut(s, humanTextMarker)
-	container, user, slash := strings.Cut(who, "/")
-	bad := errors.New("lxc_members: the entry is not <container>/<user>,human_text=<true|false>")
-	if !found || !slash || (flag != "true" && flag != "false") || !validContainer(container) {
+	bad := errors.New("lxc_members: the entry is not <container>/<seat>,user=<user>,human_text=<true|false>,checkout=<checkout>")
+	parts := strings.SplitN(s, ",", 4)
+	if len(parts) != 4 {
+		return LXCEntry{}, bad
+	}
+	container, seatText, slash := strings.Cut(parts[0], "/")
+	user, userOK := strings.CutPrefix(parts[1], userTag)
+	flag, flagOK := strings.CutPrefix(parts[2], humanTag)
+	checkout, checkoutOK := strings.CutPrefix(parts[3], checkoutTag)
+	seat, err := strconv.Atoi(seatText)
+	if !slash || !userOK || !flagOK || !checkoutOK || err != nil || strconv.Itoa(seat) != seatText ||
+		!validSeat(int64(seat)) || (flag != "true" && flag != "false") || !validContainer(container) ||
+		!validCheckout(checkout) {
 		return LXCEntry{}, bad
 	}
 	u, err := paths.ParseGuestUser(user)
 	if err != nil || u.String() != user {
 		return LXCEntry{}, bad
 	}
-	return LXCEntry{Container: container, User: u, HumanText: flag == "true"}, nil
+	return LXCEntry{Container: container, Checkout: checkout, Seat: seat, User: u, HumanText: flag == "true"}, nil
 }
 
 // Gated is a team's security fields (AG1). The lists are sorted, so two values compare as sets.
@@ -82,7 +101,9 @@ func (in Input) Gated() Gated {
 		Listen: sorted(in.Team.Listen), URL: in.Team.URL, Trust: in.Team.Trust,
 	}
 	for _, m := range in.LXC {
-		g.LXC = append(g.LXC, LXCEntry{Container: m.Container, User: m.User, HumanText: m.HumanText})
+		g.LXC = append(g.LXC, LXCEntry{
+			Container: m.Container, Checkout: m.Checkout, Seat: m.Seat, User: m.User, HumanText: m.HumanText,
+		})
 	}
 	sortLXC(g.LXC)
 	return g
@@ -339,8 +360,8 @@ func changeSet(list []string, ch Change, valid func(string) bool) ([]string, err
 	return nil, noChange(ch.Field)
 }
 
-// changeLXC adds or removes an entry, or sets the human_text of the entry with that container
-// and user.
+// changeLXC adds or removes an entry, or sets the user and human_text of the entry with that
+// container, checkout and seat.
 func changeLXC(list []LXCEntry, ch Change) ([]LXCEntry, error) {
 	e, err := ParseLXCEntry(ch.Value)
 	if err != nil {
@@ -419,7 +440,8 @@ func (g Gated) value() proto.Value {
 	lxc := make([]proto.Value, 0, len(g.LXC))
 	for _, e := range g.LXC {
 		lxc = append(lxc, proto.Obj(
-			proto.M(keyContainer, proto.Str(e.Container)), proto.M(keyUser, proto.Str(e.User.String())),
+			proto.M(keyContainer, proto.Str(e.Container)), proto.M(keyCheckout, proto.Str(e.Checkout)),
+			proto.M(keySeat, proto.Int(int64(e.Seat))), proto.M(keyUser, proto.Str(e.User.String())),
 			proto.M(keyHumanText, proto.Bool(e.HumanText))))
 	}
 	return proto.Obj(
@@ -511,12 +533,18 @@ func readLXCEntries(n node) ([]LXCEntry, error) {
 	}
 	out := make([]LXCEntry, 0, len(items))
 	for _, item := range items {
-		f, err := item.object([]string{keyContainer, keyUser, keyHumanText})
+		f, err := item.object([]string{keyContainer, keyCheckout, keySeat, keyUser, keyHumanText})
 		if err != nil {
 			return nil, err
 		}
 		var e LXCEntry
 		if e.Container, err = f.at(keyContainer).checked(validContainer, "is not a container name"); err != nil {
+			return nil, err
+		}
+		if e.Checkout, err = f.at(keyCheckout).checked(validCheckout, "is not an absolute, clean path below /"); err != nil {
+			return nil, err
+		}
+		if e.Seat, err = f.at(keySeat).seat(); err != nil {
 			return nil, err
 		}
 		if e.User, err = guestUser(f.at(keyUser)); err != nil {
@@ -526,7 +554,7 @@ func readLXCEntries(n node) ([]LXCEntry, error) {
 			return nil, err
 		}
 		if slices.ContainsFunc(out, func(x LXCEntry) bool { return x.who() == e.who() }) {
-			return nil, item.fail("repeats another entry's container and user")
+			return nil, item.fail("repeats another entry's container, checkout and seat")
 		}
 		out = append(out, e)
 	}

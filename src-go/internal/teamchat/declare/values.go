@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
@@ -83,7 +84,25 @@ func validContainer(s string) bool {
 	return err == nil
 }
 
-func validCheckout(s string) bool { return filepath.IsAbs(s) && filepath.Clean(s) == s && s != "/" }
+// validCheckout is an absolute, clean path below / on one line (DR4), so the SECURITY line and
+// the seat key's input stay one line each.
+func validCheckout(s string) bool {
+	return filepath.IsAbs(s) && filepath.Clean(s) == s && s != "/" && !strings.ContainsAny(s, "\n\r")
+}
+
+func validSeat(n int64) bool { return n >= 1 && n <= maxSeat }
+
+// seat reads a seat number, 1-9999 (DR4).
+func (n node) seat() (int, error) {
+	v, err := n.integer()
+	if err != nil {
+		return 0, err
+	}
+	if !validSeat(v) {
+		return 0, n.fail("is not a seat number, 1-9999")
+	}
+	return int(v), nil
+}
 
 func validSite(s string) bool {
 	norm, ok := proto.NormaliseSite(s)

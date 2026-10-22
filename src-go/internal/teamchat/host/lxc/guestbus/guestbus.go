@@ -4,7 +4,7 @@
 // The socket is peer to peer: there is no bus daemon, so no Hello, no NameOwnerChanged and no
 // sender to check, and systemd is the only peer. The client authenticates by EXTERNAL as uid 0
 // and calls the Manager's Reload, StartUnit, RestartUnit, StopUnit and ResetFailedUnit, each
-// on the one unit a guest user has (paths.SessionUnit). A job call waits for its reply, which
+// on a seat's session unit (paths.SessionUnit), and on no other unit. A job call waits for its reply, which
 // means the job was accepted, and never for JobRemoved; each call is bounded by CallWait.
 //
 // The guest is not trusted (TB2). Every message systemd sends is judged by its header before
@@ -31,10 +31,10 @@ import (
 // Systemd is the guest's own systemd over its private socket (C 3.9.4, DC17).
 type Systemd interface {
 	Reload(ctx context.Context) error
-	Start(ctx context.Context, user paths.GuestUser) error
-	Restart(ctx context.Context, user paths.GuestUser) error
-	Stop(ctx context.Context, user paths.GuestUser) error
-	ResetFailed(ctx context.Context, user paths.GuestUser) error
+	Start(ctx context.Context, unit string) error
+	Restart(ctx context.Context, unit string) error
+	Stop(ctx context.Context, unit string) error
+	ResetFailed(ctx context.Context, unit string) error
 	Close() error
 }
 
@@ -45,13 +45,13 @@ const (
 )
 
 // The classes of error: a message over its cap, a reply of the wrong shape, systemd's own
-// refusal, a peer that is gone, and a call with no user.
+// refusal, a peer that is gone, and a call on a unit that is not a seat's session unit.
 var (
-	ErrTooLarge  = errors.New("guestbus: a message over its cap; the connection is closed")
-	ErrMalformed = errors.New("guestbus: systemd's reply is malformed")
-	ErrSystemd   = errors.New("guestbus: systemd refused")
-	ErrGone      = errors.New("guestbus: the guest's systemd is gone")
-	ErrNoUser    = errors.New("guestbus: no guest user")
+	ErrTooLarge       = errors.New("guestbus: a message over its cap; the connection is closed")
+	ErrMalformed      = errors.New("guestbus: systemd's reply is malformed")
+	ErrSystemd        = errors.New("guestbus: systemd refused")
+	ErrGone           = errors.New("guestbus: the guest's systemd is gone")
+	ErrNotSessionUnit = errors.New("guestbus: not a seat's session unit")
 )
 
 // SystemdError is systemd's own refusal of a call, by its D-Bus error name. It is ErrSystemd.
@@ -127,7 +127,7 @@ func (p peer) Close() error {
 	return p.c.Close()
 }
 
-// New is the Systemd over a Conn. Every unit is paths.SessionUnit(user); there is no other.
+// New is the Systemd over a Conn. Every unit is in paths.SessionUnit's form; there is no other.
 func New(c Conn) Systemd { return newSystemd(c, CallWait) }
 
 func newSystemd(c Conn, wait time.Duration) Systemd { return systemd{c, wait} }
@@ -141,29 +141,29 @@ func (s systemd) Reload(ctx context.Context) error {
 	return s.call(ctx, "Reload", "", false)
 }
 
-func (s systemd) Start(ctx context.Context, user paths.GuestUser) error {
-	return s.unitCall(ctx, "StartUnit", user, true)
+func (s systemd) Start(ctx context.Context, unit string) error {
+	return s.unitCall(ctx, "StartUnit", unit, true)
 }
 
-func (s systemd) Restart(ctx context.Context, user paths.GuestUser) error {
-	return s.unitCall(ctx, "RestartUnit", user, true)
+func (s systemd) Restart(ctx context.Context, unit string) error {
+	return s.unitCall(ctx, "RestartUnit", unit, true)
 }
 
-func (s systemd) Stop(ctx context.Context, user paths.GuestUser) error {
-	return s.unitCall(ctx, "StopUnit", user, true)
+func (s systemd) Stop(ctx context.Context, unit string) error {
+	return s.unitCall(ctx, "StopUnit", unit, true)
 }
 
-func (s systemd) ResetFailed(ctx context.Context, user paths.GuestUser) error {
-	return s.unitCall(ctx, "ResetFailedUnit", user, false)
+func (s systemd) ResetFailed(ctx context.Context, unit string) error {
+	return s.unitCall(ctx, "ResetFailedUnit", unit, false)
 }
 
 func (s systemd) Close() error { return s.c.Close() }
 
-func (s systemd) unitCall(ctx context.Context, method string, user paths.GuestUser, job bool) error {
-	if user.String() == "" {
-		return fmt.Errorf("guest systemd %s: %w", method, ErrNoUser)
+func (s systemd) unitCall(ctx context.Context, method, unit string, job bool) error {
+	if _, err := paths.ParseSessionUnit(unit); err != nil {
+		return fmt.Errorf("guest systemd %s %q: %w: %w", method, unit, ErrNotSessionUnit, err)
 	}
-	return s.call(ctx, method, paths.SessionUnit(user), job)
+	return s.call(ctx, method, unit, job)
 }
 
 // call sends one Manager method: a job method takes the unit and the mode and answers a job

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
 // afterRun is a launch line's arguments after `teamchat run`, wherever the binary sits in it.
@@ -38,8 +39,8 @@ func TestTheDesignsLaunchLinesParse(t *testing.T) {
 		{
 			// C 3.9.4's ExecStart, after tmux's own arguments.
 			"lxc unit",
-			strings.Fields("/usr/bin/tmux -L teamchat new-session -d -s teamchat /usr/local/bin/teamchat run --claude --kind lxc --desired /home/<user>/.config/teamchat/membership --resume-recorded -- claude"),
-			Launch{Mode: LaunchClaude, Kind: KindLXC, Desired: "/home/<user>/.config/teamchat/membership", ResumeRecorded: true, Cmd: []string{"claude"}, Claude: 0},
+			strings.Fields("/usr/bin/tmux -S /run/teamchat-session-KEY/tmux.sock new-session -d -s teamchat-session-ops-thing-1-KEY /usr/local/bin/teamchat run --claude --kind lxc --key KEY --resume-recorded -- claude"),
+			Launch{Mode: LaunchClaude, Kind: KindLXC, Key: lxcKey(t), ResumeRecorded: true, Cmd: []string{"claude"}, Claude: 0},
 		},
 		{
 			// ccy's entrypoint (B 6 C3, D 12), the supervisor as CMD.
@@ -62,8 +63,14 @@ func TestTheDesignsLaunchLinesParse(t *testing.T) {
 		{
 			// B 2.4.1 step 2's re-exec form.
 			"re-exec into the kit",
-			strings.Fields("/usr/local/lib/teamchat/kit/0123456789abcdef/bin/teamchat run --kit /usr/local/lib/teamchat/kit/0123456789abcdef --claude --kind lxc --desired /home/<user>/.config/teamchat/membership --resume-recorded -- claude --model opus"),
-			Launch{Mode: LaunchClaude, Kind: KindLXC, Desired: "/home/<user>/.config/teamchat/membership", Kit: "/usr/local/lib/teamchat/kit/0123456789abcdef", ResumeRecorded: true, Cmd: []string{"claude", "--model", "opus"}, Claude: 0},
+			strings.Fields("/usr/local/lib/teamchat/kit/0123456789abcdef/bin/teamchat run --kit /usr/local/lib/teamchat/kit/0123456789abcdef --claude --kind lxc --key KEY --resume-recorded -- claude --model opus"),
+			Launch{Mode: LaunchClaude, Kind: KindLXC, Key: lxcKey(t), Kit: "/usr/local/lib/teamchat/kit/0123456789abcdef", ResumeRecorded: true, Cmd: []string{"claude", "--model", "opus"}, Claude: 0},
+		},
+		{
+			// A hand-run `service: false` seat (LX5): the unit's line, from the user's login.
+			"lxc by hand",
+			strings.Fields("teamchat run --claude --kind lxc --key KEY -- claude"),
+			Launch{Mode: LaunchClaude, Kind: KindLXC, Key: lxcKey(t), Cmd: []string{"claude"}, Claude: 0},
 		},
 		{
 			"other, a shell around a wrapper",
@@ -82,12 +89,16 @@ func TestTheDesignsLaunchLinesParse(t *testing.T) {
 		},
 	}
 	for _, c := range cases {
-		got, err := ParseLaunch(afterRun(t, c.line))
+		line := make([]string, len(c.line))
+		for i, w := range c.line {
+			line[i] = strings.ReplaceAll(w, "KEY", lxcKeyText)
+		}
+		got, err := ParseLaunch(afterRun(t, line))
 		if err != nil {
 			t.Errorf("%s: %v", c.name, err)
 			continue
 		}
-		if got.Mode != c.want.Mode || got.Kind != c.want.Kind || got.Desired != c.want.Desired || got.State != c.want.State ||
+		if got.Mode != c.want.Mode || got.Kind != c.want.Kind || got.Key != c.want.Key || got.Desired != c.want.Desired || got.State != c.want.State ||
 			got.Kit != c.want.Kit || got.ResumeRecorded != c.want.ResumeRecorded || !slices.Equal(got.Cmd, c.want.Cmd) ||
 			got.Claude != c.want.Claude || !slices.Equal(got.Seats, c.want.Seats) {
 			t.Errorf("%s:\ngot  %+v\nwant %+v", c.name, got, c.want)
@@ -123,20 +134,31 @@ func TestLaunchLinesRefused(t *testing.T) {
 		"a second separator":             "--claude --kind ccy -- sup -- --arm -- claude",
 		"a separator not before claude":  "--claude --kind ccy -- sup -- --arm claude",
 		"a separator after claude":       "--claude --kind ccy -- claude -- x",
-		"resume beside resume-recorded":  "--claude --kind lxc --resume-recorded -- claude --resume abc",
-		"resume= beside it":              "--claude --kind lxc --resume-recorded -- claude --resume=abc",
-		"continue beside it":             "--claude --kind lxc --resume-recorded -- claude --continue",
-		"-c beside it":                   "--claude --kind lxc --resume-recorded -- claude -c",
-		"-r beside it":                   "--claude --kind lxc --resume-recorded -- claude -r abc",
-		"resume-recorded under plain":    "--plain --kind lxc --resume-recorded -- sh",
+		"resume beside resume-recorded":  "--claude --kind lxc --key KEY --resume-recorded -- claude --resume abc",
+		"resume= beside it":              "--claude --kind lxc --key KEY --resume-recorded -- claude --resume=abc",
+		"continue beside it":             "--claude --kind lxc --key KEY --resume-recorded -- claude --continue",
+		"-c beside it":                   "--claude --kind lxc --key KEY --resume-recorded -- claude -c",
+		"-r beside it":                   "--claude --kind lxc --key KEY --resume-recorded -- claude -r abc",
+		"resume-recorded under plain":    "--plain --kind lxc --key KEY --resume-recorded -- sh",
 		"seat without state":             "--plain --kind host --seat alpha/probe -- sh",
 		"seat with desired":              "--plain --kind host --state /s --desired /d --seat alpha/probe -- sh",
 		"a seat with no slash":           "--plain --kind host --state /s --seat alpha -- sh",
 		"a seat with a bad team":         "--plain --kind host --state /s --seat Alpha/probe -- sh",
 		"a seat with a bad name":         "--plain --kind host --state /s --seat alpha/Probe -- sh",
 		"the same seat team twice":       "--plain --kind host --state /s --seat alpha/1 --seat alpha/2 -- sh",
+		"lxc with no key":                "--claude --kind lxc -- claude",
+		"lxc plain with no key":          "--plain --kind lxc -- sh",
+		"lxc with desired, not a key":    "--claude --kind lxc --desired /d -- claude",
+		"a key with desired":             "--claude --kind lxc --key KEY --desired /d -- claude",
+		"a key with state":               "--plain --kind lxc --key KEY --state /s -- sh",
+		"a key with a seat":              "--plain --kind lxc --key KEY --state /s --seat alpha/1 -- sh",
+		"a key for host":                 "--claude --kind host --key KEY -- claude",
+		"a key for ccy":                  "--claude --kind ccy --key KEY -- claude",
+		"a key twice":                    "--claude --kind lxc --key KEY --key KEY -- claude",
+		"a key in capitals":              "--claude --kind lxc --key AEB4D70A3A7E7C04 -- claude",
+		"a short key":                    "--claude --kind lxc --key aeb4d70a -- claude",
 	} {
-		_, err := ParseLaunch(strings.Fields(line))
+		_, err := ParseLaunch(strings.Fields(strings.ReplaceAll(line, "KEY", lxcKeyText)))
 		if !isUsage(err) {
 			t.Errorf("%s: %v", name, err)
 		}
@@ -158,4 +180,16 @@ func TestKindsAreBs(t *testing.T) {
 	if KindCCY != "ccy" || KindLXC != "lxc" || KindHost != "host" || KindOther != "other" {
 		t.Error("kind names")
 	}
+}
+
+// lxcKeyText is the seat key the LXC launch lines name.
+const lxcKeyText = "aeb4d70a3a7e7c04"
+
+func lxcKey(t *testing.T) paths.SeatKey {
+	t.Helper()
+	k, err := paths.ParseSeatKey(lxcKeyText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return k
 }

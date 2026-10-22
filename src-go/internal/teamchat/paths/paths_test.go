@@ -51,10 +51,6 @@ func TestOtherIDDerivedNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	user, err := ParseGuestUser("dev")
-	if err != nil {
-		t.Fatal(err)
-	}
 	version, err := ParseServerVersion("1.2.3")
 	if err != nil {
 		t.Fatal(err)
@@ -66,8 +62,8 @@ func TestOtherIDDerivedNames(t *testing.T) {
 	for _, c := range []struct{ got, want string }{
 		{SetRecord(set), "/var/lib/teamchat-status/sets/s1.json"},
 		{SetLock(set), "/var/lib/teamchat-admin/_sets/s1.lock"},
-		{SessionUnit(user), "teamchat-session-dev.service"},
-		{GuestRuntimeDir(user), "/run/teamchat-session-dev"},
+		{SessionUnit(mustTeam(t, "ops"), sampleCheckout, 1), "teamchat-session-ops-thing-1-" + sampleKeyText + ".service"},
+		{GuestRuntimeDir(sampleSeatKey(t)), "/run/teamchat-session-" + sampleKeyText},
 		{ServerBinary(version), "/usr/local/lib/teamchat/server/tuwunel-1.2.3"},
 		{AdminBinaryCopy(digest), "/usr/local/lib/teamchat/teamchat-admin-0123456789abcdef"},
 		{HostKitDir(digest).String(), "/usr/local/lib/teamchat/kit/0123456789abcdef"},

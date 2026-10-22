@@ -3,6 +3,7 @@ package paths
 import (
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 // FloorAccountData is the room account data type of a seat's resume marker (B 2.3.2).
@@ -50,21 +51,46 @@ func InboxSocket(runtimeDir string, pid int) (string, error) {
 	return runtimeDir + "/cc-socks/" + strconv.Itoa(pid) + ".sock", nil
 }
 
-// GuestUnitFile is the guest's session unit file, which the host writes (n3-D3, C 3.9.4).
-func GuestUnitFile(u GuestUser) string { return systemdDir + "/" + SessionUnit(u) }
+// GuestUnitFile is a seat's session unit file in the guest, which the host writes (n3-D3,
+// C 3.9.4).
+func GuestUnitFile(team TeamID, checkout string, seat int) string {
+	return systemdDir + "/" + SessionUnit(team, checkout, seat)
+}
 
 // GuestUnitWantsLink is the unit's link in multi-user.target.wants, so it starts at the next
 // boot (n3-D3, DC13 (b)).
-func GuestUnitWantsLink(u GuestUser) string {
-	return systemdDir + "/multi-user.target.wants/" + SessionUnit(u)
+func GuestUnitWantsLink(team TeamID, checkout string, seat int) string {
+	return systemdDir + "/multi-user.target.wants/" + SessionUnit(team, checkout, seat)
 }
 
-// GuestRuntimeParents are the two run roots a guest user's sessions are under: its login
-// runtime directory's and the session unit's RuntimeDirectory= (n3-D8, C 3.9.2 step 4).
-func GuestRuntimeParents(u GuestUser, uid int) ([]string, error) {
-	unit := GuestRuntimeDir(u) + "/" + Product + "/run"
+// GuestTmuxSession is the tmux session a seat's unit starts: the unit's name less `.service`.
+func GuestTmuxSession(team TeamID, checkout string, seat int) string {
+	return strings.TrimSuffix(SessionUnit(team, checkout, seat), ".service")
+}
+
+// GuestTmuxSocket is the seat's own tmux server (`tmux -S`), so each unit's pane is in its own
+// cgroup (C 3.9.1).
+func GuestTmuxSocket(k SeatKey) string { return GuestRuntimeDir(k) + "/tmux.sock" }
+
+// GuestUnitRunRoot is the run root of a seat's unit sessions: LXCLayout's under the unit's
+// XDG_RUNTIME_DIR (n3-D8, C 3.9.2 step 4).
+func GuestUnitRunRoot(k SeatKey) string { return runRootUnder(GuestRuntimeDir(k)) }
+
+// GuestLoginRunRoot is the run root under a guest user's login runtime directory, where a
+// hand-run `service: false` seat's sessions are (n3-D8, LX5).
+func GuestLoginRunRoot(uid int) (string, error) {
 	if uid <= 0 {
-		return nil, fmt.Errorf("%w uid: must be positive", ErrInvalid)
+		return "", fmt.Errorf("%w uid: must be positive", ErrInvalid)
 	}
-	return []string{"/run/user/" + strconv.Itoa(uid) + "/" + Product + "/run", unit}, nil
+	return runRootUnder("/run/user/" + strconv.Itoa(uid)), nil
+}
+
+// ParseGuestRuntimeDirName reads the seat key of a unit's runtime directory, a name in the
+// guest's /run, so the kit scan lists the units' run roots by this grammar alone.
+func ParseGuestRuntimeDirName(name string) (SeatKey, error) {
+	text, ok := strings.CutPrefix(name, guestSessionPrefix)
+	if !ok {
+		return SeatKey{}, fmt.Errorf("%w runtime directory name: not %s<key>", ErrInvalid, guestSessionPrefix)
+	}
+	return ParseSeatKey(text)
 }

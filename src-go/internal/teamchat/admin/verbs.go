@@ -208,17 +208,14 @@ func teamFlag(flags map[string]string) (paths.TeamID, error) {
 	return team, nil
 }
 
-// flagArg is a flag's value as the child's arg: --seat a number from 1 or `next` (0),
+// flagArg is a flag's value as the child's arg: --seat a number from 1,
 // --human-text true or false, --credential password or token.
 func flagArg(name, v string) (proto.Value, error) {
 	switch name {
 	case keySeat:
-		if v == "next" {
-			return proto.Int(0), nil
-		}
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 || n > maxSeat || strconv.Itoa(n) != v {
-			return proto.Value{}, usagef("--seat is a number from 1 to %d, or next", maxSeat)
+			return proto.Value{}, usagef("--seat is a number from 1 to %d", maxSeat)
 		}
 		return proto.Int(int64(n)), nil
 	case flagHumanText:
@@ -301,7 +298,7 @@ func underLock(ctx context.Context, sys *System, op string, team paths.TeamID, a
 
 // asked checks a child's answer against the request before root acts on it (C 3.3: the answer
 // is the one thing root parses that a less-privileged process wrote): the handle asked for (for
-// an add, the prefix's, numbered by the seat unless it is next), and a credential of the kind
+// an add, the prefix's, numbered by the seat), and a credential of the kind
 // asked for exactly when the verb issues one.
 func asked(op string, args []proto.Member, a Answer) error {
 	byKey := map[string]proto.Value{}
@@ -355,7 +352,7 @@ func answeredHandle(req apply.MemberRequest, handle string) bool {
 			return false
 		}
 		n, numbered := h.SeatNumber()
-		return numbered && (req.Seat == 0 || n == req.Seat)
+		return numbered && n == req.Seat
 	}
 	return handle == req.Handle
 }

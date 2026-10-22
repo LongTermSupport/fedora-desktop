@@ -141,10 +141,10 @@ func TestOverAPipe(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := New(c)
-	if err := s.Start(t.Context(), user(t)); err != nil {
+	if err := s.Start(t.Context(), unit(t)); err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	if err := s.Restart(t.Context(), user(t)); !errors.Is(err, ErrTooLarge) {
+	if err := s.Restart(t.Context(), unit(t)); !errors.Is(err, ErrTooLarge) {
 		t.Fatalf("restart over an oversized reply: %v", err)
 	}
 	if err := <-done; err != nil {
@@ -154,7 +154,7 @@ func TestOverAPipe(t *testing.T) {
 		t.Errorf("the body was read: %v", err)
 	}
 	checkStartCall(t, call)
-	if err := s.Stop(t.Context(), user(t)); !errors.Is(err, ErrGone) {
+	if err := s.Stop(t.Context(), unit(t)); !errors.Is(err, ErrGone) {
 		t.Errorf("a call on the closed connection: %v", err)
 	}
 	if err := s.Close(); err != nil {
@@ -193,7 +193,7 @@ func checkStartCall(t *testing.T, call *dbus.Message) {
 			t.Errorf("header %d = %v, want %v", f, got, v)
 		}
 	}
-	if len(call.Body) != 2 || call.Body[0] != "teamchat-session-agent1.service" || call.Body[1] != "replace" {
+	if len(call.Body) != 2 || call.Body[0] != unit(t) || call.Body[1] != "replace" {
 		t.Errorf("body %v", call.Body)
 	}
 }

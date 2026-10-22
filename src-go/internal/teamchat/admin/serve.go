@@ -123,6 +123,9 @@ func answerOf(res apply.Result, err error) Answer {
 
 // errorClass is the class whose exit code is C 3.3's for err.
 func errorClass(err error) ErrorClass {
+	if errors.Is(err, apply.ErrRetired) {
+		return ClassRetired
+	}
 	code := ExitCodeOf(err)
 	if code == ExitRefused {
 		return ClassRefused
@@ -167,8 +170,8 @@ func memberRequest(op string, args map[string]proto.Value) (apply.MemberRequest,
 		mr.HumanText = v.Kind() == proto.KindBool && v.Bool()
 	}
 	if v, given := args[keySeat]; given {
-		if v.Kind() != proto.KindInt || v.Int() < 0 || v.Int() > maxSeat {
-			errs = append(errs, fmt.Errorf("seat is not a number from 0 (next) to %d", maxSeat))
+		if v.Kind() != proto.KindInt || v.Int() < 1 || v.Int() > maxSeat {
+			errs = append(errs, fmt.Errorf("seat is not a number from 1 to %d", maxSeat))
 		} else {
 			mr.Seat = int(v.Int())
 		}
