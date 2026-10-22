@@ -75,7 +75,7 @@ re-recorded from the Python.
 - [x] ✅ **Task 4.1**: Versions the pre-commit hook asks for; the meta-deploy entry
   (play-agent-bus.yml installs the kit's status line and pingbus and applies each team, so its
   admin writes the colour event; the ccy image takes the new pingbus at its next build).
-- [ ] ⬜ **Task 4.2**: Adversarial Opus review of the diff until MERGE, then the qa-reviewer agent.
+- [x] ✅ **Task 4.2**: Adversarial Opus review of the diff until MERGE, then the qa-reviewer agent.
 - [ ] ⬜ **Task 4.3**: On the host, after the deploy: every team's row is in its own colour in a
   ccy session, a host session and an LXC member, and a `colour:` set on one team and the play run
   again changes that team's colour in each without a restart.
