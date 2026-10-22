@@ -13,7 +13,7 @@ func anchors(self string) Anchors {
 // the create event.
 func roomState(t *testing.T, purpose, id string) []StateEvent {
 	t.Helper()
-	spec := specFor(t, Desired(testServer, testRoster(t), allRooms(), ""), purpose)
+	spec := specFor(t, Desired(testServer, testRoster(t), allRooms(), "", ""), purpose)
 	admin := AdminID(testServer)
 	state := make([]StateEvent, 0, 1+len(spec.State))
 	state = append(state, StateEvent{

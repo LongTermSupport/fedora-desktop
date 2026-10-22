@@ -6,6 +6,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/colour"
 )
 
 // The room purposes of A 4.1.
@@ -81,11 +83,13 @@ type RoomSpec struct {
 // each side room with its link, and only once all three exist the roster in main and the
 // invitations. C asks again after each room it creates, so the specs come back in that order.
 // description is the main topic's team description; one that fails ValidDescription is
-// replaced by the default topic.
-func Desired(server string, r Roster, ids RoomIDs, description string) []RoomSpec {
+// replaced by the default topic. colour is the team's declared colour override as stored hex,
+// written in main as ColourContent; "" (or anything not stored hex) writes no colour event, so
+// clearing one that exists is the caller's (C8).
+func Desired(server string, r Roster, ids RoomIDs, description, colour string) []RoomSpec {
 	full := ids.Main != "" && ids.Reports != "" && ids.Questions != ""
 	r.Rooms = SideRooms{Reports: ids.Reports, Questions: ids.Questions}
-	specs := []RoomSpec{mainSpec(r, ids.Main, description, full)}
+	specs := []RoomSpec{mainSpec(r, ids.Main, description, colour, full)}
 	if ids.Main == "" {
 		return specs
 	}
@@ -96,7 +100,7 @@ func Desired(server string, r Roster, ids RoomIDs, description string) []RoomSpe
 	return append(specs, questionsSpec(server, r, ids.Questions, ids.Main, full))
 }
 
-func mainSpec(r Roster, id, description string, full bool) RoomSpec {
+func mainSpec(r Roster, id, description, hex string, full bool) RoomSpec {
 	topic := defaultMainTopic
 	if ValidDescription(description) {
 		topic = description
@@ -105,6 +109,9 @@ func mainSpec(r Roster, id, description string, full bool) RoomSpec {
 		Purpose: PurposeMain, RoomID: id, RoomVersion: RoomVersion,
 		State:   commonState(r.Name, topic, Obj(M("join_rule", Str("invite"))), openPowerLevels(r.Humans, agentMainLevel)),
 		Members: sortedUnion(r.Humans, slices.Collect(maps.Keys(r.Members))),
+	}
+	if colour.Stored(hex) {
+		s.State = append(s.State, StateEvent{Type: ColourType, Content: ColourContent(hex)})
 	}
 	if full {
 		s.State = append(s.State, StateEvent{Type: RosterType, Content: r.Encode()})

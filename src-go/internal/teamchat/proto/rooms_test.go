@@ -47,7 +47,7 @@ func TestDesiredCreationOrder(t *testing.T) {
 		{RoomIDs{Main: mainRoom, Reports: reportsRoom}, PurposeQuestions},
 	}
 	for i, step := range steps {
-		specs := Desired(testServer, r, step.ids, "")
+		specs := Desired(testServer, r, step.ids, "", "")
 		last := specs[len(specs)-1]
 		if len(specs) != i+1 || last.Purpose != step.purpose || last.RoomID != "" {
 			t.Fatalf("step %d must ask for %s: %+v", i, step.purpose, specs)
@@ -56,7 +56,7 @@ func TestDesiredCreationOrder(t *testing.T) {
 			t.Fatalf("step %d writes the roster or invites before all rooms exist", i)
 		}
 	}
-	link := stateOf(t, Desired(testServer, r, RoomIDs{Main: mainRoom}, "")[1], LinkType)
+	link := stateOf(t, Desired(testServer, r, RoomIDs{Main: mainRoom}, "", "")[1], LinkType)
 	if string(link.Compact()) != `{"v":1,"team":"myteam","purpose":"reports","main":"`+mainRoom+`"}` {
 		t.Fatalf("link = %s", link.Compact())
 	}
@@ -64,7 +64,7 @@ func TestDesiredCreationOrder(t *testing.T) {
 
 func TestDesiredRosterOnceAllRoomsExist(t *testing.T) {
 	r := testRoster(t)
-	specs := Desired(testServer, r, allRooms(), "")
+	specs := Desired(testServer, r, allRooms(), "", "")
 	main := specFor(t, specs, PurposeMain)
 	roster := stateOf(t, main, RosterType)
 	want := r
@@ -78,7 +78,7 @@ func TestDesiredRosterOnceAllRoomsExist(t *testing.T) {
 }
 
 func TestDesiredMembership(t *testing.T) {
-	specs := Desired(testServer, testRoster(t), allRooms(), "")
+	specs := Desired(testServer, testRoster(t), allRooms(), "", "")
 	main, reports, questions := specFor(t, specs, PurposeMain), specFor(t, specs, PurposeReports), specFor(t, specs, PurposeQuestions)
 	wantMain := []string{coordID, lxcWorkerID, workerID, probeID, parkedID, aliceID}
 	slices.Sort(wantMain)
@@ -100,7 +100,7 @@ func TestDesiredMembership(t *testing.T) {
 }
 
 func TestDesiredStateMain(t *testing.T) {
-	specs := Desired(testServer, testRoster(t), allRooms(), "")
+	specs := Desired(testServer, testRoster(t), allRooms(), "", "")
 	main := specFor(t, specs, PurposeMain)
 	cases := map[string]string{
 		"m.room.name":               `{"name":"My team"}`,
@@ -119,11 +119,11 @@ func TestDesiredStateMain(t *testing.T) {
 	if main.RoomVersion != "12" || hasState(main, "m.room.encryption") || hasState(main, LinkType) {
 		t.Fatalf("main create = %+v", main)
 	}
-	described := specFor(t, Desired(testServer, testRoster(t), allRooms(), "Builds the docs."), PurposeMain)
+	described := specFor(t, Desired(testServer, testRoster(t), allRooms(), "Builds the docs.", ""), PurposeMain)
 	if got := string(stateOf(t, described, "m.room.topic").Compact()); got != `{"topic":"Builds the docs."}` {
 		t.Fatalf("described topic %s", got)
 	}
-	bad := specFor(t, Desired(testServer, testRoster(t), allRooms(), " padded "), PurposeMain)
+	bad := specFor(t, Desired(testServer, testRoster(t), allRooms(), " padded ", ""), PurposeMain)
 	if !strings.Contains(string(stateOf(t, bad, "m.room.topic").Compact()), "Agent team:") {
 		t.Fatal("an invalid description was used")
 	}
@@ -131,7 +131,7 @@ func TestDesiredStateMain(t *testing.T) {
 
 func TestDesiredStateSideRooms(t *testing.T) {
 	r := testRoster(t)
-	specs := Desired(testServer, r, allRooms(), "")
+	specs := Desired(testServer, r, allRooms(), "", "")
 	reports, questions := specFor(t, specs, PurposeReports), specFor(t, specs, PurposeQuestions)
 	cases := map[string]struct {
 		spec RoomSpec
@@ -156,7 +156,7 @@ func TestDesiredStateSideRooms(t *testing.T) {
 		t.Fatal("open questions power levels differ from main")
 	}
 	r.Members[coordID] = RosterMember{Role: RoleCoordinator, HumanText: true, Parked: true}
-	closed := specFor(t, Desired(testServer, r, allRooms(), ""), PurposeQuestions)
+	closed := specFor(t, Desired(testServer, r, allRooms(), "", ""), PurposeQuestions)
 	if got := string(stateOf(t, closed, "m.room.topic").Compact()); got != `{"topic":"This team has no coordinator now, so this room is closed."}` {
 		t.Fatalf("closed topic %s", got)
 	}

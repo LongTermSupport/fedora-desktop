@@ -22,7 +22,9 @@
         "m.room.join_rules",
         "teamchat.roster",
         "teamchat.room",
-        "m.room.member"
+        "m.room.member",
+        "m.room.topic",
+        "teamchat.colour"
       ],
       "limit": 100
     },
@@ -33,7 +35,9 @@
         "m.room.join_rules",
         "teamchat.roster",
         "teamchat.room",
-        "m.room.member"
+        "m.room.member",
+        "m.room.topic",
+        "teamchat.colour"
       ],
       "lazy_load_members": false
     },

@@ -146,7 +146,7 @@ func drift(purpose, step, format string, args ...any) error {
 // (RE1).
 func (e *engine) find(ctx context.Context) ([]proto.RoomSpec, error) {
 	for {
-		specs := proto.Desired(e.t.Server, e.t.Roster, e.ids, e.t.Description)
+		specs := proto.Desired(e.t.Server, e.t.Roster, e.ids, e.t.Description, "")
 		i := slices.IndexFunc(specs, func(s proto.RoomSpec) bool { return s.RoomID == "" })
 		if i < 0 {
 			return specs, nil

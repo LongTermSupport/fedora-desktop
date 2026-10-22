@@ -26,7 +26,7 @@ func TestSyncFiltersArePinned(t *testing.T) {
 }
 
 func TestFilterKeepsEveryTypeTheRulesRead(t *testing.T) {
-	read := []string{MessageType, RedactionType, CreateType, PowerLevelsType, JoinRulesType, RosterType, LinkType, MemberType}
+	read := []string{MessageType, RedactionType, CreateType, PowerLevelsType, JoinRulesType, RosterType, LinkType, MemberType, topicType, ColourType}
 	if !slices.Equal(TimelineTypes, read) {
 		t.Fatalf("timeline types %v", TimelineTypes)
 	}

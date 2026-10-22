@@ -392,7 +392,7 @@ func (r *reader) questions(ctx context.Context) error {
 // form compares the questions room's power levels with those A's spec gives the roster.
 func (r *reader) form(ctx context.Context, id string, open bool) error {
 	var want proto.Value
-	for _, spec := range proto.Desired(r.server, *r.roster, r.in.Rooms, r.in.Team.Description) {
+	for _, spec := range proto.Desired(r.server, *r.roster, r.in.Rooms, r.in.Team.Description, "") {
 		for _, ev := range spec.State {
 			if spec.Purpose == proto.PurposeQuestions && ev.Type == proto.PowerLevelsType {
 				want = ev.Content
