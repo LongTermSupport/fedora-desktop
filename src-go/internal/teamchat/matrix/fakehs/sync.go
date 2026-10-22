@@ -240,7 +240,11 @@ func (s *Server) joinedEntry(rm *room, r *request, member *event, since int, flt
 	for _, e := range byPos {
 		stateEvents = append(stateEvents, e.client(false, nil))
 	}
-	outTimeline := map[string]any{keyEvents: timelineEvents, "prev_batch": strconv.Itoa(start - 1)}
+	outTimeline := map[string]any{keyEvents: timelineEvents}
+	// Tuwunel 1.9.4 gives a timeline limit of 0 no prev_batch (matrix's tagged test).
+	if flt.timelineLimit != 0 {
+		outTimeline["prev_batch"] = strconv.Itoa(start - 1)
+	}
 	if limited {
 		outTimeline["limited"] = true
 	}

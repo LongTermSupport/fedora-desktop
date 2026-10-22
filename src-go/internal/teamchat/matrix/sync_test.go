@@ -1,6 +1,7 @@
 package matrix
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -122,6 +123,27 @@ func TestSyncLimitedTimeline(t *testing.T) {
 	}
 }
 
+// TestSyncSendsFilterJSONByteForByte is gap 5: a filter given as JSON is the query's filter as
+// given, key order and all, so the member's filter is the one proto pins.
+func TestSyncSendsFilterJSONByteForByte(t *testing.T) {
+	srv := newServer(t)
+	f := room(t, srv)
+	if _, err := f.alice.Send(t.Context(), f.id, msgType, "", hello); err != nil {
+		t.Fatal(err)
+	}
+	raw := json.RawMessage(`{"room":{"timeline":{"types":["m.room.message"],"limit":0},"rooms":["` + f.id + `"]},"event_format":"client"}`)
+	resp, err := f.bob.Sync(t.Context(), SyncRequest{FilterJSON: raw})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := lastRequest(t, srv).Query.Get("filter"); got != string(raw) {
+		t.Errorf("filter sent\n%s\nwant\n%s", got, raw)
+	}
+	if tl := resp.Join[f.id].Timeline; len(tl.Events) != 0 || !tl.Limited || tl.PrevBatch != "" {
+		t.Errorf("a limit 0 filter gave the timeline %+v", tl)
+	}
+}
+
 func TestSyncRefusedBeforeARequest(t *testing.T) {
 	srv := newServer(t)
 	m := user(t, srv, "alice")
@@ -133,6 +155,11 @@ func TestSyncRefusedBeforeARequest(t *testing.T) {
 		{Since: "a b"},
 		{Since: strings.Repeat("s", 4097)},
 		{SetPresence: "away"},
+		{Filter: &RoomFilter{}, FilterJSON: json.RawMessage(`{}`)},
+		{FilterJSON: json.RawMessage(`{"room":`)},
+		{FilterJSON: json.RawMessage(`[]`)},
+		{FilterJSON: json.RawMessage(` {}`)},
+		{FilterJSON: json.RawMessage("{}\n")},
 	} {
 		_, err := m.Sync(t.Context(), req)
 		wantErr(t, err, ErrInvalid, "")
@@ -186,7 +213,7 @@ func TestSyncMalformed(t *testing.T) {
 		`{"next_batch":"s1","rooms":{"join":{"!r":{"timeline":{"events":{}}}}}}`,
 		`{"next_batch":"s1","rooms":{"join":{"!r":{"timeline":{"events":[5]}}}}}`,
 		`{"next_batch":"s1","rooms":{"join":{"!r":{"timeline":{"events":[],"limited":"yes"}}}}}`,
-		`{"next_batch":"s1","rooms":{"join":{"!r":{"timeline":{"events":[],"limited":true}}}}}`,
+		`{"next_batch":"s1","rooms":{"join":{"!r":{"timeline":{"events":[{}],"limited":true}}}}}`,
 		`{"next_batch":"s1","rooms":{"join":{"!r":{"timeline":{"events":[],"limited":true,"prev_batch":"a b"}}}}}`,
 		`{"next_batch":"s1","rooms":{"join":{"!r":{"state":{"events":[null]}}}}}`,
 		`{"next_batch":"s1","rooms":{"join":{"#alias":{}}}}`,
@@ -205,6 +232,13 @@ func TestSyncMalformed(t *testing.T) {
 	resp, err := m.Sync(t.Context(), SyncRequest{})
 	if err != nil || len(resp.Join["!r"].Timeline.Events) != 1 || len(resp.Leave["!l"].State) != 1 {
 		t.Fatalf("a well-formed answer: %+v, %v", resp, err)
+	}
+	// Tuwunel 1.9.4's answer to a timeline limit of 0 (the re-add sync, n3-D5): limited, with no
+	// events and no prev_batch, as the tagged test against the real server sees it.
+	inject(srv, http.MethodGet, syncPath, http.StatusOK, `{"next_batch":"s1","rooms":{"join":{"!r":{"timeline":{"limited":true,"events":[]}}}}}`)
+	resp, err = m.Sync(t.Context(), SyncRequest{})
+	if tl := resp.Join["!r"].Timeline; err != nil || !tl.Limited || tl.PrevBatch != "" || len(tl.Events) != 0 {
+		t.Fatalf("an empty limited timeline: %+v, %v", resp, err)
 	}
 	inject(srv, http.MethodGet, syncPath, http.StatusUnauthorized, `{}`)
 	_, err = m.Sync(t.Context(), SyncRequest{})
