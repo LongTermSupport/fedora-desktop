@@ -312,9 +312,7 @@ func asked(op string, args []proto.Member, a Answer) error {
 	if err != nil {
 		return err
 	}
-	lie := func(what string) error {
-		return fmt.Errorf("the %s child answered %s, not what it was asked: no bundle is made", paths.CtlUser, what)
-	}
+	lie := func(what string) error { return childLie(what, "no bundle is made") }
 	if !answeredHandle(req, a.Handle) {
 		return lie("handle " + strconv.Quote(a.Handle))
 	}
@@ -329,6 +327,20 @@ func asked(op string, args []proto.Member, a Answer) error {
 		return lie("a credential or a main room")
 	case issues && a.Credential.Kind != req.Credential:
 		return lie("a " + a.Credential.Kind + " credential")
+	}
+	return nil
+}
+
+// childLie is an answer that is not what the child was asked; then says what root does not do.
+func childLie(what, then string) error {
+	return fmt.Errorf("the %s child answered %s, not what it was asked: %s", paths.CtlUser, what, then)
+}
+
+// teamApplyAnswered refuses a team.apply answer that carries more than changed lines: it
+// names no member and issues no credential.
+func teamApplyAnswered(a Answer) error {
+	if a.Handle != "" || len(a.Notes) > 0 || a.Credential != nil || a.MainRoom != "" {
+		return childLie("a handle, notes, a credential or a main room", "its changes are not reported")
 	}
 	return nil
 }
@@ -462,6 +474,11 @@ func bootstrap(ctx context.Context, sys *System, b host.Bootstrap) ([]string, er
 	a, err := ask(ctx, sys, apply.OpTeamApply, id, proto.Obj(proto.M("input", in), proto.M("approved", g), proto.M("reg_key", proto.Str(b.RegKey))))
 	if a == nil {
 		return nil, err
+	}
+	if a.OK {
+		if lie := teamApplyAnswered(*a); lie != nil {
+			return nil, lie
+		}
 	}
 	return a.Changed, err
 }

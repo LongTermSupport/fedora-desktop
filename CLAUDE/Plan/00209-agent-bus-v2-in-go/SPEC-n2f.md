@@ -85,7 +85,9 @@ The packages:
   for their op, exact keys, every string one line; a `view` decodes into `status.Member`,
   `status.Human` and `status.Problem` and must make a record that `status.Encode` accepts (SR1's
   value rules, so a membership word, a kind or a role the record cannot hold is refused before
-  anything is written). An answer with a `view` or `notice` for another op is refused.
+  anything is written). An answer with a `view` or `notice` for another op is refused, and a
+  `team.apply` answer that carries a handle, notes, a credential or `main_room` is refused as
+  a lie, as the member verbs' answers are.
 - **CO4. Root's adapters.** `admin.ChildViewer` (health.Viewer) asks `team.view` with the
   applied `team.json` root reads; a missing or unreadable `team.json` wraps
   `health.ErrViewFiles`, a child failure or a refused answer `health.ErrViewChild`, a `config`

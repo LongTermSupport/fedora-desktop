@@ -569,6 +569,29 @@ func TestAChildsAnswerIsCheckedAgainstTheRequest(t *testing.T) {
 	}
 }
 
+// TestATeamApplyAnswerIsHeldToItsOp: team.apply's answer carries changed lines only; a handle,
+// notes, a credential or a main room in it is refused as a lie, as for the member verbs.
+func TestATeamApplyAnswerIsHeldToItsOp(t *testing.T) {
+	cases := map[string]func(*Answer){
+		"a handle":     func(a *Answer) { a.Handle = coord },
+		"notes":        func(a *Answer) { a.Notes = []string{"a note"} },
+		"a credential": func(a *Answer) { a.Credential = &apply.Credential{Kind: apply.CredPassword, Secret: "x"} },
+		"a main room":  func(a *Answer) { a.MainRoom = sampleRoom },
+	}
+	for name, lie := range cases {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t)
+			in := encodeDoc(t, alphaDoc())
+			w.ok(t, in, "team", "approve", "--team", "alpha")
+			w.lie = lie
+			out := w.verb(in, "team", "apply")
+			if out.code != term.ExitFailure || !strings.Contains(out.stderr, "not what it was asked") {
+				t.Fatalf("%+v", out)
+			}
+		})
+	}
+}
+
 func TestVerbsNeedTheirSeams(t *testing.T) {
 	for _, args := range [][]string{addArgs("3", "password"), {"team", "apply"}, {"team", "remove", "--team", "alpha"}, {"team", "approve", "--team", "alpha"}} {
 		var stdout, stderr bytes.Buffer
