@@ -220,10 +220,27 @@ its first caller.
   (`internal/teamchat/rooms`): find, adopt or create in A 5.2's order, drift refused before any
   write, kicks before state before invites, the roster `rev` rule, idempotent, and accepted by
   proto's trust checks, on fakehs and, under `-tags tuwunel`, against the pinned Tuwunel 1.9.4.
-  Not covered: install and apply, the roster file and `rooms.json`, members, humans, roles, and
-  the reserved localparts.
-- [ ] ⬜ **Task 2.4**: Seats and bundles in the seat store (C 3.7), the declarations (C 3.8),
+  Slice n2b (`feat/bus-v2-n2b`, `SPEC-n2b.md` AG1-AG7, ST1-ST2 and AP1-AP12, report
+  `subagent-reports/261022-n2b.md`) covers, as inert code: the DC18 approval gate
+  (`declare`: compare, check, approve whole or one entry, `approved.json`); the state files'
+  atomic writer and capped reader (`state`); and `team apply`'s step 10 (`apply`): the gate
+  first, one server admin, the humans (created, adopted, locked, unlocked), the rooms through the
+  engine from the roster derived from the roster file and the approved team, `rooms.json`, and
+  the coordinator demoted before the new one is promoted, on fakehs and under `-tags tuwunel`
+  against the pinned Tuwunel 1.9.4. The reserved localparts are refused as human names (DR3,
+  proto's list). Not covered: the play's install tasks, `team apply`'s steps 1-9 and 11, bootstrap
+  step 1, `team approve`'s verb and password-sudo boundary, `team remove`, and the member verbs.
+  Carried to the member verbs: `team apply` refuses another operation's `pending` record
+  (n2b-D22); when those verbs land it becomes C 3.6.3's roll-forward.
+- [ ] 🔄 **Task 2.4**: Seats and bundles in the seat store (C 3.7), the declarations (C 3.8),
   Element profiles (C 3.10), health and the status records (C 3.11), backups and restore (C 3.12).
+  Slice n2b (`SPEC-n2b.md` DR1-DR8, HV1-HV3 and GD1-GD3) covers the declarations of C 3.8: the
+  strict JSON reader and value rules, the one-team input and canonical `team.json`, the host_vars
+  YAML reader (`declare/hostvars`, `go.yaml.in/yaml/v3` vendored), and the go-deps `keepout` row
+  that keeps YAML out of `teamchat-admin` (DC17). An Element entry takes `team` alone, so a
+  `base_url` is refused (the N0 re-check's finding 5). Not covered: the host_vars writer (HV4,
+  ccy-teams'), `declare check`'s v1 rules, seats, bundles, Element profiles, health, status
+  records, backups and restore.
 - [ ] ⬜ **Task 2.5**: Acceptance: C 3.14's tests; the M44 real-Tuwunel test, and Tuwunel's answers
   for a locked and a deactivated account recorded into `fakehs` (host or VM lab); VM-lab scenario
   `teamchat-coexist` (P1) to its N2 stage, a host-only team cycle (D 4.3); the install on the host with the footprint before and after (P2); host
