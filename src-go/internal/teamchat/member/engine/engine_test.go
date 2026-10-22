@@ -143,6 +143,9 @@ type fakeTeam struct {
 	historyErr  error
 	flushes     int
 	flushErr    error
+	// ended is set once Run returns; flushedLive counts the flushes made while it ran.
+	ended       bool
+	flushedLive int
 }
 
 func (f *fakeTeam) Run(ctx context.Context) error {
@@ -156,6 +159,9 @@ func (f *fakeTeam) Run(ctx context.Context) error {
 		return errors.New("the team ended on its own")
 	}
 	<-ctx.Done()
+	f.mu.Lock()
+	f.ended = true
+	f.mu.Unlock()
 	return ctx.Err()
 }
 
@@ -193,6 +199,9 @@ func (f *fakeTeam) FlushFloor(context.Context) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.flushes++
+	if !f.ended {
+		f.flushedLive++
+	}
 	return f.flushErr
 }
 
