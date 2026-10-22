@@ -6,7 +6,8 @@
 // createRoom (room version 12, private_chat), invite, join (with a restricted join rule), leave,
 // kick, send with transaction IDs per device, state get and put, the whole room state, redact,
 // GET event, read receipts, /messages, /joined_rooms, /sync with an inline filter,
-// long-polling and lazy-loaded members, and the Synapse-compatible admin API. Its answers are
+// long-polling and lazy-loaded members, and the Synapse-compatible admin API. A test may snapshot
+// the database and restore it, as a backup restore does (Snapshot, RestoreTo). Its answers are
 // proven against the exchanges probe H4 recorded with a real Tuwunel (replay_test.go); where it
 // says what Tuwunel says, the text is the recorded text. A request beyond the model is answered 500 and recorded, and
 // CheckModelled reports it, rather than guessed at.
@@ -80,6 +81,14 @@ type Options struct {
 	Now func() time.Time
 	// Quirks are Tuwunel's behaviours beyond the specification.
 	Quirks Quirks
+	// Hold is a held sync's timeout: the channel fires when it has passed, and stop ends it
+	// early. nil is time.NewTimer.
+	Hold func(d time.Duration) (<-chan time.Time, func() bool)
+}
+
+func realHold(d time.Duration) (<-chan time.Time, func() bool) {
+	t := time.NewTimer(d)
+	return t.C, t.Stop
 }
 
 // Quirks are Tuwunel's departures from the Matrix specification, each a switch (SPEC M40).
@@ -183,6 +192,7 @@ type Server struct {
 	mu            sync.Mutex
 	name          string
 	now           func() time.Time
+	hold          func(time.Duration) (<-chan time.Time, func() bool)
 	quirks        Quirks
 	regKey        string
 	salt          []byte
@@ -214,9 +224,14 @@ func New(opts Options) *Server {
 	if now == nil {
 		now = time.Now
 	}
+	hold := opts.Hold
+	if hold == nil {
+		hold = realHold
+	}
 	s := &Server{
 		name:          opts.ServerName,
 		now:           now,
+		hold:          hold,
 		quirks:        opts.Quirks,
 		regKey:        hex.EncodeToString(randomBytes(32)),
 		salt:          randomBytes(16),

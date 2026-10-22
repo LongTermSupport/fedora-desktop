@@ -85,6 +85,21 @@ func (systemClock) Sleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
+// Timers is how a try's time limit is armed, a seam of its own beside the Clock (the 429 wait):
+// AfterFunc calls f once d has passed, unless stop, called first, says it stopped it.
+type Timers interface {
+	AfterFunc(d time.Duration, f func()) (stop func() bool)
+}
+
+type systemTimers struct{}
+
+// SystemTimers are the real timers, time.AfterFunc.
+func SystemTimers() Timers { return systemTimers{} }
+
+func (systemTimers) AfterFunc(d time.Duration, f func()) func() bool {
+	return time.AfterFunc(d, f).Stop
+}
+
 // Config is what a client is built from.
 type Config struct {
 	// BaseURL is the homeserver: scheme, host and port, nothing after.
@@ -96,17 +111,20 @@ type Config struct {
 	Token string
 	// Clock is how the client waits; nil is SystemClock.
 	Clock Clock
+	// Timers arm each try's time limit; nil is SystemTimers.
+	Timers Timers
 	// UserAgent replaces the side's default User-Agent.
 	UserAgent string
 }
 
 // Client is a Matrix client-server API client. It is safe for concurrent use.
 type Client struct {
-	base  string
-	http  *http.Client
-	clock Clock
-	agent string
-	limit time.Duration
+	base   string
+	http   *http.Client
+	clock  Clock
+	timers Timers
+	agent  string
+	limit  time.Duration
 	// authorize sets the Authorization header; nil when the client has no token. A closure,
 	// so no formatting of the struct can reach the token.
 	authorize func(http.Header)
@@ -135,7 +153,11 @@ func newClient(cfg Config, base, agent string, limit time.Duration) (*Client, er
 	if clock == nil {
 		clock = SystemClock()
 	}
-	c := &Client{base: base, http: newHTTPClient(), clock: clock, agent: agent, limit: limit}
+	timers := cfg.Timers
+	if timers == nil {
+		timers = SystemTimers()
+	}
+	c := &Client{base: base, http: newHTTPClient(), clock: clock, timers: timers, agent: agent, limit: limit}
 	if cfg.Token == "" {
 		return c, nil
 	}
@@ -384,8 +406,10 @@ func (c *Client) once(ctx context.Context, cl call) (*answer, error) {
 	if cl.limit != 0 {
 		limit = cl.limit
 	}
-	tryCtx, cancel := context.WithTimeout(ctx, limit)
+	tryCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	stop := c.timers.AfterFunc(limit, cancel)
+	defer stop()
 	target := c.base + cl.path
 	if len(cl.query) > 0 {
 		target += "?" + cl.query.Encode()
