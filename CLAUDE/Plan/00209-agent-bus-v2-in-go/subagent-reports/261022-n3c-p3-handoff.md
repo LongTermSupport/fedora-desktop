@@ -63,7 +63,61 @@ number of adds it is about to send, sends exactly that many, then waits for `rea
 30 s bound on the clock seam. An end-only start counts its adds the same way. Record this in
 the report.
 
-## Left to build
+## Second builder's state (read this first)
+
+The keeper package is WRITTEN and compiles (`go vet` clean), committed as a WIP commit that
+is NOT yet green. Files in `src-go/internal/teamchat/member/keeper/`:
+
+- `keeper.go` doc, seams (`Proc`, `Pidfd`, `Pidfds`, `WatchEvent{Name; Op uint32}`, `Watcher`),
+  `Config` exactly as below, constants, messages, `Run`, `Main`, `production`, `openRunRoot`.
+- `prepare.go` the `keeper` struct, steps 1-6 (`resolveKit`, `currentKit`, `kitVersion`,
+  `readLaunchDesired`, `trustedRead`, `sweep`, `makeRun`, `writeSessionPID`, `claudeArgv`,
+  `resume`, `projectDir`, `takeLaunchSeats`, `takeSeat`, `close`).
+- `loop.go` timers (`after`/`cancel`, every timer tracked so `finish` disarms all), the loop,
+  `startLink`/`greet` (launch with Seats = adds actually dup'd, owed, adds, pid, claude, token;
+  end-only: launch, adds, end), supervision (`crashed`: 10 min reset, 1 s \<< (n-1), 6th =
+  crash-loop; 78 = config; deliberate kill restarts uncounted), `startCmd`, claude pidfd,
+  orphan 3 s/5 s, stop 5 s/7 s, `how`, `end`, `launchFailed`.
+- `seats.go` seat/removal types, keeper.json and report.json writers, RC1 (`onWatch`,
+  `reread`, `reconcile`, `add`, `refuse`, `remove`, `settleRemovals`, `removed`, `drop`).
+- `osproc.go` production `procStat`, `osPidfds` (pidfd + poller wait), `inotify` watcher.
+- Tests: `harness_test.go` (the draft, fixed; helpers `holdFile`, `holdSeat`, `startPlain`,
+  `session.finish`, `logOf`, `link()`/`cmd()` that fail fast when Run ended), `keeper_test.go`,
+  `prepare_test.go`, `loop_test.go`, `seats_test.go`, `osproc_test.go` (TestMain = reexec.Main).
+
+Known failures to fix next (from the last `go test` run):
+
+1. Claude-mode tests that end CMD with `c.code(0)` hit launch-failed (78) because the fake link
+   never sent `started`: make `world.running` (and TestLaunchHoldsSeatsAndRunsCmd) send
+   `wire.Msg{Kind: wire.KindStarted, Started: &wire.Started{}}` after the pid for `--claude`.
+2. TestLaunchHoldsSeatsAndRunsCmd: keeper.json missing after ready - check `writeKeeper`'s
+   error in keeper.log (likely an Encode refusal of a field value).
+3. TestRunRootWithoutParent "cannot be made"/"parent cannot hold it": the test must MkdirAll
+   the run root's parent before planting a file at the run root.
+4. TestLeftoverSweep: `runDir()` assumes one entry; make it pick the entry not planted by
+   the test.
+
+Lint (golangci-lint on the package, 31 issues): containedctx (the keeper struct holds ctx:
+thread ctx as a parameter, or use one the loop owns), cyclop on the long test, funcorder
+(unexported methods after exported ones in pidfd, inotify, fakeLink, procTable, fakePidfd),
+gosec G115 (uid and fd conversions: compare as int64/uint64 instead), G304 (openAppend),
+govet shadow (keeper.go openRunRoot, prepare.go makeRun), gocritic appendAssign
+(claudeArgv), staticcheck QF1001/QF1008, exhaustive (loop.go linkExited switch), prealloc,
+unparam and unused (helpers that later tests will use: `report`, `desiredFarewell`, `quiet`,
+`fakeLink.state`, `procTable.gone`, `fakePidfds.get`, `cmd`, `log`; field `keepRun` to delete).
+The edit hook prints the whole lint list after every edit, so fix lint in a few large edits.
+
+Still to write: tests for KP1 (pidfd stop, 3 s/5 s, 5 s/7 s, INT ignored, one forward), KP2,
+KP3 (each kind, 5 s KILL, locks closed only after the link's exit, end-only start), RC1 rows
+(refused with code, missing, overflow, removal with farewell released/owed/left/30 s,
+remove timeout kill + store delete, busy hot add -> refused), RN3, LN8, the B11/B14/B15 source
+scans (B14: cli pulls in guest -> matrix -> net/http, so scan the keeper's own imports and
+every module package it imports except cli, whose types alone it uses, and assert it calls
+no cli function), the busfailpoints real-process test, Main's tests, the qa/rules
+`dynamicNames` rows the analyzer asks for, coverage >= 90% with -race, golangci with and
+without --build-tags tuwunel, qa-changed, and the report `261022-n3c-p3.md`.
+
+## Left to build (first builder's list)
 
 The whole `internal/teamchat/member/keeper` package, its tests, its failpoint tests, the
 B14/B11/B15 source scans, coverage at 90%, and the report `261022-n3c-p3.md`.
