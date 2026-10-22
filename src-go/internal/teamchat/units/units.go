@@ -380,6 +380,9 @@ func dbusError(e dbus.Error) error {
 		class = ErrNotPermitted
 	case "org.freedesktop.systemd1.UnitMasked":
 		class = ErrMasked
+	case "org.freedesktop.DBus.Error.ServiceUnknown", "org.freedesktop.DBus.Error.NameHasNoOwner",
+		"org.freedesktop.DBus.Error.NoReply", "org.freedesktop.DBus.Error.Disconnected":
+		class = ErrUnreachable
 	default:
 		class = namedError(e.Name)
 	}

@@ -173,7 +173,8 @@ context. `Manager.Host()` is `host.Systemd` and
   each as `/usr/bin/<name>` with `CleanEnv` and the environment `PATH=/usr/bin:/bin`, `LANG=C`.
 - **SD7. Error mapping.** A D-Bus error is one line naming the call, the unit and the error's
   class: `NoSuchUnit`, `AccessDenied` and `InteractiveAuthorizationRequired` ("not permitted"),
-  a bus that cannot be reached or a lost connection ("systemd is not reachable on the system
+  a bus that cannot be reached or a lost connection, and the bus's `ServiceUnknown`,
+  `NameHasNoOwner`, `NoReply` and `Disconnected` ("systemd is not reachable on the system
   bus", and the connection is dropped so the next call dials again), `UnitMasked`, and any other
   error by its D-Bus name. A string the bus returned is printed only when it is one line of at
   most 256 bytes; a body is never printed whole.

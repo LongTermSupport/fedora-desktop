@@ -430,6 +430,39 @@ func TestDBusErrorsAreMappedByClass(t *testing.T) {
 	}
 }
 
+// TestBusErrorsThatMeanSystemdIsGoneAreUnreachable is SD7: the bus's own errors for a name with
+// no owner, a call never answered and a lost connection are "systemd is not reachable", and the
+// connection is dropped so the next call dials again.
+func TestBusErrorsThatMeanSystemdIsGoneAreUnreachable(t *testing.T) {
+	for _, name := range []string{
+		"org.freedesktop.DBus.Error.ServiceUnknown",
+		"org.freedesktop.DBus.Error.NameHasNoOwner",
+		"org.freedesktop.DBus.Error.NoReply",
+		"org.freedesktop.DBus.Error.Disconnected",
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newRig(t)
+			unit := testUnit(t)
+			first := r.conn
+			first.on(managerStartUnit, func(fakeCall) ([]any, error) {
+				return nil, dbus.Error{Name: name, Body: []any{"gone"}}
+			})
+			err := r.m.Host().Start(t.Context(), unit)
+			if !errors.Is(err, ErrUnreachable) || errors.Is(err, ErrSystemd) ||
+				err.Error() != "systemd start "+unit+": systemd is not reachable on the system bus: gone" {
+				t.Fatalf("err = %v", err)
+			}
+			if first.closes != 1 {
+				t.Errorf("closes = %d: the connection was kept", first.closes)
+			}
+			r.nextConn = newFakeConn
+			if err := r.m.Host().DaemonReload(t.Context()); err != nil || r.dials != 2 {
+				t.Fatalf("reload after the loss: %v, dials %d", err, r.dials)
+			}
+		})
+	}
+}
+
 func TestAnUnreachableBusIsDialledAgain(t *testing.T) {
 	r := newRig(t)
 	unit := testUnit(t)
