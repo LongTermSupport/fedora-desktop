@@ -102,7 +102,12 @@ one definition, read by both.
   `changed-plays` entry above it.
 - [x] ✅ **Task 4.2**: Docs (`docs/playbooks.md`) say the report and `--changed` share one
   judgement, what a finding names, and what the report and the reminder now print.
-- [ ] ⬜ **Task 4.3**: Adversarial Opus review to MERGE, then the qa-reviewer agent.
+- [x] ✅ **Task 4.3**: Adversarial Opus review to MERGE (rounds 1-4 FIX-FIRST, round 5
+  MERGE), then the qa-reviewer agent (one FIX-FIRST: queue a `changed-plays` entry after
+  the acceptance, so the changed help text and panel reach the host). Reports in
+  `subagent-reports/`.
+- [ ] ⬜ **Task 4.4**: The owner runs meta-deploy: the acceptance passes on the host, then
+  the `changed-plays` entry runs every changed play.
 
 ## Success Criteria
 

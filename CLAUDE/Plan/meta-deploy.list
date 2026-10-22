@@ -173,7 +173,13 @@ playbooks/imports/play-git-configure-and-tools.yml
 # where --changed ran 25), then runs one collection as host-health.service does (a git fetch,
 # and the status document and handoff file rewritten) and checks that fedora-desktop-health and
 # the login shell's second reminder of the day print this checkout's run.bash --changed. With
-# no play to run it says NOT JUDGED (exit 2). Afterwards, paste the printed command to run
-# every changed play, or add a changed-plays line here; that also runs
-# play-host-health-login-report.yml, whose fedora-desktop-health --help text this plan changed.
+# no play to run it says NOT JUDGED (exit 2).
 00214-update-all-changed-plays
+# Every play that has to run again here (issue #110 gap 3), after the acceptance above, which
+# needs them still stale: ./run.bash --changed --yes, in playbook-main.yml order, stopping at
+# the first failure. It is expected to pick up play-host-health-login-report.yml (Plan 00214
+# changed fedora-desktop-health's --help) and play-fedora-desktop-panel.yml (the panel's
+# "Re-run a play…" count now leaves out plays --changed does not run), plus every other play
+# the acceptance listed as changed or failed. Needs sudo. Afterwards log out and back in so
+# the panel loads its new code (Wayland), and fedora-desktop-health should list no play.
+changed-plays
