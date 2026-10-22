@@ -1,0 +1,25 @@
+=== exit 1
+=== stdout
+{
+  "schema": 1,
+  "generated_at": "2030-01-15T12:00:00Z",
+  "scale": "fraction",
+  "error": "usage could not be read for any token",
+  "tokens": [
+    {"name": "work", "file": "work.2030-06-01.token", "expires": "2030-06-01", "status": "unavailable", "reason": "could not reach the API", "five_hour_pct": null, "seven_day_pct": null, "resets": {"five_hour": null, "seven_day": null}, "binding_limit": null, "http_status": null, "fetched_at": "2030-01-15T12:00:00Z", "warnings": [], "shadowed": []}
+  ]
+}
+=== stderr
+=== calls
+curl --config - --silent --request POST --header 'content-type: application/json' --header 'anthropic-version: 2023-06-01' --header 'anthropic-beta: oauth-2025-04-20' --data '{"model":"claude-haiku-4-5-20251001","max_tokens":1,"messages":[{"role":"user","content":"."}]}' --dump-header '{sandbox}/tmp/tmp.XXXXXXXXXX' --connect-timeout 5 --max-time 20 --output '{sandbox}/tmp/tmp.XXXXXXXXXX' --write-out '%{http_code}' https://api.anthropic.com/v1/messages
+=== files
+dir  home/.claude-tokens 0700
+dir  home/.claude-tokens/ccy 0700
+dir  home/.claude-tokens/ccy/tokens 0700
+file home/.claude-tokens/ccy/tokens/work.2030-06-01.token 0600
+     | {token:work}
+dir  home/.claude-tokens/ccy/usage-cache 0700
+file home/.claude-tokens/ccy/usage-cache/work.result 0600
+     | work.2030-06-01.token
+     | 000
+     | 
