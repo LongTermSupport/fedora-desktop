@@ -141,13 +141,19 @@ func count(inv cli.Invocation, flag string, def, most int64, msg exits.Template)
 // runOf is the run directory TEAMCHAT_RUNTIME names: a ccy session's, or the home member's
 // under $HOME and $XDG_RUNTIME_DIR; anything else is no session.
 func runOf(dir string, getenv func(string) string) (paths.Run, error) {
+	r, _, err := sessionOf(dir, getenv)
+	return r, err
+}
+
+// sessionOf is runOf's run directory and the layout it is in.
+func sessionOf(dir string, getenv func(string) string) (paths.Run, paths.Layout, error) {
 	none := exits.New(exits.CodeNoSession, nil, msgNoSession)
 	if dir == "" || !filepath.IsAbs(dir) || filepath.Clean(dir) != dir {
-		return paths.Run{}, none
+		return paths.Run{}, paths.Layout{}, none
 	}
 	id, err := paths.ParseRunID(filepath.Base(dir))
 	if err != nil {
-		return paths.Run{}, none
+		return paths.Run{}, paths.Layout{}, none
 	}
 	layouts := []paths.Layout{paths.CCYLayout()}
 	if home, err := paths.HomeLayout(getenv("HOME"), getenv("XDG_RUNTIME_DIR")); err == nil {
@@ -155,10 +161,10 @@ func runOf(dir string, getenv func(string) string) (paths.Run, error) {
 	}
 	for _, l := range layouts {
 		if r := l.Run(id); r.Dir() == dir {
-			return r, nil
+			return r, l, nil
 		}
 	}
-	return paths.Run{}, none
+	return paths.Run{}, paths.Layout{}, none
 }
 
 // conn is one verb's talk with the link.
