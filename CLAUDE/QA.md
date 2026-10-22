@@ -971,6 +971,36 @@ A replacement that puts a literal backslash before the group (three backslashes 
 backslash as `[\\]` or `\x5c`, so it does not read as a backreference. The rule does not read
 `.j2` template files. There Jinja unescapes, so `'\\1'` is the correct spelling.
 
+### offline-member-blocks
+
+**What it is.** Code that treats a declared team member whose container or session is not
+running as a failure or a precondition. Three detectors, run by
+`tests/helpers/agent_bus_lxc/test_offline_member_rule.py` (in `qa-helper-tests.bash`), which
+proves each against its fixture first:
+
+- **A.** Bash that reads the declared LXC members (it names `agent_bus_lxc_members` or
+  `MEMBERS_JSON`), in an active plan folder, `files/` or `scripts/`, that reads a container's
+  state itself (`lxc-info -s`, a `${LXC_INFO[@]}` call), or enters a container (`lxc-attach -n`,
+  a `${LXC_ATTACH[@]}` call) without calling `plan_lxc_online`.
+- **B.** In team-member code (`helpers/agent_bus*`, `helpers/pingbus`, ccy-teams' packages,
+  `declare`, `agentbus`, the `agent-bus-*` sbin tools, and the bash of A), a message that makes
+  starting a member the way on: "start it, then ...", "restart that session, then ...",
+  "Start container ...", "... with the container running".
+- **C.** A Go flow under `src-go/internal/teams` that collects its LXC member rows into a list
+  and returns `term.ExitFailure` when that list is not empty.
+
+**Why it exists.** An offline member is normal lifecycle: members go offline and come back
+([AgentNotes.md](AgentNotes.md#an-offline-team-member-never-blocks-anything)). A deploy's
+pre-flight that refused a stopped LXC member stopped the whole deploy, and the same refusal
+was copied into the next plan's acceptance.
+
+**How to fix a finding.** In bash, list the containers with `plan_lxc_online` (in
+`CLAUDE/Plan/_planlib.inc.bash`). It prints the running ones and names each other one as
+`<container> is offline (container stopped)`, never failing on it. In Go or Python, ask the
+container list or the member record. Then judge only the online members. A check that needs an
+online member and has none says NOT JUDGED and does not fail the run. Do not weaken a check of
+a running member: a running member with the wrong binary still fails.
+
 ---
 
 ## Changing a Gate
