@@ -182,7 +182,7 @@ func createAt(parent int, name string, data []byte, perm fs.FileMode) error {
 		werr = f.Sync()
 	}
 	if err := errors.Join(werr, f.Close()); err != nil {
-		return err
+		return errors.Join(err, unix.Unlinkat(parent, name, 0))
 	}
 	return unix.Fsync(parent)
 }
