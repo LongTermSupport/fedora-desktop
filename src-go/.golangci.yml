@@ -311,6 +311,10 @@ linters:
           - pkg: internal/teamchat/health
             rules:
               json: snake
+          # B 2.2.2's member records are snake_case JSON Lines, as every teamchat record is.
+          - pkg: internal/teamchat/member/records
+            rules:
+              json: snake
     cyclop:
       max-complexity: 15
     funlen:
