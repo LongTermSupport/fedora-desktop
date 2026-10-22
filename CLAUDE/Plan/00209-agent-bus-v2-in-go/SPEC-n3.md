@@ -704,7 +704,8 @@ through the supervisor is taken as a restart too, which is accepted.
 ## 9. Gaps in the built APIs, and how each is closed
 
 Each is closed in the slice that first needs it: n3a gaps 1-4 and 8 (MS3, LK3, LK4 and LK3's
-second-process tests); n3b gaps 10 and 13; n3c gaps 5-7, 11, 12 and 14; gap 9 from n3c on, each
+second-process tests); n3b gaps 10, 13 and 15-21 (its parts:
+`subagent-reports/261022-n3b-handoff.md`); n3c gaps 5-7, 11, 12 and 14; gap 9 from n3c on, each
 later slice adding its own failpoints.
 
 01. `paths` has `GuestRuntimeDir` and `SessionUnit`, but no inbox socket form, aside name, floor
@@ -766,6 +767,33 @@ later slice adding its own failpoints.
     deferred seat, n3-D20's second fetch, a poison relation, UH1's dedupe, own sends' lifetime)
     are in `subagent-reports/261022-n3-spec-review-3.md` and are fixed while building. Test: a fetch error injected for one relation id
     leaves the answer unpersisted, and `Judge` is never called for that batch.
+15. `lxc-ls`, `lxc-info` and `lxc-attach` are owned by `internal/lxcfreeze` alone
+    (`qa/rules/table.go`), which runs them through sudo and links `internal/ui`; and
+    `project_seam_commands` cannot see a run-time program after `lxc-attach --`, which LX6's kit
+    binary is: `internal/teamchat/host/lxc/lxccmd` becomes their second owner (n3-D30), and a
+    `dynamicNames` row excuses a non-literal inner program after an owned inner wrapper, with the
+    rule's red and green fixtures (n3b P1).
+16. Gap 13 is half closed: godbus is in `go.mod` and `go-deps.allowlist` for `teamchat/units`
+    (n2f-D4). What is left is the `keepout` row for `./cmd/teamchat`, the allowlist reason
+    naming SU2, and SU2's capped reader, which `units` (the trusted system bus) has none of
+    (n3b P2).
+17. Gap 10's announcer half is built: the child's `member.disconnected` (n2f CO2,
+    `admin/serveview.go`) and `admin.ChildAnnouncer` (CO4), wired in `admin/wire`. LP2 is left
+    with its fakehs rows where `serveview_test.go` and `notice_test.go` lack them, and PLAN.md's
+    `notice` caller line (n3b P4).
+18. `paths` has no container-name type, no path for the host's desired copy
+    (`/var/lib/teamchat-admin/_lxc/<container>/<user>.json`) and no `lxc-<user>` session name, and
+    nothing encodes the LXC record (`lxc/<team>.json`) or the host copy: `paths/lxc.go` and
+    `host/lxc/lxcstate` add them, `declare`'s container grammar moved to `paths` (n3b P3).
+19. v2 has no handle derivation from a guest checkout (origin's last component, else the
+    directory name; `HOOKS_DAEMON_HOSTNAME` from `ccy.env.local`, else `local`; A 2.3's
+    normalisation): `host/lxc/guestfacts` adds it, parsing and never running git (n3b P3).
+20. `admin`'s member verbs take the team lock inside the verb (`memberVerb`, then `underLock`), but
+    `lxc apply` asks the child several times under one held lock: the work under the lock is split
+    out (`memberWork`), and `lxc.Roster`'s admin adapter calls it with `asked`'s checks kept (n3b P4).
+21. `admin/wire` gives the health tick `health.GuestsNotBuilt`, `System` has no LXC seam, and nothing
+    reads the host kit's digest: P4 adds `System.LXC`, `lxc.Guests` and the `current` link read
+    (n3-D26).
 
 ## 10. Decisions where the design is silent or wrong
 
@@ -791,6 +819,16 @@ later slice adding its own failpoints.
 | n3-D18 | B37 gives no numbers for a freeze: SY12 takes a deadline overdue by more than 10 s, or a growth of more than 2 s in `CLOCK_BOOTTIME` minus `CLOCK_MONOTONIC` between readings. Both are far above scheduling noise and far below a real suspend.                                                                                                                                                                                                                                                                                                                        |
 | n3-D19 | B 2.3.3's closed set of desired `code`s (`json`, `schema`, `version`, `seat`) gains `missing` for a desired file deleted under a live keeper (RC1), so the deletion is said by its own name; launch-time absence stays 78 `membership` (n3-D16).                                                                                                                                                                                                                                                                                                                        |
 | n3-D20 | A 7.5's "one event fetch, which B caches" is unspecified in B: SY4a's cache holds 1024 entries in memory, oldest evicted, lost at a link restart (a miss is one more fetch). A related event the server answers 404 or 403 for has an unknown sender: not addressed to this member and not counted unheard, so the count may undercount and never miscounts. A transient failure holds the batch, never a guess. This departs from B 2.7.3's "That is the only re-fetch" (of a restored item): SY4a's related-event fetch is a second one, which B 2.7.3 now names.     |
+| n3-D21 | `lxc apply` reads the whole v2 declaration by `declare.Decode` (refining n3-D11), so step 01 sees the teams as well as the LXC entries; each acted team's `Input` passes `declare.Hold` against its approval, else 70.                                                                                                                                                                                                                                                                                                                                                  |
+| n3-D22 | Container facts come from `lxc-ls -1` and `lxc-info` (`-sH`, `-pH`, `-iH`, `-c <key>`), not from reading `<lxcpath>/<c>/config`, so LXC's own `lxc.include` handling decides what `lxc.idmap`, the link and `lxc.start.auto` are; `lxc-info`'s failure text is never parsed. The VM lab checks `-c` against a config with includes.                                                                                                                                                                                                                                     |
+| n3-D23 | Whether a member needs `add`, `return` or `reissue` is decided from host facts only: the LXC record and the child's `team.view`. The guest's `seat.json` is never read for it (TB2); a guest that lost its bundle is healed by `ccy-teams reissue`.                                                                                                                                                                                                                                                                                                                     |
+| n3-D24 | The guest's systemd is spoken to peer to peer (AUTH EXTERNAL as uid 0, no Hello). A job call waits for its reply, the job accepted, and not for `JobRemoved`, each within 30 s; n3b's acceptance asserts the start accepted.                                                                                                                                                                                                                                                                                                                                            |
+| n3-D25 | SU2's capped reader judges each message by its fixed header (fields length and body length) before godbus reads it; over 1 MiB, or an authentication line over 512 bytes, closes the connection by name.                                                                                                                                                                                                                                                                                                                                                                |
+| n3-D26 | The kit digest a guest gets is the host kit's `current` link, root-owned and checked by `paths.ParseDigest`; a guest's existing `kit/<digest>/` is kept as it is (only a rename makes one), checked root-owned and not group or other writable.                                                                                                                                                                                                                                                                                                                         |
+| n3-D27 | The kit is copied by a walk of the host kit (directories and regular files only, at most 6 deep, 64 MiB in total), so n3e's skill joins it with no change to the apply.                                                                                                                                                                                                                                                                                                                                                                                                 |
+| n3-D28 | `lxc apply` runs no role verb: `team apply` (play step 12) demotes and leaves the declared coordinator wanted, and the child's `member add` and `return` promote a wanted coordinator as they join it, so C 3.9.2 step 06's order holds by construction.                                                                                                                                                                                                                                                                                                                |
+| n3-D29 | K15's refusal covers every uid the host's own `/etc/passwd` names, not only the desktop user's: the host has no trusted record of which account is the desktop user, and any host account sharing a kernel uid with a guest agent can reach its files.                                                                                                                                                                                                                                                                                                                  |
+| n3-D30 | `lxc-ls`, `lxc-info` and `lxc-attach` gain the second owner `internal/teamchat/host/lxc/lxccmd` (gap 15): teamchat-admin runs as root and links neither sudo nor the TUI that `lxcfreeze` brings; the kit binary after `lxc-attach --` is excused by a `dynamicNames` row.                                                                                                                                                                                                                                                                                              |
 
 ## 11. B 2.15's tests, where each lives
 
