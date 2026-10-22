@@ -665,9 +665,12 @@ through the supervisor is taken as a restart too, which is accepted.
   exited 75 the end is `restart`: the link posts nothing and records
   `run.ended = {"notice":"none","reason":"restart","state":"skipped","txn":null,"at_ms":N}`
   (n3-D2); the next link on the seat closes it with no post and no `back`. Any other status, or a
-  75 from an LXC or host member, posts `left exit`. n3c lands the switch off, with this table
-  test; it is turned on with RS3. Test: the table of those cases. hooks-daemon #127's restart
-  record can be added as a second signal once a released hooks-daemon carries it.
+  75 from an LXC or host member, is an ordinary `exit` end, decided by B 2.11's table (`left exit`
+  after an `/exit`). The switch is one constant in the link: while it is off, a `restart` end is
+  decided as `exit`. n3c ships it off; RS3's commit turns it on. Test: the table of those cases
+  run in both positions through a test seam, and RS1's test pins the shipped value off.
+  hooks-daemon #127's restart record can be added as a second signal once a released
+  hooks-daemon carries it.
 - **RS3. The host half is N4's** (Task 4.2): the ccy launcher, which performs the relaunch, skips
   its `seat disconnected` call for the run it relaunches and records it in `held/notice.json`, so
   the owner's sweep skips it too. RS2's switch is not turned on before RS3 lands, since a member

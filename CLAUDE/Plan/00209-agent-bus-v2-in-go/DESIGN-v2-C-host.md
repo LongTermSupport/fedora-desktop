@@ -100,14 +100,14 @@ fixes in section 6.
 
 ### 2.5 Declarations, the play, LXC
 
-| ID  | Requirement                                                                                                                                                                                                                              | From                   |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
-| C28 | host_vars stays the IaC store; the play is the one route that turns a declaration into a running team. v2 keys are its own; v1's keys are never written by v2, and the one read is `agent_bus_teams[].port` by `declare check` (D §3.8). | D6, R2, FRAME          |
-| C29 | Every change that runs a play or writes host_vars takes the play lock first and writes host_vars only once it holds it.                                                                                                                  | R34                    |
-| C30 | The declaration has one truth per fact: the team's coordinator is declared in one place, not in both a roster and a member entry, and a coordinator can be declared before its member exists.                                            | LR 6 item 6, new       |
-| C31 | LXC members are applied by the play from the host. The container's checkout and accounts are read from the host side with no-follow walks and size caps. No container program runs as root, and no container needs Python.               | R33, R48, LR 6 item 10 |
-| C32 | A stopped LXC container is ordinary (its member held back and recorded); only a missing container, or a failure in a running one, fails the apply. Everything checkable is checked for every running container before anything changes.  | R33, R48, LR 1.5       |
-| C33 | Kits are versioned directories resolved once at launch, never replaced in place under a running session.                                                                                                                                 | R49, DESIGN B9         |
+| ID  | Requirement                                                                                                                                                                                                                                                                                                               | From                   |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| C28 | host_vars stays the IaC store; the play is the one route that turns a declaration into a running team. v2 keys are its own; v1's keys are never written by v2, and the one read is `agent_bus_teams[].port` by `declare check` (D §3.8).                                                                                  | D6, R2, FRAME          |
+| C29 | Every change that runs a play or writes host_vars takes the play lock first and writes host_vars only once it holds it.                                                                                                                                                                                                   | R34                    |
+| C30 | The declaration has one truth per fact: the team's coordinator is declared in one place, not in both a roster and a member entry, and a coordinator can be declared before its member exists.                                                                                                                             | LR 6 item 6, new       |
+| C31 | LXC members are applied by the play from the host. The container's checkout and accounts are read from the host side with no-follow walks and size caps. No container program runs as root, and no container needs Python.                                                                                                | R33, R48, LR 6 item 10 |
+| C32 | A stopped LXC container is ordinary (its member held back and recorded); only a missing container in the present phase, or a failure in a running one, fails the apply (the absent phase parks a missing container's member, 3.9.2). Everything checkable is checked for every running container before anything changes. | R33, R48, LR 1.5       |
+| C33 | Kits are versioned directories resolved once at launch, never replaced in place under a running session.                                                                                                                                                                                                                  | R49, DESIGN B9         |
 
 ### 2.6 Element, health, backups, the board
 
@@ -1185,8 +1185,9 @@ bytes, mode 0600 (S19). Its one other copy is in the pool's `held/`, for the rel
   release; the notice is recorded as not posted, why `reissued`), and the session joins again.
 
 - For an LXC member, placement is the same code inside the guest: `teamchat guest place-bundle` run as the
-  agent user, reading the same JSON on stdin, into `~/.config/teamchat/seats/<team>.new-<claim>/`
-  and swapped the same way, the old bundle removed (3.9). The held-seat refusal above is for pool
+  agent user, reading the same JSON on stdin, placed by 3.9.2 step 07's rule (an existing seat
+  directory keeps `store.json` and `seat.lock`; `token` then `seat.json` are replaced inside
+  it). The held-seat refusal above is for pool
   seats; `lxc apply` reissues a guest's seat only when the guest's bundle is missing or its token
   refused, so no keeper is running on it.
 
@@ -1664,7 +1665,7 @@ any group but the agent user's own, and refuses to run as uid 0.
 
 01. Validate every entry (types, `(team, container, user)` unique, team declared present and its
     homeserver active) before touching any container.
-02. For each container: `lxc-info -sH`. Missing fails the apply. Not `RUNNING` is held back (3.9.3).
+02. For each container: `lxc-info -sH`. Missing fails the present phase. Not `RUNNING` is held back (3.9.3).
 03. For each running container, read from the host side and change nothing yet:
     - the container config (a host file, root-owned): network link, `lxc.start.auto`; an
       unprivileged (`lxc.idmap`) container is refused by name, as v1 does;
@@ -1719,8 +1720,10 @@ any group but the agent user's own, and refuses to run as uid 0.
     parent, keeps the host's own `/usr/local/lib/teamchat/kit` digests (C33). A session resolves
     its kit once at launch (area B), so a digest it uses outlives every swap.
 05. Guest check: `teamchat guest check --user <user> --team <team>` as the agent user in each
-    running container (what the member needs to work, for example the forge CLI signed in; area B
-    defines the list, B 2.13). Any failure fails the phase before any roster change.
+    running container, with `{"v":1,"team","base_url","plain_http_hosts"}` from the team's
+    declaration on stdin for `reach` (what the member needs to work, for example the forge CLI
+    signed in; area B defines the list, B 2.13). Any failure fails the phase before any roster
+    change.
 06. Roster changes, under each team's lock in turn: every demotion of every team first, then every
     join (`member add`, `return` or `reissue` with `--credential token`, as the state requires,
     3.6.3), then every promotion, including each team's `coordinator_wanted` that one of these
@@ -1731,9 +1734,10 @@ any group but the agent user's own, and refuses to run as uid 0.
     renamed in as `~/.config/teamchat/seats/<team>/` with `RENAME_NOREPLACE`. One that exists keeps
     its `store.json` and `seat.lock` (B 2.5): `token`, then `seat.json`, are each replaced inside it
     by an `O_EXCL` temporary file and a rename. When its `seat.json` names a different identity (a
-    retire and add, a new seat number), the op first takes the seat lock and sets the store aside
-    (B 2.13 `seat set-aside`), and exits 75 if the seat is held, which is `DEFERRED` naming the seat
-    and retried at the next apply. Then the member's own config (area B).
+    retire and add, a new seat number; an undecodable `seat.json` counts as one), the op first
+    takes the seat lock and sets the store aside (B 2.13 `seat set-aside`), and exits 75 if the
+    seat is held, which is `DEFERRED` naming the seat and retried at the next apply. Then the
+    member's own config (area B).
 08. Membership: for each guest user whose desired membership differs from the host's record of it
     (3.9.3), write the record first, then run `teamchat guest membership --user <user>` as the agent
     user with the whole `desired.json` on stdin (3.7.5's schema): `session` is `lxc-<user>`,
@@ -1744,6 +1748,9 @@ any group but the agent user's own, and refuses to run as uid 0.
     after every team's placement, under the play lock that every apply runs under (3.5.1).
     `--only-teams` limits which entries a phase acts on, never what this file lists: `seats` still
     names every team the user is placed in, the ones outside `--only-teams` taken from the host copy.
+    A seat whose `place-bundle` was `DEFERRED` in step 07 is left out of `seats` in both the host
+    copy and the guest's file, so the running keeper releases the old identity's seat and the next
+    apply places the new one.
 09. Supervised session (`service: true`): see 3.9.4.
 10. Write the LXC record (3.9.3), only after the phase succeeded and only when it changed.
 

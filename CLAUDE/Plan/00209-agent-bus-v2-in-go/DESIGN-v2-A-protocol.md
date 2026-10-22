@@ -1029,8 +1029,8 @@ reply, thread relation or mention is none, never a drop (an edit's is `edit`, be
 
 Rules 3 and 4 are new. Element adds the replied-to sender to `m.mentions` for a plain reply, but a
 "Reply in thread" is not a mention, so in v1 a human answering an agent inside a thread was unheard.
-Checking the replied-to event's sender takes one event fetch, which B caches in memory (1024
-entries, oldest evicted, lost at a link restart, when a miss costs one more fetch). A related event
+Checking the replied-to event's sender takes one event fetch, which B caches (bounded, B 2.6
+step 05). A related event
 the server answers 404 or 403 for has an unknown sender: the message is not addressed through it,
 and is not counted as unheard for it, so the count may undercount and never miscounts. A transient
 failure holds the batch, never a guess.

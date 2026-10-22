@@ -362,8 +362,8 @@ its first caller.
     member end to end;
   - **n3f**: the side rooms of Plan 00211, from a SPEC-n3 addendum reviewed before it starts.
 
-  2.0e: the switch (RS2) is CMD exit 75 alone and is turned on with its host half (Task 4.2); 2.0g: `empty`
-  counts as unheard (UH1). Gate A binds the play, kit and unit placement; N3's LXC seats are
+  2.0e: the switch (RS2) is CMD exit 75 alone and is turned on with its host half (Task 4.2);
+  2.0g: `empty` counts as unheard (UH1). Gate A binds the play, kit and unit placement; N3's LXC seats are
   token seats, so gate B binds only the ccy hot reissue's host run (Task 4.4).
 
 - [ ] ⬜ **Task 3.2**: The `teamchat` binary: CLI, member state, the keeper (`run`) and the link, locks, sync,
@@ -385,6 +385,8 @@ its first caller.
   the irreversible decisions, since any later CCY bump would deploy it.
 - [ ] ⬜ **Task 4.2**: The launcher: the session directory mounts, refusing a checkout that contains
   the seat store (seam 53); removing the session record before the release, which runs `teamchat seat disconnected` (seam 54, 27); resolving each team's system, OD-D2's refusal (seam 55).
+  For 00194's 2.0e (SPEC-n3 RS3), the launcher skips its `seat disconnected` for the run it
+  relaunches and records it in `held/notice.json`, and the same change turns RS2's switch on.
 - [ ] ⬜ **Task 4.3**: ccy-teams on both systems: the board from the status records (C 3.13, D 3.9),
   the flows (C45), creating a team and renaming it (00201 Task 2.16).
 - [ ] ⬜ **Task 4.4**: Acceptance: H-C7 and H-C8, and H-C15's held-ccy-session clause (Task 2.5); the v2-native pilot `teamchat-pilot` with one ccy
