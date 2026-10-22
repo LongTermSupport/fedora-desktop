@@ -71,11 +71,13 @@ podman ps -a --filter name=_yolo --filter status=exited --format '{{.Names}}'
 podman ps --filter name=_yolo --format '{{.Names}}'
 podman ps --filter name=difftest-project_yolo --format '{{.Names}}'
 podman image inspect claude-yolo:latest
+podman image inspect claude-yolo:latest --format '{{.Id}}'
+podman image inspect claude-yolo:latest --format '{{.Id}}'
 podman run --name 'ccy-claude-update-{pid}' --entrypoint sh claude-yolo:latest -c 'set -e; npm install -g @anthropic-ai/claude-code@latest 2>&1'
 podman commit --change 'ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]' --change 'CMD ["claude", "--help"]' 'ccy-claude-update-{pid}' claude-yolo:latest
 podman rm -f 'ccy-claude-update-{pid}'
 podman image inspect claude-yolo:base
-podman image inspect claude-yolo:latest
+podman image inspect claude-yolo:latest --format '{{.Id}}'
 podman image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-version"}}'
 podman image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-dockerfile-hash"}}'
 podman run --rm --entrypoint claude claude-yolo:latest --version
@@ -167,3 +169,7 @@ file project/.claude/ccy/ccy.env.local.dist 0600
      | # A team is chosen by each launch, never here: the container refuses to start when
      | # this file sets a bus variable.
      | #export HOOKS_DAEMON_HOSTNAME=<role-name>
+dir  run/ccy 0700
+dir  run/ccy/image-builds 0700
+file run/ccy/image-builds/claude-yolo_latest.lock 0600
+     | 

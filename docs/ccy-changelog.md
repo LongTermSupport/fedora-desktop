@@ -17,6 +17,26 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.15.4 — container 2.78.15
+
+Follows 3.99.14.12 (3.99.15.0 to 3.99.15.3 were never released on their own). The image is
+unchanged from 2.78.15, so there is no further rebuild.
+
+- **One image build at a time** (Plan 00216). Two sessions started together each rebuilt the
+  image. Every build and in-place Claude Code update, the launcher's and the play's, now holds
+  the image's build lock (a kernel `flock` on
+  `$XDG_RUNTIME_DIR/ccy/image-builds/<image>.lock`, one per image; `claude-yolo:latest`'s covers
+  `:base`). A launch that finds a build running waits for it, saying every 30 s on stderr whose
+  build it is, how long it has run and how to stop it, and then checks again and uses that
+  build instead of making its own. It waits as long as the build takes. The lock cannot go
+  stale: the kernel lets it go when its holder exits or dies, and a child the build leaves
+  behind does not hold it. An explicit `--rebuild=full` still builds after waiting; an in-place
+  update is skipped when another launch updated the image meanwhile.
+- **`ccy --build-lock`** (the Go front) shows the builds in progress and stops a hung one after
+  a `[y/N]`: SIGTERM to its launch and everything it started, SIGKILL if it is still holding the
+  lock 10 s later. A record whose process has gone is said to be stale and ignored; nothing
+  ever needs deleting by hand.
+
 ## 3.99.14.12 — container 2.78.15
 
 Follows 3.99.14.11. The image changes, so the next launch rebuilds it once.

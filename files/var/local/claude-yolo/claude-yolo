@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.99.14.12"  # Container 2.78.15: the image's pingbus and agent-bus accept a homeserver's pre-v12 room IDs (Plan 00211). See docs/ccy-changelog.md.
+CCY_VERSION="3.99.15.4"  # One image build at a time: a launch waits for another's and uses it; ccy --build-lock (Plan 00216). See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -30,7 +30,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # from lib/ (see CCY_HASH), because a hand-written list of what the program
 # consists of is a list that goes stale — this one omitted common-pure.bash,
 # which common.bash sources, for two months.
-CCY_LIBS=(token-handoff common host-paths token-management ssh-handling network-management dockerfile-custom docker-health session-registry restart-request session-lifecycle tmux-session agent-bus-membership agent-bus-seats)
+CCY_LIBS=(token-handoff common host-paths token-management ssh-handling network-management dockerfile-custom docker-health session-registry restart-request session-lifecycle tmux-session agent-bus-membership agent-bus-seats image-build-lock image-build)
 
 # First, before anything that can end this launch: a GitHub token handed on by the launch
 # that started this one is taken, and its file deleted, at once; and the Go front's path, when
@@ -80,6 +80,10 @@ source "$SCRIPT_DIR/lib/tmux-session.bash"
 source "$SCRIPT_DIR/lib/agent-bus-membership.bash"
 # shellcheck source=lib/agent-bus-seats.bash
 source "$SCRIPT_DIR/lib/agent-bus-seats.bash"
+# shellcheck source=lib/image-build-lock.bash
+source "$SCRIPT_DIR/lib/image-build-lock.bash"
+# shellcheck source=lib/image-build.bash
+source "$SCRIPT_DIR/lib/image-build.bash"
 
 # IMPORTANT: When modifying the Dockerfile, ALWAYS increment REQUIRED_CONTAINER_VERSION!
 # This ensures users automatically rebuild when critical container changes are made.
@@ -160,6 +164,10 @@ CCY_RESTART_HISTORY_DIR="$HOME/.cache/claude-yolo-restart-history"
 if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
     printf 'ccy version %s\nHash: %s\n' "$CCY_VERSION" "$CCY_HASH"
     exit 0
+fi
+if [ "$1" = "--build-lock" ]; then
+    print_error "ccy --build-lock is answered by the Go front, $SCRIPT_DIR/claude-yolo; run it without CCY_LEGACY."
+    exit 1
 fi
 
 # Show help if requested
@@ -252,6 +260,8 @@ Options:
   --no-restore           Do not bring this session back after a reboot on a machine
                          that restores sessions (ccy-sessions restore; docs/ccy.md)
   --top                  Container manager: list/stop all CCY containers
+  --build-lock           Show the image build in progress (a launch waits for another's build
+                         of the same image), and stop one that has hung, after asking
   --prevent              Disable CCY for this project folder (writes 'never' to .claude/ccy/allowed-hostnames)
   --help, -h             Show this help message
   --                     End of ccy options; everything after is forwarded raw to claude
@@ -1944,7 +1954,7 @@ auto_update_claude_code() {
     echo "📦 Updating Claude Code in $image_name: $container_version → $latest_version"
     echo "   (fast in-place npm update — no full rebuild; first launch today only)"
     echo ""
-    if update_claude_inplace "$image_name"; then
+    if ccy_image_build_locked "$image_name" ccy_claude_is "$image_name" "$latest_version" -- update_claude_inplace "$image_name"; then
         touch "$cache_file"
         echo "✓ Claude Code auto-updated to $latest_version"
     else
@@ -2005,22 +2015,21 @@ update_claude_inplace() {
 }
 
 # Handle --rebuild flag: mode-aware (claude=fast in-place, project=project image only, full=clean rebuild)
+# Every build and in-place update below holds the image's build lock (lib/image-build-lock.bash):
+# one launch builds, and another started with it waits and then uses that build. claude-yolo:latest's
+# lock covers :base, which comes from the same build context. An explicit --rebuild=full builds
+# even after waiting; an in-place update is skipped when another launch updated the image meanwhile.
 if [ "$FORCE_REBUILD" = true ]; then
     case "$REBUILD_MODE" in
         claude)
             echo "Updating Claude Code in-place (fast path)..."
             if ! container_cmd image inspect "$IMAGE_NAME" &>/dev/null; then
                 echo "No base image found - running full build first..."
-                if [ ! -f "$DOCKERFILE_DIR/Dockerfile" ]; then
-                    echo "Error: Dockerfile not found at $DOCKERFILE_DIR/Dockerfile"
-                    echo "Please run the ansible playbook: playbooks/imports/play-claude-yolo.yml"
-                    exit 1
-                fi
-                build_container_with_hash "$IMAGE_NAME" "$DOCKERFILE_DIR" "--no-cache" "$BASE_IMAGE_NAME"
+                ccy_image_build_locked "$IMAGE_NAME" ccy_base_image_current "$REQUIRED_CONTAINER_VERSION" -- ccy_base_image_build --no-cache
             else
-                update_claude_inplace "$IMAGE_NAME"
+                ccy_image_build_locked "$IMAGE_NAME" --unless-changed "$IMAGE_NAME" -- update_claude_inplace "$IMAGE_NAME"
                 if container_cmd image inspect "$BASE_IMAGE_NAME" &>/dev/null; then
-                    update_claude_inplace "$BASE_IMAGE_NAME"
+                    ccy_image_build_locked "$IMAGE_NAME" --unless-changed "$BASE_IMAGE_NAME" -- update_claude_inplace "$BASE_IMAGE_NAME"
                 fi
             fi
             rm -rf "$VERSION_CHECK_CACHE"
@@ -2029,47 +2038,22 @@ if [ "$FORCE_REBUILD" = true ]; then
         project)
             echo "Updating Claude Code and rebuilding project image..."
             if container_cmd image inspect "$IMAGE_NAME" &>/dev/null; then
-                update_claude_inplace "$IMAGE_NAME"
+                ccy_image_build_locked "$IMAGE_NAME" --unless-changed "$IMAGE_NAME" -- update_claude_inplace "$IMAGE_NAME"
                 if container_cmd image inspect "$BASE_IMAGE_NAME" &>/dev/null; then
-                    update_claude_inplace "$BASE_IMAGE_NAME"
+                    ccy_image_build_locked "$IMAGE_NAME" --unless-changed "$BASE_IMAGE_NAME" -- update_claude_inplace "$BASE_IMAGE_NAME"
                 fi
             fi
             rm -rf "$VERSION_CHECK_CACHE"
             ;;
         full)
             echo "Forcing full container rebuild (no cache)..."
-            if [ ! -f "$DOCKERFILE_DIR/Dockerfile" ]; then
-                echo "Error: Dockerfile not found at $DOCKERFILE_DIR/Dockerfile"
-                echo "Please run the ansible playbook: playbooks/imports/play-claude-yolo.yml"
-                exit 1
-            fi
-            build_container_with_hash "$IMAGE_NAME" "$DOCKERFILE_DIR" "--no-cache" "$BASE_IMAGE_NAME"
-            rm -rf "$VERSION_CHECK_CACHE"
-            echo "✓ Container image rebuilt successfully"
+            ccy_image_build_locked "$IMAGE_NAME" false -- ccy_base_image_build --no-cache
             ;;
     esac
 fi
 
-# Check if Docker image exists
-if ! container_cmd image inspect "$IMAGE_NAME" &> /dev/null; then
-    echo "Building Claude YOLO container image (first time setup)..."
-    if [ ! -f "$DOCKERFILE_DIR/Dockerfile" ]; then
-        echo "Error: Dockerfile not found at $DOCKERFILE_DIR/Dockerfile"
-        echo "Please run the ansible playbook: playbooks/imports/play-claude-yolo.yml"
-        exit 1
-    fi
-    build_container_with_hash "$IMAGE_NAME" "$DOCKERFILE_DIR" "" "$BASE_IMAGE_NAME"
-    echo "✓ Container image built successfully"
-fi
-
-# Validate container version and hash (auto-rebuild if needed)
-if ! validate_container_version "$IMAGE_NAME" "$DOCKERFILE_DIR/Dockerfile" "$REQUIRED_CONTAINER_VERSION"; then
-    # Version/hash mismatch - rebuild required
-    build_container_with_hash "$IMAGE_NAME" "$DOCKERFILE_DIR" "" "$BASE_IMAGE_NAME"
-    echo "✓ Container image rebuilt with version $REQUIRED_CONTAINER_VERSION"
-    # Clear per-image update-check stamps so every image re-checks after rebuild
-    rm -rf "$VERSION_CHECK_CACHE"
-fi
+# Build the image when it is missing, or its version or Dockerfile hash is not this launcher's.
+ccy_image_build_locked "$IMAGE_NAME" ccy_base_image_current "$REQUIRED_CONTAINER_VERSION" -- ccy_base_image_build ""
 
 # Note: the daily per-image auto-update runs LATER, after the project image is
 # resolved (so it gates the image that actually runs, not just claude-yolo:latest).
@@ -2153,7 +2137,7 @@ if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
     elif [ "$FORCE_REBUILD" = true ]; then
         if [ "$REBUILD_MODE" = "claude" ] && container_cmd image inspect "$PROJECT_IMAGE_NAME" &>/dev/null; then
             echo "Updating Claude Code in project image (fast)..."
-            update_claude_inplace "$PROJECT_IMAGE_NAME"
+            ccy_image_build_locked "$PROJECT_IMAGE_NAME" --unless-changed "$PROJECT_IMAGE_NAME" -- update_claude_inplace "$PROJECT_IMAGE_NAME"
             echo "$current_project_hash" > "$PROJECT_DOCKERFILE_HASH_FILE"
             echo "$current_base_image" > "$PROJECT_BASE_IMAGE_FILE"
         else
@@ -2180,7 +2164,9 @@ if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
         build_log=$(mktemp "${TMPDIR:-/tmp}/ccy-build-XXXXXX.log")
 
         # Defined inline so $project_dockerfile_hash, $PROJECT_IMAGE_NAME, etc. stay in scope.
-        # Re-invoked once after a rootless-buildah-cache recovery; see below.
+        # Re-invoked once after a rootless-buildah-cache recovery; see below. It runs under the
+        # project image's build lock and writes the hash files itself, before the lock is let
+        # go, so a launch that waited for it finds the image current (ccy_project_image_current).
         run_project_build() {
             set -o pipefail
             DOCKER_BUILDKIT=1 container_cmd build \
@@ -2188,11 +2174,14 @@ if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
                 --build-arg DOCKERFILE_HASH="$project_dockerfile_hash" \
                 -t "$PROJECT_IMAGE_NAME" \
                 -f "$PROJECT_DOCKERFILE" \
-                . 2>&1 | tee "$build_log"
+                . 2>&1 | tee "$build_log" || return
+            echo "$current_project_hash" > "$PROJECT_DOCKERFILE_HASH_FILE" && echo "$current_base_image" > "$PROJECT_BASE_IMAGE_FILE"
         }
+        project_current=(ccy_project_image_current "$rebuild_reason" "$PROJECT_IMAGE_NAME"
+            "$PROJECT_DOCKERFILE_HASH_FILE" "$current_project_hash" "$PROJECT_BASE_IMAGE_FILE" "$current_base_image")
 
         build_succeeded=false
-        if run_project_build; then
+        if ccy_image_build_locked "$PROJECT_IMAGE_NAME" "${project_current[@]}" -- run_project_build; then
             build_succeeded=true
         elif is_buildah_cache_permission_failure "$build_log"; then
             # Stale rootless buildah cache (userns ownership drift). Not a Dockerfile
@@ -2204,7 +2193,7 @@ if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
             echo ""
             if purge_stale_buildah_cache; then
                 : > "$build_log"
-                if run_project_build; then
+                if ccy_image_build_locked "$PROJECT_IMAGE_NAME" "${project_current[@]}" -- run_project_build; then
                     build_succeeded=true
                     echo ""
                     echo "✓ Build succeeded after cache recovery"
@@ -2213,14 +2202,10 @@ if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
         fi
 
         if [ "$build_succeeded" = true ]; then
-
-            # Save the Dockerfile hash and base image to track changes
-            echo "$current_project_hash" > "$PROJECT_DOCKERFILE_HASH_FILE"
-            echo "$current_base_image" > "$PROJECT_BASE_IMAGE_FILE"
             rm -f "$build_log"
             echo ""
             echo "✓ Project image built successfully: $PROJECT_IMAGE_NAME"
-            [ -n "$rebuild_reason" ] && echo "  Rebuild reason: $rebuild_reason"
+            echo "  Rebuild reason: $rebuild_reason"
         else
             # Build failed — save full log and auto-start in diagnostic mode.
             # Rather than exiting, fall through to start CCY with the base image
@@ -3809,7 +3794,7 @@ ccy_handle_restart_exit() {
 
     echo "" >&2
     echo "Session $session_id asked to restart on a fresh container. Updating Claude Code in $IMAGE_NAME first..." >&2
-    if ! update_claude_inplace "$IMAGE_NAME"; then
+    if ! ccy_image_build_locked "$IMAGE_NAME" --unless-changed "$IMAGE_NAME" -- update_claude_inplace "$IMAGE_NAME"; then
         print_error "Not restarting session $session_id: the image update failed (see above)."
         echo "  Resume it on the existing image: ccy --resume $session_id" >&2
         exit 1

@@ -404,6 +404,8 @@ STUB
 chmod +x "$work/bin/ccy-teams"
 cat >"$work/update-stub.bash" <<'STUB'
 update_claude_inplace() { echo "$1" >>"$STUB_UPDATES"; return "$STUB_UPDATE_RC"; }
+# The image build lock runs the update it is given (scripts/test-ccy-image-build-lock.bash tests the lock).
+ccy_image_build_locked() { while [ "$1" != -- ]; do shift; done; shift; "$@"; }
 cleanup() { echo cleaned >>"$STUB_CLEANUPS"; }
 STUB
 # The driver runs the lifted function the way the launcher does: under `set -e`, in the
