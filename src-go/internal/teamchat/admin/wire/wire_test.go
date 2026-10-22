@@ -134,7 +134,7 @@ func TestNoOwnerGroupFailsTheTickAndTheStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := sys.Host.Status.Refresh(t.Context(), team, false); err == nil || !strings.Contains(err.Error(), "no owner-group file") {
+	if err := sys.Host.Status.Refresh(t.Context(), team, false, nil); err == nil || !strings.Contains(err.Error(), "no owner-group file") {
 		t.Fatalf("Status.Refresh with no owner group = %v", err)
 	}
 	if _, err := sys.Host.Status.Remove(t.Context(), team); err == nil || !strings.Contains(err.Error(), "no owner-group file") {
@@ -155,7 +155,7 @@ func TestStatusIsTheTicks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := sys.Host.Status.Refresh(t.Context(), team, true); err == nil || !strings.Contains(err.Error(), "alpha has no stamp") {
+	if err := sys.Host.Status.Refresh(t.Context(), team, true, nil); err == nil || !strings.Contains(err.Error(), "alpha has no stamp") {
 		t.Fatalf("Refresh of an unstamped team = %v", err)
 	}
 	if line, err := sys.Host.Status.Remove(t.Context(), team); err != nil || line != "" {

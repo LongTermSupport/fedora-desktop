@@ -278,7 +278,7 @@ func underLock(ctx context.Context, sys *System, op string, team paths.TeamID, a
 			return nil, lie
 		}
 	}
-	if serr := sys.Host.Status.Refresh(ctx, team, false); serr != nil {
+	if serr := sys.Host.Status.Refresh(ctx, team, false, nil); serr != nil {
 		err = errors.Join(err, fmt.Errorf("the status record: %w", serr))
 	}
 	members := []proto.Member{proto.M("v", proto.Int(wireMajor)), proto.M("changed", lineArray(a.Changed))}

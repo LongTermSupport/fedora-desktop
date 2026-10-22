@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -16,7 +17,7 @@ func TestRefreshWritesUnderTheCallersLock(t *testing.T) {
 	w := newWorld(t, "alpha")
 	w.teams.list[0].Origin = status.OriginMigration
 	w.locks.busy[id(t, "alpha")] = true
-	if err := w.tick(t).Refresh(t.Context(), id(t, "alpha")); err != nil {
+	if err := w.tick(t).Refresh(t.Context(), id(t, "alpha"), nil); err != nil {
 		t.Fatalf("Refresh: %v", err)
 	}
 	rec := w.record(t, "alpha")
@@ -33,7 +34,7 @@ func TestRefreshWritesUnderTheCallersLock(t *testing.T) {
 func TestRefreshNeverRestarts(t *testing.T) {
 	w := newWorld(t, "alpha")
 	w.prober.fails = 3
-	if err := w.tick(t).Refresh(t.Context(), id(t, "alpha")); err != nil {
+	if err := w.tick(t).Refresh(t.Context(), id(t, "alpha"), nil); err != nil {
 		t.Fatalf("Refresh: %v", err)
 	}
 	if w.units.restarts != 0 || w.prober.calls != 1 || len(w.clock.sleeps) != 0 {
@@ -47,12 +48,12 @@ func TestRefreshNeverRestarts(t *testing.T) {
 
 func TestRefreshAnUnstampedTeamIsAnError(t *testing.T) {
 	w := newWorld(t, "alpha")
-	err := w.tick(t).Refresh(t.Context(), id(t, "beta"))
+	err := w.tick(t).Refresh(t.Context(), id(t, "beta"), nil)
 	if err == nil || !strings.Contains(err.Error(), "beta has no stamp") {
 		t.Fatalf("Refresh = %v", err)
 	}
 	w.teams.err = errors.New("unreadable")
-	if err := w.tick(t).Refresh(t.Context(), id(t, "alpha")); err == nil || !strings.Contains(err.Error(), "unreadable") {
+	if err := w.tick(t).Refresh(t.Context(), id(t, "alpha"), nil); err == nil || !strings.Contains(err.Error(), "unreadable") {
 		t.Fatalf("Refresh with the stamps failing = %v", err)
 	}
 }
@@ -61,7 +62,7 @@ func TestRefreshAnUnstampedTeamIsAnError(t *testing.T) {
 func TestRefreshAnotherWriterIsAnError(t *testing.T) {
 	w := newWorld(t, "alpha")
 	tick := w.tick(t)
-	if err := tick.Refresh(t.Context(), id(t, "alpha")); err != nil {
+	if err := tick.Refresh(t.Context(), id(t, "alpha"), nil); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(w.dir, "alpha", "status.json")
@@ -77,7 +78,7 @@ func TestRefreshAnotherWriterIsAnError(t *testing.T) {
 			t.Error(err)
 		}
 	}
-	err := tick.Refresh(t.Context(), id(t, "alpha"))
+	err := tick.Refresh(t.Context(), id(t, "alpha"), nil)
 	if err == nil || !strings.Contains(err.Error(), "another writer wrote the record") {
 		t.Fatalf("Refresh = %v", err)
 	}
@@ -89,7 +90,7 @@ func TestRefreshAnotherWriterIsAnError(t *testing.T) {
 func TestRefreshARemovedTeamIsAnError(t *testing.T) {
 	w := newWorld(t, "alpha")
 	w.teams.removed[id(t, "alpha")] = true
-	if err := w.tick(t).Refresh(t.Context(), id(t, "alpha")); err == nil || !strings.Contains(err.Error(), "removed") {
+	if err := w.tick(t).Refresh(t.Context(), id(t, "alpha"), nil); err == nil || !strings.Contains(err.Error(), "removed") {
 		t.Fatalf("Refresh = %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(w.dir, "alpha", "status.json")); !errors.Is(err, os.ErrNotExist) {
@@ -100,14 +101,14 @@ func TestRefreshARemovedTeamIsAnError(t *testing.T) {
 func TestRefreshFailures(t *testing.T) {
 	w := newWorld(t, "alpha")
 	w.backups.err = errors.New("no backups")
-	if err := w.tick(t).Refresh(t.Context(), id(t, "alpha")); err == nil || !strings.Contains(err.Error(), "no backups") {
+	if err := w.tick(t).Refresh(t.Context(), id(t, "alpha"), nil); err == nil || !strings.Contains(err.Error(), "no backups") {
 		t.Fatalf("Refresh with the backups failing = %v", err)
 	}
 	w.backups.err = nil
 	if err := os.WriteFile(filepath.Join(w.dir, "alpha", "lxc-online.json"), []byte(`{"v":1}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.tick(t).Refresh(t.Context(), id(t, "alpha")); err == nil {
+	if err := w.tick(t).Refresh(t.Context(), id(t, "alpha"), nil); err == nil {
 		t.Fatal("Refresh over a broken lxc-online.json succeeded")
 	}
 }
@@ -133,5 +134,26 @@ func TestOneTicksOneStampedTeam(t *testing.T) {
 	w.teams.err = errors.New("unreadable")
 	if _, err = w.tick(t).One(t.Context(), id(t, "alpha")); err == nil || !strings.Contains(err.Error(), "unreadable") {
 		t.Fatalf("One with the stamps failing = %v", err)
+	}
+}
+
+// SPEC-n2g RS8 step 7: the caller's events are written into the record at the clock's time,
+// beside the tick's own.
+func TestRefreshWritesTheCallersEvents(t *testing.T) {
+	w := newWorld(t, "alpha")
+	events := []string{"restored backup 3, 0 events lost, export at /x", "a second event"}
+	if err := w.tick(t).Refresh(t.Context(), id(t, "alpha"), events); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	rec := w.record(t, "alpha")
+	got := make([]string, 0, len(rec.Events))
+	for _, e := range rec.Events {
+		if e.AtMS != t0.UnixMilli() {
+			t.Errorf("event %+v is not at the clock's time", e)
+		}
+		got = append(got, e.What)
+	}
+	if !slices.Equal(got, events) {
+		t.Fatalf("events %q, want %q", got, events)
 	}
 }

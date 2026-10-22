@@ -393,10 +393,12 @@ type fakeStatus struct {
 	w          *world
 	refreshed  []bool
 	removeLine string
+	events     []string
 }
 
-func (s *fakeStatus) Refresh(_ context.Context, _ paths.TeamID, first bool) error {
+func (s *fakeStatus) Refresh(_ context.Context, _ paths.TeamID, first bool, events []string) error {
 	s.refreshed = append(s.refreshed, first)
+	s.events = append(s.events, events...)
 	return s.w.call("status.refresh")
 }
 

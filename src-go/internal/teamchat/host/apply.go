@@ -133,10 +133,10 @@ type Readiness interface {
 
 // Status is the team's status record (C 3.11.3), whose writer is not this package's. Refresh
 // rewrites it after an apply, first when the team had no stamp before (the record's origin is
-// set then). Remove deletes it, or rewrites a migration-origin record to its pointer alone, and
+// set then), with the caller's events, nil for none. Remove deletes it, or rewrites a migration-origin record to its pointer alone, and
 // answers the CHANGED line, "" for none.
 type Status interface {
-	Refresh(ctx context.Context, team paths.TeamID, first bool) error
+	Refresh(ctx context.Context, team paths.TeamID, first bool, events []string) error
 	Remove(ctx context.Context, team paths.TeamID) (string, error)
 }
 
@@ -829,7 +829,7 @@ func (a *applying) records(ctx context.Context) error {
 	if err := a.writeRecords(); err != nil {
 		return a.fail(StepRecords, err)
 	}
-	if err := a.d.Status.Refresh(ctx, a.team, !a.stamped); err != nil {
+	if err := a.d.Status.Refresh(ctx, a.team, !a.stamped, nil); err != nil {
 		return a.fail(StepRecords, err)
 	}
 	return nil

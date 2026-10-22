@@ -183,7 +183,7 @@ func statusWorld(t *testing.T) (*world, StatusFiles) {
 func TestStatusFilesRefresh(t *testing.T) {
 	w, s := statusWorld(t)
 	for _, first := range []bool{true, false} {
-		if err := s.Refresh(context.Background(), id(t, "alpha"), first); err != nil {
+		if err := s.Refresh(context.Background(), id(t, "alpha"), first, nil); err != nil {
 			t.Fatalf("Refresh(first %v): %v", first, err)
 		}
 	}
@@ -191,7 +191,7 @@ func TestStatusFilesRefresh(t *testing.T) {
 	if err != nil || !found || rec.Seq != 2 || rec.Origin != status.OriginV2 || rec.Name != "Alpha" {
 		t.Fatalf("record %+v, %v, %v", rec, found, err)
 	}
-	if err := s.Refresh(context.Background(), id(t, "beta"), true); err == nil {
+	if err := s.Refresh(context.Background(), id(t, "beta"), true, nil); err == nil {
 		t.Fatal("an unstamped team was refreshed")
 	}
 }
@@ -200,7 +200,7 @@ func TestStatusFilesRefresh(t *testing.T) {
 func TestStatusFilesRemove(t *testing.T) {
 	w, s := statusWorld(t)
 	team := id(t, "alpha")
-	if err := s.Refresh(context.Background(), team, true); err != nil {
+	if err := s.Refresh(context.Background(), team, true, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(w.dir + paths.LXCOnlineFile(team)); err != nil {
@@ -225,7 +225,7 @@ func TestStatusFilesRemoveRefuses(t *testing.T) {
 	w, s := statusWorld(t)
 	team := id(t, "alpha")
 	writeAt(t, filepath.Join(w.dir, paths.MigrationDir(team), "state.json"), `{}`)
-	if err := s.Refresh(context.Background(), team, true); err != nil {
+	if err := s.Refresh(context.Background(), team, true, nil); err != nil {
 		t.Fatal(err)
 	}
 	line, err := s.Remove(context.Background(), team)

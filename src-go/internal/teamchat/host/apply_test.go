@@ -729,3 +729,11 @@ func TestApplyIsRefusedByTheGuard(t *testing.T) {
 	}
 	lockIsFree(t, w)
 }
+
+// An apply refreshes the status record with no events of its own: the tick writes its own.
+func TestApplyRefreshesTheStatusWithNoEvents(t *testing.T) {
+	w := applied(t)
+	if len(w.status.refreshed) == 0 || len(w.status.events) != 0 {
+		t.Fatalf("refreshed %v, events %q", w.status.refreshed, w.status.events)
+	}
+}

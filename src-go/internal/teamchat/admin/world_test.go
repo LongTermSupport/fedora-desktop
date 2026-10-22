@@ -337,7 +337,7 @@ func (f *fakeFirewall) Remove(_ context.Context, permanent bool, r host.Rule) er
 
 type fakeStatus struct{ w *world }
 
-func (s *fakeStatus) Refresh(_ context.Context, _ paths.TeamID, first bool) error {
+func (s *fakeStatus) Refresh(_ context.Context, _ paths.TeamID, first bool, _ []string) error {
 	s.w.status = append(s.w.status, first)
 	return s.w.statErr
 }

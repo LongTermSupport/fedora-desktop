@@ -108,8 +108,8 @@ type StatusFiles struct {
 
 // Refresh is Tick.Refresh. first is not needed: a team with no record is given its origin
 // whether or not it had a stamp before (n2f-H1).
-func (s StatusFiles) Refresh(ctx context.Context, team paths.TeamID, _ bool) error {
-	return s.Tick.Refresh(ctx, team)
+func (s StatusFiles) Refresh(ctx context.Context, team paths.TeamID, _ bool, events []string) error {
+	return s.Tick.Refresh(ctx, team, events)
 }
 
 // LineStatusRemoved is Remove's CHANGED line.

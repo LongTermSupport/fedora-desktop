@@ -125,12 +125,12 @@ type statusFiles struct {
 	tick func() (*health.Tick, error)
 }
 
-func (s statusFiles) Refresh(ctx context.Context, team paths.TeamID, first bool) error {
+func (s statusFiles) Refresh(ctx context.Context, team paths.TeamID, first bool, events []string) error {
 	f, err := s.files()
 	if err != nil {
 		return err
 	}
-	return f.Refresh(ctx, team, first)
+	return f.Refresh(ctx, team, first, events)
 }
 
 func (s statusFiles) Remove(ctx context.Context, team paths.TeamID) (string, error) {
