@@ -129,7 +129,7 @@ func TestLXCSeatKeyPanicsOnAnInputDeclareRefuses(t *testing.T) {
 func TestLXCRepoLabel(t *testing.T) {
 	for checkout, want := range map[string]string{
 		"/srv/checkouts/thing":                     "thing",
-		"/home/agent/My.Repo":                      "my-repo",
+		"/home/u/My.Repo":                      "my-repo",
 		"/srv/__x__":                               "x",
 		"/srv/" + strings.Repeat("a", 23) + "-bcd": strings.Repeat("a", 23),
 		"/srv/" + strings.Repeat("a", 23) + "_-z":  strings.Repeat("a", 23),
@@ -149,22 +149,22 @@ func TestLXCRepoLabel(t *testing.T) {
 // the runtime directory the process received (LX5).
 func TestLXCLayout(t *testing.T) {
 	key := sampleSeatKey(t)
-	l, err := LXCLayout("/home/agent", GuestRuntimeDir(key), key)
+	l, err := LXCLayout("/home/u", GuestRuntimeDir(key), key)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for got, want := range map[string]string{
-		l.State():                        "/home/agent/.config/teamchat/lxc/" + sampleKeyText + "/seats",
-		l.Desired():                      "/home/agent/.config/teamchat/lxc/" + sampleKeyText + "/membership",
+		l.State():                        "/home/u/.config/teamchat/lxc/" + sampleKeyText + "/seats",
+		l.Desired():                      "/home/u/.config/teamchat/lxc/" + sampleKeyText + "/membership",
 		l.RunRoot():                      "/run/teamchat-session-" + sampleKeyText + "/teamchat/run",
-		l.Seat(mustTeam(t, "ops")).Dir(): "/home/agent/.config/teamchat/lxc/" + sampleKeyText + "/seats/ops",
+		l.Seat(mustTeam(t, "ops")).Dir(): "/home/u/.config/teamchat/lxc/" + sampleKeyText + "/seats/ops",
 		l.KitRoot():                      HostKitRoot,
 	} {
 		if got != want {
 			t.Errorf("got %s, want %s", got, want)
 		}
 	}
-	hand, err := LXCLayout("/home/agent", "/run/user/1001", key)
+	hand, err := LXCLayout("/home/u", "/run/user/1001", key)
 	if err != nil || hand.RunRoot() != "/run/user/1001/teamchat/run" || hand.State() != l.State() {
 		t.Fatalf("a hand-run seat's layout: %+v, %v", hand, err)
 	}
