@@ -55,6 +55,8 @@ type FS interface {
 	// done.
 	WriteFile(path string, data []byte) error
 	Remove(path string) error
+	// RootKind is what a root path is, by Lstat, so a link counts as other.
+	RootKind(path string) (Kind, error)
 }
 
 // OS is the FS on the host under the prefix Root ("" on a host). StateOwnerUID owns
@@ -207,6 +209,19 @@ func (o OS) Remove(path string) error {
 		return &fs.PathError{Op: "remove", Path: o.Root + path, Err: err}
 	}
 	return nil
+}
+
+// RootKind implements FS.
+func (o OS) RootKind(path string) (Kind, error) {
+	var st unix.Stat_t
+	err := unix.Lstat(o.Root+path, &st)
+	switch {
+	case errors.Is(err, unix.ENOENT):
+		return KindAbsent, nil
+	case err != nil:
+		return KindAbsent, &fs.PathError{Op: "lstat", Path: o.Root + path, Err: err}
+	}
+	return kindOf(st.Mode), nil
 }
 
 // beneath is the trust rule's resolution in the homeserver's tree.
