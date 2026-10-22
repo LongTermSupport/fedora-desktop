@@ -689,12 +689,26 @@ func TestRemoveAnswersThenLeaves(t *testing.T) {
 	}
 }
 
-func TestARemoveOfNoTeamIsLogged(t *testing.T) {
+// LN8: the link answers every remove; one of a team it does not hold has no user id, so the
+// keeper deletes the store itself, and posts nothing.
+func TestARemoveOfNoTeamIsAnswered(t *testing.T) {
 	w := newLinkWorld(t)
 	w.ready()
 	a := tid(t, "alpha")
-	w.send(wire.Msg{Kind: wire.KindRemove, Remove: &wire.Remove{Team: a, Txn: "tc" + strings.Repeat("0", 32)}}, nil)
-	until(t, func() bool { return strings.Contains(w.log.String(), "remove "+a.String()) })
+	released := state.FarewellReleased
+	w.send(wire.Msg{Kind: wire.KindRemove, Remove: &wire.Remove{Team: a, Farewell: &released, Txn: "tc" + strings.Repeat("0", 32)}}, nil)
+	if r := w.next(wire.KindRemoved); r.Removed.Team != a || r.Removed.UserID != "" {
+		t.Fatalf("removed %+v", r.Removed)
+	}
+	if l := w.next(wire.KindLeft); l.Left.Team != a {
+		t.Fatalf("left %+v", l.Left)
+	}
+	if leave := w.ends.leaveCalls(); len(leave) != 0 {
+		t.Fatalf("leave %q", leave)
+	}
+	if !strings.Contains(w.log.String(), "remove "+a.String()) {
+		t.Fatalf("log %q", w.log.String())
+	}
 }
 
 func TestOwedLeavesWithoutRunning(t *testing.T) {

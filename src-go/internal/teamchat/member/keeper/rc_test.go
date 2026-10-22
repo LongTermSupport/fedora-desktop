@@ -172,6 +172,31 @@ func TestRemoveWithoutFarewell(t *testing.T) {
 	ended(t, l, res, wire.EndExit, 0, 0)
 }
 
+// LN8: a removed with no user id is a removal the link could not make: the keeper deletes the
+// store under the lock itself and lets the seat go, with no user id kept for a later add.
+func TestRemovedWithoutUserID(t *testing.T) {
+	w, l, c, res := claudeWorld(t, "alpha/1")
+	alpha := w.layout.Seat(mustTeam(t, "alpha"))
+	mustDo(t, os.WriteFile(alpha.Store(), []byte("store"), 0o600))
+	w.writeDesired(desiredJSON(2, state.InboundAccept))
+	w.changed()
+	l.expect(t, wire.KindDesired)
+	rm := l.expect(t, wire.KindRemove).Remove
+	l.send(t, wire.Msg{Kind: wire.KindRemoved, Removed: &wire.Removed{Team: rm.Team}})
+	w.logged("seat alpha released")
+	if exists(t, alpha.Store()) || w.held(alpha) {
+		t.Fatal("the store or the seat outlived the removal")
+	}
+	w.writeDesired(desiredJSON(3, state.InboundAccept, "alpha/1"))
+	w.changed()
+	l.expect(t, wire.KindDesired)
+	if a := l.expect(t, wire.KindAdd).Add; len(a.RemovedUserIDs) != 0 {
+		t.Fatalf("add %+v", a)
+	}
+	c.code(0)
+	ended(t, l, res, wire.EndExit, 0, 0)
+}
+
 // LN8: a remove unanswered in 10 s kills the link; the keeper deletes the store under the lock
 // and restarts the link at once, uncounted.
 func TestRemoveTimeout(t *testing.T) {
