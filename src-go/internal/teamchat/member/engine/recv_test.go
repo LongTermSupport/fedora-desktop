@@ -315,6 +315,33 @@ func TestWaitSleepsUntilAnItemIsPersisted(t *testing.T) {
 	}
 }
 
+// N1: items returned to pending wake a wait that found everything handed, so an abandoned
+// waiter that took them cannot leave a live one asleep past them.
+func TestAReturnWakesAWait(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	w.held(ops)
+	w.persist(ops, items(ops, 1)...)
+	abandoned := w.done(wire.OpRecv, wire.TeamsArgs{})
+	got := make(chan wire.Done, 1)
+	out := &recorder{}
+	go func() {
+		got <- w.e.Serve(t.Context(), wire.Request{Op: wire.OpWait, Args: []byte(`{"team":null,"timeout_s":10}`)}, out)
+	}()
+	w.until(func() bool { return len(w.e.waiters) == 1 })
+	var asleep chan struct{}
+	w.local(func() { asleep = w.e.waiters[0] })
+	check(t, w.e.Return(t.Context(), abandoned.Ack))
+	select {
+	case <-asleep:
+	default:
+		t.Fatal("the wait still sleeps after the return")
+	}
+	if d := <-got; d.Ack == "" || out.kinds() != "human" {
+		t.Fatalf("wait = %+v %s", d, out.kinds())
+	}
+}
+
 func TestWaitAtItsDeadlineTimesOut(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)
 	ops := tid(t, "ops")

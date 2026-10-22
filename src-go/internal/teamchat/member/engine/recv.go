@@ -481,6 +481,7 @@ func (e *Engine) settle(ctx context.Context, ack string, deliver func(*state.Sto
 	var errs []error
 	if err := e.do(ctx, func() {
 		now := e.cfg.Clock.WallMS()
+		returned := false
 		for _, id := range e.order() {
 			if !eligible(e.teams[id], nil) {
 				continue
@@ -488,16 +489,23 @@ func (e *Engine) settle(ctx context.Context, ack string, deliver func(*state.Sto
 			var (
 				floor int64
 				moved bool
+				back  bool
 			)
 			err := e.changeLocked(id, func(h *held, s *state.Store) (bool, error) {
-				left, changed := settleStore(h, s, ack, now, deliver)
+				var left []state.Pending
+				left, back = settleStore(h, s, ack, now, deliver)
 				floor, moved = raiseFloors(s, left)
-				return changed, nil
+				return len(left) > 0 || back, nil
 			})
 			if err == nil && moved {
 				e.floorRaised(id, floor)
 			}
+			returned = returned || (err == nil && back)
 			errs = append(errs, err)
+		}
+		// A wait that found every item handed sleeps until woken (N1).
+		if returned {
+			e.wake()
 		}
 	}); err != nil {
 		return err
@@ -506,27 +514,27 @@ func (e *Engine) settle(ctx context.Context, ack string, deliver func(*state.Sto
 }
 
 // settleStore is settle in one store's copy; it is the items that left pending, and whether
-// anything was handed by ack.
+// any went back to pending.
 func settleStore(h *held, s *state.Store, ack string, now int64, deliver func(*state.Store, state.Pending, int64) bool) ([]state.Pending, bool) {
 	var left []state.Pending
-	changed := false
+	back := false
 	kept := s.Pending[:0]
 	for _, it := range s.Pending {
 		if it.Handed == nil || *it.Handed != ack {
 			kept = append(kept, it)
 			continue
 		}
-		changed = true
 		if deliver(s, it, now) {
 			delete(h.content, it.ID)
 			left = append(left, it)
 			continue
 		}
+		back = true
 		it.Handed, it.Repeat = nil, true
 		kept = append(kept, it)
 	}
 	s.Pending = kept
-	return left, changed
+	return left, back
 }
 
 // floorRaised tells t's team goroutine its store's main floor rose outside a sync answer, once
