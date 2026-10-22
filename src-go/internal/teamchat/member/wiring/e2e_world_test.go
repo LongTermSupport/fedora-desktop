@@ -144,6 +144,8 @@ type world struct {
 	desired string
 	kit     string
 	agent   string
+	// self is the account whose pair the seat directory holds, and seatName its handle's <seat>.
+	self, seatName string
 	// arm is the failpoints the next processes arm, once each (armOnce).
 	arm string
 }
@@ -154,6 +156,7 @@ func newWorld(t *testing.T, hs homeserver) *world {
 	w := &world{
 		t: t, team: alpha, hs: hs, tokens: map[string]string{}, dir: dir,
 		home: dir + "/h", rt: dir + "/r", state: dir + "/s", desired: dir + "/d", kit: dir + "/k/" + testDigest,
+		self: me, seatName: mySeat,
 	}
 	for _, d := range []string{w.home, w.rt, w.state, w.desired, w.kit + "/bin"} {
 		check(t, os.MkdirAll(d, 0o700))
@@ -175,6 +178,22 @@ func (w *world) join(tm teamOf, hs homeserver) *world {
 	return &other
 }
 
+// member is local's own session world on w's team: the same homeserver, rooms, tokens and kit,
+// with its own home, runtime directory and state root under w's directory at tag (short, for
+// the 107-byte socket path), local's pair in its seat directory, and no failpoints armed.
+func (w *world) member(local, seatName, tag string) *world {
+	w.t.Helper()
+	m := *w
+	dir := w.dir + "/" + tag
+	m.dir, m.home, m.rt, m.state, m.desired = dir, dir+"/h", dir+"/r", dir+"/s", dir+"/d"
+	m.self, m.seatName, m.arm = local, seatName, ""
+	for _, d := range []string{m.home, m.rt, m.state, m.desired} {
+		check(w.t, os.MkdirAll(d, 0o700))
+	}
+	m.placeSeat()
+	return &m
+}
+
 // copySelf copies the test binary to path, executable.
 func (w *world) copySelf(path string) {
 	w.t.Helper()
@@ -192,7 +211,7 @@ func (w *world) copySelf(path string) {
 }
 
 // populate makes team alpha's rooms as the keeper does, gives each account a token and joins it
-// to main, and places me's pair in its seat directory.
+// to main, and places self's pair in its seat directory.
 func (w *world) populate() {
 	t := w.t
 	roster := proto.Roster{
@@ -217,18 +236,24 @@ func (w *world) populate() {
 			t.Fatalf("%s joins main: %v", local, err)
 		}
 	}
+	w.placeSeat()
+}
+
+// placeSeat writes self's seat directory for the world's team: its bundle and token.
+func (w *world) placeSeat() {
+	t := w.t
 	seatDir := w.state + "/" + w.team.name
 	check(t, os.Mkdir(seatDir, 0o700))
 	issuer, err := paths.ParseDigest("0123456789abcdef")
 	check(t, err)
 	b := seat.Bundle{
-		V: 1, Team: w.team.id, ServerName: w.team.server, UserID: w.user(me), AdminID: proto.AdminID(w.team.server),
+		V: 1, Team: w.team.id, ServerName: w.team.server, UserID: w.user(w.self), AdminID: proto.AdminID(w.team.server),
 		MainRoom: w.main, BaseURL: w.hs.base, PlainHTTPHosts: []string{"127.0.0.1"},
 		DeviceID: paths.SeatDevice, IssuedMS: clock.System().WallMS() - 1000, Issuer: issuer,
 	}
 	data, err := b.Encode()
 	check(t, err)
-	w.replace(seatDir+"/token", []byte(w.tokens[me]))
+	w.replace(seatDir+"/token", []byte(w.tokens[w.self]))
 	w.replace(seatDir+"/seat.json", data)
 }
 
@@ -518,13 +543,19 @@ func (s *session) records(args ...string) []map[string]any {
 	if res.ExitCode != 0 {
 		s.w.t.Fatalf("%v: exit %d, stderr %s", args, res.ExitCode, res.Stderr)
 	}
+	return parseRecords(s.w.t, res.Stdout)
+}
+
+// parseRecords is a verb's stdout as its records, each a JSON object on a line.
+func parseRecords(t *testing.T, stdout []byte) []map[string]any {
+	t.Helper()
 	var out []map[string]any
-	for line := range strings.SplitSeq(strings.TrimSpace(string(res.Stdout)), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(stdout)), "\n") {
 		if line == "" {
 			continue
 		}
 		var r map[string]any
-		check(s.w.t, json.Unmarshal([]byte(line), &r))
+		check(t, json.Unmarshal([]byte(line), &r))
 		out = append(out, r)
 	}
 	return out

@@ -170,9 +170,11 @@ func (w *world) desiredSeated() *session {
 	w.desire(1, []state.DesiredSeat{{Team: alphaID, Seat: mySeat}}, nil)
 	s := w.launch("--desired", w.desired, "--state", w.state)
 	s.seatedIn()
-	if _, err := os.Stat(w.storePath()); err != nil {
-		w.t.Fatalf("the seated store: %v", err)
-	}
+	// status answers once the link holds the seat; the store follows the team's first Load.
+	eventually(w.t, func() bool {
+		_, err := os.Stat(w.storePath())
+		return err == nil
+	}, s.describe)
 	return s
 }
 
@@ -340,4 +342,27 @@ func TestFailpointKeeperBeforeStoreDelete(t *testing.T) {
 	if seen := again.receiveAll(map[string]int{}, gap); seen[gap] != 1 {
 		t.Fatalf("seen %v: %s", seen, again.describe())
 	}
+}
+
+// PT1, n3d-D16: C's link killed by SIGKILL after a say's charge and before its PUT, and after
+// its PUT and before its answer is recorded. The keeper restarts the link, which re-sends the
+// queued text by its transaction id or finds it already in main (n3d-D4): the text is in main
+// exactly once, and K receives it once.
+func TestFailpointChargeBeforeSend(t *testing.T) { sendCrashed(t, failpoint.LinkAfterChargeBeforeSend) }
+
+func TestFailpointSendBeforeRecord(t *testing.T) { sendCrashed(t, failpoint.LinkAfterSendBeforeRecord) }
+
+func sendCrashed(t *testing.T, point failpoint.Name) {
+	t.Helper()
+	k := newWorld(t, fakeServer(t))
+	c := k.member(coord, coordSeat, "c")
+	c.arm = arm("link", point)
+	ks, cs := k.seated(), c.seated()
+	text := "said across " + string(point)
+	// The say's own answer is whatever the killed link left it: the row judges main.
+	cs.send(new(text), "say", "--to", kShort, "--team", teamName)
+	cs.awaitLinkKilled(false)
+	cs.seatedIn()
+	ks.recvUntil(cs.postedOnce(text))
+	cs.oneLink()
 }
