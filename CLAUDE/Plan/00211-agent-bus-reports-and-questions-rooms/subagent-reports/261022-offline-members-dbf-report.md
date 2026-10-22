@@ -8,8 +8,8 @@ again on its own, `1d9951f0e`; its fix `96a8fdb6c`. After the adversarial review
 (`261022-offline-members-review-round1.md`, over-corrections the rule cannot see): `521e97108`
 (check-rooms by live status), `0be44b47f` (wind-down and shutdown by the live container list),
 `49256e214` (SPEC/PLAN/owner's steps), `1959e982d` (NOT JUDGED verdicts, R9 by declared
-members, the offline prefix, and the rule counting `plan_lxc_online_named`, red first in its
-fixture), `617b48bc4` (roles wording by the container list, restart's cleanup hint).
+members, the offline prefix, and the rule counting `plan_lxc_online_named`; see the second
+Narrowing below), `617b48bc4` (roles wording by the container list, restart's cleanup hint).
 
 ## Specification followed
 
