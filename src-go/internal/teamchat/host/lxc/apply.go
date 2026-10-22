@@ -494,15 +494,23 @@ func (r *run) step(ctx context.Context, g *guestBox, m *member, name string, err
 	}
 }
 
-// refused is a guest fact TB1 or a grammar refused.
+// refused is the member's own failure: a guest fact TB1 or a grammar refused, or a call below
+// the guest root that the guest answered with an error, whatever its errno, a stall included
+// (R2-1). Only an error before the pin, the host out of descriptors or memory, and the host's
+// own /proc are the host's.
 func refused(err error) bool {
+	return badFact(err) || errors.Is(err, guestroot.ErrGuest)
+}
+
+// badFact is a guest fact TB1 or a grammar refused.
+func badFact(err error) bool {
 	return errors.Is(err, guestfacts.ErrRefused) || errors.Is(err, guestroot.ErrRefused) || errors.Is(err, guestroot.ErrTooLarge)
 }
 
 // lockFree is a lock probe's error that reads as a free seat with no record (LP1): a lock not
-// there yet, or one TB1 refuses. A stall is a probe that failed, never a free seat.
+// there yet, or one TB1 refuses. A guest's error, a stall included, is a probe that failed.
 func lockFree(err error) bool {
-	return !errors.Is(err, guestroot.ErrStalled) && (refused(err) || errors.Is(err, fs.ErrNotExist))
+	return badFact(err) || errors.Is(err, fs.ErrNotExist)
 }
 
 // present is C 3.9.2 steps 02-09.

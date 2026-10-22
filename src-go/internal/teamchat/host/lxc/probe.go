@@ -25,7 +25,7 @@ const ProbeBound = 5 * time.Second
 // (n3b-D1): a handle the record does not name, a container missing, not running or stopping
 // during the probe. A handle only left entries hold, a guest user or seat lock not there yet,
 // and a lock TB1 refuses (a link, a FIFO) are free with no record. An error is the host's own
-// fault, or a probe past ProbeBound.
+// fault, a running guest's error below its root (a stall included), or a probe past ProbeBound.
 type Guests struct {
 	Root string // the host root ("" on a host) the records are read under
 	LXC  interface {

@@ -113,13 +113,35 @@ func newGuest(t *testing.T) string {
 	return dir
 }
 
-// fakeRoot is a fixture guest root whose init is its own systemd, or exe when set, and whose
-// lock probes fail with probeErr when set.
+// fakeRoot is a fixture guest root whose init is its own systemd, or exe when set, whose lock
+// probes fail with probeErr when set, and whose reads of a path in faults fail with its error.
 type fakeRoot struct {
 	*guestroot.Root
 
 	exe      *guestroot.Info
 	probeErr error
+	faults   map[string]error
+}
+
+func (r fakeRoot) Stat(p string) (guestroot.Info, error) {
+	if err := r.faults[p]; err != nil {
+		return guestroot.Info{}, err
+	}
+	return r.Root.Stat(p)
+}
+
+func (r fakeRoot) ReadFile(p string, limit int64) ([]byte, guestroot.Info, bool, error) {
+	if err := r.faults[p]; err != nil {
+		return nil, guestroot.Info{}, false, err
+	}
+	return r.Root.ReadFile(p, limit)
+}
+
+func (r fakeRoot) ReadDir(p string, valid func(string) bool, limit int) ([]string, bool, error) {
+	if err := r.faults[p]; err != nil {
+		return nil, false, err
+	}
+	return r.Root.ReadDir(p, valid, limit)
 }
 
 func (r fakeRoot) ProbeLock(p string) (bool, []byte, error) {
@@ -145,6 +167,8 @@ type box struct {
 	exe   *guestroot.Info
 	// stateErr fails lxc-info's state of the box, and probeErr its root's lock probes.
 	stateErr, probeErr error
+	// faults fails its root's reads of each path with the error, as guestroot answers them.
+	faults map[string]error
 }
 
 type guestCall struct {
@@ -556,7 +580,7 @@ func (w *world) pin(_ context.Context, c string) (Root, error) {
 	if err != nil {
 		return nil, err
 	}
-	return fakeRoot{Root: r, exe: b.exe, probeErr: b.probeErr}, nil
+	return fakeRoot{Root: r, exe: b.exe, probeErr: b.probeErr, faults: b.faults}, nil
 }
 
 func (w *world) apply(phase Phase, only ...string) (Report, error) {

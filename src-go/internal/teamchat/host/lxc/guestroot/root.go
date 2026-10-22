@@ -38,6 +38,10 @@ var (
 	ErrRefused = errors.New("guestroot: refused")
 	// ErrTooLarge is a file, a directory or a tree over its cap.
 	ErrTooLarge = errors.New("guestroot: over its cap")
+	// ErrGuest is a call below the root that failed on the guest's side, its errno wrapped:
+	// whatever the errno, a file or a mount the guest controls answered it, so it fails that
+	// member alone (R2-1). Only the host out of descriptors or memory is the host's fault.
+	ErrGuest = errors.New("guestroot: the guest failed the call")
 
 	errClosed = errors.New("guestroot: the root is closed")
 )

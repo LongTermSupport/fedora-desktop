@@ -3,13 +3,18 @@ package guestroot
 import (
 	"errors"
 	"fmt"
+	"io/fs"
+	"net"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // ErrStalled is a guest read or write that did not end within its bound: a mount below the
 // guest's root that does not answer (a FUSE mount, in a privileged container). The guest's own
-// doing, so it is ErrRefused and fails that member alone (B5).
-var ErrStalled = fmt.Errorf("%w: a guest call did not end within its bound", ErrRefused)
+// doing, so it is ErrGuest and fails that member alone (B5); it is never a TB1 refusal, which
+// a caller may read as a free or empty answer.
+var ErrStalled = fmt.Errorf("%w: a guest call did not end within its bound", ErrGuest)
 
 // callBound is each read's and write's longest wait.
 const callBound = 10 * time.Second
@@ -35,7 +40,7 @@ func bounded[T any](r *Root, p string, op func() (T, error), late func(T) error)
 	done := make(chan result, 1)
 	go func() {
 		v, err := op()
-		done <- result{v, errors.Join(err, r.leave())}
+		done <- result{v, errors.Join(guestFault(err), r.leave())}
 	}()
 	timer := time.NewTimer(r.bound)
 	defer timer.Stop()
@@ -59,6 +64,24 @@ func bounded[T any](r *Root, p string, op func() (T, error), late func(T) error)
 		return zero, aerr
 	}
 	return zero, fmt.Errorf("%w: %s did not answer within %v", ErrStalled, p, r.bound)
+}
+
+// guestFault is an error of a call below the root classed by its origin, not its errno (R2-1):
+// ErrGuest, unless it is already classed (a refusal, a cap, a path not there), the host is out
+// of descriptors or memory, or it is a connect the guest's socket did not answer, which its
+// caller reads as the bus down.
+func guestFault(err error) error {
+	switch {
+	case err == nil, errors.Is(err, ErrRefused), errors.Is(err, ErrTooLarge), errors.Is(err, ErrGuest),
+		errors.Is(err, fs.ErrNotExist), errors.Is(err, errClosed):
+		return err
+	case errors.Is(err, unix.EMFILE), errors.Is(err, unix.ENFILE), errors.Is(err, unix.ENOMEM):
+		return err
+	}
+	if oe, ok := errors.AsType[*net.OpError](err); ok && oe != nil {
+		return err
+	}
+	return fmt.Errorf("%w: %w", ErrGuest, err)
 }
 
 // enter counts a call in flight, on a root not closed.

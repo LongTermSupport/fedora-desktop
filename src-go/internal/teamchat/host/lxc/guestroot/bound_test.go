@@ -2,11 +2,17 @@ package guestroot
 
 import (
 	"errors"
+	"io/fs"
+	"net"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // stalledRoot is a fixture root whose openat2 of /stalled waits until the returned func is
@@ -40,13 +46,13 @@ func waitClosed(t *testing.T, closes chan int, fd int) {
 	}
 }
 
-// B5: a read below a stalled mount ends at its bound as ErrStalled, which is ErrRefused (that
-// member alone), while the next read of the same root still answers; the stalled read's
+// B5: a read below a stalled mount ends at its bound as ErrStalled, which is ErrGuest (that
+// member alone) and never a TB1 refusal (R2-2), while the next read of the same root still answers; the stalled read's
 // descriptors, and at Close the root's own, are released once it ends.
 func TestAStalledReadEndsAtItsBound(t *testing.T) {
 	r, rec, release, closes := stalledRoot(t)
 	rootFD := r.fd
-	if got := readFile(r, "/stalled", 10); !errors.Is(got.err, ErrStalled) || !errors.Is(got.err, ErrRefused) {
+	if got := readFile(r, "/stalled", 10); !errors.Is(got.err, ErrStalled) || !errors.Is(got.err, ErrGuest) || errors.Is(got.err, ErrRefused) {
 		t.Fatalf("a stalled read: %v", got.err)
 	}
 	for name, err := range map[string]error{
@@ -107,7 +113,7 @@ func TestAStalledWriteEndsAtItsBound(t *testing.T) {
 		"Remove":     second(w.Remove("/w", "f")),
 		"RemoveTree": second(w.RemoveTree("/w", "tree")),
 	} {
-		if !errors.Is(err, ErrStalled) || !errors.Is(err, ErrRefused) {
+		if !errors.Is(err, ErrStalled) || !errors.Is(err, ErrGuest) || errors.Is(err, ErrRefused) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
@@ -152,6 +158,84 @@ func TestALateDialIsClosed(t *testing.T) {
 	}
 	if err := accepted.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// R2-1: an errno from any call below the root is the guest's, whatever it is (a FUSE mount a
+// guest user made answers EACCES or EIO to host root): ErrGuest, the errno kept. Only the host
+// running out of descriptors or memory stays the host's fault.
+func TestAnErrnoBelowTheRootIsTheGuests(t *testing.T) {
+	calls := map[string]func(*Root) error{
+		"Stat":      func(r *Root) error { return second(r.Stat("/f")) },
+		"ReadFile":  func(r *Root) error { return readFileErr(r, "/f") },
+		"ReadDir":   func(r *Root) error { return readDirErr(r, "/d") },
+		"ProbeLock": func(r *Root) error { return probeLockErr(r, "/f") },
+		"WriteFile": func(r *Root) error { return second(r.Writer().WriteFile("/d", "n", []byte("x"), 0o644)) },
+		"MkdirAll":  func(r *Root) error { return second(r.Writer().MkdirAll("/d/e")) },
+	}
+	ops := map[string][]string{
+		"Stat":      {"openat2", "fstat", "close"},
+		"ReadFile":  {"openat2", "fstat", "openat", "read", "close"},
+		"ReadDir":   {"openat2", "getdents", "close"},
+		"ProbeLock": {"openat2", "openat", "flock", "read"},
+		"WriteFile": {"openat2", "fstat", "write", "fchmod", "fsync", "renameat2"},
+		"MkdirAll":  {"openat2", "mkdirat"},
+	}
+	for name, call := range calls {
+		for _, op := range ops[name] {
+			for _, errno := range []unix.Errno{unix.EACCES, unix.EIO, unix.ENXIO, unix.EMFILE, unix.ENFILE, unix.ENOMEM} {
+				g := newTree(t)
+				g.file("/f", "x", 0o644)
+				g.mkdir("/d")
+				rec := newRecorder()
+				r := g.root(rec)
+				rec.mu.Lock()
+				rec.failOp, rec.failErr = op, errno
+				rec.mu.Unlock()
+				err := call(r)
+				rec.mu.Lock()
+				rec.failOp = ""
+				rec.mu.Unlock()
+				host := errno == unix.EMFILE || errno == unix.ENFILE || errno == unix.ENOMEM
+				if !errors.Is(err, errno) || errors.Is(err, ErrGuest) == host {
+					t.Errorf("%s with %s failing %v: %v", name, op, errno, err)
+				}
+				if errors.Is(err, ErrRefused) {
+					t.Errorf("%s with %s failing %v is a TB1 refusal: %v", name, op, errno, err)
+				}
+			}
+		}
+	}
+}
+
+// A path not there is a fact, not a fault: it stays fs.ErrNotExist, never ErrGuest.
+func TestAMissingPathIsNotAGuestFault(t *testing.T) {
+	r := newTree(t).root(newRecorder())
+	if _, err := r.Stat("/none"); !errors.Is(err, fs.ErrNotExist) || errors.Is(err, ErrGuest) {
+		t.Fatalf("Stat of a missing path: %v", err)
+	}
+}
+
+// A guest socket nothing listens on is a connect its caller reads as the bus down: never
+// ErrGuest, which would make it a wrong fact.
+func TestAConnectNoOneAnswersIsNotAGuestFault(t *testing.T) {
+	g := newTree(t)
+	g.mkdir(filepath.Dir(socketPath))
+	short := t.TempDir() + "/s"
+	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: short, Net: "unix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln.SetUnlinkOnClose(false)
+	if err := ln.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(short, g.host(socketPath)); err != nil {
+		t.Fatal(err)
+	}
+	r := g.root(newRecorder())
+	if _, err := r.DialSocket(t.Context(), socketPath); !errors.Is(err, unix.ECONNREFUSED) || errors.Is(err, ErrGuest) {
+		t.Fatalf("a dial of a socket with no listener: %v", err)
 	}
 }
 

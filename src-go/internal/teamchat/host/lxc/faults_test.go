@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"syscall"
 	"testing"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestroot"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxccmd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxcstate"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/unit"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
@@ -347,6 +349,105 @@ func TestWaitFreeLayoutError(t *testing.T) {
 	wait, err := r.waitFree(t.Context(), &guestBox{name: mustBox(t, "c1")}, m)
 	if err == nil {
 		t.Fatalf("a layout error was a free seat: %+v", wait)
+	}
+}
+
+// guestErrno is a call below the guest root failing with errno, as guestroot answers it: a
+// guest user's FUSE mount answering host root (R2-1).
+func guestErrno(p string, errno syscall.Errno) error {
+	return fmt.Errorf("%w: guestroot: %s: %w", guestroot.ErrGuest, p, errno)
+}
+
+var guestErrnos = []syscall.Errno{syscall.EACCES, syscall.EIO}
+
+// R2-1: a guest user's run root that cannot be listed, whatever the errno, keeps every digest
+// and fails no seat; the kit sweep goes on for the rest.
+func TestKitSweepListingFaultKeepsEveryDigest(t *testing.T) {
+	for _, errno := range guestErrnos {
+		w := newWorld(t)
+		b := w.addBox("c1")
+		dir := oldKit(t, b)
+		root, err := paths.GuestLoginRunRoot(agent2UID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sessionPIDUnder(t, b, root, recordedTicks+1)
+		b.faults = map[string]error{root: guestErrno(root, errno)}
+		w.declare([]string{"t1"}, w.member("t1", "c1"))
+		if _, err := w.apply(PhasePresent); err != nil {
+			t.Fatalf("%v: %v", errno, err)
+		}
+		if _, err := os.Stat(dir); err != nil {
+			t.Fatalf("%v: the old kit was removed: %v", errno, err)
+		}
+		if e := w.entry("c1"); e.Status != lxcstate.StatusJoined {
+			t.Fatalf("%v: entry %+v", errno, e)
+		}
+	}
+}
+
+// R2-1: a checkout the guest answers with an errno fails the seats on it alone, as refused; a
+// seat of the same container on another checkout applies.
+func TestCheckoutReadFaultFailsThatSeatAlone(t *testing.T) {
+	const other = "/srv/agent2/src/repo"
+	for _, errno := range guestErrnos {
+		w := newWorld(t)
+		b := w.addBox("c1")
+		writeTree(t, b.dir, map[string]string{
+			other[1:] + gitConfig: "[remote \"origin\"]\n\turl = https://github.com/example/repo.git\n",
+		})
+		b.faults = map[string]error{checkout + gitConfig: guestErrno(checkout+gitConfig, errno)}
+		second := w.memberAt("t1", "c1", 2)
+		second.User, second.Checkout = agent2(t), other
+		w.declare([]string{"t1"}, w.member("t1", "c1"), second)
+		_, err := w.apply(PhasePresent)
+		herr, ok := errors.AsType[*host.Error](err)
+		if !ok || !herr.Drift || herr.Step != stepReads {
+			t.Fatalf("%v: err %v, want seat 1 refused at the reads", errno, err)
+		}
+		if e, found := w.record().Find(mustBox(t, "c1"), other, 2); !found || e.Status != lxcstate.StatusJoined {
+			t.Fatalf("%v: the other seat's entry %+v %v", errno, e, found)
+		}
+	}
+}
+
+// R2-1 with R2-2: a lock the guest answers with an errno is a probe that failed, never a free
+// seat.
+func TestLockProbeErrnoIsNotFree(t *testing.T) {
+	for _, errno := range guestErrnos {
+		w := leaving(t)
+		w.lxc.boxes["c1"].probeErr = guestErrno("/lock", errno)
+		_, err := w.apply(PhaseAbsent)
+		failedAt(t, err, "wait")
+		if slices.Contains(w.lxc.verbs(), "c1 guest remove") {
+			t.Fatalf("%v: a seat whose lock could not be probed was removed", errno)
+		}
+
+		w = placed(t)
+		g := w.faulty(func(r Root) Root { return faultyRoot{Root: r, lockErr: guestErrno("/lock", errno)} })
+		if got, err := g.Probe(t.Context(), mustTeam(t, "t1"), firstHandle); err == nil {
+			t.Fatalf("%v: probe %+v, want an error", errno, got)
+		}
+	}
+}
+
+// N1: a tmux the guest answers with a stall or an errno keeps that error, the member's; only
+// a tmux that is not there, or not a regular file, sends the operator to the container's play.
+func TestTmuxFaultKeepsItsCause(t *testing.T) {
+	r, err := guestroot.OpenDir(newGuest(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := r.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	for _, cause := range []error{errStall, guestErrno(unit.Tmux, syscall.EIO)} {
+		err := tmux(fakeRoot{Root: r, faults: map[string]error{unit.Tmux: cause}})
+		if !errors.Is(err, cause) || !refused(err) || strings.Contains(err.Error(), "installs it") {
+			t.Errorf("%v: %v", cause, err)
+		}
 	}
 }
 
