@@ -12,7 +12,7 @@ interpreter for every status-line refresh and every hook event of every bus sess
 member kit's `settings.json` (`files/opt/claude-yolo/optional/agent-bus/settings.json`, used by
 `agent-bus-claude`) and a ccy seated session's own settings (written by
 `helpers/pingbus/seat.py`) both set `statusLine` to `pingbus status-line` with
-`refreshInterval: 1`. The plugin's
+`refreshInterval` (was 1, 25 since Task 1.3). The plugin's
 `hooks/hooks.json` runs `pingbus hook …` on SessionStart, UserPromptSubmit, PostToolUse, Stop and
 SessionEnd.
 
@@ -41,14 +41,18 @@ as hooks-daemon issue #131 and is not this plan's to fix.
   cgroup CPU of an idle member, before and after.
 - `pingbus status-line` is a Go binary that matches the Python output exactly (a parity oracle
   test), and starts in milliseconds.
-- The per-event `pingbus hook …` paths move to Go one at a time, each with a parity test, until
-  no Python interpreter starts on a tick or a hook event.
 - The host stops paying a pyenv shim on every `python3` start of the kit.
 
 ## Non-Goals
 
 - Porting the whole of pingbus or agent-bus in this plan. The long-lived watcher, the Matrix
-  client and the admin CLI stay Python until a later plan decides.
+  client and the admin CLI stay Python until v1 retires; [Plan 00209](../00209-agent-bus-v2-in-go/PLAN.md)
+  replaces them with v2, a separate Go system teams migrate to, not a port. This plan's
+  status-line work (Tasks 1.1, 1.2, 2.2, 2.3) stays v1's; 00209 Task 7.3 loosens its golden when
+  v2's status line takes over.
+- The per-event `pingbus hook …` paths in Go. They are not built: v1's hooks stay Python until v1
+  retires. Plan 00209 builds v2 as a separate system, and v2's hooks (`teamchat hook`) are part of
+  its N3 member client (00209 Task 3.2), not a port of these. This plan completes without them.
 - The hooks daemon's own status-line forwarder (hooks-daemon issue #131).
 - CPU power limits and other host tuning. That is separate desktop triage.
 
@@ -191,11 +195,14 @@ as hooks-daemon issue #131 and is not this plan's to fix.
 
 ### Phase 3: per-event hooks in Go
 
-- [ ] ⬜ **Task 3.1**: Measure each `pingbus hook …` event's rate and cost with 1.1. Port them in
-  order of total cost (PostToolUse is the likely first), each with a parity test, and leave the
-  Python in place behind them until the last one is ported.
-- [ ] ⬜ **Task 3.2**: Record what remains in Python and why, as the input to a later plan for the
-  watcher and the CLI.
+- [x] ❌ **Task 3.1**: Not built. v1's hooks stay Python until v1 retires; v2's hooks are
+  `teamchat hook`, part of [Plan 00209](../00209-agent-bus-v2-in-go/PLAN.md)'s N3 member client
+  (Task 3.2), a new system rather than a port of these. In socket mode PostToolUse does not start
+  pingbus at all (`hooks.json` runs it only in relay mode).
+- [x] ❌ **Task 3.2**: Superseded by Plan 00209, whose v2 replaces the watcher and the CLI as a
+  separate system rather than porting them; v1's stay Python until v1 retires. What is
+  Python today and which 00209 stage replaces it is in its
+  [RESEARCH-python-scope.md](../00209-agent-bus-v2-in-go/RESEARCH-python-scope.md).
 
 ## Success Criteria
 

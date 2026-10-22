@@ -101,6 +101,14 @@ class SystemPathsHandler(Handler):
         "/home/",
     ]
 
+    # Deployed files whose source is not the files/ mirror of their path
+    # (play-claude-yolo.yml installs the bash launcher as claude-yolo.bash and builds
+    # the Go front as claude-yolo).
+    INSTALLED_UNDER_ANOTHER_NAME: ClassVar[dict[str, str]] = {
+        "/var/local/claude-yolo/claude-yolo.bash": "files/var/local/claude-yolo/claude-yolo",
+        "/var/local/claude-yolo/claude-yolo": "src-go/cmd/claude-yolo and src-go/internal/ccylaunch (the Go front)",
+    }
+
     def __init__(self) -> None:
         super().__init__(name="prevent-system-file-edits", priority=8, terminal=True)
 
@@ -232,6 +240,8 @@ class SystemPathsHandler(Handler):
         Returns:
             Suggested project path for editing
         """
+        if file_path in self.INSTALLED_UNDER_ANOTHER_NAME:
+            return self.INSTALLED_UNDER_ANOTHER_NAME[file_path]
         if file_path.startswith("/var/local/"):
             return f"files/var/local/{file_path.split('/var/local/', 1)[1]}"
         if file_path.startswith("/etc/"):
