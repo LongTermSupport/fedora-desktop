@@ -152,7 +152,7 @@ playbooks/imports/play-python.yml
 # before the bashrc override is written. Makes ~/.cache itself, at 0700, for the prompt fetch's
 # log. The rest of the play is unchanged. Needs sudo once.
 playbooks/imports/play-git-configure-and-tools.yml
-# Plan 00183 after the play above: triage.bash and acceptance.bash, both read-only, so the
-# acceptance's override and prompt legs judge the pinned checkout. Afterwards, the owner's hand
-# check (PLAN.md Task 2.3): the yellow mark in a stale checkout's prompt.
-00183-prompt-shows-stale-tracking-ref
+# Plan 00183 acceptance, after the play above, read-only: its override and prompt legs judge the
+# pinned checkout. Afterwards, the owner's hand check (PLAN.md Task 2.3): the yellow mark in a
+# stale checkout's prompt.
+00183-prompt-shows-stale-tracking-ref/acceptance.bash
