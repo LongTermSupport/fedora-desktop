@@ -57,9 +57,10 @@ func TestPickerHeaderNamesTheCheckoutTopNotTheSubdirectory(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
 	header := h.HeaderOf(0)
+	// newRig's alpha has its description offer answered never, so its row can undo that.
 	for _, want := range []string{
 		"↑↓ choose   Enter lists what can be done to the row   Tab running sessions (the last row)   ? help   Esc or q quit\n",
-		"This row: Ctrl-E open alpha in Element   open every team in Element via Enter   Ctrl-N start a session in alpha   add an LXC container to alpha via Enter   add a running session to alpha via Enter   edit alpha's settings via Enter   Ctrl-U update out-of-date teams   restart alpha's desktop sessions via Enter   wind down alpha's sessions via Enter   ? help   shut down alpha's sessions via Enter   Ctrl-X take alpha down\n",
+		"This row: Ctrl-E open alpha in Element   open every team in Element via Enter   Ctrl-N start a session in alpha   add an LXC container to alpha via Enter   add a running session to alpha via Enter   edit alpha's settings via Enter   Ctrl-U update out-of-date teams   restart alpha's desktop sessions via Enter   wind down alpha's sessions via Enter   be asked to describe alpha again via Enter   ? help   shut down alpha's sessions via Enter   Ctrl-X take alpha down\n",
 		"Ctrl-N starts a new ccy session in the row's team, in " + h.Checkout() + "\n",
 		"session restore on this machine is off (ccy_restore_sessions)\n",
 		"TEAM ",
@@ -193,7 +194,7 @@ func TestPickerStillRefusedAfterSudoLeaves(t *testing.T) {
 
 func TestPickerNoTeamsOffersCreate(t *testing.T) {
 	h := newRig(t)
-	h.OnDeclare("declared", "")
+	h.WriteHostVars(t, "")
 	h.On("systemctl list-units", "", 0)
 	// yes to the offer; the wizard runs and stops at gh, which is not logged in: its exit ends the picker
 	h.OnErr("gh auth status", "not logged in", 1)
@@ -213,7 +214,7 @@ func TestPickerNoTeamsOffersCreate(t *testing.T) {
 
 func TestPickerNoTeamsDeclinedAndCancelled(t *testing.T) {
 	h := newRig(t)
-	h.OnDeclare("declared", "")
+	h.WriteHostVars(t, "")
 	h.On("systemctl list-units", "", 0)
 	h.Script.Gum = []string{"NO"}
 	if code := h.run(); code != term.ExitOK {
@@ -223,7 +224,7 @@ func TestPickerNoTeamsDeclinedAndCancelled(t *testing.T) {
 		t.Fatalf("stderr %q gum %v", h.ErrOut.String(), h.Script.GumLog)
 	}
 	h = newRig(t)
-	h.OnDeclare("declared", "")
+	h.WriteHostVars(t, "")
 	h.On("systemctl list-units", "", 0)
 	h.Script.Gum = []string{"CANCEL"}
 	if code := h.run(); code != term.ExitCancelled {
@@ -236,7 +237,7 @@ func TestPickerNoTeamsDeclinedAndCancelled(t *testing.T) {
 
 func TestPickerMissingGumIsRefusedWhereItIsNeeded(t *testing.T) {
 	h := newRig(t)
-	h.OnDeclare("declared", "")
+	h.WriteHostVars(t, "")
 	h.On("systemctl list-units", "", 0)
 	h.p.Kit.LookPath = func(name string) (string, error) { return "", errors.New("not found: " + name) }
 	if code := h.run(); code != term.ExitFailure {
@@ -353,7 +354,6 @@ func TestPickerEnterOnAnyRowOpensItsMenuAndTheBackRowReturnsToTheList(t *testing
 func TestPickerStartupOfferUpdateRunsApplyAll(t *testing.T) {
 	h := newRig(t)
 	h.outdatedUntilApplied("config")
-	h.OnDeclare("limited", "")
 	h.Script.Gum = []string{"YES"}
 	h.Script.Fzf = []string{"|ABORT"}
 	if code := h.run(); code != term.ExitOK {
@@ -369,7 +369,6 @@ func TestPickerStartupOfferUpdateRunsApplyAll(t *testing.T) {
 
 func TestPickerCtrlUUpdatesEverythingAndWaits(t *testing.T) {
 	h := newRig(t)
-	h.OnDeclare("limited", "")
 	h.outdatedUntilApplied("unstamped")
 	h.Script.Gum = []string{"NO"} // the start-up offer to update is declined; Ctrl-U does it
 	h.Script.Fzf = []string{"ctrl-u|port 6167", "|ABORT"}
@@ -383,7 +382,6 @@ func TestPickerCtrlUUpdatesEverythingAndWaits(t *testing.T) {
 
 func TestPickerNamesTheVerbWhenAFlowFailsAndStopsWhenItIsCancelled(t *testing.T) {
 	h := newRig(t)
-	h.OnDeclare("limited", "")
 	h.outdatedUntilApplied("unstamped")
 	h.OnErr(h.Host.Play, "boom", 1)
 	h.Script.Gum = []string{"NO"}
@@ -397,7 +395,6 @@ func TestPickerNamesTheVerbWhenAFlowFailsAndStopsWhenItIsCancelled(t *testing.T)
 	}
 
 	h = newRig(t)
-	h.OnDeclare("limited", "")
 	// Ctrl-C at the first question of taking a team down
 	h.Script.Gum = []string{"YES", "YES", "CANCEL"}
 	h.Script.Fzf = []string{"ctrl-x|port 6167"}

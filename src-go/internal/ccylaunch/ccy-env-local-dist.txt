@@ -1,0 +1,28 @@
+# ccy.env.local.dist version 3
+#
+# Written by ccy on every launch: commit it, never edit it (ccy rewrites it).
+#
+# The template for ccy.env.local, this checkout's own settings: the role one install
+# plays, never secrets and never anything every clone should share (that goes in
+# ccy.env). ccy.env.local is never committed. It is placed by the install's own
+# infrastructure-as-code, not by hand and not by an agent working in the checkout.
+# ccy sources it inside the container, after ccy.env, so its values win.
+#
+# To make one: copy this file to ccy.env.local, change the line below to
+# "# based on ccy.env.local.dist version 3", and uncomment what this install needs.
+# When this dist's version moves on, ccy says so at launch: compare the two files.
+#
+# based on ccy.env.local.dist version 3
+
+# ── Hooks daemon host role ────────────────────────────────────────────────────
+# The name the hooks daemon matches this session's host against: persistent_crons
+# "hosts:" lists and the top-level "hosts:" block in .claude/hooks-daemon.yaml.
+# Order: HOOKS_DAEMON_HOSTNAME, then CCY_HOST_HOSTNAME (ccy sets it to the host
+# machine's name), then the container's hostname. Set it to give this install a
+# role, e.g. the one install that runs a role-scoped cron job. Only matters in a
+# project that uses the hooks daemon.
+# It also names the host part of the handle of an agent team bus seat that
+# "ccy --teams <seat>@<team>" creates in this checkout; unset, that part is "local".
+# A team is chosen by each launch, never here: the container refuses to start when
+# this file sets a bus variable.
+#export HOOKS_DAEMON_HOSTNAME=<role-name>

@@ -248,7 +248,7 @@ func TestNoTerminalNeedsYes(t *testing.T) {
 	}
 }
 
-// B11: local only. Nothing but tmux, podman, the seat list and the reads the table makes.
+// B11: local only. Nothing but tmux, podman and the reads the table makes.
 func TestNothingGoesOnTheBus(t *testing.T) {
 	m := newMachine(t)
 	m.noLxc()
@@ -258,7 +258,6 @@ func TestNothingGoesOnTheBus(t *testing.T) {
 		switch {
 		case c.Name == "tmux", c.Name == "systemctl", c.Name == "git", c.Name == "env", c.Name == "podman",
 			c.Name == "systemd-run", c.Name == "systemd-escape",
-			strings.HasPrefix(line, "agent-bus seat list"),
 			strings.HasPrefix(line, teamtest.SudoBus+"list "),
 			strings.HasPrefix(line, teamtest.SudoBus+"human devices "),
 			line == "sudo -k":

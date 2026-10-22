@@ -139,6 +139,27 @@ func TestListFilesGitFailure(t *testing.T) {
 	}
 }
 
+func TestTrackedUnder(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"git", "ls-files", "-z", "--", ".claude/ccy"},
+		execx.Result{Stdout: []byte(".claude/ccy/.gitignore\x00.claude/ccy/a\nb\x00")})
+	got, err := gitx.New(f).TrackedUnder(context.Background(), dir, ".claude/ccy")
+	if err != nil || len(got) != 2 || got[0] != ".claude/ccy/.gitignore" || got[1] != ".claude/ccy/a\nb" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+	if f.Calls()[0].Dir != dir {
+		t.Fatalf("ran in %q", f.Calls()[0].Dir)
+	}
+	f.On([]string{"git", "ls-files"}, execx.Result{})
+	if got, err := gitx.New(f).TrackedUnder(context.Background(), dir, ".claude/ccy"); err != nil || got != nil {
+		t.Fatalf("nothing tracked: got %q, %v", got, err)
+	}
+	f.On([]string{"git", "ls-files"}, gitFail("fatal: detected dubious ownership"))
+	if _, err := gitx.New(f).TrackedUnder(context.Background(), dir, ".claude/ccy"); err == nil {
+		t.Fatal("a failing git was not an error")
+	}
+}
+
 func TestFileAtRef(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"git", "rev-parse", "--verify", "--quiet", "HEAD^{commit}"}, execx.Result{Stdout: []byte("abc\n")})

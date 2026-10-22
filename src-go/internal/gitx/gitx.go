@@ -92,6 +92,22 @@ func (g *Git) ListFiles(ctx context.Context, dir string) ([]string, error) {
 	return out, nil
 }
 
+// TrackedUnder is the tracked files at or under path in the work tree at dir, as git names
+// them (relative to dir, unquoted); a git that cannot answer is an error, never "none".
+func (g *Git) TrackedUnder(ctx context.Context, dir, path string) ([]string, error) {
+	res, err := g.run(ctx, dir, "ls-files", "-z", "--", path)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for p := range strings.SplitSeq(string(res.Stdout), "\x00") {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
 // FileAtRef is the text of path as committed at ref, and whether ref has it at all. A ref that
 // does not resolve is an error: a typo must not read as "nothing to compare with".
 func (g *Git) FileAtRef(ctx context.Context, dir, ref, path string) (string, bool, error) {

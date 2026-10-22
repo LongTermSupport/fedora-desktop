@@ -40,6 +40,12 @@
 # and its functions send_ping, human_login, human_logout, human_curl, evidence.
 
 readonly CCY_LAUNCHER="/var/local/claude-yolo/claude-yolo"
+# The bash launcher, read as text: claude-yolo while it is a script (before CCY 3.99.14.0, or
+# rolled back), else claude-yolo.bash beside the Go front that claude-yolo became.
+CCY_LAUNCHER_TEXT="${CCY_LAUNCHER}"
+[[ -r "${CCY_LAUNCHER}" ]] || { echo "ERROR: ${CCY_LAUNCHER} is missing or unreadable: re-run play-claude-yolo.yml" >&2; exit 1; }
+[[ "$(head -c 2 "${CCY_LAUNCHER}")" == '#!' ]] || CCY_LAUNCHER_TEXT="${CCY_LAUNCHER}.bash"
+readonly CCY_LAUNCHER_TEXT
 readonly CCY_SSH_LIB="/var/local/claude-yolo/lib/ssh-handling.bash"
 readonly CCY_RESTART_LIB="/var/local/claude-yolo/lib/restart-request.bash"
 readonly CCY_IMAGE="claude-yolo:latest"
@@ -239,11 +245,11 @@ u20_prerequisites() {
         u20_owner_needs "agent-bus is not installed (${AGENT_BUS}): run play-agent-bus.yml (deploy.bash installs the software)"
         return 1
     fi
-    want="$(awk -F'"' '/^REQUIRED_CONTAINER_VERSION=/ { print $2; exit }' "${CCY_LAUNCHER}")" || return 1
-    ccy_version="$(awk -F'"' '/^CCY_VERSION=/ { print $2; exit }' "${CCY_LAUNCHER}")" || return 1
-    config_version="$(awk -F= '/^CONFIG_VERSION=/ { print $2; exit }' "${CCY_LAUNCHER}")" || return 1
+    want="$(awk -F'"' '/^REQUIRED_CONTAINER_VERSION=/ { print $2; exit }' "${CCY_LAUNCHER_TEXT}")" || return 1
+    ccy_version="$(awk -F'"' '/^CCY_VERSION=/ { print $2; exit }' "${CCY_LAUNCHER_TEXT}")" || return 1
+    config_version="$(awk -F= '/^CONFIG_VERSION=/ { print $2; exit }' "${CCY_LAUNCHER_TEXT}")" || return 1
     if [[ -z "${want}" || -z "${ccy_version}" || -z "${config_version}" ]]; then
-        printf '[FAIL] the installed ccy names no REQUIRED_CONTAINER_VERSION, CCY_VERSION or CONFIG_VERSION\n' >&2
+        printf '[FAIL] the installed ccy (%s) names no REQUIRED_CONTAINER_VERSION, CCY_VERSION or CONFIG_VERSION\n' "${CCY_LAUNCHER_TEXT}" >&2
         return 1
     fi
     if ! have="$(podman image inspect --format '{{index .Config.Labels "claude-yolo-version"}}' "${CCY_IMAGE}")"; then
