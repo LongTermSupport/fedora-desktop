@@ -615,14 +615,20 @@ today; rewriting them is out of scope.
       green after the fix, real temporary git repositories including `café/README.md`.
     - The failing project handler test is Task 4.6.
 
-- [ ] ⬜ **Task 4.6**: The project hook handler tests are run by no gate.
-  `test_matches_write_to_root_claude_projects_returns_false` in
-  `.claude/hooks/handlers/pre_tool_use/tests/test_system_paths.py` fails on F44 (identical on
-  the base). `qa-all.bash` does not run them: `scripts/qa-helper-tests.bash` runs only
-  `tests/helpers/**/test_*.py`, and no other gate names `.claude/hooks`. Wire the project
-  handler tests into qa (a gate, or the helper-tests gate's scope, run with the daemon's
-  interpreter, which the gate must fail loudly without), then fix the failing test or justify
-  it in writing. Not done in the review-fix pass.
+- [x] ✅ **Task 4.6**: The project hook handler tests were run by no gate. Now
+  `scripts/qa-hook-handlers.bash` (gate `hook-handlers` in `qa-gates.tsv`; `qa-changed` routes
+  `.claude/hooks/handlers/*` to it) runs them with the daemon's interpreter
+  (`<daemon>/scripts/lib/resolve_venv.sh python`, the daemon found in the main checkout from a
+  linked worktree) and fails, naming the fix, when the daemon, its venv or its `pytest` is
+  missing; GitHub Actions, whose checkout has no daemon, is the one skip. Three tests failed
+  on F44. `test_matches_write_to_root_claude_projects_returns_false`: the handler was wrong,
+  `Path.resolve()` followed the container's `/root/.claude` symlink (to `.claude/ccy`) so the
+  runtime-directory exemption never matched; it now judges the path lexically and again after
+  symlinks against the projects directory's own target (a link leaving it is not exempt).
+  The two `ansible_enforcement` "dnf in a quoted string" tests were wrong: the handler
+  deliberately matches quoted text (`bash -c 'dnf install x'` is quoted), so they now assert
+  that. Open on the host: the daemon venv has no `pytest` (the daemon's dev extra), so the gate
+  exits 2 until the daemon is provisioned with it; no playbook or image task does that yet.
 
 ### Phase 5: Review
 

@@ -45,6 +45,9 @@ stage	docs	scripts/qa-docs.bash	ERROR: docs gate could not produce a result (an 
 gate	nokill-containerwatch	scripts/qa-nokill-containerwatch.bash	rejected a process-termination call site in the container-watch watchdog	detail:[0-9]+ container-watch file[(]s[)] clean
 drift	deployed-drift	scripts/qa-deployed-drift.bash	repo-owned scripts differ from their deployed copies
 helpers	helper-tests	scripts/qa-helper-tests.bash	the helper unit suite failed
+# The project-owned hooks-daemon handlers' tests, run with the daemon's own interpreter. It fails
+# when the daemon or its pytest is missing; only GitHub Actions (no daemon in the checkout) skips.
+gate	hook-handlers	scripts/qa-hook-handlers.bash	a hook handler test failed, or the hooks daemon (its venv or pytest) is missing	detail:HOOK-HANDLERS-(OK [0-9]+ test[(]s[)] under|SKIPPED) .+
 # The unit suites and rule gates. The count reader wants a 'passed: N' line.
 gate	secret-scan-tests	scripts/test-secret-scan.bash	secret scanner unit tests failed	count
 gate	planlib-tests	scripts/test-planlib.bash	plan-script library regression tests failed	detail:PASSED [(]library version [0-9.]+[)]
