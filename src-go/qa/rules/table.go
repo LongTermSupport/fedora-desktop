@@ -260,6 +260,19 @@ type clockAllowance = allowance
 // No test reads the wall clock: a real sleep is shown by a timer that fires first.
 var clockAllowances = []clockAllowance{}
 
+// realClocks are the real side of a clock seam: each is handed its duration by a caller whose
+// tests replace the seam whole, so no test shortens the real one. fn is "func" or "Type.method".
+var realClocks = []allowance{}
+
+// processBounds bound a real child process or real I/O, and no test shortens them: their tests
+// either fake the process whole or wait the constant out. fn is "func" or "Type.method".
+var processBounds = []allowance{}
+
+// realTimeAllowances are the functions project_realtime_bound does not judge.
+func realTimeAllowances() []allowance {
+	return slices.Concat(realClocks, processBounds)
+}
+
 // noResult is what every rule hands the analysis framework: the rules only report.
 type noResult struct{}
 
@@ -275,7 +288,7 @@ func perPass(run func(*analysis.Pass)) func(*analysis.Pass) (any, error) {
 
 // All is every rule, in the order the driver registers them.
 func All() []*analysis.Analyzer {
-	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay, HiddenBindings, PackageTests, RefusalKind}
+	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay, HiddenBindings, PackageTests, RefusalKind, RealTimeBound}
 }
 
 // ownedBy is whether the package path (the test variants of it included) is owner, matched
