@@ -297,8 +297,9 @@ its first caller.
   inert code: the status records and the team lock (TL1); the health tick of C 3.11 with the
   view (`health`, `health/view`), the disconnected notice (`notice`), and NT3's bound and
   `Holdings` in `seat`; the owner's seat sweep (`sweep`, DC21, INT7); and Element profiles of
-  C 3.10 (`element`). Not covered: the D-Bus, probe, child and announcer adapters (DC17); the
-  units and timers; backups and restore (C 3.12).
+  C 3.10 (`element`). Not covered: the child and announcer adapters (DC17; the probe adapter and
+  the D-Bus side are n3b's, n3b-D4 and `host/lxc/guestbus`); the units and timers; backups and
+  restore (C 3.12).
   Real-server evidence: every `tuwunel`-tagged test was run with `-race -tags tuwunel -v` in the
   container against the pinned Tuwunel 1.9.4 binary, and none skipped. That covers `matrix`
   (`TestTuwunel`), `matrix/tuwunelhs`, `rooms` (`TestTuwunelConverge`), `apply`
@@ -377,7 +378,23 @@ its first caller.
     93.5, kit 93.3, lock 93.3, records 100, state 99.7, reexec 92.3, paths 100, seat 91.0,
     health 91.9; `cmd/teamchat` 50.0 (its `main` only). Three Opus review rounds
     (`subagent-reports/261022-n3a-review*.md`): FIX-FIRST, FIX-FIRST, MERGE. Report and the
-    design-text fixes it proposes: `subagent-reports/261022-n3a.md`. n3b to n3f are left.
+    design-text fixes it proposes: `subagent-reports/261022-n3a.md`.
+  - **n3c built** on `feat/bus-v2-n3c` and merged into `feat/bus-v2-n3` (SPEC-n3 section 4,
+    decisions n3c-D1 to n3c-D24, W-D1 to W-D3): the keeper (`run`), the link, receiving, the
+    client verbs (`wait`, `status`, `ledger`), the ends (EN1-EN4), the failpoints and the
+    busfailpoints gate stage. Coverage: bundle 93.5, cli 99.1, client 91.5, ends 97.3, engine
+    94.3, exits 98.9, guest 93.8, homefs 93.3, keeper 90.7, kit 93.3, link 91.1, lock 93.0,
+    records 100, state 99.7, team 100, teamsync 94.5, wire 94.1, wiring 100, proto 98.3, matrix
+    98.9, fakehs 93.3. Two Opus review rounds and a narrow check
+    (`subagent-reports/261022-n3c-review*.md`, `261022-n3c-check.md`), then the qa-reviewer
+    (`261022-n3c-qa-review.md`, FIX-BEFORE-MERGE). Its blocker, an e2e test failing under load,
+    was a product race (a `back` posted after the run's `disconnected`), fixed with one
+    lifecycle turn per team and rule `project_lifecycle_turn` (`261022-n3c-race.md`); its docs
+    findings are fixed (`261022-n3c-docs.md`). A keeper test seen failing under load at the n3b
+    merge read a log line before its turn ended: fixed with a turn barrier and rule
+    `project_keeper_log_barrier` (`261023-n3c-owed-flake.md`). Guest `TestRegister` could not
+    run twice: the op registry is its own type, and the failpoints test stage runs every test
+    twice (`261023-n3-guestreg.md`). n3d and n3e are in review or being built; n3f is left.
 
 - [ ] ⬜ **Task 3.3**: LXC members: guest operations (B 2.13), LXC apply from the host (C 3.9),
   one `teamchat-session-<...>.service` per seat (n3b-D2: a member is (team, container, checkout,
@@ -386,6 +403,19 @@ its first caller.
   confirmation.
 
   - The guest side of B 2.13 (GU1-GU5, SA1) is built in n3a; the host side (C 3.9) is n3b's.
+  - **n3b built** on `feat/bus-v2-n3b` and merged into `feat/bus-v2-n3` (SPEC-n3 section 3,
+    decisions n3b-D1 to n3b-D4 and n3-D21 to D30), as inert code: `teamchat-admin lxc apply`
+    and `lxc restart` (C 3.9), the session unit as code (`host/lxc/unit`), the guest's facts,
+    root and bus (`host/lxc/guest*`), `lxccmd` and the LXC record (`lxcstate`), the L3 probe in
+    the health tick (n3b-D4), and the keeper's `--kind lxc --key`. An offline member never
+    fails anything (n3b-D1, the owner's rule); a container holds any number of members, each
+    (team, container, checkout, seat) (n3b-D2). Coverage: execx 94.8, admin 96.2, admin/wire
+    91.5, apply 91.8, declare 96.0, health 93.8, host 93.3, host/lxc 91.9, guestbus 97.8,
+    guestfacts 99.6, guestroot 95.9, lxccmd 97.8, lxcstate 96.5, unit 100, cli 98.9, guest
+    93.7, keeper 90.8, paths 99.7, reexec 90.5. Reviews A, B and 2, the parts' review rounds
+    and a check (`subagent-reports/261022-n3b-*.md`), then the qa-reviewer
+    (`261022-n3b-qa-review.md`, FIX-BEFORE-MERGE), fixed in fix5 and fix6. No play task or unit
+    is installed (gate A).
   - The install build must run `go test -tags teamchatrelease ./internal/teamchat/member/cli/`,
     the CL2 gate, before it installs the binary.
 
