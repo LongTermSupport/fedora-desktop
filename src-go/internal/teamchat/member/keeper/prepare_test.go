@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/agent"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/wire"
@@ -238,7 +239,7 @@ func TestSettingsRefused(t *testing.T) {
 		"not object":   `[1]`,
 		"null":         `null`,
 		"not json":     `{`,
-		"over the cap": `{"a":"` + strings.Repeat("x", maxSettings) + `"}`,
+		"over the cap": `{"a":"` + strings.Repeat("x", agent.MaxSettings) + `"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			w := newWorld(t, claudeLaunch...)

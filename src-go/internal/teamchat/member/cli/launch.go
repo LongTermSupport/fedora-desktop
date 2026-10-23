@@ -5,17 +5,18 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/agent"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
-// Mode is a launch's kind: Claude Code, or a plain command (B 2.4.1 step 5).
-type Mode int
+// Mode is a launch's agent: Claude Code, or a plain command (B 2.4.1 step 5).
+type Mode = agent.Agent
 
 // The two launch modes; exactly one is given.
 const (
-	LaunchClaude Mode = iota + 1
-	LaunchPlain
+	LaunchClaude = agent.Claude
+	LaunchPlain  = agent.Plain
 )
 
 // Kind is the member kind a launch states, so a failed link's recovery is the kind's own.

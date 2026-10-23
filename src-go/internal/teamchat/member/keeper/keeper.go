@@ -111,7 +111,6 @@ const (
 	orphanKill    = 5 * time.Second
 	stableRun     = 10 * time.Minute
 	failedAfter   = 6
-	maxSettings   = 64 << 10
 	// versionWait bounds the kit's --version: a kit that does not answer is 78 runtime.
 	versionWait = 5 * time.Second
 	// endingTries of endingGap wait out a launch seat held by a session whose keeper is gone:
@@ -127,7 +126,6 @@ const (
 	envHome    = "HOME"
 	envXDG     = "XDG_RUNTIME_DIR"
 	envConfig  = "CLAUDE_CONFIG_DIR"
-	inboundKey = "crossSessionInbound"
 	exitNoCmd  = 127
 	exitReexec = 0
 )
@@ -144,7 +142,6 @@ const (
 	msgNoDesired     exits.Template = "a {} launch needs --desired"
 	msgDesired       exits.Template = "the desired membership {} is missing or cannot be read"
 	msgWatch         exits.Template = "the desired directory {} cannot be watched"
-	msgSettings      exits.Template = "the kit's settings {} are not a JSON object without the inbound key"
 	msgSeatHeld      exits.Template = "the seat of team {} is held by another session"
 	msgLinkDown      exits.Template = "the link did not come up; see {}"
 	msgInternal      exits.Template = "the keeper could not {}"

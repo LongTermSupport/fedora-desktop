@@ -22,6 +22,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/failpoint"
+	runagent "github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/agent" // the tests declare agent
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/engine"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/homefs"
@@ -97,6 +98,7 @@ type link struct {
 	cfg      Config
 	parent   Parent
 	launch   wire.Launch
+	caps     runagent.Capabilities
 	delivery string
 	eng      *engine.Engine
 	srv      *server
@@ -265,21 +267,22 @@ func (l *link) awaitLaunch(hold <-chan time.Time) (wire.Launch, term.ExitCode, b
 // build makes the session's facts and the engine for launch.
 func (l *link) build(launch wire.Launch) term.ExitCode {
 	l.launch = launch
-	plain := launch.Launch == state.LaunchPlain
-	switch {
-	case plain:
-		l.delivery = state.DeliveryNone
-		l.firstOnce.Do(func() { close(l.first) })
-	case launch.Inbound == state.InboundRefuse:
+	adapter, err := runagent.For(runagent.Agent(launch.Launch))
+	if err != nil {
+		return refuse(l.cfg.Log, "start", err)
+	}
+	l.caps = adapter.Capabilities
+	l.delivery = l.caps.Delivery
+	if l.delivery == state.DeliverySocket && launch.Inbound == state.InboundRefuse {
 		l.delivery = state.DeliveryWait
-	default:
-		l.delivery = state.DeliverySocket
+	}
+	if !l.caps.SessionStart {
+		l.firstOnce.Do(func() { close(l.first) })
 	}
 	claudeDir := l.cfg.Home + "/.claude"
 	if launch.ClaudeConfigDir != nil {
 		claudeDir = *launch.ClaudeConfigDir
 	}
-	var err error
 	l.session, err = newSession(sessionDeps{
 		runRoot: l.cfg.RunRoot, stateRoot: l.cfg.StateRoot, layout: l.cfg.Layout, run: l.cfg.Run,
 		proc: l.cfg.Proc, clock: l.cfg.Clock, runtimeDir: l.cfg.RuntimeDir, claudeDir: claudeDir,
@@ -295,7 +298,7 @@ func (l *link) build(launch wire.Launch) term.ExitCode {
 	l.eng, err = l.cfg.Engine(engine.Config{
 		Root: l.cfg.StateRoot, RunRoot: l.cfg.RunRoot, Layout: l.cfg.Layout, Run: l.cfg.Run,
 		Clock: l.cfg.Clock, Log: l.cfg.Log, NewTeam: l.cfg.NewTeam, NewEnds: l.cfg.NewEnds,
-		Delivery: l.delivery, Plain: plain, FirstSessionStart: l.first,
+		Delivery: l.delivery, Plain: !l.caps.SessionStart, FirstSessionStart: l.first,
 		OnState: l.onState, Runtime: l.runtime, Forge: l.cfg.Forge,
 		Inbox: dialer, Unusable: l.session.Unusable(), OnUnusable: l.onUnusable,
 		OnTeams: l.onTeams,
@@ -420,7 +423,7 @@ func (l *link) owed(ctx context.Context, o *wire.Owed) {
 	l.bg.Go(func() {
 		t, err := l.cfg.NewTeam(engine.TeamConfig{
 			Team: o.Team, Seat: l.cfg.Layout.Seat(o.Team), Run: l.cfg.Run, Engine: l.eng, Ends: l.eng.Ends(),
-			Root: l.cfg.StateRoot, Plain: l.launch.Launch == state.LaunchPlain,
+			Root: l.cfg.StateRoot, Plain: !l.caps.SessionStart,
 			FirstSessionStart: l.first, Clock: l.cfg.Clock, Log: l.cfg.Log,
 		})
 		var n team.Notices
