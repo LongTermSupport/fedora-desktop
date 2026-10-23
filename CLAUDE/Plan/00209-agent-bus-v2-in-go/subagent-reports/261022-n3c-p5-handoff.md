@@ -37,13 +37,13 @@ not yet used: `writeRoster`, `pending`). The source files are lint-clean. Files:
   `persist` (SY13 said once), `invites`/`inviteSenders` (SY11), `trustTriggered` (SY14),
   `judgeAll`/`take`/`unheard` (SY4, UH1), `itemKind`, `copyWindow`, the floor marker
   (`knowFloor`, `floorMoved`, `putFloorIfDue`, `putFloor`, `FlushFloor`).
-- `ln6.go`: `readMessage`, `roomOf`, `rosterFor`, `Verify`, `History`/`historyOf`, `Refetch`,
+- `ln6.go` (now `verbs.go`): `readMessage`, `roomOf`, `rosterFor`, `Verify`, `History`/`historyOf`, `Refetch`,
   `Notices`/`Roster` and the `notices` type.
 - `watch.go`: `SeatWatcher`, `WatchSeat`, `Changes`, `Close`, `relevant` (parses events with
   `binary.NativeEndian`, no unsafe).
 - Tests: `world_test.go` (the draft harness, plus `startTeam`, `healthed`/`backed` channels,
   `healths()`, `counts()`, `runs()`), `teamsync_test.go`, `session_test.go`, `run_test.go`
-  (the error table, backoff, SY13, removal, step 4, plain back, New), `ln6_test.go`,
+  (the error table, backoff, SY13, removal, step 4, plain back, New), `ln6_test.go` (now `verbs_test.go`),
   `watch_test.go`.
 
 **Left, in order:**
