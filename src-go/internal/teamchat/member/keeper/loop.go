@@ -71,10 +71,12 @@ func (k *keeper) send(f func()) {
 // loop is steps 6-8: the link started and supervised, CMD started once it is ready, until the
 // end has run.
 func (k *keeper) loop() term.ExitCode {
+	k.turnEnded()
 	if err := k.startLink(false); err != nil {
 		k.logf("start the link: %v", err)
 		k.linkDown()
 	}
+	k.turnEnded()
 	for !k.finished {
 		var exited <-chan struct{}
 		if k.claudeAlive() {
@@ -90,12 +92,21 @@ func (k *keeper) loop() term.ExitCode {
 		case <-exited:
 			k.claudeExited()
 		}
+		k.turnEnded()
 	}
 	close(k.done)
 	if k.exitErr != nil {
 		return exits.Write(k.stderr, k.exitErr)
 	}
 	return k.status
+}
+
+// turnEnded marks the end of the launch steps and of each of the loop's turns, the first
+// being the link's start.
+func (k *keeper) turnEnded() {
+	if k.cfg.turned != nil {
+		k.cfg.turned(k.run)
+	}
 }
 
 // finish ends the keeper: every wait disarmed, every lock closed, the run removed unless kept.

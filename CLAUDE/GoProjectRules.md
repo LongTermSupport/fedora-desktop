@@ -442,6 +442,23 @@ guessing; the catalogue claims no more than the code does.
   check against a real sudoers file. A known gap: a passing `sudo -n true` shows that `true` runs
   unprompted, not the commands after it, so a host whose NOPASSWD entries cover `true` but not
   the tools would skip the prompt and then fail.
+- **A test barrier released partway through the work it waits for**
+  (`keeper-log-barrier-turn`; the `TestOwedNotice` flake in `internal/teamchat/member/keeper`).
+  The keeper's tests wait on a keeper.log line (`w.logged`) and then assert an effect, but a
+  loop turn may write the line before it does the rest: the owed notice's timer logs "not
+  posted in time" and only then lets the seat go, and `fail` logs "the link failed" before it
+  closes the seat locks. Under load the test saw the line and found the seat still held.
+  Whether a line comes before an effect, and whether a test then asserts that effect, is a
+  matter of which string a test waits for and what its turn does after it; a rule would have
+  to guess both. What holds it: the keeper calls `Config.turned` (unexported, so only its own
+  tests set it) at the end of the launch steps and of each loop turn. The harness keeps keeper.log
+  as that call left it, and `logged` reads that copy while the loop runs, so a line shows only
+  after its whole turn has run. `TestLoggedWaitsForTheTurnThatWroteTheLine` checks this from
+  inside the ready turn, which logs "the link is ready" and then starts CMD. To fix a test
+  that races this way, wait through `w.logged`, never by reading keeper.log yourself. The other
+  teamchat harnesses already wait for the end of a unit of work (engine `until` on its state
+  goroutine, link `settled` and `await`, teamsync `poll`). The end-to-end `wiring` tests run
+  real processes, where no turn can be seen; they poll the effect they assert.
 
 ## Control
 
