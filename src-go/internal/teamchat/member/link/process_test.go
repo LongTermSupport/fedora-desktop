@@ -10,6 +10,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/leakcheck"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/cli"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/engine"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
@@ -36,7 +37,7 @@ var helpers = reexec.Helpers{
 	helperLink: runLinkHelper,
 }
 
-func TestMain(m *testing.M) { os.Exit(reexec.Main(m, helpers)) }
+func TestMain(m *testing.M) { os.Exit(reexec.Main(leakcheck.Tests(m), helpers)) }
 
 // runLinkHelper runs Main over teams whose re-fetch delivers, while its ready line waits for
 // a release it never needs: the link's own exit ends the process.

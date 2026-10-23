@@ -6,11 +6,17 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/leakcheck"
 )
+
+func TestMain(m *testing.M) { os.Exit(leakcheck.Tests(m).Run()) }
 
 // event is one inotify record as the kernel writes it: wd, mask, cookie and length, then the
 // name padded with NULs to that length.
@@ -160,6 +166,39 @@ func TestWatchCloseEndsChanges(t *testing.T) {
 	if _, ok := <-w.Changes(); ok {
 		t.Fatal("Changes still open after Close")
 	}
+}
+
+// Close unblocks the watcher's read of the inotify fd, which the runtime's poller holds, and
+// returns only once the watcher's goroutine has ended.
+func TestCloseUnblocksTheReadAndWaitsForTheWatcher(t *testing.T) {
+	leakcheck.Check(t)
+	got, err := Watch(transcript(t, ""))
+	check(t, err)
+	w, ok := got.(*watcher)
+	if !ok {
+		t.Fatalf("Watch returned a %T", got)
+	}
+	for !readParked() {
+		runtime.Gosched()
+	}
+	check(t, w.Close())
+	select {
+	case <-w.done:
+	default:
+		t.Fatal("Close returned before the watcher's goroutine ended")
+	}
+}
+
+// readParked is whether a watcher's goroutine is parked in its read, waiting on the poller.
+func readParked() bool {
+	buf := make([]byte, 1<<20)
+	dump := string(buf[:runtime.Stack(buf, true)])
+	for g := range strings.SplitSeq(dump, "\n\n") {
+		if strings.Contains(g, "[IO wait") && strings.Contains(g, "proof.(*watcher).run") {
+			return true
+		}
+	}
+	return false
 }
 
 func TestEventsDecodesAndJudges(t *testing.T) {

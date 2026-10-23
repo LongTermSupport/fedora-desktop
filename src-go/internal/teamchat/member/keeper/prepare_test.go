@@ -153,7 +153,7 @@ func TestKitVersionChecks(t *testing.T) {
 		cfg := w.config()
 		cfg.Runner = hangingRunner{}
 		res := w.startWith(cfg)
-		mustDo(t, w.clk.BlockUntil(t.Context(), 1))
+		mustDo(t, w.clk.AwaitDue(t.Context(), versionWait))
 		w.clk.Advance(versionWait)
 		exitOf(t, res, exits.ExitConfig)
 		if !strings.Contains(w.stderr.String(), `"code":"`+exits.CodeRuntime+`"`) {

@@ -39,7 +39,7 @@ func (k *keeper) after(d time.Duration, f func()) *timer {
 	t := &timer{}
 	k.timers[t] = struct{}{}
 	t.stop = k.cfg.Clock.AfterFunc(d, func() {
-		go k.send(func() {
+		k.post(func() {
 			if !t.dead {
 				t.dead = true
 				delete(k.timers, t)
@@ -48,6 +48,32 @@ func (k *keeper) after(d time.Duration, f func()) *timer {
 		})
 	})
 	return t
+}
+
+// post queues f for the loop from a timer's goroutine, never waiting on the loop: once the loop
+// has ended, f is never run.
+func (k *keeper) post(f func()) {
+	k.firedMu.Lock()
+	k.firedQ = append(k.firedQ, f)
+	k.firedMu.Unlock()
+	select {
+	case k.fired <- struct{}{}:
+	default:
+	}
+}
+
+// runFired runs the timers' queued work in order, until the keeper has finished.
+func (k *keeper) runFired() {
+	k.firedMu.Lock()
+	queued := k.firedQ
+	k.firedQ = nil
+	k.firedMu.Unlock()
+	for _, f := range queued {
+		if k.finished {
+			return
+		}
+		f()
+	}
 }
 
 // cancel disarms t, so a test counting the clock's waiters sees it gone.
@@ -83,6 +109,8 @@ func (k *keeper) loop() term.ExitCode {
 		select {
 		case f := <-k.events:
 			f()
+		case <-k.fired:
+			k.runFired()
 		case s := <-k.cfg.Signals:
 			k.onSignal(s)
 		case ev, ok := <-k.watch:
@@ -92,6 +120,8 @@ func (k *keeper) loop() term.ExitCode {
 		}
 	}
 	close(k.done)
+	// The link and CMD have been waited for and the link's socket closed, so these end.
+	k.bg.Wait()
 	if k.exitErr != nil {
 		return exits.Write(k.stderr, k.exitErr)
 	}
@@ -163,11 +193,11 @@ func (k *keeper) startLink(endOnly bool) error {
 		k.nextMS = &due
 	}
 	k.logf("link %d started", proc.Pid())
-	go func() {
+	k.bg.Go(func() {
 		st, werr := proc.Wait()
 		k.send(func() { k.linkExited(l, st, werr) })
-	}()
-	go k.read(l)
+	})
+	k.bg.Go(func() { k.read(l) })
 	k.greet(l)
 	if endOnly {
 		k.endTimer = k.after(endWait, k.killLink)
@@ -455,10 +485,10 @@ func (k *keeper) startCmd() {
 		k.tell(k.link, wire.Msg{Kind: wire.KindPID, PID: &k.cmdProc}, nil)
 	}
 	k.logf("CMD %d started", proc.Pid())
-	go func() {
+	k.bg.Go(func() {
 		st, werr := proc.Wait()
 		k.send(func() { k.cmdExited(st, werr) })
-	}()
+	})
 }
 
 func (k *keeper) claudeAlive() bool { return k.claude != nil && !k.claudeDone }

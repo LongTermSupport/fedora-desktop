@@ -2,6 +2,7 @@ package link
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/leakcheck"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/engine"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
@@ -217,6 +219,8 @@ func newLinkWorld(t *testing.T) *linkWorld {
 // the link's end is returned, for a link in this process or another.
 func newKeeperWorld(t *testing.T) (*linkWorld, *os.File) {
 	t.Helper()
+	// First, so it judges once every other cleanup has ended what it owns.
+	leakcheck.Check(t)
 	w := &linkWorld{
 		home: newHome(t), t: t, in: make(chan got, 64), ends: &fakeEnds{},
 		parent: &fakeParent{exited: make(chan struct{})}, proc: newFakeProc(),
@@ -516,8 +520,9 @@ func TestReadyWaitsTenSecondsForTheAdds(t *testing.T) {
 	w.launch(2)
 	w.add(a)
 	until(t, func() bool { return w.team(a) != nil })
-	// The adds' wait, and the engine's one status.json timer (SL1) once alpha is held.
-	check(t, w.clk.BlockUntil(t.Context(), 2))
+	// The adds' wait, armed at the launch; the engine's status.json timer (SL1) is not this
+	// test's.
+	check(t, w.clk.AwaitDue(t.Context(), addsWait))
 	w.clk.Advance(addsWait)
 	w.next(wire.KindReady)
 	if !strings.Contains(w.log.String(), "1 of 2 adds") {
@@ -582,7 +587,7 @@ func TestTheFirstMessageIsTheLaunch(t *testing.T) {
 func TestNoLaunchInTenSeconds(t *testing.T) {
 	w := newLinkWorld(t)
 	w.start()
-	check(t, w.clk.BlockUntil(t.Context(), 1))
+	check(t, w.clk.AwaitDue(t.Context(), addsWait))
 	w.clk.Advance(addsWait)
 	if code := w.exited(); code != int(exits.ExitConfig) {
 		t.Fatalf("exit %d", code)
@@ -625,7 +630,7 @@ func TestAHeldLinkLockIs78(t *testing.T) {
 	go func() {
 		// The take is tried three times, 50 ms apart on the fake clock.
 		for range 2 {
-			if w.clk.BlockUntil(t.Context(), 1) != nil {
+			if w.clk.AwaitDue(t.Context(), 50*time.Millisecond) != nil {
 				return
 			}
 			w.clk.Advance(time.Second)
@@ -680,28 +685,33 @@ func TestTheParentsExitIsTheKeeperDying(t *testing.T) {
 
 func TestRemoveAnswersThenLeaves(t *testing.T) {
 	for _, farewell := range []string{state.FarewellReleased, state.FarewellRemoved, state.FarewellParked, ""} {
-		w := newLinkWorld(t)
-		a := tid(t, "alpha")
-		w.ready(a)
-		txn := "tc" + strings.Repeat("ab", 16)
-		rm := &wire.Remove{Team: a, Txn: txn}
-		if farewell != "" {
-			rm.Farewell = &farewell
-		}
-		w.send(wire.Msg{Kind: wire.KindRemove, Remove: rm}, nil)
-		if r := w.next(wire.KindRemoved); r.Removed.Team != a || r.Removed.UserID != agent(a) {
-			t.Fatalf("removed %+v", r.Removed)
-		}
-		if l := w.next(wire.KindLeft); l.Left.Team != a {
-			t.Fatalf("left %+v", l.Left)
-		}
-		leave := w.ends.leaveCalls()
-		if want := farewell == state.FarewellReleased; (len(leave) == 1 && leave[0] == a.String()+" "+txn) != want {
-			t.Fatalf("%s: leave %q", farewell, leave)
-		}
-		if p := w.team(a).notices.presences(); len(p) != 1 || !strings.HasSuffix(p[0], " offline") {
-			t.Fatalf("presence %q", p)
-		}
+		// A world of its own per farewell, in a test of its own, so each registers its leak check
+		// once (project_leakcheck_once).
+		// The subtest's name is short: the link's socket path holds it.
+		t.Run(cmp.Or(farewell, "none"), func(t *testing.T) {
+			w := newLinkWorld(t)
+			a := tid(t, "alpha")
+			w.ready(a)
+			txn := "tc" + strings.Repeat("ab", 16)
+			rm := &wire.Remove{Team: a, Txn: txn}
+			if farewell != "" {
+				rm.Farewell = &farewell
+			}
+			w.send(wire.Msg{Kind: wire.KindRemove, Remove: rm}, nil)
+			if r := w.next(wire.KindRemoved); r.Removed.Team != a || r.Removed.UserID != agent(a) {
+				t.Fatalf("removed %+v", r.Removed)
+			}
+			if l := w.next(wire.KindLeft); l.Left.Team != a {
+				t.Fatalf("left %+v", l.Left)
+			}
+			leave := w.ends.leaveCalls()
+			if want := farewell == state.FarewellReleased; (len(leave) == 1 && leave[0] == a.String()+" "+txn) != want {
+				t.Fatalf("%s: leave %q", farewell, leave)
+			}
+			if p := w.team(a).notices.presences(); len(p) != 1 || !strings.HasSuffix(p[0], " offline") {
+				t.Fatalf("presence %q", p)
+			}
+		})
 	}
 }
 

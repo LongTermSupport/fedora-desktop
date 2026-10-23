@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/leakcheck"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/cli"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
@@ -38,7 +39,7 @@ func TestMain(m *testing.M) {
 	case agentName:
 		os.Exit(agent(os.Stdin, os.Stdout))
 	}
-	os.Exit(m.Run())
+	os.Exit(leakcheck.Tests(m).Run())
 }
 
 // The failpoint rows arm a point in the first process of a verb only: envArm is a comma list of

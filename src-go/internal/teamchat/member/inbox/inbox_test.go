@@ -208,7 +208,7 @@ func TestAFinishThatTimesOutLeavesTheWriteCounted(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() { done <- c.Finish() }()
-	if err := w.clk.BlockUntil(t.Context(), 1); err != nil {
+	if err := w.clk.AwaitDue(t.Context(), inbox.PhaseTimeout); err != nil {
 		t.Fatal(err)
 	}
 	w.clk.Advance(inbox.PhaseTimeout - time.Millisecond)

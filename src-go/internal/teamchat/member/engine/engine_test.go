@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/leakcheck"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/homefs"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/lock"
@@ -282,8 +283,17 @@ func newWorld(t *testing.T, delivery string) *world {
 }
 
 // newWorldWith is newWorld with prep run on the engine's config, and ready on the engine before
-// it runs.
+// it runs. It registers the test's leak check first, so the check judges once every cleanup has
+// stopped what it owns; a second world of the same test is built by buildWorld, which does not
+// register it again (project_leakcheck_once).
 func newWorldWith(t *testing.T, delivery string, prep func(*Config), ready func(*Engine)) *world {
+	t.Helper()
+	leakcheck.Check(t)
+	return buildWorld(t, delivery, prep, ready)
+}
+
+// buildWorld is newWorldWith without the leak check, for a world beside one that registered it.
+func buildWorld(t *testing.T, delivery string, prep func(*Config), ready func(*Engine)) *world {
 	t.Helper()
 	home := filepath.Join(t.TempDir(), "home")
 	check(t, os.Mkdir(home, 0o700))
@@ -500,19 +510,11 @@ func (w *world) local(f func()) {
 	check(w.t, w.e.do(w.t.Context(), f))
 }
 
-// armed waits until the clock holds n waiters beside status.json's one timer, when it is armed
-// (SL1). The caller makes no change meanwhile, which would re-arm it.
-func (w *world) armed(n int) {
+// awaitDue waits until a timer due d from now is armed: the one the test means, whatever else
+// (status.json's timer, SL1) is armed or re-armed meanwhile.
+func (w *world) awaitDue(d time.Duration) {
 	w.t.Helper()
-	w.local(func() {
-		if w.e.statusPace.stop != nil {
-			n++
-		}
-		if w.e.proof.stop != nil {
-			n++
-		}
-	})
-	check(w.t, w.clk.BlockUntil(w.t.Context(), n))
+	check(w.t, w.clk.AwaitDue(w.t.Context(), d))
 }
 
 // until polls the state goroutine until cond holds.

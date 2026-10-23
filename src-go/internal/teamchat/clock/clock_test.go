@@ -33,10 +33,10 @@ func check(t *testing.T, err error) {
 	}
 }
 
-// await is the fake's waiters reaching n, bounded by the test's own context.
-func await(t *testing.T, f *clock.Fake, n int) {
+// await is a waiter due d from now being armed, bounded by the test's own context.
+func await(t *testing.T, f *clock.Fake, d time.Duration) {
 	t.Helper()
-	check(t, f.BlockUntil(t.Context(), n))
+	check(t, f.AwaitDue(t.Context(), d))
 }
 
 func TestFakeReadsWhatItWasGivenAndAdvanceMovesEveryClock(t *testing.T) {
@@ -70,7 +70,7 @@ func TestSleepReturnsWhenTheClockReachesItsEnd(t *testing.T) {
 	f := clock.NewFake(0, 0)
 	done := make(chan error, 1)
 	go func() { done <- f.Sleep(t.Context(), time.Second) }()
-	await(t, f, 1)
+	await(t, f, time.Second)
 	f.Advance(999 * time.Millisecond)
 	select {
 	case err := <-done:
@@ -89,12 +89,14 @@ func TestSleepEndsWithItsContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- f.Sleep(ctx, time.Hour) }()
-	await(t, f, 1)
+	await(t, f, time.Hour)
 	cancel()
 	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Fatalf("got %v, want the context's error", err)
 	}
-	await(t, f, 0)
+	if f.Waiters() != 0 {
+		t.Fatalf("%d waiters after the sleep ended", f.Waiters())
+	}
 }
 
 func TestSleepOnAnEndedContextOrForNothing(t *testing.T) {
@@ -190,14 +192,39 @@ func TestHoldDeliversTheWallTimeAndStops(t *testing.T) {
 	}
 }
 
-func TestBlockUntilEndsWithItsContext(t *testing.T) {
-	f := clock.NewFake(0, 0)
-	ctx, cancel := context.WithCancel(t.Context())
+// AwaitDue names its timer by when it is due, so another timer armed meanwhile does not answer
+// it (a count would: the link server's read limit once stood in for a hook's deadline).
+func TestAwaitDueWaitsForTheTimerDueThenNotForAnother(t *testing.T) {
+	f := clock.NewFake(time.Minute, 0)
+	ended, cancel := context.WithCancel(t.Context())
 	cancel()
-	if err := f.BlockUntil(ctx, 1); !errors.Is(err, context.Canceled) {
+	f.AfterFunc(5*time.Second, func() {})
+	if err := f.AwaitDue(ended, 300*time.Millisecond); !errors.Is(err, context.Canceled) {
+		t.Fatalf("another timer answered: %v", err)
+	}
+	check(t, f.AwaitDue(ended, 5*time.Second))
+	done := make(chan error, 1)
+	go func() { done <- f.AwaitDue(t.Context(), 300*time.Millisecond) }()
+	f.AfterFunc(300*time.Millisecond, func() {})
+	check(t, <-done)
+	// Due is counted from the present reading: after 100 ms the 300 ms timer is due in 200.
+	f.Advance(100 * time.Millisecond)
+	check(t, f.AwaitDue(ended, 200*time.Millisecond))
+	if err := f.AwaitDue(ended, 300*time.Millisecond); !errors.Is(err, context.Canceled) {
+		t.Fatalf("due counted from when it was armed: %v", err)
+	}
+}
+
+// A stopped timer is no longer due.
+func TestAwaitDueIgnoresAStoppedTimer(t *testing.T) {
+	f := clock.NewFake(0, 0)
+	ended, cancel := context.WithCancel(t.Context())
+	cancel()
+	stop := f.AfterFunc(time.Second, func() {})
+	stop()
+	if err := f.AwaitDue(ended, time.Second); !errors.Is(err, context.Canceled) {
 		t.Fatalf("got %v", err)
 	}
-	check(t, f.BlockUntil(t.Context(), 0))
 }
 
 // lock's three tries, 50 ms apart, run on the fake: the acquire sleeps twice, then is busy.
@@ -227,7 +254,7 @@ func TestTheFakeDrivesLocksThreeTries(t *testing.T) {
 		done <- err
 	}()
 	for range 2 {
-		await(t, f, 1)
+		await(t, f, 50*time.Millisecond)
 		f.Advance(50 * time.Millisecond)
 	}
 	if err := <-done; !errors.Is(err, lock.ErrBusy) {

@@ -288,7 +288,7 @@ func TestAnOfflineTeamHoldsNoOtherTeamsItems(t *testing.T) {
 		d := w.e.Serve(context.Background(), wire.Request{Op: wire.OpRecv, Args: []byte(`{"team":null}`)}, out)
 		got <- answer{d, out}
 	}()
-	w.armed(1)
+	w.awaitDue(refetchWait)
 	w.clk.Advance(refetchWait)
 	a := <-got
 	if a.d.Ack == "" || a.out.kinds() != "human,more" || more(t, a.out) != 1 {

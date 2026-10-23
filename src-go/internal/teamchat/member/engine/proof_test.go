@@ -1,11 +1,13 @@
 package engine
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -30,9 +32,19 @@ type pworld struct {
 
 func newProofWorld(t *testing.T) *pworld {
 	t.Helper()
-	dw := newDeliveryWorld(t, state.DeliverySocket)
-	tr, err := faketranscript.New(t.TempDir(), "session-1", dw.clk)
-	check(t, err)
+	return proofWorldOf(newDeliveryWorld(t, state.DeliverySocket))
+}
+
+// another is a second proof world of pw's test, beside pw: the test's leak check is pw's.
+func (pw *pworld) another() *pworld {
+	pw.t.Helper()
+	return proofWorldOf(pw.dworld.another(state.DeliverySocket))
+}
+
+func proofWorldOf(dw *dworld) *pworld {
+	dw.t.Helper()
+	tr, err := faketranscript.New(dw.t.TempDir(), "session-1", dw.clk)
+	check(dw.t, err)
 	dw.transcript = tr.Path()
 	return &pworld{dworld: dw, tr: tr}
 }
@@ -96,9 +108,11 @@ func (pw *pworld) recvIDs() []string {
 }
 
 // quietFor moves the clock by d with only the timers armed (status.json's and the proof's).
+// Both are armed on the state goroutine, and the fake registers a timer within AfterFunc, so a
+// turn of the state goroutine is enough: every timer it has armed is the fake's by then.
 func (pw *pworld) quietFor(d time.Duration) {
 	pw.t.Helper()
-	pw.armed(0)
+	pw.local(func() {})
 	pw.clk.Advance(d)
 }
 
@@ -378,7 +392,7 @@ func TestMissingSurvivesARestart(t *testing.T) {
 	pw.quietFor(quietAfter)
 	killed := <-got
 	checkMissing(t, killed, nonceOf(t, text))
-	again := newDeliveryWorld(t, state.DeliverySocket)
+	again := pw.dworld.another(state.DeliverySocket)
 	f := again.add(a, encodeStore(t, killed))
 	<-f.running
 	f.notices.set(roster(a))
@@ -478,6 +492,103 @@ type deafWatcher struct{ changes chan struct{} }
 
 func (w deafWatcher) Changes() <-chan struct{} { return w.changes }
 func (deafWatcher) Close() error               { return nil }
+
+// watches records every watch the proof loop opens and closes.
+type watches struct {
+	mu     sync.Mutex
+	opened []string
+	byPath map[string]*recordedWatch
+}
+
+type recordedWatch struct {
+	changes chan struct{}
+	closed  bool
+}
+
+func (ws *watches) watch(path string) (proof.Watcher, error) {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	ws.opened = append(ws.opened, path)
+	w := &recordedWatch{changes: make(chan struct{})}
+	ws.byPath[path] = w
+	return watchOf{ws, w}, nil
+}
+
+// fail ends path's watch as a failed read does: its Changes close, and Close is left to the loop.
+func (ws *watches) fail(path string) {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	close(ws.byPath[path].changes)
+}
+
+// open is the paths whose watches are not closed, in the order they were opened.
+func (ws *watches) open() []string {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	var out []string
+	for _, p := range ws.opened {
+		if !ws.byPath[p].closed {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func (ws *watches) openedCount() int {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	return len(ws.opened)
+}
+
+type watchOf struct {
+	ws *watches
+	w  *recordedWatch
+}
+
+func (w watchOf) Changes() <-chan struct{} { return w.w.changes }
+
+func (w watchOf) Close() error {
+	w.ws.mu.Lock()
+	defer w.ws.mu.Unlock()
+	if w.w.closed {
+		return errors.New("a watch closed twice")
+	}
+	w.w.closed = true
+	return nil
+}
+
+// Every watch the proof loop opens is closed: when the transcript moves to a new path, when the
+// watch fails, and when the engine stops; only the session's current watch is ever open.
+func TestEveryTranscriptWatchIsClosed(t *testing.T) {
+	ws := &watches{byPath: map[string]*recordedWatch{}}
+	// Before the world, so it runs once the world's engine has stopped.
+	t.Cleanup(func() {
+		if open := ws.open(); len(open) != 0 {
+			t.Errorf("watches still open after the engine stopped: %v", open)
+		}
+	})
+	dw := &dworld{dial: newFakeDialer()}
+	dw.world = newWorldWith(t, state.DeliverySocket, func(c *Config) { c.Inbox = dw.dial }, func(e *Engine) {
+		e.hit = dw.hit
+		e.watch = ws.watch
+	})
+	dir := t.TempDir()
+	first, second, third := filepath.Join(dir, "a.jsonl"), filepath.Join(dir, "b.jsonl"), filepath.Join(dir, "c.jsonl")
+	only := func(want string) func() bool {
+		return func() bool { open := ws.open(); return len(open) == 1 && open[0] == want }
+	}
+	check(t, dw.e.SetSession(t.Context(), SessionFacts{Socket: testSocket, Token: testToken, Transcript: first}))
+	dw.until(only(first))
+	check(t, dw.e.SetSession(t.Context(), SessionFacts{Transcript: second}))
+	dw.until(only(second))
+	ws.fail(second)
+	dw.until(func() bool { return len(ws.open()) == 0 })
+	check(t, dw.e.SetSession(t.Context(), SessionFacts{Transcript: third}))
+	dw.until(only(third))
+	if n := ws.openedCount(); n != 3 {
+		t.Fatalf("%d watches opened, want 3 (one a path)", n)
+	}
+}
 
 // A transcript cut and grown back past its mark between two scans looks unchanged to an
 // offset: the deadline reads every transcript whole again before it declares anything missing,
@@ -624,7 +735,7 @@ func TestBeginRunReturnsAnEarlierRunsEntries(t *testing.T) {
 		t.Fatalf("a store of an earlier run was used before BeginRun: %+v, %d dials", s, pw.dial.dialCount())
 	}
 	// A crash before the write: the next link's BeginRun does it all.
-	crashed := newProofWorld(t)
+	crashed := pw.another()
 	crashed.add(a, encodeStore(t, before))
 	check(t, crashed.e.BeginRun(t.Context(), a))
 	checkEarlierRunReturned(t, crashed.store(a), crashed.run)
@@ -647,7 +758,7 @@ func TestBeginRunReturnsAnEarlierRunsEntries(t *testing.T) {
 		t.Fatalf("no log line: %s", pw.log.String())
 	}
 	// A crash after the write: the next link finds the run its own and changes nothing.
-	again := newProofWorld(t)
+	again := pw.another()
 	again.add(a, encodeStore(t, after))
 	check(t, again.e.BeginRun(t.Context(), a))
 	if got := again.store(a); len(got.Pending) != 3 || got.Pending[0].Held || !got.Pending[2].Held || !got.Pending[0].Repeat {

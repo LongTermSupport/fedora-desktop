@@ -132,7 +132,7 @@ func (m *Manager) Close() error {
 	if s == nil {
 		return nil
 	}
-	if err := s.conn.Close(); err != nil {
+	if err := s.close(); err != nil {
 		return fmt.Errorf("close the system bus connection: %w", err)
 	}
 	return nil
@@ -149,6 +149,15 @@ type session struct {
 	inflight int
 	early    map[dbus.ObjectPath]string
 	waiters  map[dbus.ObjectPath]chan string
+	// dispatched is closed once dispatch has returned: the connection's close ends its signals.
+	dispatched chan struct{}
+}
+
+// close closes the connection and waits for dispatch, which its signals' end returns.
+func (s *session) close() error {
+	err := s.conn.Close()
+	<-s.dispatched
+	return err
 }
 
 // connect is the current session, dialled and set up when there is none or it was lost.
@@ -161,7 +170,7 @@ func (m *Manager) connect(ctx context.Context) (*session, error) {
 	if m.s != nil {
 		old := m.s
 		m.s = nil
-		if err := old.conn.Close(); err != nil {
+		if err := old.close(); err != nil {
 			return nil, fmt.Errorf("%w: close the lost connection: %w", ErrUnreachable, err)
 		}
 	}
@@ -169,12 +178,15 @@ func (m *Manager) connect(ctx context.Context) (*session, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrUnreachable, err)
 	}
-	s := &session{conn: conn, m: m, early: map[dbus.ObjectPath]string{}, waiters: map[dbus.ObjectPath]chan string{}}
+	s := &session{
+		conn: conn, m: m, early: map[dbus.ObjectPath]string{}, waiters: map[dbus.ObjectPath]chan string{},
+		dispatched: make(chan struct{}),
+	}
 	ch := make(chan *dbus.Signal, signalQueue)
 	conn.Signal(ch)
 	go s.dispatch(ch)
 	if err := s.setup(ctx); err != nil {
-		if cerr := conn.Close(); cerr != nil {
+		if cerr := s.close(); cerr != nil {
 			return nil, fmt.Errorf("%w; close the connection: %w", err, cerr)
 		}
 		return nil, err
@@ -224,6 +236,7 @@ func (m *Manager) lostForTest() bool {
 
 // dispatch reads every signal until the connection ends, then fails the waiting jobs.
 func (s *session) dispatch(ch <-chan *dbus.Signal) {
+	defer close(s.dispatched)
 	for sig := range ch {
 		s.handle(sig)
 		if s.m.onSignal != nil {
@@ -339,7 +352,7 @@ func (m *Manager) drop(s *session) error {
 		m.s = nil
 	}
 	m.mu.Unlock()
-	if err := s.conn.Close(); err != nil {
+	if err := s.close(); err != nil {
 		return fmt.Errorf("close the connection: %w", err)
 	}
 	return nil

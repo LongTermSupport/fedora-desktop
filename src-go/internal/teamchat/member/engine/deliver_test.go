@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/failpoint"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/leakcheck"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/inbox"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/records"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
@@ -118,8 +119,21 @@ type dworld struct {
 
 func newDeliveryWorld(t *testing.T, delivery string) *dworld {
 	t.Helper()
+	leakcheck.Check(t)
+	return buildDeliveryWorld(t, delivery)
+}
+
+// another is a second delivery world of dw's test, beside dw (a restarted link): the test's
+// leak check is dw's.
+func (dw *dworld) another(delivery string) *dworld {
+	dw.t.Helper()
+	return buildDeliveryWorld(dw.t, delivery)
+}
+
+func buildDeliveryWorld(t *testing.T, delivery string) *dworld {
+	t.Helper()
 	dw := &dworld{dial: newFakeDialer()}
-	dw.world = newWorldWith(t, delivery, func(c *Config) {
+	dw.world = buildWorld(t, delivery, func(c *Config) {
 		c.Inbox = dw.dial
 		c.OnUnusable = dw.recordUnusable
 	}, func(e *Engine) { e.hit = dw.hit })
@@ -204,10 +218,17 @@ func (dw *dworld) next() dialEvent {
 	return dialEvent{}
 }
 
-// advance waits until the clock holds the loop's one waiter, then moves it by d.
+// advance waits until the loop's timer due d from now is armed, then moves the clock by d.
 func (dw *dworld) advance(d time.Duration) {
 	dw.t.Helper()
-	dw.armed(1)
+	dw.short(d, d)
+}
+
+// short waits until the loop's timer due from now is armed, then moves the clock by d, which
+// falls short of it.
+func (dw *dworld) short(due, d time.Duration) {
+	dw.t.Helper()
+	dw.awaitDue(due)
 	dw.clk.Advance(d)
 }
 
@@ -279,7 +300,7 @@ func TestLiveNeedsEveryFact(t *testing.T) {
 	if !idle {
 		t.Fatal("idle not taken")
 	}
-	wait := newDeliveryWorld(t, state.DeliveryWait)
+	wait := dw.another(state.DeliveryWait)
 	wait.facts(false)
 	if wait.e.Live() {
 		t.Fatal("a wait session is live")
@@ -485,7 +506,7 @@ func TestAConnectFailurePersistsNothing(t *testing.T) {
 	if ev := dw.next(); !errors.Is(ev.err, inbox.ErrRetry) {
 		t.Fatalf("first connection %+v", ev)
 	}
-	dw.advance(retryWait - time.Millisecond)
+	dw.short(retryWait, retryWait-time.Millisecond)
 	after, err := dw.root.Read(dw.layout.Seat(a).Store(), 1<<22)
 	check(t, err)
 	if string(after.Data) != string(before.Data) {
@@ -569,7 +590,7 @@ func TestOneDeliveryEvery2s(t *testing.T) {
 	dw.next()
 	dw.persist(a, humanItem(a, 2, startWall+1, "two"))
 	dw.persist(a, humanItem(a, 3, startWall+2, "three"))
-	dw.advance(paceWait - time.Millisecond)
+	dw.short(paceWait, paceWait-time.Millisecond)
 	if n := dw.dial.dialCount(); n != 1 {
 		t.Fatalf("%d dials within 2 s", n)
 	}
@@ -788,8 +809,9 @@ func TestTrailingFactsAloneOnceAMinute(t *testing.T) {
 		t.Fatalf("a trailing delivery awaits proof: %+v", s.Awaiting)
 	}
 	dw.persistBatch(team.Batch{Team: a, NextBatch: "s2", Gap: true})
-	dw.advance(paceWait)
-	dw.advance(trailingEvery - paceWait - time.Millisecond)
+	// The loop idles to the minute from the first trailing delivery; nothing is due at 2 s.
+	dw.short(trailingEvery, paceWait)
+	dw.short(trailingEvery-paceWait, trailingEvery-paceWait-time.Millisecond)
 	if n := dw.dial.dialCount(); n != 1 {
 		t.Fatalf("%d trailing deliveries within a minute", n)
 	}
@@ -919,7 +941,7 @@ func TestAnItemAwaitingProofIsNotPending(t *testing.T) {
 	if len(s.Pending) != 1 || s.Pending[0].Handed == nil || *s.Pending[0].Handed != nonce || s.Pending[0].Repeat {
 		t.Fatalf("the item after recv, ack, return and a redaction: %+v", s.Pending)
 	}
-	again := newDeliveryWorld(t, state.DeliverySocket)
+	again := dw.another(state.DeliverySocket)
 	again.add(a, encodeStore(t, s))
 	if p := again.store(a).Pending[0]; p.Handed == nil || p.Repeat || p.Restored {
 		t.Fatalf("a restarted link returned an item awaiting proof: %+v", p)

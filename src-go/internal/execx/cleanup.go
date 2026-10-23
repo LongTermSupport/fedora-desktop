@@ -71,13 +71,15 @@ func (e *SignalError) ExitCode() int { return 128 + int(e.Signal) }
 
 // SignalContext is parent, ended with a *SignalError cause when this process receives SIGTERM,
 // SIGHUP, SIGINT or SIGQUIT, instead of the process dying with its cleanups pending. stop
-// stops listening and ends the context.
+// stops listening, ends the context and waits for the listener to end.
 func SignalContext(parent context.Context) (context.Context, func()) {
 	ctx, cancel := context.WithCancelCause(parent)
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGINT, syscall.SIGQUIT)
 	stopped := make(chan struct{})
+	ended := make(chan struct{})
 	go func() {
+		defer close(ended)
 		select {
 		case sig := <-sigs:
 			if s, ok := sig.(syscall.Signal); ok {
@@ -91,6 +93,7 @@ func SignalContext(parent context.Context) (context.Context, func()) {
 		once.Do(func() {
 			signal.Stop(sigs)
 			close(stopped)
+			<-ended
 			cancel(context.Canceled)
 		})
 	}

@@ -67,16 +67,16 @@ func (h *Helper) Ready() error {
 	return nil
 }
 
-// runner is what Main needs of testing.M.
-type runner interface{ Run() int }
+// Runner is what Main needs of testing.M (a leak check may wrap it).
+type Runner interface{ Run() int }
 
 // Main is the TestMain body of a package whose tests use Start: the test binary runs its tests;
 // a child started by Start runs the helper it was started for and returns its exit code.
-func Main(m *testing.M, helpers Helpers) int {
+func Main(m Runner, helpers Helpers) int {
 	return mainWith(m, os.Getenv, helpers, os.Stdin, os.Stdout, os.Stderr, os.Args)
 }
 
-func mainWith(m runner, getenv func(string) string, helpers Helpers, in io.Reader, out, errOut io.Writer, argv []string) int {
+func mainWith(m Runner, getenv func(string) string, helpers Helpers, in io.Reader, out, errOut io.Writer, argv []string) int {
 	name := getenv(helperEnv)
 	if name == "" {
 		return m.Run()

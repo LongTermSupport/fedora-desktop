@@ -289,6 +289,15 @@ type Room struct {
 type Runtime struct {
 	Keeper KeeperCost `json:"keeper"`
 	Link   LinkCost   `json:"link"`
+	// Unusable is the session's counts of inputs the link could not use (B 2.7.2, 2.8).
+	Unusable Unusable `json:"unusable"`
+}
+
+// Unusable counts the hook payloads that were not usable and the delivery slots that failed to
+// render.
+type Unusable struct {
+	HookStdin int64 `json:"hook_stdin"`
+	Render    int64 `json:"render"`
 }
 
 // KeeperCost is the keeper's resident cost.

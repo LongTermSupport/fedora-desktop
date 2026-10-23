@@ -54,7 +54,7 @@ func (osPidfds) Open(pid int) (Pidfd, error) {
 	if err != nil {
 		return nil, fmt.Errorf("keeper: pidfd_open %d: %w", pid, err)
 	}
-	p := &pidfd{f: os.NewFile(uintptr(fd), "pidfd"), exited: make(chan struct{})}
+	p := &pidfd{f: os.NewFile(uintptr(fd), "pidfd"), exited: make(chan struct{}), waited: make(chan struct{})}
 	go p.wait()
 	return p, nil
 }
@@ -62,6 +62,8 @@ func (osPidfds) Open(pid int) (Pidfd, error) {
 type pidfd struct {
 	f      *os.File
 	exited chan struct{}
+	// waited is closed when wait has returned, which Close waits for.
+	waited chan struct{}
 }
 
 func (p *pidfd) Signal(sig syscall.Signal) error {
@@ -81,10 +83,16 @@ func (p *pidfd) Signal(sig syscall.Signal) error {
 
 func (p *pidfd) Exited() <-chan struct{} { return p.exited }
 
-func (p *pidfd) Close() error { return p.f.Close() }
+// Close ends the wait and closes the pidfd.
+func (p *pidfd) Close() error {
+	err := p.f.Close()
+	<-p.waited
+	return err
+}
 
 // wait closes exited once the pidfd is readable, which is the process's end.
 func (p *pidfd) wait() {
+	defer close(p.waited)
 	rc, err := p.f.SyscallConn()
 	if err != nil {
 		return
@@ -111,6 +119,8 @@ type inotify struct {
 	once sync.Once
 	mu   sync.Mutex
 	ch   chan WatchEvent
+	// readers is the reader, waited for by Close.
+	readers sync.WaitGroup
 }
 
 func newInotify() (*inotify, error) {
@@ -140,15 +150,18 @@ func (w *inotify) Watch(dir string) (<-chan WatchEvent, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.ch == nil {
-		w.ch = make(chan WatchEvent, 16)
-		go w.read(w.ch)
+		ch := make(chan WatchEvent, 16)
+		w.ch = ch
+		w.readers.Go(func() { w.read(ch) })
 	}
 	return w.ch, nil
 }
 
 func (w *inotify) Close() error {
 	w.once.Do(func() { close(w.done) })
-	return w.f.Close()
+	err := w.f.Close()
+	w.readers.Wait()
+	return err
 }
 
 func (w *inotify) read(ch chan WatchEvent) {

@@ -100,10 +100,14 @@ type link struct {
 	srv      *server
 	session  *Session
 	msgs     chan received
-	quit     chan struct{}
-	bg       sync.WaitGroup
-	sendMu   sync.Mutex
-	logMu    sync.Mutex
+	// quit ends the reader and the background goroutines; closeQuit closes it, once.
+	quit      chan struct{}
+	closeQuit func()
+	// reader is the control socket's reader, waited for once quit is closed and the socket is.
+	reader sync.WaitGroup
+	bg     sync.WaitGroup
+	sendMu sync.Mutex
+	logMu  sync.Mutex
 
 	first     chan struct{}
 	firstOnce sync.Once
@@ -120,6 +124,9 @@ type link struct {
 	render      int64
 	renderDirty bool
 	renderWake  chan struct{}
+
+	hooks hookMemory
+	mem   membership
 }
 
 // Run is the link (LN1): link.lock (78 if another link holds it), the keeper's pidfd, the
@@ -130,9 +137,11 @@ func Run(ctx context.Context, cfg Config) term.ExitCode {
 	if err != nil {
 		return refuse(cfg.Log, "take link.lock", err)
 	}
+	quit := make(chan struct{})
 	l := &link{
-		cfg: cfg, msgs: make(chan received), quit: make(chan struct{}), first: make(chan struct{}),
+		cfg: cfg, msgs: make(chan received), quit: quit, closeQuit: sync.OnceFunc(func() { close(quit) }), first: make(chan struct{}),
 		states: map[paths.TeamID]wire.State{}, stateWake: make(chan struct{}, 1), renderWake: make(chan struct{}, 1),
+		mem: membership{wake: make(chan struct{}, 1)},
 	}
 	code := l.run(ctx)
 	if err := ll.Release(); err != nil {
@@ -160,8 +169,8 @@ func (l *link) run(parentCtx context.Context) term.ExitCode {
 	}()
 	ctx, cancel := context.WithCancel(parentCtx)
 	defer cancel()
-	go l.read()
-	defer l.closeControl()
+	l.reader.Go(l.read)
+	defer l.stopReading()
 	hold, stopHold := l.cfg.Clock.Hold(addsWait)
 	defer stopHold()
 	launch, code, ok := l.awaitLaunch(hold)
@@ -183,7 +192,9 @@ func (l *link) run(parentCtx context.Context) term.ExitCode {
 		return refuse(l.cfg.Log, "serve link.sock", err)
 	}
 	l.srv = newServer(ln, l.eng, l.cfg.Clock, l.cfg.UID, l.cfg.Kit, l.cfg.Log)
-	go l.srv.run(ctx)
+	l.srv.hook = l.serveHook
+	l.bg.Go(func() { l.srv.run(ctx) })
+	l.bg.Go(func() { l.announceTeams(ctx) })
 	l.send(wire.Msg{Kind: wire.KindReady, Ready: &wire.Ready{}})
 	if l.cfg.started != nil {
 		l.cfg.started(l)
@@ -285,7 +296,9 @@ func (l *link) build(launch wire.Launch) term.ExitCode {
 		Delivery: l.delivery, Plain: plain, FirstSessionStart: l.first,
 		OnState: l.onState, Runtime: l.runtime,
 		Inbox: dialer, Unusable: l.session.Unusable(), OnUnusable: l.onUnusable,
+		OnTeams: l.onTeams,
 	})
+	l.setGeneration(launch.Generation)
 	if err != nil {
 		return refuse(l.cfg.Log, "make the engine", err)
 	}
@@ -356,6 +369,7 @@ func (l *link) dispatch(ctx context.Context, r received) bool {
 		f.Token = m.Token.Token
 		l.logErr("tell the engine the session", l.eng.SetSession(ctx, f))
 	case wire.KindDesired:
+		l.setGeneration(m.Desired.Generation)
 		l.logErr("set the desired membership", l.eng.SetDesired(ctx, *m.Desired))
 	case wire.KindRefused:
 		l.logErr("show a refused add", l.eng.Refuse(ctx, m.Refused.Team, m.Refused.HolderRun))
@@ -385,6 +399,7 @@ func (l *link) add(ctx context.Context, a *wire.Add, fd *os.File) {
 // within leaveWait presence offline, the leave when the farewell is released, and left. Every
 // remove is answered: one the engine could not make goes with no user id and posts nothing.
 func (l *link) remove(ctx context.Context, rm *wire.Remove) {
+	l.noteFarewell(rm.Team, rm.Farewell)
 	removed, err := l.eng.Remove(ctx, rm.Team)
 	if err != nil {
 		l.logf("link: remove %s: %v", rm.Team, err)
@@ -460,14 +475,18 @@ func (l *link) teardown(ctx context.Context, cancel context.CancelFunc, engDone 
 	l.logErr("shut the engine", l.eng.Shutdown(ctx))
 	cancel()
 	l.logErr("the state goroutine", <-engDone)
-	close(l.quit)
+	l.closeQuit()
 	l.bg.Wait()
 }
 
-func (l *link) closeControl() {
+// stopReading ends the reader on every path out of run: quit, then the control socket, whose
+// close ends a Recv, and the wait for it.
+func (l *link) stopReading() {
+	l.closeQuit()
 	if err := l.cfg.Control.Close(); err != nil {
 		l.logf("link: close the control socket: %v", err)
 	}
+	l.reader.Wait()
 }
 
 func (l *link) closeFile(f *os.File) {

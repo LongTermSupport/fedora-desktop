@@ -64,6 +64,9 @@ type Config struct {
 	// OnUnusable is told the counts whenever a slot that fails to render is dropped, on the
 	// state goroutine; it must not block, and nothing it reaches calls the engine. Nil allowed.
 	OnUnusable func(state.Unusable)
+	// OnTeams is told the held teams whenever one is added or removed or its role or names
+	// change (DV6), on the state goroutine; it must not block. Nil allowed.
+	OnTeams func([]TeamRole)
 }
 
 // EndsConfig is what the session's ends are made from: the engine they record into (EN1), and
@@ -141,6 +144,9 @@ type Engine struct {
 	// tests' own.
 	proof proofState
 	watch watchFunc
+	// hooks is what the hooks are answered from; waits counts the wait requests running.
+	hooks hookState
+	waits atomic.Int64
 }
 
 // New is an engine over cfg; its goroutine runs from Run.

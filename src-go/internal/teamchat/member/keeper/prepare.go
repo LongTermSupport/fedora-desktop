@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 
 	"golang.org/x/sys/unix"
@@ -26,12 +27,19 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
-// keeper is one session's keeper; every field is the loop goroutine's.
+// keeper is one session's keeper; every field is the loop goroutine's but the timers' queue.
 type keeper struct {
 	cfg            Config
 	stdout, stderr io.Writer
 	events         chan func()
 	done           chan struct{}
+	// bg is the goroutines the loop starts (the waits on the link and CMD, the link's reader),
+	// waited for once the loop has ended.
+	bg sync.WaitGroup
+	// fired is the timers' work, queued from the clock's goroutine for the loop, and woken.
+	firedMu sync.Mutex
+	firedQ  []func()
+	fired   chan struct{}
 
 	early  []string
 	log    *os.File
@@ -101,7 +109,7 @@ const (
 func newKeeper(cfg Config, stdout, stderr io.Writer) *keeper {
 	return &keeper{
 		cfg: cfg, stdout: stdout, stderr: stderr,
-		events: make(chan func()), done: make(chan struct{}),
+		events: make(chan func()), done: make(chan struct{}), fired: make(chan struct{}, 1),
 		desiredState: state.DesiredApplied, inbound: state.InboundRefuse,
 		removedIDs: map[paths.TeamID][]string{}, linkStatus: state.LinkRestarting,
 		timers: map[*timer]struct{}{}, cmdSent: map[syscall.Signal]bool{},

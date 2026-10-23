@@ -255,3 +255,39 @@ func TestAReadThatFailsIsAnError(t *testing.T) {
 type failingReader struct{ err error }
 
 func (r failingReader) Read([]byte) (int, error) { return 0, r.err }
+
+// Close ends the reader of In and waits for it; after it the input has ended.
+func TestCloseEndsTheReader(t *testing.T) {
+	l := asker("y\nmore\n")
+	if yes, err := l.YesNo(t.Context(), here, "Q?", false); err != nil || !yes {
+		t.Fatalf("YesNo = %v, %v", yes, err)
+	}
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Close(); err != nil {
+		t.Fatalf("a second Close = %v", err)
+	}
+	if _, err := l.Ask(t.Context(), here, "Name", nil); !errors.Is(err, ErrInputEnded) {
+		t.Fatalf("Ask after Close = %v, want ErrInputEnded", err)
+	}
+	if err := asker("").Close(); err != nil {
+		t.Fatalf("Close of a Lines that never read = %v", err)
+	}
+}
+
+// A read cancelled while In blocks ends when In does: Close waits for it once In is closed.
+func TestCloseWaitsForACancelledRead(t *testing.T) {
+	in, feed := io.Pipe()
+	ctx, cancel := context.WithCancelCause(t.Context())
+	l := &Lines{In: in, Out: &cancelOnPrompt{prompt: "Q? [y/N] ", cancel: cancel, cause: errors.New("interrupt")}}
+	if _, err := l.YesNo(ctx, here, "Q?", false); !errors.Is(err, ErrCancelled) {
+		t.Fatalf("YesNo = %v, want a cancel", err)
+	}
+	if err := feed.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+}

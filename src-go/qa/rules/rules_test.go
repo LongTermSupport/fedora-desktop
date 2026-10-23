@@ -61,6 +61,18 @@ func TestHomeAbbrev(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), HomeAbbrev, "fix/internal/term", "fix/qa/rules", "fix/internal/badhome")
 }
 
+func TestFakeClockCount(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), FakeClockCount, "fix/internal/fakeclock", "fix/internal/othertimers", "fix/internal/badcount")
+}
+
+func TestGoroutineEnd(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), GoroutineEnd, "fix/internal/badgo", "fix/internal/checkedgo")
+}
+
+func TestLeakcheckOnce(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), LeakcheckOnce, "fix/internal/twicecheck")
+}
+
 func TestWaitDelay(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), WaitDelay, "fix/internal/badwait")
 }
@@ -80,8 +92,8 @@ func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 8 {
-		t.Fatalf("want 8 rules, got %d", got)
+	if got := len(All()); got != 12 {
+		t.Fatalf("want 12 rules, got %d", got)
 	}
 }
 
@@ -129,4 +141,8 @@ func TestOwnedBy(t *testing.T) {
 			t.Errorf("ownedBy(%q, %q) = %v, want %v", c.pkg, c.owner, got, c.want)
 		}
 	}
+}
+
+func TestRawConnProbe(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), RawConnProbe, "fix/internal/badraw")
 }
