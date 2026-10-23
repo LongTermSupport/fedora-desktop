@@ -331,11 +331,11 @@ func (gone) Info() (fs.FileInfo, error) { return nil, fs.ErrNotExist }
 func TestAFileRemovedDuringTheWalkCountsAsNothing(t *testing.T) {
 	// Another seat's go trims its cache, removes a download's temporary or an install's
 	// scratch directory at any moment: a launch measuring the shared caches must not fail.
-	n, err := blocks(gone{}, nil)
+	n, err := fileSize(gone{}, nil)
 	if n != 0 || err != nil {
 		t.Fatalf("listed then removed: %d %v", n, err)
 	}
-	n, err = blocks(nil, &fs.PathError{Op: "lstat", Path: "x", Err: fs.ErrNotExist})
+	n, err = fileSize(nil, &fs.PathError{Op: "lstat", Path: "x", Err: fs.ErrNotExist})
 	if n != 0 || err != nil {
 		t.Fatalf("removed before its stat: %d %v", n, err)
 	}
@@ -368,6 +368,231 @@ func TestAnEngineOtherThanPodmanOrDockerFails(t *testing.T) {
 	if code != term.ExitFailure || out != "" || !strings.Contains(r.ErrOut.String(), "lxc") {
 		t.Fatalf("exit %d stdout %q stderr %q", code, out, r.ErrOut.String())
 	}
+}
+
+// outside is a directory beyond the cache, with a read-only subdirectory, that a container
+// writing the bind must never get the host to change.
+func outside(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sub")
+	teamtest.MustWrite(t, filepath.Join(sub, "keep"), "keep\n")
+	readOnly(t, sub)
+	t.Cleanup(func() {
+		if err := syscall.Chmod(sub, 0o700); err != nil {
+			t.Error(err)
+		}
+	})
+	return dir
+}
+
+func unchanged(t *testing.T, dir string) {
+	t.Helper()
+	info, err := os.Stat(filepath.Join(dir, "sub"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o500 {
+		t.Fatalf("the host changed %s outside the cache to %v", dir, info.Mode().Perm())
+	}
+	if !exists(t, filepath.Join(dir, "sub", "keep")) {
+		t.Fatalf("the host removed a file outside the cache in %s", dir)
+	}
+}
+
+func TestALeftoverThatIsASymlinkIsOnlyUnlinked(t *testing.T) {
+	r := newRig(t)
+	target := outside(t)
+	if err := os.MkdirAll(r.root(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(r.root(), ".prune-planted")); err != nil {
+		t.Fatal(err)
+	}
+	r.mustRun(t, project, "z")
+	unchanged(t, target)
+	if exists(t, filepath.Join(r.root(), ".prune-planted")) {
+		t.Fatal("the planted link was left")
+	}
+}
+
+func TestASymlinkInsideAPrunedCacheIsNotFollowed(t *testing.T) {
+	r := newRig(t)
+	r.cache.Limit = 256 << 10
+	target := outside(t)
+	r.fill(t, "go-build", "ab/entry-d", 512)
+	if err := os.Symlink(target, filepath.Join(r.root(), "go-build", "escape")); err != nil {
+		t.Fatal(err)
+	}
+	r.mustRun(t, project, "z")
+	unchanged(t, target)
+}
+
+func TestACacheThatIsASymlinkIsMovedNotFollowed(t *testing.T) {
+	r := newRig(t)
+	r.cache.Limit = 256 << 10
+	target := outside(t)
+	r.fill(t, "mod", "example.com/m@v1/big.go", 512)
+	if err := os.Symlink(target, filepath.Join(r.root(), "go-build")); err != nil {
+		t.Fatal(err)
+	}
+	r.mustRun(t, project, "z")
+	unchanged(t, target)
+	info, err := os.Lstat(filepath.Join(r.root(), "go-build"))
+	if err != nil || !info.IsDir() {
+		t.Fatalf("go-build is %v (%v), want a real directory again", info, err)
+	}
+}
+
+func TestALockThatCannotBeTakenFails(t *testing.T) {
+	r := newRig(t)
+	r.cache.lock = func(string) (func() error, error) { return nil, errors.New("no lock for you") }
+	code, out := r.run(t, project, "z")
+	if code != term.ExitFailure || out != "" || !strings.Contains(r.ErrOut.String(), "no lock for you") {
+		t.Fatalf("exit %d stdout %q stderr %q", code, out, r.ErrOut.String())
+	}
+}
+
+func TestALockReleaseThatFailsFails(t *testing.T) {
+	r := newRig(t)
+	r.cache.lock = func(string) (func() error, error) {
+		return func() error { return errors.New("stuck") }, nil
+	}
+	code, out := r.run(t, project, "z")
+	if code != term.ExitFailure || out != "" || !strings.Contains(r.ErrOut.String(), "stuck") {
+		t.Fatalf("exit %d stdout %q stderr %q", code, out, r.ErrOut.String())
+	}
+}
+
+func TestTheRealLockNeedsItsDirectory(t *testing.T) {
+	if _, err := flock(filepath.Join(t.TempDir(), "missing", ".lock")); err == nil ||
+		!strings.Contains(err.Error(), "open the lock") {
+		t.Fatalf("err %v", err)
+	}
+}
+
+func TestACacheRootThatCannotBeMadeFails(t *testing.T) {
+	r := newRig(t)
+	teamtest.MustWrite(t, filepath.Join(r.Env["HOME"], ".cache"), "a file\n")
+	code, out := r.run(t, project, "z")
+	if code != term.ExitFailure || out != "" || !strings.Contains(r.ErrOut.String(), "make the Go cache directory") {
+		t.Fatalf("exit %d stdout %q stderr %q", code, out, r.ErrOut.String())
+	}
+}
+
+var errInjected = errors.New("injected fault")
+
+// faulty is the cache root with one operation failing: op names the method, and for FS an
+// Open of anything but the root itself.
+type faulty struct {
+	fsRoot
+
+	op string
+}
+
+func (f faulty) Mkdir(name string, perm fs.FileMode) error {
+	return errors.Join(f.fail("Mkdir"), f.fsRoot.Mkdir(name, perm))
+}
+
+func (f faulty) Lstat(name string) (fs.FileInfo, error) {
+	if err := f.fail("Lstat"); err != nil {
+		return nil, err
+	}
+	return f.fsRoot.Lstat(name)
+}
+
+func (f faulty) Rename(a, b string) error {
+	if err := f.fail("Rename"); err != nil {
+		return err
+	}
+	return f.fsRoot.Rename(a, b)
+}
+
+func (f faulty) Chmod(name string, mode fs.FileMode) error {
+	if err := f.fail("Chmod"); err != nil {
+		return err
+	}
+	return f.fsRoot.Chmod(name, mode)
+}
+
+func (f faulty) Remove(name string) error {
+	if err := f.fail("Remove"); err != nil {
+		return err
+	}
+	return f.fsRoot.Remove(name)
+}
+
+func (f faulty) RemoveAll(name string) error {
+	if err := f.fail("RemoveAll"); err != nil {
+		return err
+	}
+	return f.fsRoot.RemoveAll(name)
+}
+
+func (f faulty) FS() fs.FS { return faultyFS{FS: f.fsRoot.FS(), fail: f.op == "FS"} }
+
+func (f faulty) fail(op string) error {
+	if f.op == op {
+		return errInjected
+	}
+	return nil
+}
+
+// faultyFS fails every Open below the root when fail is set.
+type faultyFS struct {
+	fs.FS
+
+	fail bool
+}
+
+func (f faultyFS) Open(name string) (fs.File, error) {
+	if f.fail && name != "." {
+		return nil, errInjected
+	}
+	return f.FS.Open(name)
+}
+
+func TestAFileSystemFaultFailsTheLaunch(t *testing.T) {
+	for name, tc := range map[string]struct {
+		op    string
+		setup func(t *testing.T, r rig)
+	}{
+		"making a cache":              {op: "Mkdir"},
+		"reading a cache":             {op: "Lstat"},
+		"making the trash":            {op: "Mkdir", setup: overBound},
+		"moving a cache aside":        {op: "Rename", setup: overBound},
+		"opening a cache to clear":    {op: "Lstat", setup: overBound},
+		"making a directory writable": {op: "Chmod", setup: overBound},
+		"removing the trash":          {op: "RemoveAll", setup: overBound},
+		"walking the caches":          {op: "FS", setup: overBound},
+		"unlinking a planted leftover": {op: "Remove", setup: func(t *testing.T, r rig) {
+			t.Helper()
+			teamtest.MustWrite(t, filepath.Join(r.root(), ".prune-file"), "")
+		}},
+		"listing the leftovers": {op: "FS", setup: func(t *testing.T, r rig) {
+			t.Helper()
+			teamtest.MustWrite(t, filepath.Join(r.root(), ".prune-old", "x"), "")
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newRig(t)
+			if tc.setup != nil {
+				tc.setup(t, r)
+			}
+			r.cache.wrap = func(root fsRoot) fsRoot { return faulty{fsRoot: root, op: tc.op} }
+			code, out := r.run(t, project, "z")
+			if code != term.ExitFailure || out != "" || !strings.Contains(r.ErrOut.String(), "injected fault") {
+				t.Fatalf("exit %d stdout %q stderr %q", code, out, r.ErrOut.String())
+			}
+		})
+	}
+}
+
+// overBound fills go-build past a small bound, so the launch prunes.
+func overBound(t *testing.T, r rig) {
+	t.Helper()
+	r.cache.Limit = 256 << 10
+	r.fill(t, "go-build", "ab/entry-d", 512)
 }
 
 func TestTwoLaunchesAgree(t *testing.T) {

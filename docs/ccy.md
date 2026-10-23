@@ -1696,7 +1696,8 @@ the total is still over, the module cache and go-qa's tools are cleared too. Cle
 module cache can fail a download that another running seat has in flight. Under docker the
 caches are the named volume `ccy-go-cache-<project>` instead, which ccy does not bound: empty
 it with `docker volume rm ccy-go-cache-<project>`. The `-e` values replace any `ENV` of the
-same name in a project Dockerfile. A project's `ccy.env` can point them elsewhere. Details:
+same name in a project Dockerfile, and `GOMODCACHE` moves a module cache that a Dockerfile's
+`GOPATH` would have put elsewhere. A project's `ccy.env` can point them elsewhere. Details:
 `ccy-teams --help`, `internal go-cache`.
 
 ---
