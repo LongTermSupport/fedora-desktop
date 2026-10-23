@@ -112,6 +112,18 @@ func TestAWrongTokenIsRefusedAndTheConnectionClosed(t *testing.T) {
 	}
 }
 
+// An accepted frame is handed on before it is recorded, so a test that awaits the frame finds
+// it handed on: the hand-on sees only the frames before it.
+func TestAFrameIsHandedOnBeforeItIsRecorded(t *testing.T) {
+	r := start(t, fakeinbox.Options{})
+	var before []fakeinbox.Frame
+	r.b.OnAccepted(func(fakeinbox.Frame) { before = r.b.Frames() })
+	send(t, r.b, auth, user("hello"))
+	if want := []fakeinbox.Frame{{Auth: true, Accepted: true}}; fmt.Sprint(before) != fmt.Sprint(want) {
+		t.Fatalf("frames when handed on %+v, want %+v", before, want)
+	}
+}
+
 func TestFramingRefusals(t *testing.T) {
 	cases := map[string][]string{
 		"auth not JSON":        {"nope\n"},
