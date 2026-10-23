@@ -4,8 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -17,6 +17,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/agent"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/cli"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/homefs"
@@ -30,6 +31,7 @@ import (
 // keeper is one session's keeper; every field is the loop goroutine's but the timers' queue.
 type keeper struct {
 	cfg            Config
+	adapter        agent.Adapter
 	stdout, stderr io.Writer
 	events         chan func()
 	done           chan struct{}
@@ -121,6 +123,12 @@ func newKeeper(cfg Config, stdout, stderr io.Writer) *keeper {
 // by Signals once the loop runs.
 func (k *keeper) prepare() error {
 	ctx := context.Background()
+	adapter, err := agent.For(k.cfg.Launch.Mode)
+	if err != nil {
+		k.logf("resolve the agent: %v", err)
+		return fault(exits.CodeInternal, msgInternal, exits.Words("resolve the agent of the launch"))
+	}
+	k.adapter = adapter
 	if err := k.openRunRoot(); err != nil {
 		return err
 	}
@@ -136,7 +144,7 @@ func (k *keeper) prepare() error {
 	if err := k.makeRun(ctx); err != nil {
 		return err
 	}
-	if err := k.claudeArgv(); err != nil {
+	if err := k.launchArgv(); err != nil {
 		return err
 	}
 	return k.takeLaunchSeats(ctx)
@@ -436,13 +444,9 @@ func (k *keeper) writeSessionPID(session *state.Process) error {
 		k.logf("read the keeper's start time: %v", err)
 		return fault(exits.CodeInternal, msgInternal, exits.Words("read its own start time"))
 	}
-	launch := state.LaunchPlain
-	if k.cfg.Launch.Mode == cli.LaunchClaude {
-		launch = state.LaunchClaude
-	}
 	pid := state.SessionPID{
 		V: state.Version, Run: k.runID, Keeper: state.Process{PID: os.Getpid(), StartTicks: ticks},
-		Session: session, Kit: k.digest, Launch: launch, Inbound: k.inbound, Kind: string(k.cfg.Launch.Kind),
+		Session: session, Kit: k.digest, Launch: string(k.cfg.Launch.Mode), Inbound: k.inbound, Kind: string(k.cfg.Launch.Kind),
 	}
 	if err := state.Write(k.runRoot, k.run.PID(), pid); err != nil {
 		k.logf("write %s: %v", k.run.PID(), err)
@@ -451,78 +455,45 @@ func (k *keeper) writeSessionPID(session *state.Process) error {
 	return nil
 }
 
-// claudeArgv is step 5: CMD, and for Claude Code the resume, the plugin and the per-launch
-// settings appended.
-func (k *keeper) claudeArgv() error {
-	k.argv = k.cfg.Launch.Cmd
-	if k.cfg.Launch.Mode != cli.LaunchClaude {
-		return nil
-	}
-	settings := k.kit.Settings()
-	data, err := trustedRead(settings, maxSettings)
-	var obj map[string]json.RawMessage
-	if err == nil {
-		err = json.Unmarshal(data, &obj)
-	}
-	if _, has := obj[inboundKey]; err != nil || obj == nil || has {
-		k.logf("read %s: %v", settings, err)
-		return fault(exits.CodeRuntime, msgSettings, exits.Name(settings))
-	}
-	obj[inboundKey], err = json.Marshal(k.inbound)
+// launchArgv is step 5: CMD, followed by what the run's agent appends (for Claude Code the
+// resume, the plugin and the per-launch settings, written to the run first).
+func (k *keeper) launchArgv() error {
+	l, err := k.adapter.Preparer.Prepare(agent.RunFacts{
+		Inbound: k.inbound, ResumeRecorded: k.cfg.Launch.ResumeRecorded, Kit: k.kit, Run: k.run,
+		Cwd: k.cfg.Cwd, Home: k.cfg.Env(envHome), ClaudeConfigDir: k.claudeConfigDir(),
+		ReadTrusted: trustedRead, WriteRunFile: k.writeRunFile, Conversation: k.conversation, Logf: k.logf,
+	})
 	if err != nil {
 		return err
 	}
-	out, err := json.Marshal(obj)
-	if err != nil {
-		return err
-	}
-	if err := k.runRoot.Create(k.run.Settings(), out, 0o600); err != nil {
-		k.logf("write %s: %v", k.run.Settings(), err)
-		return fault(exits.CodeRuntime, msgRunDir, exits.Name(k.run.Dir()))
-	}
-	argv := append([]string{}, k.cfg.Launch.Cmd...)
-	if k.cfg.Launch.ResumeRecorded {
-		argv = append(argv, k.resume()...)
-	}
-	argv = append(argv, "--plugin-dir", k.kit.PluginDir(), "--settings", k.run.Settings())
-	k.argv = argv
+	k.argv = append(append([]string{}, k.cfg.Launch.Cmd...), l.Args...)
 	return nil
 }
 
-// resume is --resume <id> when the conversation record names a session whose transcript is in
-// the session's project directory; else nothing, and keeper.log says why.
-func (k *keeper) resume() []string {
+// writeRunFile creates path, a file directly under the run, through the run root: mode 0600,
+// never over a file already there.
+func (k *keeper) writeRunFile(path string, data []byte) error {
+	if filepath.Clean(path) != path || filepath.Dir(path) != k.run.Dir() {
+		return fault(exits.CodeInternal, msgInternal, exits.Words("write a file outside the run"))
+	}
+	if err := k.runRoot.Create(path, data, 0o600); err != nil {
+		k.logf("write %s: %v", path, err)
+		return fault(exits.CodeRuntime, msgRunDir, exits.Name(k.run.Dir()))
+	}
+	return nil
+}
+
+// conversation is the conversation record, read through the state root.
+func (k *keeper) conversation() (state.Conversation, error) {
 	root, err := k.state()
 	if err != nil {
-		k.logf("no resume: the state root: %v", err)
-		return nil
+		return state.Conversation{}, fmt.Errorf("the state root: %w", err)
 	}
 	conv, err := state.Read(root, k.cfg.Layout.ConversationFile(), state.MaxConversation, state.DecodeConversation)
 	if err != nil {
-		k.logf("no resume: the conversation record: %v", err)
-		return nil
+		return state.Conversation{}, fmt.Errorf("the conversation record: %w", err)
 	}
-	id := conv.SessionID
-	if id == "" || filepath.Base(id) != id || strings.HasPrefix(id, ".") {
-		k.logf("no resume: the conversation record names no session id")
-		return nil
-	}
-	path := filepath.Join(k.claudeDir(), "projects", projectDir(k.cfg.Cwd), id+".jsonl")
-	var st unix.Stat_t
-	if err := unix.Fstatat(unix.AT_FDCWD, path, &st, unix.AT_SYMLINK_NOFOLLOW); err != nil || st.Mode&unix.S_IFMT != unix.S_IFREG {
-		k.logf("no resume: the transcript %s is not a regular file (%v)", path, err)
-		return nil
-	}
-	return []string{"--resume", id}
-}
-
-// claudeDir is Claude Code's configuration directory: CLAUDE_CONFIG_DIR when absolute and
-// clean, else ~/.claude.
-func (k *keeper) claudeDir() string {
-	if d := k.claudeConfigDir(); d != nil {
-		return *d
-	}
-	return filepath.Join(k.cfg.Env(envHome), ".claude")
+	return conv, nil
 }
 
 func (k *keeper) claudeConfigDir() *string {
@@ -531,18 +502,6 @@ func (k *keeper) claudeConfigDir() *string {
 		return nil
 	}
 	return &d
-}
-
-// projectDir is the project directory Claude Code derives from a working directory: every byte
-// that is not a letter or a digit as '-'.
-func projectDir(cwd string) string {
-	b := []byte(cwd)
-	for i, c := range b {
-		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') {
-			b[i] = '-'
-		}
-	}
-	return string(b)
 }
 
 // state is the state root, opened at first use.

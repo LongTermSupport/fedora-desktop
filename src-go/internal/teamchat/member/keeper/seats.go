@@ -116,10 +116,10 @@ func (k *keeper) reportDesired() state.ReportDesired {
 	return state.ReportDesired{Generation: gen, State: k.desiredState, Code: k.desiredCode}
 }
 
-// needsRelaunch is a Claude Code session launched with inbound refuse whose desired membership
-// now accepts: only a relaunch takes the new settings.
+// needsRelaunch is a session whose agent delivers by socket, launched with inbound refuse, whose
+// desired membership now accepts: only a relaunch takes the new settings.
 func (k *keeper) needsRelaunch() bool {
-	return k.cfg.Launch.Mode == cli.LaunchClaude && k.inbound == state.InboundRefuse &&
+	return k.adapter.Capabilities.Delivery == state.DeliverySocket && k.inbound == state.InboundRefuse &&
 		k.desired != nil && k.desired.Inbound == state.InboundAccept
 }
 

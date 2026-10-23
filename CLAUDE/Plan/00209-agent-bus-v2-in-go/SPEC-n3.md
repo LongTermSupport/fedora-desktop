@@ -811,6 +811,159 @@ and places every other member).
   death and the store's deletion in a timed-out removal (P4's pinned exception); the link in the
   middle of the end's sends; the keeper after CMD's exit and before `end` is sent.
 
+### 6.1 The agent seam (Plan 00215 Task 3.1, decision O4)
+
+The agent program a run launches is reached through one small in-process package, so that a
+second agent program (opencode, Plan 00215) arrives as an adapter, one launch value and its
+spelling, and not as a refactor. Plan 00215's `research/opencode-bus-member-design.md`
+section 5.2 gives the full shape. n3e builds the part of it the code asks today: a Claude Code
+or `--plain` launch does not change by one byte, in argv, environment, files, exits, messages
+or keeper.log.
+
+- **AS1. The package** is `internal/teamchat/member/agent`. `Agent` is the run's launch value;
+  `agent.Claude` and `agent.Plain` are `state.LaunchClaude` and `state.LaunchPlain`, so the
+  strings have one home. It is not the member kind (`--kind`). `agent` imports `state`,
+  `paths` and `exits`, never `cli`, `keeper` or `link`. `For(a Agent) (Adapter, error)` returns
+  the adapter, where `Adapter` is `struct { Capabilities Capabilities; Preparer Preparer }` and
+  `Preparer` is `interface { Prepare(f RunFacts) (Launch, error) }`. The keeper resolves it
+  once, from `cfg.Launch.Mode`, at the start of `prepare`, and keeps the `Adapter`; the link resolves
+  it once, from the launch frame's `launch`, in `build`, and keeps the `Capabilities`. Neither
+  config gains a field.
+  cli's parse and the frame check already refuse any other value, so `For`'s error is
+  unreachable; it is still answered in the existing forms, the keeper's
+  `fault(exits.CodeInternal, msgInternal, ...)` and the link's `refuse(log, "start", err)`.
+  `cli.Mode` becomes an alias, `type Mode = agent.Agent`, declared as
+  `const (LaunchClaude = agent.Claude; LaunchPlain = agent.Plain)`, with no `iota`. Every test
+  that uses the constants compiles unchanged; AS3 names the one identifier edit. The zero
+  `Mode` is `""`, which `For` refuses. Only `cli.ParseLaunch` makes a `Launch` that reaches the
+  keeper's `prepare`, and it always sets one of the two. One list, `state.Launches`, is read by
+  `state`'s session.pid check and `wire`'s launch-frame check. A new agent is its constant, its
+  case in `For` and its adapter in `agent`, one entry in `state.Launches`, the two check
+  messages that name the values, and its spelling in cli. CL2's
+  argument rule stays in cli on purpose: moving the claude rule into the Preparer would move a
+  usage refusal from parse time to after the kit is resolved and the run made.
+
+- **AS1a. The sites**, and what each asks once the seam is in:
+
+  - `keeper/prepare.go:439` and `keeper/loop.go:288` write `string(agent)`;
+  - `keeper/prepare.go:458` calls the adapter's Preparer (AS3);
+  - `keeper/loop.go:482` and `keeper/loop.go:539` count a CMD that fails to start, or that ends
+    before the first SessionStart, as `launch_failed` when `SessionStart` is true;
+  - `keeper/seats.go:122` sets report.json's `needs_relaunch` when `Delivery` is `socket`, the
+    run is `refuse`, and desired now accepts;
+  - `link/link.go:268-276` takes `Delivery`, lowered to `wait` by `refuse`;
+  - `link/link.go:272` closes `first` at once when `SessionStart` is false;
+  - `link/link.go:298` and `link/link.go:423` set `engine.Config.Plain` and
+    `engine.TeamConfig.Plain` to `!SessionStart`.
+
+  `engine`, `teamsync` (`session.go:395`) and `wiring` (`wiring.go:60`) keep their `Plain`
+  boolean unchanged and never see the adapter. Some facts are named for Claude Code but are
+  fed only by hook ops, and they stay where they are: `wire.Launch.ClaudeConfigDir`, the
+  link's Claude directory, `KindClaude` and the keeper's pidfd on Claude Code, and
+  session.json's `claude`.
+
+- **AS2. `Capabilities`** holds the two questions the code asks today. `Delivery` is the
+  agent's best mode, `state.DeliverySocket` or `state.DeliveryNone`, the strings `status`
+  already shows; the run's `inbound: refuse` lowers `socket` to `wait` in the link, as today.
+  `SessionStart` says whether the run awaits the agent's first SessionStart. `claude` is
+  `{socket, true}`; `plain` is `{none, false}`. Fields for proof, the source of session facts, a
+  status line or an end reason are added with the first adapter that answers them
+  differently.
+
+- **AS3. `Preparer`**: `Prepare(f RunFacts) (Launch, error)`. `RunFacts` holds
+  `Inbound string` (`state.InboundAccept` or `state.InboundRefuse`), `ResumeRecorded bool`,
+  `Kit paths.Kit`, `Run paths.Run`, `Cwd string`, `Home string` and `ClaudeConfigDir *string`.
+  `Home` is the launch's `HOME` as read, unchecked. `ClaudeConfigDir` is the keeper's
+  `claudeConfigDir()`, the same value `launchMsg` sends. `RunFacts` also holds four functions
+  the keeper supplies:
+
+  - `ReadTrusted func(path string, limit int) ([]byte, error)` is the keeper's `trustedRead`.
+  - `WriteRunFile func(path string, data []byte) error` creates `path` through the keeper's run
+    root, mode 0600, `O_EXCL`. `path` must be a file directly under `Run.Dir()`, such as
+    `Run.Settings()`; any other path is `fault(exits.CodeInternal, msgInternal, ...)`. On a
+    failed write it logs `write <path>: <err>` and returns
+    `fault(exits.CodeRuntime, msgRunDir, exits.Name(Run.Dir()))`, which the adapter returns
+    unchanged.
+  - `Conversation func() (state.Conversation, error)` opens the state root through the keeper's
+    cached `state()` and reads the conversation record. Its error reads `the state root: <err>`
+    or `the conversation record: <err>`, and the adapter logs `no resume: <err>`, today's text.
+  - `Logf func(format string, args ...any)` is the keeper's `logf`.
+
+  `Launch` is `{Args []string}`. The keeper's argv is CMD followed by `Launch.Args`. The claude
+  Preparer is
+  `claudeArgv` and `resume` moved as they are: the kit settings read and its refusal
+  (`exits.CodeRuntime`, the same template), the `inbound` key, the settings file written
+  through `WriteRunFile` before the resume rule runs, then `--resume`, `--plugin-dir` and
+  `--settings`, in that order. Because the adapter writes through the keeper's function at
+  the same point as today, keeper.log's order does not change either. The two raw `json.Marshal`
+  errors are returned as they are, so they still reach `launch refused: <err>`. `claudeDir` and
+  `projectDir` move to `agent` with `resume`. `msgSettings` and `inboundKey` move to `agent`,
+  and `maxSettings` moves as the exported `agent.MaxSettings`; `keeper/prepare_test.go`'s
+  settings-cap case then reads `agent.MaxSettings`. That is the seam's one test edit: one
+  identifier, no assertion. The plain Preparer returns an empty `Launch`
+  and reads nothing. No adapter is given a root it can write. An environment field and a file
+  list are added with the first adapter that needs them: opencode's password variable.
+
+- **AS4. Delivery keeps its existing seam.** The engine's `inbox.Dialer`
+  (`engine.Config.Inbox`) is the delivery seam. The link makes it when `Delivery` is `socket`
+  and the run is not lowered to `wait`, as today. Transcript proof, the quiet clock and the
+  hook ops stay where they are and are accepted on every run, as today, so HK1's answers do
+  not change. The `Channel` of Plan 00215's section 5.2 is not written here. It would have
+  one implementation, nothing to shape it, and would reshape DV1 to DV4's built delivery
+  loop. It is written with the opencode adapter, the first that delivers another way (HTTP
+  and an event stream), together with the refusal of hook ops on a run whose facts come from
+  its client. Until then no adapter can reach the ledger, receipts, the flood budget, the end
+  or the seats, because none is given them. Plan 00215 Task 3.2 starts from this: the engine's
+  `inbox.Dialer` is the delivery seam until opencode lands.
+
+- **AS5. Proof that nothing moved.** Two tests are written before the move, and pass before
+  and after it unchanged. One is a golden test of a claude launch: the argv after CMD, CMD's
+  environment (`TEAMCHAT_RUNTIME`, `PATH` and the kit variable), the settings file's bytes, and
+  keeper.log's lines. It covers a fresh run, a resumed run, a resume refused for each of its
+  reasons, a settings refusal and a failed settings write. The other is the same for plain.
+  The keeper, link, engine, teamsync, wiring, cli and PK1 tests pass with no change other than
+  AS3's one identifier, and no golden or pinned text changes.
+
+- **AS6. The defence.** A project rule, `project_agent_branch`, applies to the non-test files
+  of `internal/teamchat/...`. It reports:
+
+  - any use of the object `state.LaunchClaude`, `state.LaunchPlain`, `state.Launches`,
+    `cli.LaunchClaude`, `cli.LaunchPlain`, `agent.Claude` or `agent.Plain`. A use is a
+    `types.Info.Uses` entry, so an unqualified use inside the declaring package counts; a
+    declaration is not a use;
+  - any `==` or `!=`, `switch` tag or map key type whose type is `agent.Agent`;
+  - any `==` or `!=`, or `switch` case against a tag, where one operand is a constant
+    expression whose value (`types.Info.Types[e].Value`) is `"claude"` or `"plain"`, and the
+    other is the field `wire.Launch.Launch` or `state.SessionPID.Launch`, or a conversion to
+    `string` of an `agent.Agent`;
+  - any call that has the field `wire.Launch.Launch` or `state.SessionPID.Launch` as one
+    argument and, as another, a composite literal holding a constant whose value is a launch
+    value.
+
+  Package `agent` is its owner. Elsewhere its exemptions are `allowance` rows in
+  `qa/rules/table.go`, each with its reason:
+
+  - `{state, "", the one list of launch values}`;
+  - `{state, "SessionPID.check", session.pid's value check}`;
+  - `{wire, "Launch.check", the launch frame's value check}`;
+  - `{cli, "", cli's names for the launch values}`;
+  - `{cli, "ParseLaunch", --resume-recorded refused on plain}`;
+  - `{cli, "Launch.fromFlags", the spelling}`.
+
+  CL2's claude argument rule (`Launch.checkClaudeCmd`) compares no launch value and needs no
+  row. `analysistest` proves the rule red on a fixture that holds each form above and the ways
+  round it: a local copy of a constant, a named string constant, a `switch` on the field, a
+  `slices.Contains` over `state.Launches` or over a literal list, and `string(agent) ==`. It is
+  red on the tree before the move, through every site of AS1a, and green after. Its catalogue
+  row in GoProjectRules.md says it is found in the keeper and link launch comparisons the seam
+  replaced. It also names the gap it does not judge: a value that reaches the field through a
+  function's result (`isPlain(l.Launch)` with a bare literal inside `isPlain`) is caught only
+  when that function uses a named constant.
+
+- **AS7. Gate A** is untouched. The package and the rule are not owner-visible, the seam adds
+  no binary, unit, path, environment variable, plugin or skill name, and nothing on disk
+  changes.
+
 ## 7. n3f: the side rooms (Plan 00211), scope only
 
 The expectations are `SPEC-n3f.md`'s (section 0). The addendum covers at least:

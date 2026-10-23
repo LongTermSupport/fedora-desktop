@@ -285,16 +285,12 @@ func (k *keeper) greet(l *link) {
 }
 
 func (k *keeper) launchMsg(seats int) *wire.Launch {
-	launch := state.LaunchPlain
-	if k.cfg.Launch.Mode == cli.LaunchClaude {
-		launch = state.LaunchClaude
-	}
 	var gen int64
 	if k.desired != nil {
 		gen = k.desired.Generation
 	}
 	return &wire.Launch{
-		Run: k.runID, Kind: string(k.cfg.Launch.Kind), Launch: launch, Inbound: k.inbound,
+		Run: k.runID, Kind: string(k.cfg.Launch.Kind), Launch: string(k.cfg.Launch.Mode), Inbound: k.inbound,
 		Generation: gen, ClaudeConfigDir: k.claudeConfigDir(), Cwd: k.cfg.Cwd, Seats: seats,
 	}
 }
@@ -479,7 +475,7 @@ func (k *keeper) startCmd() {
 	if err != nil {
 		k.logf("start CMD: %v", err)
 		k.cmdDone, k.cmdStatus = true, execx.ExitStatus{Code: exitNoCmd}
-		k.failedCmd = k.cfg.Launch.Mode == cli.LaunchClaude
+		k.failedCmd = k.adapter.Capabilities.SessionStart
 		k.end()
 		return
 	}
@@ -536,7 +532,7 @@ func (k *keeper) cmdExited(st execx.ExitStatus, err error) {
 	}
 	k.cmdDone, k.cmdStatus = true, st
 	k.logf("CMD exited %d", st.Code)
-	if k.cfg.Launch.Mode == cli.LaunchClaude && !k.started && !k.stopped {
+	if k.adapter.Capabilities.SessionStart && !k.started && !k.stopped {
 		k.failedCmd = true
 	}
 	if k.claudeAlive() && !k.stopped {

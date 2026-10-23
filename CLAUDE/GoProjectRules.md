@@ -50,6 +50,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_rawconn_probe`      | a RawConn readiness callback that answers without testing its descriptor, so readiness the poller saw and Read reset is missed and the wait never ends | `link`: the pidfd watch never saw a keeper that died before the watch first ran            |
 | `project_leakcheck_once`     | a second `leakcheck.Check` on one test, which judges before the cleanups registered between the two run and reports a world they stop as a leak        | `engine`: `TestLiveNeedsEveryFact`'s second world reported the first's transcript watcher  |
 | `project_realtime_bound`     | a teamchat bound on real time that a test can shorten, which then races the step the test asserts; a test that passes when a real timer fires          | teamchat `host/lxc`: 1 of 4 probes reached the fake hang before a 20 ms bound (Plan 00209) |
+| `project_agent_branch`       | a teamchat branch on the run's launch value outside the agent seam, so a second agent program is a refactor of every comparison and not an adapter     | teamchat `keeper` and `link`: the launch comparisons the agent seam replaced (Plan 00209)  |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -618,7 +619,9 @@ transaction id (`tc-disc-<run>`), which is a different defence for a different h
 In the `_test.go` files of teamchat's keeper (`internal/teamchat/member/keeper`), a use of
 `paths.Run`'s `KeeperLog` outside the harness functions the `keeperLogReaders` table names
 (`world.keeperLog`, the one reader; `world.turned`, the turn-end copy; `world.runs`, existence
-only). The class is a test barrier released partway through the work it waits for. A loop turn
+only; `logTap.StartTicks`, the launch goldens' tap, opened while the run is made and read only
+once the keeper has ended, since the end removes the run). The class is a test barrier released
+partway through the work it waits for. A loop turn
 may log a line and then do more: the owed notice's timer logs "not posted in time" and only
 then lets the seat go, and `fail` logs "the link failed" before it closes the seat locks. A
 test that waited for the line by reading the file saw it mid-turn and found the seat still held
@@ -735,6 +738,69 @@ QA gates' `limit`, `wsitoken`, `vmtest`'s `bound`, `teams/lxcadd` and `teams/rol
 assert only the outcome (`ReadTimeout = 1` against a fake that hangs until the context ends).
 Whether they are in the class is the owner's decision, referred with this remediation (Plan
 00209 `subagent-reports/261023-n3-probebound.md`).
+
+### project_agent_branch
+
+**What it is about.** A teamchat run launches an agent program, Claude Code or a plain command,
+and its launch value says which. The agent seam (`internal/teamchat/member/agent`, SPEC-n3 6.1)
+is the one place that branches on it: `agent.For` gives the run's `Adapter`, whose
+`Capabilities` the link asks (delivery, whether a SessionStart is awaited) and whose `Preparer`
+the keeper asks (what follows CMD). A second agent (opencode, Plan 00215) is then its constant,
+its case in `For`, its adapter and one entry in `state.Launches`, not a change to every
+comparison.
+
+**Why it exists.** Before the seam the keeper (`prepare.go`, `loop.go`, `seats.go`) and the link
+(`link.go`) compared the launch value wherever their behaviour differed by agent, so a new agent
+meant finding and changing each of them.
+
+**What it flags**, in the non-test files of `internal/teamchat` and below, outside package
+`agent` and the `agentBranches` table of `src-go/qa/rules/table.go`:
+
+- a use (a `types.Info` use, so an unqualified one in the declaring package counts; a
+  declaration is not one) of `state.LaunchClaude`, `state.LaunchPlain`, `state.Launches`,
+  `cli.LaunchClaude`, `cli.LaunchPlain`, `agent.Claude` or `agent.Plain`;
+- an `==` or `!=`, a `switch` tag or a map key type whose type is `agent.Agent` (through any
+  alias, so `cli.Mode` too);
+- an `==` or `!=`, or a `switch` case against a tag, of a constant whose value is `"claude"` or
+  `"plain"` with the field `wire.Launch.Launch` or `state.SessionPID.Launch` (also reached
+  through an embedded struct) or with a conversion to a string of an `agent.Agent`;
+- a call given that field and a composite literal holding a launch value
+  (`slices.Contains([]string{"claude", "plain"}, l.Launch)`).
+
+The rows, each with its reason: state's package-level declarations (the one list),
+`SessionPID.check` and wire's `Launch.check` (the two checks of a value read from a file or a
+frame), and cli's package-level declarations (its names for the values), `ParseLaunch`
+(`--resume-recorded` refused on plain) and `Launch.fromFlags` (the spelling). CL2's argument
+rule, `Launch.checkClaudeCmd`, compares no launch value and has no row.
+
+**How to fix a violation.** Ask the run's `agent.Adapter`: the keeper keeps the one it resolves
+at the start of `prepare`, the link the `Capabilities` it resolves in `build`. Behaviour that
+differs by agent is a field of `Capabilities` or work of a `Preparer`.
+
+- Red, fixture: `testdata/src/fix/internal/teamchat/member/launchuse` (`bad.go`: the keeper's
+  session.pid value, plain early return and relaunch flag, and the link's delivery; `evade.go`:
+  a local copy of a constant, a named string constant, the operands reversed and parenthesised,
+  a switch on the field, a contains over `state.Launches` or a literal list, `string(a) ==`, a
+  switch on an `Agent` and on its string, a map keyed by one, the owner's constants, another
+  `Agent` compared, an embedded field; `good.go`: the adapter asked, the value spelled and
+  resolved, another field compared with the same strings, Claude Code's argument found by its
+  name, clean; `bad_test.go`, clean), beside stand-ins of `agent` (the owner, clean), `state`,
+  `wire` and `cli` (each row clean and a function beside it flagged), and
+  `fix/internal/elsewhereagent` (outside teamchat, clean). The test runs the real
+  `agentBranches` table.
+- Red, real tree, at the rule's own commit `822931505` (untagged, `busfailpoints` and `tuwunel` alike): twelve
+  findings, every site of SPEC-n3 AS1a: `keeper/prepare.go:439-441` and `:458`,
+  `keeper/loop.go:288-290`, `:482` and `:539`, `keeper/seats.go:122`, and `link/link.go:268` and
+  `:423`.
+- Green: the keeper writes `string(Mode)` to session.pid and the launch frame, and asks its
+  adapter's `Preparer` for what follows CMD and its `Capabilities` for `launch_failed` and
+  `needs_relaunch`; the link takes its delivery and its first SessionStart from the
+  `Capabilities`; session.pid's and the launch frame's checks read `state.Launches`. The launch
+  goldens (`keeper/launch_golden_test.go`) pass unchanged.
+- Not caught: a value that reaches the field through a function's result (`isPlain(l.Launch)`
+  with a bare literal inside `isPlain`) is caught only when that function names a constant; a
+  copy of the field held in a variable and then compared; a list of launch values held in a
+  variable other than `state.Launches`.
 
 ## Defect classes that cannot be a rule
 

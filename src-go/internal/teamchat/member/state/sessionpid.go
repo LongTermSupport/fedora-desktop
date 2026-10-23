@@ -17,6 +17,10 @@ const (
 	LaunchPlain  = "plain"
 )
 
+// Launches is the one list of launch values, read by session.pid's check and the launch
+// frame's; package agent gives each its adapter.
+var Launches = []string{LaunchClaude, LaunchPlain}
+
 // SessionPID is B 2.4.1 step 4's session.pid: the keeper and, from step 7, the session it
 // started, each with its start time so a reused pid is never taken for either; the kit, the
 // launch kind, the inbound decision and the member kind. The kit sweep and the runtime sweep
@@ -50,7 +54,7 @@ func DecodeSessionPID(data []byte) (SessionPID, error) {
 func (p SessionPID) check(c *rules) {
 	c.need(p.Keeper.valid(), "keeper is not a process")
 	c.need(p.Session == nil || p.Session.valid() && p.Session.PID != p.Keeper.PID, "session is not a process other than the keeper, or null")
-	c.need(p.Launch == LaunchClaude || p.Launch == LaunchPlain, "launch is not claude or plain")
+	c.need(slices.Contains(Launches, p.Launch), "launch is not claude or plain")
 	c.need(slices.Contains(inbounds, p.Inbound), "inbound is not accept or refuse")
 	c.need(slices.Contains(memberKinds, p.Kind), "kind is not ccy, lxc, host or other")
 }

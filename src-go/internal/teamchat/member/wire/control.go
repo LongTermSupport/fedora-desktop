@@ -301,7 +301,7 @@ func (l *Launch) check() string {
 		return checkRun(l.Run)
 	case !slices.Contains(kinds, l.Kind):
 		return "kind is not ccy, lxc, host or other"
-	case l.Launch != state.LaunchClaude && l.Launch != state.LaunchPlain:
+	case !slices.Contains(state.Launches, l.Launch):
 		return "launch is not claude or plain"
 	case l.Inbound != state.InboundAccept && l.Inbound != state.InboundRefuse:
 		return "inbound is not accept or refuse"
