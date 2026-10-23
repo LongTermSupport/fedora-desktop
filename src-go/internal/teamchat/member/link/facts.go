@@ -1,6 +1,7 @@
 package link
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -79,12 +80,14 @@ type Session struct {
 	// session id the old link never saw.
 	served  bool
 	started bool
+	// pidKnown is closed once the keeper has told the session's pid.
+	pidKnown chan struct{}
 }
 
 // newSession reads session.json back. One that is missing is a session not yet started; one
 // that does not decode is logged and started afresh, losing only what the next hook re-tells.
 func newSession(d sessionDeps) (*Session, error) {
-	s := &Session{d: d, file: state.Session{Run: d.run, Told: state.Told{Roles: map[paths.TeamID]string{}}}}
+	s := &Session{d: d, file: state.Session{Run: d.run, Told: state.Told{Roles: map[paths.TeamID]string{}}}, pidKnown: make(chan struct{})}
 	f, err := state.Read(d.runRoot, d.layout.Run(d.run).Session(), state.MaxSession, state.DecodeSession)
 	switch {
 	case err == nil:
@@ -104,7 +107,53 @@ func newSession(d sessionDeps) (*Session, error) {
 func (s *Session) SetSessionPID(p state.Process) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.sessionPID == nil {
+		close(s.pidKnown)
+	}
 	s.sessionPID = &p
+}
+
+// AwaitPID waits until the keeper has told the session's pid, false when ctx ends first: a
+// hook op before it is not answered (its hook gives its own recovery line).
+func (s *Session) AwaitPID(ctx context.Context) bool {
+	select {
+	case <-s.pidKnown:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// File is session.json as it is now; its maps are the caller's to read, never to change.
+func (s *Session) File() state.Session {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.file
+}
+
+// Update writes session.json with edit applied, when edit says it changed anything; a write
+// that fails changes nothing. edit replaces a map rather than changing it.
+func (s *Session) Update(edit func(*state.Session) bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next := s.file
+	if !edit(&next) {
+		return nil
+	}
+	return s.writeLocked(next)
+}
+
+// CountUnusable counts one hook payload that was not usable (B 2.8) in session.json, and is the
+// counts written.
+func (s *Session) CountUnusable() (state.Unusable, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next := s.file
+	next.Unusable.HookStdin++
+	if err := s.writeLocked(next); err != nil {
+		return s.file.Unusable, err
+	}
+	return next.Unusable, nil
 }
 
 // SetClaude is the keeper's claude: Claude Code's process, fixed for the run.
@@ -168,7 +217,23 @@ func (s *Session) RecordRender(n int64) error {
 // facts this link accepts. session.json is written before it returns, and the conversation
 // record whenever the session id changes; the first accepted session-start tells the start.
 // A refusal is an *exits.Error and changes nothing.
-func (s *Session) AcceptFacts(f Facts) error {
+func (s *Session) AcceptFacts(f Facts) error { return s.acceptWith(f, nil) }
+
+// writeLocked writes next as session.json and keeps it; a write that fails keeps the old.
+func (s *Session) writeLocked(next state.Session) error {
+	data, err := next.Encode()
+	if err == nil {
+		err = s.d.runRoot.Replace(s.d.layout.Run(s.d.run).Session(), data, 0o600)
+	}
+	if err != nil {
+		return err
+	}
+	s.file = next
+	return nil
+}
+
+// acceptWith is AcceptFacts with edit, when set, applied to session.json in the same write.
+func (s *Session) acceptWith(f Facts, edit func(*state.Session)) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.sessionPID == nil {
@@ -191,6 +256,9 @@ func (s *Session) AcceptFacts(f Facts) error {
 	next, err := s.next(f, claude)
 	if err != nil {
 		return err
+	}
+	if edit != nil {
+		edit(&next)
 	}
 	return s.keep(f, next, claude)
 }

@@ -87,6 +87,8 @@ type server struct {
 	// stopping is closed by close once the connections are, and ends every request being
 	// served, so none outlives it (a wait would otherwise hold the link to its deadline).
 	stopping chan struct{}
+	// hook, when set, answers the four hook ops in place of the engine, given the peer's pid.
+	hook func(ctx context.Context, req wire.Request, peer int) hookReply
 }
 
 func newServer(ln *net.UnixListener, eng served, clk clock.Clock, uid int, kit paths.Digest, log io.Writer) *server {
@@ -176,7 +178,8 @@ func (s *server) logf(format string, args ...any) {
 // does not decode 10, another kit 78 runtime; one whose deadline has passed is closed unacted;
 // otherwise its records and done, and for a hand-out the wait for its ack.
 func (s *server) handle(base context.Context, c *net.UnixConn) {
-	if uid, err := peerUID(c); err != nil || uid != s.uid {
+	cred, err := peerCred(c)
+	if err != nil || int(cred.Uid) != s.uid {
 		return
 	}
 	r := bufio.NewReaderSize(c, wire.MaxRequest+1)
@@ -213,6 +216,15 @@ func (s *server) handle(base context.Context, c *net.UnixConn) {
 		case <-ctx.Done():
 		}
 	}()
+	if s.hook != nil && isHookOp(req.Op) {
+		reply := s.hook(ctx, req, int(cred.Pid))
+		stopDeadline()
+		cancel()
+		if reply.answered {
+			s.answerHook(w, reply)
+		}
+		return
+	}
 	done := s.eng.Serve(ctx, req, recordWriter{w})
 	stopDeadline()
 	cancel()
@@ -245,6 +257,16 @@ func (s *server) answer(w *bufio.Writer, done wire.Done) bool {
 		return false
 	}
 	return w.Flush() == nil
+}
+
+// answerHook writes a hook op's answer line, when it has one, then its done (n3e-D18).
+func (s *server) answerHook(w *bufio.Writer, reply hookReply) {
+	if reply.line != nil {
+		if _, err := w.Write(append(reply.line, '\n')); err != nil {
+			return
+		}
+	}
+	s.answer(w, reply.done)
 }
 
 // settle waits ackWait for the client's {"ack"}: the same ack delivers the items, anything
@@ -282,23 +304,23 @@ func readAck(r *bufio.Reader) (string, error) {
 	return "", wire.ErrMalformed
 }
 
-// peerUID is the connecting process's uid (SO_PEERCRED).
-func peerUID(c *net.UnixConn) (int, error) {
+// peerCred is the connecting process's credentials, its uid and pid (SO_PEERCRED).
+func peerCred(c *net.UnixConn) (unix.Ucred, error) {
 	raw, err := c.SyscallConn()
 	if err != nil {
-		return 0, err
+		return unix.Ucred{}, err
 	}
 	var cred *unix.Ucred
 	var credErr error
 	if err := raw.Control(func(fd uintptr) {
 		cred, credErr = unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED)
 	}); err != nil {
-		return 0, err
+		return unix.Ucred{}, err
 	}
 	if credErr != nil {
-		return 0, credErr
+		return unix.Ucred{}, credErr
 	}
-	return int(cred.Uid), nil
+	return *cred, nil
 }
 
 // recordWriter writes a request's records as their lines.

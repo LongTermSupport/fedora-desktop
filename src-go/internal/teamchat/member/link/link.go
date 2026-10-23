@@ -120,6 +120,9 @@ type link struct {
 	render      int64
 	renderDirty bool
 	renderWake  chan struct{}
+
+	hooks hookMemory
+	mem   membership
 }
 
 // Run is the link (LN1): link.lock (78 if another link holds it), the keeper's pidfd, the
@@ -133,6 +136,7 @@ func Run(ctx context.Context, cfg Config) term.ExitCode {
 	l := &link{
 		cfg: cfg, msgs: make(chan received), quit: make(chan struct{}), first: make(chan struct{}),
 		states: map[paths.TeamID]wire.State{}, stateWake: make(chan struct{}, 1), renderWake: make(chan struct{}, 1),
+		mem: membership{wake: make(chan struct{}, 1)},
 	}
 	code := l.run(ctx)
 	if err := ll.Release(); err != nil {
@@ -183,7 +187,9 @@ func (l *link) run(parentCtx context.Context) term.ExitCode {
 		return refuse(l.cfg.Log, "serve link.sock", err)
 	}
 	l.srv = newServer(ln, l.eng, l.cfg.Clock, l.cfg.UID, l.cfg.Kit, l.cfg.Log)
+	l.srv.hook = l.serveHook
 	go l.srv.run(ctx)
+	l.bg.Go(func() { l.announceTeams(ctx) })
 	l.send(wire.Msg{Kind: wire.KindReady, Ready: &wire.Ready{}})
 	if l.cfg.started != nil {
 		l.cfg.started(l)
@@ -285,7 +291,9 @@ func (l *link) build(launch wire.Launch) term.ExitCode {
 		Delivery: l.delivery, Plain: plain, FirstSessionStart: l.first,
 		OnState: l.onState, Runtime: l.runtime,
 		Inbox: dialer, Unusable: l.session.Unusable(), OnUnusable: l.onUnusable,
+		OnTeams: l.onTeams,
 	})
+	l.setGeneration(launch.Generation)
 	if err != nil {
 		return refuse(l.cfg.Log, "make the engine", err)
 	}
@@ -356,6 +364,7 @@ func (l *link) dispatch(ctx context.Context, r received) bool {
 		f.Token = m.Token.Token
 		l.logErr("tell the engine the session", l.eng.SetSession(ctx, f))
 	case wire.KindDesired:
+		l.setGeneration(m.Desired.Generation)
 		l.logErr("set the desired membership", l.eng.SetDesired(ctx, *m.Desired))
 	case wire.KindRefused:
 		l.logErr("show a refused add", l.eng.Refuse(ctx, m.Refused.Team, m.Refused.HolderRun))
@@ -385,6 +394,7 @@ func (l *link) add(ctx context.Context, a *wire.Add, fd *os.File) {
 // within leaveWait presence offline, the leave when the farewell is released, and left. Every
 // remove is answered: one the engine could not make goes with no user id and posts nothing.
 func (l *link) remove(ctx context.Context, rm *wire.Remove) {
+	l.noteFarewell(rm.Team, rm.Farewell)
 	removed, err := l.eng.Remove(ctx, rm.Team)
 	if err != nil {
 		l.logf("link: remove %s: %v", rm.Team, err)
