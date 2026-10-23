@@ -371,8 +371,9 @@ Where it was weak:
 
 ## 9. For the owner
 
-Product behaviours with no clear best answer. The build follows the recommendation unless the
-owner says otherwise; the lead asks.
+Product behaviours with no clear best answer. The team coordinator has set each recommendation
+below as the **coordinator default**: n3f is built on OW1 (a), OW2 (a) and OW3 (a), the bound of
+10 000. Each stays open to the owner changing it later; the coordinator lists them for the owner.
 
 - **OW1. A human posts in questions while the coordinator is offline.** Nothing tells the human
   that no coordinator session is running; the post waits and is delivered when one runs (OF1).
