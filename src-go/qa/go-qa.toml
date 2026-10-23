@@ -54,32 +54,30 @@ fix = "Make the failing busfailpoints test pass"
 command = ["go", "test", "-race", "-shuffle=on", "-count=2", "-tags", "busfailpoints", "./internal/teamchat/..."]
 
 # The project rules (src-go/qa/rules) run through the analyzers stage over the untagged build only,
-# so a finding in a file that builds only under one of these tags would pass the gate. These
-# stages build the driver and run it as go vet's tool over the tagged build.
+# so a finding in a file that builds only under one of these tags would pass the gate. This stage
+# builds the driver once and runs it as go vet's tool over each (tag, packages) pair; a failing pair
+# does not stop the rest, so every pair's findings are shown, and the stage fails if any pair did.
 [[stage]]
-name = "teamchat-failpoints-rules"
+name = "project-rules-tagged"
 phase = "detectors"
-says = "the project rules (qa/rules) over internal/teamchat built with -tags busfailpoints"
-fix = "Fix what the project rules report in the busfailpoints build"
-command = ["bash", "-c", "set -euo pipefail; d=$(mktemp -d); trap 'rm -rf \"$d\"' EXIT; go -C qa build -o \"$d/driver\" ./driver; go vet -vettool=\"$d/driver\" -tags busfailpoints ./internal/teamchat/..."]
-
-[[stage]]
-name = "teamchat-tuwunel-rules"
-phase = "detectors"
-says = "the project rules (qa/rules) over internal/teamchat built with -tags tuwunel"
-fix = "Fix what the project rules report in the tuwunel build"
-command = ["bash", "-c", "set -euo pipefail; d=$(mktemp -d); trap 'rm -rf \"$d\"' EXIT; go -C qa build -o \"$d/driver\" ./driver; go vet -vettool=\"$d/driver\" -tags tuwunel ./internal/teamchat/..."]
-
-[[stage]]
-name = "teams-ccyteamstest-rules"
-phase = "detectors"
-says = "the project rules (qa/rules) over internal/teams built with -tags ccyteamstest"
-fix = "Fix what the project rules report in the ccyteamstest build"
-command = ["bash", "-c", "set -euo pipefail; d=$(mktemp -d); trap 'rm -rf \"$d\"' EXIT; go -C qa build -o \"$d/driver\" ./driver; go vet -vettool=\"$d/driver\" -tags ccyteamstest ./internal/teams/..."]
-
-[[stage]]
-name = "claude-yolo-difftest-rules"
-phase = "detectors"
-says = "the project rules (qa/rules) over cmd/claude-yolo built with -tags difftest"
-fix = "Fix what the project rules report in the difftest build"
-command = ["bash", "-c", "set -euo pipefail; d=$(mktemp -d); trap 'rm -rf \"$d\"' EXIT; go -C qa build -o \"$d/driver\" ./driver; go vet -vettool=\"$d/driver\" -tags difftest ./cmd/claude-yolo/..."]
+says = "the project rules (qa/rules) over the busfailpoints, tuwunel, ccyteamstest and difftest builds"
+fix = "Fix what the project rules report in the tagged build named above the finding"
+command = ["bash", "-c", '''
+set -uo pipefail
+pairs=(
+  "busfailpoints ./internal/teamchat/..."
+  "tuwunel ./internal/teamchat/..."
+  "ccyteamstest ./internal/teams/..."
+  "difftest ./cmd/claude-yolo/..."
+)
+d=$(mktemp -d)
+trap 'rm -rf "$d"' EXIT
+go -C qa build -o "$d/driver" ./driver || exit 1
+status=0
+for pair in "${pairs[@]}"; do
+  read -r tag pkgs <<<"$pair"
+  echo "project rules: -tags $tag $pkgs" >&2
+  go vet -vettool="$d/driver" -tags "$tag" "$pkgs" || status=1
+done
+exit "$status"
+''']
