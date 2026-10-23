@@ -1,6 +1,6 @@
 # Plan 00225: team liaison role
 
-**Status**: Not Started (plan only; decisions LD1-LD11 carry coordinator defaults the owner may change)
+**Status**: Not Started (plan only; review ended FIX-FIRST at round 4 with both findings fixed and not re-reviewed; decisions LD1-LD12 carry coordinator defaults the owner may change)
 **Created**: 2026-10-23
 **Owner**: joseph
 **Priority**: Medium
@@ -78,6 +78,9 @@ Every build task is test first: the failing test is committed or recorded before
 
 - [ ] ⬜ **Task 0.1**: `triage.bash` in this folder (host; throwaway container and unit, removed
   in an `EXIT` trap). It records:
+  - first, whether the entrypoint's root can make `ro` bind mounts inside a rootless ccy
+    container after its own writes (LZ17), and a real Claude Code session run against them
+    (hooks fire, the session starts and writes its state); if not, LD12's fallback is taken;
   - which paths inside the checkout a ccy session (Claude Code with the hooks daemon) writes,
     found by launching one with the checkout `ro` and logging each `EROFS`, each classified
     as state (bound `rw` at its real path) or configuration (stays `ro`; LZ17), with every
@@ -88,7 +91,7 @@ Every build task is test first: the failing test is committed or recorded before
   - that a coordinator's token can `GET /rooms/{room}/event/{id}` in the questions room.
 - [ ] ⬜ **Task 0.2**: Findings in `RESEARCH-facts.md`; LZ17 and LZ20's writable list is the
   measured one; a refuted fact changes DESIGN.md first.
-- [ ] ⬜ **Task 0.3**: The owner answers LD1-LD11, or the defaults stand. Each is recorded in the journal.
+- [ ] ⬜ **Task 0.3**: The owner answers LD1-LD12, or the defaults stand. Each is recorded in the journal.
 
 ### Phase 1: The role in the v1 protocol (upgrade-first)
 
@@ -109,9 +112,13 @@ Every build task is test first: the failing test is committed or recorded before
 - [ ] ⬜ **Task 2.1**: The syncer:
 
   - the liaison's rooms: main, questions woken, and the reports timeline read (LZ9, LZ12);
-  - the coordinator's quiet questions items: never delivered while the liaison is active,
-    marked `relayed`, delivered on the keeper's `liaison_relay_s` wake, on an edit after
-    relay, and all at once when the liaison goes inactive (LZ9);
+  - the coordinator's quiet questions items: only those on a handed-off `Q<n>` are owed; never
+    delivered while the liaison is active, marked `relayed`, delivered on the keeper's
+    `liaison_relay_s` wake, on an edit after relay, and when the liaison goes inactive with the
+    messages since its last live status (LZ9). A test first: a human's unattached message, or
+    one on a question the liaison asked for itself, never reaches the coordinator while the
+    liaison is active;
+  - status events accepted from the liaison as from other role holders (LZ10);
   - LZ10's producer: the coordinator's `liaison.json` per team (`joined`, `until`,
     `read_at`), written atomically each sync; the active test over it, where missing, stale or
     unreadable means inactive;
@@ -174,13 +181,14 @@ Every build task is test first: the failing test is committed or recorded before
 
 - [ ] ⬜ **Task 5.1**: `ccy-teams internal launch-mounts` (Go): the `ro` workspace and an `rw`
   bind of each state path measured in Task 0.1 at its real host path, entry by entry, never
-  `.claude/ccy/` whole; the rendered `settings.json` and `.claude.json` in a per-seat host
-  directory bound `ro` over their paths. Tests on a fixture membership, for a liaison launch, that
-  no configuration path is ever writable: the project's `.claude/settings*`, hooks and daemon
-  config, and in `.claude/ccy/` the user `settings.json`, `claude-supervise.py`, `mounts`,
-  `ccy.env`, `Dockerfile` and `allowed-hostnames`; an unclassified path is `ro`; nothing changes
-  for any other role. The entrypoint's one-call check (present and not writable, else stop
-  naming the path) is a kit Go binary, tested first; **container version bump**. The launcher appends its output in place of the workspace `-v`, adding
+  `.claude/ccy/` whole. The kit Go binary the entrypoint calls once, after its own writes and
+  before the session starts, binds each configuration path `ro` and stops the launch naming any
+  that fails (LZ17), tested first; or LD12's fallback, as Task 0.1 decides. Tests on a fixture,
+  for a liaison launch, that no configuration path is writable once the session starts: the
+  project's `.claude/settings*`, hooks and daemon config, and in `.claude/ccy/` the user
+  `settings.json`, `plugins/`, `skills/`, `claude-supervise.py`, `mounts`, `ccy.env`,
+  `Dockerfile` and `allowed-hostnames`; an unclassified path is `ro`; `/root/.claude.json` is
+  untouched; nothing changes for any other role. **Container version bump.** The launcher appends its output in place of the workspace `-v`, adding
   no line (`qa-bash-limits` proves it), and `scripts/test-ccy-agent-bus.bash` pins the
   arguments first, red. **CCY version bump.**
 - [ ] ⬜ **Task 5.2**: LZ18: the board's `relaunch for read-only` state and the role-notice text,
@@ -234,19 +242,20 @@ Every build task is test first: the failing test is committed or recorded before
 
 ## Decisions (coordinator defaults; the owner may change any)
 
-| ID   | Decision                                             | Default                                                                                                                                                                                     |
-| ---- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| LD1  | One liaison per team, or one per human across teams  | **One per team, one session per liaison seat** (LZ3, DESIGN section 7). A shared liaison would first need the owner to reverse Plan 00207's ruling against a liaison relaying between teams |
-| LD2  | A liaison without a coordinator                      | Refused at assignment (LZ2)                                                                                                                                                                 |
-| LD3  | The coordinator loses `AskUserQuestion`              | Yes, only while a liaison is active in its team (LZ16)                                                                                                                                      |
-| LD4  | The coordinator's `ask-human` with an active liaison | Handed to the liaison; `--direct` only after the hand-off timeout or with an inactive liaison (LZ8, LZ11)                                                                                   |
-| LD5  | An answer typed in the liaison's terminal            | Information only, `relays: terminal`; a decision that needs authority is answered in the questions room (LZ7a)                                                                              |
-| LD6  | Who owns `notify-owner`                              | Both may; the liaison is told to use it and the coordinator to hand it over (LZ21)                                                                                                          |
-| LD7  | Read access beyond the liaison's own checkout        | None at first; other repositories by a later plan if needed                                                                                                                                 |
-| LD8  | Progress updates                                     | When the human asks, or when the coordinator hands one over; no timed digests (LZ13)                                                                                                        |
-| LD9  | Timers                                               | `liaison_offline_s` 600, `liaison_relay_s` 900, `liaison_handoff_s` 1800, per team in `agent_bus_teams`                                                                                     |
-| LD10 | v1 member side in Python                             | Yes, as 00211 D9's interim (pingbus and admin are Python until v2); every new piece outside them (guard, mounts, board) is Go                                                               |
-| LD11 | May the liaison reword a hand-off it posts           | **No**: posted verbatim, a `liaison_note` may go with it in its own key; a reworded post fails the check (`reworded`, LZ5a, LZ6)                                                            |
+| ID   | Decision                                                                  | Default                                                                                                                                                                                     |
+| ---- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| LD1  | One liaison per team, or one per human across teams                       | **One per team, one session per liaison seat** (LZ3, DESIGN section 7). A shared liaison would first need the owner to reverse Plan 00207's ruling against a liaison relaying between teams |
+| LD2  | A liaison without a coordinator                                           | Refused at assignment (LZ2)                                                                                                                                                                 |
+| LD3  | The coordinator loses `AskUserQuestion`                                   | Yes, only while a liaison is active in its team (LZ16)                                                                                                                                      |
+| LD4  | The coordinator's `ask-human` with an active liaison                      | Handed to the liaison; `--direct` only after the hand-off timeout or with an inactive liaison (LZ8, LZ11)                                                                                   |
+| LD5  | An answer typed in the liaison's terminal                                 | Information only, `relays: terminal`; a decision that needs authority is answered in the questions room (LZ7a)                                                                              |
+| LD6  | Who owns `notify-owner`                                                   | Both may; the liaison is told to use it and the coordinator to hand it over (LZ21)                                                                                                          |
+| LD7  | Read access beyond the liaison's own checkout                             | None at first; other repositories by a later plan if needed                                                                                                                                 |
+| LD8  | Progress updates                                                          | When the human asks, or when the coordinator hands one over; no timed digests (LZ13)                                                                                                        |
+| LD9  | Timers                                                                    | `liaison_offline_s` 600, `liaison_relay_s` 900, `liaison_handoff_s` 1800, per team in `agent_bus_teams`                                                                                     |
+| LD10 | v1 member side in Python                                                  | Yes, as 00211 D9's interim (pingbus and admin are Python until v2); every new piece outside them (guard, mounts, board) is Go                                                               |
+| LD11 | May the liaison reword a hand-off it posts                                | **No**: posted verbatim, a `liaison_note` may go with it in its own key; a reworded post fails the check (`reworded`, LZ5a, LZ6)                                                            |
+| LD12 | If a rootless ccy container cannot bind its configuration `ro` (Task 0.1) | A per-seat `.claude/ccy/` outside the checkout, with the wrapper, `mounts` and `ccy.env` re-rendered by the launcher at every liaison launch (LZ17)                                         |
 
 ## Risks & Mitigations
 
@@ -281,3 +290,13 @@ Every build task is test first: the failing test is committed or recorded before
      JOURNAL/00225-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
 - Plan and design filed (plan only); reviews in `subagent-reports/`.
+
+- Adversarial review: four Opus rounds, each fixed in its own commit. The findings went from
+  2 blockers and 6 majors, to 5 majors, to 1, to 2. Round 4 ended FIX-FIRST. Its two majors
+  are fixed but not re-reviewed:
+
+  - the liaison's configuration binds made after the entrypoint's writes, with LD12 as the
+    fallback;
+  - the coordinator owed only answers on handed-off questions.
+
+  Before Phase 0, one narrow check of those two fixes reaching MERGE.

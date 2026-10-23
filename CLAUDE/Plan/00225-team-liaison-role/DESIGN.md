@@ -169,11 +169,17 @@ handed over, never from the liaison.
   as `quiet`. A quiet item is never delivered into the coordinator's conversation, at any wake,
   while the liaison is active: only the relay is, so each answer reaches the coordinator once.
   A quiet item is marked `relayed` when a verified relay names it. `pingbus questions` lists
-  quiet items with `relayed` or `waiting on the liaison`. Two things deliver a quiet item: its
-  edit after it was relayed (LZ6), and the coordinator's keeper finding it still unrelayed after
-  `liaison_relay_s` (default 900), when it is delivered as `HUMAN` with the line "the liaison has
-  not passed this on". When the liaison becomes inactive, every unrelayed quiet item is
-  delivered as `HUMAN` at once. The `role_questions` line (`hooks.py`) for a coordinator with an
+  quiet items with `relayed` or `waiting on the liaison`. Only items attached to a `Q<n>` whose
+  post carries `handed-off:` naming this coordinator's hand-off are ever owed to the
+  coordinator; a human's other messages there (talk with the liaison, "what is happening",
+  replies to updates) are the liaison's and are never delivered to the coordinator while the
+  liaison is active. Three things deliver an owed item: its edit after it was relayed (LZ6); the
+  coordinator's keeper finding it still unrelayed after `liaison_relay_s` (default 900), when it
+  is delivered as `HUMAN` with the line "the liaison has not passed this on"; and the liaison
+  becoming inactive, when every unrelayed owed item is delivered as `HUMAN` at once, together
+  with every other human message that arrived after the liaison's last live status (nobody was
+  there to read it). `history --room questions` marks each item `relayed`, `owed` or
+  `liaison's`. The `role_questions` line (`hooks.py`) for a coordinator with an
   active liaison reads: "the liaison passes the humans' answers on; `pingbus questions` shows
   any it has not". With no active liaison it is woken as today.
 - A human's message in the main room addressed to a member still reaches that member as
@@ -186,7 +192,8 @@ handed over, never from the liaison.
   (the coordinator cannot read the liaison's bundle, so the join stands in for `human_text`,
   which LZ1 refuses at assignment and which leaves that invite pending), and its keeper's live
   status (the `agent_bus.status` that 00211's `check-rooms` reads) has an `until` no earlier
-  than now. **The producer:** the coordinator's syncer reads these on every sync and writes
+  than now. The syncer accepts a status event only from a role holder today (`syncer.py`); the
+  liaison is added to those holders. **The producer:** the coordinator's syncer reads these on every sync and writes
   `liaison.json` per team in its `PINGBUS_HOME` (liaison handle, `joined`, `until`, `read_at`),
   atomically; `ask-human`, the keeper (LZ9) and the guard (LZ16) read that file, and a file
   whose `read_at` is older than `liaison_offline_s` (default 600) counts as unreadable. A status
@@ -231,7 +238,9 @@ handed over, never from the liaison.
   subcommand outside a read-only allowlist (`status`, `log`, `show`, `diff`, `blame`, `grep`,
   `ls-files`, `ls-tree`, `rev-parse`, `cat-file`, `describe`, `shortlog`, and `branch` or
   `tag` with only listing options), or `gh` with anything but `view`, `list`, `diff` and `status`
-  subcommands. An allowlist, so a write verb nobody listed is denied, never allowed.
+  subcommands. An allowlist, so a write verb nobody listed is denied, never allowed. Options
+  that run commands or write files are denied with any subcommand: `git -c`, `--output`,
+  `--ext-diff`, `--textconv`, `--exec-path`.
   It keeps `AskUserQuestion`, `PushNotification` and every read tool. The text, from a fixed
   template: `agent-bus: <tool> is not the liaison's: you talk to the humans and do no work. Hand it to your coordinator: pingbus say --team <team> --to-coordinator '<what is needed>'.` A Bash
   write by redirection is not caught; that is what the mount is for (LZ17), and on `cc` it is a
@@ -265,13 +274,22 @@ handed over, never from the liaison.
   - **State** (Task 0.1 lists it: transcripts, todos, the login's token file and the like) is
     bound `rw` at its real host path, entry by entry, so it survives relaunch as today. The
     hooks daemon's untracked state and the project's `untracked/` are state too.
-  - **Configuration** stays `ro`, including every file named above. The entrypoint writes
-    `settings.json` and `/root/.claude.json` at every launch, so for a liaison they cannot simply
-    be `ro`. Instead, `launch-mounts` (Go, on the host) renders exactly what the entrypoint would
-    write, before the launch, into a per-seat host directory outside the checkout, and binds
-    each file `ro` over its path. The entrypoint's liaison case only checks that each is present
-    and not writable, through a kit Go binary, and stops the launch with the path named if not.
-    The entrypoint is on the ratchet and gains no line beyond that one call.
+  - **Configuration** stays `ro` to the session, including every file named above. The
+    entrypoint (`set -e`) writes some of it at every launch: the `jq` merge into
+    `settings.json`, the plugin install into `plugins/`, the skills copy into `skills/`. So the
+    `ro` binds must be in place only after those writes and before Claude Code starts. The
+    entrypoint keeps doing its writes, unchanged, the one owner of the merge. Its last step
+    before starting the session is already the hand-off to the supervisor wrapper; for a liaison,
+    a kit Go binary run at that point (the one added line) puts `ro` bind mounts over each
+    configuration path, as root in the container's own mount namespace, and stops the launch
+    naming the path if any bind fails. Whether a rootless ccy container may make such binds is
+    Task 0.1's first fact. If it cannot, the fallback (LD12) is a liaison whose `.claude/ccy/` is a
+    per-seat host directory outside the checkout: its writes there then reach no file another
+    role or the launcher reads, and the launcher re-renders the wrapper, `mounts` and `ccy.env`
+    for it from the image and the team record at every liaison launch. `/root/.claude.json` is
+    not in the checkout (claude-yolo creates it in the container, and it does not carry over), and
+    Claude Code rewrites it during a session by replacing the file, so it is never bound and is
+    not in this list.
 
   Task 0.1 classifies every entry of `.claude/ccy/` and every other measured write as state or
   configuration. Anything unclassified is configuration (`ro`): a session that then fails names
