@@ -105,8 +105,9 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   `envelope.py` and `inject.py`, the watcher, the hooks, the skill, plugin 1.2.0, container
   2.63, CCY 3.98.8; Plan 00161's M2 checks read deliveries). Reviewed, merged into F44 and
   deployed: every ccy session now receives `agent-bus delivery` envelopes. Left: the host
-  checks H1-H7 (SPEC-inject.md), the host agent's, with a scripted test human (a token the
-  agent-bus admin tool mints for a declared test human, never the owner's account) posting
+  checks H1-H7 (SPEC-inject.md), the host agent's, with a scripted test human (a declared
+  test human whose password the agent-bus admin tool sets with `human password`, the sender
+  logging in with it; never the owner's account) posting
   where the spec says Element, and the session pane read with tmux `capture-pane`. That proves
   the server-side path and the envelope; it does not prove Element's own rendering.
 - [ ] 🔄 **Task 2.0d**: The watcher survives a homeserver restart and is supervised

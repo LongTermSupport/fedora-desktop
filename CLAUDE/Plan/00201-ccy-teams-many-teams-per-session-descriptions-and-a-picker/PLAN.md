@@ -3,7 +3,7 @@
 **Status**: In Progress. M1-M7 built and deployed; the automated two-team acceptance last
 passed on the host at F44 cab255ad4 (commit d2612e8d7), with Tasks 2.21 to 2.23's checker
 fixes. The relay task 2.8 is superseded; Tasks 2.11, 2.12, 2.15, 2.17 and 2.18 are carried by
-Plan 00209. Left for workers: Task 2.19 (the wait in the Python lock helper), Tasks 2.24 to
+Plan 00209. Left for workers: Task 2.19 (the wait in the Python lock helper), Tasks 2.24 and
 2.26 (from Task 2.22's referrals), a scripted test human for the Element checks, and the
 final qa-reviewer. Left for the host agent: the interactive checks of
 [ACCEPTANCE-owner.md](ACCEPTANCE-owner.md) driven through tmux (Tasks 2.7, 2.12 check 11,
@@ -135,8 +135,8 @@ a repository is no longer offered for a checkout of it. Report:
   line, cc consent, shutdown, settings screen) are the host agent's: it drives them through
   tmux `send-keys` and reads them with `capture-pane`, on throwaway teams in an uncovered
   scratch checkout. Its checks that post "from Element" use a scripted test human (a worker
-  builds it: a declared test human whose token the agent-bus admin tool mints, never the
-  owner's account). Check 03 (homeserver start times unchanged) becomes a scripted leg of
+  builds it: a declared test human whose password the agent-bus admin tool sets with
+  `human password`, the sender logging in with it; never the owner's account). Check 03 (homeserver start times unchanged) becomes a scripted leg of
   `_acceptance-m7.inc.bash` (a worker). Check 10 (remove the added scope) has nothing to remove
   when the checks ran on throwaway teams.
 
@@ -387,7 +387,8 @@ a repository is no longer offered for a checkout of it. Report:
     copy, and left as they are. The conservative reading: no product change is made for a site
     nobody could show is a copy, and a later finding can still convert one.
   - B4's wire tags: not a copy (the protocol specification, which a checker may state).
-  - The plan-folder `test_*.py` that no gate runs: Task 2.25.
+  - The plan-folder `test_*.py` that no gate runs: Task 2.25, which the `plan-tests` gate had
+    already closed.
   - The bash "only the last command substitution of one assignment reaches errexit" shape:
     Task 2.26.
 
@@ -397,9 +398,10 @@ a repository is no longer offered for a checkout of it. Report:
   The rows are Task 2.21's referred list and the first three bullets of Task 2.23's referred
   list (report `subagent-reports/261022-sweep-dbf-report.md`). A worker.
 
-- [ ] ⬜ **Task 2.25**: The helper-tests gate also runs each plan folder's own `test_*.py`
-  (`CLAUDE/Plan/*/test_*.py`), so a plan checker's tests going red is seen (Plan 00161's
-  `test_acceptance_check` went red at `a5486643d` unseen). A worker.
+- [x] ✅ **Task 2.25**: A gate runs each plan folder's own `test_*.py`, so a plan checker's
+  tests going red is seen (Plan 00161's `test_acceptance_check` went red at `a5486643d`
+  unseen). Already built: the `plan-tests` gate (`src-go/qa/plantests`, commits 7c6974126 and
+  60f028790) runs every active plan folder's own Python tests, in `qa-changed.bash` too.
 
 - [ ] ⬜ **Task 2.26**: A rule on `src-go/qa/bashlimits`' syntax tree for an assignment holding
   more than one command substitution, where only the last one's failure reaches errexit (the
@@ -447,7 +449,7 @@ a repository is no longer offered for a checkout of it. Report:
     15), which a checker may state; not a copy.
   - No QA gate runs a plan folder's own `test_*.py` (the helper-test gate reads only
     `tests/helpers/`), so Plan 00161's `test_acceptance_check` went red at `a5486643d` (the
-    HUMAN room field) unseen; its fixtures are fixed, the gate gap is Task 2.25.
+    HUMAN room field) unseen; its fixtures are fixed, the gate gap is closed by the `plan-tests` gate (Task 2.25).
   - In bash, only the last command substitution of one assignment reaches errexit (00211
     stage 2 hid a failed read this way; fixed). No rule detects the shape yet; it needs the
     syntax tree (`src-go/qa/bashlimits` already parses every bash file).

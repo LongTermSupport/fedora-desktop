@@ -66,9 +66,9 @@ on Gio with goldmark (Task 1.2).
   setting read over D-Bus). Decided as **coordinator defaults, changeable by the owner** (the
   owner's standing "do not gate on me"):
 
-  - Emoji: embed an emoji font in md-viewer. It is the only option that keeps "no font scan
-    at start" (launch-to-render as fast as possible, Task 1.2) and still draws the status
-    marks plans are full of.
+  - Emoji: embed an emoji font in md-viewer. It is the only option that needs no scan of the
+    system's fonts at start, so it keeps Task 1.2's "launch-to-render as fast as possible",
+    and still draws the status marks plans are full of.
   - Dark mode: read `org.freedesktop.appearance` `color-scheme` once at start through the XDG
     settings portal over D-Bus, with `--dark` and `--light` overriding it. A flag alone does
     not meet this plan's goal "It follows GNOME's light or dark scheme".

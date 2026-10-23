@@ -257,15 +257,16 @@ owes the docs check (F4); goldmark is v1.8.6 (F9). F3, F6, F8 and F10 were not r
 Shared scaffolding (`go-port/qa-cmdmain`, merged): the command-line and output boilerplate the
 gates had each copied now lives in `src-go/qa/internal/cmdmain` (closed-stdout refusal, report
 writers), `emit` (the two-stream writer and the exit rule) and `rootargs` (the `-h`, `--root`,
-`--scripts` grammar): every one of the 22 `qa/cmd` mains uses `cmdmain`, and 12 gate packages
-use `rootargs` (9 of them also `emit`). Fable review
+`--scripts` grammar): every one of the 28 `qa/cmd` mains uses `cmdmain`, 16 gate packages use
+`rootargs` (10 of them also `emit`), and 12 use `emit` (counted at F44 1d8bc1037 by the
+packages' non-test imports, after the gates added since the merge). Fable review
 (`subagent-reports/261015-fable-review-cmdmain.md`) found no blocker and no behaviour drift.
 Checked in the merged tree: `rootargs.Lenient` is gone, so `--root ""` is refused as
 `--root needs a directory` instead of silently falling back to another tree, and
 `rootargs_test.go` pins `--root ""` and `--scripts ""`; the `ansible-patterns` routing row for
 `qa/ansible`, `qa/cmd/qa-ansible` and the shared packages is in `scripts/qa-routing.tsv`; the
-cmdmain tests read the report back; `src-go/CLAUDE.md` describes the shared packages; all 22
-`qa/cmd` mains call `cmdmain.RefuseClosedStdout`; the departure rows for the Strict move exist
+cmdmain tests read the report back; `src-go/CLAUDE.md` describes the shared packages; all 28
+`qa/cmd` mains call `cmdmain.RefuseClosedStdout` (28 directories, 28 non-test callers); the departure rows for the Strict move exist
 (SPEC-qa-docs B16, qa-js B12, qa-python B18, qa-patterns B15, qa-gh-scopes B9, qa-ansible-syntax
 D11).
 `qa-go.bash`, the interim Go gate, was not ported (owner's decision, 2026-10-15): Plan 00191
