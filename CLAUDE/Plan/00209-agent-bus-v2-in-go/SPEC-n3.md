@@ -925,20 +925,33 @@ or keeper.log.
   AS3's one identifier, and no golden or pinned text changes.
 
 - **AS6. The defence.** A project rule, `project_agent_branch`, applies to the non-test files
-  of `internal/teamchat/...`. It reports:
+  of `internal/teamchat/...`, `cmd/teamchat/...` and `cmd/teamchat-admin/...`. It reports:
 
   - any use of the object `state.LaunchClaude`, `state.LaunchPlain`, `state.Launches`,
     `cli.LaunchClaude`, `cli.LaunchPlain`, `agent.Claude` or `agent.Plain`. A use is a
     `types.Info.Uses` entry, so an unqualified use inside the declaring package counts; a
     declaration is not a use;
   - any `==` or `!=`, `switch` tag or map key type whose type is `agent.Agent`;
-  - any `==` or `!=`, or `switch` case against a tag, where one operand is a constant
-    expression whose value (`types.Info.Types[e].Value`) is `"claude"` or `"plain"`, and the
-    other is the field `wire.Launch.Launch` or `state.SessionPID.Launch`, or a conversion to
-    `string` of an `agent.Agent`;
-  - any call that has the field `wire.Launch.Launch` or `state.SessionPID.Launch` as one
-    argument and, as another, a composite literal holding a constant whose value is a launch
-    value.
+  - any `==` or `!=`, call, index expression, or `switch` tag and its cases, whose operands
+    hold both a launch operand and a launch constant, where:
+    - a launch operand is the field `wire.Launch.Launch` or `state.SessionPID.Launch`, or a
+      conversion to `string` of an `agent.Agent`, either directly or as an argument of a call
+      that is itself an operand, through any depth of calls (`strings.ToLower(l.Launch)`,
+      `strings.EqualFold(strings.TrimSpace(l.Launch), "plain")`);
+    - a launch constant is a constant expression whose value (`types.Info.Types[e].Value`) is
+      `"claude"` or `"plain"`, or a list of words split on `,`, `|` or `;` one of which is
+      (`strings.Contains("plain,x", l.Launch)`);
+    - in a call's other arguments, and as the map of an index expression, a composite literal
+      holding a launch constant also counts (`slices.Contains([]string{"plain"}, l.Launch)`,
+      `map[string]bool{"plain": true}[l.Launch]`).
+
+  Its declared gaps, which it does not judge: a value that reaches the field through a
+  function's result (below); a copy of the field held in a variable and then compared; a list
+  or map of launch values held in a variable other than `state.Launches`; a part of a launch
+  value (`strings.HasPrefix(l.Launch, "pla")`); and a launch value inside a sentence, which is
+  not a list (`"launch is not claude or plain"`). CL2's program-name match in cli
+  (`filepath.Base(a) == "claude"`) is not in the class: `a` is an argument of CMD, not the
+  launch value.
 
   Package `agent` is its owner. Elsewhere its exemptions are `allowance` rows in
   `qa/rules/table.go`, each with its reason:
@@ -953,7 +966,10 @@ or keeper.log.
   CL2's claude argument rule (`Launch.checkClaudeCmd`) compares no launch value and needs no
   row. `analysistest` proves the rule red on a fixture that holds each form above and the ways
   round it: a local copy of a constant, a named string constant, a `switch` on the field, a
-  `slices.Contains` over `state.Launches` or over a literal list, and `string(agent) ==`. It is
+  `slices.Contains` over `state.Launches` or over a literal list, `string(agent) ==`,
+  `strings.EqualFold`, `strings.Contains` over a one-string list, `strings.HasPrefix` and
+  `HasSuffix` with a full value, a map literal indexed by the field, and a `switch` on
+  `strings.ToLower` of the field. It is
   red on the tree before the move, through every site of AS1a, and green after. Its catalogue
   row in GoProjectRules.md says it is found in the keeper and link launch comparisons the seam
   replaced. It also names the gap it does not judge: a value that reaches the field through a

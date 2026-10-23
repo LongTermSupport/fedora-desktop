@@ -753,19 +753,26 @@ comparison.
 (`link.go`) compared the launch value wherever their behaviour differed by agent, so a new agent
 meant finding and changing each of them.
 
-**What it flags**, in the non-test files of `internal/teamchat` and below, outside package
-`agent` and the `agentBranches` table of `src-go/qa/rules/table.go`:
+**What it flags**, in the non-test files of `internal/teamchat`, `cmd/teamchat` and
+`cmd/teamchat-admin` and below, outside package `agent` and the `agentBranches` table of
+`src-go/qa/rules/table.go` (the two commands hold no launch value today, so they are green; they
+are in scope so that one cannot begin to branch there):
 
 - a use (a `types.Info` use, so an unqualified one in the declaring package counts; a
   declaration is not one) of `state.LaunchClaude`, `state.LaunchPlain`, `state.Launches`,
   `cli.LaunchClaude`, `cli.LaunchPlain`, `agent.Claude` or `agent.Plain`;
 - an `==` or `!=`, a `switch` tag or a map key type whose type is `agent.Agent` (through any
   alias, so `cli.Mode` too);
-- an `==` or `!=`, or a `switch` case against a tag, of a constant whose value is `"claude"` or
-  `"plain"` with the field `wire.Launch.Launch` or `state.SessionPID.Launch` (also reached
-  through an embedded struct) or with a conversion to a string of an `agent.Agent`;
-- a call given that field and a composite literal holding a launch value
-  (`slices.Contains([]string{"claude", "plain"}, l.Launch)`).
+- an `==` or `!=`, a call, an index expression, or a `switch` tag and its cases, whose operands
+  hold both a launch operand and a launch constant. The operand is the field
+  `wire.Launch.Launch` or `state.SessionPID.Launch` (also reached through an embedded struct)
+  or a conversion to a string of an `agent.Agent`, directly or as an argument of a call that is
+  an operand, through any depth of calls (`strings.ToLower(l.Launch)`). The constant is a
+  constant expression whose value is `"claude"` or `"plain"`, or a list split on `,`, `|` or
+  `;` with one as a word (`"plain,x"`); among a call's arguments and as an index's map, a
+  composite literal holding one counts too (`strings.EqualFold(l.Launch, "plain")`,
+  `slices.Contains([]string{"claude", "plain"}, l.Launch)`,
+  `map[string]bool{"plain": true}[l.Launch]`).
 
 The rows, each with its reason: state's package-level declarations (the one list),
 `SessionPID.check` and wire's `Launch.check` (the two checks of a value read from a file or a
@@ -782,16 +789,23 @@ differs by agent is a field of `Capabilities` or work of a `Preparer`.
   a local copy of a constant, a named string constant, the operands reversed and parenthesised,
   a switch on the field, a contains over `state.Launches` or a literal list, `string(a) ==`, a
   switch on an `Agent` and on its string, a map keyed by one, the owner's constants, another
-  `Agent` compared, an embedded field; `good.go`: the adapter asked, the value spelled and
+  `Agent` compared, an embedded field; `widened.go`: `strings.EqualFold`, `Contains` over a
+  one-string list, `HasSuffix` and `HasPrefix` with a full value, a map literal indexed by the
+  field, a switch on `strings.ToLower` of it, a comparison through `TrimSpace`, a call over a
+  call, and the two declared gaps below unflagged; `good.go`: the adapter asked, the value spelled and
   resolved, another field compared with the same strings, Claude Code's argument found by its
   name, clean; `bad_test.go`, clean), beside stand-ins of `agent` (the owner, clean), `state`,
   `wire` and `cli` (each row clean and a function beside it flagged), and
-  `fix/internal/elsewhereagent` (outside teamchat, clean). The test runs the real
-  `agentBranches` table.
+  `fix/internal/elsewhereagent` (outside teamchat, clean), and `fix/cmd/teamchat` and
+  `fix/cmd/teamchat-admin` (the commands, each comparison flagged). The test runs the real
+  `agentBranches` table. Before the widening the new forms and both commands were missed, every
+  one (Plan 00209 `subagent-reports/261023-n3e-seam-widen.md`).
 - Red, real tree, at the rule's own commit `822931505` (untagged, `busfailpoints` and `tuwunel` alike): twelve
   findings, every site of SPEC-n3 AS1a: `keeper/prepare.go:439-441` and `:458`,
   `keeper/loop.go:288-290`, `:482` and `:539`, `keeper/seats.go:122`, and `link/link.go:268` and
-  `:423`.
+  `:423`. The widened rule gives the same twelve over the tree before the move (`8d2496eba`),
+  untagged and with `busfailpoints`, and is green over the tree after it and over the two
+  commands, with no finding on CL2's `filepath.Base(a) == "claude"`.
 - Green: the keeper writes `string(Mode)` to session.pid and the launch frame, and asks its
   adapter's `Preparer` for what follows CMD and its `Capabilities` for `launch_failed` and
   `needs_relaunch`; the link takes its delivery and its first SessionStart from the
@@ -799,8 +813,19 @@ differs by agent is a field of `Capabilities` or work of a `Preparer`.
   goldens (`keeper/launch_golden_test.go`) pass unchanged.
 - Not caught: a value that reaches the field through a function's result (`isPlain(l.Launch)`
   with a bare literal inside `isPlain`) is caught only when that function names a constant; a
-  copy of the field held in a variable and then compared; a list of launch values held in a
-  variable other than `state.Launches`.
+  copy of the field held in a variable and then compared; a list or map of launch values held
+  in a variable other than `state.Launches`; a part of a launch value
+  (`strings.HasPrefix(l.Launch, "pla")`); a launch value inside a sentence, which is not a list
+  (`"launch is not claude or plain"`).
+
+**The next wider rule, not built:** either of two. One follows a copy of the field through
+dataflow (`x := l.Launch` and later `x == "plain"`, or the field handed to a helper that
+compares it): that is an SSA pass over every function in teamchat, for a shape the independent
+search found nowhere, and the seam leaves only plain copies of the value (`string(Mode)` into
+session.pid and the frame). The other flags every comparison of any string field with a
+literal in teamchat: it would report every `Kind`, `Inbound` and `Desired` check, so the
+`agentBranches` table would become a list of unrelated exceptions and stop saying where the
+agent is branched on.
 
 ## Defect classes that cannot be a rule
 
