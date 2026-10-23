@@ -373,11 +373,11 @@ func TestAJobWaitIsBounded(t *testing.T) {
 	r.conn.on(managerStartUnit, func(fakeCall) ([]any, error) { return []any{jobPath}, nil })
 	errc := make(chan error, 1)
 	go func() { errc <- r.m.Host().Start(t.Context(), unit) }()
-	if err := clk.BlockUntil(t.Context(), 1); err != nil {
+	if err := clk.AwaitDue(t.Context(), JobWait); err != nil {
 		t.Fatal(err)
 	}
 	clk.Advance(JobWait - time.Nanosecond)
-	if clk.Waiters() != 1 {
+	if !clk.Armed(time.Nanosecond) {
 		t.Fatal("the job's wait ended short of JobWait")
 	}
 	clk.Advance(time.Nanosecond)

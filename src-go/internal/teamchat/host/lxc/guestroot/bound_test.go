@@ -39,7 +39,7 @@ func (st stall) past(t *testing.T, call func() error) error {
 	errc := make(chan error, 1)
 	go func() { errc <- call() }()
 	<-st.inStall
-	if err := st.clk.BlockUntil(t.Context(), 1); err != nil {
+	if err := st.clk.AwaitDue(t.Context(), callBound); err != nil {
 		t.Fatal(err)
 	}
 	st.clk.Advance(callBound)

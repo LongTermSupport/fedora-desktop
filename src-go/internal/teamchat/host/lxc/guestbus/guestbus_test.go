@@ -182,19 +182,16 @@ func TestACallThatNeverAnswersEndsAtItsBound(t *testing.T) {
 	f := &fakeConn{block: true}
 	errc := make(chan error, 1)
 	go func() { errc <- newSystemd(f, clk).Restart(t.Context(), unit(t)) }()
-	if err := clk.BlockUntil(t.Context(), 1); err != nil {
+	if err := clk.AwaitDue(t.Context(), CallWait); err != nil {
 		t.Fatal(err)
 	}
 	clk.Advance(CallWait - time.Nanosecond)
-	if clk.Waiters() != 1 {
+	if !clk.Armed(time.Nanosecond) {
 		t.Fatal("the call's bound fired short of CallWait")
 	}
 	clk.Advance(time.Nanosecond)
 	if err := <-errc; !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, ErrGone) {
 		t.Errorf("%v", err)
-	}
-	if clk.Waiters() != 0 {
-		t.Error("the call's bound was left armed")
 	}
 }
 

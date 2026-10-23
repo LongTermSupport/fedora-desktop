@@ -357,42 +357,50 @@ func TestProbeIsBounded(t *testing.T) {
 	if ProbeBound.Seconds() != 5 || at != w.boot.Boot()+ProbeBound {
 		t.Fatalf("the bound %v at %v, the clock at %v", ProbeBound, at, w.boot.Boot())
 	}
-	if n := w.boot.Waiters(); n != 0 {
-		t.Fatalf("%d bounds left armed after the probe", n)
+	if w.boot.Armed(ProbeBound) {
+		t.Fatal("the probe's bound was left armed after the probe")
 	}
 }
 
 // LP1 with one and with many hanging fakes and no cancellation: each probe ends at its own
 // bound with the deadline's error, all of them hanging at once. The bound is on the fake
-// clock, which moves only once every probe is at its hang and has armed its bound.
+// clock: each probe starts a millisecond after the last, once that one is at its hang (so has
+// armed its bound), and so is named by its own due; the clock passes each bound in turn.
 func TestProbesThatHangEndAtTheirOwnBound(t *testing.T) {
+	const gap = time.Millisecond
 	for _, n := range []int{1, 4} {
 		w := placed(t)
 		entered, release := make(chan struct{}, n), make(chan struct{})
 		t.Cleanup(func() { close(release) })
 		g := w.faulty(func(r Root) Root { return faultyRoot{Root: r, entered: entered, release: release} })
-		errs := make(chan error, n)
-		for range n {
+		errs := make([]chan error, n)
+		for i := range n {
+			errs[i] = make(chan error, 1)
 			go func() {
 				_, err := g.Probe(context.Background(), mustTeam(t, "t1"), firstHandle)
-				errs <- err
+				errs[i] <- err
 			}()
-		}
-		for range n {
 			<-entered
-		}
-		if err := w.boot.BlockUntil(t.Context(), n); err != nil {
-			t.Fatal(err)
-		}
-		w.boot.Advance(ProbeBound - time.Nanosecond)
-		if armed := w.boot.Waiters(); armed != n {
-			t.Fatalf("%d hanging: %d bounds still armed short of the bound", n, armed)
-		}
-		w.boot.Advance(time.Nanosecond)
-		for range n {
-			if err := <-errs; !errors.Is(err, context.DeadlineExceeded) {
-				t.Fatalf("%d hanging: err %v", n, err)
+			if i < n-1 {
+				w.boot.Advance(gap)
 			}
+		}
+		// probe i is due ProbeBound-(n-1-i)*gap from here
+		for i := range n {
+			if left := ProbeBound - time.Duration(n-1-i)*gap; !w.boot.Armed(left) {
+				t.Fatalf("%d hanging: probe %d's bound not armed %v ahead", n, i, left)
+			}
+		}
+		w.boot.Advance(ProbeBound - time.Duration(n-1)*gap - time.Nanosecond)
+		for i := range n {
+			if !w.boot.Armed(time.Nanosecond) {
+				t.Fatalf("%d hanging: probe %d's bound fired short of the bound", n, i)
+			}
+			w.boot.Advance(time.Nanosecond)
+			if err := <-errs[i]; !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("%d hanging: probe %d: err %v", n, i, err)
+			}
+			w.boot.Advance(gap - time.Nanosecond)
 		}
 	}
 }
