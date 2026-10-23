@@ -50,27 +50,43 @@ where each seam is: `base` is in that tree; `n3d` and `n3e` are added by `feat/b
      a new entry point takes the parsed post, not a `Deliver` verdict, so the build and the sync
      attach the same posts. A read-only `AttachmentOf(post)` gives the attachment the rules would
      give, changing nothing (QR2).
-  3. Per unattached human post, whether an agent post replies to it (QL1, A 10.3's index check).
-  4. `IndexedQuestion` gains `asked_by`, `re` and `remind_after_s` from the content, and
-     `Unanswered` becomes the ids of P58's unanswered posts, oldest first, with a count past the
-     16 kept (QX6).
+  3. Per unattached human post, whether an agent post replies to it (QL1, A 10.3's index check):
+     the fold takes an agent's or the admin's plain reply, one with no `n`, which `threadPost`
+     ignores today (`questions.go:185`) (QX2).
+  4. `IndexedQuestion` gains `asked_by` (each a user id of at most A4's 128 bytes; another entry
+     is not kept), `re` and `remind_after_s` from the content, and `Unanswered` becomes the ids
+     of P58's unanswered posts, oldest first, with a count past the 16 kept (QX6).
+     `IndexedQuestion.Question`, the collapsed `Question:` section kept for `OpenDuplicate`
+     (`questions.go:173`, up to about 8000 bytes), is replaced by its SHA-256, and
+     `OpenDuplicate` hashes the section it is given (QX6's store bound).
   5. Provisional entries: an own question or thread post placed at its number when its send is
      recorded, replaced in stream order when its echo is folded (QX3).
   6. The caps of QX6, applied in the fold itself, so the live index and a rebuilt one agree.
   7. A strict JSON codec of the index's state, for the store (QX5), and a copy for an answer's
      judging (QX4's commit rule).
   8. `Reminders` gives each due reminder's due time, for RM1's watermark.
+  9. Redacted slots (QX7): the fold counts the admin-redacted agent and admin events since the
+     last counted question, and numbers a question past `Next()` by them.
 - **G2. The store** (`member/state`), each key with its cap in B 2.3.2's caps list and its strict
-  decoding: `outbox.reports` (n3f-D6); `questions`, the index's state, its `/messages` token and
-  its last folded event id (QX5); `reminded_ms` (n3f-D11); `Pending.Room` taking `questions` for
-  HUMAN and TIMEOUT items (the decoder already allows the three purposes).
+  decoding: `outbox.reports` (n3f-D6); `outbox.questions_unechoed` and
+  `outbox.questions_uncounted` (QX3); `questions`, the
+  index's state, its `/messages` token (at most n3d's `maxNextBatch`, 1024 bytes) and its last
+  folded event id (QX5); `reminded_ms` and `remind_late` (n3f-D11); `Pending.Room` taking
+  `questions` for HUMAN and TIMEOUT items (the decoder already allows the three purposes).
+  **`MaxStore` is rounded up again** by n3d-D1's rule (the caps' sum rounded up to the next
+  256 KiB, pinned by `TestStoreFullFitsTheFileCap`): at n3d's caps it rises from 12 x 256 KiB
+  (3 MiB) to **16 x 256 KiB (4 MiB)**, QX6 giving the sum. The test of a store with every cap
+  full at its maximum sizes, the new keys included, decodes under the new `MaxStore`.
 - **G3. The team goroutine**: the answer's order (QS1: main's roster, then invites, then each
   room's timeline); the room of each pending item from its verdict; the index's owner, its
-  builder goroutine (QX1) and its writes.
-- **G4. `records`**: `Question` gains `headline`, `re`, `asked_ms`, `remind_after_s` and
-  `unanswered_more`, its `id` and `asked_ms` null for a queued question; `Human.Question` changes
-  type from `*int64` to a nullable string (`"Q4"`, `"none"`, null) and `Human` gains `headline`; a
-  new `unattached` kind (section 6).
+  builder goroutine (QX1) and its writes. Every write of the `questions` key, from an answer's
+  SY5 write or a QX1 page, is made by the engine's one store writer, and only by the writes QX5
+  names.
+- **G4. `records`**: `Question` gains `headline`, `re`, `asked_ms`, `remind_after_s`,
+  `unanswered_more` and `redacted`; its `id` changes type from `string` to a nullable string
+  (`records.go:193`), and `id` and `asked_ms` are null for a queued question; `Human.Question`
+  changes type from `*int64` to a nullable string (`"Q4"`, `"none"`, null) and `Human` gains
+  `headline`; `Room` gains `uncounted` (QX3); a new `unattached` kind (section 6).
 - **G5. The filter**: the coordinator form needs the questions room ready (QS3), not only the
   roster naming this member; `SyncFilter` takes that as an argument.
 - **G6. The report window**: `proto.Window` seeded from `outbox.reports` at each `report`, and an
@@ -120,7 +136,10 @@ where each seam is: `base` is in that tree; `n3d` and `n3e` are added by `feat/b
 - **RP4. Verified at each send** (B 2.6 step 10, A 6.5's one-shot rule, n3f-D16): `report` reads
   the reports room's state with one `GET /rooms/{reports}/state` and judges it by `VerifySide`
   against the main room's verified roster and anchors. Not joined: RP1's join is tried first,
-  within the verb's deadline. A failed check is 22 `untrusted`, the message naming the reports
+  within the verb's deadline; a join refused (a 403 or any other refusal, membership read from
+  `GET /joined_rooms` as RP1 says) is 22 `forbidden` naming the reports room, nothing charged,
+  and the `room` record `refused`; a join failing transiently is the transient case below. A
+  failed check is 22 `untrusted`, the message naming the reports
   room and the check (create, join rule, power levels, roster, link), and nothing is charged; main
   is left as it was: its items are delivered and its sends go on. A 403 on the state read is 22
   `forbidden`. A transient failure of the state read (unreachable, a timeout, a 5xx, a 429 past
@@ -129,7 +148,8 @@ where each seam is: `base` is in that tree; `n3d` and `n3e` are added by `feat/b
   report the sender cannot verify, or whose PUT is answered 403, is removed and answered 22 when
   its verb still waits, and otherwise is n3d-D27's refusal at post (logged by transaction id,
   counted `unsent` in `status`); its token and its report-window slot stay spent (n3f-D6). Tests:
-  each failed check, nothing charged; main's next item delivered after a reports failure; a
+  each failed check, nothing charged; a `report` whose join is refused 403: 22 `forbidden`,
+  `outbox.reports` and the gate unchanged, `status` `refused`; main's next item delivered after a reports failure; a
   homeserver down during `report`: queued, exit 0, posted after verification when it returns; a
   queued report whose room fails verification at the sender: removed, logged, `unsent` 1.
 - **RP5. No one is woken.** The content is A 10.1's exactly: `m.notice`, `m.mentions` `{}`, the
@@ -158,13 +178,17 @@ where each seam is: `base` is in that tree; `n3d` and `n3e` are added by `feat/b
   `status`); a success starts QS5. An invite `proto.Invite` rejects is rejected (`leave`) and
   logged by room id; one left pending is logged once by room id and not answered. An awaited
   invite is a passing state (n3f-D13): the questions verbs wait for it within their deadline,
-  then exit 20 `not-ready`; once 300 s have passed since this link first saw the roster naming
-  it coordinator, with the join still refused, they exit 22 `untrusted` ("no questions invite
-  since the roster named you coordinator; run status"), and `status` says `untrusted` with the
-  check `invite`. Tests: each row of `proto.Invite`'s table through the team goroutine; one answer
+  then exit 20 `not-ready`; once 300 s have passed since the clock's start, with the join still
+  refused, they exit 22 `untrusted` ("no questions invite since the roster named you
+  coordinator; run status"), and `status` says `untrusted` with the check `invite`. The clock
+  starts at the later of (a) when this link first saw the roster naming this member
+  coordinator and (b) when it saw this member's latest own leave of questions (a leave or a
+  kick, QS8); both are this link's times, so a link restart starts the clock again at its first
+  roster read. Tests: each row of `proto.Invite`'s table through the team goroutine; one answer
   holding the roster naming this member and the invite: joined, not left; a roster naming the
   room after the invite arrived: joined at that roster change; no invite for 299 s then 301 s
-  (fake clock): 20, then 22.
+  (fake clock): 20, then 22; a kick 10 h into a term with the roster still naming this member:
+  20 `not-ready` at 299 s after the kick, 22 at 301 s.
 - **QS3. A coordinator with `human_text: false` cannot happen**: A 5.1 makes such a roster
   invalid, so main fails trust (SY14, 22) and nothing of questions is reached (n3f-D2). Test:
   that roster stops the team with 22 and no questions join is attempted.
@@ -189,8 +213,8 @@ where each seam is: `base` is in that tree; `n3d` and `n3e` are added by `feat/b
   as main's are. Each is attached by the index (A 10.4) whatever that verdict (n3f-D18); its
   pending entry has `room: questions`. Another agent's event is dropped `sender`; an agent's
   `teamchat.question` or `teamchat.thread` is rule 03's `index` outcome and is folded (QX2). A
-  human's edit in questions is an item with `revises` (A 7.5), attached by rule 4. A redaction
-  of an attached post removes it from its question's unanswered posts. Tests: an unmentioned human
+  human's edit in questions is an item with `revises` (A 7.5), attached by rule 4. An admin
+  redaction in questions removes its target from the index completely, by QX7's rebuild. Tests: an unmentioned human
   post delivered with its question; a post in a question's thread, a reply to a thread post, a
   `Q3:` prefix, an edit of an attached post, an unattached post (`question: none`); a worker's post
   dropped `sender`; a human post older than `human_max_age_s` still delivered; a post dropped
@@ -201,9 +225,13 @@ where each seam is: `base` is in that tree; `n3d` and `n3e` are added by `feat/b
   cannot skip events (its numbering is a chain, A 6.5), so the questions room is caught up by
   QX1's catch-up instead, off the delivery path: this answer's questions events are not taken,
   main's are persisted as usual, and the questions filter is dropped until the catch-up has
-  reached the head. Test: a gap of 2100 questions-room events, one question in it: main's items in
+  reached the head. That answer's SY5 write, and every main answer's while the catch-up runs,
+  leaves the `questions` key as it was (QX5), so the key's token never passes an event the index
+  has not folded. Tests: a gap of 2100 questions-room events, one question in it: main's items in
   the same answer are delivered at once, the index counts the question after the catch-up, and the
-  next `ask` takes the next number.
+  next `ask` takes the next number; the same gap with main answers persisted during the
+  catch-up and the link killed mid-catch-up, then a restart: the catch-up resumes from the last
+  page's token, nothing in the gap is skipped, and the next `ask` takes the next number.
 - **QS8. A side-room failure is that room's alone** (A 6.5): a questions room that fails
   `VerifySide`, or whose state or history read is refused (403, 404), is untrusted alone: the
   filter drops it (QS4), its pending and handed items stay (they passed when they were judged),
@@ -211,19 +239,24 @@ where each seam is: `base` is in that tree; `n3d` and `n3e` are added by `feat/b
   `untrusted` naming the room and the check, `status` shows `untrusted` with the check, the
   SessionStart frame and one hook line say it once, and main goes on. It is checked again at the
   next start, the next roster change, and the next questions verb, which re-verifies before it
-  refuses. On recovery its index is caught up from its token (QX1) and its items resume from its
+  refuses. A re-verification that cannot reach the server exits as `verbErr` maps it: 20
+  `unreachable`, or 14 `server-rate` for a 429 past its retries; nothing is charged and nothing
+  is queued, since nothing passed the check (n3d-D2 queues sends that passed it). On recovery its index is caught up from its token (QX1) and its items resume from its
   floor (QS5), so nothing posted while it was untrusted is lost. Transient failures are SY8's
   (n3f-D8) and a build's own (QX1). This member's own leave of questions is never a trust failure:
   with the roster no longer naming it coordinator it is QS9's demotion; with the roster still
   naming it, the room is `left` in `status`, the join is tried again (QS2), and the verbs wait as
-  for an awaited invite. Tests: each failed check, with main's items delivered meanwhile;
-  recovery delivering the posts made while untrusted; a kick seen while the roster still names
-  this member: `left`, no `untrusted`, no frame line.
+  for an awaited invite, QS2's 300 s clock starting at the leave. Tests: each failed check, with
+  main's items delivered meanwhile; recovery delivering the posts made while untrusted; a kick
+  seen while the roster still names this member: `left`, no `untrusted` and no frame line
+  within 300 s of the kick; an untrusted room re-verified by an `ask` while the homeserver is
+  down: 20 `unreachable`, the gate and `sending` unchanged.
 - **QS9. Demotion** (B 2.6 step 10): when the roster no longer names this member the non-parked
   coordinator, the team goroutine, before it judges anything else in the answer: rebuilds the
   filter (QS4), stops a running build or catch-up, drops the questions room's `pending` items and
-  returns and drops its `handed` ones, drops the index (the store's `questions` key) and
-  `reminded_ms`, in one store write (each item logged by id, never by body), and refuses every
+  returns and drops its `handed` ones, drops the index (the store's `questions` key),
+  `reminded_ms`, `remind_late`, `outbox.questions_unechoed` and
+  `outbox.questions_uncounted`, in one store write (each item logged by id, never by body), and refuses every
   questions verb with 11 `role`. `awaiting` entries already written to the socket settle as any
   other (DV4); a `sending` questions post is dropped with a log line naming its transaction id
   (it may have landed; the room is the record). Reminders owed are not made. The questions floor
@@ -239,23 +272,29 @@ where each seam is: `base` is in that tree; `n3d` and `n3e` are added by `feat/b
 The index is the questions room folded in stream order by A 6.5 and 10.4's rules: every counted
 question, every agent thread post, every human post. Its state is persisted in the store with a
 `/messages` token after its last folded event (QX5), so a link restart never reads the room's
-history again; the room is read from its start only when the seat has no index (n3f-D9).
+history again; the room is read from its start only when the seat has no index (n3f-D9) or an
+admin redaction makes it rebuilt (QX7).
 
 - **QX1. The build and the catch-up**, run by a goroutine of the team's own, never on the
   delivery path (the long-poll goes on with the worker filter, QS4), under the team's backoff
   (SY8), stopped by a demotion or the team's end:
+
   - **The build** (no index in the store: a first promotion, after QS9, an epoch change (SY6), a
-    token the server refuses): `VerifySide`; then `/messages` backwards (`dir=b`, 100 per page)
+    token the server refuses; and an admin redaction, QX7): `VerifySide`; then `/messages` backwards (`dir=b`, 100 per page)
     from the team's sync position, keeping only the last page, until a page with no `end` (the
     room's start, holding `m.room.create`); then that page folded oldest first, and the room read
     forwards (`dir=f`, 100 per page) from that page's `start` to the head (a page with no events),
     folding each event.
   - **The catch-up** (an index with a token: QS7's gap, QS8's recovery): the room read forwards
-    from the index's token to the head, folding each event; an event at or before the index's
-    last folded event is skipped.
+    from the index's token to the head, folding each event. Event ids have no order, so the
+    overlap with what the index already folded is not found by position: each such event is
+    skipped by G1.1's idempotence by event id.
   - Each event is folded by QX2's rules; each human post after the questions floor (QS5) is also
-    taken as an item, judged as the sync judges it (QS6). Each page's items, the index's state
-    and its new token are persisted in one store write (P3: the index never ahead of its items).
+    taken as an item, judged as the sync judges it (QS6); a build that replaces an index (an
+    epoch change, a refused token, QX7) takes as items only the posts after its forward read
+    has passed the replaced index's last folded event, since the sync took those before. Each
+    page's items, the index's state and its new token are persisted in one store write, made by
+    the engine's one store writer (G3) (P3: the index never ahead of its items).
   - At the head the index is ready: the filter takes questions (QS4), and the first questions
     batch is taken only if it connects to the index's last folded event (its events or SY3's fill
     reach it; earlier events are skipped); otherwise the catch-up runs again.
@@ -270,11 +309,16 @@ history again; the room is read from its start only when the seat has no index (
     main items are delivered during it (fakehs holding each questions page until main's item is
     in the store); a page failing transiently twice; an `ask` during a build held by fakehs: 20
     `not-ready` at the deadline (fake clock), and exit 0 when the page is released before it.
+
 - **QX2. The fold**: each counted question and each thread post of a counted question, from any
   agent account (this member's own included) or a question from the admin, as A 6.5's exception
-  says; each human post A 10.4 counts, attached by its rules whatever its delivery verdict
-  (n3f-D18); each redaction of a folded human post. An event folded twice is folded once (G1.1).
-  The sync, the build and the catch-up fold through the same function.
+  says; each agent's or the admin's plain reply to an unattached human post (a reply with no
+  `n`, A 10.3; this member's own included), which marks that post replied to (G1.3) so that
+  `questions` stops listing it, rebuilt as live; each human post A 10.4 counts, attached by its
+  rules whatever its delivery verdict (n3f-D18); each admin redaction (QX7) and each redacted
+  slot (QX7). An event folded twice is folded once (G1.1). The sync, the build and the catch-up
+  fold through the same function.
+
 - **QX3. Own sends**: the coordinator's own question or thread post is placed in the index as a
   provisional entry when SD3's write records it, numbered `Next()` at that moment, so the next
   `ask` numbers above it without waiting for the echo. When the echo is folded, the provisional
@@ -282,11 +326,35 @@ history again; the room is read from its start only when the seat has no index (
   question took that number first), the entry is dropped and the link logs it by transaction id.
   The team's sender posts a queued questions send only once the index is ready and only if its
   number is still free (not counted by a folded event); otherwise it is n3d-D27's refusal at post.
-  After a link restart the provisional entries are placed again from `sending` before any new
-  questions send is composed, and the sender posts them first, in `sending` order (n3d-D4).
-  Tests: an admin's carried question with the coordinator's number folded before the echo: the
-  admin's holds the number on this seat as on a replacement's build; a restart with a questions
-  send in `sending`: re-sent by its transaction id before the next `ask`, which numbers above it.
+
+  - **What the agent is told.** The answer to `ask` names the number the question got at its
+    compose: the `question` record's `n`, and the body's `Q<n> ` prefix. When that question's
+    echo is not counted, because another's question was numbered `Q<n>` first, the agent is told
+    in two places: the questions `room` record in `status` counts it (`uncounted`, section 6),
+    and one hook line says it once, at the next UserPromptSubmit or SessionStart, word for
+    word: `teamchat: in team <t> your question sent as Q<n> was not counted: Q<n> is another question, so no answer attaches to yours; run teamchat questions --team <t>, then ask it again.` A `thread` post whose number is not counted is told the same way, the line naming
+    the thread post. The skill (n3f-e) says what an `uncounted` count means.
+  - **Posted but not yet echoed.** n3d records a send posted (its event id in `last_sent`) when
+    its PUT succeeds; for a questions-room send that same store write sets
+    `outbox.questions_unechoed` to the event id, and the store write that folds that event (an
+    answer's SY5 write or a QX1 page, counted or not) sets it back to null. Sends are one at a
+    time per team and posted in order (QX4), so the last own post folded means every earlier one
+    is. After a link restart the index loaded from the store is not ready while
+    `outbox.questions_unechoed` is set: `ask`, `thread`, `reply` on a questions item and
+    `questions` wait within their deadline for the fold of that event, then exit 20
+    `not-ready`, and no questions send is composed, so no compose takes a number the unechoed
+    post already holds (n3f-D5).
+  - After a link restart the provisional entries are placed again from `sending` before any new
+    questions send is composed, and the sender posts them first, in `sending` order (n3d-D4).
+  - Tests: an admin's carried question with the coordinator's number folded before the echo: the
+    admin's holds the number on this seat as on a replacement's build, the `room` record counts
+    `uncounted` 1 and the hook line is said once; a restart with a questions send in `sending`:
+    re-sent by its transaction id before the next `ask`, which numbers above it; a failpoint
+    between the PUT's success being recorded and the echo's fold, then a restart and an `ask`
+    before the first sync answer: the `ask` exits 20 `not-ready` at its deadline when the echo is
+    held, and numbers above the echoed question when the echo is released before it, never at
+    the same number.
+
 - **QX4. One questions compose at a time per team, and the commit rule** (n3f-D5): `ask`, `thread`
   and `reply` on a questions item are composed one at a time per team by the team goroutine,
   which owns the index: each is numbered and placed (QX3) only after the previous one's SD3 write
@@ -297,11 +365,23 @@ history again; the room is read from its start only when the seat has no index (
   `ask` is composed; on release the two bodies are `Q4` and `Q5` and the second PUT follows the
   first (no timing in the test: the hold is explicit and the assertion is on the contents); an
   answer whose store write fails, then re-read: each post attached once.
+
 - **QX5. Persisted with the position.** The store's `questions` key holds the index's state (QX6's
-  bounded parts, never the provisional entries or anything else of the seat's), its token (the
-  answer's `next_batch` in SY5's writes, a page's `end` in QX1's) and its last folded event id,
-  written in the same store write as the items and the position they belong to. A link restart
-  loads it and syncs on from the store's position, so the questions room is never read again. A
+  bounded parts, never the provisional entries or anything else of the seat's), its token and
+  its last folded event id, written in the same store write as the items and the position they
+  belong to. **Only two writes write the key** (n3f-D19), both through the engine's one store
+  writer (G3):
+
+  1. an answer's SY5 write, when that answer's filter held the questions room (QS4's
+     coordinator form) and its questions timeline was folded (taken, not set aside by QS7): the
+     token is the answer's `next_batch`;
+  2. a QX1 page's write: the token is the page's `end`.
+
+  Every other SY5 write (the worker filter during a build or a catch-up, QS7's answer past the
+  bound, QS8's untrusted room) leaves the key byte for byte as it was, so its token never passes
+  an event the index has not folded and the numbering chain (A 6.5) is never broken. A link
+  restart loads it and syncs on from the store's position, so the questions room is never read
+  again; a key whose token lags the position is caught up from its token (QX1). A
   replacement coordinator's build folds the same events by the same rules into the same state,
   so the persisted index is the room's state, not the seat's (A: "no session state"). Test (M1):
   a coordinator with Q1 answered by human post H1 and Q2 open with `remind_after_s`; (a) a link
@@ -309,7 +389,14 @@ history again; the room is read from its start only when the seat has no index (
   reminded; (b) a promotion on another seat (a full build): `questions` prints the same records
   byte for byte, Q2 is reminded once and Q1 never; (c) H2 attached to Q2 in an answer whose
   store write fails, then re-read: Q2 has `unanswered` [H2] once; (d) H3 dropped by `rate` live:
-  attached on both seats.
+  attached on both seats; (e) an answer whose filter did not hold the questions room (a build
+  running, the worker filter): the `questions` key byte-equal before and after its SY5 write;
+  (f) an admin redaction of human post H1 (QX7): live, after the redaction's rebuild, Q1 is
+  `open` with `unanswered` [], and a fresh build on another seat prints the same `questions`
+  records byte for byte and holds a byte-equal `questions` key; (g) an admin redaction of a
+  counted Q2 with a later Q3 counted, and again with no later question (QX7): live and rebuilt
+  byte-equal, the next `ask` numbering Q4 in the first case and Q2 in the second on both seats.
+
 - **QX6. The caps** (n3f-D17), applied by the fold in stream order, so every seat folding the same
   room holds the same state: at most 64 questions not closed (the coordinator's 65th `ask` is 10
   `open-limit`, "close or answer one first"; an admin's carried question past 64 evicts the oldest
@@ -317,9 +404,72 @@ history again; the room is read from its start only when the seat has no index (
   only as below the highest: `thread` or `reply` naming it is 23 `not-found`, "Q<n> is closed and
   older than the index keeps"); per question the 16 oldest unanswered ids kept and the rest
   counted; the 1024 most recent human posts' attachments (A 10.3's index check on an older post is
-  10 `target`); the 64 most recent unattached posts no agent post replies to. The store's share is
-  at most 320 KiB per team, in B 2.3.2's caps list. Test: the 65th `ask` refused; 1100 human
-  posts folded live and rebuilt: the same state.
+  10 `target`); the 64 most recent unattached posts no agent post replies to.
+
+  - **The store's share, worst case.** Each entry is sized as compact JSON at its longest, as
+    n3d-D1 sizes the lists: an event id is 46 bytes with its quotes, a user id at most 130 (A4's
+    128), an integer at most 19 digits, and a headline of 120 code points at most 722, since the
+    encoder writes no code point in more than 6 bytes (`<` for `<`; a 4-byte code point is
+    not escaped). The `Question:` section is kept as its SHA-256, 66 bytes in hex with quotes,
+    never as text (G1.4): kept as text it would be up to 8000 bytes, escaped up to 6 times that,
+    and 64 of them alone would pass 3 MiB.
+    - A question: 15 bytes of braces and commas, 131 of keys, and the values `n` 19, `id` 46,
+      the thread's latest event 46, `headline` 722, the hash 66, `asked_by` 2 + 16 x 130 + 15 =
+      2097, `re` 2 + 16 x 46 + 15 = 753, `asked_ms` 19, `remind_after_s` 19, `closed` 5, the
+      attach count 19, `unanswered` 753, its count past 16 19: 4729 bytes, sized 5120.
+    - An attachment `{"id":…,"q":…}`: 77 bytes, sized 96. An unattached post (id, `from_id`,
+      `sent_ms`): 224 bytes, sized 256. The fixed fields (the token at n3d's `maxNextBatch`,
+      1024, the last folded event, the next number, the slot and eviction counts): 2048.
+    - The `questions` key: 192 x 5121 + 1024 x 97 + 64 x 257 + 2048 = 983 232 + 99 328 + 16 448 +
+      2048 = **1 101 056 bytes (about 1.05 MiB) per team**. With `outbox.reports` (60 x 14 =
+      840), `remind_late` (64 x 20 = 1280), and `reminded_ms`, `outbox.questions_unechoed` and
+      `outbox.questions_uncounted` (64 together), n3f adds 1 103 240 bytes.
+    - n3d's bound (`TestStoreFullFitsTheFileCap`: 4096 + 1024 + each list's count x (size + 1))
+      is 3 001 136 bytes. The new sum is 4 104 376 bytes, which n3d-D1's rule rounds up to 16 x
+      256 KiB = 4 194 304: **`MaxStore` rises from 3 MiB to 4 MiB** (G2), so a cap always fires
+      before the file cap.
+  - Tests: the 65th `ask` refused; 1100 human posts folded live and rebuilt: the same state; a
+    store with every cap full at its maximum sizes (192 questions with 16 `asked_by` of 128
+    bytes, 16 `re`, 16 unanswered, a headline of 120 escaped code points; 1024 attachments; 64
+    unattached; the longest token), the new keys included, encodes and decodes under
+    `MaxStore`, and `TestStoreFullFitsTheFileCap` holds the new sum rounded up.
+
+- **QX7. Redactions** (n3f-D20). Only the admin redacts, one event at a time, with the reason
+  `secret` (A 4.2, 12.4; `verdict.go:235`), and a read of a redacted event carries
+  `unsigned.redacted_because`, which rule 02 drops `schema` (`verdict.go:260`): a build cannot
+  see the post, the question or the thread post it was. So a redaction removes its target from
+  the index completely, the way a build would:
+
+  - **By a rebuild.** An admin redaction in questions that the sync or a catch-up folds makes
+    the index rebuilt (QX1's build, which replaces it). A build marks where it began (the newest
+    event of its first backward page); a redaction its forward read meets after that event is
+    new since the build began, and starts the build again; one met before it is history, whose
+    target the server already returned stripped. The live index is then the rebuilt one, so the
+    two are equal by construction. Why not an un-attach in place: the caps drop what a removal
+    would need back (the 17th unanswered id is only counted, the 1025th attachment is gone),
+    and a redacted thread post may have closed its question or reset P58's unanswered posts,
+    neither of which can be undone from the bounded state. A redaction is rare (the owner's
+    `teamchat-admin redact`, for a leaked secret), and a build costs at most 2 x ceil(E/100) +
+    1 requests off the delivery path.
+  - **A redacted human post** is in no question, no unanswered list, no attachment and no
+    `unattached` record; a question it alone answered is `open` again.
+  - **A redacted question keeps its number** when a later question is counted, by redacted
+    slots (G1.9): an event in questions from an agent account or the admin whose
+    `redacted_because` is the admin's is a slot, and the fold counts the slots since the last
+    counted question. A question with `n` above `Next()` is counted when `n - Next()` is at most
+    that count; each number in between is a redacted question, `closed`, with no headline, no
+    hash and the record's `redacted` true; the count then starts again at 0. A redacted question
+    with no later question counted leaves `Next()` at its number, so the next `ask` takes that
+    number again. Why: the numbering is a chain (A 6.5), and a question the build cannot see
+    would otherwise leave every later question uncounted by every seat for ever; the slot rule
+    reads only what a build sees (the sender and `redacted_because`), so the live index, which
+    is a rebuild, and any later build agree. The cost: a slot left by a redacted thread post can
+    let an agent's question skip one number and still be counted, which happens only after an
+    agent numbered from a wrong index; that is the smaller harm than a broken chain. Rejected:
+    a reason naming `Q<n>` in the admin's redaction (a change to A 12.4's fixed reason and to
+    C's `teamchat-admin redact` for no gain the slots do not give).
+  - Tests: QX5 (f) and (g); a redaction arriving while a build runs, after the build's start:
+    the build starts again and its result equals a build begun after the redaction.
 
 ## 4. The coordinator's verbs (AK, TH, QL, QR)
 
@@ -332,20 +482,23 @@ history again; the room is read from its start only when the seat has no index (
      n3f-D14);
   2. the class: not the roster's non-parked coordinator, 11 `role` (the message: ask the
      coordinator with `teamchat say --to-coordinator --team T`);
-  3. the questions room: untrusted, 22 `untrusted` naming it and the check (QS8); joining, awaiting
-     its invite (QS2) or its index not ready (QX1), the verb waits within its deadline, then exits
-     20 `not-ready`;
+  3. the questions room: untrusted, it is re-verified first (QS8), and a failed check is 22
+     `untrusted` naming it and the check; a re-verification that cannot reach the server is 20
+     `unreachable` (14 `server-rate` for a 429 past its retries), nothing charged and nothing
+     queued; joining, awaiting its invite (QS2), its index not ready (QX1) or an own post not
+     yet echoed (QX3), the verb waits within its deadline, then exits 20 `not-ready`;
   4. `--asked-by`: each name resolved as n3d's `--to` resolves it, against the verified roster, to
      a member's user id: 64 `unknown-member` or `ambiguous-member`; a parked or offline member is
      accepted (n3f-D4); a human or the probe is 64 `unknown-member`;
   5. more than n3f-D1's rule allows, or `Composer.Question`'s form: 10 `body`, naming the section;
-     the secret check: 10 `secret`; an open or answered question with the same `Question:` section:
-     15 `duplicate` naming that `Q<n>` (B 2.2.4's duplicate code; A's `duplicate` refusal); 64
+     the secret check: 10 `secret`; an open or answered question whose `Question:` section has
+     the same SHA-256 once collapsed (G1.4): 15 `duplicate` naming that `Q<n>` (B 2.2.4's duplicate code; A's `duplicate` refusal); 64
      questions not closed: 10 `open-limit` (QX6);
   6. `Admit` (14 `rate`; 15 `duplicate` for the same body within 60 s);
   7. SD3's write, QX3's provisional entry, then n3d's `sent` record with `"room":"questions"` and
-     the `question` record (section 6) with `state` `open` and `unanswered` `[]` (both with a null
-     id when queued, n3f-D10). Exit 0.
+     the `question` record (section 6) with `state` `open`, `unanswered` `[]` and `n` the number
+     the question got (both with a null id when queued, n3f-D10). Exit 0. A number later found
+     to be another's is told as QX3 says.
      Tests: each step's refusal; numbering after a `question_floor`, after an admin's carried v1
      question, after an uncounted bad `n`; the PUT's content (`m.text`, every human mentioned,
      `asked_by`, `re`, `remind_after_s` only when given); a queued `ask` while the homeserver is
@@ -420,14 +573,26 @@ history again; the room is read from its start only when the seat has no index (
   coordinator, keyed `<question event id>~humans` (`proto.ReminderKey`), `room` `questions`, kind
   timeout, made by the team goroutine from `QuestionIndex.Reminders` on a timer set to the
   earliest due (never a tick, as SD4). The timer is on wall time (`origin_server_ts` is the
-  server's wall clock) and is set again after an SY12 freeze and after every fold. Every reminder
-  due is put in `pending` in one store write that also sets `reminded_ms` to the latest due time
-  made (n3f-D11); a question whose due time is at or below `reminded_ms` is not reminded again by
-  this seat. Its envelope entry is A 13.2's reminder form and its record a `timeout` with
+  server's wall clock) and is set again after an SY12 freeze and after every fold. Reminders are
+  made only from a ready index (QX1, QX3): while a build or a catch-up runs, or an own post is
+  not yet echoed, none is made and the watermark is not raised, since a question open in a
+  partial index may be answered later in the room. Every reminder due is put in `pending` in
+  one store write that also sets `reminded_ms` to the latest due time made and removes the
+  questions it reminded from `remind_late` (n3f-D11). A question whose due time is at or below
+  `reminded_ms` is not reminded again by this seat, unless its number is in `remind_late`: a
+  question first counted by a build or a catch-up (its number at or above the index's `Next()`
+  when that build or catch-up began, or any number when there was no index) is put in
+  `remind_late` by the page write that counts it, and is judged by its own due time, not by the
+  watermark. Its envelope entry is A 13.2's reminder form and its record a `timeout` with
   `"silent":"humans"`, `"question":"Q<n>"` and no `verb` or `ref`. Tests: due exactly at the bound
   plus 30 s and not a millisecond before (fake clock); answered first, no reminder; a link restart
   after the reminder was made, no second one; a replacement coordinator (another seat's store)
-  reminded once; a freeze over the due time: reminded once on thaw.
+  reminded once; a freeze over the due time: reminded once on thaw; a build held by fakehs
+  after the page holding Q3 (open, overdue) and before the page whose human post answers it:
+  no reminder and `reminded_ms` unchanged during the build, none after it; an admin's question
+  posted while the room was untrusted, overdue and with a due time below `reminded_ms`, counted
+  by the recovery's catch-up: reminded once when the index is ready, and not again after a
+  restart.
 - **RM2. HUMAN and TIMEOUT room**: a reminder takes `pending`'s reserved share (B 2.3.2), so a
   flood of agent items never holds it back.
 - **OF1-n3f. Offline members never block** (SPEC-n3 OF1, n3b-D1, the owner's rule): an offline
@@ -450,11 +615,13 @@ history again; the room is read from its start only when the seat has no index (
 {"kind":"unattached","v":1,"team":"<team>","id":"$<43>","from":"alice","sent_ms":1760000000000}
 {"kind":"human","v":1,"team":"<team>","id":"$<43>","from":"alice","from_id":"@alice:<server>","sent_ms":1760000000000,"room":"questions","text":"MIT, please.","question":"Q4","headline":"Which licence for the new docs site?","revises":null,"restored":false}
 {"kind":"timeout","v":1,"team":"<team>","id":"$<43>","silent":"humans","question":"Q4","verb":null,"ref":null}
-{"kind":"room","v":1,"team":"<team>","purpose":"questions","state":"joined","check":null}
+{"kind":"room","v":1,"team":"<team>","purpose":"questions","state":"joined","check":null,"uncounted":0}
 ```
 
 - `question`: `state` one of `open`, `answered`, `closed` (A 10.4); `id` the question's event id,
-  null while its send is queued (n3d-D2); `headline` the asking coordinator's first line as a JSON
+  null while its send is queued (n3d-D2) and for a redacted question; `redacted` true for a
+  number kept by a redacted question (QX7), which is `closed` with every other field null or
+  empty, and false otherwise; `headline` the asking coordinator's first line as a JSON
   string; `asked_by` the askers' `from` forms (P69); `re` the main-room ids; `asked_ms` the
   question's `origin_server_ts`, null while queued; `remind_after_s` its value or `null`;
   `unanswered` the ids of P58's unanswered posts, oldest first, at most 16, and `unanswered_more`
@@ -467,11 +634,35 @@ history again; the room is read from its start only when the seat has no index (
   is `null`.
 - `room` (in `status`, LN5): `purpose` `reports` or `questions`; `state` one of `joined`,
   `awaiting-invite` (QS2), `left` (QS8), `building` (QX1), `refused` (RP1), `untrusted` (QS8, QS2,
-  RP4, with `check` naming the failed check), `not-coordinator` (questions, for a worker).
+  RP4, with `check` naming the failed check), `not-coordinator` (questions, for a worker);
+  `uncounted` for questions the number of this member's own questions and thread posts in the
+  current term whose echo was not counted (QX3), and `null` for reports. It is seat state, not
+  the room's, so it is kept in `outbox.questions_uncounted`, never in the `questions` key, and
+  dropped at a demotion (QS9).
 - `more` (B 2.2.2's) closes a `questions` listing cut at 256 records (QL1).
 
 The skill (PK2) and its text test cover these kinds, fields and codes in the same commit that
 adds them.
+
+### 6.1 The promotion NOTICE and the skill step (OW4)
+
+Under OW4 (a) a promoted coordinator's run of `questions` is the only thing that surfaces the
+human posts made during a handover, so the step is said where the session learns of its
+promotion and pinned in the skill. Both texts are fixed word for word:
+
+- **The NOTICE.** A 13.3's coordinator role line, which DV6's membership NOTICE carries at a
+  promotion and at a join as coordinator, gains a second sentence. The line becomes, `<t>` the
+  team:
+  `in team <t> you are the coordinator. Human posts made in the questions room while the coordinator changed are not delivered to you; to see them, run teamchat questions --team <t>.`
+  proto's `membership.go` renders it and the corpus pins it (A 13.3 is amended to match); the
+  line is within A 13.3's 600-character rule for any team name A allows.
+- **The skill step**, in the skill's questions-room section:
+  `When a notice says you are now the coordinator of team T, first run teamchat questions --team T. Human posts made in the questions room while the coordinator changed are listed there and are not delivered to you; answer or reply to each one.`
+- **The test** (n3f-e), as n3e-11's PK2 test pins the exit classes word for word: the rendered
+  role line for a promotion equals the NOTICE text above with `<t>` filled, byte for byte; the
+  skill holds the step sentence byte for byte; the `teamchat questions --team` command in each
+  parses with CL2's parser to the `questions` verb (PK2); and a promotion through the team
+  goroutine delivers one membership NOTICE holding that line.
 
 ## 7. Departures from v1 (Plan 00211's Python)
 
@@ -507,26 +698,28 @@ Where it was weak:
 
 ## 8. Decisions
 
-| ID      | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| n3f-D1  | **The stdin rule and the headline and body split** (SR1): a verb with text cap C reads stdin to at most C + 2 bytes; more than C + 1 bytes read is refused 10 `body` without stripping; otherwise exactly one trailing newline is removed, and a text still over C is refused 10 `body`. The text is then used whole as the `body`, its first line the headline (A 10.1, 10.2). Never cut: C bytes, a newline and one more byte are C + 2 bytes read, refused, where reading C + 1 and stripping would have accepted C bytes and lost the last. Why one newline: every way a shell passes text (`echo`, a heredoc, `printf '%s\n'`) ends in one newline the writer did not mean as content, and removing more would change text the agent wrote; A's form trims the headline itself. Tests, for each of `report`, `ask` and `thread`: C bytes, a newline and `x` refused; C bytes and a newline accepted with a body of C bytes; C + 1 bytes with no newline refused.                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| n3f-D2  | **The `human_text` pending invite is not built** (SR2): A 5.1 makes a coordinator with `human_text: false` an invalid roster, so main fails trust and the questions invite is never reached. B 2.6 step 10's bullet and SPEC-n3 SR2's "left pending while `human_text` is false" describe v1's state, which v2's roster rule removed; QS3 tests the roster failure instead. Why: a second path for an impossible state is dead code.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| n3f-D3  | **`thread --ask --close` is 64; `--close` on a closed question is 10 `target`.** Why: a post that asks the humans again and closes the question in one message tells them two opposite things; a second close is a mistake to fix, and refusing it says so, where succeeding silently would hide a lost text.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| n3f-D4  | **`--asked-by` accepts any roster member, parked or offline**, and refuses humans and the probe. Why: `asked_by` records who asked, so the coordinator knows whom to answer; refusing an asker who has since stopped or been parked would block the question for a fact about that member (OF1).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| n3f-D5  | **Questions-room composes are serialised per team by the team goroutine** (QX4), each numbered against the index after the previous one's SD3 write placed its provisional entry. Why: the index's `Next` is the only numbering, and two concurrent `ask`s would both take it; the second would then be uncounted by every member (A 6.5).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| n3f-D6  | **`report_per_hour` is kept in the store**: `outbox.reports`, a list of at most 60 report times (the limit's upper bound), pruned past 3600 s, written in SD3's store write. A report charged and then refused at its post (RP4), or whose verb ended 20, still holds its slot, and the 14 `report-rate` message says so ("a report that was not posted still counts"). Why: an in-memory window resets at every link restart, so a crash-looping or restarted link could post past the limit; B 2.3.2 had no home for it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| n3f-D7  | **`questions` and `history --room questions` without `--team` act over the teams where this member is coordinator**, and refuse 11 only when there is none. Why: B 2.2.3 runs a multi-team verb over every active team, which would make every coordinator in a session that is also a worker elsewhere get exit 5 with a `team-failed` it can do nothing about.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| n3f-D8  | **A side room's transient failures in the sync are the team's** (SY8's backoff, the answer held): one sync token covers main and questions, so a questions fill that fails transiently holds the whole answer, as v1 learnt (its gap fill was never contained). A fill past SY3's bound, and every history read of the index, is QX1's on its own goroutine, so a questions room whose history fails for ever never holds main. A non-transient failure is the side room's alone (QS8).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| n3f-D9  | **The index is persisted in the store with its position, and the room is read from its start only when the seat has none** (QX1, QX5). This replaces the 100-page bound and its repair: raising `question_floor` is an admin migration-only write (A 5.1) that would not have shortened a read from `m.room.create` anyway, so past the bound `ask` would have been refused for ever. Now a link restart reads nothing; a build happens on a first promotion, after an epoch change or a refused token; a gap or a recovery is a catch-up from the token. The build has no page bound, because nothing waits on it: it runs off the delivery path, its memory is the caps of QX6 plus one page, and its requests are at most 2 x ceil(E/100) + 1 for E events in the room (a room of 100 000 events is 2001 requests, under the team's backoff). The verbs wait and exit 20 `not-ready` meanwhile, which says "retry", never "tell a human". Rejected: the high-water and the numbers alone in the store (a restart would forget which questions were answered, review M1); a checkpoint posted in the room (a new A event and trust rule for what the store does for restarts, promotions being rare); a page bound with any repair (every repair needs an admin write the protocol does not have). The persisted state is the room's fold, the same on every seat, so A's "no session state" holds. |
-| n3f-D10 | **`ask`, `thread` and `reply` in questions print n3d's `sent` record, then the question's record**; a queued question's record has a null `id` and `asked_ms`. Why: B 2.2.1 has `ask` print one `question` record, whose `id` is the event id; with n3d-D2 a send may be queued with no id yet, and `sent` is the one record that says so. `thread` changes a question's state, which the agent should see without a second verb. B 2.2.1's `ask` line is to read "a `sent` record, then the `question` record".                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| n3f-D11 | **Reminders made are kept as a watermark**: `reminded_ms`, the latest due time this seat has reminded; a reminder whose due time is at or below it is not made again, and the TIMEOUT is keyed `<id>~humans` (A 10.5, `proto.ReminderKey`). Every reminder due is made in one write that raises the watermark, in due order. Why it is exact: a question's due time is fixed by history; within one coordinator's term every question is known from its own post (QX3) or the sync, each before its due time passes, so none is discovered below the watermark; a new term starts with none (QS9 drops it), so a promotion reminds each overdue open question once. One number replaces a list and its cap, so no reminder is ever dropped.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| n3f-D12 | **The reports join is eager, at the team's start** (RP1), and retried at a `report`. Why: C's board shows each member's reports membership (C 3.11.3's `rooms`), A 4.1 lists every active member in reports, and a join at the first `report` would make the board show a working member as not joined.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| n3f-D13 | **A questions room on its way is a passing state** (QS2, QX1): a questions verb before the invite has arrived, while the join runs, or while the index is built or caught up waits within its deadline, then exits 20 `not-ready`. 22 `untrusted` is kept for a room that fails its check, and for an invite still absent 300 s after the roster named this member coordinator. Why: A 5.2 sends the invite right after the roster write, and a build ends by itself, so both pass without a human; 22 says "tell a human" and would send the agent to a human for a state that fixes itself, while an invite that never comes is the admin's to repair.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| n3f-D14 | **`--re` is checked for grammar only** (A 10.2), with no lookup on main. Why: A says so, receivers do not check it, and a lookup would make `ask` fail 20 while the homeserver is down, where n3d-D2 queues the send.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| n3f-D15 | **Each sync answer is judged in a fixed order** (QS1): main's invite, main's trust and roster, the side-room invites, the questions room's membership and trust, then main's timeline and the questions timeline. Why: `proto.Invite` judges against the roster it is given; judged first against the roster from before the answer, the invite that follows a promotion in the same answer (A 5.2) would be rejected and the room left for good, and a demotion's kick would read as a trust failure.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| n3f-D16 | **`report` verifies the reports room at the verb when the server answers, and the sender verifies it again before posting a queued report** (RP4). Why: B 2.6 step 10 asks for verification at each send, and the owner's rule (n3d-D2) asks that a send to a down server be queued, not failed; verifying at the verb keeps a failed check from charging anything, and verifying at the sender keeps a report queued past a change from being posted into a room that no longer verifies.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| n3f-D17 | **The index is bounded by caps applied in its fold** (QX6): 64 questions not closed (the 65th `ask` is 10 `open-limit`), 128 closed kept, 16 unanswered ids per question, 1024 human posts' attachments, 64 unattached posts, at most 320 KiB in the store per team; `questions` prints at most 256 records per team, then `more`. Why: the index lives for a link's life and in the store, and the room grows for ever; caps applied in stream order keep the live and the rebuilt index identical, which a trim by age or at load would not.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| n3f-D18 | **Attachment does not depend on delivery** (QS6, QX2): a human post is attached whether it is delivered, dropped `rate` or past `human_max_age_s`, and a held answer's attachments are committed only after its store write (QX4). Why: the build reads history with no flood window, so attaching only delivered posts would make a rebuilt index disagree with the live one; and attaching before the write would count a re-read post twice.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ID      | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| n3f-D1  | **The stdin rule and the headline and body split** (SR1): a verb with text cap C reads stdin to at most C + 2 bytes; more than C + 1 bytes read is refused 10 `body` without stripping; otherwise exactly one trailing newline is removed, and a text still over C is refused 10 `body`. The text is then used whole as the `body`, its first line the headline (A 10.1, 10.2). Never cut: C bytes, a newline and one more byte are C + 2 bytes read, refused, where reading C + 1 and stripping would have accepted C bytes and lost the last. Why one newline: every way a shell passes text (`echo`, a heredoc, `printf '%s\n'`) ends in one newline the writer did not mean as content, and removing more would change text the agent wrote; A's form trims the headline itself. Tests, for each of `report`, `ask` and `thread`: C bytes, a newline and `x` refused; C bytes and a newline accepted with a body of C bytes; C + 1 bytes with no newline refused.                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| n3f-D2  | **The `human_text` pending invite is not built** (SR2): A 5.1 makes a coordinator with `human_text: false` an invalid roster, so main fails trust and the questions invite is never reached. B 2.6 step 10's bullet and SPEC-n3 SR2's "left pending while `human_text` is false" describe v1's state, which v2's roster rule removed; QS3 tests the roster failure instead. Why: a second path for an impossible state is dead code.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| n3f-D3  | **`thread --ask --close` is 64; `--close` on a closed question is 10 `target`.** Why: a post that asks the humans again and closes the question in one message tells them two opposite things; a second close is a mistake to fix, and refusing it says so, where succeeding silently would hide a lost text.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| n3f-D4  | **`--asked-by` accepts any roster member, parked or offline**, and refuses humans and the probe. Why: `asked_by` records who asked, so the coordinator knows whom to answer; refusing an asker who has since stopped or been parked would block the question for a fact about that member (OF1).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| n3f-D5  | **Questions-room composes are serialised per team by the team goroutine** (QX4), each numbered against the index after the previous one's SD3 write placed its provisional entry. Why: the index's `Next` is the only numbering, and two concurrent `ask`s would both take it; the second would then be uncounted by every member (A 6.5).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| n3f-D6  | **`report_per_hour` is kept in the store**: `outbox.reports`, a list of at most 60 report times (the limit's upper bound), pruned past 3600 s, written in SD3's store write. A report charged and then refused at its post (RP4) still holds its slot, and the 14 `report-rate` message says so ("a report that was not posted still counts"). Why: an in-memory window resets at every link restart, so a crash-looping or restarted link could post past the limit; B 2.3.2 had no home for it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| n3f-D7  | **`questions` and `history --room questions` without `--team` act over the teams where this member is coordinator**, and refuse 11 only when there is none. Why: B 2.2.3 runs a multi-team verb over every active team, which would make every coordinator in a session that is also a worker elsewhere get exit 5 with a `team-failed` it can do nothing about.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| n3f-D8  | **A side room's transient failures in the sync are the team's** (SY8's backoff, the answer held): one sync token covers main and questions, so a questions fill that fails transiently holds the whole answer, as v1 learnt (its gap fill was never contained). A fill past SY3's bound, and every history read of the index, is QX1's on its own goroutine, so a questions room whose history fails for ever never holds main. A non-transient failure is the side room's alone (QS8).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| n3f-D9  | **The index is persisted in the store with its position, and the room is read from its start only when the seat has none** (QX1, QX5). This replaces the 100-page bound and its repair: raising `question_floor` is an admin migration-only write (A 5.1) that would not have shortened a read from `m.room.create` anyway, so past the bound `ask` would have been refused for ever. Now a link restart reads nothing; a build happens on a first promotion, after an epoch change, a refused token or an admin redaction (QX7); a gap or a recovery is a catch-up from the token. The build has no page bound, because nothing waits on it: it runs off the delivery path, its memory is the caps of QX6 plus one page, and its requests are at most 2 x ceil(E/100) + 1 for E events in the room (a room of 100 000 events is 2001 requests, under the team's backoff). The verbs wait and exit 20 `not-ready` meanwhile, which says "retry", never "tell a human". Rejected: the high-water and the numbers alone in the store (a restart would forget which questions were answered, review M1); a checkpoint posted in the room (a new A event and trust rule for what the store does for restarts, promotions being rare); a page bound with any repair (every repair needs an admin write the protocol does not have). The persisted state is the room's fold, the same on every seat, so A's "no session state" holds. |
+| n3f-D10 | **`ask`, `thread` and `reply` in questions print n3d's `sent` record, then the question's record**; a queued question's record has a null `id` and `asked_ms`. Why: B 2.2.1 has `ask` print one `question` record, whose `id` is the event id; with n3d-D2 a send may be queued with no id yet, and `sent` is the one record that says so. `thread` changes a question's state, which the agent should see without a second verb. B 2.2.1's `ask` line is to read "a `sent` record, then the `question` record".                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| n3f-D11 | **Reminders made are kept as a watermark**: `reminded_ms`, the latest due time this seat has reminded; a reminder whose due time is at or below it is not made again, and the TIMEOUT is keyed `<id>~humans` (A 10.5, `proto.ReminderKey`). Every reminder due is made in one write that raises the watermark, in due order, and only from a ready index (RM1). A question first counted by a build or a catch-up is put in `remind_late` (at most 64 numbers, the cap on questions not closed) by the page write that counts it, and is judged by its own due time, not the watermark. Why it is exact: a question's due time is fixed by history; a question the sync counts is known from its own post (QX3) or the sync before its due time passes, so it is never found below the watermark; the questions found late are those a catch-up or a build counts (an admin's or a predecessor's post that landed while the room was untrusted, or before a rebuild), and `remind_late`, written in the same write as the fold that counts them, makes each one reminded once, across a crash too; a new term starts with neither (QS9 drops both), so a promotion reminds each overdue open question once. One number and a list bounded by the open cap replace a list of every reminder made, so no reminder is ever dropped.                                                                                                |
+| n3f-D12 | **The reports join is eager, at the team's start** (RP1), and retried at a `report`. Why: C's board shows each member's reports membership (C 3.11.3's `rooms`), A 4.1 lists every active member in reports, and a join at the first `report` would make the board show a working member as not joined.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| n3f-D13 | **A questions room on its way is a passing state** (QS2, QX1): a questions verb before the invite has arrived, while the join runs, or while the index is built or caught up waits within its deadline, then exits 20 `not-ready`. 22 `untrusted` is kept for a room that fails its check, and for an invite still absent 300 s after the roster named this member coordinator. Why: A 5.2 sends the invite right after the roster write, and a build ends by itself, so both pass without a human; 22 says "tell a human" and would send the agent to a human for a state that fixes itself, while an invite that never comes is the admin's to repair.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| n3f-D14 | **`--re` is checked for grammar only** (A 10.2), with no lookup on main. Why: A says so, receivers do not check it, and a lookup would make `ask` fail 20 while the homeserver is down, where n3d-D2 queues the send.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| n3f-D15 | **Each sync answer is judged in a fixed order** (QS1): main's invite, main's trust and roster, the side-room invites, the questions room's membership and trust, then main's timeline and the questions timeline. Why: `proto.Invite` judges against the roster it is given; judged first against the roster from before the answer, the invite that follows a promotion in the same answer (A 5.2) would be rejected and the room left for good, and a demotion's kick would read as a trust failure.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| n3f-D16 | **`report` verifies the reports room at the verb when the server answers, and the sender verifies it again before posting a queued report** (RP4). Why: B 2.6 step 10 asks for verification at each send, and the owner's rule (n3d-D2) asks that a send to a down server be queued, not failed; verifying at the verb keeps a failed check from charging anything, and verifying at the sender keeps a report queued past a change from being posted into a room that no longer verifies.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| n3f-D17 | **The index is bounded by caps applied in its fold** (QX6): 64 questions not closed (the 65th `ask` is 10 `open-limit`), 128 closed kept, 16 unanswered ids per question, 1024 human posts' attachments, 64 unattached posts; the `Question:` section kept as its SHA-256, not its text; at most 1 101 056 bytes (about 1.05 MiB) in the store per team at the worst case, escaping included, which raises `MaxStore` from 3 MiB to 4 MiB by n3d-D1's rule (QX6 gives the sum); `questions` prints at most 256 records per team, then `more`. Why: the index lives for a link's life and in the store, and the room grows for ever; caps applied in stream order keep the live and the rebuilt index identical, which a trim by age or at load would not.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| n3f-D18 | **Attachment does not depend on delivery** (QS6, QX2): a human post is attached whether it is delivered, dropped `rate` or past `human_max_age_s`, and a held answer's attachments are committed only after its store write (QX4). Why: the build reads history with no flood window, so attaching only delivered posts would make a rebuilt index disagree with the live one; and attaching before the write would count a re-read post twice.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| n3f-D19 | **Only a fold of the questions room writes the `questions` key** (QX5): an answer's SY5 write whose filter held questions and whose questions timeline was folded, or a QX1 page's write, both through the engine's one store writer; every other SY5 write leaves the key as it was. Why: while questions is out of the filter (a build, a catch-up, QS7's gap past the bound, QS8's untrusted room) SY5 goes on persisting main answers, and a token taken from those would start the next catch-up past events never folded; the next `ask` would then take a number already used, uncounted by every member (A 6.5), and P1 would lose the posts in between.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| n3f-D20 | **A redaction is applied by rebuilding the index, and a redacted question keeps its number by redacted slots** (QX7). Why: a build sees a redacted event only as its sender and `redacted_because`, so the one live state a build can reproduce is the one a build makes; an in-place un-attach cannot restore what the caps dropped or undo a redacted thread post's close. The slots keep the chain (A 6.5) unbroken past a redacted question, from what every build sees; with no later question the number is given again, which the humans see as a removed message followed by a new question. Rejected: dropping the number (every later question uncounted for ever), and a reason naming `Q<n>` in the admin's redaction (a change to A 12.4 and C for nothing the slots lack).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 
 ## 9. For the owner
 
@@ -546,7 +739,8 @@ stays open to the owner changing it later; the coordinator lists them for the ow
   each asker a model turn for a fact it may not need.
 - **OW3. The index's caps** (n3f-D17). The index no longer has a size bound on the room (n3f-D9);
   what bounds it are its caps: 64 questions not closed, 128 closed kept, 1024 human posts'
-  attachments, 64 unattached posts. Options: (a) the caps as stated; (b) higher caps, at more
+  attachments, 64 unattached posts, which at their worst take about 1.05 MiB of store per team
+  and raise `MaxStore` to 4 MiB (QX6). Options: (a) the caps as stated; (b) higher caps, at more
   store per team. **Recommendation: (a)**: 64 questions open at once is far past what a team asks,
   and a refused 65th `ask` tells the coordinator to close some; the owner may prefer to be told the
   figures are ample before they are built.
@@ -555,8 +749,9 @@ stays open to the owner changing it later; the coordinator lists them for the ow
   only what is posted after its own join (QS5). A human post made in between, or accepted by the
   old coordinator and never seen, is in no session's inbox; it is in the room and in the index.
   Options: (a) as specified: nothing is delivered across the gap, every such post is listed by
-  `questions` (as an unanswered post of its question, or an `unattached` record), and the skill
-  tells a coordinator to run `questions` when it is promoted; (b) the new coordinator delivers
+  `questions` (as an unanswered post of its question, or an `unattached` record), the promotion
+  NOTICE names `teamchat questions --team T`, and the skill tells a coordinator to run it when
+  it is promoted, both texts pinned word for word (section 6.1); (b) the new coordinator delivers
   from the old coordinator's leave of questions instead of its own join, so posts in the gap are
   delivered (the dropped items of the old one are still not); (c) as (b), and a demotion hands
   the old coordinator's unseen questions items to the new one through the room by an admin post
@@ -568,13 +763,13 @@ stays open to the owner changing it later; the coordinator lists them for the ow
 
 ## 10. The slicing
 
-| Part  | Covers                                                                                                                                                                                                   | Needs              |
-| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
-| n3f-a | G1 (proto's index: idempotence, attachment, caps, provisional entries, the codec), G2 (the store's keys and caps), G4 (records), G5 (the filter), G6 (the report window), G7 (exits), section 6's codecs | n3d and n3e merged |
-| n3f-b | the reports room: RP1-RP6, the `room` record for reports in `status`, OF1-n3f's `report` row                                                                                                             | n3f-a              |
-| n3f-c | the questions room's sync: QS1-QS10, QX1-QX6, G3, RM1-RM2, the envelope's room lines filled (DV2's renderer), PT1's runs gaining questions items                                                         | n3f-a              |
-| n3f-d | the questions verbs: AK1, TH1, QL1, QR1, QR2, the rest of OF1-n3f; CL2's `unbuilt` list without n3f's verbs                                                                                              | n3f-c              |
-| n3f-e | the skill's text for the side rooms and its text test (PK2), section 6 in the skill, Task 3.4's acceptance rows                                                                                          | n3f-b, n3f-d       |
+| Part  | Covers                                                                                                                                                                                                                                                                                                            | Needs              |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| n3f-a | G1 (proto's index: idempotence, attachment, caps, provisional entries, the hash, redacted slots, the codec), G2 (the store's keys and caps, `MaxStore` at 4 MiB), G4 (records), G5 (the filter), G6 (the report window), G7 (exits), section 6's codecs                                                           | n3d and n3e merged |
+| n3f-b | the reports room: RP1-RP6, the `room` record for reports in `status`, OF1-n3f's `report` row                                                                                                                                                                                                                      | n3f-a              |
+| n3f-c | the questions room's sync: QS1-QS10, QX1-QX7, G3, RM1-RM2, the envelope's room lines filled (DV2's renderer), PT1's runs gaining questions items                                                                                                                                                                  | n3f-a              |
+| n3f-d | the questions verbs: AK1, TH1, QL1, QR1, QR2, the rest of OF1-n3f; CL2's `unbuilt` list without n3f's verbs                                                                                                                                                                                                       | n3f-c              |
+| n3f-e | the skill's text for the side rooms and its text test (PK2), section 6 in the skill; section 6.1: the promotion NOTICE's role line (proto's `membership.go` and its corpus), the skill step, and the test pinning both word for word; QX3's `uncounted` hook line pinned the same way; Task 3.4's acceptance rows | n3f-b, n3f-d       |
 
 n3f-b and n3f-c may be built at once once n3f-a has merged; n3f-d follows n3f-c; n3f-e closes.
 Each part is reviewed to MERGE on its own, as N3's slices are. Gate A holds all of it inert as
@@ -582,15 +777,15 @@ SPEC-n3.md says: nothing here runs on the host before Task 3.3.
 
 ## 11. B 2.15's tests that fall to n3f
 
-| B 2.15                               | Here                                                                                                                                                      |
-| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| P1 no accepted item lost             | QS6, QS7, QS8 (recovery from the floor and the token); QX1 (a catch-up's items); PT1's runs with questions items (n3f-c)                                  |
-| P3 position never ahead of its items | QS7 (the held answer), QS5 (the questions floor in the same write), QX1 and QX5 (the index and its token in the items' write)                             |
-| P4 a removed team's items            | QS9's drop applies to a removal too: a removed team's questions items never reach the transcript (PT1)                                                    |
-| P11 handed is exclusive              | QS9 (handed questions items returned, then dropped, on a demotion)                                                                                        |
-| T10 permanent failure                | QS8 (a side room untrusted alone, main unchanged), RP4                                                                                                    |
-| T11 replay and restore               | QS5 (per-room floors and markers), QX5 and RM1 across a restart; SY6's epoch change rebuilding the index; SY7's restore cases with a questions item       |
-| T19 flood budget                     | QS6 (`rate` applies in questions, `stale` does not; attachment regardless)                                                                                |
-| E1 `-tags tuwunel`                   | the restricted join of RP1; a human's post refused in reports; a worker's join and post refused in questions; QX1's backward-then-forward read (Task 3.4) |
-| A 14 Element (owner's steps)         | the reports composer hidden, a question's notification, a thread reply and its edit delivered: Task 3.4 with the owner, after gate A                      |
-| OF1 (frame)                          | OF1-n3f's row                                                                                                                                             |
+| B 2.15                               | Here                                                                                                                                                                                                     |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P1 no accepted item lost             | QS6, QS7, QS8 (recovery from the floor and the token); QX1 (a catch-up's items); QX5 (the key written only by folds, n3f-D19); QX3 (an own post not yet echoed); PT1's runs with questions items (n3f-c) |
+| P3 position never ahead of its items | QS7 (the held answer), QS5 (the questions floor in the same write), QX1 and QX5 (the index and its token in the items' write)                                                                            |
+| P4 a removed team's items            | QS9's drop applies to a removal too: a removed team's questions items never reach the transcript (PT1)                                                                                                   |
+| P11 handed is exclusive              | QS9 (handed questions items returned, then dropped, on a demotion)                                                                                                                                       |
+| T10 permanent failure                | QS8 (a side room untrusted alone, main unchanged), RP4                                                                                                                                                   |
+| T11 replay and restore               | QS5 (per-room floors and markers), QX5 and RM1 across a restart; SY6's epoch change rebuilding the index; SY7's restore cases with a questions item                                                      |
+| T19 flood budget                     | QS6 (`rate` applies in questions, `stale` does not; attachment regardless)                                                                                                                               |
+| E1 `-tags tuwunel`                   | the restricted join of RP1; a human's post refused in reports; a worker's join and post refused in questions; QX1's backward-then-forward read (Task 3.4)                                                |
+| A 14 Element (owner's steps)         | the reports composer hidden, a question's notification, a thread reply and its edit delivered: Task 3.4 with the owner, after gate A                                                                     |
+| OF1 (frame)                          | OF1-n3f's row                                                                                                                                                                                            |
