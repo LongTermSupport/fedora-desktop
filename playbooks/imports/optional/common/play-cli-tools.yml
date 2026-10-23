@@ -11,6 +11,7 @@
 #   open                 tag open-command         open anything, desktop or over SSH
 #   convert              tag convert-command      a file into other formats (md -> docx)
 #   reclaim              tag disk-reclaim         disk-usage report and guarded cleanups
+#   mpv                  tag mpv                  play audio and video from a terminal
 #   compress/uncompress  tag compression-helpers  archive wrappers over a pinned ouch
 #   imgpaste             tag imgpaste             image -> self-decoding block for an agent
 #
@@ -171,6 +172,20 @@
         mode: "0755"
       tags: disk-reclaim
 
+    # ── mpv ──────────────────────────────────────────────────────────────────────
+    # A terminal media player (`mpv clip.ogg`; Opus, Vorbis, FLAC and the rest through
+    # ffmpeg). It is in Fedora's own repositories, built on ffmpeg-free, so this play needs
+    # no RPM Fusion. Desktop only, like baobab: a server has no sound output to play to,
+    # and mpv pulls in the GPU video stack.
+    - name: Install mpv media player (desktop only)
+      ansible.builtin.package:
+        name: mpv
+        state: present
+      when: provisioning_profile != 'server'
+      tags:
+        - packages
+        - mpv
+
     # ── compress / uncompress ────────────────────────────────────────────────────
     - name: Preflight - assert ncompress is not installed (conflicts with our compress/uncompress)
       ansible.builtin.command: rpm -q ncompress
@@ -308,6 +323,7 @@
           - "  open FILE          - default app, or a chooser (open --help for -a -d -l -t)"
           - "  convert FILE --to docx - write FILE.docx beside a Markdown file (convert FILE lists formats)"
           - "  reclaim             - interactive disk cleanup menu (reclaim report: non-interactive)"
+          - "  mpv FILE            - play an audio or video file in the terminal (desktops only)"
           - "  compress PATH       - e.g. myfolder -> myfolder.tar.xz (--zip, --7z)"
           - "  uncompress ARCHIVE  - extract anything ouch supports into ./NAME/"
           - "  imgpaste <image>    - print a self-decoding block to paste into an agent's chat"
