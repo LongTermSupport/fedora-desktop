@@ -811,6 +811,60 @@ and places every other member).
   death and the store's deletion in a timed-out removal (P4's pinned exception); the link in the
   middle of the end's sends; the keeper after CMD's exit and before `end` is sent.
 
+### 6.1 The agent seam (Plan 00215 Task 3.1, decision O4)
+
+The agent program a run launches is reached through one small in-process package, so that a
+second agent program (opencode, Plan 00215) is a new adapter and not a refactor. The shape is
+Plan 00215's `research/opencode-bus-member-design.md` section 5.2. These rows fix what n3e
+builds. They do not change one byte of a Claude Code or `--plain` launch.
+
+- **AS1. The package** is `internal/teamchat/member/agent`. `Agent` is the run's launch value:
+  `claude` or `plain`, the strings `session.pid` and the launch frame already carry. It is not
+  the member kind (`--kind`). Other values are added with their adapters, never ahead of them.
+  `agent.For(Agent)` returns the adapter; an unknown value is an internal error. The keeper
+  and the link take the adapter they were given. After the seam no package outside `agent`
+  compares a launch value: the comparisons in `keeper` (`prepare.go`, `loop.go`, `seats.go`),
+  `link` (`link.go`), `cli` and `engine`'s `Plain` flag become questions put to the adapter's
+  `Capabilities`. Each place the keeper or link now branches on claude or plain names the
+  capability it asks for: delivery mode, socket facts from hooks, transcript proof, whether a
+  failed CMD counts as an agent failure, whether a session start is awaited, and whether the
+  seats of a `refuse` launch wait. `cli` parses the spelling into an `Agent` and keeps the
+  `claude` argument rule as CL2's.
+- **AS2. `Capabilities`** has only the fields the code branches on today: `Delivery`
+  (`socket`, `wait`, `none`; the run's `inbound: refuse` lowers `socket` to `wait`), `Facts`
+  (`hooks`, `none`), `Proof` (`transcript`, `none`), `StatusLine`, `EndReason`, and the
+  flags AS1's list needs. `claude` is socket, hooks, transcript, a status line and an end
+  reason; `plain` is none, none, none, and false.
+- **AS3. `Preparer`**: `Prepare(cmd, inbound, run facts) (Launch, error)`, where `Launch` is
+  `{Args, Env, Files}`. Args are appended after CMD's last argument. Env is added to CMD's
+  environment only. Each file is written by the keeper under `<v2-run>`, mode 0600, with
+  `O_EXCL`. The adapter computes; the keeper writes, so a file write keeps the keeper's
+  fault and exit. The claude Preparer is `claudeArgv` moved as it is: the kit settings read
+  and its refusals, the `inbound` key, the resume rule, `--plugin-dir` and `--settings`, in
+  that order. The plain Preparer returns an empty `Launch`. The resume rule reads the
+  conversation record and the transcript path, so the run facts give the adapter those reads
+  and give it no state root to write.
+- **AS4. `Channel`**: one live session as the link sees it. `Deliver` is DV1's inbox-socket
+  write, with `Written` reporting how far it got for DV3's `unknown` and `yes`. `Observations`
+  carry DV4's proof and quiet clock and the hook-supplied facts to the state goroutine.
+  `Context` is `ErrUnsupported` for claude, because the hooks answer with context. A claude
+  Channel is made only once a hook has supplied the socket and a transcript (DV1). `plain`
+  makes none. A Channel only moves bytes and reports what it saw. The link keeps every
+  transition, and the ledger, receipts, the flood budget, the end and seats stay outside the
+  package, where no adapter can reach them. The hook ops of HK1 to HK3 are accepted only on a
+  run whose `Facts` is `hooks`.
+- **AS5. Proof that nothing moved.** Two tests are written before the move, and pass before
+  and after it unchanged. One is a golden test of the full claude `Launch` (argv after CMD,
+  environment, and the settings file's bytes), for a fresh run and a resumed one. The other is
+  the same test for plain. The keeper, link, engine and PK1 tests pass unchanged, and no
+  golden or pinned text changes.
+- **AS6. The defence.** A project rule, `project_agent_branch`, reports any comparison against a
+  launch value, or any use of `cli.LaunchClaude`, `cli.LaunchPlain`, `state.LaunchClaude` or
+  `state.LaunchPlain`, outside `agent`, `state`'s record checks and `wire`'s frame check. Its
+  red is proved on the tree before the move, which has every comparison AS1 lists.
+- **AS7. Gate A** is untouched: the seam adds no binary, unit, path, environment variable,
+  plugin or skill name, and nothing on disk changes.
+
 ## 7. n3f: the side rooms (Plan 00211), scope only
 
 The expectations are `SPEC-n3f.md`'s (section 0). The addendum covers at least:
