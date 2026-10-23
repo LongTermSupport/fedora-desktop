@@ -39,3 +39,12 @@
 # lists every mount as idle, an activity line or "(no --rc ...)"). Watching an upload stream live, Ctrl-C
 # exiting 0 and ftp-camera's upload status still printing (H2-H4) are by hand afterwards.
 00192-bash-line-in-the-sand-go-for-tooling/deploy-rclone-tail.bash
+# play-cli-tools.yml, the whole play (no plan owns it): installs mpv from Fedora's own repos
+# (desktops only), so audio clips can be played from a terminal; every other package in the
+# play is already installed and is left as it is. Check after: `mpv --version` prints.
+playbooks/imports/optional/common/play-cli-tools.yml
+# Plan 00167 acceptance, read-only, no play first (cc-project-dir is unchanged since dddf4063):
+# checks the installed cc-project-dir with no terminal, as a restore, in a repository
+# subfolder, and at the [Y/n] offer on a pseudo-terminal (y, n, a bad answer then n). It needs
+# no terminal of its own. Afterwards the host agent's cc checks in tmux (Task 3.3 item 2).
+00167-cc-refuses-to-start-outside-a-repo/acceptance.bash
