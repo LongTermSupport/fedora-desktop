@@ -289,8 +289,12 @@ func TestRelativePathsAreTheCurrentDirectorys(t *testing.T) {
 	w.write(filepath.Join(cwd, "pw-file"), "pw\n")
 	w.env["LOCALHOST_YML"] = filepath.Join("host_vars", filepath.Base(w.yml))
 	w.env["VAULT_PASS_FILE"] = "pw-file"
+	w.env["SCOPES_FILE"] = "scopes.yml"
 	if code := w.run("--setup-all"); code != term.ExitOK {
 		t.Fatalf("exit %d\n%s", code, w.stderr.String())
+	}
+	if h := w.mustCall("python3"); argAfter(h, "--scopes-file") != filepath.Join(cwd, "scopes.yml") {
+		t.Errorf("the scope helper was not given the scope file's absolute path: %q", h.Line())
 	}
 	c := w.mustCall("ansible")
 	if !slices.Contains(c.Args, "@"+w.yml) {

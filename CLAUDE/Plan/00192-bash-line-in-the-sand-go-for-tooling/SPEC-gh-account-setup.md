@@ -219,7 +219,8 @@ with awk); those cases move to Go tests, and the suite drives the built command 
   (E6); when logged in, `Scopes` (E9); `SSH key` exists; when the `.pub` exists and the account is
   logged in, `GitHub key` registered (E18); when the key exists, the SSH test (E20); then
   `Overall: healthy` or `Overall: issues found`. A check that cannot be made (a helper or gh that
-  fails) is an issue line, and the next check runs. The report is stdout. All healthy is
+  fails) is an issue line, and the next check runs; an inconclusive SSH test (E20) is an issue
+  here too, as it was in the bash, though setup goes on past one. The report is stdout. All healthy is
   `✓ All accounts healthy`, exit 0; else `✗ Some accounts have issues — run with --setup-all to fix`,
   exit 1.
 
