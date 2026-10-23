@@ -64,7 +64,8 @@ Open owner questions Q1-Q8 and the coordinator defaults D-C1 to D-C7 are in
 - [ ] ⬜ **Task 1.3**: a VM lab scenario, checker first (RED), as DESIGN.md 2.8: manifest entry
   `server-wireguard-overlay-hub` (`base: server-fast`, `reboot_before_checks: true`, `planned`);
   a `guest-prepare-` fixture that writes a throwaway unvaulted declaration and runs
-  `play-vpn.yml` by `run.bash`'s single-play headless mode; a checker that builds a peer and a
+  `play-vpn.yml` by `run.bash`'s single-play headless mode (`RUN_BASH_HEADLESS=1`); the
+  checker's test-scaffolding exception recorded in `docs/vm-acceptance-testing.md`; a checker that builds a peer and a
   non-peer in network namespaces and proves the handshake after the reboot, the peer admitted
   by a source `/32` rule, a local client over `lo` unaffected, no handshake for an unknown key,
   the non-peer's packets to the overlay address and its spoofed overlay source dropped by the

@@ -276,11 +276,15 @@ only for a scenario with `reboot_before_checks: true` (`docs/vm-acceptance-testi
   `wireguard_overlay` (hub role, prefix `192.0.2.0/24`, one peer) into the guest checkout's
   untracked `environment/localhost/host_vars/localhost.yml`, which the headless run already
   wrote; and runs the one play through `run.bash`'s single-play headless mode
-  (`./playbooks/imports/play-vpn.yml --headless`; the vault password file the headless run left
-  in the checkout lets Ansible start). The play takes a key as a plain variable; that it is
-  vaulted on real hosts is the host_vars' business, not the play's. The peer key and addresses go
-  to the fixture's record for the checker, as the kernel-change fixture records its facts. The
-  keys never leave the guest, which is destroyed after the run. A non-zero exit aborts the run.
+  (`RUN_BASH_HEADLESS=1 ./playbooks/imports/play-vpn.yml`; a `--headless` after the play path
+  would be forwarded to `ansible-playbook`, since `run.bash` passes on everything after it; the
+  vault password file the headless run left in the checkout lets Ansible start). The play takes
+  a key as a plain variable; that it is vaulted on real hosts is the host_vars' business, not
+  the play's. The peer key and addresses go to the fixture's record for the checker, a 0600 file
+  as the kernel-change fixture records its facts, which the checker unlinks in its `EXIT` trap.
+  No private or preshared key ever appears in a `VMTEST-EVIDENCE` line, a check's detail or any
+  output the host collects, since the transcript outlives the guest. The keys never leave the
+  guest, which is destroyed after the run. A non-zero exit aborts the run.
   It finishes well inside the lab's prepare limit (one play).
 - **The reboot** is not a cost: it proves that `autoconnect=true` brings `wg-overlay` up with no
   peer, and that the zone binding and the guard survive a firewalld start, which is DESIGN 2.6's
@@ -288,15 +292,19 @@ only for a scenario with `reboot_before_checks: true` (`docs/vm-acceptance-testi
 - **Checker** (`guest-acceptance-server-wireguard-overlay-hub.bash`): declares its planned count
   first, and the manifest entry's `planned` equals it (`qa-vmtest-manifest.bash` checks this). It
   builds its test scaffolding, root-only and removed in an `EXIT` trap, said in its header as the
-  kernel-change checker says it: a peer network namespace joined to the guest by a veth pair,
+  kernel-change fixture says it of its own work (throwaway guest, not host administration), and
+  recorded by Task 1.3 in `docs/vm-acceptance-testing.md` as this checker's exception to "nothing
+  here changes the guest" (namespaces and veths cannot survive the reboot, so the fixture cannot
+  make them): a peer network namespace joined to the guest by a veth pair,
   with its own WireGuard interface (the recorded peer key, the guest's veth address as endpoint),
   and a non-peer namespace on a second veth with no key. The guest ends of both veths have no
   NetworkManager zone, so they fall in the default zone, an ingress zone of the guard. Then it
   judges:
   - the handshake completes (`wg show wg-overlay latest-handshakes`);
   - TCP from the peer to a test listener on the hub's overlay address, admitted by a source
-    `/32` rich rule the fixture adds permanently to `wg-overlay` (standing in for a bus team's
-    rule), connects, and a local client on the guest connects to the same address over `lo` (the
+    `/32` rich rule the fixture adds permanently to `wg-overlay` in the installer's exact form
+    (`source address=<peer>/32 port port=<test port> protocol=tcp accept`, standing in for a bus
+    team's rule), connects, and a local client on the guest connects to the same address over `lo` (the
     regression the destination rule could cause);
   - a WireGuard interface in the non-peer namespace with an unknown key gets no handshake;
   - the non-peer, routing to the overlay address through its veth, gets no answer, and a
