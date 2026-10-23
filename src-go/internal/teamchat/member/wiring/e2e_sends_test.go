@@ -14,8 +14,9 @@ import (
 )
 
 // The sends end to end (n3d W, handoff section 11): a coordinator C and a worker K on team
-// alpha, each its own `run --plain` with its own state root, over fakehs. The verbs carry no
-// reference, so no forge is asked; the forge is proven in process (SD5, SD1-2).
+// alpha, each its own `run --plain` with its own state root, over fakehs. One row carries a
+// reference, to prove the link's forge wiring with no gh; the forge's answers are proven in
+// process (SD5, SD1-2).
 
 const (
 	// kShort is K's short name (P69), what C's --to names it by.
@@ -173,6 +174,23 @@ func sayAndReply(t *testing.T, hs homeserver) {
 	reply := ks.posted(new("done it"), "reply", said, "--team", teamName)
 	if recs := cs.recvUntil(reply); !hasKind(recs, reply, "peer") {
 		t.Fatalf("C's recv: %v", recs)
+	}
+}
+
+// n3d-D11, n3d-D10: C's referenced ping runs the link's own forge checker, as link/main.go
+// wires it (link, engine, forge.Checker, Login, execx): with no gh on PATH (the world's
+// environment names no PATH) it is 78 forge-login, and nothing is queued. A checker left
+// unwired, or a nil Login, fails this row.
+func TestE2EAReferencedPingWithNoGhIsForgeLogin(t *testing.T) {
+	c := newWorld(t, fakeServer(t)).member(coord, coordSeat, "c")
+	cs := c.seated()
+	reference := "commit:example-org/myrepo@" + strings.Repeat("ab", 20)
+	res := cs.send(nil, "ping", "review", reference, "--to", kShort, "--team", teamName)
+	if res.ExitCode != 78 || !strings.Contains(string(res.Stderr), `"code":"forge-login"`) {
+		t.Fatalf("the referenced ping: exit %d, stdout %s, stderr %s", res.ExitCode, res.Stdout, res.Stderr)
+	}
+	if q := cs.status("queued"); len(q) != 0 {
+		t.Fatalf("a refused ping was queued: %v", q)
 	}
 }
 
