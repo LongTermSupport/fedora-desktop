@@ -29,6 +29,7 @@ podman image inspect claude-yolo:latest --format '{{index .Config.Labels "claude
 podman image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-dockerfile-hash"}}'
 podman run --rm --entrypoint claude claude-yolo:latest --version
 curl -fsSL https://registry.npmjs.org/@anthropic-ai/claude-code/latest
+ccy-teams internal go-cache difftest-project
 podman network ls --format '{{.Name}}'
 podman network ls --format '  {{.Name}}'
 === files

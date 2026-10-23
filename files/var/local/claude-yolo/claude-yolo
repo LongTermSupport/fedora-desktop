@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.100.15"  # Container 2.79.9: the Go module gains a YAML dependency and execx Secret.Renamed (Plan 00192 Task 3.3). See docs/ccy-changelog.md.
+CCY_VERSION="3.100.20"  # Container 2.79.9: the Go caches live on the host per project, bounded, out of the writable layer --rm deletes at exit. See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -2505,6 +2505,7 @@ fi
 # Mounts:
 # - /workspace: Project directory (includes .claude/ for ALL state)
 # - /tmp/claude-config-import: Git configuration
+# - /var/cache/ccy-go: the project's Go caches (host directory or docker volume; see below)
 #
 # No credentials mounted - token via environment variable
 
@@ -2526,24 +2527,24 @@ DOCKER_MOUNTS=(
 # tokens exported by helper wrappers (e.g. scripts/desktop-symlinks) that want
 # extra read-only debug mounts. Previously this variable was advertised but never
 # read, so the promised mounts silently never appeared. Split on whitespace into
-# the mount array (mount paths therefore must not contain spaces).
-if [ -n "${CCY_EXTRA_MOUNTS:-}" ]; then
-    read -ra _extra_mounts <<< "$CCY_EXTRA_MOUNTS"
-    DOCKER_MOUNTS+=("${_extra_mounts[@]}")
-    debug "Added ${#_extra_mounts[@]} CCY_EXTRA_MOUNTS token(s) to DOCKER_MOUNTS"
-fi
+# the mount array (mount paths therefore must not contain spaces). Unset, it adds nothing.
+read -ra _extra_mounts <<< "${CCY_EXTRA_MOUNTS:-}"
 
 # Tracked per-project binds from .claude/ccy/mounts. Validated line by line;
 # any problem aborts here, before a container exists (see load_project_mounts).
 load_project_mounts || exit 1
-if [ "${#PROJECT_MOUNTS[@]}" -gt 0 ]; then
-    DOCKER_MOUNTS+=("${PROJECT_MOUNTS[@]}")
-    debug "Added ${#PROJECT_MOUNTS[@]} project mount token(s) to DOCKER_MOUNTS"
-fi
+DOCKER_MOUNTS+=("${_extra_mounts[@]}" "${PROJECT_MOUNTS[@]}")
 
 # This checkout's ccy.env.local is the install's own (placed by its IaC): read-only inside.
 ccy_env_local_mount_args || exit 1
 DOCKER_MOUNTS+=("${CCY_ENV_LOCAL_MOUNT[@]}")
+
+# The project's Go caches live on the host (~/.cache/ccy/<project>/go, bounded there), not in
+# the writable layer that --rm would delete file by file at exit: the bind and the GOCACHE,
+# GOMODCACHE, GOLANGCI_LINT_CACHE and GOQA_TOOLS_DIR it serves, one argument per line
+# (ccy-teams --help, internal go-cache).
+CCY_GO_CACHE_ARGS=$(ccy-teams internal go-cache "$PROJECT_NAME" ${CCY_MOUNT_RELABEL:+"$CCY_MOUNT_RELABEL"}) || exit 1
+mapfile -t _go_cache_args <<< "$CCY_GO_CACHE_ARGS" && DOCKER_MOUNTS+=("${_go_cache_args[@]}")
 
 # Note: Session state (history, databases, todos) will be stored in /workspace/.claude/ccy/
 # This keeps everything project-local and gitignored, while maintaining ephe meral containers

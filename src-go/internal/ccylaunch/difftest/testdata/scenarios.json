@@ -41,6 +41,7 @@
         {"tool": "gh", "args": ["auth", "token"], "stdout": "difftest-gh-token\n"},
         {"tool": "curl", "args": ["-fsSL", "https://registry.npmjs.org/@anthropic-ai/claude-code/latest"], "stdout": "{\"name\":\"@anthropic-ai/claude-code\",\"version\":\"2.0.0\"}\n"},
         {"tool": "ccy-teams", "args": ["internal", "claim-container-name", "difftest-project", "yolo"], "stdout": "difftest-project_yolo\n"},
+        {"tool": "ccy-teams", "args": ["internal", "go-cache", "difftest-project"], "stdout": "-v\n/difftest-go-cache:/var/cache/ccy-go\n-e\nGOCACHE=/var/cache/ccy-go/go-build\n"},
         {"tool": "ccy-teams", "args": ["describe-seats"]},
         {"tool": "timedatectl", "args": ["show", "-p", "Timezone", "--value"], "stdout": "Europe/London\n"},
         {"tool": "hostname", "args": [], "stdout": "difftest-host\n"},

@@ -1685,6 +1685,20 @@ ccy
 These tokens are passed through unvalidated and split on whitespace. Full details and
 the `scripts/desktop-symlinks` wrapper: [ccy-debug-mounts.md](ccy-debug-mounts.md).
 
+### Always: the project's Go caches
+
+Every launch binds `~/.cache/ccy/<project>/go` at `/var/cache/ccy-go` and points `GOCACHE`,
+`GOMODCACHE`, `GOLANGCI_LINT_CACHE` and `GOQA_TOOLS_DIR` there. The caches stay warm between
+sessions, every seat of the project shares them, and `--rm` no longer deletes tens of
+thousands of cache files when a session ends (which held up the exit for up to a minute).
+Each launch bounds them at 8 GiB on disk. Over that, the build caches are cleared, and if
+the total is still over, the module cache and go-qa's tools are cleared too. Clearing the
+module cache can fail a download that another running seat has in flight. Under docker the
+caches are the named volume `ccy-go-cache-<project>` instead, which ccy does not bound: empty
+it with `docker volume rm ccy-go-cache-<project>`. The `-e` values replace any `ENV` of the
+same name in a project Dockerfile. A project's `ccy.env` can point them elsewhere. Details:
+`ccy-teams --help`, `internal go-cache`.
+
 ---
 
 ## Keeping CCY Current

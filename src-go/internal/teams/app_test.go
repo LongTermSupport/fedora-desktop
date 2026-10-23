@@ -217,6 +217,16 @@ func TestDispatchInternalClaimContainerNameIsTheClaimCommand(t *testing.T) {
 	}
 }
 
+func TestDispatchInternalGoCacheIsTheCacheCommand(t *testing.T) {
+	h := newHarness(t)
+	if code := h.app.Run([]string{"internal", "go-cache", "proj", "z"}); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if !strings.HasPrefix(h.Out.String(), "-v\n"+filepath.Join(h.Env["HOME"], ".cache", "ccy", "proj", "go")+":/var/cache/ccy-go:z\n") {
+		t.Fatalf("stdout %q", h.Out.String())
+	}
+}
+
 func TestDispatchSessionIsTheHotCommand(t *testing.T) {
 	h := newHarness(t)
 	if code := h.app.Run([]string{"session", "frob"}); code != term.ExitUsage ||
@@ -237,7 +247,8 @@ func TestInternalNeedsOneOfItsCommands(t *testing.T) {
 			t.Fatalf("%v: exit %d", args, code)
 		}
 		if !strings.Contains(h.ErrOut.String(), "internal membership-init") ||
-			!strings.Contains(h.ErrOut.String(), "internal claim-container-name") {
+			!strings.Contains(h.ErrOut.String(), "internal claim-container-name") ||
+			!strings.Contains(h.ErrOut.String(), "internal go-cache <project> [z]") {
 			t.Fatalf("%v: stderr %q", args, h.ErrOut.String())
 		}
 	}
@@ -252,6 +263,7 @@ func TestUsageTextNamesTheLauncherSubcommandsAndTheCoordinator(t *testing.T) {
 		"ccy-teams internal membership-init <session> <checkout> <seats>",
 		"ccy-teams internal restart-args <session>", "ccy-teams session list",
 		"ccy-teams internal claim-container-name <project> <suffix> <owner-pid>",
+		"ccy-teams internal go-cache <project> [z]",
 		"ccy-teams session add <session> <team>[/<seat>] [--role=worker|coordinator] [--demote-current] [--yes]",
 		"ccy-teams session remove <session> <team> [--coordinator=demote|hand-to=<seat>] [--park] [--yes]",
 		"ccy-teams session move <session> <from-team> <to-team>[/<seat>]",
