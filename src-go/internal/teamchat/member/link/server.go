@@ -84,19 +84,18 @@ type server struct {
 	logMu   sync.Mutex
 	closeMu sync.Once
 	closeEr error
-	// stopping is cancelled by close once the connections are, and ends every request being
-	// served, so none outlives it (a wait would otherwise hold the link to its deadline).
-	stopping context.Context
-	stop     context.CancelFunc
+	// serving cancels each request being served; close calls them once the connections are
+	// closed, so none outlives it (a wait would otherwise hold the link to its deadline).
+	serving map[int]context.CancelFunc
+	nextReq int
 	// hook, when set, answers the four hook ops in place of the engine, given the peer's pid.
 	hook func(ctx context.Context, req wire.Request, peer int) hookReply
 }
 
 func newServer(ln *net.UnixListener, eng served, clk clock.Clock, uid int, kit paths.Digest, log io.Writer) *server {
-	stopping, stop := context.WithCancel(context.Background())
 	return &server{
 		ln: ln, eng: eng, clock: clk, uid: uid, kit: kit, log: log, conns: map[*net.UnixConn]bool{},
-		stopping: stopping, stop: stop,
+		serving: map[int]context.CancelFunc{},
 	}
 }
 
@@ -131,12 +130,33 @@ func (s *server) close() error {
 		for c := range s.conns {
 			s.closeConn(c)
 		}
+		for _, cancel := range s.serving {
+			cancel()
+		}
 		s.mu.Unlock()
-		s.stop()
 		s.closeEr = s.ln.Close()
 		s.wg.Wait()
 	})
 	return s.closeEr
+}
+
+// serve holds cancel for close to call, or calls it now if the server is closed; the func it
+// returns lets it go.
+func (s *server) serve(cancel context.CancelFunc) func() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		cancel()
+		return func() {}
+	}
+	id := s.nextReq
+	s.nextReq++
+	s.serving[id] = cancel
+	return func() {
+		s.mu.Lock()
+		delete(s.serving, id)
+		s.mu.Unlock()
+	}
 }
 
 // connections is how many connections are open now.
@@ -211,7 +231,7 @@ func (s *server) handle(base context.Context, c *net.UnixConn) {
 	}
 	ctx, cancel := context.WithCancel(base)
 	stopDeadline := s.clock.AfterFunc(left, cancel)
-	defer context.AfterFunc(s.stopping, cancel)()
+	defer s.serve(cancel)()
 	if s.hook != nil && isHookOp(req.Op) {
 		reply := s.hook(ctx, req, int(cred.Pid))
 		stopDeadline()

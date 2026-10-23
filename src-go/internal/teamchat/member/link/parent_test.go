@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/reexec"
 )
@@ -25,6 +26,25 @@ func TestTheWatchFiresWhenTheProcessEnds(t *testing.T) {
 	case <-w.Exited():
 	case <-t.Context().Done():
 		t.Fatal("the watch never fired")
+	}
+	check(t, w.Close())
+}
+
+// TestAKeeperDeadBeforeTheWatchReadsIsSeen holds the pidfd open, registered with the poller,
+// while the keeper dies and the poller sees it readable; RawConn.Read then resets that
+// readiness before the watch's first call, so only a watch that tests the pidfd sees the end.
+func TestAKeeperDeadBeforeTheWatchReadsIsSeen(t *testing.T) {
+	p := reexec.Start(t, helperHold)
+	f, err := openPidfd(p.Pid)
+	check(t, err)
+	p.Kill()
+	time.Sleep(100 * time.Millisecond)
+	w, err := watchFile(p.Pid, f)
+	check(t, err)
+	select {
+	case <-w.Exited():
+	case <-time.After(10 * time.Second):
+		t.Error("the watch never saw a keeper that died before it read")
 	}
 	check(t, w.Close())
 }
