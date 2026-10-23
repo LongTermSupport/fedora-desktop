@@ -467,15 +467,12 @@ func redirFD(r *syntax.Redirect) (int, bool) {
 // devFD is a /dev path that is another of this process's descriptors.
 var devFD = map[string]int{"/dev/stdin": 0, "/dev/stdout": 1, "/dev/stderr": 2}
 
-// devices are the device nodes a script redirects to; lxc-attach skips /dev/null, and a chown of
-// the others costs the caller no file. A path under /dev/shm or /dev/mqueue is a file.
-var devices = map[string]bool{
-	"/dev/null": true, "/dev/zero": true, "/dev/full": true, "/dev/tty": true,
-	"/dev/random": true, "/dev/urandom": true,
-}
+// devices are the paths lxc-attach leaves alone: /dev/null only. It takes every other stream,
+// a device node such as /dev/tty as much as a file under /dev/shm.
+var devices = map[string]bool{"/dev/null": true}
 
 // fileTarget is what a redirection to a word points the descriptor at: a process substitution
-// is a pipe, /dev/std* and /dev/fd/N are that descriptor again, a device node is clear, and
+// is a pipe, /dev/std* and /dev/fd/N are that descriptor again, /dev/null is clear, and
 // anything else is a file.
 func fileTarget(word *syntax.Word, line int, st state) target {
 	if word == nil {

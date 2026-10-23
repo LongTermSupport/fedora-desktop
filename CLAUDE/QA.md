@@ -1106,10 +1106,11 @@ every group, loop, subshell or function body around it; a pipe, `$(...)` or a pr
 substitution makes its end a pipe; dups (`2>&1`, `3>&1` then `1>&3`) carry what they copy. A
 function is summarised by the caller's descriptors it passes on to lxc-attach, so a wrapper that
 pipes every stream itself is no finding however it is called, and one that leaves stderr
-inherited makes `wrapper ... 2>file` one. `/dev/null` (which lxc-attach skips), the other
-device nodes (`/dev/zero`, `/dev/full`, `/dev/tty`, `/dev/random`, `/dev/urandom`),
-here-documents and here-strings are clear; a file under `/dev/shm` is a file. Run by `qa-lxc-attach-streams.bash` over every tracked shell script but
-`CLAUDE/Plan/Completed/`, judged together, after proving the rule against its fixture.
+inherited makes `wrapper ... 2>file` one. `/dev/null` (which lxc-attach skips),
+here-documents and here-strings are clear; any other path is taken, a device node such as
+`/dev/tty` as much as a file under `/dev/shm`. Run by `qa-lxc-attach-streams.bash` over every
+tracked shell script but `CLAUDE/Plan/Completed/`, judged together, after proving the rule
+against its fixture.
 
 **Why it exists.** lxc-attach makes each of its standard streams that is not `/dev/null` the
 container root's own ([AgentNotes.md](AgentNotes.md#lxc-attach-chowns-any-file-its-stdout-or-stderr-points-at)).
@@ -1122,7 +1123,8 @@ Before Fix (Plan 00211).
 **How to fix a finding.** Hand lxc-attach pipes, best in the wrapper, so no caller can get it
 wrong: the wrapper runs lxc-attach with stdout piped through `cat` and stderr swapped through a
 second `cat` back onto its own stderr, and returns lxc-attach's status from `PIPESTATUS`
-(Plan 00211's `in_guest`, Plan 00161's `u23_lxc_attach`, which pipes stdin too):
+(Plan 00211's `in_guest`; Plan 00161's `u23_lxc_attach` pipes stdin too, but does not check
+its stdout copy):
 
 ```bash
 local -a piped
@@ -1152,7 +1154,9 @@ not wait for it, so a file read straight after can be short. Do not loosen the c
 
 **What it does not see.** A redirection made earlier by a bare `exec` (`exec 2>file`, or
 `exec 3>file` and later `2>&3`), the tool inside a string another shell runs (`bash -c`,
-`sh -c`, `ssh`), a command run through a function that runs its own arguments
+`sh -c`, `ssh`), the tool or a runner held in a variable the rule does not tie to it
+(`"${SUDO[@]}" lxc-attach`, `L=$(command -v lxc-attach)`), a command run through a function
+that runs its own arguments
 (`best_effort_rm what lxc-attach ...` without a runner word before the tool), and a script
 whose own caller redirected it to a file. Function and variable names are pooled across every
 script judged, so a wrapper one plan defines also makes a finding of a same-named function's

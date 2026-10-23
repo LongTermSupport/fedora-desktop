@@ -32,7 +32,8 @@ ask() {
     return "${rc}"
 }
 
-# Cleared: stderr goes through a process substitution, so lxc-attach sees a pipe.
+# Not reported: stderr goes through a process substitution, so lxc-attach sees a pipe. (Not the
+# remedy to copy: the shell does not wait for the cat, so the file can be short when read.)
 ask_fixed() {
     local out rc=0
     out="$(printf 'q\n' | session_run lxc pingbus ask-human 2> >(cat >"${err}"))" || rc=$?
