@@ -8,53 +8,93 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-// FakeClockCount forbids waiting on a fake clock by the number of its armed waiters.
-var FakeClockCount = &analysis.Analyzer{
-	Name: "project_fakeclock_count",
-	Doc: `project_fakeclock_count flags a wait on a fake clock by the number of its armed waiters.
+// FakeClockCount forbids judging a fake clock's timers by the number of its armed waiters.
+var FakeClockCount = newFakeClockCount(waiterCountAllowances)
 
-A fake clock is a type whose method set has Advance(time.Duration). Flagged: any use (a call or
-a method value) of its method that takes a context.Context and an integer (BlockUntil(ctx, n),
-a count wait whatever it is called), and a call of its method that takes nothing and returns
-an int (Waiters()) in the condition or body of a for statement, or in a return of a
-function literal (until(func() bool { return clk.Waiters() == n })): a poll on the count.
+func newFakeClockCount(allow []allowance) *analysis.Analyzer {
+	return &analysis.Analyzer{
+		Name: "project_fakeclock_count",
+		Doc: `project_fakeclock_count flags a test of a fake clock's timers by the number of its armed waiters.
+
+A fake clock is a type whose method set has Advance(time.Duration). Flagged:
+
+- a wait by count: any use (a call or a method value) of its method that takes a
+  context.Context and an integer (BlockUntil(ctx, n), whatever it is called), and a call of its
+  method that takes nothing and returns an int (Waiters()) in the condition or body of a for
+  statement, or in a return of a function literal (until(func() bool { return clk.Waiters() ==
+  n })): a poll on the count. Flagged everywhere, the fake's own package included;
+- any other use (a call, a method value) of that count method outside the package that
+  declares it (its internal and external tests are its own): an assertion (if clk.Waiters() !=
+  1), a count kept in a variable, handed to a helper, switched on.
 
 A count says how many timers are armed, not which. The code under test arms, stops and re-arms
-its own timers on its own goroutines, so the count a test waits for can be made by a timer it
-did not mean (the link server's read limit, armed on accept before the hook's request was
-written), the test advances too early, and the timer it meant is armed afterwards at the new
-time and never fires: TestAnOpBeforeThePIDIsNotAnswered hung to the test binary's timeout.
+its own timers, and any of them changes the count. A test that waits for a count advances too
+early when another timer makes it, and the timer it meant is armed afterwards at the new time
+and never fires (TestAnOpBeforeThePIDIsNotAnswered hung to the binary's timeout). A test that
+asserts a count fails on correct code when another timer is armed beside the one it means
+(the TIMEOUT tests' "waiters = 2, want the one TIMEOUT timer" once the delivery loop's timers
+were merged in), and passes when the timer it means is missing and another makes up the number.
 
-Not flagged: a count asserted once (if clk.Waiters() != 0, in a range loop or a t.Run body),
-an integer method without a context (StepWall(ms)), a reading that is not an int
-(WallMS() int64), and a count on a type with no Advance.
-Not caught: a count read into a variable and polled by a helper that takes the int, and a
-fake whose advance is spelled otherwise.
+Not flagged: the fake's own package asserting its own count; an integer method without a
+context (StepWall(ms)); a reading that is not an int (WallMS() int64, Armed(d) bool); a count on
+a type with no Advance; and an assertion in a function the waiterCountAllowances table names,
+whose claim is that nothing at all is armed (a client that must never wait), so every timer
+is the one it means. A wait by count is never excused.
+Not caught: a fake whose advance is spelled otherwise; a bool query (AwaitDue, Armed) that
+names a due time another timer shares.
 
-How to fix: wait for the timer itself, by when it is due: clock.(*Fake).AwaitDue(ctx, d)
-returns once a waiter due d from the fake's present reading is armed.`,
-	Run:        perPass(runFakeClockCount),
-	ResultType: noResultType,
+How to fix: name the timer by when it is due. clock.(*Fake).AwaitDue(ctx, d) waits until a
+waiter due d from the fake's present reading is armed, and Armed(d) says whether one is now;
+that a timer is not armed is asked of the code that owns it, not of the clock.`,
+		Run: perPass(func(pass *analysis.Pass) {
+			runFakeClockCount(pass, allow)
+		}),
+		ResultType: noResultType,
+	}
 }
 
-func runFakeClockCount(pass *analysis.Pass) {
+func runFakeClockCount(pass *analysis.Pass, allow []allowance) {
 	reported := map[token.Pos]bool{}
 	for _, f := range pass.Files {
-		ast.Inspect(f, func(n ast.Node) bool {
-			switch n := n.(type) {
-			case *ast.SelectorExpr:
-				if fn := fakeClockMethod(pass, n); fn != nil && isCountWait(fn) {
-					reportCount(pass, n, fn, reported)
+		for _, decl := range f.Decls {
+			excused := allowedIn(pass, funcName(decl), allow)
+			ast.Inspect(decl, func(n ast.Node) bool {
+				switch n := n.(type) {
+				case *ast.SelectorExpr:
+					reportCountUse(pass, n, excused, reported)
+				case *ast.ForStmt:
+					reportCountReads(pass, n.Cond, reported)
+					reportCountReads(pass, n.Body, reported)
+				case *ast.FuncLit:
+					reportReturnedCounts(pass, n, reported)
 				}
-			case *ast.ForStmt:
-				reportCountReads(pass, n.Cond, reported)
-				reportCountReads(pass, n.Body, reported)
-			case *ast.FuncLit:
-				reportReturnedCounts(pass, n, reported)
-			}
-			return true
-		})
+				return true
+			})
+		}
 	}
+}
+
+// reportCountUse reports a count wait anywhere, and a count read outside the fake's own
+// package unless the enclosing function is excused. The inspection is pre-order, so a poll
+// that encloses the read has already reported it as a wait.
+func reportCountUse(pass *analysis.Pass, sel *ast.SelectorExpr, excused bool, reported map[token.Pos]bool) {
+	fn := fakeClockMethod(pass, sel)
+	switch {
+	case fn == nil:
+	case isCountWait(fn):
+		reportCount(pass, sel, fn, reported)
+	case isCountRead(fn) && !excused && !declaredHere(pass, fn) && !reported[sel.Pos()]:
+		reported[sel.Pos()] = true
+		pass.Reportf(sel.Pos(), "counts the fake clock's waiters (%s): name the timer by when it is due (AwaitDue, Armed)", fn.Name())
+	}
+}
+
+// declaredHere is whether fn belongs to the package under analysis or to its external tests.
+func declaredHere(pass *analysis.Pass, fn *types.Func) bool {
+	if fn.Pkg() == nil {
+		return false
+	}
+	return ownedBy(pass.Pkg.Path(), fn.Pkg().Path())
 }
 
 // reportReturnedCounts reports each count read in a return of lit itself (a predicate polled by

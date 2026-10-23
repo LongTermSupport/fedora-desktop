@@ -25,6 +25,9 @@ func (f *Fake) BlockUntil(_ context.Context, _ int) error { return nil }
 // AwaitDue waits until a waiter due d from now is armed.
 func (f *Fake) AwaitDue(_ context.Context, _ time.Duration) error { return nil }
 
+// Armed is whether a waiter due d from now is armed: a timer named by when it is due.
+func (f *Fake) Armed(d time.Duration) bool { return len(f.waiters) > 0 && f.waiters[0] == d }
+
 // Count is the fake's own count, read inside the package that defines it.
 func (f *Fake) Count() int {
 	for f.Waiters() > 0 { // want `waits on a count of the fake clock's waiters \(Waiters\)`

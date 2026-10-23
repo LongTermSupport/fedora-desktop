@@ -13,7 +13,7 @@ import (
 // server's read limit, armed on accept, made the count before the op's deadline was armed.
 func TestOriginating(t *testing.T) {
 	clk := &fakeclock.Fake{}
-	armed := clk.Waiters()
+	armed := clk.Waiters()                                       // want `counts the fake clock's waiters \(Waiters\)`
 	if err := clk.BlockUntil(t.Context(), armed+1); err != nil { // want `waits on a count of the fake clock's waiters \(BlockUntil\)`
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestEvasions(t *testing.T) {
 	_ = timers.WaitForTimers(t.Context(), 2) // want `waits on a count of the fake clock's waiters \(WaitForTimers\)`
 	var held othertimers.Clock = timers
 	_ = held.WaitForTimers(t.Context(), 2) // want `waits on a count of the fake clock's waiters \(WaitForTimers\)`
-	for timers.Armed() > 0 { // want `waits on a count of the fake clock's waiters \(Armed\)`
+	for timers.Armed() > 0 {               // want `waits on a count of the fake clock's waiters \(Armed\)`
 	}
 }
 
@@ -46,32 +46,18 @@ func helper(clk *fakeclock.Fake, n int) error {
 	return clk.BlockUntil(context.Background(), n) // want `waits on a count of the fake clock's waiters \(BlockUntil\)`
 }
 
-// Clean: the wait names its timer by when it is due; a count asserted once, in a table loop
-// or a message, is not a wait; an integer with no context is not a count wait; nor is a count
-// on a type that is not a fake clock.
+// Clean: the wait names its timer by when it is due, and so does the query; an integer with
+// no context is not a count wait; nor is a count on a type that is not a fake clock.
 func TestClean(t *testing.T) {
 	clk := &fakeclock.Fake{}
 	if err := clk.AwaitDue(t.Context(), time.Second); err != nil {
 		t.Fatal(err)
 	}
+	if !clk.Armed(time.Second) {
+		t.Fatal("not armed")
+	}
 	clk.Advance(time.Second)
 	clk.StepWall(5)
-	if clk.Waiters() != 0 {
-		t.Fatalf("%d waiters", clk.Waiters())
-	}
-	if n := clk.Waiters(); n != 0 {
-		t.Fatal(n)
-	}
-	for _, want := range []int{0} {
-		if clk.Waiters() != want {
-			t.Fatal(want)
-		}
-	}
-	t.Run("sub", func(t *testing.T) {
-		if clk.Waiters() != 0 {
-			t.Fatal("armed")
-		}
-	})
 	var timers othertimers.Timers
 	until(t, func() bool { return time.UnixMilli(timers.NowMS()).IsZero() })
 	var r othertimers.Real

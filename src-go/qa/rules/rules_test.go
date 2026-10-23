@@ -74,7 +74,9 @@ func TestHomeAbbrev(t *testing.T) {
 }
 
 func TestFakeClockCount(t *testing.T) {
-	analysistest.Run(t, analysistest.TestData(), FakeClockCount, "fix/internal/fakeclock", "fix/internal/othertimers", "fix/internal/badcount")
+	allow := []allowance{{pkg: "internal/countallowed", fn: "TestNothingWaits", reason: "claims nothing at all is armed"}}
+	analysistest.Run(t, analysistest.TestData(), newFakeClockCount(allow), "fix/internal/fakeclock", "fix/internal/othertimers",
+		"fix/internal/badcount", "fix/internal/countallowed")
 }
 
 func TestGoroutineEnd(t *testing.T) {

@@ -310,6 +310,32 @@ var expectBuilders = []allowance{
 	},
 }
 
+// waiterCountAllowances are the test functions whose claim is that nothing at all is armed on
+// their fake clock, so a count of every waiter is the claim itself (project_fakeclock_count).
+// A row excuses an assertion of the count, never a wait on it.
+var waiterCountAllowances = []allowance{
+	{
+		pkg:    "internal/teamchat/member/client",
+		fn:     "world.noLink",
+		reason: "LN3: with no link the client answers at once and never waits, so any armed timer is a wait it must not make",
+	},
+	{
+		pkg:    "internal/teamchat/member/client",
+		fn:     "TestASendNeverRetries",
+		reason: "a send never reconnects or waits, so any armed timer is a wait it must not make",
+	},
+	{
+		pkg:    "internal/teamchat/member/inbox",
+		fn:     "TestOneDeliveryRecordsTheAuthFrameThenTheContent",
+		reason: "the inbox client is the only code on its clock, and a finished delivery leaves no phase timer of any kind armed",
+	},
+	{
+		pkg:    "internal/teamchat/member/faketranscript",
+		fn:     "TestRecordNeverWritesNothing",
+		reason: "a record whose delay is Never arms nothing at all on the transcript's clock",
+	},
+}
+
 // clockAllowance excuses one test function from the fixed-clock rule.
 type clockAllowance = allowance
 
