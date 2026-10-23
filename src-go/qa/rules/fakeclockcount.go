@@ -40,8 +40,9 @@ context (StepWall(ms)); a reading that is not an int (WallMS() int64, Armed(d) b
 a type with no Advance; and an assertion in a function the waiterCountAllowances table names,
 whose claim is that nothing at all is armed (a client that must never wait), so every timer
 is the one it means. A wait by count is never excused.
-Not caught: a fake whose advance is spelled otherwise; a bool query (AwaitDue, Armed) that
-names a due time another timer shares.
+Not caught: a fake whose advance is spelled otherwise; a fake held as an interface that has
+the count method but no Advance (var c interface{ Waiters() int } = clk); a bool query
+(AwaitDue, Armed) that names a due time another timer shares.
 
 How to fix: name the timer by when it is due. clock.(*Fake).AwaitDue(ctx, d) waits until a
 waiter due d from the fake's present reading is armed, and Armed(d) says whether one is now;

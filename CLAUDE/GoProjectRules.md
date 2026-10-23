@@ -290,7 +290,14 @@ fake's present reading is armed: the timer named by when it is due.
   1 ms late. Four allowance rows: the client's `world.noLink` and `TestASendNeverRetries` (the
   client never waits), the inbox's `TestOneDeliveryRecordsTheAuthFrameThenTheContent` and
   faketranscript's `TestRecordNeverWritesNothing`.
-- Not caught: a fake whose advance is spelled otherwise; two timers due at the same instant
+- The four rows, each a test whose code under test is the only user of its clock and whose
+  claim is that it arms nothing left armed: the client answers with no link and never retries a
+  send without any wait (LN3), so any armed waiter is a wait it must not make; the inbox client
+  stops every phase timer of a finished delivery; a faketranscript record with delay `Never`
+  arms nothing. A timer one of them leaves armed is that claim failing, not another timer.
+- Not caught: a fake whose advance is spelled otherwise; a fake held as an interface that has
+  the count method but no `Advance` (`var c interface{ Waiters() int } = clk`, found by the
+  conformance review; none in the tree); two timers due at the same instant
   are one to `AwaitDue` and `Armed`; an allowance row whose test later shares its clock with
   other timers (the row's reason says why its clock has one user).
 - Next wider rule, not built: a timer named by its due time must be the only waiter due then
