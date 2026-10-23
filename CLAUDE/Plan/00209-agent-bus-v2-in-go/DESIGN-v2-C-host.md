@@ -1478,6 +1478,39 @@ B owns the content of the goodbye and the disconnected message (A's types), the 
 leave, and the decision that a member's own events show a goodbye; section 7 lists these as
 assumptions on B.
 
+#### 3.7.6 Seats on another machine (Plan 00220), not built in N3 to N6
+
+Plan 00220 joins machines over a WireGuard overlay. The hub runs on the homeserver's host,
+each peer is a `/32` in `allow_from`, and the overlay address is a second `listen` address,
+never `teamchat_address`. Its v1 phases need no bus code. A ccy seat on a machine that does
+not run the team's homeserver is v2-only, and v2 owes it four things, recorded here so that
+the seat take is built to take them later:
+
+1. **A seat take with no local unit.** The pool is keyed by checkout and team, and a seat is
+   taken where its session runs (3.7.1). On a machine where the team's homeserver is not
+   local, the take is keyed on the team's approved url (3.10), not on a local
+   `teamchat-server@<team>`. The pool layout, `held.json` and C41 (the pool never reads back
+   a container's copy) hold unchanged on that machine.
+2. **A credential path from the homeserver's host to that launcher.** A seat account and its
+   password are made by the admin process on the homeserver's host. The remote pool gets
+   them over ssh (Plan 00205) or through the broker (Plan 00197, admitting the overlay
+   interface). The owner chooses. Either way, `password` stays in the remote pool only
+   (DC16).
+3. **Fail fast at seat creation, never at launch.** A seat creation that cannot reach the
+   homeserver fails and names the URL. A launch into a seat that already exists starts,
+   and its link catches up when the homeserver answers. This is the owner's rule: an
+   offline party never blocks anything, and only an operation that explicitly targets it
+   reports it.
+4. **Validated URLs, with no TLS.** M14's `plain_http_hosts` (3.7.2) admits an overlay
+   address only when it is declared as one. Any address that is not loopback, the bus
+   interface, the bridge or a declared overlay address is refused unless the owner
+   approves it. 3.2's "never routed off the machine" then reads "never routed off the
+   machine except inside the declared overlay, which WireGuard encrypts". Allowing overlay
+   peers widens K16: `allow_from` then admits named other machines, and the token stays the
+   boundary between teams.
+
+None of these changes v2's network model or adds TLS.
+
 ### 3.8 The declarations in host_vars
 
 host_vars stays the IaC store (C28, DESIGN D6). v2 has its own keys, so v1's play, v1's
