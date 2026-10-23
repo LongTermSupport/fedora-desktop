@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00225-team-liaison-role](00225-team-liaison-role/) - Not Started. A `liaison` team role that talks to the humans for the coordinator: hand-offs, checked relays, progress updates, read-only code
+
 - [00223-ccy-one-confirm-relaunch](00223-ccy-one-confirm-relaunch/) - Not Started. One Quick Launch screen for ccy, accepted with one Enter, `ccy --teams` included: only the seat is rechecked, and a used-up token goes to the token chooser
 
 - [00224-coordinator-desktop-notifications](00224-coordinator-desktop-notifications/) - Not Started. A team's coordinator in a ccy or LXC container can send the owner a desktop notification through one Go command, `notify-owner`, and a host relay that checks the role from the host's own records; no session D-Bus in any container
