@@ -275,7 +275,9 @@ func TestTheBoundIsAppliedUnderTheProjectsLock(t *testing.T) {
 	build := r.fill(t, "go-build", "ab/entry-d", 512)
 	var order []string
 	r.cache.lock = func(path string) (func() error, error) {
-		if path != filepath.Join(r.root(), ".lock") {
+		// Beside the bind, never in it: the container must not be able to hold, delete or
+		// replace the lock.
+		if path != filepath.Join(filepath.Dir(r.root()), "go.lock") {
 			t.Fatalf("lock %s", path)
 		}
 		if !exists(t, build) {
@@ -331,11 +333,11 @@ func (gone) Info() (fs.FileInfo, error) { return nil, fs.ErrNotExist }
 func TestAFileRemovedDuringTheWalkCountsAsNothing(t *testing.T) {
 	// Another seat's go trims its cache, removes a download's temporary or an install's
 	// scratch directory at any moment: a launch measuring the shared caches must not fail.
-	n, err := fileSize(gone{}, nil)
+	n, err := blocks(gone{}, nil)
 	if n != 0 || err != nil {
 		t.Fatalf("listed then removed: %d %v", n, err)
 	}
-	n, err = fileSize(nil, &fs.PathError{Op: "lstat", Path: "x", Err: fs.ErrNotExist})
+	n, err = blocks(nil, &fs.PathError{Op: "lstat", Path: "x", Err: fs.ErrNotExist})
 	if n != 0 || err != nil {
 		t.Fatalf("removed before its stat: %d %v", n, err)
 	}
@@ -593,6 +595,35 @@ func overBound(t *testing.T, r rig) {
 	t.Helper()
 	r.cache.Limit = 256 << 10
 	r.fill(t, "go-build", "ab/entry-d", 512)
+}
+
+func TestStillOverAfterEveryCacheIsClearedFails(t *testing.T) {
+	r := newRig(t)
+	r.cache.Limit = 256 << 10
+	r.fill(t, "go-build", "ab/entry-d", 64)
+	stray := r.fill(t, ".", "planted", 512)
+	code, out := r.run(t, project, "z")
+	if code != term.ExitFailure || out != "" {
+		t.Fatalf("exit %d stdout %q", code, out)
+	}
+	if !strings.Contains(r.ErrOut.String(), "not a cache ccy keeps") || !exists(t, stray) {
+		t.Fatalf("stderr %q", r.ErrOut.String())
+	}
+}
+
+func TestASparseFileCountsOnlyWhatItHoldsOnDisk(t *testing.T) {
+	r := newRig(t)
+	r.cache.Limit = 256 << 10
+	mod := r.fill(t, "mod", "example.com/m@v1/go.mod", 8)
+	sparse := filepath.Join(r.root(), "go-build", "ab", "sparse-d")
+	teamtest.MustWrite(t, sparse, "")
+	if err := os.Truncate(sparse, 9<<30); err != nil {
+		t.Fatal(err)
+	}
+	r.mustRun(t, project, "z")
+	if !exists(t, sparse) || !exists(t, mod) {
+		t.Fatal("a sparse file holding nothing on disk set off a prune")
+	}
 }
 
 func TestTwoLaunchesAgree(t *testing.T) {

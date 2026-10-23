@@ -17,10 +17,10 @@ Two version numbers move independently — see
 
 ---
 
-## 3.100.20 — container 2.79.9
+## 3.100.21 — container 2.79.9
 
-Follows 3.100.15 (container 2.79.9). The image does not change. 3.100.16 to 3.100.19 are
-taken by other branches.
+Follows 3.100.18 (container 2.79.9). The image does not change. Another branch holds
+3.100.19; 3.100.20 was this change before review.
 
 - **The Go caches leave the container's writable layer.** Ending a long QA-heavy session
   waited 12 to 56 s after the container had died. That time went into `podman run --rm`
@@ -32,10 +32,12 @@ taken by other branches.
   The caches persist, warm the next session, and are shared by every seat of the project.
   go's caches are built for concurrent use, and go-qa installs its tools by rename.
 - **Bounded at launch:** over 8 GiB on disk, `go-build` and `golangci-lint` are cleared,
-  then `mod` and `go-qa-tools` if the total is still over. This runs under an flock on the
-  directory. Each cache is renamed aside before it is removed, so its path always holds
-  either the whole old cache or a fresh one. Files that another seat removes during the
-  walk are ignored.
+  then `mod` and `go-qa-tools` if the total is still over. Still over after that, the launch
+  fails and names the directory. This runs under an flock on `~/.cache/ccy/<project>/go.lock`,
+  beside the bind where the container cannot reach it. Every step inside the bind goes
+  through an `os.Root`, so a link the container plants is never followed. Each cache is
+  renamed aside before it is removed, so its path always holds either the whole old cache
+  or a fresh one. Files that another seat removes during the walk are ignored.
 - **Docker** gets the named volume `ccy-go-cache-<project>` instead, which ccy does not
   bound. Under rootful docker a bind would fill `~/.cache` with root-owned files.
 - The `CCY_EXTRA_MOUNTS` and `.claude/ccy/mounts` tokens are appended without their debug

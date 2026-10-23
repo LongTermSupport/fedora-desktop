@@ -1692,10 +1692,16 @@ Every launch binds `~/.cache/ccy/<project>/go` at `/var/cache/ccy-go` and points
 sessions, every seat of the project shares them, and `--rm` no longer deletes tens of
 thousands of cache files when a session ends (which held up the exit for up to a minute).
 Each launch bounds them at 8 GiB on disk. Over that, the build caches are cleared, and if
-the total is still over, the module cache and go-qa's tools are cleared too. Clearing the
-module cache can fail a download that another running seat has in flight. Under docker the
-caches are the named volume `ccy-go-cache-<project>` instead, which ccy does not bound: empty
-it with `docker volume rm ccy-go-cache-<project>`. The `-e` values replace any `ENV` of the
+the total is still over, the module cache and go-qa's tools are cleared too. If it is still
+over after that, the launch stops and names the directory, because what remains is not a
+cache ccy keeps. Clearing the module cache can fail a download that another running seat
+has in flight, and clearing the tools makes its next go-qa run install them again. The
+bound is per project name, so each worktree launched as its own project has its own 8 GiB,
+and nothing removes the cache of a project that is gone: delete its `~/.cache/ccy/<project>`.
+A file the container gave to another user (a `chown` as root inside) cannot be removed by
+you, and every launch then fails on it: remove it with `podman unshare rm -rf <path>`. Under
+docker the caches are the named volume `ccy-go-cache-<project>` instead, which ccy does not
+bound: empty it with `docker volume rm ccy-go-cache-<project>`. The `-e` values replace any `ENV` of the
 same name in a project Dockerfile, and `GOMODCACHE` moves a module cache that a Dockerfile's
 `GOPATH` would have put elsewhere. A project's `ccy.env` can point them elsewhere. Details:
 `ccy-teams --help`, `internal go-cache`.

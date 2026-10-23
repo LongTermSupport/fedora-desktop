@@ -246,13 +246,14 @@ Usage:
   ccy-teams internal go-cache <project> [z]
                                    make ~/.cache/ccy/<project>/go, the project's Go caches
                                    (build, module, golangci-lint, go-qa's tools), and print the
-                                   podman run arguments, one per line, that mount it at
+                                   run arguments, one per line, that mount it at
                                    /var/cache/ccy-go (relabelled :z when given z) and point
                                    GOCACHE, GOLANGCI_LINT_CACHE, GOMODCACHE and GOQA_TOOLS_DIR
                                    there. Over 8 GiB on disk, the build caches are cleared, then
-                                   the module cache and the tools if still over (under a lock on
-                                   the directory). With CONTAINER_ENGINE=docker the caches are
-                                   the named volume ccy-go-cache-<project> instead, unbounded.
+                                   the module cache and the tools if still over, and still over
+                                   is exit 1 (under the lock ~/.cache/ccy/<project>/go.lock).
+                                   With CONTAINER_ENGINE=docker the caches are the named
+                                   volume ccy-go-cache-<project> instead, unbounded.
                                    ccy calls it at each launch, so --rm no longer deletes the
                                    caches at exit
   ccy-teams session list

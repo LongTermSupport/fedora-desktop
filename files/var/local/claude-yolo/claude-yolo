@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.100.20"  # Container 2.79.9: the Go caches live on the host per project, bounded, out of the writable layer --rm deletes at exit. See docs/ccy-changelog.md.
+CCY_VERSION="3.100.21"  # Container 2.79.9: the Go caches live on the host per project, bounded, out of the writable layer --rm deletes at exit. See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -2544,7 +2544,7 @@ DOCKER_MOUNTS+=("${CCY_ENV_LOCAL_MOUNT[@]}")
 # GOMODCACHE, GOLANGCI_LINT_CACHE and GOQA_TOOLS_DIR it serves, one argument per line
 # (ccy-teams --help, internal go-cache).
 CCY_GO_CACHE_ARGS=$(ccy-teams internal go-cache "$PROJECT_NAME" ${CCY_MOUNT_RELABEL:+"$CCY_MOUNT_RELABEL"}) || exit 1
-mapfile -t _go_cache_args <<< "$CCY_GO_CACHE_ARGS" && DOCKER_MOUNTS+=("${_go_cache_args[@]}")
+mapfile -t _go_cache_args <<< "$CCY_GO_CACHE_ARGS"; DOCKER_MOUNTS+=("${_go_cache_args[@]}")
 
 # Note: Session state (history, databases, todos) will be stored in /workspace/.claude/ccy/
 # This keeps everything project-local and gitignored, while maintaining ephe meral containers

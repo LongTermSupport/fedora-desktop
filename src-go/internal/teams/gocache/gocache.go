@@ -24,17 +24,20 @@
 //   - G3. Every seat of one project shares the caches. go's build and module caches and
 //     golangci-lint's (derived from go's) are written for concurrent use, and go-qa installs a
 //     tool in a scratch directory and renames it into place.
-//   - G4. The bind's caches are bounded at launch, under an flock on <root>/.lock, so two
+//   - G4. The bind's caches are bounded at launch, under an flock on
+//     ~/.cache/ccy/<project>/go.lock (beside the bind, out of the container's reach), so two
 //     launches of the project never prune at once and one never takes another's .prune-* for a
 //     leftover. go already trims build-cache entries unused for five days; on top of that, when
-//     the regular files hold more than Limit (DefaultLimit) bytes, the build caches (go-build,
-//     golangci-lint) are cleared, and if the total is still over, the module cache and the tools
-//     too. Each is renamed into a .prune-* directory first, so the cache path is at once either
-//     the whole old cache or a fresh one, then removed (the module cache's read-only
-//     directories made writable) and made again. A seat building at that moment loses only
-//     cache hits, except that clearing the module cache can fail a module download it has in
-//     flight. A .prune-* left by an interrupted launch is removed before measuring. A file
-//     another seat removes during the walk counts as nothing. What was cleared is said on stderr.
+//     the regular files under the root hold more than Limit (DefaultLimit) on disk (allocated
+//     blocks), the build caches (go-build, golangci-lint) are cleared, and if the total is still
+//     over, the module cache and the tools too; still over after that is exit 1, naming the
+//     root, since what remains is nothing ccy keeps. Each is renamed into a .prune-* directory
+//     first, so the cache path is at once either the whole old cache or a fresh one, then
+//     removed (the module cache's read-only directories made writable) and made again. A seat
+//     building at that moment loses only cache hits, except that clearing the module cache can
+//     fail a module download it has in flight, and clearing the tools makes its next go-qa run
+//     install them again. A .prune-* left by an interrupted launch is removed before
+//     measuring. A file another seat removes during the walk counts as nothing. What was cleared is said on stderr.
 //     The container writes inside the root, so every operation there goes through one os.Root:
 //     a link it plants (as a leftover, a cache or inside one) is moved or unlinked, never
 //     followed out of the cache.
@@ -63,14 +66,16 @@ const (
 	sub = "go-cache"
 	// ContainerDir is where the caches are mounted in the container.
 	ContainerDir = "/var/cache/ccy-go"
-	// DefaultLimit bounds the size of one project's caches: 8 GiB.
+	// DefaultLimit bounds what one project's caches hold on disk: 8 GiB.
 	DefaultLimit int64 = 8 << 30
 	dirMode            = 0o700
 	prunePrefix        = ".prune-"
-	lockName           = ".lock"
+	lockName           = "go.lock"
 	lockMode           = 0o600
 	// volumePrefix names docker's volume of a project's caches (G2).
 	volumePrefix = "ccy-go-cache-"
+	// blockSize is the unit of Stat_t.Blocks.
+	blockSize = 512
 )
 
 // cache is one Go cache: its directory under the root, the variable that points go at it, and
@@ -94,7 +99,7 @@ var projectName = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]{0,199}$`)
 // Cache is the go-cache command.
 type Cache struct {
 	Host *host.Host
-	// Limit is the bound of G4, in bytes.
+	// Limit is the bound of G4, in bytes on disk.
 	Limit int64
 	// lock takes the exclusive lock at path and returns its release (flock outside tests).
 	lock func(path string) (func() error, error)
@@ -190,7 +195,8 @@ func (c *Cache) prepare(root string) (err error) {
 	if c.wrap != nil {
 		r = c.wrap(r)
 	}
-	unlock, err := c.lock(filepath.Join(root, lockName))
+	// The lock sits beside the bind, where the container cannot hold, remove or replace it.
+	unlock, err := c.lock(filepath.Join(filepath.Dir(root), lockName))
 	if err != nil {
 		return err
 	}
@@ -198,13 +204,17 @@ func (c *Cache) prepare(root string) (err error) {
 	if err := removeLeftovers(r); err != nil {
 		return fmt.Errorf("clear an interrupted prune in %s: %w", root, err)
 	}
-	for stage := 1; stage <= 2; stage++ {
-		size, err := totalSize(r)
+	for stage := 1; ; stage++ {
+		size, err := diskUsage(r)
 		if err != nil {
 			return fmt.Errorf("measure the Go caches in %s: %w", root, err)
 		}
 		if size <= c.Limit {
 			break
+		}
+		if stage > 2 {
+			return fmt.Errorf("%s still holds %s after every Go cache in it was cleared, over the %s bound: "+
+				"what remains is not a cache ccy keeps; remove it from %s", root, gib(size), gib(c.Limit), root)
 		}
 		names := stageDirs(stage)
 		c.say(fmt.Sprintf("the Go caches in %s hold %s, over the %s bound: clearing %s.",
@@ -324,20 +334,21 @@ func removeTree(r fsRoot, name string) error {
 	return r.RemoveAll(name)
 }
 
-// totalSize is the sum of the sizes of the regular files in r.
-func totalSize(r fsRoot) (int64, error) {
+// diskUsage is what the regular files in r hold on disk: allocated blocks, so a sparse file
+// counts only what it really takes.
+func diskUsage(r fsRoot) (int64, error) {
 	var total int64
 	err := fs.WalkDir(r.FS(), ".", func(_ string, d fs.DirEntry, err error) error {
-		n, err := fileSize(d, err)
+		n, err := blocks(d, err)
 		total += n
 		return err
 	})
 	return total, err
 }
 
-// fileSize is one walked entry's size: a regular file's, else nothing. An entry another seat
-// removed after it was listed holds nothing (G4).
-func fileSize(d fs.DirEntry, walkErr error) (int64, error) {
+// blocks is what one walked entry holds on disk: a regular file's allocated blocks, else
+// nothing. An entry another seat removed after it was listed holds nothing (G4).
+func blocks(d fs.DirEntry, walkErr error) (int64, error) {
 	if walkErr != nil {
 		return 0, skipGone(walkErr)
 	}
@@ -348,7 +359,11 @@ func fileSize(d fs.DirEntry, walkErr error) (int64, error) {
 	if err != nil {
 		return 0, skipGone(err)
 	}
-	return info.Size(), nil
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0, fmt.Errorf("no block count for %s", d.Name())
+	}
+	return st.Blocks * blockSize, nil
 }
 
 // skipGone is err, unless it says the file no longer exists.
