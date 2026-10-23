@@ -436,11 +436,12 @@ func (c *child) Wait() (execx.ExitStatus, error) {
 	return c.st, nil
 }
 
+// Signal kills before it announces a SIGKILL, so a test that has read it finds the exit done.
 func (c *child) Signal(sig syscall.Signal) error {
-	c.sigs <- sig
 	if sig == syscall.SIGKILL {
 		c.exit(execx.ExitStatus{Code: 128 + int(sig), Signal: sig})
 	}
+	c.sigs <- sig
 	return nil
 }
 
@@ -568,11 +569,12 @@ type fakePidfd struct {
 	once   sync.Once
 }
 
+// Signal kills before it announces a SIGKILL, as child's does.
 func (p *fakePidfd) Signal(sig syscall.Signal) error {
-	p.sigs <- sig
 	if sig == syscall.SIGKILL {
 		p.exit()
 	}
+	p.sigs <- sig
 	return nil
 }
 
