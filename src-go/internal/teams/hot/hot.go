@@ -40,10 +40,10 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
-// The exits a command uses beside term's (H17).
+// The exits a command uses beside ExitOK, ExitFailure and ExitUsage (H17).
 const (
-	exitBusy   term.ExitCode = 75
-	exitConfig term.ExitCode = 78
+	exitBusy   = term.ExitBusy
+	exitConfig = term.ExitConfig
 )
 
 const (

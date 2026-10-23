@@ -212,7 +212,7 @@ func (a *Adder) Run(ctx context.Context, args []string) term.ExitCode {
 	}
 	if de, ok := errors.AsType[*declare.Error](err); ok {
 		a.term.Printf("%s\n", de.Error())
-		return term.ExitCode(de.Code)
+		return term.FromChild(de.Code)
 	}
 	a.term.PrintError(err.Error())
 	return term.ExitFailure
@@ -645,13 +645,13 @@ func (a *Adder) checked(err error) (bool, error) {
 	}
 	if !errors.Is(err, declare.ErrRefused) {
 		a.term.Printf("declare.py failed (exit %d): %s\nNothing was changed.\n", de.Code, de.Error())
-		return false, &stop{term.ExitCode(de.Code)}
+		return false, &stop{term.FromChild(de.Code)}
 	}
 	file := term.AbbrevHome(a.HostVars, a.Home)
 	a.problem(de.Error(), false)
 	a.term.Printf("That is a refusal of %s, not of the answer, so it is not asked again: fix the entry it names in %s, "+
 		"then run ccy-teams lxc-add %s again; nothing was changed.\n", file, file, a.team)
-	return false, &stop{term.ExitCode(de.Code)}
+	return false, &stop{term.FromChild(de.Code)}
 }
 
 // summary checks the whole entry as one (a second coordinator, a duplicate), shows what will
@@ -668,7 +668,7 @@ func (a *Adder) summary(ctx context.Context, ans answers) error {
 	if _, err := a.Declare.LxcAddDryRun(ctx, check, ans.writes() == writeUpdate); err != nil {
 		if de, ok := errors.AsType[*declare.Error](err); ok {
 			a.term.Printf("%s\nRefused; nothing was changed.\n", de.Error())
-			return &stop{term.ExitCode(de.Code)}
+			return &stop{term.FromChild(de.Code)}
 		}
 		return err
 	}

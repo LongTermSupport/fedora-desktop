@@ -10,6 +10,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 const (
@@ -950,8 +951,12 @@ func TestRestoreListingWriteFailure(t *testing.T) {
 
 func TestChildExitReportsAnErrorThatIsNotAnExit(t *testing.T) {
 	r := newOpsRig(t)
-	if code := r.ops.childExit(&execx.ExitError{Name: "x", Code: 9}); code != 9 {
-		t.Errorf("exit error: %d", code)
+	// A code the tools document reaches the caller; any other is a failure (term.FromChild).
+	if code := r.ops.childExit(&execx.ExitError{Name: "x", Code: 78}); code != term.ExitConfig {
+		t.Errorf("exit error 78: %d", code)
+	}
+	if code := r.ops.childExit(&execx.ExitError{Name: "x", Code: 9}); code != term.ExitFailure {
+		t.Errorf("exit error 9: %d", code)
 	}
 	if code := r.ops.childExit(errors.New("cannot start")); code != 1 {
 		t.Errorf("other: %d", code)

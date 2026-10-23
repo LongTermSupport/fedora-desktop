@@ -46,14 +46,22 @@ type Member struct {
 	Parked     bool
 }
 
-// Kind is the handle's type word (podman, lxc, docker, vm, host), with podman shown as ccy.
-func (m Member) Kind() string {
-	kind := m.Handle
-	if i := strings.LastIndex(m.Handle, "."); i >= 0 {
-		kind = m.Handle[i+1:]
+// Kind is the member's kind, KindOf its handle.
+func (m Member) Kind() string { return KindOf(m.Handle) }
+
+// KindOf is what runs the member a handle (<repo>.<seat>+<host>.<type>) names, from its type
+// word: podman is ccy (a ccy container), host is cc (a cc session on the desktop), and lxc,
+// docker and vm are themselves. It is the one reading of the type word for a person.
+func KindOf(handle string) string {
+	kind := handle
+	if i := strings.LastIndex(handle, "."); i >= 0 {
+		kind = handle[i+1:]
 	}
-	if kind == "podman" {
+	switch kind {
+	case "podman":
 		return "ccy"
+	case "host":
+		return "cc"
 	}
 	return kind
 }

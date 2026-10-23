@@ -295,6 +295,19 @@ func TestTheWrappersRefusalIsTheExitCode(t *testing.T) {
 	}
 }
 
+// A code of agent-bus's that ccy-teams does not document (69, unreachable) is said, and the
+// launch fails with 1 (term.FromChild).
+func TestAWrapperCodeTheToolsDoNotDocumentIsAFailure(t *testing.T) {
+	h := newRig(t)
+	h.OnErr(seatChoose, "agent-bus: the homeserver did not answer", 69)
+	if code := h.c.Seat(t.Context(), []string{"alpha"}); code != term.ExitFailure {
+		t.Fatalf("exit %d", code)
+	}
+	if !strings.Contains(h.ErrOut.String(), "agent-bus seat choose exited 69") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+}
+
 func TestAnUnreadableTeamFailsBeforeAnyRoleIsOffered(t *testing.T) {
 	h := newRig(t)
 	h.OnErr(teamtest.SudoBus+"list alpha", "sudo: a password is required", 1)

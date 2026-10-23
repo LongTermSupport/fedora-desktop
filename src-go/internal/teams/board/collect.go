@@ -494,7 +494,8 @@ func restoreWord(s *Snapshot, key string) string {
 	return term.YesNo(restores)
 }
 
-// seatRow is a ccy seat's row: its session and RESTORE when a registry record names it, else
+// seatRow is a seat's row, its KIND what the seat's handle says (ccy or cc): its session and
+// RESTORE when a registry record names it, else
 // the seat's own state.
 func (c *Collector) seatRow(s *Snapshot, team string, sa seatAt, activity map[string]string, unknown string) Row {
 	key := sa.dir + "|" + sa.seat.Seat + "@" + team
@@ -513,7 +514,7 @@ func (c *Collector) seatRow(s *Snapshot, team string, sa seatAt, activity map[st
 		state = unknown
 	}
 	return Row{
-		Team: team, Member: sa.seat.Seat, Kind: KindCcy, State: state, Applied: "-", Session: session, Record: record,
+		Team: team, Member: sa.seat.Seat, Kind: KindOf(sa.seat.Handle), State: state, Applied: "-", Session: session, Record: record,
 		Restore: restore, Where: term.AbbrevHome(sa.dir, c.Home), Handle: sa.seat.Handle, Dir: sa.dir,
 		Role: s.RoleOf(team, sa.seat.Handle), Held: sa.seat.Held,
 	}

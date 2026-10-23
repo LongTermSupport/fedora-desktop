@@ -17,6 +17,19 @@ Two version numbers move independently — see
 
 ---
 
+## 3.100.19 — container 2.79.9
+
+Follows 3.100.15 (container 2.79.9; 3.100.17 and .18 are other branches). The image does not
+change.
+
+- **`ccy-teams` exits only with codes it documents.** Another program's code is handed on
+  only when the tools document it (64, 75, 77, 78, 130); any other is 1. A 75, 77 or 78 is
+  said in words as the last line (`ccy-teams: exit 78: something it needs is not set up on this host.`), as a shell does not name them: `ccy --teams` with a team the host does not
+  have ended in "Unknown error code". `ccy-sessions reboot` exits 1 when `systemctl reboot`
+  fails, naming systemctl's code.
+- **The `ccy-teams` board's KIND of a host seat is `cc`**, not `ccy` (a `<team>.<n>+<host>.host`
+  handle); a ccy container's stays `ccy`.
+
 ## 3.100.15 — container 2.79.9
 
 Follows 3.100.14 (container 2.79.9). The image does not change.

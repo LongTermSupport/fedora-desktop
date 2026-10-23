@@ -192,7 +192,7 @@ func (k *Kit) InPicker(label string, rc term.ExitCode) error {
 		return nil
 	case term.ExitCancelled:
 		return k.Cancelled()
-	case term.ExitFailure, term.ExitUsage:
+	case term.ExitFailure, term.ExitUsage, term.ExitBusy, term.ExitNoPermission, term.ExitConfig:
 		// Named below, with the list to go back to.
 	}
 	k.Tell(fmt.Sprintf("(%s failed, exit %d: see above.)", label, rc))

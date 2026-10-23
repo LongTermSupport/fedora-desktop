@@ -153,6 +153,9 @@ func (a *App) Run(args []string) term.ExitCode {
 			code = term.ExitFailure
 		}
 	}
+	if why := term.Explain(code); why != "" {
+		a.Print(a.Stderr, "ccy-teams: "+why+".\n")
+	}
 	return a.Term.Finish(code, a.Out.Err())
 }
 

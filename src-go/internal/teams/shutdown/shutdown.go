@@ -226,7 +226,7 @@ func planFor(snap *board.Snapshot, team string) plan {
 		}
 		switch {
 		case row.Kind == board.KindTeam, row.Kind == board.KindHuman, row.State == wordParked:
-		case row.Kind == board.KindCcy && row.Dir != "-":
+		case row.Kind.IsSession() && row.Dir != "-":
 			p.addSeat(snap, team, row)
 		case row.Kind == kindLxc && row.State == lxcrecord.StatusDeferred:
 			p.offline = append(p.offline, unreached{row.Member, whyLxcDeferred})

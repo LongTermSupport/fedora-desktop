@@ -182,6 +182,24 @@ func TestDispatchChooseSeatAndDescribeSeatsAreTheChooseFlow(t *testing.T) {
 	}
 }
 
+// The launcher's exit 78 is said in words: the owner's prompt names no sysexits code and
+// called agent-bus's 78 "Unknown error code".
+func TestAnExitThePromptCannotNameIsSaidInWords(t *testing.T) {
+	h := world(t)
+	h.On("git rev-parse --show-toplevel", h.Checkout()+"\n", 0)
+	h.OnErr("agent-bus seat choose alpha", "agent-bus: there is no team alpha on this host", 78)
+	if code := h.app.Run([]string{"choose-seat", "alpha"}); code != term.ExitConfig {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if !strings.HasSuffix(h.ErrOut.String(), "ccy-teams: exit 78: something it needs is not set up on this host.\n") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+	h = newHarness(t)
+	if code := h.app.Run([]string{"--nonsense"}); code != term.ExitUsage || strings.Contains(h.ErrOut.String(), "ccy-teams: exit") {
+		t.Fatalf("a usage mistake needs no words for its code: exit %d: %s", code, h.ErrOut.String())
+	}
+}
+
 func TestDispatchInternalMembershipInitIsTheMembershipCommand(t *testing.T) {
 	h := newHarness(t)
 	runtime := t.TempDir()

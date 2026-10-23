@@ -110,14 +110,14 @@ Then, for every mode except `--help` (L142-149): if `${CCY_LIB}/tmux-session.bas
 
 Actual behaviour, which the port must reproduce (TC asserts the ones marked T):
 
-| code  | when                                                                                                                                                 |
-| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0     | success; Esc/q/Exit in the picker; "no" to offer_create; `restore` picker or confirm declined ("Nothing restored.")                                  |
-| 1     | failures and refusals (T many); picker without a terminal (T L618); no at create summary (T L1260); remove wrong name (T L1209)                      |
-| 64    | usage errors (T L503, L505, L838, L844, L847, L850, L865, L1189, L1192, L1194, L1196)                                                                |
-| 130   | `cancelled` (Esc/Ctrl-C in a gum question, T L1250, L1255); Ctrl-C (SIGINT trap) in the picker; a 130 from in_picker                                 |
-| 78    | **leaks from declare.py** under `set -e`: e.g. `create --yes` with no bus address (T L1029 asserts 78)                                               |
-| other | any non-zero from a child run unguarded under `set -e` propagates: declare.py (64/78), `agent-bus-install backup-now`/`restore` (1/64/77/78), `sudo` |
+| code  | when                                                                                                                                                                                                                                                                                                                              |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0     | success; Esc/q/Exit in the picker; "no" to offer_create; `restore` picker or confirm declined ("Nothing restored.")                                                                                                                                                                                                               |
+| 1     | failures and refusals (T many); picker without a terminal (T L618); no at create summary (T L1260); remove wrong name (T L1209)                                                                                                                                                                                                   |
+| 64    | usage errors (T L503, L505, L838, L844, L847, L850, L865, L1189, L1192, L1194, L1196)                                                                                                                                                                                                                                             |
+| 130   | `cancelled` (Esc/Ctrl-C in a gum question, T L1250, L1255); Ctrl-C (SIGINT trap) in the picker; a 130 from in_picker                                                                                                                                                                                                              |
+| 78    | **leaks from declare.py** under `set -e`: e.g. `create --yes` with no bus address (T L1029 asserts 78)                                                                                                                                                                                                                            |
+| other | any non-zero from a child run unguarded under `set -e` propagates: declare.py (64/78), `agent-bus-install backup-now`/`restore` (1/64/77/78), `sudo`. Departure: the Go hands on only 64, 75, 77, 78 and 130 (`term.FromChild`), any other child code is 1, and the 75, 77 and 78 it ends with are said in words (`term.Explain`) |
 
 Unguarded call sites whose status is the process exit status: L629 (`address`, `|| exit`), L722
 (`create --dry-run`, `|| exit`), L741 (`create`), L744 (`element`), L1017 (`remove`), L1040

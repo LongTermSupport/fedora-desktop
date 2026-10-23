@@ -45,6 +45,8 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_hidden_bindings` | an action reachable only by a key, with no visible, named choice for it (also in shell fzf and Python Textual: `qa-hidden-bindings.bash`)       | `teams` picker: Ctrl-A/X/O on Running sessions; `ccy-sessions`: Ctrl-T/X/N                 |
 | `project_refusal_kind`    | a declare.py refusal recovered by its type and never by its kind, so a refusal of the host_vars file is asked again as if the answer were wrong | `teams lxc-add`: "entries 5 and 6 both declare" asked three times (Plan 00201)             |
 | `project_realtime_bound`  | a bound on real time that a test can shorten, which then races the step the test asserts; a test that passes when a real timer fires            | teamchat `host/lxc`: 1 of 4 probes reached the fake hang before a 20 ms bound (Plan 00209) |
+| `project_child_exit`      | another program's exit code handed on as the tool's own, which no usage documents and no shell names                                            | `ccy --teams`: agent-bus seat choose's 78, "Unknown error code" (Plan 00177)               |
+| `project_row_kind`        | a board row with a member's handle and a constant KIND, so the board names the wrong environment                                                | `ccy-teams` board: a host cc seat shown as ccy (Plan 00177)                                |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -401,8 +403,9 @@ A function (each function literal judged on its own) that recovers a `*declare.E
 `internal/declare` by its type (`errors.AsType`, `errors.As`, a type assertion, a type switch
 case) and never tells the one kind asking again can fix from the rest: it names no
 `declare.ErrUsage` (`errors.Is(err, declare.ErrUsage)`, `.Is(declare.ErrUsage)`) and does not
-hand the exit code on whole (a returned `.Code`, converted or not, alone or as a field of a
-returned literal such as `&stop{term.ExitCode(de.Code)}`) whatever the recovery finds. `ErrUsage`
+hand the exit code on whole (a returned `.Code`, converted or not or through `term.FromChild`,
+alone or as a field of a returned literal such as `&stop{term.FromChild(de.Code)}`) whatever
+the recovery finds. `ErrUsage`
 named anywhere in the function clears every recovery in it; a code handed on clears only the
 recovery whose block returns it unconditionally: a direct statement of the `if` body whose Init
 or Cond recovers (`if de, ok := ...; ok { return de.Code }`, the real tree's `create.Wizard.run`,
@@ -555,6 +558,73 @@ child process gets a `processBounds` row saying why no test races it.
 built because the safety nets (a `select` or `WithTimeout` that fails after seconds, a poll
 budget that ends in `t.Fatal`) are most of them and are correct; telling a deadline the test
 asserts from one it only guards with needs the meaning of the assertion.
+
+### project_child_exit
+
+A conversion to `term.ExitCode` (through an alias too) whose operand reads the `Code` field of
+an error type (a struct whose value or pointer implements `error`: `execx.ExitError`,
+`agentbus.CommandError`, `declare.Error`), directly, inside an expression, or through a local
+assigned from such a read in the same function. `internal/term`, which owns the translation, and
+test files are not judged. A child's code means what the child's documentation says, not the
+tool's: `ccy --teams` with a team the host does not have exited 78, `agent-bus seat choose`'s own
+code, which no ccy usage text named, and the owner's prompt reported "Unknown error code".
+
+The fix is `term.FromChild(code)`: the codes the tools document (64, 75, 77, 78, 130) are kept
+and any other is 1; say the child's own code in the message. `ccy-teams` then says a 75, 77 or
+78 it ends with in words as its last line (`term.Explain`, from `App.Run`), since a shell names
+none of them. `project_refusal_kind` counts a code handed on through `term.FromChild` as handed
+on whole.
+
+- Red, fixture: `testdata/src/fix/internal/badexit` (`bad.go`: `choose.listFailed`'s original,
+  a code carried in a `&stop{...}`, through a local, inside arithmetic, through an alias of the
+  type, in parentheses; `good.go`: `term.FromChild`, the code only printed, the tool's own
+  `128 + signal`, a code from a struct that is not an error, a constant, a code only compared).
+  The stub `fix/internal/term` has `ExitCode` and `FromChild`.
+- Red, real tree: 14 (teams `choose.listFailed`, `chooser.failed`, `ops.playExit` and the three
+  of `ops.childExit`, `create` three, `lxcadd` four; sessions `systemctlReboot`).
+- Green: each through `term.FromChild`, except `ops.playExit`, which never was the tool's exit
+  (it is said and compared with run.bash's 75: now `playStatus`, an int), and ccy-sessions'
+  reboot, which exits 1 as its usage says and names systemctl's code in the message (a departure
+  in Plan 00191 `SPEC-ccy-sessions.md` 1.3).
+- Not caught: a code returned by a helper function as an int (`vmtest`'s `helperExitCode`, whose
+  two uses hand on a status `vmtest`'s usage and `SPEC-vmtest.md` document as the remote
+  command's or the helper's), a `Code` read in another function and passed in as an int, a field
+  named other than `Code`.
+
+**The next wider rule, not built:** every conversion to `term.ExitCode` of a value known only at
+run time. Not built because the tools' own codes (a signal's `128 + n`, `pingbus status-line`'s
+own statuses) are most of them and carry no hazard; telling a child's code from the tool's own
+needs to know where the int came from, which is what the `Code` field of an error says.
+
+### project_row_kind
+
+A composite literal of the teams board's `Row` (`internal/teams/board`, through an alias, or with
+its type elided in a slice literal) that gives `Handle` a value known only at run time and gives
+`Kind` a compile-time constant (`board.KindCcy`, `board.Kind("lxc")`, an untyped `"ccy"`, a named
+constant) or no `Kind`; a `Row` with unkeyed fields is flagged too. A member's handle is
+`<repo>.<seat>+<host>.<type>`, and its type word says what runs it: `podman` a ccy container,
+`host` a cc session on the desktop, `lxc`, `docker`, `vm`. The board called every seat of a
+checkout ccy, so a host cc session on seat `<team>.2+local.host` showed as ccy. A row with no
+member (a team, a person, an LXC member that has not joined: `Handle: "-"`) has no handle to read.
+
+The fix is `Kind: board.KindOf(handle)`, which is `agentbus.KindOf`, the one reading of the type
+word for a person (`podman` is ccy, `host` is cc). `Kind.IsSession` is "a ccy or cc session",
+which the flows that act on a checkout's seats ask, where they asked `Kind == KindCcy`.
+
+- Red, fixture: `testdata/src/fix/internal/badrowkind` (`bad.go`: the board's original
+  `seatRow`, `board.Kind("lxc")`, an untyped constant, no `Kind`, an alias with a named
+  constant, a slice literal, unkeyed fields; `good.go`: `KindOf(handle)`, a team, a person, a
+  deferred LXC member, a kind passed in, the zero row) and the stub
+  `fix/internal/teams/board` (a constant kind inside the owner's own package is judged too).
+- Red, real tree: `board.seatRow` (1).
+- Green: `seatRow` takes `KindOf(sa.seat.Handle)`; `agentbus.KindOf` shows `host` as cc.
+- Not caught: an assignment to a row's `Kind` or `Handle` after the literal, and a `Kind`
+  computed by a function that ignores the handle.
+
+**The next wider rule, not built:** any reading of a handle's type word outside
+`agentbus.KindOf`. Not built because the other readers do other jobs where the hazard (a wrong
+kind shown) cannot arise: `roles.parseHandle` checks a handle's grammar, `seats.nextSeat`
+numbers podman seats, `lxcadd` matches the LXC member it added.
 
 ## Defect classes that cannot be a rule
 

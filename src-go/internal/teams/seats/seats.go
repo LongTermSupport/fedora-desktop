@@ -206,7 +206,7 @@ func (s *Seats) NewSession(ctx context.Context, snap *board.Snapshot, team strin
 // ToggleRestore turns on or off the restart after a reboot of the session holding a seat.
 func (s *Seats) ToggleRestore(ctx context.Context, snap *board.Snapshot, row board.Row) (flow.Result, error) {
 	current, recorded := snap.SeatRestore[row.Dir+"|"+row.Member+"@"+row.Team]
-	if row.Kind != board.KindCcy || !recorded {
+	if !row.Kind.IsSession() || !recorded {
 		return s.Kit.Note(ctx, "Ctrl-R changes whether a seat's ccy session comes back after a reboot, and this row has no session.")
 	}
 	name := row.Record
@@ -238,9 +238,9 @@ func (s *Seats) RemoveOrPark(ctx context.Context, snap *board.Snapshot, row boar
 		return flow.Done, nil
 	case row.Kind == board.KindHuman:
 		return s.Kit.Note(ctx, "A team's people are its agent_bus_teams entry's humans: change them there, then ccy-teams apply "+row.Team+".")
-	case row.Kind == board.KindCcy && row.Dir != "-":
+	case row.Kind.IsSession() && row.Dir != "-":
 		return s.removeSeat(ctx, row)
-	case row.Kind == board.KindCcy && snap.Incomplete != "":
+	case row.Kind.IsSession() && snap.Incomplete != "":
 		return s.Kit.Note(ctx, row.Handle+" may be one of the seats that could not be read (above), so it is not parked here: "+
 			"remove it with agent-bus seat remove in its checkout.")
 	}

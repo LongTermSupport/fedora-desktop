@@ -142,7 +142,7 @@ only a proxy for "CCY is installed").
 | 1        | any refusal or failure (every `return 1` reaches `exit` through `set -e`); the picker without a terminal (R L292); three picker tries used (L1226); list unreadable (L1176); take-over failure              |
 | 64       | `usage_error` (R L295, L354, L356, L358, L360, L391, L439, L441, L889, L999)                                                                                                                                |
 | 130      | `reboot` interrupted by INT or TERM during warning or countdown (L502; R L640)                                                                                                                              |
-| rc       | `reboot` when `systemctl reboot` exits rc != 0: returns **rc itself** (L583), e.g. 1 (R L534)                                                                                                               |
+| rc       | `reboot` when `systemctl reboot` exits rc != 0: the bash returned **rc itself** (L583), e.g. 1 (R L534). Departure: the Go exits 1 and names rc in the message (`project_child_exit`)                       |
 | launcher | Ctrl-N / "start ccy here": `exec` of the launcher, so the process exit status is the launcher's                                                                                                             |
 | leaked   | an unguarded failing command under `set -e`: `confirm_end`'s `kill-session` (L1085) exits with tmux's status (see 9.5); nothing else in this file leaks a child's status                                    |
 
@@ -461,7 +461,7 @@ Args: `--in N` (`--in needs a number of minutes.` if empty/missing; N validated 
 4. If `N > 1`: dry-run -> stderr `would wait <N-1> minute(s), then warn again at one minute`; else wait `(N-1)*MINUTE_SECONDS` seconds (interruptible), then `signal_projects kind 1 false >/dev/null || return 1` (re-runs `check_projects`, including the `signal --help` probes, and refreshes the project list), stderr `Rebooting in 1 minute.`. For `N == 1` there is no second warning.
 5. Dry-run -> stderr `would reboot (systemctl reboot)`, return 0.
 6. Wait `MINUTE_SECONDS` (interruptible).
-7. **Ignore INT and TERM from here on** (a shutdown reaching the process is not a cancellation; R L776-782). `systemctl reboot` (argv exactly `reboot`, R L415 counts `^systemctl reboot$`). rc != 0 -> `REBOOT_FAILED=true`, `ERROR: the reboot failed: systemctl reboot exited <rc> (its reason is above). The machine is staying up.`, return **rc**.
+7. **Ignore INT and TERM from here on** (a shutdown reaching the process is not a cancellation; R L776-782). `systemctl reboot` (argv exactly `reboot`, R L415 counts `^systemctl reboot$`). rc != 0 -> `REBOOT_FAILED=true`, `ERROR: the reboot failed: systemctl reboot exited <rc> (its reason is above). The machine is staying up.`, return **rc** (the Go returns 1: see 1.3).
 8. Exit handler (L478-493): on any exit with status != 0 after `REBOOT_WARNED`: stderr `Telling the sessions the warned reboot is not happening.` if `REBOOT_FAILED` else `The machine is staying up; telling the sessions the reboot is off.`; run `signal_projects reboot-cancelled "" false >/dev/null` (continues past a failing project); failure -> `ERROR: the sessions could not all be told; some still expect the reboot.`; then exit with the **original** status. Status 0 withdraws nothing (R L541-542).
 9. INT/TERM handler (L495-503): remove the handlers; kill the countdown sleep (`(the countdown had already ended)` if it already had); stderr empty line then `Reboot cancelled.`; exit **130** (then the exit handler withdraws). Output asserted: `Reboot cancelled` and exit 130 (R L640-643); and the reboot-failed text is not `Reboot cancelled` / `reboot is off` (R L539). A signal arriving while a child runs takes effect after the child finishes (bash trap semantics); in Go handle at the next select point and `killpg`/ignore as chosen, the tests only deliver TERM during the 60 s sleep.
    "no sessions" still warns/counts: `reached` is `0` and the reboot proceeds (R L507-511).
@@ -729,7 +729,7 @@ What a binary must do so R, T, A keep working **unchanged** (the "keep" list), a
 5. Terminal handling: `script -qec <tool>` gives a pty on 0/1/2 (T L355); the `-t 0`/`-t 1` test must be on the real fds. `$PWD` is the cwd T passes (`cd "$SCRATCH"`).
 6. stdout/stderr split of section 0, since R reads `2>/dev/null` for `--list` and `2>"$VR/stderr"` for verify/set-going (R L309-310, L909, L1024).
 7. Signals: `kill -TERM <pid>` during the countdown must end the process with 130 after sending `reboot-cancelled` (R L638-643); a TERM sent by `systemctl reboot`'s fake to its caller must be ignored (R L165-168, L776-782).
-8. Exit codes of 1.3, exactly, including `rc` of `systemctl reboot` (R L534).
+8. Exit codes of 1.3, exactly; a failed `systemctl reboot` is 1 with its rc in the message (the departure in 1.3).
 
 ### 10.2 Must change (bash-internal dependencies)
 

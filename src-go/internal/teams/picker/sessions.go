@@ -426,7 +426,7 @@ func (r *run) seatLabel(checkout string, cell hot.Cell) string {
 // seatHandle is the handle of a seat of checkout, as the board's seat rows have it.
 func (r *run) seatHandle(checkout string, cell hot.Cell) string {
 	for _, row := range r.snap.Rows {
-		if row.Kind == board.KindCcy && row.Dir == checkout && row.Team == cell.Team && row.Member == cell.Seat {
+		if row.Kind.IsSession() && row.Dir == checkout && row.Team == cell.Team && row.Member == cell.Seat {
 			return row.Handle
 		}
 	}

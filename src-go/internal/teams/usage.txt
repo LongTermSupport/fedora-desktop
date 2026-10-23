@@ -291,6 +291,9 @@ Backups stay on this machine (docs/agent-bus.md, "Backups are the root of trust"
 The APPLIED column, from `declare.py status` against the installer's stamps (readable
 without sudo): up to date, out of date (config, software or both), not built, removed,
 or needs your decision (declared absent but still built, or built but not declared).
-Exit 64 for a usage mistake, 130 when cancelled, 1 for a refusal or a failure.
+Exit 64 for a usage mistake, 130 when cancelled, 1 for a refusal or a failure; 75 when
+something it needs is held by another run (a seat, the play lock), 77 when permission was
+refused, 78 when something it needs is not set up on this host (a team, a seat, a tool),
+each of those three said in words as the last line. Another program's other codes are 1.
 
 Runs on the HOST, as the desktop user.

@@ -171,7 +171,7 @@ func (c *Wizard) run(ctx context.Context, args []string) term.ExitCode {
 	}
 	if de, ok := errors.AsType[*declare.Error](err); ok {
 		c.term.Printf("%s\n", de.Error())
-		return term.ExitCode(de.Code)
+		return term.FromChild(de.Code)
 	}
 	c.term.PrintError(err.Error())
 	return term.ExitFailure
@@ -746,13 +746,13 @@ func (c *Wizard) unanswerable(err error) (string, error) {
 		return "", c.cancelled()
 	case !errors.Is(err, declare.ErrRefused):
 		c.term.Printf("declare.py failed (exit %d): %s\nNothing was changed.\n", de.Code, de.Error())
-		return "", &stop{term.ExitCode(de.Code)}
+		return "", &stop{term.FromChild(de.Code)}
 	}
 	file := term.AbbrevHome(c.HostVars, c.Home)
 	c.problem(de.Error(), false)
 	c.term.Printf("That is a refusal of %s, not of the answer, so it is not asked again: fix what it names in %s, "+
 		"then run ccy-teams create again; nothing was changed.\n", file, file)
-	return "", &stop{term.ExitCode(de.Code)}
+	return "", &stop{term.FromChild(de.Code)}
 }
 
 // splitCommas is one name per comma-separated part, the spaces around each dropped. A

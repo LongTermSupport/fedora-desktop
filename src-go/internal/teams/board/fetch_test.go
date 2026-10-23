@@ -179,7 +179,7 @@ func TestCollectReadsTheSeatsOfACheckoutOnceHoweverItIsNamed(t *testing.T) {
 	// Each name the checkout is known by still has its seats listed under it, as before.
 	under := map[string]int{}
 	for _, row := range s.Rows {
-		if row.Kind == KindCcy && row.Dir != "-" {
+		if row.Kind.IsSession() && row.Dir != "-" {
 			under[row.Dir]++
 		}
 	}
@@ -210,7 +210,7 @@ func TestCollectReadsEachCheckoutsSeatsOnce(t *testing.T) {
 	// Each checkout's seat, read from its own folder, is on the board.
 	var dirs []string
 	for _, row := range s.Rows {
-		if row.Kind == KindCcy && row.Dir != "-" {
+		if row.Kind.IsSession() && row.Dir != "-" {
 			dirs = append(dirs, row.Dir)
 		}
 	}

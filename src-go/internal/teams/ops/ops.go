@@ -225,12 +225,13 @@ func (o *Ops) cancelled() term.ExitCode {
 	return term.ExitCancelled
 }
 
-// playExit is the exit status a failed play gave, 1 if it never ran.
-func playExit(err error) term.ExitCode {
+// playStatus is the exit status a failed play gave, 1 if it never ran: said in a message and
+// compared with run.bash's 75, never the tool's own exit.
+func playStatus(err error) int {
 	if ee, ok := errors.AsType[*execx.ExitError](err); ok {
-		return term.ExitCode(ee.Code)
+		return ee.Code
 	}
-	return term.ExitFailure
+	return int(term.ExitFailure)
 }
 
 // home abbreviates the home directory as ~ in a path shown to the person.
@@ -238,22 +239,22 @@ func (o *Ops) home(path string) string {
 	return term.AbbrevHome(path, o.Cfg.Home)
 }
 
-// childExit is the exit status of a failed child: the status it exited with, so a code the
-// child chose (64, 77, 78) reaches the caller. A child that could not run at all, or an
-// error of ours, is said and is 1. A declare.py failure is said here too, since the client
-// captured what declare printed.
+// childExit is the exit status of a failed child: a code the tools document (64, 75, 77, 78,
+// 130) reaches the caller, any other is 1 (term.FromChild). A child that could not run at
+// all, or an error of ours, is said and is 1. A declare.py failure is said here too, since the
+// client captured what declare printed.
 func (o *Ops) childExit(err error) term.ExitCode {
 	if de, ok := errors.AsType[*declare.Error](err); ok {
 		if de.Stderr != "" {
 			o.Term.Printf("%s\n", de.Stderr)
 		}
-		return term.ExitCode(de.Code)
+		return term.FromChild(de.Code)
 	}
 	if ce, ok := errors.AsType[*agentbus.CommandError](err); ok {
-		return term.ExitCode(ce.Code)
+		return term.FromChild(ce.Code)
 	}
 	if ee, ok := errors.AsType[*execx.ExitError](err); ok {
-		return term.ExitCode(ee.Code)
+		return term.FromChild(ee.Code)
 	}
 	o.Term.PrintError(err.Error())
 	return term.ExitFailure
@@ -366,7 +367,7 @@ func (o *Ops) runElementPlay(ctx context.Context, teams []string) error {
 	_, err := o.Runner.Run(ctx, execx.Cmd{
 		Name: o.Cfg.ElementPlay, Env: env, ExtraFiles: files, Stdin: o.Stdin, Stdout: o.Stdout, Stderr: o.Term.Err,
 	})
-	if err != nil && playExit(err) == playlock.ExitBusy {
+	if err != nil && playStatus(err) == playlock.ExitBusy {
 		o.Term.PrintError("play-agent-bus-element.yml did not run: it was refused the play lock (exit 75, above), which another play run took, " +
 			"so " + names + " has no Element profile yet.")
 		return errOpFailed
@@ -387,7 +388,7 @@ func (o *Ops) runElementPlay(ctx context.Context, teams []string) error {
 // applyHeld is ApplyTeams inside the hold.
 func (o *Ops) applyHeld(ctx context.Context, teams []string) error {
 	if err := o.runPlay(ctx, teams); err != nil {
-		if code := playExit(err); code == playlock.ExitBusy {
+		if code := playStatus(err); code == playlock.ExitBusy {
 			o.Term.PrintError("play-agent-bus.yml did not run: it was refused the play lock (exit 75, above), which another play run took. " +
 				"Once that run has finished, ccy-teams apply " + strings.Join(teams, " ") + " applies it.")
 		} else {

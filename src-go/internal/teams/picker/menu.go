@@ -129,7 +129,7 @@ func (r *run) kindActions(row board.Row) []action {
 		}, r.askAgainActions(team)...), help)
 	case board.KindHuman:
 		return r.humanActions(row, open, start, help)
-	case board.KindCcy:
+	case board.KindCcy, board.KindCC:
 	}
 	return r.memberActions(row, open, start, help)
 }
@@ -166,7 +166,7 @@ func (r *run) humanActions(row board.Row, open, start, help action) []action {
 // nothing to park: only a ccy seat's own actions and its Remove seat, which go by its folder.
 func (r *run) memberActions(row board.Row, open, start, help action) []action {
 	handleless := row.Handle == "" || row.Handle == "-"
-	seat := row.Kind == board.KindCcy && row.Dir != "-"
+	seat := row.Kind.IsSession() && row.Dir != "-"
 	acts := r.seatOwnActions(row)
 	if !handleless {
 		acts = append(acts, r.roleAction(row))
@@ -184,7 +184,7 @@ func (r *run) memberActions(row board.Row, open, start, help action) []action {
 // seatOwnActions are what only a ccy seat has, first in its menu: attaching its session, and
 // whether it is started again after a reboot.
 func (r *run) seatOwnActions(row board.Row) []action {
-	if row.Kind != board.KindCcy {
+	if !row.Kind.IsSession() {
 		return nil
 	}
 	acts := []action{{actAttach, "", "Attach this terminal to the seat's session", "attach its session"}}

@@ -131,15 +131,23 @@ func TestParseRosterRejectsMalformedLines(t *testing.T) {
 	}
 }
 
+// The kind is what runs the member: podman is a ccy container, host a cc session on the desktop;
+// the other type words (lxc, docker, vm) are shown as they are.
 func TestMemberKind(t *testing.T) {
 	cases := map[string]string{
 		"proj.1+box.podman": "ccy",
+		"proj.2+box.host":   "cc",
 		"proj.x+box.lxc":    "lxc",
+		"proj.x+box.docker": "docker",
+		"proj.x+box.vm":     "vm",
 		"nodots":            "nodots",
 	}
 	for handle, want := range cases {
 		if got := (Member{Handle: handle}).Kind(); got != want {
 			t.Fatalf("%s: %q", handle, got)
+		}
+		if got := KindOf(handle); got != want {
+			t.Fatalf("KindOf(%s): %q", handle, got)
 		}
 	}
 }

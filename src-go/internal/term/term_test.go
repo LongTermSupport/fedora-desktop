@@ -213,9 +213,43 @@ func TestPrintfKeepsFirstWriteError(t *testing.T) {
 
 // The numeric values are the tools' exit statuses, which scripts and the parity suites read.
 func TestExitCodesKeepTheirStatuses(t *testing.T) {
-	for code, want := range map[ExitCode]int{ExitOK: 0, ExitFailure: 1, ExitUsage: 64, ExitCancelled: 130} {
+	for code, want := range map[ExitCode]int{
+		ExitOK: 0, ExitFailure: 1, ExitUsage: 64, ExitBusy: 75, ExitNoPermission: 77, ExitConfig: 78, ExitCancelled: 130,
+	} {
 		if int(code) != want {
 			t.Errorf("exit code %v is %d, want %d", code, int(code), want)
+		}
+	}
+}
+
+// A child's code is kept only when it is one the tools document; any other, and a "failure"
+// that exited 0 or by a signal, is a failure.
+func TestFromChildKeepsOnlyTheDocumentedCodes(t *testing.T) {
+	for child, want := range map[int]ExitCode{
+		64: ExitUsage, 75: ExitBusy, 77: ExitNoPermission, 78: ExitConfig, 130: ExitCancelled,
+		1: ExitFailure, 2: ExitFailure, 69: ExitFailure, 70: ExitFailure, 126: ExitFailure, 255: ExitFailure,
+		0: ExitFailure, -1: ExitFailure,
+	} {
+		if got := FromChild(child); got != want {
+			t.Errorf("FromChild(%d) = %d, want %d", child, got, want)
+		}
+	}
+}
+
+// The codes a person's shell cannot name are said in words; the plain ones need none.
+func TestExplainSaysTheSysexitsCodes(t *testing.T) {
+	for code, want := range map[ExitCode]string{
+		ExitBusy:         "exit 75: something it needs is held by another run; try again once that has finished",
+		ExitNoPermission: "exit 77: permission was refused",
+		ExitConfig:       "exit 78: something it needs is not set up on this host",
+	} {
+		if got := Explain(code); got != want {
+			t.Errorf("Explain(%d) = %q, want %q", code, got, want)
+		}
+	}
+	for _, code := range []ExitCode{ExitOK, ExitFailure, ExitUsage, ExitCancelled, 2} {
+		if got := Explain(code); got != "" {
+			t.Errorf("Explain(%d) = %q, want nothing", code, got)
 		}
 	}
 }

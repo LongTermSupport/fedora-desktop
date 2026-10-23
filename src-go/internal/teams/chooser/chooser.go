@@ -252,7 +252,7 @@ func (c *Chooser) bare(ctx context.Context, memberType string) term.ExitCode {
 func (c *Chooser) failed(err error) term.ExitCode {
 	c.Host.ReportErr(err)
 	if de, ok := errors.AsType[*declare.Error](err); ok && de.Code != 0 {
-		return term.ExitCode(de.Code)
+		return term.FromChild(de.Code)
 	}
 	return term.ExitFailure
 }

@@ -16,13 +16,47 @@ import (
 // into the int os.Exit takes.
 type ExitCode int
 
-// Exit codes shared by ccy-teams, ccy-sessions and ccy.
+// Exit codes shared by ccy-teams, ccy-sessions and ccy. ExitBusy, ExitNoPermission and
+// ExitConfig are the sysexits codes (EX_TEMPFAIL, EX_NOPERM, EX_CONFIG) that agent-bus,
+// declare.py and run.bash exit with and ccy-teams hands on; a person's shell does not name
+// them, so Explain says them.
 const (
-	ExitOK        ExitCode = 0
-	ExitFailure   ExitCode = 1
-	ExitUsage     ExitCode = 64
-	ExitCancelled ExitCode = 130
+	ExitOK           ExitCode = 0
+	ExitFailure      ExitCode = 1
+	ExitUsage        ExitCode = 64
+	ExitBusy         ExitCode = 75
+	ExitNoPermission ExitCode = 77
+	ExitConfig       ExitCode = 78
+	ExitCancelled    ExitCode = 130
 )
+
+// FromChild is the exit code a tool gives for another program that failed with code: a code
+// the tools document is kept, and any other is a failure (the child's own code means what its
+// documentation says, which is not the tool's). It is for a child that failed, so 0, or a
+// negative code (killed by a signal), is a failure too.
+func FromChild(code int) ExitCode {
+	switch c := ExitCode(code); c {
+	case ExitUsage, ExitBusy, ExitNoPermission, ExitConfig, ExitCancelled:
+		return c
+	case ExitOK, ExitFailure:
+	}
+	return ExitFailure
+}
+
+// Explain is the words for an exit code a person's shell does not name ("exit 78: ..."), empty
+// for the codes that need none.
+func Explain(code ExitCode) string {
+	switch code {
+	case ExitBusy:
+		return "exit 75: something it needs is held by another run; try again once that has finished"
+	case ExitNoPermission:
+		return "exit 77: permission was refused"
+	case ExitConfig:
+		return "exit 78: something it needs is not set up on this host"
+	case ExitOK, ExitFailure, ExitUsage, ExitCancelled:
+	}
+	return ""
+}
 
 // Bold and Reset are the escape codes a tool that paints its own table wraps text in.
 const (

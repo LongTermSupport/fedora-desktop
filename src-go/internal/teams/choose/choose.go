@@ -25,7 +25,7 @@ import (
 
 // exitConfig is the launcher's code for a team or a tool that is not set up here (agent-bus's
 // own 78), used where agent-bus did not give a code.
-const exitConfig term.ExitCode = 78
+const exitConfig = term.ExitConfig
 
 // stateNew is a seat the checkout does not have yet: its member is made when the launch starts.
 const stateNew = "new"
@@ -221,10 +221,9 @@ func (c *Choose) listFailed(team string, err error) term.ExitCode {
 		c.Kit.ReportErr(err)
 		return exitConfig
 	}
-	code := term.ExitCode(cmd.Code)
 	c.Host.Print(c.Host.Stderr, fmt.Sprintf("ccy-teams: --teams %s: the seats of team %s could not be listed "+
 		"(agent-bus seat choose exited %d; the reason is above).\n", team, team, cmd.Code))
-	return code
+	return term.FromChild(cmd.Code)
 }
 
 // pickSeat asks which of the choices; ok is false when the person left (no error: nothing is

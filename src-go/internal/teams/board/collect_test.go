@@ -491,6 +491,34 @@ func TestCollectMarksUnreadableSeats(t *testing.T) {
 	}
 }
 
+// A seat's KIND is what its handle says runs it: a host cc session's seat is cc, a ccy
+// container's is ccy (the board called every seat ccy), and both are seats of the checkout.
+func TestCollectASeatsKindIsWhatItsHandleSays(t *testing.T) {
+	h := populated(t)
+	h.AddSeat(t, h.Checkout(), "alpha", "3", "proj.3+local.host")
+	s, err := h.c.Collect(t.Context())
+	if err != nil {
+		t.Fatalf("%v: %s", err, h.ErrOut.String())
+	}
+	kinds := map[string]Kind{}
+	for _, row := range s.Rows {
+		if row.Dir != "-" {
+			kinds[row.Member] = row.Kind
+			if !row.Kind.IsSession() {
+				t.Errorf("seat %s (%s) is not a ccy or cc session", row.Member, row.Kind)
+			}
+		}
+	}
+	if kinds["3"] != KindCC || kinds["1"] != KindCcy || kinds["dev"] != KindCcy {
+		t.Fatalf("seat kinds %v", kinds)
+	}
+	for _, k := range []Kind{KindTeam, KindHuman, "lxc", "docker", "vm"} {
+		if k.IsSession() {
+			t.Errorf("%s is not a ccy or cc session", k)
+		}
+	}
+}
+
 func TestCollectSeatInAStoppedSession(t *testing.T) {
 	h := populated(t)
 	h.On("tmux -L ccy list-sessions", "", 0)

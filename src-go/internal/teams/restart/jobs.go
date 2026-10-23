@@ -117,7 +117,7 @@ func (r *Restart) planFor(snap *board.Snapshot, team string) plan {
 		}
 		switch {
 		case row.Kind == board.KindTeam, row.Kind == board.KindHuman, row.State == wordParked:
-		case row.Kind == board.KindCcy && row.Dir != "-":
+		case row.Kind.IsSession() && row.Dir != "-":
 			p.addSeat(snap, team, row)
 		case row.Kind == kindLxc:
 			p.leftOut = append(p.leftOut, leftOut{row.Handle, whyLxc})

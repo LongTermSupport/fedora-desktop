@@ -224,11 +224,13 @@ func TestAWithdrawalThatFailsAtOneProjectStillReachesTheNext(t *testing.T) {
 	contains(t, "partial", h.stderr(), "some still expect the reboot")
 }
 
-func TestARefusedSystemctlExitsWithItsStatusAndWithdrawsWithoutCallingItCancelled(t *testing.T) {
+// systemctl's own code is said, not handed on: ccy-sessions documents 1 for a failure, and a
+// person's shell cannot name systemctl's 3 (project_child_exit).
+func TestARefusedSystemctlIsAFailureNamingItsStatusAndWithdrawsWithoutCallingItCancelled(t *testing.T) {
 	h := rebootReady(t)
 	p := h.p
 	systemctlRC(h, 3)
-	exitCodeIs(t, h.run("reboot", "--in", "1"), 3, h)
+	exitCodeIs(t, h.run("reboot", "--in", "1"), 1, h)
 	if h.count(cli(p.a)+" signal reboot-cancelled") != 1 || h.count(cli(p.b)+" signal reboot-cancelled") != 1 {
 		t.Fatalf("every warned project is told: %v", h.ran())
 	}

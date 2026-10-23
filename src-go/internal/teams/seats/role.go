@@ -110,7 +110,7 @@ func SnapshotRunning(snap *board.Snapshot) coordinator.Lookup {
 			case row.Handle != m.Handle:
 			case row.Held:
 				return coordinator.Active
-			case row.Kind == board.KindCcy:
+			case row.Kind.IsSession():
 				state = coordinator.Stopped
 			}
 		}
