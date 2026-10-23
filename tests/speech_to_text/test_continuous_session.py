@@ -227,6 +227,21 @@ class StopTest(SessionCase):
         self.assertEqual(seen, [("kill", "recording"), ("rmtree", "recording")],
                          "the session said aborted before its cleanup was done")
 
+    def test_abort_whose_directory_cannot_be_removed_still_aborts_and_owes_nothing(self):
+        # Left "recording", the capture thread would fail the session at pw-record's death,
+        # and a failed session hands its text over: the text Escape discarded.
+        s = self.start()
+        self.mic_capturing()
+
+        def unremovable(path):
+            raise PermissionError(f"cannot remove {path}")
+
+        with mock.patch.object(server.shutil, "rmtree", unremovable), \
+                self.assertRaises(PermissionError):
+            s.abort()
+        self.assertEqual(s.progress()["status"], "aborted")
+        self.assertFalse(s.owes_text(), "an aborted dictation must never be handed over")
+
     def test_the_session_directory_is_private(self):
         s = self.start()
         mode = pathlib.Path(s.progress()["session_dir"]).stat().st_mode & 0o777

@@ -556,10 +556,15 @@ class DictationSession:
             if self._proc is not None:
                 self._proc.kill()
             self._journal.close()
-            shutil.rmtree(self.session_dir)
-            self.state = "aborted"
-            self._drain_queue(keep=False)
-            self._queue.put(None)
+            try:
+                shutil.rmtree(self.session_dir)
+            finally:
+                # Aborted even when the removal fails (the error still reaches the caller):
+                # a session left "recording" would be failed by its capture thread, and a
+                # failed session hands its text over, the text Escape discarded
+                self.state = "aborted"
+                self._drain_queue(keep=False)
+                self._queue.put(None)
         log("Dictation aborted - discarding it")
         if self._capture_thread is not None:
             self._capture_thread.join(timeout=3)
