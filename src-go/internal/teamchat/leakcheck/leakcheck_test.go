@@ -31,7 +31,7 @@ func TestTheSettlePausesOnItsClock(t *testing.T) {
 	s := settle{tries: 3, pause: time.Second, clock: clk}
 	release, done := make(chan struct{}), make(chan struct{})
 	before := ids()
-	go parked(release, done)
+	park(release, done)
 	left := make(chan []goroutine, 1)
 	go func() { left <- s.leftSince(before) }()
 	for range s.tries - 1 {
@@ -70,9 +70,18 @@ func (f *fakeTB) end() {
 	}
 }
 
+// park starts parked and returns once it is running in it, so a reading names it by its function
+// (a goroutine not yet scheduled shows only its go statement's wrapper).
+func park(release <-chan struct{}, done chan<- struct{}) {
+	running := make(chan struct{})
+	go parked(running, release, done)
+	<-running
+}
+
 // parked is a goroutine blocked until release closes.
-func parked(release <-chan struct{}, done chan<- struct{}) {
+func parked(running chan<- struct{}, release <-chan struct{}, done chan<- struct{}) {
 	defer close(done)
+	close(running)
 	<-release
 }
 
@@ -80,7 +89,7 @@ func TestCheckReportsAGoroutineLeftRunning(t *testing.T) {
 	tb := &fakeTB{TB: t}
 	check(tb, once)
 	release, done := make(chan struct{}), make(chan struct{})
-	go parked(release, done)
+	park(release, done)
 	tb.end()
 	close(release)
 	<-done
@@ -93,7 +102,7 @@ func TestCheckPassesAGoroutineThatHasEnded(t *testing.T) {
 	tb := &fakeTB{TB: t}
 	check(tb, standard)
 	release, done := make(chan struct{}), make(chan struct{})
-	go parked(release, done)
+	park(release, done)
 	close(release)
 	<-done
 	tb.end()
@@ -107,7 +116,7 @@ func TestCheckWaitsForAGoroutineThatIsEnding(t *testing.T) {
 	tb := &fakeTB{TB: t}
 	check(tb, standard)
 	release, done := make(chan struct{}), make(chan struct{})
-	go parked(release, done)
+	park(release, done)
 	tb.Cleanup(func() { close(release) })
 	tb.end()
 	<-done
@@ -118,7 +127,7 @@ func TestCheckWaitsForAGoroutineThatIsEnding(t *testing.T) {
 
 func TestCheckIgnoresAGoroutineStartedBeforeIt(t *testing.T) {
 	release, done := make(chan struct{}), make(chan struct{})
-	go parked(release, done)
+	park(release, done)
 	tb := &fakeTB{TB: t}
 	check(tb, once)
 	tb.end()
@@ -138,7 +147,7 @@ type runner struct {
 
 func (r *runner) Run() int {
 	if r.leave {
-		go parked(r.release, r.stopped)
+		park(r.release, r.stopped)
 	}
 	return r.code
 }
