@@ -95,7 +95,9 @@ Every build task is test first: the failing test is committed or shown before th
   beside the status line, with a parity test (00217 C6's pattern).
 - [ ] ⬜ **Task 1.2**: `CCY_TEAM_LABELS` parsed (not sourced) by the host-side chooser as
   suggestions (L9, L10), by a Go port of `checkout.py`'s `role_from_env_local` grammar with a
-  parity test against the Python: tests for each accepted form, a refused form named, a bad
+  parity test against the Python and the one value change of L9 (quoted labels joined by
+  single spaces): tests for each accepted form, `"infra front back"` giving three labels, a
+  bare multi-word value refused, `HOOKS_DAEMON_HOSTNAME`'s reading unchanged, a refused form named, a bad
   item named and skipped, and `ccy.env.local` winning over `ccy.env`.
 - [ ] ⬜ **Task 1.3**: The team's `labels:` list (L8) taught to every host_vars reader before
   `localhost.yml.dist` shows it: `teamfile.py`, `declare.py` (read and `EDITABLE_KEYS`), and
@@ -107,9 +109,10 @@ Every build task is test first: the failing test is committed or shown before th
 - [ ] ⬜ **Task 2.1**: Registry version 3 `labels`, loading version 2 (L11); `set-label`, the
   coordinator refusal and the clear on promotion (L3, L12), with registry and CLI tests.
 - [ ] ⬜ **Task 2.2**: `agent_bus_lxc_members[].label`, applied each run, refused with
-  `role: coordinator` (L12), taught first to every LXC entry reader: `agent_bus_lxc/members.py`,
-  `declare.py`'s `_LXC_FIELDS`, the Go `bus/declare/lxc.go` with its parity test, and
-  lxc-add's writer, each with a test that an entry carrying it is read, not refused.
+  `role: coordinator` (L12), taught first to the LXC entry's readers (`agent_bus_lxc/members.py`,
+  the Go `bus/declare/lxc.go` with its parity test: an entry carrying it is read, not refused)
+  and its writers (`declare.py`'s `_LXC_FIELDS`, lxc-add's writer: an entry with `label`
+  written and read back keeps it, since a writer that lacks it drops it silently).
 - [ ] ⬜ **Task 2.3**: The admin keeps `agent_bus.labels` (L13); the syncer reads it and keeps
   `labels.json` (L14); the protocol spec §8 names it; `agent-bus list` gains `label` (L15).
 

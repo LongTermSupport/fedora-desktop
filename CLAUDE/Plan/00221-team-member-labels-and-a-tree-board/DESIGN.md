@@ -85,8 +85,11 @@ record, 3.13 what ccy-teams reads), as they stand on `feat/bus-v2-n3` at e3b6c30
   `HOOKS_DAEMON_HOSTNAME` from `ccy.env.local` (`helpers/agent_bus/checkout.py`
   `role_from_env_local`, `_ASSIGN_RE`: a plain assignment of a literal, bare or quoted, with or
   without `export`; any other non-comment line naming the variable, or a second assignment, is
-  refused), ported to Go with a parity test against the Python, never a second grammar. The
-  value is labels separated by spaces. A refused form is named on stderr and that file gives no
+  refused), ported to Go with a parity test against the Python, never a second grammar. One
+  difference, in the value only: that grammar's value class (`_VALUE`, `[A-Za-z0-9._-]*`) has no
+  space, so for `CCY_TEAM_LABELS` alone a quoted value may be L1 labels joined by single
+  spaces (`"infra front back"`), and a bare value is one label; the `HOOKS_DAEMON_HOSTNAME`
+  reading is unchanged. A refused form is named on stderr and that file gives no
   suggestions. When both files assign it, `ccy.env.local` wins, as it does when the entrypoint
   sources them (it is sourced after `ccy.env`). Each label
   is re-checked by L1 (a bad one is named and skipped, never applied). They are suggestions
@@ -112,9 +115,11 @@ record, 3.13 what ccy-teams reads), as they stand on `feat/bus-v2-n3` at e3b6c30
   `agent_bus_lxc_members` takes the entry's optional `label:` on every play run, as its role
   does; `label:` on an entry with `role: coordinator` is refused by the play. The LXC entry has
   its own strict readers, each refusing a key it does not know, and every one learns `label`
-  before an entry carries it: `helpers/agent_bus_lxc/members.py` (`parse_members`),
-  `declare.py`'s `_LXC_FIELDS`, the Go `src-go/internal/bus/declare/lxc.go` with its parity
-  test, and lxc-add's entry writer (L18).
+  before an entry carries it: `helpers/agent_bus_lxc/members.py` (`parse_members`) and the Go
+  `src-go/internal/bus/declare/lxc.go` with its parity test. Its writers learn it too, where
+  the failure is worse because it is silent: `declare.py`'s `_LXC_FIELDS` is the field tuple
+  the write side keeps, so a field missing there is dropped on the next write, and lxc-add's
+  entry writer (L18); a test writes an entry with `label` and reads it back.
 - **L13 Publishing it.** The admin keeps the main room's `agent_bus.labels` state event (key
   `""`) at `{"labels": {"<user ID>": "<label>", ...}}`, every labelled member of the registry,
   or `{}` when none is labelled and the event exists. It writes only on a change and reports
@@ -129,7 +134,9 @@ record, 3.13 what ccy-teams reads), as they stand on `feat/bus-v2-n3` at e3b6c30
   changes.
 - **L15 The board** reads labels where it reads roles: `sudo -n agent-bus list <team>` gains a
   `label` field per member (fields only appended), so the read-only sudoers rule is unchanged.
-  Stage 1 (00209 Task 7.1, SPEC-view) leaves the board's members read through `agent-bus list` (it ports the host_vars, seat and unit reads, and keeps one Python call, `declare status`, for APPLIED); a later in-process reader and v2's `status.json` replace it, and each
+  Stage 1 (00209 Task 7.1, SPEC-view) leaves the board's members read through
+  `agent-bus list` (it ports the host_vars, seat and unit reads, and keeps one Python call,
+  `declare status`, for APPLIED); a later in-process reader and v2's `status.json` replace it, and each
   must carry the label (section 4).
 
 ### 2.4 Where it is set (the owner's flows)
@@ -305,17 +312,17 @@ shown: Task 5.2 starts from that fix merged, and its tests are what ENV's input 
 
 ## 4. v1 now, v2 later
 
-| Part                                                                       | v1 (this plan)                               | v2 (Plan 00209)                                                                                                                                                                                   |
-| -------------------------------------------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Grammar, workers only, suggestions, flows, display forms (L1-L10, L16-L27) | built here                                   | carried as they are                                                                                                                                                                               |
-| Store (L11)                                                                | registry v3 `labels`                         | **replaced**: the roster's member entry gains `label` (A 5.1), an informational key (A 3.1: unknown keys ignored, no feature needed); `teamchat-admin member label` (C 3.6.3)                     |
-| Route to members (L13, L14)                                                | `agent_bus.labels` room state, `labels.json` | **replaced**: the roster itself; the link keeps it in its state; no separate event                                                                                                                |
-| LXC declaration (L12)                                                      | `agent_bus_lxc_members[].label`              | **replaced**: `teamchat_lxc_members[].label` (C 3.8); the label stays per entry although v2's entries lose `role` (the coordinator is a team key there), so the "as its role" shape is not copied |
-| host_vars readers (L8)                                                     | `teamfile.py`, `declare.py`                  | stage 1's Go line reader (00209 Task 7.1, `internal/bus/declare`) must learn `labels:` before any entry carries it; v2's `teamchat_teams[]` takes the same key (C 3.8)                            |
-| Board read (L15)                                                           | `agent-bus list` field                       | kept by stage 1 (Task 7.1); **replaced** by SPEC-view's later in-process reader, then by `status.json` `members[].label` (C 3.11.3); each carries it                                              |
-| Status line, envelope, context (L19-L26)                                   | pingbus (Python and the Go status line)      | **replaced** by teamchat's own (B27, A's envelope, B's hooks), same text                                                                                                                          |
-| Migration                                                                  | -                                            | the carry plan (D 5) copies each v1 label to the v2 roster                                                                                                                                        |
-| The tree board (T1-T17)                                                    | built here, in `ccy-teams`                   | kept: 00209 Task 4.3 feeds it                                                                                                                                                                     |
+| Part                                                                       | v1 (this plan)                                                                                                  | v2 (Plan 00209)                                                                                                                                                                                                |
+| -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Grammar, workers only, suggestions, flows, display forms (L1-L10, L16-L27) | built here                                                                                                      | carried as they are                                                                                                                                                                                            |
+| Store (L11)                                                                | registry v3 `labels`                                                                                            | **replaced**: the roster's member entry gains `label` (A 5.1), an informational key (A 3.1: unknown keys ignored, no feature needed); `teamchat-admin member label` (C 3.6.3)                                  |
+| Route to members (L13, L14)                                                | `agent_bus.labels` room state, `labels.json`                                                                    | **replaced**: the roster itself; the link keeps it in its state; no separate event                                                                                                                             |
+| LXC declaration (L12)                                                      | `agent_bus_lxc_members[].label`                                                                                 | **replaced**: `teamchat_lxc_members[].label` (C 3.8); the label stays per entry although v2's entries lose `role` (the coordinator is a team key there), so the "as its role" shape is not copied              |
+| host_vars readers (L8, L12)                                                | `teamfile.py`, `declare.py`; for LXC entries `agent_bus_lxc/members.py` and `declare.py`'s `_LXC_FIELDS` writer | stage 1's Go line reader (00209 Task 7.1, `internal/bus/declare`, and its `lxc.go`) must learn `labels:` and the LXC `label` before any entry carries them; v2's `teamchat_teams[]` takes the same key (C 3.8) |
+| Board read (L15)                                                           | `agent-bus list` field                                                                                          | kept by stage 1 (Task 7.1); **replaced** by SPEC-view's later in-process reader, then by `status.json` `members[].label` (C 3.11.3); each carries it                                                           |
+| Status line, envelope, context (L19-L26)                                   | pingbus (Python and the Go status line)                                                                         | **replaced** by teamchat's own (B27, A's envelope, B's hooks), same text                                                                                                                                       |
+| Migration                                                                  | -                                                                                                               | the carry plan (D 5) copies each v1 label to the v2 roster                                                                                                                                                     |
+| The tree board (T1-T17)                                                    | built here, in `ccy-teams`                                                                                      | kept: 00209 Task 4.3 feeds it                                                                                                                                                                                  |
 
 The rows marked **replaced** are v1 code with a known end: they live while the team is on v1
 and go when it migrates. They are built because teams stay on v1 until the owner migrates each
