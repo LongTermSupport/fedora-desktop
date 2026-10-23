@@ -133,7 +133,8 @@ one.
 - [ ] 🔄 **Task 1.5**: A hand-checked reference by the method in
   [RESEARCH-clip-review-method.md](RESEARCH-clip-review-method.md): two engines' differences
   triaged, doubtful segments cut into clips, a person types what each clip says. The review
-  tool is #112, Plan [00218](../00218-stt-clip-review-tool/PLAN.md). The clip cutter and
+  tool is #112, Plan [00218](../00218-stt-clip-review-tool/PLAN.md); its clip folder holds
+  only clips and their sidecars (00218 D6), so the cutter writes nothing else there. The clip cutter and
   the triage run in the experiment session.
 - [ ] ⬜ **Task 1.6**: The merge step, **proposed, not built until the owner agrees**: a new
   transcript with each reviewed segment's sidecar text in place of the machine text, each

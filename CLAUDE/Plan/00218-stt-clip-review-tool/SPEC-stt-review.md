@@ -80,8 +80,12 @@ of its own (R30), so changing a key changes one row.
   `tempo -s 0.75`, its speech setting), from the current position; the tempo carries to the
   next clip until toggled back.
 - **R18.** The position is counted from an injected clock (start offset plus elapsed wall time
-  times tempo, in clip seconds) and is clamped at the clip's length (a test); the length is
-  read once per clip (`sox --i -D -t opus`). The end of playback is the player process's exit,
+  times tempo, in clip seconds) and is clamped at the clip's length (a test). It is an
+  estimate: the player's start-up and `tempo` buffering are not counted, which a tenth of a
+  second display tolerates. The length is read once per clip in Go, from the Ogg stream
+  itself (the last page's granule position minus the Opus header's pre-skip, at 48 kHz), so
+  it needs no external tool; a clip whose stream is not Ogg Opus is R19's unplayable clip.
+  The end of playback is the player process's exit,
   an event, never a timed guess. The sox adapter names the type before the file (`-t opus`),
   since sox picks its Vorbis handler for a `.ogg` name.
 - **R19.** A clip the player cannot play (the player exits non-zero) is said on the screen
@@ -104,7 +108,8 @@ of its own (R30), so changing a key changes one row.
 - **R24.** Every sidecar write is atomic: a temporary beside it, then moved into place, mode
   0600\. A new sidecar is put in place without replacing, by a new shared primitive
   `fsx.WriteNew` (a hard link of the temporary, then the temporary removed; `os.ErrExist` when
-  the name is taken), beside `fsx.WriteAtomic`, which replaces: if a sidecar appeared since the queue was read (another run, or a hand
+  the name is taken), beside `fsx.WriteAtomic`, which replaces. Both name their temporary
+  `<path>.tmp.<pid>`, so R6's crash-temporary clean-up covers either: if a sidecar appeared since the queue was read (another run, or a hand
   edit), the save is refused, the screen says so, and the person moves on with skip. Only a
   re-save of a clip this session already saved (R26) replaces its sidecar.
 - **R25.** After the last clip, the end screen counts this session's saved, inaudible and

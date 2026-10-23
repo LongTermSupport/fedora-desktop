@@ -78,7 +78,8 @@ with a fake. The default is sox's `play`, which `play-speech-to-text.yml` alread
 `play -q -t opus <clip> trim <offset> tempo -s <t>` covers replay, pause (stop, keep the
 position), seeking and slower playback with the pitch kept, each a restart at an offset (sox
 has no pause or seek of a running player). `-t opus` is needed because sox picks its Vorbis
-handler for a `.ogg` name. The length comes from `sox --i -D -t opus <clip>`. Whether
+handler for a `.ogg` name. The length is read in Go from the Ogg stream (last granule
+position minus pre-skip; R18), so no tool's flags matter for it. Whether
 Fedora's sox decodes Opus at all (through libopusfile) is not known yet: Task 1.1 establishes
 it on the host. If it cannot, the fallback is `ffplay` from Fedora's own `ffmpeg-free`
 (`-nodisp -autoexit -ss <offset> -af atempo=<t>`), which keeps the same restart design; `mpv`
@@ -124,9 +125,10 @@ the session and offers to go round again over what is still unsaved.
 - [ ] ⬜ **Task 1.1**: `triage.bash` in this folder, on `_planlib.inc.bash`
   (PlanScriptStandards.md R1-R14), read-only: which encoder can make a synthetic 48 kHz mono
   Ogg Opus clip (`opusenc`, `gst-launch-1.0` with `opusenc ! oggmux`, `ffmpeg`), one made in a
-  temporary folder outside any checkout; whether the installed sox decodes it, probed both as
-  `sox --i -D <clip>.ogg` and `sox --i -D -t opus <clip>.ogg`, and `play -q -t opus` of it to a
-  null output; whether `ffplay` is installed and plays it. Queued in `meta-deploy.list`, with
+  temporary folder outside any checkout; whether the installed sox decodes it, probed both
+  without and with the type (`sox <clip>.ogg -n stat` and `sox -t opus <clip>.ogg -n stat`, the
+  decoded length in the output), and `play -q -t opus` of it to a null output; whether
+  `ffplay` is installed, which package owns it (`rpm -qf`), and whether it plays the clip. Queued in `meta-deploy.list`, with
   what it does, in the commit that adds it. The result settles D2 and the acceptance's encoder,
   and is recorded in this plan's journal.
 
@@ -138,8 +140,9 @@ the session and offers to go round again over what is still unsaved.
 - [ ] ⬜ **Task 2.2**: Tests, then the sidecar writes: trimmed text, the marker, atomic
   temporary and move, mode 0600, re-save after previous through `fsx.WriteAtomic`, and a new
   `fsx.WriteNew` (link-then-unlink, `os.ErrExist` when the name is taken) with its own tests,
-  so no sidecar that appeared is replaced; the crash temporary removed at start
-  (R6, R21, R22, R24, R26).
+  so no sidecar that appeared is replaced, sharing `WriteAtomic`'s `.tmp.<pid>` naming; the
+  crash temporary removed at start; the clip length read from the Ogg stream
+  (R6, R18, R21, R22, R24, R26).
 - [ ] ⬜ **Task 2.3**: Tests, then the `Player` seam and its sox (or `ffplay`) adapter through
   `execx` (`Cmd.NewSession`, `SignalContext`): `-t opus`, offset, tempo, stop, the end as an
   event, no player left on any exit path (R4, R13-R20). A fake player and clock for the flow
