@@ -1,6 +1,6 @@
 # Plan 00185: the terminal draws the wrong emoji glyphs
 
-**Status**: In Progress (host triage read, see [triage-analysis.md](triage-analysis.md); waiting on the owner's screen check (Task 1.2) and go-ahead for the fix)
+**Status**: In Progress (the fallback defence is built, Tasks 2.1 and 2.2, and waits on its host run through meta-deploy; the screen check of #60's `printf` is left for Plan 00219's desktop check)
 **Created**: 2026-10-13
 **Owner**: joseph
 **Priority**: Low
@@ -89,23 +89,42 @@ defence in the plays so a provisioned desktop cannot get into this state again.
   the fontconfig cache age, and whether GPU rendering is on. Host report read; the analysis
   and ranked diagnosis are in [triage-analysis.md](triage-analysis.md). H2 and the strong form
   of H3 are refuted; H1 leads but cannot be confirmed from the report (rebooted since).
-- [ ] ⬜ **Task 1.2**: The owner at the screen (NOT ESTABLISHABLE by script): the four checks
+- [ ] ⬜ **Task 1.2**: Open item for Plan 00219's desktop check (coordinator default,
+  changeable by the owner; it no longer gates Phase 2). At the screen, NOT ESTABLISHABLE by
+  a plain script: the four checks
   in triage-analysis.md ("Still unknown"), starting with the issue's `printf` in a new Ptyxis
   window after today's reboot, and whether the wrong glyphs are in colour. They decide between
   H1 and H4/H5. A cache refresh is no longer part of the check: H2 is refuted.
 
 ### Phase 2: Defence
 
-- [ ] ⬜ **Task 2.1**: From the cause, the defence in the owning play, with a check that
-  would have caught it. Proposed in triage-analysis.md (a fontconfig append of Noto Color
-  Emoji to the generic families; a restart notice after font upgrades); not started until the
-  owner approves.
-- [ ] ⬜ **Task 2.2**: `deploy.bash`, `acceptance.bash`, an entry in `meta-deploy.bash`;
-  `qa-all.bash`; the `qa-reviewer` agent.
+**Decision (coordinator default, changeable by the owner):** build the fallback fix the
+analysis calls certain and independent of the screen check, plus a "restart terminals"
+notice, without waiting for Task 1.2. The dnf5 actions hook for font upgrades (analysis,
+part 2) is not built: the docs line in `docs/playbooks.md` is the minimum the analysis names,
+and the hook stays the owner's call.
+
+- [ ] 🔄 **Task 2.1**: The defence in the owning play. `play-ms-fonts.yml` is renamed
+  `play-fonts.yml` (retired-plays map updated) and deploys
+  `files/etc/fonts/conf.d/69-colour-emoji-fallback.conf`: Noto Color Emoji appended weakly
+  after `monospace`, `sans-serif` and `serif`, and "en" recorded for it at font scan, with
+  `fc-cache -f` and a reopen-terminals notice when the file changes. The append alone is not
+  enough: fontconfig's single best match ranks a font supporting the locale's language
+  (Symbola, which has Latin letters) above any weak family entry, so the scan edit is what
+  makes `fc-match monospace:charset=1f4c8` name the colour font (the ordered list Pango walks
+  already follows the append). The check is `scripts/test-colour-emoji-fallback.bash`, a
+  `qa-gates.tsv` suite running fontconfig against BDF fixture fonts: red without the file and
+  with the append alone, green with the file. Open: the host run.
+- [ ] 🔄 **Task 2.2**: `deploy.bash` (play-fonts.yml, then `acceptance.bash`) and
+  `acceptance.bash` (12 checks: the deployed file, the colour font and its scanned "en", the
+  single best match for #60's emoji under each generic family and the named monospace text
+  font, digits, `#`, `*` and the space kept on the text font, and the ordered list). Open:
+  the meta-deploy run, `qa-all.bash` and the `qa-reviewer` agent.
 
 ## Success Criteria
 
-- [ ] The issue's `printf` draws a line graph, a spool of thread and a package.
+- [ ] The issue's `printf` draws a line graph, a spool of thread and a package (open item
+  for Plan 00219's desktop check, not the owner's).
 - [ ] The cause is named in the journal and the defence is in a play.
 
 ## Delivery & Milestones

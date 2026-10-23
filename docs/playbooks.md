@@ -371,13 +371,20 @@ cd hobby-project
 gh-personal issue list
 ```
 
-### play-ms-fonts.yml
+### play-fonts.yml
 
-**Purpose**: Microsoft fonts installation\
+**Purpose**: Microsoft core fonts, and colour emoji in terminals\
 **Actions**:
 
-- Installs Windows-compatible fonts
-- Configures font rendering
+- Installs the Microsoft core fonts (msttcore)
+- Installs Noto Color Emoji and deploys `/etc/fonts/conf.d/69-colour-emoji-fallback.conf`,
+  which makes it the emoji fallback after the text fonts, so a terminal draws colour emoji
+  instead of Symbola's or Noto Emoji's monochrome ones, while digits stay in the text font
+- Rebuilds the font caches when that file changes
+
+A running program keeps the fonts it started with. After this play changes the file, or after
+a `dnf upgrade` replaces an emoji font, close and reopen terminal windows: a terminal left
+open across a font upgrade can draw the wrong emoji (Plan 00185, issue #60).
 
 ### play-rpm-fusion.yml
 
