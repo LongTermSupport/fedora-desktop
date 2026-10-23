@@ -41,16 +41,19 @@ before; golden tests pin it (Task 1.0).
   one answer per session.
 - **LZ4. What the liaison does, and does not.** It talks to the humans: it asks the questions
   handed to it, answers "what is happening", and passes answers back. It never edits, commits,
-  dispatches, triages or coordinates. On the wire it sends texts only (to the coordinator, the
-  humans, and a worker that addressed it), `ack`/`nack` to a ping addressed to it, questions-room
-  posts, reports, and relays to the coordinator (LZ5). Every other ping verb (`review`, `fetch`,
+  dispatches, triages or coordinates. On the wire it sends texts only (to any member or human;
+  a text to a worker is `PEER` information, as any agent's is), `ack`/`nack` to a ping addressed
+  to it, questions-room posts, reports, and relays to the coordinator (LZ5). Any member may
+  write to it with `pingbus say --to-liaison`. Every other ping verb (`review`, `fetch`,
   `sync`, `halt`, `qa`, ...) from a liaison is refused on send and dropped `role` on receipt.
 - **LZ4a. The questions-room rules that change (`protocol.py`, `cli.py`).** Today only a
   coordinator receives there, an agent post that is not a coordinator's is dropped `sender`, and
   `ask-human`, `thread`, `questions` and `history --room questions` are coordinator-only. With
   this plan: the liaison receives human messages there (LZ9); a liaison's post is valid (a
-  coordinator ignores it as `liaison-post`, never drops it); those four commands accept the
-  liaison too. Each change has a refusal test first, and a team with no liaison keeps today's
+  coordinator ignores it as `liaison-post`, never drops it, and shows it in a relay, LZ6);
+  `thread`, `questions` and `history --room questions` accept the liaison too, and `ask-human`
+  accepts it only with `--handoff` or `--update`. With an active liaison, a coordinator's
+  `thread --ask` (which mentions the humans) is a hand-off like `ask-human` (LZ8). Each change has a refusal test first, and a team with no liaison keeps today's
   outcomes (LZ0).
 
 ## 3. Authority: a relay is never authorisation
@@ -67,46 +70,58 @@ handed over, never from the liaison.
 
 - **LZ5. The relay.** `pingbus relay --re HUMAN_EVENT_ID` (or `relay --terminal`, LZ7a) sends
   the liaison's text to the coordinator only, with one added content key, `relays`: the event ID
-  of the human's message. It is a `PEER` text. There is no relay to a worker: a worker is not in
+  of a human's message in this team's questions room (the only room a relay can name; a
+  main-room message reached whoever it mentioned already). It is a `PEER` text. There is no relay to a worker: a worker is not in
   the questions room and could not check one; the liaison's texts to a worker are plain `PEER`
   information. The sending pingbus refuses (refusal `relays`) an ID that fails any check of LZ6
   as seen from the liaison.
 
 - **LZ5a. Hand-offs are posted verbatim.** `pingbus ask-human --handoff H<n>`, run by the
   liaison, posts the hand-off's own text byte for byte: pingbus copies it from the hand-off
-  event it fetched, and the liaison supplies no question text. The liaison may add a separate,
-  fixed-prefixed section after it (`Liaison's note:`), which the receiver shows apart and which
-  never changes what the question is. The post carries `handed-off: <hand-off event ID>`. A
-  liaison that wants to put the question differently asks the coordinator to hand over a new
-  one (LD11).
+  event it fetched, and the liaison supplies no question text. The liaison may add a note,
+  carried in its own content key `liaison_note` (never in the body that `parse_question` and
+  `check_question_text` read), shown apart by Element's fallback text and by the receiver, and
+  never part of what the question is. The post carries `handed-off: <hand-off event ID>`. After
+  that post the liaison posts nothing more in that question's thread (pingbus refuses it,
+  refusal `handed-off-thread`); anything it wants to tell the human about the question goes in a
+  new hand-off the coordinator sends. A liaison that wants the question put differently asks the
+  coordinator for a new hand-off (LD11).
 
 - **LZ6. The receiver checks it, not the liaison.** On delivery, the coordinator's pingbus
-  fetches from the homeserver, with its own token, the referenced event, the question post it
-  attaches to (thread, reply or `Q<n>` prefix, as 00211 D5 attaches), and the hand-off named by
-  that post's `handed-off:`. It is verified only when all of these hold:
+  fetches from the homeserver, with its own token, the referenced event (one
+  `GET /rooms/{questions}/event/{id}`: an ID from any other room is `not-found` there), the
+  question post it attaches to (thread, reply or `Q<n>` prefix, as 00211 D5 attaches), and the
+  hand-off named by that post's `handed-off:`. It is verified only when all of these hold:
 
   - the sender is a listed human in the current record, and the event is not redacted;
-  - it is in this team's questions room, attached to a question post `Q<n>`;
+  - it is attached to a question post `Q<n>`;
   - that post's `handed-off:` names a hand-off **sent by this receiver** to the liaison;
   - the post's question text equals the hand-off's text byte for byte (LZ5a);
   - the human's event is later than the post.
 
-  The envelope then shows, after the `PEER` entry:
+  **The whole question, not one answer.** The coordinator's own store already holds every
+  questions-room event it synced (LZ9's quiet items, and the liaison's posts it ignores). The
+  relay block shows, from that store and checked against the homeserver as above, every human
+  message attached to `Q<n>` and every edit of one, in order, and any liaison post in the thread
+  beside the verbatim one (there should be none; LZ5a), so a relay of bob's "yes" cannot hide
+  alice's "no" or bob's own later "wait, no". When more than one human answered, or answers
+  differ, the line says `answers differ` and LZ7 applies to all of them. The envelope shows,
+  after the `PEER` entry:
 
   ```
   relays: HUMAN alice $event_id (checked on the homeserver; answers your H3 as Q7)
     asked: "your hand-off's text, as posted, as a JSON string"
     liaison's note: "the note, if any, as a JSON string"
-    answer: "the human's own words, verbatim, as a JSON string"
+    answer: alice $event_id "the human's own words, verbatim, as a JSON string"
+    also on Q7: bob $event_id2 "verbatim" (newer)
   ```
 
   Otherwise `relays: $event_id (NOT VERIFIED: <reason>)`, with no answer text. The reasons are
-  a closed set, each with a test: `not-human`, `redacted`, `wrong-room` (another team's room, or
-  the main room: a main-room message was addressed to whoever it mentions, and reaches the
-  coordinator as `HUMAN` only if it mentions the coordinator), `unattached`, `not-your-handoff`,
-  `reworded`, `earlier-than-question`, `not-found`. Edits of the answer (00211 D6) are shown as
-  revisions, newest last, and an edit of an answer already relayed wakes the coordinator as a
-  revision (`revises:`), checked the same way.
+  a closed set, each with a test: `not-human`, `redacted`, `not-found` (no such event in this
+  team's questions room, which covers any main-room or other room's ID), `unattached`,
+  `not-your-handoff`, `reworded`, `earlier-than-question`. After a relay of `Q<n>`, any further
+  human message or edit attached to `Q<n>` is delivered to the coordinator directly as `HUMAN`
+  (a revision when it is an edit), not held quiet: the answer it acted on has changed.
 
 - **LZ7. The rule, in the skill and the role text.** The liaison's own words carry no
   authority, ever. A verified relay carries exactly the authority the human's answer would carry
@@ -141,7 +156,8 @@ handed over, never from the liaison.
   every other hand-off waits behind it. Anything urgent goes to the questions room, which
   notifies the owner (00211 D14).
 - Workers still ask the coordinator, never the liaison or a human (00211's rule, and 00222's
-  guard). A worker may write to the liaison with `pingbus say --to-liaison` only to answer it.
+  guard). A worker may write to the liaison with `pingbus say --to-liaison` (context for an
+  update, an answer to the liaison), never to have it ask a human for the worker.
 
 ### 4.2 Messages from a human
 
@@ -164,10 +180,15 @@ handed over, never from the liaison.
 
 ### 4.3 Active, and the fallback
 
-- **LZ10.** A liaison is **active** when it is named, not parked, has `human_text` on, has
-  joined the questions room, and its keeper's live status (the `agent_bus.status` that 00211's
-  `check-rooms` reads) is no older than `liaison_offline_s` (default 600). A status that cannot
-  be read counts as inactive, and the reason is named where the result is used (stderr of
+- **LZ10.** A liaison is **active** when it is named, not parked, has joined the questions room
+  (the coordinator cannot read the liaison's bundle, so the join stands in for `human_text`,
+  which LZ1 refuses at assignment and which leaves that invite pending), and its keeper's live
+  status (the `agent_bus.status` that 00211's `check-rooms` reads) has an `until` no earlier
+  than now. **The producer:** the coordinator's syncer reads these on every sync and writes
+  `liaison.json` per team in its `PINGBUS_HOME` (liaison handle, `joined`, `until`, `read_at`),
+  atomically; `ask-human`, the keeper (LZ9) and the guard (LZ16) read that file, and a file
+  whose `read_at` is older than `liaison_offline_s` (default 600) counts as unreadable. A status
+  that cannot be read counts as inactive, and the reason is named where the result is used (stderr of
   `ask-human`, the guard's context line). Inactive means today's route, which is the safe side:
   nothing is handed to a session that may not be there. An inactive liaison never blocks
   anything (00211 Task 2.8's rule): `ask-human` posts directly with a stderr line saying why,
@@ -182,16 +203,22 @@ handed over, never from the liaison.
 ### 4.4 Progress updates
 
 - **LZ12.** The liaison syncs the reports room's timeline (not woken by it) beside the main and
-  questions rooms; `pingbus history --room reports` reads it. It builds updates from the reports
-  room, `pingbus history` of the main room, and hand-offs, and from nothing else.
+  questions rooms; `pingbus history --room reports` reads it. Main-room `history` shows a member
+  only what it sent and what was addressed to it (`Syncer.history` ignores the rest as
+  `not-addressed`), and this plan does not widen that: the liaison does not read coordinator and
+  worker traffic. It builds updates from the reports room, the questions room, its hand-offs and
+  what members wrote to it, and from nothing else. A team whose workers do not post reports
+  gives the liaison little to say; the skill already asks every agent to report what the human
+  should know (00211), and the coordinator's role line, with a liaison, asks it to report at
+  each milestone.
 - **LZ13. Where updates go.** In answer to the human, in the place asked (terminal, or a reply
   in the questions room). Unprompted, only when the coordinator hands one over
   (`pingbus ask-human --update`, a hand-off of kind `update`), as one `pingbus report`. No timed
   digests (LD8).
 - **LZ14. Stale or wrong summaries.** Every update the skill teaches has: an `as of` time (the
   newest source event), the source event IDs, and per worker either its newest report or "no
-  news since T". The liaison never says something is done unless a report or a `done` ping says
-  so, and names the source. Asked a state it cannot see, it asks the coordinator with one
+  news since T". The liaison never says something is done unless a report, or a member's text
+  to it, says so, and names the source. Asked a state it cannot see, it asks the coordinator with one
   `say --to-coordinator` and says it is waiting, rather than guess. Reports are the agents'
   own words, readable in Element, so the human can always check the source.
 
@@ -207,7 +234,9 @@ handed over, never from the liaison.
   guard against mistakes only (LZ19).
 - **LZ16. The coordinator loses `AskUserQuestion` while a liaison is active** in a team it
   coordinates. Denial text: `agent-bus: ask the humans through your liaison: pingbus ask-human --team <team> (it hands the question to myrepo.3).` With no liaison, or an inactive one, it
-  keeps it (LZ0, LZ10). The guard reads activity from the same cached status as LZ10. LD3.
+  keeps it (LZ0, LZ10). The guard reads activity from LZ10's `liaison.json`, the same file
+  `ask-human` reads, on every call; missing or stale means inactive, so the coordinator may ask.
+  LD3.
 - **LZ16a. What this changes in Plan 00222.** 00222's Non-Goals exclude restricting the
   coordinator and Bash command patterns, and its R7 is `Decide(rolesByTeam, policyByTeam, tool)`.
   LZ15 and LZ16 need both, so this plan asks 00222's owner (Task 7.4) for: a `Call` input
@@ -216,10 +245,16 @@ handed over, never from the liaison.
   pure and names no v1 file, so v2 imports the extended one. If 00222 is built first as it
   stands, Phase 4 makes that change itself, with 00222's own tests kept green.
 - **LZ17. ccy: a read-only checkout.** A ccy session launched as the liaison mounts the
-  checkout `ro` (with the same relabel) instead of `rw`, plus a writable directory for each
-  path a session must write inside the checkout (the hooks daemon's untracked state, the
-  project's `untracked/`), measured by Task 0.1, each backed by a per-session directory under
-  the session's run directory, never the host checkout. The mount arguments come from Go
+  checkout `ro` (with the same relabel) instead of `rw`, plus an `rw` bind of the real host
+  path for each in-checkout path a session must write. ccy keeps the session's Claude Code
+  state, login and supervisor wrapper in `/workspace/.claude/ccy/` (claude-yolo), so that one is
+  bound `rw` to its real host path and survives relaunch as today; the hooks daemon's untracked
+  state and the project's `untracked/` likewise. Task 0.1 measures the list. Nothing that
+  configures what runs in the session stays writable: `.claude/settings*.json`,
+  `.claude/hooks*`, `.claude/hooks-daemon.yaml` and the checked-in tree stay `ro`, so the
+  liaison cannot switch off its own guard (the guard itself is in the image's member kit, not
+  the checkout). Task 0.1 classifies every measured path as state or configuration, and only
+  state is bound `rw`. The mount arguments come from Go
   (`ccy-teams internal launch-mounts`, beside `membership-init`); the launcher only appends what
   Go printed, so it does not grow. **CCY version bump.**
 - **LZ18. A hot role change and the mount.** The mount is fixed at launch. A hot change *to*
@@ -232,8 +267,8 @@ handed over, never from the liaison.
   (fixed at launch, so it is a second layer, not the live one). Documented as a control against
   mistakes, as Plan 00207's Non-Goals say of every same-uid session.
 - **LZ20. LXC: a read-only bind in the unit.** The play writes `BindReadOnlyPaths=<checkout>` and
-  `BindPaths=` for the measured writable paths (Task 0.1, backed by the agent user's state
-  directory) into `agent-bus-claude-<agent-user>.service` when the member's `role:` is
+  `BindPaths=` binding each measured state path to itself, so it stays writable at its real
+  place (Task 0.1; configuration stays read-only, as in LZ17) into `agent-bus-claude-<agent-user>.service` when the member's `role:` is
   `liaison`, and removes them otherwise; a role change restarts the unit (the play reports it).
   Plus LZ15's guard. The liaison reads the code of its own checkout only; other repositories'
   code is LD7.
@@ -254,7 +289,8 @@ handed over, never from the liaison.
   read-only. Questions come to you as hand-offs; answers go back with `pingbus relay`." The
   coordinator's line, when a liaison exists, adds: "`<handle>` is the liaison: `ask-human` hands
   your questions to it, and its relays carry the human's own words, checked. Do not ask the
-  humans in your replies either: hand it over." The guard cannot stop a question written as prose
+  humans in your replies either: hand it over. Post a `pingbus report` at each milestone; the
+  liaison's updates are built from reports." The guard cannot stop a question written as prose
   at the end of a turn, so this line is the control for that. Others unchanged.
 
 ## 7. One liaison per team, or one per human

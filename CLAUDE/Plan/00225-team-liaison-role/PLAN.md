@@ -28,8 +28,8 @@ which names the human's event. The coordinator's own pingbus fetches that event,
 it answers and the hand-off behind it from the homeserver. It shows the human's verbatim words
 only when all three bind to a hand-off the coordinator sent. So the liaison's words never count
 as authority, and the HUMAN and PEER rules hold for all of them (DESIGN section 3 states the
-one addition). The liaison builds progress
-updates from the reports room and the bus history, citing its sources. It cannot edit or commit:
+one addition). The liaison builds progress updates from the reports room, the questions room
+and what members write to it, citing its sources. It cannot edit or commit:
 the Plan 00222 guard denies it, and in ccy and LXC its checkout is mounted read-only. A team with
 no liaison behaves exactly as it does today.
 
@@ -44,7 +44,8 @@ The design, with numbered requirements LZ0-LZ23, is [DESIGN.md](DESIGN.md).
 - A relay is a `PEER` text to the coordinator. The human's answer is checked by the receiver on
   the homeserver against the coordinator's own verbatim hand-off, shown with the relay, and
   confirmed by `pingbus verify-human` (LZ5-LZ7a).
-- Progress updates come from the reports room, the bus history and the hand-offs, and each one
+- Progress updates come from the reports room, the questions room, the hand-offs and members'
+  texts to the liaison (main-room traffic between others is not read), and each one
   says when it is from and what it is based on (LZ12-LZ14).
 - The liaison cannot edit or commit: there is a guard in every runtime, and a read-only mount
   in ccy and LXC (LZ15-LZ20).
@@ -78,7 +79,8 @@ Every build task is test first: the failing test is committed or recorded before
 - [ ] ⬜ **Task 0.1**: `triage.bash` in this folder (host; throwaway container and unit, removed
   in an `EXIT` trap). It records:
   - which paths inside the checkout a ccy session (Claude Code with the hooks daemon) writes,
-    found by launching one with the checkout `ro` and logging each `EROFS`;
+    found by launching one with the checkout `ro` and logging each `EROFS`, each classified
+    as state (bound `rw` at its real path) or configuration (stays `ro`; LZ17);
   - whether `git status` and `git log` work on a `ro` checkout;
   - the same for an LXC unit with `BindReadOnlyPaths=`;
   - that a coordinator's token can `GET /rooms/{room}/event/{id}` in the questions room.
@@ -89,7 +91,9 @@ Every build task is test first: the failing test is committed or recorded before
 ### Phase 1: The role in the v1 protocol (upgrade-first)
 
 - [ ] ⬜ **Task 1.0**: Golden tests for a team with no liaison: envelopes, wakes, `ask-human`
-  posts, `--list` (LZ0). These must stay green through every later phase.
+  posts, the questions-room outcomes. Phases 4 and 6 open the same way, with goldens for the
+  guard's answers and for the board and `--list` bytes before their code (LZ0). All of them
+  stay green through every later phase.
 - [ ] ⬜ **Task 1.1**: `protocol.py`: the `liaison` role, at most one, needing a coordinator;
   the sender rules of LZ4 (refused on send, dropped `role` on receipt); the `relays`,
   `handoff` and `handed-off` content keys and their grammar; LZ4a's questions-room outcomes
@@ -106,7 +110,10 @@ Every build task is test first: the failing test is committed or recorded before
   - the coordinator's quiet questions items: never delivered while the liaison is active,
     marked `relayed`, delivered on the keeper's `liaison_relay_s` wake, on an edit after
     relay, and all at once when the liaison goes inactive (LZ9);
-  - LZ10's active test (status, `human_text`, the questions join; unreadable means inactive).
+  - LZ10's producer: the coordinator's `liaison.json` per team (`joined`, `until`,
+    `read_at`), written atomically each sync; the active test over it, where missing, stale or
+    unreadable means inactive;
+  - after a relay of `Q<n>`, later human messages on it delivered directly (LZ6).
 
   Tests use a fake clock and the fake homeserver.
 
@@ -114,7 +121,9 @@ Every build task is test first: the failing test is committed or recorded before
 
   - `say --to-liaison`;
   - `ask-human` hand-off routing with `--update` and `--direct`, and the liaison's
-    `ask-human --handoff`, which posts the hand-off's text verbatim (LZ5a);
+    `ask-human --handoff`, which posts the hand-off's text verbatim with any `liaison_note`
+    in its own key, and refuses later liaison posts in that thread (LZ5a);
+  - a coordinator's `thread --ask` handed off like `ask-human` while a liaison is active;
   - `relay` to the coordinator only (with `--terminal`);
   - `verify-human`, `handoffs` and `history --room reports`;
   - `thread`, `questions` and `history --room questions` opened to the liaison (LZ4a);
@@ -123,12 +132,13 @@ Every build task is test first: the failing test is committed or recorded before
   The `relays` refusal tests come first.
 
 - [ ] ⬜ **Task 2.3**: The envelope's `relays:` block, checked on the homeserver, with a test
-  for each `NOT VERIFIED` reason of LZ6 (`not-human`, `redacted`, `wrong-room`, `unattached`,
-  `not-your-handoff`, `reworded`, `earlier-than-question`, `not-found`), and the revision wake
-  for an edited relayed answer.
+  for each `NOT VERIFIED` reason of LZ6 (`not-human`, `redacted`, `not-found`, `unattached`,
+  `not-your-handoff`, `reworded`, `earlier-than-question`). Also tested: every other human
+  answer and edit on `Q<n>` is listed, and two answers that differ show `answers differ`.
 
 - [ ] ⬜ **Task 2.4**: `hooks.py` role lines (LZ23). The pingbus skill gets a Liaison section:
-  LZ7's rule, LZ14's update shape, and the hand-off flow.
+  LZ7's rule, LZ14's update shape, and the hand-off flow. Also the liaison's notice when its
+  team has no coordinator (LZ2), with a test.
 
 - [ ] ⬜ **Task 2.5**: The container version bump that `helpers/pingbus/` changes need, and the
   `pingbus version` marker raised (00211 Task 1.9's rule). **CCY version bump.**
@@ -152,12 +162,17 @@ Every build task is test first: the failing test is committed or recorded before
   - LZ16's coordinator `AskUserQuestion` rule, for an active and an inactive liaison;
   - LZ3's single-role session.
 - [ ] ⬜ **Task 4.2**: `hooks.json`'s matcher gains `Edit|Write|NotebookEdit|Bash` only for the
-  guard entry, and a test pins it. The deny texts are compared byte for byte.
+  guard entry, and a test pins it. The deny texts are compared byte for byte. The guard reads
+  `liaison.json` (LZ16), tested on a fixture home: missing, stale and active.
+- [ ] ⬜ **Task 4.3**: The guard and `hooks.json` are in the member kit baked into the ccy image:
+  **container version bump and CCY version bump**.
 
 ### Phase 5: Read-only code per runtime
 
-- [ ] ⬜ **Task 5.1**: `ccy-teams internal launch-mounts` (Go): the `ro` workspace and the
-  writable paths measured in Task 0.1, for a liaison launch; nothing for any other role. Tests on
+- [ ] ⬜ **Task 5.1**: `ccy-teams internal launch-mounts` (Go): the `ro` workspace and an `rw`
+  bind of each state path measured in Task 0.1 at its real host path (`.claude/ccy/` among
+  them), with a test that no configuration path (`.claude/settings*`, hooks, the daemon config)
+  is ever writable, for a liaison launch; nothing for any other role. Tests on
   a fixture membership. The launcher appends its output in place of the workspace `-v`, adding
   no line (`qa-bash-limits` proves it), and `scripts/test-ccy-agent-bus.bash` pins the
   arguments first, red. **CCY version bump.**
