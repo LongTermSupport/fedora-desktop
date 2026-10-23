@@ -193,7 +193,10 @@ Usage:
                                    the launcher's team chooser, on a terminal only. With a
                                    <list> (SEAT@TEAM or a team alone, comma-separated) it
                                    chooses the seat of each team named alone and prints the
-                                   canonical list. With none, it shows every team on this
+                                   canonical list; a team this machine does not have is
+                                   offered: create it, choose one of this machine's teams
+                                   instead, start the rest without it, or start nothing.
+                                   With none, it shows every team on this
                                    machine with what it is for and whether it covers this
                                    checkout (covers, would add, excludes), and offers
                                    creating one. A team that does not cover the checkout is

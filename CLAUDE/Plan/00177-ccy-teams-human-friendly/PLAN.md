@@ -1,6 +1,6 @@
 # Plan 00177: ccy-teams, human friendly
 
-**Status**: In Progress (Phase 4 built and reviewed; Phase 9 built and reviewed; Phase 7 built and deployed; waiting on the host tests, Tasks 6.4, 7.5 and 9.5)
+**Status**: In Progress (Phase 4 built and reviewed; Phase 9 built and reviewed; Phase 7 built and deployed; waiting on the host tests, Tasks 6.4, 7.5, 7.9 and 9.5)
 **Created**: 2026-10-13
 **Owner**: joseph
 **Priority**: High
@@ -198,6 +198,22 @@ quit `ccy-teams` to start Element.
   the deployed `ccy-teams` and CCY). Tasks 7.1 and 7.2: Plan 00201's ACCEPTANCE-owner.md steps
   3, 5 and 6. Task 7.4: with a team where a person has never signed in to Element, run
   `ccy-teams apply <team>` in a terminal; after the apply it offers that person the sign-in.
+- [x] ✅ **Task 7.6**: An unknown team never just ends the run (owner: `ccy --teams <team-a>,<team-b>` with an unknown team "should have taken me to somewhere to create the
+  team"). On a terminal, a team named alone that has no homeserver up and no host_vars entry
+  is asked about (`chooser/unknown.go`): create it (the create wizard, offering the typed name
+  as the Team name), choose one of this machine's teams in its place, start the rest of the
+  list without it, or start nothing. Leaving the wizard or the choice comes back to the
+  question, three rounds at most, then exit 1. Without a terminal it stays fail-fast:
+  `agent-bus seat check --resolved` refuses the list with its reason. Built test first
+  (`unknown_test.go`, CCY 3.100.19).
+- [x] ✅ **Task 7.7**: Exit codes from other programs keep their meaning: `term.FromChild`
+  keeps 64, 75, 77, 78 and 130 and turns any other code into 1, and `ccy-teams` names 75, 77
+  and 78 in its last line (before this the shell's prompt said "Unknown error code" for
+  agent-bus's 78). Defence Before Fix rule `project_child_exit` (red `1824f6ed5`).
+- [x] ✅ **Task 7.8**: The board shows a host seat's KIND as `cc`, from the seat's handle, not
+  `ccy` for every seat of a checkout. Defence Before Fix rule `project_row_kind`.
+- [ ] ⬜ **Task 7.9**: The host run (meta-deploy `play-claude-yolo.yml`, CCY 3.100.19), then
+  the owner's test: `ccy --teams <unknown-team>` in a checkout offers to create it.
 
 ### Phase 9: Add an LXC container to a team from ccy-teams, no hand edit of localhost.yml
 

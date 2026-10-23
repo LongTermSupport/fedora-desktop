@@ -1170,7 +1170,9 @@ line, which prints the checkout's own status line first (see
 The launcher checks the list on the host (`agent-bus seat check`, exit 64 for a malformed
 list, 78 for a team whose homeserver is not running on this machine) before anything else
 runs. For a team named alone it then asks, in a chooser, which of this checkout's seats in
-the team to take. Each row shows the member's full handle, `ccy (podman)`, and whether the
+the team to take. A team named alone that this machine does not have is asked about first:
+create it now (the create wizard, with the name you typed), choose one of this machine's
+teams instead, start the rest of the list without it, or start nothing. Each row shows the member's full handle, `ccy (podman)`, and whether the
 seat is free or held by a running session. The default is the lowest free seat, else a new
 number. ccy says the handle before it takes the seat, and the chosen `<seat>@<team>` goes
 into the launch's arguments. With several teams, every question is headed by its team and

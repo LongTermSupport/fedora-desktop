@@ -499,7 +499,7 @@ func TestWizardForTheChooserReturnsTheTeamAndStartsNothing(t *testing.T) {
 	h.run.queue("gum choose", wzOK(scopeRepos+", starting with example-org/proj\n"))
 	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
 	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1))
-	team, code := h.c.RunForChooser(context.Background())
+	team, code := h.c.RunForChooser(context.Background(), "")
 	wzCode(t, code, term.ExitOK, h)
 	if team != "proj" {
 		t.Fatalf("team %q", team)
@@ -517,10 +517,28 @@ func TestWizardForTheChooserReturnsTheTeamAndStartsNothing(t *testing.T) {
 	wzLack(t, "stderr", h.err(), "run ccy --teams")
 }
 
+// A team named on `ccy --teams` that this machine does not have: the wizard offers the name the
+// person typed as the Team name, rather than one made from the scope.
+func TestWizardForTheChooserOffersTheNameTypedOnTheCommandLine(t *testing.T) {
+	h := newWzHarness(t)
+	h.run.queue("gum choose", wzOK(scopeRepos+", starting with example-org/proj\n"))
+	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("wanted\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
+	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1))
+	_, code := h.c.RunForChooser(context.Background(), "wanted")
+	wzCode(t, code, term.ExitOK, h)
+	want := "gum input --header Team name --placeholder e.g. example-org --value wanted --width 0"
+	if inputs := h.run.matching("gum input"); len(inputs) < 2 || inputs[1] != want {
+		t.Fatalf("inputs %q, want the second %q", inputs, want)
+	}
+	if h.run.called(strings.Join(wzDP("suggest-team", "--name", "proj"), " ")) {
+		t.Error("a name was suggested from the scope over the one typed")
+	}
+}
+
 func TestWizardForTheChooserCancelledReturnsNoTeam(t *testing.T) {
 	h := newWzHarness(t)
 	h.run.queue("gum choose", wzExit(130))
-	team, code := h.c.RunForChooser(context.Background())
+	team, code := h.c.RunForChooser(context.Background(), "")
 	wzCode(t, code, term.ExitCancelled, h)
 	if team != "" || len(h.applied) != 0 {
 		t.Fatalf("team %q applied %v", team, h.applied)

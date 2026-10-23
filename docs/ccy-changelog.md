@@ -27,6 +27,11 @@ change.
   said in words as the last line (`ccy-teams: exit 78: something it needs is not set up on this host.`), as a shell does not name them: `ccy --teams` with a team the host does not
   have ended in "Unknown error code". `ccy-sessions reboot` exits 1 when `systemctl reboot`
   fails, naming systemctl's code.
+- **`ccy --teams <team>` with a team this machine does not have no longer only fails.** On a
+  terminal it asks: create the team now (the create wizard, offering the name typed), choose
+  one of this machine's teams instead, start the rest of the list without it, or start
+  nothing. Leaving the wizard comes back to the question, three times at most. With no
+  terminal the list is still refused, with agent-bus's reason.
 - **The `ccy-teams` board's KIND of a host seat is `cc`**, not `ccy` (a `<team>.<n>+<host>.host`
   handle); a ccy container's stays `ccy`.
 
