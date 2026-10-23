@@ -90,9 +90,15 @@ func (h *held) pending() int64 {
 	return n
 }
 
-// publish tells the keeper each held team's report that changed and rewrites status.json; on
-// the state goroutine, after every change.
+// publish tells the keeper each held team's report that changed and offers status.json the
+// newest status; on the state goroutine, after every change.
 func (e *Engine) publish() {
+	e.offerStatus(e.buildStatus())
+}
+
+// buildStatus is status.json's content as it is now, its written_ms left for the write, and
+// tells the keeper each held team's report that changed.
+func (e *Engine) buildStatus() state.Status {
 	rows := []state.StatusTeam{}
 	for _, id := range e.order() {
 		h := e.teams[id]
@@ -120,10 +126,7 @@ func (e *Engine) publish() {
 	for _, id := range slices.SortedFunc(maps.Keys(e.refused), compareTeams) {
 		rows = append(rows, state.StatusTeam{Team: id, Down: true, Delivery: state.DeliveryNone, Colour: teamColour(id, nil)})
 	}
-	st := state.Status{Run: e.cfg.Run, WrittenMS: e.cfg.Clock.WallMS(), Desired: e.desired, Teams: rows}
-	if err := state.Write(e.cfg.RunRoot, e.cfg.Layout.Run(e.cfg.Run).Status(), st); err != nil {
-		e.logf("status.json not written: %v", err)
-	}
+	return state.Status{Run: e.cfg.Run, Desired: e.desired, Teams: rows}
 }
 
 func sameState(a, b wire.State) bool {

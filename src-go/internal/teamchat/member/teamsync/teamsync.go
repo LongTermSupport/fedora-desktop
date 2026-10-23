@@ -57,6 +57,8 @@ type Config struct {
 	HTTP func(matrix.Config) (*matrix.Client, error)
 	// Jitter is how much of a backoff is taken off; nil is crypto/rand, up to a quarter.
 	Jitter func(time.Duration) time.Duration
+	// Receipts is the engine's read receipts, which the team sends (B 2.7.5); nil sends none.
+	Receipts team.Receipts
 }
 
 // Watcher is a source of seat directory changes.
@@ -97,13 +99,19 @@ type Team struct {
 	unheard     *bounded[struct{}]
 	flood       proto.Window
 	freeze      freezeDetector
+	// budget is B 2.7.3's delivery budget, per (team, sender); factsNote the colour note said
+	// last.
+	budget    proto.Window
+	factsNote string
 
 	// Test seams.
-	onPoll   func(since string)
-	onWait   func(time.Duration)
-	readPair func(*homefs.Root, paths.Seat) (bundle.Pair, error)
-	judge    func(proto.Judge, proto.Value) proto.Verdict
-	pages    pageBound
+	onPoll func(since string)
+	onWait func(time.Duration)
+	// onReceiptWait is told each receipt backoff.
+	onReceiptWait func(time.Duration)
+	readPair      func(*homefs.Root, paths.Seat) (bundle.Pair, error)
+	judge         func(proto.Judge, proto.Value) proto.Verdict
+	pages         pageBound
 }
 
 // pageBound is a backwards read's page size and page count.
@@ -139,7 +147,7 @@ func New(cfg Config) (*Team, error) {
 		cfg: cfg, log: l, res: newResolver(l), wake: make(chan struct{}, 1),
 		pendingSaid: map[string]bool{}, unheard: newBounded[struct{}](memorySize),
 		flood: proto.Window{Times: map[string][]int64{}}, freeze: freezeDetector{clk: cfg.Clock},
-		onPoll: func(string) {}, onWait: func(time.Duration) {}, readPair: bundle.ReadPair,
+		onPoll: func(string) {}, onWait: func(time.Duration) {}, onReceiptWait: func(time.Duration) {}, readPair: bundle.ReadPair,
 		judge: func(j proto.Judge, v proto.Value) proto.Verdict { return j.Judge(v) },
 		pages: pageBound{size: pageSize, max: maxPages},
 	}, nil

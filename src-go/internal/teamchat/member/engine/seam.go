@@ -75,7 +75,9 @@ func (e *Engine) changeLocked(t paths.TeamID, f func(h *held, s *state.Store) (b
 	if err := h.writer.Write(s); err != nil {
 		return fmt.Errorf("engine: team %s: %w", t, err)
 	}
+	before := h.store.Receipts
 	h.store = &s
+	h.tellReceipts(before)
 	e.publish()
 	return nil
 }

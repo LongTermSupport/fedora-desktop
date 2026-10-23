@@ -93,6 +93,8 @@ type TeamConfig struct {
 	FirstSessionStart <-chan struct{}
 	Clock             clock.Clock
 	Log               io.Writer
+	// Receipts is the engine's read receipts, which the team sends (B 2.7.5).
+	Receipts team.Receipts
 }
 
 // RecordWriter is where a request's records go, in order.
@@ -132,6 +134,8 @@ type Engine struct {
 	sess     sessionFacts
 	stall    stall
 	unusable state.Unusable
+	// statusPace paces status.json's writes (SL1).
+	statusPace statusPacer
 }
 
 // New is an engine over cfg; its goroutine runs from Run.
@@ -173,6 +177,8 @@ func (e *Engine) Run(ctx context.Context) error {
 	if e.delivers() {
 		loop.Go(func() { e.deliverLoop(ctx) })
 	}
+	defer e.disarmStatus()
+	e.publish()
 	for {
 		select {
 		case op := <-e.ops:

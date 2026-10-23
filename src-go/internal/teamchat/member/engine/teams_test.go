@@ -200,7 +200,7 @@ func TestRemoveWaitsAtMostTwoSecondsForATeamThatIgnoresItsCancel(t *testing.T) {
 		_, err := w.e.Remove(t.Context(), ops)
 		done <- err
 	}()
-	check(t, w.clk.BlockUntil(t.Context(), 1))
+	w.armed(1)
 	w.clk.Advance(stopWait)
 	check(t, <-done)
 	if !strings.Contains(w.log.String(), "did not stop within 2s") {

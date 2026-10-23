@@ -282,13 +282,19 @@ func (w *linkWorld) link() *link {
 	return w.ln
 }
 
-// start runs the link; its exit code arrives on w.exit.
+// start runs the link; its exit code arrives on w.exit. The cleanup closes the control socket and
+// waits for the link to end, so nothing it writes outlives the test's home.
 func (w *linkWorld) start() {
-	go func() { w.exit <- int(Run(context.Background(), w.cfg)) }()
+	ended := make(chan struct{})
+	go func() {
+		defer close(ended)
+		w.exit <- int(Run(context.Background(), w.cfg))
+	}()
 	w.t.Cleanup(func() {
 		if err := w.conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 			w.t.Error(err)
 		}
+		<-ended
 	})
 }
 
@@ -502,7 +508,8 @@ func TestReadyWaitsTenSecondsForTheAdds(t *testing.T) {
 	w.launch(2)
 	w.add(a)
 	until(t, func() bool { return w.team(a) != nil })
-	check(t, w.clk.BlockUntil(t.Context(), 1))
+	// The adds' wait, and the engine's one status.json timer (SL1) once alpha is held.
+	check(t, w.clk.BlockUntil(t.Context(), 2))
 	w.clk.Advance(addsWait)
 	w.next(wire.KindReady)
 	if !strings.Contains(w.log.String(), "1 of 2 adds") {
