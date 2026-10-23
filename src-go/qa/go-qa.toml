@@ -48,5 +48,7 @@ phase = "runners"
 says = "go test -race over internal/teamchat built with -tags busfailpoints, the failpoint crash scenarios among them"
 fix = "Make the failing busfailpoints test pass"
 # No -count=1, unlike the built-in runner: no stage takes {files}, so qa-changed runs this whole
-# for any src-go change, and go's test cache keeps an unchanged teamchat a cache hit.
-command = ["go", "test", "-race", "-shuffle=on", "-tags", "busfailpoints", "./internal/teamchat/..."]
+# for any src-go change, and go's test cache keeps an unchanged teamchat a cache hit. -count=2 runs
+# every test twice in one process, so a test that adds to package state it does not restore (a
+# registry, a flag, a sync.Once) fails here, the build being a superset of the untagged one.
+command = ["go", "test", "-race", "-shuffle=on", "-count=2", "-tags", "busfailpoints", "./internal/teamchat/..."]

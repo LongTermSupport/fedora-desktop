@@ -73,34 +73,35 @@ func TestOpsAreRegistered(t *testing.T) {
 }
 
 // register keeps its own copy of the set, ChangesOf hands out a copy, and a verb is
-// registered once. The registry is restored after, so a repeated or shuffled run sees only
-// the package's own ops.
+// registered once. It adds to a set of its own, not the package's, so it can run again.
 func TestRegister(t *testing.T) {
-	registry.mu.Lock()
-	saved := slices.Clone(registry.ops)
-	registry.mu.Unlock()
-	t.Cleanup(func() {
-		registry.mu.Lock()
-		defer registry.mu.Unlock()
-		registry.ops = saved
-	})
+	var ops opSet
 	set := []What{"x"}
-	registered := register(Op{Verb: "guest register-test", Changes: set})
+	registered := ops.add(Op{Verb: "guest register-test", Changes: set})
 	set[0] = "forged"
-	changes, ok := ChangesOf(registered.Verb)
+	changes, ok := ops.changesOf(registered.Verb)
 	if !ok || !slices.Equal(changes, []What{"x"}) {
 		t.Fatalf("registered set = %v, %v", changes, ok)
 	}
 	changes[0] = "forged"
-	if again, found := ChangesOf(registered.Verb); !found || again[0] != "x" {
-		t.Errorf("ChangesOf shares its set: %v", again)
+	if again, found := ops.changesOf(registered.Verb); !found || again[0] != "x" {
+		t.Errorf("changesOf shares its set: %v", again)
 	}
 	defer func() {
 		if recover() == nil {
 			t.Error("a verb registered twice")
 		}
 	}()
-	register(Op{Verb: registered.Verb})
+	ops.add(Op{Verb: registered.Verb})
+}
+
+// register is the package's set: what it records is in Ops, and it is the set ChangesOf asks.
+func TestRegisterIsThePackageSet(t *testing.T) {
+	for _, op := range Ops() {
+		if _, ok := ChangesOf(op.Verb); !ok {
+			t.Errorf("%s is in Ops but not in ChangesOf", op.Verb)
+		}
+	}
 }
 
 // finish is Finish's exit and the error object on stderr's last line.
