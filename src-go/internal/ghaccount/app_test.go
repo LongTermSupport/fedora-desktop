@@ -77,11 +77,12 @@ func TestGhMustBeInstalledAndNewEnough(t *testing.T) {
 	w.mustContain("stderr", "GitHub CLI (gh) is not installed")
 
 	w = newWorld(t)
-	w.ghVersion = "gh version 2.39.0 (2023-11-01)\n"
+	w.ghVersion = "gh version 2.80.0 (2025-09-10)\n"
 	if code := w.run("--check"); code != term.ExitFailure {
 		t.Fatalf("exit %d", code)
 	}
-	w.mustContain("stderr", "2.39.0")
+	w.mustContain("stderr", "2.80.0")
+	w.mustContain("stderr", "v2.81.0+")
 	if w.ran("gh auth") {
 		t.Error("went on past an old gh")
 	}
@@ -144,8 +145,7 @@ func TestSetupAllSetsUpEveryAccount(t *testing.T) {
 	}
 
 	login := w.mustForeground("gh auth login")
-	// The scope list is the fake helper's, appended so no gh command line here names a scope.
-	if want := "gh auth login --hostname github.com --git-protocol ssh --web --skip-ssh-key --scopes " + "alpha,beta"; login.Line() != want {
+	if want := "gh auth login --hostname github.com --git-protocol ssh --web --skip-ssh-key --scopes " + fakeRequiredScopes; login.Line() != want {
 		t.Errorf("login %q", login.Line())
 	}
 	if !hasEnv(login, `GH_BROWSER=bash "`+filepath.Join(w.root, "files/usr/local/bin/gh-print-auth-url")+`"`) {
@@ -409,11 +409,12 @@ func TestMissingScopesAreAskedForOnce(t *testing.T) {
 	w.ready("oss", "bob")
 	w.logIn("alice")
 	w.active = "alice"
-	w.accounts["bob"].missing = "beta,gamma"
+	missing := "beta,gamma"
+	w.accounts["bob"].missing = missing
 	if code := w.run("--setup-all"); code != term.ExitOK {
 		t.Fatalf("exit %d\n%s", code, w.stderr.String())
 	}
-	if refresh := w.mustForeground("gh auth refresh"); refresh.Line() != "gh auth refresh --hostname github.com --scopes "+"beta,gamma" {
+	if refresh := w.mustForeground("gh auth refresh"); refresh.Line() != "gh auth refresh --hostname github.com --scopes "+missing {
 		t.Fatalf("refresh %q", refresh.Line())
 	}
 	if len(w.fake.Foregrounds()) != 1 {

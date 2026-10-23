@@ -2,7 +2,7 @@
 
 One module, `github.com/LongTermSupport/fedora-desktop/src-go`, for this repository's large
 interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfreeze`,
-`lxcfreeze`, `vmtest`, `ftp-camera`, `watermark`, `wsi`, `open` and `rclone-cache-status` live here; their bash
+`lxcfreeze`, `vmtest`, `ftp-camera`, `watermark`, `wsi`, `open`, `rclone-cache-status` and `gh-account-setup` live here; their bash
 originals are gone.
 `convert` is new, with no bash original.
 
@@ -35,6 +35,11 @@ originals are gone.
   process's `--rc-addr` and `--cache-dir` from `/proc` (`rclonerc.MountProcess`), `vfs/stats`
   through `rclonerc.Client.Call`, and a directory walked against its VFS cache mirror; no
   Python, no `numfmt`.
+- `internal/ghaccount/` — the `gh-account-setup` command (spec `SPEC-gh-account-setup.md`):
+  each account's gh login with the scopes `helpers/github_scopes` names, its SSH key (the
+  vault's passphrase given to `ssh-keygen` and `ssh` through the command itself as
+  `SSH_ASKPASS`, never in argv), the key's upload and the SSH check, and gh's active account
+  put back however the run ends; `github_accounts` read from `host_vars` as YAML.
 - `internal/<package>/` — shared adapters, each behind an interface with a fake: `execx`
   (the command runner every external call goes through, and its recording `Fake`), `term`
   (exit codes, error printing), `ui` (gum and fzf prompts), `sudo`, `systemd`, `tmuxccy`,
@@ -240,7 +245,9 @@ built with `go_command_static: true` (`CGO_ENABLED=0`) because it runs in other 
 `git-prompt-fetch` are installed root-owned
 in `/usr/local/bin` (`go_command_owner: root`; only that copy runs as root). Each binary lands
 at its old path. A new deployed command takes a row in
-`scripts/go-binary-suites.tsv`. Never
+`scripts/go-binary-suites.tsv`. `gh-account-setup` is not deployed: it runs from the checkout
+before any play, so `scripts/gh-account-setup.bash` builds it there (`run_go_command` in
+`scripts/lib/go-tool.bash`, the same flags) and runs it. Never
 install a binary by hand: the play is the only route
 ([InfrastructureAsCode.md](../CLAUDE/InfrastructureAsCode.md)).
 

@@ -275,10 +275,10 @@ func (r *run) preflight(ctx context.Context) error {
 	}
 	v, err := ghVersion(string(res.Stdout))
 	if err != nil {
-		return r.failf("GitHub CLI v%s+ required for multi-account support (found: %v)", minGhVersion, err)
+		return r.failf("GitHub CLI v%s+ required: multi-account auth status as JSON (found: %v)", minGhVersion, err)
 	}
 	if !v.atLeast(minGhVersion) {
-		return r.failf("GitHub CLI v%s+ required for multi-account support (found: %s)", minGhVersion, v)
+		return r.failf("GitHub CLI v%s+ required: multi-account auth status as JSON (found: %s)", minGhVersion, v)
 	}
 	return nil
 }

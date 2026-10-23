@@ -7,10 +7,11 @@ import (
 
 func TestGhVersionFloor(t *testing.T) {
 	cases := map[string]bool{
-		"gh version 2.40.0 (2023-12-07)\nhttps://x\n": true,
+		"gh version 2.81.0 (2025-10-01)\nhttps://x\n": true,
 		"gh version 2.103.0 (2026-10-21)\n":           true,
 		"gh version 3.0.1\n":                          true,
-		"gh version 2.39.9 (2023-11-01)\n":            false,
+		"gh version 2.80.9 (2025-09-01)\n":            false,
+		"gh version 2.40.0 (2023-12-07)\n":            false,
 		"gh version 1.99.99\n":                        false,
 	}
 	for out, want := range cases {

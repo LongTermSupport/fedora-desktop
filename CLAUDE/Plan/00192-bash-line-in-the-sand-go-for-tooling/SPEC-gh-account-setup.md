@@ -31,7 +31,8 @@ with awk); those cases move to Go tests, and the suite drives the built command 
   it before any play (to log the accounts in), and the playbook's scope failure names it as the
   remedy. `scripts/gh-account-setup.bash` stays, as a build-and-run wrapper like the QA gates':
   `scripts/lib/go-tool.bash` gains `run_go_command`, which builds `src-go/cmd/<name>` from the main
-  module (`go build -trimpath`, `GOFLAGS=-mod=vendor`, `GOTOOLCHAIN=local`, so offline from
+  module (`go build -trimpath -buildvcs=false`, as `tasks/build-go-command.yml` builds, so a `git`
+  that is not git on `PATH`, such as a test stub, cannot break the build; `GOFLAGS=-mod=vendor`, `GOTOOLCHAIN=local`, so offline from
   `src-go/vendor`) into a private directory under the cache, runs it, removes the directory and
   returns its status. The wrapper gives the binary the checkout as `GH_ACCOUNT_SETUP_ROOT`. Its
   allowlist row leaves `scripts/bash-limits.allowlist`; `scripts/go-binary-suites.tsv` gets
@@ -86,8 +87,8 @@ with awk); those cases move to Go tests, and the suite drives the built command 
 ### Preflight
 
 - E5. `gh` not on `PATH` is `GitHub CLI (gh) is not installed`, exit 1. The first `x.y.z` in
-  `gh --version` must be 2.40.0 or newer (multi-account); older, or no version found, is exit 1
-  naming what was found.
+  `gh --version` must be 2.81.0 or newer, the first gh whose `auth status` takes `--json` (E6;
+  B15); older, or no version found, is exit 1 naming what was found and the floor.
 - E6. The accounts gh holds are `gh auth status --hostname github.com --json hosts` (which exits 0
   whatever the tokens' state). A non-zero exit, or stdout that is not a JSON object, is exit 1
   naming gh's output. An account is logged in when its entry's `state` is `success`; the active
@@ -277,6 +278,12 @@ of the lines.
 - B13. The per-account scopes come from the helper's `audit` (the bash fed the active account's
   `gh api -i user` to `missing`), so the helper's `missing` command has one caller fewer.
 - B14. The browser helper path is refused when gh's splitting could not keep it whole (E14).
+- B15. The gh floor is 2.81.0 (the bash: 2.40.0, the first gh with several accounts). E6 reads
+  the accounts with `gh auth status --json`, which gh 2.81.0 added: its release notes
+  (`github.com/cli/cli/releases/tag/v2.81.0`, published 2025-10-01) open with "`gh auth status`
+  Supports JSON Output" (cli/cli PR 11544), and no earlier release names the flag. Under the old
+  floor a gh from 2.40.0 to 2.80.x passed E5 and failed at E6 with gh's own "unknown flag"
+  instead of the floor message.
 
 ## 6. Proof
 

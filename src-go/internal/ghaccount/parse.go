@@ -13,8 +13,9 @@ import (
 // version is a gh release, x.y.z.
 type version [3]int
 
-// minGhVersion is the first gh with multi-account support (E5).
-var minGhVersion = version{2, 40, 0}
+// minGhVersion is the first gh whose `auth status` takes --json (E5, E6); multi-account
+// support came earlier, in 2.40.0.
+var minGhVersion = version{2, 81, 0}
 
 var versionPattern = regexp.MustCompile(`(\d+)\.(\d+)\.(\d+)`)
 

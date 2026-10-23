@@ -206,11 +206,15 @@ func (w *world) script() {
 	w.scriptTools()
 }
 
+// fakeRequiredScopes is what the fake scope helper says gh must ask for; a test reads the
+// command line gh was given against it, never against a list of its own.
+const fakeRequiredScopes = "alpha,beta"
+
 // scriptTools answers the scope helper, ansible, ssh-keygen, ssh and gh's browser flows.
 func (w *world) scriptTools() {
 	f := w.fake
 	f.OnFunc([]string{"python3", "-m", "helpers.github_scopes.cli", "required"}, func(execx.Cmd) (execx.Result, error) {
-		return execx.Result{Stdout: []byte("alpha,beta\n")}, nil
+		return execx.Result{Stdout: []byte(fakeRequiredScopes + "\n")}, nil
 	})
 	f.OnFunc([]string{"python3", "-m", "helpers.github_scopes.cli", "audit"}, func(c execx.Cmd) (execx.Result, error) {
 		return execx.Result{Stdout: []byte(w.audit(c))}, nil

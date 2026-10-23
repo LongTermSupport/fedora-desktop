@@ -108,6 +108,9 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     (`deploy-rclone-cache-status.bash` passed), spec
     [SPEC-rclone-cache-status.md](SPEC-rclone-cache-status.md); left: the owner's hand checks
     inside a mount (H2, H3) and `rclone-cache-warm`/`rclone-tail`.
+  - `gh-account-setup` (P6): ported on its own branch, under review, not merged; spec
+    [SPEC-gh-account-setup.md](SPEC-gh-account-setup.md); its host checks H1-H5 are the
+    owner's, by hand (H4 in the VM lab), nothing queued in `meta-deploy.list`.
   - Still to do: the remaining programmes in [INVENTORY.md](INVENTORY.md) (account/setup tools
     after `rclone-cache-status`) and the `ccy` launcher.
 
