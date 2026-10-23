@@ -393,4 +393,4 @@ sourced (B21).
   `/dev/shm/wfile-$USER.wav` is gone afterwards.
 - H3. After `play-image-watermarking.yml`: `watermark --profile <name> photo.jpg` writes
   `photo.watermarked.jpg` with the visible marks, and `exiftool -XMP-wm:Applied` on it says
-  `True`; a second run exits 3.
+  `True`. A second run on `photo.jpg` exits 2 (`output already exists ... (pass --force to overwrite)`, M10), and a run on `photo.watermarked.jpg` exits 3 (the skip, M9).

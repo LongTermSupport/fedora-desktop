@@ -100,7 +100,10 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     `qa-vmtest-manifest`, `qa-helper-tests`, `qa-docs`, the shared `qa/internal` scaffolding.
   - Not ported by decision: `qa-go.bash` (retired by Plan 00191 Task 3.3; go-qa-ci replaces it).
   - Done, merged, host checks left to the owner: `vmtest` (P5, SPEC-vmtest H1-H6), `ftp-camera`
-    (P8, SPEC-ftp-camera H1-H5), `watermark` and `wsi` (P8, H1-H3).
+    (P8, SPEC-ftp-camera H1-H5), `watermark` and `wsi` (P8, H1-H3). H3's wording was wrong
+    and is corrected: a second run on the same input exits 2 (the output exists, M10), and exit
+    3 is a run on the watermarked output (M9), as the host showed. H2 now also checks that the
+    recording is gone after Escape (W15a, Plan 00171 Task 5.12).
   - `open` (P6): done, `go-port/open` and `go-port/open-2` both merged into F44 and deployed
     (`8c2de08c`); its host checks H1-H5 are the owner's, by hand at the desktop, not queued in
     `meta-deploy.list`. Spec [SPEC-open.md](SPEC-open.md).
