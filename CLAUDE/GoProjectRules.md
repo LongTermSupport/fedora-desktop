@@ -690,8 +690,8 @@ ticker's channel is a poll gap, not a bound. A real timer in a test outside a `s
 **How to fix a violation.** Bound the work on the injected clock:
 `ctx, cancel := context.WithCancelCause(ctx)` with `stop := clk.AfterFunc(bound, ...)`, or the
 clock's `Hold`, and `clock.WithBound` where a callee must see the bound. The test then waits
-until the work is at the step (a channel the fake sends on, `Fake.BlockUntil` for the armed
-bound) and only then moves the fake past the bound. In a test, wait for the event or on the
+until the work is at the step (a channel the fake sends on, `Fake.AwaitDue` for the armed
+bound's due) and only then moves the fake past the bound. In a test, wait for the event or on the
 fake clock, and fail when a real timer fires first.
 
 - Red, fixture: `testdata/src/fix/internal/teamchat/realtime` (`bad.go`: the probe's bound
@@ -717,9 +717,14 @@ fake clock, and fail when a real timer fires first.
   the bound's length is the claim). The link test peeks at the client's end as the cancel reaches
   the engine; it was red with close reordered to cancel first. matrix `TestRequestTimeLimit`, the
   miss below, fires the member's limit on fake timers once the request has arrived.
-- Not caught: a test that shortens a bound running through a `realClocks` adapter left at its
-  real default (matrix `TestRequestTimeLimit`, `m.limit` on `SystemTimers`, found by the
-  independent search); `time.Sleep` followed by an assertion that nothing happened; a bound
+- Red at the merge into n3e: `leakcheck/leakcheck.go`, the settle's `time.Sleep(s.pause)`, 3 ms
+  in its tests, which a goroutine still ending races. Green: the settle pauses on a
+  `clock.Clock` (`standard`, five seconds of `clock.System()`); a test that needs a goroutine
+  to end settles on `standard`, one that keeps it parked takes one reading and no pause.
+- Not caught: a test that shortens a bound running through a `realClocks` adapter or a
+  `clock.System()` left at its real default (matrix `TestRequestTimeLimit`, `m.limit` on
+  `SystemTimers`, found by the independent search; a `leakcheck` settle built short on
+  `clock.System()`); `time.Sleep` followed by an assertion that nothing happened; a bound
   outside teamchat.
 
 **The next wider rule, not built:** the same over the whole module. Outside teamchat about

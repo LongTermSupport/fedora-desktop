@@ -85,7 +85,7 @@ shortened, so it is not judged.
 
 How to fix: bound the work on the injected clock (clock.Clock's AfterFunc or Hold, and
 clock.WithBound for a callee that must see the bound), so the test waits until the work is at
-the step (BlockUntil, a channel the fake sends on) and only then moves the fake past the bound.
+the step (AwaitDue, a channel the fake sends on) and only then moves the fake past the bound.
 In a test, wait for the event or on the fake clock, and fail when a real timer fires first.`,
 		Run: perPass(func(pass *analysis.Pass) {
 			runRealTimeBound(pass, allow)
