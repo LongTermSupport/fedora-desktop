@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -32,21 +33,27 @@ func newGuestWorld(t *testing.T) *guestWorld {
 	}
 	identifyWas, layoutWas := identify, memberLayout
 	t.Cleanup(func() { identify, memberLayout = identifyWas, layoutWas })
-	identify = func(inv Invocation) (*guest.Identity, error) {
-		user, err := paths.ParseGuestUser(inv.flags.value("user"))
-		if err != nil {
-			return nil, err
-		}
-		root, err := homefs.Open(g.home, homefs.Owned)
-		return &guest.Identity{Root: root, User: user}, err
-	}
+	identify = g.identifyHome
 	memberLayout = func() (paths.Layout, error) { return paths.HomeLayout(g.home, g.home+"/run") }
 	return g
+}
+
+// identifyHome is the identity seam over the world's home.
+func (g *guestWorld) identifyHome(inv Invocation) (*guest.Identity, error) {
+	user, err := paths.ParseGuestUser(inv.flags.value("user"))
+	if err != nil {
+		return nil, err
+	}
+	root, err := homefs.Open(g.home, homefs.Owned)
+	return &guest.Identity{Root: root, User: user}, err
 }
 
 func (g *guestWorld) runIn(stdin string, args ...string) term.ExitCode {
 	return Run(Env{Args: args, Stdin: strings.NewReader(stdin), Stdout: &g.out, Stderr: &g.err, Digest: digest})
 }
+
+// testKey is the seat key the guest verbs' tests name.
+const testKey = "0123456789abcdef"
 
 func desiredFor(t *testing.T, session string) string {
 	t.Helper()
@@ -64,12 +71,12 @@ func desiredFor(t *testing.T, session string) string {
 // GU1, GU4: an op prints only its CHANGED lines on stdout, and nothing when nothing changed.
 func TestGuestMembershipPrintsItsChanges(t *testing.T) {
 	g := newGuestWorld(t)
-	desired := desiredFor(t, "lxc-dev")
-	if g.runIn(desired, "guest", "membership", "--user", "dev") != term.ExitOK || g.out.String() != "CHANGED\tdesired.json\n" {
+	desired := desiredFor(t, "lxc-"+testKey)
+	if g.runIn(desired, "guest", "membership", "--user", "dev", "--key", testKey) != term.ExitOK || g.out.String() != "CHANGED\tdesired.json\n" {
 		t.Fatalf("stdout %q stderr %q", g.out.String(), g.err.String())
 	}
 	g.out.Reset()
-	if g.runIn(desired, "guest", "membership", "--user", "dev") != term.ExitOK || g.out.Len() != 0 || g.err.Len() != 0 {
+	if g.runIn(desired, "guest", "membership", "--user", "dev", "--key", testKey) != term.ExitOK || g.out.Len() != 0 || g.err.Len() != 0 {
 		t.Fatalf("again: stdout %q stderr %q", g.out.String(), g.err.String())
 	}
 }
@@ -82,8 +89,8 @@ func TestGuestVerbsRunTheirOps(t *testing.T) {
 		args  []string
 		exit  term.ExitCode
 	}{
-		{"{", []string{"guest", "place-bundle", "--user", "dev"}, exits.ExitConfig},
-		{"", []string{"guest", "remove", "--user", "dev", "--team", "alpha"}, term.ExitOK},
+		{"{", []string{"guest", "place-bundle", "--user", "dev", "--key", testKey}, exits.ExitConfig},
+		{"", []string{"guest", "remove", "--user", "dev", "--key", testKey, "--team", "alpha"}, term.ExitOK},
 		{"", []string{"seat", "set-aside", "--team", "alpha"}, term.ExitOK},
 		{"", []string{"seat", "set-aside", "--team", "alpha", "--state", g.home}, term.ExitOK},
 	} {
@@ -106,9 +113,9 @@ func TestGuestSeamsRefuse(t *testing.T) {
 	identify = func(Invocation) (*guest.Identity, error) { return nil, errors.New("not this user") }
 	memberLayout = func() (paths.Layout, error) { return paths.Layout{}, errors.New("no home") }
 	for _, args := range [][]string{
-		{"guest", "place-bundle", "--user", "dev"},
-		{"guest", "membership", "--user", "dev"},
-		{"guest", "remove", "--user", "dev", "--team", "alpha"},
+		{"guest", "place-bundle", "--user", "dev", "--key", testKey},
+		{"guest", "membership", "--user", "dev", "--key", testKey},
+		{"guest", "remove", "--user", "dev", "--key", testKey, "--team", "alpha"},
 		{"seat", "set-aside", "--team", "alpha"},
 	} {
 		g.err.Reset()
@@ -125,7 +132,7 @@ func TestDefaultGuestSeams(t *testing.T) {
 	if id, err := identifyCaller(Invocation{}); id != nil || !isCode(err, exits.CodeUsage) {
 		t.Fatalf("no --user: %v, %v", id, err)
 	}
-	inv, err := Parse([]string{"guest", "membership", "--user", "agent"})
+	inv, err := Parse([]string{"guest", "membership", "--user", "agent", "--key", testKey})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,6 +169,47 @@ func TestGuestCheckIsBuilt(t *testing.T) {
 	}
 	if e := w.lastError(t); e.Code != exits.CodeIdentity {
 		t.Errorf("%+v", e)
+	}
+}
+
+// The three seat ops take --key K; none, or one that is not a seat key, is 64 before any op
+// runs; guest check takes none.
+func TestGuestSeatOpsNeedTheirKey(t *testing.T) {
+	g := newGuestWorld(t)
+	identify = func(Invocation) (*guest.Identity, error) {
+		t.Error("an op ran")
+		return nil, errors.New("an op ran")
+	}
+	for _, op := range [][]string{
+		{"guest", "place-bundle", "--user", "dev"},
+		{"guest", "membership", "--user", "dev"},
+		{"guest", "remove", "--user", "dev", "--team", "alpha"},
+	} {
+		for _, key := range [][]string{nil, {"--key", ""}, {"--key", "0123456789ABCDEF"}, {"--key", testKey + "0"}} {
+			g.err.Reset()
+			args := append(slices.Clone(op), key...)
+			if got := g.runIn("", args...); got != exits.ExitUsage || g.out.Len() != 0 {
+				t.Errorf("%q: exit %d stderr %q", args, got, g.err.String())
+			}
+		}
+	}
+	g.err.Reset()
+	if got := g.runIn("", "guest", "check", "--user", "dev", "--team", "alpha", "--key", testKey); got != exits.ExitUsage {
+		t.Errorf("guest check with --key: exit %d stderr %q", got, g.err.String())
+	}
+	inv, err := Parse([]string{"guest", "remove", "--user", "dev", "--key", testKey, "--team", "alpha"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inv.Team = nil
+	identify = newGuestWorld(t).identifyHome
+	if got := runGuestRemove(Env{Stdout: &g.out, Stderr: &g.err}, inv); got != exits.ExitUsage {
+		t.Errorf("an Invocation with no --team: exit %d", got)
+	}
+	for _, run := range []func(Env, Invocation) term.ExitCode{runPlaceBundle, runMembership, runGuestRemove} {
+		if got := run(Env{Stderr: &g.err}, Invocation{}); got != exits.ExitUsage {
+			t.Errorf("an Invocation with no --key: exit %d", got)
+		}
 	}
 }
 

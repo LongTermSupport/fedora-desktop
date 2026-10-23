@@ -55,12 +55,10 @@ func (m LXCMember) encode() proto.Value {
 	members := []proto.Member{
 		proto.M(keyTeam, proto.Str(m.Team.String())), proto.M(keyContainer, proto.Str(m.Container)),
 		proto.M(keyUser, proto.Str(m.User.String())), proto.M(keyCheckout, proto.Str(m.Checkout)),
+		proto.M(keySeat, proto.Int(int64(m.Seat))),
 	}
 	if m.Site != "" {
 		members = append(members, proto.M(keySite, proto.Str(m.Site)))
-	}
-	if m.Seat != 0 {
-		members = append(members, proto.M(keySeat, proto.Int(int64(m.Seat))))
 	}
 	return proto.Obj(append(members,
 		proto.M(keyHumanText, proto.Bool(m.HumanText)), proto.M(keyService, proto.Bool(m.Service)),

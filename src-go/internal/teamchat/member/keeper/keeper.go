@@ -94,6 +94,9 @@ type Config struct {
 	Pidfds  Pidfds
 	Signals <-chan os.Signal
 	Watcher Watcher
+	// turned, set by this package's tests only, is called on the loop as each of its turns
+	// ends, so a test's wait on a keeper.log line also waits out the rest of that line's turn.
+	turned func(paths.Run)
 }
 
 // The keeper's bounds (B 2.4.1, 2.4.2, 2.10; KP1-KP3, LN8).

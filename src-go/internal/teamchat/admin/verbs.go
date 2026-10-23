@@ -13,6 +13,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
@@ -24,7 +25,8 @@ import (
 // (host.Deps; Bootstrap and LockWait are the verb's, and Pin, CtlUID and CtlGID team apply's
 // from Pin and CtlIDs), the child, the seat side's bundles, the owner group, the health tick
 // and the account database's homes; for the child, its Opener. A seam that reads a host file
-// reads it when a verb calls it, so a verb fails only on what it needs (n2f-W1).
+// reads it when a verb calls it, so a verb fails only on what it needs (n2f-W1). LXC is the
+// `lxc apply` and `lxc restart` seams; the verbs give it the Roster and Refresh themselves.
 type System struct {
 	Host       host.Deps
 	Child      Child
@@ -35,6 +37,7 @@ type System struct {
 	CtlIDs     func() (User, error)
 	Health     func() (HealthTick, error)
 	Home       func(uid int) (string, error)
+	LXC        func() (*lxc.Deps, error)
 }
 
 // Child asks the teamchat-ctl child one request (CC1); its start is the seam's (n2a-D6).
@@ -88,6 +91,7 @@ func rootRuns() map[string]func(context.Context, Env, []string) term.ExitCode {
 		"team apply": teamApply, "team approve": teamApprove, "team remove": teamRemove,
 		"role apply": memberVerb(apply.OpRoleApply),
 		"health":     healthVerb, "element check": elementVerb(false), "element apply": elementVerb(true),
+		"lxc apply": lxcApply, "lxc restart": lxcRestart,
 	}
 	for _, op := range []string{apply.OpMemberAdd, apply.OpMemberReturn, apply.OpMemberReissue, apply.OpMemberPark, apply.OpMemberRetire, apply.OpMemberSet} {
 		runs["member "+strings.TrimPrefix(op, "member.")] = memberVerb(op)
@@ -157,10 +161,10 @@ func memberVerb(op string) func(context.Context, Env, []string) term.ExitCode {
 		if err != nil {
 			return failWith(e, err)
 		}
-		out, err := underLock(ctx, sys, op, team, opArgs)
+		w, err := memberWork(ctx, sys, op, team, opArgs)
 		err = errors.Join(err, lock.Release())
-		if out != nil {
-			if code = answer(e, string(out)+"\n"); code != term.ExitOK {
+		if w.doc != nil {
+			if code = answer(e, string(w.doc)+"\n"); code != term.ExitOK {
 				return code
 			}
 		}
@@ -208,17 +212,14 @@ func teamFlag(flags map[string]string) (paths.TeamID, error) {
 	return team, nil
 }
 
-// flagArg is a flag's value as the child's arg: --seat a number from 1 or `next` (0),
+// flagArg is a flag's value as the child's arg: --seat a number from 1,
 // --human-text true or false, --credential password or token.
 func flagArg(name, v string) (proto.Value, error) {
 	switch name {
 	case keySeat:
-		if v == "next" {
-			return proto.Int(0), nil
-		}
 		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 || n > maxSeat || strconv.Itoa(n) != v {
-			return proto.Value{}, usagef("--seat is a number from 1 to %d, or next", maxSeat)
+		if err != nil || !paths.ValidLXCSeat(n) || strconv.Itoa(n) != v {
+			return proto.Value{}, usagef("--seat is a number from 1 to %d", paths.MaxLXCSeat)
 		}
 		return proto.Int(int64(n)), nil
 	case flagHumanText:
@@ -262,22 +263,31 @@ func parseFlags(args, values []string, bools ...string) (map[string]string, erro
 	return out, nil
 }
 
-// underLock is a member or role verb's work under the team lock: the answer document, and
+// work is what memberWork did: the answer document, the child's answer, and the bundle made (a
+// zero Value when none is). Answer is nil when the child gave none or broke the rules.
+type work struct {
+	doc    []byte
+	answer *Answer
+	bundle proto.Value
+}
+
+// memberWork is a member or role verb's work, which its caller runs under the team lock, and
 // every failure (the child's, the status record's, the bundle's) joined.
-func underLock(ctx context.Context, sys *System, op string, team paths.TeamID, args []proto.Member) ([]byte, error) {
+func memberWork(ctx context.Context, sys *System, op string, team paths.TeamID, args []proto.Member) (work, error) {
 	decl, tf, err := readTeamFile(sys.Host.Root, team)
 	if err != nil {
-		return nil, err
+		return work{}, err
 	}
 	a, err := ask(ctx, sys, op, team, proto.Obj(append([]proto.Member{proto.M(keyTeamFile, tf)}, args...)...))
 	if a == nil {
-		return nil, err
+		return work{}, err
 	}
 	if a.OK {
 		if lie := asked(op, args, *a); lie != nil {
-			return nil, lie
+			return work{}, lie
 		}
 	}
+	var bundle proto.Value
 	if serr := sys.Host.Status.Refresh(ctx, team, false); serr != nil {
 		err = errors.Join(err, fmt.Errorf("the status record: %w", serr))
 	}
@@ -293,15 +303,16 @@ func underLock(ctx context.Context, sys *System, op string, team paths.TeamID, a
 		if berr != nil {
 			err = errors.Join(err, fmt.Errorf("the bundle of %s: %w; member reissue issues a new credential", a.Handle, berr))
 		} else {
+			bundle = b
 			members = append(members, proto.M("bundle", b))
 		}
 	}
-	return proto.Obj(members...).Compact(), err
+	return work{doc: proto.Obj(members...).Compact(), answer: a, bundle: bundle}, err
 }
 
 // asked checks a child's answer against the request before root acts on it (C 3.3: the answer
 // is the one thing root parses that a less-privileged process wrote): the handle asked for (for
-// an add, the prefix's, numbered by the seat unless it is next), and a credential of the kind
+// an add, the prefix's, numbered by the seat), and a credential of the kind
 // asked for exactly when the verb issues one.
 func asked(op string, args []proto.Member, a Answer) error {
 	byKey := map[string]proto.Value{}
@@ -355,7 +366,7 @@ func answeredHandle(req apply.MemberRequest, handle string) bool {
 			return false
 		}
 		n, numbered := h.SeatNumber()
-		return numbered && (req.Seat == 0 || n == req.Seat)
+		return numbered && n == req.Seat
 	}
 	return handle == req.Handle
 }

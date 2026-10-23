@@ -40,10 +40,13 @@ type SeatRef struct {
 
 // Launch is `run`'s parsed command line (SPEC-n3 CL5). Claude is the index in Cmd of Claude
 // Code's argument under LaunchClaude, -1 under LaunchPlain. Kit is the re-exec form's kit
-// directory (B 2.4.1 step 2), "" when run resolves the kit itself.
+// directory (B 2.4.1 step 2), "" when run resolves the kit itself. Key is an LXC seat's key,
+// given for --kind lxc and only there, from which run takes the seat's roots
+// (paths.LXCLayout), so it comes with no --state, --desired or --seat.
 type Launch struct {
 	Mode           Mode
 	Kind           Kind
+	Key            paths.SeatKey
 	Desired        string
 	State          string
 	Kit            string
@@ -63,6 +66,7 @@ const (
 	flagSeat           = "seat"
 	flagResumeRecorded = "resume-recorded"
 	flagKit            = "kit"
+	flagLaunchKey      = "key"
 )
 
 const groupMode = "mode"
@@ -72,6 +76,7 @@ var launchFlags = []Flag{
 	{Name: flagClaude, Group: groupMode},
 	{Name: flagPlain, Group: groupMode},
 	{Name: flagKind, Value: "ccy|lxc|host|other", Required: true, check: checkKind},
+	{Name: flagLaunchKey, Value: "K", check: checkKey},
 	{Name: flagDesired, Value: valueDir, check: checkDir},
 	{Name: flagSeat, Value: "T/S", Repeat: true},
 	{Name: flagState, Value: valueDir, check: checkDir},
@@ -95,6 +100,8 @@ const (
 	msgLaunchResume        exits.Template = "--resume-recorded and claude's own {} cannot both be given"
 	msgLaunchResumePlain   exits.Template = "--resume-recorded is only for a --claude launch"
 	msgDir                 exits.Template = "--{} takes an absolute, clean directory other than /"
+	msgLaunchKeyLXC        exits.Template = "--key is for --kind lxc only, and --kind lxc takes it"
+	msgLaunchKeyRoots      exits.Template = "--key gives the seat's roots; it takes no --state, --desired or --seat"
 )
 
 func usage(t exits.Template, fills ...exits.Fill) error {
@@ -141,7 +148,29 @@ func (l *Launch) fromFlags(got parsed) error {
 	l.Kind = Kind(got.value(flagKind))
 	l.ResumeRecorded = got.has(flagResumeRecorded)
 	l.Desired, l.State, l.Kit = got.value(flagDesired), got.value(flagState), got.value(flagKit)
+	if err := l.key(got); err != nil {
+		return err
+	}
 	return l.seats(got.values[flagSeat])
+}
+
+// key is --key: given exactly when the kind is lxc, and then the only source of the roots.
+func (l *Launch) key(got parsed) error {
+	if got.has(flagLaunchKey) != (l.Kind == KindLXC) {
+		return usage(msgLaunchKeyLXC)
+	}
+	if l.Kind != KindLXC {
+		return nil
+	}
+	if l.State != "" || l.Desired != "" || got.has(flagSeat) {
+		return usage(msgLaunchKeyRoots)
+	}
+	k, err := paths.ParseSeatKey(got.value(flagLaunchKey))
+	if err != nil {
+		return usage(msgLaunchKeyLXC)
+	}
+	l.Key = k
+	return nil
 }
 
 func (l *Launch) seats(refs []string) error {

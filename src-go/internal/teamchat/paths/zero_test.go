@@ -20,6 +20,7 @@ import (
 var guarded = []string{
 	"TeamID", "RunID", "CheckoutKey", "GuestUser", "SetID", "SessionName", "Digest", "DisplayName",
 	"ServerVersion", "Kit", "Layout", "Seat", "Run", "Store", "SeatName", "ClaimID", "PoolSeat",
+	"ContainerName", "SeatKey",
 }
 
 // zeroDerivations is every exported function that takes a guarded type, given the zero value
@@ -33,7 +34,6 @@ func zeroDerivations() map[string]func() string {
 	}
 	var (
 		team    TeamID
-		user    GuestUser
 		version ServerVersion
 		digest  Digest
 		set     SetID
@@ -48,8 +48,8 @@ func zeroDerivations() map[string]func() string {
 		"ServerRuntimeDirectory": func() string { return ServerRuntimeDirectory(team) },
 		"FenceUnit":              func() string { return FenceUnit(team) },
 		"FenceTable":             func() string { return FenceTable(team) },
-		"SessionUnit":            func() string { return SessionUnit(user) },
-		"GuestRuntimeDir":        func() string { return GuestRuntimeDir(user) },
+		"SessionUnit":            func() string { return SessionUnit(team, "/srv/checkouts/thing", 1) },
+		"GuestRuntimeDir":        func() string { return GuestRuntimeDir(SeatKey{}) },
 		"ServerBinary":           func() string { return ServerBinary(version) },
 		"AdminBinaryCopy":        func() string { return AdminBinaryCopy(digest) },
 		"HostKitDir":             func() string { return HostKitDir(digest).String() },
@@ -85,6 +85,7 @@ func zeroDerivations() map[string]func() string {
 	}
 	maps.Copy(derivations, hostZeroDerivations())
 	maps.Copy(derivations, memberZeroDerivations())
+	maps.Copy(derivations, lxcZeroDerivations())
 	return derivations
 }
 
@@ -177,7 +178,8 @@ func TestEveryMethodOfAZeroValuePanics(t *testing.T) {
 		reflect.TypeFor[SeatName]():    reflect.ValueOf(sampleSeatName(t)),
 		reflect.TypeFor[ClaimID]():     reflect.ValueOf(sampleClaimID(t)),
 		// A set-aside time, whose zero panics as a zero id does.
-		reflect.TypeFor[int64](): reflect.ValueOf(int64(1760000000000)),
+		reflect.TypeFor[int64]():         reflect.ValueOf(int64(1760000000000)),
+		reflect.TypeFor[ContainerName](): reflect.ValueOf(sampleContainer(t)),
 		// A staging name's pid, whose zero panics too.
 		reflect.TypeFor[int](): reflect.ValueOf(4242),
 	}

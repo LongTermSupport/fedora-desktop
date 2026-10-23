@@ -24,6 +24,8 @@ var memberLayout = processLayout
 
 const (
 	msgGuestUser  exits.Template = "teamchat guest takes --user U"
+	msgGuestKey   exits.Template = "teamchat guest takes --key K, the seat's key"
+	msgGuestTeam  exits.Template = "teamchat guest remove takes --team T"
 	msgGuestFlags exits.Template = "teamchat guest check takes --user U and --team T"
 )
 
@@ -36,6 +38,16 @@ func guestUser(inv Invocation) (paths.GuestUser, error) {
 		return paths.GuestUser{}, usage(msgGuestUser)
 	}
 	return u, nil
+}
+
+// guestKey is --key, which Parse has checked; an Invocation without it is refused.
+func guestKey(inv Invocation) (paths.SeatKey, error) {
+	text, given := inv.Flag(flagKey)
+	k, err := paths.ParseSeatKey(text)
+	if err != nil || !given {
+		return paths.SeatKey{}, usage(msgGuestKey)
+	}
+	return k, nil
 }
 
 // identifyCaller is guest.Establish on this process for --user.
@@ -63,11 +75,16 @@ func (systemClock) Now() time.Time { return time.Now() }
 
 func clock() guest.Clock { return systemClock{lock.SystemClock()} }
 
-// asGuest runs op as the identified guest, with its output contract, the home closed after.
-func asGuest(e Env, inv Invocation, op guest.Op, run func(*guest.Identity, *guest.Output) error) term.ExitCode {
+// asSeat runs a seat op as the identified guest on --key's seat, with its output contract, the
+// home closed after.
+func asSeat(e Env, inv Invocation, op guest.Op, run func(*guest.Identity, paths.SeatKey, *guest.Output) error) term.ExitCode {
+	k, err := guestKey(inv)
+	if err != nil {
+		return guest.Finish(e.Stderr, op, err)
+	}
 	id, err := identify(inv)
 	if err == nil {
-		err = errors.Join(run(id, guest.NewOutput(e.Stdout, op)), id.Close())
+		err = errors.Join(run(id, k, guest.NewOutput(e.Stdout, op)), id.Close())
 	}
 	return guest.Finish(e.Stderr, op, err)
 }
@@ -83,20 +100,23 @@ func runGuestCheck(e Env, inv Invocation) term.ExitCode {
 }
 
 func runPlaceBundle(e Env, inv Invocation) term.ExitCode {
-	return asGuest(e, inv, guest.OpPlaceBundle, func(id *guest.Identity, out *guest.Output) error {
-		return guest.PlaceBundle(context.Background(), id, clock(), e.Stdin, out)
+	return asSeat(e, inv, guest.OpPlaceBundle, func(id *guest.Identity, k paths.SeatKey, out *guest.Output) error {
+		return guest.PlaceBundle(context.Background(), id, k, clock(), e.Stdin, out)
 	})
 }
 
 func runMembership(e Env, inv Invocation) term.ExitCode {
-	return asGuest(e, inv, guest.OpMembership, func(id *guest.Identity, out *guest.Output) error {
-		return guest.Membership(id, e.Stdin, out)
+	return asSeat(e, inv, guest.OpMembership, func(id *guest.Identity, k paths.SeatKey, out *guest.Output) error {
+		return guest.Membership(id, k, e.Stdin, out)
 	})
 }
 
 func runGuestRemove(e Env, inv Invocation) term.ExitCode {
-	return asGuest(e, inv, guest.OpRemove, func(id *guest.Identity, out *guest.Output) error {
-		return guest.Remove(context.Background(), id, clock(), *inv.Team, out)
+	return asSeat(e, inv, guest.OpRemove, func(id *guest.Identity, k paths.SeatKey, out *guest.Output) error {
+		if inv.Team == nil {
+			return usage(msgGuestTeam)
+		}
+		return guest.Remove(context.Background(), id, k, clock(), *inv.Team, out)
 	})
 }
 

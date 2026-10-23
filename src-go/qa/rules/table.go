@@ -36,6 +36,7 @@ const (
 	podfreezePkg = "internal/podfreeze"
 	lxcfreezePkg = "internal/lxcfreeze"
 	keeperPkg    = "internal/teamchat/member/keeper"
+	lxccmdPkg    = "internal/teamchat/host/lxc/lxccmd"
 	sudoPkg      = "internal/sudo"
 	agentbusPkg  = "internal/agentbus"
 	hostPkg      = "internal/teams/host"
@@ -48,7 +49,9 @@ const (
 // A program with two owners is used for two different jobs: podman is read for a session's
 // container by sessprobe and driven (pause, unpause, networks) by podfreeze, and systemctl is
 // the desktop's units through sudo in systemd and `clean --what=state` of a teamchat homeserver
-// as root in teamchat/units (whose other unit calls are D-Bus). A program absent
+// as root in teamchat/units (whose other unit calls are D-Bus). lxc-ls, lxc-info and lxc-attach
+// are the freeze tool's through sudo in lxcfreeze, and teamchat-admin's as root in
+// teamchat/host/lxc/lxccmd, which may not link lxcfreeze's TUI or sudo. A program absent
 // from the table is unowned: any package may run it.
 var commandOwners = map[string][]string{
 	"sudo":         {sudoPkg},
@@ -61,11 +64,11 @@ var commandOwners = map[string][]string{
 	"ps":           {sessprobePkg},
 	"podman":       {sessprobePkg, podfreezePkg},
 	"docker":       {sessprobePkg},
-	"lxc-ls":       {lxcfreezePkg},
-	"lxc-info":     {lxcfreezePkg},
+	"lxc-ls":       {lxcfreezePkg, lxccmdPkg},
+	"lxc-info":     {lxcfreezePkg, lxccmdPkg},
 	"lxc-freeze":   {lxcfreezePkg},
 	"lxc-unfreeze": {lxcfreezePkg},
-	"lxc-attach":   {lxcfreezePkg},
+	"lxc-attach":   {lxcfreezePkg, lxccmdPkg},
 	"nmcli":        {lxcfreezePkg, ftpcameraPkg},
 }
 
@@ -204,6 +207,11 @@ var dynamicNames = []allowance{
 		reason: "runs the read-only command its caller names; every caller is itself judged as a program runner",
 	},
 	{
+		pkg:    lxccmdPkg,
+		fn:     "LXC.Guest",
+		reason: "the host-written kit binary <kit>/bin/teamchat, its digest path resolved once by the host and never current (C 3.9.1)",
+	},
+	{
 		pkg:    agentbusPkg,
 		fn:     "Client.rootRun",
 		reason: "runs the root tool its caller names; the callers pass the sudo.AgentBus and sudo.InstallTool paths",
@@ -318,7 +326,7 @@ func perPass(run func(*analysis.Pass)) func(*analysis.Pass) (any, error) {
 
 // All is every rule, in the order the driver registers them.
 func All() []*analysis.Analyzer {
-	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay, HiddenBindings, PackageTests, LifecycleTurn}
+	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay, HiddenBindings, PackageTests, LifecycleTurn, KeeperLogBarrier}
 }
 
 // ownedBy is whether the package path (the test variants of it included) is owner, matched

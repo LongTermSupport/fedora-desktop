@@ -142,10 +142,12 @@ func TestUsageSpellsBsForms(t *testing.T) {
 		"history":           "teamchat history [--room main|questions] [--limit N] [--team T]",
 		"version":           "teamchat version",
 		"help":              "teamchat help [<verb>|exit-codes]",
-		"run":               "teamchat run --claude|--plain --kind ccy|lxc|host|other [--desired DIR] [--seat T/S...] [--state DIR] [--resume-recorded] [--kit DIR] -- CMD",
+		"run":               "teamchat run --claude|--plain --kind ccy|lxc|host|other [--key K] [--desired DIR] [--seat T/S...] [--state DIR] [--resume-recorded] [--kit DIR] -- CMD",
 		"seat set-aside":    "teamchat seat set-aside --team T [--state DIR]",
 		"seat disconnected": "teamchat seat disconnected --bundle DIR --since MS --seed ID",
 		"guest check":       "teamchat guest check --user U --team T",
+		"guest membership":  "teamchat guest membership --user U --key K",
+		"guest remove":      "teamchat guest remove --user U --key K --team T",
 		"hook":              "teamchat hook session-start|user-prompt-submit|stop|session-end",
 	} {
 		v, ok := lookup(name)

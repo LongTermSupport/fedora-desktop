@@ -29,6 +29,18 @@ func TestSeamCommandsDynamicNames(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), newSeamCommands(allow, nil), "fix/internal/dynamic")
 }
 
+// lxccmd is the second owner of lxc-ls, lxc-info and lxc-attach. A dynamicNames row lets its
+// function hand a run-time inner program to lxc-attach; without the row the finding stays, and a
+// wrapper that is not inner is not excused by it.
+func TestSeamCommandsInnerDynamic(t *testing.T) {
+	allow := []allowance{
+		{pkg: "internal/teamchat/host/lxc/lxccmd", fn: "LXC.Guest", reason: "the host-written kit binary"},
+		{pkg: "internal/teamchat/host/lxc/lxccmd", fn: "LXC.Inside", reason: "the host-written kit binary"},
+		{pkg: "internal/teamchat/host/lxc/lxccmd", fn: "LXC.Env", reason: "the host-written kit binary"},
+	}
+	analysistest.Run(t, analysistest.TestData(), newSeamCommands(allow, nil), "fix/internal/teamchat/host/lxc/lxccmd")
+}
+
 // A shellStrings row excuses its function's shell string and nothing else: the neighbour is
 // flagged, and an owned program in the excused function still is.
 func TestSeamCommandsShellStrings(t *testing.T) {
@@ -80,8 +92,8 @@ func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 9 {
-		t.Fatalf("want 9 rules, got %d", got)
+	if got := len(All()); got != 10 {
+		t.Fatalf("want 10 rules, got %d", got)
 	}
 }
 

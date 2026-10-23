@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -52,6 +53,17 @@ var helpers = Helpers{
 		}
 		return 0
 	},
+	// userns is ready only as root of a user namespace whose 0 is Args[0], the parent's uid.
+	"userns": func(h *Helper) int {
+		m, err := os.ReadFile("/proc/self/uid_map")
+		if err != nil || strings.Join(strings.Fields(string(m)), " ") != "0 "+h.Args[0]+" 1" || os.Getuid() != 0 {
+			return 6
+		}
+		if err := h.Ready(); err != nil {
+			return 2
+		}
+		return 0
+	},
 	"echo": func(h *Helper) int {
 		if _, err := io.WriteString(h.out, strings.Join(h.Args, ",")); err != nil {
 			return 2
@@ -86,6 +98,26 @@ func TestCommandIsAFreeRunningHelper(t *testing.T) {
 	res, err := execx.OS{}.Run(t.Context(), c)
 	if res.ExitCode != 5 || out.String() != "a b,--" {
 		t.Fatalf("the helper exited %d (%v) and said %q", res.ExitCode, err, out.String())
+	}
+}
+
+func TestStartInUserNamespaceRunsTheHelperAsItsRoot(t *testing.T) {
+	p := StartInUserNamespace(t, "userns", strconv.Itoa(os.Getuid()))
+	if p.Pid <= 0 || p.Pid == os.Getpid() {
+		t.Fatalf("pid %d, this process %d", p.Pid, os.Getpid())
+	}
+	p.Release()
+}
+
+// A helper that could not start keeps the reason it could not, so a caller can tell a refused
+// namespace from a helper that failed.
+func TestAHelperThatCouldNotStartKeepsItsError(t *testing.T) {
+	end := &exitInfo{err: syscall.EPERM, stderr: "x"}
+	if err := endedEarly("h", end); !errors.Is(err, syscall.EPERM) || !strings.Contains(err.Error(), `"h"`) {
+		t.Fatalf("got %v", err)
+	}
+	if err := endedEarly("h", &exitInfo{code: 3}); !strings.Contains(err.Error(), "exited 3") {
+		t.Fatalf("got %v", err)
 	}
 }
 
@@ -130,21 +162,21 @@ func TestCleanupKillsAHelperLeftHeld(t *testing.T) {
 }
 
 func TestAHelperThatEndsBeforeReadyIsAnError(t *testing.T) {
-	p, err := start("early", nil, nil)
+	p, err := start("early", nil, nil, false)
 	if err == nil || !strings.Contains(err.Error(), "before it was ready") || p != nil {
 		t.Fatalf("got %v, %v", p, err)
 	}
 }
 
 func TestAnUnknownHelperIsAnError(t *testing.T) {
-	_, err := start("nobody", nil, nil)
+	_, err := start("nobody", nil, nil, false)
 	if err == nil || !strings.Contains(err.Error(), `no helper "nobody"`) {
 		t.Fatalf("got %v", err)
 	}
 }
 
 func TestReleaseReportsANonZeroExit(t *testing.T) {
-	p, err := start("late", nil, nil)
+	p, err := start("late", nil, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +186,7 @@ func TestReleaseReportsANonZeroExit(t *testing.T) {
 }
 
 func TestKillReportsAHelperThatWasNotKilled(t *testing.T) {
-	p, err := start("late", nil, nil)
+	p, err := start("late", nil, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +199,7 @@ func TestKillReportsAHelperThatWasNotKilled(t *testing.T) {
 }
 
 func TestAFirstLineThatIsNotReadyIsAnErrorAndTheHelperIsKilled(t *testing.T) {
-	_, err := start("garbled", nil, nil)
+	_, err := start("garbled", nil, nil, false)
 	if err == nil || !strings.Contains(err.Error(), "not its ready line") {
 		t.Fatalf("got %v", err)
 	}

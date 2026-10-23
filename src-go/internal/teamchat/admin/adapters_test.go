@@ -85,6 +85,7 @@ func TestChildViewerClassesItsFailures(t *testing.T) {
 		"unreachable":    {&stubChild{a: failedWith(ClassUnreachable)}, w.root, matrix.ErrUnreachable},
 		"failed":         {&stubChild{a: failedWith(ClassFailed)}, w.root, health.ErrViewChild},
 		"refused":        {&stubChild{a: failedWith(ClassRefused)}, w.root, health.ErrViewChild},
+		"retired":        {&stubChild{a: failedWith(ClassRetired)}, w.root, health.ErrViewChild},
 	}
 	for name, c := range cases {
 		_, err := ChildViewer{Child: c.child, Root: c.root}.View(t.Context(), alpha(t))

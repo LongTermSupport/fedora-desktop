@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -88,11 +89,7 @@ func TestHeldSeatOfAnEndingSessionIsWaitedFor(t *testing.T) {
 		holder := holdSeat(t, w, alpha, holderRun)
 		res := w.start()
 		w.eventually("the run is made", func() bool {
-			entries, err := os.ReadDir(w.layout.RunRoot())
-			return err == nil && slices.ContainsFunc(entries, func(e os.DirEntry) bool {
-				id, perr := paths.ParseRunID(e.Name())
-				return perr == nil && e.Name() != holderRun && exists(t, w.layout.Run(id).KeeperLog())
-			})
+			return slices.ContainsFunc(w.runs(), func(r paths.Run) bool { return filepath.Base(r.Dir()) != holderRun })
 		})
 		w.logged("waiting for it to end")
 		holder.release(t)

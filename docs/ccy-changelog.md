@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.14.13 — container 2.78.14
+
+Follows 3.99.14.12. The image is unchanged, so there is no rebuild.
+
+- **`execx` gains a test-only `UserNamespace` field** (Plan 00209), which runs a child as root of
+  its own user and mount namespace for a real-kernel mount test. The Go front builds from
+  `execx` but never sets it, so ccy's behaviour is unchanged.
+
 ## 3.99.14.12 — container 2.78.14
 
 Follows 3.99.14.11. The image is unchanged, so there is no rebuild.

@@ -60,9 +60,14 @@ reports each role change for the caller to post).
   `proto.DecodeForge` (seam 16).
 - **DR4. LXC values.** `team` names a team declared present. `container` is an LXC name
   (`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`); `user` passes `paths.ParseGuestUser`; `checkout` is an
-  absolute, clean path other than `/`; `site` passes `proto.NormaliseSite` unchanged; `seat` is
-  1 to 9999; `human_text` (default true) and `service` (default false) are booleans; `state` is
-  `present` or `absent` (default `present`). No two entries share a team, container and user.
+  absolute, clean path other than `/`, valid UTF-8, that is one line (CC6's rule: no control,
+  format, U+2028 or U+2029 character; `paths.ValidGuestPath`), so AG3's SECURITY line holds
+  it, and for a `service: true` entry only `[A-Za-z0-9/._-]`, the unit's character set
+  (`paths.ValidUnitPath`); `site` passes
+  `proto.NormaliseSite` unchanged; `seat` is required, 1 to 9999; `human_text` (default true)
+  and `service` (default false) are booleans; `state` is `present` or `absent` (default
+  `present`). No two entries share a team, container, checkout and seat (SPEC-n3 n3b-D2: an
+  entry is one seat, its `user` only who runs it; this replaced team, container and user).
 - **DR5. Element values.** `team` names a team declared present, at most once.
 - **DR6. `teamchat_address`** is an IP address in canonical text, not unspecified.
 - **DR7. One team's input** (what `team apply` reads on stdin and what `team approve` reads) is
@@ -110,18 +115,22 @@ reports each role change for the caller to post).
 - **AG1. The gated fields** of a team: `humans`, `coordinator`, `allow_from`, `listen`, `url`
   (the resolved URL of DR3, so a changed `teamchat_address` that moves the default URL is a
   change too, and the Element profile's URL, C 3.10, is the approved one), `trust`, and
-  `lxc_members` (each of the team's LXC entries as team, container, user and `human_text`),
-  and the team's existence. Nothing else is gated: `name`, `description`, `port` and the LXC
-  entries' `checkout`, `site`, `seat`, `service` and `state` change without approval.
-- **AG2. `approved.json`** is `{"v":1,"team":...,"approved":{"humans":[...],"coordinator":..., "allow_from":[...],"listen":[...],"url":...,"trust":{...},"lxc_members":[{"container":..., "user":...,"human_text":...}]}}`, `coordinator` null when none, decoded strictly (capped at
+  `lxc_members` (each of the team's LXC entries as team, container, checkout, seat, user and
+  `human_text`, C 3.5.1, since SPEC-n3 n3b-D2), and the team's existence. Nothing else is
+  gated: `name`, `description`, `port` and the LXC entries' `site`, `service` and `state`
+  change without approval.
+- **AG2. `approved.json`** is `{"v":1,"team":...,"approved":{"humans":[...],"coordinator":..., "allow_from":[...],"listen":[...],"url":...,"trust":{...},"lxc_members":[{"container":..., "checkout":..., "seat":..., "user":...,"human_text":...}]}}`, `coordinator` null when none, decoded strictly (capped at
   256 KiB) with the same value rules as the declaration. A file whose `team` is not the team
   asked for is refused.
 - **AG3. Compare.** `declare.Compare(approved, input)` lists every difference, in the order of
   AG1: a team with no `approved.json` gives one difference, its existence (`team`, `- -> new`);
   a scalar field gives `<old> -> <new>` with `-` for none; a list field gives one difference per
   entry added (`- -> <entry>`) or removed (`<entry> -> -`), compared as sets; an LXC entry is
-  `<container>/<user>` with `,human_text=<bool>`, and one whose `human_text` changed is a remove
-  and an add; `trust` is A's compact JSON. Lists are compared as sets, so a reordering is no
+  `<container>/<seat>,user=<user>,human_text=<bool>,checkout=<checkout>` (SPEC-n3 n3b-D2), the
+  checkout last: container, seat, user and the boolean hold no `,`, so the text is split at its
+  first three commas and everything after `checkout=` is the path, whatever `,` or `=` it holds,
+  and no other reading exists. An entry is named by (container, checkout, seat); `user` is a
+  field, and one whose `user` or `human_text` changed is a remove and an add; `trust` is A's compact JSON. Lists are compared as sets, so a reordering is no
   difference. Each difference prints as `SECURITY<TAB><team><TAB><field><TAB><old> -> <new>`,
   every value one line (DR2's and DR3's grammars admit no control character).
 - **AG4. Check.** `declare.Check(decl, approvals)` gives the SECURITY lines of every present team
@@ -133,12 +142,15 @@ reports each role change for the caller to post).
 - **AG6. Approve one change.** `team approve --team T --only <field>` with exactly one of
   `--add <entry>`, `--remove <entry>` or `--set <value>`:
   - `humans`, `allow_from`, `listen`, `lxc_members` take `--add` or `--remove`; `lxc_members`
-    also takes `--set`, which replaces the entry with that container and user (a `human_text`
-    change); `coordinator` takes `--set <handle>` or `--remove <handle>`; `url` and `trust` take
+    also takes `--set`, which replaces the entry with that container, checkout and seat (a
+    `user` or `human_text` change, so a user move is one `--set`); `coordinator` takes `--set <handle>` or `--remove <handle>`; `url` and `trust` take
     `--set`; `team` (a create) takes `--set` with the whole `approved` object as the owner
     entered it on the board, and only when no `approved.json` exists.
   - The entry is the text AG3 prints (a human name, a CIDR, an address,
-    `<container>/<user>,human_text=<bool>`), checked by the field's grammar.
+    `<container>/<seat>,user=<user>,human_text=<bool>,checkout=<checkout>`), checked by the
+    field's grammar (for an LXC entry, AG3's split and DR4's value rules). Tests: two seats of one
+    user in one container are two entries; a checkout holding `,` and `=` round-trips; a
+    `--set` changing `user` is one change.
   - The expected value is the approved value with exactly that change applied; a change that
     changes nothing (adding what is there, removing what is not) is refused.
   - The input's gated fields must equal the expected value in every field, the named field

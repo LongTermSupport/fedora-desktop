@@ -117,6 +117,16 @@ linters:
       - path: internal/playlock/playlock_test\.go
         linters: [gosec]
         text: "G302"
+      # The guest-root tests build fixtures with modes such as 0755, 0775 and 0757, because
+      # those modes are what the reads and writes must check or refuse.
+      - path: internal/teamchat/host/lxc/guestroot/.*_test\.go
+        linters: [gosec]
+        text: "G301|G302|G306"
+      # The lxc phase tests build fixture guest trees with the modes a real guest has, read
+      # back the files the phases wrote by fixture path, and name fixture seat handles.
+      - path: internal/teamchat/host/lxc/[a-z_]+_test\.go
+        linters: [gosec]
+        text: "G101|G301|G302|G304|G306"
       # The QA module cannot import execx (it is a separate module), so its process runner is
       # its own one process seam, for the same reason.
       - path: qa/internal/proc/proc\.go
@@ -348,6 +358,10 @@ linters:
           # B 2.4.4's link socket request (deadline_ms) and the control messages are snake_case,
           # as every teamchat record is.
           - pkg: internal/teamchat/member/wire
+            rules:
+              json: snake
+          # C 3.9.3's LXC record (since_ms) is a snake_case host file, as every teamchat record is.
+          - pkg: internal/teamchat/host/lxc/lxcstate
             rules:
               json: snake
     cyclop:

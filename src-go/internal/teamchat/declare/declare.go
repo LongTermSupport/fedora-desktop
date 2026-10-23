@@ -313,7 +313,7 @@ func port(n node) (int, error) {
 	return p.Int(), nil
 }
 
-var lxcOptional = []string{keySite, keySeat, keyHumanText, keyService, keyState}
+var lxcOptional = []string{keySite, keyHumanText, keyService, keyState}
 
 // readLXC reads the LXC entries (DR4); each names a present team.
 func readLXC(f fields, key string, present map[string]bool) ([]LXCMember, error) {
@@ -328,9 +328,9 @@ func readLXC(f fields, key string, present map[string]bool) ([]LXCMember, error)
 		if err != nil {
 			return nil, err
 		}
-		k := m.Team.String() + "\x00" + m.Container + "\x00" + m.User.String()
+		k := m.Team.String() + "\x00" + m.Container + "\x00" + m.Checkout + "\x00" + strconv.Itoa(m.Seat)
 		if seen[k] {
-			return nil, item.fail("repeats another entry's team, container and user")
+			return nil, item.fail("repeats another entry's team, container, checkout and seat")
 		}
 		seen[k] = true
 		out = append(out, m)
@@ -339,7 +339,7 @@ func readLXC(f fields, key string, present map[string]bool) ([]LXCMember, error)
 }
 
 func readLXCMember(n node, present map[string]bool) (LXCMember, error) {
-	f, err := n.object([]string{keyTeam, keyContainer, keyUser, keyCheckout}, lxcOptional...)
+	f, err := n.object([]string{keyTeam, keyContainer, keyUser, keyCheckout, keySeat}, lxcOptional...)
 	if err != nil {
 		return LXCMember{}, err
 	}
@@ -356,10 +356,19 @@ func readLXCMember(n node, present map[string]bool) (LXCMember, error) {
 	if m.User, err = guestUser(f.at(keyUser)); err != nil {
 		return LXCMember{}, err
 	}
-	if m.Checkout, err = f.at(keyCheckout).checked(validCheckout, "is not an absolute, clean path below /"); err != nil {
+	if m.Checkout, err = f.at(keyCheckout).checked(paths.ValidGuestPath, msgCheckout); err != nil {
 		return LXCMember{}, err
 	}
-	return m, readLXCOptional(&m, f)
+	if m.Seat, err = f.at(keySeat).seat(); err != nil {
+		return LXCMember{}, err
+	}
+	if err = readLXCOptional(&m, f); err != nil {
+		return LXCMember{}, err
+	}
+	if m.Service && !paths.ValidUnitPath(m.Checkout) {
+		return LXCMember{}, f.at(keyCheckout).fail("is not a path a session unit can carry, of [A-Za-z0-9/._-]")
+	}
+	return m, nil
 }
 
 func readLXCOptional(m *LXCMember, f fields) error {
@@ -368,17 +377,6 @@ func readLXCOptional(m *LXCMember, f fields) error {
 		if m.Site, err = f.at(keySite).checked(validSite, "is not a site label in its normal form"); err != nil {
 			return err
 		}
-	}
-	if f.has(keySeat) {
-		n := f.at(keySeat)
-		seat, seatErr := n.integer()
-		if seatErr != nil {
-			return seatErr
-		}
-		if seat < 1 || seat > maxSeat {
-			return n.fail("is not a seat number, 1-9999")
-		}
-		m.Seat = int(seat)
 	}
 	if m.HumanText, err = f.optBool(keyHumanText, true); err != nil {
 		return err
