@@ -11,9 +11,8 @@
 # pseudo-terminal that script(1) makes. HOST ONLY.
 #
 # It never runs cc, so no Claude session and no tmux session is started. It changes nothing
-# but the scratch directories it makes with mktemp -d and removes. No prompts. The restore
-# leg needs a terminal on stdin, so run this from a terminal, not with stdin </dev/null; the
-# offer legs make their own.
+# but the scratch directories it makes with mktemp -d and removes. No prompts. The restore and
+# offer legs make their own pseudo-terminal, so it needs no terminal of its own.
 #
 # Usage: ./acceptance.bash [-h|--help]
 set -euo pipefail
@@ -42,7 +41,8 @@ PLAN_USAGE="usage: acceptance.bash [-h|--help]
 The Plan 00167 acceptance gate. Run play-claude-yolo.yml first (meta-deploy.bash does).
 It runs the installed cc-project-dir with no terminal, as a restore, in a scratch
 repository's subfolder, and at the offer on a pseudo-terminal (y, n, a bad answer then n).
-Run it from a terminal: the restore check needs one. It never starts Claude.
+Run it from the checkout the play ran from: offer-yes wants that checkout offered. It never
+starts Claude.
 
 EXIT STATUS
   0  ACCEPTED — every check ran and passed

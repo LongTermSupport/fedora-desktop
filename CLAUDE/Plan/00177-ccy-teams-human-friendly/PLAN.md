@@ -143,7 +143,7 @@ offer to create a team when there is none; think about the UX; do a full critica
   the deploy and the test ran (journal 26-10-13 21:03, the seven fixes); the re-tests of
   `ccy --teams` and `cc --teams` are Task 7.5, of the board Task 6.4.
 
-### Phase 6: No hidden keys (the owner's host test)
+### Phase 6: No hidden keys (from the owner's host test)
 
 The owner had to discover Ctrl-E to open Element; Enter on their name kept offering a new
 password, which they set repeatedly, each time signing out their other sessions; and Ctrl-E
@@ -157,7 +157,7 @@ quit `ccy-teams` to start Element.
   After a password is set, Element is offered at once.
 - [x] ✅ **Task 6.3**: Opening Element starts it apart from `ccy-teams` and returns to the
   board, which then reads the person's sessions again.
-- [ ] ⬜ **Task 6.4**: The owner tests it again on the host.
+- [ ] ⬜ **Task 6.4**: The host agent tests it again on the host, driving `ccy-teams` in tmux.
 
 ### Phase 7: `ccy --teams` finds the team (the owner's host test)
 
@@ -194,7 +194,7 @@ quit `ccy-teams` to start Element.
   Diagnosis: `subagent-reports/261015-room-access-diagnosis-opus.md`; the report
   `261015-create-signin-gap-sonnet.md`. Built test first and deployed; the owner's test is
   Task 7.5.
-- [ ] ⬜ **Task 7.5**: The owner tests Phase 7 on the host. Nothing to deploy (all of it is in
+- [ ] ⬜ **Task 7.5**: The host agent tests Phase 7 on the host, in tmux. Nothing to deploy (all of it is in
   the deployed `ccy-teams` and CCY). Tasks 7.1 and 7.2: Plan 00201's ACCEPTANCE-owner.md steps
   3, 5 and 6. Task 7.4: with a team where a person has never signed in to Element, run
   `ccy-teams apply <team>` in a terminal; after the apply it offers that person the sign-in.
@@ -234,7 +234,7 @@ are too, by the same route.
 - [x] ✅ **Task 9.4**: `docs/agent-bus-lxc-members.md`, `docs/agent-bus.md`,
   `localhost.yml.dist` and the usage text say to use the action; hand-editing stays
   documented as the alternative.
-- [ ] ⬜ **Task 9.5**: The owner tests it on the host (meta-deploy of `play-claude-yolo.yml`
+- [ ] ⬜ **Task 9.5**: The host agent tests it on the host, with sudo, so with the owner present (meta-deploy of `play-claude-yolo.yml`
   builds the new `ccy-teams`): `ccy-teams lxc-add <team>` for a real container.
 - [x] ✅ **Task 9.6**: The review of `lxc-add`
   ([report](subagent-reports/261014-fable-review-lxc-add.md)) is answered; each finding, in

@@ -6,19 +6,20 @@
 #
 #   no-stdin  outside a work tree with stdin </dev/null: exit 1, the refusal, no [Y/n] offer,
 #             nothing on stdout
-#   restore   outside a work tree with CCY_SESSION_RESTORE=1 and stdin the terminal: the same
-#             refusal, never the offer (bounded by timeout, so a prompt cannot wait for ever)
+#   restore   outside a work tree with CCY_SESSION_RESTORE=1 and stdin a pseudo-terminal,
+#             typing y: the same refusal, never the offer
 #   git-top   in a subfolder of a scratch git repository: exit 0, the repository's top on
 #             stdout, nothing asked
 #   offer-yes outside a work tree on a pseudo-terminal, answering y: the [Y/n] offer once,
-#             exit 0, and stdout exactly the checkout the offer named, a fedora-desktop
-#             checkout (ansible.cfg at its git top)
+#             exit 0, and stdout exactly the checkout the offer named, which is the checkout
+#             this script is in (the play bakes in the checkout it runs from)
 #   offer-no  the same, answering n: the offer once, then the refusal, exit 1, empty stdout
 #   offer-retry  the same, answering maybe then n: "Please answer y or n.", the offer twice,
 #             then the refusal, exit 1, empty stdout
 #
-# The offer legs make their own pseudo-terminal with script(1), so they need no terminal from
-# the caller. CHECK_CC_PROJECT_DIR_BIN runs every leg against a build instead of the install.
+# The restore and offer legs make their own pseudo-terminal with script(1), so no leg needs a
+# terminal from the caller. Every run is bounded by timeout, so a prompt cannot wait for ever.
+# CHECK_CC_PROJECT_DIR_BIN runs every leg against a build instead of the install.
 #
 # Usage: check-cc-project-dir.bash no-stdin|restore|git-top|offer-yes|offer-no|offer-retry
 set -euo pipefail
@@ -35,6 +36,27 @@ readonly OFFER="[Y/n]"
     printf 'FAIL: %s is not installed; run playbooks/imports/play-claude-yolo.yml\n' "${bin}" >&2
     exit 1
 }
+command -v script >/dev/null || {
+    printf 'FAIL: script(1) is not installed; run playbooks/imports/play-python.yml (util-linux-script)\n' >&2
+    exit 1
+}
+
+# The checkout this script is in, by PlanScriptStandards R1's bounded walk to ansible.cfg: the
+# play's root_dir is the directory of the ansible.cfg it ran with, so offer-yes wants this one.
+scriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+checkout="${scriptDir}"
+while [[ "${checkout}" != "/" ]] && [[ ! -e "${checkout}/ansible.cfg" ]]; do
+    if [[ -e "${checkout}/.git" ]]; then
+        printf '[FATAL] no ansible.cfg between %s and the repo root %s\n' "${scriptDir}" "${checkout}" >&2
+        exit 1
+    fi
+    checkout="$(dirname "${checkout}")"
+done
+[[ -e "${checkout}/ansible.cfg" ]] || {
+    printf '[FATAL] no ansible.cfg above %s\n' "${scriptDir}" >&2
+    exit 1
+}
+readonly checkout
 scratch="$(mktemp -d)"
 trap 'rm -rf -- "${scratch}"' EXIT
 cd "${scratch}"
@@ -54,11 +76,17 @@ refused() {
 on_pty() {
     printf '%b' "$1" >"${scratch}/answers"
     rm -f -- "${scratch}/rc"
-    timeout 10 script -qec "$(printf '%q' "${bin}") >$(printf '%q' "${scratch}/out") 2>$(printf '%q' "${scratch}/err"); echo \$? >$(printf '%q' "${scratch}/rc")" \
-        /dev/null <"${scratch}/answers" >"${scratch}/typed" || {
-        printf 'FAIL: script(1) did not finish the run within 10 s\n' >&2
+    local scriptRc=0
+    # script -c runs its command with $SHELL; the command below is bash.
+    SHELL=/bin/bash timeout 10 script -qec "$(printf '%q' "${bin}") >$(printf '%q' "${scratch}/out") 2>$(printf '%q' "${scratch}/err"); echo \$? >$(printf '%q' "${scratch}/rc")" \
+        /dev/null <"${scratch}/answers" >"${scratch}/typed" || scriptRc=$?
+    if [[ "${scriptRc}" -eq 124 ]]; then
+        printf 'FAIL: the run on the pseudo-terminal did not finish within 10 s\n' >&2
         exit 1
-    }
+    elif [[ "${scriptRc}" -ne 0 ]]; then
+        printf 'FAIL: script(1) itself failed, exit %d\n' "${scriptRc}" >&2
+        exit 1
+    fi
     [[ -s "${scratch}/rc" ]] || {
         printf 'FAIL: the binary never finished on the pseudo-terminal (no exit status)\n' >&2
         exit 1
@@ -90,12 +118,10 @@ no-stdin)
     refused "stdin </dev/null" "${rc}" "${out}" "$(<"${scratch}/err")"
     ;;
 restore)
-    (exec </dev/tty) || {
-        printf 'FAIL: no terminal to give as stdin, so the restore check cannot tell the restore flag from no terminal; run it in a terminal\n' >&2
-        exit 1
-    }
-    out="$(CCY_SESSION_RESTORE=1 timeout 10 "${bin}" </dev/tty 2>"${scratch}/err")" || rc=$?
-    refused "CCY_SESSION_RESTORE=1 at a terminal" "${rc}" "${out}" "$(<"${scratch}/err")"
+    # A pseudo-terminal, so only the restore flag can stop the offer; y, so a binary that
+    # offered anyway would take it and exit 0.
+    CCY_SESSION_RESTORE=1 on_pty 'y\n'
+    refused "CCY_SESSION_RESTORE=1 at a terminal" "${ptyRc}" "${ptyOut}" "${ptyErr}"
     ;;
 git-top)
     git init --quiet "${scratch}/repo"
@@ -120,9 +146,9 @@ offer-yes)
         printf 'FAIL: want the offer once, exit 0, and stdout exactly the checkout it named [%s]\n' "${named}" >&2
         exit 1
     }
-    gitTop="$(git -C "${named}" rev-parse --show-toplevel)"
-    [[ "${gitTop}" == "${named}" && -e "${named}/ansible.cfg" ]] || {
-        printf 'FAIL: %s is not a fedora-desktop checkout top (git top %s, ansible.cfg there?)\n' "${named}" "${gitTop}" >&2
+    namedReal="$(cd "${named}" && pwd -P)"
+    [[ "${namedReal}" == "${checkout}" ]] || {
+        printf 'FAIL: the binary offers %s, not this checkout %s; re-run play-claude-yolo.yml from this checkout\n' "${named}" "${checkout}" >&2
         exit 1
     }
     ;;

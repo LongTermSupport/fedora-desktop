@@ -89,20 +89,28 @@ clear message.
   the repository's top on stdout. Passed on the host at dddf4063 (run under a terminal; see
   the 26-10-21 journal). The `[Y/n]` offer has its own legs, typed into a pseudo-terminal
   that `script(1)` makes: `offer-yes` (`y`: the offer once, exit 0, stdout exactly the
-  checkout the offer names, a git top holding `ansible.cfg`), `offer-no` (`n`: the offer
-  once, the refusal, exit 1, empty stdout) and `offer-retry` (`maybe` then `n`: "Please
-  answer y or n.", the offer twice, the refusal). Proved in the container against a build
-  (green) and six broken fakes (each red on the leg it breaks); not yet run on the host.
+  checkout the checker is in), `offer-no` (`n`: the offer once, the refusal, exit 1, empty
+  stdout) and `offer-retry` (`maybe` then `n`: "Please answer y or n.", the offer twice, the
+  refusal). The `restore` leg uses the same pseudo-terminal, typing `y`, so no leg needs the
+  runner's terminal. Proved in the container against a build (green) and seven broken fakes
+  (each red on the leg it breaks); not yet run on the host.
 - [ ] 🔄 **Task 3.3**: The host run, then `cc` itself. Deployed at dddf4063 with the review
   fix. Left, both for the host agent:
-  1. `acceptance.bash` through meta-deploy, started from a terminal (the `restore` leg needs
-     one): all six legs, so the installed binary, built with the host's checkout baked in,
-     passes the offer legs.
-  2. `cc` itself, in tmux: from a `mktemp -d` directory, type `cc` and answer `n` (exit 1, no
-     new tmux session in `tmux list-sessions`); again answering `y` (a session named for the
-     checkout starts, its pane in the checkout; then `/exit`); and `cc` at the root of a
-     checkout (a session starts there, as before). The offer and the git top are already
-     proved by the legs; this proves `cc` acts on what `cc-project-dir` prints.
+  1. `acceptance.bash` through meta-deploy (the coordinator queues
+     `00167-cc-refuses-to-start-outside-a-repo/acceptance.bash` in `meta-deploy.list`; no
+     play first: `cc-project-dir`'s code is unchanged since dddf4063), from the checkout the play ran from: all six
+     legs. Each makes its own terminal, so none needs one from the runner; `offer-yes` wants
+     this checkout offered, so it proves the installed binary has it baked in.
+  2. `cc` itself. `cc`'s sessions live on the `ccy` tmux server and `cc` will not wrap itself
+     inside another tmux, so: start a pane on a tmux server of the agent's own
+     (`tmux -L <own> new-session -d -c "$(mktemp -d)"`), drive it with `send-keys`, read it
+     with `capture-pane -p`, and in it run `env -u TMUX cc`. Before and after each run, list
+     `tmux -L ccy list-sessions`. Answer `n`: exit 1, the refusal, no new `ccy` session.
+     Answer `y`: a new `ccy` session named for the checkout, its pane in the checkout (answer
+     the session offer, if one is shown, with a new session, and the token chooser with its
+     default); then `/exit` it. Then `env -u TMUX cc` at the root of a checkout: a session
+     starts there as before. The offer and the git top are already proved by the legs; this
+     proves `cc` acts on what `cc-project-dir` prints.
 
 ### Phase 4: Review and close
 
