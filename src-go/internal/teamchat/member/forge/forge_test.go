@@ -923,3 +923,67 @@ func TestSD5_8DefaultClockAndOrigin(t *testing.T) {
 		t.Fatalf("origin %q", got)
 	}
 }
+
+// awaitHit waits for the fake GitHub to be asked uri.
+func (r *rig) awaitHit(uri string) {
+	for got := range r.gh.hit {
+		if got == uri {
+			return
+		}
+	}
+}
+
+func TestSD5_8ACompareCutIsUnresolvedNotDown(t *testing.T) {
+	r := newRig(t)
+	r.acme()
+	r.gh.route(compare(tool, "main", sha), func(_ http.ResponseWriter, req *http.Request) { <-req.Context().Done() })
+	type outcome struct {
+		res forge.Result
+		err error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		res, err := r.c.Check(context.Background(), need(t, commitRef("acme/tool", sha), orgForge(), ""), orgForge())
+		done <- outcome{res, err}
+	}()
+	r.awaitHit(compare(tool, "main", sha))
+	r.clk.Advance(15 * time.Second)
+	got := <-done
+	if got.err != nil || got.res.Outcome != proto.ReasonUnresolved {
+		t.Fatalf("a compare cut at 15 s = %q, %v; want unresolved and no error", got.res.Outcome, got.err)
+	}
+	r.gh.json(compare(tool, "main", sha2), 200, status("behind"))
+	r.expect(t, need(t, commitRef("acme/tool", sha2), orgForge(), ""), orgForge(), forge.Proven)
+}
+
+func TestSD5_8AServerErrorOffTheRepositoryIsNotDown(t *testing.T) {
+	for name, uri := range map[string]string{
+		"compare":  compare(tool, "main", sha),
+		"contents": contents,
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newRig(t)
+			r.acme()
+			r.gh.json(compare(tool, "main", sha), 200, status("behind"))
+			r.gh.json(uri, http.StatusBadGateway, `{}`)
+			res, err := r.check(t, need(t, pathRef, orgForge(), ""), orgForge())
+			if err != nil || res.Outcome != proto.ReasonUnresolved {
+				t.Fatalf("a 502 on the %s = %q, %v; want unresolved and no error", name, res.Outcome, err)
+			}
+			r.gh.json(compare(tool, "main", sha2), 200, status("behind"))
+			r.expect(t, need(t, commitRef("acme/tool", sha2), orgForge(), ""), orgForge(), forge.Proven)
+		})
+	}
+}
+
+func TestSD5_8ANoConnectionOnACompareIsDown(t *testing.T) {
+	r := newRig(t)
+	r.acme()
+	r.gh.json(compare(tool, "main", sha), 200, status("behind"))
+	r.expect(t, need(t, commitRef("acme/tool", sha), orgForge(), ""), orgForge(), forge.Proven)
+	r.gh.srv.Close()
+	res, err := r.check(t, need(t, commitRef("acme/tool", sha2), orgForge(), ""), orgForge())
+	if !errors.Is(err, forge.ErrDown) || res.Outcome != proto.ReasonUnresolved {
+		t.Fatalf("no connection for a compare = %q, %v; want unresolved, ErrDown", res.Outcome, err)
+	}
+}

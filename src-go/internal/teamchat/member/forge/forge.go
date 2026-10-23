@@ -10,9 +10,10 @@
 // other origin is asked anything.
 //
 // Results: proven, provenance (found, not proven), unresolved (not found, wrong kind, the
-// credential refused) and forge-rate. A forge with no answer (no connection, 15 s with no
-// answer, a 5xx) is unresolved with ErrDown, and every check in the 60 s after it is ErrDown
-// at once, with no request (n3d-D29). Only facts that can lead to a proof are cached: one hour
+// credential refused) and forge-rate. A forge with no answer (no connection, or 15 s with no
+// answer or a 5xx on the repository's own request) is unresolved with ErrDown, and every check
+// in the 60 s after it is ErrDown at once, with no request (n3d-D29); the same on a request the
+// reference shapes (a compare, a file) is that check's unresolved alone (n3d-D31). Only facts that can lead to a proof are cached: one hour
 // for repositories, branches, reachability, pull requests and issues; for the link's life for
 // a file at a SHA (n3d-D22); 1024 entries per cache, oldest evicted.
 package forge
@@ -25,11 +26,13 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
@@ -507,8 +510,10 @@ func (r *run) get(ctx context.Context, path string) (answer, error) {
 			}
 		case a.status == http.StatusForbidden:
 			return answer{}, outcome(proto.ReasonUnresolved)
-		case a.status >= http.StatusInternalServerError:
+		case a.status >= http.StatusInternalServerError && path == r.base:
 			return answer{}, fmt.Errorf("%w: status %d", ErrDown, a.status)
+		case a.status >= http.StatusInternalServerError:
+			return answer{}, outcome(proto.ReasonUnresolved)
 		default:
 			return a, nil
 		}
@@ -529,30 +534,38 @@ func (r *run) once(ctx context.Context, path string, tok Token) (answer, error) 
 	req.Header.Set("X-Github-Api-Version", "2022-11-28")
 	req.Header.Set("User-Agent", "teamchat")
 	req.Header.Set("Authorization", tok.header())
+	var connected atomic.Bool
+	req = req.WithContext(httptrace.WithClientTrace(tryCtx, &httptrace.ClientTrace{
+		GetConn: func(string) { connected.Store(false) },
+		GotConn: func(httptrace.GotConnInfo) { connected.Store(true) },
+	}))
+	health := path == r.base
 	resp, err := r.c.http.Do(req)
 	if err != nil {
-		return answer{}, lost(ctx, err)
+		return answer{}, lost(ctx, err, health || !connected.Load())
 	}
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 	closeErr := resp.Body.Close()
 	switch {
 	case readErr != nil:
-		return answer{}, lost(ctx, readErr)
+		return answer{}, lost(ctx, readErr, health)
 	case len(body) > maxBody:
 		return answer{}, outcome(proto.ReasonUnresolved)
 	case closeErr != nil:
-		return answer{}, lost(ctx, closeErr)
+		return answer{}, lost(ctx, closeErr, health)
 	}
 	return answer{status: resp.StatusCode, header: resp.Header, body: body}, nil
 }
 
 // lost is a request with no answer: the caller's context ending, a refused redirect, or a
-// forge that did not answer.
-func lost(ctx context.Context, err error) error {
+// forge that did not answer. Only down (no connection made, or the repository's own request
+// unanswered) is evidence of the forge's health; a compare or a contents request cut short is
+// shaped by the reference, so it leaves that check unresolved and nothing more (n3d-D31).
+func lost(ctx context.Context, err error, down bool) error {
 	switch {
 	case ctx.Err() != nil:
 		return fmt.Errorf("forge: the check ended: %w", ctx.Err())
-	case errors.Is(err, errOffOrigin) || errors.Is(err, errRedirects):
+	case errors.Is(err, errOffOrigin) || errors.Is(err, errRedirects) || !down:
 		return outcome(proto.ReasonUnresolved)
 	}
 	return fmt.Errorf("%w: %w", ErrDown, err)
