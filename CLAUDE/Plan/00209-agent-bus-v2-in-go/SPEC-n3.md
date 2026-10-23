@@ -814,56 +814,115 @@ and places every other member).
 ### 6.1 The agent seam (Plan 00215 Task 3.1, decision O4)
 
 The agent program a run launches is reached through one small in-process package, so that a
-second agent program (opencode, Plan 00215) is a new adapter and not a refactor. The shape is
-Plan 00215's `research/opencode-bus-member-design.md` section 5.2. These rows fix what n3e
-builds. They do not change one byte of a Claude Code or `--plain` launch.
+second agent program (opencode, Plan 00215) arrives as an adapter, one launch value and its
+spelling, and not as a refactor. Plan 00215's `research/opencode-bus-member-design.md`
+section 5.2 gives the full shape. n3e builds the part of it the code asks today: a Claude Code
+or `--plain` launch does not change by one byte, in argv, environment, files, exits, messages
+or keeper.log.
 
-- **AS1. The package** is `internal/teamchat/member/agent`. `Agent` is the run's launch value:
-  `claude` or `plain`, the strings `session.pid` and the launch frame already carry. It is not
-  the member kind (`--kind`). Other values are added with their adapters, never ahead of them.
-  `agent.For(Agent)` returns the adapter; an unknown value is an internal error. The keeper
-  and the link take the adapter they were given. After the seam no package outside `agent`
-  compares a launch value: the comparisons in `keeper` (`prepare.go`, `loop.go`, `seats.go`),
-  `link` (`link.go`), `cli` and `engine`'s `Plain` flag become questions put to the adapter's
-  `Capabilities`. Each place the keeper or link now branches on claude or plain names the
-  capability it asks for: delivery mode, socket facts from hooks, transcript proof, whether a
-  failed CMD counts as an agent failure, whether a session start is awaited, and whether the
-  seats of a `refuse` launch wait. `cli` parses the spelling into an `Agent` and keeps the
-  `claude` argument rule as CL2's.
-- **AS2. `Capabilities`** has only the fields the code branches on today: `Delivery`
-  (`socket`, `wait`, `none`; the run's `inbound: refuse` lowers `socket` to `wait`), `Facts`
-  (`hooks`, `none`), `Proof` (`transcript`, `none`), `StatusLine`, `EndReason`, and the
-  flags AS1's list needs. `claude` is socket, hooks, transcript, a status line and an end
-  reason; `plain` is none, none, none, and false.
-- **AS3. `Preparer`**: `Prepare(cmd, inbound, run facts) (Launch, error)`, where `Launch` is
-  `{Args, Env, Files}`. Args are appended after CMD's last argument. Env is added to CMD's
-  environment only. Each file is written by the keeper under `<v2-run>`, mode 0600, with
-  `O_EXCL`. The adapter computes; the keeper writes, so a file write keeps the keeper's
-  fault and exit. The claude Preparer is `claudeArgv` moved as it is: the kit settings read
-  and its refusals, the `inbound` key, the resume rule, `--plugin-dir` and `--settings`, in
-  that order. The plain Preparer returns an empty `Launch`. The resume rule reads the
-  conversation record and the transcript path, so the run facts give the adapter those reads
-  and give it no state root to write.
-- **AS4. `Channel`**: one live session as the link sees it. `Deliver` is DV1's inbox-socket
-  write, with `Written` reporting how far it got for DV3's `unknown` and `yes`. `Observations`
-  carry DV4's proof and quiet clock and the hook-supplied facts to the state goroutine.
-  `Context` is `ErrUnsupported` for claude, because the hooks answer with context. A claude
-  Channel is made only once a hook has supplied the socket and a transcript (DV1). `plain`
-  makes none. A Channel only moves bytes and reports what it saw. The link keeps every
-  transition, and the ledger, receipts, the flood budget, the end and seats stay outside the
-  package, where no adapter can reach them. The hook ops of HK1 to HK3 are accepted only on a
-  run whose `Facts` is `hooks`.
+- **AS1. The package** is `internal/teamchat/member/agent`. `Agent` is the run's launch value;
+  `agent.Claude` and `agent.Plain` are `state.LaunchClaude` and `state.LaunchPlain`, so the
+  strings have one home. It is not the member kind (`--kind`). `agent` imports `state`,
+  `paths` and `exits`, never `cli`, `keeper` or `link`. `agent.For(Agent)` returns the
+  adapter. The keeper resolves it once, from `cfg.Launch`, at the start of `prepare`; the link
+  resolves it once, from the launch frame's `launch`, in `build`. Neither config gains a field.
+  cli's parse and the frame check already refuse any other value, so `For`'s error is
+  unreachable; it is still answered in the existing forms, the keeper's
+  `fault(exits.CodeInternal, msgInternal, ...)` and the link's `refuse(log, "start", err)`.
+  `cli.Mode` becomes an alias, `type Mode = agent.Agent`, with `LaunchClaude = agent.Claude`
+  and `LaunchPlain = agent.Plain`, so every test compiles unchanged. One list,
+  `state.Launches`, is read by `state`'s session.pid check and `wire`'s launch-frame check. A
+  new agent is its adapter, one entry in `state.Launches`, and its spelling in cli. CL2's
+  argument rule stays in cli on purpose: moving the claude rule into the Preparer would move a
+  usage refusal from parse time to after the kit is resolved and the run made.
+
+- **AS1a. The sites**, and what each asks once the seam is in:
+
+  - `keeper/prepare.go:439` and `keeper/loop.go:288` write `string(agent)`;
+  - `keeper/prepare.go:458` calls the adapter's Preparer (AS3);
+  - `keeper/loop.go:482` and `keeper/loop.go:539` count a CMD that fails to start, or that ends
+    before the first SessionStart, as `launch_failed` when `SessionStart` is true;
+  - `keeper/seats.go:122` sets report.json's `needs_relaunch` when `Delivery` is `socket`, the
+    run is `refuse`, and desired now accepts;
+  - `link/link.go:268-276` takes `Delivery`, lowered to `wait` by `refuse`;
+  - `link/link.go:272` closes `first` at once when `SessionStart` is false;
+  - `link/link.go:298` and `link/link.go:423` set `engine.Config.Plain` and
+    `engine.TeamConfig.Plain` to `!SessionStart`.
+
+  `engine`, `teamsync` (`session.go:395`) and `wiring` (`wiring.go:60`) keep their `Plain`
+  boolean unchanged and never see the adapter. Some facts are named for Claude Code but are
+  fed only by hook ops, and they stay where they are: `wire.Launch.ClaudeConfigDir`, the
+  link's Claude directory, `KindClaude` and the keeper's pidfd on Claude Code, and
+  session.json's `claude`.
+
+- **AS2. `Capabilities`** holds the two questions the code asks today. `Delivery` is the
+  agent's best mode, `state.DeliverySocket` or `state.DeliveryNone`, the strings `status`
+  already shows; the run's `inbound: refuse` lowers `socket` to `wait` in the link, as today.
+  `SessionStart` says whether the run awaits the agent's first SessionStart. `claude` is
+  `{socket, true}`; `plain` is `{none, false}`. Fields for proof, the source of session facts, a
+  status line or an end reason are added with the first adapter that answers them
+  differently.
+
+- **AS3. `Preparer`**: `Prepare(f RunFacts) (Launch, error)`. `RunFacts` holds `Cmd`,
+  `Inbound`, `ResumeRecorded`, `Kit paths.Kit`, `Run paths.Run`, `Cwd`, `Home` and
+  `ClaudeConfigDir *string`, and four functions the keeper supplies:
+
+  - `ReadTrusted(path, limit)` is the keeper's `trustedRead`;
+  - `WriteRunFile(name, data)` is the keeper's create under `Run.Dir()`, mode 0600, `O_EXCL`,
+    and its error is already the keeper's `msgRunDir` fault;
+  - `Conversation()` is the keeper's lazy state-root open and conversation read; its error
+    reads `the state root: <err>` or `the conversation record: <err>`, so the `no resume:` lines
+    keep their text;
+  - `Logf` is the keeper's log.
+
+  `Launch` is `{Args []string}`, appended after CMD's last argument. The claude Preparer is
+  `claudeArgv` and `resume` moved as they are: the kit settings read and its refusal
+  (`exits.CodeRuntime`, the same template), the `inbound` key, the settings file written
+  through `WriteRunFile` before the resume rule runs, then `--resume`, `--plugin-dir` and
+  `--settings`, in that order. Because the adapter writes through the keeper's function at
+  the same point as today, keeper.log's order does not change either. `msgSettings`,
+  `maxSettings` and `inboundKey` move to `agent`. The plain Preparer returns an empty `Launch`
+  and reads nothing. No adapter is given a root it can write. An environment field and a file
+  list are added with the first adapter that needs them: opencode's password variable.
+
+- **AS4. Delivery keeps its existing seam.** The engine's `inbox.Dialer`
+  (`engine.Config.Inbox`) is the delivery seam. The link makes it when `Delivery` is `socket`
+  and the run is not lowered to `wait`, as today. Transcript proof, the quiet clock and the
+  hook ops stay where they are and are accepted on every run, as today, so HK1's answers do
+  not change. The `Channel` of Plan 00215's section 5.2 is not written here. It would have
+  one implementation, nothing to shape it, and would reshape DV1 to DV4's built delivery
+  loop. It is written with the opencode adapter, the first that delivers another way (HTTP
+  and an event stream), together with the refusal of hook ops on a run whose facts come from
+  its client. Until then no adapter can reach the ledger, receipts, the flood budget, the end
+  or the seats, because none is given them.
+
 - **AS5. Proof that nothing moved.** Two tests are written before the move, and pass before
-  and after it unchanged. One is a golden test of the full claude `Launch` (argv after CMD,
-  environment, and the settings file's bytes), for a fresh run and a resumed one. The other is
-  the same test for plain. The keeper, link, engine and PK1 tests pass unchanged, and no
-  golden or pinned text changes.
-- **AS6. The defence.** A project rule, `project_agent_branch`, reports any comparison against a
-  launch value, or any use of `cli.LaunchClaude`, `cli.LaunchPlain`, `state.LaunchClaude` or
-  `state.LaunchPlain`, outside `agent`, `state`'s record checks and `wire`'s frame check. Its
-  red is proved on the tree before the move, which has every comparison AS1 lists.
-- **AS7. Gate A** is untouched: the seam adds no binary, unit, path, environment variable,
-  plugin or skill name, and nothing on disk changes.
+  and after it unchanged. One is a golden test of a claude launch: the argv after CMD, CMD's
+  environment (`TEAMCHAT_RUNTIME`, `PATH` and the kit variable), the settings file's bytes, and
+  keeper.log's lines. It covers a fresh run, a resumed run, a resume refused for each of its
+  reasons, and a settings refusal. The other is the same for plain. The keeper, link, engine,
+  teamsync, wiring, cli and PK1 tests pass unchanged, and no golden or pinned text changes.
+
+- **AS6. The defence.** A project rule, `project_agent_branch`, applies to the non-test files
+  of `internal/teamchat/...`. It reports:
+
+  - any use of `state.LaunchClaude`, `state.LaunchPlain`, `cli.LaunchClaude`,
+    `cli.LaunchPlain`, `agent.Claude` or `agent.Plain`;
+  - any `==`, `!=`, `switch` case or map key whose operand's type is `agent.Agent`;
+  - any comparison of a string literal that is a launch value with the field
+    `wire.Launch.Launch` or `state.SessionPID.Launch`.
+
+  Outside package `agent`, its exemptions are rows in `qa/rules/table.go`, each with its
+  reason: `state`'s session.pid check, `wire`'s launch-frame check, and `cli/launch.go` (the
+  spelling and CL2's claude argument rule). `analysistest` proves it red on a fixture that
+  holds each form above and the ways round it (a local copy of a constant, a `switch` on the
+  field, a `slices.Contains` over the values). It is red on the tree before the move, with
+  every site of AS1a, and green after. Its catalogue row in GoProjectRules.md says it is
+  found in the keeper and link launch comparisons the seam replaced.
+
+- **AS7. Gate A** is untouched. The package and the rule are not owner-visible, the seam adds
+  no binary, unit, path, environment variable, plugin or skill name, and nothing on disk
+  changes.
 
 ## 7. n3f: the side rooms (Plan 00211), scope only
 
