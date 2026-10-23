@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -113,22 +114,64 @@ func gone(pid int) bool {
 	return strings.HasPrefix(strings.TrimSpace(rest), "Z")
 }
 
+// deadlineAtLine is a context whose deadline passes when the command has written its first
+// line, so no real timer races the line the test reads.
+type deadlineAtLine struct {
+	done chan struct{}
+	once sync.Once
+	mu   sync.Mutex
+	out  bytes.Buffer
+}
+
+func newDeadlineAtLine() *deadlineAtLine { return &deadlineAtLine{done: make(chan struct{})} }
+
+// Deadline is none the runner can read ahead of time: the deadline is the line.
+func (*deadlineAtLine) Deadline() (time.Time, bool) { return time.Time{}, false }
+
+func (*deadlineAtLine) Value(any) any { return nil }
+
+func (d *deadlineAtLine) Done() <-chan struct{} { return d.done }
+
+func (d *deadlineAtLine) Err() error {
+	select {
+	case <-d.done:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
+}
+
+func (d *deadlineAtLine) Write(p []byte) (int, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	n, err := d.out.Write(p)
+	if bytes.IndexByte(d.out.Bytes(), '\n') >= 0 {
+		d.once.Do(func() { close(d.done) })
+	}
+	return n, err
+}
+
+func (d *deadlineAtLine) written() string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.out.String()
+}
+
 // The command's background child holds its output pipe, so a kill of the shell alone would
-// leave it running; the process group kill ends it. The child's pid is read from the output
-// and watched in /proc, so the test needs no wall clock.
+// leave it running; the process group kill ends it. The deadline passes once the child's pid
+// is written, which is then watched in /proc, so the test needs no wall clock.
 func TestOSKillsTheWholeProcessGroupOnTimeout(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer cancel()
-	res, err := OS{}.Run(ctx, Cmd{Argv: []string{"sh", "-c", "sleep 30 & echo $!; sleep 30"}, Merge: true})
+	ctx := newDeadlineAtLine()
+	res, err := OS{}.Run(ctx, Cmd{Argv: []string{"sh", "-c", "sleep 30 & echo $!; sleep 30"}, StdoutTo: ctx})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !res.TimedOut {
 		t.Fatalf("not marked timed out: %+v", res)
 	}
-	pid, err := strconv.Atoi(strings.TrimSpace(res.Stdout))
+	pid, err := strconv.Atoi(strings.TrimSpace(ctx.written()))
 	if err != nil {
-		t.Fatalf("the child's pid was not printed: %q", res.Stdout)
+		t.Fatalf("the child's pid was not printed: %q", ctx.written())
 	}
 	const polls = 500
 	for range polls {

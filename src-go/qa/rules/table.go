@@ -22,7 +22,7 @@ import (
 // through the runner of one of them so a fake sees it. src-go has internal/execx; the nested
 // qa module (a separate module, which cannot import src-go's internal packages) has its own
 // seam, qa/internal/proc.
-var execOwners = []string{"internal/execx", "qa/internal/proc"}
+var execOwners = []string{execxPkg, "qa/internal/proc"}
 
 // execOwnerNames is the owners as a message says them.
 var execOwnerNames = strings.Join(execOwners, " or ")
@@ -40,6 +40,17 @@ const (
 	hostPkg      = "internal/teams/host"
 	opsPkg       = "internal/teams/ops"
 	ftpcameraPkg = "internal/ftpcamera"
+	execxPkg     = "internal/execx"
+	wsitokenPkg  = "internal/wsitoken"
+	sttPkg       = "internal/stt"
+	lxcaddPkg    = "internal/teams/lxcadd"
+)
+
+// The functions and the reason the realtime-bound tables repeat.
+const (
+	newFn             = "New"
+	runToolFn         = "gate.runTool"
+	constantToolLimit = "the limit on a real tool; every caller passes a package constant and its tests fake the process"
 )
 
 // commandOwners maps a program to the packages that own every use of it, so its flags and
@@ -166,22 +177,22 @@ var dynamicNames = []allowance{
 		reason: "wsi-claude-process, run from the directory the wsi-postprocess binary is in",
 	},
 	{
-		pkg:    "internal/wsitoken",
+		pkg:    wsitokenPkg,
 		fn:     "App.setting",
 		reason: "wsi-setting, run from the directory the wsi-claude-token binary is in",
 	},
 	{
-		pkg:    "internal/wsitoken",
+		pkg:    wsitokenPkg,
 		fn:     "App.readUsage",
 		reason: "ccy's launcher, whose installed path is configuration (wsitoken.DefaultCCY in production)",
 	},
 	{
-		pkg:    "internal/stt",
+		pkg:    sttPkg,
 		fn:     "App.language",
 		reason: "wsi-setting, run from the directory the stt binary is in",
 	},
 	{
-		pkg:    "internal/stt",
+		pkg:    sttPkg,
 		fn:     "App.ensureServer",
 		reason: "wsi-stream --ensure-server, run from the directory the stt binary is in",
 	},
@@ -260,6 +271,60 @@ type clockAllowance = allowance
 // No test reads the wall clock: a real sleep is shown by a timer that fires first.
 var clockAllowances = []clockAllowance{}
 
+// realClocks are the real side of a clock seam: each is handed its duration by a caller whose
+// tests replace the seam whole, so no test shortens the real one. fn is "func" or "Type.method".
+var realClocks = []allowance{
+	{pkg: "internal/tmuxccy", fn: "Tmux.pause", reason: "the real side of Tmux.Sleep, the take-over's wait between client checks; the one test that keeps it runs in a synctest bubble"},
+	{pkg: "internal/ccylaunch", fn: "Front.pause", reason: "the real side of Front.Pause, the build lock's poll; its tests replace Pause"},
+	{pkg: sessprobePkg, fn: "Probe.sleep", reason: "the real side of Probe.Sleep, the CPU sample; the one test that keeps it samples fixed /proc readings, so nothing races the sleep"},
+	{pkg: "internal/playlock", fn: "sleep", reason: "the real side of Waiter.Sleep, the wait between lock tries; its tests replace Sleep"},
+	{pkg: sttPkg, fn: "sleep", reason: "the real side of Env.Sleep; its tests replace Sleep"},
+	{pkg: ftpcameraPkg, fn: "sleepContext", reason: "the real side of Env.Sleep; its tests replace Sleep, and NewEnv's test sleeps 0"},
+	{pkg: "internal/vmtest", fn: "sleepContext", reason: "the real side of Env.Sleep; its tests replace Sleep"},
+	{pkg: "internal/vmtest", fn: "newCLI", reason: "the real side of cli.bound, a remote command's deadline (timeout(1) in the bash); its tests replace bound whole (expiredBound)"},
+	{pkg: "internal/wsi", fn: "NewEnv", reason: "the real side of Env.Sleep and Env.After; its tests replace both"},
+	{pkg: "internal/wsimedia", fn: "NewEnv", reason: "the real side of Env.After, the hold's poll; its tests replace After, and NewEnv's test asks for 0"},
+	{pkg: "internal/teams/restart", fn: newFn, reason: "the real side of Restart.Sleep; its tests replace Sleep, and the picker's never reach a wait"},
+	{pkg: "internal/teams/shutdown", fn: newFn, reason: "the real side of Shutdown.Sleep; its tests replace Sleep, and the picker's never reach a wait"},
+	{pkg: "internal/teams/winddown", fn: newFn, reason: "the real side of WindDown.Sleep; its tests replace Sleep, and the picker's never reach a wait"},
+	{pkg: "internal/teams/hot", fn: newFn, reason: "the real side of Hot.Sleep; its tests replace Sleep"},
+}
+
+// processBounds bound a real child process or real I/O. No test shortens one so that it races
+// a step: their tests fake the process and report the timeout, leave the production constant,
+// or shorten it only where its passing is the outcome asserted. fn is "func" or "Type.method".
+var processBounds = []allowance{
+	{pkg: execxPkg, fn: "OS.Run", reason: "Grace as exec.Cmd.WaitDelay, the wait for a finished run's pipes; the one test that shortens it has a child hold the pipe for 30 s, so the wait running out is the outcome asserted"},
+	{pkg: execxPkg, fn: "OS.session", reason: "the grace for a killed run's pipes to drain; the tests that shorten Grace assert only what holds whichever of the drain and the grace ends first"},
+	{pkg: "internal/restore", fn: "acquire", reason: "the wait for a flock another run holds; the tests that shorten it hold the lock throughout, so the wait running out is the outcome asserted"},
+	{pkg: "internal/sessions", fn: "pauseFor", reason: "the pause between redraws, ended early by a real signal; its tests hand it a signal already waiting or none"},
+	{pkg: wsitokenPkg, fn: "App.readUsage", reason: "the limit on the real ccy --token-usage run; the test that shortens it to 1 ns answers after 1 ms, so the limit has always passed"},
+	{pkg: "internal/teams/roles", fn: "entries.isMember", reason: "the limit on a real read of a container's checkout, the constant New sets; no test changes it"},
+	{pkg: lxcaddPkg, fn: "Adder.sessions", reason: "the limit on a real read of the container, the constant New sets; no test changes it"},
+	{pkg: lxcaddPkg, fn: "Adder.findCheckouts", reason: "the limit on the real home search; the test that shortens it to 1 ns hangs its fake until the context ends, so the limit passing is the outcome asserted"},
+	{pkg: lxcaddPkg, fn: "Adder.listDir", reason: "the limit on a real directory listing; the test that shortens it to 1 ns hangs its fake until the context ends, so the limit passing is the outcome asserted"},
+	{pkg: "qa/all", fn: "session.exec", reason: "QA_ALL_TIMEOUT on a real gate; its tests fake the process and report the timeout"},
+	{pkg: "qa/changed", fn: "session.timed", reason: "QA_CHANGED_TIMEOUT on a real check; the test that shortens it runs in a synctest bubble"},
+	{pkg: "qa/ansiblesyntax", fn: runToolFn, reason: constantToolLimit},
+	{pkg: "qa/bash", fn: runToolFn, reason: constantToolLimit},
+	{pkg: "qa/ghscopes", fn: runToolFn, reason: constantToolLimit},
+	{pkg: "qa/js", fn: runToolFn, reason: constantToolLimit},
+	{pkg: "qa/patterns", fn: runToolFn, reason: constantToolLimit},
+	{pkg: "qa/python", fn: runToolFn, reason: constantToolLimit},
+	{pkg: "qa/readywait", fn: runToolFn, reason: constantToolLimit},
+	{pkg: "qa/sttrules", fn: runToolFn, reason: constantToolLimit},
+	{pkg: "qa/helpertests", fn: "suite", reason: "Env.Timeout on the real unittest runner; its tests fake the runner, which ignores the deadline"},
+	{pkg: "qa/hookhandlers", fn: "gate.runTests", reason: "Env.Timeout on the real pytest run; its tests fake the runner, which ignores the deadline"},
+	{pkg: "qa/plantests", fn: "execute", reason: "Env.Timeout on each directory's real test run; its tests fake the runner, which ignores the deadline"},
+	{pkg: "qa/toolchain", fn: "assertion.read", reason: "Env.Timeout on a real tool's version run; its tests fake the runner, which ignores the deadline"},
+	{pkg: "qa/vmtestmanifest", fn: "gate.validate", reason: "Env.Timeout on the real Python validator; its tests fake it, and the real one runs under the minute default"},
+}
+
+// realTimeAllowances are the functions project_realtime_bound does not judge.
+func realTimeAllowances() []allowance {
+	return slices.Concat(realClocks, processBounds)
+}
+
 // noResult is what every rule hands the analysis framework: the rules only report.
 type noResult struct{}
 
@@ -275,7 +340,7 @@ func perPass(run func(*analysis.Pass)) func(*analysis.Pass) (any, error) {
 
 // All is every rule, in the order the driver registers them.
 func All() []*analysis.Analyzer {
-	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay, HiddenBindings, PackageTests, RefusalKind}
+	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay, HiddenBindings, PackageTests, RefusalKind, RealTimeBound}
 }
 
 // ownedBy is whether the package path (the test variants of it included) is owner, matched

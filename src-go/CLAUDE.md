@@ -129,7 +129,7 @@ the Go command).
 
 - **Project rules.** `qa/` is a nested module (so the QA tooling's dependencies stay out of
   this `go.mod` and out of the binaries) of `go/analysis` rules for the defect classes the ports hit: one process seam, owned programs,
-  tmux target forms, no wall clock in tests, one home abbreviation, a `WaitDelay` that names
+  tmux target forms, no wall clock in tests, no real-time bound a test can shorten, one home abbreviation, a `WaitDelay` that names
   its error, no action reachable only by a key (a key reaches fzf only as a `ui.Action`, and a Bubble Tea key only `internal/ui`, through a
   `key.Binding` with help; Tab completing a text input is navigation).
   [GoProjectRules.md](../CLAUDE/GoProjectRules.md) is the catalogue.
