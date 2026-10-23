@@ -1319,6 +1319,31 @@ Plan 00201's `m7_check.py` for the value (`product-value FILE NAME` reads any na
 product prints inline, name it as a constant in the product, use it there, and add it to
 `OWNED`.
 
+### ansible-umask-pinned
+
+**What it is.** Every Ansible run from this repository works under umask 022, whatever the
+shell that started it had: `ansible.cfg` enables the `umask_pin` callback
+(`callback_plugins/umask_pin.py`), which sets it before any task starts. The rule reports an
+`ansible.cfg` that does not enable `umask_pin` or does not name the repository's
+`callback_plugins` directory, and first-party code that sets `ANSIBLE_CALLBACKS_ENABLED` (or
+`ANSIBLE_CALLBACK_WHITELIST`) without `umask_pin`, or `ANSIBLE_CALLBACK_PLUGINS` without a
+`callback_plugins` directory. Run by `tests/helpers/umask_pin/test_umask_pinned_rule.py` (in
+`qa-helper-tests.bash`), which proves the rule against its fixtures first.
+`test_umask_pin_against_real_ansible.py` runs a real probe play under an inherited 077 and
+checks that a file written with no mode comes out 0644. Not caught: an `ANSIBLE_CONFIG` naming
+a configuration outside the repository, and a value built on another line.
+
+**Why it exists.** Ansible runs with the caller's umask, and sudo only ever adds 022 to it, so
+a root task that writes a file with no explicit mode takes the caller's umask. The host `cc`
+session sets 077 (Plan 00098). Plan 00185's deploy, started from one, ran `fc-cache -f` as
+root and left the system font cache 0600: the desktop user could not read it, and fontconfig
+used a stale user cache instead. From an ordinary terminal (022) the same play was correct.
+
+**How to fix a finding.** Keep `umask_pin` in `callbacks_enabled` and `./callback_plugins` in
+`callback_plugins`. A launcher that has to change either list from the environment includes
+them. Do not set a umask in each task or each launcher instead: the one pin covers every
+launcher (run.bash, the plan scripts, the self-update service and a bare `ansible-playbook`).
+
 ---
 
 ## Changing a Gate
