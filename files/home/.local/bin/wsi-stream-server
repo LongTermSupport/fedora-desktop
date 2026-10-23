@@ -549,7 +549,7 @@ class DictationSession:
         """Escape: close the microphone at once and discard the text, journal included."""
         # The microphone is signalled and the text removed before "aborted" is set, all
         # under the lock every writer of the directory takes, so a reader of "aborted"
-        # (busy() is False from then on) finds them gone and no writer comes after
+        # (busy() too, once no segment is in the model) finds them gone and no writer after
         with self._lock:
             if self.state in self.FINISHED:
                 return
@@ -574,8 +574,9 @@ class DictationSession:
         with self._lock:
             if self.state in self.FINISHED:
                 return
-            # Signalled before "failed" is set: busy() is False from then on, so a START
-            # may follow, and it must find this microphone already told to close
+            # Signalled before "failed" is set: from then on (once no segment is in the
+            # model) busy() is False and a START may follow; it must find this microphone
+            # already told to close
             if self._proc is not None and self._proc.poll() is None:
                 self._proc.terminate()
             self.state = "failed"

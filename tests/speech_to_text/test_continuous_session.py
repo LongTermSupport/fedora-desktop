@@ -204,7 +204,8 @@ class StopTest(SessionCase):
         self.assertFalse(session_dir.exists(), "an aborted dictation left its text behind")
 
     def test_abort_closes_the_microphone_and_removes_the_directory_before_it_says_aborted(self):
-        # The order, not a timing: whoever reads "aborted" (busy() is False from then on)
+        # The order, not a timing: whoever reads "aborted" (busy() is False from then on,
+        # once no segment is in the model)
         # must find the microphone signalled and the text gone.
         s = self.start()
         self.mic_capturing()
@@ -310,7 +311,8 @@ class FailureTest(SessionCase):
         self.assertEqual(s.progress()["status"], "failed")
 
     def test_a_failure_signals_the_microphone_before_it_says_failed(self):
-        # The order, not a timing: busy() is False from "failed" on, so a START may follow,
+        # The order, not a timing: busy() is False from "failed" on (no segment being in the
+        # model here), so a START may follow,
         # and it must find the old microphone already told to close.
         s = self.start()
         self.mic_capturing()
