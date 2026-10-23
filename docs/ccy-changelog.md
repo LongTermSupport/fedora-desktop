@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.100.14 — container 2.79.9
+
+Follows 3.100.13 (container 2.79.8). The image changes, so the next launch rebuilds it once.
+
+- **pingbus names its duplicate-question refusal** (Plan 00211): `ask-human`'s "Q<n> is open
+  and asks the same question" is now `cli.py`'s `QUESTION_DUPLICATE`, which the plan's
+  acceptance reads to reuse its still-open test question on a rerun. The text and exit code
+  are unchanged; nothing a user sees changes.
+
 ## 3.100.13 — container 2.79.8
 
 Follows 3.100.12 (container 2.79.7). The image changes, so the next launch rebuilds it once.

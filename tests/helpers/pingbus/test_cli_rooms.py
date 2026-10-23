@@ -187,7 +187,8 @@ class AskHumanTest(RoomsCase):
         self.ask(1)
         code, _, err = self.run_cli("ask-human", stdin=QUESTION.replace("Pick the cost limit", "Again"))
         self.assertEqual(code, cli.EXIT_RATE)
-        self.assertIn("Q1", err)
+        line = f"{cli.PROG}: {cli.QUESTION_DUPLICATE.format(team=self.a.name, question='Q1')}\n"
+        self.assertIn(line, err.splitlines(keepends=True))
 
 
 class WorkerAskTest(RoomsCase):

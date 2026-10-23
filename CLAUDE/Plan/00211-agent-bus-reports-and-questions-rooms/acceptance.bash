@@ -272,6 +272,16 @@ if [[ "${FAKE}" -eq 1 ]]; then
         $'STATE\tpresent\n$e1\tconsumed\tkept\n$e2\tconsumed\tdropped'
     reject_leg "A5 (fake) one never arrived" envelopes_ok "a fixture session" \
         $'STATE\tpresent\n$e1\tconsumed\tkept\n$e2\t-\tkept'
+    check_leg "the test question (fake) a rerun reuses the earlier run's question, not closed, that asks the same" \
+        fake_ask open $'t1\talpha\tQ3\treused'
+    check_leg "the test question (fake) a new question is asked and saved" fake_ask asked $'t1\talpha\tQ4\tasked'
+    reject_leg "the test question (fake) another rate limit is no reuse" fake_ask limited
+    reject_leg "the test question (fake) the duplicate text with another exit is no reuse" fake_ask open-refused
+    reject_leg "the test question (fake) a duplicate in another team is no reuse" fake_ask open-elsewhere
+    check_leg "A5 (fake) a reused test question is found, and said to be from an earlier run" \
+        fake_a5_find $'t1\talpha\tQ3\treused' "asked by alpha, which that run found not closed from an earlier run"
+    check_leg "A5 (fake) an older three-field test-question is still read" \
+        fake_a5_find $'t1\talpha\tQ3' "asked by alpha ("
     not_judged "A4 (fake) the NOT JUDGED line" "printed for a stage with no LXC member, never PASS"
     printf '\nFAKE ACCEPTED: the stage-2 and A5 verdicts accept sound fixtures, pass over offline members and refuse each fault\n' | tee -a "${REPORT}"
     plan_finish
@@ -340,9 +350,11 @@ plan_deploy_leg "A3 add a throwaway worker (removed on cleanup)" a3_take
 check_leg "A3 a worker reports, and is refused the questions room" a3_check
 # unjudged — the checks this run had nothing to run on, `, `-joined, for the verdict's
 # `ACCEPTED, <check> NOT JUDGED: ...` form (SPEC §11.2); each one's reason is its NOT JUDGED line.
-# judged — those of the same checks that ran and passed, for the same line.
+# judged — those of the same checks that ran and passed, for the same line. asked — what the
+# test question check found: asked now, or an earlier run's not yet closed.
 unjudged=""
 judged=""
+asked=""
 if [[ -n "$(qteam_sessions)" ]]; then
     check_leg "A3 the worker's report is in no inbox of its team" a3_inbox_check
     judged="kept its report out of every inbox"
@@ -363,7 +375,12 @@ else
 fi
 if [[ -n "${COORD}" ]]; then
     check_leg "the test question, asked by the coordinator in its own session" ask_test_question
-    judged="${judged:+${judged}, }asked the test question"
+    if [[ "${TEST_QUESTION_HOW}" == "reused" ]]; then
+        asked="found the test question an earlier run asked not closed (not asked again)"
+    else
+        asked="asked the test question"
+    fi
+    judged="${judged:+${judged}, }${asked}"
 else
     not_judged "the test question, asked by the coordinator in its own session" \
         "the coordinator ${QHANDLE} of team ${QTEAM} is not driven from here (offline, or a host member)"
@@ -373,8 +390,8 @@ if [[ -n "${unjudged}" ]]; then
     printf '\nACCEPTED, %s NOT JUDGED (each named above): every other check passed; deploy 2 made every team'\''s side rooms and kept a worker out of questions%s\n' \
         "${unjudged}" "${judged:+, ${judged}}" | tee -a "${REPORT}"
 else
-    printf '\nACCEPTED: deploy 2 made every team'\''s side rooms, kept a worker out of questions and every inbox, took an LXC member'\''s report, and asked the test question\n' |
-        tee -a "${REPORT}"
+    printf '\nACCEPTED: deploy 2 made every team'\''s side rooms, kept a worker out of questions and every inbox, took an LXC member'\''s report, and %s\n' \
+        "${asked}" | tee -a "${REPORT}"
 fi
 if [[ -n "${COORD}" ]]; then
     printf '\n==> NEXT (the owner): the Element steps in ACCEPTANCE-owner.md, then meta-deploy runs\n'
