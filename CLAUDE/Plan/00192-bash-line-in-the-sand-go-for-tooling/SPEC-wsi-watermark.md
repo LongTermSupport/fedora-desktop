@@ -159,7 +159,7 @@ Python and are run from the directory the binary is in.
   (W5), so one present is what a run killed by the panel's Escape left, and it must never be
   read in place of this recording. A removal that fails (other than the file being absent) is
   `Cannot remove the recording a discarded dictation left: <reason>` (W9), exit 1, and the
-  recorder does not start. The panel removes the same files once its kill has run
+  recorder does not start. The panel removes the same files once the killed recorder has exited
   (`recorderLaunch.js` `discardRecorder`); this is the second line of that defence.
 - W16. The recorder is stopped with SIGINT (it flushes its buffers), which ends it; one that
   has not ended 3 s later is killed. It is stopped by: the recording limit,

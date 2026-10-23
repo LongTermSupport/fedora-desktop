@@ -111,6 +111,18 @@ export function discardRecorder(pid, launch, {who, send, remove}) {
 // ruleid: recorder-killed-leaving-its-files
 const killNow = pid => run(['kill', '-SIGKILL', String(pid)]);
 
+const discardByArrow = (pid, launch, who) => {
+    // ok: recorder-killed-leaving-its-files
+    send(killArgv(pid, discardSignal(launch).signal, true));
+    return () => discardLeftovers(launch, who).forEach(remove);
+};
+
+const discardByExpression = function (pid, launch, who) {
+    // ok: recorder-killed-leaving-its-files
+    send(killArgv(pid, discardSignal(launch).signal, true));
+    return () => discardLeftovers(launch, who).forEach(remove);
+};
+
 const killQuietly = pid => {
     // ruleid: recorder-killed-leaving-its-files
     signalProcess(pid, 'SIGKILL');

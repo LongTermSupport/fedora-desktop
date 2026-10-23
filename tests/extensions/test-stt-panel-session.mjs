@@ -505,6 +505,16 @@ for (const state of ['RECORDING', 'STOPPING']) {
     });
 }
 
+test('Escape after the recorder has exited (its last signal not in yet) signals nothing and frees the panel', () => {
+    const h = recording();
+    h.recorder().exit('signal 11', true);       // while RECORDING: the exit settle runs
+    h.panel.escape();
+    assert.deepEqual(h.aborts, [], 'a freed PID was signalled');
+    assert.equal(h.shows(), 'IDLE');
+    h.panel.insert(DICTATION);
+    assert.equal(h.spawned.length, 2, 'the panel stayed stuck after Escape');
+});
+
 test('Escape: an abort that throws is reported, and the panel still waits for the recorder', () => {
     const h = recording();
     h.panel._abort = () => {

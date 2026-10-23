@@ -347,6 +347,11 @@ def chained_resolutions(file_path):
     return home, parent, here
 
 
+def not_a_path(future):
+    # ok: hook-path-resolved-against-cwd
+    return future.resolve()
+
+
 def anchored(file_path, project_root):
     if not os.path.isabs(file_path):
         file_path = os.path.join(project_root, file_path)

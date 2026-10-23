@@ -934,6 +934,7 @@ sweep found the same gap in non-server `wsi-stream`, whose live transcript
 Fix (Plan 00171 Task 5.12).
 
 **What it does not see.** A signal name built at run time (`` `-${name}` ``, a variable), a
+numeric signal other than `send_signal(9)`, a
 kill whose function calls `discardLeftovers()` but never runs the removal it returns, and an
 uncatchable kill in Python, bash or Go. The sweep that defended the rule read those by hand;
 the panel's tests pin that the removal runs. `wsi-server-manager`'s SIGKILL of the server is not a
@@ -951,8 +952,8 @@ also removes a stale copy when it starts, but that is a second line of defence, 
 **What it is.** Python in a module that imports `claude_code_hooks_daemon` in any form (the
 project's handlers in `.claude/hooks/handlers/`) that resolves a path against the process's
 working directory. `os.getcwd()` and `Path.cwd()` are always reported, as is `.resolve()` or
-`.absolute()` on a path not built from `__file__` (`Path(p).expanduser().resolve()`,
-`p.parent.absolute()`). `os.path.realpath`, `abspath` or `relpath` of a value, and
+`.absolute()` at the end of a chain that starts with `Path(...)` not built from `__file__`
+(`Path(p).expanduser().resolve()`, `Path(p).parent.absolute()`). `os.path.realpath`, `abspath` or `relpath` of a value, and
 `Path(value).resolve()` or `.absolute()`, are reported unless the value is `__file__` or the
 same block first has `if not os.path.isabs(value):` whose body joins the value to a root with
 `os.path.join` or raises; a guard that does anything else excuses nothing. Run by
@@ -966,12 +967,13 @@ under `/home/`, so the path was blocked as a system file, and `qa-hook-handlers.
 there and nowhere else. Found and defended under Defence Before Fix.
 
 **What it does not see.** A file-system probe (`exists`, `open`, `stat`) on a relative path,
-a resolution through an alias (`from os.path import realpath`), and a guarded value reassigned
-before the call. The sweep that defended the rule found none of these by reading.
+a resolution through an alias (`from os.path import realpath`), `.resolve()` on a variable
+holding a path (`p.resolve()`), a guard that joins the value to a relative root, and a guarded
+value reassigned before the call. The sweep that defended the rule found none of these by reading.
 
 A relative tool path is taken from the project root, not from the session's `cwd` in the hook
 input; the two are the same directory for a session started in the checkout, and the daemon's
-own `absolute_path` handler refuses a relative `Write`/`Edit` path before this handler runs.
+own `absolute_path` handler refuses a relative `Write`/`Edit` path as well.
 
 **How to fix a finding.** Make the path absolute before resolving it. Join a relative tool
 path to the project root (`system_paths._absolute`). Refuse a relative value where nothing can

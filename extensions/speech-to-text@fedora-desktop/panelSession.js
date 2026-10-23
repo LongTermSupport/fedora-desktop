@@ -158,6 +158,15 @@ export class PanelSession {
             this._log(`Escape ignored: no microphone open (${this._shown})`);
             return;
         }
+        if (session.exited) {
+            // Its PID is free for reuse: never signalled. A stale recording is wsi's to
+            // remove at its next start (SPEC-wsi-watermark.md W15a)
+            this._log(`Escape: ${session.pid} has already exited; nothing to discard`);
+            session.aborted = true;
+            session.ended = 'IDLE';
+            this._finish(session);
+            return;
+        }
         this._log(`Escape: discarding the dictation of ${session.pid}`);
         this._releaseMedia(session);
         session.aborted = true;

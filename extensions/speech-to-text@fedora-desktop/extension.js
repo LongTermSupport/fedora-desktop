@@ -1265,13 +1265,23 @@ export default class SpeechToTextExtension extends Extension {
             remove: path => this._removeLeftover(path),
         });
         return () => {
-            try {
-                removeLeftovers();
-            } finally {
+            const failed = [];
+            for (const remove of [
+                removeLeftovers,
                 // A killed recorder cannot remove its own PID file
-                if (!launch.serverMode && this._readPidFile(RECORDER_PID_FILE) === String(pid))
-                    this._removeLeftover(RECORDER_PID_FILE);
+                () => {
+                    if (!launch.serverMode && this._readPidFile(RECORDER_PID_FILE) === String(pid))
+                        this._removeLeftover(RECORDER_PID_FILE);
+                },
+            ]) {
+                try {
+                    remove();
+                } catch (e) {
+                    failed.push(e.message);
+                }
             }
+            if (failed.length > 0)
+                throw new Error(failed.join('; '));
         };
     }
 

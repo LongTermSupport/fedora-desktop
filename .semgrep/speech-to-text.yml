@@ -459,6 +459,18 @@ rules:
             <... discardLeftovers(...) ...>;
             ...
           }
+      - pattern-not-inside: |
+          function (...) {
+            ...
+            <... discardLeftovers(...) ...>;
+            ...
+          }
+      - pattern-not-inside: |
+          (...) => {
+            ...
+            <... discardLeftovers(...) ...>;
+            ...
+          }
       - pattern-not-inside: test(...)
     message: >
       recorder-killed-leaving-its-files: a recorder killed here cannot remove its own
@@ -482,8 +494,8 @@ rules:
   #        os.path.realpath(file_path)
   #
   # The rule reports, in a module that imports claude_code_hooks_daemon (any import form):
-  # os.getcwd() and Path.cwd() always; any .resolve() or .absolute() on a path not built from
-  # __file__, other than Path(value) itself; and os.path.realpath, abspath or relpath of a
+  # os.getcwd() and Path.cwd() always; .resolve() or .absolute() at the end of a chain that
+  # starts with Path(...) not built from __file__, other than Path(value) itself; and os.path.realpath, abspath or relpath of a
   # value, or Path(value).resolve() or .absolute(), unless the value is __file__ or the same
   # block first has `if not os.path.isabs(value):` whose body makes the value absolute with
   # os.path.join or raises.
@@ -517,7 +529,7 @@ rules:
               - pattern-not: pathlib.Path($X).absolute()
               - metavariable-regex:
                   metavariable: $P
-                  regex: '^(?!.*__file__)'
+                  regex: '^(?!.*__file__)(pathlib\.)?Path\('
           - patterns:
               - pattern-either:
                   - pattern: os.path.realpath($X)
