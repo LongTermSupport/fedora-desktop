@@ -2,8 +2,10 @@ package wsi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"strconv"
 	"syscall"
@@ -84,6 +86,13 @@ func (r *run) record(ctx context.Context) error {
 	out := io.Discard
 	if r.o.debug {
 		out = r.env.Stderr
+	}
+	// W15a: no recorder is live (W5), so a recording here is one a killed run (Escape) left;
+	// it is never read in place of this one
+	for _, f := range r.audioFiles() {
+		if err := os.Remove(f); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return r.fail(ctx, fmt.Sprintf("Cannot remove the recording a discarded dictation left: %v", err))
+		}
 	}
 	rec := r.env.Recorder.Start(ctx, r.wav, out)
 	r.recording = rec

@@ -23,7 +23,7 @@ import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 import { FocusOutline } from './focusOutline.js';
 import { PasteTargetPin } from './pasteTarget.js';
 import { PanelSession } from './panelSession.js';
-import { spawnWatched, killArgv, discardSignal } from './recorderLaunch.js';
+import { spawnWatched, killArgv, discardRecorder, runThen } from './recorderLaunch.js';
 import { lookFor, isKnownState, recordingBadgeColor, articleBadgeColor, shownState, claudeEmoji, COLOURS } from './panelLook.js';
 import { POST_PROCESS_STYLES, LastTranscriptPostProcessor, unusableKeybindings } from './postProcess.js';
 import { TOKEN_WARNING_FILE, tokenWarning } from './tokenWarning.js';
@@ -1250,10 +1250,18 @@ export default class SpeechToTextExtension extends Extension {
         GLib.spawn_async(null, argv, null, GLib.SpawnFlags.SEARCH_PATH, null);
     }
 
-    /** Escape: throw the dictation away (recorderLaunch.js discardSignal says how). */
+    /** Escape: throw the dictation away, and the files the killed recorder leaves
+     * (recorderLaunch.js discardRecorder says how). */
     _discardRecording(pid, launch) {
-        const {signal, group} = discardSignal(launch);
-        this._signalProcess(pid, signal, group);
+        discardRecorder(pid, launch, {
+            user: GLib.get_user_name(),
+            home: GLib.get_home_dir(),
+            send: (argv, then) => {
+                this._log(argv.join(' '));
+                runThen(argv, then);
+            },
+            remove: path => this._removeLeftover(path),
+        });
         if (launch.serverMode)
             return;
         // A killed recorder cannot remove its own PID file
@@ -1261,6 +1269,22 @@ export default class SpeechToTextExtension extends Extension {
             Gio.File.new_for_path(RECORDER_PID_FILE).delete(null);
             this._log(`Removed the PID file of the discarded recorder ${pid}`);
         }
+    }
+
+    /** Remove `path`, left by a discarded recorder; one already gone is the same answer. */
+    _removeLeftover(path) {
+        Gio.File.new_for_path(path).delete_async(GLib.PRIORITY_DEFAULT, null, (file, res) => {
+            try {
+                file.delete_finish(res);
+                this._log(`Removed ${path}, left by the discarded recorder`);
+            } catch (e) {
+                if (e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.NOT_FOUND))
+                    return;  // the recorder never wrote it: nothing was left
+                this._lastError = `Cannot remove ${path}: ${e.message}`;
+                this._log(this._lastError);
+                Main.notify('STT Error', this._lastError);
+            }
+        });
     }
 
     /** The PID the file at `path` holds, or null with no file. */

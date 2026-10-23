@@ -241,11 +241,17 @@ func (r *run) cleanup(ctx context.Context) {
 		r.log.debug("PID file names " + strings.TrimSpace(string(data)) + ", not this client; left in place")
 	}
 	if r.recording != nil {
-		for _, f := range []string{r.wav, r.wav + ".resampled.wav", r.wav + ".padded"} {
+		for _, f := range r.audioFiles() {
 			r.remove(f)
 		}
 	}
 	r.panel.state(ctx, stateIdle)
+}
+
+// audioFiles is the recording as recorded, resampled and padded (the panel's
+// recorderLaunch.js discardLeftovers names the same three).
+func (r *run) audioFiles() []string {
+	return []string{r.wav, r.wav + ".resampled.wav", r.wav + ".padded"}
 }
 
 func (r *run) remove(path string) {

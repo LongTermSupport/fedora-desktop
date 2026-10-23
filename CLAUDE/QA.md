@@ -926,7 +926,10 @@ or `-9`. Calls inside a `node:test` `test(...)` are assertions, not kills. Run b
 **Why it exists.** Escape kills a batch recorder's whole process group with SIGKILL, so
 that nothing is transcribed. A killed process runs no cleanup, so `wsi` never removed
 `/dev/shm/wfile-<user>.wav`. The room audio Escape was meant to throw away stayed until the
-next recording or a reboot. Found and defended under Defence Before Fix.
+next recording or a reboot, and a next run whose recorder wrote nothing transcribed it. The
+sweep found the same gap in non-server `wsi-stream`, whose live transcript
+`~/.cache/speech-to-text/streaming-buffer.txt` stayed. Found and defended under Defence Before
+Fix (Plan 00171 Task 5.12).
 
 **What it does not see.** A kill sent through a helper that takes the signal as a variable
 other than `discardSignal()`'s, and an uncatchable kill in Python, bash or Go. The sweep that

@@ -155,6 +155,12 @@ Python and are run from the directory the binary is in.
   otherwise); this process's PID is written to the PID file (a failure is W9, the recorder
   stopped, exit 1). After 0.3 s the `RECORDING` state (`Recording... (Insert to stop)`), unless
   a stop is already pending or the recorder has already ended (a debug line says which).
+- W15a. Before the recorder starts, the three audio files of W6 are removed: no recorder is live
+  (W5), so one present is what a run killed by the panel's Escape left, and it must never be
+  read in place of this recording. A removal that fails (other than the file being absent) is
+  `Cannot remove the recording a discarded dictation left: <reason>` (W9), exit 1, and the
+  recorder does not start. The panel removes the same files once its kill has run
+  (`recorderLaunch.js` `discardRecorder`); this is the second line of that defence.
 - W16. The recorder is stopped with SIGINT (it flushes its buffers), which ends it; one that
   has not ended 3 s later is killed. It is stopped by: the recording limit,
   `MaxRecordingSeconds` (30) after `RECORDING`; INT; TERM when a stop is already pending or the
@@ -383,7 +389,8 @@ sourced (B21).
 - H1. After `play-speech-to-text.yml`: an Insert, speech, Insert dictation pastes the text into
   a terminal (Ctrl+Shift+V) and an editor (Ctrl+V), with the grace audible in the result.
 - H2. Escape during a recording discards it: the panel's group kill ends `wsi` and its
-  `pw-record` together (the Go binary is the group leader the panel's `setsid` made).
+  `pw-record` together (the Go binary is the group leader the panel's `setsid` made), and
+  `/dev/shm/wfile-$USER.wav` is gone afterwards.
 - H3. After `play-image-watermarking.yml`: `watermark --profile <name> photo.jpg` writes
   `photo.watermarked.jpg` with the visible marks, and `exiftool -XMP-wm:Applied` on it says
   `True`; a second run exits 3.

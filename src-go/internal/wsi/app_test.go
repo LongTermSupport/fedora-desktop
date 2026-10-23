@@ -95,6 +95,65 @@ func TestW5ALiveRecorderIsLeftAloneAndExit1(t *testing.T) {
 	}
 }
 
+// leftovers is a recording a killed run left behind (Escape kills the whole group).
+func (k *kit) leftovers() []string {
+	return []string{k.wav(), k.wav() + ".resampled.wav", k.wav() + ".padded"}
+}
+
+func (k *kit) leaveRecording() {
+	for _, path := range k.leftovers() {
+		if err := os.WriteFile(path, []byte("discarded audio"), 0o600); err != nil {
+			k.t.Fatal(err)
+		}
+	}
+}
+
+func TestW15AStaleRecordingIsRemovedBeforeTheRecorderStarts(t *testing.T) {
+	k := newKit(t)
+	k.leaveRecording()
+	k.silent = true // this run's recorder writes nothing: only the stale audio could be read
+	if code := k.exec("--session-token", "t"); code != 1 {
+		t.Fatalf("exit %d: the discarded recording was transcribed? stdout %q", code, k.out.String())
+	}
+	k.wantStderr("Recording file empty or missing: " + k.wav())
+	for _, path := range k.leftovers() {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("%s is left behind: %v", path, err)
+		}
+	}
+}
+
+func TestW15AAStaleRecordingThatCannotBeRemovedEndsTheRunBeforeRecording(t *testing.T) {
+	k := newKit(t)
+	if err := os.MkdirAll(filepath.Join(k.wav(), "held"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if code := k.exec("--session-token", "t"); code != 1 {
+		t.Fatalf("exit %d", code)
+	}
+	k.wantStderr("Cannot remove the recording a discarded dictation left: ")
+	if k.rec.started != 0 {
+		t.Fatalf("the recorder started %d time(s) beside a recording it could not replace", k.rec.started)
+	}
+}
+
+func TestW5ALiveRecordersRecordingIsLeftAlone(t *testing.T) {
+	k := newKit(t)
+	k.leaveRecording()
+	if err := os.WriteFile(k.pidFile(), []byte("777\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	k.alive[777] = true
+	if code := k.exec("--session-token", "t"); code != 1 {
+		t.Fatalf("exit %d", code)
+	}
+	for _, path := range k.leftovers() {
+		if data, err := os.ReadFile(path); err != nil || string(data) != "discarded audio" {
+			t.Errorf("the live recorder's %s changed: %q %v", path, data, err)
+		}
+	}
+}
+
 func TestW1ToW26AWholeDictationWithNoDesktopPrintsTheText(t *testing.T) {
 	k := newKit(t)
 	if err := os.WriteFile(k.pidFile(), []byte("777\n"), 0o600); err != nil {
