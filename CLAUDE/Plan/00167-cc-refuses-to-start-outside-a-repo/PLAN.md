@@ -84,10 +84,10 @@ clear message.
 - [x] ✅ **Task 3.2**: `acceptance.bash` (legs in `check-cc-project-dir.bash`) runs the
   installed `/var/local/claude-code/cc-project-dir`, never `cc` or Claude, from `mktemp -d`
   scratch directories: outside a repository with stdin `</dev/null`, and with
-  `CCY_SESSION_RESTORE=1` and stdin the terminal, it must exit 1 with the refusal, an empty
-  stdout and no `[Y/n]` offer; in a subfolder of a scratch git repository it must exit 0 with
-  the repository's top on stdout. Passed on the host at dddf4063 (run under a terminal; see
-  the 26-10-21 journal). The `[Y/n]` offer has its own legs, typed into a pseudo-terminal
+  `CCY_SESSION_RESTORE=1` and stdin a terminal, it must exit 1 with the refusal, an empty
+  stdout and no `[Y/n]` offer; in a nested subfolder of a scratch git repository it must exit
+  0 with the repository's top on stdout. Passed on the host at dddf4063, when the restore leg
+  still used the runner's terminal (see the 26-10-21 journal). The `[Y/n]` offer has its own legs, typed into a pseudo-terminal
   that `script(1)` makes: `offer-yes` (`y`: the offer once, exit 0, stdout exactly the
   checkout the checker is in), `offer-no` (`n`: the offer once, the refusal, exit 1, empty
   stdout) and `offer-retry` (`maybe` then `n`: "Please answer y or n.", the offer twice, the
@@ -107,8 +107,9 @@ clear message.
      with `capture-pane -p`, and in it run `env -u TMUX cc`. Before and after each run, list
      `tmux -L ccy list-sessions`. Answer `n`: exit 1, the refusal, no new `ccy` session.
      Answer `y`: a new `ccy` session named for the checkout, its pane in the checkout (answer
-     the session offer, if one is shown, with a new session, and the token chooser with its
-     default); then `/exit` it. Then `env -u TMUX cc` at the root of a checkout: a session
+     the session offer, if one is shown, with a new session, and the token chooser with `d`,
+     the desktop token; Enter is not an answer there); list it while claude runs, since it
+     ends with the session; then `/exit` it. Then `env -u TMUX cc` at the root of a checkout: a session
      starts there as before. The offer and the git top are already proved by the legs; this
      proves `cc` acts on what `cc-project-dir` prints.
 
@@ -177,7 +178,7 @@ elsewhere to stay within its record. No install-specific path is in the reposito
   yes starts the session there, no exits 1 (host agent, Task 3.3).
 - [ ] `cc` at a repository root starts as before (host agent, Task 3.3).
 - [x] Subdirectory behaviour matches Decision 2: the `git-top` leg passed on the host at
-  dddf4063 (a subfolder and a deeper folder give the repository's top).
+  dddf4063 (a nested subfolder gives the repository's top).
 - [x] QA passes (`./scripts/qa-all.bash`) and the `qa-reviewer` findings are resolved: QA
   passed at dddf4063 (Task 2.4); the findings were resolved in the fix merged at dead9482
   (Task 4.1).

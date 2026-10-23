@@ -85,7 +85,8 @@ agent at all. The cause is unknown, so this plan triages first.
 - [ ] ⬜ **Task 2.6**: the host agent's check in a real interactive shell, the one thing the
   `prompt` leg does not cover (that leg expands the deployed PS1 in `bash -s`, not in the
   login user's `bash -i` with `~/.bashrc` and bash-git-prompt loaded). Make a scratch clone
-  whose `origin` is an unreachable ssh URL, with a tracking branch; write a fetch record into
+  whose `origin` is an ssh URL that fails at once (a host under `.invalid`, such as
+  `ssh://unreachable.invalid/never.git`, as the acceptance uses), with a tracking branch; write a fetch record into
   `.git/FETCH_HEAD` and `touch -d '3 days ago'` it. Start a tmux server of the agent's own
   with the shell as its command, so no ssh agent or ssh session reaches it:
   `tmux -L <own> new-session -d -c <clone> 'env -u SSH_AUTH_SOCK -u SSH_CONNECTION bash -i'`
