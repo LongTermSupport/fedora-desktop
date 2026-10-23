@@ -17,24 +17,27 @@ Two version numbers move independently — see
 
 ---
 
-## 3.100.17 — container 2.79.9
+## 3.100.18 — container 2.79.9
 
-Follows 3.100.15 (container 2.79.9; 3.100.16 was this change's first commit and never
-shipped). The image does not change.
+Follows 3.100.15 (container 2.79.9; 3.100.16 and 3.100.17 were this change's earlier commits
+and never shipped). The image does not change.
 
-- **A session container's pids limit is explicit and bounded: 4096, never the engine's
+- **Every container ccy runs has an explicit, bounded pids limit: 4096, never the engine's
   default and never off** (Defence Before Fix). ccy passed no `--pids-limit`, so every
-  session ran at podman's default of 2048, and a pid there is a thread. A fork bomb inside a
-  session (a test fixture that recursed into itself) climbed to 2048 in about ten seconds;
-  the limit stopped it, claude aborted (exit 134), and the host was untouched. The session
-  container now runs with `--pids-limit "$CCY_PIDS_LIMIT"` from the new
-  `lib/container-limits.bash`: 4096 by default (room for heavier parallel builds), or
-  `CCY_PIDS_LIMIT` exported on the host, a whole number from 256 to 32768. 0, -1, `max` and
-  anything else stop the launch before anything is built. The value goes to the session's
-  tmux pane on the pane's command, so an export reaches that session and no later one; a
-  session restored after a reboot takes the default. A running session keeps its old limit
-  until it is relaunched. `--debug`'s simplified run command shows the flag too. The Semgrep
-  rule `ccy-session-container-default-pids-limit` holds every ccy session launch to it.
+  session ran at podman's default of 2048 (docker's is none), and a pid there is a thread. A
+  fork bomb inside a session (a test fixture that recursed into itself) climbed to 2048 in
+  about ten seconds; the limit stopped it, claude aborted (exit 134), and the host was
+  untouched. Every ccy run now passes `--pids-limit "$CCY_PIDS_LIMIT"` from the new
+  `lib/container-limits.bash`: the session, the in-place update's `npm install`,
+  `setup-token`, the token check and the `--help`, `--version` and network probes, and the Go
+  front's `--help`. 4096 by default (room for heavier parallel builds), or `CCY_PIDS_LIMIT`
+  exported on the host, a whole number from 256 to 32768. 0, -1, `max` and anything else stop
+  every run at once, `--version` and `--help` included. The value goes to the session's tmux
+  pane on the pane's command, and tmux is started without it, so an export reaches that
+  session and no later one; a session restored after a reboot or restarted by `ccy-teams`
+  takes the default. A running session keeps its old limit until it is relaunched.
+  `--debug`'s simplified run command shows the flag too. The Semgrep rule
+  `ccy-container-default-pids-limit` holds every engine run and create in the ccy tree to it.
 
 ## 3.100.15 — container 2.79.9
 

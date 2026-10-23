@@ -29,7 +29,9 @@
 //     tool the bash runs first is not on PATH; the bash launcher or a library it loads
 //     (CCY_LIBS, read from the launcher, common-pure and launcher-path) is missing or unreadable, its text
 //     holds a NUL or is not UTF-8, or it has no CCY_VERSION or CCY_LIBS line; lib/ holds no
-//     .bash file; or an override of lib/host-paths.bash is one ccy_host_dir refuses.
+//     .bash file; an override of lib/host-paths.bash is one ccy_host_dir refuses; or
+//     CCY_PIDS_LIMIT is a value lib/container-limits.bash refuses (pidslimit.go), which the
+//     bash refuses before it answers any flag.
 //   - F5. Where the bash would answer, the front does: either engine, an empty variable, an
 //     override the library accepts.
 //   - F6. A front whose version is not the bash launcher's CCY_VERSION is half of two
@@ -39,7 +41,8 @@
 //     exit 1, naming the path, the error and CCY_LEGACY; it never does nothing.
 //   - F8. `--help` or `-h` prints the bash launcher's help text (help.txt, held to the
 //     launcher's by a test), then asks the engine for the image (engine E10): absent, how to
-//     build it; present, claude --help from the image, or the engine's own words when that
+//     build it; present, claude --help from the image (its container under the --pids-limit
+//     the library settles: CCY_PIDS_LIMIT, else its default), or the engine's own words when that
 //     fails ("no output" when it said none). Exit 0, as the bash.
 //   - F9. Output that could not be written is exit 1.
 //   - F10. `--list-tokens` as the only argument prints the token pool as the bash's list_tokens
@@ -220,8 +223,9 @@ type Front struct {
 
 // launcher is what the front read of the bash launcher beside it.
 type launcher struct {
-	version string
-	hash    string
+	version   string
+	hash      string
+	pidsLimit string // the --pids-limit of every container it runs, as the library settles it
 }
 
 // Run answers the run or hands it to the bash launcher.
@@ -258,7 +262,7 @@ func (f Front) Run(ctx context.Context) term.ExitCode {
 	if f.Args[0] == "--version" || f.Args[0] == "-v" {
 		p.Print(f.Stdout, "ccy version "+f.Version+"\nHash: "+l.hash+"\n")
 	} else {
-		f.help(ctx, &p, kind)
+		f.help(ctx, &p, kind, l.pidsLimit)
 	}
 	if err := p.Err(); err != nil {
 		return f.fail("ccy: could not write the answer: " + err.Error())
@@ -363,7 +367,12 @@ func (f Front) plan(bash string) (engine.Kind, launcher, flagKind, string) {
 			return "", launcher{}, flag, d.env + " is refused by the library"
 		}
 	}
+	limit, ok := pidsLimit(f.getenv(pidsLimitEnv))
+	if !ok {
+		return "", launcher{}, flag, pidsLimitEnv + " is refused by the library"
+	}
 	l, why := readLauncher(bash)
+	l.pidsLimit = limit
 	return kind, l, flag, why
 }
 
@@ -444,7 +453,7 @@ func readLauncher(bash string) (launcher, string) {
 }
 
 // help is F8.
-func (f Front) help(ctx context.Context, p *term.Printer, kind engine.Kind) {
+func (f Front) help(ctx context.Context, p *term.Printer, kind engine.Kind, pidsLimit string) {
 	p.Print(f.Stdout, helpText)
 	eng, err := engine.New(kind, f.Runner)
 	if err == nil {
@@ -457,7 +466,7 @@ func (f Front) help(ctx context.Context, p *term.Printer, kind engine.Kind) {
 		return
 	}
 	p.Print(f.Stdout, helpRule+"Claude Code Help (from container):\n"+helpRule+"\n")
-	out, err := eng.ClaudeHelp(ctx, imageName)
+	out, err := eng.ClaudeHelp(ctx, imageName, pidsLimit)
 	// As a shell's $(...) gives it: NUL bytes dropped, trailing newlines removed.
 	out = strings.TrimRight(strings.ReplaceAll(out, "\x00", ""), "\n")
 	if err == nil {

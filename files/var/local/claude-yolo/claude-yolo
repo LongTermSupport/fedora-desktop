@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.100.17"  # Container 2.79.9: the session container gets a bounded --pids-limit (CCY_PIDS_LIMIT, default 4096). See docs/ccy-changelog.md.
+CCY_VERSION="3.100.18"  # Container 2.79.9: every container ccy runs gets a bounded --pids-limit (CCY_PIDS_LIMIT, default 4096). See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -88,6 +88,7 @@ source "$SCRIPT_DIR/lib/image-build.bash"
 source "$SCRIPT_DIR/lib/agent-choice.bash"
 # shellcheck source=lib/container-limits.bash
 source "$SCRIPT_DIR/lib/container-limits.bash"
+ccy_container_limits || exit 1
 
 # IMPORTANT: When modifying the Dockerfile, ALWAYS increment REQUIRED_CONTAINER_VERSION!
 # This ensures users automatically rebuild when critical container changes are made.
@@ -409,7 +410,7 @@ EOF
         # The engine's own message is kept and shown: "help unavailable" on its
         # own tells the user nothing about WHY, and the reason (image broken,
         # engine not running, entrypoint missing) is what they need.
-        if claude_help=$(container_cmd run --rm --entrypoint claude "$IMAGE_NAME" --help 2>&1); then
+        if claude_help=$(container_cmd run --rm --pids-limit "$CCY_PIDS_LIMIT" --entrypoint claude "$IMAGE_NAME" --help 2>&1); then
             printf '%s\n' "$claude_help"
         else
             echo "Note: the image exists, but 'claude --help' would not run inside it."
@@ -935,7 +936,6 @@ done
 unset _ccy_dangling
 debug "compose questions answered by --compose: $COMPOSE_MODE (read by lib/network-management.bash)"
 ccy_lifecycle_validate_options "$OPT_MAX_AGE" "$OPT_RUN_FOR" "$OPT_UNTIL" "$NO_SUPERVISE_MODE" || exit 1
-ccy_container_limits || exit 1
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Fail-fast flag validation
@@ -963,7 +963,7 @@ if [ ${#suspect_flags[@]} -gt 0 ]; then
         grep -q '^Usage:' <<< "$claude_help" || claude_help=""
     fi
     if [ -z "$claude_help" ] && container_cmd image inspect "$IMAGE_NAME" &>/dev/null; then
-        if ! claude_help=$(container_cmd run --rm --entrypoint claude "$IMAGE_NAME" --help 2>&1); then
+        if ! claude_help=$(container_cmd run --rm --pids-limit "$CCY_PIDS_LIMIT" --entrypoint claude "$IMAGE_NAME" --help 2>&1); then
             print_error "Could not run 'claude --help' in $IMAGE_NAME to validate flags"
             echo "$claude_help" >&2
             exit 1
@@ -1918,7 +1918,7 @@ auto_update_claude_code() {
     # ()", and one empty version started an in-place npm update against a version
     # nothing had read. Capture the command's own status, then require a value.
     local container_version="" version_probe
-    if version_probe=$(container_cmd run --rm --entrypoint claude "$image_name" --version 2>&1); then
+    if version_probe=$(container_cmd run --rm --pids-limit "$CCY_PIDS_LIMIT" --entrypoint claude "$image_name" --version 2>&1); then
         container_version=$(printf '%s\n' "$version_probe" | grep -oP '\d+\.\d+\.\d+' | head -1)
     fi
     [ -n "$container_version" ] || container_version="unknown"
@@ -1999,7 +1999,7 @@ update_claude_inplace() {
     # Claude Code, so an updated binary is protected the moment it starts and
     # this path no longer has a version-churn failure mode to compensate for.
     if ! container_cmd run \
-        --name "$temp_name" \
+        --name "$temp_name" --pids-limit "$CCY_PIDS_LIMIT" \
         --entrypoint sh \
         "$image_name" \
         -c 'set -e; npm install -g @anthropic-ai/claude-code@latest 2>&1'; then
@@ -3359,7 +3359,7 @@ elif [[ -n "$SELECTED_NETWORK" ]] && [[ "$NO_NETWORK_MODE" != true ]]; then
     echo "Verifying network '$SELECTED_NETWORK' has internet access..."
 
     # Test with google.com (simpler, more reliable than api.anthropic.com which needs proper TLS)
-    if container_cmd run --rm --network "$SELECTED_NETWORK" alpine wget -q -O- --timeout=10 http://google.com >/dev/null 2>&1; then
+    if container_cmd run --rm --pids-limit "$CCY_PIDS_LIMIT" --network "$SELECTED_NETWORK" alpine wget -q -O- --timeout=10 http://google.com >/dev/null 2>&1; then
         echo "✓ Network '$SELECTED_NETWORK' has internet access"
         echo ""
     else

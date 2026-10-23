@@ -976,8 +976,11 @@ are forwarded unchanged.
 
 ### Container limits
 
-The session container is started with an explicit, bounded pids limit, never the engine's
-default. A pid in the pids cgroup is a thread. The limit is the session's fork-bomb guard: a
+Every container ccy runs is started with an explicit, bounded pids limit, never the engine's
+default (podman's is 2048; docker sets none): the session, the in-place Claude Code update's
+`npm install`, `--create-token`'s `setup-token`, the token check, and the `claude --help` /
+`--version` and network probes, from the Go front's `--help` too. A pid in the pids cgroup is
+a thread. The limit is the session's fork-bomb guard: a
 test fixture that recursed into itself inside a session climbed from 40 to 2048 tasks in about
 ten seconds, and podman's default of 2048 stopped it there, with the host untouched. Without a
 limit it would have run on into the user slice's own task limit, which the desktop shares.
@@ -987,23 +990,32 @@ limit it would have run on into the user slice's own task limit, which the deskt
 | `CCY_PIDS_LIMIT` | `4096`      | a whole number from 256 to 32768 |
 
 Why 4096: busy sessions doing real parallel work (Go builds and tests, linters, Ansible forks,
-background waiters) were seen peaking at three quarters of 2048, so twice that leaves room for
-a heavier build, while a runaway climbing at a few hundred tasks a second still stops within
-seconds, far below the user slice's limit (`TasksMax` of `user-.slice`, by default 33% of the
-kernel's task limit; `systemctl show user-$(id -u).slice -p TasksMax | cat`). The limit cannot
-be turned off: 0, -1, `max` and values past 32768 stop the launch before anything is built,
-as does anything that is not a whole number in range.
+background waiters) were seen with `pids.peak` at 1160 and 1503 of 2048, so twice the default
+leaves room for a heavier build, while a runaway climbing at a few hundred tasks a second still
+stops within seconds. Every session at its cap together must stay under the user slice's own
+limit; how many fit:
 
-Export it on the host before launching to override it for that launch (the launcher hands it
-to the session's tmux pane on the pane's command, so it reaches that session and no later
-one). A project's `ccy.env` cannot set it, because that file is read inside the container. A
-session restored after a reboot (`ccy-sessions restore`) is not given a launch's export: it
-takes the variable from its own environment, normally unset, so the default. A running
-session keeps the limit it was started with until it is relaunched.
+```bash
+echo $(( $(systemctl show "user-$(id -u).slice" -p TasksMax --value) / ${CCY_PIDS_LIMIT:-4096} ))
+```
 
-The setting lives in `lib/container-limits.bash`; the rule that holds every session launch to
-it is
-[ccy-session-container-default-pids-limit](../CLAUDE/QA.md#ccy-session-container-default-pids-limit).
+(`TasksMax` is by default 33% of the kernel's task limit; `infinity` means the slice has none,
+and the arithmetic then fails.) The limit cannot be turned off: 0, -1, `max` and values past
+32768 stop the run before anything starts, `ccy --version` and `ccy --help` included, as does
+anything that is not a whole number in range.
+
+Export it on the host before launching to override it for that launch. The launcher hands it
+to the session's tmux pane on the pane's command and starts tmux without it, so it reaches
+that session and no later one. A project's `ccy.env` cannot set it, because that file is read
+inside the container. A session restored after a reboot (`ccy-sessions restore`) or restarted
+by `ccy-teams` is not given a launch's export: it takes the variable from its own environment,
+normally unset, so the default. A running session keeps the limit it was started with until
+it is relaunched. Image builds (`podman build`) are not given the limit: `docker build` has no
+such flag, and a build's steps are the Dockerfile's, not a session's.
+
+The setting lives in `lib/container-limits.bash` (the Go front holds the same bounds, tested
+against it); the rule that holds every ccy run and create to it is
+[ccy-container-default-pids-limit](../CLAUDE/QA.md#ccy-container-default-pids-limit).
 
 To see a session's use against its limit, from the host:
 

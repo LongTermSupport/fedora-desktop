@@ -294,7 +294,7 @@ func TestAMissingBashLauncherIsReported(t *testing.T) {
 func TestHelp(t *testing.T) {
 	dir := install(t)
 	inspect := []string{"podman", "image", "inspect", "claude-yolo:latest"}
-	claudeHelp := []string{"podman", "run", "--rm", "--entrypoint", "claude", "claude-yolo:latest", "--help"}
+	claudeHelp := []string{"podman", "run", "--rm", "--pids-limit", "4096", "--entrypoint", "claude", "claude-yolo:latest", "--help"}
 	cases := []struct {
 		name  string
 		setup func(f *execx.Fake)

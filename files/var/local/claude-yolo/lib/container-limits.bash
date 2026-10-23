@@ -1,8 +1,8 @@
 #!/bin/bash
-# The limits a ccy session container is started with, passed explicitly on its run and never
+# The limits every container ccy runs is started with, passed explicitly on each run and never
 # left to the engine's default. Why, and the choice of default: docs/ccy.md, "Container limits".
-# The rule that holds every session launch to it: ccy-session-container-default-pids-limit
-# (CLAUDE/QA.md, .semgrep/bash-conventions.yml).
+# The rule that holds every ccy run to it: ccy-container-default-pids-limit (CLAUDE/QA.md,
+# .semgrep/bash-conventions.yml); the Go front's copy of the bounds: src-go/internal/ccylaunch.
 #
 # CCY_PIDS_LIMIT on the host overrides the pids limit. Requires print_error (common-pure.bash).
 

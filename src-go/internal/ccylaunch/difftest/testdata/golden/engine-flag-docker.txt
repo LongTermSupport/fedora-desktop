@@ -66,7 +66,7 @@ More info: https://github.com/LongTermSupport/fedora-desktop/blob/main/docs/cont
 getenforce
 docker info --format '{{.SecurityOptions}}'
 gh auth token
-docker run --rm -e CLAUDE_CODE_OAUTH_TOKEN --entrypoint claude claude-yolo:latest --version
+docker run --rm --pids-limit 4096 -e CLAUDE_CODE_OAUTH_TOKEN --entrypoint claude claude-yolo:latest --version
     env: CLAUDE_CODE_OAUTH_TOKEN
 docker info --format '{{.SecurityOptions}}'
 docker ps -a --filter name=_yolo --filter status=exited --format '{{.Names}}'
@@ -75,7 +75,7 @@ docker ps --filter name=difftest-project_yolo --format '{{.Names}}'
 docker image inspect claude-yolo:latest --format '{{.Id}}'
 docker image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-version"}}'
 docker image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-dockerfile-hash"}}'
-docker run --rm --entrypoint claude claude-yolo:latest --version
+docker run --rm --pids-limit 4096 --entrypoint claude claude-yolo:latest --version
 curl -fsSL https://registry.npmjs.org/@anthropic-ai/claude-code/latest
 docker network ls --format '{{.Name}}'
 podman network ls --format '{{.Name}}'

@@ -91,7 +91,8 @@ cat >"$BIN/tmux" <<'EOF'
 { printf 'ARGV'; printf ' %q' "$@"; printf '\n'
   printf 'ENV GH_TOKEN=%s HANDOFF=%s\n' "${GH_TOKEN-unset}" "${CCY_GH_TOKEN_HANDOFF-unset}"
   printf 'TMUXFRONT %s\n' "${CCY_LAUNCHER_FRONT-unset}"
-  printf 'TMUXPIDS %s\n' "${CCY_PIDS_LIMIT-unset}"; } >>"$T_LOG"
+  sub="$1"; [ "$sub" = -L ] && sub="$3"
+  printf 'TMUXPIDS %s %s\n' "$sub" "${CCY_PIDS_LIMIT-unset}"; } >>"$T_LOG"
 [ "$1" = -L ] && shift 2
 case "$1" in
 list-sessions) [ -f "$T_STATE" ] && cat "$T_STATE"; exit 0 ;;
@@ -154,6 +155,8 @@ done
 GH_TOKEN="$T_CALLER_TOKEN"
 # The pids limit as the launcher holds it once settled (lib/container-limits.bash): a plain variable.
 [ -z "${T_PIDS_LIMIT:-}" ] || CCY_PIDS_LIMIT="$T_PIDS_LIMIT"
+# Or exported, as `CCY_PIDS_LIMIT=8192 ccy` leaves it.
+[ -z "${T_PIDS_EXPORT:-}" ] || export CCY_PIDS_LIMIT
 "$1" proj "$T_INNER" --no-ssh
 rc=$?
 printf 'RETURNED rc=%s GH_TOKEN=%s\n' "$rc" "${GH_TOKEN-unset}" >>"$T_LOG"
@@ -233,7 +236,12 @@ echo "=== the pids limit reaches the inner launcher on the pane's command, not t
 rm -f "$T_STATE"
 drive terminal "" 32768
 check "the inner launcher has the outer launcher's limit" "PANEPIDS 32768" "$(line PANEPIDS)"
-check "no tmux call has it in its environment" "0" "$(grep '^TMUXPIDS' "$T_LOG" | grep -vc '^TMUXPIDS unset$')"
+check "no tmux call has it in its environment" "0" "$(grep '^TMUXPIDS' "$T_LOG" | grep -vc ' unset$')"
+rm -f "$T_STATE"
+T_PIDS_EXPORT=1 drive terminal "" 8192
+check "exported, the inner launcher still has it" "PANEPIDS 8192" "$(line PANEPIDS)"
+check "  and the tmux that starts the server and session does not" "TMUXPIDS new-session unset" \
+    "$(line 'TMUXPIDS new-session')"
 rm -f "$T_STATE"
 drive terminal "$TOKEN" 4096
 check "beside a token hand-off too" "PANEPIDS 4096" "$(line PANEPIDS)"

@@ -64,7 +64,7 @@ More info: https://github.com/LongTermSupport/fedora-desktop/blob/main/docs/cont
 getenforce
 podman info --format '{{.Host.Security.SELinuxEnabled}}'
 gh auth token
-podman run --rm -e CLAUDE_CODE_OAUTH_TOKEN --entrypoint claude claude-yolo:latest --version
+podman run --rm --pids-limit 4096 -e CLAUDE_CODE_OAUTH_TOKEN --entrypoint claude claude-yolo:latest --version
     env: CLAUDE_CODE_OAUTH_TOKEN
 podman info --format '{{.Host.Security.Rootless}}'
 podman ps -a --filter name=_yolo --filter status=exited --format '{{.Names}}'
@@ -73,19 +73,19 @@ podman ps --filter name=difftest-project_yolo --format '{{.Names}}'
 podman image inspect claude-yolo:latest
 podman image inspect claude-yolo:latest --format '{{.Id}}'
 podman image inspect claude-yolo:latest --format '{{.Id}}'
-podman run --name 'ccy-claude-update-{pid}' --entrypoint sh claude-yolo:latest -c 'set -e; npm install -g @anthropic-ai/claude-code@latest 2>&1'
+podman run --name 'ccy-claude-update-{pid}' --pids-limit 4096 --entrypoint sh claude-yolo:latest -c 'set -e; npm install -g @anthropic-ai/claude-code@latest 2>&1'
 podman commit --change 'ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]' --change 'CMD ["claude", "--help"]' 'ccy-claude-update-{pid}' claude-yolo:latest
 podman rm -f 'ccy-claude-update-{pid}'
 podman image inspect claude-yolo:base
 podman image inspect claude-yolo:latest --format '{{.Id}}'
 podman image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-version"}}'
 podman image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-dockerfile-hash"}}'
-podman run --rm --entrypoint claude claude-yolo:latest --version
+podman run --rm --pids-limit 4096 --entrypoint claude claude-yolo:latest --version
 curl -fsSL https://registry.npmjs.org/@anthropic-ai/claude-code/latest
 podman network ls --format '{{.Name}}'
 docker network ls --format '{{.Name}}'
 podman network ls --format '{{.Name}}'
-podman run --rm --network podman alpine wget -q -O- --timeout=10 http://google.com
+podman run --rm --pids-limit 4096 --network podman alpine wget -q -O- --timeout=10 http://google.com
 ccy-teams internal claim-container-name difftest-project yolo '{pid}'
 podman rm -f difftest-project_yolo
 timedatectl show -p Timezone --value

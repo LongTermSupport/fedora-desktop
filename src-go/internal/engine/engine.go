@@ -35,7 +35,8 @@
 //     zero Engine runs nothing. So the program an Engine runs is always one of the two.
 //   - E10. ccy --help's two questions: a bare image inspect (Inspect), whose every failure the
 //     help reads as "not built yet" as the bash launcher did, since it only says how to build
-//     the image; and claude --help run in the image (ClaudeHelp), its output merged.
+//     the image; and claude --help run in the image (ClaudeHelp) with the --pids-limit the
+//     caller settled, its output merged.
 package engine
 
 import (
@@ -137,13 +138,14 @@ func (e Engine) Inspect(ctx context.Context, image string) error {
 	return nil
 }
 
-// ClaudeHelp is `claude --help` run in the image, stdout and stderr as one stream: on a failure
-// the text is returned with the error, so the person sees why it would not run (E10).
-func (e Engine) ClaudeHelp(ctx context.Context, image string) (string, error) {
+// ClaudeHelp is `claude --help` run in the image under the pids limit given, stdout and stderr
+// as one stream: on a failure the text is returned with the error, so the person sees why it
+// would not run (E10).
+func (e Engine) ClaudeHelp(ctx context.Context, image, pidsLimit string) (string, error) {
 	if err := e.known(); err != nil {
 		return "", err
 	}
-	out, err := execx.Combined(ctx, e.runner, e.cmd("run", "--rm", "--entrypoint", "claude", image, "--help"))
+	out, err := execx.Combined(ctx, e.runner, e.cmd("run", "--rm", "--pids-limit", pidsLimit, "--entrypoint", "claude", image, "--help"))
 	if err != nil {
 		return out, fmt.Errorf("claude --help in %s: %w", image, err)
 	}

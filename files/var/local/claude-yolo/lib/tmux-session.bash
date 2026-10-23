@@ -419,7 +419,8 @@ ccy_tmux_insulate() {
     # hand-off (lib/token-handoff.bash) goes on the pane's command as the file's path alone,
     # so it reaches this session's launcher and not tmux's environment, which every later
     # session would inherit. The settled pids limit (lib/container-limits.bash) goes the same
-    # way, so a host export reaches this session and no later one.
+    # way, and ccy_tmux_start_detached starts tmux without it, so a host export reaches this
+    # session and no later one.
     if ! ccy_tmux_start_detached "$name" "$PWD" ${CCY_GH_TOKEN_HANDOFF:+env "CCY_GH_TOKEN_HANDOFF=$CCY_GH_TOKEN_HANDOFF"} ${CCY_PIDS_LIMIT:+env "CCY_PIDS_LIMIT=$CCY_PIDS_LIMIT"} "$launcher" "${launch[@]}"; then
         ccy_registry_remove "$name"
         return 1
@@ -461,7 +462,7 @@ ccy_tmux_start_detached() {
     # several sessions from one process, and two scopes may not share a name.
     systemd-run --user --scope --quiet --collect \
         --unit "ccy-tmux-$$-$(systemd-escape -- "$name")" --description "CCY tmux session $name" \
-        -- tmux -L "$CCY_TMUX_SOCKET" \
+        -- env -u CCY_PIDS_LIMIT tmux -L "$CCY_TMUX_SOCKET" \
         new-session -d -s "$name" -c "$dir" -- bash -c "$trampoline" ccy-tmux "$launcher" "$@" \; \
         set-hook -g client-attached "$(ccy_tmux_single_attach_hook)"
 }

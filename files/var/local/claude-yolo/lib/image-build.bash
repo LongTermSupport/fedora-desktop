@@ -37,7 +37,7 @@ ccy_base_image_build() {
 # while this one waited is seen, and a change to the image for any other reason is not.
 ccy_claude_is() {
     local probe
-    probe="$(container_cmd run --rm --entrypoint claude "$1" --version 2>&1)" &&
+    probe="$(container_cmd run --rm --pids-limit "$CCY_PIDS_LIMIT" --entrypoint claude "$1" --version 2>&1)" &&
         [[ "$probe" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]] && [ "${BASH_REMATCH[1]}" = "$2" ]
 }
 

@@ -44,7 +44,7 @@ rootful system socket (/run/podman/podman.sock).
 getenforce
 podman info --format '{{.Host.Security.SELinuxEnabled}}'
 gh auth token
-podman run --rm -e CLAUDE_CODE_OAUTH_TOKEN --entrypoint claude claude-yolo:latest --version
+podman run --rm --pids-limit 4096 -e CLAUDE_CODE_OAUTH_TOKEN --entrypoint claude claude-yolo:latest --version
     env: CLAUDE_CODE_OAUTH_TOKEN
 podman info --format '{{.Host.Security.Rootless}}'
 === files

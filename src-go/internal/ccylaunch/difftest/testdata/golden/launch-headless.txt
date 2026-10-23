@@ -28,7 +28,7 @@ all tests passed
 getenforce
 podman info --format '{{.Host.Security.SELinuxEnabled}}'
 gh auth token
-podman run --rm -e CLAUDE_CODE_OAUTH_TOKEN --entrypoint claude claude-yolo:latest --version
+podman run --rm --pids-limit 4096 -e CLAUDE_CODE_OAUTH_TOKEN --entrypoint claude claude-yolo:latest --version
     env: CLAUDE_CODE_OAUTH_TOKEN
 podman info --format '{{.Host.Security.Rootless}}'
 podman ps -a --filter name=_yolo --filter status=exited --format '{{.Names}}'
@@ -37,7 +37,7 @@ podman ps --filter name=difftest-project_yolo --format '{{.Names}}'
 podman image inspect claude-yolo:latest --format '{{.Id}}'
 podman image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-version"}}'
 podman image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-dockerfile-hash"}}'
-podman run --rm --entrypoint claude claude-yolo:latest --version
+podman run --rm --pids-limit 4096 --entrypoint claude claude-yolo:latest --version
 curl -fsSL https://registry.npmjs.org/@anthropic-ai/claude-code/latest
 ccy-teams internal claim-container-name difftest-project yolo '{pid}'
 podman rm -f difftest-project_yolo

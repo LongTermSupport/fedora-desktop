@@ -80,7 +80,9 @@ check "the refusal names the variable and what it takes" "1" "$(grep -c 'CCY_PID
 echo "=== the launcher ==="
 check "the launcher lists the library in CCY_LIBS" "1" "$(grep -c -E '^CCY_LIBS=\(.* container-limits( |\))' "$LAUNCHER")"
 check "the launcher sources it" "1" "$(grep -c -x -F "source \"\$SCRIPT_DIR/lib/container-limits.bash\"" "$LAUNCHER")"
-check "the limit is settled with the other options, before anything is built" "yes" "$(awk '/^ccy_lifecycle_validate_options / {v=NR} /^ccy_container_limits [|][|] exit 1$/ {l=NR} /ccy_agent_container run / {r=NR} END {print (v && l == v + 1 && l < r) ? "yes" : "no"}' "$LAUNCHER")"
+# Straight after the library is loaded: before arguments are read, --help's probe and --teams'
+# seat checks included, and above every engine run in the file.
+check "the limit is settled as soon as it is loaded, before any container runs" "yes" "$(awk '/^source "[$]SCRIPT_DIR\/lib\/container-limits[.]bash"$/ {s=NR} /^ccy_container_limits [|][|] exit 1$/ {l=NR} /(container_cmd|ccy_agent_container) run / && !r {r=NR} END {print (s && l == s + 1 && l < r) ? "yes" : "no"}' "$LAUNCHER")"
 check "the session container's run passes it" "1" "$(grep -c -F "ccy_agent_container run \$DOCKER_FLAGS --rm --pids-limit \"\$CCY_PIDS_LIMIT\" \\" "$LAUNCHER")"
 
 echo

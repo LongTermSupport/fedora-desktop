@@ -321,12 +321,12 @@ func TestHelpQuestions(t *testing.T) {
 	ctx := context.Background()
 	e, f := engineOn(t, Docker)
 	f.On([]string{"docker", "image", "inspect", "claude-yolo:latest"}, execx.Result{Stdout: []byte("[]\n")})
-	f.On([]string{"docker", "run", "--rm", "--entrypoint", "claude", "claude-yolo:latest", "--help"},
+	f.On([]string{"docker", "run", "--rm", "--pids-limit", "512", "--entrypoint", "claude", "claude-yolo:latest", "--help"},
 		execx.Result{Stdout: []byte("Usage: claude\n"), Stderr: []byte("warn\n")})
 	if err := e.Inspect(ctx, "claude-yolo:latest"); err != nil {
 		t.Fatalf("Inspect: %v", err)
 	}
-	out, err := e.ClaudeHelp(ctx, "claude-yolo:latest")
+	out, err := e.ClaudeHelp(ctx, "claude-yolo:latest", "512")
 	if err != nil || out != "Usage: claude\nwarn\n" {
 		t.Fatalf("ClaudeHelp = %q, %v", out, err)
 	}
@@ -340,7 +340,7 @@ func TestHelpQuestions(t *testing.T) {
 	if inspectErr := e.Inspect(ctx, "claude-yolo:latest"); inspectErr == nil {
 		t.Fatal("a failed inspect succeeded")
 	}
-	out, err = e.ClaudeHelp(ctx, "claude-yolo:latest")
+	out, err = e.ClaudeHelp(ctx, "claude-yolo:latest", "4096")
 	if err == nil || out != "Error: no such entrypoint\n" {
 		t.Fatalf("a failed claude --help = %q, %v; want its output and an error", out, err)
 	}
@@ -349,7 +349,7 @@ func TestHelpQuestions(t *testing.T) {
 	if err = zero.Inspect(ctx, "x"); !errors.Is(err, ErrUnknownKind) {
 		t.Fatalf("zero Engine Inspect = %v", err)
 	}
-	if _, err = zero.ClaudeHelp(ctx, "x"); !errors.Is(err, ErrUnknownKind) {
+	if _, err = zero.ClaudeHelp(ctx, "x", "4096"); !errors.Is(err, ErrUnknownKind) {
 		t.Fatalf("zero Engine ClaudeHelp = %v", err)
 	}
 }

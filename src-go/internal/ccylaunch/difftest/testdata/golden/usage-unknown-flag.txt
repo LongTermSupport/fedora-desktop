@@ -15,7 +15,7 @@ To forward unrecognised flags raw to claude, use a -- separator:
 === calls
 claude --help
 podman image inspect claude-yolo:latest
-podman run --rm --entrypoint claude claude-yolo:latest --help
+podman run --rm --pids-limit 4096 --entrypoint claude claude-yolo:latest --help
 === files
 dir  home/.claude-tokens 0700
 dir  home/.claude-tokens/ccy 0700

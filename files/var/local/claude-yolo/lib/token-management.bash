@@ -1114,7 +1114,7 @@ validate_token() {
     # the secret is taken from this process's environment and never appears in the
     # container run's argv, which is world-readable via /proc/<pid>/cmdline. It is set
     # in that one command's environment, so no other program is given it.
-    if CLAUDE_CODE_OAUTH_TOKEN="$token" container_cmd run --rm \
+    if CLAUDE_CODE_OAUTH_TOKEN="$token" container_cmd run --rm --pids-limit "$CCY_PIDS_LIMIT" \
         -e CLAUDE_CODE_OAUTH_TOKEN \
         --entrypoint claude \
         "$image_name" \
@@ -1245,7 +1245,7 @@ create_token() {
     # Run setup-token via claude CLI entrypoint
     # GH_TOKEN provided for container's gh CLI (not for Claude auth)
     # Claude auth happens via OAuth flow in browser
-    echo "Running: $CONTAINER_ENGINE run --rm --entrypoint claude \"$image_name\" setup-token"
+    echo "Running: $CONTAINER_ENGINE run --rm --pids-limit $CCY_PIDS_LIMIT --entrypoint claude \"$image_name\" setup-token"
     echo ""
 
     # BSH-09: GH_TOKEN by name (not -e VAR=value) keeps it out of the run argv, and
@@ -1254,7 +1254,7 @@ create_token() {
     # 0), so the failure diagnostics below were unreachable and a failed
     # setup-token fell through to the success branch. Capture the container's own
     # status via PIPESTATUS[0] and branch on that instead.
-    GH_TOKEN="$gh_token" container_cmd run -it --rm \
+    GH_TOKEN="$gh_token" container_cmd run -it --rm --pids-limit "$CCY_PIDS_LIMIT" \
         --entrypoint claude \
         -e GH_TOKEN \
         "$image_name" \

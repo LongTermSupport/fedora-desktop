@@ -279,31 +279,28 @@ rules:
       category: correctness
       confidence: HIGH
 
-  # Rule: a ccy session container started with the engine's default pids limit
+  # Rule: a ccy container started with the engine's default pids limit
   #
-  # WRONG: podman run -it --rm --name "$NAME" --label ccy=true ... "$IMAGE" claude
-  # RIGHT: podman run -it --rm --pids-limit "$CCY_PIDS_LIMIT" --name "$NAME" --label ccy=true ...
+  # WRONG: container_cmd run --rm --entrypoint claude "$IMAGE_NAME" --version
+  # RIGHT: container_cmd run --rm --pids-limit "$CCY_PIDS_LIMIT" --entrypoint claude ...
   #
   # What, why, what it does not see and how to fix: CLAUDE/QA.md,
-  # "ccy-session-container-default-pids-limit". The regex reads one command with
-  # its backslash continuation lines; a comment, an echo/printf of a command and
-  # a limit of 0 or -1 (no limit to the engine) do not count.
-  - id: ccy-session-container-default-pids-limit
+  # "ccy-container-default-pids-limit". The regex reads an engine run or create
+  # at command position (line start, or after ; & | ( ! or a shell keyword, past
+  # any VAR=value prefixes) and that command's backslash continuation lines,
+  # stopping at ; && || and #. A limit of -1, 0 (00 too) or max does not count.
+  - id: ccy-container-default-pids-limit
     patterns:
-      - pattern-regex: '(?m)^(?:(?!\b(?:echo|printf)\b)[^\n#])*(?:\b(?:podman|docker|container_cmd|ccy_agent_container)|"?\$\{?[A-Za-z_]*ENGINE[A-Za-z_]*\}?"?)[ \t]+(?:container[ \t]+)?(?:run|create)\b(?=(?:[^\n]*\\\n)*?[^\n#]*(?:--label[ \t=]+|-l[ \t]+)["'']?ccy=true\b)(?!(?:[^\n]*\\\n)*?[^\n#]*--pids-limit[ \t=]+(?!["'']?(?:-1|0)["'']?(?:[ \t\\]|$)))[^\n]*'
+      - pattern-regex: '(?m)^(?![ \t]*#)(?:[^\n#]*?(?:[;|&(!]|\b(?:then|do|else|elif|exec|if|while|until|time|env|command)\b))?[ \t]*(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"\n]*"|''[^''\n]*''|[^ \t\n;|&]*)[ \t]+)*(?:exec[ \t]+)?(?:podman|docker|container_cmd|ccy_agent_container|"?\$\{?[A-Za-z_]*ENGINE[A-Za-z_]*\}?"?)[ \t]+(?:container[ \t]+)?(?:run|create)\b(?!(?:(?:[^\n#;&|]|&(?!&)|\|(?!\|))*\\\n)*?(?:[^\n#;&|]|&(?!&)|\|(?!\|))*--pids-limit[ \t=]+(?!["'']?(?:-1|0+|max)["'']?(?:[ \t\\);]|$)))[^\n]*'
     message: >
-      A ccy session container started with no --pids-limit gets the engine's
-      default (podman 2048 threads, docker none), and a busy session's forks are
-      refused until claude aborts. Pass --pids-limit "$CCY_PIDS_LIMIT", settled
-      by ccy_container_limits (lib/container-limits.bash; docs/ccy.md,
-      "Container limits").
+      A ccy container started with no --pids-limit gets the engine's default
+      (podman 2048 threads, docker none), and a busy session's forks are refused
+      until claude aborts. Pass --pids-limit "$CCY_PIDS_LIMIT", settled by
+      ccy_container_limits (lib/container-limits.bash; docs/ccy.md, "Container
+      limits"), on every run and create ccy makes.
     paths:
       include:
-        - 'files/**'
-        - 'scripts/**'
-        - 'helpers/**'
-        - 'fedora-install/**'
-        - 'CLAUDE/Plan/**'
+        - 'files/var/local/claude-yolo/**'
     languages: [bash]
     severity: ERROR
     metadata:

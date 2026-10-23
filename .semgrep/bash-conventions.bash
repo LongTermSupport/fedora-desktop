@@ -237,64 +237,107 @@ some_cmd || grep -q 'needle' file
 # ok: pipe-into-grep-q-under-pipefail
 some_cmd | grep -q 'needle'  # FAIL-FAST-OK: a one-line producer cannot be killed
 
-# --- ccy-session-container-default-pids-limit ---
+# --- ccy-container-default-pids-limit ---
 
-# ruleid: ccy-session-container-default-pids-limit
+# ruleid: ccy-container-default-pids-limit
 podman run -it --rm --name "$NAME" --label ccy=true "$IMAGE" claude
 
-# ruleid: ccy-session-container-default-pids-limit
+# ruleid: ccy-container-default-pids-limit
 CLAUDE_CODE_OAUTH_TOKEN="$T" ccy_agent_container run $DOCKER_FLAGS --rm \
     --name "$CONTAINER_NAME" \
     --label ccy=true \
-    --label "ccy-project=$PROJECT_NAME" \
     "$IMAGE_NAME" \
     "${CCY_AGENT_CMD[@]}" || container_rc=$?
 
-# ruleid: ccy-session-container-default-pids-limit
-"$CONTAINER_ENGINE" run -d --label=ccy=true "$IMAGE"
+# ruleid: ccy-container-default-pids-limit
+"$CONTAINER_ENGINE" run -d "$IMAGE"
 
-# ruleid: ccy-session-container-default-pids-limit
-${ENGINE} create --label 'ccy=true' "$IMAGE"
+# ruleid: ccy-container-default-pids-limit
+${ENGINE} create "$IMAGE"
 
-# ruleid: ccy-session-container-default-pids-limit
-exec docker container run -it --label ccy=true \
+# ruleid: ccy-container-default-pids-limit
+exec docker container run -it \
     "$IMAGE"
 
-# ok: ccy-session-container-default-pids-limit
+# ruleid: ccy-container-default-pids-limit
+if claude_help=$(container_cmd run --rm --entrypoint claude "$IMAGE" --help 2>&1); then :; fi
+
+# ruleid: ccy-container-default-pids-limit
+if ! container_cmd run \
+    --name "$temp_name" \
+    --entrypoint sh "$IMAGE" -c 'npm install -g x'; then :; fi
+
+# ruleid: ccy-container-default-pids-limit
+GH_TOKEN="$gh_token" container_cmd run -it --rm \
+    --entrypoint claude "$IMAGE" setup-token 2>&1 | tee "$out"
+
+# ruleid: ccy-container-default-pids-limit
+probe="$(container_cmd run --rm --entrypoint claude "$1" --version 2>&1)"
+
+# ruleid: ccy-container-default-pids-limit
+echo hi && podman run -i "$IMAGE"
+
+# ruleid: ccy-container-default-pids-limit
+podman run -it "$IMAGE"; podman run --pids-limit 10 x
+
+# ruleid: ccy-container-default-pids-limit
+podman run -it "$IMAGE" && podman run --pids-limit 10 x
+
+# ruleid: ccy-container-default-pids-limit
+podman run -it "$IMAGE"  # TODO add --pids-limit
+
+# ruleid: ccy-container-default-pids-limit
+podman run -it --pids-limit -1 "$IMAGE"
+
+# ruleid: ccy-container-default-pids-limit
+podman run -it --pids-limit "-1" "$IMAGE"
+
+# ruleid: ccy-container-default-pids-limit
+podman run -it --pids-limit=0 \
+    "$IMAGE"
+
+# ruleid: ccy-container-default-pids-limit
+podman run -it --pids-limit 00 "$IMAGE"
+
+# ruleid: ccy-container-default-pids-limit
+podman run -it --pids-limit max "$IMAGE"
+
+# ok: ccy-container-default-pids-limit
 CLAUDE_CODE_OAUTH_TOKEN="$T" ccy_agent_container run $DOCKER_FLAGS --rm --pids-limit "$CCY_PIDS_LIMIT" \
     --name "$CONTAINER_NAME" \
-    --label ccy=true \
     "$IMAGE_NAME" || container_rc=$?
 
-# ok: ccy-session-container-default-pids-limit
-podman run -it --rm --label ccy=true \
+# ok: ccy-container-default-pids-limit
+podman run -it --rm \
     --pids-limit=16384 "$IMAGE"
 
-# ok: ccy-session-container-default-pids-limit
-podman run --rm --entrypoint claude "$IMAGE" --version
+# ok: ccy-container-default-pids-limit
+if claude_help=$(container_cmd run --rm --pids-limit "$CCY_PIDS_LIMIT" --entrypoint claude "$IMAGE" --help 2>&1); then :; fi
 
-# ok: ccy-session-container-default-pids-limit
+# ok: ccy-container-default-pids-limit
+GH_TOKEN="$gh_token" container_cmd run -it --rm --pids-limit "$CCY_PIDS_LIMIT" \
+    --entrypoint claude "$IMAGE" setup-token 2>&1 | tee "$out"
+
+# ok: ccy-container-default-pids-limit
 podman ps --filter label=ccy=true --format '{{.Names}}'
 
-# ok: ccy-session-container-default-pids-limit
-podman run --rm "$IMAGE" true
-echo "--label ccy=true is what marks a session"
+# ok: ccy-container-default-pids-limit
+podman-compose up -d
 
-# ruleid: ccy-session-container-default-pids-limit
-podman run -d -l ccy=true "$IMAGE"
+# ok: ccy-container-default-pids-limit
+echo "podman run --rm --network $NET alpine wget -q -O- http://example.com"
 
-# ruleid: ccy-session-container-default-pids-limit
-podman run -it --label ccy=true "$IMAGE"  # TODO add --pids-limit
+# ok: ccy-container-default-pids-limit
+echo "Running: $CONTAINER_ENGINE run --rm --entrypoint claude \"$IMAGE\" setup-token"
 
-# ruleid: ccy-session-container-default-pids-limit
-podman run -it --pids-limit -1 --label ccy=true "$IMAGE"
+# ok: ccy-container-default-pids-limit
+if ! pgrep -f "${CONTAINER_ENGINE} run.*--name[= ]${name}$" >/dev/null; then :; fi
 
-# ruleid: ccy-session-container-default-pids-limit
-podman run -it --pids-limit=0 \
-    --label ccy=true "$IMAGE"
+# ok: ccy-container-default-pids-limit
+# a comment that says (podman run x) is not a run
 
-# ok: ccy-session-container-default-pids-limit
-echo "podman run --label ccy=true ..."
+# ok: ccy-container-default-pids-limit
+podman run -d --pids-limit 4096 "$IMAGE"
 
-# ok: ccy-session-container-default-pids-limit
-podman run -d --pids-limit 4096 -l ccy=true "$IMAGE"
+# ok: ccy-container-default-pids-limit
+podman run -d --pids-limit 100 "$IMAGE"
