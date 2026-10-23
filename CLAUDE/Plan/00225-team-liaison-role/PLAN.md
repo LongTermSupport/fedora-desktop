@@ -80,8 +80,10 @@ Every build task is test first: the failing test is committed or recorded before
   in an `EXIT` trap). It records:
   - which paths inside the checkout a ccy session (Claude Code with the hooks daemon) writes,
     found by launching one with the checkout `ro` and logging each `EROFS`, each classified
-    as state (bound `rw` at its real path) or configuration (stays `ro`; LZ17);
-  - whether `git status` and `git log` work on a `ro` checkout;
+    as state (bound `rw` at its real path) or configuration (stays `ro`; LZ17), with every
+    entry of `.claude/ccy/` classified and the files the entrypoint writes at launch listed;
+  - whether `git status` and `git log` work on a `ro` checkout, and that a host commit shows
+    through the `ro` bind;
   - the same for an LXC unit with `BindReadOnlyPaths=`;
   - that a coordinator's token can `GET /rooms/{room}/event/{id}` in the questions room.
 - [ ] ⬜ **Task 0.2**: Findings in `RESEARCH-facts.md`; LZ17 and LZ20's writable list is the
@@ -157,8 +159,9 @@ Every build task is test first: the failing test is committed or recorded before
 
 - [ ] ⬜ **Task 4.1**: `Decide` extended as LZ16a says (`Call` and `LiaisonActive` inputs),
   00222's own tests kept green; table tests, then the code:
-  - LZ15's liaison set, with the git-write parser's cases (each verb, `-C dir`, `env` prefixes,
-    a quoted commit message);
+  - LZ15's liaison set: the git and gh allowlists, with cases for each allowed form, unlisted
+    verbs (`pull`, `add`, `apply`, `restore`, `clean`, `worktree`, `update-ref`), `-C dir`,
+    `env` prefixes, `git -c`, and a quoted commit message;
   - LZ16's coordinator `AskUserQuestion` rule, for an active and an inactive liaison;
   - LZ3's single-role session.
 - [ ] ⬜ **Task 4.2**: `hooks.json`'s matcher gains `Edit|Write|NotebookEdit|Bash` only for the
@@ -170,10 +173,14 @@ Every build task is test first: the failing test is committed or recorded before
 ### Phase 5: Read-only code per runtime
 
 - [ ] ⬜ **Task 5.1**: `ccy-teams internal launch-mounts` (Go): the `ro` workspace and an `rw`
-  bind of each state path measured in Task 0.1 at its real host path (`.claude/ccy/` among
-  them), with a test that no configuration path (`.claude/settings*`, hooks, the daemon config)
-  is ever writable, for a liaison launch; nothing for any other role. Tests on
-  a fixture membership. The launcher appends its output in place of the workspace `-v`, adding
+  bind of each state path measured in Task 0.1 at its real host path, entry by entry, never
+  `.claude/ccy/` whole; the rendered `settings.json` and `.claude.json` in a per-seat host
+  directory bound `ro` over their paths. Tests on a fixture membership, for a liaison launch, that
+  no configuration path is ever writable: the project's `.claude/settings*`, hooks and daemon
+  config, and in `.claude/ccy/` the user `settings.json`, `claude-supervise.py`, `mounts`,
+  `ccy.env`, `Dockerfile` and `allowed-hostnames`; an unclassified path is `ro`; nothing changes
+  for any other role. The entrypoint's one-call check (present and not writable, else stop
+  naming the path) is a kit Go binary, tested first; **container version bump**. The launcher appends its output in place of the workspace `-v`, adding
   no line (`qa-bash-limits` proves it), and `scripts/test-ccy-agent-bus.bash` pins the
   arguments first, red. **CCY version bump.**
 - [ ] ⬜ **Task 5.2**: LZ18: the board's `relaunch for read-only` state and the role-notice text,
@@ -239,7 +246,7 @@ Every build task is test first: the failing test is committed or recorded before
 | LD8  | Progress updates                                     | When the human asks, or when the coordinator hands one over; no timed digests (LZ13)                                                                                                        |
 | LD9  | Timers                                               | `liaison_offline_s` 600, `liaison_relay_s` 900, `liaison_handoff_s` 1800, per team in `agent_bus_teams`                                                                                     |
 | LD10 | v1 member side in Python                             | Yes, as 00211 D9's interim (pingbus and admin are Python until v2); every new piece outside them (guard, mounts, board) is Go                                                               |
-| LD11 | May the liaison reword a hand-off it posts           | **No**: posted verbatim, a `Liaison's note:` may follow; a reworded post fails the check (`reworded`, LZ5a, LZ6)                                                                            |
+| LD11 | May the liaison reword a hand-off it posts           | **No**: posted verbatim, a `liaison_note` may go with it in its own key; a reworded post fails the check (`reworded`, LZ5a, LZ6)                                                            |
 
 ## Risks & Mitigations
 
@@ -249,7 +256,7 @@ Every build task is test first: the failing test is committed or recorded before
 | A stale or wrong summary misleads the owner         | M      | M           | `as of` time, source IDs and "no news since" in every update; it asks rather than guesses (LZ14)                                |
 | A relay is taken as the human's authority           | H      | L           | Relays are `PEER`; the human's verbatim event is checked by the receiver, not the liaison; `verify-human` (LZ5-LZ7)             |
 | The liaison is offline, and questions go unanswered | M      | M           | Inactive after `liaison_offline_s`: the old route comes back, the coordinator is woken, nothing blocks (LZ10)                   |
-| The `ro` mount breaks a session's own writes        | M      | M           | Task 0.1 measures them; writable per-session dirs for exactly those (LZ17)                                                      |
+| The `ro` mount breaks a session's own writes        | M      | M           | Task 0.1 measures and classifies them; state bound `rw` at its real path, configuration `ro` (LZ17)                             |
 | A host `cc` liaison writes through Bash             | L      | L           | Stated as guard-only (LZ19); ccy or LXC for a liaison with a boundary                                                           |
 | Old members distrust a record naming `liaison`      | H      | M           | Upgrade-first; `set-role` refuses while a running member is old (DESIGN section 9)                                              |
 

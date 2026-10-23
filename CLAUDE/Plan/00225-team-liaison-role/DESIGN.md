@@ -52,7 +52,8 @@ before; golden tests pin it (Task 1.0).
   this plan: the liaison receives human messages there (LZ9); a liaison's post is valid (a
   coordinator ignores it as `liaison-post`, never drops it, and shows it in a relay, LZ6);
   `thread`, `questions` and `history --room questions` accept the liaison too, and `ask-human`
-  accepts it only with `--handoff` or `--update`. With an active liaison, a coordinator's
+  accepts it only with `--handoff` (a coordinator's `ask-human --update` is a hand-off of kind
+  `update`, LZ13, which the liaison answers with a `pingbus report`). With an active liaison, a coordinator's
   `thread --ask` (which mentions the humans) is a hand-off like `ask-human` (LZ8). Each change has a refusal test first, and a team with no liaison keeps today's
   outcomes (LZ0).
 
@@ -94,7 +95,7 @@ handed over, never from the liaison.
   hand-off named by that post's `handed-off:`. It is verified only when all of these hold:
 
   - the sender is a listed human in the current record, and the event is not redacted;
-  - it is attached to a question post `Q<n>`;
+  - it is attached to a question post `Q<n>` whose sender is this team's liaison;
   - that post's `handed-off:` names a hand-off **sent by this receiver** to the liaison;
   - the post's question text equals the hand-off's text byte for byte (LZ5a);
   - the human's event is later than the post.
@@ -129,7 +130,8 @@ handed over, never from the liaison.
   no more, and nothing beyond that question. Act on the human's verbatim answer, not on the
   liaison's summary; when they differ, the verbatim answer wins and you ask the liaison. A
   `NOT VERIFIED` relay, a terminal relay and every other liaison text are `PEER` information.
-  Before a consequential act the existing rule stands: confirm with
+  Before a consequential act the existing rule (confirm the human's request before acting)
+  stands, with a new command for relays: confirm with
   `pingbus verify-human --team <team> EVENT_ID`, which runs the same checks and prints the
   sender, the question and the answer from the homeserver, exiting 0 only when all hold.
 
@@ -225,18 +227,22 @@ handed over, never from the liaison.
 ## 5. Tools and read-only code
 
 - **LZ15. The liaison's guard (00222 extension).** `Decide` gains: a session that is the liaison
-  (LZ3) is denied `Edit`, `Write`, `NotebookEdit`, and a `Bash` command whose parsed first words
-  are a git write (`commit`, `push`, `merge`, `rebase`, `cherry-pick`, `am`, `tag`, `reset`,
-  `revert`, `stash`, `checkout -b`, `switch -c`, `branch` with a name) or `gh pr create|merge`.
+  (LZ3) is denied `Edit`, `Write`, `NotebookEdit`, and a `Bash` command that runs `git` with any
+  subcommand outside a read-only allowlist (`status`, `log`, `show`, `diff`, `blame`, `grep`,
+  `ls-files`, `ls-tree`, `rev-parse`, `cat-file`, `describe`, `shortlog`, and `branch` or
+  `tag` with only listing options), or `gh` with anything but `view`, `list`, `diff` and `status`
+  subcommands. An allowlist, so a write verb nobody listed is denied, never allowed.
   It keeps `AskUserQuestion`, `PushNotification` and every read tool. The text, from a fixed
   template: `agent-bus: <tool> is not the liaison's: you talk to the humans and do no work. Hand it to your coordinator: pingbus say --team <team> --to-coordinator '<what is needed>'.` A Bash
   write by redirection is not caught; that is what the mount is for (LZ17), and on `cc` it is a
   guard against mistakes only (LZ19).
+
 - **LZ16. The coordinator loses `AskUserQuestion` while a liaison is active** in a team it
   coordinates. Denial text: `agent-bus: ask the humans through your liaison: pingbus ask-human --team <team> (it hands the question to myrepo.3).` With no liaison, or an inactive one, it
   keeps it (LZ0, LZ10). The guard reads activity from LZ10's `liaison.json`, the same file
   `ask-human` reads, on every call; missing or stale means inactive, so the coordinator may ask.
   LD3.
+
 - **LZ16a. What this changes in Plan 00222.** 00222's Non-Goals exclude restricting the
   coordinator and Bash command patterns, and its R7 is `Decide(rolesByTeam, policyByTeam, tool)`.
   LZ15 and LZ16 need both, so this plan asks 00222's owner (Task 7.4) for: a `Call` input
@@ -244,28 +250,49 @@ handed over, never from the liaison.
   `LiaisonActive` input; and the two Non-Goals narrowed to "for workers". The package stays
   pure and names no v1 file, so v2 imports the extended one. If 00222 is built first as it
   stands, Phase 4 makes that change itself, with 00222's own tests kept green.
+
 - **LZ17. ccy: a read-only checkout.** A ccy session launched as the liaison mounts the
   checkout `ro` (with the same relabel) instead of `rw`, plus an `rw` bind of the real host
-  path for each in-checkout path a session must write. ccy keeps the session's Claude Code
-  state, login and supervisor wrapper in `/workspace/.claude/ccy/` (claude-yolo), so that one is
-  bound `rw` to its real host path and survives relaunch as today; the hooks daemon's untracked
-  state and the project's `untracked/` likewise. Task 0.1 measures the list. Nothing that
-  configures what runs in the session stays writable: `.claude/settings*.json`,
-  `.claude/hooks*`, `.claude/hooks-daemon.yaml` and the checked-in tree stay `ro`, so the
-  liaison cannot switch off its own guard (the guard itself is in the image's member kit, not
-  the checkout). Task 0.1 classifies every measured path as state or configuration, and only
-  state is bound `rw`. The mount arguments come from Go
+  state path a session must write inside the checkout, and nothing more. The rule: nothing that
+  decides what runs in the session, or how the next launch is built, is writable by the
+  liaison. That covers more than the project's `.claude/settings*.json`, `.claude/hooks*` and
+  `.claude/hooks-daemon.yaml`. ccy links `/root/.claude` to `/workspace/.claude/ccy/`
+  (`entrypoint.sh`), so that directory also holds the user `settings.json` (which can turn hooks
+  off), the `claude-supervise.py` wrapper the session runs through, the `mounts` file added to
+  the next launch, `ccy.env`, the `Dockerfile` and `allowed-hostnames`. So `.claude/ccy/` is not
+  bound `rw` whole:
+
+  - **State** (Task 0.1 lists it: transcripts, todos, the login's token file and the like) is
+    bound `rw` at its real host path, entry by entry, so it survives relaunch as today. The
+    hooks daemon's untracked state and the project's `untracked/` are state too.
+  - **Configuration** stays `ro`, including every file named above. The entrypoint writes
+    `settings.json` and `/root/.claude.json` at every launch, so for a liaison they cannot simply
+    be `ro`. Instead, `launch-mounts` (Go, on the host) renders exactly what the entrypoint would
+    write, before the launch, into a per-seat host directory outside the checkout, and binds
+    each file `ro` over its path. The entrypoint's liaison case only checks that each is present
+    and not writable, through a kit Go binary, and stops the launch with the path named if not.
+    The entrypoint is on the ratchet and gains no line beyond that one call.
+
+  Task 0.1 classifies every entry of `.claude/ccy/` and every other measured write as state or
+  configuration. Anything unclassified is configuration (`ro`): a session that then fails names
+  the path, and the list is extended by a reviewed change, never at run time. The guard itself
+  is in the image's member kit, not the checkout. The liaison reads the host checkout live
+  through the `ro` bind, including the other seats' commits there; it cannot `git fetch`, since
+  `.git` is `ro`, and needs no fetch. The mount arguments come from Go
   (`ccy-teams internal launch-mounts`, beside `membership-init`); the launcher only appends what
   Go printed, so it does not grow. **CCY version bump.**
+
 - **LZ18. A hot role change and the mount.** The mount is fixed at launch. A hot change *to*
   liaison applies the guard at the next tool call and the board marks the seat `relaunch for read-only`; a hot change *from* liaison leaves the checkout read-only until relaunch, and the
   role notice says so. Quick Launch (LAST_TEAMS) brings the role back, so the next launch mounts
   correctly.
+
 - **LZ19. cc (host): guard only.** A host `cc` session runs as the owner's uid in the owner's
   checkout; no filesystem boundary is possible without a new user. It gets LZ15's guard and,
   when launched as the liaison, Claude Code's own `--disallowedTools Edit Write NotebookEdit`
   (fixed at launch, so it is a second layer, not the live one). Documented as a control against
   mistakes, as Plan 00207's Non-Goals say of every same-uid session.
+
 - **LZ20. LXC: a read-only bind in the unit.** The play writes `BindReadOnlyPaths=<checkout>` and
   `BindPaths=` binding each measured state path to itself, so it stays writable at its real
   place (Task 0.1; configuration stays read-only, as in LZ17) into `agent-bus-claude-<agent-user>.service` when the member's `role:` is
