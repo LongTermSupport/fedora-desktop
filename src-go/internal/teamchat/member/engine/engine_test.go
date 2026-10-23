@@ -87,27 +87,72 @@ func (l *logBuf) setFail(f bool) {
 	l.fail = f
 }
 
-// fakeNotices is a team's client as the ends and status see it.
+// fakeNotices is a team's client as the ends, status and the sender see it: with hs set, its
+// sends and reads go to fakehs; without, a send succeeds with a new event id.
 type fakeNotices struct {
 	mu       sync.Mutex
 	roster   proto.Roster
 	verified bool
+
+	hs      *matrix.Client
+	token   string
+	sendErr error
+	// sendErrs answer the next sends in turn, a nil one going through, before sendErr.
+	sendErrs    []error
+	messagesErr error
+	txns        []string
+	contents    [][]byte
+	own         map[string]proto.Related
 }
 
 func (*fakeNotices) RoomState(context.Context, string) ([]json.RawMessage, error) { return nil, nil }
 
-func (*fakeNotices) Messages(context.Context, string, matrix.MessagesRequest) (matrix.MessagesPage, error) {
-	return matrix.MessagesPage{}, nil
+func (n *fakeNotices) Messages(ctx context.Context, room string, req matrix.MessagesRequest) (matrix.MessagesPage, error) {
+	n.mu.Lock()
+	hs, err := n.hs, n.messagesErr
+	n.mu.Unlock()
+	if err != nil || hs == nil {
+		return matrix.MessagesPage{}, err
+	}
+	return hs.Messages(ctx, room, req)
 }
 
-func (*fakeNotices) Send(context.Context, string, string, string, json.RawMessage) (string, error) {
-	return "", nil
+func (n *fakeNotices) Send(ctx context.Context, room, eventType, txn string, content json.RawMessage) (string, error) {
+	n.mu.Lock()
+	hs, err := n.hs, n.sendErr
+	if len(n.sendErrs) > 0 {
+		err, n.sendErrs = n.sendErrs[0], n.sendErrs[1:]
+	}
+	n.txns = append(n.txns, txn)
+	n.contents = append(n.contents, content)
+	count := len(n.txns)
+	n.mu.Unlock()
+	switch {
+	case err != nil:
+		return "", err
+	case hs == nil:
+		return evID(9000 + count), nil
+	}
+	return hs.Send(ctx, room, eventType, txn, content)
 }
 
 func (*fakeNotices) SetPresence(context.Context, string, string) error { return nil }
 func (*fakeNotices) Anchors() proto.Anchors                            { return proto.Anchors{} }
-func (*fakeNotices) RecordOwnSend(string, proto.Related)               {}
-func (*fakeNotices) Token() string                                     { return "" }
+
+func (n *fakeNotices) RecordOwnSend(id string, r proto.Related) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.own == nil {
+		n.own = map[string]proto.Related{}
+	}
+	n.own[id] = r
+}
+
+func (n *fakeNotices) Token() string {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.token
+}
 
 func (n *fakeNotices) Roster() (proto.Roster, bool) {
 	n.mu.Lock()
@@ -274,6 +319,9 @@ type world struct {
 	states     []wire.State
 	newTeamErr error
 	runtimeErr error
+	// mains are the main rooms of the teams on fakehs; any other team's is mainRoom.
+	mains map[paths.TeamID]string
+	forge *fakeForge
 }
 
 func newWorld(t *testing.T, delivery string) *world {
@@ -294,7 +342,8 @@ func newWorld(t *testing.T, delivery string) *world {
 	t.Cleanup(func() { check(t, k.Release()) })
 	w := &world{
 		t: t, root: root, layout: layout, run: run, keeper: k, clk: clock.NewFake(time.Hour, startWall),
-		log: &logBuf{}, fakes: map[paths.TeamID]*fakeTeam{},
+		log: &logBuf{}, fakes: map[paths.TeamID]*fakeTeam{}, mains: map[paths.TeamID]string{},
+		forge: &fakeForge{result: team.ForgeResult{Outcome: team.ForgeProven}},
 	}
 	w.e, err = New(w.config(delivery))
 	check(t, err)
@@ -313,7 +362,7 @@ func (w *world) config(delivery string) Config {
 	return Config{
 		Root: w.root, RunRoot: w.root, Layout: w.layout, Run: w.run, Clock: w.clk, Log: w.log,
 		NewTeam: w.newTeam, NewEnds: func(EndsConfig) team.Ends { return fakeEnds{} },
-		Delivery: delivery, OnState: w.onState, Runtime: w.readRuntime,
+		Delivery: delivery, OnState: w.onState, Runtime: w.readRuntime, Forge: w.forge,
 	}
 }
 
@@ -366,9 +415,15 @@ func (w *world) bundle(id paths.TeamID) []byte {
 	issuer, err := paths.ParseDigest("0123456789abcdef")
 	check(w.t, err)
 	server := paths.ServerName(id)
+	main := mainRoom
+	w.mu.Lock()
+	if m, ok := w.mains[id]; ok {
+		main = m
+	}
+	w.mu.Unlock()
 	b := seat.Bundle{
 		V: 1, Team: id, ServerName: server, UserID: agent(id, 1), AdminID: "@admin:" + server,
-		MainRoom: mainRoom, BaseURL: "http://127.0.0.1:8448", PlainHTTPHosts: []string{"127.0.0.1"},
+		MainRoom: main, BaseURL: "http://127.0.0.1:8448", PlainHTTPHosts: []string{"127.0.0.1"},
 		DeviceID: paths.SeatDevice, IssuedMS: startWall, Issuer: issuer,
 	}
 	data, err := b.Encode()
@@ -455,9 +510,13 @@ func (w *world) persist(id paths.TeamID, items ...team.Item) {
 	w.persistBatch(team.Batch{Team: id, NextBatch: "s1", Items: items})
 }
 
-// persistBatch is b persisted, and the main floor the store then keeps.
+// persistBatch is b persisted (at s1 when it names no position), and the main floor the store
+// then keeps.
 func (w *world) persistBatch(b team.Batch) int64 {
 	w.t.Helper()
+	if b.NextBatch == "" {
+		b.NextBatch = "s1"
+	}
 	floor, err := w.e.Persist(w.t.Context(), b)
 	check(w.t, err)
 	return floor
@@ -521,6 +580,8 @@ func TestNewRefusesAnIncompleteConfig(t *testing.T) {
 		"no runtime":  func(c *Config) { c.Runtime = nil },
 		"a delivery":  func(c *Config) { c.Delivery = "post" },
 		"no run":      func(c *Config) { c.Run = paths.RunID{} },
+		// n3d-D33: a missing forge checker is a wiring error, not a forge that did not answer.
+		"no forge": func(c *Config) { c.Forge = nil },
 	} {
 		cfg := good
 		mutate(&cfg)
@@ -583,5 +644,15 @@ func TestALostLogLineIsCountedInTheNext(t *testing.T) {
 	w.e.logf("three")
 	if got := w.log.String(); got != "engine: 2 log lines were lost\nengine: three\n" {
 		t.Fatalf("link.log = %q", got)
+	}
+}
+
+// n3d-D4: the recovery is team.Engine's seam; for a team not held it is ErrRemoved, as every
+// other team call is, so the team goroutine ends.
+func TestN3dTheRecoveryOfATeamNotHeldIsRemoved(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	var eng team.Engine = w.e
+	if err := eng.RecoverSends(t.Context(), tid(t, "ops"), nil); !errors.Is(err, team.ErrRemoved) {
+		t.Fatalf("RecoverSends = %v, want ErrRemoved", err)
 	}
 }

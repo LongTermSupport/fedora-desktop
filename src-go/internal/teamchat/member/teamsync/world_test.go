@@ -387,13 +387,28 @@ type fakeEngine struct {
 	resets     []int64
 	begun      int
 	views      int
+	persisted  int
 	batches    chan team.Batch
 	healthed   chan struct{}
+	// own are the outbox's pings View gives as OwnPings.
+	own map[string]proto.OwnPing
+	// saves are the revs SaveRoster was given, contents their contents; saveErr fails each.
+	saves    []int64
+	contents []json.RawMessage
+	saveErr  error
+	// recovers counts RecoverSends; recoverErr fails the next; persistedAtRecover is how many
+	// batches had been persisted at each.
+	recovers           int
+	recoverErr         error
+	persistedAtRecover []int
 }
 
 func newFakeEngine(t *testing.T, tm paths.TeamID, run paths.RunID) *fakeEngine {
 	t.Helper()
-	return &fakeEngine{t: t, tm: tm, run: run, related: map[string]proto.Related{}, batches: make(chan team.Batch, 64), healthed: make(chan struct{}, 1)}
+	return &fakeEngine{
+		t: t, tm: tm, run: run, related: map[string]proto.Related{}, batches: make(chan team.Batch, 64),
+		healthed: make(chan struct{}, 1), own: map[string]proto.OwnPing{},
+	}
 }
 
 func (e *fakeEngine) Load(t paths.TeamID, userID string) (state.Store, error) {
@@ -413,7 +428,7 @@ func (e *fakeEngine) View(_ paths.TeamID, ids, relations []string, _ proto.Roste
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.views++
-	v := team.View{SeenIDs: map[string]bool{}, Events: map[string]proto.Related{}, OwnPings: map[string]proto.OwnPing{}}
+	v := team.View{SeenIDs: map[string]bool{}, Events: map[string]proto.Related{}, OwnPings: maps.Clone(e.own)}
 	if e.store == nil {
 		return v, nil
 	}
@@ -456,6 +471,7 @@ func (e *fakeEngine) Persist(_ context.Context, b team.Batch) (int64, error) {
 			s.Pending = append(s.Pending, it.Pending)
 		}
 	}
+	e.persisted++
 	floor := s.Sync.FloorMS[proto.PurposeMain]
 	for _, p := range s.Pending {
 		if p.Room == proto.PurposeMain && p.SentMS <= floor {
@@ -494,6 +510,38 @@ func (e *fakeEngine) SetHealth(_ paths.TeamID, h team.Health) {
 	case e.healthed <- struct{}{}:
 	default:
 	}
+}
+
+func (e *fakeEngine) SaveRoster(_ context.Context, _ paths.TeamID, rev int64, content json.RawMessage) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.saveErr != nil {
+		return e.saveErr
+	}
+	e.saves, e.contents = append(e.saves, rev), append(e.contents, content)
+	return nil
+}
+
+func (e *fakeEngine) RecoverSends(context.Context, paths.TeamID, team.Notices) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.recovers++
+	e.persistedAtRecover = append(e.persistedAtRecover, e.persisted)
+	err := e.recoverErr
+	e.recoverErr = nil
+	return err
+}
+
+func (e *fakeEngine) ownPing(id string, p proto.OwnPing) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.own[id] = p
+}
+
+func (e *fakeEngine) savedRevs() []int64 {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return slices.Clone(e.saves)
 }
 
 // preload gives the engine a store of an earlier run, positioned at since when it is not "".

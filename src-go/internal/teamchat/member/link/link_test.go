@@ -204,6 +204,7 @@ func newLinkWorld(t *testing.T) *linkWorld {
 		Clock: w.clk, Proc: w.proc, Parent: func() (Parent, error) { return w.parent, nil },
 		UID: os.Getuid(), Kit: kit, RuntimeDir: w.dir + "/xdg", Home: w.dir, Log: w.log,
 		Engine: engine.New, NewTeam: w.newTeam, NewEnds: func(engine.EndsConfig) team.Ends { return w.ends },
+		Forge: stubForge{},
 		started: func(l *link) {
 			w.mu.Lock()
 			defer w.mu.Unlock()
@@ -600,6 +601,31 @@ func TestAnEngineThatCannotBeMadeIs78(t *testing.T) {
 	if code := w.exited(); code != int(exits.ExitConfig) {
 		t.Fatalf("exit %d", code)
 	}
+}
+
+// n3d W: the engine is given the link's one forge checker (n3d-D20), which it hands each team.
+func TestTheEngineIsGivenTheLinksForge(t *testing.T) {
+	w := newLinkWorld(t)
+	w.cfg.Forge = stubForge{}
+	given := make(chan team.Forge, 1)
+	w.cfg.Engine = func(c engine.Config) (*engine.Engine, error) {
+		given <- c.Forge
+		return nil, errors.New("no engine")
+	}
+	w.start()
+	w.launch(0)
+	if f := <-given; f != w.cfg.Forge {
+		t.Fatalf("the engine's forge = %#v", f)
+	}
+	if code := w.exited(); code != int(exits.ExitConfig) {
+		t.Fatalf("exit %d", code)
+	}
+}
+
+type stubForge struct{}
+
+func (stubForge) Check(context.Context, proto.ForgeCheck, proto.Forge) (team.ForgeResult, error) {
+	return team.ForgeResult{Outcome: team.ForgeProven}, nil
 }
 
 func TestAHeldLinkLockIs78(t *testing.T) {

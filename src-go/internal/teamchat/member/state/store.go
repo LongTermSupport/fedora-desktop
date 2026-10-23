@@ -1,6 +1,7 @@
 package state
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -12,34 +13,47 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
 
-// MaxStore is the seat store's file cap (B 2.3.2): the list caps' sum, rounded up.
-const MaxStore = 2 << 20
+// MaxStore is the seat store's file cap (B 2.3.2): the list caps' sum, rounded up to the next
+// 256 KiB (n3d-D1), so a list cap always fires first.
+const MaxStore = 12 * 256 << 10
 
 // B 2.3.2's caps: entries per list, and bytes per entry as compact JSON.
 const (
-	capPending     = 2048
-	sizePending    = 320
+	capPending = 2048
+	// sizePending and sizeLedger hold a TIMEOUT item keyed on the longest localpart (432 bytes)
+	// and a ping item with its verb (n3d-D30); B's 320 holds neither.
+	sizePending    = 448
 	pendingReserve = 256 // the last entries of pending, which only HUMAN and TIMEOUT items use
 	capLedger      = 1024
-	sizeLedger     = 320
-	capPings       = 256
+	sizeLedger     = 448
 	sizePing       = 3 << 10
-	capPingTargets = 16
 	capReceipts    = 1024
 	sizeReceipt    = 80
 	capAwaiting    = 32
 	sizeAwaiting   = 2252 // 2.2 KiB
 	capMissed      = 16
 	sizeMissed     = 640
-	capSending     = 64
-	sizeSending    = 128
-	capGateKeys    = 64
-	sizeGateKey    = 96
+	// n3d-D1: a send in flight carries its content, so B's 64 of 128 bytes are 32 of 20 KiB.
+	sizeSending = 20 << 10
+	// maxSendContent is A 11.2's cap on a composed content.
+	maxSendContent = 16384
+	// n3d-D24: one 60 s window at the limits' maxima allows 90 sends.
+	capGateKeys = 96
+	sizeGateKey = 96
 
 	maxNextBatch      = 1024
 	maxTranscriptPath = 1024
 	// maxUserID is A4's bound on a user id, which the entry sizes assume.
 	maxUserID = 128
+)
+
+// The send caps the store holds, which the engine refuses a send at before it reaches the store:
+// pings awaiting answers in the outbox (B 2.3.2), a ping's addressees (n3d-D5) and sends in
+// flight (n3d-D1).
+const (
+	MaxPings       = 256
+	MaxPingTargets = 16
+	MaxSending     = 32
 )
 
 const (
@@ -61,8 +75,8 @@ var listCaps = []listCap{
 	{"missed", []string{"missed"}, capMissed, sizeMissed},
 	{"ledger", []string{"ledger"}, capLedger, sizeLedger},
 	{"receipts", []string{"receipts"}, capReceipts, sizeReceipt},
-	{"pings", []string{keyOutbox, "pings"}, capPings, sizePing},
-	{"sending", []string{keyOutbox, "sending"}, capSending, sizeSending},
+	{"pings", []string{keyOutbox, "pings"}, MaxPings, sizePing},
+	{"sending", []string{keyOutbox, "sending"}, MaxSending, sizeSending},
 	{"gate keys", []string{keyOutbox, "gate", "recent"}, capGateKeys, sizeGateKey},
 }
 
@@ -134,6 +148,8 @@ type Pending struct {
 	Held     bool    `json:"held"`
 	Restored bool    `json:"restored"`
 	Handed   *string `json:"handed"`
+	// Verb is the ping's verb for an item "ping", null otherwise (n3d-D30).
+	Verb *string `json:"verb"`
 }
 
 // Awaiting is a delivery whose proof is not settled.
@@ -168,6 +184,8 @@ type Ledger struct {
 	Thread *string `json:"thread"`
 	From   string  `json:"from"`
 	AtMS   int64   `json:"at_ms"`
+	// Verb is the ping's verb for an item "ping", null otherwise (n3d-D30).
+	Verb *string `json:"verb"`
 }
 
 // Receipt is a read receipt still to send.
@@ -176,11 +194,14 @@ type Receipt struct {
 	Room string `json:"room"`
 }
 
-// Outbox is the sends: pings awaiting answers, sends in flight, and the send gate.
+// Outbox is the sends: pings awaiting answers, sends in flight, the send gate, and the event
+// id of the last send recorded as posted (null for none), which bounds a recovery's search
+// (n3d-D4).
 type Outbox struct {
-	Pings   []Ping    `json:"pings"`
-	Sending []Sending `json:"sending"`
-	Gate    Gate      `json:"gate"`
+	Pings    []Ping    `json:"pings"`
+	Sending  []Sending `json:"sending"`
+	Gate     Gate      `json:"gate"`
+	LastSent *string   `json:"last_sent"`
 }
 
 // Ping is a sent ping awaiting its answers; Answered and Reported index into To.
@@ -195,12 +216,31 @@ type Ping struct {
 	Reported []int    `json:"reported"`
 }
 
-// Sending is a send whose transaction id is chosen and whose answer has not arrived.
+// Sending is a send whose transaction id is chosen and whose answer has not arrived, with what
+// a restarted link re-sends it with (n3d-D1).
 type Sending struct {
-	Txn     string `json:"txn"`
-	Room    string `json:"room"`
-	Kind    string `json:"kind"`
-	SinceMS int64  `json:"since_ms"`
+	Txn  string `json:"txn"`
+	Room string `json:"room"`
+	Kind string `json:"kind"`
+	// SinceMS is the wall time of the charge.
+	SinceMS int64 `json:"since_ms"`
+	// Type is the event type, m.room.message.
+	Type string `json:"type"`
+	// Content is the composed content: a strict object of at most 16384 bytes (A 11.2).
+	Content json.RawMessage `json:"content"`
+	// Tried is a PUT that may have reached the server (n3d-D4).
+	Tried bool `json:"tried"`
+	// Ping is set for a ping whose verb expects an answer, else null.
+	Ping *SendingPing `json:"ping"`
+}
+
+// SendingPing is what the outbox needs of an answer-expecting ping once it is posted.
+type SendingPing struct {
+	Verb string   `json:"verb"`
+	Ref  *string  `json:"ref"`
+	To   []string `json:"to"`
+	// TimeoutMS is ack_timeout_s or halt_ack_timeout_s at the charge.
+	TimeoutMS int64 `json:"timeout_ms"`
 }
 
 // Gate is the send gate: proto.Bucket's integer credit and the recent duplicate keys.
@@ -297,11 +337,15 @@ func (a *Awaiting) check(c *rules) {
 
 func (o *Outbox) check(c *rules, server string) {
 	c.need(o.Pings != nil && o.Sending != nil && o.Gate.Recent != nil, "an outbox list is not a list")
+	ids := make([]string, 0, len(o.Pings))
 	for _, p := range o.Pings {
 		p.check(c, server)
+		ids = append(ids, p.ID)
 	}
+	c.need(distinct(ids), "the outbox holds a ping id twice")
+	c.need(o.LastSent == nil || proto.ValidEventID(*o.LastSent), "last_sent is not an event id")
 	for _, s := range o.Sending {
-		c.need(txnRe.MatchString(s.Txn) && slices.Contains(storeRooms, s.Room) && slices.Contains(sendKinds, s.Kind) && validMS(s.SinceMS), "a send in flight is not well formed")
+		s.check(c, server)
 	}
 	c.need(o.Gate.Credit >= 0 && validMS(o.Gate.AtMS), "the gate's credit is negative or its time is not a time")
 	for _, k := range o.Gate.Recent {
@@ -309,12 +353,42 @@ func (o *Outbox) check(c *rules, server string) {
 	}
 }
 
+func (s *Sending) check(c *rules, server string) {
+	c.need(txnRe.MatchString(s.Txn) && slices.Contains(storeRooms, s.Room) && slices.Contains(sendKinds, s.Kind) &&
+		validMS(s.SinceMS) && s.Type == proto.MessageType, "a send in flight is not well formed")
+	content, err := proto.Parse(s.Content)
+	c.need(err == nil && content.Kind() == proto.KindObject && content.Size() <= maxSendContent,
+		fmt.Sprintf("a send in flight's content is not an object of at most %d bytes", maxSendContent))
+	if s.Ping != nil {
+		c.need(s.Kind == SendPing, "a send in flight that is not a ping has a ping")
+		s.Ping.check(c, server)
+	}
+}
+
+func (p *SendingPing) check(c *rules, server string) {
+	rule, known := proto.Verbs[p.Verb]
+	c.need(known && rule.ExpectsAnswer && p.TimeoutMS > 0, "a send in flight's ping is not an answer-expecting ping")
+	ref := p.Ref != nil && validRef(*p.Ref)
+	c.need(ref && rule.Ref != proto.Forbidden || p.Ref == nil && rule.Ref != proto.Required, "a send in flight's ref is not as its verb needs")
+	c.need(len(p.To) >= 1 && len(p.To) <= MaxPingTargets && distinct(p.To) && !slices.ContainsFunc(p.To, func(id string) bool { return !validUser(id, server) }),
+		fmt.Sprintf("a send in flight's ping is not to 1 to %d distinct users of the team's server", MaxPingTargets))
+}
+
+// validVerb is a verb exactly for an item "ping", and then one of A 8.1's (n3d-D30).
+func validVerb(item string, verb *string) bool {
+	if verb == nil {
+		return item != records.KindPing
+	}
+	_, known := proto.Verbs[*verb]
+	return item == records.KindPing && known
+}
+
 func (p *Ping) check(c *rules, server string) {
 	rule, known := proto.Verbs[p.Verb]
 	c.need(proto.ValidEventID(p.ID) && known && rule.ExpectsAnswer && validMS(p.SentMS) && p.SentMS <= p.DueMS && validMS(p.DueMS), "a ping is not well formed")
 	ref := p.Ref != nil && validRef(*p.Ref)
 	c.need(ref && rule.Ref != proto.Forbidden || p.Ref == nil && rule.Ref != proto.Required, "a ping's ref is not as its verb needs")
-	c.need(len(p.To) >= 1 && len(p.To) <= capPingTargets && distinct(p.To), fmt.Sprintf("a ping is not to 1 to %d distinct ids", capPingTargets))
+	c.need(len(p.To) >= 1 && len(p.To) <= MaxPingTargets && distinct(p.To), fmt.Sprintf("a ping is not to 1 to %d distinct ids", MaxPingTargets))
 	for _, id := range p.To {
 		c.need(validUser(id, server), "a ping's target is not a user of the team's server")
 	}
@@ -440,11 +514,11 @@ func (s *Store) AddAwaiting(a Awaiting) error {
 func (s *Store) AddReceipt(r Receipt) error { return grow(&s.Receipts, r, capReceipts, "receipts") }
 
 // AddPing records a sent ping.
-func (s *Store) AddPing(p Ping) error { return grow(&s.Outbox.Pings, p, capPings, "pings") }
+func (s *Store) AddPing(p Ping) error { return grow(&s.Outbox.Pings, p, MaxPings, "pings") }
 
 // AddSending records a send in flight.
 func (s *Store) AddSending(x Sending) error {
-	return grow(&s.Outbox.Sending, x, capSending, "sending")
+	return grow(&s.Outbox.Sending, x, MaxSending, "sending")
 }
 
 // AddGateKey records a duplicate key in the gate.
@@ -488,7 +562,7 @@ func (s *Store) checkPending(c *rules, server string) {
 	agent := 0
 	for _, p := range s.Pending {
 		c.need(validPendingID(p.ID, p.Item) && slices.Contains(storeRooms, p.Room) && slices.Contains(storeItems, p.Item) &&
-			validMS(p.SentMS) && validUser(p.From, server) && (p.Handed == nil || nonceRe.MatchString(*p.Handed)), "a pending entry is not well formed")
+			validMS(p.SentMS) && validUser(p.From, server) && (p.Handed == nil || nonceRe.MatchString(*p.Handed)) && validVerb(p.Item, p.Verb), "a pending entry is not well formed")
 		c.need(!seen[p.ID], "pending holds an id twice")
 		seen[p.ID] = true
 		if !reserved(p.Item) {
@@ -507,10 +581,14 @@ func (s *Store) checkDelivered(c *rules, server string) {
 		c.need(nonceRe.MatchString(m.Nonce) && itemIDs(m.IDs) && m.Offset >= 0 && validMS(m.AtMS), "a missed entry is not well formed")
 	}
 	for _, l := range s.Ledger {
-		c.need(validItemID(l.ID) && slices.Contains(storeRooms, l.Room) && slices.Contains(storeItems, l.Item) &&
-			(l.Thread == nil || proto.ValidEventID(*l.Thread)) && validUser(l.From, server) && validMS(l.AtMS), "a ledger entry is not well formed")
+		l.check(c, server)
 	}
 	for _, r := range s.Receipts {
 		c.need(proto.ValidEventID(r.ID) && slices.Contains(storeRooms, r.Room), "a receipt is not well formed")
 	}
+}
+
+func (l *Ledger) check(c *rules, server string) {
+	c.need(validItemID(l.ID) && slices.Contains(storeRooms, l.Room) && slices.Contains(storeItems, l.Item) &&
+		(l.Thread == nil || proto.ValidEventID(*l.Thread)) && validUser(l.From, server) && validMS(l.AtMS) && validVerb(l.Item, l.Verb), "a ledger entry is not well formed")
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"reflect"
 	"slices"
 	"sync"
 	"time"
@@ -53,6 +54,12 @@ func (t *Team) session(ctx context.Context, wg *sync.WaitGroup) error {
 	if verr := s.verify(ctx); verr != nil {
 		return verr
 	}
+	if t.recoveredPair == nil || !reflect.DeepEqual(*t.recoveredPair, pair) {
+		if rerr := t.cfg.Engine.RecoverSends(ctx, t.cfg.Team, t.Notices()); rerr != nil {
+			return rerr
+		}
+		t.recoveredPair = &pair
+	}
 	store, err := t.cfg.Engine.Load(t.cfg.Team, s.a.Self)
 	if err != nil {
 		return err
@@ -75,30 +82,68 @@ func (t *Team) session(ctx context.Context, wg *sync.WaitGroup) error {
 
 // verify is A 6.4 over main's full state; a 403 is tried once more after a join.
 func (s *sess) verify(ctx context.Context) error {
-	r, err := verifyMain(ctx, s.c, s.a)
+	r, content, err := verifyMain(ctx, s.c, s.a)
 	if errors.Is(err, matrix.ErrForbidden) {
 		if _, jerr := s.c.Join(ctx, s.a.MainRoom); jerr != nil {
 			return jerr
 		}
-		r, err = verifyMain(ctx, s.c, s.a)
+		r, content, err = verifyMain(ctx, s.c, s.a)
 	}
 	if err != nil {
 		return err
 	}
 	s.roster = r
 	s.t.setRoster(r, s.a.Self)
+	s.t.saveRoster(ctx, r.Rev, content)
 	return nil
 }
 
-func verifyMain(ctx context.Context, c *matrix.Client, a proto.Anchors) (proto.Roster, error) {
+// verifyMain is A 6.4 over main's full state: the roster verified, and its event's content as
+// read, for the roster cache.
+func verifyMain(ctx context.Context, c *matrix.Client, a proto.Anchors) (proto.Roster, json.RawMessage, error) {
 	raw, err := c.RoomState(ctx, a.MainRoom)
 	if errors.Is(err, matrix.ErrNotFound) {
-		return proto.Roster{}, fmt.Errorf("%w: main's state", errUntrusted)
+		return proto.Roster{}, nil, fmt.Errorf("%w: main's state", errUntrusted)
 	}
 	if err != nil {
-		return proto.Roster{}, err
+		return proto.Roster{}, nil, err
 	}
-	return proto.VerifyMain(proto.StateEvents(raw), a)
+	r, err := proto.VerifyMain(proto.StateEvents(raw), a)
+	if err != nil {
+		return proto.Roster{}, nil, err
+	}
+	return r, rosterContent(raw), nil
+}
+
+// rosterContent is the roster event's content among main's state events.
+func rosterContent(events []json.RawMessage) json.RawMessage {
+	for _, raw := range events {
+		v, err := proto.Parse(raw)
+		if err == nil && str(v, "type") == proto.RosterType && str(v, "state_key") == "" {
+			return member(v, "content").Compact()
+		}
+	}
+	return nil
+}
+
+// saveRoster gives a verified rev the team has not saved to the engine's roster cache
+// (n3d-D3); a failure is said and blocks nothing, and the next verification tries again.
+func (t *Team) saveRoster(ctx context.Context, rev int64, content json.RawMessage) {
+	t.mu.Lock()
+	saved := t.savedRev == rev
+	t.mu.Unlock()
+	if saved {
+		return
+	}
+	if err := t.cfg.Engine.SaveRoster(ctx, t.cfg.Team, rev, content); err != nil {
+		if !errors.Is(err, team.ErrRemoved) {
+			t.log.Printf("the roster at rev %d was not cached: %v", rev, err)
+		}
+		return
+	}
+	t.mu.Lock()
+	t.savedRev = rev
+	t.mu.Unlock()
 }
 
 // start is SY1: (a) a position of the roster's epoch is kept; (c) a fresh store of a removed
@@ -491,6 +536,7 @@ func (s *sess) commit(j judged, f int64) {
 	for _, line := range j.lines {
 		t.log.Print(line)
 	}
+	t.noteForge(j.forge)
 	if f > 0 && f != s.floor {
 		s.floor = f
 		t.floorMoved(f, s.epoch)
@@ -498,7 +544,8 @@ func (s *sess) commit(j judged, f int64) {
 }
 
 func empty(b team.Batch) bool {
-	return len(b.Items) == 0 && len(b.Redacts) == 0 && len(b.Floors) == 0 && !b.Gap && b.Counts == team.Counts{}
+	return len(b.Items) == 0 && len(b.Redacts) == 0 && len(b.Floors) == 0 && len(b.Answered) == 0 &&
+		len(b.Echoes) == 0 && !b.Gap && b.Counts == team.Counts{}
 }
 
 // persist is SY5's one store write, after which the team's position is the batch's; a failed
@@ -585,6 +632,7 @@ type judged struct {
 	lines   []string
 	unheard []string
 	flood   proto.Window
+	forge   forgeNews
 }
 
 // judgeAll is SY4 with SY4a's resolve first: main's events judged oldest first over a Lookup
@@ -637,14 +685,21 @@ func (s *sess) judgeAll(ctx context.Context, events []json.RawMessage, restored 
 		Roster: s.roster, NowMs: t.cfg.Clock.WallMS(), Lookup: lk, Flood: &j.flood,
 	}
 	floor := s.floor
-	counted := map[string]bool{}
+	vs := make([]proto.Verdict, 0, len(evs))
 	for _, e := range evs {
-		v := t.judge(judge, e.v)
+		vs = append(vs, t.judge(judge, e.v))
 		if e.id != "" {
 			lk.judged[e.id] = true
 		}
 		floor = max(floor, originTs(e.v))
-		s.take(&j, v, e.id, restored, lk, counted)
+	}
+	j.forge = t.forgeCheck(ctx, s.roster.Forge, vs)
+	if err := ctx.Err(); err != nil {
+		return judged{}, err
+	}
+	counted := map[string]bool{}
+	for i, e := range evs {
+		s.take(&j, vs[i], e.id, restored, lk, counted)
 	}
 	if floor > s.floor {
 		j.batch.Floors = map[string]int64{proto.PurposeMain: floor}
@@ -669,26 +724,51 @@ func (s *sess) take(j *judged, v proto.Verdict, id string, restored func(int64) 
 			ID: v.Event.ID, Room: proto.PurposeMain, Item: itemKind(v.Kind), SentMS: v.Event.OriginTs,
 			From: v.Event.Sender, Restored: restored != nil && restored(v.Event.OriginTs),
 		}
+		if p.Item == records.KindPing {
+			p.Verb = new(v.Content.Ping.Verb)
+		}
 		j.batch.Items = append(j.batch.Items, team.Item{Pending: p, Verdict: v})
+		answered(j, v)
 	case proto.Ignore:
-		if v.Reason != proto.IgnoreSeen {
-			j.batch.Counts.Ignored++
-		}
-		if s.unheard(v, lk) && id != "" && !counted[id] && !s.t.unheard.has(id) {
-			counted[id] = true
-			j.batch.Counts.Unheard++
-			j.unheard = append(j.unheard, id)
-			j.lines = append(j.lines, fmt.Sprintf("unheard %s: %s", id, v.Reason))
-		}
+		s.ignored(j, v, id, lk, counted)
 	case proto.Drop:
 		j.batch.Counts.Dropped++
 		j.lines = append(j.lines, fmt.Sprintf("dropped %s: %s", id, v.Reason))
 	case proto.Redact:
 		j.batch.Redacts = append(j.batch.Redacts, v.Redacts)
 		j.batch.Counts.Redacted++
-	case proto.Record, proto.Index, proto.Fault:
-		// n3d's answers and n3f's questions; nothing of n3c's.
+	case proto.Record:
+		answered(j, v)
+	case proto.Index, proto.Fault:
+		// n3f's questions and reports.
 	}
+}
+
+// ignored is an ignored event's count, an own ping's echo (A 7.6 rule 3, n3d-D9) and UH1.
+func (s *sess) ignored(j *judged, v proto.Verdict, id string, lk proto.Lookup, counted map[string]bool) {
+	if v.Reason != proto.IgnoreSeen {
+		j.batch.Counts.Ignored++
+	}
+	if _, own := lk.OwnPing(id); own && v.Reason == proto.IgnoreSelf {
+		j.batch.Echoes = append(j.batch.Echoes, team.Echo{ID: id, OriginMS: v.Event.OriginTs})
+	}
+	if s.unheard(v, lk) && id != "" && !counted[id] && !s.t.unheard.has(id) {
+		counted[id] = true
+		j.batch.Counts.Unheard++
+		j.unheard = append(j.unheard, id)
+		j.lines = append(j.lines, fmt.Sprintf("unheard %s: %s", id, v.Reason))
+	}
+}
+
+// answered is SY4's answer to an own ping (A 8.2): a recorded ack or stale answer, or a
+// delivered nack, done or blocked. The engine judges whether it is on time (n3d-D8).
+func answered(j *judged, v proto.Verdict) {
+	if v.Answer == nil {
+		return
+	}
+	j.batch.Answered = append(j.batch.Answered, team.Answer{
+		Ping: v.Answer.Ping, From: v.Event.Sender, Verb: v.Answer.Verb, ID: v.Event.ID, OriginMS: v.Event.OriginTs,
+	})
 }
 
 // unheard is UH1: a human's message ignored as no text (`type`, `empty`), or addressed to no

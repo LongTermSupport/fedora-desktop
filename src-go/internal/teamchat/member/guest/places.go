@@ -371,8 +371,12 @@ func SetAside(ctx context.Context, clock Clock, stateDir string, team paths.Team
 	return seatFault(team, err)
 }
 
-// setAsideStore renames the seat's store.json aside; the caller holds the seat lock.
+// setAsideStore renames the seat's store.json aside and unlinks its roster cache, a composing
+// aid only (n3d-D3), so a seat placed again starts from none; the caller holds the seat lock.
 func setAsideStore(dir *homefs.Root, clock Clock, s paths.Seat, out changes) error {
+	if err := dir.Unlink(s.RosterCache()); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
 	found, err := dir.Exists(s.Store())
 	if err != nil || !found {
 		return err

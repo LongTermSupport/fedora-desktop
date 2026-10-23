@@ -170,7 +170,7 @@ func TestRemoveFlushesDeletesTheStoreAndClosesTheSeat(t *testing.T) {
 		t.Fatalf("flushes %d, store kept %v, lock held %v", f.flushes, w.storeExists(ops), l.Held())
 	}
 	logged := w.log.String()
-	if !strings.Contains(logged, "dropped 0 pending (2 handed) and 0 awaiting") || !strings.Contains(logged, "floor marker") {
+	if !strings.Contains(logged, "dropped 0 pending (2 handed), 0 awaiting items, 0 outbox pings and 0 queued sends") || !strings.Contains(logged, "floor marker") {
 		t.Fatalf("link.log = %q", logged)
 	}
 	if _, err := w.e.Persist(t.Context(), team.Batch{Team: ops}); !errors.Is(err, team.ErrRemoved) {
@@ -306,7 +306,7 @@ func TestViewReadsTheLedgerTheOutboxAndOwnPings(t *testing.T) {
 	if p, ok := v.OwnPing(evID(3)); !ok || p.Verb != proto.VerbHalt || p.OriginTs != 5 {
 		t.Fatalf("own ping = %+v", p)
 	}
-	if roomID(nil, r, "elsewhere") != "" {
+	if roomID("", r, "elsewhere") != "" {
 		t.Fatal("an unknown purpose has a room")
 	}
 }
@@ -322,5 +322,18 @@ func TestViewOfATeamNotHeldOrWithNoStore(t *testing.T) {
 	check(t, err)
 	if len(v.SeenIDs) != 0 {
 		t.Fatal("a team with no store saw an id")
+	}
+}
+
+// n3d W: a team's goroutine checks its delivered pings with the link's one forge checker
+// (n3d-D20), the same the engine's sends use.
+func TestATeamIsGivenTheLinksForge(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	f := w.fake(ops)
+	check(t, w.e.Add(t.Context(), ops, w.seat(ops, true, nil), nil))
+	<-f.running
+	if got, ok := f.cfg.Forge.(*fakeForge); !ok || got != w.forge {
+		t.Fatalf("the team's forge = %#v, want the engine's", f.cfg.Forge)
 	}
 }

@@ -90,6 +90,26 @@ const (
 	DeliveryWindowMs  = 600_000
 )
 
+// ForgeChecksPerSender is a sender's uncached receive checks per ReceiveWindowMs, past which its
+// pings drop unresolved with no request: one of the member's own bounds on forge requests
+// (n3d-D31), not a roster limit.
+const ForgeChecksPerSender int64 = 6
+
+// The share of the forge's rate window that receive checks leave for sends (n3d-D31).
+const (
+	forgeReserveShare     = 5
+	forgeDefaultRateLimit = 5000
+)
+
+// ForgeReceiveReserve is the requests left in the forge's rate window below which receive checks
+// stop asking: a fifth of limit (X-RateLimit-Limit), or of GitHub's 5000 when it is not given.
+func ForgeReceiveReserve(limit int64) int64 {
+	if limit <= 0 {
+		limit = forgeDefaultRateLimit
+	}
+	return limit / forgeReserveShare
+}
+
 // Bucket is the sender's token bucket in integer credit (P61): a token is msPerMinute credit,
 // and send_per_minute credit accrues per millisecond, so refill is exact.
 type Bucket struct {

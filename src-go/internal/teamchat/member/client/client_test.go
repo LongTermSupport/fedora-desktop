@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -39,6 +40,7 @@ type world struct {
 	stdout bytes.Buffer
 	stderr bytes.Buffer
 	out    stdoutWriter
+	stdin  io.Reader
 }
 
 // stdoutWriter is the CLI's stdout: the buffer, or a failure.
@@ -88,7 +90,7 @@ func newWorld(t *testing.T) *world {
 }
 
 func (w *world) cliEnv() cli.Env {
-	return cli.Env{Stdout: &w.out, Stderr: &w.stderr, Digest: kit, Getenv: func(k string) string { return w.env[k] }}
+	return cli.Env{Stdin: w.stdin, Stdout: &w.out, Stderr: &w.stderr, Digest: kit, Getenv: func(k string) string { return w.env[k] }}
 }
 
 // do runs the verb of args as the CLI would.

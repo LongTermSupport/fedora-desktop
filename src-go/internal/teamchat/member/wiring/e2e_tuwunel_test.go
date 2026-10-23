@@ -58,3 +58,7 @@ func TestTuwunelE2EKeeperTerm(t *testing.T) {
 	s.wait()
 	w.awaitNotice("left other")
 }
+
+func TestTuwunelE2EPingAnswered(t *testing.T) { pingAnswered(t, tuwunelServer(t)) }
+
+func TestTuwunelE2ESayAndReply(t *testing.T) { sayAndReply(t, tuwunelServer(t)) }

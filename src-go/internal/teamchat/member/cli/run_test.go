@@ -189,6 +189,12 @@ func TestHelpExitCodesIsTheTable(t *testing.T) {
 			t.Errorf("class %s not shown", c)
 		}
 	}
+	// n3d-D11: the forge's own rate limit and its silence are listed.
+	for _, code := range []string{exits.CodeForgeRate, exits.CodeForgeDown} {
+		if !strings.Contains(w.out.String(), code) {
+			t.Errorf("code %s not shown", code)
+		}
+	}
 }
 
 type failWriter struct{}

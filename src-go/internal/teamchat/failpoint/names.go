@@ -22,3 +22,10 @@ const (
 	KeeperBeforeEnd             Name = "keeper-before-end"
 	LinkAfterJudgeBeforePersist Name = "link-after-judge-before-persist"
 )
+
+// n3d's points (n3d-D16): either side of a send's PUT, so the restart re-send is proven on both.
+const (
+	LinkAfterChargeBeforeSend Name = "link-after-charge-before-send"
+	// LinkAfterSendBeforeRecord is PT1's "after a send's PUT before its answer is recorded".
+	LinkAfterSendBeforeRecord Name = "link-after-send-before-record"
+)

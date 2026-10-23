@@ -9,6 +9,7 @@ import (
 	"slices"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/records"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
@@ -158,27 +159,41 @@ func view(h *held, ids, relations []string, r proto.Roster) team.View {
 			v.SeenIDs[l.ID] = true
 		}
 		if related[l.ID] {
-			v.Events[l.ID] = proto.Related{Sender: l.From, RoomID: roomID(h, r, l.Room), AddressedToSelf: true, AddressedToRosterAgent: true}
+			v.Events[l.ID] = ledgerRelated(l, h.anchors.MainRoom, r)
 		}
 	}
 	for _, p := range s.Outbox.Pings {
 		v.OwnPings[p.ID] = proto.OwnPing{Verb: p.Verb, To: slices.Clone(p.To), OriginTs: p.SentMS}
 		if related[p.ID] {
-			v.Events[p.ID] = proto.Related{
-				Sender: s.UserID, RoomID: h.anchors.MainRoom, Verb: p.Verb,
-				AddressedToRosterAgent: slices.ContainsFunc(p.To, r.HumanReader),
-			}
+			v.Events[p.ID] = pingRelated(p, s.UserID, h.anchors.MainRoom, r)
 		}
 	}
 	return v
 }
 
+// ledgerRelated is a delivered item as a later event's relation reads it.
+func ledgerRelated(l state.Ledger, main string, r proto.Roster) proto.Related {
+	rel := proto.Related{Sender: l.From, RoomID: roomID(main, r, l.Room), AddressedToSelf: true, AddressedToRosterAgent: true}
+	if l.Verb != nil {
+		rel.Verb = *l.Verb
+	}
+	return rel
+}
+
+// pingRelated is one of this member's outbox pings as a later event's relation reads it.
+func pingRelated(p state.Ping, self, main string, r proto.Roster) proto.Related {
+	return proto.Related{
+		Sender: self, RoomID: main, Verb: p.Verb,
+		AddressedToRosterAgent: slices.ContainsFunc(p.To, r.HumanReader),
+	}
+}
+
 // roomID is the room id of a store's room purpose: main from the bundle, the side rooms from
 // the roster; "" for a room neither names.
-func roomID(h *held, r proto.Roster, purpose string) string {
+func roomID(main string, r proto.Roster, purpose string) string {
 	switch purpose {
 	case proto.PurposeMain:
-		return h.anchors.MainRoom
+		return main
 	case proto.PurposeQuestions:
 		return r.Rooms.Questions
 	case proto.PurposeReports:
@@ -188,32 +203,49 @@ func roomID(h *held, r proto.Roster, purpose string) string {
 }
 
 // Persist is one store write of b (SY5): its position, floors and new items, its redactions
-// removing items still pending or handed; then a wake of every wait. An item already pending
-// or delivered is not added twice. A full pending list refuses the whole batch, loudly (B
-// 2.3.2), so nothing is dropped and the batch is fetched again.
+// removing items still pending or handed, and the outbox updates its echoes and answers made,
+// expired pings pruned; then a wake of every wait and the TIMEOUT timer re-armed. It returns the
+// store's main floor after the write. An item already pending or delivered is not added twice.
+// A full pending list refuses the whole batch, loudly (B 2.3.2), so nothing is dropped and the
+// batch is fetched again; an answer in a refused batch is not counted until it is (SY7 case 4).
 func (e *Engine) Persist(ctx context.Context, b team.Batch) (int64, error) {
 	var (
 		out   error
 		floor int64
 	)
 	if err := e.do(ctx, func() {
-		var added map[string]proto.Verdict
+		defer e.arm()
+		var (
+			added   map[string]proto.Verdict
+			notes   map[string][]answerNote
+			unknown []string
+			pruned  []string
+		)
+		now := e.cfg.Clock.WallMS()
 		out = e.changeLocked(b.Team, func(_ *held, s *state.Store) (bool, error) {
 			var err error
-			added, err = apply(s, b)
+			if added, err = apply(s, b); err != nil {
+				return false, err
+			}
 			floor = s.Sync.FloorMS[proto.PurposeMain]
-			return err == nil, err
+			notes, unknown = applyOutbox(s, b)
+			pruned = pruneOutbox(s, now)
+			return true, nil
 		})
 		if out != nil {
 			return
 		}
-		// Memory follows the disk: only a written batch's content and counts are kept.
+		// Memory follows the disk: only a written batch's content, counts and answers are kept.
 		h := e.teams[b.Team]
 		maps.Copy(h.content, added)
 		for _, id := range b.Redacts {
 			delete(h.content, id)
 		}
 		h.counts = addCounts(h.counts, b.Counts)
+		h.note(notes, pruned)
+		for _, id := range unknown {
+			e.logf("team %s: an answer to %s, which is not in the outbox, is ignored", b.Team, id)
+		}
 		e.wake()
 	}); err != nil {
 		return 0, err
@@ -240,7 +272,11 @@ func apply(s *state.Store, b team.Batch) (map[string]proto.Verdict, error) {
 		if known[it.Pending.ID] {
 			continue
 		}
-		if err := s.AddPending(it.Pending); err != nil {
+		p := it.Pending
+		if verb := it.Verdict.Content.Ping.Verb; p.Item == records.KindPing && verb != "" {
+			p.Verb = &verb // n3d-D30: a ping's verb from its verdict
+		}
+		if err := s.AddPending(p); err != nil {
 			return nil, fmt.Errorf("engine: team %s: %w", b.Team, err)
 		}
 		known[it.Pending.ID] = true
@@ -255,9 +291,12 @@ func apply(s *state.Store, b team.Batch) (map[string]proto.Verdict, error) {
 // the oldest of them, so each is newer than its floor and survives a restart (B44); a room it
 // owes none in keeps the batch's high-water. B 2.3.2 counts `awaiting` too, whose entries carry
 // ids only: whatever writes them must give them a sent time, or set the floor before moving
-// items there.
+// items there. A TIMEOUT is not counted (fromServer).
 func ownedFloors(s *state.Store) {
 	for _, p := range s.Pending {
+		if !fromServer(p) {
+			continue
+		}
 		if s.Sync.FloorMS == nil {
 			s.Sync.FloorMS = map[string]int64{}
 		}
@@ -270,17 +309,19 @@ func ownedFloors(s *state.Store) {
 // raiseFloors is B 2.3.2's floor rule after items left pending outside a sync answer (an ack,
 // a drop): each room they were in is raised to just below the oldest item it still owes, or,
 // owing none, to the newest that left; a floor is never lowered here. It is main's floor, and
-// whether that moved.
+// whether that moved. A TIMEOUT is not counted (fromServer).
 func raiseFloors(s *state.Store, left []state.Pending) (int64, bool) {
 	newest := map[string]int64{}
 	for _, p := range left {
-		newest[p.Room] = max(newest[p.Room], p.SentMS)
+		if fromServer(p) {
+			newest[p.Room] = max(newest[p.Room], p.SentMS)
+		}
 	}
 	before := s.Sync.FloorMS[proto.PurposeMain]
 	for room, to := range newest {
 		owes, oldest := false, int64(0)
 		for _, p := range s.Pending {
-			if p.Room == room && (!owes || p.SentMS < oldest) {
+			if p.Room == room && fromServer(p) && (!owes || p.SentMS < oldest) {
 				owes, oldest = true, p.SentMS
 			}
 		}
@@ -296,6 +337,13 @@ func raiseFloors(s *state.Store, left []state.Pending) (int64, bool) {
 	}
 	after := s.Sync.FloorMS[proto.PurposeMain]
 	return after, after != before
+}
+
+// fromServer is whether p is an event the server handed, which a floor must keep fetchable; a
+// TIMEOUT is made by this member's clock and kept by the store alone, so a floor set by its time
+// would refuse an outage's events, sent before it was made, when the server returns.
+func fromServer(p state.Pending) bool {
+	return p.Item != records.KindTimeout
 }
 
 func addCounts(a, b team.Counts) team.Counts {
@@ -341,13 +389,20 @@ func (e *Engine) BeginRun(ctx context.Context, t paths.TeamID) error {
 	})
 }
 
-// SetHealth is a team goroutine's state, for status, status.json and the keeper's report.
+// SetHealth is a team goroutine's state, for status, status.json and the keeper's report; a
+// health out of a stop or down clears a send-side stop (SD3-8c). It re-arms the TIMEOUT timer too, so one that slept through a suspend is corrected by the first
+// sync after it (n3d-D7), and wakes the team's sender, which posts once the team is up.
 func (e *Engine) SetHealth(t paths.TeamID, hl team.Health) {
 	if err := e.do(context.Background(), func() {
 		if h := e.teams[t]; h != nil && !h.removed {
+			if !hl.Down && hl.Stopped == "" && (h.health.Down || h.health.Stopped != "") {
+				h.sendStop = ""
+			}
 			h.health = hl
 			e.publish()
+			h.pokeSender()
 		}
+		e.arm()
 	}); err != nil {
 		e.logf("team %s: health not recorded: %v", t, err)
 	}

@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/failpoint"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/lock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
@@ -43,6 +45,48 @@ type held struct {
 	health  team.Health
 	counts  team.Counts
 	removed bool
+	// answers are the answers to own pings this link read, by ping (n3d-D8).
+	answers map[string][]answerNote
+	// timeoutRetryMS is when a TIMEOUT write the store refused is tried again, 0 for none;
+	// timeoutRefused is whether that refusal was logged.
+	timeoutRetryMS int64
+	timeoutRefused bool
+	// roster is the roster cache (n3d-D3), nil for none; rosterRev is its rev.
+	roster    *proto.Roster
+	rosterRev int64
+	// recovered is whether this run's recovery of tried sends is done (n3d-D4): until it is
+	// the sender posts nothing. poke wakes the sender (capacity 1); waiting are the ops waiting
+	// on their send's answer, by txn; unsent counts the sends dropped unposted this run.
+	recovered bool
+	poke      chan struct{}
+	waiting   map[string]chan sendResult
+	unsent    int64
+	// sendStop is a send-side stop (SD3-8c): the exits code of a token refused or a send
+	// forbidden at a PUT, "" for none. It clears when the team next runs: a recovery, or a
+	// health out of a stop or down.
+	sendStop string
+	// postMu serialises the sender's post with a recovery, off the state goroutine;
+	// recoveredUnder, the SHA-256 of the token the last recovery ran under, is read and
+	// written holding it.
+	postMu         sync.Mutex
+	recoveredUnder [sha256.Size]byte
+}
+
+// shown is the team's health as the sends and status read it: a send-side stop is a stop.
+func (h *held) shown() team.Health {
+	hl := h.health
+	if hl.Stopped == "" {
+		hl.Stopped = h.sendStop
+	}
+	return hl
+}
+
+// pokeSender wakes the team's sender, never blocking: one pending wake is enough.
+func (h *held) pokeSender() {
+	select {
+	case h.poke <- struct{}{}:
+	default:
+	}
 }
 
 // Removed is a removal's answer: the team's user id (n3c-D13), "" when the link never read
@@ -63,7 +107,10 @@ func (e *Engine) Add(ctx context.Context, t paths.TeamID, l *lock.SeatLock, remo
 	if l.Seat().Dir() != e.cfg.Layout.Seat(t).Dir() {
 		return errors.Join(fmt.Errorf("engine: the seat lock is not team %s's", t), l.Close())
 	}
-	h := &held{id: t, lock: l, content: map[string]proto.Verdict{}, stopped: make(chan struct{})}
+	h := &held{
+		id: t, lock: l, content: map[string]proto.Verdict{}, answers: map[string][]answerNote{}, stopped: make(chan struct{}),
+		poke: make(chan struct{}, 1), waiting: map[string]chan sendResult{},
+	}
 	var addErr error
 	if err := e.do(ctx, func() { addErr = e.load(h) }); err != nil {
 		return errors.Join(err, l.Close())
@@ -74,12 +121,15 @@ func (e *Engine) Add(ctx context.Context, t paths.TeamID, l *lock.SeatLock, remo
 	tm, err := e.cfg.NewTeam(TeamConfig{
 		Team: t, Seat: l.Seat(), Run: e.cfg.Run, Lock: l, RemovedUserIDs: removedUserIDs, Engine: e, Ends: e.ends,
 		Root: e.cfg.Root, Plain: e.cfg.Plain, FirstSessionStart: e.cfg.FirstSessionStart,
-		Clock: e.cfg.Clock, Log: e.cfg.Log,
+		Clock: e.cfg.Clock, Log: e.cfg.Log, Forge: e.cfg.Forge,
 	})
 	if err != nil {
 		e.logf("team %s: no team goroutine: %v", t, err)
 	}
-	return e.do(ctx, func() { e.start(ctx, h, tm) })
+	return e.do(ctx, func() {
+		e.start(ctx, h, tm)
+		e.arm()
+	})
 }
 
 // load is Add's local half, on the state goroutine.
@@ -116,6 +166,7 @@ func (e *Engine) load(h *held) error {
 		}
 		h.store = &s
 	}
+	e.loadRoster(h)
 	e.teams[h.id] = h
 	return nil
 }
@@ -154,8 +205,9 @@ func restoreHanded(s *state.Store) int {
 	return n
 }
 
-// start runs tm for h, unless the team was removed meanwhile or its store is refused. The team
-// goroutine outlives the add's request: its context keeps ctx's values, never its end.
+// start runs tm for h, and its sender beside it, unless the team was removed meanwhile or its
+// store is refused. Both outlive the add's request: their context keeps ctx's values, never its
+// end, and h.cancel ends both.
 func (e *Engine) start(ctx context.Context, h *held, tm team.Team) {
 	h.team = tm
 	if tm == nil {
@@ -174,6 +226,7 @@ func (e *Engine) start(ctx context.Context, h *held, tm team.Team) {
 			e.logf("team %s: the team goroutine ended: %v", h.id, err)
 		}
 	}()
+	go e.sendLoop(runCtx, h)
 	e.publish()
 }
 
@@ -251,18 +304,38 @@ func (e *Engine) drop(h *held) error {
 				handed++
 			}
 		}
-		e.logf("team %s removed: dropped %d pending (%d handed) and %d awaiting items", h.id,
-			len(h.store.Pending)-handed, handed, len(h.store.Awaiting))
+		e.logf("team %s removed: dropped %d pending (%d handed), %d awaiting items, %d outbox pings and %d queued sends", h.id,
+			len(h.store.Pending)-handed, handed, len(h.store.Awaiting), len(h.store.Outbox.Pings), len(h.store.Outbox.Sending))
+	}
+	for txn, wait := range h.waiting {
+		wait <- sendResult{err: droppedErr(h, txn)}
+		delete(h.waiting, txn)
 	}
 	err := h.writer.Remove()
 	if errors.Is(err, fs.ErrNotExist) {
 		err = nil
 	}
+	err = errors.Join(err, e.removeRoster(h))
 	delete(e.teams, h.id)
 	delete(e.sent, h.id)
 	e.publish()
+	e.arm()
 	return errors.Join(err, h.writer.Close(), h.lock.Close())
 }
+
+// droppedErr answers an op whose send a removal drops: 4 for one tried, which may have reached
+// the room and must not be sent again, else 64 not held.
+func droppedErr(h *held, txn string) error {
+	if h.store != nil {
+		if i := sendingIndex(h.store, txn); i >= 0 && h.store.Outbox.Sending[i].Tried {
+			return exits.New(exits.CodeTimedOut, &h.id, msgRemovedInFlight, exits.Team(h.id))
+		}
+	}
+	return exits.New(exits.CodeUsage, &h.id, msgNotHeld, exits.Team(h.id))
+}
+
+// msgRemovedInFlight is a removal's answer to a send that may have been posted.
+const msgRemovedInFlight exits.Template = "team {} was removed while the send was in flight; it may have been posted, so do not send it again"
 
 // Shutdown stops every team goroutine, puts each running team's floor marker (SY10's clean
 // end; the teams in parallel, each bounded as a removal's is, so an offline homeserver delays
@@ -301,6 +374,7 @@ func (e *Engine) Shutdown(ctx context.Context) error {
 			errs = append(errs, h.writer.Close(), h.lock.Close())
 		}
 		clear(e.teams)
+		e.arm()
 	}); err != nil {
 		return err
 	}

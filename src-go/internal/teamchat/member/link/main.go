@@ -9,10 +9,12 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/cli"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/engine"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/forge"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/homefs"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/wire"
@@ -66,11 +68,13 @@ func Main(w Wiring) cli.RunFunc {
 		if err != nil {
 			return refuse(e.Stderr, "open the run root", errors.Join(err, conn.Close(), stateRoot.Close()))
 		}
+		clk := clock.System()
 		code := Run(context.Background(), Config{
 			StateRoot: stateRoot, RunRoot: runRoot, Layout: layout, Run: run, Control: conn,
-			Clock: clock.System(), Proc: OSProc{Dir: "/proc"}, Parent: OpenParent, UID: os.Getuid(),
+			Clock: clk, Proc: OSProc{Dir: "/proc"}, Parent: OpenParent, UID: os.Getuid(),
 			Kit: kit, RuntimeDir: e.Getenv("XDG_RUNTIME_DIR"), Home: e.Getenv("HOME"), Log: e.Stderr,
 			Engine: engine.New, NewTeam: w.NewTeam, NewEnds: w.NewEnds,
+			Forge: forge.New(forge.Config{Login: forge.NewLogin(execx.OS{}, clk), Clock: clk}),
 		})
 		if err := errors.Join(stateRoot.Close(), runRoot.Close()); err != nil {
 			return refuse(e.Stderr, "close the roots", err)

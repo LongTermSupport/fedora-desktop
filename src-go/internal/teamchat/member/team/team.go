@@ -7,6 +7,7 @@ package team
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/records"
@@ -28,13 +29,51 @@ type Batch struct {
 	// Floors are the floor_ms this batch moved, keyed by room purpose (proto.PurposeMain,
 	// PurposeQuestions), as the store's floor_ms and Pending.Room are; never a room id.
 	Floors map[string]int64
-	// Answered is n3d's; n3c passes nil.
-	Answered []proto.Answered
+	// Answered are the answer-form events to this member's own pings (SY4).
+	Answered []Answer
+	// Echoes are this member's own pings come back in sync (n3d-D9).
+	Echoes []Echo
 	// Redacts are admin redactions of pending or handed items.
 	Redacts []string
 	// Gap is SY3's bound hit.
 	Gap    bool
 	Counts Counts
+}
+
+// Answer is an answer-form event to an own ping: From answered Ping with Verb in event ID, at
+// its origin_server_ts (A 8.2).
+type Answer struct {
+	Ping, From, Verb, ID string
+	OriginMS             int64
+}
+
+// Echo is an own ping come back in sync, with the origin_server_ts its deadline is counted from
+// (A 8.2, rule 3 of A 7.6).
+type Echo struct {
+	ID       string
+	OriginMS int64
+}
+
+// ForgeProven is a forge check that proved its reference; the other outcomes are proto's
+// ReasonProvenance, ReasonUnresolved and ReasonForgeRate (A 9.3).
+const ForgeProven = "proven"
+
+// ForgeResult is one forge check's outcome. A proven check's trust is ForgeCheck.Trust().
+type ForgeResult struct {
+	Outcome string
+}
+
+var (
+	// ErrForgeLogin is a member with no gh login (78 forge-login on a send).
+	ErrForgeLogin = errors.New("team: no forge login")
+	// ErrForgeDown is a forge with no answer, or one found so within the last 60 s (n3d-D29).
+	ErrForgeDown = errors.New("team: the forge did not answer")
+)
+
+// Forge checks a ping's reference at the forge with the member's own login (A 9.3); safe for
+// concurrent use, one per link (n3d-D20).
+type Forge interface {
+	Check(ctx context.Context, need proto.ForgeCheck, f proto.Forge) (ForgeResult, error)
 }
 
 // Item is one judged event: its pending entry, with its content held in memory (B 2.7.3
@@ -111,6 +150,12 @@ type Engine interface {
 	// already. The team calls it after Ends.Close returns nil.
 	BeginRun(ctx context.Context, t paths.TeamID) error
 	SetHealth(t paths.TeamID, h Health)
+	// SaveRoster keeps the roster teamsync verified at a new rev in the seat's roster cache
+	// (n3d-D3).
+	SaveRoster(ctx context.Context, t paths.TeamID, rev int64, content json.RawMessage) error
+	// RecoverSends finds the tried sends of a restarted link among its own events, before the
+	// team's first long-poll (n3d-D4).
+	RecoverSends(ctx context.Context, t paths.TeamID, n Notices) error
 }
 
 // Team is one team goroutine, as the engine and the link see it.
@@ -172,4 +217,20 @@ type EndTeam struct {
 	Team    paths.TeamID
 	Notices Notices
 	Run     state.StoreRun
+}
+
+type receiveKey struct{}
+
+// WithReceive marks ctx as a receive check (n3d-D31). spend is the senders' budget: asked once,
+// before the check's first request; false ends the check forge-rate with no request
+// (n3d-D34). A receive check also stops asking while the forge's rate window is down to the
+// reserve kept for sends.
+func WithReceive(ctx context.Context, spend func() bool) context.Context {
+	return context.WithValue(ctx, receiveKey{}, spend)
+}
+
+// ReceiveSpend is the spend a receive check's ctx carries; false for a send's.
+func ReceiveSpend(ctx context.Context) (func() bool, bool) {
+	spend, ok := ctx.Value(receiveKey{}).(func() bool)
+	return spend, ok
 }

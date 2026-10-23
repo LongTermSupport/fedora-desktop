@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/engine"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/records"
@@ -29,6 +30,7 @@ type fakeServed struct {
 	recs    []records.Record
 	done    wire.Done
 	served  []wire.Request
+	bounds  []time.Duration
 	acked   []string
 	back    []string
 	settled chan struct{}
@@ -40,6 +42,9 @@ type fakeServed struct {
 func (f *fakeServed) Serve(ctx context.Context, req wire.Request, out engine.RecordWriter) wire.Done {
 	f.mu.Lock()
 	f.served = append(f.served, req)
+	if at, ok := clock.Bound(ctx); ok {
+		f.bounds = append(f.bounds, at)
+	}
 	recs, done, block, cancelled := f.recs, f.done, f.block, f.cancelled
 	f.mu.Unlock()
 	if block {
@@ -207,6 +212,17 @@ func TestAPastDeadlineIsDiscardedUnacted(t *testing.T) {
 	}
 	if w.eng.requests() != 0 {
 		t.Fatal("a late request was served")
+	}
+}
+
+func TestTheDeadlineIsTheRequestsBound(t *testing.T) {
+	w := newServerWorld(t)
+	want := w.clk.Boot() + 30*time.Second
+	exchange(t, w.dial(t), w.request(t, wire.OpPing, 30*time.Second))
+	w.eng.mu.Lock()
+	defer w.eng.mu.Unlock()
+	if len(w.eng.bounds) != 1 || w.eng.bounds[0] != want {
+		t.Fatalf("the engine was served bounds %v, want [%v]", w.eng.bounds, want)
 	}
 }
 

@@ -203,6 +203,7 @@ type Server struct {
 	roomOrder     []string
 	adminRoom     *room
 	txns          map[txnKey]string
+	forgetsTxns   bool
 	faults        []*pendingFault
 	nonces        map[string]bool
 	receipts      []Receipt
@@ -291,6 +292,15 @@ func (s *Server) Inject(f Fault) {
 		times = 1
 	}
 	s.faults = append(s.faults, &pendingFault{Fault: f, remaining: times})
+}
+
+// ForgetTransactions makes the server forget every transaction ID it holds and remember none
+// from now on, as a homeserver past its retention does: a reused one sends a new event.
+func (s *Server) ForgetTransactions() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.forgetsTxns = true
+	clear(s.txns)
 }
 
 // Receipts are the read receipts accepted so far, in order.

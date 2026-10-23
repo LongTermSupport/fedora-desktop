@@ -55,6 +55,8 @@ type Config struct {
 	OnState func(wire.State)
 	// Runtime is the session's resident cost, for status.
 	Runtime func() (records.Runtime, error)
+	// Forge checks a send's reference at the forge (n3d-D11); required (n3d-D33).
+	Forge team.Forge
 }
 
 // EndsConfig is what the session's ends are made from: the engine they record into (EN1), and
@@ -84,6 +86,8 @@ type TeamConfig struct {
 	FirstSessionStart <-chan struct{}
 	Clock             clock.Clock
 	Log               io.Writer
+	// Forge is the link's one forge checker, Config.Forge (n3d-D20).
+	Forge team.Forge
 }
 
 // RecordWriter is where a request's records go, in order.
@@ -112,6 +116,8 @@ type Engine struct {
 	waiters []chan struct{}
 	acks    map[string]bool
 	sent    map[paths.TeamID]wire.State
+	// timer disarms the one TIMEOUT timer, nil while none is armed (n3d-D7).
+	timer func() bool
 }
 
 // New is an engine over cfg; its goroutine runs from Run.
@@ -125,6 +131,8 @@ func New(cfg Config) (*Engine, error) {
 		return nil, errors.New("engine: no team or ends maker")
 	case cfg.OnState == nil || cfg.Runtime == nil:
 		return nil, errors.New("engine: no state report or runtime reader")
+	case cfg.Forge == nil:
+		return nil, errors.New("engine: no forge checker")
 	case cfg.Delivery != state.DeliverySocket && cfg.Delivery != state.DeliveryWait && cfg.Delivery != state.DeliveryNone:
 		return nil, fmt.Errorf("engine: delivery %q is not socket, wait or none", cfg.Delivery)
 	}

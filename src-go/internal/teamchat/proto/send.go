@@ -16,6 +16,15 @@ type Outgoing struct {
 	report  bool
 }
 
+// DuplicateKey is the event's duplicate identity (A 11.2), for a sender that keeps its window
+// by digest; "" for an event exempt from the window.
+func (o Outgoing) DuplicateKey() string {
+	if !o.dedupe {
+		return ""
+	}
+	return o.dupKey
+}
+
 // QuestionPost is a question to compose (A 10.2): N is the admin's (a carried v1 question,
 // D 5.6) and 0 for the coordinator, whose question takes the index's next number.
 type QuestionPost struct {

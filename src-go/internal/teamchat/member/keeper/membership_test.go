@@ -263,6 +263,7 @@ func TestRemoveTimeout(t *testing.T) {
 	w, l, c, res := claudeWorld(t, "alpha/1")
 	alpha := w.layout.Seat(mustTeam(t, "alpha"))
 	mustDo(t, os.WriteFile(alpha.Store(), []byte("store"), 0o600))
+	mustDo(t, os.WriteFile(alpha.RosterCache(), []byte("{}"), 0o600))
 	w.writeDesired(desiredJSON(2, state.InboundAccept))
 	w.changed()
 	l.expect(t, wire.KindDesired)
@@ -271,8 +272,8 @@ func TestRemoveTimeout(t *testing.T) {
 	expectSig(t, l.sigs, 9)
 	l = w.up(0)
 	l.expect(t, wire.KindPID)
-	if exists(t, alpha.Store()) || w.held(alpha) {
-		t.Fatal("the store or the seat outlived the unanswered remove")
+	if exists(t, alpha.Store()) || exists(t, alpha.RosterCache()) || w.held(alpha) {
+		t.Fatal("the store, its roster cache or the seat outlived the unanswered remove")
 	}
 	if k := w.keeperJSON(); k.Restarts != 0 {
 		t.Fatalf("keeper.json %+v", k)

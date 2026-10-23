@@ -396,6 +396,15 @@ its first caller.
     run twice: the op registry is its own type, and the failpoints test stage runs every test
     twice (`261023-n3-guestreg.md`). n3d and n3e are in review or being built; n3f is left.
 
+  - **n3d reviewed** on `feat/bus-v2-n3d` (the sends, the outbox and its recovery, TIMEOUTs,
+    the forge check; rows n3d-D1 to D34): Opus reviews A and B (`261022-n3d-review-A.md`,
+    `-B.md`), both fixed (`261022-n3d-fixa.md`, `-fixb.md`) and checked
+    (`261023-n3d-narrow.md`); the qa-reviewer's findings (`261023-n3d-qa-review.md`) fixed
+    (`261023-n3d-fixc.md`) and checked READY TO MERGE (`261023-n3d-fixc-narrow.md`). The store's `Version` is not raised for n3d's new keys: a store written by n3c or an
+    earlier n3d part is refused whole rather than migrated, because no such store exists outside
+    tests (review A n3; GATE A means none is deployed). Found here and fixed on
+    `feat/bus-v2-n3-guestreg`: `guest`'s `TestRegister` could not run twice (`-count=2`).
+
 - [ ] ⬜ **Task 3.3**: LXC members: guest operations (B 2.13), LXC apply from the host (C 3.9),
   one `teamchat-session-<...>.service` per seat (n3b-D2: a member is (team, container, checkout,
   seat), any number per container); the container's own config stays with its own play (seam 52).
