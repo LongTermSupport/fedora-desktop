@@ -849,7 +849,7 @@ func TestAPlanCheckerChangeRunsThePlanTestsGate(t *testing.T) {
 		"helpers/qa_environment/unittest_counts.py",
 		"helpers/pingbus/protocol.py",
 		"helpers/agent_bus/teamfile.py",
-		"helpers/agent_bus_lxc/member.py",
+		"helpers/agent_bus_lxc/members.py",
 	} {
 		w := newWorld(t)
 		w.touch(f, "x = 1\n")
