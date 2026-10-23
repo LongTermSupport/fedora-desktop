@@ -419,6 +419,16 @@ resolver names it) with the pytest of the interpreter that venv was built from
 interpreter, the isolation and the judgement. K1-K8 in its package
 doc are the specification, proven by unit tests over a fake runner.
 
+`qa/plantests` + `qa/cmd/qa-plan-tests` (same nested module) are `scripts/qa-plan-tests.bash`, the
+gate on every active plan folder's own Python tests (`CLAUDE/Plan/NNNNN-*/**/test_*.py`; not
+`Completed/`): the script only builds and runs the command. The helper-tests runner
+(`unittest_counts.py`, with `--chdir`) stays the engine, one process per directory, run from that
+directory; the Go owns scope (a walk checked against the `tracked-plan-tests` list of
+`qa/discovery`, whose `IsPlanTest` is the one predicate), the environment and the judgement of each
+directory's counts (`gates.HelperRun`). P1-P9 in its package doc are the specification, proven by
+unit tests over a fake tree and runner and by real git trees with the real runner in the command
+package.
+
 `qa/python` + `qa/cmd/qa-python` (same nested module) are `scripts/qa-python.bash`, the Python gate:
 ruff and python3 stay the engines; the Go owns scope (what git would publish, by shebang or `.py`
 name, never by mode; both lists come from `qa/discovery`), the one-process compile, the substitution and compile of Python templates, the

@@ -48,6 +48,9 @@ helpers	helper-tests	scripts/qa-helper-tests.bash	the helper unit suite failed
 # The project-owned hooks-daemon handlers' tests, run with the daemon's own interpreter. It fails
 # when the daemon or its pytest is missing; only GitHub Actions (no daemon in the checkout) skips.
 gate	hook-handlers	scripts/qa-hook-handlers.bash	a hook handler test failed, or the hooks daemon, its venv or the project's pytest is missing	detail:HOOK-HANDLERS-(OK [0-9]+ test[(]s[)] under|EXEMPT) .+
+# Every active plan folder's own Python tests (the tests of its acceptance and triage checkers),
+# each directory run from itself; Completed/ is frozen history and is not run.
+gate	plan-tests	scripts/qa-plan-tests.bash	an active plan folder's own Python tests failed, or could not be run to a verdict	detail:PLAN-TESTS-OK .+
 # The unit suites and rule gates. The count reader wants a 'passed: N' line.
 gate	secret-scan-tests	scripts/test-secret-scan.bash	secret scanner unit tests failed	count
 gate	planlib-tests	scripts/test-planlib.bash	plan-script library regression tests failed	detail:PASSED [(]library version [0-9.]+[)]
