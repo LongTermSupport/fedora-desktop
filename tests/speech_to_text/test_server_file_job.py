@@ -218,6 +218,41 @@ class FileJobTest(FileJobCase):
         self.assertEqual(self.finished()["status"], "failed")
         self.assertFalse(marker.exists(), "a failed job is unmarked too")
 
+    def test_the_job_ends_only_once_its_marker_is_gone_and_its_activity_is_recorded(self):
+        # The order, not a timing: a poller told the job ended must find no marker (else a
+        # job started in the gap would lose its marker to the old job's unlink), and an idle
+        # check made after it must see the activity already recorded.
+        seen = []
+
+        class Marker:
+            def __init__(self, path):
+                self.path = path
+
+            def touch(self):
+                self.path.touch()
+
+            def exists(self):
+                return self.path.exists()
+
+            def unlink(self, missing_ok=False):
+                seen.append(("unlink", server.file_job.running()))
+                self.path.unlink(missing_ok=missing_ok)
+
+        def update_activity():
+            # Every command records activity too; only the job's own thread is judged here
+            if threading.current_thread() is not threading.main_thread():
+                seen.append(("activity", server.file_job.running()))
+
+        with mock.patch.object(server, "FILE_JOB_MARKER", Marker(self.dir / "wsi-file-job")), \
+                mock.patch.object(server, "update_activity", update_activity):
+            self.start({"paths": self.parts, "language": "en"})
+            self.assertEqual(self.finished()["status"], "done")
+            self.model.fail_after = 1
+            self.start({"paths": self.parts, "language": "en"})
+            self.assertEqual(self.finished()["status"], "failed")
+        self.assertEqual(seen, [("unlink", True), ("activity", True)] * 2,
+                         "the job reported its end before its cleanup was done")
+
     def test_bad_requests_are_refused_and_start_nothing(self):
         for params in ({}, {"paths": []}, {"paths": "x.ogg"}, {"paths": [str(self.dir / "gone.ogg")]},
                        {"paths": ["relative.ogg"]}, {"paths": self.parts, "language": 5}):

@@ -1,5 +1,6 @@
 // Package sttrules is the gate for the rules in .semgrep/speech-to-text.yml: a model judged
-// present from its cache snapshot, and a dropdown label that explains itself. The rules are
+// present from its cache snapshot, a dropdown label that explains itself, and a job's end
+// published before its cleanup. The rules are
 // semgrep data in two languages, proven against a fixture per language on every run; this package
 // owns what is scanned, the proof that every rule still matches, and the refusal to pass over a
 // file the analyser did not read. The specification is the plan's SPEC-qa-speech-to-text-rules.md.

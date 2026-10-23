@@ -3,10 +3,12 @@
 #
 #   model-present-without-weights        a model judged present from its cache snapshot
 #   dropdown-label-carries-explanation   a dropdown option that explains itself, truncated
+#   completion-published-before-cleanup  a job's end published before its cleanup is done
 #
-# Both came from the same failure: an `auto` model that was never fully downloaded, listed
-# as installed under labels too long to read. Each rule's reasoning, and how to fix a
-# finding, is in CLAUDE/QA.md under its identifier.
+# The first two came from the same failure: an `auto` model that was never fully downloaded,
+# listed as installed under labels too long to read; the third from a file job that said
+# "done" while its marker remained. Each rule's reasoning, and how to fix a finding, is in
+# CLAUDE/QA.md under its identifier.
 #
 # The tool is Go (src-go/qa/sttrules, command src-go/qa/cmd/qa-speech-to-text-rules);
 # lib/go-tool.bash builds it into a private directory under the cache and runs it, so the exit
