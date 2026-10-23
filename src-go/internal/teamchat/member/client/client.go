@@ -60,6 +60,7 @@ const (
 	msgInternal  exits.Template = "the client could not {}; tell a human"
 	// msgWaitTimedOut is the engine's wording for the same end, reached with no link up.
 	msgWaitTimedOut exits.Template = "nothing arrived before wait's deadline"
+	msgSendCut      exits.Template = "the link stopped after it took this send, which may already be made, and is then posted when the link is back; run status (outbox and queued) before sending again"
 )
 
 // deps are what a request waits on and connects through.
@@ -191,11 +192,13 @@ type conn struct {
 }
 
 // outcome is one connection's end: the exit, or gone when no link answered (refused, missing,
-// or closed before its done); copied is whether a record reached stdout first.
+// or closed before its done); copied is whether a record reached stdout first, sent whether
+// the request was written.
 type outcome struct {
 	code   term.ExitCode
 	copied bool
 	gone   bool
+	sent   bool
 }
 
 // serve sends req until a link answers it; wait retries a missing link until its deadline, and
@@ -209,6 +212,9 @@ func (c conn) serve(req wire.Request, wait time.Duration) term.ExitCode {
 			return o.code
 		}
 		answer := c.noLink()
+		if o.sent && answer.Code == exits.CodeNoLink && isSend(req.Op) {
+			answer = exits.New(exits.CodeNoLink, c.team, msgSendCut)
+		}
 		if wait == 0 || o.copied || answer.Code == exits.CodeLinkFailed {
 			return exits.Write(c.stderr, answer)
 		}
@@ -246,7 +252,15 @@ func (c conn) once(req wire.Request, deadline time.Duration) outcome {
 	if err != nil {
 		return outcome{gone: true}
 	}
-	return c.copy(sock)
+	o := c.copy(sock)
+	o.sent = true
+	return o
+}
+
+// isSend is a verb whose request, once taken, may be charged and posted whatever the client
+// hears afterwards (B-m3).
+func isSend(op string) bool {
+	return op == wire.OpReply || op == wire.OpSay || op == wire.OpPing
 }
 
 // copy copies record lines to stdout until the done; then flushes stdout and, for a hand-out,

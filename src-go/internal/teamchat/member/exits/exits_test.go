@@ -294,3 +294,18 @@ func TestDecodeRefusesAnythingButTheErrorObject(t *testing.T) {
 		}
 	}
 }
+
+// B-m4: a send refused forge-down is not queued, so 20's recovery tells the agent to send it
+// again, and says the link retries only what it queued.
+func TestTheUnreachableRowSaysAForgeDownSendIsSentAgain(t *testing.T) {
+	for _, r := range Table() {
+		if r.Exit != ExitUnreachable {
+			continue
+		}
+		if !strings.Contains(r.Next, "forge-down") || !strings.Contains(r.Next, "send it again") || !strings.Contains(r.Next, "queued") {
+			t.Fatalf("20's recovery %q", r.Next)
+		}
+		return
+	}
+	t.Fatal("no row for 20")
+}

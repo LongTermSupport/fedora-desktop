@@ -257,3 +257,21 @@ func TestASendNeverRetries(t *testing.T) {
 		t.Fatalf("error %+v", e)
 	}
 }
+
+// B-m3: a send whose request reached the link before it closed may already be charged, so the
+// answer says to check status before sending again, not that the messages wait on the server.
+func TestASendCutOffAfterItsRequestSaysCheckStatus(t *testing.T) {
+	w := newWorld(t)
+	w.keeper()
+	w.keeperJSON(state.LinkRestarting, state.KindCCY, new((boot0 + 4*time.Second).Milliseconds()))
+	l := w.listen()
+	w.stdin = strings.NewReader("hi")
+	if code := w.do("say", "--to", "bob"); code != exits.ExitNoRuntime {
+		t.Fatalf("exit %d %q", code, w.stderr.String())
+	}
+	l.request(t)
+	e := w.errorObject()
+	if e.Code != exits.CodeNoLink || !strings.Contains(e.Message, "may already") || !strings.Contains(e.Message, "status") {
+		t.Fatalf("error %+v", e)
+	}
+}

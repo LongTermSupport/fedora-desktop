@@ -488,7 +488,7 @@ func listedCases() []proofCase {
 	return []proofCase{
 		{
 			"listed branches, ping branch listed", listed("main", "rel"), commit, "rel",
-			both(acme, js(tool+"/branches/rel", 200, `{}`), js(compare(tool, "rel", sha), 200, status("behind"))), forge.Proven,
+			both(acme, js(tool+"/branches/rel", 200, `{"name":"rel"}`), js(compare(tool, "rel", sha), 200, status("behind"))), forge.Proven,
 		},
 		{"listed branches, ping branch not listed", listed("main"), commit, "dev", acme, proto.ReasonProvenance},
 		{"listed branches, ping branch missing", listed("main", "rel"), commit, "rel", acme, proto.ReasonProvenance},
@@ -514,7 +514,7 @@ func listedCases() []proofCase {
 		},
 		{
 			"listed, ping branch exists", listed(), commit, "feat/x",
-			both(acme, js(tool+"/branches/feat/x", 200, `{}`), js(compare(tool, "feat/x", sha), 200, status("identical"))), forge.Proven,
+			both(acme, js(tool+"/branches/feat/x", 200, `{"name":"feat/x"}`), js(compare(tool, "feat/x", sha), 200, status("identical"))), forge.Proven,
 		},
 		{"listed, ping branch missing", listed(), commit, "feat/x", acme, proto.ReasonProvenance},
 		{"listed, ping branch with a dot-dot", listed(), commit, "a/../b", acme, proto.ReasonProvenance},
@@ -569,7 +569,7 @@ func externalPathCases() []proofCase {
 			"external, branch reaches", externalForge(), commitRef("other/lib", sha), "dev",
 			func(r *rig) {
 				r.other()
-				r.gh.json(lib+"/branches/dev", 200, `{}`)
+				r.gh.json(lib+"/branches/dev", 200, `{"name":"dev"}`)
 				r.gh.json(compare(lib, "dev", sha), 200, status("behind"))
 			}, forge.Proven,
 		},
@@ -577,7 +577,7 @@ func externalPathCases() []proofCase {
 			"external, branch does not reach", externalForge(), commitRef("other/lib", sha), "dev",
 			func(r *rig) {
 				r.other()
-				r.gh.json(lib+"/branches/dev", 200, `{}`)
+				r.gh.json(lib+"/branches/dev", 200, `{"name":"dev"}`)
 				r.gh.json(compare(lib, "dev", sha), 200, status("ahead"))
 			}, proto.ReasonProvenance,
 		},
@@ -970,6 +970,16 @@ func TestSD5_7RateHealth(t *testing.T) {
 	}
 	r.clk.Advance(time.Millisecond)
 	r.expect(t, need(t, commitRef("other/lib", sha), externalForge(), ""), externalForge(), forge.Proven)
+}
+
+// B-n1: an answer that does not name the branch asked (the protection endpoint, which a
+// branch "main/protection" reaches) is not that branch.
+func TestSD5_5ABranchIsTheBranchItNames(t *testing.T) {
+	r := newRig(t)
+	r.acme()
+	r.gh.json(tool+"/branches/main/protection", 200, `{"url":"x"}`)
+	r.gh.json(compare(tool, "main/protection", sha), 200, status("behind"))
+	r.expect(t, need(t, commitRef("acme/tool", sha), orgForge(), "main/protection"), orgForge(), proto.ReasonProvenance)
 }
 
 // receive is a receive check's context whose sender budget answers allow, counting the asks.

@@ -372,7 +372,8 @@ func (r *run) provingBranches(ctx context.Context, repo repoFacts) ([]string, st
 	switch {
 	case err != nil:
 		return nil, "", err
-	case !found:
+	case !found || v.Name != b:
+		// Another endpoint under the branch path (branches/main/protection) names no branch b.
 		return nil, proto.ReasonProvenance, nil
 	}
 	keep(r.c, r.c.branches, path, struct{}{})
