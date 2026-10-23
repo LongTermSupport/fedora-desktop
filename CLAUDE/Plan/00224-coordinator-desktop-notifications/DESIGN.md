@@ -68,8 +68,11 @@ the host, in the ccy image and in the LXC kit. It picks its route itself:
 
 1. `NOTIFY_OWNER_SPOOL` set (the ccy launcher and the LXC env file set it): the spool route. The
    directory must exist and be a directory, or exit 69 naming it.
-2. Unset, on the host (no `/run/.containerenv`, no `/run/ccy`), with `DBUS_SESSION_BUS_ADDRESS`
-   set: the direct route. The same validation, sanitising and the host limiter (section 3.5,
+2. Unset, on the host, with `DBUS_SESSION_BUS_ADDRESS` set: the direct route. "On the host"
+   means no container by any sign: no `/run/.containerenv`, no `/run/ccy`, no
+   `/run/systemd/container`, and no `container=` in pid 1's environment (an LXC guest has the
+   last two and its own user bus, so a member shell started without the env file exits 69
+   rather than notifying a bus inside the guest). The same validation, sanitising and the host limiter (section 3.5,
    identity `host`), then `notify-send`. No coordinator gate: the owner's standing rule already
    lets a desktop session notify (decision D2).
 3. Anything else: exit 69, "no route to the owner's desktop from here", with the reason.
@@ -81,30 +84,79 @@ coordinator, or that it has none).
 
 ### 3.2 Spool directories and identity
 
-| Member kind | Host directory                              | Seen inside as                              | Identity the relay derives                                                                                              |
-| ----------- | ------------------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| podman ccy  | `$XDG_RUNTIME_DIR/ccy/notify/<session>/`    | `/run/ccy/notify` (rw, per-session relabel) | `<session>` → `$XDG_RUNTIME_DIR/ccy/membership/<session>/membership.json` → its seats → handles                         |
-| LXC         | `/run/agent-notify/lxc/<container>/<user>/` | `/run/agent-notify/<user>`                  | (`<container>`, `<user>`) → the team's `lxcrecord` item → handle; the request file's owner must be the member's `<uid>` |
-| remote      | none (section 5)                            | -                                           | -                                                                                                                       |
+| Member kind | Host directory                              | Seen inside as                              | Identity the relay derives                                                                                                                                        |
+| ----------- | ------------------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| podman ccy  | `$XDG_RUNTIME_DIR/ccy/notify/<session>/`    | `/run/ccy/notify` (rw, per-session relabel) | `<session>` → the host-only identity record `$XDG_RUNTIME_DIR/ccy/notify-identity/<session>.json` → handles; a running container labelled `ccy-session=<session>` |
+| LXC         | `/run/agent-notify/lxc/<container>/<user>/` | `/var/lib/agent-notify/<user>`              | (`<container>`, `<user>`) → the team's `lxcrecord` item with status `joined` → handle; the request file's owner must be the member's `<uid>`                      |
+| remote      | none (section 5)                            | -                                           | -                                                                                                                                                                 |
+
+`<session>` is the key membership-init already uses: the session's tmux name, or the
+container's name for a launch in a plain terminal (`${session:-$container}` in
+`lib/agent-bus-membership.bash`).
 
 The directory is created by host tooling, never by the container, and its path is the
-identity. Nothing the container writes into a request (no `from`, no handle, no team other
-than a choice among teams it coordinates) can change who the relay thinks is asking. The
-membership file is on a read-only mount inside the container and is written only by the
-owner's tools, so the container cannot change its seats either.
+identity. Nothing the container writes (no `from`, no handle, no team other than a choice
+among teams it coordinates, and nothing in the checkout) can change who the relay thinks is
+asking.
+
+**The handle comes only from host-written records.** The checkout is mounted read-write in a
+ccy container, so its `.claude/ccy/pingbus/seats/<team>/<seat>/member.json`, which
+`ccy-teams describe-seats` reads for the handle, is the container's to rewrite (Plan 00209
+treats seats in the checkout as untrusted for the same reason, C25). The relay never reads it.
+Instead the host keeps two records, mode 0600, in directories no container ever mounts:
+
+- **the seat map**, `$XDG_STATE_HOME/notify-owner/seats.json`: (checkout, team, seat) to
+  handle. It is written when the host itself mints a seat (`agent-bus add-member` through
+  `seat take`, which reports the handle it made; Task 1.1 measures whether it prints it, and if
+  not, `seat take` gains a flag that does). A seat made before this plan is adopted once, on
+  its first launch after deploy. It is adopted only if the handle in its `member.json` has
+  exactly this checkout's seat number, this host's `<host>.<type>`, and the repository the
+  host derives for the checkout, and if the registry holds it. Every adoption is logged, and a
+  mismatch refuses the seat (decision D12). Adoption trusts the checkout once: a container that
+  had already rewritten a `member.json`, and also the checkout's remote, to match another
+  repository's coordinator seat of the same number and type, would pass. That residual is why
+  D12 offers re-taking every seat instead;
+- **the identity record**, `$XDG_RUNTIME_DIR/ccy/notify-identity/<session>.json`,
+  `{v, session, handles: [{team, handle}]}`. `ccy-teams` writes it from the seat map when the
+  launch takes its seats, and rewrites it whenever hot control changes the session's seats
+  (the same writer that bumps the membership generation).
+
+Two live identity records naming one handle are both refused (77) and logged, rather than one
+guessed.
+
+**What this cannot fix.** Two v1 sessions on one checkout share its seats tree, tokens
+included, so either can already post on the bus as the other. In v1 the checkout is the trust
+boundary, and `docs/agent-bus.md` already says to give each seat its own checkout when a team
+mixes a coordinator and workers. The gate is not weaker than that boundary. It does stop a
+worker in its own checkout from promoting itself by rewriting its `member.json`. The plan does
+not claim more.
+
+A ccy request also needs a running container labelled `ccy-session=<session>` (`podman ps`
+by label through `execx`). That ties the request to a live session, so a name tmux reuses
+cannot inherit a dead session's leftovers. The relay prunes any spool directory and identity
+record with no such container when it starts and hourly. The launch-time Go verb wipes and
+recreates both for a reused name, as membership already does.
 
 A ccy session gets its spool directory whenever it carries the bus kit, seated or not, because
 a role can be given while the session runs (hot control, Plan 00203); a request from a session
 with no coordinator seat is simply refused (decision D6).
 
 **LXC.** The containers this repository admits are privileged (an `lxc.idmap` container is
-refused, `docs/agent-bus-lxc-members.md`), so the agent user's numeric uid is the same on the
+refused, `helpers/agent_bus_lxc/derive.py`), so the agent user's numeric uid is the same on the
 host. Each member directory is `0700 <uid>` with a POSIX ACL granting the owner's user `rwx`,
-created at boot by a `tmpfiles.d` file the play renders (`/run` is a tmpfs), and bind-mounted
-by one `lxc.mount.entry` per container (`/run/agent-notify/lxc/<container>` at
-`run/agent-notify`), which takes effect at the container's next start (decision D7). Another
-user in the container cannot write a member's directory. The container's root can, but root in
-a privileged container is root on the host already; this plan does not pretend otherwise.
+created at boot by a `tmpfiles.d` file the play renders (`/run` is a tmpfs on the host). One
+`lxc.mount.entry` per container binds `/run/agent-notify/lxc/<container>` at
+`var/lib/agent-notify` with `bind,optional,create=dir`. The target is outside `/run`, because a
+systemd guest mounts a tmpfs on its own `/run` at boot, which would hide the bind. `optional`
+means a missing source never stops the container starting. The entry takes effect at the
+container's next start (decision D7).
+
+Another account in the container can write a member's directory only if it holds that member's
+uid, or the owner's numeric uid, which the ACL grants. The play refuses a container whose
+passwd gives the owner's uid to an account that is not the member, and the relay requires each
+request file's owner to be the member's uid. The container's root can still do anything there,
+but root in a privileged container is root on the host already, and this plan does not pretend
+otherwise.
 
 ### 3.3 The request and its checks
 
@@ -113,47 +165,65 @@ The request is one JSON object, at most 4 KiB:
 and `team` optional). The client and the relay run the same checks from one Go package, so a
 refusal names the field in both places:
 
+- `id` exactly 16 lowercase hex characters, and equal to the request file's stem;
 - valid UTF-8; title 1-80 runes, body at most 400 runes and 6 lines (decision D5);
-- no control characters (C0 and C1, except newline in the body), no bidirectional overrides
-  (U+202A-U+202E, U+2066-U+2069) and no zero-width joiners used as spoofing (refused, not
-  stripped: fail fast);
+- no control characters (C0 and C1, except newline in the body); no bidirectional controls
+  (U+061C, U+200E, U+200F, U+202A-U+202E, U+2066-U+2069); no invisible characters U+200B,
+  U+200C, U+2060 and U+FEFF. U+200D (zero-width joiner) is allowed, because emoji sequences
+  need it. These are refused, not stripped: fail fast;
 - urgency `low` or `normal` (decision D4);
 - unknown keys refused.
 
-Before display the relay escapes `&`, `<` and `>` (GNOME Shell renders a small markup subset in
-the body) and prefixes the summary with the team, so a coordinator cannot pose as another team
-or as the system: summary `<team>: <title>`, app name `Agent team coordinator` (decision D9). No
-icon, actions, hints, sound or expiry come from the agent. `notify-send` runs by argument list
-with `--` before the positional arguments.
+GNOME Shell treats the body as markup and the summary as plain text. So the relay escapes `&`,
+`<` and `>` in the body only, and leaves the summary as given (escaping it would show `&amp;`).
+Task 1.1 confirms this split. The summary is prefixed with the team, so a coordinator cannot
+pose as another team or as the system: summary `<team>: <title>`, app name
+`Agent team coordinator` (decision D9). No icon, actions, hints, sound or expiry come from the
+agent. `notify-send` runs by argument list, with `--` before the positional arguments.
 
-**File safety.** The relay opens each `*.req` with `openat(dirfd, O_RDONLY|O_NOFOLLOW|O_NONBLOCK)`,
-checks with `fstat` that it is a regular file with one link and within the size cap, and
-refuses symlinks, FIFOs, devices and hard links. It writes `<id>.result` with
-`openat(O_CREAT|O_EXCL|O_NOFOLLOW)`; an existing name is a refusal, never an overwrite. It keeps
-at most 16 entries per directory: anything beyond, and any entry older than 60 s, is deleted.
-Writing the directory full only fills a tmpfs the container could fill through its own mounts
-anyway.
+**File safety.** Every name the relay creates or deletes comes from a directory entry it listed,
+never from file content. Only entries named `<16 hex>.req` are read. Each is opened with
+`openat(dirfd, O_RDONLY|O_NOFOLLOW|O_NONBLOCK)`, and `fstat` must show a regular file with one
+link, within the size cap. Symlinks, FIFOs, sockets, devices, directories and hard links are
+refused. The result is written as `<stem>.result` with `openat(O_CREAT|O_EXCL|O_NOFOLLOW)`. A
+name that already exists is a refusal, never an overwrite. The relay keeps at most 16 entries
+per directory: anything beyond, and any entry older than 60 s, is removed by a non-recursive
+`unlinkat`, with `AT_REMOVEDIR` only for an empty directory. Filling the directory only fills a
+tmpfs the container could fill through its own mounts anyway.
+
+**Faults: refuse the entry, keep serving.** Faults that come from an untrusted spool are
+logged and refused, and the relay goes on serving every other directory. These include a bad
+entry, a directory or socket where a request should be, an entry the relay cannot read or
+delete, `EACCES` while pruning, and a vanished directory. One worker therefore cannot stop
+everyone's notices or push the unit into its start limit. Only the relay's own state makes it
+exit non-zero: an unreadable or corrupt limiter file, a watch root it cannot create or watch,
+`notify-send` missing, or no session bus. Only identity-level directories are watched: depth 1
+under the ccy root and depth 2 under the LXC root. A subdirectory a container makes inside its
+spool is never taken for an identity.
 
 ### 3.4 The gate: the coordinator, from the host's records
 
-For each request, after the content checks and the pre-gate counter (section 3.5):
+For each request, the pre-gate counter (section 3.5) comes first, before the file is parsed.
+Then the content checks (3.3), then:
 
 1. Identity from the directory (3.2).
-2. The identity's handles, one per team: for ccy, the seats in its `membership.json` resolved to
-   handles the way `ccy-teams describe-seats` resolves them; for LXC, the `lxcrecord` item.
+2. The identity's handles, one per team, from host-written records only. For ccy, the identity
+   record, and the session's container must be running. For LXC, the `lxcrecord` item, which
+   must be `joined`. At most 8 teams are looked at per request.
 3. For each of those teams, `sudo -n agent-bus list <team>` (the existing passwordless rule),
-   parsed by `agentbus.ParseRoster`; the handle's role must be `coordinator` and the member not
-   parked.
+   parsed by `agentbus.ParseRoster`. The handle's role must be `coordinator` and the member not
+   parked. A failing `sudo` refuses the request with the reason, and never allows it.
 4. The team: the only one the identity coordinates, or the request's `team`, which must be one
    it coordinates. Coordinating none: refused 77, naming each team's coordinator or that it has
    none.
 
-The roster is read per request, never cached across requests, so a role taken away is honoured
-at once. The container's claim to be a coordinator is never consulted.
+The roster is read once per team within a request, and never cached across requests, so a
+role taken away is honoured at once. The container's claim to be a coordinator is never consulted.
 
 ### 3.5 Rate limiting
 
-Two layers, both in the relay, persisted to `$XDG_STATE_HOME/notify-owner/limits.json` so a
+Two layers, both in the relay, persisted to `$XDG_STATE_HOME/notify-owner/limits.json`
+(`~/.local/state` when the variable is unset), so a
 relay restart (or a crash loop) does not refill anything:
 
 - **pre-gate**, per directory: at most 30 requests an hour are looked at; beyond that a request
@@ -171,9 +241,12 @@ logged (decision D11).
 
 `notify-owner relay`, run by `notify-owner-relay.service`, a user unit `PartOf` and `WantedBy`
 `graphical-session.target`, so it runs only while the owner has a desktop to show things on and
-has the session bus in its environment. It watches `$XDG_RUNTIME_DIR/ccy/notify/` and
-`/run/agent-notify/lxc/` with inotify (new directories included), and scans every directory at
-start for requests left waiting. It holds no secret and opens no socket.
+has the session bus in its environment. It creates `$XDG_RUNTIME_DIR/ccy/notify/` if absent,
+watches it and `/run/agent-notify/lxc/` (made at boot by `tmpfiles.d`) with inotify, at the
+identity depths only, new directories included, and scans every directory at start for
+requests left waiting. It holds no secret and opens no socket. The unit sets no
+`NoNewPrivileges=` (it would break `sudo`); `OnFailure=` starts a one-shot unit that sends the
+owner one notice that the relay stopped, and how to see why, as `stt-watch-failed.service` does.
 
 ## 4. Where the code goes
 
@@ -181,13 +254,29 @@ start for requests left waiting. It holds no secret and opens no socket.
   roster and membership readers behind interfaces), spool (safe open, result write, pruning),
   client (route choice, wait); unit tests through fakes (`execx` for `sudo` and `notify-send`).
 - `src-go/cmd/notify-owner/`: the binary (`notify-owner …` and `notify-owner relay`).
-- `play-agent-bus.yml`: build and install `notify-owner` to `/usr/local/bin` and into the kit;
-  the user unit; `/run/agent-notify` and the LXC member directories by `tmpfiles.d`; the
-  `lxc.mount.entry` and the env file's `NOTIFY_OWNER_SPOOL` for each LXC member. The relay is a
-  team feature and its gate reads team state, so it lives with the team play.
-- `play-claude-yolo.yml`: build `notify-owner` into the image's `/opt/claude-yolo/optional/agent-bus/`.
-- ccy: the launcher passes the spool mount and `NOTIFY_OWNER_SPOOL`; the entrypoint puts
-  `notify-owner` on `PATH` with the kit. Both bump versions (CCY and container).
+- `play-agent-bus.yml`: build (`go_command_static: true`, as every kit binary is, since the
+  image is Debian and LXC guests are other distributions) and install `notify-owner` to
+  `/usr/local/bin` and into the kit; the user units; `/run/agent-notify` and the LXC member
+  directories by `tmpfiles.d`; for each LXC member, the mount entry and the env file's
+  `NOTIFY_OWNER_SPOOL`. The relay is a team feature and its gate reads team state, so it lives
+  with the team play.
+- The LXC mount entry is the first thing any play writes into an LXC container's config
+  (`/var/lib/lxc/<container>/config`; today `derive.py` only reads it). It is one
+  `blockinfile` with its own marker, so the owner's lines are untouched. The block is removed
+  when the container's last member leaves. The source of truth for it is the same
+  `agent_bus_lxc_members` list that already drives the member phase.
+- `play-claude-yolo.yml`: build `notify-owner` statically into the image's
+  `/opt/claude-yolo/optional/agent-bus/`, linked into `/usr/local/bin` by the Dockerfile beside
+  the other kit binaries.
+- ccy: a `ccy-teams internal` verb (built by `play-claude-yolo.yml`, as `ccy-teams` already is)
+  creates the spool directory and the identity record and prints every container argument (the
+  mount and `NOTIFY_OWNER_SPOOL`). It is either membership-init itself or a sibling verb whose
+  output the existing call already consumes, so `lib/agent-bus-membership.bash`, which is held
+  to the hard bash limits and has no headroom (4 functions, near 60 code lines), gains no line
+  or function. Removal needs no bash: the relay prunes by container liveness (3.2). Both
+  versions are bumped (CCY and container).
+- Register the command: a row in `scripts/go-binary-suites.tsv`, the layout line in
+  `src-go/CLAUDE.md`, and the `go-deps.allowlist` reason updated if `x/sys/unix` gains a use.
 
 ## 5. Remote members (future, Plan 00220 / Plan 00209)
 
@@ -202,16 +291,18 @@ The design note goes to Plan 00209's coordinator; this plan builds nothing for i
 
 ## 6. Decisions (coordinator defaults; the owner may change any)
 
-| ID  | Question                       | Default                                                                                                                                   |
-| --- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| D1  | The command's name             | `notify-owner` everywhere. Not a `notify-send` shim in containers: half its flags would be refused, which surprises more than a new name. |
-| D2  | Host `cc` sessions             | No coordinator gate (the standing rule allows them); the same checks and the host limiter apply.                                          |
-| D3  | Limits                         | Burst 3, one per 10 min per member; 12 an hour in all; duplicates within 30 min refused; pre-gate 30 requests an hour per directory.      |
-| D4  | Urgency                        | `low` and `normal`; `critical` refused (it stays on screen until dismissed).                                                              |
-| D5  | Sizes                          | Title 80 runes; body 400 runes, 6 lines; request file 4 KiB.                                                                              |
-| D6  | Which ccy sessions get a spool | Every session carrying the bus kit, so a role given while it runs works without a relaunch.                                               |
-| D7  | LXC mount activation           | Takes effect at the container's next start; the play never restarts a container; `ccy-teams lxc-add` and the play say so.                 |
-| D8  | No desktop session             | The relay runs only in the graphical session; a request then gets no answer and the client exits 69, saying so.                           |
-| D9  | Presentation                   | Summary `<team>: <title>`; app name `Agent team coordinator`; no agent-supplied icon or actions.                                          |
-| D10 | Remote members                 | Not built; section 5 handed to Plan 00209.                                                                                                |
-| D11 | Logging                        | Identity, team, outcome and reason to the journal; never the title or body.                                                               |
+| ID  | Question                               | Default                                                                                                                                                       |
+| --- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | The command's name                     | `notify-owner` everywhere. Not a `notify-send` shim in containers: half its flags would be refused, which surprises more than a new name.                     |
+| D2  | Host `cc` sessions                     | No coordinator gate (the standing rule allows them); the same checks and the host limiter apply.                                                              |
+| D3  | Limits                                 | Burst 3, one per 10 min per member; 12 an hour in all; duplicates within 30 min refused; pre-gate 30 requests an hour per directory.                          |
+| D4  | Urgency                                | `low` and `normal`; `critical` refused (it stays on screen until dismissed).                                                                                  |
+| D5  | Sizes                                  | Title 80 runes; body 400 runes, 6 lines; request file 4 KiB.                                                                                                  |
+| D6  | Which ccy sessions get a spool         | Every session carrying the bus kit, so a role given while it runs works without a relaunch.                                                                   |
+| D7  | LXC mount activation                   | Takes effect at the container's next start; the play never restarts a container; `ccy-teams lxc-add` and the play say so.                                     |
+| D8  | No desktop session                     | The relay runs only in the graphical session; a request then gets no answer and the client exits 69, saying so.                                               |
+| D9  | Presentation                           | Summary `<team>: <title>`; app name `Agent team coordinator`; no agent-supplied icon or actions.                                                              |
+| D10 | Remote members                         | Not built; section 5 handed to Plan 00209.                                                                                                                    |
+| D11 | Logging                                | Identity, team, outcome and reason to the journal; never the title or body.                                                                                   |
+| D12 | Seats made before this plan            | Adopted once into the seat map, after the prefix and registry check of 3.2; a mismatch refuses the seat until it is taken again.                              |
+| D13 | LXC guest account with the owner's uid | The play refuses the container (the ACL would grant that account the member's spool); the alternative is a per-member relay group instead of the owner's uid. |

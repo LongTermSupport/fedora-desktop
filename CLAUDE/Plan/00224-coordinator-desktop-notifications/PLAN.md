@@ -1,6 +1,6 @@
 # Plan 00224: coordinator desktop notifications
 
-**Status**: Not Started (plan only; decisions D1-D11 in DESIGN.md carry coordinator defaults)
+**Status**: Not Started (plan only; decisions D1-D13 in DESIGN.md carry coordinator defaults)
 **Created**: 2026-10-23
 **Owner**: joseph
 **Priority**: Medium
@@ -18,7 +18,8 @@ container it writes a small request into a spool directory that host tooling mad
 ccy session or LXC member, and a relay in the owner's graphical session handles it. The relay
 works out who is asking from which directory the request is in, and from nothing the
 container wrote. It checks that this member is a coordinator **now**, from the host's own
-records (the session's membership file and `sudo agent-bus list`). It then validates and
+records: a host-only seat map and identity record, never the checkout's seat files, and
+`sudo agent-bus list`. It then validates and
 sanitises the text, applies rate limits and runs `notify-send`. A spool of files is used, not
 a socket, because SELinux stops a container connecting to a host socket (measured for the ssh
 agent). Files cross that boundary with the relabel the membership mount already uses.
@@ -52,13 +53,14 @@ The full design, the threat reasoning and the decisions are in [DESIGN.md](DESIG
 - `sudo -n agent-bus list <team>` works from a systemd user unit (no terminal).
 - A user unit bound to `graphical-session.target` has `DBUS_SESSION_BUS_ADDRESS`, and
   `notify-send` from it shows a notice.
-- GNOME Shell renders markup in a notification body (whether escaping is needed or merely
-  harmless).
-- In a privileged LXC container an `lxc.mount.entry` bind of a `/run` directory works, a
-  `tmpfiles.d` `a+` ACL applies on `/run`, and the agent user's uid inside is its uid on the
-  host.
-- A session's `membership.json` seats resolve to handles without a bus round trip (as
-  `ccy-teams describe-seats` does).
+- GNOME Shell renders markup in a notification body and not in the summary.
+- In a privileged systemd LXC guest, an `lxc.mount.entry` bind (`bind,optional,create=dir`)
+  of a host `/run` directory at the guest's `var/lib/agent-notify` is visible after the guest
+  boots. The guest's own `/run` tmpfs would hide a target under `/run`, which is why the
+  target is not there. A `tmpfiles.d` `a+` ACL applies on the host's `/run`, and the agent
+  user's uid inside is its uid on the host.
+- `agent-bus seat take` (or `add-member` under it) can report the handle it mints, so the host
+  can record seat to handle without reading the checkout.
 
 ## Tasks
 
@@ -72,58 +74,115 @@ The full design, the threat reasoning and the decisions are in [DESIGN.md](DESIG
 ### Phase 2: The Go core (TDD: each test red before its code)
 
 - [ ] ⬜ **Task 2.1**: `SPEC-notify-owner.md`, numbered requirements from DESIGN.md sections
-  3.1-3.6 (routes, exit codes, request schema, checks, gate, limits, file safety).
+  3.1-3.6 (routes, exit codes, request schema, checks, gate, limits, file safety), with the
+  fault split of 3.3: which faults refuse one entry and which stop the relay.
+
 - [ ] ⬜ **Task 2.2**: `src-go/internal/notifyowner` request: tests first for every refusal in
-  DESIGN.md 3.3 (sizes, lines, control and bidi characters, urgency, unknown keys) and for
-  markup escaping and the team prefix; then the code.
+  DESIGN.md 3.3: an `id` that is not 16 lowercase hex or does not match the file's stem
+  (`../` included); sizes and lines; control, bidi and invisible characters (with ZWJ emoji
+  accepted); urgency; unknown keys. Also body-only markup escaping and the team prefix. Then
+  the code.
+
 - [ ] ⬜ **Task 2.3**: the limiter: tests first with a fake clock (burst, refill, global cap,
   duplicates, pre-gate counter, the one "paused" notice, state persisted and reloaded, a
   corrupt state file refused loudly rather than reset); then the code.
-- [ ] ⬜ **Task 2.4**: the gate: tests first with fake roster and membership readers (ccy seat
-  that is coordinator, worker, parked coordinator, several teams with and without `team`, a
-  role changed between two requests, an LXC item whose file owner uid does not match, `sudo`
-  failing → refused with the reason, never allowed); the role source as an interface (v1
-  roster now, v2 later); then the code.
-- [ ] ⬜ **Task 2.5**: the spool: tests first in a temp directory (symlink, FIFO, hard link,
-  oversize, a planted `<id>.result` symlink, pruning beyond 16 entries and after 60 s, a
-  request left from before start); then the code.
-- [ ] ⬜ **Task 2.6**: `src-go/cmd/notify-owner`: the client (route choice, atomic write, wait,
-  exit codes) and `relay` (inotify on both trees, new directories, `notify-send` by argument
-  list through `execx`), tests through fakes; `go-qa` green.
+
+- [ ] ⬜ **Task 2.4**: the gate, tests first with fake roster, seat-map, identity-record,
+  container-liveness and `lxcrecord` readers. Cases:
+
+  - a coordinator seat; a worker; a parked coordinator;
+  - **a worker whose checkout `member.json` names the coordinator's handle, refused 77**;
+  - two live identity records naming one handle, both refused;
+  - a session with no running container, refused;
+  - several teams, with and without `team`, and more than 8 teams;
+  - a role changed between two requests;
+  - an LXC item not `joined`, and an LXC file owner uid that does not match;
+  - `sudo` failing: refused with the reason, never allowed;
+  - the roster read once per team within a request.
+
+  The role source is an interface (v1 roster now, v2 later). Then the code.
+
+- [ ] ⬜ **Task 2.5**: the seat map and identity record, tests first: written on a minted seat;
+  a pre-plan seat adopted only on an exact prefix and registry match (D12), and a mismatch
+  refused; rewritten on a hot seat change. Then the code.
+
+- [ ] ⬜ **Task 2.6**: the spool, tests first in a temp directory:
+
+  - a symlink, a FIFO, a socket, a directory and a hard link where a request should be;
+    oversize; a name that is not `<16 hex>.req`;
+  - a planted `<stem>.result` symlink;
+  - pruning beyond 16 entries and after 60 s, by non-recursive `unlinkat`;
+  - an unreadable or undeletable entry, refused while the next directory is still served;
+  - a subdirectory inside a spool, not taken for an identity;
+  - a request left from before start.
+
+  Then the code.
+
+- [ ] ⬜ **Task 2.7**: `src-go/cmd/notify-owner`, tests through fakes:
+
+  - the client: route choice, including an LXC guest without the env file exiting 69; atomic
+    write; wait; exit codes;
+  - `relay`: watch roots created or awaited; inotify at the identity depths; `notify-send` by
+    argument list through `execx`; exit only on its own state.
+
+  Register it: a `scripts/go-binary-suites.tsv` row, the `src-go/CLAUDE.md` layout line, and
+  the `go-deps.allowlist` reason if `x/sys/unix` gains a use. `go-qa` green.
 
 ### Phase 3: Host IaC
 
-- [ ] ⬜ **Task 3.1**: `play-agent-bus.yml`: build and install `notify-owner` to `/usr/local/bin`
-  and the member kit with `tasks/build-go-command.yml`; deploy `notify-owner-relay.service`
-  (user unit, `graphical-session.target`) and enable it; `tmpfiles.d` for `/run/agent-notify`;
-  the play header names the relay.
-- [ ] ⬜ **Task 3.2**: `CLAUDE/AgentNotes.md`'s `notify-send` rule: name `notify-owner` as the
+- [ ] ⬜ **Task 3.1**: `play-agent-bus.yml`:
+  - build and install `notify-owner` to `/usr/local/bin` and the member kit, with
+    `tasks/build-go-command.yml` and `go_command_static: true`;
+  - deploy `notify-owner-relay.service` (a user unit on `graphical-session.target`, no
+    `NoNewPrivileges=`, `OnFailure=` a one-shot notice unit, as `stt-watch-failed.service`
+    does) and enable it;
+  - `tmpfiles.d` for `/run/agent-notify`;
+  - the play header names the relay.
+- [ ] ⬜ **Task 3.2**: `agent-bus seat take` reports the handle it mints, if Task 1.1 found it
+  does not, with a test first. Then `ccy-teams` writes the seat map and the identity record
+  (Task 2.5's code) at launch and on hot seat changes.
+- [ ] ⬜ **Task 3.3**: `CLAUDE/AgentNotes.md`'s `notify-send` rule: name `notify-owner` as the
   one command (host and containers), the coordinator-only rule for containers, and the
   no-spam rule unchanged.
 
 ### Phase 4: podman ccy
 
-- [ ] ⬜ **Task 4.1**: the launcher: create `$XDG_RUNTIME_DIR/ccy/notify/<session>/` (0700) for
-  every session carrying the bus kit, mount it rw at `/run/ccy/notify` with the per-session
-  relabel, pass `NOTIFY_OWNER_SPOOL=/run/ccy/notify`, and remove it in cleanup. The logic goes
-  in Go (`ccy-teams internal membership-init` or the `notify-owner` binary prints the mount),
-  so the bash on the ratchet does not grow; a test in `scripts/test-ccy-agent-bus.bash` first.
-  **CCY version bump** (`CCY_VERSION`).
-- [ ] ⬜ **Task 4.2**: `play-claude-yolo.yml` builds `notify-owner` into
-  `/opt/claude-yolo/optional/agent-bus/`; the entrypoint puts it on `PATH` with the kit and
-  refuses a `NOTIFY_OWNER_SPOOL` that is not a directory. **Container version bump** (the
-  Dockerfile label and `REQUIRED_CONTAINER_VERSION`) **and CCY version bump**.
+- [ ] ⬜ **Task 4.1**: `ccy-teams internal membership-init` (Go, tests first) also creates
+  `$XDG_RUNTIME_DIR/ccy/notify/<session>/` (0700) for every session carrying the bus kit,
+  wiping one a reused name left. It writes the identity record and prints the extra container
+  arguments: the rw mount at `/run/ccy/notify` with the per-session relabel, and
+  `NOTIFY_OWNER_SPOOL=/run/ccy/notify`. They are printed in the output the launcher already
+  consumes, so `lib/agent-bus-membership.bash` gains no line and no function. That file is
+  held to the hard bash limits, not the ratchet, and has no headroom; `qa-bash-limits` proves
+  it. Removal at session end needs no bash: the relay prunes by container liveness. A test in
+  `scripts/test-ccy-agent-bus.bash` comes first. **CCY version bump** (`CCY_VERSION`) if any
+  launcher or `lib/` file changes.
+- [ ] ⬜ **Task 4.2**: `play-claude-yolo.yml` builds `notify-owner` statically into
+  `/opt/claude-yolo/optional/agent-bus/`. The Dockerfile links it into `/usr/local/bin` beside
+  the other kit binaries, and `entrypoint.sh` gains no line (it is on the ratchet). **Container
+  version bump** (the Dockerfile label and `REQUIRED_CONTAINER_VERSION`) **and CCY version
+  bump**.
 - [ ] ⬜ **Task 4.3**: the pingbus skill (`plugin/pingbus/skills/pingbus/SKILL.md`): a
   coordinator may use `notify-owner` when the owner asked to be told, or work is blocked on
   them; never for progress. In the image, so it rides Task 4.2's container version bump.
 
 ### Phase 5: LXC members
 
-- [ ] ⬜ **Task 5.1**: `play-agent-bus.yml`'s LXC member phase: per member, a `tmpfiles.d`
-  line for `/run/agent-notify/lxc/<container>/<user>` (`0700 <uid>`, an `a+` ACL for the
-  owner's user); one `lxc.mount.entry` per container; `NOTIFY_OWNER_SPOOL` in the member's
-  env file; `notify-owner` in the pushed kit. The play reports a container whose mount waits
-  for its next start (decision D7); a test of the rendered lines first.
+- [ ] ⬜ **Task 5.1**: `play-agent-bus.yml`'s LXC member phase, tests of the rendered lines
+  first. Per member:
+
+  - a `tmpfiles.d` line for `/run/agent-notify/lxc/<container>/<user>` (`0700 <uid>`, an
+    `a+` ACL for the owner's user);
+  - `NOTIFY_OWNER_SPOOL=/var/lib/agent-notify/<user>` in the member's env file;
+  - `notify-owner` in the pushed kit;
+  - a refusal for a container whose passwd gives the owner's uid to another account (D13).
+
+  Per container, one marked `blockinfile` in its LXC config:
+  `lxc.mount.entry = /run/agent-notify/lxc/<container> var/lib/agent-notify none bind,optional,create=dir 0 0`.
+  It is removed when the container's last member leaves. This is the first play to write an
+  LXC config, so the owner's own lines are left untouched and the task tests that. The play
+  reports a container whose mount waits for its next start (decision D7).
+
 - [ ] ⬜ **Task 5.2**: `ccy-teams lxc-add`'s closing text names the restart when the mount is
   new; `docs/agent-bus-lxc-members.md` gains the spool (what the play does, the restart).
 
@@ -139,7 +198,8 @@ The full design, the threat reasoning and the decisions are in [DESIGN.md](DESIG
 - [ ] ⬜ **Task 7.1**: `deploy.bash` (`play-agent-bus.yml`, `play-claude-yolo.yml`) and
   `acceptance.bash` with a coverage line: on a throwaway team, a ccy coordinator's notice is
   shown (the relay's journal line and `notify-send`'s exit); a worker in the same team is
-  refused 77; the fourth notice within the burst is refused 75; a symlinked request is refused;
+  refused 77, including after its checkout `member.json` is rewritten to the coordinator's
+  handle; the fourth notice within the burst is refused 75; a symlinked request is refused;
   the limit survives a relay restart; with the relay stopped the client exits 69 within its
   timeout; an LXC coordinator's notice is shown, or the container's pending restart is named
   as NOT ESTABLISHABLE. Entry in `meta-deploy.list`. Separate owner asks: look at the screen
