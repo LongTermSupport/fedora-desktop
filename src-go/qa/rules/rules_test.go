@@ -88,8 +88,8 @@ func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 10 {
-		t.Fatalf("want 10 rules, got %d", got)
+	if got := len(All()); got != 11 {
+		t.Fatalf("want 11 rules, got %d", got)
 	}
 }
 
@@ -137,4 +137,8 @@ func TestOwnedBy(t *testing.T) {
 			t.Errorf("ownedBy(%q, %q) = %v, want %v", c.pkg, c.owner, got, c.want)
 		}
 	}
+}
+
+func TestRawConnProbe(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), RawConnProbe, "fix/internal/badraw")
 }

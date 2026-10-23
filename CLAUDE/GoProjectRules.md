@@ -45,6 +45,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_hidden_bindings` | an action reachable only by a key, with no visible, named choice for it (also in shell fzf and Python Textual: `qa-hidden-bindings.bash`)    | `teams` picker: Ctrl-A/X/O on Running sessions; `ccy-sessions`: Ctrl-T/X/N       |
 | `project_fakeclock_count` | a test that waits on a fake clock by the number of armed waiters, which a timer it did not mean can make, so it advances too early and hangs | `link` tests: `TestAnOpBeforeThePIDIsNotAnswered` hung to the 10-minute timeout  |
 | `project_goroutine_end`   | a goroutine that signals no end, so no owner can wait for it, and a stop missed on one path leaks it for the life of the process             | `link`: `go l.read()`, about 145 control readers left blocked in one test binary |
+| `project_rawconn_probe` | a RawConn readiness callback that answers without testing its descriptor, so readiness the poller saw and Read reset is missed and the wait never ends | `link`: the pidfd watch never saw a keeper that died before the watch first ran |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -283,6 +284,29 @@ a stop missed on one path leaks it for the life of the process with what it hold
   in the nested `qa` module).
 - Not caught: an end signalled and never awaited, or awaited on only some of the owner's paths;
   `time.AfterFunc` and `context.AfterFunc` callbacks, and goroutines started in tests.
+
+### project_rawconn_probe
+
+A call of a method named `Read` or `Write` of `syscall.RawConn`'s shape
+(`func(func(uintptr) bool) error`, on any type) whose callback does not read its descriptor: a
+function literal or same-package function whose descriptor parameter is unnamed, blank or never
+read, or a callback that is a function value or another package's function (its body cannot be
+seen). Test files are judged too. `RawConn.Read` resets the readiness the runtime's poller has
+already seen before it first calls the callback, and parks until the next edge whenever the
+callback answers false; a callback that answers without testing the descriptor waits for an
+edge that may have passed. The fix is to test the descriptor on every call:
+`unix.Poll(fds, 0)` as the keeper's pidfd wait does, or a read that answers false only on
+`EAGAIN`.
+
+- Red, fixture: `testdata/src/fix/internal/badraw` (the originating "first call arms" callback,
+  a blank descriptor, a named and unread one on `Write`, a function value, a same-package
+  function that ignores it, an interface of the same shape over a file's conn; a literal and a
+  same-package function that test it, `Control`, and a `Read` of another shape clean).
+- Red, real tree: 1 finding, `internal/teamchat/member/link/parent.go` `watch` (the same
+  untagged, with `busfailpoints` and with `tuwunel`; none in the nested `qa` module).
+- Not caught: a callback that reads its descriptor and still answers without testing its state
+  (logs it, or only compares it with a bound); `RawConn.Control` decides no readiness and is not
+  judged.
 
 ### project_hidden_bindings
 
