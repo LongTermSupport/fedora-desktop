@@ -122,8 +122,8 @@ func TestSD4_1OneTimeoutPerSilentAddresseePastTheGrace(t *testing.T) {
 	p := outPing(1, startWall, agent(ops, 2), agent(ops, 3))
 	w.heldWith(ops, w.pingStore(ops, p))
 	w.persistBatch(team.Batch{Team: ops, Answered: []team.Answer{ans(p, agent(ops, 2), 50, startWall+1000)}})
-	if w.clk.Waiters() != 1 {
-		t.Fatalf("waiters = %d, want the one TIMEOUT timer", w.clk.Waiters())
+	if !w.timeoutArmed() || !w.dueAt(timeoutDue(p)) {
+		t.Fatal("the TIMEOUT timer is not armed for the silent addressee")
 	}
 	w.advanceTo(p.DueMS + timeoutGraceMS)
 	if got := timeouts(w.store(ops)); len(got) != 0 {
@@ -141,8 +141,8 @@ func TestSD4_1OneTimeoutPerSilentAddresseePastTheGrace(t *testing.T) {
 	if got := s.Outbox.Pings[0]; !slices.Equal(got.Answered, []int{0}) || !slices.Equal(got.Reported, []int{1}) {
 		t.Fatalf("the ping = %+v", got)
 	}
-	if w.clk.Waiters() != 0 {
-		t.Fatalf("waiters = %d with nothing owed", w.clk.Waiters())
+	if w.timeoutArmed() {
+		t.Fatal("a TIMEOUT timer with nothing owed")
 	}
 }
 
@@ -437,14 +437,18 @@ func TestSY7_4AnAnswerInARefusedBatchLeavesThePingUnanswered(t *testing.T) {
 func TestARemovalDropsTheOutboxAndItsTimer(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)
 	ops := tid(t, "ops")
-	w.heldWith(ops, w.pingStore(ops, outPing(1, startWall, agent(ops, 2))))
+	p := outPing(1, startWall, agent(ops, 2))
+	w.heldWith(ops, w.pingStore(ops, p))
+	if !w.timeoutArmed() || !w.dueAt(timeoutDue(p)) {
+		t.Fatal("the TIMEOUT timer is not armed before the removal")
+	}
 	if _, err := w.e.Remove(t.Context(), ops); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(w.log.String(), "1 outbox pings and 0 queued sends") {
 		t.Fatalf("link.log = %q", w.log.String())
 	}
-	if w.clk.Waiters() != 0 {
-		t.Fatalf("waiters = %d after the removal", w.clk.Waiters())
+	if w.timeoutArmed() || w.dueAt(timeoutDue(p)) {
+		t.Fatal("the TIMEOUT timer is armed after the removal")
 	}
 }

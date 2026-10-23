@@ -91,7 +91,8 @@ func (f *Fake) Hold(d time.Duration) (<-chan time.Time, func() bool) {
 	return c, stop
 }
 
-// Waiters is how many sleeps, timers and holds are armed.
+// Waiters is how many sleeps, timers and holds are armed: for the fake's own tests and a test
+// whose claim is that nothing at all is armed, never to name one timer (project_fakeclock_count).
 func (f *Fake) Waiters() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -117,6 +118,15 @@ func (f *Fake) AwaitDue(ctx context.Context, d time.Duration) error {
 			return ctx.Err()
 		}
 	}
+}
+
+// Armed is whether a waiter due d from the fake's present reading is armed now: AwaitDue's
+// question asked without waiting, so a test names the timer it means rather than counting.
+func (f *Fake) Armed(d time.Duration) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	due := f.mono + d
+	return slices.ContainsFunc(f.waiters, func(w *waiter) bool { return w.due == due })
 }
 
 // Advance moves boot, mono and wall by d, firing each waiter that falls due on the way.

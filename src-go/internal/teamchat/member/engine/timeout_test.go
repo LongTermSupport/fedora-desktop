@@ -12,6 +12,28 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
 
+// timeoutArmed is whether the engine's one TIMEOUT timer is armed, read on the state goroutine.
+// A test names that timer so and by dueAt, never by a count of the clock's waiters: the
+// delivery loop, the proof and status.json arm their own timers on the same clock
+// (project_fakeclock_count).
+func (w *world) timeoutArmed() bool {
+	w.t.Helper()
+	var armed bool
+	w.local(func() { armed = w.e.timer != nil })
+	return armed
+}
+
+// dueAt is whether the clock holds a waiter due at wall time atMS, as the TIMEOUT timer is
+// armed from wall milliseconds.
+func (w *world) dueAt(atMS int64) bool {
+	return w.clk.Armed(time.Duration(atMS-w.clk.WallMS()) * time.Millisecond)
+}
+
+// timeoutDue is when a ping's TIMEOUT falls due: past its deadline and A 8.3's grace.
+func timeoutDue(p state.Ping) int64 {
+	return p.DueMS + timeoutGraceMS + 1
+}
+
 // SD4-6: never a tick. Nothing owed arms nothing; three pings owed arm one timer.
 func TestSD4_6OneTimerAndOnlyWhenOwed(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)
@@ -19,20 +41,21 @@ func TestSD4_6OneTimerAndOnlyWhenOwed(t *testing.T) {
 	answered := outPing(1, startWall, agent(ops, 2))
 	answered.Answered = []int{0}
 	w.heldWith(ops, w.pingStore(ops, answered))
-	if w.clk.Waiters() != 0 {
-		t.Fatalf("waiters = %d with nothing owed", w.clk.Waiters())
+	if w.timeoutArmed() || w.dueAt(timeoutDue(answered)) {
+		t.Fatal("a TIMEOUT timer with nothing owed")
 	}
-	w.heldWith(dev, w.pingStore(dev, outPing(2, startWall, agent(dev, 2)), outPing(3, startWall+1, agent(dev, 3)), outPing(4, startWall+2, agent(dev, 2))))
+	first, second, third := outPing(2, startWall, agent(dev, 2)), outPing(3, startWall+1, agent(dev, 3)), outPing(4, startWall+2, agent(dev, 2))
+	w.heldWith(dev, w.pingStore(dev, first, second, third))
 	w.e.SetHealth(dev, team.Health{Down: true})
-	if w.clk.Waiters() != 1 {
-		t.Fatalf("waiters = %d with three pings owed, want one timer", w.clk.Waiters())
+	if !w.timeoutArmed() || !w.dueAt(timeoutDue(first)) || w.dueAt(timeoutDue(second)) || w.dueAt(timeoutDue(third)) {
+		t.Fatal("three pings owed did not arm the one timer, for the first")
 	}
 	w.advanceTo(startWall + pingTimeoutMS + timeoutGraceMS + 3)
 	if n := len(timeouts(w.store(dev))); n != 3 {
 		t.Fatalf("TIMEOUTs = %d", n)
 	}
-	if w.clk.Waiters() != 0 {
-		t.Fatalf("waiters = %d once every TIMEOUT is made", w.clk.Waiters())
+	if w.timeoutArmed() {
+		t.Fatal("a TIMEOUT timer once every TIMEOUT is made")
 	}
 }
 
@@ -52,8 +75,8 @@ func TestSD4_6AWallStepBackReArmsWithoutWriting(t *testing.T) {
 	if string(before.Data) != string(after.Data) {
 		t.Fatal("the firing wrote though nothing was due on the wall clock")
 	}
-	if w.clk.Waiters() != 1 {
-		t.Fatalf("waiters = %d, want the timer re-armed", w.clk.Waiters())
+	if !w.timeoutArmed() || !w.dueAt(timeoutDue(p)) {
+		t.Fatal("the timer was not re-armed for the TIMEOUT's wall time")
 	}
 	w.advanceTo(p.DueMS + timeoutGraceMS + 1)
 	if n := len(timeouts(w.store(ops))); n != 1 {

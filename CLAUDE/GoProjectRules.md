@@ -45,7 +45,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_hidden_bindings`    | an action reachable only by a key, with no visible, named choice for it (also in shell fzf and Python Textual: `qa-hidden-bindings.bash`)              | `teams` picker: Ctrl-A/X/O on Running sessions; `ccy-sessions`: Ctrl-T/X/N                |
 | `project_lifecycle_turn`     | a member's lifecycle notice decided from a read of main and posted outside the team's turn, so another post of the run can come between                | teamchat `ends`: `back` posted after the run's own `disconnected` (Plan 00209)            |
 | `project_keeper_log_barrier` | a keeper test reading keeper.log past the harness's turn-aware reader, so a wait on a line releases before its turn has done the rest                  | teamchat `keeper`: `TestOwedNotice` saw the seat held after its line (Plan 00209)         |
-| `project_fakeclock_count`    | a test that waits on a fake clock by the number of armed waiters, which a timer it did not mean can make, so it advances too early and hangs           | `link` tests: `TestAnOpBeforeThePIDIsNotAnswered` hung to the 10-minute timeout           |
+| `project_fakeclock_count`    | a test that judges a fake clock's timers by the number armed, which a timer it did not mean changes: a wait advances too early, an assertion lies      | `link` tests: `TestAnOpBeforeThePIDIsNotAnswered` hung; `engine` TIMEOUT tests at a merge |
 | `project_goroutine_end`      | a goroutine that signals no end, so no owner can wait for it, and a stop missed on one path leaks it for the life of the process                       | `link`: `go l.read()`, about 145 control readers left blocked in one test binary          |
 | `project_rawconn_probe`      | a RawConn readiness callback that answers without testing its descriptor, so readiness the poller saw and Read reset is missed and the wait never ends | `link`: the pidfd watch never saw a keeper that died before the watch first ran           |
 | `project_leakcheck_once`     | a second `leakcheck.Check` on one test, which judges before the cleanups registered between the two run and reports a world they stop as a leak        | `engine`: `TestLiveNeedsEveryFact`'s second world reported the first's transcript watcher |
@@ -265,12 +265,39 @@ fake's present reading is armed: the timer named by when it is due.
   tests had waited on whichever timer made the count: `TestWaitAcrossARestart` now waits for
   the 5 s backoff before the link listens, and `TestTrailingFactsAloneOnceAMinute` waits for
   the loop's minute, not a 2 s pace that is never armed.
-- Not caught: a count read into a variable and polled by a helper that takes the `int`, and a
-  fake whose advance is spelled otherwise; two timers due at the same instant are one to
-  `AwaitDue`.
-- Next wider rule, not built: every read of a fake clock's waiter count, assertions included.
-  An assertion made after the code has finished carries no advance and no race, and the fake's
-  own tests need it.
+- Widened, the merge of n3 into n3e (Plan 00209): **every other use of the count method outside
+  the package that declares it** (an assertion, a variable, a method value, a helper argument,
+  a switch) is flagged too, with "counts the fake clock's waiters". The fake's own package, its
+  external tests included, may assert its own count. A function named in `waiterCountAllowances`
+  (package, function, reason) may assert the count when its claim is that nothing at all is
+  armed on its clock, so every timer is the one it means; a wait by count is never excused. The
+  hazard: three of n3d's TIMEOUT tests asserted `Waiters() == 1` for "the one TIMEOUT timer"
+  and `== 0` for "no TIMEOUT timer", and once n3e's delivery loop and proof armed their own
+  timers on the same fake they failed on correct code; the same assertion passes when the
+  timer it means is missing and another makes up the number.
+- Red, fixture (widened): `badcount/assert_test.go` (the originating assertion, a count compared
+  with zero, kept in a variable, a method value, a helper argument, a switch, a table loop, a
+  subtest, a helper returning it, a second fake), the snapshot in `TestOriginating`;
+  `fakeclock`'s own and external tests clean; `countallowed` (a row clean, a poll inside it and
+  its neighbour flagged).
+- Red, real tree (widened, commit `cc98cda0b`): 14 findings, the same untagged and with
+  `busfailpoints`, `tuwunel` and `teamchatrelease`, none in the nested `qa` module: 7
+  assertions (each with its message argument) in `engine/outbox_test.go` and
+  `engine/timeout_test.go`, matching the independent search's 7.
+- Green (widened): `clock.(*Fake).Armed(d)`, AwaitDue's question asked without waiting; the
+  engine tests name the TIMEOUT timer by the engine's own field (`w.timeoutArmed`, read on the
+  state goroutine) and by its wall due time (`w.dueAt`), and each fails with the timer armed
+  1 ms late. Four allowance rows: the client's `world.noLink` and `TestASendNeverRetries` (the
+  client never waits), the inbox's `TestOneDeliveryRecordsTheAuthFrameThenTheContent` and
+  faketranscript's `TestRecordNeverWritesNothing`.
+- Not caught: a fake whose advance is spelled otherwise; two timers due at the same instant
+  are one to `AwaitDue` and `Armed`; an allowance row whose test later shares its clock with
+  other timers (the row's reason says why its clock has one user).
+- Next wider rule, not built: a timer named by its due time must be the only waiter due then
+  (`AwaitDue` and `Armed` refusing an ambiguous due). That is a fact of a run, not a shape in
+  the syntax tree, so it belongs in the fake, not in an analyzer; the independent search found
+  no two timers sharing a due in any test (it did not check each of about 25 `AwaitDue`
+  calls), and it is referred to the owner (Plan 00209 n3e merge report `261023-n3e-merge-n3b.md`).
 
 ### project_goroutine_end
 

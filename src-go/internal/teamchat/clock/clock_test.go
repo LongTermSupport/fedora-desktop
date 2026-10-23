@@ -227,6 +227,29 @@ func TestAwaitDueIgnoresAStoppedTimer(t *testing.T) {
 	}
 }
 
+// Armed says now what AwaitDue waits for: a waiter due d from the present reading, never
+// another timer, nor a stopped or fired one.
+func TestArmedNamesATimerByWhenItIsDue(t *testing.T) {
+	f := clock.NewFake(0, 0)
+	f.AfterFunc(5*time.Second, func() {})
+	stop := f.AfterFunc(time.Second, func() {})
+	if !f.Armed(5*time.Second) || !f.Armed(time.Second) || f.Armed(2*time.Second) {
+		t.Fatal("Armed named the wrong timers")
+	}
+	stop()
+	if f.Armed(time.Second) {
+		t.Fatal("a stopped timer is armed")
+	}
+	f.Advance(2 * time.Second)
+	if !f.Armed(3*time.Second) || f.Armed(5*time.Second) {
+		t.Fatal("due not counted from the present reading")
+	}
+	f.Advance(3 * time.Second)
+	if f.Armed(0) {
+		t.Fatal("a fired timer is armed")
+	}
+}
+
 // lock's three tries, 50 ms apart, run on the fake: the acquire sleeps twice, then is busy.
 func TestTheFakeDrivesLocksThreeTries(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "home")
