@@ -64,6 +64,9 @@ func TestAssembleBuildsTheKit(t *testing.T) {
 		"plugin/teamchat/.claude-plugin/plugin.json": 0o644,
 		"plugin/teamchat/hooks":                      fs.ModeDir | 0o755,
 		"plugin/teamchat/hooks/hooks.json":           0o644,
+		"plugin/teamchat/skills":                     fs.ModeDir | 0o755,
+		"plugin/teamchat/skills/teamchat":            fs.ModeDir | 0o755,
+		"plugin/teamchat/skills/teamchat/SKILL.md":   0o644,
 		"settings.json":                              0o644,
 	}
 	got := map[string]fs.FileMode{}
@@ -96,6 +99,22 @@ func TestAssembleBuildsTheKit(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(into, "bin/teamchat"))
 	if err != nil || !bytes.Equal(data, binary) {
 		t.Errorf("binary %q %v", data, err)
+	}
+}
+
+// PK2: the skill is the embedded SKILL.md, at the plugin's skills/teamchat/.
+func TestAssembleWritesTheSkill(t *testing.T) {
+	into := emptyDir(t)
+	kit := hostKit(t)
+	if err := Assemble(into, kit, strings.NewReader("bin")); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(into, "plugin/teamchat/skills/teamchat/SKILL.md"))
+	if err != nil || !bytes.Equal(data, skill) {
+		t.Errorf("the skill is not the embedded one: %v", err)
+	}
+	if strings.TrimPrefix(Skill(kit), kit.PluginDir()+"/") != "skills/teamchat/SKILL.md" {
+		t.Errorf("skill path %s", Skill(kit))
 	}
 	if strings.TrimPrefix(kit.PluginHooks(), kit.String()+"/") != "plugin/teamchat/hooks/hooks.json" ||
 		strings.TrimPrefix(kit.Settings(), kit.String()+"/") != "settings.json" ||
@@ -169,6 +188,13 @@ func TestTheSettingsAreTheStatusLineOnly(t *testing.T) {
 				t.Errorf("%s holds %s", path, banned)
 			}
 		}
+	}
+}
+
+// B 2.12: the plugin's one skill is teamchat:teamchat, so its directory is the product's name.
+func TestTheSkillIsNamedForThePlugin(t *testing.T) {
+	if paths.SkillName != paths.PluginName+":"+filepath.Base(filepath.Dir(Skill(hostKit(t)))) {
+		t.Errorf("%s at %s", paths.SkillName, Skill(hostKit(t)))
 	}
 }
 

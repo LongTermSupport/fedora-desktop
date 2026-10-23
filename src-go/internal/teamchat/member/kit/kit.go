@@ -1,12 +1,14 @@
-// Package kit assembles a member kit directory (Plan 00209 SPEC-n3 KT1, n3-D4, B 2.12): the
-// static binary, the plugin whose hooks.json names `<kit>/bin/teamchat hook <event>` by
-// absolute path for Claude Code's four events, and the settings with the status line. The
+// Package kit assembles a member kit directory (Plan 00209 SPEC-n3 KT1, PK1, PK2, n3-D4, B
+// 2.12): the static binary, the plugin whose hooks.json names `<kit>/bin/teamchat hook <event>`
+// by absolute path for Claude Code's four events and whose one skill is teamchat:teamchat, and
+// the settings with the status line. The
 // commands embed the kit's own path, so a kit is assembled for the path it will be placed at
 // (the host kit's is valid unchanged in a guest, whose path is the same).
 package kit
 
 import (
 	"bytes"
+	_ "embed"
 	"errors"
 	"fmt"
 	"io"
@@ -38,6 +40,18 @@ var Hooks = []Hook{
 // StatusLineRefresh is the status line's refreshInterval in seconds (B 2.9): below the 30 s
 // heartbeat, so a stale segment is seen within one beat.
 const StatusLineRefresh = 25
+
+// skill is the plugin's SKILL.md (B 2.12), checked against the binary by this package's tests.
+//
+//go:embed skill.txt
+var skill []byte
+
+// skillDir is the skill's directory in the plugin: Claude Code names a plugin's skill
+// <plugin>:<directory>, so this makes it paths.SkillName.
+const skillDir = "skills/" + paths.Product
+
+// Skill is the path of kit's SKILL.md.
+func Skill(kit paths.Kit) string { return kit.PluginDir() + "/" + skillDir + "/SKILL.md" }
 
 // maxBinary caps the binary read into the kit.
 var maxBinary int64 = 256 << 20
@@ -96,6 +110,9 @@ func entries(kit paths.Kit, binary io.Reader) []entry {
 		doc(plugin+"/.claude-plugin/plugin.json", manifest()),
 		{plugin + "/hooks", dirMode, nil, 0},
 		doc(plugin+"/hooks/hooks.json", hooks(kit)),
+		{plugin + "/skills", dirMode, nil, 0},
+		{plugin + "/" + skillDir, dirMode, nil, 0},
+		{plugin + "/" + skillDir + "/SKILL.md", fileMode, bytes.NewReader(skill), maxDocument},
 	}
 }
 
