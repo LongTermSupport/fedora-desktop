@@ -1,6 +1,12 @@
 # Plan 00191: Go CLI tooling (ccy-teams, then ccy-sessions, then ccy)
 
-**Status**: In Progress
+**Status**: In Progress. Everything built is deployed (`play-claude-yolo.yml` last passed on
+the host at F44 cab255ad4; `play-python.yml` at 67033c224). Left for the host agent: Task
+4.6's gate run on the host, and Task 5.1's comparison of the Go front's flags with
+`CCY_LEGACY=1`. Left for workers: Task 3.8's record entries, the `.j2` QA.md line of Task 4.5,
+and Task 5.1's qa-reviewer. Left for the owner: one signature on Task 3.8's record. Launcher
+phases 3 to 5 are deferred by D4/D10 until the owner hits launcher defects or asks; nothing
+waits on that.
 **Created**: 2026-10-13
 **Owner**: joseph
 **Priority**: High
@@ -95,8 +101,9 @@ today; rewriting them is out of scope.
   the binary from the checkout (`-trimpath`, `main.RootDir` injected, installed only when the
   checksum differs) and installs it at the same path and mode; `ccy-teams.j2` is deleted;
   the suite builds the Go binary only; `qa-changed.bash` runs it for any `src-go/` file in
-  the binary's build closure; docs updated; CCY 3.95.6. Done pending the owner's host run
-  (`meta-deploy.bash` lists `play-claude-yolo.yml`).
+  the binary's build closure; docs updated; CCY 3.95.6. Deployed: `play-claude-yolo.yml` has
+  passed on the host since, last at F44 cab255ad4 (commit d2612e8d7), and the owner's host test
+  found it good (Success Criteria).
 
 ### Phase 3: go-qa-ci
 
@@ -127,6 +134,30 @@ today; rewriting them is out of scope.
   step B2), then `[tools] record` and `suppression` are switched on in `src-go/qa/go-qa.toml`.
   Both are off until then: without a record every `.golangci.yml` exclusion would fail the
   suppression detector. `qa-go.bash` had neither check, so nothing was lost by Task 3.3.
+  The record's format is go-qa-ci's `docs/record.md` at the pinned version (`qa/record.toml`
+  there is a worked example). Split so that the owner's part is one signature:
+
+  - Worker: write `src-go/qa/record.toml` with one `[[exception]]` per rule identifier the
+    suppression detector prints for `.golangci.yml` (each `exclusions.rules` linter or gosec
+    code, and each disabled linter), its justification taken from the comment above that
+    exclusion, `path = ".golangci.yml"`, `added_by_model` set to the writing model,
+    `decided_by = "repository-owner"`, and a `review_by` within that model tier's horizon.
+    Add `[record] deciders = ["repository-owner"]` and the `[record.trust.models]` prefix for
+    the writing model to `go-qa.toml`, with `record` and `suppression` still off. Find the
+    identifiers from go-qa's own output on a scratch run with both switched on, not by hand.
+
+  - Owner: sign. The text to sign is the `[ratchet]` table, for example:
+
+    ```toml
+    [ratchet]
+    high_water = <the number of entries the worker wrote>
+    decided_by = "repository-owner"
+    decided_on = <the day of signing>
+    reason = "adopting the ceiling at the configuration exceptions this repository's Go gate has today"
+    ```
+
+    Signing it accepts each entry's justification and the trust tier given to the writing
+    model. Then a worker switches `record` and `suppression` on.
 
 - [x] ✅ **Task 3.9**: Re-derive the coverage floor from go-qa's measurement (Fable's review of
   Task 3.3, finding 4; `subagent-reports/261019-go-qa-ci-pin-review-fable.md`). `qa-go.bash`
@@ -229,7 +260,8 @@ today; rewriting them is out of scope.
   (`-trimpath`, installed only when the checksum differs); `files/home/.local/bin/ccy-sessions`
   is deleted; the four oracle suites are Go-only (the bash library cases stay); `qa-changed.bash`
   runs them for any `src-go/` file in the binary's build closure; docs updated; CCY 3.95.7.
-  Done pending the owner's host run (`meta-deploy.bash` lists `play-claude-yolo.yml`).
+  Deployed: `play-claude-yolo.yml` has passed on the host since, last at F44 cab255ad4 (commit
+  d2612e8d7).
 
 - [x] ✅ **Task 4.2**: The ccy launcher: assess and plan. Assessed in
   [ASSESS-ccy-launcher.md](ASSESS-ccy-launcher.md) (about 15,400 lines with its lib and cc, all
@@ -259,8 +291,10 @@ today; rewriting them is out of scope.
   and call it as their parity oracle; `ccy_registry_restore` and `_restore_args` were already
   gone), `ccy_known_prompts` (Plan 00194's goodbye harness, `screen_test.go`) and
   `_ccy_tmux_clients` (`ccy_tmux_attach`, `ccy_tmux_is_detached`). The restore chain can go
-  only with the Go parity cases that call it: the owner's call. Named follow-up, deferred to
-  that decision: remove the restore chain and its Go test cases together.
+  only with the Go parity cases that call it. Decided as a **coordinator default, changeable
+  by the owner** (standing "do not gate on me"): keep both until launcher phase 3 replaces the
+  registry code, then delete the restore chain and its Go parity cases together in that
+  phase. Nothing on the host changes meanwhile, and keeping them is reversible.
 
 - [x] ✅ **Task 4.4**: Launcher phase 0.2: the differential harness, proven able to fail.
   Named follow-up, deferred: a pseudo-terminal driver for the interactive scenarios (see "Not
@@ -625,9 +659,12 @@ today; rewriting them is out of scope.
       sites, and the independent search agreed
       (`subagent-reports/261022-regex-group-independent-search.md`). The real-Ansible proofs are
       `regex-backref-proof/fixture_labels.py` and `regex-backref-proof/play_task.py`; the report
-      is `subagent-reports/261022-regex-group-dbf-report.md`. Open for the owner: the
-      rule reads YAML only, so `.j2` templates (which unescape) are undefended. None uses a
-      regex filter today. Known limits, left by the coordinator's decision after review round 1
+      is `subagent-reports/261022-regex-group-dbf-report.md`. The rule reads YAML only, so
+      `.j2` templates (which unescape) are undefended; no tracked `.j2` uses a regex filter
+      today (checked at F44 2adb8df38). Decided as a **coordinator default, changeable by the
+      owner**: the rule is extended to `.j2` when the first regex filter appears in one. Left
+      for a worker: one line in CLAUDE/QA.md under `regex-backref-escape` saying so, so the
+      author of that template is told. Known limits, left by the coordinator's decision after review round 1
       (`subagent-reports/261022-regex-group-review-round1.md`, F2 to F5), none of which occurs
       in the tree today:
       - the free-form and `args:` forms of debug `var` are not read;
@@ -669,12 +706,20 @@ today; rewriting them is out of scope.
   passed. The gate now asks the venv's base interpreter for pytest (red: the Go tests failed on
   the new probe; green after). The two `ansible_enforcement` "dnf in a quoted string" tests were wrong: the handler
   deliberately matches quoted text (`bash -c 'dnf install x'` is quoted), so they now assert
-  that. Open: the host run of `play-python.yml` (queued in `meta-deploy.list`), then the
-  gate passing on the host.
+  that. `play-python.yml` (with `python3-pytest`) passed on the host at F44 67033c224 (commit
+  c159e6626). Left, for the host agent: run `./scripts/qa-hook-handlers.bash` on the host
+  (read-only) and record that it passes; if it exits 2 naming pytest, re-queue
+  `play-python.yml`.
 
 ### Phase 5: Review
 
-- [ ] ⬜ **Task 5.1**: qa-reviewer over the whole plan; the owner's host test.
+- [ ] ⬜ **Task 5.1**: qa-reviewer over the whole plan (a worker; it ran once, 7205384c3, and
+  runs again over the work since); the host test. The ccy-teams half already has the owner's
+  verdict (Success Criteria). The rest is the host agent's: from a terminal on the host,
+  `ccy --version`, `--help`, `--list-tokens`, `--token-usage`, `--prevent` and
+  `--export-token NAME` (the last two with a throwaway token name) print the same bytes as
+  `CCY_LEGACY=1 ccy` with the same flag, as the play-claude-yolo.yml meta-deploy entry of
+  Task 4.5 asked.
 
 ## Success Criteria
 

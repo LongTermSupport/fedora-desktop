@@ -1,6 +1,11 @@
 # Plan 00194: Agent bus messages delivered live into a ccy session
 
-**Status**: In Progress (waiting on the owner's tick of Task 1.2 and on Plan 00209, which defers relay mode to v2 until hooks-daemon #119 ships)
+**Status**: In Progress. Tasks 2.1, 2.1b and 2.2 wait on an upstream release, hooks-daemon
+#119 (plugin API 1.1), and are then specified on agent-bus v2 (Plan 00209 D4); nobody here
+can unblock them. Left for the host agent: the host checks of Tasks 2.0c (H1-H7), 2.0d and
+2.0f, and success criterion step 5, with a scripted test human posting in place of Element (a
+worker builds that sender, which Plan 00211's acceptance needs too). Nothing waits on the
+owner: Task 1.2 is superseded.
 **Created**: 2026-10-14
 **Owner**: joseph
 **Priority**: High
@@ -55,11 +60,14 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   section 0. It needs hooks-daemon plugin API 1.1 (API 1.0 cannot type text, and types only
   at idle); decision G is filed as
   [claude-code-hooks-daemon#119](https://github.com/Edmonds-Commerce-Limited/claude-code-hooks-daemon/issues/119).
-- [ ] ⬜ **Task 1.2**: The owner agrees the design.
-  The owner gave decisions A-G; the formal tick awaits the owner. The relay code (`relay.py`,
-  `sentlog.py`, the relay `PostToolUse` hook) already ships in image 2.56 and is inert until a
-  launch sets `PINGBUS_DELIVERY=relay`. Its relay part is overtaken by Plan 00209 D4
-  (relay mode deferred to v2).
+- [ ] ❌ **Task 1.2**: Superseded. The owner gave decisions A-G (DESIGN.md section 0), and
+  everything built since follows them. The part a formal agreement would still settle, the
+  relay design, is overtaken by Plan 00209 D4 (relay mode deferred to v2; Tasks 2.1, 2.1b and
+  2.2 are specified on v2 when #119 ships), so nothing is built against it and no tick is
+  waited for. Closed this way as a coordinator default, changeable by the owner. (Was: the
+  owner agrees the design. The relay code (`relay.py`, `sentlog.py`, the relay `PostToolUse`
+  hook) already ships in image 2.56 and is inert until a launch sets
+  `PINGBUS_DELIVERY=relay`.)
 
 ### Phase 2: Build
 
@@ -96,13 +104,17 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   after Fable's review. Branch `feat/bus-inject-message`. Built test first (modules
   `envelope.py` and `inject.py`, the watcher, the hooks, the skill, plugin 1.2.0, container
   2.63, CCY 3.98.8; Plan 00161's M2 checks read deliveries). Reviewed, merged into F44 and
-  deployed: every ccy session now receives `agent-bus delivery` envelopes. Left: the owner's
-  host checks H1-H7 from Element (SPEC-inject.md).
+  deployed: every ccy session now receives `agent-bus delivery` envelopes. Left: the host
+  checks H1-H7 (SPEC-inject.md), the host agent's, with a scripted test human (a token the
+  agent-bus admin tool mints for a declared test human, never the owner's account) posting
+  where the spec says Element, and the session pane read with tmux `capture-pane`. That proves
+  the server-side path and the envelope; it does not prove Element's own rendering.
 - [ ] 🔄 **Task 2.0d**: The watcher survives a homeserver restart and is supervised
   (SPEC-inject E25, E26; Plan 00203's audit F1 and F2). Built test first on branch
   `fix/watcher-survives-homeserver-restart` (container 2.67, CCY 3.98.12); reviewed, merged
   into F44 (4cdd2d3b) and deployed by later `play-claude-yolo.yml` and `play-agent-bus.yml`
-  runs. Left: the owner's check: restart a team's homeserver under an idle session, then post from Element.
+  runs. Left, for the host agent: restart a throwaway team's homeserver under an idle session
+  (needs sudo at the run), then post as the scripted test human (Task 2.0c).
 - [ ] ❌ **Task 2.0e**: Folded into Plan 00209 Task 3.1 (the Go SessionEnd hook), built there
   once hooks-daemon #127 ships. (Was: A scheduled restart posts nothing (Fable's review of
   `fix/goodbye-ctrl-c`, 3b). Today a lifecycle restart (maximum age, or the relaunch after a
@@ -125,9 +137,9 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   and `pingbus status` counts them (`ignored=`); who receives what is unchanged (a typed
   `@room` stays unaddressed: the owner's decision). Built test first on branch
   `feat/ignored-human-visible` (CCY 3.99.12.17, container 2.77.13); reviewed, merged and
-  deployed (play-agent-bus.yml at F44 2efd4442, journal 2026-10-19 17:54). Left: the owner's
-  check: post a plain-text `@room` from Element, then `pingbus status` in a member shows
-  `ignored=1`. Report:
+  deployed (play-agent-bus.yml at F44 2efd4442, journal 2026-10-19 17:54). Left, for the host
+  agent: post a plain-text `@room` (no `m.mentions.room`) as the scripted test human (Task
+  2.0c), then `pingbus status` in a member shows `ignored=1`. Report:
   [261019-ignored-human-visible-opus.md](subagent-reports/261019-ignored-human-visible-opus.md).
 - [ ] ❌ **Task 2.0g**: Folded into Plan 00209 Task 7.2 (6b); decided in its receive spec.
   (Was: Follow-up to 2.0f (Fable review finding 3): an addressed reply whose
@@ -213,12 +225,13 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   off in its own config (launched `--no-ssh`, no key goes in), a launcher that ends early is
   reported by its ERROR lines, and one waiting at a question no flag answers fails at once by
   name. Steps 1-4 passed on the host at F44 c3391ba9 (G1-G4 and C1); step 5 is still by
-  hand, so this criterion stays open.
+  hand, so this criterion stays open. Step 5 is the host agent's: launch with
+  `CCY_LIFECYCLE_MAX_AGE_SECONDS` at its minimum in the scratch checkout and read the room.
 
 - [ ] A message sent to a busy session is typed mid-turn and run when the turn ends.
 
 ## Delivery & Milestones
 
-- Design: decisions recorded in [DESIGN.md](DESIGN.md); the API 1.1 issue is filed (#119)
-  and the final agreement (Task 1.2) awaits the owner.
+- Design: decisions recorded in [DESIGN.md](DESIGN.md); the API 1.1 issue is filed (#119);
+  Task 1.2 superseded by Plan 00209 D4.
 - The pingbus side (Task 2.0) is built; the plugin (Task 2.1) waits on the upstream release.
