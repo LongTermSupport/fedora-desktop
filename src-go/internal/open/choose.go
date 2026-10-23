@@ -149,9 +149,21 @@ func (r *run) columns(ctx context.Context) int {
 // errInterrupted is Ctrl-C (or Ctrl-\) at the prompt.
 var errInterrupted = errors.New("interrupted")
 
-// readLine is one reply from the terminal, trimmed; end of input is io.EOF even after a partial
-// line, and an interrupt is errInterrupted without waiting for the read.
+// readLine is one reply from the terminal, trimmed, typed with the echo on (Env.Echo holds it
+// off between screens); end of input is io.EOF even after a partial line, and an interrupt is
+// errInterrupted without waiting for the read.
 func (r *run) readLine() (string, error) {
+	var line string
+	err := r.env.Echo.Given(func() error {
+		var readErr error
+		line, readErr = r.readReply()
+		return readErr
+	})
+	return line, err
+}
+
+// readReply is readLine's read.
+func (r *run) readReply() (string, error) {
 	type result struct {
 		line string
 		err  error

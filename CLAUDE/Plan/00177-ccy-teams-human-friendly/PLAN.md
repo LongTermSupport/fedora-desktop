@@ -309,6 +309,27 @@ are too, by the same route.
   - F6 fixed: the root reader's refusal text has every non-printable character replaced.
   - F7 accepted as the review says; F8 fixed (`scripts/test-ccy-teams-command.bash` is mode 755).
 
+### Phase 10: The host agent's board findings (driving `ccy-teams` in tmux)
+
+- [x] ✅ **Task 10.1**: No menu offers what the board calls unavailable. Outside a project the
+  header says "Ctrl-N unavailable" and every menu's start line now says
+  "Start a ccy session in <team>: unavailable, <why>" (the house wording of `ccy-sessions`'
+  new-session row; choosing it shows the refusal). The independent search found three more of
+  the class, fixed the same way: Start on a team that is not up, Attach on a seat with no running
+  session or open elsewhere, Attach in Running sessions on a session open elsewhere. Defence
+  Before Fix: no rule (a run-time fact), recorded in
+  [GoProjectRules.md](../../GoProjectRules.md#defect-classes-that-cannot-be-a-rule);
+  [search](subagent-reports/261023-search-unavailable-offered.md).
+- [x] ✅ **Task 10.2**: Keys typed between two screens are not echoed (`^[[B` on the next
+  screen after Esc from a menu). `internal/ttyecho` holds the terminal's echo off for the run of
+  `ccy-teams`, `ccy-sessions` and the other tools the search found showing screens with work
+  between (`podfreeze`, `lxcfreeze`, `open`, `ftp-camera`); a child given the terminal for its
+  own input, and a numbered reply read in the tool itself, run with the echo the terminal had. No rule (run-time state across
+  processes), recorded beside 10.1; [search](subagent-reports/261023-search-echo-between-screens.md).
+- [ ] ⬜ **Task 10.3**: The host agent drives `ccy-teams` in tmux again: from `~`, the team and
+  person menus say Start is unavailable; Esc from a menu then Down pressed quickly shows no
+  `^[[B`.
+
 ## Success Criteria
 
 - [ ] On the host, `ccy-teams` with no teams offers to create one, and a refused or cancelled

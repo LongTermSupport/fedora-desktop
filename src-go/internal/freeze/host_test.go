@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
 
 // hostEnv supplies only the two marker paths and the container variable, so all three signals
@@ -97,6 +99,18 @@ func TestAssertOnHostIgnoresADirectoryOfThatName(t *testing.T) {
 	env, cfg := hostEnv(t, dir, filepath.Join(dir, "absent"), "")
 	if err := AssertOnHost(cfg, env); err != nil {
 		t.Fatalf("a directory is not the marker file: %v", err)
+	}
+}
+
+// The tools' environment holds the echo of the terminal they read keys from, and runs every
+// command under the hold.
+func TestTheTerminalEnvHoldsTheEchoOfItsTerminal(t *testing.T) {
+	env := NewTerminalEnv(nil, nil)
+	if env.Echo == nil || env.Echo.TTY != os.Stdin {
+		t.Fatalf("hold %+v", env.Echo)
+	}
+	if _, bare := env.Runner.(execx.OS); bare || env.Runner == nil {
+		t.Fatalf("runner %T: the commands run outside the hold", env.Runner)
 	}
 }
 

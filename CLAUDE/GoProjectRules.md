@@ -578,6 +578,7 @@ guessing; the catalogue claims no more than the code does.
   bad credentials or a rate limit asked the person for another name. Only gh's `(HTTP 404)` is
   not found now (`ghNotFound`); any other failure ends the run with gh's own words. What holds
   it: the wizard's tests, which run a 404 against no network, a 401, a 403 and a 502.
+
 - **A declare.py refusal given the wrong kind** (the other half of `project_refusal_kind`, Plan
   00201): `check_lxc` and `derive_lxc` raised a clash with an entry already in the file as a
   usage error (64), as did a team the file does not declare present, and `set` gave 78 to a value
@@ -588,6 +589,7 @@ guessing; the catalogue claims no more than the code does.
   pins the kind of each refusal (a value alone 64; the file's entries, an answer against them, a
   team not declared present, an entry refused as it stands by a rule that reads no key the
   change sets, 78; `declare.py`'s `_REFUSAL_READS` says which keys a rule reads beyond its own).
+
 - **An add that refuses what is already there** (Plan 00201): `lxc-add` of a member the file
   declares as given was refused as a duplicate of itself, so a run after a failed play could never
   get on. Whether a second add of the same thing is "nothing to do" or a conflict depends on what
@@ -598,6 +600,50 @@ guessing; the catalogue claims no more than the code does.
   other adds were read: `create` of a team declared as asked is UNCHANGED, and its name question
   says `ccy-teams apply <team>` is the way on; `add-repo` of a repository the team trusts is
   UNCHANGED; `drop-limit` and `admin.py add_member` are not adds of the same entry.
+
+- **A menu line offered as if it ran, where the screen it came from says it cannot** (Plan
+  00177): outside a project folder the `ccy-teams` board said "Ctrl-N unavailable: ~ is not a
+  project folder", and every team, person and member menu still offered "Start a ccy session in
+  <team>, in this folder (Ctrl-N)"; the header and the menu decided availability in two places.
+  The independent search found three more of the class in the same picker: Start on a team whose
+  homeserver the heading lists as not up, Attach on a seat with no running session or open in
+  another terminal, and Attach in the Running sessions view on a session open elsewhere. Whether
+  an action can run is a run-time fact (the folder, a homeserver's state, tmux's clients), and
+  which header line a menu line answers to is meaning, not a shape: a rule could pin one
+  literal and would say nothing about the next. What holds it: each answer is decided once and
+  both sides drawn from it (the picker frame's `newRefusal` for the header and every start line;
+  `attachRefusal` and `sessionRefusal` read the pass `seats.AttachSeat` and
+  `seats.AttachSession` refuse from), in the house wording "<label>: unavailable, <why>" that
+  `ccy-sessions`' new-session row uses (the line stays, choosing it shows the refusal), and the
+  picker's menu and sessions tests over every row kind. Read and left: settings' Discard and Save
+  with nothing pending (no screen calls them unavailable; choosing one says there is nothing to
+  do).
+
+- **A terminal left echoing between two screens** (Plan 00177): fzf, gum and Bubble Tea take the
+  terminal raw and give back the mode they found; between two screens (the board collecting the
+  machine after Esc from a row's menu) the line discipline echoed typed-ahead arrows as `^[[B` on
+  the next screen's top line. No first-party code owned the mode between screens. The mode is
+  run-time state shared across processes, and which runner reaches a screen is set through
+  fields in other packages, so no syntax-tree shape says whether a command holds it. Two narrow
+  rules were weighed and not built. "An `execx.OS{}` literal in a package that builds a
+  `ui.Picker` or `ui.Gum`, not handed straight to `Hold.Runner`" flags the fill-in defaults of
+  the wiring functions (`host.Wire`, `sessions` `wire`), which only run where a test or a
+  constructor has already set the runner, and misses a runner that reaches a screen from another
+  package (every `ccy-teams` flow takes `host.Host`'s); excusing the fill-ins by table would leave
+  the rule guarding the constructors the tests below already pin. "An fzf or gum `execx.Cmd`
+  without `EchoHeld`" restates `internal/ui`'s test: `project_seam_commands` already lets no other
+  package run fzf or gum.
+  What holds it: `internal/ttyecho`, a hold on the echo taken at a command's first screen and
+  put back when its run ends, a panic included (a run with no screen, such as a listing piped to
+  a pager, never touches the terminal; a child given the terminal for its own input runs in the
+  mode found; the launcher exec and SIGTERM/SIGHUP put the mode back), `execx.Cmd.EchoHeld` on every program `internal/ui` runs
+  (its test), a test of each production constructor that its runner is under the hold, and a
+  real pseudo-terminal test that keys typed while held are not echoed and are still read. Held:
+  `ccy-teams` (every subcommand), `ccy-sessions`, `podfreeze`, `lxcfreeze`, `open` and
+  `ftp-camera`, each with its numbered or y/N reply read through `Hold.Given` (echo on). Read and
+  left: a screen followed only by a prompt that reads a typed line (the bash launcher's
+  `ccy_tmux_pick` then `read -rp`), where an echo is what the person needs; `ccy-teams`' "Press
+  Enter to go back to the list", read held, since it waits for Enter alone.
 
 ## Control
 

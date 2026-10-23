@@ -18,6 +18,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ttyecho"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
@@ -48,14 +49,19 @@ type Env struct {
 	// Interrupts is SIGINT and SIGQUIT, caught so a handler owns them while it runs (E26, E29)
 	// and anything before the handler is cancelled by them (E19, E31).
 	Interrupts <-chan os.Signal
+	// Echo holds the terminal's echo off for the run, so keys typed between two screens are not
+	// echoed over the next (ttyecho); nil holds nothing. NewEnv runs Runner and Picker under it.
+	Echo *ttyecho.Hold
 }
 
 // NewEnv is the production environment; sig is the caught interrupts.
 func NewEnv(sig <-chan os.Signal) Env {
 	plain := os.Getenv("NO_COLOR") != "" || !term.FileIsTerminal(os.Stderr)
+	echo := ttyecho.New(os.Stdin)
 	return Env{
-		Runner: execx.OS{},
-		Picker: &ui.Picker{Runner: execx.OS{}, Stderr: os.Stderr, Plain: plain},
+		Echo:   echo,
+		Runner: echo.Runner(execx.OS{}),
+		Picker: &ui.Picker{Runner: echo.Runner(execx.OS{}), Stderr: os.Stderr, Plain: plain},
 		Stdin:  os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
 		Getenv: os.Getenv, LookPath: exec.LookPath,
 		Readable:   func(p string) error { return unix.Access(p, unix.R_OK) },
@@ -99,14 +105,23 @@ type run struct {
 	tty  *ttyReader
 }
 
-// Run is one invocation; its exit code is section 4's.
+// Run is one invocation; its exit code is section 4's. The terminal's echo is held off from the
+// first screen (Env.Echo) and its mode put back at the end, a panic included.
 func (a App) Run(ctx context.Context, args []string) term.ExitCode {
 	r := a.newRun()
-	err := r.main(ctx, args)
+	var err error
+	rerr := r.env.Echo.Held(func() { err = r.main(ctx, args) })
 	if cerr := r.closeTTY(); cerr != nil && err == nil {
 		err = fail("%v", cerr)
 	}
 	code := r.result(err)
+	if rerr != nil {
+		// Said whatever the run's own end: a terminal left without its echo is the person's to fix.
+		r.say(rerr.Error() + "; run reset to see what you type.")
+		if code == term.ExitOK {
+			code = term.ExitFailure
+		}
+	}
 	if code == term.ExitOK && r.out.Err() != nil {
 		r.say("could not write the output: " + r.out.Err().Error())
 		return term.ExitFailure

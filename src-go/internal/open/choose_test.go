@@ -1,6 +1,7 @@
 package open
 
 import (
+	"errors"
 	"io"
 	"os"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ttyecho"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
@@ -229,6 +231,51 @@ func TestNumberedMenuChooses(t *testing.T) {
 	}
 	if !w.called("file -- " + p) {
 		t.Fatalf("ran %q", w.ran())
+	}
+}
+
+// The run holds the terminal's echo off between screens, gives it back while the numbered reply
+// is typed, and leaves the terminal as it found it; the production environment holds it.
+func TestTheEchoIsHeldForTheRunAndGivenBackForTheNumberedReply(t *testing.T) {
+	w, p := numberedWorld(t, "3\n")
+	tty, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if closeErr := tty.Close(); closeErr != nil {
+			t.Error(closeErr)
+		}
+	})
+	var modes *ttyecho.FakeModes
+	w.echo, modes = ttyecho.Fake(tty)
+	// The fzf that is missing here is a screen ui tries first, which takes the hold.
+	if err = ttyecho.Screen(w.echo); err != nil {
+		t.Fatal(err)
+	}
+	if code := w.run(p); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, w.stderr.String())
+	}
+	if modes.Sets != 4 || !modes.Echo() {
+		t.Fatalf("%d sets (held, given, held, released), echo after %v", modes.Sets, modes.Echo())
+	}
+	if err = ttyecho.Screen(w.echo); err != nil {
+		t.Fatal(err)
+	}
+	modes.SetErr = errors.New("EIO")
+	w.picker.fail(ui.ErrFzfMissing)
+	if code := w.run(p); code != term.ExitFailure {
+		t.Fatalf("exit %d: %s", code, w.stderr.String())
+	}
+	w.wantStderr("give the terminal's echo back: EIO")
+	// The run failed on its own, and the mode it could not put back is still said.
+	w.wantStderr("put the terminal's mode back: EIO; run reset to see what you type.")
+	env := NewEnv(nil)
+	if env.Echo == nil || env.Echo.TTY != os.Stdin {
+		t.Fatalf("hold %+v", env.Echo)
+	}
+	if _, bare := env.Runner.(execx.OS); bare {
+		t.Fatal("the commands run outside the hold")
 	}
 }
 

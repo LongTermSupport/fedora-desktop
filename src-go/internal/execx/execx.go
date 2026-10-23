@@ -45,6 +45,10 @@ type Cmd struct {
 	// NewSession runs the child in a session of its own, for a command whose children must
 	// not outlive it (the status line's inner): see runSession. Interrupt is not used.
 	NewSession bool
+	// EchoHeld is a child given the terminal that may run with its echo held off (internal/ttyecho):
+	// it takes the terminal raw itself and gives back the mode it found (fzf, gum), or reads no
+	// input from it (tput). Any other child given the terminal runs with the echo it had.
+	EchoHeld bool
 }
 
 // Line is the argv as one space-joined string, for logs and test matching.

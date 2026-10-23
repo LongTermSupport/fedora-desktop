@@ -23,6 +23,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ttyecho"
 )
 
 //go:embed usage.txt
@@ -68,6 +69,9 @@ type Env struct {
 	// OpenTTY opens the controlling terminal, where sudo asks for a password.
 	OpenTTY    func() (io.ReadCloser, error)
 	ConfigPath string
+	// Echo holds the terminal's echo off for the run, so keys typed between two screens are not
+	// echoed over the next (ttyecho); nil holds nothing. NewEnv runs Runner and Execer under it.
+	Echo *ttyecho.Hold
 }
 
 // NewEnv is the production environment on the process's own streams.
@@ -76,9 +80,11 @@ func NewEnv() Env {
 	if err != nil {
 		self = os.Args[0]
 	}
+	echo := ttyecho.New(os.Stdin)
 	return Env{
-		Runner:     execx.OS{},
-		Execer:     execx.OS{},
+		Echo:       echo,
+		Runner:     echo.Runner(execx.OS{}),
+		Execer:     echo.Execer(execx.OS{}),
 		Stdin:      os.Stdin,
 		Stdout:     os.Stdout,
 		Stderr:     os.Stderr,
@@ -161,10 +167,19 @@ func newCLI(env Env) *cli {
 	return c
 }
 
-// Run executes args (without the program name) and returns the exit status.
+// Run executes args (without the program name) and returns the exit status. The terminal's echo
+// is held off from the first screen (Env.Echo) and its mode put back at the end, a panic included.
 func (a *App) Run(ctx context.Context, args []string) term.ExitCode {
 	c := newCLI(a.Env)
-	code := c.run(ctx, args)
+	var code term.ExitCode
+	if err := a.Env.Echo.Held(func() { code = c.run(ctx, args) }); err != nil {
+		// Said whatever the run's own end; a run that already failed or was cancelled keeps its code.
+		c.err.f("ERROR: %s; run reset to see what you type.\n", err)
+		if code == term.ExitOK {
+			return term.ExitFailure
+		}
+		return code
+	}
 	if code == term.ExitOK && c.failed != nil {
 		return term.ExitFailure
 	}

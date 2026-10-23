@@ -111,7 +111,7 @@ func (g *Gum) Style(ctx context.Context, text string, width, indent int) error {
 	_, err := g.Runner.Run(ctx, execx.Cmd{
 		Name: "gum",
 		Args: []string{"style", "--width", strconv.Itoa(width), "--padding", "0 0 0 " + strconv.Itoa(indent), text},
-		Env:  gumEnv, Stdout: g.Stderr, Stderr: g.Stderr,
+		Env:  gumEnv, Stdout: g.Stderr, Stderr: g.Stderr, EchoHeld: true,
 	})
 	if err != nil {
 		return fmt.Errorf("gum style: %w", err)
@@ -121,7 +121,7 @@ func (g *Gum) Style(ctx context.Context, text string, width, indent int) error {
 
 func (g *Gum) run(ctx context.Context, args ...string) (execx.Result, error) {
 	return g.Runner.Run(ctx, execx.Cmd{
-		Name: "gum", Args: args, Env: gumEnv, Stdin: g.Stdin, Stderr: g.Stderr,
+		Name: "gum", Args: args, Env: gumEnv, Stdin: g.Stdin, Stderr: g.Stderr, EchoHeld: true,
 	})
 }
 

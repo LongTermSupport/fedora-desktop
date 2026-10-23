@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/coordinator"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
@@ -112,7 +113,7 @@ func lastDestructive(acts []action) []action {
 func (r *run) kindActions(row board.Row) []action {
 	team := row.Team
 	open := action{actElement, keyElement, "Open " + team + " in Element", "open " + team + " in Element"}
-	start := action{actNew, keyNew, "Start a ccy session in " + team + ", in this folder", "start a session in " + team}
+	start := r.startAction(team)
 	help := action{actHelp, keyHelp, "What the columns and keys mean", "help"}
 	switch row.Kind {
 	case board.KindTeam:
@@ -132,6 +133,30 @@ func (r *run) kindActions(row board.Row) []action {
 	case board.KindCcy:
 	}
 	return r.memberActions(row, open, start, help)
+}
+
+// startAction is starting a ccy session in team, in this folder. Where the header says Ctrl-N is
+// unavailable the line stays, saying why, as ccy-sessions' new-session row does: choosing it
+// shows the refusal (seats.NewSession), and the menu never offers what the header calls
+// unavailable as if it ran.
+func (r *run) startAction(team string) action {
+	why := r.frame.newRefusal
+	if why == "" && r.snap.StateOf(team) != systemd.HomeserverUp {
+		why = team + "'s homeserver is not up"
+	}
+	if why != "" {
+		return action{actNew, keyNew, unavailable("Start a ccy session in "+team, why), "start a session: unavailable"}
+	}
+	return action{actNew, keyNew, "Start a ccy session in " + team + ", in this folder", "start a session in " + team}
+}
+
+// unavailable is label when the action cannot be done, saying why, so the line stays where it
+// is and choosing it shows the refusal; label itself when why is "".
+func unavailable(label, why string) string {
+	if why == "" {
+		return label
+	}
+	return label + ": unavailable, " + why
 }
 
 // askAgainActions undo a never answer to the description or limit offer of team.
@@ -187,7 +212,7 @@ func (r *run) seatOwnActions(row board.Row) []action {
 	if row.Kind != board.KindCcy {
 		return nil
 	}
-	acts := []action{{actAttach, "", "Attach this terminal to the seat's session", "attach its session"}}
+	acts := []action{{actAttach, "", unavailable("Attach this terminal to the seat's session", r.attachRefusal(row)), "attach its session"}}
 	current, recorded := r.snap.SeatRestore[row.Dir+"|"+row.Member+"@"+row.Team]
 	switch {
 	case !recorded:
@@ -197,6 +222,30 @@ func (r *run) seatOwnActions(row board.Row) []action {
 		acts = append(acts, action{actRestore, keyRestore, "Start its session again after a reboot", "turn restore on"})
 	}
 	return acts
+}
+
+// attachRefusal is why the seat's session cannot be attached from here, "" when it can: the
+// cases seats.AttachSeat and seats.AttachSession refuse, read from the same pass.
+func (r *run) attachRefusal(row board.Row) string {
+	if row.Dir == "-" {
+		return "its checkout is not known here"
+	}
+	if _, live := r.snap.Live[row.Session]; !live {
+		return "it has no running session"
+	}
+	return r.sessionRefusal(row.Session)
+}
+
+// sessionRefusal is why session cannot be attached, "" when it can (seats.AttachSession).
+func (r *run) sessionRefusal(session string) string {
+	clients, live := r.snap.Live[session]
+	switch {
+	case !live:
+		return "it is not running in ccy's tmux"
+	case clients != 0:
+		return "it is open in another terminal (ccy-sessions takes it over)"
+	}
+	return ""
 }
 
 // roleAction is making the member the team's coordinator, or, when it is, a worker: the role is

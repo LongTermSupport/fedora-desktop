@@ -424,6 +424,32 @@ func TestRepairIsInTheMenuOfAnUnguardedSession(t *testing.T) {
 	h.wantRuns(t, []string{"repair", proj})
 }
 
+// Attach says why it cannot be done where seats.AttachSession refuses it, from the same pass.
+func TestAttachOnARunningSessionSaysWhyItCannotBeDone(t *testing.T) {
+	h := newRig(t)
+	r := h.run1(t)
+	attach := func() string {
+		for _, c := range r.sessionChoices(h.seated()) {
+			if strings.HasPrefix(c.line, "Attach") {
+				return c.line
+			}
+		}
+		return ""
+	}
+	r.snap.Live[proj] = 0
+	if got := attach(); got != "Attach" {
+		t.Fatalf("attachable: %q", got)
+	}
+	r.snap.Live[proj] = 2
+	if got := attach(); got != "Attach: unavailable, it is open in another terminal (ccy-sessions takes it over)" {
+		t.Fatalf("open elsewhere: %q", got)
+	}
+	delete(r.snap.Live, proj)
+	if got := attach(); got != "Attach: unavailable, it is not running in ccy's tmux" {
+		t.Fatalf("gone: %q", got)
+	}
+}
+
 func TestASessionThatCannotBeChangedIsOnlyAttachedAndTheMenuSaysWhy(t *testing.T) {
 	h := newRig(t)
 	h.ses.list = []hot.Session{{Name: proj, Kind: "ccy", Checkout: "-", State: "old or --no-bus: relaunch it to change it while it runs"}}
