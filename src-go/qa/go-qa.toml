@@ -52,3 +52,20 @@ fix = "Make the failing busfailpoints test pass"
 # every test twice in one process, so a test that adds to package state it does not restore (a
 # registry, a flag, a sync.Once) fails here, the build being a superset of the untagged one.
 command = ["go", "test", "-race", "-shuffle=on", "-count=2", "-tags", "busfailpoints", "./internal/teamchat/..."]
+
+# The project rules (src-go/qa/rules) run through the analyzers stage over the untagged build only,
+# so a finding in a file that builds only under one of these tags would pass the gate. These
+# stages build the driver and run it as go vet's tool over the tagged build.
+[[stage]]
+name = "teamchat-failpoints-rules"
+phase = "detectors"
+says = "the project rules (qa/rules) over internal/teamchat built with -tags busfailpoints"
+fix = "Fix what the project rules report in the busfailpoints build"
+command = ["bash", "-c", "set -euo pipefail; d=$(mktemp -d); trap 'rm -rf \"$d\"' EXIT; go -C qa build -o \"$d/driver\" ./driver; go vet -vettool=\"$d/driver\" -tags busfailpoints ./internal/teamchat/..."]
+
+[[stage]]
+name = "teamchat-tuwunel-rules"
+phase = "detectors"
+says = "the project rules (qa/rules) over internal/teamchat built with -tags tuwunel"
+fix = "Fix what the project rules report in the tuwunel build"
+command = ["bash", "-c", "set -euo pipefail; d=$(mktemp -d); trap 'rm -rf \"$d\"' EXIT; go -C qa build -o \"$d/driver\" ./driver; go vet -vettool=\"$d/driver\" -tags tuwunel ./internal/teamchat/..."]

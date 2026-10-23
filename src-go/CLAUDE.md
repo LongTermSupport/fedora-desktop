@@ -255,6 +255,9 @@ judges a tagged build sets the tag itself.
   link, and wiring's end-to-end failpoint rows). The `teamchat-failpoints-lint`, `-vet` and
   `-test` stages of `qa/go-qa.toml` lint, vet and test `./internal/teamchat/...` built with it
   (`go test -race -shuffle=on -count=2`, every test twice); go-qa's built-in tools judge the inert build.
+  The `teamchat-failpoints-rules` and `teamchat-tuwunel-rules` stages run the project rules (`qa/rules`)
+  over the same packages with `-tags busfailpoints` and `-tags tuwunel`, which the analyzers stage
+  (untagged build only) cannot reach.
 - `teamchatrelease`: the release build of teamchat. `failpoint`'s gate test, run by go-qa's
   built-in test runner, builds `./cmd/teamchat` with it and holds that the binary carries no
   failpoint name. `member/cli/release_test.go` (every verb built, CL2) carries the tag; Task
