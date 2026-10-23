@@ -59,9 +59,11 @@ worker's sub-agents and forks.
   `agent-bus-claude:78-86`); each team's role from the bundle's cached team record
   (`inbox.cached_role`; Go `statusline/roles.go`). A seated session whose role cannot be read in
   some team is treated as a worker there and denied with the reason (fail closed, fail loud:
-  "the role in team T cannot be read; `pingbus status` says why"). Before the keeper has
-  written `$PINGBUS_HOME/active`, and after it is removed, the hook entry's guard exits 0 and
-  allows: no seat is held yet, so there is no role to fail on. A session with no seat is never
+  "the role in team T cannot be read; `pingbus status` says why"). In a membership session
+  (ccy, `cc`), before the keeper has written `$PINGBUS_HOME/active` and after it is removed,
+  the hook entry's guard exits 0 and allows: no seat is held yet, so there is no role to fail
+  on. An `agent-bus-claude` session has no membership, so the guard passes it through from its
+  first call and it is judged by R1 and this rule from then on. A session with no seat is never
   touched.
 - **R3 The hook.** `hooks.json` gains a PreToolUse entry with the catalogue as its matcher and
   the same no-seat guard the other entries use; it runs `pingbus-tool-guard` (a Go command in
@@ -91,7 +93,8 @@ worker's sub-agents and forks.
   and room-state route: requirements for 00209 are a PreToolUse guard among B 1.5's hooks
   (B25's one-JSON-line answer, R4's text), the role from the roster, `worker_blocked_tools` as
   a roster key and in `teamchat_teams[]` (C 3.8), and the migration carrying it (D 5). R7's
-  decision package carries over unchanged. Nothing here edits 00209's files.
+  decision package carries over unchanged. This plan edits none of 00209's design or plan
+  files; its change to stage 1's Go reader (`src-go/internal/bus/declare`) is coordinated below.
 - **Plan 00209 Task 7.1 (stage 1, in progress)** is porting `declare.py`'s host_vars reader to
   Go; it must learn `worker_blocked_tools` (R6). Coordinated with its owner seat.
 - **Plan 00203 (hot control)**: R1 relies on its live role.

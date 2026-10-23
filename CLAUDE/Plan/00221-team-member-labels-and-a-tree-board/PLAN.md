@@ -62,7 +62,9 @@ expectation numbered, is [DESIGN.md](DESIGN.md).
   (C 3.11.3; its `kind` already gives T14's ENV), B27's status line piece, the envelope line
   and the SessionStart line (the envelope's `label:` after v2's `role:` line, A 13.2), the
   migration's carry of each label (D 5), `labels:` in `teamchat_teams[]` (C 3.8), and the
-  board's `system` word on the tree's team line (D 3.9). Nothing here edits 00209's files.
+  board's `system` word on the tree's team line (D 3.9). This plan edits none of 00209's
+  design or plan files; its code changes to stage 1's Go reader (`src-go/internal/bus/declare`,
+  already on F44) are coordinated below.
 - **Plan 00209 Task 7.1 (stage 1, in progress)** is porting `declare.py`'s host_vars reader to
   Go and keeps the `agent-bus list` call: the reader must learn `labels:` (L8) and the list's
   appended field must survive it (L15). It is the one 00209 task changing v1 code this plan
@@ -92,8 +94,9 @@ Every build task is test first: the failing test is committed or shown before th
 - [ ] ⬜ **Task 1.1**: The grammar and fold (L1) in `helpers/pingbus/protocol.py` and a Go copy
   beside the status line, with a parity test (00217 C6's pattern).
 - [ ] ⬜ **Task 1.2**: `CCY_TEAM_LABELS` parsed (not sourced) by the host-side chooser as
-  suggestions (L9, L10): tests for the exact line, a refused form named, a bad item named and
-  skipped.
+  suggestions (L9, L10), by a Go port of `checkout.py`'s `role_from_env_local` grammar with a
+  parity test against the Python: tests for each accepted form, a refused form named, a bad
+  item named and skipped, and `ccy.env.local` winning over `ccy.env`.
 - [ ] ⬜ **Task 1.3**: The team's `labels:` list (L8) taught to every host_vars reader before
   `localhost.yml.dist` shows it: `teamfile.py`, `declare.py` (read and `EDITABLE_KEYS`), and
   00209 Task 7.1's Go line reader, with a test in each that an entry carrying the key is read,
@@ -104,7 +107,9 @@ Every build task is test first: the failing test is committed or shown before th
 - [ ] ⬜ **Task 2.1**: Registry version 3 `labels`, loading version 2 (L11); `set-label`, the
   coordinator refusal and the clear on promotion (L3, L12), with registry and CLI tests.
 - [ ] ⬜ **Task 2.2**: `agent_bus_lxc_members[].label`, applied each run, refused with
-  `role: coordinator` (L12).
+  `role: coordinator` (L12), taught first to every LXC entry reader: `agent_bus_lxc/members.py`,
+  `declare.py`'s `_LXC_FIELDS`, the Go `bus/declare/lxc.go` with its parity test, and
+  lxc-add's writer, each with a test that an entry carrying it is read, not refused.
 - [ ] ⬜ **Task 2.3**: The admin keeps `agent_bus.labels` (L13); the syncer reads it and keeps
   `labels.json` (L14); the protocol spec §8 names it; `agent-bus list` gains `label` (L15).
 
@@ -138,9 +143,8 @@ Every build task is test first: the failing test is committed or shown before th
   point and the new one over one fixture, compared byte for byte as 00209 stage 1's
   `check_list` does; 00201's D1 reader passes.
 - [ ] ⬜ **Task 5.6**: docs/agent-bus.md (Getting started, seats, the status line; the seats
-  sentence "nothing about the bus goes in `ccy.env.local`" reworded for L9), the entrypoint's
-  `PINGBUS_*` refusal message that quotes it (a `files/var/local/claude-yolo/` edit, so the
-  CCY version bump), and the picker's help text.
+  sentence "nothing about the bus goes in `ccy.env.local`" reworded for L9; the entrypoint's
+  `PINGBUS_*` refusal stays true and is not edited), and the picker's help text.
 
 ### Phase 6: Deploy and review
 

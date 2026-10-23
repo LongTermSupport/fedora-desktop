@@ -81,15 +81,20 @@ record, 3.13 what ccy-teams reads), as they stand on `feat/bus-v2-n3` at e3b6c30
   the mono-repo case) or `ccy.env.local` (this machine). Both are bash files that only the
   container's entrypoint sources; the host never sources them, and this keeps it so. The
   host-side seat question (`ccy-teams choose-teams` and `ccy-teams`' Set label, Go) **parses**
-  one line without executing anything: exactly `^(export )?CCY_TEAM_LABELS="<labels>"$`,
-  labels separated by single spaces. Any other line naming `CCY_TEAM_LABELS` (two of them, a
-  substitution, single quotes) is named on stderr and the file gives no suggestions. Each label
+  the files without executing anything, by the grammar the host already uses to read
+  `HOOKS_DAEMON_HOSTNAME` from `ccy.env.local` (`helpers/agent_bus/checkout.py`
+  `role_from_env_local`, `_ASSIGN_RE`: a plain assignment of a literal, bare or quoted, with or
+  without `export`; any other non-comment line naming the variable, or a second assignment, is
+  refused), ported to Go with a parity test against the Python, never a second grammar. The
+  value is labels separated by spaces. A refused form is named on stderr and that file gives no
+  suggestions. When both files assign it, `ccy.env.local` wins, as it does when the entrypoint
+  sources them (it is sourced after `ccy.env`). Each label
   is re-checked by L1 (a bad one is named and skipped, never applied). They are suggestions
   only: a checkout file can be written by the sessions in that checkout, so nothing in it is
   applied without the owner choosing it. Inside the container the variable is set and unused.
   This relaxes "nothing about the bus goes in `ccy.env.local`" (`docs/agent-bus.md`, seats)
-  for suggestions alone; that sentence and the entrypoint's `PINGBUS_*` refusal message,
-  which quotes the rule, are reworded (Task 5.6); the refusal itself is unchanged, and
+  for suggestions alone; that sentence is reworded (Task 5.6). The entrypoint's `PINGBUS_*`
+  refusal and its message (seats come only from the host) stay as they are and stay true, and
   `CCY_TEAM_LABELS` sets no seat, no team and no label by itself.
 - **L10 Order.** The checkout's set first (it describes this repository), then the team's set,
   without repeats, then labels already used in the team.
@@ -105,7 +110,11 @@ record, 3.13 what ccy-teams reads), as they stand on `feat/bus-v2-n3` at e3b6c30
   a coordinator (L3), a removed member, a bad label (L1). `set-role --role=coordinator` on a
   labelled member clears the label in the same registry update (L3). A member declared in
   `agent_bus_lxc_members` takes the entry's optional `label:` on every play run, as its role
-  does; `label:` on an entry with `role: coordinator` is refused by the play.
+  does; `label:` on an entry with `role: coordinator` is refused by the play. The LXC entry has
+  its own strict readers, each refusing a key it does not know, and every one learns `label`
+  before an entry carries it: `helpers/agent_bus_lxc/members.py` (`parse_members`),
+  `declare.py`'s `_LXC_FIELDS`, the Go `src-go/internal/bus/declare/lxc.go` with its parity
+  test, and lxc-add's entry writer (L18).
 - **L13 Publishing it.** The admin keeps the main room's `agent_bus.labels` state event (key
   `""`) at `{"labels": {"<user ID>": "<label>", ...}}`, every labelled member of the registry,
   or `{}` when none is labelled and the event exists. It writes only on a change and reports
@@ -120,9 +129,8 @@ record, 3.13 what ccy-teams reads), as they stand on `feat/bus-v2-n3` at e3b6c30
   changes.
 - **L15 The board** reads labels where it reads roles: `sudo -n agent-bus list <team>` gains a
   `label` field per member (fields only appended), so the read-only sudoers rule is unchanged.
-  That call is kept by 00209's stage 1 (Task 7.1, SPEC-view, "one Python call is kept"); the
-  in-process reader SPEC-view's stage 4 adds later, and v2's `status.json`, replace it, and
-  each must carry the label (section 4).
+  Stage 1 (00209 Task 7.1, SPEC-view) leaves the board's members read through `agent-bus list` (it ports the host_vars, seat and unit reads, and keeps one Python call, `declare status`, for APPLIED); a later in-process reader and v2's `status.json` replace it, and each
+  must carry the label (section 4).
 
 ### 2.4 Where it is set (the owner's flows)
 
@@ -246,7 +254,8 @@ keys come in two steps, and each says which:
   and 00209 read, its bytes unchanged for a team with no labels (L24), measured as 00209
   stage 1's `check_list` does: the F44 build at this plan's branch point and the new build,
   over the same fixture, compared byte for byte. The pin holds until 00209 Task 4.3 adds its
-  `system` column (D 3.9), which changes `--list` for every team. The tree is the interactive
+  `system` column (D 3.9), which is expected to change `--list` for every team (D 3.9 names the
+  column for the board; whether `--list` takes it is 00209's to say). The tree is the interactive
   board only.
 - **T13 Both systems.** v2's board (Plan 00209 Task 4.3) reads its rows from the status records
   (C 3.13); it feeds the same `board.Tree`, so the tree is built once for both systems.
