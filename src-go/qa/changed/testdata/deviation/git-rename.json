@@ -1,5 +1,5 @@
 {
- "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: renamed.bash\ncheck shellcheck: renamed.bash\ncheck shell-directives: renamed.bash\ncheck semgrep: renamed.bash\ncheck ready-wait-files: renamed.bash\ncheck bash-limits\ncheck hidden-bindings\n",
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: renamed.bash\ncheck shellcheck: renamed.bash\ncheck shell-directives: renamed.bash\ncheck semgrep: renamed.bash\ncheck ready-wait-files: renamed.bash\ncheck bash-limits\ncheck hidden-bindings\ncheck lxc-attach-streams\n",
  "stderr": "",
  "status": 0,
  "log": []

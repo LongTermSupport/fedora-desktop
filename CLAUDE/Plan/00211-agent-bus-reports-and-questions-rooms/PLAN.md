@@ -262,6 +262,16 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
   refusal still fails. The text is read from the product: `cli.py` `QUESTION_DUPLICATE`, new,
   listed in `checker-copies-cited-constant`'s `OWNED` (CCY 3.100.14, container 2.79.9).
   `--fake` cases, red first: reuse, a new question, and three refusals that are no reuse.
+- [ ] 🔄 **Task 2.13** (done in code; left: the same host rerun of `deploy-stage-2.bash`): the
+  host run at F44 e43feeda4 took the reuse path with an LXC coordinator, then failed: the
+  ask-human stderr file (`2>"${err}"`) went through `session_run` and `in_guest` to
+  `sudo lxc-attach`, which made it root's 0600, so reading it back was Permission denied. A
+  checker defect. `in_guest` now hands lxc-attach pipes for stdout and stderr (a `cat` each, the
+  command's status from `PIPESTATUS`), so every caller's redirect is written by the caller's own
+  `cat`. `--fake` cases with an LXC coordinator through a fake lxc-attach that refuses a file on
+  its streams: reuse and a new question, red first; another rate limit, rejected either way. Defence:
+  `lxc-attach-file-stream` (`scripts/qa-lxc-attach-streams.bash`, CLAUDE/QA.md), one instance
+  in the repository. Reports `subagent-reports/261023-lxc-attach-stderr-*`.
 
 ### Phase 3: the owner's view (Go)
 

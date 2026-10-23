@@ -114,6 +114,11 @@ also	scripts/qa-ready-wait-rules.bash,src-go/qa/readywait/*,src-go/qa/cmd/qa-rea
 # discovery, or the Python half change; the fixtures are its own data and count as covered.
 also	tests/fixtures/hidden-bindings/*	hidden-bindings	covered
 also	scripts/qa-hidden-bindings.bash,src-go/qa/hiddenbindings/*,src-go/qa/cmd/qa-hidden-bindings/*,src-go/qa/internal/fzfbind/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash,scripts/qa-trees.tsv,src-go/qa/internal/cmdmain/*,helpers/qa_environment/textual_bindings.py	hidden-bindings	-
+# The lxc-attach-streams gate runs whole (it is fast, and a wrapper in one script makes a finding in
+# another) after any shell change (the post row below), and when its fixture, wrapper, Go package,
+# command or the shared discovery change; the fixture is its own data and counts as covered.
+also	.semgrep/lxc-attach-streams.bash	lxc-attach-streams	covered
+also	scripts/qa-lxc-attach-streams.bash,src-go/qa/lxcattach/*,src-go/qa/cmd/qa-lxc-attach-streams/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash,scripts/qa-trees.tsv,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	lxc-attach-streams	-
 # The plan-script-logging gate judges the shell scripts and the logs/ directories of the active
 # plans, and runs whole when one changes or is deleted, or its own script, Go package, command or
 # the shared discovery (whose shell-shebang predicate it uses) change. It reads no fixture: its
@@ -183,7 +188,7 @@ also	tests/fixtures/ansible-regex-backref/*	go	covered
 # with no check and no cover: the patterns row above, or the suite that names the file in
 # scripts/qa-gates.tsv (selected by name), covers it.
 first	.semgrep/bash-conventions.yml,.semgrep/bash-conventions.bash	-	-
-first	.semgrep/gh-scopes.*,.semgrep/ready-wait.*,.semgrep/speech-to-text.*	-	-
+first	.semgrep/gh-scopes.*,.semgrep/ready-wait.*,.semgrep/speech-to-text.*,.semgrep/lxc-attach-streams.bash	-	-
 # Any other .semgrep/ file is read by nothing: it ends here uncovered, never called covered.
 first	.semgrep/*	-	-
 first	*.md	docs	covered
@@ -198,4 +203,5 @@ first	@sh	bash-syntax,shellcheck,shell-directives,semgrep,ready-wait-files	cover
 post	any:@sh	bash-limits	-
 post	any:@sh,any:@py	toolchain	-
 post	any:@sh,any:@py	hidden-bindings	-
-perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go-qa qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-nokill-containerwatch qa-ansible-pause qa-gh-scopes qa-ready-wait-rules qa-plan-script-logging qa-version-pins qa-speech-to-text-rules qa-vmtest-manifest qa-go-deps qa-go-vuln qa-hidden-bindings qa-hook-handlers qa-plan-tests
+post	any:@sh	lxc-attach-streams	-
+perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go-qa qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-nokill-containerwatch qa-ansible-pause qa-gh-scopes qa-ready-wait-rules qa-plan-script-logging qa-version-pins qa-speech-to-text-rules qa-vmtest-manifest qa-go-deps qa-go-vuln qa-hidden-bindings qa-hook-handlers qa-plan-tests qa-lxc-attach-streams

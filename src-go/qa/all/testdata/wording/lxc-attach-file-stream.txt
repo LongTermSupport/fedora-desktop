@@ -1,0 +1,1 @@
+LXC-ATTACH-STREAMS-OK: 393 shell script(s) examined, no lxc-attach stream on a file

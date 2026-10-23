@@ -116,6 +116,7 @@ JSON to merge. Any one of them fails the run, and the gates after it still run:
 | `qa-speech-to-text-rules.bash`              | the Semgrep rules in `.semgrep/speech-to-text.yml`, proven against `.semgrep/speech-to-text.js` and `.py` every run, over every JavaScript and Python file git would publish (extensionless scripts found by shebang); each language is scanned with its own rules, and the gate exits 2 if a rule has no `ruleid:` line in its fixture or a file it handed semgrep was not scanned. The tool is Go (`src-go/qa/sttrules`, spec `SPEC-qa-speech-to-text-rules.md`, S1-S17; `qa-changed` runs it over each changed JavaScript and Python file as `stt-rules-files`, and whole as `stt-rules` when the rules, fixtures or tool change). See [model-present-without-weights](#model-present-without-weights), [dropdown-label-carries-explanation](#dropdown-label-carries-explanation) (Plan 00156), [test-wall-clock-ceiling-under-a-second](#test-wall-clock-ceiling-under-a-second), [test-deadline-under-ten-steps](#test-deadline-under-ten-steps) and [stream-stand-in-not-a-text-stream](#stream-stand-in-not-a-text-stream)                                                                                                                                                                                                                                                          |
 | `qa-ready-wait-rules.bash`                  | [ready-wait-ignores-child-exit](#ready-wait-ignores-child-exit) over every tracked Python file (`.semgrep/ready-wait.yml`, proven against `.semgrep/ready-wait.py`) and every tracked shell script (the Go rule in `src-go/qa/readywait`, proven against `.semgrep/ready-wait.bash`), each run; the tool is Go (spec `SPEC-qa-ready-wait-rules.md`, R1-R26; `qa-changed` runs it over each changed Python and shell file as `ready-wait-files`, and whole as `ready-wait` when the rule, fixtures or tool change); exits 2 if a Python file it handed semgrep was not scanned (Plan 00156)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `qa-hidden-bindings.bash`                   | [project_hidden_bindings](GoProjectRules.md#project_hidden_bindings) outside Go: every tracked shell file that runs fzf (no `--expect`; no `--bind` of a key to anything but navigation, read by `src-go/qa/internal/fzfbind`) and every tracked Python file that imports textual (each binding's action is navigation or the action of a `Button` in the file, judged by `helpers/qa_environment/textual_bindings.py`), each half proven against its fixture in `tests/fixtures/hidden-bindings` every run; the tool is Go (`src-go/qa/hiddenbindings`; `qa-changed` runs it whole as `hidden-bindings` after any shell or Python change); exits 2 if a file cannot be read or parsed or python3 cannot run                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `qa-lxc-attach-streams.bash`                | [lxc-attach-file-stream](#lxc-attach-file-stream) over every tracked shell script but `CLAUDE/Plan/Completed/`, judged together so a wrapper defined in one script counts in the one that sources it, proven against `.semgrep/lxc-attach-streams.bash` every run; the tool is Go (`src-go/qa/lxcattach`; `qa-changed` runs it whole as `lxc-attach-streams` after any shell change); exits 2 if a script cannot be read or parsed                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `qa-ansible-pause.bash`                     | [pause-without-register](#pause-without-register) over every published YAML file under `playbooks/` and `tasks/` (the shared discovery list): an `ansible.builtin.pause` task with no `register:` and no `# PAUSE-OK: <reason>`. The tool is Go (`src-go/qa/ansiblepause`, spec `SPEC-qa-ansible-pause.md`); the Go tests prove the rule against `tests/fixtures/ansible-pause/flagged.yml` (each `EXPECT-FINDING` line reported, nothing else) and `clean.yml` (nothing reported)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `test-ccy-host-hostname.bash`               | `ccy_host_hostname` — the RFC 1123 grammar guarding `CCY_HOST_HOSTNAME` (Plan 00121)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `test-ccy-host-time-zone.bash`              | `ccy_host_time_zone` — the host's IANA zone passed to every container as `TZ` (timedatectl first, the `/etc/localtime` link as fallback), refused rather than defaulted to UTC when neither names a zone under zoneinfo, and a project's `ccy.env` / `ccy.env.local` `TZ` still winning (Plan 00165)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
@@ -1093,6 +1094,73 @@ checkout cannot be read and the team has no LXC member record at all, because no
 whether the handle is that entry's. It advises `ccy-teams apply <team>`, never a start. It is
 exactly one path, held under the method's allowance for a single recorded known instance, and
 Plan 00211 Task 2.9 narrows it (an entry giving `host`, `seat` and `repo` is decided by them).
+
+### lxc-attach-file-stream
+
+**What it is.** A shell command that reaches `lxc-attach` while one of the descriptors it hands
+lxc-attach as stdin, stdout or stderr is a file. A command reaches it when the tool, a variable
+holding it (`LXC_ATTACH=(sudo -n lxc-attach)`) or a function that runs it is the command, or
+follows a program that runs its arguments (`sudo`, `timeout`, `env`, `exec` and the like). The
+descriptors are followed on the bash syntax tree: the command's own redirections and those of
+every group, loop, subshell or function body around it; a pipe, `$(...)` or a process
+substitution makes its end a pipe; dups (`2>&1`, `3>&1` then `1>&3`) carry what they copy. A
+function is summarised by the caller's descriptors it passes on to lxc-attach, so a wrapper that
+pipes every stream itself is no finding however it is called, and one that leaves stderr
+inherited makes `wrapper ... 2>file` one. `/dev/null` (which lxc-attach skips),
+here-documents and here-strings are clear; any other path is taken, a device node such as
+`/dev/tty` as much as a file under `/dev/shm`. Run by `qa-lxc-attach-streams.bash` over every
+tracked shell script but `CLAUDE/Plan/Completed/`, judged together, after proving the rule
+against its fixture.
+
+**Why it exists.** lxc-attach makes each of its standard streams that is not `/dev/null` the
+container root's own ([AgentNotes.md](AgentNotes.md#lxc-attach-chowns-any-file-its-stdout-or-stderr-points-at)).
+Plan 00211's stage-2 acceptance ran `session_run "${COORD}" pingbus ask-human ... 2>"${err}"`;
+for an LXC coordinator `session_run` goes through `in_guest` to `sudo -n lxc-attach`, the file
+became root's, and the `cat` and the duplicate-question check that read it back failed with
+Permission denied although the right path had been taken. Found and defended under Defence
+Before Fix (Plan 00211).
+
+**How to fix a finding.** Hand lxc-attach pipes, best in the wrapper, so no caller can get it
+wrong: the wrapper runs lxc-attach with stdout piped through `cat` and stderr swapped through a
+second `cat` back onto its own stderr, and returns lxc-attach's status from `PIPESTATUS`
+(Plan 00211's `in_guest`; Plan 00161's `u23_lxc_attach` pipes stdin too, but does not check
+its stdout copy):
+
+```bash
+local -a piped
+{
+    (
+        "${LXC_ATTACH[@]}" -n "${container}" -- "$@" 3>&- | cat 3>&-
+        inner=("${PIPESTATUS[@]}")
+        if [[ "${inner[1]}" -ne 0 ]]; then
+            printf 'copying the stdout of a command in %s failed\n' "${container}" >&2
+            exit 1
+        fi
+        exit "${inner[0]}"
+    ) 2>&1 1>&3 3>&- | cat >&2 3>&-
+    piped=("${PIPESTATUS[@]}")
+} 3>&1
+if [[ "${piped[1]}" -ne 0 ]]; then
+    printf 'copying the stderr of a command in %s failed\n' "${container}" >&2
+    return 1
+fi
+return "${piped[0]}"
+```
+
+The caller's `2>"${err}"` then reaches the file through the wrapper's own `cat`, which the
+pipeline waits for, so the file is the caller's and complete when the wrapper returns. A
+process substitution (`2> >(cat >"${err}")`) also hands lxc-attach a pipe, but the shell does
+not wait for it, so a file read straight after can be short. Do not loosen the check.
+
+**What it does not see.** A redirection made earlier by a bare `exec` (`exec 2>file`, or
+`exec 3>file` and later `2>&3`), the tool inside a string another shell runs (`bash -c`,
+`sh -c`, `ssh`), the tool or a runner held in a variable the rule does not tie to it
+(`"${SUDO[@]}" lxc-attach`, `L=$(command -v lxc-attach)`), a command run through a function
+that runs its own arguments
+(`best_effort_rm what lxc-attach ...` without a runner word before the tool), and a script
+whose own caller redirected it to a file. Function and variable names are pooled across every
+script judged, so a wrapper one plan defines also makes a finding of a same-named function's
+call elsewhere: a false positive, read and renamed if it ever happens.
 
 ### fixture-plain-member-bundle
 

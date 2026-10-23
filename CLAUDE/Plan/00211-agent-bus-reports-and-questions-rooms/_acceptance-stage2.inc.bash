@@ -556,13 +556,33 @@ a3_inbox_check() {
 
 # in_guest <container> <user> <home> <team> <argv...> — a member's command in its container,
 # through the guest path members.py uses (lxc-attach, runuser, a cleared environment); stdin
-# passes through.
+# passes through. lxc-attach makes a file it is handed as stdout or stderr the container root's
+# (AgentNotes.md), so both reach it as pipes: stdout through a cat onto ours, stderr swapped
+# through a second cat onto ours, and a caller's `2>"${err}"` is written by that cat, finished
+# when this returns. Returns the command's status; a copy that failed is a failure.
 in_guest() {
     local container="$1" user="$2" home="$3" team="$4"
+    local -a piped
     shift 4
-    "${LXC_ATTACH[@]}" -n "${container}" --clear-env -- env -i PATH="${GUEST_PATH}" HOME=/root \
-        runuser -u "${user}" -- env -i -C "${home}" PATH="${GUEST_PATH}" HOME="${home}" PINGBUS_TEAMS="${team}" \
-        "$@"
+    {
+        (
+            "${LXC_ATTACH[@]}" -n "${container}" --clear-env -- env -i PATH="${GUEST_PATH}" HOME=/root \
+                runuser -u "${user}" -- env -i -C "${home}" PATH="${GUEST_PATH}" HOME="${home}" PINGBUS_TEAMS="${team}" \
+                "$@" 3>&- | cat 3>&-
+            inner=("${PIPESTATUS[@]}")
+            if [[ "${inner[1]}" -ne 0 ]]; then
+                printf 'in_guest: copying the stdout of a command in container %s failed\n' "${container}" >&2
+                exit 1
+            fi
+            exit "${inner[0]}"
+        ) 2>&1 1>&3 3>&- | cat >&2 3>&-
+        piped=("${PIPESTATUS[@]}")
+    } 3>&1
+    if [[ "${piped[1]}" -ne 0 ]]; then
+        printf 'in_guest: copying the stderr of a command in container %s failed\n' "${container}" >&2
+        return 1
+    fi
+    return "${piped[0]}"
 }
 
 # guest_home <container> <user> — the user's home in the container.
@@ -1066,17 +1086,36 @@ named = "t9" if mode == "open-elsewhere" else team
 print(cli.PROG + ": " + cli.QUESTION_DUPLICATE.format(team=named, question="Q3"), file=sys.stderr)
 print(cli.PROG + ": rate limited: duplicate", file=sys.stderr)
 sys.exit(cli.EXIT_REFUSED if mode == "open-refused" else cli.EXIT_RATE)'
+# FAKE_ASK_KIND is the coordinator's session kind: ccy (the fake podman) or lxc (fake_ask_lxc).
+FAKE_ASK_KIND=ccy
 fake_ask() {
-    local PLAN_RUN_DIR="${FIX}/ask-run-$1" REPORT="${FIX}/ask-report-$1" rc=0
+    local PLAN_RUN_DIR="${FIX}/ask-run-${FAKE_ASK_KIND}-$1" REPORT="${FIX}/ask-report-${FAKE_ASK_KIND}-$1" rc=0
     mkdir -p -- "${PLAN_RUN_DIR}" || return 1
     printf '#!/usr/bin/python3 -I\n%s\n' "${FAKE_ASK_PODMAN}" >"${FIX}/ask-podman" || return 1
-    chmod 0755 "${FIX}/ask-podman" || return 1
+    # Like the real lxc-attach, the fake cannot leave the caller a file it is handed as stdin,
+    # stdout or stderr (the real one makes it the container root's), so it refuses one, then
+    # answers as the fake podman does.
+    cat >"${FIX}/ask-lxc-attach" <<'EOF' || return 1
+#!/usr/bin/env bash
+set -euo pipefail
+for fd in 0 1 2; do
+    if [[ -f "/dev/fd/${fd}" ]]; then
+        printf 'fake lxc-attach: descriptor %s is a file, which lxc-attach hands to the container root\n' "${fd}" >&2
+        exit 97
+    fi
+done
+exec "$(dirname "$0")/ask-podman" "$@"
+EOF
+    chmod 0755 "${FIX}/ask-podman" "${FIX}/ask-lxc-attach" || return 1
     printf '%s\n' "${PLAN_REPO_ROOT}" >"${FIX}/ask-repo" || return 1
     printf '%s\n' "$1" >"${FIX}/ask-mode" || return 1
-    local -a PODMAN=("${FIX}/ask-podman")
+    local -a PODMAN=("${FIX}/ask-podman") LXC_ATTACH=("${FIX}/ask-lxc-attach")
     QTEAM=t1
     QHANDLE=alpha
     COORD="ccy"$'\tc1\t-\t'"${CCY_PINGBUS_HOME}"$'\tt1\t@alpha:t1.internal'
+    if [[ "${FAKE_ASK_KIND}" == "lxc" ]]; then
+        COORD="lxc"$'\tm1\tagent\t/srv/member-home\tt1\t@alpha:t1.internal'
+    fi
     TEST_QUESTION_HOW=""
     ask_test_question || rc=$?
     if [[ -z "${2:-}" ]]; then
@@ -1101,4 +1140,11 @@ fake_ask() {
         printf 'the reused question was not reported as not closed:\n%s\n' "$(cat -- "${REPORT}")" >&2
         return 1
     fi
+}
+
+# fake_ask_lxc <mode> [<test-question line>] — fake_ask with the coordinator an LXC member, its
+# ask-human run through in_guest and the fake lxc-attach.
+fake_ask_lxc() {
+    local FAKE_ASK_KIND=lxc
+    fake_ask "$@"
 }
