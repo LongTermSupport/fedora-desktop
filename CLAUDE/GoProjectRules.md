@@ -261,18 +261,25 @@ fake's present reading is armed: the timer named by when it is due.
 - Not caught: a count read into a variable and polled by a helper that takes the `int`, and a
   fake whose advance is spelled otherwise; two timers due at the same instant are one to
   `AwaitDue`.
+- Next wider rule, not built: every read of a fake clock's waiter count, assertions included.
+  An assertion made after the code has finished carries no advance and no race, and the fake's
+  own tests need it.
 
 ### project_goroutine_end
 
-A `go` statement outside a `_test.go` file whose goroutine signals no end. Its body (a function
+A `go` statement whose goroutine signals no end. Its body (a function
 literal, or a function or method of the same package, generic ones by their origin) signals its
 end when it defers `close(ch)`, a `Done()` with no parameter and no result (a WaitGroup's; a
 context's `Done` returns a channel and is not one) or a function literal that closes, sends or
 calls such a `Done`; or when its last statement is such a close, `Done` or send and nothing in
-the body returns before it; or when every return of its own directly follows such a close,
-`Done` or send and it cannot fall off its end without one (its last statement is one, or a
-`for` with no condition and no `break` or `goto` in it), which ends it only through a signal;
-or when the body is one call of a function that signals its end.
+the body returns before it; or when every return of its own directly follows a close, a
+`Done` or a send on a channel made buffered in the package (a variable set once, by
+`make(chan T, n)` with a constant `n` above 0, so the one send cannot block), and it cannot
+fall off its end without one (its last statement is one, or a `for` with no condition and no
+`break` or `goto` in it), which ends it only through a signal that cannot block; or when the
+body is one call of a function that signals its end. Goroutines in the `_test.go` files of a
+test package (internal or external) whose own TestMain calls a `leakcheck` package's `Tests`
+are not judged: the test binary fails when one is left running.
 A call of another package's function, or of a function value, is flagged: its end cannot be
 seen. A goroutine that signals no end cannot be waited for, so nothing proves it stopped, and
 a stop missed on one path leaks it for the life of the process with what it holds.
@@ -282,19 +289,27 @@ a stop missed on one path leaks it for the life of the process with what it hold
   return skips, a function value, a deferred call that is not a signal, a wrapper of an unowned
   body; a deferred close, a deferred `wg.Done`, a final send of a result, an owned method
   started directly and through a wrapper, a WaitGroup's `Go`, a deferred literal that closes, a
-  final close, a generic function, a loop whose every return follows a send (the line reader of
-  `teams/flow/kit.go`), and a `_test.go` goroutine clean; a return with no send before it, a
-  loop left by a `break` and a loop with a condition flagged).
+  final close, a generic function, and a loop whose every return follows a send on a channel
+  made buffered there (the line reader of `teams/flow/kit.go`) clean; a return with no send
+  before it, a loop left by a `break`, a loop with a condition, the same loop sending on a
+  channel not known to be buffered, and a `_test.go` goroutine in a package with no leak
+  check flagged; `checkedgo`, whose TestMain runs the `leakcheck` stub, clean).
 - Red, real tree: 15 findings (the same untagged, with `busfailpoints` and with `tuwunel`; none
-  in the nested `qa` module).
+  in the nested `qa` module); once test files were judged, 15 more in the tests of 10
+  packages.
 - Green: every instance has an owner that stops it and waits (the link's reader and accept
   loop, the keeper's waits and readers, the units dispatch, the signal relays and listeners,
-  `ui.Lines.Close`); 0 findings in all three builds.
+  `ui.Lines.Close`); the tests of `execx` and `stt` wait for their goroutines, and those of
+  `units`, `matrix`, `inbox`, `client`, `hook`, `keeper`, `wiring`, `link` and `engine` run
+  `leakcheck.Tests`; 0 findings in all three builds.
 - Not caught: an end signalled and never awaited, or awaited on only some of the owner's paths;
-  `time.AfterFunc` and `context.AfterFunc` callbacks, and goroutines started in tests. The
-  run-time half answers for those the tests run: `internal/teamchat/leakcheck` (`Tests` in a
-  TestMain, `Check` in a test) fails a test or a binary that leaves a goroutine running; the
-  link's and the engine's tests use it.
+  `time.AfterFunc` and `context.AfterFunc` callbacks. The run-time half answers for the
+  goroutines the tests run: `internal/teamchat/leakcheck` (`Tests` in a TestMain, `Check` in a
+  test) fails a test or a binary that leaves a goroutine running.
+- Next wider rule, not built: every goroutine's end awaited on every path of its owner. Which
+  function owns a goroutine, and whether each of its paths reaches the wait, is a question of
+  the call graph across packages, not a shape one package shows; referred to the owner with the
+  remediation (Plan 00209 n3e-10 report).
 
 ### project_rawconn_probe
 
@@ -315,9 +330,17 @@ edge that may have passed. The fix is to test the descriptor on every call:
   same-package function that test it, `Control`, and a `Read` of another shape clean).
 - Red, real tree: 1 finding, `internal/teamchat/member/link/parent.go` `watch` (the same
   untagged, with `busfailpoints` and with `tuwunel`; none in the nested `qa` module).
+- Green: the link's watch polls its pidfd on every call (`pidfdReadable`); 0 findings.
 - Not caught: a callback that reads its descriptor and still answers without testing its state
   (logs it, or only compares it with a bound); `RawConn.Control` decides no readiness and is not
   judged.
+- Next wider rule, not built: the descriptor must reach a readiness test (`unix.Poll`, a read
+  answering false only on `EAGAIN`). What counts as a test is open-ended (a helper, a wrapper,
+  a struct the descriptor is put in), and the search found no callback that reads its
+  descriptor without testing it; referred to the owner with the remediation.
+- Gap: go-qa's analyzers stage runs the project rules untagged only, so a finding in a file
+  built only with `busfailpoints` or `tuwunel` is not gated (none exists); this holds for every
+  rule here and is referred to the owner.
 
 ### project_hidden_bindings
 

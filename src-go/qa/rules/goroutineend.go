@@ -2,6 +2,7 @@ package rules
 
 import (
 	"go/ast"
+	"go/constant"
 	"go/token"
 	"go/types"
 
@@ -17,11 +18,12 @@ A goroutine signals its end when its body (a function literal, or a function or 
 same package) defers close(ch), a Done() with no result (sync.WaitGroup.Done), or a function
 literal that closes, sends or calls Done; or when its last statement is such a close, Done or
 send and nothing in the body returns before it; or when every return of its own directly
-follows such a close, Done or send and it cannot fall off its end without one (its last
-statement is one, or a for with no condition and no break or goto in it: such a body ends only
-through a signalled return, which is as waitable as a deferred close); or when its body is one
-call of a function that signals its end. Flagged: every other go statement outside a _test.go file, a call of
-another package's function or of a function value included (its end cannot be seen here).
+follows a close, a Done or a send on a channel made buffered in this package (a variable set
+once, by make with a constant capacity above 0, so the one send cannot block), and it cannot
+fall off its end without one (its last statement is one, or a for with no condition and no
+break or goto in it): such a body ends only through a signal that cannot block; or when its
+body is one call of a function that signals its end. Flagged: every other go statement, a call
+of another package's function or of a function value included (its end cannot be seen here).
 
 A goroutine that signals no end cannot be waited for, so nothing proves it stopped: when its
 stop is missed on some path it leaks for the life of the process, holding what it references.
@@ -30,62 +32,186 @@ launch closed; every link that ended earlier left its reader blocked on a send n
 receive (about 145 of them in one test binary).
 
 Not flagged: sync.WaitGroup.Go and errgroup's Go (joined by Wait), time.AfterFunc and
-context.AfterFunc callbacks, and goroutines started in tests (a test binary's leak check
-answers for those).
+context.AfterFunc callbacks, and goroutines started in the _test.go files of a test package
+(the internal or the external one) whose own files hold a TestMain calling a leakcheck
+package's Tests (the binary then fails when a test leaves one running).
 Not caught: an end signalled and never awaited, or awaited on only some paths of the owner.
 
 How to fix: give the goroutine an owner that stops it and waits for it on every path: start
 it with a WaitGroup's Go, or defer close(done) in it and receive from done in the owner's
-teardown, deferred before any return that follows the start.`,
+teardown, deferred before any return that follows the start. In a test, the package's
+TestMain can run leakcheck.Tests instead.`,
 	Run:        perPass(runGoroutineEnd),
 	ResultType: noResultType,
 }
 
+// goEnds judges the go statements of one package.
+type goEnds struct {
+	pass   *analysis.Pass
+	bodies map[*types.Func]*ast.BlockStmt
+	// buffered is each variable set once, by make(chan T, n) with a constant n above 0.
+	buffered map[types.Object]bool
+}
+
 func runGoroutineEnd(pass *analysis.Pass) {
-	bodies := map[*types.Func]*ast.BlockStmt{}
+	g := goEnds{pass: pass, bodies: map[*types.Func]*ast.BlockStmt{}, buffered: bufferedChans(pass)}
 	for _, f := range pass.Files {
 		for _, d := range f.Decls {
 			if fd, ok := d.(*ast.FuncDecl); ok && fd.Body != nil {
 				if fn, isFunc := pass.TypesInfo.Defs[fd.Name].(*types.Func); isFunc {
-					bodies[fn] = fd.Body
+					g.bodies[fn] = fd.Body
 				}
 			}
 		}
 	}
+	checked := runsLeakcheck(pass)
 	for _, f := range pass.Files {
-		if isTestFile(pass, f) {
+		if checked && isTestFile(pass, f) {
 			continue
 		}
 		ast.Inspect(f, func(n ast.Node) bool {
-			if g, ok := n.(*ast.GoStmt); ok && !callSignalsEnd(pass, bodies, g.Call, map[*types.Func]bool{}) {
-				pass.Reportf(g.Pos(), "goroutine signals no end, so no owner can wait for it: defer close(done) or wg.Done in it, or start it with a WaitGroup's Go, and wait for it")
+			if gs, ok := n.(*ast.GoStmt); ok && !g.callSignalsEnd(gs.Call, map[*types.Func]bool{}) {
+				pass.Reportf(gs.Pos(), "goroutine signals no end, so no owner can wait for it: defer close(done) or wg.Done in it, or start it with a WaitGroup's Go, and wait for it")
 			}
 			return true
 		})
 	}
 }
 
-// callSignalsEnd is whether the goroutine call runs signals its end; seen stops a recursion.
-func callSignalsEnd(pass *analysis.Pass, bodies map[*types.Func]*ast.BlockStmt, call *ast.CallExpr, seen map[*types.Func]bool) bool {
-	if lit, ok := call.Fun.(*ast.FuncLit); ok {
-		return bodySignalsEnd(pass, bodies, lit.Body, seen)
+// runsLeakcheck is whether a _test.go file of the package has a TestMain that calls Tests of a
+// package named leakcheck.
+func runsLeakcheck(pass *analysis.Pass) bool {
+	for _, f := range pass.Files {
+		if !isTestFile(pass, f) {
+			continue
+		}
+		for _, d := range f.Decls {
+			fd, ok := d.(*ast.FuncDecl)
+			if !ok || fd.Recv != nil || fd.Name.Name != "TestMain" || fd.Body == nil {
+				continue
+			}
+			found := false
+			ast.Inspect(fd.Body, func(n ast.Node) bool {
+				if call, isCall := n.(*ast.CallExpr); isCall {
+					fn := calledFunc(pass, call)
+					found = found || (fn != nil && fn.Name() == "Tests" && fn.Pkg() != nil && fn.Pkg().Name() == "leakcheck")
+				}
+				return !found
+			})
+			if found {
+				return true
+			}
+		}
 	}
-	fn := calledFunc(pass, call)
+	return false
+}
+
+// bufferedChans is every variable of the package set once, by make(chan T, n) with a constant
+// n above 0; a variable assigned anywhere else, or whose address is taken, is not one.
+func bufferedChans(pass *analysis.Pass) map[types.Object]bool {
+	c := chanSets{pass: pass, made: map[types.Object]bool{}, assigned: map[types.Object]int{}}
+	for _, f := range pass.Files {
+		ast.Inspect(f, c.visit)
+	}
+	for obj := range c.made {
+		if c.assigned[obj] != 1 {
+			delete(c.made, obj)
+		}
+	}
+	return c.made
+}
+
+// chanSets counts the assignments of each variable and notes those made buffered.
+type chanSets struct {
+	pass     *analysis.Pass
+	made     map[types.Object]bool
+	assigned map[types.Object]int
+}
+
+func (c chanSets) visit(n ast.Node) bool {
+	switch n := n.(type) {
+	case *ast.AssignStmt:
+		for i, lhs := range n.Lhs {
+			if id, ok := lhs.(*ast.Ident); ok {
+				c.note(id, valueAt(n.Rhs, len(n.Lhs), i))
+			}
+		}
+	case *ast.ValueSpec:
+		for i, id := range n.Names {
+			c.note(id, valueAt(n.Values, len(n.Names), i))
+		}
+	case *ast.UnaryExpr:
+		if id, ok := n.X.(*ast.Ident); ok && n.Op == token.AND {
+			c.note(id, nil)
+		}
+	}
+	return true
+}
+
+func (c chanSets) note(id *ast.Ident, value ast.Expr) {
+	obj := c.pass.TypesInfo.ObjectOf(id)
+	if obj == nil {
+		return
+	}
+	c.assigned[obj]++
+	if value != nil && isBufferedMake(c.pass, value) {
+		c.made[obj] = true
+	}
+}
+
+// valueAt is the value assigned to the i-th of n names, or nil when one call assigns them all.
+func valueAt(values []ast.Expr, n, i int) ast.Expr {
+	if len(values) != n {
+		return nil
+	}
+	return values[i]
+}
+
+// isBufferedMake is whether e is make(chan T, n) with a constant n above 0.
+func isBufferedMake(pass *analysis.Pass, e ast.Expr) bool {
+	call, ok := e.(*ast.CallExpr)
+	if !ok || len(call.Args) != 2 {
+		return false
+	}
+	id, isIdent := call.Fun.(*ast.Ident)
+	if !isIdent {
+		return false
+	}
+	if b, isBuiltin := pass.TypesInfo.Uses[id].(*types.Builtin); !isBuiltin || b.Name() != "make" {
+		return false
+	}
+	if _, isChan := pass.TypesInfo.TypeOf(call.Args[0]).Underlying().(*types.Chan); !isChan {
+		return false
+	}
+	tv, known := pass.TypesInfo.Types[call.Args[1]]
+	if !known || tv.Value == nil {
+		return false
+	}
+	n, exact := constant.Int64Val(tv.Value)
+	return exact && n > 0
+}
+
+// callSignalsEnd is whether the goroutine call runs signals its end; seen stops a recursion.
+func (g goEnds) callSignalsEnd(call *ast.CallExpr, seen map[*types.Func]bool) bool {
+	if lit, ok := call.Fun.(*ast.FuncLit); ok {
+		return g.bodySignalsEnd(lit.Body, seen)
+	}
+	fn := calledFunc(g.pass, call)
 	if fn == nil {
 		return false
 	}
 	fn = fn.Origin()
-	body, ok := bodies[fn]
+	body, ok := g.bodies[fn]
 	if !ok || seen[fn] {
 		return false
 	}
 	seen[fn] = true
-	return bodySignalsEnd(pass, bodies, body, seen)
+	return g.bodySignalsEnd(body, seen)
 }
 
-func bodySignalsEnd(pass *analysis.Pass, bodies map[*types.Func]*ast.BlockStmt, body *ast.BlockStmt, seen map[*types.Func]bool) bool {
+func (g goEnds) bodySignalsEnd(body *ast.BlockStmt, seen map[*types.Func]bool) bool {
 	for _, s := range body.List {
-		if d, ok := s.(*ast.DeferStmt); ok && deferSignalsEnd(pass, d.Call) {
+		if d, ok := s.(*ast.DeferStmt); ok && deferSignalsEnd(g.pass, d.Call) {
 			return true
 		}
 	}
@@ -93,16 +219,16 @@ func bodySignalsEnd(pass *analysis.Pass, bodies map[*types.Func]*ast.BlockStmt, 
 		return false
 	}
 	last := body.List[len(body.List)-1]
-	if isEndStmt(pass, last) && !returnsEarly(body) {
+	if isEndStmt(g.pass, last) && !returnsEarly(body) {
 		return true
 	}
-	if signalsOnEveryReturn(pass, body) {
+	if g.signalsOnEveryReturn(body) {
 		return true
 	}
 	if len(body.List) == 1 {
 		if es, ok := last.(*ast.ExprStmt); ok {
 			if call, isCall := es.X.(*ast.CallExpr); isCall {
-				return callSignalsEnd(pass, bodies, call, seen)
+				return g.callSignalsEnd(call, seen)
 			}
 		}
 	}
@@ -175,12 +301,12 @@ func returnsEarly(body *ast.BlockStmt) bool {
 	return found
 }
 
-// signalsOnEveryReturn is whether every return of body's own directly follows an end
-// statement and body cannot fall off its end without one: its last statement is an end
-// statement, or a for with no condition and no break in it.
-func signalsOnEveryReturn(pass *analysis.Pass, body *ast.BlockStmt) bool {
+// signalsOnEveryReturn is whether every return of body's own directly follows a signal that
+// cannot block (a close, a Done, a send on a buffered channel) and body cannot fall off its end
+// without one: its last statement is one, or a for with no condition and no break in it.
+func (g goEnds) signalsOnEveryReturn(body *ast.BlockStmt) bool {
 	last := body.List[len(body.List)-1]
-	if f, ok := last.(*ast.ForStmt); !isEndStmt(pass, last) && (!ok || f.Cond != nil || breaks(f.Body)) {
+	if f, ok := last.(*ast.ForStmt); !g.isUnblockingEnd(last) && (!ok || f.Cond != nil || breaks(f.Body)) {
 		return false
 	}
 	returns, signalled := 0, 0
@@ -199,13 +325,22 @@ func signalsOnEveryReturn(pass *analysis.Pass, body *ast.BlockStmt) bool {
 			list = n.Body
 		}
 		for i, s := range list {
-			if _, isReturn := s.(*ast.ReturnStmt); isReturn && i > 0 && isEndStmt(pass, list[i-1]) {
+			if _, isReturn := s.(*ast.ReturnStmt); isReturn && i > 0 && g.isUnblockingEnd(list[i-1]) {
 				signalled++
 			}
 		}
 		return true
 	})
 	return returns == signalled
+}
+
+// isUnblockingEnd is whether s is a close, a Done, or a send on a buffered channel.
+func (g goEnds) isUnblockingEnd(s ast.Stmt) bool {
+	if send, ok := s.(*ast.SendStmt); ok {
+		id, isIdent := send.Chan.(*ast.Ident)
+		return isIdent && g.buffered[g.pass.TypesInfo.ObjectOf(id)]
+	}
+	return isEndStmt(g.pass, s)
 }
 
 // breaks is whether body holds a break of its own (not a nested function literal's); a break

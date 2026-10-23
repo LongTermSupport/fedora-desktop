@@ -146,9 +146,11 @@ func StartsGeneric(done chan int) {
 	<-done
 }
 
-// SendsOnEveryReturn is the line reader: each of its returns follows a send, and its loop has
-// no condition and no break, so it cannot end without one.
-func SendsOnEveryReturn(read func() (byte, error), got chan<- bool) {
+// SendsOnEveryReturn is the line reader: each of its returns follows a send on a channel made
+// buffered here, which cannot block, and its loop has no condition and no break, so it cannot
+// end without one.
+func SendsOnEveryReturn(read func() (byte, error)) bool {
+	got := make(chan bool, 1)
 	go func() {
 		for {
 			b, err := read()
@@ -160,6 +162,22 @@ func SendsOnEveryReturn(read func() (byte, error), got chan<- bool) {
 				got <- false
 				return
 			}
+		}
+	}()
+	return <-got
+}
+
+// SendsUnbuffered is the originating reader's shape: every return follows a send, but on a
+// channel that is not known to be buffered, so a send nobody receives blocks it for ever.
+func SendsUnbuffered(recv func() (int, error), msgs chan<- int) {
+	go func() { // want `goroutine signals no end, so no owner can wait for it`
+		for {
+			m, err := recv()
+			if err != nil {
+				msgs <- m
+				return
+			}
+			msgs <- m
 		}
 	}()
 }

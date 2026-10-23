@@ -66,7 +66,7 @@ func TestFakeClockCount(t *testing.T) {
 }
 
 func TestGoroutineEnd(t *testing.T) {
-	analysistest.Run(t, analysistest.TestData(), GoroutineEnd, "fix/internal/badgo")
+	analysistest.Run(t, analysistest.TestData(), GoroutineEnd, "fix/internal/badgo", "fix/internal/checkedgo")
 }
 
 func TestWaitDelay(t *testing.T) {
