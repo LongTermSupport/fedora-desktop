@@ -252,6 +252,16 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
   points at pingbus's own error. `--fake` cases, red first: a sound seat joins and reports; a
   refused join and a refused report each fail with their own error. Report
   `subagent-reports/261022-checker-join-build-exit.md`.
+- [ ] 🔄 **Task 2.12** (done in code; left: the host rerun of `deploy-stage-2.bash` through
+  meta-deploy, queued by the coordinator): every rerun failed "the test question" while the
+  previous run's question was not closed: ask-human refuses a question an open or answered one
+  already asks (EXIT_RATE, "Q<n> is open and asks the same question"), and only the title
+  carries `RUN_TAG`. A checker defect. That refusal now reuses the question: test-question
+  records it (fourth field `reused`, else `asked`), the check passes saying it was already
+  asked, is not closed and was not asked again, and A5 and ACCEPTANCE-owner.md point at it; any other
+  refusal still fails. The text is read from the product: `cli.py` `QUESTION_DUPLICATE`, new,
+  listed in `checker-copies-cited-constant`'s `OWNED` (CCY 3.100.14, container 2.79.9).
+  `--fake` cases, red first: reuse, a new question, and three refusals that are no reuse.
 
 ### Phase 3: the owner's view (Go)
 

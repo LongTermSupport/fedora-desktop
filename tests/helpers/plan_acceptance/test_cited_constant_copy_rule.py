@@ -254,6 +254,7 @@ OWNED: tuple[tuple[str, str, str], ...] = (
     ("helpers/agent_bus/declare.py", "PIN_FILE", ANYWHERE),
     ("src-go/internal/teams/hot/cc.go", "ccUnguarded", ANYWHERE),
     ("src-go/internal/teams/hot/remove.go", "removedHomeserverDown", ANYWHERE),
+    ("helpers/pingbus/cli.py", "QUESTION_DUPLICATE", ANYWHERE),
 )
 #: A text constant with placeholders (`{name}` or a `%` verb) is matched by each fixed part
 #: between them, its ends stripped; a part shorter than this is not distinctive enough.

@@ -44,7 +44,9 @@ unset inbox_name
 ELEMENT_ACCEPTED_DIR="$(stage2_value helpers/pingbus/config.py ELEMENT_ACCEPTED_DIR)"
 ELEMENT_ACCEPTED_FILE="$(stage2_value helpers/pingbus/config.py ELEMENT_ACCEPTED_FILE)"
 ELEMENT_FLATPAK_DIR="$(stage2_value helpers/pingbus/config.py ELEMENT_FLATPAK_DIR)"
-readonly TEAM_STATE_DIR INBOX_NAMES ELEMENT_ACCEPTED_DIR ELEMENT_ACCEPTED_FILE ELEMENT_FLATPAK_DIR
+# The name pingbus starts its error lines with (cli.py PROG), for open_duplicate.
+CLI_PROG="$(stage2_value helpers/pingbus/cli.py PROG)"
+readonly TEAM_STATE_DIR INBOX_NAMES ELEMENT_ACCEPTED_DIR ELEMENT_ACCEPTED_FILE ELEMENT_FLATPAK_DIR CLI_PROG
 # Each team's member.json in a ccy session home, one after another (none: no seat is held).
 readonly CCY_SEATED_SH="for f in ${CCY_PINGBUS_HOME}/*/member.json; do if [ -f \"\$f\" ]; then cat \"\$f\"; fi; done"
 # where.py <state dir> <inbox> <consumed> <dropped log> <event ID...>: `STATE present|missing`,
@@ -593,26 +595,70 @@ a4_check() {
 
 # ── the test question, and A5 ────────────────────────────────────────────────────────────
 
+# open_duplicate <stderr file> — the question ask-human's refusal names as open and asking the
+# same in QTEAM (cli.py QUESTION_DUPLICATE, after CLI_PROG and `: `), or nothing when no line of
+# the file is that refusal.
+open_duplicate() {
+    local text head tail
+    text="$(stage2_value helpers/pingbus/cli.py QUESTION_DUPLICATE team="${QTEAM}" question='{question}')" || return 1
+    head="${CLI_PROG}: ${text%%\{question\}*}"
+    tail="${text#*\{question\}}"
+    awk -v head="${head}" -v tail="${tail}" '
+        index($0, head) == 1 && length($0) > length(head) + length(tail) && substr($0, length($0) - length(tail) + 1) == tail {
+            q = substr($0, length(head) + 1, length($0) - length(head) - length(tail))
+            if (q ~ /^Q[0-9]+$/) { print q; exit }
+        }' "$1"
+}
+
 # ask_test_question — the question the owner answers in Element (ACCEPTANCE-owner.md), asked by
-# the team's coordinator in its own session, whatever kind. Saved as test-question in the run
-# directory: the team, the coordinator's handle and the question number. A5 finds the
-# coordinator's session again, so a restart between the two does not matter.
+# the team's coordinator in its own session, whatever kind. Its Question: line is the same every
+# run, so while an earlier run's test question is not closed (open or answered) ask-human
+# refuses a duplicate, naming it, with EXIT_RATE, and posts nothing: that question is the test
+# question, reused. Any other refusal fails. Saved as test-question in the run directory: the
+# team, the coordinator's handle, the question number and `asked` or `reused`;
+# TEST_QUESTION_HOW holds the last. A5 finds the coordinator's session again, so a restart
+# between the two does not matter.
+TEST_QUESTION_HOW=""
 ask_test_question() {
-    local out q
+    local out q rc=0 rate err="${PLAN_RUN_DIR}/ask-human.err" label
+    label="$(session_label "${COORD}")"
+    rate="$(python3 -I -c 'import sys
+sys.path.insert(0, sys.argv[1])
+from helpers.pingbus import cli
+print(cli.EXIT_RATE)' "${PLAN_REPO_ROOT}")" || {
+        printf 'the test question: cannot read EXIT_RATE from helpers/pingbus/cli.py (above)\n' >&2
+        return 1
+    }
     out="$(printf '%s\n' "Plan 00211 acceptance ${RUN_TAG}: a test question" "" \
         "Context: Plan 00211's acceptance asked this to check the questions room end to end." \
         "Question: Reply in this thread with any text, then edit that reply (ACCEPTANCE-owner.md)." |
-        session_run "${COORD}" pingbus ask-human --team "${QTEAM}")" || {
-        printf 'the test question: pingbus ask-human failed for %s\n' "$(session_label "${COORD}")" >&2
-        return 1
-    }
-    sent_ok "the test question, asked by $(session_label "${COORD}")" "${out}" || return 1
+        session_run "${COORD}" pingbus ask-human --team "${QTEAM}" 2>"${err}")" || rc=$?
+    cat -- "${err}" >&2
+    if [[ "${rc}" -ne 0 ]]; then
+        q=""
+        if [[ "${rc}" -eq "${rate}" ]]; then
+            q="$(open_duplicate "${err}")" || return 1
+        fi
+        if [[ -z "${q}" ]]; then
+            printf 'the test question: pingbus ask-human failed for %s (exit %s), for the reason above\n' "${label}" "${rc}" >&2
+            return 1
+        fi
+        printf -- '- the test question, asked through %s: %s, asked by an earlier run, is not closed (open or answered) and asks the same; this run posted nothing\n' \
+            "${label}" "${q}" >>"${REPORT}"
+        printf '%s\t%s\t%s\treused\n' "${QTEAM}" "${QHANDLE}" "${q}" >"${PLAN_RUN_DIR}/test-question"
+        TEST_QUESTION_HOW=reused
+        printf 'the test question is %s in team %s, already asked by an earlier run and not closed (open or answered), so not asked again: answer it in Element (ACCEPTANCE-owner.md), unless you already have\n' \
+            "${q}" "${QTEAM}" | tee -a "${REPORT}"
+        return 0
+    fi
+    sent_ok "the test question, asked by ${label}" "${out}" || return 1
     q="$(awk -F'\t' '$1 == "QUESTION" { print $4; exit }' <<<"${out}")"
     if [[ "${q}" != Q* ]]; then
         printf 'the test question: ask-human printed no QUESTION line:\n%s\n' "${out}" >&2
         return 1
     fi
-    printf '%s\t%s\t%s\n' "${QTEAM}" "${QHANDLE}" "${q}" >"${PLAN_RUN_DIR}/test-question"
+    printf '%s\t%s\t%s\tasked\n' "${QTEAM}" "${QHANDLE}" "${q}" >"${PLAN_RUN_DIR}/test-question"
+    TEST_QUESTION_HOW=asked
     printf 'the test question is %s in team %s: answer it in Element (ACCEPTANCE-owner.md)\n' "${q}" "${QTEAM}" |
         tee -a "${REPORT}"
 }
@@ -661,7 +707,7 @@ A5_HANDLE=""
 A5_Q=""
 A5_SESSION=""
 a5_find() {
-    local runs dirs saved
+    local runs dirs saved how
     runs="${PLAN_REPO_ROOT}/untracked/plan-runs/$(basename "${PLAN_SCRIPT_DIR}")/acceptance"
     dirs=()
     if [[ -d "${runs}" ]]; then
@@ -673,8 +719,13 @@ a5_find() {
         return 1
     fi
     saved="${dirs[${#dirs[@]} - 1]}"
-    IFS=$'\t' read -r A5_TEAM A5_HANDLE A5_Q <"${saved}" || return 1
-    printf 'test question %s of team %s, asked by %s (%s)\n' "${A5_Q}" "${A5_TEAM}" "${A5_HANDLE}" "${saved}" |
+    IFS=$'\t' read -r A5_TEAM A5_HANDLE A5_Q how <"${saved}" || return 1
+    if [[ "${how}" == "reused" ]]; then
+        how=", which that run found not closed from an earlier run"
+    else
+        how=""
+    fi
+    printf 'test question %s of team %s, asked by %s%s (%s)\n' "${A5_Q}" "${A5_TEAM}" "${A5_HANDLE}" "${how}" "${saved}" |
         tee -a "${REPORT}"
     A5_SESSION="$(find_session "${A5_TEAM}" "${A5_HANDLE}")" || return 1
 }
@@ -967,4 +1018,87 @@ fake_a3_said() {
 # fake_refused <status> <answer JSON>
 fake_refused() {
     printf '%s\n' "$2" >"${FIX}/answer.json" && refused "a fixture request" "$1" "${FIX}/answer.json"
+}
+
+# fake_a5_find <test-question line> <text the A5 line must hold> — a5_find over one saved run
+# (a reused 4-field file, or an older 3-field one): its question, and the coordinator's session.
+fake_a5_find() {
+    local PLAN_REPO_ROOT="${FIX}/a5-root" PLAN_SCRIPT_DIR="${FIX}/a5-root/plan" REPORT="${FIX}/a5-report"
+    local SESSIONS="ccy"$'\tc1\t-\t'"${CCY_PINGBUS_HOME}"$'\tt1\t@alpha:t1.internal'
+    local runs="${FIX}/a5-root/untracked/plan-runs/plan/acceptance"
+    rm -rf -- "${FIX:?}/a5-root" && mkdir -p -- "${runs}/1" || return 1
+    printf '%s\n' "$1" >"${runs}/1/test-question" || return 1
+    : >"${REPORT}"
+    a5_find || return 1
+    if [[ "${A5_TEAM}/${A5_HANDLE}/${A5_Q}" != "t1/alpha/Q3" ]] || [[ "${A5_SESSION}" != "${SESSIONS}" ]]; then
+        printf 'a5_find read %s/%s/%s, session "%s"\n' "${A5_TEAM}" "${A5_HANDLE}" "${A5_Q}" "${A5_SESSION}" >&2
+        return 1
+    fi
+    if ! grep -qF -- "$2" "${REPORT}"; then
+        printf 'the A5 line does not hold "%s":\n%s\n' "$2" "$(cat -- "${REPORT}")" >&2
+        return 1
+    fi
+}
+
+# fake_ask <mode> [<test-question line>] — ask_test_question through a fake podman whose
+# `exec ... pingbus ask-human` answers as this checkout's cli.py does, in its own lines, texts
+# and exit codes: asked (SENT and QUESTION Q4), open (Q3 is open and asks the same question),
+# limited (another rate limit), open-refused (the same text with another exit), open-elsewhere
+# (the same text naming another team). Given a line, the check passes only when the run saved
+# exactly it as test-question and, for a reused question, said it is not closed; with none it
+# must fail, and saving a test-question on a failure fails the fixture.
+readonly FAKE_ASK_PODMAN='import pathlib, sys
+here = pathlib.Path(sys.argv[0]).resolve().parent
+sys.path.insert(0, (here / "ask-repo").read_text().strip())
+from helpers.pingbus import cli, protocol
+mode = (here / "ask-mode").read_text().strip()
+team = sys.argv[sys.argv.index("--team") + 1]
+sys.stdin.read()
+event = "\x24Abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG"
+if mode == "asked":
+    print(cli.sent_line(team, event))
+    print(cli.format_line("QUESTION", team, "Q4", protocol.STATE_OPEN, event, None, "0"))
+    sys.exit(cli.EXIT_OK)
+if mode == "limited":
+    print(cli.PROG + ": rate limited: local limit", file=sys.stderr)
+    sys.exit(cli.EXIT_RATE)
+named = "t9" if mode == "open-elsewhere" else team
+print(cli.PROG + ": " + cli.QUESTION_DUPLICATE.format(team=named, question="Q3"), file=sys.stderr)
+print(cli.PROG + ": rate limited: duplicate", file=sys.stderr)
+sys.exit(cli.EXIT_REFUSED if mode == "open-refused" else cli.EXIT_RATE)'
+fake_ask() {
+    local PLAN_RUN_DIR="${FIX}/ask-run-$1" REPORT="${FIX}/ask-report-$1" rc=0
+    mkdir -p -- "${PLAN_RUN_DIR}" || return 1
+    printf '#!/usr/bin/python3 -I\n%s\n' "${FAKE_ASK_PODMAN}" >"${FIX}/ask-podman" || return 1
+    chmod 0755 "${FIX}/ask-podman" || return 1
+    printf '%s\n' "${PLAN_REPO_ROOT}" >"${FIX}/ask-repo" || return 1
+    printf '%s\n' "$1" >"${FIX}/ask-mode" || return 1
+    local -a PODMAN=("${FIX}/ask-podman")
+    QTEAM=t1
+    QHANDLE=alpha
+    COORD="ccy"$'\tc1\t-\t'"${CCY_PINGBUS_HOME}"$'\tt1\t@alpha:t1.internal'
+    TEST_QUESTION_HOW=""
+    ask_test_question || rc=$?
+    if [[ -z "${2:-}" ]]; then
+        if [[ "${rc}" -ne 0 ]] && [[ -e "${PLAN_RUN_DIR}/test-question" ]]; then
+            printf 'the refused ask saved a test-question: %s\n' "$(cat -- "${PLAN_RUN_DIR}/test-question")" >&2
+            return 0
+        fi
+        return "${rc}"
+    fi
+    if [[ "${rc}" -ne 0 ]]; then
+        return "${rc}"
+    fi
+    if [[ "$(cat -- "${PLAN_RUN_DIR}/test-question")" != "$2" ]]; then
+        printf 'test-question is "%s", not "%s"\n' "$(cat -- "${PLAN_RUN_DIR}/test-question")" "$2" >&2
+        return 1
+    fi
+    if [[ "${TEST_QUESTION_HOW}" != "${2##*$'\t'}" ]]; then
+        printf 'TEST_QUESTION_HOW is "%s", not "%s"\n' "${TEST_QUESTION_HOW}" "${2##*$'\t'}" >&2
+        return 1
+    fi
+    if [[ "$2" == *$'\treused' ]] && ! grep -qF 'not closed (open or answered)' "${REPORT}"; then
+        printf 'the reused question was not reported as not closed:\n%s\n' "$(cat -- "${REPORT}")" >&2
+        return 1
+    fi
 }

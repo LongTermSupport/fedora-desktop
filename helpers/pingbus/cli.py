@@ -52,6 +52,9 @@ PROG = "pingbus"
 TOOL_VERSION = "0.2.0"
 #: What a forge refusal's stderr message starts with, before `<code>: <detail>`.
 FORGE_REFUSED = "forge check refused"
+#: ask-human's refusal when an open or answered question already asks it (after `pingbus: `),
+#: which Plan 00211's acceptance reads to reuse its test question while it is not closed.
+QUESTION_DUPLICATE = "team {team}: {question} is open and asks the same question"
 
 EXIT_OK = 0
 EXIT_NOTHING = 3
@@ -1251,7 +1254,7 @@ def cmd_ask_human(args: argparse.Namespace, environ: Mapping[str, str], out: Tex
     index = seat.syncer.question_index()
     same = index.open_duplicate(asked)
     if same is not None:
-        err.write(f"{PROG}: team {member.team}: Q{same.n} is open and asks the same question\n")
+        err.write(f"{PROG}: {QUESTION_DUPLICATE.format(team=member.team, question=f'Q{same.n}')}\n")
         raise limits.RateLimited("duplicate")
     n = index.next_number()
     content = protocol.build_question(n, text, record.humans, asked_by, re_)
