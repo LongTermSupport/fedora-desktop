@@ -34,6 +34,10 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00222-worker-tool-restrictions](00222-worker-tool-restrictions/) - Not Started. Workers lose `AskUserQuestion` and four other human-facing tools by default (the coordinator keeps them): a PreToolUse hook in the member kit, a Go guard reading the live per-team role so hot role changes need no restart, a per-team opt-out; Claude Code's deny rules, env vars and a hooks-daemon handler compared in RESEARCH-mechanisms.md; v2 requirements recorded for Plan 00209
+
+- [00221-team-member-labels-and-a-tree-board](00221-team-member-labels-and-a-tree-board/) - Not Started. Owner-set labels on worker seats (`infra`, `front`; never the coordinator), shown on the status line, in envelopes, `pingbus status` and the board, and told to the agent; `ccy-teams` redrawn as a tree (team, coordinator, workers with seat, label, handle and where each runs, people) in measured colour; v1 parts that Plan 00209 replaces named in DESIGN.md section 4
+
 - [00220-wireguard-overlay-and-remote-team-members](00220-wireguard-overlay-and-remote-team-members/) - Not Started. Agent teams across machines: a vault-backed WireGuard overlay in `play-vpn.yml` (one per machine, hub and spoke on this desktop, a dedicated firewalld zone, one public UDP port), the homeserver on the overlay address for named peers only, a `host` member on a second laptop; remote ccy seats left to v2 (Plan 00209)
 
 - [00219-desktop-checks-over-dbus](00219-desktop-checks-over-dbus/) - Not Started. Agents check the desktop without the owner: a read-only `org.fedoradesktop.DesktopFacts` object in the panel extension (active workspace, each window's class, app id, workspace and focus; no titles) and a Go `desktop-check` that runs checks needing window changes or screenshots in a throwaway headless shell, never on the owner's screen; for Plans 00198 and 00185
