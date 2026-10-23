@@ -269,7 +269,10 @@ literal, or a function or method of the same package, generic ones by their orig
 end when it defers `close(ch)`, a `Done()` with no parameter and no result (a WaitGroup's; a
 context's `Done` returns a channel and is not one) or a function literal that closes, sends or
 calls such a `Done`; or when its last statement is such a close, `Done` or send and nothing in
-the body returns before it; or when the body is one call of a function that signals its end.
+the body returns before it; or when every return of its own directly follows such a close,
+`Done` or send and it cannot fall off its end without one (its last statement is one, or a
+`for` with no condition and no `break` or `goto` in it), which ends it only through a signal;
+or when the body is one call of a function that signals its end.
 A call of another package's function, or of a function value, is flagged: its end cannot be
 seen. A goroutine that signals no end cannot be waited for, so nothing proves it stopped, and
 a stop missed on one path leaks it for the life of the process with what it holds.
@@ -279,7 +282,9 @@ a stop missed on one path leaks it for the life of the process with what it hold
   return skips, a function value, a deferred call that is not a signal, a wrapper of an unowned
   body; a deferred close, a deferred `wg.Done`, a final send of a result, an owned method
   started directly and through a wrapper, a WaitGroup's `Go`, a deferred literal that closes, a
-  final close, a generic function, and a `_test.go` goroutine clean).
+  final close, a generic function, a loop whose every return follows a send (the line reader of
+  `teams/flow/kit.go`), and a `_test.go` goroutine clean; a return with no send before it, a
+  loop left by a `break` and a loop with a condition flagged).
 - Red, real tree: 15 findings (the same untagged, with `busfailpoints` and with `tuwunel`; none
   in the nested `qa` module).
 - Not caught: an end signalled and never awaited, or awaited on only some of the owner's paths;

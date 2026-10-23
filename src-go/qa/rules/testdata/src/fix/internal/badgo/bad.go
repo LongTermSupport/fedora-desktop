@@ -145,3 +145,65 @@ func StartsGeneric(done chan int) {
 	go generic(done)
 	<-done
 }
+
+// SendsOnEveryReturn is the line reader: each of its returns follows a send, and its loop has
+// no condition and no break, so it cannot end without one.
+func SendsOnEveryReturn(read func() (byte, error), got chan<- bool) {
+	go func() {
+		for {
+			b, err := read()
+			if b == '\n' {
+				got <- true
+				return
+			}
+			if err != nil {
+				got <- false
+				return
+			}
+		}
+	}()
+}
+
+// OneReturnUnsignalled has a return that follows no send.
+func OneReturnUnsignalled(read func() (byte, error), got chan<- bool) {
+	go func() { // want `goroutine signals no end, so no owner can wait for it`
+		for {
+			b, err := read()
+			if b == '\n' {
+				got <- true
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+}
+
+// BreaksOut leaves its loop by a break, past every send.
+func BreaksOut(read func() (byte, error), got chan<- bool) {
+	go func() { // want `goroutine signals no end, so no owner can wait for it`
+		for {
+			b, err := read()
+			if err != nil {
+				got <- false
+				return
+			}
+			if b == '\n' {
+				break
+			}
+		}
+	}()
+}
+
+// LoopsWhile has a condition, so it can fall out of its loop with no send.
+func LoopsWhile(more func() bool, got chan<- bool) {
+	go func() { // want `goroutine signals no end, so no owner can wait for it`
+		for more() {
+			if !more() {
+				got <- false
+				return
+			}
+		}
+	}()
+}

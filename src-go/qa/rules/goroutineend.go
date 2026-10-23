@@ -2,6 +2,7 @@ package rules
 
 import (
 	"go/ast"
+	"go/token"
 	"go/types"
 
 	"golang.org/x/tools/go/analysis"
@@ -15,8 +16,11 @@ var GoroutineEnd = &analysis.Analyzer{
 A goroutine signals its end when its body (a function literal, or a function or method of the
 same package) defers close(ch), a Done() with no result (sync.WaitGroup.Done), or a function
 literal that closes, sends or calls Done; or when its last statement is such a close, Done or
-send and nothing in the body returns before it; or when its body is one call of a function
-that signals its end. Flagged: every other go statement outside a _test.go file, a call of
+send and nothing in the body returns before it; or when every return of its own directly
+follows such a close, Done or send and it cannot fall off its end without one (its last
+statement is one, or a for with no condition and no break or goto in it: such a body ends only
+through a signalled return, which is as waitable as a deferred close); or when its body is one
+call of a function that signals its end. Flagged: every other go statement outside a _test.go file, a call of
 another package's function or of a function value included (its end cannot be seen here).
 
 A goroutine that signals no end cannot be waited for, so nothing proves it stopped: when its
@@ -92,6 +96,9 @@ func bodySignalsEnd(pass *analysis.Pass, bodies map[*types.Func]*ast.BlockStmt, 
 	if isEndStmt(pass, last) && !returnsEarly(body) {
 		return true
 	}
+	if signalsOnEveryReturn(pass, body) {
+		return true
+	}
 	if len(body.List) == 1 {
 		if es, ok := last.(*ast.ExprStmt); ok {
 			if call, isCall := es.X.(*ast.CallExpr); isCall {
@@ -162,6 +169,55 @@ func returnsEarly(body *ast.BlockStmt) bool {
 			return false
 		case *ast.ReturnStmt:
 			found = true
+		}
+		return !found
+	})
+	return found
+}
+
+// signalsOnEveryReturn is whether every return of body's own directly follows an end
+// statement and body cannot fall off its end without one: its last statement is an end
+// statement, or a for with no condition and no break in it.
+func signalsOnEveryReturn(pass *analysis.Pass, body *ast.BlockStmt) bool {
+	last := body.List[len(body.List)-1]
+	if f, ok := last.(*ast.ForStmt); !isEndStmt(pass, last) && (!ok || f.Cond != nil || breaks(f.Body)) {
+		return false
+	}
+	returns, signalled := 0, 0
+	ast.Inspect(body, func(n ast.Node) bool {
+		var list []ast.Stmt
+		switch n := n.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.ReturnStmt:
+			returns++
+		case *ast.BlockStmt:
+			list = n.List
+		case *ast.CaseClause:
+			list = n.Body
+		case *ast.CommClause:
+			list = n.Body
+		}
+		for i, s := range list {
+			if _, isReturn := s.(*ast.ReturnStmt); isReturn && i > 0 && isEndStmt(pass, list[i-1]) {
+				signalled++
+			}
+		}
+		return true
+	})
+	return returns == signalled
+}
+
+// breaks is whether body holds a break of its own (not a nested function literal's); a break
+// of an inner switch, select or loop counts too, so a loop the rule cannot judge is flagged.
+func breaks(body *ast.BlockStmt) bool {
+	found := false
+	ast.Inspect(body, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.BranchStmt:
+			found = found || n.Tok == token.BREAK || n.Tok == token.GOTO
 		}
 		return !found
 	})

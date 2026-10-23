@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/leakcheck"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/homefs"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/lock"
@@ -285,6 +286,7 @@ func newWorld(t *testing.T, delivery string) *world {
 // it runs.
 func newWorldWith(t *testing.T, delivery string, prep func(*Config), ready func(*Engine)) *world {
 	t.Helper()
+	leakcheck.Check(t)
 	home := filepath.Join(t.TempDir(), "home")
 	check(t, os.Mkdir(home, 0o700))
 	root, err := homefs.Open(home, homefs.Private)
