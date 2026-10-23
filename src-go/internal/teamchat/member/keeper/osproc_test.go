@@ -10,6 +10,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/leakcheck"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/reexec"
 )
 
@@ -24,7 +25,7 @@ var helpers = reexec.Helpers{
 	},
 }
 
-func TestMain(m *testing.M) { os.Exit(reexec.Main(m, helpers)) }
+func TestMain(m *testing.M) { os.Exit(reexec.Main(leakcheck.Tests(m), helpers)) }
 
 // bound is how long a test waits for a real process or the kernel before it fails.
 const bound = 30 * time.Second

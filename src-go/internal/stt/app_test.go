@@ -189,12 +189,17 @@ func newWorld(t *testing.T) *world {
 	if err != nil {
 		t.Fatal(err)
 	}
+	served := make(chan struct{})
 	t.Cleanup(func() {
 		if err := l.Close(); err != nil {
 			t.Error(err)
 		}
+		<-served
 	})
-	go w.server.serve(t, l)
+	go func() {
+		defer close(served)
+		w.server.serve(t, l)
+	}()
 	return w
 }
 
