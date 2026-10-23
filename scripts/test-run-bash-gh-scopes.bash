@@ -61,6 +61,11 @@ case "$1 ${2:-}" in
         # The browser login leaves gh as $STUB_DIR/after-login.json says.
         printf '%s\n' "$*" >>"$STUB_DIR/login.log"
         cp "$STUB_DIR/after-login.json" "$STUB_DIR/status.json"
+        # With $STUB_DIR/login-hangs, the login waits for a signal, as a browser login does.
+        if [ -f "$STUB_DIR/login-hangs" ]; then
+            : >"$STUB_DIR/login-started"
+            exec sleep 60
+        fi
         ;;
     "api user/keys")
         [ -n "${GH_TOKEN:-}" ] || { echo "the key listing must act as the account" >&2; exit 1; }
@@ -380,6 +385,28 @@ contains "  and it was uploaded as the account" "tok-bob ssh-key add $key.pub" "
 contains "the key is verified" "SSH verified: oss → bob" "$OUT"
 contains "gh is switched back to the account it started on" "--user alice" "$SWITCHES"
 contains "  and says so" "gh is back on alice" "$OUT"
+
+# E26, E27: the wrapper execs the command, so a TERM sent to the wrapper reaches the command,
+# which ends the login and puts gh's active account back.
+echo "== gh-account-setup.bash: a TERM to the wrapper during the login"
+rm -f "$STUB_DIR/switch.log" "$STUB_DIR/login-started"
+status_json alice alice >"$STUB_DIR/status.json"
+: >"$STUB_DIR/login-hangs"
+HOME="$setup_home" XDG_CACHE_HOME="$cache_home" LOCALHOST_YML="$setup_yml" \
+    SCOPES_FILE="$FIXTURE_REPO/vars/github-required-scopes.yml" GITHUB_SSH_PASSPHRASE='a test passphrase' \
+    "$SETUP" --setup-all >"$work/term.out" 2>&1 </dev/null &
+setup_pid=$!
+waited=0
+while [ ! -f "$STUB_DIR/login-started" ] && [ "$waited" -lt 1200 ] && kill -0 "$setup_pid" 2>/dev/null; do
+    sleep 0.1
+    waited=$((waited + 1))
+done
+kill -TERM "$setup_pid"
+wait "$setup_pid" && RC=0 || RC=$?
+rm -f "$STUB_DIR/login-hangs"
+check "the login was under way" "yes" "$([ -f "$STUB_DIR/login-started" ] && echo yes)"
+check "the run ends as a TERM does" 143 "$RC"
+contains "gh is switched back to the account it started on" "--user alice" "$(cat "$STUB_DIR/switch.log" 2>/dev/null)"
 
 # E29: the wrapper's own failures, and the command's status passed back through it.
 echo "== gh-account-setup.bash: the wrapper's exits"

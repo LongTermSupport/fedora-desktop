@@ -33,8 +33,10 @@ with awk); those cases move to Go tests, and the suite drives the built command 
   `scripts/lib/go-tool.bash` gains `run_go_command`, which builds `src-go/cmd/<name>` from the main
   module (`go build -trimpath -buildvcs=false`, as `tasks/build-go-command.yml` builds, so a `git`
   that is not git on `PATH`, such as a test stub, cannot break the build; `GOFLAGS=-mod=vendor`, `GOTOOLCHAIN=local`, so offline from
-  `src-go/vendor`) into a private directory under the cache, runs it, removes the directory and
-  returns its status. The wrapper gives the binary the checkout as `GH_ACCOUNT_SETUP_ROOT`. Its
+  `src-go/vendor`) into the cache (a temporary file renamed to `cmd/<name>`, so a run under way
+  keeps its file) and execs it. The command is then the wrapper's own process: a signal sent to the
+  wrapper (a `kill`, `timeout`, a supervisor) reaches the command and E26-E27 hold through it, and
+  the binary stays on disk while ssh-keygen and ssh run it as their askpass. The wrapper gives the binary the checkout as `GH_ACCOUNT_SETUP_ROOT`. Its
   allowlist row leaves `scripts/bash-limits.allowlist`; `scripts/go-binary-suites.tsv` gets
   `gh-account-setup	scripts/test-run-bash-gh-scopes.bash`.
 - **D2. Go before the GitHub step (the bootstrap).** On a fresh host nothing has installed Go when
@@ -233,8 +235,9 @@ with awk); those cases move to Go tests, and the suite drives the built command 
 
 ### The wrapper and the bootstrap
 
-- E29. `scripts/gh-account-setup.bash` builds and runs the command (D1) and returns its status; no
-  `go` is exit 2 naming `play-golang.yml`, a build that fails exit 2.
+- E29. `scripts/gh-account-setup.bash` builds the command and execs it (D1), so its exit is the
+  command's and a signal sent to it reaches the command; no `go` is exit 2 naming
+  `play-golang.yml`, a build that fails exit 2.
 - E30. `run.bash` installs `golang` with its other system dependencies, before the GitHub step
   (D2).
 

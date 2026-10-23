@@ -341,8 +341,9 @@ a mount.
 under review, not merged; spec [SPEC-gh-account-setup.md](SPEC-gh-account-setup.md) (D1-D5,
 E1-E30, B1-B15, H1-H5), `src-go/cmd/gh-account-setup` (the askpass dispatch, else the run) and
 `src-go/internal/ghaccount`. It is not deployed: `scripts/gh-account-setup.bash` is a wrapper that
-builds it from the checkout on each run (`run_go_command` in `scripts/lib/go-tool.bash`, with
-`-buildvcs=false`, because the suite's `git` stub broke Go's VCS stamping), and `run.bash` installs
+builds it from the checkout on each run and execs it, so a signal sent to the wrapper reaches
+the command (`run_go_command` in `scripts/lib/go-tool.bash`, with `-buildvcs=false`, because the
+suite's `git` stub broke Go's VCS stamping), and `run.bash` installs
 `golang` with its first system dependencies so the GitHub step can build it on a fresh host (D2,
 the bootstrap). The vault is read the way the playbooks read it: ansible runs under the
 checkout's `ansible.cfg`, and only a set `VAULT_PASS_FILE` is checked and passed on (E4, E11); the

@@ -69,6 +69,16 @@ func TestAddAccountText(t *testing.T) {
 			"github_accounts:\n  new: \"jane\"\nz: 1\n",
 		},
 		{
+			"null becomes a block",
+			"github_accounts: null\nz: 1\n",
+			"github_accounts:\n  new: \"jane\"\nz: 1\n",
+		},
+		{
+			"~ becomes a block",
+			"github_accounts: ~\nz: 1\n",
+			"github_accounts:\n  new: \"jane\"\nz: 1\n",
+		},
+		{
 			"a key with no value",
 			"github_accounts:\nz: 1\n",
 			"github_accounts:\n  new: \"jane\"\nz: 1\n",

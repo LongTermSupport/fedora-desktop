@@ -248,7 +248,7 @@ in `/usr/local/bin` (`go_command_owner: root`; only that copy runs as root). Eac
 at its old path. A new deployed command takes a row in
 `scripts/go-binary-suites.tsv`. `gh-account-setup` is not deployed: it runs from the checkout
 before any play, so `scripts/gh-account-setup.bash` builds it there (`run_go_command` in
-`scripts/lib/go-tool.bash`, the same flags) and runs it. Never
+`scripts/lib/go-tool.bash`, the same flags) and execs it, so a signal sent to the wrapper reaches it. Never
 install a binary by hand: the play is the only route
 ([InfrastructureAsCode.md](../CLAUDE/InfrastructureAsCode.md)).
 

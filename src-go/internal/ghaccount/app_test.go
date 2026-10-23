@@ -740,7 +740,7 @@ func TestCheckFindsEveryIssueAndGoesOn(t *testing.T) {
 	} {
 		w.mustContain("stdout", s)
 	}
-	w.mustContain("stderr", "Some accounts have issues — run with --setup-all to fix")
+	w.mustContain("stdout", "✗ Some accounts have issues — run with --setup-all to fix")
 }
 
 // E12: --check without a passphrase warns, and tests the key in batch mode.

@@ -429,9 +429,7 @@ func (r *run) decryptPassphrase(ctx context.Context) error {
 	}
 	res, err := r.env.Runner.Run(ctx, cmd)
 	if err != nil {
-		if msg := strings.TrimRight(string(res.Stderr), "\n"); msg != "" {
-			r.p.Print(r.err.w, msg+"\n")
-		}
+		// An execx.ExitError's text carries ansible's stderr, so it is not printed again.
 		return r.decryptFailed("ansible failed: " + err.Error())
 	}
 	pass, err := parseVaultOutput(string(res.Stdout))
@@ -957,7 +955,9 @@ func (r *run) check(ctx context.Context) error {
 	}
 	r.plain(r.out, "")
 	if !healthy {
-		return r.failf("Some accounts have issues — run with --setup-all to fix")
+		// The verdict is the report's last line, on stdout like the rest of it (E25).
+		r.badf(r.out, "Some accounts have issues — run with --setup-all to fix")
+		return errReported
 	}
 	r.okf(r.out, "All accounts healthy")
 	return nil
