@@ -870,6 +870,42 @@ func TestFactsThatDoNotRenderAreDropped(t *testing.T) {
 	}
 }
 
+// A 8.4, n3d-D17: a persisted batch's answers reach the next delivery's answered: lines, each
+// sender named: an ack, and an on-time answer to an addressee whose TIMEOUT was already made,
+// marked so. An on-time answer that is not an ack, with no TIMEOUT made, owes no line.
+func TestABatchsAnswersReachTheDelivery(t *testing.T) {
+	dw := newDeliveryWorld(t, state.DeliverySocket)
+	a := tid(t, "alpha")
+	p := outPing(7, startWall, agent(a, 2), agent(a, 3), agent(a, 4))
+	p.Reported = []int{1}
+	s := dw.newStore(a)
+	s.Outbox.Pings = []state.Ping{p}
+	f := dw.add(a, encodeStore(t, s))
+	<-f.running
+	f.notices.set(roster(a))
+	dw.facts(false)
+	// The batch carries an item too, so a delivery goes whatever lines it owes.
+	dw.persistBatch(team.Batch{Team: a, NextBatch: "s1", Items: []team.Item{humanItem(a, 1, startWall, "one")}, Answered: []team.Answer{
+		{Ping: p.ID, From: agent(a, 2), Verb: proto.VerbAck, ID: evID(20), OriginMS: startWall + 1000},
+		{Ping: p.ID, From: agent(a, 3), Verb: proto.VerbDone, ID: evID(21), OriginMS: startWall + 2000},
+		{Ping: p.ID, From: agent(a, 4), Verb: proto.VerbDone, ID: evID(22), OriginMS: startWall + 3000},
+	}})
+	ev := dw.next()
+	want := []string{
+		"answered: repo.2+site.podman sent ack to your review '" + p.ID + "'",
+		"answered: repo.3+site.podman sent done to your review '" + p.ID + "' (after its TIMEOUT)",
+	}
+	var got []string
+	for line := range strings.SplitSeq(ev.text, "\n") {
+		if strings.HasPrefix(line, "answered: ") {
+			got = append(got, line)
+		}
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("answered lines %q, want %q in %q", got, want, ev.text)
+	}
+}
+
 // DV6's session-level send: a membership notice shares the 2 s pace and is written true only
 // after a full write; with no live socket it is not sent.
 func TestSendMembership(t *testing.T) {
