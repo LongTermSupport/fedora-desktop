@@ -81,6 +81,7 @@ clear message.
 - [x] ~~**Task 3.1**: `deploy.bash` runs `play-claude-yolo.yml`.~~ Dropped: the
   `play-claude-yolo.yml` entry in `meta-deploy.list` deploys it, so a `deploy.bash` would
   only run the same play a second time.
+
 - [x] ✅ **Task 3.2**: `acceptance.bash` (legs in `check-cc-project-dir.bash`) runs the
   installed `/var/local/claude-code/cc-project-dir`, never `cc` or Claude, from `mktemp -d`
   scratch directories: outside a repository with stdin `</dev/null`, and with
@@ -93,9 +94,11 @@ clear message.
   stdout) and `offer-retry` (`maybe` then `n`: "Please answer y or n.", the offer twice, the
   refusal). The `restore` leg uses the same pseudo-terminal, typing `y`, so no leg needs the
   runner's terminal. Proved in the container against a build (green) and seven broken fakes
-  (each red on the leg it breaks); not yet run on the host.
-- [ ] 🔄 **Task 3.3**: The host run, then `cc` itself. Deployed at dddf4063 with the review
+  (each red on the leg it breaks); on the host see Task 3.3.
+
+- [x] ✅ **Task 3.3**: The host run, then `cc` itself. Deployed at dddf4063 with the review
   fix. Left, both for the host agent:
+
   1. `acceptance.bash` through meta-deploy (the coordinator queues
      `00167-cc-refuses-to-start-outside-a-repo/acceptance.bash` in `meta-deploy.list`; no
      play first: `cc-project-dir`'s code is unchanged since dddf4063), from the checkout the play ran from: all six
@@ -112,6 +115,13 @@ clear message.
      ends with the session; then `/exit` it. Then `env -u TMUX cc` at the root of a checkout: a session
      starts there as before. The offer and the git top are already proved by the legs; this
      proves `cc` acts on what `cc-project-dir` prints.
+
+  Host results, 2026-10-23, both in bus message `$SaaNjb_VFudX-vnN6tjA8rXQXtbNv_-y_dJUJgXxFSA`:
+  item 1, `acceptance.bash` through meta-deploy at b1e298e1c, PASS, all legs. Item 2, `cc`
+  itself, PASS: `n` refused with exit 1 and no new `ccy` session; `y` started a new `ccy`
+  session for the checkout, its pane in the checkout, and `/exit` gave exit 0; at the
+  checkout root `cc` started a session at once with no offer; the session count returned to
+  where it began.
 
 ### Phase 4: Review and close
 
@@ -174,9 +184,9 @@ elsewhere to stay within its record. No install-specific path is in the reposito
 - [x] `cc` outside any git working tree with no terminal exits 1 with the refusal and starts
   no tmux session. The `no-stdin` and `restore` legs passed on the host at dddf4063; `cc`
   runs `cc-project-dir` under `set -e` before its tmux re-exec, so the refusal ends it there.
-- [ ] `cc` outside any git working tree in a terminal offers the fedora-desktop checkout;
+- [x] `cc` outside any git working tree in a terminal offers the fedora-desktop checkout;
   yes starts the session there, no exits 1 (host agent, Task 3.3).
-- [ ] `cc` at a repository root starts as before (host agent, Task 3.3).
+- [x] `cc` at a repository root starts as before (host agent, Task 3.3).
 - [x] Subdirectory behaviour matches Decision 2: the `git-top` leg passed on the host at
   dddf4063 (a nested subfolder gives the repository's top).
 - [x] QA passes (`./scripts/qa-all.bash`) and the `qa-reviewer` findings are resolved: QA

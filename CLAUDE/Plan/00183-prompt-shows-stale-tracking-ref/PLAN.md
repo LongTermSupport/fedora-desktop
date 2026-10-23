@@ -82,7 +82,7 @@ agent at all. The cause is unknown, so this plan triages first.
   prove it on the host. Deployed on the host (`play-git-configure-and-tools.yml` passed); the
   `fetcher` (BatchMode, no terminal) and `override` (async_run through git-prompt-fetch)
   legs passed. The acceptance re-run passed, all six legs.
-- [ ] ⬜ **Task 2.6**: the host agent's check in a real interactive shell, the one thing the
+- [ ] 🔄 **Task 2.6**: the host agent's check in a real interactive shell, the one thing the
   `prompt` leg does not cover (that leg expands the deployed PS1 in `bash -s`, not in the
   login user's `bash -i` with `~/.bashrc` and bash-git-prompt loaded). Make a scratch clone
   whose `origin` is an ssh URL that fails at once (a host under `.invalid`, such as
@@ -96,6 +96,12 @@ agent at all. The cause is unknown, so this plan triages first.
   empties `FETCH_HEAD`), and no `passphrase` text. Press Enter after 10 s: the mark is
   ` [fetch failed or running]` and `~/.cache/git-prompt-fetch.log` names the failed fetch.
   Kill the server and remove the clone. Nothing in it needs the owner.
+  Host run, 2026-10-23 (bus `$SaaNjb_VFudX-vnN6tjA8rXQXtbNv_-y_dJUJgXxFSA`): every check
+  passed (` [fetch failed or running]` in yellow, no `passphrase`, the mark kept after Enter,
+  `FETCH_HEAD` emptied, the log names the failed fetch) except one: under load about 47 the
+  prompt was drawn by about 12 s, not within 5 s. The scratch clone is still in
+  `untracked/scratch/` (the host agent's `rm -rf` was refused). Left: the 5 s draw on an
+  idle host, or a decision that the load explains it.
 
 ## Technical Decisions
 
