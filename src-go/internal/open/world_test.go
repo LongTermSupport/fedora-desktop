@@ -15,6 +15,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ttyecho"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
@@ -35,6 +36,8 @@ type world struct {
 	tty        string // what the controlling terminal answers; "" with noTTY means none
 	noTTY      bool
 	signals    chan os.Signal
+	// echo is the hold on the terminal's echo, nil for none.
+	echo *ttyecho.Hold
 }
 
 func newWorld(t *testing.T) *world {
@@ -129,6 +132,7 @@ func (w *world) app() App {
 			return io.NopCloser(strings.NewReader(w.tty)), nil
 		},
 		Interrupts: w.signals,
+		Echo:       w.echo,
 	}}
 }
 

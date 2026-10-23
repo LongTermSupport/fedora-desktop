@@ -1,11 +1,15 @@
 package sessions
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ttyecho"
 )
 
 func TestHelpPrintsTheHeaderTextOnStdoutBeforeAnyGuard(t *testing.T) {
@@ -157,6 +161,57 @@ func TestWireFillsEverySeam(t *testing.T) {
 	if NewApp() == nil {
 		t.Fatal("NewApp")
 	}
+}
+
+// ccy-sessions holds the echo of the terminal it reads keys from, and runs every command and
+// the launcher's exec under the hold: keys typed between two screens are not echoed.
+func TestNewAppHoldsTheEchoOfItsTerminal(t *testing.T) {
+	a := NewApp()
+	if a.Echo == nil || a.Echo.TTY != os.Stdin {
+		t.Fatalf("hold %+v", a.Echo)
+	}
+	if _, bare := a.Runner.(execx.OS); bare {
+		t.Fatal("the commands run outside the hold")
+	}
+	if _, bare := a.Execer.(execx.OS); bare {
+		t.Fatal("the exec is outside the hold")
+	}
+}
+
+// heldTerminal gives the app a hold over a fake terminal.
+func heldTerminal(t *testing.T, a *App) *ttyecho.FakeModes {
+	t.Helper()
+	tty, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := tty.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	var modes *ttyecho.FakeModes
+	a.Echo, modes = ttyecho.Fake(tty)
+	return modes
+}
+
+// The run's end puts back the mode a screen held, and a mode that cannot be put back fails it.
+func TestARunPutsBackTheModeAScreenHeld(t *testing.T) {
+	h := newHarness(t)
+	modes := heldTerminal(t, h.app)
+	if err := ttyecho.Screen(h.app.Echo); err != nil || modes.Echo() {
+		t.Fatalf("screen %v, echo %v", err, modes.Echo())
+	}
+	exitCodeIs(t, h.run("-h"), 0, h)
+	if !modes.Echo() || modes.Sets != 2 {
+		t.Fatalf("echo after %v, %d sets", modes.Echo(), modes.Sets)
+	}
+	if err := ttyecho.Screen(h.app.Echo); err != nil {
+		t.Fatal(err)
+	}
+	modes.SetErr = errors.New("EIO")
+	exitCodeIs(t, h.run("-h"), 1, h)
+	contains(t, "stderr", h.stderr(), "put the terminal's mode back: EIO")
 }
 
 func TestWireKeepsWhatWasAlreadySet(t *testing.T) {

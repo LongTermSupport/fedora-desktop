@@ -169,7 +169,7 @@ func (s *Seats) NewSession(ctx context.Context, snap *board.Snapshot, team strin
 		return flow.Refused, flow.Leave(term.ExitFailure)
 	}
 	if state != systemd.HomeserverUp {
-		return s.Kit.Refuse(ctx, team+"'s homeserver is down, so no session can join it.")
+		return s.Kit.Refuse(ctx, team+"'s homeserver is not up, so no session can join it.")
 	}
 	seats, unreadable, err := s.Bus.SeatList(ctx, top)
 	if err != nil || unreadable {

@@ -126,7 +126,7 @@ func (p *Picker) Pick(ctx context.Context, h Heading, s PickSpec) (Picked, error
 		exitRow = s.ExitLabel
 	}
 	stdin := strings.NewReader(strings.Join(append(lines, exitRow), "\n") + "\n")
-	res, err := p.Runner.Run(ctx, execx.Cmd{Name: "fzf", Args: args, Env: s.env(), Stdin: stdin, Stderr: p.Stderr})
+	res, err := p.Runner.Run(ctx, execx.Cmd{Name: "fzf", Args: args, Env: s.env(), Stdin: stdin, Stderr: p.Stderr, EchoHeld: true})
 	out := strings.TrimSuffix(string(res.Stdout), "\n")
 	if err != nil {
 		switch code := exitCode(err); {

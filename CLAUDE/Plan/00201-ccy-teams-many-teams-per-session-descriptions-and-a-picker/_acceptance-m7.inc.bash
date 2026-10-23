@@ -92,6 +92,20 @@ SESSION_CTR=""
 SESSION_ID=""
 
 m7_ev() { printf '%s/%s' "${PLAN_RUN_DIR}" "$1"; }
+
+# m7_left_up — the teams and the saved Quick Launch record are left in place on purpose
+# (chooser-teams-up.bash): nothing for the teardown of a stopped run to remove.
+m7_left_up() {
+    TEAMS_PRESENT=0
+    LAUNCH_CONF_STATE=""
+}
+
+# m7_adopted — a later run took over teams left up and a Quick Launch record saved by an earlier
+# one (chooser-teams-down.bash): its teardown removes them.
+m7_adopted() {
+    TEAMS_PRESENT=1
+    LAUNCH_CONF_STATE="saved"
+}
 evidence() { printf -- '- %s\n' "$*" >>"${REPORT}"; }
 
 # m7_installer <label> <args...> — agent-bus-install as root; stdout kept as <label>.out.
@@ -109,7 +123,7 @@ m7_installer() {
 
 m7_sudo_alive() {
     if ! sudo -n true; then
-        printf '[FAIL] sudo'\''s credential lapsed; a headless launch and the teardown need it: run acceptance.bash again\n' >&2
+        printf '[FAIL] sudo'\''s credential lapsed; a headless launch and the teardown need it: run %s again\n' "${0##*/}" >&2
         return 1
     fi
 }
@@ -173,8 +187,9 @@ m7_poll() {
 
 # ── before anything: what the run needs, and that the names are free ──────────────────────
 
-m7_prerequisites() {
-    local tool declared team text
+# m7_session_paths — the container paths the session checks and the container listing read.
+m7_session_paths() {
+    local text
     local -a paths
     text="$("${CHECK[@]}" session-paths)" || { printf '[FAIL] m7_check session-paths could not read seat.py and membership.py (above)\n' >&2; return 1; }
     mapfile -t paths <<<"${text}"
@@ -184,6 +199,27 @@ m7_prerequisites() {
     fi
     M7_CTR_PINGBUS_HOME="${paths[0]}" M7_CTR_SESSION_SETTINGS="${paths[1]}"
     M7_CTR_MEMBERSHIP_MOUNT="${paths[2]}" M7_MEMBERSHIP_FILE="${paths[3]}"
+}
+
+# m7_owner_declares_neither — the owner's host_vars declare no team of either acceptance name:
+# a run would purge it.
+m7_owner_declares_neither() {
+    local declared team
+    if [[ ! -e "${OWNER_HOST_VARS}" ]]; then
+        return 0
+    fi
+    declared="$(cd -- "${PLAN_REPO_ROOT}" && python3 -m helpers.agent_bus.declare declared --file "${OWNER_HOST_VARS}")" || return 1
+    for team in "${M7_TEAMS[@]}"; do
+        if awk -F'\t' -v team="${team}" '$1 == "TEAM" && $2 == team { found = 1 } END { exit !found }' <<<"${declared}"; then
+            printf '[FAIL] the host_vars declare a team named %s: this run would purge it. Rename TEAM_A and TEAM_B in %s (chooser-teams-up.bash and chooser-teams-down.bash name the same two)\n' "${team}" "${0##*/}" >&2
+            return 1
+        fi
+    done
+}
+
+m7_prerequisites() {
+    local tool
+    m7_session_paths || return 1
     for tool in "${CCY_LAUNCHER}" "${AGENT_BUS}" "${INSTALLER}"; do
         if [[ ! -x "${tool}" ]]; then
             printf '[FAIL] %s is not installed: run play-claude-yolo.yml and play-agent-bus.yml\n' "${tool}" >&2
@@ -205,15 +241,7 @@ m7_prerequisites() {
             "${PLAN_REPO_ROOT}" >&2
         return 2
     fi
-    if [[ -e "${OWNER_HOST_VARS}" ]]; then
-        declared="$(cd -- "${PLAN_REPO_ROOT}" && python3 -m helpers.agent_bus.declare declared --file "${OWNER_HOST_VARS}")" || return 1
-        for team in "${M7_TEAMS[@]}"; do
-            if awk -F'\t' -v team="${team}" '$1 == "TEAM" && $2 == team { found = 1 } END { exit !found }' <<<"${declared}"; then
-                printf '[FAIL] the host_vars declare a team named %s: this run would purge it. Rename the acceptance teams in acceptance.bash\n' "${team}" >&2
-                return 1
-            fi
-        done
-    fi
+    m7_owner_declares_neither || return 1
     printf '==> ccy, agent-bus, ccy-teams and the hooks daemon are here; %s and %s are not declared by the owner\n' "${TEAM_A}" "${TEAM_B}"
 }
 
@@ -817,13 +845,16 @@ m7_check_plain() {
 
 # ── the way out ──────────────────────────────────────────────────────────────────────────
 
-# m7_park_seats — the acceptance seats parked by `agent-bus seat remove` while their teams run.
+# m7_park_seats — every seat of the acceptance teams in this checkout (seat 1, and any other an
+# interactive launch took) parked by `agent-bus seat remove` while their teams run.
 m7_park_seats() {
-    local team list=""
+    local team dir list=""
     for team in "${M7_TEAMS[@]}"; do
-        if [[ -d "${M7_SEATS_DIR}/${team}/${SEAT}" ]]; then
-            list+="${list:+,}${SEAT}@${team}"
-        fi
+        for dir in "${M7_SEATS_DIR}/${team}"/*/; do
+            [[ -d "${dir}" ]] || continue
+            dir="${dir%/}"
+            list+="${list:+,}${dir##*/}@${team}"
+        done
     done
     if [[ -n "${list}" ]]; then
         m7_seat_cmd remove "${list}" || return 1
@@ -900,7 +931,7 @@ m7_teardown_after_stop() {
         m7_remove_teams after-stop || failed=1
     fi
     if [[ "${failed}" -ne 0 ]]; then
-        printf '[FAIL] the teardown did not finish; run acceptance.bash again, which removes what is left first\n' >&2
+        printf '[FAIL] the teardown did not finish; run %s again, which removes what is left first\n' "${0##*/}" >&2
     fi
     return "${failed}"
 }

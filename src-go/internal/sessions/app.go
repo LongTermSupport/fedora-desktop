@@ -26,6 +26,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/transcript"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ttyecho"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
@@ -154,6 +155,9 @@ func seconds(getenv func(string) string, name string, def time.Duration) (time.D
 type App struct {
 	Runner execx.Runner
 	Execer execx.Execer
+	// Echo holds the terminal's echo off for the run, so keys typed between two screens are not
+	// echoed over the next (ttyecho); nil holds nothing. NewApp runs Runner and Execer under it.
+	Echo   *ttyecho.Hold
 	Stdin  io.Reader
 	Stdout io.Writer
 	Stderr io.Writer
@@ -192,16 +196,25 @@ type App struct {
 
 // NewApp is the production App: the real OS and the process's own streams.
 func NewApp() *App {
-	a := &App{}
+	echo := ttyecho.New(os.Stdin)
+	a := &App{Echo: echo, Runner: echo.Runner(execx.OS{}), Execer: echo.Execer(execx.OS{})}
 	a.wire()
 	return a
 }
 
 // Run dispatches args (without the program name) and returns the exit code. Output that could
-// not be written turns a success into a failure.
+// not be written turns a success into a failure. The terminal's echo is held off for the run
+// and its mode put back at the end.
 func (a *App) Run(args []string) term.ExitCode {
 	a.wire()
-	return a.Term.Finish(a.run(args), a.writeErr)
+	var code term.ExitCode
+	if err := a.Echo.Held(func() { code = a.run(args) }); err != nil {
+		a.Term.PrintError(err.Error() + "; run reset to see what you type.")
+		if code == term.ExitOK {
+			code = term.ExitFailure
+		}
+	}
+	return a.Term.Finish(code, a.writeErr)
 }
 
 func (a *App) run(args []string) term.ExitCode {

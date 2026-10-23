@@ -97,14 +97,19 @@ func (h rig) askAboutAlphasDescription(t *testing.T) {
 	}
 }
 
-// run1 is one collection of the machine, and the picker state the key handlers act on.
+// run1 is one collection of the machine, and the picker state the key handlers act on: the
+// frame is the one the picker builds, so a menu says what this folder allows.
 func (h rig) run1(t *testing.T) *run {
 	t.Helper()
 	s, err := h.b.Collect(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &run{p: h.p, snap: s}
+	above, err := h.p.pickerFrame(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &run{p: h.p, snap: s, frame: above}
 }
 
 // row is the row of member in the pass.

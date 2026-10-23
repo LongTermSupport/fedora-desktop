@@ -380,7 +380,8 @@ name shown).
 #### 2.11.2 Ctrl-N: `new_session <team>` (L1665-1701)
 
 1. Not in a work tree: `<here> is not a project folder (no git repository), so ccy cannot be started here.` return.
-2. `homeserver_state` not `up`: `<team>'s homeserver is down, so no session can join it.` return.
+2. `homeserver_state` not `up`: `<team>'s homeserver is not up, so no session can join it.` return
+   (the board's own words for it, Plan 00177 Task 10.1).
 3. top = `git rev-parse --show-toplevel`. `seat_lines <top>` failure: `Not every seat of this checkout could be read (above), so no seat is offered: one of them may be the seat a new session would take.` return.
 4. next = 1 + the largest numeric seat among this checkout's seats of the team, and among
    MEMBERS_OF[team] `MEMBER` handles matching `\.([0-9]+)\+[^+]*\.podman$` (any repo; oddity 8.17).

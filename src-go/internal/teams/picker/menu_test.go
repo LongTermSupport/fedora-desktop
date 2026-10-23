@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
@@ -265,8 +266,47 @@ func TestEveryKeyIsInTheMenuOfTheRowsItActsOn(t *testing.T) {
 		t.Fatalf("team menu %q", labels)
 	}
 	seat := h.row(t, r.snap, "dev")
-	if !slices.Contains(h.labels(r, seat), "Attach this terminal to the seat's session") {
+	if !slices.Contains(h.labels(r, seat), "Attach this terminal to the seat's session: unavailable, it has no running session") {
 		t.Fatalf("seat menu %q", h.labels(r, seat))
+	}
+}
+
+// Attach says why it cannot be done in the cases seats.AttachSeat refuses, and is plain where it
+// can be done.
+func TestAttachOnASeatSaysWhyItCannotBeDone(t *testing.T) {
+	h := newRig(t)
+	r := h.run1(t)
+	row := h.row(t, r.snap, "dev")
+	attach := func() string { return h.labels(r, row)[0] }
+	r.snap.Live[row.Session] = 0
+	if got := attach(); got != "Attach this terminal to the seat's session" {
+		t.Fatalf("a running seat: %q", got)
+	}
+	r.snap.Live[row.Session] = 1
+	if got := attach(); got != "Attach this terminal to the seat's session: unavailable, it is open in another terminal (ccy-sessions takes it over)" {
+		t.Fatalf("open elsewhere: %q", got)
+	}
+	row.Dir = "-"
+	if got := attach(); got != "Attach this terminal to the seat's session: unavailable, its checkout is not known here" {
+		t.Fatalf("no checkout: %q", got)
+	}
+}
+
+func TestStartingASessionInATeamWhoseHomeserverIsNotUpSaysSo(t *testing.T) {
+	h := newRig(t)
+	h.inProject()
+	r := h.run1(t)
+	if r.snap.StateOf("alpha") != systemd.HomeserverUp {
+		t.Fatalf("alpha starts %q", r.snap.StateOf("alpha"))
+	}
+	for i, row := range r.snap.Rows {
+		if row.Kind == board.KindTeam && row.Team == "alpha" {
+			r.snap.Rows[i].State = "failed"
+		}
+	}
+	line, ok := startLine(h.labels(r, h.row(t, r.snap, "owner")))
+	if !ok || line != "Start a ccy session in alpha: unavailable, alpha's homeserver is not up   (Ctrl-N)" {
+		t.Fatalf("start line %q", line)
 	}
 }
 
@@ -316,6 +356,70 @@ func TestASeatWithNoHandleYetOffersNoRoleButCanBeRemoved(t *testing.T) {
 	}
 	if removes != 1 {
 		t.Fatalf("menu %q", h.labels(r, row))
+	}
+}
+
+// startLine is the menu line of every row that starts a session in team, in words.
+func startLine(rows []string) (string, bool) {
+	at := slices.IndexFunc(rows, func(l string) bool { return strings.HasPrefix(l, "Start a ccy session in ") })
+	if at < 0 {
+		return "", false
+	}
+	return rows[at], true
+}
+
+// Outside a project the board says Ctrl-N is unavailable, so no menu may offer it as if it ran:
+// the team menu and the person menu (the host agent's report) say why, as the header does.
+func TestOutsideAProjectTheTeamAndPersonMenusSayStartingASessionIsUnavailable(t *testing.T) {
+	why := "is not a project folder (no git repository)"
+	for _, row := range []string{"alpha", "owner"} {
+		t.Run(row, func(t *testing.T) {
+			h := newRig(t)
+			h.Script.Fzf = []string{"|" + row, "|ABORT", "|ABORT"}
+			if code := h.run(); code != term.ExitOK {
+				t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+			}
+			line, ok := startLine(h.menuRows())
+			want := "Start a ccy session in alpha: unavailable, " + h.Root + " " + why + "   (Ctrl-N)"
+			if !ok || line != want {
+				t.Fatalf("start line %q,\nwant %q (menu %q)", line, want, h.menuRows())
+			}
+			if !strings.Contains(h.HeaderOf(0), "Ctrl-N start a session: unavailable") {
+				t.Fatalf("the row's footer still offers Ctrl-N: %q", h.HeaderOf(0))
+			}
+		})
+	}
+}
+
+// Every row's menu agrees with the header, whatever kind the row is.
+func TestOutsideAProjectNoRowsMenuOffersStartingASessionInThisFolder(t *testing.T) {
+	h := newRig(t)
+	r := h.run1(t)
+	for _, row := range r.snap.Rows {
+		if line, ok := startLine(h.labels(r, row)); ok && !strings.Contains(line, ": unavailable, ") {
+			t.Errorf("%s %s offers %q outside a project", row.Kind, row.Member, line)
+		}
+	}
+}
+
+func TestInAContainersCheckoutTheMenuSaysWhyASessionCannotStartThere(t *testing.T) {
+	h := newRig(t)
+	top := h.InLxcCheckout()
+	r := h.run1(t)
+	line, ok := startLine(h.labels(r, h.row(t, r.snap, "owner")))
+	if !ok || !strings.Contains(line, ": unavailable, "+top+" is LXC container "+teamtest.LxcContainer+"'s checkout") {
+		t.Fatalf("start line %q", line)
+	}
+}
+
+func TestInAProjectTheMenusOfferStartingASessionInThisFolder(t *testing.T) {
+	h := newRig(t)
+	h.inProject()
+	r := h.run1(t)
+	for _, row := range r.snap.Rows {
+		if line, ok := startLine(h.labels(r, row)); ok && line != "Start a ccy session in "+row.Team+", in this folder   (Ctrl-N)" {
+			t.Errorf("%s %s: %q", row.Kind, row.Member, line)
+		}
 	}
 }
 
@@ -416,6 +520,7 @@ func TestChoosingMakeCoordinatorChangesTheRoleThroughSudo(t *testing.T) {
 
 func TestEnterOnAnLxcMemberOffersItsRoleFirstAndParkingLast(t *testing.T) {
 	h := newRig(t)
+	h.inProject()
 	r := h.run1(t)
 	labels := h.labels(r, h.row(t, r.snap, "proj.box+role.lxc"))
 	want := []string{

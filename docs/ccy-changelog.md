@@ -17,6 +17,22 @@ Two version numbers move independently — see
 
 ---
 
+## 3.100.17 — container 2.79.9
+
+Follows 3.100.15 (container 2.79.9; 3.100.16 is taken by a concurrent branch). The image does
+not change.
+
+- **Keys typed between two screens are no longer echoed** (Plan 00177 Task 10.2): `ccy-teams`
+  (every subcommand, the `ccy --teams` chooser among them) and `ccy-sessions` hold the
+  terminal's echo off from their first screen to the end of the run (`src-go/internal/ttyecho`),
+  so an arrow pressed while the next screen is being prepared no longer shows as `^[[B` on it; a
+  run that shows no screen (a listing piped to a pager) leaves the terminal alone. A program given the terminal
+  for its own input (a play, `tmux attach`, sudo's prompt, the launcher) runs in the mode found;
+  `execx.Cmd` gains `EchoHeld`, set on every fzf, gum and tput run in `internal/ui`.
+- **ccy-teams menus never offer what the board calls unavailable** (Plan 00177 Task 10.1):
+  outside a project, on a team that is not up, or for a session with nothing to attach, the
+  line says "unavailable" and why.
+
 ## 3.100.15 — container 2.79.9
 
 Follows 3.100.14 (container 2.79.9). The image does not change.

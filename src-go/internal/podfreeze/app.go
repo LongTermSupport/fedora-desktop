@@ -5,7 +5,6 @@ import (
 	_ "embed" // usage.txt is embedded verbatim
 	"os"
 
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/freeze"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/freeze/app"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/freeze/cli"
@@ -42,7 +41,7 @@ type App struct {
 
 // NewApp is the production App on the process's own streams.
 func NewApp() *App {
-	return &App{Env: freeze.NewEnv(os.Stdout, os.Stderr, execx.OS{})}
+	return &App{Env: freeze.NewTerminalEnv(os.Stdout, os.Stderr)}
 }
 
 // Run executes args (without the program name) and returns the exit status. Ctrl-C reaches an
