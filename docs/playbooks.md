@@ -864,13 +864,15 @@ CLI Tools — the one home for small command-line utilities (rule:
   (dnf autoremove/clean, old kernels, journal vacuum, container prune,
   flatpak/cache/trash), **each behind an explicit confirmation**. Installs `ncdu`, `duf`
   and `trash-cli`, plus the `baobab` GUI analyser on desktops only
+- **`mpv FILE`** plays an audio or video file from a terminal (`mpv clip.ogg`). Installed
+  on desktops only, from Fedora's own repositories (no RPM Fusion needed)
 - **`compress` / `uncompress`** in `/usr/local/bin` wrap a pinned static `ouch` binary:
   `compress myfolder` makes `myfolder.tar.xz` (`--zip`, `--7z`), and `uncompress` extracts
   any supported archive into `./NAME/`. The play refuses to run while the `ncompress`
   package is installed, because its legacy `/usr/bin/compress` would shadow the wrappers
 
 Run one tool alone with `--tags imgpaste`, `open-command`, `convert-command`,
-`disk-reclaim` or `compression-helpers`. The play is `scope: general` and in the `server-recommended` bundle.
+`disk-reclaim`, `mpv` or `compression-helpers`. The play is `scope: general` and in the `server-recommended` bundle.
 
 #### play-cloudflare-dns.yml
 
