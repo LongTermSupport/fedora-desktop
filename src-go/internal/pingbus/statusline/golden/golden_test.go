@@ -330,8 +330,6 @@ func signalNamed(name string) (syscall.Signal, error) {
 func startedOrDone(root string, done <-chan struct{}) bool {
 	deadline := time.NewTimer(stepTimeout)
 	defer deadline.Stop()
-	poll := time.NewTicker(pollEvery)
-	defer poll.Stop()
 	for {
 		if _, err := os.Stat(filepath.Join(root, startedName)); err == nil {
 			return true
@@ -341,7 +339,7 @@ func startedOrDone(root string, done <-chan struct{}) bool {
 			return false
 		case <-deadline.C:
 			return false
-		case <-poll.C:
+		case <-time.After(pollEvery):
 		}
 	}
 }

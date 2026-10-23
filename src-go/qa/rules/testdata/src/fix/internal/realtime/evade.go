@@ -3,6 +3,7 @@ package realtime
 import (
 	ctxpkg "context"
 	"errors"
+	"os/exec"
 	"time"
 )
 
@@ -50,6 +51,16 @@ type seam struct {
 
 func valued() seam {
 	return seam{bound: ctxpkg.WithTimeout} // want `context.WithTimeout taken as a value, its bound unseen`
+}
+
+// exec.Cmd's WaitDelay is a real-time wait on a finished command's pipes: from a field it is
+// flagged, assigned or keyed; a constant is not.
+type runner struct{ grace time.Duration }
+
+func (r runner) delays(cmd *exec.Cmd) exec.Cmd {
+	cmd.WaitDelay = r.grace // want `os/exec.Cmd.WaitDelay on real time with a bound set at run time`
+	cmd.WaitDelay = time.Second
+	return exec.Cmd{WaitDelay: r.grace} // want `os/exec.Cmd.WaitDelay on real time with a bound set at run time`
 }
 
 func parenthesised(ctx ctxpkg.Context, d time.Duration) (ctxpkg.Context, ctxpkg.CancelFunc) {

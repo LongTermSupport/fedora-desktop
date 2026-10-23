@@ -31,6 +31,33 @@ func TestNothingCameInTime(t *testing.T) {
 	}
 }
 
+// A ticker or time.Tick as the passing case races as a timer does; in a loop, a timer case that
+// does more than go round is still the passing case.
+func TestNothingCameByTheTick(t *testing.T) {
+	cancelled := make(chan struct{})
+	tick := time.NewTicker(90 * time.Millisecond)
+	defer tick.Stop()
+	select {
+	case <-cancelled:
+		t.Fatal("cancelled")
+	case <-tick.C: // want `a real timer is the passing case of a select`
+	}
+	select {
+	case <-cancelled:
+		t.Fatal("cancelled")
+	case <-time.Tick(time.Second): // want `a real timer is the passing case of a select`
+	}
+	for {
+		select {
+		case <-cancelled:
+			t.Fatal("cancelled")
+		case <-time.After(time.Second): // want `a real timer is the passing case of a select`
+			t.Log("nothing came")
+			return
+		}
+	}
+}
+
 // A real timer that acts on its own stands in for the step: the freeze tools' "Ctrl-C at the
 // prompt" cancelled after 50 ms, hoping the prompt had been reached; called, aliased or as a
 // value.
@@ -67,10 +94,20 @@ func TestSafetyNets(t *testing.T) {
 	defer bound.Stop()
 	tick := time.NewTicker(time.Millisecond)
 	defer tick.Stop()
-	select {
-	case <-tick.C:
-	case <-bound.C:
-		t.Fatalf("not within a second")
+	for range 3 {
+		select {
+		case <-tick.C:
+		case <-bound.C:
+			t.Fatalf("not within a second")
+		}
+	}
+	for i := 0; i < 3; i++ {
+		select {
+		case <-done:
+			return
+		case <-time.After(time.Millisecond):
+			continue
+		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()

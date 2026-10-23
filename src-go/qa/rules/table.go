@@ -22,7 +22,7 @@ import (
 // through the runner of one of them so a fake sees it. src-go has internal/execx; the nested
 // qa module (a separate module, which cannot import src-go's internal packages) has its own
 // seam, qa/internal/proc.
-var execOwners = []string{"internal/execx", "qa/internal/proc"}
+var execOwners = []string{execxPkg, "qa/internal/proc"}
 
 // execOwnerNames is the owners as a message says them.
 var execOwnerNames = strings.Join(execOwners, " or ")
@@ -40,6 +40,7 @@ const (
 	hostPkg      = "internal/teams/host"
 	opsPkg       = "internal/teams/ops"
 	ftpcameraPkg = "internal/ftpcamera"
+	execxPkg     = "internal/execx"
 	wsitokenPkg  = "internal/wsitoken"
 	sttPkg       = "internal/stt"
 	lxcaddPkg    = "internal/teams/lxcadd"
@@ -293,7 +294,8 @@ var realClocks = []allowance{
 // a step: their tests fake the process and report the timeout, leave the production constant,
 // or shorten it only where its passing is the outcome asserted. fn is "func" or "Type.method".
 var processBounds = []allowance{
-	{pkg: "internal/execx", fn: "OS.session", reason: "the grace for a killed run's pipes to drain; the tests that shorten Grace assert only what holds whichever of the drain and the grace ends first"},
+	{pkg: execxPkg, fn: "OS.Run", reason: "Grace as exec.Cmd.WaitDelay, the wait for a finished run's pipes; the one test that shortens it has a child hold the pipe for 30 s, so the wait running out is the outcome asserted"},
+	{pkg: execxPkg, fn: "OS.session", reason: "the grace for a killed run's pipes to drain; the tests that shorten Grace assert only what holds whichever of the drain and the grace ends first"},
 	{pkg: "internal/restore", fn: "acquire", reason: "the wait for a flock another run holds; the tests that shorten it hold the lock throughout, so the wait running out is the outcome asserted"},
 	{pkg: "internal/sessions", fn: "pauseFor", reason: "the pause between redraws, ended early by a real signal; its tests hand it a signal already waiting or none"},
 	{pkg: wsitokenPkg, fn: "App.readUsage", reason: "the limit on the real ccy --token-usage run; the test that shortens it to 1 ns answers after 1 ms, so the limit has always passed"},

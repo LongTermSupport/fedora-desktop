@@ -479,10 +479,11 @@ deadline racing a real shell's first line in `qa/internal/proc`.
 - Outside the `_test.go` files: a call of `context.WithTimeout`, `WithTimeoutCause`,
   `WithDeadline` or `WithDeadlineCause`, or of `time.After`, `AfterFunc`, `NewTimer`,
   `NewTicker`, `Tick`, `Sleep` or a `Timer`'s or `Ticker`'s `Reset`, whose bound is not a
-  compile-time constant (a deadline never is), and any of them taken as a value. Matching is by
+  compile-time constant (a deadline never is), and any of them taken as a value; and
+  `os/exec.Cmd.WaitDelay` assigned or keyed from a value set at run time. Matching is by
   `types.Info` object, so an import alias does not hide one.
-- In the `_test.go` files: a `select` case that receives from `time.After` or a `*time.Timer`'s
-  `C` and does not fail (no `Fatal`, `Fatalf`, `Error`, `Errorf` or `FailNow`, no `panic`, no
+- In the `_test.go` files: a `select` case that receives from `time.After`, `time.Tick`, or a
+  `*time.Timer`'s or `*time.Ticker`'s `C` and does not fail (no `Fatal`, `Fatalf`, `Error`, `Errorf` or `FailNow`, no `panic`, no
   return of anything but `nil`; a function literal in the case does not count), and any
   `time.AfterFunc`, called or taken as a value.
 
@@ -493,9 +494,11 @@ and report the timeout, leave the production constant, or shorten it only where 
 the outcome asserted).
 
 **Narrowings, each with its sentence.** A bound whose length is a constant cannot be shortened
-by a test, so it is not judged. A ticker's channel is a poll gap, not a bound. A real timer in
-a test outside a `select` and not an `AfterFunc` (`time.Sleep` in a poll loop, a real
-`context.WithTimeout` as a safety net) acts on nothing by itself.
+by a test, so it is not judged. In a `select` that is a statement of a loop's body, a timer
+case that is empty or a bare `continue` is the poll's gap: the loop goes round and passes or
+fails on another case. A real timer in a test outside a `select` and not an `AfterFunc`
+(`time.Sleep` in a poll loop, a real `context.WithTimeout` as a safety net) acts on nothing by
+itself.
 
 **How to fix a violation.** Bound the work on the package's clock seam (a `Sleep`, an `After`
 or an `AfterFunc` the test replaces), so the test waits until the work is at the step and only
@@ -511,8 +514,9 @@ child process gets a `processBounds` row saying why no test races it.
   form and both `Reset`s, a function value, a parenthesised call; `good.go`: constant bounds, a
   ticker, an injected clock, clean; `bad_test.go`: an empty `time.After` case, a `Timer.C` case
   that only logs, a fail in a goroutine, a `return nil`, an `AfterFunc` cancel called and as a
-  value, all flagged, and safety nets that fail, return an error or panic, a ticker, a fake
-  channel, clean) and `fix/internal/realclock` (a `realClocks` row and a `processBounds` row
+  value, a passing `Ticker.C` or `time.Tick` case, a loop's timer case that logs, all flagged,
+  and safety nets that fail, return an error or panic, a loop's ticker and `time.After` poll
+  gaps, a fake channel, clean; `evade.go` also `WaitDelay` from a field, assigned and keyed) and `fix/internal/realclock` (a `realClocks` row and a `processBounds` row
   clean, their neighbours flagged).
 - Red, real tree (`69037f993`, through `./scripts/qa-changed.bash`): 41 findings, 26 in
   `src-go` (the same with `-tags ccyteamstest` and `difftest`) and 15 in the nested `qa`
@@ -520,16 +524,23 @@ child process gets a `processBounds` row saying why no test races it.
 - Green: the test-side findings are fixed. `tmuxccy`'s real-sleep test and `qa/changed`'s
   timeout test run in a synctest bubble (the second was red with a check made to take
   real CPU time past the 50 ms, and green in the bubble); the freeze tools cancel once the prompt
-  reads; `board`'s held-call safety net fails in its own case; the status-line golden polls on a
-  ticker; `qa/internal/proc`'s group-kill test passes its deadline once the child's pid is
-  written. The production findings are 14 `realClocks` and 23 `processBounds` rows, each read
-  against its package's tests. Production behaviour is unchanged.
+  reads; `board`'s held-call safety net fails in its own case; `qa/internal/proc`'s group-kill
+  test passes its deadline once the child's pid is written; `execx`'s uncancelled-run test
+  leaves Grace (its `WaitDelay`) at `DefaultGrace`. The status-line golden's poll loop is the
+  poll-gap shape, clean. The production findings are 14 `realClocks` and 24 `processBounds`
+  rows, each read against its package's tests. Production behaviour is unchanged.
+- The rows excuse every production finding, so the production clause guards only code written
+  after it, and a row excuses its whole function. Both are the owner's decision (SPEC 3.3 and
+  section 4), referred with this remediation.
 - Not caught: a test that shortens a bound through a field or an environment variable (the rule
   judges the bound, not who sets it; the tables' reasons record what each row's tests do, and
   a new test that shortens one is not seen); a test's own constant deadline around a real
-  process whose expiry it asserts (`qa/internal/proc`'s was found by the search); a select case
-  that fails indirectly (sets a flag the test reads later) is flagged though hazard-free, fixed
-  by failing in the case; `time.Sleep` followed by an assertion that nothing happened.
+  process whose expiry it asserts (`qa/internal/proc`'s was found by the search); a timer case
+  that returns a non-nil value meaning success (any non-nil return counts as failing); a
+  `select` that passes on a real `ctx.Done()` of a deadline the test set; `time.Sleep` followed
+  by an assertion that nothing happened.
+- Flagged though hazard-free: a select case that fails indirectly (sets a flag the test reads
+  later); fail in the case instead.
 
 **The next wider rule, not built:** every real-time bound in a test, whatever its length. Not
 built because the safety nets (a `select` or `WithTimeout` that fails after seconds, a poll
