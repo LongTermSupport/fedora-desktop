@@ -107,7 +107,8 @@ one of those as today, attended and on restore.
   terminal stdin (Q1). Under this design the screen and the moved team step run after 1090, so
   they need the real terminal. Two in-place changes, no line added: the attended test is the
   variable computed before 1090 (above), and the 1090 `exec` also keeps the terminal on a spare
-  descriptor (`{CCY_TTY_FD}>&2` in the same `exec`). The screen's call and the chooser call at
+  descriptor (`{CCY_TTY_FD}>&2` in the same `exec`, written first: bash applies redirections left
+  to right, so after `> >(tee ...) 2>&1` it would copy the pipe). The screen's call and the chooser call at
   878 send their stderr there (`2>&"${CCY_TTY_FD:-2}"`), so they draw on the terminal and their
   drawing is not in the debug log; the answer on stdout is captured as before. Without
   `--debug` the descriptor is unset and stderr is used as today.
@@ -159,7 +160,7 @@ one of those as today, attended and on restore.
     `load_launch_config` in the block, compares it with the file's and on a difference stops.
     A file that is missing or refused in the inner run (another launch's `load_launch_config`
     deleted it, 546-548, 563, 572) counts as a difference too: under `--settled=launch` or
-    `token` the `else` of the 1243 `if` stops with the same words rather than falling into the
+    `token` a new `elif` after the 1243 `if`, before the headless `elif` at 1336, stops with the same words rather than falling into the
     full questions. The run stops
     (exit 1): `The saved launch settings changed after the Quick Launch screen (another launch here saved its own); run ccy again to see them.` Fail fast, not a silent switch to settings
     nobody saw. `ask` applies nothing saved, so it carries no stamp.
