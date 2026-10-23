@@ -653,8 +653,9 @@ the unit's `teamchat run` exits 1 (CL2), so a running session is not asserted be
 - **HK3. SessionEnd** records the reason only; its round trip under 300 ms (B40's bar).
 - **SL1. The status line** (B 2.9): the inner command as v1's rules (its own process group, 10 s,
   128+signal and nothing on stdout on cancel, never cached); the team segment from one read of
-  `status.json` and one `link.lock` probe, the red forms from `keeper.json`; empty stays empty;
-  exit 0. The link writes `status.json` on change at most once a second and at least once a
+  `status.json` and one `link.lock` probe, the red forms from `keeper.json`; empty stays empty: with no inner line and no
+  segment (no session, no teams) stdout is zero bytes, never a lone newline, which Claude Code
+  would draw as a blank row; exit 0. The link writes `status.json` on change at most once a second and at least once a
   minute while a team is held (T12).
 - **PK1. The kit's files in use**: the kit is KT1's (n3a); n3e proves it against what it names:
   each `hooks.json` command runs HK1's hook end to end from a kit directory, the settings'

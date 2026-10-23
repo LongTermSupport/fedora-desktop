@@ -80,6 +80,10 @@ func run(e cli.Env, d deps) term.ExitCode {
 		}
 		text += seg
 	}
+	// Nothing to draw is no output at all: a lone newline would draw a blank row.
+	if text == "" {
+		return term.ExitOK
+	}
 	if _, err := io.WriteString(e.Stdout, text+"\n"); err != nil {
 		return term.ExitOK
 	}
