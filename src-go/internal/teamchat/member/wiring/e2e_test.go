@@ -1,6 +1,7 @@
 package wiring
 
 import (
+	"fmt"
 	"strings"
 	"syscall"
 	"testing"
@@ -40,9 +41,13 @@ func TestE2EItems(t *testing.T) {
 	if recs := s.records("recv", "--team", teamName); len(recs) != 0 {
 		t.Fatalf("a second recv: %v", recs)
 	}
-	if recs := s.records("inbox", "--team", teamName); len(recs) != 0 {
-		t.Fatalf("inbox after the acks: %v", recs)
-	}
+	// recv exits once its ack is written; the link applies it after, so inbox may still list the
+	// items owed for a moment.
+	var owed []map[string]any
+	eventually(t, func() bool {
+		owed = s.records("inbox", "--team", teamName)
+		return len(owed) == 0
+	}, func() string { return fmt.Sprintf("inbox after the acks: %v", owed) })
 }
 
 // A seat desired.json adds while the session runs receives; one it takes out with a farewell
