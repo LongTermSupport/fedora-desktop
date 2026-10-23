@@ -545,7 +545,9 @@ child process gets a `processBounds` row saying why no test races it.
   `select` that passes on a real `ctx.Done()` of a deadline the test set; a timer channel held in
   a variable before the select (`c := time.After(d)`, then `case <-c:`); `WaitDelay` set from a
   tuple assignment (`err, c.WaitDelay = f()`) or through a dereference (`(*p).WaitDelay`);
-  `time.Sleep` followed by an assertion that nothing happened.
+  a bare `for {}` poll that a count or a clock before its select ends (`n++; if n > 3 { break }`),
+  which makes it a counted loop again; `time.Sleep` followed by an assertion that nothing
+  happened.
 - Flagged though hazard-free: a select case that fails indirectly (sets a flag the test reads
   later); fail in the case instead.
 
