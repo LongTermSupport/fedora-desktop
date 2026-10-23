@@ -21,8 +21,6 @@
 #   spike <spec>             (f) the H34 settings-reload spike's result is recorded in the spec
 set -euo pipefail
 
-readonly MOUNT=/run/ccy/membership
-readonly HOME_IN=/tmp/pingbus-home
 #: The deployed bash launcher, read as text: claude-yolo while it is a script (before CCY
 #: 3.99.14.0, or rolled back), else claude-yolo.bash beside the Go front that claude-yolo became.
 LAUNCHER=/var/local/claude-yolo/claude-yolo
@@ -48,6 +46,29 @@ fail() {
     exit 1
 }
 ok() { printf '[OK] %s\n' "$*"; }
+
+readonly M7_CHECK=(python3 -I "${repoRoot}/CLAUDE/Plan/00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/m7_check.py")
+# names <want> <command> [<argument>...] — Plan 00201's m7_check <command>, read from this
+# checkout's product sources: exactly <want> non-empty lines, into NAMES.
+names() {
+    local text
+    text="$("${M7_CHECK[@]}" "${@:2}")" || fail "m7_check ${*:2} could not read the product (above)"
+    mapfile -t NAMES <<<"${text}"
+    if [[ "${#NAMES[@]}" -ne "$1" ]] || printf '%s\n' "${NAMES[@]}" | grep -qx ''; then
+        fail "m7_check $2 printed ${text}, want $1 non-empty lines"
+    fi
+}
+# The names the product owns, never copied: seat.py's session home and its settings file,
+# membership.py's mount and desired file, and seat.py's active flag and inner status line.
+names 4 session-paths
+readonly HOME_IN="${NAMES[0]}" SETTINGS_IN="${NAMES[1]}" MOUNT="${NAMES[2]}" DESIRED="${NAMES[3]}"
+names 3 session-names
+readonly ACTIVE="${NAMES[0]}" INNER="${NAMES[1]}"
+# membership.py's variable that carries a session's membership, and its value for none.
+names 1 product-value helpers/pingbus/membership.py MEMBERSHIP_VAR
+readonly MEMBERSHIP_VAR="${NAMES[0]}"
+names 1 product-value helpers/pingbus/membership.py MEMBERSHIP_OFF
+readonly MEMBERSHIP_OFF="${NAMES[0]}"
 
 # env_of <container> <name> — the value the container was started with, or "unset".
 env_of() {
@@ -83,7 +104,7 @@ cmd_selinux() {
         return 0
     fi
     [[ ",${opts}," == *,Z,* ]] || fail "(H1) the membership bind does not ask for the private relabel Z: ${opts:-no options}"
-    for path in "${src}" "${src}/membership.json"; do
+    for path in "${src}" "${src}/${DESIRED}"; do
         context="$(stat -c %C -- "${path}")"
         [[ "$(cut -d: -f3 <<<"${context}")" == container_file_t ]] \
             || fail "(H1) ${path} is labelled ${context}, not container_file_t: the relabel did not happen"
@@ -92,7 +113,7 @@ cmd_selinux() {
     done
     ok "(H1) the membership bind asks for Z (${opts}); its directory and file are ${context}, the container's own level (${process})"
     if [[ "${mode}" == Enforcing ]]; then
-        podman exec "${ctr}" cat "${MOUNT}/membership.json" >/dev/null || fail "(H1) SELinux is Enforcing and the container cannot read its membership"
+        podman exec "${ctr}" cat "${MOUNT}/${DESIRED}" >/dev/null || fail "(H1) SELinux is Enforcing and the container cannot read its membership"
         ok "(H1) SELinux is Enforcing, and the container reads its membership through the relabel"
     else
         ok "(H1) SELinux is ${mode} on this host, so enforcement was not exercised: the labels above are what Enforcing would judge"
@@ -113,27 +134,27 @@ write_fails() {
 
 cmd_plain() {
     local ctr="${1:?plain needs the container}" json settings out guard rc=0
-    json="$(podman exec "${ctr}" cat "${MOUNT}/membership.json")"
+    json="$(podman exec "${ctr}" cat "${MOUNT}/${DESIRED}")"
     [[ "$(jq -r '.v, (.seats | length)' <<<"${json}" | paste -sd' ')" == "1 0" ]] \
         || fail "the plain session's membership is not version 1 with no seat: ${json}"
     ok "(b) the membership reads from inside: ${json}"
     write_fails "${ctr}" "(b) touch ${MOUNT}/x" touch "${MOUNT}/x"
-    write_fails "${ctr}" "(H3) a write over membership.json" sh -c "printf x > ${MOUNT}/membership.json"
+    write_fails "${ctr}" "(H3) a write over ${DESIRED}" sh -c "printf x > ${MOUNT}/${DESIRED}"
     write_fails "${ctr}" "(H3) mount -o remount,rw" mount -o remount,rw "${MOUNT}"
-    [[ "$(podman exec "${ctr}" cat "${MOUNT}/membership.json")" == "${json}" ]] || fail "the membership changed"
-    if podman exec "${ctr}" test -e "${HOME_IN}/active"; then fail "the plain session has the active flag"; fi
-    settings="$(podman exec "${ctr}" cat "${HOME_IN}/settings.json")"
+    [[ "$(podman exec "${ctr}" cat "${MOUNT}/${DESIRED}")" == "${json}" ]] || fail "the membership changed"
+    if podman exec "${ctr}" test -e "${HOME_IN}/${ACTIVE}"; then fail "the plain session has the active flag"; fi
+    settings="$(podman exec "${ctr}" cat "${SETTINGS_IN}")"
     # The guard is this checkout's seat.py STATUS_LINE_GUARD, read from it rather than copied.
     guard="$(python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); from helpers.pingbus import seat; print(seat.STATUS_LINE_GUARD)' "${repoRoot}")" \
         || fail "STATUS_LINE_GUARD cannot be read from ${repoRoot}/helpers/pingbus/seat.py (above)"
     [[ -n "${guard}" ]] || fail "${repoRoot}/helpers/pingbus/seat.py has an empty STATUS_LINE_GUARD"
     jq -e --arg guard "${guard}" '.statusLine.command == $guard' <<<"${settings}" >/dev/null \
         || fail "the session's status line is not the shell guard this checkout's seat.py writes (H34), ${guard}: ${settings}"
-    ok "(b) no active flag; the status line is the guard, so it runs the session's own: $(podman exec "${ctr}" cat "${HOME_IN}/statusline-inner")"
+    ok "(b) no active flag; the status line is the guard, so it runs the session's own: $(podman exec "${ctr}" cat "${HOME_IN}/${INNER}")"
     # Decision 1 (H34): Claude Code binds its inbox socket in every session, so the socket
     # proves nothing; what claude was started with decides whether a message on it is a turn.
     # m2_inbound.py reads that from /proc in the container (the checkout is /workspace there).
-    out="$(podman exec "${ctr}" python3 -I "/workspace/${PROBE_REL}" inbound /proc /etc/claude-code "${HOME_IN}/settings.json")" \
+    out="$(podman exec "${ctr}" python3 -I "/workspace/${PROBE_REL}" inbound /proc /etc/claude-code "${SETTINGS_IN}")" \
         || fail "(b) the plain session can be written a turn through its inbox socket (the reason is above)"
     ok "(b) inbound refused at launch: ${out//$'\n'/; }"
     out="$(podman exec "${ctr}" sh -c 'd="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/cc-socks"; [ ! -d "$d" ] || find "$d" -name "*.sock"')"
@@ -155,7 +176,7 @@ cmd_plain() {
 
 cmd_nobus() {
     local ctr="${1:?nobus needs the container}" mounts procs
-    [[ "$(env_of "${ctr}" PINGBUS_MEMBERSHIP)" == off ]] || fail "(e) PINGBUS_MEMBERSHIP is not off"
+    [[ "$(env_of "${ctr}" "${MEMBERSHIP_VAR}")" == "${MEMBERSHIP_OFF}" ]] || fail "(e) ${MEMBERSHIP_VAR} is not ${MEMBERSHIP_OFF}"
     mounts="$(podman inspect --format '{{range .Mounts}}{{println .Destination}}{{end}}' "${ctr}")"
     if grep -qxF "${MOUNT}" <<<"${mounts}"; then fail "(e) the --no-bus session has the membership mount"; fi
     if podman exec "${ctr}" test -e /usr/local/bin/pingbus; then fail "(e) the --no-bus session has pingbus on PATH"; fi
@@ -165,7 +186,7 @@ cmd_nobus() {
     fi
     podman exec "${ctr}" python3 -I "/workspace/${PROCS_REL}" none /proc >/dev/null \
         || fail "(e) the --no-bus session runs a bus process (above)"
-    ok "(e) --no-bus: PINGBUS_MEMBERSHIP=off, no mount, no pingbus, no plugin, no settings, no keeper"
+    ok "(e) --no-bus: ${MEMBERSHIP_VAR}=${MEMBERSHIP_OFF}, no mount, no pingbus, no plugin, no settings, no keeper"
 }
 
 # cpu_of <container> — the container's CPU percentage, averaged over six samples ten seconds apart.
@@ -195,9 +216,9 @@ cmd_image() {
     required="$(awk -F'"' '/^REQUIRED_CONTAINER_VERSION=/ { print $2; exit }' "${LAUNCHER}")"
     [[ -n "${required}" ]] || fail "(d) ${LAUNCHER} names no REQUIRED_CONTAINER_VERSION"
     [[ "${label}" == "${required}" ]] || fail "(d) the image ${image} is ${label}, the launcher requires ${required}"
-    podman exec "${ctr}" grep -q 'PINGBUS_MEMBERSHIP-' /usr/local/bin/entrypoint.sh \
-        || fail "(d) the image's entrypoint does not read PINGBUS_MEMBERSHIP"
-    ok "(d) the image is ${label}, which the launcher requires: an older image is rebuilt before any launch, and an older launcher (no PINGBUS_MEMBERSHIP) is refused by this entrypoint"
+    podman exec "${ctr}" grep -qF -- "\${${MEMBERSHIP_VAR}-" /usr/local/bin/entrypoint.sh \
+        || fail "(d) the image's entrypoint does not read ${MEMBERSHIP_VAR}"
+    ok "(d) the image is ${label}, which the launcher requires: an older image is rebuilt before any launch, and an older launcher (no ${MEMBERSHIP_VAR}) is refused by this entrypoint"
 }
 
 cmd_spike() {

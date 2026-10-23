@@ -48,10 +48,7 @@ readonly M6_INSTALLER="${PLAN_REPO_ROOT}/files/usr/local/sbin/agent-bus-install"
 readonly M6_AGENT_BUS="/usr/local/bin/agent-bus"
 readonly M6_CCY_LIB="/var/local/claude-yolo/lib"
 readonly M6_CC_LAUNCHER="/var/local/claude-code/cc"
-readonly M6_SEATS="${PLAN_REPO_ROOT}/.claude/ccy/pingbus/seats"
-readonly M6_REPORTS="${PLAN_REPO_ROOT}/.claude/ccy/pingbus/sessions"
 readonly M6_RECORDS="${XDG_STATE_HOME:-${HOME}/.local/state}/ccy/sessions"
-readonly M6_ACCEPTED="${HOME}/.config/pingbus/element-accepted"
 #: Bounds, in seconds.
 readonly M6_UP_S=60
 M6_TEAMS_PRESENT=0
@@ -61,7 +58,7 @@ m6_ev() { printf '%s/%s' "${M6_EV}" "$1"; }
 
 m6_teams() { (cd -- "${PLAN_REPO_ROOT}" && CCY_TEAMS_HOST_VARS="${M6_HOST_VARS}" ccy-teams "$@"); }
 
-m6_membership() { printf '%s/pingbus/membership/%s' "${XDG_RUNTIME_DIR:?}" "$1"; }
+m6_membership() { printf '%s/%s' "${M3_CC_DIRS:?}" "$1"; }
 
 # m6_run <label> <exit> <session args...> — ccy-teams session <args>, with no terminal; its
 # stderr saved as <label>.err and shown; fails unless it exited <exit>.
@@ -78,7 +75,7 @@ m6_run() {
 
 # m6_said <label> <pattern> [no] — the run's stderr has (or, with "no", has not) a matching line.
 m6_said() {
-    if grep -qE -- "$2" "$(m6_ev "$1.err")"; then
+    if grep -qP -- "$2" "$(m6_ev "$1.err")"; then
         [[ "${3:-}" != no ]] && return 0
         printf '[FAIL] %s said what it must not: %s\n' "$1" "$2" >&2
         return 1
@@ -91,7 +88,7 @@ m6_said() {
 # m6_desired <session> — the seats of its desired membership, seat@team comma-separated.
 m6_desired() {
     python3 -I -c 'import json, sys; d = json.load(open(sys.argv[1])); print(",".join(s["seat"] + "@" + s["team"] for s in d["seats"]))' \
-        "$(m6_membership "$1")/membership.json"
+        "$(m6_membership "$1")/${M3_DESIRED:?}"
 }
 
 m6_desired_is() {
@@ -194,15 +191,15 @@ DRIVER
 m6_prepare() {
     local inventory address url org ports team i=0
     mkdir -p -- "${M6_EV}" || return 1
-    if [[ ! -f "${M6_ACCEPTED}" ]]; then
+    if [[ ! -f "${M3_ACCEPTED:?}" ]]; then
         printf '[FAIL] no Element consent in %s: pingbus runs no cc seat without it. Run cc --teams once from a terminal and accept, then run this again.\n' \
-            "${M6_ACCEPTED}" >&2
+            "${M3_ACCEPTED:?}" >&2
         return 1
     fi
     for team in "${M6_TEAM_A}" "${M6_TEAM_B}"; do
-        if m4_team_built "${team}" || [[ -e "${M6_SEATS}/${team}" ]]; then
+        if m4_team_built "${team}" || [[ -e "${M3_SEATS}/${team}" ]]; then
             printf '[FAIL] %s exists already (an interrupted run?): sudo %s remove --team %s --purge; rm -rf %s\n' \
-                "${team}" "${M6_INSTALLER}" "${team}" "${M6_SEATS}/${team}" >&2
+                "${team}" "${M6_INSTALLER}" "${team}" "${M3_SEATS}/${team}" >&2
             return 1
         fi
     done
@@ -245,7 +242,7 @@ m6_up() {
         printf '[FAIL] the cc session %s ended (exit %s): %s\n' "$1" "$(cat -- "$(m6_ev "$1.status")")" "$(cat -- "$(m6_ev "$1.err")")" >&2
         return 1
     fi
-    [[ -e "${M6_REPORTS}/$1/applied.json" && -e "$(m6_ev "$1.claude.pid")" ]] || return 3
+    [[ -e "${M3_REPORTS}/$1/${M3_APPLIED:?}" && -e "$(m6_ev "$1.claude.pid")" ]] || return 3
 }
 
 # m6_launch <session> <seats> [detach] — a cc session in ccy's tmux on the seats ("" for --bus),
@@ -278,8 +275,8 @@ m6_start() {
 m6_check_move() {
     local seat
     m6_run move 0 move "${M6_A}" "${M6_TEAM_A}" "${M6_TEAM_B}" --yes || return 1
-    m6_said move "^✓ session ${M6_A}: running, can be hot-controlled$" || return 1
-    m6_said move "^✓ route: this host reaches ${M6_TEAM_B}'s homeserver$" || return 1
+    m6_said move "^\\Q${M3_MARK_DONE:?}\\E session ${M6_A}: running, can be hot-controlled$" || return 1
+    m6_said move "^\\Q${M3_MARK_DONE:?}\\E route: this host reaches ${M6_TEAM_B}'s homeserver$" || return 1
     m6_said move "^Moved: ${M6_A} is in ${M6_TEAM_B}, and no longer in ${M6_TEAM_A}\\.$" || return 1
     seat="$(m6_desired "${M6_A}")" || return 1
     [[ "${seat}" == *"@${M6_TEAM_B}" && "${seat}" != *,* ]] || { printf '[FAIL] %s desires %s, not one seat of %s\n' "${M6_A}" "${seat}" "${M6_TEAM_B}" >&2; return 1; }
@@ -309,7 +306,7 @@ m6_inbound() {
     python3 -I -c 'import json, sys
 settings, report, want = json.load(open(sys.argv[1])), json.load(open(sys.argv[2])), sys.argv[3]
 sys.exit(0 if settings.get("crossSessionInbound") == want and report.get("inbound") is (want == "accept") else 1)' \
-        "$(m6_ev "$1.settings.json")" "${M6_REPORTS}/$1/applied.json" "${want}" ||
+        "$(m6_ev "$1.settings.json")" "${M3_REPORTS}/$1/${M3_APPLIED:?}" "${want}" ||
         { printf '[FAIL] %s was not launched with crossSessionInbound %s, or its keeper says otherwise\n' "$1" "${want}" >&2; return 1; }
 }
 
@@ -321,7 +318,7 @@ m6_restart() {
     fi
     m6_drop_home "$1" || return 1
     m6_stop "$(m6_ev "$1.claude.pid")" || return 1
-    rm -f -- "$(m6_ev "$1.status")" "$(m6_ev "$1.claude.pid")" "${M6_REPORTS:?}/$1/applied.json" || return 1
+    rm -f -- "$(m6_ev "$1.status")" "$(m6_ev "$1.claude.pid")" "${M3_REPORTS:?}/$1/${M3_APPLIED:?}" || return 1
     m4_poll 20 "seat $2 free once $1 ended" m6_seat_is "${2#*@}" "${2%@*}" free || return 1
     m6_launch "$1" "$2"
 }
@@ -338,10 +335,10 @@ m6_check_bus() {
     m6_desired_is "${M6_C}" "" || return 1
     m6_inbound "${M6_C}" false || return 1
     m6_run bus-add 1 add "${M6_C}" "${M6_TEAM_A}" --yes || return 1
-    m6_said bus-add "^✗ session: ${M6_C} is in ${M6_TEAM_A} as seat [0-9]+, but it started on no team" || return 1
+    m6_said bus-add "^\\Q${M3_MARK_FAILED:?}\\E session: ${M6_C} is in ${M6_TEAM_A} as seat [0-9]+, but it started on no team" || return 1
     m6_said bus-add "and cc has nothing that can restart it" || return 1
     m6_said bus-add 'Nothing restarted' no || return 1
-    [[ ! -e "$(m6_membership "${M6_C}")/relaunch.json" ]] || { printf '[FAIL] a relaunch was asked of the cc session %s\n' "${M6_C}" >&2; return 1; }
+    [[ ! -e "$(m6_membership "${M6_C}")/${M3_RELAUNCH:?}" ]] || { printf '[FAIL] a relaunch was asked of the cc session %s\n' "${M6_C}" >&2; return 1; }
     seat="$(m6_desired "${M6_C}")" || return 1
     [[ "${seat}" == *"@${M6_TEAM_A}" && "${seat}" != *,* ]] || { printf '[FAIL] %s desires %s, not one seat of %s\n' "${M6_C}" "${seat}" "${M6_TEAM_A}" >&2; return 1; }
     grep -qx -- "arg=${seat}" "${M6_RECORDS}/${M6_C}" || { printf '[FAIL] the record of %s does not name %s\n' "${M6_C}" "${seat}" >&2; return 1; }
@@ -360,7 +357,7 @@ m6_check_bus() {
     m6_run bus-repair 78 repair "${M6_C}" --yes || return 1
     m6_said bus-repair "is a cc session: its seat keeper ends with its claude" || return 1
     m6_run bus-remove 0 remove "${M6_C}" "${M6_TEAM_A}" --yes || return 1
-    m6_said bus-remove '^✓ record: no --teams \(cc keeps --bus\)$' || return 1
+    m6_said bus-remove "^\\Q${M3_MARK_DONE:?}\\E record: no --teams \\(cc keeps --bus\\)$" || return 1
     grep -qx -- 'arg=--bus' "${M6_RECORDS}/${M6_C}" || { printf '[FAIL] the record of %s left the bus\n' "${M6_C}" >&2; return 1; }
     if grep -q -- '^arg=--teams' "${M6_RECORDS}/${M6_C}"; then
         printf '[FAIL] the record of %s still names a team\n' "${M6_C}" >&2
@@ -384,7 +381,7 @@ m6_check_reused() {
         return 1
     fi
     m6_run reused-add 78 add "${M6_D}" "${M6_TEAM_B}" --yes || return 1
-    m6_said reused-add "^✗ session ${M6_D}: it was started without --teams or --bus" || return 1
+    m6_said reused-add "^\\Q${M3_MARK_FAILED:?}\\E session ${M6_D}: it was started without --teams or --bus" || return 1
     m6_run reused-claim 0 add "${M6_B}" "${M6_TEAM_A}/1" --yes || return 1
     m6_said reused-claim "named by session ${M6_D}" no
 }
@@ -426,7 +423,7 @@ m6_cleanup() {
         m6_stop "$(m6_ev "${name}.claude.pid")" || status=1
         m6_stop "$(m6_ev "${name}.detached.pid")" || status=1
         rm -f -- "${M6_RECORDS:?}/${name}" || status=1
-        rm -rf -- "$(m6_membership "${name}")" "${M6_REPORTS:?}/${name}" || status=1
+        rm -rf -- "$(m6_membership "${name}")" "${M3_REPORTS:?}/${name}" || status=1
     done
     M6_NAMES=()
     if [[ "${M6_TEAMS_PRESENT}" -eq 1 ]]; then
@@ -438,7 +435,7 @@ m6_cleanup() {
         done
         M6_TEAMS_PRESENT=0
     fi
-    rm -rf -- "${M6_SEATS:?}/${M6_TEAM_A}" "${M6_SEATS:?}/${M6_TEAM_B}" || status=1
+    rm -rf -- "${M3_SEATS:?}/${M6_TEAM_A}" "${M3_SEATS:?}/${M6_TEAM_B}" || status=1
     [[ "${status}" -eq 0 ]] || printf '[FAIL] the M6 cleanup could not remove everything (see above)\n' >&2
     return "${status}"
 }

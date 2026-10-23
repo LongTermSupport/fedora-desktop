@@ -56,8 +56,6 @@ from collections.abc import Callable, Iterator
 from typing import Any
 
 PROBE_SERVER_NAME = "probe.agent-bus.internal"
-#: The Tuwunel pin agent-bus-install installs, in this checkout (declare.py's PIN_FILE).
-TUWUNEL_PIN = pathlib.PurePosixPath("files/usr/local/share/agent-bus/tuwunel.pin")
 RELEASE_API = "https://api.github.com/repos/matrix-construct/tuwunel/releases/tags/{version}"
 UNKNOWN_KEY = "agent_bus_probe_unknown_key"
 # Response fields that carry a credential; every value found must be a registered secret.
@@ -183,12 +181,17 @@ def _checkout_root() -> pathlib.Path:
     raise ProbeError(f"no ansible.cfg above {here}: not inside a fedora-desktop checkout")
 
 
-def _protocol() -> Any:
-    """This checkout's helpers/pingbus/protocol.py, imported when a leg first needs it."""
+def _product(module: str) -> Any:
+    """A module of this checkout's helpers/, imported when a leg first needs it."""
     root = str(_checkout_root())
     if root not in sys.path:
         sys.path.insert(0, root)
-    return importlib.import_module("helpers.pingbus.protocol")
+    return importlib.import_module(module)
+
+
+def _protocol() -> Any:
+    """This checkout's helpers/pingbus/protocol.py."""
+    return _product("helpers.pingbus.protocol")
 
 
 def prefix() -> str:
@@ -197,14 +200,15 @@ def prefix() -> str:
 
 
 def pinned_tuwunel_version(text: str | None = None) -> str:
-    """The `tuwunel_version:` of the pin (`text`, default this checkout's pin file), read as
-    declare.py reads it."""
+    """The `tuwunel_version:` of the pin (`text`, default this checkout's pin file), read by
+    helpers/agent_bus/declare.py pinned_tuwunel_version, the reader the play's digest uses."""
+    declare = _product("helpers.agent_bus.declare")
     if text is None:
-        text = (_checkout_root() / TUWUNEL_PIN).read_text(encoding="utf-8")
-    versions = [line.partition(":")[2].strip() for line in text.splitlines() if line.startswith("tuwunel_version:")]
-    if len(versions) != 1 or not versions[0]:
-        raise ProbeError(f"{TUWUNEL_PIN} names no single tuwunel_version: {versions!r}")
-    return versions[0]
+        text = (_checkout_root() / declare.PIN_FILE).read_text(encoding="utf-8")
+    try:
+        return declare.pinned_tuwunel_version(text)
+    except declare.DeclareError as exc:
+        raise ProbeError(str(exc)) from None
 
 
 def team_power_levels(humans: list[str]) -> dict[str, Any]:

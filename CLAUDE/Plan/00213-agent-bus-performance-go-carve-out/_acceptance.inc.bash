@@ -215,6 +215,11 @@ measure() {
 # c5_cpu — the success metric's per-render half (the plan's Goals): the CPU one render costs,
 # before (the installed Python zipapp) and after (the installed Go binary).
 c5_cpu() {
+    local membership_var
+    # The variable that carries a ccy session's membership (membership.py MEMBERSHIP_VAR), read
+    # by Plan 00201's m7_check, never copied: a renamed one would be left set otherwise.
+    membership_var="$(python3 -I "${PLAN_REPO_ROOT}/CLAUDE/Plan/00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/m7_check.py" \
+        product-value helpers/pingbus/membership.py MEMBERSHIP_VAR)" || return 1
     mkdir -p "${PLAN_RUN_DIR}/world/project" "${PLAN_RUN_DIR}/world/home" "${PLAN_RUN_DIR}/world/sessions" || return 1
     printf '{"session_id": "sess-1"}' >"${PLAN_RUN_DIR}/world/payload.json" || return 1
     say_report ""
@@ -225,7 +230,7 @@ c5_cpu() {
     (
         export HOME="${PLAN_RUN_DIR}/world/home" PATH=/usr/bin:/bin LANG=C.UTF-8 \
             PINGBUS_SESSIONS_DIR="${PLAN_RUN_DIR}/world/sessions"
-        unset CLAUDE_CONFIG_DIR CLAUDE_PROJECT_DIR PINGBUS_TEAMS PINGBUS_MEMBERSHIP PINGBUS_HOME COLUMNS
+        unset CLAUDE_CONFIG_DIR CLAUDE_PROJECT_DIR PINGBUS_TEAMS "${membership_var}" PINGBUS_HOME COLUMNS
         measure "no team" || exit 1
         export PINGBUS_TEAMS=alpha
         measure "a team, no session record" || exit 1

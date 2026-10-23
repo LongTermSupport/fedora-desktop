@@ -479,16 +479,21 @@ CURRENT, OUTDATED, UNBUILT, REMOVED, DECIDE, UNREADABLE = (
     "current", "outdated", "unbuilt", "removed", "decide", "unreadable")
 
 
+def pinned_tuwunel_version(pin: str) -> str:
+    """The one `tuwunel_version:` the text of PIN_FILE names."""
+    versions = [line.partition(":")[2].strip() for line in pin.splitlines() if line.startswith("tuwunel_version:")]
+    if len(versions) != 1 or not versions[0]:
+        raise DeclareError(f"{PIN_FILE} names no single tuwunel_version")
+    return versions[0]
+
+
 def declared_software(source: pathlib.Path) -> str:
     """The software digest the play would stamp now: the admin zipapp built from this
     checkout (the same reproducible build the installer runs), the pinned Tuwunel and this
     checkout's installer."""
-    versions = [line.partition(":")[2].strip() for line in (source / PIN_FILE).read_text().splitlines()
-                if line.startswith("tuwunel_version:")]
-    if len(versions) != 1:
-        raise DeclareError(f"{PIN_FILE} names no single tuwunel_version")
+    version = pinned_tuwunel_version((source / PIN_FILE).read_text())
     installer = hashlib.sha256((source / INSTALLER_FILE).read_bytes()).hexdigest()
-    return teamfile.software_digest(bundle.build("agent-bus", source), versions[0], installer)
+    return teamfile.software_digest(bundle.build("agent-bus", source), version, installer)
 
 
 def declared_config(team: Declared, bridge_cidr: str | None = None) -> str:

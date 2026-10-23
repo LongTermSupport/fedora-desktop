@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.100.13 — container 2.79.8
+
+Follows 3.100.12 (container 2.79.7). The image changes, so the next launch rebuilds it once.
+
+- **The Tuwunel pin is read by one function** (Plan 00201 Task 2.22): `declare.py`'s
+  `pinned_tuwunel_version` is what `ccy-teams` and the agent-bus play's digest read the pin
+  through, and Plan 00161's probe now calls it rather than parsing the pin itself. A pin naming
+  an empty version is now refused, as one naming none or two already was. Nothing a user sees
+  changes.
+
 ## 3.100.12 — container 2.79.7
 
 Follows 3.100.11 (container 2.79.6). 3.100.9 and container 2.79.4 were this change's earlier

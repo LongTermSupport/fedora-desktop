@@ -32,70 +32,49 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-# Plan 00211 deploy 2 (Task 2.6), the reports and questions rooms, LAST. It needs every team's
-# agent sessions restarted since pingbus 0.2.0 was installed, ccy and LXC alike, which the
-# host reboot did. A team member that is offline (its container stopped, or its session not
-# running) is named as offline and never blocks the run. This runs
-# deploy.bash --stage 2: it refuses unless the spike report says every fact holds, then runs
-# acceptance.bash --stage 1 again as the pre-flight (the host's and every online declared LXC
-# member's pingbus is 0.2.0; an offline member is named, not judged). Then the
-# whole play-agent-bus.yml keeps each team's reports and questions rooms (created when
-# play-agent-bus.yml passed at 67033c224), the index and the invites; the whole play-claude-yolo.yml finds the ccy image already
-# at container 2.79.7. Then acceptance.bash --stage 2 waits up to 180 s for every online
-# coordinator to join its questions room and every running ccy seat its reports room, naming
-# any that has not (an offline coordinator is named, not waited for), and checks the rooms
-# (agent-bus check-rooms prints a coordinator with no live status as OFFLINE and passes; one
-# whose session is listening but has not joined is a problem). It
-# finds the first team's coordinator in its running ccy session or LXC member; with no team
-# coordinator it is REJECTED, named, before it changes anything. It adds and removes one
-# throwaway worker that must be refused the questions room and whose test report must reach no
-# online inbox. The last run (at b0eb800fa) got further: the worker was taken as a seat, then
-# its report was refused, "the team room is not trusted: not joined", because add-member only
-# invites and the checker never synced as the worker. A3 now has the worker join by one
-# pingbus recv, the sync a real seat's keeper runs, before it reports (Plan 00211 Task 2.11).
-# A seat runs beside Element only once you have accepted it at cc --teams' confirm: if A3 says
-# that is what refused it, run cc --teams once from a terminal, accept, and run this again; any
-# other A3 failure prints pingbus's own error instead. Nothing after A3 has run yet. It also posts a second test report from inside an online LXC member (with none, that
-# check is NOT JUDGED), and has the coordinator ask a test question (NOT JUDGED when the
-# coordinator is offline). Needs sudo once. Afterwards, if the test question was asked, do the
-# Element steps of the plan's ACCEPTANCE-owner.md.
+# play-agent-bus.yml, the whole play (Plan 00201 Task 2.22): the agent-bus admin tool built from
+# this checkout carries declare.py's pinned_tuwunel_version, the one reader of the Tuwunel pin
+# (ccy-teams, the play's software digest and Plan 00161's probe all call it; a pin naming an
+# empty version is now refused, as one naming none or two already was). The admin tool and the
+# pingbus zipapp are built from helpers/agent_bus and helpers/pingbus together, so both change:
+# the play reinstalls them on the host and in the kit, copies pingbus into every running LXC
+# member, and applies each team again; nothing a user sees changes. Needs sudo once.
+playbooks/imports/play-agent-bus.yml
+# play-claude-yolo.yml, the whole play (Plan 00201 Task 2.22): the host's ccy becomes CCY
+# 3.100.13 and the play builds container 2.79.8, whose image carries the same declare.py. It
+# also rebuilds ~/.local/bin/ccy-teams and ccy-sessions from src-go, where the membership
+# directory names and the remove's "homeserver down" message are now named constants that the
+# plan checkers read instead of copying; their behaviour is unchanged. The next ccy launch
+# rebuilds only a project's own image. Check after the run: `ccy --version` says 3.100.13, and a
+# ccy session starts and attaches as before.
+playbooks/imports/play-claude-yolo.yml
+# Plan 00211 deploy 2 (Task 2.6), the reports and questions rooms, again (Plan 00201 Task 2.22).
+# It passed on the host with the A3 join fix; it runs again because its checkers now read the
+# values the product owns (the ccy session pingbus home, the team state directory, the inbox
+# and consumed directory and dropped log names, the Element profile and accepted-seat paths)
+# from this checkout instead of holding copies, and only a host run proves those reads. This runs deploy.bash --stage 2: it refuses unless the spike
+# report says every fact holds, runs acceptance.bash --stage 1 as the pre-flight (an offline
+# member is named, not judged), runs the whole play-agent-bus.yml and play-claude-yolo.yml
+# (both run by the entries above, so they find little to change), then acceptance.bash --stage
+# 2: it waits up to 180 s for every online coordinator to join its questions room and every
+# running ccy seat its reports room, checks the rooms, adds and removes one throwaway worker
+# that joins by one pingbus recv, must be refused the questions room and whose test report
+# reaches no online inbox, posts a test report from an online LXC member (NOT JUDGED with
+# none) and has the coordinator ask a test question (NOT JUDGED when it is offline). If A3
+# says a seat beside Element was refused, run cc --teams once from a terminal, accept, and run
+# this again. Needs sudo once. Afterwards, if the test question was asked, do the Element steps
+# of the plan's ACCEPTANCE-owner.md.
 00211-agent-bus-reports-and-questions-rooms/deploy-stage-2.bash
-# Plan 00201 Task 2.7 (M7): the automated two-team acceptance again, because its M3 check
-# (the session's status line) changed since it last passed, and Plan 00213's cut-over made
-# that status line the Go one. The last run (at b0eb800fa) stopped before any check, at
-# "session multi's container running: not within 600 s": the base image had just been rebuilt,
-# so the headless launch first rebuilt the project image (a 24-step build), and the wait
-# counted the build. The launch's waits now start their 600 s again while any ccy image build
-# runs (a held build lock, judged as `ccy --build-lock` judges it), with no cap on the build
-# itself; a build that fails ends the launch, which still fails at once (Plan 00201 Task
-# 2.23). So a first launch after the ccy play may sit through one project image build before
-# the checks start, saying once a minute whose build it waits for; if one has hung, see it and
-# stop it with `ccy --build-lock` in another terminal. The run
-# before that stopped at M3 because the checker still expected
-# the Python `exec pingbus status-line`; it now expects exactly what this checkout's seat.py
-# writes for a seated session, whose guard runs the kit's pingbus-status-line, and the teams
-# drawn as Plan 00217 draws them (`accept201a: <member> (c), ...`, each team in its own colour),
-# the form read from this checkout's statusline.py. acceptance.bash only: it makes two throwaway teams declared
-# in a run-directory host_vars (your host_vars and teams are never touched), runs one headless
-# ccy session on both and a plain one (each one short turn on haiku), checks descriptions,
-# launch block, per-session record, status line, `say` and SessionEnd, then purges both teams
-# and checks their firewalld rules are gone, however the run ends. Needs sudo once, ccy
-# launched interactively in this checkout once (Quick Launch), and the hooks daemon installed.
+# Plan 00201 Task 2.7 (M7), the automated two-team acceptance, again (Task 2.22). It passed on
+# the host with the image-build wait; it runs again because M7 checks now read the checkout
+# seats directory, the agent-bus install-state, state and applied directories and the session
+# records directory from this checkout product code instead of copying them. acceptance.bash only: it makes two throwaway teams declared in a
+# run-directory host_vars (your host_vars and teams are never touched), runs one headless ccy
+# session on both and a plain one (each one short turn on haiku), checks descriptions, launch
+# block, per-session record, status line, `say` and SessionEnd, then purges both teams and
+# checks their firewalld rules are gone, however the run ends. The first launch after the ccy
+# play may sit through one project image build first, saying once a minute whose build it
+# waits for (`ccy --build-lock` in another terminal shows or stops a hung one). Needs sudo
+# once, ccy launched interactively in this checkout once (Quick Launch), and the hooks daemon
+# installed.
 00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker
-# Plan 00214 acceptance (issue #110), LAST, with no changed-plays entry above it: it needs plays
-# still to run. Runs no play and needs no sudo. It checks that the health report's
-# play-freshness check and run.bash --changed's helper name the same plays (the report said 10
-# where --changed ran 25), then runs one collection as host-health.service does (a git fetch,
-# and the status document and handoff file rewritten) and checks that fedora-desktop-health and
-# the login shell's second reminder of the day print this checkout's run.bash --changed. With
-# no play to run it says NOT JUDGED (exit 2). Run it again: its last run (at b0eb800fa) failed
-# that second leg with "the collection exited 3", a checker defect: 3 is the collection's
-# normal "findings" result, and a stale play is a finding, so the leg could never pass. It now
-# accepts 0 and 3, fails on any other status, and fails on 0 when a play is to run (Plan 00214
-# Task 4.3c). The run before that found the collection crashing on "'_Sink' object has no
-# attribute 'writelines'", fixed since. The collection runs the helper from this checkout, so
-# both fixes are live without a play. It is judged only while a play is stale. The
-# changed-plays run at b0eb800fa ran every stale play, and nothing a play uses has changed
-# since, so NOT JUDGED is the expected result of this run, not a failure: it is judged on the
-# first run after a commit changes a play that has run here.
-00214-update-all-changed-plays

@@ -7,7 +7,8 @@ and judges what comes back. Every judgement rests on what a tool printed or reco
 the model's prose. Standard library only; the host-side commands read the values the product owns
 from this checkout, lazily, never a copy: `bus-ports` (declare.py), `team-file` (protocol.py),
 `session-paths` and `expect-session-settings` (seat.py, membership.py, and the kit's settings.json), `expect-list-row` (the board's
-table.go), `hot-marks` (hot.go), and `status-line-names` and `expect-segment` (statusline.go and
+table.go), `hot-marks` (hot.go), `session-names` (seat.py), `membership-dirs` (ccy-teams'
+membership package), and `status-line-names` and `expect-segment` (statusline.go and
 statusline.py). Commands
 (stdout is the payload, reasons on stderr):
 
@@ -37,7 +38,12 @@ statusline.py). Commands
   expect-choices STDERR (TEAM DESCRIPTION)...   the "several teams are active" refusal, listing each
   session-paths                      seat.py's session home and its settings file, membership.py's mount and desired file, one per line
   hot-marks                          the done and failed step marks of ccy-teams session add/remove (hot.go), one per line
+  session-names                      seat.py's active flag, inner status line and watcher log names in a session home
+  membership-dirs                    ccy-teams' ccy and cc membership directories under $XDG_RUNTIME_DIR, then its
+                                     relaunch request's file name (membership.go, desired.go)
   status-line-names                  the Go status line's teams row head, then its inner-only variable (statusline.go)
+  product-value FILE NAME [FILL...]  any named text of this checkout's helpers/ module or src-go/ file (NAME[key] for a
+                                     table's entry), placeholders filled: key=value for {key}, in order for Go %s/%d
   expect-session-settings SETTINGS   a seated ccy session's own settings.json: inbound accepted, the seated status line this checkout's seat.py writes
   session-status-line PROC           IN THE SESSION'S CONTAINER: the status line its claude draws, the payload on stdin
   expect-segment OUT TEAMS           the status line printed the session's own line, then 👥 TEAMS on rows of its own
@@ -607,6 +613,78 @@ def hot_marks(source: str | None = None) -> list[str]:
     return [go_string_const(source, "markDone", HOT_GO), go_string_const(source, "markFailed", HOT_GO)]
 
 
+def session_names() -> list[str]:
+    """The names seat.py keeps in a session home: the `active` flag, the session's own status
+    line command, and the watcher's log."""
+    seat = _checkout_module("helpers.pingbus.seat")
+    names = [seat.ACTIVE_FLAG, seat.STATUS_LINE_INNER, seat.WATCH_LOG]
+    if not all(isinstance(name, str) and name and "/" not in name and "\n" not in name for name in names):
+        raise Failed(f"seat.py names no usable session home entries: {names!r}")
+    return names
+
+
+#: ccy-teams' membership package, whose directories and relaunch file are read from its source.
+MEMBERSHIP_GO = pathlib.PurePosixPath("src-go/internal/teams/membership/membership.go")
+DESIRED_GO = pathlib.PurePosixPath("src-go/internal/teams/membership/desired.go")
+
+
+def membership_dirs(membership_go: str | None = None, desired_go: str | None = None) -> list[str]:
+    """Where ccy-teams keeps a session's membership, from this checkout's Go sources: a ccy
+    session's directory and a cc session's under $XDG_RUNTIME_DIR (membership.go's ccyRoot
+    and ccRoot), and the relaunch request's file name in it (desired.go's RelaunchFile)."""
+    root = _checkout_root()
+    if membership_go is None:
+        membership_go = (root / MEMBERSHIP_GO).read_text(encoding="utf-8")
+    if desired_go is None:
+        desired_go = (root / DESIRED_GO).read_text(encoding="utf-8")
+    relaunch = re.findall(r'^const RelaunchFile = "([^"\\]+)"$', desired_go, re.MULTILINE)
+    if len(relaunch) != 1:
+        raise Failed(f"want exactly one `const RelaunchFile = \"...\"` in {DESIRED_GO}, found {relaunch!r}")
+    return [go_string_const(membership_go, "ccyRoot", MEMBERSHIP_GO),
+            go_string_const(membership_go, "ccRoot", MEMBERSHIP_GO), relaunch[0]]
+
+
+_PRODUCT_NAME_RE = re.compile(r"(?P<name>[A-Za-z_]\w*)(?:\[(?P<key>[\w-]+)\])?")
+_GO_VERB_RE = re.compile(r"%[-+ #0-9.]*[a-zA-Z]")
+
+
+def product_value(rel: str, name: str, fills: Sequence[str] = (), source: str | None = None) -> str:
+    """A named text of this checkout's product, never a copy: a module-level constant of a
+    helpers/ module (imported; a path is given as text; `NAME[key]` is one entry of a table), or
+    a Go package-level string constant (read from `source`, default the file). `fills` complete
+    its placeholders: `key=value` for a Python `{key}`, in order for a Go `%s` or `%d`."""
+    match = _PRODUCT_NAME_RE.fullmatch(name)
+    if match is None:
+        raise Failed(f"{name!r} is not a constant name")
+    if rel.startswith("helpers/") and rel.endswith(".py"):
+        value = getattr(_checkout_module(rel.removesuffix(".py").replace("/", ".")), match["name"], None)
+        if match["key"] is not None:
+            value = value.get(match["key"]) if isinstance(value, dict) else None
+        if isinstance(value, pathlib.PurePath):
+            value = str(value)
+        if fills and isinstance(value, str):
+            pairs = dict(fill.partition("=")[::2] for fill in fills)
+            if set(pairs) != set(re.findall(r"\{(\w+)\}", value)):
+                raise Failed(f"{rel} {name} {value!r} has not one placeholder for each of {list(fills)!r}")
+            value = value.format(**pairs)
+    elif rel.startswith("src-go/") and rel.endswith(".go") and match["key"] is None:
+        if source is None:
+            source = (_checkout_root() / rel).read_text(encoding="utf-8")
+        found = re.findall(rf'^(?:const\s+|\s+){re.escape(name)}(?:\s+string)?\s*=\s*"([^"\\]*)"\s*(?://.*)?$',
+                           source, re.MULTILINE)
+        value = found[0] if len(found) == 1 else None
+        if value is not None and len(_GO_VERB_RE.findall(value)) != len(fills):
+            raise Failed(f"{rel} {name} {value!r} has not {len(fills)} verb(s) to fill with {list(fills)!r}")
+        if value is not None:
+            parts = iter(fills)
+            value = _GO_VERB_RE.sub(lambda _: next(parts), value)
+    else:
+        raise Failed(f"{rel} is not a helpers/ Python module or a src-go/ Go file, or {name} cannot index it")
+    if not isinstance(value, str) or not value or "\n" in value:
+        raise Failed(f"{rel} names no one-line text {name}: {value!r}")
+    return value
+
+
 def status_line_names(source: str | None = None) -> list[str]:
     """The Go status line's teams row head (segment_label) and the variable that has it draw
     only the bus segment (statusline.go's innerVar)."""
@@ -736,11 +814,14 @@ def expect_plain(labels: object, env: object) -> None:
     if "ccy-seats" in labels:
         problems.append(f"the container carries ccy-seats={labels['ccy-seats']!r}")
     # Plan 00203 M2: the one bus variable a plain launch carries is the marker saying it has no
-    # kit, PINGBUS_MEMBERSHIP=off (a headless launch outside ccy's tmux, no --teams).
+    # kit, membership.py's MEMBERSHIP_VAR set to MEMBERSHIP_OFF (a headless launch outside ccy's
+    # tmux, no --teams).
+    membership = _checkout_module("helpers.pingbus.membership")
+    marker = f"{membership.MEMBERSHIP_VAR}={membership.MEMBERSHIP_OFF}"
     bus = [
         item.split("=", 1)[0]
         for item in (env if isinstance(env, list) else [])
-        if isinstance(item, str) and item.startswith("PINGBUS_") and item != "PINGBUS_MEMBERSHIP=off"
+        if isinstance(item, str) and item.startswith("PINGBUS_") and item != marker
     ]
     if bus:
         problems.append(f"the container's environment sets {bus}")
@@ -784,6 +865,10 @@ def _groups(args: Sequence[str], size: int) -> list[tuple[str, ...]]:
 
 class UsageError(Exception):
     pass
+
+
+def _usage(least: int) -> None:
+    raise UsageError(f"takes at least {least} arguments")
 
 
 def _team_file(a: Sequence[str]) -> None:
@@ -831,7 +916,10 @@ COMMANDS: dict[str, tuple[int, Callable[[Sequence[str]], int | None]]] = {
     "expect-choices": (-1, lambda a: expect_choices(_read(a[0]), _groups(a[1:], 2))),
     "session-paths": (0, lambda a: _lines(session_paths())),
     "hot-marks": (0, lambda a: _lines(hot_marks())),
+    "session-names": (0, lambda a: _lines(session_names())),
+    "membership-dirs": (0, lambda a: _lines(membership_dirs())),
     "status-line-names": (0, lambda a: _lines(status_line_names())),
+    "product-value": (-1, lambda a: _print(product_value(a[0], a[1], a[2:])) if len(a) >= 2 else _usage(2)),
     "expect-session-settings": (1, lambda a: expect_session_settings(_json_file(a[0]))),
     "session-status-line": (
         1,

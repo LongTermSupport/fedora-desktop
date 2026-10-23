@@ -552,6 +552,20 @@ class EntryTest(unittest.TestCase):
                 hv.replace('    org: "example-org"\n', "", 1)).teams if t.team == "alpha"))
 
 
+class PinnedTuwunelTest(unittest.TestCase):
+    """The pin file's one `tuwunel_version:`, the reader declared_software and the plan probes share."""
+
+    def test_the_checkout_pin_names_one_version(self) -> None:
+        pin = (REPO_ROOT / declare.PIN_FILE).read_text(encoding="utf-8")
+        self.assertIn(f"\ntuwunel_version: {declare.pinned_tuwunel_version(pin)}\n", pin)
+
+    def test_the_pin_is_parsed_narrowly(self) -> None:
+        self.assertEqual(declare.pinned_tuwunel_version("# tuwunel_version: v0\ntuwunel_version: v2.0.1\n"), "v2.0.1")
+        for broken in ("", "tuwunel_version:\n", "tuwunel_version: v1\ntuwunel_version: v2\n"):
+            with self.assertRaisesRegex(declare.DeclareError, "names no single tuwunel_version"):
+                declare.pinned_tuwunel_version(broken)
+
+
 class StatusTest(unittest.TestCase):
     """Every state ccy-teams shows (D65): current, outdated, unbuilt, removed, decide."""
 

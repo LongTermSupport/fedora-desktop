@@ -47,7 +47,7 @@ def reply_line(event: str, name: str, re: str | None = None) -> str:
 
 def human_item(event: str, body: str) -> str:
     """What `recv` prints for a human message: the HUMAN line, then its REPLY line."""
-    return (line("HUMAN", "1", TEAM, event, "tester", "1791234567890", json.dumps(body))
+    return (line("HUMAN", "1", TEAM, event, "tester", "1791234567890", json.dumps(body), "-")
             + "\n" + reply_line(event, "tester"))
 
 
@@ -265,12 +265,12 @@ class LinesTest(unittest.TestCase):
 
     def test_a_human_line_with_a_bad_timestamp_or_text_fails(self) -> None:
         for ts, body in (("-1", json.dumps("hi")), ("x", json.dumps("hi")), ("1", "hi")):
-            text = line("HUMAN", "1", TEAM, EV1, "tester", ts, body) + "\n" + reply_line(EV1, "tester") + "\n"
+            text = line("HUMAN", "1", TEAM, EV1, "tester", ts, body, "-") + "\n" + reply_line(EV1, "tester") + "\n"
             with self.subTest(ts=ts, body=body):
                 self.assertTrue(ac.expect_human(text, TEAM, EV1, "tester", "hi"))
 
     def test_a_human_or_peer_line_without_its_reply_fails(self) -> None:
-        human = line("HUMAN", "1", TEAM, EV1, "tester", "1", json.dumps("hi")) + "\n"
+        human = line("HUMAN", "1", TEAM, EV1, "tester", "1", json.dumps("hi"), "-") + "\n"
         self.assertTrue(ac.expect_human(human, TEAM, EV1, "tester", "hi"))
         peer = line("PEER", "1", TEAM, EV1, A, "1", json.dumps("hi"), "-") + "\n"
         self.assertTrue(ac.expect_peer(peer, TEAM, EV1, A, "hi"))
@@ -278,12 +278,12 @@ class LinesTest(unittest.TestCase):
     def test_a_reply_for_another_event_team_or_sender_fails(self) -> None:
         for reply in (reply_line(EV2, "tester"), reply_line(EV1, "other"),
                       line("REPLY", "1", "other", EV1, f"pingbus --team {TEAM} say --to tester --re '{EV1}'")):
-            text = line("HUMAN", "1", TEAM, EV1, "tester", "1", json.dumps("hi")) + "\n" + reply + "\n"
+            text = line("HUMAN", "1", TEAM, EV1, "tester", "1", json.dumps("hi"), "-") + "\n" + reply + "\n"
             with self.subTest(reply=reply):
                 self.assertTrue(ac.expect_human(text, TEAM, EV1, "tester", "hi"))
 
     def test_a_reply_must_thread_under_the_message_it_answers(self) -> None:
-        human = line("HUMAN", "1", TEAM, EV1, "tester", "1", json.dumps("hi")) + "\n"
+        human = line("HUMAN", "1", TEAM, EV1, "tester", "1", json.dumps("hi"), "-") + "\n"
         self.assertEqual(ac.expect_human(human + reply_line(EV1, "tester") + "\n", TEAM, EV1, "tester", "hi"), [])
         for reply in (reply_line(EV1, "tester", re=EV2),
                       line("REPLY", "1", TEAM, EV1, f"pingbus --team {TEAM} say --to tester")):
@@ -318,9 +318,9 @@ class LinesTest(unittest.TestCase):
         other = line("PING", "1", TEAM, EV2, A, "review", REF, "-", "trusted", "-", "-") + "\n"
         self.assertEqual(ac.expect_absent(other, EV1), [])
         self.assertTrue(ac.expect_absent(line("PING", "1", TEAM, EV2, A, "ack", "-", EV1, "-", "-", "-") + "\n", EV1))
-        human = line("HUMAN", "1", TEAM, EV2, "tester", "1", json.dumps("x")) + "\n"
+        human = line("HUMAN", "1", TEAM, EV2, "tester", "1", json.dumps("x"), "-") + "\n"
         self.assertTrue(ac.expect_absent(human, EV1))
-        peer = line("PEER", "1", TEAM, EV2, A, "1", json.dumps("x")) + "\n"
+        peer = line("PEER", "1", TEAM, EV2, A, "1", json.dumps("x"), "-") + "\n"
         self.assertTrue(ac.expect_absent(peer, EV1))
 
 

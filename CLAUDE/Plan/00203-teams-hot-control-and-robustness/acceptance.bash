@@ -109,6 +109,7 @@ check_leg() {
     exit 1
 }
 
+plan_deploy_leg "the names the checks judge by, from this checkout's seat.py, membership.py, ccy-teams and statusline.go" m3_read_names
 acceptance_m2
 acceptance_m1
 acceptance_m3

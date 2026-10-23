@@ -33,14 +33,20 @@ done
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT
 
-# A gate's verdict line, as helpers/qa_environment/verdicts.py parses it: one symbol, the
-# stage name, a colon. Counting DISTINCT names, because a gate may emit many lines —
-# `ansible-syntax` emits one per failing playbook — and a raw line count would read that as
-# broad coverage.
+# A gate's verdict line, parsed by this checkout's helpers/qa_environment/verdicts.py STAGE
+# (one symbol, the stage name, a colon), never a copy of it. Counting DISTINCT names, because
+# a gate may emit many lines — `ansible-syntax` emits one per failing playbook — and a raw
+# line count would read that as broad coverage.
 census() {
-    local capture="$1"
-    grep -oE '^[✓✗⚠] [a-z0-9][a-z0-9-]*: ' "${capture}" 2>/dev/null |
-        sed 's/^. //; s/: $//' | sort -u
+    python3 -I -c '
+import sys
+sys.path.insert(0, sys.argv[1])
+from helpers.qa_environment import verdicts
+with open(sys.argv[2], encoding="utf-8", errors="replace") as capture:
+    names = {match["name"] for line in capture if (match := verdicts.STAGE.match(line.rstrip("\n")))}
+for name in sorted(names):
+    print(name)
+' "${repoRoot}" "$1"
 }
 
 run_suite() {

@@ -43,8 +43,6 @@ readonly M4_EV="${PLAN_RUN_DIR}/m4"
 readonly M4_HOST_VARS="${M4_EV}/host_vars.yml"
 readonly M4_INSTALLER="${PLAN_REPO_ROOT}/files/usr/local/sbin/agent-bus-install"
 readonly M4_AGENT_BUS="/usr/local/bin/agent-bus"
-readonly M4_SEATS="${PLAN_REPO_ROOT}/.claude/ccy/pingbus/seats"
-readonly M4_REPORTS="${PLAN_REPO_ROOT}/.claude/ccy/pingbus/sessions"
 readonly M4_RECORDS="${XDG_STATE_HOME:-${HOME}/.local/state}/ccy/sessions"
 #: Bounds, in seconds.
 readonly M4_TURN_S=240
@@ -74,7 +72,7 @@ m4_poll() {
 m4_team_built() {
     local enabled
     enabled="$(systemctl show -P UnitFileState "agent-bus-hs@$1.service")" || return 1
-    [[ "${enabled}" == enabled ]] || sudo -n test -e "/var/lib/agent-bus/$1"
+    [[ "${enabled}" == enabled ]] || sudo -n test -e "${M3_STATE_ROOT:?}/$1"
 }
 
 # m4_run <label> <exit> <session args...> — ccy-teams session <args>, with no terminal; its
@@ -93,7 +91,7 @@ m4_run() {
 # m4_said <label> <pattern> [no] — the run's stderr has (or, with "no", has not) a line
 # matching the extended pattern.
 m4_said() {
-    if grep -qE -- "$2" "$(m4_ev "$1.err")"; then
+    if grep -qP -- "$2" "$(m4_ev "$1.err")"; then
         [[ "${3:-}" != no ]] && return 0
         printf '[FAIL] %s said what it must not: %s\n' "$1" "$2" >&2
         return 1
@@ -106,7 +104,7 @@ m4_said() {
 # m4_desired <session> — the teams of its desired membership, in order, comma-separated; "gone"
 # when it has none.
 m4_desired() {
-    local file="${XDG_RUNTIME_DIR:?}/ccy/membership/$1/membership.json"
+    local file="${M3_CCY_DIRS:?}/$1/${M3_DESIRED:?}"
     [[ -e "${file}" ]] || { printf 'gone\n'; return 0; }
     python3 -I -c 'import json, sys; d = json.load(open(sys.argv[1])); print(",".join(s["team"] for s in d["seats"]))' "${file}"
 }
@@ -172,9 +170,9 @@ m4_prepare() {
     local inventory address url org ports team i=0
     mkdir -p -- "${M4_EV}" || return 1
     for team in "${M4_TEAM_A}" "${M4_TEAM_B}"; do
-        if m4_team_built "${team}" || [[ -e "${M4_SEATS}/${team}" ]]; then
+        if m4_team_built "${team}" || [[ -e "${M3_SEATS}/${team}" ]]; then
             printf '[FAIL] %s exists already (an interrupted run?): sudo %s remove --team %s --purge; rm -rf %s\n' \
-                "${team}" "${M4_INSTALLER}" "${team}" "${M4_SEATS}/${team}" >&2
+                "${team}" "${M4_INSTALLER}" "${team}" "${M3_SEATS}/${team}" >&2
             return 1
         fi
     done
@@ -235,11 +233,11 @@ m4_check_role() {
     handle="$(m4_seat_field "${M4_TEAM_A}" 1 6)" || return 1
     [[ -n "${handle}" ]] || { printf '[FAIL] no seat 1 in %s\n' "${M4_TEAM_A}" >&2; return 1; }
     m4_run role 0 role "${M4_A}" "${M4_TEAM_A}" coordinator --yes || return 1
-    m4_said role '^✓ role: [^ ]+ set to coordinator$' || return 1
-    m4_said role "^✓ session: told it is ${M4_TEAM_A}'s coordinator" || return 1
+    m4_said role "^\\Q${M3_MARK_DONE:?}\\E role: [^ ]+ set to coordinator$" || return 1
+    m4_said role "^\\Q${M3_MARK_DONE:?}\\E session: told it is ${M4_TEAM_A}'s coordinator" || return 1
     m4_role_is "${M4_TEAM_A}" "${handle}" coordinator || return 1
     m4_run role-again 0 role "${M4_A}" "${M4_TEAM_A}" coordinator --yes || return 1
-    m4_said role-again '^✓ (role|record|membership)' no || return 1
+    m4_said role-again "^\\Q${M3_MARK_DONE:?}\\E (role|record|membership)" no || return 1
 }
 
 m4_check_coordinator_move() {
@@ -248,19 +246,19 @@ m4_check_coordinator_move() {
     m4_run remove-refused 64 remove "${M4_A}" "${M4_TEAM_A}" --yes || return 1
     m4_desired_is "${M4_A}" "${M4_TEAM_A}" || return 1
     m4_run move 0 move "${M4_A}" "${M4_TEAM_A}" "${M4_TEAM_B}" --coordinator=hand-to=2 --yes || return 1
-    m4_said move '^✓ goodbye: ' || return 1
+    m4_said move "^\\Q${M3_MARK_DONE:?}\\E goodbye: " || return 1
     m4_desired_is "${M4_A}" "${M4_TEAM_B}" || return 1
     m4_role_is "${M4_TEAM_A}" "${heir}" coordinator || return 1
     m4_seat_free "${M4_TEAM_A}" 1 || return 1
     m4_run move-again 0 move "${M4_A}" "${M4_TEAM_A}" "${M4_TEAM_B}" --coordinator=hand-to=2 --yes || return 1
-    m4_said move-again '^✓ (role|record|membership)' no || return 1
+    m4_said move-again "^\\Q${M3_MARK_DONE:?}\\E (role|record|membership)" no || return 1
 }
 
 # m4_wait_line <file> <pattern> <pid> — until the background command <pid> has written a line
 # matching pattern into file; it ending first, or 30 s passing, is a failure.
 m4_wait_line() {
     local file="$1" pattern="$2" pid="$3" deadline=$((SECONDS + 30))
-    until grep -qE -- "${pattern}" "${file}"; do
+    until grep -qP -- "${pattern}" "${file}"; do
         if ! kill -0 "${pid}"; then
             printf '[FAIL] the command ended before it wrote %s\n' "${pattern}" >&2
             return 1
@@ -281,7 +279,7 @@ m4_check_two_at_once() {
     m4_kill_keeper "${M4_A}" || return 1
     m4_teams session add "${M4_A}" "${M4_TEAM_A}" --yes </dev/null 2>"$(m4_ev concurrent-1.err)" &
     first=$!
-    if ! m4_wait_line "$(m4_ev concurrent-1.err)" '^✓ membership: generation' "${first}" \
+    if ! m4_wait_line "$(m4_ev concurrent-1.err)" "^\\Q${M3_MARK_DONE:?}\\E membership: generation" "${first}" \
         || ! m4_run concurrent-2 75 add "${M4_A}" "${M4_TEAM_A}" --yes \
         || ! m4_said concurrent-2 'another change to it is in progress: ccy-teams session add'; then
         wait "${first}"
@@ -303,31 +301,33 @@ m4_hs_up() { systemctl is-active --quiet "agent-bus-hs@${M4_TEAM_B}.service" || 
 # over the watcher's real mark; it is not claude's own rendering of its status line.
 m4_status_down() {
     local line
-    line="$(podman exec -i -e PINGBUS_HOME=/tmp/pingbus-home -e PINGBUS_STATUS_LINE_INNER=1 "${M2_CTR[${M4_A}]}" \
+    line="$(podman exec -i -e "PINGBUS_HOME=${M3_PB_HOME:?}" -e "${M3_INNER_VAR:?}=1" "${M2_CTR[${M4_A}]}" \
         pingbus status-line <<<'{}')" || return 1
     printf '%s\n' "${line}" >"$(m4_ev status-line)"
     [[ "${line}" == *"${M4_TEAM_B}(down)"* ]] || return 3
 }
 
 m4_check_homeserver_down() {
-    local seat
+    local seat removed_down
+    # What a remove says with the homeserver down: ccy-teams' remove.go removedHomeserverDown.
+    removed_down="$("${M3_CHECK[@]}" product-value src-go/internal/teams/hot/remove.go removedHomeserverDown)" || return 1
     seat="$(python3 -I -c 'import json, sys; d = json.load(open(sys.argv[1])); print([s["seat"] for s in d["seats"] if s["team"] == sys.argv[2]][0])' \
-        "${XDG_RUNTIME_DIR:?}/ccy/membership/${M4_A}/membership.json" "${M4_TEAM_B}")" || return 1
+        "${M3_CCY_DIRS:?}/${M4_A}/${M3_DESIRED:?}" "${M4_TEAM_B}")" || return 1
     sudo -n systemctl stop "agent-bus-hs@${M4_TEAM_B}.service" || return 1
     m4_poll 60 "${M4_A}'s status line marking ${M4_TEAM_B} down" m4_status_down || return 1
     m4_run down-add 1 add "${M4_B}" "${M4_TEAM_B}" --yes || return 1
     m4_said down-add "homeserver for ${M4_TEAM_B} is down" || return 1
     m4_desired_is "${M4_B}" "${M4_TEAM_A}" || return 1
     m4_run down-role 1 role "${M4_A}" "${M4_TEAM_B}" coordinator --yes || return 1
-    m4_said down-role '^✓ role' no || return 1
+    m4_said down-role "^\\Q${M3_MARK_DONE:?}\\E role" no || return 1
     m4_run down-remove 1 remove "${M4_A}" "${M4_TEAM_B}" --yes || return 1
-    m4_said down-remove 'goodbye and status not sent: homeserver down' || return 1
+    m4_said down-remove "\\Q${removed_down}\\E" || return 1
     m4_desired_is "${M4_A}" "${M4_TEAM_A}" || return 1
     m4_seat_free "${M4_TEAM_B}" "${seat}" || return 1
     sudo -n systemctl start "agent-bus-hs@${M4_TEAM_B}.service" || return 1
     m4_poll "${M4_UP_S}" "the homeserver of ${M4_TEAM_B} back" m4_hs_up || return 1
     m4_run owed-remove 0 remove "${M4_A}" "${M4_TEAM_B}" --yes || return 1
-    m4_said owed-remove '^✓ goodbye: ' || return 1
+    m4_said owed-remove "^\\Q${M3_MARK_DONE:?}\\E goodbye: " || return 1
     m4_said owed-remove 'written \(farewell done\)$' || return 1
 }
 
@@ -343,7 +343,7 @@ m4_check_repair() {
     m4_kill_keeper "${M4_B}" || return 1
     m4_poll 20 "session list saying ${M4_B} is unguarded" m4_list_state "${M4_B}" unguarded || return 1
     m4_run repair 0 repair "${M4_B}" --yes || return 1
-    m4_said repair '^✓ keeper: running again, 1 seat held' || return 1
+    m4_said repair "^\\Q${M3_MARK_DONE:?}\\E keeper: running again, 1 seat held" || return 1
     m4_poll 20 "session list saying ${M4_B} is ok" m4_list_state "${M4_B}" ok || return 1
     m4_run remove-launch-seat 0 remove "${M4_B}" "${M4_TEAM_A}" --coordinator=demote --yes || return 1
     m4_desired_is "${M4_B}" "" || return 1
@@ -355,7 +355,7 @@ m4_check_session_ends() {
     m4_kill_keeper "${M4_A}" || return 1
     m4_teams session add "${M4_A}" "${M4_TEAM_B}" --yes </dev/null 2>"$(m4_ev ended.err)" &
     add=$!
-    if ! m4_wait_line "$(m4_ev ended.err)" '^✓ membership: generation' "${add}" || ! podman kill "${M2_CTR[${M4_A}]}" >/dev/null; then
+    if ! m4_wait_line "$(m4_ev ended.err)" "^\\Q${M3_MARK_DONE:?}\\E membership: generation" "${add}" || ! podman kill "${M2_CTR[${M4_A}]}" >/dev/null; then
         wait "${add}"
         return 1
     fi
@@ -363,7 +363,7 @@ m4_check_session_ends() {
     cat -- "$(m4_ev ended.err)"
     [[ "${status}" -eq 1 ]] || { printf '[FAIL] the add exited %d, not 1\n' "${status}" >&2; return 1; }
     m4_said ended 'session ended during the add' || return 1
-    m4_said ended '^✓ membership: removed' || return 1
+    m4_said ended "^\\Q${M3_MARK_DONE:?}\\E membership: removed" || return 1
     m4_desired_is "${M4_A}" gone || return 1
     if [[ ! -f "${M4_RECORDS}/${M4_A}" ]]; then
         printf '[FAIL] the record of %s is gone: the add did not restore it\n' "${M4_A}" >&2
@@ -389,7 +389,7 @@ m4_cleanup() {
         done
         M4_TEAMS_PRESENT=0
     fi
-    rm -rf -- "${M4_SEATS:?}/${M4_TEAM_A}" "${M4_SEATS:?}/${M4_TEAM_B}" "${M4_REPORTS:?}/${M4_A}" "${M4_REPORTS:?}/${M4_B}" || status=1
+    rm -rf -- "${M3_SEATS:?}/${M4_TEAM_A}" "${M3_SEATS:?}/${M4_TEAM_B}" "${M3_REPORTS:?}/${M4_A}" "${M3_REPORTS:?}/${M4_B}" || status=1
     [[ "${status}" -eq 0 ]] || printf '[FAIL] the M4 cleanup could not remove everything (see above)\n' >&2
     return "${status}"
 }

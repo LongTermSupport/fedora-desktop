@@ -30,14 +30,13 @@ readonly GB_TEAMS=("${TEAM_A}" "${TEAM_B}")
 readonly GB_SESSIONS=(accept194-ctrlc accept194-stop accept194-window)
 #: The description every team of this acceptance starts with: how a leftover is known as ours.
 readonly GB_DESC_PREFIX="Plan 00194 goodbye acceptance"
-#: What a goodbye after a double Ctrl-C gives as its reason (SessionEnd `prompt_input_exit`).
-readonly GB_REASON="exit"
 #: The tracked files of .claude/ccy a session needs: the ignore rule and the supervisor.
 readonly GB_CCY_FILES=(.gitignore ccy.env claude-supervise claude-supervise.py)
-#: In a container: 0 once the pingbus SessionStart hook has written a per-session record.
+#: In a container: 0 once the pingbus SessionStart hook has written a per-session record, in the
+#: directory Plan 00201's M7_SESSIONS_TEMPLATE names (statusline.py's).
 readonly GB_RECORD_PY='
 import os, sys
-path = f"/tmp/pingbus-sessions-{os.getuid()}"
+path = sys.argv[1].format(uid=os.getuid())
 sys.exit(0 if os.path.isdir(path) and os.listdir(path) else 3)
 '
 #: Bounds, in seconds. A launch may update Claude Code in the image first.
@@ -54,6 +53,7 @@ readonly GB_MAX_PAGES=40
 #: every question a launch can wait at (ccy_known_prompts).
 readonly GB_CCY_LIB="${PLAN_REPO_ROOT}/files/var/local/claude-yolo/lib"
 GB_CHECKOUT=""
+GB_MEMBERSHIP_DIRS=""
 GB_SEATS_DIR=""
 GB_SOCKET=""
 GB_TOKEN=""
@@ -74,11 +74,19 @@ GB_FIXTURE_CASE=""
 gb_ev() { printf '%s/%s' "${PLAN_RUN_DIR}" "$1"; }
 gb_evidence() { printf -- '- %s\n' "$*" >>"${REPORT}"; }
 
-# gb_paths — where the run's own checkout and tmux socket live (the socket under
-# XDG_RUNTIME_DIR: a socket path is limited to 108 bytes).
+# gb_paths — where the run's own checkout, its seats (seat.py CHECKOUT_SEATS) and the tmux
+# socket live (the socket under XDG_RUNTIME_DIR: a socket path is
+# limited to 108 bytes), and where ccy-teams keeps a ccy session's membership directories, read
+# from this checkout's Go source (m7_check membership-dirs), never copied.
 gb_paths() {
+    local dirs seats
+    dirs="$("${CHECK[@]}" membership-dirs)" || return 1
+    dirs="${dirs%%$'\n'*}"
+    [[ -n "${dirs}" ]] || { printf '[FAIL] m7_check membership-dirs named no directory\n' >&2; return 1; }
+    GB_MEMBERSHIP_DIRS="${XDG_RUNTIME_DIR:?}/${dirs}"
     GB_CHECKOUT="${PLAN_RUN_DIR}/checkout/accept194"
-    GB_SEATS_DIR="${GB_CHECKOUT}/.claude/ccy/pingbus/seats"
+    seats="$("${CHECK[@]}" product-value helpers/pingbus/seat.py CHECKOUT_SEATS)" || return 1
+    GB_SEATS_DIR="${GB_CHECKOUT}/${seats}"
     GB_SOCKET="${XDG_RUNTIME_DIR}/accept194-tmux/ccy"
 }
 
@@ -235,11 +243,11 @@ gb_remove_my_containers() {
 }
 
 # gb_remove_membership_dirs — the desired-membership directory ccy-teams made for each named
-# session (XDG_RUNTIME_DIR/ccy/membership/<session>), the acceptance's names only.
+# session (GB_MEMBERSHIP_DIRS/<session>), the acceptance's names only.
 gb_remove_membership_dirs() {
     local name dir
     for name in "${GB_SESSIONS[@]}"; do
-        dir="${XDG_RUNTIME_DIR:?}/ccy/membership/${name}"
+        dir="${GB_MEMBERSHIP_DIRS:?}/${name}"
         if [[ -e "${dir}" || -L "${dir}" ]]; then
             rm -rf -- "${dir}" || return 1
             printf '==> deleted %s\n' "${dir}"
@@ -252,11 +260,11 @@ gb_remove_membership_dirs() {
 gb_own_or_absent() {
     local team="$1" file
     file="$(gb_ev "${team}.installed-team.json")"
-    if sudo -n test -e "/var/lib/agent-bus/${team}/team.json"; then
-        { sudo -n cat -- "/var/lib/agent-bus/${team}/team.json"; } >"${file}" || return 1
+    if sudo -n test -e "${M7_STATE}/${team}/team.json"; then
+        { sudo -n cat -- "${M7_STATE}/${team}/team.json"; } >"${file}" || return 1
         "${CHECK[@]}" expect-own-team "${file}" "${team}" "${GB_DESC_PREFIX}" || return 1
         printf '==> %s is installed, left by an earlier acceptance run\n' "${team}"
-    elif sudo -n test -e "/var/lib/agent-bus-install/${team}"; then
+    elif sudo -n test -e "${M7_INSTALL_STATE}/${team}"; then
         printf '[FAIL] %s has install state but no team file to say whose it is: not purged; remove it by hand if it is this acceptance'\''s\n' "${team}" >&2
         return 1
     fi
@@ -504,7 +512,7 @@ gb_seats_held() {
     "${CHECK[@]}" expect-held "$(gb_ev "$1/seat-list")" "${SEAT_LIST}"
 }
 
-gb_session_started() { podman exec "${GB_CTR}" python3 -c "${GB_RECORD_PY}"; }
+gb_session_started() { podman exec "${GB_CTR}" python3 -c "${GB_RECORD_PY}" "${M7_SESSIONS_TEMPLATE}"; }
 
 # gb_launch <session> — ccy on both seats in its own tmux session in the scratch checkout, its
 # terminal recorded to pane.log; back once its container runs, both seats are held and the
@@ -631,14 +639,17 @@ gb_fetch_pages() {
 }
 
 # gb_judge <label> <sender> <handle> <since-ms> <goodbyes> <disconnects> — over GB_PAGES:
-# exactly that many goodbyes and disconnected notices from the seat since the start.
+# exactly that many goodbyes and disconnected notices from the seat since the start, each
+# goodbye giving the reason a double Ctrl-C gives: hooks.py's GOODBYE_REASONS entry for
+# SessionEnd's `prompt_input_exit`, read by Plan 00201's m7_check product-value, never copied.
 gb_judge() {
-    local tally
+    local tally reason
+    reason="$("${CHECK[@]}" product-value helpers/pingbus/hooks.py 'GOODBYE_REASONS[prompt_input_exit]')" || return 1
     tally="$(gb_ev "$1.tally.json")"
     "${GB_CHECK[@]}" tally "$2" "$3" "$4" "${GB_PAGES[@]}" >"${tally}" || return 1
     printf -- '--- %s: what %s posted since the start\n' "$1" "$3"
     cat -- "${tally}"
-    "${GB_CHECK[@]}" expect "${tally}" "$3" "$5" "$6" "${GB_REASON}" || return 1
+    "${GB_CHECK[@]}" expect "${tally}" "$3" "$5" "$6" "${reason}" || return 1
     gb_evidence "$1: $3 posted $5 goodbye(s) and $6 disconnected notice(s), and not both: ${tally#"${PLAN_RUN_DIR}"/}"
 }
 
@@ -767,14 +778,14 @@ gb_check_gone() {
             printf '[FAIL] agent-bus-hs@%s.service is still active\n' "${team}" >&2
             return 1
         fi
-        if sudo -n test -e "/var/lib/agent-bus/${team}" || sudo -n test -e "/var/lib/agent-bus-install/${team}" \
-            || [[ -e "/var/lib/agent-bus-applied/${team}.json" ]]; then
+        if sudo -n test -e "${M7_STATE}/${team}" || sudo -n test -e "${M7_INSTALL_STATE}/${team}" \
+            || [[ -e "${M7_APPLIED}/${team}.json" ]]; then
             printf '[FAIL] something of %s remains: its state, install record or applied stamp\n' "${team}" >&2
             return 1
         fi
     done
     for name in "${GB_SESSIONS[@]}"; do
-        if [[ -n "$(gb_containers "${name}")" || -e "${XDG_RUNTIME_DIR:?}/ccy/membership/${name}" ]]; then
+        if [[ -n "$(gb_containers "${name}")" || -e "${GB_MEMBERSHIP_DIRS:?}/${name}" ]]; then
             printf '[FAIL] a container or the membership directory of %s remains\n' "${name}" >&2
             return 1
         fi

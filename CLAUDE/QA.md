@@ -1116,12 +1116,22 @@ keeper does. Do not loosen the check in `config.py`.
 
 **What it is.** In an active plan folder, `tests/` or `scripts/` (the test suites), a checker
 constant holding a literal (Python: a
-module-level `NAME = <literal>`; bash: a top-level `[readonly] NAME=` with no expansion) whose
+module-level `NAME = <literal>`, or a literal wrapped in one call such as `pathlib.Path("...")`;
+bash: a top-level `[readonly] NAME=` with no expansion) whose
 own comment, the lines directly above it or a trailing one, names a product source file
 (`.py` or `.go` under `helpers/`, `src-go/internal/`, `files/` or `extensions/`) together with
 a constant that file defines: a word of the comment, or the checker constant's own name. Run by
 `tests/helpers/plan_acceptance/test_cited_constant_copy_rule.py` (in `qa-helper-tests.bash`),
-which proves the rule against its fixtures first.
+which proves the rule against its fixtures first. Its second clause needs no comment: the
+module's `OWNED` names product constants (the ccy session home, the membership mount, variable,
+file and directory names, the status line's inner-only variable, the checkout's seat directory,
+the team-name grammar, the agent-bus state roots, the Tuwunel pin, ccy-teams' step marks and
+STATE words, and the message texts the product names for its checkers), reads each value from
+the product source, and reports a line of an active plan checker whose code holds one:
+anywhere, as a file name after a `/`, as a directory between two, as a step mark anchored to a
+line start (`^✓`), or as a whole path (`/var/lib/agent-bus` and below it, but not
+`/var/lib/agent-bus-applied`). Comments, docstrings and the
+checkers' own unit tests (`test_*.py`, whose fixtures are fake input) are not judged by it.
 
 **Why it exists.** The comment says the value is the product's, and a copy of it drifts. Plan
 00201's `m7_check.py` held `GUARD_TAIL = "exec pingbus status-line"`, a copy of `seat.py`
@@ -1134,7 +1144,12 @@ Plan 00201 Task 2.21.
 **How to fix a finding.** Read the value from the product: import its module from this checkout,
 lazily, through the repo root above the checker (`m7_check.py` `_checkout_module`). A checker
 that runs where no checkout is mounted is handed the value by the script that starts it. Do not
-delete the comment to quiet the rule: the copy is still a copy.
+delete the comment to quiet the rule: the copy is still a copy. For the second clause, ask
+Plan 00201's `m7_check.py` for the value (`product-value FILE NAME` reads any named text of a
+`helpers/` module or a `src-go/` file; `session-paths`, `session-names`, `hot-marks`,
+`status-line-names` and the other readers its usage lists group the common ones). When a checker needs a text the
+product prints inline, name it as a constant in the product, use it there, and add it to
+`OWNED`.
 
 ---
 

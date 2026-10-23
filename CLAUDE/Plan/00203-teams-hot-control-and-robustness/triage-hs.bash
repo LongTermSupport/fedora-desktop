@@ -27,7 +27,7 @@
 #     that hangs after an unclean kill, on btrfs) and its free space and inodes (#649: writes
 #     panic on a full disk)
 #   - the coredumps of tuwunel
-#   - each running ccy container's watcher log (/tmp/pingbus-home/watch.log, read with a
+#   - each running ccy container's watcher log (seat.py's, read with a
 #     rootless `podman exec cat`): its exits, supervisor restarts and dropped teams
 #
 # The probes are in _triage-hs.inc.bash; the stop analysis is hs_journal.py (its tests:
@@ -69,8 +69,12 @@ plan_require_host "it reads the host's system journal, the homeserver units and 
 plan_prime_sudo
 plan_start_log auto
 
-readonly STATE_ROOT=/var/lib/agent-bus
-readonly HEALTH_ROOT=/var/lib/agent-bus-applied/health
+# The homeserver's state root (render.py STATE_ROOT) and its health records (health.py
+# HEALTH_DIR), read from this checkout by Plan 00201's m7_check, never copied.
+readonly PRODUCT_VALUE=(python3 -I "${PLAN_REPO_ROOT}/CLAUDE/Plan/00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/m7_check.py" product-value)
+STATE_ROOT="$("${PRODUCT_VALUE[@]}" helpers/agent_bus/render.py STATE_ROOT)"
+HEALTH_ROOT="$("${PRODUCT_VALUE[@]}" helpers/agent_bus/health.py HEALTH_DIR)"
+readonly STATE_ROOT HEALTH_ROOT
 readonly TUWUNEL=/usr/local/lib/agent-bus/tuwunel
 readonly RUNS_ROOT="${PLAN_REPO_ROOT}/untracked/plan-runs"
 readonly FACTS="${PLAN_RUN_DIR}/triage-hs-facts-report.txt"

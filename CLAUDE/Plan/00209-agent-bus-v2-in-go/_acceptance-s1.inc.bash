@@ -32,6 +32,18 @@ judge() {
     return "${status}"
 }
 
+# s1_value <variable> <file> <name> — Plan 00201's m7_check product-value: a named text of this
+# checkout's product, never a copy, into the variable; 1 with the reason when it cannot be read.
+s1_value() {
+    local text
+    text="$(python3 -I "${PLAN_REPO_ROOT}/CLAUDE/Plan/00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/m7_check.py" \
+        product-value "$2" "$3")" || {
+        printf 'm7_check product-value %s %s could not read the product (above)\n' "$2" "$3" >&2
+        return 1
+    }
+    printf -v "$1" '%s' "${text}"
+}
+
 # load_now — the load averages over 1, 5 and 15 minutes, for the report beside a timing.
 load_now() {
     cut -d' ' -f1-3 /proc/loadavg
@@ -396,8 +408,14 @@ fixture_member() {
 # other seats are read beside them but those of live sessions. With no applied team there is no
 # team for the seats to be listed under (2).
 fixture_report_per_hour() {
-    local applied="${CCY_TEAMS_APPLIED_DIR:-/var/lib/agent-bus-applied}" fx="${PLAN_RUN_DIR}/s4-fixture"
+    local applied fx="${PLAN_RUN_DIR}/s4-fixture" default_applied team_name seats_dir
     local stamp name team="" top state seats cwd code=0 bad=0
+    # The applied stamps' directory (checkout.py APPLIED_DIR, which ccy-teams' config.go defaults
+    # to), the team-name grammar (protocol.py) and a checkout's seat directories (the Go seat.go).
+    s1_value default_applied helpers/agent_bus/checkout.py APPLIED_DIR || return 1
+    s1_value team_name helpers/pingbus/protocol.py TEAM_NAME_PATTERN || return 1
+    s1_value seats_dir src-go/internal/bus/seat/seat.go seatsDir || return 1
+    applied="${CCY_TEAMS_APPLIED_DIR:-${default_applied}}"
     if [[ -z "${ROOT_DIR_BAKED}" ]]; then
         printf 'the fixture is not run: the installed binary was not shown to be this checkout'\''s (S0)\n' >&2
         return 1
@@ -409,7 +427,7 @@ fixture_report_per_hour() {
     fi
     for stamp in "${applied}"/*.json; do
         name="$(basename "${stamp}" .json)" || return 1
-        if [[ -f "${stamp}" && "${name}" =~ ^[a-z][a-z0-9-]{0,23}$ ]]; then
+        if [[ -f "${stamp}" && "${name}" =~ ^${team_name}$ ]]; then
             team="${name}"
             break
         fi
@@ -421,7 +439,7 @@ fixture_report_per_hour() {
     fi
     top="${fx}/checkout"
     state="${fx}/state"
-    seats="${top}/.claude/ccy/pingbus/seats/${team}"
+    seats="${top}/${seats_dir}/${team}"
     mkdir -p "${seats}/1" "${seats}/2" "${state}/sessions" || return 1
     fixture_member "${team}" "${FIXTURE_HANDLE}" 6 >"${seats}/1/member.json" || return 1
     fixture_member "${team}" "${FIXTURE_REFUSED}" 61 >"${seats}/2/member.json" || return 1
@@ -464,7 +482,7 @@ fixture_report_per_hour() {
 # refused (no "seat <seat>@<team>:" line on stderr). With no such seat, or no session record,
 # there is no live seat to judge (2).
 live_report_per_hour() {
-    local records rec line dir member text seat team handle judged=0 bad=0
+    local records rec line dir member text seat team handle seats_dir judged=0 bad=0
     local out="${PLAN_RUN_DIR}/list/new-1/stdout" err="${PLAN_RUN_DIR}/list/new-1/stderr"
     local re='"user_id"[[:space:]]*:[[:space:]]*"@([^":]+):'
     local -A checkouts=()
@@ -472,6 +490,7 @@ live_report_per_hour() {
         printf 'the live seats are not judged: the new --list did not run (the --list leg failed first)\n' >&2
         return 1
     fi
+    s1_value seats_dir src-go/internal/bus/seat/seat.go seatsDir || return 1
     records="${CCY_STATE_DIR:-${XDG_STATE_HOME:-${HOME}/.local/state}/ccy}/sessions"
     if [[ ! -d "${records}" ]]; then
         printf 'no session records at %s: no live checkout to look in for report_per_hour\n' "${records}" >&2
@@ -486,7 +505,7 @@ live_report_per_hour() {
         done <"${rec}" || return 1
     done
     for dir in "${!checkouts[@]}"; do
-        for member in "${dir}"/.claude/ccy/pingbus/seats/*/*/member.json; do
+        for member in "${dir}/${seats_dir}"/*/*/member.json; do
             [[ -f "${member}" ]] || continue
             if ! text="$(<"${member}")"; then
                 printf '%s cannot be read, so whether it sets report_per_hour is not known\n' "${member}" >&2

@@ -115,7 +115,7 @@ teardown() {
     local enabled
     remove_delay || return 1
     enabled="$(systemctl show -P UnitFileState "${HS}")" || return 1
-    if [[ "${enabled}" == enabled ]] || sudo -n test -e "/var/lib/agent-bus/${TEAM}"; then
+    if [[ "${enabled}" == enabled ]] || sudo -n test -e "${M3_STATE_ROOT:?}/${TEAM}"; then
         sudo -n "${INSTALLER}" remove --team "${TEAM}" --purge || return 1
     fi
     # A failed run of a removed unit stays in systemctl --failed until reset; a pattern that
@@ -193,7 +193,7 @@ check_stale_backup() {
     backups="$(sudo -n "${INSTALLER}" backups --team "${TEAM}")" || return 1
     newest="$(awk -F'\t' '$1 == "BACKUP" { id = $2 } END { print id }' <<<"${backups}")" || return 1
     [[ -n "${newest}" ]] || return 1
-    sudo -n touch -d '3 days ago' "/var/lib/agent-bus-install/${TEAM}/backups/agent-bus-state-${newest}.tar" || return 1
+    sudo -n touch -d '3 days ago' "${M3_INSTALL_ROOT:?}/${TEAM}/backups/agent-bus-state-${newest}.tar" || return 1
     run_health_check || return 1
     health_status 1 "${PLAN_RUN_DIR}/health-stale.txt" || return 1
     grep -F 'PROBLEM the newest backup is 3 d' "${PLAN_RUN_DIR}/health-stale.txt" || return 1

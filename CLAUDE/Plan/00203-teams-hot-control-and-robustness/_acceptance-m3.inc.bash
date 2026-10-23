@@ -42,8 +42,6 @@ readonly M3_EV="${PLAN_RUN_DIR}/m3"
 readonly M3_HOST_VARS="${M3_EV}/host_vars.yml"
 readonly M3_INSTALLER="${PLAN_REPO_ROOT}/files/usr/local/sbin/agent-bus-install"
 readonly M3_AGENT_BUS="/usr/local/bin/agent-bus"
-readonly M3_SEATS="${PLAN_REPO_ROOT}/.claude/ccy/pingbus/seats"
-readonly M3_REPORTS="${PLAN_REPO_ROOT}/.claude/ccy/pingbus/sessions"
 readonly M3_TRANSCRIPTS="${PLAN_REPO_ROOT}/.claude/ccy/projects/-workspace"
 readonly M3_CHECK=(python3 -I "${PLAN_REPO_ROOT}/CLAUDE/Plan/00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/m7_check.py")
 readonly M3_TURN="This session is an automated acceptance test of fedora-desktop Plan 00203 (milestone M3) in the owner's checkout. Run no command, read no file and change nothing. Reply with the single word READY, then end your turn with the line: STOPPING BECAUSE: acceptance turn done"
@@ -58,15 +56,38 @@ M3_SID=""
 M3_SEAT=""
 M3_TOKEN=""
 
-#: Names the product owns, read from this checkout by m3_read_names (m7_check), never copied:
-#: the session home in a ccy container (seat.py), the done and failed step marks of
-#: `ccy-teams session add/remove` (hot.go), and the status line's teams row head and the
-#: variable that has it draw only the bus segment (statusline.go).
+#: Names the product owns, read from this checkout by m3_read_names (m7_check), never copied.
+#: The dispatcher reads them before M2, because M2, M4 and M6 judge by them too: the session
+#: home in a ccy container and its watcher log (seat.py), the desired membership's file name
+#: (membership.py), the membership directories of a ccy and a cc session under
+#: $XDG_RUNTIME_DIR and the relaunch request's file (ccy-teams' membership package), the done
+#: and failed step marks of `ccy-teams session` (hot.go), and the status line's teams row
+#: head and the variable that has it draw only the bus segment (statusline.go); then, by
+#: m7_check product-value: the checkout's seat and session directories (seat.py), the applied
+#: membership's file name (membership.py), the human's Element acceptance (config.py), the
+#: homeserver's and the installer's state roots (render.py, health.py), the joined and left
+#: notices up to their team (hooks.py TEMPLATES) and the MEMBERSHIP and HUMAN kind lines of a
+#: delivery (envelope.py KIND_LINES).
 M3_PB_HOME=""
+M3_WATCH_LOG=""
+M3_DESIRED=""
+M3_CCY_DIRS=""
+M3_CC_DIRS=""
+M3_RELAUNCH=""
 M3_MARK_DONE=""
 M3_MARK_FAILED=""
 M3_SEG_HEAD=""
 M3_INNER_VAR=""
+M3_SEATS=""
+M3_REPORTS=""
+M3_APPLIED=""
+M3_ACCEPTED=""
+M3_STATE_ROOT=""
+M3_INSTALL_ROOT=""
+M3_JOINED_HEAD=""
+M3_LEFT_HEAD=""
+M3_KIND_MEMBERSHIP=""
+M3_KIND_HUMAN=""
 
 m3_ev() { printf '%s/%s' "${M3_EV}" "$1"; }
 
@@ -82,15 +103,52 @@ m3_lines() {
     fi
 }
 
+# m3_value <variable> <file> <name> — m7_check product-value: the named text of this checkout's
+# product, into the variable.
+m3_value() {
+    local text
+    text="$("${M3_CHECK[@]}" product-value "$2" "$3")" || {
+        printf '[FAIL] m7_check product-value %s %s could not read the product (above)\n' "$2" "$3" >&2
+        return 1
+    }
+    printf -v "$1" '%s' "${text}"
+}
+
 m3_read_names() {
+    local seats sessions accepted_dir accepted_file joined left
     m3_lines 4 session-paths || return 1
-    M3_PB_HOME="${M3_LINES[0]}"
+    M3_PB_HOME="${M3_LINES[0]}" M3_DESIRED="${M3_LINES[3]}"
+    m3_lines 3 session-names || return 1
+    M3_WATCH_LOG="${M3_PB_HOME}/${M3_LINES[2]}"
+    m3_lines 3 membership-dirs || return 1
+    M3_CCY_DIRS="${XDG_RUNTIME_DIR:?}/${M3_LINES[0]}" M3_CC_DIRS="${XDG_RUNTIME_DIR:?}/${M3_LINES[1]}" M3_RELAUNCH="${M3_LINES[2]}"
     m3_lines 2 hot-marks || return 1
     M3_MARK_DONE="${M3_LINES[0]}" M3_MARK_FAILED="${M3_LINES[1]}"
     m3_lines 2 status-line-names || return 1
     M3_SEG_HEAD="${M3_LINES[0]}" M3_INNER_VAR="${M3_LINES[1]}"
-    printf '==> session home %s, step marks %s %s, teams row head %q, %s\n' \
-        "${M3_PB_HOME}" "${M3_MARK_DONE}" "${M3_MARK_FAILED}" "${M3_SEG_HEAD}" "${M3_INNER_VAR}"
+    m3_value seats helpers/pingbus/seat.py CHECKOUT_SEATS || return 1
+    m3_value sessions helpers/pingbus/seat.py SESSIONS_DIR || return 1
+    M3_SEATS="${PLAN_REPO_ROOT}/${seats}" M3_REPORTS="${PLAN_REPO_ROOT}/${seats%/*}/${sessions}"
+    m3_value M3_APPLIED helpers/pingbus/membership.py APPLIED_FILE || return 1
+    m3_value accepted_dir helpers/pingbus/config.py ELEMENT_ACCEPTED_DIR || return 1
+    m3_value accepted_file helpers/pingbus/config.py ELEMENT_ACCEPTED_FILE || return 1
+    M3_ACCEPTED="${HOME:?}/${accepted_dir}/${accepted_file}"
+    m3_value M3_STATE_ROOT helpers/agent_bus/render.py STATE_ROOT || return 1
+    m3_value M3_INSTALL_ROOT helpers/agent_bus/health.py INSTALL_STATE_ROOT || return 1
+    m3_value joined helpers/pingbus/hooks.py 'TEMPLATES[joined]' || return 1
+    m3_value left helpers/pingbus/hooks.py 'TEMPLATES[left]' || return 1
+    M3_JOINED_HEAD="${joined%%\{team\}*}" M3_LEFT_HEAD="${left%%\{team\}*}"
+    if [[ "${M3_JOINED_HEAD}" == "${joined}" || "${M3_LEFT_HEAD}" == "${left}" ]]; then
+        printf '[FAIL] hooks.py TEMPLATES joined %q or left %q names no {team}\n' "${joined}" "${left}" >&2
+        return 1
+    fi
+    m3_value M3_KIND_MEMBERSHIP helpers/pingbus/envelope.py 'KIND_LINES[MEMBERSHIP]' || return 1
+    m3_value M3_KIND_HUMAN helpers/pingbus/envelope.py 'KIND_LINES[HUMAN]' || return 1
+    printf '==> session home %s (watcher log %s), membership %s in %s and %s (relaunch %s), step marks %s %s, teams row head %q, %s\n' \
+        "${M3_PB_HOME}" "${M3_WATCH_LOG}" "${M3_DESIRED}" "${M3_CCY_DIRS}" "${M3_CC_DIRS}" "${M3_RELAUNCH}" \
+        "${M3_MARK_DONE}" "${M3_MARK_FAILED}" "${M3_SEG_HEAD}" "${M3_INNER_VAR}"
+    printf '==> seats %s, session records %s, applied %s, Element acceptance %s, state roots %s and %s\n' \
+        "${M3_SEATS}" "${M3_REPORTS}" "${M3_APPLIED}" "${M3_ACCEPTED}" "${M3_STATE_ROOT}" "${M3_INSTALL_ROOT}"
 }
 
 # m3_poll <seconds> <what> <command...> — until the command succeeds; it returns 3 for "not yet".
@@ -115,7 +173,7 @@ m3_teams() { (cd -- "${PLAN_REPO_ROOT}" && CCY_TEAMS_HOST_VARS="${M3_HOST_VARS}"
 m3_team_built() {
     local enabled
     enabled="$(systemctl show -P UnitFileState "agent-bus-hs@$1.service")" || return 1
-    [[ "${enabled}" == enabled ]] || sudo -n test -e "/var/lib/agent-bus/$1"
+    [[ "${enabled}" == enabled ]] || sudo -n test -e "${M3_STATE_ROOT:?}/$1"
 }
 
 # ── setup ─────────────────────────────────────────────────────────────────────────────────
@@ -276,8 +334,8 @@ m3_status_line() {
 }
 
 m3_check_notice_and_status() {
-    m3_poll "${M3_SEEN_S}" "the joined notice in the transcript" m3_seen "you joined team ${M3_TEAM_B}" || return 1
-    m3_seen "kind: MEMBERSHIP" || { printf '[FAIL] the notice is not a MEMBERSHIP envelope\n' >&2; return 1; }
+    m3_poll "${M3_SEEN_S}" "the joined notice in the transcript" m3_seen "${M3_JOINED_HEAD}${M3_TEAM_B}" || return 1
+    m3_seen "${M3_KIND_MEMBERSHIP}" || { printf '[FAIL] the notice is not a MEMBERSHIP envelope\n' >&2; return 1; }
     m3_poll 10 "the status line naming both teams" m3_status_line || {
         [[ ! -s "$(m3_ev status-line.why)" ]] || cat "$(m3_ev status-line.why)" >&2
         return 1
@@ -287,7 +345,7 @@ m3_check_notice_and_status() {
 m3_check_message() {
     m3_human_says "${M3_MARK_IN}" || return 1
     m3_poll "${M3_SEEN_S}" "the human's message in the conversation" m3_seen "${M3_MARK_IN}" || return 1
-    m3_seen "kind: HUMAN" || { printf '[FAIL] the message did not arrive as a HUMAN delivery\n' >&2; return 1; }
+    m3_seen "${M3_KIND_HUMAN}" || { printf '[FAIL] the message did not arrive as a HUMAN delivery\n' >&2; return 1; }
 }
 
 m3_seat_free() {
@@ -318,7 +376,7 @@ m3_check_remove() {
     cat -- "${err}"
     [[ "${status}" -eq 0 ]] || { printf '[FAIL] session remove exited %d\n' "${status}" >&2; return 1; }
     grep -qP "^\\Q${M3_MARK_DONE}\\E re-baseline" "${err}" || { printf '[FAIL] no re-baseline step\n' >&2; return 1; }
-    m3_poll "${M3_SEEN_S}" "the left notice in the transcript" m3_seen "you left team ${M3_TEAM_B}" || return 1
+    m3_poll "${M3_SEEN_S}" "the left notice in the transcript" m3_seen "${M3_LEFT_HEAD}${M3_TEAM_B}" || return 1
     m3_poll 30 "the goodbye in the room" m3_room_has "${goodbye}" || return 1
     m3_poll 10 "the seat free" m3_seat_free || return 1
     status=0
@@ -335,7 +393,7 @@ m3_check_no_backlog() {
     m3_human_says "${M3_MARK_OUT}" || return 1
     sleep 5
     m3_add again || return 1
-    m3_poll "${M3_SEEN_S}" "the joined notice of the re-add" m3_seen "you joined team ${M3_TEAM_B}" 2 || return 1
+    m3_poll "${M3_SEEN_S}" "the joined notice of the re-add" m3_seen "${M3_JOINED_HEAD}${M3_TEAM_B}" 2 || return 1
     sleep "${M3_QUIET_S}"
     if grep -qF -- "${M3_MARK_OUT}" "$(m3_transcript)"; then
         printf '[FAIL] a message posted while the seat was out was delivered on the re-add (H23a)\n' >&2
@@ -377,7 +435,6 @@ m3_cleanup() {
 acceptance_m3() {
     plan_on_cleanup m3_cleanup
     printf '## M3: hot add and remove\n\n' >>"${REPORT}"
-    plan_deploy_leg "the names M3 judges by, from this checkout's seat.py, hot.go and statusline.go" m3_read_names
     plan_deploy_leg "two throwaway teams, ${M3_TEAM_A} and ${M3_TEAM_B}" m3_prepare
     plan_deploy_leg "a throwaway headless session on ${M3_TEAM_A} in ccy's tmux, and its first turn" m3_start
     check_leg "(a) session add ${M3_TEAM_B}: every step done, no relaunch" m3_check_add
