@@ -84,17 +84,19 @@ type server struct {
 	logMu   sync.Mutex
 	closeMu sync.Once
 	closeEr error
-	// stopping is closed by close once the connections are, and ends every request being
+	// stopping is cancelled by close once the connections are, and ends every request being
 	// served, so none outlives it (a wait would otherwise hold the link to its deadline).
-	stopping chan struct{}
+	stopping context.Context
+	stop     context.CancelFunc
 	// hook, when set, answers the four hook ops in place of the engine, given the peer's pid.
 	hook func(ctx context.Context, req wire.Request, peer int) hookReply
 }
 
 func newServer(ln *net.UnixListener, eng served, clk clock.Clock, uid int, kit paths.Digest, log io.Writer) *server {
+	stopping, stop := context.WithCancel(context.Background())
 	return &server{
 		ln: ln, eng: eng, clock: clk, uid: uid, kit: kit, log: log, conns: map[*net.UnixConn]bool{},
-		stopping: make(chan struct{}),
+		stopping: stopping, stop: stop,
 	}
 }
 
@@ -130,7 +132,7 @@ func (s *server) close() error {
 			s.closeConn(c)
 		}
 		s.mu.Unlock()
-		close(s.stopping)
+		s.stop()
 		s.closeEr = s.ln.Close()
 		s.wg.Wait()
 	})
@@ -209,13 +211,7 @@ func (s *server) handle(base context.Context, c *net.UnixConn) {
 	}
 	ctx, cancel := context.WithCancel(base)
 	stopDeadline := s.clock.AfterFunc(left, cancel)
-	go func() {
-		select {
-		case <-s.stopping:
-			cancel()
-		case <-ctx.Done():
-		}
-	}()
+	defer context.AfterFunc(s.stopping, cancel)()
 	if s.hook != nil && isHookOp(req.Op) {
 		reply := s.hook(ctx, req, int(cred.Pid))
 		stopDeadline()

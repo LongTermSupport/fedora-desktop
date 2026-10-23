@@ -19,6 +19,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -60,8 +61,11 @@ func (c cancelled) Error() string { return "cancelled by " + syscall.Signal(c).S
 
 func run(e cli.Env, d deps) term.ExitCode {
 	ctx, cancel := context.WithCancelCause(context.Background())
+	// The relay ends with ctx and is waited for, so it never outlives the render.
+	var relays sync.WaitGroup
+	defer relays.Wait()
 	defer cancel(nil)
-	go relay(ctx, d.signals, cancel)
+	relays.Go(func() { relay(ctx, d.signals, cancel) })
 	raw, ok := readStdin(ctx, e.Stdin)
 	if !ok {
 		return cancelExit(ctx)

@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/leakcheck"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/engine"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
@@ -217,6 +218,8 @@ func newLinkWorld(t *testing.T) *linkWorld {
 // the link's end is returned, for a link in this process or another.
 func newKeeperWorld(t *testing.T) (*linkWorld, *os.File) {
 	t.Helper()
+	// First, so it judges once every other cleanup has ended what it owns.
+	leakcheck.Check(t)
 	w := &linkWorld{
 		home: newHome(t), t: t, in: make(chan got, 64), ends: &fakeEnds{},
 		parent: &fakeParent{exited: make(chan struct{})}, proc: newFakeProc(),

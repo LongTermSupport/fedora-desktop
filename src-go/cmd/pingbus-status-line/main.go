@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/pingbus/statusline"
@@ -33,9 +34,12 @@ func run(stdin io.Reader, stdout, stderr io.Writer, environ []string, getwd func
 ) term.ExitCode {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
+	// The relay is waited for once done is closed, so it never outlives the render.
+	var relay sync.WaitGroup
 	done := make(chan struct{})
+	defer relay.Wait()
 	defer close(done)
-	go relaySignals(signals, done, cancel)
+	relay.Go(func() { relaySignals(signals, done, cancel) })
 	raw, ok := readInput(ctx, stdin)
 	if !ok {
 		return term.ExitCode(statusline.CancelStatus(ctx))

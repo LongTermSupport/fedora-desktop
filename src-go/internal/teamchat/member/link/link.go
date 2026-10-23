@@ -100,10 +100,14 @@ type link struct {
 	srv      *server
 	session  *Session
 	msgs     chan received
-	quit     chan struct{}
-	bg       sync.WaitGroup
-	sendMu   sync.Mutex
-	logMu    sync.Mutex
+	// quit ends the reader and the background goroutines; closeQuit closes it, once.
+	quit      chan struct{}
+	closeQuit func()
+	// reader is the control socket's reader, waited for once quit is closed and the socket is.
+	reader sync.WaitGroup
+	bg     sync.WaitGroup
+	sendMu sync.Mutex
+	logMu  sync.Mutex
 
 	first     chan struct{}
 	firstOnce sync.Once
@@ -133,8 +137,9 @@ func Run(ctx context.Context, cfg Config) term.ExitCode {
 	if err != nil {
 		return refuse(cfg.Log, "take link.lock", err)
 	}
+	quit := make(chan struct{})
 	l := &link{
-		cfg: cfg, msgs: make(chan received), quit: make(chan struct{}), first: make(chan struct{}),
+		cfg: cfg, msgs: make(chan received), quit: quit, closeQuit: sync.OnceFunc(func() { close(quit) }), first: make(chan struct{}),
 		states: map[paths.TeamID]wire.State{}, stateWake: make(chan struct{}, 1), renderWake: make(chan struct{}, 1),
 		mem: membership{wake: make(chan struct{}, 1)},
 	}
@@ -164,8 +169,8 @@ func (l *link) run(parentCtx context.Context) term.ExitCode {
 	}()
 	ctx, cancel := context.WithCancel(parentCtx)
 	defer cancel()
-	go l.read()
-	defer l.closeControl()
+	l.reader.Go(l.read)
+	defer l.stopReading()
 	hold, stopHold := l.cfg.Clock.Hold(addsWait)
 	defer stopHold()
 	launch, code, ok := l.awaitLaunch(hold)
@@ -188,7 +193,7 @@ func (l *link) run(parentCtx context.Context) term.ExitCode {
 	}
 	l.srv = newServer(ln, l.eng, l.cfg.Clock, l.cfg.UID, l.cfg.Kit, l.cfg.Log)
 	l.srv.hook = l.serveHook
-	go l.srv.run(ctx)
+	l.bg.Go(func() { l.srv.run(ctx) })
 	l.bg.Go(func() { l.announceTeams(ctx) })
 	l.send(wire.Msg{Kind: wire.KindReady, Ready: &wire.Ready{}})
 	if l.cfg.started != nil {
@@ -470,14 +475,18 @@ func (l *link) teardown(ctx context.Context, cancel context.CancelFunc, engDone 
 	l.logErr("shut the engine", l.eng.Shutdown(ctx))
 	cancel()
 	l.logErr("the state goroutine", <-engDone)
-	close(l.quit)
+	l.closeQuit()
 	l.bg.Wait()
 }
 
-func (l *link) closeControl() {
+// stopReading ends the reader on every path out of run: quit, then the control socket, whose
+// close ends a Recv, and the wait for it.
+func (l *link) stopReading() {
+	l.closeQuit()
 	if err := l.cfg.Control.Close(); err != nil {
 		l.logf("link: close the control socket: %v", err)
 	}
+	l.reader.Wait()
 }
 
 func (l *link) closeFile(f *os.File) {
