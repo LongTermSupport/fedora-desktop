@@ -54,19 +54,13 @@ agent at all. The cause is unknown, so this plan triages first.
   `files/var/local/ps1-prompt` and built and installed root-owned to `/usr/local/bin` by
   `play-basic-configs.yml`, which now imports `play-golang.yml`. It reads files only, so a
   missing agent can neither block nor prompt.
-- [ ] 🔄 **Task 2.3**: `play-basic-configs.yml` ran on the host at F44 c4cab141 (ok=68,
-  changed=3, failed=0; `git-fetch-age` rebuilt, Go 1.26.10 on the host); docs
-  (`docs/configuration.md`, `docs/playbooks.md`, `src-go/CLAUDE.md`) done. Acceptance passed
-  on the host, and `qa-all.bash` passed on c4cab141. The `qa-reviewer` ran (round 1,
-  FIX-FIRST, `subagent-reports/261022-qa-reviewer-round1.md`); its findings are fixed: the
-  play pins bash-git-prompt to a commit and asserts the `async_run` override still holds.
-  Left: `qa-all.bash` on the merged fixes; the host run of `play-git-configure-and-tools.yml`
-  and this plan's acceptance through meta-deploy (the pin and the assert have not run on a
-  host yet); then the owner's hand check, the yellow mark in a stale checkout's prompt. The hand
-  check should expect
-  `[fetch failed or running]` to show briefly on a prompt drawn during each five-minute
-  background fetch; it lasting past the next prompt means the fetch failed
-  (`~/.cache/git-prompt-fetch.log` has why).
+- [x] ✅ **Task 2.3**: deployed and reviewed. `play-basic-configs.yml` (c4cab141) and
+  `play-git-configure-and-tools.yml` with the qa-reviewer's fixes (bash-git-prompt pinned,
+  the `async_run` override asserted; merged at f2c59399a) passed on the host, the latter at
+  67033c224 followed by this plan's acceptance, all six legs. Docs (`docs/configuration.md`,
+  `docs/playbooks.md`, `src-go/CLAUDE.md`) done. `qa-all.bash` passed on c4cab141; no log of
+  a run on f2c59399a itself is kept, it is the gate of every later F44 push. The hand check
+  is Task 2.6.
 - [x] ✅ **Task 2.4**: the root fetch bug (Decision 2): a failed fetch empties `FETCH_HEAD`
   and dates it now, so the mark read the prompt's own failing fetch as fresh. Done in code,
   test first (A14, A15 in `internal/fetchage`): an empty `FETCH_HEAD` is
@@ -88,6 +82,20 @@ agent at all. The cause is unknown, so this plan triages first.
   prove it on the host. Deployed on the host (`play-git-configure-and-tools.yml` passed); the
   `fetcher` (BatchMode, no terminal) and `override` (async_run through git-prompt-fetch)
   legs passed. The acceptance re-run passed, all six legs.
+- [ ] ⬜ **Task 2.6**: the host agent's check in a real interactive shell, the one thing the
+  `prompt` leg does not cover (that leg expands the deployed PS1 in `bash -s`, not in the
+  login user's `bash -i` with `~/.bashrc` and bash-git-prompt loaded). Make a scratch clone
+  whose `origin` is an ssh URL that fails at once (a host under `.invalid`, such as
+  `ssh://unreachable.invalid/never.git`, as the acceptance uses), with a tracking branch; write a fetch record into
+  `.git/FETCH_HEAD` and `touch -d '3 days ago'` it. Start a tmux server of the agent's own
+  with the shell as its command, so no ssh agent or ssh session reaches it:
+  `tmux -L <own> new-session -d -c <clone> 'env -u SSH_AUTH_SOCK -u SSH_CONNECTION bash -i'`
+  (with `SSH_CONNECTION` set, the bashrc offers to load keys, and Enter would accept). Within
+  5 s `tmux -L <own> capture-pane -e -p` shows a drawn prompt carrying ` [fetched 3d ago]` or
+  ` [fetch failed or running]` in yellow (bash-git-prompt's own fetch starts at once and
+  empties `FETCH_HEAD`), and no `passphrase` text. Press Enter after 10 s: the mark is
+  ` [fetch failed or running]` and `~/.cache/git-prompt-fetch.log` names the failed fetch.
+  Kill the server and remove the clone. Nothing in it needs the owner.
 
 ## Technical Decisions
 
@@ -156,7 +164,9 @@ whether the host's agent holds the key.
 ## Success Criteria
 
 - [ ] A checkout whose tracking refs were not fetched recently is visibly marked stale.
-- [ ] With no agent, the prompt draws at once and asks for nothing.
+- [x] With no agent, the prompt draws at once and asks for nothing: `git-fetch-age` reads
+  files only, and the `fetcher` (BatchMode, no terminal on stdin) and `override` legs passed
+  on the host at 67033c224. Task 2.6 also sees it in a real `bash -i`.
 
 ## Delivery & Milestones
 
@@ -169,4 +179,6 @@ whether the host's agent holds the key.
 - Failed-fetch mark and `git-prompt-fetch` (Tasks 2.4, 2.5) merged: e40671403.
 - Deployed at c4cab141 (`play-basic-configs.yml`, ok=68 changed=3 failed=0); `qa-all.bash`
   passed on c4cab141.
-- qa-reviewer round 1: FIX-FIRST; answered on `fix/00183-review-findings`.
+- qa-reviewer round 1: FIX-FIRST; answered on `fix/00183-review-findings`, merged at
+  f2c59399a.
+- The pinned bash-git-prompt and the acceptance passed on the host at 67033c224.
