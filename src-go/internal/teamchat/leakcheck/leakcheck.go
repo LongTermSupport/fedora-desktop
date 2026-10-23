@@ -13,6 +13,7 @@
 package leakcheck
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -21,21 +22,25 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 )
 
 // Runner is what Tests needs of testing.M.
 type Runner interface{ Run() int }
 
 // settle is how long a goroutine is given to end after its test has: tries readings, pause
-// apart. A goroutine still ending (its owner's teardown has stopped it, the scheduler has not
-// run it yet) is not a leak.
+// apart on clock. A goroutine still ending (its owner's teardown has stopped it, the scheduler
+// has not run it yet) is not a leak.
 type settle struct {
 	tries int
 	pause time.Duration
+	clock clock.Clock
 }
 
-// standard is five seconds, which a loaded host under the race detector needs.
-var standard = settle{tries: 500, pause: 10 * time.Millisecond}
+// standard is five seconds of the system clock, which a loaded host under the race detector
+// needs.
+var standard = settle{tries: 500, pause: 10 * time.Millisecond, clock: clock.System()}
 
 // Tests is m whose Run is 1 when the tests passed and a goroutine they started is still
 // running once they end; the goroutines are written to stderr.
@@ -94,7 +99,9 @@ func (s settle) leftSince(before map[int]bool) []goroutine {
 	var left []goroutine
 	for i := range s.tries {
 		if i > 0 {
-			time.Sleep(s.pause)
+			if s.clock.Sleep(context.Background(), s.pause) != nil {
+				return left // the last reading's goroutines, unsettled: still reported
+			}
 		}
 		left = left[:0]
 		for _, g := range all()[1:] {
