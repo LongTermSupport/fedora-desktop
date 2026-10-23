@@ -125,6 +125,13 @@ def main(argv=None, stream=None):
         "the stage line can show an untracked test file being run",
     )
     parser.add_argument(
+        "--chdir",
+        default=None,
+        help="run the modules from this directory, as `cd DIR && python3 -m unittest` would: "
+        "it becomes the working directory and the first entry of the import path "
+        "(the plan-tests gate runs each plan folder's tests so)",
+    )
+    parser.add_argument(
         "modules",
         nargs="+",
         help="dotted module names, e.g. tests.helpers.pyenv.test_resolver",
@@ -133,6 +140,14 @@ def main(argv=None, stream=None):
     # That is the intended behaviour: `Ran 0 tests ... OK` exiting 0 is the false pass
     # helpers/CLAUDE.md warns about, so an empty invocation must never look like a run.
     args = parser.parse_args(argv)
+    # Resolved before any --chdir, so a relative path means where the caller started.
+    counts_path = pathlib.Path(args.counts_file).resolve()
+    if args.chdir is not None:
+        folder = pathlib.Path(args.chdir).resolve()
+        if not folder.is_dir():
+            parser.error(f"--chdir {args.chdir} is not a directory")
+        os.chdir(folder)
+        sys.path.insert(0, str(folder))
 
     # Before the first import: no module, not even at its top level, sees the agent-bus
     # session this run was started from (session_env.py says why).
@@ -150,7 +165,7 @@ def main(argv=None, stream=None):
     # Written AFTER the suite, which is what makes a mid-run forgery harmless: whatever a
     # test put here is overwritten by this line. See the module docstring for what that
     # does and does not cover.
-    pathlib.Path(args.counts_file).write_text(
+    counts_path.write_text(
         counts_text(result, len(args.modules), args.tracked_modules, args.counts_token),
         encoding="utf-8",
     )

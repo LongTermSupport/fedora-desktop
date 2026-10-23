@@ -460,6 +460,97 @@ class TestAgainstARealSubprocess(unittest.TestCase):
         self.assertEqual(counts_file.read_text(encoding="utf-8"), "tests=1\nskipped=0\nmodules=1\ntracked=1\n")
 
 
+class TestChdir(unittest.TestCase):
+    """`--chdir DIR` runs the modules as `cd DIR && python3 -m unittest <modules>` would: DIR is
+    the working directory and the first entry of the import path. The plan-tests gate runs each
+    plan folder's own tests this way. A real process, because the option changes the process's
+    working directory."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = pathlib.Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+        self.repo_root = pathlib.Path(__file__).resolve().parents[3]
+        self.folder = self.tmp / "a-plan-folder"
+        self.folder.mkdir()
+
+    def run_in(self, chdir, counts_arg, cwd):
+        return subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "helpers.qa_environment.unittest_counts",
+                "--chdir",
+                str(chdir),
+                "--counts-file",
+                counts_arg,
+                "--tracked-modules",
+                "1",
+                "test_sibling",
+            ],
+            cwd=cwd,
+            env=dict(os.environ, PYTHONPATH=str(self.repo_root)),
+            capture_output=True,
+            text=True,
+            check=False,  # the exit status IS the assertion
+        )
+
+    def write_test(self):
+        (self.folder / "sibling.py").write_text("VALUE = 7\n", encoding="utf-8")
+        (self.folder / "test_sibling.py").write_text(
+            textwrap.dedent(
+                """
+                import os
+                import pathlib
+                import unittest
+
+                import sibling
+
+                class T(unittest.TestCase):
+                    def test_imports_its_sibling_and_runs_in_its_folder(self):
+                        self.assertEqual(sibling.VALUE, 7)
+                        self.assertEqual(pathlib.Path(os.getcwd()).resolve(), pathlib.Path(__file__).resolve().parent)
+                """
+            ),
+            encoding="utf-8",
+        )
+
+    def test_a_module_in_the_folder_imports_its_siblings_and_runs_there(self):
+        self.write_test()
+        counts_file = self.tmp / "counts"
+        completed = self.run_in(self.folder, str(counts_file), self.repo_root)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(counts_file.read_text(encoding="utf-8"), "tests=1\nskipped=0\nmodules=1\ntracked=1\n")
+
+    def test_without_chdir_the_same_module_cannot_be_found(self):
+        # The control: the folder is on no path but the one --chdir gives.
+        self.write_test()
+        counts_file = self.tmp / "counts"
+        completed = subprocess.run(
+            [sys.executable, "-m", "helpers.qa_environment.unittest_counts", "--counts-file", str(counts_file), "--tracked-modules", "1", "test_sibling"],
+            cwd=self.repo_root,
+            env=dict(os.environ, PYTHONPATH=str(self.repo_root)),
+            capture_output=True,
+            text=True,
+            check=False,  # the exit status IS the assertion
+        )
+        self.assertEqual(completed.returncode, 1, completed.stderr)
+
+    def test_a_relative_counts_file_is_relative_to_where_the_runner_started(self):
+        self.write_test()
+        completed = self.run_in(self.folder, "counts", self.tmp)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertTrue((self.tmp / "counts").is_file())
+        self.assertFalse((self.folder / "counts").exists())
+
+    def test_a_chdir_that_is_not_a_directory_is_refused_before_any_run(self):
+        counts_file = self.tmp / "counts"
+        completed = self.run_in(self.tmp / "missing", str(counts_file), self.repo_root)
+        self.assertEqual(completed.returncode, 2, completed.stderr)
+        self.assertIn("--chdir", completed.stderr)
+        self.assertFalse(counts_file.exists())
+
+
 class TestArgumentHandling(unittest.TestCase):
     """argparse writes its usage message to the process's stderr, which would otherwise
     land in the middle of the suite's own output and read as a failure. It is redirected

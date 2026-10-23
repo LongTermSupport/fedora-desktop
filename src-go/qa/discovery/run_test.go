@@ -398,6 +398,49 @@ func TestPlaybooksAndHelperTestYardsticks(t *testing.T) {
 	wantPaths(t, w.main("tracked-helper-tests"), "tests/helpers/sub/test_b.py", "tests/helpers/test_a.py")
 }
 
+// The plan-tests gate's yardstick: the tracked test_*.py under an active plan folder (Completed/
+// and the plan tooling are not plans), less a deleted one; it may be empty.
+func TestPlanTestYardstick(t *testing.T) {
+	w := newWorld(t)
+	w.track("CLAUDE/Plan/00161-a/test_a.py", "")
+	w.track("CLAUDE/Plan/00161-a/sub/test_b.py", "")
+	w.track("CLAUDE/Plan/00161-a/a_test.py", "")
+	w.track("CLAUDE/Plan/Completed/00100-old/test_c.py", "")
+	w.track("CLAUDE/Plan/test_tooling.py", "")
+	w.track("CLAUDE/Plan/00162-gone/test_d.py", "")
+	if err := os.Remove(filepath.Join(w.root, "CLAUDE/Plan/00162-gone/test_d.py")); err != nil {
+		t.Fatal(err)
+	}
+	w.deleted = append(w.deleted, "CLAUDE/Plan/00162-gone/test_d.py")
+	wantPaths(t, w.main("tracked-plan-tests"), "CLAUDE/Plan/00161-a/sub/test_b.py", "CLAUDE/Plan/00161-a/test_a.py")
+	w = newWorld(t)
+	w.track("README", "text\n")
+	got := w.main("tracked-plan-tests")
+	wantExit(t, got, ExitOK)
+	if got.stdout != "" {
+		t.Fatalf("stdout %q", got.stdout)
+	}
+}
+
+func TestIsPlanTest(t *testing.T) {
+	for rel, want := range map[string]bool{
+		"CLAUDE/Plan/00161-a/test_one.py":           true,
+		"CLAUDE/Plan/00161-a/sub/test_one.py":       true,
+		"CLAUDE/Plan/Completed/00100-old/test_x.py": false,
+		"CLAUDE/Plan/test_x.py":                     false,
+		"CLAUDE/Plan/notaplan/test_x.py":            false,
+		"CLAUDE/Plan/00161-/test_x.py":              false,
+		"CLAUDE/Plan/00161-a/one_test.py":           false,
+		"CLAUDE/Plan/00161-a/test_one.pyc":          false,
+		"tests/helpers/x/test_y.py":                 false,
+		"CLAUDE/Plan/00161-a":                       false,
+	} {
+		if got := IsPlanTest(rel); got != want {
+			t.Errorf("IsPlanTest(%q) = %v, want %v", rel, got, want)
+		}
+	}
+}
+
 // D13
 func TestAnEmptyListIsABrokenDiscovery(t *testing.T) {
 	for _, list := range []string{"shell", "python", "tracked-shell", "tracked-python", "tracked-playbooks", "tracked-helper-tests"} {

@@ -161,6 +161,14 @@ also	scripts/qa-vmtest-manifest.bash,src-go/qa/vmtestmanifest/*,src-go/qa/cmd/qa
 # interpreter, so it is a gate, not a per-file check; the handlers' Python still gets its per-file
 # ruff and unit-test routing.
 also	.claude/hooks/handlers/*,scripts/qa-hook-handlers.bash,src-go/qa/hookhandlers/*,src-go/qa/cmd/qa-hook-handlers/*,scripts/lib/go-tool.bash,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	hook-handlers	-
+# The plan-tests gate runs every active plan folder's own tests whole when a plan's Python or
+# shell changes or is deleted (the tests load the checkers beside them, .py modules and bash
+# scripts alike), or its own script, Go package, command, the shared discovery that lists the
+# tracked plan tests, or the runner it drives change. The glob is wider than the gate (the
+# matcher's * crosses /): a file under Completed/ or the plan tooling runs it too, though it reads
+# neither; the over-match is pinned, not narrowed. A plan's Markdown does not run it.
+also	CLAUDE/Plan/*.py,CLAUDE/Plan/*.bash,CLAUDE/Plan/*.sh	plan-tests	-
+also	scripts/qa-plan-tests.bash,src-go/qa/plantests/*,src-go/qa/cmd/qa-plan-tests/*,src-go/qa/discovery/*,helpers/qa_environment/unittest_counts.py,helpers/qa_environment/session_env.py,scripts/lib/go-tool.bash,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	plan-tests	-
 also	src-go/qa/ansible/*,src-go/qa/cmd/qa-ansible/*,src-go/qa/internal/cmdmain/*,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*	ansible-patterns	-
 # The regex-backref-escape fixtures of qa-ansible are read only by the Go tests of the rule.
 also	tests/fixtures/ansible-regex-backref/*	go	covered
@@ -184,4 +192,4 @@ first	@sh	bash-syntax,shellcheck,shell-directives,semgrep,ready-wait-files	cover
 post	any:@sh	bash-limits	-
 post	any:@sh,any:@py	toolchain	-
 post	any:@sh,any:@py	hidden-bindings	-
-perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go-qa qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-nokill-containerwatch qa-ansible-pause qa-gh-scopes qa-ready-wait-rules qa-plan-script-logging qa-version-pins qa-speech-to-text-rules qa-vmtest-manifest qa-go-deps qa-go-vuln qa-hidden-bindings qa-hook-handlers
+perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go-qa qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-nokill-containerwatch qa-ansible-pause qa-gh-scopes qa-ready-wait-rules qa-plan-script-logging qa-version-pins qa-speech-to-text-rules qa-vmtest-manifest qa-go-deps qa-go-vuln qa-hidden-bindings qa-hook-handlers qa-plan-tests

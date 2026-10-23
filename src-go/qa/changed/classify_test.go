@@ -833,6 +833,43 @@ func TestADependencyChangeRunsTheDependencyGates(t *testing.T) {
 	}
 }
 
+// The plan folders' own tests run whole for a change to a plan's Python or shell (the checkers
+// the tests load, and the tests themselves), for a deleted one, and for a change to the gate's
+// script, Go package, command or runner; a plan's Markdown and an ordinary helper do not run them.
+func TestAPlanCheckerChangeRunsThePlanTestsGate(t *testing.T) {
+	for _, f := range []string{
+		"CLAUDE/Plan/00161-agent-team-bus-matrix/acceptance_check.py",
+		"CLAUDE/Plan/00161-agent-team-bus-matrix/test_acceptance_check.py",
+		"CLAUDE/Plan/00214-update-all-changed-plays/check-changed-plays.bash",
+		"CLAUDE/Plan/00194-agent-bus-live-delivery-supervisor-plugin/_acceptance-goodbye.inc.bash",
+		"scripts/qa-plan-tests.bash",
+		"src-go/qa/plantests/run.go",
+		"src-go/qa/cmd/qa-plan-tests/main.go",
+		"helpers/qa_environment/unittest_counts.py",
+	} {
+		w := newWorld(t)
+		w.touch(f, "x = 1\n")
+		p := w.classify([]string{f})
+		if !p.has("plan-tests") {
+			t.Errorf("%s does not run plan-tests: %v", f, keys(p))
+		}
+		if len(p.uncovered) != 0 {
+			t.Errorf("%s is uncovered: %v", f, p.uncovered)
+		}
+	}
+	w := newWorld(t)
+	if p := w.classify(nil, "CLAUDE/Plan/00161-agent-team-bus-matrix/test_gone.py"); !p.has("plan-tests") {
+		t.Errorf("a deleted plan test owes the gate: %v", keys(p))
+	}
+	for _, f := range []string{"CLAUDE/Plan/00161-agent-team-bus-matrix/PLAN.md", "helpers/other.py"} {
+		w = newWorld(t)
+		w.touch(f, "x = 1\n")
+		if p := w.classify([]string{f}); p.has("plan-tests") {
+			t.Errorf("%s must not run plan-tests: %v", f, keys(p))
+		}
+	}
+}
+
 // The project hook handlers' tests run whole, under the daemon's interpreter, for a change to a
 // handler, a handler test or the gate's script, Go package or command, and for a deleted handler;
 // an ordinary helper does not run them (Plan 00191 Task 4.6).

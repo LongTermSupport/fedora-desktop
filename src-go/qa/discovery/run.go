@@ -11,6 +11,7 @@ import (
 	"io"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -55,13 +56,15 @@ Prints one list of files, each ended by NUL, sorted. LIST is one of:
   tracked-python      tracked Python files; repository-relative
   tracked-playbooks   tracked .yml/.yaml files under playbooks/; repository-relative
   tracked-helper-tests  tracked tests/helpers/**/test_*.py; repository-relative
+  tracked-plan-tests  tracked CLAUDE/Plan/<NNNNN>-*/**/test_*.py (not Completed/); repository-
+                      relative; may be empty
 
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory, which holds qa-trees.tsv; the root is its parent
   -h, --help      this text
 
 Exit codes: 0 the list, 2 bad usage or the list could not be made (including an empty one, except
-python-templates and markdown). stdout is the list; diagnostics go to stderr.
+python-templates, markdown and tracked-plan-tests). stdout is the list; diagnostics go to stderr.
 `
 
 // options is the parsed command line.
@@ -159,19 +162,49 @@ func scriptFile(f finder, rel string) (bool, error) {
 }
 
 var listings = map[string]listing{
-	"shell":             {what: "shell scripts", published: true, absolute: true, dirs: shellDirs, keep: ofKind(shellLang)},
-	"python":            {what: "Python files", published: true, absolute: true, dirs: pythonDirs, keep: ofKind(pythonLang)},
-	"python-templates":  {what: "Python templates", published: true, absolute: true, mayBeEmpty: true, dirs: pythonDirs, keep: ofKind(templateLang)},
-	"yaml":              {what: "YAML files", published: true, absolute: true, dirs: shellDirs, keep: fileUnder("", func(b string) bool { return path.Ext(b) == ".yml" || path.Ext(b) == ".yaml" })},
-	"markdown":          {what: "Markdown files", published: true, absolute: true, mayBeEmpty: true, dirs: shellDirs, keep: fileUnder("", func(b string) bool { return path.Ext(b) == ".md" })},
-	"js":                {what: "JavaScript files", published: true, absolute: true, dirs: shellDirs, keep: scriptFile},
-	"tracked-files":     {what: "tracked files", keep: func(finder, string) (bool, error) { return true, nil }},
-	"tracked-shell":     {what: "tracked shell scripts", dirs: shellDirs, keep: ofKind(shellLang)},
-	"tracked-python":    {what: "tracked Python files", dirs: pythonDirs, keep: ofKind(pythonLang)},
-	"tracked-playbooks": {what: "tracked playbooks", keep: fileUnder("playbooks/", func(b string) bool { return path.Ext(b) == ".yml" || path.Ext(b) == ".yaml" })},
-	"tracked-helper-tests": {what: "tracked helper test modules", keep: fileUnder("tests/helpers/", func(b string) bool {
-		return strings.HasPrefix(b, "test_") && path.Ext(b) == ".py"
-	})},
+	"shell":                {what: "shell scripts", published: true, absolute: true, dirs: shellDirs, keep: ofKind(shellLang)},
+	"python":               {what: "Python files", published: true, absolute: true, dirs: pythonDirs, keep: ofKind(pythonLang)},
+	"python-templates":     {what: "Python templates", published: true, absolute: true, mayBeEmpty: true, dirs: pythonDirs, keep: ofKind(templateLang)},
+	"yaml":                 {what: "YAML files", published: true, absolute: true, dirs: shellDirs, keep: fileUnder("", func(b string) bool { return path.Ext(b) == ".yml" || path.Ext(b) == ".yaml" })},
+	"markdown":             {what: "Markdown files", published: true, absolute: true, mayBeEmpty: true, dirs: shellDirs, keep: fileUnder("", func(b string) bool { return path.Ext(b) == ".md" })},
+	"js":                   {what: "JavaScript files", published: true, absolute: true, dirs: shellDirs, keep: scriptFile},
+	"tracked-files":        {what: "tracked files", keep: func(finder, string) (bool, error) { return true, nil }},
+	"tracked-shell":        {what: "tracked shell scripts", dirs: shellDirs, keep: ofKind(shellLang)},
+	"tracked-python":       {what: "tracked Python files", dirs: pythonDirs, keep: ofKind(pythonLang)},
+	"tracked-playbooks":    {what: "tracked playbooks", keep: fileUnder("playbooks/", func(b string) bool { return path.Ext(b) == ".yml" || path.Ext(b) == ".yaml" })},
+	"tracked-helper-tests": {what: "tracked helper test modules", keep: fileUnder("tests/helpers/", isTestModule)},
+	"tracked-plan-tests": {what: "tracked plan test modules", mayBeEmpty: true, keep: func(f finder, rel string) (bool, error) {
+		if !IsPlanTest(rel) {
+			return false, nil
+		}
+		return f.regular(rel, true)
+	}},
+}
+
+// planDir holds the plan folders, relative to the root.
+const planDir = "CLAUDE/Plan"
+
+// ActivePlan is the name of an active plan folder: digits, a dash and more. Completed/ (frozen
+// history) and the plan tooling at the top of CLAUDE/Plan do not match.
+var ActivePlan = regexp.MustCompile(`^[0-9]+-.`)
+
+// IsPlanTest is whether a repository-relative path names a plan folder's own test module: a
+// test_*.py anywhere under an active plan folder.
+func IsPlanTest(rel string) bool {
+	rest, under := strings.CutPrefix(rel, planDir+"/")
+	if !under {
+		return false
+	}
+	folder, inside, nested := strings.Cut(rest, "/")
+	if !nested || !ActivePlan.MatchString(folder) {
+		return false
+	}
+	return isTestModule(path.Base(inside))
+}
+
+// isTestModule is whether a base name is a unittest module's: test_*.py.
+func isTestModule(base string) bool {
+	return strings.HasPrefix(base, "test_") && path.Ext(base) == ".py"
 }
 
 // Main runs the command and returns the exit status.
