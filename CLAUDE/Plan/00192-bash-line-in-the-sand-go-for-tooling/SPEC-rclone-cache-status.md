@@ -41,7 +41,8 @@ it and stays bash for now. It had no test suite, so no suite was converted.
   no `numfmt`).
 - **D3. One seam for processes.** Everything runs through `internal/execx`; the RC call through
   `rclonerc.Client.Call`, which keeps the password out of argv. `rclonerc` gains the lookup of
-  the mount process serving a mountpoint (`MountProcess`), which `AddrForMount` now shares.
+  the mount process serving a mountpoint, which `AddrForMount` now shares (since the rclone-tail
+  port, `rclonerc.Client.Mounts`, `Mount.RCAddr` and `Client.Ask`, shared by both reports).
 - **D4. A report, not a gate.** A mount whose RC cannot be asked is a line of the report, and
   the run still exits 0 (the callers bracket their own runs with it, under `set -e`). A failure
   that makes the report itself wrong (the mount list cannot be read, the directory asked about
@@ -64,7 +65,7 @@ it and stays bash for now. It had no test suite, so no suite was converted.
 
 - E4. A TARGET that is an existing directory (symlinks followed) is a query path, made absolute
   and symlink-free. Any other TARGET is a mount name: the report is filtered to the mounts whose
-  name is TARGET.
+  name is TARGET. With `--no-dir` a TARGET is always a mount name (B12).
 - E5. No TARGET and no `--no-dir`: when the working directory (symlink-free) is inside an
   rclone mount, it is the query path; otherwise the report covers every mount.
 - E6. A query path is inside a mount when it is the mount's target or below it. With nested
@@ -80,7 +81,7 @@ it and stays bash for now. It had no test suite, so no suite was converted.
 - E8. A mount's name is its SOURCE up to the first `:`; its remote path is the rest, without a
   leading `/`.
 - E9. A mount's process is the first `rclone mount` process, in pid order, one of whose
-  arguments after the program is exactly the mount's TARGET (`rclonerc.MountProcess`). Its RC
+  arguments after the program is exactly the mount's TARGET (`rclonerc.Client.Mounts`). Its RC
   address is the value of its one `--rc-addr=` argument; its cache directory the value of its
   first `--cache-dir=` argument, else `$HOME/.cache/rclone`. No process, or no `--rc-addr=`,
   is a mount with no RC. More than one `--rc-addr=` is an error line for the mount (E12).
@@ -147,15 +148,14 @@ the default cache directory, and the 80% (yellow) and 95% (red) usage colours.
 
 ## 4a. Callers
 
-Both callers run under `set -euo pipefail`, so the command's exit status reaches them.
-`rclone-tail` snapshots at its start and in its Ctrl-C handler; it passes `--no-dir` (with its
-mount filter when it has one), so the snapshot is the mount summary, and E19's exit 1 for an
-incomplete directory walk cannot end it when it is started inside a mount. `rclone-cache-warm`
+`rclone-tail` is Go now ([SPEC-rclone-tail.md](SPEC-rclone-tail.md) D2): it runs this report in
+process, `--no-dir` with its mount name when it has one, so the snapshot is the mount summary
+and never a directory walk (B12), and its own tests pin that. `rclone-cache-warm` runs under
+`set -euo pipefail`, so the command's exit status reaches it. It
 passes the mount's name, so it gets that mount's summary line. A stated limit: a directory of
 that same name in its working directory would be read as a directory target (E4), as the bash
-read it. `TestRcloneTailNeverWalksADirectory` and `TestRcloneCacheWarmNamesTheMount`
-(`internal/rclonecache/callers_test.go`) read both scripts and pin these calls; a change to
-either script runs the Go gate (`scripts/qa-routing.tsv`).
+read it. `TestRcloneCacheWarmNamesTheMount` (`internal/rclonecache/callers_test.go`) reads the
+script and pins that call; a change to it runs the Go gate (`scripts/qa-routing.tsv`).
 
 ## 5. Departures from the bash
 
@@ -184,6 +184,10 @@ either script runs the Go gate (`scripts/qa-routing.tsv`).
   under `pipefail`, and the run ended with status 1 after the heading (found side by side).
 - B11. A bare `-` is a TARGET (a mount name, or a directory called `-`), not an unknown option
   (the bash: `ERROR: unknown option: -`, exit 2).
+- B12. With `--no-dir` a TARGET is a mount name even when a directory of that name is in the
+  working directory (added with the rclone-tail port: `rclone-tail lib` run from a directory
+  holding `lib/`, the mount itself, would otherwise have walked the whole mount for its
+  snapshot; `TestNoDirTargetIsAName`).
 
 ## 6. Proof
 

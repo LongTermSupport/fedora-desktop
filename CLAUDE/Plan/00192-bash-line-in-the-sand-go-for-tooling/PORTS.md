@@ -354,3 +354,21 @@ allowlisted; the ccy binaries do not import it), and `execx` gains `Secret.Renam
 (B15). `scripts/test-run-bash-gh-scopes.bash` drives the built command over its stubs; the bash
 and its allowlist row are gone. Host checks H1-H5 are the owner's, by hand (H4 in the VM lab).
 Review rounds (Opus, adversarial): see the journal.
+`rclone-tail` (P6, the fourth tool; chosen in its spec's section 1: a user tool of moderate
+size that changes nothing, with the `assoc` and `data` flags, and the sibling of
+`rclone-cache-status`) ported and cut over on `go-port/rclone-tail`, not merged; spec
+[SPEC-rclone-tail.md](SPEC-rclone-tail.md) (D1-D5, E1-E17, B1-B11, H1-H4),
+`src-go/cmd/rclone-tail` and `src-go/internal/rclonetail` (a tick per interval on `Env.Now`
+and `Env.After`, SIGINT and SIGTERM through `Env.OnStop`, the cache snapshot
+`rclonecache.App` run in process). What the two rclone reports share moved into `rclonerc`
+once: `Client.Mounts`, `Mount.RCAddr`, `Client.Ask` with `RCError`, and `Counter`;
+`rclonecache` runs on them with its tests unchanged, and `MountProcess` is gone. The snapshot
+found a fault in `rclone-cache-status`: with `--no-dir` a TARGET naming a directory in the
+working directory was still walked, so `rclone-tail lib` run beside `lib/` would have walked the
+whole mount; `--no-dir` now makes a TARGET a name (SPEC-rclone-cache-status B12).
+`play-rclone.yml` builds it (tags `rclone` and `rclone-tail`, the second leaving the mounts up);
+the bash, its allowlist row and the caller test that read it are gone (it had no suite). Side by
+side with the bash over a fake `findmnt` and `rclone` and fake mount processes: identical ticks,
+streams and closing snapshots; the differences are departures B1, B2 and B5. Host run
+`deploy-rclone-tail.bash` (the tagged play, then `acceptance-rclone-tail.bash` for H1) is
+pending; H2-H4 are the owner's, by hand.

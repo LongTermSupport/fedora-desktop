@@ -5,10 +5,8 @@
 package rclonecache
 
 import (
-	"bytes"
 	"context"
 	_ "embed"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -191,13 +189,14 @@ func noMountText(filter string) string {
 	return "  No rclone mounts found."
 }
 
-// subject is the query path or the mount name filter (E4, E5).
+// subject is the query path or the mount name filter (E4, E5). With --no-dir there is no query
+// path, so a TARGET is a name.
 func (r *run) subject(opts options) (string, string, error) {
+	if opts.noDir {
+		return "", opts.target, nil
+	}
 	if opts.hasTarget {
 		return r.targetSubject(opts.target)
-	}
-	if opts.noDir {
-		return "", "", nil
 	}
 	cwd, err := r.env.Getwd()
 	if err != nil {
@@ -252,45 +251,18 @@ func containing(mounts []mount, path string) *mount {
 // listMounts is findmnt's rclone mounts, each with its process's RC address and cache
 // directory (E7-E9).
 func (r *run) listMounts(ctx context.Context) ([]mount, error) {
-	res, err := r.env.Runner.Run(ctx, execx.Cmd{
-		Name: "findmnt", Args: []string{"-J", "-l", "-o", "SOURCE,TARGET", "-t", "fuse.rclone"},
-	})
-	var exitErr *execx.ExitError
-	if errors.As(err, &exitErr) && exitErr.Code == 1 && len(bytes.TrimSpace(res.Stdout)) == 0 {
-		return nil, nil
-	}
+	found, err := r.rc.Mounts(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("findmnt could not list the rclone mounts: %w", err)
+		return nil, err
 	}
-	var listing struct {
-		Filesystems []struct {
-			Source string `json:"source"`
-			Target string `json:"target"`
-		} `json:"filesystems"`
-	}
-	if err := json.Unmarshal(res.Stdout, &listing); err != nil {
-		return nil, fmt.Errorf("findmnt could not list the rclone mounts: %w", err)
-	}
-	mounts := make([]mount, 0, len(listing.Filesystems))
-	for _, fsys := range listing.Filesystems {
-		parts := strings.SplitN(fsys.Source, ":", 2)
-		m := mount{name: parts[0], target: fsys.Target}
-		if len(parts) == 2 {
-			m.remotePath = strings.TrimPrefix(parts[1], "/")
-		}
-		args, err := r.rc.MountProcess(fsys.Target)
-		if err != nil {
-			return nil, err
-		}
-		switch addrs := rclonerc.FlagValues(args, "--rc-addr"); len(addrs) {
-		case 0:
-		case 1:
-			m.rcAddr = addrs[0]
-		default:
-			m.rcErr = "more than one --rc-addr: " + strings.Join(addrs, " ")
+	mounts := make([]mount, 0, len(found))
+	for _, f := range found {
+		m := mount{name: f.Name, remotePath: f.RemotePath, target: f.Target}
+		if m.rcAddr, err = f.RCAddr(); err != nil {
+			m.rcErr = err.Error()
 		}
 		m.cacheDir = filepath.Join(r.env.Getenv("HOME"), ".cache", "rclone")
-		if dirs := rclonerc.FlagValues(args, "--cache-dir"); len(dirs) > 0 {
+		if dirs := rclonerc.FlagValues(f.Args, "--cache-dir"); len(dirs) > 0 {
 			m.cacheDir = dirs[0]
 		}
 		mounts = append(mounts, m)
@@ -342,23 +314,16 @@ func (r *run) query(ctx context.Context, m mount) (stats, string) {
 	if m.rcErr != "" {
 		return stats{}, m.rcErr
 	}
-	if _, _, err := r.rc.Credential(); err != nil {
-		r.diagf("%s: %v", m.name, err)
-		return stats{}, "rc credential missing — run play-rclone.yml"
-	}
-	res, err := r.rc.Call(ctx, m.rcAddr, "vfs/stats")
+	out, err := r.rc.Ask(ctx, m.rcAddr, "vfs/stats")
 	if err != nil {
-		out := strings.TrimSpace(string(res.Stdout) + string(res.Stderr))
-		if out == "" {
-			out = err.Error()
+		var rcErr *rclonerc.RCError
+		if !errors.As(err, &rcErr) {
+			rcErr = &rclonerc.RCError{Reason: "rc unreachable", Detail: err.Error()}
 		}
-		r.diagf("%s: %s", m.name, out)
-		if strings.Contains(out, "401") || strings.Contains(out, "Unauthorized") {
-			return stats{}, "rc rejected credentials (401)"
-		}
-		return stats{}, "rc unreachable"
+		r.diagf("%s: %s", m.name, rcErr.Detail)
+		return stats{}, rcErr.Reason
 	}
-	s, err := parseStats(res.Stdout)
+	s, err := parseStats(out)
 	if err != nil {
 		r.diagf("%s: vfs/stats: %v", m.name, err)
 		return stats{}, "parse failed"
