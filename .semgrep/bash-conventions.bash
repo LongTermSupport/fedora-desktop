@@ -236,3 +236,46 @@ some_cmd || grep -q 'needle' file
 
 # ok: pipe-into-grep-q-under-pipefail
 some_cmd | grep -q 'needle'  # FAIL-FAST-OK: a one-line producer cannot be killed
+
+# --- ccy-session-container-default-pids-limit ---
+
+# ruleid: ccy-session-container-default-pids-limit
+podman run -it --rm --name "$NAME" --label ccy=true "$IMAGE" claude
+
+# ruleid: ccy-session-container-default-pids-limit
+CLAUDE_CODE_OAUTH_TOKEN="$T" ccy_agent_container run $DOCKER_FLAGS --rm \
+    --name "$CONTAINER_NAME" \
+    --label ccy=true \
+    --label "ccy-project=$PROJECT_NAME" \
+    "$IMAGE_NAME" \
+    "${CCY_AGENT_CMD[@]}" || container_rc=$?
+
+# ruleid: ccy-session-container-default-pids-limit
+"$CONTAINER_ENGINE" run -d --label=ccy=true "$IMAGE"
+
+# ruleid: ccy-session-container-default-pids-limit
+${ENGINE} create --label 'ccy=true' "$IMAGE"
+
+# ruleid: ccy-session-container-default-pids-limit
+exec docker container run -it --label ccy=true \
+    "$IMAGE"
+
+# ok: ccy-session-container-default-pids-limit
+CLAUDE_CODE_OAUTH_TOKEN="$T" ccy_agent_container run $DOCKER_FLAGS --rm --pids-limit "$CCY_PIDS_LIMIT" \
+    --name "$CONTAINER_NAME" \
+    --label ccy=true \
+    "$IMAGE_NAME" || container_rc=$?
+
+# ok: ccy-session-container-default-pids-limit
+podman run -it --rm --label ccy=true \
+    --pids-limit=16384 "$IMAGE"
+
+# ok: ccy-session-container-default-pids-limit
+podman run --rm --entrypoint claude "$IMAGE" --version
+
+# ok: ccy-session-container-default-pids-limit
+podman ps --filter label=ccy=true --format '{{.Names}}'
+
+# ok: ccy-session-container-default-pids-limit
+podman run --rm "$IMAGE" true
+echo "--label ccy=true is what marks a session"
