@@ -1,7 +1,8 @@
 // Command qa-speech-to-text-rules is the gate for the rules in .semgrep/speech-to-text.yml: a
-// model judged present without its weights, a dropdown label that explains itself, and a test
-// whose pass hangs on a wall-clock margin too tight for a loaded host. It is a QA tool, not
-// deployed anywhere; scripts/qa-speech-to-text-rules.bash builds and runs it.
+// model judged present without its weights, a dropdown label that explains itself, a test whose
+// pass hangs on a wall-clock margin too tight for a loaded host, and a job's end published before
+// its cleanup. It is a QA tool, not deployed anywhere; scripts/qa-speech-to-text-rules.bash builds
+// and runs it.
 package main
 
 import (

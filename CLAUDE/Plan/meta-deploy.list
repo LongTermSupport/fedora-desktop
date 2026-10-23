@@ -32,3 +32,12 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+# play-speech-to-text.yml, the whole play (a speech-to-text ordering fix, no plan owns it): it
+# installs the new wsi-stream-server, which publishes a job's end only after the cleanup a
+# reader relies on. A file job records its activity before it says done; an abort stops the
+# microphone and deletes the session folder before it says aborted (and stays aborted if the
+# delete fails, so discarded text is never handed over); a failure stops the microphone before
+# it says failed. Nothing a user sees changes in normal dictation. A server already running keeps
+# the old code until it next starts. Check after: dictate a short phrase as usual and it is
+# typed.
+playbooks/imports/optional/common/play-speech-to-text.yml

@@ -203,6 +203,45 @@ class StopTest(SessionCase):
         self.assertTrue(self.wait_until(self.mic_stopped))
         self.assertFalse(session_dir.exists(), "an aborted dictation left its text behind")
 
+    def test_abort_closes_the_microphone_and_removes_the_directory_before_it_says_aborted(self):
+        # The order, not a timing: whoever reads "aborted" (busy() is False from then on,
+        # once no segment is in the model)
+        # must find the microphone signalled and the text gone.
+        s = self.start()
+        self.mic_capturing()
+        seen = []
+        kill, rmtree = s._proc.kill, server.shutil.rmtree
+
+        def recording_kill():
+            seen.append(("kill", s.state))
+            kill()
+
+        def recording_rmtree(path):
+            seen.append(("rmtree", s.state))
+            rmtree(path)
+
+        s._proc.kill = recording_kill
+        with mock.patch.object(server.shutil, "rmtree", recording_rmtree):
+            s.abort()
+        self.assertEqual(s.progress()["status"], "aborted")
+        self.assertEqual(seen, [("kill", "recording"), ("rmtree", "recording")],
+                         "the session said aborted before its cleanup was done")
+
+    def test_abort_whose_directory_cannot_be_removed_still_aborts_and_owes_nothing(self):
+        # Left "recording", the capture thread would fail the session at pw-record's death,
+        # and a failed session hands its text over: the text Escape discarded.
+        s = self.start()
+        self.mic_capturing()
+
+        def unremovable(path):
+            raise PermissionError(f"cannot remove {path}")
+
+        with mock.patch.object(server.shutil, "rmtree", unremovable), \
+                self.assertRaises(PermissionError):
+            s.abort()
+        self.assertEqual(s.progress()["status"], "aborted")
+        self.assertFalse(s.owes_text(), "an aborted dictation must never be handed over")
+
     def test_the_session_directory_is_private(self):
         s = self.start()
         mode = pathlib.Path(s.progress()["session_dir"]).stat().st_mode & 0o777
@@ -285,6 +324,24 @@ class FailureTest(SessionCase):
             self.assertGreater(w.getnframes(), 0)
         self.assertIsNone(s.stop("stop requested"), "STOP after a failure changes nothing")
         self.assertEqual(s.progress()["status"], "failed")
+
+    def test_a_failure_signals_the_microphone_before_it_says_failed(self):
+        # The order, not a timing: busy() is False from "failed" on (no segment being in the
+        # model here), so a START may follow,
+        # and it must find the old microphone already told to close.
+        s = self.start()
+        self.mic_capturing()
+        seen = []
+        terminate = s._proc.terminate
+
+        def recording_terminate():
+            seen.append(s.state)
+            terminate()
+
+        s._proc.terminate = recording_terminate
+        s.fail("a test failure")
+        self.assert_failed(s.progress(), "a test failure")
+        self.assertEqual(seen, ["recording"], "the session said failed before its microphone was signalled")
 
     def test_the_microphone_dying_fails_the_session(self):
         # 1 s, ten times the 0.1 s start() waits before checking the microphone opened: a

@@ -85,7 +85,7 @@ var checkDefs = []checkDef{
 	{id: "hidden-bindings", fixed: "whole gate (no action reachable only by a key)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolPython}, run: runHiddenBindings},
 	{id: "lxc-attach-streams", fixed: "whole gate (no command reaching lxc-attach has a standard stream on a file)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runLxcAttachStreams},
 	{id: "plan-script-logging", fixed: "whole gate (no active plan script uses the un-waitable run-log pattern; no plan-local logs/ dir)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runPlanScriptLogging},
-	{id: "stt-rules", fixed: "whole gate (no model judged present without its weights, no dropdown label that explains itself)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runSttRules},
+	{id: "stt-rules", fixed: "whole gate (no model judged present without its weights, no dropdown label that explains itself, no job end published before its cleanup)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runSttRules},
 	{id: "version-pins", fixed: "whole gate (the version-pin manifest is well formed and every pin still resolves to a declared var)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runVersionPins},
 	{id: "go-deps", fixed: "whole gate (src-go's dependencies allowlisted, pinned and vendored in step)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runGoDeps},
 	{id: "go-vuln", fixed: "whole gate (govulncheck finds no vulnerability src-go reaches)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runGoVuln},
