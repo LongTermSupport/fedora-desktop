@@ -95,3 +95,114 @@ rules:
     severity: ERROR
     metadata:
       dbf-class: a dropdown option label that carries explanation instead of a short name
+
+  # Rule: a finished state is published only once the cleanup it implies is done (Defence
+  # Before Fix; CLAUDE/QA.md "completion-published-before-cleanup").
+  #
+  # Another thread reads a job's state (FILE_PROGRESS, STATUS, busy(), an Event wait) to learn
+  # it has ended. Cleanup run after that state is set is still pending when the reader acts:
+  # the reader sees "done" and the marker that says the job runs, or starts the next job and
+  # has its marker deleted by the old job's late cleanup. wsi-stream-server's file job set
+  # "done" before deleting its marker, and a test that checked the marker after "done" failed
+  # one run in seven.
+  #
+  # WRONG: with self._lock: self._state = state
+  #        MARKER.unlink(missing_ok=True)
+  # RIGHT: MARKER.unlink(missing_ok=True)
+  #        with self._lock: self._state = state
+  #
+  # Published: an assignment to an attribute named state or status (alone or in a tuple),
+  # inside a `with` block or not, or `.set()` on an Event named for an ending (finished,
+  # done, complete, ended, exited). Cleanup after it in the same function: a path removed
+  # (unlink, rmdir, os.remove, os.unlink, os.rmdir, shutil.rmtree), a process signalled
+  # (terminate, kill), or an update_*() call. A stop REQUEST (an Event named stop) is not a
+  # completion.
+  - id: completion-published-before-cleanup
+    languages: [python]
+    patterns:
+      - pattern-inside: |
+          def $F(...):
+            ...
+      - pattern-either:
+          - patterns:
+              - pattern-either:
+                  - patterns:
+                      - pattern-inside: |
+                          with $L:
+                            ...
+                            $X.$S = $V
+                            ...
+                          ...
+                      - pattern-not-inside: |
+                          with $L:
+                            ...
+                            $X.$S = $V
+                            ...
+                      - pattern: $CLEAN
+                  - patterns:
+                      - pattern-inside: |
+                          with $L:
+                            ...
+                            $X.$S, $Y = $V
+                            ...
+                          ...
+                      - pattern-not-inside: |
+                          with $L:
+                            ...
+                            $X.$S, $Y = $V
+                            ...
+                      - pattern: $CLEAN
+                  - patterns:
+                      - pattern-inside: |
+                          with $L:
+                            ...
+                            $Y, $X.$S = $V
+                            ...
+                          ...
+                      - pattern-not-inside: |
+                          with $L:
+                            ...
+                            $Y, $X.$S = $V
+                            ...
+                      - pattern: $CLEAN
+                  - pattern-inside: |
+                      $X.$S = $V
+                      ...
+                  - pattern-inside: |
+                      $X.$S, $Y = $V
+                      ...
+                  - pattern-inside: |
+                      $Y, $X.$S = $V
+                      ...
+              - metavariable-regex:
+                  metavariable: $S
+                  regex: '^_?(state|status)$'
+          - patterns:
+              - pattern-inside: |
+                  $E.set()
+                  ...
+              - metavariable-regex:
+                  metavariable: $E
+                  regex: '(?i).*(finish|done|complete|ended|exited)\w*$'
+      - pattern-either:
+          - pattern: $P.unlink(...)
+          - pattern: $P.rmdir(...)
+          - pattern: os.unlink(...)
+          - pattern: os.remove(...)
+          - pattern: os.rmdir(...)
+          - pattern: shutil.rmtree(...)
+          - pattern: $P.terminate()
+          - pattern: $P.kill()
+          - patterns:
+              - pattern: $FN(...)
+              - metavariable-regex:
+                  metavariable: $FN
+                  regex: '^update_\w+$'
+    message: >
+      completion-published-before-cleanup: this cleanup runs after the state that tells
+      another thread the job has ended, so that thread can act on what is not yet cleaned
+      up. Clean up first, then publish the state. See CLAUDE/QA.md
+      "completion-published-before-cleanup".
+    severity: ERROR
+    metadata:
+      dbf-class: a job's end published before the cleanup a reader of that end relies on
