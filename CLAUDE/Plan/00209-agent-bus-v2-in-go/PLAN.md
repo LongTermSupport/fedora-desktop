@@ -379,6 +379,15 @@ its first caller.
     (`subagent-reports/261022-n3a-review*.md`): FIX-FIRST, FIX-FIRST, MERGE. Report and the
     design-text fixes it proposes: `subagent-reports/261022-n3a.md`. n3b to n3f are left.
 
+  - **n3d in review** on `feat/bus-v2-n3d` (the sends, the outbox and its recovery, TIMEOUTs,
+    the forge check; rows n3d-D1 to D31): Opus reviews A and B (`261022-n3d-review-A.md`,
+    `-B.md`), both fixed (`261022-n3d-fixa.md`, `-fixb.md`) and checked
+    (`261023-n3d-narrow.md`); the qa-reviewer's findings (`261023-n3d-qa-review.md`) are being
+    fixed. The store's `Version` is not raised for n3d's new keys: a store written by n3c or an
+    earlier n3d part is refused whole rather than migrated, because no such store exists outside
+    tests (review A n3; GATE A means none is deployed). Found here and fixed on
+    `feat/bus-v2-n3-guestreg`: `guest`'s `TestRegister` could not run twice (`-count=2`).
+
 - [ ] ⬜ **Task 3.3**: LXC members: guest operations (B 2.13), LXC apply from the host (C 3.9),
   `teamchat-session-<user>.service`; the container's own config stays with its own play (seam 52).
   **Gate A** (Task 0.5): its play tasks and units merge to F44 only after the owner's
