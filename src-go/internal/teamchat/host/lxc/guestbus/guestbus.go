@@ -28,6 +28,7 @@ import (
 
 	"github.com/godbus/dbus/v5"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
@@ -126,13 +127,13 @@ func (p peer) Close() error {
 }
 
 // New is the Systemd over a Conn. Every unit is in paths.SessionUnit's form; there is no other.
-func New(c Conn) Systemd { return newSystemd(c, CallWait) }
+func New(c Conn) Systemd { return newSystemd(c, clock.System()) }
 
-func newSystemd(c Conn, wait time.Duration) Systemd { return systemd{c, wait} }
+func newSystemd(c Conn, clk clock.Clock) Systemd { return systemd{c, clk} }
 
 type systemd struct {
-	c    Conn
-	wait time.Duration
+	c     Conn
+	clock clock.Clock // what CallWait is measured on
 }
 
 func (s systemd) Reload(ctx context.Context) error {
@@ -176,9 +177,16 @@ func (s systemd) call(ctx context.Context, method, unit string, job bool) error 
 	if job {
 		args = append(args, jobMode)
 	}
-	ctx, cancel := context.WithTimeout(ctx, s.wait)
-	defer cancel()
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	stop := s.clock.AfterFunc(CallWait, func() {
+		cancel(fmt.Errorf("%w: no reply within %v", context.DeadlineExceeded, CallWait))
+	})
+	defer stop()
 	body, err := s.c.Call(ctx, managerPath, manager+"."+method, args...)
+	if err != nil && ctx.Err() != nil {
+		err = context.Cause(ctx)
+	}
 	if err != nil {
 		return fmt.Errorf("guest systemd %s: %w", what, classify(err))
 	}

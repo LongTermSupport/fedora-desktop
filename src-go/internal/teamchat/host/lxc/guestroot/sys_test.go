@@ -46,6 +46,8 @@ type recorder struct {
 	// stallPath, when set, makes an openat2 of it wait until stall is closed: a stalled mount.
 	stallPath string
 	stall     chan struct{}
+	// inStall, when set, is sent each time a call reaches the stall, before it waits there.
+	inStall chan struct{}
 	// closes, when set, is sent each descriptor closed.
 	closes chan int
 }
@@ -129,10 +131,13 @@ func (r *recorder) openat2(dirfd int, path string, how *unix.OpenHow) (int, erro
 		return -1, err
 	}
 	r.mu.Lock()
-	stall := r.stall
+	stall, inStall := r.stall, r.inStall
 	stalled := r.stallPath != "" && r.stallPath == path
 	r.mu.Unlock()
 	if stalled {
+		if inStall != nil {
+			inStall <- struct{}{}
+		}
 		<-stall
 	}
 	fd, err := unrecorded(openAgain, func() (int, error) { return r.real.openat2(dirfd, path, how) })

@@ -260,17 +260,20 @@ func presenceCycle(ctx context.Context, t *testing.T, member, observer *Client, 
 }
 
 // presenceTimers polls the presence of a member that has stopped syncing until it is offline,
-// and checks it went through unavailable and took no longer than the timers allow.
+// and checks it went through unavailable and took no longer than the timers allow. A ticker
+// drops ticks it cannot deliver, so the ticks counted times their period is at most the time
+// that passed: enough of them prove offline came no sooner than the timers allow.
 func presenceTimers(ctx context.Context, t *testing.T, observer *Client, uid string) {
 	t.Helper()
+	const period = 250 * time.Millisecond
 	limit := time.Duration(presenceIdleS+presenceOfflineS+10) * time.Second
 	over := time.NewTimer(limit)
 	defer over.Stop()
-	early := time.NewTimer(time.Duration(presenceIdleS+presenceOfflineS-1) * time.Second)
-	defer early.Stop()
+	soonest := time.Duration(presenceIdleS+presenceOfflineS-1) * time.Second
 	seen := []string{"online"}
-	tick := time.NewTicker(250 * time.Millisecond)
+	tick := time.NewTicker(period)
 	defer tick.Stop()
+	ticks := 0
 	for seen[len(seen)-1] != "offline" {
 		select {
 		case <-ctx.Done():
@@ -278,6 +281,7 @@ func presenceTimers(ctx context.Context, t *testing.T, observer *Client, uid str
 		case <-over.C:
 			t.Fatalf("presence %v, want offline within %v", seen, limit)
 		case <-tick.C:
+			ticks++
 		}
 		if now := presenceOf(ctx, t, observer, uid); now != seen[len(seen)-1] {
 			seen = append(seen, now)
@@ -286,10 +290,8 @@ func presenceTimers(ctx context.Context, t *testing.T, observer *Client, uid str
 	if !slices.Equal(seen, []string{"online", "unavailable", "offline"}) {
 		t.Fatalf("presence went %v, want online, unavailable, offline", seen)
 	}
-	select {
-	case <-early.C:
-	default:
-		t.Fatalf("offline before the timers (%d s and %d s) could fire", presenceIdleS, presenceOfflineS)
+	if time.Duration(ticks)*period < soonest {
+		t.Fatalf("offline after %d ticks of %v, before the timers (%d s and %d s) could fire", ticks, period, presenceIdleS, presenceOfflineS)
 	}
 }
 

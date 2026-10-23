@@ -10,8 +10,11 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/engine"
@@ -259,32 +262,45 @@ func TestCloseEndsABlockedWaitAtOnce(t *testing.T) {
 
 // N3: close cancels a request only once its connection is closed, so the client sees the link
 // gone (a wait retries across the restart), never the cancel's answer (exit 4 before its
-// deadline).
+// deadline). The engine looks at the client's end as the cancel reaches it.
 func TestCloseClosesTheConnectionBeforeTheCancel(t *testing.T) {
 	w := newServerWorld(t)
-	cancelled := make(chan struct{})
+	var client atomic.Pointer[net.UnixConn]
+	closedFirst := make(chan bool, 1)
 	w.eng.block = true
-	w.eng.cancelled = func() { close(cancelled) }
+	w.eng.cancelled = func() { closedFirst <- peerClosed(client.Load()) }
 	c := w.dial(t)
+	client.Store(c)
 	_, err := c.Write(w.request(t, wire.OpWait, time.Hour))
 	check(t, err)
 	until(t, func() bool { return w.eng.requests() == 1 })
-	// Holding the server's lock holds close before it closes the connections: no cancel may
-	// come while it is held.
-	w.srv.mu.Lock()
-	closed := make(chan error, 1)
-	go func() { closed <- w.srv.close() }()
-	select {
-	case <-cancelled:
-		w.srv.mu.Unlock()
+	check(t, w.srv.close())
+	if !<-closedFirst {
 		t.Fatal("the request was cancelled before its connection was closed")
-	case <-time.After(100 * time.Millisecond):
 	}
-	w.srv.mu.Unlock()
-	check(t, <-closed)
 	if lines := readAll(t, c); lines != nil {
 		t.Fatalf("the client was answered %q", lines)
 	}
+}
+
+// peerClosed is whether c's peer has closed its end: a peek that reads the end of the stream at
+// once, where an open end with nothing sent would block.
+func peerClosed(c *net.UnixConn) bool {
+	raw, err := c.SyscallConn()
+	if err != nil {
+		return false
+	}
+	var (
+		n    int
+		peek error
+	)
+	if err := raw.Read(func(fd uintptr) bool {
+		n, _, peek = unix.Recvfrom(int(fd), make([]byte, 1), unix.MSG_PEEK|unix.MSG_DONTWAIT)
+		return true
+	}); err != nil {
+		return false
+	}
+	return n == 0 && peek == nil
 }
 
 func TestASilentClientIsClosed(t *testing.T) {
