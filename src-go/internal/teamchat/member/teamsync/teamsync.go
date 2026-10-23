@@ -100,12 +100,13 @@ type Team struct {
 	persistSaid bool
 	backStarted bool
 	markerSaid  bool
-	// sendsRecovered is the restarted link's sends recovered, once per team goroutine (n3d-D4).
-	sendsRecovered bool
-	pendingSaid    map[string]bool
-	unheard        *bounded[struct{}]
-	flood          proto.Window
-	freeze         freezeDetector
+	// recoveredPair is the pair the sends were last recovered under, nil before the first: a
+	// session under another pair recovers them again (n3d-D4).
+	recoveredPair *bundle.Pair
+	pendingSaid   map[string]bool
+	unheard       *bounded[struct{}]
+	flood         proto.Window
+	freeze        freezeDetector
 
 	// Test seams.
 	onPoll   func(since string)

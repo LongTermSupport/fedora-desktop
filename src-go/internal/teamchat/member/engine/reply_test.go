@@ -10,6 +10,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/records"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/wire"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
@@ -281,4 +282,17 @@ func (f *fakeTeam) setRefetchErr(err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.refetchErr = err
+}
+
+// SD1-7 (review A m4): a reply to an unknown id on a stopped team is the team's stop, as a say
+// is, and nothing is fetched through it.
+func TestSD1_7AReplyToAStoppedTeamIsItsStop(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	f := w.sending(ops)
+	w.e.SetHealth(ops, team.Health{Stopped: exits.CodeUntrusted})
+	refusedCode(t, "a reply to a stopped team", firstOf(w.reply(wire.ReplyArgs{Team: &ops, ID: evID(99)}, new("x"))), exits.CodeUntrusted)
+	if got := f.refetchedIDs(); len(got) != 0 {
+		t.Errorf("a stopped team fetched %v", got)
+	}
 }

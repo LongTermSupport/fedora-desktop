@@ -200,7 +200,7 @@ func (e *Engine) addressed(ctx context.Context, flag *paths.TeamID, names []stri
 	if err != nil {
 		return sendTeam{}, nil, err
 	}
-	found, first, noRoster, err := resolveAll(cands, flag, names, toCoordinator)
+	found, first, unverified, err := resolveAll(cands, flag, names, toCoordinator)
 	if err != nil {
 		return sendTeam{}, nil, err
 	}
@@ -217,8 +217,9 @@ func (e *Engine) addressed(ctx context.Context, flag *paths.TeamID, names []stri
 		return sendTeam{}, nil, exits.New(exits.CodeAmbiguousMember, &f.st.id, msgAmbiguousMember, exits.Name(f.ambiguous), exits.Team(f.st.id))
 	case len(found) == 1:
 		return found[0].st, found[0].to, nil
-	case first == nil && noRoster:
-		return sendTeam{}, nil, exits.New(exits.CodeUnreachable, flag, msgNoRoster, exits.Team(cands[0].id))
+	case unverified != nil:
+		// The names may be that team's, so the agent waits for it rather than fixes them.
+		return sendTeam{}, nil, exits.New(exits.CodeUnreachable, unverified, msgNoRoster, exits.Team(*unverified))
 	case first.noCoord:
 		return sendTeam{}, nil, exits.New(exits.CodeUnknownMember, &first.st.id, msgNoCoordinator, exits.Team(first.st.id))
 	}
@@ -226,20 +227,22 @@ func (e *Engine) addressed(ctx context.Context, flag *paths.TeamID, names []stri
 }
 
 // resolveAll reads the names in every candidate: the teams that hold them all, the first that
-// does not, and whether a team was skipped for having no roster (an error with --team).
-func resolveAll(cands []sendCandidate, flag *paths.TeamID, names []string, toCoordinator bool) ([]resolution, *resolution, bool, error) {
+// does not, and the first team skipped for having no roster (an error with --team).
+func resolveAll(cands []sendCandidate, flag *paths.TeamID, names []string, toCoordinator bool) ([]resolution, *resolution, *paths.TeamID, error) {
 	var (
-		found    []resolution
-		first    *resolution
-		noRoster bool
+		found      []resolution
+		first      *resolution
+		unverified *paths.TeamID
 	)
 	for _, c := range cands {
 		r, ok := c.roster()
 		if !ok {
 			if flag != nil {
-				return nil, nil, false, exits.New(exits.CodeUnreachable, &c.id, msgNoRoster, exits.Team(c.id))
+				return nil, nil, nil, exits.New(exits.CodeUnreachable, &c.id, msgNoRoster, exits.Team(c.id))
 			}
-			noRoster = true
+			if unverified == nil {
+				unverified = &c.id
+			}
 			continue
 		}
 		res := resolve(sendTeam{id: c.id, tm: c.tm, roster: r, self: c.self, anchors: c.anchors}, names, toCoordinator)
@@ -249,7 +252,7 @@ func resolveAll(cands []sendCandidate, flag *paths.TeamID, names []string, toCoo
 			first = &res
 		}
 	}
-	return found, first, noRoster, nil
+	return found, first, unverified, nil
 }
 
 // candidates are the held teams a send may go to: the flag's, or every one.
@@ -443,9 +446,10 @@ func (e *Engine) sendable(t paths.TeamID) (storeLookup, error) {
 	return lookupOf(h), nil
 }
 
-// stoppedErr is the refusal of a team stopped permanently (SY8), nil for one that runs.
+// stoppedErr is the refusal of a team stopped permanently (SY8, or its sends' stop, SD3-8c),
+// nil for one that runs.
 func stoppedErr(h *held) error {
-	code := h.health.Stopped
+	code := h.shown().Stopped
 	switch {
 	case h.refused:
 		code = exits.CodeStore
@@ -549,7 +553,7 @@ func contentTo(content proto.Value) []string {
 // charge is step 7 on the state goroutine (SD3): the caps checked, the gate built from the store
 // and Admit run, then in one store write the gate and the entry; nothing is written on a
 // refusal. It is the channel the sender answers on, or queued true when the send waits behind
-// a down team or older sends (n3d-D19).
+// a down team, older sends or the run's recovery (n3d-D19).
 func (e *Engine) charge(st sendTeam, c proto.Composer, o proto.Outgoing, entry *state.Sending) (chan sendResult, bool, error) {
 	h := e.teams[st.id]
 	if h == nil || h.removed {
@@ -577,7 +581,7 @@ func (e *Engine) charge(st sendTeam, c proto.Composer, o proto.Outgoing, entry *
 			return false, err
 		}
 		older := len(s.Outbox.Sending) > 0
-		queuedNow = h.health.Down || older
+		queuedNow = h.health.Down || older || !h.recovered
 		entry.SinceMS = now
 		entry.Tried = h.recovered && !queuedNow
 		if err := s.AddSending(*entry); err != nil {

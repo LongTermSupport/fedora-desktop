@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"reflect"
 	"slices"
 	"sync"
 	"time"
@@ -53,11 +54,11 @@ func (t *Team) session(ctx context.Context, wg *sync.WaitGroup) error {
 	if verr := s.verify(ctx); verr != nil {
 		return verr
 	}
-	if !t.sendsRecovered {
+	if t.recoveredPair == nil || !reflect.DeepEqual(*t.recoveredPair, pair) {
 		if rerr := t.cfg.Engine.RecoverSends(ctx, t.cfg.Team, t.Notices()); rerr != nil {
 			return rerr
 		}
-		t.sendsRecovered = true
+		t.recoveredPair = &pair
 	}
 	store, err := t.cfg.Engine.Load(t.cfg.Team, s.a.Self)
 	if err != nil {

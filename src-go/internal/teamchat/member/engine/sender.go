@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,17 +22,20 @@ import (
 // a newer sync comes first (n3d-D1).
 const retryHold = 30 * time.Second
 
-// recoveryPage is how many of main's latest events a recovery reads for its tried sends; one
-// page serves every entry (n3d-D4).
-const recoveryPage = 100
+// A recovery reads main back in pages of recoveryPage events, until the last send recorded as
+// posted or at most recoveryPages pages; the read serves every tried entry (n3d-D4).
+const (
+	recoveryPage  = 100
+	recoveryPages = 5
+)
 
 const (
 	msgLoginRefused exits.Template = "team {}'s homeserver refused this member's login at the send; tell a human"
 	msgForbidden    exits.Template = "team {}'s homeserver forbids this member's send; tell a human"
 )
 
-// sendHold is why the sender waits with sends queued: it posts again once a sync newer than
-// afterSync was answered, or, after a transient failure, once its timer fired.
+// sendHold is why the sender waits with sends queued, after a transient failure: it posts again
+// once a sync newer than afterSync was answered, or once its timer fired.
 type sendHold struct {
 	afterSync int64
 	timer     <-chan time.Time
@@ -120,7 +124,7 @@ func (e *Engine) nextSend(h *held, hold *sendHold) (nextPost, int, *sendHold) {
 		}); err != nil {
 			e.logf("team %s: a send was not marked tried, so it waits: %v", h.id, err)
 			hold.release()
-			return nextPost{}, sendRetry, e.holdLocked(h, true)
+			return nextPost{}, sendRetry, e.holdLocked(h)
 		}
 		entry.Tried = true
 	}
@@ -136,9 +140,10 @@ func (e *Engine) nextSend(h *held, hold *sendHold) (nextPost, int, *sendHold) {
 }
 
 // mayPost is whether the sender posts now: the run's recovery done, a send waiting, the team
-// up and running, and no hold standing (a newer sync, or a fired timer, lifts one).
+// up and running with its sends not stopped, and no hold standing (a newer sync, or a fired
+// timer, lifts one).
 func (h *held) mayPost(hold *sendHold) bool {
-	hl := h.health
+	hl := h.shown()
 	switch {
 	case !h.recovered || h.team == nil || h.store == nil || len(h.store.Outbox.Sending) == 0:
 		return false
@@ -148,20 +153,18 @@ func (h *held) mayPost(hold *sendHold) bool {
 	return hold == nil || hold.fired || hl.LastSyncOKMS > hold.afterSync
 }
 
-// holdLocked is a hold from now: past the last sync answered, and for a transient failure
-// also retryHold; on the state goroutine, so no sync can slip between the failure and it.
-func (e *Engine) holdLocked(h *held, transient bool) *sendHold {
+// holdLocked is a hold from now: past the last sync answered, or retryHold; on the state
+// goroutine, so no sync can slip between the failure and it.
+func (e *Engine) holdLocked(h *held) *sendHold {
 	s := &sendHold{afterSync: h.health.LastSyncOKMS}
-	if transient {
-		s.timer, s.stop = e.cfg.Clock.Hold(retryHold)
-	}
+	s.timer, s.stop = e.cfg.Clock.Hold(retryHold)
 	return s
 }
 
 // hold is holdLocked for a sender off the state goroutine; nil once the engine or ctx ended.
-func (e *Engine) hold(ctx context.Context, h *held, transient bool) *sendHold {
+func (e *Engine) hold(ctx context.Context, h *held) *sendHold {
 	var s *sendHold
-	if err := e.do(ctx, func() { s = e.holdLocked(h, transient) }); err != nil {
+	if err := e.do(ctx, func() { s = e.holdLocked(h) }); err != nil {
 		return nil
 	}
 	return s
@@ -172,16 +175,36 @@ func sendingIndex(s *state.Store, txn string) int {
 }
 
 // post is one PUT of p's send by its txn, after the re-check against the current roster
-// (n3d-D27), and what follows it: the hold the sender keeps, nil for none.
+// (n3d-D27), and what follows it: the hold the sender keeps, nil for none. It holds postMu, so
+// no recovery runs meanwhile. A token other than the last recovery's is a new device, which
+// the server does not know the txn by: the tried sends are recovered under it first (n3d-D4).
 func (e *Engine) post(ctx context.Context, h *held, p nextPost) *sendHold {
+	h.postMu.Lock()
+	defer h.postMu.Unlock()
 	n := p.tm.Notices()
+	if sha256.Sum256([]byte(n.Token())) != h.recoveredUnder {
+		if err := e.recoverLocked(ctx, h, n); err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			e.logf("team %s: the token changed and the sends were not recovered under it, so they wait: %v", h.id, err)
+			return e.hold(ctx, h)
+		}
+		return nil
+	}
+	var still bool
+	if err := e.do(ctx, func() {
+		still = h.recovered && h.store != nil && sendingIndex(h.store, p.entry.Txn) >= 0
+	}); err != nil || !still {
+		return nil
+	}
 	r, ok := n.Roster()
 	switch {
 	case ok:
 	case p.cached != nil:
 		r = *p.cached
 	default:
-		return e.hold(ctx, h, true)
+		return e.hold(ctx, h)
 	}
 	if err := e.recheck(p, n.Token(), r); err != nil {
 		return e.unposted(ctx, h, p.entry, err)
@@ -199,7 +222,7 @@ func (e *Engine) post(ctx context.Context, h *held, p nextPost) *sendHold {
 	}
 	if recErr != nil {
 		e.logf("team %s: a posted send was not recorded; it is put again by its txn: %v", p.id, recErr)
-		return e.hold(ctx, h, true)
+		return e.hold(ctx, h)
 	}
 	return nil
 }
@@ -258,7 +281,7 @@ func (e *Engine) dropSend(h *held, entry state.Sending, r sendResult, why string
 		return true, nil
 	}); err != nil {
 		e.logf("team %s: an unsent send was not removed: %v", h.id, err)
-		return e.holdLocked(h, true)
+		return e.holdLocked(h)
 	}
 	e.logf("team %s: %s", h.id, why)
 	h.unsent++
@@ -276,8 +299,9 @@ func (*Engine) answer(h *held, txn string, r sendResult) {
 }
 
 // failed is a PUT that failed (SD3-8, the offline rule): a refused token or a forbidden send
-// answers and removes only the sends an op waits on, the queued ones kept until the team runs
-// again; another refusal drops the send; any other failure is tried again later.
+// answers and removes only the sends an op waits on and stops the team's sends (SD3-8c), the
+// queued ones kept until the team runs again; another refusal drops the send; any other
+// failure is tried again later.
 func (e *Engine) failed(ctx context.Context, h *held, entry state.Sending, err error) *sendHold {
 	code, msg := "", exits.Template("")
 	switch {
@@ -287,15 +311,15 @@ func (e *Engine) failed(ctx context.Context, h *held, entry state.Sending, err e
 		code, msg = exits.CodeForbidden, msgForbidden
 	}
 	if code != "" {
-		var s *sendHold
 		if doErr := e.do(ctx, func() {
 			e.refuseWaiting(h, exits.New(code, &h.id, msg, exits.Team(h.id)))
-			s = e.holdLocked(h, false)
+			h.sendStop = code
+			e.publish()
 		}); doErr != nil {
 			return nil
 		}
-		e.logf("team %s: a send was refused (%s); the queued sends wait for the team to run again", h.id, code)
-		return s
+		e.logf("team %s: a send was refused (%s); the team's sends stop until it runs again", h.id, code)
+		return nil
 	}
 	if me, ok := errors.AsType[*matrix.Error](err); ok && !me.Transient() {
 		var s *sendHold
@@ -311,7 +335,7 @@ func (e *Engine) failed(ctx context.Context, h *held, entry state.Sending, err e
 		return nil
 	}
 	e.logf("team %s: a send was not answered; it is tried again by its txn: %v", h.id, err)
-	return e.hold(ctx, h, true)
+	return e.hold(ctx, h)
 }
 
 // refuseWaiting removes every send an op waits on and answers each with refused, in one store
@@ -336,8 +360,9 @@ func (e *Engine) refuseWaiting(h *held, refused error) {
 	}
 }
 
-// recordPosted is a posted send in one store write: its entry removed, an answer-expecting
-// ping added to the outbox (sent at sentMS, due its timeout later), expired pings pruned; then
+// recordPosted is a posted send in one store write: its entry removed, id kept as the last
+// send posted, an answer-expecting ping added to the outbox (sent at sentMS, due its timeout
+// later), expired pings pruned; then
 // the TIMEOUT timer re-armed and the waiting op answered with id. On the state goroutine.
 func (e *Engine) recordPosted(t paths.TeamID, entry state.Sending, id string, sentMS int64) error {
 	var pruned []string
@@ -348,6 +373,7 @@ func (e *Engine) recordPosted(t paths.TeamID, entry state.Sending, id string, se
 			return false, nil
 		}
 		s.Outbox.Sending = slices.Delete(s.Outbox.Sending, i, i+1)
+		s.Outbox.LastSent = &id
 		if p := entry.Ping; p != nil {
 			if err := s.AddPing(state.Ping{
 				ID: id, Verb: p.Verb, Ref: p.Ref, To: slices.Clone(p.To), SentMS: sentMS, DueMS: sentMS + p.TimeoutMS,
@@ -383,12 +409,12 @@ func ownSend(self, main string, content json.RawMessage, r proto.Roster) proto.R
 	return rel
 }
 
-// recovery is what RecoverSends reads of its team on the state goroutine.
+// recovery is what a recovery reads of its team on the state goroutine; anchor is the last
+// send recorded as posted, "" for none.
 type recovery struct {
-	h          *held
-	main, self string
-	cached     *proto.Roster
-	tried      []state.Sending
+	main, self, anchor string
+	cached             *proto.Roster
+	tried              []state.Sending
 }
 
 // recovered is a tried send found among main's events: its event id and origin_server_ts.
@@ -398,37 +424,62 @@ type recovered struct {
 	origin int64
 }
 
-// RecoverSends finds a restarted link's tried sends among its own events in main (n3d-D4),
-// with one read of main's latest page for all of them: a send the server holds is recorded as
-// posted at its origin time, never put again. Then the sender may post. A read that fails is
-// returned, and the team calls again; nothing is posted until a recovery is done.
+// RecoverSends finds the team's tried sends among its own events in main (n3d-D4): the team
+// calls it at a session's start under a pair other than the last recovery's (a restarted link,
+// or a token reissued in the run). Until it is done the sender posts nothing and a send is
+// answered queued; a send the server holds is recorded as posted at its origin time, never put
+// again. It is the team's next run, so a send-side stop clears. A read that fails is returned,
+// and the team calls again.
 func (e *Engine) RecoverSends(ctx context.Context, t paths.TeamID, n team.Notices) error {
 	var (
-		rc      recovery
+		h       *held
 		heldErr error
 	)
-	if err := e.do(ctx, func() { rc, heldErr = e.recovery(t) }); err != nil {
+	if err := e.do(ctx, func() {
+		if h, heldErr = e.heldFor(t); heldErr == nil {
+			h.recovered, h.sendStop = false, ""
+			e.publish()
+		}
+	}); err != nil {
 		return err
 	}
 	if heldErr != nil {
 		return heldErr
 	}
-	if len(rc.tried) > 0 {
-		if err := e.recoverTried(ctx, t, n, rc); err != nil {
-			return err
-		}
+	h.postMu.Lock()
+	defer h.postMu.Unlock()
+	if err := e.recoverLocked(ctx, h, n); err != nil {
+		return err
 	}
 	return e.do(ctx, func() {
-		if h := e.teams[t]; h == rc.h && !h.removed {
+		if e.teams[t] == h && !h.removed {
 			h.recovered = true
 			h.pokeSender()
 		}
 	})
 }
 
-// recoverTried is the one read of main and each tried send found in it recorded as posted.
+// recoverLocked is one recovery under the token n holds now, with postMu held; the token's
+// digest is kept for the sender's check.
+func (e *Engine) recoverLocked(ctx context.Context, h *held, n team.Notices) error {
+	under := sha256.Sum256([]byte(n.Token()))
+	var rc recovery
+	if err := e.do(ctx, func() { rc = recoveryOf(h) }); err != nil {
+		return err
+	}
+	if len(rc.tried) > 0 {
+		if err := e.recoverTried(ctx, h.id, n, rc); err != nil {
+			return err
+		}
+	}
+	h.recoveredUnder = under
+	return nil
+}
+
+// recoverTried is the read of main back to the anchor and each tried send found in it recorded
+// as posted, oldest first, so the anchor ends at the newest.
 func (e *Engine) recoverTried(ctx context.Context, t paths.TeamID, n team.Notices, rc recovery) error {
-	page, err := n.Messages(ctx, rc.main, matrix.MessagesRequest{Dir: matrix.Backward, Limit: recoveryPage})
+	events, err := newerThan(ctx, n, rc.main, rc.anchor)
 	if err != nil {
 		return fmt.Errorf("engine: team %s: read main for the tried sends: %w", t, err)
 	}
@@ -436,7 +487,7 @@ func (e *Engine) recoverTried(ctx context.Context, t paths.TeamID, n team.Notice
 	if !ok && rc.cached != nil {
 		r = *rc.cached
 	}
-	for _, f := range matchTried(page.Chunk, rc.tried, rc.self) {
+	for _, f := range matchTried(events, rc.tried, rc.self) {
 		var recErr error
 		if err := e.do(ctx, func() { recErr = e.recordPosted(t, f.entry, f.id, f.origin) }); err != nil {
 			return err
@@ -449,57 +500,108 @@ func (e *Engine) recoverTried(ctx context.Context, t paths.TeamID, n team.Notice
 	return nil
 }
 
-func (e *Engine) recovery(t paths.TeamID) (recovery, error) {
-	h, err := e.heldFor(t)
-	if err != nil {
-		return recovery{}, err
+// newerThan are main's events newer than the anchor, oldest first: read back a page at a time
+// until the anchor, or at most recoveryPages pages when it is not found (or there is none).
+func newerThan(ctx context.Context, n team.Notices, main, anchor string) ([]json.RawMessage, error) {
+	var newer []json.RawMessage
+	from := ""
+	for range recoveryPages {
+		page, err := n.Messages(ctx, main, matrix.MessagesRequest{From: from, Dir: matrix.Backward, Limit: recoveryPage})
+		if err != nil {
+			return nil, err
+		}
+		for _, raw := range page.Chunk {
+			if ev, err := proto.Parse(raw); err == nil && anchor != "" && field(ev, "event_id").Str() == anchor {
+				slices.Reverse(newer)
+				return newer, nil
+			}
+			newer = append(newer, raw)
+		}
+		if page.End == "" || len(page.Chunk) == 0 {
+			break
+		}
+		from = page.End
 	}
-	rc := recovery{h: h, main: h.anchors.MainRoom, self: h.userID}
+	slices.Reverse(newer)
+	return newer, nil
+}
+
+func recoveryOf(h *held) recovery {
+	rc := recovery{main: h.anchors.MainRoom, self: h.userID}
 	if h.roster != nil {
 		r := *h.roster
 		rc.cached = &r
 	}
 	if h.store != nil {
 		rc.self = h.store.UserID
+		if last := h.store.Outbox.LastSent; last != nil {
+			rc.anchor = *last
+		}
 		for _, s := range h.store.Outbox.Sending {
 			if s.Tried {
 				rc.tried = append(rc.tried, s)
 			}
 		}
 	}
-	return rc, nil
+	return rc
 }
 
-// matchTried pairs each tried send with an event of chunk that is its: sent by self, a
-// message, content equal as JSON (whatever its key order), at or after the charge. Each event
-// and each send pairs at most once.
-func matchTried(chunk []json.RawMessage, tried []state.Sending, self string) []recovered {
+// matchTried pairs each tried send with an event of events (oldest first) that is its: sent by
+// self, a message, and either carrying its txn as unsigned.transaction_id (the server gives it
+// to the device that sent it) or, with no transaction id (another device), content equal as
+// JSON whatever its key order. An event with another txn is another send. Each event and each
+// send pairs at most once, in order.
+func matchTried(events []json.RawMessage, tried []state.Sending, self string) []recovered {
 	want := make([]*proto.Value, len(tried))
 	for i, s := range tried {
 		if v, err := proto.Parse(s.Content); err == nil {
 			want[i] = &v
 		}
 	}
+	paired := make([]bool, len(tried))
 	var out []recovered
-	for _, raw := range chunk {
-		ev, err := proto.Parse(raw)
-		if err != nil {
-			continue // not an event this member sent
-		}
-		content, okContent := ev.Get("content")
-		id, ts := field(ev, "event_id").Str(), field(ev, "origin_server_ts").Int()
-		if !okContent || id == "" || field(ev, "sender").Str() != self || field(ev, "type").Str() != proto.MessageType {
+	for _, raw := range events {
+		m, ok := ownMessage(raw, self)
+		if !ok {
 			continue
 		}
 		for i, s := range tried {
-			if want[i] != nil && ts >= s.SinceMS && content.Equal(*want[i]) {
-				out = append(out, recovered{entry: s, id: id, origin: ts})
-				want[i] = nil
+			if paired[i] {
+				continue
+			}
+			if m.txn != "" && m.txn == s.Txn || m.txn == "" && want[i] != nil && m.content.Equal(*want[i]) {
+				out = append(out, recovered{entry: s, id: m.id, origin: m.origin})
+				paired[i] = true
 				break
 			}
 		}
 	}
 	return out
+}
+
+// own is a message event self sent, as a recovery reads it: txn is unsigned's transaction_id,
+// "" when the server gives none.
+type own struct {
+	id, txn string
+	origin  int64
+	content proto.Value
+}
+
+// ownMessage is raw read as a message self sent; false for any other event.
+func ownMessage(raw json.RawMessage, self string) (own, bool) {
+	ev, err := proto.Parse(raw)
+	if err != nil {
+		return own{}, false // not an event this member sent
+	}
+	content, ok := ev.Get("content")
+	m := own{
+		id: field(ev, "event_id").Str(), txn: field(field(ev, "unsigned"), "transaction_id").Str(),
+		origin: field(ev, "origin_server_ts").Int(), content: content,
+	}
+	if !ok || m.id == "" || field(ev, "sender").Str() != self || field(ev, "type").Str() != proto.MessageType {
+		return own{}, false
+	}
+	return m, true
 }
 
 // field is v's member key, the null value when it has none.

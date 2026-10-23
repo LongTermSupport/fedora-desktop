@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -60,6 +61,24 @@ type held struct {
 	poke      chan struct{}
 	waiting   map[string]chan sendResult
 	unsent    int64
+	// sendStop is a send-side stop (SD3-8c): the exits code of a token refused or a send
+	// forbidden at a PUT, "" for none. It clears when the team next runs: a recovery, or a
+	// health out of a stop or down.
+	sendStop string
+	// postMu serialises the sender's post with a recovery, off the state goroutine;
+	// recoveredUnder, the SHA-256 of the token the last recovery ran under, is read and
+	// written holding it.
+	postMu         sync.Mutex
+	recoveredUnder [sha256.Size]byte
+}
+
+// shown is the team's health as the sends and status read it: a send-side stop is a stop.
+func (h *held) shown() team.Health {
+	hl := h.health
+	if hl.Stopped == "" {
+		hl.Stopped = h.sendStop
+	}
+	return hl
 }
 
 // pokeSender wakes the team's sender, never blocking: one pending wake is enough.
@@ -289,7 +308,7 @@ func (e *Engine) drop(h *held) error {
 			len(h.store.Pending)-handed, handed, len(h.store.Awaiting), len(h.store.Outbox.Pings), len(h.store.Outbox.Sending))
 	}
 	for txn, wait := range h.waiting {
-		wait <- sendResult{err: exits.New(exits.CodeUsage, &h.id, msgNotHeld, exits.Team(h.id))}
+		wait <- sendResult{err: droppedErr(h, txn)}
 		delete(h.waiting, txn)
 	}
 	err := h.writer.Remove()
@@ -303,6 +322,20 @@ func (e *Engine) drop(h *held) error {
 	e.arm()
 	return errors.Join(err, h.writer.Close(), h.lock.Close())
 }
+
+// droppedErr answers an op whose send a removal drops: 4 for one tried, which may have reached
+// the room and must not be sent again, else 64 not held.
+func droppedErr(h *held, txn string) error {
+	if h.store != nil {
+		if i := sendingIndex(h.store, txn); i >= 0 && h.store.Outbox.Sending[i].Tried {
+			return exits.New(exits.CodeTimedOut, &h.id, msgRemovedInFlight, exits.Team(h.id))
+		}
+	}
+	return exits.New(exits.CodeUsage, &h.id, msgNotHeld, exits.Team(h.id))
+}
+
+// msgRemovedInFlight is a removal's answer to a send that may have been posted.
+const msgRemovedInFlight exits.Template = "team {} was removed while the send was in flight; it may have been posted, so do not send it again"
 
 // Shutdown stops every team goroutine, puts each running team's floor marker (SY10's clean
 // end; the teams in parallel, each bounded as a removal's is, so an offline homeserver delays

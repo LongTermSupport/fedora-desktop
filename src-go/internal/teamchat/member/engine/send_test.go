@@ -512,8 +512,9 @@ func TestSD3_8A401AnswersTheWaitingOp(t *testing.T) {
 	if len(s.Outbox.Sending) != 0 || s.Outbox.Gate.Credit >= full {
 		t.Errorf("after a 401: sending %d, credit %d of %d", len(s.Outbox.Sending), s.Outbox.Gate.Credit, full)
 	}
+	refusedCode(t, "a send while the 401 stops the sends", firstOf(w.say(&ops, "not yet", "repo.2")), exits.CodeToken)
 	f.notices.setSendErr(matrix.StatusError("PUT", "/send", 403, "M_FORBIDDEN"))
-	w.e.SetHealth(ops, up(startWall+1))
+	w.recover(ops, f) // the team's next run clears the send-side stop
 	refusedCode(t, "a 403", firstOf(w.say(&ops, "hello again", "repo.2")), exits.CodeForbidden)
 }
 
@@ -655,7 +656,8 @@ func TestN3dD3ACachedRosterComposes(t *testing.T) {
 	<-w.add(dev, encodeStore(t, w.newStore(dev))).running
 	credit := w.store(dev).Outbox.Gate.Credit
 	refusedCode(t, "no roster", firstOf(w.say(&dev, "nobody known", "alice")), exits.CodeUnreachable)
-	refusedCode(t, "no roster, no --team", firstOf(w.say(nil, "nobody known", "repo.9")), exits.CodeUnknownMember)
+	// repo.9 may be dev's, which is not verified yet: 20, not 64 (SD2-1b).
+	refusedCode(t, "no roster, no --team", firstOf(w.say(nil, "nobody known", "repo.9")), exits.CodeUnreachable)
 	if w.store(dev).Outbox.Gate.Credit != credit {
 		t.Error("a send with no roster was charged")
 	}
@@ -735,9 +737,10 @@ func TestAStoppedTeamRefusesSends(t *testing.T) {
 	}
 }
 
-// SD3-7 in process: a request that ends while every try fails transiently is answered queued;
-// the post goes on 30 s later, by the same txn.
-func TestSD3_7ADeadlineWhileWaitingAnswersQueued(t *testing.T) {
+// SD3-7 in process: a request that ends while its send fails transiently is answered queued;
+// the post goes on 30 s later, by the same txn. The request's end here is a cancel: the 30 s
+// deadline itself is the link server's context, which the e2e rows run.
+func TestSD3_7ARequestEndedWhileFailingAnswersQueued(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)
 	ops := tid(t, "ops")
 	f := w.sending(ops)
@@ -773,4 +776,100 @@ func TestN3dD23ARemovalDropsQueuedSends(t *testing.T) {
 	if rm.UserID != agent(ops, 1) || !strings.Contains(w.log.String(), "2 queued sends") {
 		t.Errorf("the removal %+v; its line: %s", rm, w.log.String())
 	}
+}
+
+// SD3-8c (review A M2): a 403 on a queued send while the syncs go on stops the team's sends: the
+// next send is 22 forbidden, status shows the stop, and a later sync puts nothing; the stop
+// clears when the team next runs after a stop, and the queued send is posted by its txn.
+func TestSD3_8cA403StopsTheTeamsSends(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	f := w.sending(ops)
+	w.e.SetHealth(ops, team.Health{Down: true})
+	queued(t, w.say(&ops, "while down", "repo.2"))
+	f.notices.setSendErr(matrix.StatusError("PUT", "/send", 403, "M_FORBIDDEN"))
+	w.e.SetHealth(ops, up(startWall))
+	waitFor(w, func() bool { return strings.Contains(w.log.String(), "was refused (forbidden)") })
+	refusedCode(t, "a send after the 403", firstOf(w.say(&ops, "after", "repo.2")), exits.CodeForbidden)
+	if tr := w.teamRecord(ops); !tr.Down {
+		t.Errorf("the stopped team is not shown down: %+v", tr)
+	}
+	if st := w.status(); len(st.Teams) != 1 || st.Teams[0].Failed == nil || *st.Teams[0].Failed != state.FailedForbidden {
+		t.Errorf("status.json = %+v", st.Teams)
+	}
+	w.e.SetHealth(ops, up(startWall+5))
+	w.local(func() {})
+	if got := f.notices.sent(); len(got) != 1 {
+		t.Fatalf("a sync after the 403 put again: %v; log %s", got, w.log.String())
+	}
+	f.notices.setSendErr(nil)
+	w.e.SetHealth(ops, team.Health{Stopped: exits.CodeForbidden, LastSyncOKMS: startWall + 5})
+	w.e.SetHealth(ops, up(startWall+6))
+	w.until(w.sendsLeft(ops))
+	if got := f.notices.sent(); len(got) != 2 || got[0] != got[1] {
+		t.Errorf("posts %v, want the one txn twice (the refused try, then the post)", got)
+	}
+}
+
+// n3d-D19 (review A m2): a send before the run's recovery is answered queued at once, never
+// held for a sender that cannot post yet; it is posted once the recovery is done.
+func TestN3dD19ASendBeforeTheRecoveryIsQueuedAtOnce(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	f := w.held(ops)
+	f.notices.set(sendRoster(ops))
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	got := make(chan answer, 1)
+	go func() {
+		got <- w.request(ctx, wire.OpSay, wire.SayArgs{Team: &ops, To: []string{"repo.2"}}, new("early"))
+	}()
+	waiting := 0
+	w.until(func() bool {
+		h := w.e.teams[ops]
+		waiting = len(h.waiting)
+		return len(h.store.Outbox.Sending) == 1
+	})
+	if waiting != 0 {
+		t.Error("the op waits on a sender that cannot post before the recovery")
+		cancel()
+	}
+	queued(t, <-got)
+	w.recover(ops, f)
+	w.e.SetHealth(ops, up(startWall))
+	w.until(w.sendsLeft(ops))
+	if n := len(f.notices.sent()); n != 1 {
+		t.Errorf("%d posts, want one", n)
+	}
+}
+
+// SD2-1b (review A m3): a name no verified team holds, while a team has no roster yet, is 20
+// unreachable for that team, which the agent waits on, not 64 unknown-member.
+func TestSD2_1bAnUnverifiedTeamIsUnreachableNotUnknown(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops, dev := tid(t, "ops"), tid(t, "dev")
+	w.sending(dev)
+	w.held(ops)
+	d := firstOf(w.say(nil, "who", "carol"))
+	refusedCode(t, "a name with an unverified team", d, exits.CodeUnreachable)
+	if d.Error.Team == nil || *d.Error.Team != ops {
+		t.Errorf("the refusal is team %v's, want ops's", d.Error.Team)
+	}
+}
+
+// n3d-D23 (review A n1): a removal answers a waiting send that may have reached the room 4
+// timed-out, so the agent does not send it again, and one never tried 64 not held.
+func TestN3dD23ARemovalAnswersATriedSendTimedOut(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	f := w.sending(ops)
+	f.notices.setSendErr(matrix.StatusError("PUT", "/send", 502, ""))
+	got := make(chan answer, 1)
+	go func() { got <- w.say(&ops, "in flight", "repo.2") }()
+	waitFor(w, func() bool { return len(f.notices.sent()) == 1 })
+	w.until(func() bool { return len(w.e.teams[ops].waiting) == 1 })
+	if _, err := w.e.Remove(t.Context(), ops); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	refusedCode(t, "a tried send at the removal", firstOf(<-got), exits.CodeTimedOut)
 }

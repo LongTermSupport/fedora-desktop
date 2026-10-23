@@ -188,11 +188,14 @@ type Receipt struct {
 	Room string `json:"room"`
 }
 
-// Outbox is the sends: pings awaiting answers, sends in flight, and the send gate.
+// Outbox is the sends: pings awaiting answers, sends in flight, the send gate, and the event
+// id of the last send recorded as posted (null for none), which bounds a recovery's search
+// (n3d-D4).
 type Outbox struct {
-	Pings   []Ping    `json:"pings"`
-	Sending []Sending `json:"sending"`
-	Gate    Gate      `json:"gate"`
+	Pings    []Ping    `json:"pings"`
+	Sending  []Sending `json:"sending"`
+	Gate     Gate      `json:"gate"`
+	LastSent *string   `json:"last_sent"`
 }
 
 // Ping is a sent ping awaiting its answers; Answered and Reported index into To.
@@ -328,9 +331,13 @@ func (a *Awaiting) check(c *rules) {
 
 func (o *Outbox) check(c *rules, server string) {
 	c.need(o.Pings != nil && o.Sending != nil && o.Gate.Recent != nil, "an outbox list is not a list")
+	ids := make([]string, 0, len(o.Pings))
 	for _, p := range o.Pings {
 		p.check(c, server)
+		ids = append(ids, p.ID)
 	}
+	c.need(distinct(ids), "the outbox holds a ping id twice")
+	c.need(o.LastSent == nil || proto.ValidEventID(*o.LastSent), "last_sent is not an event id")
 	for _, s := range o.Sending {
 		s.check(c, server)
 	}

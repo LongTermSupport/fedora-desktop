@@ -53,6 +53,7 @@ func sampleStore(t *testing.T) Store {
 		},
 	}
 	s.Outbox.Gate.Recent = []GateKey{{Key: strings.Repeat("ab", 32), AtMS: 19}}
+	s.Outbox.LastSent = new(eventID(10))
 	s.Run.Ended = &RunEnd{Notice: NoticeLeft, Reason: new("exit"), State: StateAttempted, Txn: new(txn), AtMS: 20}
 	return s
 }
@@ -126,6 +127,8 @@ func TestStoreRules(t *testing.T) {
 		"ping index out of range":   func(s *Store) { s.Outbox.Pings[0].Answered = []int{2} },
 		"ping indexes not sorted":   func(s *Store) { s.Outbox.Pings[0].Reported = []int{1, 0} },
 		"ping null reported":        func(s *Store) { s.Outbox.Pings[0].Reported = nil },
+		"ping same id twice":        func(s *Store) { s.Outbox.Pings = append(s.Outbox.Pings, s.Outbox.Pings[0]) },
+		"last sent bad id":          func(s *Store) { s.Outbox.LastSent = new("$short") },
 		"sending bad txn":           func(s *Store) { s.Outbox.Sending[0].Txn = "tc1" },
 		"sending bad kind":          func(s *Store) { s.Outbox.Sending[0].Kind = "file" },
 		"gate negative credit":      func(s *Store) { s.Outbox.Gate.Credit = -1 },
@@ -369,9 +372,13 @@ func TestStoreListCapsFireFirst(t *testing.T) {
 			last := &s.Pending[len(s.Pending)-1]
 			last.ID, last.Item, last.Verb = eventID(capPending), records.KindPing, new(proto.VerbDone)
 		}, "agent items"},
-		"ledger":        {func(s *Store) { s.Ledger = append(s.Ledger, s.Ledger[0]) }, count("ledger", capLedger)},
-		"receipts":      {func(s *Store) { s.Receipts = append(s.Receipts, s.Receipts[0]) }, count("receipts", capReceipts)},
-		"pings":         {func(s *Store) { s.Outbox.Pings = append(s.Outbox.Pings, s.Outbox.Pings[0]) }, count("pings", capPings)},
+		"ledger":   {func(s *Store) { s.Ledger = append(s.Ledger, s.Ledger[0]) }, count("ledger", capLedger)},
+		"receipts": {func(s *Store) { s.Receipts = append(s.Receipts, s.Receipts[0]) }, count("receipts", capReceipts)},
+		"pings": {func(s *Store) {
+			p := s.Outbox.Pings[0]
+			p.ID = eventID(capPings)
+			s.Outbox.Pings = append(s.Outbox.Pings, p)
+		}, count("pings", capPings)},
 		"ping targets":  {func(s *Store) { s.Outbox.Pings[0].To = append(s.Outbox.Pings[0].To, otherID) }, "a ping is not to 1 to 16"},
 		"awaiting":      {func(s *Store) { s.Awaiting = append(s.Awaiting, s.Awaiting[0]) }, count("awaiting", capAwaiting)},
 		"awaiting size": {func(s *Store) { s.Awaiting[0].IDs = append(s.Awaiting[0].IDs, manyIDs(40)...) }, "an entry of awaiting is over"},
