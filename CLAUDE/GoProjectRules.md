@@ -33,18 +33,19 @@ and the per-rule pages are not written; this catalogue stands in for them.
 
 ## The rules
 
-| Rule                         | Defect class                                                                                                                              | Found in                                                                          |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `project_seam_exec`          | a process started outside the runner, so no fake sees it                                                                                  | `teams`: `syscall.Exec` in the launcher hand-over                                 |
-| `project_seam_commands`      | a program run outside the package that owns it, or a command the rule cannot judge (run-time name, hidden wrapper argv, shell `-c`)       | `sessions`: `systemctl reboot`; `teams`: the take-down heading via `gum style`    |
-| `project_tmux_targets`       | a tmux `-t` target in the wrong form for its command (fedora-desktop#69)                                                                  | the bash library, before the port                                                 |
-| `project_testclock`          | wall-clock reads in tests (date-dependent tests failed in the hour after midnight)                                                        | `transcript` and `sessprobe` tests: 23 `time.Now()` fixtures                      |
-| `project_waitdelay`          | a function that sets `exec.Cmd.WaitDelay` and never names `exec.ErrWaitDelay`, so a finished command's output is dropped                  | `qa/internal/proc`: bug B25 of the qa-all port                                    |
-| `project_package_tests`      | a package with no `_test.go` file, whose code the module-wide coverage floor can hide behind the rest of the module                       | the old Go gate's every-package-has-tests check, kept when go-qa-ci replaced it   |
-| `project_homeabbrev`         | a hand-rolled `~` home abbreviation (a bare prefix replace turned `/home/<user>X` into `~X`)                                              | `teams` tests: `strings.Replace(..., "~", 1)` twice                               |
-| `project_hidden_bindings`    | an action reachable only by a key, with no visible, named choice for it (also in shell fzf and Python Textual: `qa-hidden-bindings.bash`) | `teams` picker: Ctrl-A/X/O on Running sessions; `ccy-sessions`: Ctrl-T/X/N        |
-| `project_lifecycle_turn`     | a member's lifecycle notice decided from a read of main and posted outside the team's turn, so another post of the run can come between   | teamchat `ends`: `back` posted after the run's own `disconnected` (Plan 00209)    |
-| `project_keeper_log_barrier` | a keeper test reading keeper.log past the harness's turn-aware reader, so a wait on a line releases before its turn has done the rest     | teamchat `keeper`: `TestOwedNotice` saw the seat held after its line (Plan 00209) |
+| Rule                         | Defect class                                                                                                                                  | Found in                                                                                   |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `project_seam_exec`          | a process started outside the runner, so no fake sees it                                                                                      | `teams`: `syscall.Exec` in the launcher hand-over                                          |
+| `project_seam_commands`      | a program run outside the package that owns it, or a command the rule cannot judge (run-time name, hidden wrapper argv, shell `-c`)           | `sessions`: `systemctl reboot`; `teams`: the take-down heading via `gum style`             |
+| `project_tmux_targets`       | a tmux `-t` target in the wrong form for its command (fedora-desktop#69)                                                                      | the bash library, before the port                                                          |
+| `project_testclock`          | wall-clock reads in tests (date-dependent tests failed in the hour after midnight)                                                            | `transcript` and `sessprobe` tests: 23 `time.Now()` fixtures                               |
+| `project_waitdelay`          | a function that sets `exec.Cmd.WaitDelay` and never names `exec.ErrWaitDelay`, so a finished command's output is dropped                      | `qa/internal/proc`: bug B25 of the qa-all port                                             |
+| `project_package_tests`      | a package with no `_test.go` file, whose code the module-wide coverage floor can hide behind the rest of the module                           | the old Go gate's every-package-has-tests check, kept when go-qa-ci replaced it            |
+| `project_homeabbrev`         | a hand-rolled `~` home abbreviation (a bare prefix replace turned `/home/<user>X` into `~X`)                                                  | `teams` tests: `strings.Replace(..., "~", 1)` twice                                        |
+| `project_hidden_bindings`    | an action reachable only by a key, with no visible, named choice for it (also in shell fzf and Python Textual: `qa-hidden-bindings.bash`)     | `teams` picker: Ctrl-A/X/O on Running sessions; `ccy-sessions`: Ctrl-T/X/N                 |
+| `project_lifecycle_turn`     | a member's lifecycle notice decided from a read of main and posted outside the team's turn, so another post of the run can come between       | teamchat `ends`: `back` posted after the run's own `disconnected` (Plan 00209)             |
+| `project_keeper_log_barrier` | a keeper test reading keeper.log past the harness's turn-aware reader, so a wait on a line releases before its turn has done the rest         | teamchat `keeper`: `TestOwedNotice` saw the seat held after its line (Plan 00209)          |
+| `project_realtime_bound`     | a teamchat bound on real time that a test can shorten, which then races the step the test asserts; a test that passes when a real timer fires | teamchat `host/lxc`: 1 of 4 probes reached the fake hang before a 20 ms bound (Plan 00209) |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -473,6 +474,72 @@ including those before a `busfailpoints` crash or a panic. Those tests poll the 
 assert rather than a line. The other teamchat harnesses already wait for the end of a unit of
 work: engine `until` runs on its state goroutine, link has `settled` and `await`, and teamsync
 has `poll`.
+
+### project_realtime_bound
+
+**What it is about.** teamchat's tests drive a fake clock (`internal/teamchat/clock`'s `Fake`):
+a test waits until the work is at a step, then moves the clock. A bound on real time whose
+length a test can set (a field, a variable, a parameter, a function's result) makes the test
+set it short, and the short bound then races the step the test asserts.
+
+**Why it exists.** `TestProbesThatHangEndAtTheirOwnBound` set the L3 probe's `Bound` to 20 ms
+of real time (`Guests.Probe`'s `context.WithTimeout`), started four probes against a root that
+hangs at a step, and asserted that every probe reached the hang. Under a loaded `-race -shuffle -count=2` run one probe's deadline fired before it got there: "1 of 4 probes hung at
+once" (Plan 00209 N3). The inverted form passes without testing anything: a select whose real
+timer is the passing case asserts that nothing happened in that time.
+
+**What it flags**, in `internal/teamchat` and below:
+
+- Outside the `_test.go` files: a call of `context.WithTimeout`, `WithTimeoutCause`,
+  `WithDeadline` or `WithDeadlineCause`, or of `time.After`, `AfterFunc`, `NewTimer`,
+  `NewTicker`, `Tick`, `Sleep` or a `Timer`'s or `Ticker`'s `Reset`, whose bound is not a
+  compile-time constant (a deadline never is), and any of them taken as a value. Matching is by
+  `types.Info` object, so an import alias does not hide one. The clock package and the
+  `realClocks` table of `src-go/qa/rules/realtimebound.go` (the real side of each clock seam,
+  whose tests replace it whole, each with its reason) are not judged.
+- In the `_test.go` files: a `select` case that receives from `time.After` or a `*time.Timer`'s
+  `C` and does not fail: no `Fatal`, `Fatalf`, `Error`, `Errorf` or `FailNow`, no `panic`, no
+  return of anything but `nil` (a function literal in the case does not count).
+
+**Narrowings, each with its sentence.** A bound whose length is a constant cannot be
+shortened by a test, so it is not judged: its tests either wait it out or do not reach it. A
+ticker's channel is a poll gap, not a bound. A real timer in a test outside a `select`
+(`time.Sleep` in a poll loop, a real `context.WithTimeout` as a safety net) races no step.
+
+**How to fix a violation.** Bound the work on the injected clock:
+`ctx, cancel := context.WithCancelCause(ctx)` with `stop := clk.AfterFunc(bound, ...)`, or the
+clock's `Hold`, and `clock.WithBound` where a callee must see the bound. The test then waits
+until the work is at the step (a channel the fake sends on, `Fake.BlockUntil` for the armed
+bound) and only then moves the fake past the bound. In a test, wait for the event or on the
+fake clock, and fail when a real timer fires first.
+
+- Red, fixture: `testdata/src/fix/internal/teamchat/realtime` (`bad.go`: the probe's bound
+  from a field, the guest root's timer on its field, a call bound from a field; `evade.go`: an
+  import alias, a package variable and a package-level timer, a parameter, both deadlines and
+  both causes, every timer form and both `Reset`s, a function value, a parenthesised call;
+  `good.go`: constant bounds, a ticker, the injected clock, clean; `bad_test.go`: the
+  originating link test's empty `time.After` case, a `Timer.C` case that only logs, a fail in
+  a goroutine, a `return nil`, all flagged, and safety nets that fail, return an error or
+  panic, a ticker, a fake channel, clean), `fix/internal/teamchat/clock` (the owner, clean),
+  `realclock` (a `realClocks` row clean, its neighbour flagged) and `fix/internal/elsewheretime`
+  (outside teamchat, clean).
+- Red, real tree (untagged, `busfailpoints` and `tuwunel` alike): five findings.
+  `host/lxc/probe.go:48` (the originating bound), `host/lxc/guestroot/bound.go:80` (the guest
+  root's `r.bound`, set to 20 ms by its tests), `host/lxc/guestbus/guestbus.go:179` (`s.wait`,
+  1 ms in its test), `units/units.go:467` (`m.jobWait`, 0 in its test) and
+  `member/link/server_test.go:281` (no cancel within 100 ms).
+- Not caught: a test that shortens a bound running through a `realClocks` adapter left at its
+  real default (matrix `TestRequestTimeLimit`, `m.limit` on `SystemTimers`, found by the
+  independent search); `time.Sleep` followed by an assertion that nothing happened; a bound
+  outside teamchat.
+
+**The next wider rule, not built:** the same over the whole module. Outside teamchat about
+twenty real-time bounds take their length at run time, nearly all around a real process (the
+QA gates' `limit`, `wsitoken`, `vmtest`'s `bound`, `teams/lxcadd` and `teams/roles`'
+`ReadTimeout`); those packages have no clock seam, and their tests, where they shorten one,
+assert only the outcome (`ReadTimeout = 1` against a fake that hangs until the context ends).
+Whether they are in the class is the owner's decision, referred with this remediation (Plan
+00209 `subagent-reports/261023-n3-probebound.md`).
 
 ## Defect classes that cannot be a rule
 
