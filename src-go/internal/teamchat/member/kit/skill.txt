@@ -60,7 +60,8 @@ the error lists the choices.
 - `teamchat thread Q<n>`: `sent`.
 - `teamchat history`: what this member received and sent, newest first, as `history`.
 - `teamchat verify '<id>'`: `verified`.
-- `teamchat status`: `team`, `member`, `room`, `outbox` and `runtime`.
+- `teamchat status`: `team`, `member`, `room`, `outbox`, `queued` (a send the link holds until
+  its homeserver answers) and `runtime`.
 - `teamchat version`: `version`.
 - `teamchat help`: the verbs and their flags, as text; `teamchat help reply` shows one verb.
 - A verb over several teams prints `team-failed` for each team that failed.
