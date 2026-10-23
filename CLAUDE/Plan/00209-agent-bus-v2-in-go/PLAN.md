@@ -379,11 +379,11 @@ its first caller.
     (`subagent-reports/261022-n3a-review*.md`): FIX-FIRST, FIX-FIRST, MERGE. Report and the
     design-text fixes it proposes: `subagent-reports/261022-n3a.md`. n3b to n3f are left.
 
-  - **n3d in review** on `feat/bus-v2-n3d` (the sends, the outbox and its recovery, TIMEOUTs,
-    the forge check; rows n3d-D1 to D31): Opus reviews A and B (`261022-n3d-review-A.md`,
+  - **n3d reviewed** on `feat/bus-v2-n3d` (the sends, the outbox and its recovery, TIMEOUTs,
+    the forge check; rows n3d-D1 to D34): Opus reviews A and B (`261022-n3d-review-A.md`,
     `-B.md`), both fixed (`261022-n3d-fixa.md`, `-fixb.md`) and checked
-    (`261023-n3d-narrow.md`); the qa-reviewer's findings (`261023-n3d-qa-review.md`) are being
-    fixed. The store's `Version` is not raised for n3d's new keys: a store written by n3c or an
+    (`261023-n3d-narrow.md`); the qa-reviewer's findings (`261023-n3d-qa-review.md`) fixed
+    (`261023-n3d-fixc.md`) and checked READY TO MERGE (`261023-n3d-fixc-narrow.md`). The store's `Version` is not raised for n3d's new keys: a store written by n3c or an
     earlier n3d part is refused whole rather than migrated, because no such store exists outside
     tests (review A n3; GATE A means none is deployed). Found here and fixed on
     `feat/bus-v2-n3-guestreg`: `guest`'s `TestRegister` could not run twice (`-count=2`).
