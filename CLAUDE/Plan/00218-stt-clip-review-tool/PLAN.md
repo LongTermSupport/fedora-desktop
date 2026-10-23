@@ -127,7 +127,7 @@ the session and offers to go round again over what is still unsaved.
   Ogg Opus clip (`opusenc`, `gst-launch-1.0` with `opusenc ! oggmux`, `ffmpeg`), one made in a
   temporary folder outside any checkout; whether the installed sox decodes it, probed both
   without and with the type (`sox <clip>.ogg -n stat` and `sox -t opus <clip>.ogg -n stat`, the
-  decoded length in the output), and `play -q -t opus` of it to a null output; whether
+  decoded length in `stat`'s output, which sox writes to stderr), and `play -q -t opus` of it to a null output; whether
   `ffplay` is installed, which package owns it (`rpm -qf`), and whether it plays the clip. Queued in `meta-deploy.list`, with
   what it does, in the commit that adds it. The result settles D2 and the acceptance's encoder,
   and is recorded in this plan's journal.

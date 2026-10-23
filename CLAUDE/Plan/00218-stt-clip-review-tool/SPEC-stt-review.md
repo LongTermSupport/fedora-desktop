@@ -42,7 +42,8 @@ of its own (R30), so changing a key changes one row.
   silently ignored (decision D6). The one exception is the tool's own: a leftover sidecar
   temporary (`<sidecar>.tmp.<pid>`, from a write cut short by a crash) is removed at start and
   the removal is said on stderr, since it never held a finished answer and refusing on it
-  would lock the person out.
+  would lock the person out. One run per folder at a time is assumed: a second run's live
+  temporary removed under it makes that run's save fail loudly, never write a half file.
 - **R7.** A FOLDER inside a git work tree (it, or a directory above it, holds `.git`) is exit 1:
   `clips are private speech and must not sit in a repository: <folder>` (decision D7). It is
   found by walking up the directories, not by running git.
@@ -88,7 +89,8 @@ of its own (R30), so changing a key changes one row.
   The end of playback is the player process's exit,
   an event, never a timed guess. The sox adapter names the type before the file (`-t opus`),
   since sox picks its Vorbis handler for a `.ogg` name.
-- **R19.** A clip the player cannot play (the player exits non-zero) is said on the screen
+- **R19.** A clip the player cannot play (the player exits non-zero, or its length cannot be
+  read from the stream, R18) is said on the screen
   with the player's stderr. The person may still type, mark inaudible or skip it; the end
   screen lists it (R25). This is an interactive recoverable state, not a skipped error. R11's
   sentinel test covers this frame too.
