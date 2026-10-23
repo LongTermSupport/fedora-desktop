@@ -5,7 +5,28 @@ import (
 	"fmt"
 
 	"fix/internal/declare"
+	"fix/internal/term"
 )
+
+// translatesItsCode hands the kind on whole through the tools' translation of a child's code.
+func translatesItsCode(err error) term.ExitCode {
+	if de, ok := errors.AsType[*declare.Error](err); ok {
+		return term.FromChild(de.Code)
+	}
+	return term.ExitFailure
+}
+
+// translatedStop hands it on translated inside the value that ends the run.
+type translatedStop struct{ code term.ExitCode }
+
+func (s *translatedStop) Error() string { return "stopped" }
+
+func stopsWithTranslatedCode(err error) error {
+	if de, ok := errors.AsType[*declare.Error](err); ok {
+		return &translatedStop{term.FromChild(de.Code)}
+	}
+	return err
+}
 
 // retriesOnlyUsage asks again for a malformed answer and stops on every other kind.
 func retriesOnlyUsage(err error) (bool, error) {

@@ -296,8 +296,14 @@ func handsCodeOn(pass *analysis.Pass, e ast.Expr) bool {
 		}
 		return false
 	case *ast.CallExpr:
+		if len(n.Args) != 1 {
+			return false
+		}
+		if fn := calledFunc(pass, n); fn != nil {
+			return isFromChild(fn) && handsCodeOn(pass, n.Args[0])
+		}
 		tv, found := pass.TypesInfo.Types[n.Fun]
-		return found && tv.IsType() && len(n.Args) == 1 && handsCodeOn(pass, n.Args[0])
+		return found && tv.IsType() && handsCodeOn(pass, n.Args[0])
 	case *ast.SelectorExpr:
 		return isCodeField(pass, n)
 	}
@@ -307,7 +313,7 @@ func handsCodeOn(pass *analysis.Pass, e ast.Expr) bool {
 // isCodeField is sel the Code field of a declare.Error.
 func isCodeField(pass *analysis.Pass, sel *ast.SelectorExpr) bool {
 	s, found := pass.TypesInfo.Selections[sel]
-	if !found || s.Kind() != types.FieldVal || s.Obj().Name() != "Code" {
+	if !found || s.Kind() != types.FieldVal || s.Obj().Name() != codeField {
 		return false
 	}
 	recv := s.Recv()

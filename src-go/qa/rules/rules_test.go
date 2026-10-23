@@ -80,12 +80,20 @@ func TestPackageTests(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), PackageTests, "fix/internal/notests", "fix/internal/withtests", "fix/internal/externaltests")
 }
 
+func TestRowKind(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), RowKind, "fix/internal/teams/board", "fix/internal/badrowkind")
+}
+
+func TestChildExit(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), ChildExit, "fix/internal/term", "fix/internal/badexit")
+}
+
 func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 10 {
-		t.Fatalf("want 10 rules, got %d", got)
+	if got := len(All()); got != 12 {
+		t.Fatalf("want 12 rules, got %d", got)
 	}
 }
 
