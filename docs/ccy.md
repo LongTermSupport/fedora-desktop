@@ -224,6 +224,13 @@ it with a message saying to `cd` into a project or run `claude`, which starts an
 check is `cc-project-dir`, a Go binary beside `cc` that `play-claude-yolo.yml` builds with the
 checkout baked in (Plan 00167).
 
+`cc` sessions compact at the same size as `ccy` sessions: claude is started through
+`cc-claude`, a Go binary beside `cc`, on both the plain and the `--teams`/`--bus` paths, and it
+sets [`CLAUDE_CODE_AUTO_COMPACT_WINDOW`](#claude_code_auto_compact_window--the-auto-compact-ceiling)
+to `600000` unless the shell `cc` runs in already exports a value. A project's `ccy.env` is
+never read on the host, so it does not change a `cc` session's window. A test pins
+`cc-claude`'s default to the launcher's, so the two cannot drift.
+
 | Event                                              | Result                                                                                                                           |
 | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | Terminal emulator crashes or is closed             | Session keeps running, detached                                                                                                  |

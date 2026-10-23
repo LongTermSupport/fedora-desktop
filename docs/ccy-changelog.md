@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## Host cc — compacts at ccy's auto-compact window
+
+Host `cc` has no version number of its own; this entry is not a CCY release.
+
+- **`cc` sessions compact at 600,000 tokens, as `ccy` sessions do.** `cc` ran bare `claude`
+  with no `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, so on a 1M-context model a session compacted
+  only near the whole window. claude is now started through `cc-claude` (Go, beside `cc`) on
+  the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
+  already exported, then becomes claude. `play-claude-yolo.yml` builds it.
+
 ## 3.100.15 — container 2.79.9
 
 Follows 3.100.14 (container 2.79.9). The image does not change.

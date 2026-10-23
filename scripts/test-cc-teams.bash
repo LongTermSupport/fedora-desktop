@@ -273,9 +273,13 @@ CC_TEAMS_SEATS="2@dev-team,1@other"
 cc_teams_command "$work/tmp" "$checkout" --resume abc 2>"$work/err"
 got=$(printf '%s\n' "${CC_TEAMS_CMD[@]}")
 want=$(printf '%s\n' env "PINGBUS_MEMBERSHIP=$work/membership/cc-proj" "$KIT_SRC/pingbus" seat exec \
-    --root "$checkout/.claude/ccy/pingbus/seats" --home "$work/tmp/pingbus-home" -- claude --plugin-dir "$KIT_SRC/plugin/pingbus" \
+    --root "$checkout/.claude/ccy/pingbus/seats" --home "$work/tmp/pingbus-home" -- /var/local/claude-code/cc-claude --plugin-dir "$KIT_SRC/plugin/pingbus" \
     --settings "$work/tmp/settings.json" --append-system-prompt "$CC_TEAMS_PROMPT" --resume abc)
-check "the keeper follows the membership; claude gets the plugin, the settings and the prompt (H31)" "$want" "$got"
+check "the keeper follows the membership; cc-claude (claude with ccy's auto-compact window) gets the plugin, the settings and the prompt (H31)" "$want" "$got"
+check "plain cc starts the same cc-claude, so both paths get the window" "yes" \
+    "$(yes_no grep -qxF '    /var/local/claude-code/cc-claude "$@"' "$REPO_ROOT/files/var/local/claude-code/cc")"
+check "the play installs cc-claude where cc runs it" "yes" \
+    "$(yes_no grep -qF 'go_command_dest: /var/local/claude-code/cc-claude' "$PLAY")"
 check "the membership is written first, kind cc, under the session's name, with its seats" \
     "internal membership-init --kind=cc cc-proj $checkout 2@dev-team,1@other" "$(cat "$work/ccy-teams.calls")"
 : >"$work/ccy-teams.calls"
