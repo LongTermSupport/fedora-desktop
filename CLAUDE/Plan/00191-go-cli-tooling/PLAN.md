@@ -669,8 +669,15 @@ today; rewriting them is out of scope.
   passed. The gate now asks the venv's base interpreter for pytest (red: the Go tests failed on
   the new probe; green after). The two `ansible_enforcement` "dnf in a quoted string" tests were wrong: the handler
   deliberately matches quoted text (`bash -c 'dnf install x'` is quoted), so they now assert
-  that. Open: the host run of `play-python.yml` (queued in `meta-deploy.list`), then the
-  gate passing on the host.
+  that. On the host the gate then failed 1 of 124 (`test_matches_write_relative_path_returns_false`):
+  a relative tool path was resolved with `os.path.realpath`, against the daemon's working
+  directory (`/workspace` in the container, allowed; under `/home/` on the host, blocked).
+  Defended first (Defence Before Fix, Semgrep rule `hook-path-resolved-against-cwd`, CLAUDE/QA.md;
+  6 findings, all in `system_paths.py`): a relative tool path is now taken from the project
+  root (`_absolute`), every resolution goes through `_realpath` (absolute only), and a relative
+  `CLAUDE_PROJECT_DIR` is refused or ignored. The tests run with the working directory in `/etc`
+  (red: 3 failed, the host failure among them; green: 127 passed). Open: the gate passing on the
+  host.
 
 ### Phase 5: Review
 
