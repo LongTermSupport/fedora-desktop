@@ -252,8 +252,7 @@ Usage:
                                    there. Over 8 GiB on disk, the build caches are cleared, then
                                    the module cache and the tools if still over, and still over
                                    is exit 1 (under the lock ~/.cache/ccy/<project>/go.lock).
-                                   With CONTAINER_ENGINE=docker the caches are the named
-                                   volume ccy-go-cache-<project> instead, unbounded.
+                                   The same for CONTAINER_ENGINE=podman and docker.
                                    ccy calls it at each launch, so --rm no longer deletes the
                                    caches at exit
   ccy-teams session list

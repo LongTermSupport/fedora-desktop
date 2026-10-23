@@ -1738,10 +1738,9 @@ has in flight, and clearing the tools makes its next go-qa run install them agai
 bound is per project name, so each worktree launched as its own project has its own 8 GiB,
 and nothing removes the cache of a project that is gone: delete its `~/.cache/ccy/<project>`.
 A file the container gave to another user (a `chown` as root inside) cannot be removed by
-you, and every launch then fails on it: remove it with `podman unshare rm -rf <path>`. Under
-docker the caches are the named volume `ccy-go-cache-<project>` instead, which ccy does not
-bound: empty it with `docker volume rm ccy-go-cache-<project>`. The `-e` values replace any `ENV` of the
-same name in a project Dockerfile, and `GOMODCACHE` moves a module cache that a Dockerfile's
+you, and every launch then fails on it: remove it with `podman unshare rm -rf <path>`.
+Rootless docker gets the same bind and bound. The `-e` values replace any `ENV` of the same
+name in a project Dockerfile, and `GOMODCACHE` moves a module cache that a Dockerfile's
 `GOPATH` would have put elsewhere. A project's `ccy.env` can point them elsewhere. Details:
 `ccy-teams --help`, `internal go-cache`.
 

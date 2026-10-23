@@ -38,8 +38,8 @@ Follows 3.100.18 (container 2.79.9). The image does not change. Another branch h
   through an `os.Root`, so a link the container plants is never followed. Each cache is
   renamed aside before it is removed, so its path always holds either the whole old cache
   or a fresh one. Files that another seat removes during the walk are ignored.
-- **Docker** gets the named volume `ccy-go-cache-<project>` instead, which ccy does not
-  bound. Under rootful docker a bind would fill `~/.cache` with root-owned files.
+- **Docker** gets the same bind and bound: the launcher refuses a rootful engine first, so
+  under either engine the files in the bind belong to the user.
 - The `CCY_EXTRA_MOUNTS` and `.claude/ccy/mounts` tokens are appended without their debug
   lines. This makes room under the launcher's bash-limits record.
 

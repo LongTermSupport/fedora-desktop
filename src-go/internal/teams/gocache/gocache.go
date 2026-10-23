@@ -8,19 +8,18 @@
 // ~/.cache/ccy/<project>/go on the host, bind-mounted at /var/cache/ccy-go, so they survive the
 // container, warm the next session, and cost the exit nothing.
 //
-//   - G1. Under podman (CONTAINER_ENGINE, as the launcher exports it; empty is podman) the
-//     command makes <HOME>/.cache/ccy/<project>/go and its four cache directories (0700, each a
-//     real directory: a symlink or a file in the way is exit 1), then prints the run arguments
-//     the launcher appends to `podman run`, one per line: the bind (`-v`, with the shared
+//   - G1. Under podman or docker (CONTAINER_ENGINE, as the launcher exports it; empty is
+//     podman) the command makes <HOME>/.cache/ccy/<project>/go and its four cache directories
+//     (0700, each a real directory: a symlink or a file in the way is exit 1), then prints the
+//     run arguments
+//     the launcher appends to its `run`, one per line: the bind (`-v`, with the shared
 //     SELinux relabel `:z` when the launcher passes `z`, so a second seat of the project shares
 //     it) and an `-e NAME=path` for each of GOCACHE, GOLANGCI_LINT_CACHE, GOMODCACHE and
 //     GOQA_TOOLS_DIR. A project's ccy.env can still override them: the entrypoint sources it
 //     after this environment.
-//   - G2. Under docker the caches are the named volume ccy-go-cache-<project> instead: docker's
-//     container root is the host's root, so a bind under HOME would fill with root-owned files
-//     the user could not prune. Docker labels its volumes itself (no relabel), and ccy does not
-//     bound the volume (`docker volume rm ccy-go-cache-<project>` empties it). Any other engine
-//     is exit 1.
+//   - G2. Both engines are treated alike: the launcher refuses a rootful engine before it asks
+//     for the caches, so under either the container's root is the user and the bind fills
+//     with files the user can prune. Any other engine is exit 1.
 //   - G3. Every seat of one project shares the caches. go's build and module caches and
 //     golangci-lint's (derived from go's) are written for concurrent use, and go-qa installs a
 //     tool in a scratch directory and renames it into place.
@@ -72,8 +71,6 @@ const (
 	prunePrefix        = ".prune-"
 	lockName           = "go.lock"
 	lockMode           = 0o600
-	// volumePrefix names docker's volume of a project's caches (G2).
-	volumePrefix = "ccy-go-cache-"
 	// blockSize is the unit of Stat_t.Blocks.
 	blockSize = 512
 )
@@ -130,10 +127,7 @@ func (c *Cache) Run(_ context.Context, args []string) term.ExitCode {
 		return term.ExitUsage
 	}
 	switch engine := c.Host.Getenv("CONTAINER_ENGINE"); engine {
-	case "", "podman":
-	case "docker":
-		c.Host.Print(c.Host.Payload, strings.Join(runArgs(volumePrefix+project, ""), "\n")+"\n")
-		return term.ExitOK
+	case "", "podman", "docker":
 	default:
 		c.say(fmt.Sprintf("CONTAINER_ENGINE is %q: the Go caches know podman and docker.", engine))
 		return term.ExitFailure
@@ -169,7 +163,7 @@ func parse(args []string) (string, string, error) {
 	return args[0], "", nil
 }
 
-// runArgs are G1's arguments for `podman run`.
+// runArgs are G1's arguments for the engine's `run`.
 func runArgs(root, relabel string) []string {
 	out := make([]string, 0, 2+2*len(caches))
 	out = append(out, "-v", root+":"+ContainerDir+relabel)

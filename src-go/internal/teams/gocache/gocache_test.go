@@ -349,17 +349,19 @@ func TestAFileRemovedDuringTheWalkCountsAsNothing(t *testing.T) {
 	}
 }
 
-func TestUnderDockerANamedVolumeHoldsTheCaches(t *testing.T) {
-	// docker's container root is the host's root, so a bind under HOME would fill with
-	// root-owned files the user could never prune.
+func TestUnderDockerTheSameBoundedBindHoldsTheCaches(t *testing.T) {
+	// The launcher refuses a rootful engine before it asks for the caches, so docker's
+	// container root is the user, as podman's is: the same bind, relabel and bound apply.
 	r := newRig(t)
+	r.cache.Limit = 256 << 10
+	build := r.fill(t, "go-build", "ab/entry-d", 512)
 	r.Env["CONTAINER_ENGINE"] = "docker"
 	out := r.mustRun(t, project, "z")
-	if !strings.HasPrefix(out, "-v\nccy-go-cache-"+project+":/var/cache/ccy-go\n-e\nGOCACHE=/var/cache/ccy-go/go-build\n") {
+	if !strings.HasPrefix(out, "-v\n"+r.root()+":/var/cache/ccy-go:z\n-e\nGOCACHE=/var/cache/ccy-go/go-build\n") {
 		t.Fatalf("stdout %q", out)
 	}
-	if exists(t, filepath.Join(r.Env["HOME"], ".cache", "ccy")) {
-		t.Fatal("a host directory was made for docker")
+	if exists(t, build) {
+		t.Fatal("the bound was not applied under docker")
 	}
 }
 
