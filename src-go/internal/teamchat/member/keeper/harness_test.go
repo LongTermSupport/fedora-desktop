@@ -664,9 +664,14 @@ func (w *world) logged(sub string, n ...int) {
 		want = n[0]
 	}
 	run := w.runDir()
-	w.eventually("keeper.log says "+sub, func() bool {
-		return strings.Count(w.logOf(run), sub) >= want
-	})
+	w.eventually("keeper.log says "+sub, func() bool { return w.seen(run, sub, want) })
+}
+
+// seen is whether run's keeper.log holds sub want times, as logged reads it; it runs on any
+// goroutine, so a read that fails is not seen.
+func (w *world) seen(run paths.Run, sub string, want int) bool {
+	data, err := os.ReadFile(run.KeeperLog())
+	return err == nil && strings.Count(string(data), sub) >= want
 }
 
 // claude is the link naming Claude Code as pid, a process apart from CMD, and the pidfd the
