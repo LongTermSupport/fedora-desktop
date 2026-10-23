@@ -32,22 +32,15 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-# Plan 00192 Task 3.3, the rclone-tail port: play-rclone.yml with tags rclone-tail and
-# rclone-cache-status builds the Go rclone-tail in place of the bash script and rebuilds
-# rclone-cache-status (this port fixed its --no-dir reading a mount name as a directory),
-# leaving the mounts up; then acceptance-rclone-tail.bash checks H1 (`rclone-tail --once`
-# lists every mount as idle, an activity line or "(no --rc ...)"). Watching an upload stream live, Ctrl-C
-# exiting 0 and ftp-camera's upload status still printing (H2-H4) are by hand afterwards.
-00192-bash-line-in-the-sand-go-for-tooling/deploy-rclone-tail.bash
-# play-cli-tools.yml, the whole play (no plan owns it): installs mpv from Fedora's own repos
-# (desktops only), so audio clips can be played from a terminal; every other package in the
-# play is already installed and is left as it is. Check after: `mpv --version` prints.
-playbooks/imports/optional/common/play-cli-tools.yml
-# Plan 00167 acceptance, read-only, no play first (cc-project-dir is unchanged since dddf4063):
-# checks the installed cc-project-dir with no terminal, as a restore, in a repository
-# subfolder, and at the [Y/n] offer on a pseudo-terminal (y, n, a bad answer then n). It needs
-# no terminal of its own. Afterwards the host agent's cc checks in tmux (Task 3.3 item 2).
-00167-cc-refuses-to-start-outside-a-repo/acceptance.bash
+# play-speech-to-text.yml, the whole play (Plan 00171 Task 5.12): installs the panel and wsi
+# change that makes Escape really discard a recording. After the panel kills the recorder it
+# removes the audio file the killed wsi leaves in /dev/shm and wsi-stream's live transcript,
+# and wsi removes a stale recording before it records, so a later run can never transcribe
+# discarded audio. Log out and back in afterwards so the shell loads the changed extension.
+# Check after: Escape during a batch dictation leaves no /dev/shm/wfile-*.wav. The hook
+# handler fix merged with it needs no play: the hooks daemon is restarted, then
+# ./scripts/qa-hook-handlers.bash should pass on the host.
+playbooks/imports/optional/common/play-speech-to-text.yml
 # Plan 00185, colour emoji in terminals (#60): triage.bash first (read-only: which font
 # fontconfig and Ptyxis pick for the emoji now), then deploy.bash runs play-fonts.yml, the
 # renamed play-ms-fonts.yml: installs Noto Color Emoji if missing, deploys

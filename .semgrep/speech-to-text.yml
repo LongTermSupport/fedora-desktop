@@ -402,3 +402,157 @@ rules:
     severity: ERROR
     metadata:
       dbf-class: a job's end published before the cleanup a reader of that end relies on
+
+  # Rule: a recorder Escape kills does not leave its recording behind (Defence Before Fix;
+  # CLAUDE/QA.md "recorder-killed-leaving-its-files").
+  #
+  # Escape kills a batch recorder's whole process group with SIGKILL, so nothing is
+  # transcribed. A killed process runs no cleanup: wsi never removed /dev/shm/wfile-<user>.wav,
+  # and the room audio Escape was meant to throw away stayed until the next recording or a
+  # reboot. The panel, which sent the KILL, must remove what the recorder would have.
+  #
+  # WRONG: const {signal, group} = discardSignal(launch);
+  #        this._signalProcess(pid, signal, group);
+  # RIGHT: discardRecorder(pid, launch, {user, home, send, remove})   (recorderLaunch.js),
+  #        whose returned removal of discardLeftovers(launch, ...) runs once the recorder has
+  #        exited (panelSession.js)
+  #
+  # The rule reports, outside a node:test test(...), a kill in a function (a method, a
+  # function declaration or expression, or an arrow function) that never calls
+  # discardLeftovers(). A kill is a discardSignal() call, a call given the signal name 'KILL'
+  # or 'SIGKILL', an argv array naming -KILL, -9, -SIGKILL, KILL or SIGKILL, a
+  # send_signal(9) or a force_exit().
+  - id: recorder-killed-leaving-its-files
+    languages: [javascript]
+    patterns:
+      - pattern-either:
+          - pattern: discardSignal(...)
+          - pattern: $F(..., 'KILL', ...)
+          - pattern: $F(..., 'SIGKILL', ...)
+          - pattern: '[..., "-KILL", ...]'
+          - pattern: '[..., "-9", ...]'
+          - pattern: '[..., "-SIGKILL", ...]'
+          - pattern: '[..., "KILL", ...]'
+          - pattern: '[..., "SIGKILL", ...]'
+          - pattern: $P.send_signal(9)
+          - pattern: $P.force_exit()
+      - pattern-either:
+          - pattern-inside: |
+              $M(...) { ... }
+          - pattern-inside: |
+              function $M(...) { ... }
+          - pattern-inside: |
+              function (...) { ... }
+          - pattern-inside: |
+              (...) => { ... }
+          - pattern-inside: |
+              (...) => $BODY
+      - pattern-not-inside: |
+          $M(...) {
+            ...
+            <... discardLeftovers(...) ...>;
+            ...
+          }
+      - pattern-not-inside: |
+          function $M(...) {
+            ...
+            <... discardLeftovers(...) ...>;
+            ...
+          }
+      - pattern-not-inside: |
+          function (...) {
+            ...
+            <... discardLeftovers(...) ...>;
+            ...
+          }
+      - pattern-not-inside: |
+          (...) => {
+            ...
+            <... discardLeftovers(...) ...>;
+            ...
+          }
+      - pattern-not-inside: test(...)
+    message: >
+      recorder-killed-leaving-its-files: a recorder killed here cannot remove its own
+      recording. Remove what it leaves (discardLeftovers in recorderLaunch.js) once the kill
+      is sent. See CLAUDE/QA.md "recorder-killed-leaving-its-files".
+    severity: ERROR
+    metadata:
+      dbf-class: a process killed uncatchably whose files the killer leaves on disk
+
+  # Rule: code the hooks daemon loads never resolves a path against its own working
+  # directory (Defence Before Fix; CLAUDE/QA.md "hook-path-resolved-against-cwd").
+  #
+  # A hook handler runs in the daemon's process, whose working directory is not the agent's
+  # project. A relative tool path resolved with os.path.realpath() was judged against
+  # wherever the daemon (or its test) ran: allowed in the container, whose working
+  # directory is /workspace, and blocked as a system file on the host, whose is under /home.
+  #
+  # WRONG: os.path.realpath(file_path)
+  # RIGHT: if not os.path.isabs(file_path):
+  #            file_path = os.path.join(project_root, file_path)
+  #        os.path.realpath(file_path)
+  #
+  # The rule reports, in a module that imports claude_code_hooks_daemon (any import form):
+  # os.getcwd() and Path.cwd() always; .resolve() or .absolute() at the end of a chain that
+  # starts with Path(...) not built from __file__, other than Path(value) itself; and os.path.realpath, abspath or relpath of a
+  # value, or Path(value).resolve() or .absolute(), unless the value is __file__ or the same
+  # block first has `if not os.path.isabs(value):` whose body makes the value absolute with
+  # os.path.join or raises.
+  - id: hook-path-resolved-against-cwd
+    languages: [python]
+    patterns:
+      - pattern-either:
+          - pattern-inside: |
+              from claude_code_hooks_daemon.$M import $N
+              ...
+          - pattern-inside: |
+              from claude_code_hooks_daemon import $N
+              ...
+          - pattern-inside: |
+              import claude_code_hooks_daemon
+              ...
+          - pattern-inside: |
+              import claude_code_hooks_daemon.$M
+              ...
+      - pattern-either:
+          - pattern: os.getcwd()
+          - pattern: Path.cwd()
+          - pattern: pathlib.Path.cwd()
+          - patterns:
+              - pattern-either:
+                  - pattern: $P.resolve(...)
+                  - pattern: $P.absolute()
+              - pattern-not: Path($X).resolve(...)
+              - pattern-not: Path($X).absolute()
+              - pattern-not: pathlib.Path($X).resolve(...)
+              - pattern-not: pathlib.Path($X).absolute()
+              - metavariable-regex:
+                  metavariable: $P
+                  regex: '^(?!.*__file__)(pathlib\.)?Path\('
+          - patterns:
+              - pattern-either:
+                  - pattern: os.path.realpath($X)
+                  - pattern: os.path.abspath($X)
+                  - pattern: os.path.relpath($X)
+                  - pattern: Path($X).resolve(...)
+                  - pattern: Path($X).absolute()
+                  - pattern: pathlib.Path($X).resolve(...)
+                  - pattern: pathlib.Path($X).absolute()
+              - pattern-not: Path(__file__).resolve(...)
+              - pattern-not: os.path.realpath(__file__)
+              - pattern-not-inside: |
+                  if not os.path.isabs($X):
+                    $X = os.path.join(...)
+                  ...
+              - pattern-not-inside: |
+                  if not os.path.isabs($X):
+                    raise $E
+                  ...
+    message: >
+      hook-path-resolved-against-cwd: this resolves a path against the hooks daemon's
+      working directory, which is not the agent's project. Make a relative path absolute
+      against the project root first. See CLAUDE/QA.md "hook-path-resolved-against-cwd".
+    severity: ERROR
+    metadata:
+      dbf-class: a path resolved against the hooks daemon's working directory

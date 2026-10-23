@@ -20,7 +20,7 @@ import test from 'node:test';
 
 register(new URL('./gjs-loader.mjs', import.meta.url).href);
 
-const {spawnWatched, killArgv, discardSignal, SETSID} = await import(
+const {spawnWatched, killArgv, discardSignal, discardLeftovers, discardRecorder, SETSID} = await import(
     new URL('../../extensions/speech-to-text@fedora-desktop/recorderLaunch.js', import.meta.url).href);
 const {SPAWNS, SPAWN_OUTCOME, STUB_PID} = await import('./gi-stubs.mjs');
 const {spawnSync} = await import('node:child_process');
@@ -75,6 +75,68 @@ test('Escape: a server-mode recorder is asked to ABORT; any other is killed with
     assert.deepEqual(discardSignal({serverMode: true}), {signal: 'USR1', group: false});
     // batch wsi records with a pw-record child: the group takes it too
     assert.deepEqual(discardSignal({serverMode: false}), {signal: 'KILL', group: true});
+});
+
+const WHO = {user: 'u', home: '/stub/home'};
+
+test('Escape: a killed batch wsi leaves its recording in /dev/shm, as recorded, resampled and padded', () => {
+    // src-go/internal/wsi: newRun names the recording, cleanup removes these three
+    assert.deepEqual(discardLeftovers({kind: 'dictation', script: 'wsi', serverMode: false}, WHO), [
+        '/dev/shm/wfile-u.wav', '/dev/shm/wfile-u.wav.resampled.wav', '/dev/shm/wfile-u.wav.padded']);
+});
+
+test('Escape: a killed wsi-stream leaves its live transcript in the cache', () => {
+    assert.deepEqual(discardLeftovers({kind: 'claude', script: 'wsi-stream', serverMode: false}, WHO),
+        ['/stub/home/.cache/speech-to-text/streaming-buffer.txt']);
+});
+
+test('Escape: a server-mode recorder is not killed, and removes its own files', () => {
+    assert.deepEqual(discardLeftovers({kind: 'dictation', script: 'wsi-stream', serverMode: true}, WHO), []);
+});
+
+test('a recorder whose leftovers are not known is still killed, and the gap is an error', () => {
+    assert.throws(() => discardLeftovers({kind: 'dictation', script: 'wsi-new', serverMode: false}, WHO),
+        /wsi-new/);
+    const sent = [];
+    assert.throws(() => discardRecorder('4242', {kind: 'dictation', script: 'wsi-new', serverMode: false},
+        {...WHO, send: argv => sent.push(argv.join(' ')), remove: () => {}}), /wsi-new/);
+    assert.deepEqual(sent, ['kill -KILL -- -4242'], 'Escape left the microphone open');
+});
+
+test('discardRecorder kills the group, and hands back the removal for when the recorder has exited', () => {
+    const events = [];
+    const afterExit = discardRecorder('4242', {kind: 'dictation', script: 'wsi', serverMode: false}, {
+        ...WHO,
+        send: argv => events.push(argv.join(' ')),
+        remove: path => events.push(`rm ${path}`),
+    });
+    assert.deepEqual(events, ['kill -KILL -- -4242'], 'a file was removed while the recorder could still write');
+    afterExit();
+    assert.deepEqual(events, ['kill -KILL -- -4242', 'rm /dev/shm/wfile-u.wav',
+        'rm /dev/shm/wfile-u.wav.resampled.wav', 'rm /dev/shm/wfile-u.wav.padded']);
+});
+
+test('a removal that fails does not stop the others, and the error names it', () => {
+    const removed = [];
+    const afterExit = discardRecorder('4242', {kind: 'dictation', script: 'wsi', serverMode: false}, {
+        ...WHO,
+        send: () => {},
+        remove: path => {
+            if (path.endsWith('.wav'))
+                throw new Error(`${path}: permission denied`);
+            removed.push(path);
+        },
+    });
+    assert.throws(afterExit, /wfile-u\.wav: permission denied; \/dev\/shm\/wfile-u\.wav\.resampled\.wav: permission denied$/);
+    assert.deepEqual(removed, ['/dev/shm/wfile-u.wav.padded']);
+});
+
+test('discardRecorder asks a server-mode recorder to ABORT and removes nothing', () => {
+    const events = [];
+    discardRecorder('4242', {kind: 'dictation', script: 'wsi-stream', serverMode: true}, {
+        ...WHO, send: argv => events.push(argv.join(' ')), remove: path => events.push(`rm ${path}`),
+    })();
+    assert.deepEqual(events, ['kill -USR1 -- 4242']);
 });
 
 test('spawnWatched returns the PID of the process it started', () => {

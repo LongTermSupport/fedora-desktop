@@ -217,6 +217,21 @@ The owner's requirements:
   notification no longer offers "Insert: stop now". Tests in `test-stt-panel-session.mjs`,
   `test-stt-panel-look.mjs`, `test_stop_grace.py`; `probe-insert-sequence.py` and
   `acceptance.bash` judge the new replay.
+- [x] ✅ **Task 5.12 — Escape leaves nothing of the dictation on disk.** A host check found
+  `/dev/shm/wfile-$USER.wav` (the room audio) still there after Escape: the group KILL of Task
+  5.7 gives `wsi` no cleanup. The red test showed worse: a next run whose recorder wrote
+  nothing transcribed the discarded audio. Defended first (Defence Before Fix, Semgrep rule
+  `recorder-killed-leaving-its-files`, CLAUDE/QA.md). The sweep found the same gap in
+  non-server `wsi-stream`, whose live transcript `~/.cache/speech-to-text/streaming-buffer.txt`
+  stayed. The panel now kills through `discardRecorder` (`recorderLaunch.js`); every file
+  `discardLeftovers` names, and the PID file, is removed once the killed recorder has exited
+  (`panelSession.js`), before anything new can start and write the same files. `wsi` also removes a stale
+  recording before its recorder starts (SPEC-wsi-watermark.md W15a, Plan 00192), and
+  `wsi-stream` already empties its buffer at start. Escape after the recorder has already exited
+  signals nothing. Tests in `test-stt-recorder-launch.mjs`, `test-stt-panel-session.mjs` and
+  `src-go/internal/wsi/app_test.go`. With the panel's debug logging on, `debug.log` still holds
+  the partial transcripts (opt-in, left as is). Host check: Escape during a batch recording leaves no
+  `/dev/shm/wfile-*.wav`; it needs `play-speech-to-text.yml` and a logout.
 
 ## Technical Decisions
 
