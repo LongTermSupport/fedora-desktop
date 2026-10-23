@@ -94,9 +94,14 @@ workspace index and the window list cannot disagree (two calls could straddle a 
 | `focused`          | it has keyboard focus                                                                | `window.has_focus()`                                                 |
 | `minimized`        |                                                                                      | `window.minimized`                                                   |
 
-Windows listed: the same eligibility as the shell's own Introspect (`_isEligibleWindow`): not
-override-redirect, and type NORMAL, DIALOG, MODAL_DIALOG or UTILITY. Sorted by `id`, so two
-snapshots diff cleanly.
+Windows listed: every window from `global.get_window_actors().map(a => a.meta_window)`, not
+Introspect's walk over `Shell.AppSystem.get_running()` (which drops a window the tracker gave
+no app; here such a window is listed with `app_id: ""`). Filtered by the same eligibility as
+Introspect's `_isEligibleWindow`: not override-redirect, and type NORMAL, DIALOG,
+MODAL_DIALOG or UTILITY. Sorted by `id`, so two snapshots diff cleanly.
+
+`headless` is information for the reader only. It is **not** the mutation guard (section 4),
+which asks the shell itself through Eval.
 
 **No titles** (D2). A title carries content (document names, mail subjects, page titles);
 `wm_class` and `app_id` name the program, which `ps` already tells any same-user process.
@@ -123,43 +128,72 @@ subscription, nothing to clean up but the export itself.
 A Go command, `desktop-check` (`src-go/cmd/desktop-check`, D7), built and installed by the
 panel play. Subcommands:
 
-| Subcommand                                                          | Does                                                                                                                                             | On the real session                |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------- |
-| `windows`                                                           | calls `GetWindows` on whatever bus `DBUS_SESSION_BUS_ADDRESS` names, checks `schema`, prints the JSON to stdout                                  | works (read-only)                  |
-| `wait-window --app-id A --not-in F`                                 | polls `windows` (bounded, default 15 s) until a window of `A` appears whose id is not in snapshot file `F`; prints it; exits non-zero on timeout | works (read-only)                  |
-| `shell [--size WxH] [--workspaces N] [--link SRC=REL]... -- CMD...` | starts a test shell, runs `CMD` inside it, tears it down, exits with `CMD`'s status                                                              | n/a: it never touches the real one |
-| `activate-workspace N`                                              | Eval `global.workspace_manager.get_workspace_by_index(N).activate(global.get_current_time())`                                                    | **refused**: see below             |
-| `screenshot-window FILE`                                            | `org.gnome.Shell.Screenshot.ScreenshotWindow(true, false, false, FILE)` on the focused window                                                    | **refused**: see below             |
+| Subcommand                                        | Does                                                                                                                                                                                                             | On the real session                |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| `windows`                                         | calls `GetWindows` on whatever bus `DBUS_SESSION_BUS_ADDRESS` names, checks `schema`, prints the JSON to stdout                                                                                                  | works (read-only)                  |
+| `wait-window --app-id A --not-in F [--timeout D]` | polls `windows` (bounded, `--timeout` default 60 s, long enough for a first-run fontconfig cache build) until a window of `A` appears whose id is not in snapshot file `F`; prints it; exits non-zero on timeout | works (read-only)                  |
+| `shell [--size WxH] [--workspaces N] -- CMD...`   | starts a test shell, runs `CMD` inside it, tears it down, exits with `CMD`'s status                                                                                                                              | n/a: it never touches the real one |
+| `activate-workspace N`                            | Eval `global.workspace_manager.get_workspace_by_index(N).activate(global.get_current_time())`                                                                                                                    | **refused**: see below             |
+| `screenshot-window FILE`                          | `org.gnome.Shell.Screenshot.ScreenshotWindow(true, false, false, FILE)` on the focused window; `FILE` must be absolute (the shell reads a relative name as relative to Pictures)                                 | **refused**: see below             |
 
-**The mutation guard.** `activate-workspace` and `screenshot-window` first Eval
-`global.backend.is_headless() && global.context.unsafe_mode` and run only on `(true, 'true')`.
-The real session answers Eval with `(false, '')`, so they refuse with exit 3 and a message
-naming the real session, and never reach the call. The guard is checked by the tool **and**
-enforced by GNOME: even a tool bug cannot switch the owner's workspace or capture the owner's
-screen, because their shell refuses Eval and the Screenshot call for any sender not on its list.
+**The mutation guard.** `activate-workspace` and `screenshot-window` run only when both hold:
+
+1. `DBUS_SESSION_BUS_ADDRESS` names a socket under `$XDG_RUNTIME_DIR/desktop-check/`, the
+   directory only `desktop-check shell` creates; and
+2. Eval of `global.backend.is_headless() && global.context.unsafe_mode` answers `(true, 'true')`.
+
+Otherwise they refuse with exit 3 and a message naming the real session, and never reach the
+call. The two checks are independent, so a tool bug needs two mistakes. Behind them, GNOME
+enforces its own: the owner's shell answers Eval with `(false, '')` without running it and
+denies `ScreenshotWindow` to any sender not on its allowlist.
+
+**The one condition on GNOME's half.** The owner can put the real shell in unsafe mode from
+Looking Glass; while it is, GNOME's own check is off for Eval and Screenshot
+(`DBusSenderChecker.checkInvocation` returns early). The tool's two checks still refuse (the
+bus is not one it created, and the shell is not headless), so the owner's workspace and screen
+stay untouched; the claim is that the tool refuses, with GNOME as the second line only in
+safe mode.
+
 The JavaScript is a fixed template; `N` is parsed as an integer by Go before it is formatted in.
 
 **What `shell` does**, in order (each step fails loudly, with the shell's log, on error):
 
 1. A private directory `$XDG_RUNTIME_DIR/desktop-check/<pid>/` (tmpfs, under the user's 0700
-   runtime dir, D6) with `config/`, `data/`, `cache/`, `state/`.
-2. A private session bus: `dbus-daemon --session --nofork --print-address` with that
-   environment, so activated services (dconf, the apps) inherit the private `XDG_*` dirs.
-3. dconf seeded on that bus (written to `config/dconf/user`, never the owner's database):
+   runtime dir, D6) with `config/`, `data/`, `cache/`, `state/`. Directories left by an
+   earlier run whose pid is dead are removed first.
+2. **The private environment, built once and used for everything below** (the bus, the shell,
+   the seeding commands and `CMD`). The Wayland socket name `desktop-check-<pid>` is chosen
+   here, before anything starts. The environment is: `WAYLAND_DISPLAY=desktop-check-<pid>`,
+   `GDK_BACKEND=wayland`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME` and
+   `XDG_STATE_HOME` under the private directory; `DISPLAY`, `WAYLAND_SOCKET` and
+   `DBUS_SESSION_BUS_ADDRESS` removed. It matters most for the bus: a D-Bus-activated app
+   (dconf, portals, and the editor in 00198's red run, which uses activation on purpose) is
+   forked by `dbus-daemon` with **the daemon's** environment, not `CMD`'s. A daemon still
+   holding the agent's `WAYLAND_DISPLAY` would put that app's window on the owner's screen.
+3. A private session bus: `dbus-daemon --session --nofork --print-address --address=unix:path=<private dir>/bus`
+   in that environment (the socket path is what the mutation guard recognises). Without `--systemd-activation` it forks each service's `Exec=` itself, so
+   nothing reaches the user's systemd instance.
+4. dconf seeded on that bus (written to `config/dconf/user`, never the owner's database):
    `org.gnome.shell enabled-extensions ['fedora-desktop@fedora-desktop']`,
    `org.gnome.mutter dynamic-workspaces false`, `org.gnome.desktop.wm.preferences num-workspaces N` (default 2), and the welcome-tour key set so no dialog takes focus.
-4. `data/gnome-shell/extensions/fedora-desktop@fedora-desktop` symlinked to the **deployed**
+5. `data/gnome-shell/extensions/fedora-desktop@fedora-desktop` symlinked to the **deployed**
    copy under `~/.local/share/gnome-shell/extensions/`, so the test shell runs what the play
-   installed. Each `--link SRC=REL` adds `data/REL -> SRC` (00198 links its desktop file).
-5. `gnome-shell --headless --unsafe-mode --virtual-monitor WxH --wayland-display desktop-check-<pid> --no-x11`
-   (flags established by triage, Task 1.1), `DISPLAY` and `WAYLAND_DISPLAY` unset.
-6. Ready when `GetWindows` answers with `headless: true` (bounded wait, default 30 s). This
-   doubles as proof that the deployed extension loads.
-7. `CMD` runs with `DBUS_SESSION_BUS_ADDRESS`, `WAYLAND_DISPLAY`, `XDG_CONFIG_HOME`,
-   `XDG_DATA_HOME`, `XDG_CACHE_HOME`, `XDG_STATE_HOME` pointing at the test shell, and
-   `DISPLAY` unset. Inside it, `desktop-check windows` and `gio open` reach the test shell.
-8. On exit, or SIGINT/SIGTERM: the shell is sent SIGTERM (then SIGKILL after a bound), the
+   installed. Anything else a check needs in the data dir (00198's desktop file) its in-shell
+   script links itself: `CMD` has the private `XDG_DATA_HOME`.
+6. `gnome-shell --headless --unsafe-mode --virtual-monitor WxH --wayland-display desktop-check-<pid> --no-x11`
+   (plus `--wayland` if triage shows it is needed; flags established by Task 1.1) in the
+   private environment with the bus address added. Its stdout and stderr go to a log in the
+   private directory.
+7. Ready when `GetWindows` answers with `headless: true` (bounded wait; the bound is set from
+   the start-up time triage measures). This doubles as proof that the deployed extension
+   loads. On timeout the tool prints the shell's log to stderr before failing.
+8. `CMD` runs in the private environment plus `DBUS_SESSION_BUS_ADDRESS`. Inside it,
+   `desktop-check windows` and `gio open` reach the test shell.
+9. On exit, or SIGINT/SIGTERM: the shell is sent SIGTERM (then SIGKILL after a bound), the
    bus stopped, the directory removed. A run that cannot clean up says so and exits non-zero.
+
+The tool's requirements are numbered in `SPEC-desktop-check.md` beside its package, as
+`src-go/CLAUDE.md` asks of a tool this size (Task 3.1).
 
 A headless shell needs no logout and no seat, and it loads the deployed extension files
 fresh, so **the test shell sees a new extension deploy at once**; only the real-session
@@ -171,17 +205,19 @@ child-process patterns in `src-go/internal/` rather than new ones.
 
 ## 5. Security
 
-| Concern                                                      | Answer                                                                                                                                                                                                                              |
-| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Who can call `GetWindows` on the real session                | Any unsandboxed process of the same user on the session bus. Flatpak apps cannot: xdg-dbus-proxy does not let them talk to `org.gnome.Shell` without an explicit `--talk-name`. Not the system bus, not other users.                |
-| What it reveals                                              | Which programs have windows, on which workspace and monitor, which is focused. No titles, no contents, no geometry, no pixels. A same-user process can already list the programs (`/proc`), so the new fact is placement and focus. |
-| Can it change anything                                       | No. One method, read-only, no arguments.                                                                                                                                                                                            |
-| Screenshots of the owner's screen                            | Never. Not in the extension; the client's screenshot is refused on the real session by the tool and by GNOME's own sender check.                                                                                                    |
-| Workspace switching on the owner's screen                    | Never. Same double guard.                                                                                                                                                                                                           |
-| The test shell's Eval                                        | Reachable only on its private bus, whose socket address is in the child environment and under the user's 0700 runtime dir. A same-user process that went looking could reach it, and could equally run its own shell: no new power. |
-| The test shell writing the owner's settings                  | It has its own `XDG_CONFIG_HOME`, so its dconf database is a throwaway file. Task 1.1 proves the owner's `~/.config/dconf/user` is unchanged by a run.                                                                              |
-| The owner's other extensions running in the test shell       | They do not: `enabled-extensions` lists only this one, in the throwaway database.                                                                                                                                                   |
-| Apps launched in the test shell reaching the owner's session | They get the private bus and the test shell's Wayland socket, and `DISPLAY` is unset. Task 1.1 checks a launched app's window appears in the test shell and nowhere else.                                                           |
+| Concern                                                      | Answer                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Who can call `GetWindows` on the real session                | Any unsandboxed process of the same user on the session bus. A Flatpak app only if its manifest grants `--talk-name=org.gnome.Shell` or the whole session bus (`--socket=session-bus`), a permission visible in the manifest; under the default filtered proxy it cannot. Not the system bus, not other users.                           |
+| What it reveals                                              | Which programs have windows, on which workspace and monitor, which is focused. No titles, no contents, no geometry, no pixels. A same-user process can already list the programs (`/proc`), so the new fact is placement and focus.                                                                                                      |
+| Can it change anything                                       | No. One method, read-only, no arguments.                                                                                                                                                                                                                                                                                                 |
+| Screenshots of the owner's screen                            | Never. Not in the extension; the client's screenshot is refused on the real session by the tool and by GNOME's own sender check.                                                                                                                                                                                                         |
+| Workspace switching on the owner's screen                    | Never. Same guards (section 4), including while the owner has put their shell in unsafe mode from Looking Glass.                                                                                                                                                                                                                         |
+| The test shell's Eval                                        | Reachable only on its private bus, whose socket address is in the child environment and under the user's 0700 runtime dir. A same-user process that went looking could reach it, and could equally run its own shell: no new power.                                                                                                      |
+| The test shell writing the owner's settings                  | It has its own `XDG_CONFIG_HOME`, so its dconf database is a throwaway file. Task 1.1 proves the owner's `~/.config/dconf/user` is unchanged by a run.                                                                                                                                                                                   |
+| The owner's other extensions running in the test shell       | They do not: `enabled-extensions` lists only this one, in the throwaway database.                                                                                                                                                                                                                                                        |
+| Apps launched in the test shell reaching the owner's session | Directly launched and D-Bus-activated apps alike get the private bus, the test shell's Wayland socket, `GDK_BACKEND=wayland` and no `DISPLAY`, because the bus daemon itself runs in the private environment (section 4 step 2). Task 1.1 proves it with a D-Bus-activated app and checks the owner's session gained no window.          |
+| Other services on the private bus                            | dconf and, if an app asks, a second `xdg-desktop-portal` talking to the test shell. The keyring is unproven: its control socket is under the shared `$XDG_RUNTIME_DIR`. Task 1.1 lists every name activated on the private bus and diffs `$XDG_RUNTIME_DIR` before and after, so this is a fact before any consumer relies on the shell. |
+| `HOME` is shared                                             | Deliberately (the extension symlink, the installed tool). GLib, GTK, dconf and fontconfig honour the private `XDG_*`; a program that writes `~/.something` directly would touch the owner's home, which is why consumers run only the apps they check.                                                                                   |
 
 **Why no owner-enabled gate on a mutating method.** A gate held in gsettings, a file or an
 environment variable is writable by the same processes it would keep out, so it would be a
@@ -226,10 +262,13 @@ In-shell script, run twice by 00198's acceptance:
 4. `gio open b.txt`; `wait-window ... --not-in mid.json` gives W2; assert W2 is on workspace 1,
    `active_workspace` is still 1, W1 is still on workspace 0.
 
-- **Green run**: `desktop-check shell --link "$HOME/.local/share/applications/org.gnome.TextEditor.desktop=applications/org.gnome.TextEditor.desktop" -- ...`
-  (the deployed override). All asserts hold.
-- **Red run**: the same without `--link`, so the system desktop file (`DBusActivatable=true`)
-  is used. Step 4 must fail: no new window (b.txt became a tab in W1), or the active workspace
+- **Green run**: before step 1 the in-shell script symlinks the deployed override
+  `$HOME/.local/share/applications/org.gnome.TextEditor.desktop` into
+  `$XDG_DATA_HOME/applications/` (the private one); GIO resolves desktop files by id across
+  data dirs, so it shadows the system file. All asserts hold.
+- **Red run**: the same without the symlink, so the system desktop file (`DBusActivatable=true`)
+  is used, and the editor is D-Bus-activated by the private bus daemon (which is why that
+  daemon must run in the private environment, section 4 step 2). Step 4 must fail: no new window (b.txt became a tab in W1), or the active workspace
   went back to 0. A red run that passes means the check does not test the fix, and the
   acceptance fails.
 
