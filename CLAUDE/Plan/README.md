@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00223-ccy-one-confirm-relaunch](00223-ccy-one-confirm-relaunch/) - Not Started. One Quick Launch screen for ccy, accepted with one Enter, `ccy --teams` included: only the seat is rechecked, and a used-up token goes to the token chooser
+
 - [00224-coordinator-desktop-notifications](00224-coordinator-desktop-notifications/) - Not Started. A team's coordinator in a ccy or LXC container can send the owner a desktop notification through one Go command, `notify-owner`, and a host relay that checks the role from the host's own records; no session D-Bus in any container
 
 - [00222-worker-tool-restrictions](00222-worker-tool-restrictions/) - Not Started. Workers lose `AskUserQuestion` and four other human-facing tools by default (the coordinator keeps them): a PreToolUse hook in the member kit, a Go guard reading the live per-team role so hot role changes need no restart, a per-team opt-out; Claude Code's deny rules, env vars and a hooks-daemon handler compared in RESEARCH-mechanisms.md; v2 requirements recorded for Plan 00209
