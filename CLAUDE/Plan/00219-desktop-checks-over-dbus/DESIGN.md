@@ -193,7 +193,23 @@ The JavaScript is a fixed template; `N` is parsed as an integer by Go before it 
    bus stopped, the directory removed. A run that cannot clean up says so and exits non-zero.
 
 The tool's requirements are numbered in `SPEC-desktop-check.md` beside its package, as
-`src-go/CLAUDE.md` asks of a tool this size (Task 3.1).
+`src-go/CLAUDE.md` asks of a tool this size (Task 3.1). The SPEC also carries these points
+from review round 2:
+
+- The bus guard **parses** `DBUS_SESSION_BUS_ADDRESS` (one address, its `unix:path=` key; the
+  daemon prints `unix:path=...,guid=...`), `Lstat`s the socket and refuses a symlink. The
+  socket path is checked against the 108-byte `sun_path` limit before the daemon starts.
+- The private environment is the inherited one with an explicit removal list (`DISPLAY`,
+  `WAYLAND_SOCKET`, `DBUS_SESSION_BUS_ADDRESS`, `XAUTHORITY`, `GNOME_SETUP_DISPLAY`, deleted,
+  not blanked) and the overrides of step 2, plus `GIO_USE_VFS=local` and `GTK_A11Y=none` so
+  no gvfs or accessibility services are activated on the private bus.
+- The daemon, the shell and `CMD` run in one process group, killed as a group at teardown;
+  survivors are reported.
+- `activate-workspace` with an out-of-range index is a failure, from Eval's `(false, msg)`.
+- Task 1.1 finds the D-Bus-activated editor's pid with `GetConnectionUnixProcessID` on the
+  private bus, never `pgrep` (which can find the owner's editor).
+- Whether the client calls D-Bus through `gdbus` with the repo's execx seam (as `wsi` does)
+  or a Go D-Bus library is Task 3.1's choice, recorded in the SPEC.
 
 A headless shell needs no logout and no seat, and it loads the deployed extension files
 fresh, so **the test shell sees a new extension deploy at once**; only the real-session

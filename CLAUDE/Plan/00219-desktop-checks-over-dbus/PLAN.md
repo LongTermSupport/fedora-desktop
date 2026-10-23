@@ -1,6 +1,6 @@
 # Plan 00219: desktop checks over D-Bus
 
-**Status**: Not Started (design under review; decisions D1-D8 in DESIGN.md carry recommended defaults)
+**Status**: Not Started (design reviewed READY in round 2; decisions D1-D8 in DESIGN.md carry recommended defaults)
 **Created**: 2026-10-23
 **Owner**: joseph
 **Priority**: Medium
