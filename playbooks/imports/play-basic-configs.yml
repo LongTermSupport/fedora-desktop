@@ -144,6 +144,7 @@
             block: colors deus
             path: /etc/vimrc.local
             create: true
+            mode: "0644"
 
     # One task per file, each naming its source in full: a source built from a loop item
     # reads, to helpers/self_update/affected_plays.py, as the whole of files/, and would
@@ -523,11 +524,21 @@
       become: true
       ansible.builtin.shell: |
         set -euo pipefail
-        wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 && chmod +x /usr/bin/yq
+        wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 && chmod 0755 /usr/bin/yq
       args:
         executable: /bin/bash
         creates: /usr/bin/yq
       tags: yq
+
+    # `creates:` skips the install once the file exists, so the mode is set here too: an
+    # install run under a restrictive umask left it 0700 (Plan 00185, ansible-umask-pinned).
+    - name: YQ is executable by every user
+      become: true
+      ansible.builtin.file:
+        path: /usr/bin/yq
+        mode: "0755"
+      tags: yq
+      when: not ansible_check_mode
 
     # Gates the probe below, and exists only for `--check`. On a real run the install
     # above has just guaranteed this path — a failed install aborts the play — so this

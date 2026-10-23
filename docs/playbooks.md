@@ -380,7 +380,8 @@ gh-personal issue list
 - Installs Noto Color Emoji and deploys `/etc/fonts/conf.d/69-colour-emoji-fallback.conf`,
   which makes it the emoji fallback after the text fonts, so a terminal draws colour emoji
   instead of Symbola's or Noto Emoji's monochrome ones, while digits stay in the text font
-- Rebuilds the font caches when that file changes
+- Rebuilds the system font cache and the running user's own when that file changes, or when
+  other users cannot read a system cache file (one written under a restrictive umask)
 
 The cost of the fallback: a text symbol such as a check mark that none of the fonts listed
 for the family has, but some other installed text font has, is now drawn from the colour

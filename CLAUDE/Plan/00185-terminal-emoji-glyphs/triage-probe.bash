@@ -140,7 +140,10 @@ probe_cache() {
     need fc-cache
     run "fc-cache --version" fc-cache --version
     run "emoji font files (mtime)" find /usr/share/fonts -type f -iname '*emoji*' -printf '%TY-%Tm-%Td %TH:%TM:%TS %p\n'
-    run "system fontconfig caches (mtime, path)" find /usr/lib/fontconfig/cache /var/cache/fontconfig -type f -printf '%TY-%Tm-%Td %TH:%TM:%TS %p\n'
+    run "system fontconfig caches (mtime, mode, owner, path)" find /usr/lib/fontconfig/cache /var/cache/fontconfig -type f -printf '%TY-%Tm-%Td %TH:%TM:%TS %m %u %p\n'
+    # A file this user cannot read makes fontconfig fall back to the user cache (Plan 00185:
+    # a rebuild run as root under a cc session's umask 077 wrote them 0600).
+    run "system fontconfig caches this user cannot read (mode, owner, path; none is healthy)" find /usr/lib/fontconfig/cache /var/cache/fontconfig -type f ! -readable -printf '%m %u %p\n'
     run "user fontconfig caches (mtime, path)" find "${HOME}/.cache/fontconfig" -type f -printf '%TY-%Tm-%Td %TH:%TM:%TS %p\n'
     run "font directories (mtime; a cache older than its directory is stale)" find /usr/share/fonts -maxdepth 1 -type d -iname '*emoji*' -printf '%TY-%Tm-%Td %TH:%TM:%TS %p\n'
 }

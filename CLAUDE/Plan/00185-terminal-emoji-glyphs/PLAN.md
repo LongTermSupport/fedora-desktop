@@ -132,6 +132,16 @@ and the hook stays the owner's call.
   CHANGES, round 2 MERGE (its should-fix items applied: F44 merged, fontconfig declared in
   the project image and CI), round 3 MERGE (nits applied). Open: the meta-deploy run, `qa-all.bash` and the
   `qa-reviewer` agent.
+- [ ] 🔄 **Task 2.3**: The first host run failed 6 of 17 checks (DBF remediation; report in
+  [subagent-reports/261023-umask-dbf-report.md](subagent-reports/261023-umask-dbf-report.md)).
+  The run started from a `cc` session, whose umask is 077, and Ansible's root `fc-cache -f`
+  inherited it, so the system font cache came out 0600 and fontconfig read the desktop
+  user's stale cache. Defence: the rule `ansible-umask-pinned` (CLAUDE/QA.md). Fix: the
+  `umask_pin` callback, enabled in `ansible.cfg`, runs every Ansible run under 022, and
+  `play-fonts.yml` rebuilds the system cache and the user's own when that file changes or
+  when other users cannot read a system cache file, which repairs the damaged files on its
+  next run. `acceptance.bash` adds check 18 (every system cache file is readable) and triage
+  lists unreadable cache files. Open: the meta-deploy run.
 
 ## Success Criteria
 

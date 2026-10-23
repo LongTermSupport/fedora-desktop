@@ -66,7 +66,8 @@ for tool in fc-match fc-list cmp gsettings grep; do
     fi
 done
 
-readonly DECLARED=17
+readonly DECLARED=18
+readonly SYSTEM_CACHE=/usr/lib/fontconfig/cache
 readonly COLOUR="Noto Color Emoji"
 readonly DEPLOYED=/etc/fonts/conf.d/69-colour-emoji-fallback.conf
 readonly SOURCE="${PLAN_REPO_ROOT}/files/etc/fonts/conf.d/69-colour-emoji-fallback.conf"
@@ -127,6 +128,22 @@ keycap_misses() {
     printf '%s' "${misses}"
 }
 
+echo "== the system font cache, which every user must be able to read"
+# A cache file this user cannot read makes fontconfig use the user's own cache, which can hold
+# a scan from before the deploy and still be valid; checks 3 to 17 then judge that stale scan.
+if [[ ! -d "${SYSTEM_CACHE}" || ! -r "${SYSTEM_CACHE}" || ! -x "${SYSTEM_CACHE}" ]]; then
+    bad "18. this user can read every file in ${SYSTEM_CACHE}" \
+        "the directory itself is missing or unreadable: re-run play-fonts.yml (deploy.bash)"
+else
+    unreadable_cache="$(find "${SYSTEM_CACHE}" -maxdepth 1 -type f ! -readable -printf '%m %u %f\n')"
+    if [[ -z "${unreadable_cache}" ]]; then
+        ok "18. this user can read every file in ${SYSTEM_CACHE}"
+    else
+        bad "18. this user can read every file in ${SYSTEM_CACHE}" \
+            "$(wc -l <<<"${unreadable_cache}") unreadable (a rebuild under a restrictive umask), e.g. ${unreadable_cache%%$'\n'*}: fontconfig falls back to the user cache; re-run play-fonts.yml (deploy.bash), which rebuilds them"
+    fi
+fi
+
 echo "== the deployed file and the font"
 if [[ ! -f "${DEPLOYED}" ]]; then
     bad "1. ${DEPLOYED} is deployed" "missing: run deploy.bash"
@@ -141,7 +158,7 @@ colour_langs="$(fc-list -f '%{lang}' "${COLOUR}")"
 case "|${colour_langs//,/|}|" in
     *"|en|"*) ok "3. the font cache records en for ${COLOUR} (the scan edit applied)" ;;
     *) bad "3. the font cache records en for ${COLOUR} (the scan edit applied)" \
-        "got lang '${colour_langs}': the caches predate the file; deploy.bash rebuilds them" ;;
+        "got lang '${colour_langs}': the cache read predates the file (see check 18 first); deploy.bash rebuilds them" ;;
 esac
 
 echo "== the single best match for the emoji of #60"
