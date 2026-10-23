@@ -47,6 +47,12 @@ type held struct {
 	delivery deliveryState
 	// receipts is closed at the next change of the store's receipts; nil while none waits.
 	receipts chan struct{}
+
+	// shownMissing are the missed nonces the team's last proven delivery cleared from
+	// status.json's count (n3e-D11); seenTwice counts the items recv showed before a late
+	// find (P9).
+	shownMissing map[string]bool
+	seenTwice    int64
 }
 
 // Removed is a removal's answer: the team's user id (n3c-D13), "" when the link never read

@@ -508,6 +508,9 @@ func (w *world) armed(n int) {
 		if w.e.statusPace.stop != nil {
 			n++
 		}
+		if w.e.proof.stop != nil {
+			n++
+		}
 	})
 	check(w.t, w.clk.BlockUntil(w.t.Context(), n))
 }

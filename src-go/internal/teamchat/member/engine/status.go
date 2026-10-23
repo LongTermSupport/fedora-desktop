@@ -94,6 +94,7 @@ func (h *held) pending() int64 {
 // newest status; on the state goroutine, after every change.
 func (e *Engine) publish() {
 	e.offerStatus(e.buildStatus())
+	e.proofChanged()
 }
 
 // buildStatus is status.json's content as it is now, its written_ms left for the write, and
@@ -146,9 +147,7 @@ func (e *Engine) statusRow(h *held) state.StatusTeam {
 	if f, ok := failures[h.health.Stopped]; ok {
 		row.Failed = &f
 	}
-	if h.store != nil {
-		row.Missing = int64(len(h.store.Missed))
-	}
+	row.Missing = h.missing()
 	return row
 }
 
@@ -182,6 +181,8 @@ type teamView struct {
 	health  team.Health
 	counts  team.Counts
 	pending int64
+
+	seenTwice int64
 }
 
 // status is LN5: per held team its team, member and room records, then the refused adds, then
@@ -232,6 +233,7 @@ func (e *Engine) snapshot(only *paths.TeamID) ([]teamView, []paths.TeamID) {
 		views = append(views, teamView{
 			id: id, tm: h.team, userID: h.userID, handle: h.handle(), health: h.health,
 			counts: h.counts, pending: h.pending(),
+			seenTwice: h.seenTwice,
 		})
 	}
 	for _, id := range slices.SortedFunc(maps.Keys(e.refused), compareTeams) {
@@ -265,6 +267,7 @@ func teamRecords(v teamView, delivery string) []records.Record {
 		Counts: records.TeamCounts{
 			Ignored: v.counts.Ignored, Dropped: v.counts.Dropped, Unheard: v.counts.Unheard,
 			Gaps: v.counts.Gaps, Redacted: v.counts.Redacted,
+			SeenTwice: v.seenTwice,
 		},
 	}
 	switch {

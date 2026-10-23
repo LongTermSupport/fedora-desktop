@@ -347,6 +347,7 @@ func (e *Engine) BeginRun(ctx context.Context, t paths.TeamID) error {
 		if s.Run.ID == e.cfg.Run && s.Run.Ended == nil {
 			return false, nil
 		}
+		e.returnEarlierRun(s)
 		s.Run = state.StoreRun{ID: e.cfg.Run, StartedMS: e.cfg.Clock.WallMS()}
 		return true, nil
 	})
