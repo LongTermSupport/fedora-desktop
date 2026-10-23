@@ -192,6 +192,89 @@ menu_case "valid pick -> names its expiry"    $'1\n'                0 'Selected 
 menu_case "Desktop keypress -> host OAuth"    $'d\n'                0 'Using Desktop'
 
 echo ""
+echo "=== container mode: a token with no usage left is refused (lib/token-usable.bash) ==="
+# ccy-token-usable is stubbed: STUB_USED_UP names the token it calls used up, STUB_EXIT forces
+# its exit. Its own reading of the usage is the Go command's, tested in internal/ccylaunch.
+# Piped stdin makes ccy_nobody_to_ask true; the menu runs only where a person answers, so a
+# case stands for that person by redefining it, unless it tests the nobody-there stop.
+USABLE_LIB="$LIB_DIR/token-usable.bash"
+mkdir -p "$WORK/two-valid" "$WORK/bin"
+printf 'placeholder-not-a-real-token\n' >"$WORK/two-valid/alpha.$NEXT_YEAR.token"
+printf 'placeholder-not-a-real-token\n' >"$WORK/two-valid/beta.$NEXT_YEAR.token"
+cat >"$WORK/bin/ccy-token-usable" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$STUB_CALLS"
+mark=false
+[ "$1" = --mark ] && mark=true && shift
+[ "$1" = -- ] && shift
+name="${1##*/}" && name="${name%%.*}"
+[ -z "${STUB_EXIT:-}" ] || exit "$STUB_EXIT"
+[ "$name" = "${STUB_USED_UP:-}" ] || exit 0
+if [ "$mark" = true ]; then
+    echo "   ✗ no usage left: STUB-WINDOW"
+    exit 0
+fi
+echo "✗ No usage left on token $name: STUB-WINDOW" >&2
+exit 3
+STUB
+chmod +x "$WORK/bin/ccy-token-usable"
+
+# usable_case <description> <path-prefix> <mode> <attended: yes|no> <stdin> <want-rc> <env> <want-text>...
+usable_case() {
+    local desc="$1" prefix="$2" mode="$3" attended="$4" input="$5" wantRc="$6" env="$7" rc=0 out="" want
+    shift 7
+    : >"$WORK/calls"
+    out="$(printf '%s' "$input" | env STUB_CALLS="$WORK/calls" "$env" PATH="$prefix$PATH" timeout 10 bash -c "
+        set -uo pipefail
+        : \"\${GH_TOKEN:=}\" \"\${IMAGE_NAME:=}\"
+        source '$PURE_LIB'
+        source '$TOKEN_LIB'
+        source '$USABLE_LIB'
+        [ '$attended' = no ] || ccy_nobody_to_ask() { return 1; }
+        select_token '$WORK/two-valid' $mode && echo \"SELECTED=\$SELECTED_TOKEN\"
+    " 2>&1)" || rc=$?
+    printf '\n--- %s ---\n%s\n' "$desc" "$out" >>"$BANNERS"
+    if [ "$rc" -ne "$wantRc" ]; then
+        printf '  FAIL  %-54s -> rc=%s (want %s)\n' "$desc" "$rc" "$wantRc"
+        FAILED=$((FAILED + 1))
+        return
+    fi
+    for want in "$@"; do
+        if ! grep -qF -- "$want" <<<"$out$(cat "$WORK/calls")"; then
+            printf '  FAIL  %-54s -> rc=%s but never said "%s"\n' "$desc" "$rc" "$want"
+            FAILED=$((FAILED + 1))
+            return
+        fi
+    done
+    printf '  PASS  %-54s -> rc=%s\n' "$desc" "$rc"
+    PASSED=$((PASSED + 1))
+}
+
+STUB_BIN="$WORK/bin:"
+usable_case "used up -> refused, marked, another chosen" "$STUB_BIN" container yes $'1\n2\n' 0 STUB_USED_UP=alpha \
+    "✗ No usage left on token alpha: STUB-WINDOW" "alpha   expires" "✗ no usage left: STUB-WINDOW" \
+    "Selected token: beta" "SELECTED=$WORK/two-valid/beta.$NEXT_YEAR.token" "--mark -- $WORK/two-valid/alpha"
+usable_case "usage left -> chosen at once" "$STUB_BIN" container yes $'1\n' 0 STUB_USED_UP=none \
+    "Selected token: alpha" "-- $WORK/two-valid/alpha.$NEXT_YEAR.token"
+usable_case "only used-up picks -> bounded, gives up" "$STUB_BIN" container yes $'1\n1\n1\n1\n' 2 STUB_USED_UP=alpha \
+    "Giving up after 3 invalid selections"
+usable_case "used up, nobody to choose -> stops" "$STUB_BIN" container no $'1\n' 1 STUB_USED_UP=alpha \
+    "Nobody is here to choose another token"
+usable_case "check fails -> stops, naming it" "$STUB_BIN" container yes $'1\n' 1 STUB_EXIT=2 \
+    "ccy-token-usable failed (exit 2)"
+usable_case "check not installed -> stops, naming the play" "" container yes $'1\n' 1 STUB_USED_UP=none \
+    "ccy-token-usable is not installed" "run play-claude-yolo.yml"
+usable_case "host mode (cc) never asks it" "$STUB_BIN" host yes $'1\n' 0 STUB_EXIT=2 \
+    "Selected token: alpha"
+if [ -s "$WORK/calls" ]; then
+    echo "  FAIL  host mode ran ccy-token-usable: $(cat "$WORK/calls")"
+    FAILED=$((FAILED + 1))
+else
+    echo "  PASS  host mode ran no ccy-token-usable"
+    PASSED=$((PASSED + 1))
+fi
+
+echo ""
 echo "=== usage errors ==="
 bad_mode_rc=0
 SELECTED_TOKEN=""

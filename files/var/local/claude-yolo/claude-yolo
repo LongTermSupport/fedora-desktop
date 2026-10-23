@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.100.15"  # Container 2.79.9: the Go module gains a YAML dependency and execx Secret.Renamed (Plan 00192 Task 3.3). See docs/ccy-changelog.md.
+CCY_VERSION="3.100.18"  # Container 2.79.9: no session starts on a token with no usage left (ccy-token-usable). See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -30,7 +30,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # from lib/ (see CCY_HASH), because a hand-written list of what the program
 # consists of is a list that goes stale — this one omitted common-pure.bash,
 # which common.bash sources, for two months.
-CCY_LIBS=(token-handoff common host-paths token-management ssh-handling network-management dockerfile-custom docker-health session-registry restart-request session-lifecycle tmux-session agent-bus-membership agent-bus-seats image-build-lock image-build agent-choice)
+CCY_LIBS=(token-handoff common host-paths token-management token-usable ssh-handling network-management dockerfile-custom docker-health session-registry restart-request session-lifecycle tmux-session agent-bus-membership agent-bus-seats image-build-lock image-build agent-choice)
 
 # First, before anything that can end this launch: a GitHub token handed on by the launch
 # that started this one is taken, and its file deleted, at once; and the Go front's path, when
@@ -60,6 +60,8 @@ done
 source "$SCRIPT_DIR/lib/host-paths.bash"
 # shellcheck source=lib/token-management.bash
 source "$SCRIPT_DIR/lib/token-management.bash"
+# shellcheck source=lib/token-usable.bash
+source "$SCRIPT_DIR/lib/token-usable.bash"
 # shellcheck source=lib/ssh-handling.bash
 source "$SCRIPT_DIR/lib/ssh-handling.bash"
 # shellcheck source=lib/network-management.bash
@@ -1559,10 +1561,15 @@ if [ -n "$SPECIFIED_TOKEN" ]; then
         exit 1
     fi
 
-    filename=$(basename "$SELECTED_TOKEN")
-    token_name="${filename%.*.token}"
-    echo "✓ Using token: $token_name$(token_expiry_label "$SELECTED_TOKEN")"
-else
+    # No session starts on a token with no usage left: a person chooses another below, and a
+    # launch nobody attends stops in ccy_token_usable (lib/token-usable.bash).
+    ccy_token_usable -- "$SELECTED_TOKEN" || SELECTED_TOKEN=""
+    token_name="${SELECTED_TOKEN##*/}"
+    if [ -n "$SELECTED_TOKEN" ]; then
+        echo "✓ Using token: ${token_name%.*.token}$(token_expiry_label "$SELECTED_TOKEN")"
+    fi
+fi
+if [ -z "$SELECTED_TOKEN" ]; then
     # No token specified, check if tokens exist.
     # A glob, not `ls`: the glob's no-match is a fact about the directory, where
     # `ls` folded "no tokens" and "could not read the directory" into one empty
@@ -1574,15 +1581,10 @@ else
         done
     fi
     if [ ${#EXISTING_TOKENS[@]} -eq 0 ]; then
-        echo ""
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo "No Claude Code Tokens Found"
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo ""
-        echo "ccy uses long-lived OAuth tokens for container authentication."
-        echo ""
-        echo "You need to create a token before using ccy."
-        echo ""
+        printf '\n%s\nNo Claude Code Tokens Found\n%s\n\n%s\n\n%s\n\n' \
+            "════════════════════════════════════════════════════════════════════════════════" \
+            "════════════════════════════════════════════════════════════════════════════════" \
+            "ccy uses long-lived OAuth tokens for container authentication." "You need to create a token before using ccy."
         if ccy_nobody_to_ask; then
             ccy_prompt_refuse token-none "Create one where a person can use a browser: ccy --create-token"
             exit 1
@@ -1604,14 +1606,12 @@ else
             exit 1
         fi
         select_token "$TOKEN_DIR" "container" || {
-            echo ""
-            echo "════════════════════════════════════════════════════════════════════════════════"
-            echo "No Valid Tokens Available"
-            echo "════════════════════════════════════════════════════════════════════════════════"
-            echo ""
-            echo "All tokens are expired or expiring today."
-            echo "You must create a new token."
-            echo ""
+            # 3 is a pool with no unexpired token; any other is no choice made (select_token
+            # said why: cancelled, or three refused picks, e.g. every token's usage used up).
+            [ "$?" -eq 3 ] || exit 1
+            printf '\n%s\nNo Valid Tokens Available\n%s\n\nAll tokens are expired or expiring today.\nYou must create a new token.\n\n' \
+                "════════════════════════════════════════════════════════════════════════════════" \
+                "════════════════════════════════════════════════════════════════════════════════"
             read -rp "$CCY_PROMPT_TOKEN_NONE " create_now
             if [ "$create_now" != "n" ] && [ "$create_now" != "N" ]; then
                 create_token "$TOKEN_DIR" "$GH_TOKEN" "$IMAGE_NAME" "ccy"
@@ -1726,12 +1726,11 @@ if [ "$TOKEN_VALIDATION_FAILED" = true ]; then
                 post_create_token_exit
                 ;;
             2)
-                echo "Select a different token:"
-                echo ""
+                printf 'Select a different token:\n\n'
                 select_token "$TOKEN_DIR" "container" || {
-                    echo ""
-                    echo "No other valid tokens available."
-                    echo ""
+                    # As above: only 3 means no unexpired token; any other, no choice made.
+                    [ "$?" -eq 3 ] || exit 1
+                    printf '\nNo other valid tokens available.\n\n'
                     read -rp "$CCY_PROMPT_TOKEN_REPLACE " create_now
                     if [ "$create_now" != "n" ] && [ "$create_now" != "N" ]; then
                         create_token "$TOKEN_DIR" "$GH_TOKEN" "$IMAGE_NAME" "ccy"

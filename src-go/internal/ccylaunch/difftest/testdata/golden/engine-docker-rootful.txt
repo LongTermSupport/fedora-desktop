@@ -46,6 +46,7 @@ Or switch engine: export CCY_CONTAINER_ENGINE=podman
 getenforce
 docker info --format '{{.SecurityOptions}}'
 gh auth token
+ccy-token-usable -- '{sandbox}/home/.claude-tokens/ccy/tokens/work.2030-06-01.token'
 docker run --rm -e CLAUDE_CODE_OAUTH_TOKEN --entrypoint claude claude-yolo:latest --version
     env: CLAUDE_CODE_OAUTH_TOKEN
 docker info --format '{{.SecurityOptions}}'

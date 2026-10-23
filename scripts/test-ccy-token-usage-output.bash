@@ -71,6 +71,10 @@ case "$config" in
 esac
 STUB
 chmod 755 "$STUB_BIN/curl"
+# The picked token's usage gate (lib/token-usable.bash) is not under test here: usage left,
+# silently, as the Go command answers it (tested in internal/ccylaunch).
+printf '#!/usr/bin/env bash\nexit 0\n' >"$STUB_BIN/ccy-token-usable"
+chmod 755 "$STUB_BIN/ccy-token-usable"
 
 NEXT_YEAR="$(date -d '+365 days' +%Y-%m-%d)"
 YESTERDAY="$(date -d '-1 day' +%Y-%m-%d)"
@@ -151,6 +155,7 @@ usage_case() {
         : \"\${GH_TOKEN:=}\" \"\${IMAGE_NAME:=}\"
         source '$LIB_DIR/common-pure.bash'
         source '$LIB_DIR/token-management.bash'
+        source '$LIB_DIR/token-usable.bash'
         select_token '$dir/tokens' container
     " 2>"$dir/stderr")" || rc=$?
     err="$(cat "$dir/stderr")"

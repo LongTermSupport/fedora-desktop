@@ -788,12 +788,12 @@ shown above it is not the allowance being reported against. Unknown bucket names
 verbatim rather than being dropped, so a bucket the API adds later is visible instead of
 silently missing.
 
-**It is never fetched automatically, and the reason is the cost.** These figures are only
-available as rate-limit headers on a real API response, so reading them means making a
-genuine billed request per account — one that consumes a sliver of the very allowance it
-reports. A launch-time fetch would spend quota you never asked to spend, so it is a
-keypress instead. The request uses Haiku with a one-character prompt, and the weekly
-buckets are per-model, so it does not touch your Opus or Sonnet allowances.
+**The menu never fetches every account by itself, and the reason is the cost.** These
+figures are only available as rate-limit headers on a real API response, so reading them
+means making a genuine billed request per account — one that consumes a sliver of the very
+allowance it reports. So the whole view is a keypress; a launch reads only the one token it
+is about to start on (below). The request uses Haiku with a one-character prompt, and the
+weekly buckets are per-model, so it does not touch your Opus or Sonnet allowances.
 
 The result is cached for 15 minutes, so pressing `u` again in the same sitting costs
 nothing. An account that cannot be read says so on its own row and the others still
@@ -826,6 +826,37 @@ CCY_USAGE_SCALE=percent ccy # override, if the API ever changes to 0-100
 
 Nothing else in the display depends on it, and the switch applies to values already
 cached — flipping it costs no extra request.
+
+### No session on a token with no usage left
+
+Before a session starts, ccy reads the usage of the token it is about to use: the one
+`--token` names, the one a Quick Launch replays when you answer `Y`, and the one you pick
+in the menu. If its 5-hour or 7-day limit is used up, it is refused before anything
+starts, with one line saying which limit and when it clears:
+
+```
+✗ No usage left on token work: 7-day limit used up; clears Fri 20:53, in 3d 8h. ccy will not start a session on it.
+```
+
+Then the token menu opens so you can pick another. A used-up token stays listed, marked
+`✗ no usage left: ...` from the usage cache (so drawing the menu sends nothing); picking it
+again is refused the same way, and three refused or invalid picks end the launch (exit 1).
+A token created or renewed from the menu is checked too: usage is per account, so a new
+token on a used-up account stops the launch. A launch nobody attends (`--headless`, a
+session restore, a restart, or no terminal) has no one to pick, so it stops with exit 1 and
+the same line; a restart also names the session to resume by hand.
+
+The check costs one small request for that token, unless it was read in the last 15
+minutes. **If the usage cannot be read** (offline, `CCY_TOKEN_USAGE=0`, the API sent no
+figures, an odd file in the token pool, or a token file that is not the one its name
+launches with), ccy says it could not
+check and starts anyway: the figures only forecast a refusal the API makes itself on the
+first request, and blocking on a missing forecast would stop work the API would allow. A
+known used-up limit is different: that refusal is certain until the reset. A fault on this
+machine (no curl, a bad `CCY_USAGE_*` setting, an unwritable usage cache) stops the launch
+and names it. The check is the `ccy-token-usable` command (from `play-claude-yolo.yml`); if
+it is missing, ccy stops and names the play. The host `cc` launcher shares the menu but does
+not run the check.
 
 ### Reading usage without the menu: `ccy --token-usage`
 
