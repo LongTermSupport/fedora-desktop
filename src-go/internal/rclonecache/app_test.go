@@ -283,6 +283,21 @@ func TestDirectory(t *testing.T) {
 		"            1000B  2026/b.raw\n")
 }
 
+// E4: with --no-dir a TARGET is a mount name even when a directory of that name is here, so
+// the summary never walks it (rclone-tail's snapshot names its mount so).
+func TestNoDirTargetIsAName(t *testing.T) {
+	w := newWorld(t)
+	mnt := w.mount("12", "gdrive:", "gdrive", "--rc-addr=localhost:5572")
+	w.stats("localhost:5572", statsJSON)
+	w.write(filepath.Join(mnt, "doc.txt"), "hello")
+	if err := os.Symlink(mnt, filepath.Join(w.home, "gdrive")); err != nil {
+		t.Fatal(err)
+	}
+	w.cwd = w.home
+	w.expect(w.run("--no-dir", "gdrive"), term.ExitOK, "=== rclone cache status ===\n"+
+		"  gdrive  cache: 400GB / 400GB (100%) · 36176 files · max-age 365d\n")
+}
+
 // E5, E18: the working directory inside a mount is analysed; the default cache directory;
 // an empty directory; --no-dir turns it off.
 func TestWorkingDirectory(t *testing.T) {

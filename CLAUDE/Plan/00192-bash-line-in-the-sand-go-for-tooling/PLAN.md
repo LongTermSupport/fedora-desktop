@@ -5,7 +5,8 @@ Task 3.3; the Go gate is go-qa-ci through `scripts/qa-go-qa.bash`). Left for wor
 remaining ports of Task 3.3 (the `ccy` launcher's phases 3 to 5 are deferred by Plan 00191
 D4/D10), and Tasks 4.1 and 4.2 over the finished plan. Left for the host agent: the host checks
 of the merged ports (freeze steps 2 and 3, vmtest, ftp-camera H1, H2 and H5, watermark, wsi H2,
-open, rclone-cache-status, gh-account-setup H1 and H3 to H5) and Task 3.2's root run, which
+open, rclone-cache-status, rclone-tail H2 to H4, gh-account-setup H1 and H3 to H5), the queued
+`deploy-rclone-tail.bash` through meta-deploy, and Task 3.2's root run, which
 needs sudo at the run. Left for the owner: only what needs the owner in person, namely
 gh-account-setup H2 (a real GitHub device login), ftp-camera H3 and H4 (the physical camera)
 and wsi H1 (speaking into the microphone).
@@ -127,12 +128,18 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   - `rclone-cache-status` (P6): ported, merged into F44, deployed and live-checked on the host
     (`deploy-rclone-cache-status.bash` passed), spec
     [SPEC-rclone-cache-status.md](SPEC-rclone-cache-status.md); left, for the host agent: the
-    checks inside a mount (H2, H3) and `rclone-cache-warm`/`rclone-tail`.
-  - `gh-account-setup` (P6): ported and merged into F44 at 9e404ae6b (Opus MERGE in round 4);
-    it is run from the checkout, so no play deploys it. Spec
+    checks inside a mount (H2, H3) and `rclone-cache-warm`.
+  - `rclone-tail` (P6): ported, cut over and merged into F44 at 1d8bc1037; spec
+    [SPEC-rclone-tail.md](SPEC-rclone-tail.md). Its host run `deploy-rclone-tail.bash` (H1
+    scripted by `acceptance-rclone-tail.bash`) is queued in `meta-deploy.list`; H2 to H4 are
+    the host agent's (a file written into a mount while `rclone-tail` runs in a tmux pane,
+    Ctrl-C by `send-keys`, `ftp-camera`'s closing status).
+  - `gh-account-setup` (P6): ported and merged into F44 at 9e404ae6b (Opus MERGE in round 4;
+    `src-go/cmd/gh-account-setup`); it is run from the checkout, so no play deploys it. Spec
     [SPEC-gh-account-setup.md](SPEC-gh-account-setup.md). Host checks: H1, H3 and H5 the host
-    agent's, H4 in the VM lab (host agent); H2 the owner's (completing a GitHub device-code
-    login for a real account; the script side up to the printed URL is the host agent's).
+    agent's, H4 in the VM lab (host agent); H5's Ctrl-C mid-login leaves the host's `gh`
+    accounts as it found them. H2 is the owner's (completing a GitHub device-code login for a
+    real account; the script side up to the printed URL is the host agent's).
   - Still to do: the remaining programmes in [INVENTORY.md](INVENTORY.md) (account/setup tools
     after `rclone-cache-status`) and the `ccy` launcher.
 

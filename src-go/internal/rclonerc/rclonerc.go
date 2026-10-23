@@ -143,16 +143,8 @@ func (c *Client) AddrForMount(ctx context.Context, path string) (string, error) 
 	return "", fmt.Errorf("no rclone mount process serves %s", root)
 }
 
-// MountProcess is the argument list of the first rclone mount process, in pid order, one of
-// whose arguments after the program is root; nil when none is.
-func (c *Client) MountProcess(root string) ([]string, error) {
-	mounts, err := c.mountProcesses()
-	if err != nil {
-		return nil, err
-	}
-	return serving(mounts, root), nil
-}
-
+// serving is the argument list of the first rclone mount process, in pid order, one of whose
+// arguments after the program is root; nil when none is.
 func serving(mounts [][]string, root string) []string {
 	for _, args := range mounts {
 		if slices.Contains(args[1:], root) {
