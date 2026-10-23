@@ -498,8 +498,15 @@ func TestACutUnseenIsFoundAtTheDeadline(t *testing.T) {
 	text := pw.deliver(a, false, humanItem(a, 1, startWall, "one"), humanItem(a, 2, startWall+1, "two"))
 	size := fileSize(t, pw.tr.Path())
 	pw.until(func() bool { m := pw.e.proof.marks[pw.tr.Path()]; return m != nil && m.mark.Offset == size })
-	check(t, pw.tr.Truncate())
-	pw.tr.Record(text, faketranscript.Busy, 0)
+	// On the state goroutine, so no round (a kick of an earlier write) scans between the cut and
+	// the record.
+	var cut error
+	pw.local(func() {
+		if cut = pw.tr.Truncate(); cut == nil {
+			pw.tr.Record(text, faketranscript.Busy, 0)
+		}
+	})
+	check(t, cut)
 	check(t, pw.e.SetSession(t.Context(), SessionFacts{Idle: true}))
 	pw.grown(pw.tr.Path())
 	if s := pw.store(a); len(s.Awaiting) != 1 {
@@ -535,6 +542,28 @@ func TestARestartScansFromTheOffset(t *testing.T) {
 	if got.Awaiting[0].Nonce != early || len(got.Pending) != 1 || got.Pending[0].ID != evID(1) {
 		t.Fatalf("after the restart's scan: %+v", got)
 	}
+}
+
+// A restarted link whose store holds an entry already due, its transcript no longer than the
+// entry's offset, declares it missing in its first round: the whole read the deadline makes is
+// not growth, so it does not restart the quiet clock (P10's restart).
+func TestARestartedDueEntryIsMissingAtOnce(t *testing.T) {
+	pw := newProofWorld(t)
+	a := tid(t, "alpha")
+	pw.tr.Noise(3)
+	s := pw.newStore(a)
+	s.Pending = []state.Pending{humanItem(a, 1, startWall, "").Pending, humanItem(a, 2, startWall+1, "").Pending}
+	nonce := "0000000d"
+	at := (pw.clk.Boot() - quietAfter - 20*time.Second).Milliseconds()
+	s.Awaiting = []state.Awaiting{{
+		Nonce: nonce, IDs: []string{evID(1), evID(2)}, AtMS: at, StopMS: &at, Written: state.WrittenYes,
+		Transcript: state.TranscriptMark{Path: pw.tr.Path(), Offset: fileSize(t, pw.tr.Path())},
+	}}
+	s.Pending[0].Handed, s.Pending[1].Handed = &nonce, &nonce
+	s.Ledger = []state.Ledger{ledgerOf(s.Pending[0], startWall), ledgerOf(s.Pending[1], startWall)}
+	pw.add(a, encodeStore(t, s))
+	pw.until(func() bool { return len(pw.e.teams[a].store.Missed) == 1 })
+	checkMissing(t, pw.store(a), nonce)
 }
 
 // earlierRunStore is a store of another run holding one awaiting entry (evID(1) and evID(2),

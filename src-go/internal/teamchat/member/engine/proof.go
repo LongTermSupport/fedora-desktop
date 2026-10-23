@@ -224,11 +224,12 @@ func (e *Engine) proofRound() {
 	for _, path := range slices.Sorted(maps.Keys(sk.from)) {
 		m := e.proof.marks[path]
 		if m == nil {
-			start := sk.from[path]
+			// The offset sought is the furthest end known, also when the read starts at 0.
+			start, high := sk.from[path], sk.from[path]
 			if e.proof.reread {
 				start = 0
 			}
-			m = &pathMark{mark: proof.Mark{Offset: start}, high: start}
+			m = &pathMark{mark: proof.Mark{Offset: start}, high: high}
 			e.proof.marks[path] = m
 		}
 		caught = e.scanPath(path, m, sk.nonces, now, found) && caught
