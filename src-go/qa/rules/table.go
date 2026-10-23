@@ -341,6 +341,18 @@ var waiterCountAllowances = []allowance{
 	},
 }
 
+// agentBranches are the declarations outside package agent that may name or compare a launch
+// value (project_agent_branch): its one list, the two checks of a value read from a file or a
+// frame, and cli's names and spelling of it. fn "" is a package-level declaration.
+var agentBranches = []allowance{
+	{pkg: teamchatStatePkg, fn: "", reason: "the one list of launch values"},
+	{pkg: teamchatStatePkg, fn: "SessionPID.check", reason: "session.pid's value check"},
+	{pkg: teamchatWirePkg, fn: "Launch.check", reason: "the launch frame's value check"},
+	{pkg: teamchatCLIPkg, fn: "", reason: "cli's names for the launch values"},
+	{pkg: teamchatCLIPkg, fn: "ParseLaunch", reason: "--resume-recorded refused on plain"},
+	{pkg: teamchatCLIPkg, fn: "Launch.fromFlags", reason: "the spelling"},
+}
+
 // clockAllowance excuses one test function from the fixed-clock rule.
 type clockAllowance = allowance
 
@@ -362,7 +374,7 @@ func perPass(run func(*analysis.Pass)) func(*analysis.Pass) (any, error) {
 
 // All is every rule, in the order the driver registers them.
 func All() []*analysis.Analyzer {
-	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay, HiddenBindings, PackageTests, LifecycleTurn, KeeperLogBarrier, FakeClockCount, GoroutineEnd, RawConnProbe, LeakcheckOnce, RealTimeBound}
+	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay, HiddenBindings, PackageTests, LifecycleTurn, KeeperLogBarrier, FakeClockCount, GoroutineEnd, RawConnProbe, LeakcheckOnce, RealTimeBound, AgentBranch}
 }
 
 // ownedBy is whether the package path (the test variants of it included) is owner, matched
