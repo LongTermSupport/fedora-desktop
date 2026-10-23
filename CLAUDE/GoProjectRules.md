@@ -43,6 +43,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_package_tests`   | a package with no `_test.go` file, whose code the module-wide coverage floor can hide behind the rest of the module                       | the old Go gate's every-package-has-tests check, kept when go-qa-ci replaced it |
 | `project_homeabbrev`      | a hand-rolled `~` home abbreviation (a bare prefix replace turned `/home/<user>X` into `~X`)                                              | `teams` tests: `strings.Replace(..., "~", 1)` twice                             |
 | `project_hidden_bindings` | an action reachable only by a key, with no visible, named choice for it (also in shell fzf and Python Textual: `qa-hidden-bindings.bash`) | `teams` picker: Ctrl-A/X/O on Running sessions; `ccy-sessions`: Ctrl-T/X/N      |
+| `project_fakeclock_count` | a test that waits on a fake clock by the number of armed waiters, which a timer it did not mean can make, so it advances too early and hangs | `link` tests: `TestAnOpBeforeThePIDIsNotAnswered` hung to the 10-minute timeout |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -230,6 +231,30 @@ decide what the error means, so it must name it.
   error; `proc.OS.Run` keeps the capture, flags the leftover and ends its process group.
 - Not caught: a function that names the error and still drops the output (the proofs of the two
   runners hold that), and a delay set by a function that does not itself run the command.
+
+### project_fakeclock_count
+
+A wait on a fake clock (a type whose method set has `Advance(time.Duration)`) by the number of its
+armed waiters: any use of its method that takes a `context.Context` and an integer
+(`BlockUntil(ctx, n)`, whatever it is called, a method value included), and a call of its
+no-argument `int` method (`Waiters()`) in a `for` statement or in a `return` of a function
+literal (a poll). A count says how many timers are armed, not which; the code under test arms,
+stops and re-arms its own on its own goroutines, so the count can be made by another timer, the
+test advances too early, and the timer it meant is armed afterwards at the new time and never
+fires. The fix is `clock.(*Fake).AwaitDue(ctx, d)`, which returns once a waiter due `d` from the
+fake's present reading is armed: the timer named by when it is due.
+
+- Red, fixture: `testdata/src/fix/internal/badcount` (the originating snapshot and wait, a method
+  value, a helper's parameter, a `for` poll, an `if`-`break` poll, a predicate, a second fake
+  behind an interface spelling its wait `WaitForTimers`), over the stubs `fakeclock` and
+  `othertimers`; a count asserted once, in a range loop or a `t.Run` body, `StepWall(ms)`, a
+  wall reading (`int64`) in a predicate and a count on a type with no `Advance` clean.
+- Red, real tree: 28 findings, every `BlockUntil` call in `internal/teamchat` (13 test files and
+  the fake's own tests); the hang was the link server's read limit, armed on accept, making the
+  count before the hook's deadline was armed.
+- Not caught: a count read into a variable and polled by a helper that takes the `int`, and a
+  fake whose advance is spelled otherwise; two timers due at the same instant are one to
+  `AwaitDue`.
 
 ### project_hidden_bindings
 
