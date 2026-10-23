@@ -2,14 +2,18 @@ package guestroot
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
 	"testing"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/reexec"
 )
 
 const kitParent = "/usr/local/lib/teamchat/kit"
@@ -117,22 +121,52 @@ func TestWriterRefusesAnUnsafeDirectoryOnThePath(t *testing.T) {
 	}
 }
 
-// A bind mount below the root is refused by RESOLVE_NO_XDEV.
+// A bind mount below the root is refused by RESOLVE_NO_XDEV, on the real kernel: the mount is
+// made by the bindMount helper in a user and mount namespace of its own, which needs no
+// privilege on the host. A kernel that allows no such namespace skips it; TestMkdirAll shows
+// only that the flag is passed, never that the kernel refuses.
 func TestWriterRefusesABindMount(t *testing.T) {
 	g := newTree(t)
 	g.mkdir("/usr/local")
 	other := t.TempDir()
-	if err := unix.Mount(other, g.host("/usr/local"), "", unix.MS_BIND, ""); err != nil {
-		t.Skipf("cannot bind-mount here (%v); TestMkdirAll proves RESOLVE_NO_XDEV reaches openat2", err)
+	if err := os.Chmod(other, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		if err := unix.Unmount(g.host("/usr/local"), 0); err != nil {
-			t.Error(err)
-		}
-	})
-	if _, err := g.root(newRecorder()).Writer().MkdirAll(kitParent); !errors.Is(err, ErrRefused) {
-		t.Fatalf("got %v", err)
+	reexec.StartInUserNamespace(t, "bindMount", g.dir, other).Release()
+}
+
+// bindMount is TestWriterRefusesABindMount's child, root of its own user and mount namespace:
+// a write below the root of Args[0] succeeds, and once Args[1] is bind-mounted on its
+// /usr/local, a write through that mount is refused as a crossed mount (EXDEV).
+func bindMount(h *reexec.Helper) int {
+	r, err := openDirWith(linuxSys{}, h.Args[0])
+	if err != nil {
+		return failed("open the root", err)
 	}
+	if _, err := r.Writer().MkdirAll("/usr/share"); err != nil {
+		return failed("a write that crosses no mount", err)
+	}
+	if err := unix.Mount(h.Args[1], filepath.Join(h.Args[0], "usr/local"), "", unix.MS_BIND, ""); err != nil {
+		return failed("bind-mount", err)
+	}
+	if _, err := r.Writer().MkdirAll(kitParent); !errors.Is(err, ErrRefused) || !errors.Is(err, unix.EXDEV) {
+		return failed("a write through the mount, not refused as a crossed mount", err)
+	}
+	if err := r.Close(); err != nil {
+		return failed("close the root", err)
+	}
+	if err := h.Ready(); err != nil {
+		return failed("ready", err)
+	}
+	return 0
+}
+
+// failed tells the parent, on the child's stderr, which step failed and why.
+func failed(step string, err error) int {
+	if _, werr := fmt.Fprintf(os.Stderr, "%s: %v\n", step, err); werr != nil {
+		return 3
+	}
+	return 2
 }
 
 func TestWriteFile(t *testing.T) {

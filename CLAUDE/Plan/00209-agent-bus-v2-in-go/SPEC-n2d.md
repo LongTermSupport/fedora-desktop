@@ -68,17 +68,17 @@ in-process over the real codecs; `member` verbs for the probe handle (D's `migra
   class `retired` (SPEC-n2a CC5, exit 70), which no other refusal answers, so `lxc apply` can
   tell it from every other refusal (n2d-D21). Asked again, the handle is `retired` and refused
   by MO3. Tests: `add --seat S` and `return`, each answering `retired` and leaving the roster
-  member `retired`. `--seat next` (the lowest number from 1 no member of that prefix holds,
-  n2d-D3) has no caller since SPEC-n3 n3b-D2 and is removed by its rework. The counter is raised
+  member `retired`. There is no `--seat next` (SPEC-n3 n3b-D2): every caller passes the seat
+  it declared or chose, and `member add` takes only `--seat S`. The counter is raised
   to the seat's number when that is higher, and never lowered.
 
 - **MO5. Roll forward, never undo (C20).** Any operation first completes the `pending` record it
   finds, from its step:
 
   - the same verb asked again for the same handle completes it and answers the credential,
-    issuing again (a reset) when the credential step had already run; `add --seat next` asked
-    again on the pending add's prefix is the same verb for its handle (n2d-D15; no caller since
-    SPEC-n3 n3b-D2, removed by its rework); a `set` asked
+    issuing again (a reset) when the credential step had already run; an `add` asked again
+    names its seat, so it is the same verb for its handle (n2d-D15 as SPEC-n3 n3b-D2 leaves it,
+    with no `--seat next`); a `set` asked
     again with the other value completes the first and then runs as asked;
   - any other verb completes a pending `add`, `return` or `reissue` to `active` with its
     credential revoked, answers no credential and sets `needs` to `reissue`;

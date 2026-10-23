@@ -912,8 +912,7 @@ any time (C23).
   across checkouts, while the allocation lock is per checkout, 3.7.4).
 - ccy-teams always passes an explicit `--seat S`: the pool directory it claims before calling
   sudo is named by the seat (3.7.3). `lxc apply` passes the entry's declared seat too (n3b-D2,
-  3.9.1), so every caller passes `--seat S` and `--seat next` has no caller (its removal is in
-  the n3b-D2 rework scope). A number is never handed out twice: parked and lost members keep
+  3.9.1), so every caller passes `--seat S`, and `member add` has no `--seat next`. A number is never handed out twice: parked and lost members keep
   theirs for their return, and a retired number is refused. An `add --seat S` or `return` whose
   account is deactivated on the server records the handle `retired` and is refused with the
   error class `retired` (SPEC-n2d MO4), which `lxc apply` alone among refusals turns into the

@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -171,20 +172,58 @@ func TestLXCApplyAStoppedTargetIsUnreachable(t *testing.T) {
 	}
 }
 
-// n3b-D3: a stopped target joined with a refusal is the refusal's 70.
+// n3b-D3: a stopped target joined with a running target whose checkout rewrites URLs with
+// insteadOf is the refusal's 70, and the refusal names its reason.
 func TestLXCApplyARefusalBesideAStoppedTargetIsRefused(t *testing.T) {
 	w := newWorld(t)
 	decl := lxcDecl(t, lxcEntry("box-1", 1), lxcEntry("box-2", 2))
 	boxes := stopped("box-1")
 	boxes.states["box-2"] = lxccmd.Running
-	boxes.cfg["box-2"] = map[string]string{"lxc.start.auto": "0"}
-	out := w.lxcVerb(w.lxcSys(t, decl, boxes), decl,
+	boxes.cfg["box-2"] = map[string]string{"lxc.idmap": "", "lxc.net.0.link": "lxcbr0", "lxc.start.auto": "1"}
+	sys := w.lxcSys(t, decl, boxes)
+	withGuest(t, sys, "[remote \"origin\"]\n\turl = https://example.com/o/thing.git\n[url \"https://example.com/\"]\n\tinsteadOf = https://example.org/\n")
+	out := w.lxcVerb(sys, decl,
 		"lxc", "apply", "--phase", "present", "--member", "box-1/"+seatKey(t, 1), "--member", "box-2/"+seatKey(t, 2))
 	if out.code != ExitRefused || !strings.HasSuffix(out.stdout, "LXC-SUMMARY\t0 changed, 0 skipped, 1 deferred\n") {
 		t.Fatalf("got %d\nstdout %q\nstderr %s", out.code, out.stdout, out.stderr)
 	}
-	if !strings.Contains(out.stderr, "container box-1 is offline") || !strings.Contains(out.stderr, "box-2") {
+	if !strings.Contains(out.stderr, "container box-1 is offline") || !strings.Contains(out.stderr, "box-2") ||
+		!strings.Contains(out.stderr, "it rewrites URLs with insteadOf or pushInsteadOf") {
 		t.Fatalf("stderr %s", out.stderr)
+	}
+}
+
+// withGuest makes every container's pinned root a guest tree with the agent user and the
+// checkout's .git/config holding git.
+func withGuest(t *testing.T, sys *System, git string) {
+	t.Helper()
+	dir := t.TempDir()
+	for _, f := range []struct{ name, body string }{
+		{filepath.Join("etc", "passwd"), "agent:x:1000:1000::/home/u:/bin/bash\n"},
+		{filepath.Join(lxcCheckout, ".git", "config"), git},
+	} {
+		p := filepath.Join(dir, f.name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(f.body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	base := sys.LXC
+	sys.LXC = func() (*lxc.Deps, error) {
+		d, err := base()
+		if err != nil {
+			return nil, err
+		}
+		d.Pin = func(context.Context, string) (lxc.Root, error) {
+			r, err := guestroot.OpenDir(dir)
+			if err != nil {
+				return nil, err
+			}
+			return lxc.Pinned(r), nil
+		}
+		return d, nil
 	}
 }
 

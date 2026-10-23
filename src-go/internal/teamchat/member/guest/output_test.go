@@ -73,8 +73,17 @@ func TestOpsAreRegistered(t *testing.T) {
 }
 
 // register keeps its own copy of the set, ChangesOf hands out a copy, and a verb is
-// registered once.
+// registered once. The registry is restored after, so a repeated or shuffled run sees only
+// the package's own ops.
 func TestRegister(t *testing.T) {
+	registry.mu.Lock()
+	saved := slices.Clone(registry.ops)
+	registry.mu.Unlock()
+	t.Cleanup(func() {
+		registry.mu.Lock()
+		defer registry.mu.Unlock()
+		registry.ops = saved
+	})
 	set := []What{"x"}
 	registered := register(Op{Verb: "guest register-test", Changes: set})
 	set[0] = "forged"
