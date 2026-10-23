@@ -349,8 +349,8 @@ func (e *Engine) send(ctx context.Context, st sendTeam, kind string, compose com
 		return doneOf(exits.New(exits.CodeUsage, &st.id, msgTooMany, exits.Count(state.MaxPingTargets)))
 	}
 	if o.Forge != nil {
-		if err := e.forgeCheck(ctx, st, *o.Forge); err != nil {
-			return doneOf(err)
+		if d, refused := e.forgeCheck(ctx, st, *o.Forge); refused {
+			return d
 		}
 	}
 	var (
@@ -482,27 +482,42 @@ func refusal(t paths.TeamID, err error) error {
 	return exits.New(code, &t, msgRefused, exits.Words(re.Reason))
 }
 
-// forgeCheck is step 6 (n3d-D11), off the state goroutine; nothing is spent by a refusal.
-func (e *Engine) forgeCheck(ctx context.Context, st sendTeam, need proto.ForgeCheck) error {
-	if e.cfg.Forge == nil {
-		return exits.New(exits.CodeForgeDown, &st.id, msgForgeDown)
-	}
+// forgeCheck is step 6 (n3d-D11), off the state goroutine; nothing is spent by a refusal. It is
+// the send's answer and true for a reference refused or a check that failed. A failed check is
+// logged with its cause, and answered by what it shows (n3d-D32): the request's own deadline
+// ended is 4 timed-out, as every other step of a send; only a forge found unreachable is 20
+// forge-down; any other error is the link's own, 1 internal.
+func (e *Engine) forgeCheck(ctx context.Context, st sendTeam, need proto.ForgeCheck) (wire.Done, bool) {
 	res, err := e.cfg.Forge.Check(ctx, need, st.roster.Forge)
+	if err != nil {
+		e.logf("team %s: a send's forge check failed: %v", st.id, err)
+	}
+	var refused error
 	switch {
+	case err == nil:
+	case ctx.Err() != nil:
+		refused = exits.New(exits.CodeTimedOut, &st.id, msgTimedOut, exits.Team(st.id))
 	case errors.Is(err, team.ErrForgeLogin):
-		return exits.New(exits.CodeForgeLogin, &st.id, msgForgeLogin)
-	case err != nil:
-		return exits.New(exits.CodeForgeDown, &st.id, msgForgeDown)
+		refused = exits.New(exits.CodeForgeLogin, &st.id, msgForgeLogin)
+	case errors.Is(err, team.ErrForgeDown):
+		refused = exits.New(exits.CodeForgeDown, &st.id, msgForgeDown)
+	default:
+		return internal(err), true
+	}
+	if refused != nil {
+		return doneOf(refused), true
 	}
 	switch res.Outcome {
 	case team.ForgeProven:
-		return nil
+		return wire.Done{}, false
 	case proto.ReasonProvenance:
-		return exits.New(exits.CodeProvenance, &st.id, msgProvenance)
+		refused = exits.New(exits.CodeProvenance, &st.id, msgProvenance)
 	case proto.ReasonForgeRate:
-		return exits.New(exits.CodeForgeRate, &st.id, msgForgeRate)
+		refused = exits.New(exits.CodeForgeRate, &st.id, msgForgeRate)
+	default:
+		refused = exits.New(exits.CodeForge, &st.id, msgUnresolved)
 	}
-	return exits.New(exits.CodeForge, &st.id, msgUnresolved)
+	return doneOf(refused), true
 }
 
 // sendingFull is the refusal of a send while the store's sends in flight are at their cap.

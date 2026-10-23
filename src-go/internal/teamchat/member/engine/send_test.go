@@ -3,6 +3,8 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"maps"
 	"slices"
 	"strconv"
@@ -445,7 +447,7 @@ func TestN3dD11TheForgeResults(t *testing.T) {
 		{proto.ReasonForgeRate, nil, exits.CodeForgeRate},
 		{"", team.ErrForgeDown, exits.CodeForgeDown},
 		{"", team.ErrForgeLogin, exits.CodeForgeLogin},
-		{"", context.DeadlineExceeded, exits.CodeForgeDown},
+		{"", errors.New("forge: no origin for forge kind"), exits.CodeInternal},
 		{"what", nil, exits.CodeForge},
 	} {
 		w.forge.set(c.outcome, c.err)
@@ -463,13 +465,41 @@ func TestN3dD11TheForgeResults(t *testing.T) {
 	}
 }
 
-// A nil forge checker answers no reference: 20 forge-down.
-func TestN3dD11NoForgeCheckerIsForgeDown(t *testing.T) {
+// endingForge is a check that runs until its request's own deadline ends, which end does.
+type endingForge struct{ end context.CancelFunc }
+
+func (f endingForge) Check(ctx context.Context, _ proto.ForgeCheck, _ proto.Forge) (team.ForgeResult, error) {
+	f.end()
+	<-ctx.Done()
+	return team.ForgeResult{Outcome: proto.ReasonUnresolved}, fmt.Errorf("forge: the check ended: %w", ctx.Err())
+}
+
+// n3d-D32: a forge check cut by its request's own deadline is 4 timed-out, as every other step
+// of a send is; the forge's health is not in question, so it is never 20 forge-down.
+func TestN3dD32AForgeCheckPastItsDeadlineTimesOut(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)
-	w.local(func() { w.e.cfg.Forge = nil })
 	ops := tid(t, "ops")
 	w.sending(ops)
-	refusedCode(t, "no checker", firstOf(w.ping(&ops, "review", new(reviewRef), "repo.3")), exits.CodeForgeDown)
+	ctx, end := context.WithCancel(t.Context())
+	defer end()
+	w.local(func() { w.e.cfg.Forge = endingForge{end: end} })
+	a := w.request(ctx, wire.OpPing, wire.PingArgs{Team: &ops, Verb: "review", Ref: new(reviewRef), To: []string{"repo.3"}}, nil)
+	refusedCode(t, "a check past its deadline", firstOf(a), exits.CodeTimedOut)
+	if !strings.Contains(w.log.String(), "the check ended") {
+		t.Errorf("the cause was not logged: %s", w.log.String())
+	}
+}
+
+// n3d-D32: every error of a send's forge check is logged with its cause.
+func TestN3dD32AForgeCheckErrorIsLogged(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	w.sending(ops)
+	w.forge.set("", fmt.Errorf("%w: dial tcp: connection refused", team.ErrForgeDown))
+	refusedCode(t, "a forge down", firstOf(w.ping(&ops, "review", new(reviewRef), "repo.3")), exits.CodeForgeDown)
+	if !strings.Contains(w.log.String(), "connection refused") {
+		t.Errorf("the cause was not logged: %s", w.log.String())
+	}
 }
 
 // SD3-6 (offline): a down team's say is queued at once and listed; once up it is posted once by
