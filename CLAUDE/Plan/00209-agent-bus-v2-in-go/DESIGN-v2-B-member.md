@@ -611,14 +611,14 @@ at most. Its schema:
   "user_id": "@<repo>.2+<site>.podman:<server>",
   "sync": {"next_batch": "<token>", "fresh": false, "restore_epoch": 0, "floor_ms": {"main": 1759999990000, "questions": 1759999000000}},
   "pending": [
-    {"id": "$<43>", "room": "main", "item": "human", "sent_ms": 1760000000000, "from": "@alice:<server>", "repeat": false, "held": false, "restored": false, "handed": null}
+    {"id": "$<43>", "room": "main", "item": "human", "sent_ms": 1760000000000, "from": "@alice:<server>", "repeat": false, "held": false, "restored": false, "handed": null, "verb": null}
   ],
   "awaiting": [
     {"nonce": "3f9c2a71", "ids": ["$<43>"], "transcript": {"path": "/<abs>/<id>.jsonl", "offset": 81920}, "at_ms": 1760000000500, "written": "yes", "stop_ms": null}
   ],
   "missed": [{"nonce": "<8 hex>", "ids": ["$<43>"], "offset": 90112, "at_ms": 1760000000000}],
   "ledger": [
-    {"id": "$<43>", "room": "main", "item": "human", "thread": null, "from": "@alice:<server>", "at_ms": 1760000000500}
+    {"id": "$<43>", "room": "main", "item": "human", "thread": null, "from": "@alice:<server>", "at_ms": 1760000000500, "verb": null}
   ],
   "receipts": [{"id": "$<43>", "room": "main"}],
   "outbox": {
@@ -655,7 +655,8 @@ at most. Its schema:
   item. Both survive a restart. `handed` is `null`, or the 8-hex id of the `recv` the item was
   handed to (2.4.4), written before the records are sent; a link that starts and finds an item
   `handed` returns it at once, `handed: null` and `repeat: true`, since its records may already be
-  on the CLI's stdout.
+  on the CLI's stdout. `verb` is the ping's verb for an item `ping` and `null` for every other
+  item, in `pending` and in `ledger` alike; the strict decoder refuses any other pairing (n3d-D30).
 - `missed` holds the last 16 deliveries declared missing, watched for a late find for 24 h from
   the transcript offset where proof gave up (2.7.4).
 - **The resume marker.** The floors are also kept on the server: after every store write that

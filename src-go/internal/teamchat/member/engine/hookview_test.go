@@ -26,6 +26,10 @@ func (w *world) hookView() HookView {
 func kindItem(id paths.TeamID, n int, kind string) team.Item {
 	it := peerItem(id, n, startWall+int64(n), "x")
 	it.Pending.Item = kind
+	if kind == records.KindPing {
+		// n3d-D30: a ping's pending entry carries its verb, which Persist takes from the verdict.
+		it.Verdict.Content.Ping.Verb = proto.VerbCheck
+	}
 	return it
 }
 
