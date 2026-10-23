@@ -35,9 +35,10 @@
 # play-agent-bus.yml, the whole play (Plan 00201 Task 2.22): the agent-bus admin tool built from
 # this checkout carries declare.py's pinned_tuwunel_version, the one reader of the Tuwunel pin
 # (ccy-teams, the play's software digest and Plan 00161's probe all call it; a pin naming an
-# empty version is now refused, as one naming none or two already was). The admin tool is part
-# of the software digest, so the play reinstalls it on the host and applies each team again;
-# nothing a user sees changes. Needs sudo once.
+# empty version is now refused, as one naming none or two already was). The admin tool and the
+# pingbus zipapp are built from helpers/agent_bus and helpers/pingbus together, so both change:
+# the play reinstalls them on the host and in the kit, copies pingbus into every running LXC
+# member, and applies each team again; nothing a user sees changes. Needs sudo once.
 playbooks/imports/play-agent-bus.yml
 # play-claude-yolo.yml, the whole play (Plan 00201 Task 2.22): the host's ccy becomes CCY
 # 3.100.13 and the play builds container 2.79.8, whose image carries the same declare.py. It

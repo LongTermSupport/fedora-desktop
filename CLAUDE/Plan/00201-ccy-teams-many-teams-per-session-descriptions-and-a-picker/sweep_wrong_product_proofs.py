@@ -93,7 +93,8 @@ rows.append(("tuwunel.pin names an empty version", "00161 triage_probe", f"exit 
              "REJECTED" if code != 0 else "ACCEPTED (bad)"))
 
 # expect-plain: the product says a plain session's marker is `none`; a container carrying `off` is wrong.
-plain_marker = product_value("helpers/pingbus/membership.py", "MEMBERSHIP_VAR") + "=off"
+plain_marker = (product_value("helpers/pingbus/membership.py", "MEMBERSHIP_VAR") + "="
+                + product_value("helpers/pingbus/membership.py", "MEMBERSHIP_OFF"))
 restore = mutate("helpers/pingbus/membership.py", '\nMEMBERSHIP_OFF = "off"', '\nMEMBERSHIP_OFF = "none"')
 scratch = ROOT / "untracked" / "proof"
 scratch.mkdir(parents=True, exist_ok=True)
