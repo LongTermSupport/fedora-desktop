@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00224-coordinator-desktop-notifications](00224-coordinator-desktop-notifications/) - Not Started. A team's coordinator in a ccy or LXC container can send the owner a desktop notification: one Go command, `notify-owner`, everywhere; in a container it drops a request into a host-made per-session (ccy) or per-member (LXC) spool directory, and a host relay in the owner's session checks the coordinator role from the host's own team records, sanitises, rate-limits and runs `notify-send`; no session D-Bus in any container; remote members left to v2 (Plan 00209)
+
 - [00220-wireguard-overlay-and-remote-team-members](00220-wireguard-overlay-and-remote-team-members/) - Not Started. Agent teams across machines: a vault-backed WireGuard overlay in `play-vpn.yml` (one per machine, hub and spoke on this desktop, a dedicated firewalld zone, one public UDP port), the homeserver on the overlay address for named peers only, a `host` member on a second laptop; remote ccy seats left to v2 (Plan 00209)
 
 - [00219-desktop-checks-over-dbus](00219-desktop-checks-over-dbus/) - Not Started. Agents check the desktop without the owner: a read-only `org.fedoradesktop.DesktopFacts` object in the panel extension (active workspace, each window's class, app id, workspace and focus; no titles) and a Go `desktop-check` that runs checks needing window changes or screenshots in a throwaway headless shell, never on the owner's screen; for Plans 00198 and 00185
