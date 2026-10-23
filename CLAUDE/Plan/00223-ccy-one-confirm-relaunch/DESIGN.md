@@ -111,12 +111,19 @@ same kind of fact (its L11, L16): a property of the seat, not of the launch.
   from `internal/teams/discover` (the one lookup of which session names a seat: the session
   records and desired memberships, the same lookup the board uses), cross-checked against the
   project's running containers (the list Q3 reads, through `internal/engine` and the
-  `ccy-session` container label). A container no record names is shown as `1 container with no session record`. Launching from the screen means "start beside them", Q3's `c`: Q3 is not
+  `ccy-session` container label). This launch's own tmux session (`CCY_SESSION_NAME`, passed as
+  `--session NAME`) is left out. A container no record names is shown as `1 container with no session record`. Launching from the screen means "start beside them", Q3's `c`: Q3 is not
   asked after an accepted screen. `Answer every question again` keeps Q3.
-- **R12 Zombies first.** Q2 runs **before** the screen on the screen's path (moved from 1847
-  for that path, not asked twice). A zombie of this checkout that holds a saved seat is then
-  stopped or kept by the person's Q2 answer before the seat probe runs, so the screen never moves
-  a seat that Q2 frees a moment later. A Q2 listing that fails stops the launch, as at 1847 today.
+- **R12 Container checks first.** The container preflight block, `claude-yolo:1788-1848` in its
+  current order (the never-root check at 1794, `engine_assert_rootless` at 1816, the stale
+  container cleanup at 1826, `CCY_NO_CONTAINER_PROMPTS` at 1831-1834, then Q2 at 1847), moves
+  **as one unit** to just before the Quick Launch block (1229), **for every launch**, not only
+  the screen's path, so there is one order to reason about. Everything it reads is set by then:
+  `CONTAINER_ENGINE` (`lib/common.bash:33`, `--engine` at 696), `HEADLESS_MODE` and
+  `CCY_UNATTENDED_LAUNCH` (1208-1223). A zombie of this checkout that holds a saved seat is
+  then stopped or kept by the person's Q2 answer before the seat probe runs, so the screen never
+  moves a seat that Q2 frees a moment later. Each check fails the launch as it does today. Every
+  difftest golden whose output order changes is re-recorded with the reason (Task 3.1).
 - **R13 `ccy --teams` with saved seats.** See 2.3.
 - **R14 Unattended is unchanged.** Restore, headless, no terminal and end of input take the
   saved token, keys and network without the screen and never the saved team (Plan 00161 M2.9,
@@ -126,7 +133,8 @@ same kind of fact (its L11, L16): a property of the seat, not of the launch.
   the file after a token switch is unaffected.
 - **R16 One reader of the saved file.** The bash has already read it (`load_launch_config`, with
   its format and key checks); it passes the values to the screen as arguments
-  (`--token NAME --ssh-keys "K1 K2" --network NAME --teams LIST --saved DATE`). The Go side never
+  (`--token NAME --ssh-keys "K1 K2" --network NAME --teams LIST --saved DATE`, plus
+  `--teams-given LIST` when `--teams` was deferred (2.3) and `--session NAME`). The Go side never
   opens `.last-launch.conf`, so the two cannot disagree about it.
 - **R17 Fail fast.** An `agent-bus seat choose` that fails stops the launch with its reason (no
   silent "assume free"); a session lookup that fails does too. A usage read that cannot be made
@@ -135,7 +143,13 @@ same kind of fact (its L11, L16): a property of the seat, not of the launch.
   when the saved settings had teams or `--teams` was given, the team chooser
   (`ccy-teams choose-teams`, T1-T4), which gains a `No team` row for this call
   (`--offer-none`), so a person can still start on no team. Without saved teams and without
-  `--teams`, no team question is asked (today's rule).
+  `--teams`, no team question is asked (today's rule). The answer travels on **stdout**, which is
+  all `$(ccy-teams choose-teams ...)` at 878 captures: `No team` prints the single line `-`
+  (never a team list: a team name starts with a letter, `TEAM_NAME_PATTERN`,
+  `helpers/pingbus/protocol.py:87`), exit 0. Line 880 changes from "empty means left the
+  chooser, exit 0" to: `-` means no team (`TEAMS_LIST` and `CCY_SEATS` empty, no seat check or
+  take, and the canonical-args step **drops** the `--teams` words, so `ccy_teams_canonical_args`
+  accepts an empty canonical list as "remove"); empty still means the person left, exit 0.
 - **R19 The race between two launches.** Two people (or one person in two terminals) starting in
   one checkout at once can both see seat 2 free: the seat is held only once the container's
   keeper takes its lock, minutes later after the image work. v1 has no host-side hold to take
@@ -143,7 +157,12 @@ same kind of fact (its L11, L16): a property of the seat, not of the launch.
   So: when `agent-bus seat take` refuses with 75 on an attended launch, ccy shows only the
   screen's seat part again for the refused team (the next free seat first, or the chooser),
   rewrites `CCY_SEATS`, the canonical arguments and the session record (`ccy-teams record-seats`), and takes once more. A second refusal stops the launch as today. Unattended
-  launches keep today's refusal. A true reservation is decision C9.
+  launches keep today's refusal. A true reservation is decision C9. The retry is written inline
+  at 3876 (`ccy-teams quick-launch --seats-only TEAM` and the rewrite), adding no function: the
+  file's function count (12 on the allowlist row) does not grow. It runs after
+  `ccy_lifecycle_finalize` (3842), so a relative `--run-for` deadline is already fixed and the
+  time spent answering the re-offer counts against it; accepted, because it is one question on a
+  rare path, and said in the re-offer's own text (`the --run-for time has started`).
 - **R20 The screen is attended only.** It refuses (exit 64, said on stderr) when stdin or
   stderr is not a terminal: every unattended path stays in bash (2.4). The bash never calls it
   then (it tests `ccy_nobody_to_ask` and `-t 2` first). On the screen, Esc or Ctrl-C is `Quit`:
@@ -174,32 +193,43 @@ in ~/Projects/<repo> - settings saved <date>
 
 ### 2.3 `ccy --teams` and the screen (R13)
 
-The team step moves **after** the screen when the screen applies; the screen does not move
-earlier.
+The team step moves **after** the Quick Launch block whenever it would ask a question; the
+screen does not move earlier, and nothing at 892 reads the saved file.
 
-- **When it applies.** `--teams` is given bare, or as `--teams TEAM[,TEAM...]` with every named
-  team having a seat in the saved `LAST_TEAMS`; no `--token`, `--ssh-key`, `--no-ssh`,
-  `--network` or `--no-network`; a saved file `load_launch_config` accepts; a terminal (R20).
-  Otherwise today's order stands: `ccy_launch_teams` at 892 (the chooser for a team alone), then
-  Q1's replacement.
-- **What happens at 892.** When it applies, `ccy_launch_teams` and the canonical-args step are
-  not run there. `TEAMS_GIVEN` stays `true`; `TEAMS_LIST` keeps what was given (empty or the
-  team names). The tmux re-exec at 1196 replays the arguments as given, so inside tmux the same
-  test applies again and the screen is shown there, where Q1 is shown today.
-- **Which seats the screen offers.** Bare `--teams`: every saved seat. `--teams TEAM,...`: the
-  saved seats of the named teams only; saved seats of teams not named are left out, because the
-  command line names the teams. `--teams SEAT@TEAM` is never deferred: it is taken as given and
-  shown on the screen (today's rule, `claude-yolo:1274`).
-- **After the screen.** On launch (or after `Choose a seat...`), `TEAMS_LIST` is set to the
-  screen's `SEAT@TEAM` list and the deferred work runs in the order of today's Quick Launch
-  yes (`claude-yolo:1300-1305`): `ccy_launch_teams` (seats named, so no chooser), then the
-  canonical-args step, which rewrites `set --` and `CCY_ORIG_ARGS` with
-  `ccy_teams_canonical_args` at the flag and value positions recorded while parsing (replacing
-  the `--teams` words, not appending as 1303 does today for a launch that had none), then
-  `ccy-teams record-seats` for the tmux session record. A restart (3776) then replays the
-  canonical seats, as it does today.
-- **`Answer every question again`** with `--teams` runs `ccy_launch_teams` as today (the chooser,
-  R18), then the canonical-args step.
+- **The deferral test at 892 needs no saved file.** `ccy_launch_teams` and the canonical-args
+  step are deferred when all hold: `--teams` is given bare or with at least one team named alone
+  (exactly the case that reaches the chooser at 877 today); the launch is attended (877's own
+  test); and no `--token`, `--ssh-key`, `--no-ssh`, `--network` or `--no-network` is given.
+  These are all facts already parsed by 892. `load_launch_config` is not called there, so it
+  runs once, inside tmux, as today, and its warnings and deletions happen once. Otherwise
+  (`--teams SEAT@TEAM,...` only, unattended, a choice flag) today's order stands.
+- **Deferred.** `TEAMS_GIVEN` stays `true`; `TEAMS_LIST` keeps what was given (empty, or a
+  list with team names alone). The tmux re-exec at 1196 replays the arguments as given, so
+  inside tmux the same test defers again.
+- **Then the Quick Launch block.** Three outcomes:
+  - `load_launch_config` refuses the file, or there is none: no screen. The deferred step runs
+    right after the block, before the SSH questions (1355): `ccy_launch_teams` with the given
+    list, which is today's chooser, now inside tmux and after the (absent) Quick Launch instead
+    of before tmux. The person sees the same questions in the same order relative to SSH and
+    token.
+  - The screen runs. The bash passes the saved `LAST_TEAMS` **and** the given list
+    (`--teams-given LIST`); **the Go screen** does the filtering: bare `--teams` offers every
+    saved seat; `--teams TEAM,...` offers the saved seats of the named teams only (saved seats
+    of teams not named are left out, because the command line names the teams), and a named
+    team with no saved seat is shown as `beta: no saved seat - chosen after this screen`. On
+    `launch` or after `Choose a seat...`, the payload's seat list holds a `SEAT@TEAM` for each
+    covered team and the bare name for each uncovered one.
+  - `Answer every question again`: the deferred step runs the chooser for the given list (R18).
+- **The deferred step**, in the order of today's Quick Launch yes (`claude-yolo:1300-1305`):
+  `TEAMS_LIST` set to the payload's list; `ccy_launch_teams`, which runs `choose-teams` only for
+  the items still named alone (its `resolve` keeps each `SEAT@TEAM` and asks only for a team
+  alone, `teams/chooser/chooser.go:179-201`); then the canonical-args step, which rewrites
+  `set --` and `CCY_ORIG_ARGS` with `ccy_teams_canonical_args` at the flag and value positions
+  recorded while parsing (replacing the `--teams` words, not appending as 1303 does today for a
+  launch that had none); then `ccy-teams record-seats` for the tmux session record. A restart
+  (3776) then replays the canonical seats, as it does today.
+- **`--teams SEAT@TEAM,...`** is never deferred: taken as given at 892 and shown on the screen
+  (today's rule, `claude-yolo:1274`).
 
 ### 2.4 Where it is built, and what stays in bash
 
@@ -213,8 +243,11 @@ play task or `go-binary-suites.tsv` row is needed.
   this plan adds (`SeatView{Team, Seat, Handle, State, Role, Label}`, `describe` rebuilt on it, so
   `describe-seats` keeps its bytes), and `internal/agentbus` (`SeatChooseAs`, `List`) through
   `execx` to the `agent-bus` wrapper. `Label` is always empty until Plan 00221 sets it (section 4).
-- Token expiry from `internal/tokens`; usage from the gate's reader, cache only (R8; how it is
-  called is fixed by Task 0.2).
+- Token expiry from `internal/tokens`; usage from the gate's reader, cache only (R8).
+  `TokenUsability` is a method on `ccylaunch.Front`, and `ccy-teams` should not import the
+  launcher's front. Default (Task 0.2): once the gate is merged, its cache-only read is moved
+  into `internal/tokens` (the pool package ccy and cc already share), `Front.TokenUsability`
+  calls it, and `ccy-teams` calls the same function. The gate's tests move with it unchanged.
 - It prints its answer on stdout (StderrHygiene: the payload), everything else on stderr: one
   line `launch`, `token`, `reconfigure` or `quit`, then the seat list to use (canonical
   `SEAT@TEAM,...`, possibly moved by R4, R7), possibly empty.
@@ -228,8 +261,9 @@ after `launch`).
 (529-593); the unattended and headless choice (1263-1273: restore, headless, no terminal,
 `--no-bus`); the unattended message of 1280-1283 for a stdin that is not a terminal (R20);
 applying the saved token, keys and network (1293-1295); the
-headless replay and its refusals (1306-1317, 1336-1341); the deferred team step (2.3); Q2's
-call (moved before the screen, R12); and the R19 retry around 3876.
+headless replay and its refusals (1306-1317, 1336-1341); the deferred team step (2.3); the
+container preflight block (moved whole before the Quick Launch block, R12); and the R19 retry
+around 3876.
 
 The attended branch replaced is roughly 60 counted lines; its replacement (the call, a `case`
 on the answer, the deferred team step and the R19 retry) is expected to be smaller. The

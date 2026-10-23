@@ -1,6 +1,6 @@
 # Plan 00223: ccy one confirm relaunch
 
-**Status**: Not Started (plan only; decisions C1-C10 open, coordinator defaults stated)
+**Status**: Not Started (plan only; decisions C1-C12 open, coordinator defaults stated)
 **Created**: 2026-10-23
 **Owner**: joseph
 **Priority**: Medium
@@ -39,7 +39,7 @@ Design and expectations R1-R20: [DESIGN.md](DESIGN.md).
 - The token line shows expiry and cached usage; a used-up or expired token defaults to the token
   chooser and keeps every other setting (R8-R10), through the sibling's token-usage gate.
 - Q3 (`[c/s/m/q]`, other containers of this project) is not asked after an accepted screen
-  (R11); Q2 (zombies) is asked before it (R12).
+  (R11); the container checks, Q2 (zombies) included, run before it (R12).
 - `Answer every question again` includes the team chooser, with a `No team` row (R18).
 - Unattended launches behave exactly as today (R14); the saved file's format is unchanged
   (R15) and has one reader, the bash (R16).
@@ -73,12 +73,12 @@ Every build task is test first: the failing test is committed or shown before th
 
 ### Phase 0: Decisions and base
 
-- [ ] ⬜ **Task 0.1**: The owner answers C1-C10, or the defaults stand; record each in the
+- [ ] ⬜ **Task 0.1**: The owner answers C1-C12, or the defaults stand; record each in the
   journal and adjust the tasks.
 - [ ] ⬜ **Task 0.2**: Hard gate: the token-usage gate is merged into F44 and this branch is
-  rebased or merged onto it. Re-read its final `TokenUsability` signature and exit codes, decide
-  how `ccy-teams` calls the cache-only read (in process through an exported function, the
-  default, or `ccy-token-usable` through `execx` if it gains a cache-only flag), and correct
+  rebased or merged onto it. Re-read its final `TokenUsability` signature and exit codes; test
+  first, move its cache-only read into `internal/tokens` with its tests, `Front.TokenUsability`
+  calling it, so `ccy-teams` never imports `internal/ccylaunch` (C11; DESIGN 2.4); correct
   DESIGN section 3 if anything moved.
 - [ ] ⬜ **Task 0.3**: Through the coordinator, ask Plan 00221's owner seat to record in 00221's
   Dependencies that it fills `SeatView.Label` (DESIGN section 4); note the answer in the journal.
@@ -112,25 +112,28 @@ Every build task is test first: the failing test is committed or shown before th
   payload on stdout (answer, then the seat list), diagnostics on stderr; each answer, a closed
   stdout, no terminal (exit 64, R20), and a `--seats-only TEAM` form for R19.
 - [ ] ⬜ **Task 2.5**: Test first, `choose-teams --offer-none` (R18): a `No team` row; choosing
-  it prints an empty list with exit 0 and a distinct stderr line, which the bash reads as "no
-  team" rather than "left the chooser".
+  it prints the single stdout line `-` with exit 0 (never a team list: team names start with a
+  letter); leaving the chooser still prints nothing (DESIGN R18). Bash side in Task 3.2.
 
 ### Phase 3: The launcher
 
 - [ ] ⬜ **Task 3.1**: Difftest scenarios first (`internal/ccylaunch/difftest`), with the
   `ccy-teams` fake (already in `fake_test.go`) given `quick-launch` and `--offer-none` answers in
   `scenarios.json`: launch accepted; seat held then next free; token used up (cached) then
-  chooser; teammates running (no Q3); zombie before the screen (R12); bare `--teams` and
-  `--teams TEAM` with saved seats, checking the canonical arguments and `record-seats` (DESIGN
-  2.3); `Answer every question again` with teams (R18); a 75 from `seat take` on a terminal then
+  chooser; teammates running (no Q3); the container preflight before the screen (R12); bare
+  `--teams` and `--teams TEAM` with saved seats, with a named team that has no saved seat, and
+  with no saved file, checking the canonical arguments and `record-seats` (DESIGN 2.3);
+  `Answer every question again` with teams, and its `No team` answer dropping `--teams` (R18); a 75 from `seat take` on a terminal then
   the next free seat (R19); each unattended path unchanged (R14). Goldens for these are recorded
   from the bash after Task 3.2, each difference from today's golden explained in the journal.
 - [ ] ⬜ **Task 3.2**: In `claude-yolo`, per DESIGN 2.4: the attended display and `[Y/n]` loop of
   1237-1343 replaced by the call and a `case` on the answer, every unattended and headless line
-  listed there kept; Q2's call before the screen on the screen's path (R12); Q3 skipped after
-  `launch`; the deferred team step and canonical-args rewrite of DESIGN 2.3 (892-899); the R19
-  retry around 3876. The allowlist row set to what `qa-bash-limits` measures, which must not
-  exceed today's row. `CCY_VERSION` bump and `docs/ccy-changelog.md`.
+  listed there kept; the container preflight block 1788-1848 moved whole before the Quick Launch
+  block for every launch (R12); Q3 skipped after `launch`; the deferral test at 892 (no saved
+  file read there) and the deferred team step and canonical-args rewrite of DESIGN 2.3; line
+  880's `-` meaning no team and `ccy_teams_canonical_args` dropping `--teams` for an empty list
+  (R18); the R19 retry inline at 3876, adding no function. The allowlist row set to what
+  `qa-bash-limits` measures, which must not exceed today's row (lines, statements, functions). `CCY_VERSION` bump and `docs/ccy-changelog.md`.
 - [ ] ⬜ **Task 3.3**: `scripts/test-*` suites that pin Quick Launch's text updated in the same
   commit, with the reason.
 
@@ -153,18 +156,20 @@ Every build task is test first: the failing test is committed or shown before th
 
 All are coordinator defaults; **the owner may change any of them**.
 
-| ID  | Decision                                | Default                                                                                                                                                                                      |
-| --- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| C1  | Name and home of the screen             | `ccy-teams quick-launch`: that binary has `PickSeat`, the describer, `discover` and agent-bus already, and is built by `play-claude-yolo.yml`; no new binary. Not "relaunch" (DESIGN, Words) |
-| C2  | The screen's form                       | rows with the default first and accelerators drawn (R2), not a bare `[Y/n]` read; `y`/Enter and `n` keep their meaning                                                                       |
-| C3  | Held seat                               | offer agent-bus's DEFAULT as the first row, plus the chooser (R4, R5); never pick it silently                                                                                                |
-| C4  | Role on a moved seat                    | the new seat's own role; a coordinator's role stays with its held seat; no promotion from the screen (R6)                                                                                    |
-| C5  | Other sessions of this project (Q3)     | absorbed: an accepted screen means "start beside them"; Q3 kept on "Answer every question again" (R11)                                                                                       |
-| C6  | `ccy --teams` with saved seats          | the team step moves after the screen; the screen does not move earlier; saved seats of teams not named are left out (DESIGN 2.3)                                                             |
-| C7  | Token usage on the screen               | cache only (`fetch=false`); the bash gate at the token's resolution fetches and stays the one authority (R8, DESIGN 3)                                                                       |
-| C8  | `Answer every question again` and teams | includes the team chooser with a `No team` row when there were saved teams or `--teams` (R18)                                                                                                |
-| C9  | Two launches racing for one seat        | known gap in v1 (no host-side hold exists before the container's keeper); mitigated by offering the next free seat on take's 75 on a terminal (R19). A true reservation waits for v2         |
-| C10 | Esc or Ctrl-C at the screen             | Quit, nothing started; a departure from today's "end of input takes the saved settings" for a terminal only (R20)                                                                            |
+| ID  | Decision                                | Default                                                                                                                                                                                                                     |
+| --- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C1  | Name and home of the screen             | `ccy-teams quick-launch`: that binary has `PickSeat`, the describer, `discover` and agent-bus already, and is built by `play-claude-yolo.yml`; no new binary. Not "relaunch" (DESIGN, Words)                                |
+| C2  | The screen's form                       | rows with the default first and accelerators drawn (R2), not a bare `[Y/n]` read; `y`/Enter and `n` keep their meaning                                                                                                      |
+| C3  | Held seat                               | offer agent-bus's DEFAULT as the first row, plus the chooser (R4, R5); never pick it silently                                                                                                                               |
+| C4  | Role on a moved seat                    | the new seat's own role; a coordinator's role stays with its held seat; no promotion from the screen (R6)                                                                                                                   |
+| C5  | Other sessions of this project (Q3)     | absorbed: an accepted screen means "start beside them"; Q3 kept on "Answer every question again" (R11)                                                                                                                      |
+| C6  | `ccy --teams` with saved seats          | the team step is deferred past the Quick Launch block whenever it would ask (a test at 892 that reads no saved file); the screen does not move earlier; the Go screen offers only the named teams' saved seats (DESIGN 2.3) |
+| C7  | Token usage on the screen               | cache only (`fetch=false`); the bash gate at the token's resolution fetches and stays the one authority (R8, DESIGN 3)                                                                                                      |
+| C8  | `Answer every question again` and teams | includes the team chooser with a `No team` row when there were saved teams or `--teams` (R18)                                                                                                                               |
+| C9  | Two launches racing for one seat        | known gap in v1 (no host-side hold exists before the container's keeper); mitigated by offering the next free seat on take's 75 on a terminal (R19). A true reservation waits for v2                                        |
+| C10 | Esc or Ctrl-C at the screen             | Quit, nothing started; a departure from today's "end of input takes the saved settings" for a terminal only (R20)                                                                                                           |
+| C11 | Where the cache-only usage read lives   | moved into `internal/tokens` after the gate merges, shared by the launcher front and `ccy-teams` (DESIGN 2.4)                                                                                                               |
+| C12 | Container preflight order               | the whole block 1788-1848 (root, rootless, stale cleanup, prompt setting, zombies) moves before the Quick Launch block for every launch, one order for all (R12)                                                            |
 
 ## Success Criteria
 
