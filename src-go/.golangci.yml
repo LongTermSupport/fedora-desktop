@@ -266,6 +266,13 @@ linters:
       - path: internal/fetchage/fetchage\.go
         linters: [gosec]
         text: "G304|G703"
+      # gh-account-setup reads the configuration file the person names (LOCALHOST_YML) and the
+      # key's .pub by computed path, and makes ~/.ssh mode 0700, the mode ssh requires; its
+      # tests build a home and a checkout under a temporary directory, and the command's reads
+      # back the key its real ssh-keygen made there.
+      - path: internal/ghaccount/|cmd/gh-account-setup/main_test\.go
+        linters: [gosec]
+        text: "G304|G703|G302|G301|G306"
   settings:
     cyclop:
       max-complexity: 15

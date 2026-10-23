@@ -1,0 +1,25 @@
+Usage: gh-account-setup --add=ALIAS:USERNAME | --setup-all | --check
+
+GitHub multi-account setup: gh logins with the required scopes, SSH keys, and their test.
+
+Modes:
+  --add=ALIAS:USERNAME    Add an account to localhost.yml and set it up
+  --setup-all             Set up every account in localhost.yml
+  --check                 Report whether every account is healthy (read only)
+  -h, --help              Show this help
+
+Run it as scripts/gh-account-setup.bash, which builds it from this checkout.
+
+Every account needs the scopes listed in vars/github-required-scopes.yml.
+
+Environment:
+  LOCALHOST_YML           the configuration (default environment/localhost/host_vars/localhost.yml)
+  SCOPES_FILE             the scope list (default vars/github-required-scopes.yml)
+  VAULT_PASS_FILE         a vault password file other than the one ansible.cfg names
+  GITHUB_SSH_PASSPHRASE   the SSH key passphrase, instead of decrypting it from the vault
+  RUN_BASH_HEADLESS=true  never start a browser login; fail naming what is missing
+
+Examples:
+  gh-account-setup --add=work:johndoe-corp
+  gh-account-setup --setup-all
+  gh-account-setup --check

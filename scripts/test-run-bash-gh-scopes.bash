@@ -7,9 +7,11 @@
 # the first login asks for every scope, and a headless run fails once naming everything,
 # rather than stopping at the first gap and leaving the next to fail on the re-run.
 #
-# The functions under test are extracted with awk and sourced, as the other run.bash gates
-# do: run.bash provisions on load and must never be sourced whole. `gh` and `git` are stubs
-# on PATH. The helper is the real one from this checkout.
+# run.bash's functions under test are extracted with awk and sourced, as the other run.bash
+# gates do: run.bash provisions on load and must never be sourced whole. gh-account-setup.bash
+# is run whole: it builds the Go command (src-go/cmd/gh-account-setup) and runs it, so these
+# cases prove the wrapper and the binary end to end; the command's flows are its Go tests.
+# `gh`, `git` and `ssh` are stubs on PATH. The helper and ssh-keygen are the real ones.
 #
 # `set -e` is deliberately NOT used: every case must run so the summary reports the full
 # picture, and each result is checked explicitly.
@@ -37,12 +39,7 @@ extract() {
 for fn in info success warning error hl_abort fatal promptChoice gh_scopes_repo_complete gh_scopes_repo gh_request_missing_scopes choose_primary_gh_account; do
     extract "$RUN_BASH" "$fn"
 done
-cp "$work/fn.bash" "$work/run-fn.bash"
-: >"$work/fn.bash"
-for fn in scopes_cli audit_all_accounts_headless active_gh_account restore_active_account; do
-    extract "$SETUP" "$fn"
-done
-mv "$work/fn.bash" "$work/setup-fn.bash"
+mv "$work/fn.bash" "$work/run-fn.bash"
 
 RED='' ; GREEN='' ; YELLOW='' ; CYAN='' ; BOLD='' ; NC='' ; CROSS='x' ; CHECK='v' ; ARROW='>' ; INFO='i' ; WARN='!'
 RUN_BASH_VERSION='test'
@@ -56,7 +53,21 @@ export RED GREEN YELLOW CYAN BOLD NC CROSS CHECK ARROW INFO WARN RUN_BASH_VERSIO
 mkdir -p "$work/bin"
 cat >"$work/bin/gh" <<'STUB'
 #!/usr/bin/env bash
-case "$1 $2" in
+case "$1 ${2:-}" in
+    "--version ")
+        echo "gh version 2.103.0 (2026-10-21)"
+        ;;
+    "auth login")
+        # The browser login leaves gh as $STUB_DIR/after-login.json says.
+        printf '%s\n' "$*" >>"$STUB_DIR/login.log"
+        cp "$STUB_DIR/after-login.json" "$STUB_DIR/status.json"
+        ;;
+    "api user/keys")
+        [ -n "${GH_TOKEN:-}" ] || { echo "the key listing must act as the account" >&2; exit 1; }
+        ;;
+    "ssh-key add")
+        printf '%s %s\n' "${GH_TOKEN:-}" "$*" >>"$STUB_DIR/upload.log"
+        ;;
     "api -i")
         if [ -n "${GH_TOKEN:-}" ]; then f="$STUB_DIR/granted-${GH_TOKEN}"; else f="$STUB_DIR/granted"; fi
         printf 'HTTP/2.0 200 OK\r\nX-Oauth-Scopes: %s\r\n\r\n{}\n' "$(cat "$f")"
@@ -104,7 +115,13 @@ url="${args[-2]}" dir="${args[-1]}"
 mkdir -p "$dir/vars" && cp -r "$REAL_REPO/vars/github-required-scopes.yml" "$dir/vars/" && cp -r "$REAL_REPO/helpers" "$dir/"
 printf 'cloned %s into %s\n' "$url" "$dir" >>"$STUB_DIR/clone.log"
 STUB
-chmod +x "$work/bin/gh" "$work/bin/git"
+cat >"$work/bin/ssh" <<'STUB'
+#!/usr/bin/env bash
+# GitHub's greeting for the key in $STUB_DIR/ssh-as, and its exit status 1.
+echo "Hi $(cat "$STUB_DIR/ssh-as")! You've successfully authenticated, but GitHub does not provide shell access." >&2
+exit 1
+STUB
+chmod +x "$work/bin/gh" "$work/bin/git" "$work/bin/ssh"
 STUB_DIR="$work/stub"
 mkdir -p "$STUB_DIR"
 REAL_REPO="$REPO_ROOT"
@@ -222,19 +239,6 @@ rm -f "$STUB_DIR/clone.log"
 check "with no checkout, it is cloned and used" "$empty_home/Projects/fedora-desktop" "$(scopes_repo_for "$empty_home")"
 contains "the clone is the public HTTPS URL" "cloned https://github.com/LongTermSupport/fedora-desktop.git" "$(cat "$STUB_DIR/clone.log" 2>/dev/null)"
 
-echo "== gh-account-setup.bash: headless audits every account before failing"
-printf '%s' "$ALL" >"$STUB_DIR/granted-tok-alice"
-printf '%s' "$SHORT" >"$STUB_DIR/granted-tok-bob"
-printf '%s' "gist" >"$STUB_DIR/granted-tok-carol"
-SCOPES_FILE="$FIXTURE_REPO/vars/github-required-scopes.yml"
-export REPO_ROOT SCOPES_FILE
-OUT="$(bash -c 'source "$1"; REQUIRED_SCOPES_CSV=all; audit_all_accounts_headless a:alice b:bob c:carol' _ "$work/setup-fn.bash" 2>&1)"
-RC=$?
-check "refused" 1 "$RC"
-contains "names the first short account and its scopes" "MISSING bob repo,workflow" "$OUT"
-contains "and the next one, in the same failure" "MISSING carol" "$OUT"
-check "a healthy account is not listed" "" "$(printf '%s\n' "$OUT" | grep 'alice')"
-
 # The primary account owns the config repo run.bash reads (<primary>/fedora-desktop-config).
 echo "== run.bash: the primary GitHub account"
 # status_json <active> <login>... : what `gh auth status --json hosts` reports.
@@ -321,54 +325,57 @@ check "run.bash sets the primary account with the chooser" "1" \
 check "  and no longer takes whichever account gh has active" "0" \
     "$(awk '/^primary_gh_username="\$\(gh api user/ {n++} END {print n + 0}' "$RUN_BASH")"
 
-# Plain gh calls act as the active account, which run.bash makes the primary one, so
-# gh-account-setup.bash, which switches to each account in turn, must leave it as it was.
-echo "== gh-account-setup.bash: gh's active account is put back"
-# restore_case [account] [fail]: record the active account, switch to <account> if given,
-# make the switch back fail if asked, then restore. SWITCHES holds only the restore's own.
-restore_case() {
-    rm -f "$STUB_DIR/switch.log" "$STUB_DIR/switch-fails"
-    OUT="$(bash -c '
-        source "$1"
-        ORIGINAL_ACTIVE_ACCOUNT="$(active_gh_account)"
-        if [ -n "$2" ]; then gh auth switch --hostname github.com --user "$2" >/dev/null; fi
-        if [ "$3" = fail ]; then touch "$STUB_DIR/switch-fails"; fi
-        rm -f "$STUB_DIR/switch.log"
-        restore_active_account' _ "$work/setup-fn.bash" "${1:-}" "${2:-}" 2>&1)"
+# gh-account-setup.bash, run whole: the wrapper builds the command from this checkout and runs
+# it over the stubs, with a configuration, a scope list and a home of its own. The build and its
+# Go cache stay in the caller's cache directory, so a new HOME does not rebuild every package.
+setup_home="$work/setup-home"
+mkdir -p "$setup_home"
+setup_yml="$work/localhost.yml"
+cache_home="${XDG_CACHE_HOME:-$HOME/.cache}"
+# setup_case <args...>: run the wrapper; OUT (stdout and stderr), RC and SWITCHES result.
+setup_case() {
+    rm -f "$STUB_DIR/switch.log"
+    OUT="$(HOME="$setup_home" XDG_CACHE_HOME="$cache_home" LOCALHOST_YML="$setup_yml" \
+        SCOPES_FILE="$FIXTURE_REPO/vars/github-required-scopes.yml" "$SETUP" "$@" 2>&1 </dev/null)"
     RC=$?
     SWITCHES=""
     if [ -f "$STUB_DIR/switch.log" ]; then
         SWITCHES="$(cat "$STUB_DIR/switch.log")"
     fi
-    rm -f "$STUB_DIR/switch-fails"
 }
-printf 'alice\n' >"$STUB_DIR/active"
-restore_case carol
-check "after switching to another account, it switches back" 0 "$RC"
-check "  and the one it started on is active again" "alice" "$(cat "$STUB_DIR/active")"
-contains "  by switching to it" "--user alice" "$SWITCHES"
-printf 'alice\n' >"$STUB_DIR/active"
-restore_case
-check "an account still active is left alone" "" "$SWITCHES"
-: >"$STUB_DIR/active"
-restore_case
-check "with no account logged in at the start, nothing is switched" "" "$SWITCHES"
-check "  and that is not an error" 0 "$RC"
-printf 'alice\n' >"$STUB_DIR/active"
-restore_case carol fail
-check "a switch back that fails is an error" 1 "$RC"
-contains "  naming the account to switch to by hand" "gh auth switch --hostname github.com --user alice" "$OUT"
 
-echo "== gh-account-setup.bash: the wiring"
-main_body="$(awk '/^main\(\) \{/ {p=1} p {print} p && /^\}/ {exit}' "$SETUP")"
-record_line="$(printf '%s\n' "$main_body" | awk '/ORIGINAL_ACTIVE_ACCOUNT="\$\(active_gh_account\)"/ {print NR; exit}')"
-case_line="$(printf '%s\n' "$main_body" | awk '/case "\$mode" in/ {print NR; exit}')"
-check "main records the active account before any mode runs" "yes" \
-    "$([ -n "$record_line" ] && [ -n "$case_line" ] && [ "$record_line" -lt "$case_line" ] && echo yes || echo no)"
-for sig in EXIT INT TERM; do
-    check "the ${sig} trap puts it back" "yes" \
-        "$(awk -v s="$sig" '/^trap / && $NF == s && /restore_active_account|on_exit/ {f=1} END {print f ? "yes" : "no"}' "$SETUP")"
-done
+echo "== gh-account-setup.bash: headless audits every account before failing"
+printf 'github_accounts:\n  a: alice\n  b: bob\n  c: carol\n' >"$setup_yml"
+status_json alice alice bob carol >"$STUB_DIR/status.json"
+printf '%s' "$ALL" >"$STUB_DIR/granted-tok-alice"
+printf '%s' "$SHORT" >"$STUB_DIR/granted-tok-bob"
+printf '%s' "gist" >"$STUB_DIR/granted-tok-carol"
+RUN_BASH_HEADLESS=true setup_case --setup-all
+check "refused" 1 "$RC"
+contains "names the first short account and its scopes" "MISSING bob repo,workflow" "$OUT"
+contains "and the next one, in the same failure" "MISSING carol" "$OUT"
+check "a healthy account is not listed" "" "$(printf '%s\n' "$OUT" | grep 'alice')"
+check "  and nothing was set up first" "" "$(printf '%s\n' "$OUT" | grep '━━━')"
+
+# Plain gh calls act as the active account, which run.bash makes the primary one, so a run that
+# logs another account in must leave the one it started on active.
+echo "== gh-account-setup.bash: a login, then gh's active account is put back"
+printf 'github_accounts:\n  oss: bob\n' >"$setup_yml"
+status_json alice alice >"$STUB_DIR/status.json"
+status_json bob alice bob >"$STUB_DIR/after-login.json"
+printf '%s' "$ALL" >"$STUB_DIR/granted-tok-bob"
+printf 'bob' >"$STUB_DIR/ssh-as"
+printf 'alice\n' >"$STUB_DIR/active"
+GITHUB_SSH_PASSPHRASE='a test passphrase' setup_case --setup-all
+check "set up" 0 "$RC"
+contains "the login asks for every scope" "--scopes gist,project,repo,workflow" "$(cat "$STUB_DIR/login.log" 2>/dev/null)"
+key="$setup_home/.ssh/github_oss"
+check "the real ssh-keygen made the key with its passphrase, through askpass" "refused" \
+    "$(if ssh-keygen -y -P '' -f "$key" >"$work/pub.out" 2>"$work/pub.err"; then echo opened; else echo refused; fi)"
+contains "  and it was uploaded as the account" "tok-bob ssh-key add $key.pub" "$(cat "$STUB_DIR/upload.log" 2>/dev/null)"
+contains "the key is verified" "SSH verified: oss → bob" "$OUT"
+contains "gh is switched back to the account it started on" "--user alice" "$SWITCHES"
+contains "  and says so" "gh is back on alice" "$OUT"
 
 echo ""
 echo "RESULT: passed: $passed failed: $failed"

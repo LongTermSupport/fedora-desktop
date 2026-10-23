@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.100.14 — container 2.79.8
+
+Follows 3.100.13. The image does not change.
+
+- **The shared Go module changed under the ccy binaries** (Plan 00192 Task 3.3, the
+  `gh-account-setup` port): `src-go/go.mod` gains `go.yaml.in/yaml/v3` (vendored and
+  allowlisted; the ccy binaries do not import it), and `internal/execx` gains
+  `Secret.Renamed`, the same secret value under another variable name. No ccy behaviour
+  changes.
+
 ## 3.100.13 — container 2.79.8
 
 Follows 3.100.12 (container 2.79.7). The image changes, so the next launch rebuilds it once.

@@ -19,6 +19,9 @@ module	charm.land/bubbles/v2	The standard components on Bubble Tea: key bindings
 module	charm.land/lipgloss/v2	Styling and layout of the frame: colours by terminal index, borders, joins.
 module	github.com/charmbracelet/x/ansi	ANSI-aware string width, truncation and stripping; required by all three Charm libraries, and the frame's tests strip styling with it.
 
+# YAML (Plan 00192 SPEC-gh-account-setup.md D3): the version the qa module already uses.
+module	go.yaml.in/yaml/v3	Reads localhost.yml's github_accounts as YAML, node by node, so a vaulted value is data and the file's order is kept (gh-account-setup), with no Python program embedded to do it.
+
 # Required by the Charm libraries.
 module	github.com/charmbracelet/colorprofile	Detects the terminal's colour support and downsamples styled output to it, so NO_COLOR and dumb terminals get plain text (Bubble Tea, Lip Gloss).
 module	github.com/charmbracelet/ultraviolet	Bubble Tea v2's cell-based renderer and input decoder (Bubble Tea, Lip Gloss).
