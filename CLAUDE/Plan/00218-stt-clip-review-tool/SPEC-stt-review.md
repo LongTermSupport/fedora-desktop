@@ -20,21 +20,29 @@ of its own (R30), so changing a key changes one row.
 ## Command line
 
 - **R1.** `stt-review FOLDER` reviews FOLDER. `stt-review` with no FOLDER asks for one on a
-  path line (`internal/ui/pathinput`), so the panel can launch it with no argument.
+  path line (`internal/ui/pathinput`), so the panel can launch it with no argument. A folder
+  typed on the path line that R3, R6, R7 or R8 refuses is said on that screen with the reason,
+  and the line asks again (InteractiveScripts.md, friendly recovery), so the panel's terminal
+  window does not close before the message is read. Only a FOLDER given on the command line
+  exits with the codes below.
 - **R2.** An unknown flag, or more than one FOLDER, is exit 64 and runs nothing; `-h`/`--help`
   prints the usage and the file contract, exit 0.
 - **R3.** A FOLDER that is missing or not a directory is exit 1, naming it.
-- **R4.** The player program (decision D2) not found on PATH is exit 1 before any screen, with
-  the line `stt-review: <program> is not installed; run play-speech-to-text.yml`.
+- **R4.** A player program (decision D2: `play` and `sox`, or the fallback's) not found on PATH
+  is exit 1 before any screen, with the line
+  `stt-review: <program> is not installed; run play-speech-to-text.yml`.
 
 ## The folder
 
 - **R5.** A clip is a regular file whose name matches the clip pattern. Clips are ordered by
   `NNN` as a number, then by name.
-- **R6.** Any other entry is a failure before any screen, exit 1, every such entry named: a
-  subdirectory, a file that is neither a clip nor a sidecar, a sidecar with no clip beside it,
-  and a leftover temporary (`*.tmp.<pid>`) from a write that was cut short. Nothing is
-  silently ignored (decision D6).
+- **R6.** The folder holds only clips and their sidecars, as the contract says. Any other
+  entry is a failure before any screen, exit 1, every such entry named: a subdirectory, a file
+  that is neither a clip nor a sidecar, and a sidecar with no clip beside it. Nothing is
+  silently ignored (decision D6). The one exception is the tool's own: a leftover sidecar
+  temporary (`<sidecar>.tmp.<pid>`, from a write cut short by a crash) is removed at start and
+  the removal is said on stderr, since it never held a finished answer and refusing on it
+  would lock the person out.
 - **R7.** A FOLDER inside a git work tree (it, or a directory above it, holds `.git`) is exit 1:
   `clips are private speech and must not sit in a repository: <folder>` (decision D7). It is
   found by walking up the directories, not by running git.
@@ -62,20 +70,28 @@ of its own (R30), so changing a key changes one row.
 
 - **R13.** A clip plays from its start when it is shown (decision D5).
 - **R14.** Replay (`ctrl+r`) plays from the start, whatever the state.
-- **R15.** Pause and resume (`ctrl+space`) toggles; resume continues from the paused position.
+- **R15.** Pause and resume (`ctrl+space`) toggles. sox has no pause: pause stops the player and
+  keeps the position; resume starts it again at that position. Seeking and the tempo change
+  (R16, R17) are restarts the same way, so every playback action is "stop, then play from an
+  offset at a tempo" through the `Player` seam.
 - **R16.** Back and forward (`ctrl+left`, `ctrl+right`) move 3 s (decision D4), clamped to the
   start and the end, and keep playing if it was playing.
-- **R17.** Slower (`ctrl+t`) toggles the tempo between 1.0 and 0.75, pitch kept, from the
-  current position; the tempo carries to the next clip until toggled back.
-- **R18.** The position is counted from an injected clock (start offset plus elapsed time
-  times tempo) and stops at the clip's length; the end of playback is the player process's
-  exit, an event, never a timed guess.
+- **R17.** Slower (`ctrl+t`) toggles the tempo between 1.0 and 0.75, pitch kept (sox
+  `tempo -s 0.75`, its speech setting), from the current position; the tempo carries to the
+  next clip until toggled back.
+- **R18.** The position is counted from an injected clock (start offset plus elapsed wall time
+  times tempo, in clip seconds) and is clamped at the clip's length (a test); the length is
+  read once per clip (`sox --i -D -t opus`). The end of playback is the player process's exit,
+  an event, never a timed guess. The sox adapter names the type before the file (`-t opus`),
+  since sox picks its Vorbis handler for a `.ogg` name.
 - **R19.** A clip the player cannot play (the player exits non-zero) is said on the screen
   with the player's stderr. The person may still type, mark inaudible or skip it; the end
-  screen lists it (R25). This is an interactive recoverable state, not a skipped error.
+  screen lists it (R25). This is an interactive recoverable state, not a skipped error. R11's
+  sentinel test covers this frame too.
 - **R20.** Leaving a clip (save, inaudible, skip, previous, quit) stops its playback first.
-  No player process outlives the tool: the player runs in its own process group, which is
-  ended on every exit path, SIGTERM and SIGHUP (the terminal window closed) included.
+  No player process outlives the tool: the player is run with `execx.Cmd.NewSession` (its own
+  session, the whole group killed when its context ends), under `execx.SignalContext`, so
+  every exit path ends it, SIGTERM and SIGHUP (the terminal window closed) included.
 
 ## Saving
 
@@ -86,14 +102,16 @@ of its own (R30), so changing a key changes one row.
 - **R23.** Skip (`pgdown`) writes nothing and shows the next clip. The clip stays queued for
   the next run.
 - **R24.** Every sidecar write is atomic: a temporary beside it, then moved into place, mode
-  0600\. A new sidecar is put in place without replacing (a hard link of the temporary, then the
-  temporary removed): if a sidecar appeared since the queue was read (another run, or a hand
+  0600\. A new sidecar is put in place without replacing, by a new shared primitive
+  `fsx.WriteNew` (a hard link of the temporary, then the temporary removed; `os.ErrExist` when
+  the name is taken), beside `fsx.WriteAtomic`, which replaces: if a sidecar appeared since the queue was read (another run, or a hand
   edit), the save is refused, the screen says so, and the person moves on with skip. Only a
   re-save of a clip this session already saved (R26) replaces its sidecar.
 - **R25.** After the last clip, the end screen counts this session's saved, inaudible and
   skipped clips, the clips that would not play (named), and the clips the folder still has
   without a sidecar (read again). `r` goes round again over a fresh queue (the folder read
-  again, so skipped clips come back); `q` quits, exit 0.
+  again, so skipped clips come back); `q` quits, exit 0. Both are `key.Binding`s drawn in that
+  screen's footer.
 
 ## Moving back and quitting
 
@@ -102,7 +120,8 @@ of its own (R30), so changing a key changes one row.
   or inaudible replaces that sidecar atomically. On the first clip it says `no previous clip`.
 - **R27.** Quit (`esc`) stops playback and exits 0, writing nothing for the clip on screen. If
   the text box holds unsaved text, it first asks `discard what you typed? (y/n)` on the
-  screen; any answer but `y` returns to the clip.
+  screen (the text box is not on that screen, so `y` and `n` are its footer's `key.Binding`s);
+  any answer but `y` returns to the clip.
 - **R28.** `ctrl+c` exits at once with exit 130 (`term.ExitCancelled`), writing nothing for the
   clip on screen, playback stopped (R20).
 - **R29.** Quitting part way and starting again queues exactly the clips with no sidecar
@@ -125,7 +144,9 @@ of its own (R30), so changing a key changes one row.
   | Previous clip          | `pgup`                     |
   | Quit                   | `esc`                      |
 
-  No action is a printable key, because the text box has the focus throughout.
+  On the review screen no action is a printable key, because the text box has the focus
+  throughout. `ctrl+space` is also a common input-method toggle; if it does not reach the tool
+  on the owner's desktop (Task 4.2), `ctrl+p` replaces it, one row here.
 
 - **R31.** The tool opens no network connection, copies no clip, and writes nothing but
   sidecars in FOLDER. Its stderr names clip files and errors only; typed text never reaches

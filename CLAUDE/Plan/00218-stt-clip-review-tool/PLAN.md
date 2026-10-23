@@ -75,12 +75,17 @@ of visible actions, Plan 00204), opened by a new `Review Clips...` menu item.
 The player is an external program run through `execx`, behind a small `Player` seam (play a
 file from an offset at a tempo; stop; an event when it ends), so every behaviour is tested
 with a fake. The default is sox's `play`, which `play-speech-to-text.yml` already installs:
-`play -q <clip> trim <offset> tempo <t>` covers replay, seeking (a restart at a new offset) and
-slower playback with the pitch kept. The length comes from `soxi -D`. Whether Fedora's sox
-decodes Ogg Opus is not known yet: Task 1.1 establishes it on the host. If it cannot, the
-fallback is `mpv` driven over its IPC socket, added to the play. The position is counted from
-an injected clock, and the end of playback is the process's exit (no timed guess; the
-`project_realtime_bound` rule).
+`play -q -t opus <clip> trim <offset> tempo -s <t>` covers replay, pause (stop, keep the
+position), seeking and slower playback with the pitch kept, each a restart at an offset (sox
+has no pause or seek of a running player). `-t opus` is needed because sox picks its Vorbis
+handler for a `.ogg` name. The length comes from `sox --i -D -t opus <clip>`. Whether
+Fedora's sox decodes Opus at all (through libopusfile) is not known yet: Task 1.1 establishes
+it on the host. If it cannot, the fallback is `ffplay` from Fedora's own `ffmpeg-free`
+(`-nodisp -autoexit -ss <offset> -af atempo=<t>`), which keeps the same restart design; `mpv`
+is not the fallback because it comes from RPM Fusion, which this play does not depend on. The
+position is counted from an injected clock, and the end of playback is the process's exit
+(no timed guess; the `project_realtime_bound` rule). The player runs under
+`execx.Cmd.NewSession` and `execx.SignalContext`, so no player outlives the tool.
 
 ### Keyboard flow
 
@@ -97,30 +102,33 @@ the session and offers to go round again over what is still unsaved.
 
 ## Decisions the coordinator may default
 
-| #   | Decision                                      | Default                                                                                                         |
-| --- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| D1  | Platform                                      | Go terminal tool on the house TUI, opened from the panel menu in `foot` (above)                                 |
-| D2  | Player                                        | sox `play` if Task 1.1 shows it decodes Ogg Opus; else `mpv` over IPC, installed by the play                    |
-| D3  | Keys                                          | As in R30; every action non-printing                                                                            |
-| D4  | Seek step and slow tempo                      | 3 s; 0.75 with pitch kept                                                                                       |
-| D5  | Play a clip as soon as it is shown            | Yes                                                                                                             |
-| D6  | A folder holding anything but clips, sidecars | Refused before any screen, every stray entry named (R6)                                                         |
-| D7  | A folder inside a git work tree               | Refused (R7): clips must not sit in a repository                                                                |
-| D8  | Formats                                       | `.ogg` only, as the contract says; widen when a cutter writes another                                           |
-| D9  | Previous clip                                 | Allowed, its saved text editable and re-saved atomically (R26)                                                  |
-| D10 | Panel menu item                               | Yes, `Review Clips...`, opening the tool with no folder, so it asks (R1)                                        |
-| D11 | Command name                                  | `stt-review`, a binary of its own (`stt` takes paths as arguments, so a `review` subcommand would be ambiguous) |
-| D12 | Text line                                     | `pathinput`'s editing factored out and shared; no new vendored package                                          |
+| #   | Decision                                      | Default                                                                                                                                                                                                                                                     |
+| --- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | Platform                                      | Go terminal tool on the house TUI, opened from the panel menu in `foot` (above)                                                                                                                                                                             |
+| D2  | Player                                        | sox `play -t opus` if Task 1.1 shows it decodes Ogg Opus; else `ffplay` from Fedora's `ffmpeg-free`, installed by the play                                                                                                                                  |
+| D3  | Keys                                          | As in R30; every action on the review screen non-printing; `ctrl+p` replaces `ctrl+space` if an input method takes it                                                                                                                                       |
+| D4  | Seek step and slow tempo                      | 3 s; 0.75 with pitch kept (`tempo -s`)                                                                                                                                                                                                                      |
+| D5  | Play a clip as soon as it is shown            | Yes                                                                                                                                                                                                                                                         |
+| D6  | A folder holding anything but clips, sidecars | Refused before any screen, every stray entry named (R6), as the contract says the folder holds only clips; the tool's own crash temporaries are removed at start, said on stderr. The clip cutter (Plan 00179 Task 1.5) is told to write nothing else there |
+| D7  | A folder inside a git work tree               | Refused (R7): clips must not sit in a repository                                                                                                                                                                                                            |
+| D8  | Formats                                       | `.ogg` only, as the contract says; widen when a cutter writes another                                                                                                                                                                                       |
+| D9  | Previous clip                                 | Allowed, its saved text editable and re-saved atomically (R26)                                                                                                                                                                                              |
+| D10 | Panel menu item                               | Yes, `Review Clips...`, opening the tool with no folder, so it asks (R1)                                                                                                                                                                                    |
+| D11 | Command name                                  | `stt-review`, a binary of its own (`stt` takes paths as arguments, so a `review` subcommand would be ambiguous)                                                                                                                                             |
+| D12 | Text line                                     | `pathinput`'s editing factored out and shared; no new vendored package                                                                                                                                                                                      |
 
 ## Tasks
 
 ### Phase 1: Establish the player (read-only on the host)
 
-- [ ] ⬜ **Task 1.1**: `triage.bash` in this folder: whether the installed sox decodes Ogg Opus
-  (`soxi` and a silent `play` of a generated clip, written to a temporary folder outside any
-  checkout), which encoder can make a synthetic 48 kHz mono Ogg Opus clip for the acceptance
-  (`opusenc`, `sox`, `gst-launch-1.0`), and whether `mpv` is installed. Run on the host
-  through `meta-deploy.bash`; the result settles D2 and the acceptance's encoder.
+- [ ] ⬜ **Task 1.1**: `triage.bash` in this folder, on `_planlib.inc.bash`
+  (PlanScriptStandards.md R1-R14), read-only: which encoder can make a synthetic 48 kHz mono
+  Ogg Opus clip (`opusenc`, `gst-launch-1.0` with `opusenc ! oggmux`, `ffmpeg`), one made in a
+  temporary folder outside any checkout; whether the installed sox decodes it, probed both as
+  `sox --i -D <clip>.ogg` and `sox --i -D -t opus <clip>.ogg`, and `play -q -t opus` of it to a
+  null output; whether `ffplay` is installed and plays it. Queued in `meta-deploy.list`, with
+  what it does, in the commit that adds it. The result settles D2 and the acceptance's encoder,
+  and is recorded in this plan's journal.
 
 ### Phase 2: The tool (tests first)
 
@@ -128,43 +136,52 @@ the session and offers to go round again over what is still unsaved.
   entry, git work tree and empty folder failures, the queue as clips without a sidecar
   (R3, R5-R8, R29).
 - [ ] ⬜ **Task 2.2**: Tests, then the sidecar writes: trimmed text, the marker, atomic
-  temporary and move, mode 0600, no replacing a sidecar that appeared, re-save after previous
-  (R21, R22, R24, R26).
-- [ ] ⬜ **Task 2.3**: Tests, then the `Player` seam and its sox (or mpv) adapter through
-  `execx`: offset, tempo, stop, the end as an event, its own process group ended on every exit
-  path (R4, R13-R20). A fake player and clock for the flow tests.
+  temporary and move, mode 0600, re-save after previous through `fsx.WriteAtomic`, and a new
+  `fsx.WriteNew` (link-then-unlink, `os.ErrExist` when the name is taken) with its own tests,
+  so no sidecar that appeared is replaced; the crash temporary removed at start
+  (R6, R21, R22, R24, R26).
+- [ ] ⬜ **Task 2.3**: Tests, then the `Player` seam and its sox (or `ffplay`) adapter through
+  `execx` (`Cmd.NewSession`, `SignalContext`): `-t opus`, offset, tempo, stop, the end as an
+  event, no player left on any exit path (R4, R13-R20). A fake player and clock for the flow
+  tests.
 - [ ] ⬜ **Task 2.4**: Tests, then the screen in `internal/ui` (the frame's heading, playback
   line, text line, footer) and the flow: every action, the end screen, quit with unsaved text,
   the no-transcript check (R1, R2, R9-R12, R23, R25, R27, R28, R30). The shared text line
   factored out of `pathinput` with its tests kept green.
-- [ ] ⬜ **Task 2.5**: `src-go/cmd/stt-review`, the package doc carrying R1-R31, and a
-  `GoProjectRules.md` rule first for any defect class found on the way.
+- [ ] ⬜ **Task 2.5**: `src-go/cmd/stt-review`, the package doc carrying R1-R31, its
+  `stt-review<TAB>qa-go` row in `scripts/go-binary-suites.tsv` (a command with no row fails
+  QA), `stt-review` added to the tool list of `src-go/CLAUDE.md`, and a `GoProjectRules.md`
+  rule first for any defect class found on the way.
 
 ### Phase 3: Install, panel, docs
 
 - [ ] ⬜ **Task 3.1**: `play-speech-to-text.yml` builds and installs `stt-review` to
   `~/.local/bin` through `tasks/build-go-command.yml`, and installs the player (if D2 needs
-  `mpv`) and the acceptance's encoder (as it installs `dbus-daemon` for Plan 00212's
+  `ffmpeg-free`) and the acceptance's encoder (as it installs `dbus-daemon` for Plan 00212's
   acceptance).
 - [ ] ⬜ **Task 3.2**: The `Review Clips...` panel menu item, opening `stt-review` in `foot`
-  with `xdg-terminal-exec` as the fallback, as the server manager does; ESLint clean.
+  at `--window-size-chars=100x20` with `xdg-terminal-exec` as the fallback, as the server
+  manager does; ESLint clean. A menu item is a change to `extension.js`, so the owner logs out
+  and in after the play (Wayland); the meta-deploy description says so.
 - [ ] ⬜ **Task 3.3**: `docs/features/speech-to-text.md`: a clip review section with the file
   contract (clip name, sidecar, marker, the sidecar as the only state), the keys, and that the
-  clips are private and stay local.
+  clips are private and stay local; the new item in its Extension Menu list.
 
 ### Phase 4: Acceptance
 
 - [ ] ⬜ **Task 4.1**: `deploy.bash` (runs `play-speech-to-text.yml`) and `acceptance.bash`, the
-  host agent's check, on synthetic clips only: tone clips encoded to Ogg Opus in a temporary
-  folder outside any checkout, named by the contract. It drives `stt-review` in a detached
-  tmux session of a fixed size: types a line and saves, marks one inaudible, skips one, quits;
-  then checks each sidecar's bytes, that the skipped clip alone is queued on a second start,
-  that a playback stream appeared while a clip played (`pactl list sink-inputs`), that no
+  host agent's check, on synthetic clips only: tone clips of about 10 s encoded to Ogg Opus
+  in a temporary folder outside any checkout, named by the contract. It drives `stt-review`
+  in a detached tmux session of a fixed size: types a line and saves, marks one inaudible,
+  skips one, quits; each step waits, bounded, on the screen text it expects (`capture-pane`),
+  never a bare sleep. It then checks each sidecar's bytes, that the skipped clip alone is
+  queued on a second start, that a playback stream exists while a clip is playing (`pactl list sink-inputs`, probed inside the 10 s), that no
   player process is left after quit and after the tmux session is killed, and that a folder
   inside a git checkout is refused. Exit 2 (COULD NOT ESTABLISH) when the host has no audio
   sink. Queued in `meta-deploy.list`.
 - [ ] ⬜ **Task 4.2**: The owner's hand check, comfort only (everything else is the
-  acceptance's): opened from the panel on a real clip folder, the keys feel right, the slow
+  acceptance's): opened from the panel on a real clip folder, the keys feel right (and
+  `ctrl+space` reaches the tool rather than an input method; else D3's `ctrl+p`), the slow
   tempo is useful, the text is legible at the window size.
 - [ ] ⬜ **Task 4.3**: `qa-all.bash`, then the `qa-reviewer` agent over the plan's diff.
 
