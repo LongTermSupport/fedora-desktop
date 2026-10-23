@@ -6,10 +6,8 @@ import (
 	"testing"
 )
 
-const (
-	rcloneTail      = "../../../files/home/.local/bin/rclone-tail"
-	rcloneCacheWarm = "../../../files/home/.local/bin/rclone-cache-warm"
-)
+// rclone-tail is Go and runs this report in process (rclonetail's TestSnapshotNamesTheMount).
+const rcloneCacheWarm = "../../../files/home/.local/bin/rclone-cache-warm"
 
 // calls is every line of a caller script that runs rclone-cache-status.
 func calls(t *testing.T, script string, data []byte, err error) []string {
@@ -30,18 +28,8 @@ func calls(t *testing.T, script string, data []byte, err error) []string {
 	return found
 }
 
-// The callers run under set -e (SPEC-rclone-cache-status section 4a): rclone-tail snapshots the
-// mount summary only, so a directory walk's exit 1 (E19) can never end it.
-func TestRcloneTailNeverWalksADirectory(t *testing.T) {
-	data, err := os.ReadFile(rcloneTail)
-	for _, line := range calls(t, rcloneTail, data, err) {
-		if !strings.Contains(line, " --no-dir") {
-			t.Errorf("rclone-tail runs %q without --no-dir", line)
-		}
-	}
-}
-
-// rclone-cache-warm names the mount, so its snapshot is the mount's summary line.
+// rclone-cache-warm runs under set -e (SPEC-rclone-cache-status section 4a) and names the
+// mount, so its snapshot is the mount's summary line.
 func TestRcloneCacheWarmNamesTheMount(t *testing.T) {
 	data, err := os.ReadFile(rcloneCacheWarm)
 	for _, line := range calls(t, rcloneCacheWarm, data, err) {

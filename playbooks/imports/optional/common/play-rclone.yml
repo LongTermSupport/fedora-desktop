@@ -89,14 +89,15 @@
 #   4. Replace the rclone_config value in host_vars/localhost.yml
 #   5. Re-run this playbook
 
-# rclone-cache-status is a Go binary built from this checkout (src-go/cmd/rclone-cache-status),
+# rclone-cache-status and rclone-tail are Go binaries built from this checkout (src-go/cmd/),
 # so the Go toolchain is installed first. play-golang.yml stays its one source of truth; the
-# tags make --tags rclone (the whole play) or --tags rclone-cache-status (only this command,
-# leaving the mounts up) install the toolchain too.
+# tags make --tags rclone (the whole play), --tags rclone-cache-status or --tags rclone-tail
+# (only that command, leaving the mounts up) install the toolchain too.
 - import_playbook: ../../play-golang.yml
   tags:
     - rclone
     - rclone-cache-status
+    - rclone-tail
 
 - hosts: desktop
   name: Install and Configure rclone with Cloud Storage Mounts
@@ -278,7 +279,7 @@
     # rclone-cache-status) broke silently and stayed broken for weeks, because
     # each reported the 401 as "rc unreachable". Clients share one credential
     # helper: a bash caller sources files/home/.local/bin/rclone-rc-auth.bash, a Go
-    # one (ftp-camera, rclone-cache-status) uses src-go/internal/rclonerc, which
+    # one (ftp-camera, rclone-cache-status, rclone-tail) uses src-go/internal/rclonerc, which
     # reads the same file; do not hand-copy a credential block.
     #
     # The secret is generated on the host, never committed (public repo), and is
@@ -497,17 +498,18 @@
         mode: '0755'
       tags: rclone
 
-    - name: Deploy rclone-tail activity monitor script
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/.local/bin/rclone-tail"
-        dest: "/home/{{ user_login }}/.local/bin/rclone-tail"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: '0755'
-      # rclone-cache-status too: rclone-tail calls it with --no-dir, and the two ship together.
+    # The activity monitor is a Go binary (src-go/cmd/rclone-tail, Plan 00192) at its old path.
+    # It runs the rclone-cache-status report in process, so it needs neither that command nor
+    # the library above.
+    - name: Build and Install the rclone-tail Activity Monitor
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: rclone-tail
+        go_command_dest: "/home/{{ user_login }}/.local/bin/rclone-tail"
+        go_command_mode: "0755"
       tags:
         - rclone
-        - rclone-cache-status
+        - rclone-tail
 
     # =========================================================================
     # Per-mount push helpers — one <name>-push command per mount.

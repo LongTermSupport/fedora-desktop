@@ -354,3 +354,28 @@ allowlisted; the ccy binaries do not import it), and `execx` gains `Secret.Renam
 (B15). `scripts/test-run-bash-gh-scopes.bash` drives the built command over its stubs; the bash
 and its allowlist row are gone. Host checks H1-H5 are the owner's, by hand (H4 in the VM lab).
 Review rounds (Opus, adversarial): see the journal.
+`rclone-tail` (P6, the fourth tool; chosen in its spec's section 1: a user tool of moderate
+size that changes nothing, with the `assoc` and `data` flags, and the sibling of
+`rclone-cache-status`) ported and cut over on `go-port/rclone-tail`, merged into F44 (Opus
+review round 3 MERGE); spec
+[SPEC-rclone-tail.md](SPEC-rclone-tail.md) (D1-D5, E1-E17, B1-B11, H1-H4),
+`src-go/cmd/rclone-tail` and `src-go/internal/rclonetail` (a tick per interval on `Env.Now`
+and `Env.After`, SIGINT and SIGTERM through `Env.OnStop`, the cache snapshot
+`rclonecache.App` run in process). What the two rclone reports share moved into `rclonerc`
+once: `Client.Mounts`, `Mount.RCAddr`, `Client.Ask` with `RCError`, and `Counter`;
+`rclonecache` runs on them with its tests unchanged, and `MountProcess` is gone. The snapshot
+found a fault in `rclone-cache-status`: with `--no-dir` a TARGET naming a directory in the
+working directory was still walked, so `rclone-tail lib` run beside `lib/` would have walked the
+whole mount; `--no-dir` now makes a TARGET a name (SPEC-rclone-cache-status B12).
+`play-rclone.yml` builds it (tags `rclone` and `rclone-tail`, the second leaving the mounts up);
+the bash, its allowlist row and the caller test that read it are gone (it had no suite). Side by
+side with the bash over a fake `findmnt` and `rclone` and fake mount processes: identical ticks,
+streams and closing snapshots; the differences are departures B1, B2 and B5. Host run
+`deploy-rclone-tail.bash` (the play with tags `rclone-tail,rclone-cache-status`, then
+`acceptance-rclone-tail.bash` for H1) is pending; H2-H4 are the owner's, by hand. Opus review
+round 1 (`subagent-reports/261023-review-rclone-tail-r1-opus.md`, FIX FIRST: 1 Medium, 2 Low)
+fixed: the deploy rebuilds `rclone-cache-status` too; every child runs in its own session so a
+terminal Ctrl-C cannot kill an RC call before the run cancels it; a stop ends the tick before the
+next line and `--once` still gets its closing snapshot. Round 2 (CHANGES: 1 Low) fixed: a
+second signal during either snapshot ends the run at once (its session groups killed, nothing
+more printed, exit 130), so no `rclone rc` outlives the run. Round 3: MERGE (2 Nits, fixed).

@@ -193,32 +193,29 @@ func TestAddrForMountSkipsAVanishedProcess(t *testing.T) {
 	}
 }
 
-// MountProcess is the first process, in pid order, one of whose arguments after the program
-// is the mountpoint; none is nil without an error (SPEC-rclone-cache-status E9).
-func TestMountProcess(t *testing.T) {
+// A mount's process is the first, in pid order, one of whose arguments after the program is
+// the mountpoint; none is nil without an error (SPEC-rclone-cache-status E9).
+func TestMountsServingProcess(t *testing.T) {
 	proc := mountProc()
 	proc["41/cmdline"] = cmdline("rclone", "mount", "lib:", "/home/u/mnt/lib", "--rc-addr=localhost:9")
 	proc["5/cmdline"] = cmdline("rclone", "mount", "lib:", "/home/u/mnt/library", "--rc-addr=localhost:1")
-	c := client(t, &execx.Fake{}, "", proc)
-	args, err := c.MountProcess("/home/u/mnt/lib")
-	if err != nil || !slices.Contains(args, "--rc-addr=localhost:5573") {
-		t.Fatalf("%q %v", args, err)
+	f := &execx.Fake{}
+	findmntJSON(f, `{"filesystems":[{"source":"lib:","target":"/home/u/mnt/lib"},`+
+		`{"source":"none:","target":"/home/u/mnt/none"},{"source":"prog:","target":"/usr/bin/rclone"}]}`)
+	c := client(t, f, "", proc)
+	mounts, err := c.Mounts(context.Background())
+	if err != nil || len(mounts) != 3 {
+		t.Fatalf("%+v %v", mounts, err)
 	}
-	args, err = c.MountProcess("/home/u/mnt/none")
-	if err != nil || args != nil {
-		t.Fatalf("none: %q %v", args, err)
+	if !slices.Contains(mounts[0].Args, "--rc-addr=localhost:5573") {
+		t.Fatalf("%q", mounts[0].Args)
+	}
+	if mounts[1].Args != nil {
+		t.Fatalf("none: %q", mounts[1].Args)
 	}
 	// The program's own name is not an argument that can serve a mountpoint.
-	if args, err := c.MountProcess("/usr/bin/rclone"); err != nil || args != nil {
-		t.Fatalf("program name: %q %v", args, err)
-	}
-}
-
-func TestMountProcessUnreadableProc(t *testing.T) {
-	c := client(t, &execx.Fake{}, "", nil)
-	c.Proc = os.DirFS(filepath.Join(t.TempDir(), "absent"))
-	if _, err := c.MountProcess("/x"); err == nil || !strings.Contains(err.Error(), "read /proc") {
-		t.Fatalf("got %v", err)
+	if mounts[2].Args != nil {
+		t.Fatalf("program name: %q", mounts[2].Args)
 	}
 }
 

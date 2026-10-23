@@ -32,3 +32,10 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+# Plan 00192 Task 3.3, the rclone-tail port: play-rclone.yml with tags rclone-tail and
+# rclone-cache-status builds the Go rclone-tail in place of the bash script and rebuilds
+# rclone-cache-status (this port fixed its --no-dir reading a mount name as a directory),
+# leaving the mounts up; then acceptance-rclone-tail.bash checks H1 (`rclone-tail --once`
+# lists every mount as idle, an activity line or "(no --rc ...)"). Watching an upload stream live, Ctrl-C
+# exiting 0 and ftp-camera's upload status still printing (H2-H4) are by hand afterwards.
+00192-bash-line-in-the-sand-go-for-tooling/deploy-rclone-tail.bash
