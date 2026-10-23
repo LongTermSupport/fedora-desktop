@@ -49,6 +49,7 @@ const (
 // The functions and the reason the realtime-bound tables repeat.
 const (
 	newFn             = "New"
+	newEnvFn          = "NewEnv"
 	runToolFn         = "gate.runTool"
 	constantToolLimit = "the limit on a real tool; every caller passes a package constant and its tests fake the process"
 )
@@ -282,8 +283,9 @@ var realClocks = []allowance{
 	{pkg: ftpcameraPkg, fn: "sleepContext", reason: "the real side of Env.Sleep; its tests replace Sleep, and NewEnv's test sleeps 0"},
 	{pkg: "internal/vmtest", fn: "sleepContext", reason: "the real side of Env.Sleep; its tests replace Sleep"},
 	{pkg: "internal/vmtest", fn: "newCLI", reason: "the real side of cli.bound, a remote command's deadline (timeout(1) in the bash); its tests replace bound whole (expiredBound)"},
-	{pkg: "internal/wsi", fn: "NewEnv", reason: "the real side of Env.Sleep and Env.After; its tests replace both"},
-	{pkg: "internal/wsimedia", fn: "NewEnv", reason: "the real side of Env.After, the hold's poll; its tests replace After, and NewEnv's test asks for 0"},
+	{pkg: "internal/wsi", fn: newEnvFn, reason: "the real side of Env.Sleep and Env.After; its tests replace both"},
+	{pkg: "internal/wsimedia", fn: newEnvFn, reason: "the real side of Env.After, the hold's poll; its tests replace After, and NewEnv's test asks for 0"},
+	{pkg: "internal/rclonetail", fn: newEnvFn, reason: "the real side of Env.After, the wait between ticks; its tests replace After, and NewEnv's test never waits"},
 	{pkg: "internal/teams/restart", fn: newFn, reason: "the real side of Restart.Sleep; its tests replace Sleep, and the picker's never reach a wait"},
 	{pkg: "internal/teams/shutdown", fn: newFn, reason: "the real side of Shutdown.Sleep; its tests replace Sleep, and the picker's never reach a wait"},
 	{pkg: "internal/teams/winddown", fn: newFn, reason: "the real side of WindDown.Sleep; its tests replace Sleep, and the picker's never reach a wait"},
