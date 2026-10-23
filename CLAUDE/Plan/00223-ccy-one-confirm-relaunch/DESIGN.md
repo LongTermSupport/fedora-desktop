@@ -116,16 +116,27 @@ one of those as today, attended and on restore.
   answer's list keeps `--debug`, so the re-run would ask the layer and confirm questions again
   (1036, 1074), start a second `tee` and log at 1090, and, on layer 1, compute `CCY_ATTENDED`
   from the `tee` pipe as false. So the outer run hands its results over in the environment of
-  the `exec` itself, as the GitHub token's `CCY_GH_TOKEN_HANDOFF` crosses it: `CCY_ATTENDED`,
-  and with `--debug` the layer answer, `DEBUG_LOG` and `CCY_TTY_FD` (the descriptor stays open
-  across `exec`). The re-run reads them once at the start and unsets them, as
-  `CCY_SESSION_RESTORE` is read and unset (1208-1217), so nothing the run starts, tmux
-  included, inherits them; they are refused (exit 64) without `--settled`, the only argument
-  that comes with them. With them: 870 takes `CCY_ATTENDED` as given; 1036 takes the layer
-  answer and 1074 is not asked; 1090 starts no `tee` and keeps the inherited pipe and log, so
-  one debug log holds both runs. All in place (the assignment at 870, the `read`s and the 1090
-  condition), plus the read-and-unset line and its `--settled` check (2 new lines). After
-  insulation the tmux inner run is a fresh start and behaves as today.
+  the `exec` itself, as the GitHub token's `CCY_GH_TOKEN_HANDOFF` crosses it, under names of
+  its own that nothing else sets: `CCY_ATTENDED_HANDOFF`, and with `--debug`
+  `CCY_DEBUG_LAYERS_HANDOFF` (the layer answer, `layer_input`), `CCY_DEBUG_LOG_HANDOFF` (the
+  outer run's `DEBUG_LOG`) and `CCY_TTY_FD_HANDOFF` (the descriptor number; the descriptor
+  stays open across `exec`, and is not close-on-exec, so the run's children inherit it too,
+  which is harmless). A user's own exported `DEBUG_LOG` is therefore never mistaken for a
+  hand-off. After the parse (853) the re-run checks that they come only with `--settled`
+  (otherwise exit 64), copies them into the shell variables they stand for (`CCY_ATTENDED`,
+  `layer_input`, `DEBUG_LOG`, `CCY_TTY_FD`) and drops the `_HANDOFF` names from the
+  environment (`unset`), so nothing the run starts, tmux included, inherits them while the run
+  itself keeps the values (870, and `DEBUG_LOG` at 2403-2487). With them: 870 takes
+  `CCY_ATTENDED` as given (`CCY_SEATS="" CCY_ATTENDED=...` on the one line, and
+  `ccy_launch_teams` reads `$CCY_ATTENDED` at 877 and 882 in place of its `local attended`);
+  1036's `read` and 1074's confirm are not asked; 1084-1085 (the `mktemp` and the
+  `Debug logging to:` line) and the 1090 `tee` are skipped, keeping the inherited pipe and log,
+  so one debug log holds both runs and the exit message names the outer run's log. The v2
+  migration prompt (471-491), which the outer run already asked, is skipped under
+  `CCY_ATTENDED_HANDOFF` in place on its 471 test. All in place, plus the copy-and-unset line
+  and its `--settled` check (2 new lines). Printed again on the terminal and accepted:
+  `ccy_env_local_dist_sync`'s warning (452), one line. After insulation the tmux inner run is a
+  fresh start and behaves as today.
 - **The session name** (R11): line 1201 (`CCY_SESSION_NAME=$(ccy_tmux_current_session)`) moves
   above 1195. It reads only `TMUX`, `TMUX_PANE` and the two pids (`lib/tmux-session.bash:474-480`),
   nothing 1195-1198 sets, so it is the same value at either place. It is non-empty only for the
