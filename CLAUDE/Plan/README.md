@@ -34,7 +34,7 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00223-ccy-one-confirm-relaunch](00223-ccy-one-confirm-relaunch/) - Not Started. One relaunch screen for ccy: token (with expiry and usage), SSH keys, network, each team's seat, role and label, and the other sessions here, accepted with one Enter; only the seat is rechecked (a held seat is offered the next free one or the chooser), a used-up token goes to the token chooser; a Go command the bash launcher calls
+- [00223-ccy-one-confirm-relaunch](00223-ccy-one-confirm-relaunch/) - Not Started. One Quick Launch screen for ccy: token (with expiry and cached usage), SSH keys, network, each team's seat, role and label, and the other sessions here, accepted with one Enter, `ccy --teams` included; only the seat is rechecked (a held seat is offered the next free one or the chooser), a used-up token goes to the token chooser; a `ccy-teams quick-launch` subcommand the bash launcher calls
 
 - [00220-wireguard-overlay-and-remote-team-members](00220-wireguard-overlay-and-remote-team-members/) - Not Started. Agent teams across machines: a vault-backed WireGuard overlay in `play-vpn.yml` (one per machine, hub and spoke on this desktop, a dedicated firewalld zone, one public UDP port), the homeserver on the overlay address for named peers only, a `host` member on a second laptop; remote ccy seats left to v2 (Plan 00209)
 
