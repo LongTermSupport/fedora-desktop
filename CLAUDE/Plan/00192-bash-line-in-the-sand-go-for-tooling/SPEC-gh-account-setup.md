@@ -33,8 +33,8 @@ with awk); those cases move to Go tests, and the suite drives the built command 
   `scripts/lib/go-tool.bash` gains `run_go_command`, which builds `src-go/cmd/<name>` from the main
   module (`go build -trimpath -buildvcs=false`, as `tasks/build-go-command.yml` builds, so a `git`
   that is not git on `PATH`, such as a test stub, cannot break the build; `GOFLAGS=-mod=vendor`, `GOTOOLCHAIN=local`, so offline from
-  `src-go/vendor`) into the cache (a temporary file renamed to `cmd/<name>`, so a run under way
-  keeps its file) and execs it. The command is then the wrapper's own process: a signal sent to the
+  `src-go/vendor`) into the cache (a temporary file renamed to `cmd/<name>`, so a build never
+  leaves a half-written binary there) and execs it. The command is then the wrapper's own process: a signal sent to the
   wrapper (a `kill`, `timeout`, a supervisor) reaches the command and E26-E27 hold through it, and
   the binary stays on disk while ssh-keygen and ssh run it as their askpass. The wrapper gives the binary the checkout as `GH_ACCOUNT_SETUP_ROOT`. Its
   allowlist row leaves `scripts/bash-limits.allowlist`; `scripts/go-binary-suites.tsv` gets
@@ -83,7 +83,9 @@ with awk); those cases move to Go tests, and the suite drives the built command 
 - E4. `GH_ACCOUNT_SETUP_ROOT` (set by the wrapper) is the checkout, an absolute directory; unset,
   relative or not a directory is exit 1 telling the user to run `scripts/gh-account-setup.bash`.
   The configuration is `LOCALHOST_YML` (default `<root>/environment/localhost/host_vars/localhost.yml`),
-  the scope list `SCOPES_FILE` (default `<root>/vars/github-required-scopes.yml`).
+  the scope list `SCOPES_FILE` (default `<root>/vars/github-required-scopes.yml`). A relative
+  path in either, or in `VAULT_PASS_FILE` (E11), is the current directory's, made absolute before
+  use, so the programs run in the checkout (ansible, the scope helper) get the same file.
   `RUN_BASH_HEADLESS=true` is a headless run. The vault password file has no default here:
   `<root>/ansible.cfg` names it (`vault_password_file`, with `vault_identity`), and E11 runs
   ansible under that file. `VAULT_PASS_FILE`, when set, overrides it (E11).
@@ -127,7 +129,8 @@ with awk); those cases move to Go tests, and the suite drives the built command 
 
 - E11. A non-empty `GITHUB_SSH_PASSPHRASE` (set by `run.bash` on a fresh install) is the
   passphrase, taken out of the environment before any program runs, so no child (not even
-  `gh --version`) inherits it. Otherwise it is decrypted
+  `gh --version`) inherits it. The one program that sees it is the wrapper's `go build` (D1),
+  which runs before this command exists. Otherwise it is decrypted
   from the vault: `ansible localhost -c local -e @<localhost.yml> -m debug -a 'msg={{ github_ssh_passphrase }}'` runs in the checkout with `ANSIBLE_CONFIG=<root>/ansible.cfg`,
   `ANSIBLE_STDOUT_CALLBACK=ansible.builtin.minimal` and `ANSIBLE_NOCOLOR=1`, and no `--vault-id`
   argument: the password file and the vault identity are the ones `ansible.cfg` names, so this

@@ -278,6 +278,29 @@ func TestThePassphraseFromTheVault(t *testing.T) {
 	}
 }
 
+// E4, E11: relative LOCALHOST_YML, SCOPES_FILE and VAULT_PASS_FILE mean the current
+// directory, for this command and for ansible, which runs in the checkout.
+func TestRelativePathsAreTheCurrentDirectorys(t *testing.T) {
+	w := newWorld(t)
+	w.config("work:alice")
+	w.ready("work", "alice")
+	cwd := filepath.Dir(filepath.Dir(w.yml))
+	t.Chdir(cwd)
+	w.write(filepath.Join(cwd, "pw-file"), "pw\n")
+	w.env["LOCALHOST_YML"] = filepath.Join("host_vars", filepath.Base(w.yml))
+	w.env["VAULT_PASS_FILE"] = "pw-file"
+	if code := w.run("--setup-all"); code != term.ExitOK {
+		t.Fatalf("exit %d\n%s", code, w.stderr.String())
+	}
+	c := w.mustCall("ansible")
+	if !slices.Contains(c.Args, "@"+w.yml) {
+		t.Errorf("ansible was not given the configuration's absolute path: %q", c.Line())
+	}
+	if !hasEnv(c, "ANSIBLE_VAULT_PASSWORD_FILE="+filepath.Join(cwd, "pw-file")) {
+		t.Errorf("ansible was not given the password file's absolute path: %v", c.Env)
+	}
+}
+
 // E11: a password file named by VAULT_PASS_FILE must exist and is the one ansible uses.
 func TestAGivenVaultPasswordFile(t *testing.T) {
 	w := newWorld(t)

@@ -8,8 +8,9 @@
 # command run from the checkout rather than installed by a play, and EXECS it: it never returns
 # once the build succeeds. The command is then the caller's own process, so a signal sent to the
 # caller reaches the command, which can put back what it changed. Its binary stays in the cache
-# (`cmd/<command>`, replaced by a rename, so a run still under way keeps its file), because a
-# program it starts may run it again (an askpass).
+# (`cmd/<command>`, replaced by a rename, so it is never half written), because a program it
+# starts may run it again by that path (an askpass); a run that overlaps a rebuild gets the new
+# build there, from the same checkout.
 #
 # A new build per run means the binary always matches the source. SOURCE this.
 #
@@ -51,6 +52,8 @@ _go_build_and_run() {
     if [[ -n "$release" ]]; then
         mkdir -p "$cache/cmd"
         out="$(mktemp -p "$cache/cmd" ".$tool.XXXXXX")"
+        GO_TOOL_PARTIAL="$out"
+        trap 'rm -f "$GO_TOOL_PARTIAL"' EXIT
     else
         mkdir -p "$cache"
         GO_TOOL_BIN_DIR="$(mktemp -d -p "$cache")"

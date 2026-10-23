@@ -262,8 +262,15 @@ func (r *run) locate() error {
 		return r.failf("HOME is not an absolute directory ('%s')", home)
 	}
 	r.root, r.home = root, home
-	r.yml = r.envOr("LOCALHOST_YML", filepath.Join(root, "environment/localhost/host_vars/localhost.yml"))
-	r.scopes = r.envOr("SCOPES_FILE", filepath.Join(root, "vars/github-required-scopes.yml"))
+	// A relative path is the current directory's, so ansible, which runs in the checkout, is
+	// handed the same file this command reads.
+	var err error
+	if r.yml, err = filepath.Abs(r.envOr("LOCALHOST_YML", filepath.Join(root, "environment/localhost/host_vars/localhost.yml"))); err != nil {
+		return r.failf("LOCALHOST_YML: %v", err)
+	}
+	if r.scopes, err = filepath.Abs(r.envOr("SCOPES_FILE", filepath.Join(root, "vars/github-required-scopes.yml"))); err != nil {
+		return r.failf("SCOPES_FILE: %v", err)
+	}
 	r.headless = r.env.Getenv("RUN_BASH_HEADLESS") == "true"
 	return nil
 }
@@ -421,6 +428,11 @@ func (r *run) decryptPassphrase(ctx context.Context) error {
 		},
 	}
 	if given := r.env.Getenv("VAULT_PASS_FILE"); given != "" {
+		abs, err := filepath.Abs(given)
+		if err != nil {
+			return r.failf("VAULT_PASS_FILE: %v", err)
+		}
+		given = abs
 		if _, err := os.Stat(given); err != nil {
 			r.badf(r.err, "Vault password file not found: %s", given)
 			return errVaultFileMissing
