@@ -177,8 +177,9 @@ func TestLinkRestartsWithBackoff(t *testing.T) {
 	if k := w.keeperJSON(); k.Link != state.LinkFailed || k.Why == nil || *k.Why != state.WhyCrashLoop || k.NextMS != nil {
 		t.Fatalf("keeper.json %+v", k)
 	}
-	// The failure is logged before the seat locks close, on the keeper's loop.
-	w.eventually("a failed link's seat let go", func() bool { return !w.held(alpha) })
+	if w.held(alpha) {
+		t.Fatal("a failed link's seat is still held")
+	}
 	c.code(0)
 	exitOf(t, res, term.ExitOK)
 	if n := len(w.starter.Starts()); n != 1+failedAfter {

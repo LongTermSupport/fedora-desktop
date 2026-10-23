@@ -41,14 +41,16 @@ var runs = map[string]RunFunc{
 }
 
 // outside are the verbs built outside this package, which cmd/teamchat passes in Env.Verbs.
-var outside = []string{verbRun, "link", "recv", "wait", "inbox", "status", "verify", "history", "seat disconnected", "reach"}
+var outside = []string{
+	verbRun, "link", "recv", "wait", "inbox", "status", "verify", "history", "seat disconnected", "reach",
+	"reply", "say", "ping",
+}
 
 // Outside is the verbs a binary must pass in Env.Verbs; a copy the caller may change.
 func Outside() []string { return slices.Clone(outside) }
 
 // unbuilt are the verbs a later slice builds, each with its slice (CL2).
 var unbuilt = bySlice(map[string][]string{
-	"n3d": {"reply", "say", "ping"},
 	"n3e": {"hook", "status-line"},
 	"n3f": {"report", verbAsk, "thread", verbQuestions},
 })

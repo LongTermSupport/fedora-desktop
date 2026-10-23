@@ -467,7 +467,7 @@ func (e *Engine) inbox(ctx context.Context, only *paths.TeamID, out RecordWriter
 // one write per store. An ack for a removed team is ignored and recreates nothing (T2).
 func (e *Engine) Ack(ctx context.Context, ack string) error {
 	return e.settle(ctx, ack, func(s *state.Store, it state.Pending, now int64) bool {
-		s.AddLedger(state.Ledger{ID: it.ID, Room: it.Room, Item: it.Item, From: it.From, AtMS: now})
+		s.AddLedger(state.Ledger{ID: it.ID, Room: it.Room, Item: it.Item, From: it.From, AtMS: now, Verb: it.Verb})
 		return true
 	})
 }

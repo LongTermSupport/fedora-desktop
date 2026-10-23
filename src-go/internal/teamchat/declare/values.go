@@ -3,10 +3,10 @@ package declare
 import (
 	"net/netip"
 	"net/url"
-	"path/filepath"
 	"regexp"
 	"strconv"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
 
@@ -15,7 +15,6 @@ const (
 	maxHumans    = 16
 	maxListen    = 8
 	maxAllowFrom = 32
-	maxSeat      = 9999
 	maxDNSName   = 253
 )
 
@@ -23,7 +22,6 @@ var (
 	dnsLabel      = `[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?`
 	dnsNameRe     = regexp.MustCompile(`^` + dnsLabel + `(\.` + dnsLabel + `)+$`)
 	dnsHostRe     = regexp.MustCompile(`^` + dnsLabel + `(\.` + dnsLabel + `)*$`)
-	containerRe   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 	urlPortDigits = regexp.MustCompile(`^[1-9][0-9]{0,4}$`)
 )
 
@@ -78,9 +76,27 @@ func validHandle(s string) bool {
 	return ok && !h.IsProbe() && h.String() == s
 }
 
-func validContainer(s string) bool { return containerRe.MatchString(s) }
+func validContainer(s string) bool {
+	_, err := paths.ParseContainerName(s)
+	return err == nil
+}
 
-func validCheckout(s string) bool { return filepath.IsAbs(s) && filepath.Clean(s) == s && s != "/" }
+// msgCheckout is a checkout's refusal: paths.ValidGuestPath's grammar.
+const msgCheckout = "is not an absolute, clean path below / with no control or format character"
+
+func validSeat(n int64) bool { return n >= 1 && n <= paths.MaxLXCSeat }
+
+// seat reads a seat number, 1-paths.MaxLXCSeat (DR4).
+func (n node) seat() (int, error) {
+	v, err := n.integer()
+	if err != nil {
+		return 0, err
+	}
+	if !validSeat(v) {
+		return 0, n.fail("is not a seat number, 1-" + strconv.Itoa(paths.MaxLXCSeat))
+	}
+	return int(v), nil
+}
 
 func validSite(s string) bool {
 	norm, ok := proto.NormaliseSite(s)

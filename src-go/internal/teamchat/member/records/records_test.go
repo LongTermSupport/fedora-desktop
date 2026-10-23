@@ -40,15 +40,18 @@ func TestEveryKindEncodesAsBRendersIt(t *testing.T) {
 		{Notice{Team: a, ID: id43, From: "admin", SentMS: 1760000000000, Event: "added", Subject: "repo.4+site.lxc", Reason: new("worker")}, `{"kind":"notice","v":1,"team":"alpha","id":"` + id43 + `","from":"admin","sent_ms":1760000000000,"event":"added","subject":"repo.4+site.lxc","reason":"worker","carried":null}`},
 		{Notice{Team: a, ID: id43, From: "admin", SentMS: 1, Event: "carried", Subject: "s", Carried: &Carried{Kind: "ping", Verb: new("review"), From: "f", SentMS: 2, V1Event: id43, To: "t", Text: "x"}}, `{"kind":"notice","v":1,"team":"alpha","id":"` + id43 + `","from":"admin","sent_ms":1,"event":"carried","subject":"s","reason":null,"carried":{"kind":"ping","verb":"review","ref":null,"from":"f","sent_ms":2,"v1_event":"` + id43 + `","to":"t","text":"x","possible_duplicate":false}}`},
 		{Fact{Team: a, Fact: "held-back", From: new("repo.2+site.podman"), Count: new(int64(12))}, `{"kind":"fact","v":1,"team":"alpha","fact":"held-back","from":"repo.2+site.podman","count":12,"id":null}`},
-		{Outbox{Team: a, ID: id43, Verb: "review", Ref: new("r"), To: []string{"repo.3+site.lxc"}, DueMS: 1760000900000, Answers: []Answer{{From: "repo.3+site.lxc", Verb: "ack", ID: id43}}}, `{"kind":"outbox","v":1,"team":"alpha","id":"` + id43 + `","verb":"review","ref":"r","to":["repo.3+site.lxc"],"due_ms":1760000900000,"answers":[{"from":"repo.3+site.lxc","verb":"ack","id":"` + id43 + `","late":false}],"timed_out":[]}`},
+		{Outbox{Team: a, ID: id43, Verb: "review", Ref: new("r"), To: []string{"repo.3+site.lxc"}, DueMS: 1760000900000, Answers: []Answer{{From: "repo.3+site.lxc", Verb: new("ack"), ID: new(id43)}, {From: "alice"}}}, `{"kind":"outbox","v":1,"team":"alpha","id":"` + id43 + `","verb":"review","ref":"r","to":["repo.3+site.lxc"],"due_ms":1760000900000,"answers":[{"from":"repo.3+site.lxc","verb":"ack","id":"` + id43 + `","late":false},{"from":"alice","verb":null,"id":null,"late":false}],"timed_out":[]}`},
 		{Outbox{Team: a, ID: id43, Verb: "halt", DueMS: 1}, `{"kind":"outbox","v":1,"team":"alpha","id":"` + id43 + `","verb":"halt","ref":null,"to":[],"due_ms":1,"answers":[],"timed_out":[]}`},
-		{Sent{Team: a, ID: id43, Room: "main"}, `{"kind":"sent","v":1,"team":"alpha","id":"` + id43 + `","room":"main"}`},
+		{Sent{Team: a, ID: new(id43), Room: "main"}, `{"kind":"sent","v":1,"team":"alpha","id":"` + id43 + `","room":"main","queued":false}`},
+		{Sent{Team: a, Room: "main", Queued: true}, `{"kind":"sent","v":1,"team":"alpha","id":null,"room":"main","queued":true}`},
+		{Queued{Team: a, Room: "main", Send: "ping", Verb: new("review"), To: []string{"repo.3+site.lxc"}, SinceMS: 1760000000000, Tried: true}, `{"kind":"queued","v":1,"team":"alpha","room":"main","send":"ping","verb":"review","to":["repo.3+site.lxc"],"since_ms":1760000000000,"tried":true}`},
+		{Queued{Team: a, Room: "main", Send: "text", SinceMS: 1}, `{"kind":"queued","v":1,"team":"alpha","room":"main","send":"text","verb":null,"to":[],"since_ms":1,"tried":false}`},
 		{Pending{Team: a, ID: id43, From: "alice", Item: "human", SentMS: 1760000000000}, `{"kind":"pending","v":1,"team":"alpha","id":"` + id43 + `","from":"alice","item":"human","sent_ms":1760000000000}`},
 		{Question{Team: a, N: 4, State: "open", ID: id43, AskedBy: []string{"repo.2+site.podman"}, Unanswered: []string{id43}}, `{"kind":"question","v":1,"team":"alpha","n":4,"state":"open","id":"` + id43 + `","asked_by":["repo.2+site.podman"],"unanswered":["` + id43 + `"]}`},
 		{History{Team: a, Dir: "in", Item: human}, `{"kind":"history","v":1,"team":"alpha","dir":"in","item":{"kind":"human","v":1,"team":"alpha","id":"` + id43 + `","from":"alice","from_id":"@alice:alpha.teamchat.internal","sent_ms":1760000000000,"room":"main","text":"Please push the branch.","question":null,"revises":null,"restored":false}}`},
 		{Verified{Team: a, ID: id43, Item: "human", From: "alice", Room: "main", Text: "t", BodySHA256: strings.Repeat("ab", 32), SentMS: 1}, `{"kind":"verified","v":1,"team":"alpha","id":"` + id43 + `","item":"human","from":"alice","room":"main","text":"t","body_sha256":"` + strings.Repeat("ab", 32) + `","sent_ms":1}`},
 		{More{Pending: 14}, `{"kind":"more","v":1,"team":null,"pending":14}`},
-		{Team{Team: a, Name: "Alpha team", Handle: "repo.2+site.podman", Role: "worker", About: "Release work for the desktop", Trust: "trusted", Delivery: "socket"}, `{"kind":"team","v":1,"team":"alpha","name":"Alpha team","handle":"repo.2+site.podman","role":"worker","about":"Release work for the desktop","trust":"trusted","delivery":"socket","pending":0,"down":false,"counts":{"ignored":0,"dropped":0,"unheard":0,"gaps":0,"redacted":0,"seen_twice":0}}`},
+		{Team{Team: a, Name: "Alpha team", Handle: "repo.2+site.podman", Role: "worker", About: "Release work for the desktop", Trust: "trusted", Delivery: "socket"}, `{"kind":"team","v":1,"team":"alpha","name":"Alpha team","handle":"repo.2+site.podman","role":"worker","about":"Release work for the desktop","trust":"trusted","delivery":"socket","pending":0,"down":false,"counts":{"ignored":0,"dropped":0,"unheard":0,"gaps":0,"redacted":0,"seen_twice":0,"unsent":0}}`},
 		{Member{Team: a, Handle: "repo.1+site.podman", Role: "coordinator", Present: true}, `{"kind":"member","v":1,"team":"alpha","handle":"repo.1+site.podman","role":"coordinator","present":true}`},
 		{Room{Team: a, Purpose: "questions", State: "joined"}, `{"kind":"room","v":1,"team":"alpha","purpose":"questions","state":"joined"}`},
 		{Runtime{Keeper: KeeperCost{RSSKiB: 7400, CPUMS: 120, Wakeups: 31, FDs: 9, UptimeS: 3600}, Link: LinkCost{RSSKiB: 14100, CPUMS: 910, Wakeups: 402, FDs: 14, Conns: 2, UptimeS: 3590}, Unusable: Unusable{HookStdin: 2, Render: 1}}, `{"kind":"runtime","v":1,"keeper":{"rss_kib":7400,"cpu_ms":120,"wakeups":31,"fds":9,"uptime_s":3600},"link":{"rss_kib":14100,"cpu_ms":910,"wakeups":402,"fds":14,"conns":2,"restarts":0,"uptime_s":3590},"unusable":{"hook_stdin":2,"render":1}}`},
@@ -118,7 +121,7 @@ func TestAHostileBodyIsOneLineReadBackEqual(t *testing.T) {
 }
 
 func TestAnUnparsedTeamIsRefused(t *testing.T) {
-	if _, err := Encode(Sent{ID: id43, Room: "main"}); err == nil {
+	if _, err := Encode(Sent{ID: new(id43), Room: "main"}); err == nil {
 		t.Error("a zero team id encoded")
 	}
 	var buf bytes.Buffer
@@ -224,5 +227,19 @@ func TestWriteTeamsAFailedStdoutIsInternal(t *testing.T) {
 	errOut.Reset()
 	if WriteTeams(failWriter{}, &errOut, []TeamResult{{Team: a, Err: errors.New("x")}}) != term.ExitFailure {
 		t.Error("a failed stdout was not internal")
+	}
+}
+
+// n3d-D21: a sent record's id is null exactly when it is queued; its encoder refuses either
+// half alone.
+func TestN3dD21SentIDIsNullExactlyWhenQueued(t *testing.T) {
+	a := teamID(t, "alpha")
+	for name, rec := range map[string]Sent{
+		"queued with an id": {Team: a, ID: new(id43), Room: "main", Queued: true},
+		"posted with no id": {Team: a, Room: "main"},
+	} {
+		if _, err := Encode(rec); err == nil {
+			t.Errorf("%s encoded", name)
+		}
 	}
 }

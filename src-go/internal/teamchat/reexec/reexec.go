@@ -132,10 +132,31 @@ func Start(tb testing.TB, name string, args ...string) *Process {
 // the helper is to speak on, as a keeper gives its link). The caller keeps and closes its own.
 func StartFiles(tb testing.TB, files []*os.File, name string, args ...string) *Process {
 	tb.Helper()
-	p, err := start(name, args, files)
+	p, err := start(name, args, files, false)
 	if err != nil {
 		tb.Fatal(err)
 	}
+	return held(tb, p)
+}
+
+// StartInUserNamespace is Start with the helper as root of a new user namespace, with a mount
+// namespace of its own (execx.Cmd.UserNamespace): for a test of what only a real mount shows,
+// made without privilege on the host. A kernel that allows no such namespace skips the test.
+func StartInUserNamespace(tb testing.TB, name string, args ...string) *Process {
+	tb.Helper()
+	p, err := start(name, args, nil, true)
+	if errors.Is(err, unix.EPERM) || errors.Is(err, unix.ENOSPC) {
+		tb.Skipf("no unprivileged user namespace here: %v", err)
+	}
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return held(tb, p)
+}
+
+// held is p bound to tb, killed by tb's cleanup if it is still running.
+func held(tb testing.TB, p *Process) *Process {
+	tb.Helper()
 	p.tb = tb
 	tb.Cleanup(func() {
 		if !p.ended() {
@@ -173,11 +194,12 @@ func command(name string, args []string) (execx.Cmd, error) {
 	}, nil
 }
 
-func start(name string, args []string, files []*os.File) (*Process, error) {
+func start(name string, args []string, files []*os.File, userNamespace bool) (*Process, error) {
 	cmd, err := command(name, args)
 	if err != nil {
 		return nil, err
 	}
+	cmd.UserNamespace = userNamespace
 	given, err := dupAll(files)
 	if err != nil {
 		return nil, err
@@ -207,7 +229,7 @@ func start(name string, args []string, files []*os.File) (*Process, error) {
 	closeErr := outR.Close()
 	if err != nil {
 		<-p.done
-		return nil, errors.Join(fmt.Errorf("reexec: helper %q ended before it was ready: %s", name, describe(p.end)), inW.Close())
+		return nil, errors.Join(endedEarly(name, p.end), inW.Close())
 	}
 	if p.Pid, err = parseReady(line); err == nil {
 		err = childOf(p.Pid)
@@ -243,6 +265,14 @@ func closeAll(files []*os.File) error {
 		err = errors.Join(err, f.Close())
 	}
 	return err
+}
+
+// endedEarly is a helper's end before its ready line, wrapping the error it could not start with.
+func endedEarly(name string, end *exitInfo) error {
+	if end.err != nil {
+		return fmt.Errorf("reexec: helper %q ended before it was ready: %w; stderr: %s", name, end.err, end.stderr)
+	}
+	return fmt.Errorf("reexec: helper %q ended before it was ready: %s", name, describe(end))
 }
 
 // childOf is nil when pid is a child of this process, the only process a helper's Kill may

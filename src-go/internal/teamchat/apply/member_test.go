@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -182,20 +183,19 @@ func TestMemberAddToken(t *testing.T) {
 	}
 }
 
-func TestSeatNextSkipsEveryHeldNumber(t *testing.T) {
+// MO4: an add names its seat, a number from 1; the counter is raised to the highest seat named
+// and never lowered.
+func TestAnAddNamesItsSeat(t *testing.T) {
 	w := newWorld(t)
 	team := w.team(t)
-	w.addMember(t, "myrepo.1+desk.podman", active())
-	retired := active()
-	retired.State = MemberRetired
-	w.addMember(t, "myrepo.2+desk.podman", retired)
-	if res := w.member(t, team, add(0, credToken)); res.Handle != third {
-		t.Fatalf("next chose %s", res.Handle)
+	for _, seat := range []int{0, -1} {
+		mark := w.mark()
+		_, err := RunMember(t.Context(), w.memberDeps(nil), team, add(seat, credToken))
+		refusedAt(t, "seat "+strconv.Itoa(seat), err, StepFiles, "a number from 1")
+		if len(w.writes(mark)) != 0 {
+			t.Fatalf("seat %d wrote %v", seat, w.writes(mark))
+		}
 	}
-	if w.file(t).roster.Counters[prefix] != 3 {
-		t.Fatal("counter not raised")
-	}
-	// A lower seat named explicitly never lowers the counter.
 	w.member(t, team, MemberRequest{Op: OpMemberAdd, Prefix: "other+desk.podman", Seat: 5, Kind: "podman", HumanText: true, Credential: credToken})
 	w.member(t, team, MemberRequest{Op: OpMemberAdd, Prefix: "other+desk.podman", Seat: 2, Kind: "podman", HumanText: true, Credential: credToken})
 	if w.file(t).roster.Counters["other+desk.podman"] != 5 {

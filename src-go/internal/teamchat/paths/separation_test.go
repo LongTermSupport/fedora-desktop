@@ -123,7 +123,7 @@ var sampleTeams = []string{"x", "ops", strings.Repeat("z", 22)}
 func sampleNames(t *testing.T) map[string][]string {
 	t.Helper()
 	names := constNames()
-	for _, add := range []map[string][]string{idNames(t), baseNames(t), layoutNames(t), teamNames(t), hostNames(t), memberNames(t)} {
+	for _, add := range []map[string][]string{idNames(t), baseNames(t), layoutNames(t), teamNames(t), hostNames(t), memberNames(t), lxcNames(t)} {
 		for ident, values := range add {
 			names[ident] = append(names[ident], values...)
 		}
@@ -146,7 +146,7 @@ func constNames() map[string][]string {
 		"HostKitRoot": HostKitRoot, "HostKitCurrent": HostKitCurrent().String(),
 		"HomeserverStateRoot": HomeserverStateRoot, "HomeserverPrivateStateRoot": HomeserverPrivateStateRoot,
 		"AdminStateRoot": AdminStateRoot, "AdminLXCDir": AdminLXCDir, "CtlStateRoot": CtlStateRoot,
-		"StatusRoot": StatusRoot, "StatusInstalledFile": StatusInstalledFile,
+		"StatusRoot": StatusRoot, "StatusInstalledFile": StatusInstalledFile, "LXCRecordDir": LXCRecordDir,
 		"AdminRunDir": AdminRunDir, "ServerUnitTemplate": ServerUnitTemplate,
 		"FenceUnitTemplate": FenceUnitTemplate, "ServerStateDirectory": ServerStateDirectory,
 		"HealthService": HealthService, "HealthTimer": HealthTimer, "BackupService": BackupService,
@@ -171,10 +171,10 @@ func constNames() map[string][]string {
 // kit's files in each kit kind.
 func idNames(t *testing.T) map[string][]string {
 	t.Helper()
-	set, user, version, digest := sampleSetID(t), sampleGuestUser(t), sampleServerVersion(t), sampleDigest(t)
+	set, version, digest := sampleSetID(t), sampleServerVersion(t), sampleDigest(t)
 	names := map[string][]string{
-		"SessionUnit":         {SessionUnit(user)},
-		"GuestRuntimeDir":     {GuestRuntimeDir(user)},
+		"SessionUnit":         {SessionUnit(mustTeam(t, "ops"), sampleCheckout, 1)},
+		"GuestRuntimeDir":     {GuestRuntimeDir(sampleSeatKey(t))},
 		"ServerBinary":        {ServerBinary(version)},
 		"AdminBinaryCopy":     {AdminBinaryCopy(digest)},
 		"HostKitDir":          {HostKitDir(digest).String()},
@@ -314,14 +314,15 @@ func teamDerived(t *testing.T, team TeamID) map[string][]string {
 	for _, l := range []Layout{CCYLayout(), home} {
 		seat := l.Seat(team)
 		for name, value := range map[string]string{
-			"Layout.Seat":  seat.Dir(),
-			"Seat.Dir":     seat.Dir(),
-			"Seat.Bundle":  seat.Bundle(),
-			"Seat.Token":   seat.Token(),
-			"Seat.Lock":    seat.Lock(),
-			"Seat.Store":   seat.Store(),
-			"Seat.Report":  seat.Report(),
-			"Seat.LastLog": seat.LastLog(),
+			"Layout.Seat":      seat.Dir(),
+			"Seat.Dir":         seat.Dir(),
+			"Seat.Bundle":      seat.Bundle(),
+			"Seat.Token":       seat.Token(),
+			"Seat.Lock":        seat.Lock(),
+			"Seat.Store":       seat.Store(),
+			"Seat.Report":      seat.Report(),
+			"Seat.LastLog":     seat.LastLog(),
+			"Seat.RosterCache": seat.RosterCache(),
 		} {
 			names[name] = append(names[name], value)
 		}
@@ -416,11 +417,11 @@ func poolDerived(t *testing.T, team TeamID) map[string]string {
 }
 
 // notName is whether an exported identifier is not a v2 name: a parser or a predicate over a
-// name, an id's, a kit's or a port's own text or number and its encoding, or the error the
+// name or a checkout, the seat bound, an id's, a kit's or a port's own text or number and its encoding, or the error the
 // parsers wrap. (A kit's text is sampled as HostKitDir, HostKitCurrent and CCYKitDir.)
 func notName(ident string) bool {
 	_, method, ok := strings.Cut(ident, ".")
-	return strings.HasPrefix(ident, "Parse") || ident == "IsClaimName" || ident == "ErrInvalid" ||
+	return strings.HasPrefix(ident, "Parse") || ident == "IsClaimName" || strings.HasPrefix(ident, "Valid") || ident == "MaxLXCSeat" || ident == "ErrInvalid" ||
 		ok && slices.Contains([]string{"String", "MarshalText", "UnmarshalText", "Int", "MarshalJSON", "UnmarshalJSON"}, method)
 }
 
@@ -494,8 +495,9 @@ func TestPrefixCheckDiscriminates(t *testing.T) {
 // notDerived are the exported names D 3.1's derivation rule does not cover: a key inside a
 // teamchat_teams entry, the XDG state home the seat store sits under, and the seat's Matrix
 // device id (C 3.7.2), which is no path, and Claude Code's inbox socket, which is Claude Code's
-// name (B 2.7.1).
-var notDerived = []string{"TeamPortField", "StateHome", "SeatDevice", "InboxSocket"}
+// name (B 2.7.1), an LXC seat's session name, lxc-<key> (C 3.9.1), which is no path either,
+// and the seat's key and repo label, which are parts of names, not names.
+var notDerived = []string{"TeamPortField", "StateHome", "SeatDevice", "InboxSocket", "LXCSession", "LXCSeatKey", "LXCRepoLabel"}
 
 // D 3.1: every v2 name is formed from the product name.
 func TestEveryNameIsDerivedFromTheProduct(t *testing.T) {
@@ -743,15 +745,6 @@ func sampleRunID(t *testing.T) RunID {
 func sampleSetID(t *testing.T) SetID {
 	t.Helper()
 	v, err := ParseSetID("s1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return v
-}
-
-func sampleGuestUser(t *testing.T) GuestUser {
-	t.Helper()
-	v, err := ParseGuestUser("dev")
 	if err != nil {
 		t.Fatal(err)
 	}

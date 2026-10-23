@@ -113,6 +113,7 @@ func TestAnswerRoundTrip(t *testing.T) {
 		{Answer{OK: true}, `{"v":1,"ok":true,"changed":[]}`, term.ExitOK},
 		{Answer{Error: &AnswerError{Class: ClassFailed, Message: "boom"}}, `{"v":1,"ok":false,"error":{"class":"failed","message":"boom"}}`, term.ExitFailure},
 		{Answer{Error: &AnswerError{Class: ClassRefused, Message: "no"}}, `{"v":1,"ok":false,"error":{"class":"refused","message":"no"}}`, ExitRefused},
+		{Answer{Error: &AnswerError{Class: ClassRetired, Message: "no"}}, `{"v":1,"ok":false,"error":{"class":"retired","message":"no"}}`, ExitRefused},
 		{Answer{Error: &AnswerError{Class: ClassUnreachable, Message: "down"}}, `{"v":1,"ok":false,"error":{"class":"unreachable","message":"down"}}`, ExitUnreachable},
 		{Answer{Error: &AnswerError{Class: ClassConfig, Message: "file"}}, `{"v":1,"ok":false,"error":{"class":"config","message":"file"}}`, ExitConfig},
 	}

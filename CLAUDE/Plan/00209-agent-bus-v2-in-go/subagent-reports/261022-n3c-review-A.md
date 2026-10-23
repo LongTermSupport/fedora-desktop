@@ -28,7 +28,7 @@ the lookup misses counts as reaching no agent (n3-D20's undercount)") misreads n
 
 ## The two fixes from the last commits
 
-**`ownedFloors` (engine/seam.go:257-266) is correct within a persist.** It works over all of
+**`ownedFloors` (engine/seam.go:257-266, now engine/storewrite.go) is correct within a persist.** It works over all of
 `Pending`, handed items included, so each owed item is newer than its room's floor after every
 `Persist`. A restart with the store is safe. The position resumes. Owed items stay in `pending`.
 `rejudge`'s floor check (recv.go:302) no longer drops them, which was the B44 defect W fixed.
@@ -53,7 +53,7 @@ Two cases can still go wrong:
 
 - **Where:** `engine/recv.go:120-128` (refetch stops a team at its first error), `recv.go:196-197`
   (`rejudgeAll` skips any `f.err`), `recv.go:259-262` (`render` refuses an item with no content),
-  and `teamsync/ln6.go:250-256` (`Refetch` returns the raw `GetEvent` error, and a usage error for
+  and `teamsync/ln6.go:250-256` (now `teamsync/verbs.go`) (`Refetch` returns the raw `GetEvent` error, and a usage error for
   any room but main).
 - **Scenario:**
   1. The link restarts with items P1 (ts 100) and P2 (ts 200) pending. No content is held in memory.

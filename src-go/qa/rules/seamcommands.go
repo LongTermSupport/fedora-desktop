@@ -62,9 +62,12 @@ For an execx.Cmd built outside internal/execx (a composite literal, or an assign
   prog. The wrapper's argv must be a literal (or append/slices.Concat of literals) that shows
   the program; when it does not, the finding says so.
 - An owned program (the commandOwners table: sudo, tmux, gum, fzf, systemctl, busctl, git, ps, podman, docker,
-  the lxc-* tools, nmcli) may be run only by its owner (podman by sessprobe or podfreeze). Any other program is unowned and free.
+  the lxc-* tools, nmcli) may be run only by its owner (podman by sessprobe or podfreeze; lxc-ls,
+  lxc-info and lxc-attach by lxcfreeze or teamchat's lxccmd). Any other program is unowned and free.
 - A wrapper that is its owner's own program and runs another inside (lxc-attach ... -- prog) has
-  prog judged too: lxcfreeze owns nmcli, but not what else it could run in a container.
+  prog judged too: lxcfreeze owns nmcli, but not what else it could run in a container. A
+  function with a dynamicNames row may hand such a wrapper a prog chosen at run time (lxccmd's
+  Guest runs the host-written kit binary); without the row it is a finding.
 - A call of a program runner (the programRunners table: sudo.Sudo Capture, AsRoot and Run, and
   lxcfreeze's runAct and probe) is judged the same way: its argument from the table's index on
   is the program, the rest its arguments. A spread slice must show its program (a literal head),
@@ -241,7 +244,7 @@ func checkRunnerCall(pass *analysis.Pass, call *ast.CallExpr, ex excuse) {
 			reportDynamicProgram(pass, first, ex.dynamic)
 			return
 		}
-		walkProgram(pass, first, path.Base(elems[0].text), elems[1:], complete, ex.shell)
+		walkProgram(pass, first, path.Base(elems[0].text), elems[1:], complete, ex)
 		return
 	}
 	name, ok := programName(pass, first, ex.dynamic)
@@ -257,7 +260,7 @@ func checkRunnerCall(pass *analysis.Pass, call *ast.CallExpr, ex excuse) {
 	for _, a := range rest {
 		args = append(args, textOf(pass, a))
 	}
-	walkProgram(pass, first, name, args, complete, ex.shell)
+	walkProgram(pass, first, name, args, complete, ex)
 }
 
 // checkRunnerValue flags a program runner taken as a value: the later call of that value names
@@ -301,15 +304,16 @@ func checkProgram(pass *analysis.Pass, nameExpr, argsExpr ast.Expr, argsShown bo
 	if argsShown {
 		args, complete = leadingArgs(pass, argsExpr)
 	}
-	walkProgram(pass, nameExpr, name, args, complete, ex.shell)
+	walkProgram(pass, nameExpr, name, args, complete, ex)
 }
 
 // walkProgram judges a program and, through wrappers, the program each one runs. complete is
-// whether args is every argument the call passes; shellOK is whether a shellStrings row excuses
-// the enclosing function's shell string.
-func walkProgram(pass *analysis.Pass, nameExpr ast.Expr, name string, args []argElem, complete, shellOK bool) {
+// whether args is every argument the call passes; ex is what the enclosing function's rows
+// excuse: a shell string (shellStrings), and a run-time program inside an inner wrapper
+// (dynamicNames), which is not judged against the owner table, as a dynamic Name is not.
+func walkProgram(pass *analysis.Pass, nameExpr ast.Expr, name string, args []argElem, complete bool, ex excuse) {
 	for {
-		if !judgeProgram(pass, nameExpr, name, args, shellOK) {
+		if !judgeProgram(pass, nameExpr, name, args, ex.shell) {
 			return
 		}
 		spec, isWrapper := wrappers[name]
@@ -317,6 +321,9 @@ func walkProgram(pass *analysis.Pass, nameExpr ast.Expr, name string, args []arg
 			return
 		}
 		at, found := programIndex(spec, args)
+		if found && !args[at].full && spec.inner && ex.dynamic {
+			return
+		}
 		if !found || !args[at].full {
 			why := "its arguments end before naming a program"
 			if !complete || slices.ContainsFunc(args, func(a argElem) bool { return !a.full }) {

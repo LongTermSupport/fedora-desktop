@@ -19,6 +19,8 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/health"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestroot"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/hostnet"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
@@ -45,6 +47,8 @@ type machine struct {
 	readPin    func() (host.Pin, error)
 	runner     execx.Runner
 	dial       func(context.Context) (units.Conn, error)
+	kernel     guestroot.Kernel
+	kitOwner   int // the uid the host kit's current link must have: root
 }
 
 func production() machine {
@@ -52,7 +56,7 @@ func production() machine {
 		proc: "/proc", self: admin.SelfPath, lookupUser: admin.OSProcess().LookupUser,
 		ownerGroup: admin.OwnerGroupFile("", admin.LookupGroup),
 		readPin:    func() (host.Pin, error) { return admin.ReadPin("") },
-		runner:     execx.OS{}, dial: units.SystemBus,
+		runner:     execx.OS{}, dial: units.SystemBus, kernel: guestroot.LinuxKernel{},
 	}
 }
 
@@ -78,7 +82,7 @@ func (m machine) system(digest string) (*admin.System, error) {
 		return health.New(health.Config{
 			Clock: clock, Teams: health.Stamps{Root: root}, Units: systemd.Health(),
 			Prober: hostnet.Prober{Port: hostnet.TeamPort(root)}, Viewer: admin.ChildViewer{Child: child, Root: root},
-			Backups: health.NoBackups{}, Space: health.StatfsSpace{Path: root + "/var/lib"}, Guests: health.GuestsNotBuilt{},
+			Backups: health.NoBackups{}, Space: health.StatfsSpace{Path: root + "/var/lib"}, Guests: m.guests(),
 			Announcer: admin.ChildAnnouncer{Child: child, Root: root}, Locks: health.TeamLocks{Dir: run, Clock: clock},
 			StatusPath:    func(t paths.TeamID) string { return root + paths.StatusFile(t) },
 			LXCOnlinePath: func(t paths.TeamID) string { return root + paths.LXCOnlineFile(t) },
@@ -103,6 +107,7 @@ func (m machine) system(digest string) (*admin.System, error) {
 		CtlIDs:     m.ctlIDs,
 		Health:     func() (admin.HealthTick, error) { return tick() },
 		Home:       admin.LookupHome,
+		LXC:        sync.OnceValues(func() (*lxc.Deps, error) { return m.lxcDeps(clock, ownerGroup) }),
 	}, nil
 }
 

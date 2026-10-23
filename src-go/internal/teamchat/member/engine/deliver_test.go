@@ -852,7 +852,13 @@ func TestFactsThatDoNotRenderAreDropped(t *testing.T) {
 	a := tid(t, "alpha")
 	dw.live(a)
 	dw.facts(false)
-	dw.persistBatch(team.Batch{Team: a, NextBatch: "s1", Answered: []proto.Answered{{From: "no such handle"}}})
+	// No answer persisted names a sender that fails the slot, so the fact is held by hand.
+	if err := dw.e.do(t.Context(), func() {
+		dw.e.teams[a].delivery.answered = []proto.Answered{{From: "no such handle"}}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	dw.persistBatch(team.Batch{Team: a, NextBatch: "s1"})
 	dw.until(func() bool { return len(dw.e.teams[a].delivery.answered) == 0 })
 	dw.persist(a, humanItem(a, 1, startWall, "one"))
 	dw.advance(paceWait)

@@ -49,13 +49,13 @@ func declared(t *testing.T) []string {
 	return names
 }
 
-// n3c's nine points (PT1's list and n3c-D2's) and n3e's five (gap 9, n3e-D8), each declared
-// once.
-func TestTheDeclaredPointsAreN3csAndN3es(t *testing.T) {
+// n3c's nine points (PT1's eight and n3c-D2's one), n3d's two (n3d-D16) and n3e's five (gap 9,
+// n3e-D8), each declared once.
+func TestTheDeclaredPointsAreN3csN3dsAndN3es(t *testing.T) {
 	want := []string{
 		"keeper-link-writing", "link-in-remove", "link-after-remove-answered", "link-after-hand-out",
 		"link-while-handed", "keeper-before-store-delete", "link-mid-end-sends", "keeper-before-end",
-		"link-after-judge-before-persist",
+		"link-after-judge-before-persist", "link-after-charge-before-send", "link-after-send-before-record",
 		"link-after-auth", "link-after-awaiting", "link-after-user-line", "link-between-store-writes",
 		"link-after-missing",
 	}

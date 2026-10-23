@@ -67,6 +67,8 @@ type Config struct {
 	// OnTeams is told the held teams whenever one is added or removed or its role or names
 	// change (DV6), on the state goroutine; it must not block. Nil allowed.
 	OnTeams func([]TeamRole)
+	// Forge checks a send's reference at the forge (n3d-D11); required (n3d-D33).
+	Forge team.Forge
 }
 
 // EndsConfig is what the session's ends are made from: the engine they record into (EN1), and
@@ -98,6 +100,8 @@ type TeamConfig struct {
 	Log               io.Writer
 	// Receipts is the engine's read receipts, which the team sends (B 2.7.5).
 	Receipts team.Receipts
+	// Forge is the link's one forge checker, Config.Forge (n3d-D20).
+	Forge team.Forge
 }
 
 // RecordWriter is where a request's records go, in order.
@@ -147,6 +151,8 @@ type Engine struct {
 	// hooks is what the hooks are answered from; waits counts the wait requests running.
 	hooks hookState
 	waits atomic.Int64
+	// timer disarms the one TIMEOUT timer, nil while none is armed (n3d-D7).
+	timer func() bool
 }
 
 // New is an engine over cfg; its goroutine runs from Run.
@@ -160,6 +166,8 @@ func New(cfg Config) (*Engine, error) {
 		return nil, errors.New("engine: no team or ends maker")
 	case cfg.OnState == nil || cfg.Runtime == nil:
 		return nil, errors.New("engine: no state report or runtime reader")
+	case cfg.Forge == nil:
+		return nil, errors.New("engine: no forge checker")
 	case cfg.Delivery != state.DeliverySocket && cfg.Delivery != state.DeliveryWait && cfg.Delivery != state.DeliveryNone:
 		return nil, fmt.Errorf("engine: delivery %q is not socket, wait or none", cfg.Delivery)
 	}

@@ -23,6 +23,13 @@ const (
 	LinkAfterJudgeBeforePersist Name = "link-after-judge-before-persist"
 )
 
+// n3d's points (n3d-D16): either side of a send's PUT, so the restart re-send is proven on both.
+const (
+	LinkAfterChargeBeforeSend Name = "link-after-charge-before-send"
+	// LinkAfterSendBeforeRecord is PT1's "after a send's PUT before its answer is recorded".
+	LinkAfterSendBeforeRecord Name = "link-after-send-before-record"
+)
+
 // n3e's points (gap 9, PT1's list): a delivery between the inbox's auth and the awaiting
 // entry's write, between that write and the user line, between the user line and `written:
 // "yes"`; between two stores' writes of recv's hand-out, Ack or Return (n3e-D8); and the link

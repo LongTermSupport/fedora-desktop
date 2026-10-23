@@ -27,7 +27,7 @@ func teamEntry(id string, port int) map[string]any {
 
 func lxcEntry(team string) map[string]any {
 	return map[string]any{
-		"team": team, "container": "box-1", "user": "agent", "checkout": "/srv/checkouts/thing",
+		"team": team, "container": "box-1", "user": "agent", "checkout": "/srv/checkouts/thing", "seat": 1,
 	}
 }
 
@@ -208,11 +208,26 @@ func memberRefusals() []refusal {
 		{"lxc checkout", "teamchat_lxc_members[0].checkout", "", func(d map[string]any) { lxc0(d)["checkout"] = "/srv/checkouts/../x" }},
 		{"lxc checkout root", "teamchat_lxc_members[0].checkout", "", func(d map[string]any) { lxc0(d)["checkout"] = "/" }},
 		{"lxc site", "teamchat_lxc_members[0].site", "", func(d map[string]any) { lxc0(d)["site"] = "Desk" }},
+		{"lxc checkout two lines", "teamchat_lxc_members[0].checkout", "", func(d map[string]any) { lxc0(d)["checkout"] = "/srv/a\nb" }},
+		{"lxc checkout tab", "teamchat_lxc_members[0].checkout", "", func(d map[string]any) { lxc0(d)["checkout"] = "/srv/a\tb" }},
+		{"lxc checkout escape", "teamchat_lxc_members[0].checkout", "", func(d map[string]any) { lxc0(d)["checkout"] = "/srv/\x1b[31mx" }},
+		{"lxc checkout NUL", "teamchat_lxc_members[0].checkout", "", func(d map[string]any) { lxc0(d)["checkout"] = "/srv/a\x00b" }},
+		{"lxc checkout bidi", "teamchat_lxc_members[0].checkout", "", func(d map[string]any) { lxc0(d)["checkout"] = "/srv/a\u202eb" }},
+		{"lxc service checkout a unit cannot carry", "teamchat_lxc_members[0].checkout", "", func(d map[string]any) {
+			lxc0(d)["checkout"], lxc0(d)["service"] = "/srv/a b", true
+		}},
 		{"lxc seat", "teamchat_lxc_members[0].seat", "", func(d map[string]any) { lxc0(d)["seat"] = 0 }},
+		{"lxc seat missing", "teamchat_lxc_members[0].seat", "", func(d map[string]any) { delete(lxc0(d), "seat") }},
+		{"lxc seat too high", "teamchat_lxc_members[0].seat", "", func(d map[string]any) { lxc0(d)["seat"] = 10000 }},
 		{"lxc state", "teamchat_lxc_members[0].state", "", func(d map[string]any) { lxc0(d)["state"] = "gone" }},
 		{"lxc human_text string", "teamchat_lxc_members[0].human_text", "", func(d map[string]any) { lxc0(d)["human_text"] = "yes" }},
 		{"lxc duplicate", "teamchat_lxc_members[1]", "", func(d map[string]any) {
 			d["teamchat_lxc_members"] = []any{lxcEntry("alpha"), lxcEntry("alpha")}
+		}},
+		{"lxc duplicate under another user", "teamchat_lxc_members[1]", "", func(d map[string]any) {
+			other := lxcEntry("alpha")
+			other["user"] = "agent2"
+			d["teamchat_lxc_members"] = []any{lxcEntry("alpha"), other}
 		}},
 		{"element unknown team", "teamchat_element_teams[0].team", "", func(d map[string]any) {
 			d["teamchat_element_teams"] = []any{map[string]any{"team": "nosuch"}}
@@ -265,6 +280,22 @@ func TestLXCEntryOfAnAbsentTeamIsRefused(t *testing.T) {
 	team0(d)["state"] = "absent"
 	_, err := Decode(encode(t, d))
 	wantField(t, err, "teamchat_lxc_members[0].team", "")
+}
+
+func TestOneUserHoldsManySeats(t *testing.T) {
+	otherRepo := lxcEntry("alpha")
+	otherRepo["checkout"] = "/srv/checkouts/other"
+	worker := lxcEntry("alpha")
+	worker["seat"] = 2
+	d := validDecl()
+	d["teamchat_lxc_members"] = []any{lxcEntry("alpha"), otherRepo, worker}
+	got, err := Decode(encode(t, d))
+	if err != nil {
+		t.Fatalf("two repos and two seats of one user: %v", err)
+	}
+	if len(got.LXC) != 3 || got.LXC[1].Checkout != "/srv/checkouts/other" || got.LXC[2].Seat != 2 {
+		t.Fatalf("decoded %+v", got.LXC)
+	}
 }
 
 func TestExplicitValuesKept(t *testing.T) {

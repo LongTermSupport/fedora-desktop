@@ -57,9 +57,9 @@ type deliveryState struct {
 	fetchAfter   time.Duration
 }
 
-// hold keeps a persisted batch's trailing facts.
-func (d *deliveryState) hold(b team.Batch) {
-	d.answered = append(d.answered, b.Answered...)
+// hold keeps a persisted batch's trailing facts, with its answered lines (answeredLines).
+func (d *deliveryState) hold(b team.Batch, answered []proto.Answered) {
+	d.answered = append(d.answered, answered...)
 	for from, n := range b.HeldBack {
 		if d.heldBack == nil {
 			d.heldBack = map[string]int64{}
@@ -92,10 +92,15 @@ type told struct {
 	stopped  string
 }
 
-// take is the facts for a delivery now; held-back lines sorted by sender.
+// take is the facts for a delivery now, each answer's sender named; held-back lines sorted by
+// sender.
 func (d *deliveryState) take(stopped string, n namer) told {
 	t := told{answered: len(d.answered), heldBack: maps.Clone(d.heldBack)}
-	t.facts = deliver.Facts{Answered: slices.Clone(d.answered), Gap: d.gap}
+	t.facts = deliver.Facts{Gap: d.gap}
+	for _, a := range d.answered {
+		a.From = n.from(a.From)
+		t.facts.Answered = append(t.facts.Answered, a)
+	}
 	for _, from := range slices.Sorted(maps.Keys(d.heldBack)) {
 		t.facts.HeldBack = append(t.facts.HeldBack, proto.HeldBack{From: n.from(from), Count: int(d.heldBack[from])})
 	}

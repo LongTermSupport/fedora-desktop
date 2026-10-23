@@ -28,15 +28,15 @@ const (
 	WhatBundle What = "seat.json"
 	// WhatStore is the seat's store.json set aside.
 	WhatStore What = "store.json"
-	// WhatDesired is desired.json written.
+	// WhatDesired is desired.json written (membership), or removed (remove).
 	WhatDesired What = "desired.json"
 )
 
 // The placing ops' contracts; each that takes a seat lock may exit 75.
 var (
-	OpPlaceBundle = register(Op{Verb: "guest place-bundle", Changes: []What{WhatSeat, WhatToken, WhatBundle, WhatStore}, Busy: true})
-	OpMembership  = register(Op{Verb: "guest membership", Changes: []What{WhatDesired}})
-	OpRemove      = register(Op{Verb: "guest remove", Changes: []What{WhatSeat}, Busy: true})
+	OpPlaceBundle = register(Op{Verb: "guest place-bundle", Changes: []What{WhatSeat, WhatToken, WhatBundle, WhatStore}, Busy: true, Keyed: true})
+	OpMembership  = register(Op{Verb: "guest membership", Changes: []What{WhatDesired}, Keyed: true})
+	OpRemove      = register(Op{Verb: "guest remove", Changes: []What{WhatSeat, WhatDesired}, Busy: true, Keyed: true})
 	OpSetAside    = register(Op{Verb: "seat set-aside", Changes: []What{WhatStore}, Busy: true})
 )
 
@@ -58,8 +58,10 @@ type changes interface {
 	Changed(what What) error
 }
 
-func (h *Identity) layout() (paths.Layout, error) {
-	return paths.HomeLayout(h.Root.Path(), paths.GuestRuntimeDir(h.User))
+// layout is the seat k's layout in the home: the ops use only its state and desired roots, so
+// the run root is the unit's, whichever process runs the op (C 3.9.1).
+func (h *Identity) layout(k paths.SeatKey) (paths.Layout, error) {
+	return paths.LXCLayout(h.Root.Path(), paths.GuestRuntimeDir(k), k)
 }
 
 // config is ~/.config, made 0700 when absent, opened as a root of its own: a directory the
@@ -82,13 +84,13 @@ const (
 )
 
 // PlaceBundle is `guest place-bundle` (GU3): the issued token bundle on stdin placed as its
-// team's seat in the guest's home.
-func PlaceBundle(ctx context.Context, h *Identity, clock Clock, stdin io.Reader, out changes) error {
-	return placeBundle(ctx, h, clock, stdin, out, func() {})
+// team's seat under seat k's state root in the guest's home.
+func PlaceBundle(ctx context.Context, h *Identity, k paths.SeatKey, clock Clock, stdin io.Reader, out changes) error {
+	return placeBundle(ctx, h, k, clock, stdin, out, func() {})
 }
 
 // placeBundle is PlaceBundle with between run after the token's rename, before seat.json's.
-func placeBundle(ctx context.Context, h *Identity, clock Clock, stdin io.Reader, out changes, between func()) error {
+func placeBundle(ctx context.Context, h *Identity, k paths.SeatKey, clock Clock, stdin io.Reader, out changes, between func()) error {
 	data, err := readCapped(stdin, maxIssued)
 	if err != nil {
 		return err
@@ -103,7 +105,7 @@ func placeBundle(ctx context.Context, h *Identity, clock Clock, stdin io.Reader,
 		return exits.New(exits.CodeBundle, &team, msgBundle)
 	}
 	p := placement{team: team, token: []byte(is.Secret.Reveal()), bundle: bundleData, out: out, between: between}
-	err = withState(h, func(root *homefs.Root, l paths.Layout) error {
+	err = withState(h, k, func(root *homefs.Root, l paths.Layout) error {
 		p.seat = l.Seat(team)
 		found, existsErr := root.Exists(p.seat.Dir())
 		if existsErr != nil {
@@ -251,8 +253,8 @@ func replaceIfDiffers(root *homefs.Root, full string, data []byte, limit int, ou
 }
 
 // Membership is `guest membership` (GU4): the desired membership on stdin, for the session
-// lxc-<user>, written as the guest's desired.json in its canonical bytes.
-func Membership(h *Identity, stdin io.Reader, out changes) error {
+// lxc-<key>, written as seat k's desired.json in its canonical bytes.
+func Membership(h *Identity, k paths.SeatKey, stdin io.Reader, out changes) error {
 	data, err := readCapped(stdin, state.MaxDesired)
 	if over, ok := errors.AsType[*exits.Error](err); ok && over.Code == exits.CodeBundle {
 		return exits.New(exits.CodeMembership, nil, msgDesired)
@@ -261,14 +263,14 @@ func Membership(h *Identity, stdin io.Reader, out changes) error {
 		return err
 	}
 	d, err := state.DecodeDesired(data)
-	if err != nil || d.Session.String() != "lxc-"+h.User.String() {
+	if err != nil || d.Session != paths.LXCSession(k) {
 		return exits.New(exits.CodeMembership, nil, msgDesired)
 	}
 	canonical, err := d.Encode()
 	if err != nil {
 		return err
 	}
-	l, err := h.layout()
+	l, err := h.layout(k)
 	if err != nil {
 		return err
 	}
@@ -286,20 +288,37 @@ func Membership(h *Identity, stdin io.Reader, out changes) error {
 	return err
 }
 
-// Remove is `guest remove` (GU5): every file of the team's seat directory but seat.lock
-// removed under the seat lock; a directory in it is refused before anything is removed.
-func Remove(ctx context.Context, h *Identity, clock Clock, team paths.TeamID, out changes) error {
-	err := withState(h, func(root *homefs.Root, l paths.Layout) error {
+// Remove is `guest remove` (GU5): every file of the team's seat directory under seat k's state
+// root but seat.lock removed under the seat lock, then k's desired.json; a directory in the seat
+// directory is refused before anything is removed.
+func Remove(ctx context.Context, h *Identity, k paths.SeatKey, clock Clock, team paths.TeamID, out changes) error {
+	err := withState(h, k, func(root *homefs.Root, l paths.Layout) error {
 		s := l.Seat(team)
-		return inSeat(root, s, func(dir *homefs.Root) error {
+		err := inSeat(root, s, func(dir *homefs.Root) error {
 			hold, err := holdSeat(ctx, clock, dir, s, team)
 			if err != nil {
 				return err
 			}
 			return errors.Join(removeFiles(dir, s, team, out), hold.Release())
 		})
+		if err != nil {
+			return err
+		}
+		return removeDesired(root, l, out)
 	})
 	return seatFault(team, err)
+}
+
+// removeDesired unlinks the seat's desired.json; none there is nothing to do.
+func removeDesired(root *homefs.Root, l paths.Layout, out changes) error {
+	err := root.Unlink(l.DesiredFile())
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return out.Changed(WhatDesired)
 }
 
 func removeFiles(dir *homefs.Root, s paths.Seat, team paths.TeamID, out changes) error {
@@ -352,8 +371,12 @@ func SetAside(ctx context.Context, clock Clock, stateDir string, team paths.Team
 	return seatFault(team, err)
 }
 
-// setAsideStore renames the seat's store.json aside; the caller holds the seat lock.
+// setAsideStore renames the seat's store.json aside and unlinks its roster cache, a composing
+// aid only (n3d-D3), so a seat placed again starts from none; the caller holds the seat lock.
 func setAsideStore(dir *homefs.Root, clock Clock, s paths.Seat, out changes) error {
+	if err := dir.Unlink(s.RosterCache()); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
 	found, err := dir.Exists(s.Store())
 	if err != nil || !found {
 		return err
@@ -364,9 +387,10 @@ func setAsideStore(dir *homefs.Root, clock Clock, s paths.Seat, out changes) err
 	return out.Changed(WhatStore)
 }
 
-// withState runs f with the guest's state root opened below ~/.config, made 0700 as needed.
-func withState(h *Identity, f func(root *homefs.Root, l paths.Layout) error) error {
-	l, err := h.layout()
+// withState runs f with seat k's state root, ~/.config/teamchat/lxc/<key>/seats, made below
+// ~/.config with each directory 0700 as needed; root is ~/.config.
+func withState(h *Identity, k paths.SeatKey, f func(root *homefs.Root, l paths.Layout) error) error {
+	l, err := h.layout(k)
 	if err != nil {
 		return err
 	}

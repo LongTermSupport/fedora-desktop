@@ -22,6 +22,7 @@ package paths
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -85,7 +86,9 @@ const (
 	CtlStateRoot        = "/var/lib/" + CtlUser
 	StatusRoot          = "/var/lib/" + Product + "-status"
 	StatusInstalledFile = StatusRoot + "/installed.json"
-	AdminRunDir         = "/run/" + AdminBinary
+	// LXCRecordDir holds every team's LXC record, which `lxc restart` searches by seat key.
+	LXCRecordDir = StatusRoot + "/lxc"
+	AdminRunDir  = "/run/" + AdminBinary
 )
 
 // Units and the names inside them (D 3.5). The health, backup and seats units are one each per
@@ -148,11 +151,39 @@ func FenceUnit(t TeamID) string { return Product + "-fence@" + t.text() + ".serv
 // FenceTable is the name of the team's nftables fence table, in family inet.
 func FenceTable(t TeamID) string { return Product + "_fence_" + t.text() }
 
-// SessionUnit is an LXC guest's supervised session unit.
-func SessionUnit(u GuestUser) string { return Product + "-session-" + u.text() + ".service" }
+// guestSessionPrefix starts an LXC seat's unit and runtime directory names (C 3.9.1).
+const guestSessionPrefix = Product + "-session-"
 
-// GuestRuntimeDir is the XDG_RUNTIME_DIR the guest's session unit gives the session (C 3.9.4).
-func GuestRuntimeDir(u GuestUser) string { return "/run/" + Product + "-session-" + u.text() }
+// SessionUnit is an LXC seat's supervised session unit,
+// `teamchat-session-<team>-<repo>-<seat>-<key>.service`, at most 94 bytes (C 3.9.1); checkout
+// and seat are declare's values, as LXCSeatKey takes them.
+func SessionUnit(team TeamID, checkout string, seat int) string {
+	key := LXCSeatKey(team, checkout, seat)
+	return guestSessionPrefix + team.text() + "-" + LXCRepoLabel(checkout) + "-" + strconv.Itoa(seat) + "-" +
+		key.text() + ".service"
+}
+
+// maxSessionUnit is the longest SessionUnit (C 3.9.1).
+const maxSessionUnit = 94
+
+// sessionUnitGrammar is SessionUnit's form, read from its end: the team and repo label (both
+// [a-z0-9_-], the team starting with a letter), the seat 1-9999 and the key.
+var sessionUnitGrammar = regexp.MustCompile(`^` + regexp.QuoteMeta(guestSessionPrefix) +
+	`[a-z][a-z0-9_-]*-[1-9][0-9]{0,3}-([0-9a-f]{16})\.service$`)
+
+// ParseSessionUnit reads the seat key of a name in SessionUnit's form, so a caller that names a
+// guest unit can name no other kind.
+func ParseSessionUnit(name string) (SeatKey, error) {
+	m := sessionUnitGrammar.FindStringSubmatch(name)
+	if m == nil || len(name) > maxSessionUnit {
+		return SeatKey{}, fmt.Errorf("%w session unit: not %s<team>-<repo>-<seat>-<key>.service", ErrInvalid, guestSessionPrefix)
+	}
+	return SeatKey{m[1]}, nil
+}
+
+// GuestRuntimeDir is the XDG_RUNTIME_DIR a seat's session unit gives the session, its
+// RuntimeDirectory= under /run: the key alone, so B's sockets below it stay short (C 3.9.1).
+func GuestRuntimeDir(k SeatKey) string { return "/run/" + guestSessionPrefix + k.text() }
 
 // ServerBinary is the pinned homeserver binary of a version.
 func ServerBinary(v ServerVersion) string { return ServerDir + "/tuwunel-" + v.text() }
@@ -257,7 +288,7 @@ func ApprovedFile(t TeamID) string { return StatusTeamDir(t) + "/approved.json" 
 func LXCOnlineFile(t TeamID) string { return StatusTeamDir(t) + "/lxc-online.json" }
 
 // LXCRecord is the team's LXC record.
-func LXCRecord(t TeamID) string { return StatusRoot + "/lxc/" + t.text() + ".json" }
+func LXCRecord(t TeamID) string { return LXCRecordDir + "/" + t.text() + ".json" }
 
 // SetRecord is a migration set's record, the one source of which system a migrating team is
 // live on (D 5.3).
@@ -350,8 +381,8 @@ func CCYLayout() Layout {
 	}
 }
 
-// HomeLayout is an LXC guest's or host member's layout, under the home and $XDG_RUNTIME_DIR the
-// process received.
+// HomeLayout is a host member's layout, under the home and $XDG_RUNTIME_DIR the process
+// received; an LXC seat's is LXCLayout.
 func HomeLayout(home, runtimeDir string) (Layout, error) {
 	if err := checkBase("home", home); err != nil {
 		return Layout{}, err
@@ -365,7 +396,7 @@ func HomeLayout(home, runtimeDir string) (Layout, error) {
 		currentKit: HostKitCurrent(),
 		state:      config + "/seats",
 		desired:    config + "/membership",
-		runRoot:    runtimeDir + "/" + Product + "/run",
+		runRoot:    runRootUnder(runtimeDir),
 	}, nil
 }
 
@@ -421,6 +452,10 @@ func SeatAt(dir string) (Seat, error) {
 	}
 	return Seat{dir: dir}, nil
 }
+
+// runRootUnder is the root of a member's per-session runtime directories under the
+// $XDG_RUNTIME_DIR it received.
+func runRootUnder(runtimeDir string) string { return runtimeDir + "/" + Product + "/run" }
 
 // DesiredFile is the session's desired membership.
 func (l Layout) DesiredFile() string { return l.Desired() + "/" + desiredFile }
@@ -498,6 +533,10 @@ func (s Seat) Report() string { return s.Dir() + "/report.json" }
 
 // LastLog is the last session's log, kept with the seat.
 func (s Seat) LastLog() string { return s.Dir() + "/last.log" }
+
+// RosterCache is the team's last verified roster, which composes sends before the first
+// verification of a link (n3d-D3).
+func (s Seat) RosterCache() string { return s.Dir() + "/roster.json" }
 
 // Run is one session's runtime directory: the keeper (teamchat run) and the link
 // (teamchat link) and what each holds (B 2.4).

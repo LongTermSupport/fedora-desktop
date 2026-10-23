@@ -44,7 +44,7 @@ func viewFailure(e *AnswerError) error {
 		return fmt.Errorf("%w: %s", health.ErrViewFiles, e.Message)
 	case ClassUnreachable:
 		return fmt.Errorf("%w: %s", matrix.ErrUnreachable, e.Message)
-	case ClassFailed, ClassRefused:
+	case ClassFailed, ClassRefused, ClassRetired:
 	}
 	return fmt.Errorf("%w: %s", health.ErrViewChild, e.Message)
 }

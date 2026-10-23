@@ -193,3 +193,14 @@ func TestTheFixedWindowsAreA11(t *testing.T) {
 		t.Fatalf("the delivery budget is not %d per 600 s", budget)
 	}
 }
+
+// n3d-D31's forge bounds: a sender's uncached receive checks per receive window sit far below
+// the flood limit, and receive checks keep a fifth of the rate window for sends.
+func TestTheForgeBoundsAreN3dD31s(t *testing.T) {
+	if ForgeChecksPerSender != 6 || ForgeChecksPerSender >= DefaultLimits().RecvPerSenderMinute {
+		t.Fatalf("ForgeChecksPerSender = %d", ForgeChecksPerSender)
+	}
+	if ForgeReceiveReserve(5000) != 1000 || ForgeReceiveReserve(0) != 1000 {
+		t.Fatalf("reserve %d of 5000, %d with no limit; want 1000", ForgeReceiveReserve(5000), ForgeReceiveReserve(0))
+	}
+}

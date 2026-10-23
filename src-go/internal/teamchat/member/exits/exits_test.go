@@ -33,9 +33,9 @@ func TestTableIsBsTable(t *testing.T) {
 		10: {[]string{"size", "schema", "secret", "target", "verb", "ref", "re", "body", "empty"}, ClassFix},
 		11: {[]string{"role"}, ClassFix},
 		13: {[]string{"forge", "provenance"}, ClassFix},
-		14: {[]string{"rate", "server-rate", "report-rate"}, ClassWait},
+		14: {[]string{"rate", "server-rate", "report-rate", "forge-rate"}, ClassWait},
 		15: {[]string{"duplicate"}, ClassFix},
-		20: {[]string{"unreachable"}, ClassWait},
+		20: {[]string{"unreachable", "forge-down"}, ClassWait},
 		21: {[]string{"token"}, ClassTell},
 		22: {[]string{"untrusted", "forbidden"}, ClassTell},
 		23: {[]string{"not-found"}, ClassFix},
@@ -293,4 +293,19 @@ func TestDecodeRefusesAnythingButTheErrorObject(t *testing.T) {
 			t.Errorf("%s: accepted", name)
 		}
 	}
+}
+
+// B-m4: a send refused forge-down is not queued, so 20's recovery tells the agent to send it
+// again, and says the link retries only what it queued.
+func TestTheUnreachableRowSaysAForgeDownSendIsSentAgain(t *testing.T) {
+	for _, r := range Table() {
+		if r.Exit != ExitUnreachable {
+			continue
+		}
+		if !strings.Contains(r.Next, "forge-down") || !strings.Contains(r.Next, "send it again") || !strings.Contains(r.Next, "queued") {
+			t.Fatalf("20's recovery %q", r.Next)
+		}
+		return
+	}
+	t.Fatal("no row for 20")
 }

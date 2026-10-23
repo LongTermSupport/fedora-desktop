@@ -334,15 +334,15 @@ func expiresAt(m state.Missed) time.Duration {
 	return time.Duration(m.AtMS)*time.Millisecond + lateFindFor
 }
 
-// settled is what one team's round settles.
-type settled struct {
+// roundSettled is what one team's round settles.
+type roundSettled struct {
 	proven, missing []state.Awaiting
 	late            []state.Missed
 	expired         int
 }
 
-func (e *Engine) settling(h *held, found map[string]bool, caught bool, now time.Duration) settled {
-	var out settled
+func (e *Engine) settling(h *held, found map[string]bool, caught bool, now time.Duration) roundSettled {
+	var out roundSettled
 	for _, a := range h.store.Awaiting {
 		switch {
 		case found[a.Nonce]:
@@ -419,7 +419,7 @@ func (e *Engine) missedOffset() func(state.Awaiting) int64 {
 }
 
 // provedNote is the memory and log.link lines of a team's settled round.
-func (e *Engine) provedNote(h *held, st settled, left []state.Pending, twice []string) {
+func (e *Engine) provedNote(h *held, st roundSettled, left []state.Pending, twice []string) {
 	for _, p := range left {
 		delete(h.content, p.ID)
 	}

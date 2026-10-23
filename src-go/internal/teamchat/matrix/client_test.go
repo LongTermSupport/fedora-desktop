@@ -480,7 +480,12 @@ func TestRequestTimeLimit(t *testing.T) {
 	if !e.Transient() || errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("transient %v; the client's own limit is not the caller's deadline", e.Transient())
 	}
-	<-arrived
+	// Under load the 20 ms limit can end the request before it reaches the server, so its
+	// arrival is not waited for: the limit is what this test proves, not the server's reach.
+	select {
+	case <-arrived:
+	default:
+	}
 	if memberLimit != 15*time.Second || adminLimit != 30*time.Second || syncGrace != 15*time.Second {
 		t.Error("the time limits are not 15 s, 30 s and the long-poll plus 15 s")
 	}

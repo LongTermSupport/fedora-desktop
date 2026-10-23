@@ -77,6 +77,8 @@ type Config struct {
 	Engine           func(engine.Config) (*engine.Engine, error)
 	NewTeam          func(engine.TeamConfig) (team.Team, error)
 	NewEnds          func(engine.EndsConfig) team.Ends
+	// Forge is the link's one forge checker, shared by its sends and every team (n3d-D20).
+	Forge team.Forge
 
 	// started, when set, is told the link once it is ready (tests).
 	started func(*link)
@@ -294,7 +296,7 @@ func (l *link) build(launch wire.Launch) term.ExitCode {
 		Root: l.cfg.StateRoot, RunRoot: l.cfg.RunRoot, Layout: l.cfg.Layout, Run: l.cfg.Run,
 		Clock: l.cfg.Clock, Log: l.cfg.Log, NewTeam: l.cfg.NewTeam, NewEnds: l.cfg.NewEnds,
 		Delivery: l.delivery, Plain: plain, FirstSessionStart: l.first,
-		OnState: l.onState, Runtime: l.runtime,
+		OnState: l.onState, Runtime: l.runtime, Forge: l.cfg.Forge,
 		Inbox: dialer, Unusable: l.session.Unusable(), OnUnusable: l.onUnusable,
 		OnTeams: l.onTeams,
 	})

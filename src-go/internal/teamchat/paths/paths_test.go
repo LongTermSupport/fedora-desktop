@@ -38,6 +38,7 @@ func TestTeamDerivedNames(t *testing.T) {
 		{ApprovedFile(team), "/var/lib/teamchat-status/teams/ops/approved.json"},
 		{LXCOnlineFile(team), "/var/lib/teamchat-status/teams/ops/lxc-online.json"},
 		{LXCRecord(team), "/var/lib/teamchat-status/lxc/ops.json"},
+		{LXCRecordDir, "/var/lib/teamchat-status/lxc"},
 		{ElementProfile(team), "teamchat-ops"},
 	} {
 		if c.got != c.want {
@@ -48,10 +49,6 @@ func TestTeamDerivedNames(t *testing.T) {
 
 func TestOtherIDDerivedNames(t *testing.T) {
 	set, err := ParseSetID("s1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	user, err := ParseGuestUser("dev")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,8 +63,8 @@ func TestOtherIDDerivedNames(t *testing.T) {
 	for _, c := range []struct{ got, want string }{
 		{SetRecord(set), "/var/lib/teamchat-status/sets/s1.json"},
 		{SetLock(set), "/var/lib/teamchat-admin/_sets/s1.lock"},
-		{SessionUnit(user), "teamchat-session-dev.service"},
-		{GuestRuntimeDir(user), "/run/teamchat-session-dev"},
+		{SessionUnit(mustTeam(t, "ops"), sampleCheckout, 1), "teamchat-session-ops-thing-1-" + sampleKeyText + ".service"},
+		{GuestRuntimeDir(sampleSeatKey(t)), "/run/teamchat-session-" + sampleKeyText},
 		{ServerBinary(version), "/usr/local/lib/teamchat/server/tuwunel-1.2.3"},
 		{AdminBinaryCopy(digest), "/usr/local/lib/teamchat/teamchat-admin-0123456789abcdef"},
 		{HostKitDir(digest).String(), "/usr/local/lib/teamchat/kit/0123456789abcdef"},
@@ -309,6 +306,7 @@ func TestSeatFiles(t *testing.T) {
 		{s.Store(), "store.json"},
 		{s.Report(), "report.json"},
 		{s.LastLog(), "last.log"},
+		{s.RosterCache(), "roster.json"},
 	} {
 		if want := "/run/teamchat/seats/ops/" + c.want; c.got != want {
 			t.Errorf("got %q, want %q", c.got, want)

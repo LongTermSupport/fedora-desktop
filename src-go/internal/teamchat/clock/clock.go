@@ -72,3 +72,21 @@ func (system) Hold(d time.Duration) (<-chan time.Time, func() bool) {
 	t := time.NewTimer(d)
 	return t.C, t.Stop
 }
+
+type boundKey struct{}
+
+// WithBound is ctx carrying at, the boot-clock reading by which its caller must be answered, for
+// a callee that would otherwise wait past it: a context ended through AfterFunc has no
+// Deadline to read. A bound already carried that is earlier is kept.
+func WithBound(ctx context.Context, at time.Duration) context.Context {
+	if outer, ok := Bound(ctx); ok && outer <= at {
+		return ctx
+	}
+	return context.WithValue(ctx, boundKey{}, at)
+}
+
+// Bound is the bound ctx carries, if any.
+func Bound(ctx context.Context) (time.Duration, bool) {
+	at, ok := ctx.Value(boundKey{}).(time.Duration)
+	return at, ok
+}

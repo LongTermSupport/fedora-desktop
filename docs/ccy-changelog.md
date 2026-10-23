@@ -17,13 +17,28 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.14.15 — container 2.78.14
+
+Follows 3.99.14.14 and 3.99.14.13, made on two Plan 00209 branches and now merged. The image
+is unchanged, so there is no rebuild.
+
+- **`execx` holds both changes**: the test-only `UserNamespace` field (3.99.14.13) and the
+  `SignalContext` stop that waits for its listener (3.99.14.14). ccy's behaviour is unchanged.
+
 ## 3.99.14.14 — container 2.78.14
 
-Follows 3.99.14.12 on this branch (3.99.14.13 is taken on the Plan 00209 N3 integration branch;
-the number is set above F44's at the merge). The image is unchanged, so there is no rebuild.
+Follows 3.99.14.12 on its branch. The image is unchanged, so there is no rebuild.
 
 - **`execx.SignalContext`'s stop waits for its signal listener to end**, so no goroutine
   outlives it (Plan 00209). Nothing in the launcher calls it; its behaviour is unchanged.
+
+## 3.99.14.13 — container 2.78.14
+
+Follows 3.99.14.12. The image is unchanged, so there is no rebuild.
+
+- **`execx` gains a test-only `UserNamespace` field** (Plan 00209), which runs a child as root of
+  its own user and mount namespace for a real-kernel mount test. The Go front builds from
+  `execx` but never sets it, so ccy's behaviour is unchanged.
 
 ## 3.99.14.12 — container 2.78.14
 

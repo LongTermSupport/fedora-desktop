@@ -1,0 +1,23 @@
+[Unit]
+Description=teamchat session for agent1: team alpha, repo-1, seat 2
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=600
+StartLimitBurst=6
+
+[Service]
+Type=forking
+User=agent1
+Group=agents
+WorkingDirectory=/srv/agent1/src/repo.1
+RuntimeDirectory=teamchat-session-e4b3edb4f90f1516
+RuntimeDirectoryMode=0700
+Environment=XDG_RUNTIME_DIR=/run/teamchat-session-e4b3edb4f90f1516 HOME=/srv/agent1
+Environment=PATH=/srv/agent1/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/tmux -S /run/teamchat-session-e4b3edb4f90f1516/tmux.sock new-session -d -s teamchat-session-alpha-repo-1-2-e4b3edb4f90f1516 /usr/local/bin/teamchat run --claude --kind lxc --key e4b3edb4f90f1516 --resume-recorded -- claude
+TimeoutStopSec=30
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

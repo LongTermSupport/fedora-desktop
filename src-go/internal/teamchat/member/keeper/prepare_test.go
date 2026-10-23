@@ -292,9 +292,10 @@ func TestDesiredAtLaunch(t *testing.T) {
 		w.watch.fail(errors.New("no inotify"))
 		w.refused(exits.CodeRuntime)
 	})
-	for _, kind := range []string{"ccy", "lxc"} {
+	for kind, extra := range map[string][]string{"ccy": nil, "lxc": {"--key", "0123456789abcdef"}} {
 		t.Run(kind+" without desired", func(t *testing.T) {
-			w := newWorld(t, "--plain", "--kind", kind, "--", "sleep", "1")
+			args := append([]string{"--plain", "--kind", kind}, extra...)
+			w := newWorld(t, append(args, "--", "sleep", "1")...)
 			w.refused(exits.CodeMembership)
 		})
 	}

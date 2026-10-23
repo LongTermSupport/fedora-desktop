@@ -302,3 +302,19 @@ func TestSystemClockWaits(t *testing.T) {
 		t.Fatal("stop of an armed hold is true and delivers nothing")
 	}
 }
+
+func TestABoundIsCarriedAndTheEarlierKept(t *testing.T) {
+	if _, ok := clock.Bound(context.Background()); ok {
+		t.Fatal("a context with no bound has one")
+	}
+	ctx := clock.WithBound(context.Background(), 30*time.Second)
+	if at, ok := clock.Bound(ctx); !ok || at != 30*time.Second {
+		t.Fatalf("Bound = %v, %t; want 30s", at, ok)
+	}
+	if at, ok := clock.Bound(clock.WithBound(ctx, time.Minute)); !ok || at != 30*time.Second {
+		t.Fatalf("a later bound inside = %v, %t; want the earlier 30s kept", at, ok)
+	}
+	if at, ok := clock.Bound(clock.WithBound(ctx, 10*time.Second)); !ok || at != 10*time.Second {
+		t.Fatalf("an earlier bound inside = %v, %t; want 10s", at, ok)
+	}
+}

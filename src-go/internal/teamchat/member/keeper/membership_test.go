@@ -187,8 +187,9 @@ func TestOwedNotice(t *testing.T) {
 	w.ready(l)
 	w.advance(owedWait - time.Second)
 	w.logged("the leave notice was not posted in time")
-	// The timer logs before it drops the seat.
-	w.eventually("the seat let go after the notice's 30 s", func() bool { return !w.held(alpha) })
+	if w.held(alpha) {
+		t.Fatal("the seat is held after the notice's 30 s")
+	}
 	c.code(0)
 	ended(t, l, res, wire.EndExit, 0, 0)
 }
@@ -262,6 +263,7 @@ func TestRemoveTimeout(t *testing.T) {
 	w, l, c, res := claudeWorld(t, "alpha/1")
 	alpha := w.layout.Seat(mustTeam(t, "alpha"))
 	mustDo(t, os.WriteFile(alpha.Store(), []byte("store"), 0o600))
+	mustDo(t, os.WriteFile(alpha.RosterCache(), []byte("{}"), 0o600))
 	w.writeDesired(desiredJSON(2, state.InboundAccept))
 	w.changed()
 	l.expect(t, wire.KindDesired)
@@ -270,8 +272,8 @@ func TestRemoveTimeout(t *testing.T) {
 	expectSig(t, l.sigs, 9)
 	l = w.up(0)
 	l.expect(t, wire.KindPID)
-	if exists(t, alpha.Store()) || w.held(alpha) {
-		t.Fatal("the store or the seat outlived the unanswered remove")
+	if exists(t, alpha.Store()) || exists(t, alpha.RosterCache()) || w.held(alpha) {
+		t.Fatal("the store, its roster cache or the seat outlived the unanswered remove")
 	}
 	if k := w.keeperJSON(); k.Restarts != 0 {
 		t.Fatalf("keeper.json %+v", k)

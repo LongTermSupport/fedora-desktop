@@ -229,7 +229,7 @@ func (s *server) handle(base context.Context, c *net.UnixConn) {
 	if left <= 0 {
 		return
 	}
-	ctx, cancel := context.WithCancel(base)
+	ctx, cancel := context.WithCancel(clock.WithBound(base, time.Duration(req.DeadlineMS)*time.Millisecond))
 	stopDeadline := s.clock.AfterFunc(left, cancel)
 	defer s.serve(cancel)()
 	if s.hook != nil && isHookOp(req.Op) {

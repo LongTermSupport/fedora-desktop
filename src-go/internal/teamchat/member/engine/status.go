@@ -145,7 +145,7 @@ func (e *Engine) statusRow(h *held) state.StatusTeam {
 		role := h.health.Role
 		row.Role = &role
 	}
-	if f, ok := failures[h.health.Stopped]; ok {
+	if f, ok := failures[h.shown().Stopped]; ok {
 		row.Failed = &f
 	}
 	row.Missing = h.missing()
@@ -185,6 +185,10 @@ type teamView struct {
 	pending int64
 
 	seenTwice int64
+	pings     []state.Ping
+	answers   map[string][]answerNote
+	sending   []state.Sending
+	unsent    int64
 }
 
 // status is LN5: per held team its team, member and room records, then the refused adds, then
@@ -232,16 +236,22 @@ func (e *Engine) snapshot(only *paths.TeamID) ([]teamView, []paths.TeamID) {
 		views   []teamView
 		refused []paths.TeamID
 	)
+	now := e.cfg.Clock.WallMS()
 	for _, id := range e.order() {
 		h := e.teams[id]
 		if h.removed || only != nil && *only != id {
 			continue
 		}
-		views = append(views, teamView{
-			id: id, tm: h.team, userID: h.userID, handle: h.handle(), health: h.health,
-			counts: h.counts, pending: h.pending(),
+		pings, answers := shownPings(h, now)
+		v := teamView{
+			id: id, tm: h.team, userID: h.userID, handle: h.handle(), health: h.shown(),
+			counts: h.counts, pending: h.pending(), pings: pings, answers: answers, unsent: h.unsent,
 			seenTwice: h.seenTwice,
-		})
+		}
+		if h.store != nil {
+			v.sending = slices.Clone(h.store.Outbox.Sending)
+		}
+		views = append(views, v)
 	}
 	for _, id := range slices.SortedFunc(maps.Keys(e.refused), compareTeams) {
 		if only == nil || *only == id {
@@ -273,7 +283,7 @@ func teamRecords(v teamView, delivery string) []records.Record {
 		Delivery: delivery, Pending: v.pending, Down: v.health.Down || v.health.Stopped != "",
 		Counts: records.TeamCounts{
 			Ignored: v.counts.Ignored, Dropped: v.counts.Dropped, Unheard: v.counts.Unheard,
-			Gaps: v.counts.Gaps, Redacted: v.counts.Redacted,
+			Gaps: v.counts.Gaps, Redacted: v.counts.Redacted, Unsent: v.unsent,
 			SeenTwice: v.seenTwice,
 		},
 	}
@@ -289,11 +299,19 @@ func teamRecords(v teamView, delivery string) []records.Record {
 			tr.Role = m.Role
 		}
 	}
-	out := []records.Record{tr}
-	if !verified {
-		return out
-	}
 	server := paths.ServerName(v.id)
+	out := []records.Record{tr}
+	if verified {
+		out = append(out, memberRecords(v, roster, server)...)
+	}
+	n := namer{server: server, roster: roster, verified: verified}
+	out = append(out, outboxRecords(v.id, v.pings, v.answers, n)...)
+	return append(out, queuedRecords(v.id, v.sending, n)...)
+}
+
+// memberRecords are a verified team's member and room records.
+func memberRecords(v teamView, roster proto.Roster, server string) []records.Record {
+	var out []records.Record
 	for _, id := range slices.Sorted(maps.Keys(roster.Members)) {
 		hd, ok := proto.AgentHandle(id, server)
 		if !ok {

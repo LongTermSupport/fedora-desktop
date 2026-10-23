@@ -11,6 +11,9 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
+// box1 is lxcEntry's entry as AG3 prints it.
+const box1 = "box-1/1,user=agent,human_text=true,checkout=/srv/checkouts/thing"
+
 // inputDoc is alpha's one-team input, as `team apply` reads it.
 func inputDoc() map[string]any {
 	return map[string]any{
@@ -57,8 +60,8 @@ func TestGatedIsSorted(t *testing.T) {
 	if !slices.Equal(g.Humans, []string{"alice", "bob"}) {
 		t.Fatalf("humans %v", g.Humans)
 	}
-	if len(g.LXC) != 2 || g.LXC[0].String() != "a-box/agent,human_text=false" ||
-		g.LXC[1].String() != "box-1/agent,human_text=true" {
+	if len(g.LXC) != 2 || g.LXC[0].String() != "a-box/1,user=agent,human_text=false,checkout=/srv/checkouts/thing" ||
+		g.LXC[1].String() != box1 {
 		t.Fatalf("lxc %v", g.LXC)
 	}
 	if g.URL != "http://192.0.2.10:8448" || g.Coordinator != "myrepo.1+desk.podman" {
@@ -66,14 +69,41 @@ func TestGatedIsSorted(t *testing.T) {
 	}
 }
 
+func TestGatedSeesTwoSeatsOfOneUserAsTwoEntries(t *testing.T) {
+	doc := inputDoc()
+	worker := lxcEntry("alpha")
+	worker["seat"] = 2
+	doc["lxc_members"] = []any{lxcEntry("alpha"), worker}
+	g := readInput(t, doc).Gated()
+	if len(g.LXC) != 2 || g.LXC[0].Seat != 1 || g.LXC[1].Seat != 2 {
+		t.Fatalf("lxc %v", g.LXC)
+	}
+	back, err := DecodeApproved(EncodeApproved(mustTeam("alpha"), g), mustTeam("alpha"))
+	if err != nil || len(back.LXC) != 2 {
+		t.Fatalf("approved.json of two seats: %+v, %v", back.LXC, err)
+	}
+}
+
 func TestParseLXCEntry(t *testing.T) {
-	e, err := ParseLXCEntry("box-1/agent,human_text=false")
-	if err != nil || e.Container != "box-1" || e.User.String() != "agent" || e.HumanText {
+	e, err := ParseLXCEntry("box-1/12,user=agent,human_text=false,checkout=/srv/a,b=c")
+	if err != nil || e.Container != "box-1" || e.Seat != 12 || e.User.String() != "agent" || e.HumanText ||
+		e.Checkout != "/srv/a,b=c" {
 		t.Fatalf("parsed %+v, %v", e, err)
 	}
+	if e.String() != "box-1/12,user=agent,human_text=false,checkout=/srv/a,b=c" {
+		t.Fatalf("round trip %q", e.String())
+	}
 	for _, bad := range []string{
-		"", "box-1/agent", "box-1,human_text=true", "box-1/agent,human_text=TRUE", "box-1/agent,human_text=1",
-		"-box/agent,human_text=true", "box-1/Agent,human_text=true", "box-1/agent/x,human_text=true",
+		"", "box-1/1", "box-1/agent,human_text=true", box1[:len(box1)-len(",checkout=/srv/checkouts/thing")],
+		"box-1/1,user=agent,human_text=TRUE,checkout=/srv/x", "box-1/1,user=agent,human_text=1,checkout=/srv/x",
+		"-box/1,user=agent,human_text=true,checkout=/srv/x", "box-1/1,user=Agent,human_text=true,checkout=/srv/x",
+		"box-1/0,user=agent,human_text=true,checkout=/srv/x", "box-1/10000,user=agent,human_text=true,checkout=/srv/x",
+		"box-1/01,user=agent,human_text=true,checkout=/srv/x", "box-1/x,user=agent,human_text=true,checkout=/srv/x",
+		"box-1/1,user=agent,human_text=true,checkout=srv/x", "box-1/1,user=agent,human_text=true,checkout=/srv/../x",
+		"box-1/1,user=agent,human_text=true,checkout=/srv/a\nb",
+		"box-1/1,user=agent,human_text=true,checkout=/srv/a\tb", "box-1/1,user=agent,human_text=true,checkout=/srv/\x1b[0m",
+		"box-1/1,human_text=true,user=agent,checkout=/srv/x",
+		"box-1/1,user=agent,human_text=true,path=/srv/x", "box-1/1/2,user=agent,human_text=true,checkout=/srv/x",
 	} {
 		if _, err := ParseLXCEntry(bad); err == nil {
 			t.Errorf("ParseLXCEntry(%q) accepted", bad)
@@ -100,9 +130,7 @@ func TestCompareUngatedAndReorderedIsNoDifference(t *testing.T) {
 	team["name"] = "Alpha"
 	team["description"] = "Another description."
 	lxc := obj(arr(doc["lxc_members"])[0])
-	lxc["checkout"] = "/srv/checkouts/other"
 	lxc["site"] = "desk"
-	lxc["seat"] = 7
 	lxc["service"] = true
 	lxc["state"] = "absent"
 	if got := Compare(approved, readInput(t, doc)); len(got) != 0 {
@@ -154,7 +182,19 @@ func compareCases() []compareCase {
 		},
 		{
 			"human_text flipped", func(d map[string]any) { obj(arr(d["lxc_members"])[0])["human_text"] = false },
-			[]Difference{{"lxc_members", "box-1/agent,human_text=true", "-"}, {"lxc_members", "-", "box-1/agent,human_text=false"}},
+			[]Difference{{"lxc_members", box1, "-"}, {"lxc_members", "-", "box-1/1,user=agent,human_text=false,checkout=/srv/checkouts/thing"}},
+		},
+		{
+			"user moved", func(d map[string]any) { obj(arr(d["lxc_members"])[0])["user"] = "agent2" },
+			[]Difference{{"lxc_members", box1, "-"}, {"lxc_members", "-", "box-1/1,user=agent2,human_text=true,checkout=/srv/checkouts/thing"}},
+		},
+		{
+			"checkout changed", func(d map[string]any) { obj(arr(d["lxc_members"])[0])["checkout"] = "/srv/other" },
+			[]Difference{{"lxc_members", box1, "-"}, {"lxc_members", "-", "box-1/1,user=agent,human_text=true,checkout=/srv/other"}},
+		},
+		{
+			"seat changed", func(d map[string]any) { obj(arr(d["lxc_members"])[0])["seat"] = 7 },
+			[]Difference{{"lxc_members", box1, "-"}, {"lxc_members", "-", "box-1/7,user=agent,human_text=true,checkout=/srv/checkouts/thing"}},
 		},
 		{"in AG1 order", func(d map[string]any) {
 			d["lxc_members"] = []any{}
@@ -163,7 +203,7 @@ func compareCases() []compareCase {
 		}, []Difference{
 			{"humans", "bob", "-"},
 			{"url", "http://192.0.2.10:8448", "https://chat.example.com"},
-			{"lxc_members", "box-1/agent,human_text=true", "-"},
+			{"lxc_members", box1, "-"},
 		}},
 	}
 }
@@ -287,14 +327,23 @@ func approveCases() []approveCase {
 			second := lxcEntry("alpha")
 			second["container"] = "box-2"
 			d["lxc_members"] = []any{lxcEntry("alpha"), second}
-		}, Change{"lxc_members", OpAdd, "box-2/agent,human_text=true"}},
+		}, Change{"lxc_members", OpAdd, "box-2/1,user=agent,human_text=true,checkout=/srv/checkouts/thing"}},
+		{"add a second seat of one user", func(d map[string]any) {
+			second := lxcEntry("alpha")
+			second["seat"] = 2
+			d["lxc_members"] = []any{lxcEntry("alpha"), second}
+		}, Change{"lxc_members", OpAdd, "box-1/2,user=agent,human_text=true,checkout=/srv/checkouts/thing"}},
 		{
 			"remove an lxc member", func(d map[string]any) { d["lxc_members"] = []any{} },
-			Change{"lxc_members", OpRemove, "box-1/agent,human_text=true"},
+			Change{"lxc_members", OpRemove, box1},
 		},
 		{
 			"set an lxc member's human_text", func(d map[string]any) { obj(arr(d["lxc_members"])[0])["human_text"] = false },
-			Change{"lxc_members", OpSet, "box-1/agent,human_text=false"},
+			Change{"lxc_members", OpSet, "box-1/1,user=agent,human_text=false,checkout=/srv/checkouts/thing"},
+		},
+		{
+			"move an lxc member to another user", func(d map[string]any) { obj(arr(d["lxc_members"])[0])["user"] = "agent2" },
+			Change{"lxc_members", OpSet, "box-1/1,user=agent2,human_text=true,checkout=/srv/checkouts/thing"},
 		},
 	}
 }
@@ -384,10 +433,10 @@ func approveRefusals(whole string) []struct {
 		{"trust not json", true, Change{"trust", OpSet, "{"}},
 		{"trust bad", true, Change{"trust", OpSet, `{"kind":"gitlab","repos":[]}`}},
 		{"lxc bad entry", true, Change{"lxc_members", OpAdd, "box-2/agent"}},
-		{"lxc add a present member", true, Change{"lxc_members", OpAdd, "box-1/agent,human_text=false"}},
-		{"lxc remove with other human_text", true, Change{"lxc_members", OpRemove, "box-1/agent,human_text=false"}},
-		{"lxc set unchanged", true, Change{"lxc_members", OpSet, "box-1/agent,human_text=true"}},
-		{"lxc set a missing member", true, Change{"lxc_members", OpSet, "box-9/agent,human_text=false"}},
+		{"lxc add a present member", true, Change{"lxc_members", OpAdd, "box-1/1,user=agent2,human_text=false,checkout=/srv/checkouts/thing"}},
+		{"lxc remove with other human_text", true, Change{"lxc_members", OpRemove, "box-1/1,user=agent,human_text=false,checkout=/srv/checkouts/thing"}},
+		{"lxc set unchanged", true, Change{"lxc_members", OpSet, box1}},
+		{"lxc set a missing member", true, Change{"lxc_members", OpSet, "box-1/9,user=agent,human_text=false,checkout=/srv/checkouts/thing"}},
 		{"an unknown op", true, Change{"humans", Op("drop"), "bob"}},
 	}
 }
@@ -429,6 +478,11 @@ func TestApprovedFileRoundTrip(t *testing.T) {
 	}
 }
 
+// lxcJSON is lxcEntry's approved.json entry (AG2) with the user and human_text given.
+func lxcJSON(user, humanText string) string {
+	return `{"container":"box-1","checkout":"/srv/checkouts/thing","seat":1,"user":` + user + `,"human_text":` + humanText + `}`
+}
+
 func TestDecodeApprovedRefuses(t *testing.T) {
 	alpha := mustTeam("alpha")
 	good := string(EncodeApproved(alpha, readInput(t, inputDoc()).Gated()))
@@ -438,9 +492,12 @@ func TestDecodeApprovedRefuses(t *testing.T) {
 		"unknown key":    strings.Replace(good, `"v":1`, `"v":1,"x":1`, 1),
 		"bad human":      strings.Replace(good, `"bob"`, `"admin"`, 1),
 		"repeated human": strings.Replace(good, `"bob"`, `"alice"`, 1),
-		"lxc key":        strings.Replace(good, `"human_text":true`, `"human_text":true,"seat":1`, 1),
-		"lxc repeated": strings.Replace(good, `"lxc_members":[{"container":"box-1","user":"agent","human_text":true}]`,
-			`"lxc_members":[{"container":"box-1","user":"agent","human_text":true},{"container":"box-1","user":"agent","human_text":false}]`, 1),
+		"lxc key":        strings.Replace(good, `"human_text":true`, `"human_text":true,"site":"desk"`, 1),
+		"lxc no seat":    strings.Replace(good, `"seat":1,`, ``, 1),
+		"lxc bad seat":   strings.Replace(good, `"seat":1,`, `"seat":0,`, 1),
+		"lxc checkout":   strings.Replace(good, `"checkout":"/srv/checkouts/thing"`, `"checkout":"srv"`, 1),
+		"lxc repeated": strings.Replace(good, `"lxc_members":[`+lxcJSON(`"agent"`, "true")+`]`,
+			`"lxc_members":[`+lxcJSON(`"agent"`, "true")+`,`+lxcJSON(`"agent2"`, "false")+`]`, 1),
 		"lxc user":    strings.Replace(good, `"user":"agent"`, `"user":"Agent"`, 1),
 		"not json":    "{",
 		"over cap":    `{"v":1,"pad":"` + strings.Repeat("x", maxApproved) + `"}`,
