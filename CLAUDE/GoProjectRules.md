@@ -763,6 +763,20 @@ guessing; the catalogue claims no more than the code does.
   while the test reads), never on a signal the code gives before the effect; and the race only
   shows under load, so a suspect test is run shuffled, `-cpu 1,2,4`, many times, beside a loop
   of other tests.
+- **A fake that announces an event before it has done what the event stands for** (Plan 00209
+  n3e: `fakeinbox` recorded a refused auth frame, which wakes `Await`, before its deferred
+  `drop` closed the connection, so `inbox`'s `TestAWrongTokenIsRetryAndNothingIsWritten` could
+  write into a connection still open; it also woke `Await` before `OnAccepted` handed the frame
+  on, and the keeper harness's fake child and pidfd sent a SIGKILL to the test before they
+  exited). Which action an announcement stands for is a fact of the fake's contract, not a shape
+  in the syntax tree: the action may be a defer, a callback or the next statement, and the same
+  shapes order an announcement after its action everywhere else. What holds it instead: each
+  fake announces last (`fakeinbox`'s `serve` records a delivery's last frame after the close,
+  `record` hands on before it wakes `Await`; the keeper fakes exit before they send the
+  signal), and its own tests pin the order: `TestTheLastFrameIsRecordedOnceTheConnectionIsClosed`
+  (the connection's `Close` reads the frames), `TestAFrameIsHandedOnBeforeItIsRecorded` and
+  `TestAFakeSIGKILLExitsBeforeItIsSeen`. A new fake's announcement is placed after its action
+  and tested the same way.
 
 ## Control
 
