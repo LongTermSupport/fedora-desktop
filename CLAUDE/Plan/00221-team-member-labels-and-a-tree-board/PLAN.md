@@ -60,15 +60,23 @@ expectation numbered, is [DESIGN.md](DESIGN.md).
   roster member key `label` (A 5.1, informational under A 3.1), `teamchat-admin member label`
   (C 3.6.3), `teamchat_lxc_members[].label` (C 3.8), `status.json` `members[].label`
   (C 3.11.3; its `kind` already gives T14's ENV), B27's status line piece, the envelope line
-  and the SessionStart line, and the migration's carry of each label (D 5). Nothing here edits
-  00209's files.
-- **The v1 KIND fix** (separate worker, in flight): T14 reads its corrected row data.
+  and the SessionStart line (the envelope's `label:` after v2's `role:` line, A 13.2), the
+  migration's carry of each label (D 5), `labels:` in `teamchat_teams[]` (C 3.8), and the
+  board's `system` word on the tree's team line (D 3.9). Nothing here edits 00209's files.
+- **Plan 00209 Task 7.1 (stage 1, in progress)** is porting `declare.py`'s host_vars reader to
+  Go and keeps the `agent-bus list` call: the reader must learn `labels:` (L8) and the list's
+  appended field must survive it (L15). It is the one 00209 task changing v1 code this plan
+  edits; Task 1.3 is coordinated with its owner seat.
+- **The v1 KIND fix** (separate worker the coordinator assigned, not on this branch): T14
+  reads its corrected row data; Task 5.2 starts after it merges.
 - **Plan 00204 (Go TUI).** The tree is the list screen of its Task 4.1; this plan's model
   (T10) and hue table (T17) are what that screen draws.
 - **Plan 00217 (team colours).** The label route copies its colour route; the status line
   piece extends its C15; T15 reuses its measured palette.
 - **Plan 00213.** The status line's parity oracle is re-recorded from the Python.
-- **Plan 00222 (worker tool restrictions)** reads the same per-team role; no shared code.
+- **Plan 00222 (worker tool restrictions)** adds `worker_blocked_tools` to `agent_bus_teams`,
+  the same three readers' change as Task 1.3, and an admin room-state event of the same
+  shape: whichever plan builds first owns the shared reader change, the other depends on it.
 
 ## Tasks
 
@@ -83,9 +91,13 @@ Every build task is test first: the failing test is committed or shown before th
 
 - [ ] ⬜ **Task 1.1**: The grammar and fold (L1) in `helpers/pingbus/protocol.py` and a Go copy
   beside the status line, with a parity test (00217 C6's pattern).
-- [ ] ⬜ **Task 1.2**: The team's `labels:` list in `teamfile.py` and `localhost.yml.dist` (L8);
-  `CCY_TEAM_LABELS` read by the host-side chooser as suggestions (L9, L10), tests for a bad
-  item named and skipped.
+- [ ] ⬜ **Task 1.2**: `CCY_TEAM_LABELS` parsed (not sourced) by the host-side chooser as
+  suggestions (L9, L10): tests for the exact line, a refused form named, a bad item named and
+  skipped.
+- [ ] ⬜ **Task 1.3**: The team's `labels:` list (L8) taught to every host_vars reader before
+  `localhost.yml.dist` shows it: `teamfile.py`, `declare.py` (read and `EDITABLE_KEYS`), and
+  00209 Task 7.1's Go line reader, with a test in each that an entry carrying the key is read,
+  not refused. Shared with Plan 00222's `worker_blocked_tools` (Dependencies).
 
 ### Phase 2: Store and route (v1; replaced by v2, DESIGN section 4)
 
@@ -118,12 +130,17 @@ Every build task is test first: the failing test is committed or shown before th
 - [ ] ⬜ **Task 5.3**: The hue table and the painter (T15-T17): a test that stripping the codes
   from a coloured render gives the `NO_COLOR` render, and that every hue is one of 00217's
   measured palette.
-- [ ] ⬜ **Task 5.4**: The fzf rendering, keys and filter (T6-T9); every current menu and
-  shortcut reachable (T11), proven by the existing picker tests passing against the tree.
-- [ ] ⬜ **Task 5.5**: `--list` unchanged without labels (T12), checked by 00201's and 00209
-  stage 1's acceptance readers.
-- [ ] ⬜ **Task 5.6**: docs/agent-bus.md (Getting started, seats, the status line) and the
-  picker's help text.
+- [ ] ⬜ **Task 5.4**: The fzf rendering: every team expanded, hidden searchable fields, the
+  header's actions (T6, T9's fzf half); every current menu and shortcut reachable (T11),
+  proven by the existing picker tests passing against the tree. Expand, collapse and
+  parent-keeping filter are 00204 Task 4.1's.
+- [ ] ⬜ **Task 5.5**: `--list` unchanged without labels (T12): the F44 build at the branch
+  point and the new one over one fixture, compared byte for byte as 00209 stage 1's
+  `check_list` does; 00201's D1 reader passes.
+- [ ] ⬜ **Task 5.6**: docs/agent-bus.md (Getting started, seats, the status line; the seats
+  sentence "nothing about the bus goes in `ccy.env.local`" reworded for L9), the entrypoint's
+  `PINGBUS_*` refusal message that quotes it (a `files/var/local/claude-yolo/` edit, so the
+  CCY version bump), and the picker's help text.
 
 ### Phase 6: Deploy and review
 
@@ -140,12 +157,12 @@ Every build task is test first: the failing test is committed or shown before th
 
 ### Owner only
 
-| ID  | Decision                                                       | Default (recommended)                                                                                                                                                                                    |
-| --- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| OA1 | Labels in v1 now, or only when v2 lands                        | **v1 now**: teams stay on v1 until each is migrated; the v1-only parts (DESIGN section 4) are small, of the colour route's known shape, and their end is stated                                          |
-| OA2 | Predefined labels in `ccy.env` / `ccy.env.local`               | **Yes, as suggestions only** (L9), read on the host, never applied by themselves; plus the team's `labels:` in host_vars (L8). It relaxes "nothing about the bus in ccy.env.local" for suggestions alone |
-| OA3 | The tree on fzf now, or wait for Plan 00204's Bubble Tea frame | **fzf now, frame later** from the same model (T10): the owner sees the tree without waiting for 00204 Tasks 3.1 and 4.1, and only the thin fzf renderer is thrown away                                   |
-| OA4 | Free text, or only from a predefined set                       | **Both**: suggestions first, typed text always allowed (L7)                                                                                                                                              |
+| ID  | Decision                                                       | Default (recommended)                                                                                                                                                                                                                                     |
+| --- | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OA1 | Labels in v1 now, or only when v2 lands                        | **v1 now**: teams stay on v1 until each is migrated; the v1-only parts (DESIGN section 4) are small, of the colour route's known shape, and their end is stated                                                                                           |
+| OA2 | Predefined labels in `ccy.env` / `ccy.env.local`               | **Yes, as suggestions only** (L9), one exact line parsed (never sourced) on the host, never applied by themselves; plus the team's `labels:` in host_vars (L8). It relaxes "nothing about the bus in ccy.env.local" for suggestions alone                 |
+| OA3 | The tree on fzf now, or wait for Plan 00204's Bubble Tea frame | **fzf now, frame later** from the same model (T10): the owner sees the tree (always expanded, flat filter) without waiting for 00204 Tasks 3.1 and 4.1; collapse and parent-keeping filter come with the frame; only the thin fzf renderer is thrown away |
+| OA4 | Free text, or only from a predefined set                       | **Both**: suggestions first, typed text always allowed (L7)                                                                                                                                                                                               |
 
 ### Coordinator-defaultable
 
@@ -169,8 +186,12 @@ Every build task is test first: the failing test is committed or shown before th
 - [ ] `ccy-teams` shows team → coordinator → workers (seat, label, handle, ENV) → people, with
   every existing action reachable; `cc (host)` and `ccy (podman)` read differently with and
   without colour; `--list` bytes unchanged for an unlabelled team.
-- [ ] The 00209 requirements above are taken into its plan by its owner seat.
 - [ ] `qa-changed.bash` passes on each commit; review at MERGE; `qa-reviewer` passes.
+
+## Handoffs
+
+- The 00209 requirements under Dependencies go to 00209's owner seat through the coordinator;
+  this plan cannot take them into 00209's files itself.
 
 ## Delivery & Milestones
 

@@ -57,6 +57,9 @@ record, 3.13 what ccy-teams reads), as they stand on `feat/bus-v2-n3` at e3b6c30
 - **L5 Team-internal.** A label is shown to the team's humans and agents only. pingbus never
   writes it to the forge, and the agent's context says it is the owner's internal note, so it
   is not repeated in public text (it may name a client or a project the forge must not see).
+  That sentence is the only control on what the agent itself writes; L1's grammar bounds what
+  a leak could cost (16 lower-case characters, no instruction), and a team that uses client
+  names as labels accepts that.
 - **L6 Owner-set only.** Only the owner sets a label, through the host (sections 2.3, 2.4).
   There is no pingbus verb for it, so an agent cannot label itself or another.
 
@@ -67,15 +70,27 @@ record, 3.13 what ccy-teams reads), as they stand on `feat/bus-v2-n3` at e3b6c30
 - **L8 The team's set** is an optional `labels:` list in the team's `agent_bus_teams` entry
   (host_vars), each item L1's grammar, at most 16, no duplicates; checked by the team file's
   rules (`teamfile.parse_team_file`), so the play and `ccy-teams` refuse the same values. It is
-  a suggestion list only: it is not published to members and grants nothing.
+  a suggestion list only: it is not published to members and grants nothing. **Three readers
+  must learn the key before any entry carries it**, or the board stops drawing the team:
+  `teamfile.py`, `declare.py`'s line reader and write side (`EDITABLE_KEYS`), and the Go port
+  of that reader on 00209 Task 7.1 (`internal/bus/declare`, SPEC-view V3-V8, which refuses an
+  unknown shape). Plan 00222's `worker_blocked_tools` needs the same three; whichever plan
+  builds first owns the shared change (one task), the other depends on it.
 - **L9 The checkout's set** (owner decision OA2): `CCY_TEAM_LABELS="infra front back"` in the
   checkout's `.claude/ccy/ccy.env` (committed, shared by everyone who works in the repository:
-  the mono-repo case) or `ccy.env.local` (this machine). Read only by the host-side seat
-  question (`ccy-teams choose-teams` and `ccy-teams`' Set label), never inside a container, and
-  only as suggestions, each re-checked by L1 (a bad one is named on stderr and skipped from
-  the list, never applied). This relaxes "nothing about the bus goes in `ccy.env.local`"
-  (docs/agent-bus.md, seats) for suggestions alone; the entrypoint's refusal of `PINGBUS_*`
-  variables is unchanged, and `CCY_TEAM_LABELS` sets no seat, no team and no label by itself.
+  the mono-repo case) or `ccy.env.local` (this machine). Both are bash files that only the
+  container's entrypoint sources; the host never sources them, and this keeps it so. The
+  host-side seat question (`ccy-teams choose-teams` and `ccy-teams`' Set label, Go) **parses**
+  one line without executing anything: exactly `^(export )?CCY_TEAM_LABELS="<labels>"$`,
+  labels separated by single spaces. Any other line naming `CCY_TEAM_LABELS` (two of them, a
+  substitution, single quotes) is named on stderr and the file gives no suggestions. Each label
+  is re-checked by L1 (a bad one is named and skipped, never applied). They are suggestions
+  only: a checkout file can be written by the sessions in that checkout, so nothing in it is
+  applied without the owner choosing it. Inside the container the variable is set and unused.
+  This relaxes "nothing about the bus goes in `ccy.env.local`" (`docs/agent-bus.md`, seats)
+  for suggestions alone; that sentence and the entrypoint's `PINGBUS_*` refusal message,
+  which quotes the rule, are reworded (Task 5.6); the refusal itself is unchanged, and
+  `CCY_TEAM_LABELS` sets no seat, no team and no label by itself.
 - **L10 Order.** The checkout's set first (it describes this repository), then the team's set,
   without repeats, then labels already used in the team.
 
@@ -105,6 +120,9 @@ record, 3.13 what ccy-teams reads), as they stand on `feat/bus-v2-n3` at e3b6c30
   changes.
 - **L15 The board** reads labels where it reads roles: `sudo -n agent-bus list <team>` gains a
   `label` field per member (fields only appended), so the read-only sudoers rule is unchanged.
+  That call is kept by 00209's stage 1 (Task 7.1, SPEC-view, "one Python call is kept"); the
+  in-process reader SPEC-view's stage 4 adds later, and v2's `status.json`, replace it, and
+  each must carry the label (section 4).
 
 ### 2.4 Where it is set (the owner's flows)
 
@@ -131,7 +149,8 @@ record, 3.13 what ccy-teams reads), as they stand on `feat/bus-v2-n3` at e3b6c30
 - **L20 pingbus status** prints a `label=<label>` field at the end of this member's TEAM line
   (fields are only ever appended), and the member listing shows each member's label.
 - **L21 The envelope.** An entry from a labelled agent carries `label: <label>` on the line
-  after `from:`. The first line of the delivery is unchanged. A human's entries never have one.
+  after `from:` (v1). In v2's entry, whose lines are `kind:`, `from:`, `role:`, `team:` (A
+  13.2), it goes after `role:`. The first line of the delivery is unchanged. A human's entries never have one.
 - **L22 The launch block** (which teams the session is on, with seat, role and what each is
   for) adds `label infra` after the role.
 - **L23 Element.** No change: display names are handles, set by the admin only (protocol §3);
@@ -179,7 +198,9 @@ The owner's sketch, made real:
 
 - **T1 Levels.** Team, then three fixed groups in this order: coordinator (zero or one member),
   workers, people. A group with nothing in it shows one dim line (`no coordinator: Make a worker the coordinator`, from the team's menu; `no workers`; `no people`), so its place never moves.
-- **T2 The team line** keeps today's facts: homeserver state, APPLIED, port, description.
+- **T2 The team line** keeps today's facts: homeserver state, APPLIED, port, description. Once
+  v2 is installed beside v1, it also names the team's system (`agent-bus` or `teamchat`), the
+  word 00209's board adds as a column (D 3.9).
 - **T3 A worker line** is `<seat>  <label or ·>  <handle>  <environment>  <state>  <session>`
   (the environment is section 3.4's ENV), the seat
   first (the owner's `1 (infra) projectx.1...`), the label in its own column so labels line up.
@@ -192,16 +213,24 @@ The owner's sketch, made real:
 
 ### 3.2 Keys and controls
 
-- **T6** ↑/↓ move by line; → or Enter on a collapsed team expands it, ← collapses a team or
-  moves to the line's parent; Enter elsewhere opens the line's menu, unchanged in content. Every
-  key is also a drawn control: the footer is the selected line's actions (Plan 00204 4.1, rule
-  14), with the commonest first.
+fzf is one process over a fixed list of rows that it filters row by row, with no tree. So the
+keys come in two steps, and each says which:
+
+- **T6** ↑/↓ move by line; Enter opens the line's menu, unchanged in content (fzf and frame).
+  Expand and collapse (→/← on a team, ← to a line's parent) are the frame's only (Plan 00204
+  Task 4.1): on fzf every team is drawn expanded, so nothing needs a relaunch and the picker's
+  redraw cost (`board/redraw_cost_test.go`) is unchanged. Every key is also a drawn control:
+  the frame's footer is the selected line's actions (Plan 00204 4.1, rule 14), with the
+  commonest first; on fzf the header names them, as today.
 - **T7** Every shortcut of today keeps its meaning (Ctrl-N, Ctrl-U, Ctrl-R, Ctrl-X, Ctrl-P,
   Ctrl-E, Tab, `?`, Esc/q). **L** is Set label on a worker line; it is in that line's menu and
   footer and nowhere else.
-- **T8** Teams that cover the folder ccy-teams runs in are expanded at start, the others
-  collapsed; with one team, it is expanded. Expansion is not remembered between runs.
-- **T9** Typing filters lines by team, handle, label or person, keeping each match's parents.
+- **T8** In the frame, teams that cover the folder ccy-teams runs in are expanded at start, the
+  others collapsed; with one team, it is expanded. Expansion is not remembered between runs.
+- **T9** Typing filters. On fzf each member line carries its team, label and handle in its
+  hidden, searchable fields (`ui.PickSpec` Tags, fzf `--with-nth=1`), so `infra` or `alpha`
+  finds the right workers, but a matched line's team and group lines are not kept. The frame
+  keeps each match's parents.
 
 ### 3.3 What is kept, and how it is built
 
@@ -214,8 +243,11 @@ The owner's sketch, made real:
   lxc-add, seats, people, wind-down, shutdown, restart, Running sessions), status colours, the
   `need sudo` handling, `NO_COLOR`, the offers made on the way in.
 - **T12 `--list` stays the table** that scripts and the acceptance suites of Plans 00201, 00203
-  and 00209 read, its bytes unchanged for a team with no labels (L24). The tree is the
-  interactive board only.
+  and 00209 read, its bytes unchanged for a team with no labels (L24), measured as 00209
+  stage 1's `check_list` does: the F44 build at this plan's branch point and the new build,
+  over the same fixture, compared byte for byte. The pin holds until 00209 Task 4.3 adds its
+  `system` column (D 3.9), which changes `--list` for every team. The tree is the interactive
+  board only.
 - **T13 Both systems.** v2's board (Plan 00209 Task 4.3) reads its rows from the status records
   (C 3.13); it feeds the same `board.Tree`, so the tree is built once for both systems.
 
@@ -224,8 +256,10 @@ The owner's sketch, made real:
 The owner, with a screenshot of today's board: every agent seat shows KIND `ccy`, a `cc`
 session on the desktop host (`<repo>.2+local.host`, in a `cc-...` tmux session) included, and
 "cc on the host and ccy in podman must show differently". That mislabel is a current v1
-defect, fixed now by a separate worker; this plan takes the corrected data as given and
-designs only how it is shown.
+defect (`board/collect.go:516` sets `KindCcy` for every checkout seat, `cc` host seats
+included), fixed now by a separate worker the coordinator assigned, not on this branch when
+this was written. This plan takes the corrected data as given and designs only how it is
+shown: Task 5.2 starts from that fix merged, and its tests are what ENV's input means.
 
 - **T14 ENV, one field per agent line.** Where the member runs, in words a person reads:
 
@@ -262,16 +296,17 @@ designs only how it is shown.
 
 ## 4. v1 now, v2 later
 
-| Part                                                                       | v1 (this plan)                               | v2 (Plan 00209)                                                                                                                                                               |
-| -------------------------------------------------------------------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Grammar, workers only, suggestions, flows, display forms (L1-L10, L16-L27) | built here                                   | carried as they are                                                                                                                                                           |
-| Store (L11)                                                                | registry v3 `labels`                         | **replaced**: the roster's member entry gains `label` (A 5.1), an informational key (A 3.1: unknown keys ignored, no feature needed); `teamchat-admin member label` (C 3.6.3) |
-| Route to members (L13, L14)                                                | `agent_bus.labels` room state, `labels.json` | **replaced**: the roster itself; the link keeps it in its state; no separate event                                                                                            |
-| LXC declaration (L12)                                                      | `agent_bus_lxc_members[].label`              | **replaced**: `teamchat_lxc_members[].label` (C 3.8)                                                                                                                          |
-| Board read (L15)                                                           | `agent-bus list` field                       | **replaced**: `status.json` `members[].label` (C 3.11.3)                                                                                                                      |
-| Status line, envelope, context (L19-L26)                                   | pingbus (Python and the Go status line)      | **replaced** by teamchat's own (B27, A's envelope, B's hooks), same text                                                                                                      |
-| Migration                                                                  | -                                            | the carry plan (D 5) copies each v1 label to the v2 roster                                                                                                                    |
-| The tree board (T1-T17)                                                    | built here, in `ccy-teams`                   | kept: 00209 Task 4.3 feeds it                                                                                                                                                 |
+| Part                                                                       | v1 (this plan)                               | v2 (Plan 00209)                                                                                                                                                                                   |
+| -------------------------------------------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Grammar, workers only, suggestions, flows, display forms (L1-L10, L16-L27) | built here                                   | carried as they are                                                                                                                                                                               |
+| Store (L11)                                                                | registry v3 `labels`                         | **replaced**: the roster's member entry gains `label` (A 5.1), an informational key (A 3.1: unknown keys ignored, no feature needed); `teamchat-admin member label` (C 3.6.3)                     |
+| Route to members (L13, L14)                                                | `agent_bus.labels` room state, `labels.json` | **replaced**: the roster itself; the link keeps it in its state; no separate event                                                                                                                |
+| LXC declaration (L12)                                                      | `agent_bus_lxc_members[].label`              | **replaced**: `teamchat_lxc_members[].label` (C 3.8); the label stays per entry although v2's entries lose `role` (the coordinator is a team key there), so the "as its role" shape is not copied |
+| host_vars readers (L8)                                                     | `teamfile.py`, `declare.py`                  | stage 1's Go line reader (00209 Task 7.1, `internal/bus/declare`) must learn `labels:` before any entry carries it; v2's `teamchat_teams[]` takes the same key (C 3.8)                            |
+| Board read (L15)                                                           | `agent-bus list` field                       | kept by stage 1 (Task 7.1); **replaced** by SPEC-view's later in-process reader, then by `status.json` `members[].label` (C 3.11.3); each carries it                                              |
+| Status line, envelope, context (L19-L26)                                   | pingbus (Python and the Go status line)      | **replaced** by teamchat's own (B27, A's envelope, B's hooks), same text                                                                                                                          |
+| Migration                                                                  | -                                            | the carry plan (D 5) copies each v1 label to the v2 roster                                                                                                                                        |
+| The tree board (T1-T17)                                                    | built here, in `ccy-teams`                   | kept: 00209 Task 4.3 feeds it                                                                                                                                                                     |
 
 The rows marked **replaced** are v1 code with a known end: they live while the team is on v1
 and go when it migrates. They are built because teams stay on v1 until the owner migrates each

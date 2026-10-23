@@ -49,6 +49,16 @@ every session.
   that role changes need no restart.
 - A session on several teams: the deny would have to be computed once from the launch roles.
 
+**The live-reload variant.** A bare deny added mid-session applies "from its next tool call
+on" (`permissions.md:76`), and Claude Code watches the user, project and local settings files
+and applies `permissions` edits live (`settings.md:594`). So the keeper could rewrite a deny in
+one of those files on each role change. It does not fit: those files are per user or per
+checkout, not per session, so two sessions in one checkout with different roles (a coordinator
+seat and a worker seat, the normal case) would fight over one file; the kit must not write the
+owner's user settings or a project's tracked or local settings, which the sessions share
+(cc's own denies are "cc's alone, never the project's, which ccy sessions share", docs/agent-bus.md, a cc session); and a
+deny one file still carries cannot be lifted by anything else (`permissions.md:730`).
+
 Verdict: the strongest enforcement, and wrong after the first hot role change. Not chosen as
 the mechanism; recorded as the alternative (owner decision OB2).
 
@@ -111,10 +121,10 @@ Verdict: wrong place. Its strength, a deny with a message, the kit's own hook ha
 | `SendUserFile`                        | yes                             | the same: a file sent to the human's device past the coordinator                                                                                                                                                                                                                       |
 | `EnterPlanMode`                       | yes                             | plan mode ends with `ExitPlanMode`, which needs the human's approval (`tools-reference.md`, "Permission required: Yes"), so an unattended worker stops there. `ExitPlanMode` itself is not blocked, so a session already in plan mode is never trapped                                 |
 | `RemoteTrigger`                       | yes                             | it creates and runs cloud routines on the owner's account, work outside the team and its room                                                                                                                                                                                          |
-| `Artifact`, `SendMessage`, cron tools | no                              | not role questions: `Artifact` is publishing policy (projects guard it), `SendMessage` also resumes sub-agents and a bare deny would remove that, and the cron tools keep a session alive (the hooks daemon's failsafe cron uses them)                                                 |
+| `Artifact`, `SendMessage`, cron tools | no                              | not role questions: `Artifact` is publishing policy (projects guard it), `SendMessage` also resumes the session's own sub-agents and talks to its teammates, and the cron tools keep a session alive (the hooks daemon's failsafe cron uses them)                                      |
 
-`EndConversation` cannot be denied while any other tool remains (`permissions.md`, the
-permissions overview), and is not in the set.
+`EndConversation` cannot be denied while any other tool remains (`permissions.md:78`,
+`tools-reference.md:295`), and is not in the set.
 
 ## 4. Sub-agents of a worker
 
@@ -123,9 +133,13 @@ permissions overview), and is not in the set.
   conversation's exact tool pool (`sub-agents.md:443`), so a worker's fork could call it.
 - Background sub-agents keep only a short list of built-in tools, which excludes the rest of
   section 3's set (`sub-agents.md:454`); foreground ones inherit the parent's tools.
-- A plugin's PreToolUse hook is the session's hook, so it judges a fork's or sub-agent's call
-  as it judges the main conversation's. That is to be proven on the host (Plan Task 1.1) before
-  the build relies on it; if it does not hold, the fallback is to add 2.1's launch-time deny for
+- Hooks from plugins run inside sub-agents: a sub-agent's tool call fires the same PreToolUse
+  hooks as the main conversation's, with `agent_id` and `agent_type` in the input
+  (`hooks.md:296`), and when several PreToolUse hooks disagree, `deny` wins (`hooks.md:1996`),
+  so the project's own hooks cannot overrule the guard. The docs do not say whether a fork
+  counts as a sub-agent there, nor that a hook's `deny` holds in bypassPermissions (they say it
+  of deny rules, `settings-reference.md:1706`). Both are proven on the host (Plan Task 1.1)
+  before the build relies on them; if it does not hold, the fallback is to add 2.1's launch-time deny for
   `AskUserQuestion` alone and accept a restart on promotion.
 
 ## 5. v1 and v2

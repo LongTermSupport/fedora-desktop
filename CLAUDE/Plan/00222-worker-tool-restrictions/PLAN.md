@@ -53,10 +53,16 @@ worker's sub-agents and forks.
   seat and is a worker in every team it is on. A coordinator in any of its teams is not
   restricted (it is the one that may ask the humans). The blocked set is the union of the
   worker teams' sets.
-- **R2 The role source.** The team records the status line reads (`PINGBUS_HOME`'s per-team
-  state), read on every call. A seated session whose role cannot be read in some team is
-  treated as a worker there and denied with the reason (fail closed, fail loud: "the role in
-  team T cannot be read; `pingbus status` says why"). A session with no seat is never touched.
+- **R2 The role source.** Exactly what the status line reads, read on every call: the teams
+  from the session's record, or from `PINGBUS_MEMBERSHIP` and its applied file (ccy, `cc`), or
+  from `PINGBUS_TEAMS` and `PINGBUS_HOME` (`agent-bus-claude`, which has no membership;
+  `agent-bus-claude:78-86`); each team's role from the bundle's cached team record
+  (`inbox.cached_role`; Go `statusline/roles.go`). A seated session whose role cannot be read in
+  some team is treated as a worker there and denied with the reason (fail closed, fail loud:
+  "the role in team T cannot be read; `pingbus status` says why"). Before the keeper has
+  written `$PINGBUS_HOME/active`, and after it is removed, the hook entry's guard exits 0 and
+  allows: no seat is held yet, so there is no role to fail on. A session with no seat is never
+  touched.
 - **R3 The hook.** `hooks.json` gains a PreToolUse entry with the catalogue as its matcher and
   the same no-seat guard the other entries use; it runs `pingbus-tool-guard` (a Go command in
   the kit beside `pingbus-status-line`, reusing its record readers), which answers one JSON
@@ -71,7 +77,11 @@ worker's sub-agents and forks.
   (`{"blocked": [...]}`, or no event for the default), outside the team record so an older
   member is not made to distrust the team (the colour's route, Plan 00217 C8); the syncer
   keeps it in the team's state. An event that cannot be read means the default set (never
-  less than the default).
+  less than the default). The key must reach every host_vars reader before any entry carries
+  it: `teamfile.py`, `declare.py` (read side and `EDITABLE_KEYS`, for the settings screen) and
+  00209 Task 7.1's Go line reader, each of which refuses a key it does not know. In v2 it is an
+  informational roster key under A 3.1: an old member that ignores it applies the default set,
+  which is stricter than any opt-out, never looser.
 - **R7 Pure decision, separate reader.** `Decide(rolesByTeam, policyByTeam, tool)` is a pure Go
   package naming no v1 file, so v2's hook imports it; only the reader is v1's.
 
@@ -82,11 +92,15 @@ worker's sub-agents and forks.
   (B25's one-JSON-line answer, R4's text), the role from the roster, `worker_blocked_tools` as
   a roster key and in `teamchat_teams[]` (C 3.8), and the migration carrying it (D 5). R7's
   decision package carries over unchanged. Nothing here edits 00209's files.
+- **Plan 00209 Task 7.1 (stage 1, in progress)** is porting `declare.py`'s host_vars reader to
+  Go; it must learn `worker_blocked_tools` (R6). Coordinated with its owner seat.
 - **Plan 00203 (hot control)**: R1 relies on its live role.
 - **Plan 00211 (questions room)**: the reason a worker's human questions go through the
   coordinator.
 - **Plan 00213**: the Go kit binaries and their build in the plays.
-- **Plan 00221 (labels)** reads the same per-team role; no shared code.
+- **Plan 00221 (labels)** adds `labels:` to `agent_bus_teams` through the same three readers
+  and an admin room-state event of the same shape: whichever plan builds first owns the shared
+  reader change (its Task 1.3, this plan's Task 3.1), the other depends on it.
 
 ## Tasks
 
@@ -95,8 +109,10 @@ Every build task is test first: the failing test is committed or shown before th
 ### Phase 1: Facts first
 
 - [ ] ⬜ **Task 1.1**: A host check, as a plan-local script: in a seated worker session, a
-  plugin PreToolUse hook on `AskUserQuestion` fires and its deny holds in bypassPermissions,
-  in the main conversation, a foreground sub-agent and a fork; record the Claude Code version.
+  plugin PreToolUse hook on `AskUserQuestion` fires and its deny holds in bypassPermissions
+  (ccy runs `--dangerously-skip-permissions`; the vendored docs say this of deny rules, not of
+  a hook's deny), in the main conversation, a foreground sub-agent and a fork (the docs cover
+  sub-agents, `hooks.md:296`, not forks); record the Claude Code version.
   If the fork or sub-agent case fails, journal it and take the fallback of RESEARCH section 4.
 
 ### Phase 2: The guard
@@ -113,16 +129,21 @@ Every build task is test first: the failing test is committed or shown before th
 
 ### Phase 3: The opt-out
 
-- [ ] ⬜ **Task 3.1**: `worker_blocked_tools` in `teamfile.py` and `localhost.yml.dist`; the
-  admin's `agent_bus.worker_tools` event; the syncer's copy; protocol spec §8 (R6).
+- [ ] ⬜ **Task 3.1**: `worker_blocked_tools` taught to every host_vars reader before
+  `localhost.yml.dist` shows it: `teamfile.py`, `declare.py` (read and `EDITABLE_KEYS`) and
+  00209 Task 7.1's Go line reader, each with a test that an entry carrying it is read, not
+  refused (shared with Plan 00221 Task 1.3); then the admin's `agent_bus.worker_tools` event,
+  the syncer's copy and protocol spec §8 (R6).
 - [ ] ⬜ **Task 3.2**: The ccy-teams settings screen shows the field and its effect (one line,
   with the rest of the team's fields).
 
 ### Phase 4: Docs, deploy, review
 
 - [ ] ⬜ **Task 4.1**: docs/agent-bus.md: what a worker cannot do and how a team opts out.
-- [ ] ⬜ **Task 4.2**: The version bumps the pre-commit hook asks for; the meta-deploy entry
-  (play-agent-bus.yml for the kit and the admin; the ccy image takes the kit at its next build).
+- [ ] ⬜ **Task 4.2**: The entrypoint's list of required kit files gains `pingbus-tool-guard`
+  (`files/var/local/claude-yolo/entrypoint.sh`, beside `pingbus-status-line`), with the CCY
+  version bump that path needs; the meta-deploy entry (play-agent-bus.yml for the kit and the
+  admin; play-claude-yolo.yml; the ccy image takes the kit at its next build).
 - [ ] ⬜ **Task 4.3**: Adversarial review of the diff until MERGE, then `qa-reviewer`.
 - [ ] ⬜ **Task 4.4**: On the host: a worker's `AskUserQuestion` is denied with R4's message; a
   hot promotion lets it ask at the next call; a team with `worker_blocked_tools: []` is not
@@ -150,8 +171,9 @@ Every build task is test first: the failing test is committed or shown before th
 
 ## Success Criteria
 
-- [ ] A worker cannot ask the human a question, notify them, send them a file, enter plan mode
-  or create a routine, and is told what to do instead; the coordinator can do all of these.
+- [ ] In a worker session each of `AskUserQuestion`, `PushNotification`, `SendUserFile`,
+  `EnterPlanMode` and `RemoteTrigger` is denied with R4's fixed text for that tool, compared
+  byte for byte; in the coordinator's session none is denied.
 - [ ] A hot role change applies at the next tool call without a restart.
 - [ ] A team opts out with one host_vars field.
 - [ ] Task 1.1's host check passes for the main conversation, a sub-agent and a fork.
