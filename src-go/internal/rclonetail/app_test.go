@@ -414,6 +414,27 @@ func TestStopDuringTick(t *testing.T) {
 	}
 }
 
+// E15: a stop after a mount's last call ends the tick before the next line, and --once still
+// gets its closing snapshot; every command runs in a session of its own (D5).
+func TestStopAfterLastCall(t *testing.T) {
+	w := newWorld(t)
+	w.mount("12", "lib:", "lib", "--rc-addr=h:1")
+	w.mount("13", "norc:", "norc")
+	w.answer("h:1", "vfs/stats", `{"diskCache":{"uploadsQueued":1,"bytesUsed":99}}`)
+	w.fake.OnFunc([]string{"rclone", "rc", "--url=http://h:1", "core/stats"}, func(execx.Cmd) (execx.Result, error) {
+		w.stop()
+		return execx.Result{Stdout: []byte("{}")}, nil
+	})
+	closing := "=== rclone cache status ===\n" +
+		"  lib  cache: 99B / ∞ · 0 files · max-age off · queued: 1\n  norc  (no --rc; cannot query)\n"
+	w.expect(w.run("--once"), term.ExitOK, heading+"\n"+closing)
+	for _, c := range w.fake.Calls() {
+		if !c.NewSession {
+			t.Fatalf("%q runs in the terminal's session", c.Line())
+		}
+	}
+}
+
 // E15: a stop during the opening snapshot lets it finish; the closing one follows with no tick,
 // and the signals are released before it starts.
 func TestStopDuringOpeningSnapshot(t *testing.T) {

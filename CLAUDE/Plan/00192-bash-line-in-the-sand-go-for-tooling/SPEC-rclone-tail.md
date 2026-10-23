@@ -58,7 +58,10 @@ once (D3) instead of keeping a second copy. `PLAN.md` lists it as left after
   the RC calls through `rclonerc.Client`, which keeps the password out of argv. The time of day,
   the elapsed time and the wait between ticks are `Env.Now` and `Env.After`; SIGINT and SIGTERM
   reach the run through `Env.OnStop`, which calls its function when one arrives, so a test stops a
-  run at an exact point.
+  run at an exact point. Every child runs in a session of its own (`execx.Cmd.NewSession`), so
+  the terminal's Ctrl-C reaches this run alone: a call in flight is ended by the run's own
+  cancel, never killed first by the signal and read as `rc unreachable`, and an opening
+  snapshot under way finishes with true figures.
 
 ## 3. Expectations
 
@@ -123,7 +126,7 @@ once (D3) instead of keeping a second copy. `PLAN.md` lists it as left after
   of that tick, then the next tick, until stopped. A snapshot that exits non-zero ends the run
   with its exit code before the first tick.
 - E15. SIGINT or SIGTERM, at any point after the command line is read: the run stops; a tick
-  under way stops printing at once, and the RC call in flight is cancelled and is neither
+  under way stops printing at once (before its next mount line, whether or not a call follows), and the RC call in flight is cancelled and is neither
   printed nor diagnosed; an opening snapshot under way is finished first. Then an empty line and
   the closing snapshot, and the exit is the snapshot's (0 when it was written). With `--once`
   too: the tick stops and the snapshot follows. The signals are released before the closing
@@ -193,6 +196,7 @@ and `rclone` on `PATH` (journal); every difference is a departure above.
   (`echo $?` prints `0`).
 - H4. `ftp-camera`'s closing upload status (`rclone-tail --once <mount>`) still prints.
 
-`deploy-rclone-tail.bash` runs `play-rclone.yml --tags rclone-tail`, which builds and installs
-the command and leaves the mounts up, then `acceptance-rclone-tail.bash`, which scripts H1 and the
+`deploy-rclone-tail.bash` runs `play-rclone.yml --tags rclone-tail,rclone-cache-status`, which
+builds and installs this command, rebuilds `rclone-cache-status` (changed by D3 and its B12) and
+leaves the mounts up, then `acceptance-rclone-tail.bash`, which scripts H1 and the
 installed-program check; H2 to H4 are by hand.

@@ -2,10 +2,11 @@
 # Plan 00192 — deploy-rclone-tail.bash
 #
 # WHAT THIS CHANGES (HOST-only; running it is the consent, CLAUDE/PlanScriptStandards.md R8):
-#   play-rclone.yml --tags rclone-tail — installs the Go toolchain if missing
-#   (play-golang.yml), builds src-go/cmd/rclone-tail from this checkout and installs it at
-#   ~/.local/bin/rclone-tail in place of the bash script. Only the tagged tasks run: the mounts
-#   are not stopped, reconfigured or restarted.
+#   play-rclone.yml --tags rclone-tail,rclone-cache-status — installs the Go toolchain if
+#   missing (play-golang.yml), builds src-go/cmd/rclone-tail from this checkout and installs it at
+#   ~/.local/bin/rclone-tail in place of the bash script, and rebuilds rclone-cache-status (the
+#   port changed it too: shared rclonerc code, --no-dir makes a TARGET a name). Only the tagged
+#   tasks run: the mounts are not stopped, reconfigured or restarted.
 #   Then acceptance-rclone-tail.bash checks the installed command (skipped under --check).
 #
 # Usage: ./deploy-rclone-tail.bash [--check] [-y|--yes] [-h|--help]
@@ -31,8 +32,9 @@ plan_init "${BASH_SOURCE[0]}"
 
 PLAN_USAGE="usage: deploy-rclone-tail.bash [--check] [-y|--yes] [-h|--help]
 
-Runs play-rclone.yml --tags rclone-tail on the HOST (the Go rclone-tail built and installed;
-the mounts are left alone), then acceptance-rclone-tail.bash."
+Runs play-rclone.yml --tags rclone-tail,rclone-cache-status on the HOST (the Go rclone-tail
+built and installed, rclone-cache-status rebuilt; the mounts are left alone), then
+acceptance-rclone-tail.bash."
 
 plan_mode deploy
 plan_parse_common_flags "$@"
@@ -50,8 +52,8 @@ plan_prime_sudo
 
 plan_start_log auto
 
-plan_deploy_leg "play-rclone.yml --tags rclone-tail" \
-    plan_ansible_playbook playbooks/imports/optional/common/play-rclone.yml --tags rclone-tail
+plan_deploy_leg "play-rclone.yml --tags rclone-tail,rclone-cache-status" \
+    plan_ansible_playbook playbooks/imports/optional/common/play-rclone.yml --tags rclone-tail,rclone-cache-status
 
 if [[ "${PLAN_CHECK:-0}" == "1" ]]; then
     printf '\n==> --check: acceptance-rclone-tail.bash skipped, nothing was deployed to test\n'

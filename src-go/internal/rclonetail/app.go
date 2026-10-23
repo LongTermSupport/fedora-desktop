@@ -122,6 +122,9 @@ const (
 // Run is the whole command; it returns the exit code.
 func (a App) Run(ctx context.Context, args []string) term.ExitCode {
 	env := a.Env
+	// Every child in a session of its own (D5): the terminal's Ctrl-C reaches this run alone,
+	// which cancels a call in flight itself, so a killed child is never read as an RC failure.
+	env.Runner = detached{env.Runner}
 	r := &run{
 		env:    env,
 		rc:     &rclonerc.Client{Runner: env.Runner, Getenv: env.Getenv, Proc: env.Proc},
@@ -147,7 +150,11 @@ func (a App) Run(ctx context.Context, args []string) term.ExitCode {
 	release := env.OnStop(stop)
 	defer release()
 	if opts.once {
-		return r.ended(ctx, r.tick(stopCtx), release)
+		err := r.tick(stopCtx)
+		if err == nil && stopCtx.Err() != nil {
+			err = errStopped
+		}
+		return r.ended(ctx, err, release)
 	}
 	return r.stream(ctx, stopCtx, release)
 }
@@ -267,6 +274,9 @@ func (r *run) tick(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		if ctx.Err() != nil {
+			return errStopped
+		}
 		if r.line("  " + r.paint(cyan, m.Name) + "  " + text); r.p.Err() != nil {
 			return r.p.Err()
 		}
@@ -318,6 +328,15 @@ func (r *run) describe(ctx context.Context, m rclonerc.Mount) (string, error) {
 		text += " · " + r.paint(red, fmt.Sprintf("%d errored", q.errored))
 	}
 	return text, nil
+}
+
+// detached runs every command in a new session (execx.Cmd.NewSession), whose group is killed
+// when the run's context ends.
+type detached struct{ execx.Runner }
+
+func (d detached) Run(ctx context.Context, c execx.Cmd) (execx.Result, error) {
+	c.NewSession = true
+	return d.Runner.Run(ctx, c)
 }
 
 // rcAddr is the mount's RC address, or why it has none that can be used (E5).

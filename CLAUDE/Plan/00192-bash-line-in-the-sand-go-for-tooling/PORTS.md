@@ -370,5 +370,10 @@ whole mount; `--no-dir` now makes a TARGET a name (SPEC-rclone-cache-status B12)
 the bash, its allowlist row and the caller test that read it are gone (it had no suite). Side by
 side with the bash over a fake `findmnt` and `rclone` and fake mount processes: identical ticks,
 streams and closing snapshots; the differences are departures B1, B2 and B5. Host run
-`deploy-rclone-tail.bash` (the tagged play, then `acceptance-rclone-tail.bash` for H1) is
-pending; H2-H4 are the owner's, by hand.
+`deploy-rclone-tail.bash` (the play with tags `rclone-tail,rclone-cache-status`, then
+`acceptance-rclone-tail.bash` for H1) is pending; H2-H4 are the owner's, by hand. Opus review
+round 1 (`subagent-reports/261023-review-rclone-tail-r1-opus.md`, FIX FIRST: 1 Medium, 2 Low)
+fixed: the deploy rebuilds `rclone-cache-status` too; every child runs in its own session so a
+terminal Ctrl-C cannot kill an RC call before the run cancels it; a stop ends the tick before the
+next line and `--once` still gets its closing snapshot. Further rounds: handed back to the
+coordinator (context budget).
