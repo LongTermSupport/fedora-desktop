@@ -20,6 +20,7 @@ var keeperLogReaders = []allowance{
 	{pkg: keeperPkg, fn: "world.keeperLog", reason: "the one reader: the file before the loop and after the keeper, the turn's copy between"},
 	{pkg: keeperPkg, fn: "world.turned", reason: "the copy of keeper.log each of the loop's turns leaves as it ends"},
 	{pkg: keeperPkg, fn: "world.runs", reason: "existence only: which runs of the run root are a keeper's"},
+	{pkg: keeperPkg, fn: "logTap.StartTicks", reason: "the launch goldens' tap: opened while the run is made, read only once the keeper has ended"},
 }
 
 // KeeperLogBarrier holds every read of keeper.log in the keeper's tests to the harness's

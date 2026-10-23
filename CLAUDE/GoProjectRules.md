@@ -618,7 +618,9 @@ transaction id (`tc-disc-<run>`), which is a different defence for a different h
 In the `_test.go` files of teamchat's keeper (`internal/teamchat/member/keeper`), a use of
 `paths.Run`'s `KeeperLog` outside the harness functions the `keeperLogReaders` table names
 (`world.keeperLog`, the one reader; `world.turned`, the turn-end copy; `world.runs`, existence
-only). The class is a test barrier released partway through the work it waits for. A loop turn
+only; `logTap.StartTicks`, the launch goldens' tap, opened while the run is made and read only
+once the keeper has ended, since the end removes the run). The class is a test barrier released
+partway through the work it waits for. A loop turn
 may log a line and then do more: the owed notice's timer logs "not posted in time" and only
 then lets the seat go, and `fail` logs "the link failed" before it closes the seat locks. A
 test that waited for the line by reading the file saw it mid-turn and found the seat still held
