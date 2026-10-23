@@ -547,20 +547,22 @@ class DictationSession:
 
     def abort(self):
         """Escape: close the microphone at once and discard the text, journal included."""
+        # The microphone is signalled and the text removed before "aborted" is set, all
+        # under the lock every writer of the directory takes, so a reader of "aborted"
+        # (busy() is False from then on) finds them gone and no writer comes after
         with self._lock:
             if self.state in self.FINISHED:
                 return
+            if self._proc is not None:
+                self._proc.kill()
+            self._journal.close()
+            shutil.rmtree(self.session_dir)
             self.state = "aborted"
             self._drain_queue(keep=False)
             self._queue.put(None)
         log("Dictation aborted - discarding it")
-        if self._proc is not None:
-            self._proc.kill()
         if self._capture_thread is not None:
             self._capture_thread.join(timeout=3)
-        with self._lock:
-            self._journal.close()
-            shutil.rmtree(self.session_dir)
         self._finished.set()
 
     def fail(self, message, failed=None):
@@ -572,6 +574,10 @@ class DictationSession:
         with self._lock:
             if self.state in self.FINISHED:
                 return
+            # Signalled before "failed" is set: busy() is False from then on, so a START
+            # may follow, and it must find this microphone already told to close
+            if self._proc is not None and self._proc.poll() is None:
+                self._proc.terminate()
             self.state = "failed"
             self.error = message
             self._stopped_at = self._stopped_at or time.monotonic()
@@ -586,8 +592,6 @@ class DictationSession:
             self._journal.close()
             self._log_stats_locked("failed")
         log(f"Dictation FAILED: {message}", "ERROR")
-        if self._proc is not None and self._proc.poll() is None:
-            self._proc.terminate()
         self._finished.set()
 
     def mark_delivered(self):
@@ -960,12 +964,14 @@ class FileJob:
         except Exception as e:
             state, error = "failed", f"{type(e).__name__}: {e}"
             log(f"File transcription failed: {error}", "ERROR")
-        # The marker goes first: a client told the job has ended must not still find it
+        # Cleanup before the end is published: a poller told "done" finds no marker, a job
+        # it starts next cannot have its marker deleted by this one, and an idle check made
+        # after the end sees the activity already recorded
         FILE_JOB_MARKER.unlink(missing_ok=True)
-        with self._lock:
-            self._state, self._error = state, error
         update_activity()
         log(f"File transcription {state}: {len(self._segments)} segments from {len(self._paths)} files")
+        with self._lock:
+            self._state, self._error = state, error
 
     def report(self, since):
         """The state, the segments from index `since` on, and, once done, what was heard."""
