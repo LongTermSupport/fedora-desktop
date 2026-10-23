@@ -5,8 +5,9 @@
 # R9): fontconfig gives Noto Color Emoji for the emoji of #60 under each generic family and
 # under the named text font a terminal asks for, both as the single best match (fc-match)
 # and in the ordered list (fc-match -a, what Pango and so every GTK terminal walks), while
-# the digits, '#', '*' and the space stay on the text font. HOST ONLY, as the desktop user;
-# no sudo, and it changes nothing.
+# the digits, '#', '*' and the space stay on the text font. The same for the font Ptyxis is
+# set to (read from its settings), and common text symbols stay on a text font there. HOST
+# ONLY, as the desktop user; no sudo, and it changes nothing.
 #
 # NOT ESTABLISHABLE by a script, and left as a named open item for Plan 00219's desktop
 # check: the issue's printf drawing a line graph, a spool of thread and a package in a new
@@ -58,14 +59,14 @@ fi
 plan_require_host "it asks this desktop's fontconfig which font draws each character"
 plan_start_log auto
 
-for tool in fc-match fc-list cmp; do
+for tool in fc-match fc-list cmp gsettings grep; do
     if ! command -v "${tool}" >/dev/null; then
-        printf '[FATAL] %s not found: fontconfig comes from play-fonts.yml; deploy it, do not install by hand\n' "${tool}" >&2
+        printf '[FATAL] %s not found: fontconfig comes from play-fonts.yml and gsettings from GLib; deploy, do not install by hand\n' "${tool}" >&2
         exit 1
     fi
 done
 
-readonly DECLARED=12
+readonly DECLARED=17
 readonly COLOUR="Noto Color Emoji"
 readonly DEPLOYED=/etc/fonts/conf.d/69-colour-emoji-fallback.conf
 readonly SOURCE="${PLAN_REPO_ROOT}/files/etc/fonts/conf.d/69-colour-emoji-fallback.conf"
@@ -94,9 +95,10 @@ verdict() {
         bad "$1" "want: $2 | got: $3"
     fi
 }
-# family_for <request> — the family fontconfig's single best match picks.
+# family_for <request> — the family fontconfig's single best match picks. A failing fc-match
+# becomes the value a check rejects, so the verdict lines are still printed.
 family_for() {
-    fc-match -f '%{family[0]}' "$1"
+    fc-match -f '%{family[0]}' "$1" || printf 'fc-match failed (exit %s)' "$?"
 }
 # escaped <family> — the family in fontconfig name syntax, where '-' would start the size.
 escaped() {
@@ -170,6 +172,77 @@ while IFS= read -r family; do
     esac
 done <<<"${ordered}"
 verdict "12. ${COLOUR} comes before Symbola, Noto Emoji and Noto Sans Symbols 2" "${COLOUR}" "${first_emoji_font:-none of them}"
+
+echo "== the font the terminal (Ptyxis) is set to, which reaches the fallback by its own route"
+# A font with no generic family of its own (Source Code Pro is in neither 45-latin.conf nor
+# 60-latin.conf) gets sans-serif from 49-sansserif.conf, so it takes the sans-serif rule.
+terminal_font=""
+# A missing schema or key is a failed check 13 with the reason, not an abort.
+if ! use_system_font="$(gsettings get org.gnome.Ptyxis use-system-font 2>&1)"; then
+    terminal_setting="gsettings failed: ${use_system_font}"
+elif [[ "${use_system_font}" == "true" ]]; then
+    terminal_setting="$(gsettings get org.gnome.desktop.interface monospace-font-name 2>&1)" ||
+        terminal_setting="gsettings failed: ${terminal_setting}"
+else
+    terminal_setting="$(gsettings get org.gnome.Ptyxis font-name 2>&1)" ||
+        terminal_setting="gsettings failed: ${terminal_setting}"
+fi
+terminal_setting="${terminal_setting#\'}"
+terminal_setting="${terminal_setting%\'}"
+# A Pango font description ends in the size: "Source Code Pro 11".
+if [[ "${terminal_setting}" =~ ^(.+)[[:space:]]+[0-9]+([.][0-9]+)?$ ]]; then
+    terminal_font="${BASH_REMATCH[1]}"
+fi
+# first_covering <request> <code point> — the first font in the ordered list for the request
+# that has the character: the font a GTK terminal draws it with.
+first_covering() {
+    local family covering
+    covering="$(fc-list -f '%{family[0]}\n' ":charset=$2")"
+    while IFS= read -r family; do
+        if grep -Fxq -- "${family}" <<<"${covering}"; then
+            printf '%s' "${family}"
+            return
+        fi
+    done < <(fc-match -a -f '%{family[0]}\n' "$1")
+    printf 'none of them'
+}
+terminal_request="$(escaped "${terminal_font}")"
+if [[ -z "${terminal_font}" ]]; then
+    bad "13. the terminal font is read from its settings and installed" "got '${terminal_setting}', not '<family> <size>'"
+elif [[ "$(family_for "${terminal_request}")" != "${terminal_font}" ]]; then
+    bad "13. the terminal font is read from its settings and installed" \
+        "'${terminal_font}' is set, but fontconfig gives '$(family_for "${terminal_request}")' for it"
+    terminal_font=""
+else
+    ok "13. the terminal font is read from its settings and installed: ${terminal_font}"
+fi
+if [[ -z "${terminal_font}" ]]; then
+    for check in "14. the ordered list draws the emoji of #60 from ${COLOUR}" \
+        "15. the single best match gives ${COLOUR} for them" \
+        "16. the keycap bases stay on the terminal font" \
+        "17. U+2714, U+2713 and U+2600 come from a text font"; do
+        bad "${check}" "no terminal font to ask about (check 13)"
+    done
+else
+    terminal_misses=""
+    for cp in "${EMOJI[@]}"; do
+        got="$(first_covering "${terminal_request}" "${cp}")"
+        if [[ "${got}" != "${COLOUR}" ]]; then terminal_misses+="U+${cp^^}=${got}; "; fi
+    done
+    verdict "14. the ordered list for ${terminal_font} draws every emoji of #60 from ${COLOUR}" "" "${terminal_misses}"
+    verdict "15. the single best match for ${terminal_font} gives ${COLOUR} for every one" "" \
+        "$(emoji_misses "${terminal_request}")"
+    verdict "16. ${terminal_font} keeps the keycap bases (digits, hash, asterisk, space) on itself" "" \
+        "$(keycap_misses "${terminal_request}" "${terminal_font}")"
+    # The known cost: a text symbol that no font in the family list has now comes from the
+    # colour font. Check marks and the sun must still come from a text font in that list.
+    symbol_misses=""
+    for cp in 2714 2713 2600; do
+        got="$(first_covering "${terminal_request}" "${cp}")"
+        if [[ "${got}" == "${COLOUR}" ]]; then symbol_misses+="U+${cp^^}=${got}; "; fi
+    done
+    verdict "17. ${terminal_font} draws U+2714, U+2713 and U+2600 from a text font" "" "${symbol_misses}"
+fi
 
 echo
 ran=$((PASS + FAIL))

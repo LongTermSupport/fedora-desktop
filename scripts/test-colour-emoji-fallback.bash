@@ -6,24 +6,35 @@
 # does) or the single best match for the character (FcFontMatch, as fc-match does). On the
 # host both gave Symbola or the monochrome Noto Emoji for every emoji, never Noto Color
 # Emoji. Neither generic family lists the colour font, and in the single best match a font
-# supporting the locale's language (Symbola has Latin letters, so "en") ranks above any weak
-# family entry while Noto Color Emoji has no letters. A strong entry would rank above the
-# language, but would draw the digits, '#' and '*' from the emoji font (it has them for the
-# keycaps). The deployed file adds the font WEAKLY after each generic family and records
-# "en" for it when fontconfig scans it; both paths, and the digits, are checked here.
+# supporting the language of the locale (Symbola has Latin letters, so "en") ranks above any
+# weak family entry while Noto Color Emoji has no letters. A strong entry would rank above
+# the language, but would draw the digits, the hash and the asterisk from the emoji font (it
+# has them for the keycaps). The deployed file adds the font WEAKLY after each generic
+# family, which orders the list, and records "en" for it when fontconfig scans it, which
+# settles the single best match; both paths, and the digits, are checked here.
 #
 # The fonts are fixtures, made here as BDF text files, so the result depends on nothing the
-# machine has installed: a text font with Latin letters, a Symbola stand-in with letters and
-# the emoji, a monochrome emoji font, and a font called Noto Color Emoji with digits and the
-# emoji but no letters. fontconfig runs with a sealed config naming only them, the generic
-# aliases a distribution provides, and the real deployed file, read where it is in the repo.
+# machine has installed: a text font for each generic family, a terminal font with no
+# generic family of its own (Source Code Pro on the host, which reaches sans-serif through
+# 49-sansserif.conf), a Symbola stand-in with letters and the emoji, a monochrome emoji
+# font, and a font called Noto Color Emoji with digits and the emoji but no letters.
+# fontconfig runs with a sealed config naming only them, the rules a distribution provides
+# in the order Fedora has them, and the real deployed file, read where it is in the repo.
+#
+# Each rule in the file is load-bearing here: removing any one turns a check red. Fonts that
+# tie are ordered by scan order, so the file of the Symbola stand-in sorts first and a tie
+# goes to it, never to the colour font by accident of a file name.
 #
 # Each query is checked twice: without the file (it must reproduce the defect, or the
-# fixture proves nothing) and with it. Needs fontconfig's fc-cache, fc-match and fc-list.
+# fixture proves nothing) and with it. Needs fc-cache, fc-match and fc-list (fontconfig).
 #
 # `set -e` is deliberately NOT used: every case runs so the summary is complete, and each
 # result is checked explicitly.
 set -uo pipefail
+
+# The single best match depends on the language: run in English whatever the locale of the
+# caller, since the file levels the languages for "en" only.
+export FC_LANG=en
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -50,6 +61,8 @@ LATIN=()
 for ((cp = 0x20; cp <= 0x7e; cp++)); do LATIN+=("$(printf '%x' "$cp")"); done
 for ((cp = 0xa0; cp <= 0xff; cp++)); do LATIN+=("$(printf '%x' "$cp")"); done
 KEYCAP_BASES=(20 23 2a 30 31 32 33 34 35 36 37 38 39)
+# Text symbols (heavy check mark, sun) that the colour font also has, as on the host.
+SYMBOLS=(2714 2600)
 
 # write_bdf <file> <family> <hex code point>... — a blank 8x8 bitmap font with those characters.
 write_bdf() {
@@ -68,24 +81,37 @@ write_bdf() {
         printf 'ENDFONT\n'
     } >"$file"
 }
-write_bdf "$work/fonts/text.bdf" "Fixture Mono" "${LATIN[@]}"
-write_bdf "$work/fonts/symbola.bdf" "Fixture Symbols" "${LATIN[@]}" "${EMOJI[@]}"
-write_bdf "$work/fonts/mono-emoji.bdf" "Noto Emoji" "${KEYCAP_BASES[@]}" "${EMOJI[@]}"
-write_bdf "$work/fonts/colour-emoji.bdf" "Noto Color Emoji" "${KEYCAP_BASES[@]}" "${EMOJI[@]}"
+# The file names set the scan order, and so how ties fall: the symbol fonts first.
+write_bdf "$work/fonts/a-symbols.bdf" "Fixture Symbols" "${LATIN[@]}" "${EMOJI[@]}" "${SYMBOLS[@]}"
+write_bdf "$work/fonts/b-mono-emoji.bdf" "Noto Emoji" "${KEYCAP_BASES[@]}" "${EMOJI[@]}"
+write_bdf "$work/fonts/m-mono.bdf" "Fixture Mono" "${LATIN[@]}"
+write_bdf "$work/fonts/m-sans.bdf" "Fixture Sans" "${LATIN[@]}" "${SYMBOLS[@]}"
+write_bdf "$work/fonts/m-serif.bdf" "Fixture Serif" "${LATIN[@]}"
+write_bdf "$work/fonts/m-code.bdf" "Fixture Code" "${LATIN[@]}"
+write_bdf "$work/fonts/z-colour-emoji.bdf" "Noto Color Emoji" "${KEYCAP_BASES[@]}" "${EMOJI[@]}" "${SYMBOLS[@]}"
 
-# sealed_config <name> [include] — a config naming only the fixtures, and each generic family
-# preferring the text font as a distribution's own aliases do; the text font falls back to
-# monospace as 45-latin.conf has it. Each config has its own cache, built fresh.
+# sealed_config <name> [include] — a config naming only the fixtures, with the rules of a
+# distribution in the order Fedora has them: each text font gets its generic family as a
+# default (45-latin.conf), a font with none gets sans-serif (49-sansserif.conf), each generic
+# family prefers its text font (60-latin.conf), then the file under test at 69. Each config
+# has its own cache.
 sealed_config() {
-    local name="$1" include="${2:-}" generic
+    local name="$1" include="${2:-}" pair generic
     mkdir -p "$work/$name"
     {
         printf '<?xml version="1.0"?>\n<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">\n<fontconfig>\n'
         printf '<dir>%s/fonts</dir>\n<cachedir>%s/%s/cache</cachedir>\n' "$work" "$work" "$name"
-        for generic in monospace sans-serif serif; do
-            printf '<alias><family>%s</family><prefer><family>Fixture Mono</family></prefer></alias>\n' "$generic"
+        for pair in "Fixture Mono=monospace" "Fixture Sans=sans-serif" "Fixture Serif=serif"; do
+            printf '<alias><family>%s</family><default><family>%s</family></default></alias>\n' "${pair%%=*}" "${pair#*=}"
         done
-        printf '<alias><family>Fixture Mono</family><default><family>monospace</family></default></alias>\n'
+        printf '<match target="pattern">'
+        for generic in sans-serif serif monospace; do
+            printf '<test qual="all" name="family" compare="not_eq"><string>%s</string></test>' "$generic"
+        done
+        printf '<edit name="family" mode="append_last"><string>sans-serif</string></edit></match>\n'
+        for pair in "Fixture Mono=monospace" "Fixture Sans=sans-serif" "Fixture Serif=serif"; do
+            printf '<alias><family>%s</family><prefer><family>%s</family></prefer></alias>\n' "${pair#*=}" "${pair%%=*}"
+        done
         if [ -n "$include" ]; then printf '<include ignore_missing="no">%s</include>\n' "$include"; fi
         printf '</fontconfig>\n'
     } >"$work/$name/fonts.conf"
@@ -113,44 +139,11 @@ check() {
 family_for() {
     FONTCONFIG_FILE="$work/$1/fonts.conf" fc-match -f '%{family[0]}' "$2"
 }
-
-fixture_count="$(FONTCONFIG_FILE="$work/with/fonts.conf" fc-list -f '%{family[0]}\n' | grep -c .)"
-check "fontconfig indexes the four fixture fonts" 4 "$fixture_count"
-
-# The defect, reproduced: without the file the English-capable symbol font wins every emoji.
-for cp in "${EMOJI[@]}"; do
-    check "without the file, monospace:charset=$cp" "Fixture Symbols" "$(family_for without "monospace:charset=$cp")"
-done
-
-colour_langs="$(FONTCONFIG_FILE="$work/with/fonts.conf" fc-list -f '%{lang}' 'Noto Color Emoji')"
-case "|${colour_langs//,/|}|" in
-    *"|en|"*) check "the scan records en for Noto Color Emoji" yes yes ;;
-    *) check "the scan records en for Noto Color Emoji" "a langset with en" "$colour_langs" ;;
-esac
-
-# The fix: the colour font for every emoji, under each generic family and a named font.
-# A request is fontconfig name syntax, where an unescaped '-' starts the size: "sans-serif"
-# would be read as the family "sans".
-for request in monospace 'sans\-serif' serif "Fixture Mono"; do
-    for cp in "${EMOJI[@]}"; do
-        check "with the file, $request:charset=$cp" "Noto Color Emoji" "$(family_for with "$request:charset=$cp")"
-    done
-done
-
-# The guard: digits, '#', '*' and the space still come from the text font.
-for request in monospace 'sans\-serif' "Fixture Mono"; do
-    for cp in 30 39 23 2a 20; do
-        check "with the file, $request:charset=$cp stays on the text font" "Fixture Mono" "$(family_for with "$request:charset=$cp")"
-    done
-done
-
-# What a GTK terminal does: the whole ordered list for its font, first match per character.
-# The text font leads; the colour font comes before the English-capable symbol font only
-# with the file, and before the monochrome emoji font.
-# first_of <config> <family>... — whichever of the families comes first in the ordered list.
+# first_of <config> <request> <family>... — whichever of the families comes first in the
+# ordered list for the request, which is what a GTK terminal walks for a missing character.
 first_of() {
-    local config="$1" line wanted
-    shift
+    local config="$1" request="$2" line wanted
+    shift 2
     while IFS= read -r line; do
         for wanted in "$@"; do
             if [ "$line" = "$wanted" ]; then
@@ -158,17 +151,56 @@ first_of() {
                 return
             fi
         done
-    done < <(FONTCONFIG_FILE="$work/$config/fonts.conf" fc-match -a -f '%{family[0]}\n' 'Fixture Mono')
+    done < <(FONTCONFIG_FILE="$work/$config/fonts.conf" fc-match -a -f '%{family[0]}\n' "$request")
     printf 'none of them'
 }
-check "the ordered list starts with the text font" "Fixture Mono" \
-    "$(first_of with 'Fixture Mono' 'Noto Color Emoji' 'Fixture Symbols' 'Noto Emoji')"
-check "without the file, the symbol font comes before the colour font" "Fixture Symbols" \
-    "$(first_of without 'Noto Color Emoji' 'Fixture Symbols')"
-check "with the file, the colour font comes before the symbol font" "Noto Color Emoji" \
-    "$(first_of with 'Noto Color Emoji' 'Fixture Symbols')"
-check "with the file, the colour font comes before the monochrome emoji font" "Noto Color Emoji" \
-    "$(first_of with 'Noto Color Emoji' 'Noto Emoji')"
+
+fixture_count="$(FONTCONFIG_FILE="$work/with/fonts.conf" fc-list -f '%{family[0]}\n' | grep -c .)"
+check "fontconfig indexes the seven fixture fonts" 7 "$fixture_count"
+
+colour_langs="$(FONTCONFIG_FILE="$work/with/fonts.conf" fc-list -f '%{lang}' 'Noto Color Emoji')"
+case "|${colour_langs//,/|}|" in
+    *"|en|"*) check "the scan records en for Noto Color Emoji" yes yes ;;
+    *) check "the scan records en for Noto Color Emoji" "a langset with en" "$colour_langs" ;;
+esac
+
+# Each generic family, its text font, and the terminal font that has no generic family, as
+# "request=text font". A request is fontconfig name syntax, where an unescaped dash starts
+# the size: "sans-serif" would be read as the family "sans", so it is written escaped.
+REQUESTS=("monospace=Fixture Mono" "sans\\-serif=Fixture Sans" "serif=Fixture Serif"
+    "Fixture Mono=Fixture Mono" "Fixture Code=Fixture Code")
+EMOJI_FONTS=("Noto Color Emoji" "Fixture Symbols" "Noto Emoji")
+
+for pair in "${REQUESTS[@]}"; do
+    request="${pair%%=*}"
+    text="${pair#*=}"
+    # The single best match: the defect without the file, the colour font with it.
+    for cp in "${EMOJI[@]}"; do
+        check "without the file, $request:charset=$cp" "Fixture Symbols" "$(family_for without "$request:charset=$cp")"
+        check "with the file, $request:charset=$cp" "Noto Color Emoji" "$(family_for with "$request:charset=$cp")"
+    done
+    # The ordered list: it starts with the text font; the colour font comes first of the
+    # emoji-capable fonts only with the file.
+    check "with the file, the ordered list for $request starts with $text" "$text" \
+        "$(first_of with "$request" "$text" "${EMOJI_FONTS[@]}")"
+    check "without the file, the ordered list for $request puts a monochrome font first" "Fixture Symbols" \
+        "$(first_of without "$request" "${EMOJI_FONTS[@]}")"
+    check "with the file, the ordered list for $request puts the colour font first" "Noto Color Emoji" \
+        "$(first_of with "$request" "${EMOJI_FONTS[@]}")"
+    # The guard: the digits, the hash, the asterisk and the space stay on the text font.
+    for cp in 30 39 23 2a 20; do
+        check "with the file, $request:charset=$cp stays on $text" "$text" "$(family_for with "$request:charset=$cp")"
+    done
+done
+
+# A text symbol the terminal font lacks still comes from the text font of the sans-serif
+# list it reaches, not from the colour font, in the single best match and the ordered list.
+for cp in "${SYMBOLS[@]}"; do
+    check "with the file, Fixture Code:charset=$cp stays on Fixture Sans" "Fixture Sans" \
+        "$(family_for with "Fixture Code:charset=$cp")"
+done
+check "with the file, the ordered list for Fixture Code has Fixture Sans before the colour font" "Fixture Sans" \
+    "$(first_of with "Fixture Code" "Fixture Sans" "Noto Color Emoji" "Fixture Symbols")"
 
 echo "passed: $passed"
 echo "failed: $failed"

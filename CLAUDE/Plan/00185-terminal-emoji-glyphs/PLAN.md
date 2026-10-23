@@ -114,12 +114,20 @@ and the hook stays the owner's call.
   makes `fc-match monospace:charset=1f4c8` name the colour font (the ordered list Pango walks
   already follows the append). The check is `scripts/test-colour-emoji-fallback.bash`, a
   `qa-gates.tsv` suite running fontconfig against BDF fixture fonts: red without the file and
-  with the append alone, green with the file. Open: the host run.
+  with any one of its four rules removed (each mutant shown red in review round 2), green
+  with the file. The same was reproduced in the container with the real fonts (Source Code
+  Pro, Symbola, Noto Emoji, Noto Color Emoji, DejaVu) under the stock conf.d: without the
+  file Symbola and Noto Emoji win, with it Noto Color Emoji, for Source Code Pro too. The
+  known cost: a text symbol no font in the family list has, but an unlisted text font has,
+  now comes from the colour font (documented in the file and `docs/playbooks.md`). Open: the
+  host run.
 - [ ] 🔄 **Task 2.2**: `deploy.bash` (play-fonts.yml, then `acceptance.bash`) and
-  `acceptance.bash` (12 checks: the deployed file, the colour font and its scanned "en", the
+  `acceptance.bash` (17 checks: the deployed file, the colour font and its scanned "en", the
   single best match for #60's emoji under each generic family and the named monospace text
-  font, digits, `#`, `*` and the space kept on the text font, and the ordered list). Open:
-  the meta-deploy run, `qa-all.bash` and the `qa-reviewer` agent.
+  font, digits, `#`, `*` and the space kept on the text font, the ordered list, and the same
+  for the font Ptyxis is set to, read from its settings, with check marks and the sun kept
+  on a text font there). Queued in `meta-deploy.list`. Review: round 1 CHANGES. Open: the
+  meta-deploy run, `qa-all.bash` and the `qa-reviewer` agent.
 
 ## Success Criteria
 

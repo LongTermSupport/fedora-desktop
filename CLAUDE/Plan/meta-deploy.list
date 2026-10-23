@@ -48,3 +48,11 @@ playbooks/imports/optional/common/play-cli-tools.yml
 # subfolder, and at the [Y/n] offer on a pseudo-terminal (y, n, a bad answer then n). It needs
 # no terminal of its own. Afterwards the host agent's cc checks in tmux (Task 3.3 item 2).
 00167-cc-refuses-to-start-outside-a-repo/acceptance.bash
+# Plan 00185, colour emoji in terminals (#60): triage.bash first (read-only: which font
+# fontconfig and Ptyxis pick for the emoji now), then deploy.bash runs play-fonts.yml, the
+# renamed play-ms-fonts.yml: installs Noto Color Emoji if missing, deploys
+# /etc/fonts/conf.d/69-colour-emoji-fallback.conf (the colour font as the emoji fallback
+# after the text fonts) and rebuilds the font caches; then acceptance.bash (17 fontconfig
+# checks, including the font Ptyxis is set to), and triage again. Close and reopen terminal
+# windows afterwards; the issue's printf in a new window is left for Plan 00219.
+00185-terminal-emoji-glyphs

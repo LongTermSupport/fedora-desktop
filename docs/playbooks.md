@@ -382,6 +382,10 @@ gh-personal issue list
   instead of Symbola's or Noto Emoji's monochrome ones, while digits stay in the text font
 - Rebuilds the font caches when that file changes
 
+The cost of the fallback: a text symbol such as a check mark that none of the fonts listed
+for the family has, but some other installed text font has, is now drawn from the colour
+emoji font. Flatpak apps read their own fontconfig and are not changed by this file.
+
 A running program keeps the fonts it started with. After this play changes the file, or after
 a `dnf upgrade` replaces an emoji font, close and reopen terminal windows: a terminal left
 open across a font upgrade can draw the wrong emoji (Plan 00185, issue #60).
