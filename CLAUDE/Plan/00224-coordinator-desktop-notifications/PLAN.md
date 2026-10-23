@@ -148,8 +148,10 @@ The full design, the threat reasoning and the decisions are in [DESIGN.md](DESIG
     entry for each seat it mints, from `add-member`'s result, atomically and 0600. This covers
     the launch, because the launcher runs it before the container starts, and the hot add
     through `SeatTakeAllocated`. A launch that mints a seat ends with that seat in the map.
-  - `src-go/internal/teams/hot/add.go` takes a seat's handle from the map, not from the
-    checkout's seat list, wherever it feeds a trust decision.
+  - `src-go/internal/teams/hot/add.go` and `hot/role.go` take a seat's handle from the map,
+    not from the checkout's seat list, wherever it feeds a trust decision;
+  - every writer takes one `flock` and keys the checkout by its resolved real path;
+    adoption refuses a handle another entry holds.
   - `ccy-teams` lists seats made before this plan, with the handle each claims and the
     registry check, and writes an adoption entry only when the owner confirms (D12).
 - [ ] ⬜ **Task 3.3**: `CLAUDE/AgentNotes.md`'s `notify-send` rule: name `notify-owner` as the
@@ -159,7 +161,7 @@ The full design, the threat reasoning and the decisions are in [DESIGN.md](DESIG
 ### Phase 4: podman ccy
 
 - [ ] ⬜ **Task 4.1**: `ccy-teams internal membership-init` (Go, tests first) also creates
-  `$XDG_RUNTIME_DIR/ccy/notify/<key>/` (0700) for every session carrying the bus kit, beside
+  `$XDG_RUNTIME_DIR/ccy/notify/<key>/` (0700) for every `ccy`-kind session carrying the bus kit (not `cc`), beside
   the membership directory. It wipes one a reused name left, and still prints only the
   membership directory. In `lib/agent-bus-membership.bash`, the one `CCY_SEAT_RUN_ARGS+=(…)`
   statement that mounts membership gains the spool's rw `-v` (same relabel), with the path

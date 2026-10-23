@@ -117,16 +117,21 @@ it, from the handle `sudo agent-bus add-member` returns. That code is `agent-bus
 through `SeatTakeAllocated` for a hot add). So `seat take` itself writes the entry (decision
 D14). Nothing downstream needs the handle passed back. That covers both the launch ordering
 (membership-init runs before `seat take`, and its stderr reaches no Go writer) and hot add.
-Hot add (`src-go/internal/teams/hot/add.go`), which today takes a new seat's handle from the
-checkout's seat list, reads the seat map instead, wherever the handle feeds a trust decision.
-(checkout, team, seat) is unique, and `seat take` already refuses a seat another session holds,
-so two sessions cannot resolve to one handle.
+Hot add (`src-go/internal/teams/hot/add.go`) and `ccy-teams session role`
+(`hot/role.go`) both take a seat's handle from the checkout's seat list today. They read the
+seat map instead, wherever the handle feeds a trust decision. (checkout, team, seat) is
+unique, and `seat take` already refuses a seat another session holds, so two sessions cannot
+resolve to one handle. The checkout is keyed by its resolved real path, by every writer and
+reader alike, because `seat take` resolves it and `membership.json` records `$PWD`. Every
+writer (seat take, adoption) takes one `flock` on `seats.json.lock` and replaces the file by
+rename.
 
 **Seats made before this plan** have no map entry, and their only handle record is the
 checkout's, so they are never adopted automatically. By default (decision D12), `ccy-teams`
 lists each such seat with the handle its `member.json` claims, and whether the registry holds
 that handle for this checkout's seat number and this host's `<host>.<type>`. The owner confirms
-adoption per seat, and the decision is the owner's, not the container's. A seat not adopted can
+adoption per seat, and the decision is the owner's, not the container's. Adoption is refused
+for a handle another seat-map entry already holds. A seat not adopted can
 still work and talk on the bus. Only `notify-owner` refuses it (77, saying the seat needs
 adopting in `ccy-teams`).
 
@@ -141,9 +146,13 @@ A ccy request also needs the session's container to be running: `podman ps` thro
 by the label `ccy-session=<session>`, or by exact container name
 (`--filter name=^<session>$`) for a launch in a plain terminal, which has no label and whose
 key is its container's name. That ties the request to a live session, so a name tmux reuses
-cannot inherit a dead session's leftovers. The relay prunes any spool directory with no running
-container, when it starts and hourly. membership-init wipes and recreates the spool for a
-reused name, as it already does for membership.
+cannot inherit a dead session's leftovers. The relay prunes any spool directory that has had no running
+container for 10 minutes, when it starts and hourly. The grace keeps it from removing a spool
+between membership-init and `podman run`. membership-init wipes and recreates the spool for a
+reused name, as it already does for membership. The spool is made for the `ccy` kind only:
+a `cc` session is on the host and takes the direct route. ccy on the docker engine is out of
+scope. The relay's liveness check asks podman, the default engine, and a docker-engine
+session gets no spool, so it exits 69.
 
 A ccy session gets its spool directory whenever it carries the bus kit, seated or not, because
 a role can be given while the session runs (hot control, Plan 00203); a request from a session
@@ -325,5 +334,5 @@ The design note goes to Plan 00209's coordinator; this plan builds nothing for i
 | D10 | Remote members                         | Not built; section 5 handed to Plan 00209.                                                                                                                                                      |
 | D11 | Logging                                | Identity, team, outcome and reason to the journal; never the title or body.                                                                                                                     |
 | D12 | Seats made before this plan            | Never adopted automatically; `ccy-teams` lists each with its claimed handle and the registry check, and the owner confirms adoption per seat. Until then `notify-owner` refuses that seat (77). |
-| D14 | Who writes the seat map                | `agent-bus seat take` (v1 Python), at mint time, from `add-member`'s result. The alternative is porting `seat take` to Go first, a larger change v2 makes anyway.                               |
 | D13 | LXC guest account with the owner's uid | The play refuses the container (the ACL would grant that account the member's spool); the alternative is a per-member relay group instead of the owner's uid.                                   |
+| D14 | Who writes the seat map                | `agent-bus seat take` (v1 Python), at mint time, from `add-member`'s result. The alternative is porting `seat take` to Go first, a larger change v2 makes anyway.                               |
