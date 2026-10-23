@@ -23,6 +23,7 @@ import (
 	"github.com/godbus/dbus/v5"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/health"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
@@ -99,9 +100,9 @@ type Conn interface {
 
 // Manager is systemd over one lazily opened bus connection. Safe for concurrent use.
 type Manager struct {
-	dial    func(context.Context) (Conn, error)
-	run     execx.Runner
-	jobWait time.Duration
+	dial  func(context.Context) (Conn, error)
+	run   execx.Runner
+	clock clock.Clock // what JobWait is measured on
 
 	mu sync.Mutex
 	s  *session
@@ -114,7 +115,7 @@ type Manager struct {
 // NewManager is a Manager that dials with dial on first use and runs systemctl and journalctl
 // through r.
 func NewManager(dial func(context.Context) (Conn, error), r execx.Runner) *Manager {
-	return &Manager{dial: dial, run: r, jobWait: JobWait}
+	return &Manager{dial: dial, run: r, clock: clock.System()}
 }
 
 // Host is the Manager as host.Systemd.
@@ -477,8 +478,8 @@ func (m *Manager) job(ctx context.Context, verb, method, unit string) error {
 	if err != nil {
 		return m.failed(s, what, err)
 	}
-	wait, cancel := context.WithTimeout(ctx, m.jobWait)
-	defer cancel()
+	fired, stop := m.clock.Hold(JobWait)
+	defer stop()
 	select {
 	case result, ok := <-done:
 		if !ok {
@@ -492,12 +493,12 @@ func (m *Manager) job(ctx context.Context, verb, method, unit string) error {
 			return fmt.Errorf("systemd %s: %w: it ended %s", what, ErrJobFailed, shown)
 		}
 		return nil
-	case <-wait.Done():
+	case <-ctx.Done():
 		s.forget(job)
-		if ctx.Err() != nil {
-			return fmt.Errorf("systemd %s: %w", what, ctx.Err())
-		}
-		return fmt.Errorf("systemd %s: no JobRemoved within %v: %w", what, m.jobWait, wait.Err())
+		return fmt.Errorf("systemd %s: %w", what, ctx.Err())
+	case <-fired:
+		s.forget(job)
+		return fmt.Errorf("systemd %s: no JobRemoved within %v: %w", what, JobWait, context.DeadlineExceeded)
 	}
 }
 

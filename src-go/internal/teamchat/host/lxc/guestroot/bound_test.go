@@ -10,14 +10,45 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 )
 
+// stall is a root's bound on a fake clock, moved only once a call is in its stall.
+type stall struct {
+	clk     *clock.Fake
+	inStall chan struct{}
+}
+
+// stalling puts r's bound on a fake clock and has rec say each time a call reaches its stall.
+func stalling(r *Root, rec *recorder) stall {
+	st := stall{clk: clock.NewFake(0, 0), inStall: make(chan struct{}, 64)}
+	r.hold = st.clk.Hold
+	rec.mu.Lock()
+	rec.inStall = st.inStall
+	rec.mu.Unlock()
+	return st
+}
+
+// past runs call, which stalls: once it is in its stall and has armed its bound, the clock
+// passes the bound, and call's error is what it answered.
+func (st stall) past(t *testing.T, call func() error) error {
+	t.Helper()
+	errc := make(chan error, 1)
+	go func() { errc <- call() }()
+	<-st.inStall
+	if err := st.clk.BlockUntil(t.Context(), 1); err != nil {
+		t.Fatal(err)
+	}
+	st.clk.Advance(callBound)
+	return <-errc
+}
+
 // stalledRoot is a fixture root whose openat2 of /stalled waits until the returned func is
-// called, with a short bound, and a channel of the descriptors it closes.
-func stalledRoot(t *testing.T) (*Root, *recorder, func(), chan int) {
+// called, its bound on a fake clock, and a channel of the descriptors it closes.
+func stalledRoot(t *testing.T) (*Root, *recorder, stall, func(), chan int) {
 	t.Helper()
 	g := newTree(t)
 	g.file("/stalled", "x", 0o644)
@@ -27,13 +58,13 @@ func stalledRoot(t *testing.T) (*Root, *recorder, func(), chan int) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.bound = 20 * time.Millisecond
+	st := stalling(r, rec)
 	closes := make(chan int, 64)
 	release := make(chan struct{})
 	rec.mu.Lock()
 	rec.stallPath, rec.stall, rec.closes = "/stalled", release, closes
 	rec.mu.Unlock()
-	return r, rec, func() { close(release) }, closes
+	return r, rec, st, func() { close(release) }, closes
 }
 
 // waitClosed waits until fd has been closed.
@@ -50,22 +81,21 @@ func waitClosed(t *testing.T, closes chan int, fd int) {
 // member alone) and never a TB1 refusal (R2-2), while the next read of the same root still answers; the stalled read's
 // descriptors, and at Close the root's own, are released once it ends.
 func TestAStalledReadEndsAtItsBound(t *testing.T) {
-	r, rec, release, closes := stalledRoot(t)
+	r, rec, st, release, closes := stalledRoot(t)
 	rootFD := r.fd
-	if got := readFile(r, "/stalled", 10); !errors.Is(got.err, ErrStalled) || !errors.Is(got.err, ErrGuest) || errors.Is(got.err, ErrRefused) {
-		t.Fatalf("a stalled read: %v", got.err)
+	if err := st.past(t, func() error { return readFile(r, "/stalled", 10).err }); !errors.Is(err, ErrStalled) || !errors.Is(err, ErrGuest) || errors.Is(err, ErrRefused) {
+		t.Fatalf("a stalled read: %v", err)
 	}
-	for name, err := range map[string]error{
-		"Stat":      second(r.Stat("/stalled")),
-		"ProbeLock": third(r.ProbeLock("/stalled")),
-		"ReadDir":   third(r.ReadDir("/stalled", func(string) bool { return true }, 1)),
-		"Dial":      second(r.DialSocket(t.Context(), "/stalled")),
+	for name, call := range map[string]func() error{
+		"Stat":      func() error { return second(r.Stat("/stalled")) },
+		"ProbeLock": func() error { return third(r.ProbeLock("/stalled")) },
+		"ReadDir":   func() error { return third(r.ReadDir("/stalled", func(string) bool { return true }, 1)) },
+		"Dial":      func() error { return second(r.DialSocket(t.Context(), "/stalled")) },
 	} {
-		if !errors.Is(err, ErrStalled) {
+		if err := st.past(t, call); !errors.Is(err, ErrStalled) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
-	r.bound = time.Minute
 	if got := readFile(r, "/ok", 10); got.err != nil || string(got.data) != "fine" {
 		t.Fatalf("a read beside stalled ones: %+v", got)
 	}
@@ -97,7 +127,7 @@ func TestAStalledWriteEndsAtItsBound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.bound = 20 * time.Millisecond
+	st := stalling(r, rec)
 	rootFD := r.fd
 	closes := make(chan int, 64)
 	stall := make(chan struct{})
@@ -105,19 +135,18 @@ func TestAStalledWriteEndsAtItsBound(t *testing.T) {
 	rec.stallPath, rec.stall, rec.closes = "w", stall, closes
 	rec.mu.Unlock()
 	w := r.Writer()
-	for name, err := range map[string]error{
-		"MkdirAll":   second(w.MkdirAll("/w/new")),
-		"WriteFile":  second(w.WriteFile("/w", "g", []byte("y"), 0o644)),
-		"PlaceDir":   second(w.PlaceDir("/w", "kit", fillKit)),
-		"Symlink":    second(w.Symlink("/w", "l", "f")),
-		"Remove":     second(w.Remove("/w", "f")),
-		"RemoveTree": second(w.RemoveTree("/w", "tree")),
+	for name, call := range map[string]func() error{
+		"MkdirAll":   func() error { return second(w.MkdirAll("/w/new")) },
+		"WriteFile":  func() error { return second(w.WriteFile("/w", "g", []byte("y"), 0o644)) },
+		"PlaceDir":   func() error { return second(w.PlaceDir("/w", "kit", fillKit)) },
+		"Symlink":    func() error { return second(w.Symlink("/w", "l", "f")) },
+		"Remove":     func() error { return second(w.Remove("/w", "f")) },
+		"RemoveTree": func() error { return second(w.RemoveTree("/w", "tree")) },
 	} {
-		if !errors.Is(err, ErrStalled) || !errors.Is(err, ErrGuest) || errors.Is(err, ErrRefused) {
+		if err := st.past(t, call); !errors.Is(err, ErrStalled) || !errors.Is(err, ErrGuest) || errors.Is(err, ErrRefused) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
-	r.bound = time.Minute
 	if changed, err := w.WriteFile("/", "beside", []byte("ok"), 0o644); err != nil || !changed {
 		t.Fatalf("a write beside stalled ones: %v %v", changed, err)
 	}
@@ -140,12 +169,12 @@ func TestALateDialIsClosed(t *testing.T) {
 	ln := g.socket(socketPath)
 	rec := newRecorder()
 	r := g.root(rec)
-	r.bound = 20 * time.Millisecond
+	st := stalling(r, rec)
 	release := make(chan struct{})
 	rec.mu.Lock()
 	rec.stallPath, rec.stall = socketPath, release
 	rec.mu.Unlock()
-	if _, err := r.DialSocket(t.Context(), socketPath); !errors.Is(err, ErrStalled) {
+	if err := st.past(t, func() error { return second(r.DialSocket(t.Context(), socketPath)) }); !errors.Is(err, ErrStalled) {
 		t.Fatalf("a stalled dial: %v", err)
 	}
 	close(release)
@@ -219,12 +248,12 @@ func TestAMissingPathIsNotAGuestFault(t *testing.T) {
 // a read or a write of any path, answers ErrStalled at once, with no call made below the root;
 // a root scoped to another memo, and the root itself, still answer.
 func TestAStallIsPaidOncePerMemo(t *testing.T) {
-	r, rec, release, closes := stalledRoot(t)
+	r, rec, st, release, closes := stalledRoot(t)
 	rootFD := r.fd
 	memo := &Memo{}
 	member := r.Scoped(memo)
-	if got := readFile(member, "/stalled", 10); !errors.Is(got.err, ErrStalled) {
-		t.Fatalf("a stalled read: %v", got.err)
+	if err := st.past(t, func() error { return readFile(member, "/stalled", 10).err }); !errors.Is(err, ErrStalled) {
+		t.Fatalf("a stalled read: %v", err)
 	}
 	before := rec.count()
 	for name, err := range map[string]error{
@@ -242,7 +271,6 @@ func TestAStallIsPaidOncePerMemo(t *testing.T) {
 	if n := rec.count() - before; n != 0 {
 		t.Fatalf("calls after the stall made %d system calls", n)
 	}
-	r.bound = time.Minute
 	for name, root := range map[string]*Root{"another memo": r.Scoped(&Memo{}), "the root": r} {
 		if got := readFile(root, "/ok", 10); got.err != nil || string(got.data) != "fine" {
 			t.Errorf("%s: %+v", name, got)

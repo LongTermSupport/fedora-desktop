@@ -471,20 +471,28 @@ func TestDroppedConnection(t *testing.T) {
 	wantErr(t, err, ErrUnreachable, "no answer")
 }
 
+// A request that reaches the server and is not answered ends at the member's limit, armed on
+// the client's timers and fired here once the request has arrived.
 func TestRequestTimeLimit(t *testing.T) {
 	slow, arrived := blockingServer(t)
-	m := newMember(t, slow.URL, "tok")
-	m.limit = 20 * time.Millisecond
-	_, err := m.Whoami(t.Context())
+	timers := newFakeTimers()
+	c := timedMember(t, slow.URL, "tok", timers)
+	done := make(chan error, 1)
+	go func() {
+		_, err := c.Whoami(t.Context())
+		done <- err
+	}()
+	<-timers.notify
+	<-arrived
+	got := timers.all()
+	if len(got) != 1 || got[0].d != memberLimit {
+		t.Fatalf("armed %+v, want one timer of the member's limit", got)
+	}
+	got[0].fire()
+	err := <-done
 	e := wantErr(t, err, ErrUnreachable, "timed out")
 	if !e.Transient() || errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("transient %v; the client's own limit is not the caller's deadline", e.Transient())
-	}
-	// Under load the 20 ms limit can end the request before it reaches the server, so its
-	// arrival is not waited for: the limit is what this test proves, not the server's reach.
-	select {
-	case <-arrived:
-	default:
 	}
 	if memberLimit != 15*time.Second || adminLimit != 30*time.Second || syncGrace != 15*time.Second {
 		t.Error("the time limits are not 15 s, 30 s and the long-poll plus 15 s")

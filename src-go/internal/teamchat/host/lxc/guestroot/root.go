@@ -26,6 +26,8 @@ import (
 	"time"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 )
 
 var (
@@ -129,7 +131,8 @@ type pinned struct {
 	pidfd int
 	pid   int
 	proc  string
-	bound time.Duration
+	// hold arms each call's bound: the clock's Hold.
+	hold func(d time.Duration) (<-chan time.Time, func() bool)
 
 	mu       sync.Mutex
 	closed   bool
@@ -173,7 +176,7 @@ func (p Pinner) pinWith(ctx context.Context, s sys, pid func(context.Context) (i
 	if err != nil {
 		return nil, fmt.Errorf("guestroot: pidfd of %d: %w", first, err)
 	}
-	r := &Root{pinned: &pinned{sys: s, kernel: p.Kernel, fd: -1, pidfd: pidfd, pid: first, proc: p.Proc, bound: callBound}}
+	r := &Root{pinned: &pinned{sys: s, kernel: p.Kernel, fd: -1, pidfd: pidfd, pid: first, proc: p.Proc, hold: clock.System().Hold}}
 	rootPath := p.Proc + "/" + strconv.Itoa(first) + "/root"
 	fd, err := s.openat(unix.AT_FDCWD, rootPath, rootFlags|unix.O_DIRECTORY, 0)
 	if err != nil {
@@ -208,7 +211,7 @@ func openDirWith(s sys, dir string) (*Root, error) {
 	if err != nil {
 		return nil, fmt.Errorf("guestroot: %s: %w", dir, err)
 	}
-	r := &Root{pinned: &pinned{sys: s, fd: fd, pidfd: -1, bound: callBound}}
+	r := &Root{pinned: &pinned{sys: s, fd: fd, pidfd: -1, hold: clock.System().Hold}}
 	info, err := r.statFD(fd, dir)
 	if err == nil && !info.Mode.IsDir() {
 		err = fmt.Errorf("%w: %s is %s", ErrRefused, dir, kind(info.Mode))

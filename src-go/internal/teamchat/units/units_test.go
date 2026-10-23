@@ -14,6 +14,7 @@ import (
 	"github.com/godbus/dbus/v5"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
@@ -359,18 +360,28 @@ func TestAContextThatEndsFirstIsTheError(t *testing.T) {
 	}
 }
 
-// TestAJobWaitIsBounded: a JobRemoved that never comes ends the wait at the Manager's bound,
-// which is JobWait unless a test sets it (zero here, so the bound has passed when the wait
-// starts and no clock is read).
+// TestAJobWaitIsBounded: a JobRemoved that never comes ends the wait at JobWait on the
+// Manager's clock, the system's unless a test sets a fake, moved here once the wait has armed.
 func TestAJobWaitIsBounded(t *testing.T) {
-	if JobWait != 10*time.Minute || NewManager(nil, nil).jobWait != JobWait {
-		t.Fatalf("JobWait = %v, a new Manager's bound %v", JobWait, NewManager(nil, nil).jobWait)
+	if JobWait != 10*time.Minute || NewManager(nil, nil).clock != clock.System() {
+		t.Fatalf("JobWait = %v, a new Manager's clock %v", JobWait, NewManager(nil, nil).clock)
 	}
 	r := newRig(t)
-	r.m.jobWait = 0
+	clk := clock.NewFake(0, 0)
+	r.m.clock = clk
 	unit := testUnit(t)
 	r.conn.on(managerStartUnit, func(fakeCall) ([]any, error) { return []any{jobPath}, nil })
-	err := r.m.Host().Start(t.Context(), unit)
+	errc := make(chan error, 1)
+	go func() { errc <- r.m.Host().Start(t.Context(), unit) }()
+	if err := clk.BlockUntil(t.Context(), 1); err != nil {
+		t.Fatal(err)
+	}
+	clk.Advance(JobWait - time.Nanosecond)
+	if clk.Waiters() != 1 {
+		t.Fatal("the job's wait ended short of JobWait")
+	}
+	clk.Advance(time.Nanosecond)
+	err := <-errc
 	if !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), unit) ||
 		!strings.Contains(err.Error(), "no JobRemoved") {
 		t.Fatalf("err = %v", err)

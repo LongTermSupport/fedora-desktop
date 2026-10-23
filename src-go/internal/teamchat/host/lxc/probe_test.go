@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/health"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestroot"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxccmd"
@@ -22,7 +23,7 @@ const lockRecord = `{"v":1,"run":"` + runID + `","started_ms":1}`
 
 // guests is the probe over the world's host, containers and pins.
 func (w *world) guests() Guests {
-	return Guests{Root: w.host, LXC: w.lxc, Pin: w.pin}
+	return Guests{Root: w.host, LXC: w.lxc, Pin: w.pin, Clock: w.boot}
 }
 
 // probe is the probe of handle in t1.
@@ -341,29 +342,35 @@ func TestProbeHostFaultsAreErrors(t *testing.T) {
 
 func TestProbeIsBounded(t *testing.T) {
 	w := placed(t)
-	var bounded bool
+	var (
+		at      time.Duration
+		bounded bool
+	)
 	g := w.guests()
 	g.Pin = func(ctx context.Context, c string) (Root, error) {
-		_, bounded = ctx.Deadline()
+		at, bounded = clock.Bound(ctx)
 		return w.pin(ctx, c)
 	}
 	if _, err := g.Probe(context.Background(), mustTeam(t, "t1"), firstHandle); err != nil || !bounded {
 		t.Fatalf("bounded %v, err %v", bounded, err)
 	}
-	if ProbeBound.Seconds() != 5 || g.bound() != ProbeBound {
-		t.Fatalf("bound %v, the default %v", ProbeBound, g.bound())
+	if ProbeBound.Seconds() != 5 || at != w.boot.Boot()+ProbeBound {
+		t.Fatalf("the bound %v at %v, the clock at %v", ProbeBound, at, w.boot.Boot())
+	}
+	if n := w.boot.Waiters(); n != 0 {
+		t.Fatalf("%d bounds left armed after the probe", n)
 	}
 }
 
 // LP1 with one and with many hanging fakes and no cancellation: each probe ends at its own
-// bound with the deadline's error, all of them hanging at once.
+// bound with the deadline's error, all of them hanging at once. The bound is on the fake
+// clock, which moves only once every probe is at its hang and has armed its bound.
 func TestProbesThatHangEndAtTheirOwnBound(t *testing.T) {
 	for _, n := range []int{1, 4} {
 		w := placed(t)
 		entered, release := make(chan struct{}, n), make(chan struct{})
 		t.Cleanup(func() { close(release) })
 		g := w.faulty(func(r Root) Root { return faultyRoot{Root: r, entered: entered, release: release} })
-		g.Bound = 20 * time.Millisecond
 		errs := make(chan error, n)
 		for range n {
 			go func() {
@@ -372,12 +379,20 @@ func TestProbesThatHangEndAtTheirOwnBound(t *testing.T) {
 			}()
 		}
 		for range n {
+			<-entered
+		}
+		if err := w.boot.BlockUntil(t.Context(), n); err != nil {
+			t.Fatal(err)
+		}
+		w.boot.Advance(ProbeBound - time.Nanosecond)
+		if armed := w.boot.Waiters(); armed != n {
+			t.Fatalf("%d hanging: %d bounds still armed short of the bound", n, armed)
+		}
+		w.boot.Advance(time.Nanosecond)
+		for range n {
 			if err := <-errs; !errors.Is(err, context.DeadlineExceeded) {
 				t.Fatalf("%d hanging: err %v", n, err)
 			}
-		}
-		if len(entered) != n {
-			t.Fatalf("%d of %d probes hung at once", len(entered), n)
 		}
 	}
 }

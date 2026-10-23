@@ -52,7 +52,7 @@ func (m *Memo) keep(err error) {
 const callBound = 10 * time.Second
 
 // bounded runs op, a read or write below the root, between two looks at the init as live does,
-// on its own goroutine, and waits at most the root's bound for it. A call not ended by then
+// on its own goroutine, and waits at most callBound for it on the root's clock. A call not ended by then
 // answers ErrStalled naming p, and is left to end by itself: whatever it then makes it gives to
 // late (a dialled connection is closed), and the root's descriptors, if it was closed meanwhile,
 // are released when the last such call ends. Their errors join the next Close's; one that comes
@@ -100,12 +100,12 @@ func bounded[T any](r *Root, p string, op func() (T, error), late func(T) error)
 		}
 		return res.v, res.err
 	}
-	timer := time.NewTimer(r.bound)
-	defer timer.Stop()
+	fired, stop := r.hold(callBound)
+	defer stop()
 	select {
 	case res := <-done:
 		return answer(res)
-	case <-timer.C:
+	case <-fired:
 	}
 	mu.Lock()
 	inTime := ended
@@ -117,7 +117,7 @@ func bounded[T any](r *Root, p string, op func() (T, error), late func(T) error)
 	if aerr := r.Alive(); aerr != nil {
 		return zero, aerr
 	}
-	stall := fmt.Errorf("%w: %s did not answer within %v", ErrStalled, p, r.bound)
+	stall := fmt.Errorf("%w: %s did not answer within %v", ErrStalled, p, callBound)
 	r.memo.keep(stall)
 	return zero, stall
 }

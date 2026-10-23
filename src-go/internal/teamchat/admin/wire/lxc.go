@@ -7,6 +7,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/health"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc"
@@ -67,7 +68,7 @@ func (m machine) pin() func(ctx context.Context, container string) (lxc.Root, er
 
 // guests is the health tick's L3 probe (LP1) over the same seams as the apply's.
 func (m machine) guests() lxc.Guests {
-	return lxc.Guests{Root: m.root, LXC: m.containers(), Pin: m.pin()}
+	return lxc.Guests{Root: m.root, LXC: m.containers(), Pin: m.pin(), Clock: clock.System()}
 }
 
 // guestSystemd is the guest's systemd on its private socket, dialled through the root (TB1).

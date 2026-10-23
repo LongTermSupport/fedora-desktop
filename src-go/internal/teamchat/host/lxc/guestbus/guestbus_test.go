@@ -14,6 +14,7 @@ import (
 
 	"github.com/godbus/dbus/v5"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
@@ -174,13 +175,26 @@ func TestACallThatNeverAnswersEndsAtItsBound(t *testing.T) {
 	if CallWait != 30*time.Second {
 		t.Errorf("CallWait = %v", CallWait)
 	}
-	if s, ok := New(&fakeConn{}).(systemd); !ok || s.wait != CallWait {
-		t.Errorf("New's bound: %+v", s)
+	if s, ok := New(&fakeConn{}).(systemd); !ok || s.clock != clock.System() {
+		t.Errorf("New's clock: %+v", s)
 	}
+	clk := clock.NewFake(0, 0)
 	f := &fakeConn{block: true}
-	err := newSystemd(f, time.Millisecond).Restart(t.Context(), unit(t))
-	if !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, ErrGone) {
+	errc := make(chan error, 1)
+	go func() { errc <- newSystemd(f, clk).Restart(t.Context(), unit(t)) }()
+	if err := clk.BlockUntil(t.Context(), 1); err != nil {
+		t.Fatal(err)
+	}
+	clk.Advance(CallWait - time.Nanosecond)
+	if clk.Waiters() != 1 {
+		t.Fatal("the call's bound fired short of CallWait")
+	}
+	clk.Advance(time.Nanosecond)
+	if err := <-errc; !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, ErrGone) {
 		t.Errorf("%v", err)
+	}
+	if clk.Waiters() != 0 {
+		t.Error("the call's bound was left armed")
 	}
 }
 
