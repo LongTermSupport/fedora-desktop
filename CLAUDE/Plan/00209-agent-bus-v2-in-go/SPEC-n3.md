@@ -826,7 +826,7 @@ or keeper.log.
   `paths` and `exits`, never `cli`, `keeper` or `link`. `For(a Agent) (Adapter, error)` returns
   the adapter, where `Adapter` is `struct { Capabilities Capabilities; Preparer Preparer }` and
   `Preparer` is `interface { Prepare(f RunFacts) (Launch, error) }`. The keeper resolves it
-  once, from `cfg.Launch`, at the start of `prepare`, and keeps the `Adapter`; the link resolves
+  once, from `cfg.Launch.Mode`, at the start of `prepare`, and keeps the `Adapter`; the link resolves
   it once, from the launch frame's `launch`, in `build`, and keeps the `Capabilities`. Neither
   config gains a field.
   cli's parse and the frame check already refuse any other value, so `For`'s error is
