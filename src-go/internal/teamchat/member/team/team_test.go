@@ -83,3 +83,15 @@ func TestN3dBatchCarriesAnswersAndEchoes(t *testing.T) {
 		t.Fatalf("batch %+v", b)
 	}
 }
+
+func TestAReceiveCheckCarriesItsSpend(t *testing.T) {
+	if _, ok := team.ReceiveSpend(context.Background()); ok {
+		t.Fatal("a send's context is a receive check")
+	}
+	asked := 0
+	ctx := team.WithReceive(context.Background(), func() bool { asked++; return asked == 1 })
+	spend, ok := team.ReceiveSpend(ctx)
+	if !ok || !spend() || spend() || asked != 2 {
+		t.Fatalf("ReceiveSpend = %t; asked %d", ok, asked)
+	}
+}

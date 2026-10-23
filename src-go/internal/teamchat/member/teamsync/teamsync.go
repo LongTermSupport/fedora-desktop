@@ -106,6 +106,7 @@ type Team struct {
 	pendingSaid   map[string]bool
 	unheard       *bounded[struct{}]
 	flood         proto.Window
+	spent         spentChecks
 	freeze        freezeDetector
 
 	// Test seams.

@@ -219,6 +219,19 @@ func TestTxnReuseReturnsTheSameEvent(t *testing.T) {
 	}
 }
 
+// A server that forgets its transaction IDs (a homeserver past its retention, or after a
+// restore) sends a reused one again as a new event.
+func TestForgottenTransactionsSendAgain(t *testing.T) {
+	tm := newTeam(t)
+	first := tm.ok(tm.send(tm.agent, "same", map[string]any{"body": "one"}))
+	tm.s.ForgetTransactions()
+	again := tm.ok(tm.send(tm.agent, "same", map[string]any{"body": "one"}))
+	twice := tm.ok(tm.send(tm.agent, "same", map[string]any{"body": "one"}))
+	if first["event_id"] == again["event_id"] || again["event_id"] == twice["event_id"] {
+		t.Fatalf("a forgotten txn gave %v, %v, %v; want three events", first, again, twice)
+	}
+}
+
 func TestRedactAndReceipts(t *testing.T) {
 	tm := newTeam(t)
 	id := text(t, tm.ok(tm.send(tm.agent, "r", map[string]any{"body": "x"}))["event_id"])

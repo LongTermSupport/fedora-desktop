@@ -18,6 +18,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/forge"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
 
@@ -487,7 +488,7 @@ func listedCases() []proofCase {
 	return []proofCase{
 		{
 			"listed branches, ping branch listed", listed("main", "rel"), commit, "rel",
-			both(acme, js(tool+"/branches/rel", 200, `{}`), js(compare(tool, "rel", sha), 200, status("behind"))), forge.Proven,
+			both(acme, js(tool+"/branches/rel", 200, `{"name":"rel"}`), js(compare(tool, "rel", sha), 200, status("behind"))), forge.Proven,
 		},
 		{"listed branches, ping branch not listed", listed("main"), commit, "dev", acme, proto.ReasonProvenance},
 		{"listed branches, ping branch missing", listed("main", "rel"), commit, "rel", acme, proto.ReasonProvenance},
@@ -513,7 +514,7 @@ func listedCases() []proofCase {
 		},
 		{
 			"listed, ping branch exists", listed(), commit, "feat/x",
-			both(acme, js(tool+"/branches/feat/x", 200, `{}`), js(compare(tool, "feat/x", sha), 200, status("identical"))), forge.Proven,
+			both(acme, js(tool+"/branches/feat/x", 200, `{"name":"feat/x"}`), js(compare(tool, "feat/x", sha), 200, status("identical"))), forge.Proven,
 		},
 		{"listed, ping branch missing", listed(), commit, "feat/x", acme, proto.ReasonProvenance},
 		{"listed, ping branch with a dot-dot", listed(), commit, "a/../b", acme, proto.ReasonProvenance},
@@ -568,7 +569,7 @@ func externalPathCases() []proofCase {
 			"external, branch reaches", externalForge(), commitRef("other/lib", sha), "dev",
 			func(r *rig) {
 				r.other()
-				r.gh.json(lib+"/branches/dev", 200, `{}`)
+				r.gh.json(lib+"/branches/dev", 200, `{"name":"dev"}`)
 				r.gh.json(compare(lib, "dev", sha), 200, status("behind"))
 			}, forge.Proven,
 		},
@@ -576,7 +577,7 @@ func externalPathCases() []proofCase {
 			"external, branch does not reach", externalForge(), commitRef("other/lib", sha), "dev",
 			func(r *rig) {
 				r.other()
-				r.gh.json(lib+"/branches/dev", 200, `{}`)
+				r.gh.json(lib+"/branches/dev", 200, `{"name":"dev"}`)
 				r.gh.json(compare(lib, "dev", sha), 200, status("ahead"))
 			}, proto.ReasonProvenance,
 		},
@@ -921,5 +922,196 @@ func TestSD5_8DefaultClockAndOrigin(t *testing.T) {
 	c := forge.New(forge.Config{Login: forge.NewLogin(run, nil)})
 	if got := forge.OriginOf(c, proto.ForgeGitHub); got != "https://api.github.com" {
 		t.Fatalf("origin %q", got)
+	}
+}
+
+func TestSD5_7RateWaitPastTheBoundIsForgeRate(t *testing.T) {
+	r := newRig(t)
+	r.gh.route(tool, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "60")
+		w.WriteHeader(http.StatusForbidden)
+	})
+	ctx := clock.WithBound(context.Background(), r.clk.Boot()+30*time.Second)
+	res, err := r.c.Check(ctx, need(t, commitRef("acme/tool", sha), orgForge(), ""), orgForge())
+	if err != nil || res.Outcome != proto.ReasonForgeRate {
+		t.Fatalf("a 60 s wait under a 30 s bound = %q, %v; want forge-rate and no error", res.Outcome, err)
+	}
+	if got := r.clk.waits(); len(got) != 0 {
+		t.Fatalf("slept %v past the caller's bound", got)
+	}
+	r.gh.route(tool, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "20")
+		w.WriteHeader(http.StatusTooManyRequests)
+	})
+	r.clk.Advance(time.Minute)
+	ctx = clock.WithBound(context.Background(), r.clk.Boot()+30*time.Second)
+	if _, err := r.c.Check(ctx, need(t, commitRef("acme/tool", sha), orgForge(), ""), orgForge()); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.clk.waits(); len(got) != 1 || got[0] != 20*time.Second {
+		t.Fatalf("waits %v; want the one 20 s wait inside the bound, then forge-rate", got)
+	}
+}
+
+func TestSD5_7RateHealth(t *testing.T) {
+	r := newRig(t)
+	r.gh.route(tool, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "61")
+		w.WriteHeader(http.StatusTooManyRequests)
+	})
+	r.expect(t, need(t, commitRef("acme/tool", sha), orgForge(), ""), orgForge(), proto.ReasonForgeRate)
+	r.other()
+	r.gh.json(compare(lib, "main", sha), 200, status("behind"))
+	before := r.gh.total()
+	r.clk.Advance(61*time.Second - time.Millisecond)
+	r.expect(t, need(t, commitRef("other/lib", sha), externalForge(), ""), externalForge(), proto.ReasonForgeRate)
+	if got := r.gh.total() - before; got != 0 {
+		t.Fatalf("%d requests inside the rate wait, want none", got)
+	}
+	r.clk.Advance(time.Millisecond)
+	r.expect(t, need(t, commitRef("other/lib", sha), externalForge(), ""), externalForge(), forge.Proven)
+}
+
+// B-n1: an answer that does not name the branch asked (the protection endpoint, which a
+// branch "main/protection" reaches) is not that branch.
+func TestSD5_5ABranchIsTheBranchItNames(t *testing.T) {
+	r := newRig(t)
+	r.acme()
+	r.gh.json(tool+"/branches/main/protection", 200, `{"url":"x"}`)
+	r.gh.json(compare(tool, "main/protection", sha), 200, status("behind"))
+	r.expect(t, need(t, commitRef("acme/tool", sha), orgForge(), "main/protection"), orgForge(), proto.ReasonProvenance)
+}
+
+// receive is a receive check's context whose sender budget answers allow, counting the asks.
+func receive(allow bool, asked *int) context.Context {
+	return team.WithReceive(context.Background(), func() bool { *asked++; return allow })
+}
+
+func TestSD5_9AReceiveCheckSpendsOncePerUncachedCheck(t *testing.T) {
+	r := newRig(t)
+	r.acme()
+	r.gh.json(compare(tool, "main", sha), 200, status("behind"))
+	n := need(t, commitRef("acme/tool", sha), orgForge(), "")
+	asked := 0
+	for range 2 {
+		res, err := r.c.Check(receive(true, &asked), n, orgForge())
+		if err != nil || res.Outcome != forge.Proven {
+			t.Fatalf("Check = %q, %v", res.Outcome, err)
+		}
+	}
+	if asked != 1 {
+		t.Fatalf("the budget was asked %d times for one uncached and one cached check, want 1", asked)
+	}
+	before := r.gh.total()
+	res, err := r.c.Check(receive(false, &asked), need(t, commitRef("acme/tool", sha2), orgForge(), ""), orgForge())
+	if err != nil || res.Outcome != proto.ReasonUnresolved || r.gh.total() != before {
+		t.Fatalf("past the budget: %q, %v, %d requests; want unresolved and none", res.Outcome, err, r.gh.total()-before)
+	}
+}
+
+func TestSD5_9ReceiveChecksKeepTheReserve(t *testing.T) {
+	r := newRig(t)
+	resetS := wall0/1000 + 3600
+	remaining := atomic.Int64{}
+	remaining.Store(1000)
+	rated := func(body string) http.HandlerFunc {
+		return func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("X-Ratelimit-Limit", "5000")
+			w.Header().Set("X-Ratelimit-Remaining", strconv.FormatInt(remaining.Load(), 10))
+			w.Header().Set("X-Ratelimit-Reset", strconv.FormatInt(resetS, 10))
+			r.gh.write(w, body)
+		}
+	}
+	r.gh.route(tool, rated(repoJSON("acme/tool", "acme", false, false, "main")))
+	for _, s := range []string{sha, sha2, headSHA} {
+		r.gh.route(compare(tool, "main", s), rated(status("behind")))
+	}
+	asked := 0
+	check := func(ctx context.Context, s string) (forge.Result, error) {
+		return r.c.Check(ctx, need(t, commitRef("acme/tool", s), orgForge(), ""), orgForge())
+	}
+	if res, err := check(receive(true, &asked), sha); err != nil || res.Outcome != forge.Proven {
+		t.Fatalf("at the reserve: %q, %v; want proven", res.Outcome, err)
+	}
+	remaining.Store(999)
+	if res, err := check(receive(true, &asked), sha2); err != nil || res.Outcome != forge.Proven {
+		t.Fatalf("the answer that leaves 999: %q, %v; want proven", res.Outcome, err)
+	}
+	before := r.gh.total()
+	if res, err := check(receive(true, &asked), headSHA); err != nil || res.Outcome != proto.ReasonForgeRate || r.gh.total() != before {
+		t.Fatalf("below the reserve: %q, %v, %d requests; want forge-rate and none", res.Outcome, err, r.gh.total()-before)
+	}
+	if res, err := check(context.Background(), headSHA); err != nil || res.Outcome != forge.Proven {
+		t.Fatalf("a send below the reserve: %q, %v; want proven", res.Outcome, err)
+	}
+	sha3 := strings.Repeat("4", 40)
+	r.gh.route(compare(tool, "main", sha3), rated(status("behind")))
+	r.clk.StepWall(3600 * 1000)
+	if res, err := check(receive(true, &asked), sha3); err != nil || res.Outcome != forge.Proven {
+		t.Fatalf("past the window's reset: %q, %v; want proven", res.Outcome, err)
+	}
+}
+
+// awaitHit waits for the fake GitHub to be asked uri.
+func (r *rig) awaitHit(uri string) {
+	for got := range r.gh.hit {
+		if got == uri {
+			return
+		}
+	}
+}
+
+func TestSD5_8ACompareCutIsUnresolvedNotDown(t *testing.T) {
+	r := newRig(t)
+	r.acme()
+	r.gh.route(compare(tool, "main", sha), func(_ http.ResponseWriter, req *http.Request) { <-req.Context().Done() })
+	type outcome struct {
+		res forge.Result
+		err error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		res, err := r.c.Check(context.Background(), need(t, commitRef("acme/tool", sha), orgForge(), ""), orgForge())
+		done <- outcome{res, err}
+	}()
+	r.awaitHit(compare(tool, "main", sha))
+	r.clk.Advance(15 * time.Second)
+	got := <-done
+	if got.err != nil || got.res.Outcome != proto.ReasonUnresolved {
+		t.Fatalf("a compare cut at 15 s = %q, %v; want unresolved and no error", got.res.Outcome, got.err)
+	}
+	r.gh.json(compare(tool, "main", sha2), 200, status("behind"))
+	r.expect(t, need(t, commitRef("acme/tool", sha2), orgForge(), ""), orgForge(), forge.Proven)
+}
+
+func TestSD5_8AServerErrorOffTheRepositoryIsNotDown(t *testing.T) {
+	for name, uri := range map[string]string{
+		"compare":  compare(tool, "main", sha),
+		"contents": contents,
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newRig(t)
+			r.acme()
+			r.gh.json(compare(tool, "main", sha), 200, status("behind"))
+			r.gh.json(uri, http.StatusBadGateway, `{}`)
+			res, err := r.check(t, need(t, pathRef, orgForge(), ""), orgForge())
+			if err != nil || res.Outcome != proto.ReasonUnresolved {
+				t.Fatalf("a 502 on the %s = %q, %v; want unresolved and no error", name, res.Outcome, err)
+			}
+			r.gh.json(compare(tool, "main", sha2), 200, status("behind"))
+			r.expect(t, need(t, commitRef("acme/tool", sha2), orgForge(), ""), orgForge(), forge.Proven)
+		})
+	}
+}
+
+func TestSD5_8ANoConnectionOnACompareIsDown(t *testing.T) {
+	r := newRig(t)
+	r.acme()
+	r.gh.json(compare(tool, "main", sha), 200, status("behind"))
+	r.expect(t, need(t, commitRef("acme/tool", sha), orgForge(), ""), orgForge(), forge.Proven)
+	r.gh.srv.Close()
+	res, err := r.check(t, need(t, commitRef("acme/tool", sha2), orgForge(), ""), orgForge())
+	if !errors.Is(err, forge.ErrDown) || res.Outcome != proto.ReasonUnresolved {
+		t.Fatalf("no connection for a compare = %q, %v; want unresolved, ErrDown", res.Outcome, err)
 	}
 }

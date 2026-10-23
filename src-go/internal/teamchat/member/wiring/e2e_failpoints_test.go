@@ -352,9 +352,32 @@ func TestFailpointChargeBeforeSend(t *testing.T) { sendCrashed(t, failpoint.Link
 
 func TestFailpointSendBeforeRecord(t *testing.T) { sendCrashed(t, failpoint.LinkAfterSendBeforeRecord) }
 
+// B-m2, n3d-D4: the same crashes against a homeserver that has forgotten its transaction ids
+// (past its retention, or restored), so a re-send by the same id would post the text again:
+// exactly once in main holds only if the restarted link's search finds the posted text.
+func TestFailpointChargeBeforeSendServerForgot(t *testing.T) {
+	sendCrashedForgotten(t, failpoint.LinkAfterChargeBeforeSend)
+}
+
+func TestFailpointSendBeforeRecordServerForgot(t *testing.T) {
+	sendCrashedForgotten(t, failpoint.LinkAfterSendBeforeRecord)
+}
+
 func sendCrashed(t *testing.T, point failpoint.Name) {
 	t.Helper()
-	k := newWorld(t, fakeServer(t))
+	sendCrashedOn(t, fakeServer(t), point)
+}
+
+func sendCrashedForgotten(t *testing.T, point failpoint.Name) {
+	t.Helper()
+	hs := fakeServer(t)
+	hs.fake.ForgetTransactions()
+	sendCrashedOn(t, hs, point)
+}
+
+func sendCrashedOn(t *testing.T, hs homeserver, point failpoint.Name) {
+	t.Helper()
+	k := newWorld(t, hs)
 	c := k.member(coord, coordSeat, "c")
 	c.arm = arm("link", point)
 	ks, cs := k.seated(), c.seated()

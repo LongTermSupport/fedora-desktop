@@ -509,6 +509,9 @@ func (s *Server) txnEvent(r *request, rm *room, endpoint, txn string, send func(
 		if err != nil {
 			return nil, err
 		}
+		if s.forgetsTxns {
+			return map[string]any{keyEventID: e.id}, nil
+		}
 		s.txns[key] = e.id
 	}
 	return map[string]any{keyEventID: s.txns[key]}, nil
