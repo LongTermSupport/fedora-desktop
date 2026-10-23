@@ -138,7 +138,12 @@ plan's end.
 
 Order, each step failing the play on error:
 
-1. Build `wg-overlay` (the existing `build-go-command.yml` import).
+1. Assert `firewalld` is active, failing fast and naming `play-lxc-install-config.yml` as the
+   play that starts it. `play-vpn.yml` otherwise leaves firewalld's run state alone (its OpenVPN
+   rule is recorded `offline`); the overlay needs the daemon, since its steps apply runtime
+   configuration and NetworkManager applies `connection.zone` only through a running firewalld.
+   Task 1.4 rewrites the play's comment so its stance is stated once and truthfully. Then build
+   `wg-overlay` (the existing `build-go-command.yml` import).
 
 2. `wg-overlay check`, the declaration and the live `ip -j` JSON on stdin (`no_log: true`).
 
@@ -158,12 +163,26 @@ Order, each step failing the play on error:
    declared anyway so that a hub on a stricter zone (a server, a later DMZ hub) gets the port.
 
 5. The overlay guard: one firewalld **policy**, `wg-overlay-guard`, egress zone `HOST`, target
-   `CONTINUE`, with two rich rules: drop any packet whose **source** is inside `prefix`, and drop
-   any packet whose **destination** is inside `prefix`. Its ingress zones are every zone
-   `firewall-cmd --get-zones` lists except `wg-overlay`, re-enumerated on every run, so a policy
-   names zones without editing any of them (docker's and libvirt's zones stay their owners').
-   Policies with the default negative priority are evaluated before zone rules, so the drops
-   hold even in a zone whose target accepts. Why both rules:
+   `CONTINUE`, with two `family="ipv4"` rich rules, each logging and dropping:
+   `rule family="ipv4" source address="<prefix>" log prefix="wg-overlay-guard src " level="warning" limit value="10/m" drop` and the same with `destination address="<prefix>"` and
+   the prefix `wg-overlay-guard dst `. The log element is the guard's observable: firewalld
+   emits no nft counters unless `NftablesCounters=yes` (off by default, and a host-wide change),
+   and `LogDenied` logs only a target's verdict, not a rich rule's drop, so the tests and the
+   owner see a guard hit as a kernel log line (`journalctl -k --no-pager -g wg-overlay-guard`).
+   Its ingress zones are every zone `firewall-cmd --get-zones` lists except `wg-overlay`,
+   reconciled in both directions on every run (a zone that appeared is added, a zone that no
+   longer exists is removed, since firewalld rejects a policy that names an unknown zone and
+   the guard would then vanish at the next reload). A policy names zones without editing any of
+   them (docker's and libvirt's zones stay their owners'); a zone with no bound interface is a
+   valid ingress zone that simply never matches. Policies with the default negative priority
+   are evaluated before zone rules, so the drops hold even in a zone whose target accepts.
+   `ansible.posix.firewalld` has no policy support, so the policy is `firewall-cmd --permanent --policy=wg-overlay-guard ...` command tasks, each preceded by an `--info-policy` probe and
+   run only on a difference (`changed_when` from the probe), then applied to the runtime
+   configuration. Locally originated traffic to `<wg_ip_A>` (a ccy seat on the hub whose bundle
+   names that address) arrives on `lo`, which firewalld accepts before any zone or policy, so
+   the guard never sees it and needs no loopback exception. The WireGuard carrier packets have
+   LAN or public outer addresses, never inside `prefix` (the validator refuses an overlap), so
+   the guard never matches the tunnel itself. Why both rules:
 
    - destination: the host's weak-host routing delivers a LAN packet addressed to `<wg_ip_A>`
      to a socket bound there, and the Workstation zone's open high ports admit it, so without
@@ -174,8 +193,10 @@ Order, each step failing the play on error:
      arrive on `wg-overlay`, where WireGuard has authenticated it against the peer's key and
      `AllowedIPs`.
 
-   A zone created after a run (docker installed later) is not covered until the play runs again;
-   step 7 asserts the coverage on every run, and the acceptance checks it.
+   A zone created or removed after a run (docker installed or uninstalled later) is not
+   reconciled until the play runs again; step 7 asserts the coverage on every run, the
+   acceptance checks it, and `docs/` says that adding or removing a firewalld zone means running
+   `play-vpn.yml` again.
 
 6. `wg-overlay render` (stdin, `no_log: true`), then `nmcli connection reload` and
    `nmcli connection up wg-overlay` when the keyfile changed. Ansible writes a module's arguments,
@@ -187,7 +208,8 @@ Order, each step failing the play on error:
    `wg show wg-overlay peers`, `wg show wg-overlay allowed-ips`; never `wg showconf`): the declared
    peers' public keys, each with exactly its `/32`, and the listen port; the interface carries
    the declared address; `firewall-cmd --get-zone-of-interface=wg-overlay` is `wg-overlay`; the
-   guard policy lists every zone but `wg-overlay` as ingress. Any mismatch fails the play. The
+   **runtime** guard policy exists (`firewall-cmd --info-policy=wg-overlay-guard`), lists every
+   zone but `wg-overlay` as ingress, and carries both rules. Any mismatch fails the play. The
    "no key byte in any output" test (Task 1.1) also covers these registered outputs.
 
 Removal: `wireguard_overlay: {state: absent}` brings the connection down, deletes the keyfile, the
@@ -242,31 +264,50 @@ recorded at the outside test (Q4).
 The lab's scenarios pass the guest only `RUN_BASH_*` environment, and the guest runs `run.bash`
 with a vault password that decrypts nothing (`vars/vm-test-scenarios.yml`,
 `docs/vm-acceptance-testing.md`), so a guest has no `wireguard_overlay` and could not decrypt a
-vaulted key. The scenario therefore makes its own declaration inside the guest:
+vaulted key. The lab's contract also keeps the checker read-only: what changes the guest after
+`run.bash` lives in a `guest-prepare-<scenario-id>.bash` fixture that declares no checks and runs
+only for a scenario with `reboot_before_checks: true` (`docs/vm-acceptance-testing.md`,
+`src-go/internal/vmtest/run.go`). The scenario, `server-wireguard-overlay-hub` on the
+`server-fast` base, fits that shape:
 
-- The guest checker (a disposable VM, not the ccy container, so a play may run there) generates a
-  throwaway hub keypair and a peer keypair with `wg genkey`, writes an **unvaulted**
+- **Fixture** (`guest-prepare-server-wireguard-overlay-hub.bash`, in the guest, a disposable VM,
+  not the ccy container, so a play may run there): records an `ss -Hltun` snapshot; generates a
+  throwaway hub keypair and a peer keypair with `wg genkey`; writes an **unvaulted**
   `wireguard_overlay` (hub role, prefix `192.0.2.0/24`, one peer) into the guest checkout's
-  untracked host_vars, and runs `play-vpn.yml` through the guest's `run.bash`. The play takes a
-  key as a plain variable; that it is vaulted on real hosts is the host_vars' business, not the
-  play's. The keys never leave the guest, which is destroyed after the run.
-- The checker then builds the peer: a network namespace joined to the guest by a veth pair, its
-  own WireGuard interface with the peer key and the guest's veth address as endpoint, and a
-  second namespace (a non-peer) on the same veth bridge with no key.
-- It declares its planned count first, as every guest checker does, and the scenario's `planned`
-  in the manifest equals it (`qa-vmtest-manifest.bash` checks this).
-- Its checks: the handshake completes; TCP from the peer to a test listener on the hub's overlay
-  address, admitted by a source `/32` rich rule in `wg-overlay`, connects; an unknown key gets no
-  handshake; the non-peer, routing to the overlay address through the veth, gets no answer and the
-  guard policy's destination rule counter rises (`nft list ruleset` counters for the policy's
-  chain), so the refusal is the firewall's, not only a closed port; a packet from the non-peer
-  with a spoofed overlay source is dropped by the source rule (counter again); the zone has no
-  sources and no permanent interfaces; nothing but the WireGuard UDP port and ssh listens on the
-  guest's uplink address.
-
-If the lab's contract turns out to forbid a play run from a checker, Task 1.3 first adds a
-lab-only scenario input for an extra host_vars file, designed and tested in the lab's own code,
-before the checker is written.
+  untracked `environment/localhost/host_vars/localhost.yml`, which the headless run already
+  wrote; and runs the one play through `run.bash`'s single-play headless mode
+  (`./playbooks/imports/play-vpn.yml --headless`; the vault password file the headless run left
+  in the checkout lets Ansible start). The play takes a key as a plain variable; that it is
+  vaulted on real hosts is the host_vars' business, not the play's. The peer key and addresses go
+  to the fixture's record for the checker, as the kernel-change fixture records its facts. The
+  keys never leave the guest, which is destroyed after the run. A non-zero exit aborts the run.
+  It finishes well inside the lab's prepare limit (one play).
+- **The reboot** is not a cost: it proves that `autoconnect=true` brings `wg-overlay` up with no
+  peer, and that the zone binding and the guard survive a firewalld start, which is DESIGN 2.6's
+  claim.
+- **Checker** (`guest-acceptance-server-wireguard-overlay-hub.bash`): declares its planned count
+  first, and the manifest entry's `planned` equals it (`qa-vmtest-manifest.bash` checks this). It
+  builds its test scaffolding, root-only and removed in an `EXIT` trap, said in its header as the
+  kernel-change checker says it: a peer network namespace joined to the guest by a veth pair,
+  with its own WireGuard interface (the recorded peer key, the guest's veth address as endpoint),
+  and a non-peer namespace on a second veth with no key. The guest ends of both veths have no
+  NetworkManager zone, so they fall in the default zone, an ingress zone of the guard. Then it
+  judges:
+  - the handshake completes (`wg show wg-overlay latest-handshakes`);
+  - TCP from the peer to a test listener on the hub's overlay address, admitted by a source
+    `/32` rich rule the fixture adds permanently to `wg-overlay` (standing in for a bus team's
+    rule), connects, and a local client on the guest connects to the same address over `lo` (the
+    regression the destination rule could cause);
+  - a WireGuard interface in the non-peer namespace with an unknown key gets no handshake;
+  - the non-peer, routing to the overlay address through its veth, gets no answer, and a
+    `wg-overlay-guard dst` kernel log line appears for it; the peer's traffic produces none;
+  - a packet from the non-peer with a spoofed overlay source produces a `wg-overlay-guard src`
+    line and no answer;
+  - the zone has no sources and no permanent interfaces; the runtime policy names every zone but
+    `wg-overlay`;
+  - the WireGuard socket is bound on the declared UDP port, and no listener appeared since the
+    fixture's snapshot other than that port (a provisioned guest has other listeners of its own,
+    so the checker judges only what the overlay added).
 
 ## 3. A `host` member on laptop B (Phase 2)
 
@@ -341,8 +382,11 @@ in Plan 00209.
   LAN team. This plan does not reverse that decision on its own: it holds its own teams to the
   rule by declaration and proves it in the acceptance (every bus port bound on loopback,
   `agentbus0` or the overlay only), and asks the owner whether `play-agent-bus.yml` should
-  refuse a listen address carried by an interface in any zone but the overlay's, `agentbus0`'s
-  or a bridge's (Q8, recommended yes).
+  refuse a listen address unless the interface carrying it is `lo`, `agentbus0`, `wg-overlay`
+  or of kind `bridge` (`ip -j -d link show`); any other interface (one with a default route, a
+  Wi-Fi or Ethernet device, a macvlan) is refused (Q8, recommended yes). The test is by
+  interface, not zone: `agentbus0` has no zone of its own and sits in the default zone with the
+  uplink, so a zone test could not tell them apart.
 - **The overlay is the authentication.** WireGuard binds each peer key to its `AllowedIPs`
   (`/32`), so a source address on `wg-overlay` names a peer. That is what makes `allow_from`
   meaningful across machines. The guard policy (2.4 step 5) keeps that source from being claimed,
@@ -373,16 +417,16 @@ in Plan 00209.
 
 ### Owner decisions (open; the plan's defaults hold until decided)
 
-| ID  | Question                                                                                                                                                                           | Recommended                                                                                                                               |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| Q1  | The public endpoint and router forward: forward one UDP port to the hub?                                                                                                           | Yes, for the outside test only (Phase 1 at home needs none); the default port 51820.                                                      |
-| Q2  | A dedicated always-on hub, or this desktop?                                                                                                                                        | This desktop for the test. A dedicated hub makes every ccy session remote, which needs Phase 3 (v2), so it waits for v2.                  |
-| Q3  | A DMZ host?                                                                                                                                                                        | No: a single UDP forward to a non-DMZ host (section 5). A DMZ hub only in its own plan, with the default-deny uplink.                     |
-| Q4  | Does the router do hairpin NAT (the public endpoint from inside the home)?                                                                                                         | An owner fact, checked at the outside test; the LAN endpoint at home is the default either way.                                           |
-| Q5  | Any third-party control plane (Tailscale, ZeroTier, a hosted NetBird)?                                                                                                             | No: plain WireGuard has no third party, no vendor repository and the best IaC fit. Revisit only if a guest network blocks outbound UDP.   |
-| Q6  | Teams with machines the owner does not own?                                                                                                                                        | Not now; when it arises, a separate overlay and subnet per trust domain (section 5).                                                      |
-| Q7  | Phase 3's credential route: ssh (Plan 00205) or the broker (Plan 00197)?                                                                                                           | Decided with Plan 00209; no default here.                                                                                                 |
-| Q8  | Should `play-agent-bus.yml` refuse a listen address outside loopback, `agentbus0`, a bridge or the overlay? It narrows the owner's 2026-10-06 decision (Plan 00161 DESIGN.md 3.3). | Yes (no TLS, section 5). Until decided nothing refuses it; this plan's teams follow the rule by declaration and the acceptance proves it. |
+| ID  | Question                                                                                                                                                                                         | Recommended                                                                                                                                                                                                                                                                      |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Q1  | The public endpoint and router forward: forward one UDP port to the hub?                                                                                                                         | Yes, for the outside test only (Phase 1 at home needs none); the default port 51820.                                                                                                                                                                                             |
+| Q2  | A dedicated always-on hub, or this desktop?                                                                                                                                                      | This desktop for the test. A dedicated hub makes every ccy session remote, which needs Phase 3 (v2), so it waits for v2.                                                                                                                                                         |
+| Q3  | A DMZ host?                                                                                                                                                                                      | No: a single UDP forward to a non-DMZ host (section 5). A DMZ hub only in its own plan, with the default-deny uplink.                                                                                                                                                            |
+| Q4  | Does the router do hairpin NAT (the public endpoint from inside the home)?                                                                                                                       | An owner fact, checked at the outside test; the LAN endpoint at home is the default either way.                                                                                                                                                                                  |
+| Q5  | Any third-party control plane (Tailscale, ZeroTier, a hosted NetBird)?                                                                                                                           | No: plain WireGuard has no third party, no vendor repository and the best IaC fit. Revisit only if a guest network blocks outbound UDP.                                                                                                                                          |
+| Q6  | Teams with machines the owner does not own?                                                                                                                                                      | Not now; when it arises, a separate overlay and subnet per trust domain (section 5).                                                                                                                                                                                             |
+| Q7  | Phase 3's credential route: ssh (Plan 00205) or the broker (Plan 00197)?                                                                                                                         | Decided with Plan 00209; no default here.                                                                                                                                                                                                                                        |
+| Q8  | Should `play-agent-bus.yml` refuse a listen address not carried by `lo`, `agentbus0`, `wg-overlay` or a bridge interface? It narrows the owner's 2026-10-06 decision (Plan 00161 DESIGN.md 3.3). | Yes (no TLS, section 5). The cost: a team that listens on a LAN address today, for an Element client on a phone, is refused until that phone joins the overlay. Until decided nothing refuses it; this plan's teams follow the rule by declaration and the acceptance proves it. |
 
 ### Coordinator defaults (decided; may be overturned)
 

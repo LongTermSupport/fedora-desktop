@@ -61,13 +61,15 @@ Open owner questions Q1-Q8 and the coordinator defaults D-C1 to D-C7 are in
   spoke), and a test that no key byte reaches stdout, stderr or an error on any path.
 - [ ] ⬜ **Task 1.2**: the command (GREEN), reading the declaration on stdin, writing the keyfile
   0600 root by temp file and rename.
-- [ ] ⬜ **Task 1.3**: a VM lab scenario, guest checker first (RED), as DESIGN.md 2.8: the
-  checker writes a throwaway unvaulted declaration in the guest and applies `play-vpn.yml` as a
-  hub, builds a peer and a non-peer in network namespaces, and proves the handshake, the peer
-  admitted by a source `/32` rule, no handshake for an unknown key, the non-peer's packets to
-  the overlay address and its spoofed overlay source dropped by the guard policy (its counters
-  rise), the zone bound by NetworkManager only, and nothing on the uplink but the WireGuard
-  port and ssh.
+- [ ] ⬜ **Task 1.3**: a VM lab scenario, checker first (RED), as DESIGN.md 2.8: manifest entry
+  `server-wireguard-overlay-hub` (`base: server-fast`, `reboot_before_checks: true`, `planned`);
+  a `guest-prepare-` fixture that writes a throwaway unvaulted declaration and runs
+  `play-vpn.yml` by `run.bash`'s single-play headless mode; a checker that builds a peer and a
+  non-peer in network namespaces and proves the handshake after the reboot, the peer admitted
+  by a source `/32` rule, a local client over `lo` unaffected, no handshake for an unknown key,
+  the non-peer's packets to the overlay address and its spoofed overlay source dropped by the
+  guard (its `wg-overlay-guard` kernel log lines), the zone bound by NetworkManager only, and
+  no new listener but the WireGuard port.
 - [ ] ⬜ **Task 1.4**: the play (GREEN): the overlay tasks in `play-vpn.yml` as DESIGN.md 2.4
   (zone, guard policy, keyfile, read-back by key-free forms), skipped when `wireguard_overlay`
   is not defined; removal by `state: absent`, the address read from the installed connection,
@@ -87,8 +89,8 @@ Open owner questions Q1-Q8 and the coordinator defaults D-C1 to D-C7 are in
 - [ ] ⬜ **Task 1.8**: `deploy.bash` (both plays on the hub) and `acceptance.bash` for the host
   agent: a real handshake with laptop B; the homeserver of a throwaway team reachable from B at
   `<wg_ip_A>:<port>`; refusal from a non-peer (B with the overlay down, routing to `<wg_ip_A>`
-  through the hub's LAN address) shown as a guard policy drop (its counter rises), not only a
-  closed port; `ss` on the hub showing every bus port on loopback, `agentbus0` or the overlay
+  through the hub's LAN address) shown as a guard drop (a `wg-overlay-guard dst` kernel log
+  line), not only a closed port; `ss` on the hub showing every bus port on loopback, `agentbus0` or the overlay
   only; the guard covering every zone but `wg-overlay`; the hub rebooted with no peer up and the
   homeserver active. On a Workstation hub the WireGuard port is already inside the default
   zone's open range, so the acceptance does not claim the forward is the only open port there.
