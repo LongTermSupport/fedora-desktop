@@ -377,8 +377,8 @@ func TestAJobWaitIsBounded(t *testing.T) {
 		t.Fatal(err)
 	}
 	clk.Advance(JobWait - time.Nanosecond)
-	if !clk.Armed(time.Nanosecond) {
-		t.Fatal("the job's wait ended short of JobWait")
+	if ok, err := clk.Armed(time.Nanosecond); err != nil || !ok {
+		t.Fatalf("the job's wait ended short of JobWait (%v)", err)
 	}
 	clk.Advance(time.Nanosecond)
 	err := <-errc

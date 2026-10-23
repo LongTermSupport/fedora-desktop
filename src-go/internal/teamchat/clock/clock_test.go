@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -233,21 +234,63 @@ func TestArmedNamesATimerByWhenItIsDue(t *testing.T) {
 	f := clock.NewFake(0, 0)
 	f.AfterFunc(5*time.Second, func() {})
 	stop := f.AfterFunc(time.Second, func() {})
-	if !f.Armed(5*time.Second) || !f.Armed(time.Second) || f.Armed(2*time.Second) {
+	if !armed(t, f, 5*time.Second) || !armed(t, f, time.Second) || armed(t, f, 2*time.Second) {
 		t.Fatal("Armed named the wrong timers")
 	}
 	stop()
-	if f.Armed(time.Second) {
+	if armed(t, f, time.Second) {
 		t.Fatal("a stopped timer is armed")
 	}
 	f.Advance(2 * time.Second)
-	if !f.Armed(3*time.Second) || f.Armed(5*time.Second) {
+	if !armed(t, f, 3*time.Second) || armed(t, f, 5*time.Second) {
 		t.Fatal("due not counted from the present reading")
 	}
 	f.Advance(3 * time.Second)
-	if f.Armed(0) {
+	if armed(t, f, 0) {
 		t.Fatal("a fired timer is armed")
 	}
+}
+
+// armed is f.Armed(d), failing the test on an ambiguous due.
+func armed(t *testing.T, f *clock.Fake, d time.Duration) bool {
+	t.Helper()
+	ok, err := f.Armed(d)
+	check(t, err)
+	return ok
+}
+
+// Two waiters due at one instant are not one timer named by its due: AwaitDue and Armed refuse
+// the due, naming where each was armed (the test's own lines, through AfterFunc, Hold and Sleep
+// alike), rather than answer for whichever they met first.
+func TestAnAmbiguousDueIsRefusedNamingBothWaiters(t *testing.T) {
+	f := clock.NewFake(0, 0)
+	f.AfterFunc(time.Second, func() {})
+	_, stop := f.Hold(time.Second)
+	defer stop()
+	if err := f.AwaitDue(t.Context(), time.Second); !errors.Is(err, clock.ErrAmbiguousDue) ||
+		strings.Count(err.Error(), "clock_test.go:") != 2 || strings.Contains(err.Error(), "fake.go") {
+		t.Fatalf("AwaitDue: %v", err)
+	}
+	if ok, err := f.Armed(time.Second); ok || !errors.Is(err, clock.ErrAmbiguousDue) {
+		t.Fatalf("Armed: %v %v", ok, err)
+	}
+	// a due no other waiter shares is still named
+	f.AfterFunc(2*time.Second, func() {})
+	await(t, f, 2*time.Second)
+	if !armed(t, f, 2*time.Second) {
+		t.Fatal("the unshared due is not armed")
+	}
+	// a sleeper, named once it is armed alone, and a timer then armed at its due
+	slept := make(chan error, 1)
+	go func() { slept <- f.Sleep(t.Context(), 3*time.Second) }()
+	await(t, f, 3*time.Second)
+	f.AfterFunc(3*time.Second, func() {})
+	if _, err := f.Armed(3 * time.Second); !errors.Is(err, clock.ErrAmbiguousDue) ||
+		strings.Count(err.Error(), "clock_test.go:") != 2 {
+		t.Fatalf("Armed with a sleeper: %v", err)
+	}
+	f.Advance(3 * time.Second)
+	check(t, <-slept)
 }
 
 // lock's three tries, 50 ms apart, run on the fake: the acquire sleeps twice, then is busy.

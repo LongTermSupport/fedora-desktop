@@ -24,9 +24,14 @@ func (w *world) timeoutArmed() bool {
 }
 
 // dueAt is whether the clock holds a waiter due at wall time atMS, as the TIMEOUT timer is
-// armed from wall milliseconds.
+// armed from wall milliseconds; a due another waiter shares fails the test.
 func (w *world) dueAt(atMS int64) bool {
-	return w.clk.Armed(time.Duration(atMS-w.clk.WallMS()) * time.Millisecond)
+	w.t.Helper()
+	ok, err := w.clk.Armed(time.Duration(atMS-w.clk.WallMS()) * time.Millisecond)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	return ok
 }
 
 // timeoutDue is when a ping's TIMEOUT falls due: past its deadline and A 8.3's grace.

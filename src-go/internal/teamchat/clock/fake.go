@@ -2,10 +2,20 @@ package clock
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"path/filepath"
+	"runtime"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
+
+// ErrAmbiguousDue is AwaitDue's and Armed's refusal of a due two waiters share: neither names one
+// timer, so a test waits on a distinct due or on the effect instead.
+var ErrAmbiguousDue = errors.New("clock: more than one waiter is due at that instant")
 
 // Fake is a clock that moves only when a test moves it. Its waiters are due on its monotonic
 // reading, as the runtime's timers are: Advance fires what falls due, in due order (ties in the
@@ -26,6 +36,7 @@ type waiter struct {
 	due  time.Duration
 	seq  uint64
 	fire func()
+	at   string // where it was armed: the first caller outside this package
 }
 
 // NewFake is a fake standing at boot (boot and mono alike) and wallMS.
@@ -78,7 +89,7 @@ func (f *Fake) AfterFunc(d time.Duration, fn func()) func() bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.seq++
-	w := &waiter{due: f.mono + d, seq: f.seq, fire: fn}
+	w := &waiter{due: f.mono + d, seq: f.seq, fire: fn, at: armedAt()}
 	f.waiters = append(f.waiters, w)
 	f.signal()
 	return func() bool { return f.disarm(w) }
@@ -102,15 +113,15 @@ func (f *Fake) Waiters() int {
 // AwaitDue returns once a waiter due d from the fake's present reading is armed, or with the
 // context's error: a test waits on the timer it means before it advances, never on time, and
 // never on a count of waiters, which a timer it did not mean can make (project_fakeclock_count).
+// A due two waiters share is refused (ErrAmbiguousDue), naming where each was armed.
 func (f *Fake) AwaitDue(ctx context.Context, d time.Duration) error {
 	for {
 		f.mu.Lock()
-		due := f.mono + d
-		armed := slices.ContainsFunc(f.waiters, func(w *waiter) bool { return w.due == due })
+		armed, err := f.dueLocked(d)
 		changed := f.changed
 		f.mu.Unlock()
-		if armed {
-			return nil
+		if armed || err != nil {
+			return err
 		}
 		select {
 		case <-changed:
@@ -121,13 +132,37 @@ func (f *Fake) AwaitDue(ctx context.Context, d time.Duration) error {
 }
 
 // Armed is whether a waiter due d from the fake's present reading is armed now: AwaitDue's
-// question asked without waiting, so a test names the timer it means rather than counting.
-func (f *Fake) Armed(d time.Duration) bool {
+// question asked without waiting, so a test names the timer it means rather than counting. A
+// due two waiters share is refused as AwaitDue refuses it.
+func (f *Fake) Armed(d time.Duration) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	due := f.mono + d
-	return slices.ContainsFunc(f.waiters, func(w *waiter) bool { return w.due == due })
+	return f.dueLocked(d)
 }
+
+// armedAt is the file and line of the first caller outside this package (its own tests
+// included), which is where a test or the code under test armed a waiter.
+func armedAt() string {
+	pcs := make([]uintptr, 16)
+	frames := runtime.CallersFrames(pcs[:runtime.Callers(3, pcs)])
+	for {
+		fr, more := frames.Next()
+		if !strings.HasPrefix(fr.Function, thisPackage+".") {
+			return filepath.Base(fr.File) + ":" + strconv.Itoa(fr.Line)
+		}
+		if !more {
+			return "unknown"
+		}
+	}
+}
+
+// thisPackage is the import path the fake's own frames carry.
+var thisPackage = func() string {
+	pc, _, _, _ := runtime.Caller(0)
+	name := runtime.FuncForPC(pc).Name()
+	slash := strings.LastIndex(name, "/")
+	return name[:slash+strings.Index(name[slash:], ".")]
+}()
 
 // Advance moves boot, mono and wall by d, firing each waiter that falls due on the way.
 func (f *Fake) Advance(d time.Duration) {
@@ -162,6 +197,22 @@ func (f *Fake) StepWall(ms int64) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.wall += ms
+}
+
+// dueLocked is whether one waiter is due d from now, and the refusal when more than one is; the
+// caller holds mu.
+func (f *Fake) dueLocked(d time.Duration) (bool, error) {
+	due := f.mono + d
+	var at []string
+	for _, w := range f.waiters {
+		if w.due == due {
+			at = append(at, w.at)
+		}
+	}
+	if len(at) > 1 {
+		return false, fmt.Errorf("%w: %d due %v from now, armed at %s", ErrAmbiguousDue, len(at), d, strings.Join(at, " and "))
+	}
+	return len(at) == 1, nil
 }
 
 // move advances every reading by d; the caller holds mu.

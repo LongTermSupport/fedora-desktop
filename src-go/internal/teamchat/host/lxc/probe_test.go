@@ -340,6 +340,16 @@ func TestProbeHostFaultsAreErrors(t *testing.T) {
 	}
 }
 
+// armed is clk.Armed(d), failing the test on a due another waiter shares.
+func armed(t *testing.T, clk *clock.Fake, d time.Duration) bool {
+	t.Helper()
+	ok, err := clk.Armed(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ok
+}
+
 func TestProbeIsBounded(t *testing.T) {
 	w := placed(t)
 	var (
@@ -357,7 +367,7 @@ func TestProbeIsBounded(t *testing.T) {
 	if ProbeBound.Seconds() != 5 || at != w.boot.Boot()+ProbeBound {
 		t.Fatalf("the bound %v at %v, the clock at %v", ProbeBound, at, w.boot.Boot())
 	}
-	if w.boot.Armed(ProbeBound) {
+	if armed(t, w.boot, ProbeBound) {
 		t.Fatal("the probe's bound was left armed after the probe")
 	}
 }
@@ -387,13 +397,13 @@ func TestProbesThatHangEndAtTheirOwnBound(t *testing.T) {
 		}
 		// probe i is due ProbeBound-(n-1-i)*gap from here
 		for i := range n {
-			if left := ProbeBound - time.Duration(n-1-i)*gap; !w.boot.Armed(left) {
+			if left := ProbeBound - time.Duration(n-1-i)*gap; !armed(t, w.boot, left) {
 				t.Fatalf("%d hanging: probe %d's bound not armed %v ahead", n, i, left)
 			}
 		}
 		w.boot.Advance(ProbeBound - time.Duration(n-1)*gap - time.Nanosecond)
 		for i := range n {
-			if !w.boot.Armed(time.Nanosecond) {
+			if !armed(t, w.boot, time.Nanosecond) {
 				t.Fatalf("%d hanging: probe %d's bound fired short of the bound", n, i)
 			}
 			w.boot.Advance(time.Nanosecond)

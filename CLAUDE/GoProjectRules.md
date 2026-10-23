@@ -298,14 +298,15 @@ fake's present reading is armed: the timer named by when it is due.
   arms nothing. A timer one of them leaves armed is that claim failing, not another timer.
 - Not caught: a fake whose advance is spelled otherwise; a fake held as an interface that has
   the count method but no `Advance` (`var c interface{ Waiters() int } = clk`, found by the
-  conformance review; none in the tree); two timers due at the same instant
-  are one to `AwaitDue` and `Armed`; an allowance row whose test later shares its clock with
-  other timers (the row's reason says why its clock has one user).
-- Next wider rule, not built: a timer named by its due time must be the only waiter due then
-  (`AwaitDue` and `Armed` refusing an ambiguous due). That is a fact of a run, not a shape in
-  the syntax tree, so it belongs in the fake, not in an analyzer; the independent search found
-  no two timers sharing a due in any test (it did not check each of about 25 `AwaitDue`
-  calls), and it is referred to the owner (Plan 00209 n3e merge report `261023-n3e-merge-n3b.md`).
+  conformance review; none in the tree); an allowance row whose test later shares its clock
+  with other timers (the row's reason says why its clock has one user).
+- The next wider form is held by the fake, not an analyzer, being a fact of a run: a timer
+  named by its due must be the only waiter due then, so `AwaitDue` and `Armed` refuse a due two
+  waiters share (`clock.ErrAmbiguousDue`, naming where each was armed;
+  `TestAnAmbiguousDueIsRefusedNamingBothWaiters`). Every teamchat test that uses them passed
+  with the refusal in place, untagged and with `busfailpoints`, `-count=2`; a test that arms
+  several timers at one instant names each by a distinct due (`host/lxc`'s
+  `TestProbesThatHangEndAtTheirOwnBound` starts its probes a millisecond apart).
 
 ### project_goroutine_end
 
