@@ -225,13 +225,13 @@ func TestAnOpBeforeThePIDIsNotAnswered(t *testing.T) {
 	w := newLinkWorld(t)
 	w.ready()
 	got := make(chan [2]string, 1)
-	// The op's deadline is the one timer the link adds; the link's others are already armed.
-	armed := w.clk.Waiters()
 	go func() {
 		answer, done := w.hookCall(wire.OpHookPrompt, w.args(wire.OpHookPrompt))
 		got <- [2]string{answer, done}
 	}()
-	check(t, w.clk.BlockUntil(t.Context(), armed+1))
+	// The op's deadline, not the read limit the server arms on accept, before the request is
+	// written: advanced on that, the request's deadline was read after the advance and never came.
+	check(t, w.clk.AwaitDue(t.Context(), hookDeadline))
 	w.clk.Advance(hookDeadline)
 	if g := <-got; g != [2]string{"", ""} {
 		t.Fatalf("answered %q", g)

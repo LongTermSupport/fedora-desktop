@@ -119,23 +119,6 @@ func (f *Fake) AwaitDue(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// BlockUntil returns once exactly n waiters are armed; its last caller goes in the next commit.
-func (f *Fake) BlockUntil(ctx context.Context, n int) error {
-	for {
-		f.mu.Lock()
-		count, changed := len(f.waiters), f.changed
-		f.mu.Unlock()
-		if count == n {
-			return nil
-		}
-		select {
-		case <-changed:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-}
-
 // Advance moves boot, mono and wall by d, firing each waiter that falls due on the way.
 func (f *Fake) Advance(d time.Duration) {
 	f.mu.Lock()

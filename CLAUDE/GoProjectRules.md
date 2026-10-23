@@ -33,16 +33,16 @@ and the per-rule pages are not written; this catalogue stands in for them.
 
 ## The rules
 
-| Rule                      | Defect class                                                                                                                              | Found in                                                                        |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `project_seam_exec`       | a process started outside the runner, so no fake sees it                                                                                  | `teams`: `syscall.Exec` in the launcher hand-over                               |
-| `project_seam_commands`   | a program run outside the package that owns it, or a command the rule cannot judge (run-time name, hidden wrapper argv, shell `-c`)       | `sessions`: `systemctl reboot`; `teams`: the take-down heading via `gum style`  |
-| `project_tmux_targets`    | a tmux `-t` target in the wrong form for its command (fedora-desktop#69)                                                                  | the bash library, before the port                                               |
-| `project_testclock`       | wall-clock reads in tests (date-dependent tests failed in the hour after midnight)                                                        | `transcript` and `sessprobe` tests: 23 `time.Now()` fixtures                    |
-| `project_waitdelay`       | a function that sets `exec.Cmd.WaitDelay` and never names `exec.ErrWaitDelay`, so a finished command's output is dropped                  | `qa/internal/proc`: bug B25 of the qa-all port                                  |
-| `project_package_tests`   | a package with no `_test.go` file, whose code the module-wide coverage floor can hide behind the rest of the module                       | the old Go gate's every-package-has-tests check, kept when go-qa-ci replaced it |
-| `project_homeabbrev`      | a hand-rolled `~` home abbreviation (a bare prefix replace turned `/home/<user>X` into `~X`)                                              | `teams` tests: `strings.Replace(..., "~", 1)` twice                             |
-| `project_hidden_bindings` | an action reachable only by a key, with no visible, named choice for it (also in shell fzf and Python Textual: `qa-hidden-bindings.bash`) | `teams` picker: Ctrl-A/X/O on Running sessions; `ccy-sessions`: Ctrl-T/X/N      |
+| Rule                      | Defect class                                                                                                                                 | Found in                                                                        |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `project_seam_exec`       | a process started outside the runner, so no fake sees it                                                                                     | `teams`: `syscall.Exec` in the launcher hand-over                               |
+| `project_seam_commands`   | a program run outside the package that owns it, or a command the rule cannot judge (run-time name, hidden wrapper argv, shell `-c`)          | `sessions`: `systemctl reboot`; `teams`: the take-down heading via `gum style`  |
+| `project_tmux_targets`    | a tmux `-t` target in the wrong form for its command (fedora-desktop#69)                                                                     | the bash library, before the port                                               |
+| `project_testclock`       | wall-clock reads in tests (date-dependent tests failed in the hour after midnight)                                                           | `transcript` and `sessprobe` tests: 23 `time.Now()` fixtures                    |
+| `project_waitdelay`       | a function that sets `exec.Cmd.WaitDelay` and never names `exec.ErrWaitDelay`, so a finished command's output is dropped                     | `qa/internal/proc`: bug B25 of the qa-all port                                  |
+| `project_package_tests`   | a package with no `_test.go` file, whose code the module-wide coverage floor can hide behind the rest of the module                          | the old Go gate's every-package-has-tests check, kept when go-qa-ci replaced it |
+| `project_homeabbrev`      | a hand-rolled `~` home abbreviation (a bare prefix replace turned `/home/<user>X` into `~X`)                                                 | `teams` tests: `strings.Replace(..., "~", 1)` twice                             |
+| `project_hidden_bindings` | an action reachable only by a key, with no visible, named choice for it (also in shell fzf and Python Textual: `qa-hidden-bindings.bash`)    | `teams` picker: Ctrl-A/X/O on Running sessions; `ccy-sessions`: Ctrl-T/X/N      |
 | `project_fakeclock_count` | a test that waits on a fake clock by the number of armed waiters, which a timer it did not mean can make, so it advances too early and hangs | `link` tests: `TestAnOpBeforeThePIDIsNotAnswered` hung to the 10-minute timeout |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
@@ -252,6 +252,10 @@ fake's present reading is armed: the timer named by when it is due.
 - Red, real tree: 28 findings, every `BlockUntil` call in `internal/teamchat` (13 test files and
   the fake's own tests); the hang was the link server's read limit, armed on accept, making the
   count before the hook's deadline was armed.
+- Green: `BlockUntil` is gone from the fake; each wait names its timer with `AwaitDue`. Two
+  tests had waited on whichever timer made the count: `TestWaitAcrossARestart` now waits for
+  the 5 s backoff before the link listens, and `TestTrailingFactsAloneOnceAMinute` waits for
+  the loop's minute, not a 2 s pace that is never armed.
 - Not caught: a count read into a variable and polled by a helper that takes the `int`, and a
   fake whose advance is spelled otherwise; two timers due at the same instant are one to
   `AwaitDue`.

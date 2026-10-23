@@ -53,7 +53,7 @@ func TestStopReachesClaudeByItsPidfd(t *testing.T) {
 	w.advance(stopTermAfter, stopKillAfter)
 	expectSig(t, cc.sigs, syscall.SIGTERM)
 	expectSig(t, c.sigs, syscall.SIGTERM)
-	w.advance(stopKillAfter-stopTermAfter)
+	w.advance(stopKillAfter - stopTermAfter)
 	expectSig(t, cc.sigs, syscall.SIGKILL)
 	expectSig(t, c.sigs, syscall.SIGKILL)
 	ended(t, l, res, wire.EndStop, 137, 137)
