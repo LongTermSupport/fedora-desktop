@@ -1004,8 +1004,9 @@ func TestSD5_9AReceiveCheckSpendsOncePerUncachedCheck(t *testing.T) {
 	}
 	before := r.gh.total()
 	res, err := r.c.Check(receive(false, &asked), need(t, commitRef("acme/tool", sha2), orgForge(), ""), orgForge())
-	if err != nil || res.Outcome != proto.ReasonUnresolved || r.gh.total() != before {
-		t.Fatalf("past the budget: %q, %v, %d requests; want unresolved and none", res.Outcome, err, r.gh.total()-before)
+	// n3d-D34: no budget left is forge-rate with no request, never unresolved.
+	if err != nil || res.Outcome != proto.ReasonForgeRate || r.gh.total() != before {
+		t.Fatalf("past the budget: %q, %v, %d requests; want forge-rate and none", res.Outcome, err, r.gh.total()-before)
 	}
 }
 

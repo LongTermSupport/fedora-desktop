@@ -580,6 +580,8 @@ func TestNewRefusesAnIncompleteConfig(t *testing.T) {
 		"no runtime":  func(c *Config) { c.Runtime = nil },
 		"a delivery":  func(c *Config) { c.Delivery = "post" },
 		"no run":      func(c *Config) { c.Run = paths.RunID{} },
+		// n3d-D33: a missing forge checker is a wiring error, not a forge that did not answer.
+		"no forge": func(c *Config) { c.Forge = nil },
 	} {
 		cfg := good
 		mutate(&cfg)

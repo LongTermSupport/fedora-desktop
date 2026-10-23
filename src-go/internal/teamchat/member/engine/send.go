@@ -22,15 +22,9 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
 
-// The send bounds: a member's ping names at most 16 addressees (n3d-D5); 32 sends wait in
-// flight (n3d-D1); 256 answer-expecting pings are in the outbox or in flight (B 2.3.2); a text
-// is at most 4096 bytes (A 7.3).
-const (
-	maxPingTargets = 16
-	maxSending     = 32
-	maxOwnPings    = 256
-	maxText        = 4096
-)
+// maxText is A 7.3's bound on a text; the other send bounds are the store's caps
+// (state.MaxPingTargets, state.MaxSending, state.MaxPings).
+const maxText = 4096
 
 const (
 	msgNoText          exits.Template = "say reads its text on stdin, and none was given"
@@ -46,7 +40,7 @@ const (
 	msgNoRoster        exits.Template = "team {} has not been verified yet, so its members are not known; the link keeps trying"
 	msgNoStore         exits.Template = "team {} has not synced yet; the link keeps trying"
 	msgStopped         exits.Template = "team {} is stopped; run status and tell a human"
-	msgTooMany         exits.Template = "a ping names at most 16 addressees"
+	msgTooMany         exits.Template = "a ping names at most {} addressees"
 	msgRefused         exits.Template = "the send was refused ({}); fix the message"
 	msgRole            exits.Template = "this member's role may not send that ({})"
 	msgDuplicate       exits.Template = "it was already sent within 60 s; do not resend"
@@ -56,8 +50,8 @@ const (
 	msgForgeRate       exits.Template = "the forge's rate limit is spent; wait, do not loop"
 	msgForgeDown       exits.Template = "the forge did not answer; try again later"
 	msgForgeLogin      exits.Template = "the forge check needs gh's login; tell a human"
-	msgSendingFull     exits.Template = "32 sends already wait for team {}'s homeserver; run status"
-	msgOutboxFull      exits.Template = "team {} already has 256 pings awaiting answers; run status"
+	msgSendingFull     exits.Template = "{} sends already wait for team {}'s homeserver; run status"
+	msgOutboxFull      exits.Template = "team {} already has {} pings awaiting answers; run status"
 	msgStoreWrite      exits.Template = "the store of team {} was not written; run status and tell a human"
 	msgServerRefused   exits.Template = "the homeserver refused the send; tell a human"
 )
@@ -351,12 +345,12 @@ func (e *Engine) send(ctx context.Context, st sendTeam, kind string, compose com
 	if err != nil {
 		return internal(err)
 	}
-	if kind == state.SendPing && len(contentTo(o.Content)) > maxPingTargets {
-		return doneOf(exits.New(exits.CodeUsage, &st.id, msgTooMany))
+	if kind == state.SendPing && len(contentTo(o.Content)) > state.MaxPingTargets {
+		return doneOf(exits.New(exits.CodeUsage, &st.id, msgTooMany, exits.Count(state.MaxPingTargets)))
 	}
 	if o.Forge != nil {
-		if err := e.forgeCheck(ctx, st, *o.Forge); err != nil {
-			return doneOf(err)
+		if d, refused := e.forgeCheck(ctx, st, *o.Forge); refused {
+			return d
 		}
 	}
 	var (
@@ -488,27 +482,47 @@ func refusal(t paths.TeamID, err error) error {
 	return exits.New(code, &t, msgRefused, exits.Words(re.Reason))
 }
 
-// forgeCheck is step 6 (n3d-D11), off the state goroutine; nothing is spent by a refusal.
-func (e *Engine) forgeCheck(ctx context.Context, st sendTeam, need proto.ForgeCheck) error {
-	if e.cfg.Forge == nil {
-		return exits.New(exits.CodeForgeDown, &st.id, msgForgeDown)
-	}
+// forgeCheck is step 6 (n3d-D11), off the state goroutine; nothing is spent by a refusal. It is
+// the send's answer and true for a reference refused or a check that failed. A failed check is
+// logged with its cause, and answered by what it shows (n3d-D32): the request's own deadline
+// ended is 4 timed-out, as every other step of a send; only a forge found unreachable is 20
+// forge-down; any other error is the link's own, 1 internal.
+func (e *Engine) forgeCheck(ctx context.Context, st sendTeam, need proto.ForgeCheck) (wire.Done, bool) {
 	res, err := e.cfg.Forge.Check(ctx, need, st.roster.Forge)
+	if err != nil {
+		e.logf("team %s: a send's forge check failed: %v", st.id, err)
+	}
+	var refused error
 	switch {
+	case err == nil:
+	case ctx.Err() != nil:
+		refused = exits.New(exits.CodeTimedOut, &st.id, msgTimedOut, exits.Team(st.id))
 	case errors.Is(err, team.ErrForgeLogin):
-		return exits.New(exits.CodeForgeLogin, &st.id, msgForgeLogin)
-	case err != nil:
-		return exits.New(exits.CodeForgeDown, &st.id, msgForgeDown)
+		refused = exits.New(exits.CodeForgeLogin, &st.id, msgForgeLogin)
+	case errors.Is(err, team.ErrForgeDown):
+		refused = exits.New(exits.CodeForgeDown, &st.id, msgForgeDown)
+	default:
+		return internal(err), true
+	}
+	if refused != nil {
+		return doneOf(refused), true
 	}
 	switch res.Outcome {
 	case team.ForgeProven:
-		return nil
+		return wire.Done{}, false
 	case proto.ReasonProvenance:
-		return exits.New(exits.CodeProvenance, &st.id, msgProvenance)
+		refused = exits.New(exits.CodeProvenance, &st.id, msgProvenance)
 	case proto.ReasonForgeRate:
-		return exits.New(exits.CodeForgeRate, &st.id, msgForgeRate)
+		refused = exits.New(exits.CodeForgeRate, &st.id, msgForgeRate)
+	default:
+		refused = exits.New(exits.CodeForge, &st.id, msgUnresolved)
 	}
-	return exits.New(exits.CodeForge, &st.id, msgUnresolved)
+	return doneOf(refused), true
+}
+
+// sendingFull is the refusal of a send while the store's sends in flight are at their cap.
+func sendingFull(t paths.TeamID) error {
+	return exits.New(exits.CodeStore, &t, msgSendingFull, exits.Count(state.MaxSending), exits.Team(t))
 }
 
 // sendingOf is o's entry in sending, its txn drawn, its charge time and tried set at the charge.
@@ -565,10 +579,10 @@ func (e *Engine) charge(st sendTeam, c proto.Composer, o proto.Outgoing, entry *
 	var queuedNow bool
 	err := e.changeLocked(st.id, func(h *held, s *state.Store) (bool, error) {
 		switch {
-		case len(s.Outbox.Sending) >= maxSending:
-			return false, exits.New(exits.CodeStore, &st.id, msgSendingFull, exits.Team(st.id))
-		case entry.Ping != nil && ownPings(s) >= maxOwnPings:
-			return false, exits.New(exits.CodeStore, &st.id, msgOutboxFull, exits.Team(st.id))
+		case len(s.Outbox.Sending) >= state.MaxSending:
+			return false, sendingFull(st.id)
+		case entry.Ping != nil && ownPings(s) >= state.MaxPings:
+			return false, exits.New(exits.CodeStore, &st.id, msgOutboxFull, exits.Team(st.id), exits.Count(state.MaxPings))
 		}
 		now := e.cfg.Clock.WallMS()
 		key := o.DuplicateKey()
@@ -585,7 +599,7 @@ func (e *Engine) charge(st sendTeam, c proto.Composer, o proto.Outgoing, entry *
 		entry.SinceMS = now
 		entry.Tried = h.recovered && !queuedNow
 		if err := s.AddSending(*entry); err != nil {
-			return false, exits.New(exits.CodeStore, &st.id, msgSendingFull, exits.Team(st.id))
+			return false, sendingFull(st.id)
 		}
 		return true, nil
 	})

@@ -184,7 +184,7 @@ func TestN3dD1SendingAndVerbRules(t *testing.T) {
 		"sending ping null targets": func(s *Store) { s.Outbox.Sending[1].Ping.To = nil },
 		"sending ping twice target": func(s *Store) { s.Outbox.Sending[1].Ping.To = []string{otherID, otherID} },
 		"sending ping foreign user": func(s *Store) { s.Outbox.Sending[1].Ping.To = []string{"@alice:other"} },
-		"sending ping 17 targets":   func(s *Store) { s.Outbox.Sending[1].Ping.To = targets(capPingTargets + 1) },
+		"sending ping 17 targets":   func(s *Store) { s.Outbox.Sending[1].Ping.To = targets(MaxPingTargets + 1) },
 		"sending ping no timeout":   func(s *Store) { s.Outbox.Sending[1].Ping.TimeoutMS = 0 },
 		"pending ping no verb":      func(s *Store) { s.Pending[2].Verb = nil },
 		"pending ping bad verb":     func(s *Store) { s.Pending[2].Verb = new("poke") },
@@ -262,9 +262,9 @@ func fullStore(t *testing.T) Store {
 		s.Receipts = append(s.Receipts, Receipt{ID: eventID(i), Room: proto.PurposeQuestions})
 	}
 	s.Outbox.Pings = []Ping{}
-	for i := range capPings {
-		to := make([]string, 0, capPingTargets)
-		for j := range capPingTargets {
+	for i := range MaxPings {
+		to := make([]string, 0, MaxPingTargets)
+		for j := range MaxPingTargets {
 			to = append(to, fmt.Sprintf("@%s.%d+%s.podman:%s", strings.Repeat("r", 40), j+1, strings.Repeat("s", 40), server))
 		}
 		s.Outbox.Pings = append(s.Outbox.Pings, Ping{ID: eventID(i), Verb: "review", Ref: new("commit:owner/repo@" + sha), To: to, SentMS: 1, DueMS: farMS, Answered: []int{0, 1}, Reported: []int{2}})
@@ -277,7 +277,7 @@ func fullStore(t *testing.T) Store {
 		s.AddMissed(Missed{Nonce: fmt.Sprintf("%08x", i), IDs: []string{eventID(1), eventID(2), eventID(3)}, Offset: 1 << 40, AtMS: farMS})
 	}
 	s.Outbox.Sending = []Sending{}
-	for range capSending {
+	for range MaxSending {
 		s.Outbox.Sending = append(s.Outbox.Sending, largestSending(t))
 	}
 	s.Outbox.Gate.Recent = []GateKey{}
@@ -313,8 +313,8 @@ func TestStoreFullFitsTheFileCap(t *testing.T) {
 // n3d-D1, n3d-D24: 32 sends in flight of at most 20 KiB each, and 96 gate keys; the largest
 // send its grammar allows is within its entry size, and a full sending list round-trips.
 func TestN3dD1SendingAndGateCaps(t *testing.T) {
-	if capSending != 32 || sizeSending != 20<<10 || capGateKeys != 96 || maxSendContent != 16384 {
-		t.Fatalf("caps: sending %d of %d bytes, gate keys %d, content %d", capSending, sizeSending, capGateKeys, maxSendContent)
+	if MaxSending != 32 || sizeSending != 20<<10 || capGateKeys != 96 || maxSendContent != 16384 {
+		t.Fatalf("caps: sending %d of %d bytes, gate keys %d, content %d", MaxSending, sizeSending, capGateKeys, maxSendContent)
 	}
 	entry, err := json.Marshal(largestSending(t))
 	check(t, err)
@@ -326,7 +326,7 @@ func TestN3dD1SendingAndGateCaps(t *testing.T) {
 	check(t, err)
 	back, err := DecodeStore(data)
 	check(t, err)
-	if len(back.Outbox.Sending) != capSending || string(back.Outbox.Sending[0].Content) != string(s.Outbox.Sending[0].Content) {
+	if len(back.Outbox.Sending) != MaxSending || string(back.Outbox.Sending[0].Content) != string(s.Outbox.Sending[0].Content) {
 		t.Fatalf("a full sending list did not round-trip: %d entries", len(back.Outbox.Sending))
 	}
 	if err := back.AddSending(largestSending(t)); !errors.Is(err, ErrFull) {
@@ -376,15 +376,15 @@ func TestStoreListCapsFireFirst(t *testing.T) {
 		"receipts": {func(s *Store) { s.Receipts = append(s.Receipts, s.Receipts[0]) }, count("receipts", capReceipts)},
 		"pings": {func(s *Store) {
 			p := s.Outbox.Pings[0]
-			p.ID = eventID(capPings)
+			p.ID = eventID(MaxPings)
 			s.Outbox.Pings = append(s.Outbox.Pings, p)
-		}, count("pings", capPings)},
+		}, count("pings", MaxPings)},
 		"ping targets":  {func(s *Store) { s.Outbox.Pings[0].To = append(s.Outbox.Pings[0].To, otherID) }, "a ping is not to 1 to 16"},
 		"awaiting":      {func(s *Store) { s.Awaiting = append(s.Awaiting, s.Awaiting[0]) }, count("awaiting", capAwaiting)},
 		"awaiting size": {func(s *Store) { s.Awaiting[0].IDs = append(s.Awaiting[0].IDs, manyIDs(40)...) }, "an entry of awaiting is over"},
 		"missed":        {func(s *Store) { s.Missed = append(s.Missed, s.Missed[0]) }, count("missed", capMissed)},
 		"missed size":   {func(s *Store) { s.Missed[0].IDs = manyIDs(14) }, "an entry of missed is over"},
-		"sending":       {func(s *Store) { s.Outbox.Sending = append(s.Outbox.Sending, s.Outbox.Sending[0]) }, count("sending", capSending)},
+		"sending":       {func(s *Store) { s.Outbox.Sending = append(s.Outbox.Sending, s.Outbox.Sending[0]) }, count("sending", MaxSending)},
 		"gate keys": {func(s *Store) {
 			s.Outbox.Gate.Recent = append(s.Outbox.Gate.Recent, s.Outbox.Gate.Recent[0])
 		}, count("gate keys", capGateKeys)},
@@ -422,8 +422,8 @@ func longRef(t *testing.T) string {
 // cap, a review ping to 16 of the longest user ids with the longest reference.
 func largestSending(t *testing.T) Sending {
 	t.Helper()
-	to := make([]string, 0, capPingTargets)
-	for j := range capPingTargets {
+	to := make([]string, 0, MaxPingTargets)
+	for j := range MaxPingTargets {
 		id := fmt.Sprintf("@%s.%d+%s.podman:%s", strings.Repeat("r", 40), 999984+j, strings.Repeat("s", 48), server)
 		if len(id) != maxUserID {
 			t.Fatalf("a long user id is %d bytes", len(id))
@@ -497,8 +497,8 @@ func TestStoreListsRefuseOrRoll(t *testing.T) {
 	}{
 		"awaiting": {capAwaiting, func() error { return s.AddAwaiting(Awaiting{}) }},
 		"receipts": {capReceipts, func() error { return s.AddReceipt(Receipt{}) }},
-		"pings":    {capPings, func() error { return s.AddPing(Ping{}) }},
-		"sending":  {capSending, func() error { return s.AddSending(Sending{}) }},
+		"pings":    {MaxPings, func() error { return s.AddPing(Ping{}) }},
+		"sending":  {MaxSending, func() error { return s.AddSending(Sending{}) }},
 		"gate":     {capGateKeys, func() error { return s.AddGateKey(GateKey{}) }},
 	} {
 		for range c.limit {

@@ -591,7 +591,7 @@ type own struct {
 func ownMessage(raw json.RawMessage, self string) (own, bool) {
 	ev, err := proto.Parse(raw)
 	if err != nil {
-		return own{}, false // not an event this member sent
+		return own{}, false // an event that does not parse is matched to nothing
 	}
 	content, ok := ev.Get("content")
 	m := own{

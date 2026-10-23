@@ -221,9 +221,10 @@ type EndTeam struct {
 
 type receiveKey struct{}
 
-// WithReceive marks ctx as a receive check (n3d-D31). spend is the sender's budget: asked once,
-// before the check's first request; false ends the check unresolved with no request. A receive
-// check also stops asking while the forge's rate window is down to the reserve kept for sends.
+// WithReceive marks ctx as a receive check (n3d-D31). spend is the senders' budget: asked once,
+// before the check's first request; false ends the check forge-rate with no request
+// (n3d-D34). A receive check also stops asking while the forge's rate window is down to the
+// reserve kept for sends.
 func WithReceive(ctx context.Context, spend func() bool) context.Context {
 	return context.WithValue(ctx, receiveKey{}, spend)
 }

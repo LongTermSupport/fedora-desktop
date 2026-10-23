@@ -204,6 +204,7 @@ func newLinkWorld(t *testing.T) *linkWorld {
 		Clock: w.clk, Proc: w.proc, Parent: func() (Parent, error) { return w.parent, nil },
 		UID: os.Getuid(), Kit: kit, RuntimeDir: w.dir + "/xdg", Home: w.dir, Log: w.log,
 		Engine: engine.New, NewTeam: w.newTeam, NewEnds: func(engine.EndsConfig) team.Ends { return w.ends },
+		Forge: stubForge{},
 		started: func(l *link) {
 			w.mu.Lock()
 			defer w.mu.Unlock()

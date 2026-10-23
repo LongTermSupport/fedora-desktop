@@ -55,8 +55,7 @@ type Config struct {
 	OnState func(wire.State)
 	// Runtime is the session's resident cost, for status.
 	Runtime func() (records.Runtime, error)
-	// Forge checks a send's reference at the forge (n3d-D11); nil refuses a referenced ping as
-	// forge-down.
+	// Forge checks a send's reference at the forge (n3d-D11); required (n3d-D33).
 	Forge team.Forge
 }
 
@@ -132,6 +131,8 @@ func New(cfg Config) (*Engine, error) {
 		return nil, errors.New("engine: no team or ends maker")
 	case cfg.OnState == nil || cfg.Runtime == nil:
 		return nil, errors.New("engine: no state report or runtime reader")
+	case cfg.Forge == nil:
+		return nil, errors.New("engine: no forge checker")
 	case cfg.Delivery != state.DeliverySocket && cfg.Delivery != state.DeliveryWait && cfg.Delivery != state.DeliveryNone:
 		return nil, fmt.Errorf("engine: delivery %q is not socket, wait or none", cfg.Delivery)
 	}

@@ -353,8 +353,12 @@ func TestFailpointChargeBeforeSend(t *testing.T) { sendCrashed(t, failpoint.Link
 func TestFailpointSendBeforeRecord(t *testing.T) { sendCrashed(t, failpoint.LinkAfterSendBeforeRecord) }
 
 // B-m2, n3d-D4: the same crashes against a homeserver that has forgotten its transaction ids
-// (past its retention, or restored), so a re-send by the same id would post the text again:
-// exactly once in main holds only if the restarted link's search finds the posted text.
+// (past its retention, or restored), so a re-send by the same id would post the text again.
+// The send-before-record row discriminates: its PUT was made, so exactly once in main holds only
+// if the restarted link's search finds the posted text. The fake still shows the same device
+// the event's transaction id, so that search matches by txn; a match by content (a new device)
+// is proven by the sender's unit tests. The charge-before-send row made no PUT, so it holds
+// whether or not the search runs.
 func TestFailpointChargeBeforeSendServerForgot(t *testing.T) {
 	sendCrashedForgotten(t, failpoint.LinkAfterChargeBeforeSend)
 }
