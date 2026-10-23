@@ -32,17 +32,3 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-# Plan 00211 deploy 2 (Task 2.6), the reports and questions rooms, rerun after Tasks 2.12 and
-# 2.13. Task 2.13: with an LXC coordinator, the test question's stderr is now read back through
-# in_guest's pipes, so lxc-attach no longer makes the err file root's (the last run took the
-# reuse path but could not read the question number). Task 2.12: the stage 2 acceptance reuses the earlier run's test
-# question while it is not closed (open or answered), instead of failing on pingbus's duplicate refusal, and the report names that Q<n>
-# as the test question; any other refusal still fails. pingbus's duplicate refusal text is now a
-# named product constant; what it prints is unchanged. This runs deploy.bash --stage 2: the
-# spike-report gate, acceptance --stage 1 as the pre-flight, the whole play-agent-bus.yml and
-# play-claude-yolo.yml (CCY 3.100.15, container 2.79.9, which the last run already built;
-# `ccy --version` then says 3.100.15; Plan 00192's gh-account-setup port changes no play),
-# then acceptance --stage 2 with the joins, A1-A4 and the test question. Needs sudo once.
-# Afterwards do the Element steps of the plan's ACCEPTANCE-owner.md against the question the
-# report names.
-00211-agent-bus-reports-and-questions-rooms/deploy-stage-2.bash
