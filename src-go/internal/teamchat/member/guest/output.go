@@ -23,46 +23,59 @@ type Op struct {
 	Busy    bool
 }
 
-var registry struct {
+// opSet is a set of ops by verb. The package holds one, `registry`; a test builds its own, so
+// it adds to nothing that outlives it.
+type opSet struct {
 	mu  sync.Mutex
 	ops []Op
 }
 
-// register records op, so Ops and ChangesOf know it; each op's file registers its own, as
-// `var OpX = register(Op{...})`. A verb registered twice panics, a mistake in this package.
-func register(op Op) Op {
-	registry.mu.Lock()
-	defer registry.mu.Unlock()
-	if slices.ContainsFunc(registry.ops, func(o Op) bool { return o.Verb == op.Verb }) {
+var registry opSet
+
+// register records op in the package's set, so Ops and ChangesOf know it; each op's file
+// registers its own, as `var OpX = register(Op{...})`.
+func register(op Op) Op { return registry.add(op) }
+
+// add records op. A verb added twice panics, a mistake in this package.
+func (s *opSet) add(op Op) Op {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if slices.ContainsFunc(s.ops, func(o Op) bool { return o.Verb == op.Verb }) {
 		panic("guest: " + op.Verb + " registered twice")
 	}
 	op.Changes = slices.Clone(op.Changes)
-	registry.ops = append(registry.ops, op)
+	s.ops = append(s.ops, op)
 	return op
 }
 
-// Ops is every guest op, each with a copy of its set.
-func Ops() []Op {
-	registry.mu.Lock()
-	defer registry.mu.Unlock()
-	ops := make([]Op, len(registry.ops))
-	for i, op := range registry.ops {
+// all is every op, each with a copy of its set.
+func (s *opSet) all() []Op {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ops := make([]Op, len(s.ops))
+	for i, op := range s.ops {
 		op.Changes = slices.Clone(op.Changes)
 		ops[i] = op
 	}
 	return ops
 }
 
-// ChangesOf is the set of what verb may report changed, for the host's parser of its stdout
-// (TB2.4); false for a verb that is not a guest op.
-func ChangesOf(verb string) ([]What, bool) {
-	for _, op := range Ops() {
+// changesOf is the set of what verb may report changed; false for a verb not in the set.
+func (s *opSet) changesOf(verb string) ([]What, bool) {
+	for _, op := range s.all() {
 		if op.Verb == verb {
 			return op.Changes, true
 		}
 	}
 	return nil, false
 }
+
+// Ops is every guest op, each with a copy of its set.
+func Ops() []Op { return registry.all() }
+
+// ChangesOf is the set of what verb may report changed, for the host's parser of its stdout
+// (TB2.4); false for a verb that is not a guest op.
+func ChangesOf(verb string) ([]What, bool) { return registry.changesOf(verb) }
 
 // Output is a guest op's stdout: nothing but its `CHANGED<TAB><what>` lines.
 type Output struct {
