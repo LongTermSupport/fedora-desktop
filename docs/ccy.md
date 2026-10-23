@@ -974,6 +974,31 @@ are forwarded unchanged.
 | `--version`, `-v` | Show the CCY version                                               |
 | `--help`, `-h`    | Full help                                                          |
 
+### Container limits
+
+The session container is started with an explicit pids limit, never the engine's default.
+A pid in the pids cgroup is a thread. podman's default of 2048 was reached by busy sessions
+(parallel Go builds and tests, linters, Ansible forks, background waiters): forks were
+refused, Claude Code's hooks failed with `EAGAIN`, and claude aborted.
+
+| Variable         | CCY default | Takes                            |
+| ---------------- | ----------- | -------------------------------- |
+| `CCY_PIDS_LIMIT` | `16384`     | a whole number from 1 to 4194304 |
+
+Export it on the host before launching to override it for that launch; any other value stops
+the launch before anything is built. A project's `ccy.env` cannot set it, because that file is
+read inside the container. It stays a limit on purpose: the containers share the user slice's
+own task limit with the desktop, so a runaway session stops at its container. A running
+session keeps the limit it was started with until it is relaunched. The setting lives in
+`lib/container-limits.bash`; the rule that holds every session launch to it is
+[ccy-session-container-default-pids-limit](../CLAUDE/QA.md#ccy-session-container-default-pids-limit).
+
+To see a session's use against its limit, from the host:
+
+```bash
+podman exec <container> cat /sys/fs/cgroup/pids.current /sys/fs/cgroup/pids.peak /sys/fs/cgroup/pids.max | cat
+```
+
 ### Claude Code environment CCY sets
 
 CCY forwards a few Claude Code environment defaults into the container. Each uses the

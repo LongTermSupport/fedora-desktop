@@ -291,6 +291,7 @@ rules:
   # limit at all, so there a fork bomb reaches the user's own task limit. Either
   # way the limit is the engine's accident, not a decision. The setting is
   # CCY_PIDS_LIMIT (lib/container-limits.bash, docs/ccy.md "Container limits").
+  # Documented in CLAUDE/QA.md, "ccy-session-container-default-pids-limit".
   #
   # Scope: an engine `run` or `create` (podman, docker, an *ENGINE* variable,
   # container_cmd or ccy_agent_container, with its backslash continuation lines)

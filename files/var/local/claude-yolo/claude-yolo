@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.100.15"  # Container 2.79.9: the Go module gains a YAML dependency and execx Secret.Renamed (Plan 00192 Task 3.3). See docs/ccy-changelog.md.
+CCY_VERSION="3.100.16"  # Container 2.79.9: the session container gets --pids-limit (CCY_PIDS_LIMIT, default 16384). See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -30,7 +30,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # from lib/ (see CCY_HASH), because a hand-written list of what the program
 # consists of is a list that goes stale — this one omitted common-pure.bash,
 # which common.bash sources, for two months.
-CCY_LIBS=(token-handoff common host-paths token-management ssh-handling network-management dockerfile-custom docker-health session-registry restart-request session-lifecycle tmux-session agent-bus-membership agent-bus-seats image-build-lock image-build agent-choice)
+CCY_LIBS=(token-handoff common host-paths token-management ssh-handling network-management dockerfile-custom docker-health session-registry restart-request session-lifecycle tmux-session agent-bus-membership agent-bus-seats image-build-lock image-build agent-choice container-limits)
 
 # First, before anything that can end this launch: a GitHub token handed on by the launch
 # that started this one is taken, and its file deleted, at once; and the Go front's path, when
@@ -86,6 +86,8 @@ source "$SCRIPT_DIR/lib/image-build-lock.bash"
 source "$SCRIPT_DIR/lib/image-build.bash"
 # shellcheck source=lib/agent-choice.bash
 source "$SCRIPT_DIR/lib/agent-choice.bash"
+# shellcheck source=lib/container-limits.bash
+source "$SCRIPT_DIR/lib/container-limits.bash"
 
 # IMPORTANT: When modifying the Dockerfile, ALWAYS increment REQUIRED_CONTAINER_VERSION!
 # This ensures users automatically rebuild when critical container changes are made.
@@ -933,6 +935,7 @@ done
 unset _ccy_dangling
 debug "compose questions answered by --compose: $COMPOSE_MODE (read by lib/network-management.bash)"
 ccy_lifecycle_validate_options "$OPT_MAX_AGE" "$OPT_RUN_FOR" "$OPT_UNTIL" "$NO_SUPERVISE_MODE" || exit 1
+ccy_container_limits || exit 1
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Fail-fast flag validation
@@ -2467,13 +2470,8 @@ if [ "$DEBUG_CCY" = true ]; then
     echo "SSH agent forwarded: ${SSH_AGENT_FORWARDED:-0}"
     echo "SSH alias stanza: ${SSH_CONFIG_EXTRA_B64:+yes} pins: ${SSH_KNOWN_HOSTS_PINS:-none}"
     echo ""
-    echo "Docker command (simplified):"
-    echo "  $CONTAINER_ENGINE run -it --rm \\"
-    echo "    -e CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-... \\"
-    echo "    -v $PWD:/workspace \\"
-    echo "    ... (other mounts) ..."
-    echo "    $IMAGE_NAME \\"
-    echo "    claude --dangerously-skip-permissions ${CLAUDE_ARGS[*]}"
+    printf 'Docker command (simplified):\n  %s run -it --rm --pids-limit %s \\\n    -e CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-... \\\n    -v %s:/workspace \\\n    ... (other mounts) ...\n    %s \\\n    claude --dangerously-skip-permissions %s\n' \
+        "$CONTAINER_ENGINE" "$CCY_PIDS_LIMIT" "$PWD" "$IMAGE_NAME" "${CLAUDE_ARGS[*]}"
     echo "════════════════════════════════════════════════════════════════════════════════"
     cat <<EOF
 
@@ -3878,7 +3876,7 @@ container_rc=0
 # BSH-09: the secrets go by env NAME (-e VAR, no '=value'), never in the `podman run` argv
 # (world-readable in /proc/<pid>/cmdline), set in this one command's environment only, as are
 # an opencode launch's provider keys (ccy_agent_container, lib/agent-choice.bash).
-CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_OAUTH_TOKEN" GH_TOKEN="$GH_TOKEN" ccy_agent_container run $DOCKER_FLAGS --rm \
+CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_OAUTH_TOKEN" GH_TOKEN="$GH_TOKEN" ccy_agent_container run $DOCKER_FLAGS --rm --pids-limit "$CCY_PIDS_LIMIT" \
     --name "$CONTAINER_NAME" \
     --label ccy=true \
     --label "ccy-project=$PROJECT_NAME" \

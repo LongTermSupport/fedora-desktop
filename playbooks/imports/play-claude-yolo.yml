@@ -497,6 +497,7 @@
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/image-build-lock.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/image-build.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/agent-choice.bash"
+        - "{{ root_dir }}/files/var/local/claude-yolo/lib/container-limits.bash"
         # ccy's one-key agent, run by path from ssh-handling.bash (stdlib Python, TDD'd in helpers/).
         - "{{ root_dir }}/helpers/ssh_agent_filter/ssh_agent_filter.py"
       # `launchers` is on the lib and on every script that sources it (ccy, cc,

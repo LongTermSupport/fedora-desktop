@@ -27,6 +27,7 @@ var addedAfterPort = []struct{ name, reason string }{
 	{"plan-tests", "the active plan folders' own Python tests, which the helper-tests gate never read, each folder run from itself"},
 	{"lxc-attach-file-stream", "Plan 00211, Defence Before Fix: no command reaching lxc-attach has a standard stream on a file, which lxc-attach hands to root"},
 	{"ccy-agent-choice", "Plan 00215: ccy --opencode runs opencode instead of Claude Code, its provider key handed by name to the container run only, and its own suite proves it"},
+	{"ccy-container-limits", "Defence Before Fix, the ccy pids limit: every session container is started with --pids-limit from CCY_PIDS_LIMIT, never podman's default of 2048, and its own suite proves it"},
 }
 
 func isAddedAfterPort(name string) bool {
