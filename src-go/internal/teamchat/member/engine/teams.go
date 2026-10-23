@@ -219,7 +219,7 @@ func restoreHanded(s *state.Store) int {
 
 // start runs tm for h, and its sender beside it, unless the team was removed meanwhile or its
 // store is refused. Both outlive the add's request: their context keeps ctx's values, never its
-// end, and h.cancel ends both.
+// end, and h.cancel ends both; h.stopped closes once both have ended.
 func (e *Engine) start(ctx context.Context, h *held, tm team.Team) {
 	h.team = tm
 	if tm == nil {
@@ -232,13 +232,17 @@ func (e *Engine) start(ctx context.Context, h *held, tm team.Team) {
 	}
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	h.cancel = cancel
-	go func() {
-		defer close(h.stopped)
+	var both sync.WaitGroup
+	both.Go(func() {
 		if err := tm.Run(runCtx); err != nil && !errors.Is(err, context.Canceled) {
 			e.logf("team %s: the team goroutine ended: %v", h.id, err)
 		}
+	})
+	both.Go(func() { e.sendLoop(runCtx, h) })
+	go func() {
+		defer close(h.stopped)
+		both.Wait()
 	}()
-	go e.sendLoop(runCtx, h)
 	e.publish()
 }
 
@@ -278,8 +282,9 @@ func (e *Engine) Remove(ctx context.Context, t paths.TeamID) (Removed, error) {
 	return Removed{UserID: userID, Notices: notices}, removeErr
 }
 
-// stop cancels a team goroutine and waits for it at most stopWait: a team stuck in a call that
-// ignores its context is left to end on its own, and its later writes are refused.
+// stop cancels a team's goroutine and its sender and waits for both at most stopWait: a team
+// stuck in a call that ignores its context is left to end on its own, and its later writes are
+// refused.
 func (e *Engine) stop(t paths.TeamID, cancel context.CancelFunc, stopped <-chan struct{}) {
 	if cancel != nil {
 		cancel()
@@ -289,7 +294,7 @@ func (e *Engine) stop(t paths.TeamID, cancel context.CancelFunc, stopped <-chan 
 	select {
 	case <-stopped:
 	case <-timeout:
-		e.logf("team %s: the team goroutine did not stop within %s", t, stopWait)
+		e.logf("team %s: the team goroutines did not stop within %s", t, stopWait)
 	}
 }
 

@@ -309,6 +309,10 @@ a stop missed on one path leaks it for the life of the process with what it hold
   `ui.Lines.Close`); the tests of `execx` and `stt` wait for their goroutines, and those of
   `units`, `matrix`, `inbox`, `client`, `hook`, `keeper`, `wiring`, `link` and `engine` run
   `leakcheck.Tests`; 0 findings in all three builds.
+- Red again, the merge of n3 into n3e (Plan 00209): 4 findings in n3's code, matching an
+  independent search; green with the team's sender waited for beside its goroutine (`engine`),
+  a stalled guest call handing its late result over itself (`guestroot`), the forge checks
+  awaited by the batch that starts them (`teamsync`) and a test's canceller awaited.
 - Not caught: an end signalled and never awaited, or awaited on only some of the owner's paths;
   `time.AfterFunc` and `context.AfterFunc` callbacks. The run-time half answers for the
   goroutines the tests run: `internal/teamchat/leakcheck` (`Tests` in a TestMain, `Check` in a

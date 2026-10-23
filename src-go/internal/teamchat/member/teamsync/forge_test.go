@@ -266,13 +266,20 @@ func TestAnEndedCheckDropsNothing(t *testing.T) {
 	tm := w.newTeam(withForge(f))
 	id := w.done(peer, ref(1))
 	ctx, cancel := context.WithCancel(t.Context())
+	cancelled := make(chan struct{})
 	go func() {
-		<-f.started
+		defer close(cancelled)
+		select {
+		case <-f.started:
+		case <-ctx.Done():
+		}
 		cancel()
 	}()
 	if _, err := tm.Refetch(ctx, proto.PurposeMain, id); !errors.Is(err, context.Canceled) {
 		t.Errorf("Refetch: %v", err)
 	}
+	cancel()
+	<-cancelled
 }
 
 // SD5-r7 (n3d-D31): each receive check carries the batch's budget as its bound, so a rate wait

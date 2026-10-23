@@ -95,6 +95,9 @@ func (t *Team) forgeCheck(ctx context.Context, f proto.Forge, vs []proto.Verdict
 	if len(need) == 0 {
 		return forgeNews{}
 	}
+	// The checks end before forgeCheck returns: the cancel below runs first, then the wait.
+	var running sync.WaitGroup
+	defer running.Wait()
 	ctx, cancel := context.WithCancel(clock.WithBound(ctx, t.cfg.Clock.Boot()+forgeBudget))
 	defer cancel()
 	budget, stop := t.cfg.Clock.Hold(forgeBudget)
@@ -109,7 +112,7 @@ func (t *Team) forgeCheck(ctx context.Context, f proto.Forge, vs []proto.Verdict
 		}
 		checks = append(checks, groupCheck{first: first, need: *vs[first].Forge, senders: senders})
 	}
-	reasons, news := collect(t.startChecks(ctx, f, checks), budget, need)
+	reasons, news := collect(t.startChecks(ctx, f, checks, &running), budget, need)
 	for first, reason := range reasons {
 		if reason == "" {
 			continue
@@ -129,14 +132,14 @@ type groupCheck struct {
 	senders []string
 }
 
-// startChecks runs checks, forgeParallel at once, each sending its result; a check still
-// waiting for its turn when ctx ends is unresolved. The channel holds every result, so a check
-// that ends after the budget never blocks.
-func (t *Team) startChecks(ctx context.Context, f proto.Forge, checks []groupCheck) <-chan forgeChecked {
+// startChecks runs checks on running, forgeParallel at once, each sending its result; a check
+// still waiting for its turn when ctx ends is unresolved. The channel holds every result, so a
+// check that ends after the budget never blocks.
+func (t *Team) startChecks(ctx context.Context, f proto.Forge, checks []groupCheck, running *sync.WaitGroup) <-chan forgeChecked {
 	results := make(chan forgeChecked, len(checks))
 	slots := make(chan struct{}, forgeParallel)
 	for _, c := range checks {
-		go func() {
+		running.Go(func() {
 			select {
 			case slots <- struct{}{}:
 			case <-ctx.Done():
@@ -152,7 +155,7 @@ func (t *Team) startChecks(ctx context.Context, f proto.Forge, checks []groupChe
 			}
 			reason, err := t.checkOne(team.WithReceive(ctx, spend), c.need, f)
 			results <- forgeChecked{i: c.first, reason: reason, err: err, charged: charged.Load()}
-		}()
+		})
 	}
 	return results
 }

@@ -53,7 +53,7 @@ const callBound = 10 * time.Second
 
 // bounded runs op, a read or write below the root, between two looks at the init as live does,
 // on its own goroutine, and waits at most the root's bound for it. A call not ended by then
-// answers ErrStalled naming p, and is left to end by itself: whatever it then makes is given to
+// answers ErrStalled naming p, and is left to end by itself: whatever it then makes it gives to
 // late (a dialled connection is closed), and the root's descriptors, if it was closed meanwhile,
 // are released when the last such call ends. Their errors join the next Close's; one that comes
 // after Close is lost with the call, which was already answered.
@@ -72,15 +72,26 @@ func bounded[T any](r *Root, p string, op func() (T, error), late func(T) error)
 		v   T
 		err error
 	}
+	// The call and its caller meet under mu: a call that ends after its caller gave up hands
+	// what it made to late itself, so no second goroutine waits on it.
+	var (
+		mu               sync.Mutex
+		abandoned, ended bool
+	)
 	done := make(chan result, 1)
 	go func() {
 		v, err := op()
-		done <- result{v, errors.Join(guestFault(err), r.leave())}
+		res := result{v, errors.Join(guestFault(err), r.leave())}
+		mu.Lock()
+		gone := abandoned
+		ended = true
+		mu.Unlock()
+		if gone && res.err == nil && late != nil {
+			r.keepLate(late(res.v))
+		}
+		done <- res
 	}()
-	timer := time.NewTimer(r.bound)
-	defer timer.Stop()
-	select {
-	case res := <-done:
+	answer := func(res result) (T, error) {
 		if aerr := r.Alive(); aerr != nil {
 			if res.err == nil && late != nil {
 				aerr = errors.Join(aerr, late(res.v))
@@ -88,13 +99,21 @@ func bounded[T any](r *Root, p string, op func() (T, error), late func(T) error)
 			return zero, aerr
 		}
 		return res.v, res.err
+	}
+	timer := time.NewTimer(r.bound)
+	defer timer.Stop()
+	select {
+	case res := <-done:
+		return answer(res)
 	case <-timer.C:
 	}
-	go func() {
-		if res := <-done; res.err == nil && late != nil {
-			r.keepLate(late(res.v))
-		}
-	}()
+	mu.Lock()
+	inTime := ended
+	abandoned = !ended
+	mu.Unlock()
+	if inTime {
+		return answer(<-done)
+	}
 	if aerr := r.Alive(); aerr != nil {
 		return zero, aerr
 	}
