@@ -31,6 +31,18 @@ func TestNothingCameInTime(t *testing.T) {
 	}
 }
 
+// A real timer that acts on its own stands in for the step: the freeze tools' "Ctrl-C at the
+// prompt" cancelled after 50 ms, hoping the prompt had been reached; called, aliased or as a
+// value.
+func TestCancelledAfterADelay(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	time.AfterFunc(50*time.Millisecond, cancel) // want `time.AfterFunc in a test acts on real time`
+	later := time.AfterFunc                     // want `time.AfterFunc in a test acts on real time`
+	later(time.Second, cancel).Stop()
+	<-ctx.Done()
+}
+
 func within(done <-chan struct{}) error {
 	select {
 	case <-done:

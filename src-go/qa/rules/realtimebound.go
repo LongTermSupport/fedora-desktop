@@ -86,8 +86,11 @@ func runRealTimeBound(pass *analysis.Pass, allow []allowance) {
 			switch {
 			case test:
 				ast.Inspect(decl, func(n ast.Node) bool {
-					if sel, isSelect := n.(*ast.SelectStmt); isSelect {
-						reportPassingTimers(pass, sel)
+					switch n := n.(type) {
+					case *ast.SelectStmt:
+						reportPassingTimers(pass, n)
+					case *ast.Ident:
+						reportTimedStep(pass, n)
 					}
 					return true
 				})
@@ -130,6 +133,14 @@ func reportPassingTimers(pass *analysis.Pass, sel *ast.SelectStmt) {
 			continue
 		}
 		pass.Reportf(cc.Pos(), "a real timer is the passing case of a select (project_realtime_bound): wait for the event or on the fake clock, and fail when a real timer fires")
+	}
+}
+
+// reportTimedStep flags time.AfterFunc in a test, called or taken as a value: a real timer that
+// acts on its own (a cancel, a close, a write) stands in for the step it should wait for.
+func reportTimedStep(pass *analysis.Pass, id *ast.Ident) {
+	if b, ok := realTimeObj(pass.TypesInfo.Uses[id]); ok && b.recv == "" && b.pkg == timePkg && b.name == "AfterFunc" {
+		pass.Reportf(id.Pos(), "time.AfterFunc in a test acts on real time (project_realtime_bound): act when the step is reached, or on the fake clock")
 	}
 }
 

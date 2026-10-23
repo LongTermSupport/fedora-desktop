@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"testing/synctest"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 )
@@ -301,9 +302,13 @@ func TestACheckThatOutlivesItsTimeoutIsKilledAndReported(t *testing.T) {
 			<-ctx.Done()
 		}
 	}
-	if code := w.main(); code != ExitFailed {
-		t.Fatalf("exit %d", code)
-	}
+	// In the bubble the 50 ms pass only once every check is blocked, so the toolchain check that
+	// waits on its context is the one that times out, however loaded the host.
+	synctest.Test(t, func(t *testing.T) {
+		if code := w.main(); code != ExitFailed {
+			t.Fatalf("exit %d", code)
+		}
+	})
 	out := w.out.String()
 	if !strings.Contains(out, "✗ toolchain: QA tool versions match .qa-versions — timed out after 50ms\n") || !strings.Contains(out, "✓ shellcheck") {
 		t.Fatalf("stdout:\n%s", out)

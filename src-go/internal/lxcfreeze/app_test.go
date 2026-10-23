@@ -803,6 +803,22 @@ func TestNoTerminalIsANamedFailureAndNeverAGuess(t *testing.T) {
 	}
 }
 
+// readStarts is a terminal that says when the prompt first reads a reply from it, so a test
+// presses Ctrl-C at the prompt rather than after a real delay it hopes is long enough.
+type readStarts struct {
+	io.ReadCloser
+
+	started chan<- struct{}
+}
+
+func (r readStarts) Read(p []byte) (int, error) {
+	select {
+	case r.started <- struct{}{}:
+	default:
+	}
+	return r.ReadCloser.Read(p)
+}
+
 func TestCtrlCAtANumberedPromptExits130(t *testing.T) {
 	h := newHarness(t)
 	reader, writer := io.Pipe()
@@ -812,11 +828,19 @@ func TestCtrlCAtANumberedPromptExits130(t *testing.T) {
 		}
 	})
 	h.app.Env.IsTerminal = func(any) bool { return true }
-	h.app.Env.OpenTTY = func() (io.ReadCloser, error) { return reader, nil }
+	reading := make(chan struct{}, 1)
+	h.app.Env.OpenTTY = func() (io.ReadCloser, error) { return readStarts{reader, reading}, nil }
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan term.ExitCode, 1)
 	go func() { done <- h.app.RunContext(ctx, nil) }()
-	time.AfterFunc(50*time.Millisecond, cancel)
+	select {
+	case <-reading:
+		cancel()
+	case code := <-done:
+		t.Fatalf("exit %d before the prompt read a reply; stderr %q", code, h.errb)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the prompt never read a reply")
+	}
 	select {
 	case code := <-done:
 		if code != 130 {
