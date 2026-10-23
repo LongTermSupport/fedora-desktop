@@ -1,6 +1,6 @@
 # Plan 00223: ccy one confirm relaunch
 
-**Status**: Not Started (plan only; decisions C1-C13 open, coordinator defaults stated)
+**Status**: Not Started (plan only; decisions C1-C15 open, coordinator defaults stated)
 **Created**: 2026-10-23
 **Owner**: joseph
 **Priority**: Medium
@@ -25,8 +25,9 @@ This plan replaces those with **one Quick Launch screen**: token, SSH keys, netw
 seat, role and (once Plan 00221 lands) label, and the other sessions here, with Enter to launch.
 Only the seat is rechecked; a held seat is offered the next free one, the full seat chooser, or
 attaching to the detached session that holds it; a token with no usage left goes to the token
-chooser. The screen is a `ccy-teams` subcommand the bash launcher calls before tmux, whose answer
-becomes the launcher's explicit arguments; the launcher does not grow. ("Relaunch" in the folder
+chooser. The screen is a `ccy-teams` subcommand the bash launcher calls before tmux; it hands
+over only the answer and the seats, and the token, keys and network stay on today's
+saved-settings path; the launcher does not grow. ("Relaunch" in the folder
 name is the owner's word; in the code it means the restart path, so the design avoids it:
 DESIGN, Words.) Design and expectations R1-R20: [DESIGN.md](DESIGN.md).
 
@@ -42,8 +43,9 @@ DESIGN, Words.) Design and expectations R1-R20: [DESIGN.md](DESIGN.md).
 - Q3 (`[c/s/m/q]`, other containers of this project) is not asked after an accepted screen, and
   the detached-session picker has nothing new to offer a team launch after it (R11).
 - `Answer every question again` includes the team chooser, with a `No team` row (R18).
-- Every choice is made before tmux and reaches the inner run, the session record and a restart
-  as explicit arguments (DESIGN 2.1).
+- Every question is answered before tmux; the inner run gets the answer (`--settled`) and the
+  seats (`--teams`), and takes the token, keys and network from the saved file as today, so
+  records, restores and restarts are today's (DESIGN 2.1).
 - Unattended launches behave exactly as today (R14); the saved file's format is unchanged
   (R15) and has one reader, the bash (R16).
 
@@ -57,7 +59,8 @@ DESIGN, Words.) Design and expectations R1-R20: [DESIGN.md](DESIGN.md).
 - Porting the rest of the launcher to Go (Plan 00191).
 - A host-side seat reservation (decision C9); moving or changing the container preflight and
   zombie menu (Q2, decision C12), the compose questions (Q5) or the passphrase (Q7); changing
-  `lib/tmux-session.bash` or `lib/agent-bus-seats.bash`.
+  `lib/tmux-session.bash` or `lib/agent-bus-seats.bash` (`lib/session-registry.bash` gets only
+  the `--settled` classification, Task 3.2).
 
 ## Dependencies
 
@@ -77,7 +80,7 @@ Every build task is test first: the failing test is committed or shown before th
 
 ### Phase 0: Decisions and base
 
-- [ ] ⬜ **Task 0.1**: The owner answers C1-C13, or the defaults stand; record each in the
+- [ ] ⬜ **Task 0.1**: The owner answers C1-C15, or the defaults stand; record each in the
   journal and adjust the tasks.
 - [ ] ⬜ **Task 0.2**: Hard gate: the token-usage gate is merged into F44 and this branch is
   rebased or merged onto it. Re-read its final `TokenUsability` signature and exit codes; test
@@ -118,8 +121,8 @@ Every build task is test first: the failing test is committed or shown before th
   list with a `No team` row (bare `--teams` or saved teams) or the named team's seat question.
 - [ ] ⬜ **Task 2.5**: Test first, the answer (DESIGN 2.1): NUL-separated `run` and the new
   argument list (given `--teams` words removed at the passed positions, bare `--teams` before a
-  flag included; `--settled=...`, `--token`, `--ssh-key` per key, `--ssh-agent` for the
-  sentinel, `--network`, `--teams` added at the front; nothing for an empty saved value), or
+  flag included; `--settled=...` and, on a team, `--teams` added at the front; no `--teams` with
+  `--no-bus`; never a token, key or network flag), or
   `attach NAME`, or `quit`; diagnostics on stderr; a closed stdout; no terminal (exit 64); uid 0
   refused (R12); and the `--seats-only TEAM` form for R19.
 - [ ] ⬜ **Task 2.6**: `ccy-teams quick-launch` wired in `internal/teams/app.go` with the
@@ -134,15 +137,24 @@ Every build task is test first: the failing test is committed or shown before th
   running (no Q3; P0 offered nothing for a team launch); bare `--teams` and `--teams TEAM` with
   saved seats, with a named team that has no saved seat, and with no saved file (the deferred
   calls before tmux, P0 given canonical seats); saved teams with plain `ccy`; `Answer every question again` with teams and its `No team`; `--create-token` and `--update-token` (no
-  screen); a 75 from `seat take` on a terminal then the next free seat (R19); a restore and a
-  restart of a session whose record holds `--settled=launch` and the explicit flags; each
-  unattended path unchanged (R14). Goldens recorded from the bash after Task 3.2, each difference
+  screen, no deferral); a 75 from `seat take` on a terminal then the next free seat (R19); a
+  restore and a restart of a session launched from the screen (its record has no `--settled`:
+  today's unattended branch); a saved network gone, attended (compose and Q4 as today) and on
+  restore; a restore whose saved keys are the agent sentinel; a restore after a `--settled=token`
+  launch (the token `select_token` chose, from the file); `--no-bus` and `--opencode` with saved
+  teams (no `--teams` in the answer, the saved team kept in the file); stdin a terminal and
+  stderr not, insulated and not (C14); each unattended path unchanged (R14). Goldens recorded from the bash after Task 3.2, each difference
   from today's golden explained in the journal.
 - [ ] ⬜ **Task 3.2**: In `claude-yolo`, per DESIGN 2.4 ("Leaves", "Stays", "New"): the attended
   branch of the Quick Launch block removed; the screen's call before 1195 under the conditions
-  of DESIGN 2.1, with `load_launch_config` called there, and the `case` on `run` (hand-off and
-  exec), `attach` and `quit`; the deferral test at 892 and the deferred two calls; parsing and
-  checking `--settled` and its two skips; the R19 retry inline at 3876. No new function. The
+  of DESIGN 2.1, with `load_launch_config` called there and line 1201 moved above it, and the
+  `case` on `run` (hand-off and exec), `attach` and `quit`; the deferral test at 892 and the
+  deferred two calls; parsing and checking `--settled`, its `quick_unasked` line and the
+  in-place changes at 1237, 1271, 1281 and 1293; the Q3 skip; the R19 retry inline at 3876. No
+  new function. In `lib/session-registry.bash`, `--settled=` in the `drop` case pattern and
+  `--settled` in `CCY_REGISTRY_DROP_FLAGS` (a restart drops it through the same classes), with
+  `scripts/test-ccy-session-registry.bash` passing and a case for both forms. If the counts
+  would grow, DESIGN 2.4's C15 applies. The
   allowlist row set to what `qa-bash-limits` measures, which must not exceed today's (lines,
   statements, functions). `CCY_VERSION` bump and `docs/ccy-changelog.md`.
 - [ ] ⬜ **Task 3.3**: `scripts/test-*` suites that pin Quick Launch's text or the order of the
@@ -168,21 +180,23 @@ Every build task is test first: the failing test is committed or shown before th
 
 All are coordinator defaults; **the owner may change any of them**.
 
-| ID  | Decision                                              | Default                                                                                                                                                                                                                     |
-| --- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| C1  | Name and home of the screen                           | `ccy-teams quick-launch`: that binary has `PickSeat`, the chooser, the describer, `discover`, `tmuxccy` and agent-bus already, and is built by `play-claude-yolo.yml`; no new binary. Not "relaunch" (DESIGN, Words)        |
-| C2  | The screen's form                                     | rows with the default first and accelerators drawn (R2), not a bare `[Y/n]` read; `y`/Enter and `n` keep their meaning                                                                                                      |
-| C3  | Held seat                                             | offer agent-bus's DEFAULT as the first row, plus the chooser, plus `Attach` when a detached session of this checkout holds it (R4, R5); never pick it silently                                                              |
-| C4  | Role on a moved seat                                  | the new seat's own role; a coordinator's role stays with its held seat; no promotion from the screen (R6)                                                                                                                   |
-| C5  | Other sessions of this project (Q3)                   | absorbed: `launch` and `token` mean "start beside them"; Q3 kept on "Answer every question again" (R11)                                                                                                                     |
-| C6  | Where the screen runs and how it answers              | in the outer run before tmux, answering with the full argument list the launcher re-executes with, so tmux, P0, the record and a restart all see explicit choices (DESIGN 2.1); the team step deferred to it from 892 (2.3) |
-| C7  | Token usage on the screen                             | cache only (`fetch=false`); the bash gate at the token's resolution fetches and stays the one authority (R8, DESIGN 3)                                                                                                      |
-| C8  | `Answer every question again` and teams               | the screen runs the team chooser in process, with a `No team` row in the list, when there were saved teams or `--teams` (R18)                                                                                               |
-| C9  | Two launches racing for one seat                      | known gap in v1 (no host-side hold exists before the container's keeper); mitigated by offering the next free seat on take's 75 on a terminal (R19). A true reservation waits for v2                                        |
-| C10 | Esc or Ctrl-C at the screen                           | Quit, nothing started; a departure from today's "end of input takes the saved settings" for a terminal only (R20)                                                                                                           |
-| C11 | Where the cache-only usage read lives                 | moved into `internal/tokens` after the gate merges, shared by the launcher front and `ccy-teams` (DESIGN 2.4)                                                                                                               |
-| C12 | Zombie menu (Q2) and container preflight              | unmoved, after the screen in the inner run; a zombie holding a saved seat is shown on the screen and the seat moved by default (R12, with the reason)                                                                       |
-| C13 | Detached-session picker (P0) on a launch with no team | kept as today (attaching is a different action from confirming settings); for team launches it has nothing new after the screen (R11). The owner may ask for it folded into the screen                                      |
+| ID  | Decision                                              | Default                                                                                                                                                                                                                                                                                                                                                           |
+| --- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C1  | Name and home of the screen                           | `ccy-teams quick-launch`: that binary has `PickSeat`, the chooser, the describer, `discover`, `tmuxccy` and agent-bus already, and is built by `play-claude-yolo.yml`; no new binary. Not "relaunch" (DESIGN, Words)                                                                                                                                              |
+| C2  | The screen's form                                     | rows with the default first and accelerators drawn (R2), not a bare `[Y/n]` read; `y`/Enter and `n` keep their meaning                                                                                                                                                                                                                                            |
+| C3  | Held seat                                             | offer agent-bus's DEFAULT as the first row, plus the chooser, plus `Attach` when a detached session of this checkout holds it (R4, R5); never pick it silently                                                                                                                                                                                                    |
+| C4  | Role on a moved seat                                  | the new seat's own role; a coordinator's role stays with its held seat; no promotion from the screen (R6)                                                                                                                                                                                                                                                         |
+| C5  | Other sessions of this project (Q3)                   | absorbed: `launch` and `token` mean "start beside them"; Q3 kept on "Answer every question again" (R11)                                                                                                                                                                                                                                                           |
+| C6  | Where the screen runs and what it hands over          | coordinator decision, which the owner can change: in the outer run before tmux, handing over only the answer (`--settled`) and the seats (`--teams`); token, keys and network stay on today's saved-settings path with no explicit flags, so a gone network, the agent key and restores behave as today (DESIGN 2.1); the team step deferred to it from 892 (2.3) |
+| C7  | Token usage on the screen                             | cache only (`fetch=false`); the bash gate at the token's resolution fetches and stays the one authority (R8, DESIGN 3)                                                                                                                                                                                                                                            |
+| C8  | `Answer every question again` and teams               | the screen runs the team chooser in process, with a `No team` row in the list, when there were saved teams or `--teams` (R18)                                                                                                                                                                                                                                     |
+| C9  | Two launches racing for one seat                      | known gap in v1 (no host-side hold exists before the container's keeper); mitigated by offering the next free seat on take's 75 on a terminal (R19). A true reservation waits for v2                                                                                                                                                                              |
+| C10 | Esc or Ctrl-C at the screen                           | Quit, nothing started; a departure from today's "end of input takes the saved settings" for a terminal only (R20)                                                                                                                                                                                                                                                 |
+| C11 | Where the cache-only usage read lives                 | moved into `internal/tokens` after the gate merges, shared by the launcher front and `ccy-teams` (DESIGN 2.4)                                                                                                                                                                                                                                                     |
+| C12 | Zombie menu (Q2) and container preflight              | unmoved, after the screen in the inner run; a zombie holding a saved seat is shown on the screen and the seat moved by default (R12, with the reason)                                                                                                                                                                                                             |
+| C13 | Detached-session picker (P0) on a launch with no team | kept as today (attaching is a different action from confirming settings); for team launches it has nothing new after the screen (R11). The owner may ask for it folded into the screen                                                                                                                                                                            |
+| C14 | Stdin a terminal, stderr not (`ccy 2>file`)           | insulated: the screen shows in the pane, which has all three on terminals; not insulated: the saved settings without the team, as end of input today (DESIGN R14). Today Q1 is read there, with its prompt in the file                                                                                                                                            |
+| C15 | The new bash would grow the file                      | shrink it first (DESIGN 2.4); if it still grows, the build stops and the owner decides; this plan never raises the ratchet                                                                                                                                                                                                                                        |
 
 ## Success Criteria
 
