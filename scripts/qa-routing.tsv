@@ -168,6 +168,10 @@ also	.claude/hooks/handlers/*,scripts/qa-hook-handlers.bash,src-go/qa/hookhandle
 # matcher's * crosses /): a file under Completed/ or the plan tooling runs it too, though it reads
 # neither; the over-match is pinned, not narrowed. A plan's Markdown does not run it.
 also	CLAUDE/Plan/*.py,CLAUDE/Plan/*.bash,CLAUDE/Plan/*.sh	plan-tests	-
+# The plan checkers import the agent-bus helpers (helpers.pingbus, helpers.agent_bus), so a
+# change there runs the plan tests too: a changed HUMAN line in helpers/pingbus is what broke
+# Plan 00161's checker unseen.
+also	helpers/pingbus/*,helpers/agent_bus*	plan-tests	-
 also	scripts/qa-plan-tests.bash,src-go/qa/plantests/*,src-go/qa/cmd/qa-plan-tests/*,src-go/qa/discovery/*,helpers/qa_environment/unittest_counts.py,helpers/qa_environment/session_env.py,scripts/lib/go-tool.bash,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	plan-tests	-
 also	src-go/qa/ansible/*,src-go/qa/cmd/qa-ansible/*,src-go/qa/internal/cmdmain/*,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*	ansible-patterns	-
 # The regex-backref-escape fixtures of qa-ansible are read only by the Go tests of the rule.

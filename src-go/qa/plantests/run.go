@@ -20,7 +20,8 @@
 //     runs them as `cd DIR && python3 -m unittest <modules>` would (DIR the working directory and
 //     the first entry of the import path; the tests load their siblings by __file__ or by name).
 //     It starts from the root, so the runner itself imports, with the machine's git
-//     configuration kept out, no bytecode written into the plan folder, a fresh token per run
+//     configuration kept out, no bytecode written into the plan folder (-B, and
+//     PYTHONDONTWRITEBYTECODE=1 for the Python processes the tests start), a fresh token per run
 //     and a private counts file, its output streamed to stderr under a header naming the
 //     directory, and is bounded in time. A token that cannot be made is exit 2.
 //   - P7 A directory's verdict is the runner's exit status checked against the counts it wrote
@@ -355,9 +356,9 @@ func runGroup(env Env, root string, g group, errOut *emit.Emitter) (verdict, gat
 // execute starts the runner for one directory and judges what it left.
 func execute(env Env, root string, g group, counts, token string, errOut *emit.Emitter) (verdict, gates.HelperNumbers) {
 	none := gates.HelperNumbers{}
-	argv := make([]string, 0, 19+len(g.modules))
+	argv := make([]string, 0, 20+len(g.modules))
 	argv = append(argv,
-		"env", "-u", "GIT_CONFIG_COUNT", "-u", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
+		"env", "-u", "GIT_CONFIG_COUNT", "-u", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "PYTHONDONTWRITEBYTECODE=1",
 		"python3", "-B", "-m", "helpers.qa_environment.unittest_counts",
 		"--chdir", filepath.Join(root, filepath.FromSlash(g.dir)),
 		"--counts-file", counts, "--counts-token", token,

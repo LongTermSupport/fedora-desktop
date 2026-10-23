@@ -184,7 +184,7 @@ func TestP6EachFolderRunsFromItself(t *testing.T) {
 		t.Fatalf("ran %d processes, want 2", len(w.ran))
 	}
 	wantA := []string{
-		"env", "-u", "GIT_CONFIG_COUNT", "-u", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
+		"env", "-u", "GIT_CONFIG_COUNT", "-u", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "PYTHONDONTWRITEBYTECODE=1",
 		"python3", "-B", "-m", "helpers.qa_environment.unittest_counts",
 		"--chdir", repo + "/" + dirA,
 		"--counts-file", flag(w.ran[0].Argv, "--counts-file"),

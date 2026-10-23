@@ -835,7 +835,8 @@ func TestADependencyChangeRunsTheDependencyGates(t *testing.T) {
 
 // The plan folders' own tests run whole for a change to a plan's Python or shell (the checkers
 // the tests load, and the tests themselves), for a deleted one, and for a change to the gate's
-// script, Go package, command or runner; a plan's Markdown and an ordinary helper do not run them.
+// script, Go package, command or runner, and for the agent-bus helpers the plan checkers import;
+// a plan's Markdown and an ordinary helper do not run them.
 func TestAPlanCheckerChangeRunsThePlanTestsGate(t *testing.T) {
 	for _, f := range []string{
 		"CLAUDE/Plan/00161-agent-team-bus-matrix/acceptance_check.py",
@@ -846,6 +847,9 @@ func TestAPlanCheckerChangeRunsThePlanTestsGate(t *testing.T) {
 		"src-go/qa/plantests/run.go",
 		"src-go/qa/cmd/qa-plan-tests/main.go",
 		"helpers/qa_environment/unittest_counts.py",
+		"helpers/pingbus/protocol.py",
+		"helpers/agent_bus/teamfile.py",
+		"helpers/agent_bus_lxc/member.py",
 	} {
 		w := newWorld(t)
 		w.touch(f, "x = 1\n")

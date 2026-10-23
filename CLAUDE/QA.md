@@ -197,6 +197,7 @@ stage, not a flaky gate — find which input differs before touching anything.
 | `qa-deployed-drift.bash` | deployed copies under `~/.local/bin` to compare the repo against                                                                                                           | the CCY container and a clean checkout — it self-skips **and names why**                             |
 | `qa-helper-tests.bash`   | one pair asserts against real `/sys/class/drm` and skips where no connector with a physical display link is present                                                        | a VM whose only connector is virtual                                                                 |
 | `qa-hook-handlers.bash`  | the hooks daemon (gitignored) with its venv, and `python3-pytest` for the interpreter the venv was built from; exit **2** naming the fix when any is missing, never a skip | GitHub Actions, whose checkout has no daemon: the workflow's named exemption, `HOOK-HANDLERS-EXEMPT` |
+| `qa-plan-tests.bash`     | Plan 00161's `test_u23_kit_unpack` needs a `tarfile` with extraction filters (Python 3.11.4 or later) and skips without one; the pass line carries the skip count          | an older `python3`                                                                                   |
 
 A worktree Claude Code creates gets the first two as symlinks to the main checkout's copies:
 the `worktree_create` seed in `.claude/hooks-daemon.yaml` lists them, with `localhost.yml`
