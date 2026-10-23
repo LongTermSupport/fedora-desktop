@@ -54,4 +54,32 @@ class Fixture {
         labels.push('An option name that runs on too long');
         return labels;
     }
+
+    // The originating instance: the recorder's group killed, its recording left in /dev/shm.
+    _discardRecordingLeavingAudio(pid, launch) {
+        // ruleid: recorder-killed-leaving-its-files
+        const {signal, group} = discardSignal(launch);
+        this._signalProcess(pid, signal, group);
+    }
+
+    _killLeavingAudio(pid) {
+        // ruleid: recorder-killed-leaving-its-files
+        this._signalProcess(pid, 'KILL', true);
+        // ruleid: recorder-killed-leaving-its-files
+        GLib.spawn_async(null, ['kill', '-9', String(pid)], null, 0, null);
+    }
+
+    _discardRecording(pid, launch) {
+        // ok: recorder-killed-leaving-its-files
+        const {signal, group} = discardSignal(launch);
+        this._send(killArgv(pid, signal, group), () => discardLeftovers(launch, this._user).forEach(this._remove));
+    }
+
+    _stop(pid) {
+        // ok: recorder-killed-leaving-its-files
+        this._signalProcess(pid, 'TERM');
+    }
 }
+
+// ok: recorder-killed-leaving-its-files
+test('Escape kills a batch recorder', () => discardSignal({serverMode: false}));

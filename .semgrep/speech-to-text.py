@@ -8,7 +8,11 @@ import shutil
 import sys
 import typing
 from contextlib import redirect_stderr, redirect_stdout
+from pathlib import Path
 from typing import IO, Optional, Protocol, TextIO
+
+# hook-path-resolved-against-cwd judges only a module that imports the hooks daemon
+from claude_code_hooks_daemon.core import Handler
 
 
 def installed_by_directory(model_dir):
@@ -303,3 +307,39 @@ class OtherAttribute:
         self.count = 0
         # ok: completion-published-before-cleanup
         self.path.unlink(missing_ok=True)
+
+
+def system_path_judged_from_cwd(file_path, blocked):
+    # The originating instance in system_paths.py: a relative path judged where the daemon runs.
+    # ruleid: hook-path-resolved-against-cwd
+    return os.path.realpath(file_path).startswith(blocked)
+
+
+def other_cwd_resolutions(file_path, env_root):
+    # ruleid: hook-path-resolved-against-cwd
+    absolute = os.path.abspath(file_path)
+    # ruleid: hook-path-resolved-against-cwd
+    here = os.getcwd()
+    # ruleid: hook-path-resolved-against-cwd
+    root = Path(env_root).resolve()
+    # ruleid: hook-path-resolved-against-cwd
+    return absolute, here, root, Path.cwd()
+
+
+def anchored(file_path, project_root):
+    if not os.path.isabs(file_path):
+        file_path = os.path.join(project_root, file_path)
+    # ok: hook-path-resolved-against-cwd
+    return os.path.realpath(file_path)
+
+
+def env_root_required_absolute(env_root):
+    if not os.path.isabs(env_root):
+        raise RuntimeError(f"CLAUDE_PROJECT_DIR={env_root!r} is not absolute")
+    # ok: hook-path-resolved-against-cwd
+    return Path(env_root).resolve()
+
+
+class FixtureHandler(Handler):
+    # ok: hook-path-resolved-against-cwd
+    HERE = Path(__file__).resolve().parents[1]
