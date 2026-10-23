@@ -413,24 +413,48 @@ rules:
   #
   # WRONG: const {signal, group} = discardSignal(launch);
   #        this._signalProcess(pid, signal, group);
-  # RIGHT: discardRecorder(pid, launch, {user, send, remove})   (recorderLaunch.js), which
-  #        removes discardLeftovers(launch, user) once the kill has been sent
+  # RIGHT: discardRecorder(pid, launch, {user, home, send, remove})   (recorderLaunch.js),
+  #        whose returned removal of discardLeftovers(launch, ...) runs once the recorder has
+  #        exited (panelSession.js)
   #
-  # The rule reports, outside a node:test test(...), a discardSignal() call, a call given the
-  # signal name 'KILL', or an argv naming -KILL or -9, in a function that never calls
-  # discardLeftovers().
+  # The rule reports, outside a node:test test(...), a kill in a function (a method, a
+  # function declaration or expression, or an arrow function) that never calls
+  # discardLeftovers(). A kill is a discardSignal() call, a call given the signal name 'KILL'
+  # or 'SIGKILL', an argv array naming -KILL, -9, -SIGKILL, KILL or SIGKILL, a
+  # send_signal(9) or a force_exit().
   - id: recorder-killed-leaving-its-files
     languages: [javascript]
     patterns:
       - pattern-either:
           - pattern: discardSignal(...)
           - pattern: $F(..., 'KILL', ...)
+          - pattern: $F(..., 'SIGKILL', ...)
           - pattern: '[..., "-KILL", ...]'
           - pattern: '[..., "-9", ...]'
-      - pattern-inside: |
-          $M(...) { ... }
+          - pattern: '[..., "-SIGKILL", ...]'
+          - pattern: '[..., "KILL", ...]'
+          - pattern: '[..., "SIGKILL", ...]'
+          - pattern: $P.send_signal(9)
+          - pattern: $P.force_exit()
+      - pattern-either:
+          - pattern-inside: |
+              $M(...) { ... }
+          - pattern-inside: |
+              function $M(...) { ... }
+          - pattern-inside: |
+              function (...) { ... }
+          - pattern-inside: |
+              (...) => { ... }
+          - pattern-inside: |
+              (...) => $BODY
       - pattern-not-inside: |
           $M(...) {
+            ...
+            <... discardLeftovers(...) ...>;
+            ...
+          }
+      - pattern-not-inside: |
+          function $M(...) {
             ...
             <... discardLeftovers(...) ...>;
             ...
@@ -457,30 +481,62 @@ rules:
   #            file_path = os.path.join(project_root, file_path)
   #        os.path.realpath(file_path)
   #
-  # The rule reports, in a module that imports claude_code_hooks_daemon, os.path.realpath,
-  # abspath or relpath of a value, os.getcwd(), Path.cwd(), and Path(value).resolve() or
-  # .absolute(), unless the value is __file__ or an `if not os.path.isabs(value):` comes
-  # first in the same block.
+  # The rule reports, in a module that imports claude_code_hooks_daemon (any import form):
+  # os.getcwd() and Path.cwd() always; any .resolve() or .absolute() on a path not built from
+  # __file__, other than Path(value) itself; and os.path.realpath, abspath or relpath of a
+  # value, or Path(value).resolve() or .absolute(), unless the value is __file__ or the same
+  # block first has `if not os.path.isabs(value):` whose body makes the value absolute with
+  # os.path.join or raises.
   - id: hook-path-resolved-against-cwd
     languages: [python]
     patterns:
-      - pattern-inside: |
-          from claude_code_hooks_daemon.$M import $N
-          ...
       - pattern-either:
-          - pattern: os.path.realpath($X)
-          - pattern: os.path.abspath($X)
-          - pattern: os.path.relpath($X)
+          - pattern-inside: |
+              from claude_code_hooks_daemon.$M import $N
+              ...
+          - pattern-inside: |
+              from claude_code_hooks_daemon import $N
+              ...
+          - pattern-inside: |
+              import claude_code_hooks_daemon
+              ...
+          - pattern-inside: |
+              import claude_code_hooks_daemon.$M
+              ...
+      - pattern-either:
           - pattern: os.getcwd()
           - pattern: Path.cwd()
-          - pattern: Path($X).resolve(...)
-          - pattern: Path($X).absolute()
-      - pattern-not: Path(__file__).resolve(...)
-      - pattern-not: os.path.realpath(__file__)
-      - pattern-not-inside: |
-          if not os.path.isabs($X):
-            ...
-          ...
+          - pattern: pathlib.Path.cwd()
+          - patterns:
+              - pattern-either:
+                  - pattern: $P.resolve(...)
+                  - pattern: $P.absolute()
+              - pattern-not: Path($X).resolve(...)
+              - pattern-not: Path($X).absolute()
+              - pattern-not: pathlib.Path($X).resolve(...)
+              - pattern-not: pathlib.Path($X).absolute()
+              - metavariable-regex:
+                  metavariable: $P
+                  regex: '^(?!.*__file__)'
+          - patterns:
+              - pattern-either:
+                  - pattern: os.path.realpath($X)
+                  - pattern: os.path.abspath($X)
+                  - pattern: os.path.relpath($X)
+                  - pattern: Path($X).resolve(...)
+                  - pattern: Path($X).absolute()
+                  - pattern: pathlib.Path($X).resolve(...)
+                  - pattern: pathlib.Path($X).absolute()
+              - pattern-not: Path(__file__).resolve(...)
+              - pattern-not: os.path.realpath(__file__)
+              - pattern-not-inside: |
+                  if not os.path.isabs($X):
+                    $X = os.path.join(...)
+                  ...
+              - pattern-not-inside: |
+                  if not os.path.isabs($X):
+                    raise $E
+                  ...
     message: >
       hook-path-resolved-against-cwd: this resolves a path against the hooks daemon's
       working directory, which is not the agent's project. Make a relative path absolute

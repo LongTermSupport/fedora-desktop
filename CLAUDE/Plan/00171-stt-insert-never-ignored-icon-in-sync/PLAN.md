@@ -223,8 +223,9 @@ The owner's requirements:
   nothing transcribed the discarded audio. Defended first (Defence Before Fix, Semgrep rule
   `recorder-killed-leaving-its-files`, CLAUDE/QA.md). The sweep found the same gap in
   non-server `wsi-stream`, whose live transcript `~/.cache/speech-to-text/streaming-buffer.txt`
-  stayed. The panel now kills through `discardRecorder` (`recorderLaunch.js`), which removes
-  every file `discardLeftovers` names once the kill has run. `wsi` also removes a stale
+  stayed. The panel now kills through `discardRecorder` (`recorderLaunch.js`); every file
+  `discardLeftovers` names, and the PID file, is removed once the killed recorder has exited
+  (`panelSession.js`), before anything new can start and write the same files. `wsi` also removes a stale
   recording before its recorder starts (SPEC-wsi-watermark.md W15a, Plan 00192), and
   `wsi-stream` already empties its buffer at start. Tests in `test-stt-recorder-launch.mjs` and
   `src-go/internal/wsi/app_test.go`. Host check: Escape during a batch recording leaves no

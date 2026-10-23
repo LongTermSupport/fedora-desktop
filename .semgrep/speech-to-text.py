@@ -326,6 +326,27 @@ def other_cwd_resolutions(file_path, env_root):
     return absolute, here, root, Path.cwd()
 
 
+def hollow_guard(file_path, other):
+    if not os.path.isabs(file_path):
+        pass
+    # ruleid: hook-path-resolved-against-cwd
+    resolved = os.path.realpath(file_path)
+    if not os.path.isabs(other):
+        raise ValueError(other)
+    # ruleid: hook-path-resolved-against-cwd
+    return resolved, os.getcwd()
+
+
+def chained_resolutions(file_path):
+    # ruleid: hook-path-resolved-against-cwd
+    home = Path(file_path).expanduser().resolve()
+    # ruleid: hook-path-resolved-against-cwd
+    parent = Path(file_path).parent.absolute()
+    # ok: hook-path-resolved-against-cwd
+    here = Path(__file__).parent.resolve()
+    return home, parent, here
+
+
 def anchored(file_path, project_root):
     if not os.path.isabs(file_path):
         file_path = os.path.join(project_root, file_path)

@@ -72,10 +72,11 @@ export function discardLeftovers(launch, {user, home}) {
     throw new Error(`the files the recorder "${launch.script}" leaves when killed are not known`);
 }
 
-/** Escape: send recorder `pid` its discard signal with `send(argv, then)`, and once the
- * kill has run, `remove(path)` every file the killed recorder leaves. A recorder whose
- * leftovers are not known is still killed (Escape must stop the microphone), then the
- * error is thrown. */
+/** Escape: send recorder `pid` its discard signal with `send(argv)`. Returns what to run
+ * once the recorder has exited (panelSession.js runs it then, before anything new can
+ * start and write the same files): `remove(path)` for every file the killed recorder
+ * leaves. A recorder whose leftovers are not known is still killed (Escape must stop the
+ * microphone), then the error is thrown. */
 export function discardRecorder(pid, launch, {user, home, send, remove}) {
     let leftovers = [];
     let unknown = null;
@@ -85,19 +86,20 @@ export function discardRecorder(pid, launch, {user, home, send, remove}) {
         unknown = e;
     }
     const {signal, group} = discardSignal(launch);
-    send(killArgv(pid, signal, group), () => leftovers.forEach(remove));
+    send(killArgv(pid, signal, group));
     if (unknown !== null)
         throw unknown;
-}
-
-/** Run `argv` (no shell) and call `then()` once it has ended, however it ended. */
-export function runThen(argv, then) {
-    const proc = Gio.Subprocess.new(argv, Gio.SubprocessFlags.NONE);
-    proc.wait_async(null, (source, result) => {
-        try {
-            source.wait_finish(result);
-        } finally {
-            then();
+    return () => {
+        // Every file is tried; then one error names each that could not be removed
+        const failed = [];
+        for (const path of leftovers) {
+            try {
+                remove(path);
+            } catch (e) {
+                failed.push(e.message);
+            }
         }
-    });
+        if (failed.length > 0)
+            throw new Error(failed.join('; '));
+    };
 }

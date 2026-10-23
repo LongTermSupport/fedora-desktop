@@ -917,11 +917,13 @@ state attribute or the Event while the order stays wrong.
 
 ### recorder-killed-leaving-its-files
 
-**What it is.** JavaScript that kills a recorder, in a function that never calls
-`discardLeftovers()` (`extensions/speech-to-text@fedora-desktop/recorderLaunch.js`). A kill
-is a `discardSignal()` call, a call given the signal name `'KILL'`, or an argv naming `-KILL`
-or `-9`. Calls inside a `node:test` `test(...)` are assertions, not kills. Run by
-`qa-speech-to-text-rules.bash` over every tracked JavaScript file.
+**What it is.** JavaScript that kills a recorder, in a function (a method, a function
+declaration or expression, or an arrow function) that never calls `discardLeftovers()`
+(`extensions/speech-to-text@fedora-desktop/recorderLaunch.js`). A kill is a `discardSignal()`
+call, a call given the signal name `'KILL'` or `'SIGKILL'`, an argv array naming `-KILL`, `-9`,
+`-SIGKILL`, `KILL` or `SIGKILL`, a `send_signal(9)` or a `force_exit()`. Calls inside a
+`node:test` `test(...)` are assertions, not kills. Run by `qa-speech-to-text-rules.bash` over
+every tracked JavaScript file.
 
 **Why it exists.** Escape kills a batch recorder's whole process group with SIGKILL, so
 that nothing is transcribed. A killed process runs no cleanup, so `wsi` never removed
@@ -931,24 +933,29 @@ sweep found the same gap in non-server `wsi-stream`, whose live transcript
 `~/.cache/speech-to-text/streaming-buffer.txt` stayed. Found and defended under Defence Before
 Fix (Plan 00171 Task 5.12).
 
-**What it does not see.** A kill sent through a helper that takes the signal as a variable
-other than `discardSignal()`'s, and an uncatchable kill in Python, bash or Go. The sweep that
-defended the rule read those by hand. `wsi-server-manager`'s SIGKILL of the server is not a
+**What it does not see.** A signal name built at run time (`` `-${name}` ``, a variable), a
+kill whose function calls `discardLeftovers()` but never runs the removal it returns, and an
+uncatchable kill in Python, bash or Go. The sweep that defended the rule read those by hand;
+the panel's tests pin that the removal runs. `wsi-server-manager`'s SIGKILL of the server is not a
 discard: the server keeps its journal and audio in the runtime directory on purpose, so that
 the next server can hand back an undelivered dictation.
 
-**How to fix a finding.** Kill through `discardRecorder()`. It sends the kill and, once the
-kill has run, removes every file `discardLeftovers()` names for that recorder. A recorder that
+**How to fix a finding.** Kill through `discardRecorder()`. It sends the kill and returns the
+removal of every file `discardLeftovers()` names for that recorder; `panelSession.js` runs it
+once the recorder has exited, before anything new can start and write the same files. A recorder that
 writes a new temporary file adds it to `discardLeftovers()` in the same change. The recorder
 also removes a stale copy when it starts, but that is a second line of defence, not the fix.
 
 ### hook-path-resolved-against-cwd
 
-**What it is.** Python in a module that imports `claude_code_hooks_daemon` (the project's
-handlers in `.claude/hooks/handlers/`) that resolves a path against the process's working
-directory. That means `os.path.realpath`, `abspath` or `relpath` of a value, `os.getcwd()`,
-`Path.cwd()`, or `Path(value).resolve()` or `.absolute()`. Two forms are allowed: the value
-is `__file__`, or an `if not os.path.isabs(value):` comes first in the same block. Run by
+**What it is.** Python in a module that imports `claude_code_hooks_daemon` in any form (the
+project's handlers in `.claude/hooks/handlers/`) that resolves a path against the process's
+working directory. `os.getcwd()` and `Path.cwd()` are always reported, as is `.resolve()` or
+`.absolute()` on a path not built from `__file__` (`Path(p).expanduser().resolve()`,
+`p.parent.absolute()`). `os.path.realpath`, `abspath` or `relpath` of a value, and
+`Path(value).resolve()` or `.absolute()`, are reported unless the value is `__file__` or the
+same block first has `if not os.path.isabs(value):` whose body joins the value to a root with
+`os.path.join` or raises; a guard that does anything else excuses nothing. Run by
 `qa-speech-to-text-rules.bash` over every tracked Python file.
 
 **Why it exists.** A handler runs in the hooks daemon's process, and the daemon's working
@@ -959,8 +966,12 @@ under `/home/`, so the path was blocked as a system file, and `qa-hook-handlers.
 there and nowhere else. Found and defended under Defence Before Fix.
 
 **What it does not see.** A file-system probe (`exists`, `open`, `stat`) on a relative path,
-and a resolution through an alias (`from os.path import realpath`). The sweep that defended
-the rule found none of these by reading.
+a resolution through an alias (`from os.path import realpath`), and a guarded value reassigned
+before the call. The sweep that defended the rule found none of these by reading.
+
+A relative tool path is taken from the project root, not from the session's `cwd` in the hook
+input; the two are the same directory for a session started in the checkout, and the daemon's
+own `absolute_path` handler refuses a relative `Write`/`Edit` path before this handler runs.
 
 **How to fix a finding.** Make the path absolute before resolving it. Join a relative tool
 path to the project root (`system_paths._absolute`). Refuse a relative value where nothing can

@@ -23,7 +23,7 @@ import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 import { FocusOutline } from './focusOutline.js';
 import { PasteTargetPin } from './pasteTarget.js';
 import { PanelSession } from './panelSession.js';
-import { spawnWatched, killArgv, discardRecorder, runThen } from './recorderLaunch.js';
+import { spawnWatched, killArgv, discardRecorder } from './recorderLaunch.js';
 import { lookFor, isKnownState, recordingBadgeColor, articleBadgeColor, shownState, claudeEmoji, COLOURS } from './panelLook.js';
 import { POST_PROCESS_STYLES, LastTranscriptPostProcessor, unusableKeybindings } from './postProcess.js';
 import { TOKEN_WARNING_FILE, tokenWarning } from './tokenWarning.js';
@@ -1245,46 +1245,48 @@ export default class SpeechToTextExtension extends Extension {
 
     /** Send `signalName` to recorder `pid`, or to its whole process group with `group`. */
     _signalProcess(pid, signalName, group = false) {
-        const argv = killArgv(pid, signalName, group);
+        this._spawnArgv(killArgv(pid, signalName, group));
+    }
+
+    /** Run `argv` (a kill(1) command line) without waiting for it. */
+    _spawnArgv(argv) {
         this._log(argv.join(' '));
         GLib.spawn_async(null, argv, null, GLib.SpawnFlags.SEARCH_PATH, null);
     }
 
-    /** Escape: throw the dictation away, and the files the killed recorder leaves
-     * (recorderLaunch.js discardRecorder says how). */
+    /** Escape: throw the dictation away (recorderLaunch.js discardRecorder says how).
+     * Returns what panelSession.js runs once the recorder has exited: the files the
+     * killed recorder leaves are removed, its PID file among them. */
     _discardRecording(pid, launch) {
-        discardRecorder(pid, launch, {
+        const removeLeftovers = discardRecorder(pid, launch, {
             user: GLib.get_user_name(),
             home: GLib.get_home_dir(),
-            send: (argv, then) => {
-                this._log(argv.join(' '));
-                runThen(argv, then);
-            },
+            send: argv => this._spawnArgv(argv),
             remove: path => this._removeLeftover(path),
         });
-        if (launch.serverMode)
-            return;
-        // A killed recorder cannot remove its own PID file
-        if (this._readPidFile(RECORDER_PID_FILE) === String(pid)) {
-            Gio.File.new_for_path(RECORDER_PID_FILE).delete(null);
-            this._log(`Removed the PID file of the discarded recorder ${pid}`);
-        }
+        return () => {
+            try {
+                removeLeftovers();
+            } finally {
+                // A killed recorder cannot remove its own PID file
+                if (!launch.serverMode && this._readPidFile(RECORDER_PID_FILE) === String(pid))
+                    this._removeLeftover(RECORDER_PID_FILE);
+            }
+        };
     }
 
-    /** Remove `path`, left by a discarded recorder; one already gone is the same answer. */
+    /** Remove `path`, left by a discarded recorder, before the panel is ready again (so it
+     * is synchronous: the files are small, in /dev/shm or the cache). One already gone is
+     * nothing left; any other failure throws, and panelSession.js reports it. */
     _removeLeftover(path) {
-        Gio.File.new_for_path(path).delete_async(GLib.PRIORITY_DEFAULT, null, (file, res) => {
-            try {
-                file.delete_finish(res);
-                this._log(`Removed ${path}, left by the discarded recorder`);
-            } catch (e) {
-                if (e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.NOT_FOUND))
-                    return;  // the recorder never wrote it: nothing was left
-                this._lastError = `Cannot remove ${path}: ${e.message}`;
-                this._log(this._lastError);
-                Main.notify('STT Error', this._lastError);
-            }
-        });
+        try {
+            Gio.File.new_for_path(path).delete(null);
+        } catch (e) {
+            if (e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.NOT_FOUND))
+                return;  // the recorder never wrote it: nothing was left
+            throw new Error(`${path}: ${e.message}`);
+        }
+        this._log(`Removed ${path}, left by the discarded recorder`);
     }
 
     /** The PID the file at `path` holds, or null with no file. */

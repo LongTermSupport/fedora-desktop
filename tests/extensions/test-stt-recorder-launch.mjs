@@ -20,7 +20,7 @@ import test from 'node:test';
 
 register(new URL('./gjs-loader.mjs', import.meta.url).href);
 
-const {spawnWatched, killArgv, discardSignal, discardLeftovers, discardRecorder, runThen, SETSID} = await import(
+const {spawnWatched, killArgv, discardSignal, discardLeftovers, discardRecorder, SETSID} = await import(
     new URL('../../extensions/speech-to-text@fedora-desktop/recorderLaunch.js', import.meta.url).href);
 const {SPAWNS, SPAWN_OUTCOME, STUB_PID} = await import('./gi-stubs.mjs');
 const {spawnSync} = await import('node:child_process');
@@ -103,40 +103,40 @@ test('a recorder whose leftovers are not known is still killed, and the gap is a
     assert.deepEqual(sent, ['kill -KILL -- -4242'], 'Escape left the microphone open');
 });
 
-test('discardRecorder kills the group, and removes what the recorder leaves only once the kill has run', () => {
+test('discardRecorder kills the group, and hands back the removal for when the recorder has exited', () => {
     const events = [];
-    let afterKill = null;
-    discardRecorder('4242', {kind: 'dictation', script: 'wsi', serverMode: false}, {
+    const afterExit = discardRecorder('4242', {kind: 'dictation', script: 'wsi', serverMode: false}, {
         ...WHO,
-        send: (argv, then) => {
-            events.push(argv.join(' '));
-            afterKill = then;
-        },
+        send: argv => events.push(argv.join(' ')),
         remove: path => events.push(`rm ${path}`),
     });
-    assert.deepEqual(events, ['kill -KILL -- -4242'], 'a file was removed before the kill had run');
-    afterKill();
+    assert.deepEqual(events, ['kill -KILL -- -4242'], 'a file was removed while the recorder could still write');
+    afterExit();
     assert.deepEqual(events, ['kill -KILL -- -4242', 'rm /dev/shm/wfile-u.wav',
         'rm /dev/shm/wfile-u.wav.resampled.wav', 'rm /dev/shm/wfile-u.wav.padded']);
+});
+
+test('a removal that fails does not stop the others, and the error names it', () => {
+    const removed = [];
+    const afterExit = discardRecorder('4242', {kind: 'dictation', script: 'wsi', serverMode: false}, {
+        ...WHO,
+        send: () => {},
+        remove: path => {
+            if (path.endsWith('.wav'))
+                throw new Error(`${path}: permission denied`);
+            removed.push(path);
+        },
+    });
+    assert.throws(afterExit, /wfile-u\.wav: permission denied; \/dev\/shm\/wfile-u\.wav\.resampled\.wav: permission denied$/);
+    assert.deepEqual(removed, ['/dev/shm/wfile-u.wav.padded']);
 });
 
 test('discardRecorder asks a server-mode recorder to ABORT and removes nothing', () => {
     const events = [];
     discardRecorder('4242', {kind: 'dictation', script: 'wsi-stream', serverMode: true}, {
-        ...WHO, send: (argv, then) => {
-            events.push(argv.join(' '));
-            then();
-        }, remove: path => events.push(`rm ${path}`),
-    });
+        ...WHO, send: argv => events.push(argv.join(' ')), remove: path => events.push(`rm ${path}`),
+    })();
     assert.deepEqual(events, ['kill -USR1 -- 4242']);
-});
-
-test('runThen starts the argv with no shell and calls back once it has ended', () => {
-    SPAWNS.length = 0;
-    let called = 0;
-    runThen(['kill', '-KILL', '--', '-4242'], () => called++);
-    assert.deepEqual(SPAWNS.at(-1).argv, ['kill', '-KILL', '--', '-4242']);
-    assert.equal(called, 1);
 });
 
 test('spawnWatched returns the PID of the process it started', () => {
