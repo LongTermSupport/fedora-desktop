@@ -277,7 +277,7 @@ want=$(printf '%s\n' env "PINGBUS_MEMBERSHIP=$work/membership/cc-proj" "$KIT_SRC
     --settings "$work/tmp/settings.json" --append-system-prompt "$CC_TEAMS_PROMPT" --resume abc)
 check "the keeper follows the membership; cc-claude (claude with ccy's auto-compact window) gets the plugin, the settings and the prompt (H31)" "$want" "$got"
 check "plain cc starts the same cc-claude, so both paths get the window" "yes" \
-    "$(yes_no grep -qxF '    /var/local/claude-code/cc-claude "$@"' "$REPO_ROOT/files/var/local/claude-code/cc")"
+    "$(yes_no grep -qxF '    /var/local/claude-code/cc-claude "$@"' <(grep -xF -A1 'else' "$REPO_ROOT/files/var/local/claude-code/cc"))"
 check "the play installs cc-claude where cc runs it" "yes" \
     "$(yes_no grep -qF 'go_command_dest: /var/local/claude-code/cc-claude' "$PLAY")"
 check "the membership is written first, kind cc, under the session's name, with its seats" \

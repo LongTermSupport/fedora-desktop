@@ -228,7 +228,8 @@ checkout baked in (Plan 00167).
 `cc-claude`, a Go binary beside `cc`, on both the plain and the `--teams`/`--bus` paths, and it
 sets [`CLAUDE_CODE_AUTO_COMPACT_WINDOW`](#claude_code_auto_compact_window--the-auto-compact-ceiling)
 to `600000` unless the shell `cc` runs in already exports a value. A project's `ccy.env` is
-never read on the host, so it does not change a `cc` session's window. A test pins
+never read on the host, so it does not change a `cc` session's window, and `claude` run
+directly (the way out `cc` names) gets no default at all. A test pins
 `cc-claude`'s default to the launcher's, so the two cannot drift.
 
 | Event                                              | Result                                                                                                                           |
