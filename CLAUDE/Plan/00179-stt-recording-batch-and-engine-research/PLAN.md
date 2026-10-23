@@ -115,21 +115,31 @@ one.
 - [ ] ⬜ **Task 1.1**: `triage.bash`: GPU memory, installed faster-whisper and CTranslate2
   versions, whether the rclone remote and mount exist, and how `faster-whisper-transcribe`
   is called today.
-- [ ] ⬜ **Task 1.2**: Measure memory and speed on an hour of Opus audio for `large-v3`
+- [x] ✅ **Task 1.2**: Measure memory and speed on an hour of Opus audio for `large-v3`
   int8, `large-v3-turbo` and `distil-large-v3.5`, VAD on. Record the results in a research
-  file in this folder.
+  file in this folder. Measured on two phone dictations (20 and 57 minutes) across fourteen
+  engine runs, with accuracy against four clauses the current path skips:
+  [RESEARCH-engine-comparison.md](RESEARCH-engine-comparison.md). Cohere Transcribe not
+  run (gated model).
 - [ ] ⬜ **Task 1.3**: Test whether a desktop client authorised separately can read files
   the phone uploaded with the `drive.file` scope (#98 comment). If it cannot, record the
   narrowest read access the one folder needs.
 - [ ] ⬜ **Task 1.4**: CPU path for #11: from 00148's research, compare faster-whisper CPU
   int8, Parakeet through `onnx-asr`/sherpa-onnx, whisper.cpp and Moonshine on latency and
   accuracy on a laptop CPU. Read voxtype (#84) for ideas worth borrowing. Write a ranked
-  recommendation.
+  recommendation. Partly answered by the engine comparison: Parakeet TDT 0.6B v3 gives the
+  same output on CPU as on GPU at about 3 GB RAM, Moonshine base loses the most text, and
+  the faster-whisper CPU run differs from its GPU run. whisper.cpp and voxtype not yet read.
 
 ### Phase 2: Owner decisions (decision gate)
 
 - [ ] ⬜ **Task 2.1**: The default batch model, the non-NVIDIA engine and install path,
-  and whether any of #9 and #84 is adopted or closed as researched.
+  and whether any of #9 and #84 is adopted or closed as researched. The owner's decision,
+  ranked accuracy first, then memory fit, time only as a tie-breaker. Recommended
+  ([RESEARCH-engine-comparison.md](RESEARCH-engine-comparison.md)): Parakeet TDT 0.6B v3
+  through `onnx-asr` on VAD-cut segments of at most 20 s, for the GPU and the non-NVIDIA
+  path alike; runner-up `large-v3-turbo` if staying in faster-whisper matters. Evidence is
+  two recordings only.
 
 ### Phase 3: The batch command (tests first)
 
