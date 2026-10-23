@@ -207,6 +207,13 @@ first_covering() {
     printf 'none of them'
 }
 terminal_request="$(escaped "${terminal_font}")"
+# A generic name as the setting ("Monospace 11") stands for the font it resolves to.
+case "${terminal_font,,}" in
+    monospace | sans | sans-serif | serif)
+        terminal_font="$(family_for "${terminal_request}")"
+        terminal_request="$(escaped "${terminal_font}")"
+        ;;
+esac
 if [[ -z "${terminal_font}" ]]; then
     bad "13. the terminal font is read from its settings and installed" "got '${terminal_setting}', not '<family> <size>'"
 elif [[ "$(family_for "${terminal_request}")" != "${terminal_font}" ]]; then
@@ -242,6 +249,10 @@ else
         if [[ "${got}" == "${COLOUR}" ]]; then symbol_misses+="U+${cp^^}=${got}; "; fi
     done
     verdict "17. ${terminal_font} draws U+2714, U+2713 and U+2600 from a text font" "" "${symbol_misses}"
+    if [[ -n "${symbol_misses}" ]]; then
+        printf '    %s\n' "Not a deploy fault: the documented cost of the fallback reaches the terminal font." \
+            "The owner decides: accept it, or put a text font with these symbols in the sans-serif list."
+    fi
 fi
 
 echo

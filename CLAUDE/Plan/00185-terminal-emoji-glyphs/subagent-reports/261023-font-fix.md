@@ -11,7 +11,7 @@ at the end.
 - `playbooks/imports/play-fonts.yml`, renamed from `play-ms-fonts.yml`: installs the font,
   deploys the file, runs `fc-cache -f` and prints a reopen-terminals notice.
 - `scripts/test-colour-emoji-fallback.bash`: the qa-gates suite, fontconfig against BDF
-  fixture fonts (95 checks).
+  fixture fonts (96 checks).
 - The plan's `deploy.bash` and `acceptance.bash` (17 checks).
 - `CLAUDE/Plan/meta-deploy.list`: entry `00185-terminal-emoji-glyphs` with its description
   (triage, play-fonts.yml, acceptance, triage again; reopen terminals afterwards).
@@ -60,8 +60,12 @@ expected verdict.
   | sans-serif rule removed | red, 12 failed   |
   | serif rule removed      | red, 6 failed    |
   | all three pattern rules | red, 30 failed   |
-  | `binding="strong"`      | red, 21 failed   |
-  | unchanged (restored)    | green, 95 passed |
+  | `binding="strong"`      | red, 22 failed   |
+  | `mode="prepend"`        | red, 1 failed    |
+  | unchanged (restored)    | green, 96 passed |
+
+  The counts are from the final suite, after the round-2 addition of `Fixture Late`.
+  `append_last` stays green: it still places the colour font after every text font.
 
   Scratch: `untracked/scratch/r2-mutants/mutate.py`.
 
@@ -83,3 +87,10 @@ expected verdict.
 ## Review rounds
 
 - Round 1: CHANGES (`261023-font-fix-review-r1.md`).
+- Round 2: MERGE (`261023-font-fix-review-r2.md`). Its items were applied as follows:
+  - S1: F44 merged in. The meta-deploy entry is kept after F44's play-speech-to-text entry.
+  - S2: fontconfig is declared in `.claude/ccy/Dockerfile`, which is the project image and
+    so needs no CCY bump, and in `.github/workflows/qa.yml`.
+  - N1: a later monospace `<prefer>` (`Fixture Late`) makes the prepend mutant red.
+  - N2: a generic name as the terminal font now resolves to the font it stands for.
+  - N3: a red check 17 prints the decision it hands the owner, and PLAN.md says the same.

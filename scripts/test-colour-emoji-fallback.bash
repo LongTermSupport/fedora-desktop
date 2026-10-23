@@ -88,13 +88,15 @@ write_bdf "$work/fonts/m-mono.bdf" "Fixture Mono" "${LATIN[@]}"
 write_bdf "$work/fonts/m-sans.bdf" "Fixture Sans" "${LATIN[@]}" "${SYMBOLS[@]}"
 write_bdf "$work/fonts/m-serif.bdf" "Fixture Serif" "${LATIN[@]}"
 write_bdf "$work/fonts/m-code.bdf" "Fixture Code" "${LATIN[@]}"
+write_bdf "$work/fonts/m-late.bdf" "Fixture Late" "${LATIN[@]}"
 write_bdf "$work/fonts/z-colour-emoji.bdf" "Noto Color Emoji" "${KEYCAP_BASES[@]}" "${EMOJI[@]}" "${SYMBOLS[@]}"
 
 # sealed_config <name> [include] — a config naming only the fixtures, with the rules of a
 # distribution in the order Fedora has them: each text font gets its generic family as a
 # default (45-latin.conf), a font with none gets sans-serif (49-sansserif.conf), each generic
-# family prefers its text font (60-latin.conf), then the file under test at 69. Each config
-# has its own cache.
+# family prefers its text font (60-latin.conf), then the file under test at 69, then a later
+# file preferring one more text font for monospace (as 69-unifont.conf does). Each config has
+# its own cache.
 sealed_config() {
     local name="$1" include="${2:-}" pair generic
     mkdir -p "$work/$name"
@@ -113,6 +115,7 @@ sealed_config() {
             printf '<alias><family>%s</family><prefer><family>%s</family></prefer></alias>\n' "${pair#*=}" "${pair%%=*}"
         done
         if [ -n "$include" ]; then printf '<include ignore_missing="no">%s</include>\n' "$include"; fi
+        printf '<alias><family>monospace</family><prefer><family>Fixture Late</family></prefer></alias>\n'
         printf '</fontconfig>\n'
     } >"$work/$name/fonts.conf"
     if ! FONTCONFIG_FILE="$work/$name/fonts.conf" fc-cache -f >"$work/$name/fc-cache.log" 2>&1; then
@@ -156,7 +159,12 @@ first_of() {
 }
 
 fixture_count="$(FONTCONFIG_FILE="$work/with/fonts.conf" fc-list -f '%{family[0]}\n' | grep -c .)"
-check "fontconfig indexes the seven fixture fonts" 7 "$fixture_count"
+check "fontconfig indexes the eight fixture fonts" 8 "$fixture_count"
+
+# The colour font goes after the generic name, so a text font a later file prefers for the
+# family still comes before it.
+check "with the file, the ordered list for monospace has the later preferred font before the colour font" \
+    "Fixture Late" "$(first_of with monospace "Fixture Late" "Noto Color Emoji")"
 
 colour_langs="$(FONTCONFIG_FILE="$work/with/fonts.conf" fc-list -f '%{lang}' 'Noto Color Emoji')"
 case "|${colour_langs//,/|}|" in

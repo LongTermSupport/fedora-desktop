@@ -126,8 +126,12 @@ and the hook stays the owner's call.
   single best match for #60's emoji under each generic family and the named monospace text
   font, digits, `#`, `*` and the space kept on the text font, the ordered list, and the same
   for the font Ptyxis is set to, read from its settings, with check marks and the sun kept
-  on a text font there). Queued in `meta-deploy.list`. Review: round 1 CHANGES. Open: the
-  meta-deploy run, `qa-all.bash` and the `qa-reviewer` agent.
+  on a text font there). A red check 17 is not a deploy fault but the known cost reaching
+  the terminal font, and hands the owner a decision: accept it, or add a text font with
+  those symbols to the sans-serif list. Queued in `meta-deploy.list`. Review: round 1
+  CHANGES, round 2 MERGE (its should-fix items applied: F44 merged, fontconfig declared in
+  the project image and CI). Open: the meta-deploy run, `qa-all.bash` and the
+  `qa-reviewer` agent.
 
 ## Success Criteria
 
