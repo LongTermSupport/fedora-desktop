@@ -11,7 +11,7 @@ at the end.
 - `playbooks/imports/play-fonts.yml`, renamed from `play-ms-fonts.yml`: installs the font,
   deploys the file, runs `fc-cache -f` and prints a reopen-terminals notice.
 - `scripts/test-colour-emoji-fallback.bash`: the qa-gates suite, fontconfig against BDF
-  fixture fonts (96 checks).
+  fixture fonts (99 checks).
 - The plan's `deploy.bash` and `acceptance.bash` (17 checks).
 - `CLAUDE/Plan/meta-deploy.list`: entry `00185-terminal-emoji-glyphs` with its description
   (triage, play-fonts.yml, acceptance, triage again; reopen terminals afterwards).
@@ -53,18 +53,20 @@ expected verdict.
   that ties go to it. Mutation proof: each mutant of the file was run through a copy of the
   suite, then the real suite was run on the restored file.
 
-  | Mutant                  | Result           |
-  | ----------------------- | ---------------- |
-  | scan edit removed       | red, 26 failed   |
-  | monospace rule removed  | red, 12 failed   |
-  | sans-serif rule removed | red, 12 failed   |
-  | serif rule removed      | red, 6 failed    |
-  | all three pattern rules | red, 30 failed   |
-  | `binding="strong"`      | red, 22 failed   |
-  | `mode="prepend"`        | red, 1 failed    |
-  | unchanged (restored)    | green, 96 passed |
+  | Mutant                   | Result           |
+  | ------------------------ | ---------------- |
+  | scan edit removed        | red, 26 failed   |
+  | monospace rule removed   | red, 12 failed   |
+  | sans-serif rule removed  | red, 12 failed   |
+  | serif rule removed       | red, 6 failed    |
+  | all three pattern rules  | red, 30 failed   |
+  | `binding="strong"`       | red, 25 failed   |
+  | `mode="prepend"`         | red, 4 failed    |
+  | prepend, sans-serif only | red, 2 failed    |
+  | unchanged (restored)     | green, 99 passed |
 
-  The counts are from the final suite, after the round-2 addition of `Fixture Late`.
+  The counts are from the final suite, with `Fixture Late` preferred late for every family
+  (added in rounds 2 and 3).
   `append_last` stays green: it still places the colour font after every text font.
 
   Scratch: `untracked/scratch/r2-mutants/mutate.py`.
@@ -94,3 +96,6 @@ expected verdict.
   - N1: a later monospace `<prefer>` (`Fixture Late`) makes the prepend mutant red.
   - N2: a generic name as the terminal font now resolves to the font it stands for.
   - N3: a red check 17 prints the decision it hands the owner, and PLAN.md says the same.
+- Round 3: MERGE (`261023-font-fix-review-r3.md`). Its nits were applied. The late prefer
+  now covers every family, so a prepend on the sans-serif rule alone turns red.
+  `Sans Serif` is accepted as a generic setting. The rounds are in the journal.

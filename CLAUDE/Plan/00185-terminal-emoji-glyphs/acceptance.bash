@@ -209,7 +209,7 @@ first_covering() {
 terminal_request="$(escaped "${terminal_font}")"
 # A generic name as the setting ("Monospace 11") stands for the font it resolves to.
 case "${terminal_font,,}" in
-    monospace | sans | sans-serif | serif)
+    monospace | sans | sans-serif | "sans serif" | serif)
         terminal_font="$(family_for "${terminal_request}")"
         terminal_request="$(escaped "${terminal_font}")"
         ;;
