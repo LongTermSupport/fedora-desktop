@@ -32,7 +32,7 @@ function harness({pidFile = null, alive = []} = {}) {
     // pidFile and alive: what the panel finds when it is created (the extension enabled again);
     // stoppingFile: the PID a recorder whose stop has begun writes (wsi-stream mark_stopping)
     const h = {
-        spawned: [], kills: [], aborts: [], shown: [], logs: [], errors: [], notes: [],
+        spawned: [], kills: [], aborts: [], cleaned: [], shown: [], logs: [], errors: [], notes: [],
         timers: new Map(), alive: new Set(alive), pidFile, stoppingFile: null, spawnError: null,
         holds: [], mediaOff: false,
     };
@@ -62,7 +62,11 @@ function harness({pidFile = null, alive = []} = {}) {
             return pid;
         },
         kill: (pid, signal) => h.kills.push([pid, signal]),
-        abort: pid => h.aborts.push(pid),
+        abort(pid) {
+            h.aborts.push(pid);
+            // What runs once the killed recorder has exited: whom the panel then follows is kept
+            return () => h.cleaned.push({pid, owned: h.panel.ownedPid});
+        },
         readRecorderPid: () => (h.pidFile !== null && h.alive.has(h.pidFile) ? h.pidFile : null),
         readStoppingPid: () => (h.stoppingFile !== null && h.alive.has(h.stoppingFile) ? h.stoppingFile : null),
         isAlive: pid => h.alive.has(pid),
@@ -481,7 +485,58 @@ for (const state of ['RECORDING', 'STOPPING']) {
         assert.equal(h.shows(), 'IDLE');
         assert.deepEqual(h.errors, [], 'a discard the owner asked for was reported as a failure');
     });
+
+    test(`${state}: Escape removes what the killed recorder left once it has exited, before anything new can start`, () => {
+        const h = recording();
+        if (state === 'STOPPING')
+            h.report('STOPPING');
+        const killed = h.recorder();
+        h.panel.escape();
+        assert.deepEqual(h.cleaned, [], 'removed while the recorder could still write');
+        h.panel.insert(DICTATION);
+        assert.equal(h.spawned.length, 1, 'a new recorder started before the killed one had exited');
+        killed.exit('signal 9', true);
+        assert.deepEqual(h.cleaned, [{pid: killed.pid, owned: killed.pid}],
+            'not removed exactly once, before the panel had finished with the recorder');
+        h.panel.insert(DICTATION);
+        assert.equal(h.spawned.length, 2);
+        h.recorder().exit('exit status 0');
+        assert.equal(h.cleaned.length, 1, 'a recorder Escape did not touch had its files removed');
+    });
 }
+
+test('Escape after the recorder has exited (its last signal not in yet) signals nothing and frees the panel', () => {
+    const h = recording();
+    h.recorder().exit('signal 11', true);       // while RECORDING: the exit settle runs
+    h.panel.escape();
+    assert.deepEqual(h.aborts, [], 'a freed PID was signalled');
+    assert.equal(h.shows(), 'IDLE');
+    h.panel.insert(DICTATION);
+    assert.equal(h.spawned.length, 2, 'the panel stayed stuck after Escape');
+});
+
+test('Escape: an abort that throws is reported, and the panel still waits for the recorder', () => {
+    const h = recording();
+    h.panel._abort = () => {
+        throw new Error('the files the recorder "x" leaves when killed are not known');
+    };
+    h.panel.escape();
+    assert.deepEqual(h.errors, ['Escape: the files the recorder "x" leaves when killed are not known']);
+    assert.equal(h.shows(), 'FINISHING');
+    h.recorder().exit('signal 9', true);
+    assert.equal(h.shows(), 'IDLE');
+});
+
+test('Escape: a removal that fails after the exit is reported, and the panel is ready again', () => {
+    const h = recording();
+    h.panel._abort = () => () => {
+        throw new Error('permission denied');
+    };
+    h.panel.escape();
+    h.recorder().exit('signal 9', true);
+    assert.deepEqual(h.errors, ['What the discarded recorder left could not be removed: permission denied']);
+    assert.equal(h.shows(), 'IDLE');
+});
 
 for (const state of ['LAUNCHING', 'WAITING', 'PREPARING', 'TRANSCRIBING', 'SUCCESS']) {
     test(`${state}: Escape does nothing (no microphone open)`, () => {

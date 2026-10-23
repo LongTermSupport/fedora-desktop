@@ -54,4 +54,79 @@ class Fixture {
         labels.push('An option name that runs on too long');
         return labels;
     }
+
+    // The originating instance: the recorder's group killed, its recording left in /dev/shm.
+    _discardRecordingLeavingAudio(pid, launch) {
+        // ruleid: recorder-killed-leaving-its-files
+        const {signal, group} = discardSignal(launch);
+        this._signalProcess(pid, signal, group);
+    }
+
+    _killLeavingAudio(pid) {
+        // ruleid: recorder-killed-leaving-its-files
+        this._signalProcess(pid, 'KILL', true);
+        // ruleid: recorder-killed-leaving-its-files
+        GLib.spawn_async(null, ['kill', '-9', String(pid)], null, 0, null);
+    }
+
+    _killBySignalName(proc, pid) {
+        // ruleid: recorder-killed-leaving-its-files
+        GLib.spawn_async(null, ['kill', '-s', 'KILL', String(pid)], null, 0, null);
+        // ruleid: recorder-killed-leaving-its-files
+        proc.send_signal(9);
+        // ruleid: recorder-killed-leaving-its-files
+        proc.force_exit();
+    }
+
+    _discardRecording(pid, launch) {
+        // ok: recorder-killed-leaving-its-files
+        const {signal, group} = discardSignal(launch);
+        this._send(killArgv(pid, signal, group));
+        return () => discardLeftovers(launch, this._who).forEach(this._remove);
+    }
+
+    _stop(pid) {
+        // ok: recorder-killed-leaving-its-files
+        this._signalProcess(pid, 'TERM');
+    }
 }
+
+// ok: recorder-killed-leaving-its-files
+const SIGNALS = ['TERM', 'KILL'];
+
+export function discardLeavingAudio(pid, launch, send) {
+    // ruleid: recorder-killed-leaving-its-files
+    const {signal, group} = discardSignal(launch);
+    send(killArgv(pid, signal, group));
+}
+
+export function discardRecorder(pid, launch, {who, send, remove}) {
+    const leftovers = discardLeftovers(launch, who);
+    // ok: recorder-killed-leaving-its-files
+    const {signal, group} = discardSignal(launch);
+    send(killArgv(pid, signal, group));
+    return () => leftovers.forEach(remove);
+}
+
+// ruleid: recorder-killed-leaving-its-files
+const killNow = pid => run(['kill', '-SIGKILL', String(pid)]);
+
+const discardByArrow = (pid, launch, who) => {
+    // ok: recorder-killed-leaving-its-files
+    send(killArgv(pid, discardSignal(launch).signal, true));
+    return () => discardLeftovers(launch, who).forEach(remove);
+};
+
+const discardByExpression = function (pid, launch, who) {
+    // ok: recorder-killed-leaving-its-files
+    send(killArgv(pid, discardSignal(launch).signal, true));
+    return () => discardLeftovers(launch, who).forEach(remove);
+};
+
+const killQuietly = pid => {
+    // ruleid: recorder-killed-leaving-its-files
+    signalProcess(pid, 'SIGKILL');
+};
+
+// ok: recorder-killed-leaving-its-files
+test('Escape kills a batch recorder', () => discardSignal({serverMode: false}));

@@ -121,6 +121,9 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     frame" is a screenshot the host agent can read once a file arrives), `watermark` (H3, the
     host agent's) and `wsi` (H2 the host agent's; H1's live dictation and audible grace the
     owner's, with the transcription half provable by a recorded fixture).
+    H3's wording was wrong and is corrected: a second run on the same input exits 2 (the output
+    exists, M10), and exit 3 is a run on the watermarked output (M9), as the host showed. wsi H2
+    now also checks that the recording is gone after Escape (W15a, Plan 00171 Task 5.12).
   - `open` (P6): done, `go-port/open` and `go-port/open-2` both merged into F44 and deployed
     (`8c2de08c`); its host checks H1-H5 are the host agent's (terminal steps through tmux,
     the desktop steps by screenshot and `gio mime`), not queued in `meta-deploy.list`. Spec

@@ -52,3 +52,54 @@ export function killArgv(pid, signalName, group) {
 export function discardSignal(launch) {
     return launch.serverMode ? {signal: 'USR1', group: false} : {signal: 'KILL', group: true};
 }
+
+/** The files a recorder of `launch` leaves when Escape kills it: a killed process runs no
+ * cleanup, so these are removed by the panel (CLAUDE/QA.md
+ * "recorder-killed-leaving-its-files"). Batch wsi records to /dev/shm and resamples and
+ * pads beside it (src-go/internal/wsi newRun and cleanup); wsi-stream writes its live
+ * transcript to the cache. A server-mode recorder is asked to abort, and cleans up itself.
+ * An article never reaches Escape (its recorder never reports RECORDING). Any other
+ * recorder throws: it must say here what it leaves. */
+export function discardLeftovers(launch, {user, home}) {
+    if (launch.serverMode || launch.kind === 'article')
+        return [];
+    if (launch.script === 'wsi') {
+        const wav = `/dev/shm/wfile-${user}.wav`;
+        return [wav, `${wav}.resampled.wav`, `${wav}.padded`];
+    }
+    if (launch.script === 'wsi-stream')
+        return [`${home}/.cache/speech-to-text/streaming-buffer.txt`];
+    throw new Error(`the files the recorder "${launch.script}" leaves when killed are not known`);
+}
+
+/** Escape: send recorder `pid` its discard signal with `send(argv)`. Returns what to run
+ * once the recorder has exited (panelSession.js runs it then, before anything new can
+ * start and write the same files): `remove(path)` for every file the killed recorder
+ * leaves. A recorder whose leftovers are not known is still killed (Escape must stop the
+ * microphone), then the error is thrown. */
+export function discardRecorder(pid, launch, {user, home, send, remove}) {
+    let leftovers = [];
+    let unknown = null;
+    try {
+        leftovers = discardLeftovers(launch, {user, home});
+    } catch (e) {
+        unknown = e;
+    }
+    const {signal, group} = discardSignal(launch);
+    send(killArgv(pid, signal, group));
+    if (unknown !== null)
+        throw unknown;
+    return () => {
+        // Every file is tried; then one error names each that could not be removed
+        const failed = [];
+        for (const path of leftovers) {
+            try {
+                remove(path);
+            } catch (e) {
+                failed.push(e.message);
+            }
+        }
+        if (failed.length > 0)
+            throw new Error(failed.join('; '));
+    };
+}

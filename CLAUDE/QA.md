@@ -113,7 +113,7 @@ JSON to merge. Any one of them fails the run, and the gates after it still run:
 | `test-ccy-lifecycle.bash`                   | `lib/session-lifecycle.bash` — `--max-age`/`--run-for`/`--until` validation, the deadline kept across a restart, the entrypoint adding the supervisor plugin only when asked (plugin: `tests/helpers/ccy_lifecycle/`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `test-wsi-stop-grace.bash`                  | speech-to-text's delayed stop: the real `wsi` (the Go binary, built from `src-go/cmd/wsi` beside links to its sibling helpers) under stub audio tools keeps the microphone open for the grace after the first TERM, stops at once on a second TERM or a grace of 0, and refuses to record without a grace; then `tests/speech_to_text/`: `wsi-stream`'s stop state, handlers and drain as units, pre-buffer mode end to end (stub RealtimeSTT, fake `pw-record`, TERM during and after the model load), and `wsi-stream-server`'s stop order. Standard streaming and the server-mode client loop are not run end to end (Plan 00148)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `qa-stt-limits.bash`                        | each speech-to-text recording limit has one home: `wsi`'s 30 s (`src-go/internal/wsi/limit.go`), `wsi-stream`'s 120 s, continuous dictation's GSettings keys; a literal copy in the panel, the server or a second place in a recorder fails (Plan 00148)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `qa-speech-to-text-rules.bash`              | the Semgrep rules in `.semgrep/speech-to-text.yml`, proven against `.semgrep/speech-to-text.js` and `.py` every run, over every JavaScript and Python file git would publish (extensionless scripts found by shebang); each language is scanned with its own rules, and the gate exits 2 if a rule has no `ruleid:` line in its fixture or a file it handed semgrep was not scanned. The tool is Go (`src-go/qa/sttrules`, spec `SPEC-qa-speech-to-text-rules.md`, S1-S17; `qa-changed` runs it over each changed JavaScript and Python file as `stt-rules-files`, and whole as `stt-rules` when the rules, fixtures or tool change). See [model-present-without-weights](#model-present-without-weights), [dropdown-label-carries-explanation](#dropdown-label-carries-explanation) (Plan 00156), [test-wall-clock-ceiling-under-a-second](#test-wall-clock-ceiling-under-a-second), [test-deadline-under-ten-steps](#test-deadline-under-ten-steps), [stream-stand-in-not-a-text-stream](#stream-stand-in-not-a-text-stream) and [completion-published-before-cleanup](#completion-published-before-cleanup)                                                                                                                                                                             |
+| `qa-speech-to-text-rules.bash`              | the Semgrep rules in `.semgrep/speech-to-text.yml`, proven against `.semgrep/speech-to-text.js` and `.py` every run, over every JavaScript and Python file git would publish (extensionless scripts found by shebang); each language is scanned with its own rules, and the gate exits 2 if a rule has no `ruleid:` line in its fixture or a file it handed semgrep was not scanned. The tool is Go (`src-go/qa/sttrules`, spec `SPEC-qa-speech-to-text-rules.md`, S1-S17; `qa-changed` runs it over each changed JavaScript and Python file as `stt-rules-files`, and whole as `stt-rules` when the rules, fixtures or tool change). See [model-present-without-weights](#model-present-without-weights), [dropdown-label-carries-explanation](#dropdown-label-carries-explanation) (Plan 00156), [test-wall-clock-ceiling-under-a-second](#test-wall-clock-ceiling-under-a-second), [test-deadline-under-ten-steps](#test-deadline-under-ten-steps), [stream-stand-in-not-a-text-stream](#stream-stand-in-not-a-text-stream), [completion-published-before-cleanup](#completion-published-before-cleanup), [recorder-killed-leaving-its-files](#recorder-killed-leaving-its-files) and [hook-path-resolved-against-cwd](#hook-path-resolved-against-cwd)                                 |
 | `qa-ready-wait-rules.bash`                  | [ready-wait-ignores-child-exit](#ready-wait-ignores-child-exit) over every tracked Python file (`.semgrep/ready-wait.yml`, proven against `.semgrep/ready-wait.py`) and every tracked shell script (the Go rule in `src-go/qa/readywait`, proven against `.semgrep/ready-wait.bash`), each run; the tool is Go (spec `SPEC-qa-ready-wait-rules.md`, R1-R26; `qa-changed` runs it over each changed Python and shell file as `ready-wait-files`, and whole as `ready-wait` when the rule, fixtures or tool change); exits 2 if a Python file it handed semgrep was not scanned (Plan 00156)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `qa-hidden-bindings.bash`                   | [project_hidden_bindings](GoProjectRules.md#project_hidden_bindings) outside Go: every tracked shell file that runs fzf (no `--expect`; no `--bind` of a key to anything but navigation, read by `src-go/qa/internal/fzfbind`) and every tracked Python file that imports textual (each binding's action is navigation or the action of a `Button` in the file, judged by `helpers/qa_environment/textual_bindings.py`), each half proven against its fixture in `tests/fixtures/hidden-bindings` every run; the tool is Go (`src-go/qa/hiddenbindings`; `qa-changed` runs it whole as `hidden-bindings` after any shell or Python change); exits 2 if a file cannot be read or parsed or python3 cannot run                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `qa-lxc-attach-streams.bash`                | [lxc-attach-file-stream](#lxc-attach-file-stream) over every tracked shell script but `CLAUDE/Plan/Completed/`, judged together so a wrapper defined in one script counts in the one that sources it, proven against `.semgrep/lxc-attach-streams.bash` every run; the tool is Go (`src-go/qa/lxcattach`; `qa-changed` runs it whole as `lxc-attach-streams` after any shell change); exits 2 if a script cannot be read or parsed                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
@@ -914,6 +914,71 @@ none of these by reading.
 means "cleaned up". Where the cleanup must not race the threads the end stops, do both
 under the lock those threads take, cleanup first. Never satisfy the rule by renaming the
 state attribute or the Event while the order stays wrong.
+
+### recorder-killed-leaving-its-files
+
+**What it is.** JavaScript that kills a recorder, in a function (a method, a function
+declaration or expression, or an arrow function) that never calls `discardLeftovers()`
+(`extensions/speech-to-text@fedora-desktop/recorderLaunch.js`). A kill is a `discardSignal()`
+call, a call given the signal name `'KILL'` or `'SIGKILL'`, an argv array naming `-KILL`, `-9`,
+`-SIGKILL`, `KILL` or `SIGKILL`, a `send_signal(9)` or a `force_exit()`. Calls inside a
+`node:test` `test(...)` are assertions, not kills. Run by `qa-speech-to-text-rules.bash` over
+every tracked JavaScript file.
+
+**Why it exists.** Escape kills a batch recorder's whole process group with SIGKILL, so
+that nothing is transcribed. A killed process runs no cleanup, so `wsi` never removed
+`/dev/shm/wfile-<user>.wav`. The room audio Escape was meant to throw away stayed until the
+next recording or a reboot, and a next run whose recorder wrote nothing transcribed it. The
+sweep found the same gap in non-server `wsi-stream`, whose live transcript
+`~/.cache/speech-to-text/streaming-buffer.txt` stayed. Found and defended under Defence Before
+Fix (Plan 00171 Task 5.12).
+
+**What it does not see.** A signal name built at run time (`` `-${name}` ``, a variable), a
+numeric signal other than `send_signal(9)`, a
+kill whose function calls `discardLeftovers()` but never runs the removal it returns, and an
+uncatchable kill in Python, bash or Go. The sweep that defended the rule read those by hand;
+the panel's tests pin that the removal runs. `wsi-server-manager`'s SIGKILL of the server is not a
+discard: the server keeps its journal and audio in the runtime directory on purpose, so that
+the next server can hand back an undelivered dictation.
+
+**How to fix a finding.** Kill through `discardRecorder()`. It sends the kill and returns the
+removal of every file `discardLeftovers()` names for that recorder; `panelSession.js` runs it
+once the recorder has exited, before anything new can start and write the same files. A recorder that
+writes a new temporary file adds it to `discardLeftovers()` in the same change. The recorder
+also removes a stale copy when it starts, but that is a second line of defence, not the fix.
+
+### hook-path-resolved-against-cwd
+
+**What it is.** Python in a module that imports `claude_code_hooks_daemon` in any form (the
+project's handlers in `.claude/hooks/handlers/`) that resolves a path against the process's
+working directory. `os.getcwd()` and `Path.cwd()` are always reported, as is `.resolve()` or
+`.absolute()` at the end of a chain that starts with `Path(...)` not built from `__file__`
+(`Path(p).expanduser().resolve()`, `Path(p).parent.absolute()`). `os.path.realpath`, `abspath` or `relpath` of a value, and
+`Path(value).resolve()` or `.absolute()`, are reported unless the value is `__file__` or the
+same block first has `if not os.path.isabs(value):` whose body joins the value to a root with
+`os.path.join` or raises; a guard that does anything else excuses nothing. Run by
+`qa-speech-to-text-rules.bash` over every tracked Python file.
+
+**Why it exists.** A handler runs in the hooks daemon's process, and the daemon's working
+directory is not the agent's project. `system_paths.py` judged a relative tool path with
+`os.path.realpath`, so the verdict depended on where the daemon or its test ran. In the
+container the working directory was `/workspace`, so the path was allowed. On the host it was
+under `/home/`, so the path was blocked as a system file, and `qa-hook-handlers.bash` failed
+there and nowhere else. Found and defended under Defence Before Fix.
+
+**What it does not see.** A file-system probe (`exists`, `open`, `stat`) on a relative path,
+a resolution through an alias (`from os.path import realpath`), `.resolve()` on a variable
+holding a path (`p.resolve()`), a guard that joins the value to a relative root, and a guarded
+value reassigned before the call. The sweep that defended the rule found none of these by reading.
+
+A relative tool path is taken from the project root, not from the session's `cwd` in the hook
+input; the two are the same directory for a session started in the checkout, and the daemon's
+own `absolute_path` handler refuses a relative `Write`/`Edit` path as well.
+
+**How to fix a finding.** Make the path absolute before resolving it. Join a relative tool
+path to the project root (`system_paths._absolute`). Refuse a relative value where nothing can
+anchor it, as `_resolve_project_root` refuses a relative `CLAUDE_PROJECT_DIR`. Never satisfy
+the rule with an `isabs` check that leaves the relative path in place.
 
 ### ready-wait-ignores-child-exit
 
