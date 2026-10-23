@@ -36,6 +36,7 @@ var helpers = reexec.Helpers{
 		}
 		return 0
 	},
+	"bindMount": bindMount,
 }
 
 func TestMain(m *testing.M) { os.Exit(reexec.Main(m, helpers)) }

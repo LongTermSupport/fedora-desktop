@@ -48,6 +48,10 @@ type Cmd struct {
 	// Credential, when set, runs the child as its uid, gid and exact supplementary group list
 	// (an empty list clears them); NoSetGroups is refused, as is a credential given to Exec.
 	Credential *syscall.Credential
+	// UserNamespace runs the child as root of a new user namespace, mapped to this process's
+	// uid and gid, with a mount namespace of its own: mounts a test makes without privilege
+	// on the host. Only tests set it. A credential beside it, or Exec, is refused.
+	UserNamespace bool
 	// CleanEnv makes Env and Secrets the child's whole environment: nothing of the parent's is inherited,
 	// an empty Env is an empty environment, and Unset beside it is refused.
 	CleanEnv bool
@@ -73,15 +77,25 @@ func (c Cmd) check() error {
 	if c.Credential != nil && c.Credential.NoSetGroups {
 		return fmt.Errorf("%w: %s has a credential that keeps the parent's groups", ErrBadCmd, c.Name)
 	}
+	if c.Credential != nil && c.UserNamespace {
+		return fmt.Errorf("%w: %s has a credential and a user namespace", ErrBadCmd, c.Name)
+	}
 	return nil
 }
 
-// sysProcAttr is the child's start attributes: a session of its own, the credential, or nil.
+// sysProcAttr is the child's start attributes: a session of its own, the credential, the
+// namespaces, or nil.
 func (c Cmd) sysProcAttr(setsid bool) *syscall.SysProcAttr {
-	if !setsid && c.Credential == nil {
+	if !setsid && c.Credential == nil && !c.UserNamespace {
 		return nil
 	}
-	return &syscall.SysProcAttr{Setsid: setsid, Credential: c.Credential}
+	attr := &syscall.SysProcAttr{Setsid: setsid, Credential: c.Credential}
+	if c.UserNamespace {
+		attr.Cloneflags = syscall.CLONE_NEWUSER | syscall.CLONE_NEWNS
+		attr.UidMappings = []syscall.SysProcIDMap{{ContainerID: 0, HostID: os.Getuid(), Size: 1}}
+		attr.GidMappings = []syscall.SysProcIDMap{{ContainerID: 0, HostID: os.Getgid(), Size: 1}}
+	}
+	return attr
 }
 
 // Result is what a finished command produced.

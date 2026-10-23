@@ -125,10 +125,31 @@ type exitInfo struct {
 // ready. Its stderr is shown if it fails.
 func Start(tb testing.TB, name string, args ...string) *Process {
 	tb.Helper()
-	p, err := start(name, args)
+	p, err := start(name, args, false)
 	if err != nil {
 		tb.Fatal(err)
 	}
+	return held(tb, p)
+}
+
+// StartInUserNamespace is Start with the helper as root of a new user namespace, with a mount
+// namespace of its own (execx.Cmd.UserNamespace): for a test of what only a real mount shows,
+// made without privilege on the host. A kernel that allows no such namespace skips the test.
+func StartInUserNamespace(tb testing.TB, name string, args ...string) *Process {
+	tb.Helper()
+	p, err := start(name, args, true)
+	if errors.Is(err, unix.EPERM) || errors.Is(err, unix.ENOSPC) {
+		tb.Skipf("no unprivileged user namespace here: %v", err)
+	}
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return held(tb, p)
+}
+
+// held is p bound to tb, killed by tb's cleanup if it is still running.
+func held(tb testing.TB, p *Process) *Process {
+	tb.Helper()
 	p.tb = tb
 	tb.Cleanup(func() {
 		if !p.ended() {
@@ -140,7 +161,7 @@ func Start(tb testing.TB, name string, args ...string) *Process {
 	return p
 }
 
-func start(name string, args []string) (*Process, error) {
+func start(name string, args []string, userNamespace bool) (*Process, error) {
 	self, err := os.Executable()
 	if err != nil {
 		return nil, fmt.Errorf("reexec: find the test binary: %w", err)
@@ -161,10 +182,11 @@ func start(name string, args []string) (*Process, error) {
 		Args: append([]string{"-test.run=^$", "-test.count=1", argsMark}, args...),
 		// A -race binary sleeps a second at exit unless told not to; the parent's own race
 		// options are kept.
-		Env:    []string{helperEnv + "=" + name, "GORACE=" + strings.TrimSpace(os.Getenv("GORACE")+" atexit_sleep_ms=0")},
-		Stdin:  inR,
-		Stdout: outW,
-		Stderr: &errBuf,
+		Env:           []string{helperEnv + "=" + name, "GORACE=" + strings.TrimSpace(os.Getenv("GORACE")+" atexit_sleep_ms=0")},
+		Stdin:         inR,
+		Stdout:        outW,
+		Stderr:        &errBuf,
+		UserNamespace: userNamespace,
 	}
 	go func() {
 		defer cancel()
@@ -179,7 +201,7 @@ func start(name string, args []string) (*Process, error) {
 	closeErr := outR.Close()
 	if err != nil {
 		<-p.done
-		return nil, errors.Join(fmt.Errorf("reexec: helper %q ended before it was ready: %s", name, describe(p.end)), inW.Close())
+		return nil, errors.Join(endedEarly(name, p.end), inW.Close())
 	}
 	if p.Pid, err = parseReady(line); err == nil {
 		err = childOf(p.Pid)
@@ -193,6 +215,14 @@ func start(name string, args []string) (*Process, error) {
 		return nil, errors.Join(err, closeErr)
 	}
 	return p, closeErr
+}
+
+// endedEarly is a helper's end before its ready line, wrapping the error it could not start with.
+func endedEarly(name string, end *exitInfo) error {
+	if end.err != nil {
+		return fmt.Errorf("reexec: helper %q ended before it was ready: %w; stderr: %s", name, end.err, end.stderr)
+	}
+	return fmt.Errorf("reexec: helper %q ended before it was ready: %s", name, describe(end))
 }
 
 // childOf is nil when pid is a child of this process, the only process a helper's Kill may

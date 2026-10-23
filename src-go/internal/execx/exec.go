@@ -92,6 +92,9 @@ func (OS) Exec(c Cmd) error {
 	if c.Credential != nil {
 		return fmt.Errorf("%w: %s replaces this process, which keeps its own ids", ErrBadCmd, c.Name)
 	}
+	if c.UserNamespace {
+		return fmt.Errorf("%w: %s replaces this process, which keeps its own namespaces", ErrBadCmd, c.Name)
+	}
 	path := c.Name
 	if !strings.Contains(path, "/") {
 		found, err := exec.LookPath(c.Name)

@@ -899,7 +899,10 @@ later slice adding its own failpoints.
     `Setsid`), and `Fake` a scripted form.
 08. `cmdmaintest` is under `qa/internal`, which `internal/teamchat` cannot import: a re-run helper
     for the teamchat packages' real-process tests (locks, keeper, link, failpoints), or the helper
-    moved to `internal/`.
+    moved to `internal/`. `reexec.StartInUserNamespace` runs the helper as root of its own user
+    and mount namespace (`execx.Cmd.UserNamespace`, set only by tests), so LX5's bind-mount
+    refusal is tested on the real kernel without privilege; a kernel that allows no such
+    namespace skips it.
 09. Failpoints: the `busfailpoints` build tag does not exist; n3c adds it, with the failpoints of
     the code it builds, and each later slice adds its own, so that by n3e every failpoint PT1
     names exists; all are compiled out of every non-test build (a gate test asserts the release
