@@ -7,6 +7,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/health"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestfacts"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestroot"
@@ -33,8 +34,8 @@ type Guests struct {
 		State(ctx context.Context, c string) (lxccmd.State, error)
 	}
 	Pin func(ctx context.Context, container string) (Root, error)
-	// Bound is each probe's bound; 0 is ProbeBound.
-	Bound time.Duration
+	// Clock is what each probe's ProbeBound is measured on.
+	Clock clock.Clock
 }
 
 var (
@@ -42,11 +43,15 @@ var (
 	probeFree    = health.GuestProbe{}
 )
 
-// Probe is handle's seat in team, within the bound. A read that hangs past it is left to finish
-// on its own, and its answer is dropped.
+// Probe is handle's seat in team, within ProbeBound on the clock. A read that hangs past it is
+// left to finish on its own, and its answer is dropped.
 func (g Guests) Probe(ctx context.Context, team paths.TeamID, handle string) (health.GuestProbe, error) {
-	ctx, cancel := context.WithTimeout(ctx, g.bound())
-	defer cancel()
+	ctx, cancel := context.WithCancelCause(clock.WithBound(ctx, g.Clock.Boot()+ProbeBound))
+	defer cancel(nil)
+	stop := g.Clock.AfterFunc(ProbeBound, func() {
+		cancel(fmt.Errorf("%w: past the probe's bound of %v", context.DeadlineExceeded, ProbeBound))
+	})
+	defer stop()
 	type result struct {
 		probe health.GuestProbe
 		err   error
@@ -106,13 +111,6 @@ func (g Guests) probe(ctx context.Context, team paths.TeamID, handle string) (_ 
 		return health.GuestProbe{}, fmt.Errorf("lxc: the probe of %s in %s: %w", handle, c, err)
 	}
 	return probe, nil
-}
-
-func (g Guests) bound() time.Duration {
-	if g.Bound > 0 {
-		return g.Bound
-	}
-	return ProbeBound
 }
 
 func (g Guests) running(ctx context.Context, c string) bool {

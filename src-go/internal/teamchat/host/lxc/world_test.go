@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestroot"
@@ -511,6 +512,7 @@ type world struct {
 	roster    *fakeRoster
 	bus       *fakeBus
 	clock     *fakeClock
+	boot      *clock.Fake // the L3 probe's bound
 	v1        *fakeV1
 	origin    string
 	decl      declare.Declaration
@@ -536,6 +538,7 @@ func newWorld(t *testing.T) *world {
 		lxc:    &fakeLXC{boxes: map[string]*box{}},
 		roster: &fakeRoster{roster: map[paths.TeamID]map[string]string{}},
 		clock:  &fakeClock{now: time.UnixMilli(1_700_000_000_000)},
+		boot:   clock.NewFake(time.Hour, 1_700_000_000_000),
 		v1:     &fakeV1{},
 	}
 	w.bus = &fakeBus{log: &w.log}

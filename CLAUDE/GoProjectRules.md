@@ -528,6 +528,14 @@ fake clock, and fail when a real timer fires first.
   root's `r.bound`, set to 20 ms by its tests), `host/lxc/guestbus/guestbus.go:179` (`s.wait`,
   1 ms in its test), `units/units.go:467` (`m.jobWait`, 0 in its test) and
   `member/link/server_test.go:281` (no cancel within 100 ms).
+- Green: each bound is on the injected clock. `lxc.Guests` takes a `Clock` (`ProbeBound` by its
+  `AfterFunc`, carried as `clock.WithBound`; the `Bound` field is gone), the guest root its clock's
+  `Hold` for `callBound`, `guestbus` and `units` a `clock.Clock` for `CallWait` and `JobWait`;
+  production passes `clock.System()`, so every bound is as before. Their tests wait until the work
+  is at the step and has armed its bound, then move the fake past it (and short of it first, where
+  the bound's length is the claim). The link test peeks at the client's end as the cancel reaches
+  the engine; it was red with close reordered to cancel first. matrix `TestRequestTimeLimit`, the
+  miss below, fires the member's limit on fake timers once the request has arrived.
 - Not caught: a test that shortens a bound running through a `realClocks` adapter left at its
   real default (matrix `TestRequestTimeLimit`, `m.limit` on `SystemTimers`, found by the
   independent search); `time.Sleep` followed by an assertion that nothing happened; a bound
