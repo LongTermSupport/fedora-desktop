@@ -90,7 +90,8 @@ cat >"$BIN/tmux" <<'EOF'
 #!/usr/bin/env bash
 { printf 'ARGV'; printf ' %q' "$@"; printf '\n'
   printf 'ENV GH_TOKEN=%s HANDOFF=%s\n' "${GH_TOKEN-unset}" "${CCY_GH_TOKEN_HANDOFF-unset}"
-  printf 'TMUXFRONT %s\n' "${CCY_LAUNCHER_FRONT-unset}"; } >>"$T_LOG"
+  printf 'TMUXFRONT %s\n' "${CCY_LAUNCHER_FRONT-unset}"
+  printf 'TMUXPIDS %s\n' "${CCY_PIDS_LIMIT-unset}"; } >>"$T_LOG"
 [ "$1" = -L ] && shift 2
 case "$1" in
 list-sessions) [ -f "$T_STATE" ] && cat "$T_STATE"; exit 0 ;;
@@ -139,6 +140,7 @@ for lib in $T_LIBS; do
 done
 printf 'INNER GH_TOKEN=%s HANDOFF=%s CHILD=%s\n' "${GH_TOKEN-unset}" "${CCY_GH_TOKEN_HANDOFF-unset}" \
     "$(bash -c 'printf %s "${GH_TOKEN-unset}/${CCY_GH_TOKEN_HANDOFF-unset}"')"
+printf 'PANEPIDS %s\n' "${CCY_PIDS_LIMIT-unset}"
 EOF
 # The outer launcher: the libraries, the caller's token as the launcher holds it after its
 # first line (a plain variable), then the entry point.
@@ -150,6 +152,8 @@ for lib in $T_LIBS; do
     source "$T_LIB/$lib.bash" || exit 1
 done
 GH_TOKEN="$T_CALLER_TOKEN"
+# The pids limit as the launcher holds it once settled (lib/container-limits.bash): a plain variable.
+[ -z "${T_PIDS_LIMIT:-}" ] || CCY_PIDS_LIMIT="$T_PIDS_LIMIT"
 "$1" proj "$T_INNER" --no-ssh
 rc=$?
 printf 'RETURNED rc=%s GH_TOKEN=%s\n' "$rc" "${GH_TOKEN-unset}" >>"$T_LOG"
@@ -167,8 +171,8 @@ drive() {
     local how="$1"
     rm -f "$T_LOG"
     : >"$T_LOG"
-    local -a env=(env -u TMUX -u TMUX_PANE -u GH_TOKEN PATH="$BIN:$PATH" XDG_RUNTIME_DIR="$RUNTIME"
-        CCY_STATE_DIR="$SCRATCH/state" T_CALLER_TOKEN="$2")
+    local -a env=(env -u TMUX -u TMUX_PANE -u GH_TOKEN -u CCY_PIDS_LIMIT PATH="$BIN:$PATH" XDG_RUNTIME_DIR="$RUNTIME"
+        CCY_STATE_DIR="$SCRATCH/state" T_CALLER_TOKEN="$2" T_PIDS_LIMIT="${3:-}")
     if [ "$how" = terminal ]; then
         OUT="$(cd "$PROJ" && "${env[@]}" script -qec "bash $(printf '%q' "$DRIVER") $ENTRY" /dev/null </dev/null 2>&1)"
     else
@@ -221,6 +225,22 @@ echo "=== no token: nothing is written, and the inner launcher asks gh as before
 drive terminal ""
 check "the inner launcher has no GH_TOKEN" "INNER GH_TOKEN=unset HANDOFF=unset CHILD=unset/unset" "$(line INNER)"
 check "no hand-off file was named" "" "$(line MODES)"
+
+echo ""
+echo "=== the pids limit reaches the inner launcher on the pane's command, not tmux's environment ==="
+# A pane's environment is the tmux server's, so a host export of CCY_PIDS_LIMIT would be lost on a
+# running server and kept for every later session on a new one (lib/container-limits.bash).
+rm -f "$T_STATE"
+drive terminal "" 32768
+check "the inner launcher has the outer launcher's limit" "PANEPIDS 32768" "$(line PANEPIDS)"
+check "no tmux call has it in its environment" "0" "$(grep '^TMUXPIDS' "$T_LOG" | grep -vc '^TMUXPIDS unset$')"
+rm -f "$T_STATE"
+drive terminal "$TOKEN" 4096
+check "beside a token hand-off too" "PANEPIDS 4096" "$(line PANEPIDS)"
+check "  and the token still arrives" "INNER GH_TOKEN=$TOKEN HANDOFF=unset CHILD=unset/unset" "$(line INNER)"
+rm -f "$T_STATE"
+drive terminal ""
+check "with none settled, nothing is put on the pane's command" "PANEPIDS unset" "$(line PANEPIDS)"
 
 echo ""
 echo "=== the session record names the program that started the launch ==="

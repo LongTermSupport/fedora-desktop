@@ -17,21 +17,24 @@ Two version numbers move independently — see
 
 ---
 
-## 3.100.16 — container 2.79.9
+## 3.100.17 — container 2.79.9
 
-Follows 3.100.15 (container 2.79.9). The image does not change.
+Follows 3.100.15 (container 2.79.9; 3.100.16 was this change's first commit and never
+shipped). The image does not change.
 
-- **A session container gets a pids limit of 16384, not podman's 2048** (Defence Before
-  Fix). ccy passed no `--pids-limit`, so every session ran at podman's default of 2048, and
-  a pid there is a thread. A busy session (Go builds and tests, golangci-lint, Ansible
-  forks, many background waiters) reached it: the kernel refused its forks, Claude Code's
-  hooks failed with `EAGAIN` on `posix_spawn`, and claude aborted (exit 134). The session
-  container now runs with `--pids-limit "$CCY_PIDS_LIMIT"`, from the new
-  `lib/container-limits.bash`: 16384 by default, or `CCY_PIDS_LIMIT` exported on the host
-  (a whole number from 1 to 4194304; anything else stops the launch before anything is
-  built). A running session keeps its old limit until it is relaunched. `--debug`'s
-  simplified run command shows the flag too. The Semgrep rule
-  `ccy-session-container-default-pids-limit` holds every ccy session launch to it.
+- **A session container's pids limit is explicit and bounded: 4096, never the engine's
+  default and never off** (Defence Before Fix). ccy passed no `--pids-limit`, so every
+  session ran at podman's default of 2048, and a pid there is a thread. A fork bomb inside a
+  session (a test fixture that recursed into itself) climbed to 2048 in about ten seconds;
+  the limit stopped it, claude aborted (exit 134), and the host was untouched. The session
+  container now runs with `--pids-limit "$CCY_PIDS_LIMIT"` from the new
+  `lib/container-limits.bash`: 4096 by default (room for heavier parallel builds), or
+  `CCY_PIDS_LIMIT` exported on the host, a whole number from 256 to 32768. 0, -1, `max` and
+  anything else stop the launch before anything is built. The value goes to the session's
+  tmux pane on the pane's command, so an export reaches that session and no later one; a
+  session restored after a reboot takes the default. A running session keeps its old limit
+  until it is relaunched. `--debug`'s simplified run command shows the flag too. The Semgrep
+  rule `ccy-session-container-default-pids-limit` holds every ccy session launch to it.
 
 ## 3.100.15 — container 2.79.9
 

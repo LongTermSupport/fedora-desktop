@@ -418,8 +418,9 @@ ccy_tmux_insulate() {
     # that was never running, so a failed start takes its record with it. A GitHub token
     # hand-off (lib/token-handoff.bash) goes on the pane's command as the file's path alone,
     # so it reaches this session's launcher and not tmux's environment, which every later
-    # session would inherit.
-    if ! ccy_tmux_start_detached "$name" "$PWD" ${CCY_GH_TOKEN_HANDOFF:+env "CCY_GH_TOKEN_HANDOFF=$CCY_GH_TOKEN_HANDOFF"} "$launcher" "${launch[@]}"; then
+    # session would inherit. The settled pids limit (lib/container-limits.bash) goes the same
+    # way, so a host export reaches this session and no later one.
+    if ! ccy_tmux_start_detached "$name" "$PWD" ${CCY_GH_TOKEN_HANDOFF:+env "CCY_GH_TOKEN_HANDOFF=$CCY_GH_TOKEN_HANDOFF"} ${CCY_PIDS_LIMIT:+env "CCY_PIDS_LIMIT=$CCY_PIDS_LIMIT"} "$launcher" "${launch[@]}"; then
         ccy_registry_remove "$name"
         return 1
     fi

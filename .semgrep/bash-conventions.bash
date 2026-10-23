@@ -279,3 +279,22 @@ podman ps --filter label=ccy=true --format '{{.Names}}'
 # ok: ccy-session-container-default-pids-limit
 podman run --rm "$IMAGE" true
 echo "--label ccy=true is what marks a session"
+
+# ruleid: ccy-session-container-default-pids-limit
+podman run -d -l ccy=true "$IMAGE"
+
+# ruleid: ccy-session-container-default-pids-limit
+podman run -it --label ccy=true "$IMAGE"  # TODO add --pids-limit
+
+# ruleid: ccy-session-container-default-pids-limit
+podman run -it --pids-limit -1 --label ccy=true "$IMAGE"
+
+# ruleid: ccy-session-container-default-pids-limit
+podman run -it --pids-limit=0 \
+    --label ccy=true "$IMAGE"
+
+# ok: ccy-session-container-default-pids-limit
+echo "podman run --label ccy=true ..."
+
+# ok: ccy-session-container-default-pids-limit
+podman run -d --pids-limit 4096 -l ccy=true "$IMAGE"

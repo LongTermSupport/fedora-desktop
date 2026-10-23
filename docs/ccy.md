@@ -976,21 +976,33 @@ are forwarded unchanged.
 
 ### Container limits
 
-The session container is started with an explicit pids limit, never the engine's default.
-A pid in the pids cgroup is a thread. podman's default of 2048 was reached by busy sessions
-(parallel Go builds and tests, linters, Ansible forks, background waiters): forks were
-refused, Claude Code's hooks failed with `EAGAIN`, and claude aborted.
+The session container is started with an explicit, bounded pids limit, never the engine's
+default. A pid in the pids cgroup is a thread. The limit is the session's fork-bomb guard: a
+test fixture that recursed into itself inside a session climbed from 40 to 2048 tasks in about
+ten seconds, and podman's default of 2048 stopped it there, with the host untouched. Without a
+limit it would have run on into the user slice's own task limit, which the desktop shares.
 
 | Variable         | CCY default | Takes                            |
 | ---------------- | ----------- | -------------------------------- |
-| `CCY_PIDS_LIMIT` | `16384`     | a whole number from 1 to 4194304 |
+| `CCY_PIDS_LIMIT` | `4096`      | a whole number from 256 to 32768 |
 
-Export it on the host before launching to override it for that launch; any other value stops
-the launch before anything is built. A project's `ccy.env` cannot set it, because that file is
-read inside the container. It stays a limit on purpose: the containers share the user slice's
-own task limit with the desktop, so a runaway session stops at its container. A running
-session keeps the limit it was started with until it is relaunched. The setting lives in
-`lib/container-limits.bash`; the rule that holds every session launch to it is
+Why 4096: busy sessions doing real parallel work (Go builds and tests, linters, Ansible forks,
+background waiters) were seen peaking at three quarters of 2048, so twice that leaves room for
+a heavier build, while a runaway climbing at a few hundred tasks a second still stops within
+seconds, far below the user slice's limit (`TasksMax` of `user-.slice`, by default 33% of the
+kernel's task limit; `systemctl show user-$(id -u).slice -p TasksMax | cat`). The limit cannot
+be turned off: 0, -1, `max` and values past 32768 stop the launch before anything is built,
+as does anything that is not a whole number in range.
+
+Export it on the host before launching to override it for that launch (the launcher hands it
+to the session's tmux pane on the pane's command, so it reaches that session and no later
+one). A project's `ccy.env` cannot set it, because that file is read inside the container. A
+session restored after a reboot (`ccy-sessions restore`) is not given a launch's export: it
+takes the variable from its own environment, normally unset, so the default. A running
+session keeps the limit it was started with until it is relaunched.
+
+The setting lives in `lib/container-limits.bash`; the rule that holds every session launch to
+it is
 [ccy-session-container-default-pids-limit](../CLAUDE/QA.md#ccy-session-container-default-pids-limit).
 
 To see a session's use against its limit, from the host:
@@ -998,6 +1010,15 @@ To see a session's use against its limit, from the host:
 ```bash
 podman exec <container> cat /sys/fs/cgroup/pids.current /sys/fs/cgroup/pids.peak /sys/fs/cgroup/pids.max | cat
 ```
+
+Nothing warns yet when a session climbs. The tool for it is `container-watch`, which already
+finds every container's cgroup. Proposed: a finding on a fast climb in `pids.current` (for
+example 500 tasks within 5 seconds), on `pids.current` past about 80% of `pids.max`, or on a
+refused fork counted in `pids.events`, naming the deepest chain of processes running the same
+command (the runaway's command line, home and checkout paths shortened); and an advisory when
+`pids.peak` passed 80%. It is not built yet because `container-watch` is a standalone Python
+tool, which this repository ports to Go when it is next reworked; the finding belongs in that
+port.
 
 ### Claude Code environment CCY sets
 

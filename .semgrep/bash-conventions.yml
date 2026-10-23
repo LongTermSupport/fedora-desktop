@@ -284,24 +284,13 @@ rules:
   # WRONG: podman run -it --rm --name "$NAME" --label ccy=true ... "$IMAGE" claude
   # RIGHT: podman run -it --rm --pids-limit "$CCY_PIDS_LIMIT" --name "$NAME" --label ccy=true ...
   #
-  # A pid in the pids cgroup is a thread. podman's default is 2048 per container,
-  # and a busy agent session (Go builds and tests, linters, Ansible forks, many
-  # background waiters) reached it: the kernel refused forks, Claude Code's hooks
-  # failed with EAGAIN and claude aborted mid-session. Docker's default is no
-  # limit at all, so there a fork bomb reaches the user's own task limit. Either
-  # way the limit is the engine's accident, not a decision. The setting is
-  # CCY_PIDS_LIMIT (lib/container-limits.bash, docs/ccy.md "Container limits").
-  # Documented in CLAUDE/QA.md, "ccy-session-container-default-pids-limit".
-  #
-  # Scope: an engine `run` or `create` (podman, docker, an *ENGINE* variable,
-  # container_cmd or ccy_agent_container, with its backslash continuation lines)
-  # that labels the container a ccy session (`--label ccy=true`). One-shot probes
-  # (`run --rm IMAGE claude --version`) are not sessions and do not carry the
-  # hazard. Not caught: a command whose argv is built in an array elsewhere, and
-  # an engine named by a variable without ENGINE in its name.
+  # What, why, what it does not see and how to fix: CLAUDE/QA.md,
+  # "ccy-session-container-default-pids-limit". The regex reads one command with
+  # its backslash continuation lines; a comment, an echo/printf of a command and
+  # a limit of 0 or -1 (no limit to the engine) do not count.
   - id: ccy-session-container-default-pids-limit
     patterns:
-      - pattern-regex: '(?m)^[^\n#]*(?:\b(?:podman|docker|container_cmd|ccy_agent_container)|"?\$\{?[A-Za-z_]*ENGINE[A-Za-z_]*\}?"?)[ \t]+(?:container[ \t]+)?(?:run|create)\b(?=(?:[^\n]*\\\n)*?[^\n]*--label[ \t=]+["'']?ccy=true\b)(?!(?:[^\n]*\\\n)*?[^\n]*--pids-limit\b)[^\n]*'
+      - pattern-regex: '(?m)^(?:(?!\b(?:echo|printf)\b)[^\n#])*(?:\b(?:podman|docker|container_cmd|ccy_agent_container)|"?\$\{?[A-Za-z_]*ENGINE[A-Za-z_]*\}?"?)[ \t]+(?:container[ \t]+)?(?:run|create)\b(?=(?:[^\n]*\\\n)*?[^\n#]*(?:--label[ \t=]+|-l[ \t]+)["'']?ccy=true\b)(?!(?:[^\n]*\\\n)*?[^\n#]*--pids-limit[ \t=]+(?!["'']?(?:-1|0)["'']?(?:[ \t\\]|$)))[^\n]*'
     message: >
       A ccy session container started with no --pids-limit gets the engine's
       default (podman 2048 threads, docker none), and a busy session's forks are

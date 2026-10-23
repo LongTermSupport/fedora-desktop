@@ -5,12 +5,10 @@
 # Sources the library from THIS repo, and checks the launcher calls it and passes the limit on
 # the session container's run, so the text under test is the text that ships.
 #
-# WHY THIS TEST EXISTS. With no --pids-limit, podman gives a container its own default of 2048
-# pids, and a pid there is a thread: a busy session (Go builds and tests, linters, Ansible
-# forks, many waiters) reached it, a fork was refused, Claude Code's hooks failed with EAGAIN
-# and claude aborted. Each case below is a way the limit could again be left to the engine (no
-# value, a value the engine reads as unlimited or rejects only after the session is built) or
-# applied to something else.
+# WHY THIS TEST EXISTS (docs/ccy.md, "Container limits"). Each case below is a way the limit could
+# again be left to the engine (no value, a value the engine reads as unlimited or rejects only
+# after the session is built) or applied to something else. That the settled value reaches the
+# session's tmux pane is tested in test-ccy-token-handoff.bash, beside the token hand-off.
 #
 # `set -e` is deliberately NOT used: every case must run so the summary reports the full
 # picture, and each result is checked explicitly.
@@ -58,26 +56,26 @@ limits() {
 }
 
 echo "=== the default ==="
-check "unset: the documented default" "0 16384" "$(limits -)"
-check "empty: the default, as for every other CCY_ setting" "0 16384" "$(limits '')"
-check "the default is far above podman's own 2048" "yes" "$(
+check "unset: the documented default" "0 4096" "$(limits -)"
+check "empty: the default, as for every other CCY_ setting" "0 4096" "$(limits '')"
+check "the default is above podman's 2048 and still a bound a fork bomb stops at" "yes" "$(
     # shellcheck source-path=SCRIPTDIR source=../files/var/local/claude-yolo/lib/container-limits.bash
     source "$LIB"
-    [ "$CCY_PIDS_LIMIT_DEFAULT" -ge 8192 ] && echo yes
+    [ "$CCY_PIDS_LIMIT_DEFAULT" -gt 2048 ] && [ "$CCY_PIDS_LIMIT_DEFAULT" -le "$CCY_PIDS_LIMIT_MAX" ] && echo yes
 )"
 
 echo "=== an override ==="
-check "a whole number is used as given" "0 32768" "$(limits 32768)"
-check "a small one too: the owner's choice" "0 512" "$(limits 512)"
-check "the largest the kernel allows" "0 4194304" "$(limits 4194304)"
+check "a whole number in range is used as given" "0 8192" "$(limits 8192)"
+check "the smallest allowed" "0 256" "$(limits 256)"
+check "the largest allowed" "0 32768" "$(limits 32768)"
 
-echo "=== refused before anything is built ==="
-for bad in 0 -1 max unlimited 2k 1e4 ' 4096' '4096 ' 08192 4194305 99999999 '4096;id'; do
+echo "=== refused before anything is built: there is no way to turn the limit off ==="
+for bad in 0 -1 max unlimited none 2k 1e4 ' 4096' '4096 ' 04096 255 32769 4194304 99999999 '4096;id'; do
     got=$(limits "$bad")
     check "'$bad' refused" "1" "${got%% *}"
 done
 limits nope >/dev/null
-check "the refusal names the variable and what it takes" "1" "$(grep -c 'CCY_PIDS_LIMIT=nope is not a pids limit: a whole number from 1 to 4194304' "$work/err")"
+check "the refusal names the variable and what it takes" "1" "$(grep -c 'CCY_PIDS_LIMIT=nope is not a pids limit: a whole number from 256 to 32768; it cannot be turned off' "$work/err")"
 
 echo "=== the launcher ==="
 check "the launcher lists the library in CCY_LIBS" "1" "$(grep -c -E '^CCY_LIBS=\(.* container-limits( |\))' "$LAUNCHER")"
