@@ -33,17 +33,18 @@ and the per-rule pages are not written; this catalogue stands in for them.
 
 ## The rules
 
-| Rule                      | Defect class                                                                                                                              | Found in                                                                        |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `project_seam_exec`       | a process started outside the runner, so no fake sees it                                                                                  | `teams`: `syscall.Exec` in the launcher hand-over                               |
-| `project_seam_commands`   | a program run outside the package that owns it, or a command the rule cannot judge (run-time name, hidden wrapper argv, shell `-c`)       | `sessions`: `systemctl reboot`; `teams`: the take-down heading via `gum style`  |
-| `project_tmux_targets`    | a tmux `-t` target in the wrong form for its command (fedora-desktop#69)                                                                  | the bash library, before the port                                               |
-| `project_testclock`       | wall-clock reads in tests (date-dependent tests failed in the hour after midnight)                                                        | `transcript` and `sessprobe` tests: 23 `time.Now()` fixtures                    |
-| `project_waitdelay`       | a function that sets `exec.Cmd.WaitDelay` and never names `exec.ErrWaitDelay`, so a finished command's output is dropped                  | `qa/internal/proc`: bug B25 of the qa-all port                                  |
-| `project_package_tests`   | a package with no `_test.go` file, whose code the module-wide coverage floor can hide behind the rest of the module                       | the old Go gate's every-package-has-tests check, kept when go-qa-ci replaced it |
-| `project_homeabbrev`      | a hand-rolled `~` home abbreviation (a bare prefix replace turned `/home/<user>X` into `~X`)                                              | `teams` tests: `strings.Replace(..., "~", 1)` twice                             |
-| `project_hidden_bindings` | an action reachable only by a key, with no visible, named choice for it (also in shell fzf and Python Textual: `qa-hidden-bindings.bash`) | `teams` picker: Ctrl-A/X/O on Running sessions; `ccy-sessions`: Ctrl-T/X/N      |
-| `project_lifecycle_turn`  | a member's lifecycle notice decided from a read of main and posted outside the team's turn, so another post of the run can come between   | teamchat `ends`: `back` posted after the run's own `disconnected` (Plan 00209)  |
+| Rule                         | Defect class                                                                                                                              | Found in                                                                          |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `project_seam_exec`          | a process started outside the runner, so no fake sees it                                                                                  | `teams`: `syscall.Exec` in the launcher hand-over                                 |
+| `project_seam_commands`      | a program run outside the package that owns it, or a command the rule cannot judge (run-time name, hidden wrapper argv, shell `-c`)       | `sessions`: `systemctl reboot`; `teams`: the take-down heading via `gum style`    |
+| `project_tmux_targets`       | a tmux `-t` target in the wrong form for its command (fedora-desktop#69)                                                                  | the bash library, before the port                                                 |
+| `project_testclock`          | wall-clock reads in tests (date-dependent tests failed in the hour after midnight)                                                        | `transcript` and `sessprobe` tests: 23 `time.Now()` fixtures                      |
+| `project_waitdelay`          | a function that sets `exec.Cmd.WaitDelay` and never names `exec.ErrWaitDelay`, so a finished command's output is dropped                  | `qa/internal/proc`: bug B25 of the qa-all port                                    |
+| `project_package_tests`      | a package with no `_test.go` file, whose code the module-wide coverage floor can hide behind the rest of the module                       | the old Go gate's every-package-has-tests check, kept when go-qa-ci replaced it   |
+| `project_homeabbrev`         | a hand-rolled `~` home abbreviation (a bare prefix replace turned `/home/<user>X` into `~X`)                                              | `teams` tests: `strings.Replace(..., "~", 1)` twice                               |
+| `project_hidden_bindings`    | an action reachable only by a key, with no visible, named choice for it (also in shell fzf and Python Textual: `qa-hidden-bindings.bash`) | `teams` picker: Ctrl-A/X/O on Running sessions; `ccy-sessions`: Ctrl-T/X/N        |
+| `project_lifecycle_turn`     | a member's lifecycle notice decided from a read of main and posted outside the team's turn, so another post of the run can come between   | teamchat `ends`: `back` posted after the run's own `disconnected` (Plan 00209)    |
+| `project_keeper_log_barrier` | a keeper test reading keeper.log past the harness's turn-aware reader, so a wait on a line releases before its turn has done the rest     | teamchat `keeper`: `TestOwedNotice` saw the seat held after its line (Plan 00209) |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -425,6 +426,50 @@ teamchat ordered against the member's other posts. Not built because the only ot
 processes, where no in-process turn can order them; they are made safe by the run's
 transaction id (`tc-disc-<run>`), which is a different defence for a different hazard.
 
+### project_keeper_log_barrier
+
+In the `_test.go` files of teamchat's keeper (`internal/teamchat/member/keeper`), a use of
+`paths.Run`'s `KeeperLog` outside the harness functions the `keeperLogReaders` table names
+(`world.keeperLog`, the one reader; `world.turned`, the turn-end copy; `world.runs`, existence
+only). The class is a test barrier released partway through the work it waits for. A loop turn
+may log a line and then do more: the owed notice's timer logs "not posted in time" and only
+then lets the seat go, and `fail` logs "the link failed" before it closes the seat locks. A
+test that waited for the line by reading the file saw it mid-turn and found the seat still held
+(`TestOwedNotice` under load). The defence has two halves:
+
+- The harness guard. The keeper calls `Config.turned` at the end of the launch steps and of
+  each loop turn. The field is unexported, so only the package's own tests set it. The harness
+  keeps keeper.log as that call left it, and `w.keeperLog` reads that copy while the loop runs.
+  It reads the file before the loop, while the launch steps run in order, and after the keeper
+  ends. `w.logged`, `w.log` and `w.logOf` all read through it, so a line shows only after its
+  whole turn has run.
+- The rule, which keeps every read on that reader.
+
+Proof:
+
+- Red, fixture: `testdata/src/fix/internal/teamchat/member/keeper`. It flags the originating
+  barrier that polled the file, a direct read, a method value, a method expression and a
+  goroutine. It leaves clean the allowed readers, the keeper's own code and `link.log`. Another
+  package's tests (`member/elsewhere`) are not judged.
+- Red, real tree: five uses in the keeper harness (`log`, `logOf`, `seen`, `runDir`) and in
+  `keeper_test.go`'s wait for the run.
+- Red, harness: `TestLoggedWaitsForTheTurnThatWroteTheLine` evaluates the barrier from inside
+  the ready turn, which logs "the link is ready" and then starts CMD. It failed every run
+  against the file-reading barrier.
+- Green: every read goes through `w.keeperLog`, and both `TestOwedNotice` and
+  `TestLinkRestartsWithBackoff` pass with a pause planted after their lines.
+
+Not caught: a barrier on another observable a turn writes before it is done. keeper.json is
+written mid-turn too, but its readers wait on the fake clock or the link's messages first.
+
+**The next wider rule, not built:** the same guarantee for every reader of keeper.log, by
+writing the log one turn at a time. That would cover the end-to-end `wiring` tests, which read
+a real keeper's log and see no turn. Not built because a turn that crashes would lose its lines,
+including those before a `busfailpoints` crash or a panic. Those tests poll the effect they
+assert rather than a line. The other teamchat harnesses already wait for the end of a unit of
+work: engine `until` runs on its state goroutine, link has `settled` and `await`, and teamsync
+has `poll`.
+
 ## Defect classes that cannot be a rule
 
 A class is listed here, with what holds it instead, when no analyzer can judge it without
@@ -442,23 +487,6 @@ guessing; the catalogue claims no more than the code does.
   check against a real sudoers file. A known gap: a passing `sudo -n true` shows that `true` runs
   unprompted, not the commands after it, so a host whose NOPASSWD entries cover `true` but not
   the tools would skip the prompt and then fail.
-- **A test barrier released partway through the work it waits for**
-  (`keeper-log-barrier-turn`; the `TestOwedNotice` flake in `internal/teamchat/member/keeper`).
-  The keeper's tests wait on a keeper.log line (`w.logged`) and then assert an effect, but a
-  loop turn may write the line before it does the rest: the owed notice's timer logs "not
-  posted in time" and only then lets the seat go, and `fail` logs "the link failed" before it
-  closes the seat locks. Under load the test saw the line and found the seat still held.
-  Whether a line comes before an effect, and whether a test then asserts that effect, is a
-  matter of which string a test waits for and what its turn does after it; a rule would have
-  to guess both. What holds it: the keeper calls `Config.turned` (unexported, so only its own
-  tests set it) at the end of the launch steps and of each loop turn. The harness keeps keeper.log
-  as that call left it, and `logged` reads that copy while the loop runs, so a line shows only
-  after its whole turn has run. `TestLoggedWaitsForTheTurnThatWroteTheLine` checks this from
-  inside the ready turn, which logs "the link is ready" and then starts CMD. To fix a test
-  that races this way, wait through `w.logged`, never by reading keeper.log yourself. The other
-  teamchat harnesses already wait for the end of a unit of work (engine `until` on its state
-  goroutine, link `settled` and `await`, teamsync `poll`). The end-to-end `wiring` tests run
-  real processes, where no turn can be seen; they poll the effect they assert.
 
 ## Control
 

@@ -8,7 +8,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/wire"
 )
 
-// The harness's guard (rule keeper-log-barrier-turn): logged is a barrier on the loop's turn,
+// The harness's guard (rule project_keeper_log_barrier): logged is a barrier on the loop's turn,
 // not on the line. A turn that logs a line and then does more (the ready turn logs "the link
 // is ready" and only then starts CMD) is still under way when the line reaches keeper.log, so
 // logged must not see it until the turn has ended, or a test asserting the turn's later effect

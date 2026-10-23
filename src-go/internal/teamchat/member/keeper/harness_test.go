@@ -294,7 +294,20 @@ func (w *world) sessionStarted(l *fakeLink) {
 // which no leftover a test plants has.
 func (w *world) runDir() paths.Run {
 	w.t.Helper()
+	runs := w.runs()
+	if len(runs) != 1 {
+		w.t.Fatalf("the run root holds %d runs with a keeper.log", len(runs))
+	}
+	return runs[0]
+}
+
+// runs are the run root's entries with a keeper.log, none while the root is not yet made.
+func (w *world) runs() []paths.Run {
+	w.t.Helper()
 	entries, err := os.ReadDir(w.layout.RunRoot())
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
 	mustDo(w.t, err)
 	var runs []paths.Run
 	for _, e := range entries {
@@ -303,10 +316,7 @@ func (w *world) runDir() paths.Run {
 			runs = append(runs, w.layout.Run(id))
 		}
 	}
-	if len(runs) != 1 {
-		w.t.Fatalf("the run root holds %d runs with a keeper.log", len(runs))
-	}
-	return runs[0]
+	return runs
 }
 
 // runGone is whether the run root has no runtime left.
@@ -315,11 +325,10 @@ func (w *world) runGone() bool {
 	return err == nil && len(entries) == 0
 }
 
+// log is the session's keeper.log as keeperLog reads it.
 func (w *world) log() string {
 	w.t.Helper()
-	data, err := os.ReadFile(w.runDir().KeeperLog())
-	mustDo(w.t, err)
-	return string(data)
+	return w.logOf(w.runDir())
 }
 
 func (w *world) keeperJSON() state.Keeper {
@@ -680,7 +689,7 @@ func (w *world) eventually(what string, cond func() bool) {
 }
 
 // logged waits until keeper.log holds sub n times and the turn that wrote it has ended, so
-// whatever that turn does after the line has been done (rule keeper-log-barrier-turn).
+// whatever that turn does after the line has been done (rule project_keeper_log_barrier).
 func (w *world) logged(sub string, n ...int) {
 	w.t.Helper()
 	want := 1
@@ -697,21 +706,25 @@ func (w *world) logged(sub string, n ...int) {
 	})
 }
 
-// seen is whether keeper.log holds sub want times as logged reads it: before the loop, while
-// the launch steps run in order, the file; in the loop, the log its last ended turn left;
-// once the keeper has ended, the file again. It runs on any goroutine, so it never fails.
+// seen is whether keeper.log, as keeperLog reads it, holds sub want times. It runs on any
+// goroutine, so a read that fails is not seen.
 func (w *world) seen(run paths.Run, sub string, want int) bool {
+	log, err := w.keeperLog(run)
+	return err == nil && strings.Count(log, sub) >= want
+}
+
+// keeperLog is run's keeper.log as every test reads it (rule project_keeper_log_barrier):
+// before the loop, while the launch steps run in order, the file; in the loop, the log its
+// last ended turn left; once the keeper has ended, the file again.
+func (w *world) keeperLog(run paths.Run) (string, error) {
 	w.mu.Lock()
 	log, looping := w.turnLog, w.looping
 	w.mu.Unlock()
-	if !looping || w.keeperEnded() {
-		data, err := os.ReadFile(run.KeeperLog())
-		log = string(data)
-		if err != nil {
-			log = ""
-		}
+	if looping && !w.keeperEnded() {
+		return log, nil
 	}
-	return strings.Count(log, sub) >= want
+	data, err := os.ReadFile(run.KeeperLog())
+	return string(data), err
 }
 
 // keeperEnded is whether the keeper last started has ended.
@@ -772,12 +785,12 @@ func (s *session) finish(code int) {
 	exitOf(s.w.t, s.res, term.ExitCode(code))
 }
 
-// logOf is run's keeper.log.
+// logOf is run's keeper.log as keeperLog reads it.
 func (w *world) logOf(run paths.Run) string {
 	w.t.Helper()
-	data, err := os.ReadFile(run.KeeperLog())
+	log, err := w.keeperLog(run)
 	mustDo(w.t, err)
-	return string(data)
+	return log
 }
 
 // mustClose closes c, which must not fail: a fake's descriptor.
