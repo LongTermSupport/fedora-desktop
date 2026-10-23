@@ -494,9 +494,11 @@ and report the timeout, leave the production constant, or shorten it only where 
 the outcome asserted).
 
 **Narrowings, each with its sentence.** A bound whose length is a constant cannot be shortened
-by a test, so it is not judged. In a `select` that is a statement of a loop's body, a timer
-case that is empty or a bare `continue` is the poll's gap: the loop goes round and passes or
-fails on another case. A real timer in a test outside a `select` and not an `AfterFunc`
+by a test, so it is not judged. In the `select` that ends the body of a bare `for {}` (no
+condition, init or post), a timer case that is empty or a bare `continue` is the poll's gap:
+the loop goes round and leaves only on another case or a check before the select. A counted or
+ranged loop, or one that goes on after its select, passes once the timer has fired its count,
+so its timer case is judged. A real timer in a test outside a `select` and not an `AfterFunc`
 (`time.Sleep` in a poll loop, a real `context.WithTimeout` as a safety net) acts on nothing by
 itself.
 
@@ -514,10 +516,12 @@ child process gets a `processBounds` row saying why no test races it.
   form and both `Reset`s, a function value, a parenthesised call; `good.go`: constant bounds, a
   ticker, an injected clock, clean; `bad_test.go`: an empty `time.After` case, a `Timer.C` case
   that only logs, a fail in a goroutine, a `return nil`, an `AfterFunc` cancel called and as a
-  value, a passing `Ticker.C` or `time.Tick` case, a loop's timer case that logs, all flagged,
-  and safety nets that fail, return an error or panic, a loop's ticker and `time.After` poll
-  gaps, a fake channel, clean; `evade.go` also `WaitDelay` from a field, assigned and keyed) and `fix/internal/realclock` (a `realClocks` row and a `processBounds` row
-  clean, their neighbours flagged).
+  value, a passing `Ticker.C` or `time.Tick` case, a loop's timer case that logs, the timer
+  case of a counted loop, a ranged loop and a loop that goes on after its select, all flagged,
+  and safety nets that fail, return an error or panic, a bare `for {}` poll gap, a fake channel,
+  clean; `evade.go` also `WaitDelay` from a field, assigned and keyed) and
+  `fix/internal/realclock` (a `realClocks` row and a `processBounds` row clean, their
+  neighbours flagged).
 - Red, real tree (`69037f993`, through `./scripts/qa-changed.bash`): 41 findings, 26 in
   `src-go` (the same with `-tags ccyteamstest` and `difftest`) and 15 in the nested `qa`
   module; the `AfterFunc` clause, added after the independent search, found 2 more.
@@ -527,8 +531,9 @@ child process gets a `processBounds` row saying why no test races it.
   reads; `board`'s held-call safety net fails in its own case; `qa/internal/proc`'s group-kill
   test passes its deadline once the child's pid is written; `execx`'s uncancelled-run test
   leaves Grace (its `WaitDelay`) at `DefaultGrace`. The status-line golden's poll loop is the
-  poll-gap shape, clean. The production findings are 14 `realClocks` and 24 `processBounds`
-  rows, each read against its package's tests. Production behaviour is unchanged.
+  poll-gap shape, clean. The 39 production findings are excused by 14 `realClocks` and 24
+  `processBounds` rows, each read against its package's tests. Production behaviour is
+  unchanged.
 - The rows excuse every production finding, so the production clause guards only code written
   after it, and a row excuses its whole function. Both are the owner's decision (SPEC 3.3 and
   section 4), referred with this remediation.
@@ -537,8 +542,10 @@ child process gets a `processBounds` row saying why no test races it.
   a new test that shortens one is not seen); a test's own constant deadline around a real
   process whose expiry it asserts (`qa/internal/proc`'s was found by the search); a timer case
   that returns a non-nil value meaning success (any non-nil return counts as failing); a
-  `select` that passes on a real `ctx.Done()` of a deadline the test set; `time.Sleep` followed
-  by an assertion that nothing happened.
+  `select` that passes on a real `ctx.Done()` of a deadline the test set; a timer channel held in
+  a variable before the select (`c := time.After(d)`, then `case <-c:`); `WaitDelay` set from a
+  tuple assignment (`err, c.WaitDelay = f()`) or through a dereference (`(*p).WaitDelay`);
+  `time.Sleep` followed by an assertion that nothing happened.
 - Flagged though hazard-free: a select case that fails indirectly (sets a flag the test reads
   later); fail in the case instead.
 

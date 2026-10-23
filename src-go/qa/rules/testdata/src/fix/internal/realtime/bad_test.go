@@ -94,21 +94,51 @@ func TestSafetyNets(t *testing.T) {
 	defer bound.Stop()
 	tick := time.NewTicker(time.Millisecond)
 	defer tick.Stop()
-	for range 3 {
+	for {
 		select {
+		case <-done:
+			return
 		case <-tick.C:
 		case <-bound.C:
 			t.Fatalf("not within a second")
+		}
+	}
+}
+
+// A counted loop, or a loop that goes on after its select, passes once the timer has fired
+// its count: the timer case is the passing case still.
+func TestCountedPolls(t *testing.T) {
+	done := make(chan struct{})
+	tick := time.NewTicker(time.Millisecond)
+	defer tick.Stop()
+	for range 3 {
+		select {
+		case <-tick.C: // want `a real timer is the passing case of a select`
+		case <-done:
+			t.Fatal("done")
 		}
 	}
 	for i := 0; i < 3; i++ {
 		select {
 		case <-done:
 			return
-		case <-time.After(time.Millisecond):
+		case <-time.After(time.Millisecond): // want `a real timer is the passing case of a select`
 			continue
 		}
 	}
+	for {
+		select {
+		case <-done:
+			t.Fatal("done")
+		case <-time.After(time.Millisecond): // want `a real timer is the passing case of a select`
+		}
+		break
+	}
+}
+
+func TestMoreSafetyNets(t *testing.T) {
+	done := make(chan struct{})
+	close(done)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	select {

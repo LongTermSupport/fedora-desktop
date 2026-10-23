@@ -60,9 +60,9 @@ shortens) are not judged; each row has its reason.
 
 In the _test.go files: a select case that receives from a real timer (time.After, time.Tick,
 or the C of a *time.Timer or *time.Ticker) and does not fail: its body calls no Fatal, Fatalf,
-Error, Errorf or FailNow, no panic, and returns nothing but nil. In a select that is a statement
-of a loop's body, a timer case that is empty or a bare continue is the poll's gap and is not
-judged. And any time.AfterFunc, called or taken as a value.
+Error, Errorf or FailNow, no panic, and returns nothing but nil. In the select that ends the body
+of a bare for loop (no condition, init or post), a timer case that is empty or a bare continue
+is the poll's gap and is not judged. And any time.AfterFunc, called or taken as a value.
 
 A bound on real time that a test can shorten makes the test shorten it, and the short bound then
 races the step the test asserts: an L3 probe's 20 ms bound fired before the probe reached a fake
@@ -92,9 +92,7 @@ func runRealTimeBound(pass *analysis.Pass, allow []allowance) {
 				ast.Inspect(decl, func(n ast.Node) bool {
 					switch n := n.(type) {
 					case *ast.ForStmt:
-						markPolls(n.Body, polls)
-					case *ast.RangeStmt:
-						markPolls(n.Body, polls)
+						markPoll(n, polls)
 					case *ast.SelectStmt:
 						reportPassingTimers(pass, n, polls[n])
 					case *ast.Ident:
@@ -141,7 +139,7 @@ func reportWaitDelays(pass *analysis.Pass, n ast.Node) {
 	switch n := n.(type) {
 	case *ast.AssignStmt:
 		for i, lhs := range n.Lhs {
-			if sel, isSel := lhs.(*ast.SelectorExpr); isSel && i < len(n.Rhs) && isWaitDelay(pass.TypesInfo.Uses[sel.Sel]) {
+			if sel, isSel := lhs.(*ast.SelectorExpr); isSel && i < len(n.Rhs) && isWaitDelayField(pass, sel) {
 				reportWaitDelay(pass, n.Rhs[i])
 			}
 		}
@@ -152,31 +150,26 @@ func reportWaitDelays(pass *analysis.Pass, n ast.Node) {
 	}
 }
 
-// isWaitDelay is whether obj is os/exec.Cmd's WaitDelay field: the real-time wait for a
-// finished command's pipes.
-func isWaitDelay(obj types.Object) bool {
-	v, ok := obj.(*types.Var)
-	return ok && v.IsField() && v.Name() == "WaitDelay" && v.Pkg() != nil && v.Pkg().Path() == "os/exec"
-}
-
 func reportWaitDelay(pass *analysis.Pass, value ast.Expr) {
 	if pass.TypesInfo.Types[value].Value == nil {
 		pass.Reportf(value.Pos(), "os/exec.Cmd.WaitDelay on real time with a bound set at run time (project_realtime_bound): bound it on the injected clock")
 	}
 }
 
-// markPolls records the selects that are statements of a loop's body.
-func markPolls(body *ast.BlockStmt, polls map[*ast.SelectStmt]bool) {
-	for _, stmt := range body.List {
-		if sel, ok := stmt.(*ast.SelectStmt); ok {
-			polls[sel] = true
-		}
+// markPoll records the select that ends the body of a bare for loop (no condition, no init, no
+// post): such a loop leaves only through a case of that select, or a statement before it.
+func markPoll(loop *ast.ForStmt, polls map[*ast.SelectStmt]bool) {
+	if loop.Init != nil || loop.Cond != nil || loop.Post != nil || len(loop.Body.List) == 0 {
+		return
+	}
+	if sel, ok := loop.Body.List[len(loop.Body.List)-1].(*ast.SelectStmt); ok {
+		polls[sel] = true
 	}
 }
 
 // reportPassingTimers flags each case of sel that receives from a real timer and does not fail.
-// In a loop's select, a timer case that does nothing or only continues is the poll's gap: the
-// loop goes round, and passes or fails on another case.
+// In the select that ends a bare for loop, a timer case that does nothing or only continues is
+// the poll's gap: the loop goes round, and leaves only on another case or a check before it.
 func reportPassingTimers(pass *analysis.Pass, sel *ast.SelectStmt, poll bool) {
 	for _, stmt := range sel.Body.List {
 		cc, ok := stmt.(*ast.CommClause)
