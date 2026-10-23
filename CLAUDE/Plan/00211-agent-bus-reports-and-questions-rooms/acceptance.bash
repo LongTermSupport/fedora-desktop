@@ -278,6 +278,10 @@ if [[ "${FAKE}" -eq 1 ]]; then
     reject_leg "the test question (fake) another rate limit is no reuse" fake_ask limited
     reject_leg "the test question (fake) the duplicate text with another exit is no reuse" fake_ask open-refused
     reject_leg "the test question (fake) a duplicate in another team is no reuse" fake_ask open-elsewhere
+    check_leg "the test question (fake) an LXC coordinator's rerun reuses the question, its stderr read back through lxc-attach's pipes" \
+        fake_ask_lxc open $'t1\talpha\tQ3\treused'
+    check_leg "the test question (fake) an LXC coordinator asks a new question" fake_ask_lxc asked $'t1\talpha\tQ4\tasked'
+    reject_leg "the test question (fake) an LXC coordinator's other rate limit is no reuse" fake_ask_lxc limited
     check_leg "A5 (fake) a reused test question is found, and said to be from an earlier run" \
         fake_a5_find $'t1\talpha\tQ3\treused' "asked by alpha, which that run found not closed from an earlier run"
     check_leg "A5 (fake) an older three-field test-question is still read" \
