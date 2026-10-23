@@ -73,7 +73,6 @@ run.bash	2853	66	2821	assoc,data
 scripts/check-displaylink-status.sh	211	1	231	-
 scripts/check-pinned-versions.bash	137	3	127	data
 scripts/collect-diagnostics.bash	364	9	365	-
-scripts/gh-account-setup.bash	546	19	538	data
 scripts/git-hooks/commit-msg	117	0	134	-
 scripts/git-hooks/lib/secret-scan.bash	225	6	126	assoc,data
 scripts/git-hooks/pre-commit	273	0	292	-

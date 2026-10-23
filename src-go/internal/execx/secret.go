@@ -59,6 +59,10 @@ func TakeSecret(name string) (Secret, bool, error) {
 // Name is the variable the child reads the secret from.
 func (s Secret) Name() string { return s.name }
 
+// Renamed is the same value under another variable name, for a child that reads it by a
+// name other than the one it was taken from.
+func (s Secret) Renamed(name string) (Secret, error) { return NewSecret(name, s.value) }
+
 // Is reports whether the secret's value is v, for a test or a comparison that must not copy it.
 func (s Secret) Is(v string) bool { return s.value == v }
 

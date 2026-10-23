@@ -2537,10 +2537,13 @@ wait_for_network
 echo -e "\n${YELLOW}${INFO} You will be asked for your sudo password${NC}\n"
 title "Installing System Dependencies"
 # L1: list every package actually installed below (python3-pip was missing).
-info "Installing: git, python3, python3-pip, python3-libdnf5, grubby, jq, openssl, pipx"
+info "Installing: git, python3, python3-pip, python3-libdnf5, grubby, jq, openssl, pipx, golang"
 # H3: do NOT swallow dnf output. Under set -e a dnf failure here used to abort the
 # run in total silence (output went to /dev/null). Let dnf print so a failure has
 # a visible cause; set -e then stops the run with the error on screen.
+# golang: scripts/gh-account-setup.bash builds its Go command from this checkout, and the
+# GitHub step below runs it before any play has installed Go (play-golang.yml still owns
+# the version floor). It shares the pipx line so the line count stays on its ratchet record.
 _sudo dnf -y install \
   git \
   python3 \
@@ -2549,7 +2552,7 @@ _sudo dnf -y install \
   grubby \
   jq \
   openssl \
-  pipx
+  pipx golang
 completed
 
 title "Checking for Legacy Grub Configurations"

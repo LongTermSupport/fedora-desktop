@@ -32,6 +32,19 @@ func TestNewSecretRefusesABadNameOrAnEmptyValue(t *testing.T) {
 	}
 }
 
+func TestRenamedKeepsTheValueUnderAnotherName(t *testing.T) {
+	s, err := mustSecret(t, "FROM").Renamed("TO")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Name() != "TO" || !s.Is(placeholder) {
+		t.Errorf("renamed %v", s)
+	}
+	if _, err := mustSecret(t, "FROM").Renamed("A-B"); err == nil {
+		t.Error("Renamed accepted a name that is not a variable's")
+	}
+}
+
 func TestASecretNeverPrintsItsValue(t *testing.T) {
 	s := mustSecret(t, "CLAUDE_CODE_OAUTH_TOKEN")
 	c := Cmd{Name: "podman", Args: []string{"run", "-e", s.Name()}, Secrets: []Secret{s}}

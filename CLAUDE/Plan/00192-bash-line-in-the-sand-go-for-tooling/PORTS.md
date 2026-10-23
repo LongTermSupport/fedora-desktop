@@ -337,3 +337,20 @@ found that way (B10: with no mount the bash printed only the heading and exited 
 `deploy-rclone-cache-status.bash` (the tagged play, then
 `acceptance-rclone-cache-status.bash` for H1) passed; H2 and H3 are the owner's, by hand inside
 a mount.
+`gh-account-setup` (P6, the third tool; chosen in its spec's section 1) ported on its own branch,
+under review, not merged; spec [SPEC-gh-account-setup.md](SPEC-gh-account-setup.md) (D1-D5,
+E1-E30, B1-B15, H1-H5), `src-go/cmd/gh-account-setup` (the askpass dispatch, else the run) and
+`src-go/internal/ghaccount`. It is not deployed: `scripts/gh-account-setup.bash` is a wrapper that
+builds it from the checkout on each run and execs it, so a signal sent to the wrapper reaches
+the command (`run_go_command` in `scripts/lib/go-tool.bash`, with `-buildvcs=false`, because the
+suite's `git` stub broke Go's VCS stamping), and `run.bash` installs
+`golang` with its first system dependencies so the GitHub step can build it on a fresh host (D2,
+the bootstrap). The vault is read the way the playbooks read it: ansible runs under the
+checkout's `ansible.cfg`, and only a set `VAULT_PASS_FILE` is checked and passed on (E4, E11); the
+passphrase reaches `ssh-keygen` and `ssh` only through the command itself as askpass, proven
+against the real `ssh-keygen` (B7). `go.yaml.in/yaml/v3` joins the main module (vendored,
+allowlisted; the ccy binaries do not import it), and `execx` gains `Secret.Renamed`; `go.mod`,
+`go.sum` and `execx` are in the ccy build closure, so CCY is bumped. The gh floor rose from 2.40.0 to 2.81.0, the release that added `gh auth status --json`
+(B15). `scripts/test-run-bash-gh-scopes.bash` drives the built command over its stubs; the bash
+and its allowlist row are gone. Host checks H1-H5 are the owner's, by hand (H4 in the VM lab).
+Review rounds (Opus, adversarial): see the journal.
