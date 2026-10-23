@@ -13,9 +13,10 @@
 // credential refused) and forge-rate. A forge with no answer (no connection, or 15 s with no
 // answer or a 5xx on the repository's own request) is unresolved with ErrDown, and every check
 // in the 60 s after it is ErrDown at once, with no request (n3d-D29); the same on a request the
-// reference shapes (a compare, a file) is that check's unresolved alone (n3d-D31). Only facts that can lead to a proof are cached: one hour
-// for repositories, branches, reachability, pull requests and issues; for the link's life for
-// a file at a SHA (n3d-D22); 1024 entries per cache, oldest evicted.
+// reference shapes (a compare, a file) is that check's unresolved alone (n3d-D31). Only facts
+// that can lead to a proof are cached: one hour for repositories, branches, reachability, pull
+// requests and issues; for the link's life for a file at a SHA (n3d-D22); 1024 entries per
+// cache, oldest evicted.
 package forge
 
 import (

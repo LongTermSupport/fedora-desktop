@@ -26,9 +26,7 @@ const (
 	pendingReserve = 256 // the last entries of pending, which only HUMAN and TIMEOUT items use
 	capLedger      = 1024
 	sizeLedger     = 448
-	capPings       = 256
 	sizePing       = 3 << 10
-	capPingTargets = 16
 	capReceipts    = 1024
 	sizeReceipt    = 80
 	capAwaiting    = 32
@@ -36,7 +34,6 @@ const (
 	capMissed      = 16
 	sizeMissed     = 640
 	// n3d-D1: a send in flight carries its content, so B's 64 of 128 bytes are 32 of 20 KiB.
-	capSending  = 32
 	sizeSending = 20 << 10
 	// maxSendContent is A 11.2's cap on a composed content.
 	maxSendContent = 16384
@@ -48,6 +45,15 @@ const (
 	maxTranscriptPath = 1024
 	// maxUserID is A4's bound on a user id, which the entry sizes assume.
 	maxUserID = 128
+)
+
+// The send caps the store holds, which the engine refuses a send at before it reaches the store:
+// pings awaiting answers in the outbox (B 2.3.2), a ping's addressees (n3d-D5) and sends in
+// flight (n3d-D1).
+const (
+	MaxPings       = 256
+	MaxPingTargets = 16
+	MaxSending     = 32
 )
 
 const (
@@ -69,8 +75,8 @@ var listCaps = []listCap{
 	{"missed", []string{"missed"}, capMissed, sizeMissed},
 	{"ledger", []string{"ledger"}, capLedger, sizeLedger},
 	{"receipts", []string{"receipts"}, capReceipts, sizeReceipt},
-	{"pings", []string{keyOutbox, "pings"}, capPings, sizePing},
-	{"sending", []string{keyOutbox, "sending"}, capSending, sizeSending},
+	{"pings", []string{keyOutbox, "pings"}, MaxPings, sizePing},
+	{"sending", []string{keyOutbox, "sending"}, MaxSending, sizeSending},
 	{"gate keys", []string{keyOutbox, "gate", "recent"}, capGateKeys, sizeGateKey},
 }
 
@@ -364,8 +370,8 @@ func (p *SendingPing) check(c *rules, server string) {
 	c.need(known && rule.ExpectsAnswer && p.TimeoutMS > 0, "a send in flight's ping is not an answer-expecting ping")
 	ref := p.Ref != nil && validRef(*p.Ref)
 	c.need(ref && rule.Ref != proto.Forbidden || p.Ref == nil && rule.Ref != proto.Required, "a send in flight's ref is not as its verb needs")
-	c.need(len(p.To) >= 1 && len(p.To) <= capPingTargets && distinct(p.To) && !slices.ContainsFunc(p.To, func(id string) bool { return !validUser(id, server) }),
-		fmt.Sprintf("a send in flight's ping is not to 1 to %d distinct users of the team's server", capPingTargets))
+	c.need(len(p.To) >= 1 && len(p.To) <= MaxPingTargets && distinct(p.To) && !slices.ContainsFunc(p.To, func(id string) bool { return !validUser(id, server) }),
+		fmt.Sprintf("a send in flight's ping is not to 1 to %d distinct users of the team's server", MaxPingTargets))
 }
 
 // validVerb is a verb exactly for an item "ping", and then one of A 8.1's (n3d-D30).
@@ -382,7 +388,7 @@ func (p *Ping) check(c *rules, server string) {
 	c.need(proto.ValidEventID(p.ID) && known && rule.ExpectsAnswer && validMS(p.SentMS) && p.SentMS <= p.DueMS && validMS(p.DueMS), "a ping is not well formed")
 	ref := p.Ref != nil && validRef(*p.Ref)
 	c.need(ref && rule.Ref != proto.Forbidden || p.Ref == nil && rule.Ref != proto.Required, "a ping's ref is not as its verb needs")
-	c.need(len(p.To) >= 1 && len(p.To) <= capPingTargets && distinct(p.To), fmt.Sprintf("a ping is not to 1 to %d distinct ids", capPingTargets))
+	c.need(len(p.To) >= 1 && len(p.To) <= MaxPingTargets && distinct(p.To), fmt.Sprintf("a ping is not to 1 to %d distinct ids", MaxPingTargets))
 	for _, id := range p.To {
 		c.need(validUser(id, server), "a ping's target is not a user of the team's server")
 	}
@@ -508,11 +514,11 @@ func (s *Store) AddAwaiting(a Awaiting) error {
 func (s *Store) AddReceipt(r Receipt) error { return grow(&s.Receipts, r, capReceipts, "receipts") }
 
 // AddPing records a sent ping.
-func (s *Store) AddPing(p Ping) error { return grow(&s.Outbox.Pings, p, capPings, "pings") }
+func (s *Store) AddPing(p Ping) error { return grow(&s.Outbox.Pings, p, MaxPings, "pings") }
 
 // AddSending records a send in flight.
 func (s *Store) AddSending(x Sending) error {
-	return grow(&s.Outbox.Sending, x, capSending, "sending")
+	return grow(&s.Outbox.Sending, x, MaxSending, "sending")
 }
 
 // AddGateKey records a duplicate key in the gate.

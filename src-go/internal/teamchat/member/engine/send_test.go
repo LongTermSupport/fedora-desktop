@@ -555,7 +555,9 @@ func TestSD3_9TheSendingAndPingCaps(t *testing.T) {
 	}
 	w.downWith(ops, s)
 	credit := w.store(ops).Outbox.Gate.Credit
-	refusedCode(t, "the 33rd", firstOf(w.say(&ops, "one more", "repo.2")), exits.CodeStore)
+	full := firstOf(w.say(&ops, "one more", "repo.2"))
+	refusedCode(t, "the 33rd", full, exits.CodeStore)
+	saysMessage(t, full, "32 sends already wait for team ops's homeserver; run status")
 	if got := w.store(ops).Outbox.Gate.Credit; got != credit {
 		t.Errorf("a refused send spent %d", credit-got)
 	}
@@ -566,8 +568,26 @@ func TestSD3_9TheSendingAndPingCaps(t *testing.T) {
 	}
 	d.Outbox.Sending = append(d.Outbox.Sending, queuedHalt(w, dev))
 	w.downWith(dev, d)
-	refusedCode(t, "the 257th ping", firstOf(w.ping(&dev, "review", new(reviewRef), "repo.3")), exits.CodeStore)
+	outboxFull := firstOf(w.ping(&dev, "review", new(reviewRef), "repo.3"))
+	refusedCode(t, "the 257th ping", outboxFull, exits.CodeStore)
+	saysMessage(t, outboxFull, "team dev already has 256 pings awaiting answers; run status")
 	queued(t, w.ping(&dev, proto.VerbDone, new(reviewRef), "repo.3"))
+}
+
+// The send caps are the store's own (state.MaxSending, state.MaxPings, state.MaxPingTargets), so
+// the engine refuses a send cleanly exactly where the store would refuse it.
+func TestTheSendCapsAreTheStores(t *testing.T) {
+	if state.MaxSending != 32 || state.MaxPings != 256 || state.MaxPingTargets != 16 {
+		t.Fatalf("the caps %d %d %d", state.MaxSending, state.MaxPings, state.MaxPingTargets)
+	}
+}
+
+// saysMessage fails unless d's error message is want.
+func saysMessage(t *testing.T, d wire.Done, want string) {
+	t.Helper()
+	if d.Error == nil || d.Error.Message != want {
+		t.Fatalf("the message = %+v, want %q", d.Error, want)
+	}
 }
 
 // queuedText is an untried text send i of team id.
@@ -722,7 +742,9 @@ func TestN3dD5AtMostSixteenAddressees(t *testing.T) {
 		to = append(to, "repo."+strconv.Itoa(i))
 	}
 	f.notices.set(r)
-	refusedCode(t, "17 addressees", firstOf(w.ping(&ops, "halt", nil, to...)), exits.CodeUsage)
+	refused := firstOf(w.ping(&ops, "halt", nil, to...))
+	refusedCode(t, "17 addressees", refused, exits.CodeUsage)
+	saysMessage(t, refused, "a ping names at most 16 addressees")
 	posted(t, w.ping(&ops, "halt", nil, to[:16]...))
 }
 
