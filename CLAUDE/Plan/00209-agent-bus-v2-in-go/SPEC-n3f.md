@@ -451,8 +451,7 @@ admin redaction makes it rebuilt (QX7).
     floor as an item, posts the sync already delivered.
   - The ready line's key (QX1) and `remind_late` (RM1) are seat state outside this key.
 
-  A
-  replacement coordinator's build folds the same events by the same rules into the same state,
+  A replacement coordinator's build folds the same events by the same rules into the same state,
   so the persisted index is the room's state, not the seat's (A: "no session state"). Test (M1):
   a coordinator with Q1 answered by human post H1 and Q2 open with `remind_after_s`; (a) a link
   restart: `questions` shows Q1 `answered` with `unanswered` [H1], Q2 `open`, and Q1 is never
@@ -1022,17 +1021,17 @@ Then one bullet after the `gate` bullet:
 - `outbox.reports` is the report times of the last 3600 s, for the hourly report limit (SPEC-n3f n3f-D6). `outbox.questions_unechoed` is the event id of the coordinator's last questions post that is posted and not yet folded, or null; `outbox.questions_uncounted` counts the own questions posts this term whose echo was not counted and the hook lines said about them; `outbox.questions_handover` is true while the line that a promotion's questions index is ready is owed (SPEC-n3f QX3, QX1). `questions` is the room's question index: its bounded state, its `/messages` token, its last folded event and an owed or running rebuild (SPEC-n3f QX5); it is the room's fold, the same on every seat. `reminded_ms` and `remind_late` are this seat's reminder watermark and the open questions found below it (SPEC-n3f RM1). All seven are seat state of the coordinator's term, dropped at a demotion.
 ```
 
-Caps. Old:
+Caps. Old: the cap sentence below, or n3d's form of it if n3d's amendment (n3d-D1, 3 MiB) has
+been applied first; either is replaced whole:
 
 ```text
 The file cap is their sum, about 1.9 MiB, rounded up to **2 MiB**, so a list cap is always the one that fires.
 ```
 
-New (n3d's own changes to the caps and to this sentence, n3d-D1, are n3d's amendment; this is the
-sentence after both):
+New, complete on its own (it keeps n3d's base caps, about 3.0 MiB, and adds this room's):
 
 ```text
-The questions room adds its own: 60 report times (14 bytes), 64 `remind_late` numbers (20 bytes), the `questions` key at most 1 101 056 bytes (64 questions not closed, 128 closed, 1024 attachments, 64 unattached posts; SPEC-n3f QX6), and the three `outbox.questions_*` keys with `reminded_ms`, 256 bytes together. The file cap is their sum rounded up to the next 256 KiB, **4 MiB** at these caps (`MaxStore`, pinned by `TestStoreFullFitsTheFileCap`), so a list cap is always the one that fires.
+The lists above, with n3d's caps (about 3 001 136 bytes), are the base. The questions room adds its own: 60 report times (14 bytes), 64 `remind_late` numbers (20 bytes), the `questions` key at most 1 101 056 bytes (64 questions not closed, 128 closed, 1024 attachments, 64 unattached posts; SPEC-n3f QX6), and the three `outbox.questions_*` keys with `reminded_ms`, 256 bytes together. The file cap is the sum of the base and these, about 4 104 600 bytes, rounded up to the next 256 KiB: **4 MiB** at these caps (`MaxStore`, pinned by `TestStoreFullFitsTheFileCap`), so a list cap is always the one that fires.
 ```
 
 And in 2.14's row "store writes per event": old `2 MiB at worst`, new `4 MiB at worst`.
