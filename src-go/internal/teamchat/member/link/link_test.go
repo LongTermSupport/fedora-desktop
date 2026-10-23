@@ -508,8 +508,9 @@ func TestReadyWaitsTenSecondsForTheAdds(t *testing.T) {
 	w.launch(2)
 	w.add(a)
 	until(t, func() bool { return w.team(a) != nil })
-	// The adds' wait, and the engine's one status.json timer (SL1) once alpha is held.
-	check(t, w.clk.BlockUntil(t.Context(), 2))
+	// The adds' wait, armed at the launch; the engine's status.json timer (SL1) is not this
+	// test's.
+	check(t, w.clk.AwaitDue(t.Context(), addsWait))
 	w.clk.Advance(addsWait)
 	w.next(wire.KindReady)
 	if !strings.Contains(w.log.String(), "1 of 2 adds") {
@@ -574,7 +575,7 @@ func TestTheFirstMessageIsTheLaunch(t *testing.T) {
 func TestNoLaunchInTenSeconds(t *testing.T) {
 	w := newLinkWorld(t)
 	w.start()
-	check(t, w.clk.BlockUntil(t.Context(), 1))
+	check(t, w.clk.AwaitDue(t.Context(), addsWait))
 	w.clk.Advance(addsWait)
 	if code := w.exited(); code != int(exits.ExitConfig) {
 		t.Fatalf("exit %d", code)
@@ -617,7 +618,7 @@ func TestAHeldLinkLockIs78(t *testing.T) {
 	go func() {
 		// The take is tried three times, 50 ms apart on the fake clock.
 		for range 2 {
-			if w.clk.BlockUntil(t.Context(), 1) != nil {
+			if w.clk.AwaitDue(t.Context(), 50*time.Millisecond) != nil {
 				return
 			}
 			w.clk.Advance(time.Second)

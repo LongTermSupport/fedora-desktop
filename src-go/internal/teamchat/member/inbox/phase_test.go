@@ -46,7 +46,7 @@ func readAuth(t *testing.T, far net.Conn) *bufio.Reader {
 
 func expire(t *testing.T, clk *clock.Fake) {
 	t.Helper()
-	if err := clk.BlockUntil(t.Context(), 1); err != nil {
+	if err := clk.AwaitDue(t.Context(), PhaseTimeout); err != nil {
 		t.Fatal(err)
 	}
 	clk.Advance(PhaseTimeout)
@@ -84,15 +84,16 @@ func TestAnAuthLineNobodyReadsIsRetry(t *testing.T) {
 	}
 }
 
-// expireUntil moves clk past each phase bound armed until done answers. The connect phase arms
-// a bound of its own just before the auth line's, so the bound one expire sees may be the
-// connect's, already stopped, and the auth line's armed after the clock moved.
+// expireUntil moves clk past each phase bound armed until done answers. Every phase's bound is
+// PhaseTimeout, and the connect phase arms its own just before the auth line's, so the bound one
+// expire sees may be the connect's, already stopped, and the auth line's armed after the clock
+// moved.
 func expireUntil(t *testing.T, clk *clock.Fake, done <-chan error) error {
 	t.Helper()
 	for {
 		ctx, cancel := context.WithCancel(t.Context())
 		armed := make(chan error, 1)
-		go func() { armed <- clk.BlockUntil(ctx, 1) }()
+		go func() { armed <- clk.AwaitDue(ctx, PhaseTimeout) }()
 		select {
 		case err := <-done:
 			cancel()

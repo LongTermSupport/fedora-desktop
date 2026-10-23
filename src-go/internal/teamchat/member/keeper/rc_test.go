@@ -119,7 +119,7 @@ func TestDesiredDirectoryGoes(t *testing.T) {
 			t.Fatalf("%#x: keeper.json %+v", op, k)
 		}
 		w.watch.fail(nil)
-		w.advance(1, rewatchGap)
+		w.advance(rewatchGap)
 		if d := l.expect(t, wire.KindDesired).Desired; d.State != state.DesiredApplied || d.Generation != 1 {
 			t.Fatalf("%#x: desired once watched again %+v", op, d)
 		}
@@ -175,7 +175,7 @@ func TestOwedNotice(t *testing.T) {
 	l.send(t, wire.Msg{Kind: wire.KindRemoved, Removed: &wire.Removed{Team: rm.Team, UserID: agentOf(t, "alpha")}})
 	w.logged("its leave notice is owed")
 	l.code(1)
-	w.advance(2, time.Second)
+	w.advance(time.Second, owedWait)
 	l = w.link()
 	if m := l.expect(t, wire.KindLaunch); m.Launch.Seats != 0 {
 		t.Fatalf("launch %+v", m.Launch)
@@ -185,7 +185,7 @@ func TestOwedNotice(t *testing.T) {
 	}
 	l.expect(t, wire.KindPID)
 	w.ready(l)
-	w.advance(1, owedWait-time.Second)
+	w.advance(owedWait-time.Second)
 	w.logged("the leave notice was not posted in time")
 	if w.held(alpha) {
 		t.Fatal("the seat is held after the notice's 30 s")
@@ -267,7 +267,7 @@ func TestRemoveTimeout(t *testing.T) {
 	w.changed()
 	l.expect(t, wire.KindDesired)
 	l.expect(t, wire.KindRemove)
-	w.advance(1, removeWait)
+	w.advance(removeWait)
 	expectSig(t, l.sigs, 9)
 	l = w.up(0)
 	l.expect(t, wire.KindPID)
@@ -288,7 +288,7 @@ func TestChangesWhileRestarting(t *testing.T) {
 	alpha, beta := w.layout.Seat(mustTeam(t, "alpha")), w.seat("beta")
 	mustDo(t, os.WriteFile(alpha.Store(), []byte("store"), 0o600))
 	l.code(1)
-	mustDo(t, w.clk.BlockUntil(t.Context(), 1))
+	mustDo(t, w.clk.AwaitDue(t.Context(), time.Second))
 	w.writeDesired(desiredJSON(2, state.InboundAccept, "beta/1"))
 	w.changed()
 	// The removal is logged before the add takes its seat: wait for both.
@@ -367,7 +367,7 @@ func TestLinkMessages(t *testing.T) {
 	l.send(t, wire.Msg{Kind: wire.KindToken, Token: &wire.Token{Token: secret}})
 	cc := w.claude(l)
 	l.code(1)
-	w.advance(1, time.Second)
+	w.advance(time.Second)
 	l = w.link()
 	l.expect(t, wire.KindLaunch)
 	l.expect(t, wire.KindPID)

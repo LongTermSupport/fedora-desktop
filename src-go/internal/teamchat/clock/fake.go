@@ -18,7 +18,7 @@ type Fake struct {
 	wall    int64
 	seq     uint64
 	waiters []*waiter
-	// changed is closed and replaced whenever the waiters change, for BlockUntil.
+	// changed is closed and replaced whenever the waiters change, for AwaitDue.
 	changed chan struct{}
 }
 
@@ -98,8 +98,28 @@ func (f *Fake) Waiters() int {
 	return len(f.waiters)
 }
 
-// BlockUntil returns once exactly n waiters are armed, or with the context's error: a test
-// waits on that before it advances, never on time.
+// AwaitDue returns once a waiter due d from the fake's present reading is armed, or with the
+// context's error: a test waits on the timer it means before it advances, never on time, and
+// never on a count of waiters, which a timer it did not mean can make (project_fakeclock_count).
+func (f *Fake) AwaitDue(ctx context.Context, d time.Duration) error {
+	for {
+		f.mu.Lock()
+		due := f.mono + d
+		armed := slices.ContainsFunc(f.waiters, func(w *waiter) bool { return w.due == due })
+		changed := f.changed
+		f.mu.Unlock()
+		if armed {
+			return nil
+		}
+		select {
+		case <-changed:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+// BlockUntil returns once exactly n waiters are armed; its last caller goes in the next commit.
 func (f *Fake) BlockUntil(ctx context.Context, n int) error {
 	for {
 		f.mu.Lock()

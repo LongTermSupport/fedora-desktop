@@ -50,10 +50,10 @@ func TestStopReachesClaudeByItsPidfd(t *testing.T) {
 	w.sigs <- syscall.SIGHUP
 	w.logged("the stop is already under way")
 	c.quiet(t)
-	w.advance(2, stopTermAfter)
+	w.advance(stopTermAfter, stopKillAfter)
 	expectSig(t, cc.sigs, syscall.SIGTERM)
 	expectSig(t, c.sigs, syscall.SIGTERM)
-	w.advance(1, stopKillAfter-stopTermAfter)
+	w.advance(stopKillAfter-stopTermAfter)
 	expectSig(t, cc.sigs, syscall.SIGKILL)
 	expectSig(t, c.sigs, syscall.SIGKILL)
 	ended(t, l, res, wire.EndStop, 137, 137)
@@ -112,9 +112,9 @@ func TestClaudeOutlivingCmd(t *testing.T) {
 	w, l, c, res := claudeWorld(t)
 	cc := w.claude(l)
 	c.code(0)
-	w.advance(1, orphanTerm)
+	w.advance(orphanTerm)
 	expectSig(t, cc.sigs, syscall.SIGTERM)
-	w.advance(1, orphanKill)
+	w.advance(orphanKill)
 	expectSig(t, cc.sigs, syscall.SIGKILL)
 	ended(t, l, res, wire.EndExit, 0, 0)
 }
@@ -124,9 +124,9 @@ func TestCmdOutlivingClaude(t *testing.T) {
 	w, l, c, res := claudeWorld(t)
 	cc := w.claude(l)
 	cc.exit()
-	w.advance(1, orphanTerm)
+	w.advance(orphanTerm)
 	expectSig(t, c.sigs, syscall.SIGTERM)
-	w.advance(1, orphanKill)
+	w.advance(orphanKill)
 	expectSig(t, c.sigs, syscall.SIGKILL)
 	ended(t, l, res, wire.EndExit, 137, 137)
 }
@@ -162,8 +162,8 @@ func TestLinkRestartsWithBackoff(t *testing.T) {
 	alpha := w.layout.Seat(mustTeam(t, "alpha"))
 	for n := int64(1); n < failedAfter; n++ {
 		l.code(1)
-		mustDo(t, w.clk.BlockUntil(t.Context(), 1))
 		delay := time.Second << (n - 1)
+		mustDo(t, w.clk.AwaitDue(t.Context(), delay))
 		k := w.keeperJSON()
 		if k.Link != state.LinkRestarting || k.Restarts != n || k.NextMS == nil || *k.NextMS != (w.clk.Boot()+delay).Milliseconds() {
 			t.Fatalf("crash %d: keeper.json %+v", n, k)
@@ -203,12 +203,12 @@ func TestLinkSupervision(t *testing.T) {
 	t.Run("stable run resets", func(t *testing.T) {
 		w, l, c, res := claudeWorld(t)
 		l.code(1)
-		w.advance(1, time.Second)
+		w.advance(time.Second)
 		l = w.up(0)
 		l.expect(t, wire.KindPID)
 		w.clk.Advance(stableRun)
 		l.code(1)
-		mustDo(t, w.clk.BlockUntil(t.Context(), 1))
+		mustDo(t, w.clk.AwaitDue(t.Context(), time.Second))
 		if k := w.keeperJSON(); k.Restarts != 1 {
 			t.Fatalf("keeper.json %+v", k)
 		}
@@ -224,12 +224,12 @@ func TestLinkSupervision(t *testing.T) {
 		w.linkErr = errors.New("no link")
 		w.mu.Unlock()
 		l.code(1)
-		w.advance(1, time.Second)
+		w.advance(time.Second)
 		w.logged("restart the link: no link")
 		w.mu.Lock()
 		w.linkErr = nil
 		w.mu.Unlock()
-		mustDo(t, w.clk.BlockUntil(t.Context(), 1))
+		mustDo(t, w.clk.AwaitDue(t.Context(), 2*time.Second))
 		if k := w.keeperJSON(); k.Restarts != 2 {
 			t.Fatalf("keeper.json %+v", k)
 		}
@@ -242,12 +242,12 @@ func TestLinkSupervision(t *testing.T) {
 	t.Run("not ready while running", func(t *testing.T) {
 		w, l, c, res := claudeWorld(t)
 		l.code(1)
-		w.advance(1, time.Second)
+		w.advance(time.Second)
 		l = w.link()
 		l.expect(t, wire.KindLaunch)
-		w.advance(1, readyWait)
+		w.advance(readyWait)
 		expectSig(t, l.sigs, syscall.SIGKILL)
-		mustDo(t, w.clk.BlockUntil(t.Context(), 1))
+		mustDo(t, w.clk.AwaitDue(t.Context(), 2*time.Second))
 		if k := w.keeperJSON(); k.Restarts != 2 {
 			t.Fatalf("keeper.json %+v", k)
 		}
@@ -288,7 +288,7 @@ func TestEndWaitsForTheLink(t *testing.T) {
 	if !w.held(alpha) {
 		t.Fatal("the seat was let go before the link exited")
 	}
-	w.advance(1, endWait)
+	w.advance(endWait)
 	expectSig(t, l.sigs, syscall.SIGKILL)
 	exitOf(t, res, term.ExitOK)
 	if w.held(alpha) || !w.runGone() {
@@ -300,7 +300,7 @@ func TestEndWaitsForTheLink(t *testing.T) {
 func TestEndOnlyStart(t *testing.T) {
 	w, l, c, res := claudeWorld(t, "alpha/1")
 	l.code(1)
-	mustDo(t, w.clk.BlockUntil(t.Context(), 1))
+	mustDo(t, w.clk.AwaitDue(t.Context(), time.Second))
 	c.code(0)
 	l = w.link()
 	if m := l.expect(t, wire.KindLaunch); m.Launch.Seats != 1 {

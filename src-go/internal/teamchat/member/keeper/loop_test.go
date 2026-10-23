@@ -15,7 +15,7 @@ func TestNeverReadyFailsTheLaunch(t *testing.T) {
 	res := w.start()
 	l := w.link()
 	l.expect(t, wire.KindLaunch)
-	w.advance(1, readyWait)
+	w.advance(readyWait)
 	if s := l.signal(); s != syscall.SIGKILL {
 		t.Fatalf("the link was sent %v", s)
 	}

@@ -472,7 +472,7 @@ func (w *world) hungHook(l *link, event string) string {
 	w.clk = clock.NewFake(boot0, 1_770_000_000_000)
 	wait := w.start(event)
 	l.request(w.t)
-	if err := w.clk.BlockUntil(w.t.Context(), 1); err != nil {
+	if err := w.clk.AwaitDue(w.t.Context(), 300*time.Millisecond); err != nil {
 		w.t.Fatal(err)
 	}
 	w.clk.Advance(300 * time.Millisecond)

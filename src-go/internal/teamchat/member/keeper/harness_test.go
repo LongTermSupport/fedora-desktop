@@ -377,10 +377,12 @@ func desiredFarewell(gen int, team, seat, reason string, seats ...string) string
 	return strings.Replace(doc, `"farewell":[]`, fmt.Sprintf(`"farewell":[{"team":%q,"seat":%q,"reason":%q}]`, team, seat, reason), 1)
 }
 
-// advance moves the clock once n timers are armed.
-func (w *world) advance(n int, d time.Duration) {
+// advance moves the clock by d once the timer due then, and each one due at also, is armed.
+func (w *world) advance(d time.Duration, also ...time.Duration) {
 	w.t.Helper()
-	mustDo(w.t, w.clk.BlockUntil(context.Background(), n))
+	for _, due := range append([]time.Duration{d}, also...) {
+		mustDo(w.t, w.clk.AwaitDue(context.Background(), due))
+	}
 	w.clk.Advance(d)
 }
 

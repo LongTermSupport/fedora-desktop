@@ -137,15 +137,16 @@ func TestWaitAcrossARestart(t *testing.T) {
 	w.keeperJSON(state.LinkRestarting, state.KindCCY, new(boot0.Milliseconds()))
 	exit := w.async("wait", "--timeout", "60")
 	for _, d := range []time.Duration{time.Second, 2 * time.Second, 4 * time.Second} {
-		if err := w.clk.BlockUntil(t.Context(), 1); err != nil {
+		if err := w.clk.AwaitDue(t.Context(), d); err != nil {
 			t.Fatal(err)
 		}
 		w.clk.Advance(d)
 	}
-	l := w.listen(record1, doneAck)
-	if err := w.clk.BlockUntil(t.Context(), 1); err != nil {
+	// The dial at 7 s fails before the link listens, so the fourth wait is the 5 s cap.
+	if err := w.clk.AwaitDue(t.Context(), 5*time.Second); err != nil {
 		t.Fatal(err)
 	}
+	l := w.listen(record1, doneAck)
 	w.clk.Advance(5 * time.Second)
 	if code := <-exit; code != term.ExitOK {
 		t.Fatalf("exit %d, stderr %q", code, w.stderr.String())
@@ -177,7 +178,7 @@ func TestWaitWithNoLinkForItsTimeout(t *testing.T) {
 	exit := make(chan term.ExitCode, 1)
 	go func() { exit <- run(e, inv, inv.Verb.Name, deps{clock: w.clk, dial: dial}) }()
 	for _, d := range []time.Duration{time.Second, 2 * time.Second, time.Second} {
-		if err := w.clk.BlockUntil(t.Context(), 1); err != nil {
+		if err := w.clk.AwaitDue(t.Context(), d); err != nil {
 			t.Fatal(err)
 		}
 		w.clk.Advance(d)
@@ -227,7 +228,7 @@ func TestALinkThatNeverAnswers(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	if err := w.clk.BlockUntil(t.Context(), 1); err != nil {
+	if err := w.clk.AwaitDue(t.Context(), 2*time.Second+grace); err != nil {
 		t.Fatal(err)
 	}
 	w.clk.Advance(2*time.Second + grace)

@@ -204,10 +204,17 @@ func (dw *dworld) next() dialEvent {
 	return dialEvent{}
 }
 
-// advance waits until the clock holds the loop's one waiter, then moves it by d.
+// advance waits until the loop's timer due d from now is armed, then moves the clock by d.
 func (dw *dworld) advance(d time.Duration) {
 	dw.t.Helper()
-	dw.armed(1)
+	dw.short(d, d)
+}
+
+// short waits until the loop's timer due from now is armed, then moves the clock by d, which
+// falls short of it.
+func (dw *dworld) short(due, d time.Duration) {
+	dw.t.Helper()
+	dw.awaitDue(due)
 	dw.clk.Advance(d)
 }
 
@@ -485,7 +492,7 @@ func TestAConnectFailurePersistsNothing(t *testing.T) {
 	if ev := dw.next(); !errors.Is(ev.err, inbox.ErrRetry) {
 		t.Fatalf("first connection %+v", ev)
 	}
-	dw.advance(retryWait - time.Millisecond)
+	dw.short(retryWait, retryWait-time.Millisecond)
 	after, err := dw.root.Read(dw.layout.Seat(a).Store(), 1<<22)
 	check(t, err)
 	if string(after.Data) != string(before.Data) {
@@ -569,7 +576,7 @@ func TestOneDeliveryEvery2s(t *testing.T) {
 	dw.next()
 	dw.persist(a, humanItem(a, 2, startWall+1, "two"))
 	dw.persist(a, humanItem(a, 3, startWall+2, "three"))
-	dw.advance(paceWait - time.Millisecond)
+	dw.short(paceWait, paceWait-time.Millisecond)
 	if n := dw.dial.dialCount(); n != 1 {
 		t.Fatalf("%d dials within 2 s", n)
 	}
@@ -788,8 +795,9 @@ func TestTrailingFactsAloneOnceAMinute(t *testing.T) {
 		t.Fatalf("a trailing delivery awaits proof: %+v", s.Awaiting)
 	}
 	dw.persistBatch(team.Batch{Team: a, NextBatch: "s2", Gap: true})
-	dw.advance(paceWait)
-	dw.advance(trailingEvery - paceWait - time.Millisecond)
+	// The loop idles to the minute from the first trailing delivery; nothing is due at 2 s.
+	dw.short(trailingEvery, paceWait)
+	dw.short(trailingEvery-paceWait, trailingEvery-paceWait-time.Millisecond)
 	if n := dw.dial.dialCount(); n != 1 {
 		t.Fatalf("%d trailing deliveries within a minute", n)
 	}

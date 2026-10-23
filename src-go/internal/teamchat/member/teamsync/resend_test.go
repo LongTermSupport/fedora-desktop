@@ -113,8 +113,9 @@ func TestARestoreUnderALongPoll(t *testing.T) {
 	w.batch()
 	r.poll(t)
 	check(t, w.srv.RestoreTo(snap))
-	// The held poll's two timers: fakehs's hold and the request's deadline.
-	check(t, w.clk.BlockUntil(t.Context(), 2))
+	// fakehs holds the poll to its timeout; the request's own deadline is later and not this
+	// test's.
+	check(t, w.clk.AwaitDue(t.Context(), longPoll))
 	w.clk.Advance(longPoll)
 	// The first batch after the restore is SY1 (b)'s under the new epoch: the held poll's answer
 	// was not persisted.

@@ -7,7 +7,8 @@
 // Clock meets lock.Clock and matrix.Clock structurally, so this package imports neither; its
 // AfterFunc and Hold have the shapes of matrix.Timers and fakehs's Hold, which the sync engine's
 // tests assert. Fake is the clock every test drives: it moves only when told,
-// and a test waits on its armed waiters (BlockUntil), never on time.
+// and a test waits on the waiter it means, by when it is due (AwaitDue), never on time and
+// never on a count of waiters.
 package clock
 
 import (

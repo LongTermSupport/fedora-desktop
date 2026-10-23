@@ -214,11 +214,12 @@ func TestTheDeadlineEndsTheRequest(t *testing.T) {
 	w := newServerWorld(t)
 	w.eng.block = true
 	c := w.dial(t)
-	_, err := c.Write(w.request(t, wire.OpWait, 5*time.Second))
+	// 3 s, not readLimit's 5 s, so the deadline is the one timer due then.
+	_, err := c.Write(w.request(t, wire.OpWait, 3*time.Second))
 	check(t, err)
 	until(t, func() bool { return w.eng.requests() == 1 })
-	check(t, w.clk.BlockUntil(t.Context(), 1))
-	w.clk.Advance(5 * time.Second)
+	check(t, w.clk.AwaitDue(t.Context(), 3*time.Second))
+	w.clk.Advance(3 * time.Second)
 	if lines := readAll(t, c); len(lines) != 1 || doneOf(t, lines[0]).Exit != 0 {
 		t.Fatalf("lines %q", lines)
 	}
@@ -274,7 +275,7 @@ func TestCloseClosesTheConnectionBeforeTheCancel(t *testing.T) {
 func TestASilentClientIsClosed(t *testing.T) {
 	w := newServerWorld(t)
 	c := w.dial(t)
-	check(t, w.clk.BlockUntil(t.Context(), 1))
+	check(t, w.clk.AwaitDue(t.Context(), readLimit))
 	w.clk.Advance(readLimit)
 	if lines := readAll(t, c); lines != nil {
 		t.Fatalf("lines %q", lines)
@@ -358,7 +359,7 @@ func TestAClosedConnectionReturns(t *testing.T) {
 func TestALateAckReturns(t *testing.T) {
 	w := newServerWorld(t)
 	c := w.handOut(t)
-	check(t, w.clk.BlockUntil(t.Context(), 1))
+	check(t, w.clk.AwaitDue(t.Context(), ackWait))
 	w.clk.Advance(ackWait)
 	if acked, back := w.settled(t); acked != 0 || back != 1 {
 		t.Fatalf("acked %d back %d", acked, back)
