@@ -116,9 +116,10 @@ func TestAWrongTokenIsRefusedAndTheConnectionClosed(t *testing.T) {
 // it handed on: the hand-on sees only the frames before it.
 func TestAFrameIsHandedOnBeforeItIsRecorded(t *testing.T) {
 	r := start(t, fakeinbox.Options{})
-	var before []fakeinbox.Frame
-	r.b.OnAccepted(func(fakeinbox.Frame) { before = r.b.Frames() })
+	handed := make(chan []fakeinbox.Frame, 1)
+	r.b.OnAccepted(func(fakeinbox.Frame) { handed <- r.b.Frames() })
 	send(t, r.b, auth, user("hello"))
+	before := <-handed
 	if want := []fakeinbox.Frame{{Auth: true, Accepted: true}}; fmt.Sprint(before) != fmt.Sprint(want) {
 		t.Fatalf("frames when handed on %+v, want %+v", before, want)
 	}

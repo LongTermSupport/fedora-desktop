@@ -242,36 +242,39 @@ func (b *Inbox) accept() {
 	}
 }
 
-// serve reads one delivery: the auth line, the user line, then EOF.
+// serve reads one delivery: the auth line, the user line, then EOF. Its last frame, a refusal
+// or a line after the user line, is recorded only once the connection is closed, so a test that
+// awaits it finds the close done.
 func (b *Inbox) serve(c net.Conn) {
-	defer b.drop(c)
+	last, ok := b.converse(c)
+	b.drop(c)
+	if ok {
+		b.record(last, false)
+	}
+}
+
+// converse reads c's lines, recording each frame the delivery goes on after, and returns the
+// frame that ends it, if one does.
+func (b *Inbox) converse(c net.Conn) (Frame, bool) {
 	r := bufio.NewReader(gated{b: b, r: c})
 	line, ok := readLine(r)
 	if !ok {
-		if line != nil {
-			b.record(Frame{Auth: true, Reason: reasonFraming}, false)
-		}
-		return
+		return Frame{Auth: true, Reason: reasonFraming}, line != nil
 	}
 	var a struct {
 		Type  string `json:"type"`
 		Token string `json:"token"`
 	}
 	if decode(line, &a) != nil || a.Type != "auth" {
-		b.record(Frame{Auth: true, Reason: reasonFraming}, false)
-		return
+		return Frame{Auth: true, Reason: reasonFraming}, true
 	}
 	if a.Token != b.opt.Token {
-		b.record(Frame{Auth: true, Reason: reasonAuth}, false)
-		return
+		return Frame{Auth: true, Reason: reasonAuth}, true
 	}
 	b.record(Frame{Auth: true, Accepted: true}, false)
 	line, ok = readLine(r)
 	if !ok {
-		if line != nil {
-			b.record(Frame{Reason: reasonFraming}, false)
-		}
-		return
+		return Frame{Reason: reasonFraming}, line != nil
 	}
 	var u struct {
 		Type    string `json:"type"`
@@ -281,13 +284,13 @@ func (b *Inbox) serve(c net.Conn) {
 		} `json:"message"`
 	}
 	if !ascii(line) || decode(line, &u) != nil || u.Type != "user" || u.Message.Role != "user" {
-		b.record(Frame{Reason: reasonFraming}, false)
-		return
+		return Frame{Reason: reasonFraming}, true
 	}
 	b.record(b.judge(u.Message.Content), true)
 	if extra, err := r.Peek(1); len(extra) > 0 || !errors.Is(err, io.EOF) {
-		b.record(Frame{Reason: reasonFraming}, false)
+		return Frame{Reason: reasonFraming}, true
 	}
+	return Frame{}, false
 }
 
 // readLine is a whole newline-ended line (ok), a cut one (not ok, non-nil), or nothing.
@@ -344,16 +347,20 @@ func (b *Inbox) judge(content string) Frame {
 	return Frame{Content: content, Accepted: true}
 }
 
+// record hands an accepted frame on (when handOn) and only then appends it and wakes Await, so
+// a test that awaits the frame finds it handed on.
 func (b *Inbox) record(f Frame, handOn bool) {
 	b.mu.Lock()
-	b.frames = append(b.frames, f)
-	close(b.changed)
-	b.changed = make(chan struct{})
 	on := b.onAccepted
 	b.mu.Unlock()
 	if handOn && f.Accepted && on != nil {
 		on(f)
 	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.frames = append(b.frames, f)
+	close(b.changed)
+	b.changed = make(chan struct{})
 }
 
 func (b *Inbox) drop(c net.Conn) {
