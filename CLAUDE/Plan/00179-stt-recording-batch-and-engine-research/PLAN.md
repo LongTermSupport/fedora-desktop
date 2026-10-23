@@ -1,6 +1,12 @@
 # Plan 00179: speech-to-text batch transcription of recordings, and engine research
 
-**Status**: In Progress
+**Status**: In Progress. Engine chosen (Task 2.1, a coordinator default, changeable by the
+owner): Parakeet TDT 0.6B v3. Left for workers: Tasks 1.1, 1.4 (whisper.cpp and voxtype), the
+engine build 2.2 to 2.4, Phase 3, 4.2 to 4.4, the scripted dictation side of 0.5's check, and
+the probe for 1.3. Left for the host agent: 0.5's dictation-during-a-file-job measurement and
+0.7's watch folder (set in the host's host_vars, then see the timer transcribe). Left for the
+owner: only the browser consent of Task 1.3. Task 0.6 is optional (owner: "would be cool",
+not required) and not scheduled.
 **Created**: 2026-10-13
 **Owner**: joseph
 **Priority**: Medium
@@ -95,8 +101,12 @@ one.
   local copy first (paragraphs now also break at a sentence end after a minute), the play
   run on the host, and the real folder transcribed: seven sidecars, identical to the
   accepted ones, two taps skipped. Still to check: a dictation during a long file job
-  (latency and GPU memory with both running), and the owner reading the sidecars for
-  accuracy before any tuning (beam, VAD settings, paragraph rules).
+  (latency and GPU memory with both running). A worker scripts the dictation side without a
+  microphone (a WAV fixture fed to the stream); the host agent runs it beside a long `stt` job
+  and samples `nvidia-smi --query-gpu=memory.used`. The owner's read of the sidecars before
+  tuning is no longer a step: Task 2.1 moved the file path to Parakeet, so there is no
+  faster-whisper tuning (beam, VAD settings) to judge, and Task 2.3 records the accuracy
+  against these sidecars instead.
 - [ ] ⬜ **Task 0.6**: Let a CCY container ask the desktop to transcribe (owner: "would be
   cool", not required). Needs a narrow host bridge; nothing like it exists today.
 - [ ] 🔄 **Task 0.7**: Watch folders (owner request): `stt_watch_folders` in host_vars;
@@ -107,8 +117,13 @@ one.
   only an rclone mount. Each sidecar's front matter records its audio (sizes, MD5s; S19), and
   a recording whose audio changed is transcribed again. Owner decision: dictation comes
   first; a file job pauses between windows while a dictation is active, and the idle panel
-  shows a blue document (FILES) while one runs. Built; still to deploy, set the folder in host_vars, and see a new
-  recording transcribed by the timer.
+  shows a blue document (FILES) while one runs. Built and deployed: `play-speech-to-text.yml`,
+  which installs the `stt-watch` units, passed on the host at F44 0af0b579f (commit fedcb10fa;
+  the timer stays stopped while `stt_watch_folders` is empty). Left, for the host agent: set
+  `stt_watch_folders` in the host's host_vars to the recordings folder Task 0.5 transcribed
+  (an install-specific path, so it lives only there), run the play through meta-deploy, drop a
+  copied recording folder in, and read `systemctl --user list-timers stt-watch` and
+  `journalctl --user -u stt-watch` for the run.
 
 ### Phase 1: Triage and research (read-only)
 
@@ -123,7 +138,9 @@ one.
   run (gated model).
 - [ ] ⬜ **Task 1.3**: Test whether a desktop client authorised separately can read files
   the phone uploaded with the `drive.file` scope (#98 comment). If it cannot, record the
-  narrowest read access the one folder needs.
+  narrowest read access the one folder needs. A worker prepares the probe (an rclone config
+  stanza with the narrow scope and one `rclone lsd`); the owner's part is the one browser
+  consent, since it authorises a client against the owner's own cloud account.
 - [ ] ⬜ **Task 1.4**: CPU path for #11: from 00148's research, compare faster-whisper CPU
   int8, Parakeet through `onnx-asr`/sherpa-onnx, whisper.cpp and Moonshine on latency and
   accuracy on a laptop CPU. Read voxtype (#84) for ideas worth borrowing. Write a ranked
@@ -144,15 +161,38 @@ one.
   needs a Hugging Face login) and Kyutai STT on a long recording (about seven times real
   time on the CPU).
 
-### Phase 2: Owner decisions (decision gate)
+### Phase 2: Engine decision, then the engine build
 
-- [ ] ⬜ **Task 2.1**: The default batch model, the non-NVIDIA engine and install path,
-  and whether any of #9 and #84 is adopted or closed as researched. The owner's decision,
-  ranked accuracy first, then memory fit, time only as a tie-breaker. Recommended
-  ([RESEARCH-engine-comparison.md](RESEARCH-engine-comparison.md)): Parakeet TDT 0.6B v3
-  through `onnx-asr` on VAD-cut segments of at most 20 s, for the GPU and the non-NVIDIA
-  path alike; runner-up `large-v3-turbo` if staying in faster-whisper matters. Evidence is
-  two recordings only.
+- [x] ✅ **Task 2.1**: The default batch model, the non-NVIDIA engine and install path,
+  and whether any of #9 and #84 is adopted or closed as researched, ranked by the owner's
+  rule: accuracy first, then memory fit, time only as a tie-breaker. Decided as a
+  **coordinator default, changeable by the owner** (the owner's standing "do not gate on me";
+  the choice is the top of the owner's own ranking rule on the measured table in
+  [RESEARCH-engine-comparison.md](RESEARCH-engine-comparison.md)):
+  - Engine: **Parakeet TDT 0.6B v3 through `onnx-asr`, on VAD-cut segments of at most 20 s**,
+    for the GPU and the non-NVIDIA path alike (its CPU output is word for word its GPU
+    output). Runner-up: `large-v3-turbo`, if staying inside faster-whisper turns out to matter.
+  - #9: Moonshine closed as researched (base loses the most text); Parakeet adopted. #11: the
+    CPU path is the same engine. #84 (voxtype) stays open until Task 1.4 reads it.
+  - Revisited if a third recording with a hand-checked reference transcript ranks the engines
+    differently: the evidence is two recordings from one speaker.
+- [ ] ⬜ **Task 2.2**: Tests first, then the file path on Parakeet: `wsi-stream-server`'s file
+  job (`FILE_START`) transcribes with Parakeet TDT 0.6B v3 through `onnx-asr`, on segments cut
+  by faster-whisper's Silero VAD with `max_speech_duration_s=20`. The model is fetched into a
+  plain folder at a pinned revision and checksum (with onnxruntime 1.31 it does not load
+  through the Hugging Face cache's symlinks). Live dictation stays on faster-whisper. The
+  owner decisions above still hold: dictation comes first, and a 4 GB card must not run out of
+  memory. Parakeet's GPU peak (3.6 GB) is the highest of the engines that fit, so the builder
+  first measures it beside the warm dictation model on the 4 GB card. If they do not fit
+  together, the file job runs Parakeet on the CPU (same output, about 3 GB RAM, 154 s and
+  333 s for the 20 and 57 minute recordings) and dictation keeps the GPU. Record the
+  measurement and the choice in this task.
+- [ ] ⬜ **Task 2.3**: Accuracy record: Parakeet's output on the recordings Task 0.5
+  transcribed, diffed against those seven sidecars, written into
+  [RESEARCH-engine-comparison.md](RESEARCH-engine-comparison.md). A worker with a copy of the
+  recordings, or the host agent on the host.
+- [ ] ⬜ **Task 2.4**: Each sidecar's front matter names the engine and model that wrote it, so
+  sidecars written before and after Task 2.2 can be told apart.
 
 ### Phase 3: The batch command (tests first)
 
@@ -170,7 +210,9 @@ one.
   existing rclone mount, a project's `.claude/ccy/mounts` line, and Phase 0's sidecars. The
   line is declared; that a container sees the folder is shown at its next launch.
 - [ ] ⬜ **Task 4.2**: `play-speech-to-text.yml` installs the engine Task 2.1 chose for
-  hosts without NVIDIA, and the CUDA wheels only where a GPU is present.
+  hosts without NVIDIA, and the CUDA wheels only where a GPU is present: `onnx-asr` with the
+  CPU onnxruntime everywhere (the GPU build only where Task 2.2 runs the file job on the GPU),
+  the Parakeet model at Task 2.2's pin, and faster-whisper's CUDA wheels only on an NVIDIA host.
 - [ ] ⬜ **Task 4.3**: `deploy.bash`, `acceptance.bash`, an entry in `meta-deploy.bash`, and
   docs in `docs/features/speech-to-text.md`.
 - [ ] ⬜ **Task 4.4**: `qa-all.bash`, then the `qa-reviewer` agent over the plan's diff.
@@ -191,3 +233,4 @@ one.
      JOURNAL/00179-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
 - Plan filed from the four issues and 00148's research.
+- Task 2.1: Parakeet TDT 0.6B v3 taken as a coordinator default, changeable by the owner.
