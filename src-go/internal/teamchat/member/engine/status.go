@@ -94,6 +94,7 @@ func (h *held) pending() int64 {
 // newest status; on the state goroutine, after every change.
 func (e *Engine) publish() {
 	e.offerStatus(e.buildStatus())
+	e.tellTeams()
 }
 
 // buildStatus is status.json's content as it is now, its written_ms left for the write, and
@@ -126,7 +127,7 @@ func (e *Engine) buildStatus() state.Status {
 	for _, id := range slices.SortedFunc(maps.Keys(e.refused), compareTeams) {
 		rows = append(rows, state.StatusTeam{Team: id, Down: true, Delivery: state.DeliveryNone, Colour: teamColour(id, nil)})
 	}
-	return state.Status{Run: e.cfg.Run, Desired: e.desired, Teams: rows}
+	return state.Status{Run: e.cfg.Run, Desired: e.desired, UnusableHookStdin: e.unusable.HookStdin, Teams: rows}
 }
 
 func sameState(a, b wire.State) bool {
@@ -169,6 +170,7 @@ func (e *Engine) Refuse(ctx context.Context, t paths.TeamID, holder paths.RunID)
 func (e *Engine) SetDesired(ctx context.Context, d state.ReportDesired) error {
 	return e.do(ctx, func() {
 		e.desired = d.State
+		e.hooks.desired = d
 		e.publish()
 	})
 }
@@ -188,10 +190,14 @@ type teamView struct {
 // the runtime record. The roster is read off the state goroutine, from the team's memory.
 func (e *Engine) status(ctx context.Context, only *paths.TeamID, out RecordWriter) wire.Done {
 	var (
-		views   []teamView
-		refused []paths.TeamID
+		views    []teamView
+		refused  []paths.TeamID
+		unusable state.Unusable
 	)
-	if err := e.do(ctx, func() { views, refused = e.snapshot(only) }); err != nil {
+	if err := e.do(ctx, func() {
+		views, refused = e.snapshot(only)
+		unusable = e.unusable
+	}); err != nil {
 		return internal(err)
 	}
 	if only != nil && len(views) == 0 && len(refused) == 0 {
@@ -207,6 +213,7 @@ func (e *Engine) status(ctx context.Context, only *paths.TeamID, out RecordWrite
 	if rt, err := e.cfg.Runtime(); err != nil {
 		e.logf("status: the runtime cost was not read: %v", err)
 	} else {
+		rt.Unusable = records.Unusable{HookStdin: unusable.HookStdin, Render: unusable.Render}
 		recs = append(recs, rt)
 	}
 	if err := writeAll(out, recs); err != nil {

@@ -375,6 +375,7 @@ func (e *Engine) write(out RecordWriter, h handout) error {
 // wait is LN4's wait: it sleeps until something is pending, then acts as recv; at its
 // deadline with nothing handed it ends with no records, exit 4 timed-out (n3c-D7).
 func (e *Engine) wait(ctx context.Context, only *paths.TeamID, out RecordWriter) wire.Done {
+	defer e.runningWait()()
 	for {
 		var (
 			woken   chan struct{}
