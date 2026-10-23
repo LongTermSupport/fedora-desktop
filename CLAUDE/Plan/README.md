@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00220-wireguard-overlay-and-remote-team-members](00220-wireguard-overlay-and-remote-team-members/) - Not Started. Agent teams across machines: a vault-backed WireGuard overlay in `play-vpn.yml` (one per machine, hub and spoke on this desktop, a dedicated firewalld zone, one public UDP port), the homeserver on the overlay address for named peers only, a `host` member on a second laptop; remote ccy seats left to v2 (Plan 00209)
+
 - [00218-stt-clip-review-tool](00218-stt-clip-review-tool/) - Not Started. `stt-review` (#112): a Go terminal queue over a folder of private speech clips, opened from the speech-to-text panel; plays each clip with an empty text box (no engine text shown), and the typed `<clip>.human.txt` sidecar, or `[inaudible]`, is the only state; the hand-checked reference for Plan 00179's engine review
 
 - [00217-team-colours-in-the-status-line](00217-team-colours-in-the-status-line/) - In Progress. Each agent team on the status line in its own colour: an automatic one from the team's name, in a palette legible on dark terminals (WCAG AA, tested), and a `colour:` override per team carried to every member as admin room state; Go and Python status lines changed together, parity oracle re-recorded
