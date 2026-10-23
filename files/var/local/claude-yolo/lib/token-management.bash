@@ -80,10 +80,7 @@ colorize_expiry() {
     today_epoch=$(date -d "$today" +%s)
     days_remaining=$(( $(( expiry_epoch - today_epoch )) / 86400 ))
 
-    local RED='\033[31m'
-    local YELLOW='\033[33m'
-    local GREEN='\033[32m'
-    local RESET='\033[0m'
+    local RED='\033[31m' YELLOW='\033[33m' GREEN='\033[32m' RESET='\033[0m'
 
     # Red is "cannot be used": is_token_valid refuses a token stamped today as well as an
     # expired one. Yellow is "renew soon".
@@ -224,8 +221,7 @@ _usage_pct_label() {
 _usage_bar() {
     local p="$1"
     local width="$CCY_USAGE_BAR_WIDTH"
-    local RED='\033[31m' ORANGE='\033[38;5;208m' GREEN='\033[32m'
-    local TRACK='\033[90m' RESET='\033[0m'
+    local RED='\033[31m' ORANGE='\033[38;5;208m' GREEN='\033[32m' TRACK='\033[90m' RESET='\033[0m'
 
     [ "$p" -ge 0 ] 2>/dev/null || p=0
     [ "$p" -le 100 ] || p=100
@@ -1047,11 +1043,8 @@ list_tokens() {
     local token_dir="$1"
     local tool_name="${2:-YOLO Mode}"
 
-    echo ""
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo "Available Claude Code Tokens for $tool_name"
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
+    local rule="════════════════════════════════════════════════════════════════════════════════"
+    printf '\n%s\nAvailable Claude Code Tokens for %s\n%s\n\n' "$rule" "$tool_name" "$rule"
 
     if [ ! -d "$token_dir" ] || [ -z "$(ls -A "$token_dir"/*.token 2>/dev/null)" ]; then  # FAIL-FAST-OK: an unmatched glob IS "no tokens" — the only answer this asks for
         echo "No tokens found in: $token_dir"
@@ -1096,8 +1089,7 @@ list_tokens() {
         fi
     done
 
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
+    printf '%s\n\n' "$rule"
 }
 
 # Function to validate a token by testing it against the Claude API
@@ -1195,10 +1187,7 @@ create_token() {
     # that, just recreate the token.
     local expiry_date
     expiry_date=$(date -d "+90 days" +%Y-%m-%d)
-    echo ""
-    echo "Token expiry: $expiry_date (90 days from today)"
-    echo "Note: This is an estimate - recreate the token if you get auth errors"
-    echo ""
+    printf '\nToken expiry: %s (90 days from today)\nNote: This is an estimate - recreate the token if you get auth errors\n\n' "$expiry_date"
 
     token_file="$token_dir/${token_name}.${expiry_date}.token"
 
@@ -1220,11 +1209,7 @@ create_token() {
         fi
     fi
 
-    echo ""
-    echo "Creating token: $token_name"
-    echo "Expiry date: $expiry_date"
-    echo "Storage: $token_file"
-    echo ""
+    printf '\nCreating token: %s\nExpiry date: %s\nStorage: %s\n\n' "$token_name" "$expiry_date" "$token_file"
 
     # Create temporary output file for token
     tmp_output=$(mktemp "${TMPDIR:-/tmp}/${tool_name}-token-setup-XXXXXX")
@@ -1271,8 +1256,7 @@ create_token() {
         token=$(grep -o 'sk-ant-oat01-[a-zA-Z0-9_-]\+' "$tmp_output" | head -1)
 
         if [ -n "$token" ]; then
-            echo ""
-            echo "Validating token..."
+            printf '\nValidating token...\n'
 
             if validate_token "$token" "$image_name"; then
                 echo "✓ Token validated successfully"
@@ -1302,11 +1286,7 @@ create_token() {
                 rm -f "$tmp_output"
                 return 1
             fi
-            echo ""
-            echo "Token: $token_name"
-            echo "Expires: $expiry_date"
-            echo "File: $token_file"
-            echo ""
+            printf '\nToken: %s\nExpires: %s\nFile: %s\n\n' "$token_name" "$expiry_date" "$token_file"
             echo "You can now use this token with:"
             echo "  $tool_name --token $token_name"
             echo ""
@@ -1375,8 +1355,7 @@ create_token() {
                 fi
 
                 # API validation: Test against Claude API
-                echo ""
-                echo "Validating token against Claude API..."
+                printf '\nValidating token against Claude API...\n'
 
                 if validate_token "$manual_token" "$image_name"; then
                     echo "✓ Token validated successfully"
@@ -1629,8 +1608,9 @@ select_token() {
         # Extract expiry
         if [[ "$filename" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2})\.token$ ]]; then
             local expiry_date="${BASH_REMATCH[1]}"
-            printf '  %s) %-*s   expires %b\n' \
-                "$((i+1))" "$name_width" "$token_name" "$(colorize_expiry "$expiry_date")"
+            # A token with no usage left is marked, from the usage cache only (ccy_token_usable).
+            printf '  %s) %-*s   expires %b%s\n' "$((i+1))" "$name_width" "$token_name" "$(colorize_expiry "$expiry_date")" \
+                "$([ "$mode" = host ] || ccy_token_usable --mark -- "$token_file")"
         else
             printf '  %s) %s\n' "$((i+1))" "$token_name"
         fi
@@ -1740,6 +1720,8 @@ select_token() {
                 # launch continues seamlessly. Empty when the user cancelled the
                 # renew — the caller detects that and exits with guidance.
                 SELECTED_TOKEN="$CREATED_TOKEN_FILE"
+                # Usage is per account: a renewed token of a used-up account stops here.
+                [ -z "$SELECTED_TOKEN" ] || ccy_token_usable -- "$SELECTED_TOKEN" || exit 1
                 # shellcheck disable=SC2317
                 return 0
             else
@@ -1757,6 +1739,7 @@ select_token() {
             # BSH-05: see the renew branch above — propagate the new token path
             # (or empty on cancel) so the caller can launch or exit cleanly.
             SELECTED_TOKEN="$CREATED_TOKEN_FILE"
+            [ -z "$SELECTED_TOKEN" ] || ccy_token_usable -- "$SELECTED_TOKEN" || exit 1
             # shellcheck disable=SC2317
             return 0
         fi
@@ -1764,6 +1747,12 @@ select_token() {
         # Numeric selection: pick a valid token
         if [ "$selection" -ge 1 ] && [ "$selection" -le ${#valid_tokens[@]} ] 2>/dev/null; then
             SELECTED_TOKEN="${valid_tokens[$((selection-1))]}"
+            # ccy only (cc's host mode is not gated): a token with no usage left is refused,
+            # said why, and the menu redrawn with its mark (lib/token-usable.bash).
+            if [ "$mode" = container ] && ! ccy_token_usable -- "$SELECTED_TOKEN"; then
+                invalid_attempts=$((invalid_attempts + 1)) redraw=1 SELECTED_TOKEN=""
+                break
+            fi
             local filename
             filename=$(basename "$SELECTED_TOKEN")
             local token_name="${filename%.*.token}"
@@ -1781,7 +1770,8 @@ select_token() {
         fi
     done
 
-    # Only a usage fetch reaches here — every other outcome returned above.
+    # Only a usage fetch or a token with no usage left reaches here — every other outcome
+    # returned above.
     if [ "$redraw" -ne 1 ]; then
         return 1
     fi

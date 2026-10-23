@@ -17,6 +17,19 @@ Two version numbers move independently — see
 
 ---
 
+## 3.100.18 — container 2.79.9
+
+Follows 3.100.17 (container 2.79.9). The image does not change.
+
+- **No session starts on a token with no usage left.** The token a launch is about to use
+  (`--token`, a Quick Launch's `Y`, or a pick in the token menu) has its usage read first;
+  a used-up 5-hour or 7-day limit refuses it with one line naming the limit, the clock time
+  it clears and the time to go, and the token menu opens with used-up tokens marked. A
+  headless launch, a restore or a restart stops with exit 1 instead. Usage that cannot be
+  read is said and does not block. The check is the new Go command `ccy-token-usable`
+  (built by `play-claude-yolo.yml`), which reads usage as `ccy --token-usage` does; see
+  [No session on a token with no usage left](ccy.md#no-session-on-a-token-with-no-usage-left).
+
 ## 3.100.17 — container 2.79.9
 
 Follows 3.100.15 (container 2.79.9; 3.100.16 is taken by a concurrent branch). The image does

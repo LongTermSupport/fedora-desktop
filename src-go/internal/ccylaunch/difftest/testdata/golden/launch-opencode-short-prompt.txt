@@ -40,6 +40,7 @@ Executing opencode with arguments:
 getenforce
 podman info --format '{{.Host.Security.SELinuxEnabled}}'
 gh auth token
+ccy-token-usable -- '{sandbox}/home/.claude-tokens/ccy/tokens/work.2030-06-01.token'
 podman run --rm -e CLAUDE_CODE_OAUTH_TOKEN --entrypoint claude claude-yolo:latest --version
     env: CLAUDE_CODE_OAUTH_TOKEN
 podman info --format '{{.Host.Security.Rootless}}'
