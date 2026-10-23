@@ -268,8 +268,8 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
   `sudo lxc-attach`, which made it root's 0600, so reading it back was Permission denied. A
   checker defect. `in_guest` now hands lxc-attach pipes for stdout and stderr (a `cat` each, the
   command's status from `PIPESTATUS`), so every caller's redirect is written by the caller's own
-  `cat`. `--fake` cases, red first: an LXC coordinator through a fake lxc-attach that refuses a
-  file on its streams (reuse, a new question, another rate limit). Defence:
+  `cat`. `--fake` cases with an LXC coordinator through a fake lxc-attach that refuses a file on
+  its streams: reuse and a new question, red first; another rate limit, rejected either way. Defence:
   `lxc-attach-file-stream` (`scripts/qa-lxc-attach-streams.bash`, CLAUDE/QA.md), one instance
   in the repository. Reports `subagent-reports/261023-lxc-attach-stderr-*`.
 

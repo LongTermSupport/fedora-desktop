@@ -1106,8 +1106,9 @@ every group, loop, subshell or function body around it; a pipe, `$(...)` or a pr
 substitution makes its end a pipe; dups (`2>&1`, `3>&1` then `1>&3`) carry what they copy. A
 function is summarised by the caller's descriptors it passes on to lxc-attach, so a wrapper that
 pipes every stream itself is no finding however it is called, and one that leaves stderr
-inherited makes `wrapper ... 2>file` one. `/dev/null`, here-documents and here-strings are
-clear. Run by `qa-lxc-attach-streams.bash` over every tracked shell script but
+inherited makes `wrapper ... 2>file` one. `/dev/null` (which lxc-attach skips), the other
+device nodes (`/dev/zero`, `/dev/full`, `/dev/tty`, `/dev/random`, `/dev/urandom`),
+here-documents and here-strings are clear; a file under `/dev/shm` is a file. Run by `qa-lxc-attach-streams.bash` over every tracked shell script but
 `CLAUDE/Plan/Completed/`, judged together, after proving the rule against its fixture.
 
 **Why it exists.** lxc-attach makes each of its standard streams that is not `/dev/null` the
@@ -1124,15 +1125,24 @@ second `cat` back onto its own stderr, and returns lxc-attach's status from `PIP
 (Plan 00211's `in_guest`, Plan 00161's `u23_lxc_attach`, which pipes stdin too):
 
 ```bash
+local -a piped
 {
     (
         "${LXC_ATTACH[@]}" -n "${container}" -- "$@" 3>&- | cat 3>&-
         inner=("${PIPESTATUS[@]}")
-        [[ "${inner[1]}" -eq 0 ]] || exit 1
+        if [[ "${inner[1]}" -ne 0 ]]; then
+            printf 'copying the stdout of a command in %s failed\n' "${container}" >&2
+            exit 1
+        fi
         exit "${inner[0]}"
     ) 2>&1 1>&3 3>&- | cat >&2 3>&-
     piped=("${PIPESTATUS[@]}")
 } 3>&1
+if [[ "${piped[1]}" -ne 0 ]]; then
+    printf 'copying the stderr of a command in %s failed\n' "${container}" >&2
+    return 1
+fi
+return "${piped[0]}"
 ```
 
 The caller's `2>"${err}"` then reaches the file through the wrapper's own `cat`, which the
@@ -1140,9 +1150,13 @@ pipeline waits for, so the file is the caller's and complete when the wrapper re
 process substitution (`2> >(cat >"${err}")`) also hands lxc-attach a pipe, but the shell does
 not wait for it, so a file read straight after can be short. Do not loosen the check.
 
-**What it does not see.** A redirection made earlier by a bare `exec 2>file`, a command run
-through a function that runs its own arguments (`best_effort_rm what lxc-attach ...` without a
-runner word before the tool), and a script whose own caller redirected it to a file.
+**What it does not see.** A redirection made earlier by a bare `exec` (`exec 2>file`, or
+`exec 3>file` and later `2>&3`), the tool inside a string another shell runs (`bash -c`,
+`sh -c`, `ssh`), a command run through a function that runs its own arguments
+(`best_effort_rm what lxc-attach ...` without a runner word before the tool), and a script
+whose own caller redirected it to a file. Function and variable names are pooled across every
+script judged, so a wrapper one plan defines also makes a finding of a same-named function's
+call elsewhere: a false positive, read and renamed if it ever happens.
 
 ### fixture-plain-member-bundle
 

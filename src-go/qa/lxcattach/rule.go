@@ -289,23 +289,27 @@ type walker struct {
 
 // stmt judges a statement under the descriptors it inherits. A pipe is set up before the
 // statement's own redirections, as bash does.
-func (w *walker) stmt(stmt *syntax.Stmt, in state) {
+func (w *walker) stmt(stmt *syntax.Stmt, in state) { w.stmtJoined(stmt, in, false) }
+
+// stmtJoined is stmt for the left side of `|&`, whose stderr is joined to its stdout (the pipe)
+// after its own redirections, as bash does.
+func (w *walker) stmtJoined(stmt *syntax.Stmt, in state, joinErr bool) {
 	for _, r := range stmt.Redirs {
 		if r.Word != nil {
 			w.inner(r.Word, in)
 		}
 	}
 	st := apply(stmt.Redirs, in)
+	if joinErr {
+		st[2] = st[1]
+	}
 	switch x := stmt.Cmd.(type) {
 	case *syntax.BinaryCmd:
 		left, right := st, st
 		if x.Op == syntax.Pipe || x.Op == syntax.PipeAll {
 			left[1], right[0] = safe, safe
 		}
-		if x.Op == syntax.PipeAll {
-			left[2] = safe
-		}
-		w.stmt(x.X, left)
+		w.stmtJoined(x.X, left, x.Op == syntax.PipeAll)
 		w.stmt(x.Y, right)
 	case *syntax.CallExpr:
 		w.report(stmt, st, w.reach.streams(x))
@@ -463,9 +467,16 @@ func redirFD(r *syntax.Redirect) (int, bool) {
 // devFD is a /dev path that is another of this process's descriptors.
 var devFD = map[string]int{"/dev/stdin": 0, "/dev/stdout": 1, "/dev/stderr": 2}
 
+// devices are the device nodes a script redirects to; lxc-attach skips /dev/null, and a chown of
+// the others costs the caller no file. A path under /dev/shm or /dev/mqueue is a file.
+var devices = map[string]bool{
+	"/dev/null": true, "/dev/zero": true, "/dev/full": true, "/dev/tty": true,
+	"/dev/random": true, "/dev/urandom": true,
+}
+
 // fileTarget is what a redirection to a word points the descriptor at: a process substitution
-// is a pipe, a /dev path is a device lxc-attach leaves the caller able to use (or, for
-// /dev/std* and /dev/fd/N, that descriptor again), and anything else is a file.
+// is a pipe, /dev/std* and /dev/fd/N are that descriptor again, a device node is clear, and
+// anything else is a file.
 func fileTarget(word *syntax.Word, line int, st state) target {
 	if word == nil {
 		return safe
@@ -484,7 +495,7 @@ func fileTarget(word *syntax.Word, line int, st state) target {
 			return st[m]
 		}
 	}
-	if strings.HasPrefix(text, "/dev/") {
+	if devices[text] {
 		return safe
 	}
 	return target{file: true, line: line, from: -1}
