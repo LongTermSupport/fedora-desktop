@@ -63,8 +63,9 @@ of its own (R30), so changing a key changes one row.
 
 - **R9.** The heading is the frame's breadcrumb, `Speech to text › Clip review › <folder name>`. The context line holds: the clip's place in this session's queue (`3 of 12`), how
   many clips in the folder still have no sidecar, and the clip's file name.
-- **R10.** Under the heading: the playback line (playing, paused or stopped; position and
-  length to a tenth of a second; the tempo when it is not normal), then the text box, then
+- **R10.** Under the heading: the playback line (playing, paused, waiting in the loop's gap or
+  stopped; `loop` while the loop is on; position and length to a tenth of a second; the tempo
+  when it is not normal), then the text box, then
   the footer of every action with its key.
 - **R11.** **No transcript is shown.** The screen draws nothing from any file except the
   folder's entry names and, for a clip this session already saved, the text the person
@@ -132,8 +133,9 @@ of its own (R30), so changing a key changes one row.
 ## Saving
 
 - **R21.** Save (`enter`) writes the sidecar, then shows the next clip. The text is trimmed of
-  leading and trailing white space (Go's `strings.TrimSpace`, the contract's rule, which the
-  book repository's stopgap script also applies);
+  leading and trailing white space (Go's `strings.TrimSpace`, the contract's rule; the book
+  repository's stopgap script trims too, and its exact white-space set is not proven equal,
+  which does not matter to R6 or R8 since only a sidecar's existence is read);
   empty or white-space-only text is refused with `type what you hear, or mark inaudible (ctrl+x), or skip (pgdown)`, and nothing is written.
 - **R22.** Inaudible (`ctrl+x`) writes the sidecar `[inaudible]\n`, then shows the next clip,
   whatever the text box holds.
@@ -196,7 +198,11 @@ of its own (R30), so changing a key changes one row.
 
 - **R32.** Replay (`ctrl+r`) plays the clip from its start at once, whatever the state: in a
   pass, paused, in the gap (the pending pass cancelled, so no second play follows it) or
-  stopped. The loop carries on from that pass.
+  stopped. When the loop is on, it carries on from that pass. Back, forward and the tempo
+  change in the gap or when stopped set the offset and tempo of the next pass and start
+  nothing by themselves. The mpv adapter tells the end of a pass (`eof-reached`, whose
+  keep-open stop also sets mpv's `pause`) apart from the person's pause, which only the
+  seam's pause call sets (a test on the fake IPC peer).
 - **R33.** Typing never touches playback. From the first frame of a clip every printable key
   goes to the text box, with no key or focus change first; typing, deleting or pasting during
   a pass or in the gap leaves the fake player's call log unchanged and the next pass on time.

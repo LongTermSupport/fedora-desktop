@@ -190,7 +190,8 @@ the session and offers to go round again over what is still unsaved.
 
 - [ ] ⬜ **Task 3.1**: `play-speech-to-text.yml` builds and installs `stt-review` to
   `~/.local/bin` through `tasks/build-go-command.yml`, and installs the player D2 chose (`mpv`
-  or `ffmpeg-free`; sox it installs already) and the acceptance's encoder (as it installs `dbus-daemon` for Plan 00212's
+  or `ffmpeg-free`; sox it installs already; `mpv` is then installed by `play-cli-tools.yml`
+  too, which is harmless and keeps each play standalone) and the acceptance's encoder (as it installs `dbus-daemon` for Plan 00212's
   acceptance).
 - [ ] ⬜ **Task 3.2**: The `Review Clips...` panel menu item, opening `stt-review` in `foot`
   at `--window-size-chars=100x20` with `xdg-terminal-exec` as the fallback, as the server
