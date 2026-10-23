@@ -389,12 +389,15 @@ func (e *Engine) BeginRun(ctx context.Context, t paths.TeamID) error {
 	})
 }
 
-// SetHealth is a team goroutine's state, for status, status.json and the keeper's report. It
-// re-arms the TIMEOUT timer too, so one that slept through a suspend is corrected by the first
+// SetHealth is a team goroutine's state, for status, status.json and the keeper's report; a
+// health out of a stop or down clears a send-side stop (SD3-8c). It re-arms the TIMEOUT timer too, so one that slept through a suspend is corrected by the first
 // sync after it (n3d-D7), and wakes the team's sender, which posts once the team is up.
 func (e *Engine) SetHealth(t paths.TeamID, hl team.Health) {
 	if err := e.do(context.Background(), func() {
 		if h := e.teams[t]; h != nil && !h.removed {
+			if !hl.Down && hl.Stopped == "" && (h.health.Down || h.health.Stopped != "") {
+				h.sendStop = ""
+			}
 			h.health = hl
 			e.publish()
 			h.pokeSender()

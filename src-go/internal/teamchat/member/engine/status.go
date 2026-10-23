@@ -109,7 +109,7 @@ func (e *Engine) statusRow(h *held) state.StatusTeam {
 		role := h.health.Role
 		row.Role = &role
 	}
-	if f, ok := failures[h.health.Stopped]; ok {
+	if f, ok := failures[h.shown().Stopped]; ok {
 		row.Failed = &f
 	}
 	if h.store != nil {
@@ -202,7 +202,7 @@ func (e *Engine) snapshot(only *paths.TeamID) ([]teamView, []paths.TeamID) {
 		}
 		pings, answers := shownPings(h, now)
 		v := teamView{
-			id: id, tm: h.team, userID: h.userID, handle: h.handle(), health: h.health,
+			id: id, tm: h.team, userID: h.userID, handle: h.handle(), health: h.shown(),
 			counts: h.counts, pending: h.pending(), pings: pings, answers: answers, unsent: h.unsent,
 		}
 		if h.store != nil {

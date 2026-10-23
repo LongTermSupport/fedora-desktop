@@ -119,6 +119,14 @@ func (e *Engine) replyTeam(ctx context.Context, t paths.TeamID) (sendTeam, error
 	if err != nil {
 		return sendTeam{}, err
 	}
+	var stopped error
+	// A stopped team is its stop, as a say is, before anything is fetched through it.
+	if err := e.do(ctx, func() { _, stopped = e.sendable(t) }); err != nil {
+		return sendTeam{}, err
+	}
+	if stopped != nil {
+		return sendTeam{}, stopped
+	}
 	c := cands[0]
 	r, ok := c.roster()
 	if !ok {

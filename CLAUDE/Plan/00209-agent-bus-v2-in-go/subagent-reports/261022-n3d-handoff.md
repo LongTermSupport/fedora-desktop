@@ -678,8 +678,9 @@ reference, able to hang.
   within 30 s of fake time, the pings dropped `unresolved`; the checks ran at most 8 at once.
 - SD5-r5: `Refetch` of a restored ping runs the check and returns a drop on failure.
 - n3d-D3: a verification with a new `rev` calls `SaveRoster` once; the same `rev` again, not.
-- n3d-D4: `RecoverSends` is called once per start, before the first long-poll; its transient failure
-  sends no long-poll.
+- n3d-D4: `RecoverSends` is called at a session's start under a pair other than the one the last
+  recovery ran under (the first start, or a token reissued in the run), before the first long-poll;
+  its transient failure sends no long-poll.
 
 ## 8. D5: the client verbs `reply`, `say`, `ping` (SD1-SD2's CLI half)
 
@@ -763,15 +764,22 @@ Package: `member/engine`: new files `send.go` and `sender.go`, with the hunks in
   - Transient (`Transient()`, a 429 past its retries included): the entry stays; the sender waits for
     a health change with `Down` false and a newer `LastSyncOKMS`, or 30 s, then tries the oldest entry
     again.
-  - Permanent (401, 403, lost trust): the sender stops for that team. An entry whose op is waiting is
-    removed and the op answers 21 or 22; entries already answered `queued` stay, shown in `status`
-    with the team's stop, and are posted when the team runs again (n3d-D2).
-- **`RecoverSends(ctx, t, n)`** (n3d-D4), on the team goroutine before its first long-poll (D4 calls
-  it): for each `tried: true` entry, one page of 100 own events back in main (`Messages`) is searched
-  for an event whose decoded content equals the entry's by `proto.Value` equality (strict parse,
-  never bytes) and whose `origin_server_ts` is not before `since_ms`. Found: recorded as posted with
-  that id (the outbox ping's `sent_ms` that event's `origin_server_ts`), no PUT. Not found, and every
-  `tried: false` entry: left for the sender, by the same txn.
+  - Permanent (401, 403, lost trust): the sender stops for that team, a send-side stop even while
+    its syncs go on. An entry whose op is waiting is removed and the op answers 21 or 22; later sends
+    exit 21 or 22; entries already answered `queued` stay, shown in `status` with the team's stop,
+    and no PUT is made until the team runs again: a recovery (a session under a new pair), or a
+    health out of a stop or down. Then they are posted by their txn (n3d-D2).
+- **`RecoverSends(ctx, t, n)`** (n3d-D4), on the team goroutine before its first long-poll under a
+  new pair (D4 calls it): main is read back in pages of 100 until the store's `outbox.last_sent` (the
+  last send recorded as posted) or 5 pages, and only the events newer than it are searched. A tried
+  entry pairs with an own message carrying its txn as `unsigned.transaction_id`, or, when the event
+  carries no transaction id (another device), with one whose decoded content equals the entry's by
+  `proto.Value` equality (strict parse, never bytes); an event with another txn is another send.
+  Found: recorded as posted with that id (the outbox ping's `sent_ms` that event's
+  `origin_server_ts`), no PUT. Not found, and every `tried: false` entry: left for the sender, by the
+  same txn. While it runs the sender posts nothing and a send answers `queued`; it clears a
+  send-side stop. The sender itself recovers again before a PUT when the token differs from the
+  one the last recovery ran under, and a post and a recovery never overlap.
 - **`Remove`** drops a team's queued sends with its store, one log line counting them (n3d-D23).
 - **`status`**: after the `outbox` records, one `queued` record per `sending` entry (n3d-D21), and
   the team record's `unsent` count.
@@ -877,7 +885,7 @@ Tests:
 | n3d-D1  | A `sending` entry carries what a re-send needs: the event type, the composed content (at most 16384 bytes), `tried`, and for an answer-expecting ping its verb, ref, addressees and timeout. B 2.3.2's 128-byte entry holds no content, so "a link that restarts re-sends it" could not. It is in the store, so the charge and the content are one write (SD3) and a removal or set-aside takes them with the store. Caps: 32 entries of at most 20 KiB (B's 64 halved); the file cap is the new sum rounded up to the next 256 KiB. Queued sends cost up to 640 KiB more per write while they wait. Proposed B 2.3.2 text: "`sending` holds a send whose transaction id is chosen but whose answer has not arrived, with its event type and content, so a restarted link re-sends it as it was; 32 sends in flight (20 KiB)". |
 | n3d-D2  | The owner's offline rule. A send to a down team, or whose tries fail transiently for its whole deadline, is queued: exit 0 with `{"kind":"sent","team","id":null,"room","queued":true}`, a `queued` record in `status`, posted by the same txn when the team is up. A permanent failure stops the sender for that team, not the queue: an entry whose op still waits is removed and answered 21 or 22; entries already answered `queued` are posted when the team runs again (SY8's retries; a restore's token reissue among them). A 429 past its retries queues, so a send never exits 14 `server-rate` (kept for n3f's reports room).                                                                                                                                                                                       |
 | n3d-D3  | The last verified roster of each team is cached in `<seat dir>/roster.json` (`rev` and the roster event's content), written by the engine when teamsync verifies a new `rev`, read at `Add`, used only to compose sends before the first verification, unlinked at removal. The member's own file (TB4); every receiver checks the addressing again, and the first verification replaces it. With no cache (a seat never verified), a send exits 20 `unreachable` with nothing charged.                                                                                                                                                                                                                                                                                                                                        |
-| n3d-D4  | The recovery after a link restart (B 2.4.5) runs on the team goroutine before its first long-poll: each `tried: true` entry is searched for in one page of 100 own events back in main, by `proto.Value` equality of the decoded content and an `origin_server_ts` not before `since_ms`; found is recorded as posted, with no PUT. This covers B section 4's risk (a homeserver that forgets transaction ids) and a token reissued between tries (a new device), unconditionally, at one GET per entry, and puts a recovered ping in the outbox before any answer to it is judged.                                                                                                                                                                                                                                            |
+| n3d-D4  | The recovery after a link restart (B 2.4.5), or a token reissued in the run, runs on the team goroutine before its first long-poll under the new pair, and in the sender before a PUT under a token the last recovery did not run under: main is read back to `outbox.last_sent` (the last send recorded as posted, kept in the write that removes its entry; at most 5 pages of 100), and each `tried: true` entry pairs with a newer own event by `unsigned.transaction_id` where the server gives it, else by `proto.Value` equality of the decoded content; found is recorded as posted, with no PUT. No time comparison (the clocks differ). This covers B section 4's risk (a homeserver that forgets transaction ids) and a new device, and puts a recovered ping in the outbox before any answer to it is judged. The store refuses an outbox holding a ping id twice.                                                                                                                                                                                                                                            |
 | n3d-D5  | A member's ping names at most 16 addressees, the store's outbox bound, not A 11.2's 32: a 17th is 64 `usage` before anything is spent. Proposed A 11.2 text: "`to` 1-32 on the wire, 1-16 from a member (B's outbox bound)".                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | n3d-D6  | Only a ping whose verb expects an answer enters the outbox. It leaves once every addressee is answered or reported, its deadline plus its own timeout has passed ("answered in the last `ack_timeout_s`", B 2.2.2), and no TIMEOUT item keyed on it is still pending or awaiting.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | n3d-D7  | The TIMEOUT timer is one `clock.AfterFunc`, armed from wall milliseconds (deadlines are server times, CK1) and re-checked against `WallMS()` when it fires; it is re-armed on every outbox write, `Persist` and `SetHealth`, so a suspend (when a monotonic timer stops) is corrected at the first sync after it. `reported` is set in the same write that queues the TIMEOUT item: A 8.3's "marked reported once delivered" is read as "once queued for delivery", since the pending item survives a restart.                                                                                                                                                                                                                                                                                                                 |

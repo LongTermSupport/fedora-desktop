@@ -189,6 +189,27 @@ func TestN3dD3AFailedSaveBlocksNothing(t *testing.T) {
 	}
 }
 
+// n3d-D4 (review A M3): a session under a pair other than the last recovery's (a token reissued
+// within the run) recovers the sends again before its long-poll; the same pair does not.
+func TestN3dD4ANewPairRecoversAgain(t *testing.T) {
+	w := newWorld(t)
+	r := w.start()
+	w.batch()
+	r.poll(t)
+	old := w.client(me)
+	token, err := w.srv.MintToken(user(me))
+	check(t, err)
+	w.replace(w.seat.Token(), []byte(token))
+	check(t, old.Logout(t.Context()))
+	w.tokens[me] = token
+	w.say(alice, human("after the reissue", user(me)))
+	w.batch()
+	r.poll(t)
+	if n, _ := w.eng.recoverCalls(); n != 2 {
+		t.Errorf("recovers %d, want one per pair", n)
+	}
+}
+
 // recoverCalls are RecoverSends' calls and the batches persisted at each.
 func (e *fakeEngine) recoverCalls() (int, []int) {
 	e.mu.Lock()

@@ -94,9 +94,11 @@ type fakeNotices struct {
 	roster   proto.Roster
 	verified bool
 
-	hs          *matrix.Client
-	token       string
-	sendErr     error
+	hs      *matrix.Client
+	token   string
+	sendErr error
+	// sendErrs answer the next sends in turn, a nil one going through, before sendErr.
+	sendErrs    []error
 	messagesErr error
 	txns        []string
 	contents    [][]byte
@@ -118,6 +120,9 @@ func (n *fakeNotices) Messages(ctx context.Context, room string, req matrix.Mess
 func (n *fakeNotices) Send(ctx context.Context, room, eventType, txn string, content json.RawMessage) (string, error) {
 	n.mu.Lock()
 	hs, err := n.hs, n.sendErr
+	if len(n.sendErrs) > 0 {
+		err, n.sendErrs = n.sendErrs[0], n.sendErrs[1:]
+	}
 	n.txns = append(n.txns, txn)
 	n.contents = append(n.contents, content)
 	count := len(n.txns)

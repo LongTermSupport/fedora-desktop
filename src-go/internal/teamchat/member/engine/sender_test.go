@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"maps"
 	"net/http"
 	"slices"
@@ -11,6 +12,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix/fakehs"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/rooms"
@@ -162,7 +164,13 @@ func TestSD3_10TheRecoveryFindsTriedSends(t *testing.T) {
 	c := proto.Composer{Server: paths.ServerName(ops), Self: agent(ops, 1), Roster: sendRoster(ops)}
 	out, err := c.Ping(proto.Ping{Verb: "review", To: []string{agent(ops, 3)}, Ref: reviewRef}, "", "review")
 	check(t, err)
-	held, err := h.client.Send(t.Context(), h.main, proto.MessageType, "tc"+strings.Repeat("9", 32), out.Content.Compact())
+	// Another device sent it, so main gives it no transaction id and the content decides.
+	token, err := h.srv.MintToken(agent(ops, 1))
+	check(t, err)
+	other, err := matrix.NewMember(matrix.Config{BaseURL: h.srv.URL(), PlainHTTPHosts: []string{"127.0.0.1"}, Token: token, Clock: noSleep{}})
+	check(t, err)
+	t.Cleanup(other.Close)
+	held, err := other.Send(t.Context(), h.main, proto.MessageType, "tc"+strings.Repeat("9", 32), out.Content.Compact())
 	check(t, err)
 	origin := w.clk.WallMS()
 	w.clk.Advance(5 * time.Second)
@@ -231,5 +239,137 @@ func TestARecoveryThatFailsLeavesTheSendsWaiting(t *testing.T) {
 	w.until(w.sendsLeft(ops))
 	if got := f.notices.sent(); !slices.Equal(got, []string{tried.Txn}) {
 		t.Errorf("posted %v", got)
+	}
+}
+
+// newDevice gives team id's member a new token, which fakehs makes a new device, as a reissue
+// does; the member's sends and reads go through it from now on.
+func (w *world) newDevice(id paths.TeamID, h hsTeam) {
+	w.t.Helper()
+	token, err := h.srv.MintToken(agent(id, 1))
+	check(w.t, err)
+	c, err := matrix.NewMember(matrix.Config{BaseURL: h.srv.URL(), PlainHTTPHosts: []string{"127.0.0.1"}, Token: token, Clock: noSleep{}})
+	check(w.t, err)
+	w.t.Cleanup(c.Close)
+	f := w.fake(id)
+	f.notices.mu.Lock()
+	f.notices.hs, f.notices.token = c, token
+	f.notices.mu.Unlock()
+}
+
+// lastSent is team id's last_sent as its store holds it, "" for none.
+func (w *world) lastSent(id paths.TeamID) string {
+	w.t.Helper()
+	if last := w.store(id).Outbox.LastSent; last != nil {
+		return *last
+	}
+	return ""
+}
+
+// n3d-D4 (review A M1): the recovery reads main back to the last send recorded as posted and
+// matches only the events newer than it, by transaction id where the server gives one: an
+// identical send posted earlier is never taken for a tried one, under the same device or a new
+// one, so both reach main once.
+func TestN3dD4TheRecoveryIsAnchoredOnTheLastPosted(t *testing.T) {
+	for _, newDevice := range []bool{false, true} {
+		t.Run(fmt.Sprintf("new device %t", newDevice), func(t *testing.T) {
+			w := newWorld(t, state.DeliverySocket)
+			ops := tid(t, "ops")
+			h := w.onHS(ops)
+			f := w.sending(ops)
+			w.e.SetHealth(ops, team.Health{Down: true})
+			queued(t, w.say(&ops, "ok", "repo.2"))
+			w.clk.Advance(61 * time.Second)
+			queued(t, w.say(&ops, "ok", "repo.2"))
+			f.notices.mu.Lock()
+			f.notices.sendErrs = []error{nil, matrix.StatusError("PUT", "/send", 502, "")}
+			f.notices.mu.Unlock()
+			w.e.SetHealth(ops, up(w.clk.WallMS()))
+			check(t, w.clk.BlockUntil(t.Context(), 1))
+			first := h.own(t, agent(ops, 1))
+			if len(first) != 1 {
+				t.Fatalf("main holds %d own events before the recovery, want the first send", len(first))
+			}
+			if got := w.lastSent(ops); got != eventID(t, first[0]) {
+				t.Fatalf("last_sent = %q, want %s", got, eventID(t, first[0]))
+			}
+			if newDevice {
+				w.newDevice(ops, h)
+			}
+			w.recover(ops, f)
+			w.clk.Advance(retryHold)
+			w.until(w.sendsLeft(ops))
+			got := h.own(t, agent(ops, 1))
+			if len(got) != 2 || eventID(t, got[0]) == eventID(t, got[1]) {
+				t.Fatalf("main holds %d own events, want both sends", len(got))
+			}
+			if last := w.lastSent(ops); last != eventID(t, got[1]) {
+				t.Errorf("last_sent = %q, want the second send's %s", last, eventID(t, got[1]))
+			}
+		})
+	}
+}
+
+// n3d-D4 (review A M3): a send whose answer was lost, then a new token (a new device) before its
+// retry: the sender recovers under the new token before it posts, so main holds the send once.
+func TestN3dD4ANewTokenRecoversBeforeTheRetry(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	h := w.onHS(ops)
+	w.sending(ops)
+	w.e.SetHealth(ops, team.Health{Down: true})
+	queued(t, w.say(&ops, "hello", "repo.2"))
+	// The client's three tries by the txn all land and lose their answer.
+	h.srv.Inject(fakehs.Fault{Method: http.MethodPut, Path: "/send/", DropAfter: true, Times: 3})
+	w.e.SetHealth(ops, up(startWall))
+	check(t, w.clk.BlockUntil(t.Context(), 1))
+	w.newDevice(ops, h)
+	w.clk.Advance(retryHold)
+	w.until(w.sendsLeft(ops))
+	if got := h.own(t, agent(ops, 1)); len(got) != 1 {
+		t.Fatalf("main holds %d own events, want the send once", len(got))
+	}
+	if n := h.requests(http.MethodPut, "/send/"); n != 3 {
+		t.Errorf("%d PUTs, want only the three tries whose answers were lost", n)
+	}
+}
+
+// n3d-D4 (review A m1): the recovery reads back past one page, to the anchor: a tried send
+// whose event is 120 events back is found, not put again.
+func TestN3dD4TheRecoveryReadsBackToTheAnchor(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	h := w.onHS(ops)
+	text := func(i int) []byte {
+		c := proto.Composer{Server: paths.ServerName(ops), Self: agent(ops, 1), Roster: sendRoster(ops)}
+		out, err := c.Text(proto.Text{To: []string{agent(ops, 2)}, Text: fmt.Sprintf("filler %d", i)}, "", "filler")
+		check(t, err)
+		return out.Content.Compact()
+	}
+	anchor, err := h.client.Send(t.Context(), h.main, proto.MessageType, "tc"+strings.Repeat("8", 32), text(-1))
+	check(t, err)
+	tried := queuedText(w, ops, 1)
+	tried.Tried = true
+	token, err := h.srv.MintToken(agent(ops, 1))
+	check(t, err)
+	other, err := matrix.NewMember(matrix.Config{BaseURL: h.srv.URL(), PlainHTTPHosts: []string{"127.0.0.1"}, Token: token, Clock: noSleep{}})
+	check(t, err)
+	t.Cleanup(other.Close)
+	found, err := other.Send(t.Context(), h.main, proto.MessageType, "tc"+strings.Repeat("7", 32), tried.Content)
+	check(t, err)
+	for i := range 120 {
+		_, err := h.client.Send(t.Context(), h.main, proto.MessageType, fmt.Sprintf("tc%032x", 0x100+i), text(i))
+		check(t, err)
+	}
+	s := w.newStore(ops)
+	s.Outbox.LastSent = &anchor
+	s.Outbox.Sending = []state.Sending{tried}
+	f := w.sendingWith(ops, s)
+	w.until(w.sendsLeft(ops))
+	if got := f.notices.sent(); len(got) != 0 {
+		t.Errorf("the found send was put again: %v", got)
+	}
+	if last := w.lastSent(ops); last != found {
+		t.Errorf("last_sent = %q, want the found %s", last, found)
 	}
 }
