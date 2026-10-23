@@ -243,6 +243,15 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
   accepted. A4 and the test question, which never ran, were read: both run where the member
   runs, on bundles production placed. Defence: `fixture-plain-member-bundle`
   (`tests/helpers/plan_acceptance/`, CLAUDE/QA.md). Reports `subagent-reports/261022-a3-*`.
+- [ ] 🔄 **Task 2.11** (done in code; left: the host rerun, queued in meta-deploy): the rerun
+  of 2.10 took the seat, then `pingbus report` failed "the team room is not trusted: not
+  joined". A checker defect: add-member only invites, and A3 never synced as the worker, which
+  is how a real seat joins (`Syncer._take_invites`). `a3_take` now runs one `pingbus recv` as
+  the worker (`a3_join`, exit 0 or 3), the sync a keeper runs. A3's failure hint names the
+  Element step only when pingbus refused the seat beside an Element profile; otherwise it
+  points at pingbus's own error. `--fake` cases, red first: a sound seat joins and reports; a
+  refused join and a refused report each fail with their own error. Report
+  `subagent-reports/261022-checker-join-build-exit.md`.
 
 ### Phase 3: the owner's view (Go)
 

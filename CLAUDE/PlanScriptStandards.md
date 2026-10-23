@@ -124,6 +124,12 @@ run, judges those, and names each other one as offline: an offline member never 
 run ([AgentNotes.md](AgentNotes.md#an-offline-team-member-never-blocks-anything), rule
 `offline-member-blocks` in [QA.md](QA.md#offline-member-blocks)).
 
+**A wait for a ccy launch's container allows for an image build.** A launch may first build the
+project image (after a base image change) or update Claude Code in it, under the image's build
+lock, for as long as that takes. A fixed start wait asks `plan_image_build_grace <what> <timeout>` (`CLAUDE/Plan/_image-build.inc.bash`, sourced after the library) on each poll and
+starts its timeout again while it returns 0; the build itself has no cap, and the launch
+ending (a failed build) still fails the wait at once. Tests: `scripts/test-planlib.bash`.
+
 **Teardown registers, it does not trap.** A script that creates something it must remove —
 a throwaway container, a signal raised to a live session, a temp tree — calls
 `plan_on_cleanup <function>` (library 1.3.0+) instead of installing its own

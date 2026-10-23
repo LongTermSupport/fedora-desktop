@@ -95,7 +95,10 @@ gb_tmux() { env -u TMUX -u TMUX_PANE tmux -S "${GB_SOCKET}" "$@"; }
 gb_alive() { [[ -n "$1" ]] && ps -p "$1" -o pid= >/dev/null; }
 
 # gb_poll <timeout-s> <what> <pid|""> <cmd...> — run cmd every GB_POLL_S s until it returns 0;
-# 3 is "not yet". Anything else, the launcher <pid> ending, or the timeout is a FAIL.
+# 3 is "not yet". Anything else, the launcher <pid> ending, or the timeout is a FAIL. With
+# GB_BUILD_GRACE=1 (gb_poll_launch), the timeout starts again while an image build runs
+# (plan_image_build_grace, CLAUDE/Plan/_image-build.inc.bash).
+GB_BUILD_GRACE=0
 gb_poll() {
     local timeout="$1" what="$2" pid="$3" status deadline
     shift 3
@@ -115,12 +118,29 @@ gb_poll() {
             printf '[FAIL] %s: the ccy launcher (pid %s) ended first\n' "${what}" "${pid}" >&2
             return 1
         fi
+        if [[ "${GB_BUILD_GRACE}" == 1 ]]; then
+            status=0
+            plan_image_build_grace "${what}" "${timeout}" || status=$?
+            case "${status}" in
+                0) deadline=$((SECONDS + timeout)) ;;
+                3) ;;
+                *) return 1 ;;
+            esac
+        fi
         if ((SECONDS >= deadline)); then
             printf '[FAIL] %s: not within %d s (evidence: %s)\n' "${what}" "${timeout}" "${PLAN_RUN_DIR}" >&2
             return 1
         fi
         sleep "${GB_POLL_S}"
     done
+}
+
+# gb_poll_launch <what> <pid> <cmd...> — gb_poll for a launch's container: GB_START_S, counted
+# from the end of any image build (the launch may rebuild the project image first, for as
+# long as that takes); a failed build ends the launcher, which gb_poll fails at once.
+gb_poll_launch() {
+    local GB_BUILD_GRACE=1
+    gb_poll "${GB_START_S}" "$@"
 }
 
 # ── before anything: what the run needs, and that the names are free ──────────────────────
@@ -525,7 +545,7 @@ gb_launch() {
     printf '%s\n' "${pid}" >"${ev}/launcher.pid" || return 1
     GB_LIVE_PIDS+=("${pid}")
     printf '==> session %s: ccy --teams %s started (launcher pid %s)\n' "${name}" "${SEAT_LIST}" "${pid}"
-    if ! gb_poll "${GB_START_S}" "session ${name}: its container running" "${pid}" gb_starting "${name}" \
+    if ! gb_poll_launch "session ${name}: its container running" "${pid}" gb_starting "${name}" \
         || ! gb_poll "${GB_UP_S}" "session ${name}: seats ${SEAT_LIST} held" "${pid}" gb_seats_held "${name}" \
         || ! gb_poll "${GB_UP_S}" "session ${name}: the pingbus SessionStart hook ran" "${pid}" gb_session_started; then
         gb_show_pane "${name}"

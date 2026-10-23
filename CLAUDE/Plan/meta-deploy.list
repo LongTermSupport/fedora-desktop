@@ -32,167 +32,48 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-# Plan 00213 Tasks 1.3, 1.4 and 2.3 (the bus status line in Go): deploy.bash runs the whole
-# play-agent-bus.yml again (it passed on its own at 67033c224; this run also installs the
-# rebuilt pingbus, whose wait and watch now hand their helpers a real text stream, Plan
-# 00214, on the host, in the kit and in every running LXC member), then the whole
-# play-claude-yolo.yml, then acceptance.bash. The kit's settings.json runs the static Go
-# pingbus-status-line, copied into every running LXC member. The ccy play gives the host CCY
-# 3.100.13 (the Go front, the image build lock, --opencode and Plan 00217's team colours: see the
-# play-claude-yolo.yml entry below) and puts the binary in the image's build context. That play run
-# builds the image, container 2.79.8: it downloads opencode 1.19.3 from github.com and stops this entry if its
-# sha256 is not the pinned one, so an opencode download failure shows here (the image
-# also carries the farewell-reason fix, the reports and questions admin tool and Go 1.26.10 in the project image): a seated session's status line is
-# the Go one and refreshes every 25 s. The acceptance checks the kit's, the image's and each
-# online declared LXC member's binary are this checkout's build (a member whose container is
-# stopped is named offline and not judged, never a failure), runs the recorded Python goldens against the installed Python and Go, and
-# measures the CPU one render costs in each: Go must cost under a fifth (the report has the
-# figures). Needs sudo once. Afterwards restart the teams' agent sessions; a running one keeps
-# its old status line.
-00213-agent-bus-performance-go-carve-out/deploy.bash
-# Plan 00217 Task 4.1 (team colours on the status line): the whole play-agent-bus.yml. It
-# installs the kit's Go status line and the pingbus that draw each team in its own colour with
-# this member's name (`alpha: fedora-desktop.2 (c)`), copies them into every running LXC member,
-# and applies each team, so its admin keeps the team's `colour:` override as room state (no
-# team sets one yet, so every team shows its automatic colour). If the 00213 entry above is
-# still in the list it has already run this play from this checkout, and this run changes
-# nothing; it stays so the colours are delivered once 00213 has passed and left the list. The
-# status line of a running host or LXC session draws the colours at its next refresh. A ccy
-# session's status line is built into its image, container 2.79.8, which only a
-# play-claude-yolo.yml run builds (the 00213 entry's, or the play-claude-yolo.yml entry below),
-# so a ccy session shows them only once started after that run. Needs sudo once. Check
-# (Task 4.3), after the whole list has run: restart the teams' agent sessions (so their syncers
-# keep an override), and every team's row is in its own colour in a ccy session, a host session
-# and an LXC member; then set `colour: violet` on one team in host_vars, run play-agent-bus.yml
-# again, and that team's row changes colour in each without a restart.
+# play-agent-bus.yml, the whole play (Plan 00201 Task 2.22): the agent-bus admin tool built from
+# this checkout carries declare.py's pinned_tuwunel_version, the one reader of the Tuwunel pin
+# (ccy-teams, the play's software digest and Plan 00161's probe all call it; a pin naming an
+# empty version is now refused, as one naming none or two already was). The admin tool is part
+# of the software digest, so the play reinstalls it on the host and applies each team again;
+# nothing a user sees changes. Needs sudo once.
 playbooks/imports/play-agent-bus.yml
-# Plan 00211 deploy 2 (Task 2.6), the reports and questions rooms, LAST. It needs every team's
-# agent sessions restarted since pingbus 0.2.0 was installed, ccy and LXC alike, which the
-# host reboot did. A team member that is offline (its container stopped, or its session not
-# running) is named as offline and never blocks the run. This runs
-# deploy.bash --stage 2: it refuses unless the spike report says every fact holds, then runs
-# acceptance.bash --stage 1 again as the pre-flight (the host's and every online declared LXC
-# member's pingbus is 0.2.0; an offline member is named, not judged). Then the
-# whole play-agent-bus.yml keeps each team's reports and questions rooms (created when
-# play-agent-bus.yml passed at 67033c224), the index and the invites; the whole play-claude-yolo.yml finds the ccy image already
-# at container 2.79.8. Then acceptance.bash --stage 2 waits up to 180 s for every online
-# coordinator to join its questions room and every running ccy seat its reports room, naming
-# any that has not (an offline coordinator is named, not waited for), and checks the rooms
-# (agent-bus check-rooms prints a coordinator with no live status as OFFLINE and passes; one
-# whose session is listening but has not joined is a problem). It
-# finds the first team's coordinator in its running ccy session or LXC member; with no team
-# coordinator it is REJECTED, named, before it changes anything. It adds and removes one
-# throwaway worker that must be refused the questions room and whose test report must reach no
-# online inbox. The last run stopped at that check (A3) because its worker was a plain bundle,
-# which pingbus refuses beside an Element profile; it is now taken as a seat, its bundle in a
-# seat directory linked into a session home as agent-bus seat take makes one. That runs beside
-# Element only once you have accepted it at cc --teams' confirm: if A3 says so, run cc --teams
-# once from a terminal, accept, and run this again. Nothing after A3 has run yet. It also posts a second test report from inside an online LXC member (with none, that
-# check is NOT JUDGED), and has the coordinator ask a test question (NOT JUDGED when the
-# coordinator is offline). Needs sudo once. Afterwards, if the test question was asked, do the
-# Element steps of the plan's ACCEPTANCE-owner.md.
-00211-agent-bus-reports-and-questions-rooms/deploy-stage-2.bash
-# Plan 00201 Task 2.7 (M7): the automated two-team acceptance again, because its M3 check
-# (the session's status line) changed since it last passed, and Plan 00213's cut-over made
-# that status line the Go one. The last run stopped at M3 because the checker still expected
-# the Python `exec pingbus status-line`; it now expects exactly what this checkout's seat.py
-# writes for a seated session, whose guard runs the kit's pingbus-status-line, and the teams
-# drawn as Plan 00217 draws them (`accept201a: <member> (c), ...`, each team in its own colour),
-# the form read from this checkout's statusline.py. acceptance.bash only: it makes two throwaway teams declared
-# in a run-directory host_vars (your host_vars and teams are never touched), runs one headless
-# ccy session on both and a plain one (each one short turn on haiku), checks descriptions,
-# launch block, per-session record, status line, `say` and SessionEnd, then purges both teams
-# and checks their firewalld rules are gone, however the run ends. Needs sudo once, ccy
-# launched interactively in this checkout once (Quick Launch), and the hooks daemon installed.
-00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker
-# play-claude-yolo.yml, the whole play (Plan 00191 Tasks 4.3, 4.4, 4.4b and 4.5, Plans 00216,
-# 00201, 00215 and 00217): the host's ccy becomes CCY 3.100.13. Plan 00216: only one image build runs at a time; two
-# ccy launches started together build the image once, the second waiting (it says on stderr every
-# 30 s whose build it waits for) and then using that build. The play's own image build takes the
-# same lock (lib/image-build-lock.bash, newly installed with lib/image-build.bash), so it waits
-# for a launch's build and a launch waits for it. `ccy --build-lock` (answered by the Go front)
-# shows the build in progress and stops a hung one after a [y/N]. Check after the run: start
-# `ccy --rebuild=full` in two terminals at the same moment: the second prints the waiting line
-# and starts its own build only when the first has finished (an explicit rebuild always builds);
-# while one builds, `ccy --build-lock` in a third terminal names it, and `n` leaves it running.
-# The play builds the image every run, so it is already container 2.79.8 here (its guide, the
-# room-ID fix in its pingbus, Plan 00211, Plan 00201's declare.py, agent-bus check-rooms passing an offline
-# coordinator, Plan 00211, opencode 1.19.3, the open-source coding agent,
-# checked against its pinned sha256 at build, and Plan 00217's team colours on the status line), built by the 00213 entry above; the next launch
-# rebuilds only a project's own image. Plan 00215: new flag `ccy --opencode` (or -oc) runs
-# opencode in the container instead of Claude Code, with no bus kit and no supervisor; it needs a
-# model provider key file first, in ~/.claude-tokens/ccy/provider-keys/, which the play makes
-# empty (docs/ccy.md, "opencode"; Plan 00215 Task 1.4), and without one it
-# stops before anything starts; an opencode session is not restored after a reboot, and a Quick
-# Launch's saved team is not taken by it (or by --no-bus), and is kept for the next launch. A
-# launch without the flag is unchanged.
-# Plan 00201: the play rebuilds ~/.local/bin/ccy-teams with the lxc-add fix: `ccy-teams lxc-add
-# <team>` for a member the host_vars already declare says "<user>@<container> is already declared in team <team>"
-# and, after one yes, applies the team (play-agent-bus.yml) without writing; declared otherwise,
-# it names each differing key and offers to update the entry or stop. A refusal of the
-# host_vars file stops at once, naming the file, instead of asking the same question three
-# times; `ccy-teams create` stops the same way, and a gh lookup that fails for any reason but
-# GitHub's 404 (no network, a login gone stale) ends it with gh's words instead of asking for
-# another name; the settings screen stops, instead of asking again, on a team the host_vars no
-# longer declare. Check: run `ccy-teams lxc-add <team>` for the member that was refused before.
-# /var/local/claude-yolo/claude-yolo becomes a Go program (built here from
-# src-go/cmd/claude-yolo, installed only when its checksum changes) that answers --version,
-# --help, --list-tokens, --token-usage [--json], --prevent and --export-token NAME itself
-# (everything else, --top and the interactive export included, stays in the bash) and execs
-# the bash launcher, now installed beside it as claude-yolo.bash, for every other run with the
-# same arguments and environment plus CCY_LAUNCHER_FRONT, its own path, which the bash takes
-# (only if it is the claude-yolo beside it) and unsets so its sessions re-run the Go program. If it
-# misbehaves, CCY_LEGACY=1 ccy ... runs the bash launcher for everything; if it will not start,
-# /var/local/claude-yolo/claude-yolo.bash run directly keeps the whole session on the bash;
-# to go back entirely, run this play from the revision
-# before Task 4.5 (it copies the bash over claude-yolo again, and leaves this claude-yolo.bash
-# behind, stale but harmless: session records and re-runs name claude-yolo, and the plan
-# scripts that read the launcher as text read claude-yolo whenever it is a script, so nothing
-# runs or reads it; a session recorded by 3.99.14.0 before this fix would run it, and so would
-# a session started by running claude-yolo.bash directly, which records that file: after a
-# rollback, restoring such a session runs the stale .bash copy). Check after
-# the run:
-# `ccy --version`, `ccy --help`, `ccy --list-tokens`, `ccy --token-usage`, `ccy --prevent`
-# and `ccy --export-token NAME` print the same bytes as `CCY_LEGACY=1 ccy ...` with the same
-# flag (run --prevent and --export-token with a throwaway token name: they change state).
-# lib/tmux-session.bash no longer carries the unused bash take-over
-# (taking a session over stays the ccy-sessions picker's Ctrl-T); the new lib/host-paths.bash
-# lets the launcher's differential harness point the build context, GPU directory and zone
-# database elsewhere (unset, nothing changes) and refuses a bad or relative override at
-# start; the launcher's temporary files follow TMPDIR when it is set; the GitHub and Claude
-# tokens are no longer exported to every program the launcher starts, only handed by name to
-# the container runs that need them; a GH_TOKEN you export reaches the session through the new
-# lib/token-handoff.bash (a private file whose path only goes to the tmux re-run, deleted at
-# once; any other path in CCY_GH_TOKEN_HANDOFF is refused); --debug's log is 0600 with tokens
-# of a known prefix masked (the terminal still shows the raw trace). Container 2.79.8 (the guide in the image is corrected,
-# its pingbus has the room-ID fix, Plan 00217's team colours and a real text stream for wait and watch (Plan 00214), Plan 00201's declare.py is in it, with the one Tuwunel pin reader Plan 00161's probe also calls, its agent-bus check-rooms passes an offline coordinator, and opencode is added), built by the play itself. It also rebuilds ~/.local/bin/ccy-teams with
-# Plan 00209 stage 1 (the team, seat and declare reads in-process; its host check passed at
-# 22e599b3d). Afterwards start a ccy session as usual: it
-# must rebuild, start and attach as before, and gh must work inside it.
+# play-claude-yolo.yml, the whole play (Plan 00201 Task 2.22): the host's ccy becomes CCY
+# 3.100.13 and the play builds container 2.79.8, whose image carries the same declare.py. It
+# also rebuilds ~/.local/bin/ccy-teams and ccy-sessions from src-go, where the membership
+# directory names and the remove's "homeserver down" message are now named constants that the
+# plan checkers read instead of copying; their behaviour is unchanged. The next ccy launch
+# rebuilds only a project's own image. Check after the run: `ccy --version` says 3.100.13, and a
+# ccy session starts and attaches as before.
 playbooks/imports/play-claude-yolo.yml
-# Plan 00214 acceptance (issue #110), LAST, with no changed-plays entry above it: it needs plays
-# still to run. Runs no play and needs no sudo. It checks that the health report's
-# play-freshness check and run.bash --changed's helper name the same plays (the report said 10
-# where --changed ran 25), then runs one collection as host-health.service does (a git fetch,
-# and the status document and handoff file rewritten) and checks that fedora-desktop-health and
-# the login shell's second reminder of the day print this checkout's run.bash --changed. With
-# no play to run it says NOT JUDGED (exit 2). Run it again: its last run failed that second
-# leg because the collection crashed with "'_Sink' object has no attribute 'writelines'"
-# whenever a play was stale; the login report now hands the check real text streams. The
-# collection runs the helper from this checkout, so the fix is live without a play.
-00214-update-all-changed-plays
-# Every play that has to run again here (issue #110 gap 3), after the acceptance above, which
-# needs them still stale: ./run.bash --changed --yes, in playbook-main.yml order, stopping at
-# the first failure. It is expected to pick up play-host-health-login-report.yml (Plan 00214
-# changed fedora-desktop-health's --help, and the login report's freshness streams) and
-# play-fedora-desktop-panel.yml (the panel's
-# "Re-run a play…" count now leaves out plays --changed does not run), and
-# play-speech-to-text.yml (wsi-claude-process now measures the run limit's elapsed time in
-# microseconds, so a run that crossed a whole second of the clock no longer counts as 1 s
-# and a short limit is not used up at random; wsi-stream-server removes the file-job marker
-# before it reports the job ended), and play-displaylink.yml (its last run stopped at the
-# version gate; the pin is now DisplayLink v6.4.0, evdi 1.15.1-2), plus every other play
-# the acceptance listed as changed
-# or failed. Needs sudo. Afterwards log out and back in so the panel loads its new code
-# (Wayland), and fedora-desktop-health should list no play.
-changed-plays
+# Plan 00211 deploy 2 (Task 2.6), the reports and questions rooms, again (Plan 00201 Task 2.22).
+# It passed on the host with the A3 join fix; it runs again because its checkers now read the
+# values the product owns (the ccy session pingbus home, the team state directory, the inbox
+# and consumed directory and dropped log names, the Element profile and accepted-seat paths)
+# from this checkout instead of holding copies, and only a host run proves those reads. This runs deploy.bash --stage 2: it refuses unless the spike
+# report says every fact holds, runs acceptance.bash --stage 1 as the pre-flight (an offline
+# member is named, not judged), runs the whole play-agent-bus.yml and play-claude-yolo.yml
+# (both run by the entries above, so they find little to change), then acceptance.bash --stage
+# 2: it waits up to 180 s for every online coordinator to join its questions room and every
+# running ccy seat its reports room, checks the rooms, adds and removes one throwaway worker
+# that joins by one pingbus recv, must be refused the questions room and whose test report
+# reaches no online inbox, posts a test report from an online LXC member (NOT JUDGED with
+# none) and has the coordinator ask a test question (NOT JUDGED when it is offline). If A3
+# says a seat beside Element was refused, run cc --teams once from a terminal, accept, and run
+# this again. Needs sudo once. Afterwards, if the test question was asked, do the Element steps
+# of the plan's ACCEPTANCE-owner.md.
+00211-agent-bus-reports-and-questions-rooms/deploy-stage-2.bash
+# Plan 00201 Task 2.7 (M7), the automated two-team acceptance, again (Task 2.22). It passed on
+# the host with the image-build wait; it runs again because M7 checks now read the checkout
+# seats directory, the agent-bus install-state, state and applied directories and the session
+# records directory from this checkout product code instead of copying them. acceptance.bash only: it makes two throwaway teams declared in a
+# run-directory host_vars (your host_vars and teams are never touched), runs one headless ccy
+# session on both and a plain one (each one short turn on haiku), checks descriptions, launch
+# block, per-session record, status line, `say` and SessionEnd, then purges both teams and
+# checks their firewalld rules are gone, however the run ends. The first launch after the ccy
+# play may sit through one project image build first, saying once a minute whose build it
+# waits for (`ccy --build-lock` in another terminal shows or stops a hung one). Needs sudo
+# once, ccy launched interactively in this checkout once (Quick Launch), and the hooks daemon
+# installed.
+00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker

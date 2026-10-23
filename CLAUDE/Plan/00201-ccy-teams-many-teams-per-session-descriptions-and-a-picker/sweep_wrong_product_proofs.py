@@ -3,6 +3,7 @@
 Each row breaks the product in the scratch copy (a constant renamed, or its value changed so the
 product disagrees with what a session carries), runs the checker's own reader or verdict there,
 records whether the checker refused, and restores the file. Prints a markdown table."""
+import json
 import os
 import pathlib
 import subprocess
@@ -31,6 +32,13 @@ def mutate(rel, old, new):
 
 
 rows = []
+
+
+def product_value(rel, name):
+    """The value the product names, read as the converted checkers read it."""
+    code, out = run(["python3", "-I", M7, "product-value", rel, name])
+    assert code == 0 and len(out) == 1, (rel, name, out)
+    return out[0]
 
 
 def value_row(rel, name, old, new, checkers, key=None):
@@ -74,7 +82,7 @@ value_row("src-go/internal/teams/hot/remove.go", "removedHomeserverDown", "const
           "const removedHomeserverDownZ = ", "00203 M4")
 
 # The Tuwunel pin: a pin naming no version is refused by the probe through declare.py.
-restore = mutate("files/usr/local/share/agent-bus/tuwunel.pin", "\ntuwunel_version: v", "\ntuwunel_version: \n#v")
+restore = mutate(product_value("helpers/agent_bus/declare.py", "PIN_FILE"), "\ntuwunel_version: v", "\ntuwunel_version: \n#v")
 try:
     code, out = run(["python3", "-I", "-c", "import sys; sys.path.insert(0, sys.argv[1]); import triage_probe as tp\n"
                      "try:\n    tp.pinned_tuwunel_version()\nexcept tp.ProbeError as e:\n    sys.exit(f'refused: {e}')",
@@ -85,11 +93,12 @@ rows.append(("tuwunel.pin names an empty version", "00161 triage_probe", f"exit 
              "REJECTED" if code != 0 else "ACCEPTED (bad)"))
 
 # expect-plain: the product says a plain session's marker is `none`; a container carrying `off` is wrong.
+plain_marker = product_value("helpers/pingbus/membership.py", "MEMBERSHIP_VAR") + "=off"
 restore = mutate("helpers/pingbus/membership.py", '\nMEMBERSHIP_OFF = "off"', '\nMEMBERSHIP_OFF = "none"')
 scratch = ROOT / "untracked" / "proof"
 scratch.mkdir(parents=True, exist_ok=True)
 (scratch / "labels.json").write_text('{"ccy": "true"}', encoding="utf-8")
-(scratch / "env.json").write_text('["PINGBUS_MEMBERSHIP=off", "PATH=/bin"]', encoding="utf-8")
+(scratch / "env.json").write_text(json.dumps([plain_marker, "PATH=/bin"]), encoding="utf-8")
 try:
     code, out = run(["python3", "-I", M7, "expect-plain", str(scratch / "labels.json"), str(scratch / "env.json")])
 finally:

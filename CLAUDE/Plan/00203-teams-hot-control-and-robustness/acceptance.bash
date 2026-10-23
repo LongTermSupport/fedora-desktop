@@ -38,6 +38,9 @@ source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../_members.inc.bash
 source "${repoRoot}/CLAUDE/Plan/_members.inc.bash"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../_image-build.inc.bash
+source "${repoRoot}/CLAUDE/Plan/_image-build.inc.bash"
 plan_init "${BASH_SOURCE[0]}"
 
 PLAN_USAGE="usage: acceptance.bash [-h|--help]

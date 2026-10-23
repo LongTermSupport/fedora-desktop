@@ -86,18 +86,31 @@ plays_to_run() {
     return 1
 }
 
+# login_report's EXIT_FINDINGS, read from this checkout's helper, never a copy.
+findings_exit() {
+    PYTHONPATH="${root}" /usr/bin/python3 -P -c 'from helpers.host_health import login_report
+print(login_report.EXIT_FINDINGS)'
+}
+
 check_report() {
-    local printed runs command remedy
+    local printed runs command remedy findings status=0
     local -a words
     read_login_words
     remedy="To run ${runs}: ${command}"
+    findings="$(findings_exit)" || fail "cannot read EXIT_FINDINGS from helpers/host_health/login_report.py (above)"
     # A collection, as host-health.service runs it at login, so the document is this code's.
-    helper helpers.host_health.login_report --repo-root "${root}" --no-notify >"${runDir}/collection.out" ||
-        fail "the collection exited $?; its output is in ${runDir}/collection.out"
+    # 0 is clean and EXIT_FINDINGS is a report with findings: both are its results, and a play
+    # to run is a finding. Any other status is the collection failing.
+    helper helpers.host_health.login_report --repo-root "${root}" --no-notify >"${runDir}/collection.out" || status=$?
+    if [[ "${status}" -ne 0 && "${status}" -ne "${findings}" ]]; then
+        fail "the collection exited ${status} (0 is clean, ${findings} has findings); its output is in ${runDir}/collection.out"
+    fi
     [[ -x "${HOME}/.local/bin/fedora-desktop-health" ]] || fail "fedora-desktop-health is not installed; play-host-health-login-report.yml installs it"
     printed="$("${HOME}/.local/bin/fedora-desktop-health")"
     printf '%s\n' "${printed}" >"${runDir}/fedora-desktop-health.out"
     if plays_to_run; then
+        [[ "${status}" -eq "${findings}" ]] ||
+            fail "the collection exited 0 (clean) with a play to run, which is a finding (${findings}); its output is in ${runDir}/collection.out"
         grep -qxF "  ${remedy}" "${runDir}/fedora-desktop-health.out" || fail "fedora-desktop-health does not print: ${remedy}"
         printf '  ok: it prints %s\n' "${command}"
     elif grep -qF 'run.bash --changed' "${runDir}/fedora-desktop-health.out"; then
