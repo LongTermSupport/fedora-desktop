@@ -30,7 +30,7 @@ The design, the security section and the decisions are in [DESIGN.md](DESIGN.md)
   retired, and v2 already has the per-team `url` field and the owner approval it needs. Phases 1
   and 2 need no bus code and work on v1.
 
-Open owner questions Q1-Q7 and the coordinator defaults D-C1 to D-C7 are in
+Open owner questions Q1-Q8 and the coordinator defaults D-C1 to D-C7 are in
 [DESIGN.md section 6](DESIGN.md#6-decisions).
 
 ## Goals
@@ -61,30 +61,38 @@ Open owner questions Q1-Q7 and the coordinator defaults D-C1 to D-C7 are in
   spoke), and a test that no key byte reaches stdout, stderr or an error on any path.
 - [ ] ⬜ **Task 1.2**: the command (GREEN), reading the declaration on stdin, writing the keyfile
   0600 root by temp file and rename.
-- [ ] ⬜ **Task 1.3**: a VM lab scenario, guest checker first (RED): the guest applies
-  `play-vpn.yml` as a hub; the checker builds a peer in a network namespace over a veth, and
-  proves the handshake, TCP to a test port opened by a source `/32` rich rule in the overlay
-  zone, no handshake for an unknown key, a spoofed overlay source on the veth dropped, the zone
-  bound by interface only, and nothing listening on the uplink but the WireGuard port and ssh.
-- [ ] ⬜ **Task 1.4**: the play (GREEN): the overlay tasks in `play-vpn.yml` as DESIGN.md 2.4,
-  skipped when `wireguard_overlay` is not defined; removal by `state: absent`, refused while a
-  present team listens on the overlay address; the commented placeholder in
-  `localhost.yml.dist` with `vault.bash set` for the keys.
-- [ ] ⬜ **Task 1.5**: `play-agent-bus.yml` fails when a present team lists a listen address
-  outside loopback, `agentbus0`, a host-only bridge or the overlay (DESIGN.md section 5). Test
-  first.
-- [ ] ⬜ **Task 1.6**: the create wizard's "Bus address" text corrected (`askAddress`,
-  DESIGN.md 2.5), with its test.
+- [ ] ⬜ **Task 1.3**: a VM lab scenario, guest checker first (RED), as DESIGN.md 2.8: the
+  checker writes a throwaway unvaulted declaration in the guest and applies `play-vpn.yml` as a
+  hub, builds a peer and a non-peer in network namespaces, and proves the handshake, the peer
+  admitted by a source `/32` rule, no handshake for an unknown key, the non-peer's packets to
+  the overlay address and its spoofed overlay source dropped by the guard policy (its counters
+  rise), the zone bound by NetworkManager only, and nothing on the uplink but the WireGuard
+  port and ssh.
+- [ ] ⬜ **Task 1.4**: the play (GREEN): the overlay tasks in `play-vpn.yml` as DESIGN.md 2.4
+  (zone, guard policy, keyfile, read-back by key-free forms), skipped when `wireguard_overlay`
+  is not defined; removal by `state: absent`, the address read from the installed connection,
+  refused while a present team listens on it; the commented placeholder in `localhost.yml.dist`
+  with `vault.bash set` for the keys.
+- [ ] ⬜ **Task 1.5**: owner question Q8 (DESIGN.md section 6): whether `play-agent-bus.yml`
+  refuses a listen address outside loopback, `agentbus0`, a bridge or the overlay. It narrows
+  the owner's 2026-10-06 decision in Plan 00161 DESIGN.md 3.3, so it is built (test first, with
+  Plan 00161 3.3 and `docs/agent-bus.md`'s "does not refuse" text updated in the same commit)
+  only if the owner says yes.
+- [ ] ⬜ **Task 1.6**: the create wizard's "Bus address" and "Other machines" texts corrected
+  (`askAddress`, `askAllowFrom`, DESIGN.md 2.5), with their tests.
 - [ ] ⬜ **Task 1.7**: docs: the overlay in `docs/` (declaring, key generation, the router
   forward as an owner step, the LAN endpoint at home, revocation), and `docs/agent-bus.md`'s
-  WireGuard lines pointing at it; Plan 00161 DESIGN.md D46 notes the lift.
+  WireGuard lines pointing at it (per-peer `/32`, not the subnet); Plan 00161 DESIGN.md D46
+  notes the lift.
 - [ ] ⬜ **Task 1.8**: `deploy.bash` (both plays on the hub) and `acceptance.bash` for the host
   agent: a real handshake with laptop B; the homeserver of a throwaway team reachable from B at
   `<wg_ip_A>:<port>`; refusal from a non-peer (B with the overlay down, routing to `<wg_ip_A>`
-  through the hub's LAN address); `ss` on the hub showing every bus port on loopback,
-  `agentbus0` or the overlay only, and the uplink zone open for nothing new but the WireGuard
-  port; the hub rebooted with no peer up and the homeserver active. Queued in
-  `meta-deploy.list`.
+  through the hub's LAN address) shown as a guard policy drop (its counter rises), not only a
+  closed port; `ss` on the hub showing every bus port on loopback, `agentbus0` or the overlay
+  only; the guard covering every zone but `wg-overlay`; the hub rebooted with no peer up and the
+  homeserver active. On a Workstation hub the WireGuard port is already inside the default
+  zone's open range, so the acceptance does not claim the forward is the only open port there.
+  Queued in `meta-deploy.list`.
 
 ### Phase 2: a `host` member on the second laptop (v1)
 
@@ -111,8 +119,8 @@ Open owner questions Q1-Q7 and the coordinator defaults D-C1 to D-C7 are in
 
 - [ ] `wg-overlay` refuses every malformed declaration with the field named, and no key appears
   in any output (Go tests).
-- [ ] The VM lab scenario passes: handshake, peer admitted, unknown key and spoofed source
-  refused.
+- [ ] The VM lab scenario passes: handshake, peer admitted, unknown key refused, a non-peer's
+  packets to the overlay address and a spoofed overlay source dropped by the firewall.
 - [ ] On the host: laptop B reaches the throwaway team's homeserver over the overlay; a non-peer
   does not; no bus port is bound outside loopback, `agentbus0` and the overlay; the homeserver
   survives a reboot with no peer up.

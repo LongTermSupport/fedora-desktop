@@ -57,7 +57,8 @@ placeholder in `localhost.yml.dist`:
 ```yaml
 wireguard_overlay:
   role: hub                       # hub | spoke
-  address: 192.0.2.1/24           # this machine's overlay address and the overlay prefix
+  address: 192.0.2.1/24           # hub: its overlay address and the overlay prefix; a spoke: its /32
+  prefix: 192.0.2.0/24            # the overlay prefix, declared on every machine (the guard's range)
   listen_port: 51820              # hub only: the one UDP port the router forwards
   private_key: "{{ vault_wireguard_overlay_private_key }}"
   peers:
@@ -104,8 +105,10 @@ does, and the project's tooling rule puts new logic in Go.
   (roaming peers dial in);
 - a key that is not 32 bytes of standard base64 (44 characters); the same public key twice; a
   peer whose public key is this machine's own (derived from the private key);
-- a peer `address` that is not a `/32` inside `address`'s prefix, two peers with one address, a
-  peer address equal to this machine's;
+- an `address` outside `prefix`; a hub `address` whose prefix length is not `prefix`'s, a spoke
+  `address` that is not a `/32` (a spoke routes only the hub's `/32`, D-C6);
+- a peer `address` that is not a `/32` inside `prefix`, two peers with one address, a peer
+  address equal to this machine's;
 - `AllowedIPs` wider than the peer's `/32` (a full-tunnel or subnet route is never rendered);
 - an overlay prefix that overlaps any route the host already has outside the overlay interface
   (the play passes `ip -j route` and `ip -j addr` JSON on stdin): the LAN, `lxcbr0`, libvirt,
@@ -136,31 +139,62 @@ plan's end.
 Order, each step failing the play on error:
 
 1. Build `wg-overlay` (the existing `build-go-command.yml` import).
+
 2. `wg-overlay check`, the declaration and the live `ip -j` JSON on stdin (`no_log: true`).
+
 3. The firewalld zone `wg-overlay`, permanent and runtime: target `default` (rejects what no rule
    accepts), no services, no ports, no masquerade, no forward, `icmp-block-inversion` off with
-   echo-request allowed (so reachability is testable), bound **by interface only**. The play
-   asserts afterwards that the zone has no `sources` (a source binding would pull overlay-sourced
-   packets from any interface into it) and no services or ports beyond what the bus's rich rules
-   add.
-4. On the hub only: the UDP `listen_port` added to the zone of the uplink interface (the
-   interface of the default route), permanent and runtime.
-5. Anti-spoof: in every zone other than `wg-overlay`, a rich rule dropping packets whose source is
-   inside the overlay prefix. A packet claiming an overlay address must arrive on `wg-overlay`,
-   where WireGuard has authenticated it against the peer's key and `AllowedIPs`. Without this,
-   the host's weak-host routing accepts a LAN packet addressed to `<wg_ip_A>`, Fedora's loose
-   `rp_filter` passes a spoofed overlay source, and the Workstation zone's open high ports admit
-   it to the firewall; only the unit filter would then stand, and it trusts that same source.
-6. `wg-overlay render` (stdin, `no_log: true`), then `nmcli connection reload` and
-   `nmcli connection up wg-overlay` when the keyfile changed.
-7. Read back: `wg show wg-overlay` lists the declared peers' public keys and the listen port, the
-   interface carries the declared address, and `firewall-cmd --get-zone-of-interface=wg-overlay`
-   is `wg-overlay`. Any mismatch fails the play.
+   echo-request allowed (so reachability is testable). The interface's zone is bound **only** by
+   the keyfile's `connection.zone=wg-overlay`: the play never calls `firewall-cmd --add-interface`
+   (two bindings, NetworkManager's and firewalld's, conflict on reload) and never adds a source to
+   the zone (a source binding pulls overlay-sourced packets from any interface into it). The zone
+   exists before the connection is first brought up (this step precedes step 6). The play asserts
+   afterwards that the zone has no `sources`, no `interfaces` in its permanent configuration, and
+   no services or ports beyond what the bus's rich rules add.
 
-Removal: `wireguard_overlay: {state: absent}` brings the connection down, deletes the keyfile and
-the zone and the anti-spoof rules. The play refuses (fails fast, naming the team) while any
-present `agent_bus_teams` entry still lists the overlay address in `listen`, since the homeserver
-would then fail to bind (section 2.6).
+4. On the hub only: the UDP `listen_port` added to the zone of the uplink interface (the
+   interface of the default route), permanent and runtime. On a Fedora Workstation hub the
+   default zone already opens 1025-65535 for TCP and UDP, so this adds nothing there; it is
+   declared anyway so that a hub on a stricter zone (a server, a later DMZ hub) gets the port.
+
+5. The overlay guard: one firewalld **policy**, `wg-overlay-guard`, egress zone `HOST`, target
+   `CONTINUE`, with two rich rules: drop any packet whose **source** is inside `prefix`, and drop
+   any packet whose **destination** is inside `prefix`. Its ingress zones are every zone
+   `firewall-cmd --get-zones` lists except `wg-overlay`, re-enumerated on every run, so a policy
+   names zones without editing any of them (docker's and libvirt's zones stay their owners').
+   Policies with the default negative priority are evaluated before zone rules, so the drops
+   hold even in a zone whose target accepts. Why both rules:
+
+   - destination: the host's weak-host routing delivers a LAN packet addressed to `<wg_ip_A>`
+     to a socket bound there, and the Workstation zone's open high ports admit it, so without
+     this drop only the unit filter refuses a LAN host that routes to `<wg_ip_A>` (Plan 00161
+     DESIGN.md 3.3 requires two independent layers);
+   - source: Fedora's loose `rp_filter` passes a LAN packet claiming an overlay source, which the
+     unit filter and the bus's rich rules both trust. A packet carrying an overlay address must
+     arrive on `wg-overlay`, where WireGuard has authenticated it against the peer's key and
+     `AllowedIPs`.
+
+   A zone created after a run (docker installed later) is not covered until the play runs again;
+   step 7 asserts the coverage on every run, and the acceptance checks it.
+
+6. `wg-overlay render` (stdin, `no_log: true`), then `nmcli connection reload` and
+   `nmcli connection up wg-overlay` when the keyfile changed. Ansible writes a module's arguments,
+   stdin included, to a temporary file under the remote user's Ansible temp directory for the
+   task's duration and deletes it after; `no_log: true` keeps the keys out of output and logs.
+   This is accepted.
+
+7. Read back, by forms that print no key (`wg show wg-overlay listen-port`,
+   `wg show wg-overlay peers`, `wg show wg-overlay allowed-ips`; never `wg showconf`): the declared
+   peers' public keys, each with exactly its `/32`, and the listen port; the interface carries
+   the declared address; `firewall-cmd --get-zone-of-interface=wg-overlay` is `wg-overlay`; the
+   guard policy lists every zone but `wg-overlay` as ingress. Any mismatch fails the play. The
+   "no key byte in any output" test (Task 1.1) also covers these registered outputs.
+
+Removal: `wireguard_overlay: {state: absent}` brings the connection down, deletes the keyfile, the
+zone and the guard policy. The overlay address to protect is read from the installed connection
+(`nmcli -g ipv4.addresses connection show wg-overlay`), since an absent declaration carries none.
+The play refuses (fails fast, naming the team) while any present `agent_bus_teams` entry still
+lists that address in `listen`, since the homeserver would then fail to bind (section 2.6).
 
 ### 2.5 The homeserver on the overlay
 
@@ -177,8 +211,10 @@ shows `listen` as fixed, `src-go/internal/teams/settings/fields.go`) and runs th
 
 The create wizard's "Bus address" step suggests "such as its WireGuard address"
 (`askAddress` in `src-go/internal/teams/create/wizard.go`). Following it would collide with the
-overlay interface. Phase 1 corrects the text: the bus address is a private address for
-`agentbus0`; a WireGuard address is added as a second listen address in host_vars.
+overlay interface. Its "Other machines" step (`askAllowFrom`) asks for "their subnet", against
+D-C2. Phase 1 corrects both texts: the bus address is a private address for `agentbus0`; a
+WireGuard address is added as a second listen address in host_vars; other machines are listed
+by each peer's `/32`.
 
 ### 2.6 Availability: the homeserver depends on the overlay interface
 
@@ -200,6 +236,37 @@ to the LAN (hairpin NAT), which varies by router. The documented default: the sp
 the hub's LAN address for the home phases, and the public address for the outside test (a
 host_vars change and a play run on laptop B). Whether the router does hairpin NAT is an owner fact
 recorded at the outside test (Q4).
+
+### 2.8 Testing the play in the VM lab
+
+The lab's scenarios pass the guest only `RUN_BASH_*` environment, and the guest runs `run.bash`
+with a vault password that decrypts nothing (`vars/vm-test-scenarios.yml`,
+`docs/vm-acceptance-testing.md`), so a guest has no `wireguard_overlay` and could not decrypt a
+vaulted key. The scenario therefore makes its own declaration inside the guest:
+
+- The guest checker (a disposable VM, not the ccy container, so a play may run there) generates a
+  throwaway hub keypair and a peer keypair with `wg genkey`, writes an **unvaulted**
+  `wireguard_overlay` (hub role, prefix `192.0.2.0/24`, one peer) into the guest checkout's
+  untracked host_vars, and runs `play-vpn.yml` through the guest's `run.bash`. The play takes a
+  key as a plain variable; that it is vaulted on real hosts is the host_vars' business, not the
+  play's. The keys never leave the guest, which is destroyed after the run.
+- The checker then builds the peer: a network namespace joined to the guest by a veth pair, its
+  own WireGuard interface with the peer key and the guest's veth address as endpoint, and a
+  second namespace (a non-peer) on the same veth bridge with no key.
+- It declares its planned count first, as every guest checker does, and the scenario's `planned`
+  in the manifest equals it (`qa-vmtest-manifest.bash` checks this).
+- Its checks: the handshake completes; TCP from the peer to a test listener on the hub's overlay
+  address, admitted by a source `/32` rich rule in `wg-overlay`, connects; an unknown key gets no
+  handshake; the non-peer, routing to the overlay address through the veth, gets no answer and the
+  guard policy's destination rule counter rises (`nft list ruleset` counters for the policy's
+  chain), so the refusal is the firewall's, not only a closed port; a packet from the non-peer
+  with a spoofed overlay source is dropped by the source rule (counter again); the zone has no
+  sources and no permanent interfaces; nothing but the WireGuard UDP port and ssh listens on the
+  guest's uplink address.
+
+If the lab's contract turns out to forbid a play run from a checker, Task 1.3 first adds a
+lab-only scenario input for an extra host_vars file, designed and tested in the lab's own code,
+before the checker is written.
 
 ## 3. A `host` member on laptop B (Phase 2)
 
@@ -239,14 +306,14 @@ v1 code for remote ccy seats is **not** built (owner, 2026-10-23, with the resea
 retired, and v2 already has the slot and the gate this needs. Phase 3 is tracked here and built
 in Plan 00209.
 
-| Need                                                                             | Owned by                                                                                                                                                                                                                                                                                   |
-| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| A team reached at a declared URL that is not the bus address                     | Plan 00209: the per-team `url` field (DESIGN-v2-C-host.md, team declaration; "when a team is reached through something other than the bus address")                                                                                                                                        |
-| An owner approval for changes to `listen`, `allow_from`, `url`                   | Plan 00209: C46 / DC18                                                                                                                                                                                                                                                                     |
-| A seat take on a host with no local homeserver                                   | Plan 00209: v2 seat paths are one-host today ("not on this host" stays `needs: reissue`, DESIGN-v2-C-host.md); the change is the design note below                                                                                                                                         |
-| Delivering the seat's credential from the homeserver host to the remote launcher | one of: Plan 00205 (ssh to the homeserver host to run the member add; its Q6 asks whether to wait for WireGuard), or Plan 00197 (the broker, approval-gated; today it listens only on bridge interfaces a team admits, so it would need to admit the overlay interface). Owner decision Q7 |
-| Offline members never block, a sleeping laptop is offline                        | Plan 00209: binding rule, OF1 (already designed)                                                                                                                                                                                                                                           |
-| Ping deadlines immune to member clock skew                                       | Plan 00209: server timestamps (already designed)                                                                                                                                                                                                                                           |
+| Need                                                                             | Owned by                                                                                                                                                                                                                                                                                                                    |
+| -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A team reached at a declared URL that is not the bus address                     | Plan 00209: the per-team `url` field (DESIGN-v2-C-host.md, team declaration; "when a team is reached through something other than the bus address")                                                                                                                                                                         |
+| An owner approval for changes to `listen`, `allow_from`, `url`                   | Plan 00209: C46 / DC18                                                                                                                                                                                                                                                                                                      |
+| A seat take on a host with no local homeserver                                   | Plan 00209: v2 seat paths are one-host today ("not on this host" stays `needs: reissue`, DESIGN-v2-C-host.md); the change is the design note below                                                                                                                                                                          |
+| Delivering the seat's credential from the homeserver host to the remote launcher | one of: Plan 00205 (ssh to the homeserver host to run the member add; PROPOSAL-ssh-members.md open question 6 asks whether to wait for WireGuard), or Plan 00197 (the broker, approval-gated; today it listens only on bridge interfaces a team admits, so it would need to admit the overlay interface). Owner decision Q7 |
+| Offline members never block, a sleeping laptop is offline                        | Plan 00209: binding rule, OF1 (already designed)                                                                                                                                                                                                                                                                            |
+| Ping deadlines immune to member clock skew                                       | Plan 00209: server timestamps (already designed)                                                                                                                                                                                                                                                                            |
 
 ### 4.1 Design note for seat 3 (Plan 00209), to be delivered by the coordinator
 
@@ -267,14 +334,20 @@ in Plan 00209.
   every human password and session token, and every room message travel in clear over HTTP. On a
   LAN or Wi-Fi anyone who can watch the traffic (any client that knows the WPA2 passphrase, a
   coworking network's operator) can replay a token and instruct every agent in the team. A team's
-  `listen` therefore holds only loopback, `<bus_ip>`, host-only bridges and the overlay address;
-  never a LAN, Wi-Fi or public address. The installer refuses wildcards already; Phase 1 adds a
-  check to `play-agent-bus.yml` that fails when a present team lists an address carried by the
-  uplink interface or any interface in a zone other than the overlay, `agentbus0`'s or a bridge's.
+  `listen` for this plan's teams holds only loopback, `<bus_ip>`, host-only bridges and the
+  overlay address; never a LAN, Wi-Fi or public address. The installer refuses wildcards only:
+  Plan 00161 DESIGN.md 3.3 records the owner's decision of 2026-10-06 that the homeserver may
+  listen on any address it is given, and `docs/agent-bus.md` says the installer does not refuse a
+  LAN team. This plan does not reverse that decision on its own: it holds its own teams to the
+  rule by declaration and proves it in the acceptance (every bus port bound on loopback,
+  `agentbus0` or the overlay only), and asks the owner whether `play-agent-bus.yml` should
+  refuse a listen address carried by an interface in any zone but the overlay's, `agentbus0`'s
+  or a bridge's (Q8, recommended yes).
 - **The overlay is the authentication.** WireGuard binds each peer key to its `AllowedIPs`
   (`/32`), so a source address on `wg-overlay` names a peer. That is what makes `allow_from`
-  meaningful across machines. The anti-spoof rules (2.4 step 5) keep the same source from being
-  claimed on any other interface.
+  meaningful across machines. The guard policy (2.4 step 5) keeps that source from being claimed,
+  and the overlay destination from being reached, through any other interface, so a non-peer is
+  refused by the firewall and by the unit filter independently.
 - **WireGuard is silent.** It answers no packet that does not authenticate, so a scan of the
   forwarded port sees nothing, and an unknown key gets no handshake.
 - **Revocation.** A lost or stolen laptop: delete its peer from the hub's host_vars, run the play
@@ -300,24 +373,25 @@ in Plan 00209.
 
 ### Owner decisions (open; the plan's defaults hold until decided)
 
-| ID  | Question                                                                   | Recommended                                                                                                                             |
-| --- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Q1  | The public endpoint and router forward: forward one UDP port to the hub?   | Yes, for the outside test only (Phase 1 at home needs none); the default port 51820.                                                    |
-| Q2  | A dedicated always-on hub, or this desktop?                                | This desktop for the test. A dedicated hub makes every ccy session remote, which needs Phase 3 (v2), so it waits for v2.                |
-| Q3  | A DMZ host?                                                                | No: a single UDP forward to a non-DMZ host (section 5). A DMZ hub only in its own plan, with the default-deny uplink.                   |
-| Q4  | Does the router do hairpin NAT (the public endpoint from inside the home)? | An owner fact, checked at the outside test; the LAN endpoint at home is the default either way.                                         |
-| Q5  | Any third-party control plane (Tailscale, ZeroTier, a hosted NetBird)?     | No: plain WireGuard has no third party, no vendor repository and the best IaC fit. Revisit only if a guest network blocks outbound UDP. |
-| Q6  | Teams with machines the owner does not own?                                | Not now; when it arises, a separate overlay and subnet per trust domain (section 5).                                                    |
-| Q7  | Phase 3's credential route: ssh (Plan 00205) or the broker (Plan 00197)?   | Decided with Plan 00209; no default here.                                                                                               |
+| ID  | Question                                                                                                                                                                           | Recommended                                                                                                                               |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Q1  | The public endpoint and router forward: forward one UDP port to the hub?                                                                                                           | Yes, for the outside test only (Phase 1 at home needs none); the default port 51820.                                                      |
+| Q2  | A dedicated always-on hub, or this desktop?                                                                                                                                        | This desktop for the test. A dedicated hub makes every ccy session remote, which needs Phase 3 (v2), so it waits for v2.                  |
+| Q3  | A DMZ host?                                                                                                                                                                        | No: a single UDP forward to a non-DMZ host (section 5). A DMZ hub only in its own plan, with the default-deny uplink.                     |
+| Q4  | Does the router do hairpin NAT (the public endpoint from inside the home)?                                                                                                         | An owner fact, checked at the outside test; the LAN endpoint at home is the default either way.                                           |
+| Q5  | Any third-party control plane (Tailscale, ZeroTier, a hosted NetBird)?                                                                                                             | No: plain WireGuard has no third party, no vendor repository and the best IaC fit. Revisit only if a guest network blocks outbound UDP.   |
+| Q6  | Teams with machines the owner does not own?                                                                                                                                        | Not now; when it arises, a separate overlay and subnet per trust domain (section 5).                                                      |
+| Q7  | Phase 3's credential route: ssh (Plan 00205) or the broker (Plan 00197)?                                                                                                           | Decided with Plan 00209; no default here.                                                                                                 |
+| Q8  | Should `play-agent-bus.yml` refuse a listen address outside loopback, `agentbus0`, a bridge or the overlay? It narrows the owner's 2026-10-06 decision (Plan 00161 DESIGN.md 3.3). | Yes (no TLS, section 5). Until decided nothing refuses it; this plan's teams follow the rule by declaration and the acceptance proves it. |
 
 ### Coordinator defaults (decided; may be overturned)
 
-| ID   | Decision                                                                                                                                                                                                                            |
-| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D-C1 | Plain WireGuard through NetworkManager (a keyfile), no `wg-quick`, no third-party mesh.                                                                                                                                             |
-| D-C2 | One overlay per machine, hub and spoke; per-peer `/32` in each team's `allow_from`, never the subnet.                                                                                                                               |
-| D-C3 | Addressing: one IPv4 `/24` from RFC 1918, chosen in untracked host_vars to overlap no existing network on any member (the validator checks the local host); the hub takes `.1`, peers from `.2`. Docs and tests use `192.0.2.0/24`. |
-| D-C4 | Keys: each machine's private key and each per-peer preshared key are vault-encrypted host_vars variables on the machine that uses them; public keys in clear in untracked host_vars; nothing in the repository.                     |
-| D-C5 | Names: interface `wg-overlay`, NetworkManager connection `wg-overlay`, firewalld zone `wg-overlay`, variable `wireguard_overlay`, Go command `wg-overlay`.                                                                          |
-| D-C6 | No forwarding on the hub; spokes reach the hub only.                                                                                                                                                                                |
-| D-C7 | The overlay lives in `play-vpn.yml` (an extension, not a new play).                                                                                                                                                                 |
+| ID   | Decision                                                                                                                                                                                                                                                          |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D-C1 | Plain WireGuard through NetworkManager (a keyfile), no `wg-quick`, no third-party mesh.                                                                                                                                                                           |
+| D-C2 | One overlay per machine, hub and spoke; per-peer `/32` in each team's `allow_from`, never the subnet.                                                                                                                                                             |
+| D-C3 | Addressing: one IPv4 `/24` from RFC 1918, chosen in untracked host_vars to overlap no existing network on any member (the validator checks the local host); the hub takes `.1` with the `/24`, each spoke one `/32` from `.2`. Docs and tests use `192.0.2.0/24`. |
+| D-C4 | Keys: each machine's private key and each per-peer preshared key are vault-encrypted host_vars variables on the machine that uses them; public keys in clear in untracked host_vars; nothing in the repository.                                                   |
+| D-C5 | Names: interface `wg-overlay`, NetworkManager connection `wg-overlay`, firewalld zone `wg-overlay`, variable `wireguard_overlay`, Go command `wg-overlay`.                                                                                                        |
+| D-C6 | No forwarding on the hub; spokes reach the hub only.                                                                                                                                                                                                              |
+| D-C7 | The overlay lives in `play-vpn.yml` (an extension, not a new play).                                                                                                                                                                                               |
