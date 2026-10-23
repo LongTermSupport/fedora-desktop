@@ -34,6 +34,10 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00219-desktop-checks-over-dbus](00219-desktop-checks-over-dbus/) - Not Started. Agents check the desktop without the owner: a read-only `org.fedoradesktop.DesktopFacts` object in the panel extension (active workspace, each window's class, app id, workspace and focus; no titles) and a Go `desktop-check` that runs checks needing window changes or screenshots in a throwaway headless shell, never on the owner's screen; for Plans 00198 and 00185
+
+- [00218-stt-clip-review-tool](00218-stt-clip-review-tool/) - Not Started. `stt-review` (#112): a Go terminal queue over a folder of private speech clips, opened from the speech-to-text panel; plays each clip with an empty text box (no engine text shown), and the typed `<clip>.human.txt` sidecar, or `[inaudible]`, is the only state; the hand-checked reference for Plan 00179's engine review
+
 - [00217-team-colours-in-the-status-line](00217-team-colours-in-the-status-line/) - In Progress. Each agent team on the status line in its own colour: an automatic one from the team's name, in a palette legible on dark terminals (WCAG AA, tested), and a `colour:` override per team carried to every member as admin room state; Go and Python status lines changed together, parity oracle re-recorded
 
 - [00215-opencode-install-and-agent-bus-member](00215-opencode-install-and-agent-bus-member/) - In Progress. opencode (the open-source terminal coding agent) in the ccy image, pinned, and `ccy --opencode` (`-oc`) to run it instead of Claude Code; opencode sessions designed as agent-bus v2 members through a member-adapter seam, the build waiting on Plan 00209
@@ -92,7 +96,7 @@ Use these Unicode icons in plan documents:
 
 - [00184-deployed-tools-menu](00184-deployed-tools-menu/) - Not Started (low priority). One launcher and panel item for the deployed user tools (#81)
 
-- [00183-prompt-shows-stale-tracking-ref](00183-prompt-shows-stale-tracking-ref/) - In Progress. The git prompt never shows up-to-date against a stale tracking ref (#52): a stale-fetch mark (`git-fetch-age`), deployed; the owner's look at a stale checkout is left
+- [00183-prompt-shows-stale-tracking-ref](00183-prompt-shows-stale-tracking-ref/) - In Progress. The git prompt never shows up-to-date against a stale tracking ref (#52): a stale-fetch mark (`git-fetch-age`), deployed and accepted on the host; the host agent's check in a real interactive shell is left
 
 - [00182-run-bash-private-plays-and-config-clone](00182-run-bash-private-plays-and-config-clone/) - Not Started. `run.bash` runs private plays from a local clone of the config repo (#49, #97)
 
@@ -112,7 +116,7 @@ Use these Unicode icons in plan documents:
 
 - [00178-agent-team-history-export](00178-agent-team-history-export/) - Not Started (low priority). Export an agent team's room history to JSON and Markdown for archiving, from `ccy-teams`
 
-- [00177-ccy-teams-human-friendly](00177-ccy-teams-human-friendly/) - Blocked on the owner (host run, first use). `ccy-teams` made human friendly: honest failures (a refused sudo is not "no teams"), an offer to create a team when there is none, clear prompts, colour
+- [00177-ccy-teams-human-friendly](00177-ccy-teams-human-friendly/) - In Progress; the host agent's re-tests are left. `ccy-teams` made human friendly: honest failures (a refused sudo is not "no teams"), an offer to create a team when there is none, clear prompts, colour
 
 - [00176-dash-to-dock-stays-up-over-windows-again](00176-dash-to-dock-stays-up-over-windows-again/) - Blocked on the owner (five observations at the screen). Dash to Dock stays up over Ptyxis again; the answers decide the fix.
 
@@ -130,7 +134,7 @@ Use these Unicode icons in plan documents:
 
 - [00168-managed-config-files-changed-out-of-band](00168-managed-config-files-changed-out-of-band/) - Not Started. Report play-managed files changed since their play ran. Issue #91.
 
-- [00167-cc-refuses-to-start-outside-a-repo](00167-cc-refuses-to-start-outside-a-repo/) - In Progress. `cc` outside a git working tree offers the checkout or refuses. Issue #90. Deployed; the owner's `cc` checks are left.
+- [00167-cc-refuses-to-start-outside-a-repo](00167-cc-refuses-to-start-outside-a-repo/) - In Progress. `cc` outside a git working tree offers the checkout or refuses. Issue #90. Deployed; the host agent's acceptance run (now with the `[Y/n]` offer legs) and `cc` checks are left.
 
 - [00165-ccy-container-uses-host-time-zone](00165-ccy-container-uses-host-time-zone/) - In Progress (owner's clock check left). ccy containers run in the host's time zone through `TZ`.
 

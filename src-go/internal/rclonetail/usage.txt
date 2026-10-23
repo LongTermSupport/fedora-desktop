@@ -1,0 +1,23 @@
+Usage: rclone-tail [--interval N] [--once] [MOUNT_NAME]
+
+Watch the rclone mounts' uploads live: queue, uploads in flight, transfer rate and ETA.
+
+  MOUNT_NAME      watch only the mounts of this remote (e.g. 'lib'); default: every mount
+  -i, --interval  seconds between ticks, 1 to 86400 (default: 5)
+  -o, --once      print one tick and exit, with no cache snapshot unless stopped
+  -h, --help      show this help
+
+Each tick asks every mount's --rc endpoint for vfs/stats (the upload queue) and core/stats
+(bytes, transfers, ETA). A mount with nothing queued, nothing uploading and no bytes moving is
+'idle', so active mounts stand out (pipe through `grep -v idle` to see only those). A mount
+started without --rc is listed as '(no --rc; cannot query)'.
+
+Without --once the rclone-cache-status summary is printed first, and again when Ctrl-C (or
+SIGTERM) ends the watch; a Ctrl-C during a --once tick prints it too. A second Ctrl-C during a
+summary ends the run at once.
+
+Exit status: 0 the watch ended with Ctrl-C, or the --once tick was written; 1 no rclone mount
+(matching MOUNT_NAME) was found, the mounts could not be listed, the report could not be
+written, or rclone is not installed; 64 a usage error; 130 a second Ctrl-C ended a summary.
+
+Installed by play-rclone.yml.

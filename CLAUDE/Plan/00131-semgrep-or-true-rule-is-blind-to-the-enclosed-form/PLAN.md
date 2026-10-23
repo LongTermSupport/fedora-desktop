@@ -61,13 +61,12 @@ the list, since the files have moved since.
 - [ ] ⬜ **Task 2.1**: `files/home/.local/bin/clean-paste` (41),
   `files/usr/local/bin/watermark` (279, 296)
 - [ ] ⬜ **Task 2.2**: `files/home/.local/bin/nord` (211, 382, 432, 462, 521)
-- [ ] ⬜ **Task 2.3**: The rclone pair — `rclone-cache-warm` (71, 99), `rclone-tail` (113).
-  (`rclone-cache-status` is gone from this task: Plan 00192 ported it to Go,
-  `src-go/internal/rclonecache`, with no shell left to fix.) Mostly `grep … || true`, where
+- [ ] ⬜ **Task 2.3**: `rclone-cache-warm` (71, 99). (`rclone-cache-status` and `rclone-tail`
+  are gone from this task: Plan 00192 ported them to Go, `src-go/internal/rclonecache` and
+  `src-go/internal/rclonetail`, with no shell left to fix.) Mostly `grep … || true`, where
   no-match is an ANSWER and needs the `grep_rc` treatment, not suppression.
-  These two also carry their own copies of the mount cmdline walk that Plan 00099's
-  `rclone_rc_addr_for_mount` now owns; converting them is named there and is not this
-  plan's job.
+  It also carries its own copy of the mount cmdline walk that Plan 00099's
+  `rclone_rc_addr_for_mount` now owns; converting it is not this plan's job.
 - [ ] ⬜ **Task 2.4**: Each fixed site gets its behaviour on the failing path checked,
   not just its lint status. `grep` exiting 1 on no-match and exiting 2 on a real error
   are different facts and the fix has to keep them apart.

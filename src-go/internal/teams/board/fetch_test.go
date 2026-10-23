@@ -22,6 +22,7 @@ import (
 // pass under test decides what runs together. A call is known by its key: a command's line and
 // the folder it runs in ("line|dir"), a seat read seatsKey of the checkout top it reads.
 type held struct {
+	t     *testing.T
 	inner execx.Runner
 	// wait is what a call waits for before it is answered; ready closes when it may go, and
 	// nil lets it go at once.
@@ -29,14 +30,13 @@ type held struct {
 	// finished is told each call's key once its answer is known.
 	finished func(key string)
 
-	mu       sync.Mutex
-	running  int
-	peak     int
-	timedOut bool
+	mu      sync.Mutex
+	running int
+	peak    int
 }
 
 // stuck is how long a held call waits before it is let go: only a pass that makes the calls
-// one after another ever waits that long, and the test then fails instead of hanging.
+// one after another ever waits that long, and the test then fails there instead of hanging.
 const stuck = 20 * time.Second
 
 func commandKey(c execx.Cmd) string { return c.Line() + "|" + c.Dir }
@@ -60,9 +60,7 @@ func (h *held) pass(key string, answer func()) {
 		select {
 		case <-ready:
 		case <-time.After(stuck):
-			h.mu.Lock()
-			h.timedOut = true
-			h.mu.Unlock()
+			h.t.Errorf("%s was held %v: the calls it waits for did not run together", key, stuck)
 		}
 	}
 	answer()
@@ -228,7 +226,7 @@ func TestCollectRunsTheAgentBusCallsTogether(t *testing.T) {
 	var mu sync.Mutex
 	entered := 0
 	all := make(chan struct{})
-	gate := &held{inner: w.Fake, wait: func(key string) <-chan struct{} {
+	gate := &held{t: t, inner: w.Fake, wait: func(key string) <-chan struct{} {
 		if !strings.HasPrefix(key, seatsKey("")) && !strings.HasPrefix(key, teamtest.SudoBus+"list ") {
 			return nil
 		}
@@ -243,8 +241,8 @@ func TestCollectRunsTheAgentBusCallsTogether(t *testing.T) {
 	if _, err := c.Collect(t.Context()); err != nil {
 		t.Fatalf("%v: %s", err, w.ErrOut.String())
 	}
-	if gate.timedOut || gate.peak < together {
-		t.Fatalf("at most %d calls ran at once (timed out: %v); the seat reads and rosters should run together", gate.peak, gate.timedOut)
+	if gate.peak < together {
+		t.Fatalf("at most %d calls ran at once; the seat reads and rosters should run together", gate.peak)
 	}
 	if gate.peak > parallel {
 		t.Fatalf("%d calls ran at once, more than the bound of %d", gate.peak, parallel)
@@ -254,7 +252,7 @@ func TestCollectRunsTheAgentBusCallsTogether(t *testing.T) {
 
 func TestCollectRunsNoMoreThanItsBoundAtOnce(t *testing.T) {
 	w := busy(t, []string{"alpha", "beta", "gamma", "delta"}, 6)
-	gate := &held{inner: w.Fake, wait: func(string) <-chan struct{} { return nil }}
+	gate := &held{t: t, inner: w.Fake, wait: func(string) <-chan struct{} { return nil }}
 	c := overRunner(w, gate)
 	c.Parallel = 2
 	if _, err := c.Collect(t.Context()); err != nil {
@@ -293,6 +291,7 @@ func outOfOrder(t *testing.T, w *teamtest.World) *held {
 	}
 	tops := []string{topOf(t, w, 0), topOf(t, w, 1)}
 	return &held{
+		t:     t,
 		inner: w.Fake,
 		wait: func(key string) <-chan struct{} {
 			switch key {
@@ -335,8 +334,8 @@ func TestCollectReportsInTheOrderOfTheTeamsHoweverTheCallsFinish(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gate.timedOut {
-		t.Fatal("the calls did not run together, so they could not finish out of order")
+	if t.Failed() {
+		t.FailNow()
 	}
 	if said := strings.ReplaceAll(w.ErrOut.String(), w.Root, "<root>"); said != wantErr {
 		t.Fatalf("stderr together:\n%s\none at a time:\n%s", said, wantErr)

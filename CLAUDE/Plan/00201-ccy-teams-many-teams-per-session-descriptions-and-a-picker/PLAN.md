@@ -1,6 +1,15 @@
 # Plan 00201: ccy --teams — many teams per session, team descriptions, and a picker
 
-**Status**: In Progress (M1-M7 built and deployed; the automated two-team acceptance passed on the host; waiting on the owner's steps in ACCEPTANCE-owner.md and the final qa-reviewer; the relay task 2.8 is superseded and tasks 2.11, 2.12, 2.15, 2.17, 2.18 are carried by Plan 00209)
+**Status**: In Progress. M1-M7 built and deployed; the automated two-team acceptance last
+passed on the host at F44 cab255ad4 (commit d2612e8d7), with Tasks 2.21 to 2.23's checker
+fixes. The relay task 2.8 is superseded; Tasks 2.11, 2.12, 2.15, 2.17 and 2.18 are carried by
+Plan 00209. Left for workers: Task 2.19 (the wait in the Python lock helper), Tasks 2.24 and
+2.26 (from Task 2.22's referrals), a scripted test human for the Element checks, and the
+final qa-reviewer. Left for the host agent: the interactive checks of
+[ACCEPTANCE-owner.md](ACCEPTANCE-owner.md) driven through tmux (Tasks 2.7, 2.12 check 11,
+2.14, 2.15 step 13) and Task 2.20's `ccy-teams lxc-add` of the member refused before. Left for
+the owner: nothing a check needs; only signing in to Element with the owner's own account, if
+the owner wants that session.
 **Created**: 2026-10-15
 **Owner**: joseph
 **Priority**: High
@@ -119,10 +128,17 @@ a repository is no longer offered for a checkout of it. Report:
   (`CCY_TEAMS_HOST_VARS`), checks descriptions (`ccy-teams --list`, room topic, `ABOUT`), one
   headless session on both (launch block, per-session record, `pingbus status-line` in the
   session's container, `say` inference and refusal, SessionEnd), a plain session, then
-  purges and checks the firewalld rules are gone. The interactive steps (chooser, scope widening, cc consent) are the owner's:
-  [ACCEPTANCE-owner.md](ACCEPTANCE-owner.md). Report:
-  `subagent-reports/261015-m7-acceptance-opus.md`. M3 changed with Task 2.9, so the automated
-  part must pass again after the host run.
+  purges and checks the firewalld rules are gone. Report:
+  `subagent-reports/261015-m7-acceptance-opus.md`. M3 changed with Task 2.9; the automated part
+  passed again on the host at F44 cab255ad4 (commit d2612e8d7). The interactive steps of
+  [ACCEPTANCE-owner.md](ACCEPTANCE-owner.md) (chooser, scope widening, launch block, status
+  line, cc consent, shutdown, settings screen) are the host agent's: it drives them through
+  tmux `send-keys` and reads them with `capture-pane`, on throwaway teams in an uncovered
+  scratch checkout. Its checks that post "from Element" use a scripted test human (a worker
+  builds it: a declared test human whose password the agent-bus admin tool sets with
+  `human password`, the sender logging in with it; never the owner's account). Check 03 (homeserver start times unchanged) becomes a scripted leg of
+  `_acceptance-m7.inc.bash` (a worker). Check 10 (remove the added scope) has nothing to remove
+  when the checks ran on throwaway teams.
 
 - [ ] ❌ **Task 2.8**: Superseded by Plan 00209 D4: relay mode is deferred to v2. (Was: S-D1 in relay mode: `_deliver` (`helpers/pingbus/cli.py`) writes a
   relay-delivered `HUMAN` or `PEER` to the spool with no `REPLY` line, so the session never
@@ -168,7 +184,10 @@ a repository is no longer offered for a checkout of it. Report:
   the read receipt waits for the transcript check (SPEC-inject E16). N2: the sign-in lock in
   Limits. N3: JSON-decode before comparing, in the skill and frame. N4: SPEC-inject E2 names
   the nonce. N5: the pre-swap backup also runs on a rendered config change
-  (`helpers/agent_bus/config_restart.py`). Deployed at F44 c3391ba9; left: the owner's check 11. Report:
+  (`helpers/agent_bus/config_restart.py`). Deployed at F44 c3391ba9; left: check 11, the host agent's on a test
+  human (a password reset logs out only that human's Element sessions): Ctrl-P with Clipboard
+  Indicator on and off (`gnome-extensions disable`/`enable`), the top-bar menu by screenshot,
+  and `wl-paste` showing a second paste is empty. Report:
   `subagent-reports/261015-final-review-fixes.md`.
   Plan 00209 carries this as an expectation ("Requirements carried from other plans").
 
@@ -186,7 +205,8 @@ a repository is no longer offered for a checkout of it. Report:
   ask (default No), type `/exit` into each session's pane through tmux (Escape first when
   busy), stop one that has not ended in time, check each seat is released, and report each
   member. Local only: nothing on the bus. Deployed at F44 c3391ba9 (play-claude-yolo.yml);
-  left: the owner's check in ACCEPTANCE-owner.md.
+  left: check 12 of ACCEPTANCE-owner.md, the host agent's (a throwaway team with two ccy
+  sessions in tmux, `ccy-teams shutdown <team>` from a pane, the released-seat lines read back).
 
 - [ ] 🔄 **Task 2.15**: a team's settings from ccy-teams (the owner: "a single update config
   thing … that then opens a pane that then has all of the different things editable"), branch
@@ -200,7 +220,9 @@ a repository is no longer offered for a checkout of it. Report:
   them in one `declare.py set` and applies through `ops.ApplyTeams`. The coordinator changes at
   once through `seats.ChangeRole`; name, port, listen, server name and forge API are fixed,
   each saying why. `describe` and `drop-limit` are now `set` with one key. Deployed at F44
-  c3391ba9 (play-claude-yolo.yml); left: the owner's check, ACCEPTANCE-owner.md step 13.
+  c3391ba9 (play-claude-yolo.yml); left: ACCEPTANCE-owner.md check 13, the host agent's (the
+  screen driven through tmux keys, the homeserver start time unchanged, the room topic read
+  with the test human's token).
   Report: `subagent-reports/261016-team-settings-opus.md`.
   Plan 00209 carries this as an expectation ("Requirements carried from other plans").
 
@@ -258,9 +280,13 @@ a repository is no longer offered for a checkout of it. Report:
 
 - [ ] ⬜ **Task 2.19**: run.bash waits on the play lock (`lock.py acquire --wait`, bounded,
   naming the holder) instead of exiting 75, so meta-deploy, the panel's run-play and a play run
-  by hand wait for a ccy-teams hold as ccy-teams now waits for theirs. Pending the owner's
-  decision: it changes how every caller of run.bash behaves, and run.bash is on the bash-limits
-  ratchet, so the wait belongs in the Python helper.
+  by hand wait for a ccy-teams hold as ccy-teams now waits for theirs. It changes how every
+  caller of run.bash behaves, and run.bash is on the bash-limits ratchet, so the wait belongs in
+  the Python helper. Decided as a **coordinator default, changeable by the owner** (standing
+  "do not gate on me"): build it, in `helpers/play_lock/lock.py` (`acquire --wait`, bounded,
+  naming the holder), as this task proposes. Every caller goes from "exit 75 at once" to "wait,
+  bounded, saying for whom, then exit 75", which is friendlier for each of them and reversible.
+  Left: the build, tests first (a worker), then a host run through meta-deploy.
 
 - [ ] 🔄 **Task 2.20**: `ccy-teams lxc-add` asked three times over "entries 5 and 6 both
   declare <user>@<container>" for a member an earlier run had declared (branch
@@ -280,7 +306,10 @@ a repository is no longer offered for a checkout of it. Report:
   review round 2 a code handed on clears only the recovery whose block returns it
   unconditionally (red at 7e40c23a9 on a code handed on for an interrupt only); the shapes the
   rule still misses are listed in GoProjectRules.md and referred to the owner as a rule
-  narrower than the hazard; the merge of this branch is held for the owner's answer. In declare.py a team not declared present is 78 (`ccy-teams apply`
+  narrower than the hazard. Decided as a **coordinator default, changeable by the owner**: a
+  rule narrower than its hazard, with what it misses listed in GoProjectRules.md, is this
+  project's established pattern (every rule there has its "Not caught"), so the branch merges
+  with the misses recorded; it merged into F44 at dda4735c9 (DBF CONFORMS, Opus MERGE). In declare.py a team not declared present is 78 (`ccy-teams apply`
   and `lxc-add` of an absent team keep their own 64, `ops.go:160`, `adder.go:341`: a command-line
   argument, never asked again), `set` gives 78 only when the refusing rule reads no key the
   change sets (a table of the keys `exclude`, `humans` and `org` read), `add-repo` of a
@@ -290,18 +319,21 @@ a repository is no longer offered for a checkout of it. Report:
   wizard read any failing `gh api` as "no such name" (a probe read as a verdict, the class in
   GoProjectRules.md "cannot be a rule"): only gh's `(HTTP 404)` is not found, any other failure
   ends the run with gh's words. Also D1 of the M7 acceptance (`m7_check.py`) reads the list's
-  columns from its heading (64d5bc3b6). Left: the host run (meta-deploy, play-claude-yolo.yml
-  entry) and the owner's `ccy-teams lxc-add` of the member refused before. Reports:
+  columns from its heading (64d5bc3b6). Deployed: `play-claude-yolo.yml` passed on the host at
+  F44 b0eb800fa (commit eaa947411) and again at cab255ad4. Left, for the host agent: run
+  `ccy-teams lxc-add <team>` from a pane for the member that was refused before, and record
+  that it says the member is declared already and applies after one yes. Reports:
   `subagent-reports/261022-lxc-add-*.md`.
 
-- [ ] 🔄 **Task 2.21**: M7's host run stopped at M3: the checker still expected the Python
+- [x] ✅ **Task 2.21**: M7's host run stopped at M3: the checker still expected the Python
   `exec pingbus status-line` guard after Plan 00213 made it run `pingbus-status-line`. A
   checker defect: `m7_check.py` copied seat.py's value. It now expects exactly what this
   checkout's `seat.session_settings` writes for a seated session, and that its guard ends by
   running the kit settings' command; `DESCRIPTION_MAX` is read from protocol.py, and Plan
   00194's `goodbye_check.py` reads `TEXT_KEY`, the goodbye template and `DISCONNECT_TEXT` from
   pingbus. Defence: `checker-copies-cited-constant` (`tests/helpers/plan_acceptance/`,
-  CLAUDE/QA.md), red with 4 findings. Done in code; left: the host rerun (meta-deploy).
+  CLAUDE/QA.md), red with 4 findings. The host rerun passed: the M7 acceptance passed on the
+  host at F44 cab255ad4 (commit d2612e8d7).
   The independent search (`subagent-reports/261022-m3-owned-value-independent-search.md`)
   found more copies than a sound rule catches. Every copy of a named or computed value is now
   read from the product, no product code changed (its A1-A3, A6-A14, A16-A19; A15's subject is
@@ -314,14 +346,14 @@ a repository is no longer offered for a checkout of it. Report:
   00217 changed it.
   LEFT, CHECKER FIXES: split off by the coordinator as Task 2.22 (below); they do not block
   this task's merge.
-  REFERRED TO THE OWNER: the inline message or command text (A4, A5, B2, B4, B5, B7's
+  Referred (now decided under Task 2.22, a coordinator default): the inline message or command text (A4, A5, B2, B4, B5, B7's
   "relaunches once"/"re-baseline", B8, B10-B12, B14, B15), and Plan 00211's
   `_acceptance-stage2.inc.bash` fake A3 seat grep for `a host member must not run as a user with an Element profile` (inline in config.py's `ConfigError` and roles.go). The product holds each
   as text inside a call, not a named value, so the checker can read it only once the product
   names it: deployed code changes with version bumps and host deploys, a product decision.
   Report: `subagent-reports/261022-m3-dbf-report.md`.
 
-- [ ] **Task 2.22**: Follow-up to Task 2.21, split off by the coordinator so that Task 2.21's
+- [x] ✅ **Task 2.22**: Follow-up to Task 2.21, split off by the coordinator so that Task 2.21's
   branch could merge: the copies of product values that Task 2.21's search found in other
   plans' checkers and left unfixed. Each one reads its value through the `m7_check`
   commands Task 2.21 added (`session-paths`, `hot-marks`, `status-line-names`), as Plan
@@ -340,7 +372,42 @@ a repository is no longer offered for a checkout of it. Report:
     can drift, so declare.py should expose the reader.
   - Also the inline-text copies Task 2.21 refers to the owner: the product has to name each
     text as a constant before a checker can read it.
-- [ ] 🔄 **Task 2.23** (done in code; left: the host rerun, queued in meta-deploy): the host
+
+  The conversion merged into F44 at cab255ad4 and its host reruns passed there (commit
+  d2612e8d7); what it did is the second paragraph under Task 2.23 below. The work its
+  referrals call for is Tasks 2.24 to 2.26, so this task is closed. Its referrals are
+  decided as **coordinator defaults, changeable by the owner** (standing "do not gate on me"):
+
+  - Naming an inline message text as a product constant (a Go format constant, a Python
+    constant), so a checker can read it, is allowed, with the CCY or container bump it costs.
+    Task 2.12 of Plan 00211 already did exactly this (`QUESTION_DUPLICATE`) and merged. This
+    covers the inline texts of Task 2.21 and below, the hot-package format texts, the pingbus
+    and agent-bus texts, and the inline values the product does not name: Task 2.24.
+  - Search rows 17, 21, 29, 30, b17 and b34 (unsure, or not soundly a copy): treated as not a
+    copy, and left as they are. The conservative reading: no product change is made for a site
+    nobody could show is a copy, and a later finding can still convert one.
+  - B4's wire tags: not a copy (the protocol specification, which a checker may state).
+  - The plan-folder `test_*.py` that no gate runs: Task 2.25, which the `plan-tests` gate had
+    already closed.
+  - The bash "only the last command substitution of one assignment reaches errexit" shape:
+    Task 2.26.
+
+- [ ] ⬜ **Task 2.24**: Name each referred inline text or value as a constant in the product,
+  tests first, and convert the checker that copies it to read the constant through `m7_check product-value`, under `checker-copies-cited-constant`. One branch per product area (ccy-teams
+  Go, pingbus and agent-bus Python), with the version bumps each needs and a meta-deploy entry.
+  The rows are Task 2.21's referred list and the first three bullets of Task 2.23's referred
+  list (report `subagent-reports/261022-sweep-dbf-report.md`). A worker.
+
+- [x] ✅ **Task 2.25**: A gate runs each plan folder's own `test_*.py`, so a plan checker's
+  tests going red is seen (Plan 00161's `test_acceptance_check` went red at `a5486643d`
+  unseen). Already built: the `plan-tests` gate (`src-go/qa/plantests`, commits 7c6974126 and
+  60f028790) runs every active plan folder's own Python tests, in `qa-changed.bash` too.
+
+- [ ] ⬜ **Task 2.26**: A rule on `src-go/qa/bashlimits`' syntax tree for an assignment holding
+  more than one command substitution, where only the last one's failure reaches errexit (the
+  shape that hid a failed read in Plan 00211's stage 2), by Defence Before Fix. A worker.
+
+- [x] ✅ **Task 2.23**: the host
   run failed "session multi's container running: not within 600 s". The base image had just
   been rebuilt, so the launch first rebuilt the project image (a 24-step build). A checker
   defect: the container wait counted the build. The launch's two start waits are now
@@ -351,9 +418,12 @@ a repository is no longer offered for a checkout of it. Report:
   first: `LaunchWaitTest` in `test_m7_check.py` and the library's in
   `scripts/test-planlib.bash`, both driving the launcher's own `ccy_image_build_locked`. The
   sweep found the same wait in Plans 00161 (U20), 00194 (goodbye) and 00203 (M2), now on the
-  same library. Report: `subagent-reports/261022-launch-waits-for-image-build.md`.
+  same library. Report: `subagent-reports/261022-launch-waits-for-image-build.md`. The host
+  rerun passed: the M7 acceptance passed with the image-build wait, and again at F44 cab255ad4
+  (commit d2612e8d7).
 
-  Done in code; left: the host reruns (meta-deploy) and the referrals below. Defence:
+  Task 2.22's conversion, merged at cab255ad4, whose host reruns passed there (commit
+  d2612e8d7); the referrals below are decided under Task 2.22. Defence:
   `checker-copies-cited-constant` gained a second clause (an `OWNED` product value held by an
   active plan checker), red `b0dd7c9e1`. Converted, each reading the product through
   `m7_check` (`session-names`, `membership-dirs`, and `product-value FILE NAME [FILL...]` for
@@ -364,7 +434,7 @@ a repository is no longer offered for a checkout of it. Report:
   product names (hooks.py `TEMPLATES`, envelope.py `KIND_LINES`, remove.go
   `removedHomeserverDown`, newly named). Each converted checker refuses a wrong product in a
   scratch copy (23 cases). Report: `subagent-reports/261022-sweep-dbf-report.md`.
-  REFERRED TO THE OWNER (one line each; detail in the report):
+  Referred, now decided under Task 2.22 (one line each; detail in the report):
 
   - The ccy-teams hot-package texts (search b1-b7, b9-b19, b22, b23) and 00203 M4/M6
     fragments: built by concatenation inside each call, so naming them is a format constant
@@ -379,7 +449,7 @@ a repository is no longer offered for a checkout of it. Report:
     15), which a checker may state; not a copy.
   - No QA gate runs a plan folder's own `test_*.py` (the helper-test gate reads only
     `tests/helpers/`), so Plan 00161's `test_acceptance_check` went red at `a5486643d` (the
-    HUMAN room field) unseen; its fixtures are fixed, the gate gap is the owner's.
+    HUMAN room field) unseen; its fixtures are fixed, the gate gap is closed by the `plan-tests` gate (Task 2.25).
   - In bash, only the last command substitution of one assignment reaches errexit (00211
     stage 2 hid a failed read this way; fixed). No rule detects the shape yet; it needs the
     syntax tree (`src-go/qa/bashlimits` already parses every bash file).

@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"math"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/rclonerc"
 )
 
 // stats is what the report reads of a mount's vfs/stats (E13).
@@ -58,7 +58,7 @@ func parseStats(data []byte) (stats, error) {
 		nums = append(nums, counter{o.CacheMaxSize, &s.max}, counter{o.CacheMaxAge, &ageNs})
 	}
 	for _, x := range nums {
-		n, err := integer(x.n)
+		n, err := rclonerc.Counter(x.n)
 		if err != nil {
 			return stats{}, err
 		}
@@ -66,19 +66,4 @@ func parseStats(data []byte) (stats, error) {
 	}
 	s.maxAgeS = ageNs / 1_000_000_000
 	return s, nil
-}
-
-// integer is a JSON number as an int64, a float truncated; the empty number (null) is 0.
-func integer(n json.Number) (int64, error) {
-	if n == "" {
-		return 0, nil
-	}
-	if i, err := n.Int64(); err == nil {
-		return i, nil
-	}
-	f, err := n.Float64()
-	if err != nil || f >= math.MaxInt64 || f <= math.MinInt64 {
-		return 0, fmt.Errorf("not a counter: %s", n)
-	}
-	return int64(f), nil
 }

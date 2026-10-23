@@ -2,7 +2,7 @@
 
 One module, `github.com/LongTermSupport/fedora-desktop/src-go`, for this repository's large
 interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfreeze`,
-`lxcfreeze`, `vmtest`, `ftp-camera`, `watermark`, `wsi`, `open`, `rclone-cache-status` and `gh-account-setup` live here; their bash
+`lxcfreeze`, `vmtest`, `ftp-camera`, `watermark`, `wsi`, `open`, `rclone-cache-status`, `rclone-tail` and `gh-account-setup` live here; their bash
 originals are gone (`scripts/gh-account-setup.bash` stays, as the wrapper that builds and runs
 the Go command).
 `convert` is new, with no bash original.
@@ -32,10 +32,15 @@ the Go command).
   remote control through `rclonerc` (the Go twin of `rclone-rc-auth.bash`, for the rclone
   helpers when they are ported).
 - `internal/rclonecache/` — the `rclone-cache-status` command (spec
-  `SPEC-rclone-cache-status.md`, E1-E21): the rclone mounts from `findmnt -J`, each mount
-  process's `--rc-addr` and `--cache-dir` from `/proc` (`rclonerc.MountProcess`), `vfs/stats`
-  through `rclonerc.Client.Call`, and a directory walked against its VFS cache mirror; no
-  Python, no `numfmt`.
+  `SPEC-rclone-cache-status.md`, E1-E21): the rclone mounts with each mount process's
+  arguments (`rclonerc.Client.Mounts`, from `findmnt -J` and `/proc`), `vfs/stats` through
+  `rclonerc.Client.Ask`, and a directory walked against its VFS cache mirror; no Python, no
+  `numfmt`.
+- `internal/rclonetail/` — the `rclone-tail` command (spec `SPEC-rclone-tail.md`, E1-E17): a
+  tick per interval over the same mounts, `vfs/stats` and `core/stats` through
+  `rclonerc.Client.Ask`, the rate on `Env.Now`, the wait on `Env.After`, SIGINT and SIGTERM
+  through `Env.OnStop`; the cache snapshot bracketing a stream is `rclonecache.App` run in
+  process.
 - `internal/ghaccount/` — the `gh-account-setup` command (spec `SPEC-gh-account-setup.md`):
   each account's gh login with the scopes `helpers/github_scopes` names, its SSH key (the
   vault's passphrase given to `ssh-keygen` and `ssh` through the command itself as
@@ -129,7 +134,7 @@ the Go command).
 
 - **Project rules.** `qa/` is a nested module (so the QA tooling's dependencies stay out of
   this `go.mod` and out of the binaries) of `go/analysis` rules for the defect classes the ports hit: one process seam, owned programs,
-  tmux target forms, no wall clock in tests, one home abbreviation, a `WaitDelay` that names
+  tmux target forms, no wall clock in tests, no real-time bound a test can shorten, one home abbreviation, a `WaitDelay` that names
   its error, no action reachable only by a key (a key reaches fzf only as a `ui.Action`, and a Bubble Tea key only `internal/ui`, through a
   `key.Binding` with help; Tab completing a text input is navigation).
   [GoProjectRules.md](../CLAUDE/GoProjectRules.md) is the catalogue.
@@ -237,7 +242,7 @@ the launcher's front `claude-yolo` (root-owned at `/var/local/claude-yolo/claude
 `play-lxcfreeze.yml` import (both import `play-golang.yml` first for the toolchain), and
 `play-vm-test-lab.yml` for `vmtest`, `play-ftp-camera.yml` for `ftp-camera`,
 `play-image-watermarking.yml` for `watermark`, `play-speech-to-text.yml` for `wsi` and
-`play-cli-tools.yml` for `open` and `convert`, `play-rclone.yml` for `rclone-cache-status`,
+`play-cli-tools.yml` for `open` and `convert`, `play-rclone.yml` for `rclone-cache-status` and `rclone-tail`,
 `play-basic-configs.yml` for `git-fetch-age` and `play-git-configure-and-tools.yml` for
 `git-prompt-fetch`, and `play-claude-yolo.yml` (into the ccy image's build context) and
 `play-agent-bus.yml` (into the member kit, which LXC members copy) for `pingbus-status-line`,

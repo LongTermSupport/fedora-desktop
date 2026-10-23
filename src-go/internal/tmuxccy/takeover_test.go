@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
@@ -309,21 +310,32 @@ func TestTakeOverDefaultsToTheRealClockAndSleep(t *testing.T) {
 		t.Fatal(err)
 	}
 	tm.Runner = takeOverScript(func(int) execx.Result { return ok("/dev/pts/3 1\n") }, ok(""), "")
-	// One tenth of a second to wait means one real 100 ms sleep: the take-over must still be
-	// running when a 90 ms timer fires, and then end in the timeout.
-	done := make(chan error, 1)
-	go func() {
-		_, err := tm.TakeOver(context.Background(), "alpha", 1)
-		done <- err
-	}()
-	select {
-	case <-done:
-		t.Fatal("the real sleep did not run")
-	case <-time.After(90 * time.Millisecond):
-	}
-	if err := <-done; err == nil {
-		t.Fatal("want a timeout")
-	}
+	// One tenth of a second to wait means one 100 ms sleep of the time package: in the bubble the
+	// take-over is still asleep 1 ns short of it, and ends in the timeout once it has passed.
+	synctest.Test(t, func(t *testing.T) {
+		done := make(chan error, 1)
+		go func() {
+			_, err := tm.TakeOver(context.Background(), "alpha", 1)
+			done <- err
+		}()
+		time.Sleep(100*time.Millisecond - time.Nanosecond)
+		synctest.Wait()
+		select {
+		case <-done:
+			t.Fatal("the take-over did not sleep 100 ms on the time package")
+		default:
+		}
+		time.Sleep(time.Nanosecond)
+		synctest.Wait()
+		select {
+		case err := <-done:
+			if err == nil {
+				t.Fatal("want a timeout")
+			}
+		default:
+			t.Fatal("the take-over still sleeps past its 100 ms")
+		}
+	})
 }
 
 func TestTakeOverNeedsAName(t *testing.T) {

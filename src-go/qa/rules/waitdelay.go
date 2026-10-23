@@ -79,6 +79,11 @@ func isWaitDelayField(pass *analysis.Pass, sel *ast.SelectorExpr) bool {
 	if !ok || s.Kind() != types.FieldVal {
 		return false
 	}
-	v, isVar := s.Obj().(*types.Var)
-	return isVar && v.Name() == "WaitDelay" && v.Pkg() != nil && v.Pkg().Path() == execPkg
+	return isWaitDelay(s.Obj())
+}
+
+// isWaitDelay is whether obj is os/exec.Cmd's WaitDelay field.
+func isWaitDelay(obj types.Object) bool {
+	v, ok := obj.(*types.Var)
+	return ok && v.IsField() && v.Name() == "WaitDelay" && v.Pkg() != nil && v.Pkg().Path() == execPkg
 }

@@ -1,6 +1,15 @@
 # Plan 00192: Line in the sand: tooling is Go, bash only for small helpers
 
-**Status**: In Progress (every QA script ported or retired; `qa-go.bash` retired by Plan 00191 Task 3.3, the Go gate is go-qa-ci through `scripts/qa-go-qa.bash`)
+**Status**: In Progress. Every QA script is ported or retired (`qa-go.bash` by Plan 00191
+Task 3.3; the Go gate is go-qa-ci through `scripts/qa-go-qa.bash`). Left for workers: the
+remaining ports of Task 3.3 (the `ccy` launcher's phases 3 to 5 are deferred by Plan 00191
+D4/D10), and Tasks 4.1 and 4.2 over the finished plan. Left for the host agent: the host checks
+of the merged ports (freeze steps 2 and 3, vmtest, ftp-camera H1, H2 and H5, watermark, wsi H2,
+open, rclone-cache-status, rclone-tail H2 to H4, gh-account-setup H1 and H3 to H5), the queued
+`deploy-rclone-tail.bash` through meta-deploy, and Task 3.2's root run, which
+needs sudo at the run. Left for the owner: only what needs the owner in person, namely
+gh-account-setup H2 (a real GitHub device login), ftp-camera H3 and H4 (the physical camera)
+and wsi H1 (speaking into the microphone).
 **Created**: 2026-10-14
 **Owner**: joseph
 **Priority**: High
@@ -40,8 +49,9 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
 - Python that Ansible loads in-process (plugins, filters, modules, callbacks) or that imports
   Ansible: it stays Python.
 - Bash that must run before Go exists (the bootstrap) or is sourced into a user's shell.
-- The `ccy` launcher's port: assessed in Plan 00191 (`ASSESS-ccy-launcher.md`), waiting on
-  the owner's decisions D1-D10 there.
+- The `ccy` launcher's port: assessed in Plan 00191 (`ASSESS-ccy-launcher.md`). Its decisions
+  D1-D10 were defaulted by the coordinator there (Plan 00191 Task 4.2); phases 0 to 2 are built
+  in that plan and phases 3 to 5 are deferred by its D4/D10.
 
 ## Tasks
 
@@ -83,14 +93,20 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   stopped on a sudo prompt the Go sudo probe raised wrongly, now fixed), and the second run,
   with no prompt, differed only by the containers started between the runs, every common row
   identical. A live comparison against a saved baseline cannot repeat on a machine whose
-  containers change, so `acceptance.bash` is retired from the queue. Left for the owner: the
-  freeze, thaw and menu look in [ACCEPTANCE-freeze.md](ACCEPTANCE-freeze.md) steps 3 and 4.
+  containers change, so `acceptance.bash` is retired from the queue. Left, for the host agent:
+  [ACCEPTANCE-freeze.md](ACCEPTANCE-freeze.md) step 2 (freeze and thaw a throwaway container
+  with each tool; the menu driven by tmux keys and read with `capture-pane`; Ctrl-C mid-batch
+  gives 130; `lxcfreeze` needs sudo at the run) and step 3 (a second run of the freeze plays
+  reports ok, not changed).
 - [ ] 🔄 **Task 3.2**: `agent-bus-install` on `go-port/agent-bus-install`: spec
   `SPEC-agent-bus-install.md` on the branch; built, reviewed and its review fixed, not merged.
-  It runs as root and changes behaviour (its D7), so it merges only after the owner's host test
-  as root (the branch's `ACCEPTANCE-agent-bus-install.md`).
-- [ ] 🔄 **Task 3.3**: The rest of the inventory's programmes, ranked there; the `ccy` launcher
-  waits on Plan 00191's D1-D10. Each port: a spec first, its tests first, a Fable review whose
+  It runs as root and changes behaviour (its D7), so it merges only after a host test as root
+  (the branch's `ACCEPTANCE-agent-bus-install.md`): the host agent runs it through meta-deploy
+  on a throwaway team, with sudo given at the run. Before spending that run, the coordinator
+  checks whether Plan 00209 (agent-bus v2 in Go) has made this port moot.
+- [ ] 🔄 **Task 3.3**: The rest of the inventory's programmes, ranked there; the `ccy`
+  launcher's port is Plan 00191's (D1-D10 defaulted there, phases 0 to 2 built, 3 to 5
+  deferred by its D4/D10). Each port: a spec first, its tests first, a Fable review whose
   findings are fixed, then merged. Per-port detail, review dispositions and departures:
   [PORTS.md](PORTS.md). Status by port:
   - Done, merged into F44: `qa-changed`, `qa-all`, `qa-ansible`, `qa-nokill-containerwatch`,
@@ -99,18 +115,31 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     `qa-plan-script-logging`, `qa-toolchain`, `qa-speech-to-text-rules`, `qa-version-pins`,
     `qa-vmtest-manifest`, `qa-helper-tests`, `qa-docs`, the shared `qa/internal` scaffolding.
   - Not ported by decision: `qa-go.bash` (retired by Plan 00191 Task 3.3; go-qa-ci replaces it).
-  - Done, merged, host checks left to the owner: `vmtest` (P5, SPEC-vmtest H1-H6), `ftp-camera`
-    (P8, SPEC-ftp-camera H1-H5), `watermark` and `wsi` (P8, H1-H3).
+  - Done, merged, host checks left: `vmtest` (P5, SPEC-vmtest H1-H6, the host agent's on the
+    KVM host), `ftp-camera` (P8, SPEC-ftp-camera: H1, H2 and H5 the host agent's; H3 and H4
+    the owner's, since they need the physical camera uploading, though H4's "geeqie shows the
+    frame" is a screenshot the host agent can read once a file arrives), `watermark` (H3, the
+    host agent's) and `wsi` (H2 the host agent's; H1's live dictation and audible grace the
+    owner's, with the transcription half provable by a recorded fixture).
   - `open` (P6): done, `go-port/open` and `go-port/open-2` both merged into F44 and deployed
-    (`8c2de08c`); its host checks H1-H5 are the owner's, by hand at the desktop, not queued in
-    `meta-deploy.list`. Spec [SPEC-open.md](SPEC-open.md).
+    (`8c2de08c`); its host checks H1-H5 are the host agent's (terminal steps through tmux,
+    the desktop steps by screenshot and `gio mime`), not queued in `meta-deploy.list`. Spec
+    [SPEC-open.md](SPEC-open.md).
   - `rclone-cache-status` (P6): ported, merged into F44, deployed and live-checked on the host
     (`deploy-rclone-cache-status.bash` passed), spec
-    [SPEC-rclone-cache-status.md](SPEC-rclone-cache-status.md); left: the owner's hand checks
-    inside a mount (H2, H3) and `rclone-cache-warm`/`rclone-tail`.
-  - `gh-account-setup` (P6): ported on its own branch, under review, not merged; spec
-    [SPEC-gh-account-setup.md](SPEC-gh-account-setup.md); its host checks H1-H5 are the
-    owner's, by hand (H4 in the VM lab), nothing queued in `meta-deploy.list`.
+    [SPEC-rclone-cache-status.md](SPEC-rclone-cache-status.md); left, for the host agent: the
+    checks inside a mount (H2, H3) and `rclone-cache-warm`.
+  - `rclone-tail` (P6): ported, cut over and merged into F44 at 1d8bc1037; spec
+    [SPEC-rclone-tail.md](SPEC-rclone-tail.md). Its host run `deploy-rclone-tail.bash` (H1
+    scripted by `acceptance-rclone-tail.bash`) is queued in `meta-deploy.list`; H2 to H4 are
+    the host agent's (a file written into a mount while `rclone-tail` runs in a tmux pane,
+    Ctrl-C by `send-keys`, `ftp-camera`'s closing status).
+  - `gh-account-setup` (P6): ported and merged into F44 at 9e404ae6b (Opus MERGE in round 4;
+    `src-go/cmd/gh-account-setup`); it is run from the checkout, so no play deploys it. Spec
+    [SPEC-gh-account-setup.md](SPEC-gh-account-setup.md). Host checks: H1, H3 and H5 the host
+    agent's, H4 in the VM lab (host agent); H5's Ctrl-C mid-login leaves the host's `gh`
+    accounts as it found them. H2 is the owner's (completing a GitHub device-code login for a
+    real account; the script side up to the printed URL is the host agent's).
   - Still to do: the remaining programmes in [INVENTORY.md](INVENTORY.md) (account/setup tools
     after `rclone-cache-status`) and the `ccy` launcher.
 
