@@ -586,15 +586,27 @@ on whole.
   (it is said and compared with run.bash's 75: now `playStatus`, an int), and ccy-sessions'
   reboot, which exits 1 as its usage says and names systemctl's code in the message (a departure
   in Plan 00191 `SPEC-ccy-sessions.md` 1.3).
-- Not caught: a code returned by a helper function as an int (`vmtest`'s `helperExitCode`, whose
-  two uses hand on a status `vmtest`'s usage and `SPEC-vmtest.md` document as the remote
-  command's or the helper's), a `Code` read in another function and passed in as an int, a field
-  named other than `Code`.
+- Not caught: a code returned by a helper function as an int, a `Code` read in another function
+  and passed in as an int, a field named other than `Code`. The independent search found three
+  such sites in the real tree. Each hands on a code its spec says is handed on as it is, so the
+  hazard (a code the tool's documentation does not name) cannot arise there:
+  - `vmtest` `member-ssh` (`member.go`, through `statusOf`) exits with the remote command's
+    status, as `ssh` does, and 124 at its time bound (Plan 00192 `SPEC-vmtest.md` E58).
+  - `vmtest` `verify` (`verify.go`, through `helperExitCode`): "`verify_response`'s exit is the
+    command's exit" (the same spec, E60).
+  - `open`'s `handlerResult` (`launch.go`): `128 + n` for a handler killed by signal n is the
+    tool's own code, the shell's convention (Plan 00192 `SPEC-open.md` E30, B20).
+- `FromChild` keeps 78 and hands it to the shell on purpose: the launcher and its tests read it
+  as "a team not running here". The words for it are `term.Explain`'s last line and the usage
+  text, not a different number.
 
 **The next wider rule, not built:** every conversion to `term.ExitCode` of a value known only at
 run time. Not built because the tools' own codes (a signal's `128 + n`, `pingbus status-line`'s
 own statuses) are most of them and carry no hazard; telling a child's code from the tool's own
-needs to know where the int came from, which is what the `Code` field of an error says.
+needs to know where the int came from, which is what the `Code` field of an error says. The
+three pass-throughs above are the only sites the search found that the rule does not judge.
+Whether to widen the rule to an int helper that returns an error's `Code` is the owner's
+decision; the default is not to, as each of the three is a pass-through its spec requires.
 
 ### project_row_kind
 
@@ -623,8 +635,14 @@ which the flows that act on a checkout's seats ask, where they asked `Kind == Ki
 
 **The next wider rule, not built:** any reading of a handle's type word outside
 `agentbus.KindOf`. Not built because the other readers do other jobs where the hazard (a wrong
-kind shown) cannot arise: `roles.parseHandle` checks a handle's grammar, `seats.nextSeat`
-numbers podman seats, `lxcadd` matches the LXC member it added.
+kind shown) cannot arise: `roles.parseHandle` checks a handle's grammar and shows no kind;
+`seats.nextSeat` numbers a new podman seat (its pattern matches only the roster's `.podman`
+members, and this checkout's own seats of every type are counted from the seat list; a host seat
+with the same number is a different handle, `.host`, so nothing clashes); `lxcadd` matches the
+LXC member it added by its whole handle. The sweep for both rules was `src-go` and the nested
+`qa` module, test files and fixtures excluded. The 13 `Kind == KindCcy` checks became
+`Kind.IsSession` by pattern: before the fix every seat row was `KindCcy`, and `IsSession` is true
+for exactly those rows (now `ccy` or `cc`), so each check answers as it did.
 
 ## Defect classes that cannot be a rule
 
