@@ -227,8 +227,10 @@ The owner's requirements:
   `discardLeftovers` names, and the PID file, is removed once the killed recorder has exited
   (`panelSession.js`), before anything new can start and write the same files. `wsi` also removes a stale
   recording before its recorder starts (SPEC-wsi-watermark.md W15a, Plan 00192), and
-  `wsi-stream` already empties its buffer at start. Tests in `test-stt-recorder-launch.mjs` and
-  `src-go/internal/wsi/app_test.go`. Host check: Escape during a batch recording leaves no
+  `wsi-stream` already empties its buffer at start. Escape after the recorder has already exited
+  signals nothing. Tests in `test-stt-recorder-launch.mjs`, `test-stt-panel-session.mjs` and
+  `src-go/internal/wsi/app_test.go`. With the panel's debug logging on, `debug.log` still holds
+  the partial transcripts (opt-in, left as is). Host check: Escape during a batch recording leaves no
   `/dev/shm/wfile-*.wav`; it needs `play-speech-to-text.yml` and a logout.
 
 ## Technical Decisions
