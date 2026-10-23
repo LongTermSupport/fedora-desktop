@@ -1,6 +1,6 @@
 # Plan 00225: team liaison role
 
-**Status**: Not Started (plan only; decisions LD1-LD10 carry coordinator defaults the owner may change)
+**Status**: Not Started (plan only; decisions LD1-LD11 carry coordinator defaults the owner may change)
 **Created**: 2026-10-23
 **Owner**: joseph
 **Priority**: Medium
@@ -22,10 +22,13 @@ members." The owner named the role **liaison**.
 This plan adds `liaison` as a third team role, at most one per team. The coordinator keeps
 running `pingbus ask-human`; with an active liaison, pingbus hands the question to the liaison
 instead of posting it. The liaison asks the human, in the questions room or its own terminal,
-and is the one woken for human messages there. It passes each answer back with `pingbus relay`,
-which names the human's event. The coordinator's own pingbus fetches that event from the
-homeserver and shows the human's verbatim words beside the liaison's text. So a relay never
-counts as authority, and the HUMAN and PEER rules are unchanged. The liaison builds progress
+and is the one woken for human messages there. A question posted for authority is the
+coordinator's own text, verbatim. The liaison passes each answer back with `pingbus relay`,
+which names the human's event. The coordinator's own pingbus fetches that event, the question
+it answers and the hand-off behind it from the homeserver. It shows the human's verbatim words
+only when all three bind to a hand-off the coordinator sent. So the liaison's words never count
+as authority, and the HUMAN and PEER rules hold for all of them (DESIGN section 3 states the
+one addition). The liaison builds progress
 updates from the reports room and the bus history, citing its sources. It cannot edit or commit:
 the Plan 00222 guard denies it, and in ccy and LXC its checkout is mounted read-only. A team with
 no liaison behaves exactly as it does today.
@@ -34,12 +37,13 @@ The design, with numbered requirements LZ0-LZ23, is [DESIGN.md](DESIGN.md).
 
 ## Goals
 
-- `liaison` is a role, one per team, needing a coordinator, never mixed with another role in one
-  session (DESIGN LZ1-LZ4).
+- `liaison` is a role, one per team, needing a coordinator, held by a session with no other
+  seat (DESIGN LZ1-LZ4a).
 - Human questions flow coordinator -> liaison -> human -> liaison -> coordinator, and the
   coordinator is woken for the questions room only as a fallback (LZ8-LZ11).
-- A relay is a `PEER` text. The human's own event, checked by the receiver against the
-  homeserver, is shown with it, and `pingbus verify-human` confirms it (LZ5-LZ7a).
+- A relay is a `PEER` text to the coordinator. The human's answer is checked by the receiver on
+  the homeserver against the coordinator's own verbatim hand-off, shown with the relay, and
+  confirmed by `pingbus verify-human` (LZ5-LZ7a).
 - Progress updates come from the reports room, the bus history and the hand-offs, and each one
   says when it is from and what it is based on (LZ12-LZ14).
 - The liaison cannot edit or commit: there is a guard in every runtime, and a read-only mount
@@ -49,10 +53,11 @@ The design, with numbered requirements LZ0-LZ23, is [DESIGN.md](DESIGN.md).
 ## Non-Goals
 
 - A filesystem boundary for a host `cc` liaison (same uid as the owner; LZ19).
-- A liaison shared across teams as one seat: one per team, though one session may hold the seat
-  in several teams (DESIGN section 7, LD1).
-- Timed progress digests (LD8), labels for the liaison (LZ22), relays to workers (LZ4).
-- Editing Plan 00209's or 00222's files: requirements are handed over (Tasks 7.1, 7.2).
+- A liaison shared across teams. Plan 00207 records the owner's ruling against a liaison that
+  relays between teams, so one session holds one team's liaison seat (DESIGN section 7, LD1).
+- Timed progress digests (LD8), labels for the liaison (LZ22), relays to workers (LZ5).
+- Editing Plan 00209's, 00222's or 00224's files: their owners get the requirements (Tasks
+  7.1, 7.2, 7.4).
 
 ## Dependencies
 
@@ -79,15 +84,17 @@ Every build task is test first: the failing test is committed or recorded before
   - that a coordinator's token can `GET /rooms/{room}/event/{id}` in the questions room.
 - [ ] ⬜ **Task 0.2**: Findings in `RESEARCH-facts.md`; LZ17 and LZ20's writable list is the
   measured one; a refuted fact changes DESIGN.md first.
-- [ ] ⬜ **Task 0.3**: The owner answers LD1-LD10, or the defaults stand. Each is recorded in the journal.
+- [ ] ⬜ **Task 0.3**: The owner answers LD1-LD11, or the defaults stand. Each is recorded in the journal.
 
 ### Phase 1: The role in the v1 protocol (upgrade-first)
 
 - [ ] ⬜ **Task 1.0**: Golden tests for a team with no liaison: envelopes, wakes, `ask-human`
   posts, `--list` (LZ0). These must stay green through every later phase.
 - [ ] ⬜ **Task 1.1**: `protocol.py`: the `liaison` role, at most one, needing a coordinator;
-  the sender rules of LZ4 (refused on send, dropped `role` on receipt); the `relays` and
-  `handoff` content keys and their grammar. Tests over every role and verb pair.
+  the sender rules of LZ4 (refused on send, dropped `role` on receipt); the `relays`,
+  `handoff` and `handed-off` content keys and their grammar; LZ4a's questions-room outcomes
+  (the liaison receives; its post is ignored `liaison-post` at a coordinator, never dropped).
+  Tests over every role and verb pair, and refusal tests first.
 - [ ] ⬜ **Task 1.2**: `docs/agent-bus-protocol.md`: the role, the keys, and the receiver's
   check (LZ5, LZ6). The contract test is extended.
 
@@ -96,24 +103,29 @@ Every build task is test first: the failing test is committed or recorded before
 - [ ] ⬜ **Task 2.1**: The syncer:
 
   - the liaison's rooms: main, questions woken, and the reports timeline read (LZ9, LZ12);
-  - the coordinator's quiet questions items and its keeper's `liaison_relay_s` wake;
-  - LZ10's active test, from the cached status.
+  - the coordinator's quiet questions items: never delivered while the liaison is active,
+    marked `relayed`, delivered on the keeper's `liaison_relay_s` wake, on an edit after
+    relay, and all at once when the liaison goes inactive (LZ9);
+  - LZ10's active test (status, `human_text`, the questions join; unreadable means inactive).
 
   Tests use a fake clock and the fake homeserver.
 
 - [ ] ⬜ **Task 2.2**: `pingbus`:
 
   - `say --to-liaison`;
-  - `ask-human` hand-off routing with `--update` and `--direct`, and `ask-human --handoff`;
-  - `relay` (with `--terminal`);
+  - `ask-human` hand-off routing with `--update` and `--direct`, and the liaison's
+    `ask-human --handoff`, which posts the hand-off's text verbatim (LZ5a);
+  - `relay` to the coordinator only (with `--terminal`);
   - `verify-human`, `handoffs` and `history --room reports`;
+  - `thread`, `questions` and `history --room questions` opened to the liaison (LZ4a);
   - the hand-off timeout notice (LZ5, LZ7, LZ8, LZ11).
 
   The `relays` refusal tests come first.
 
-- [ ] ⬜ **Task 2.3**: The envelope's `relays:` block, checked on the homeserver, with every
-  `NOT VERIFIED` reason: an unlisted sender, a redacted event, another team's room, an agent's
-  event, an unknown ID (LZ6).
+- [ ] ⬜ **Task 2.3**: The envelope's `relays:` block, checked on the homeserver, with a test
+  for each `NOT VERIFIED` reason of LZ6 (`not-human`, `redacted`, `wrong-room`, `unattached`,
+  `not-your-handoff`, `reworded`, `earlier-than-question`, `not-found`), and the revision wake
+  for an edited relayed answer.
 
 - [ ] ⬜ **Task 2.4**: `hooks.py` role lines (LZ23). The pingbus skill gets a Liaison section:
   LZ7's rule, LZ14's update shape, and the hand-off flow.
@@ -124,7 +136,8 @@ Every build task is test first: the failing test is committed or recorded before
 ### Phase 3: The admin side
 
 - [ ] ⬜ **Task 3.1**: `agent-bus set-role ... liaison` and `add-member --role liaison`:
-  - LZ1, LZ2 and LZ3's refusals, naming the holder or the other team;
+  - LZ1, LZ2 and LZ3's refusals, naming the holder or the other team, and a member with
+    `human_text: false` refused;
   - the refusal while a running member reports an older pingbus (DESIGN section 9).
 - [ ] ⬜ **Task 3.2**: `_sync_questions_members` invites the liaison and kicks a former one;
   `check-rooms` reports a liaison that has not joined (offline means `OFFLINE`, never a
@@ -132,7 +145,8 @@ Every build task is test first: the failing test is committed or recorded before
 
 ### Phase 4: The guard (after Plan 00222 Phase 2 merges)
 
-- [ ] ⬜ **Task 4.1**: `Decide` table tests, then the code:
+- [ ] ⬜ **Task 4.1**: `Decide` extended as LZ16a says (`Call` and `LiaisonActive` inputs),
+  00222's own tests kept green; table tests, then the code:
   - LZ15's liaison set, with the git-write parser's cases (each verb, `-C dir`, `env` prefixes,
     a quoted commit message);
   - LZ16's coordinator `AskUserQuestion` rule, for an active and an inactive liaison;
@@ -173,7 +187,10 @@ Every build task is test first: the failing test is committed or recorded before
 - [ ] ⬜ **Task 7.2**: DESIGN section 8 goes to Plan 00209's owner seat as a design note, through
   the coordinator. This plan edits none of 00209's files.
 - [ ] ⬜ **Task 7.3**: Plan 00207's SPEC-roles and PLAN: "liaison room" renamed "collaborator
-  room", in one docs-only commit, so the word has one meaning.
+  room", in one docs-only commit, so the word has one meaning. A note there that 00207 M2 and
+  this plan's Phase 1 share one fleet upgrade if both are pending (DESIGN section 9).
+- [ ] ⬜ **Task 7.4**: A requirement note for Plan 00222's owner, through the coordinator:
+  LZ16a's `Decide` inputs and the two Non-Goals narrowed to "for workers".
 
 ### Phase 8: Docs, deploy, acceptance
 
@@ -185,7 +202,7 @@ Every build task is test first: the failing test is committed or recorded before
   - `set-role` refused while a member is old;
   - a hand-off and its relay, with the envelope showing `checked on the homeserver`;
   - a relay naming an agent's event, refused on send;
-  - a forged raw relay, shown `NOT VERIFIED`;
+  - a forged raw relay naming an old answer to another question, shown `NOT VERIFIED`;
   - the liaison's `Edit` and `git commit` denied;
   - a write to the `ro` ccy checkout failing;
   - a team with no liaison identical to before;
@@ -195,18 +212,19 @@ Every build task is test first: the failing test is committed or recorded before
 
 ## Decisions (coordinator defaults; the owner may change any)
 
-| ID   | Decision                                             | Default                                                                                                                       |
-| ---- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| LD1  | One liaison per team, or one per human across teams  | **One per team** (DESIGN section 7); one session may hold the seat in several teams                                           |
-| LD2  | A liaison without a coordinator                      | Refused at assignment (LZ2)                                                                                                   |
-| LD3  | The coordinator loses `AskUserQuestion`              | Yes, only while a liaison is active in its team (LZ16)                                                                        |
-| LD4  | The coordinator's `ask-human` with an active liaison | Handed to the liaison; `--direct` only after the hand-off timeout or with an inactive liaison (LZ8, LZ11)                     |
-| LD5  | An answer typed in the liaison's terminal            | Information only, `relays: terminal`; a decision that needs authority is answered in the questions room (LZ7a)                |
-| LD6  | Who owns `notify-owner`                              | Both may; the liaison is told to use it and the coordinator to hand it over (LZ21)                                            |
-| LD7  | Read access beyond the liaison's own checkout        | None at first; other repositories by a later plan if needed                                                                   |
-| LD8  | Progress updates                                     | When the human asks, or when the coordinator hands one over; no timed digests (LZ13)                                          |
-| LD9  | Timers                                               | `liaison_offline_s` 600, `liaison_relay_s` 900, `liaison_handoff_s` 1800, per team in `agent_bus_teams`                       |
-| LD10 | v1 member side in Python                             | Yes, as 00211 D9's interim (pingbus and admin are Python until v2); every new piece outside them (guard, mounts, board) is Go |
+| ID   | Decision                                             | Default                                                                                                                                                                                     |
+| ---- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| LD1  | One liaison per team, or one per human across teams  | **One per team, one session per liaison seat** (LZ3, DESIGN section 7). A shared liaison would first need the owner to reverse Plan 00207's ruling against a liaison relaying between teams |
+| LD2  | A liaison without a coordinator                      | Refused at assignment (LZ2)                                                                                                                                                                 |
+| LD3  | The coordinator loses `AskUserQuestion`              | Yes, only while a liaison is active in its team (LZ16)                                                                                                                                      |
+| LD4  | The coordinator's `ask-human` with an active liaison | Handed to the liaison; `--direct` only after the hand-off timeout or with an inactive liaison (LZ8, LZ11)                                                                                   |
+| LD5  | An answer typed in the liaison's terminal            | Information only, `relays: terminal`; a decision that needs authority is answered in the questions room (LZ7a)                                                                              |
+| LD6  | Who owns `notify-owner`                              | Both may; the liaison is told to use it and the coordinator to hand it over (LZ21)                                                                                                          |
+| LD7  | Read access beyond the liaison's own checkout        | None at first; other repositories by a later plan if needed                                                                                                                                 |
+| LD8  | Progress updates                                     | When the human asks, or when the coordinator hands one over; no timed digests (LZ13)                                                                                                        |
+| LD9  | Timers                                               | `liaison_offline_s` 600, `liaison_relay_s` 900, `liaison_handoff_s` 1800, per team in `agent_bus_teams`                                                                                     |
+| LD10 | v1 member side in Python                             | Yes, as 00211 D9's interim (pingbus and admin are Python until v2); every new piece outside them (guard, mounts, board) is Go                                                               |
+| LD11 | May the liaison reword a hand-off it posts           | **No**: posted verbatim, a `Liaison's note:` may follow; a reworded post fails the check (`reworded`, LZ5a, LZ6)                                                                            |
 
 ## Risks & Mitigations
 
