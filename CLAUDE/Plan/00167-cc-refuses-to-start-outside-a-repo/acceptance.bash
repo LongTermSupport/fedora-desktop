@@ -6,12 +6,14 @@
 # fake runner never exercises: the binary play-claude-yolo.yml built with the checkout baked
 # in, and the real git. It checks the no-terminal path (stdin </dev/null, and
 # CCY_SESSION_RESTORE=1 at a terminal, each refuse with exit 1 and offer nothing) and the
-# git-top path (a subfolder of a scratch repository gives the repository's top). HOST ONLY.
+# git-top path (a subfolder of a scratch repository gives the repository's top), and the
+# [Y/n] offer outside a repository, answered y, n, and a bad answer then n, typed into a
+# pseudo-terminal that script(1) makes. HOST ONLY.
 #
 # It never runs cc, so no Claude session and no tmux session is started. It changes nothing
-# but the scratch directories it makes with mktemp -d and removes. No prompts. The offer
-# itself needs a person at a terminal: that is the owner's check (type cc in ~, accept once
-# and decline once).
+# but the scratch directories it makes with mktemp -d and removes. No prompts. The restore
+# leg needs a terminal on stdin, so run this from a terminal, not with stdin </dev/null; the
+# offer legs make their own.
 #
 # Usage: ./acceptance.bash [-h|--help]
 set -euo pipefail
@@ -38,8 +40,9 @@ plan_init "${BASH_SOURCE[0]}"
 PLAN_USAGE="usage: acceptance.bash [-h|--help]
 
 The Plan 00167 acceptance gate. Run play-claude-yolo.yml first (meta-deploy.bash does).
-It runs the installed cc-project-dir with no terminal, as a restore, and in a scratch
-repository's subfolder. It never starts Claude.
+It runs the installed cc-project-dir with no terminal, as a restore, in a scratch
+repository's subfolder, and at the offer on a pseudo-terminal (y, n, a bad answer then n).
+Run it from a terminal: the restore check needs one. It never starts Claude.
 
 EXIT STATUS
   0  ACCEPTED — every check ran and passed
@@ -62,4 +65,7 @@ checker="${PLAN_SCRIPT_DIR}/check-cc-project-dir.bash"
 plan_gather_leg "stdin </dev/null outside a repository refuses, exit 1, no offer" bash "${checker}" no-stdin
 plan_gather_leg "CCY_SESSION_RESTORE=1 outside a repository refuses, exit 1, no offer" bash "${checker}" restore
 plan_gather_leg "a scratch repository's subfolder gives the repository's top" bash "${checker}" git-top
+plan_gather_leg "outside a repository on a pseudo-terminal, y takes the offered checkout" bash "${checker}" offer-yes
+plan_gather_leg "outside a repository on a pseudo-terminal, n refuses, exit 1" bash "${checker}" offer-no
+plan_gather_leg "outside a repository on a pseudo-terminal, a bad answer re-prompts" bash "${checker}" offer-retry
 plan_finish

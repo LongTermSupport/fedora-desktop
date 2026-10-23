@@ -54,19 +54,29 @@ agent at all. The cause is unknown, so this plan triages first.
   `files/var/local/ps1-prompt` and built and installed root-owned to `/usr/local/bin` by
   `play-basic-configs.yml`, which now imports `play-golang.yml`. It reads files only, so a
   missing agent can neither block nor prompt.
-- [ ] 🔄 **Task 2.3**: `play-basic-configs.yml` ran on the host at F44 c4cab141 (ok=68,
+- [x] ✅ **Task 2.3**: `play-basic-configs.yml` ran on the host at F44 c4cab141 (ok=68,
   changed=3, failed=0; `git-fetch-age` rebuilt, Go 1.26.10 on the host); docs
   (`docs/configuration.md`, `docs/playbooks.md`, `src-go/CLAUDE.md`) done. Acceptance passed
   on the host, and `qa-all.bash` passed on c4cab141. The `qa-reviewer` ran (round 1,
   FIX-FIRST, `subagent-reports/261022-qa-reviewer-round1.md`); its findings are fixed: the
   play pins bash-git-prompt to a commit and asserts the `async_run` override still holds.
-  Left: `qa-all.bash` on the merged fixes; the host run of `play-git-configure-and-tools.yml`
-  and this plan's acceptance through meta-deploy (the pin and the assert have not run on a
-  host yet); then the owner's hand check, the yellow mark in a stale checkout's prompt. The hand
-  check should expect
-  `[fetch failed or running]` to show briefly on a prompt drawn during each five-minute
-  background fetch; it lasting past the next prompt means the fetch failed
-  (`~/.cache/git-prompt-fetch.log` has why).
+  The fixes merged at f2c59399a. The host's meta-deploy run at 67033c224 passed
+  `play-git-configure-and-tools.yml` (ok=27 changed=2 failed=0, the pinned checkout and the
+  `async_run` assert among its tasks) and then this plan's acceptance, all six legs; both were
+  dropped from the queue at c159e6626. No log of a `qa-all.bash` run on f2c59399a itself is
+  kept; it is the push gate of every later F44 push. The hand check is Task 2.6.
+- [ ] ⬜ **Task 2.6**: the host agent's check in a real interactive shell, the one thing the
+  `prompt` leg does not cover (that leg expands the deployed PS1 in `bash -s`, not in a login
+  user's `bash -i` with `~/.bashrc` and bash-git-prompt loaded). In tmux, with no ssh agent
+  (`env -u SSH_AUTH_SOCK`): make a scratch clone whose `origin` is an unreachable ssh URL,
+  with a tracking branch, write a fetch record into `.git/FETCH_HEAD` and
+  `touch -d '3 days ago'` it; start `bash -i` in it in a new tmux session; within 5 s
+  `tmux capture-pane -p` shows a drawn prompt carrying ` [fetched 3d ago]` or
+  ` [fetch failed or running]` (bash-git-prompt's own fetch starts at once and empties
+  `FETCH_HEAD`), and no `passphrase` text. Press Enter after 10 s: the mark is
+  ` [fetch failed or running]` and `~/.cache/git-prompt-fetch.log` names the failed fetch.
+  Kill the session and remove the clone. The colour is in the escape codes, so no screenshot
+  is needed. The host agent can do all of it; nothing needs the owner.
 - [x] ✅ **Task 2.4**: the root fetch bug (Decision 2): a failed fetch empties `FETCH_HEAD`
   and dates it now, so the mark read the prompt's own failing fetch as fresh. Done in code,
   test first (A14, A15 in `internal/fetchage`): an empty `FETCH_HEAD` is
@@ -156,7 +166,9 @@ whether the host's agent holds the key.
 ## Success Criteria
 
 - [ ] A checkout whose tracking refs were not fetched recently is visibly marked stale.
-- [ ] With no agent, the prompt draws at once and asks for nothing.
+- [x] With no agent, the prompt draws at once and asks for nothing: `git-fetch-age` reads
+  files only, and the `fetcher` (BatchMode, no terminal on stdin) and `override` legs passed
+  on the host at 67033c224. Task 2.6 also sees it in a real `bash -i`.
 
 ## Delivery & Milestones
 
@@ -169,4 +181,6 @@ whether the host's agent holds the key.
 - Failed-fetch mark and `git-prompt-fetch` (Tasks 2.4, 2.5) merged: e40671403.
 - Deployed at c4cab141 (`play-basic-configs.yml`, ok=68 changed=3 failed=0); `qa-all.bash`
   passed on c4cab141.
-- qa-reviewer round 1: FIX-FIRST; answered on `fix/00183-review-findings`.
+- qa-reviewer round 1: FIX-FIRST; answered on `fix/00183-review-findings`, merged at
+  f2c59399a.
+- The pinned bash-git-prompt and the acceptance passed on the host at 67033c224.

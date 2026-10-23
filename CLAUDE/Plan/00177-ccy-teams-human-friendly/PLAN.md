@@ -1,6 +1,6 @@
 # Plan 00177: ccy-teams, human friendly
 
-**Status**: In Progress (Phase 4 built and reviewed; Phase 9 built and reviewed; Phase 7 built and deployed; waiting on the owner's host tests, Tasks 5.1, 6.4, 7.5 and 9.5)
+**Status**: In Progress (Phase 4 built and reviewed; Phase 9 built and reviewed; Phase 7 built and deployed; waiting on the host tests, Tasks 6.4, 7.5 and 9.5)
 **Created**: 2026-10-13
 **Owner**: joseph
 **Priority**: High
@@ -133,13 +133,15 @@ offer to create a team when there is none; think about the UX; do a full critica
 
 ### Phase 5: Host
 
-- [ ] **Task 5.1**: meta-deploy (`play-agent-bus.yml`, `play-claude-yolo.yml`), then the
+- [x] ✅ **Task 5.1**: meta-deploy (`play-agent-bus.yml`, `play-claude-yolo.yml`), then the
   owner's own test: `ccy-teams create` from a repository (scope, Element, sign-in, the
   offer to start a session), `ccy --teams <team>` choosing a seat, and `cc --teams <team>`.
   Deployed; the Go `ccy-teams` works, but the owner's test found the UX clunky: Phase 6.
   The owner signed in to Element, launched a ccy session into a team, and a message they
   posted in the room woke the idle session, which answered in the room: the round trip
-  works. That the exchange is hidden inside tool calls in the session is Plan 00194.
+  works. That the exchange is hidden inside tool calls in the session is Plan 00194. Done:
+  the deploy and the test ran (journal 26-10-13 21:03, the seven fixes); the re-tests of
+  `ccy --teams` and `cc --teams` are Task 7.5, of the board Task 6.4.
 
 ### Phase 6: No hidden keys (the owner's host test)
 
@@ -311,7 +313,9 @@ are too, by the same route.
 
 - [ ] On the host, `ccy-teams` with no teams offers to create one, and a refused or cancelled
   sudo is reported as such, never as "no teams".
-- [ ] The owner finds it clear and pleasant to use (their judgement).
+- [ ] The owner finds it clear and pleasant to use (their judgement). Coordinator default:
+  accepted unless the owner objects; changeable by the owner at any time. It is met once the
+  host agent's Tasks 6.4 and 7.5 pass and the owner has raised no objection.
 
 ## Delivery & Milestones
 

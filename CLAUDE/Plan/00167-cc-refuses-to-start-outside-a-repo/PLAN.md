@@ -86,13 +86,23 @@ clear message.
   scratch directories: outside a repository with stdin `</dev/null`, and with
   `CCY_SESSION_RESTORE=1` and stdin the terminal, it must exit 1 with the refusal, an empty
   stdout and no `[Y/n]` offer; in a subfolder of a scratch git repository it must exit 0 with
-  the repository's top on stdout. The offer itself needs a person at a terminal and is the
-  owner's check (Task 3.3). Passed on the host at dddf4063 (run under a terminal; see the
-  26-10-21 journal).
-- [ ] 🔄 **Task 3.3**: Add the plan to `meta-deploy.bash`. The owner runs it, then types `cc`
-  in `~` (accepts the offer once and declines it once) and once in a project. Deployed at
-  dddf4063 with the review fix. Owner's hand checks, still open: `cc` in `~` (accepted, then
-  declined) and from a subfolder of a repository.
+  the repository's top on stdout. Passed on the host at dddf4063 (run under a terminal; see
+  the 26-10-21 journal). The `[Y/n]` offer has its own legs, typed into a pseudo-terminal
+  that `script(1)` makes: `offer-yes` (`y`: the offer once, exit 0, stdout exactly the
+  checkout the offer names, a git top holding `ansible.cfg`), `offer-no` (`n`: the offer
+  once, the refusal, exit 1, empty stdout) and `offer-retry` (`maybe` then `n`: "Please
+  answer y or n.", the offer twice, the refusal). Proved in the container against a build
+  (green) and six broken fakes (each red on the leg it breaks); not yet run on the host.
+- [ ] 🔄 **Task 3.3**: The host run, then `cc` itself. Deployed at dddf4063 with the review
+  fix. Left, both for the host agent:
+  1. `acceptance.bash` through meta-deploy, started from a terminal (the `restore` leg needs
+     one): all six legs, so the installed binary, built with the host's checkout baked in,
+     passes the offer legs.
+  2. `cc` itself, in tmux: from a `mktemp -d` directory, type `cc` and answer `n` (exit 1, no
+     new tmux session in `tmux list-sessions`); again answering `y` (a session named for the
+     checkout starts, its pane in the checkout; then `/exit`); and `cc` at the root of a
+     checkout (a session starts there, as before). The offer and the git top are already
+     proved by the legs; this proves `cc` acts on what `cc-project-dir` prints.
 
 ### Phase 4: Review and close
 
@@ -152,13 +162,17 @@ elsewhere to stay within its record. No install-specific path is in the reposito
 
 ## Success Criteria
 
-- [ ] `cc` outside any git working tree with no terminal exits 1 with the refusal and starts
-  no tmux session.
+- [x] `cc` outside any git working tree with no terminal exits 1 with the refusal and starts
+  no tmux session. The `no-stdin` and `restore` legs passed on the host at dddf4063; `cc`
+  runs `cc-project-dir` under `set -e` before its tmux re-exec, so the refusal ends it there.
 - [ ] `cc` outside any git working tree in a terminal offers the fedora-desktop checkout;
-  yes starts the session there, no exits 1 (owner check).
-- [ ] `cc` at a repository root starts as before (owner check).
-- [ ] Subdirectory behaviour matches Decision 2.
-- [ ] QA passes (`./scripts/qa-all.bash`) and the `qa-reviewer` findings are resolved.
+  yes starts the session there, no exits 1 (host agent, Task 3.3).
+- [ ] `cc` at a repository root starts as before (host agent, Task 3.3).
+- [x] Subdirectory behaviour matches Decision 2: the `git-top` leg passed on the host at
+  dddf4063 (a subfolder and a deeper folder give the repository's top).
+- [x] QA passes (`./scripts/qa-all.bash`) and the `qa-reviewer` findings are resolved: QA
+  passed at dddf4063 (Task 2.4); the findings were resolved in the fix merged at dead9482
+  (Task 4.1).
 
 ## Delivery & Milestones
 
