@@ -32,7 +32,7 @@ type fakeForge struct {
 	most    int
 	started chan struct{}
 	// bounds are the bound each check's context carried; refused counts the checks whose
-	// sender budget said no, which, as the checker's, make no request and are unresolved.
+	// sender budget said no, which, as the checker's, make no request and are forge-rate.
 	bounds  []time.Duration
 	refused int
 }
@@ -46,7 +46,7 @@ func (f *fakeForge) Check(ctx context.Context, need proto.ForgeCheck, _ proto.Fo
 		f.mu.Lock()
 		f.refused++
 		f.mu.Unlock()
-		return team.ForgeResult{Outcome: proto.ReasonUnresolved}, nil
+		return team.ForgeResult{Outcome: proto.ReasonForgeRate}, nil
 	}
 	f.mu.Lock()
 	f.calls = append(f.calls, need.Ref.Text)
@@ -294,8 +294,8 @@ func TestSD5r7EachCheckIsBoundByTheBudget(t *testing.T) {
 }
 
 // SD5-r8 (n3d-D31): a sender spends at most proto.ForgeChecksPerSender uncached checks per
-// receive window; past it the ping drops unresolved and no request is made. Another sender
-// keeps its own budget, and the window restores it.
+// receive window; past it the ping drops forge-rate (n3d-D34) and no request is made. Another
+// sender keeps its own budget, and the window restores it.
 func TestSD5r8ASendersChecksAreBudgeted(t *testing.T) {
 	w := newWorld(t)
 	f := newFakeForge(nil)
@@ -308,7 +308,7 @@ func TestSD5r8ASendersChecksAreBudgeted(t *testing.T) {
 	release()
 	b := w.batch()
 	r.poll(t)
-	if len(b.Items) != over-1 || b.Counts.Dropped != 2 || w.log.count(": unresolved") != 2 {
+	if len(b.Items) != over-1 || b.Counts.Dropped != 2 || w.log.count(": forge-rate") != 2 {
 		t.Errorf("items %d, dropped %d; log %q", len(b.Items), b.Counts.Dropped, w.log.String())
 	}
 	if n := len(f.checked()); n != over-1 {
@@ -338,5 +338,77 @@ func TestSD5r9IdenticalChecksAreAskedOnce(t *testing.T) {
 	}
 	if calls := f.checked(); len(calls) != 1 {
 		t.Errorf("checked %v, want one", calls)
+	}
+}
+
+// spentTeam is a team whose sender local has spent its whole receive budget.
+func (w *world) spentTeam(local string, f team.Forge) *Team {
+	w.t.Helper()
+	tm := w.newTeam(withForge(f))
+	for range int(proto.ForgeChecksPerSender) {
+		if !tm.spent.spend(user(local), w.clk.WallMS()) {
+			w.t.Fatal("the budget was spent early")
+		}
+	}
+	return tm
+}
+
+// SD5-r10 (n3d-D34): a merged check is charged to a sender in its group with budget left, so a
+// sender past its budget never drops another's ping; every sender in the group gets the answer.
+func TestSD5r10AMergedCheckIsChargedToASenderWithBudget(t *testing.T) {
+	w := newWorld(t)
+	f := newFakeForge(nil)
+	r, release := w.held(w.spentTeam(peer, f))
+	w.done(peer, ref(1))
+	w.done(coord, ref(1))
+	release()
+	b := w.batch()
+	r.poll(t)
+	if len(b.Items) != 2 || b.Counts.Dropped != 0 {
+		t.Errorf("items %d, dropped %d; log %q", len(b.Items), b.Counts.Dropped, w.log.String())
+	}
+	if calls := f.checked(); len(calls) != 1 {
+		t.Errorf("checked %v, want one", calls)
+	}
+}
+
+// SD5-r11 (n3d-D34): a group none of whose senders has budget left is answered forge-rate, with
+// no request.
+func TestSD5r11AGroupWithNoBudgetIsForgeRate(t *testing.T) {
+	w := newWorld(t)
+	f := newFakeForge(nil)
+	r, release := w.held(w.spentTeam(peer, f))
+	w.done(peer, ref(1))
+	w.done(peer, ref(1))
+	release()
+	b := w.batch()
+	r.poll(t)
+	if len(b.Items) != 0 || b.Counts.Dropped != 2 || w.log.count(": forge-rate") != 2 {
+		t.Errorf("items %d, dropped %d; log %q", len(b.Items), b.Counts.Dropped, w.log.String())
+	}
+	if calls := f.checked(); len(calls) != 0 {
+		t.Errorf("checked %v, want none", calls)
+	}
+}
+
+// SD5-r12 (n3d-D10): a check that made no request (refused by the budget) is not an answer, so
+// it does not make forge-login said again.
+func TestSD5r12ACheckWithNoRequestIsNotAnAnswer(t *testing.T) {
+	w := newWorld(t)
+	f := newFakeForge(nil)
+	f.answerAll(forgeAnswer{err: team.ErrForgeLogin})
+	r := w.startTeam(w.spentTeam(peer, f))
+	w.batch()
+	r.poll(t)
+	for i, from := range []string{coord, peer, coord} {
+		w.done(from, ref(i))
+		w.batch()
+		r.poll(t)
+	}
+	if n := w.log.count(": forge-rate"); n != 1 {
+		t.Errorf("the budget's refusal said %d times; log %q", n, w.log.String())
+	}
+	if n := w.log.count("forge-login"); n != 1 {
+		t.Errorf("forge-login said %d times; log %q", n, w.log.String())
 	}
 }

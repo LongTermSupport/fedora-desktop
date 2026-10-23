@@ -3,8 +3,10 @@ package teamsync
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
@@ -20,15 +22,18 @@ const (
 	forgeBudget   = 30 * time.Second
 )
 
-// forgeNews is what a batch's checks leave for link.log: a check the forge answered, and one
-// refused for want of a gh login.
+// forgeNews is what a batch's checks leave for link.log: a check the forge answered (one that
+// made a request; a cached or refused one shows nothing of the login), and one refused for want
+// of a gh login.
 type forgeNews struct{ answered, noLogin bool }
 
-// forgeChecked is one check's result: the drop reason, "" for proven.
+// forgeChecked is one check's result: the drop reason, "" for proven, and whether a sender's
+// budget was charged for it, which only a check about to make a request is.
 type forgeChecked struct {
-	i      int
-	reason string
-	err    error
+	i       int
+	reason  string
+	err     error
+	charged bool
 }
 
 // checkKey is a check's identity within a batch: the same reference, class and branches ask
@@ -62,12 +67,18 @@ func (s *spentChecks) spend(sender string, nowMs int64) bool {
 	return s.w.Admit(sender, proto.ForgeChecksPerSender, proto.ReceiveWindowMs, nowMs)
 }
 
+// spendAny charges one check to the first of senders with budget left; false when none has.
+func (s *spentChecks) spendAny(senders []string, nowMs int64) bool {
+	return slices.ContainsFunc(senders, func(sender string) bool { return s.spend(sender, nowMs) })
+}
+
 // forgeCheck is SD5's receive check (A 9.3 "every receiver before it delivers"): each delivered
 // verdict whose reference needs the forge is checked, concurrently, and one that does not
-// prove becomes a drop with proto's reason. Identical checks are asked once, charged to the
-// first one's sender (n3d-D31). A check still running when the budget ends is unresolved, and
-// each carries the budget as its bound, so no rate wait is slept past it. A Record answer is
-// never checked (n3d-D25).
+// prove becomes a drop with proto's reason. Identical checks are asked once (n3d-D31), charged
+// to a sender of the group with budget left, and the answer is every one's; a group none of
+// whose senders has budget is forge-rate with no request (n3d-D34). A check still running when
+// the budget ends is unresolved, and each carries the budget as its bound, so no rate wait is
+// slept past it. A Record answer is never checked (n3d-D25).
 func (t *Team) forgeCheck(ctx context.Context, f proto.Forge, vs []proto.Verdict) forgeNews {
 	groups := map[checkKey][]int{}
 	var need []int
@@ -88,7 +99,17 @@ func (t *Team) forgeCheck(ctx context.Context, f proto.Forge, vs []proto.Verdict
 	defer cancel()
 	budget, stop := t.cfg.Clock.Hold(forgeBudget)
 	defer stop()
-	reasons, news := collect(t.startChecks(ctx, f, vs, need), budget, need)
+	checks := make([]groupCheck, 0, len(need))
+	for _, first := range need {
+		var senders []string
+		for _, i := range groups[keyOf(*vs[first].Forge)] {
+			if s := vs[i].Event.Sender; !slices.Contains(senders, s) {
+				senders = append(senders, s)
+			}
+		}
+		checks = append(checks, groupCheck{first: first, need: *vs[first].Forge, senders: senders})
+	}
+	reasons, news := collect(t.startChecks(ctx, f, checks), budget, need)
 	for first, reason := range reasons {
 		if reason == "" {
 			continue
@@ -100,25 +121,37 @@ func (t *Team) forgeCheck(ctx context.Context, f proto.Forge, vs []proto.Verdict
 	return news
 }
 
-// startChecks runs the checks of need, forgeParallel at once, each sending its result; a check
-// still waiting for its turn when ctx ends is unresolved. The channel holds every result, so a
-// check that ends after the budget never blocks.
-func (t *Team) startChecks(ctx context.Context, f proto.Forge, vs []proto.Verdict, need []int) <-chan forgeChecked {
-	results := make(chan forgeChecked, len(need))
+// groupCheck is one check a batch asks: the first verdict of its group, what it checks, and the
+// group's distinct senders in order, any of whom it may be charged to.
+type groupCheck struct {
+	first   int
+	need    proto.ForgeCheck
+	senders []string
+}
+
+// startChecks runs checks, forgeParallel at once, each sending its result; a check still
+// waiting for its turn when ctx ends is unresolved. The channel holds every result, so a check
+// that ends after the budget never blocks.
+func (t *Team) startChecks(ctx context.Context, f proto.Forge, checks []groupCheck) <-chan forgeChecked {
+	results := make(chan forgeChecked, len(checks))
 	slots := make(chan struct{}, forgeParallel)
-	for _, i := range need {
-		check, sender := *vs[i].Forge, vs[i].Event.Sender
+	for _, c := range checks {
 		go func() {
 			select {
 			case slots <- struct{}{}:
 			case <-ctx.Done():
-				results <- forgeChecked{i: i, reason: proto.ReasonUnresolved, err: ctx.Err()}
+				results <- forgeChecked{i: c.first, reason: proto.ReasonUnresolved, err: ctx.Err()}
 				return
 			}
 			defer func() { <-slots }()
-			spend := func() bool { return t.spent.spend(sender, t.cfg.Clock.WallMS()) }
-			reason, err := t.checkOne(team.WithReceive(ctx, spend), check, f)
-			results <- forgeChecked{i: i, reason: reason, err: err}
+			var charged atomic.Bool
+			spend := func() bool {
+				ok := t.spent.spendAny(c.senders, t.cfg.Clock.WallMS())
+				charged.Store(ok)
+				return ok
+			}
+			reason, err := t.checkOne(team.WithReceive(ctx, spend), c.need, f)
+			results <- forgeChecked{i: c.first, reason: reason, err: err, charged: charged.Load()}
 		}()
 	}
 	return results
@@ -132,7 +165,7 @@ func collect(results <-chan forgeChecked, budget <-chan time.Time, need []int) (
 		select {
 		case r := <-results:
 			reasons[r.i] = r.reason
-			news.answered = news.answered || r.err == nil
+			news.answered = news.answered || (r.err == nil && r.charged)
 			news.noLogin = news.noLogin || errors.Is(r.err, team.ErrForgeLogin)
 		case <-budget:
 			for _, i := range need {

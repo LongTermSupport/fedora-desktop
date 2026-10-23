@@ -576,7 +576,8 @@ func (r *run) waitRate(ctx context.Context, h http.Header, rated int) error {
 }
 
 // mayAsk is a receive check's two bounds before a request (n3d-D31): the forge's rate window
-// down to the reserve kept for sends is forge-rate, and a sender past its budget unresolved.
+// down to the reserve kept for sends, and no sender with budget left (n3d-D34), are each
+// forge-rate.
 func (r *run) mayAsk() error {
 	switch {
 	case !r.receive:
@@ -588,7 +589,7 @@ func (r *run) mayAsk() error {
 	}
 	r.spent = true
 	if !r.spend() {
-		return outcome(proto.ReasonUnresolved)
+		return outcome(proto.ReasonForgeRate)
 	}
 	return nil
 }
