@@ -56,10 +56,10 @@
         - rebuild-user-font-cache
         - restart-programs-notice
 
-    # A system cache file other users cannot read is one a rebuild wrote under a restrictive
-    # umask (a run from a cc session before umask_pin, Plan 00185). fontconfig then reads each
-    # user's own, possibly stale, cache instead, so the caches are rebuilt, which rewrites
-    # every file under the pinned umask.
+    # A system cache file other users cannot read was written under a restrictive umask
+    # (ansible-umask-pinned in CLAUDE/QA.md). fontconfig then reads each user's own, possibly
+    # stale, cache instead, so the caches are rebuilt, which rewrites every file under the
+    # pinned umask.
     - name: Find the system font cache files
       ansible.builtin.find:
         paths: /usr/lib/fontconfig/cache

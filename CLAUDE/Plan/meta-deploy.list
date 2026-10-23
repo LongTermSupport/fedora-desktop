@@ -34,11 +34,18 @@
 # that is not an entry is a fatal error naming its line number.
 # Plan 00185, colour emoji in terminals (#60), again: the last run's fc-cache ran as root
 # under the cc session's umask 077 and left the system font cache 0600, so acceptance read a
-# stale user cache (6 of 17 checks failed). triage.bash first (read-only; now lists the cache
-# files this user cannot read), then deploy.bash re-runs play-fonts.yml: Ansible now runs
-# under umask 022 whatever shell started it (the umask_pin callback in ansible.cfg), and the
-# play sees the unreadable system cache files and rebuilds the system cache and this user's
-# own, which rewrites the damaged files 0644. Then acceptance.bash (18 checks: the 17 before,
-# plus that every system cache file is readable), and triage again. Close and reopen terminal
-# windows afterwards; the issue's printf in a new window is left for Plan 00219.
+# stale user cache (6 of 17 checks failed). triage.bash first (read-only; now lists the
+# system cache files this user cannot read, and files other plays write as root that this
+# user cannot read), then deploy.bash re-runs play-fonts.yml: Ansible now runs under umask
+# 022 whatever shell started it (the umask_pin callback in ansible.cfg), and the play sees
+# the unreadable system cache files and rebuilds the system cache and this user's own, which
+# rewrites the damaged files 0644. Then acceptance.bash (18 checks: the 17 before, plus that
+# every system cache file is readable), and triage again. It runs first so its triage sees
+# the damage before anything repairs it. Close and reopen terminal windows afterwards; the
+# issue's printf in a new window is left for Plan 00219.
 00185-terminal-emoji-glyphs
+# changed-plays: expected to pick up play-basic-configs.yml (yq and /etc/vimrc.local get an
+# explicit 0755 and 0644, repairing them if a run under a restrictive umask left them
+# root-only), plus any other play changed since it last ran here. play-fonts.yml has just
+# run above, so it is not run again.
+changed-plays

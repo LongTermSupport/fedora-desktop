@@ -530,8 +530,8 @@
         creates: /usr/bin/yq
       tags: yq
 
-    # `creates:` skips the install once the file exists, so the mode is set here too: an
-    # install run under a restrictive umask left it 0700 (Plan 00185, ansible-umask-pinned).
+    # `creates:` skips the install once the file exists, so the mode is enforced here on every
+    # run, whatever umask the install ran under (ansible-umask-pinned in CLAUDE/QA.md).
     - name: YQ is executable by every user
       become: true
       ansible.builtin.file:

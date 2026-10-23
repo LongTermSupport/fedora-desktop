@@ -11,8 +11,8 @@ Ansible loads its callbacks before it starts the first worker, and every task's 
 descends from the controller, so setting the umask here reaches every task, whichever
 launcher started the run: run.bash, a plan script, the self-update service or a bare
 `ansible-playbook`. `ansible.cfg` enables it; the rule `ansible-umask-pinned`
-(CLAUDE/QA.md) keeps it enabled, and tests/helpers/umask_pin/ proves it against the real
-Ansible.
+(CLAUDE/QA.md) keeps it enabled, and tests/umask_pin/ (scripts/test-umask-pin.bash) proves
+it against the real Ansible.
 """
 
 from __future__ import annotations

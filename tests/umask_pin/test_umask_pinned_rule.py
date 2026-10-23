@@ -15,9 +15,10 @@ reads code rather than running it, and reports:
 2. first-party code that sets `ANSIBLE_CALLBACKS_ENABLED` (or its old name
    `ANSIBLE_CALLBACK_WHITELIST`) without `umask_pin`, which replaces the list ansible.cfg gives;
 3. first-party code that sets `ANSIBLE_CALLBACK_PLUGINS` without a `callback_plugins`
-   directory, which replaces the directory the callback is loaded from.
+   directory, which replaces the directory the callback is loaded from;
+4. first-party code that sets `ANSIBLE_CONFIG` to a file that is not an `ansible.cfg`.
 
-Not caught: an `ANSIBLE_CONFIG` naming a configuration outside this repository, a run from a
+Not caught: an `ANSIBLE_CONFIG` naming an `ansible.cfg` outside this repository, a run from a
 directory with no ansible.cfg (whose plays then match no host), and a value built at run time
 in a variable whose assignment is on another line.
 """
@@ -33,9 +34,11 @@ import unittest
 
 RULE_ID = "ansible-umask-pinned"
 DOCS = 'CLAUDE/QA.md "ansible-umask-pinned"'
-REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 PIN = "umask_pin"
-#: Trees that are not this repository's code: vendored, daemon-owned or generated.
+#: Trees that are not this repository's code. Vendored and daemon-owned trees are replaced
+#: wholesale from upstream, untracked/ is never run from the checkout, and the scripts of an
+#: archived plan are not run (meta-deploy refuses a folder that has moved into Completed/).
 SKIPPED_PREFIXES = (
     "roles/vendor/",
     "src-go/vendor/",
@@ -44,22 +47,37 @@ SKIPPED_PREFIXES = (
     "CLAUDE/Plan/Completed/",
     "CLAUDE/Plan/Cancelled/",
 )
-#: This rule's own file, which names every pattern it looks for, and the end-to-end test's
-#: control run, which turns the pin off for an unprivileged probe writing into a scratch
-#: directory, so that the pin's absence is shown to reach the tasks.
-RULE_FILES = (
-    "tests/helpers/umask_pin/test_umask_pinned_rule.py",
-    "tests/helpers/umask_pin/test_umask_pin_against_real_ansible.py",
+#: This rule's own file, whose fixtures spell every pattern it looks for.
+SELF = "tests/umask_pin/test_umask_pinned_rule.py"
+#: The one line that turns the pin off: the end-to-end test's control run, an unprivileged
+#: probe writing into a scratch directory, which shows the pin's absence reaches the tasks.
+#: Matched as the whole line in that one file, so nothing else there is excused.
+CONTROL_RUN = (
+    "tests/umask_pin/test_umask_pin_against_real_ansible.py",
+    'modes = self._run({"ANSIBLE_CALLBACKS_ENABLED": "ansible.builtin.default"})',
 )
-#: Prose and data, where a name is never an assignment a process runs with.
-SKIPPED_SUFFIXES = (".md", ".json", ".txt", ".golden", ".tsv")
 
 #: An assignment of the variable, in the forms this repository's languages write it: bash
-#: `NAME=`, Go `"NAME=" +`, Python `env["NAME"] =` and `{"NAME": ...}`, YAML `NAME: ...`.
-#: `==` is a comparison and is not one.
+#: `NAME=`, Go `"NAME=" +`, Python `env["NAME"] =` and `{"NAME": ...}`, YAML `NAME: ...`,
+#: and a call that sets it (`setdefault`, `putenv`, Go `Setenv`). `==` is a comparison and a
+#: bare quoted name in a list is not one.
 _ASSIGN = r"[\"'\]]*\s*(?:=(?!=)|:(?!:))"
-CALLBACKS_ENABLED = re.compile(r"\bANSIBLE_CALLBACK(?:S_ENABLED|_WHITELIST)" + _ASSIGN)
-CALLBACK_PLUGINS = re.compile(r"\bANSIBLE_CALLBACK_PLUGINS" + _ASSIGN)
+_SETTER = r"\b(?:setdefault|putenv|Setenv|setenv)\(\s*[\"']"
+
+
+#: `<argv> | NAME=value` is how qa-changed's golden files render a recorded command's
+#: environment (src-go/qa/changed golden_test.go and Plan 00192's capture.py): text compared
+#: with text, never an environment a process is started with.
+_RENDERED = r"(?<!\| )"
+
+
+def _assignment(name: str) -> re.Pattern[str]:
+    return re.compile(rf"{_RENDERED}\b{name}{_ASSIGN}|{_SETTER}{name}[\"']")
+
+
+CALLBACKS_ENABLED = _assignment("ANSIBLE_CALLBACK(?:S_ENABLED|_WHITELIST)")
+CALLBACK_PLUGINS = _assignment("ANSIBLE_CALLBACK_PLUGINS")
+CONFIG = _assignment("ANSIBLE_CONFIG")
 
 
 def _finding(path: str, line: int, what: str) -> str:
@@ -100,6 +118,9 @@ def code_findings(path: str, text: str) -> list[str]:
         if CALLBACK_PLUGINS.search(line) and "callback_plugins" not in line:
             found.append(_finding(path, number, "sets the callback directories without the "
                                   "repository's callback_plugins"))
+        if CONFIG.search(line) and "ansible.cfg" not in line:
+            found.append(_finding(path, number, "sets ANSIBLE_CONFIG to a file that is not an "
+                                  "ansible.cfg, which this rule cannot judge"))
     return found
 
 
@@ -114,7 +135,7 @@ def _tracked_files() -> list[str]:
 def repo_findings() -> list[str]:
     found = []
     for path in _tracked_files():
-        if path.startswith(SKIPPED_PREFIXES) or path in RULE_FILES:
+        if path.startswith(SKIPPED_PREFIXES) or path == SELF:
             continue
         full = REPO_ROOT / path
         if not full.is_file() or full.is_symlink():
@@ -122,14 +143,23 @@ def repo_findings() -> list[str]:
         if pathlib.PurePath(path).name == "ansible.cfg":
             found.extend(config_findings(path, full.read_text(encoding="utf-8")))
             continue
-        if path.endswith(SKIPPED_SUFFIXES):
+        # Markdown is documentation: nothing here runs a .md file or starts a process with
+        # its text as the environment, and reports and docs quote the patterns on purpose.
+        if path.endswith(".md"):
             continue
         try:
             text = full.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             continue
-        found.extend(code_findings(path, text))
+        found.extend(code_findings(path, _without_control_run(path, text)))
     return found
+
+
+def _without_control_run(path: str, text: str) -> str:
+    """The text with the control run's one line blanked, keeping every other line number."""
+    if path != CONTROL_RUN[0]:
+        return text
+    return "\n".join("" if line.strip() == CONTROL_RUN[1] else line for line in text.splitlines())
 
 
 PINNED_CFG = textwrap.dedent(
@@ -170,6 +200,18 @@ class TestTheRuleFiresOnItsFixtures(unittest.TestCase):
             '{"ANSIBLE_CALLBACKS_ENABLED": "timer"}',
             '"ANSIBLE_CALLBACKS_ENABLED=" + names,',
             "      ANSIBLE_CALLBACKS_ENABLED: profile_tasks",
+            'os.environ.setdefault("ANSIBLE_CALLBACKS_ENABLED", "timer")',
+            "os.putenv('ANSIBLE_CALLBACK_WHITELIST', names)",
+            'os.Setenv("ANSIBLE_CALLBACKS_ENABLED", names)',
+        ):
+            with self.subTest(line=line):
+                self.assertEqual(len(code_findings("x", line)), 1)
+
+    def test_a_configuration_that_is_not_an_ansible_cfg(self) -> None:
+        for line in (
+            "ANSIBLE_CONFIG=/etc/ansible/site.conf ansible-playbook x.yml",
+            'env["ANSIBLE_CONFIG"] = other_config',
+            'os.environ.setdefault("ANSIBLE_CONFIG", path)',
         ):
             with self.subTest(line=line):
                 self.assertEqual(len(code_findings("x", line)), 1)
@@ -192,6 +234,8 @@ class TestTheRuleIsQuietWhereTheHazardIsAbsent(unittest.TestCase):
         for line in (
             "ANSIBLE_CALLBACKS_ENABLED=ansible.builtin.default,play_ledger,umask_pin",
             'paths["ANSIBLE_CALLBACK_PLUGINS"] = f"{clone}/callback_plugins:/usr/share/x"',
+            'export ANSIBLE_CONFIG="$REPO_ROOT/ansible.cfg"',
+            '"ANSIBLE_CONFIG=" + filepath.Join(root, "ansible.cfg"),',
         ):
             with self.subTest(line=line):
                 self.assertEqual(code_findings("x", line), [])
@@ -201,6 +245,7 @@ class TestTheRuleIsQuietWhereTheHazardIsAbsent(unittest.TestCase):
             'echo "callbacks=${given[ANSIBLE_CALLBACK_PLUGINS]}"',
             '"ANSIBLE_ACTION_PLUGINS", "ANSIBLE_CALLBACK_PLUGINS",',
             'if env["ANSIBLE_CALLBACKS_ENABLED"] == "x":',
+            'line += " | ANSIBLE_CONFIG=" + envOf(c.Env, "ANSIBLE_CONFIG")',
         ):
             with self.subTest(line=line):
                 self.assertEqual(code_findings("x", line), [])
@@ -216,6 +261,16 @@ class TestTheRepository(unittest.TestCase):
     def test_the_repository_config_is_read(self) -> None:
         """Control: a scan that never reaches ansible.cfg would report nothing, and prove nothing."""
         self.assertIn("ansible.cfg", _tracked_files())
+
+    def test_the_control_run_exclusion_excuses_its_one_line_and_nothing_else(self) -> None:
+        path, line = CONTROL_RUN
+        text = (REPO_ROOT / path).read_text(encoding="utf-8")
+        self.assertEqual([entry.strip() for entry in text.splitlines()].count(line), 1,
+                         "the control run's line moved: update CONTROL_RUN")
+        self.assertEqual(len(code_findings(path, text)), 1)
+        self.assertEqual(code_findings(path, _without_control_run(path, text)), [])
+        widened = text + "\n" + 'self._run({"ANSIBLE_CALLBACKS_ENABLED": "timer"})\n'
+        self.assertEqual(len(code_findings(path, _without_control_run(path, widened))), 1)
 
 
 if __name__ == "__main__":

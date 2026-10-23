@@ -9,6 +9,7 @@
 #   cache       fontconfig cache file ages against the emoji font files' mtimes
 #   mapped      the emoji font files each running terminal has mapped, (deleted) included
 #   settings    each terminal's font and renderer settings and the GPU renderer environment
+#   rootonly    files other plays write as root with no mode that this user cannot read
 #
 # Read-only: it reads files, /proc and the rpm database and runs fc-match, fc-list and each
 # terminal's --version. Each fact goes to stdout and is appended to the report. A probe that
@@ -185,7 +186,25 @@ probe_settings() {
     run "Mesa and GTK packages" rpm -q mesa-dri-drivers gtk4 gtk3 harfbuzz freetype cairo pango
 }
 
+# probe_rootonly — files other plays wrote as root with no explicit mode, which a run started
+# from a cc session (umask 077) may have left unreadable to this user (the searcher's H2 to
+# H7 in subagent-reports/261023-umask-independent-search.md). umask_pin stops new damage; this
+# shows whether old damage is there. A path the host does not have is reported as absent.
+probe_rootonly() {
+    local path
+    for path in /usr/bin/yq /etc/vimrc.local /opt/claude-devtools /var/lib/fedora-desktop/deploy \
+        /usr/local/share/fedora-desktop/ansible-collections /etc/dconf/db; do
+        if [[ ! -e "${path}" ]]; then
+            fact "- ${path}: absent on this host"
+            continue
+        fi
+        run "${path}: entries this user cannot read (mode, owner, path; none is healthy)" \
+            find "${path}" ! -readable -printf '%m %u %p\n'
+    done
+}
+
 case "${probe}" in
+    rootonly) probe_rootonly ;;
     terminal) probe_terminal ;;
     processes) probe_processes ;;
     fonts) probe_fonts ;;

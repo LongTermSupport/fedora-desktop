@@ -28,6 +28,7 @@ var addedAfterPort = []struct{ name, reason string }{
 	{"lxc-attach-file-stream", "Plan 00211, Defence Before Fix: no command reaching lxc-attach has a standard stream on a file, which lxc-attach hands to root"},
 	{"ccy-agent-choice", "Plan 00215: ccy --opencode runs opencode instead of Claude Code, its provider key handed by name to the container run only, and its own suite proves it"},
 	{"colour-emoji-fallback", "Plan 00185: the colour emoji fallback play-fonts.yml deploys, run through fontconfig against fixture fonts"},
+	{"ansible-umask-pinned", "Plan 00185, Defence Before Fix: every Ansible run is pinned to umask 022 by the umask_pin callback, proven against the real ansible-playbook"},
 }
 
 func isAddedAfterPort(name string) bool {

@@ -17,14 +17,11 @@ import os
 import shutil
 import stat
 import subprocess
-import sys
 import tempfile
 import textwrap
 import unittest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-
-REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 RESTRICTIVE = 0o077
 
 PLAYBOOK_TEXT = textwrap.dedent(

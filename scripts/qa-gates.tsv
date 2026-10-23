@@ -64,6 +64,7 @@ gate	ccy-ssh-handling	scripts/test-ccy-ssh-handling.bash	ccy ssh-handling unit t
 gate	ccy-git-signing	scripts/test-ccy-git-signing.bash	ccy commit-signing unit tests failed	count
 gate	git-signing-declared	scripts/test-git-signing-declared.bash	git signing gate tests failed	count
 gate	colour-emoji-fallback	scripts/test-colour-emoji-fallback.bash	colour emoji fallback tests failed	count
+gate	ansible-umask-pinned	scripts/test-umask-pin.bash	Ansible runs are not pinned to umask 022 (ansible-umask-pinned)	count
 gate	qa-tool-pin-converges	scripts/test-qa-tool-pin-converges.bash	QA tool pin convergence tests failed	count
 gate	ccy-browser-session-guard	scripts/test-agent-browser-session-guard.bash	ccy browser session guard unit tests failed	count
 gate	gh-scope-outside-ssot	scripts/qa-gh-scopes.bash	GitHub scopes named outside vars/github-required-scopes.yml	count

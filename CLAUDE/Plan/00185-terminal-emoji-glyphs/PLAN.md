@@ -136,12 +136,15 @@ and the hook stays the owner's call.
   [subagent-reports/261023-umask-dbf-report.md](subagent-reports/261023-umask-dbf-report.md)).
   The run started from a `cc` session, whose umask is 077, and Ansible's root `fc-cache -f`
   inherited it, so the system font cache came out 0600 and fontconfig read the desktop
-  user's stale cache. Defence: the rule `ansible-umask-pinned` (CLAUDE/QA.md). Fix: the
+  user's stale cache. Defence: the rule `ansible-umask-pinned` (CLAUDE/QA.md, gate
+  `scripts/test-umask-pin.bash`). Fix: the
   `umask_pin` callback, enabled in `ansible.cfg`, runs every Ansible run under 022, and
   `play-fonts.yml` rebuilds the system cache and the user's own when that file changes or
   when other users cannot read a system cache file, which repairs the damaged files on its
-  next run. `acceptance.bash` adds check 18 (every system cache file is readable) and triage
-  lists unreadable cache files. Open: the meta-deploy run.
+  next run; `play-basic-configs.yml` sets explicit modes on yq and `/etc/vimrc.local`.
+  `acceptance.bash` adds check 18 (every system cache file is readable); triage lists
+  unreadable cache files and root-written files of other plays this user cannot read.
+  Open: the meta-deploy run (this plan, then `changed-plays`).
 
 ## Success Criteria
 

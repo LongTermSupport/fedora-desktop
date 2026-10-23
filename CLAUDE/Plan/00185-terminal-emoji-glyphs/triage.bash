@@ -8,10 +8,13 @@
 #     font a user directory adds;
 #   - the fontconfig fallback chain for emoji (fc-match -s emoji, fc-match and fc-list for
 #     each code point of the issue), the fontconfig config files that mention emoji;
-#   - the fontconfig cache ages against the emoji font file's mtime;
+#   - the fontconfig cache ages against the emoji font file's mtime, and the system cache
+#     files this user cannot read;
 #   - which emoji font file each running terminal has mapped, and whether that mapping is
 #     marked (deleted), meaning the font was replaced under the running process;
-#   - the font and renderer settings of each terminal (GPU renderer environment, configs).
+#   - the font and renderer settings of each terminal (GPU renderer environment, configs);
+#   - files other plays write as root with no explicit mode that this user cannot read (a
+#     run started from a cc session, umask 077, before the umask_pin callback).
 # Fact-finding only: it renders no verdict (PlanScriptStandards R9). The probes are in
 # triage-probe.bash beside this script.
 #
@@ -77,6 +80,7 @@ plan_gather_leg "fontconfig fallback for emoji" bash "${PROBE}" fontconfig "${RE
 plan_gather_leg "fontconfig cache ages" bash "${PROBE}" cache "${REPORT}"
 plan_gather_leg "emoji fonts mapped by running terminals" bash "${PROBE}" mapped "${REPORT}"
 plan_gather_leg "terminal font and renderer settings" bash "${PROBE}" settings "${REPORT}"
+plan_gather_leg "root-written files this user cannot read" bash "${PROBE}" rootonly "${REPORT}"
 
 printf '\n==> READ THIS FOR the cause: "emoji fonts mapped by running terminals" (a (deleted)\n'
 printf '    mapping or two different emoji files), then the install time in "emoji font packages\n'
