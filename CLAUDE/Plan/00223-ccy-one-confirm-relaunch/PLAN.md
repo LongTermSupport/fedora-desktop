@@ -1,6 +1,6 @@
 # Plan 00223: ccy one confirm relaunch
 
-**Status**: Not Started (plan only; decisions C1-C20 open, coordinator defaults stated)
+**Status**: Not Started (plan only; decisions C1-C21 open, coordinator defaults stated)
 **Created**: 2026-10-23
 **Owner**: joseph
 **Priority**: Medium
@@ -81,7 +81,7 @@ Every build task is test first: the failing test is committed or shown before th
 
 ### Phase 0: Decisions and base
 
-- [ ] ⬜ **Task 0.1**: The owner answers C1-C20, or the defaults stand; record each in the
+- [ ] ⬜ **Task 0.1**: The owner answers C1-C21, or the defaults stand; record each in the
   journal and adjust the tasks.
 - [ ] ⬜ **Task 0.2**: Hard gate: the token-usage gate is merged into F44 and this branch is
   rebased or merged onto it. Re-read its final `TokenUsability` signature and exit codes; test
@@ -154,7 +154,9 @@ Every build task is test first: the failing test is committed or shown before th
   saved seats, with a named team that has no saved seat, and with no saved file (the moved
   block before tmux, P0 given canonical seats); the saved file rewritten while the screen is
   open (the stamp differs: the inner run stops, C17); `Answer every question again` (no
-  `using the previous configuration` line, C18); `ccy --engine docker` (the screen given it); saved teams with plain `ccy`; `Answer every question again` with teams and its `No team`; `--create-token` and `--update-token` with a saved file (no
+  `using the previous configuration` line, C18); `ccy --engine docker` (the screen given it); `ccy --debug` with the ccy layer, plain and with
+  bare `--teams` (the screen and the chooser drawn on the terminal, the launch attended, C21);
+  the saved file deleted between the screen and the inner run (stops, C17); saved teams with plain `ccy`; `Answer every question again` with teams and its `No team`; `--create-token` and `--update-token` with a saved file (no
   screen, the `Token mode` reason, C16); `--teams=SEAT@TEAM` and
   `--teams SEAT@TEAM` given (no stray word in the re-exec's arguments); a 75 from `seat take`
   refused as today (C9); `Answer every question again` with `--no-bus` (saved team kept); a
@@ -169,10 +171,14 @@ Every build task is test first: the failing test is committed or shown before th
   branch of the Quick Launch block removed; the screen's call before 1195 under the conditions
   of DESIGN 2.1, with `load_launch_config` called there and line 1201 moved above it, and the
   `case` on `run` (hand-off and exec), `attach` and `quit`; the 892-899 block moved to just
-  after the screen's place, with the modes that exit between 892 and 1195 listed from the code
-  and journalled first (DESIGN 2.3); parsing and checking `--settled` and its stamp (C17), its
-  `quick_unasked` line (C18) and the `ask` skip, the token modes' `elif`, the in-place changes
-  at 875-876, 1271, 1281 and 1293; the Q3 skip. No new function. In `lib/session-registry.bash`, `--settled=` in the `drop` case pattern and
+  after the screen's `case`, unguarded, with the modes that exit between 892 and 1195 and the
+  later team-typo report listed from the code and journalled first, and the comment at 857-868
+  rewritten to say where the step runs (DESIGN 2.3); parsing and checking `--settled` and its
+  stamp, a missing or refused file under `--settled` stopping as a difference (C17), its
+  `quick_unasked` line (C18) and the `ask` skip, the token modes' `elif`, `CCY_ATTENDED`
+  computed once at 870 and read at 875-876, by the screen and at 1271, `CCY_TTY_FD` kept by the
+  1090 `exec` and used by the screen and 878 (C21), the in-place changes at 1281 and 1293; the
+  Q3 skip. No new function. In `lib/session-registry.bash`, `--settled=` in the `drop` case pattern and
   `--settled` in `CCY_REGISTRY_DROP_FLAGS` (a restart drops it through the same classes), with
   `scripts/test-ccy-session-registry.bash` passing and a case for both forms. If the counts
   would grow, DESIGN 2.4's C15 applies. The
@@ -223,6 +229,7 @@ All are coordinator defaults; **the owner may change any of them**.
 | C18 | What `--settled` sets in the block                    | coordinator default the owner can change: only `launch` and `token` set `quick_unasked`; `ask` prints today's `n` words and no `using the previous configuration` line (DESIGN 2.1)                                                                                                                                                                               |
 | C19 | The screen's container engine                         | coordinator default the owner can change: the bash passes `--engine "$CONTAINER_ENGINE"` (DESIGN R16)                                                                                                                                                                                                                                                             |
 | C20 | Testing the attended paths                            | coordinator default the owner can change: a test-first terminal mode in the difftest harness (Task 3.0), with a `script -q` bash suite as the fallback                                                                                                                                                                                                            |
+| C21 | `--debug` and the terminal tests                      | coordinator default the owner can change: the attended test is computed once, before 1090's redirect, and read at 875-876, by the screen and at 1271; the screen and the chooser draw on the terminal kept by the 1090 `exec` (DESIGN 2.1)                                                                                                                        |
 
 ## Success Criteria
 

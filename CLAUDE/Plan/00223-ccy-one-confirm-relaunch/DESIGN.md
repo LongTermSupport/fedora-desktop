@@ -91,10 +91,26 @@ one of those as today, attended and on restore.
   that exits without a session has returned above, per the comment at 1184-1186); attended by
   `ccy_launch_teams`'s own test (875-876: `ccy_nobody_to_ask` false, stderr a terminal,
   `CCY_SESSION_RESTORE` empty, `CCY_RESTART_RELAUNCH_SESSION` empty; `SESSION_RESTORE` and
-  `CCY_UNATTENDED_LAUNCH` are derived later, 1208-1223, and are not used here); no launch-choice
+  `CCY_UNATTENDED_LAUNCH` are derived later, 1208-1223, and are not used here). That test is
+  computed **once**, into `CCY_ATTENDED`, at top level just before `ccy_launch_teams` is
+  defined (870), which is before `--debug`'s redirect at 1090; `ccy_launch_teams`, the screen's
+  guard and the 1271 check all read the variable, never `-t` again (decision C21, below); no launch-choice
   flag (the 1237-1239 test); no `--settled`; and `load_launch_config` accepts the saved file. That
   call moves here from 1243 for this path. When the file is missing or refused, its warning and
   deletion happen here once, and the inner run finds no file, as today's second look would.
+  A "DEVELOPER ERROR ... without version bump" box from `load_launch_config` (579-591) is then
+  printed twice, once at the screen's place and once in the pane; accepted, because it is a
+  developer's case and each copy is true where it is shown.
+- **`--debug`** (decision C21, coordinator default the owner can change): with the ccy layer
+  on, 1090 re-points stdout and stderr through `tee` into the debug log, so after 1090 neither is
+  a terminal. Today's attended steps all ran before 1090 (the team step at 892) or read a
+  terminal stdin (Q1). Under this design the screen and the moved team step run after 1090, so
+  they need the real terminal. Two in-place changes, no line added: the attended test is the
+  variable computed before 1090 (above), and the 1090 `exec` also keeps the terminal on a spare
+  descriptor (`{CCY_TTY_FD}>&2` in the same `exec`). The screen's call and the chooser call at
+  878 send their stderr there (`2>&"${CCY_TTY_FD:-2}"`), so they draw on the terminal and their
+  drawing is not in the debug log; the answer on stdout is captured as before. Without
+  `--debug` the descriptor is unset and stderr is used as today.
 - **The session name** (R11): line 1201 (`CCY_SESSION_NAME=$(ccy_tmux_current_session)`) moves
   above 1195. It reads only `TMUX`, `TMUX_PANE` and the two pids (`lib/tmux-session.bash:474-480`),
   nothing 1195-1198 sets, so it is the same value at either place. It is non-empty only for the
@@ -140,7 +156,11 @@ one of those as today, attended and on restore.
     passes the screen the file's modification time in nanoseconds (`stat -c %.9Y`, taken right
     after the screen-place `load_launch_config`) as `--saved-stamp`, the screen writes it into
     `--settled=launch:STAMP` or `token:STAMP`, and the inner run, after its own
-    `load_launch_config` in the block, compares it with the file's and on a difference stops
+    `load_launch_config` in the block, compares it with the file's and on a difference stops.
+    A file that is missing or refused in the inner run (another launch's `load_launch_config`
+    deleted it, 546-548, 563, 572) counts as a difference too: under `--settled=launch` or
+    `token` the `else` of the 1243 `if` stops with the same words rather than falling into the
+    full questions. The run stops
     (exit 1): `The saved launch settings changed after the Quick Launch screen (another launch here saved its own); run ccy again to see them.` Fail fast, not a silent switch to settings
     nobody saw. `ask` applies nothing saved, so it carries no stamp.
   - `launch`: the Quick Launch block runs with the answer already given: the elif chain at
@@ -261,8 +281,10 @@ one of those as today, attended and on restore.
   outer run shows no screen (875-876's test), insulation still runs (it tests stdin and stdout
   only, `lib/tmux-session.bash:360-365`), and the inner run, in the pane with all three on
   terminals, shows the screen there, recording its seats as 2.1 says. Without insulation (stdout
-  not a terminal either) `ccy_nobody_to_ask`'s sibling test `[ ! -t 2 ]` joins the 1271 branch:
-  the saved settings without the team, as end of input does today (decision C14).
+  not a terminal either) 1271's `ccy_nobody_to_ask` becomes `[ "$CCY_ATTENDED" != true ]`
+  (C21), which also covers stderr: the saved settings without the team, as end of input does
+  today (decision C14). Under `--debug` the variable was computed before 1090, so a launch on a
+  terminal stays attended.
 
   **The invariant** that removing the read needs: every launch that reaches the block with a
   loaded file now carries `--settled` or gets an unasked reason from the chain (1268-1273).
@@ -338,9 +360,12 @@ one of those as today, attended and on restore.
 
 - **Moved, not copied.** The 892-899 block (`ccy_launch_teams` and the canonical-args step)
   moves, unchanged, to just after the screen's place, for every `--teams` launch (one copy
-  instead of two, 2.4). It then runs once, after the screen, whenever there was no `run` answer: no
-  screen for any reason (unattended, a token mode, a choice flag, no saved file, the inner run
-  of a screen) or a screen that was not shown. This is still before tmux, so the tmux re-exec,
+  instead of two, 2.4). It follows the screen's `case` with no guard of its own: `run` execs,
+  and `attach` and `quit` exit, so the block is reached only when no screen ran (unattended, a
+  token mode, a choice flag, no saved file, the inner run of a screen). The team step now comes
+  after the flag checks and `--debug`'s prompt (945-1093), so a seat or team typo is reported
+  after them; the comment at 857-868 ("before any prompt, SSH or token work") is rewritten to
+  say where it runs now, and the order change is journalled with the exiting modes (Task 3.2). This is still before tmux, so the tmux re-exec,
   P0 and a restart see the canonical list as today. No deferral test is needed, and no saved
   file is read before the screen's place. Nothing between 892 and 1195 reads `CCY_SEATS`,
   `TEAMS_LIST` or `CCY_ORIG_ARGS` (checked in round 5). What changes is that a mode that exits
@@ -396,22 +421,22 @@ unasked message (1280-1281, 1283); the yes body (1288-1299, 1306-1317); the head
 (1336-1341); `load_launch_config` (529-593), now also called at the screen's place; the
 container preflight block, unmoved (R12); P0 (`lib/tmux-session.bash`, unchanged).
 
-**Changed in place, no line added:** 1271 gains `[ ! -t 2 ]` (C14); 1281's team clause is left
-out under `--settled`; 1293 leaves the token empty under `--settled=token`; line 1201 moves
-above 1195; the 892-899 block moves, unchanged, to just after the screen's place (2.3);
-875-876's attended test is computed once, before `ccy_launch_teams`, into a variable that
-`ccy_launch_teams` and the screen's guard both read (the same two lines, moved).
+**Changed in place, no line added:** 1271 reads `CCY_ATTENDED` (C14, C21); 1281's team clause
+is left out under `--settled`; 1293 leaves the token empty under `--settled=token`; line 1201
+moves above 1195; the 892-899 block moves, unchanged, to just after the screen's `case` (2.3);
+875-876's attended test is computed once, at 870, into `CCY_ATTENDED` (the same two lines,
+moved); the 1090 `exec` keeps the terminal on `CCY_TTY_FD`, and 878's chooser call sends its
+stderr there (C21).
 
-**New in bash:** the screen's call before 1195 and the moved block's "no `run` answer" guard,
-its `case` on `run`, `attach` and `quit`, and the hand-off and exec (2.1); parsing `--settled`
+**New in bash:** the screen's call before 1195, its `case` on `run`, `attach` and `quit`, and the hand-off and exec (2.1); parsing `--settled`
 and its check; the stamp taken, passed and compared (C17); `--settled` setting `quick_unasked`
 after the chain (C18); the `ask` skip of the yes body; the token modes' `elif` (C16); the Q3
 skip at 1859.
 
 **Estimate** (counted lines, the gate's measure: no blank lines, no whole-line comments). Leaves:
 about 25 (loop and read 3, the `case` frame and `unasked` 7, the `n` branch 5, the invalid
-branch 4, the join 6). New: about 24 (the screen's call, the moved block's guard and the
-`case` with hand-off, exec, attach and quit 11, `--settled` parse and check 3, the stamp 3, the
+branch 4, the join 6). New: about 24 (the screen's call and the `case` with hand-off,
+exec, attach and quit 10, the missing-file stop under `--settled` 1, `--settled` parse and check 3, the stamp 3, the
 `quick_unasked` line 1, the `ask` skip with its `else` and message 4, the token modes' `elif`
 1, the Q3 skip 1). There is no R19 retry (C9) and no copy of the 892 block (2.3). That is
 level, with little margin, so the estimate is not the criterion. The criterion is the ratchet's own: `claude-yolo`'s
