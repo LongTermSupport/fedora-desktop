@@ -1,6 +1,6 @@
 # Plan 00223: ccy one confirm relaunch
 
-**Status**: Not Started (plan only; decisions C1-C21 open, coordinator defaults stated)
+**Status**: Not Started (plan only; decisions C1-C22 open, coordinator defaults stated)
 **Created**: 2026-10-23
 **Owner**: joseph
 **Priority**: Medium
@@ -81,7 +81,7 @@ Every build task is test first: the failing test is committed or shown before th
 
 ### Phase 0: Decisions and base
 
-- [ ] ⬜ **Task 0.1**: The owner answers C1-C21, or the defaults stand; record each in the
+- [ ] ⬜ **Task 0.1**: The owner answers C1-C22, or the defaults stand; record each in the
   journal and adjust the tasks.
 - [ ] ⬜ **Task 0.2**: Hard gate: the token-usage gate is merged into F44 and this branch is
   rebased or merged onto it. Re-read its final `TokenUsability` signature and exit codes; test
@@ -156,7 +156,10 @@ Every build task is test first: the failing test is committed or shown before th
   open (the stamp differs: the inner run stops, C17); `Answer every question again` (no
   `using the previous configuration` line, C18); `ccy --engine docker` (the screen given it); `ccy --debug` with the ccy layer, plain and with
   bare `--teams` (the screen and the chooser drawn on the terminal, the launch attended, C21);
-  the saved file deleted between the screen and the inner run (stops, C17); saved teams with plain `ccy`; `Answer every question again` with teams and its `No team`; `--create-token` and `--update-token` with a saved file (no
+  the saved file deleted between the screen and the inner run (stops, C17); `ccy --debug` at
+  layers 1, 2 and 3 through the screen's `run` (the debug questions asked once, one `tee` and
+  one log, the re-run attended, C22); the hand-off variables given without `--settled`
+  (refused, exit 64); saved teams with plain `ccy`; `Answer every question again` with teams and its `No team`; `--create-token` and `--update-token` with a saved file (no
   screen, the `Token mode` reason, C16); `--teams=SEAT@TEAM` and
   `--teams SEAT@TEAM` given (no stray word in the re-exec's arguments); a 75 from `seat take`
   refused as today (C9); `Answer every question again` with `--no-bus` (saved team kept); a
@@ -177,7 +180,8 @@ Every build task is test first: the failing test is committed or shown before th
   stamp, a missing or refused file under `--settled` stopping as a difference (C17), its
   `quick_unasked` line (C18) and the `ask` skip, the token modes' `elif`, `CCY_ATTENDED`
   computed once at 870 and read at 875-876, by the screen and at 1271, `CCY_TTY_FD` kept by the
-  1090 `exec` and used by the screen and 878 (C21), the in-place changes at 1281 and 1293; the
+  1090 `exec` and used by the screen and 878 (C21), the re-exec's debug and attended hand-off
+  read and unset at the start, with 1036, 1074 and 1090 taking it (C22), the in-place changes at 1281 and 1293; the
   Q3 skip. No new function. In `lib/session-registry.bash`, `--settled=` in the `drop` case pattern and
   `--settled` in `CCY_REGISTRY_DROP_FLAGS` (a restart drops it through the same classes), with
   `scripts/test-ccy-session-registry.bash` passing and a case for both forms. If the counts
@@ -230,6 +234,7 @@ All are coordinator defaults; **the owner may change any of them**.
 | C19 | The screen's container engine                         | coordinator default the owner can change: the bash passes `--engine "$CONTAINER_ENGINE"` (DESIGN R16)                                                                                                                                                                                                                                                             |
 | C20 | Testing the attended paths                            | coordinator default the owner can change: a test-first terminal mode in the difftest harness (Task 3.0), with a `script -q` bash suite as the fallback                                                                                                                                                                                                            |
 | C21 | `--debug` and the terminal tests                      | coordinator default the owner can change: the attended test is computed once, before 1090's redirect, and read at 875-876, by the screen and at 1271; the screen and the chooser draw on the terminal kept by the 1090 `exec` (DESIGN 2.1)                                                                                                                        |
+| C22 | `--debug` across the screen's re-exec                 | coordinator default the owner can change: the outer run hands `CCY_ATTENDED`, the layer answer, `DEBUG_LOG` and `CCY_TTY_FD` to the re-run in the `exec`'s environment, as the token hand-off crosses it; the re-run reads and unsets them, asks no debug question again and starts no second `tee` (DESIGN 2.1)                                                  |
 
 ## Success Criteria
 

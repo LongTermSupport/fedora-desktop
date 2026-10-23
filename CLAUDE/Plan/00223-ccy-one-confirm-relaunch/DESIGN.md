@@ -112,6 +112,20 @@ one of those as today, attended and on restore.
   878 send their stderr there (`2>&"${CCY_TTY_FD:-2}"`), so they draw on the terminal and their
   drawing is not in the debug log; the answer on stdout is captured as before. Without
   `--debug` the descriptor is unset and stderr is used as today.
+- **Across the screen's re-exec** (decision C22, coordinator default the owner can change): the
+  answer's list keeps `--debug`, so the re-run would ask the layer and confirm questions again
+  (1036, 1074), start a second `tee` and log at 1090, and, on layer 1, compute `CCY_ATTENDED`
+  from the `tee` pipe as false. So the outer run hands its results over in the environment of
+  the `exec` itself, as the GitHub token's `CCY_GH_TOKEN_HANDOFF` crosses it: `CCY_ATTENDED`,
+  and with `--debug` the layer answer, `DEBUG_LOG` and `CCY_TTY_FD` (the descriptor stays open
+  across `exec`). The re-run reads them once at the start and unsets them, as
+  `CCY_SESSION_RESTORE` is read and unset (1208-1217), so nothing the run starts, tmux
+  included, inherits them; they are refused (exit 64) without `--settled`, the only argument
+  that comes with them. With them: 870 takes `CCY_ATTENDED` as given; 1036 takes the layer
+  answer and 1074 is not asked; 1090 starts no `tee` and keeps the inherited pipe and log, so
+  one debug log holds both runs. All in place (the assignment at 870, the `read`s and the 1090
+  condition), plus the read-and-unset line and its `--settled` check (2 new lines). After
+  insulation the tmux inner run is a fresh start and behaves as today.
 - **The session name** (R11): line 1201 (`CCY_SESSION_NAME=$(ccy_tmux_current_session)`) moves
   above 1195. It reads only `TMUX`, `TMUX_PANE` and the two pids (`lib/tmux-session.bash:474-480`),
   nothing 1195-1198 sets, so it is the same value at either place. It is non-empty only for the
@@ -436,11 +450,13 @@ skip at 1859.
 
 **Estimate** (counted lines, the gate's measure: no blank lines, no whole-line comments). Leaves:
 about 25 (loop and read 3, the `case` frame and `unasked` 7, the `n` branch 5, the invalid
-branch 4, the join 6). New: about 24 (the screen's call and the `case` with hand-off,
-exec, attach and quit 10, the missing-file stop under `--settled` 1, `--settled` parse and check 3, the stamp 3, the
-`quick_unasked` line 1, the `ask` skip with its `else` and message 4, the token modes' `elif`
-1, the Q3 skip 1). There is no R19 retry (C9) and no copy of the 892 block (2.3). That is
-level, with little margin, so the estimate is not the criterion. The criterion is the ratchet's own: `claude-yolo`'s
+branch 4, the join 6). New: about 26 (the screen's call and the `case` with hand-off,
+exec, attach and quit 10, the missing-file stop under `--settled` 1, `--settled` parse and
+check 3, the stamp 3, the `quick_unasked` line 1, the `ask` skip with its `else` and message 4,
+the token modes' `elif` 1, the Q3 skip 1, the re-exec hand-off's read-and-unset and check 2,
+C22). There is no R19 retry (C9) and no copy of the 892 block (2.3). That is about 1 over, inside
+the estimate's error, so C15's first shrink (below) is expected to be used; the estimate is
+not the criterion. The criterion is the ratchet's own: `claude-yolo`'s
 counted lines, statements and functions **do not grow**, and the allowlist row is set to what
 the gate measures after the change.
 
