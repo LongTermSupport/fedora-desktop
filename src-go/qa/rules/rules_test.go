@@ -65,6 +65,10 @@ func TestFakeClockCount(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), FakeClockCount, "fix/internal/fakeclock", "fix/internal/othertimers", "fix/internal/badcount")
 }
 
+func TestGoroutineEnd(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), GoroutineEnd, "fix/internal/badgo")
+}
+
 func TestWaitDelay(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), WaitDelay, "fix/internal/badwait")
 }
@@ -84,8 +88,8 @@ func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 9 {
-		t.Fatalf("want 9 rules, got %d", got)
+	if got := len(All()); got != 10 {
+		t.Fatalf("want 10 rules, got %d", got)
 	}
 }
 

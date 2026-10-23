@@ -33,17 +33,18 @@ and the per-rule pages are not written; this catalogue stands in for them.
 
 ## The rules
 
-| Rule                      | Defect class                                                                                                                                 | Found in                                                                        |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `project_seam_exec`       | a process started outside the runner, so no fake sees it                                                                                     | `teams`: `syscall.Exec` in the launcher hand-over                               |
-| `project_seam_commands`   | a program run outside the package that owns it, or a command the rule cannot judge (run-time name, hidden wrapper argv, shell `-c`)          | `sessions`: `systemctl reboot`; `teams`: the take-down heading via `gum style`  |
-| `project_tmux_targets`    | a tmux `-t` target in the wrong form for its command (fedora-desktop#69)                                                                     | the bash library, before the port                                               |
-| `project_testclock`       | wall-clock reads in tests (date-dependent tests failed in the hour after midnight)                                                           | `transcript` and `sessprobe` tests: 23 `time.Now()` fixtures                    |
-| `project_waitdelay`       | a function that sets `exec.Cmd.WaitDelay` and never names `exec.ErrWaitDelay`, so a finished command's output is dropped                     | `qa/internal/proc`: bug B25 of the qa-all port                                  |
-| `project_package_tests`   | a package with no `_test.go` file, whose code the module-wide coverage floor can hide behind the rest of the module                          | the old Go gate's every-package-has-tests check, kept when go-qa-ci replaced it |
-| `project_homeabbrev`      | a hand-rolled `~` home abbreviation (a bare prefix replace turned `/home/<user>X` into `~X`)                                                 | `teams` tests: `strings.Replace(..., "~", 1)` twice                             |
-| `project_hidden_bindings` | an action reachable only by a key, with no visible, named choice for it (also in shell fzf and Python Textual: `qa-hidden-bindings.bash`)    | `teams` picker: Ctrl-A/X/O on Running sessions; `ccy-sessions`: Ctrl-T/X/N      |
-| `project_fakeclock_count` | a test that waits on a fake clock by the number of armed waiters, which a timer it did not mean can make, so it advances too early and hangs | `link` tests: `TestAnOpBeforeThePIDIsNotAnswered` hung to the 10-minute timeout |
+| Rule                      | Defect class                                                                                                                                 | Found in                                                                         |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `project_seam_exec`       | a process started outside the runner, so no fake sees it                                                                                     | `teams`: `syscall.Exec` in the launcher hand-over                                |
+| `project_seam_commands`   | a program run outside the package that owns it, or a command the rule cannot judge (run-time name, hidden wrapper argv, shell `-c`)          | `sessions`: `systemctl reboot`; `teams`: the take-down heading via `gum style`   |
+| `project_tmux_targets`    | a tmux `-t` target in the wrong form for its command (fedora-desktop#69)                                                                     | the bash library, before the port                                                |
+| `project_testclock`       | wall-clock reads in tests (date-dependent tests failed in the hour after midnight)                                                           | `transcript` and `sessprobe` tests: 23 `time.Now()` fixtures                     |
+| `project_waitdelay`       | a function that sets `exec.Cmd.WaitDelay` and never names `exec.ErrWaitDelay`, so a finished command's output is dropped                     | `qa/internal/proc`: bug B25 of the qa-all port                                   |
+| `project_package_tests`   | a package with no `_test.go` file, whose code the module-wide coverage floor can hide behind the rest of the module                          | the old Go gate's every-package-has-tests check, kept when go-qa-ci replaced it  |
+| `project_homeabbrev`      | a hand-rolled `~` home abbreviation (a bare prefix replace turned `/home/<user>X` into `~X`)                                                 | `teams` tests: `strings.Replace(..., "~", 1)` twice                              |
+| `project_hidden_bindings` | an action reachable only by a key, with no visible, named choice for it (also in shell fzf and Python Textual: `qa-hidden-bindings.bash`)    | `teams` picker: Ctrl-A/X/O on Running sessions; `ccy-sessions`: Ctrl-T/X/N       |
+| `project_fakeclock_count` | a test that waits on a fake clock by the number of armed waiters, which a timer it did not mean can make, so it advances too early and hangs | `link` tests: `TestAnOpBeforeThePIDIsNotAnswered` hung to the 10-minute timeout  |
+| `project_goroutine_end`   | a goroutine that signals no end, so no owner can wait for it, and a stop missed on one path leaks it for the life of the process             | `link`: `go l.read()`, about 145 control readers left blocked in one test binary |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -259,6 +260,29 @@ fake's present reading is armed: the timer named by when it is due.
 - Not caught: a count read into a variable and polled by a helper that takes the `int`, and a
   fake whose advance is spelled otherwise; two timers due at the same instant are one to
   `AwaitDue`.
+
+### project_goroutine_end
+
+A `go` statement outside a `_test.go` file whose goroutine signals no end. Its body (a function
+literal, or a function or method of the same package, generic ones by their origin) signals its
+end when it defers `close(ch)`, a `Done()` with no parameter and no result (a WaitGroup's; a
+context's `Done` returns a channel and is not one) or a function literal that closes, sends or
+calls such a `Done`; or when its last statement is such a close, `Done` or send and nothing in
+the body returns before it; or when the body is one call of a function that signals its end.
+A call of another package's function, or of a function value, is flagged: its end cannot be
+seen. A goroutine that signals no end cannot be waited for, so nothing proves it stopped, and
+a stop missed on one path leaks it for the life of the process with what it holds.
+
+- Red, fixture: `testdata/src/fix/internal/badgo` (the originating reader stopped by a channel
+  only the success path closes, a drain loop, another package's function, a final send an early
+  return skips, a function value, a deferred call that is not a signal, a wrapper of an unowned
+  body; a deferred close, a deferred `wg.Done`, a final send of a result, an owned method
+  started directly and through a wrapper, a WaitGroup's `Go`, a deferred literal that closes, a
+  final close, a generic function, and a `_test.go` goroutine clean).
+- Red, real tree: 15 findings (the same untagged, with `busfailpoints` and with `tuwunel`; none
+  in the nested `qa` module).
+- Not caught: an end signalled and never awaited, or awaited on only some of the owner's paths;
+  `time.AfterFunc` and `context.AfterFunc` callbacks, and goroutines started in tests.
 
 ### project_hidden_bindings
 
