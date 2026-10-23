@@ -410,6 +410,17 @@ guessing; the catalogue claims no more than the code does.
   check against a real sudoers file. A known gap: a passing `sudo -n true` shows that `true` runs
   unprompted, not the commands after it, so a host whose NOPASSWD entries cover `true` but not
   the tools would skip the prompt and then fail.
+- **A test that reads state a live goroutine of the code under test may still change** (Plan
+  00209 n3e: `TestBeginRunReturnsAnEarlierRunsEntries` read the store after `BeginRun` woke a
+  delivery loop able to hand the items out; three more in `wiring` and `keeper`, where the test
+  waited on a log line or a client's exit that comes before the effect it then read). Whether
+  the read races depends on what is live at that moment (session facts told, a roster verified,
+  items deliverable, a timer handed to another goroutine), which no syntax tree shows: every
+  shape a rule could match also matches the many reads that are ordered. What holds it instead:
+  a test waits on the effect itself (`until`, `eventually`, a failpoint hook that parks the loop
+  while the test reads), never on a signal the code gives before the effect; and the race only
+  shows under load, so a suspect test is run shuffled, `-cpu 1,2,4`, many times, beside a loop
+  of other tests.
 
 ## Control
 

@@ -187,9 +187,8 @@ func TestOwedNotice(t *testing.T) {
 	w.ready(l)
 	w.advance(1, owedWait-time.Second)
 	w.logged("the leave notice was not posted in time")
-	if w.held(alpha) {
-		t.Fatal("the seat is held after the notice's 30 s")
-	}
+	// The timer logs before it drops the seat.
+	w.eventually("the seat let go after the notice's 30 s", func() bool { return !w.held(alpha) })
 	c.code(0)
 	ended(t, l, res, wire.EndExit, 0, 0)
 }

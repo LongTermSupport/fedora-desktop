@@ -628,8 +628,20 @@ func TestBeginRunReturnsAnEarlierRunsEntries(t *testing.T) {
 	crashed.add(a, encodeStore(t, before))
 	check(t, crashed.e.BeginRun(t.Context(), a))
 	checkEarlierRunReturned(t, crashed.store(a), crashed.run)
+	// BeginRun wakes the delivery loop, which would hand the returned items out at once: it is
+	// parked once dialled, before it writes its entry, while the store is read.
+	parked, release := make(chan struct{}), make(chan struct{})
+	pw.setOnHit(func(n failpoint.Name) {
+		if n == failpoint.LinkAfterAuth {
+			close(parked)
+			<-release
+		}
+	})
 	check(t, pw.e.BeginRun(t.Context(), a))
+	<-parked
 	after := pw.store(a)
+	pw.setOnHit(nil)
+	close(release)
 	checkEarlierRunReturned(t, after, pw.run)
 	if !strings.Contains(pw.log.String(), "earlier run") {
 		t.Fatalf("no log line: %s", pw.log.String())
