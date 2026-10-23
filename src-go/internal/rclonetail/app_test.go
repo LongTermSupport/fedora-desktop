@@ -435,6 +435,34 @@ func TestStopAfterLastCall(t *testing.T) {
 	}
 }
 
+// stopOnWrite stops the run when a write to stdout holds mark: a stop that arrives after every
+// check of the tick, while its last line is written.
+type stopOnWrite struct {
+	w    *world
+	mark string
+}
+
+func (s stopOnWrite) Write(p []byte) (int, error) {
+	if strings.Contains(string(p), s.mark) {
+		s.w.stop()
+	}
+	return s.w.out.Write(p)
+}
+
+// E15: with --once, a stop after the tick's last line still gets the closing snapshot.
+func TestStopDuringLastLine(t *testing.T) {
+	w := newWorld(t)
+	w.mount("13", "norc:", "norc")
+	env := w.newEnv()
+	env.Stdout = stopOnWrite{w: w, mark: "norc  (no --rc"}
+	code := App{Env: env}.Run(context.Background(), []string{"--once"})
+	norc := "  norc  (no --rc; cannot query)\n"
+	w.expect(code, term.ExitOK, heading+norc+"\n=== rclone cache status ===\n"+norc)
+	if !w.released {
+		t.Fatal("signals not released before the closing snapshot")
+	}
+}
+
 // E15: a stop during the opening snapshot lets it finish; the closing one follows with no tick,
 // and the signals are released before it starts.
 func TestStopDuringOpeningSnapshot(t *testing.T) {
