@@ -418,9 +418,9 @@ its first caller.
     is installed (gate A).
   - The install build must run `go test -tags teamchatrelease ./internal/teamchat/member/cli/`,
     the CL2 gate, before it installs the binary.
-  - Tagged analyzer stages (n3-tagvet): `teamchat-failpoints-rules` and `teamchat-tuwunel-rules`
-    run the project rules over `./internal/teamchat/...` built with each tag; before them a
-    finding in a tagged-only file passed the gate (`subagent-reports/261023-n3-tagvet.md`).
+  - Tagged analyzer stages (n3-tagvet): `teamchat-failpoints-rules`, `teamchat-tuwunel-rules`,
+    `teams-ccyteamstest-rules` and `claude-yolo-difftest-rules` run the project rules over the
+    packages built with each tag; before them a finding in a tagged-only file passed the gate (`subagent-reports/261023-n3-tagvet.md`).
 
 - [ ] ⬜ **Task 3.4**: Acceptance: B 2.15's tests, the resident-cost bars by
   `acceptance-member-cost.bash` (B 2.14), an LXC member on a real team in the VM lab;

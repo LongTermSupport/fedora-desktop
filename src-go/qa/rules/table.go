@@ -162,6 +162,11 @@ var dynamicNames = []allowance{
 		reason: "teamchat-admin itself, run as the teamchat-ctl child: the running binary resolved from /proc/self/exe (SPEC-n2f CS2)",
 	},
 	{
+		pkg:    "internal/teamchat/matrix/tuwunelhs",
+		fn:     "Start",
+		reason: "the Tuwunel homeserver binary the environment names (BinEnv), run for the real-homeserver tests; never an owned program",
+	},
+	{
 		pkg:    "internal/wsi",
 		fn:     "run.sibling",
 		reason: "wsi-stop-grace, wsi-setting or wsi-resolve-model, run from the directory the wsi binary is in",

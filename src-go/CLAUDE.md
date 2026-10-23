@@ -246,7 +246,7 @@ install a binary by hand: the play is the only route
 
 ## Build tags
 
-Three build tags of `internal/teamchat` select code the default build leaves out. `.golangci.yml`
+Build tags select code the default build leaves out. `.golangci.yml`
 names no build tags, so golangci-lint's default run sees the untagged build only, and a gate that
 judges a tagged build sets the tag itself.
 
@@ -255,18 +255,21 @@ judges a tagged build sets the tag itself.
   link, and wiring's end-to-end failpoint rows). The `teamchat-failpoints-lint`, `-vet` and
   `-test` stages of `qa/go-qa.toml` lint, vet and test `./internal/teamchat/...` built with it
   (`go test -race -shuffle=on -count=2`, every test twice); go-qa's built-in tools judge the inert build.
-  The `teamchat-failpoints-rules` and `teamchat-tuwunel-rules` stages run the project rules (`qa/rules`)
-  over the same packages with `-tags busfailpoints` and `-tags tuwunel`, which the analyzers stage
-  (untagged build only) cannot reach.
+  The `teamchat-failpoints-rules` stage runs the project rules (`qa/rules`) over the same packages
+  with the tag, which the analyzers stage (untagged build only) cannot reach.
 - `teamchatrelease`: the release build of teamchat. `failpoint`'s gate test, run by go-qa's
   built-in test runner, builds `./cmd/teamchat` with it and holds that the binary carries no
   failpoint name. `member/cli/release_test.go` (every verb built, CL2) carries the tag; Task
   3.3's build runs it, and no gate runs it yet.
 - `tuwunel`: the tests against a real Tuwunel (Plan 00209 SPEC-matrix M44, SPEC-n3 n3-D5) and their helper package
-  `matrix/tuwunelhs`, which skips when `FAKEHS_TUWUNEL_BIN` names no binary. No gate builds,
-  lints or runs this build; a change to these files is checked by hand with
-  `go test -race -tags tuwunel` and `golangci-lint run --build-tags tuwunel` over
-  `./internal/teamchat/...`, with `FAKEHS_TUWUNEL_BIN` set.
+  `matrix/tuwunelhs`, which skips when `FAKEHS_TUWUNEL_BIN` names no binary. Only the
+  `teamchat-tuwunel-rules` stage judges this build (the project rules, vet-wise); a change to these
+  files is also checked by hand with `go test -race -tags tuwunel` and
+  `golangci-lint run --build-tags tuwunel` over `./internal/teamchat/...`, with
+  `FAKEHS_TUWUNEL_BIN` set.
+- `ccyteamstest` (`internal/teams/host`, `internal/teams/ops`) and `difftest` (`cmd/claude-yolo`):
+  the stages `teams-ccyteamstest-rules` and `claude-yolo-difftest-rules` run the project rules over
+  those builds.
 
 ## QA
 

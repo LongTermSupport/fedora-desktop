@@ -69,3 +69,17 @@ phase = "detectors"
 says = "the project rules (qa/rules) over internal/teamchat built with -tags tuwunel"
 fix = "Fix what the project rules report in the tuwunel build"
 command = ["bash", "-c", "set -euo pipefail; d=$(mktemp -d); trap 'rm -rf \"$d\"' EXIT; go -C qa build -o \"$d/driver\" ./driver; go vet -vettool=\"$d/driver\" -tags tuwunel ./internal/teamchat/..."]
+
+[[stage]]
+name = "teams-ccyteamstest-rules"
+phase = "detectors"
+says = "the project rules (qa/rules) over internal/teams built with -tags ccyteamstest"
+fix = "Fix what the project rules report in the ccyteamstest build"
+command = ["bash", "-c", "set -euo pipefail; d=$(mktemp -d); trap 'rm -rf \"$d\"' EXIT; go -C qa build -o \"$d/driver\" ./driver; go vet -vettool=\"$d/driver\" -tags ccyteamstest ./internal/teams/..."]
+
+[[stage]]
+name = "claude-yolo-difftest-rules"
+phase = "detectors"
+says = "the project rules (qa/rules) over cmd/claude-yolo built with -tags difftest"
+fix = "Fix what the project rules report in the difftest build"
+command = ["bash", "-c", "set -euo pipefail; d=$(mktemp -d); trap 'rm -rf \"$d\"' EXIT; go -C qa build -o \"$d/driver\" ./driver; go vet -vettool=\"$d/driver\" -tags difftest ./cmd/claude-yolo/..."]
