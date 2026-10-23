@@ -240,7 +240,7 @@ func TestTheStatusLineCommandRunsAsWritten(t *testing.T) {
 		t.Fatalf("status line %q", command)
 	}
 	payload := `{"session_id":"s1","workspace":{"project_dir":"` + u.home + `"}}`
-	if got := u.shell(command, payload, false).Stdout; string(got) != "\n" {
+	if got := u.shell(command, payload, false).Stdout; len(got) != 0 {
 		t.Errorf("no session: %q", got)
 	}
 	u.makeRun()

@@ -1728,7 +1728,7 @@ value at 25 and below 30.
    read of `keeper.json` (at most 4 KiB, strict) and a probe of `keeper.lock`: `teamchat restarting`
    while the link restarts, `teamchat stopped: ccy-teams restart <session>` for a failed link or a
    gone keeper in a ccy or LXC session, `teamchat stopped: relaunch this session` for other kinds.
-   With no team (`"teams": []`) and the link running: no segment (empty stays empty), except a red
+   With no team (`"teams": []`) and the link running: no segment (empty stays empty: with no inner line either, stdout is zero bytes, never a lone newline that would draw a blank row), except a red
    `teamchat membership refused` when `"desired"` is `"refused"` (2.3.3) and a red
    `teamchat hook input unusable: <n>` when `unusable_hook_stdin` is above 0 (2.8), both shown with
    teams too. Rows keep v1's rules (R26): an unknown role renders `(role?)`, and with no usable

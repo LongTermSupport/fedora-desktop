@@ -279,12 +279,12 @@ func (f runnerFunc) Run(ctx context.Context, c execx.Cmd) (execx.Result, error) 
 
 // --- SL1: the inner status line ---
 
-// With no settings file anywhere there is no inner line, and an empty segment is an empty line.
+// With no settings file anywhere there is no inner line, and an empty segment prints nothing at all, not a blank line.
 func TestNoSettingsIsEmpty(t *testing.T) {
 	w := newWorld(t)
 	w.holdLink()
 	w.status(state.DesiredApplied, 0)
-	if code, out := w.render(); code != term.ExitOK || out != "\n" {
+	if code, out := w.render(); code != term.ExitOK || out != "" {
 		t.Fatalf("exit %d, out %q", code, out)
 	}
 }
@@ -327,7 +327,7 @@ func TestLoopGuard(t *testing.T) {
 		t.Fatal("the inner command ran under the loop guard")
 		return execx.Result{}, nil
 	})
-	if code, out := w.render(); code != term.ExitOK || out != "\n" {
+	if code, out := w.render(); code != term.ExitOK || out != "" {
 		t.Fatalf("exit %d, out %q", code, out)
 	}
 }
@@ -382,7 +382,7 @@ func TestSettingsOrder(t *testing.T) {
 		w.env[paths.EnvRuntime] = ""
 		tc.setup(w)
 		code, out := w.render()
-		if want := tc.want + "\n"; code != term.ExitOK || out != want {
+		if want := rows(tc.want); code != term.ExitOK || out != want {
 			t.Fatalf("%s: exit %d, out %q, want %q", tc.name, code, out, want)
 		}
 	}
@@ -434,7 +434,7 @@ func TestProjectDir(t *testing.T) {
 		}
 		return execx.Result{}, nil
 	})
-	if code, out := w.render(); code != term.ExitOK || out != "\n" {
+	if code, out := w.render(); code != term.ExitOK || out != "" {
 		t.Fatalf("exit %d, out %q", code, out)
 	}
 }
@@ -642,7 +642,7 @@ func TestOtherSignal(t *testing.T) {
 	w.noInner()
 	w.signals = make(chan os.Signal, 1)
 	w.signals <- fakeSignal{}
-	if code, out := w.render(); code != term.ExitOK || out != "\n" {
+	if code, out := w.render(); code != term.ExitOK || out != "" {
 		t.Fatalf("exit %d, out %q", code, out)
 	}
 }
@@ -696,7 +696,7 @@ func TestMainVerb(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if code := Main(w.cliEnv(), inv); code != term.ExitOK || w.out.String() != "\n" {
+	if code := Main(w.cliEnv(), inv); code != term.ExitOK || w.out.String() != "" {
 		t.Fatalf("exit %d, out %q", code, w.out.String())
 	}
 }
@@ -810,7 +810,7 @@ func TestNotAnswering(t *testing.T) {
 		}
 		w.statusAt(tc.written, state.DesiredApplied, 0, teams...)
 		code, out := w.render()
-		if want := tc.want + "\n"; code != term.ExitOK || out != want {
+		if want := rows(tc.want); code != term.ExitOK || out != want {
 			t.Fatalf("%s: exit %d, out %q, want %q", tc.name, code, out, want)
 		}
 	}
@@ -941,7 +941,7 @@ func TestStatusUnreadable(t *testing.T) {
 			}
 			tc.setup(w)
 			code, out := w.render()
-			want := "\n"
+			want := ""
 			if !link {
 				want = redRow("👥 teamchat stopped: relaunch this session") + "\n"
 			}
@@ -959,7 +959,7 @@ func TestNoRuntime(t *testing.T) {
 		w.noInner()
 		w.status(state.DesiredRefused, 1)
 		w.env[paths.EnvRuntime] = dir
-		if code, out := w.render(); code != term.ExitOK || out != "\n" {
+		if code, out := w.render(); code != term.ExitOK || out != "" {
 			t.Fatalf("%q: exit %d, out %q", dir, code, out)
 		}
 	}
@@ -981,4 +981,12 @@ func TestRunDirGone(t *testing.T) {
 	if want := redRow("👥 teamchat stopped: relaunch this session") + "\n"; code != term.ExitOK || out != want {
 		t.Fatalf("exit %d, out %q", code, out)
 	}
+}
+
+// rows is what a render of text prints: the text and its newline, and nothing for no text.
+func rows(text string) string {
+	if text == "" {
+		return ""
+	}
+	return text + "\n"
 }
