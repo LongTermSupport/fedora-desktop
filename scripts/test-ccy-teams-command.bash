@@ -882,7 +882,8 @@ out="$(run_picker "$CHECKOUT" "ctrl-n|owner" "|free")"
 check "  or in the free one, from any row of the team" "yes" "$(logged 'launcher --teams dev@alpha')"
 reset
 out="$(run_picker "$CHECKOUT" "ctrl-n|extra" "|ABORT")"
-check_has "Ctrl-N on a team whose homeserver is down says so" "homeserver is down" "$out"
+# The refusal uses the words the team menu's unavailable line uses (Plan 00177 Task 10.1).
+check_has "Ctrl-N on a team whose homeserver is down says so" "homeserver is not up" "$out"
 reset
 mkdir -p "$CHECKOUT/sub/dir"
 out="$(run_picker "$CHECKOUT/sub/dir" "ctrl-n|port 6167" "|new")"

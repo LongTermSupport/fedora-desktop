@@ -218,7 +218,7 @@ func TestNewSessionRefusals(t *testing.T) {
 	h.On("systemctl is-active agent-bus-hs@alpha.service", "inactive\n", 3)
 	snap = h.pass(t)
 	res, err = h.s.NewSession(context.Background(), snap, "alpha")
-	if err != nil || res != flow.Refused || !strings.Contains(h.ErrOut.String(), "alpha's homeserver is down, so no session can join it.\n") {
+	if err != nil || res != flow.Refused || !strings.Contains(h.ErrOut.String(), "alpha's homeserver is not up, so no session can join it.\n") {
 		t.Fatalf("%v %v %q", res, err, h.ErrOut.String())
 	}
 

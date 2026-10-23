@@ -156,8 +156,11 @@ func (p *Picker) pickerSession(ctx context.Context) error {
 
 // frame is what stays above the rows whichever row the cursor is on: where Ctrl-N would start a
 // session and what RESTORE means. It is built once; the column headings are each pass's.
+// newRefusal is why no session can start in this folder, "" when one can: the header line and
+// every menu's start line are both drawn from it, so they never disagree.
 type frame struct {
 	newLine, restoreLine string
+	newRefusal           string
 }
 
 // header is the picker's header with footer, the line naming the row's actions, and rest, the
@@ -184,19 +187,22 @@ func (p *Picker) pickerFrame(ctx context.Context) (frame, error) {
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return frame{}, fmt.Errorf("look for the restore service: %w", err)
 	}
-	newLine := "Ctrl-N starts a new ccy session in the row's team, in "
+	var refusal, newLine string
 	switch here, err := p.Checkouts.Find(ctx, ""); {
 	case err != nil:
-		newLine = "Ctrl-N unavailable: " + err.Error()
+		refusal = err.Error()
 	case here.Top == "":
-		newLine = "Ctrl-N unavailable: " + p.Kit.Abbrev(p.Here()) + " is not a project folder (no git repository)"
+		refusal = p.Kit.Abbrev(p.Here()) + " is not a project folder (no git repository)"
 	case !here.Host():
-		newLine = "Ctrl-N unavailable: " + here.Refusal(p.Kit.Abbrev(here.Top))
+		refusal = here.Refusal(p.Kit.Abbrev(here.Top))
 	default:
-		newLine += p.Kit.Abbrev(here.Top)
+		newLine = "Ctrl-N starts a new ccy session in the row's team, in " + p.Kit.Abbrev(here.Top)
+	}
+	if refusal != "" {
+		newLine = "Ctrl-N unavailable: " + refusal
 	}
 	return frame{
-		newLine: newLine,
+		newLine: newLine, newRefusal: refusal,
 		restoreLine: "RESTORE: whether the seat's session is started again after a reboot; session restore on this machine is " +
 			restore + " (ccy_restore_sessions)",
 	}, nil

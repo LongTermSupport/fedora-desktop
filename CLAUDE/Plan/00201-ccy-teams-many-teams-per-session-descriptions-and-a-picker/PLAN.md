@@ -7,7 +7,10 @@ Plan 00209. Left for workers: Task 2.19 (the wait in the Python lock helper), Ta
 2.26 (from Task 2.22's referrals), a scripted test human for the Element checks, and the
 final qa-reviewer. Left for the host agent: the interactive checks of
 [ACCEPTANCE-owner.md](ACCEPTANCE-owner.md) driven through tmux (Tasks 2.7, 2.12 check 11,
-2.14, 2.15 step 13) and Task 2.20's `ccy-teams lxc-add` of the member refused before. Left for
+2.14, 2.15 step 13) and Task 2.20's `ccy-teams lxc-add` of the member refused before; the
+Morning start's interactive seat chooser (steps 5 and 6, the seat and role questions) runs on two
+throwaway teams that [chooser-teams-up.bash](chooser-teams-up.bash) leaves up and
+[chooser-teams-down.bash](chooser-teams-down.bash) purges, checking their firewalld rules gone. Left for
 the owner: nothing a check needs; only signing in to Element with the owner's own account, if
 the owner wants that session.
 **Created**: 2026-10-15

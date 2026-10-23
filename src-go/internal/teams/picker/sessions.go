@@ -131,7 +131,7 @@ func (r *run) sessionChoices(s hot.Session) []sessionChoice {
 			cs = append(cs, sessionChoice{line, func(ctx context.Context) (flow.Result, error) { return r.moveTeams(ctx, s, c) }})
 		}
 	}
-	cs = append(cs, sessionChoice{"Attach", func(ctx context.Context) (flow.Result, error) { return r.p.Seats.AttachSession(ctx, r.snap, s.Name) }})
+	cs = append(cs, sessionChoice{unavailable("Attach", r.sessionRefusal(s.Name)), func(ctx context.Context) (flow.Result, error) { return r.p.Seats.AttachSession(ctx, r.snap, s.Name) }})
 	if s.Unguarded {
 		cs = append(cs, sessionChoice{"Repair (its seat keeper has stopped)", func(ctx context.Context) (flow.Result, error) {
 			return r.session(ctx, []string{"repair", s.Name})
