@@ -3,8 +3,11 @@ package teamsync
 import (
 	"context"
 	"errors"
+	"strings"
+	"sync"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
@@ -28,27 +31,69 @@ type forgeChecked struct {
 	err    error
 }
 
+// checkKey is a check's identity within a batch: the same reference, class and branches ask
+// the forge the same questions, whatever the reference's text.
+type checkKey struct {
+	ref      proto.Ref
+	class    proto.RefClass
+	branch   string
+	branches string
+	listed   bool
+}
+
+func keyOf(c proto.ForgeCheck) checkKey {
+	ref := c.Ref
+	ref.Text = ""
+	return checkKey{ref: ref, class: c.Class, branch: c.Branch, branches: strings.Join(c.Branches, "\x00"), listed: c.Branches != nil}
+}
+
+// spentChecks is each sender's uncached forge checks in the receive window (n3d-D31), under its
+// own lock, since the checks spend from their own goroutines. It is in memory only: a link
+// restart gives every sender a fresh window, as it does the flood window's copy in memory.
+type spentChecks struct {
+	mu sync.Mutex
+	w  proto.Window
+}
+
+func (s *spentChecks) spend(sender string, nowMs int64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.w.Prune(proto.ReceiveWindowMs, nowMs)
+	return s.w.Admit(sender, proto.ForgeChecksPerSender, proto.ReceiveWindowMs, nowMs)
+}
+
 // forgeCheck is SD5's receive check (A 9.3 "every receiver before it delivers"): each delivered
 // verdict whose reference needs the forge is checked, concurrently, and one that does not
-// prove becomes a drop with proto's reason. A check still running when the budget ends is
-// unresolved. A Record answer is never checked (n3d-D25).
+// prove becomes a drop with proto's reason. Identical checks are asked once, charged to the
+// first one's sender (n3d-D31). A check still running when the budget ends is unresolved, and
+// each carries the budget as its bound, so no rate wait is slept past it. A Record answer is
+// never checked (n3d-D25).
 func (t *Team) forgeCheck(ctx context.Context, f proto.Forge, vs []proto.Verdict) forgeNews {
+	groups := map[checkKey][]int{}
 	var need []int
 	for i, v := range vs {
-		if v.Outcome == proto.Deliver && v.Forge != nil {
+		if v.Outcome != proto.Deliver || v.Forge == nil {
+			continue
+		}
+		k := keyOf(*v.Forge)
+		if groups[k] == nil {
 			need = append(need, i)
 		}
+		groups[k] = append(groups[k], i)
 	}
 	if len(need) == 0 {
 		return forgeNews{}
 	}
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(clock.WithBound(ctx, t.cfg.Clock.Boot()+forgeBudget))
 	defer cancel()
 	budget, stop := t.cfg.Clock.Hold(forgeBudget)
 	defer stop()
 	reasons, news := collect(t.startChecks(ctx, f, vs, need), budget, need)
-	for i, reason := range reasons {
-		if reason != "" {
+	for first, reason := range reasons {
+		if reason == "" {
+			continue
+		}
+		for _, i := range groups[keyOf(*vs[first].Forge)] {
 			vs[i].Outcome, vs[i].Reason, vs[i].Answer = proto.Drop, reason, nil
 		}
 	}
@@ -62,7 +107,7 @@ func (t *Team) startChecks(ctx context.Context, f proto.Forge, vs []proto.Verdic
 	results := make(chan forgeChecked, len(need))
 	slots := make(chan struct{}, forgeParallel)
 	for _, i := range need {
-		check := *vs[i].Forge
+		check, sender := *vs[i].Forge, vs[i].Event.Sender
 		go func() {
 			select {
 			case slots <- struct{}{}:
@@ -71,7 +116,8 @@ func (t *Team) startChecks(ctx context.Context, f proto.Forge, vs []proto.Verdic
 				return
 			}
 			defer func() { <-slots }()
-			reason, err := t.checkOne(ctx, check, f)
+			spend := func() bool { return t.spent.spend(sender, t.cfg.Clock.WallMS()) }
+			reason, err := t.checkOne(team.WithReceive(ctx, spend), check, f)
 			results <- forgeChecked{i: i, reason: reason, err: err}
 		}()
 	}
@@ -118,7 +164,7 @@ func (t *Team) checkOne(ctx context.Context, need proto.ForgeCheck, f proto.Forg
 	return proto.ReasonUnresolved, nil
 }
 
-// noteForge says forge-login once per link until a check is next answered (n3d-D10).
+// noteForge says forge-login once per team until a check is next answered (n3d-D10).
 func (t *Team) noteForge(news forgeNews) {
 	t.mu.Lock()
 	say := news.noLogin && !t.loginSaid

@@ -45,15 +45,17 @@ import (
 const Proven = team.ForgeProven
 
 const (
-	cacheEntries    = 1024
-	maxBody         = 8 << 20
-	maxHeaderBytes  = 64 << 10
-	maxRedirects    = 5
-	requestLimit    = 15 * time.Second
-	downFor         = 60 * time.Second
-	factLife        = time.Hour
-	rateTries       = 3
-	maxRateWait     = 60 * time.Second
+	cacheEntries   = 1024
+	maxBody        = 8 << 20
+	maxHeaderBytes = 64 << 10
+	maxRedirects   = 5
+	requestLimit   = 15 * time.Second
+	downFor        = 60 * time.Second
+	factLife       = time.Hour
+	rateTries      = 3
+	maxRateWait    = 60 * time.Second
+	// maxRateHold bounds how long one rate answer stops every check: the primary window.
+	maxRateHold     = time.Hour
 	defaultRateWait = 5 * time.Second
 	// maxHeaderSeconds bounds a rate header's number before it becomes a duration.
 	maxHeaderSeconds = 1 << 32
@@ -98,15 +100,16 @@ type Checker struct {
 	origin func(kind string) string
 	http   *http.Client
 
-	mu        sync.Mutex
-	down      bool
-	downUntil time.Duration
-	repos     *cache[repoFacts]
-	branches  *cache[struct{}]
-	reach     *cache[struct{}]
-	pulls     *cache[pullFacts]
-	issues    *cache[struct{}]
-	files     *cache[struct{}]
+	mu         sync.Mutex
+	downUntil  time.Duration
+	ratedUntil time.Duration
+	window     rateWindow
+	repos      *cache[repoFacts]
+	branches   *cache[struct{}]
+	reach      *cache[struct{}]
+	pulls      *cache[pullFacts]
+	issues     *cache[struct{}]
+	files      *cache[struct{}]
 }
 
 // New is a checker over cfg.
@@ -159,11 +162,15 @@ func (c *Checker) Check(ctx context.Context, need proto.ForgeCheck, f proto.Forg
 	if c.isDown() {
 		return unresolved, fmt.Errorf("%w: it did not answer within the last %s", ErrDown, downFor)
 	}
+	if c.isRated() {
+		return Result{Outcome: proto.ReasonForgeRate}, nil
+	}
 	origin := c.origin(f.Kind)
 	if origin == "" {
 		return unresolved, fmt.Errorf("forge: no origin for forge kind %q", f.Kind)
 	}
 	r := &run{c: c, origin: origin, need: need, f: f, base: "/repos/" + need.Ref.OwnerRepo()}
+	r.spend, r.receive = team.ReceiveSpend(ctx)
 	got, err := r.prove(ctx)
 	var o outcome
 	switch {
@@ -180,22 +187,54 @@ func (c *Checker) Check(ctx context.Context, need proto.ForgeCheck, f proto.Forg
 func (c *Checker) isDown() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.down && c.clock.Boot() < c.downUntil
+	return c.clock.Boot() < c.downUntil
 }
 
 func (c *Checker) markDown() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.down, c.downUntil = true, c.clock.Boot()+downFor
+	c.downUntil = c.clock.Boot() + downFor
 }
 
-// run is one check: the reference, its forge section and its repository's API path.
+// isRated is the rate health beside the down health (n3d-D31): within a rate answer's wait,
+// every check is forge-rate at once, with no request.
+func (c *Checker) isRated() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.clock.Boot() < c.ratedUntil
+}
+
+func (c *Checker) markRated(wait time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.ratedUntil = max(c.ratedUntil, c.clock.Boot()+min(wait, maxRateHold))
+}
+
+// passesBound is a wait that would not end before the caller's bound (clock.Bound).
+func (c *Checker) passesBound(ctx context.Context, wait time.Duration) bool {
+	at, ok := clock.Bound(ctx)
+	return ok && c.clock.Boot()+wait >= at
+}
+
+// rateWindow is the forge's rate window as its last answer gave it (X-RateLimit-*): the
+// requests remaining of limit until the reset, on the wall clock.
+type rateWindow struct {
+	known            bool
+	remaining, limit int64
+	resetMS          int64
+}
+
+// run is one check: the reference, its forge section and its repository's API path. A receive
+// check carries its sender's spend (team.WithReceive), asked before its first request.
 type run struct {
-	c      *Checker
-	origin string
-	need   proto.ForgeCheck
-	f      proto.Forge
-	base   string
+	c       *Checker
+	origin  string
+	need    proto.ForgeCheck
+	f       proto.Forge
+	base    string
+	spend   func() bool
+	receive bool
+	spent   bool
 }
 
 type repoFacts struct {
@@ -480,10 +519,13 @@ type answer struct {
 }
 
 // get is one API GET with A 11.3's rate path and one retry after a 401 with the credential
-// read again.
+// read again. A rate wait is slept only when it ends inside the caller's bound.
 func (r *run) get(ctx context.Context, path string) (answer, error) {
 	rated, retried := 0, false
 	for {
+		if err := r.mayAsk(); err != nil {
+			return answer{}, err
+		}
 		tok, err := r.c.login.Token(ctx)
 		if err != nil {
 			return answer{}, err
@@ -492,6 +534,7 @@ func (r *run) get(ctx context.Context, path string) (answer, error) {
 		if err != nil {
 			return answer{}, err
 		}
+		r.c.noteWindow(a.header)
 		switch {
 		case a.status == http.StatusUnauthorized:
 			r.c.login.Drop()
@@ -501,12 +544,8 @@ func (r *run) get(ctx context.Context, path string) (answer, error) {
 			retried = true
 		case rateLimited(a):
 			rated++
-			wait := r.c.rateWait(a.header)
-			if rated == rateTries || wait > maxRateWait {
-				return answer{}, outcome(proto.ReasonForgeRate)
-			}
-			if err := r.c.clock.Sleep(ctx, wait); err != nil {
-				return answer{}, fmt.Errorf("forge: the check ended: %w", err)
+			if err := r.waitRate(ctx, a.header, rated); err != nil {
+				return answer{}, err
 			}
 		case a.status == http.StatusForbidden:
 			return answer{}, outcome(proto.ReasonUnresolved)
@@ -518,6 +557,66 @@ func (r *run) get(ctx context.Context, path string) (answer, error) {
 			return a, nil
 		}
 	}
+}
+
+// waitRate is the rate answer of try rated: it stops every check for its wait, and is slept
+// unless it is the last try, over maxRateWait or past the caller's bound (forge-rate).
+func (r *run) waitRate(ctx context.Context, h http.Header, rated int) error {
+	wait := r.c.rateWait(h)
+	r.c.markRated(wait)
+	if rated == rateTries || wait > maxRateWait || r.c.passesBound(ctx, wait) {
+		return outcome(proto.ReasonForgeRate)
+	}
+	if err := r.c.clock.Sleep(ctx, wait); err != nil {
+		return fmt.Errorf("forge: the check ended: %w", err)
+	}
+	return nil
+}
+
+// mayAsk is a receive check's two bounds before a request (n3d-D31): the forge's rate window
+// down to the reserve kept for sends is forge-rate, and a sender past its budget unresolved.
+func (r *run) mayAsk() error {
+	switch {
+	case !r.receive:
+		return nil
+	case r.c.inReserve():
+		return outcome(proto.ReasonForgeRate)
+	case r.spent:
+		return nil
+	}
+	r.spent = true
+	if !r.spend() {
+		return outcome(proto.ReasonUnresolved)
+	}
+	return nil
+}
+
+// noteWindow keeps the rate window an answer gives; an answer without one changes nothing, and
+// one without a reset is held for maxRateHold.
+func (c *Checker) noteWindow(h http.Header) {
+	remaining, ok := headerSeconds(h, "X-Ratelimit-Remaining")
+	if !ok {
+		return
+	}
+	limit, hasLimit := headerSeconds(h, "X-Ratelimit-Limit")
+	if !hasLimit {
+		limit = 0
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	resetMS := c.clock.WallMS() + maxRateHold.Milliseconds()
+	if reset, ok := headerSeconds(h, "X-Ratelimit-Reset"); ok {
+		resetMS = min(resetMS, reset*1000)
+	}
+	c.window = rateWindow{known: true, remaining: remaining, limit: limit, resetMS: resetMS}
+}
+
+// inReserve is a rate window, not yet reset, with fewer requests left than the receive reserve.
+func (c *Checker) inReserve() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	w := c.window
+	return w.known && c.clock.WallMS() < w.resetMS && w.remaining < proto.ForgeReceiveReserve(w.limit)
 }
 
 // once is one request, ended after requestLimit on the clock.

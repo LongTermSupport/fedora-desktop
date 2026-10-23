@@ -6,7 +6,9 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
@@ -29,6 +31,10 @@ type fakeForge struct {
 	running int
 	most    int
 	started chan struct{}
+	// bounds are the bound each check's context carried; refused counts the checks whose
+	// sender budget said no, which, as the checker's, make no request and are unresolved.
+	bounds  []time.Duration
+	refused int
 }
 
 func newFakeForge(script map[string]forgeAnswer) *fakeForge {
@@ -36,8 +42,17 @@ func newFakeForge(script map[string]forgeAnswer) *fakeForge {
 }
 
 func (f *fakeForge) Check(ctx context.Context, need proto.ForgeCheck, _ proto.Forge) (team.ForgeResult, error) {
+	if spend, ok := team.ReceiveSpend(ctx); ok && !spend() {
+		f.mu.Lock()
+		f.refused++
+		f.mu.Unlock()
+		return team.ForgeResult{Outcome: proto.ReasonUnresolved}, nil
+	}
 	f.mu.Lock()
 	f.calls = append(f.calls, need.Ref.Text)
+	if at, ok := clock.Bound(ctx); ok {
+		f.bounds = append(f.bounds, at)
+	}
 	f.running++
 	f.most = max(f.most, f.running)
 	a, hang := f.script[need.Ref.Text], f.hang
@@ -257,5 +272,71 @@ func TestAnEndedCheckDropsNothing(t *testing.T) {
 	}()
 	if _, err := tm.Refetch(ctx, proto.PurposeMain, id); !errors.Is(err, context.Canceled) {
 		t.Errorf("Refetch: %v", err)
+	}
+}
+
+// SD5-r7 (n3d-D31): each receive check carries the batch's budget as its bound, so a rate wait
+// past it is forge-rate at once.
+func TestSD5r7EachCheckIsBoundByTheBudget(t *testing.T) {
+	w := newWorld(t)
+	f := newFakeForge(nil)
+	r, release := w.held(w.newTeam(withForge(f)))
+	w.done(peer, ref(1))
+	want := w.clk.Boot() + forgeBudget
+	release()
+	w.batch()
+	r.poll(t)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.bounds) != 1 || f.bounds[0] != want {
+		t.Errorf("bounds %v, want [%v]", f.bounds, want)
+	}
+}
+
+// SD5-r8 (n3d-D31): a sender spends at most proto.ForgeChecksPerSender uncached checks per
+// receive window; past it the ping drops unresolved and no request is made. Another sender
+// keeps its own budget, and the window restores it.
+func TestSD5r8ASendersChecksAreBudgeted(t *testing.T) {
+	w := newWorld(t)
+	f := newFakeForge(nil)
+	r, release := w.held(w.newTeam(withForge(f)))
+	over := int(proto.ForgeChecksPerSender) + 2
+	for i := range over {
+		w.done(peer, ref(i))
+	}
+	w.done(coord, ref(over))
+	release()
+	b := w.batch()
+	r.poll(t)
+	if len(b.Items) != over-1 || b.Counts.Dropped != 2 || w.log.count(": unresolved") != 2 {
+		t.Errorf("items %d, dropped %d; log %q", len(b.Items), b.Counts.Dropped, w.log.String())
+	}
+	if n := len(f.checked()); n != over-1 {
+		t.Errorf("%d checks asked, want %d", n, over-1)
+	}
+	w.clk.Advance(time.Duration(proto.ReceiveWindowMs) * time.Millisecond)
+	w.done(peer, ref(over+1))
+	if b := w.batch(); len(b.Items) != 1 {
+		t.Errorf("after the window: items %d, dropped %d", len(b.Items), b.Counts.Dropped)
+	}
+}
+
+// SD5-r9 (n3d-D31): identical checks in one batch are asked once, and the answer is each one's.
+func TestSD5r9IdenticalChecksAreAskedOnce(t *testing.T) {
+	w := newWorld(t)
+	f := newFakeForge(map[string]forgeAnswer{ref(1): {outcome: proto.ReasonProvenance}})
+	r, release := w.held(w.newTeam(withForge(f)))
+	for range 3 {
+		w.done(peer, ref(1))
+	}
+	w.done(coord, ref(1))
+	release()
+	b := w.batch()
+	r.poll(t)
+	if len(b.Items) != 0 || w.log.count(": provenance") != 4 {
+		t.Errorf("items %d; log %q", len(b.Items), w.log.String())
+	}
+	if calls := f.checked(); len(calls) != 1 {
+		t.Errorf("checked %v, want one", calls)
 	}
 }

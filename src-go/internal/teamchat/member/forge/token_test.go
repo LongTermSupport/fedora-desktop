@@ -2,12 +2,14 @@ package forge_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -116,4 +118,68 @@ func isAuthorizationSet(c *ast.CallExpr) bool {
 	recv, ok := s.X.(*ast.SelectorExpr)
 	lit, isLit := c.Args[0].(*ast.BasicLit)
 	return ok && recv.Sel.Name == "Header" && isLit && lit.Value == `"Authorization"`
+}
+
+// hungGh is a gh that hangs until its context ends, or answers firstTok once answer is set.
+type hungGh struct {
+	mu      sync.Mutex
+	runs    int
+	answer  bool
+	started chan struct{}
+}
+
+func (g *hungGh) Run(ctx context.Context, _ execx.Cmd) (execx.Result, error) {
+	g.mu.Lock()
+	g.runs++
+	answer := g.answer
+	g.mu.Unlock()
+	if answer {
+		return execx.Result{Stdout: []byte(firstTok + "\n")}, nil
+	}
+	g.started <- struct{}{}
+	<-ctx.Done()
+	return execx.Result{}, ctx.Err()
+}
+
+func (g *hungGh) count() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.runs
+}
+
+// SD5-4 (n3d-D31): gh runs under its own 10 s bound; a caller whose context ends is released at
+// once even while another caller's gh run hangs, and a failed read is held 30 s.
+func TestSD5_4GhRunsUnderItsOwnBound(t *testing.T) {
+	gh := &hungGh{started: make(chan struct{}, 1)}
+	clk := clock.NewFake(time.Hour, wall0)
+	l := forge.NewLogin(gh, clk)
+	first := make(chan error, 1)
+	go func() {
+		_, err := l.Token(context.Background())
+		first <- err
+	}()
+	<-gh.started
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := l.Token(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("a cancelled caller: %v, want its context's error", err)
+	}
+	if err := clk.BlockUntil(t.Context(), 1); err != nil {
+		t.Fatal(err)
+	}
+	clk.Advance(10 * time.Second)
+	if err := <-first; !errors.Is(err, forge.ErrLogin) {
+		t.Fatalf("gh hung past its bound: %v, want ErrLogin", err)
+	}
+	gh.mu.Lock()
+	gh.answer = true
+	gh.mu.Unlock()
+	clk.Advance(30*time.Second - time.Millisecond)
+	if _, err := l.Token(context.Background()); !errors.Is(err, forge.ErrLogin) || gh.count() != 1 {
+		t.Fatalf("inside 30 s: %v after %d runs; want the held ErrLogin and no second run", err, gh.count())
+	}
+	clk.Advance(time.Millisecond)
+	if _, err := l.Token(context.Background()); err != nil || gh.count() != 2 {
+		t.Fatalf("at 30 s: %v after %d runs; want a token from a second run", err, gh.count())
+	}
 }
