@@ -126,11 +126,13 @@ once (D3) instead of keeping a second copy. `PLAN.md` lists it as left after
   of that tick, then the next tick, until stopped. A snapshot that exits non-zero ends the run
   with its exit code before the first tick.
 - E15. SIGINT or SIGTERM, at any point after the command line is read: the run stops; a tick
-  under way stops printing at once (before its next mount line, whether or not a call follows), and the RC call in flight is cancelled and is neither
-  printed nor diagnosed; an opening snapshot under way is finished first. Then an empty line and
-  the closing snapshot, and the exit is the snapshot's (0 when it was written). With `--once`
-  too: the tick stops and the snapshot follows. The signals are released before the closing
-  snapshot, so a second Ctrl-C during it ends the process at once.
+  under way stops printing at once (before its next mount line, whether or not a call follows),
+  and the RC call in flight is cancelled and is neither printed nor diagnosed; an opening
+  snapshot under way is finished first. Then an empty line and the closing snapshot, and the
+  exit is the snapshot's (0 when it was written). With `--once` too: the tick stops and the
+  snapshot follows. A second SIGINT or SIGTERM, during either snapshot, ends the run at once: the
+  snapshot's call in flight is killed with its session group (D5), so no child outlives the run
+  holding the RC credential; nothing more is printed or diagnosed, and the exit is 130.
 
 ### Output
 

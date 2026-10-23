@@ -46,7 +46,8 @@ type Env struct {
 	Now func() time.Time
 	// After is the wait between ticks.
 	After func(time.Duration) <-chan time.Time
-	// OnStop calls stop when SIGINT or SIGTERM arrives, until the release it returns is called.
+	// OnStop calls stop each time SIGINT or SIGTERM arrives, until the release it returns is
+	// called.
 	OnStop func(stop func()) (release func())
 }
 
@@ -60,17 +61,19 @@ func NewEnv() Env {
 	}
 }
 
-// onSignal is OnStop over the process's SIGINT and SIGTERM. Once released, a signal has its
-// default effect again, so a second Ctrl-C during the closing snapshot ends the process.
+// onSignal is OnStop over the process's SIGINT and SIGTERM, every one of them until released.
 func onSignal(stop func()) func() {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	done := make(chan struct{})
 	go func() {
-		select {
-		case <-sigs:
-			stop()
-		case <-done:
+		for {
+			select {
+			case <-sigs:
+				stop()
+			case <-done:
+				return
+			}
 		}
 	}()
 	var once sync.Once
@@ -145,51 +148,58 @@ func (a App) Run(ctx context.Context, args []string) term.ExitCode {
 		r.diagf("rclone is not installed; it is installed by play-rclone.yml.")
 		return term.ExitFailure
 	}
+	// The first stop ends the ticks (stopCtx); a second ends the run, snapshots too (ctx, E15).
+	ctx, abort := context.WithCancel(ctx)
+	defer abort()
 	stopCtx, stop := context.WithCancel(ctx)
 	defer stop()
-	release := env.OnStop(stop)
+	release := env.OnStop(func() {
+		if stopCtx.Err() != nil {
+			abort()
+		}
+		stop()
+	})
 	defer release()
 	if opts.once {
 		err := r.tick(stopCtx)
 		if err == nil && stopCtx.Err() != nil {
 			err = errStopped
 		}
-		return r.ended(ctx, err, release)
+		return r.ended(ctx, err)
 	}
-	return r.stream(ctx, stopCtx, release)
+	return r.stream(ctx, stopCtx)
 }
 
 // stream is E14: the opening snapshot, then ticks an interval apart until stopped.
-func (r *run) stream(ctx, stopCtx context.Context, release func()) term.ExitCode {
+func (r *run) stream(ctx, stopCtx context.Context) term.ExitCode {
 	if code := r.snapshot(ctx); code != term.ExitOK {
 		return code
 	}
 	if stopCtx.Err() != nil {
-		return r.ended(ctx, errStopped, release)
+		return r.ended(ctx, errStopped)
 	}
 	if r.line(""); r.p.Err() != nil {
 		return r.written()
 	}
 	for {
 		if err := r.tick(stopCtx); err != nil {
-			return r.ended(ctx, err, release)
+			return r.ended(ctx, err)
 		}
 		select {
 		case <-r.env.After(r.opts.interval):
 		case <-stopCtx.Done():
-			return r.ended(ctx, errStopped, release)
+			return r.ended(ctx, errStopped)
 		}
 	}
 }
 
 // ended is the exit for a tick's error: a stop is the closing snapshot (E15), a write that
 // failed or no mount exit 1, anything else named and exit 1; nil is a --once tick written.
-func (r *run) ended(ctx context.Context, err error, release func()) term.ExitCode {
+func (r *run) ended(ctx context.Context, err error) term.ExitCode {
 	switch {
 	case err == nil:
 		return r.written()
 	case errors.Is(err, errStopped):
-		release()
 		r.line("")
 		if code := r.written(); code != term.ExitOK {
 			return code
@@ -205,17 +215,23 @@ func (r *run) ended(ctx context.Context, err error, release func()) term.ExitCod
 	}
 }
 
-// snapshot is the rclone-cache-status summary of the watched mounts, in process (D2).
+// snapshot is the rclone-cache-status summary of the watched mounts, in process (D2). Once ctx
+// ends (a second stop, E15) it prints nothing more and the exit is 130.
 func (r *run) snapshot(ctx context.Context) term.ExitCode {
 	args := []string{"--no-dir"}
 	if r.opts.filter != "" {
 		args = append(args, "--", r.opts.filter)
 	}
 	env := r.env
-	return rclonecache.App{Env: rclonecache.Env{
+	code := rclonecache.App{Env: rclonecache.Env{
 		Runner: env.Runner, Getenv: env.Getenv, Getwd: env.Getwd, LookPath: env.LookPath, Proc: env.Proc,
-		Stdout: env.Stdout, Stderr: env.Stderr, StdoutIsTerminal: env.StdoutIsTerminal,
+		Stdout: untilDone{ctx.Done(), env.Stdout}, Stderr: untilDone{ctx.Done(), env.Stderr},
+		StdoutIsTerminal: env.StdoutIsTerminal,
 	}}.Run(ctx, args)
+	if ctx.Err() != nil {
+		return term.ExitCancelled
+	}
+	return code
 }
 
 // written is exit 0, or 1 naming the write to stdout that failed (E17).
@@ -335,8 +351,30 @@ func (r *run) describe(ctx context.Context, m rclonerc.Mount) (string, error) {
 type detached struct{ execx.Runner }
 
 func (d detached) Run(ctx context.Context, c execx.Cmd) (execx.Result, error) {
+	if err := ctx.Err(); err != nil {
+		return execx.Result{}, fmt.Errorf("run %s: %w", c.Name, err)
+	}
 	c.NewSession = true
 	return d.Runner.Run(ctx, c)
+}
+
+// untilDone writes to w until done (a context's Done) is closed, and then drops what it is given.
+type untilDone struct {
+	done <-chan struct{}
+	w    io.Writer
+}
+
+func (u untilDone) Write(p []byte) (int, error) {
+	select {
+	case <-u.done:
+		return len(p), nil
+	default:
+	}
+	n, err := u.w.Write(p)
+	if err != nil {
+		return n, fmt.Errorf("write: %w", err)
+	}
+	return n, nil
 }
 
 // rcAddr is the mount's RC address, or why it has none that can be used (E5).

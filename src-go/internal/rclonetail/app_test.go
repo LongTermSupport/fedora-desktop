@@ -435,15 +435,17 @@ func TestStopAfterLastCall(t *testing.T) {
 	}
 }
 
-// stopOnWrite stops the run when a write to stdout holds mark: a stop that arrives after every
-// check of the tick, while its last line is written.
+// stopOnWrite stops the run once, at the first write to stdout that holds mark: a stop that
+// arrives after every check of the tick, while its last line is written.
 type stopOnWrite struct {
 	w    *world
 	mark string
+	done *bool
 }
 
 func (s stopOnWrite) Write(p []byte) (int, error) {
-	if strings.Contains(string(p), s.mark) {
+	if !*s.done && strings.Contains(string(p), s.mark) {
+		*s.done = true
 		s.w.stop()
 	}
 	return s.w.out.Write(p)
@@ -454,17 +456,57 @@ func TestStopDuringLastLine(t *testing.T) {
 	w := newWorld(t)
 	w.mount("13", "norc:", "norc")
 	env := w.newEnv()
-	env.Stdout = stopOnWrite{w: w, mark: "norc  (no --rc"}
+	env.Stdout = stopOnWrite{w: w, mark: "norc  (no --rc", done: new(bool)}
 	code := App{Env: env}.Run(context.Background(), []string{"--once"})
 	norc := "  norc  (no --rc; cannot query)\n"
 	w.expect(code, term.ExitOK, heading+norc+"\n=== rclone cache status ===\n"+norc)
-	if !w.released {
-		t.Fatal("signals not released before the closing snapshot")
+}
+
+// E15: a second stop during the closing snapshot ends the run at once: the call in flight is
+// cancelled, nothing more is printed or run, and the exit is 130.
+func TestSecondStopDuringClosingSnapshot(t *testing.T) {
+	w := newWorld(t)
+	w.mount("12", "lib:", "lib", "--rc-addr=h:1")
+	w.mount("13", "docs:", "docs", "--rc-addr=h:2")
+	w.answer("h:2", "vfs/stats", `{"diskCache":{"uploadsQueued":1,"bytesUsed":99}}`)
+	w.fake.OnFunc([]string{"rclone", "rc", "--url=http://h:1", "core/stats"}, func(execx.Cmd) (execx.Result, error) {
+		w.stop()
+		return execx.Result{}, errors.New("signal: killed")
+	})
+	vfs := 0
+	w.fake.OnFunc([]string{"rclone", "rc", "--url=http://h:1", "vfs/stats"}, func(execx.Cmd) (execx.Result, error) {
+		if vfs++; vfs == 2 {
+			w.stop()
+			return execx.Result{}, errors.New("signal: killed")
+		}
+		return execx.Result{Stdout: []byte(`{"diskCache":{"uploadsQueued":1,"bytesUsed":99}}`)}, nil
+	})
+	w.expect(w.run("--once"), term.ExitCancelled, heading+"\n=== rclone cache status ===\n")
+	w.expectErr("")
+	if vfs != 2 || len(w.fake.Calls()) != 5 {
+		t.Fatalf("vfs/stats %d, calls %v", vfs, w.fake.Calls())
 	}
 }
 
-// E15: a stop during the opening snapshot lets it finish; the closing one follows with no tick,
-// and the signals are released before it starts.
+// E15: a second stop during the opening snapshot ends the run at once, with no tick and no
+// closing snapshot.
+func TestSecondStopDuringOpeningSnapshot(t *testing.T) {
+	w := newWorld(t)
+	w.mount("12", "lib:", "lib", "--rc-addr=h:1")
+	w.mount("13", "docs:", "docs", "--rc-addr=h:2")
+	w.fake.OnFunc([]string{"rclone", "rc", "--url=http://h:1", "vfs/stats"}, func(execx.Cmd) (execx.Result, error) {
+		w.stop()
+		w.stop()
+		return execx.Result{}, errors.New("signal: killed")
+	})
+	w.expect(w.run(), term.ExitCancelled, "=== rclone cache status ===\n")
+	w.expectErr("")
+	if len(w.fake.Calls()) != 2 || len(w.waits) != 0 {
+		t.Fatalf("waits %v, calls %v", w.waits, w.fake.Calls())
+	}
+}
+
+// E15: a stop during the opening snapshot lets it finish; the closing one follows with no tick.
 func TestStopDuringOpeningSnapshot(t *testing.T) {
 	w := newWorld(t)
 	w.mount("12", "lib:", "lib", "--rc-addr=h:1")
@@ -473,8 +515,6 @@ func TestStopDuringOpeningSnapshot(t *testing.T) {
 		calls++
 		if calls == 1 {
 			w.stop()
-		} else if !w.released {
-			t.Error("the closing snapshot ran with the signals still caught")
 		}
 		return execx.Result{Stdout: []byte(`{"diskCache":{"uploadsQueued":1,"bytesUsed":99}}`)}, nil
 	})
