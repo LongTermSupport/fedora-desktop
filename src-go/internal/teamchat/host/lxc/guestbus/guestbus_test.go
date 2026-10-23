@@ -186,8 +186,8 @@ func TestACallThatNeverAnswersEndsAtItsBound(t *testing.T) {
 		t.Fatal(err)
 	}
 	clk.Advance(CallWait - time.Nanosecond)
-	if !clk.Armed(time.Nanosecond) {
-		t.Fatal("the call's bound fired short of CallWait")
+	if ok, err := clk.Armed(time.Nanosecond); err != nil || !ok {
+		t.Fatalf("the call's bound fired short of CallWait (%v)", err)
 	}
 	clk.Advance(time.Nanosecond)
 	if err := <-errc; !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, ErrGone) {
