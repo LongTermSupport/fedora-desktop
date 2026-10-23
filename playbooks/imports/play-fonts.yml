@@ -1,0 +1,75 @@
+#!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
+---
+# Fonts: the Microsoft core fonts, and Noto Color Emoji as the emoji fallback after the text
+# fonts (Plan 00185, issue #60). Without the fallback file a terminal draws every emoji from
+# Symbola or the monochrome Noto Emoji; the file and why it is shaped as it is are in
+# files/etc/fonts/conf.d/69-colour-emoji-fallback.conf, and scripts/test-colour-emoji-fallback.bash
+# runs it through fontconfig against fixture fonts.
+- hosts: desktop
+  name: Fonts
+  become: true
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+  tasks:
+    - name: Scope guard — assert provisioning_profile is recognised
+      ansible.builtin.assert:
+        that:
+          - provisioning_profile in ['desktop', 'server']
+        fail_msg: |
+          provisioning_profile={{ provisioning_profile }} is not recognised.
+          Valid values: desktop, server.
+          Auto-detected from `systemctl get-default`
+          (see environment/localhost/group_vars/desktop.yml) or overridden
+          via -e provisioning_profile=desktop|server.
+
+    - name: Scope guard — end play if provisioning_profile does not match declared scope
+      ansible.builtin.meta: end_play
+      when: (scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')
+
+    - name: Install required packages
+      ansible.builtin.dnf:
+        name:
+          - curl
+          - cabextract
+          - xorg-x11-font-utils
+          - fontconfig
+          - google-noto-color-emoji-fonts
+
+    - name: Install the Microsoft core fonts
+      ansible.builtin.shell: |
+        set -euo pipefail
+        rpm --nodigest -i https://downloads.sourceforge.net/project/mscorefonts2/rpms/msttcore-fonts-installer-2.6-1.noarch.rpm
+      args:
+        creates: /usr/share/fonts/msttcore
+        executable: /bin/bash
+
+    - name: Deploy the colour emoji fallback
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/etc/fonts/conf.d/69-colour-emoji-fallback.conf"
+        dest: /etc/fonts/conf.d/69-colour-emoji-fallback.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify:
+        - rebuild-font-caches
+        - restart-programs-notice
+
+  handlers:
+    # Forced: the file records a language for Noto Color Emoji when fontconfig scans the font,
+    # and fontconfig keeps a cache while the font directory is unchanged, so without -f the
+    # cached scan from before the file is what every program reads.
+    - name: rebuild-font-caches
+      ansible.builtin.command:
+        argv: [fc-cache, -f]
+      changed_when: true
+
+    - name: restart-programs-notice
+      ansible.builtin.debug:
+        msg: |
+          ===================================================================
+          The colour emoji fallback changed.
+
+          A running program keeps the font setup it started with: close and
+          reopen terminal windows (and other open programs) to see colour emoji.
+          ===================================================================

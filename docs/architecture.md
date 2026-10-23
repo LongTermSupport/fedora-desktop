@@ -105,7 +105,7 @@ The bootstrap script:
 11. **play-git-hooks-security.yml**: Security pre-commit hooks
 12. **play-firefox.yml**: Firefox browser configuration
 13. **play-github-cli-multi.yml**: GitHub CLI multi-account support
-14. **play-ms-fonts.yml**: Microsoft fonts installation
+14. **play-fonts.yml**: Microsoft core fonts, and Noto Color Emoji as the emoji fallback
 15. **play-rpm-fusion.yml**: Third-party repository setup
 16. **play-browsers.yml**: Additional browser setup
 17. **play-toolbox-install.yml**: JetBrains Toolbox
