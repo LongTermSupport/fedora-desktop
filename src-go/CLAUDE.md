@@ -96,6 +96,9 @@ the Go command).
 - `internal/ccproject/` — `cc-project-dir`, the directory host `cc` starts its session in
   (Plan 00167, P1-P7 in its package doc): the top of the git work tree, or outside one the
   fedora-desktop checkout baked in with `-X main.RootDir`, offered `[Y/n]` at a terminal.
+- `internal/ccclaude/` — `cc-claude`, the claude host `cc` starts on both its launch paths
+  (C1-C5 in its package doc): ccy's `CLAUDE_CODE_AUTO_COMPACT_WINDOW` default, then an exec of
+  claude; a test pins the default to the one the ccy launcher passes its container.
 - `internal/fetchage/` — `git-fetch-age`, the shell prompt's stale-fetch mark (Plan 00183,
   A1-A15 in its package doc): the age of the newest `FETCH_HEAD` of the checkout's repository
   with a record in it (an empty one is a fetch that failed or is running), read from files
@@ -240,7 +243,7 @@ the login user, into `~/.cache/ccy-go-build`) and
 installs it with a checksum-compared `copy`; it takes the command name, install path, mode and
 optional ldflags. `playbooks/imports/play-claude-yolo.yml` imports it for both ccy binaries,
 the launcher's front `claude-yolo` (root-owned at `/var/local/claude-yolo/claude-yolo`, with
-`-X main.Version=<CCY_VERSION>` read from the bash launcher) and `cc-project-dir` (`ccy-teams` and `cc-project-dir` also get
+`-X main.Version=<CCY_VERSION>` read from the bash launcher), `cc-project-dir` and `cc-claude` (`ccy-teams` and `cc-project-dir` also get
 `-ldflags "-X main.RootDir=<checkout>"` and refuse to run without it), and `tasks/deploy-freeze.yml` for the freeze tools, which `play-podfreeze.yml` and
 `play-lxcfreeze.yml` import (both import `play-golang.yml` first for the toolchain), and
 `play-vm-test-lab.yml` for `vmtest`, `play-ftp-camera.yml` for `ftp-camera`,

@@ -1,6 +1,6 @@
 #!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
 ---
-# ccy-teams, ccy-sessions, cc-project-dir and pingbus-status-line are Go binaries built here,
+# ccy-teams, ccy-sessions, cc-project-dir, cc-claude and pingbus-status-line are Go binaries built here,
 # so the Go toolchain is installed first. play-golang.yml stays its one source of truth.
 - import_playbook: play-golang.yml
 
@@ -726,6 +726,19 @@
         go_command_dest: /var/local/claude-code/cc-project-dir
         go_command_mode: "0755"
         go_command_ldflags: "-X main.RootDir={{ root_dir }}"
+        go_command_owner: root
+      tags:
+        - scripts
+        - launchers
+
+    # The claude cc starts on both its paths (src-go/cmd/cc-claude): it gives the session
+    # ccy's auto-compact window, then becomes claude. Installed before cc, for the same reason.
+    - name: Build and Install the cc-claude Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: cc-claude
+        go_command_dest: /var/local/claude-code/cc-claude
+        go_command_mode: "0755"
         go_command_owner: root
       tags:
         - scripts
