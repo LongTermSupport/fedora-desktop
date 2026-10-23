@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"go/types"
 	"slices"
+	"strings"
 
 	"golang.org/x/tools/go/analysis"
 )
@@ -34,6 +35,12 @@ var launchStructs = map[string]string{teamchatWirePkg: "Launch", teamchatStatePk
 // launchValues are the launch values as they are spelled.
 var launchValues = []string{"claude", "plain"}
 
+// agentBranchTrees are what the rule judges: teamchat's packages and its two commands.
+var agentBranchTrees = []string{teamchatTree, "cmd/teamchat", "cmd/teamchat-admin"}
+
+// launchListSeparators split a string that spells a list of launch values ("claude,plain").
+const launchListSeparators = ",|;"
+
 const agentBranchFix = " outside package agent (project_agent_branch): ask the run's agent.Adapter, or add the agent's adapter there"
 
 // AgentBranch holds every branch on a run's launch value to package agent.
@@ -42,18 +49,23 @@ var AgentBranch = newAgentBranch(agentBranches)
 func newAgentBranch(allow []allowance) *analysis.Analyzer {
 	return &analysis.Analyzer{
 		Name: "project_agent_branch",
-		Doc: `project_agent_branch flags, in the non-test files of internal/teamchat and below, a branch on
-the run's launch value outside the agent seam (internal/teamchat/member/agent), which owns it,
-and outside the agentBranches table of the rules package:
+		Doc: `project_agent_branch flags, in the non-test files of internal/teamchat, cmd/teamchat and
+cmd/teamchat-admin and below, a branch on the run's launch value outside the agent seam
+(internal/teamchat/member/agent), which owns it, and outside the agentBranches table of the
+rules package:
 
 - a use of state.LaunchClaude, state.LaunchPlain, state.Launches, cli.LaunchClaude,
   cli.LaunchPlain, agent.Claude or agent.Plain (a types.Info use, so an unqualified use in the
   declaring package counts; a declaration is not a use);
 - an == or !=, a switch tag or a map key type whose type is agent.Agent;
-- an == or !=, or a switch case against a tag, of a constant whose value is "claude" or "plain"
-  with the field wire.Launch.Launch or state.SessionPID.Launch, or with a conversion to a
-  string of an agent.Agent;
-- a call given that field and a composite literal holding a launch value.
+- an == or !=, a call, an index expression, or a switch tag and its cases, whose operands hold
+  both the launch value and a launch constant. The launch value is the field wire.Launch.Launch
+  or state.SessionPID.Launch or a conversion to a string of an agent.Agent, as an operand or as
+  an argument of a call that is one (strings.ToLower(l.Launch)), through any depth of calls. A
+  launch constant is a constant expression whose value is "claude" or "plain", or a list of
+  words split on , | or ; one of which is ("plain,x"); in a call's arguments or an index's map
+  it may also be a composite literal holding one (slices.Contains([]string{"plain"}, l.Launch),
+  map[string]bool{"plain": true}[l.Launch]).
 
 A run's agent (Claude Code, or a plain command) is asked what it can do through one value, its
 agent.Adapter, so that another agent arrives as an adapter and not as a refactor of every
@@ -62,8 +74,9 @@ launch value wherever their behaviour differed by agent.
 
 Not caught: a value that reaches the field through a function's result (isPlain(l.Launch)
 with a bare literal inside isPlain) is caught only when that function names a constant; a
-copy of the field held in a variable and compared; a list of launch values held in a variable
-other than state.Launches.
+copy of the field held in a variable and compared; a list or map of launch values held in a
+variable other than state.Launches; a part of a launch value (strings.HasPrefix(l.Launch,
+"pla")); a launch value inside a sentence, which is not a list ("is not claude or plain").
 
 How to fix: ask the run's agent.Adapter (Capabilities, Preparer); a new agent is its constant,
 its case in agent.For and its adapter in agent, and one entry in state.Launches.`,
@@ -75,7 +88,8 @@ its case in agent.For and its adapter in agent, and one entry in state.Launches.
 }
 
 func runAgentBranch(pass *analysis.Pass, allow []allowance) {
-	if !inTree(pass.Pkg.Path(), teamchatTree) || ownedBy(pass.Pkg.Path(), teamchatAgentPkg) {
+	inScope := slices.ContainsFunc(agentBranchTrees, func(tree string) bool { return inTree(pass.Pkg.Path(), tree) })
+	if !inScope || ownedBy(pass.Pkg.Path(), teamchatAgentPkg) {
 		return
 	}
 	lines := map[token.Position]bool{}
@@ -111,16 +125,7 @@ func checkAgentBranch(pass *analysis.Pass, n ast.Node, report func(token.Pos, st
 			report(n.Pos(), name+" named")
 		}
 	case *ast.BinaryExpr:
-		if n.Op != token.EQL && n.Op != token.NEQ {
-			return
-		}
-		if isAgentExpr(pass, n.X) || isAgentExpr(pass, n.Y) {
-			report(n.Pos(), "an agent.Agent compared")
-			return
-		}
-		if what, ok := launchCompare(pass, n.X, n.Y); ok {
-			report(n.Pos(), what)
-		}
+		checkLaunchBinary(pass, n, report)
 	case *ast.SwitchStmt:
 		checkLaunchSwitch(pass, n, report)
 	case *ast.MapType:
@@ -128,9 +133,26 @@ func checkAgentBranch(pass *analysis.Pass, n ast.Node, report func(token.Pos, st
 			report(n.Pos(), "a map keyed by agent.Agent")
 		}
 	case *ast.CallExpr:
-		if launchListCall(pass, n) {
-			report(n.Pos(), "the launch field checked against a list of launch values")
+		if what, ok := launchCall(pass, n); ok {
+			report(n.Pos(), what)
 		}
+	case *ast.IndexExpr:
+		if what, ok := launchOperand(pass, n.Index); ok && isLaunchLiteral(pass, n.X) {
+			report(n.Pos(), what+" used as an index into a literal holding a launch value")
+		}
+	}
+}
+
+func checkLaunchBinary(pass *analysis.Pass, be *ast.BinaryExpr, report func(token.Pos, string)) {
+	if be.Op != token.EQL && be.Op != token.NEQ {
+		return
+	}
+	if isAgentExpr(pass, be.X) || isAgentExpr(pass, be.Y) {
+		report(be.Pos(), "an agent.Agent compared")
+		return
+	}
+	if what, ok := launchCompare(pass, be.X, be.Y); ok {
+		report(be.Pos(), what)
 	}
 }
 
@@ -184,29 +206,80 @@ func isAgentType(t types.Type) bool {
 	return ownedBy(named.Obj().Pkg().Path(), teamchatAgentPkg)
 }
 
-// launchCompare is what a comparison of a and b is when one is a launch value and the other the
-// launch field or a string of an agent.Agent.
+// launchCompare is what a comparison of a and b is when one is a launch constant and the other
+// a launch operand.
 func launchCompare(pass *analysis.Pass, a, b ast.Expr) (string, bool) {
 	for _, pair := range [][2]ast.Expr{{a, b}, {b, a}} {
 		value, isValue := launchConst(pass, pair[0])
-		switch {
-		case !isValue:
-		case isLaunchField(pass, pair[1]):
-			return "the launch field compared with " + value, true
-		case isAgentString(pass, pair[1]):
-			return "a string of an agent.Agent compared with " + value, true
+		if !isValue {
+			continue
+		}
+		if what, isOperand := launchOperand(pass, pair[1]); isOperand {
+			return what + " compared with " + value, true
 		}
 	}
 	return "", false
 }
 
-// launchConst is e's value, quoted, when e is a constant whose value is a launch value.
+// launchCall is what call is when it is given a launch operand and, as another argument, a
+// launch constant or a composite literal holding one.
+func launchCall(pass *analysis.Pass, call *ast.CallExpr) (string, bool) {
+	for i, arg := range call.Args {
+		what, isOperand := launchOperand(pass, arg)
+		if !isOperand {
+			continue
+		}
+		for j, other := range call.Args {
+			if j == i {
+				continue
+			}
+			if value, isValue := launchConst(pass, other); isValue {
+				return what + " given to a call with " + value, true
+			}
+			if isLaunchLiteral(pass, other) {
+				return what + " checked against a list of launch values", true
+			}
+		}
+	}
+	return "", false
+}
+
+// launchOperand is what e is when it is the launch field or a string of an agent.Agent, or a
+// call given one of them as an argument, through any depth of calls.
+func launchOperand(pass *analysis.Pass, e ast.Expr) (string, bool) {
+	switch {
+	case isLaunchField(pass, e):
+		return "the launch field", true
+	case isAgentString(pass, e):
+		return "a string of an agent.Agent", true
+	}
+	call, isCall := ast.Unparen(e).(*ast.CallExpr)
+	if !isCall {
+		return "", false
+	}
+	for _, arg := range call.Args {
+		if what, isOperand := launchOperand(pass, arg); isOperand {
+			return "a call over " + strings.TrimPrefix(what, "a call over "), true
+		}
+	}
+	return "", false
+}
+
+// launchConst is e's value, quoted, when e is a constant whose value is a launch value or a
+// list of words one of which is.
 func launchConst(pass *analysis.Pass, e ast.Expr) (string, bool) {
 	v := pass.TypesInfo.Types[e].Value
-	if v == nil || v.Kind() != constant.String || !slices.Contains(launchValues, constant.StringVal(v)) {
+	if v == nil || v.Kind() != constant.String || !namesLaunchValue(constant.StringVal(v)) {
 		return "", false
 	}
 	return v.ExactString(), true
+}
+
+// namesLaunchValue is whether s is a launch value, or a list split on launchListSeparators with
+// one as a word; a sentence that names a value is not a list.
+func namesLaunchValue(s string) bool {
+	words := strings.FieldsFunc(s, func(r rune) bool { return strings.ContainsRune(launchListSeparators, r) })
+	return slices.ContainsFunc(words, func(w string) bool { return slices.Contains(launchValues, strings.TrimSpace(w)) })
 }
 
 // isLaunchField is whether e selects the Launch field of the launch frame or of session.pid.
@@ -259,14 +332,11 @@ func isAgentString(pass *analysis.Pass, e ast.Expr) bool {
 	return isBasic && basic.Info()&types.IsString != 0 && isAgentExpr(pass, call.Args[0])
 }
 
-// launchListCall is whether call is given the launch field and a composite literal holding a
-// launch value: a contains over a list of the values.
-func launchListCall(pass *analysis.Pass, call *ast.CallExpr) bool {
-	field := slices.ContainsFunc(call.Args, func(a ast.Expr) bool { return isLaunchField(pass, a) })
-	return field && slices.ContainsFunc(call.Args, func(a ast.Expr) bool {
-		lit, isLit := ast.Unparen(a).(*ast.CompositeLit)
-		return isLit && holdsLaunchValue(pass, lit)
-	})
+// isLaunchLiteral is whether e is a composite literal holding a launch constant: a list or a
+// map of the values.
+func isLaunchLiteral(pass *analysis.Pass, e ast.Expr) bool {
+	lit, isLit := ast.Unparen(e).(*ast.CompositeLit)
+	return isLit && holdsLaunchValue(pass, lit)
 }
 
 func holdsLaunchValue(pass *analysis.Pass, lit *ast.CompositeLit) bool {
