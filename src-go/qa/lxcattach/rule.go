@@ -59,14 +59,14 @@ func streamName(fd int) string {
 
 // target is what one descriptor points at: a file (redirected on a line), the descriptor of the
 // same number or another that the enclosing function or script was handed (from), or something
-// lxc-attach leaves the caller able to use: a pipe, a device, a closed descriptor (from -1).
+// lxc-attach leaves the caller able to use: a pipe, /dev/null, a closed descriptor (from -1).
 type target struct {
 	file bool
 	line int
 	from int
 }
 
-// safe is a pipe, a device or a closed descriptor.
+// safe is a pipe, /dev/null or a closed descriptor.
 var safe = target{from: -1}
 
 // state is every followed descriptor.
