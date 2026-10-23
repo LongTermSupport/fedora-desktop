@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00219-desktop-checks-over-dbus](00219-desktop-checks-over-dbus/) - Not Started. Agents check the desktop without the owner: a read-only `org.fedoradesktop.DesktopFacts` object in the panel extension (active workspace, each window's class, app id, workspace and focus; no titles) and a Go `desktop-check` that runs checks needing window changes or screenshots in a throwaway headless shell, never on the owner's screen; for Plans 00198 and 00185
+
 - [00218-stt-clip-review-tool](00218-stt-clip-review-tool/) - Not Started. `stt-review` (#112): a Go terminal queue over a folder of private speech clips, opened from the speech-to-text panel; plays each clip with an empty text box (no engine text shown), and the typed `<clip>.human.txt` sidecar, or `[inaudible]`, is the only state; the hand-checked reference for Plan 00179's engine review
 
 - [00217-team-colours-in-the-status-line](00217-team-colours-in-the-status-line/) - In Progress. Each agent team on the status line in its own colour: an automatic one from the team's name, in a palette legible on dark terminals (WCAG AA, tested), and a `colour:` override per team carried to every member as admin room state; Go and Python status lines changed together, parity oracle re-recorded
