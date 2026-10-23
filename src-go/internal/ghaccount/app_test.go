@@ -234,6 +234,25 @@ func TestThePassphraseFromTheEnvironment(t *testing.T) {
 	}
 }
 
+// E11: the passphrase leaves the environment before any program starts, so gh's version and
+// status calls and the scope helper never inherit it, in every mode.
+func TestThePassphraseIsTakenBeforeAnyProgramRuns(t *testing.T) {
+	for _, mode := range []string{"--check", "--setup-all", "--add=oss:bob"} {
+		w := newWorld(t)
+		w.config("work:alice")
+		w.ready("work", "alice")
+		w.env["GITHUB_SSH_PASSPHRASE"] = "from env"
+		w.env["RUN_BASH_HEADLESS"] = "1"
+		w.run(mode)
+		after, taken := w.takenAfter["GITHUB_SSH_PASSPHRASE"]
+		if !taken {
+			t.Errorf("%s: the passphrase was never taken", mode)
+		} else if after != 0 {
+			t.Errorf("%s: %d command(s) ran with the passphrase in the environment", mode, after)
+		}
+	}
+}
+
 // E11: the vault call.
 func TestThePassphraseFromTheVault(t *testing.T) {
 	w := newWorld(t)
@@ -272,6 +291,10 @@ func TestAGivenVaultPasswordFile(t *testing.T) {
 	w.mustContain("stderr", "Vault password file not found: "+given)
 	if w.ran("ansible") {
 		t.Error("ran ansible without the file")
+	}
+	// --check goes on without a passphrase it could not decrypt (E12), not past a wrong path.
+	if code := w.run("--check"); code != term.ExitFailure {
+		t.Fatalf("--check, missing file: exit %d", code)
 	}
 	w.write(given, "pw\n")
 	if code := w.run("--setup-all"); code != term.ExitOK {
@@ -730,6 +753,10 @@ func TestCheckWithoutAPassphrase(t *testing.T) {
 		t.Fatalf("exit %d\n%s", code, w.stderr.String())
 	}
 	w.mustContain("stderr", "Could not decrypt the passphrase — SSH tests may be limited")
+	w.mustContain("stderr", "⚠ Failed to decrypt github_ssh_passphrase from the vault")
+	if strings.Contains(w.stderr.String(), "✗") {
+		t.Errorf("a run without a passphrase may only warn:\n%s", w.stderr.String())
+	}
 	ssh := w.mustCall("ssh ")
 	if !slices.Contains(ssh.Args, "BatchMode=yes") || len(ssh.Secrets) != 0 || hasEnv(ssh, "SSH_ASKPASS_REQUIRE=force") {
 		t.Errorf("ssh %q env %v", ssh.Line(), ssh.Env)

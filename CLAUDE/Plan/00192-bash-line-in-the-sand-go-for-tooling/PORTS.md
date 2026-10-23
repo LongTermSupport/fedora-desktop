@@ -348,8 +348,8 @@ the bootstrap). The vault is read the way the playbooks read it: ansible runs un
 checkout's `ansible.cfg`, and only a set `VAULT_PASS_FILE` is checked and passed on (E4, E11); the
 passphrase reaches `ssh-keygen` and `ssh` only through the command itself as askpass, proven
 against the real `ssh-keygen` (B7). `go.yaml.in/yaml/v3` joins the main module (vendored,
-allowlisted), and `execx` gains `Secret.Renamed`; both are in the ccy build closure, so CCY is
-bumped. The gh floor rose from 2.40.0 to 2.81.0, the release that added `gh auth status --json`
+allowlisted; the ccy binaries do not import it), and `execx` gains `Secret.Renamed`; `go.mod`,
+`go.sum` and `execx` are in the ccy build closure, so CCY is bumped. The gh floor rose from 2.40.0 to 2.81.0, the release that added `gh auth status --json`
 (B15). `scripts/test-run-bash-gh-scopes.bash` drives the built command over its stubs; the bash
 and its allowlist row are gone. Host checks H1-H5 are the owner's, by hand (H4 in the VM lab).
-Review rounds: see the journal.
+Review rounds (Opus, adversarial): see the journal.

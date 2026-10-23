@@ -76,6 +76,8 @@ with awk); those cases move to Go tests, and the suite drives the built command 
 - E3. An alias is `[A-Za-z0-9][A-Za-z0-9_-]*` (it is a file name, `~/.ssh/github_<alias>`, an SSH
   host `github.com-<alias>` and a shell function name in the play). A username is a GitHub login:
   1 to 39 letters, digits and hyphens, starting and ending with a letter or digit.
+  Aliases, like logins, compare without regard to case: ssh matches `Host` names without case,
+  so `Work` and `work` would be one host alias, and an alias given twice that way is refused.
 - E4. `GH_ACCOUNT_SETUP_ROOT` (set by the wrapper) is the checkout, an absolute directory; unset,
   relative or not a directory is exit 1 telling the user to run `scripts/gh-account-setup.bash`.
   The configuration is `LOCALHOST_YML` (default `<root>/environment/localhost/host_vars/localhost.yml`),
@@ -122,7 +124,8 @@ with awk); those cases move to Go tests, and the suite drives the built command 
 ### The passphrase
 
 - E11. A non-empty `GITHUB_SSH_PASSPHRASE` (set by `run.bash` on a fresh install) is the
-  passphrase, taken out of the environment so no child inherits it. Otherwise it is decrypted
+  passphrase, taken out of the environment before any program runs, so no child (not even
+  `gh --version`) inherits it. Otherwise it is decrypted
   from the vault: `ansible localhost -c local -e @<localhost.yml> -m debug -a 'msg={{ github_ssh_passphrase }}'` runs in the checkout with `ANSIBLE_CONFIG=<root>/ansible.cfg`,
   `ANSIBLE_STDOUT_CALLBACK=ansible.builtin.minimal` and `ANSIBLE_NOCOLOR=1`, and no `--vault-id`
   argument: the password file and the vault identity are the ones `ansible.cfg` names, so this
@@ -133,8 +136,10 @@ with awk); those cases move to Go tests, and the suite drives the built command 
   non-empty string. Ansible failing (its stderr is shown), output of another shape, or an empty
   value is `Failed to decrypt github_ssh_passphrase from the vault`, exit 1. The passphrase is never
   printed and never in an argv.
-- E12. `--add` and `--setup-all` without a passphrase stop (exit 1). `--check` warns
-  `Could not decrypt the passphrase — SSH tests may be limited` and goes on without one.
+- E12. `--add` and `--setup-all` without a passphrase stop (exit 1). `--check` reports the
+  vault's failure as a warning, warns `Could not decrypt the passphrase — SSH tests may be limited`
+  and goes on without one; a `VAULT_PASS_FILE` that is not there is a wrong setting, not a
+  passphrase it could not get, and ends `--check` too (exit 1, E11).
 
 ### One account's setup (`--add` and `--setup-all`)
 
@@ -283,7 +288,9 @@ of the lines.
   (`github.com/cli/cli/releases/tag/v2.81.0`, published 2025-10-01) open with "`gh auth status`
   Supports JSON Output" (cli/cli PR 11544), and no earlier release names the flag. Under the old
   floor a gh from 2.40.0 to 2.80.x passed E5 and failed at E6 with gh's own "unknown flag"
-  instead of the floor message.
+  instead of the floor message. `play-github-cli-multi.yml` keeps its own 2.40.0 check: the play
+  needs only several accounts, and when it sends the user to this tool, an older gh gets this
+  tool's floor message.
 
 ## 6. Proof
 

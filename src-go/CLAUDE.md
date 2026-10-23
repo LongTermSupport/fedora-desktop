@@ -3,7 +3,8 @@
 One module, `github.com/LongTermSupport/fedora-desktop/src-go`, for this repository's large
 interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfreeze`,
 `lxcfreeze`, `vmtest`, `ftp-camera`, `watermark`, `wsi`, `open`, `rclone-cache-status` and `gh-account-setup` live here; their bash
-originals are gone.
+originals are gone (`scripts/gh-account-setup.bash` stays, as the wrapper that builds and runs
+the Go command).
 `convert` is new, with no bash original.
 
 ## Layout

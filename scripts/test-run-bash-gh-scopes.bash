@@ -370,12 +370,37 @@ GITHUB_SSH_PASSPHRASE='a test passphrase' setup_case --setup-all
 check "set up" 0 "$RC"
 contains "the login asks for every scope" "--scopes gist,project,repo,workflow" "$(cat "$STUB_DIR/login.log" 2>/dev/null)"
 key="$setup_home/.ssh/github_oss"
-check "the real ssh-keygen made the key with its passphrase, through askpass" "refused" \
+check "the real ssh-keygen made the key, through askpass" "yes" "$([ -f "$key" ] && echo yes)"
+check "  with the given passphrase" "opened" \
+    "$(if ssh-keygen -y -P 'a test passphrase' -f "$key" >"$work/pub.out" 2>"$work/pub.err"; then echo opened; else echo refused; fi)"
+check "  and not without one" "refused" \
     "$(if ssh-keygen -y -P '' -f "$key" >"$work/pub.out" 2>"$work/pub.err"; then echo opened; else echo refused; fi)"
+
 contains "  and it was uploaded as the account" "tok-bob ssh-key add $key.pub" "$(cat "$STUB_DIR/upload.log" 2>/dev/null)"
 contains "the key is verified" "SSH verified: oss → bob" "$OUT"
 contains "gh is switched back to the account it started on" "--user alice" "$SWITCHES"
 contains "  and says so" "gh is back on alice" "$OUT"
+
+# E29: the wrapper's own failures, and the command's status passed back through it.
+echo "== gh-account-setup.bash: the wrapper's exits"
+setup_case --no-such-flag
+check "a usage error comes back through the wrapper" 64 "$RC"
+nogo_bin="$work/nogo-bin"
+mkdir -p "$nogo_bin"
+ln -s "$(command -v bash)" "$nogo_bin/bash"
+ln -s "$(command -v dirname)" "$nogo_bin/dirname"
+OUT="$(PATH="$nogo_bin" "$SETUP" --check 2>&1)" && RC=0 || RC=$?
+check "no go is exit 2" 2 "$RC"
+contains "  naming the play that installs it" "play-golang.yml" "$OUT"
+broken="$work/broken-checkout"
+mkdir -p "$broken/scripts/lib" "$broken/src-go/cmd/gh-account-setup"
+cp "$REPO_ROOT/scripts/gh-account-setup.bash" "$broken/scripts/"
+cp "$REPO_ROOT/scripts/lib/go-tool.bash" "$broken/scripts/lib/"
+printf 'module example.com/broken\n\ngo 1.22\n' >"$broken/src-go/go.mod"
+printf 'package main\n\nfunc main() { not go }\n' >"$broken/src-go/cmd/gh-account-setup/main.go"
+OUT="$(XDG_CACHE_HOME="$cache_home" "$broken/scripts/gh-account-setup.bash" --check 2>&1)" && RC=0 || RC=$?
+check "a command that does not build is exit 2" 2 "$RC"
+contains "  and says so" "it did not build" "$OUT"
 
 echo ""
 echo "RESULT: passed: $passed failed: $failed"

@@ -68,6 +68,10 @@ type App struct {
 // errReported is a failure already explained on stderr.
 var errReported = errors.New("failure reported")
 
+// errVaultFileMissing is a VAULT_PASS_FILE that is not there: a wrong setting, which ends even
+// --check, unlike a vault that would not decrypt (E11, E12).
+var errVaultFileMissing = fmt.Errorf("vault password file missing: %w", errReported)
+
 // stream is stdout or stderr, and whether it gets colour (E28).
 type stream struct {
 	w      io.Writer
@@ -87,6 +91,8 @@ type run struct {
 	startActive       string
 	executable        string
 	executableChecked bool
+	// passOptional: --check goes on without a passphrase, so its failure is a warning (E12).
+	passOptional bool
 }
 
 const (
@@ -127,6 +133,10 @@ func (r *run) finish(code term.ExitCode) term.ExitCode {
 }
 
 func (r *run) main(ctx context.Context, opts options) term.ExitCode {
+	// Before any program starts, so none inherits the passphrase run.bash gave (E11).
+	if err := r.takeGivenPassphrase(); err != nil {
+		return term.ExitFailure
+	}
 	if err := r.locate(); err != nil {
 		return term.ExitFailure
 	}
@@ -375,18 +385,26 @@ func (r *run) audit(ctx context.Context, logins []string) ([]verdict, error) {
 
 // --- the passphrase (E11, E21) ---
 
-// loadPassphrase is the passphrase from run.bash, else the vault's; it reports its failure.
-func (r *run) loadPassphrase(ctx context.Context) error {
-	// run.bash hands the passphrase over on a fresh install.
+// takeGivenPassphrase moves the passphrase run.bash hands over on a fresh install out of the
+// environment; it reports its failure.
+func (r *run) takeGivenPassphrase() error {
 	s, ok, err := r.env.TakeSecret("GITHUB_SSH_PASSPHRASE")
 	if err != nil {
 		return r.failf("Cannot read the passphrase run.bash gave: %v", err)
 	}
-	if ok {
-		if r.pass, err = s.Renamed(askpassSecretVar); err != nil {
-			return r.failf("%v", err)
-		}
-		r.hasPass = true
+	if !ok {
+		return nil
+	}
+	if r.pass, err = s.Renamed(askpassSecretVar); err != nil {
+		return r.failf("%v", err)
+	}
+	r.hasPass = true
+	return nil
+}
+
+// loadPassphrase is the passphrase from run.bash, else the vault's; it reports its failure.
+func (r *run) loadPassphrase(ctx context.Context) error {
+	if r.hasPass {
 		return nil
 	}
 	return r.decryptPassphrase(ctx)
@@ -404,13 +422,16 @@ func (r *run) decryptPassphrase(ctx context.Context) error {
 	}
 	if given := r.env.Getenv("VAULT_PASS_FILE"); given != "" {
 		if _, err := os.Stat(given); err != nil {
-			return r.failf("Vault password file not found: %s", given)
+			r.badf(r.err, "Vault password file not found: %s", given)
+			return errVaultFileMissing
 		}
 		cmd.Env = append(cmd.Env, "ANSIBLE_VAULT_PASSWORD_FILE="+given)
 	}
 	res, err := r.env.Runner.Run(ctx, cmd)
 	if err != nil {
-		r.p.Print(r.err.w, string(res.Stderr))
+		if msg := strings.TrimRight(string(res.Stderr), "\n"); msg != "" {
+			r.p.Print(r.err.w, msg+"\n")
+		}
 		return r.decryptFailed("ansible failed: " + err.Error())
 	}
 	pass, err := parseVaultOutput(string(res.Stdout))
@@ -425,7 +446,11 @@ func (r *run) decryptPassphrase(ctx context.Context) error {
 }
 
 func (r *run) decryptFailed(why string) error {
-	r.badf(r.err, "Failed to decrypt github_ssh_passphrase from the vault (%s)", why)
+	report := r.badf
+	if r.passOptional {
+		report = r.warnf
+	}
+	report(r.err, "Failed to decrypt github_ssh_passphrase from the vault (%s)", why)
 	r.advicef(r.err, "Check the vault password file ansible.cfg names, or run run.bash first to set up the vault")
 	return errReported
 }
@@ -914,7 +939,11 @@ func (r *run) check(ctx context.Context) error {
 		return nil
 	}
 	r.say(r.out, fmt.Sprintf("Checking %d GitHub account(s)", len(accounts)))
-	if err := r.loadPassphrase(ctx); err != nil {
+	r.passOptional = true
+	switch err := r.loadPassphrase(ctx); {
+	case errors.Is(err, errVaultFileMissing):
+		return err
+	case err != nil:
 		r.warnf(r.err, "Could not decrypt the passphrase — SSH tests may be limited")
 	}
 	healthy := true

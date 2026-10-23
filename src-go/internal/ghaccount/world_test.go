@@ -29,15 +29,17 @@ type ghAccount struct {
 // one execx.Fake answers them. The Fake holds its lock while a rule runs, so the rules may
 // change the world's state without one of their own.
 type world struct {
-	t      *testing.T
-	root   string
-	home   string
-	yml    string
-	env    map[string]string
-	fake   *execx.Fake
-	stdout bytes.Buffer
-	stderr bytes.Buffer
-	helper string
+	t    *testing.T
+	root string
+	home string
+	yml  string
+	env  map[string]string
+	fake *execx.Fake
+	// takenAfter is, per variable TakeSecret moved, how many commands had run by then.
+	takenAfter map[string]int
+	stdout     bytes.Buffer
+	stderr     bytes.Buffer
+	helper     string
 
 	accounts    map[string]*ghAccount
 	order       []string
@@ -322,6 +324,10 @@ func (w *world) newEnv() Env {
 		Foreground: w.fake,
 		Getenv:     func(k string) string { return w.env[k] },
 		TakeSecret: func(name string) (execx.Secret, bool, error) {
+			if w.takenAfter == nil {
+				w.takenAfter = map[string]int{}
+			}
+			w.takenAfter[name] = len(w.fake.Calls()) + len(w.fake.Foregrounds())
 			v, ok := w.env[name]
 			delete(w.env, name)
 			if !ok || v == "" {
