@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/colour"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
@@ -203,8 +204,10 @@ func checkReports(t *testing.T, reports []wire.State) {
 
 func TestStatusJSONThatCannotBeWrittenIsLogged(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)
+	w.local(func() {})
 	check(t, w.root.RemoveTree(w.layout.Run(w.run).Dir()))
-	check(t, w.e.SetDesired(t.Context(), state.ReportDesired{State: state.DesiredApplied}))
+	check(t, w.e.SetDesired(t.Context(), state.ReportDesired{State: state.DesiredRefused}))
+	w.clk.Advance(time.Second)
 	if !strings.Contains(w.log.String(), "status.json not written") {
 		t.Fatalf("link.log = %q", w.log.String())
 	}

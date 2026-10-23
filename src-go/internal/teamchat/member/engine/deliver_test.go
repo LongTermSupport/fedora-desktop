@@ -207,7 +207,7 @@ func (dw *dworld) next() dialEvent {
 // advance waits until the clock holds the loop's one waiter, then moves it by d.
 func (dw *dworld) advance(d time.Duration) {
 	dw.t.Helper()
-	check(dw.t, dw.clk.BlockUntil(dw.t.Context(), 1))
+	dw.armed(1)
 	dw.clk.Advance(d)
 }
 

@@ -451,8 +451,11 @@ func (w *world) storeExists(id paths.TeamID) bool {
 	return ok
 }
 
+// status is status.json once a paced write still owed has been made, so a test reads the newest
+// status at once; statusFile reads it as the pacing left it.
 func (w *world) status() state.Status {
 	w.t.Helper()
+	w.local(w.e.flushStatus)
 	f, err := w.root.Read(w.layout.Run(w.run).Status(), 1<<20)
 	check(w.t, err)
 	s, err := state.DecodeStatus(f.Data)
@@ -495,6 +498,18 @@ func (w *world) done(op string, args any) wire.Done {
 func (w *world) local(f func()) {
 	w.t.Helper()
 	check(w.t, w.e.do(w.t.Context(), f))
+}
+
+// armed waits until the clock holds n waiters beside status.json's one timer, when it is armed
+// (SL1). The caller makes no change meanwhile, which would re-arm it.
+func (w *world) armed(n int) {
+	w.t.Helper()
+	w.local(func() {
+		if w.e.statusPace.stop != nil {
+			n++
+		}
+	})
+	check(w.t, w.clk.BlockUntil(w.t.Context(), n))
 }
 
 // until polls the state goroutine until cond holds.
