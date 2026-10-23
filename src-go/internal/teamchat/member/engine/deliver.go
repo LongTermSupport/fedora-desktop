@@ -293,7 +293,7 @@ func (e *Engine) SetSession(ctx context.Context, f SessionFacts) error {
 		if f.Transcript != "" {
 			e.sess.transcript = f.Transcript
 		}
-		e.sess.idle = f.Idle
+		e.setIdle(f.Idle)
 		e.poke()
 	})
 }

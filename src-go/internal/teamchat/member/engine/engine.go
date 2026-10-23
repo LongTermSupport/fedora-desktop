@@ -136,6 +136,11 @@ type Engine struct {
 	unusable state.Unusable
 	// statusPace paces status.json's writes (SL1).
 	statusPace statusPacer
+
+	// proof is the transcript proof's memory and timer (DV4); watch is proof.Watch, or the
+	// tests' own.
+	proof proofState
+	watch watchFunc
 }
 
 // New is an engine over cfg; its goroutine runs from Run.
@@ -176,7 +181,9 @@ func (e *Engine) Run(ctx context.Context) error {
 	defer loop.Wait()
 	if e.delivers() {
 		loop.Go(func() { e.deliverLoop(ctx) })
+		e.startProof(ctx, &loop)
 	}
+	defer e.disarmProof()
 	defer e.disarmStatus()
 	e.publish()
 	for {

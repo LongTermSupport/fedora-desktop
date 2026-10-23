@@ -360,6 +360,16 @@ func addOf(id paths.TeamID) wire.Msg {
 // seatHolding makes id's seat with its bundle and a store owing pending, and takes it.
 func (w *linkWorld) seatHolding(id paths.TeamID, pending []state.Pending) *lock.SeatLock {
 	w.t.Helper()
+	return w.seatWith(id, func(st *state.Store) {
+		if pending != nil {
+			st.Pending = pending
+		}
+	})
+}
+
+// seatWith makes id's seat with its bundle and a fresh store that fill has changed, and takes it.
+func (w *linkWorld) seatWith(id paths.TeamID, fill func(*state.Store)) *lock.SeatLock {
+	w.t.Helper()
 	s := w.layout.Seat(id)
 	check(w.t, w.root.MkdirAll(s.Dir()))
 	issuer, err := paths.ParseDigest(kitHex)
@@ -373,9 +383,7 @@ func (w *linkWorld) seatHolding(id paths.TeamID, pending []state.Pending) *lock.
 	check(w.t, err)
 	check(w.t, w.root.Create(s.Bundle(), b, 0o600))
 	st := state.NewStore(id, agent(id), state.StoreRun{ID: w.run, StartedMS: startWall}, state.Gate{})
-	if pending != nil {
-		st.Pending = pending
-	}
+	fill(&st)
 	store, err := json.Marshal(st)
 	check(w.t, err)
 	check(w.t, w.root.Create(s.Store(), store, 0o600))

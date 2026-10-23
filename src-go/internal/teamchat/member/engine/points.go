@@ -13,6 +13,7 @@ const (
 	pointAfterAwaiting
 	pointAfterUserLine
 	pointBetweenStoreWrite
+	pointAfterMissing
 )
 
 // name is the failpoint the point is; "" for none.
@@ -28,6 +29,8 @@ func (p point) name() failpoint.Name {
 		return failpoint.LinkAfterUserLine
 	case pointBetweenStoreWrite:
 		return failpoint.LinkBetweenStoreWrites
+	case pointAfterMissing:
+		return failpoint.LinkAfterMissing
 	}
 	return ""
 }

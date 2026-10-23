@@ -14,6 +14,7 @@ func TestEachPointNamesItsFailpoint(t *testing.T) {
 		pointAfterAwaiting:     failpoint.LinkAfterAwaiting,
 		pointAfterUserLine:     failpoint.LinkAfterUserLine,
 		pointBetweenStoreWrite: failpoint.LinkBetweenStoreWrites,
+		pointAfterMissing:      failpoint.LinkAfterMissing,
 	}
 	for p, n := range want {
 		if got := p.name(); got != n {

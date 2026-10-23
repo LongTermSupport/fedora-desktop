@@ -195,7 +195,7 @@ func (e *Engine) look() ([]looked, time.Duration) {
 	)
 	for _, id := range e.order() {
 		h := e.teams[id]
-		if !eligible(h, nil) || h.team == nil || h.handle() == "" {
+		if !eligible(h, nil) || h.team == nil || h.handle() == "" || !e.begun(h) {
 			continue
 		}
 		l, at := lookAt(h, now)
