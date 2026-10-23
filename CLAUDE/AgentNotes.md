@@ -1049,7 +1049,9 @@ desktop user, mode 0600, is root-owned after
 `sudo -n lxc-attach -n NAME -- /bin/true > file`, so redirecting and then reading it back
 locks its author out. Three triage probes were lost to this in Plan 00122 before the cause
 was seen. Every `lxc-attach` in a script or a probe goes through `2>&1 | cat`
-or a `{ ...; } 2>&1 | cat` group, so both streams are a pipe. In Go (`lxcfreeze`'s DHCP
+or a `{ ...; } 2>&1 | cat` group, so both streams are a pipe, and a wrapper that runs it
+(Plan 00211's `in_guest`) does that inside, so a caller's `2>"${err}"` is safe. The rule
+[lxc-attach-file-stream](QA.md#lxc-attach-file-stream) holds every shell script to this. In Go (`lxcfreeze`'s DHCP
 renewal) the call goes through `sudo.Capture`, which hands the runner no writers, so both
 streams are captured pipes; never pass `os.Stderr` to it.
 

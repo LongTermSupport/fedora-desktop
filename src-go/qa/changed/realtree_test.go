@@ -218,16 +218,17 @@ func TestTheRealRoutingCoversEveryHelperTestsGateInput(t *testing.T) {
 // Every file under .semgrep/ is read by the gate or suite listed here; a change to one must run
 // it, and none may be called covered when nothing checked it (SPEC-qa-changed B33).
 var semgrepReaders = map[string]string{
-	".semgrep/bash-conventions.yml":  "check:patterns",
-	".semgrep/bash-conventions.bash": "check:patterns",
-	".semgrep/gh-scopes.yml":         "check:gh-scopes",
-	".semgrep/gh-scopes.fixture":     "check:gh-scopes",
-	".semgrep/ready-wait.yml":        "check:ready-wait",
-	".semgrep/ready-wait.py":         "check:ready-wait",
-	".semgrep/ready-wait.bash":       "check:ready-wait",
-	".semgrep/speech-to-text.yml":    "check:stt-rules",
-	".semgrep/speech-to-text.js":     "check:stt-rules",
-	".semgrep/speech-to-text.py":     "check:stt-rules",
+	".semgrep/bash-conventions.yml":    "check:patterns",
+	".semgrep/bash-conventions.bash":   "check:patterns",
+	".semgrep/gh-scopes.yml":           "check:gh-scopes",
+	".semgrep/gh-scopes.fixture":       "check:gh-scopes",
+	".semgrep/ready-wait.yml":          "check:ready-wait",
+	".semgrep/ready-wait.py":           "check:ready-wait",
+	".semgrep/ready-wait.bash":         "check:ready-wait",
+	".semgrep/speech-to-text.yml":      "check:stt-rules",
+	".semgrep/speech-to-text.js":       "check:stt-rules",
+	".semgrep/speech-to-text.py":       "check:stt-rules",
+	".semgrep/lxc-attach-streams.bash": "check:lxc-attach-streams",
 }
 
 func TestEverySemgrepFileRoutesToTheGateThatReadsIt(t *testing.T) {

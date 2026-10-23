@@ -370,6 +370,17 @@ an unparseable or unreadable file is exit 2. It starts no process.
 `SPEC-qa-plan-script-logging.md` (L1-L14) is the specification, proven by unit tests over in-memory
 trees and a real-file-system test in the command package.
 
+`qa/lxcattach` + `qa/cmd/qa-lxc-attach-streams` (same nested module) are
+`scripts/qa-lxc-attach-streams.bash`, the gate for `lxc-attach-file-stream` (Plan 00211, Defence
+Before Fix): the script only builds and runs the command. Every tracked shell script (the
+`tracked-shell` list of `qa/discovery`) but `CLAUDE/Plan/Completed/` is parsed with `mvdan.cc/sh`
+and judged together: the variables holding lxc-attach and, for each function, the caller's
+descriptors it passes on to lxc-attach are found to a fixed point, then the descriptors are
+followed through redirections, pipes, substitutions and dups to every command that reaches the
+tool. The rule is proven against `.semgrep/lxc-attach-streams.bash` on every run; its package
+doc is the specification, proven by unit tests over in-memory trees and a real git tree in the
+command package.
+
 `qa/versionpins` + `qa/cmd/qa-version-pins` (same nested module) are `scripts/qa-version-pins.bash`,
 the Plan 00109 gate on `vars/version-pins.yml`: the script only builds and runs the command. The
 manifest and each `.yml` target are read with the YAML library's node API (repeated keys, wrong

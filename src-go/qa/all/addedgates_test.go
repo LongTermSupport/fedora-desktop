@@ -25,6 +25,7 @@ var addedAfterPort = []struct{ name, reason string }{
 	{"ccy-token-handoff", "Plan 00191 Task 4.4b: an exported GH_TOKEN handed to the launcher ccy re-runs inside tmux, by a private file, and its own suite proves it"},
 	{"ccy-image-build-lock", "Plan 00216: one ccy image build at a time, raced for real against a fake podman, and ccy --build-lock"},
 	{"plan-tests", "the active plan folders' own Python tests, which the helper-tests gate never read, each folder run from itself"},
+	{"lxc-attach-file-stream", "Plan 00211, Defence Before Fix: no command reaching lxc-attach has a standard stream on a file, which lxc-attach hands to root"},
 	{"ccy-agent-choice", "Plan 00215: ccy --opencode runs opencode instead of Claude Code, its provider key handed by name to the container run only, and its own suite proves it"},
 }
 
