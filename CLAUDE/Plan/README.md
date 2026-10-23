@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00224-coordinator-desktop-notifications](00224-coordinator-desktop-notifications/) - Not Started. A team's coordinator in a ccy or LXC container can send the owner a desktop notification through one Go command, `notify-owner`, and a host relay that checks the role from the host's own records; no session D-Bus in any container
+
 - [00222-worker-tool-restrictions](00222-worker-tool-restrictions/) - Not Started. Workers lose `AskUserQuestion` and four other human-facing tools by default (the coordinator keeps them): a PreToolUse hook in the member kit, a Go guard reading the live per-team role so hot role changes need no restart, a per-team opt-out; Claude Code's deny rules, env vars and a hooks-daemon handler compared in RESEARCH-mechanisms.md; v2 requirements recorded for Plan 00209
 
 - [00221-team-member-labels-and-a-tree-board](00221-team-member-labels-and-a-tree-board/) - Not Started. Owner-set labels on worker seats (`infra`, `front`; never the coordinator), shown on the status line, in envelopes, `pingbus status` and the board, and told to the agent; `ccy-teams` redrawn as a tree (team, coordinator, workers with seat, label, handle and where each runs, people) in measured colour; v1 parts that Plan 00209 replaces named in DESIGN.md section 4
