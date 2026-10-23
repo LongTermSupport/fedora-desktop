@@ -110,16 +110,13 @@ one of those as today, attended and on restore.
     launcher's arguments (passed after `--args`) and the positions of the given `--teams` words
     in them: the given `--teams` words removed; at the front,
     `--settled=launch|token|ask`, then `--teams SEAT@TEAM,...` when the session is on a team (never
-    with `--no-bus` or `--opencode`, R16). Nothing else is added. The positions are those of
-    the arguments as they stand at the screen's place, not the parse's: when 892-898 ran (an
-    undeferred `--teams SEAT@TEAM,...`), the `--teams` words are canonical two words at
-    `TEAMS_FLAG_POS` and the next position (`ccy_teams_canonical_args`,
-    `lib/agent-bus-seats.bash:104-105`), even when the parse saw one word `--teams=LIST`
-    (757-764); so 898 sets `TEAMS_VALUE_POS=$((TEAMS_FLAG_POS + 1))` beside its `CCY_ORIG_ARGS`
-    assignment (the same line). When deferred, the parse's positions are still right, because
-    nothing rewrote the arguments.
-  - `attach`, then a session name (R4): the bash calls `ccy_tmux_attach` and exits with its
-    status. A refused attach (the session went away between the screen and the call) is said on
+    with `--no-bus` or `--opencode`, R16). Nothing else is added. The positions are the
+    parse's, and they are right at the screen's place because the canonical-args step runs only
+    after the screen (2.3, the moved block): nothing has rewritten the arguments yet, so a
+    one-word `--teams=LIST` (757-764, flag and value at one position) is removed as one word.
+  - `attach`, then a session name (R4): the bash calls `ccy_tmux_attach` and exits as
+    `ccy_tmux_insulate` does after its own attach for 0 and 3 (`lib/tmux-session.bash:390-393`:
+    3, another terminal took the session after the attach, ends with 0). A refused attach (the session went away between the screen and the call) is said on
     stderr by `ccy_tmux_attach` and ends the launch; it is not re-run as `ccy_tmux_insulate` does
     at `lib/tmux-session.bash:391-397`, because a re-run would only show the screen again, and
     running `ccy` again does that.
@@ -127,7 +124,7 @@ one of those as today, attended and on restore.
 - **On `run`** the bash re-executes itself with the new list: `ccy_token_handoff_give` (the
   GitHub token's existing hand-off, `lib/token-handoff.bash`), then
   `CCY_GH_TOKEN_HANDOFF=<path> exec "$CCY_LAUNCHER_PATH" "${new[@]}"`. The fresh run parses the
-  arguments, takes the seats at 892, reaches the insulation, and P0 there gets the canonical seats
+  arguments, takes the seats in the moved block (2.3), reaches the insulation, and P0 there gets the canonical seats
   (B1 of round 3). The exec makes "the arguments this run was parsed from" and "the arguments
   tmux records" the same list by construction. When the screen ran inside a ccy session (given
   `--session NAME`: C14's inner run), that session's record was written at insulation, before
@@ -135,10 +132,21 @@ one of those as today, attended and on restore.
   `ccy-teams record-seats`), as the join at 1304 does today.
 - **`--settled=VALUE`** is an internal argument only the screen's answer writes (as
   `CCY_SESSION_RESTORE` is only the restore's), not listed in `--help`. Its value is checked at
-  parse (`launch`, `token` or `ask`; anything else refused, exit 64). In the inner run:
+  parse (`launch:STAMP`, `token:STAMP` or `ask`; anything else refused, exit 64). In the inner
+  run:
+  - **The stamp** (decision C17, coordinator default the owner can change): the screen shows
+    one reading of `.last-launch.conf` and the inner run applies another, and another launch in
+    the same checkout can rewrite the file (3449-3463) while the screen is open. So the bash
+    passes the screen the file's modification time in nanoseconds (`stat -c %.9Y`, taken right
+    after the screen-place `load_launch_config`) as `--saved-stamp`, the screen writes it into
+    `--settled=launch:STAMP` or `token:STAMP`, and the inner run, after its own
+    `load_launch_config` in the block, compares it with the file's and on a difference stops
+    (exit 1): `The saved launch settings changed after the Quick Launch screen (another launch here saved its own); run ccy again to see them.` Fail fast, not a silent switch to settings
+    nobody saw. `ask` applies nothing saved, so it carries no stamp.
   - `launch`: the Quick Launch block runs with the answer already given: the elif chain at
     1268-1273 runs as today (so `--no-bus` keeps the saved team in `quick_kept_team`, 1272), then
-    `--settled` sets `quick_unasked` to `Chosen on the Quick Launch screen`, so the yes body
+    `--settled` sets `quick_unasked` to `Chosen on the Quick Launch screen` for `launch` and
+    `token` only (decision C18, coordinator default; `ask` never sets it), so the yes body
     (1288-1317) applies the saved token, keys and network as today. The banner is printed in the
     pane, as a restore's is; 1281's team clause (`but not its team`) is left out under
     `--settled`, whose seats are the `--teams` it carries.
@@ -146,8 +154,8 @@ one of those as today, attended and on restore.
     by `select_token` with the gate's marks; keys and network are the saved ones.
   - `ask`: the block runs as far as the chain (so `--no-bus` keeps the saved team through
     1272, as today's `n` does), and the yes body (1288-1317) is skipped under `--settled=ask`
-    (one `if` around it), so every question is asked as with no saved file. The banner is
-    printed, as before today's `n`.
+    (one `if` around it, whose `else` prints today's `n` words, `Reconfiguring with interactive prompts...`), so every question is asked as with no saved file. The banner is
+    printed, as before today's `n`; with no `quick_unasked`, 1280-1281's `using the previous configuration` line is not printed.
   - `launch` and `token`: Q3 at 1859 is not asked (R11).
 - **Records, restores and restarts never carry `--settled`.** It is classified `drop` in the
   session registry (lib/session-registry.bash: `--settled=*` beside `--rebuild=*` in
@@ -237,14 +245,17 @@ one of those as today, attended and on restore.
   free one by default; a person who wants that seat back chooses Quit and answers Q2 on the next
   launch, or `Choose a seat...` later. The screen's own reads are safe before the never-root and
   rootless checks: it refuses to run as uid 0 itself (the same words as 1794), and its engine
-  call is a read-only `ps`.
+  call is a read-only `ps` on the launch's engine (R16's `--engine`). That read comes before
+  the rootless check (1788-1848), where today Q3 makes it after; on Docker it needs the
+  docker-group access the launch needs anyway, and a failure stops with the engine's own words
+  (R17; a Task 1.3 case).
 
 - **R13 `ccy --teams`.** See 2.3.
 
 - **R14 Unattended is unchanged.** Restore, headless, no terminal and end of input take the
   saved token, keys and network without the screen and never the saved team (Plan 00161 M2.9,
   `claude-yolo:1263-1282`). A used-up token stops an unattended launch (the gate's rule). The
-  banner (1244-1262) and the unasked message (1280-1283) stay for them, byte for byte; a
+  banner (1244-1262) and the unasked message (1280-1281, 1283) stay for them, byte for byte; a
   record never carries `--settled` (2.1), so a restore and a restart take this branch as today.
   One case changes: stdin a terminal and stderr not (`ccy 2>file`). Today Q1 is read there; the
   outer run shows no screen (875-876's test), insulation still runs (it tests stdin and stdout
@@ -271,7 +282,11 @@ one of those as today, attended and on restore.
 - **R16 One reader of the saved file.** The bash reads it (`load_launch_config`, with its format
   and key checks) and passes the values to the screen as arguments (`--token NAME --ssh-keys "K1 K2" --network NAME --teams LIST --saved DATE`, and `--teams-given LIST` with the flag and
   value positions when `--teams` was given, and `--no-bus` when `NO_BUS_MODE` is true, which
-  `--opencode` sets too, lib/agent-choice.bash:61). The Go side never opens `.last-launch.conf`.
+  `--opencode` sets too, lib/agent-choice.bash:61), plus `--saved-stamp STAMP` (2.1, C17) and
+  `--engine "$CONTAINER_ENGINE"` (decision C19, coordinator default: `ccy --engine docker`
+  exports `CONTAINER_ENGINE`, claude-yolo:696-697, not the `CCY_CONTAINER_ENGINE` that
+  `engine.Select` falls back to, `internal/engine/select.go:125-140`, so without the flag the
+  screen would list podman's containers). The Go side never opens `.last-launch.conf`.
   The values are shown, not handed back (2.1). A saved `LAST_SSH_KEYS` word equal to
   `SSH_AGENT_SENTINEL` (`ssh-agent`, lib/ssh-handling.bash:295) is shown as the agent; the Go
   holds the same constant with a parity test that reads it from that file. A saved key path
@@ -321,14 +336,17 @@ one of those as today, attended and on restore.
 
 ### 2.3 `ccy --teams` and the screen (R13)
 
-- **At 892.** `ccy_launch_teams` and the canonical-args step are **deferred** when all hold:
-  `--teams` is given bare or with at least one team named alone (the case that reaches the
-  chooser at 877 today); the launch is attended (877's own test); not a token mode
-  (`--create-token`, `--update-token`), headless already being unattended; no launch-choice
-  flag; no `--settled`. Facts all parsed by 892; no saved file is read there. Otherwise
-  (`--teams SEAT@TEAM,...` only, unattended, a token mode, a choice flag, or the inner run of a
-  screen) today's order stands.
-- **At the screen's place (2.1), deferred:**
+- **Moved, not copied.** The 892-899 block (`ccy_launch_teams` and the canonical-args step)
+  moves, unchanged, to just after the screen's place, for every `--teams` launch (one copy
+  instead of two, 2.4). It then runs once, after the screen, whenever there was no `run` answer: no
+  screen for any reason (unattended, a token mode, a choice flag, no saved file, the inner run
+  of a screen) or a screen that was not shown. This is still before tmux, so the tmux re-exec,
+  P0 and a restart see the canonical list as today. No deferral test is needed, and no saved
+  file is read before the screen's place. Nothing between 892 and 1195 reads `CCY_SEATS`,
+  `TEAMS_LIST` or `CCY_ORIG_ARGS` (checked in round 5). What changes is that a mode that exits
+  between them (the image and token listing modes above the insulation) no longer checks the
+  seats before it exits; Task 3.2 lists those modes from the code and journals each.
+- **At the screen's place (2.1):**
   - the screen runs (2.1's conditions hold): it receives the saved `LAST_TEAMS` and the given
     list and **the Go does the filtering**: bare `--teams` offers every saved seat;
     `--teams TEAM,...` offers the saved seats of the named teams only (saved seats of teams not
@@ -336,18 +354,15 @@ one of those as today, attended and on restore.
     saved seat is shown as `beta: no saved seat - you choose it next`, its seat question asked
     in process after the screen's yes (`resolve`, `teams/chooser/chooser.go:179-201`). The
     answer's `--teams` is the full canonical list;
-  - the screen does not run, for any reason (no saved file, the file refused): the deferred
-    `ccy_launch_teams` and canonical-args step run here instead, the same two calls as 892-899,
-    so the chooser is asked before tmux as today (later in the run, with nothing asked in
-    between) and P0 receives canonical seats. The test is "deferred at 892 and no `run`
-    answer", one condition whatever kept the screen away.
+  - the screen does not run: the moved block runs, so the chooser is asked before tmux as
+    today (later in the run, with nothing asked in between) and P0 receives canonical seats.
 - **Saved teams with no `--teams`** (plain `ccy`): the answer's argument list carries
   `--teams LIST` when the screen's seats are not empty: the join of 1296-1305 becomes part of the
-  answer, and the inner run takes the seats at 892 like any explicit list. Nothing is appended
+  answer, and the inner run takes the seats in the moved block like any explicit list. Nothing is appended
   to `CCY_ORIG_ARGS` by hand and `record-seats` is not needed, because the tmux record is written
   from the canonical list.
-- **`--teams SEAT@TEAM,...`** is never deferred: taken as given at 892 and shown on the screen
-  (today's rule, `claude-yolo:1274`).
+- **`--teams SEAT@TEAM,...`** is shown on the screen as given (today's rule,
+  `claude-yolo:1274`), its seats probed by the screen (R3), and the answer carries it unchanged.
 
 ### 2.4 Where it is built, and what stays in bash
 
@@ -377,35 +392,35 @@ join (1300-1305, now the answer's `--teams`, 2.3).
 
 **Stays in bash, byte for byte for unattended launches (R14):** the flag test (1237-1239); the
 banner and token label (1244-1262); the elif chain (1268-1273); `describe-seats` (1274); the
-unasked message (1280-1283); the yes body (1288-1299, 1306-1317); the headless refusals
+unasked message (1280-1281, 1283); the yes body (1288-1299, 1306-1317); the headless refusals
 (1336-1341); `load_launch_config` (529-593), now also called at the screen's place; the
 container preflight block, unmoved (R12); P0 (`lib/tmux-session.bash`, unchanged).
 
 **Changed in place, no line added:** 1271 gains `[ ! -t 2 ]` (C14); 1281's team clause is left
-out under `--settled`; 1293 leaves the token empty under `--settled=token`; 898 also sets
-`TEAMS_VALUE_POS` (2.1); line 1201 moves above 1195; 875-876's attended test is computed once,
-before `ccy_launch_teams`, into a variable that `ccy_launch_teams`, the 892 deferral test and the
-screen's guard all read (the same two lines, moved), so the conditions are written once.
+out under `--settled`; 1293 leaves the token empty under `--settled=token`; line 1201 moves
+above 1195; the 892-899 block moves, unchanged, to just after the screen's place (2.3);
+875-876's attended test is computed once, before `ccy_launch_teams`, into a variable that
+`ccy_launch_teams` and the screen's guard both read (the same two lines, moved).
 
-**New in bash:** the deferral test at 892 and the deferred two calls (2.3); the screen's call
-before 1195, its `case` on `run`, `attach` and `quit`, and the hand-off and exec (2.1); parsing
-`--settled` and its check; `--settled` setting `quick_unasked` after the chain; the `ask` skip
-of the yes body; the token modes' `elif` (C16); the Q3 skip at 1859.
+**New in bash:** the screen's call before 1195 and the moved block's "no `run` answer" guard,
+its `case` on `run`, `attach` and `quit`, and the hand-off and exec (2.1); parsing `--settled`
+and its check; the stamp taken, passed and compared (C17); `--settled` setting `quick_unasked`
+after the chain (C18); the `ask` skip of the yes body; the token modes' `elif` (C16); the Q3
+skip at 1859.
 
 **Estimate** (counted lines, the gate's measure: no blank lines, no whole-line comments). Leaves:
 about 25 (loop and read 3, the `case` frame and `unasked` 7, the `n` branch 5, the invalid
-branch 4, the join 6). New: about 24 (deferral test and the deferred calls 6, the screen's call
-and its `case` with hand-off, exec, attach and quit 10, `--settled` parse and check 3, the
-`quick_unasked` line 1, the `ask` skip 2, the token modes' `elif` 1, the Q3 skip 1). There is no
-R19 retry (C9). That is level, with little margin, so the estimate is not the criterion. The criterion is the ratchet's own: `claude-yolo`'s
+branch 4, the join 6). New: about 24 (the screen's call, the moved block's guard and the
+`case` with hand-off, exec, attach and quit 11, `--settled` parse and check 3, the stamp 3, the
+`quick_unasked` line 1, the `ask` skip with its `else` and message 4, the token modes' `elif`
+1, the Q3 skip 1). There is no R19 retry (C9) and no copy of the 892 block (2.3). That is
+level, with little margin, so the estimate is not the criterion. The criterion is the ratchet's own: `claude-yolo`'s
 counted lines, statements and functions **do not grow**, and the allowlist row is set to what
 the gate measures after the change.
 
 **If it would grow** (decision C15, default): first shrink the new bash inside these limits (the
-screen's `case` can print its own refusals; the deferred calls can share the 892 lines by moving
-them below the screen's place for every `--teams` launch, which is the same order for the
-undeferred cases because nothing between 892 and 1195 reads `CCY_SEATS`: Task 3.2 verifies that
-claim first). If it still grows, the build stops at that commit and the owner decides; the
+screen's `case` can leave its refusal words to the Go, which already writes stderr). If it
+still grows, the build stops at that commit and the owner decides; the
 ratchet is not raised by this plan. No fallback calls `ccy-teams` on an unattended launch (R20)
 or touches the unattended branch (R14). `lib/tmux-session.bash` and `lib/agent-bus-seats.bash` are not
 changed; `lib/session-registry.bash` gets the one classification of 2.1 (no line added).

@@ -1,6 +1,6 @@
 # Plan 00223: ccy one confirm relaunch
 
-**Status**: Not Started (plan only; decisions C1-C16 open, coordinator defaults stated)
+**Status**: Not Started (plan only; decisions C1-C20 open, coordinator defaults stated)
 **Created**: 2026-10-23
 **Owner**: joseph
 **Priority**: Medium
@@ -81,7 +81,7 @@ Every build task is test first: the failing test is committed or shown before th
 
 ### Phase 0: Decisions and base
 
-- [ ] ⬜ **Task 0.1**: The owner answers C1-C16, or the defaults stand; record each in the
+- [ ] ⬜ **Task 0.1**: The owner answers C1-C20, or the defaults stand; record each in the
   journal and adjust the tasks.
 - [ ] ⬜ **Task 0.2**: Hard gate: the token-usage gate is merged into F44 and this branch is
   rebased or merged onto it. Re-read its final `TokenUsability` signature and exit codes; test
@@ -101,7 +101,9 @@ Every build task is test first: the failing test is committed or shown before th
 - [ ] ⬜ **Task 1.3**: Test first, the sessions of this checkout (R11) from
   `internal/teams/discover` and `internal/tmuxccy` (attached or detached), cross-checked with the
   project's running containers through `internal/engine` and the `ccy-session` label; a
-  container no live session names; `--session NAME` left out; a lookup failure stops (R17).
+  container no live session names; `--session NAME` left out; the containers read on the
+  `--engine` given (C19), podman and docker, and a docker read refused for lack of group access
+  stopping with the engine's words; a lookup failure stops (R17).
 - [ ] ⬜ **Task 1.4**: Test first, the token line (R8-R10) from the arguments the bash passes
   (R16), `internal/tokens` expiry and the gate's cache-only `Usability`: usable, used up,
   expired, missing, no cache, usage disabled.
@@ -122,8 +124,9 @@ Every build task is test first: the failing test is committed or shown before th
   list with a `No team` row (bare `--teams` or saved teams) or the named team's seat question.
 - [ ] ⬜ **Task 2.5**: Test first, the answer (DESIGN 2.1): NUL-separated `run` and the new
   argument list (given `--teams` words removed at the passed positions, bare `--teams` before a
-  flag included, and an undeferred `--teams=SEAT@TEAM` already rewritten to two words by 892; `--settled=...` and, on a team, `--teams` added at the front; no `--teams` with
-  `--no-bus`; never a token, key or network flag), or
+  flag included, a one-word `--teams=SEAT@TEAM` removed as one word; `--settled=launch:STAMP`,
+  `token:STAMP` or `ask` (the `--saved-stamp` given, C17) and, on a team, `--teams` added at the
+  front; no `--teams` with `--no-bus`; never a token, key or network flag), or
   `attach NAME`, or `quit`; diagnostics on stderr; a closed stdout; no terminal (exit 64); uid 0
   refused (R12); the `Attach` row only with `TMUX` empty (R4); with `--session NAME`, the seats
   recorded in that session's record; with `--no-bus`, no seat probe, no team question, no
@@ -133,14 +136,26 @@ Every build task is test first: the failing test is committed or shown before th
 
 ### Phase 3: The launcher
 
-- [ ] ⬜ **Task 3.1**: Difftest scenarios first (`internal/ccylaunch/difftest`), with the
+- [ ] ⬜ **Task 3.0**: Test first, a terminal mode for the difftest harness (decision C20,
+  coordinator default): today it runs the launcher with stdin a reader or nothing and stdout
+  and stderr pipes (`internal/ccylaunch/difftest/sandbox_test.go:505-511`), so 875-876's
+  attended test never passes and every attended scenario would pin the unattended branch. A
+  scenario field names which of stdin, stdout and stderr are a pseudo-terminal (`x/sys/unix`
+  is already imported in `fake_test.go`); `TestOracleCanFail` extended to a terminal scenario
+  that must fail when the attended path is broken. Fallback, if a pty cannot be made reliable in
+  the harness: the attended scenarios go to a `script -q`-driven `scripts/test-ccy-*.bash`
+  suite, as `scripts/test-ccy-token-mode.bash` already does, recorded in the journal.
+- [ ] ⬜ **Task 3.1**: Difftest scenarios first (`internal/ccylaunch/difftest`, the attended ones
+  in Task 3.0's terminal mode), with the
   `ccy-teams` fake (already in `fake_test.go`) given `quick-launch` answers in `scenarios.json`:
   launch accepted, and the re-exec's arguments (token hand-off included); seat held then next
   free; held by a detached session then attach; token used up (cached) then chooser; teammates
   running (no Q3; P0 offered nothing for a team launch); bare `--teams` and `--teams TEAM` with
-  saved seats, with a named team that has no saved seat, and with no saved file (the deferred
-  calls before tmux, P0 given canonical seats); saved teams with plain `ccy`; `Answer every question again` with teams and its `No team`; `--create-token` and `--update-token` with a saved file (no
-  screen, no deferral, the `Token mode` reason, C16); `--teams=SEAT@TEAM` and
+  saved seats, with a named team that has no saved seat, and with no saved file (the moved
+  block before tmux, P0 given canonical seats); the saved file rewritten while the screen is
+  open (the stamp differs: the inner run stops, C17); `Answer every question again` (no
+  `using the previous configuration` line, C18); `ccy --engine docker` (the screen given it); saved teams with plain `ccy`; `Answer every question again` with teams and its `No team`; `--create-token` and `--update-token` with a saved file (no
+  screen, the `Token mode` reason, C16); `--teams=SEAT@TEAM` and
   `--teams SEAT@TEAM` given (no stray word in the re-exec's arguments); a 75 from `seat take`
   refused as today (C9); `Answer every question again` with `--no-bus` (saved team kept); a
   restore and a restart of a session launched from the screen (its record has no `--settled`:
@@ -153,10 +168,11 @@ Every build task is test first: the failing test is committed or shown before th
 - [ ] ⬜ **Task 3.2**: In `claude-yolo`, per DESIGN 2.4 ("Leaves", "Stays", "New"): the attended
   branch of the Quick Launch block removed; the screen's call before 1195 under the conditions
   of DESIGN 2.1, with `load_launch_config` called there and line 1201 moved above it, and the
-  `case` on `run` (hand-off and exec), `attach` and `quit`; the deferral test at 892 and the
-  deferred two calls; parsing and checking `--settled`, its `quick_unasked` line and the
-  `ask` skip, the token modes' `elif`, the in-place changes at 875-876, 898, 1271, 1281 and
-  1293; the Q3 skip. No new function. In `lib/session-registry.bash`, `--settled=` in the `drop` case pattern and
+  `case` on `run` (hand-off and exec), `attach` and `quit`; the 892-899 block moved to just
+  after the screen's place, with the modes that exit between 892 and 1195 listed from the code
+  and journalled first (DESIGN 2.3); parsing and checking `--settled` and its stamp (C17), its
+  `quick_unasked` line (C18) and the `ask` skip, the token modes' `elif`, the in-place changes
+  at 875-876, 1271, 1281 and 1293; the Q3 skip. No new function. In `lib/session-registry.bash`, `--settled=` in the `drop` case pattern and
   `--settled` in `CCY_REGISTRY_DROP_FLAGS` (a restart drops it through the same classes), with
   `scripts/test-ccy-session-registry.bash` passing and a case for both forms. If the counts
   would grow, DESIGN 2.4's C15 applies. The
@@ -203,6 +219,10 @@ All are coordinator defaults; **the owner may change any of them**.
 | C14 | Stdin a terminal, stderr not (`ccy 2>file`)           | insulated: the screen shows in the pane, which has all three on terminals; not insulated: the saved settings without the team, as end of input today (DESIGN R14). Today Q1 is read there, with its prompt in the file                                                                                                                                            |
 | C15 | The new bash would grow the file                      | shrink it first (DESIGN 2.4); if it still grows, the build stops and the owner decides; this plan never raises the ratchet                                                                                                                                                                                                                                        |
 | C16 | `--create-token`, `--update-token` with a saved file  | no question: an unasked reason `Token mode` takes the saved keys and network for the token's GitHub setup, as today's default yes, and says so (DESIGN R14). Today Q1 is asked there; the alternative is the key menus                                                                                                                                            |
+| C17 | The saved file changes while the screen is open       | coordinator default the owner can change: the answer carries the file's stamp (`--settled=launch:STAMP`, `token:STAMP`) and the inner run stops if its file's stamp differs (DESIGN 2.1)                                                                                                                                                                          |
+| C18 | What `--settled` sets in the block                    | coordinator default the owner can change: only `launch` and `token` set `quick_unasked`; `ask` prints today's `n` words and no `using the previous configuration` line (DESIGN 2.1)                                                                                                                                                                               |
+| C19 | The screen's container engine                         | coordinator default the owner can change: the bash passes `--engine "$CONTAINER_ENGINE"` (DESIGN R16)                                                                                                                                                                                                                                                             |
+| C20 | Testing the attended paths                            | coordinator default the owner can change: a test-first terminal mode in the difftest harness (Task 3.0), with a `script -q` bash suite as the fallback                                                                                                                                                                                                            |
 
 ## Success Criteria
 
