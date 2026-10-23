@@ -20,6 +20,37 @@ func newGum(f *execx.Fake) *Gum {
 	return &Gum{Runner: f, Stderr: &bytes.Buffer{}, Plain: true}
 }
 
+// Every program ui runs takes the terminal raw itself or reads nothing from it, so a hold on the
+// terminal's echo (internal/ttyecho) keeps the echo off while it runs: a key typed as the next
+// screen starts is not echoed over it.
+func TestEveryProgramUiRunsMayRunWithTheEchoHeld(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"gum"}, execx.Result{Stdout: []byte("a\n")})
+	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("a\n")})
+	f.On([]string{"tput"}, execx.Result{Stdout: []byte("80\n")})
+	ctx := context.Background()
+	g := newGum(f)
+	p := &Picker{Runner: f, Stderr: &bytes.Buffer{}, Plain: true}
+	_, confirmErr := g.Confirm(ctx, testHead, "q", true)
+	_, inputErr := g.Input(ctx, testHead, "h", "p", "v")
+	_, chooseErr := g.Choose(ctx, testHead, "h", "a", []string{"a"})
+	_, listErr := p.Choose(ctx, testHead, ChooseSpec{Rows: []string{"a"}, Height: "5", Prompt: "> "})
+	_, pickErr := p.Pick(ctx, testHead, PickSpec{Rows: []string{"a"}})
+	if err := errors.Join(confirmErr, inputErr, chooseErr, g.Style(ctx, "text", 0, 0), listErr, pickErr); err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]bool{}
+	for _, c := range f.Calls() {
+		names[c.Name] = true
+		if !c.EchoHeld {
+			t.Errorf("%s runs with the echo given back", c.Line())
+		}
+	}
+	if !names["gum"] || !names["fzf"] || !names["tput"] {
+		t.Fatalf("ran %v", names)
+	}
+}
+
 func TestConfirmMapsGumExitCodes(t *testing.T) {
 	cases := []struct {
 		code int

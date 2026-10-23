@@ -4,9 +4,9 @@
 Task 3.3; the Go gate is go-qa-ci through `scripts/qa-go-qa.bash`). Left for workers: the
 remaining ports of Task 3.3 (the `ccy` launcher's phases 3 to 5 are deferred by Plan 00191
 D4/D10), and Tasks 4.1 and 4.2 over the finished plan. Left for the host agent: the host checks
-of the merged ports (freeze steps 2 and 3, vmtest, ftp-camera H1, H2 and H5, watermark, wsi H2,
-open, rclone-cache-status, rclone-tail H2 to H4, gh-account-setup H1 and H3 to H5), the queued
-`deploy-rclone-tail.bash` through meta-deploy, and Task 3.2's root run, which
+of the merged ports still open (freeze step 2's remainder and step 3, vmtest H2's bridge half,
+H3 and H6, ftp-camera H1, H2 and H5, wsi H2, open H2, H3 and H5, rclone-tail H2 to H4,
+gh-account-setup H1 and H3 to H5), and Task 3.2's root run, which
 needs sudo at the run. Left for the owner: only what needs the owner in person, namely
 gh-account-setup H2 (a real GitHub device login), ftp-camera H3 and H4 (the physical camera)
 and wsi H1 (speaking into the microphone).
@@ -97,7 +97,9 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   [ACCEPTANCE-freeze.md](ACCEPTANCE-freeze.md) step 2 (freeze and thaw a throwaway container
   with each tool; the menu driven by tmux keys and read with `capture-pane`; Ctrl-C mid-batch
   gives 130; `lxcfreeze` needs sudo at the run) and step 3 (a second run of the freeze plays
-  reports ok, not changed).
+  reports ok, not changed). Step 2, partial (bus `$8aqX_PoK5b62YkY5FNbJF0kZ2SBsP8XxhoXIrIR5fkI`):
+  podfreeze freeze/thaw and the tmux-driven menu PASS on throwaways; still left are Ctrl-C
+  mid-batch (130), the numbered-menu fallback without fzf, and `lxcfreeze` (sudo). Step 3 not run.
 - [ ] 🔄 **Task 3.2**: `agent-bus-install` on `go-port/agent-bus-install`: spec
   `SPEC-agent-bus-install.md` on the branch; built, reviewed and its review fixed, not merged.
   It runs as root and changes behaviour (its D7), so it merges only after a host test as root
@@ -124,17 +126,31 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     H3's wording was wrong and is corrected: a second run on the same input exits 2 (the output
     exists, M10), and exit 3 is a run on the watermarked output (M9), as the host showed. wsi H2
     now also checks that the recording is gone after Escape (W15a, Plan 00171 Task 5.12).
+    Host results, 2026-10-23: vmtest H1 and H5 PASS, H2 PASS apart from its bridge half,
+    H4 PASS (`$J1MsGTTA4klOto2BoOTEamrIfElxFFz2HuwHLDHUVmE`, `$8aqX_PoK5b62YkY5FNbJF0kZ2SBsP8XxhoXIrIR5fkI`),
+    H4's Ctrl-C during member-up PASS, exit 130, no guest left
+    (`$49WVO-g6jUYPrUTWNVTGt_VLL2bk3WD7ydjiJVHMzMY`); left: H2's bridge run, H3 and H6.
+    watermark H3 PASS (`$NIHwpSi3rTN-Z2LSvujaLWtueWfi_dZedKS4rkYtB9M`), the source of the
+    wording correction above.
   - `open` (P6): done, `go-port/open` and `go-port/open-2` both merged into F44 and deployed
     (`8c2de08c`); its host checks H1-H5 are the host agent's (terminal steps through tmux,
     the desktop steps by screenshot and `gio mime`), not queued in `meta-deploy.list`. Spec
-    [SPEC-open.md](SPEC-open.md).
+    [SPEC-open.md](SPEC-open.md). Host, 2026-10-23 (`$NIHwpSi3rTN-Z2LSvujaLWtueWfi_dZedKS4rkYtB9M`):
+    H1 and H4 PASS (H4's image render unproven by `capture-pane`); H5 partial (Ctrl-C in mpv
+    not run, mpv was then missing; it is now installed, mpv v0.41.0 by `play-cli-tools.yml`,
+    `$SaaNjb_VFudX-vnN6tjA8rXQXtbNv_-y_dJUJgXxFSA`); H2 and H3 (the owner's screen) not run.
   - `rclone-cache-status` (P6): ported, merged into F44, deployed and live-checked on the host
     (`deploy-rclone-cache-status.bash` passed), spec
     [SPEC-rclone-cache-status.md](SPEC-rclone-cache-status.md); left, for the host agent: the
-    checks inside a mount (H2, H3) and `rclone-cache-warm`.
+    checks inside a mount (H2, H3) and `rclone-cache-warm`. Host, 2026-10-23: H1, H2 and H3
+    PASS, `rclone-cache-warm` brackets its run (`$NIHwpSi3rTN-Z2LSvujaLWtueWfi_dZedKS4rkYtB9M`).
+    H3's wording "`rclone-tail --once` still brackets" is wrong against the code: only the
+    streaming mode brackets (`$SaaNjb_VFudX-vnN6tjA8rXQXtbNv_-y_dJUJgXxFSA`); the spec needs
+    that correction.
   - `rclone-tail` (P6): ported, cut over and merged into F44 at 1d8bc1037; spec
     [SPEC-rclone-tail.md](SPEC-rclone-tail.md). Its host run `deploy-rclone-tail.bash` (H1
-    scripted by `acceptance-rclone-tail.bash`) is queued in `meta-deploy.list`; H2 to H4 are
+    scripted by `acceptance-rclone-tail.bash`) PASSED through meta-deploy at b1e298e1c, 5 of 5
+    checks, `~/.local/bin/rclone-tail` now an ELF (`$SaaNjb_VFudX-vnN6tjA8rXQXtbNv_-y_dJUJgXxFSA`); H2 to H4 are
     the host agent's (a file written into a mount while `rclone-tail` runs in a tmux pane,
     Ctrl-C by `send-keys`, `ftp-camera`'s closing status).
   - `gh-account-setup` (P6): ported and merged into F44 at 9e404ae6b (Opus MERGE in round 4;

@@ -142,10 +142,20 @@ func Wire(h *host.Host) *App {
 // A run that made sudo ready drops the credential last (security audit H1): a launcher may
 // start an agent's session on this terminal next, and it must not inherit the owner's sudo.
 // A launcher started by exec takes its seats through `agent-bus seat take`, which drops it too.
+//
+// The terminal's echo is held off from the first screen (Host.Echo) and its mode put back
+// before the credential is dropped, a panic included.
 func (a *App) Run(args []string) term.ExitCode {
 	ctx, stop := a.Interrupted(context.Background())
-	code := a.run(ctx, args)
+	var code term.ExitCode
+	err := a.Echo.Held(func() { code = a.run(ctx, args) })
 	stop()
+	if err != nil {
+		a.Term.PrintError(err.Error() + "; run reset to see what you type.")
+		if code == term.ExitOK {
+			code = term.ExitFailure
+		}
+	}
 	if err := a.Sudo.Forget(context.Background()); err != nil {
 		a.Term.PrintError("the sudo credential could not be dropped (" + err.Error() +
 			"); run sudo -k before starting an agent on this terminal.")

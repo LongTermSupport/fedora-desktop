@@ -90,6 +90,28 @@
 //     to stop). On yes ([y/N] on stderr, through ui.Lines) the holder and every process under
 //     it get SIGTERM, holder first; still held after 10 s, SIGKILL; still held after 5 s more,
 //     exit 1 naming it. No live build, or a no, is exit 0; the input ending, exit 130.
+//   - F15. ccy-token-usable (usable.go; its own command, which the bash launcher runs for the
+//     token it is about to launch on and for each row of its token chooser) answers whether a
+//     session may start on a token: TokenUsability, the one function a launch screen asks.
+//     `ccy-token-usable [--] FILE` reads the token's usage with --token-usage's reader (the
+//     cache when it holds a fresh answer from that very file, else one small API call, the cost
+//     F11 states), and a 5-hour or 7-day utilisation at or past 100% whose reset is still ahead
+//     is used up: exit 3, one stderr line naming the token by its name (never its value), each
+//     used-up window, the clock time it clears and the time to go ("7-day limit used up; clears
+//     Fri 20:53, in 3d 8h"). Usage left is exit 0 and silent. Usage that cannot be read (turned
+//     off, offline, a refused or limitless answer, a file that is not a name's launch file in
+//     the pool: a later file of a name, or a path outside it) is exit 0 with one stderr line saying it could not be checked and why: it
+//     fails open on unknown because the reading is only a forecast of a refusal the API makes
+//     itself at the first request, and blocking every launch while offline or while the API
+//     withholds its headers would stop work that the API would allow; it is explicit on known
+//     exhaustion because then the API's refusal is certain until the reset. A fault of this machine
+//     (a CCY_USAGE_* setting the reader refuses, a cache it cannot write, no curl) is exit 1
+//     naming it; a pool file or cache entry the reader refuses is unknown usage (one odd file
+//     must not block every token): fail fast, not a forecast. `--mark` reads the
+//     cache only, however old (no API call: the chooser lists every token and must not spend
+//     quota on each), and prints the used-up mark on stdout ("   ✗ no usage left: ...", led
+//     by three spaces because the chooser prints it straight after the token's row), nothing
+//     otherwise; exit 0. Anything but `[--mark] [--] FILE` is exit 64.
 //
 // Intended divergences from the bash, where it only replicated incidental behaviour that the
 // goldens (C locale, UTC, a pinned clock) do not exercise; each goes when the bash retires:

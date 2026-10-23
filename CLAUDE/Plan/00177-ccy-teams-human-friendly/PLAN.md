@@ -205,14 +205,14 @@ quit `ccy-teams` to start Element.
   list without it, or start nothing. Leaving the wizard or the choice comes back to the
   question, three rounds at most, then exit 1. Without a terminal it stays fail-fast:
   `agent-bus seat check --resolved` refuses the list with its reason. Built test first
-  (`unknown_test.go`, CCY 3.100.19).
+  (`unknown_test.go`, CCY 3.100.22).
 - [x] ✅ **Task 7.7**: Exit codes from other programs keep their meaning: `term.FromChild`
   keeps 64, 75, 77, 78 and 130 and turns any other code into 1, and `ccy-teams` names 75, 77
   and 78 in its last line (before this the shell's prompt said "Unknown error code" for
   agent-bus's 78). Defence Before Fix rule `project_child_exit` (red `1824f6ed5`).
 - [x] ✅ **Task 7.8**: The board shows a host seat's KIND as `cc`, from the seat's handle, not
   `ccy` for every seat of a checkout. Defence Before Fix rule `project_row_kind`.
-- [ ] ⬜ **Task 7.9**: The host run (meta-deploy `play-claude-yolo.yml`, CCY 3.100.19), then
+- [ ] ⬜ **Task 7.9**: The host run (meta-deploy `play-claude-yolo.yml`, CCY 3.100.22), then
   the owner's test: `ccy --teams <unknown-team>` in a checkout offers to create it.
 
 ### Phase 9: Add an LXC container to a team from ccy-teams, no hand edit of localhost.yml
@@ -324,6 +324,27 @@ are too, by the same route.
     any other quote, escape or continuation is refused.
   - F6 fixed: the root reader's refusal text has every non-printable character replaced.
   - F7 accepted as the review says; F8 fixed (`scripts/test-ccy-teams-command.bash` is mode 755).
+
+### Phase 10: The host agent's board findings (driving `ccy-teams` in tmux)
+
+- [x] ✅ **Task 10.1**: No menu offers what the board calls unavailable. Outside a project the
+  header says "Ctrl-N unavailable" and every menu's start line now says
+  "Start a ccy session in <team>: unavailable, <why>" (the house wording of `ccy-sessions`'
+  new-session row; choosing it shows the refusal). The independent search found three more of
+  the class, fixed the same way: Start on a team that is not up, Attach on a seat with no running
+  session or open elsewhere, Attach in Running sessions on a session open elsewhere. Defence
+  Before Fix: no rule (a run-time fact), recorded in
+  [GoProjectRules.md](../../GoProjectRules.md#defect-classes-that-cannot-be-a-rule);
+  [search](subagent-reports/261023-search-unavailable-offered.md).
+- [x] ✅ **Task 10.2**: Keys typed between two screens are not echoed (`^[[B` on the next
+  screen after Esc from a menu). `internal/ttyecho` holds the terminal's echo off for the run of
+  `ccy-teams`, `ccy-sessions` and the other tools the search found showing screens with work
+  between (`podfreeze`, `lxcfreeze`, `open`, `ftp-camera`); a child given the terminal for its
+  own input, and a numbered reply read in the tool itself, run with the echo the terminal had. No rule (run-time state across
+  processes), recorded beside 10.1; [search](subagent-reports/261023-search-echo-between-screens.md).
+- [ ] ⬜ **Task 10.3**: The host agent drives `ccy-teams` in tmux again: from `~`, the team and
+  person menus say Start is unavailable; Esc from a menu then Down pressed quickly shows no
+  `^[[B`.
 
 ## Success Criteria
 

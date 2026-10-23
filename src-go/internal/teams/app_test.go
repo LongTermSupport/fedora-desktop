@@ -2,6 +2,7 @@ package teams
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/config"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ttyecho"
 )
 
 // harness is the fake machine and the App wired over it.
@@ -369,6 +371,72 @@ func TestNewAppIsTheRealSystemOverTheConfig(t *testing.T) {
 	}
 	if a.RootDir != "/checkout" {
 		t.Fatalf("config %+v", a.Config)
+	}
+}
+
+// heldTerminal gives the app a hold over a fake terminal.
+func heldTerminal(t *testing.T, a *App) *ttyecho.FakeModes {
+	t.Helper()
+	tty, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := tty.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	var modes *ttyecho.FakeModes
+	a.Echo, modes = ttyecho.Fake(tty)
+	return modes
+}
+
+// A screen shown during the run holds the terminal's echo off, and the run's end leaves the
+// terminal as it found it.
+func TestARunPutsBackTheModeAScreenHeld(t *testing.T) {
+	h := world(t)
+	modes := heldTerminal(t, h.app)
+	var echoWhileRunning []bool
+	h.Fake.OnFunc([]string{"sudo", "-n", "-v"}, func(execx.Cmd) (execx.Result, error) {
+		err := ttyecho.Screen(h.app.Echo)
+		echoWhileRunning = append(echoWhileRunning, modes.Echo())
+		return execx.Result{}, err
+	})
+	h.On("sudo -n /usr/local/sbin/agent-bus-install backup-now --team alpha", "backup 1 written\n", 0)
+	if code := h.app.Run([]string{"backup", "alpha"}); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if len(echoWhileRunning) == 0 || echoWhileRunning[0] || !modes.Echo() || modes.Sets != 2 {
+		t.Fatalf("echo while running %v, after %v, %d sets", echoWhileRunning, modes.Echo(), modes.Sets)
+	}
+}
+
+// A run that shows no screen (a listing piped to a pager) never touches the terminal.
+func TestARunWithNoScreenLeavesTheTerminalAlone(t *testing.T) {
+	h := world(t)
+	modes := heldTerminal(t, h.app)
+	h.On("sudo -n -v", "", 0)
+	h.On("sudo -n /usr/local/sbin/agent-bus-install backup-now --team alpha", "backup 1 written\n", 0)
+	if code := h.app.Run([]string{"backup", "alpha"}); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if modes.Sets != 0 || len(modes.FDs) != 0 {
+		t.Fatalf("%d sets, %d reads", modes.Sets, len(modes.FDs))
+	}
+}
+
+func TestATerminalWhoseModeCannotBePutBackFailsTheRun(t *testing.T) {
+	h := world(t)
+	modes := heldTerminal(t, h.app)
+	h.Fake.OnFunc([]string{"sudo", "-n", "-v"}, func(execx.Cmd) (execx.Result, error) {
+		return execx.Result{}, ttyecho.Screen(h.app.Echo)
+	})
+	h.Fake.OnFunc(strings.Fields("sudo -n /usr/local/sbin/agent-bus-install backup-now"), func(execx.Cmd) (execx.Result, error) {
+		modes.SetErr = errors.New("EIO")
+		return execx.Result{}, nil
+	})
+	if code := h.app.Run([]string{"backup", "alpha"}); code != term.ExitFailure || !strings.Contains(h.ErrOut.String(), "put the terminal's mode back: EIO") {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
 }
 

@@ -45,8 +45,18 @@ func Run[R any](env freeze.Env, chooser freeze.Chooser, tool Tool[R], args []str
 }
 
 // RunContext is Run on a caller-supplied context, and without installing a signal handler.
+// The terminal's echo is held off for the run (env.Echo) and its mode put back at the end; a
+// mode that cannot be put back is said, and fails a run that had passed.
 func RunContext[R any](ctx context.Context, env freeze.Env, chooser freeze.Chooser, tool Tool[R], args []string) term.ExitCode {
-	return freeze.ExitCode(env.Err, tool.Cfg.Tool, Execute(ctx, env, chooser, tool, args))
+	var code term.ExitCode
+	if err := env.Echo.Held(func() {
+		code = freeze.ExitCode(env.Err, tool.Cfg.Tool, Execute(ctx, env, chooser, tool, args))
+	}); err != nil {
+		if released := freeze.ExitCode(env.Err, tool.Cfg.Tool, err); code == term.ExitOK {
+			code = released
+		}
+	}
+	return code
 }
 
 // Execute is Run without the signal handling and the exit status: the error the run ended with.

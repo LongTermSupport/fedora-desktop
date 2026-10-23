@@ -17,10 +17,10 @@ Two version numbers move independently — see
 
 ---
 
-## 3.100.19 — container 2.79.9
+## 3.100.22 — container 2.79.9
 
-Follows 3.100.15 (container 2.79.9; 3.100.17 and .18 are other branches). The image does not
-change.
+Follows 3.100.18 (container 2.79.9; 3.100.19 was this change before F44 was merged into it,
+3.100.20 and .21 are another branch). The image does not change.
 
 - **`ccy-teams` exits only with codes it documents.** Another program's code is handed on
   only when the tools document it (64, 75, 77, 78, 130); any other is 1. A 75, 77 or 78 is
@@ -34,6 +34,45 @@ change.
   terminal the list is still refused, with agent-bus's reason.
 - **The `ccy-teams` board's KIND of a host seat is `cc`**, not `ccy` (a `<team>.<n>+<host>.host`
   handle); a ccy container's stays `ccy`.
+
+## Host cc — compacts at ccy's auto-compact window
+
+Host `cc` has no version number of its own; this entry is not a CCY release.
+
+- **`cc` sessions compact at 600,000 tokens, as `ccy` sessions do.** `cc` ran bare `claude`
+  with no `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, so on a 1M-context model a session compacted
+  only near the whole window. claude is now started through `cc-claude` (Go, beside `cc`) on
+  the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
+  already exported, then becomes claude. `play-claude-yolo.yml` builds it.
+
+## 3.100.18 — container 2.79.9
+
+Follows 3.100.17 (container 2.79.9). The image does not change.
+
+- **No session starts on a token with no usage left.** The token a launch is about to use
+  (`--token`, a Quick Launch's `Y`, or a pick in the token menu) has its usage read first;
+  a used-up 5-hour or 7-day limit refuses it with one line naming the limit, the clock time
+  it clears and the time to go, and the token menu opens with used-up tokens marked. A
+  headless launch, a restore or a restart stops with exit 1 instead. Usage that cannot be
+  read is said and does not block. The check is the new Go command `ccy-token-usable`
+  (built by `play-claude-yolo.yml`), which reads usage as `ccy --token-usage` does; see
+  [No session on a token with no usage left](ccy.md#no-session-on-a-token-with-no-usage-left).
+
+## 3.100.17 — container 2.79.9
+
+Follows 3.100.15 (container 2.79.9; 3.100.16 is taken by a concurrent branch). The image does
+not change.
+
+- **Keys typed between two screens are no longer echoed** (Plan 00177 Task 10.2): `ccy-teams`
+  (every subcommand, the `ccy --teams` chooser among them) and `ccy-sessions` hold the
+  terminal's echo off from their first screen to the end of the run (`src-go/internal/ttyecho`),
+  so an arrow pressed while the next screen is being prepared no longer shows as `^[[B` on it; a
+  run that shows no screen (a listing piped to a pager) leaves the terminal alone. A program given the terminal
+  for its own input (a play, `tmux attach`, sudo's prompt, the launcher) runs in the mode found;
+  `execx.Cmd` gains `EchoHeld`, set on every fzf, gum and tput run in `internal/ui`.
+- **ccy-teams menus never offer what the board calls unavailable** (Plan 00177 Task 10.1):
+  outside a project, on a team that is not up, or for a session with nothing to attach, the
+  line says "unavailable" and why.
 
 ## 3.100.15 — container 2.79.9
 

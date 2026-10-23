@@ -2,8 +2,8 @@
 
 **Status**: In Progress. Everything built is deployed (`play-claude-yolo.yml` last passed on
 the host at F44 cab255ad4; `play-python.yml` at 67033c224). Left for the host agent: Task
-4.6's gate run on the host, and Task 5.1's comparison of the Go front's flags with
-`CCY_LEGACY=1`. Left for workers: Task 3.8's record entries, the `.j2` QA.md line of Task 4.5,
+5.1's comparison of `--prevent` and `--export-token` with `CCY_LEGACY=1` (the other flags
+match). Left for workers: Task 3.8's record entries, the `.j2` QA.md line of Task 4.5,
 and Task 5.1's qa-reviewer. Left for the owner: one signature on Task 3.8's record. Launcher
 phases 3 to 5 are deferred by D4/D10 until the owner hits launcher defects or asks; nothing
 waits on that.
@@ -674,7 +674,7 @@ today; rewriting them is out of scope.
         workaround).
     - The failing project handler test is Task 4.6.
 
-- [ ] 🔄 **Task 4.6**: The project hook handler tests were run by no gate. Now
+- [x] ✅ **Task 4.6**: The project hook handler tests were run by no gate. Now
   `scripts/qa-hook-handlers.bash` (gate `hook-handlers` in `qa-gates.tsv`; `qa-changed` routes
   `.claude/hooks/handlers/*` and the gate's own Go to it) runs them. The tool is Go
   (`src-go/qa/hookhandlers`, expectations K1-K8 in its package doc): the daemon's interpreter
@@ -714,9 +714,8 @@ today; rewriting them is out of scope.
   root (`_absolute`), every resolution goes through `_realpath` (absolute only), and a relative
   `CLAUDE_PROJECT_DIR` is refused or ignored. The tests run with the working directory in `/etc`
   (red: 3 failed, the host failure among them; green: 127 passed). `play-python.yml` (with `python3-pytest`) passed on the host at F44 67033c224 (commit
-  c159e6626). Left, for the host agent: run `./scripts/qa-hook-handlers.bash` on the host
-  (read-only) and record that it passes; if it exits 2 naming pytest, re-queue
-  `play-python.yml`.
+  c159e6626). Host gate: `./scripts/qa-hook-handlers.bash` on the host gave rc 0, 127 passed
+  (bus message `$jiyrj2SUIXLv8eFkQqiLmhG7vAfDWoepH7kDf6d5Ewk`, 2026-10-23).
 
 ### Phase 5: Review
 
@@ -726,7 +725,10 @@ today; rewriting them is out of scope.
   `ccy --version`, `--help`, `--list-tokens`, `--token-usage`, `--prevent` and
   `--export-token NAME` (the last two with a throwaway token name) print the same bytes as
   `CCY_LEGACY=1 ccy` with the same flag, as the play-claude-yolo.yml meta-deploy entry of
-  Task 4.5 asked.
+  Task 4.5 asked. Host, 2026-10-23 (`$NIHwpSi3rTN-Z2LSvujaLWtueWfi_dZedKS4rkYtB9M`):
+  `--version`, `--help`, `--list-tokens` and `--token-usage` byte-identical to `CCY_LEGACY=1`
+  (`--token-usage --json` differs only in `generated_at`); left: `--prevent` and
+  `--export-token NAME`, and the qa-reviewer.
 
 ## Success Criteria
 

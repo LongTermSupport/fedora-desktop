@@ -9,6 +9,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/config"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ttyecho"
 )
 
 func newHost(t *testing.T) *Host {
@@ -204,5 +205,50 @@ func TestTheProductionHostIsTheRealSystem(t *testing.T) {
 	h := New(config.Config{RootDir: "/checkout"})
 	if h.Runner == nil || h.Stdout != os.Stdout || h.Stderr != os.Stderr || h.Stdin != os.Stdin {
 		t.Fatalf("host %+v", h)
+	}
+}
+
+// Both production hosts hold the echo of the terminal they read keys from, and run every
+// command under the hold: keys typed between two screens are not echoed over the next one.
+func TestTheProductionHostsHoldTheEchoOfTheirTerminal(t *testing.T) {
+	for _, h := range []*Host{New(config.Config{RootDir: "/checkout"}), NewDiverted(config.Config{RootDir: "/checkout"})} {
+		if h.Echo == nil || h.Echo.TTY != os.Stdin {
+			t.Fatalf("hold %+v", h.Echo)
+		}
+		if _, bare := h.Runner.(execx.OS); bare {
+			t.Fatal("the commands run outside the hold")
+		}
+		if _, bare := h.Execer.(execx.OS); !bare {
+			t.Fatalf("execer %T", h.Execer)
+		}
+	}
+}
+
+// The launcher takes this terminal over, so it is started in the mode ccy-teams found.
+func TestTheLauncherIsStartedWithTheTerminalsModePutBack(t *testing.T) {
+	h := newHost(t)
+	tty, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := tty.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	var modes *ttyecho.FakeModes
+	h.Echo, modes = ttyecho.Fake(tty)
+	f := &execx.Fake{}
+	h.Execer = f
+	h.Exec = nil
+	h.Wire()
+	if err := ttyecho.Screen(h.Echo); err != nil || modes.Echo() {
+		t.Fatalf("start %v, echo %v", err, modes.Echo())
+	}
+	if err := h.Exec("/top/ccy", []string{"ccy", "--teams"}, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Execs()) != 1 || !modes.Echo() {
+		t.Fatalf("execs %v, echo at the exec %v", f.Execs(), modes.Echo())
 	}
 }

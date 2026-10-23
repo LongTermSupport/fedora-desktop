@@ -70,6 +70,9 @@ jobs:
         run: |
           set -euo pipefail
           . ./.qa-versions
+          # fontconfig: scripts/test-colour-emoji-fallback.bash runs fc-cache, fc-match, fc-list.
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fontconfig
           python -m pip install --upgrade pip
           pip install \
             "ruff==${RUFF}" \

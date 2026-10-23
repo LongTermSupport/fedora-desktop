@@ -60,7 +60,7 @@ run() {
 need() {
     if ! command -v "$1" >/dev/null; then
         printf '[ERROR] %s is not installed; it comes from the fontconfig package, which\n' "$1" >&2
-        printf '  play-ms-fonts.yml declares. Deploy that play; do NOT install it by hand.\n' >&2
+        printf '  play-fonts.yml declares. Deploy that play; do NOT install it by hand.\n' >&2
         return 1
     fi
 }
