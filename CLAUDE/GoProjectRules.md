@@ -287,8 +287,14 @@ a stop missed on one path leaks it for the life of the process with what it hold
   loop left by a `break` and a loop with a condition flagged).
 - Red, real tree: 15 findings (the same untagged, with `busfailpoints` and with `tuwunel`; none
   in the nested `qa` module).
+- Green: every instance has an owner that stops it and waits (the link's reader and accept
+  loop, the keeper's waits and readers, the units dispatch, the signal relays and listeners,
+  `ui.Lines.Close`); 0 findings in all three builds.
 - Not caught: an end signalled and never awaited, or awaited on only some of the owner's paths;
-  `time.AfterFunc` and `context.AfterFunc` callbacks, and goroutines started in tests.
+  `time.AfterFunc` and `context.AfterFunc` callbacks, and goroutines started in tests. The
+  run-time half answers for those the tests run: `internal/teamchat/leakcheck` (`Tests` in a
+  TestMain, `Check` in a test) fails a test or a binary that leaves a goroutine running; the
+  link's and the engine's tests use it.
 
 ### project_rawconn_probe
 
