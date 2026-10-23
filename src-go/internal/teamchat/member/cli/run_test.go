@@ -67,9 +67,10 @@ func TestAnUnbuiltVerbNamesItsSlice(t *testing.T) {
 		args []string
 		msg  string
 	}{
-		{[]string{"recv"}, "teamchat recv is not built in this binary; it lands with slice n3c"},
+		{[]string{"questions"}, "teamchat questions is not built in this binary; it lands with slice n3f"},
 		{[]string{"hook", "stop"}, "teamchat hook is not built in this binary; it lands with slice n3e"},
-		{[]string{"run", "--plain", "--kind", "other", "--", "bash"}, "teamchat run is not built in this binary; it lands with slice n3c"},
+		{[]string{"recv"}, "teamchat recv is not wired into this binary; tell a human"},
+		{[]string{"run", "--plain", "--kind", "other", "--", "bash"}, "teamchat run is not wired into this binary; tell a human"},
 	} {
 		var w world
 		if w.run(digest, c.args...) != term.ExitFailure || w.out.Len() != 0 {
@@ -84,6 +85,43 @@ func TestAnUnbuiltVerbNamesItsSlice(t *testing.T) {
 	w.run(digest, "recv", "--team", "alpha")
 	if e := w.lastError(t); e.Team == nil || e.Team.String() != "alpha" {
 		t.Errorf("the team was not carried: %+v", e)
+	}
+}
+
+// n3c-D5: a verb the binary passes in Env.Verbs runs, given the Env and its parsed line; a
+// verb it does not pass is still unbuilt, and version and help stay cli's own.
+func TestEnvVerbsRunsTheVerbsTheBinaryPasses(t *testing.T) {
+	var got Invocation
+	var gotEnv Env
+	recv := func(e Env, inv Invocation) term.ExitCode {
+		got, gotEnv = inv, e
+		return exits.ExitTimedOut
+	}
+	version := func(Env, Invocation) term.ExitCode { return exits.ExitBusy }
+	var out, errOut strings.Builder
+	e := Env{
+		Args: []string{"recv", "--team", "alpha"}, Stdout: &out, Stderr: &errOut, Digest: digest,
+		Getenv: func(string) string { return "set" },
+		Verbs:  map[string]RunFunc{"recv": recv, "version": version},
+	}
+	if code := Run(e); code != exits.ExitTimedOut {
+		t.Fatalf("recv: exit %d, stderr %q", code, errOut.String())
+	}
+	if got.Verb.Name != "recv" || got.Team == nil || got.Team.String() != "alpha" || gotEnv.Getenv("X") != "set" {
+		t.Fatalf("recv was given %+v", got)
+	}
+	e.Args = []string{"version"}
+	if code := Run(e); code != term.ExitOK {
+		t.Fatalf("version: exit %d, not cli's own", code)
+	}
+	e.Args = []string{"questions"}
+	if code := Run(e); code != term.ExitFailure || !strings.Contains(errOut.String(), "teamchat questions is not built") {
+		t.Fatalf("questions: exit %d, stderr %q", code, errOut.String())
+	}
+	errOut.Reset()
+	e.Args = []string{"wait"}
+	if code := Run(e); code != term.ExitFailure || !strings.Contains(errOut.String(), "teamchat wait is not wired into this binary") {
+		t.Fatalf("wait: exit %d, stderr %q", code, errOut.String())
 	}
 }
 

@@ -97,6 +97,44 @@ func TestStoreWriterNeedsTheLock(t *testing.T) {
 	}
 }
 
+// LN8: Remove deletes store.json and only it; seat.lock stays the same inode, still held.
+func TestStoreWriterRemoveDeletesTheStoreAlone(t *testing.T) {
+	w := newWorld(t)
+	l := heldSeat(t, w)
+	t.Cleanup(func() { check(t, l.Close()) })
+	sw := newWriter(t, w, l)
+	check(t, sw.Write(sampleStore(t)))
+	before, err := os.Stat(w.seat.Lock())
+	check(t, err)
+	check(t, sw.Remove())
+	if _, statErr := os.Stat(w.seat.Store()); !errors.Is(statErr, fs.ErrNotExist) {
+		t.Fatalf("the store is still there: %v", statErr)
+	}
+	after, err := os.Stat(w.seat.Lock())
+	check(t, err)
+	if !os.SameFile(before, after) {
+		t.Fatal("seat.lock is not the same inode")
+	}
+	check(t, l.Held())
+	if err := sw.Remove(); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("a second Remove = %v, want fs.ErrNotExist", err)
+	}
+}
+
+func TestStoreWriterRemoveNeedsTheLock(t *testing.T) {
+	w := newWorld(t)
+	l := heldSeat(t, w)
+	sw := newWriter(t, w, l)
+	check(t, sw.Write(sampleStore(t)))
+	check(t, l.Close())
+	if err := sw.Remove(); !errors.Is(err, lock.ErrReleased) {
+		t.Fatalf("Remove after the lock was closed = %v, want ErrReleased", err)
+	}
+	if _, err := os.Stat(w.seat.Store()); err != nil {
+		t.Fatalf("a refused Remove removed the store: %v", err)
+	}
+}
+
 func TestStoreWriterRefusesAnotherTeam(t *testing.T) {
 	w := newWorld(t)
 	l := heldSeat(t, w)

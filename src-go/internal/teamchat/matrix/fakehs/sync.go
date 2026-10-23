@@ -97,11 +97,16 @@ func (s *Server) sync(r *request, _ []string) (any, error) {
 	if err := s.syncPresence(r); err != nil {
 		return nil, err
 	}
-	timer := time.NewTimer(time.Duration(timeoutMS) * time.Millisecond)
-	defer timer.Stop()
+	waits := since >= 0 && timeoutMS > 0
+	var timedOut <-chan time.Time
+	if waits {
+		var stop func() bool
+		timedOut, stop = s.hold(time.Duration(timeoutMS) * time.Millisecond)
+		defer stop()
+	}
 	for {
 		answer := s.syncOnce(r, since, flt)
-		if _, hasRooms := answer["rooms"]; hasRooms || since < 0 || timeoutMS == 0 {
+		if _, hasRooms := answer["rooms"]; hasRooms || !waits {
 			return answer, nil
 		}
 		changed := s.changed
@@ -109,7 +114,7 @@ func (s *Server) sync(r *request, _ []string) (any, error) {
 		select {
 		case <-changed:
 			s.mu.Lock()
-		case <-timer.C:
+		case <-timedOut:
 			s.mu.Lock()
 			return s.syncOnce(r, since, flt), nil
 		case <-r.done:
@@ -240,7 +245,11 @@ func (s *Server) joinedEntry(rm *room, r *request, member *event, since int, flt
 	for _, e := range byPos {
 		stateEvents = append(stateEvents, e.client(false, nil))
 	}
-	outTimeline := map[string]any{keyEvents: timelineEvents, "prev_batch": strconv.Itoa(start - 1)}
+	outTimeline := map[string]any{keyEvents: timelineEvents}
+	// Tuwunel 1.9.4 gives a timeline limit of 0 no prev_batch (matrix's tagged test).
+	if flt.timelineLimit != 0 {
+		outTimeline["prev_batch"] = strconv.Itoa(start - 1)
+	}
 	if limited {
 		outTimeline["limited"] = true
 	}

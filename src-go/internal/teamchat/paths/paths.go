@@ -22,6 +22,8 @@ package paths
 import (
 	"fmt"
 	"path/filepath"
+	"strconv"
+	"strings"
 )
 
 // Product is the product name every v2 name is formed from.
@@ -367,6 +369,59 @@ func HomeLayout(home, runtimeDir string) (Layout, error) {
 	}, nil
 }
 
+// WithDesired is the layout with dir as its desired membership directory (run's --desired DIR),
+// nothing else changed. dir must be absolute and clean.
+func (l Layout) WithDesired(dir string) (Layout, error) {
+	must("layout", l.desired)
+	if err := checkBase("desired", dir); err != nil {
+		return Layout{}, err
+	}
+	l.desired = dir
+	return l, nil
+}
+
+// WithKitRoot is the layout with its kits under dir, a root of digest directories and its
+// current link (a relocated kit root, a test's), nothing else changed. dir must be absolute and
+// clean.
+func (l Layout) WithKitRoot(dir string) (Layout, error) {
+	must("layout", l.kitRoot)
+	if err := checkBase("kit", dir); err != nil {
+		return Layout{}, err
+	}
+	l.kitRoot, l.currentKit = dir, Kit{dir + "/current"}
+	return l, nil
+}
+
+// KitAt is the kit directory dir given whole: run's --kit DIR, which names the kit run resolved
+// before its re-exec (B 2.4.1 step 2). dir must be absolute and clean.
+func KitAt(dir string) (Kit, error) {
+	if err := checkBase("kit", dir); err != nil {
+		return Kit{}, err
+	}
+	return Kit{dir}, nil
+}
+
+// WithState is the layout with dir as its state root, and so every seat and bundle below it,
+// and nothing else changed (RN1's --state DIR). dir must be absolute and clean; its owner and
+// 0700 mode are checked where it is opened (homefs Private).
+func (l Layout) WithState(dir string) (Layout, error) {
+	must("layout", l.state)
+	if err := checkBase("state", dir); err != nil {
+		return Layout{}, err
+	}
+	l.state = dir
+	return l, nil
+}
+
+// SeatAt is a seat directory of its own, outside any layout: EN5's host-held --bundle DIR,
+// read as a seat's bundle is. dir must be absolute and clean.
+func SeatAt(dir string) (Seat, error) {
+	if err := checkBase("seat", dir); err != nil {
+		return Seat{}, err
+	}
+	return Seat{dir: dir}, nil
+}
+
 // DesiredFile is the session's desired membership.
 func (l Layout) DesiredFile() string { return l.Desired() + "/" + desiredFile }
 
@@ -378,6 +433,47 @@ func (l Layout) Seat(t TeamID) Seat { return Seat{dir: l.State() + "/" + t.text(
 
 // Run is one session's runtime directory.
 func (l Layout) Run(r RunID) Run { return Run{dir: l.RunRoot() + "/" + r.text()} }
+
+// stagingPrefix starts the name a run is built under, which no run id parses as (T8).
+const stagingPrefix = ".building-"
+
+// Staging is where the keeper of pid, started at ticks, builds its run before renaming it to
+// its run id: a sweep sees no run without its keeper.lock held and its session.pid written,
+// and can tell from the name whether the keeper building it still lives. A pid or start time
+// that is not positive panics, as a zero id does.
+func (l Layout) Staging(pid int, ticks int64) Run {
+	if pid <= 0 || ticks <= 0 {
+		panic("paths: a staging name for no process")
+	}
+	return Run{dir: l.RunRoot() + "/" + stagingPrefix + strconv.Itoa(pid) + "-" + strconv.FormatInt(ticks, 10)}
+}
+
+// ParseStaging is the building keeper's pid and start ticks in a staging name, ok when name is
+// one: both positive decimals with no sign or leading zero.
+func ParseStaging(name string) (int, int64, bool) {
+	rest, found := strings.CutPrefix(name, stagingPrefix)
+	if !found {
+		return 0, 0, false
+	}
+	p, t, found := strings.Cut(rest, "-")
+	if !found || !positive(p) || !positive(t) {
+		return 0, 0, false
+	}
+	pid, perr := strconv.Atoi(p)
+	ticks, terr := strconv.ParseInt(t, 10, 64)
+	if perr != nil || terr != nil {
+		return 0, 0, false
+	}
+	return pid, ticks, true
+}
+
+// positive is whether s is a decimal above zero with no sign or leading zero.
+func positive(s string) bool {
+	if s == "" || s[0] == '0' {
+		return false
+	}
+	return strings.IndexFunc(s, func(r rune) bool { return r < '0' || r > '9' }) < 0
+}
 
 // Seat is a member's directory for one team.
 type Seat struct{ dir string }

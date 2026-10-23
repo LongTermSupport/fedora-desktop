@@ -683,8 +683,8 @@ at most. Its schema:
 - `run.ended` is `null` while a session holds the seat; when its notice is decided it becomes
   `{"notice": "left|disconnected", "reason": "exit|logout|other|null", "state": "attempted|sent", "txn": "tc<32 hex>", "at_ms": N}`
   (2.11), written before the send with its transaction id, and `state` set to `sent` on the
-  answer; or, for a ccy relaunch that posts nothing (2.11),
-  `{"notice": "none", "reason": "restart", "state": "skipped", "txn": null, "at_ms": N}`. Closing a
+  answer; or, for a ccy relaunch or a launch failure, which post nothing (2.11),
+  `{"notice": "none", "reason": "restart|launch-failed", "state": "skipped", "txn": null, "at_ms": N}`. Closing a
   run acts only on `attempted` and `null`, so `none` needs nothing more. A run whose `ended` is
   still `null` when the seat is next taken is how the next link learns that the session ended
   unseen. The
@@ -763,11 +763,17 @@ timer.
 
 ```json
 {"v": 1, "run": "<16 hex>", "started_ms": 1760000000000, "seat": "<team>/<seat>", "handle": "<repo>.2+<site>.podman",
- "link": "running|restarting|failed", "last_sync_ok_ms": 1760000000000, "pending": 0, "delivery": "socket|wait|none",
+ "link": "running|restarting|failed", "why": null, "last_sync_ok_ms": 1760000000000, "pending": 0, "delivery": "socket|wait|none",
  "desired": {"generation": 3, "state": "applied|refused", "code": null}, "store": "ok|refused", "needs_relaunch": false}
 ```
 
 `last_sync_ok_ms` is `null` until the first sync succeeds; `seat`'s `<seat>` is the handle's seat.
+`why` is `null`; `crash-loop` or `config` exactly when `link` is `failed`, as in `keeper.json`; or
+`launch-failed` after a launch failure (2.4.1 step 7). CMD's own text is never in it. The keeper
+writes `report.json` only for a seat it holds, once the link's first `state` for that seat has given
+the handle; a refused add's holder run id goes to `keeper.log`, `status` and `status.json`, never
+into the holder's `report.json`.
+
 `desired.state` is `refused` when the last read of the desired membership did not decode; `code`
 names why from a closed set (`json`, `schema`, `version`, `seat`, and `missing` for a desired file
 deleted under a live keeper, 2.10), and the last good membership stays applied. `seat` names a seat
@@ -864,7 +870,8 @@ starts it as its child and stays its parent for the session's life (2.1). `run`:
    directory, locked the same way) and starts the link (`teamchat link --run <dir>`, through
    `execx`, in its own session with `setsid`, stdin `/dev/null`, stdout and stderr appended to
    `<v2-run>/link.log`, and a `socketpair` as fd 3 for control; B47), passing it the launch facts and
-   each held seat lock with the `add` that names the seat (2.5). It waits up to 30 s for the link's
+   each held seat lock with the `add` that names the seat (2.5). The launch facts carry `seats`, the
+   number of `add`s that follow, and the keeper sends exactly that many. It waits up to 30 s for the link's
    `ready`: every held store loaded and `link.sock` bound and listening (2.4.3). The link is started
    whether or not a seat is held (B13). A desired seat held by another session fails the launch
    (exit 75, naming the seat), because launching into a held seat is the launcher's mistake; once the
@@ -879,8 +886,9 @@ starts it as its child and stays its parent for the session's life (2.1). `run`:
    the op's deadline (2.4.4), which the few microseconds between the start and the message never
    approach. Under `--claude`, a CMD that cannot be started, or that ends before the link has seen
    the session's first SessionStart, is a **launch failure**: the keeper's `end` is
-   `launch-failed`, no notice is posted (2.11's table), `keeper.log`, every `report.json` and the
-   board say `launch-failed` with CMD's status and its first stderr line, and `run` exits 78
+   `launch-failed`, no notice is posted (2.11's table), every `report.json` and the board say
+   `launch-failed` (the report's `why`, 2.3.3), `keeper.log` holds CMD's status and its first stderr
+   line (CMD's text is never put in a file area C's views read), and `run` exits 78
    (`launch`). A unit restarting such a CMD is stopped by its start limit (C 3.9.4);
 8. from then on runs the keeper's loop (2.4.2) until CMD and Claude Code have both exited (they are
    one process unless CMD is a wrapper, 2.4.2), then the end (2.4.2), and exits with CMD's status: its exit code, or 128+n when signal n ended it. From step 7 on the keeper writes
@@ -1056,7 +1064,9 @@ wakes at most once a minute when nothing else is due, and not at all with no tea
 
 **Start.** The link takes `link.lock` (non-blocking; held means another link of this runtime
 lives, exit 78), reads `session.json` back if a previous link wrote it, loads every store it is
-passed, and only then binds `link.sock`: holding `link.lock`, it unlinks a socket path a dead link
+passed (the keeper's `launch` says how many `add`s follow, its `seats`, and a failed add counts;
+the wait for them is bounded at 10 s, after which the link goes on with what was added, logs the
+shortfall and takes a later add as a hot add), and only then binds `link.sock`: holding `link.lock`, it unlinks a socket path a dead link
 left behind (a socket is not a lock file, so 2.5's never-unlink rule does not apply, and the lock
 makes it the only process that may), binds, listens, and reports `ready` to the keeper. A request
 can therefore reach it only once it can serve; before that a connect is refused.
@@ -1870,8 +1880,8 @@ grammar-checked names, never free text.
 **The run record.** Each seat's store has `run`: a new record when a session takes the seat, and
 `ended` set when the session's notice is decided:
 `{"notice": "left|disconnected", "reason": "exit|logout|other|null", "state": "attempted|sent", "txn": "tc<32 hex>", "at_ms": N}`,
-or `{"notice": "none", "reason": "restart", "state": "skipped", "txn": null, "at_ms": N}` for a
-ccy relaunch with the switch on (2.3.2). The transaction id is recorded before the send, so a
+or `{"notice": "none", "reason": "restart|launch-failed", "state": "skipped", "txn": null, "at_ms": N}`
+for a ccy relaunch with the switch on or a launch failure (2.3.2). The transaction id is recorded before the send, so a
 re-send is stored once (M22).
 
 **Which notice, at the end.** At the keeper's `end` (2.4.2) the link decides, from the keeper's
@@ -1884,7 +1894,7 @@ account of how Claude Code ended and the SessionEnd reason in `session.json`:
 | `stop` (the keeper forwarded a `SIGTERM` or `SIGHUP`)           | none                               | `left` with reason `other`: the session was ended from outside, in order                                                                                                                                                                                                                                                                                      |
 | `exit` (no stop forwarded) or `killed`                          | none                               | `disconnected`: Claude Code ended without saying so (a crash, a kill)                                                                                                                                                                                                                                                                                         |
 | the keeper's control socket closed (the keeper died)            | any                                | `disconnected`                                                                                                                                                                                                                                                                                                                                                |
-| `launch-failed` (2.4.1 step 7: no SessionStart came)            | none                               | nothing: the run never reached Claude Code, and posted no `back` either                                                                                                                                                                                                                                                                                       |
+| `launch-failed` (2.4.1 step 7: no SessionStart came)            | none                               | nothing: `ended` is `notice` `none`, `reason` `launch-failed`; the run never reached Claude Code, and posted no `back` either                                                                                                                                                                                                                                 |
 
 A seat whose roster role is `probe` (the acceptance probe, A 6.7, C 3.3) posts none of these
 notices and no `back`, and the host's `seat disconnected` rule is never run for it (its seat is

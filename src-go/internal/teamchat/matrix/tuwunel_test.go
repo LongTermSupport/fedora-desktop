@@ -170,6 +170,7 @@ func TestTuwunel(t *testing.T) {
 	if n := countOf(t, synced.Join[room].Timeline.Events, sent); n != 1 {
 		t.Fatalf("the sync timeline holds %s %d times, want once", sent, n)
 	}
+	reAddSync(ctx, t, bob, room, aliceID)
 	page, err := bob.Messages(ctx, room, MessagesRequest{Dir: Backward, Limit: 10, Types: []string{messageType}})
 	if err != nil {
 		t.Fatalf("Messages: %v", err)
@@ -183,6 +184,27 @@ func TestTuwunel(t *testing.T) {
 	seatCycle(ctx, t, hs, admin, alice, room)
 	presenceCycle(ctx, t, alice, bob, aliceID)
 	retire(ctx, t, admin, bob, bobID)
+}
+
+// reAddSync is a first sync with a filter in proto's shape sent byte for byte (gap 5) at
+// timeline limit 0 (SY1 (c), n3-D5): the server takes it and gives the room's state and none
+// of its history.
+func reAddSync(ctx context.Context, t *testing.T, c *Client, room, human string) {
+	t.Helper()
+	none := `{"types":[]}`
+	filter := json.RawMessage(`{"account_data":` + none + `,"event_format":"client","presence":{"senders":["` + human +
+		`"]},"room":{"rooms":["` + room + `"],"timeline":{"types":["` + messageType + `","m.room.member"],"limit":0},` +
+		`"state":{"types":["m.room.create","m.room.member"],"lazy_load_members":false},"ephemeral":` + none +
+		`,"account_data":` + none + `}}`)
+	synced, err := c.Sync(ctx, SyncRequest{FilterJSON: filter})
+	if err != nil {
+		t.Fatalf("Sync with a limit 0 filter: %v", err)
+	}
+	// Limited with no prev_batch: the shape fakehs gives a limit of 0.
+	joined, ok := synced.Join[room]
+	if tl := joined.Timeline; !ok || len(tl.Events) != 0 || !tl.Limited || tl.PrevBatch != "" || len(joined.State) == 0 {
+		t.Fatalf("a limit 0 sync gave %+v", joined)
+	}
 }
 
 // presenceOf is uid's presence as the observer reads it (GET /presence/{uid}/status, which

@@ -178,6 +178,8 @@ func TestEveryMethodOfAZeroValuePanics(t *testing.T) {
 		reflect.TypeFor[ClaimID]():     reflect.ValueOf(sampleClaimID(t)),
 		// A set-aside time, whose zero panics as a zero id does.
 		reflect.TypeFor[int64](): reflect.ValueOf(int64(1760000000000)),
+		// A staging name's pid, whose zero panics too.
+		reflect.TypeFor[int](): reflect.ValueOf(4242),
 	}
 	for _, recv := range []struct{ zero, valid any }{
 		{PoolSeat{}, store.PoolSeat(sampleCheckoutKey(t), mustTeam(t, "ops"), sampleSeatName(t))},
@@ -214,6 +216,10 @@ func methodArgs(t *testing.T, method reflect.Type, valid map[reflect.Type]reflec
 	var good, zero []reflect.Value
 	for i := 1; i < method.NumIn(); i++ {
 		in := method.In(i)
+		// A base directory is no id: an empty one is an error its own test checks, not a panic.
+		if in.Kind() == reflect.String {
+			return []reflect.Value{reflect.ValueOf("/srv/probe/state")}, nil
+		}
 		v, ok := valid[in]
 		if !ok {
 			t.Fatalf("no valid %s to call a method with: add one", in)

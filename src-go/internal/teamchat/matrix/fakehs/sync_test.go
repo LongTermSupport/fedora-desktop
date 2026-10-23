@@ -151,6 +151,20 @@ func TestLimitedTimelineLeavesAGapForMessages(t *testing.T) {
 	}
 }
 
+// A timeline limit of 0 (the re-add sync) is answered as Tuwunel 1.9.4 answers it, which
+// matrix's tagged test checks: limited, no events, no prev_batch, and the room's state.
+func TestATimelineLimitOfZeroIsLimitedWithNoPrevBatch(t *testing.T) {
+	tm := newTeam(t)
+	room := joinedRoom(t, tm.sync(tm.agent, "", syncFilter(t, nil, 0, false), 0), tm.room)
+	timeline, ok := field(t, room, "timeline").(map[string]any)
+	if !ok || timeline["limited"] != true || len(list(t, timeline["events"])) != 0 || timeline["prev_batch"] != nil {
+		t.Fatalf("timeline %v", room["timeline"])
+	}
+	if len(list(t, field(t, room, "state", "events"))) == 0 {
+		t.Fatal("no state came with a limit of 0")
+	}
+}
+
 func TestAnInviteeSeesStrippedState(t *testing.T) {
 	tm := newTeam(t)
 	tm.ok(tm.call(tm.admin, "POST", tm.roomPath("invite"), nil, map[string]any{"user_id": tm.outsider}))

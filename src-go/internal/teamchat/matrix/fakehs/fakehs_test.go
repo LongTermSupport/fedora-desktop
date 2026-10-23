@@ -47,7 +47,14 @@ func teamLevels(human string) map[string]any {
 
 func newTeam(t *testing.T) *team {
 	t.Helper()
-	s := New(Options{ServerName: teamServerName, Now: fixedNow, Quirks: TuwunelQuirks()})
+	return newTeamWith(t, Options{})
+}
+
+// newTeamWith is newTeam on a server built from opts, its name, clock and quirks the team's.
+func newTeamWith(t *testing.T, opts Options) *team {
+	t.Helper()
+	opts.ServerName, opts.Now, opts.Quirks = teamServerName, fixedNow, TuwunelQuirks()
+	s := New(opts)
 	tm := &team{t: t, s: s, tok: map[string]string{}}
 	tm.admin = s.AddUser("admin", "", true)
 	tm.human = s.AddUser("alice", "", false)

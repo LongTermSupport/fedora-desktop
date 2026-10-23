@@ -85,6 +85,21 @@ func (systemClock) Sleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
+// Timers is how a try's time limit is armed, a seam of its own beside the Clock (the 429 wait):
+// AfterFunc calls f once d has passed, unless stop, called first, says it stopped it.
+type Timers interface {
+	AfterFunc(d time.Duration, f func()) (stop func() bool)
+}
+
+type systemTimers struct{}
+
+// SystemTimers are the real timers, time.AfterFunc.
+func SystemTimers() Timers { return systemTimers{} }
+
+func (systemTimers) AfterFunc(d time.Duration, f func()) func() bool {
+	return time.AfterFunc(d, f).Stop
+}
+
 // Config is what a client is built from.
 type Config struct {
 	// BaseURL is the homeserver: scheme, host and port, nothing after.
@@ -96,17 +111,20 @@ type Config struct {
 	Token string
 	// Clock is how the client waits; nil is SystemClock.
 	Clock Clock
+	// Timers arm each try's time limit; nil is SystemTimers.
+	Timers Timers
 	// UserAgent replaces the side's default User-Agent.
 	UserAgent string
 }
 
 // Client is a Matrix client-server API client. It is safe for concurrent use.
 type Client struct {
-	base  string
-	http  *http.Client
-	clock Clock
-	agent string
-	limit time.Duration
+	base   string
+	http   *http.Client
+	clock  Clock
+	timers Timers
+	agent  string
+	limit  time.Duration
 	// authorize sets the Authorization header; nil when the client has no token. A closure,
 	// so no formatting of the struct can reach the token.
 	authorize func(http.Header)
@@ -135,7 +153,11 @@ func newClient(cfg Config, base, agent string, limit time.Duration) (*Client, er
 	if clock == nil {
 		clock = SystemClock()
 	}
-	c := &Client{base: base, http: newHTTPClient(), clock: clock, agent: agent, limit: limit}
+	timers := cfg.Timers
+	if timers == nil {
+		timers = SystemTimers()
+	}
+	c := &Client{base: base, http: newHTTPClient(), clock: clock, timers: timers, agent: agent, limit: limit}
 	if cfg.Token == "" {
 		return c, nil
 	}
@@ -384,8 +406,10 @@ func (c *Client) once(ctx context.Context, cl call) (*answer, error) {
 	if cl.limit != 0 {
 		limit = cl.limit
 	}
-	tryCtx, cancel := context.WithTimeout(ctx, limit)
+	tryCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	stop := c.timers.AfterFunc(limit, cancel)
+	defer stop()
 	target := c.base + cl.path
 	if len(cl.query) > 0 {
 		target += "?" + cl.query.Encode()
@@ -436,24 +460,34 @@ func (cl call) lost(ctx, tryCtx context.Context, detail string) *Error {
 }
 
 func (cl call) judge(ans *answer) ([]byte, error) {
-	code := errcodeOf(ans.body)
-	switch s := ans.status; {
+	if e := StatusError(cl.method, cl.path, ans.status, errcodeOf(ans.body)); e != nil {
+		return nil, e
+	}
+	return ans.body, nil
+}
+
+// StatusError is the failure of a call to method and path answered with status and errcode,
+// classed as every call classes it; nil for a 200. A package that judges failures builds its
+// test errors with it.
+func StatusError(method, path string, status int, errcode string) *Error {
+	cl := call{method: method, path: path}
+	switch s := status; {
 	case s == http.StatusOK:
-		return ans.body, nil
+		return nil
 	case s >= 200 && s < 300:
-		return nil, cl.fail(ErrRefused, s, code, "an unexpected success status", false)
+		return cl.fail(ErrRefused, s, errcode, "an unexpected success status", false)
 	case s >= 300 && s < 400:
-		return nil, cl.fail(ErrRefused, s, code, "redirect refused", false)
+		return cl.fail(ErrRefused, s, errcode, "redirect refused", false)
 	case s == http.StatusUnauthorized:
-		return nil, cl.fail(ErrAuthRefused, s, code, "the access token was refused", false)
+		return cl.fail(ErrAuthRefused, s, errcode, "the access token was refused", false)
 	case s == http.StatusForbidden:
-		return nil, cl.fail(ErrForbidden, s, code, "forbidden", false)
+		return cl.fail(ErrForbidden, s, errcode, "forbidden", false)
 	case s == http.StatusNotFound:
-		return nil, cl.fail(ErrNotFound, s, code, "not found", false)
+		return cl.fail(ErrNotFound, s, errcode, "not found", false)
 	case s >= 500:
-		return nil, cl.fail(ErrRefused, s, code, "server error", true)
+		return cl.fail(ErrRefused, s, errcode, "server error", true)
 	default:
-		return nil, cl.fail(ErrRefused, s, code, "refused", false)
+		return cl.fail(ErrRefused, s, errcode, "refused", false)
 	}
 }
 

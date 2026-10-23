@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
@@ -12,19 +13,24 @@ import (
 )
 
 // Env is what a run of the binary is given: its arguments after the program name, its
-// standard streams, and the source digest the build set.
+// standard streams, the source digest the build set, its environment, and the verbs built
+// outside this package. cmd/teamchat passes those in Verbs, so cli imports none of the
+// packages that build them (the keeper imports cli for its launch line; n3c-D5).
 type Env struct {
 	Args   []string
 	Stdin  io.Reader
 	Stdout io.Writer
 	Stderr io.Writer
 	Digest string
+	Getenv func(string) string
+	Verbs  map[string]RunFunc
 }
 
-type runFunc func(Env, Invocation) term.ExitCode
+// RunFunc is one verb's body: the binary's Env and its parsed command line, to its exit.
+type RunFunc func(Env, Invocation) term.ExitCode
 
-// runs are the verbs this binary builds.
-var runs = map[string]runFunc{
+// runs are the verbs this package builds.
+var runs = map[string]RunFunc{
 	verbVersion:     runVersion,
 	verbHelp:        runHelp,
 	verbGuestCheck:  runGuestCheck,
@@ -34,9 +40,14 @@ var runs = map[string]runFunc{
 	verbSetAside:    runSetAside,
 }
 
+// outside are the verbs built outside this package, which cmd/teamchat passes in Env.Verbs.
+var outside = []string{verbRun, "link", "recv", "wait", "inbox", "status", "verify", "history", "seat disconnected", "reach"}
+
+// Outside is the verbs a binary must pass in Env.Verbs; a copy the caller may change.
+func Outside() []string { return slices.Clone(outside) }
+
 // unbuilt are the verbs a later slice builds, each with its slice (CL2).
 var unbuilt = bySlice(map[string][]string{
-	"n3c": {verbRun, "link", "recv", "wait", "inbox", "status", "verify", "history", "seat disconnected", "reach"},
 	"n3d": {"reply", "say", "ping"},
 	"n3e": {"hook", "status-line"},
 	"n3f": {"report", verbAsk, "thread", verbQuestions},
@@ -54,6 +65,7 @@ func bySlice(verbs map[string][]string) map[string]string {
 
 const (
 	msgUnbuilt  exits.Template = "teamchat {} is not built in this binary; it lands with slice {}"
+	msgUnwired  exits.Template = "teamchat {} is not wired into this binary; tell a human"
 	msgNoDigest exits.Template = "this teamchat was built without its source digest; tell a human"
 	msgHelpWhat exits.Template = "teamchat help takes a verb or exit-codes; teamchat help lists the verbs"
 )
@@ -73,6 +85,12 @@ func Run(e Env) term.ExitCode {
 	}
 	if run, ok := runs[inv.Verb.Name]; ok {
 		return run(e, inv)
+	}
+	if run, ok := e.Verbs[inv.Verb.Name]; ok {
+		return run(e, inv)
+	}
+	if slices.Contains(outside, inv.Verb.Name) {
+		return exits.Write(e.Stderr, exits.New(exits.CodeInternal, inv.Team, msgUnwired, exits.Words(inv.Verb.Name)))
 	}
 	return exits.Write(e.Stderr, exits.New(exits.CodeInternal, inv.Team, msgUnbuilt,
 		exits.Words(inv.Verb.Name), exits.Words(unbuilt[inv.Verb.Name])))

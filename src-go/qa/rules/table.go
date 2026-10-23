@@ -35,6 +35,7 @@ const (
 	sessprobePkg = "internal/sessprobe"
 	podfreezePkg = "internal/podfreeze"
 	lxcfreezePkg = "internal/lxcfreeze"
+	keeperPkg    = "internal/teamchat/member/keeper"
 	sudoPkg      = "internal/sudo"
 	agentbusPkg  = "internal/agentbus"
 	hostPkg      = "internal/teams/host"
@@ -234,13 +235,38 @@ var dynamicNames = []allowance{
 	},
 	{
 		pkg:    "internal/teamchat/reexec",
-		fn:     "start",
+		fn:     "command",
 		reason: "the test binary itself, re-run as a second process (SPEC-n3 gap 8)",
+	},
+	{
+		pkg:    "internal/teamchat/failpoint",
+		fn:     "runSelf",
+		reason: "the busfailpoints test binary itself, re-run so an armed point can SIGKILL it (SPEC-n3 gap 9)",
 	},
 	{
 		pkg:    "internal/teamchat/member/guest",
 		fn:     "Checker.ghLoggedIn",
 		reason: "gh (unowned) at the path guest check found on the session unit's PATH, never the attach's own (SPEC-n3 GU2)",
+	},
+	{
+		pkg:    keeperPkg,
+		fn:     "linkCmd",
+		reason: "the kit's own teamchat, <kit>/bin/teamchat link, for the kit the keeper resolved (SPEC-n3 RN1)",
+	},
+	{
+		pkg:    keeperPkg,
+		fn:     "keeper.kitVersion",
+		reason: "the kit's own teamchat asked its --version, for the kit --kit or the current link names (SPEC-n3 RN1)",
+	},
+	{
+		pkg:    keeperPkg,
+		fn:     "keeper.resolveKit",
+		reason: "the kit's own teamchat re-executed as run --kit when it is another version than this binary (SPEC-n3 RN1)",
+	},
+	{
+		pkg:    keeperPkg,
+		fn:     "keeper.startCmd",
+		reason: "CMD, the session's command the launcher named after --, Claude Code or a plain command (B 2.4.1 step 7)",
 	},
 }
 
@@ -292,7 +318,7 @@ func perPass(run func(*analysis.Pass)) func(*analysis.Pass) (any, error) {
 
 // All is every rule, in the order the driver registers them.
 func All() []*analysis.Analyzer {
-	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay, HiddenBindings, PackageTests}
+	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay, HiddenBindings, PackageTests, LifecycleTurn}
 }
 
 // ownedBy is whether the package path (the test variants of it included) is owner, matched

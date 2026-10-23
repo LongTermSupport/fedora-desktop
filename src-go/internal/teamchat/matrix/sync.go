@@ -44,12 +44,30 @@ func (f RoomFilter) JSON() string {
 }
 
 // SyncRequest is one /sync: Since empty for a first sync, Timeout the long-poll (0 to 30 s,
-// whole milliseconds), Filter nil for none, SetPresence empty for the server's default.
+// whole milliseconds), SetPresence empty for the server's default. The filter is Filter (the
+// admin side's) or FilterJSON, a JSON object sent byte for byte (a member's, proto's filter
+// compacted, gap 5); at most one of the two, and neither for none.
 type SyncRequest struct {
 	Since       string
 	Timeout     time.Duration
 	Filter      *RoomFilter
+	FilterJSON  json.RawMessage
 	SetPresence string
+}
+
+// filterQuery is the request's filter as the query carries it, and whether it has one.
+func (req SyncRequest) filterQuery() (string, bool, error) {
+	switch raw := req.FilterJSON; {
+	case req.Filter != nil && raw != nil:
+		return "", false, invalid("a sync takes one filter, not two")
+	case req.Filter != nil:
+		return req.Filter.JSON(), true, nil
+	case raw == nil:
+		return "", false, nil
+	case !json.Valid(raw) || raw[0] != '{' || raw[len(raw)-1] != '}':
+		return "", false, invalid("a sync filter is one JSON object")
+	}
+	return string(req.FilterJSON), true, nil
 }
 
 // presenceOK says p is a presence the specification names.
@@ -85,6 +103,7 @@ type RoomUpdate struct {
 }
 
 // Timeline is a room's new events; when Limited, events were left out and PrevBatch reads them.
+// A limited timeline with no events may have no PrevBatch (a timeline limit of 0).
 type Timeline struct {
 	Events    []json.RawMessage
 	Limited   bool
@@ -148,8 +167,12 @@ func (c *Client) syncCall(req SyncRequest) (call, error) {
 		}
 		query.Set("since", req.Since)
 	}
-	if req.Filter != nil {
-		query.Set("filter", req.Filter.JSON())
+	filter, hasFilter, err := req.filterQuery()
+	if err != nil {
+		return call{}, err
+	}
+	if hasFilter {
+		query.Set("filter", filter)
 	}
 	if req.SetPresence != "" {
 		if !presenceOK(req.SetPresence) {
@@ -219,7 +242,9 @@ func (w wireRoom) update() (RoomUpdate, bool) {
 			out.Timeline.PrevBatch = *tl.PrevBatch
 		}
 	}
-	if out.Timeline.Limited && out.Timeline.PrevBatch == "" {
+	// A limited timeline names where its gap starts, unless it holds no events: Tuwunel 1.9.4
+	// answers a timeline limit of 0 limited with no prev_batch, and that sync wants no history.
+	if out.Timeline.Limited && out.Timeline.PrevBatch == "" && len(out.Timeline.Events) > 0 {
 		return out, false
 	}
 	return out, allObjects(out.State) && allObjects(out.Timeline.Events)

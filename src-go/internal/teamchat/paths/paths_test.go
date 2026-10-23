@@ -159,6 +159,28 @@ func TestCCYLayout(t *testing.T) {
 	}
 }
 
+// T8: a run is built under a staging name no run id parses, which names the building keeper.
+func TestStaging(t *testing.T) {
+	s := CCYLayout().Staging(4242, 9876)
+	if s.Dir() != "/tmp/teamchat/.building-4242-9876" || s.PID() != s.Dir()+"/session.pid" {
+		t.Fatalf("staging %q", s.Dir())
+	}
+	if _, err := ParseRunID(".building-4242-9876"); err == nil {
+		t.Fatal("a staging name parses as a run id")
+	}
+	if pid, ticks, ok := ParseStaging(".building-4242-9876"); !ok || pid != 4242 || ticks != 9876 {
+		t.Fatalf("parse %d %d %v", pid, ticks, ok)
+	}
+	for _, name := range []string{
+		".building-4242", ".building-0-1", ".building-1-0", ".building--1-2", ".building-1-+2", ".building-01-2",
+		"building-1-2", ".building-1-2-3", ".building-x-2", "0123456789abcdef", ".building-99999999999999999999-1",
+	} {
+		if _, _, ok := ParseStaging(name); ok {
+			t.Errorf("%q parsed as a staging name", name)
+		}
+	}
+}
+
 func TestHomeLayout(t *testing.T) {
 	l, err := HomeLayout("/home/u", "/run/user/1000")
 	if err != nil {
@@ -175,6 +197,86 @@ func TestHomeLayout(t *testing.T) {
 		if c.got != c.want {
 			t.Errorf("got %q, want %q", c.got, c.want)
 		}
+	}
+}
+
+// RN1's --state DIR replaces the state root, and with it every seat (so <v2-bundle>), and
+// nothing else.
+func TestWithDesiredAndKitRootReplaceTheirsAlone(t *testing.T) {
+	home, err := HomeLayout("/home/u", "/run/user/1000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	moved, err := home.WithDesired("/srv/probe/desired")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved, err = moved.WithKitRoot("/srv/kits"); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ got, want string }{
+		{moved.Desired(), "/srv/probe/desired"},
+		{moved.DesiredFile(), "/srv/probe/desired/desired.json"},
+		{moved.KitRoot(), "/srv/kits"},
+		{moved.CurrentKit().String(), "/srv/kits/current"},
+		{moved.State(), home.State()},
+		{moved.RunRoot(), home.RunRoot()},
+	} {
+		if c.got != c.want {
+			t.Errorf("got %q, want %q", c.got, c.want)
+		}
+	}
+	for _, bad := range []string{"rel", "/a/../b", "/"} {
+		if _, derr := home.WithDesired(bad); !errors.Is(derr, ErrInvalid) {
+			t.Errorf("WithDesired(%q) = %v", bad, derr)
+		}
+		if _, kerr := home.WithKitRoot(bad); !errors.Is(kerr, ErrInvalid) {
+			t.Errorf("WithKitRoot(%q) = %v", bad, kerr)
+		}
+		if _, aerr := KitAt(bad); !errors.Is(aerr, ErrInvalid) {
+			t.Errorf("KitAt(%q) = %v", bad, aerr)
+		}
+	}
+	k, err := KitAt("/srv/kits/abc")
+	if err != nil || k.Binary() != "/srv/kits/abc/bin/teamchat" || k.String() != "/srv/kits/abc" {
+		t.Errorf("KitAt = %v, %v", k, err)
+	}
+}
+
+func TestWithStateReplacesTheStateRootAlone(t *testing.T) {
+	home, err := HomeLayout("/home/u", "/run/user/1000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range []Layout{CCYLayout(), home} {
+		moved, err := l.WithState("/srv/probe/state")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range []struct{ got, want string }{
+			{moved.State(), "/srv/probe/state"},
+			{moved.Seat(mustTeam(t, "ops")).Bundle(), "/srv/probe/state/ops/seat.json"},
+			{moved.ConversationFile(), "/srv/probe/state/conversation.json"},
+			{moved.KitRoot(), l.KitRoot()},
+			{moved.CurrentKit().String(), l.CurrentKit().String()},
+			{moved.Desired(), l.Desired()},
+			{moved.RunRoot(), l.RunRoot()},
+		} {
+			if c.got != c.want {
+				t.Errorf("got %q, want %q", c.got, c.want)
+			}
+		}
+	}
+}
+
+// EN5's --bundle DIR is a seat directory outside any layout, named for no team.
+func TestSeatAtIsASeatDirectoryOfItsOwn(t *testing.T) {
+	s, err := SeatAt("/srv/host-held/bundle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Dir() != "/srv/host-held/bundle" || s.Bundle() != "/srv/host-held/bundle/seat.json" || s.Token() != "/srv/host-held/bundle/token" {
+		t.Errorf("seat %q, bundle %q, token %q", s.Dir(), s.Bundle(), s.Token())
 	}
 }
 
@@ -363,6 +465,8 @@ func TestBaseDirectoriesMustBeAbsoluteAndClean(t *testing.T) {
 		"ElementLauncher":    func(d string) error { _, err := ElementLauncher(d, team); return err },
 		"ElementConsentFile": func(d string) error { _, err := ElementConsentFile(d); return err },
 		"ProbeState":         func(d string) error { _, err := ProbeState(d, team); return err },
+		"Layout.WithState":   func(d string) error { _, err := CCYLayout().WithState(d); return err },
+		"SeatAt":             func(d string) error { _, err := SeatAt(d); return err },
 	}
 	for name, call := range calls {
 		// The root is refused too: joined to it, a name would begin with two slashes.

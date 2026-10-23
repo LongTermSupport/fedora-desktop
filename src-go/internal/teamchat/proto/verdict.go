@@ -96,10 +96,12 @@ type Event struct {
 }
 
 // Related is what the member's store knows of an earlier event of the team: its sender and
-// room, a ping's verb, and whether it was addressed to this member.
+// room, a ping's verb, whether it was addressed to this member, and whether it was addressed to
+// any agent of the roster that hears humans (ReachedNoAgent's edit rule, SY4a).
 type Related struct {
-	Sender, RoomID, Verb string
-	AddressedToSelf      bool
+	Sender, RoomID, Verb   string
+	AddressedToSelf        bool
+	AddressedToRosterAgent bool
 }
 
 // OwnPing is one of this member's own pings: its verb, its addressees and its

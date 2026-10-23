@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/cli"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/wiring"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -18,6 +19,12 @@ func main() {
 	os.Exit(int(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr, SourceDigest)))
 }
 
+// verbs are the verbs built outside cli (n3c-D5).
+var verbs = wiring.Verbs()
+
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer, digest string) term.ExitCode {
-	return cli.Run(cli.Env{Args: args, Stdin: stdin, Stdout: stdout, Stderr: stderr, Digest: digest})
+	return cli.Run(cli.Env{
+		Args: args, Stdin: stdin, Stdout: stdout, Stderr: stderr, Digest: digest,
+		Getenv: os.Getenv, Verbs: verbs,
+	})
 }

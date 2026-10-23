@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
 
 var helpers = Helpers{
@@ -40,6 +42,22 @@ var helpers = Helpers{
 		}
 		return 0
 	},
+	"files": func(h *Helper) int {
+		f := os.NewFile(3, "given")
+		if _, err := f.WriteString("from the helper\n"); err != nil {
+			return 5
+		}
+		if err := errors.Join(f.Close(), h.Ready()); err != nil {
+			return 2
+		}
+		return 0
+	},
+	"echo": func(h *Helper) int {
+		if _, err := io.WriteString(h.out, strings.Join(h.Args, ",")); err != nil {
+			return 2
+		}
+		return 5
+	},
 	"late": func(h *Helper) int {
 		if err := h.Ready(); err != nil {
 			return 2
@@ -61,8 +79,37 @@ func TestStartRunsTheHelperAsASecondProcess(t *testing.T) {
 	p.Release()
 }
 
+func TestCommandIsAFreeRunningHelper(t *testing.T) {
+	c := Command(t, "echo", "a b", "--")
+	var out bytes.Buffer
+	c.Stdout = &out
+	res, err := execx.OS{}.Run(t.Context(), c)
+	if res.ExitCode != 5 || out.String() != "a b,--" {
+		t.Fatalf("the helper exited %d (%v) and said %q", res.ExitCode, err, out.String())
+	}
+}
+
 func TestTheHelperGetsItsArgumentsUnchanged(t *testing.T) {
 	Start(t, "args", "a b", "-c", "--").Release()
+}
+
+func TestStartFilesGivesTheHelperDescriptorThreeOn(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := StartFiles(t, []*os.File{w}, "files")
+	if err = w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	p.Release()
+	got, err := io.ReadAll(r)
+	if err = errors.Join(err, r.Close()); err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "from the helper\n" {
+		t.Fatalf("read %q", got)
+	}
 }
 
 func TestKillEndsTheHelperBySIGKILL(t *testing.T) {
@@ -83,21 +130,21 @@ func TestCleanupKillsAHelperLeftHeld(t *testing.T) {
 }
 
 func TestAHelperThatEndsBeforeReadyIsAnError(t *testing.T) {
-	p, err := start("early", nil)
+	p, err := start("early", nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "before it was ready") || p != nil {
 		t.Fatalf("got %v, %v", p, err)
 	}
 }
 
 func TestAnUnknownHelperIsAnError(t *testing.T) {
-	_, err := start("nobody", nil)
+	_, err := start("nobody", nil, nil)
 	if err == nil || !strings.Contains(err.Error(), `no helper "nobody"`) {
 		t.Fatalf("got %v", err)
 	}
 }
 
 func TestReleaseReportsANonZeroExit(t *testing.T) {
-	p, err := start("late", nil)
+	p, err := start("late", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +154,7 @@ func TestReleaseReportsANonZeroExit(t *testing.T) {
 }
 
 func TestKillReportsAHelperThatWasNotKilled(t *testing.T) {
-	p, err := start("late", nil)
+	p, err := start("late", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +167,7 @@ func TestKillReportsAHelperThatWasNotKilled(t *testing.T) {
 }
 
 func TestAFirstLineThatIsNotReadyIsAnErrorAndTheHelperIsKilled(t *testing.T) {
-	_, err := start("garbled", nil)
+	_, err := start("garbled", nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "not its ready line") {
 		t.Fatalf("got %v", err)
 	}

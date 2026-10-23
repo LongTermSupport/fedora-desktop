@@ -5,19 +5,22 @@
         "Sender": "@teamchat.probe+desk.host:myteam.teamchat.internal",
         "RoomID": "!MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM",
         "Verb": "check",
-        "AddressedToSelf": false
+        "AddressedToSelf": false,
+        "AddressedToRosterAgent": false
       },
       "$ooooooooooooooooooooooooooooooooooooooooooo": {
         "Sender": "@alice:myteam.teamchat.internal",
         "RoomID": "!MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM",
         "Verb": "",
-        "AddressedToSelf": true
+        "AddressedToSelf": true,
+        "AddressedToRosterAgent": false
       },
       "$sssssssssssssssssssssssssssssssssssssssssss": {
         "Sender": "<receiver>",
         "RoomID": "!MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM",
         "Verb": "",
-        "AddressedToSelf": false
+        "AddressedToSelf": false,
+        "AddressedToRosterAgent": false
       }
     },
     "ownPings": {

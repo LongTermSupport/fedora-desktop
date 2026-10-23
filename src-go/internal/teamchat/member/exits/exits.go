@@ -288,14 +288,16 @@ func Write(stderr io.Writer, err error) term.ExitCode {
 			return e.Exit
 		}
 	}
-	line := append(object(e).Compact(), '\n')
+	line := append(e.Object().Compact(), '\n')
 	if _, werr := stderr.Write(line); werr != nil {
 		return e.Exit
 	}
 	return e.Exit
 }
 
-func object(e *Error) proto.Value {
+// Object is the error object Write prints, as a JSON value another object can carry (the link
+// socket's done line, B 2.4.4).
+func (e *Error) Object() proto.Value {
 	team := proto.Null()
 	if e.Team != nil {
 		team = proto.Str(e.Team.String())

@@ -353,6 +353,44 @@ func TestOpenLockRefusesAnythingButTheOwners0600RegularFile(t *testing.T) {
 	}
 }
 
+// A probe opens a lock file only if it is there: it makes nothing.
+func TestOpenExistingLockOpensTheSameFileAndMakesNone(t *testing.T) {
+	r, root := newRoot(t)
+	if _, err := r.OpenExistingLock(root + "/seat.lock"); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("missing: %v", err)
+	}
+	if exists, err := r.Exists(root + "/seat.lock"); err != nil || exists {
+		t.Fatalf("a missing lock file was made (%v)", err)
+	}
+	made, err := r.OpenLock(root + "/seat.lock")
+	check(t, err)
+	check(t, made.Close())
+	f, err := r.OpenExistingLock(root + "/seat.lock")
+	check(t, err)
+	var st unix.Stat_t
+	check(t, unix.Fstat(int(f.Fd()), &st))
+	check(t, f.Close())
+	if st.Ino != inode(t, root+"/seat.lock") {
+		t.Error("opened another file")
+	}
+}
+
+func TestOpenExistingLockRefusesAnythingButTheOwners0600RegularFile(t *testing.T) {
+	r, root := newRoot(t)
+	check(t, unix.Mkfifo(root+"/fifo.lock", 0o600))
+	writeFile(t, root+"/seat.lock", "")
+	check(t, os.Symlink(root+"/seat.lock", root+"/link.lock"))
+	writeFile(t, root+"/theirs.lock", "")
+	giveAway(t, root+"/theirs.lock")
+	writeFile(t, root+"/open.lock", "")
+	check(t, os.Chmod(root+"/open.lock", 0o644))
+	for _, name := range []string{"fifo.lock", "link.lock", "theirs.lock", "open.lock"} {
+		if _, err := r.OpenExistingLock(root + "/" + name); !errors.Is(err, ErrConfig) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
 func TestSubOpensADirectoryBelowAsARootOfItsOwn(t *testing.T) {
 	r, root := newRoot(t)
 	check(t, r.MkdirAll(root+"/a/b"))

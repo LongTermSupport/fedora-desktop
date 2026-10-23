@@ -3,6 +3,7 @@ package lock
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -433,5 +434,69 @@ func TestBusyErrorNamesThePath(t *testing.T) {
 	err := &BusyError{Path: "/x/seat.lock"}
 	if err.Error() != "lock: /x/seat.lock is held by another process" {
 		t.Errorf("%q", err.Error())
+	}
+}
+
+// Probe reports a lock held exclusively by another process, and not one freed by its holder's
+// death; a shared hold is no keeper or link, so it reads as free.
+func TestProbeReportsAnExclusiveHolder(t *testing.T) {
+	w := newWorld(t)
+	path := w.run.KeeperLock()
+	touch(t, path)
+	holder := reexec.Start(t, "flock", path, "ex")
+	held, err := Probe(w.root, path)
+	check(t, err)
+	if !held {
+		t.Fatal("an exclusive holder reads as free")
+	}
+	holder.Kill()
+	held, err = Probe(w.root, path)
+	check(t, err)
+	if held {
+		t.Fatal("a freed lock reads as held")
+	}
+	shared := reexec.Start(t, "flock", path, "sh")
+	held, err = Probe(w.root, path)
+	check(t, err)
+	shared.Release()
+	if held {
+		t.Fatal("a shared hold reads as held")
+	}
+}
+
+// Probe makes nothing and leaves nothing held: a missing file is not held, and an acquire
+// right after a probe takes the lock at once.
+func TestProbeMakesNoFileAndLeavesNothingHeld(t *testing.T) {
+	w := newWorld(t)
+	path := w.run.LinkLock()
+	held, err := Probe(w.root, path)
+	if held || !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("missing: held %v, %v", held, err)
+	}
+	if _, statErr := os.Lstat(path); !errors.Is(statErr, fs.ErrNotExist) {
+		t.Fatalf("the probe made the file: %v", statErr)
+	}
+	touch(t, path)
+	before := inode(t, path)
+	held, err = Probe(w.root, path)
+	check(t, err)
+	if held {
+		t.Fatal("a free lock reads as held")
+	}
+	l, err := TakeLink(t.Context(), w.clock, w.root, w.run)
+	check(t, err)
+	check(t, l.Release())
+	if len(w.clock.sleeps) != 0 || inode(t, path) != before {
+		t.Fatalf("sleeps %v, or the file was replaced", w.clock.sleeps)
+	}
+}
+
+func TestProbeRefusesAFileNotTheMembers(t *testing.T) {
+	w := newWorld(t)
+	path := w.run.KeeperLock()
+	check(t, os.WriteFile(path, nil, 0o644))
+	check(t, os.Chmod(path, 0o644))
+	if _, err := Probe(w.root, path); !errors.Is(err, homefs.ErrConfig) {
+		t.Fatalf("got %v", err)
 	}
 }
