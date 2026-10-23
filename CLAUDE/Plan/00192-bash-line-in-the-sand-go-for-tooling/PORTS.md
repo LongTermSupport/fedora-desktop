@@ -375,5 +375,6 @@ streams and closing snapshots; the differences are departures B1, B2 and B5. Hos
 round 1 (`subagent-reports/261023-review-rclone-tail-r1-opus.md`, FIX FIRST: 1 Medium, 2 Low)
 fixed: the deploy rebuilds `rclone-cache-status` too; every child runs in its own session so a
 terminal Ctrl-C cannot kill an RC call before the run cancels it; a stop ends the tick before the
-next line and `--once` still gets its closing snapshot. Further rounds: handed back to the
-coordinator (context budget).
+next line and `--once` still gets its closing snapshot. Round 2 (CHANGES: 1 Low) fixed: a
+second signal during either snapshot ends the run at once (its session groups killed, nothing
+more printed, exit 130), so no `rclone rc` outlives the run. Round 3: MERGE (2 Nits, fixed).
