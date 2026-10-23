@@ -70,7 +70,7 @@ pairs=(
   "ccyteamstest ./internal/teams/..."
   "difftest ./cmd/claude-yolo/..."
 )
-d=$(mktemp -d)
+d=$(mktemp -d) || exit 1
 trap 'rm -rf "$d"' EXIT
 go -C qa build -o "$d/driver" ./driver || exit 1
 status=0
