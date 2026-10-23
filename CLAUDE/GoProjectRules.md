@@ -641,8 +641,14 @@ members, and this checkout's own seats of every type are counted from the seat l
 with the same number is a different handle, `.host`, so nothing clashes); `lxcadd` matches the
 LXC member it added by its whole handle. The sweep for both rules was `src-go` and the nested
 `qa` module, test files and fixtures excluded. The 13 `Kind == KindCcy` checks became
-`Kind.IsSession` by pattern: before the fix every seat row was `KindCcy`, and `IsSession` is true
-for exactly those rows (now `ccy` or `cc`), so each check answers as it did.
+`Kind.IsSession` by pattern, then each was read again for the board's member rows (a roster
+member with no seat row here, `Dir: "-"`), whose KIND also comes from the handle: a host member
+there was `host` and is now `cc`. Most checks also ask for a folder (`Dir`) or a recorded
+session, so a member row is not one of theirs. `seats.SnapshotRunning` now asks for a folder
+too, so a host or podman member with no seat row here reads "not known here", not "not
+running". The two left (`picker.seatOwnActions`, the `Incomplete` case of `seats.RemoveOrPark`)
+treat a cc member row as they always treated a podman one: its menu has the Attach line,
+unavailable, and its Park is refused while the seat list could not be read.
 
 ## Defect classes that cannot be a rule
 

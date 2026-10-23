@@ -18,12 +18,97 @@ const (
 	cancelAll     = "CHOOSE:Cancel: start nothing"
 )
 
-// unknownRig is the rig with alpha and beta declared and nosuch on no homeserver.
+// secondUnknown is a second team this machine does not have, for a list naming two.
+const secondUnknown = "other"
+
+// unknownRig is the rig with alpha and beta declared and nosuch and other on no homeserver;
+// each is a team name the team file would accept.
 func unknownRig(t *testing.T) *rig {
 	t.Helper()
 	r := newRig(t, alphaCovers+betaWiden)
-	r.On("systemctl is-active agent-bus-hs@"+unknownTeam+".service", "inactive\n", 3)
+	for _, team := range []string{unknownTeam, secondUnknown} {
+		r.On("systemctl is-active agent-bus-hs@"+team+".service", "inactive\n", 3)
+		r.On(r.DeclarePrefix("check")+" --file "+r.Host.HostVars+" --team "+team, "", 0)
+	}
 	return r
+}
+
+// questions are the gum chooses about a team this machine does not have, in order.
+func (r *rig) questions() []string {
+	var asked []string
+	for _, line := range r.Script.GumLog {
+		if strings.Contains(line, "Cancel: start nothing") {
+			asked = append(asked, line)
+		}
+	}
+	return asked
+}
+
+// A name the team file would refuse is a usage mistake, said with the reason: there is nothing
+// to create under it, so nothing is asked.
+func TestAMalformedTeamNameIsRefusedBeforeAnythingIsAsked(t *testing.T) {
+	r := unknownRig(t)
+	r.On("systemctl is-active agent-bus-hs@Bad_Name.service", "inactive\n", 3)
+	r.OnErr(r.DeclarePrefix("check")+" --file "+r.Host.HostVars+" --team Bad_Name", "declare: --team: not a team name", 64)
+	exit(t, r.run("--type=podman", "Bad_Name"), term.ExitUsage, r)
+	contains(t, "stderr", r.stderr(), "not a team name")
+	if len(r.Script.GumLog) != 0 || r.creates != 0 {
+		t.Fatalf("gum %v creates %d", r.Script.GumLog, r.creates)
+	}
+	r.lacksOutput(t)
+}
+
+// With two unknown teams, the second question is about the list as it stands: the first, left
+// out, is not offered to start on.
+func TestATeamLeftOutIsNotOfferedAgainForTheNextUnknownTeam(t *testing.T) {
+	r := unknownRig(t)
+	r.Script.Gum = []string{"CHOOSE:Start on " + secondUnknown + " without " + unknownTeam, cancelAll}
+	exit(t, r.run("--type=podman", unknownTeam+","+secondUnknown), term.ExitOK, r)
+	asked := r.questions()
+	if len(asked) != 2 {
+		t.Fatalf("questions %v", asked)
+	}
+	if strings.Contains(asked[1], "Start on") {
+		t.Fatalf("nothing is left to start without %s: %s", secondUnknown, asked[1])
+	}
+	r.lacksOutput(t)
+}
+
+// A team swapped in for the first unknown team is in the list: the second is not offered it.
+func TestATeamSwappedInIsNotOfferedAgain(t *testing.T) {
+	r := unknownRig(t)
+	r.Script.Gum = []string{pickInstead, "CHOOSE:beta", pickInstead, "CHOOSE:alpha"}
+	exit(t, r.run("--type=podman", unknownTeam+","+secondUnknown), term.ExitOK, r)
+	if r.payload.String() != "1@beta,1@alpha\n" {
+		t.Fatalf("payload %q", r.payload.String())
+	}
+	if pick := r.Script.GumLog[3]; strings.Contains(pick, "beta") {
+		t.Fatalf("beta is in the list already: %s", pick)
+	}
+	if asked := r.questions(); !strings.Contains(asked[1], "Start on 1@beta without "+secondUnknown) {
+		t.Fatalf("the second question is not about the list as it stands: %s", asked[1])
+	}
+}
+
+// A team whose homeserver is not up would only fail in the unknown one's place: it is not
+// offered, and with none up the choice is not offered at all.
+func TestATeamThatIsNotUpIsNotOfferedInstead(t *testing.T) {
+	r := unknownRig(t)
+	r.On("systemctl is-active agent-bus-hs@beta.service", "inactive\n", 3)
+	r.Script.Gum = []string{pickInstead, "CHOOSE:alpha"}
+	exit(t, r.run("--type=podman", unknownTeam), term.ExitOK, r)
+	if pick := r.Script.GumLog[1]; strings.Contains(pick, "beta") {
+		t.Fatalf("beta is not up: %s", pick)
+	}
+	r = unknownRig(t)
+	for _, team := range []string{"alpha", "beta"} {
+		r.On("systemctl is-active agent-bus-hs@"+team+".service", "inactive\n", 3)
+	}
+	r.Script.Gum = []string{cancelAll}
+	exit(t, r.run("--type=podman", unknownTeam), term.ExitOK, r)
+	if strings.Contains(r.menu(t), "Choose one of this machine's teams instead") {
+		t.Fatalf("no team is up to choose: %s", r.menu(t))
+	}
 }
 
 // menu is the gum choose of the unknown-team question, as it was run.

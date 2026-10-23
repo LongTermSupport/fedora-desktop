@@ -17,6 +17,19 @@ Two version numbers move independently — see
 
 ---
 
+## 3.100.23 — container 2.79.9
+
+Follows 3.100.22 (container 2.79.9). The image does not change.
+
+- **`ccy --help` says what `--teams` does with a team this machine lacks** (it offers to create
+  it) and which codes a `--teams` launch ends with (64, 75, 78).
+- **The question about a team this machine lacks is about the list as it stands**: a team
+  already left out is not offered to start on, a team swapped in is not offered again, and a
+  team whose homeserver is not up is not offered in its place. A name the team file would
+  refuse is a usage mistake (64) with its reason, and nothing is asked.
+- **The board's role change reads a member with no seat here as "not known here"**, not "not
+  running", now that a host member's KIND is `cc`.
+
 ## 3.100.22 — container 2.79.9
 
 Follows 3.100.18 (container 2.79.9; 3.100.19 was this change before F44 was merged into it,

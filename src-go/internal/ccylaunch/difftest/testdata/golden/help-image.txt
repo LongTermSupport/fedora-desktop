@@ -51,16 +51,16 @@ Options:
                          and is refused when there are none; a key that needs a
                          passphrase is refused unless your ssh-agent holds it (ssh-add it)
   --teams [TEAM | SEAT@TEAM[,SEAT@TEAM...]]
-                         Put this session in agent team bus teams, one seat in each.
-                         Bare --teams chooses teams from a list with what each is for
-                         (Tab marks several); a team not covering this repository is
-                         widened only on a yes. The launch prints each team's seat, role
-                         and description; the status line shows 👥 A,B. With a team
-                         alone ccy asks the seat (lowest free is the default); name it
-                         (--teams 1@dev-team,qa2@other-team; quote a list with spaces)
-                         to skip the question, as a launch with nobody to ask must. A
-                         seat is created on first use (sudo agent-bus add-member) and held
-                         by one session. Needs play-agent-bus.yml; Quick Launch keeps both.
+                         Join agent team bus teams, one seat each. Bare --teams lists the
+                         teams and what each is for (Tab marks several); one not covering
+                         this repository is widened only on a yes. A team alone: ccy asks
+                         the seat (lowest free is the default), and offers to create a team
+                         this machine lacks. Name seats (--teams 1@dev-team,qa2@other-team;
+                         quote a list with spaces) when nobody can be asked. A seat is made
+                         on first use (sudo agent-bus add-member), held by one session; the
+                         launch prints each seat, role and description (status line 👥 A,B).
+                         Exit 64 list unusable, 75 seat held elsewhere, 78 team or seat not
+                         set up here. Needs play-agent-bus.yml; Quick Launch keeps both.
   --no-bus               Leave the agent team bus kit out. Without --teams a session started
                          in ccy's tmux is on no team but carries the kit idle (no hooks run,
                          its own status line, no inbox socket; joining a team relaunches it).

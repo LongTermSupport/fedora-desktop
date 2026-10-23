@@ -190,7 +190,7 @@ func (c *Chooser) resolve(ctx context.Context, memberType, list string) term.Exi
 	}
 	for i, item := range items {
 		if !strings.Contains(item, "@") {
-			team, then, code := c.known(ctx, flow.LaunchTeam(i+1, len(items), item), item, items)
+			team, then, code := c.known(ctx, flow.LaunchTeam(i+1, len(items), item), item, slices.Concat(refs, items[i:]))
 			switch {
 			case code != term.ExitOK:
 				return code

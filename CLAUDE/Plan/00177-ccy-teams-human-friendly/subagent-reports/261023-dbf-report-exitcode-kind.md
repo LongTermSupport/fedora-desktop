@@ -86,9 +86,11 @@ A, 1 Class B.
 All 15 examined one by one in `37cbe9ae7`: 12 through `term.FromChild`; `ops.playExit` became
 `playStatus`, an int, as it never was the tool's exit; `ccy-sessions reboot` exits 1 and names
 systemctl's code (departure recorded in Plan 00191 `SPEC-ccy-sessions.md` 1.3); `seatRow`
-takes `KindOf(handle)`. The 13 `Kind == KindCcy` checks became `Kind.IsSession` by pattern:
-before the fix every seat row was `KindCcy`, and `IsSession` is true for exactly those rows,
-so each answers as before. No suppression, no baseline.
+takes `KindOf(handle)`. The 13 `Kind == KindCcy` checks became `Kind.IsSession` by pattern.
+Review round 1 found that the board's member rows (no seat here, `Dir: "-"`) take their KIND
+from the handle too, so a host member row went from `host` to `cc`; each check was read again
+for them and `seats.SnapshotRunning` now asks for a folder (the catalogue lists the rest). No
+suppression, no baseline.
 
 `FromChild` keeps 78 on purpose (the launcher reads it as "a team not running here"); the fix
 for the person is the words: `ccy-teams: exit 78: ...` as the last line, and the usage text.
@@ -101,6 +103,17 @@ for the person is the words: `ccy-teams: exit 78: ...` as the last line, and the
 - An attended `ccy --teams <seat>@<unknown-team>` names a seat, so the launcher does not call
   the chooser and agent-bus refuses it (78, with words). Default: leave it; the owner's form was
   a team named alone, and a named seat is the scripted form.
+- The bash launch helpers (`ccy_seats_check`, `ccy_seats_take`, `cc_teams_choose`,
+  `cc_teams_take`) hand on agent-bus's own exit code. Map anything but 64, 75, 77 and 78 to 1?
+  Default: leave them; agent-bus documents its codes, `ccy --help` now names 64, 75 and 78, and
+  `cc-teams.bash` and the launcher are at their bash-limits records (they cannot grow).
+- A team made from the unknown-team question is not asked whether it covers this checkout, as
+  the bare list asks. Default: leave it; a team named on the command line has never been asked.
+- A team the host_vars declare but that is not set up here (`Present` false) is taken as
+  named, and agent-bus refuses it (78, with its reason, and `ccy-teams: exit 78: ...`).
+  Default: leave it; offering `ccy-teams apply` there is a separate question.
+- The unknown-team path is tested by the chooser's unit tests (16) through the fakes, not
+  through the built binary. Default: accept them plus the owner's test in Task 7.9.
 
 ## Permanence
 

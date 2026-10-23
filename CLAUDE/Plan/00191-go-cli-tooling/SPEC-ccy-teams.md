@@ -763,7 +763,8 @@ it is out of scope for behaviour parity.
   (team file rendered from the entry) and software digest (admin zipapp + pinned Tuwunel + installer
   hash) with the checkout.
 - **Member** (`agent-bus list`): handle `<repo>.<seat>+<host>.<type>` (type podman, lxc, docker, vm,
-  host), role, room membership, active/parked. KIND = type with podman shown as `ccy`.
+  host), role, room membership, active/parked. KIND = type with podman shown as `ccy` and host
+  as `cc` (`agentbus.KindOf`), for a member row and a seat row alike.
 - **Seat** (`agent-bus seat list` per checkout): team, seat (`[1-9][0-9]{0,5}` or `[a-z][a-z0-9]{0,11}`),
   held/free, self/-, handle. Checkouts considered: dirs of live `ccy-*` tmux sessions, dirs of `ccy`
   registry records, and the cwd's work tree.
@@ -935,7 +936,9 @@ Keep the Exit-code and stderr conventions in one place (`internal/term` or `inte
     seat, not a member.
 06. **cc sessions and host seats**: records with prefix `cc` are skipped (L1263) and only `ccy-*` tmux
     sessions add checkouts (L1253), so `cc --teams` (Task 4.10) sessions never show as holding their
-    seat; every seat row's KIND is hard-coded `ccy` (L1436) even for a `.host` handle.
+    seat; every seat row's KIND is hard-coded `ccy` (L1436) even for a `.host` handle. The KIND
+    half is fixed in the Go board (Plan 00177 Task 7.8): a seat row's KIND comes from its handle,
+    `cc` for `.host`, held by the project rule `project_row_kind`.
 07. **Nondeterministic order** from bash associative arrays: `apply --all`'s "Left alone" and broken
     lists (L923-935), `offer_update`'s "Not as declared" list (L1543), the `--installed` flags. Sort.
 08. **Exit codes leak** from declare.py (64, 78) and from agent-bus-install through `set -e`, though the

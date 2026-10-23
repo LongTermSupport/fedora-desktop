@@ -97,8 +97,9 @@ func roleAction(handle string, want bool, holder coordinator.Holder) string {
 }
 
 // SnapshotRunning is what the board's seat rows say of a member's session: a parked member is
-// parked, a seat row a live process holds is running, a ccy seat row no process holds is not,
-// and a member with no seat row (another host, an LXC member) is unknown.
+// parked, a seat row a live process holds is running, a ccy or cc seat row no process holds is
+// not, and a member with no seat row (another host, an LXC member, a member row with no folder)
+// is unknown.
 func SnapshotRunning(snap *board.Snapshot) coordinator.Lookup {
 	return func(m agentbus.Member) coordinator.Running {
 		if m.Parked {
@@ -110,7 +111,7 @@ func SnapshotRunning(snap *board.Snapshot) coordinator.Lookup {
 			case row.Handle != m.Handle:
 			case row.Held:
 				return coordinator.Active
-			case row.Kind.IsSession():
+			case row.Kind.IsSession() && row.Dir != "-":
 				state = coordinator.Stopped
 			}
 		}

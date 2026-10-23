@@ -32,11 +32,15 @@ const (
 	startOn   = "Start on "
 )
 
-// known is the team the list names alone at its place in items, as the run can take it. A team
-// whose homeserver is up, or that the host_vars declare, is taken as named (agent-bus says what
-// is wrong with a declared one that is down), and the host_vars are not read for a team that is
-// up. Any other name is asked about, maxRounds times at most: make it with the create wizard,
-// choose a team this machine has in its place, start the others without it, or start nothing.
+// known is the team the list names alone, as the run can take it; items is the list as it
+// stands (what is settled so far, this team, then the rest as given). A team whose homeserver is
+// up, or that the host_vars declare, is taken as named (agent-bus says what is wrong with a
+// declared one that is down), and the host_vars are not read for a team that is up. A name the
+// team file would refuse is a usage mistake, said with its reason. Any other name is asked
+// about, maxRounds times at most: make it with the create wizard, choose a team this machine
+// has whose homeserver is up in its place, start the others without it, or start nothing. A
+// team made here is taken as named teams always are, without the bare list's question whether
+// it covers this checkout.
 func (c *Chooser) known(ctx context.Context, h ui.Heading, team string, items []string) (string, then, term.ExitCode) {
 	state, err := c.Systemd.HomeserverState(ctx, team)
 	if err != nil {
@@ -52,8 +56,31 @@ func (c *Chooser) known(ctx context.Context, h ui.Heading, team string, items []
 	if slices.ContainsFunc(declared, func(t declare.Team) bool { return t.Name == team }) {
 		return team, take, term.ExitOK
 	}
+	if err = c.Declare.Check(ctx, declare.Entry{Team: team}); err != nil {
+		return "", leaveRun, c.failed(err)
+	}
+	pickable, err := c.upOnly(ctx, others(declared, items))
+	if err != nil {
+		return "", leaveRun, c.failed(err)
+	}
 	c.say("This machine has no team called " + team + ".")
-	return c.askUnknown(ctx, h, team, items, others(declared, items))
+	return c.askUnknown(ctx, h, team, items, pickable)
+}
+
+// upOnly are the teams whose homeserver is up: one that is not would only fail in another's
+// place.
+func (c *Chooser) upOnly(ctx context.Context, teams []string) ([]string, error) {
+	var up []string
+	for _, team := range teams {
+		state, err := c.Systemd.HomeserverState(ctx, team)
+		if err != nil {
+			return nil, err
+		}
+		if state == systemd.HomeserverUp {
+			up = append(up, team)
+		}
+	}
+	return up, nil
 }
 
 // askUnknown asks what to do about team, which this machine does not have, maxRounds times at
