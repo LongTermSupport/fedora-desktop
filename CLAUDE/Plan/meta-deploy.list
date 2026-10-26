@@ -32,9 +32,3 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-
-# Plan 00185 (#60, colour emoji in the terminal): play-fonts.yml (expected unchanged; the comment
-# of the fifth rule changed, so the file is redeployed and the caches rebuilt), then
-# acceptance.bash, now 19 checks: check 19 is serif's ordered list, the list a program asking
-# for serif walks, with the colour font before Symbola. The last run passed the other 18.
-00185-terminal-emoji-glyphs

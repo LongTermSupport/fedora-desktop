@@ -1,6 +1,6 @@
 # Plan 00185: the terminal draws the wrong emoji glyphs
 
-**Status**: In Progress (the fallback defence is built and accepted on the host, 18 of 18; one host run left for acceptance check 19, serif's ordered list; the screen check of #60's `printf` is left for Plan 00219's desktop check)
+**Status**: Complete (2026-10-26: the colour emoji fallback is in `play-fonts.yml`, accepted on the host 19 of 19; the screen check of #60's `printf` is carried by Plan 00219)
 **Created**: 2026-10-13
 **Owner**: joseph
 **Priority**: Low
@@ -93,7 +93,8 @@ F1 to F3 are the repo as it stood before Task 2.1, which changed all three: `pla
   the fontconfig cache age, and whether GPU rendering is on. Host report read; the analysis
   and ranked diagnosis are in [triage-analysis.md](triage-analysis.md). H2 and the strong form
   of H3 are refuted; H1 leads but cannot be confirmed from the report (rebooted since).
-- [ ] ⬜ **Task 1.2**: Open item for Plan 00219's desktop check (coordinator default,
+- [x] ✅ **Task 1.2**: Handed to Plan 00219, which carries it (its Task 4.2 and its screenshot
+  of a fresh terminal for 00185). Open item for Plan 00219's desktop check (coordinator default,
   changeable by the owner; it no longer gates Phase 2). At the screen, NOT ESTABLISHABLE by
   a plain script: the four checks
   in triage-analysis.md ("Still unknown"), starting with the issue's `printf` in a new Ptyxis
@@ -108,7 +109,7 @@ notice, without waiting for Task 1.2. The dnf5 actions hook for font upgrades (a
 part 2) is not built: the docs line in `docs/playbooks.md` is the minimum the analysis names,
 and the hook stays the owner's call.
 
-- [ ] 🔄 **Task 2.1**: The defence in the owning play. `play-ms-fonts.yml` is renamed
+- [x] ✅ **Task 2.1**: The defence in the owning play. `play-ms-fonts.yml` is renamed
   `play-fonts.yml` (retired-plays map updated) and deploys
   `files/etc/fonts/conf.d/69-colour-emoji-fallback.conf`: Noto Color Emoji appended weakly
   after `monospace`, `sans-serif` and `serif`, and "en" recorded for it at font scan, with
@@ -137,7 +138,7 @@ and the hook stays the owner's call.
   it. The suite now models the 65 file (its stand-in is called Symbola; the order of its two
   aliases is the host's file's, captured read-only): red without the rule (6 checks), red with
   the guard dropped (5), green with both. The third host run accepted 18 of 18.
-- [ ] 🔄 **Task 2.2**: `deploy.bash` (play-fonts.yml, then `acceptance.bash`) and
+- [x] ✅ **Task 2.2**: `deploy.bash` (play-fonts.yml, then `acceptance.bash`) and
   `acceptance.bash` (19 checks; check 19 is serif's ordered list, the defect's own path,
   added after the final review found check 6 tested only the single best match; check 18 is
   that every system font cache file is readable by
@@ -151,13 +152,14 @@ and the hook stays the owner's call.
   CHANGES, round 2 MERGE (its should-fix items applied: F44 merged, fontconfig declared in
   the project image and CI), round 3 MERGE (nits applied). Final `qa-reviewer`
   (subagent-reports/261026-qa-review-final.md): CHANGES, plan state and check 19, applied.
-  `qa-all.bash` passed on F44 at 6007fcf37. Open: the host run of check 19.
+  `qa-all.bash` passed on F44 at 6007fcf37 and c26cf3fbd. The fourth host run, at c26cf3fbd,
+  accepted 19 of 19 (check 19 green), and the cache files stayed 0644 after a real rebuild.
 
 ## Success Criteria
 
-- [ ] The issue's `printf` draws a line graph, a spool of thread and a package: handed to
+- [x] The issue's `printf` draws a line graph, a spool of thread and a package: handed to
   Plan 00219's desktop check (Task 1.2), so it does not hold this plan open.
-- [ ] The confirmed cause (the fallback reaching monochrome Symbola and Noto Emoji, cause 4 of
+- [x] The confirmed cause (the fallback reaching monochrome Symbola and Noto Emoji, cause 4 of
   `triage-analysis.md`; H1 there is ranked but unconfirmed) is in the journal, and the
   defence is in `play-fonts.yml`, accepted on the host.
 

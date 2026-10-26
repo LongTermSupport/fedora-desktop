@@ -106,8 +106,6 @@ Use these Unicode icons in plan documents:
 
 - [00186-lxc-claude-session-reboot-warning](00186-lxc-claude-session-reboot-warning/) - Not Started (low priority). Claude sessions inside LXC containers get the reboot warning and restore (#55)
 
-- [00185-terminal-emoji-glyphs](00185-terminal-emoji-glyphs/) - In Progress (colour emoji fallback in `play-fonts.yml`, host acceptance 18 of 18; one run left for check 19, serif's ordered list). Triage why the terminal draws the wrong emoji, then defend in a play (#60)
-
 - [00184-deployed-tools-menu](00184-deployed-tools-menu/) - Not Started (low priority). One launcher and panel item for the deployed user tools (#81)
 
 - [00182-run-bash-private-plays-and-config-clone](00182-run-bash-private-plays-and-config-clone/) - Not Started. `run.bash` runs private plays from a local clone of the config repo (#49, #97)
@@ -309,6 +307,8 @@ Use these Unicode icons in plan documents:
 - [004-comprehensive-feature-documentation](004-comprehensive-feature-documentation/) - Dormant (owner to keep or cancel). User documentation for the major features.
 
 ## Completed Plans
+
+- [00185-terminal-emoji-glyphs](Completed/00185-terminal-emoji-glyphs/) - Colour emoji in the terminal (#60): `play-fonts.yml` makes Noto Color Emoji the emoji fallback after the text fonts, moves Symbola after it for serif, and keeps the font caches readable by every user (rule `root-umask`). Host acceptance 19 of 19; the screen check is Plan 00219's.
 
 - [00167-cc-refuses-to-start-outside-a-repo](Completed/00167-cc-refuses-to-start-outside-a-repo/) - `cc` outside a git working tree offers this machine's fedora-desktop checkout (`[Y/n]`) or refuses, and in a subdirectory starts at the repository's top, through the Go `cc-project-dir`. Issue #90. Deployed; host acceptance and the owner's `cc` checks passed.
 
