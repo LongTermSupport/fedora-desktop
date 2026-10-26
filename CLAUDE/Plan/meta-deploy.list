@@ -32,3 +32,8 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Plan 00185 (#60, colour emoji in the terminal): play-fonts.yml makes Noto Color Emoji the emoji
+# fallback after the text fonts and rebuilds the font caches, then acceptance.bash (17 checks).
+# Reopen terminal windows afterwards to see it.
+00185-terminal-emoji-glyphs
