@@ -329,6 +329,12 @@ are too, by the same route.
 - [ ] ⬜ **Task 10.3**: The host agent drives `ccy-teams` in tmux again: from `~`, the team and
   person menus say Start is unavailable; Esc from a menu then Down pressed quickly shows no
   `^[[B`.
+- [ ] 🔄 **Task 10.4**: An Esc is never lost to the key after it (the host agent's finding: in a
+  row menu, Down within about 50 ms of Esc, or both in one `tmux send-keys`, left the menu open
+  and moved its cursor; Ctrl-R then turned a seat's restore off with no question). Cause, proven
+  with real fzf: fzf reads an Esc and the next key inside its 100 ms wait as that key with Alt
+  (`alt-down`), which no screen bound. Defence Before Fix: failing tests first, a project rule,
+  the fix, and the sweep of every screen a person leaves with Esc (fzf, Bubble Tea, gum, tmux).
 
 ## Success Criteria
 
