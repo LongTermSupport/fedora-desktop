@@ -157,10 +157,29 @@ if [[ "${FAKE}" -eq 1 ]]; then
     # STANDARD-EXCEPTION(R2): --fake reads only the fixtures it writes, so where it runs does not matter
     plan_start_log auto
     readonly REPORT="${PLAN_RUN_DIR}/delivery-acceptance-fake-report.md"
+    readonly HOST_VARS_FILE="${PLAN_RUN_DIR}/host_vars.yml"
+    # The live path's includes too, for the rehearsal of its set-up. Its runtime directory and
+    # its podman are the fake mode's own: an empty directory, and one that lists no container.
+    if [[ -z "${XDG_RUNTIME_DIR:-}" ]]; then
+        export XDG_RUNTIME_DIR="${PLAN_RUN_DIR}/fake-runtime"
+        mkdir -m 0700 -- "${XDG_RUNTIME_DIR}"
+    fi
+    mkdir -- "${PLAN_RUN_DIR}/fake-bin"
+    printf '#!/bin/sh\nexit 0\n' >"${PLAN_RUN_DIR}/fake-bin/podman"
+    chmod 0700 -- "${PLAN_RUN_DIR}/fake-bin/podman"
+    export PATH="${PLAN_RUN_DIR}/fake-bin:${PATH}"
+    # shellcheck source-path=SCRIPTDIR
+    # shellcheck source=../00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/_acceptance-m7.inc.bash
+    source "${P201}/_acceptance-m7.inc.bash"
+    # shellcheck source-path=SCRIPTDIR
+    # shellcheck source=_acceptance-goodbye.inc.bash
+    source "${PLAN_SCRIPT_DIR}/_acceptance-goodbye.inc.bash"
     # shellcheck source-path=SCRIPTDIR
     # shellcheck source=_acceptance-delivery.inc.bash
     source "${PLAN_SCRIPT_DIR}/_acceptance-delivery.inc.bash"
     printf '# Plan 00194 delivery acceptance, fake mode\n\nRun directory: %s\n\n' "${PLAN_RUN_DIR}" >"${REPORT}"
+    check_leg "set-up (rehearsed) the paths are read before the first leg, and each seat take passes agent-bus's parser" dl_fake_rehearse
+    reject_leg "set-up (rehearsed) the session's seats and the peer in one take" "${DC[@]}" take-lists "${SEAT_LIST},${PEER_SEAT}@${TEAM_A}"
     plan_deploy_leg "write the fixture transcripts, panes, status and watch logs" dl_fake_files
     check_leg "H1 (fake) the human's entry, closed, from the test human" dl_fake_entry good H1 HUMAN "${HUMAN}"
     reject_leg "H1 (fake) the same text arriving as a PEER entry" dl_fake_entry bad H1 HUMAN "${HUMAN}"

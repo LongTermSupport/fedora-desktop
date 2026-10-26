@@ -206,6 +206,29 @@ class PaneAndLogTest(Files):
         self.assertEqual(self.run_cli("ignored", str(status), "nosuch")[0], 1)
 
 
+class TakeListsTest(Files):
+    """Each list the host run hands to one `agent-bus seat take` passes the product's own parser
+    (helpers/pingbus/seat.py parse_seat_list), as that take will parse it."""
+
+    def test_a_list_per_take_with_one_seat_per_team_is_accepted(self) -> None:
+        code, out, err = self.run_cli("take-lists", f"1@{TEAM},1@{TEAM_B}", f"2@{TEAM}")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, f"1@{TEAM},1@{TEAM_B}\n2@{TEAM}\n")
+
+    def test_two_seats_of_one_team_in_one_take_are_refused_as_agent_bus_refuses_them(self) -> None:
+        code, _, err = self.run_cli("take-lists", f"1@{TEAM},1@{TEAM_B},2@{TEAM}")
+        self.assertEqual(code, 1)
+        self.assertIn("one seat per team per session", err)
+
+    def test_a_seat_in_two_takes_is_refused(self) -> None:
+        code, _, err = self.run_cli("take-lists", f"1@{TEAM},1@{TEAM_B}", f"1@{TEAM}")
+        self.assertEqual(code, 1)
+        self.assertIn(f"1@{TEAM}", err)
+
+    def test_a_list_the_parser_refuses_is_a_failure(self) -> None:
+        self.assertEqual(self.run_cli("take-lists", f"1@{TEAM},")[0], 1)
+
+
 class FakeRunTest(unittest.TestCase):
     def test_the_fake_run_accepts_and_rejects_what_it_should(self) -> None:
         env = {k: v for k, v in os.environ.items() if not k.startswith("PLAN_")}

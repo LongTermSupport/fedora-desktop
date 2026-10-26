@@ -82,9 +82,12 @@ gb_evidence() { printf -- '- %s\n' "$*" >>"${REPORT}"; }
 # gb_paths — where the run's own checkout, its seats (seat.py CHECKOUT_SEATS) and the tmux
 # socket live (the socket under XDG_RUNTIME_DIR: a socket path is
 # limited to 108 bytes), and where ccy-teams keeps a ccy session's membership directories, read
-# from this checkout's Go source (m7_check membership-dirs), never copied.
+# from this checkout's Go source (m7_check membership-dirs), never copied; and the container
+# paths Plan 00201's legs read (m7_session_paths), which gb_leftovers' container listing needs
+# first of all.
 gb_paths() {
     local dirs seats
+    m7_session_paths || return 1
     dirs="$("${CHECK[@]}" membership-dirs)" || return 1
     dirs="${dirs%%$'\n'*}"
     [[ -n "${dirs}" ]] || { printf '[FAIL] m7_check membership-dirs named no directory\n' >&2; return 1; }
@@ -153,8 +156,6 @@ gb_poll_launch() {
 # gb_prerequisites — 0 ready; 2 an owner step is missing (nothing changed); 1 anything else.
 gb_prerequisites() {
     local tool declared team conf="${PLAN_REPO_ROOT}/.claude/ccy/.last-launch.conf"
-    # The container paths gb_leftovers' m7_seat_listing reads, as m7_prerequisites reads them.
-    m7_session_paths || return 1
     for tool in "${CCY_LAUNCHER}" "${AGENT_BUS}" "${INSTALLER}"; do
         if [[ ! -x "${tool}" ]]; then
             printf '[FAIL] %s is not installed: run play-claude-yolo.yml and play-agent-bus.yml\n' "${tool}" >&2
@@ -727,10 +728,21 @@ gb_keep_disconnect_log() {
 
 # ── the way out ──────────────────────────────────────────────────────────────────────────
 
+# gb_park_seats — every seat of the run's teams in the scratch checkout (the session's, and a
+# caller's own, such as delivery-acceptance.bash's unlaunched peer) parked by one `agent-bus seat
+# remove`, which takes several seats of one team.
 gb_park_seats() {
-    if [[ -d "${GB_SEATS_DIR}/${TEAM_A}/${SEAT}" || -d "${GB_SEATS_DIR}/${TEAM_B}/${SEAT}" ]]; then
-        (cd -- "${GB_CHECKOUT}" && "${AGENT_BUS}" seat remove "${SEAT_LIST}") || return 1
-        printf '==> parked %s\n' "${SEAT_LIST}"
+    local team dir list=""
+    for team in "${GB_TEAMS[@]}"; do
+        for dir in "${GB_SEATS_DIR}/${team}"/*/; do
+            [[ -d "${dir}" ]] || continue
+            dir="${dir%/}"
+            list+="${list:+,}${dir##*/}@${team}"
+        done
+    done
+    if [[ -n "${list}" ]]; then
+        (cd -- "${GB_CHECKOUT}" && "${AGENT_BUS}" seat remove "${list}") || return 1
+        printf '==> parked %s\n' "${list}"
     fi
 }
 
