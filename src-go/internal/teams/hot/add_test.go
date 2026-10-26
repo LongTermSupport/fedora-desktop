@@ -31,6 +31,7 @@ func TestAddToAPlainSessionRelaunchesItOnce(t *testing.T) {
 		"✓ session: seat 3 held, applied (0.0 s)",
 		"✓ session: relaunched once to accept team messages (it started on no team): resumed, seat 3 held (0 s)",
 		"Done. The session is told it joined alpha as proj.3+local.podman.")
+	wantBlock(t, r.ErrOut.String(), "This session is on 1 team:", "alpha")
 	if got := r.recordArgs(t); !slices.Equal(got, []string{"--no-ssh", "--teams", "3@alpha"}) {
 		t.Fatalf("record %v", got)
 	}
@@ -46,6 +47,9 @@ func TestAddToASeatedSessionIsHotAndTheRerunChangesNothing(t *testing.T) {
 	}
 	wantLines(t, r.ErrOut.String(), "✓ record: --teams 1@beta,3@alpha",
 		"Done. The session is told it joined alpha as proj.3+local.podman. Nothing restarted.")
+	// Plan 00177 Task 11.2: a seat taken while the session runs gets the launch's block too,
+	// naming every team the session is now on.
+	wantBlock(t, r.ErrOut.String(), "This session is on 2 teams:", "beta", "alpha")
 	if strings.Contains(r.ErrOut.String(), "relaunch") {
 		t.Fatalf("a seated session is not relaunched:\n%s", r.ErrOut.String())
 	}
@@ -53,6 +57,9 @@ func TestAddToASeatedSessionIsHotAndTheRerunChangesNothing(t *testing.T) {
 		t.Fatalf("rerun exit %d:\n%s", code, r.ErrOut.String())
 	}
 	onlySkips(t, r.ErrOut.String())
+	if strings.Contains(r.ErrOut.String(), "This session is on") {
+		t.Fatalf("a rerun that changes nothing prints no block:\n%s", r.ErrOut.String())
+	}
 	wantLines(t, r.ErrOut.String(), "Nothing to do: "+session+" is already in alpha as seat 3.")
 	if r.desired(t).Generation != 2 {
 		t.Fatal("a rerun writes nothing")

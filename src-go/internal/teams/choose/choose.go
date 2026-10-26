@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
@@ -143,6 +144,18 @@ func (c *Choose) Describe(ctx context.Context, args []string) term.ExitCode {
 // taken, naming every team the session is on with its seat, the seat's role and what the team is
 // for. LIST is the canonical SEAT@TEAM list; anything else is a usage mistake.
 func (c *Choose) block(ctx context.Context, args []string) term.ExitCode {
+	return c.blockTo(ctx, c.Host.Stdout, args)
+}
+
+// Block writes the same block to w for the canonical SEAT@TEAM list of a session whose seats
+// changed while it runs (`ccy-teams session add` and `move`, Plan 00177 Task 11.2), so every route
+// that takes a seat names the session's teams, as the launch does.
+func Block(ctx context.Context, h *host.Host, kit *flow.Kit, w io.Writer, canonical string) term.ExitCode {
+	c := &Choose{Host: h, Bus: h.Bus, Gum: h.Gum, Kit: kit}
+	return c.blockTo(ctx, w, []string{canonical})
+}
+
+func (c *Choose) blockTo(ctx context.Context, w io.Writer, args []string) term.ExitCode {
 	seats, ok := c.seatItems("--block", args)
 	if !ok {
 		return term.ExitUsage
@@ -171,7 +184,7 @@ func (c *Choose) block(ctx context.Context, args []string) term.ExitCode {
 		which = "this team"
 	}
 	fmt.Fprintf(&b, "Any human listed in %s can direct this session as you can.\n", which)
-	c.Host.Print(c.Host.Stdout, b.String())
+	c.Host.Print(w, b.String())
 	return term.ExitOK
 }
 

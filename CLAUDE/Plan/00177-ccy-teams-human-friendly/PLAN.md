@@ -407,9 +407,21 @@ are too, by the same route.
   the independent search (a 4th, a test comment); all 4 fixed: Task 7.1 above, 00201
   ACCEPTANCE-owner step 5, `docs/agent-bus.md`, `chooser_test.go`. Host: step 5 re-read
   against the new text (with two teams on the machine, the list is shown).
-- [ ] ⬜ **Task 11.2**: Task 7.5's launch block ("This session is on 1 team:") is not printed when
+- [x] ✅ **Task 11.2**: Task 7.5's launch block ("This session is on 1 team:") is not printed when
   the seat is taken without `--teams`: `ccy_seats_take` (`lib/agent-bus-seats.bash:78`) prints
-  it only for a non-empty canonical list. Trace the route that took the seat.
+  it only for a non-empty canonical list. Traced every route that takes a seat. At launch
+  (`--teams`, plain `ccy` whose Quick Launch takes the saved seats, a restart or restore
+  replaying `--teams`) every route sets `CCY_SEATS` through `ccy_launch_teams` alone, and the
+  one `ccy_seats_take "$CCY_SEATS"` after them all prints the block; pinned in
+  `scripts/test-ccy-teams.bash` (the Quick Launch leaves the saved seats in `CCY_SEATS`; one
+  setter, one take after it). A plain launch takes no seat, so it has no block. The route that
+  printed none was Plan 00203's: `ccy-teams session add` or `move` on a running session that is
+  already on a team (no relaunch), ccy or cc. Both now print the block on the ccy-teams terminal
+  after the change (`choose.Block`, the code `describe-seats --block` runs); a first join still
+  relaunches and the relaunch prints it in the session's pane. Built test first
+  (`internal/teams/hot`). Host: `play-claude-yolo.yml` (new `ccy-teams`), then in tmux a plain
+  `ccy` with Quick Launch's saved team shows the block above Claude's screen; if it does not, the
+  pane is cleared after the launcher prints it (Claude Code's start), which this code cannot see.
 - [ ] ⬜ **Task 11.3**: `ccy-teams lxc-add` accepts `root` as the agent's user at the question;
   check Task 9.1's intent (a bad user is refused) and refuse it there if so.
 - [ ] ⬜ **Task 11.4**: `ccy-teams remove` leaves the team's `agent_bus_element_teams` entry and

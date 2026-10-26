@@ -79,7 +79,8 @@ that play.
    **A session can be on several teams:** the list is a multi-select (Tab marks several, Enter
    takes them or the highlighted one), each marked team gets its own seat question, headed
    with which team it is (`New session › Team 2 of 3: beta`), and the
-   launch prints which teams the session is on, with seat, role and what each is for; the status
+   launch prints which teams the session is on, with seat, role and what each is for (so does
+   `ccy-teams session add` or `move` on a running session, on its own terminal); the status
    line shows `👥 alpha: fedora-desktop.2 (w), beta: fedora-desktop.1 (c)`, each team in its own
    colour, in any checkout (see
    [A session's status line](#a-sessions-status-line)). With several teams, pingbus's send and say commands work out the

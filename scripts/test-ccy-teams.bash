@@ -661,6 +661,7 @@ quick() {
         . "$0" >"$QUICK_OUT"
         printf "%s|%s" "$TEAMS_LIST" "${CCY_ORIG_ARGS[*]}" >"$TEAMS_END"
         printf "%s" "${quick_kept_team:-}" >"$TEAMS_KEPT"
+        printf "%s" "$CCY_SEATS" >"$TEAMS_SEATS"
         printf "token=%s keys=%s no_ssh=%s net=%s no_net=%s" "$SPECIFIED_TOKEN" "${SSH_KEYS[*]}" \
             "$NO_SSH_MODE" "$SPECIFIED_NETWORK" "$NO_NETWORK_MODE"' "$work/quick.bash" "$headless" "$@" \
         2>"$work/quick.err")
@@ -672,6 +673,8 @@ export QUICK_OUT="$work/quick.out"
 export TEAMS_LOG="$work/teams-launched.log" TEAMS_END="$work/teams-end.txt" TEAMS_REC="$work/teams-recorded.log"
 # The saved team a launch on no team (--no-bus, --opencode) left alone, to be written back.
 export TEAMS_KEPT="$work/teams-kept.txt"
+# The seats the launch goes on to take (CCY_SEATS, which ccy_seats_take is given) after the block.
+export TEAMS_SEATS="$work/teams-seats.txt"
 # recorded_after <quick args...>: what the launch put into its session's record (ccy-teams
 # record-seats calls), or none.
 recorded_after() {
@@ -745,6 +748,12 @@ check "  several seats are kept together" "ran=dev1@team-a,qa2@team-b end=dev1@t
 save personal /keys/id_a proj_net dev1@team-a
 check "interactive, y typed: the team comes with it" \
     "ran=dev1@team-a end=dev1@team-a|--orig --teams dev1@team-a" "$(QUICK_ANSWER=y teams_after false)"
+# Plan 00177 Task 11.2: a plain ccy whose Quick Launch takes the saved seats leaves them in
+# CCY_SEATS in the launcher's own shell, which the one ccy_seats_take below is given, so the
+# launch block is printed as for --teams.
+save personal /keys/id_a proj_net dev1@team-a
+check "  the seats are the launch's own to take (CCY_SEATS)" "dev1@team-a" \
+    "$(QUICK_ANSWER=y quick false >/dev/null; cat "$TEAMS_SEATS")"
 save personal /keys/id_a proj_net dev1@team-a
 check "interactive, a bare Enter (the default yes): the team comes with it" \
     "ran=dev1@team-a end=dev1@team-a|--orig --teams dev1@team-a" "$(QUICK_ANSWER='' teams_after false)"
@@ -930,6 +939,13 @@ check "Quick Launch's summary names each seat with its role, through ccy-teams" 
     "$(grep -c -F 'ccy-teams describe-seats' "$LAUNCHER")"
 check "the flag and the Quick Launch team go through the one function (definition and two calls)" "3" \
     "$(grep -c -E '^ *ccy_launch_teams' "$LAUNCHER")"
+# Plan 00177 Task 11.2: every launch route that takes a seat (--teams, the Quick Launch's saved
+# seats, a restart or restore replaying --teams) ends in CCY_SEATS, set only by
+# ccy_launch_teams, and the one take after them all is given it, so each prints the block.
+check "CCY_SEATS is set in two places only: cleared, then by ccy_launch_teams's check" "2" \
+    "$(grep -c -E '^ *CCY_SEATS=' "$LAUNCHER")"
+check "  the seats are taken once, with CCY_SEATS, after the Quick Launch's ccy_launch_teams" "1 yes" \
+    "$(grep -c -E '^ccy_seats_take "[$]CCY_SEATS" ' "$LAUNCHER") $(awk '/^ +ccy_launch_teams$/ {q=NR} /^ccy_seats_take "[$]CCY_SEATS" / {t=NR} END {print (q && t > q) ? "yes" : "no"}' "$LAUNCHER")"
 check "the launcher's cleanup ignores SIGHUP and SIGINT first, tells what ended without a goodbye last, then puts them back (Plan 00194)" \
     "    trap '' HUP INT|    ccy_bus_disconnected|    trap - HUP INT" \
     "$(awk '/^cleanup\(\) \{$/ {p=1; next} p && /^\}$/ {exit} p && NF && !/^ *#/ {if (!first) first=$0; prev=last; last=$0} END {print first "|" prev "|" last}' "$LAUNCHER")"

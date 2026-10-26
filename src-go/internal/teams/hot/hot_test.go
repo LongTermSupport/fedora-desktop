@@ -410,6 +410,25 @@ func wantLines(t *testing.T, got string, want ...string) {
 	}
 }
 
+// wantBlock fails unless stderr has the launch block (describe-seats --block) after the outcome:
+// its first line, a seat line for each team, and the authority line.
+func wantBlock(t *testing.T, got, first string, teams ...string) {
+	t.Helper()
+	at := strings.Index(got, first+"\n")
+	if at < 0 {
+		t.Fatalf("stderr lacks the block %q:\n%s", first, got)
+	}
+	block := got[at:]
+	for _, team := range teams {
+		if !strings.Contains(block, "  "+team+" ") {
+			t.Errorf("the block names no seat of %s:\n%s", team, block)
+		}
+	}
+	if !strings.Contains(block, "can direct this session as you can.\n") {
+		t.Errorf("the block lacks its authority line:\n%s", block)
+	}
+}
+
 // onlySkips fails unless every step line is "-" (the checks of the session and the team aside).
 func onlySkips(t *testing.T, got string) {
 	t.Helper()

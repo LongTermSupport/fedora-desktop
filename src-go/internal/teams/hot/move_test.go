@@ -22,6 +22,9 @@ func TestMoveAddsToTheNewTeamThenRemovesFromTheOld(t *testing.T) {
 	}
 	wantLines(t, got, "✓ goodbye: proj.1+local.podman left the team: removed by the owner",
 		"Moved: "+session+" is in alpha, and no longer in beta.")
+	if at := strings.Index(got, "This session is on 1 team:"); at < strings.Index(got, "Moved: ") {
+		t.Fatalf("the block, after the move, names the one team left:\n%s", got)
+	}
 	if d := r.desired(t); !slices.Equal(d.Seats, []membership.Seat{{Team: "alpha", Seat: "3"}}) || len(d.Farewell) != 0 {
 		t.Fatalf("desired %+v", d)
 	}
