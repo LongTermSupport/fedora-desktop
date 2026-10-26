@@ -33,16 +33,6 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plan 00177 Phase 12: rebuilds ccy-teams (the session add/move block reads the session's
-# checkout; remove, restore and ccy-sessions' End discard keys typed before each question) and
-# ccy-sessions, and installs CCY 3.100.30, whose image (container 2.79.12) carries the admin.py
-# that no longer counts the homeserver's own admin room. Then the host checks of Task 12.4.
-playbooks/imports/play-claude-yolo.yml
-
-# Plan 00177 Task 12.2: rebuilds the host's agent-bus.pyz with the same admin.py, so a new team's
-# session add says nothing of the homeserver's own admin room. Asks for sudo.
-playbooks/imports/play-agent-bus.yml
-
 # Plan 00194 delivery host checks (Tasks 2.0c H1-H6, 2.0d, 2.0f), run as the desktop user; it
 # prompts for sudo once at the start. On two throwaway teams (accept194c, accept194d) and one
 # idle ccy session on both, the scripted test human `tester` posts as Element does: a mention
