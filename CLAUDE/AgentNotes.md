@@ -86,6 +86,14 @@ waiting for has finished, or work is blocked on them. **Do not spam:** no progre
 no routine updates; the chat remains the report. A container session has no desktop session
 bus, so this does not apply there.
 
+### Never look at the owner's desktop — no screenshots, no windows, unless asked
+
+**Standing rule from the owner:** no agent takes a screenshot of the owner's desktop, asks
+the screenshot portal or GNOME Shell for one, or opens windows on the owner's desktop for a
+check, unless the owner asked for it in that session. A check that needs the screen is the
+owner's, and the plan says so. **Why:** the portal puts a permission dialog on the screen
+the owner is working at, and a capture shows their screen; both interrupt their work.
+
 ### `meta-deploy.bash` is how host runs reach the owner — keep its list exact
 
 **Standing rule from the owner:** "META DEPLOY IS PERMANENTLY AND CONTINUOUSLY UPDATED TO
