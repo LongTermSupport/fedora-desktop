@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00227-ccy-sessions-cold-migrate-to-another-machine](00227-ccy-sessions-cold-migrate-to-another-machine/) - Not Started (owner Decisions 1-14 open). ccy sessions and whole agent teams moved cold to another laptop by Go send and receive verbs that refuse while any member runs, host members resumed by recorded id and LXC members by `ccy --continue`
+
 - [00226-cc-runs-under-the-hooks-daemon-supervisor](00226-cc-runs-under-the-hooks-daemon-supervisor/) - Not Started (owner Decisions 5-7 open). Host `cc` sessions run under the project's hooks-daemon supervisor as ccy's do, only in a checkout Claude Code already trusts. Addresses #113
 
 - [00223-ccy-one-confirm-relaunch](00223-ccy-one-confirm-relaunch/) - Not Started. One Quick Launch screen for ccy, accepted with one Enter, `ccy --teams` included: only the seat is rechecked, and a used-up token goes to the token chooser
