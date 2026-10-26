@@ -114,9 +114,10 @@ func (e *Engine) idle(ctx context.Context, due time.Duration) *memberReq {
 		timer, release = e.cfg.Clock.Hold(d)
 	}
 	defer release()
-	e.idles.Add(1)
+	e.settled.Store(e.taken)
 	select {
 	case <-e.kick:
+		e.taken = e.pokes.Load()
 	case req := <-e.members:
 		return &req
 	case <-timer:
