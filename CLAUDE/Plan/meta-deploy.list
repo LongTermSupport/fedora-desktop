@@ -33,16 +33,9 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# One changed-plays run covers two merges.
-# Plan 00177 Task 10.4, an Esc typed just before another key is no longer lost: expected to pick
-# up play-tmux-sessions.yml (escape-time 10 in /etc/tmux.conf; tmux servers already running keep
-# the old value until restarted), play-claude-yolo.yml (CCY 3.100.26: ccy-teams, ccy-sessions
-# and the tmux session picker leave on Esc then a key), play-basic-configs.yml (the Ctrl-R
-# history search), play-podfreeze.yml and play-lxcfreeze.yml (podfreeze and lxcfreeze share the
-# ui fzf screens). fzf's word editing (Esc then b, f, d or Backspace) keeps its meaning.
-# Plan 00201 Task 2.26 (assignment-masks-substitution-failure fixes): expected to pick up
-# play-claude-yolo.yml (lib/network-management.bash, released in the same CCY 3.100.25),
-# play-basic-configs.yml (ssh-keys-rekey), play-github-cli-multi.yml (git-which-account and
-# clone-<alias> in the shell functions it writes) and play-vm-test-lab.yml (a guest acceptance
-# checker), each only where it has run on this machine before.
-changed-plays
+# Plan 00177 Task 10.4: podfreeze leaves its fzf screens on Esc then a key (the ui screens it
+# shares now bind the Esc-joined keys). Named by hand: the changed-plays run did not count this
+# play as stale, though the Go it builds changed.
+playbooks/imports/optional/common/play-podfreeze.yml
+# Plan 00177 Task 10.4: the same for lxcfreeze.
+playbooks/imports/optional/common/play-lxcfreeze.yml
