@@ -27,6 +27,16 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.100.26 — container 2.79.9
+
+Follows 3.100.25 (container 2.79.9). The image does not change.
+
+- **fzf's word editing works again in the ccy fzf screens.** 3.100.24 bound every key fzf
+  reads an Esc and the next key as to abort, which took fzf's Alt-B, Alt-F, Alt-D and
+  Alt-Backspace (move and delete by word) and threw the typed filter away. Those four keep
+  their meaning; only an Esc typed within fzf's 100 ms wait before b, f, d or Backspace is
+  still lost.
+
 ## 3.100.25 — container 2.79.9
 
 Follows 3.100.24 (container 2.79.9). The image does not change. It joins the two lines of

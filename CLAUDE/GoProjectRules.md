@@ -575,8 +575,11 @@ Checkout step) took the typed path after a joined Esc instead of cancelling.
 
 **What it flags.** In Go (test files are not judged): an `execx.Cmd` literal running fzf (a
 constant `Name` whose base name is `fzf` or `fzf-tmux`) whose `Args` do not hold, as `--bind=`
-constants, a binding of every key of `fzfbind.EscJoined` (Alt with an arrow, Enter, Space,
-Backspace, a letter or a digit, and Ctrl+Alt with a letter: 69 keys) to `abort` alone; a Cmd
+constants, a binding of every key of `fzfbind.EscJoined` (Alt with an arrow, Enter, Space, a
+letter or a digit, and Ctrl+Alt with a letter, less fzf's word editing: 65 keys) to `abort`
+alone; the same literal binding any of fzf's word editing keys (`fzfbind.WordEditing`:
+`alt-b`, `alt-f`, `alt-d`, `alt-bs`, fzf's default backward-word, forward-word, kill-word and
+backward-kill-word) to `abort`, which would throw away the query being typed; a Cmd
 whose `Name` is set to fzf field by field; and a Bubble Tea `key.NewBinding` of `"esc"` in a
 package that never calls `esckey.Joined` (`internal/ui/esckey`). In shell, the gate
 `qa-hidden-bindings` judges every command that runs fzf (behind `command`, `exec`, `nohup` or
@@ -608,7 +611,11 @@ shell, give the fzf call the same bindings as literal `--bind` words.
   flags those), the bindings as a separate `--bind` and spec pair in Go, `FZF_DEFAULT_OPTS`, a
   package that calls `esckey.Joined` on some other path than its Esc binding, Esc then a
   punctuation key or a shifted letter (`alt-/`, `alt-A`), and gum, whose prompts take no
-  bindings. Flagged though hazard-free: shell bindings spread in from an array, which the rule
+  bindings. Left out on purpose: Esc then b, f, d or Backspace inside fzf's wait is still read
+  as fzf's word editing and the Esc is lost; keeping the query a person is editing (Ctrl-R
+  history, every `ui` filter) is worth more than that narrow case, and the arrows stay covered.
+  The fixtures hold it: `AbortsWordEditing` in `fzf.go` and `edits` in `esc-joined.bash`
+  flagged, `alt-b:backward-word` clean. Flagged though hazard-free: shell bindings spread in from an array, which the rule
   cannot read.
 
 **The next wider rule, not built:** every key reader a screen uses (gum, Textual, a raw `read`)

@@ -38,8 +38,10 @@ Flagged in Go (test files are not judged):
 
   - an execx.Cmd literal running fzf (Name a constant whose base name is fzf or fzf-tmux) whose
     Args do not hold, as "--bind=..." constants, a binding of every Esc-joined key
-    (fzfbind.EscJoined: the arrows, Enter, Space, Backspace, every letter, Ctrl+letter and digit
-    with Alt) to abort alone; the message names the first keys missing. An fzf given an
+    (fzfbind.EscJoined: the arrows, Enter, Space, every letter, Ctrl+letter and digit with Alt,
+    less fzf's word editing) to abort alone; the message names the first keys missing. The
+    same literal binding a word editing key (fzfbind.WordEditing: alt-b, alt-f, alt-d, alt-bs)
+    to abort is flagged too: it throws the typed query away. An fzf given an
     option that draws no screen (fzfbind.DrawsNoScreen: --version, --help, --filter, a shell's
     integration script) reads no key and is not judged;
   - an execx.Cmd whose Name is set to fzf field by field, where its Args cannot be read;
@@ -114,12 +116,14 @@ func judgeFzfLiteral(pass *analysis.Pass, lit *ast.CompositeLit) {
 			specs = append(specs, spec)
 		}
 	}
-	missing := fzfbind.NotLeaving(specs)
-	if len(missing) == 0 {
-		return
+	if missing := fzfbind.NotLeaving(specs); len(missing) > 0 {
+		pass.Reportf(lit.Pos(), "fzf started without the Esc-joined bindings: %s not bound to abort, so an Esc typed just before them is lost; add ui's fzfEscJoined to Args",
+			firstKeys(missing))
 	}
-	pass.Reportf(lit.Pos(), "fzf started without the Esc-joined bindings: %s not bound to abort, so an Esc typed just before them is lost; add ui's fzfEscJoined to Args",
-		firstKeys(missing))
+	if aborted := fzfbind.AbortsWordEditing(specs); len(aborted) > 0 {
+		pass.Reportf(lit.Pos(), "fzf word editing bound to abort: %s, so the query typed is thrown away; leave alt-b, alt-f, alt-d and alt-bs to fzf",
+			firstKeys(aborted))
+	}
 }
 
 // shownKeys is how many missing keys a message names.

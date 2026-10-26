@@ -21,7 +21,8 @@ var lookups = map[string]bool{"-v": true, "-V": true}
 
 // ShellEscFindings judges one shell file for project_esc_joined: every command that runs fzf
 // must bind, in its own literal --bind words, every key fzf reads an Esc and the next key as
-// (fzfbind.EscJoined) to abort, unless an option makes it read no key (fzfbind.DrawsNoScreen:
+// (fzfbind.EscJoined) to abort, and none of fzf's word editing keys (fzfbind.WordEditing),
+// unless an option makes it read no key (fzfbind.DrawsNoScreen:
 // --version, --filter, ...). Bindings spread in from an array or a variable cannot be read,
 // so they do not count. A file that does not parse is an error, never clean.
 func ShellEscFindings(src []byte, name string) ([]Finding, error) {
@@ -42,12 +43,20 @@ func ShellEscFindings(src []byte, name string) ([]Finding, error) {
 		if slices.ContainsFunc(call.Args[at+1:], func(w *syntax.Word) bool { return fzfbind.DrawsNoScreen(readWord(w).head) }) {
 			return true
 		}
-		missing := fzfbind.NotLeaving(literalBinds(call.Args[at+1:]))
-		if len(missing) > 0 {
+		specs := literalBinds(call.Args[at+1:])
+		line := int(call.Args[at].Pos().Line())
+		if missing := fzfbind.NotLeaving(specs); len(missing) > 0 {
 			found = append(found, Finding{
-				Path: name, Line: int(call.Args[at].Pos().Line()),
+				Path: name, Line: line,
 				Message: fmt.Sprintf("fzf without the Esc-joined bindings: %s not bound to abort, so an Esc typed just before them is lost; bind every one to abort [%s]",
 					strings.Join(missing[:min(len(missing), 3)], ", "), EscRule),
+			})
+		}
+		if aborted := fzfbind.AbortsWordEditing(specs); len(aborted) > 0 {
+			found = append(found, Finding{
+				Path: name, Line: line,
+				Message: fmt.Sprintf("fzf word editing bound to abort: %s, so the query typed is thrown away; leave alt-b, alt-f, alt-d and alt-bs to fzf [%s]",
+					strings.Join(aborted, ", "), EscRule),
 			})
 		}
 		return true

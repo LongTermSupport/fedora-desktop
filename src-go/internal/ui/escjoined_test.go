@@ -18,17 +18,21 @@ import (
 // thought they had left, and their next keys acted on it (Plan 00177, the host agent's finding:
 // Down within about 50 ms of Esc, or both in one tmux send-keys).
 
+// wordKeys are fzf's default word editing keys (backward-word, forward-word, kill-word,
+// backward-kill-word). They keep that meaning: bound to abort they would throw away the query.
+var wordKeys = []string{"alt-b", "alt-f", "alt-d", "alt-bs"}
+
 // joinedKeys are the keys fzf hands over for an Esc and the key after it: the arrows, Enter,
-// Space and Backspace, every letter and digit, and every Ctrl+letter.
+// Space, every letter and digit, and every Ctrl+letter, less wordKeys.
 func joinedKeys() []string {
-	keys := []string{"alt-up", "alt-down", "alt-left", "alt-right", "alt-enter", "alt-space", "alt-bs"}
+	keys := []string{"alt-up", "alt-down", "alt-left", "alt-right", "alt-enter", "alt-space"}
 	for c := 'a'; c <= 'z'; c++ {
 		keys = append(keys, "alt-"+string(c), "ctrl-alt-"+string(c))
 	}
 	for c := '0'; c <= '9'; c++ {
 		keys = append(keys, "alt-"+string(c))
 	}
-	return keys
+	return slices.DeleteFunc(keys, func(k string) bool { return slices.Contains(wordKeys, k) })
 }
 
 // boundTo is what each key is bound to in fzf's --bind arguments: "key:action" pairs, comma
@@ -68,6 +72,11 @@ func leavesOnEveryJoinedKey(t *testing.T, screen string, args []string) {
 	for _, k := range joinedKeys() {
 		if bound[k] != "abort" && !slices.Contains(exp, k) {
 			t.Errorf("%s: %s (an Esc joined to the next key) is bound to %q, not abort: the Esc is lost", screen, k, bound[k])
+		}
+	}
+	for _, k := range wordKeys {
+		if bound[k] == "abort" {
+			t.Errorf("%s: %s is fzf's word editing, bound to abort: the typed query is thrown away", screen, k)
 		}
 	}
 }

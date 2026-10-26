@@ -8,13 +8,38 @@ import (
 
 func TestEscJoinedIsTheKeysAnEscAndTheNextKeyBecome(t *testing.T) {
 	keys := EscJoined()
-	if len(keys) != 69 {
-		t.Fatalf("%d keys, want 69: the arrows, Enter, Space, Backspace, a-z, Ctrl+a-z, 0-9", len(keys))
+	if len(keys) != 65 {
+		t.Fatalf("%d keys, want 65: the arrows, Enter, Space, a-z, Ctrl+a-z, 0-9, less b, f, d", len(keys))
 	}
-	for _, k := range []string{"alt-down", "alt-up", "alt-enter", "alt-q", "ctrl-alt-m", "ctrl-alt-r", "alt-0"} {
+	for _, k := range []string{"alt-down", "alt-up", "alt-enter", "alt-q", "ctrl-alt-m", "ctrl-alt-r", "ctrl-alt-b", "alt-0"} {
 		if !slices.Contains(keys, k) {
 			t.Errorf("%s is missing", k)
 		}
+	}
+	for _, k := range WordEditing() {
+		if slices.Contains(keys, k) {
+			t.Errorf("%s edits fzf's query by word: it must not be required to abort", k)
+		}
+	}
+}
+
+// fzf's word editing keys keep their meaning: bound to abort they lose the typed query.
+func TestAbortsWordEditingIsTheWordKeysBoundToAbort(t *testing.T) {
+	if !slices.Equal(WordEditing(), []string{"alt-b", "alt-f", "alt-d", "alt-bs"}) {
+		t.Fatalf("word editing keys %v", WordEditing())
+	}
+	if got := AbortsWordEditing([]string{"alt-b:abort,alt-f:forward-word", "alt-bs:abort", "alt-d:abort+clear-query"}); !slices.Equal(got, []string{"alt-b", "alt-bs"}) {
+		t.Fatalf("alt-b and alt-bs bound to abort: got %v", got)
+	}
+	if got := AbortsWordEditing([]string{"alt-b:abort", "alt-b:backward-word"}); len(got) != 0 {
+		t.Fatalf("a later binding replaces abort: got %v", got)
+	}
+	all := make([]string, 0, len(EscJoined()))
+	for _, k := range EscJoined() {
+		all = append(all, k+":abort")
+	}
+	if got := AbortsWordEditing([]string{strings.Join(all, ",")}); len(got) != 0 {
+		t.Fatalf("the Esc-joined bindings abort no word key: got %v", got)
 	}
 }
 

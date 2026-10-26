@@ -59,6 +59,30 @@ func TestShellFzfMustLeaveOnEveryEscJoinedKey(t *testing.T) {
 	}
 }
 
+// fzf's word editing keys bound to abort throw the typed query away: each such fzf is reported.
+func TestShellFzfMustKeepWordEditing(t *testing.T) {
+	all := joinedBind()
+	src := `fzf ` + all + ` --bind='alt-b:abort'
+fzf ` + all + ` --bind='alt-b:backward-word,alt-f:forward-word'
+fzf ` + all + ` --bind='alt-f:abort,alt-d:abort,alt-bs:abort'
+`
+	found, err := ShellEscFindings([]byte(src), "x.bash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found) != 2 || found[0].Line != 1 || found[1].Line != 3 {
+		t.Fatalf("want lines 1 and 3, got %+v", found)
+	}
+	if !strings.Contains(found[1].Message, "alt-f, alt-d, alt-bs") || !strings.Contains(found[1].Message, "word editing") {
+		t.Errorf("message %q names the word keys", found[1].Message)
+	}
+	for _, k := range fzfbind.WordEditing() {
+		if strings.Contains(all, "'"+k+":") || strings.Contains(all, ","+k+":") {
+			t.Errorf("the Esc-joined bindings bind %s, a word editing key", k)
+		}
+	}
+}
+
 func TestShellEscUnparseableIsAnError(t *testing.T) {
 	if _, err := ShellEscFindings([]byte("fzf (\n"), "x.bash"); err == nil {
 		t.Fatal("want a parse error")

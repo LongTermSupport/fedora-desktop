@@ -24,9 +24,11 @@ const pickerColours = "16,fg:-1,bg:-1,fg+:-1:bold,bg+:-1,hl:3,hl+:3:bold,gutter:
 // the pane both keys in one write, so Esc then Down arrives as alt-down, Esc then Enter as
 // alt-enter (ctrl-alt-m in fzf 0.38). Unbound, those keys did nothing and the Esc was lost: the
 // person stayed on a screen they meant to leave (project_esc_joined). Every fzf screen gets it.
+// alt-b, alt-f, alt-d and alt-bs keep fzf's word editing, so an Esc just before b, f, d or
+// Backspace is still lost, and a query is never thrown away mid-edit.
 const fzfEscJoined = "--bind=" +
-	"alt-up:abort,alt-down:abort,alt-left:abort,alt-right:abort,alt-enter:abort,alt-space:abort,alt-bs:abort," +
-	"alt-a:abort,alt-b:abort,alt-c:abort,alt-d:abort,alt-e:abort,alt-f:abort,alt-g:abort,alt-h:abort,alt-i:abort,alt-j:abort,alt-k:abort,alt-l:abort,alt-m:abort," +
+	"alt-up:abort,alt-down:abort,alt-left:abort,alt-right:abort,alt-enter:abort,alt-space:abort," +
+	"alt-a:abort,alt-c:abort,alt-e:abort,alt-g:abort,alt-h:abort,alt-i:abort,alt-j:abort,alt-k:abort,alt-l:abort,alt-m:abort," +
 	"alt-n:abort,alt-o:abort,alt-p:abort,alt-q:abort,alt-r:abort,alt-s:abort,alt-t:abort,alt-u:abort,alt-v:abort,alt-w:abort,alt-x:abort,alt-y:abort,alt-z:abort," +
 	"ctrl-alt-a:abort,ctrl-alt-b:abort,ctrl-alt-c:abort,ctrl-alt-d:abort,ctrl-alt-e:abort,ctrl-alt-f:abort,ctrl-alt-g:abort,ctrl-alt-h:abort,ctrl-alt-i:abort,ctrl-alt-j:abort,ctrl-alt-k:abort,ctrl-alt-l:abort,ctrl-alt-m:abort," +
 	"ctrl-alt-n:abort,ctrl-alt-o:abort,ctrl-alt-p:abort,ctrl-alt-q:abort,ctrl-alt-r:abort,ctrl-alt-s:abort,ctrl-alt-t:abort,ctrl-alt-u:abort,ctrl-alt-v:abort,ctrl-alt-w:abort,ctrl-alt-x:abort,ctrl-alt-y:abort,ctrl-alt-z:abort," +

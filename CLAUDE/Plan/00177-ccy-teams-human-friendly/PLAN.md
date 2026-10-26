@@ -348,6 +348,12 @@ are too, by the same route.
   - [x] ✅ **Task 10.4.4**: The Defence Before Fix conformance review conformed: red at the
     rule commit with exactly the 5 findings, green at the fix, no false positives. Its one note:
     `files/etc/tmux.conf` is not covered by `qa-changed`.
+  - [x] ✅ **Task 10.4.6**: fzf's word editing kept (qa-reviewer finding, coordinator
+    decision): `alt-b`, `alt-f`, `alt-d` and `alt-bs` are no longer bound to abort, so Ctrl-R
+    and the `ui` filters keep a query being edited by word; the rule requires the other 65 keys
+    (`fzfbind.EscJoined`, less `fzfbind.WordEditing`) and flags a word key bound to abort. Only
+    Esc then b, f, d or Backspace within fzf's wait is still lost; the arrows stay covered.
+    The freeze golden argv re-pinned under bug 28.
   - [ ] ⬜ **Task 10.4.5**: Host re-check after the deploy and a tmux server restart: Esc and
     Down in one `tmux send-keys` close a ccy-teams row menu and move the list cursor; Esc then a
     key leaves `ccy_tmux_pick` and Ctrl-R; `tmux show -s escape-time` says 10.

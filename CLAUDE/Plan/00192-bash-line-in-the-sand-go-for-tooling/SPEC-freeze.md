@@ -752,7 +752,8 @@ reason); K = kept for parity; the owner's decision, if any, is in section 15.
     fzf reads an Esc and the next key inside its 100 ms wait (or in one write from tmux) as that
     key with Alt, which neither screen binds, so the menu stays open. Every `ui` fzf screen now
     binds each such key (`alt-down`, `alt-enter`, `ctrl-alt-r`, ...) to abort, as Esc does
-    (`project_esc_joined`, CLAUDE/GoProjectRules.md).
+    (`project_esc_joined`, CLAUDE/GoProjectRules.md), except fzf's word editing (`alt-b`,
+    `alt-f`, `alt-d`, `alt-bs`), which keeps its meaning.
 
 ---
 
