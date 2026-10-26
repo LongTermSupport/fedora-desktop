@@ -250,14 +250,14 @@ m6_up() {
 # The pane's shell runs it as a child, never exec'd, so tmux keeps the pane (_acceptance-m2).
 m6_launch() {
     local name="$1" seats="$2" command
-    local -a record=(--bus) env=("M6_STANDIN_DIR=${M6_STANDIN_DIR}" "M6_STANDIN_PID=$(m6_ev "${name}.claude.pid")"
-        "M6_SETTINGS_COPY=$(m6_ev "${name}.settings.json")" "M6_HOME_FILE=$(m6_ev "${name}.home")")
+    local -a record=(--bus) env=("M6_STANDIN_DIR=${M6_STANDIN_DIR}" "M6_STANDIN_PID=${M6_EV}/${name}.claude.pid"
+        "M6_SETTINGS_COPY=${M6_EV}/${name}.settings.json" "M6_HOME_FILE=${M6_EV}/${name}.home")
     [[ -z "${seats}" ]] || record=(--teams "${seats}")
     [[ -z "${3:-}" ]] || env+=("M6_DETACH=$(m6_ev "${name}.detached.pid")")
     [[ " ${M6_NAMES[*]} " == *" ${name} "* ]] || M6_NAMES+=("${name}")
     m6_record "${name}" "${record[@]}" || return 1
     command="$(printf '%q ' env "${env[@]}" bash "${M6_DRIVER}" "${seats}")" || return 1
-    command+=">$(printf '%q' "$(m6_ev "${name}.out")") 2>$(printf '%q' "$(m6_ev "${name}.err")")"
+    command+="$(printf '>%q 2>%q' "${M6_EV}/${name}.out" "${M6_EV}/${name}.err")" || return 1
     command+="; echo \"\$?\" >$(printf '%q' "$(m6_ev "${name}.status")")"
     tmux -L ccy new-session -d -s "${name}" -c "${PLAN_REPO_ROOT}" "${command}" || return 1
     m4_poll "${M6_UP_S}" "the seat keeper of ${name}" m6_up "${name}"

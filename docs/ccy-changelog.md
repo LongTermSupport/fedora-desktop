@@ -27,6 +27,17 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.100.19 — container 2.79.9
+
+Follows 3.100.18 (container 2.79.9). The image does not change.
+
+- **The compose project name defaults to the directory's own name without running
+  `basename`** (`lib/network-management.bash`, `check_and_start_compose_services` and
+  `offer_compose_start`): `${PWD##*/}` replaces `$(basename "$PWD")`, whose failure a `local`
+  declaration hid (Plan 00201 Task 2.26, rule
+  [assignment-masks-substitution-failure](../CLAUDE/QA.md#assignment-masks-substitution-failure)).
+  The name is the same in every directory but `/`.
+
 ## 3.100.18 — container 2.79.9
 
 Follows 3.100.17 (container 2.79.9). The image does not change.

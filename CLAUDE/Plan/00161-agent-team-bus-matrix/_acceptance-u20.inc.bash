@@ -1229,7 +1229,7 @@ u20_named_launch() {
     # SIGHUP before ccy writes a byte.
     command="$(printf '%q ' "${CCY_LAUNCHER}" --headless --no-restore --no-supervise --teams "accb@${TEAM}" \
         --prompt "${U20_PROMPT}" -- --input-format stream-json --output-format stream-json --verbose --model "${U20_MODEL}")" || return 1
-    command+="<$(printf '%q' "${ev}/stdin.fifo") >$(printf '%q' "${ev}/session.out") 2>$(printf '%q' "${ev}/session.err")"
+    command+="$(printf '<%q >%q 2>%q' "${ev}/stdin.fifo" "${ev}/session.out" "${ev}/session.err")" || return 1
     command+="; echo \"\$?\" >$(printf '%q' "${ev}/session.status")"
     tmux -L ccy new-session -d -s "${U20_NAMED}" -c "${PLAN_REPO_ROOT}" "${command}" || return 1
     U20_SEAT_OF[named]=accb

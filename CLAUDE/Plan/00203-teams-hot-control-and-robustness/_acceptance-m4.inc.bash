@@ -207,7 +207,7 @@ m4_launch() {
     command="$(printf '%q ' env "CCY_TEAMS_HOST_VARS=${M4_HOST_VARS}" "${M2_LAUNCHER}" --headless --no-restore \
         --no-supervise --teams "${seat}@${M4_TEAM_A}" --prompt "Plan 00203 M4 acceptance" -- --input-format stream-json \
         --output-format stream-json --verbose --model haiku)" || return 1
-    command+="<$(printf '%q' "${fifo}") >$(printf '%q' "$(m4_ev "${name}.out")") 2>$(printf '%q' "$(m4_ev "${name}.err")")"
+    command+="$(printf '<%q >%q 2>%q' "${fifo}" "${M4_EV}/${name}.out" "${M4_EV}/${name}.err")" || return 1
     command+="; echo \"\$?\" >$(printf '%q' "$(m4_ev "${name}.status")")"
     tmux -L ccy new-session -d -s "${name}" -c "${PLAN_REPO_ROOT}" "${command}" || return 1
     m2_container_up "${name}" || return 1

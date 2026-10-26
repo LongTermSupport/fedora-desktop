@@ -1171,7 +1171,7 @@
 
                   # Set the remote to use the specific SSH key
                   if [[ -n "$repo_path" ]]; then
-                      local dir_name=$(basename "$repo_path")
+                      local dir_name="${repo_path##*/}"
                       if [[ -d "$dir_name" ]]; then
                           cd "$dir_name"
                           git remote set-url origin "git@github.com-{{ alias }}:${repo_path}.git"
@@ -1459,9 +1459,10 @@
                   local exit_code=$?
 
                   if [[ $exit_code -eq 0 ]]; then
-                      local username=$(git-account-helper info "$repo_path" 2>/dev/null | jq -r '.username')
-                      local email=$(git-account-helper info "$repo_path" 2>/dev/null | jq -r '.email')
-                      local ssh_key=$(git-account-helper info "$repo_path" 2>/dev/null | jq -r '.ssh_key')
+                      local username email ssh_key
+                      username=$(git-account-helper info "$repo_path" 2>/dev/null | jq -r '.username')
+                      email=$(git-account-helper info "$repo_path" 2>/dev/null | jq -r '.email')
+                      ssh_key=$(git-account-helper info "$repo_path" 2>/dev/null | jq -r '.ssh_key')
 
                       echo "Detected Account: $detected_alias"
                       echo "GitHub Username:  $username"

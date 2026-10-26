@@ -880,7 +880,7 @@ has_compose_files() {
 #       $2 = project_name (optional, defaults to basename of PWD)
 # Returns: 0 if services are running (or were started), 1 if user declined or no compose
 check_and_start_compose_services() {
-    local network_name="$1" project_name="${2:-$(basename "$PWD")}"
+    local network_name="$1" project_name="${2:-${PWD##*/}}"
 
     # Check if network has running containers
     if network_has_running_containers "$network_name"; then
@@ -1213,7 +1213,7 @@ _compose_already_running() {
 # Sets: COMPOSE_NETWORK (the network created/found after starting compose)
 # Returns: 0 if compose started and network found, 1 otherwise
 offer_compose_start() {
-    local expected_network="${1:-}" project_name="${2:-$(basename "$PWD")}"
+    local expected_network="${1:-}" project_name="${2:-${PWD##*/}}"
 
     # Reset output variable
     COMPOSE_NETWORK=""

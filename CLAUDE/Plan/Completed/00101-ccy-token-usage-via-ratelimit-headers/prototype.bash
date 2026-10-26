@@ -248,7 +248,7 @@ fmt_reset() {
 # prototype is to see the finished product, not a header dump.
 render_menu_line() {
     local hdr_file="$1"
-    local u5 u7 r5 r7 now line=""
+    local u5 u7 r5 r7 now pct reset line=""
     now="$(date +%s)"
     u5="$(header_value "$hdr_file" 'anthropic-ratelimit-unified-5h-utilization')"
     u7="$(header_value "$hdr_file" 'anthropic-ratelimit-unified-7d-utilization')"
@@ -256,11 +256,15 @@ render_menu_line() {
     r7="$(header_value "$hdr_file" 'anthropic-ratelimit-unified-7d-reset')"
 
     if [ -n "$u5" ]; then
-        line="5h $(printf '%.0f' "$u5")%$(fmt_reset "$r5" "$now")"
+        pct="$(printf '%.0f' "$u5")"
+        reset="$(fmt_reset "$r5" "$now")"
+        line="5h ${pct}%${reset}"
     fi
     if [ -n "$u7" ]; then
         if [ -n "$line" ]; then line="$line · "; fi
-        line="${line}wk $(printf '%.0f' "$u7")%$(fmt_reset "$r7" "$now")"
+        pct="$(printf '%.0f' "$u7")"
+        reset="$(fmt_reset "$r7" "$now")"
+        line="${line}wk ${pct}%${reset}"
     fi
 
     if [ -z "$line" ]; then

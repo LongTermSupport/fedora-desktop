@@ -264,7 +264,9 @@ fi
 # ── 12. no secret bytes left on disk where the run worked ─────────────────────────────
 # $HOME and /tmp are where run.bash wrote its transient files. The needles file this script
 # was handed is already unlinked, so it cannot match itself.
-disk_hits=$(($(needle_hits "${HOME}") + $(needle_hits /tmp)))
+home_hits=$(needle_hits "${HOME}")
+tmp_hits=$(needle_hits /tmp)
+disk_hits=$((home_hits + tmp_hits))
 if [[ "${disk_hits}" -eq 0 ]]; then
     check pass no-secret-bytes-on-disk
 else

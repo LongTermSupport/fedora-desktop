@@ -403,7 +403,7 @@ PYEOF
     echo
     info "Pushing localhost.yml to github.com/${config_repo}..."
     local commit_msg
-    commit_msg="Update localhost.yml from $(hostname) on $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    commit_msg="Update localhost.yml from ${HOSTNAME} on $(date -u +%Y-%m-%dT%H:%M:%SZ)"
     push_api_file "$LOCALHOST_YML" "localhost.yml" "$commit_msg"
 
     echo
@@ -552,7 +552,7 @@ push_projects() {
     echo
     info "Pushing projects.manifest to github.com/${config_repo}..."
     local commit_msg
-    commit_msg="Update projects.manifest from $(hostname) on $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    commit_msg="Update projects.manifest from ${HOSTNAME} on $(date -u +%Y-%m-%dT%H:%M:%SZ)"
     push_api_file "$tmp_manifest" "projects.manifest" "$commit_msg"
     rm -f "$tmp_manifest"
 

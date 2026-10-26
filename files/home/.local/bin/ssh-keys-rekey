@@ -271,7 +271,7 @@ echo "Backing up keys to $BACKUP_DIR" >&2
 declare -a BACKUPS=()
 i=0
 for f in "${KEYS[@]}"; do
-    b="${BACKUP_DIR}/$(printf '%03d' "$i")-$(basename "$f")"
+    printf -v b '%s/%03d-%s' "$BACKUP_DIR" "$i" "${f##*/}"
     cp -p "$f" "$b"
     chmod 600 "$b"
     BACKUPS[i]="$b"

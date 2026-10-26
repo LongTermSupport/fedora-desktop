@@ -243,8 +243,10 @@ count_shells() {
     if [[ -e "${HISTORY_FILE}" ]]; then
         # A shell that started before the file's last write and is still alive holds every
         # command typed since in memory only — unless something appends per prompt.
-        local file_age
-        file_age=$(($(date +%s) - $(stat -c %Y "${HISTORY_FILE}")))
+        local file_age now_s written_s
+        now_s=$(date +%s)
+        written_s=$(stat -c %Y "${HISTORY_FILE}")
+        file_age=$((now_s - written_s))
         echo "seconds since ${HISTORY_FILE} was last written: ${file_age}"
         echo "live bash processes started before that write: $(ps -u "$(id -u)" -o comm=,etimes= |
             awk -v age="${file_age}" '$1 == "bash" && $2 > age { c++ } END { print c + 0 }')"

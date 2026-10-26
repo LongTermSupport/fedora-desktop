@@ -559,7 +559,8 @@ SSH_AGENT_PROBE_OUTPUT="$(agent_line "$K_ALPHA")"
 if ssh_agent_holds_key "$K_ALPHA"; then pass "a key whose fingerprint the agent lists is held"; else fail "listed key not held"; fi
 if ! ssh_agent_holds_key "$K_BETA"; then pass "a key the agent does not list is not held"; else fail "unlisted key reported held"; fi
 
-SSH_AGENT_PROBE_OUTPUT="$(agent_line "$K_BETA")"$'\n'"$(agent_line "$K_ALPHA")"
+SSH_AGENT_PROBE_OUTPUT="$(agent_line "$K_BETA")"
+SSH_AGENT_PROBE_OUTPUT+=$'\n'"$(agent_line "$K_ALPHA")"
 if ssh_agent_holds_key "$K_ALPHA" && ssh_agent_holds_key "$K_BETA" && ! ssh_agent_holds_key "$K_GAMMA"; then
     pass "several agent identities: each listed key is held, the unlisted one is not"
 else
