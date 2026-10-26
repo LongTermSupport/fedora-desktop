@@ -1,6 +1,6 @@
 # Plan 00228: consumer install without GitHub
 
-**Status**: Not Started (owner Decisions 1-10 open; each has a default)
+**Status**: In Progress (Phases 1, 2 and 4 built; VM acceptance and review open)
 **Created**: 2026-10-26
 **Owner**: joseph
 **Priority**: Medium
@@ -115,64 +115,50 @@ own package updates continue through GNOME Software as usual.
 
 - [x] ✅ **Task 1.1**: Owner answers Decisions 1-10, or accepts the defaults; record the
   answers in this plan. (The owner's instruction is recorded at the top of Technical Decisions.)
-- [ ] ⬜ **Task 1.2**: Read every optional play and confirm or correct the research doc's
-  section 4 first pass; record the final class for each.
-  - Acceptance: every play under `playbooks/imports/` has one class, with a one-line reason.
-- [x] ✅ **Task 1.2 (as built)**: every play classified: `play-golang.yml` is `all` because
+- [x] ✅ **Task 1.2**: every play classified: `play-golang.yml` is `all` because
   shared plays import it to build their Go helpers; Slack (`play-comms.yml`), ftp-camera,
   laptop thermal diagnostics, the dev diagnostics play and every experimental play are
   `developer`. The consumer optional set is the research doc's list.
-- [x] ✅ **Task 1.3 / 1.4 / 1.5 (as built)**: `install_audience` default in group_vars;
+- [x] ✅ **Task 1.3 / 1.4 / 1.5**: `install_audience` default in group_vars;
   `vars.audience` in every play; a one-task guard (`meta: end_play`) in every developer play
   instead of a shared task file; the preflight assert; NOPASSWD sudo removed for consumers;
   the gate is Check 4b of `qa-ansible` (`src-go/qa/ansible/audience.go`), red and green in its
   tests. Linger and developer-only GNOME extensions are not gated yet (Task 6.2).
-- [ ] ⬜ **Task 1.3**: Add `install_audience` (default `developer`) to
-  `environment/localhost/group_vars/desktop.yml`, and an `audience` guard task file under
-  `tasks/` that asserts the value is `developer|consumer` and ends a `developer` play on a
-  consumer box.
-  - Acceptance: an unknown value fails the play with the allowed values named;
-    `./scripts/qa-changed.bash` passes.
-- [ ] ⬜ **Task 1.4**: Declare `audience:` in every play and include the guard; gate the
-  developer tasks of mixed plays (`play-basic-configs.yml` sudo block,
-  `play-systemd-user-tweaks.yml` linger, any developer-only GNOME extension).
-  - Acceptance: `--syntax-check` passes for all plays; on a developer box the run is
-    unchanged (no task newly skipped).
-- [ ] ⬜ **Task 1.5**: QA gate (Go, under `src-go/qa/`) refusing a play without `audience`
-  or with a value other than `all|developer`, wired into `qa-all`, `qa-changed` and CI.
-  - Acceptance: red on a fixture play missing the key, green on the tree.
 
-### Phase 2: run.bash consumer path
+### Phase 2: the consumer path (as built: a Go command run.bash hands over to)
 
-- [ ] ⬜ **Task 2.1**: Replace the repeated headless `none` checks with one predicate, with
-  no behaviour change.
-  - Acceptance: the existing `scripts/test-run-bash-*.bash` suites pass; the bash-limits
-    record for `run.bash` does not rise.
-- [ ] ⬜ **Task 2.2**: `--consumer` and `RUN_BASH_INSTALL_AUDIENCE`, resolution against
-  `localhost.yml`, and the contradiction checks (consumer with a GitHub account, with
-  `RUN_BASH_CONFIG_SOURCE`, `RUN_BASH_RESTORE_PROJECTS=1`, `RUN_BASH_GITHUB_SSH_443=1`, a
-  server profile, or a developer `localhost.yml`). In Go if the ratchet requires it.
-  - Acceptance: each contradiction stops before any change with a message naming both
-    inputs; unit tests cover each.
-- [ ] ⬜ **Task 2.3**: Consumer attended flow: no keygen, no `gh`, no known-hosts fetch,
-  HTTPS clone and HTTPS-preserving pull, no email prompt, no `golang` in the bootstrap
-  packages, the consumer `localhost.yml` written, the vault password generated silently,
-  no issue offer on failure.
-  - Acceptance: a pty test in `scripts/test-run-bash-*.bash` drives an attended consumer
-    run against stubs and proves no `gh`, `ssh-keygen` or `api.github.com` call is made and
-    origin stays HTTPS on a second run.
-- [ ] ⬜ **Task 2.4**: Optional-play menu lists only `audience: all` plays on a consumer box,
-  and `RUN_BASH_OPTIONAL_PLAYBOOKS` refuses a developer play there.
-  - Acceptance: a test proves both.
-- [ ] ⬜ **Task 2.5**: Bump `RUN_BASH_VERSION` and add the `docs/run-bash-changelog.md`
-  entry.
+The owner's instruction moved the consumer flow to Go, so the headless predicate refactor
+(old Task 2.1) and the in-bash attended flow are not needed: the developer path of run.bash
+is untouched apart from the hand-off lines. Headless consumer runs are refused, not built.
+
+- [x] ✅ **Task 2.1**: `run.bash --consumer`, or a `localhost.yml` holding
+  `install_audience: consumer`, installs git and Go, clones or pulls the checkout over HTTPS
+  and execs `scripts/consumer-install.bash` with `--optional-only` passed on; a single play,
+  `--changed`, `--rerun` and root stay with run.bash; `--headless` with it is refused. Paid
+  for by deleting the optional menu's always-empty auto-run loop; the bash-limits record went
+  down (statements 2821 to 2818).
+- [x] ✅ **Task 2.2**: the Go command `consumer-install` (`src-go/internal/consumer`): refuses
+  root and a non-terminal; Fedora version must match `vars/fedora-version.yml`; a fresh
+  consumer `localhost.yml` (login, GECOS name, `install_audience: consumer`,
+  `github_accounts: {}`), a developer one refused; dnf base packages through
+  `internal/sudo`; pipx ansible with only the missing injects; the vault password file that
+  `ansible-config` resolves made at random (32 bytes, base64, 0600) when absent; galaxy; the
+  main playbook with `--ask-become-pass` unless sudo is truly passwordless; a numbered menu
+  of the optional plays whose every play is `audience: all`; the setup marker; a reboot
+  advised. No gh, no ssh-keygen, no git. Unit tests through `execx.Fake` (coverage 91%),
+  including a test over this checkout's real optional plays.
+- [x] ✅ **Task 2.3**: `scripts/test-run-bash-consumer.bash` drives the real run.bash under
+  stubs: `--consumer` hands over with `--optional-only=false`, a consumer box hands over
+  with no flag, a developer box and `--changed` take the developer path, `--headless --consumer` is refused, and the real wrapper builds the Go command. The nine existing
+  `scripts/test-run-bash-*.bash` suites pass unchanged.
+- [x] ✅ **Task 2.4**: `RUN_BASH_VERSION` 1.33.0 and its changelog entry.
 
 ### Phase 3: VM lab acceptance
 
 - [ ] ⬜ **Task 3.1**: Add a `desktop-consumer-install` scenario to
-  `vars/vm-test-scenarios.yml` on the `desktop` base, `run_env` setting
-  `RUN_BASH_INSTALL_AUDIENCE=consumer` and `RUN_BASH_GITHUB_ACCOUNTS=none`, plus its guest
-  checker `files/home/.local/share/vmtest/guest-acceptance-desktop-consumer.bash`.
+  `vars/vm-test-scenarios.yml` on the `desktop` base, driving an attended
+  `./run.bash --consumer` (the consumer path refuses headless, so the lab needs a pty
+  driver for it), plus its guest checker `files/home/.local/share/vmtest/guest-acceptance-desktop-consumer.bash`.
   - Acceptance: the checker asserts no `~/.ssh/id`, no `gh` auth state, origin is HTTPS,
     no `NOPASSWD` block, the consumer apps present, the developer tools (Go, Node, Claude
     Code, ccy, VS Code, LXC, Podman) absent, and a second `run.bash` run changes nothing;
@@ -185,13 +171,22 @@ own package updates continue through GNOME Software as usual.
 
 ### Phase 4: Docs for a non-developer
 
-- [ ] ⬜ **Task 4.1**: A consumer install page under `docs/` written for someone who has
-  never used a terminal: what it installs, the one command, what each prompt means, how to
-  update, what to do on a failure, and that settings live only on this machine.
-  - Acceptance: linked from `README.md` and `docs/README.md`; no developer jargon left
-    unexplained; docs QA passes.
-- [ ] ⬜ **Task 4.2**: `docs/installation.md`, `docs/playbooks.md` and the run.bash
-  `--help` text name the audience and point at the consumer page instead of repeating it.
+- [x] ✅ **Task 4.1**: "Install for Someone Who Does Not Write Code" in
+  `docs/installation.md`: the one command, what it leaves out, the app menu, how to update,
+  and that settings live only on this machine; `run.bash --help` names `--consumer`.
+- [ ] ⬜ **Task 4.2**: Link it from `README.md`, and name the audience in
+  `docs/playbooks.md`.
+
+### Phase 6: Later
+
+- [ ] ⬜ **Task 6.1**: run.bash fully becomes a thin wrapper over Go, as its own plan: a
+  fresh box has no Go and no checkout until the bash bootstrap has run, so that plan owns
+  the bootstrap's shape.
+- [ ] ⬜ **Task 6.2**: Gate the developer parts of mixed plays on a consumer box: linger
+  (`play-systemd-user-tweaks.yml`) and any developer-only GNOME extension.
+- [ ] ⬜ **Task 6.3**: A consumer `--changed` path (today `--changed` on a consumer box runs
+  run.bash's own, GitHub-free, play runner).
+- [ ] ⬜ **Task 6.4**: A consumer choice in the kickstart (`fedora-install/ks.cfg`).
 
 ### Phase 5: Review
 

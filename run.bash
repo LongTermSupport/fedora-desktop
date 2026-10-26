@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.32.1"
+RUN_BASH_VERSION="1.33.0"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -952,6 +952,8 @@ main() {
 
 # Flags
 OPTIONAL_ONLY=false
+# --consumer (Plan 00228): the install for someone who does not write code, run by the Go tool.
+CONSUMER=false
 # Headless / unattended mode (Plan 00063) — provision a Fedora Server or Cloud box
 # with no interactive prompts, driven by RUN_BASH_* env vars. Tri-state:
 #   HEADLESS=""     -> not yet decided (auto-detect below)
@@ -981,7 +983,10 @@ Fedora Desktop / Server / Cloud Configuration Installer
 
 Options:
   --optional-only      Skip core setup, jump straight to optional playbook menu
-  --changed            Run every play that has run here and has to run again: its
+  --consumer           Install for someone who does not write code: no GitHub, no
+                       programming tools, the everyday apps offered at the end.
+                       Later runs of ./run.bash on that machine do the same.
+  --changed           Run every play that has run here and has to run again: its
                        inputs (its own file, or anything it deploys) changed since,
                        its last run failed, or that run was from a checkout with
                        uncommitted changes. Asks once, then runs them in
@@ -1218,6 +1223,9 @@ USAGE
     --optional-only)
       OPTIONAL_ONLY=true
       ;;
+    --consumer)
+      CONSUMER=true
+      ;;
     --changed)
       CHANGED_PLAYS=true
       ;;
@@ -1281,6 +1289,20 @@ fi
 # A single play run headless is an UNATTENDED PLAY, not a provisioning run: it gets the
 # sudo-only preflight and none of the provisioning contract. (The mode's other exclusions
 # live at the dispatch block below: the `error` helper fatal() needs is not defined yet here.)
+# Consumer install (Plan 00228): chosen by --consumer, or by the host_vars a consumer install
+# wrote. Git and Go first, then the checkout, then the Go tool (scripts/consumer-install.bash)
+# replaces this process. Root falls through to the refusal below.
+if [[ -z "$PLAY_PATH" && "$CHANGED_PLAYS" != "true" && "$RERUN_PLAYS" != "true" && "$(whoami)" != root ]] &&
+  { [[ "$CONSUMER" == "true" ]] || grep -qsx 'install_audience: consumer' ~/Projects/fedora-desktop/environment/localhost/host_vars/localhost.yml; }; then
+  if [[ "$HEADLESS" == "true" ]]; then
+    headless_fail "a consumer install is attended: it asks for your password and which apps to add" "run ./run.bash --consumer at the desktop, without --headless"
+  fi
+  echo -e "${CYAN}${INFO} Consumer install: installing git and Go, then fetching fedora-desktop${NC}" >&2
+  _sudo dnf -y install git golang
+  [[ -d ~/Projects/fedora-desktop ]] || command git clone https://github.com/LongTermSupport/fedora-desktop.git ~/Projects/fedora-desktop
+  command git -C ~/Projects/fedora-desktop pull --ff-only
+  exec ~/Projects/fedora-desktop/scripts/consumer-install.bash --optional-only="$OPTIONAL_ONLY"
+fi
 if [[ -n "${RUN_BASH_ANSIBLE_PLAYBOOK:-}" && ! (-n "$PLAY_PATH" && "$HEADLESS" == "true") ]]; then
   echo "RUN_BASH_ANSIBLE_PLAYBOOK applies only to an unattended single play (--headless <play>.yml); unset it." >&2
   exit 1
@@ -3856,36 +3878,13 @@ elif [[ "$OPTIONAL_ONLY" == "true" ]] || confirm "Would you like to install opti
   fi
   cd ~/Projects/fedora-desktop || { error "Cannot cd into ~/Projects/fedora-desktop"; exit 1; }
 
-  # Playbooks that always run without prompting (auto-run before the interactive menu)
-  # NOTE: play-speech-to-text.yml removed pending GPU/CPU split — see issue #11
-  auto_run_common=()
-
   # Common optional playbooks
   if [[ -d playbooks/imports/optional/common ]]; then
     mapfile -t common_playbooks < <(find playbooks/imports/optional/common -name "*.yml" -type f | sort)
     if [[ ${#common_playbooks[@]} -gt 0 ]]; then
+      menu_playbooks=("${common_playbooks[@]}")
 
-      # Auto-run whitelisted playbooks first (no prompt)
-      menu_playbooks=()
-      for pb in "${common_playbooks[@]}"; do
-        pb_base=$(basename "$pb")
-        _is_auto=false
-        for _auto_name in "${auto_run_common[@]}"; do
-          if [[ "$pb_base" == "$_auto_name" ]]; then
-            _is_auto=true
-            break
-          fi
-        done
-        if [[ "$_is_auto" == "true" ]]; then
-          name=$(basename "$pb" .yml | sed 's/^play-//' | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
-          info "Auto-running: $name"
-          run_playbook "$pb" "$name"
-        else
-          menu_playbooks+=("$pb")
-        fi
-      done
-
-      # Interactive menu for the rest
+      # Interactive menu
       if [[ ${#menu_playbooks[@]} -gt 0 ]]; then
         info "Found ${#menu_playbooks[@]} common optional playbooks"
         if ! show_menu "Common Optional" "${menu_playbooks[@]}"; then

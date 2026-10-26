@@ -279,6 +279,11 @@ linters:
       - path: internal/ghaccount/[a-z]+_test\.go|cmd/gh-account-setup/main_test\.go
         linters: [gosec]
         text: "G304|G302|G301|G306"
+      # consumer-install reads the checkout's own files (host_vars, the version file, the
+      # optional plays it lists) by paths computed from the checkout it runs in.
+      - path: internal/consumer/(app|plays)\.go
+        linters: [gosec]
+        text: "G304"
   settings:
     cyclop:
       max-complexity: 15

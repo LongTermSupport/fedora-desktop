@@ -15,6 +15,15 @@ the index, not the record.
 
 ---
 
+## 1.33.0 — `--consumer`: the install for someone who does not write code (Plan 00228)
+
+`--consumer`, or a checkout whose host_vars says `install_audience: consumer`, installs git
+and Go, clones or pulls `~/Projects/fedora-desktop` over HTTPS and execs
+`scripts/consumer-install.bash` (the Go command `consumer-install`), passing
+`--optional-only` on. A single play, `--changed` and `--rerun` stay with run.bash; a headless
+consumer run is refused. Every other run takes the developer path unchanged. The optional
+menu's auto-run loop, whose list was always empty, is gone.
+
 ## 1.32.1 — a re-run injects only the missing Ansible dependencies (Plan 00188)
 
 The Ansible step reads the venv's injected packages from `pipx list --json` and injects only
