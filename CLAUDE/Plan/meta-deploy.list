@@ -32,10 +32,3 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-
-# Plan 00177 Task 10.4: podfreeze leaves its fzf screens on Esc then a key (the ui screens it
-# shares now bind the Esc-joined keys). Named by hand: the changed-plays run did not count this
-# play as stale, though the Go it builds changed.
-playbooks/imports/optional/common/play-podfreeze.yml
-# Plan 00177 Task 10.4: the same for lxcfreeze.
-playbooks/imports/optional/common/play-lxcfreeze.yml
