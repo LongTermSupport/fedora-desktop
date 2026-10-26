@@ -42,7 +42,7 @@ S0. The decision is one Go package that two commands call:
   (S31).
 
 `cc-teams.bash` does not change. `files/var/local/claude-code/cc` changes on one existing
-line only: the `cc-project-dir` call gains cc's arguments (S31). Both files are over the
+line only: the `cc-project-dir` call gains `--` and cc's arguments (S31). Both files are over the
 bash limits and on the ratchet allowlist (`scripts/bash-limits.allowlist`: cc has 182 code
 lines; cc-teams has 87 code lines and 7 functions). Their counts must not change, and
 `scripts/qa-bash-limits.bash` is the test of that.
@@ -75,11 +75,21 @@ Both commands evaluate in this order and stop at the first step that decides:
 2. S4, off.
 3. S5, the operator's wrapper. The trust rule S29 applies when one of its words is a file
    inside the checkout.
-4. S6, `--supervise`. Needs trust (S29).
-5. S28: if the checkout is not trusted, run unwrapped. No project file is read after this
+4. S6, `--supervise`. A missing supervisor is S6's refusal; then it needs trust (S29).
+5. Is the project supervisor present? This is a stat of
+   `<checkout>/.claude/ccy/claude-supervise.py`, nothing read and nothing run. If it is
+   absent: S10, claude unwrapped. No ccy.env is read and no trust record is read.
+6. S28: if the checkout is not trusted, run unwrapped. No project file is read after this
    point.
-6. S7-S8, the project's ccy.env wrapper.
-7. S9-S10, the default.
+7. S7-S8, the project's ccy.env wrapper.
+8. S9, the default.
+
+The presence check comes before the trust read. It is a stat, not a read or an exec, so it
+does not weaken S28. In a checkout with no supervisor, which is most checkouts on a host, cc
+therefore never reads `~/.claude.json`, never prints S28's line, and never refuses on a
+malformed config file (S27). A ccy.env wrapper in a checkout with no supervisor is not read
+either: S8 would refuse it anyway, since it may only name the supervisor, and S10's line
+says the supervisor is missing.
 
 S12-S14, the release check, run on whichever wrapper was chosen, before anything is
 executed.
@@ -89,10 +99,12 @@ executed.
 S4. `--no-supervise`, or `CCY_NO_SUPERVISOR=1` in the environment cc-claude runs in, means
 no wrapper, and claude runs as it does today.
 
-- When a wrapper had been configured (operator environment or project file), one stderr
-  line names the wrapper that is not used, as ccy's entrypoint does.
-- No project file is read for any purpose other than that line, and no trust record is
-  read.
+- One stderr line says the supervisor is off and why (`--no-supervise` or
+  `CCY_NO_SUPERVISOR=1`). When the operator's `CCY_CLAUDE_WRAPPER` is set, the line names it
+  as not used, as ccy's entrypoint does.
+- No project file and no trust record is read. ccy's entrypoint also names a wrapper set in
+  ccy.env; cc does not. Reading a project file here could only add a failure to the escape
+  route: an unreadable or S7-malformed ccy.env must never stop `--no-supervise`.
 - Whether an exported `CCY_NO_SUPERVISOR` reaches cc-claude through cc's tmux insulation is
   established by Task 1.2 and settled by Decision 7.
 
@@ -185,15 +197,23 @@ Any other word is refused. A later release that adds options is refused until cc
 them.
 
 A refusal names the file, the line and the rule, exits 1, and says that a wrapper of the
-operator's own belongs in their environment (S5). The rule exists because a project file
-could otherwise make cc run any command on the host.
+operator's own belongs in their environment (S5). The rule exists so that a ccy.env line
+cannot turn cc into a launcher for any host command.
+
+These are shape checks, not a security boundary. The checks follow symlinks: the launcher,
+the `.py` and a `--plugin` path may each be a symlink to anywhere, and cc does not Lstat
+them or resolve their prefix. The boundary is trust (S25-S29). S7-S8 are only reached in a
+trusted checkout, where Claude Code already runs the repository's hooks, which can run
+anything with the owner's rights. A symlink check would add code without closing anything
+that trust leaves open.
 
 S9. The default, when none of the above applies and the project supervisor exists, is
 `sh <checkout>/.claude/ccy/claude-supervise --`, unarmed. One stderr line:
 `Supervisor: on by default (auto-compaction unarmed; cc --supervise arms it, cc --no-supervise turns it off)`.
 
-S10. The default with no project supervisor is claude unwrapped, as today, with one stderr
-line saying the project has no supervisor at `<path>`. An absent supervisor is a normal
+S10. With no project supervisor (step 5 of the order: no `claude-supervise.py`), and none
+of S4-S6 deciding, claude runs unwrapped, as today. One stderr line says the project has no
+supervisor at `<path>`. An absent supervisor is a normal
 state, so this is not an error. It is said so that silence never reads as supervised
 (parity with ccy's entrypoint). An old supervisor is different and is refused (S13,
 Decision 1). Absent means that nothing is configured to run. Old means that the project is
@@ -207,17 +227,57 @@ S25. The checkout is **trusted** when Claude Code's global config holds
 `projects["<key>"].hasTrustDialogAccepted` as JSON `true`.
 
 - **The config file** is `$CLAUDE_CONFIG_DIR/.claude.json` when `CLAUDE_CONFIG_DIR` is set
-  and not empty. Otherwise it is `$HOME/.claude.json`.
-- **The key** is the checkout's absolute path. For a linked worktree it is the main
-  checkout's root, found from files alone: the `.git` file's `gitdir:`, then that
-  directory's `commondir`, then its parent when it is named `.git`. A bare common directory
-  gives no key, so the checkout is not trusted.
-- **Path forms**: the checkout path as cc-claude's working directory gives it, and its
-  symlink-resolved form, are both looked up. Either one matching counts.
+  and not empty. Otherwise it is `$HOME/.claude.json`. If both are empty, cc refuses as S27
+  does: it cannot tell where the record is.
+- **The key** comes from the checkout's own `.git` entry, examined with Lstat. It is never
+  taken from a file the checkout can write. There are three cases:
+  - **`.git` is a directory**: the key is the checkout itself.
+
+  - **`.git` is a regular file**: the checkout counts as a linked worktree only if all of
+    these hold:
+
+    - its `gitdir:` line, resolved against the `.git` file's directory when relative and
+      then symlink-resolved, is `<C>/worktrees/<id>`, where `<C>` is named `.git`;
+    - that directory is outside the checkout;
+    - `<C>/worktrees/<id>/gitdir`, git's own back-link, names this checkout's `.git` file.
+      The back-link is resolved against its own directory when relative, which is what git
+      writes with `worktree.useRelativePaths`. The two paths are compared after resolving
+      their directory parts' symlinks.
+
+    The key is then `<C>`'s parent, the main checkout.
+
+  - **Anything else gives no key**, so the checkout is not trusted. That covers a `.git`
+    symlink, a `.git` file whose `gitdir:` is not of that shape (a submodule, a
+    `--separate-git-dir` checkout, a forged file), a target or back-link that does not
+    exist (a worktree made in a container with a `/workspace/...` path), and a back-link
+    that names another checkout. A read error other than "does not exist" is refused as
+    S27 does.
+- **Why this rule (review r2 B2)**: a `.git` file and the `commondir` it leads to can both
+  belong to the tree being launched. A copied or extracted tree holding `.git` =
+  `gitdir: .x` and `.x/commondir` = `../../.git` is accepted by git as a worktree of the
+  checkout it sits in, so a `commondir` walk would key it on a trusted repository. The
+  back-link sits in the main repository's own `.git`, which the launched tree cannot write.
+  The "outside the checkout" condition stops a tree from carrying its own `<x>/.git/worktrees/<id>`
+  with a back-link it wrote. A directory `.git` keys on the tree's own path, which the tree
+  cannot choose.
+- **Why not simpler**: trusting only a directory `.git` would be spoof-proof too. But every
+  worktree, including the agent worktrees this repository uses, would then run unsupervised,
+  and `cc --supervise` would be refused there. The back-link check costs two file reads and
+  a path comparison. It replaces the `commondir` read and does not add to it.
+- **Known limit**: a submodule and a `--separate-git-dir` checkout are never trusted by cc,
+  though Claude Code may trust them. That is the safe direction: unwrapped with S28's line.
+  A worktree whose main checkout path contains a symlink is looked up by its resolved form
+  only, and the same applies.
+- **Path forms**: for a directory `.git`, the checkout path as cc-claude's working directory
+  gives it, and its symlink-resolved form, are both looked up. Either one matching counts.
 - **No parent walk**: a parent directory's record does not count. Inside a repository
   Claude Code walks up only as far as the repository root, and cc-claude starts at that
   root.
-- **Nothing is run**: the file is read and decoded in Go. No `git`, no `claude` and no
+- **The record**: only `projects[key]` as a JSON object whose `hasTrustDialogAccepted` is
+  JSON `true` counts. A `projects[key]` that is not an object, or a
+  `hasTrustDialogAccepted` that is not boolean `true`, means not trusted. That is how
+  Claude Code's `projects?.[key]?.hasTrustDialogAccepted === true` reads them.
+- **Nothing is run**: every file is read and decoded in Go. No `git`, no `claude` and no
   project file is executed to answer this.
 
 S26. With `CLAUDE_CODE_IGNORE_PERSISTED_TRUST` set and not empty, no record counts, as in
@@ -231,9 +291,15 @@ are refused instead, naming the file, the error and `cc --no-supervise`, exit 1:
 - a file that is not JSON;
 - a file whose `projects` is not an object.
 
-`cc --no-supervise` never reads the file (S4).
+Claude Code rewrites the file often, and cc itself rewrites it in place (truncate, then
+write). A read can therefore land mid-write in another session. So a file that is not JSON
+is read once more after a short pause before it is refused, and the refusal says the cause
+may be transient: run cc again. A real defect still refuses, on the second read.
 
-S28. When the checkout is not trusted on the default path (steps 6-7 of the order),
+`cc --no-supervise` never reads the file (S4), and neither does a checkout with no
+supervisor (step 5 of the order).
+
+S28. When the checkout is not trusted on the default path (steps 7-8 of the order),
 cc-claude runs claude unwrapped and reads no project file. It prints one stderr line:
 `Supervisor: off: Claude Code does not trust <key> yet (no hasTrustDialogAccepted in <config file>). Accept its trust dialog in this session; the next cc, or cc --supervise, then runs the project supervisor.`
 This is not skip-and-continue. Running unwrapped is the state the project's files may not
@@ -305,30 +371,66 @@ supervisor's).
 
 ## Checked before anything else happens
 
-S31. `cc` passes its arguments to `cc-project-dir`. This changes the existing call
-`CC_PROJECT_DIR=$(/var/local/claude-code/cc-project-dir)` on the same line, and nothing
-else in `cc`.
+S31. `cc` passes `--` and its arguments to `cc-project-dir`:
+`CC_PROJECT_DIR=$(/var/local/claude-code/cc-project-dir -- "$@")`. This changes the
+existing call on the same line, and nothing else in `cc`.
 
+- **cc-project-dir's argument contract (P1) changes.** Today P1 rejects any argument with
+  exit 64, and prints its own usage on stdout for `-h`/`--help`. If cc passed bare `"$@"`,
+  `cc --model x` would stop with exit 64, and `cc --help` would `cd` into the usage text.
+  So everything after cc-project-dir's first `--` is cc's arguments, taken verbatim for
+  the preflight and never parsed as cc-project-dir's own. S1 then looks only before the
+  first bare `--` inside them. Before the `--`, P1 holds as today: `-h`/`--help` alone
+  prints the usage, and anything else is a usage error. The package doc (`app.go`'s P1)
+  says this, and the `cmd/cc-project-dir` test keeps `--nope` → exit 64.
+- `cc-project-dir -- -h` and `cc-project-dir -- --help` print only the directory on stdout,
+  so `cc -h`/`cc --help` still reaches claude.
 - cc-project-dir finds the directory as today. It then runs the decision above on that
-  directory, with cc's arguments and environment, and executes nothing.
+  directory, with cc's arguments and its own environment, and executes nothing.
 - A refusal is printed to stderr, and cc-project-dir exits 1 and prints no directory.
 - cc's `set -e` then stops cc on that line. That is before the tmux re-exec, the token
-  chooser, the credential parking, `seat take` and `membership-init`, so a refused launch
-  has changed nothing.
-- cc-project-dir's stdout stays the directory alone. Its stderr lines (S9, S10, S28) are
+  chooser, the credential parking, `seat take` and `membership-init`.
+- cc-project-dir's stdout stays the directory alone. Its stderr lines (S4, S9, S10, S28) are
   not printed twice: the preflight prints only refusals, and cc-claude prints the
   informational lines.
-- cc-project-dir ignores every argument it does not need. It must not reject claude's
-  options.
+- **Re-attaching (review r2 m7)**: this check comes before `ccy_tmux_insulate`'s offer to
+  re-attach a detached `cc-<project>` session, so a refusal also stops `cc` from
+  re-attaching one. That is accepted, not worked around: the refusal is about starting a
+  supervisor, and the session already running is not touched. Every refusal of the
+  decision (exit 1; not S2's usage error) ends with one more sentence: `A cc session already running here can still be attached with ccy-sessions.`
 
-S32. cc-claude repeats the decision when it execs, and its decision is the one that counts.
-A refusal there can happen when something changed after the preflight, such as a
-`git checkout` in between. It is still loud, but it comes after the side effects:
+S32. **Which environment decides.** cc re-executes itself inside tmux (cc:67), so the
+decision is made up to three times:
 
-- On the plain path, cc's EXIT trap restores the parked credential. cc does not `exec`
-  cc-claude, so the trap fires.
-- On `--teams`, the seat and membership are pingbus's to release when its child exits.
-  Acceptance S24 checks both.
+1. the outer preflight, in the launching shell's environment;
+2. the inner preflight (cc:42 again, inside the pane);
+3. cc-claude at exec.
+
+A session created on a tmux server that is already running takes that server's global
+environment, not the shell's. The server is often started by the boot restore unit or by an
+earlier launch, and the pane forwards only `CCY_GH_TOKEN_HANDOFF`. So runs 2 and 3 see the
+pane's environment, and run 1 sees the shell's. They differ systematically, not only when
+something changes between them. The inputs that can differ are `CCY_NO_SUPERVISOR`,
+`CCY_CLAUDE_WRAPPER`, `CLAUDE_CONFIG_DIR` and `CLAUDE_CODE_IGNORE_PERSISTED_TRUST`. `HOME`
+is the same user's on both sides.
+
+- **cc-claude's decision is the one that counts.** What runs is decided by the pane's
+  environment, which is the one claude inherits.
+- **Any refusal stops the launch**, and the outer one stops it before any side effect. The
+  outer preflight can refuse where the pane would not, for example when a server holds a
+  `CCY_NO_SUPERVISOR=1` the shell lacks. That direction is safe, and the refusal says how
+  to proceed.
+- **A refusal inside the pane comes after the side effects.** Examples are an exported
+  `CCY_NO_SUPERVISOR=1` the server never received, or a `git checkout` after the
+  preflight. The tmux session and its registry record already exist. The registry's
+  trampoline holds the pane on the failure and removes the record. On the plain path cc's
+  EXIT trap restores the parked credential: cc does not `exec` cc-claude, so the trap
+  fires. On `--teams`, the seat and membership are pingbus's to release when its child
+  exits. Acceptance S24 checks these.
+- **The reverse leak**: a `CCY_NO_SUPERVISOR` or `CCY_CLAUDE_WRAPPER` in the server's
+  environment applies silently to every later cc session in every project. Only Decision
+  7's option A closes this and the case above. Until the owner rules, it is a recorded
+  risk, and Task 1.2 establishes it on the host.
 
 ## Verified on the host (acceptance, not unit tests)
 

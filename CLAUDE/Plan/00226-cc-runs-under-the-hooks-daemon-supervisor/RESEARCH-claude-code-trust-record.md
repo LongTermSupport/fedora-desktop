@@ -71,12 +71,32 @@ here:
 
 cc-claude opens the file with a plain read and decodes it with `encoding/json`. It runs no
 `git`, no `claude` and no project file. It finds the main checkout of a linked worktree
-from files alone:
+from files alone.
 
-- the worktree's `.git` is a file reading `gitdir: <dir>`;
-- `<dir>/commondir` names the common git directory, relative to `<dir>` or absolute;
-- when that directory is named `.git`, the main checkout is its parent. A bare repository
-  has no main checkout, so SPEC S25 treats it as having no trust record.
+**Following `commondir` can be spoofed (review r2 B2).** Both the worktree's `.git` file and
+the `commondir` it leads to can belong to the tree being launched. With git 2.39, a tree
+inside a trusted checkout that holds these was accepted as a worktree:
 
-A submodule's `.git` file points at a git directory that has no `commondir`, so its key is
-its own root, as Claude Code keys a nested repository.
+- `.git` = `gitdir: .x`;
+- `.x/HEAD`;
+- `.x/commondir` = `../../.git`.
+
+`git rev-parse --git-common-dir` then named the trusted checkout's `.git`. The probe ran in
+`untracked/scratch/`. It is not known whether Claude Code is fooled the same way, and cc must
+not depend on it either way.
+
+**The rule SPEC S25 uses instead**: git's own back-link.
+
+- `git worktree add` writes `<main>/.git/worktrees/<id>/gitdir`, naming the worktree's
+  `.git` file. git writes it absolute by default, and relative to its own directory with
+  `worktree.useRelativePaths`.
+- That file sits in the main checkout's `.git`, which the launched tree cannot write.
+- So cc accepts a `.git` file only when its `gitdir:` resolves outside the checkout to
+  `<C>/worktrees/<id>`, with `<C>` named `.git`, and that back-link names this checkout's
+  `.git`. The key is then `<C>`'s parent.
+- A directory `.git` keys on the checkout itself.
+- Anything else has no key. That includes a `.git` symlink, a submodule
+  (`.git/modules/...`), a `--separate-git-dir` checkout, and a missing target.
+
+Claude Code keys a submodule on its own root, so cc is stricter than Claude Code there, which
+is the safe direction.

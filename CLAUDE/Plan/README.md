@@ -34,7 +34,7 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00226-cc-runs-under-the-hooks-daemon-supervisor](00226-cc-runs-under-the-hooks-daemon-supervisor/) - Not Started. Host `cc` sessions (plain, `--teams`, `--bus`) run under the project's hooks-daemon supervisor as ccy's do: unarmed by default, `--supervise` armed, `--no-supervise` off, the operator's or the project's `CCY_CLAUDE_WRAPPER` honoured; all in `cc-claude` (Go), refusing a supervisor older than 3.71.0 (child-tree session ownership); the daemon upgrade first. Addresses #113
+- [00226-cc-runs-under-the-hooks-daemon-supervisor](00226-cc-runs-under-the-hooks-daemon-supervisor/) - Not Started. Host `cc` sessions (plain, `--teams`, `--bus`) run under the project's hooks-daemon supervisor as ccy's do: unarmed by default, `--supervise` armed, `--no-supervise` off, the operator's or the project's `CCY_CLAUDE_WRAPPER` honoured; only in a checkout Claude Code already trusts; decided in Go, as a `cc-project-dir` preflight before cc's side effects and again in `cc-claude` at exec, refusing a supervisor older than 3.71.0 (child-tree session ownership); the daemon upgrade first. Addresses #113
 
 - [00223-ccy-one-confirm-relaunch](00223-ccy-one-confirm-relaunch/) - Not Started. One Quick Launch screen for ccy, accepted with one Enter, `ccy --teams` included: only the seat is rechecked, and a used-up token goes to the token chooser
 
