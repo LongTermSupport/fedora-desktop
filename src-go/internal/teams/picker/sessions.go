@@ -35,6 +35,8 @@ const actSessions = "sessions"
 var (
 	sessionsAction     = ui.Action{ID: actSessions, Label: "Running sessions: change a session's teams while it runs", Key: "tab"}
 	sessionsHelpAction = ui.Action{ID: actHelp, Label: "What this list shows", Key: keyHelp}
+	// listActions are the teams list's own rows, below the teams.
+	listActions = []ui.Action{sessionsAction}
 )
 
 // view is which list the picker shows: the teams, or the running sessions.

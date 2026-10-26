@@ -118,6 +118,45 @@ func TestEscThenAnArrowInARowMenuLeavesItForTheRowItWasOpenedOn(t *testing.T) {
 	}
 }
 
+// The list says how far its cursor moves after Esc then an arrow: up -1, down 1, else 0.
+func TestMovedByIsTheArrowAfterTheEsc(t *testing.T) {
+	for arrow, want := range map[string]int{"alt-down": 1, "alt-up": -1} {
+		f := &execx.Fake{}
+		fzfSays(f, "\nbeta\t1\n", arrow+"\nTake beta down   (Ctrl-X)\t0\n")
+		_, err := (&Picker{Runner: f, Plain: true}).Pick(context.Background(), testHead, teamsSpec())
+		if got := MovedBy(err); got != want {
+			t.Errorf("%s: moved %d, want %d", arrow, got, want)
+		}
+	}
+	if MovedBy(ErrBack) != 0 || MovedBy(nil) != 0 || MovedBy(ErrLeave) != 0 {
+		t.Fatal("only Esc then an arrow moves the cursor")
+	}
+	if (&BackError{Move: 1}).Error() != ErrBack.Error() {
+		t.Fatal("a BackError reads as ErrBack")
+	}
+}
+
+// A list given a start row starts its cursor there, over CursorLast; a list with none starts as
+// before.
+func TestAListCanStartOnAGivenRow(t *testing.T) {
+	f := &execx.Fake{}
+	fzfSays(f, "r\n", "r\n")
+	p := &Picker{Runner: f, Plain: true}
+	if _, err := p.Pick(context.Background(), testHead, PickSpec{Title: "t", Rows: []string{"q", "r"}, StartRow: 2, CursorLast: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Pick(context.Background(), testHead, PickSpec{Title: "t", Rows: []string{"q", "r"}}); err != nil {
+		t.Fatal(err)
+	}
+	calls := drawn(f)
+	if !slices.Contains(calls[0].Args, "--bind=start:pos(2)") || slices.Contains(calls[0].Args, "--bind=start:last") {
+		t.Fatalf("start row 2: %q", calls[0].Args)
+	}
+	if slices.ContainsFunc(calls[1].Args, func(a string) bool { return strings.HasPrefix(a, "--bind=start:") }) {
+		t.Fatalf("no start row: %q", calls[1].Args)
+	}
+}
+
 // A plain Esc from a row's menu (fzf exits 130) is back to the list on the same row.
 func TestLeavingARowMenuNamesTheRowItWasOpenedOn(t *testing.T) {
 	f := &execx.Fake{}

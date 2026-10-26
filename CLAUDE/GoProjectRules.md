@@ -599,6 +599,11 @@ shell, give the fzf call the same bindings as literal `--bind` words.
 - Red, real tree: 3 Go findings (`ui.Picker.Pick`, `ui.Picker.Choose`, `pathinput`'s
   `cancelKey`) and 2 shell (`tmux-session.bash`'s `ccy_tmux_pick`, `history-search.bash`'s
   Ctrl-R).
+- Green: `ui.Picker.Pick` and `Choose` append `fzfEscJoined`; a row's menu expects `alt-up`
+  and `alt-down` and returns a `ui.BackError` (`ui.MovedBy`), and the teams list starts its
+  next pass on the moved row (`PickSpec.StartRow`, `--bind=start:pos(N)`); `pathinput` cancels
+  on `esckey.Joined`; both shell fzf calls carry the bindings. The freeze golden replay pins the
+  new argv as SPEC-freeze bug 28. `files/etc/tmux.conf` sets `escape-time 10`.
 - Not caught: fzf started through a program runner or a shell string (`project_seam_commands`
   flags those), the bindings as a separate `--bind` and spec pair in Go, `FZF_DEFAULT_OPTS`, a
   package that calls `esckey.Joined` on some other path than its Esc binding, Esc then a

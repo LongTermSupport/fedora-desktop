@@ -748,6 +748,11 @@ reason); K = kept for parity; the owner's decision, if any, is in section 15.
     and the drill-down show a key legend only, so the drill-down does not name the group it
     lists. Every `ui` screen now starts with the shared heading (Plan 00204 D4): the tool, then
     the group, and a count (`lxcfreeze › bridge: lxcbr0`, `2 containers`), above the legend.
+28. **F. an Esc typed just before another key is lost** (`FC` L476, L614; Plan 00177 Task 10.4):
+    fzf reads an Esc and the next key inside its 100 ms wait (or in one write from tmux) as that
+    key with Alt, which neither screen binds, so the menu stays open. Every `ui` fzf screen now
+    binds each such key (`alt-down`, `alt-enter`, `ctrl-alt-r`, ...) to abort, as Esc does
+    (`project_esc_joined`, CLAUDE/GoProjectRules.md).
 
 ---
 

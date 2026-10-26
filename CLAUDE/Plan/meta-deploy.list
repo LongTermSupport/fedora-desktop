@@ -32,3 +32,11 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Plan 00177 Task 10.4, an Esc typed just before another key is no longer lost: expected to pick
+# up play-tmux-sessions.yml (escape-time 10 in /etc/tmux.conf; tmux servers already running keep
+# the old value until restarted), play-claude-yolo.yml (CCY 3.100.24, ccy-teams, ccy-sessions,
+# podfreeze-style fzf screens and the session picker leave on Esc then a key) and
+# play-basic-configs.yml (the Ctrl-R history search), plus the freeze plays for podfreeze and
+# lxcfreeze, which share the ui fzf screens.
+changed-plays

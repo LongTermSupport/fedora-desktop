@@ -60,6 +60,13 @@ func TestFzfGroupAndDrillDownUseTheLegacyArgvAndTheChoiceIsActedOn(t *testing.T)
 	mustExit(t, h, 0)
 	eqStrings(t, "acts", h.acts(), []string{"freeze alpha"})
 	got := *runs
+	// Each screen ends with ui's binding of every Esc-joined key to abort (SPEC-freeze bug 28).
+	for i, r := range got[:2] {
+		if last := r.args[len(r.args)-1]; !strings.HasPrefix(last, "--bind=alt-up:abort,alt-down:abort,") {
+			t.Fatalf("screen %d does not leave on an Esc joined to the next key: %q", i, last)
+		}
+		got[i].args = r.args[:len(r.args)-1]
+	}
 	eqStrings(t, "group argv", got[0].args, []string{
 		"--height=50%", "--reverse", "--prompt=lxcfreeze: ",
 		"--header=lxcfreeze\n3 groups\n────────────────────────\nENTER acts on the chosen group — ESC to quit",
