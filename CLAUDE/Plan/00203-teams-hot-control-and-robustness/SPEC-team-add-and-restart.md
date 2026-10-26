@@ -168,3 +168,87 @@ Recorded in PLAN.md as Decisions 8 to 12; each runs as stated until the owner de
 - D12. A session holding no seat records its conversation at SessionStart (C2), the one
   exception to the inert contract, so a ccy session on no team is restored after a reboot.
   The alternative: the contract kept whole, and such sessions named and not restored.
+
+## 6. Resuming the whole team as at its last shutdown (Task 3.17, draft expectations)
+
+Draft: numbered for the Fable review, built tests first after it. The owner's ruling and the
+open defaults are Decisions 13 and 18 to 24 of [DECISIONS-lifecycle.md](DECISIONS-lifecycle.md);
+CR1 to CR8 there are the offline and lock rules. A clean `/exit` removes the session's registry
+record (SPEC-shutdown.md, "What ends after `/exit`"), so after a team shutdown
+`ccy-teams restart` finds nothing to start (B3). This section is what brings the team back.
+
+- RS1. **The last-shutdown record.** `ccy-teams shutdown`, and 3.16's forced one (TW8), first
+  write a last-shutdown record for the team:
+
+  - each session's registry record, its seats and role, and its conversation **id copied in**
+    (C4; not a pointer to `conversation.json`, which is keyed by session name, so a new
+    session reusing that tmux name would overwrite it);
+  - each LXC member reached: its container, user, seats, role, working directory, whether it
+    is a service member, and its newest transcript's name and mtime (LS8).
+
+- RS2. A new verb, `ccy-teams resume <team> [--member <handle>]`, and a team menu line, Resume
+  the team as at its last shutdown (Decision 19), consume the record (Decision 21).
+  `restart` stays 3.11's and never reads it. The resume takes the per-team lock (CR4).
+
+- RS3. Each entry is first checked against the team's current roster. A seat removed or parked
+  since is named and not started; a member now on another role is started, with the role
+  applied as the roster says.
+
+- RS4. A desktop session whose tmux name is now held by another session fails, naming it, and
+  keeps its entry.
+
+- RS5. **Order.** The coordinator starts first, and the resume waits for its seats to be held
+  (B6), then starts the rest together (Decision 18). A host ccy coordinator's seats are read
+  with `agent-bus seat list` in its checkout; an LXC coordinator's by the same command run in
+  the container through the user runner (SPEC-lxc-connect-and-resume K10), as the member's
+  user, in its working directory. An offline coordinator is shown as offline, and the rest
+  start without waiting for it (exit 0).
+
+- RS6. **How each is started.** Host ccy and cc sessions resume by their recorded conversation
+  id, never `--continue`. An LXC member resumes by 3.18's resume command, default
+  `ccy --continue` in the member's working directory (Decision 13). A service member resumes
+  through its unit (Decision 24, SPEC-lxc-connect-and-resume K7). The (b) warning of
+  Decision 23 is given before any LXC member is resumed with `--continue`.
+
+- RS7. **Already running.** A member already running is named and left as it is, and its entry
+  is consumed (it is where the resume would have put it), but only as each kind is judged:
+
+  - a desktop session: its tmux session is on ccy's server under the recorded name;
+  - an LXC member without a service: a tmux `has-session` for `agent-bus-claude` on that
+    socket, as the member's user, through `InContainer`, **and** the pane's working directory
+    (`#{pane_current_path}`) equals the entry's. A non-service (container, user) may name
+    different checkouts in different teams (`_check_between` requires one checkout only for
+    `service: true`, members.py), yet it has one session name, so team B's resume could find
+    team A's session in another checkout. A mismatch is a failure that names both
+    directories, and the entry is kept;
+  - a service member: its unit active and the `has-session` as above, then RS9.
+
+  One (container, user) session is in all of that user's teams, so the resume of team A
+  brings it back in team B too, and team B's resume must find it running, saying
+  "already running (resumed with <team>)", not start a second claude.
+
+- RS8. An entry kept from 3.16's "not forced" (TW5) is judged the same way: running, it is
+  named and consumed (after RS9 for a service member); stopped since, it is resumed like any
+  other.
+
+- RS9. **A service member started fresh since the shutdown is not a resume.** For a running
+  service member the resume compares the name of the newest transcript in its store with the
+  name the shutdown recorded. The same name is the shutdown's own conversation, still running
+  (its shutdown failed, LS6): already running, consumed. A newer one means "started fresh since
+  the shutdown, outside ccy-teams": the entry is kept, the run exits 1, and the report names
+  the member and the recorded conversation. With the hold (LS3, LS7) neither an apply nor a
+  container boot starts a held member, so this is only a member whose hold was removed by
+  something other than ccy-teams. `resume --member` judges it the same way and never restarts
+  a running member.
+
+- RS10. **A held member.** For a service member held stopped (LS3) with an entry in this
+  record, the resume releases the hold, whichever team's shutdown wrote it, by K7's order, and
+  so starts it. A hold that names this team but has no entry (a wind-down that did not finish,
+  TW10) is released the same way, and the member is started with `continue-once`, reported as
+  "held by a wind-down that did not finish: resumed".
+
+- RS11. An entry whose member is offline at the resume is shown as offline and kept (CR1,
+  Decision 21). `resume --member` naming it exits 69 (CR2).
+
+- RS12. The spec of what reaches an LXC member and how its resume command is set is
+  [SPEC-lxc-connect-and-resume.md](SPEC-lxc-connect-and-resume.md).
