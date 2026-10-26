@@ -190,9 +190,27 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   note still promised a renewal on every thaw, is SPEC-freeze bug 29: the note says "where
   NetworkManager runs inside", pinned on the 12 lxc scenarios that print it.
 
-- [ ] ⬜ **Task 3.6**: `run.bash --changed` did not count `play-podfreeze.yml` and
+- [ ] 🔄 **Task 3.6**: `run.bash --changed` did not count `play-podfreeze.yml` and
   `play-lxcfreeze.yml` stale after their Go (`internal/ui`) changed: the staleness misses Go
-  dependencies (Plan 00214's area). They were queued by name instead.
+  dependencies (Plan 00214's area). They were queued by name instead. Fixed on
+  `fix/00192-changed-go-deps`: no Go-building play had any of src-go as an input, because
+  `tasks/build-go-command.yml` reaches it as `root_dir ~ '/src-go'`. The mapper
+  (`helpers/self_update/affected_plays.py`) now follows `root_dir ~`/`+` joins and takes a Go
+  module root as the builds of the play's `go_command_name` commands (a `{{ var }}` name
+  resolved through the walked files): every package each imports, transitively, in src-go and
+  its vendor tree, read from the source and held to `go list -deps` by a real-repo test (24
+  commands, 12 plays). Defence Before Fix rule `play-input-dropped`
+  ([QA.md](../../QA.md#play-input-dropped)): 15 findings red, 0 green. Host check: the queued
+  `changed-plays` entry lists the Go-building plays whose packages changed since they last ran.
+  Report `subagent-reports/261026-task-3-6.md`.
+
+- [ ] ⬜ **Task 3.7**: Inputs the play text cannot show, found by Task 3.6's independent search
+  and outside `play-input-dropped`: `helpers/github_scopes/cli.py` reads
+  `vars/github-required-scopes.yml` through `__file__`, so `play-github-cli-multi.yml` does not
+  rerun when the required scopes change (class: a helper the play runs reads a checkout file
+  outside its package); `environment/localhost/group_vars/desktop.yml` is an input of no play
+  (owner decision: count it for every play, or not); `scripts/qa-toolchain.bash`, run by
+  `play-python.yml` as a check, reads `src-go/qa/` and `src-go/go.mod`, which are not inputs.
 
 ### Phase 4: Review
 

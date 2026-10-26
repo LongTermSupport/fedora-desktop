@@ -27,6 +27,27 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", 
 CLAUDE_PLAY = "playbooks/imports/play-claude-yolo.yml"
 ROOT = "{{ root_dir }}"
 CONFIG_ROOT = "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+FREEZE_PLAYS = (
+    "playbooks/imports/optional/common/play-podfreeze.yml",
+    "playbooks/imports/optional/common/play-lxcfreeze.yml",
+)
+
+
+def _go_list_deps(command: str) -> list[str]:
+    """The repo-relative directories of every non-standard package the command at the
+    repo-relative `command` (`src-go/cmd/<name>`) builds from, as the Go toolchain lists them
+    (vendored ones included), with the build's GOFLAGS."""
+    module, package = command.split("/", 1)
+    env = {**os.environ, "GOFLAGS": "-mod=vendor", "GOTOOLCHAIN": "local"}
+    result = subprocess.run(
+        ["go", "list", "-deps", "-f", "{{if not .Standard}}{{.Dir}}{{end}}", "./" + package],
+        cwd=os.path.join(REPO_ROOT, module),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return [os.path.relpath(line, REPO_ROOT) for line in result.stdout.splitlines() if line]
 
 
 def _write(root: str, rel: str, text: str) -> None:
@@ -266,6 +287,168 @@ class TestUnresolved(FixtureCase):
         self.assertIn("tasks/inc.yml", found[0])
 
 
+class TestJoinedReferences(FixtureCase):
+    """`root_dir ~ '/x'` and `root_dir + '/x'` are checkout references too (Plan 00192 3.6)."""
+
+    def _inputs(self, line: str) -> ap.Inputs:
+        play = self.fx.play("playbooks/imports/play-a.yml", f"""
+            - hosts: desktop
+              vars:
+                value: >-
+                  {line}
+        """)
+        return ap.play_inputs(self.fx.root, play)
+
+    def test_a_joined_file_is_an_exact_input(self) -> None:
+        self.fx.file(".qa-versions")
+        inputs = self._inputs("{{ lookup('ansible.builtin.file', root_dir ~ '/.qa-versions') }}")
+        self.assertIn(".qa-versions", inputs.exact)
+        self.assertEqual(inputs.unresolved, [])
+
+    def test_a_joined_glob_is_its_literal_prefix(self) -> None:
+        inputs = self._inputs("{{ lookup('fileglob', root_dir ~ '/files/share/lab/*.bash') }}")
+        self.assertTrue(ap.affects(inputs, "files/share/lab/new.bash"))
+        self.assertFalse(ap.affects(inputs, "files/share/other.bash"))
+
+    def test_a_joined_prefix_with_a_templated_tail_is_a_prefix(self) -> None:
+        inputs = self._inputs("{{ lookup('file', root_dir + '/files/conf/' + item.item) }}")
+        self.assertTrue(ap.affects(inputs, "files/conf/anything"))
+
+    def test_a_join_with_no_literal_path_is_reported(self) -> None:
+        inputs = self._inputs("{{ root_dir ~ '/' ~ some_path }}")
+        self.assertEqual(len(inputs.unresolved), 1)
+        self.assertIn("play-a.yml:5:", inputs.unresolved[0])
+
+
+GO_MOD = "module example.com/m\n\ngo 1.26.0\n"
+BUILD_TASK = """
+    - ansible.builtin.command:
+        argv: [go, build, -o, "/tmp/{{ go_command_name }}", "./cmd/{{ go_command_name }}"]
+        chdir: "{{ root_dir ~ '/src-go' }}"
+"""
+
+
+class TestGoBuilds(FixtureCase):
+    """A play that builds a Go command counts every package the command imports, within the
+    module and from its vendor tree, so a shared package change marks every such play stale."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        fx = self.fx
+        fx.file("src-go/go.mod", GO_MOD)
+        fx.file("src-go/go.sum", "")
+        fx.file("src-go/vendor/modules.txt", "# github.com/x/y v1.0.0\n")
+        fx.file("src-go/cmd/tool/main.go", """
+            package main
+
+            import (
+            \t"fmt"
+            \tui "example.com/m/internal/ui"
+            \t_ "example.com/m/internal/blank"
+            \t// "example.com/m/internal/commented"
+            \t"github.com/x/y"
+            )
+
+            func main() { fmt.Println(ui.X, y.Y) }
+        """)
+        fx.file("src-go/cmd/tool/main_test.go", 'package main\n\nimport "example.com/m/internal/testonly"\n')
+        fx.file("src-go/internal/ui/ui.go", """
+            package ui
+
+            import "example.com/m/internal/term"
+
+            //go:embed assets/*
+            var X = term.T
+        """)
+        fx.file("src-go/internal/ui/assets/help.txt")
+        fx.file("src-go/internal/ui/sub/sub.go", "package sub\n")
+        fx.file("src-go/internal/term/term.go", "package term\n\nconst T = 1\n")
+        fx.file("src-go/internal/blank/blank.go", "package blank\n")
+        fx.file("src-go/internal/commented/c.go", "package commented\n")
+        fx.file("src-go/internal/testonly/t.go", "package testonly\n")
+        fx.file("src-go/vendor/github.com/x/y/y.go", 'package y\n\nimport . "github.com/x/z"\n\nconst Y = Z\n')
+        fx.file("src-go/vendor/github.com/x/z/z.go", "package z\n\nconst Z = 1\n")
+        fx.file("tasks/build-go-command.yml", BUILD_TASK)
+
+    def _play(self, go_vars: str, extra_vars: str = "") -> ap.Inputs:
+        play = self.fx.play("playbooks/imports/play-a.yml", f"""
+            - hosts: desktop
+              vars:
+                root_dir: "{CONFIG_ROOT}"
+            {textwrap.indent(textwrap.dedent(extra_vars), "    ")}
+              tasks:
+                - ansible.builtin.import_tasks: "{ROOT}/tasks/build-go-command.yml"
+                  vars:
+            {textwrap.indent(textwrap.dedent(go_vars), "          ")}
+        """)
+        return ap.play_inputs(self.fx.root, play)
+
+    def test_every_package_the_command_imports_is_an_input(self) -> None:
+        inputs = self._play("go_command_name: tool\n")
+        self.assertEqual(inputs.unresolved, [])
+        for path in (
+            "src-go/cmd/tool/main.go",
+            "src-go/internal/ui/ui.go",
+            "src-go/internal/ui/new_file.go",
+            "src-go/internal/term/term.go",
+            "src-go/internal/blank/blank.go",
+            "src-go/vendor/github.com/x/y/y.go",
+            "src-go/vendor/github.com/x/z/z.go",
+            "src-go/go.mod",
+            "src-go/go.sum",
+            "src-go/vendor/modules.txt",
+        ):
+            self.assertTrue(ap.affects(inputs, path), path)
+        self.assertIn("src-go", inputs.go_modules)
+
+    def test_what_the_command_does_not_build_is_not_an_input(self) -> None:
+        inputs = self._play("go_command_name: tool\n")
+        for path in (
+            "src-go/internal/commented/c.go",
+            "src-go/internal/testonly/t.go",
+            "src-go/internal/ui/ui_test.go",
+            "src-go/internal/ui/sub/sub.go",
+            "src-go/cmd/tool/main_test.go",
+            "src-go/qa/tool.go",
+        ):
+            self.assertFalse(ap.affects(inputs, path), path)
+
+    def test_an_embedded_directory_is_an_input(self) -> None:
+        inputs = self._play("go_command_name: tool\n")
+        self.assertTrue(ap.affects(inputs, "src-go/internal/ui/assets/help.txt"))
+        self.assertTrue(ap.affects(inputs, "src-go/internal/ui/assets/new/more.txt"))
+
+    def test_a_templated_command_name_resolves_through_the_play_vars(self) -> None:
+        """The freeze plays' shape: the task file names `{{ freeze_tool }}`, the play sets it."""
+        inputs = self._play('go_command_name: "{{ tool_name }}"\n', "tool_name: tool\n")
+        self.assertEqual(inputs.unresolved, [])
+        self.assertTrue(ap.affects(inputs, "src-go/internal/term/term.go"))
+
+    def test_a_templated_command_name_nobody_sets_is_reported(self) -> None:
+        inputs = self._play('go_command_name: "{{ tool_name }}"\n')
+        self.assertEqual(len(inputs.unresolved), 1)
+        self.assertIn("tool_name", inputs.unresolved[0])
+
+    def test_a_command_the_module_does_not_have_is_reported(self) -> None:
+        inputs = self._play("go_command_name: missing\n")
+        self.assertEqual(len(inputs.unresolved), 1)
+        self.assertIn("src-go/cmd/missing", inputs.unresolved[0])
+
+    def test_a_pinned_external_module_brings_no_src_go_input(self) -> None:
+        inputs = self._play(
+            "go_command_name: viewer\n"
+            'go_command_module: "github.com/o/viewer/cmd/viewer@{{ viewer_version }}"\n'
+        )
+        self.assertEqual(inputs.unresolved, [])
+        self.assertFalse(ap.affects(inputs, "src-go/internal/ui/ui.go"))
+        self.assertFalse(ap.affects(inputs, "src-go/go.mod"))
+
+    def test_a_module_built_with_no_command_named_is_reported(self) -> None:
+        inputs = self._play("other_var: 1\n")
+        self.assertEqual(len(inputs.unresolved), 1)
+        self.assertIn("go_command_name", inputs.unresolved[0])
+
+
 class TestAllowlist(FixtureCase):
     def test_a_list_of_existing_plays_loads(self) -> None:
         play = self.fx.play("playbooks/imports/play-a.yml", "- hosts: desktop\n")
@@ -455,6 +638,32 @@ class TestRealRepo(unittest.TestCase):
 
     def test_the_claude_play_has_no_unresolved_reference(self) -> None:
         self.assertEqual(ap.play_inputs(REPO_ROOT, CLAUDE_PLAY).unresolved, [])
+
+    def test_a_shared_go_package_change_runs_both_freeze_plays(self) -> None:
+        """Plan 00192 Task 3.6: src-go/internal/ui changed and neither freeze play ran."""
+        report = ap.decide(REPO_ROOT, ["src-go/internal/ui/ui.go"])
+        changed = report.run + report.skipped
+        for play in FREEZE_PLAYS:
+            self.assertIn(play, changed)
+
+    def test_every_go_command_counts_the_packages_go_list_names(self) -> None:
+        """The oracle is the toolchain: `go list -deps` of each command a play builds."""
+        for play in ap.candidate_plays(REPO_ROOT):
+            inputs = ap.play_inputs(REPO_ROOT, play)
+            for command in sorted(inputs.go_commands):
+                for package in _go_list_deps(command):
+                    self.assertIn(package, inputs.go_packages, f"{play}: {command} imports {package}")
+
+    def test_every_play_building_go_names_its_commands(self) -> None:
+        builders = [
+            play for play in ap.candidate_plays(REPO_ROOT)
+            if "tasks/build-go-command.yml" in ap.play_inputs(REPO_ROOT, play).exact
+        ]
+        self.assertGreater(len(builders), 10)
+        for play in builders:
+            inputs = ap.play_inputs(REPO_ROOT, play)
+            self.assertIn("src-go", inputs.go_modules, play)
+            self.assertFalse([u for u in inputs.unresolved if "go_command" in u], play)
 
     def test_every_import_play_parses(self) -> None:
         """Parsing never crashes on a real play. The per-play unresolved counts are what

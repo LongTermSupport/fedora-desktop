@@ -40,6 +40,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 from helpers.self_update import affected_plays as ap
 
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 RULE_ID = "play-input-dropped"
 
 _ROOT = (
@@ -65,7 +66,7 @@ def _reference_path(literal: str) -> str:
 def _accounted(inputs: ap.Inputs, path: str) -> bool:
     if not path:
         return False
-    if path in getattr(inputs, "go_modules", set()):
+    if path in inputs.go_modules:
         return True
     if ap.affects(inputs, path) or ap.affects(inputs, path + "/"):
         return True
@@ -180,9 +181,28 @@ class TestRuleFires(unittest.TestCase):
         """)
         self.assertEqual(dropped(self.root, ap.Inputs(exact={play})), [])
 
+    def test_a_go_module_root_taken_as_its_builds_is_not_a_finding(self) -> None:
+        play = self._play("""
+            - ansible.builtin.command:
+                chdir: "{{ root_dir ~ '/src-go' }}"
+        """)
+        self.assertEqual(dropped(self.root, ap.Inputs(exact={play}, go_modules={"src-go"})), [])
+
     def test_the_message_carries_the_rule_id(self) -> None:
         self.assertIn(f"[{RULE_ID}]", _message("p", ["f:1: x"]))
         self.assertIn(f"CLAUDE/QA.md#{RULE_ID}", _message("p", ["f:1: x"]))
+
+
+class TestNoPlayDropsAReference(unittest.TestCase):
+    """The rule over every host play of this checkout."""
+
+    def test_no_host_play_drops_a_checkout_reference(self) -> None:
+        plays = ap.candidate_plays(REPO_ROOT)
+        self.assertGreater(len(plays), 30)
+        for play in plays:
+            with self.subTest(play=play):
+                findings = dropped(REPO_ROOT, ap.play_inputs(REPO_ROOT, play))
+                self.assertEqual(findings, [], _message(play, findings))
 
 
 if __name__ == "__main__":
