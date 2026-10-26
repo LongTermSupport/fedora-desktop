@@ -68,6 +68,7 @@ gate	qa-tool-pin-converges	scripts/test-qa-tool-pin-converges.bash	QA tool pin c
 gate	ccy-browser-session-guard	scripts/test-agent-browser-session-guard.bash	ccy browser session guard unit tests failed	count
 gate	gh-scope-outside-ssot	scripts/qa-gh-scopes.bash	GitHub scopes named outside vars/github-required-scopes.yml	count
 gate	speech-to-text-rules	scripts/qa-speech-to-text-rules.bash	speech-to-text rules: a model judged present without its weights, or a dropdown label that explains itself	count
+gate	hook-handler-rules	scripts/qa-hook-handler-rules.bash	hook handler rules: code the hooks daemon loads resolves a path against the daemon's working directory	count
 gate	ready-wait-rules	scripts/qa-ready-wait-rules.bash	a ready-wait that ignores its child's exit (Python and bash)	count
 gate	hidden-bindings	scripts/qa-hidden-bindings.bash	an action reachable only by a key, with no visible choice (shell fzf, Python Textual)	detail:HIDDEN-BINDINGS-OK .+
 gate	lxc-attach-file-stream	scripts/qa-lxc-attach-streams.bash	a command reaching lxc-attach with stdin, stdout or stderr on a file, which lxc-attach hands to root	detail:LXC-ATTACH-STREAMS-OK: [0-9]+ shell script[(]s[)] examined, no lxc-attach stream on a file

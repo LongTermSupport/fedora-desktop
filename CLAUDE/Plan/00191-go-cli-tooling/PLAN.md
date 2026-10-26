@@ -3,8 +3,7 @@
 **Status**: In Progress. Everything built is deployed (`play-claude-yolo.yml` last passed on
 the host at F44 cab255ad4; `play-python.yml` at 67033c224). Left for the host agent: Task
 5.1's comparison of `--prevent` and `--export-token` with `CCY_LEGACY=1` (the other flags
-match). Left for workers: Task 3.8's record entries, the `.j2` QA.md line of Task 4.5,
-and Task 5.1's qa-reviewer. Left for the owner: one signature on Task 3.8's record. Launcher
+match). Left for workers: Task 3.8's record entries. Left for the owner: one signature on Task 3.8's record. Launcher
 phases 3 to 5 are deferred by D4/D10 until the owner hits launcher defects or asks; nothing
 waits on that.
 **Created**: 2026-10-13
@@ -662,9 +661,9 @@ today; rewriting them is out of scope.
       is `subagent-reports/261022-regex-group-dbf-report.md`. The rule reads YAML only, so
       `.j2` templates (which unescape) are undefended; no tracked `.j2` uses a regex filter
       today (checked at F44 2adb8df38). Decided as a **coordinator default, changeable by the
-      owner**: the rule is extended to `.j2` when the first regex filter appears in one. Left
-      for a worker: one line in CLAUDE/QA.md under `regex-backref-escape` saying so, so the
-      author of that template is told. Known limits, left by the coordinator's decision after review round 1
+      owner**: the rule is extended to `.j2` when the first regex filter appears in one.
+      CLAUDE/QA.md under `regex-backref-escape` says so, so the author of that template is
+      told (review fixes of Task 5.1). Known limits, left by the coordinator's decision after review round 1
       (`subagent-reports/261022-regex-group-review-round1.md`, F2 to F5), none of which occurs
       in the tree today:
       - the free-form and `args:` forms of debug `var` are not read;
@@ -715,7 +714,13 @@ today; rewriting them is out of scope.
   `CLAUDE_PROJECT_DIR` is refused or ignored. The tests run with the working directory in `/etc`
   (red: 3 failed, the host failure among them; green: 127 passed). `play-python.yml` (with `python3-pytest`) passed on the host at F44 67033c224 (commit
   c159e6626). Host gate: `./scripts/qa-hook-handlers.bash` on the host gave rc 0, 127 passed
-  (bus message `$jiyrj2SUIXLv8eFkQqiLmhG7vAfDWoepH7kDf6d5Ewk`, 2026-10-23).
+  (bus message `$jiyrj2SUIXLv8eFkQqiLmhG7vAfDWoepH7kDf6d5Ewk`, 2026-10-23). The rule first
+  sat in the speech-to-text rules; Task 5.1's review moved it to `.semgrep/hook-handlers.yml`
+  (fixture `.semgrep/hook-handlers.py`), a gate of its own, `scripts/qa-hook-handler-rules.bash`
+  (gate `hook-handler-rules`; `qa-changed` checks `hook-handler-rules-files` and
+  `hook-handler-rules`, SPEC-qa-changed B53), on the `src-go/qa/sttrules` engine with a
+  `HookHandlers` spec. Red: the rule fires on all 9 `ruleid:` lines of its fixture and no `ok:`
+  line; green: 368 Python files, 0 findings, and the speech-to-text gate 404, 0.
 
 ### Phase 5: Review
 
@@ -728,14 +733,21 @@ today; rewriting them is out of scope.
   Task 4.5 asked. Host, 2026-10-23 (`$NIHwpSi3rTN-Z2LSvujaLWtueWfi_dZedKS4rkYtB9M`):
   `--version`, `--help`, `--list-tokens` and `--token-usage` byte-identical to `CCY_LEGACY=1`
   (`--token-usage --json` differs only in `generated_at`); left: `--prevent` and
-  `--export-token NAME`, and the qa-reviewer.
+  `--export-token NAME`.
+  - [x] ✅ qa-reviewer part: it ran again over the work since 7205384c3 and found three
+    defects, all fixed on `plan/00191-review-fixes`: the `.j2` line Task 4.5 owed in
+    CLAUDE/QA.md, Success Criterion 2 unticked though qa-all covers it, and
+    `hook-path-resolved-against-cwd` in the speech-to-text gate (moved, Task 4.6).
 
 ## Success Criteria
 
 - [x] `ccy-teams` on the host is the Go binary, built by the play, and the owner finds it
   works as before or better (owner's host test after meta-deploy: "seems good").
-- [ ] The parity suite and the Go unit tests pass in `qa-all.bash`, with golangci-lint strict
-  and race-detector tests.
+- [x] The parity suite and the Go unit tests pass in `qa-all.bash`, with golangci-lint strict
+  and race-detector tests. `qa-gates.tsv` runs the parity suite as gate `ccy-teams-command`
+  (`scripts/test-ccy-teams-command.bash`) and both Go modules as gate `go`
+  (`scripts/qa-go-qa.bash`, go-qa-ci). go-qa lints with `src-go/.golangci.yml` (`default: all`, strict) and tests with `go test -race -shuffle=on -count=1`. qa-all on F44 at
+  4e355c5f7 passed: `go: coverage passed`, `ccy-teams-command: passed: 383`.
 - [x] `go-qa-ci` exists, tests itself, and this repository's Go QA runs it (Task 3.3; its
   record and suppression checks follow the owner's record, Task 3.8).
 

@@ -21,6 +21,7 @@ var addedAfterPort = []struct{ name, reason string }{
 	{"go-deps", "Plan 00204 D2: src-go may have dependencies, vendored, pinned and allowlisted, and this gate holds them to that"},
 	{"go-vuln", "Plan 00204 D2: govulncheck over src-go's vendored dependencies"},
 	{"hook-handlers", "Plan 00191 Task 4.6: the project hooks-daemon handlers' tests, under the daemon's interpreter"},
+	{"hook-handler-rules", "Plan 00191 Task 5.1: the semgrep rules for code the hooks daemon loads, moved out of the speech-to-text rules into a gate of their own"},
 	{"run-bash-pipx-inject", "Plan 00188: run.bash injects only the missing Ansible dependencies, and its own suite proves it"},
 	{"ccy-token-handoff", "Plan 00191 Task 4.4b: an exported GH_TOKEN handed to the launcher ccy re-runs inside tmux, by a private file, and its own suite proves it"},
 	{"ccy-image-build-lock", "Plan 00216: one ccy image build at a time, raced for real against a fake podman, and ccy --build-lock"},

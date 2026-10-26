@@ -8,7 +8,6 @@
 #   stream-stand-in-not-a-text-stream    a write()-only object handed over as a text stream
 #   completion-published-before-cleanup  a job's end published before its cleanup is done
 #   recorder-killed-leaving-its-files    a recorder killed and the files it leaves kept
-#   hook-path-resolved-against-cwd       a hook handler resolving a path against its cwd
 #
 # The first two came from the same failure: an `auto` model that was never fully
 # downloaded, listed as installed under labels too long to read. The third and fourth came

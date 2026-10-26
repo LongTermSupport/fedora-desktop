@@ -434,6 +434,10 @@ rule file per language, so an extensionless Python script never meets a JavaScri
 owns scope (the `js` and `python` lists of `qa/discovery`, or the named files), the proof that
 every rule has a `ruleid:` line in its language's fixture and matches it, and the refusal to pass
 over a file semgrep did not read. `SPEC-qa-speech-to-text-rules.md` (S1-S17) is the specification.
+The same engine, given its `HookHandlers` spec, is `qa/cmd/qa-hook-handler-rules` and
+`scripts/qa-hook-handler-rules.bash`, the gate for `.semgrep/hook-handlers.yml` (code the hooks
+daemon loads; Python only, proven against `.semgrep/hook-handlers.py`); its real-semgrep tests
+are in the command package.
 
 `qa/helpertests` + `qa/cmd/qa-helper-tests` (same nested module) are `scripts/qa-helper-tests.bash`,
 the helper unit-test gate: the script only builds and runs the command. The stdlib `unittest` runner
