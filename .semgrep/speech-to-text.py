@@ -8,7 +8,6 @@ import shutil
 import sys
 import typing
 from contextlib import redirect_stderr, redirect_stdout
-from pathlib import Path
 from typing import IO, Optional, Protocol, TextIO
 
 
