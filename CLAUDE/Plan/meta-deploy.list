@@ -34,6 +34,8 @@
 # that is not an entry is a fatal error naming its line number.
 
 # Plan 00185 (#60, colour emoji in the terminal): play-fonts.yml makes Noto Color Emoji the emoji
-# fallback after the text fonts and rebuilds the font caches, then acceptance.bash (17 checks).
-# Reopen terminal windows afterwards to see it.
+# fallback after the text fonts and rebuilds the font caches, then acceptance.bash (18 checks).
+# The run now also repairs the system font cache modes: the first run's rebuild left them 0600
+# under the host's umask 0077, so users read stale caches; the play makes them 0644 on every
+# run, and rebuilds under umask 022. Reopen terminal windows afterwards to see it.
 00185-terminal-emoji-glyphs

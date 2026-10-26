@@ -119,10 +119,17 @@ and the hook stays the owner's call.
   Pro, Symbola, Noto Emoji, Noto Color Emoji, DejaVu) under the stock conf.d: without the
   file Symbola and Noto Emoji win, with it Noto Color Emoji, for Source Code Pro too. The
   known cost: a text symbol no font in the family list has, but an unlisted text font has,
-  now comes from the colour font (documented in the file and `docs/playbooks.md`). Open: the
-  host run.
+  now comes from the colour font (documented in the file and `docs/playbooks.md`). The first
+  host run left every system font cache 0600: the handler's `fc-cache -f` ran under the host's
+  umask 0077, so users read their stale per-user caches and checks 3 to 7 and 15 failed. The
+  handler now sets umask 022, and a task makes the cache files 0644 on every run, which
+  repairs that host without the handler firing. The class has a rule, `root-umask` in
+  `qa-ansible` (CLAUDE/QA.md#root-umask), and its sweep fixed the other root tasks that
+  create files users read (dconf update, yq, the VS Code repo file, the claude-devtools clone,
+  the cuDNN and speedtest extractions). Open: the host run.
 - [ ] 🔄 **Task 2.2**: `deploy.bash` (play-fonts.yml, then `acceptance.bash`) and
-  `acceptance.bash` (17 checks: the deployed file, the colour font and its scanned "en", the
+  `acceptance.bash` (18 checks; check 18 is that every system font cache file is readable by
+  every user. The others are the deployed file, the colour font and its scanned "en", the
   single best match for #60's emoji under each generic family and the named monospace text
   font, digits, `#`, `*` and the space kept on the text font, the ordered list, and the same
   for the font Ptyxis is set to, read from its settings, with check marks and the sun kept
