@@ -132,15 +132,15 @@ The owner's rule, CLAUDE/AgentNotes.md "An offline team member never blocks anyt
     removed. The alternative: `restart` also reads the record, but only when the team has no
     running member.
 
-20. **The form of the connect and resume settings.** Default: a word list with placeholders
-    (`{container}`, `{user}`, `{checkout}`, the last being the member's recorded working
-    directory), run with no shell. There is no conversation placeholder, since an LXC member is
-    resumed by none (Decision 13). A shell alias lives only in the owner's interactive shell,
-    so a team that uses one names a script or the alias's expansion. `ccy` itself is such an
-    alias (docs/ccy.md: an alias to `/var/local/claude-yolo/claude-yolo`), so the default
-    resume command is that path with `--continue`, shown to the owner as `ccy --continue`. The
-    alternative: the setting is run by an interactive `bash -ic`, so the alias works as typed,
-    along with everything else the owner's shell start-up does.
+20. **The form of the connect and resume settings.** Default: a command text with
+    placeholders (`{container}`, `{user}`, `{checkout}`, the last being the member's recorded
+    working directory), run in a login interactive shell (`bash -lic`) inside the container as
+    the member's user, so a shell alias resolves as typed. There is no conversation
+    placeholder, since an LXC member is resumed by none (Decision 13). Inside the owner's
+    containers `ccy` is the owner's own alias for a claude wrapper, and `ccy --continue` run
+    there resumes cleanly, so the default resume command is the text `ccy --continue`; a team
+    or seat may configure another. The alternative: a word list run with no shell, where a
+    team that uses an alias names a script or the alias's expansion.
 
 21. **The last-shutdown record's life.** Default: consumed. Each entry is removed once its
     member has been started, or named as gone from the roster. An entry whose start failed, or
@@ -163,33 +163,38 @@ The owner's rule, CLAUDE/AgentNotes.md "An offline team member never blocks anyt
 23. **What an LXC member's `--continue` can take, and where it looks.** `--continue` takes the
     newest conversation in one transcript store, and which store depends on what runs claude:
 
-    - **A member resumed by `ccy`** (the default resume command): ccy is this repository's
-      claude-yolo, which runs claude in its own container at `/workspace` with `/root/.claude`
-      linked to the checkout's `.claude/ccy`. Its store is therefore per checkout,
-      `<working directory>/.claude/ccy/projects/-workspace` (`transcript.Dir("ccy", ...)`,
-      src-go/internal/transcript/transcript.go), whichever user runs it.
+    - **A member resumed by the default `ccy --continue`**: `ccy` there is the owner's alias
+      for a claude wrapper, so which store it reads is a fact to read from a running member,
+      not to assume (the build's first step, SPEC-lxc-connect-and-resume.md section 1). The
+      store kind comes from the `transcripts:` setting, `ccy` (per checkout,
+      `<working directory>/.claude/ccy/projects/-workspace`, `transcript.Dir("ccy", ...)`,
+      src-go/internal/transcript/transcript.go) or `claude` (the user's own); its default is
+      settled by that step.
     - **A `service: true` member**: its unit runs `agent-bus-claude`, which execs `claude`
       directly at the unit's `WorkingDirectory`. Its store is the user's own,
       `<home>/.claude/projects/<escaped directory>` (`transcript.Dir("cc", dir, <home>/.claude)`).
-    - **Any other resume command** names its store kind on the setting (`transcripts: ccy` or
-      `transcripts: claude`); a resume command whose program is neither `ccy`'s path nor
-      `claude` and names none is refused by the declare parsers.
+    - **Any other resume command** names its store kind on the same `transcripts:` setting;
+      one that names none, where the default does not apply, is refused by the declare
+      parsers.
 
     The limits: (a) one (container, user) session is in all its user's teams, so one team's
     resume brings it back in the others, and their resumes find it already running (RS7).
     (b) A conversation run in the same store since the shutdown is the newest and is the one
-    taken: for a ccy store that is any ccy run in that checkout, by any user of the container,
-    the owner's own included; for a user's store, any claude that user ran in that directory.
-    (c) Two LXC members whose stores are one: two users in one container whose entries name
-    one checkout and both resume through ccy share `<checkout>/.claude/ccy`. This is F4, the
-    reason Decision 13 rejects `--continue` for host sessions.
+    taken: for a per-checkout store that is any run in that checkout, by any user of the
+    container, the owner's own included; for a user's store, any claude that user ran in that
+    directory.
+    (c) Two LXC members whose stores are one: when the store is per checkout (`transcripts: ccy`), two users in one container whose entries name one checkout share it. This is F4,
+    the reason Decision 13 rejects `--continue` for host sessions. The declare parser also
+    refuses two entries for one (container, user, team), so two members of a team never
+    share a user's store.
 
     Default for (b): the shutdown records the newest transcript file's name and mtime in that
     store, read-only, and the resume warns, naming the member and the newer file's time, when
     a newer one exists, then resumes with `--continue` as the owner ruled. Default for (c): both
     declare parsers refuse it, naming the two entries and the checkout. The alternatives: for
     (b), such a member is not resumed (named, exit 1, its entry kept) until `resume --member`
-    names it; for (c), it is allowed and warned at each resume as in (b).
+    names it; for (c), it is allowed and warned at each resume as in (b). If step 1's finding
+    is that the store is not per checkout, the shared-checkout refusal does not apply.
 
 24. **A `service: true` member at shutdown and resume.** A service member was never a ccy
     session: its unit runs `agent-bus-claude`, which execs claude with the kit's plugin and

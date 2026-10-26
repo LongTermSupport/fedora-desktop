@@ -14,13 +14,16 @@ opens an ssh session.
 - F1. Today's route into a member is `sudo -n lxc-attach --clear-env` as the member's user
   (`lxcfreeze.Lister.InContainer`), which runs tmux only, on the socket and session
   `agent-bus-claude` (members.py `SERVICE_TMUX`, `winddown.go` `lxcTmux`).
-- F2. `ccy` is a shell alias to `/var/local/claude-yolo/claude-yolo` (docs/ccy.md). Run with no
-  shell, the word `ccy` is not found.
-- F3. ccy runs claude in its own container at `/workspace` with `/root/.claude` linked to the
-  checkout's `.claude/ccy`, so its transcripts are in `<checkout>/.claude/ccy/projects/-workspace`
-  (`src-go/internal/transcript/transcript.go` `Dir("ccy", ...)`), whichever user runs it. A
-  service member's unit runs `agent-bus-claude`, which execs `claude` directly, so its
-  transcripts are in the user's `<home>/.claude/projects/<escaped directory>` (`Dir("cc", ...)`).
+- F2. Inside the owner's LXC containers `ccy` is the owner's own shell alias for a claude
+  wrapper, not this repository's `/var/local/claude-yolo/claude-yolo`. Run with no shell, the
+  word `ccy` is not found; in a login interactive shell it resolves. The owner has ruled that
+  `ccy --continue` run inside the container resumes cleanly.
+- F3. Which transcript store that wrapper's claude reads is not known here, so it is a fact to
+  read from a running member (the build's first step), not assumed. The two forms are
+  `<checkout>/.claude/ccy/projects/-workspace` (`src-go/internal/transcript/transcript.go`
+  `Dir("ccy", ...)`, per checkout) and the user's `<home>/.claude/projects/<escaped directory>`
+  (`Dir("cc", ...)`). A service member's unit runs `agent-bus-claude`, which execs `claude`
+  directly, so its store is always the user's own.
 - F4. `agent-bus-claude` (files/opt/claude-yolo/optional/agent-bus/) has 56 code lines against
   the bash limit of 60 and is measured (it is not on `scripts/bash-limits.allowlist`). It
   resolves its config home (`XDG_CONFIG_HOME`, else `$HOME/.config`) before it sources the
@@ -33,18 +36,23 @@ opens an ssh session.
 - F7. Plan 00205 (ssh members; research done, nothing built) owns ssh as a provisioning route,
   with ssh-config `Host` aliases as destinations.
 
-To confirm as the build's first step, in a running member as its user: that `ccy` there is this
-repository's claude-yolo (F2, F3). If it is not, K2 and Decision 23 are revised before the build.
+The build's first step, in a running member and through the team's connect command: confirm
+that `ccy` resolves in a login interactive shell as the member's user and that `ccy --continue`
+resumes (F2), and read which transcript store it reads (F3), which settles the default of
+`transcripts:` (K1, Decision 23). If `ccy` does not resolve, K2 and Decision 20 are revised
+before the build.
 
 ## 2. Expectations
 
 - K1. **The settings.** A `connect` and a `resume` setting on the `agent_bus_teams` entry,
   overridable on each `agent_bus_lxc_members` entry, in Decision 20's form, and an optional
-  `transcripts: ccy|claude` (Decision 23). Both declare parsers, `helpers/agent_bus_lxc/members.py`
+  `transcripts: ccy|claude` (Decision 23), whose default is `claude` (the user's own store)
+  until the first step (section 1) shows the wrapper keeps a per-checkout one. Both declare parsers, `helpers/agent_bus_lxc/members.py`
   (the unit) and the parity fixtures change together (F5).
-- K2. **The defaults.** The connect is today's route (F1). The resume command is
-  `/var/local/claude-yolo/claude-yolo --continue`, the expansion of the `ccy` alias (F2,
-  Decision 20), shown to the owner as `ccy --continue`. No conversation id is passed to claude
+- K2. **The defaults.** The connect is today's route (F1). The resume command is the text
+  `ccy --continue`, run in a login interactive shell (`bash -lic`) inside the container as the
+  member's user so the alias resolves (F2, Decision 20), unless the team or seat configures
+  another. No conversation id is passed to claude
   in the container; the newest transcript's name the shutdown records (LS8) is only compared,
   never resumed by.
 - K3. **A member without a service** is resumed by the connect, a `cd` into its recorded
@@ -72,14 +80,16 @@ repository's claude-yolo (F2, F3). If it is not, K2 and Decision 23 are revised 
   so an apply that starts the unit in between also continues. If the start fails, the resume
   removes the flag it left, and the entry is kept (exit 1).
 - K8. **The transcript check** (Decision 23 (b), LS8, RS9). The store's path comes from
-  `transcript.Dir`: the "ccy" form with the working directory for a member resumed by ccy, the
+  `transcript.Dir`: the "ccy" form with the working directory when `transcripts: ccy`, the
   "cc" form with the user's `<home>/.claude` for a service member or `transcripts: claude`, so
   the escaping rule is never copied. The folder is listed through the user runner, read-only,
   and the newest is chosen by `transcript.Newest`'s rule (the newest `*.jsonl` directly in the
   folder, ties by name), factored so the Go rule takes a listing rather than a local directory.
-- K9. **A shared ccy store is refused** (Decision 23 (c)): both parsers refuse two entries of
-  different users in one container that name one checkout when both resume through ccy, naming
-  the two entries and the checkout.
+- K9. **Shared stores are refused** (Decision 23 (c)): both parsers refuse two entries for one
+  (container, user, team), and two entries of different users in one container that name one
+  checkout when the store is per checkout (`transcripts: ccy`), naming the two entries and the
+  checkout. The second refusal applies only if the first step finds the default store is per
+  checkout.
 - K10. **The runners.** `InContainer` stays tmux only. A new `lxcfreeze` runner runs a named
   program inside the container through the same `sudo -n lxc-attach --clear-env`, each program
   on an allow list:

@@ -303,8 +303,8 @@ team at a time, under a lock in the owner's runtime directory (CR4 to CR8).
   section 6, RS1-RS12; Decisions 18, 19 and 21. ccy-teams only: no CCY or image change.
 - [ ] ⬜ **Task 3.18** (owner request; extends 3.15 and 3.17; cross-reference Plan 00205): how an
   LXC member is reached and resumed. `connect` and `resume` settings per team with a
-  per-member override (defaults: today's `sudo lxc-attach` route, and `ccy --continue` named by
-  ccy's path, since `ccy` is an alias); a non-service member started on the `agent-bus-claude`
+  per-member override (defaults: today's `sudo lxc-attach` route, and the text `ccy --continue`
+  run in a login interactive shell in the container so the owner's `ccy` alias resolves); a non-service member started on the `agent-bus-claude`
   tmux socket; a service member through its unit, with a one-shot `continue-once` flag read by
   `agent-bus-claude`; the transcript store each member's `--continue` reads; Attach on an LXC
   member row. Both declare parsers, members.py and the parity fixtures change together;
@@ -432,16 +432,19 @@ Each runs on its default until the owner decides.
     one is shown offline and the run exits 0. The alternative: nothing more is started.
 19. **One verb or two**: two; `resume` reads the record, `restart` never does. The
     alternative: `restart` reads it when nothing of the team runs.
-20. **The connect and resume settings' form**: a word list with placeholders, run with no
-    shell, so `ccy` is named by its path. The alternative: run by `bash -ic`.
+20. **The connect and resume settings' form**: a command text with placeholders, run by a
+    login interactive shell in the container, so the owner's `ccy` alias resolves. The
+    alternative: a word list run with no shell.
 21. **The last-shutdown record's life**: consumed entry by entry; failed, offline and
     started-fresh entries kept. The alternative: kept whole until the next shutdown.
 22. **The coordinator's start text**: the full wording in DECISIONS-lifecycle.md. The
     alternative: a shorter text that points at the pingbus skill.
-23. **What an LXC member's `--continue` can take**: the store is per checkout for ccy and the
-    user's own for a service member; the resume warns on a newer conversation, and a ccy store
-    two users would share is refused. The alternative: such a member is not resumed until
-    `resume --member` names it, and a shared store is allowed and warned.
+23. **What an LXC member's `--continue` can take**: the store comes from a `transcripts:`
+    setting (default settled by the build's first step) and is the user's own for a service
+    member; the resume warns on a newer conversation; two entries for one (container, user,
+    team) are refused, and so is a per-checkout store two users would share. The alternative:
+    such a member is not resumed until `resume --member` names it, and a shared store is
+    allowed and warned.
 24. **A `service: true` member**: held stopped by a persistent drop-in an apply honours, and
     resumed through its unit with a one-shot `--continue`, never by the connect, `cd` and
     resume command. The alternative: converted to a non-service member at shutdown, or the
