@@ -1391,7 +1391,7 @@ product prints inline, name it as a constant in the product, use it there, and a
 ### chooser-skip-condition-text
 
 **What it is.** A sentence in `docs/`, an active plan's markdown (not `JOURNAL/` or
-`subagent-reports/`), the launchers or a Go usage text that says a team is taken or chosen
+`subagent-reports/`), the launchers, a Go usage text or a Go comment that says a team is taken or chosen
 without a list (or alone), names covering or matching the checkout, and does not say the
 machine has one team. Run by `tests/helpers/agent_bus/test_chooser_texts.py` (in
 `qa-helper-tests.bash`), which proves the rule against its fixtures first.

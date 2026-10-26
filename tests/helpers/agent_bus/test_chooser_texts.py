@@ -38,6 +38,7 @@ SCOPE = (
     "docs/**/*.md",
     "CLAUDE/Plan/[0-9]*/**/*.md",
     "src-go/**/usage*.txt",
+    "src-go/**/*.go",
     "files/var/local/claude-yolo/claude-yolo",
     "files/var/local/claude-code/*.bash",
 )
@@ -95,10 +96,22 @@ def judged_files(root: pathlib.Path) -> list[pathlib.Path]:
     return sorted(files)
 
 
+def go_comments(text: str) -> str:
+    """A Go file's `//` comments, each run of comment lines a paragraph; code lines are blank."""
+    lines = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        lines.append(stripped[2:] if stripped.startswith("//") else "")
+    return "\n".join(lines)
+
+
 def findings(root: pathlib.Path) -> list[str]:
     out = []
     for path in judged_files(root):
-        for s in findings_in(path.read_text(encoding="utf-8")):
+        text = path.read_text(encoding="utf-8")
+        if path.suffix == ".go":
+            text = go_comments(text)
+        for s in findings_in(text):
             out.append(f"{path.relative_to(root)}: {RULE_ID}: {s}")
     return out
 
@@ -132,6 +145,11 @@ class RuleFixtures(unittest.TestCase):
         ):
             with self.subTest(text=text):
                 self.assertEqual(findings_in(text), [])
+
+    def test_a_go_file_is_judged_by_its_comments(self) -> None:
+        go = '// One team, covering the checkout: taken without a list.\nfunc TestX() {\n\ts := "a team"\n}\n'
+        self.assertEqual(findings_in(go_comments(go)), ["One team, covering the checkout: taken without a list."])
+        self.assertEqual(findings_in(go_comments('x := "covering team taken without a list."\n')), [])
 
     def test_history_is_not_judged(self) -> None:
         judged = {p.relative_to(REPO_ROOT).as_posix() for p in judged_files(REPO_ROOT)}
