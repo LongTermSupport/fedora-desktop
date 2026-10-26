@@ -422,8 +422,14 @@ are too, by the same route.
   (`internal/teams/hot`). Host: `play-claude-yolo.yml` (new `ccy-teams`), then in tmux a plain
   `ccy` with Quick Launch's saved team shows the block above Claude's screen; if it does not, the
   pane is cleared after the launcher prints it (Claude Code's start), which this code cannot see.
-- [ ] ⬜ **Task 11.3**: `ccy-teams lxc-add` accepts `root` as the agent's user at the question;
-  check Task 9.1's intent (a bad user is refused) and refuse it there if so.
+- [x] ✅ **Task 11.3**: `ccy-teams lxc-add` accepted `root` as the agent's user at the question.
+  Task 9.1's intent (a bad user is refused) and the docs (an ordinary user, no sudo; only uid
+  1000 and up are suggested) say root is bad, and the play's rule only checked the name's shape.
+  `members.py` now refuses `root` (`ROOT_USER_REFUSAL`, with what to do), so `declare.py lxc-check` gives 64 and the question asks again; the play and a hand-written entry are refused
+  the same way, and the Go reader (`internal/bus/declare`) holds the same words, pinned to
+  members.py by a test. Tests first (Python, Go reader, lxcadd re-prompt). A user of another name
+  with uid 0 is not caught (only names are judged). Host: `play-claude-yolo.yml` (new
+  `ccy-teams`), then `ccy-teams lxc-add <team>` answering `root` re-prompts.
 - [ ] ⬜ **Task 11.4**: `ccy-teams remove` leaves the team's `agent_bus_element_teams` entry and
   its Element launcher in the app menu: `play-agent-bus-element.yml` removes no undeclared
   profile. Fix in IaC.

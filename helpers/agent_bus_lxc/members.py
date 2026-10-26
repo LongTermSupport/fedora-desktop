@@ -117,6 +117,10 @@ SERVICE_TMUX = "agent-bus-claude"
 _UNIT_VALUE_RE = re.compile(r"/[A-Za-z0-9._/@+-]*")
 _CONTAINER_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}")
 _USER_RE = re.compile(r"[a-z_][a-z0-9_-]{0,31}")
+#: The agent runs as an ordinary user with no sudo (docs/agent-bus-lxc-members.md), never as the
+#: container's root, which could change the kit, the bundles and every other user's files.
+ROOT_USER_REFUSAL = ("user must not be root: the agent runs as an ordinary user of the container, "
+                     "with no sudo; make one there (useradd -m agent) and name it")
 _ENV_VALUE = r"[A-Za-z0-9,._-]*"
 _SUGGEST_RE = re.compile(r"--repo=(\S+) --host=(\S+) --type=(\S+)")
 
@@ -442,6 +446,8 @@ def _parse_entry(position: int, entry: object) -> Member:
         raise MemberError(f"{where}: container must be an LXC container name")
     if not isinstance(user, str) or not _USER_RE.fullmatch(user):
         raise MemberError(f"{where}: user must be a user name")
+    if user == "root":
+        raise MemberError(f"{where}: {ROOT_USER_REFUSAL}")
     host = entry.get("host")
     if host is not None:
         if not isinstance(host, str):

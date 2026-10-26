@@ -62,8 +62,8 @@ Notes on the table:
 - The play reaches into the container with `lxc-attach -n <container> --clear-env`, as root
   on the desktop, so the container must be one the desktop's `lxc-*` tools can see. It does
   not use SSH, and it needs no network route from the desktop into the container.
-- The agent user needs no password and no sudo. It must be a real login-style account with a
-  home directory; the bundle goes to `~/.config/pingbus/<team>/`.
+- The agent user needs no password and no sudo, and is never `root` (an entry or an answer
+  naming `root` is refused). It must be a real login-style account with a home directory; the bundle goes to `~/.config/pingbus/<team>/`.
 - gh's login may be a stored login or `GH_TOKEN`/`GITHUB_TOKEN` in
   `~/.config/pingbus/env`. The play reads that file (when it exists) before it checks gh.
 - Python is the only language runtime the member kit needs. The play installs the kit as

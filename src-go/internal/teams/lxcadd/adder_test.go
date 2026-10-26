@@ -618,6 +618,29 @@ func TestATakeoverWhoseEntryCannotBeWrittenPutsTheCoordinatorBack(t *testing.T) 
 	}
 }
 
+// Plan 00177 Task 11.3: root typed at the user question is refused by declare.py's lxc-check
+// (64, members.py ROOT_USER_REFUSAL) and asked again; the add names the user typed next.
+func TestRootAtTheUserQuestionIsRefusedAndAskedAgain(t *testing.T) {
+	r := newRig(t)
+	r.lxc.users = []string{"agent"}
+	r.answers(choose("container-a"), choose("root"), choose("agent"), choose("worker"), "YES")
+	r.Fake.OnFunc(strings.Fields(r.DeclarePrefix("lxc-check")), func(c execx.Cmd) (execx.Result, error) {
+		if slices.Contains(c.Args, "root") {
+			return execx.Result{ExitCode: 64, Stderr: []byte("declare: user must not be root: the agent runs as an ordinary user of the container\n")}, nil
+		}
+		return execx.Result{}, nil
+	})
+	if code := r.run("alpha"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
+	}
+	if !strings.Contains(r.ErrOut.String(), "user must not be root: the agent runs as an ordinary user of the container. Try again.") {
+		t.Fatalf("stderr:\n%s", r.ErrOut.String())
+	}
+	if !strings.Contains(r.addLine(), "--user agent") {
+		t.Fatalf("add %q", r.addLine())
+	}
+}
+
 func TestTheUserIsSuggestedFromTheContainerAndAskedAgainWhenRefused(t *testing.T) {
 	r := newRig(t)
 	r.lxc.users = []string{"agent", "other"}

@@ -22,6 +22,11 @@ const (
 	repoMax         = 48
 	descriptionMax  = 120
 	maxIntDigits    = 4300
+	// rootUserRefusal is helpers/agent_bus_lxc/members.py ROOT_USER_REFUSAL: an LXC member's
+	// agent runs as an ordinary user with no sudo, never as the container's root.
+	rootUserRefusal = "user must not be root: the agent runs as an ordinary user of the container, " +
+		"with no sudo; make one there (useradd -m agent) and name it"
+	rootUser = "root"
 )
 
 func whole(pattern string) *regexp.Regexp { return regexp.MustCompile(`^(?:` + pattern + `)$`) }
