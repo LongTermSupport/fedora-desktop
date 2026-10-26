@@ -263,3 +263,32 @@ Draft, as section 5. Decisions 14 to 17 and 21 of
   record already written stays; an LXC member not ended has its hold removed (LS6).
 - TW13. Plan 00201's SPEC-shutdown.md carries a line pointing here, so SD10 to SD14 and this
   mode do not drift.
+
+## 7. A compaction before the shutdown (Task 3.20, draft expectations)
+
+The owner's request: compact each session just before it is shut down, so the next day's
+resume does not reload a large conversation into a cold prompt cache. A compaction run while
+the cache is warm costs a fraction of one run after a restore, which is what `ccy-sessions set-going` does today (Plan 00135 Task 8.2: `/compact` as the first input when the context is
+at or above the floor). Draft, as section 5.
+
+- WC1. Nothing new is needed upstream. The typing is 3.14's typed path into the member's pane
+  at an idle moment, the same one `set-going` uses; a compaction's end is the transcript's
+  `compact_boundary` entry, which `src-go/internal/transcript` already reads; and the
+  hooks-daemon supervisor stands aside for a typed `/compact` (it recognises one and does not
+  stack its own on top).
+- WC2. After the wind-down instruction has been answered (or at the inner deadline, TW1), each
+  open session whose context is at or above `set-going`'s floor is typed `/compact` followed by
+  a fixed instruction: it is being wound down, should keep what it needs to resume the work
+  another time, and should drop the rest. A session below the floor is not compacted.
+- WC3. The shutdown waits for that session's `compact_boundary`, bounded by the outer window
+  (TW1, TW3): a compaction not finished by then is reported, and the session is forced as TW11
+  says. A session busy at the deadline is not compacted: TW3 interrupts it as before.
+- WC4. Coordinator first, as TW2, then the others; compactions run one session at a time
+  unless the window would not hold them, so the host is not loaded by several at once.
+- WC5. A plain `ccy-teams shutdown` (no wind-down) does not compact unless asked
+  (`--compact`), since it is the quick path.
+- WC6. On resume, a compacted session is below the floor, so `set-going` types `continue`
+  and no cold `/compact` is spent.
+- WC7. A member with no pane the typed path can reach (none today: ccy and cc sessions are in
+  tmux) is named as not compacted; reaching one would need a hooks-daemon supervisor request,
+  which is out of scope until such a member exists.
