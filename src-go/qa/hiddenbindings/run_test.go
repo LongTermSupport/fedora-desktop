@@ -15,10 +15,18 @@ import (
 )
 
 const (
-	goodShFixture = "#!/usr/bin/env bash\nfzf --bind=q:abort\nfzf --expect=ctrl-n # finding\n"
-	goodPyFixture = "from textual.app import App\nclass A(App):\n    BINDINGS = [('d', 'download')]  # finding\n"
-	cleanScript   = "#!/usr/bin/env bash\nfzf --bind=q:abort\n"
-	keyScript     = "#!/usr/bin/env bash\nfzf --bind='ctrl-a:become(x)'\n"
+	goodShFixture  = "#!/usr/bin/env bash\nfzf --bind=q:abort\nfzf --expect=ctrl-n # finding\n"
+	goodPyFixture  = "from textual.app import App\nclass A(App):\n    BINDINGS = [('d', 'download')]  # finding\n"
+	cleanScript    = "#!/usr/bin/env bash\nfzf --bind=q:abort " + escBinds + "\n"
+	goodEscFixture = "#!/usr/bin/env bash\nfzf " + escBinds + "\nfzf --bind=q:abort # finding\n"
+	// escBinds binds every Esc-joined key to abort (project_esc_joined).
+	escBinds = "--bind=alt-up:abort,alt-down:abort,alt-left:abort,alt-right:abort,alt-enter:abort,alt-space:abort,alt-bs:abort," +
+		"alt-a:abort,alt-b:abort,alt-c:abort,alt-d:abort,alt-e:abort,alt-f:abort,alt-g:abort,alt-h:abort,alt-i:abort,alt-j:abort,alt-k:abort,alt-l:abort,alt-m:abort," +
+		"alt-n:abort,alt-o:abort,alt-p:abort,alt-q:abort,alt-r:abort,alt-s:abort,alt-t:abort,alt-u:abort,alt-v:abort,alt-w:abort,alt-x:abort,alt-y:abort,alt-z:abort," +
+		"ctrl-alt-a:abort,ctrl-alt-b:abort,ctrl-alt-c:abort,ctrl-alt-d:abort,ctrl-alt-e:abort,ctrl-alt-f:abort,ctrl-alt-g:abort,ctrl-alt-h:abort,ctrl-alt-i:abort,ctrl-alt-j:abort,ctrl-alt-k:abort,ctrl-alt-l:abort,ctrl-alt-m:abort," +
+		"ctrl-alt-n:abort,ctrl-alt-o:abort,ctrl-alt-p:abort,ctrl-alt-q:abort,ctrl-alt-r:abort,ctrl-alt-s:abort,ctrl-alt-t:abort,ctrl-alt-u:abort,ctrl-alt-v:abort,ctrl-alt-w:abort,ctrl-alt-x:abort,ctrl-alt-y:abort,ctrl-alt-z:abort," +
+		"alt-0:abort,alt-1:abort,alt-2:abort,alt-3:abort,alt-4:abort,alt-5:abort,alt-6:abort,alt-7:abort,alt-8:abort,alt-9:abort"
+	keyScript = "#!/usr/bin/env bash\nfzf --bind='ctrl-a:become(x)'\n"
 )
 
 // fakeRunner answers python3 from pyAnswer (given the files handed over) and runs the real
@@ -72,6 +80,7 @@ func newWorld(t *testing.T) *world {
 	t.Helper()
 	w := &world{t: t, root: t.TempDir(), fake: &fakeRunner{pyAnswer: helperAnswer(t)}}
 	w.write(shFixture, goodShFixture)
+	w.write(escFixture, goodEscFixture)
 	w.write(pyFixture, goodPyFixture)
 	w.write("scripts/qa-trees.tsv", "shell\t.git\npython\t.git\n")
 	return w
@@ -130,7 +139,10 @@ func TestFindingsInBothLanguagesFail(t *testing.T) {
 			t.Errorf("stdout %q lacks %q", out, want)
 		}
 	}
-	if !strings.Contains(w.stderr.String(), "2 action(s) reachable only by a key") {
+	if !strings.Contains(out, "bin/tool.bash:2: fzf without the Esc-joined bindings") {
+		t.Errorf("stdout %q lacks the Esc-joined finding", out)
+	}
+	if !strings.Contains(w.stderr.String(), "3 finding(s): an action reachable only by a key") {
 		t.Errorf("stderr %q", w.stderr.String())
 	}
 }
@@ -168,6 +180,14 @@ func TestAShellFixtureTheRuleMissesFailsTheRun(t *testing.T) {
 	}
 }
 
+func TestAnEscFixtureTheRuleMissesFailsTheRun(t *testing.T) {
+	w := newWorld(t)
+	w.write(escFixture, cleanScript+"printf x # finding\n")
+	if code := w.run("x.bash"); code != ExitFailed || !strings.Contains(w.stderr.String(), "failed its fixture "+escFixture) {
+		t.Fatalf("exit %d, stderr %q", code, w.stderr.String())
+	}
+}
+
 func TestAPythonFixtureTheRuleMissesFailsTheRun(t *testing.T) {
 	w := newWorld(t)
 	w.write(pyFixture, "x = 1  # finding\n")
@@ -191,6 +211,12 @@ func TestCannotRun(t *testing.T) {
 	cases := map[string]func(w *world) []string{
 		"missing fixture": func(w *world) []string {
 			if err := os.Remove(filepath.Join(w.root, shFixture)); err != nil {
+				t.Fatal(err)
+			}
+			return []string{"a.bash"}
+		},
+		"missing Esc fixture": func(w *world) []string {
+			if err := os.Remove(filepath.Join(w.root, escFixture)); err != nil {
 				t.Fatal(err)
 			}
 			return []string{"a.bash"}

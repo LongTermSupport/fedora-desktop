@@ -140,6 +140,20 @@ func checkCmdLiteral(pass *analysis.Pass, lit *ast.CompositeLit, ex excuse) {
 	if !isCmdType(pass.TypesInfo.TypeOf(lit)) {
 		return
 	}
+	if name, args := cmdNameArgs(lit); name != nil {
+		checkProgram(pass, name, args, true, ex)
+	}
+}
+
+// The runner's Cmd fields the rules read.
+const (
+	cmdNameField = "Name"
+	cmdArgsField = "Args"
+)
+
+// cmdNameArgs is the Name and Args a Cmd literal sets (nil when unset); an unkeyed literal is
+// Name, Args, ...
+func cmdNameArgs(lit *ast.CompositeLit) (ast.Expr, ast.Expr) {
 	var name, args ast.Expr
 	for i, elt := range lit.Elts {
 		switch e := elt.(type) {
@@ -149,12 +163,12 @@ func checkCmdLiteral(pass *analysis.Pass, lit *ast.CompositeLit, ex excuse) {
 				continue
 			}
 			switch key.Name {
-			case "Name":
+			case cmdNameField:
 				name = e.Value
-			case "Args":
+			case cmdArgsField:
 				args = e.Value
 			}
-		default: // an unkeyed literal is Name, Args, ...
+		default:
 			switch i {
 			case 0:
 				name = e
@@ -163,9 +177,7 @@ func checkCmdLiteral(pass *analysis.Pass, lit *ast.CompositeLit, ex excuse) {
 			}
 		}
 	}
-	if name != nil {
-		checkProgram(pass, name, args, true, ex)
-	}
+	return name, args
 }
 
 func checkNameAssign(pass *analysis.Pass, as *ast.AssignStmt, ex excuse) {
@@ -174,7 +186,7 @@ func checkNameAssign(pass *analysis.Pass, as *ast.AssignStmt, ex excuse) {
 	}
 	for i, lhs := range as.Lhs {
 		sel, ok := lhs.(*ast.SelectorExpr)
-		if !ok || sel.Sel.Name != "Name" || !isCmdType(pass.TypesInfo.TypeOf(sel.X)) {
+		if !ok || sel.Sel.Name != cmdNameField || !isCmdType(pass.TypesInfo.TypeOf(sel.X)) {
 			continue
 		}
 		checkProgram(pass, as.Rhs[i], nil, false, ex)
