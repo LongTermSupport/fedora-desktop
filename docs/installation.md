@@ -99,9 +99,16 @@ programming tools, open a terminal and run:
 It asks for your login password (more than once: that is normal), then works on its own.
 
 - **No accounts needed.** No GitHub account, no SSH key, no email address, no vault
-  password to choose: one is made at random and stays on this computer.
+  password to choose: one is made at random and stays on this computer. Some apps are
+  downloaded from public GitHub pages, which needs no account.
 - **Left out:** programming languages and tools, containers, Claude Code, Slack and the
-  other developer plays. Each ends itself straight away on this kind of install.
+  other developer plays. Each ends itself straight away on this kind of install. One
+  exception: Go is installed, because the installer itself is a Go program built on the
+  computer, and some of the everyday tools are built with it too. It is the installer's
+  toolchain, not a language offered to you.
+- **If something fails**, the error is in the output on screen (nothing is saved to a
+  file). Fix what it says and run the same command again, or report it at the project's
+  [issues page](https://github.com/LongTermSupport/fedora-desktop/issues).
 - **At the end** it lists the everyday apps you can add, such as Qobuz, photography and
   video editing, VPNs and graphics drivers. Type their numbers (for example `1 4`), or
   press Enter for none. Restart the computer when it says it has finished.
@@ -112,7 +119,8 @@ It asks for your login password (more than once: that is normal), then works on 
   and the vault password beside it in `~/Projects/fedora-desktop`). Nothing is backed up
   anywhere else.
 
-On a computer already set up as a developer install, `--consumer` refuses to run; the design is in [Plan 00228](../CLAUDE/Plan/00228-consumer-install-without-github/PLAN.md).
+On a computer already set up as a developer install, `--consumer` refuses before it changes
+anything; the design is in [Plan 00228](../CLAUDE/Plan/00228-consumer-install-without-github/PLAN.md).
 
 ## Manual Installation
 

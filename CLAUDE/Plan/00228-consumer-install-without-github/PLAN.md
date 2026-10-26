@@ -27,8 +27,11 @@ full list of GitHub touchpoints and the play-by-play classification, is in
 
 ## Goals
 
-- A consumer install run through `run.bash`, attended or headless, that needs no GitHub
-  account and never calls `gh`, `ssh-keygen` or the GitHub API.
+- An attended consumer install, `./run.bash --consumer`, that needs no GitHub account:
+  it never runs `gh` or `ssh-keygen` and never makes an authenticated GitHub call.
+  Unauthenticated public downloads from GitHub are fine (the repository itself, Galaxy's
+  role clone, and the release lookups of the Qobuz, photography and DisplayLink plays).
+  A headless consumer run is refused.
 - The repository is fetched and updated anonymously over HTTPS, and stays HTTPS on every
   re-run.
 - Only the consumer and shared plays run; developer-only plays end themselves with a
@@ -73,10 +76,11 @@ asserted in many plays; the desktop profile grants `NOPASSWD: ALL` sudo.
 
 ## Design
 
-**Choosing the audience.** `run.bash --consumer` (attended; the README one-liner passes it
-as `(source <(curl …) --consumer)`) or `RUN_BASH_INSTALL_AUDIENCE=consumer` (headless). The
-first run writes `install_audience: consumer` into `localhost.yml`; later runs read it from
-there, so an update needs no flag. A flag that contradicts the file fails fast (Decision 6).
+**Choosing the audience.** `./run.bash --consumer` (the docs' one-liner passes it as
+`(source <(curl …) --consumer)`); there is no headless form, and `--headless --consumer` is
+refused. The first run writes `install_audience: consumer` into `localhost.yml`; a later
+plain `./run.bash` or `--optional-only` reads it from there, so an update needs no flag.
+`--consumer` on a developer box is refused before run.bash changes anything (Decision 6).
 Plays read `install_audience` with a `developer` default from
 `environment/localhost/group_vars/desktop.yml`, so every existing machine is unchanged.
 
@@ -87,18 +91,20 @@ shared guard ends a `developer` play on a consumer box with a message naming why
 tasks on `install_audience == 'developer'` inside the play. A QA gate refuses a play with no
 `audience` declared.
 
-**run.bash.** The headless `HL_GITHUB_ACCOUNTS == none` checks become one predicate meaning
-"no GitHub on this run", true for headless `none` and for any consumer run. Every GitHub
-step in the research doc's section 2 list hangs off it. A consumer run does not prompt
-for an email address, does not install `golang` in the bootstrap, and does not offer to file
-a GitHub issue on failure; it prints the run log path and the public issues URL instead.
-Profile resolution and its contradiction checks go into a Go command if they do not fit the
-ratchet (Decision 10).
+**run.bash hands over to Go.** On a consumer run, run.bash installs git and Go, clones or
+pulls the checkout over HTTPS, and execs `scripts/consumer-install.bash`, which builds and
+runs the Go command `consumer-install` (`src-go/internal/consumer`, Decision 10). Go is
+therefore installed on every consumer box: it is the installer's own build toolchain (and
+`play-golang.yml` is `audience: all` because shared plays build Go helpers), not a
+developer language offered to the user. None of run.bash's GitHub steps run on that path.
+A single play, `--changed` and `--rerun` stay with run.bash's own play runner, which on a
+consumer box never offers to file a GitHub issue: it says the log is the output on screen
+and gives the public issues URL.
 
 **Vault and secrets.** A consumer `localhost.yml` holds no `!vault` values: identity
 (`user_login`, `user_name` from the passwd entry), `install_audience: consumer`,
 `github_accounts: {}`. `ansible.cfg` still needs a readable `vault-pass.secret`, so
-`run.bash` generates a random one with no prompt, mode 0600, and never asks for it again
+`consumer-install` generates a random one with no prompt, mode 0600, and never asks for it again
 (Decision 3). There is no config repo, so `localhost.yml` lives only on the machine; the
 docs say so and say what is lost if the disk is (Decision 7).
 
@@ -149,8 +155,14 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   including a test over this checkout's real optional plays.
 - [x] ✅ **Task 2.3**: `scripts/test-run-bash-consumer.bash` drives the real run.bash under
   stubs: `--consumer` hands over with `--optional-only=false`, a consumer box hands over
-  with no flag, a developer box and `--changed` take the developer path, `--headless --consumer` is refused, and the real wrapper builds the Go command. The nine existing
-  `scripts/test-run-bash-*.bash` suites pass unchanged.
+  with no flag, a developer box takes the developer path, `--consumer` on a developer box
+  is refused with nothing run, a failed single play and `--changed` on a consumer box say
+  where the log is and never offer a GitHub issue or reach `gh` (a developer box still
+  offers it), `--headless --consumer` is refused, and the real wrapper builds the Go
+  command. The nine existing `scripts/test-run-bash-*.bash` suites pass unchanged.
+- [x] ✅ **Task 2.5**: review round 1 fixed
+  ([subagent-reports/261026-review-fixes.md](subagent-reports/261026-review-fixes.md)); the
+  audience gate also requires the guard to be the first task the play runs.
 - [x] ✅ **Task 2.4**: `RUN_BASH_VERSION` 1.33.0 and its changelog entry.
 
 ### Phase 3: VM lab acceptance
@@ -160,8 +172,9 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   `./run.bash --consumer` (the consumer path refuses headless, so the lab needs a pty
   driver for it), plus its guest checker `files/home/.local/share/vmtest/guest-acceptance-desktop-consumer.bash`.
   - Acceptance: the checker asserts no `~/.ssh/id`, no `gh` auth state, origin is HTTPS,
-    no `NOPASSWD` block, the consumer apps present, the developer tools (Go, Node, Claude
-    Code, ccy, VS Code, LXC, Podman) absent, and a second `run.bash` run changes nothing;
+    no `NOPASSWD` block, the consumer apps present, Go present (the installer's own build
+    toolchain, so it is expected), the developer tools (Node, Claude Code, ccy, VS Code,
+    LXC, Podman) absent, and a second `run.bash` run changes nothing;
     `qa-vmtest-manifest.bash` passes.
 - [ ] ⬜ **Task 3.2**: Plan-local `deploy.bash` and `acceptance.bash` (on `_planlib.inc.bash`)
   that deploy the lab change and run `desktop-consumer-install`, `desktop-fresh-install` and
@@ -184,8 +197,8 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   the bootstrap's shape.
 - [ ] ⬜ **Task 6.2**: Gate the developer parts of mixed plays on a consumer box: linger
   (`play-systemd-user-tweaks.yml`) and any developer-only GNOME extension.
-- [ ] ⬜ **Task 6.3**: A consumer `--changed` path (today `--changed` on a consumer box runs
-  run.bash's own, GitHub-free, play runner).
+- [ ] ⬜ **Task 6.3**: A consumer `--changed` path in Go (today `--changed` on a consumer
+  box runs run.bash's own play runner, which offers no GitHub issue there).
 - [ ] ⬜ **Task 6.4**: A consumer choice in the kickstart (`fedora-install/ks.cfg`).
 
 ### Phase 5: Review
@@ -298,7 +311,7 @@ record; (b) a Go command from the start for resolution and contradiction checks.
 | A shared play quietly depends on a developer play       | M      | M           | the consumer VM scenario runs the whole main playbook            |
 | `run.bash` cannot take the branch within its ratchet    | M      | M           | Task 2.1 consolidates first; Decision 10 sends the rest to Go    |
 | A developer box loses a task through a wrong `audience` | H      | L           | Task 1.4 acceptance and `desktop-fresh-install` prove no change  |
-| A consumer hits a failure they cannot read              | M      | M           | failure prints the log path and issues URL; Task 4.1 explains it |
+| A consumer hits a failure they cannot read              | M      | M           | failure says the log is on screen, with the issues URL; Task 4.1 |
 
 ## Delivery & Milestones
 

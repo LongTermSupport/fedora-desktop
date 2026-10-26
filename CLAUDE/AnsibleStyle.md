@@ -358,8 +358,9 @@ Who uses the machine is a second axis, separate from `scope`. `install_audience`
 ```
 
 - **`all`** — runs on every install. Carries no audience guard.
-- **`developer`** — programming languages, developer tools, containers, GitHub, agents. Its
-  first task (after the scope guard, on a `gnome`/`server` play) is exactly:
+- **`developer`** — programming languages, developer tools, containers, GitHub, agents. The
+  first task it runs (the head of `pre_tasks` if it has any, else of `tasks` after the scope
+  guard on a `gnome`/`server` play; never behind `roles:`) is exactly:
 
 ```yaml
     - name: Audience guard — end play on a consumer install

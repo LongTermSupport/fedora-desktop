@@ -11,12 +11,14 @@ import (
 const (
 	audienceGuardName = "Audience guard — end play on a consumer install"
 	audienceGuardWhen = "install_audience != 'developer'"
+	audienceDeveloper = "developer"
 )
 
 var (
 	audienceKey  = regexp.MustCompile(`^    audience:[[:space:]]*`)
 	listTaskName = regexp.MustCompile(`^    - name:[[:space:]]*`)
 	taskItem     = regexp.MustCompile(`^    - `)
+	runSection   = regexp.MustCompile(`^  (pre_tasks|roles|tasks):[[:space:]]*$`)
 )
 
 // audienceInfo is what the line scan reads from a play: the vars.audience entries and the
@@ -26,6 +28,9 @@ type audienceInfo struct {
 	value   string
 	guards  int
 	guardOK bool
+	// guardFirst: the first task the play runs (pre_tasks, then roles, then tasks, whatever
+	// order the file lists them in) is the audience guard, the scope guard aside.
+	guardFirst bool
 }
 
 // audienceScanner is the state of the audience line scan.
@@ -35,6 +40,11 @@ type audienceScanner struct {
 	inGuard bool
 	meta    string
 	when    string
+	// section is the play's run section being read (pre_tasks, roles, tasks), or "".
+	section string
+	// pre and tasks are the names of each section's tasks in order ("" for an unnamed one).
+	pre, tasks []string
+	roles      int
 }
 
 // scanAudience reads vars.audience and every audience guard task, in tasks or pre_tasks.
@@ -44,17 +54,63 @@ func scanAudience(lines []string) audienceInfo {
 		s.line(line)
 	}
 	s.endGuard()
+	s.info.guardFirst = s.guardIsFirst()
 	return s.info
+}
+
+// guardIsFirst says whether the first task the play runs is the audience guard. Ansible runs
+// pre_tasks, then roles, then tasks; in tasks only the scope guard's two tasks may precede it.
+func (s *audienceScanner) guardIsFirst() bool {
+	if len(s.pre) > 0 {
+		return s.pre[0] == audienceGuardName
+	}
+	if s.roles > 0 {
+		return false
+	}
+	rest := s.tasks
+	if len(rest) >= 2 && rest[0] == guardAssertName && rest[1] == guardEndName {
+		rest = rest[2:]
+	}
+	return len(rest) > 0 && rest[0] == audienceGuardName
+}
+
+// trackSection follows which run section a line is in and records each of its list items.
+func (s *audienceScanner) trackSection(line string) {
+	if m := runSection.FindStringSubmatch(line); m != nil {
+		s.section = m[1]
+		return
+	}
+	if startsNonBlank.MatchString(line) || indent2Key.MatchString(line) {
+		s.section = ""
+		return
+	}
+	if !taskItem.MatchString(line) {
+		return
+	}
+	name := ""
+	if loc := listTaskName.FindStringIndex(line); loc != nil {
+		name = line[loc[1]:]
+	}
+	switch s.section {
+	case "pre_tasks":
+		s.pre = append(s.pre, name)
+	case "roles":
+		s.roles++
+	case "tasks":
+		s.tasks = append(s.tasks, name)
+	}
 }
 
 func (s *audienceScanner) line(line string) {
 	if varsHeader.MatchString(line) {
 		s.inVars = true
+		s.section = ""
 		return
 	}
 	if s.inVars && s.varsLine(line) {
 		return
 	}
+	s.trackSection(line)
 	if taskItem.MatchString(line) || startsNonBlank.MatchString(line) || indent2Key.MatchString(line) {
 		s.endGuard()
 	}
@@ -119,15 +175,20 @@ func audienceProblem(info audienceInfo) problem {
 		return problem{"missing vars.audience (need exactly one of all|developer, CLAUDE/AnsibleStyle.md)", "missing vars.audience"}
 	case info.count > 1:
 		return problem{"multiple vars.audience entries declared (exactly one required)", "multiple vars.audience entries"}
-	case info.value != "all" && info.value != "developer":
+	case info.value != "all" && info.value != audienceDeveloper:
 		return problem{
 			"invalid vars.audience value: " + info.value + " (must be exactly one of all|developer)",
 			"invalid vars.audience: " + info.value,
 		}
-	case info.value == "developer" && (info.guards != 1 || !info.guardOK):
+	case info.value == audienceDeveloper && (info.guards != 1 || !info.guardOK):
 		return problem{
 			"audience=developer requires exactly one audience guard task (meta: end_play when: " + audienceGuardWhen + ")",
 			"audience=developer missing/incorrect guard",
+		}
+	case info.value == audienceDeveloper && !info.guardFirst:
+		return problem{
+			"the audience guard must be the first task the play runs (only the scope guard may precede it, CLAUDE/AnsibleStyle.md)",
+			"audience guard not the first task",
 		}
 	case info.value == "all" && info.guards > 0:
 		return problem{"unnecessary audience guard on an audience=all play (remove it)", "unnecessary guard on audience=all play"}

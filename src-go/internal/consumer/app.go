@@ -189,7 +189,9 @@ func (r *run) exitFor(ctx context.Context, err error) term.ExitCode {
 	}
 	switch {
 	case errors.Is(err, ui.ErrInputEnded):
+		// The person left the question: a cancel (ui.ErrInputEnded's contract), not a failure.
 		r.bad("The input ended before an answer; no optional app was installed")
+		return term.ExitCancelled
 	case !errors.Is(err, errReported):
 		r.bad(err.Error())
 	}

@@ -11,14 +11,14 @@
     ccdt_src_dir: "/opt/claude-devtools"
     ccdt_image: "claude-devtools"
   pre_tasks:
-    - name: Load container defaults
-      ansible.builtin.include_vars:
-        file: "{{ root_dir }}/vars/container-defaults.yml"
-  tasks:
     - name: Audience guard — end play on a consumer install
       ansible.builtin.meta: end_play
       when: install_audience != 'developer'
 
+    - name: Load container defaults
+      ansible.builtin.include_vars:
+        file: "{{ root_dir }}/vars/container-defaults.yml"
+  tasks:
     - name: Check if Container Engine is Installed
       ansible.builtin.command: which {{ container_engine }}
       register: container_engine_check

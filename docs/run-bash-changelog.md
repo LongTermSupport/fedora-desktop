@@ -15,6 +15,13 @@ the index, not the record.
 
 ---
 
+## 1.33.1 — a consumer box is never offered a GitHub issue (Plan 00228)
+
+`--consumer` on a developer box is refused before anything runs (no dnf, no git pull). On a
+consumer box a failed single play, `--changed` or `--rerun` says the log is the output on
+screen and gives the public issues URL instead of offering to file a GitHub issue. The
+`--help` columns line up again, and the step counter's lookup is one condition.
+
 ## 1.33.0 — `--consumer`: the install for someone who does not write code (Plan 00228)
 
 `--consumer`, or a checkout whose host_vars says `install_audience: consumer`, installs git

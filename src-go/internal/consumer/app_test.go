@@ -442,7 +442,7 @@ func TestUsage(t *testing.T) {
 func TestTheInputEndingAtTheMenuIsACancel(t *testing.T) {
 	w := newWorld(t)
 	w.answers = ""
-	w.wantCode(w.run(), term.ExitFailure)
+	w.wantCode(w.run(), term.ExitCancelled)
 	w.wantErr("input ended")
 	if exists(w.marker()) {
 		t.Error("the marker was written with no answer")

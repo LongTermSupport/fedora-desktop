@@ -34,7 +34,7 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00228-consumer-install-without-github](00228-consumer-install-without-github/) - Not Started (owner Decisions 1-10 open). A consumer install audience for `run.bash`, attended or headless: no GitHub account, the public repo over HTTPS, and only the consumer and shared plays, chosen by an `audience` key every play declares
+- [00228-consumer-install-without-github](00228-consumer-install-without-github/) - In Progress (built; VM acceptance open). `./run.bash --consumer` hands over to a Go `consumer-install`: no GitHub account, the public repo over HTTPS, and only the plays whose `audience` key is `all`; attended only, headless refused
 
 - [00227-ccy-sessions-cold-migrate-to-another-machine](00227-ccy-sessions-cold-migrate-to-another-machine/) - Not Started (owner Decisions 1-14 open). ccy sessions and whole agent teams moved cold to another laptop by Go send and receive verbs that refuse while any member runs, host members resumed by recorded id and LXC members by `ccy --continue`
 

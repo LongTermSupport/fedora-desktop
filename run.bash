@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.33.0"
+RUN_BASH_VERSION="1.33.1"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -984,9 +984,8 @@ Fedora Desktop / Server / Cloud Configuration Installer
 Options:
   --optional-only      Skip core setup, jump straight to optional playbook menu
   --consumer           Install for someone who does not write code: no GitHub, no
-                       programming tools, the everyday apps offered at the end.
-                       Later runs of ./run.bash on that machine do the same.
-  --changed           Run every play that has run here and has to run again: its
+                       dev tools. Later, plain ./run.bash or --optional-only does too.
+  --changed            Run every play that has run here and has to run again: its
                        inputs (its own file, or anything it deploys) changed since,
                        its last run failed, or that run was from a checkout with
                        uncommitted changes. Asks once, then runs them in
@@ -1281,6 +1280,30 @@ if [[ -z "$HEADLESS" ]]; then
   esac
 fi
 
+# Consumer install (Plan 00228): chosen by --consumer, or by the host_vars a consumer install
+# wrote (CONSUMER_BOX, which also keeps a failed play from offering a GitHub issue). A
+# developer box asked for --consumer is refused before anything runs. Otherwise git and Go
+# (the Go tool's build toolchain) first, then the checkout, then the Go tool
+# (scripts/consumer-install.bash) replaces this process. Root falls through to the refusal below.
+_rb_host_vars=~/Projects/fedora-desktop/environment/localhost/host_vars/localhost.yml
+CONSUMER_BOX=false
+if grep -qsx 'install_audience: consumer' "$_rb_host_vars"; then
+  CONSUMER_BOX=true
+elif [[ "$CONSUMER" == "true" && -e "$_rb_host_vars" ]]; then
+  echo -e "${RED}${CROSS} $_rb_host_vars has no 'install_audience: consumer' line: this is a developer install. Run ./run.bash without --consumer${NC}" >&2
+  exit 1
+fi
+if [[ -z "$PLAY_PATH" && "$CHANGED_PLAYS" != "true" && "$RERUN_PLAYS" != "true" && "$(whoami)" != root ]] &&
+  [[ "$CONSUMER" == "true" || "$CONSUMER_BOX" == "true" ]]; then
+  if [[ "$HEADLESS" == "true" ]]; then
+    headless_fail "a consumer install is attended: it asks for your password and which apps to add" "run ./run.bash --consumer at the desktop, without --headless"
+  fi
+  echo -e "${CYAN}${INFO} Consumer install: installing git and Go (the installer is built with Go), then fetching fedora-desktop${NC}" >&2
+  _sudo dnf -y install git golang
+  [[ -d ~/Projects/fedora-desktop ]] || command git clone https://github.com/LongTermSupport/fedora-desktop.git ~/Projects/fedora-desktop
+  command git -C ~/Projects/fedora-desktop pull --ff-only
+  exec ~/Projects/fedora-desktop/scripts/consumer-install.bash --optional-only="$OPTIONAL_ONLY"
+fi
 # Headless: validate + resolve all RUN_BASH_* input up front (fail fast, never hang)
 # BEFORE any provisioning action. On success the run then flows through the SAME body
 # as the interactive path — every interactive point below has a headless branch that
@@ -1289,20 +1312,6 @@ fi
 # A single play run headless is an UNATTENDED PLAY, not a provisioning run: it gets the
 # sudo-only preflight and none of the provisioning contract. (The mode's other exclusions
 # live at the dispatch block below: the `error` helper fatal() needs is not defined yet here.)
-# Consumer install (Plan 00228): chosen by --consumer, or by the host_vars a consumer install
-# wrote. Git and Go first, then the checkout, then the Go tool (scripts/consumer-install.bash)
-# replaces this process. Root falls through to the refusal below.
-if [[ -z "$PLAY_PATH" && "$CHANGED_PLAYS" != "true" && "$RERUN_PLAYS" != "true" && "$(whoami)" != root ]] &&
-  { [[ "$CONSUMER" == "true" ]] || grep -qsx 'install_audience: consumer' ~/Projects/fedora-desktop/environment/localhost/host_vars/localhost.yml; }; then
-  if [[ "$HEADLESS" == "true" ]]; then
-    headless_fail "a consumer install is attended: it asks for your password and which apps to add" "run ./run.bash --consumer at the desktop, without --headless"
-  fi
-  echo -e "${CYAN}${INFO} Consumer install: installing git and Go, then fetching fedora-desktop${NC}" >&2
-  _sudo dnf -y install git golang
-  [[ -d ~/Projects/fedora-desktop ]] || command git clone https://github.com/LongTermSupport/fedora-desktop.git ~/Projects/fedora-desktop
-  command git -C ~/Projects/fedora-desktop pull --ff-only
-  exec ~/Projects/fedora-desktop/scripts/consumer-install.bash --optional-only="$OPTIONAL_ONLY"
-fi
 if [[ -n "${RUN_BASH_ANSIBLE_PLAYBOOK:-}" && ! (-n "$PLAY_PATH" && "$HEADLESS" == "true") ]]; then
   echo "RUN_BASH_ANSIBLE_PLAYBOOK applies only to an unattended single play (--headless <play>.yml); unset it." >&2
   exit 1
@@ -1322,16 +1331,11 @@ fi
 # cannot be re-read, so we fall back to the known count.
 STEP_CURRENT=0
 STEP_TOTAL=17  # fallback for the streamed (curl) install path
-_run_bash_self="${BASH_SOURCE[0]:-}"
-if [[ -f "$_run_bash_self" && -r "$_run_bash_self" ]]; then
-  if _run_bash_steps=$(grep -cE '^[[:space:]]*title[[:space:]]+"' "$_run_bash_self"); then
-    if [[ "$_run_bash_steps" =~ ^[0-9]+$ ]] && (( _run_bash_steps > 0 )); then
-      STEP_TOTAL="$_run_bash_steps"
-    fi
-  fi
-  unset _run_bash_steps
+# grep -c prints a count and exits non-zero on none, so a success here is a count above 0.
+if [[ -f "${BASH_SOURCE[0]:-}" && -r "${BASH_SOURCE[0]}" ]] && _run_bash_steps=$(grep -cE '^[[:space:]]*title[[:space:]]+"' "${BASH_SOURCE[0]}"); then
+  STEP_TOTAL="$_run_bash_steps"
 fi
-unset _run_bash_self
+unset _run_bash_steps
 
 # M4: under --optional-only only ONE title() is reachable ("System Reboot") — the
 # whole core-setup block (every other title) is skipped. Show [1/1], not [1/17].
@@ -1979,8 +1983,10 @@ run_playbook_with_issue_option(){
     # Offer to create GitHub issue (posts to the PUBLIC tracker — default No). --yes means
     # nobody is there to answer, and RUN_BASH_OFFER_ISSUE=0 means a batch runs this play
     # (CLAUDE/Plan/meta-deploy.bash), where a prompt would hold every later unit; neither
-    # is offered.
-    if [[ "${ASSUME_YES:-}" != "true" && "${RUN_BASH_OFFER_ISSUE:-1}" != "0" ]] \
+    # is offered. A consumer box has no GitHub account, so it is told where the log is instead.
+    if [[ "$CONSUMER_BOX" == "true" ]]; then
+      echo -e "${YELLOW}${ARROW} The log of this run is the output above (it is not saved to a file); it names the task that failed. Fix what it says and run this again, or report it at https://github.com/LongTermSupport/fedora-desktop/issues${NC}" >&2
+    elif [[ "${ASSUME_YES:-}" != "true" && "${RUN_BASH_OFFER_ISSUE:-1}" != "0" ]] \
         && confirm "Would you like to create a GitHub issue for this failure? (posts to the PUBLIC tracker)" n; then
       create_github_issue "$playbook" "$exit_code"
     fi
@@ -3882,14 +3888,9 @@ elif [[ "$OPTIONAL_ONLY" == "true" ]] || confirm "Would you like to install opti
   if [[ -d playbooks/imports/optional/common ]]; then
     mapfile -t common_playbooks < <(find playbooks/imports/optional/common -name "*.yml" -type f | sort)
     if [[ ${#common_playbooks[@]} -gt 0 ]]; then
-      menu_playbooks=("${common_playbooks[@]}")
-
-      # Interactive menu
-      if [[ ${#menu_playbooks[@]} -gt 0 ]]; then
-        info "Found ${#menu_playbooks[@]} common optional playbooks"
-        if ! show_menu "Common Optional" "${menu_playbooks[@]}"; then
-          info "Skipping remaining optional installations"
-        fi
+      info "Found ${#common_playbooks[@]} common optional playbooks"
+      if ! show_menu "Common Optional" "${common_playbooks[@]}"; then
+        info "Skipping remaining optional installations"
       fi
     fi
   fi

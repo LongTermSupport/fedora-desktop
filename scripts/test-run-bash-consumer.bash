@@ -100,10 +100,70 @@ check "not handed over" "0" "$(calls consumer-install:)"
 check "the developer installer ran" "1" "$(grep -c 'FEDORA DESKTOP CONFIGURATION INSTALLER' "$SCRATCH/out")"
 check "git and Go were not installed alone" "0" "$(grep -cx 'sudo:dnf -y install git golang' "$LOG")"
 
-echo "=== a single play and --changed on a consumer box stay with run.bash ==="
-home="$SCRATCH/home-consumer"
-STUB_SUDO_REFUSES=1 run_case "$home" --changed
-check "--changed not handed over" "0" "$(calls consumer-install:)"
+echo "=== --consumer on a developer box is refused before anything runs ==="
+home="$SCRATCH/home-dev"
+run_case "$home" --consumer
+check "exit 1" "1" "$?"
+check "the refusal says why" "1" "$(grep -c 'this is a developer install. Run ./run.bash without --consumer' "$SCRATCH/out")"
+check "no sudo, no git, no hand-off" "0" "$(wc -l <"$LOG")"
+run_case "$home" --consumer --changed
+check "with --changed too: exit 1" "1" "$?"
+check "with --changed too: nothing run" "0" "$(wc -l <"$LOG")"
+
+# A single play and --changed stay with run.bash's own play runner. They run from a
+# throwaway checkout (the real run.bash and lock helper, a stand-in judge for --changed
+# that names one play) so a play can fail: ansible-playbook exits 4. stdin answers "y" to
+# every question, so an offer to file a GitHub issue would be accepted and reach gh.
+CHECKOUT="$SCRATCH/checkout"
+mkdir -p "$CHECKOUT/helpers/play_lock" "$CHECKOUT/helpers/play_ledger" "$CHECKOUT/playbooks/imports"
+cp "$REPO_ROOT/run.bash" "$CHECKOUT/run.bash"
+cp "$REPO_ROOT/helpers/play_lock/lock.py" "$CHECKOUT/helpers/play_lock/lock.py"
+: >"$CHECKOUT/helpers/__init__.py"
+: >"$CHECKOUT/helpers/play_ledger/__init__.py"
+printf 'import sys\nsys.stdout.write("RUN playbooks/imports/play-a.yml\\n")\n' >"$CHECKOUT/helpers/play_ledger/changed_plays.py"
+printf -- '- hosts: localhost\n  tasks: []\n' >"$CHECKOUT/playbooks/imports/play-a.yml"
+RUNTIME="$SCRATCH/runtime"
+mkdir -m 700 "$RUNTIME"
+cat >"$BIN/ansible-playbook" <<'EOF'
+#!/usr/bin/env bash
+printf 'ansible-playbook:%s\n' "$*" >>"$STUB_LOG"
+exit 4
+EOF
+cat >"$BIN/gh" <<'EOF'
+#!/usr/bin/env bash
+printf 'gh:%s\n' "$*" >>"$STUB_LOG"
+exit 1
+EOF
+chmod +x "$BIN/ansible-playbook" "$BIN/gh"
+
+# run_play <home> <args...>: the throwaway checkout's run.bash, "y" on every line of stdin.
+run_play() {
+    local home="$1"
+    shift
+    : >"$LOG"
+    env -u RUN_BASH_HEADLESS -u FEDORA_DESKTOP_PLAY_LOCK_FD \
+        HOME="$home" PATH="$BIN:$PATH" XDG_RUNTIME_DIR="$RUNTIME" STUB_LOG="$LOG" \
+        timeout 120 bash "$CHECKOUT/run.bash" "$@" <"$SCRATCH/answers" >"$SCRATCH/out" 2>&1
+}
+printf 'y\n%.0s' 1 2 3 4 5 6 7 8 >"$SCRATCH/answers"
+log_line='The log of this run is the output above'
+
+for args in "playbooks/imports/play-a.yml" "--changed"; do
+    echo "=== a failed play on a consumer box ($args): the log, never GitHub ==="
+    run_play "$SCRATCH/home-consumer" "$args"
+    check "exit is the play's" "4" "$?"
+    check "the play ran" "1" "$(calls ansible-playbook:)"
+    check "not handed over" "0" "$(calls consumer-install:)"
+    check "says where the log is" "1" "$(grep -c "$log_line" "$SCRATCH/out")"
+    check "no GitHub issue offered" "0" "$(grep -c 'create a GitHub issue' "$SCRATCH/out")"
+    check "gh never called" "0" "$(calls gh:)"
+
+    echo "=== the same failure on a developer box ($args) still offers the issue ==="
+    run_play "$SCRATCH/home-dev" "$args"
+    check "exit is the play's" "4" "$?"
+    check "the issue is offered" "1" "$(grep -c 'create a GitHub issue' "$SCRATCH/out")"
+    check "no consumer log line" "0" "$(grep -c "$log_line" "$SCRATCH/out")"
+done
 
 echo "=== --headless --consumer is refused ==="
 home="$SCRATCH/home-headless"

@@ -57,14 +57,14 @@
     # host_vars to change it; the reasoning is in the plan's 26-10-08 journal.
     ccy_restore_compact_floor: "{{ ccy_restore_compact_floor_tokens | default(150000) | int }}"
   pre_tasks:
-    - name: Load container defaults
-      ansible.builtin.include_vars:
-        file: "{{ root_dir }}/vars/container-defaults.yml"
-  tasks:
     - name: Audience guard — end play on a consumer install
       ansible.builtin.meta: end_play
       when: install_audience != 'developer'
 
+    - name: Load container defaults
+      ansible.builtin.include_vars:
+        file: "{{ root_dir }}/vars/container-defaults.yml"
+  tasks:
     - name: Check if Container Engine is Installed
       ansible.builtin.command: which {{ container_engine }}
       register: container_engine_check
