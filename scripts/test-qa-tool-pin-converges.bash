@@ -43,9 +43,9 @@ if [ ! -f "$PLAY_FILE" ]; then
     echo "FAIL: $PLAY_FILE not found" >&2
     exit 1
 fi
-play_dir="$(dirname -- "$PLAY_FILE")"
-play_dir="$(cd -- "$play_dir" && pwd)"
-play_base="$(basename -- "$PLAY_FILE")"
+play_dir="$(dirname -- "$PLAY_FILE")" || exit 1
+play_dir="$(cd -- "$play_dir" && pwd)" || exit 1
+play_base="$(basename -- "$PLAY_FILE")" || exit 1
 PLAY_FILE="$play_dir/$play_base"
 
 work=$(mktemp -d)

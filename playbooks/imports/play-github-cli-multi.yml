@@ -1459,10 +1459,11 @@
                   local exit_code=$?
 
                   if [[ $exit_code -eq 0 ]]; then
-                      local username email ssh_key
-                      username=$(git-account-helper info "$repo_path" 2>/dev/null | jq -r '.username')
-                      email=$(git-account-helper info "$repo_path" 2>/dev/null | jq -r '.email')
-                      ssh_key=$(git-account-helper info "$repo_path" 2>/dev/null | jq -r '.ssh_key')
+                      local account_info username email ssh_key
+                      account_info=$(git-account-helper info "$repo_path") || return 1
+                      username=$(jq -r '.username' <<< "$account_info") || return 1
+                      email=$(jq -r '.email' <<< "$account_info") || return 1
+                      ssh_key=$(jq -r '.ssh_key' <<< "$account_info") || return 1
 
                       echo "Detected Account: $detected_alias"
                       echo "GitHub Username:  $username"

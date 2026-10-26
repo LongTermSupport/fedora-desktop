@@ -53,6 +53,8 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 LOCALHOST_YML="${PROJECT_ROOT}/environment/localhost/host_vars/localhost.yml"
 CONFIG_REPO_NAME="fedora-desktop-config"
 PROJECTS_DIR="$HOME/Projects"
+# gethostname, not $HOSTNAME: bash keeps a HOSTNAME inherited from the environment.
+HOST_NAME="$(hostname)"
 
 ## ── Argument parsing ──────────────────────────────────────────────────────────
 
@@ -403,7 +405,7 @@ PYEOF
     echo
     info "Pushing localhost.yml to github.com/${config_repo}..."
     local commit_msg
-    commit_msg="Update localhost.yml from ${HOSTNAME} on $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    commit_msg="Update localhost.yml from ${HOST_NAME} on $(date -u +%Y-%m-%dT%H:%M:%SZ)"
     push_api_file "$LOCALHOST_YML" "localhost.yml" "$commit_msg"
 
     echo
@@ -518,8 +520,7 @@ push_projects() {
         echo "${_org_key_map[$owner]:-}"
     }
 
-    local repo_count=0
-    local skip_count=0
+    local repo_count=0 skip_count=0
 
     while IFS= read -r git_dir; do
         local repo_dir="${git_dir%/.git}"
@@ -552,7 +553,7 @@ push_projects() {
     echo
     info "Pushing projects.manifest to github.com/${config_repo}..."
     local commit_msg
-    commit_msg="Update projects.manifest from ${HOSTNAME} on $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    commit_msg="Update projects.manifest from ${HOST_NAME} on $(date -u +%Y-%m-%dT%H:%M:%SZ)"
     push_api_file "$tmp_manifest" "projects.manifest" "$commit_msg"
     rm -f "$tmp_manifest"
 

@@ -417,10 +417,12 @@ a repository is no longer offered for a checkout of it. Report:
   array and `${1:-$(...)}` forms); a substitution in a command's prefix assignment. It judges
   every bash file the gate finds, exempt from the limits or not, but `src-go/vendor/`, the
   daemon-owned files and `.semgrep/` (fixtures, never run). Red `63daece62`: 27 findings in
-  17 files; all fixed and each rewrite proven (value unchanged, failure now stops), with ccy
+  17 files; all fixed and each rewrite proven (value unchanged, failure now stops: under `-e`
+  by errexit, and with an explicit `|| exit` in the two `set -uo pipefail` scripts), with ccy
   3.100.19 for `lib/network-management.bash` and `changed-plays` queued in meta-deploy. The
   independent search also found 4 in `play-github-cli-multi.yml`'s shell functions, which the
-  rule cannot see (bash inside a playbook); fixed by hand. Not this class, recorded in QA.md: a
+  rule cannot see (bash inside a playbook); fixed by hand, the `git-which-account` reads with
+  `|| return 1` (an interactive function, no errexit). Not this class, recorded in QA.md: a
   substitution as a command's argument, and one nested in another (`inherit_errexit`).
 
 - [x] ✅ **Task 2.23**: the host
