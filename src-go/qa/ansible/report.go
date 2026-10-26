@@ -13,26 +13,29 @@ type Findings struct {
 	Out                         []string
 	FailFast, SelfRef, FactVars []string
 	// RegexBackref is the regex-backref-escape findings, "<file>:<line>: <why>".
-	RegexBackref   []string
+	RegexBackref []string
+	// RootUmask is the root-umask findings, "<file>:<line>: <why>".
+	RootUmask      []string
 	Hygiene, Scope []Entry
 	Playbooks      int
 }
 
 // Errors is how many violations there are.
 func (f Findings) Errors() int {
-	return len(f.FailFast) + len(f.Hygiene) + len(f.SelfRef) + len(f.Scope) + len(f.FactVars) + len(f.RegexBackref)
+	return len(f.FailFast) + len(f.Hygiene) + len(f.SelfRef) + len(f.Scope) + len(f.FactVars) + len(f.RegexBackref) + len(f.RootUmask)
 }
 
 // Summary is the closing stdout lines: one tick, or the cross with the counts and the pointers.
 func (f Findings) Summary(reportPath string) []string {
 	if f.Errors() == 0 {
 		return []string{fmt.Sprintf("✓ ansible: fail-fast patterns OK; no self-referential vars; no deprecated ansible_<fact> vars; "+
-			"regex backreferences escaped right; scope+guard declarations OK; %d playbook(s) have correct shebang+exec "+
+			"regex backreferences escaped right; system files written as root set umask 022; scope+guard declarations OK; %d playbook(s) have correct shebang+exec "+
 			"(scoped to playbooks/ tasks/ vars/ environment/ roles/ — qa-ansible-syntax counts repo-wide and will be higher)", f.Playbooks)}
 	}
 	return []string{
-		fmt.Sprintf("✗ ansible: %d violation(s) — %d fail-fast, %d hygiene, %d self-ref var, %d scope/guard, %d deprecated fact var, %d regex backref",
-			f.Errors(), len(f.FailFast), len(f.Hygiene), len(f.SelfRef), len(f.Scope), len(f.FactVars), len(f.RegexBackref)),
+		fmt.Sprintf("✗ ansible: %d violation(s) — %d fail-fast, %d hygiene, %d self-ref var, %d scope/guard, %d deprecated fact var, %d regex backref, %d root umask",
+			f.Errors(), len(f.FailFast), len(f.Hygiene), len(f.SelfRef), len(f.Scope), len(f.FactVars), len(f.RegexBackref),
+			len(f.RootUmask)),
 		"  Hygiene fixer: ./scripts/make-playbooks-executable.bash",
 		"  Details: jq '.failures[]' " + reportPath,
 	}
@@ -74,6 +77,7 @@ type jsonChecks struct {
 	Scope        []string `json:"scope"`
 	FactVars     []string `json:"fact_vars"`
 	RegexBackref []string `json:"regex_backref"`
+	RootUmask    []string `json:"root_umask"`
 }
 
 type jsonReport struct {
@@ -121,6 +125,9 @@ func (f Findings) JSON() ([]byte, error) {
 	for _, entry := range f.RegexBackref {
 		add(entry, "regex-backref-escape: a backreference with the wrong backslash count for its YAML style and context")
 	}
+	for _, entry := range f.RootUmask {
+		add(entry, "root-umask: a file users read created as root under the inherited umask")
+	}
 	report := jsonReport{
 		Type:     "ansible",
 		Status:   status,
@@ -130,6 +137,7 @@ func (f Findings) JSON() ([]byte, error) {
 		Checks: jsonChecks{
 			FailFast: nonNil(f.FailFast), Hygiene: entryStrings(f.Hygiene), SelfRef: nonNil(f.SelfRef),
 			Scope: entryStrings(f.Scope), FactVars: nonNil(f.FactVars), RegexBackref: nonNil(f.RegexBackref),
+			RootUmask: nonNil(f.RootUmask),
 		},
 	}
 	var body bytes.Buffer

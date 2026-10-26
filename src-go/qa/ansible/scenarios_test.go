@@ -157,6 +157,8 @@ func fileAndQuoteScenarios() []scenario {
 				"  ERROR (fail-fast): tasks/bin.yml:1:      failed_when: false",
 				"  ERROR (regex-backref-escape): tasks/bin.yml:1: cannot be parsed as YAML, so its backreferences cannot be judged: yaml: control characters are not allowed",
 				regexBackrefAdvice,
+				"  ERROR (root-umask): tasks/bin.yml:1: cannot be parsed as YAML, so the files its root tasks create cannot be judged: yaml: control characters are not allowed",
+				rootUmaskAdvice,
 			},
 		},
 		{
