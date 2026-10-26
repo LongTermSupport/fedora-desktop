@@ -1,6 +1,6 @@
 # Plan 00177: ccy-teams, human friendly
 
-**Status**: In Progress (host run 26-10-26: 6.4, 10.4 and 10.5 passed; 7.5 and 9.5 still open; Phase 11 holds its findings)
+**Status**: In Progress (host run 26-10-26: 6.4, 10.4 and 10.5 passed; 7.5 and 9.5 still open; Phase 11's fixes are built, awaiting their host run)
 **Created**: 2026-10-13
 **Owner**: joseph
 **Priority**: High
@@ -166,7 +166,10 @@ quit `ccy-teams` to start Element.
 
 - [x] ✅ **Task 7.1**: `ccy --teams` with no value offers the teams whose scope covers this
   checkout's GitHub `owner/repo` (an organisation team by its owner, a repository team by
-  the repository), choosing alone when exactly one matches and saying so when none does.
+  the repository), saying so when none does. When the machine has exactly one team and it
+  covers the checkout, it is taken without a list; with two or more teams the list is always
+  shown, covering teams first (Plan 00201 S-B2, which replaced "taken when exactly one
+  matches"; Task 11.1).
   The matching and the choice live in the Go `ccy-teams`; the launcher, on the bash-limits
   ratchet, only calls it and must not grow. Built as `ccy-teams for-checkout` (CCY 3.96.0).
   The owner's test found that an uncovered checkout made them type a team name; Plan 00201
@@ -394,18 +397,51 @@ are too, by the same route.
 
 ### Phase 11: Findings of the host run of 26-10-26
 
-- [ ] ⬜ **Task 11.1**: Task 7.1's chooser shows the full list when exactly one team covers the
-  checkout: `chooser/list.go:33` takes alone only when the whole list has one entry, and the
-  "would add" teams are entries. Code or the two texts (7.1, 00201 ACCEPTANCE-owner step 5)
-  change; Defence Before Fix.
-- [ ] ⬜ **Task 11.2**: Task 7.5's launch block ("This session is on 1 team:") is not printed when
+- [x] ✅ **Task 11.1**: Task 7.1's chooser showed the full list when exactly one of several teams
+  covers the checkout. The code is right and the texts were wrong: Plan 00201 replaced 7.1's
+  chooser, and its decision Q5 (S-B2, taken on the owner's instruction) skips the list only
+  when the machine has exactly one team; with two or more the owner always sees the list, as
+  `TestACoveringTeamAlongsideOthersIsStillListed` pins. Defence Before Fix: the rule
+  `chooser-skip-condition-text` ([QA.md](../../QA.md#chooser-skip-condition-text),
+  `tests/helpers/agent_bus/test_chooser_texts.py`), red on 3 alone, widened to Go comments by
+  the independent search (a 4th, a test comment); all 4 fixed: Task 7.1 above, 00201
+  ACCEPTANCE-owner step 5, `docs/agent-bus.md`, `chooser_test.go`. Host: step 5 re-read
+  against the new text (with two teams on the machine, the list is shown).
+- [x] ✅ **Task 11.2**: Task 7.5's launch block ("This session is on 1 team:") is not printed when
   the seat is taken without `--teams`: `ccy_seats_take` (`lib/agent-bus-seats.bash:78`) prints
-  it only for a non-empty canonical list. Trace the route that took the seat.
-- [ ] ⬜ **Task 11.3**: `ccy-teams lxc-add` accepts `root` as the agent's user at the question;
-  check Task 9.1's intent (a bad user is refused) and refuse it there if so.
-- [ ] ⬜ **Task 11.4**: `ccy-teams remove` leaves the team's `agent_bus_element_teams` entry and
-  its Element launcher in the app menu: `play-agent-bus-element.yml` removes no undeclared
-  profile. Fix in IaC.
+  it only for a non-empty canonical list. Traced every route that takes a seat. At launch
+  (`--teams`, plain `ccy` whose Quick Launch takes the saved seats, a restart or restore
+  replaying `--teams`) every route sets `CCY_SEATS` through `ccy_launch_teams` alone, and the
+  one `ccy_seats_take "$CCY_SEATS"` after them all prints the block; pinned in
+  `scripts/test-ccy-teams.bash` (the Quick Launch leaves the saved seats in `CCY_SEATS`; one
+  setter, one take after it). A plain launch takes no seat, so it has no block. The route that
+  printed none was Plan 00203's: `ccy-teams session add` or `move` on a running session that is
+  already on a team (no relaunch), ccy or cc. Both now print the block on the ccy-teams terminal
+  after the change (`choose.Block`, the code `describe-seats --block` runs); a first join still
+  relaunches and the relaunch prints it in the session's pane. Built test first
+  (`internal/teams/hot`). Host: `play-claude-yolo.yml` (new `ccy-teams`), then in tmux a plain
+  `ccy` with Quick Launch's saved team shows the block above Claude's screen; if it does not, the
+  pane is cleared after the launcher prints it (Claude Code's start), which this code cannot see.
+- [x] ✅ **Task 11.3**: `ccy-teams lxc-add` accepted `root` as the agent's user at the question.
+  Task 9.1's intent (a bad user is refused) and the docs (an ordinary user, no sudo; only uid
+  1000 and up are suggested) say root is bad, and the play's rule only checked the name's shape.
+  `members.py` now refuses `root` (`ROOT_USER_REFUSAL`, with what to do), so `declare.py lxc-check` gives 64 and the question asks again; the play and a hand-written entry are refused
+  the same way, and the Go reader (`internal/bus/declare`) holds the same words, pinned to
+  members.py by a test. Tests first (Python, Go reader, lxcadd re-prompt). A user of another name
+  with uid 0 is not caught (only names are judged). Host: `play-claude-yolo.yml` (new
+  `ccy-teams`), then `ccy-teams lxc-add <team>` answering `root` re-prompts.
+- [x] ✅ **Task 11.4**: `ccy-teams remove` left the team's `agent_bus_element_teams` entry and
+  its Element launcher in the app menu: `play-agent-bus-element.yml` removed no undeclared
+  profile. Now `helpers/agent_bus/element.py apply` also removes the launcher and profile of
+  every team it wrote a launcher for (the name, and the `--profile <team>` Exec line) that the
+  play does not name; a named team, and a profile with no such launcher (the human's own), are
+  never touched, and a stale profile that is not a real directory is refused before anything
+  is removed. The play names only the teams not declared `state: absent` in
+  `agent_bus_teams`. `remove` keeps the host_vars entry (decided: the team can be brought back
+  present with its data, and its Element entry then gives it its launcher again) and runs the
+  Element play after the team's play for a watched team, failing if the launcher is still
+  there. Tests first (`test_element.py`, `ops/takedown_test.go`). Host: meta-deploy (both plays
+  queued); after it, the throwaway team's launcher is gone from the app menu.
 
 ## Success Criteria
 

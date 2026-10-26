@@ -31,6 +31,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessprobe"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/choose"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/discover"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
@@ -125,7 +126,8 @@ state), tab-separated.
 
 add puts the running session into the team, in the seat given or the lowest free one (a new
 seat is created through agent-bus seat take, which asks for sudo), and waits for the session to
-hold it. --role sets the seat's role on the way. A team has one coordinator: --role=coordinator
+hold it, then prints the teams the session is on, as its launch does (add and move both).
+--role sets the seat's role on the way. A team has one coordinator: --role=coordinator
 on a team with none is offered plainly; on a team that has one it is a takeover, which names the
 current coordinator and whether it runs, asks with no as the default, and with no terminal (or
 with --yes) needs --demote-current, which makes that seat a worker first. A session started on no team
@@ -213,11 +215,11 @@ func (x *Hot) Run(ctx context.Context, args []string) term.ExitCode {
 func (x *Hot) change(ctx context.Context, t *target, r request) term.ExitCode {
 	switch r.verb {
 	case verbAdd:
-		return x.addTo(ctx, t, r, r.team, r.seat)
+		return x.blockAfter(ctx, t, func() term.ExitCode { return x.addTo(ctx, t, r, r.team, r.seat) })
 	case verbRemove:
 		return x.removeFrom(ctx, t, r, r.team)
 	case verbMove:
-		return x.move(ctx, t, r)
+		return x.blockAfter(ctx, t, func() term.ExitCode { return x.move(ctx, t, r) })
 	case verbRole:
 		return x.setRole(ctx, t, r)
 	default:
@@ -557,6 +559,18 @@ func (x *Hot) commit(t *target, seats []membership.Seat, farewell []membership.F
 		return err
 	}
 	return x.writeDesired(t, seats, farewell, note)
+}
+
+// blockAfter runs a change that takes a seat, and when it succeeded and wrote a new membership,
+// prints the launch's block for the session's seats now (Plan 00177 Task 11.2): a seat taken
+// while the session runs is named with its role and what its team is for, as a launch names it.
+func (x *Hot) blockAfter(ctx context.Context, t *target, run func() term.ExitCode) term.ExitCode {
+	before := t.desired.Generation
+	code := run()
+	if code != term.ExitOK || t.desired.Generation == before || len(t.desired.Seats) == 0 {
+		return code
+	}
+	return choose.Block(ctx, x.Host, x.Kit, x.Host.Stderr, membership.Canonical(t.desired.Seats))
 }
 
 // writeRecord makes seats the session record's --teams.

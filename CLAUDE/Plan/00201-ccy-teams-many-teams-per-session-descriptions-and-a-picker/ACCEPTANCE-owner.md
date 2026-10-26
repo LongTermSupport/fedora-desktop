@@ -39,9 +39,10 @@ Do these in order, once. Each step names what you should see.
    Next time, press Enter on any team row and choose **Open every team in Element, a window each**.
 5. **Start the agents with `ccy`, not `cc --teams`.** `cc` runs as you on the desktop, beside
    your Element sign-in, so a misbehaving agent there could post as you. A ccy session runs
-   in a container. In each project checkout run `ccy --teams`. If only one team covers the
-   checkout, it says "Team ... works on ..." and takes it without a list. Otherwise, Tab marks
-   teams and Enter takes them. For each team, "Team `<team>`: which seat does this session
+   in a container. In each project checkout run `ccy --teams`. If the machine has only
+   one team and it covers the checkout, it says "Team ... works on ..." and takes it without a
+   list. With two or more teams the list is shown, covering teams first, even when only one
+   covers the checkout: Tab marks teams and Enter takes them. For each team, "Team `<team>`: which seat does this session
    take?": take the default. For a seat that already exists you are asked its role: the first
    line, **Keep as is: ...**, or **Make coordinator** for the agent that should take your
    requests (one per team; sudo asks). A **new** seat is not asked: it joins as a worker. To

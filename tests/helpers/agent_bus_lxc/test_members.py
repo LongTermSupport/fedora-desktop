@@ -390,6 +390,13 @@ class ParseMembersTest(unittest.TestCase):
         (member,) = members.parse_members([entry(role="coordinator", human_text=False, state="absent")])
         self.assertEqual(member.state, "absent")
 
+    def test_root_is_never_the_agent_user(self) -> None:
+        # Plan 00177 Task 11.3: the agent runs as an ordinary user with no sudo, never as the
+        # container's root, whatever the state (an absent entry is refused too: it was never valid).
+        for state in ("present", "absent"):
+            with self.subTest(state=state), self.assertRaisesRegex(members.MemberError, "entry 1: user must not be root"):
+                members.parse_members([entry(user="root", state=state)])
+
     def test_an_entry_still_saying_orchestrator_is_a_coordinator(self) -> None:
         (member,) = members.parse_members([entry(role="orchestrator")])
         self.assertEqual(member.role, "coordinator")

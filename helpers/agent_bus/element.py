@@ -31,6 +31,8 @@ import json
 import os
 import pathlib
 import pwd
+import re
+import shutil
 import stat
 import sys
 import urllib.parse
@@ -187,7 +189,7 @@ def launcher_text(profile: Profile) -> str:
         "Type=Application\n"
         f"Name={profile.team} team (Element)\n"
         f"Comment=Watch and command the {profile.team} agent team\n"
-        f"Exec=flatpak run {FLATPAK_APP} --profile {profile.team}\n"
+        f"{_exec_line(profile.team)}"
         f"Icon={FLATPAK_APP}\n"
         "Terminal=false\n"
         "Categories=Network;InstantMessaging;\n"
@@ -280,8 +282,55 @@ def _write(path: pathlib.Path, content: bytes, mode: int, changed: list[pathlib.
     changed.append(path)
 
 
+_LAUNCHER_NAME = re.compile(r"agent-bus-(.+)-element\.desktop")
+
+
+def _exec_line(team: str) -> str:
+    return f"Exec=flatpak run {FLATPAK_APP} --profile {team}\n"
+
+
+def stale_teams(home: pathlib.Path, declared: Sequence[str]) -> list[str]:
+    """The teams whose launcher this module wrote (its name, a team name, a regular file holding
+    the Exec line launcher_text writes) that are not declared. A profile with no such launcher,
+    the human's own, is never one; a declared team never is."""
+    apps = home / APPLICATIONS_DIR
+    if not apps.is_dir():
+        return []
+    stale = []
+    for path in sorted(apps.iterdir()):
+        match = _LAUNCHER_NAME.fullmatch(path.name)
+        if match is None or match.group(1) in declared or not protocol.is_team_name(match.group(1)):
+            continue
+        if path.is_symlink() or not path.is_file():
+            continue
+        if _exec_line(match.group(1)) in path.read_text(encoding="utf-8"):
+            stale.append(match.group(1))
+    return stale
+
+
+def prune(home: pathlib.Path, declared: Sequence[str]) -> list[pathlib.Path]:
+    """Remove the launcher and the profile of every stale team; return the paths removed. Every
+    profile is checked before anything is removed: one that is not a real directory is refused."""
+    stale = stale_teams(home, declared)
+    for team in stale:
+        pdir = profile_dir(home, team)
+        if pdir.is_symlink() or (pdir.exists() and not pdir.is_dir()):
+            raise ElementError(f"{pdir} is not a directory; team {team} is no longer declared, so remove it by hand")
+    removed: list[pathlib.Path] = []
+    for team in stale:
+        launcher = launcher_path(home, team)
+        launcher.unlink()
+        removed.append(launcher)
+        pdir = profile_dir(home, team)
+        if pdir.exists():
+            shutil.rmtree(pdir)
+            removed.append(pdir)
+    return removed
+
+
 def apply(home: pathlib.Path, profiles: Sequence[Profile]) -> list[pathlib.Path]:
-    """Write every profile and launcher; return the paths changed, in order."""
+    """Write every profile and launcher, then remove those of teams no longer declared (prune);
+    return the paths changed, in order."""
     check_user(home)
     changed: list[pathlib.Path] = []
     for profile in profiles:
@@ -293,6 +342,7 @@ def apply(home: pathlib.Path, profiles: Sequence[Profile]) -> list[pathlib.Path]
         launcher = launcher_path(home, profile.team)
         launcher.parent.mkdir(parents=True, exist_ok=True)
         _write(launcher, launcher_text(profile).encode("utf-8"), LAUNCHER_MODE, changed)
+    changed.extend(prune(home, [profile.team for profile in profiles]))
     return changed
 
 

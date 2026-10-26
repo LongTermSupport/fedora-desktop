@@ -228,6 +228,42 @@ func TestRemoveExplainWidthFollowsTheTerminal(t *testing.T) {
 	}
 }
 
+// Plan 00177 Task 11.4: a team watched in Element loses its launcher and profile with it: the
+// Element play runs after the team's play, and the launcher must then be gone.
+func TestRemoveOfAWatchedTeamRunsTheElementPlayToRemoveItsLauncher(t *testing.T) {
+	r := removeRig(t)
+	r.declareElement(t, "alpha")
+	launcher := r.ops.ElementLauncher("alpha")
+	r.files[launcher] = true
+	r.fake.OnFunc(strings.Fields(opsElementPlay), func(execx.Cmd) (execx.Result, error) {
+		delete(r.files, launcher)
+		return execx.Result{}, nil
+	})
+	if code := r.ops.Remove(context.Background(), []string{"alpha"}); code != 0 {
+		t.Fatalf("code %d: %s", code, r.said())
+	}
+	got := r.lines()
+	if len(got) < 2 || got[len(got)-2] != opsPlay+` -e {"agent_bus_only_teams": ["alpha"]}` || got[len(got)-1] != opsElementPlay {
+		t.Fatalf("calls %q", got)
+	}
+	if !strings.Contains(r.said(), "removes alpha's Element launcher and profile") {
+		t.Errorf("said %q", r.said())
+	}
+}
+
+func TestRemoveOfAWatchedTeamWhoseLauncherStaysFails(t *testing.T) {
+	r := removeRig(t)
+	r.declareElement(t, "alpha")
+	r.files[r.ops.ElementLauncher("alpha")] = true
+	r.on(opsElementPlay, execx.Result{})
+	if code := r.ops.Remove(context.Background(), []string{"alpha"}); code == 0 {
+		t.Fatalf("a launcher left behind passed: %s", r.said())
+	}
+	if !strings.Contains(r.said(), "alpha's Element launcher is still there") {
+		t.Errorf("said %q", r.said())
+	}
+}
+
 func TestRemoveWithoutBackupSkipsSudoAndInstaller(t *testing.T) {
 	r := removeRig(t)
 	r.onExit("gum confirm", 1, "")

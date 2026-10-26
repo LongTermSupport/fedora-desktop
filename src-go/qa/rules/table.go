@@ -159,7 +159,7 @@ var dynamicNames = []allowance{
 	},
 	{
 		pkg:    opsPkg,
-		fn:     "Ops.runElementPlay",
+		fn:     "Ops.elementPlay",
 		reason: "the Element play, run by its own shebang; its path is configuration",
 	},
 	{

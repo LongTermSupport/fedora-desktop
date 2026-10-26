@@ -33,6 +33,7 @@ func TestACCSessionIsAddedMovedAndRemovedWhileItRuns(t *testing.T) {
 		"✓ route: this host reaches alpha's homeserver",
 		"✓ record: --teams 1@beta,3@alpha",
 		"Done. The session is told it joined alpha as proj.3+local.host. Nothing restarted.")
+	wantBlock(t, r.ErrOut.String(), "This session is on 2 teams:", "beta", "alpha")
 	if !r.Fake.Called("/usr/local/share/agent-bus/kit/pingbus reach --team alpha --root "+filepath.Join(r.Checkout(), ".claude", "ccy", "pingbus", "seats")) ||
 		r.Fake.Called("podman exec") || !r.Fake.Called("agent-bus seat choose alpha --type=host") {
 		t.Fatalf("a cc session's route is the host's and its seats are host seats: %v", r.Fake.Calls())
