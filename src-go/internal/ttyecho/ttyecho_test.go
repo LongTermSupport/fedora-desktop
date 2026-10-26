@@ -10,6 +10,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -456,6 +458,106 @@ func TestADrainingScreenDiscardsTheTypedKeysAndAnyOtherKeepsThem(t *testing.T) {
 	}
 	if w.modes.Flushes != 1 || w.modes.Echo() {
 		t.Fatalf("flushes %d, echo %t", w.modes.Flushes, w.modes.Echo())
+	}
+}
+
+// runRecorder is a screen that notes how many flushes had happened when it ran.
+type runRecorder struct {
+	modes *FakeModes
+	at    []int
+}
+
+func (r *runRecorder) Run(context.Context, execx.Cmd) (execx.Result, error) {
+	r.at = append(r.at, r.modes.Flushes)
+	return execx.Result{}, nil
+}
+
+// Plan 00177 Task 12.5: a key sent just after the Esc that ended the last screen reaches the
+// terminal after that screen has ended, so a flush the moment it ends misses it and the next gum
+// reads it. A draining screen first lets such keys arrive (Settle), then discards, then runs; a
+// screen that keeps type-ahead does neither.
+func TestADrainingScreenLetsTheKeysOnTheirWayArriveBeforeItDiscards(t *testing.T) {
+	w := held(t)
+	var settledAfter []int
+	w.h.Settle = func() { settledAfter = append(settledAfter, w.modes.Flushes) }
+	screen := &runRecorder{modes: w.modes}
+	run := w.h.Runner(screen)
+	if _, err := run.Run(t.Context(), execx.Cmd{Name: "gum", EchoHeld: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run.Run(t.Context(), execx.Cmd{Name: "gum", EchoHeld: true, DrainInput: true}); err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(settledAfter) != "[0]" || fmt.Sprint(screen.at) != "[0 1]" {
+		t.Fatalf("settled after %v flushes, screens ran after %v: want one settle before the one flush, then the screen", settledAfter, screen.at)
+	}
+}
+
+// The real settle is settleTime on the time package: in a synctest bubble it is still asleep
+// 1 ns short of it and done once it has passed.
+func TestNewSettlesForSettleTimeOnTheRealClock(t *testing.T) {
+	h := New(nil)
+	synctest.Test(t, func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			h.Settle()
+			close(done)
+		}()
+		time.Sleep(settleTime - time.Nanosecond)
+		synctest.Wait()
+		select {
+		case <-done:
+			t.Fatal("the settle ended before settleTime")
+		default:
+		}
+		time.Sleep(time.Nanosecond)
+		synctest.Wait()
+		select {
+		case <-done:
+		default:
+			t.Fatal("the settle goes on past settleTime")
+		}
+	})
+	if settleTime < 100*time.Millisecond {
+		t.Fatalf("settleTime %v is shorter than the host's Esc-then-key gaps it has to cover", settleTime)
+	}
+}
+
+// On a real terminal: a key that arrives after the last screen ended, while the next draining
+// screen settles, is discarded; what is typed once the screen runs is read.
+func TestOnARealTerminalAKeyArrivingAsTheNextScreenStartsIsDiscarded(t *testing.T) {
+	master, terminal := pty(t)
+	h := New(terminal)
+	press := func(s string) {
+		if _, err := io.WriteString(master, s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.Settle = func() {
+		press("\x1b[B\n")
+		fd := int(terminal.Fd())
+		var readable unix.FdSet
+		readable.Set(fd)
+		if _, err := unix.Select(fd+1, &readable, nil, nil, nil); err != nil {
+			t.Error(err)
+		}
+	}
+	err := h.Held(func() {
+		if err := Screen(h); err != nil {
+			t.Error(err)
+			return
+		}
+		if _, err := h.Runner(noScreen{}).Run(t.Context(), execx.Cmd{Name: "gum", EchoHeld: true, DrainInput: true}); err != nil {
+			t.Error(err)
+			return
+		}
+		press("ok\n")
+		if line := readTo(t, bufio.NewReader(terminal), '\n'); line != "ok\n" {
+			t.Errorf("after the drain the program read %q", line)
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 

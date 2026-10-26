@@ -6,8 +6,10 @@
 // not echoed and stay in the input for the next screen to read.
 //
 // Keeping them is the rule; draining them is the exception. A screen marked DrainInput (execx.Cmd)
-// discards what is waiting in the input (tcflush) once the hold is taken, before it runs, so it
-// starts on no key typed before it drew. internal/ui decides which screens (ui.Drain): the screen
+// waits settleTime once the hold is taken, for keys still on their way, then discards what is
+// waiting in the input (tcflush) and runs, so it starts on no key typed just before it drew. A
+// key pressed after that wait and before the screen draws (the screen's own start, some 40 ms
+// for gum) still reaches it: the screen reads its input from its first moment. internal/ui decides which screens (ui.Drain): the screen
 // after one the person left (Esc, Ctrl-C, a No), since a key typed just after Esc would act on a
 // screen not yet seen, and every screen of a destructive flow (a team taken down or deleted, a
 // backup restored over it, a session ended). Every other screen keeps the keys typed ahead.
@@ -31,6 +33,7 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -86,6 +89,9 @@ type Hold struct {
 	Raise      func(sig os.Signal) error
 	// Stderr is where a mode that could not be put back on a signal or a panic is said.
 	Stderr io.Writer
+	// Settle is the wait before a draining screen discards the input, for the keys still on their
+	// way to arrive (settleTime); nil does not wait.
+	Settle func()
 
 	mu sync.Mutex
 	// found is the mode found when the hold was taken and quiet the same with the echo off; nil
@@ -103,8 +109,21 @@ func New(tty *os.File) *Hold {
 	return &Hold{
 		TTY: tty, IsTerminal: term.FileIsTerminal, Modes: ioctlModes{},
 		Notify: signal.Notify, StopNotify: signal.Stop, Ignored: signal.Ignored, Raise: raise, Stderr: os.Stderr,
+		Settle: settle,
 	}
 }
+
+// settleTime is how long a draining screen waits before it discards the input. A key pressed
+// just after the Esc that ended the last screen reaches the terminal after that screen has
+// exited (gum takes a few ms to go, and a tmux send-keys or a person's next key comes later
+// still), so a flush the moment the screen ends misses it, and the next gum, which reads its
+// input from its first moment and draws some 40 ms later, takes the key before anyone has seen
+// it. The host agent's gaps were 1 to 40 ms after the Esc; 150 ms covers them with room, and is
+// still shorter than anyone reacts to a screen that has not yet drawn.
+const settleTime = 150 * time.Millisecond
+
+// settle is the real Settle.
+func settle() { time.Sleep(settleTime) }
 
 // raise sends sig to this process again, its own handling stopped, so it ends as it would have.
 func raise(sig os.Signal) error {
@@ -252,8 +271,16 @@ func (h *Hold) screen(c execx.Cmd) error {
 	return nil
 }
 
-// drain discards what is waiting in the terminal's input. Not held (no terminal) is nothing to do.
+// drain lets the keys on their way arrive (Settle), then discards what is waiting in the
+// terminal's input. Not held (no terminal) is nothing to do. The settle runs unlocked, so a
+// signal that ends the process can still put the mode back during it.
 func (h *Hold) drain() error {
+	h.mu.Lock()
+	held := h.found != nil
+	h.mu.Unlock()
+	if held && h.Settle != nil {
+		h.Settle()
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.found == nil {
