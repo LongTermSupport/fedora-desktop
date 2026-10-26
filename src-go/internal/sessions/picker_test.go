@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -21,6 +22,7 @@ type pickerRig struct {
 	answers []string
 	argv    []string
 	shown   []string
+	drains  []bool // whether each screen discarded the keys typed before it drew
 	n       int
 }
 
@@ -38,6 +40,7 @@ func (r *pickerRig) answer(c execx.Cmd) (execx.Result, error) {
 	}
 	r.argv = append(r.argv, strings.Join(c.Args, " "))
 	r.shown = append(r.shown, string(rows))
+	r.drains = append(r.drains, c.DrainInput)
 	if r.n >= len(r.answers) {
 		return execx.Result{ExitCode: 2, Stderr: []byte("no answer queued")}, nil
 	}
@@ -432,6 +435,22 @@ func TestCtrlXEndsASessionAndItsRecordAfterAYesAndCostsNoTry(t *testing.T) {
 	contains(t, "ended", h.stderr(), "Ended 'ccy-a'.", "Kept 'ccy-b'.")
 	contains(t, "question", rig.argv[7], "End ccy-a? Everything running in it will be killed.", "--border-label= Sessions ",
 		"--header=Sessions › ccy-a › End\nsession ccy-a\n───")
+}
+
+// Plan 00177 Task 12.3: ending a session kills everything in it, so its question starts on no key
+// typed before it drew; the list after a No (a leave) drains too, and the list after a yes keeps
+// the keys typed ahead.
+func TestTheEndQuestionAndTheListAfterALeaveDiscardKeysTypedBeforeThem(t *testing.T) {
+	h := newHarness(t)
+	s := newServer(h)
+	s.listSessions("/srv/a", "ccy-a", "ccy-b")
+	notInProject(h)
+	realDir(t, h, "a")
+	rig := newPickerRig(h, "ctrl-x|ccy-b", "|EXIT", "ctrl-x|ccy-a", "|YES", "|ABORT")
+	exitCodeIs(t, h.run(), 0, h)
+	if want := []bool{false, true, true, true, false}; !slices.Equal(rig.drains, want) {
+		t.Fatalf("drains %v, want %v", rig.drains, want)
+	}
 }
 
 func TestCtrlXOnASessionThatAlreadyEndedRemovesItsRecordAndGoesOn(t *testing.T) {

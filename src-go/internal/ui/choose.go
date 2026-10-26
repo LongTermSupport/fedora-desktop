@@ -32,10 +32,14 @@ func (p *Picker) Choose(ctx context.Context, h Heading, s ChooseSpec) ([]string,
 	}
 	args = append(args, "--height="+s.Height, "--reverse", "--prompt="+s.Prompt, "--header="+h.above(s.Header, false, p.headingWidth(ctx, plainMargin)))
 	var stdin io.Reader = strings.NewReader(strings.Join(s.Rows, "\n") + "\n")
-	res, err := p.Runner.Run(ctx, execx.Cmd{Name: "fzf", Args: append(args, fzfEscJoined), Stdin: stdin, Stderr: p.Stderr, EchoHeld: true})
+	res, err := p.Runner.Run(ctx, execx.Cmd{
+		Name: "fzf", Args: append(args, fzfEscJoined), Stdin: stdin, Stderr: p.Stderr, EchoHeld: true,
+		DrainInput: p.drain().next(),
+	})
 	if err != nil {
 		switch code := exitCode(err); {
 		case code == fzfNoMatch, code == fzfInterrupted:
+			p.drain().left()
 			return nil, ErrLeave
 		case execx.IsNotInstalled(err):
 			return nil, ErrFzfMissing

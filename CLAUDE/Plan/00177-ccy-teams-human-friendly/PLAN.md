@@ -1,6 +1,6 @@
 # Plan 00177: ccy-teams, human friendly
 
-**Status**: In Progress (host run 26-10-26: 6.4, 10.4 and 10.5 passed; 7.5 and 9.5 still open; Phase 11 passed on the host; Phase 12's three findings are open)
+**Status**: In Progress (host run 26-10-26: 6.4, 10.4 and 10.5 passed; 7.5 and 9.5 still open; Phase 11 passed on the host; Phase 12's three findings are fixed, its host check 12.4 is open)
 **Created**: 2026-10-13
 **Owner**: joseph
 **Priority**: High
@@ -467,12 +467,28 @@ listing): an owner check. The run's findings are Phase 12.
   are named ("left aside N room(s) the team admin made in an earlier room version (not a bus
   room)"); the server's admin room, sent by the server's own user, is left out without a guessed
   name or alias.
-- [ ] ⬜ **Task 12.3**: A key typed just after Esc reaches the next prompt: in `ccy-teams remove`, Esc answered "Back up first?" No and a Down sent 20 ms later moved step 2's cursor off
+- [x] ✅ **Task 12.3**: A key typed just after Esc reaches the next prompt: in `ccy-teams remove`, Esc answered "Back up first?" No and a Down sent 20 ms later moved step 2's cursor off
   its default "Leave it running". Harmless there (Enter and the typed name are still needed),
   but a key acts on a screen the person has not seen. Keeping held keys is deliberate
   (`internal/ttyecho/ttyecho.go`: they "stay in the input for the next screen to read"), so the
   fix names which prompts drain: at least a prompt that follows an Esc answer, and every prompt
-  of a destructive flow.
+  of a destructive flow. Decided rule (`ui.Drain`, stated in the ttyecho package doc): a screen
+  discards the waiting input (tcflush) when it follows a leave (Esc, Ctrl-C, a No; gum confirm
+  gives Esc and No one exit, so both count) or belongs to a destructive flow: `ccy-teams remove`,
+  `ccy-teams restore`, and ccy-sessions' End question. Every other screen keeps type-ahead. One
+  Drain is shared by a command's gum and fzf. Tests: ui fakes, ops and sessions flows, and a
+  real pty in `ttyecho_test.go`.
+- [ ] ⬜ **Task 12.4**: Host check, after meta-deploy (`play-claude-yolo.yml`, which builds
+  ccy-teams, ccy-sessions and CCY 3.100.30 with its image, container 2.79.12; then
+  `play-agent-bus.yml`, which rebuilds the host's `agent-bus.pyz` with the new `admin.py`). On
+  throwaway teams only, as Task 11.2:
+  1. Launch a scratch session in team A, then from a terminal whose cwd is another checkout run
+     `ccy-teams session add <session> <team B> --yes`: the block names both seats with their
+     role (`worker`), never "new seat". Then `session move` the other way: the same.
+  2. `session add` into a team made a minute earlier prints no "left aside" line.
+  3. `ccy-teams remove <team>`: Esc on "Back up first?" then Down within 50 ms: step 2's cursor
+     is still on "Leave it running". Elsewhere (the board after a plain answer), a key typed while
+     the next screen loads still reaches it.
 - Fact-check of this phase:
   [subagent-reports/261026-fact-check-phase12.md](subagent-reports/261026-fact-check-phase12.md).
 

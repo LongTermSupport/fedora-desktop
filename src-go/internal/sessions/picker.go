@@ -280,7 +280,10 @@ func (a *App) startHere(st *pickState) step {
 // kill-session never lets the pane's trampoline remove it. A session that ended since the list
 // was drawn is just as ended.
 func (a *App) confirmEnd(ctx context.Context, name string) step {
+	// Destructive: the question starts on no key typed before it drew (ui.Drain).
+	end := a.Picker.Destructive()
 	yes, err := a.Picker.Confirm(ctx, sessionHeading(name, "End", "session "+name), "End "+name+"? Everything running in it will be killed.", "end '"+name+"'", false)
+	end()
 	if err != nil {
 		a.failErr(err)
 		return leave(term.ExitFailure)

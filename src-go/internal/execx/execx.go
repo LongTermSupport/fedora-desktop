@@ -49,6 +49,10 @@ type Cmd struct {
 	// it takes the terminal raw itself and gives back the mode it found (fzf, gum), or reads no
 	// input from it (tput). Any other child given the terminal runs with the echo it had.
 	EchoHeld bool
+	// DrainInput is an EchoHeld screen that must not read keys typed before it drew: under a
+	// hold, what is waiting in the terminal's input is discarded before it runs (internal/ui
+	// says which screens).
+	DrainInput bool
 }
 
 // Line is the argv as one space-joined string, for logs and test matching.

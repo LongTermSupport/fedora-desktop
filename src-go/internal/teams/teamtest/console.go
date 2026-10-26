@@ -253,8 +253,9 @@ func Interactive(t *testing.T, w *World) *Console {
 	h := w.Host
 	h.IsTerminal = func(any) bool { return true }
 	h.Term.IsTerminal = h.IsTerminal
-	h.Gum = &ui.Gum{Runner: c.Script, Stdin: h.Stdin, Stderr: w.ErrOut, Plain: true}
-	h.Picker = &ui.Picker{Runner: c.Script, Stderr: w.ErrOut, Plain: true}
+	drain := &ui.Drain{}
+	h.Gum = &ui.Gum{Runner: c.Script, Stdin: h.Stdin, Stderr: w.ErrOut, Plain: true, Drain: drain}
+	h.Picker = &ui.Picker{Runner: c.Script, Stderr: w.ErrOut, Plain: true, Drain: drain}
 	h.LookPath = func(name string) (string, error) { return "/usr/bin/" + name, nil }
 	h.OpenTTY = func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader(c.TTY)), nil }
 	h.Exec = func(path string, argv []string, dir string) error {

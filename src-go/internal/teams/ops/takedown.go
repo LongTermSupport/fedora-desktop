@@ -66,6 +66,8 @@ func (o *Ops) Remove(ctx context.Context, args []string) term.ExitCode {
 	if !o.interactive() {
 		return o.usageError("'remove' asks on a terminal, always: taking a team down is a human's decision.")
 	}
+	// Destructive: every question starts on no key typed before it drew (ui.Drain).
+	defer o.Gum.Destructive()()
 	if _, err := o.LookPath("gum"); err != nil {
 		o.Term.PrintError("gum is not installed, and ccy-teams needs it here. playbooks/imports/play-claude-yolo.yml installs it; run that play and try again.")
 		return term.ExitFailure
@@ -317,6 +319,8 @@ func (o *Ops) Restore(ctx context.Context, args []string) term.ExitCode {
 	if !ok {
 		return code
 	}
+	// Destructive: every screen starts on no key typed before it drew (ui.Drain).
+	defer o.Picker.Destructive()()
 	if o.Sudo.Ready(ctx, whyBackups) != nil {
 		return term.ExitFailure
 	}
