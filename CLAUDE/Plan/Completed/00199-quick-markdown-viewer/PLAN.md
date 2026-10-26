@@ -1,11 +1,9 @@
 # Plan 00199: quick markdown viewer
 
-**Status**: In Progress. md-viewer is installed on the host by its play (at the current pin
-22a55582735d, passed at F44 114dfa25) and is the `text/markdown` default; first frame 122 ms
-at the first pin. The emoji and dark-mode decisions are taken (Task 2.1b, coordinator
-defaults, changeable by the owner). Left for workers: md-viewer M13 (Task 2.1d) in its own
-repository, then the pin move and play entry, and qa-reviewer over the plan. Left for the host
-agent: Task 2.3's open from Nautilus, judged by screenshot. Nothing waits on the owner.
+**Status**: Complete (2026-10-26). md-viewer is installed on the host by its play (pin
+22a55582735d) and is the `text/markdown` default. The owner uses it and judged it working
+fine, so closed the plan: Tasks 2.1d and 2.3 are not needed. Further work on md-viewer
+happens in its own repository.
 **Created**: 2026-10-15
 **Owner**: joseph
 **Priority**: Medium
@@ -75,7 +73,8 @@ on Gio with goldmark (Task 1.2).
   - Any other item listed there: md-viewer's own recommendation for it, recorded in its
     `docs/MILESTONES.md` by the worker of Task 2.1d.
 
-- [ ] ⬜ **Task 2.1d**: md-viewer milestone M13, in md-viewer's repository by its own method:
+- [x] ❌ **Task 2.1d**: Not needed: the owner closed the plan with md-viewer working as it is
+  (2026-10-26). Was: md-viewer milestone M13, in md-viewer's repository by its own method:
   the embedded emoji font and the portal colour scheme of Task 2.1b, tests first. The pin
   22a55582735d already carries "dark mode and font size settings" (commit 64f2b6894); the
   worker checks what that does against Task 2.1b's default and builds only the gap. Then move
@@ -102,15 +101,16 @@ on Gio with goldmark (Task 1.2).
   PLAN.md gave a first frame at 121.8 ms. The later pins ran too: `bafafc8e4ff9` (commit
   3811949b2) and the current `22a55582735d` at F44 114dfa25 (commit 6be8de0bc).
 
-- [ ] ⬜ **Task 2.3**: The host agent opens a plan's `PLAN.md` from Nautilus (or `gio open`),
-  takes a screenshot of the window, and records whether it renders and opens quickly. The
-  owner's taste in rendering is a product preference, not a gate. qa-reviewer over the plan
-  (a worker).
+- [x] ❌ **Task 2.3**: Not needed: the owner uses md-viewer daily and judged it working fine
+  (2026-10-26), which settles what this check was for. No agent takes screenshots of the
+  owner's desktop. Was: open a plan's `PLAN.md` from Nautilus and judge it by screenshot.
 
 ## Success Criteria
 
-- [ ] A double-click on a `.md` file opens it rendered, quickly.
-- [ ] Tables, code, task lists, images and relative links render correctly.
+- [x] A double-click on a `.md` file opens it rendered, quickly (the owner's judgement;
+  `--time` first frame 0.5 to 0.7 s on the host under load, 2026-10-26).
+- [x] Tables, code, task lists, images and relative links render correctly (the owner's
+  judgement).
 - [x] Installed by a play and set as the default for `text/markdown` (Task 2.2).
 
 ## Delivery & Milestones
