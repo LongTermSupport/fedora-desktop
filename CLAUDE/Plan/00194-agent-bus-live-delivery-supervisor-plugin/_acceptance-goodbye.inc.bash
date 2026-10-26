@@ -26,10 +26,15 @@
 # plan library's PLAN_RUN_DIR, PLAN_REPO_ROOT and PLAN_SCRIPT_DIR.
 
 readonly GB_TEAMS=("${TEAM_A}" "${TEAM_B}")
-#: The tmux session names, which the launcher makes the container's ccy-session label.
-readonly GB_SESSIONS=(accept194-ctrlc accept194-stop accept194-window)
-#: The description every team of this acceptance starts with: how a leftover is known as ours.
-readonly GB_DESC_PREFIX="Plan 00194 goodbye acceptance"
+#: The tmux session names, which the launcher makes the container's ccy-session label, and the
+#: description every team of the run starts with (how a leftover is known as ours). A caller
+#: that reuses these legs for its own sessions and teams (delivery-acceptance.bash) sets both
+#: before sourcing this file.
+if [[ -z "${GB_SESSIONS+set}" ]]; then
+    GB_SESSIONS=(accept194-ctrlc accept194-stop accept194-window)
+fi
+readonly GB_SESSIONS
+readonly GB_DESC_PREFIX="${GB_DESC_PREFIX:-Plan 00194 goodbye acceptance}"
 #: The tracked files of .claude/ccy a session needs: the ignore rule and the supervisor.
 readonly GB_CCY_FILES=(.gitignore ccy.env claude-supervise claude-supervise.py)
 #: In a container: 0 once the pingbus SessionStart hook has written a per-session record, in the
@@ -332,11 +337,12 @@ gb_human_passwords() {
     printf '==> a password for %s in each team\n' "${HUMAN}"
 }
 
-# gb_take_seats — both seats created in the scratch checkout from this terminal, where sudo is
-# primed, as Plan 00203's M6 takes them: a launch in a tmux pane has no sudo credential to use.
+# gb_take_seats [seats] — both seats (or the list given) created in the scratch checkout from
+# this terminal, where sudo is primed, as Plan 00203's M6 takes them: a launch in a tmux pane has
+# no sudo credential to use.
 gb_take_seats() {
     GB_SEATS_TAKEN=1
-    (cd -- "${GB_CHECKOUT}" && CCY_TEAMS_HOST_VARS="${HOST_VARS_FILE}" "${AGENT_BUS}" seat take "${SEAT_LIST}" --no-prompt) || return 1
+    (cd -- "${GB_CHECKOUT}" && CCY_TEAMS_HOST_VARS="${HOST_VARS_FILE}" "${AGENT_BUS}" seat take "${1:-${SEAT_LIST}}" --no-prompt) || return 1
 }
 
 # gb_human_logins — each team's human logged in and joined to the room, its token in memory;
