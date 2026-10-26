@@ -153,6 +153,8 @@ gb_poll_launch() {
 # gb_prerequisites — 0 ready; 2 an owner step is missing (nothing changed); 1 anything else.
 gb_prerequisites() {
     local tool declared team conf="${PLAN_REPO_ROOT}/.claude/ccy/.last-launch.conf"
+    # The container paths gb_leftovers' m7_seat_listing reads, as m7_prerequisites reads them.
+    m7_session_paths || return 1
     for tool in "${CCY_LAUNCHER}" "${AGENT_BUS}" "${INSTALLER}"; do
         if [[ ! -x "${tool}" ]]; then
             printf '[FAIL] %s is not installed: run play-claude-yolo.yml and play-agent-bus.yml\n' "${tool}" >&2
