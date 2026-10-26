@@ -30,6 +30,8 @@ session-side part of the team system recover by itself.
   boot. Every session-side part recovers from a transient fault (a homeserver restart, a network
   blip, a host reboot) without a human.
 - Health is visible: `ccy-teams` and `pingbus status` say plainly what is down and what to do.
+- The whole team's lifecycle from `ccy-teams`: wound down and shut down inside a set window,
+  then resumed as it was at that shutdown, coordinator first (Tasks 3.16 to 3.19).
 
 ## Non-Goals
 
@@ -270,6 +272,59 @@ Built on `fix/teams-server-robustness`; design and evidence in
   the way wind-down does: `/exit` typed into a running container's `agent-bus-claude` session
   through `lxcfreeze.Lister.InContainer`, instead of naming every LXC member as not reachable.
 
+Tasks 3.16 to 3.19 are the owner's whole-team lifecycle request. Each is spec first: numbered
+expectations in the named SPEC, a Fable review, then the build, tests first. Decision 13 is
+the owner's; Decisions 14 to 22 are open, each with the default it runs on.
+
+- [ ] ⬜ **Task 3.16** (owner request; extends 3.14 and 3.15): a timed wind-down that ends in a
+  forced shutdown. `ccy-teams wind-down <team> --then-shutdown[=<minutes>]` and a team menu
+  line, Wind down and shut down the team: an outer window (default 15 minutes, 30 offered in
+  the picker) and an inner coordinator deadline inside it (Decision 14). 3.14's typed path
+  reaches the coordinator first, then every other member (Decision 15); each text names the
+  inner deadline as a clock time and says the team is shut down by force at it. Enforcement is
+  on the host, never left to the coordinator: at the inner deadline (or earlier, Decision 16)
+  Plan 00201's `ccy-teams shutdown` path (SPEC-shutdown.md SD10 to SD12: `/exit` typed, a busy
+  turn interrupted, then `tmux kill-session`) runs on every session still open, its waits cut
+  so that it ends inside the outer window. The wait runs outside the owner's terminal
+  (Decision 17) and can be cancelled. LXC members are wound down by 3.14's route; they are
+  forced only once 3.15 lands, and are named as not forced until then. The shutdown writes
+  3.17's record first. Spec: a new section of [SPEC-team-wind-down.md](SPEC-team-wind-down.md).
+- [ ] ⬜ **Task 3.17** (owner request; extends 3.11): resume the whole team as it was at its last
+  shutdown, coordinator first. A clean `/exit` removes the session's registry record
+  (SPEC-shutdown.md, "What ends after `/exit`"), so after a team shutdown `ccy-teams restart`
+  finds nothing to start (SPEC-team-add-and-restart.md B3). `ccy-teams shutdown`, and 3.16's
+  forced one, first write a last-shutdown record for the team: each session's registry record,
+  its seats and role, its recorded conversation (C4), and each LXC member reached (Decision
+  21). The resume reads it for every member with no live record, starts the coordinator first,
+  waits for its seats to be held (B6), then starts the rest together (Decision 18). Every
+  session resumes by its recorded conversation id, never `--continue` (Decision 13). One verb
+  or two: Decision 19. Spec: a new section of
+  [SPEC-team-add-and-restart.md](SPEC-team-add-and-restart.md).
+- [ ] ⬜ **Task 3.18** (owner request; extends 3.15 and 3.17; cross-reference Plan 00205): how an
+  LXC member is reached and resumed, set per team with a per-seat override and an LXC default.
+  The owner reaches a member by `ssh` or `lxc-attach`, a `cd` into its recorded checkout, then
+  a command; some teams use a per-container shell alias (`<alias>`) that starts the container
+  and opens an ssh session. A `connect` and a `resume` setting on the `agent_bus_teams` entry,
+  overridable on each `agent_bus_lxc_members` entry (Decision 20); the default is today's
+  route (`sudo lxc-attach` as the member's user, the checkout, the member's launcher resumed
+  by its recorded conversation id, as Decision 13 says; a `service: true` member's unit
+  restarted). Used by 3.17's resume, by Attach on an LXC member row, and by the 3.14 and 3.15
+  paths. Plan 00205 (ssh members; research done, nothing built) owns ssh as a provisioning
+  route, with ssh-config `Host` aliases as destinations; this task only names a command for an
+  already provisioned member and takes 00205's destination as its ssh form once that is
+  built, never a second ssh model. Spec: a new SPEC-lxc-connect-and-resume.md in this plan.
+- [ ] ⬜ **Task 3.19** (owner request; cross-reference Plan 00196): the coordinator's start text.
+  When a session starts as a team's coordinator, and when a hot role change makes it one
+  (3.8's role notice), it is told: it is the coordinator; it cannot start, add or provision
+  team members itself, only the owner can, from `ccy-teams` on the host; when the work needs
+  members who are not present, it asks the human to provision them, saying how many and for
+  what, so the work can be delegated to them. **This plan owns it**: it extends the
+  `role_coordinator` text in `helpers/pingbus/hooks.py` that Plan 00196 Task 1.5 wrote, whose
+  build is ticked and waits only on host acceptance, so reopening 00196 would mix a new
+  request into that acceptance; the role notice this plan built (3.8) is the other place the
+  text is shown. A pingbus plugin version bump. Spec: a new section of
+  [SPEC-hot-control.md](SPEC-hot-control.md); the wording is Decision 22.
+
 ## Decisions
 
 These were settled by the coordinator under the owner's standing "do not gate on me". **The owner
@@ -358,6 +413,54 @@ Each runs as stated until the owner decides; detail in SPEC-team-add-and-restart
     or a compaction, which writes `conversation.json` and answers nothing. Every other event
     stays inert. The alternative: keep the contract whole, and such sessions are named and
     not restored after a reboot (`ccy --resume` by hand).
+
+### The whole-team lifecycle (Tasks 3.16 to 3.19)
+
+13. **Settled by the owner, 2026-10-26: the whole-team resume resumes each session by its
+    recorded conversation id, never `--continue`.** The owner's request said `--continue`
+    (today each member is relaunched by hand with `ccy --continue --teams`); asked, the owner
+    ruled that resuming by recorded id is better. Decision 10 and SPEC-team-add-and-restart.md
+    F4 and F5 give the reasons: sessions in one checkout share one transcript folder, so
+    `--continue` takes the newest conversation of any of them, and one stale background record
+    from another PID namespace makes it refuse for good. This holds for LXC members too (3.18).
+
+### Open: for the owner (the whole-team lifecycle)
+
+Each runs on its default until the owner decides.
+
+14. **The inner deadline.** Default: the outer window less 3 minutes (15 gives 12, 30 gives
+    27), and an outer window under 5 minutes is refused. The 3 minutes cover the forced
+    shutdown's own waits (30 s for a prompt, 60 s for an exit, all sessions together) and the
+    LXC route. The alternative: a separate `--coordinator-deadline`.
+15. **Who is told.** Default: the host types the wind-down into every member, the coordinator
+    first and the others once the coordinator's line has gone in; the workers' text says the
+    coordinator leads it. Only a typed line can clear a `/goal` (SPEC-team-wind-down.md F1), and
+    the coordinator cannot type into a worker. The alternative: only the coordinator is typed
+    to, and it tells the workers over the bus.
+16. **Shutting down before the deadline.** Default: the forced shutdown starts early once every
+    session has been idle with an empty box for 2 minutes after its wind-down turn. The
+    alternative: it always waits for the inner deadline.
+17. **Where the wait runs.** Default: a transient systemd user unit, so closing the terminal or
+    the picker does not cancel it; `ccy-teams wind-down --cancel <team>` stops it and says what
+    was already typed. The alternative: `ccy-teams` stays in the foreground with a countdown.
+18. **A coordinator that does not start on resume.** Default: it is ✗ with why, the rest are
+    still started, and the run exits 1. The alternative: nothing more is started.
+19. **One verb or two.** Default: `ccy-teams restart <team>` reads the last-shutdown record too,
+    so one command resumes a shut-down team and restarts a running one. The alternative: a
+    separate `ccy-teams resume <team>` and menu line.
+20. **The form of the connect and resume settings.** Default: a word list with placeholders
+    (`{container}`, `{user}`, `{checkout}`, `{conversation}`), run with no shell. A shell alias
+    lives only in the owner's interactive shell, so a team that uses one names a script or the
+    alias's expansion. The alternative: the setting is run by an interactive `bash -ic`, so
+    the alias works as typed, along with everything else the owner's shell start-up does.
+21. **The last-shutdown record's life.** Default: kept until the team's next shutdown replaces
+    it; a resume never deletes it, and a member already running is left as it is. The
+    alternative: each entry is removed once its member has been resumed.
+22. **The coordinator's start text**, default wording: "agent-bus: in team {team} you are the
+    coordinator. ... You cannot start, add or provision team members yourself; only the owner
+    can, from ccy-teams on the host. When the work needs members who are not present, ask the
+    human to provision them, saying how many and for what, then delegate to them." (the
+    existing first sentences kept where the dots are).
 
 ## Success Criteria
 
