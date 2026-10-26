@@ -32,3 +32,8 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Plan 00192 (SPEC-freeze bug 29): lxcfreeze rebuilt, so the note after a freeze says the DHCP
+# lease is renewed where NetworkManager runs inside, not on every thaw. Named here because
+# changed-plays misses a Go change (Task 3.6).
+playbooks/imports/optional/common/play-lxcfreeze.yml

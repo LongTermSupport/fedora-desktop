@@ -41,9 +41,9 @@ func Config() freeze.Config {
 		ListNote:   "  A STOPPED container is not listed: it can be neither frozen nor thawed.",
 		FreezeNote: "  While frozen, the container answers nothing: every ssh session into it\n" +
 			"  dies with the frozen TCP connection, and so does any agent socket forwarded\n" +
-			"  over one. Thaw renews the DHCP lease, so the address comes back even after a\n" +
-			"  freeze longer than the lease — the connections do not. Reconnect after thawing\n" +
-			"  rather than trusting an old session.",
+			"  over one. Where NetworkManager runs inside, thaw renews the DHCP lease, so the\n" +
+			"  address comes back even after a freeze longer than the lease — the connections\n" +
+			"  do not. Reconnect after thawing rather than trusting an old session.",
 	}
 }
 

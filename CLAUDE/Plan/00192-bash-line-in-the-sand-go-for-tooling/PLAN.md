@@ -185,8 +185,10 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   thaw that succeeded (SPEC-freeze bug 19, D6). Owner decision 26-10-26: no `nmcli` is not
   applicable, not a failure. Built: lxc-attach's `Failed to exec "nmcli"` (No such file)
   becomes `freeze.DoneError`, a `✓` with its note; every other nmcli failure still fails. No
-  golden scenario pinned that message, so the golden is unchanged. Host check: the next
-  lxcfreeze thaw of a container without NetworkManager prints `✓` and exits 0.
+  golden scenario pinned that message, so the golden is unchanged. Host check passed
+  26-10-26 (Alpine throwaway, two cycles, `✓` and exit 0). The host's nit, that the freeze
+  note still promised a renewal on every thaw, is SPEC-freeze bug 29: the note says "where
+  NetworkManager runs inside", pinned on the 12 lxc scenarios that print it.
 
 - [ ] ⬜ **Task 3.6**: `run.bash --changed` did not count `play-podfreeze.yml` and
   `play-lxcfreeze.yml` stale after their Go (`internal/ui`) changed: the staleness misses Go

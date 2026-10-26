@@ -382,18 +382,20 @@
  },
  "lxc-act-freeze-one-fails": {
   "bugs": [
-   7
+   7,
+   29
   ],
-  "why": "bug 7: 'Thaw them with' and the freeze note list only what was frozen, and neither is printed when nothing was",
+  "why": "bug 7: 'Thaw them with' and the freeze note list only what was frozen, and neither is printed when nothing was; bug 29: the lxc freeze note says the lease is renewed where NetworkManager runs inside",
   "streams": [
    "stderr"
   ]
  },
  "lxc-act-freeze-all-fail": {
   "bugs": [
-   7
+   7,
+   29
   ],
-  "why": "bug 7: 'Thaw them with' and the freeze note list only what was frozen, and neither is printed when nothing was",
+  "why": "bug 7: 'Thaw them with' and the freeze note list only what was frozen, and neither is printed when nothing was; bug 29: the lxc freeze note says the lease is renewed where NetworkManager runs inside",
   "streams": [
    "stderr"
   ]
@@ -401,9 +403,10 @@
  "lxc-act-name-given-twice": {
   "bugs": [
    4,
-   7
+   7,
+   29
   ],
-  "why": "bug 4: a name given twice is acted on once; bug 7: 'Thaw them with' and the freeze note list only what was frozen, and neither is printed when nothing was",
+  "why": "bug 4: a name given twice is acted on once; bug 7: 'Thaw them with' and the freeze note list only what was frozen, and neither is printed when nothing was; bug 29: the lxc freeze note says the lease is renewed where NetworkManager runs inside",
   "streams": [
    "stderr",
    "calls"
@@ -411,9 +414,10 @@
  },
  "lxc-act-sudo-prompted-once-then-acts": {
   "bugs": [
-   6
+   6,
+   29
   ],
-  "why": "bug 6: root is readied by sudo.Ready before each load and act batch: its own words replace the old authenticating lines",
+  "why": "bug 6: root is readied by sudo.Ready before each load and act batch: its own words replace the old authenticating lines; bug 29: the lxc freeze note says the lease is renewed where NetworkManager runs inside",
   "streams": [
    "stderr"
   ]
@@ -465,11 +469,13 @@
  },
  "lxc-menu-numbered-all-then-quit": {
   "bugs": [
-   26
+   26,
+   29
   ],
-  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two; bug 29: the lxc freeze note says the lease is renewed where NetworkManager runs inside",
   "streams": [
-   "calls"
+   "calls",
+   "stderr"
   ]
  },
  "lxc-menu-numbered-back-out-of-drill-down": {
@@ -492,11 +498,13 @@
  },
  "lxc-menu-numbered-bridge-row": {
   "bugs": [
-   26
+   26,
+   29
   ],
-  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two; bug 29: the lxc freeze note says the lease is renewed where NetworkManager runs inside",
   "streams": [
-   "calls"
+   "calls",
+   "stderr"
   ]
  },
  "lxc-menu-numbered-sudo-prompted-at-start": {
@@ -514,11 +522,13 @@
   "bugs": [
    26,
    27,
-   28
+   28,
+   29
   ],
-  "why": "bug 26: the startup load serves the menu's first pass: one load, not two; bug 27: every fzf screen's header starts with the shared heading (the tool, the group, a count); bug 28: every fzf screen binds each key fzf reads an Esc and the next key as (alt-down, alt-enter, ...) to abort, so that Esc is not lost",
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two; bug 27: every fzf screen's header starts with the shared heading (the tool, the group, a count); bug 28: every fzf screen binds each key fzf reads an Esc and the next key as (alt-down, alt-enter, ...) to abort, so that Esc is not lost; bug 29: the lxc freeze note says the lease is renewed where NetworkManager runs inside",
   "streams": [
-   "calls"
+   "calls",
+   "stderr"
   ]
  },
  "lxc-menu-fzf-specific-members": {
@@ -555,6 +565,51 @@
    "stderr",
    "status",
    "calls"
+  ]
+ },
+ "lxc-act-derived-freezes-running": {
+  "bugs": [
+   29
+  ],
+  "why": "bug 29: the lxc freeze note says the lease is renewed where NetworkManager runs inside",
+  "streams": [
+   "stderr"
+  ]
+ },
+ "lxc-act-freeze-all-partial-failure": {
+  "bugs": [
+   29
+  ],
+  "why": "bug 29: the lxc freeze note says the lease is renewed where NetworkManager runs inside",
+  "streams": [
+   "stderr"
+  ]
+ },
+ "lxc-act-freeze-bridge": {
+  "bugs": [
+   29
+  ],
+  "why": "bug 29: the lxc freeze note says the lease is renewed where NetworkManager runs inside",
+  "streams": [
+   "stderr"
+  ]
+ },
+ "lxc-act-freeze-one": {
+  "bugs": [
+   29
+  ],
+  "why": "bug 29: the lxc freeze note says the lease is renewed where NetworkManager runs inside",
+  "streams": [
+   "stderr"
+  ]
+ },
+ "lxc-act-skip-already-in-state": {
+  "bugs": [
+   29
+  ],
+  "why": "bug 29: the lxc freeze note says the lease is renewed where NetworkManager runs inside",
+  "streams": [
+   "stderr"
   ]
  }
 }
