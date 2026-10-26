@@ -451,14 +451,24 @@ listing): an owner check. The run's findings are Phase 12.
 
 - [ ] ⬜ **Task 12.1**: The launch block printed by `session add` and `move` says "(new seat:
   it joins as a worker)" for seats that already existed (the session's held seat after add;
-  the move's own step said "seat 1: exists"). The words describe a role as if it were newness.
+  the move's own step said "seat 1: exists"). `newSeatWords` (`internal/teams/choose/choose.go`)
+  is chosen when the seat is missing from `Bus.SeatList(ctx, "")`, which reads the cwd's
+  checkout, and `hot.go` prints the block from the ccy-teams terminal, whose cwd need not be the
+  session's checkout: likely a lookup against the wrong checkout, not wording. Confirm by test.
 - [ ] ⬜ **Task 12.2**: `session add` into a team created a minute earlier printed "left aside
-  1 joined room of an earlier room version". A new team has no earlier room version: find what
-  the message counts and whether it is wrong or worded wrongly.
-- [ ] ⬜ **Task 12.3**: A key typed just after Esc reaches the next prompt: in `ccy-teams remove`, Esc answered "Back up first?" No and a Down sent 20 ms later moved step 2's cursor off
+  1 joined room of an earlier room version" (`helpers/agent_bus/admin.py`, from `joined_rooms`).
+  It counts every joined room not of room version 12, and Tuwunel's own server admin room is one,
+  so a new team counts 1: the count is right and the words mislead. Say what it is (or leave the
+  server's admin room out of the count).
+- [ ] ⬜ **Task 12.3**: A key typed just after Esc reaches the next prompt: in `ccy-teams
+  remove`, Esc answered "Back up first?" No and a Down sent 20 ms later moved step 2's cursor off
   its default "Leave it running". Harmless there (Enter and the typed name are still needed),
-  but a key acts on a screen the person has not seen; pending input is not drained between
-  prompts.
+  but a key acts on a screen the person has not seen. Keeping held keys is deliberate
+  (`internal/ttyecho/ttyecho.go`: they "stay in the input for the next screen to read"), so the
+  fix names which prompts drain: at least a prompt that follows an Esc answer, and every prompt
+  of a destructive flow.
+- Fact-check of this phase:
+  [subagent-reports/261026-fact-check-phase12.md](subagent-reports/261026-fact-check-phase12.md).
 
 ## Success Criteria
 
