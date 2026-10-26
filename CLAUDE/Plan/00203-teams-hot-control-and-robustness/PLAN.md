@@ -271,12 +271,35 @@ Built on `fix/teams-server-robustness`; design and evidence in
 - [ ] ⬜ **Task 3.15** (follow-up from 3.14's review): `ccy-teams shutdown` reaches LXC members
   the way wind-down does: `/exit` typed into a running container's `agent-bus-claude` session
   through `lxcfreeze.Lister.InContainer`, instead of naming every LXC member as not reachable.
-  A `service: true` member's unit has `Restart=always`
-  (`helpers/agent_bus_lxc/members.py` `render_member_unit`), so a typed `/exit` alone is
-  followed by systemd starting a fresh conversation: after the `/exit` (and after the hard
-  stop), the shutdown runs `systemctl stop` of that member's unit in the container, and the
-  member counts as ended only when the unit is inactive. A container stopped at the shutdown
-  is offline: named, not a failure.
+  A `service: true` member's unit `agent-bus-claude-<user>.service` has `Restart=always` and
+  `RestartSec=10s` (`helpers/agent_bus_lxc/members.py` `render_member_unit`), so a typed
+  `/exit` alone is followed 10 s later by systemd starting a fresh conversation, which a later
+  `--continue` (3.18) would take. A `systemctl stop` run after the `/exit` races that restart,
+  since every read of the session is one `sudo lxc-attach`. So **before** the `/exit` the
+  shutdown writes a runtime drop-in, `Restart=no`, under
+  `/run/systemd/system/agent-bus-claude-<user>.service.d/`, and runs `systemctl daemon-reload`:
+  the `/exit` (or the hard stop) then leaves the unit inactive with no restart to race. Then it
+  runs `systemctl stop` of the unit (nothing to do once inactive; the end of the hard stop
+  otherwise). The member counts as ended only when the unit is inactive and its `NRestarts` is
+  unchanged since before the `/exit`; otherwise the report says "restarted before it was
+  stopped: its newest conversation may be a fresh one", and the member is a failure (exit 1).
+  The drop-in stays until 3.18's resume removes it. The alternative: no drop-in, the unit
+  stopped as soon as its session is seen gone, inside `RestartSec` (a stop during the restart
+  wait cancels the restart), with the same `NRestarts` check. Known limit: `/run` is emptied
+  when the container reboots and the unit is enabled, so a container rebooted after the
+  shutdown starts the member fresh; 3.17's resume then finds it running and says so.
+  - **Two runners.** `lxcfreeze.Lister.InContainer` runs tmux only, on the socket and session
+    `agent-bus-claude` (`winddown.go` `lxcTmux`), and stays the route for reading and typing.
+    The drop-in, `systemctl`, `agent-bus seat list` (3.17), the transcript read (3.18) and the
+    resume command under the default connect need a new `lxcfreeze` runner: a named program
+    run inside the container, as root or as the member's user, through the same `sudo -n lxc-attach
+    --clear-env`, each program on an allow list.
+  - **The preview names what else ends.** A service member's one session is in every team its
+    user is declared in (one session per container and user, members.py `_check_between`), so
+    its `/exit` and `systemctl stop` take it off those teams too: the preview (3.15's and
+    3.16's) shows "also on <team>" for it, as SD4 does for a desktop session.
+
+  A container stopped at the shutdown is offline: named, not a failure.
 
 Tasks 3.16 to 3.19 are the owner's whole-team lifecycle request. Each is spec first: numbered
 expectations in the named SPEC, a Fable review, then the build, tests first. Decision 13 is
@@ -297,6 +320,18 @@ for the same team is refused, exit 1, naming what holds it and since when; while
 wind-down (3.16) is pending it also names `ccy-teams wind-down --cancel <team>`. So a pending
 wind-down can never kill sessions that a restart or resume started after it began.
 
+- The holder writes its pid, its kind (unit or foreground) and its start time into the lock
+  file. `ccy-teams wind-down --cancel <team>` is exempt from the lock and acts on the holder:
+  for a transient unit it stops the unit; for the foreground countdown it sends SIGTERM to the
+  recorded pid, which the countdown takes as a cancel. With no timed wind-down holding the
+  lock it says so (exit 1) and touches nothing.
+- A timed wind-down run in a unit does all its work in the unit, the typing (W6's wait for
+  idle included) as well as the wait and the force. The invoker only checks the lock (a
+  non-blocking try, released at once, so a held lock is refused before anything starts),
+  starts the unit, and shows its progress. The unit's process takes the lock as its first
+  step and fails, typing nothing, if it cannot. So there is no handoff in which a `restart`
+  could slip in: until the unit holds the lock nothing has been typed.
+
 - [ ] ⬜ **Task 3.16** (owner request; extends 3.14 and 3.15): a timed wind-down that ends in a
   forced shutdown. `ccy-teams wind-down <team> --then-shutdown[=<minutes>]` and a team menu
   line, Wind down and shut down the team: an outer window (default 15 minutes, 30 offered in
@@ -308,19 +343,28 @@ wind-down can never kill sessions that a restart or resume started after it bega
   turn interrupted, then `tmux kill-session`) runs on every session still open, its waits cut
   so that it ends inside the outer window. The wait runs outside the owner's terminal unless
   the team has an online LXC member (Decision 17) and can be cancelled. LXC members are wound
-  down by 3.14's route; they are forced only once 3.15 lands (its `systemctl stop` included),
-  and are named as not forced until then. An offline member is shown as offline, is not typed
-  to or forced, and changes no exit code. 3.17's last-shutdown record is written at the
-  wind-down's start, from the members found then, and refreshed just before the forced
-  shutdown, so a member that ends during the window is still in it. **Forced means forced**: at
-  the inner deadline the cut shutdown departs from SD10 and SD11 for this mode only. A session
-  whose input box holds unsent text is ended by `tmux kill-session` after the record is
-  written, and the report names it with the unsent text read from the pane. A session left at
-  the launcher's compose-stop question is ended by `kill-session` too, the report naming its
-  compose services as left as they were. `--cancel` before the deadline stops the unit and
-  says what was already typed; once the forced phase has begun it stops before the next
-  session not yet typed to or killed, and the report names which sessions ended and which were
-  left running (the record already written stays). Plan 00201's SPEC-shutdown.md carries a
+  down by 3.14's route; they are forced only once 3.15 lands (its drop-in and `systemctl stop`
+  included). Until then an online LXC member is named as not forced, with the text to give it
+  by hand, and is a failure (exit 1: it is online and the shutdown did not end it); its entry
+  is still written, and 3.17 finds it running. An offline member is shown as offline, is not
+  typed to or forced, and changes no exit code. **The record is a draft until the force**:
+  3.17's last-shutdown record is drafted at the wind-down's start, from the members found
+  then, into a separate draft file beside the record. It becomes the team's last-shutdown
+  record only when the forced phase begins, refreshed from the members found then, so a
+  member that ended during the window is still in it. A `--cancel` before that, or a
+  foreground countdown ended by a closed terminal, deletes the draft and leaves the previous
+  last-shutdown record as it was, so a shutdown that never happened can neither replace a
+  real one nor be resumed. **Forced means forced**: at the inner deadline the cut shutdown
+  departs from SD10 and SD11 for this mode only. A session whose input box holds unsent text
+  is ended by `tmux kill-session` after the record is written, and the report names it with
+  its unsent text, as much of it as the pane shows (a long input is clipped). That text is
+  printed to stderr only, never written to the record, the draft, the unit's journal or any
+  log, since it may hold a secret; a unit run says only that the session had unsent text. A
+  session left at the launcher's compose-stop question is ended by `kill-session` too, the
+  report naming its compose services as left as they were. `--cancel` before the deadline
+  stops the unit (or the countdown) and says what was already typed; once the forced phase has
+  begun it stops before the next session not yet typed to or killed, and the report names
+  which sessions ended and which were left running (the record already written stays). Plan 00201's SPEC-shutdown.md carries a
   line pointing here, so SD10 to SD14 and this mode do not drift. Spec: a new section of
   [SPEC-team-wind-down.md](SPEC-team-wind-down.md).
 - [ ] ⬜ **Task 3.17** (owner request; extends 3.11): resume the whole team as it was at its last
@@ -336,7 +380,16 @@ wind-down can never kill sessions that a restart or resume started after it bega
   (Decision 21); `restart` stays 3.11's and never reads it. The resume first checks each entry
   against the team's current roster: a seat removed or parked since, or a member now on
   another role, is named and not started (a role change is applied as the roster says). A
-  member already running is named and left as it is. A desktop session whose tmux name is now
+  member already running is named and left as it is, and its entry is consumed (it is where
+  the resume would have put it). For an LXC member "running" is read in the container: a tmux
+  `has-session` for `agent-bus-claude` on that socket, as the member's user, through
+  `InContainer` (and, for a service member, its unit active). This matters because one
+  (container, user) session is in all of that user's teams (members.py `_check_between`): the
+  resume of team A brings it back in team B too, and team B's resume must find it running,
+  saying "already running (resumed with <team>)", not start a second claude. An entry kept
+  from 3.16's "not forced" is judged the same way: running, it is named and consumed;
+  stopped since, it is resumed like any other. An entry whose member is offline at the resume
+  is shown as offline and kept (Decision 21). A desktop session whose tmux name is now
   held by another session fails, naming it, and keeps its entry. It starts the coordinator
   first and waits for its seats to be held (B6), then the rest together (Decision 18). A
   host ccy coordinator's seats are read with `agent-bus seat list` in its checkout; an LXC
@@ -355,17 +408,34 @@ wind-down can never kill sessions that a restart or resume started after it bega
   command, a `cd` into the member's recorded working directory, then the resume command,
   whose LXC default is `ccy --continue` (ccy in the container is a claude wrapper; Decision
   13); the default connect is today's route (`sudo lxc-attach` as the member's user). No
-  conversation id is recorded in the container. The expectations:
-  - a member without a service is started in a named tmux session in the container, so the
-    resumed agent outlives the `lxc-attach` (or ssh) that started it;
-  - a `service: true` member is resumed through its unit, never by a second claude beside it:
-    the unit (stopped by 3.15's shutdown) is started with a one-shot `--continue` that
-    `agent-bus-claude` (whose last line is `exec claude ... "$@"`) receives for that start
-    only, so a later `Restart=always` restart is not changed by it;
-  - `--continue` takes the newest conversation in that directory, so it is exact only while
-    each LXC member of a team has its own working directory: the resume refuses every member
-    that shares one with another member of the team (named with the other, exit 1, the rest
-    still resumed), unless the seat has its own resume override (Decision 23);
+  conversation id is passed to claude in the container (the newest transcript's name that the
+  shutdown records, (b) below, is only compared, never resumed by). The expectations:
+  - a member without a service is started in the tmux session `agent-bus-claude` on the tmux
+    socket `agent-bus-claude`, as its user, the names the service unit uses (members.py
+    `SERVICE_TMUX`), so the resumed agent outlives the `lxc-attach` (or ssh) that started it,
+    and 3.14's, 3.15's and 3.16's `InContainer` route, which reaches only that socket and
+    session, can type to it and end it;
+  - a `service: true` member is resumed through its unit, never by a second claude beside it,
+    and never by the connect, `cd` and resume command (Decision 13): the resume removes 3.15's
+    `Restart=no` drop-in and runs `systemctl daemon-reload`, then writes a one-shot flag file,
+    `continue-once` in the member's `PINGBUS_HOME`, as its user, then `systemctl start`s the
+    unit. `systemctl start` passes no arguments, so `agent-bus-claude` (whose last line is
+    `exec claude ... "$@"`) reads the flag, removes it, and adds `--continue` for that start
+    only; a later `Restart=always` restart finds no flag and is not changed by it. A seat's
+    resume override does not apply to a service member. `agent-bus-claude` is in the image's
+    agent-bus kit, so this takes the CCY and container version bump, and a member gets it only
+    once play-agent-bus refreshes its kit;
+  - what `--continue` can take (Decision 23). Two LXC members of one team never share a
+    transcript store: each is a different (container, user), since the declare parser refuses
+    two entries of one (container, user, team), and `--continue` looks only in that user's
+    `~/.claude` under the directory's path. Its real limits are two. (a) One (container, user)
+    session is in several teams, so resuming one team brings it back in the others (3.17's
+    "already running"). (b) Any other claude conversation the user has run in that directory
+    since the shutdown, the owner's own included, is the newest, and `--continue` takes it. For
+    (b), the shutdown (3.15, 3.16) records for each LXC member the name and mtime of the newest
+    transcript file in its directory's transcript folder, read-only through the new runner as
+    the member's user; the resume warns, naming the member and the newer file's time, when a
+    newer one exists, and resumes it as the ruling says;
   - the settings are used by 3.17's resume, by 3.14's and 3.15's paths, and by Attach on an LXC member row, which
     is new: Attach refuses such a row today ("its checkout is not known here" / "it has no
     running session", `src-go/internal/teams/picker/menu.go` `attachRefusal`). The new keys are
@@ -493,9 +563,12 @@ Each runs as stated until the owner decides; detail in SPEC-team-add-and-restart
     (the owner's ruling, 2026-10-26): inside a container `ccy --continue` resumes a session
     cleanly and is what the owner uses today, so an LXC member is resumed by 3.18's connect
     command, a `cd` into its recorded working directory and its resume command, default
-    `ccy --continue`; no conversation id is recorded in the container. The limit:
-    `--continue` takes the newest conversation in that directory, so it is exact only while
-    each LXC member has its own working directory (Decision 23).
+    `ccy --continue`; no conversation id is passed to claude in the container. A refinement
+    within the ruling, set by the coordinator, which the owner may reverse: a `service: true`
+    member is resumed through its unit, with `agent-bus-claude --continue` for that one start
+    (3.18's one-shot flag file), not by the connect, `cd` and resume command, since a second
+    claude beside the unit's would be two sessions in one seat; a seat's resume override does
+    not apply to it. The limits of `--continue` are Decision 23's.
 
 ### Open: for the owner (the whole-team lifecycle)
 
@@ -523,10 +596,16 @@ Each runs on its default until the owner decides.
     `sudo -n lxc-attach`, which needs a sudo timestamp, and sudo's timestamp belongs to the
     owner's terminal, which a unit does not have (and 12 minutes later it would have expired).
     Such a team's wind-down stays in the foreground with a countdown, keeping the timestamp
-    fresh with `sudo -n -v` each minute; a refresh that fails makes every LXC member not yet
-    forced a failure, named with the text to give it by hand (exit 1), and the desktop sessions
-    are still forced. Closing that terminal ends the countdown and frees the lock: what was
-    typed stays and nothing is forced, so the owner runs `ccy-teams shutdown <team>`. The
+    fresh each minute with the same two-step probe as `sudo.Ready` (`sudo -n -v`, else
+    `sudo -n true`, since `-v` fails on a host with some NOPASSWD entries while root commands
+    still run, `internal/sudo` `Ready`), asking nothing. A refresh that fails is said, and the
+    countdown goes on: an LXC member is a failure (named with the text to give it by hand,
+    exit 1) only when its own `lxc-attach` fails, and the desktop sessions are still forced.
+    When the countdown ends, by finishing, a cancel or a signal, it calls `sudo.Forget`, as
+    other ccy-teams flows do, so the terminal's next session cannot use the owner's sudo.
+    Closing that terminal ends the countdown and frees the lock: what was typed stays, nothing
+    is forced, and the draft record is deleted (3.16), so the owner runs
+    `ccy-teams shutdown <team>`. The
     alternatives: a root timer scheduled in each
     container in the foreground (`systemd-run --on-active` through `lxc-attach`), which needs a
     guest-side stop program; or the foreground countdown for every team.
@@ -544,15 +623,18 @@ Each runs on its default until the owner decides.
 20. **The form of the connect and resume settings.** Default: a word list with placeholders
     (`{container}`, `{user}`, `{checkout}`, the last being the member's recorded working
     directory), run with no shell; there is no conversation placeholder, since an LXC member
-    records none (Decision 13). A shell alias lives only in the owner's interactive shell, so a
+    is resumed by none (Decision 13). A shell alias lives only in the owner's interactive shell, so a
     team that uses one names a script or the alias's expansion. The alternative: the setting
     is run by an interactive `bash -ic`, so the alias works as typed, along with everything
     else the owner's shell start-up does.
 21. **The last-shutdown record's life.** Default: consumed. Each entry is removed once its
     member has been started, or named as gone from the roster; an entry whose start failed, or
-    whose member was offline, is kept, so a second `resume` retries only those. The next
-    shutdown replaces the whole record. The alternative: kept whole until the next shutdown,
-    every resume reading all of it.
+    whose member was offline, is kept, so a second `resume` retries only those; an entry whose
+    member is found already running is consumed. The next shutdown that happens replaces the
+    whole record: `ccy-teams shutdown` when it writes it, a timed wind-down only when its
+    forced phase begins, its start-time copy being a draft until then (3.16); a cancelled or
+    abandoned wind-down deletes its draft and keeps the previous record. The alternative: kept
+    whole until the next shutdown, every resume reading all of it.
 22. **The coordinator's start text**, default wording: "agent-bus: in team {team} you are the
     coordinator. ... You cannot start, add or provision team members yourself; only the owner
     can, from ccy-teams on the host. When the work needs members who are not present, ask the
@@ -560,10 +642,17 @@ Each runs on its default until the owner decides.
     existing first sentences kept where the dots are). The alternative: a shorter text that
     only names the limit ("only the owner can add members, from ccy-teams") and points at a
     coordinator section of the pingbus skill for the rest.
-23. **Two LXC members of a team in one working directory.** Default: the resume refuses each
-    of them (named with the other, exit 1; the rest are still resumed), since `ccy --continue`
-    would give both the same, newest conversation; a seat with its own resume override is
-    exempt. The alternative: a warning, and both are resumed with `--continue` anyway.
+23. **What an LXC member's `--continue` can take.** Two LXC members of one team never share a
+    transcript store: `--continue` looks in the user's `~/.claude` under the directory's path,
+    and the declare parser refuses two entries of one (container, user, team), so a same
+    checkout path in two containers is no clash and is not refused. The real limits (3.18):
+    (a) one (container, user) session is in all its user's teams, so one team's resume brings
+    it back in the others, and their resumes find it already running (3.17); (b) a claude
+    conversation run in that directory since the shutdown, the owner's own included, is the
+    newest and is the one taken. Default for (b): the shutdown records the newest transcript
+    file's name and mtime, read-only, and the resume warns, naming the member, when a newer
+    one exists, then resumes it with `--continue` as the owner ruled. The alternative: such a
+    member is not resumed (named, exit 1, its entry kept) until `resume --member` names it.
 
 ## Success Criteria
 
