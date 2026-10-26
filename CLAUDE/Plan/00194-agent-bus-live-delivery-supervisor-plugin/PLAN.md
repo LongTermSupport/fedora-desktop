@@ -115,7 +115,11 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   (`capture-pane`), `pingbus status` and watch log. Left: its host run (meta-deploy) for
   H1-H6, then H7 by hand (no launch omits `crossSessionInbound: accept`; the run prints the
   step and exits 2). It proves the server-side path and the envelope, not Element's rendering.
-  Report: [261026-test-human-sender.md](subagent-reports/261026-test-human-sender.md).
+  Report: [261026-test-human-sender.md](subagent-reports/261026-test-human-sender.md). Two host
+  runs stopped in set-up, on live-path faults `--fake` never ran. Every live leg was then
+  audited against agent-bus and pingbus, and five faults are fixed (the peer is now a take of
+  its own). `--fake` now rehearses the set-up's readers and each seat take:
+  [261026-live-path-audit.md](subagent-reports/261026-live-path-audit.md).
 - [ ] 🔄 **Task 2.0d**: The watcher survives a homeserver restart and is supervised
   (SPEC-inject E25, E26; Plan 00203's audit F1 and F2). Built test first on branch
   `fix/watcher-survives-homeserver-restart` (container 2.67, CCY 3.98.12); reviewed, merged

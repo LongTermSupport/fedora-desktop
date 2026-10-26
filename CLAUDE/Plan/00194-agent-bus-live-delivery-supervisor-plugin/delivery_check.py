@@ -28,6 +28,9 @@ Commands (stdout is the payload, reasons on stderr):
   big-body TOKEN BYTES                    a body of exactly BYTES UTF-8 bytes holding TOKEN
   fake-files DIR TOKEN TEAM TEAM_B        the fake mode's fixtures: DIR/good and DIR/bad, envelopes
                                           rendered by this checkout's envelope.py
+  take-lists LIST...                      each list one `agent-bus seat take` is given passes the
+                                          product's seat-list parser (one seat per team per take),
+                                          and no seat is in two; prints each in canonical form
 
 Exit codes: 0 ok; 1 an expectation failed or the input is malformed; 3 not there yet; 64 usage.
 """
@@ -288,6 +291,36 @@ def big_body(token: str, size: int) -> str:
     return head + "x" * (size - len(head))
 
 
+def _product(name: str) -> object:
+    """A module of this checkout's product (helpers/pingbus/...), never a copy of it."""
+    root = pathlib.Path(__file__).resolve().parent
+    while not (root / "ansible.cfg").exists():
+        root = root.parent
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    return importlib.import_module(name)
+
+
+def take_lists(lists: Sequence[str]) -> list[str]:
+    """Each list the host run hands to one `agent-bus seat take`, parsed as that take parses it
+    (seat.py parse_seat_list: one seat per team per take), and no seat in two takes; the lists
+    in canonical form."""
+    seat = _product("helpers.pingbus.seat")
+    seen: set[str] = set()
+    canonical = []
+    for text in lists:
+        try:
+            refs = seat.parse_seat_list(text)
+        except seat.SeatListError as exc:
+            raise Failed(f"`agent-bus seat take {text}` would be refused: {exc}") from None
+        for ref in refs:
+            if ref.text in seen:
+                raise Failed(f"seat {ref.text} is in two takes")
+            seen.add(ref.text)
+        canonical.append(seat.canonical(refs))
+    return canonical
+
+
 #: The fake mode's session handle and a peer's, and the event IDs of its fixture entries.
 FAKE_HANDLE = "fedora-desktop.1+host.podman"
 FAKE_PEER = "fedora-desktop.2+host.podman"
@@ -298,12 +331,7 @@ def fake_files(directory: str, token: str, team: str, team_b: str) -> None:
     """The fake mode's fixtures (delivery-acceptance.bash --fake): `good/` holds what a sound
     run leaves (each check's entry, the pane, the status and the watch log), `bad/` what each
     check must refuse. The envelopes are rendered by this checkout's envelope.py."""
-    root = pathlib.Path(__file__).resolve().parent
-    while not (root / "ansible.cfg").exists():
-        root = root.parent
-    if str(root) not in sys.path:
-        sys.path.insert(0, str(root))
-    envelope = importlib.import_module("helpers.pingbus.envelope")
+    envelope = _product("helpers.pingbus.envelope")
     serial = iter(range(10, 99))
 
     def entry(kind: str, text: str, on: str = team, sender: str = "tester") -> object:
@@ -375,6 +403,7 @@ COMMANDS = {
     "hostile-body": (2, lambda a: _write(hostile_body(int(a[0]), a[1]))),
     "big-body": (2, lambda a: _write(big_body(a[0], int(a[1])))),
     "fake-files": (4, lambda a: fake_files(*a) or EXIT_OK),
+    "take-lists": (-1, lambda a: _write("".join(f"{text}\n" for text in take_lists(a)))),
 }
 
 
@@ -391,7 +420,8 @@ def _write(text: str) -> int:
 
 
 def main(argv: Sequence[str]) -> int:
-    if not argv or argv[0] not in COMMANDS or len(argv) - 1 != COMMANDS[argv[0]][0]:
+    count = COMMANDS[argv[0]][0] if argv and argv[0] in COMMANDS else None
+    if count is None or (len(argv) - 1 != count if count >= 0 else len(argv) < 2):
         print(f"usage: delivery_check.py {{{','.join(COMMANDS)}}} ARGS... (see the module doc)", file=sys.stderr)
         return EXIT_USAGE
     try:
