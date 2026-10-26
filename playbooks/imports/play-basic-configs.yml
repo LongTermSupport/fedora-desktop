@@ -525,10 +525,23 @@
       become: true
       ansible.builtin.shell: |
         set -euo pipefail
-        wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 && chmod +x /usr/bin/yq
+        wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 && chmod 0755 /usr/bin/yq
       args:
         executable: /bin/bash
         creates: /usr/bin/yq
+      tags: yq
+
+    # Every user runs yq. An install made under a restrictive umask left it root-only, and the
+    # creates: guard above never runs the install again (CLAUDE/QA.md#root-umask).
+    - name: Make yq runnable by every user
+      become: true
+      ansible.builtin.file:
+        path: /usr/bin/yq
+        state: file
+        owner: root
+        group: root
+        mode: "0755"
+      when: not ansible_check_mode
       tags: yq
 
     # Gates the probe below, and exists only for `--check`. On a real run the install

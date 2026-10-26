@@ -106,7 +106,7 @@ Use these Unicode icons in plan documents:
 
 - [00186-lxc-claude-session-reboot-warning](00186-lxc-claude-session-reboot-warning/) - Not Started (low priority). Claude sessions inside LXC containers get the reboot warning and restore (#55)
 
-- [00185-terminal-emoji-glyphs](00185-terminal-emoji-glyphs/) - In Progress (colour emoji fallback built in `play-fonts.yml`, host run pending). Triage why the terminal draws the wrong emoji, then defend in a play (#60)
+- [00185-terminal-emoji-glyphs](00185-terminal-emoji-glyphs/) - In Progress (colour emoji fallback in `play-fonts.yml`, host acceptance 18 of 18; one run left for check 19, serif's ordered list). Triage why the terminal draws the wrong emoji, then defend in a play (#60)
 
 - [00184-deployed-tools-menu](00184-deployed-tools-menu/) - Not Started (low priority). One launcher and panel item for the deployed user tools (#81)
 
@@ -145,8 +145,6 @@ Use these Unicode icons in plan documents:
 - [00169-ccy-image-keeps-its-tools-current](00169-ccy-image-keeps-its-tools-current/) - In Progress (Phase 1 accepted on the host; Phase 3 next). The ccy image keeps its tools current; ccy refuses a git that cannot read the repo.
 
 - [00168-managed-config-files-changed-out-of-band](00168-managed-config-files-changed-out-of-band/) - Not Started. Report play-managed files changed since their play ran. Issue #91.
-
-- [00167-cc-refuses-to-start-outside-a-repo](00167-cc-refuses-to-start-outside-a-repo/) - In Progress. `cc` outside a git working tree offers the checkout or refuses. Issue #90. Deployed; the host agent's acceptance run (now with the `[Y/n]` offer legs) and `cc` checks are left.
 
 - [00165-ccy-container-uses-host-time-zone](00165-ccy-container-uses-host-time-zone/) - In Progress (owner's clock check left). ccy containers run in the host's time zone through `TZ`.
 
@@ -312,6 +310,8 @@ Use these Unicode icons in plan documents:
 
 ## Completed Plans
 
+- [00167-cc-refuses-to-start-outside-a-repo](Completed/00167-cc-refuses-to-start-outside-a-repo/) - `cc` outside a git working tree offers this machine's fedora-desktop checkout (`[Y/n]`) or refuses, and in a subdirectory starts at the repository's top, through the Go `cc-project-dir`. Issue #90. Deployed; host acceptance and the owner's `cc` checks passed.
+
 - [00199-quick-markdown-viewer](Completed/00199-quick-markdown-viewer/) - A desktop viewer that renders a Markdown file nicely and opens quickly. Nothing existing fitted, so the owner had md-viewer built (its own repository, Go on Gio); a play installs it and makes it the `text/markdown` default. The owner uses it and closed the plan as working.
 
 - [00183-prompt-shows-stale-tracking-ref](Completed/00183-prompt-shows-stale-tracking-ref/) - The git prompt never shows up-to-date against a stale tracking ref (#52): a stale-fetch mark (`git-fetch-age`) and a prompt fetch that can never ask for a passphrase (`git-prompt-fetch`). Deployed and accepted on the host, and seen in a real interactive shell.
@@ -369,8 +369,6 @@ Use these Unicode icons in plan documents:
 - [00110-vm-lifecycle-acceptance-testing](Completed/00110-vm-lifecycle-acceptance-testing/) - Full fresh-install lifecycle acceptance testing against VMs for both the server and desktop profiles, off a reused base snapshot kept current by a TTL policy, triggerable from a CCY container through a closed-verb host-action bridge; its first desktop run found the extensions defect Plan 00112 carries.
 
 - [00111-terminal-death-takes-all-ccy-sessions](Completed/00111-terminal-death-takes-all-ccy-sessions/) - A Wayland protocol error killed Ptyxis and took every in-flight CCY session with it (not OOM); `ccy` and `cc` now run inside a tmux server under `systemd --user`, one attach per session, with `ccy-sessions` and the `ccy` re-attach offer to get back in. CCY 3.53.3.
-
-- [00081-secret-scanner-and-qa-gate-coverage-holes](Completed/00081-secret-scanner-and-qa-gate-coverage-holes/) - Seven more instances of the partial-result defect class, two in the pre-commit secret scanner on a public repo; every fix has a gate that fails against the unfixed code, each proved by re-introducing the defect.
 
 **Older completed plans** — everything beyond the most recent 30 — are in
 [Completed/README.md](Completed/README.md), moved there verbatim. The retention window

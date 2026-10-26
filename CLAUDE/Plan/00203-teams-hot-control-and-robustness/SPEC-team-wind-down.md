@@ -263,3 +263,46 @@ Draft, as section 5. Decisions 14 to 17 and 21 of
   record already written stays; an LXC member not ended has its hold removed (LS6).
 - TW13. Plan 00201's SPEC-shutdown.md carries a line pointing here, so SD10 to SD14 and this
   mode do not drift.
+
+## 7. A compaction before the shutdown (Task 3.20, draft expectations)
+
+The owner's request: compact each session just before it is shut down, so the next day's
+resume does not reload a large conversation into a cold prompt cache. A compaction run while
+the cache is warm costs a fraction of one run after a restore, which is what `ccy-sessions set-going` does today (Plan 00135 Task 8.2: `/compact` as the first input when the context is
+at or above the floor). Draft, as section 5.
+
+- WC1. **A supervised session is always compacted through its supervisor** (the owner's
+  ruling: the hooks-daemon supervisor must be used whenever it is present). The supervisor
+  already injects a real `/compact` at an idle moment; a wind-down request to it does the
+  same with the wind-down instruction, with no pane timing. This needs an upstream change (a
+  request the supervisor reads, WC8, filed with `hooks-daemon issue-report`). Until it ships,
+  a supervised session is **not** compacted by typing: it is named as waiting on the
+  supervisor request and is shut down as before, never typed into behind the supervisor's
+  back. Only a session with no supervisor is typed `/compact` through 3.14's path. Today that
+  is an LXC member, whose `agent-bus-claude` execs `claude` with no supervisor
+  (SPEC-lxc-connect-and-resume F3), reached in its tmux session `agent-bus-claude` through
+  `lxc-attach` (F1, `winddown.go` `lxcTmux`); host `cc` sessions until Plan 00226 lands are
+  the other. Whether a session is supervised is read from the session, not assumed from its
+  kind. Either way a compaction's end is the transcript's `compact_boundary` entry
+  (`src-go/internal/transcript`).
+- WC2. After the wind-down instruction has been answered (or at the inner deadline, TW1), each
+  open session whose context is at or above `set-going`'s floor is typed `/compact` followed by
+  a fixed instruction: it is being wound down, should keep what it needs to resume the work
+  another time, and should drop the rest. A session below the floor is not compacted.
+- WC3. The shutdown waits for that session's `compact_boundary`, bounded by the outer window
+  (TW1, TW3): a compaction not finished by then is reported, and the session is forced as TW11
+  says. A session busy at the deadline is not compacted: TW3 interrupts it as before.
+- WC4. Coordinator first, as TW2, then the others; compactions run one session at a time
+  unless the window would not hold them, so the host is not loaded by several at once.
+- WC5. A plain `ccy-teams shutdown` (no wind-down) does not compact unless asked
+  (`--compact`), since it is the quick path.
+- WC6. On resume, a compacted session is below the floor, so `set-going` types `continue`
+  and no cold `/compact` is spent.
+- WC7. A member neither way reaches (none today: every kind has a tmux pane, on the host or in
+  its container) is named as not compacted, and is shut down as before.
+- WC8. The upstream request (WC1) is filed first, before the build: the supervisor takes a
+  wind-down request (a file it watches, or a signal), waits for an idle moment, injects
+  `/compact` with the given instruction, and records when it is done. The typed path exists
+  only for unsupervised sessions.
+- WC9. Putting LXC members under the supervisor too (so every kind takes the same route) is
+  the owner's direction of travel; it belongs with Plan 00226, which brings `cc` under it.

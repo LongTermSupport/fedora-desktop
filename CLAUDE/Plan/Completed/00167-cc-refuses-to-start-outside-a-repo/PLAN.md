@@ -1,6 +1,6 @@
 # Plan 00167: cc refuses to start outside a repo
 
-**Status**: In Progress
+**Status**: Complete (2026-10-26)
 **Created**: 2026-10-09
 **Owner**: joseph
 **Priority**: Medium
@@ -127,8 +127,8 @@ clear message.
 
 - [x] ✅ **Task 4.1**: Run the `qa-reviewer` agent over the plan's diff; resolve every BLOCK
   and FIX-BEFORE-MERGE finding. Resolved in the fix merged at dead9482.
-- [ ] ⬜ **Task 4.2**: Remove the plan from `meta-deploy.bash`, mark it Complete, and move it
-  to `Completed/`.
+- [x] ✅ **Task 4.2**: Remove the plan from `meta-deploy.bash`, mark it Complete, and move it
+  to `Completed/`. Done 2026-10-26: `meta-deploy.list` held no 00167 entry.
 
 ## Dependencies
 
@@ -201,5 +201,5 @@ elsewhere to stay within its record. No install-specific path is in the reposito
 
 - Plan written from the handover
 - Phases 1 and 2 implemented: `cc-project-dir` and its call in `cc`
-- Deployed on the host by `play-claude-yolo.yml` at F44 c3391ba9; the owner's `cc` checks are
-  open
+- Deployed on the host by `play-claude-yolo.yml` at F44 c3391ba9
+- Host acceptance and `cc` checks passed at b1e298e1c; review fix merged at dead9482

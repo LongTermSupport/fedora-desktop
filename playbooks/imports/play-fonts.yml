@@ -56,13 +56,38 @@
         - rebuild-font-caches
         - restart-programs-notice
 
+    # Users must read the system font caches. A rebuild run under a restrictive umask leaves
+    # them root-only and every program silently falls back to its stale per-user cache; the
+    # handler does not fire again to put that right, so this runs on every pass
+    # (CLAUDE/QA.md#root-umask).
+    - name: Find the system font cache files
+      ansible.builtin.find:
+        paths: /usr/lib/fontconfig/cache
+        file_type: file
+      register: font_cache_files
+
+    - name: Make the system font cache files readable by every user
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        owner: root
+        group: root
+        mode: '0644'
+      loop: "{{ font_cache_files.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+
   handlers:
     # Forced: the file records a language for Noto Color Emoji when fontconfig scans the font,
     # and fontconfig keeps a cache while the font directory is unchanged, so without -f the
-    # cached scan from before the file is what every program reads.
+    # cached scan from before the file is what every program reads. umask 022: the caches are
+    # read by every user, and Ansible passes on whatever umask the run inherited.
     - name: rebuild-font-caches
-      ansible.builtin.command:
-        argv: [fc-cache, -f]
+      ansible.builtin.shell: |
+        set -euo pipefail
+        umask 022
+        fc-cache -f
+      args:
+        executable: /bin/bash
       changed_when: true
 
     - name: restart-programs-notice

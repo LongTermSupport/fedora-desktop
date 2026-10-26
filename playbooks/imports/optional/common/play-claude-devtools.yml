@@ -62,6 +62,8 @@
         dest: "{{ ccdt_src_dir }}"
         update: true
         force: false
+        # The image is built from this checkout as the login user (CLAUDE/QA.md#root-umask).
+        umask: '0022'
       register: git_clone
 
     - name: Build claude-devtools Container Image

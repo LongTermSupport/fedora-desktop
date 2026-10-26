@@ -45,6 +45,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_hidden_bindings` | an action reachable only by a key, with no visible, named choice for it (also in shell fzf and Python Textual: `qa-hidden-bindings.bash`)       | `teams` picker: Ctrl-A/X/O on Running sessions; `ccy-sessions`: Ctrl-T/X/N                 |
 | `project_refusal_kind`    | a declare.py refusal recovered by its type and never by its kind, so a refusal of the host_vars file is asked again as if the answer were wrong | `teams lxc-add`: "entries 5 and 6 both declare" asked three times (Plan 00201)             |
 | `project_realtime_bound`  | a bound on real time that a test can shorten, which then races the step the test asserts; a test that passes when a real timer fires            | teamchat `host/lxc`: 1 of 4 probes reached the fake hang before a 20 ms bound (Plan 00209) |
+| `project_esc_joined`      | a screen that loses an Esc typed just before another key, which arrives as that key with Alt (also in shell fzf: `qa-hidden-bindings.bash`)     | `teams` row menu: Esc then Down left the menu open and moved its cursor (Plan 00177)       |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -555,6 +556,72 @@ child process gets a `processBounds` row saying why no test races it.
 built because the safety nets (a `select` or `WithTimeout` that fails after seconds, a poll
 budget that ends in `t.Fatal`) are most of them and are correct; telling a deadline the test
 asserts from one it only guards with needs the meaning of the assertion.
+
+### project_esc_joined
+
+**What it is about.** A terminal sends Esc as one byte, and the same byte starts every escape
+sequence, so a key reader waits a moment after an Esc to see whether more follows: fzf 100 ms,
+Bubble Tea 50 ms. An Esc and the key after it inside that wait, or in one read, are read as that
+key with Alt: Esc then Down is `alt-down`, Esc then Enter `alt-enter` (`ctrl-alt-m` in fzf 0.38).
+tmux, at its default `escape-time` of 500 ms (before tmux 3.5), holds the Esc and hands the pane
+both keys in one write. A screen with no meaning for the Alt key drops it: the Esc is lost.
+
+**Why it exists.** Plan 00177 Task 10.4, the host agent's finding: in a `ccy-teams` row menu,
+Down within about 50 ms of Esc, or both in one tmux `send-keys`, left the menu open and moved its
+cursor, so the person, on what they took for the list, acted on the menu. Real fzf 0.38 in tmux
+lost the Esc at 20, 50 and 80 ms and in one write, and kept it at 100 ms and over; Esc then
+Enter, q, Ctrl-R, Up, Tab or j did the same. The Bubble Tea path line (`ccy-teams lxc-add`'s
+Checkout step) took the typed path after a joined Esc instead of cancelling.
+
+**What it flags.** In Go (test files are not judged): an `execx.Cmd` literal running fzf (a
+constant `Name` whose base name is `fzf` or `fzf-tmux`) whose `Args` do not hold, as `--bind=`
+constants, a binding of every key of `fzfbind.EscJoined` (Alt with an arrow, Enter, Space, a
+letter or a digit, and Ctrl+Alt with a letter, less fzf's word editing: 65 keys) to `abort`
+alone; the same literal binding any of fzf's word editing keys (`fzfbind.WordEditing`:
+`alt-b`, `alt-f`, `alt-d`, `alt-bs`, fzf's default backward-word, forward-word, kill-word and
+backward-kill-word) to `abort`, which would throw away the query being typed; a Cmd
+whose `Name` is set to fzf field by field; and a Bubble Tea `key.NewBinding` of `"esc"` in a
+package that never calls `esckey.Joined` (`internal/ui/esckey`). In shell, the gate
+`qa-hidden-bindings` judges every command that runs fzf (behind `command`, `exec`, `nohup` or
+`env` too; `command -v fzf` only looks it up) the same way, over its literal `--bind` words. An
+fzf given an option that draws no screen (`--version`, `--help`, `--filter`, `--bash`, ...:
+`fzfbind.DrawsNoScreen`) reads no key and is not judged.
+
+**How to fix a violation.** In Go, start fzf through `internal/ui`, whose `fzfEscJoined`
+constant binds every one of the keys to `abort`; a key a screen hands back instead (a row menu's
+Esc then an arrow, which closes the menu and moves the list's cursor) goes in `--expect`, which
+fzf prefers to the binding. In Bubble Tea, cancel on `esckey.Joined(k)` wherever Esc cancels. In
+shell, give the fzf call the same bindings as literal `--bind` words.
+
+- Red, fixture: `testdata/src/fix/esc/internal/ui` (`fzf.go`: no bindings, the arrows only, a
+  path, no Args, the bindings beside the Cmd instead of in it, a Cmd built field by field, all
+  flagged; one binding constant, two split constants, a positional literal, `--version`,
+  `--filter` and another program, clean), `fix/esc/internal/ui/badline` (Esc bound, flagged)
+  and `goodline` (Esc bound and `esckey.Joined` called, clean); the shell half against
+  `tests/fixtures/hidden-bindings/esc-joined.bash`, proven on every run of the gate.
+- Red, real tree: 3 Go findings (`ui.Picker.Pick`, `ui.Picker.Choose`, `pathinput`'s
+  `cancelKey`) and 2 shell (`tmux-session.bash`'s `ccy_tmux_pick`, `history-search.bash`'s
+  Ctrl-R).
+- Green: `ui.Picker.Pick` and `Choose` append `fzfEscJoined`; a row's menu expects `alt-up`
+  and `alt-down` and returns a `ui.BackError` (`ui.MovedBy`), and the teams list starts its
+  next pass on the moved row (`PickSpec.StartRow`, `--bind=start:pos(N)`); `pathinput` cancels
+  on `esckey.Joined`; both shell fzf calls carry the bindings. The freeze golden replay pins the
+  new argv as SPEC-freeze bug 28. `files/etc/tmux.conf` sets `escape-time 10`.
+- Not caught: fzf started through a program runner or a shell string (`project_seam_commands`
+  flags those), the bindings as a separate `--bind` and spec pair in Go, `FZF_DEFAULT_OPTS`, a
+  package that calls `esckey.Joined` on some other path than its Esc binding, Esc then a
+  punctuation key or a shifted letter (`alt-/`, `alt-A`), and gum, whose prompts take no
+  bindings. Left out on purpose: Esc then b, f, d or Backspace inside fzf's wait is still read
+  as fzf's word editing and the Esc is lost; keeping the query a person is editing (Ctrl-R
+  history, every `ui` filter) is worth more than that narrow case, and the arrows stay covered.
+  The fixtures hold it: `AbortsWordEditing` in `fzf.go` and `edits` in `esc-joined.bash`
+  flagged, `alt-b:backward-word` clean. Flagged though hazard-free: shell bindings spread in from an array, which the rule
+  cannot read.
+
+**The next wider rule, not built:** every key reader a screen uses (gum, Textual, a raw `read`)
+must treat Esc joined to the next key as Esc. Not built because gum takes no bindings at all
+(its fix is replacing the prompt, the owner's decision) and Textual is Python, outside both
+gates; the tmux `escape-time` of `files/etc/tmux.conf` narrows the window for all of them.
 
 ## Defect classes that cannot be a rule
 

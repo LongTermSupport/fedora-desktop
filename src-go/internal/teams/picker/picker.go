@@ -99,6 +99,9 @@ type run struct {
 	table board.Table
 	noOps int
 	view  view
+	// startRow is where the list's cursor starts on the next pass (from 1; 0 the top): after
+	// Esc then an arrow in a row's menu, the row the arrow moves to from the menu's row.
+	startRow int
 }
 
 // Run is ccy-teams with no argument: the list of teams, seats and people, and a key for
@@ -279,8 +282,10 @@ func (r *run) listPass(ctx context.Context) error {
 	}
 	picked, err := p.Kit.Choose(ctx, r.listHeading(), ui.PickSpec{
 		Title: "Agent teams", Header: r.header("", ""), RowHeaders: r.rowHeaders(),
-		Rows: r.shownRows(), Tags: r.tags(), Actions: []ui.Action{sessionsAction}, Menus: menus,
+		Rows: r.shownRows(), Tags: r.tags(), Actions: listActions, Menus: menus,
+		StartRow: r.startRow,
 	})
+	r.startRow = 0
 	var notOffered *ui.NotOfferedError
 	switch {
 	case errors.Is(err, ui.ErrLeave):
@@ -289,6 +294,7 @@ func (r *run) listPass(ctx context.Context) error {
 		}
 		return flow.Leave(term.ExitOK)
 	case errors.Is(err, ui.ErrBack):
+		r.startRow = r.rowAfter(picked.Tag, ui.MovedBy(err))
 		if err = p.Kit.Interrupted(ctx); err != nil {
 			return err
 		}
@@ -314,6 +320,17 @@ func (r *run) listPass(ctx context.Context) error {
 		return err
 	}
 	return r.count(res)
+}
+
+// rowAfter is the list line, from 1, the cursor moves to from the row tagged tag by move, kept
+// on the list's lines (the rows, the Running sessions row, Exit); 0 when the tag names no row.
+func (r *run) rowAfter(tag string, move int) int {
+	at, err := strconv.Atoi(tag)
+	if err != nil || at < 0 || at >= len(r.snap.Rows) {
+		return 0
+	}
+	lines := len(r.snap.Rows) + len(listActions) + 1
+	return min(max(at+move+1, 1), lines)
 }
 
 // count tallies refusals in a row; any other outcome starts the tally again.

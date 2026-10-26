@@ -33,9 +33,8 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plan 00201 Task 2.26 (assignment-masks-substitution-failure fixes): expected to pick up
-# play-claude-yolo.yml (ccy 3.100.19, lib/network-management.bash), play-basic-configs.yml
-# (ssh-keys-rekey), play-github-cli-multi.yml (git-which-account and clone-<alias> in the
-# shell functions it writes) and play-vm-test-lab.yml (a guest acceptance checker), each only
-# where it has run on this machine before.
-changed-plays
+# Plan 00185 (#60, colour emoji in the terminal): play-fonts.yml (expected unchanged; the comment
+# of the fifth rule changed, so the file is redeployed and the caches rebuilt), then
+# acceptance.bash, now 19 checks: check 19 is serif's ordered list, the list a program asking
+# for serif walks, with the colour font before Symbola. The last run passed the other 18.
+00185-terminal-emoji-glyphs

@@ -1,6 +1,7 @@
 // Command qa-ansible is the static Ansible QA gate: error-hiding directives, playbook hygiene,
 // self-default variables, scope and guard declarations, deprecated fact variables, guessed
-// runtime-directory uids and regex backreference escapes. It is a QA tool, not deployed anywhere; scripts/qa-ansible.bash
+// runtime-directory uids, regex backreference escapes and files users read created as root under
+// the inherited umask. It is a QA tool, not deployed anywhere; scripts/qa-ansible.bash
 // builds and runs it.
 package main
 

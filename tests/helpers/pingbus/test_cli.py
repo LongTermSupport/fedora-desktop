@@ -541,6 +541,29 @@ class SayTest(BusCase):
         self.joined()
         self.assertEqual(self.run_cli("say", stdin="hello")[0], cli.EXIT_USAGE)
 
+    def test_the_coordinator_says_to_all_reaches_every_member_but_itself(self):
+        self.joined()
+        self.a.set_record(dict(self.a.record, roles={self.a.me: "coordinator", self.a.orch: "worker",
+                                                     self.a.peer: "worker"}))
+        code, _, err = self.run_cli("say", "--all", stdin="winding down at five")
+        self.assertEqual(code, cli.EXIT_OK, err)
+        self.assertEqual(self.a.messages_from_me(),
+                         [protocol.build_text([self.a.alice, self.a.orch, self.a.peer],
+                                              "winding down at five")])
+
+    def test_a_worker_cannot_say_to_all(self):
+        self.joined()
+        code, _, err = self.run_cli("say", "--all", stdin="hello everyone")
+        self.assertEqual(code, cli.EXIT_REFUSED, err)
+        self.assertIn("--all", err)
+        self.assertEqual(self.a.messages_from_me(), [])
+
+    def test_say_to_all_does_not_combine_with_to(self):
+        self.joined()
+        self.a.set_record(dict(self.a.record, roles={self.a.me: "coordinator", self.a.orch: "worker"}))
+        self.assertEqual(self.run_cli("say", "--all", "--to", "alice", stdin="x")[0], cli.EXIT_USAGE)
+        self.assertEqual(self.run_cli("say", "--all", "--to-coordinator", stdin="x")[0], cli.EXIT_USAGE)
+
     def test_say_to_a_peer_agent_only_is_not_copied(self):
         self.joined()
         self.run_cli("say", "--to", PEER_LP, stdin="hello peer")

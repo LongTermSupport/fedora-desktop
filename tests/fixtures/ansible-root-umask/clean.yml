@@ -1,0 +1,80 @@
+---
+# Fixture for the root-umask check of src-go/qa/ansible: nothing here may be reported.
+# Each task either sets umask 022 or a readable mode for what it creates, or runs as a user
+# (whose own files only that user reads), or writes outside the system paths, or names a tool
+# without running it. A task list, not a play, so no gate syntax-checks it.
+
+- name: Umask first, one line
+  ansible.builtin.shell: umask 022 && fc-cache -f
+  changed_when: true
+
+- name: Umask 0022 in a block
+  ansible.builtin.shell: |
+    set -euo pipefail
+    umask 0022
+    gtk-update-icon-cache -f /usr/share/icons/hicolor
+    glib-compile-schemas /usr/share/glib-2.0/schemas
+  args:
+    executable: /bin/bash
+
+- name: Per-user cache, as the user
+  become_user: "{{ user_login }}"
+  ansible.builtin.command: fc-cache -f
+
+- name: Per-user desktop database, without become
+  become: false
+  ansible.builtin.command: update-desktop-database /home/user/.local/share/applications
+
+- name: The tool named only in the task name, fc-cache
+  ansible.builtin.debug:
+    msg: run fc-cache -f yourself
+
+- name: The tool only in a comment line
+  ansible.builtin.shell: |
+    set -euo pipefail
+    # fc-cache runs from the handler
+    rpm -q fontconfig
+  args:
+    executable: /bin/bash
+
+- name: A word that only contains a tool name
+  ansible.builtin.command: echo my-fc-cache fc-cache-helper
+
+- name: A block run as the user
+  become_user: "{{ user_login }}"
+  block:
+    - name: Inherits the user
+      ansible.builtin.command: update-mime-database /home/user/.local/share/mime
+
+- name: ldconfig sets its cache to 0644 itself
+  ansible.builtin.command: ldconfig
+
+- name: A download with umask first
+  ansible.builtin.shell: umask 022 && wget -qO /usr/bin/yq https://example.com/yq && chmod +x /usr/bin/yq
+
+- name: A download made readable after
+  ansible.builtin.shell: wget -qO /usr/bin/yq https://example.com/yq && chmod 0755 /usr/bin/yq
+
+- name: A download made readable symbolically
+  ansible.builtin.shell: curl -fsSL -o /opt/t https://example.com/t && chmod a+r /opt/t
+
+- name: A redirect outside the system paths
+  ansible.builtin.shell: echo x > /var/tmp/x 2>/dev/null
+
+- name: A clone with umask 0022
+  ansible.builtin.git:
+    repo: https://example.com/repo.git
+    dest: /opt/repo
+    umask: '0022'
+
+- name: A root-only clone under /var/lib
+  ansible.builtin.git:
+    repo: https://example.com/repo.git
+    dest: /var/lib/example/deploy
+
+- name: An extraction into /opt with mode
+  ansible.builtin.unarchive:
+    src: /var/tmp/a.zip
+    dest: /opt/a
+    remote_src: true
+    mode: u=rwX,go=rX

@@ -173,6 +173,40 @@ func TestRenewalMessages(t *testing.T) {
 	}
 }
 
+// A container with no nmcli has no lease of NetworkManager's to renew: the thaw is done and the
+// renewal is not applicable (Task 3.5, owner decision). Any other nmcli failure still fails.
+func TestAThawOfAContainerWithNoNmcliIsDoneAndSaysTheRenewalDoesNotApply(t *testing.T) {
+	f := actFake()
+	f.On([]string{"sudo", "-n", "lxc-attach", "-n", "demo", "--", "nmcli", "-t", "-f"},
+		execx.Result{Stderr: []byte(`lxc-attach: demo: ../src/lxc/attach.c: lxc_attach_run_command: 1841 No such file or directory - Failed to exec "nmcli"` + "\n"), ExitCode: 127})
+	out, err := act(f, freeze.VerbThaw)
+	done, ok := errors.AsType[*freeze.DoneError](err)
+	if !ok || done == nil {
+		t.Fatalf("got %q, %v: want a DoneError", out, err)
+	}
+	if want := "thawed; no DHCP lease renewed — the container has no nmcli (NetworkManager is not installed)"; done.Note != want {
+		t.Fatalf("got %q\nwant %q", done.Note, want)
+	}
+	if f.Called("sudo -n lxc-attach -n demo -- " + nmcliConnect) {
+		t.Fatal("a connect ran with no nmcli")
+	}
+}
+
+// Only nmcli missing is not applicable: lxc-attach failing to exec it for any other reason fails.
+func TestANmcliThatExistsButCannotRunStillFails(t *testing.T) {
+	f := actFake()
+	f.On([]string{"sudo", "-n", "lxc-attach", "-n", "demo", "--", "nmcli", "-t", "-f"},
+		execx.Result{Stderr: []byte(`lxc-attach: demo: attach.c: lxc_attach_run_command: 1841 Permission denied - Failed to exec "nmcli"` + "\n"), ExitCode: 126})
+	if _, err := act(f, freeze.VerbThaw); err == nil || isDone(err) {
+		t.Fatalf("a nmcli that cannot run passed: %v", err)
+	}
+}
+
+func isDone(err error) bool {
+	done, ok := errors.AsType[*freeze.DoneError](err)
+	return ok && done != nil
+}
+
 // A renewal that fails on the first device stops there: the first message is the one reported.
 func TestRenewalStopsAtTheFirstFailingDevice(t *testing.T) {
 	f := actFake()

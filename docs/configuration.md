@@ -106,7 +106,10 @@ User-specific includes in `~/.bashrc-includes/`:
   fzf, keep stock bash, where both see everything.
   Ctrl+R lists commands run in the current directory first, then the current git repository, then
   everything else. The chosen command is put on the prompt for review, never run straight
-  away. The directory each command ran in is kept in `~/.local/state/bash/context`, which is
+  away. Esc leaves the search, also when the next key follows it within fzf's 100 ms wait
+  (Esc then an arrow, Enter or a letter); Esc then b, f, d or Backspace that quickly stays
+  fzf's word editing of the query (Alt-B, Alt-F, Alt-D, Alt-Backspace) and does not leave.
+  The directory each command ran in is kept in `~/.local/state/bash/context`, which is
   private to the user like the history file. A command removed from history with
   `history -d` stays in that file until it is edited out.
 - `terminal-modes.bash` (desktop user only): at every prompt, switches off the mouse

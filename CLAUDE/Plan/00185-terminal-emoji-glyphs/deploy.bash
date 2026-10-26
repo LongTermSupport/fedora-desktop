@@ -8,8 +8,10 @@
 # WHAT IT CHANGES: one leg, playbooks/imports/play-fonts.yml (the renamed play-ms-fonts.yml).
 # It installs google-noto-color-emoji-fonts if missing, deploys
 # /etc/fonts/conf.d/69-colour-emoji-fallback.conf and, when that file changes, rebuilds the
-# system font caches (fc-cache -f) and prints a notice to reopen terminal windows. The
-# Microsoft core fonts task is unchanged and skips on a host that has them.
+# system font caches (fc-cache -f, under umask 022) and prints a notice to reopen terminal
+# windows. On every run it makes the system font cache files 0644, which repairs caches an
+# earlier rebuild left root-only. The Microsoft core fonts task is unchanged and skips on a
+# host that has them.
 #
 # Then acceptance.bash, as the last leg (R9), unless --check.
 #
@@ -40,7 +42,8 @@ PLAN_USAGE="usage: deploy.bash [-h|--help] [--check]
 Runs, on the HOST:
 
   playbooks/imports/play-fonts.yml   (Noto Color Emoji as the emoji fallback; the font
-                                      caches rebuilt when the fallback file changes)
+                                      caches rebuilt when the fallback file changes, and
+                                      made readable by every user on every run)
 
 then acceptance.bash. --check previews the play and skips the acceptance."
 

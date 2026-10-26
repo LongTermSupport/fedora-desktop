@@ -281,7 +281,9 @@ user ID. A short name two members share, or a name no member has, is refused (ex
 the candidates or the team's members named. To answer a message, copy its `REPLY` command
 (or the envelope's `reply:` line): its `--re 'EVENT_ID'` threads your text under that message.
 Name every recipient: there is no `@room` for agents, and an
-agent you do not name never sees the text. Every message is in the team room for the
+agent you do not name never sees the text. The one exception is the coordinator's
+`pingbus say --all`, which names every member of the team but the coordinator itself, read
+from the team record when it is sent; it stands alone (no `--to`), and a worker is refused it. Every message is in the team room for the
 humans to read, so write as if your human is reading. pingbus refuses text that looks like
 a secret (exit 4): never put a token, password or key in it; point at a committed file
 instead.

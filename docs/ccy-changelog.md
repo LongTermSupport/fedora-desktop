@@ -27,6 +27,45 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.100.27 — container 2.79.10
+
+Follows 3.100.26 (container 2.79.9). The image changes: the pingbus helper and its plugin
+(1.5.0).
+
+- **A coordinator can write to the whole team in one message.** `pingbus say --all` names
+  every member of the team but the coordinator itself, read from the team record when it is
+  sent. It stands alone (no `--to` or `--to-coordinator`), and a worker is refused it, so no
+  single worker can reach every agent at once.
+
+## 3.100.26 — container 2.79.9
+
+Follows 3.100.25 (container 2.79.9). The image does not change.
+
+- **fzf's word editing works again in the ccy fzf screens.** 3.100.24 bound every key fzf
+  reads an Esc and the next key as to abort, which took fzf's Alt-B, Alt-F, Alt-D and
+  Alt-Backspace (move and delete by word) and threw the typed filter away. Those four keep
+  their meaning; only an Esc typed within fzf's 100 ms wait before b, f, d or Backspace is
+  still lost.
+
+## 3.100.25 — container 2.79.9
+
+Follows 3.100.24 (container 2.79.9). The image does not change. It joins the two lines of
+work below into one release: 3.100.24, an Esc typed just before another key, and 3.100.19,
+the compose project name. Nothing else changes.
+
+## 3.100.24 — container 2.79.9
+
+Follows 3.100.19 (container 2.79.9; 3.100.20 to 3.100.23 are taken by concurrent branches). The
+image does not change.
+
+- **An Esc typed just before another key is no longer lost.** fzf reads an Esc and the key
+  typed within 100 ms after it (or both in one write from tmux) as that key with Alt, which no
+  screen bound, so the menu stayed open. The session picker (`ccy_tmux_pick`) and every
+  `ccy-teams` and `ccy-sessions` screen now leave on all of them, as on Esc; in a `ccy-teams`
+  row menu, Esc then an arrow closes the menu and moves the list's cursor from that row.
+  tmux's `escape-time` is now 10 ms (`/etc/tmux.conf`), so tmux no longer holds an Esc for
+  half a second and joins it to the next key.
+
 ## 3.100.19 — container 2.79.9
 
 Follows 3.100.18 (container 2.79.9). The image does not change.

@@ -32,6 +32,7 @@
       ansible.builtin.shell: |
         set -euo pipefail
         set -x
+        umask 022
         rpm --import https://packages.microsoft.com/keys/microsoft.asc
         echo -e "[code]\nname=Visual Studio Code\nbaseurl=https://packages.microsoft.com/yumrepos/vscode\nenabled=1\nautorefresh=1\ntype=rpm-md\ngpgcheck=1\ngpgkey=https://packages.microsoft.com/keys/microsoft.asc" > /etc/yum.repos.d/vscode.repo
         # dnf check-update exits 0 (no updates) or 100 (updates available);
@@ -41,3 +42,15 @@
       args:
         executable: /bin/bash
         creates: /usr/bin/code
+
+    # dnf run by a user reads the repo file. One written under a restrictive umask is root-only,
+    # and the creates: guard above never writes it again (CLAUDE/QA.md#root-umask).
+    - name: Make the VS Code repo file readable by every user
+      become: true
+      ansible.builtin.file:
+        path: /etc/yum.repos.d/vscode.repo
+        state: file
+        owner: root
+        group: root
+        mode: "0644"
+      when: not ansible_check_mode

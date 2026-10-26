@@ -316,6 +316,13 @@ team at a time, under a lock in the owner's runtime directory (CR4 to CR8).
   provision the ones the work needs. It extends `role_coordinator` in `helpers/pingbus/hooks.py`
   (Plan 00196 Task 1.5); the CCY, container and pingbus plugin bumps. Spec:
   [SPEC-hot-control.md](SPEC-hot-control.md) section 9, H36-H39; the wording is Decision 22.
+- [ ] ⬜ **Task 3.20** (owner request; extends 3.14 and 3.16): each session is compacted just
+  before its wind-down shutdown, while its prompt cache is warm, so the resume reloads a small
+  conversation. A supervised session always goes through the hooks-daemon supervisor (owner's
+  ruling; an upstream request, filed first); only an unsupervised one (an LXC member, `cc`
+  before Plan 00226) is typed `/compact` through 3.14's path. Its end is read from the
+  transcript, bounded by the outer window. Spec:
+  [SPEC-team-wind-down.md](SPEC-team-wind-down.md) section 7, WC1-WC9.
 
 ## Decisions
 

@@ -380,7 +380,9 @@ gh-personal issue list
 - Installs Noto Color Emoji and deploys `/etc/fonts/conf.d/69-colour-emoji-fallback.conf`,
   which makes it the emoji fallback after the text fonts, so a terminal draws colour emoji
   instead of Symbola's or Noto Emoji's monochrome ones, while digits stay in the text font
-- Rebuilds the font caches when that file changes
+- Rebuilds the font caches when that file changes, and keeps every system font cache file
+  readable by every user (0644) on each run
+- Moves Symbola, which Fedora prefers for serif, after the colour font in the serif list
 
 The cost of the fallback: a text symbol such as a check mark that none of the fonts listed
 for the family has, but some other installed text font has, is now drawn from the colour
@@ -1297,11 +1299,11 @@ below:
   NetworkManager. The freezer stops the DHCP client too, so a freeze longer than the
   one-hour lease would otherwise leave the container unreachable until
   NetworkManager's own retry, minutes later
-- **Thaw therefore needs NetworkManager inside every container it thaws.** One using
-  `dhclient`, `systemd-networkd` or a static address has no `nmcli`, so the renewal
-  fails and `lxcfreeze thaw` exits non-zero — naming the container, and saying it IS
-  thawed. Loud rather than silent, but it is a new way for a successful thaw to report
-  failure
+- **A container with no `nmcli`** (one using `dhclient`, `systemd-networkd` or a static
+  address) has no NetworkManager lease to renew: its thaw is a success, printed as
+  `✓ <name> — thawed; no DHCP lease renewed — the container has no nmcli`. A renewal
+  that fails where `nmcli` IS present still exits non-zero, naming the container and
+  saying it IS thawed
 - **The list carries an `IPV4` column** (`lxc-info -iH`), blank when the container has
   no address. A blank beside `RUNNING` is exactly that expired-lease symptom, so the
   cell is left empty rather than filled with a placeholder word — and a probe that

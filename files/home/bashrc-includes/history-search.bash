@@ -59,13 +59,16 @@ __history_search() {
     # What is typed so far becomes the query through fzf's ENVIRONMENT, which only this user
     # can read. As a --query argument it would sit in fzf's argv, readable by every local
     # user through /proc for as long as the list is open. The bound command is fixed text,
-    # spelt in the call so the hidden-bindings gate can read it.
+    # spelt in the call so the hidden-bindings gate can read it. The long --bind is Esc: fzf
+    # reads an Esc and the key typed just after it as that key with Alt, so each is bound to
+    # abort, but alt-b, alt-f, alt-d and alt-bs keep fzf's word editing of the query
+    # (project_esc_joined, CLAUDE/GoProjectRules.md).
     if [[ ! -r "${context}" ]]; then
         context=/dev/null
     fi
     if ! picked="$(bash-history-rank "${context}" "${HISTFILE}" "${PWD}" |
         __history_search_query="${READLINE_LINE}" fzf --read0 --scheme=history --tiebreak=index \
-            --height=40% --layout=reverse --prompt='history> ' --bind=ctrl-r:toggle-sort \
+            --height=40% --layout=reverse --prompt='history> ' --bind=ctrl-r:toggle-sort --bind='alt-up:abort,alt-down:abort,alt-left:abort,alt-right:abort,alt-enter:abort,alt-space:abort,alt-a:abort,alt-c:abort,alt-e:abort,alt-g:abort,alt-h:abort,alt-i:abort,alt-j:abort,alt-k:abort,alt-l:abort,alt-m:abort,alt-n:abort,alt-o:abort,alt-p:abort,alt-q:abort,alt-r:abort,alt-s:abort,alt-t:abort,alt-u:abort,alt-v:abort,alt-w:abort,alt-x:abort,alt-y:abort,alt-z:abort,ctrl-alt-a:abort,ctrl-alt-b:abort,ctrl-alt-c:abort,ctrl-alt-d:abort,ctrl-alt-e:abort,ctrl-alt-f:abort,ctrl-alt-g:abort,ctrl-alt-h:abort,ctrl-alt-i:abort,ctrl-alt-j:abort,ctrl-alt-k:abort,ctrl-alt-l:abort,ctrl-alt-m:abort,ctrl-alt-n:abort,ctrl-alt-o:abort,ctrl-alt-p:abort,ctrl-alt-q:abort,ctrl-alt-r:abort,ctrl-alt-s:abort,ctrl-alt-t:abort,ctrl-alt-u:abort,ctrl-alt-v:abort,ctrl-alt-w:abort,ctrl-alt-x:abort,ctrl-alt-y:abort,ctrl-alt-z:abort,alt-0:abort,alt-1:abort,alt-2:abort,alt-3:abort,alt-4:abort,alt-5:abort,alt-6:abort,alt-7:abort,alt-8:abort,alt-9:abort' \
             --bind="start:transform-query:printf %s \"\${__history_search_query}\"")"; then
         return 0
     fi

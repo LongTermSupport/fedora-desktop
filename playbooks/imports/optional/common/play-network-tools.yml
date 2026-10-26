@@ -67,6 +67,8 @@
         creates: "{{ ooklaSpeedtestDir }}/speedtest"
         owner: root
         group: root
+        # Every user runs speedtest (CLAUDE/QA.md#root-umask).
+        mode: u=rwX,go=rX
 
     - name: Link speedtest into /usr/local/bin
       ansible.builtin.file:

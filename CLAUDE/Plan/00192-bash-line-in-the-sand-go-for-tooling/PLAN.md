@@ -5,7 +5,7 @@ Task 3.3; the Go gate is go-qa-ci through `scripts/qa-go-qa.bash`). Left for wor
 remaining ports of Task 3.3 (the `ccy` launcher's phases 3 to 5 are deferred by Plan 00191
 D4/D10), and Tasks 4.1 and 4.2 over the finished plan. Left for the host agent: the host checks
 of the merged ports still open (freeze step 2's remainder and step 3, vmtest H2's bridge half,
-H3 and H6, ftp-camera H1, H2 and H5, wsi H2, open H2, H3 and H5, rclone-tail H2 to H4,
+H3 and H6, ftp-camera H1, H2 and H5, wsi H2, open H2, H3 and H5, rclone-tail H4,
 gh-account-setup H1 and H3 to H5), and Task 3.2's root run, which
 needs sudo at the run. Left for the owner: only what needs the owner in person, namely
 gh-account-setup H2 (a real GitHub device login), ftp-camera H3 and H4 (the physical camera)
@@ -98,19 +98,26 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   with each tool; the menu driven by tmux keys and read with `capture-pane`; Ctrl-C mid-batch
   gives 130; `lxcfreeze` needs sudo at the run) and step 3 (a second run of the freeze plays
   reports ok, not changed). Step 2, partial (bus `$8aqX_PoK5b62YkY5FNbJF0kZ2SBsP8XxhoXIrIR5fkI`):
-  podfreeze freeze/thaw and the tmux-driven menu PASS on throwaways; still left are Ctrl-C
-  mid-batch (130), the numbered-menu fallback without fzf, and `lxcfreeze` (sudo). Step 3 not run.
+  podfreeze freeze/thaw and the tmux-driven menu PASS on throwaways. `lxcfreeze` PASS 26-10-26
+  (host agent, Alpine and Rocky throwaways: freeze, thaw, list, the fzf menu, raw `lxc-freeze`
+  thawed by the tool); the thaw without NetworkManager exits 1 (Task 3.5). Still left: Ctrl-C
+  mid-batch (130), the numbered-menu fallback without fzf, and sudo asking again after its
+  timestamp lapses. Step 3 NOT ESTABLISHED 26-10-26: the freeze plays did not run (Task 3.6) and
+  `acceptance.bash` failed on its old baseline (Task 3.4); a later run rebuilt both, failed=0.
+
 - [ ] 🔄 **Task 3.2**: `agent-bus-install` on `go-port/agent-bus-install`: spec
   `SPEC-agent-bus-install.md` on the branch; built, reviewed and its review fixed, not merged.
   It runs as root and changes behaviour (its D7), so it merges only after a host test as root
   (the branch's `ACCEPTANCE-agent-bus-install.md`): the host agent runs it through meta-deploy
   on a throwaway team, with sudo given at the run. Before spending that run, the coordinator
   checks whether Plan 00209 (agent-bus v2 in Go) has made this port moot.
+
 - [ ] 🔄 **Task 3.3**: The rest of the inventory's programmes, ranked there; the `ccy`
   launcher's port is Plan 00191's (D1-D10 defaulted there, phases 0 to 2 built, 3 to 5
   deferred by its D4/D10). Each port: a spec first, its tests first, a Fable review whose
   findings are fixed, then merged. Per-port detail, review dispositions and departures:
   [PORTS.md](PORTS.md). Status by port:
+
   - Done, merged into F44: `qa-changed`, `qa-all`, `qa-ansible`, `qa-nokill-containerwatch`,
     `qa-patterns`, `qa-python`, `qa-ansible-syntax`, `qa-bash`, `qa-discovery`,
     `qa-deployed-drift`, `qa-js`, `qa-ansible-pause`, `qa-gh-scopes`, `qa-ready-wait-rules`,
@@ -152,7 +159,9 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     scripted by `acceptance-rclone-tail.bash`) PASSED through meta-deploy at b1e298e1c, 5 of 5
     checks, `~/.local/bin/rclone-tail` now an ELF (`$SaaNjb_VFudX-vnN6tjA8rXQXtbNv_-y_dJUJgXxFSA`); H2 to H4 are
     the host agent's (a file written into a mount while `rclone-tail` runs in a tmux pane,
-    Ctrl-C by `send-keys`, `ftp-camera`'s closing status).
+    Ctrl-C by `send-keys`, `ftp-camera`'s closing status). H2 and H3 PASS 26-10-26 (host agent,
+    a copy and delete into a `<remote>` mount: queue and rate during the upload, then idle;
+    Ctrl-C exit 0); one overwrite showed two uploads, cause not found in the log. H4 left.
   - `gh-account-setup` (P6): ported and merged into F44 at 9e404ae6b (Opus MERGE in round 4;
     `src-go/cmd/gh-account-setup`); it is run from the checkout, so no play deploys it. Spec
     [SPEC-gh-account-setup.md](SPEC-gh-account-setup.md). Host checks: H1, H3 and H5 the host
@@ -166,6 +175,22 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     desktop (a real remote and the vault).
   - Still to do: the remaining programmes in [INVENTORY.md](INVENTORY.md) (account/setup tools
     after `rclone-cache-status`) and the `ccy` launcher.
+
+- [ ] ⬜ **Task 3.4**: Freeze step 3's `acceptance.bash` compares live engine output with the
+  baseline saved at the first deploy, so it fails (7 of 11) once containers start or stop: every
+  diff was added rows only. Fix the check (the format, or the baseline rows as a subset) before
+  step 3 is run again.
+
+- [x] ✅ **Task 3.5**: `lxcfreeze thaw` on a container without NetworkManager exits 1 after a
+  thaw that succeeded (SPEC-freeze bug 19, D6). Owner decision 26-10-26: no `nmcli` is not
+  applicable, not a failure. Built: lxc-attach's `Failed to exec "nmcli"` (No such file)
+  becomes `freeze.DoneError`, a `✓` with its note; every other nmcli failure still fails. No
+  golden scenario pinned that message, so the golden is unchanged. Host check: the next
+  lxcfreeze thaw of a container without NetworkManager prints `✓` and exits 0.
+
+- [ ] ⬜ **Task 3.6**: `run.bash --changed` did not count `play-podfreeze.yml` and
+  `play-lxcfreeze.yml` stale after their Go (`internal/ui`) changed: the staleness misses Go
+  dependencies (Plan 00214's area). They were queued by name instead.
 
 ### Phase 4: Review
 

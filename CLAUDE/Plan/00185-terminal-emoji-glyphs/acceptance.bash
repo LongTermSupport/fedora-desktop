@@ -6,7 +6,8 @@
 # under the named text font a terminal asks for, both as the single best match (fc-match)
 # and in the ordered list (fc-match -a, what Pango and so every GTK terminal walks), while
 # the digits, '#', '*' and the space stay on the text font. The same for the font Ptyxis is
-# set to (read from its settings), and common text symbols stay on a text font there. HOST
+# set to (read from its settings), and common text symbols stay on a text font there, and the
+# system font caches are readable by every user. HOST
 # ONLY, as the desktop user; no sudo, and it changes nothing.
 #
 # NOT ESTABLISHABLE by a script, and left as a named open item for Plan 00219's desktop
@@ -59,14 +60,14 @@ fi
 plan_require_host "it asks this desktop's fontconfig which font draws each character"
 plan_start_log auto
 
-for tool in fc-match fc-list cmp gsettings grep; do
+for tool in fc-match fc-list cmp gsettings grep find; do
     if ! command -v "${tool}" >/dev/null; then
         printf '[FATAL] %s not found: fontconfig comes from play-fonts.yml and gsettings from GLib; deploy, do not install by hand\n' "${tool}" >&2
         exit 1
     fi
 done
 
-readonly DECLARED=17
+readonly DECLARED=19
 readonly COLOUR="Noto Color Emoji"
 readonly DEPLOYED=/etc/fonts/conf.d/69-colour-emoji-fallback.conf
 readonly SOURCE="${PLAN_REPO_ROOT}/files/etc/fonts/conf.d/69-colour-emoji-fallback.conf"
@@ -161,17 +162,26 @@ verdict "10. ${mono_text} keeps them on itself" "" "$(keycap_misses "$(escaped "
 echo "== the ordered list a GTK terminal walks, for the monospace text font"
 ordered="$(fc-match -a -f '%{family[0]}\n' "$(escaped "${mono_text}")")"
 verdict "11. it starts with ${mono_text}" "${mono_text}" "${ordered%%$'\n'*}"
-# The first of the emoji-capable fonts in that list must be the colour one.
-first_emoji_font=""
-while IFS= read -r family; do
-    case "${family}" in
-        "${COLOUR}" | Symbola | "Noto Emoji" | "Noto Sans Symbols 2")
-            first_emoji_font="${family}"
-            break
-            ;;
-    esac
-done <<<"${ordered}"
-verdict "12. ${COLOUR} comes before Symbola, Noto Emoji and Noto Sans Symbols 2" "${COLOUR}" "${first_emoji_font:-none of them}"
+# first_emoji_in <ordered list> — the first of the emoji-capable fonts in it, which must be the
+# colour one.
+first_emoji_in() {
+    local family
+    while IFS= read -r family; do
+        case "${family}" in
+            "${COLOUR}" | Symbola | "Noto Emoji" | "Noto Sans Symbols 2")
+                printf '%s' "${family}"
+                return
+                ;;
+        esac
+    done <<<"$1"
+    printf 'none of them'
+}
+verdict "12. ${COLOUR} comes before Symbola, Noto Emoji and Noto Sans Symbols 2" "${COLOUR}" "$(first_emoji_in "${ordered}")"
+# serif's own list: Fedora's 65-gdouros-symbola.conf prefers Symbola for serif, and the file
+# moves it after the colour font. Check 6 is the single best match; this is the list a
+# program asking for serif walks.
+verdict "19. serif's ordered list has ${COLOUR} before Symbola, Noto Emoji and Noto Sans Symbols 2" "${COLOUR}" \
+    "$(first_emoji_in "$(fc-match -a -f '%{family[0]}\n' serif)")"
 
 echo "== the font the terminal (Ptyxis) is set to, which reaches the fallback by its own route"
 # A font with no generic family of its own (Source Code Pro is in neither 45-latin.conf nor
@@ -254,6 +264,13 @@ else
             "The owner decides: accept it, or put a text font with these symbols in the sans-serif list."
     fi
 fi
+
+echo "== the system font caches every user reads"
+# A rebuild run as root under a restrictive umask leaves them root-only, and fontconfig then
+# silently uses each user's stale cache instead (the cause of checks 3 to 7 and 15 failing).
+unreadable_caches="$(find /usr/lib/fontconfig/cache -maxdepth 1 -type f ! -perm -0444 -printf '%f %m; ')" ||
+    unreadable_caches="find failed (exit $?)"
+verdict "18. every file in /usr/lib/fontconfig/cache is readable by every user" "" "${unreadable_caches}"
 
 echo
 ran=$((PASS + FAIL))

@@ -1,6 +1,6 @@
 # Plan 00185: the terminal draws the wrong emoji glyphs
 
-**Status**: In Progress (the fallback defence is built, Tasks 2.1 and 2.2, and waits on its host run through meta-deploy; the screen check of #60's `printf` is left for Plan 00219's desktop check)
+**Status**: In Progress (the fallback defence is built and accepted on the host, 18 of 18; one host run left for acceptance check 19, serif's ordered list; the screen check of #60's `printf` is left for Plan 00219's desktop check)
 **Created**: 2026-10-13
 **Owner**: joseph
 **Priority**: Low
@@ -24,6 +24,10 @@ recorded, so the cause is unknown and this plan triages first. The fix, once kno
 defence in the plays so a provisioned desktop cannot get into this state again.
 
 ## Facts (from the repo; the host facts come from triage.bash)
+
+F1 to F3 are the repo as it stood before Task 2.1, which changed all three: `play-fonts.yml`
+(renamed from `play-ms-fonts.yml`) now installs Noto Color Emoji, deploys the fallback file to
+`/etc/fonts/conf.d/` and runs `fc-cache -f`.
 
 | #   | Fact                                                                                                                                                                                                                                                                                                    | Source                                         |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
@@ -119,10 +123,25 @@ and the hook stays the owner's call.
   Pro, Symbola, Noto Emoji, Noto Color Emoji, DejaVu) under the stock conf.d: without the
   file Symbola and Noto Emoji win, with it Noto Color Emoji, for Source Code Pro too. The
   known cost: a text symbol no font in the family list has, but an unlisted text font has,
-  now comes from the colour font (documented in the file and `docs/playbooks.md`). Open: the
-  host run.
+  now comes from the colour font (documented in the file and `docs/playbooks.md`). The first
+  host run left every system font cache 0600: the handler's `fc-cache -f` ran under the host's
+  umask 0077, so users read their stale per-user caches and checks 3 to 7 and 15 failed. The
+  handler now sets umask 022, and a task makes the cache files 0644 on every run, which
+  repairs that host without the handler firing. The class has a rule, `root-umask` in
+  `qa-ansible` (CLAUDE/QA.md#root-umask), and its sweep fixed the other root tasks that
+  create files users read (dconf update, yq, the VS Code repo file, the claude-devtools clone,
+  the cuDNN and speedtest extractions). The second host run passed 17 of 18: check 6 (serif)
+  got Symbola, because Fedora's `65-gdouros-symbola.conf` makes Symbola a `<prefer>` for serif,
+  ahead of the weak entry. A fifth rule moves Symbola, where it is not the first family, to
+  the end of the serif list, after the colour font; a request that names Symbola first keeps
+  it. The suite now models the 65 file (its stand-in is called Symbola; the order of its two
+  aliases is the host's file's, captured read-only): red without the rule (6 checks), red with
+  the guard dropped (5), green with both. The third host run accepted 18 of 18.
 - [ ] 🔄 **Task 2.2**: `deploy.bash` (play-fonts.yml, then `acceptance.bash`) and
-  `acceptance.bash` (17 checks: the deployed file, the colour font and its scanned "en", the
+  `acceptance.bash` (19 checks; check 19 is serif's ordered list, the defect's own path,
+  added after the final review found check 6 tested only the single best match; check 18 is
+  that every system font cache file is readable by
+  every user. The others are the deployed file, the colour font and its scanned "en", the
   single best match for #60's emoji under each generic family and the named monospace text
   font, digits, `#`, `*` and the space kept on the text font, the ordered list, and the same
   for the font Ptyxis is set to, read from its settings, with check marks and the sun kept
@@ -130,14 +149,17 @@ and the hook stays the owner's call.
   the terminal font, and hands the owner a decision: accept it, or add a text font with
   those symbols to the sans-serif list. Queued in `meta-deploy.list`. Review: round 1
   CHANGES, round 2 MERGE (its should-fix items applied: F44 merged, fontconfig declared in
-  the project image and CI), round 3 MERGE (nits applied). Open: the meta-deploy run, `qa-all.bash` and the
-  `qa-reviewer` agent.
+  the project image and CI), round 3 MERGE (nits applied). Final `qa-reviewer`
+  (subagent-reports/261026-qa-review-final.md): CHANGES, plan state and check 19, applied.
+  `qa-all.bash` passed on F44 at 6007fcf37. Open: the host run of check 19.
 
 ## Success Criteria
 
-- [ ] The issue's `printf` draws a line graph, a spool of thread and a package (open item
-  for Plan 00219's desktop check, not the owner's).
-- [ ] The cause is named in the journal and the defence is in a play.
+- [ ] The issue's `printf` draws a line graph, a spool of thread and a package: handed to
+  Plan 00219's desktop check (Task 1.2), so it does not hold this plan open.
+- [ ] The confirmed cause (the fallback reaching monochrome Symbola and Noto Emoji, cause 4 of
+  `triage-analysis.md`; H1 there is ranked but unconfirmed) is in the journal, and the
+  defence is in `play-fonts.yml`, accepted on the host.
 
 ## Delivery & Milestones
 

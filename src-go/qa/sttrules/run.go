@@ -1,8 +1,9 @@
 // Package sttrules is the gate for the rules in .semgrep/speech-to-text.yml: a model judged
 // present from its cache snapshot, a dropdown label that explains itself, a test whose pass
 // hangs on a wall-clock margin too tight for a loaded host, and a job's end published before its
-// cleanup. The rules are
-// semgrep data in two languages, proven against a fixture per language on every run; this package
+// cleanup. The same engine runs .semgrep/hook-handlers.yml as a gate of its own (HookHandlers:
+// code the hooks daemon loads resolving a path against the daemon's working directory). The
+// rules are semgrep data, proven against a fixture per language on every run; this package
 // owns what is scanned, the proof that every rule still matches, and the refusal to pass over a
 // file the analyser did not read. The specification is the plan's SPEC-qa-speech-to-text-rules.md.
 package sttrules
@@ -32,12 +33,51 @@ const (
 	ExitCannotRun ExitCode = 2
 )
 
-// The rule file and its two fixtures, relative to the repository root.
+// The speech-to-text rule file and its two fixtures, relative to the repository root.
 const (
 	ruleFile      = ".semgrep/speech-to-text.yml"
 	jsFixtureFile = ".semgrep/speech-to-text.js"
 	pyFixtureFile = ".semgrep/speech-to-text.py"
 )
+
+// The hook-handler rule file and its fixture, relative to the repository root.
+const (
+	hookRuleFile      = ".semgrep/hook-handlers.yml"
+	hookPyFixtureFile = ".semgrep/hook-handlers.py"
+)
+
+// Spec is one rule file and the gate that runs it: its command, the languages its rules are
+// written for and the fixture each is proven against, and how its findings are headed. The rule
+// files are separate gates so a rule is run, reported and documented with the code it guards.
+type Spec struct {
+	command   string
+	title     string
+	ruleFile  string
+	languages []language
+	fixtures  map[language]string
+	usage     string
+}
+
+// SpeechToText is the gate for the rules in .semgrep/speech-to-text.yml.
+var SpeechToText = Spec{
+	command:   "qa-speech-to-text-rules",
+	title:     "speech-to-text rules",
+	ruleFile:  ruleFile,
+	languages: []language{langJS, langPy},
+	fixtures:  map[language]string{langJS: jsFixtureFile, langPy: pyFixtureFile},
+	usage:     usageText,
+}
+
+// HookHandlers is the gate for the rules in .semgrep/hook-handlers.yml: code the hooks daemon
+// loads (the project's handlers in .claude/hooks/handlers/).
+var HookHandlers = Spec{
+	command:   "qa-hook-handler-rules",
+	title:     "hook handler rules",
+	ruleFile:  hookRuleFile,
+	languages: []language{langPy},
+	fixtures:  map[language]string{langPy: hookPyFixtureFile},
+	usage:     hookUsageText,
+}
 
 // The options that take a value.
 const (
@@ -65,6 +105,21 @@ const usageText = `usage: qa-speech-to-text-rules [--root DIR] [--scripts DIR] [
 The rules in .semgrep/speech-to-text.yml (a model judged present without its weights, a dropdown
 label that explains itself, a test timed too tightly for a loaded host) over every JavaScript
 and Python file git would publish, after proving each rule against its fixture in .semgrep/.
+
+  --root DIR      the repository root (default: the parent of --scripts, else the current directory)
+  --scripts DIR   the scripts directory; the root is its parent
+  PATH            judge these files only (relative to the root) instead of every one
+  -h, --help      this text
+
+Exit codes: 0 clean, 1 a finding or a rule that failed its fixture, 2 bad usage or the run could
+not complete (semgrep missing or broken, a file handed to it not scanned).
+`
+
+const hookUsageText = `usage: qa-hook-handler-rules [--root DIR] [--scripts DIR] [PATH...]
+
+The rules in .semgrep/hook-handlers.yml (code the hooks daemon loads that resolves a path against
+the daemon's working directory) over every Python file git would publish, after proving each rule
+against its fixture in .semgrep/.
 
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory; the root is its parent
@@ -124,6 +179,7 @@ func failed(format string, args ...any) error {
 
 // gate is one run.
 type gate struct {
+	spec    Spec
 	env     Env
 	root    string
 	scripts string
@@ -132,28 +188,31 @@ type gate struct {
 	verdict ExitCode
 }
 
-// Main runs the gate and returns the exit status.
-func Main(args []string, env Env) ExitCode {
+// Main runs the speech-to-text gate and returns the exit status.
+func Main(args []string, env Env) ExitCode { return SpeechToText.Main(args, env) }
+
+// Main runs the gate of this rule file and returns the exit status.
+func (s Spec) Main(args []string, env Env) ExitCode {
 	opts, err := parseArgs(args)
 	if err != nil {
-		return report(env, err, true)
+		return report(env, s.usage, err, true)
 	}
 	if opts.help {
-		return write(env, usageText)
+		return write(env, s.usage)
 	}
 	root, err := rootpath.Root(env.Cwd, opts.root, opts.scripts)
 	if err != nil {
-		return report(env, err, false)
+		return report(env, s.usage, err, false)
 	}
-	g := &gate{env: env, root: root, scripts: filepath.Join(root, "scripts")}
+	g := &gate{spec: s, env: env, root: root, scripts: filepath.Join(root, "scripts")}
 	if opts.scripts != "" {
 		g.scripts = opts.scripts
 	}
 	if err := g.run(opts.paths); err != nil {
-		return report(env, err, false)
+		return report(env, s.usage, err, false)
 	}
 	if _, err := env.Stdout.Write(g.stdout.Bytes()); err != nil {
-		return report(env, fmt.Errorf("cannot write to stdout: %w", err), false)
+		return report(env, s.usage, fmt.Errorf("cannot write to stdout: %w", err), false)
 	}
 	return g.verdict
 }
@@ -161,15 +220,15 @@ func Main(args []string, env Env) ExitCode {
 // write sends text to stdout; the status is that of the write.
 func write(env Env, text string) ExitCode {
 	if _, err := io.WriteString(env.Stdout, text); err != nil {
-		return report(env, fmt.Errorf("cannot write to stdout: %w", err), false)
+		return report(env, "", fmt.Errorf("cannot write to stdout: %w", err), false)
 	}
 	return ExitOK
 }
 
-// report prints an ERROR line (and the usage, for a usage error) on stderr and returns the exit
-// code of the error: that of a failure, else 2. A stderr that cannot be written to has nowhere
-// left to say so; the status is the same either way.
-func report(env Env, err error, usage bool) ExitCode {
+// report prints an ERROR line (and the usage text, for a usage error) on stderr and returns the
+// exit code of the error: that of a failure, else 2. A stderr that cannot be written to has
+// nowhere left to say so; the status is the same either way.
+func report(env Env, usageText string, err error, usage bool) ExitCode {
 	code := ExitCannotRun
 	if f, ok := errors.AsType[*failure](err); ok {
 		code = f.code

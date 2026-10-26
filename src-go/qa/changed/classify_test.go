@@ -1025,6 +1025,59 @@ func TestASpeechToTextGateEditRunsTheGate(t *testing.T) {
 	}
 }
 
+// A changed Python file (by name or shebang) runs the hook handler rules over that file only;
+// JavaScript, shell and deleted files do not.
+func TestAChangedPythonFileRunsTheHookHandlerRulesOnThatFile(t *testing.T) {
+	w := newWorld(t)
+	w.touch(".claude/hooks/handlers/one.py", "x = 1")
+	w.touch("files/home/.local/bin/py-tool", "#!/usr/bin/env python3")
+	for _, f := range []string{".claude/hooks/handlers/one.py", "files/home/.local/bin/py-tool"} {
+		p := w.classify([]string{f})
+		if got := p.items("hook-handler-rules-files"); !reflect.DeepEqual(got, []string{f}) {
+			t.Errorf("%s: hook-handler-rules-files items %v", f, got)
+		}
+		if p.has("hook-handler-rules") {
+			t.Errorf("%s ran the whole hook handler rules gate: %v", f, keys(p))
+		}
+	}
+	w.touch("extensions/panel.js", "// x")
+	w.touch("scripts/two.bash", "#!/usr/bin/bash")
+	for _, f := range []string{"extensions/panel.js", "scripts/two.bash"} {
+		if p := w.classify([]string{f}); p.has("hook-handler-rules-files") {
+			t.Errorf("%s ran the hook handler rules: %v", f, keys(p))
+		}
+	}
+	if p := w.classify(nil, ".claude/hooks/handlers/gone.py"); p.has("hook-handler-rules-files") {
+		t.Errorf("a deleted file has nothing for hook-handler-rules-files: %v", keys(p))
+	}
+}
+
+// An edit to the hook handler rules, their fixture, the wrapper, the shared Go package or the
+// command runs the whole gate (and a deletion owes it), and the .semgrep files count as covered.
+func TestAHookHandlerRulesGateEditRunsTheGate(t *testing.T) {
+	for _, f := range []string{
+		".semgrep/hook-handlers.yml", ".semgrep/hook-handlers.py",
+		"src-go/qa/sttrules/scan.go", "src-go/qa/cmd/qa-hook-handler-rules/main.go", "scripts/qa-hook-handler-rules.bash",
+	} {
+		w := newWorld(t)
+		w.touch(f, "x")
+		p := w.classify([]string{f})
+		if !p.has("hook-handler-rules") || len(p.uncovered) != 0 {
+			t.Errorf("%s: %v uncovered %v", f, keys(p), p.uncovered)
+		}
+		if p.has("hook-handler-rules-files") {
+			t.Errorf("%s was also judged as a changed script: %v", f, keys(p))
+		}
+		if len(p.suites) != 0 && (f == "scripts/qa-hook-handler-rules.bash" || f == ".semgrep/hook-handlers.yml") {
+			t.Errorf("%s was also picked as a suite: %+v", f, p.suites)
+		}
+	}
+	w := newWorld(t)
+	if p := w.classify(nil, ".semgrep/hook-handlers.py"); !p.has("hook-handler-rules") {
+		t.Errorf("a deleted fixture owes the whole gate: %v", keys(p))
+	}
+}
+
 // Review F9: an edit to the container-watch watchdog or its two panel files runs the no-kill gate
 // before the commit, not only at the push; a deletion does too (the gate judges what remains).
 func TestAContainerWatchEditRunsTheNoKillGate(t *testing.T) {

@@ -12,6 +12,8 @@ const (
 	audienceGuardName = "Audience guard — end play on a consumer install"
 	audienceGuardWhen = "install_audience != 'developer'"
 	audienceDeveloper = "developer"
+	// tasksKey is a play's tasks keyword, and the name of the top-level directory of task files.
+	tasksKey = "tasks"
 )
 
 var (
@@ -96,7 +98,7 @@ func (s *audienceScanner) trackSection(line string) {
 		s.pre = append(s.pre, name)
 	case "roles":
 		s.roles++
-	case "tasks":
+	case tasksKey:
 		s.tasks = append(s.tasks, name)
 	}
 }

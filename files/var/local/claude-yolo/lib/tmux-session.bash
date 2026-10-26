@@ -302,12 +302,14 @@ ccy_tmux_pick() {
     # --ansi: a row or the header may carry colour; fzf hands the chosen row back as plain
     # text, so a caller matches it against its rows without their colour. --color: the
     # terminal's own colours (16 base, -1 its default), with one accent, amber (3), for what
-    # is active; the same accent as ccy-teams' questions.
+    # is active; the same accent as ccy-teams' questions. The long --bind is Esc: fzf reads an
+    # Esc and the key typed just after it as that key with Alt, so each is bound to abort but
+    # fzf's word editing (alt-b, alt-f, alt-d, alt-bs) (project_esc_joined, CLAUDE/GoProjectRules.md).
     out=$(printf '%s\n%s\n' "${rows%$'\n'}" "$CCY_TMUX_EXIT_ROW" | fzf --ansi --height=~70% --layout=reverse --no-multi --no-sort --no-info \
         --color='16,fg:-1,bg:-1,fg+:-1:bold,bg+:-1,hl:3,hl+:3:bold,gutter:-1,pointer:3,marker:3,prompt:3,spinner:3,info:-1,header:-1,border:-1,label:3:bold' \
         --border=rounded --border-label=" $1 " --border-label-pos=3 \
         --margin=1,2 --padding=1,2 --header-first --pointer='▶' \
-        --prompt="filter > " --header="$2"$'\n' --bind='q:abort') || return $?
+        --prompt="filter > " --header="$2"$'\n' --bind='q:abort' --bind='alt-up:abort,alt-down:abort,alt-left:abort,alt-right:abort,alt-enter:abort,alt-space:abort,alt-a:abort,alt-c:abort,alt-e:abort,alt-g:abort,alt-h:abort,alt-i:abort,alt-j:abort,alt-k:abort,alt-l:abort,alt-m:abort,alt-n:abort,alt-o:abort,alt-p:abort,alt-q:abort,alt-r:abort,alt-s:abort,alt-t:abort,alt-u:abort,alt-v:abort,alt-w:abort,alt-x:abort,alt-y:abort,alt-z:abort,ctrl-alt-a:abort,ctrl-alt-b:abort,ctrl-alt-c:abort,ctrl-alt-d:abort,ctrl-alt-e:abort,ctrl-alt-f:abort,ctrl-alt-g:abort,ctrl-alt-h:abort,ctrl-alt-i:abort,ctrl-alt-j:abort,ctrl-alt-k:abort,ctrl-alt-l:abort,ctrl-alt-m:abort,ctrl-alt-n:abort,ctrl-alt-o:abort,ctrl-alt-p:abort,ctrl-alt-q:abort,ctrl-alt-r:abort,ctrl-alt-s:abort,ctrl-alt-t:abort,ctrl-alt-u:abort,ctrl-alt-v:abort,ctrl-alt-w:abort,ctrl-alt-x:abort,ctrl-alt-y:abort,ctrl-alt-z:abort,alt-0:abort,alt-1:abort,alt-2:abort,alt-3:abort,alt-4:abort,alt-5:abort,alt-6:abort,alt-7:abort,alt-8:abort,alt-9:abort') || return $?
     if [[ "$out" == "$CCY_TMUX_EXIT_ROW" ]]; then
         return 1
     fi

@@ -67,8 +67,8 @@ func (r *scriptedRunner) argv() []string {
 
 func TestEveryRegisteredCheckIsKnownAndOrdered(t *testing.T) {
 	want := []string{
-		"toolchain", "bash-syntax", "shellcheck", "shell-directives", "semgrep", "ready-wait-files", "stt-rules-files", "ruff", "unit-tests", "ansible-syntax",
-		"ansible-patterns", "ansible-syntax-gate", "patterns", "bash", "python", "js", "docs", "go", "bash-limits", "nokill-containerwatch", "ansible-pause", "gh-scopes", "ready-wait", "hidden-bindings", "lxc-attach-streams", "plan-script-logging", "stt-rules", "version-pins", "go-deps", "go-vuln", "hook-handlers", "plan-tests", "vmtest-manifest", "deployed-drift", "node-check", "eslint",
+		"toolchain", "bash-syntax", "shellcheck", "shell-directives", "semgrep", "ready-wait-files", "stt-rules-files", "hook-handler-rules-files", "ruff", "unit-tests", "ansible-syntax",
+		"ansible-patterns", "ansible-syntax-gate", "patterns", "bash", "python", "js", "docs", "go", "bash-limits", "nokill-containerwatch", "ansible-pause", "gh-scopes", "ready-wait", "hidden-bindings", "lxc-attach-streams", "plan-script-logging", "stt-rules", "hook-handler-rules", "version-pins", "go-deps", "go-vuln", "hook-handlers", "plan-tests", "vmtest-manifest", "deployed-drift", "node-check", "eslint",
 	}
 	got := make([]string, 0, len(checkDefs))
 	for _, d := range checkDefs {
@@ -88,24 +88,25 @@ func TestEveryRegisteredCheckIsKnownAndOrdered(t *testing.T) {
 func TestSummaries(t *testing.T) {
 	two := &checkPlan{items: []string{"a", "b"}}
 	for id, want := range map[string]string{
-		"toolchain":           "QA tool versions match .qa-versions",
-		"bash-syntax":         "2 file(s)",
-		"shell-directives":    "2 file(s)",
-		"ready-wait-files":    "2 file(s)",
-		"stt-rules-files":     "2 file(s)",
-		"unit-tests":          "2 module(s)",
-		"ansible-syntax":      "2 playbook(s)",
-		"ansible-patterns":    "fail-fast patterns, whole gate",
-		"ansible-syntax-gate": "every playbook, whole gate",
-		"deployed-drift":      "repo-owned scripts against their deployed copies, whole gate",
-		"patterns":            "bash-convention rules, whole gate",
-		"bash":                "bash -n and shellcheck, whole gate",
-		"python":              "compile and ruff, whole gate",
-		"js":                  "node --check and ESLint, whole gate",
-		"docs":                "whole gate",
-		"go":                  "go-qa, both modules (diff mode on a git change)",
-		"bash-limits":         "whole gate (tooling is Go; allowlist ratchet)",
-		"eslint":              "2 file(s)",
+		"toolchain":                "QA tool versions match .qa-versions",
+		"bash-syntax":              "2 file(s)",
+		"shell-directives":         "2 file(s)",
+		"ready-wait-files":         "2 file(s)",
+		"stt-rules-files":          "2 file(s)",
+		"hook-handler-rules-files": "2 file(s)",
+		"unit-tests":               "2 module(s)",
+		"ansible-syntax":           "2 playbook(s)",
+		"ansible-patterns":         "fail-fast patterns, whole gate",
+		"ansible-syntax-gate":      "every playbook, whole gate",
+		"deployed-drift":           "repo-owned scripts against their deployed copies, whole gate",
+		"patterns":                 "bash-convention rules, whole gate",
+		"bash":                     "bash -n and shellcheck, whole gate",
+		"python":                   "compile and ruff, whole gate",
+		"js":                       "node --check and ESLint, whole gate",
+		"docs":                     "whole gate",
+		"go":                       "go-qa, both modules (diff mode on a git change)",
+		"bash-limits":              "whole gate (tooling is Go; allowlist ratchet)",
+		"eslint":                   "2 file(s)",
 
 		"nokill-containerwatch": "whole gate (the container-watch watchdog never signals a process)",
 		"ansible-pause":         "whole gate (every pause registers its answer or says why it waits)",
@@ -113,6 +114,7 @@ func TestSummaries(t *testing.T) {
 		"ready-wait":            "whole gate (no wait ignores the exit of the process it waits for)",
 		"plan-script-logging":   "whole gate (no active plan script uses the un-waitable run-log pattern; no plan-local logs/ dir)",
 		"stt-rules":             "whole gate (no model judged present without its weights, no dropdown label that explains itself, no job end published before its cleanup)",
+		"hook-handler-rules":    "whole gate (no code the hooks daemon loads resolves a path against the daemon's working directory)",
 		"version-pins":          "whole gate (the version-pin manifest is well formed and every pin still resolves to a declared var)",
 		"vmtest-manifest":       "whole gate (the VM-test scenario manifest is valid and agrees with its guest scripts)",
 		"go-deps":               "whole gate (src-go's dependencies allowlisted, pinned and vendored in step)",
@@ -227,6 +229,19 @@ func TestSttRulesFilesRunsTheGateOnTheNamedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{"bash " + filepath.Join(s.scripts, "qa-speech-to-text-rules.bash") + " a.py b.js"}
+	if got := runner.argv(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+// The per-file hook handler rules check runs its gate over the changed Python files by name.
+func TestHookHandlerRulesFilesRunsTheGateOnTheNamedFiles(t *testing.T) {
+	runner := &scriptedRunner{}
+	s := newTestSession(t, runner)
+	if _, err := lookupCheck("hook-handler-rules-files").run(context.Background(), s, &checkPlan{items: []string{"a.py", "b.py"}}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"bash " + filepath.Join(s.scripts, "qa-hook-handler-rules.bash") + " a.py b.py"}
 	if got := runner.argv(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
@@ -350,12 +365,12 @@ func TestGatesRunTheirScriptFromTheScriptsDirectory(t *testing.T) {
 	runner := &scriptedRunner{}
 	s := newTestSession(t, runner)
 	ctx := context.Background()
-	for _, id := range []string{"toolchain", "go", "bash-limits", "ansible-patterns", "docs", "nokill-containerwatch", "ansible-syntax-gate", "deployed-drift", "ansible-pause", "gh-scopes", "ready-wait", "plan-script-logging", "stt-rules", "version-pins", "vmtest-manifest", "go-deps", "go-vuln", "hook-handlers", "plan-tests", "lxc-attach-streams"} {
+	for _, id := range []string{"toolchain", "go", "bash-limits", "ansible-patterns", "docs", "nokill-containerwatch", "ansible-syntax-gate", "deployed-drift", "ansible-pause", "gh-scopes", "ready-wait", "plan-script-logging", "stt-rules", "hook-handler-rules", "version-pins", "vmtest-manifest", "go-deps", "go-vuln", "hook-handlers", "plan-tests", "lxc-attach-streams"} {
 		if _, err := lookupCheck(id).run(ctx, s, &checkPlan{}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for i, name := range []string{"qa-toolchain.bash", "qa-go-qa.bash", "qa-bash-limits.bash", "qa-ansible.bash", "qa-docs.bash", "qa-nokill-containerwatch.bash", "qa-ansible-syntax.bash", "qa-deployed-drift.bash", "qa-ansible-pause.bash", "qa-gh-scopes.bash", "qa-ready-wait-rules.bash", "qa-plan-script-logging.bash", "qa-speech-to-text-rules.bash", "qa-version-pins.bash", "qa-vmtest-manifest.bash", "qa-go-deps.bash", "qa-go-vuln.bash", "qa-hook-handlers.bash", "qa-plan-tests.bash", "qa-lxc-attach-streams.bash"} {
+	for i, name := range []string{"qa-toolchain.bash", "qa-go-qa.bash", "qa-bash-limits.bash", "qa-ansible.bash", "qa-docs.bash", "qa-nokill-containerwatch.bash", "qa-ansible-syntax.bash", "qa-deployed-drift.bash", "qa-ansible-pause.bash", "qa-gh-scopes.bash", "qa-ready-wait-rules.bash", "qa-plan-script-logging.bash", "qa-speech-to-text-rules.bash", "qa-hook-handler-rules.bash", "qa-version-pins.bash", "qa-vmtest-manifest.bash", "qa-go-deps.bash", "qa-go-vuln.bash", "qa-hook-handlers.bash", "qa-plan-tests.bash", "qa-lxc-attach-streams.bash"} {
 		argv := runner.calls[i].Argv
 		if argv[0] != "bash" || argv[1] != filepath.Join(s.scripts, name) {
 			t.Fatalf("call %d: %v", i, argv)

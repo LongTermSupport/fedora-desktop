@@ -310,12 +310,13 @@ difference only as a numbered bug of `SPEC-qa-all.md` section 10 pinned in
 `testdata/deviations.json`), and the real tree (`scripts/test-qa-changed.bash`, the docs gate).
 `qa/ansible` + `qa/cmd/qa-ansible` (same nested module) are `scripts/qa-ansible.bash`, the static
 Ansible gate (fail-fast directives, playbook hygiene, self-default vars, scope and guard,
-deprecated fact vars, guessed runtime-dir uids, regex backreference escapes read from each file
-parsed as YAML): the script only builds and runs the command. It
+deprecated fact vars, guessed runtime-dir uids, regex backreference escapes and files users read
+created as root under the inherited umask, both read from each file parsed as YAML): the script only builds and runs the command. It
 starts no process itself: the one `git ls-files` it needs (it judges only what git would
 publish) is injected and run by the command through the seam. Its spec is the intended behaviour
 (`SPEC-qa-ansible.md`, expectations E1-E19 and E16a), proven by unit tests and end-to-end scenario trees
-(the backreference rule also against `tests/fixtures/ansible-regex-backref/`),
+(the backreference rule also against `tests/fixtures/ansible-regex-backref/`, the root umask
+rule against `tests/fixtures/ansible-root-umask/`),
 not by a recording of the old bash; `scripts/test-qa-ansible-failfast.bash` drives the built tool.
 
 `qa/ansiblesyntax` + `qa/cmd/qa-ansible-syntax` (same nested module) are
@@ -437,6 +438,10 @@ rule file per language, so an extensionless Python script never meets a JavaScri
 owns scope (the `js` and `python` lists of `qa/discovery`, or the named files), the proof that
 every rule has a `ruleid:` line in its language's fixture and matches it, and the refusal to pass
 over a file semgrep did not read. `SPEC-qa-speech-to-text-rules.md` (S1-S17) is the specification.
+The same engine, given its `HookHandlers` spec, is `qa/cmd/qa-hook-handler-rules` and
+`scripts/qa-hook-handler-rules.bash`, the gate for `.semgrep/hook-handlers.yml` (code the hooks
+daemon loads; Python only, proven against `.semgrep/hook-handlers.py`); its real-semgrep tests
+are in the command package.
 
 `qa/helpertests` + `qa/cmd/qa-helper-tests` (same nested module) are `scripts/qa-helper-tests.bash`,
 the helper unit-test gate: the script only builds and runs the command. The stdlib `unittest` runner
