@@ -3,8 +3,11 @@
 package main
 
 import (
+	"context"
 	"os"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/setuprclone"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -12,4 +15,8 @@ func main() {
 	os.Exit(int(run(os.Args[1:])))
 }
 
-func run(_ []string) term.ExitCode { return term.ExitFailure }
+func run(args []string) term.ExitCode {
+	ctx, stop := execx.SignalContext(context.Background())
+	defer stop()
+	return setuprclone.App{Env: setuprclone.NewEnv()}.Run(ctx, args)
+}
