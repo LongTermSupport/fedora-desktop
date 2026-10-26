@@ -32,7 +32,11 @@ it, instead of the two deadlocking.
 The lock is cooperative. Anyone can still run `ansible-playbook` directly; what it
 prevents is the three routes above colliding by accident.
 
-Run it: `python3 -m helpers.play_lock.lock {path|held} [--user NAME]`
+**WAITING FOR IT.** `wait --fd N` takes the lock on a descriptor the caller opened and
+keeps (run.bash's), waiting up to 30 minutes for a run that holds it and naming that run
+from its note, then exit 75 if it is still held (Plan 00201 Task 2.19).
+
+Run it: `python3 -m helpers.play_lock.lock {path|held|wait --fd N [--seconds S]} [--user NAME]`
 """
 
 from __future__ import annotations
@@ -59,6 +63,11 @@ EXIT_USAGE = 2
 EXIT_ERROR = 3
 #: Another run holds the lock. EX_TEMPFAIL, so a caller can tell "try later" from "broken".
 EXIT_BUSY = 75
+
+#: How long `wait` waits for another run by default; the same bound ccy-teams' play lock uses.
+DEFAULT_WAIT_SECONDS = 30 * 60
+#: Seconds `wait` waits when `--seconds` is not given, overriding the default (tests set it).
+WAIT_ENV = "FEDORA_DESKTOP_PLAY_LOCK_WAIT"
 
 _NOTE_MAX = 4096
 
@@ -175,6 +184,38 @@ def read_note(fd: int) -> str:
     return os.pread(fd, _NOTE_MAX, 0).decode("utf-8", errors="replace").strip()
 
 
+def _minutes(seconds: float) -> str:
+    whole = max(1, round(seconds / 60))
+    return f"{whole} minute" if whole == 1 else f"{whole} minutes"
+
+
+def wait_for(
+    fd: int,
+    wait_seconds: float,
+    err: TextIO,
+    *,
+    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+) -> int:
+    """Take the lock on `fd`, waiting at most `wait_seconds` and saying for whom.
+
+    `fd` is usually a caller's descriptor, inherited: the hold belongs to the open file
+    description, so it outlives this process. EXIT_BUSY when the bound passes.
+    """
+    try:
+        if acquire(fd):
+            return EXIT_OK
+        err.write(f"play-lock: another play run holds the lock ({read_note(fd)}); waiting up to {_minutes(wait_seconds)}\n")
+        err.flush()
+        if acquire(fd, wait_seconds=wait_seconds, sleep=sleep, clock=clock):
+            err.write("play-lock: the other run has finished; going ahead\n")
+            return EXIT_OK
+        err.write(f"play-lock: still held after {_minutes(wait_seconds)} ({read_note(fd)}); try again when it finishes\n")
+        return EXIT_BUSY
+    except OSError as error:
+        raise LockError(f"descriptor {fd} cannot be locked: {error.strerror}") from None
+
+
 def held(env: Mapping[str, str], runtime_dir: str) -> tuple[bool, str]:
     """Whether this process inherited a descriptor that holds the play lock.
 
@@ -205,6 +246,16 @@ def held(env: Mapping[str, str], runtime_dir: str) -> tuple[bool, str]:
     return True, ""
 
 
+def _check_is_lock(fd: int, runtime_dir: str) -> None:
+    try:
+        fd_stat = os.fstat(fd)
+        path_stat = os.lstat(lock_path(runtime_dir))
+    except OSError as error:
+        raise LockError(f"descriptor {fd} is not the open play lock: {error.strerror}") from None
+    if (fd_stat.st_dev, fd_stat.st_ino) != (path_stat.st_dev, path_stat.st_ino):
+        raise LockError(f"descriptor {fd} is not the play lock {lock_path(runtime_dir)}")
+
+
 def _resolve_user(name: str | None, euid: int) -> tuple[int, int]:
     if name is None:
         if euid == 0:
@@ -231,12 +282,23 @@ def main(
     effective = os.geteuid() if euid is None else euid
 
     parser = argparse.ArgumentParser(description="The shared play-run lock (Plan 00137 T1.4).")
-    parser.add_argument("command", choices=("path", "held"))
+    parser.add_argument("command", choices=("path", "held", "wait"))
     parser.add_argument("--user", help="the user whose play runs to serialise (required as root)")
+    parser.add_argument("--fd", type=int, help="wait: the open lock descriptor to take the lock on")
+    parser.add_argument("--seconds", type=float, help=f"wait: the bound (default ${WAIT_ENV}, else 30 minutes)")
     try:
         args = parser.parse_args(argv)
     except SystemExit as exit_request:
         return EXIT_USAGE if exit_request.code else EXIT_OK
+    if args.command == "wait" and args.fd is None:
+        err.write("play-lock: wait needs --fd\n")
+        return EXIT_USAGE
+    if args.seconds is None:
+        bound = environ.get(WAIT_ENV, "")
+        if bound and not bound.isdigit():
+            err.write(f"play-lock: {WAIT_ENV}={bound!r} is not a number of seconds\n")
+            return EXIT_USAGE
+        args.seconds = int(bound) if bound else DEFAULT_WAIT_SECONDS
 
     try:
         uid, gid = _resolve_user(args.user, effective)
@@ -245,6 +307,9 @@ def main(
             os.close(open_lock(runtime_dir, uid, gid))
             out.write(lock_path(runtime_dir) + "\n")
             return EXIT_OK
+        if args.command == "wait":
+            _check_is_lock(args.fd, runtime_dir)
+            return wait_for(args.fd, args.seconds, err)
         ok, why = held(environ, runtime_dir)
     except LockError as error:
         err.write(f"play-lock: {error}\n")

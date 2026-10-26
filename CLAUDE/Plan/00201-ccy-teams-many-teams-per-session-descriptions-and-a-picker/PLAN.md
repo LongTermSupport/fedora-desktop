@@ -3,7 +3,7 @@
 **Status**: In Progress. M1-M7 built and deployed; the automated two-team acceptance last
 passed on the host at F44 cab255ad4 (commit d2612e8d7), with Tasks 2.21 to 2.23's checker
 fixes. The relay task 2.8 is superseded; Tasks 2.11, 2.12, 2.15, 2.17 and 2.18 are carried by
-Plan 00209. Left for workers: Task 2.19 (the wait in the Python lock helper), Tasks 2.24 and
+Plan 00209. Left for workers: Tasks 2.24 and
 2.26 (from Task 2.22's referrals), a scripted test human for the Element checks, and the
 final qa-reviewer. Left for the host agent: the interactive checks of
 [ACCEPTANCE-owner.md](ACCEPTANCE-owner.md) driven through tmux (Tasks 2.7, 2.12 check 11,
@@ -281,7 +281,7 @@ a repository is no longer offered for a checkout of it. Report:
   code (journal correction); Fable's review: `subagent-reports/` on `review/teams-wait-play-lock`.
   Plan 00209 carries this as an expectation ("Requirements carried from other plans").
 
-- [ ] ⬜ **Task 2.19**: run.bash waits on the play lock (`lock.py acquire --wait`, bounded,
+- [x] ✅ **Task 2.19**: run.bash waits on the play lock (`lock.py acquire --wait`, bounded,
   naming the holder) instead of exiting 75, so meta-deploy, the panel's run-play and a play run
   by hand wait for a ccy-teams hold as ccy-teams now waits for theirs. It changes how every
   caller of run.bash behaves, and run.bash is on the bash-limits ratchet, so the wait belongs in
@@ -289,7 +289,12 @@ a repository is no longer offered for a checkout of it. Report:
   "do not gate on me"): build it, in `helpers/play_lock/lock.py` (`acquire --wait`, bounded,
   naming the holder), as this task proposes. Every caller goes from "exit 75 at once" to "wait,
   bounded, saying for whom, then exit 75", which is friendlier for each of them and reversible.
-  Left: the build, tests first (a worker), then a host run through meta-deploy.
+  Built: `lock.py wait --fd N` takes the lock on run.bash's own descriptor (the hold is the
+  open file description's, so it outlives the helper), waits up to 30 minutes (ccy-teams'
+  bound; `FEDORA_DESKTOP_PLAY_LOCK_WAIT` seconds overrides it), names the holder from its
+  note, and exits 75 when the bound passes; run.bash 1.34.0 calls it in place of `flock -n`.
+  Unit tests and `scripts/test-run-bash-single-play.bash` cover it. Left: nothing needs a
+  host run of its own; the next run.bash on the host uses it.
 
 - [ ] 🔄 **Task 2.20**: `ccy-teams lxc-add` asked three times over "entries 5 and 6 both
   declare <user>@<container>" for a member an earlier run had declared (branch
