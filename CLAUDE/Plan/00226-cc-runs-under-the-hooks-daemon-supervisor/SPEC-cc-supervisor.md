@@ -5,9 +5,9 @@ the code (src-go/CLAUDE.md, "spec first, tests first"). The tests and the packag
 the `S` numbers as names, the same way the existing C1-C5 are used. The numbers are names,
 not the order of evaluation; the order is given under "Order of evaluation".
 
-S25-S32 depend on Decisions 5, 6 and 7 in PLAN.md, which the owner has not ruled on yet.
-They are written as each decision's default. If the owner rules otherwise, they change
-before Phase 2.
+S25-S32 follow Decisions 5, 6 and 7 in PLAN.md, each decided as option A (by delegated
+review on the owner's instruction). The owner may still overturn one before Phase 2, and
+these expectations change with it.
 
 Terms used below:
 
@@ -105,8 +105,8 @@ no wrapper, and claude runs as it does today.
 - No project file and no trust record is read. ccy's entrypoint also names a wrapper set in
   ccy.env; cc does not. Reading a project file here could only add a failure to the escape
   route: an unreadable or S7-malformed ccy.env must never stop `--no-supervise`.
-- Whether an exported `CCY_NO_SUPERVISOR` reaches cc-claude through cc's tmux insulation is
-  established by Task 1.2 and settled by Decision 7.
+- An exported `CCY_NO_SUPERVISOR` reaches cc-claude through cc's tmux insulation because
+  the pane's command forwards it (Decision 7 A, Task 2.9); Task 1.2 confirms the premise.
 
 S5. `CCY_CLAUDE_WRAPPER` set and not empty in the environment: that wrapper, as given,
 split into words as S8 does.
@@ -331,8 +331,8 @@ S13. A supervisor older than the minimum release is refused, exit 1, nothing exe
 It refuses rather than warns. Wrapping with an old supervisor harms other sessions, and
 running unwrapped in a project configured for a supervisor is skip-and-continue
 (Decision 1). The refusal names both ways round it, the one for this launch and the
-persistent one, so the operator is never stuck. If Task 1.2 finds that the exported
-variable does not reach cc-claude, the persistent way is the one Decision 7 settles on.
+persistent one, so the operator is never stuck. The exported variable reaches cc-claude
+through Decision 7 A's forwarding.
 
 S14. A supervisor file that is missing or unreadable, or has no such line or more than one,
 is refused the same way, naming the path and what was wrong, exit 1.
@@ -428,9 +428,9 @@ is the same user's on both sides.
   fires. On `--teams`, the seat and membership are pingbus's to release when its child
   exits. Acceptance S24 checks these.
 - **The reverse leak**: a `CCY_NO_SUPERVISOR` or `CCY_CLAUDE_WRAPPER` in the server's
-  environment applies silently to every later cc session in every project. Only Decision
-  7's option A closes this and the case above. Until the owner rules, it is a recorded
-  risk, and Task 1.2 establishes it on the host.
+  environment applies silently to every later cc session in every project. Decision 7 A
+  closes this and the case above: the pane's command forwards the four names, set or
+  cleared (Task 2.9). Task 1.2 confirms the leak on the host before that.
 
 ## Verified on the host (acceptance, not unit tests)
 
