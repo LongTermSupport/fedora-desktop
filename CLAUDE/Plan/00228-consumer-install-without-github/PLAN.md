@@ -113,11 +113,20 @@ own package updates continue through GNOME Software as usual.
 
 ### Phase 1: Audience variable and play classification
 
-- [ ] ⬜ **Task 1.1**: Owner answers Decisions 1-10, or accepts the defaults; record the
-  answers in this plan.
+- [x] ✅ **Task 1.1**: Owner answers Decisions 1-10, or accepts the defaults; record the
+  answers in this plan. (The owner's instruction is recorded at the top of Technical Decisions.)
 - [ ] ⬜ **Task 1.2**: Read every optional play and confirm or correct the research doc's
   section 4 first pass; record the final class for each.
   - Acceptance: every play under `playbooks/imports/` has one class, with a one-line reason.
+- [x] ✅ **Task 1.2 (as built)**: every play classified: `play-golang.yml` is `all` because
+  shared plays import it to build their Go helpers; Slack (`play-comms.yml`), ftp-camera,
+  laptop thermal diagnostics, the dev diagnostics play and every experimental play are
+  `developer`. The consumer optional set is the research doc's list.
+- [x] ✅ **Task 1.3 / 1.4 / 1.5 (as built)**: `install_audience` default in group_vars;
+  `vars.audience` in every play; a one-task guard (`meta: end_play`) in every developer play
+  instead of a shared task file; the preflight assert; NOPASSWD sudo removed for consumers;
+  the gate is Check 4b of `qa-ansible` (`src-go/qa/ansible/audience.go`), red and green in its
+  tests. Linger and developer-only GNOME extensions are not gated yet (Task 6.2).
 - [ ] ⬜ **Task 1.3**: Add `install_audience` (default `developer`) to
   `environment/localhost/group_vars/desktop.yml`, and an `audience` guard task file under
   `tasks/` that asserts the value is `developer|consumer` and ends a `developer` play on a
@@ -191,6 +200,22 @@ own package updates continue through GNOME Software as usual.
   FIX-BEFORE-MERGE finding resolved.
 
 ## Technical Decisions
+
+### Owner instruction (overrides the defaults below where they differ)
+
+Verbatim: "lets get a basic consumer install system working. sounds like run.bash
+--consumer. can internally export the none github accounts etc. and yes - excluide slack,
+include other stuff. at the point of installing optoinal - exclude the dev type optional and
+only show the "normal" stuff like qobuz etc. so no programming languages/tools. but do
+include apps and stuff. i hitnk this is pretty easy, doesnt' need to be perfect. get it done"
+
+Later, relayed by the coordinator: "feel free to make run.bash a thin wrapper around a go
+toolset", then "dont fuck about". Read as: the consumer path is Go, run.bash only hands over
+to it, and existing developer installs must behave exactly as before.
+
+What that settles: Decision 1 is (b) without Slack (`play-comms.yml` is developer); Decision
+2 is (a); Decision 3 is (a); Decision 10 is (b), the consumer flow is a Go command and
+run.bash only hands over to it. The other decisions keep their defaults.
 
 Open owner Decisions. Each states the default the plan proceeds on if the owner does not
 answer.

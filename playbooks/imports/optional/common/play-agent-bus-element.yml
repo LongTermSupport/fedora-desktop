@@ -20,6 +20,7 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
     agent_bus_element_profiles: "{{ agent_bus_element_teams | default([]) }}"
     # Matches the helper's CHANGED<TAB><path> marker lines.
     agent_bus_element_changed_re: "^CHANGED\t"
@@ -38,6 +39,10 @@
     - name: Scope guard — end play if provisioning_profile does not match declared scope
       ansible.builtin.meta: end_play
       when: (scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')
+
+    - name: Audience guard — end play on a consumer install
+      ansible.builtin.meta: end_play
+      when: install_audience != 'developer'
 
     - name: Check agent_bus_element_teams declares at least one team
       ansible.builtin.assert:

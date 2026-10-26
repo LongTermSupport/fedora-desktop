@@ -13,6 +13,7 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
     # 'latest' tracks the leading-edge release train (the same one npm's `latest`
     # dist-tag serves the ccy container), so host `cc` and container `ccy` stay on
     # the same Claude Code version. 'stable' is the slower staged-rollout channel
@@ -60,6 +61,10 @@
       ansible.builtin.include_vars:
         file: "{{ root_dir }}/vars/container-defaults.yml"
   tasks:
+    - name: Audience guard — end play on a consumer install
+      ansible.builtin.meta: end_play
+      when: install_audience != 'developer'
+
     - name: Check if Container Engine is Installed
       ansible.builtin.command: which {{ container_engine }}
       register: container_engine_check

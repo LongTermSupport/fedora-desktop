@@ -197,6 +197,8 @@ func scanPatterns(fsys fs.FS, root string, dirs []string, f *Findings) error {
 	}
 	sc := scope(playbooks, root)
 	f.Out, f.Scope = append(f.Out, sc.out...), sc.entries
+	au := audience(playbooks, root)
+	f.Out, f.Scope = append(f.Out, au.out...), append(f.Scope, au.entries...)
 	if err := scanFacts(fsys, dirs, f); err != nil {
 		return err
 	}

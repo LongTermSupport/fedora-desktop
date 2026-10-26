@@ -6,6 +6,7 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
     # Common Rust development tools
     cargo_tools:
       - cargo-watch # Automatically run commands when files change
@@ -18,6 +19,10 @@
       - cargo-deny # Lint dependencies
       - cargo-tarpaulin # Code coverage tool
   tasks:
+    - name: Audience guard — end play on a consumer install
+      ansible.builtin.meta: end_play
+      when: install_audience != 'developer'
+
     - name: Install System Dependencies for Rust Development
       become: true
       ansible.builtin.dnf:

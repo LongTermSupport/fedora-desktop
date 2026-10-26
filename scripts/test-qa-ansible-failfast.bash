@@ -30,7 +30,7 @@ TREE="$WORK/tree"
 mkdir -p "$TREE/playbooks" "$TREE/tasks"
 {
     echo "#!/usr/bin/env -S bash -c 'p=\$(realpath \"\$0\") && exec \"\${p%/playbooks/*}/run.bash\" \"\$p\" \"\$@\"'"
-    printf -- '---\n- hosts: all\n  vars:\n    scope: general\n  tasks: []\n'
+    printf -- '---\n- hosts: all\n  vars:\n    scope: general\n    audience: all\n  tasks: []\n'
 } > "$TREE/playbooks/play.yml"
 chmod +x "$TREE/playbooks/play.yml"
 # The tool judges what git would publish, so the fixture is a work tree.

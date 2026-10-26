@@ -26,6 +26,7 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
     vm_test_lab_dir: "/home/{{ user_login }}/.local/share/vmtest"
     vm_test_spool_dir: "{{ root_dir }}/untracked/vmtest-bridge"
     # Bridge policy (DESIGN.md §6.4 step 9): MODE_<verb>=auto|deny. refresh-base
@@ -52,6 +53,10 @@
     - "{{ root_dir }}/vars/fedora-version.yml"
     - "{{ root_dir }}/vars/vm-test-scenarios.yml"
   tasks:
+    - name: Audience guard — end play on a consumer install
+      ansible.builtin.meta: end_play
+      when: install_audience != 'developer'
+
     # =========================================================================
     # Preflight: KVM must be usable by the user, or nothing below is worth doing
     # =========================================================================

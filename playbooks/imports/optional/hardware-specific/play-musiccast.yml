@@ -22,6 +22,7 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: all   # all | developer — see CLAUDE/AnsibleStyle.md
     local_bin: "/home/{{ user_login }}/.local/bin"
 
     # gyrc - GTK 3 GUI for Yamaha network receivers (opt-in)

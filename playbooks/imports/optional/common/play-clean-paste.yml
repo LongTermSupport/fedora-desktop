@@ -21,6 +21,7 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
     clean_paste_binary: "/home/{{ user_login }}/.local/bin/clean-paste"
     clean_paste_lib_dir: "/home/{{ user_login }}/.local/lib/clean-paste"
     clean_paste_registrar: "/home/{{ user_login }}/.local/lib/clean-paste/register-shortcut.py"
@@ -43,6 +44,10 @@
     - name: Scope guard — end play if provisioning_profile does not match declared scope
       ansible.builtin.meta: end_play
       when: (scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')
+
+    - name: Audience guard — end play on a consumer install
+      ansible.builtin.meta: end_play
+      when: install_audience != 'developer'
 
     # =========================================================================
     # Packages: wl-clipboard (wl-paste/wl-copy) + wtype (Ctrl+Shift+V injector)

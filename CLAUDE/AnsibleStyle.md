@@ -345,6 +345,33 @@ All of the above — the `scope` value, the exact guard text on `gnome`/`server`
 plays, and the *absence* of a guard on `general` plays — is enforced by
 `scripts/qa-ansible.bash` (Check 4), which runs inside `./scripts/qa-all.bash`.
 
+### Install Audience (Plan 00228)
+
+Who uses the machine is a second axis, separate from `scope`. `install_audience` is
+`developer` (the default, in `environment/localhost/group_vars/desktop.yml`) or `consumer`
+(written into `localhost.yml` by `./run.bash --consumer`). **Every playbook declares an
+`audience`** beside its `scope`:
+
+```yaml
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: all   # all | developer — see CLAUDE/AnsibleStyle.md
+```
+
+- **`all`** — runs on every install. Carries no audience guard.
+- **`developer`** — programming languages, developer tools, containers, GitHub, agents. Its
+  first task (after the scope guard, on a `gnome`/`server` play) is exactly:
+
+```yaml
+    - name: Audience guard — end play on a consumer install
+      ansible.builtin.meta: end_play
+      when: install_audience != 'developer'
+```
+
+The consumer optional-play menu lists only the `audience: all` plays under
+`optional/common/` and `optional/hardware-specific/`. A play no one classified fails the
+gate, so it can never reach a consumer by default. `play-AA-preflight-sanity.yml` asserts the
+value is one of the two. Enforced by `scripts/qa-ansible.bash` (Check 4b).
+
 ---
 
 ## Special Patterns

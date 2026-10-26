@@ -22,6 +22,7 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: server   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
     self_update_etc_dir: /etc/fedora-desktop
     self_update_lib_dir: /var/lib/fedora-desktop
     self_update_clone: /var/lib/fedora-desktop/deploy
@@ -70,6 +71,10 @@
     - name: Scope guard — end play if provisioning_profile does not match declared scope
       ansible.builtin.meta: end_play
       when: (scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')
+
+    - name: Audience guard — end play on a consumer install
+      ansible.builtin.meta: end_play
+      when: install_audience != 'developer'
 
     # =========================================================================
     # Enabled: validate every input before anything is written

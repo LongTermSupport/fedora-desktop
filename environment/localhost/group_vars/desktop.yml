@@ -24,3 +24,8 @@
 #   -e provisioning_profile=server
 _systemd_default_target: "{{ lookup('ansible.builtin.pipe', 'systemctl get-default') }}"
 provisioning_profile: "{{ 'desktop' if _systemd_default_target == 'graphical.target' else 'server' }}"
+
+# Who uses the machine (Plan 00228): developer (every play) or consumer (only the plays
+# declaring audience: all). A consumer install writes install_audience: consumer into
+# host_vars/localhost.yml, which outranks this default. See CLAUDE/AnsibleStyle.md.
+install_audience: developer

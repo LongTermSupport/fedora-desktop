@@ -6,6 +6,7 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: all   # all | developer — see CLAUDE/AnsibleStyle.md
   pre_tasks:
     - name: Load Fedora version config
       ansible.builtin.include_vars:
@@ -62,3 +63,12 @@
           Auto-detected from `systemctl get-default`
           (see environment/localhost/group_vars/desktop.yml) or overridden
           via -e provisioning_profile=desktop|server.
+
+    - name: Check install_audience is a recognised value
+      ansible.builtin.assert:
+        that:
+          - install_audience in ['developer', 'consumer']
+        fail_msg: |
+          install_audience={{ install_audience }} is not recognised.
+          Valid values: developer, consumer (set in host_vars/localhost.yml;
+          see CLAUDE/AnsibleStyle.md, Install Audience).
