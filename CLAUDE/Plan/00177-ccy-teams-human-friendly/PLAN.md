@@ -1,6 +1,6 @@
 # Plan 00177: ccy-teams, human friendly
 
-**Status**: In Progress (host run 26-10-26: 6.4, 10.4 and 10.5 passed; 7.5 and 9.5 still open; Phase 11's fixes are built, awaiting their host run)
+**Status**: In Progress (host run 26-10-26: 6.4, 10.4 and 10.5 passed; 7.5 and 9.5 still open; Phase 11 passed on the host; Phase 12's three findings are open)
 **Created**: 2026-10-13
 **Owner**: joseph
 **Priority**: High
@@ -442,6 +442,23 @@ are too, by the same route.
   Element play after the team's play for a watched team, failing if the launcher is still
   there. Tests first (`test_element.py`, `ops/takedown_test.go`). Host: meta-deploy (both plays
   queued); after it, the throwaway team's launcher is gone from the app menu.
+
+Host, 26-10-26 at bc581f0ae: 11.1, 11.2 (on two throwaway teams), 11.3 and 11.4's launcher
+passed. 11.4's Element profile directory was not looked at (the owner's prompt denied the
+listing): an owner check. The run's findings are Phase 12.
+
+### Phase 12: Findings of the Phase 11 host run
+
+- [ ] ⬜ **Task 12.1**: The launch block printed by `session add` and `move` says "(new seat:
+  it joins as a worker)" for seats that already existed (the session's held seat after add;
+  the move's own step said "seat 1: exists"). The words describe a role as if it were newness.
+- [ ] ⬜ **Task 12.2**: `session add` into a team created a minute earlier printed "left aside
+  1 joined room of an earlier room version". A new team has no earlier room version: find what
+  the message counts and whether it is wrong or worded wrongly.
+- [ ] ⬜ **Task 12.3**: A key typed just after Esc reaches the next prompt: in `ccy-teams remove`, Esc answered "Back up first?" No and a Down sent 20 ms later moved step 2's cursor off
+  its default "Leave it running". Harmless there (Enter and the typed name are still needed),
+  but a key acts on a screen the person has not seen; pending input is not drained between
+  prompts.
 
 ## Success Criteria
 
