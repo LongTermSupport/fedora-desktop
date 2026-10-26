@@ -5,6 +5,13 @@
 // the machine, runs a play) shows as ^[[B on the top line of the next screen. Held, the keys are
 // not echoed and stay in the input for the next screen to read.
 //
+// Keeping them is the rule; draining them is the exception. A screen marked DrainInput (execx.Cmd)
+// discards what is waiting in the input (tcflush) once the hold is taken, before it runs, so it
+// starts on no key typed before it drew. internal/ui decides which screens (ui.Drain): the screen
+// after one the person left (Esc, Ctrl-C, a No), since a key typed just after Esc would act on a
+// screen not yet seen, and every screen of a destructive flow (a team taken down or deleted, a
+// backup restored over it, a session ended). Every other screen keeps the keys typed ahead.
+//
 // The hold is taken when the first screen runs (an EchoHeld child: ui marks every fzf, gum and
 // tput it runs), so a run that shows no screen (a listing piped to a pager, a job in the
 // background) never touches the terminal; keys typed before the first screen still echo. It is the mode found with only ECHO cleared. A child
@@ -31,10 +38,11 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
-// Modes reads and sets a terminal's mode.
+// Modes reads and sets a terminal's mode, and discards what is waiting in its input.
 type Modes interface {
 	Get(fd int) (*unix.Termios, error)
 	Set(fd int, t *unix.Termios) error
+	Flush(fd int) error
 }
 
 // ioctlModes is the terminal's own mode, through the termios ioctls. TCSETS takes effect at
@@ -52,6 +60,14 @@ func (ioctlModes) Get(fd int) (*unix.Termios, error) {
 func (ioctlModes) Set(fd int, t *unix.Termios) error {
 	if err := unix.IoctlSetTermios(fd, unix.TCSETS, t); err != nil {
 		return fmt.Errorf("TCSETS: %w", err)
+	}
+	return nil
+}
+
+// Flush discards the input received and not yet read (tcflush TCIFLUSH).
+func (ioctlModes) Flush(fd int) error {
+	if err := unix.IoctlSetInt(fd, unix.TCFLSH, unix.TCIFLUSH); err != nil {
+		return fmt.Errorf("TCFLSH: %w", err)
 	}
 	return nil
 }
@@ -161,8 +177,8 @@ type heldRunner struct {
 
 func (x heldRunner) Run(ctx context.Context, c execx.Cmd) (execx.Result, error) {
 	if c.EchoHeld {
-		if err := x.hold.engage(); err != nil {
-			return execx.Result{}, fmt.Errorf("hold the terminal's echo off for %s: %w", c.Name, err)
+		if err := x.hold.screen(c); err != nil {
+			return execx.Result{}, err
 		}
 		return x.next.Run(ctx, c)
 	}
@@ -219,6 +235,31 @@ func (h *Hold) engage() error {
 	h.found, h.quiet = found, &quiet
 	h.watch()
 	return nil
+}
+
+// screen readies the terminal for an EchoHeld child: the hold taken, then, for a screen marked
+// DrainInput, the keys typed before it discarded.
+func (h *Hold) screen(c execx.Cmd) error {
+	if err := h.engage(); err != nil {
+		return fmt.Errorf("hold the terminal's echo off for %s: %w", c.Name, err)
+	}
+	if !c.DrainInput {
+		return nil
+	}
+	if err := h.drain(); err != nil {
+		return fmt.Errorf("discard the keys typed before %s: %w", c.Name, err)
+	}
+	return nil
+}
+
+// drain discards what is waiting in the terminal's input. Not held (no terminal) is nothing to do.
+func (h *Hold) drain() error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.found == nil {
+		return nil
+	}
+	return h.Modes.Flush(int(h.TTY.Fd()))
 }
 
 // release puts back the mode found and stops watching the signals. Not held is nothing to do.

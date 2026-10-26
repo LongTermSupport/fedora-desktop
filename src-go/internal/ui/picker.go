@@ -150,11 +150,41 @@ type Picker struct {
 	Stderr io.Writer
 	// Plain draws the heading without colour: NO_COLOR, or not a terminal.
 	Plain bool
+	// Drain says which screens start on no key typed before they drew (shared with the
+	// command's Gum); nil makes one on first use.
+	Drain *Drain
 }
 
 // Pick shows the rows and the actions under the heading h and returns what was chosen. Esc, q
-// and the Exit row are ErrLeave; leaving a row's menu is ErrBack.
+// and the Exit row are ErrLeave; leaving a row's menu is ErrBack. A leave drains the next screen.
 func (p *Picker) Pick(ctx context.Context, h Heading, s PickSpec) (Picked, error) {
+	picked, err := p.pick(ctx, h, s)
+	p.drain().leftOn(err)
+	return picked, err
+}
+
+// Confirm is a yes/no in the picker under the heading h, so no prompt is a bare read: one
+// "Yes, <action>" row above Exit. The frame is titled with the heading's first crumb. The cursor
+// starts on Exit unless defaultYes (a harmless step the person came to take). Leaving is a no,
+// and drains the next screen as any leave does.
+func (p *Picker) Confirm(ctx context.Context, h Heading, question, action string, defaultYes bool) (bool, error) {
+	if err := h.check(); err != nil {
+		return false, err
+	}
+	picked, err := p.Pick(ctx, h, PickSpec{
+		Title: h.Crumbs[0], Header: Header("Enter choose   Esc or q exit", question),
+		Rows: []string{"Yes, " + action}, CursorLast: !defaultYes,
+	})
+	if errors.Is(err, ErrLeave) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return strings.HasPrefix(picked.Row, "Yes, "), nil
+}
+
+func (p *Picker) pick(ctx context.Context, h Heading, s PickSpec) (Picked, error) {
 	if err := h.check(); err != nil {
 		return Picked{}, err
 	}
@@ -174,7 +204,10 @@ func (p *Picker) Pick(ctx context.Context, h Heading, s PickSpec) (Picked, error
 		exitRow = s.ExitLabel
 	}
 	stdin := strings.NewReader(strings.Join(append(lines, exitRow), "\n") + "\n")
-	res, err := p.Runner.Run(ctx, execx.Cmd{Name: "fzf", Args: append(args, fzfEscJoined), Env: s.env(), Stdin: stdin, Stderr: p.Stderr, EchoHeld: true})
+	res, err := p.Runner.Run(ctx, execx.Cmd{
+		Name: "fzf", Args: append(args, fzfEscJoined), Env: s.env(), Stdin: stdin, Stderr: p.Stderr, EchoHeld: true,
+		DrainInput: p.drain().next(),
+	})
 	out := strings.TrimSuffix(string(res.Stdout), "\n")
 	if err != nil {
 		switch code := exitCode(err); {
@@ -336,26 +369,6 @@ func parsePicked(out string, withKey bool) (string, string, error) {
 		return "", "", errNoRow
 	}
 	return key, row, nil
-}
-
-// Confirm is a yes/no in the picker under the heading h, so no prompt is a bare read: one
-// "Yes, <action>" row above Exit. The frame is titled with the heading's first crumb. The cursor
-// starts on Exit unless defaultYes (a harmless step the person came to take). Leaving is a no.
-func (p *Picker) Confirm(ctx context.Context, h Heading, question, action string, defaultYes bool) (bool, error) {
-	if err := h.check(); err != nil {
-		return false, err
-	}
-	picked, err := p.Pick(ctx, h, PickSpec{
-		Title: h.Crumbs[0], Header: Header("Enter choose   Esc or q exit", question),
-		Rows: []string{"Yes, " + action}, CursorLast: !defaultYes,
-	})
-	if errors.Is(err, ErrLeave) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return strings.HasPrefix(picked.Row, "Yes, "), nil
 }
 
 // pickedFrom is what fzf's answer chose: the key line when keys were expected, then the row.

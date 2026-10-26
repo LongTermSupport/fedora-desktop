@@ -225,11 +225,13 @@ func (h *Host) wireTools() {
 // wireAsking builds what the questions and the picker are asked through, and the seams to the
 // terminal and the launcher.
 func (h *Host) wireAsking() {
+	// One Drain for both: leaving a gum question drains the picker drawn next, and the reverse.
+	drain := &ui.Drain{}
 	if h.Gum == nil {
-		h.Gum = &ui.Gum{Runner: h.Runner, Stdin: h.Stdin, Stderr: h.Stderr, Plain: !h.Term.ColourOn(h.Stderr)}
+		h.Gum = &ui.Gum{Runner: h.Runner, Stdin: h.Stdin, Stderr: h.Stderr, Plain: !h.Term.ColourOn(h.Stderr), Drain: drain}
 	}
 	if h.Picker == nil {
-		h.Picker = &ui.Picker{Runner: h.Runner, Stderr: h.Stderr, Plain: !h.Term.ColourOn(h.Stderr)}
+		h.Picker = &ui.Picker{Runner: h.Runner, Stderr: h.Stderr, Plain: !h.Term.ColourOn(h.Stderr), Drain: drain}
 	}
 	if h.LookPath == nil {
 		h.LookPath = exec.LookPath

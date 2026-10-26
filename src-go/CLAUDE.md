@@ -60,8 +60,9 @@ the wrappers that build and run the Go commands).
   `sessprobe`, `fsx` (atomic file writes), `ccyenv` (is CCY installed, is this a container),
   `shellword` (POSIX shell quoting for a command shown to a person or a value a shell reads),
   `ttyecho` (the terminal's echo held off from an interactive command's first screen to the end
-  of its run, so keys typed between two screens are not echoed; a child given the terminal runs
-  in the mode found),
+  of its run, so keys typed between two screens are not echoed but kept for the next screen,
+  except a screen `ui.Drain` marks to discard them: the one after a leave, and every screen of a
+  destructive flow; a child given the terminal runs in the mode found),
   `engine` (the ccy launcher's container engine: selection, the questions it asks podman or
   docker, the rootless and SELinux verdicts, the relabel preflight; E1-E9 in its package doc)
   and `tokens` (the token pool ccy and cc share: file names, expiry, the listing, the pool

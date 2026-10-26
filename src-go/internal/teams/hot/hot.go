@@ -570,7 +570,7 @@ func (x *Hot) blockAfter(ctx context.Context, t *target, run func() term.ExitCod
 	if code != term.ExitOK || t.desired.Generation == before || len(t.desired.Seats) == 0 {
 		return code
 	}
-	return choose.Block(ctx, x.Host, x.Kit, x.Host.Stderr, membership.Canonical(t.desired.Seats))
+	return choose.Block(ctx, x.Host, x.Kit, x.Host.Stderr, t.checkout(), membership.Canonical(t.desired.Seats))
 }
 
 // writeRecord makes seats the session record's --teams.

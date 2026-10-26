@@ -264,6 +264,52 @@ func TestRemoveOfAWatchedTeamWhoseLauncherStaysFails(t *testing.T) {
 	}
 }
 
+// questionDrains is, for each gum question and fzf screen run (not gum style), whether it
+// discarded the keys typed before it drew.
+func (r *opsRig) questionDrains() []bool {
+	var out []bool
+	for _, c := range r.fake.Calls() {
+		if c.Name == "fzf" || (c.Name == "gum" && len(c.Args) > 0 && c.Args[0] != "style") {
+			out = append(out, c.DrainInput)
+		}
+	}
+	return out
+}
+
+// Plan 00177 Task 12.3: remove is destructive, so every question of it starts on no key typed
+// before it drew: Esc on "Back up first?" then Down no longer moves step 2's cursor.
+func TestEveryQuestionOfRemoveDiscardsKeysTypedBeforeIt(t *testing.T) {
+	r := removeRig(t)
+	r.onExit("gum confirm", 1, "")
+	if code := r.ops.Remove(context.Background(), []string{"alpha"}); code != 0 {
+		t.Fatalf("code %d: %s", code, r.said())
+	}
+	if got := r.questionDrains(); !slices.Equal(got, []bool{true, true}) {
+		t.Fatalf("drains %v: %q", got, r.lines())
+	}
+	// The flow over, a question keeps the keys typed ahead again.
+	if _, err := r.ops.Gum.Confirm(context.Background(), takeDownHeading("alpha"), "q", true); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.questionDrains(); got[len(got)-1] {
+		t.Fatalf("a question after remove drained: %v", got)
+	}
+}
+
+func TestEveryScreenOfRestoreDiscardsKeysTypedBeforeIt(t *testing.T) {
+	r := newOpsRig(t)
+	r.sudoOK()
+	r.on("fzf", execx.Result{Stdout: []byte("Yes, restore backup 2\n")})
+	r.on(opsInstaller+"restore --team alpha --backup 2", execx.Result{})
+	if code := r.ops.Restore(context.Background(), []string{"alpha", "2"}); code != 0 {
+		t.Fatalf("code %d: %s", code, r.said())
+	}
+	got := r.questionDrains()
+	if len(got) == 0 || slices.Contains(got, false) {
+		t.Fatalf("drains %v: %q", got, r.lines())
+	}
+}
+
 func TestRemoveWithoutBackupSkipsSudoAndInstaller(t *testing.T) {
 	r := removeRig(t)
 	r.onExit("gum confirm", 1, "")

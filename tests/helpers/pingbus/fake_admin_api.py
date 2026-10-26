@@ -134,6 +134,16 @@ class FakeAdminHomeserver(FakeHomeserver):
         room = self.rooms[self.server_admin_room]
         self._append(room, MEMBER, user_id, self._member_content(user_id, "join"), user_id)
 
+    def earlier_version_room(self, creator: str) -> str:
+        """A room of room version 11 that creator made and is joined to, as a bus room made
+        before version 12 would be; returns its ID."""
+        room = Room(f"!{secrets.token_hex(9)[:18]}:{self.server_name}", creator)
+        with self._cond:
+            self.rooms[room.room_id] = room
+            self._append(room, "m.room.create", creator, {"room_version": "11", "creator": creator}, "")
+            self._append(room, MEMBER, creator, {"membership": "join"}, creator)
+        return room.room_id
+
     def _list_users(self, req: Req) -> dict:
         if set(req.query) - {"admins"}:
             raise Unmodelled(f"user list with {sorted(req.query)}")
