@@ -205,6 +205,9 @@ and 7 once Task 1.2 has reported.**
     change to one of those packages would need the CCY version bump
     (`CLAUDE/ContainerRules.md`), so if one turns out to be needed, it is planned here with
     its bump before it is made
+  - [ ] ⬜ S25's worktree branch also requires the common directory `<C>` to be owned by the
+    caller's uid, so another local user's planted `.git` (for example under `/tmp`) never
+    passes, even where the owner once trusted that directory; a test covers it
   - [ ] ⬜ `./scripts/qa-changed.bash` passes, the Go gate included
 
 - [ ] ⬜ **Task 2.8**: Change cc's `cc-project-dir` call to pass `-- "$@"` (S31); confirm

@@ -299,7 +299,7 @@ may be transient: run cc again. A real defect still refuses, on the second read.
 `cc --no-supervise` never reads the file (S4), and neither does a checkout with no
 supervisor (step 5 of the order).
 
-S28. When the checkout is not trusted on the default path (steps 7-8 of the order),
+S28. When the checkout is not trusted on the default path (step 6 of the order, so steps 7-8 never run),
 cc-claude runs claude unwrapped and reads no project file. It prints one stderr line:
 `Supervisor: off: Claude Code does not trust <key> yet (no hasTrustDialogAccepted in <config file>). Accept its trust dialog in this session; the next cc, or cc --supervise, then runs the project supervisor.`
 This is not skip-and-continue. Running unwrapped is the state the project's files may not
