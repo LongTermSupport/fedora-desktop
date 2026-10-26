@@ -335,6 +335,36 @@ are too, by the same route.
   with real fzf: fzf reads an Esc and the next key inside its 100 ms wait as that key with Alt
   (`alt-down`), which no screen bound. Defence Before Fix: failing tests first, a project rule,
   the fix, and the sweep of every screen a person leaves with Esc (fzf, Bubble Tea, gum, tmux).
+  - [x] ✅ **Task 10.4.1**: Failing tests: every fzf screen leaves on each of the 69 Esc-joined
+    keys; pathinput cancels on a joined Esc; the teams list comes back on the row after Esc then
+    Down or Up.
+  - [x] ✅ **Task 10.4.2**: The rule `project_esc_joined`
+    ([GoProjectRules.md](../../GoProjectRules.md#project_esc_joined)), red on its own: 5 findings
+    through `./scripts/qa-changed.bash --base F44`, 3 Go (`ui.Picker.Pick`, `ui.Picker.Choose`,
+    pathinput) and 2 shell (`ccy_tmux_pick` in tmux-session.bash, Ctrl-R in history-search.bash).
+  - [x] ✅ **Task 10.4.3**: Green: every instance fixed (fzf binds the joined keys to abort,
+    Esc then Down or Up in a row menu moves the list cursor, pathinput cancels on a joined Esc),
+    tmux `escape-time` 10, CCY 3.100.24, a `changed-plays` run queued in `meta-deploy.list`.
+  - [x] ✅ **Task 10.4.4**: The Defence Before Fix conformance review conformed: red at the
+    rule commit with exactly the 5 findings, green at the fix, no false positives. Its one note:
+    `files/etc/tmux.conf` is not covered by `qa-changed`.
+  - [ ] ⬜ **Task 10.4.5**: Host re-check after the deploy and a tmux server restart: Esc and
+    Down in one `tmux send-keys` close a ccy-teams row menu and move the list cursor; Esc then a
+    key leaves `ccy_tmux_pick` and Ctrl-R; `tmux show -s escape-time` says 10.
+
+#### Open owner decisions (Task 10.4)
+
+- **gum prompts**: about 38 call sites (23 Confirm, 10 Choose, 5 Input, through
+  `internal/ui/ui.go`) lose the Esc of a one-write `\e\e[B`. gum takes no bindings, so they are
+  not fixed; tmux `escape-time` 10 narrows the window. Replacing the gum prompts is the owner's
+  call.
+- **wsi-model-manager (Textual)**: Esc then a letter becomes Alt+letter (the Esc is lost), and
+  Esc then Enter reaches the app as a plain Enter. On the remove confirmation, which focuses Yes,
+  that removes the model. Not fixed (Python, outside both gates); a possible mitigation is
+  `ESCDELAY=10` before textual is imported. The owner's call.
+- **Restore toggle**: proposed, not changed. Turning a seat's restore OFF (the menu row and
+  Ctrl-R from the list) asks first (Confirm, default No, naming the seat and that its session
+  will not come back after a reboot); turning it ON needs no question.
 
 ## Success Criteria
 
