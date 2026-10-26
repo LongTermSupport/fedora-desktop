@@ -39,6 +39,13 @@
 # No CCY version change (the launcher's front does not use the hold). Then Task 12.5's host check.
 playbooks/imports/play-claude-yolo.yml
 
+# Plan 00192 Task 3.6: run.bash --changed now counts the Go packages a play builds from, so
+# every play that builds a Go command (podfreeze, lxcfreeze, claude-yolo, cli-tools, rclone,
+# speech-to-text, and the rest) runs again here if any package its commands import changed
+# since it last ran. It asks nothing (--yes) and stops at the first failure. Host check (Plan
+# 00192 Task 3.6): its list names those Go-building plays and no play is left that it skipped.
+changed-plays
+
 # Plan 00194 delivery host checks (Tasks 2.0c H1-H6, 2.0d, 2.0f), run as the desktop user; it
 # prompts for sudo once at the start. On two throwaway teams (accept194c, accept194d) and one
 # idle ccy session on both, the scripted test human `tester` posts as Element does: a mention
@@ -49,10 +56,3 @@ playbooks/imports/play-claude-yolo.yml
 # removed at the end. Exit 2 with H7 printed is the expected best: H7 needs a session without
 # crossSessionInbound: accept, which no launch makes, so it is the host agent's by hand.
 00194-agent-bus-live-delivery-supervisor-plugin/delivery-acceptance.bash
-
-# Plan 00192 Task 3.6: run.bash --changed now counts the Go packages a play builds from, so
-# every play that builds a Go command (podfreeze, lxcfreeze, claude-yolo, cli-tools, rclone,
-# speech-to-text, and the rest) runs again here if any package its commands import changed
-# since it last ran. It asks nothing (--yes) and stops at the first failure. Host check (Plan
-# 00192 Task 3.6): its list names those Go-building plays and no play is left that it skipped.
-changed-plays
