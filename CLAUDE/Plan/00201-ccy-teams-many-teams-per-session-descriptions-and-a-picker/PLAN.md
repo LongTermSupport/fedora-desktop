@@ -406,9 +406,24 @@ a repository is no longer offered for a checkout of it. Report:
   unseen). Already built: the `plan-tests` gate (`src-go/qa/plantests`, commits 7c6974126 and
   60f028790) runs every active plan folder's own Python tests, in `qa-changed.bash` too.
 
-- [ ] ⬜ **Task 2.26**: A rule on `src-go/qa/bashlimits`' syntax tree for an assignment holding
+- [x] ✅ **Task 2.26**: A rule on `src-go/qa/bashlimits`' syntax tree for an assignment holding
   more than one command substitution, where only the last one's failure reaches errexit (the
   shape that hid a failed read in Plan 00211's stage 2), by Defence Before Fix. A worker.
+  Built as `assignment-masks-substitution-failure` ([QA.md](../../QA.md#assignment-masks-substitution-failure)),
+  in the bash-limits gate with no allowlist, branch `fix/bash-multi-substitution-rule`. The
+  class, from bash 5.2 runs under errexit: an assignment-only statement with two or more
+  substitutions not nested in one another (scalar, several assignments, array literal, `+=`,
+  default, arithmetic); a declaration builtin assigning any substitution (SC2155 misses the
+  array and `${1:-$(...)}` forms); a substitution in a command's prefix assignment. It judges
+  every bash file the gate finds, exempt from the limits or not, but `src-go/vendor/`, the
+  daemon-owned files and `.semgrep/` (fixtures, never run). Red `63daece62`: 27 findings in
+  17 files; all fixed and each rewrite proven (value unchanged, failure now stops: under `-e`
+  by errexit, and with an explicit `|| exit` in the two `set -uo pipefail` scripts), with ccy
+  3.100.19 for `lib/network-management.bash` and `changed-plays` queued in meta-deploy. The
+  independent search also found 4 in `play-github-cli-multi.yml`'s shell functions, which the
+  rule cannot see (bash inside a playbook); fixed by hand, the `git-which-account` reads with
+  `|| return 1` (an interactive function, no errexit). Not this class, recorded in QA.md: a
+  substitution as a command's argument, and one nested in another (`inherit_errexit`).
 
 - [x] ✅ **Task 2.23**: the host
   run failed "session multi's container running: not within 600 s". The base image had just
@@ -454,8 +469,7 @@ a repository is no longer offered for a checkout of it. Report:
     `tests/helpers/`), so Plan 00161's `test_acceptance_check` went red at `a5486643d` (the
     HUMAN room field) unseen; its fixtures are fixed, the gate gap is closed by the `plan-tests` gate (Task 2.25).
   - In bash, only the last command substitution of one assignment reaches errexit (00211
-    stage 2 hid a failed read this way; fixed). No rule detects the shape yet; it needs the
-    syntax tree (`src-go/qa/bashlimits` already parses every bash file).
+    stage 2 hid a failed read this way; fixed). Defended by Task 2.26's rule.
 
 ## Success Criteria
 

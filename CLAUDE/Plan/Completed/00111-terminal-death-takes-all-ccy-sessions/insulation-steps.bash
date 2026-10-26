@@ -164,7 +164,8 @@ start)
     ;;
 
 assert-created)
-    WATCH_PID="$(<"${state}/terminal-1.pid")" wait_for 15 "session ${session} attached" session_attached_is 1
+    watch_pid="$(<"${state}/terminal-1.pid")"
+    WATCH_PID="${watch_pid}" wait_for 15 "session ${session} attached" session_attached_is 1
     server_pid="$(tmux -L ccy display-message -p '#{pid}')"
     pane_pid="$(tmux -L ccy list-panes -t "=${session}" -F '#{pane_pid}')"
     printf '%s\n' "${pane_pid}" >"${state}/pane.pid"
@@ -205,7 +206,8 @@ reattach)
     # keystroke is a carriage return.
     open_fake_terminal "${state}/terminal-2.log" $'\r' "${entry_point}" _ "${CCY_LIB_DEPLOYED}" "${project}" bash -c 'exit 99' \
         >"${state}/terminal-2.pid"
-    WATCH_PID="$(<"${state}/terminal-2.pid")" wait_for 15 "session ${session} re-attached" session_attached_is 1
+    watch_pid="$(<"${state}/terminal-2.pid")"
+    WATCH_PID="${watch_pid}" wait_for 15 "session ${session} re-attached" session_attached_is 1
     if [[ "$(tmux -L ccy list-panes -t "=${session}" -F '#{pane_pid}')" != "$(<"${state}/pane.pid")" ]]; then
         printf '[FAIL] a new session was started instead of re-attaching the detached one\n' >&2
         exit 1
@@ -243,7 +245,8 @@ offer-new)
     wait_for 5 "session ${session} detached again" session_attached_is 0
     open_fake_terminal "${state}/terminal-4.log" $'\x0e' "${entry_point}" _ "${CCY_LIB_DEPLOYED}" "${project}" sleep 600 \
         >"${state}/terminal-4.pid"
-    WATCH_PID="$(<"${state}/terminal-4.pid")" wait_for 15 "second session ${session}-2 attached" named_session_attached_is "${session}-2" 1
+    watch_pid="$(<"${state}/terminal-4.pid")"
+    WATCH_PID="${watch_pid}" wait_for 15 "second session ${session}-2 attached" named_session_attached_is "${session}-2" 1
     if ! session_attached_is 0; then
         printf '[FAIL] answering n disturbed the original session\n' >&2
         exit 1
@@ -280,7 +283,8 @@ real-launch)
     # launcher. It is left waiting at its first prompt inside the session, then killed.
     open_fake_terminal "${state}/real-launch.log" "" "cd '${state}/ccyaccept/real' && /var/local/claude-yolo/claude-yolo" \
         >"${state}/real-launch.pid"
-    WATCH_PID="$(<"${state}/real-launch.pid")" wait_for 30 "session ccy-ccyaccept-real attached" named_session_attached_is "ccy-ccyaccept-real" 1
+    watch_pid="$(<"${state}/real-launch.pid")"
+    WATCH_PID="${watch_pid}" wait_for 30 "session ccy-ccyaccept-real attached" named_session_attached_is "ccy-ccyaccept-real" 1
     pane_pid="$(tmux -L ccy list-panes -t "=ccy-ccyaccept-real" -F '#{pane_pid}')"
     if ! pgrep -f -P "${pane_pid}" 'claude-yolo' >"${state}/real-launch.launcher-pid"; then
         printf '[FAIL] the pane process %s is not running the launcher\n' "${pane_pid}" >&2
@@ -302,7 +306,7 @@ for prompt in ("Use same configuration", "Select SSH key", "SSH key", "token"):
 print("no prompt before tmux took the screen")
 PY
     # And inside the session the first prompt appears exactly once — no double asking.
-    WATCH_PID="$(<"${state}/real-launch.pid")" wait_for 60 "the launcher to reach its SSH key prompt inside the session" pane_shows "ccy-ccyaccept-real" 'Select SSH key'
+    WATCH_PID="${watch_pid}" wait_for 60 "the launcher to reach its SSH key prompt inside the session" pane_shows "ccy-ccyaccept-real" 'Select SSH key'
     if [[ "$(tmux -L ccy capture-pane -p -t "=ccy-ccyaccept-real:" | grep -c 'Select SSH key')" -ne 1 ]]; then
         printf '[FAIL] expected exactly one SSH key prompt inside the session:\n' >&2
         tmux -L ccy capture-pane -p -t "=ccy-ccyaccept-real:" >&2
@@ -319,7 +323,8 @@ real-cc-launch)
     # token chooser, as a cc-<project> session, and show that chooser exactly once.
     open_fake_terminal "${state}/real-cc.log" "" "cd '${state}/ccyaccept/real' && /var/local/claude-code/cc" \
         >"${state}/real-cc.pid"
-    WATCH_PID="$(<"${state}/real-cc.pid")" wait_for 30 "session cc-ccyaccept-real attached" named_session_attached_is "cc-ccyaccept-real" 1
+    watch_pid="$(<"${state}/real-cc.pid")"
+    WATCH_PID="${watch_pid}" wait_for 30 "session cc-ccyaccept-real attached" named_session_attached_is "cc-ccyaccept-real" 1
     python3 - "${state}/real-cc.log" <<'PY'
 import sys
 data = open(sys.argv[1], "rb").read()
@@ -331,7 +336,7 @@ if "select token" in before.lower():
     sys.exit(f"[FAIL] cc prompted for a token BEFORE entering tmux:\n{before}")
 print("no prompt before tmux took the screen (cc)")
 PY
-    WATCH_PID="$(<"${state}/real-cc.pid")" wait_for 60 "cc to reach its token chooser inside the session" pane_shows "cc-ccyaccept-real" 'Select token'
+    WATCH_PID="${watch_pid}" wait_for 60 "cc to reach its token chooser inside the session" pane_shows "cc-ccyaccept-real" 'Select token'
     if [[ "$(tmux -L ccy capture-pane -p -t "=cc-ccyaccept-real:" | grep -c 'Select token')" -ne 1 ]]; then
         printf '[FAIL] expected exactly one token prompt inside the cc session:\n' >&2
         tmux -L ccy capture-pane -p -t "=cc-ccyaccept-real:" >&2

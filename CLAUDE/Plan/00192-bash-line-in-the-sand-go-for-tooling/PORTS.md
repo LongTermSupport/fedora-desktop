@@ -380,3 +380,17 @@ terminal Ctrl-C cannot kill an RC call before the run cancels it; a stop ends th
 next line and `--once` still gets its closing snapshot. Round 2 (CHANGES: 1 Low) fixed: a
 second signal during either snapshot ends the run at once (its session groups killed, nothing
 more printed, exit 130), so no `rclone rc` outlives the run. Round 3: MERGE (2 Nits, fixed).
+`setup-rclone` (P6, the fifth tool; chosen in its spec's section 1) ported on
+`go-port/setup-rclone-2`, under review, not merged; spec [SPEC-setup-rclone.md](SPEC-setup-rclone.md)
+(D1-D4, E1-E23, B1-B14, H1-H4), `src-go/cmd/setup-rclone` and `src-go/internal/setuprclone`.
+It is not deployed: `scripts/setup-rclone.bash` is now the wrapper that builds it from the
+checkout and execs it with `SETUP_RCLONE_ROOT` set (as `gh-account-setup`'s); its allowlist
+row is gone, and `scripts/go-binary-suites.tsv` gives it `qa-go` (it had no suite). Both
+embedded Python programs are gone: `host_vars` is read as YAML, its two top-level blocks are
+edited in the text, and the result is read back before an atomic write that keeps the mode
+and writes through a symlink (B3, B4: a mount's other keys such as `rc_port` survive an edit).
+The vault is proven by an `encrypt_string` probe before the wizard (B7), and every rclone call
+names the one configuration file (B10). `ui.Lines` draws a heading two columns wide when its
+`Width` is zero, though its doc says zero is no limit; the command sets a width of 80, and the
+`ui` defect (which `ccylaunch`'s build-lock question also hits) is left for a fix of its own.
+H1-H4 are the owner's, at the desktop.

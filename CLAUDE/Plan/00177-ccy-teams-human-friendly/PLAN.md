@@ -344,7 +344,7 @@ are too, by the same route.
     pathinput) and 2 shell (`ccy_tmux_pick` in tmux-session.bash, Ctrl-R in history-search.bash).
   - [x] ✅ **Task 10.4.3**: Green: every instance fixed (fzf binds the joined keys to abort,
     Esc then Down or Up in a row menu moves the list cursor, pathinput cancels on a joined Esc),
-    tmux `escape-time` 10, CCY 3.100.24, a `changed-plays` run queued in `meta-deploy.list`.
+    tmux `escape-time` 10, CCY 3.100.24 (released as 3.100.25 with the F44 merge), a `changed-plays` run queued in `meta-deploy.list`.
   - [x] ✅ **Task 10.4.4**: The Defence Before Fix conformance review conformed: red at the
     rule commit with exactly the 5 findings, green at the fix, no false positives. Its one note:
     `files/etc/tmux.conf` is not covered by `qa-changed`.

@@ -355,9 +355,32 @@ func TestSummaryLineSaysWhatItCounts(t *testing.T) {
 	r := run(t, repo(t), "--base", "HEAD")
 	// small + long are checked (long allowlisted), run.bash is checked too now, and
 	// scripts/test-x.bash is exempt.
-	want := "BASH-LIMITS-OK 4 bash files: 1 exempt, 3 checked (2 allowlisted, 1 within limits)"
+	want := "BASH-LIMITS-OK 4 bash files: 1 exempt, 3 checked (2 allowlisted, 1 within limits); 4 judged by " + MaskedRuleID
 	if !strings.Contains(r.out, want) {
 		t.Fatalf("summary %q lacks %q", r.out, want)
+	}
+}
+
+// A masked substitution fails the gate, in a measured file and in an exempt one alike, and
+// whatever mode the run is in.
+func TestMaskedSubstitutionFailsTheGate(t *testing.T) {
+	root := repo(t)
+	put(t, root, "scripts/small.bash", "#!/usr/bin/bash\nset -e\nx=\"$(a)$(b)\"\n")
+	put(t, root, "scripts/test-x.bash", "#!/usr/bin/bash\nset -e\nlocal -a y=(\"$(c)\")\n")
+	for _, args := range [][]string{{"--base", "HEAD"}, {"--base", "HEAD", "--update"}} {
+		r := run(t, root, args...)
+		if r.code != ExitFailure {
+			t.Fatalf("%v: exit %d, want %d: %s", args, r.code, ExitFailure, r.err)
+		}
+		for _, want := range []string{
+			"scripts/small.bash:3: assignment holds several command substitutions",
+			"scripts/test-x.bash:3: declaration builtin assigns a command substitution",
+			"CLAUDE/QA.md#" + MaskedRuleID,
+		} {
+			if !strings.Contains(r.err, want) {
+				t.Errorf("%v: stderr lacks %q:\n%s", args, want, r.err)
+			}
+		}
 	}
 }
 

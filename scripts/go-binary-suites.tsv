@@ -33,3 +33,4 @@ rclone-tail	qa-go
 gh-account-setup	scripts/test-run-bash-gh-scopes.bash
 wsi-lower-media-volume	qa-go
 pingbus-status-line	qa-go
+setup-rclone	qa-go

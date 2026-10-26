@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.100.24"  # Container 2.79.9: an Esc typed just before another key leaves the session picker. See docs/ccy-changelog.md.
+CCY_VERSION="3.100.25"  # Container 2.79.9: 3.100.24 (Esc before a key) and 3.100.19 (compose name) in one release. See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the

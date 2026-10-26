@@ -90,7 +90,10 @@ if [[ ! -f "${DROP_FILE}" ]]; then
     printf '[FATAL] --file %s is not a regular file on the host, so nothing can be learnt about it.\n' "${DROP_FILE}" >&2
     exit 64
 fi
-DROP_FILE="$(cd "$(dirname "${DROP_FILE}")" && pwd -P)/$(basename "${DROP_FILE}")"
+drop_dir="$(dirname -- "${DROP_FILE}")"
+drop_dir="$(cd -- "${drop_dir}" && pwd -P)"
+drop_base="$(basename -- "${DROP_FILE}")"
+DROP_FILE="${drop_dir}/${drop_base}"
 
 plan_require_host "it inspects the host's flatpak installation, runs commands inside the Slack sandbox and lists host processes"
 

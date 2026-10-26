@@ -27,9 +27,15 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.100.25 — container 2.79.9
+
+Follows 3.100.24 (container 2.79.9). The image does not change. It joins the two lines of
+work below into one release: 3.100.24, an Esc typed just before another key, and 3.100.19,
+the compose project name. Nothing else changes.
+
 ## 3.100.24 — container 2.79.9
 
-Follows 3.100.18 (container 2.79.9; 3.100.19 to 3.100.23 are taken by concurrent branches). The
+Follows 3.100.19 (container 2.79.9; 3.100.20 to 3.100.23 are taken by concurrent branches). The
 image does not change.
 
 - **An Esc typed just before another key is no longer lost.** fzf reads an Esc and the key
@@ -39,6 +45,17 @@ image does not change.
   row menu, Esc then an arrow closes the menu and moves the list's cursor from that row.
   tmux's `escape-time` is now 10 ms (`/etc/tmux.conf`), so tmux no longer holds an Esc for
   half a second and joins it to the next key.
+
+## 3.100.19 — container 2.79.9
+
+Follows 3.100.18 (container 2.79.9). The image does not change.
+
+- **The compose project name defaults to the directory's own name without running
+  `basename`** (`lib/network-management.bash`, `check_and_start_compose_services` and
+  `offer_compose_start`): `${PWD##*/}` replaces `$(basename "$PWD")`, whose failure a `local`
+  declaration hid (Plan 00201 Task 2.26, rule
+  [assignment-masks-substitution-failure](../CLAUDE/QA.md#assignment-masks-substitution-failure)).
+  The name is the same in every directory but `/`.
 
 ## 3.100.18 — container 2.79.9
 

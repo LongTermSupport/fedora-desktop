@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00226-cc-runs-under-the-hooks-daemon-supervisor](00226-cc-runs-under-the-hooks-daemon-supervisor/) - Not Started (owner Decisions 5-7 open). Host `cc` sessions run under the project's hooks-daemon supervisor as ccy's do, only in a checkout Claude Code already trusts. Addresses #113
+
 - [00223-ccy-one-confirm-relaunch](00223-ccy-one-confirm-relaunch/) - Not Started. One Quick Launch screen for ccy, accepted with one Enter, `ccy --teams` included: only the seat is rechecked, and a used-up token goes to the token chooser
 
 - [00224-coordinator-desktop-notifications](00224-coordinator-desktop-notifications/) - Not Started. A team's coordinator in a ccy or LXC container can send the owner a desktop notification through one Go command, `notify-owner`, and a host relay that checks the role from the host's own records; no session D-Bus in any container
@@ -76,8 +78,6 @@ Use these Unicode icons in plan documents:
 
 - [00198-gnome-text-editor-opens-a-new-window-on-the-current-workspace](00198-gnome-text-editor-opens-a-new-window-on-the-current-workspace/) - In Progress. Opening a file from Nautilus opens GNOME Text Editor in a new window on the current workspace, not as a tab on another workspace
 
-- [00199-quick-markdown-viewer](00199-quick-markdown-viewer/) - In Progress. A desktop viewer that renders a Markdown file nicely and opens quickly; adopt one or build one
-
 - [00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker](00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/) - In Progress. `ccy --teams`: one session on several teams, a description for every team, and a picker instead of a hard stop when no team covers the checkout
 
 - [00200-repo-watch-list](00200-repo-watch-list/) - In Progress. A list of external public repositories scanned at intervals for ideas, with a `watchlist` Go command, a scout agent and a `/watchlist` skill; findings become issues or plans
@@ -105,8 +105,6 @@ Use these Unicode icons in plan documents:
 - [00185-terminal-emoji-glyphs](00185-terminal-emoji-glyphs/) - In Progress (colour emoji fallback built in `play-fonts.yml`, host run pending). Triage why the terminal draws the wrong emoji, then defend in a play (#60)
 
 - [00184-deployed-tools-menu](00184-deployed-tools-menu/) - Not Started (low priority). One launcher and panel item for the deployed user tools (#81)
-
-- [00183-prompt-shows-stale-tracking-ref](00183-prompt-shows-stale-tracking-ref/) - In Progress. The git prompt never shows up-to-date against a stale tracking ref (#52): a stale-fetch mark (`git-fetch-age`), deployed and accepted on the host; the host agent's check in a real interactive shell is left
 
 - [00182-run-bash-private-plays-and-config-clone](00182-run-bash-private-plays-and-config-clone/) - Not Started. `run.bash` runs private plays from a local clone of the config repo (#49, #97)
 
@@ -310,6 +308,10 @@ Use these Unicode icons in plan documents:
 
 ## Completed Plans
 
+- [00199-quick-markdown-viewer](Completed/00199-quick-markdown-viewer/) - A desktop viewer that renders a Markdown file nicely and opens quickly. Nothing existing fitted, so the owner had md-viewer built (its own repository, Go on Gio); a play installs it and makes it the `text/markdown` default. The owner uses it and closed the plan as working.
+
+- [00183-prompt-shows-stale-tracking-ref](Completed/00183-prompt-shows-stale-tracking-ref/) - The git prompt never shows up-to-date against a stale tracking ref (#52): a stale-fetch mark (`git-fetch-age`) and a prompt fetch that can never ask for a passphrase (`git-prompt-fetch`). Deployed and accepted on the host, and seen in a real interactive shell.
+
 - [00193-coral-adoption-audit](Completed/00193-coral-adoption-audit/) - Audit of the external agent-supervision project coral against ccy, ccy-sessions, ccy-teams, the agent bus and the hooks daemon. Recommendation: leave it and borrow ideas. The owner decided it is not useful here; coral goes on the repo watch list (Plan 00200).
 
 - [00164-stt-enter-lost-after-focus-retake](Completed/00164-stt-enter-lost-after-focus-retake/) - When a dictation's window lost focus, the text was pasted back into it but the Enter did not send it. Both recorders wait for the window to keep focus before the paste and check it again before the Enter. Deployed; the owner confirmed Enter works.
@@ -365,10 +367,6 @@ Use these Unicode icons in plan documents:
 - [00111-terminal-death-takes-all-ccy-sessions](Completed/00111-terminal-death-takes-all-ccy-sessions/) - A Wayland protocol error killed Ptyxis and took every in-flight CCY session with it (not OOM); `ccy` and `cc` now run inside a tmux server under `systemd --user`, one attach per session, with `ccy-sessions` and the `ccy` re-attach offer to get back in. CCY 3.53.3.
 
 - [00081-secret-scanner-and-qa-gate-coverage-holes](Completed/00081-secret-scanner-and-qa-gate-coverage-holes/) - Seven more instances of the partial-result defect class, two in the pre-commit secret scanner on a public repo; every fix has a gate that fails against the unfixed code, each proved by re-introducing the defect.
-
-- [00101-ccy-token-usage-via-ratelimit-headers](Completed/00101-ccy-token-usage-via-ratelimit-headers/) - Per-account 5-hour and weekly usage in `ccy`'s token menu, read from `/v1/messages` response headers behind a keypress. Shipped and deployed; the Fable allowance (Phase 6) is WON'T DO.
-
-- [00108-headless-prompt-colour](Completed/00108-headless-prompt-colour/) - A headless run answered the prompt-colour question with nothing and left `PS1_COLOUR=` on the box; run.bash 1.19.0 takes `RUN_BASH_PS1_COLOUR` and the empty answer takes the default. Proven on a headless box following this branch.
 
 **Older completed plans** — everything beyond the most recent 30 — are in
 [Completed/README.md](Completed/README.md), moved there verbatim. The retention window

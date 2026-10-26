@@ -123,7 +123,7 @@ m2_launch() {
     # process, is still that session (the registry trampoline's shape).
     command="$(printf '%q ' "${M2_LAUNCHER}" --headless --no-restore --no-supervise "$@" \
         --prompt "${M2_PROMPT}" -- --input-format stream-json --output-format stream-json --verbose --model haiku)" || return 1
-    command+="<$(printf '%q' "${fifo}") >$(printf '%q' "${M2_EV}/${name}.out") 2>$(printf '%q' "${M2_EV}/${name}.err")"
+    command+="$(printf '<%q >%q 2>%q' "${fifo}" "${M2_EV}/${name}.out" "${M2_EV}/${name}.err")" || return 1
     command+="; echo \"\$?\" >$(printf '%q' "${M2_EV}/${name}.status")"
     tmux -L ccy new-session -d -s "${name}" -c "${PLAN_REPO_ROOT}" "${command}" || return 1
     printf '==> started %s: ccy --headless %s\n' "${name}" "$*"

@@ -1,6 +1,6 @@
 # Plan 00183: the prompt shows up-to-date when the tracking ref is stale
 
-**Status**: In Progress
+**Status**: Complete (2026-10-26)
 **Created**: 2026-10-13
 **Owner**: joseph
 **Priority**: Low
@@ -82,7 +82,7 @@ agent at all. The cause is unknown, so this plan triages first.
   prove it on the host. Deployed on the host (`play-git-configure-and-tools.yml` passed); the
   `fetcher` (BatchMode, no terminal) and `override` (async_run through git-prompt-fetch)
   legs passed. The acceptance re-run passed, all six legs.
-- [ ] 🔄 **Task 2.6**: the host agent's check in a real interactive shell, the one thing the
+- [x] ✅ **Task 2.6**: the host agent's check in a real interactive shell, the one thing the
   `prompt` leg does not cover (that leg expands the deployed PS1 in `bash -s`, not in the
   login user's `bash -i` with `~/.bashrc` and bash-git-prompt loaded). Make a scratch clone
   whose `origin` is an ssh URL that fails at once (a host under `.invalid`, such as
@@ -100,8 +100,11 @@ agent at all. The cause is unknown, so this plan triages first.
   passed (` [fetch failed or running]` in yellow, no `passphrase`, the mark kept after Enter,
   `FETCH_HEAD` emptied, the log names the failed fetch) except one: under load about 47 the
   prompt was drawn by about 12 s, not within 5 s. The scratch clone is still in
-  `untracked/scratch/` (the host agent's `rm -rf` was refused). Left: the 5 s draw on an
-  idle host, or a decision that the load explains it.
+  `untracked/scratch/` (the host agent's `rm -rf` was refused). Host re-run, 2026-10-26
+  (bus `$DYlZs16Yo7B8ogrLhsmp6RQ71yPFEEVumhVUz_C4_KQ`), load about 11 on 22 cores: every step
+  passed. Prompt drawn in 1.31 s with the yellow ` [fetch failed or running]`; no
+  `passphrase` at the first draw or after Enter; the mark kept after Enter at 10 s;
+  `FETCH_HEAD` emptied; the log names the failed fetch (`git exited 128: ssh: Could not resolve hostname unreachable.invalid`); cleaned up. The earlier 12 s draw was the load.
 
 ## Technical Decisions
 
@@ -169,10 +172,11 @@ whether the host's agent holds the key.
 
 ## Success Criteria
 
-- [ ] A checkout whose tracking refs were not fetched recently is visibly marked stale.
+- [x] A checkout whose tracking refs were not fetched recently is visibly marked stale
+  (the `marks` and `failed` acceptance legs, and Task 2.6 in a real `bash -i`).
 - [x] With no agent, the prompt draws at once and asks for nothing: `git-fetch-age` reads
   files only, and the `fetcher` (BatchMode, no terminal on stdin) and `override` legs passed
-  on the host at 67033c224. Task 2.6 also sees it in a real `bash -i`.
+  on the host at 67033c224. Task 2.6 also saw it in a real `bash -i`: drawn in 1.31 s.
 
 ## Delivery & Milestones
 
@@ -188,3 +192,4 @@ whether the host's agent holds the key.
 - qa-reviewer round 1: FIX-FIRST; answered on `fix/00183-review-findings`, merged at
   f2c59399a.
 - The pinned bash-git-prompt and the acceptance passed on the host at 67033c224.
+- Task 2.6, the check in a real interactive shell, passed on the host.
