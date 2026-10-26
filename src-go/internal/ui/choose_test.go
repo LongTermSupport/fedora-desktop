@@ -22,7 +22,7 @@ func TestChooseSingleEmitsTheLegacyArgvAndFeedsRowsOnStdin(t *testing.T) {
 		t.Fatalf("got %v, %v", got, err)
 	}
 	c := drawn(f)[0]
-	want := []string{"--height=50%", "--reverse", "--prompt=podfreeze: ", "--header=" + testHeadText + "ENTER acts — ESC to quit"}
+	want := []string{"--height=50%", "--reverse", "--prompt=podfreeze: ", "--header=" + testHeadText + "ENTER acts — ESC to quit", fzfEscJoined}
 	if !slices.Equal(c.Args, want) {
 		t.Fatalf("argv %q, want %q", c.Args, want)
 	}
@@ -41,7 +41,7 @@ func TestChooseMultiAddsMultiFirstAndReturnsEveryLine(t *testing.T) {
 	if err != nil || !slices.Equal(got, []string{"a  1", "b  2"}) {
 		t.Fatalf("got %v, %v", got, err)
 	}
-	want := []string{"--multi", "--height=60%", "--reverse", "--prompt=In this group: ", "--header=" + testHeadText + "h"}
+	want := []string{"--multi", "--height=60%", "--reverse", "--prompt=In this group: ", "--header=" + testHeadText + "h", fzfEscJoined}
 	if !slices.Equal(drawn(f)[0].Args, want) {
 		t.Fatalf("argv %q, want %q", drawn(f)[0].Args, want)
 	}

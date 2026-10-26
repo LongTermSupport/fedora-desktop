@@ -5,10 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"regexp"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -488,6 +490,46 @@ func TestEscAndCtrlCCancel(t *testing.T) {
 	m = drive(t, New(context.Background(), spec(sample())), ctrlC)
 	if _, err := m.Result(); !errors.Is(err, ui.ErrCancelled) {
 		t.Fatalf("ctrl+c: %v", err)
+	}
+}
+
+// Bubble Tea reads an Esc and the key after it, arriving in one read or within its 50 ms escape
+// wait, as that key with Alt (Esc then Down is alt+down). Esc still cancels: the Esc is not lost
+// to a line that then takes what is typed next (Plan 00177, the Esc-joined finding).
+func TestAnEscJoinedToTheNextKeyStillCancels(t *testing.T) {
+	for _, in := range []string{"\x1b\x1b[B/x\r", "\x1b\x1b[A/x\r", "\x1b\r/x\r", "\x1b\x1b/x\r", "\x1bq/x\r", "\x1b\x12/x\r"} {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		a := &Asker{In: strings.NewReader(in), Out: &bytes.Buffer{}}
+		path, err := a.Ask(ctx, spec(sample()))
+		cancel()
+		if !errors.Is(err, ui.ErrCancelled) {
+			t.Errorf("%q: want cancelled, got %q, %v", in, path, err)
+		}
+	}
+}
+
+// The same with the Esc and the key after it written apart, as a person types them, both
+// inside Bubble Tea's escape wait.
+func TestAnEscThenAKeyTypedApartStillCancels(t *testing.T) {
+	r, w := io.Pipe()
+	go func() {
+		for _, part := range []string{"\x1b", "\x1b[B", "/x\r"} {
+			if _, err := w.Write([]byte(part)); err != nil {
+				return
+			}
+		}
+		if err := w.Close(); err != nil {
+			return
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	path, err := (&Asker{In: r, Out: &bytes.Buffer{}}).Ask(ctx, spec(sample()))
+	if closeErr := r.Close(); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	if !errors.Is(err, ui.ErrCancelled) {
+		t.Fatalf("want cancelled, got %q, %v", path, err)
 	}
 }
 

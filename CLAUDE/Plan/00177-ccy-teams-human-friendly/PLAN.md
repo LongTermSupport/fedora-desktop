@@ -329,27 +329,55 @@ are too, by the same route.
 - [ ] ⬜ **Task 10.3**: The host agent drives `ccy-teams` in tmux again: from `~`, the team and
   person menus say Start is unavailable; Esc from a menu then Down pressed quickly shows no
   `^[[B`.
+- [ ] 🔄 **Task 10.4**: An Esc is never lost to the key after it (the host agent's finding: in a
+  row menu, Down within about 50 ms of Esc, or both in one `tmux send-keys`, left the menu open
+  and moved its cursor; Ctrl-R then turned a seat's restore off with no question). Cause, proven
+  with real fzf: fzf reads an Esc and the next key inside its 100 ms wait as that key with Alt
+  (`alt-down`), which no screen bound. Defence Before Fix: failing tests first, a project rule,
+  the fix, and the sweep of every screen a person leaves with Esc (fzf, Bubble Tea, gum, tmux).
+  - [x] ✅ **Task 10.4.1**: Failing tests: every fzf screen leaves on each of the 69 Esc-joined
+    keys; pathinput cancels on a joined Esc; the teams list comes back on the row after Esc then
+    Down or Up.
+  - [x] ✅ **Task 10.4.2**: The rule `project_esc_joined`
+    ([GoProjectRules.md](../../GoProjectRules.md#project_esc_joined)), red on its own: 5 findings
+    through `./scripts/qa-changed.bash --base F44`, 3 Go (`ui.Picker.Pick`, `ui.Picker.Choose`,
+    pathinput) and 2 shell (`ccy_tmux_pick` in tmux-session.bash, Ctrl-R in history-search.bash).
+  - [x] ✅ **Task 10.4.3**: Green: every instance fixed (fzf binds the joined keys to abort,
+    Esc then Down or Up in a row menu moves the list cursor, pathinput cancels on a joined Esc),
+    tmux `escape-time` 10, CCY 3.100.24 (released as 3.100.25 with the F44 merge), a `changed-plays` run queued in `meta-deploy.list`.
+  - [x] ✅ **Task 10.4.4**: The Defence Before Fix conformance review conformed: red at the
+    rule commit with exactly the 5 findings, green at the fix, no false positives. Its one note:
+    `files/etc/tmux.conf` is not covered by `qa-changed`.
+  - [x] ✅ **Task 10.4.6**: fzf's word editing kept (qa-reviewer finding, coordinator
+    decision): `alt-b`, `alt-f`, `alt-d` and `alt-bs` are no longer bound to abort, so Ctrl-R
+    and the `ui` filters keep a query being edited by word; the rule requires the other 65 keys
+    (`fzfbind.EscJoined`, less `fzfbind.WordEditing`) and flags a word key bound to abort. Only
+    Esc then b, f, d or Backspace within fzf's wait is still lost; the arrows stay covered.
+    The freeze golden argv re-pinned under bug 28. CCY 3.100.26.
+  - [ ] ⬜ **Task 10.4.5**: Host re-check after the deploy and a tmux server restart: Esc and
+    Down in one `tmux send-keys` close a ccy-teams row menu and move the list cursor; Esc then a
+    key leaves `ccy_tmux_pick` and Ctrl-R; `tmux show -s escape-time` says 10.
 - [ ] ⬜ **Task 10.5**: Host check of the gum decision below, after the `escape-time` 10
   deploy and a tmux server restart: in a ccy-teams gum confirm (the take-down "Back up first?"
   will do), Esc then Down sent as two `tmux send-keys` calls 20 ms apart answers No and leaves;
   the same in a gum choose and a gum input cancels. Only both keys in one `send-keys` call may
   still lose the Esc.
 
-#### Open owner decisions (Task 10.4, an Esc joined to the key after it)
+#### Owner decisions (Task 10.4, an Esc joined to the key after it)
 
 - **gum prompts** (decided by delegated review on the owner's instruction: **keep gum**,
-  option c). About 38 call sites (Confirm, Choose, Input, and the Style/Box/Explain that read no
-  key), all through `internal/ui/ui.go`, lose the Esc only of a one-write `\e\e[B`; gum honours
-  Esc then Down 20 ms apart. With tmux `escape-time` 10 a one write needs two keys inside 10 ms,
-  which no person types and no plain terminal joins; only a `tmux send-keys` with both keys, or
-  a paste, reaches it. Judged site by site, nothing destructive is behind a lost Esc: the only
-  deletion makes the person type the team's name, coordinator takeover and Element consent
-  default to No, the fate menu starts on the safe row, and every write sits behind sudo's
-  password. gum is called from Go only, so the bash-limits rule is not breached. Replacing it
-  (Bubble Tea v2 joins Esc the same way, so it would repeat the fzf binding work) buys no
-  reachable gain. Standing condition: a destructive gum confirm defaults to No or sits behind a
-  typed name. Revisit if Task 10.5 shows gum losing an Esc from keys typed apart. Analysis: the
-  10-26 journal decision entry.
+  option c). About 38 call sites, all through `internal/ui/ui.go`, lose the Esc only of a
+  one-write `\e\e[B`; with tmux `escape-time` 10 only a `tmux send-keys` with both keys, or a
+  paste, reaches it, and nothing destructive is behind a lost Esc. Standing condition: a
+  destructive gum confirm defaults to No or sits behind a typed name. Revisit if Task 10.5 shows
+  gum losing an Esc from keys typed apart. Analysis: the 10-26 journal decision entry.
+- **wsi-model-manager (Textual)** (owner: "fix"): Esc then a letter becomes Alt+letter (the Esc
+  is lost), and Esc then Enter reaches the app as a plain Enter. On the remove confirmation,
+  which focuses Yes, that removes the model. To be fixed (queued); a possible mitigation is
+  `ESCDELAY=10` before textual is imported.
+- **Restore toggle** (open; asked of the owner): proposed, not changed. Turning a seat's restore OFF (the menu row and
+  Ctrl-R from the list) asks first (Confirm, default No, naming the seat and that its session
+  will not come back after a reboot); turning it ON needs no question.
 
 ## Success Criteria
 

@@ -19,6 +19,48 @@ const ExitRow = "Exit"
 const pickerColours = "16,fg:-1,bg:-1,fg+:-1:bold,bg+:-1,hl:3,hl+:3:bold,gutter:-1,pointer:3," +
 	"marker:3,prompt:3,spinner:3,info:-1,header:-1,border:-1,label:3:bold"
 
+// fzfEscJoined binds to abort every key fzf reads an Esc and the next key as: fzf waits 100 ms
+// after an Esc for the rest of an escape sequence, and tmux (at its default escape-time) hands
+// the pane both keys in one write, so Esc then Down arrives as alt-down, Esc then Enter as
+// alt-enter (ctrl-alt-m in fzf 0.38). Unbound, those keys did nothing and the Esc was lost: the
+// person stayed on a screen they meant to leave (project_esc_joined). Every fzf screen gets it.
+// alt-b, alt-f, alt-d and alt-bs keep fzf's word editing, so an Esc just before b, f, d or
+// Backspace is still lost, and a query is never thrown away mid-edit.
+const fzfEscJoined = "--bind=" +
+	"alt-up:abort,alt-down:abort,alt-left:abort,alt-right:abort,alt-enter:abort,alt-space:abort," +
+	"alt-a:abort,alt-c:abort,alt-e:abort,alt-g:abort,alt-h:abort,alt-i:abort,alt-j:abort,alt-k:abort,alt-l:abort,alt-m:abort," +
+	"alt-n:abort,alt-o:abort,alt-p:abort,alt-q:abort,alt-r:abort,alt-s:abort,alt-t:abort,alt-u:abort,alt-v:abort,alt-w:abort,alt-x:abort,alt-y:abort,alt-z:abort," +
+	"ctrl-alt-a:abort,ctrl-alt-b:abort,ctrl-alt-c:abort,ctrl-alt-d:abort,ctrl-alt-e:abort,ctrl-alt-f:abort,ctrl-alt-g:abort,ctrl-alt-h:abort,ctrl-alt-i:abort,ctrl-alt-j:abort,ctrl-alt-k:abort,ctrl-alt-l:abort,ctrl-alt-m:abort," +
+	"ctrl-alt-n:abort,ctrl-alt-o:abort,ctrl-alt-p:abort,ctrl-alt-q:abort,ctrl-alt-r:abort,ctrl-alt-s:abort,ctrl-alt-t:abort,ctrl-alt-u:abort,ctrl-alt-v:abort,ctrl-alt-w:abort,ctrl-alt-x:abort,ctrl-alt-y:abort,ctrl-alt-z:abort," +
+	"alt-0:abort,alt-1:abort,alt-2:abort,alt-3:abort,alt-4:abort,alt-5:abort,alt-6:abort,alt-7:abort,alt-8:abort,alt-9:abort"
+
+// The keys a row's menu hands back for Esc then an arrow, which fzf prefers to their abort
+// binding: the menu closes and the list's cursor moves from the menu's row.
+const (
+	escThenUp   = "alt-up"
+	escThenDown = "alt-down"
+)
+
+// BackError is leaving a row's menu with Esc then an arrow: back to the list, whose cursor
+// moves Move rows (-1 up, 1 down) from the menu's row. It is ErrBack.
+type BackError struct {
+	Move int
+}
+
+func (e *BackError) Error() string { return ErrBack.Error() }
+
+// Is makes a BackError ErrBack.
+func (e *BackError) Is(target error) bool { return target == ErrBack }
+
+// MovedBy is how many rows the list's cursor moves after err leaves a row's menu: -1 or 1 for
+// Esc then an arrow, 0 for any other error.
+func MovedBy(err error) int {
+	if back, ok := errors.AsType[*BackError](err); ok {
+		return back.Move
+	}
+	return 0
+}
+
 // fzf's exit statuses that mean the person left: 1 is Enter with nothing matching, 130 is Esc,
 // Ctrl-C or q. Any other status (2 is an error) is a failure, never a leave.
 const (
@@ -67,6 +109,12 @@ type PickSpec struct {
 	// menu pressed on the row chooses that action there; a key the row's menu does not have is
 	// a NotOfferedError.
 	Menus []Menu
+	// StartRow, when set, is the line the cursor starts on, counted from 1 (the rows, then the
+	// action rows, then the Exit row): the list coming back from a row's menu left with Esc
+	// then an arrow starts on the row the arrow moves to.
+	StartRow int
+	// escMoves is the menu's keys for Esc then an arrow, handed back rather than left on.
+	escMoves bool
 	// WrapHeader wraps Header's lines to the window as the heading is, for a header that carries
 	// text of any length (a play run's name and pid): fzf cuts a line wider than its window.
 	WrapHeader bool
@@ -126,7 +174,7 @@ func (p *Picker) Pick(ctx context.Context, h Heading, s PickSpec) (Picked, error
 		exitRow = s.ExitLabel
 	}
 	stdin := strings.NewReader(strings.Join(append(lines, exitRow), "\n") + "\n")
-	res, err := p.Runner.Run(ctx, execx.Cmd{Name: "fzf", Args: args, Env: s.env(), Stdin: stdin, Stderr: p.Stderr, EchoHeld: true})
+	res, err := p.Runner.Run(ctx, execx.Cmd{Name: "fzf", Args: append(args, fzfEscJoined), Env: s.env(), Stdin: stdin, Stderr: p.Stderr, EchoHeld: true})
 	out := strings.TrimSuffix(string(res.Stdout), "\n")
 	if err != nil {
 		switch code := exitCode(err); {
@@ -176,10 +224,13 @@ func (s PickSpec) fzfArgs(h Heading, colour bool, width int) ([]string, error) {
 		"--prompt=filter > ", "--bind=q:abort",
 	}, headerArgs...)
 	// fzf refuses an empty --expect, so it is passed only when there are keys.
-	if keys := s.keys(); len(keys) > 0 {
+	if keys := s.expected(); len(keys) > 0 {
 		args = append(args, expectArg(keys))
 	}
-	if s.CursorLast {
+	switch {
+	case s.StartRow > 0:
+		args = append(args, "--bind=start:pos("+strconv.Itoa(s.StartRow)+")")
+	case s.CursorLast:
 		args = append(args, "--bind=start:last")
 	}
 	if s.indexed() || len(s.Tags) > 0 {
@@ -309,9 +360,17 @@ func (p *Picker) Confirm(ctx context.Context, h Heading, question, action string
 
 // pickedFrom is what fzf's answer chose: the key line when keys were expected, then the row.
 func (p *Picker) pickedFrom(ctx context.Context, h Heading, s PickSpec, out string, n int, exitRow string) (Picked, error) {
-	key, line, err := parsePicked(out, len(s.keys()) > 0)
+	key, line, err := parsePicked(out, len(s.expected()) > 0)
 	if err != nil {
 		return Picked{}, err
+	}
+	if s.escMoves {
+		switch key {
+		case escThenUp:
+			return Picked{}, &BackError{Move: -1}
+		case escThenDown:
+			return Picked{}, &BackError{Move: 1}
+		}
 	}
 	if line == exitRow {
 		return p.chosen(ctx, h, s, key, "", -1)
@@ -355,15 +414,19 @@ func (p *Picker) chosen(ctx context.Context, h Heading, s PickSpec, key, row str
 }
 
 // menu is Enter on a row: its actions, each with its key, under the menu's own heading, or the
-// list's heading with the menu's title as one more crumb; leaving it is ErrBack.
+// list's heading with the menu's title as one more crumb; leaving it is ErrBack, with the row
+// the menu was opened on, and Esc then an arrow a BackError saying where the list's cursor goes.
 func (p *Picker) menu(ctx context.Context, h Heading, m Menu, picked Picked) (Picked, error) {
 	mh := m.Heading
 	if len(mh.Crumbs) == 0 {
 		mh = h.Push(m.Title)
 	}
-	got, err := p.Pick(ctx, mh, PickSpec{Title: m.Title, Header: m.Header, Actions: m.Actions, ExitLabel: menuBack})
+	got, err := p.Pick(ctx, mh, PickSpec{Title: m.Title, Header: m.Header, Actions: m.Actions, ExitLabel: menuBack, escMoves: true})
 	if errors.Is(err, ErrLeave) {
-		return Picked{}, ErrBack
+		return picked, ErrBack
+	}
+	if errors.Is(err, ErrBack) {
+		return picked, err
 	}
 	if err != nil {
 		return Picked{}, err

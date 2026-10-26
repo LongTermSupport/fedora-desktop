@@ -67,7 +67,7 @@ func TestEveryActionIsAVisibleRowOrMenuLineWithItsKeyBesideIt(t *testing.T) {
 	if !slices.Contains(menu.Args, "--border-label= team alpha ") || !slices.Contains(menu.Args, "--header=Test › team alpha\n────────────────────────\nWhat to do with alpha:\n") {
 		t.Fatalf("menu args %v", menu.Args)
 	}
-	if !slices.Contains(menu.Args, "--expect=ctrl-e") {
+	if !slices.Contains(menu.Args, "--expect=ctrl-e,alt-up,alt-down") {
 		t.Fatalf("a menu's line keys choose its lines: %v", menu.Args)
 	}
 }
