@@ -14,6 +14,8 @@ Newest first, continuing from [../README.md](../README.md#completed-plans).
      were read as an unrecognised section while their folders were plainly completed —
      sixteen advisories saying so. -->
 
+- [00111-terminal-death-takes-all-ccy-sessions](00111-terminal-death-takes-all-ccy-sessions/) - A Wayland protocol error killed Ptyxis and took every in-flight CCY session with it (not OOM); `ccy` and `cc` now run inside a tmux server under `systemd --user`, one attach per session, with `ccy-sessions` and the `ccy` re-attach offer to get back in. CCY 3.53.3.
+
 - [00081-secret-scanner-and-qa-gate-coverage-holes](00081-secret-scanner-and-qa-gate-coverage-holes/) - Seven more instances of the partial-result defect class, two in the pre-commit secret scanner on a public repo; every fix has a gate that fails against the unfixed code, each proved by re-introducing the defect.
 
 - [00101-ccy-token-usage-via-ratelimit-headers](00101-ccy-token-usage-via-ratelimit-headers/) - Per-account 5-hour and weekly usage in `ccy`'s token menu, read from `/v1/messages` response headers behind a keypress. Shipped and deployed; the Fable allowance (Phase 6) is WON'T DO.
