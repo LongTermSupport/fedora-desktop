@@ -256,7 +256,7 @@ func replaceBlock(lines []string, key string, with []string) []string {
 		return append(lines, with...)
 	}
 	end := start + 1
-	for end < len(lines) && !startsTopLevel(lines[end]) {
+	for end < len(lines) && !endsBlock(lines, end) {
 		end++
 	}
 	for end-1 > start && blank(lines[end-1]) {
@@ -275,10 +275,30 @@ func isKeyLine(line, key string) bool {
 	return ok && (rest == "" || strings.ContainsRune(" \t\r\n", rune(rest[0])))
 }
 
-// startsTopLevel is a line that ends a block: one whose first character is not a space or a
-// tab, ignoring blank lines.
+// startsTopLevel is a line whose first character is not a space or a tab, ignoring blank lines.
 func startsTopLevel(line string) bool {
 	return !blank(line) && line[0] != ' ' && line[0] != '\t'
+}
+
+// endsBlock is whether lines[i] ends the block it follows: a line that starts at the top
+// level, unless it is a column-0 comment with more of the block after it (the next line that
+// is neither blank nor such a comment is indented), which YAML allows inside a block (E17).
+func endsBlock(lines []string, i int) bool {
+	if !startsTopLevel(lines[i]) {
+		return false
+	}
+	for _, line := range lines[i:] {
+		if !startsTopLevel(line) {
+			if !blank(line) {
+				return false
+			}
+			continue
+		}
+		if line[0] != '#' {
+			return true
+		}
+	}
+	return true
 }
 
 // encodeMounts is the rclone_mounts block, and the node it must read back as.

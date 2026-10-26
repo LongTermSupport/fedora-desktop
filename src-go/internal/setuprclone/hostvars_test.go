@@ -178,16 +178,58 @@ func TestEditRemovesBlock(t *testing.T) {
 	}
 }
 
-// E18: an edit that would change another key is refused (a column-0 comment splitting a
-// block leaves indented lines that belong to nothing, which the read-back catches).
+// E18: an edit the line rule cannot make cleanly is refused (a flow sequence whose lines start
+// at column 0 leaves lines that belong to nothing, which the read-back catches).
 func TestEditReadBackRefuses(t *testing.T) {
-	text := "rclone_mounts:\n  - name: a\n    remote: \"r:/\"\n# split\n    mountpoint: /m\nb: 1\n"
+	text := "rclone_mounts: [\n{name: a, remote: \"r:/\", mountpoint: /m}\n]\nb: 1\n"
 	if _, err := parseHostVars([]byte(text)); err != nil {
 		t.Fatalf("fixture should parse: %v", err)
 	}
 	_, err := editHostVars([]byte(text), "", []mount{newMount("r:/", "a", "/n")})
 	if err == nil {
 		t.Fatalf("no error for a block the edit cannot replace cleanly")
+	}
+}
+
+// E17: a column-0 comment inside a block, followed by more of the block, is part of it (an
+// edited entry's comment is written back with the entry, indented); one before the next key
+// stays with that key.
+func TestEditColumnZeroComment(t *testing.T) {
+	text := "rclone_mounts:\n  - name: a\n    remote: \"r:/\"\n# split\n    mountpoint: /m\n# about b\nb: 1\n"
+	hv := mustParse(t, text)
+	out, err := editHostVars([]byte(text), "", []mount{hv.mounts[0].with("r:/", "a", "/n")})
+	if err != nil {
+		t.Fatalf("editHostVars: %v", err)
+	}
+	if !strings.HasSuffix(string(out), "    # split\n    mountpoint: /n\n# about b\nb: 1\n") {
+		t.Errorf("got:\n%s", out)
+	}
+	if again := mustParse(t, string(out)); again.mounts[0].mountpoint != "/n" {
+		t.Errorf("read back = %+v", again.mounts)
+	}
+}
+
+// E18: the read-back refuses an edit that changed or lost another top-level key.
+func TestVerifyOtherKeys(t *testing.T) {
+	before, err := topMapping([]byte(baseVars))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mounts := topValue(before, mountsKey)
+	if err := verify(before, []byte(baseVars), "", mounts); err != nil {
+		t.Fatalf("the text as read refused: %v", err)
+	}
+	changed := strings.Replace(baseVars, "other_key: [1, 2]", "other_key: [1, 3]", 1)
+	if err := verify(before, []byte(changed), "", mounts); err == nil || !strings.Contains(err.Error(), "other_key") {
+		t.Errorf("a changed key: %v", err)
+	}
+	lost := strings.Replace(baseVars, "other_key: [1, 2]\n", "", 1)
+	if err := verify(before, []byte(lost), "", mounts); err == nil || !strings.Contains(err.Error(), "other top-level keys") {
+		t.Errorf("a lost key: %v", err)
+	}
+	renamed := strings.Replace(baseVars, "other_key:", "another_key:", 1)
+	if err := verify(before, []byte(renamed), "", mounts); err == nil || !strings.Contains(err.Error(), "other_key") {
+		t.Errorf("a renamed key: %v", err)
 	}
 }
 

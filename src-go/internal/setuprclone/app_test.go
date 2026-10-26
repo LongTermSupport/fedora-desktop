@@ -80,6 +80,8 @@ type world struct {
 	stderr      bytes.Buffer
 	// signal, when set, has already ended the run's context, as SignalContext would.
 	signal syscall.Signal
+	// cancel ends the run's context, as a signal arriving mid-run would.
+	cancel context.CancelCauseFunc
 }
 
 func writeFile(t *testing.T, path, text string) {
@@ -157,6 +159,7 @@ func (w *world) run(args ...string) term.ExitCode {
 	}
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
+	w.cancel = cancel
 	if w.signal != 0 {
 		cancel(&execx.SignalError{Signal: w.signal})
 	}
@@ -506,7 +509,10 @@ func TestRemoveMount(t *testing.T) {
 	w := newWorld(t)
 	w.answers = "n\n2\nr\n0\nn\n"
 	w.wantCode(w.run(), term.ExitOK)
-	w.wantErr("Removed mount photos", "rclone-photos.service")
+	w.wantErr("Removed mount photos", "rclone-photos.service", "keeps running", "section 6")
+	if strings.Contains(w.stderr.String(), "systemctl") {
+		t.Errorf("handed the person a manual systemctl command:\n%s", w.stderr.String())
+	}
 	text := w.varsText()
 	if strings.Contains(text, "photos") || !strings.Contains(text, "rc_port: 5590") {
 		t.Errorf("after remove:\n%s", text)
@@ -609,12 +615,13 @@ func TestValidationReasks(t *testing.T) {
 	}
 }
 
-// E18: the file is written through a symlink, its mode kept.
+// E18: the file is written through a symlink, its mode kept, though the umask the run has
+// narrows it.
 func TestWriteThroughSymlinkKeepsMode(t *testing.T) {
 	w := newWorld(t)
 	target := filepath.Join(w.root, "target.yml")
 	writeFile(t, target, baseVars)
-	if err := os.Chmod(target, 0o400); err != nil {
+	if err := os.Chmod(target, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Remove(w.vars); err != nil {
@@ -624,15 +631,70 @@ func TestWriteThroughSymlinkKeepsMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.answers = "n\n2\nr\n0\nn\n"
-	w.wantCode(w.run(), term.ExitOK)
+	// The new file would be created 0400 without the mode put back.
+	old := syscall.Umask(0o277)
+	code := w.run()
+	syscall.Umask(old)
+	w.wantCode(code, term.ExitOK)
 	fi, err := os.Lstat(w.vars)
 	if err != nil || fi.Mode()&os.ModeSymlink == 0 {
 		t.Errorf("symlink replaced: %v", err)
 	}
 	st, err := os.Stat(target)
-	if err != nil || st.Mode().Perm() != 0o400 {
+	if err != nil || st.Mode().Perm() != 0o600 {
 		t.Errorf("mode = %v %v", st.Mode(), err)
 	}
+}
+
+// E18: host_vars changed by something else while the run waited is not overwritten.
+func TestHostVarsChangedMeanwhile(t *testing.T) {
+	w := newWorld(t)
+	newer := baseVars + "added_meanwhile: 1\n"
+	w.fg.onCall = func(c execx.Cmd) {
+		if c.Name == "rclone" {
+			writeFile(t, w.vars, newer)
+		}
+	}
+	w.answers = "y\n\n0\nn\n"
+	w.wantCode(w.run(), term.ExitFailure)
+	w.wantErr(w.vars, "changed while setup-rclone ran", "nothing was written")
+	if w.varsText() != newer {
+		t.Errorf("the newer host_vars was overwritten:\n%s", w.varsText())
+	}
+	if strings.Contains(w.stderr.String(), "Run the rclone play now?") {
+		t.Errorf("went on to the deploy after refusing the write")
+	}
+}
+
+// E12, E15: editing a mount whose remote name cannot be mounted is refused up front, as an
+// add is, and the menu comes back.
+func TestEditUnsafeLegacyRemote(t *testing.T) {
+	w := newWorld(t)
+	writeFile(t, w.vars, "rclone_mounts:\n  - name: legacy\n    remote: \"bad%r:/\"\n    mountpoint: /home/u/mnt/legacy\n")
+	w.answers = "n\n1\ne\n0\nn\n"
+	w.wantCode(w.run(), term.ExitOK)
+	w.wantErr("The remote \"bad%r\" cannot be mounted")
+	if w.fake.Called(strings.Join(slices.Concat(w.rclone(), []string{"--contimeout"}), " ")) {
+		t.Errorf("checked the connection of a remote that cannot be mounted")
+	}
+	w.wantErr("host_vars unchanged")
+}
+
+// E13, E22: a signal during the connection check ends the run with 128+n and no hint.
+func TestSignalDuringConnect(t *testing.T) {
+	w := newWorld(t)
+	w.fake.OnFunc(slices.Concat(w.rclone(), []string{"--contimeout", "15s", "--timeout", "30s", "lsd"}), func(execx.Cmd) (execx.Result, error) {
+		w.cancel(&execx.SignalError{Signal: syscall.SIGINT})
+		return execx.Result{}, context.Canceled
+	})
+	w.answers = "n\n3\n0\nn\n"
+	w.wantCode(w.run(), 130)
+	for _, unwanted := range []string{"Could not connect", "Unexpected error", "▶"} {
+		if strings.Contains(w.stderr.String(), unwanted) {
+			t.Errorf("stderr holds %q after the signal:\n%s", unwanted, w.stderr.String())
+		}
+	}
+	w.wantVarsUnchanged()
 }
 
 // E19, E20, E21.

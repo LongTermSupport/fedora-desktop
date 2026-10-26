@@ -529,9 +529,12 @@ func (r *run) changeMount(ctx context.Context, mounts []mount, i int) ([]mount, 
 	switch action {
 	case "r":
 		r.ok("Removed mount " + m.name)
-		r.warn(fmt.Sprintf("The play neither stops nor deletes rclone-%s.service; stop it yourself: systemctl --user disable --now rclone-%s.service", m.name, m.name))
+		r.warn(fmt.Sprintf("This removes the mount from host_vars only: rclone-%s.service keeps running, because the rclone play does not yet stop or delete the unit of a mount it no longer lists (SPEC-setup-rclone.md section 6)", m.name))
 		return append(append([]mount(nil), mounts[:i]...), mounts[i+1:]...), nil
 	case "e":
+		if !r.mountable(m.remoteName()) {
+			return mounts, nil
+		}
 		others := append(append([]mount(nil), mounts[:i]...), mounts[i+1:]...)
 		spec, name, mp, done, err := r.askMount(ctx, m.remoteName(), m.folder(), m.name, m.mountpoint, others)
 		if err != nil || !done {
@@ -545,8 +548,7 @@ func (r *run) changeMount(ctx context.Context, mounts []mount, i int) ([]mount, 
 }
 
 func (r *run) addMount(ctx context.Context, mounts []mount, remote string) ([]mount, error) {
-	if err := checkRemote(remote + ":"); err != nil {
-		r.bad(fmt.Sprintf("The remote %q cannot be mounted: %v", remote, err))
+	if !r.mountable(remote) {
 		return mounts, nil
 	}
 	spec, name, mp, done, err := r.askMount(ctx, remote, "/", defaultName(remote), "", mounts)
@@ -556,11 +558,20 @@ func (r *run) addMount(ctx context.Context, mounts []mount, remote string) ([]mo
 	return append(append([]mount(nil), mounts...), newMount(spec, name, mp)), nil
 }
 
+// mountable says why a remote whose own name breaks E15 cannot be mounted; the menu comes back.
+func (r *run) mountable(remote string) bool {
+	if err := checkRemote(remote + ":"); err != nil {
+		r.bad(fmt.Sprintf("The remote %q cannot be mounted: %v", remote, err))
+		return false
+	}
+	return true
+}
+
 // askMount checks the remote can be reached, then asks the three values; done is false when
 // the remote could not be reached (E13).
 func (r *run) askMount(ctx context.Context, remote, folder, name, mp string, others []mount) (string, string, string, bool, error) {
-	if !r.connect(ctx, remote) {
-		return "", "", "", false, nil
+	if ok, err := r.connect(ctx, remote); err != nil || !ok {
+		return "", "", "", false, err
 	}
 	h := here("Mounts", remote)
 	folder, err := r.askDefault(ctx, h, "Folder to mount", folder, func(v string) error { return checkRemote(remote + ":" + v) })
@@ -598,10 +609,14 @@ var datePrefix = regexp.MustCompile(`^[0-9]{4}/[0-9/: ]*`)
 
 var projectRule = regexp.MustCompile(`project[= ]([0-9]+)`)
 
-// connect lists the remote's top-level folders, or explains why it cannot (E13).
-func (r *run) connect(ctx context.Context, remote string) bool {
+// connect lists the remote's top-level folders, or explains why it cannot (E13); a signal
+// during the check ends the run, with no hint (E22).
+func (r *run) connect(ctx context.Context, remote string) (bool, error) {
 	r.info("Connecting to " + remote + "...")
 	res, err := r.env.Runner.Run(ctx, r.rclone("--contimeout", "15s", "--timeout", "30s", "lsd", remote+":/"))
+	if se := stoppedBy(ctx); se != nil {
+		return false, se
+	}
 	if err == nil {
 		r.info("Top-level folders in " + remote + ":")
 		dirs := 0
@@ -614,7 +629,7 @@ func (r *run) connect(ctx context.Context, remote string) bool {
 		if dirs == 0 {
 			r.plain("    (remote root is empty)")
 		}
-		return true
+		return true, nil
 	}
 	msg := string(res.Stderr)
 	if msg == "" {
@@ -625,7 +640,7 @@ func (r *run) connect(ctx context.Context, remote string) bool {
 		r.plain("    rclone: " + line)
 	}
 	r.hint(remote, msg)
-	return false
+	return false, nil
 }
 
 // logLines is rclone's log lines with the date stripped, or every line when none is dated.
@@ -683,6 +698,14 @@ func (r *run) stepWrite(text []byte, read, mounts []mount) error {
 	if !r.wizardRan && !mountsChanged(read, mounts) {
 		r.info("host_vars unchanged")
 		return nil
+	}
+	// The questions can take minutes; another edit of the file in that time is not overwritten.
+	now, err := os.ReadFile(r.vars)
+	if err != nil {
+		return r.failf("Cannot read %s again before writing it: %v", r.vars, err)
+	}
+	if !bytes.Equal(now, text) {
+		return r.failf("%s changed while setup-rclone ran; nothing was written. Run setup-rclone again", r.vars)
 	}
 	out, err := editHostVars(text, r.vault, mounts)
 	if err != nil {

@@ -107,15 +107,18 @@ credential, the rclone configuration with its OAuth tokens, only ever travels on
   `Change <name>: <remote> at <mountpoint>` (with `(remote not configured)` when its remote is not
   one of E8's), then each remote as `Add a mount of <remote>`, then `0) Done`. It is shown again
   after every change until Done.
-- E12. A mount chosen: `e) Edit`, `r) Remove` or `c) Cancel`. Remove drops it and says the play
-  neither stops nor deletes `rclone-<name>.service` (section 6). Edit asks E13 with the mount's
-  values as the defaults and replaces those three values in place, keeping every other key of the
-  entry and its position.
+- E12. A mount chosen: `e) Edit`, `r) Remove` or `c) Cancel`. Remove drops it and says that this
+  removes it from `host_vars` only and `rclone-<name>.service` keeps running, because the play
+  does not yet stop or delete it (section 6); no command is handed to the person to run. Edit of
+  a mount whose remote name breaks E15 is refused up front, as an add of that remote is, and the
+  menu comes back. Otherwise Edit asks E13 with the mount's values as the defaults and replaces
+  those three values in place, keeping every other key of the entry and its position.
 - E13. A remote chosen to add (or a mount to edit): first
   `rclone --config <conf> --contimeout 15s --timeout 30s lsd <remote>:/`. It fails: rclone's log
   lines (date prefix stripped), one hint (the Drive API not enabled, with the console URL and the
   project number when given; authentication, naming `rclone config reconnect <remote>:`; the
-  network; or another error, naming the `lsd` to run), and back to the menu. It succeeds: the
+  network; or another error, naming the `lsd` to run), and back to the menu; a signal during the
+  check ends the run as E22 says, with no failure lines and no hint. It succeeds: the
   top-level folders (or `(remote root is empty)`), then three questions, each with its default,
   Enter taking it: `Folder to mount` (`/`, or the edited mount's path after the colon),
   `Mount name` (the edited mount's, or E15's), `Local mountpoint` (the edited mount's, or
@@ -134,7 +137,8 @@ credential, the rclone configuration with its OAuth tokens, only ever travels on
   - the remote spec `<remote>:<folder>` and the mountpoint hold no whitespace or control
     character and none of `'`, `"`, `\`, `$`, a backtick, `%`, `{`, `}`: the play writes both
     unquoted into the unit's `ExecStart` (where `%` is a specifier) and inside quotes into the
-    push helper, and Ansible templates `{{`. A remote whose own name breaks this cannot be added.
+    push helper, and Ansible templates `{{`. A remote whose own name breaks this cannot be added,
+    and a mount of it cannot be edited (E12).
 
 ### Step 4: host_vars
 
@@ -142,15 +146,20 @@ credential, the rclone configuration with its OAuth tokens, only ever travels on
   written.
 - E17. Otherwise the file's text is edited: a top-level block is its key line at column 0 and every
   line after it up to the next line that starts with a character other than a space or a tab
-  (blank lines at the block's end stay outside it). `rclone_config` (when the wizard ran) is
+  (blank lines at the block's end stay outside it). A comment at column 0 does not end the block
+  when more of the block follows it (the next line that is neither blank nor such a comment is
+  indented), as YAML allows; one followed by the next key stays outside. `rclone_config` (when the wizard ran) is
   replaced by the vault text, `rclone_mounts` by the mounts encoded as YAML (two-space indent,
   `remote` and `mountpoint` double-quoted in a new entry; removed when no mount is left); each in
   its block's place, or appended after a blank line when the key was absent. Nothing else in the
   file is touched.
 - E18. The edited text is read back before it is written: every other top-level key, in order and
   with its value, must be as it was; `rclone_mounts` must be the mounts intended; `rclone_config`
-  the vault output. Otherwise exit 1 with the file unchanged and the reason. The file (through a
-  symlink, its target) is replaced atomically, its mode kept; `✓ host_vars updated`.
+  the vault output. Otherwise exit 1 with the file unchanged and the reason. Right before the
+  edit the file is read again: its bytes differing from those read at preflight (another edit
+  while the questions waited, such as a hand edit or a `gh-account-setup` run) is exit 1 naming
+  the file, nothing written. The file (through a symlink, its target) is replaced atomically, its
+  mode kept even where the umask would narrow it; `✓ host_vars updated`.
 
 ### Step 5: deploy
 
@@ -216,9 +225,15 @@ hints, the no-hosts-matched guard and the closing `systemctl --user status` line
 
 - Removing a mount here removes it from `host_vars` only. The play has no task that stops or
   deletes the unit of a mount no longer listed, so `rclone-<name>.service` keeps running until
-  the play gains one; the tool says so when a mount is removed.
+  the play gains one; the tool says so when a mount is removed, and hands the person no manual
+  command (the fix belongs in `play-rclone.yml`, a follow-up).
 - The read-back (E18) compares the YAML values, not comments: a comment inside a replaced block
-  goes with the block.
+  goes with the block, except one the YAML library holds on an edited entry, which is written
+  back with it, indented.
+- A block the line rule of E17 cannot replace cleanly (a flow collection whose lines start at
+  column 0) fails the read-back: exit 1, the file unchanged.
+- The re-read of E18 closes the window between preflight and the write to the moment before
+  the rename, not to nothing; nothing here locks `host_vars` against another writer.
 
 ## 7. Proof and host checks
 
