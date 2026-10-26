@@ -27,6 +27,16 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.100.27 — container 2.79.10
+
+Follows 3.100.26 (container 2.79.9). The image changes: the pingbus helper and its plugin
+(1.5.0).
+
+- **A coordinator can write to the whole team in one message.** `pingbus say --all` names
+  every member of the team but the coordinator itself, read from the team record when it is
+  sent. It stands alone (no `--to` or `--to-coordinator`), and a worker is refused it, so no
+  single worker can reach every agent at once.
+
 ## 3.100.26 — container 2.79.9
 
 Follows 3.100.25 (container 2.79.9). The image does not change.

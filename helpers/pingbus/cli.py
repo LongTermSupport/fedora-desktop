@@ -988,7 +988,15 @@ def _user_ids(names: str, record: protocol.TeamRecord, member: config.Member) ->
 
 def _addressees(args: argparse.Namespace, record: protocol.TeamRecord, member: config.Member) -> list[str]:
     """`--to`'s names then, for `--to-coordinator`, the team's coordinator but the sender;
-    each user once. Nothing else is judged here: the validator refuses what is not allowed."""
+    each user once. Nothing else is judged here: the validator refuses what is not allowed.
+    `say --all` stands alone and is the coordinator's: every agent with a role and every
+    human, but the sender."""
+    if getattr(args, "all", False):
+        if args.to is not None or args.to_coordinator:
+            raise config.UsageError("--all already names every member: give it without --to or --to-coordinator")
+        if member.user_id not in protocol.coordinators(record.roles):
+            raise protocol.Refusal("target", "--all is the coordinator's; a worker names its addressees with --to")
+        return [user for user in dict.fromkeys((*record.roles, *sorted(record.humans))) if user != member.user_id]
     to = [] if args.to is None else _user_ids(args.to, record, member)
     if args.to_coordinator:
         found = [user for user in protocol.coordinators(record.roles) if user != member.user_id]
@@ -3074,6 +3082,8 @@ def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
                      help="human localparts, handles or full user IDs; never @room")
     say.add_argument("--to-coordinator", action="store_true",
                      help="the team's coordinator, besides any --to")
+    say.add_argument("--all", action="store_true",
+                     help="the coordinator only: every member of the team but itself, alone")
     say.add_argument("--re", metavar="EVENT_ID",
                      help="the message this answers (the REPLY command gives it): Element shows "
                           "the text as a reply to it")

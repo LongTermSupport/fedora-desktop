@@ -620,6 +620,9 @@ reset() {
 }
 rc_of() { awk '/^rc=/ { print }' <<<"$1"; }
 logged() { if grep -qF -- "$1" "$LOG"; then echo yes; else echo no; fi; }
+# logged_command <name>: whether a command called <name> ran, by the word at the head of a call
+# or after a slash; a substring would match a checkout path that contains the name.
+logged_command() { if grep -qE -- "(^|[ /])$1( |\$)" "$LOG"; then echo yes; else echo no; fi; }
 # The installer is called as root after sudo_ready, with `sudo -n` so a terminal-less run
 # fails instead of stopping to prompt (spec section 8 bug 11).
 SUDO_INSTALL="sudo -n /usr/local/sbin/agent-bus-install"
@@ -1087,7 +1090,7 @@ check "  and not killed it, since it ended" "no" "$(logged 'kill-session')"
 check_has "  saying it exited and its seat is free" "ccy-proj: exited cleanly; seat 1@alpha released" "$(cat "$SCRATCH/err")"
 check_has "  and that the LXC agent was not shut down" "proj.box+role.lxc: not shut down: its session runs inside the LXC container" \
     "$(cat "$SCRATCH/err")"
-check "  sending nothing on the bus" "no no" "$(logged 'agent-bus send') $(logged 'pingbus')"
+check "  sending nothing on the bus" "no no" "$(logged 'agent-bus send') $(logged_command 'pingbus')"
 check "  stdout stays empty" "" "$(cat "$SCRATCH/out")"
 reset
 printf '%s\n' "──────────────" "❯ half a thought" "──────────────" >"$STATE/panes/ccy-proj"
