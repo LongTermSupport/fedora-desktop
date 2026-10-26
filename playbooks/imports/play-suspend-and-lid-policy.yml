@@ -318,9 +318,15 @@
       changed_when: false
       when: provisioning_profile != 'server'
 
+    # umask 022: every session and the greeter read the compiled databases, and Ansible passes
+    # on whatever umask the run inherited (CLAUDE/QA.md#root-umask).
     - name: Compile the dconf databases
-      ansible.builtin.command:
-        argv: [dconf, update]
+      ansible.builtin.shell: |
+        set -euo pipefail
+        umask 022
+        dconf update
+      args:
+        executable: /bin/bash
       changed_when: true
       when:
         - provisioning_profile != 'server'

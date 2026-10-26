@@ -160,6 +160,8 @@
         dest: /opt/cudnn
         remote_src: true
         creates: "/opt/cudnn/nvidia/cudnn/lib"
+        # Every user's programs load these libraries (CLAUDE/QA.md#root-umask).
+        mode: u=rwX,go=rX
       when: nvidia_install_cuda | default(true) | bool
 
     - name: Remove the downloaded cuDNN wheel archive

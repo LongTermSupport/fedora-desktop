@@ -15,6 +15,10 @@
 #   regex backref a regex_search/regex_replace/regex_findall backreference with the wrong
 #                 backslash count for its YAML style and Jinja context (CLAUDE/QA.md,
 #                 regex-backref-escape); a file that is not YAML is reported too
+#   root umask    a file users read created as root under the inherited umask: a system cache
+#                 rebuilt (fc-cache, dconf update, ...), or a download, redirect, clone or
+#                 extraction into /usr, /opt or /etc, without umask 022 or a readable mode
+#                 (CLAUDE/QA.md, root-umask)
 #
 # The tool is Go (src-go/qa/ansible, command src-go/qa/cmd/qa-ansible); lib/go-tool.bash builds
 # it into a private directory under the cache and runs it, so the exit code reaches the caller.
@@ -27,7 +31,7 @@
 #   jq '.status'                          # "pass" or "fail"
 #   jq '.summary'                         # {total, passed, failed}
 #   jq '.failures[]'                      # all violations
-#   jq '.checks.fail_fast[]'              # one check's list (hygiene, self_ref, scope, fact_vars, regex_backref)
+#   jq '.checks.fail_fast[]'              # one check's list (hygiene, self_ref, scope, fact_vars, regex_backref, root_umask)
 #
 # Exit codes: 0 no violation, 1 a violation, 2 bad usage or the run could not complete (no
 # Ansible directory, a missing playbooks/, an unreadable file, a build failure of the tool).
