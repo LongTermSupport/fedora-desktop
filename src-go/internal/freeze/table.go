@@ -26,7 +26,8 @@ type Engine[R any] interface {
 	// since the menu was drawn (already explained); any other error is fatal.
 	Select(ctx context.Context, inv Inventory[R], key string) ([]string, error)
 	// Act freezes or thaws one container and returns the engine's own words, whether or not it
-	// failed; a non-nil error is a failure of this container only.
+	// failed; a non-nil error is a failure of this container only, except a *DoneError, which is
+	// a success with a note.
 	Act(ctx context.Context, verb Verb, name string) (string, error)
 	// Columns is the engine's header for the columns after NAME and STATE.
 	Columns() string
