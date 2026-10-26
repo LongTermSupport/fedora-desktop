@@ -54,7 +54,9 @@ on this machine and needs to run again, asks once whether to go ahead, then runs
 the order `playbook-main.yml` imports them (optional plays last) and stops at the first
 failure. If sudo needs a password, each play asks for it, as it does when run on its own. A
 play needs to run again when its own file, or any file it deploys, has changed since the
-commit it last ran from. It also runs again when its last run failed, or when that run
+commit it last ran from. For a play that builds a Go command from `src-go/`, that includes
+every Go package the command imports, so a change to a shared package such as
+`src-go/internal/ui` makes every play building a command that uses it run again. It also runs again when its last run failed, or when that run
 came from a checkout with uncommitted changes, so while the checkout stays dirty it
 offers the same plays each time, and it warns about this before it asks. A removed play
 that has a successor in `helpers/play_ledger/retired-plays.json` runs that successor

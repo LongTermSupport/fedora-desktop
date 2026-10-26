@@ -10,11 +10,19 @@ report), reads its inputs from here.
 with regexes over the play text. The idioms recognised are the ones this repo uses:
 
 - `{{ root_dir }}/<path>` anywhere on a non-comment line, and the same with root_dir's own
-  definition, `{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}`. A literal
-  path is an exact input, or a directory input when it ends in `/` or is a directory in
-  the checkout. A path with a template in its tail (`.../bin/{{ item }}`) is an input on
-  its literal prefix. That is conservative, because the loop that fills it in is not
-  something a regex can evaluate.
+  definition, `{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}`, and the
+  Jinja joins `root_dir ~ '/<path>'` and `root_dir + '/<path>'`. A literal path is an exact
+  input, or a directory input when it ends in `/` or is a directory in the checkout. A
+  path with a template or a glob in its tail (`.../bin/{{ item }}`, `.../*.bash`, a join
+  that goes on `~ var`) is an input on its literal prefix. That is conservative, because
+  the loop that fills it in is not something a regex can evaluate.
+- A reference to a Go module root (a directory holding `go.mod`, src-go) is a Go build:
+  `tasks/build-go-command.yml` builds `<module>/cmd/<go_command_name>`. The play's inputs
+  are then every package that command imports, transitively, within the module and from
+  its vendor tree (each package's own files, test files aside, plus any directory it
+  embeds), and the module's go.mod, go.sum and vendor/modules.txt. A `go_command_name`
+  written `{{ var }}` is resolved through the `var:` the walked files set. A command
+  built from a pinned external module (`go_command_module`) brings nothing from src-go.
 - The files those references name are followed transitively when they are YAML (task
   files, vars files, imported plays). So an `include_tasks` of a task file makes that
   file's own `src:` paths inputs of the play.
@@ -25,7 +33,10 @@ with regexes over the play text. The idioms recognised are the ones this repo us
 **A reference it cannot follow is reported, never dropped.** A `src:`, `file:`,
 `include_*` or `vars_files` value that is not rooted, not a host path or URL, not a loop
 `item`, not a variable the file defines as rooted or as a host path, and not a registered
-result, is UNRESOLVED. A missed dependency is a play that silently never re-runs, which
+result, is UNRESOLVED. So is a join with no literal path (`root_dir ~ '/' ~ var`), a Go
+module built with no `go_command_name`, a name no walked file sets, and a command the
+module does not have. The rule play-input-dropped (CLAUDE/QA.md,
+`tests/helpers/self_update/test_dropped_input_rule.py`) holds every host play to this. A missed dependency is a play that silently never re-runs, which
 is the defect this helper exists to remove.
 
 Run it:
@@ -64,6 +75,16 @@ _ROOT_EXPR = (
 )
 _ROOTED = re.compile(_ROOT_EXPR + r"/([A-Za-z0-9_.@+\-/]*)(\{\{)?")
 _ROOTED_AT_START = re.compile(_ROOT_EXPR + "/")
+_JOINED = re.compile(r"\broot_dir\s*[~+]\s*(['\"])/([^'\"]*)\1(\s*[~+])?")
+_GLOB = re.compile(r"[*?\[]")
+_GO_COMMAND_NAME = re.compile(r"^\s*(?:-\s+)?go_command_name\s*:\s*(.+)$")
+_GO_COMMAND_MODULE = re.compile(r"^\s*(?:-\s+)?go_command_module\s*:\s*\S")
+_GO_MODULE_LINE = re.compile(r"^module\s+(\S+)", re.MULTILINE)
+_GO_IMPORT_BLOCK = re.compile(r"^import\s*\((.*?)^\)", re.MULTILINE | re.DOTALL)
+_GO_IMPORT_ONE = re.compile(r'^import\s+(?:[\w.]+\s+)?"([^"]+)"', re.MULTILINE)
+_GO_QUOTED = re.compile(r'"([^"]+)"')
+_GO_EMBED = re.compile(r"^\s*//go:embed\s+(.+)$", re.MULTILINE)
+_LONE_TEMPLATE = re.compile(r"^\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}$")
 _KEY = re.compile(
     r"^(\s*)(?:-\s+)?(?:ansible\.builtin\.)?"
     r"(src|file|include_tasks|import_tasks|include_vars|import_playbook|vars_files)\s*:\s*(.*)$"
@@ -79,12 +100,20 @@ _REGISTER = re.compile(r"^\s*register:\s*([A-Za-z_][A-Za-z0-9_]*)\s*$", re.MULTI
 
 @dataclass
 class Inputs:
-    """What a play deploys from the checkout: exact paths, path prefixes, and the
-    references that could not be followed."""
+    """What a play deploys from the checkout: exact paths, path prefixes, the Go package
+    directories it builds from, and the references that could not be followed.
+
+    A Go package directory counts its own files, not its subdirectories (each is a package
+    of its own) nor its `_test.go` files. `go_modules` are the Go module roots the play
+    builds from and `go_commands` the command directories it builds.
+    """
 
     exact: set[str] = field(default_factory=set)
     prefixes: set[str] = field(default_factory=set)
     unresolved: list[str] = field(default_factory=list)
+    go_packages: set[str] = field(default_factory=set)
+    go_modules: set[str] = field(default_factory=set)
+    go_commands: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -95,7 +124,9 @@ class Report:
 
 
 def affects(inputs: Inputs, path: str) -> bool:
-    return path in inputs.exact or any(path.startswith(prefix) for prefix in inputs.prefixes)
+    if path in inputs.exact or any(path.startswith(prefix) for prefix in inputs.prefixes):
+        return True
+    return posixpath.dirname(path) in inputs.go_packages and not path.endswith("_test.go")
 
 
 def _non_comment_lines(text: str) -> list[tuple[int, str]]:
@@ -138,6 +169,10 @@ class _Walker:
         self.inputs = Inputs()
         self._seen_files: set[str] = set()
         self._seen_packages: set[str] = set()
+        self._texts: dict[str, str] = {}
+        self._module_refs: list[tuple[str, str]] = []
+        self._go_names: list[tuple[str, str]] = []
+        self._external_go_files: set[str] = set()
 
     def _is_dir(self, rel: str) -> bool:
         return os.path.isdir(os.path.join(self.root, rel))
@@ -177,21 +212,152 @@ class _Walker:
                         self._add_package(imported)
 
     def _rooted(self, rel_file: str, line_no: int, line: str) -> None:
+        where = f"{rel_file}:{line_no}"
         for match in _ROOTED.finditer(line):
-            literal, templated = match.group(1), match.group(2)
-            if templated:
-                prefix = _safe_relpath(literal.rstrip("/") or "") if literal else None
-                if prefix is None:
-                    self.inputs.unresolved.append(f"{rel_file}:{line_no}: {match.group(0)}")
-                    continue
+            self._reference(where, match.group(1), bool(match.group(2)), match.group(0))
+        for match in _JOINED.finditer(line):
+            self._reference(where, match.group(2), bool(match.group(3)), match.group(0))
+
+    def _reference(self, where: str, literal: str, templated: bool, shown: str) -> None:
+        """One checkout reference: `literal` is its path, `templated` when more follows it."""
+        glob = _GLOB.search(literal)
+        if glob:
+            literal, templated = literal[: glob.start()], True
+        if templated:
+            prefix = _safe_relpath(literal.rstrip("/")) if literal.rstrip("/") else None
+            if prefix is None:
+                self.inputs.unresolved.append(f"{where}: {shown}")
+            elif self._is_go_module(prefix):
+                self._module_refs.append((where, prefix))
+            else:
                 self.inputs.prefixes.add(literal if literal.endswith("/") else prefix)
                 self._maybe_helper_path(prefix)
-                continue
-            rel = _safe_relpath(literal)
-            if rel is None or rel == ".":
-                self.inputs.unresolved.append(f"{rel_file}:{line_no}: {match.group(0)}")
-                continue
+            return
+        rel = _safe_relpath(literal)
+        if rel is None or rel == ".":
+            self.inputs.unresolved.append(f"{where}: {shown}")
+        elif self._is_go_module(rel):
+            self._module_refs.append((where, rel))
+        else:
             self._add_path(rel, as_dir=literal.endswith("/"))
+
+    def _is_go_module(self, rel: str) -> bool:
+        return self._is_file(posixpath.join(rel, "go.mod"))
+
+    def _go_line(self, rel_file: str, line_no: int, line: str) -> None:
+        named = _GO_COMMAND_NAME.match(line)
+        if named:
+            self._go_names.append((f"{rel_file}:{line_no}", _unquote(named.group(1))))
+        if _GO_COMMAND_MODULE.match(line):
+            self._external_go_files.add(rel_file)
+
+    def finish_go(self) -> None:
+        """Turn each Go module reference into the packages of the commands built from it."""
+        for where, module in self._module_refs:
+            if not self._go_names:
+                self.inputs.unresolved.append(
+                    f"{where}: the Go module {module} is built from, but no go_command_name says what"
+                )
+                continue
+            self.inputs.go_modules.add(module)
+            for name_at, value in self._go_names:
+                for name in self._command_names(name_at, value):
+                    self._go_command(name_at, module, name)
+
+    def _command_names(self, where: str, value: str) -> list[str]:
+        """The command names a `go_command_name` value stands for: itself, or every literal
+        a walked file sets the one variable it is to."""
+        if "{{" not in value:
+            return [value]
+        lone = _LONE_TEMPLATE.match(value)
+        names: list[str] = []
+        if lone:
+            setting = re.compile(
+                rf"^\s*(?:-\s+)?{lone.group(1)}\s*:\s*[\"']?([A-Za-z0-9_.-]+)[\"']?\s*(?:#.*)?$"
+            )
+            for text in self._texts.values():
+                for _line_no, line in _non_comment_lines(text):
+                    found = setting.match(line)
+                    if found and found.group(1) not in names:
+                        names.append(found.group(1))
+        if not names:
+            self.inputs.unresolved.append(f"{where}: go_command_name {value}, which no walked file sets")
+        return names
+
+    def _go_command(self, where: str, module: str, name: str) -> None:
+        command = posixpath.join(module, "cmd", name)
+        if self._is_dir(command):
+            self.inputs.go_commands.add(command)
+            self._go_dependencies(module, command)
+            return
+        if where.rsplit(":", 1)[0] in self._external_go_files:
+            return
+        self.inputs.unresolved.append(f"{where}: go_command_name {name}, but there is no {command}")
+
+    def _go_dependencies(self, module: str, command: str) -> None:
+        """Every package `command` imports, transitively, within `module` and its vendor tree.
+
+        Read from the source rather than asked of the Go toolchain, so an answer needs no
+        toolchain. Every non-test file counts, whatever its build constraint: a superset of
+        one build, never less (the real-repo test holds it to `go list -deps`).
+        """
+        with open(os.path.join(self.root, module, "go.mod"), encoding="utf-8") as handle:
+            declared = _GO_MODULE_LINE.search(handle.read())
+        if declared is None:
+            raise ValueError(f"{module}/go.mod declares no module")
+        module_path = declared.group(1)
+        for meta in ("go.mod", "go.sum", "vendor/modules.txt"):
+            if self._is_file(posixpath.join(module, meta)):
+                self.inputs.exact.add(posixpath.join(module, meta))
+        pending = [command]
+        while pending:
+            package = pending.pop()
+            if package in self.inputs.go_packages:
+                continue
+            self.inputs.go_packages.add(package)
+            for imported in self._go_imports(package):
+                if imported == module_path or imported.startswith(module_path + "/"):
+                    pending.append(module + imported[len(module_path):])
+                elif self._is_dir(posixpath.join(module, "vendor", imported)):
+                    pending.append(posixpath.join(module, "vendor", imported))
+
+    def _go_imports(self, package: str) -> set[str]:
+        """The import paths of a package's non-test files. The directories they embed become
+        prefixes as they are read."""
+        imports: set[str] = set()
+        directory = os.path.join(self.root, package)
+        for name in sorted(os.listdir(directory)):
+            path = os.path.join(directory, name)
+            if not name.endswith(".go") or name.endswith("_test.go") or not os.path.isfile(path):
+                continue
+            with open(path, encoding="utf-8") as handle:
+                source = handle.read()
+            for block in _GO_IMPORT_BLOCK.findall(source):
+                for line in block.splitlines():
+                    imports.update(_GO_QUOTED.findall(line.split("//", 1)[0]))
+            imports.update(_GO_IMPORT_ONE.findall(source))
+            for patterns in _GO_EMBED.findall(source):
+                for pattern in patterns.split():
+                    self._go_embed(package, pattern.strip("\"`").removeprefix("all:"))
+        return imports
+
+    def _go_embed(self, package: str, pattern: str) -> None:
+        """An embedded directory, or a glob that can match one, is a prefix input. A plain
+        file of the package's own directory is counted already."""
+        glob = _GLOB.search(pattern)
+        literal = pattern[: glob.start()] if glob else pattern
+        if glob:
+            directory = literal.rstrip("/") if literal.endswith("/") else posixpath.dirname(literal)
+        elif self._is_dir(posixpath.join(package, literal)):
+            directory = literal.rstrip("/")
+        else:
+            directory = posixpath.dirname(literal)
+            if not directory:
+                return
+        rel = _safe_relpath(posixpath.join(package, directory) if directory else package)
+        if rel is None or not rel.startswith(package):
+            raise ValueError(f"{package}: //go:embed {pattern} names a path outside the package")
+        self.inputs.prefixes.add(rel + "/")
 
     def _classify(self, rel_file: str, line_no: int, key: str, value: str, context: str) -> None:
         value = _unquote(value)
@@ -224,10 +390,12 @@ class _Walker:
         self.inputs.exact.add(rel_file)
         with open(os.path.join(self.root, rel_file), encoding="utf-8") as handle:
             text = handle.read()
+        self._texts[rel_file] = text
         context = context + "\n" + text
         list_key: tuple[str, int] | None = None
         for line_no, line in _non_comment_lines(text):
             self._rooted(rel_file, line_no, line)
+            self._go_line(rel_file, line_no, line)
             for package in _HELPER_TOKEN.findall(line):
                 self._add_package(package)
             if list_key is not None:
@@ -251,6 +419,7 @@ def play_inputs(repo_root: str, play: str) -> Inputs:
     """Every checkout path `play` deploys, and every reference it could not follow."""
     walker = _Walker(repo_root)
     walker.walk_yaml(play, context="")
+    walker.finish_go()
     return walker.inputs
 
 

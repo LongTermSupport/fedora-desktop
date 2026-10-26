@@ -43,3 +43,10 @@
 # removed at the end. Exit 2 with H7 printed is the expected best: H7 needs a session without
 # crossSessionInbound: accept, which no launch makes, so it is the host agent's by hand.
 00194-agent-bus-live-delivery-supervisor-plugin/delivery-acceptance.bash
+
+# Plan 00192 Task 3.6: run.bash --changed now counts the Go packages a play builds from, so
+# every play that builds a Go command (podfreeze, lxcfreeze, claude-yolo, cli-tools, rclone,
+# speech-to-text, and the rest) runs again here if any package its commands import changed
+# since it last ran. It asks nothing (--yes) and stops at the first failure. Host check (Plan
+# 00192 Task 3.6): its list names those Go-building plays and no play is left that it skipped.
+changed-plays
