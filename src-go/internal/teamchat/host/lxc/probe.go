@@ -57,6 +57,10 @@ func (g Guests) Probe(ctx context.Context, team paths.TeamID, handle string) (he
 		err   error
 	}
 	done := make(chan result, 1)
+	// Left running by design past ProbeBound: its lxc calls end at the cancel, and it lives at
+	// most the guest reads it has left (the passwd, the lock), each within guestroot's callBound
+	// (guestroot's TestAStalledReadEndsAtItsBound); then it closes the root and ends
+	// (TestAProbePastItsBoundEndsWithItsGuestCall).
 	go func() {
 		probe, err := g.probe(ctx, team, handle)
 		done <- result{probe, err}

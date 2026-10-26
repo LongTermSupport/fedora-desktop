@@ -79,6 +79,11 @@ func bounded[T any](r *Root, p string, op func() (T, error), late func(T) error)
 		abandoned, ended bool
 	)
 	done := make(chan result, 1)
+	// Left running by design past the bound: it lives until op returns, which the guest alone
+	// decides (no host call interrupts one on a mount that does not answer), and it ends then
+	// (TestAStalledCallsGoroutineEndsWhenTheGuestAnswers). A memo leaves at most one per member
+	// (TestAStallIsPaidOncePerMemo), an unscoped root one per stalled call; every caller is a
+	// teamchat-admin verb, whose exit ends any still left.
 	go func() {
 		v, err := op()
 		res := result{v, errors.Join(guestFault(err), r.leave())}

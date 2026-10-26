@@ -10,10 +10,12 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/unix"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/leakcheck"
 )
 
 // stall is a root's bound on a fake clock, moved only once a call is in its stall.
@@ -161,6 +163,30 @@ func TestAStalledWriteEndsAtItsBound(t *testing.T) {
 	if l := rec.leaked(); len(l) != 0 {
 		t.Errorf("leaked %v", l)
 	}
+}
+
+// A stalled call's goroutine outlives its answer for as long as the guest leaves the call
+// unanswered, past the bound and past Close, and ends once the call returns: nothing else ends
+// it, and nothing is left running after.
+func TestAStalledCallsGoroutineEndsWhenTheGuestAnswers(t *testing.T) {
+	leakcheck.Check(t)
+	r, _, st, release, closes := stalledRoot(t)
+	rootFD := r.fd
+	if err := st.past(t, func() error { return readFile(r, "/stalled", 10).err }); !errors.Is(err, ErrStalled) {
+		t.Fatalf("a stalled read: %v", err)
+	}
+	st.clk.Advance(time.Hour)
+	if err := r.Close(); err != nil {
+		t.Fatal(err)
+	}
+	r.mu.Lock()
+	inflight := r.inflight
+	r.mu.Unlock()
+	if inflight != 1 {
+		t.Fatalf("an hour past its bound and after Close, %d calls in flight, want the stalled one", inflight)
+	}
+	release()
+	waitClosed(t, closes, rootFD)
 }
 
 // A dial that ends after its bound closes the connection it made, which no one holds.

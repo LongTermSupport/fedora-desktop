@@ -239,6 +239,9 @@ func (e *Engine) start(ctx context.Context, h *held, tm team.Team) {
 		}
 	})
 	both.Go(func() { e.sendLoop(runCtx, h) })
+	// stop waits for these at most stopWait; a team in a call that ignores its cancel is left
+	// running by design until that call returns, which ends it, or until the link exits
+	// (TestRemoveWaitsAtMostTwoSecondsForATeamThatIgnoresItsCancel).
 	go func() {
 		defer close(h.stopped)
 		both.Wait()
