@@ -67,7 +67,7 @@ for tool in fc-match fc-list cmp gsettings grep find; do
     fi
 done
 
-readonly DECLARED=18
+readonly DECLARED=19
 readonly COLOUR="Noto Color Emoji"
 readonly DEPLOYED=/etc/fonts/conf.d/69-colour-emoji-fallback.conf
 readonly SOURCE="${PLAN_REPO_ROOT}/files/etc/fonts/conf.d/69-colour-emoji-fallback.conf"
@@ -162,17 +162,26 @@ verdict "10. ${mono_text} keeps them on itself" "" "$(keycap_misses "$(escaped "
 echo "== the ordered list a GTK terminal walks, for the monospace text font"
 ordered="$(fc-match -a -f '%{family[0]}\n' "$(escaped "${mono_text}")")"
 verdict "11. it starts with ${mono_text}" "${mono_text}" "${ordered%%$'\n'*}"
-# The first of the emoji-capable fonts in that list must be the colour one.
-first_emoji_font=""
-while IFS= read -r family; do
-    case "${family}" in
-        "${COLOUR}" | Symbola | "Noto Emoji" | "Noto Sans Symbols 2")
-            first_emoji_font="${family}"
-            break
-            ;;
-    esac
-done <<<"${ordered}"
-verdict "12. ${COLOUR} comes before Symbola, Noto Emoji and Noto Sans Symbols 2" "${COLOUR}" "${first_emoji_font:-none of them}"
+# first_emoji_in <ordered list> — the first of the emoji-capable fonts in it, which must be the
+# colour one.
+first_emoji_in() {
+    local family
+    while IFS= read -r family; do
+        case "${family}" in
+            "${COLOUR}" | Symbola | "Noto Emoji" | "Noto Sans Symbols 2")
+                printf '%s' "${family}"
+                return
+                ;;
+        esac
+    done <<<"$1"
+    printf 'none of them'
+}
+verdict "12. ${COLOUR} comes before Symbola, Noto Emoji and Noto Sans Symbols 2" "${COLOUR}" "$(first_emoji_in "${ordered}")"
+# serif's own list: Fedora's 65-gdouros-symbola.conf prefers Symbola for serif, and the file
+# moves it after the colour font. Check 6 is the single best match; this is the list a
+# program asking for serif walks.
+verdict "19. serif's ordered list has ${COLOUR} before Symbola, Noto Emoji and Noto Sans Symbols 2" "${COLOUR}" \
+    "$(first_emoji_in "$(fc-match -a -f '%{family[0]}\n' serif)")"
 
 echo "== the font the terminal (Ptyxis) is set to, which reaches the fallback by its own route"
 # A font with no generic family of its own (Source Code Pro is in neither 45-latin.conf nor

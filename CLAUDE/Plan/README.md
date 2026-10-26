@@ -106,7 +106,7 @@ Use these Unicode icons in plan documents:
 
 - [00186-lxc-claude-session-reboot-warning](00186-lxc-claude-session-reboot-warning/) - Not Started (low priority). Claude sessions inside LXC containers get the reboot warning and restore (#55)
 
-- [00185-terminal-emoji-glyphs](00185-terminal-emoji-glyphs/) - In Progress (colour emoji fallback built in `play-fonts.yml`, host run pending). Triage why the terminal draws the wrong emoji, then defend in a play (#60)
+- [00185-terminal-emoji-glyphs](00185-terminal-emoji-glyphs/) - In Progress (colour emoji fallback in `play-fonts.yml`, host acceptance 18 of 18; one run left for check 19, serif's ordered list). Triage why the terminal draws the wrong emoji, then defend in a play (#60)
 
 - [00184-deployed-tools-menu](00184-deployed-tools-menu/) - Not Started (low priority). One launcher and panel item for the deployed user tools (#81)
 

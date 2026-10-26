@@ -33,21 +33,8 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plan 00185 (#60, colour emoji in the terminal): play-fonts.yml makes Noto Color Emoji the emoji
-# fallback after the text fonts and rebuilds the font caches, then acceptance.bash (18 checks).
-# The run now also repairs the system font cache modes: the first run's rebuild left them 0600
-# under the host's umask 0077, so users read stale caches; the play makes them 0644 on every
-# run, and rebuilds under umask 022. Reopen terminal windows afterwards to see it.
-# This run also deploys the serif fix: Symbola moves after the colour font in the serif list
-# (Fedora's 65-gdouros-symbola.conf had put it first), so acceptance check 6 should now pass.
+# Plan 00185 (#60, colour emoji in the terminal): play-fonts.yml (expected unchanged; the comment
+# of the fifth rule changed, so the file is redeployed and the caches rebuilt), then
+# acceptance.bash, now 19 checks: check 19 is serif's ordered list, the list a program asking
+# for serif walks, with the colour font before Symbola. The last run passed the other 18.
 00185-terminal-emoji-glyphs
-
-# pingbus say --all (the coordinator writes to the whole team): expected to pick up
-# play-claude-yolo.yml (CCY 3.100.27, container 2.79.10: the image rebuilds once) and
-# play-agent-bus.yml (the pingbus helper and plugin 1.5.0 on the host).
-changed-plays
-
-# Plan 00192 Task 3.5: lxcfreeze rebuilt, so a thaw of a container with no nmcli is a success
-# (a tick and a note) instead of exit 1. Named here because changed-plays misses a Go change
-# (Task 3.6).
-playbooks/imports/optional/common/play-lxcfreeze.yml
