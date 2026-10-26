@@ -66,6 +66,7 @@ var checkDefs = []checkDef{
 	{id: "semgrep", listed: true, noun: nounFiles, tools: []string{toolSemgrep}, run: runSemgrep},
 	{id: "ready-wait-files", listed: true, noun: nounFiles, gate: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runReadyWaitFiles},
 	{id: "stt-rules-files", listed: true, noun: nounFiles, gate: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runSttRulesFiles},
+	{id: "hook-handler-rules-files", listed: true, noun: nounFiles, gate: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runHookHandlerRulesFiles},
 	{id: "ruff", listed: true, noun: nounFiles, tools: []string{toolRuff}, run: runRuff},
 	{id: "unit-tests", listed: true, noun: "module(s)", tools: []string{toolPython}, run: runUnitTests},
 	{id: "ansible-syntax", listed: true, noun: "playbook(s)", tools: []string{toolAnsible}, run: runAnsibleSyntax},
@@ -86,6 +87,7 @@ var checkDefs = []checkDef{
 	{id: "lxc-attach-streams", fixed: "whole gate (no command reaching lxc-attach has a standard stream on a file)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runLxcAttachStreams},
 	{id: "plan-script-logging", fixed: "whole gate (no active plan script uses the un-waitable run-log pattern; no plan-local logs/ dir)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runPlanScriptLogging},
 	{id: "stt-rules", fixed: "whole gate (no model judged present without its weights, no dropdown label that explains itself, no job end published before its cleanup)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runSttRules},
+	{id: "hook-handler-rules", fixed: "whole gate (no code the hooks daemon loads resolves a path against the daemon's working directory)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runHookHandlerRules},
 	{id: "version-pins", fixed: "whole gate (the version-pin manifest is well formed and every pin still resolves to a declared var)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runVersionPins},
 	{id: "go-deps", fixed: "whole gate (src-go's dependencies allowlisted, pinned and vendored in step)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runGoDeps},
 	{id: "go-vuln", fixed: "whole gate (govulncheck finds no vulnerability src-go reaches)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runGoVuln},
@@ -196,6 +198,15 @@ func runSttRulesFiles(ctx context.Context, s *session, cp *checkPlan) (checkResu
 
 func runSttRules(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
 	return s.script(ctx, nil, "qa-speech-to-text-rules.bash")
+}
+
+// runHookHandlerRulesFiles runs the hook handler rules gate over the changed Python files only.
+func runHookHandlerRulesFiles(ctx context.Context, s *session, cp *checkPlan) (checkResult, error) {
+	return s.scriptOver(ctx, "qa-hook-handler-rules.bash", cp.items)
+}
+
+func runHookHandlerRules(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
+	return s.script(ctx, nil, "qa-hook-handler-rules.bash")
 }
 
 func runVersionPins(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {

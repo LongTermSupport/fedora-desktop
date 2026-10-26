@@ -228,6 +228,8 @@ var semgrepReaders = map[string]string{
 	".semgrep/speech-to-text.yml":      "check:stt-rules",
 	".semgrep/speech-to-text.js":       "check:stt-rules",
 	".semgrep/speech-to-text.py":       "check:stt-rules",
+	".semgrep/hook-handlers.yml":       "check:hook-handler-rules",
+	".semgrep/hook-handlers.py":        "check:hook-handler-rules",
 	".semgrep/lxc-attach-streams.bash": "check:lxc-attach-streams",
 }
 
