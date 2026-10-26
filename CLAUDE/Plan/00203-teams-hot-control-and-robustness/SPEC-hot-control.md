@@ -979,3 +979,23 @@ PLAN.md and the plan journal. **The owner may reverse any of them.**
 3. **cc's weaker authority (H31) is accepted**, and so is the new `cc --bus`.
 4. **`PINGBUS_SEATS` and the `ccy-seats` label are retired in M2**, together with the
    `PINGBUS_MEMBERSHIP` marker (H2).
+
+## 9. The coordinator's start text (Plan Task 3.19, draft expectations)
+
+The owner's request (cross-reference Plan 00196). Draft, numbered for the Fable review, built
+tests first after it. The wording is Decision 22 of
+[DECISIONS-lifecycle.md](DECISIONS-lifecycle.md).
+
+- **H36** When a session starts as a team's coordinator, and when a hot role change makes it
+  one (Task 3.8's role notice), it is told: it is the coordinator; it cannot start, add or
+  provision team members itself, only the owner can, from `ccy-teams` on the host; when the
+  work needs members who are not present, it asks the human to provision them, saying how many
+  and for what, so the work can be delegated to them.
+- **H37** **This plan owns it.** It extends the `role_coordinator` text in
+  `helpers/pingbus/hooks.py` that Plan 00196 Task 1.5 wrote, whose build is ticked and waits
+  only on host acceptance, so reopening 00196 would mix a new request into that acceptance.
+- **H38** One edit reaches every place the text is shown: all go through `role_lines`
+  (SessionStart, the ccy membership notice, and 3.8's `role_notice`).
+- **H39** `helpers/pingbus/` is built into the image's pingbus zipapp, so the change takes the
+  CCY and container version bump (CLAUDE/ContainerRules.md) as well as the pingbus plugin bump.
+  LXC members get the new text only once play-agent-bus refreshes their kit.
