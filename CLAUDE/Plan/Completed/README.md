@@ -14,6 +14,8 @@ Newest first, continuing from [../README.md](../README.md#completed-plans).
      were read as an unrecognised section while their folders were plainly completed —
      sixteen advisories saying so. -->
 
+- [00108-headless-prompt-colour](00108-headless-prompt-colour/) - A headless run answered the prompt-colour question with nothing and left `PS1_COLOUR=` on the box; run.bash 1.19.0 takes `RUN_BASH_PS1_COLOUR` and the empty answer takes the default. Proven on a headless box following this branch.
+
 - [00107-server-profile-never-grants-passwordless-sudo](00107-server-profile-never-grants-passwordless-sudo/) - The server profile declares `play-basic-configs.yml`'s passwordless-sudo block absent instead of granting it; the desktop profile is unchanged. run.bash 1.18.1 passes the become password to headless optional playbooks, a gap the grant had been masking. Proven live on a headless box.
 
 - [00106-run-bash-git-ref-headless](00106-run-bash-git-ref-headless/) - `RUN_BASH_GIT_REF`: the headless provisioner checks out a declared branch (tracks its tip) or a 40-hex commit (pinned) instead of always the default branch; unresolvable refs abort. run.bash 1.18.0; proven on a real headless box.
