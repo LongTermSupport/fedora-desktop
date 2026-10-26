@@ -27,6 +27,18 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.100.29 — container 2.79.12
+
+Plan 00177 Phase 12, the findings of the Phase 11 host run.
+
+- **No "earlier room version" on a new team.** The image's copy of
+  `helpers/agent_bus/admin.py` (container 2.79.12) names only the joined rooms of an earlier
+  room version that the team admin made. Tuwunel's own server admin room, which every team
+  admin is joined to, is no longer counted.
+- **`ccy-teams session add` and `move` name existing seats by their role.** The block read
+  the seats of the ccy-teams terminal's checkout instead of the session's, and called every
+  seat new.
+
 ## 3.100.28 — container 2.79.11
 
 Plan 00177 Phase 11, the host run of 26-10-26.

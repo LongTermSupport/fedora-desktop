@@ -459,11 +459,14 @@ listing): an owner check. The run's findings are Phase 12.
   now takes the session's checkout; a seat list agent-bus refused or could not all read says
   "role unknown", never "new seat". The launcher's own subcommands keep the cwd: they run in the
   checkout by contract.
-- [ ] ⬜ **Task 12.2**: `session add` into a team created a minute earlier printed "left aside
+- [x] ✅ **Task 12.2**: `session add` into a team created a minute earlier printed "left aside
   1 joined room of an earlier room version" (`helpers/agent_bus/admin.py`, from `joined_rooms`).
   It counts every joined room not of room version 12, and Tuwunel's own server admin room is one,
   so a new team counts 1: the count is right and the words mislead. Say what it is (or leave the
-  server's admin room out of the count).
+  server's admin room out of the count). Now only rooms whose create event the team admin sent
+  are named ("left aside N room(s) the team admin made in an earlier room version (not a bus
+  room)"); the server's admin room, sent by the server's own user, is left out without a guessed
+  name or alias.
 - [ ] ⬜ **Task 12.3**: A key typed just after Esc reaches the next prompt: in `ccy-teams remove`, Esc answered "Back up first?" No and a Down sent 20 ms later moved step 2's cursor off
   its default "Leave it running". Harmless there (Enter and the typed name are still needed),
   but a key acts on a screen the person has not seen. Keeping held keys is deliberate

@@ -416,7 +416,8 @@ class _Api:
     def joined_rooms(self) -> tuple[list[str], list[str]]:
         """The admin's joined rooms by the spec's grammar for any room version, split into
         those that can be bus rooms (version 12) and the rest, such as Tuwunel's own server
-        admin room (version 11), which the caller names. Anything else refuses the answer."""
+        admin room (version 11); the caller names those the team admin made. Anything else
+        refuses the answer."""
         _, obj = self.call("list the admin's rooms", "GET", f"{_CLIENT}/joined_rooms")
         rooms = obj.get("joined_rooms")
         if not isinstance(rooms, list) or not all(protocol.is_any_room_id(r) for r in rooms):
@@ -760,6 +761,28 @@ def _is_side_room(api: _Api, room: str, purpose: str, main: str) -> bool:
     return True
 
 
+def _say_earlier_rooms(api: _Api, earlier: list[str]) -> None:
+    """Names the joined rooms of an earlier room version that the team admin made: none can be a
+    bus room, so they are left aside. A room another account made, such as the homeserver's own
+    server admin room (its create event's sender is the server, not the team admin), cannot hold
+    anything of the team's and is not named: counting it read as an earlier team room."""
+    made = sorted(room for room in earlier if _created_by_admin(api, room))
+    if not made:
+        return
+    rooms = "1 room" if len(made) == 1 else f"{len(made)} rooms"
+    what = "not a bus room" if len(made) == 1 else "not bus rooms"
+    print(f"agent-bus: team {api.team.name}: left aside {rooms} the team admin made in an earlier room version "
+          f"({what}): {', '.join(made)}", file=sys.stderr, flush=True)
+
+
+def _created_by_admin(api: _Api, room: str) -> bool:
+    """Whether the room's create event was sent by the team admin. A room whose create event
+    the admin may not read (403) or that has none (404) is not one it made."""
+    status, create = api.call("read m.room.create", "GET", _state_path(room, "m.room.create"),
+                              query={"format": "event"}, allow=(403, 404))
+    return status == 200 and isinstance(create, dict) and create.get("sender") == api.team.admin_id
+
+
 def _current_index(api: _Api, main: str) -> dict:
     content = api.state(main, protocol.EVENT_ROOMS)
     return content if isinstance(content, dict) else {}
@@ -779,9 +802,7 @@ def _find_side_room(api: _Api, main: str, purpose: str, changes: list[str]) -> s
                              f"{purpose} room {team.admin_id} created for this team's room {main}")
         return room
     joined, earlier = api.joined_rooms()
-    if earlier:
-        print(f"agent-bus: team {team.name}: left aside {len(earlier)} joined room of an earlier room version: "
-              f"{', '.join(earlier)}", file=sys.stderr, flush=True)
+    _say_earlier_rooms(api, earlier)
     indexed = _current_index(api, main).get(purpose)
     if indexed in joined and _is_side_room(api, indexed, purpose, main):
         found = [indexed]

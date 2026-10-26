@@ -455,7 +455,29 @@ class ServerAdminRoomTest(SideRoomsCase):
         self.assertIn(admin_room, self.joined())
         self.assertTrue(protocol.is_any_room_id(admin_room))
         self.assertFalse(protocol.is_room_id(admin_room))
-        self.assertIn(f"left aside 1 joined room of an earlier room version: {admin_room}", err.getvalue())
+        # Plan 00177 Task 12.2: the server's own room is not one the team admin made, so nothing
+        # of the team's can be in it, and naming it read as an earlier version of the team's room.
+        self.assertNotIn("left aside", err.getvalue())
+        self.assertNotIn(admin_room, err.getvalue())
+
+    def test_an_earlier_version_room_the_admin_made_is_named(self) -> None:
+        mine = self.fake.earlier_version_room(ADMIN_ID)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.bootstrap()
+        self.assertIn(mine, self.joined())
+        said = err.getvalue()
+        self.assertIn(f"team team-a: left aside 1 room the team admin made in an earlier room "
+                      f"version (not a bus room): {mine}", said)
+        self.assertNotIn(self.fake.server_admin_room, said)
+
+    def test_two_earlier_version_rooms_are_counted_as_rooms(self) -> None:
+        first, second = self.fake.earlier_version_room(ADMIN_ID), self.fake.earlier_version_room(ADMIN_ID)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.bootstrap()
+        self.assertIn(f"left aside 2 rooms the team admin made in an earlier room version (not bus rooms): "
+                      f"{', '.join(sorted([first, second]))}", err.getvalue())
 
     def test_a_second_run_still_changes_nothing(self) -> None:
         with contextlib.redirect_stderr(io.StringIO()):
