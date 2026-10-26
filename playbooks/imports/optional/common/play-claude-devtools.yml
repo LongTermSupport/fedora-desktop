@@ -6,10 +6,15 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
     ccdt_repo: "https://github.com/matt1398/claude-devtools"
     ccdt_src_dir: "/opt/claude-devtools"
     ccdt_image: "claude-devtools"
   pre_tasks:
+    - name: Audience guard — end play on a consumer install
+      ansible.builtin.meta: end_play
+      when: install_audience != 'developer'
+
     - name: Load container defaults
       ansible.builtin.include_vars:
         file: "{{ root_dir }}/vars/container-defaults.yml"

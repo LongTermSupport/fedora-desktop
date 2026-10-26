@@ -87,41 +87,41 @@ developer part named, to be gated inside the play.
 
 ### Main playbook (`playbooks/playbook-main.yml`)
 
-| Play                               | Class          | Why                                                                              |
-| ---------------------------------- | -------------- | -------------------------------------------------------------------------------- |
-| `play-AA-preflight-sanity.yml`     | shared         | Fedora and Ansible checks                                                        |
-| `play-AB-dnf-upgrade.yml`          | shared         | system upgrade, half-installed kernel repair                                     |
-| `play-basic-configs.yml`           | shared (mixed) | base packages, bash tweaks; **NOPASSWD sudo block must be absent for consumers** |
-| `play-prevent-ssh-suspend.yml`     | developer-only | keeps a box awake for SSH sessions                                               |
-| `play-suspend-and-lid-policy.yml`  | shared         | laptop suspend and lid policy                                                    |
-| `play-network-wait-tuning.yml`     | shared         | boot speed                                                                       |
-| `play-mask-intel-lpmd.yml`         | shared         | hardware fix                                                                     |
-| `play-systemd-user-tweaks.yml`     | shared (mixed) | oomd tweak is shared; user linger exists for long-running agent services         |
-| `play-nvm-install.yml`             | developer-only | Node.js toolchain                                                                |
-| `play-git-configure-and-tools.yml` | developer-only | git identity (needs email), git prompt, `gh`, imports `play-golang.yml`          |
-| `play-golang.yml` (imported)       | developer-only | Go toolchain                                                                     |
-| `play-git-hooks-security.yml`      | developer-only | global git hooks for secret scanning                                             |
-| `play-firefox.yml`                 | consumer       | browser                                                                          |
-| `play-github-cli-multi.yml`        | developer-only | GitHub accounts and keys (already a no-op on `github_accounts: {}`)              |
-| `play-fonts.yml`                   | consumer       | fonts                                                                            |
-| `play-rpm-fusion.yml`              | consumer       | codecs and media                                                                 |
-| `play-browsers.yml`                | consumer       | Chrome, Brave, Vivaldi (how many a consumer wants is a Decision)                 |
-| `play-toolbox-install.yml`         | developer-only | JetBrains Toolbox                                                                |
-| `play-lxc-install-config.yml`      | developer-only | LXC containers, firewall zone for them                                           |
-| `play-podman.yml`                  | developer-only | container engine (ccy depends on it)                                             |
-| `play-python.yml`                  | developer-only | pipx, pyenv deps, pinned QA tools, shellcheck, golangci-lint                     |
-| `play-claude-yolo.yml`             | developer-only | Claude Code host `cc` and container `ccy`                                        |
-| `play-comms.yml`                   | consumer?      | Slack Flatpak; a work tool, so a Decision                                        |
-| `play-gnome-shell.yml`             | shared         | GNOME packages                                                                   |
-| `play-gnome-shell-extensions.yml`  | shared (mixed) | extensions; any developer-only extension (e.g. agent or ccy panels) gated inside |
-| `play-markless.yml`                | developer-only | terminal Markdown viewer                                                         |
-| `play-terminal-emulators.yml`      | developer-only | Alacritty, Kitty, Ghostty, Foot                                                  |
-| `play-tmux-sessions.yml`           | developer-only | tmux menu                                                                        |
-| `play-vscode.yml`                  | developer-only | VS Code                                                                          |
-| `play-vpn.yml`                     | shared         | WireGuard and OpenVPN for NetworkManager                                         |
-| `play-agent-bus.yml`               | developer-only | agent team homeserver                                                            |
-| `play-gsettings.yml`               | shared (mixed) | Caps Lock off, Text Editor windows are shared; the Ptyxis tweak is harmless      |
-| `play-ZZ-repo-cleanup.yml`         | shared         | removes orphaned repos                                                           |
+| Play                               | Class          | Why                                                                                 |
+| ---------------------------------- | -------------- | ----------------------------------------------------------------------------------- |
+| `play-AA-preflight-sanity.yml`     | shared         | Fedora and Ansible checks                                                           |
+| `play-AB-dnf-upgrade.yml`          | shared         | system upgrade, half-installed kernel repair                                        |
+| `play-basic-configs.yml`           | shared (mixed) | base packages, bash tweaks; **NOPASSWD sudo block must be absent for consumers**    |
+| `play-prevent-ssh-suspend.yml`     | developer-only | keeps a box awake for SSH sessions                                                  |
+| `play-suspend-and-lid-policy.yml`  | shared         | laptop suspend and lid policy                                                       |
+| `play-network-wait-tuning.yml`     | shared         | boot speed                                                                          |
+| `play-mask-intel-lpmd.yml`         | shared         | hardware fix                                                                        |
+| `play-systemd-user-tweaks.yml`     | shared (mixed) | oomd tweak is shared; user linger exists for long-running agent services            |
+| `play-nvm-install.yml`             | developer-only | Node.js toolchain                                                                   |
+| `play-git-configure-and-tools.yml` | developer-only | git identity (needs email), git prompt, `gh`, imports `play-golang.yml`             |
+| `play-golang.yml` (imported)       | shared         | Go toolchain: the consumer installer and shared plays' Go helpers are built with it |
+| `play-git-hooks-security.yml`      | developer-only | global git hooks for secret scanning                                                |
+| `play-firefox.yml`                 | consumer       | browser                                                                             |
+| `play-github-cli-multi.yml`        | developer-only | GitHub accounts and keys (already a no-op on `github_accounts: {}`)                 |
+| `play-fonts.yml`                   | consumer       | fonts                                                                               |
+| `play-rpm-fusion.yml`              | consumer       | codecs and media                                                                    |
+| `play-browsers.yml`                | consumer       | Chrome, Brave, Vivaldi (how many a consumer wants is a Decision)                    |
+| `play-toolbox-install.yml`         | developer-only | JetBrains Toolbox                                                                   |
+| `play-lxc-install-config.yml`      | developer-only | LXC containers, firewall zone for them                                              |
+| `play-podman.yml`                  | developer-only | container engine (ccy depends on it)                                                |
+| `play-python.yml`                  | developer-only | pipx, pyenv deps, pinned QA tools, shellcheck, golangci-lint                        |
+| `play-claude-yolo.yml`             | developer-only | Claude Code host `cc` and container `ccy`                                           |
+| `play-comms.yml`                   | consumer?      | Slack Flatpak; a work tool, so a Decision                                           |
+| `play-gnome-shell.yml`             | shared         | GNOME packages                                                                      |
+| `play-gnome-shell-extensions.yml`  | shared (mixed) | extensions; any developer-only extension (e.g. agent or ccy panels) gated inside    |
+| `play-markless.yml`                | developer-only | terminal Markdown viewer                                                            |
+| `play-terminal-emulators.yml`      | developer-only | Alacritty, Kitty, Ghostty, Foot                                                     |
+| `play-tmux-sessions.yml`           | developer-only | tmux menu                                                                           |
+| `play-vscode.yml`                  | developer-only | VS Code                                                                             |
+| `play-vpn.yml`                     | shared         | WireGuard and OpenVPN for NetworkManager                                            |
+| `play-agent-bus.yml`               | developer-only | agent team homeserver                                                               |
+| `play-gsettings.yml`               | shared (mixed) | Caps Lock off, Text Editor windows are shared; the Ptyxis tweak is harmless         |
+| `play-ZZ-repo-cleanup.yml`         | shared         | removes orphaned repos                                                              |
 
 ### Optional plays (`playbooks/imports/optional/`), first pass
 

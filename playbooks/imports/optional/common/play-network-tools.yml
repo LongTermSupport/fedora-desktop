@@ -11,6 +11,7 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
     # Ookla's Speedtest CLI is not packaged; the tarball is pinned by version and checksum.
     # Update deliberately; vars/version-pins.yml names this var.
     # @see https://www.speedtest.net/apps/cli
@@ -19,6 +20,10 @@
     ooklaSpeedtestDir: "/opt/ookla-speedtest-{{ ooklaSpeedtestVersion }}"
     ooklaSpeedtestUrl: "https://install.speedtest.net/app/cli/ookla-speedtest-{{ ooklaSpeedtestVersion }}-linux-x86_64.tgz"
   tasks:
+    - name: Audience guard — end play on a consumer install
+      ansible.builtin.meta: end_play
+      when: install_audience != 'developer'
+
     # ── Packages ───────────────────────────────────────────────────────────────
 
     - name: Install Network Discovery Packages

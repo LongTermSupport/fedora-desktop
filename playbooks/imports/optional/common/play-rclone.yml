@@ -105,6 +105,7 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: all   # all | developer — see CLAUDE/AnsibleStyle.md
     # Each mount runs its own RC server; the Nth mount listens on base + N
     # unless it sets rc_port explicitly. Two mounts on one port cannot both
     # start.

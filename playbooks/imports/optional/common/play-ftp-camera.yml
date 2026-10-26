@@ -10,6 +10,7 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
     # Upload directory — override in environment/localhost/host_vars/localhost.yml
     # Uses /srv/ to avoid path traversal issues (home dirs are mode 700)
     ftp_camera_upload_dir: "/srv/ftp-camera"
@@ -46,6 +47,10 @@
     # local tree (photos/ and videos/ siblings) in one call.
 
   tasks:
+    - name: Audience guard — end play on a consumer install
+      ansible.builtin.meta: end_play
+      when: install_audience != 'developer'
+
 
     # Optional playbook: skip cleanly (no-op) when the FTP password hasn't
     # been configured, instead of failing the whole optional run. Users who

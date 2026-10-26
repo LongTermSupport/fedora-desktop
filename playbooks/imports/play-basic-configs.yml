@@ -10,6 +10,7 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: all   # all | developer — see CLAUDE/AnsibleStyle.md
     # Every account the Bash Tweaks run for, and so every account whose history they move.
     bash_history_accounts:
       - home: /root
@@ -121,13 +122,14 @@
     # touched — a rule the operator wrote themselves (docs/headless-server-install.md Step 0a)
     # is theirs and stays. Headless runs supply their credential through the preflight
     # contract (NOPASSWD the operator owns, or RUN_BASH_SUDO_PASSWORD_FILE), never through
-    # this block.
-    - name: Passwordless Sudo (desktop profile grants it, server profile removes it)
+    # this block. A consumer install (Plan 00228 Decision 8) removes it too: a non-technical
+    # user's account should not be a silent path to root.
+    - name: Passwordless Sudo (developer desktop grants it, server and consumer remove it)
       ansible.builtin.blockinfile:
         dest: /etc/sudoers
         marker: "## {mark} passwordless sudo for {{ user_login}}"
         block: "{{ user_login }}    ALL=(ALL)    NOPASSWD: ALL"
-        state: "{{ 'absent' if provisioning_profile == 'server' else 'present' }}"
+        state: "{{ 'absent' if provisioning_profile == 'server' or install_audience == 'consumer' else 'present' }}"
         validate: visudo -cf %s
 
     - name: Vim Colours

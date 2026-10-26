@@ -13,6 +13,7 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
     # 'latest' tracks the leading-edge release train (the same one npm's `latest`
     # dist-tag serves the ccy container), so host `cc` and container `ccy` stay on
     # the same Claude Code version. 'stable' is the slower staged-rollout channel
@@ -56,6 +57,10 @@
     # host_vars to change it; the reasoning is in the plan's 26-10-08 journal.
     ccy_restore_compact_floor: "{{ ccy_restore_compact_floor_tokens | default(150000) | int }}"
   pre_tasks:
+    - name: Audience guard — end play on a consumer install
+      ansible.builtin.meta: end_play
+      when: install_audience != 'developer'
+
     - name: Load container defaults
       ansible.builtin.include_vars:
         file: "{{ root_dir }}/vars/container-defaults.yml"

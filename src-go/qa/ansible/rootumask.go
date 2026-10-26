@@ -55,7 +55,7 @@ var systemDest = regexp.MustCompile(`^/(?:usr|opt)(?:/|$)`)
 
 // taskListKeys are the keys of a play or a block that hold task lists.
 var taskListKeys = map[string]bool{
-	"tasks": true, "pre_tasks": true, "post_tasks": true, "handlers": true,
+	tasksKey: true, "pre_tasks": true, "post_tasks": true, "handlers": true,
 	"block": true, "rescue": true, "always": true,
 }
 

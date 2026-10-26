@@ -34,3 +34,4 @@ gh-account-setup	scripts/test-run-bash-gh-scopes.bash
 wsi-lower-media-volume	qa-go
 pingbus-status-line	qa-go
 setup-rclone	qa-go
+consumer-install	scripts/test-run-bash-consumer.bash

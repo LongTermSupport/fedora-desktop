@@ -8,6 +8,7 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
     vault_file: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
     # GitHub SSH-over-443 ALWAYS-ON toggle. Default off. Set github_ssh_over_443:
     # true in host_vars/localhost.yml (or pass -e github_ssh_over_443=true) when
@@ -37,6 +38,10 @@
     github_ssh_hostname: "{{ 'ssh.github.com' if (github_ssh_over_443 | default(false) | bool) else 'github.com' }}"
     github_ssh_port: "{{ '443' if (github_ssh_over_443 | default(false) | bool) else '22' }}"
   tasks:
+    - name: Audience guard — end play on a consumer install
+      ansible.builtin.meta: end_play
+      when: install_audience != 'developer'
+
     - name: Check gh version for multi-account support
       ansible.builtin.shell: gh --version | grep -oP '\d+\.\d+\.\d+' | head -1
       register: gh_version_output

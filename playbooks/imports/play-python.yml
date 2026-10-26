@@ -10,6 +10,7 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
     # Number of newest CPython MINOR lines (3.x) to install. Nothing is hardcoded:
     # the latest N minors and the latest patch of each are resolved at runtime from
     # pyenv (see "Install/upgrade Pyenv Versions"). Pinning exact patches made the
@@ -26,6 +27,10 @@
     golangci_lint_archive: "golangci-lint-{{ qa_versions.GOLANGCI_LINT }}-linux-amd64.tar.gz"
     golangci_lint_release: "https://github.com/golangci/golangci-lint/releases/download/v{{ qa_versions.GOLANGCI_LINT }}"
   tasks:
+    - name: Audience guard — end play on a consumer install
+      ansible.builtin.meta: end_play
+      when: install_audience != 'developer'
+
     - name: Ensure pipx Installed, Pyenv dependencies, and dependencies required by various python packages
       become: true
       ansible.builtin.dnf:

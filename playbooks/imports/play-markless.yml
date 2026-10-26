@@ -5,6 +5,7 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
     # Markless configuration
     # Hardcoded version for security and reproducibility
     marklessVersion: "0.9.29"
@@ -12,6 +13,10 @@
     marklessSha256: "7c7911ee34707ff85dbbee2b7f588f4366067adbad2a3a4d5730d0165249599d"
     marklessPath: "/home/{{ user_login }}/.local/bin/markless"
   tasks:
+    - name: Audience guard — end play on a consumer install
+      ansible.builtin.meta: end_play
+      when: install_audience != 'developer'
+
     - name: Ensure .local/bin directory exists
       ansible.builtin.file:
         path: "/home/{{ user_login }}/.local/bin"

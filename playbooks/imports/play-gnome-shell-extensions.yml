@@ -7,6 +7,7 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: all   # all | developer — see CLAUDE/AnsibleStyle.md
     user_extensions_dir: "/home/{{ user_login }}/.local/share/gnome-shell/extensions"
     system_extensions_dir: /usr/share/gnome-shell/extensions
     # Every UUID this play deploys, across EVERY group — `.values()`, not the three

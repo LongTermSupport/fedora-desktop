@@ -6,6 +6,7 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
   tasks:
     - name: Scope guard — assert provisioning_profile is recognised
       ansible.builtin.assert:
@@ -21,6 +22,10 @@
     - name: Scope guard — end play if provisioning_profile does not match declared scope
       ansible.builtin.meta: end_play
       when: (scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')
+
+    - name: Audience guard — end play on a consumer install
+      ansible.builtin.meta: end_play
+      when: install_audience != 'developer'
 
     - name: Install VS Code
       become: true

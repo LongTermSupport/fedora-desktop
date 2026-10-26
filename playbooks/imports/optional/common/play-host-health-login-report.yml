@@ -54,6 +54,7 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
     unit_name: host-health.service
     collect_service: host-health-collect.service
     collect_timer: host-health-collect.timer
@@ -68,6 +69,10 @@
     bashrc_includes_marker: "# BEGIN ANSIBLE MANAGED: Source bashrc includes"
     is_server: "{{ provisioning_profile == 'server' }}"
   tasks:
+    - name: Audience guard — end play on a consumer install
+      ansible.builtin.meta: end_play
+      when: install_audience != 'developer'
+
     # NOT the scope guard. AnsibleStyle.md's "a general play carries no guard" is about
     # the two-task `meta: end_play` block, which would be wrong here: this play has work
     # for BOTH profiles, and qa-ansible.bash rejects that block on a general scope.

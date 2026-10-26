@@ -26,7 +26,7 @@ const defaultReportPath = "/tmp/qa-ansible-results.json"
 
 // SearchDirs are the Ansible source trees, in the order they are searched. roles/ is an
 // ansible-galaxy install target and is legitimately absent on a clean checkout.
-var SearchDirs = []string{"playbooks", "tasks", "vars", "environment", "roles"}
+var SearchDirs = []string{"playbooks", tasksKey, "vars", "environment", "roles"}
 
 // Env is everything the command touches outside the repository tree: the environment, the two
 // streams, the working directory, how a root directory is opened and how the report is written.
@@ -198,6 +198,8 @@ func scanPatterns(fsys fs.FS, root string, dirs []string, f *Findings) error {
 	}
 	sc := scope(playbooks, root)
 	f.Out, f.Scope = append(f.Out, sc.out...), sc.entries
+	au := audience(playbooks, root)
+	f.Out, f.Scope = append(f.Out, au.out...), append(f.Scope, au.entries...)
 	if err := scanFacts(fsys, dirs, f); err != nil {
 		return err
 	}

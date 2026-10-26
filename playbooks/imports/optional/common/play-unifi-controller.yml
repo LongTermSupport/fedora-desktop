@@ -6,6 +6,7 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
     # UniFi controller data persists across container rebuilds
     unifi_data_dir: /home/{{ user_login }}/.local/share/unifi
     # @see https://hub.docker.com/r/linuxserver/unifi-network-application/tags
@@ -15,6 +16,10 @@
     # The controller's web login name; its password is unifi_admin_password (vaulted)
     unifi_admin_name: unifi-admin
   tasks:
+    - name: Audience guard — end play on a consumer install
+      ansible.builtin.meta: end_play
+      when: install_audience != 'developer'
+
     # ── Setup Guide ────────────────────────────────────────────────────────────
     # Full setup guide including wired AP adoption, seamless roaming config,
     # troubleshooting, and backup/restore: docs/UnifiSetupGuide.md

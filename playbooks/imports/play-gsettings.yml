@@ -4,6 +4,7 @@
   name: GSettings
   vars:
     scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: all   # all | developer — see CLAUDE/AnsibleStyle.md
     # Lazy: only resolved after text_editor_system_desktop is registered below.
     text_editor_system_text: "{{ text_editor_system_desktop.content | b64decode }}"
   tasks:
