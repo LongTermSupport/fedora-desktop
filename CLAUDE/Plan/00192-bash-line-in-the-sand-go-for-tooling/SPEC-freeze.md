@@ -919,4 +919,5 @@ cardinality) rule for offering identity rows.
 - **D5. `sudo.Capture`.** Proposed: add it to `internal/sudo` (11.2) rather than reaching around
   the package from the lxc engine.
 - **D6. A successful thaw whose DHCP renewal fails** (bug 19). Proposed keep (documented); option:
-  report it as a warning with exit 0.
+  report it as a warning with exit 0. Owner decision 26-10-26: a container with no `nmcli` is not
+  applicable, not a failure (PLAN.md Task 3.5).
