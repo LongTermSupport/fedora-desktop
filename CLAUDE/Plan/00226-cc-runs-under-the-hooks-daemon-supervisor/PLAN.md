@@ -27,11 +27,11 @@ This plan upgrades the daemon to 3.71.0 and then gives `cc` ccy's supervisor beh
 the same precedence, in Go: one decision that `cc-project-dir` runs as a preflight and
 `cc-claude`, the one step both launch paths exec `claude` from, runs again and execs. The
 supervisor is the project's own code, so cc runs it only in a checkout Claude Code already
-trusts (Decision 5, open). The expected behaviour is
+trusts (Decision 5). The expected behaviour is
 [SPEC-cc-supervisor.md](SPEC-cc-supervisor.md), S0-S32.
 
-**Phase 2 does not start until the owner has ruled on the three open decisions: 5 and 6,
-and 7 once Task 1.2 has reported.**
+Decisions 5, 6 and 7 are decided (by delegated review on the owner's instruction); Phase 2
+may start once Phase 1 is done.
 
 ## Goals
 
@@ -52,8 +52,8 @@ and 7 once Task 1.2 has reported.**
 
 - The session-lifecycle plugin (`--max-age`, `--run-for`, `--until`): those are ccy options cc
   does not have.
-- Any change to `claude-yolo` or `entrypoint.sh`. The one possible ccy change is the
-  `lib/tmux-session.bash` line of Decision 7, which takes the CCY version bump if it is made.
+- Any change to `claude-yolo` or `entrypoint.sh`. The one ccy change is the
+  `lib/tmux-session.bash` line of Decision 7 A, which takes the CCY version bump (Task 2.9).
 - The status-line indicator that can show the supervisor as active in an unsupervised cc
   session: the issue says that is being reported to the hooks daemon separately.
 - Upgrading the hooks daemon in other projects on the host. cc refuses in those that are
@@ -143,7 +143,8 @@ and 7 once Task 1.2 has reported.**
 
   It covers both directions: a value exported in the shell but not on the server, and a
   value on the server but not in the shell (the reverse leak, SPEC S32). The result goes in
-  the journal and informs Decision 7.
+  the journal and confirms Decision 7 A's premise; if both directions arrive in all three
+  cases, that is recorded and Decision 7 is reopened before Task 2.9 is done.
 
   - [ ] ⬜ The commit that adds `triage.bash` also adds this plan folder to
     `CLAUDE/Plan/meta-deploy.list`, with a comment saying it is a read-only probe of what
@@ -214,16 +215,16 @@ and 7 once Task 1.2 has reported.**
   `cc-teams.bash` is untouched, that `scripts/qa-bash-limits.bash` reports cc's counts
   unchanged, and that `scripts/test-cc-teams.bash` still passes
 
-- [ ] ⬜ **Task 2.9**: Only if Decision 7 says so: the `lib/tmux-session.bash` change, with the
-  CCY version bump and a `docs/ccy-changelog.md` entry under that version. Check that ccy's
-  launcher behaves the same with the forwarded variables
+- [ ] ⬜ **Task 2.9**: Decision 7 A: the `lib/tmux-session.bash` line 422 change, forwarding
+  `CCY_NO_SUPERVISOR`, `CCY_CLAUDE_WRAPPER`, `CLAUDE_CONFIG_DIR` and
+  `CLAUDE_CODE_IGNORE_PERSISTED_TRUST` as `NAME=value` when set and `env -u NAME` when
+  unset, with the CCY version bump and a `docs/ccy-changelog.md` entry under that version.
+  Check that ccy's launcher behaves the same with the forwarded variables
 
 - [ ] ⬜ **Task 2.10**: Document the flags, the precedence, the trust rule, the 3.71.0 floor,
   that `--supervise` drops a project wrapper's `--plugin` words, and the hot-reload risk in the
-  cc section of `docs/ccy.md`. Add an entry in `docs/ccy-changelog.md` under a `Host cc — …`
-  heading with no version, like the existing auto-compact entry, since host cc has no version
-  of its own. If Task 2.9 makes a CCY release, the entry goes under that version's heading
-  instead. Update the `internal/ccclaude` and `internal/ccproject` lines of
+  cc section of `docs/ccy.md`. The `docs/ccy-changelog.md` entry goes under the CCY version
+  Task 2.9 makes. Update the `internal/ccclaude` and `internal/ccproject` lines of
   `src-go/CLAUDE.md`'s layout
 
 ### Phase 3: Host deploy and acceptance
@@ -249,15 +250,15 @@ and 7 once Task 1.2 has reported.**
 
 ## Dependencies
 
-- Depends on: hooks-daemon 3.71.0 in this project (Task 1.1); the owner's rulings on
-  Decisions 5-7.
+- Depends on: hooks-daemon 3.71.0 in this project (Task 1.1).
 - Related: Plan 00167 (cc refuses to start outside a repo), whose `cc-project-dir` gives the
   checkout cc-claude runs in and hosts the preflight.
 
 ## Technical Decisions
 
-Each decision below records the plan's default. Decisions 5, 6 and 7 are open: the owner
-rules on them before Phase 2. The owner may overturn any of the others before Phase 2 starts.
+Each decision below records the plan's default. Decisions 5, 6 and 7 were decided by
+delegated review on the owner's instruction. The owner may overturn any decision before
+Phase 2 starts.
 
 ### Decision 1: An older supervisor is refused, on every path
 
@@ -319,7 +320,7 @@ does; a project wrapper naming the bare launcher (this repo's) is exec'd directl
 to start fails loudly in the session's own terminal.
 **Date**: 2026-10-26
 
-### Decision 5 (open): cc runs project code only in a checkout Claude Code already trusts
+### Decision 5 (decided): cc runs project code only in a checkout Claude Code already trusts
 
 **Context**: Decision 2 bounds what runs but not whether a stranger's repository may run it.
 Claude Code asks its owner before it uses a repository's hooks (the workspace trust dialog);
@@ -353,10 +354,18 @@ by an alias or by a restore replaying argv, and none of those is a review of the
 trust record is. Untrusted, it is refused rather than run unwrapped, keeping S6's rule that
 what was asked for is never quietly dropped. The same applies to an operator wrapper whose
 words name a file inside the checkout.
-**Decision**: open; A until the owner rules.
+**Decision**: A, decided by delegated review on the owner's instruction. B is the one option
+that runs a stranger's code with the owner's rights on a plain `cc`, before any question, and
+no sentence in the docs undoes that. C is safe but adds a second trust list that the owner
+keeps by hand, a config file and tooling, and drifts from the record Claude Code already
+keeps through its dialog. A is one documented field read in Go with nothing run, keyed by
+something the launched tree cannot write, and its only cost in daily use is that the first
+session in a new checkout runs unsupervised with one line saying why; the dialog the owner
+answers in that session is the whole of the setup. On the day-to-day convenience and the
+safety it is the best of the three, and on simplicity it is second only to B.
 **Date**: 2026-10-26
 
-### Decision 6 (open): Every check is made before cc's side effects
+### Decision 6 (decided): Every check is made before cc's side effects
 
 **Context**: cc-claude runs last, after the token chooser, the credential parking, and on
 `--teams` after `seat take` (sudo for a new seat) and `membership-init` (review M5).
@@ -364,17 +373,22 @@ words name a file inside the checkout.
 cc's arguments on the existing call line (no new code line); (B) refuse in cc-claude and rely
 on the cc trap and pingbus to undo the side effects; (C) a new preflight call in cc (a new
 line, which the ratchet forbids).
-**Decision**: open; A until the owner rules. Under A, cc passes `-- "$@"` (S31), so
+**Decision**: A, decided by delegated review on the owner's instruction. A refusal belongs
+before the token chooser, the credential parking and a seat, not after them: B relies on
+the trap and pingbus undoing side effects that need not have happened, and leaves a person
+at the token chooser for a launch that will not start; C adds the line the ratchet forbids
+for no gain over A, since cc already runs `cc-project-dir` first (cc:42). A changes one
+existing line of `cc` and nothing in `cc-teams.bash`. Under A, cc passes `-- "$@"` (S31), so
 cc-project-dir's own argument contract stays as it is before the `--`. cc-claude repeats the
-decision at exec (S32), and cc-claude's decision is the one that counts. Unless Decision 7 A
-is taken, the outer preflight sees the shell's environment and cc-claude sees the pane's,
-so a refusal can still come inside the pane, after the session exists (S32). That refusal
-is loud, and its side effects are undone as B describes, checked in acceptance. Under A, a
-refusal also stops `cc` re-attaching a detached session here; the refusal names
-`ccy-sessions` (S31).
+decision at exec (S32), and cc-claude's decision is the one that counts. With Decision 7 A
+the pane's environment equals the shell's for the four inputs that matter, so a refusal
+inside the pane comes only from a real change in between (a `git checkout` after the
+preflight); that refusal is loud, and its side effects are undone as B describes, checked
+in acceptance. Under A, a refusal also stops `cc` re-attaching a detached session here; the
+refusal names `ccy-sessions` (S31).
 **Date**: 2026-10-26
 
-### Decision 7 (open, after Task 1.2): An exported setting reaches the session
+### Decision 7 (decided): An exported setting reaches the session
 
 **Context**: S4, S5 and S13's persistent escape rely on the environment reaching cc-claude, but
 cc's session runs in tmux, which may hand it the tmux server's environment instead of the
@@ -403,8 +417,18 @@ decide on different environments (SPEC S32).
 
 A session restored by `ccy-sessions` replays argv only, so under A or D a restore is decided
 by its flags and the restore unit's environment.
-**Decision**: open, after Task 1.2. The plan's default is A if Task 1.2 shows either
-direction lost, and nothing if both arrive.
+**Decision**: A, decided by delegated review on the owner's instruction, without waiting for
+Task 1.2. tmux's documented rule, that a session created on a running server takes the
+server's global environment, is exactly `ccy_tmux_start_detached`'s case (`new-session` on
+ccy's own server), and on this host that server is usually started by the boot restore unit,
+so the reverse leak is there whichever way the probe lands; Task 1.2 now confirms the
+premise rather than gating the choice. B and C leave that leak and make the two preflights
+disagree systematically, which turns S4's and S13's escapes into advice that works in one
+environment and not the other. D closes both directions too, but by a server-wide option
+every ccy session shares and that depends on the client's environment at attach time; A is
+local to the one launch line, deterministic (set values forwarded, unset ones cleared), and
+makes the pane's decision equal the shell's. Its cost is one edited line of ccy code and the
+CCY version bump, which Task 2.9 carries.
 **Date**: 2026-10-26
 
 ## Success Criteria
@@ -423,7 +447,7 @@ direction lost, and nothing if both arrive.
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | A `git checkout` of a pre-3.71.0 commit in a checkout with a live host session hot-reloads old ownership code into that session's worker within seconds, and it acts on every session it can see | H      | M           | cc checks only at launch and cannot guarantee what the worker loads later; re-checking at reload is the daemon's (Task 1.3 asks upstream). Until then the docs tell the owner not to check out a pre-3.71.0 commit while a cc session runs in that checkout. Setting `CLAUDE_SUPERVISE_NO_WORKER` would pin the launch-time code but loses the worker's isolation and upgrades, so it is not the default |
 | cc stops in every trusted host project still on an older daemon                                                                                                                                  | M      | M           | The refusal names `cc --no-supervise`, `export CCY_NO_SUPERVISOR=1` and the upgrade; untrusted projects are not refused (Decision 1)                                                                                                                                                                                                                                                                     |
-| An exported `CCY_NO_SUPERVISOR` does not reach the session through tmux, or a value the tmux server holds reaches every later session (SPEC S32)                                                 | M      | M           | Task 1.2 establishes both directions; Decision 7 A forwards set values and clears unset ones; until then a refusal inside the pane is loud and its side effects undone (S32)                                                                                                                                                                                                                             |
+| An exported `CCY_NO_SUPERVISOR` does not reach the session through tmux, or a value the tmux server holds reaches every later session (SPEC S32)                                                 | M      | M           | Decision 7 A forwards set values and clears unset ones (Task 2.9); Task 1.2 confirms both directions on the host; a refusal inside the pane is loud and its side effects undone (S32)                                                                                                                                                                                                                    |
 | A copied or extracted tree forges a `.git` file and `commondir` so that cc keys it on a trusted repository                                                                                       | H      | L           | S25 takes no key from a file the tree can write: a directory `.git`, or a worktree verified by git's back-link in the main repository; Task 2.3 tests the forgeries                                                                                                                                                                                                                                      |
 | A submodule or a `--separate-git-dir` checkout is never trusted by cc, though Claude Code trusts it                                                                                              | L      | L           | Unwrapped with S28's line, the safe direction; documented in Task 2.10                                                                                                                                                                                                                                                                                                                                   |
 | Claude Code changes where or how it records trust                                                                                                                                                | M      | L           | cc then finds no record and runs unwrapped, saying why (S28); a malformed file is refused (S27); acceptance S21 confirms the record in this checkout                                                                                                                                                                                                                                                     |
@@ -441,3 +465,4 @@ direction lost, and nothing if both arrive.
 - Review round 1 answered in the plan and SPEC (Decisions 5-7 added)
 - Review round 2 answered in the plan and SPEC (back-link trust key, presence before trust,
   the `--` preflight contract, which environment decides)
+- Decisions 5, 6 and 7 decided (A, A, A) by delegated review on the owner's instruction
