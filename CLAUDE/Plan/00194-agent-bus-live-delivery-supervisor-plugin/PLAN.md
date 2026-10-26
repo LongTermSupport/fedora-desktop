@@ -2,10 +2,11 @@
 
 **Status**: In Progress. Tasks 2.1, 2.1b and 2.2 wait on an upstream release, hooks-daemon
 #119 (plugin API 1.1), and are then specified on agent-bus v2 (Plan 00209 D4); nobody here
-can unblock them. Left for the host agent: the host checks of Tasks 2.0c (H1-H7), 2.0d and
-2.0f, and success criterion step 5, with a scripted test human posting in place of Element (a
-worker builds that sender, which Plan 00211's acceptance needs too). Nothing waits on the
-owner: Task 1.2 is superseded.
+can unblock them. Left for the host agent: the host run of
+[delivery-acceptance.bash](delivery-acceptance.bash) (queued in meta-deploy; Tasks 2.0c H1-H6,
+2.0d and 2.0f, with the scripted test human [bus_human.py](bus_human.py) posting in place of
+Element), then H7 and success criterion step 5 by hand. Nothing waits on the owner but H7's
+launch decision: Task 1.2 is superseded.
 **Created**: 2026-10-14
 **Owner**: joseph
 **Priority**: High
@@ -104,18 +105,24 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   after Fable's review. Branch `feat/bus-inject-message`. Built test first (modules
   `envelope.py` and `inject.py`, the watcher, the hooks, the skill, plugin 1.2.0, container
   2.63, CCY 3.98.8; Plan 00161's M2 checks read deliveries). Reviewed, merged into F44 and
-  deployed: every ccy session now receives `agent-bus delivery` envelopes. Left: the host
-  checks H1-H7 (SPEC-inject.md), the host agent's, with a scripted test human (a declared
-  test human whose password the agent-bus admin tool sets with `human password`, the sender
-  logging in with it; never the owner's account) posting
-  where the spec says Element, and the session pane read with tmux `capture-pane`. That proves
-  the server-side path and the envelope; it does not prove Element's own rendering.
+  deployed: every ccy session now receives `agent-bus delivery` envelopes. The host checks are
+  built, test first, on branch `feat/00194-test-human-sender`: the scripted test human
+  [bus_human.py](bus_human.py) (a team human declared for testing, never the owner's account;
+  its password from `agent-bus human password` on stdin; posts as Element does through
+  pingbus's own `matrix.Client`; also serves Plan 00211's thread reply and edit), and
+  [delivery-acceptance.bash](delivery-acceptance.bash) on the goodbye acceptance's throwaway
+  teams, judged by [delivery_check.py](delivery_check.py) from the session's transcript, pane
+  (`capture-pane`), `pingbus status` and watch log. Left: its host run (meta-deploy) for
+  H1-H6, then H7 by hand (no launch omits `crossSessionInbound: accept`; the run prints the
+  step and exits 2). It proves the server-side path and the envelope, not Element's rendering.
+  Report: [261026-test-human-sender.md](subagent-reports/261026-test-human-sender.md).
 - [ ] 🔄 **Task 2.0d**: The watcher survives a homeserver restart and is supervised
   (SPEC-inject E25, E26; Plan 00203's audit F1 and F2). Built test first on branch
   `fix/watcher-survives-homeserver-restart` (container 2.67, CCY 3.98.12); reviewed, merged
   into F44 (4cdd2d3b) and deployed by later `play-claude-yolo.yml` and `play-agent-bus.yml`
-  runs. Left, for the host agent: restart a throwaway team's homeserver under an idle session
-  (needs sudo at the run), then post as the scripted test human (Task 2.0c).
+  runs. Left, for the host agent: the host run of `delivery-acceptance.bash` (meta-deploy;
+  sudo at the run), whose check 2.0d restarts a throwaway team's homeserver under the idle
+  session, waits for the watcher's "syncs again" and posts as the test human.
 - [ ] ❌ **Task 2.0e**: Folded into Plan 00209 Task 3.1 (the Go SessionEnd hook), built there
   once hooks-daemon #127 ships. (Was: A scheduled restart posts nothing (Fable's review of
   `fix/goodbye-ctrl-c`, 3b). Today a lifecycle restart (maximum age, or the relaunch after a
@@ -139,8 +146,9 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   `@room` stays unaddressed: the owner's decision). Built test first on branch
   `feat/ignored-human-visible` (CCY 3.99.12.17, container 2.77.13); reviewed, merged and
   deployed (play-agent-bus.yml at F44 2efd4442, journal 2026-10-19 17:54). Left, for the host
-  agent: post a plain-text `@room` (no `m.mentions.room`) as the scripted test human (Task
-  2.0c), then `pingbus status` in a member shows `ignored=1`. Report:
+  agent: the host run of `delivery-acceptance.bash`, whose check 2.0f posts a typed `@room`
+  (no `m.mentions.room`) as the test human and reads `ignored=` one higher in the session's
+  `pingbus status`, with no delivery. Report:
   [261019-ignored-human-visible-opus.md](subagent-reports/261019-ignored-human-visible-opus.md).
 - [ ] ❌ **Task 2.0g**: Folded into Plan 00209 Task 7.2 (6b); decided in its receive spec.
   (Was: Follow-up to 2.0f (Fable review finding 3): an addressed reply whose

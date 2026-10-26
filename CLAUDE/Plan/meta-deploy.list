@@ -32,3 +32,14 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Plan 00194 delivery host checks (Tasks 2.0c H1-H6, 2.0d, 2.0f), run as the desktop user; it
+# prompts for sudo once at the start. On two throwaway teams (accept194c, accept194d) and one
+# idle ccy session on both, the scripted test human `tester` posts as Element does: a mention
+# (H1, and H6 the agent's reply in the room), one per team (H5), a 9 KiB body and eight hostile
+# ones (H4), a typed @room counted as ignored (2.0f), a peer's note and the human's request for
+# a file (H3), a message during a busy turn (H2), and, after a sudo restart of accept194c's
+# homeserver, one more (2.0d). The session takes model turns on the saved token. Everything is
+# removed at the end. Exit 2 with H7 printed is the expected best: H7 needs a session without
+# crossSessionInbound: accept, which no launch makes, so it is the host agent's by hand.
+00194-agent-bus-live-delivery-supervisor-plugin/delivery-acceptance.bash
