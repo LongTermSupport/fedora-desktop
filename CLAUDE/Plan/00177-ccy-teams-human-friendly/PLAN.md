@@ -1,6 +1,6 @@
 # Plan 00177: ccy-teams, human friendly
 
-**Status**: In Progress (Phase 4 built and reviewed; Phase 9 built and reviewed; Phase 7 built and deployed; waiting on the host tests, Tasks 6.4, 7.5 and 9.5)
+**Status**: In Progress (host run 26-10-26: 6.4, 10.4 and 10.5 passed; 7.5 and 9.5 still open; Phase 11 holds its findings)
 **Created**: 2026-10-13
 **Owner**: joseph
 **Priority**: High
@@ -156,8 +156,11 @@ quit `ccy-teams` to start Element.
   plainly labelled choice that says it signs out their N sessions, and asks before doing it.
   After a password is set, Element is offered at once.
 - [x] ✅ **Task 6.3**: Opening Element starts it apart from `ccy-teams` and returns to the
-  board, which then reads the person's sessions again.
-- [ ] ⬜ **Task 6.4**: The host agent tests it again on the host, driving `ccy-teams` in tmux.
+  board, which then reads the person's sessions again. Owner on the host (26-10-26): Element
+  works.
+- [x] ✅ **Task 6.4**: The host agent tests it again on the host, driving `ccy-teams` in tmux.
+  PASS 26-10-26 (throwaway team, board): the sign-in is offered first, and Element is offered as
+  soon as the password is shown.
 
 ### Phase 7: `ccy --teams` finds the team (the owner's host test)
 
@@ -198,6 +201,9 @@ quit `ccy-teams` to start Element.
   the deployed `ccy-teams` and CCY). Tasks 7.1 and 7.2: Plan 00201's ACCEPTANCE-owner.md steps
   3, 5 and 6. Task 7.4: with a team where a person has never signed in to Element, run
   `ccy-teams apply <team>` in a terminal; after the apply it offers that person the sign-in.
+  Host run 26-10-26 (throwaway team): 7.2's quick launch, the seat question, status line and
+  `pingbus status`, and 7.4 PASS (the apply path does not offer Element after the password:
+  an observation). Still open: step 5 FAILS (Task 11.1), and the launch block is missing (11.2).
 
 ### Phase 9: Add an LXC container to a team from ccy-teams, no hand edit of localhost.yml
 
@@ -236,6 +242,8 @@ are too, by the same route.
   documented as the alternative.
 - [ ] ⬜ **Task 9.5**: The host agent tests it on the host, with sudo, so with the owner present (meta-deploy of `play-claude-yolo.yml`
   builds the new `ccy-teams`): `ccy-teams lxc-add <team>` for a real container.
+  PARTIAL 26-10-26: container, user and checkout questions and Esc pass on a throwaway; the
+  rest needs a prepared container (no play makes its user, checkout or gh login). Finding: 11.3.
 - [x] ✅ **Task 9.6**: The review of `lxc-add`
   ([report](subagent-reports/261014-fable-review-lxc-add.md)) is answered; each finding, in
   the order of the report:
@@ -329,7 +337,7 @@ are too, by the same route.
 - [ ] ⬜ **Task 10.3**: The host agent drives `ccy-teams` in tmux again: from `~`, the team and
   person menus say Start is unavailable; Esc from a menu then Down pressed quickly shows no
   `^[[B`.
-- [ ] 🔄 **Task 10.4**: An Esc is never lost to the key after it (the host agent's finding: in a
+- [x] ✅ **Task 10.4**: An Esc is never lost to the key after it (the host agent's finding: in a
   row menu, Down within about 50 ms of Esc, or both in one `tmux send-keys`, left the menu open
   and moved its cursor; Ctrl-R then turned a seat's restore off with no question). Cause, proven
   with real fzf: fzf reads an Esc and the next key inside its 100 ms wait as that key with Alt
@@ -354,14 +362,19 @@ are too, by the same route.
     (`fzfbind.EscJoined`, less `fzfbind.WordEditing`) and flags a word key bound to abort. Only
     Esc then b, f, d or Backspace within fzf's wait is still lost; the arrows stay covered.
     The freeze golden argv re-pinned under bug 28. CCY 3.100.26.
-  - [ ] ⬜ **Task 10.4.5**: Host re-check after the deploy and a tmux server restart: Esc and
+  - [x] ✅ **Task 10.4.5**: Host re-check after the deploy and a tmux server restart: Esc and
     Down in one `tmux send-keys` close a ccy-teams row menu and move the list cursor; Esc then a
     key leaves `ccy_tmux_pick` and Ctrl-R; `tmux show -s escape-time` says 10.
-- [ ] ⬜ **Task 10.5**: Host check of the gum decision below, after the `escape-time` 10
+    PASS 26-10-26 (host agent, private tmux): row menu 7 of 8 (the first lost the Down, not
+    reproduced), `ccy_tmux_pick` 4 of 4, Ctrl-R 3 of 3, escape-time 10 with no restart needed;
+    again on podfreeze and lxcfreeze after their rebuild.
+- [x] ✅ **Task 10.5**: Host check of the gum decision below, after the `escape-time` 10
   deploy and a tmux server restart: in a ccy-teams gum confirm (the take-down "Back up first?"
   will do), Esc then Down sent as two `tmux send-keys` calls 20 ms apart answers No and leaves;
   the same in a gum choose and a gum input cancels. Only both keys in one `send-keys` call may
-  still lose the Esc.
+  still lose the Esc. PASS 26-10-26 (host agent): split 20 ms apart, a real ccy-teams confirm
+  and gum confirm, choose and input 9 of 9 leave; joined in one call 6 of 6 lose the Esc, as
+  decided below.
 
 #### Owner decisions (Task 10.4, an Esc joined to the key after it)
 
@@ -378,6 +391,21 @@ are too, by the same route.
 - **Restore toggle** (open; asked of the owner): proposed, not changed. Turning a seat's restore OFF (the menu row and
   Ctrl-R from the list) asks first (Confirm, default No, naming the seat and that its session
   will not come back after a reboot); turning it ON needs no question.
+
+### Phase 11: Findings of the host run of 26-10-26
+
+- [ ] ⬜ **Task 11.1**: Task 7.1's chooser shows the full list when exactly one team covers the
+  checkout: `chooser/list.go:33` takes alone only when the whole list has one entry, and the
+  "would add" teams are entries. Code or the two texts (7.1, 00201 ACCEPTANCE-owner step 5)
+  change; Defence Before Fix.
+- [ ] ⬜ **Task 11.2**: Task 7.5's launch block ("This session is on 1 team:") is not printed when
+  the seat is taken without `--teams`: `ccy_seats_take` (`lib/agent-bus-seats.bash:78`) prints
+  it only for a non-empty canonical list. Trace the route that took the seat.
+- [ ] ⬜ **Task 11.3**: `ccy-teams lxc-add` accepts `root` as the agent's user at the question;
+  check Task 9.1's intent (a bad user is refused) and refuse it there if so.
+- [ ] ⬜ **Task 11.4**: `ccy-teams remove` leaves the team's `agent_bus_element_teams` entry and
+  its Element launcher in the app menu: `play-agent-bus-element.yml` removes no undeclared
+  profile. Fix in IaC.
 
 ## Success Criteria
 
