@@ -1,40 +1,65 @@
 # SPEC: cc runs under the hooks-daemon supervisor
 
 The behaviour Plan 00226 builds, as numbered expectations. Each one is a test, written before
-the code (src-go/CLAUDE.md, "spec first, tests first"). `S` numbers are the names the tests
-and the package doc of `internal/ccclaude` use, in the same way as the existing C1-C5.
+the code (src-go/CLAUDE.md, "spec first, tests first"). The tests and the package doc use
+the `S` numbers as names, the same way the existing C1-C5 are used. The numbers are names,
+not the order of evaluation; the order is given under "Order of evaluation".
+
+S25-S32 depend on Decisions 5, 6 and 7 in PLAN.md, which the owner has not ruled on yet.
+They are written as each decision's default. If the owner rules otherwise, they change
+before Phase 2.
 
 Terms used below:
 
-- **checkout**: the git top level of the directory cc-claude starts in
-  (`gitx.TopLevel`), the directory ccy would mount at `/workspace`.
+- **checkout**: cc-claude's working directory. `cc` has already changed to the top of the
+  git work tree (cc-project-dir, Plan 00167) before it runs anything, so cc-claude does not
+  look the top level up. A working directory with no `.git` entry (file or directory) is
+  not a checkout. That only happens when cc-claude is run by hand. In that case S6 refuses,
+  and the default runs claude unwrapped with one stderr line saying it is not at the top of
+  a git work tree.
 - **the project supervisor**: `<checkout>/.claude/ccy/claude-supervise.py`, which the hooks
   daemon deploys when `deploy_supervisor: true`, and its launcher
-  `<checkout>/.claude/ccy/claude-supervise` (a `sh` script that picks a Python of at least
-  3.11 and execs the `.py`).
-- **wrapper**: the words put in front of `claude <args>`, ending in `--`, as
-  `CCY_CLAUDE_WRAPPER` is in ccy.
-- **minimum release**: 3.71.0, the first hooks-daemon release whose supervisor counts as its
-  own only the sessions in its child process tree (upstream Plan 00551, issue #138 there).
+  `<checkout>/.claude/ccy/claude-supervise`. The launcher is a `sh` script that picks a
+  Python of at least 3.11 and execs the `.py`.
+- **wrapper**: the words put in front of `claude <args>`, ending in `--`, like
+  `CCY_CLAUDE_WRAPPER` in ccy.
+- **minimum release**: 3.71.0. It is the first hooks-daemon release whose supervisor counts
+  as its own only the sessions in its child process tree (upstream Plan 00551, issue #138
+  there).
+- **trusted**: Claude Code has recorded that its owner accepted the workspace trust dialog
+  for the checkout (S25). The sources are in
+  [RESEARCH-claude-code-trust-record.md](RESEARCH-claude-code-trust-record.md).
 
 ## Where it lives
 
-S0. All of it is in `cc-claude` (`src-go/internal/ccclaude`), the step that execs `claude` on
-both launch paths: plain (`cc` runs `/var/local/claude-code/cc-claude "$@"`) and
-`--teams`/`--bus` (`pingbus seat exec ... -- /var/local/claude-code/cc-claude ...`). Neither
-`files/var/local/claude-code/cc` nor `cc-teams.bash` changes: both are over the bash limits
-and on the ratchet allowlist (`scripts/bash-limits.allowlist`: cc 182 code lines, cc-teams
-87 code lines and 7 functions), so they may not grow, and they need not. The two flags below
-already reach cc-claude unchanged on both paths, because `cc_teams_split_args` and
-`ccy_registry_launch_args` pass every argument they do not own through. The test is that the
-diff of the plan touches neither bash file.
+S0. The decision is one Go package that two commands call:
+
+- `cc-claude` (`src-go/internal/ccclaude`) is the step that execs `claude` on both launch
+  paths: plain (`cc` runs `/var/local/claude-code/cc-claude "$@"`) and `--teams`/`--bus`
+  (`pingbus seat exec ... -- /var/local/claude-code/cc-claude ...`). It makes the decision
+  and execs the result.
+- `cc-project-dir` makes the same decision as a preflight, before cc does anything else
+  (S31).
+
+`cc-teams.bash` does not change. `files/var/local/claude-code/cc` changes on one existing
+line only: the `cc-project-dir` call gains cc's arguments (S31). Both files are over the
+bash limits and on the ratchet allowlist (`scripts/bash-limits.allowlist`: cc has 182 code
+lines; cc-teams has 87 code lines and 7 functions). Their counts must not change, and
+`scripts/qa-bash-limits.bash` is the test of that.
+
+The two flags already reach cc-claude unchanged on both paths, because
+`cc_teams_split_args` and `ccy_registry_launch_args` pass on every argument they do not
+own.
 
 ## Options
 
-S1. `--supervise` and `--no-supervise` are cc-claude's own. Each is removed from the
-arguments wherever it appears as a whole argument before the first bare `--`; nothing after
-a bare `--` is looked at. Every other argument still reaches claude unchanged and in order
-(C1 holds for them).
+S1. `--supervise` and `--no-supervise` are cc-claude's own options.
+
+- Each is removed from the arguments wherever it appears as a whole argument before the
+  first bare `--`. Nothing after a bare `--` is looked at.
+- Every other argument still reaches claude unchanged and in order (C1 holds for them).
+- A claude option whose value is exactly `--supervise` (`--append-system-prompt --supervise`) is taken as cc's flag. That is a known limit, and a test pins it, so that
+  the behaviour is chosen and not accidental.
 
 S2. Both given: `cc: --supervise and --no-supervise cannot be used together`, exit 64, and
 nothing is executed.
@@ -42,72 +67,209 @@ nothing is executed.
 S3. The package doc of `internal/ccclaude` stops saying "cc-claude has no options of its
 own" and lists these two.
 
+## Order of evaluation
+
+Both commands evaluate in this order and stop at the first step that decides:
+
+1. S1-S2, the flags.
+2. S4, off.
+3. S5, the operator's wrapper. The trust rule S29 applies when one of its words is a file
+   inside the checkout.
+4. S6, `--supervise`. Needs trust (S29).
+5. S28: if the checkout is not trusted, run unwrapped. No project file is read after this
+   point.
+6. S7-S8, the project's ccy.env wrapper.
+7. S9-S10, the default.
+
+S12-S14, the release check, run on whichever wrapper was chosen, before anything is
+executed.
+
 ## Which wrapper, highest first
 
-S4. `--no-supervise`, or `CCY_NO_SUPERVISOR=1` in the operator's environment: no wrapper.
-claude runs as it does today. When a wrapper had been configured (operator environment or
-project file), one stderr line names the wrapper that is not used, as ccy's entrypoint does.
+S4. `--no-supervise`, or `CCY_NO_SUPERVISOR=1` in the environment cc-claude runs in, means
+no wrapper, and claude runs as it does today.
 
-S5. `CCY_CLAUDE_WRAPPER` set and not empty in the operator's environment: that wrapper, as
-given. It outranks `--supervise`, as in ccy.
+- When a wrapper had been configured (operator environment or project file), one stderr
+  line names the wrapper that is not used, as ccy's entrypoint does.
+- No project file is read for any purpose other than that line, and no trust record is
+  read.
+- Whether an exported `CCY_NO_SUPERVISOR` reaches cc-claude through cc's tmux insulation is
+  established by Task 1.2 and settled by Decision 7.
+
+S5. `CCY_CLAUDE_WRAPPER` set and not empty in the environment: that wrapper, as given,
+split into words as S8 does.
+
+- It outranks `--supervise`, as in ccy.
+- When one of its words resolves to a file inside the checkout (the project supervisor, or
+  a `--plugin` path), it runs project code, so S29 applies.
 
 S6. `--supervise`: the project supervisor, armed:
-`sh <checkout>/.claude/ccy/claude-supervise --arm --`. With no project supervisor:
-`cc: --supervise needs the hooks-daemon supervisor in this project (<path> is missing)`,
-exit 1. Asked for explicitly, it is never quietly dropped.
+`sh <checkout>/.claude/ccy/claude-supervise --arm --`.
 
-S7. A wrapper the project configures for ccy: `<checkout>/.claude/ccy/ccy.env`, then
-`<checkout>/.claude/ccy/ccy.env.local`, read in that order with the meaning bash gives the
-two forms the daemon and ccy write:
+- It needs the checkout trusted (S29).
+- With no project supervisor:
+  `cc: --supervise needs the hooks-daemon supervisor in this project (<path> is missing)`,
+  exit 1. Something asked for explicitly is never quietly dropped.
+- It replaces any wrapper the project configures. A project wrapper's `--plugin` words are
+  therefore not used (Decision 3), and the docs say so.
 
-- `CCY_CLAUDE_WRAPPER=<value>` or `export CCY_CLAUDE_WRAPPER=<value>` sets it;
+S7. A wrapper the project configures for ccy is read from
+`<checkout>/.claude/ccy/ccy.env` and then `<checkout>/.claude/ccy/ccy.env.local`, in that
+order. Two forms are read, with the meaning bash gives them:
+
+- `CCY_CLAUDE_WRAPPER=<value>` or `export CCY_CLAUDE_WRAPPER=<value>` sets it.
 - `CCY_CLAUDE_WRAPPER="${CCY_CLAUDE_WRAPPER:-<value>}"` (with or without `export`) sets it
   only when it is still unset or empty.
 
 So a later plain assignment wins and a later `:-` loses, exactly as sourcing the two files
-does. Quoting is single or double quotes around the whole value, or none. Any other line that
-names `CCY_CLAUDE_WRAPPER` (an `unset`, a `$(...)`, a second variable in the value, a line
-continuation) is refused: `cc: <file>:<line> sets CCY_CLAUDE_WRAPPER in a form cc cannot read: <line>`, exit 1. cc-claude never sources or executes either file: on the host that
-would run project code with the owner's rights before the session even starts (Decision 2).
-Other lines in the files are ignored.
+does. The lines are read as follows:
 
-S8. A wrapper from S7 is accepted only when it runs the project supervisor: its command word
-(after an optional `sh`, `python3` or `python3.N`) is the project supervisor's launcher or
-`.py`, written as `/workspace/.claude/ccy/...`, as a path relative to the checkout
-(`.claude/ccy/...`), or as the absolute path inside this checkout; the remaining words are
-supervisor options (each starts with `-`, or is the value of `--plugin`); the last word is
-`--`. `/workspace/` and a relative path are rewritten to `<checkout>/`. Anything else is
-refused, naming the file, the line and the rule, exit 1, and saying that a wrapper of the
-operator's own belongs in their environment (S5). The rule exists because a cloned project
-could otherwise run any command on the host the moment cc starts (Decision 2).
+- A whole-line comment (the first character that is not a space or tab is `#`) is skipped,
+  whatever it names. This repo's ccy.env names `${CCY_CLAUDE_WRAPPER:-<default>}` in a
+  comment, and that line is not an assignment.
+- An assignment starts in column 1. Its value is wrapped in single or double quotes, or is
+  unquoted with no space in it.
+- After the closing quote, or after an unquoted value, only spaces or tabs may follow, then
+  optionally `#` and a comment. A `#` inside the quotes belongs to the value.
+- Any other line that names `CCY_CLAUDE_WRAPPER` is refused:
+  `cc: <file>:<line> sets CCY_CLAUDE_WRAPPER in a form cc cannot read: <line>`, exit 1.
+  That covers an indented line, which could be inside an `if`. It also covers a compound
+  line (`;`, `&&`, `||`, `|`, `if`, `then`), which would read a conditional assignment as
+  unconditional. It covers an `unset`, a `$(...)` or backquote, a second variable inside
+  the value, and a line continuation.
+- Lines that do not name the variable are ignored.
 
-S9. Default, when none of the above applies and the project supervisor exists:
-`sh <checkout>/.claude/ccy/claude-supervise --`, unarmed, and one stderr line:
+cc-claude never sources or executes either file.
+
+A parity-oracle test parses this repository's own `.claude/ccy/ccy.env`. It expects the
+`:-` form with the value `/workspace/.claude/ccy/claude-supervise --arm --`.
+
+S8. A wrapper from S7 is accepted only when it runs the project supervisor. Its value is
+split into words on spaces, tabs and newlines, as `read -ra` does in ccy's entrypoint. A
+word that contains a quote character or a backslash is refused. That includes a quoted
+path, which 3.71.0's rewrite keeps quoted.
+
+The first words must be one of these:
+
+- **The launcher alone**: `claude-supervise`, exec'd directly. It must be executable, and
+  this repo's copy is (git mode 100755).
+- **`sh`, then the launcher.**
+- **`python3` or `python3.N`, then the `.py`.**
+
+Python in front of the launcher is refused, because Python handed the sh launcher dies on a
+SyntaxError. That is exactly what 3.69 and 3.70 broke. `sh` in front of the `.py` is refused
+too.
+
+The supervisor word must equal, as an exact string with no path cleaning, one of these:
+
+- `/workspace/.claude/ccy/<name>`;
+- `.claude/ccy/<name>`;
+- `<checkout>/.claude/ccy/<name>`.
+
+Here `<name>` is the file the first-words rule requires. So `./.claude/ccy/...` and
+`.claude/ccy/../x` are refused. `/workspace/` and the relative form are rewritten to
+`<checkout>/`.
+
+The remaining words are the supervisor's own options, as 3.71.0's argument parser defines
+them, and the last word is `--`. The accepted options are:
+
+- `--arm` and `--dry-run`;
+- `--log <path>` or `--log=<path>`;
+- `--disable-plugin <name>`;
+- `--plugin <name>=<path>`. `<path>` is rewritten from `/workspace/` to `<checkout>/`. After
+  that it must start with `<checkout>/`, contain no `..` segment, and be an existing
+  regular file. ccy's lifecycle plugin is an image path the host does not have, so it is
+  refused by this rule.
+
+Any other word is refused. A later release that adds options is refused until cc learns
+them.
+
+A refusal names the file, the line and the rule, exits 1, and says that a wrapper of the
+operator's own belongs in their environment (S5). The rule exists because a project file
+could otherwise make cc run any command on the host.
+
+S9. The default, when none of the above applies and the project supervisor exists, is
+`sh <checkout>/.claude/ccy/claude-supervise --`, unarmed. One stderr line:
 `Supervisor: on by default (auto-compaction unarmed; cc --supervise arms it, cc --no-supervise turns it off)`.
 
-S10. Default with no project supervisor: claude unwrapped, as today, and one stderr line
-saying the project has no supervisor at `<path>`. An absent supervisor is a normal state, so
-this is not an error, and it is said, so that silence never reads as supervised (parity with
-ccy's entrypoint).
+S10. The default with no project supervisor is claude unwrapped, as today, with one stderr
+line saying the project has no supervisor at `<path>`. An absent supervisor is a normal
+state, so this is not an error. It is said so that silence never reads as supervised
+(parity with ccy's entrypoint). An old supervisor is different and is refused (S13,
+Decision 1). Absent means that nothing is configured to run. Old means that the project is
+configured for a supervisor this host must not run.
 
-S11. The wrapper starts in the operator's working directory, not the checkout: claude's
-project is the directory cc was started in.
+S11. The wrapper starts in cc-claude's unchanged working directory, the checkout.
+
+## Only a trusted checkout's code is run
+
+S25. The checkout is **trusted** when Claude Code's global config holds
+`projects["<key>"].hasTrustDialogAccepted` as JSON `true`.
+
+- **The config file** is `$CLAUDE_CONFIG_DIR/.claude.json` when `CLAUDE_CONFIG_DIR` is set
+  and not empty. Otherwise it is `$HOME/.claude.json`.
+- **The key** is the checkout's absolute path. For a linked worktree it is the main
+  checkout's root, found from files alone: the `.git` file's `gitdir:`, then that
+  directory's `commondir`, then its parent when it is named `.git`. A bare common directory
+  gives no key, so the checkout is not trusted.
+- **Path forms**: the checkout path as cc-claude's working directory gives it, and its
+  symlink-resolved form, are both looked up. Either one matching counts.
+- **No parent walk**: a parent directory's record does not count. Inside a repository
+  Claude Code walks up only as far as the repository root, and cc-claude starts at that
+  root.
+- **Nothing is run**: the file is read and decoded in Go. No `git`, no `claude` and no
+  project file is executed to answer this.
+
+S26. With `CLAUDE_CODE_IGNORE_PERSISTED_TRUST` set and not empty, no record counts, as in
+Claude Code. `CLAUDE_CODE_SANDBOXED` is not honoured. It is a claim about the environment,
+not the owner's recorded acceptance of this checkout.
+
+S27. A missing config file means not trusted, the normal state on a fresh host. Some cases
+are refused instead, naming the file, the error and `cc --no-supervise`, exit 1:
+
+- a file that cannot be read;
+- a file that is not JSON;
+- a file whose `projects` is not an object.
+
+`cc --no-supervise` never reads the file (S4).
+
+S28. When the checkout is not trusted on the default path (steps 6-7 of the order),
+cc-claude runs claude unwrapped and reads no project file. It prints one stderr line:
+`Supervisor: off: Claude Code does not trust <key> yet (no hasTrustDialogAccepted in <config file>). Accept its trust dialog in this session; the next cc, or cc --supervise, then runs the project supervisor.`
+This is not skip-and-continue. Running unwrapped is the state the project's files may not
+override, and the line says so. claude then shows its own trust dialog, so accepting it
+there is the way to trust the checkout.
+
+S29. When the checkout is not trusted, `--supervise`, and an operator wrapper (S5) with a
+word that is a file inside the checkout, are refused. Exit 1, nothing executed:
+`cc: <--supervise | CCY_CLAUDE_WRAPPER> would run this project's own code (<file>), and Claude Code does not trust <key> yet. Start cc here once and accept the trust dialog, then run it again.`
+The trust record is the owner's recorded judgement of the repository. A flag typed out of
+habit, an alias, or a restore replaying argv is not a review of the code. Refusing rather
+than running unwrapped keeps S6's rule that what was asked for is never quietly dropped
+(Decision 5).
 
 ## The supervisor must have the child-tree ownership fix
 
-S12. Whenever the chosen wrapper runs a supervisor file (S6, S8, S9, and S5 when one of its
-words ends in `claude-supervise` or `claude-supervise.py`), cc-claude reads that supervisor's
-release before running it: the one line `__version__ = "X.Y.Z"` of the `.py` (for the
-`claude-supervise` launcher, the `.py` beside it). The comparison is numeric on the three
-parts; a pre-release suffix is below its release.
+S12. The release check applies whenever the chosen wrapper runs a supervisor file: S6, S8,
+S9, and S5 when one of its words ends in `claude-supervise` or `claude-supervise.py`.
 
-S13. Older than the minimum release:
-`cc: the hooks-daemon supervisor in this project is <found>; a host session needs <minimum> or later, which keeps the supervisor to its own session (an older one acts on every session it can see on this host). Upgrade the hooks daemon in this project, or start without it: cc --no-supervise`, exit 1, nothing executed. It refuses rather than warns: wrapping with an old
-supervisor does harm to other sessions, and quietly running unwrapped is the skip-and-continue
-this repo bans (Decision 1). The refusal names its bypass, so the operator is never stuck.
+- cc-claude reads that supervisor's release before running it, from the one line
+  `__version__ = "X.Y.Z"` of the `.py`. For the `claude-supervise` launcher, that is the
+  `.py` beside it.
+- The comparison is numeric on the three parts. A pre-release suffix sorts below its
+  release.
 
-S14. The supervisor file is missing, unreadable, or has no such line (or more than one):
-refused the same way, naming the path and what was wrong, exit 1.
+S13. A supervisor older than the minimum release is refused, exit 1, nothing executed:
+`cc: the hooks-daemon supervisor in this project is <found>; a host session needs <minimum> or later, which keeps the supervisor to its own session (an older one acts on every session it can see on this host). Upgrade the hooks daemon in this project, or start without it: cc --no-supervise, or export CCY_NO_SUPERVISOR=1 to skip it in every project until they are upgraded`.
+
+It refuses rather than warns. Wrapping with an old supervisor harms other sessions, and
+running unwrapped in a project configured for a supervisor is skip-and-continue
+(Decision 1). The refusal names both ways round it, the one for this launch and the
+persistent one, so the operator is never stuck. If Task 1.2 finds that the exported
+variable does not reach cc-claude, the persistent way is the one Decision 7 settles on.
+
+S14. A supervisor file that is missing or unreadable, or has no such line or more than one,
+is refused the same way, naming the path and what was wrong, exit 1.
 
 S15. The minimum release is one constant in Go; a test pins it to `3.71.0`.
 
@@ -116,14 +278,24 @@ check, and one stderr line says so. It is an explicit instruction.
 
 ## What is executed
 
-S17. With a wrapper, the exec is `<wrapper words> claude <args>`: the supervisor runs
-`-- claude <args>`, and claude is found on PATH by the supervisor as ccy's is. `sh` is found
-on PATH by cc-claude. The supervisor replaces cc-claude (no fork), so on the `--teams`/`--bus`
-path the chain is `pingbus seat exec` > supervisor > claude, the same order ccy's entrypoint
-uses (`exec "${_ccy_seat_exec[@]}" "${_ccy_wrapper[@]}" "$@"`).
+S17. With a wrapper, the exec is `<wrapper words> claude <args>`.
 
-S18. C2 and C3 hold with a wrapper: `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is set the same way, on
-the wrapper's environment, so claude inherits it through the supervisor.
+- The supervisor runs `-- claude <args>`, and the supervisor finds claude on PATH, as ccy's
+  does. cc-claude finds `sh` on PATH.
+- The supervisor replaces cc-claude (no fork). On the `--teams`/`--bus` path the chain is
+  therefore `pingbus seat exec` > supervisor > claude. That is the same order ccy's
+  entrypoint uses (`exec "${_ccy_seat_exec[@]}" "${_ccy_wrapper[@]}" "$@"`).
+
+S18. C2 and C3 hold with a wrapper. `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is set the same way
+on the wrapper's environment, so claude inherits it through the supervisor.
+
+S30. With a wrapper, `CLAUDE_PROJECT_DIR=<checkout>` is set on the wrapper's environment,
+replacing any inherited value.
+
+- The supervisor reads it before its working directory, for its decision log and sidecar
+  lookups (claude-supervise.py, `DecisionLog._default_path` and the sidecar path).
+- cc sessions run inside tmux, which hands them the tmux server's environment. A value
+  left there by another project would point the supervisor at that project.
 
 S19. C4 holds: the wrapper's command not on PATH, or any exec failure, is exit 1 naming the
 command and the error.
@@ -131,19 +303,75 @@ command and the error.
 S20. All of cc-claude's own output still goes to stderr; stdout stays claude's (or the
 supervisor's).
 
+## Checked before anything else happens
+
+S31. `cc` passes its arguments to `cc-project-dir`. This changes the existing call
+`CC_PROJECT_DIR=$(/var/local/claude-code/cc-project-dir)` on the same line, and nothing
+else in `cc`.
+
+- cc-project-dir finds the directory as today. It then runs the decision above on that
+  directory, with cc's arguments and environment, and executes nothing.
+- A refusal is printed to stderr, and cc-project-dir exits 1 and prints no directory.
+- cc's `set -e` then stops cc on that line. That is before the tmux re-exec, the token
+  chooser, the credential parking, `seat take` and `membership-init`, so a refused launch
+  has changed nothing.
+- cc-project-dir's stdout stays the directory alone. Its stderr lines (S9, S10, S28) are
+  not printed twice: the preflight prints only refusals, and cc-claude prints the
+  informational lines.
+- cc-project-dir ignores every argument it does not need. It must not reject claude's
+  options.
+
+S32. cc-claude repeats the decision when it execs, and its decision is the one that counts.
+A refusal there can happen when something changed after the preflight, such as a
+`git checkout` in between. It is still loud, but it comes after the side effects:
+
+- On the plain path, cc's EXIT trap restores the parked credential. cc does not `exec`
+  cc-claude, so the trap fires.
+- On `--teams`, the seat and membership are pingbus's to release when its child exits.
+  Acceptance S24 checks both.
+
 ## Verified on the host (acceptance, not unit tests)
 
-S21. In a checkout whose supervisor is at least the minimum release, plain `cc` and
-`cc --teams` each show `claude-supervise.py -- claude ...` (unarmed) with a
-`claude-supervise.py --worker` sibling in the session's process tree; `cc --supervise` shows
-`--arm`; `cc --no-supervise` shows none.
+Most of what follows is established by driving `/var/local/claude-code/cc-claude` directly
+in a temporary git fixture, with a stub `claude` on PATH that records its argv and its
+parent pid and then waits. The fixture is trusted through a temporary `CLAUDE_CONFIG_DIR`
+holding a `.claude.json`, so no person has to stand at the token chooser. What needs the
+real `cc` is named NOT ESTABLISHABLE in `acceptance.bash` and listed for the owner.
 
-S22. Two cc sessions in the same checkout at once: neither supervisor's `decision.log` records
-an action on the other session's id.
+S21. Process trees:
+
+- **This checkout** is armed by its ccy.env (`claude-supervise --arm --`). Plain `cc` and
+  `cc --teams` each show `claude-supervise.py --arm -- claude ...` with a
+  `claude-supervise.py --worker` sibling. `cc --supervise` shows `--arm`, and
+  `cc --no-supervise` shows no supervisor. These need the real cc and are listed for the
+  owner. They also confirm that S25 reads the trust record where the owner's Claude Code
+  wrote it.
+- **A fixture with the supervisor and no ccy.env wrapper, trusted**: the default shows the
+  unarmed `claude-supervise.py -- claude`.
+- **The same fixture, untrusted**: claude runs unwrapped and prints S28's line.
+
+S22. Two sessions in the same checkout at once: neither supervisor acts on the other
+session's id.
+
+- The default decision log is one shared file,
+  `<CLAUDE_PROJECT_DIR or cwd>/untracked/supervise/decision.log`. Its lines are
+  `<timestamp> <message>` with no pid or session id, so they cannot be attributed to a
+  session.
+- So acceptance runs the two through operator wrappers (S5), each with its own
+  `--log <run dir>/<A|B>.log`, and checks each log against the other session's id.
 
 S23. A `cc --teams` session still receives a bus message and is woken as before, and
-`ccy-teams` still controls it while it runs (the pid pingbus execs is now the supervisor, not
-claude).
+`ccy-teams` still controls it while it runs. The pid pingbus execs is now the supervisor,
+not claude. This needs the real cc and pingbus and is listed for the owner.
 
-S24. In a checkout whose supervisor is older than the minimum release, `cc` refuses with S13's
-message, and `cc --no-supervise` starts.
+S24. A trusted fixture whose `.claude/ccy/claude-supervise.py` declares
+`__version__ = "3.70.0"` is built by `acceptance.bash` with `git init` in a temporary
+directory:
+
+- cc-claude refuses with S13's message, exit 1, and the stub claude is not started.
+- `--no-supervise` and `CCY_NO_SUPERVISOR=1` each start the stub.
+- Run through the real `cc`, the refusal comes from the preflight (S31): the credential is
+  back in place and no seat was taken. This is listed for the owner.
+- A non-interactive `ccy-sessions` restore of a cc session recorded in such a checkout
+  fails visibly. The pane is held and the restore reports it; it does not hang or vanish.
+  This needs the real registry and tmux server and is listed for the owner.
