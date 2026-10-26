@@ -166,7 +166,10 @@ quit `ccy-teams` to start Element.
 
 - [x] ✅ **Task 7.1**: `ccy --teams` with no value offers the teams whose scope covers this
   checkout's GitHub `owner/repo` (an organisation team by its owner, a repository team by
-  the repository), choosing alone when exactly one matches and saying so when none does.
+  the repository), saying so when none does. When the machine has exactly one team and it
+  covers the checkout, it is taken without a list; with two or more teams the list is always
+  shown, covering teams first (Plan 00201 S-B2, which replaced "taken when exactly one
+  matches"; Task 11.1).
   The matching and the choice live in the Go `ccy-teams`; the launcher, on the bash-limits
   ratchet, only calls it and must not grow. Built as `ccy-teams for-checkout` (CCY 3.96.0).
   The owner's test found that an uncovered checkout made them type a team name; Plan 00201
@@ -394,10 +397,16 @@ are too, by the same route.
 
 ### Phase 11: Findings of the host run of 26-10-26
 
-- [ ] ⬜ **Task 11.1**: Task 7.1's chooser shows the full list when exactly one team covers the
-  checkout: `chooser/list.go:33` takes alone only when the whole list has one entry, and the
-  "would add" teams are entries. Code or the two texts (7.1, 00201 ACCEPTANCE-owner step 5)
-  change; Defence Before Fix.
+- [x] ✅ **Task 11.1**: Task 7.1's chooser showed the full list when exactly one of several teams
+  covers the checkout. The code is right and the texts were wrong: Plan 00201 replaced 7.1's
+  chooser, and its decision Q5 (S-B2, taken on the owner's instruction) skips the list only
+  when the machine has exactly one team; with two or more the owner always sees the list, as
+  `TestACoveringTeamAlongsideOthersIsStillListed` pins. Defence Before Fix: the rule
+  `chooser-skip-condition-text` ([QA.md](../../QA.md#chooser-skip-condition-text),
+  `tests/helpers/agent_bus/test_chooser_texts.py`), red on 3 alone, widened to Go comments by
+  the independent search (a 4th, a test comment); all 4 fixed: Task 7.1 above, 00201
+  ACCEPTANCE-owner step 5, `docs/agent-bus.md`, `chooser_test.go`. Host: step 5 re-read
+  against the new text (with two teams on the machine, the list is shown).
 - [ ] ⬜ **Task 11.2**: Task 7.5's launch block ("This session is on 1 team:") is not printed when
   the seat is taken without `--teams`: `ccy_seats_take` (`lib/agent-bus-seats.bash:78`) prints
   it only for a non-empty canonical list. Trace the route that took the seat.

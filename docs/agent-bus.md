@@ -71,8 +71,9 @@ that play.
 3. **Add ccy sessions.** `ccy --teams` with no value, in a checkout of a GitHub repository,
    asks `ccy-teams choose-teams`: every team on the machine with what it is for and whether
    it covers that `owner/repo` (a team that trusts the repository, or its owner, unless it
-   excludes it), covering teams first, and a row to create a team. A single covering team is
-   taken without a list. Choosing a team that does not cover the checkout offers to add the
+   excludes it), covering teams first, and a row to create a team. When the machine has only
+   one team and it covers the checkout, it is taken without a list; with two or more teams the
+   list is always shown. Choosing a team that does not cover the checkout offers to add the
    repository to its scope (it edits the host_vars and runs `play-agent-bus.yml` for that team,
    no homeserver restart), to join without adding, or to leave it out; it needs a terminal.
    **A session can be on several teams:** the list is a multi-select (Tab marks several, Enter
