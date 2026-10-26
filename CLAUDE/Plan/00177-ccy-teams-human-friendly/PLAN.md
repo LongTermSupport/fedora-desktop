@@ -449,19 +449,22 @@ listing): an owner check. The run's findings are Phase 12.
 
 ### Phase 12: Findings of the Phase 11 host run
 
-- [ ] ⬜ **Task 12.1**: The launch block printed by `session add` and `move` says "(new seat:
+- [x] ✅ **Task 12.1**: The launch block printed by `session add` and `move` says "(new seat:
   it joins as a worker)" for seats that already existed (the session's held seat after add;
   the move's own step said "seat 1: exists"). `newSeatWords` (`internal/teams/choose/choose.go`)
   is chosen when the seat is missing from `Bus.SeatList(ctx, "")`, which reads the cwd's
   checkout, and `hot.go` prints the block from the ccy-teams terminal, whose cwd need not be the
-  session's checkout: likely a lookup against the wrong checkout, not wording. Confirm by test.
+  session's checkout: likely a lookup against the wrong checkout, not wording. Confirmed by test
+  (`TestTheBlockReadsTheSessionsCheckoutNotTheWorkingDirectory`, red then green). `choose.Block`
+  now takes the session's checkout; a seat list agent-bus refused or could not all read says
+  "role unknown", never "new seat". The launcher's own subcommands keep the cwd: they run in the
+  checkout by contract.
 - [ ] ⬜ **Task 12.2**: `session add` into a team created a minute earlier printed "left aside
   1 joined room of an earlier room version" (`helpers/agent_bus/admin.py`, from `joined_rooms`).
   It counts every joined room not of room version 12, and Tuwunel's own server admin room is one,
   so a new team counts 1: the count is right and the words mislead. Say what it is (or leave the
   server's admin room out of the count).
-- [ ] ⬜ **Task 12.3**: A key typed just after Esc reaches the next prompt: in `ccy-teams
-  remove`, Esc answered "Back up first?" No and a Down sent 20 ms later moved step 2's cursor off
+- [ ] ⬜ **Task 12.3**: A key typed just after Esc reaches the next prompt: in `ccy-teams remove`, Esc answered "Back up first?" No and a Down sent 20 ms later moved step 2's cursor off
   its default "Leave it running". Harmless there (Enter and the typed name are still needed),
   but a key acts on a screen the person has not seen. Keeping held keys is deliberate
   (`internal/ttyecho/ttyecho.go`: they "stay in the input for the next screen to read"), so the

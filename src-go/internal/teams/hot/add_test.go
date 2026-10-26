@@ -69,6 +69,26 @@ func TestAddToASeatedSessionIsHotAndTheRerunChangesNothing(t *testing.T) {
 	}
 }
 
+// Plan 00177 Task 12.1: ccy-teams runs in a terminal whose working directory need not be the
+// session's checkout. The block reads the session's seats from the session's checkout, so a
+// seat that exists there is named by its role, never as a new seat.
+func TestTheBlockReadsTheSessionsCheckoutNotTheWorkingDirectory(t *testing.T) {
+	r := newRig(t, membership.Seat{Team: "beta", Seat: "1"})
+	elsewhere := filepath.Join(r.Root, "elsewhere")
+	if err := os.MkdirAll(elsewhere, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	r.On("git rev-parse --show-toplevel", elsewhere+"\n", 0)
+	if code := r.run(t, "add", session, "alpha", "--yes"); code != term.ExitOK {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	got := r.ErrOut.String()
+	wantLines(t, got, "  alpha  seat 3 (worker)  (no description)", "  beta   seat 1 (worker)  (no description)")
+	if strings.Contains(got, "new seat") {
+		t.Fatalf("seats that exist in the session's checkout are not new:\n%s", got)
+	}
+}
+
 func TestAddCreatesANewSeatThroughSeatTake(t *testing.T) {
 	r := newRig(t, membership.Seat{Team: "beta", Seat: "1"})
 	r.m.heldBy["3@alpha"] = true

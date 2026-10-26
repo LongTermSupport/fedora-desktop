@@ -149,13 +149,20 @@ func (c *Choose) block(ctx context.Context, args []string) term.ExitCode {
 
 // Block writes the same block to w for the canonical SEAT@TEAM list of a session whose seats
 // changed while it runs (`ccy-teams session add` and `move`, Plan 00177 Task 11.2), so every route
-// that takes a seat names the session's teams, as the launch does.
-func Block(ctx context.Context, h *host.Host, kit *flow.Kit, w io.Writer, canonical string) term.ExitCode {
+// that takes a seat names the session's teams, as the launch does. checkout is the session's
+// checkout, whose seats are read: ccy-teams runs in a terminal whose working directory need not be
+// it (Task 12.1).
+func Block(ctx context.Context, h *host.Host, kit *flow.Kit, w io.Writer, checkout, canonical string) term.ExitCode {
 	c := &Choose{Host: h, Bus: h.Bus, Gum: h.Gum, Kit: kit}
-	return c.blockTo(ctx, w, []string{canonical})
+	return c.blockIn(ctx, w, checkout, []string{canonical})
 }
 
+// blockTo is the block of a launch, which runs in the session's checkout.
 func (c *Choose) blockTo(ctx context.Context, w io.Writer, args []string) term.ExitCode {
+	return c.blockIn(ctx, w, "", args)
+}
+
+func (c *Choose) blockIn(ctx context.Context, w io.Writer, checkout string, args []string) term.ExitCode {
 	seats, ok := c.seatItems("--block", args)
 	if !ok {
 		return term.ExitUsage
@@ -164,7 +171,7 @@ func (c *Choose) blockTo(ctx context.Context, w io.Writer, args []string) term.E
 	for _, st := range seats {
 		width = max(width, len(st.team))
 	}
-	d := &describer{c: c, rosters: map[string]rosterResult{}, about: c.descriptions(ctx)}
+	d := &describer{c: c, checkout: checkout, rosters: map[string]rosterResult{}, about: c.descriptions(ctx)}
 	noun := "teams"
 	if len(seats) == 1 {
 		noun = "team"
@@ -357,12 +364,14 @@ type rosterResult struct {
 
 // describer reads each team once and the checkout's seats once.
 type describer struct {
-	c       *Choose
-	rosters map[string]rosterResult
-	handles map[string]string // "<seat>@<team>" -> handle
-	about   map[string]string // team -> what it is for
-	loaded  bool
-	loadErr error
+	c          *Choose
+	checkout   string // the session's checkout; "" is the working directory's (a launch runs there)
+	rosters    map[string]rosterResult
+	handles    map[string]string // "<seat>@<team>" -> handle
+	about      map[string]string // team -> what it is for
+	loaded     bool
+	loadErr    error
+	unreadable bool // agent-bus could not read every seat (or refused the list): said on its stderr
 }
 
 // describe is the seat with its role, and what its team is for when the team has a description.
@@ -387,6 +396,9 @@ func (d *describer) roleWords(ctx context.Context, seat, team string) string {
 	if err != nil {
 		return "role unknown: " + err.Error()
 	}
+	if !found && d.unreadable {
+		return unreadSeatWords
+	}
 	if !found {
 		return newSeatWords
 	}
@@ -406,16 +418,19 @@ func (d *describer) roleWords(ctx context.Context, seat, team string) string {
 	return member.Role
 }
 
-const newSeatWords = "new seat: it joins as a worker"
+const (
+	newSeatWords    = "new seat: it joins as a worker"
+	unreadSeatWords = "role unknown: the checkout's seats could not all be read (the reason is above)"
+)
 
-// handle is the member's handle of a seat of this checkout; found is false for a seat it does
-// not have.
+// handle is the member's handle of a seat of the session's checkout; found is false for a seat
+// it does not have, or for one agent-bus could not read (unreadable).
 func (d *describer) handle(ctx context.Context, seat, team string) (string, bool, error) {
 	if !d.loaded {
 		d.loaded = true
 		d.handles = map[string]string{}
-		list, _, err := d.c.Bus.SeatList(ctx, "")
-		d.loadErr = err
+		list, unreadable, err := d.c.Bus.SeatList(ctx, d.checkout)
+		d.loadErr, d.unreadable = err, unreadable
 		for _, s := range list {
 			d.handles[s.Seat+"@"+s.Team] = s.Handle
 		}

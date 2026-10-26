@@ -2,6 +2,8 @@ package choose
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -427,6 +429,24 @@ func TestDescribeBlockNamesEveryTeamWithSeatRoleAndDescription(t *testing.T) {
 		"Any human listed in these teams can direct this session as you can.\n"
 	if h.stdout() != want {
 		t.Fatalf("stdout %q, want %q", h.stdout(), want)
+	}
+}
+
+// Plan 00177 Task 12.1: a seat list agent-bus refused (here a checkout ccy never ran in) says
+// nothing of whether a seat exists, so its seats are not called new.
+func TestDescribeBlockOfAnUnreadSeatListSaysTheRoleIsUnknown(t *testing.T) {
+	h := newRig(t)
+	bare := filepath.Join(h.Root, "bare")
+	if err := os.MkdirAll(bare, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	h.On("git rev-parse --show-toplevel", bare+"\n", 0)
+	if code := h.c.Describe(t.Context(), []string{"--block", "1@alpha"}); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if !strings.Contains(h.stdout(), "  alpha  seat 1 (role unknown: the checkout's seats could not all be read (the reason is above))  ") ||
+		!strings.Contains(h.ErrOut.String(), "agent-bus: "+bare+" has no .claude/ccy/") {
+		t.Fatalf("stdout %q stderr %q", h.stdout(), h.ErrOut.String())
 	}
 }
 
