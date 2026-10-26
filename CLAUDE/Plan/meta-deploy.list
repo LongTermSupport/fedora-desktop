@@ -38,6 +38,8 @@
 # The run now also repairs the system font cache modes: the first run's rebuild left them 0600
 # under the host's umask 0077, so users read stale caches; the play makes them 0644 on every
 # run, and rebuilds under umask 022. Reopen terminal windows afterwards to see it.
+# This run also deploys the serif fix: Symbola moves after the colour font in the serif list
+# (Fedora's 65-gdouros-symbola.conf had put it first), so acceptance check 6 should now pass.
 00185-terminal-emoji-glyphs
 
 # pingbus say --all (the coordinator writes to the whole team): expected to pick up

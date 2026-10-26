@@ -126,7 +126,12 @@ and the hook stays the owner's call.
   repairs that host without the handler firing. The class has a rule, `root-umask` in
   `qa-ansible` (CLAUDE/QA.md#root-umask), and its sweep fixed the other root tasks that
   create files users read (dconf update, yq, the VS Code repo file, the claude-devtools clone,
-  the cuDNN and speedtest extractions). Open: the host run.
+  the cuDNN and speedtest extractions). The second host run passed 17 of 18: check 6 (serif)
+  got Symbola, because Fedora's `65-gdouros-symbola.conf` makes Symbola a `<prefer>` for serif,
+  ahead of the weak entry. A fifth rule moves Symbola, where it is not the first family, to
+  the end of the serif list, after the colour font; a request for Symbola by name keeps it.
+  The suite now models the 65 file (its stand-in is called Symbola): red without the rule (6
+  checks), red with the guard dropped (5), green with both. Open: the host run.
 - [ ] 🔄 **Task 2.2**: `deploy.bash` (play-fonts.yml, then `acceptance.bash`) and
   `acceptance.bash` (18 checks; check 18 is that every system font cache file is readable by
   every user. The others are the deployed file, the colour font and its scanned "en", the
