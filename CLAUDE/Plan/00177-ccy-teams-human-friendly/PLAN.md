@@ -430,9 +430,18 @@ are too, by the same route.
   members.py by a test. Tests first (Python, Go reader, lxcadd re-prompt). A user of another name
   with uid 0 is not caught (only names are judged). Host: `play-claude-yolo.yml` (new
   `ccy-teams`), then `ccy-teams lxc-add <team>` answering `root` re-prompts.
-- [ ] ⬜ **Task 11.4**: `ccy-teams remove` leaves the team's `agent_bus_element_teams` entry and
-  its Element launcher in the app menu: `play-agent-bus-element.yml` removes no undeclared
-  profile. Fix in IaC.
+- [x] ✅ **Task 11.4**: `ccy-teams remove` left the team's `agent_bus_element_teams` entry and
+  its Element launcher in the app menu: `play-agent-bus-element.yml` removed no undeclared
+  profile. Now `helpers/agent_bus/element.py apply` also removes the launcher and profile of
+  every team it wrote a launcher for (the name, and the `--profile <team>` Exec line) that the
+  play does not name; a named team, and a profile with no such launcher (the human's own), are
+  never touched, and a stale profile that is not a real directory is refused before anything
+  is removed. The play names only the teams not declared `state: absent` in
+  `agent_bus_teams`. `remove` keeps the host_vars entry (decided: the team can be brought back
+  present with its data, and its Element entry then gives it its launcher again) and runs the
+  Element play after the team's play for a watched team, failing if the launcher is still
+  there. Tests first (`test_element.py`, `ops/takedown_test.go`). Host: meta-deploy (both plays
+  queued); after it, the throwaway team's launcher is gone from the app menu.
 
 ## Success Criteria
 

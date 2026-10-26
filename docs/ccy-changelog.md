@@ -27,6 +27,18 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.100.28 — container 2.79.11
+
+Plan 00177 Phase 11, the host run of 26-10-26.
+
+- **A removed team leaves no Element launcher behind.** The image's copy of
+  `helpers/agent_bus/element.py` (container 2.79.11) now also removes the launcher and
+  profile of a team it made one for that is no longer named. `ccy-teams remove` runs the
+  Element play after taking a watched team down.
+- **`ccy-teams session add` and `move` print the launch block** (`This session is on N teams:`), as a launch does.
+- **`ccy-teams lxc-add` refuses `root` as the agent's user** and asks again.
+- The chooser's texts say the list is skipped only when the machine has one team.
+
 ## 3.100.27 — container 2.79.10
 
 Follows 3.100.26 (container 2.79.9). The image changes: the pingbus helper and its plugin

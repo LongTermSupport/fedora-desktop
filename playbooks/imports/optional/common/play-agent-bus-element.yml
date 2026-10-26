@@ -5,7 +5,8 @@
 #
 # Installs the Element Desktop Flatpak system-wide, then, as user_login, writes one
 # locked-down profile and launcher per agent_bus_element_teams entry through
-# helpers/agent_bus/element.py, which owns the config.json keys and is tested for each.
+# helpers/agent_bus/element.py, which owns the config.json keys and is tested for each, and
+# removes the launcher and profile it wrote for a team that is not declared or is absent.
 #
 # The Element profile holds the human's Matrix session token, readable by every process of
 # that user, so no agent may run as user_login: the helper refuses (exit 78) a user holding
@@ -21,7 +22,15 @@
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
-    agent_bus_element_profiles: "{{ agent_bus_element_teams | default([]) }}"
+    agent_bus_element_declared: "{{ agent_bus_element_teams | default([]) }}"
+    # A team ccy-teams remove declared absent keeps its entry here (so it comes back with its
+    # team) but gets no profile: the helper removes the launcher and profile of every team it
+    # wrote one for that this list does not name, and never one this list names.
+    agent_bus_element_absent: >-
+      {{ agent_bus_teams | default([]) | selectattr('state', 'defined')
+         | selectattr('state', 'equalto', 'absent') | map(attribute='team') | list }}
+    agent_bus_element_profiles: >-
+      {{ agent_bus_element_declared | rejectattr('team', 'in', agent_bus_element_absent) | list }}
     # Matches the helper's CHANGED<TAB><path> marker lines.
     agent_bus_element_changed_re: "^CHANGED\t"
   tasks:
@@ -47,8 +56,8 @@
     - name: Check agent_bus_element_teams declares at least one team
       ansible.builtin.assert:
         that:
-          - agent_bus_element_profiles is sequence and agent_bus_element_profiles is not string
-          - agent_bus_element_profiles | length > 0
+          - agent_bus_element_declared is sequence and agent_bus_element_declared is not string
+          - agent_bus_element_declared | length > 0
         fail_msg: >-
           agent_bus_element_teams in environment/localhost/host_vars/localhost.yml must list
           the teams user_login watches, each with team and base_url. See localhost.yml.dist.
@@ -105,7 +114,7 @@
       when: "'org.freedesktop.secrets=talk' not in agent_bus_element_override.stdout"
       tags: [agent-bus-element]
 
-    - name: Write each team's Element profile and launcher
+    - name: Write each team's Element profile and launcher, and remove those of teams not declared
       become: true
       become_user: "{{ user_login }}"
       ansible.builtin.command:

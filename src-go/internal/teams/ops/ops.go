@@ -354,6 +354,36 @@ func (o *Ops) allTargets(status map[string]declare.Status) ([]string, term.ExitC
 func (o *Ops) runElementPlay(ctx context.Context, teams []string) error {
 	names := strings.Join(teams, " ")
 	o.Term.Say("Running play-agent-bus-element.yml: it installs Element Desktop (sudo) and writes the Element profile for " + names + ".")
+	if err := o.elementPlay(ctx, names+" has no Element profile yet"); err != nil {
+		return err
+	}
+	for _, team := range teams {
+		if !o.FileExists(o.ElementLauncher(team)) {
+			o.Term.PrintError("play-agent-bus-element.yml finished, but " + team + "'s Element launcher is not there.")
+			return errOpFailed
+		}
+	}
+	return nil
+}
+
+// pruneElement is the Element play after a watched team was declared absent, inside the hold:
+// the play removes the team's launcher and profile (Plan 00177 Task 11.4), and the launcher
+// must then be gone.
+func (o *Ops) pruneElement(ctx context.Context, team string) error {
+	o.Term.Say("Running play-agent-bus-element.yml: it removes " + team + "'s Element launcher and profile.")
+	if err := o.elementPlay(ctx, team+"'s Element launcher is still in the app menu"); err != nil {
+		return err
+	}
+	if o.FileExists(o.ElementLauncher(team)) {
+		o.Term.PrintError("play-agent-bus-element.yml finished, but " + team + "'s Element launcher is still there.")
+		return errOpFailed
+	}
+	return nil
+}
+
+// elementPlay runs play-agent-bus-element.yml in the hold; left says what is left undone when
+// it does not run or fails.
+func (o *Ops) elementPlay(ctx context.Context, left string) error {
 	if err := o.checkPlay(o.Cfg.ElementPlay); err != nil {
 		o.Term.PrintError(err.Error())
 		return errOpFailed
@@ -368,18 +398,12 @@ func (o *Ops) runElementPlay(ctx context.Context, teams []string) error {
 	})
 	if err != nil && playExit(err) == playlock.ExitBusy {
 		o.Term.PrintError("play-agent-bus-element.yml did not run: it was refused the play lock (exit 75, above), which another play run took, " +
-			"so " + names + " has no Element profile yet.")
+			"so " + left + ".")
 		return errOpFailed
 	}
 	if err != nil {
-		o.Term.PrintError("play-agent-bus-element.yml failed (above), so " + names + " has no Element profile yet.")
+		o.Term.PrintError("play-agent-bus-element.yml failed (above), so " + left + ".")
 		return errOpFailed
-	}
-	for _, team := range teams {
-		if !o.FileExists(o.ElementLauncher(team)) {
-			o.Term.PrintError("play-agent-bus-element.yml finished, but " + team + "'s Element launcher is not there.")
-			return errOpFailed
-		}
 	}
 	return nil
 }
