@@ -36,7 +36,7 @@
 # One changed-plays run covers two merges.
 # Plan 00177 Task 10.4, an Esc typed just before another key is no longer lost: expected to pick
 # up play-tmux-sessions.yml (escape-time 10 in /etc/tmux.conf; tmux servers already running keep
-# the old value until restarted), play-claude-yolo.yml (CCY 3.100.25: ccy-teams, ccy-sessions
+# the old value until restarted), play-claude-yolo.yml (CCY 3.100.26: ccy-teams, ccy-sessions
 # and the tmux session picker leave on Esc then a key), play-basic-configs.yml (the Ctrl-R
 # history search), play-podfreeze.yml and play-lxcfreeze.yml (podfreeze and lxcfreeze share the
 # ui fzf screens). fzf's word editing (Esc then b, f, d or Backspace) keeps its meaning.

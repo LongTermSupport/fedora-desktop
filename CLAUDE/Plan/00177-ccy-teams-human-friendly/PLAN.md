@@ -353,7 +353,7 @@ are too, by the same route.
     and the `ui` filters keep a query being edited by word; the rule requires the other 65 keys
     (`fzfbind.EscJoined`, less `fzfbind.WordEditing`) and flags a word key bound to abort. Only
     Esc then b, f, d or Backspace within fzf's wait is still lost; the arrows stay covered.
-    The freeze golden argv re-pinned under bug 28.
+    The freeze golden argv re-pinned under bug 28. CCY 3.100.26.
   - [ ] ⬜ **Task 10.4.5**: Host re-check after the deploy and a tmux server restart: Esc and
     Down in one `tmux send-keys` close a ccy-teams row menu and move the list cursor; Esc then a
     key leaves `ccy_tmux_pick` and Ctrl-R; `tmux show -s escape-time` says 10.
