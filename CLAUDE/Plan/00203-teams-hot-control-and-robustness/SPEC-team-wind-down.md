@@ -271,20 +271,20 @@ resume does not reload a large conversation into a cold prompt cache. A compacti
 the cache is warm costs a fraction of one run after a restore, which is what `ccy-sessions set-going` does today (Plan 00135 Task 8.2: `/compact` as the first input when the context is
 at or above the floor). Draft, as section 5.
 
-- WC1. **Two ways in, one at a time.** The standard the owner asked for is a hooks-daemon
-  supervisor request: the supervisor already injects a real `/compact` at an idle moment, so a
-  wind-down request to it would serve every supervised session the same way, with no pane
-  timing. It needs an upstream change (a request the supervisor reads, filed with
-  `hooks-daemon issue-report`) and it reaches only supervised sessions: ccy's today, `cc`'s
-  after Plan 00226, and not LXC members, whose `agent-bus-claude` execs `claude` with no
-  supervisor (SPEC-lxc-connect-and-resume F3). Until every member kind is supervised, the build
-  types `/compact` through 3.14's path, which reaches every member kind now: a ccy or cc pane
-  on the host, and an LXC member's tmux session `agent-bus-claude` inside its container
-  through `lxc-attach` (SPEC-lxc-connect-and-resume F1, `winddown.go` `lxcTmux`), the route
-  wind-down already types its instruction through. A session the supervisor carries uses the
-  request once it ships; the typed path stays for the rest. Either way a compaction's end is
-  the transcript's `compact_boundary` entry (`src-go/internal/transcript`), and the supervisor
-  stands aside for a typed `/compact` (it recognises one and does not stack its own on top).
+- WC1. **A supervised session is always compacted through its supervisor** (the owner's
+  ruling: the hooks-daemon supervisor must be used whenever it is present). The supervisor
+  already injects a real `/compact` at an idle moment; a wind-down request to it does the
+  same with the wind-down instruction, with no pane timing. This needs an upstream change (a
+  request the supervisor reads, WC8, filed with `hooks-daemon issue-report`). Until it ships,
+  a supervised session is **not** compacted by typing: it is named as waiting on the
+  supervisor request and is shut down as before, never typed into behind the supervisor's
+  back. Only a session with no supervisor is typed `/compact` through 3.14's path. Today that
+  is an LXC member, whose `agent-bus-claude` execs `claude` with no supervisor
+  (SPEC-lxc-connect-and-resume F3), reached in its tmux session `agent-bus-claude` through
+  `lxc-attach` (F1, `winddown.go` `lxcTmux`); host `cc` sessions until Plan 00226 lands are
+  the other. Whether a session is supervised is read from the session, not assumed from its
+  kind. Either way a compaction's end is the transcript's `compact_boundary` entry
+  (`src-go/internal/transcript`).
 - WC2. After the wind-down instruction has been answered (or at the inner deadline, TW1), each
   open session whose context is at or above `set-going`'s floor is typed `/compact` followed by
   a fixed instruction: it is being wound down, should keep what it needs to resume the work
@@ -300,7 +300,9 @@ at or above the floor). Draft, as section 5.
   and no cold `/compact` is spent.
 - WC7. A member neither way reaches (none today: every kind has a tmux pane, on the host or in
   its container) is named as not compacted, and is shut down as before.
-- WC8. The upstream request (WC1) is filed as its own step once this section is reviewed: the
-  supervisor takes a wind-down request (a file it watches, or a signal), waits for an idle
-  moment, injects `/compact` with the given instruction, and records when it is done; the
-  typed path is then kept only for unsupervised members.
+- WC8. The upstream request (WC1) is filed first, before the build: the supervisor takes a
+  wind-down request (a file it watches, or a signal), waits for an idle moment, injects
+  `/compact` with the given instruction, and records when it is done. The typed path exists
+  only for unsupervised sessions.
+- WC9. Putting LXC members under the supervisor too (so every kind takes the same route) is
+  the owner's direction of travel; it belongs with Plan 00226, which brings `cc` under it.
