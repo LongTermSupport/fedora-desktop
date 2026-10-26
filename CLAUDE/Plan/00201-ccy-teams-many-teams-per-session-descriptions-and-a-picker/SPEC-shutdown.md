@@ -105,6 +105,11 @@ are ccy-teams' own: 0, 1 refusal or failure, 64 usage, 130 cancelled.
 
 ### Clean first
 
+Plan 00203 Task 3.16 runs SD10 to SD14 as the forced end of a timed wind-down, with its
+waits cut, a last-shutdown record written first, and two departures in that mode only (unsent
+text and the compose-stop question end in `kill-session`); 00203 Task 3.15 adds the LXC
+members and their `systemctl stop`. A change here is checked against both.
+
 - **SD10** Each session's pane is read (`capture-pane`, `screen.ClaudeState`), all sessions in
   one pass, then again every poll (1 s) until each is done:
   - **ready** (claude's prompt, input box empty): `/exit` is typed (`send-keys -l /exit`), then
