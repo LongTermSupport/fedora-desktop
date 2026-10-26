@@ -104,17 +104,20 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   mid-batch (130), the numbered-menu fallback without fzf, and sudo asking again after its
   timestamp lapses. Step 3 NOT ESTABLISHED 26-10-26: the freeze plays did not run (Task 3.6) and
   `acceptance.bash` failed on its old baseline (Task 3.4); a later run rebuilt both, failed=0.
+
 - [ ] 🔄 **Task 3.2**: `agent-bus-install` on `go-port/agent-bus-install`: spec
   `SPEC-agent-bus-install.md` on the branch; built, reviewed and its review fixed, not merged.
   It runs as root and changes behaviour (its D7), so it merges only after a host test as root
   (the branch's `ACCEPTANCE-agent-bus-install.md`): the host agent runs it through meta-deploy
   on a throwaway team, with sudo given at the run. Before spending that run, the coordinator
   checks whether Plan 00209 (agent-bus v2 in Go) has made this port moot.
+
 - [ ] 🔄 **Task 3.3**: The rest of the inventory's programmes, ranked there; the `ccy`
   launcher's port is Plan 00191's (D1-D10 defaulted there, phases 0 to 2 built, 3 to 5
   deferred by its D4/D10). Each port: a spec first, its tests first, a Fable review whose
   findings are fixed, then merged. Per-port detail, review dispositions and departures:
   [PORTS.md](PORTS.md). Status by port:
+
   - Done, merged into F44: `qa-changed`, `qa-all`, `qa-ansible`, `qa-nokill-containerwatch`,
     `qa-patterns`, `qa-python`, `qa-ansible-syntax`, `qa-bash`, `qa-discovery`,
     `qa-deployed-drift`, `qa-js`, `qa-ansible-pause`, `qa-gh-scopes`, `qa-ready-wait-rules`,
@@ -177,9 +180,14 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   baseline saved at the first deploy, so it fails (7 of 11) once containers start or stop: every
   diff was added rows only. Fix the check (the format, or the baseline rows as a subset) before
   step 3 is run again.
-- [ ] ⬜ **Task 3.5**: `lxcfreeze thaw` on a container without NetworkManager exits 1 after a
+
+- [x] ✅ **Task 3.5**: `lxcfreeze thaw` on a container without NetworkManager exits 1 after a
   thaw that succeeded (SPEC-freeze bug 19, D6). Owner decision 26-10-26: no `nmcli` is not
-  applicable, not a failure. Change the code, the golden pin and D6.
+  applicable, not a failure. Built: lxc-attach's `Failed to exec "nmcli"` (No such file)
+  becomes `freeze.DoneError`, a `✓` with its note; every other nmcli failure still fails. No
+  golden scenario pinned that message, so the golden is unchanged. Host check: the next
+  lxcfreeze thaw of a container without NetworkManager prints `✓` and exits 0.
+
 - [ ] ⬜ **Task 3.6**: `run.bash --changed` did not count `play-podfreeze.yml` and
   `play-lxcfreeze.yml` stale after their Go (`internal/ui`) changed: the staleness misses Go
   dependencies (Plan 00214's area). They were queued by name instead.

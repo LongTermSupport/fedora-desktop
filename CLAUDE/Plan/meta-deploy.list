@@ -44,3 +44,8 @@
 # play-claude-yolo.yml (CCY 3.100.27, container 2.79.10: the image rebuilds once) and
 # play-agent-bus.yml (the pingbus helper and plugin 1.5.0 on the host).
 changed-plays
+
+# Plan 00192 Task 3.5: lxcfreeze rebuilt, so a thaw of a container with no nmcli is a success
+# (a tick and a note) instead of exit 1. Named here because changed-plays misses a Go change
+# (Task 3.6).
+playbooks/imports/optional/common/play-lxcfreeze.yml
