@@ -318,9 +318,10 @@ team at a time, under a lock in the owner's runtime directory (CR4 to CR8).
   [SPEC-hot-control.md](SPEC-hot-control.md) section 9, H36-H39; the wording is Decision 22.
 - [ ] ⬜ **Task 3.20** (owner request; extends 3.14 and 3.16): each session is compacted just
   before its wind-down shutdown, while its prompt cache is warm, so the resume reloads a small
-  conversation. Typed through 3.14's path, its end read from the transcript, bounded by the
-  outer window; no hooks-daemon change. Spec:
-  [SPEC-team-wind-down.md](SPEC-team-wind-down.md) section 7, WC1-WC7.
+  conversation. Typed through 3.14's path (which reaches LXC members' tmux too), its end read
+  from the transcript, bounded by the outer window; a hooks-daemon supervisor request becomes
+  the standard way for every supervised session once filed upstream and shipped. Spec:
+  [SPEC-team-wind-down.md](SPEC-team-wind-down.md) section 7, WC1-WC8.
 
 ## Decisions
 
