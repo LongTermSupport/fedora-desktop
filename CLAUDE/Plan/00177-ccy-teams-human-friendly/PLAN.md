@@ -306,6 +306,20 @@ are Phase 12. [Full text](DONE-phases.md#phase-11-findings-of-the-host-run-of-26
   step 2. Reproduce in a pty test with the real gum (Esc, a pause, then Down as its own write),
   find why 12.3's pty test passed while the host failed and fix the test so it models the host,
   then fix the drain; type-ahead elsewhere is kept.
+  Built (code done; host check open). Cause, measured on the real gum 0.17 in a pty: the hold and
+  the flush do run (two flushes, one per question), but the confirm exits about 3 ms after the
+  Esc, the flush follows at once, and the next gum starts reading its input at once and draws
+  some 40 ms later: a Down 5 to 40 ms after the Esc arrives after the flush and before the draw,
+  and gum takes it. 12.3's pty test pressed its keys before the flush and ran no real program, so
+  it proved only that tcflush discards what is already queued. Fix: a draining screen waits
+  `settleTime` (150 ms, `ttyecho.Hold.Settle`) before it discards, then runs. Tests:
+  `ui/drain_pty_test.go` on the real gum (red 4 of 5 gaps before the fix; the plain-answer half
+  keeps type-ahead), and `ttyecho` (settle before the flush, the real 150 ms in a synctest
+  bubble, a key arriving during the settle discarded on a real pty). Left: a key pressed after
+  the 150 ms and before gum draws (its own start, about 40 ms) still reaches it.
+  Host, after meta-deploy (`play-claude-yolo.yml`), on a throwaway team: `ccy-teams remove <team>`, Esc on "Back <team> up first?", then Down as a separate send-keys 1, 5, 10, 20 and 40
+  ms later: step 2's cursor stays on "Leave it running" every time. The board after a plain
+  answer still takes a key typed while it loads.
 
 - Fact-check of this phase:
   [subagent-reports/261026-fact-check-phase12.md](subagent-reports/261026-fact-check-phase12.md).

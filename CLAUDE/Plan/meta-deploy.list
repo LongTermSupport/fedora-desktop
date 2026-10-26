@@ -33,6 +33,12 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
+# Plan 00177 Task 12.5: rebuilds ccy-teams and ccy-sessions, whose draining screens (after an Esc
+# or a No, and every question of remove, restore and End) now wait 150 ms for keys still on their
+# way before discarding them, so a Down sent just after Esc no longer reaches the next question.
+# No CCY version change (the launcher's front does not use the hold). Then Task 12.5's host check.
+playbooks/imports/play-claude-yolo.yml
+
 # Plan 00194 delivery host checks (Tasks 2.0c H1-H6, 2.0d, 2.0f), run as the desktop user; it
 # prompts for sudo once at the start. On two throwaway teams (accept194c, accept194d) and one
 # idle ccy session on both, the scripted test human `tester` posts as Element does: a mention
