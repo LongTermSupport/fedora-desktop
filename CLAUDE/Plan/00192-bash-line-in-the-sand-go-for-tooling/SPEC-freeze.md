@@ -755,6 +755,9 @@ reason); K = kept for parity; the owner's decision, if any, is in section 15.
     binds each such key (`alt-down`, `alt-enter`, `ctrl-alt-r`, ...) to abort, as Esc does
     (`project_esc_joined`, CLAUDE/GoProjectRules.md), except fzf's word editing (`alt-b`,
     `alt-f`, `alt-d`, `alt-bs`), which keeps its meaning.
+29. **F. the lxc freeze note promises a lease renewal every thaw makes** (`FREEZE_FREEZE_NOTE`
+    above): since Task 3.5 a container with no `nmcli` is thawed with no renewal, so the note now
+    says the lease is renewed where NetworkManager runs inside. Host report of 26-10-26.
 
 ---
 
