@@ -106,8 +106,6 @@ Use these Unicode icons in plan documents:
 
 - [00184-deployed-tools-menu](00184-deployed-tools-menu/) - Not Started (low priority). One launcher and panel item for the deployed user tools (#81)
 
-- [00183-prompt-shows-stale-tracking-ref](00183-prompt-shows-stale-tracking-ref/) - In Progress. The git prompt never shows up-to-date against a stale tracking ref (#52): a stale-fetch mark (`git-fetch-age`), deployed and accepted on the host; the host agent's check in a real interactive shell is left
-
 - [00182-run-bash-private-plays-and-config-clone](00182-run-bash-private-plays-and-config-clone/) - Not Started. `run.bash` runs private plays from a local clone of the config repo (#49, #97)
 
 - [00181-ccy-session-limits](00181-ccy-session-limits/) - Not Started. ccy memory limits and admission by free RAM (#67), and #61's remaining host checks
@@ -309,6 +307,8 @@ Use these Unicode icons in plan documents:
 - [004-comprehensive-feature-documentation](004-comprehensive-feature-documentation/) - Dormant (owner to keep or cancel). User documentation for the major features.
 
 ## Completed Plans
+
+- [00183-prompt-shows-stale-tracking-ref](Completed/00183-prompt-shows-stale-tracking-ref/) - The git prompt never shows up-to-date against a stale tracking ref (#52): a stale-fetch mark (`git-fetch-age`) and a prompt fetch that can never ask for a passphrase (`git-prompt-fetch`). Deployed and accepted on the host, and seen in a real interactive shell.
 
 - [00193-coral-adoption-audit](Completed/00193-coral-adoption-audit/) - Audit of the external agent-supervision project coral against ccy, ccy-sessions, ccy-teams, the agent bus and the hooks daemon. Recommendation: leave it and borrow ideas. The owner decided it is not useful here; coral goes on the repo watch list (Plan 00200).
 
