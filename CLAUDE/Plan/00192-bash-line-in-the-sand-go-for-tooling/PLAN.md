@@ -159,6 +159,11 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     agent's, H4 in the VM lab (host agent); H5's Ctrl-C mid-login leaves the host's `gh`
     accounts as it found them. H2 is the owner's (completing a GitHub device-code login for a
     real account; the script side up to the printed URL is the host agent's).
+  - `setup-rclone` (P6): ported on `go-port/setup-rclone-2` (from `go-port/setup-rclone`),
+    tests green, under review, not merged; spec [SPEC-setup-rclone.md](SPEC-setup-rclone.md).
+    Run from the checkout through the `scripts/setup-rclone.bash` wrapper, so no play deploys
+    it and nothing is queued in `meta-deploy.list`. Host checks H1-H4 are the owner's, at the
+    desktop (a real remote and the vault).
   - Still to do: the remaining programmes in [INVENTORY.md](INVENTORY.md) (account/setup tools
     after `rclone-cache-status`) and the `ccy` launcher.
 

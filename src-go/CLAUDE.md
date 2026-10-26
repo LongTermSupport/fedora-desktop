@@ -2,9 +2,9 @@
 
 One module, `github.com/LongTermSupport/fedora-desktop/src-go`, for this repository's large
 interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfreeze`,
-`lxcfreeze`, `vmtest`, `ftp-camera`, `watermark`, `wsi`, `open`, `rclone-cache-status`, `rclone-tail` and `gh-account-setup` live here; their bash
-originals are gone (`scripts/gh-account-setup.bash` stays, as the wrapper that builds and runs
-the Go command).
+`lxcfreeze`, `vmtest`, `ftp-camera`, `watermark`, `wsi`, `open`, `rclone-cache-status`, `rclone-tail`, `gh-account-setup` and `setup-rclone` live here; their
+bash originals are gone (`scripts/gh-account-setup.bash` and `scripts/setup-rclone.bash` stay, as
+the wrappers that build and run the Go commands).
 `convert` is new, with no bash original.
 
 ## Layout
@@ -46,6 +46,10 @@ the Go command).
   vault's passphrase given to `ssh-keygen` and `ssh` through the command itself as
   `SSH_ASKPASS`, never in argv), the key's upload and the SSH check, and gh's active account
   put back however the run ends; `github_accounts` read from `host_vars` as YAML.
+- `internal/setuprclone/` — the `setup-rclone` command (spec `SPEC-setup-rclone.md`, E1-E23):
+  rclone's wizard in the foreground, the rclone configuration vaulted by `ansible-vault` from
+  its stdin, `rclone_mounts` edited as two top-level blocks of the `host_vars` text and read
+  back as YAML before the atomic write, and the rclone play run in the checkout.
 - `internal/<package>/` — shared adapters, each behind an interface with a fake: `execx`
   (the command runner every external call goes through, and its recording `Fake`), `term`
   (exit codes, error printing), `ui` (gum and fzf prompts), `sudo`, `systemd`, `tmuxccy`,
@@ -257,9 +261,10 @@ built with `go_command_static: true` (`CGO_ENABLED=0`) because it runs in other 
 `git-prompt-fetch` are installed root-owned
 in `/usr/local/bin` (`go_command_owner: root`; only that copy runs as root). Each binary lands
 at its old path. A new deployed command takes a row in
-`scripts/go-binary-suites.tsv`. `gh-account-setup` is not deployed: it runs from the checkout
-before any play, so `scripts/gh-account-setup.bash` builds it there (`run_go_command` in
-`scripts/lib/go-tool.bash`, the same flags) and execs it, so a signal sent to the wrapper reaches it. Never
+`scripts/go-binary-suites.tsv`. `gh-account-setup` and `setup-rclone` are not deployed: they run from the
+checkout (before any play, and to edit its `host_vars`), so `scripts/gh-account-setup.bash` and
+`scripts/setup-rclone.bash` build them there (`run_go_command` in
+`scripts/lib/go-tool.bash`, the same flags) and execs it, so a signal sent to a wrapper reaches its command. Never
 install a binary by hand: the play is the only route
 ([InfrastructureAsCode.md](../CLAUDE/InfrastructureAsCode.md)).
 
