@@ -329,6 +329,27 @@ are too, by the same route.
 - [ ] ⬜ **Task 10.3**: The host agent drives `ccy-teams` in tmux again: from `~`, the team and
   person menus say Start is unavailable; Esc from a menu then Down pressed quickly shows no
   `^[[B`.
+- [ ] ⬜ **Task 10.5**: Host check of the gum decision below, after the `escape-time` 10
+  deploy and a tmux server restart: in a ccy-teams gum confirm (the take-down "Back up first?"
+  will do), Esc then Down sent as two `tmux send-keys` calls 20 ms apart answers No and leaves;
+  the same in a gum choose and a gum input cancels. Only both keys in one `send-keys` call may
+  still lose the Esc.
+
+#### Open owner decisions (Task 10.4, an Esc joined to the key after it)
+
+- **gum prompts** (decided by delegated review on the owner's instruction: **keep gum**,
+  option c). About 38 call sites (Confirm, Choose, Input, and the Style/Box/Explain that read no
+  key), all through `internal/ui/ui.go`, lose the Esc only of a one-write `\e\e[B`; gum honours
+  Esc then Down 20 ms apart. With tmux `escape-time` 10 a one write needs two keys inside 10 ms,
+  which no person types and no plain terminal joins; only a `tmux send-keys` with both keys, or
+  a paste, reaches it. Judged site by site, nothing destructive is behind a lost Esc: the only
+  deletion makes the person type the team's name, coordinator takeover and Element consent
+  default to No, the fate menu starts on the safe row, and every write sits behind sudo's
+  password. gum is called from Go only, so the bash-limits rule is not breached. Replacing it
+  (Bubble Tea v2 joins Esc the same way, so it would repeat the fzf binding work) buys no
+  reachable gain. Standing condition: a destructive gum confirm defaults to No or sits behind a
+  typed name. Revisit if Task 10.5 shows gum losing an Esc from keys typed apart. Analysis: the
+  10-26 journal decision entry.
 
 ## Success Criteria
 
