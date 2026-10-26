@@ -15,6 +15,13 @@ the index, not the record.
 
 ---
 
+## 1.34.0 — a busy play lock is waited for, not refused at once (Plan 00201 Task 2.19)
+
+When another play run holds the shared play lock, run.bash says who holds it and waits up to
+30 minutes for it (`python3 -m helpers.play_lock.lock wait`, on run.bash's own descriptor),
+then goes ahead, or exits 75 as before if it is still held. `FEDORA_DESKTOP_PLAY_LOCK_WAIT`
+(seconds) changes the bound.
+
 ## 1.33.1 — a consumer box is never offered a GitHub issue (Plan 00228)
 
 `--consumer` on a developer box is refused before anything runs (no dnf, no git pull). On a

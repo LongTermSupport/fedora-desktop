@@ -199,6 +199,86 @@ class TestTwoHolders(unittest.TestCase):
                 os.close(waiter)
 
 
+class TestWaitFor(unittest.TestCase):
+    """`wait` takes the lock on a descriptor run.bash opened (Plan 00201 Task 2.19): bounded,
+    naming the holder, then exit 75 as before. flock belongs to the open file description, so
+    a hold taken through the inherited descriptor stays with run.bash after this exits."""
+
+    def test_a_free_lock_is_taken_at_once_and_says_nothing(self) -> None:
+        with _RuntimeDir() as rt:
+            fd = lock.open_lock(rt, UID, GID)
+            err = io.StringIO()
+            try:
+                self.assertEqual(lock.wait_for(fd, 60, err), lock.EXIT_OK)
+                self.assertEqual(err.getvalue(), "")
+            finally:
+                os.close(fd)
+
+    def test_it_waits_naming_the_holder_and_goes_ahead_when_it_lets_go(self) -> None:
+        with _RuntimeDir() as rt:
+            holder = lock.open_lock(rt, UID, GID)
+            waiter = lock.open_lock(rt, UID, GID)
+            now = [0.0]
+            released = []
+
+            def sleep(seconds: float) -> None:
+                now[0] += seconds
+                if now[0] >= 5 and not released:
+                    os.close(holder)
+                    released.append(True)
+
+            err = io.StringIO()
+            try:
+                self.assertTrue(lock.acquire(holder))
+                lock.write_note(holder, "ccy-teams apply")
+                code = lock.wait_for(waiter, 1800, err, sleep=sleep, clock=lambda: now[0])
+                self.assertEqual(code, lock.EXIT_OK)
+                self.assertIn("waiting up to 30 minutes", err.getvalue())
+                self.assertIn("what=ccy-teams apply", err.getvalue())
+                self.assertIn("going ahead", err.getvalue())
+            finally:
+                if not released:
+                    os.close(holder)
+                os.close(waiter)
+
+    def test_it_gives_up_at_its_bound_with_exit_75_and_the_holder(self) -> None:
+        with _RuntimeDir() as rt:
+            holder = lock.open_lock(rt, UID, GID)
+            waiter = lock.open_lock(rt, UID, GID)
+            now = [0.0]
+
+            def sleep(seconds: float) -> None:
+                now[0] += seconds
+
+            err = io.StringIO()
+            try:
+                self.assertTrue(lock.acquire(holder))
+                lock.write_note(holder, "meta-deploy")
+                code = lock.wait_for(waiter, 120, err, sleep=sleep, clock=lambda: now[0])
+                self.assertEqual(code, lock.EXIT_BUSY)
+                self.assertGreaterEqual(now[0], 120)
+                self.assertIn("still held after 2 minutes", err.getvalue())
+                self.assertIn("what=meta-deploy", err.getvalue())
+            finally:
+                os.close(holder)
+                os.close(waiter)
+
+    def test_the_hold_survives_the_descriptor_the_waiter_used_being_a_duplicate(self) -> None:
+        """run.bash keeps its descriptor; the helper runs on a duplicate of it and exits.
+        The lock is the open file description's, so closing the duplicate keeps it held."""
+        with _RuntimeDir() as rt:
+            kept = lock.open_lock(rt, UID, GID)
+            other = lock.open_lock(rt, UID, GID)
+            try:
+                duplicate = os.dup(kept)
+                self.assertEqual(lock.wait_for(duplicate, 60, io.StringIO()), lock.EXIT_OK)
+                os.close(duplicate)
+                self.assertFalse(lock.acquire(other))
+            finally:
+                os.close(kept)
+                os.close(other)
+
+
 class TestHeld(unittest.TestCase):
     def test_an_inherited_held_descriptor_is_recognised(self) -> None:
         with _RuntimeDir() as rt:
@@ -291,6 +371,56 @@ class TestCli(unittest.TestCase):
             code, _out, err = self._run(["held"], {"XDG_RUNTIME_DIR": rt, lock.FD_ENV: "99999"})
             self.assertEqual(code, lock.EXIT_ERROR)
             self.assertIn(lock.FD_ENV, err)
+
+    def test_wait_takes_the_lock_on_the_given_descriptor(self) -> None:
+        with _RuntimeDir() as rt:
+            fd = lock.open_lock(rt, UID, GID)
+            other = lock.open_lock(rt, UID, GID)
+            try:
+                code, out, err = self._run(["wait", "--fd", str(fd)], {"XDG_RUNTIME_DIR": rt})
+                self.assertEqual((code, out, err), (0, "", ""))
+                self.assertFalse(lock.acquire(other))
+            finally:
+                os.close(fd)
+                os.close(other)
+
+    def test_wait_takes_its_bound_from_the_environment(self) -> None:
+        with _RuntimeDir() as rt:
+            holder = lock.open_lock(rt, UID, GID)
+            fd = lock.open_lock(rt, UID, GID)
+            try:
+                self.assertTrue(lock.acquire(holder))
+                env = {"XDG_RUNTIME_DIR": rt, lock.WAIT_ENV: "0"}
+                code, _out, err = self._run(["wait", "--fd", str(fd)], env)
+                self.assertEqual(code, lock.EXIT_BUSY)
+                self.assertIn("still held", err)
+            finally:
+                os.close(holder)
+                os.close(fd)
+
+    def test_a_bound_that_is_not_a_number_is_a_usage_error(self) -> None:
+        with _RuntimeDir() as rt:
+            fd = lock.open_lock(rt, UID, GID)
+            try:
+                env = {"XDG_RUNTIME_DIR": rt, lock.WAIT_ENV: "soon"}
+                code, _out, err = self._run(["wait", "--fd", str(fd)], env)
+                self.assertEqual(code, lock.EXIT_USAGE)
+                self.assertIn(lock.WAIT_ENV, err)
+            finally:
+                os.close(fd)
+
+    def test_wait_without_a_descriptor_is_a_usage_error(self) -> None:
+        with _RuntimeDir() as rt:
+            code, _out, _err = self._run(["wait"], {"XDG_RUNTIME_DIR": rt})
+            self.assertEqual(code, lock.EXIT_USAGE)
+
+    def test_wait_on_a_closed_descriptor_is_an_error_not_busy(self) -> None:
+        with _RuntimeDir() as rt:
+            fd = lock.open_lock(rt, UID, GID)
+            os.close(fd)
+            code, _out, err = self._run(["wait", "--fd", str(fd)], {"XDG_RUNTIME_DIR": rt})
+            self.assertEqual(code, lock.EXIT_ERROR)
+            self.assertIn("play-lock:", err)
 
     def test_root_must_name_the_user(self) -> None:
         """Root's own runtime directory is not where the user's play runs lock."""
