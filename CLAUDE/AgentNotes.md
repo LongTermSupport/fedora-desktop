@@ -92,7 +92,9 @@ bus, so this does not apply there.
 the screenshot portal or GNOME Shell for one, or opens windows on the owner's desktop for a
 check, unless the owner asked for it in that session. A check that needs the screen is the
 owner's, and the plan says so. **Why:** the portal puts a permission dialog on the screen
-the owner is working at, and a capture shows their screen; both interrupt their work.
+the owner is working at, and a capture shows their screen; both interrupt their work. The
+rule is about the owner's real desktop only: a screenshot of a test VM (the VM lab's
+`virsh screenshot`, a guest's display) is fine.
 
 ### `meta-deploy.bash` is how host runs reach the owner — keep its list exact
 
