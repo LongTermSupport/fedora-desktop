@@ -681,7 +681,8 @@ check "  to the stamp and its directory" "$OTHER_GROUP $OTHER_GROUP" "$(groups_o
 # throwaway team) put the directory back in root's group and locked ccy-teams out.
 run team --team-file "$TF"
 check "a run with no environment keeps the recorded group" "$OTHER_GROUP $OTHER_GROUP" "$(groups_of)"
-AGENT_BUS_STAMP_GROUP="$(id -gn)" run team --team-file "$TF"
+my_group="$(id -gn)"
+AGENT_BUS_STAMP_GROUP="$my_group" run team --team-file "$TF"
 check "  and AGENT_BUS_STAMP_GROUP no longer steers it" "$OTHER_GROUP $OTHER_GROUP" "$(groups_of)"
 chgrp "$(id -gn)" "$APPLIED"
 run team --team-file "$TF"

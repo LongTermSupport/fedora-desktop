@@ -219,7 +219,7 @@ m3_start() {
     command="$(printf '%q ' env "CCY_TEAMS_HOST_VARS=${M3_HOST_VARS}" "${M2_LAUNCHER}" --headless --no-restore \
         --no-supervise --teams "1@${M3_TEAM_A}" --prompt "Plan 00203 M3 acceptance" -- --input-format stream-json \
         --output-format stream-json --verbose --model haiku)" || return 1
-    command+="<$(printf '%q' "${fifo}") >$(printf '%q' "$(m3_ev session.out)") 2>$(printf '%q' "$(m3_ev session.err)")"
+    command+="$(printf '<%q >%q 2>%q' "${fifo}" "${M3_EV}/session.out" "${M3_EV}/session.err")" || return 1
     command+="; echo \"\$?\" >$(printf '%q' "$(m3_ev session.status)")"
     tmux -L ccy new-session -d -s "${M3_NAME}" -c "${PLAN_REPO_ROOT}" "${command}" || return 1
     m2_container_up "${M3_NAME}" || return 1

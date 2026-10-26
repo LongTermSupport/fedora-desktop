@@ -83,10 +83,12 @@ probe_fetchhead() {
     fact "- common git dir: ${common}"
     run "remotes" git -C "${checkout}" remote -v
     run "this worktree's own FETCH_HEAD path" git -C "${checkout}" rev-parse --path-format=absolute --git-path FETCH_HEAD
-    local rows=""
+    local rows="" size_and_time written
     for path in "${common}/FETCH_HEAD" "${common}"/worktrees/*/FETCH_HEAD; do
         [[ -e "${path}" ]] || continue
-        rows+="$(stat -c '%s bytes  %y' "${path}")  age $(((now - $(stat -c %Y "${path}")) / 60)) min  ${path}"$'\n'
+        size_and_time="$(stat -c '%s bytes  %y' "${path}")"
+        written="$(stat -c %Y "${path}")"
+        rows+="${size_and_time}  age $(((now - written) / 60)) min  ${path}"$'\n'
     done
     block "every FETCH_HEAD of the repository (0 bytes = a fetch that failed or is running)" "${rows:-(none)}"
     run "upstream of the current branch" git -C "${checkout}" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}'
