@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00228-consumer-install-without-github](00228-consumer-install-without-github/) - Not Started (owner Decisions 1-10 open). A consumer install audience for `run.bash`, attended or headless: no GitHub account, the public repo over HTTPS, and only the consumer and shared plays, chosen by an `audience` key every play declares
+
 - [00227-ccy-sessions-cold-migrate-to-another-machine](00227-ccy-sessions-cold-migrate-to-another-machine/) - Not Started (owner Decisions 1-14 open). ccy sessions and whole agent teams moved cold to another laptop by Go send and receive verbs that refuse while any member runs, host members resumed by recorded id and LXC members by `ccy --continue`
 
 - [00226-cc-runs-under-the-hooks-daemon-supervisor](00226-cc-runs-under-the-hooks-daemon-supervisor/) - Not Started (owner Decisions 5-7 open). Host `cc` sessions run under the project's hooks-daemon supervisor as ccy's do, only in a checkout Claude Code already trusts. Addresses #113
