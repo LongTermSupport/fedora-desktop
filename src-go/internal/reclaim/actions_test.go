@@ -355,7 +355,7 @@ func TestContainers(t *testing.T) {
 			" (podman system prune -f)? [y/N] ",
 		"  Podman pruned.",
 		"  podman image prune -af removes every image no container uses, not only the dangling ones: here 2 tagged"+
-			" image(s), up to 3.5GB;",
+			" image(s);",
 		"  Among them, 1 claude-yolo project image(s), each rebuilt on that project's next launch:\n"+
 			"         3.0GB  localhost/claude-yolo:proj-a\n",
 		"  Also remove all 4 unused podman image(s), tagged ones included (podman image prune -af)? [y/N] ",

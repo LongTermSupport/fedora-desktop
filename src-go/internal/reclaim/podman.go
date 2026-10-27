@@ -139,12 +139,9 @@ func firstListed(title string, lines []string) []string {
 	return out
 }
 
-func imageBytes(images []podmanImage) int64 {
-	var n int64
-	for _, i := range images {
-		n += i.Size
-	}
-	return n
+// keptDangling is how many of images are dangling yet used by a container, which the prune keeps.
+func keptDangling(images []podmanImage) int {
+	return len(slices.DeleteFunc(slices.Clone(images), func(i podmanImage) bool { return !i.dangling() || i.prunable() }))
 }
 
 func imagesSummary(images []podmanImage) (string, []string) {
@@ -152,19 +149,18 @@ func imagesSummary(images []podmanImage) (string, []string) {
 		return "0", nil
 	}
 	items := make([]sized, 0, len(images))
-	var dangling []podmanImage
+	dangling := 0
 	for _, i := range images {
 		items = append(items, sized{i.Size, i.name()})
 		if i.dangling() {
-			dangling = append(dangling, i)
+			dangling++
 		}
 	}
-	line := fmt.Sprintf("    Dangling (<none>): %d", len(dangling))
-	if len(dangling) > 0 {
-		line += ", " + rclonecache.IEC(imageBytes(dangling))
+	line := fmt.Sprintf("    Dangling (<none>): %d", dangling)
+	if kept := keptDangling(images); kept > 0 {
+		line += fmt.Sprintf(", %d of them used by a container and kept by the prune", kept)
 	}
-	head := fmt.Sprintf("%d, %s summed (a layer shared by several images is counted in each)",
-		len(images), rclonecache.IEC(imageBytes(images)))
+	head := fmt.Sprintf("%d, total size not known: podman system df could not run, and images share layers", len(images))
 	return head, append([]string{line}, firstListed("    Largest %d:", sizedLines(items))...)
 }
 
@@ -303,12 +299,15 @@ func (r *run) podmanPartialPrune(ctx context.Context, out string, everything boo
 // when it failed.
 func (r *run) pruneDangling(ctx context.Context, images []podmanImage) (bool, bool) {
 	dangling := slices.DeleteFunc(slices.Clone(images), func(i podmanImage) bool { return !i.prunable() })
+	if kept := keptDangling(images); kept > 0 {
+		r.say(fmt.Sprintf("  %d dangling podman image(s) are used by a container and are kept by the prune.", kept))
+	}
 	if len(dangling) == 0 {
 		r.okLine("  No dangling podman image to prune.")
 		return false, true
 	}
-	if !r.confirm(ctx, fmt.Sprintf("  Prune the %d dangling (<none>) podman image(s) no container uses, up to %s (%s)?",
-		len(dangling), rclonecache.IEC(imageBytes(dangling)), podmanDanglingPrune.Line())) {
+	if !r.confirm(ctx, fmt.Sprintf("  Prune the %d dangling (<none>) podman image(s) no container uses (%s)?",
+		len(dangling), podmanDanglingPrune.Line())) {
 		r.say("  Skipped " + podmanDanglingPrune.Line() + ".")
 		return false, true
 	}
@@ -353,8 +352,8 @@ func (r *run) offerUnused(ctx context.Context, images []podmanImage) bool {
 		return true
 	}
 	r.warn(fmt.Sprintf("  %s removes every image no container uses, not only the dangling ones: here %d tagged"+
-		" image(s), up to %s; each is pulled or rebuilt when it is next needed.",
-		podmanUnusedPrune.Line(), len(tagged), rclonecache.IEC(imageBytes(tagged))))
+		" image(s); each is pulled or rebuilt when it is next needed.",
+		podmanUnusedPrune.Line(), len(tagged)))
 	if len(yolo) > 0 {
 		r.say(fmt.Sprintf("  Among them, %d claude-yolo project image(s), each rebuilt on that project's next launch:", len(yolo)))
 		for _, l := range sizedLines(yolo) {

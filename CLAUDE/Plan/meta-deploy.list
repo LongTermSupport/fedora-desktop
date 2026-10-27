@@ -34,10 +34,14 @@
 # that is not an entry is a fatal error naming its line number.
 
 # The plays changed since they last ran here. Expected: play-AA-preflight-sanity.yml (Plan
-# 00228: a consumer install refuses a non-graphical default target) and
-# play-speech-to-text.yml (Plan 00228: wsi-claude-process says plainly that Claude
-# post-processing needs the developer install when claude is absent; plain dictation is
-# unchanged). Nothing else should run.
+# 00228: a consumer install refuses a non-graphical default target), play-speech-to-text.yml
+# (Plan 00228: wsi-claude-process says plainly that Claude post-processing needs the developer
+# install when claude is absent; plain dictation is unchanged) and play-cli-tools.yml (Plan
+# 00192: reclaim 2.0.4, whose podman summary gives no summed image size, saying the total is
+# not known, and says how many dangling images a container uses and the prune keeps). The host
+# agent then reruns reclaim H1's Podman section (no summed size; the dangling count and the
+# prune question agree or differ by the stated number kept) and option 6 answering No to every
+# question, with nothing run.
 changed-plays
 
 # Plan 00228: the consumer install, re-proved after the final review's fixes. deploy.bash runs

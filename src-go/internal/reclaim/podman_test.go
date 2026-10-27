@@ -53,8 +53,8 @@ const volumesJSON = `[{"Name":"vol-l"},{"Name":"vol-b"},{"Name":"vol-a"},{"Name"
 
 // storageSummary is E7a's summary of imagesJSON, containersJSON and volumesJSON.
 var storageSummary = []string{
-	"  Images (podman images --format json): 5, 5.7GB summed (a layer shared by several images is counted in each)\n" +
-		"    Dangling (<none>): 2, 200MB\n    Largest 5:\n" +
+	"  Images (podman images --format json): 5, total size not known: podman system df could not run, and images share layers\n" +
+		"    Dangling (<none>): 2\n    Largest 5:\n" +
 		"         3.0GB  localhost/claude-yolo:proj-a\n         2.0GB  localhost/claude-yolo:proj-b\n" +
 		"         512MB  quay.io/example/tool:1\n         100MB  <none> dddddddddddd\n         100MB  <none> eeeeeeeeeeee\n",
 	"  Containers (podman ps --all --size --format json): 2\n    Largest 2 by writable layer:\n" +
@@ -158,7 +158,7 @@ func TestReportPodmanPartialEmpty(t *testing.T) {
 	w.answer([]string{"podman", "ps"}, "[]", 0)
 	w.answer([]string{"podman", "volume", "ls"}, "[]\n", 0)
 	wantCode(t, w.run("report"), term.ExitFailure)
-	w.wantOut("  Images (podman images --format json): 1, 1.0KB summed (a layer shared by several images is counted in each)\n"+
+	w.wantOut("  Images (podman images --format json): 1, total size not known: podman system df could not run, and images share layers\n"+
 		"    Dangling (<none>): 0\n    Largest 1:\n         1.0KB  a:1\n",
 		"  Containers (podman ps --all --size --format json): 0\n  Volumes (podman volume ls --format json): 0\n")
 }
@@ -179,10 +179,10 @@ func TestContainersPodmanPartial(t *testing.T) {
 	w.wantErr(storageSummary...)
 	w.wantErr("  podman system prune is not offered: podman could not read all of its storage, and the prune"+
 		" removes stopped containers, which may be what still holds that volume.\n",
-		"  Prune the 2 dangling (<none>) podman image(s) no container uses, up to 200MB (podman image prune -f)? [y/N] ",
+		"  Prune the 2 dangling (<none>) podman image(s) no container uses (podman image prune -f)? [y/N] ",
 		"  Dangling podman images pruned.\n",
 		"  podman image prune -af removes every image no container uses, not only the dangling ones: here 2 tagged"+
-			" image(s), up to 3.5GB; each is pulled or rebuilt when it is next needed.\n"+
+			" image(s); each is pulled or rebuilt when it is next needed.\n"+
 			"  Among them, 1 claude-yolo project image(s), each rebuilt on that project's next launch:\n"+
 			"         3.0GB  localhost/claude-yolo:proj-a\n"+
 			"  and 1 other tagged image(s).\n"+
@@ -224,10 +224,25 @@ func TestContainersPodmanPartialNothingToPrune(t *testing.T) {
 		`{"Id":"y","Size":1024,"Containers":1}]`, 0)
 	w.typed("6", "q")
 	wantCode(t, w.run(), term.ExitOK)
-	w.wantErr("  No dangling podman image to prune.", "  No other podman image is unused: nothing more to remove.")
+	w.wantErr("  1 dangling podman image(s) are used by a container and are kept by the prune.\n",
+		"  No dangling podman image to prune.", "  No other podman image is unused: nothing more to remove.")
 	if got := w.changes(); len(got) != 0 {
 		t.Errorf("changes %v", got)
 	}
+}
+
+// E7a, E22a: a dangling image a container uses is counted apart in the report, and the prune
+// question says it is kept, so the two counts agree.
+func TestPodmanDanglingUsedByContainer(t *testing.T) {
+	w := unreadableVolume(t)
+	w.answer([]string{"podman", "images"}, `[{"Id":"x","Size":1024,"Containers":0},`+
+		`{"Id":"y","Size":1024,"Containers":1},{"Id":"z","Size":1024,"Containers":3}]`, 0)
+	w.answer([]string{"podman", "image", "prune"}, "", 0)
+	w.typed("6", "n", "q")
+	wantCode(t, w.run(), term.ExitOK)
+	w.wantErr("    Dangling (<none>): 3, 2 of them used by a container and kept by the prune\n",
+		"  2 dangling podman image(s) are used by a container and are kept by the prune.\n",
+		"  Prune the 1 dangling (<none>) podman image(s) no container uses (podman image prune -f)? [y/N] ")
 }
 
 // E22a: when the image list cannot be read either, nothing is offered.

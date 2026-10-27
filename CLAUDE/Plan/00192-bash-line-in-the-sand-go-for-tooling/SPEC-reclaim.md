@@ -53,7 +53,7 @@ owner:
 ### Command line
 
 - E1. `reclaim` opens the menu; `reclaim report` prints the report; `-h`/`--help` prints the
-  usage on stdout and exits 0; `--version` prints `reclaim 2.0.3` on stdout and exits 0.
+  usage on stdout and exits 0; `--version` prints `reclaim 2.0.4` on stdout and exits 0.
 - E2. Any other argument, or a second argument, is `reclaim: unknown argument: <arg> — see 'reclaim --help'.` on stderr, exit 64. Every error line is `reclaim: <text>` on stderr.
 
 ### The report
@@ -93,8 +93,8 @@ owner:
   no volume says so. Then a summary of `podman images`, `podman ps --all --size` and
   `podman volume ls`, each read as `--format json` (none opens a volume's data), each on a line
   `  <Title> (<command>): <summary>`, never the raw listing (a host has hundreds of images):
-  images, their count and summed size (a shared layer counted in each),
-  `    Dangling (<none>): <n>[, <size>]` (no name, or podman's `Dangling`), and the largest ten,
+  images, their count and `total size not known: podman system df could not run, and images share layers` (no summed size: it counts a shared layer in each image, and on a real host equals the whole disk; podman's image JSON carries no per-layer sizes to count each layer once),
+  `    Dangling (<none>)[: <n>][, <k> of them used by a container and kept by the prune]` (no name, or podman's `Dangling`), and the largest ten,
   `      <size, right-aligned to 8>  <name, or <none> and the short id>`; containers, their
   count and the largest ten by writable layer, `<name> (<state>)`; volumes, their count (`not sized, since sizing a volume opens its data`) and the first ten by name. A kind with more than
   ten adds `    and <n> more`; a kind with none is `0`. A listing that fails, or whose output is
@@ -108,7 +108,7 @@ owner:
 
 - E9. The menu needs a terminal: stdin a terminal and `/dev/tty` opened. Otherwise
   `reclaim: needs an interactive terminal; run 'reclaim report' for a non-interactive summary.`, exit 1.
-- E10. The header is a heading `reclaim` with the context `<hostname> · v2.0.3`, then the
+- E10. The header is a heading `reclaim` with the context `<hostname> · v2.0.4`, then the
   filesystem lines indented by two spaces, then the journal line. It is drawn when the menu
   opens and again on `r`.
 - E11. The menu lists, under `Analyse`, `Reclaim (destructive — each confirms first)` and
@@ -168,7 +168,7 @@ owner:
   `  Prune stopped containers, dangling images and unused networks; no volume and no tagged image (podman system prune -f)?`; yes runs it (never `-a`, B16). Then, whatever the answer,
   `podman images --format json` is read and every image no container uses is a second,
   separate question, default no: when a tagged one is among them,
-  `  podman image prune -af removes every image no container uses, not only the dangling ones: here <n> tagged image(s), up to <size>; each is pulled or rebuilt when it is next needed.`,
+  `  podman image prune -af removes every image no container uses, not only the dangling ones: here <n> tagged image(s); each is pulled or rebuilt when it is next needed.`,
   then the claude-yolo project images (`localhost/claude-yolo:<project>`) among them, each
   rebuilt on that project's next launch, listed largest first as E7a lists, and
   `  and <n> other tagged image(s).`, then `  Also remove all <n> unused podman image(s), tagged ones included (podman image prune -af)?`; yes runs it (`  Unused podman images removed.`, or
@@ -188,7 +188,7 @@ owner:
   (`  podman system prune is not offered: ...`): it removes stopped containers, podman could not
   see all of its storage, and a stopped container may be what still holds that volume. Only
   image prunes are offered, which neither read nor remove a volume: first
-  `  Prune the <n> dangling (<none>) podman image(s) no container uses, up to <size> (podman image prune -f)?` (`  No dangling podman image to prune.` and no question when there is none);
+  `  Prune the <n> dangling (<none>) podman image(s) no container uses (podman image prune -f)?` (`  No dangling podman image to prune.` and no question when there is none); when <k> dangling images are used by a container, which the prune keeps, `  <k> dangling podman image(s) are used by a container and are kept by the prune.` is said first, so the report's count and the question's differ by exactly <k>;
   yes runs it (`  Dangling podman images pruned.`, or `  podman image prune reported an error.`
   and a failed action, with no second question); no is `  Skipped podman image prune -f.`.
   Then E22's question of every unused image, from the list just shown (less the dangling images
@@ -346,7 +346,7 @@ sweep's steps.
 Proven only on the host, after `play-cli-tools.yml` (tag `disk-reclaim`) has run:
 
 - H1 (host agent). `~/.local/bin/reclaim` is an ELF; `reclaim --version` prints
-  `reclaim 2.0.3`; `reclaim report` prints its four sections with real figures and exits 0, or
+  `reclaim 2.0.4`; `reclaim report` prints its four sections with real figures and exits 0, or
   1 naming on stderr what it could not read.
 - H2 (host agent, tmux). The menu in a tmux pane, driven by `send-keys` and read with
   `capture-pane`: `1` on a small directory opens ncdu and `q` returns to the menu; `2` lists
