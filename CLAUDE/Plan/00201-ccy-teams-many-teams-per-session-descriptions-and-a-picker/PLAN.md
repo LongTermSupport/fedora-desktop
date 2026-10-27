@@ -3,15 +3,13 @@
 **Status**: In Progress. M1-M7 built and deployed; the automated two-team acceptance last
 passed on the host at F44 cab255ad4 (commit d2612e8d7), with Tasks 2.21 to 2.23's checker
 fixes. The relay task 2.8 is superseded; Tasks 2.11, 2.12, 2.15, 2.17 and 2.18 are carried by
-Plan 00209. Left for workers: Task 2.28 (play runs ignore `CCY_TEAMS_HOST_VARS`), a scripted test human for the Element checks, and the
-final qa-reviewer. Left for the host agent: the interactive checks of
-[ACCEPTANCE-owner.md](ACCEPTANCE-owner.md) driven through tmux (Tasks 2.7, 2.12 check 11,
-2.14, 2.15 step 13) and Task 2.20's `ccy-teams lxc-add` of the member refused before; the
-Morning start's interactive seat chooser (steps 5 and 6, the seat and role questions) runs on two
-throwaway teams that [chooser-teams-up.bash](chooser-teams-up.bash) leaves up and
-[chooser-teams-down.bash](chooser-teams-down.bash) purges, checking their firewalld rules gone. Left for
-the owner: nothing a check needs; only signing in to Element with the owner's own account, if
-the owner wants that session.
+Plan 00209. The host agent ran ACCEPTANCE-owner.md on throwaway teams at F44 d247e4b2f
+(27-10-27): steps 01-07, 09, 10, 12 and 13 and Task 2.20 PASS. Left for workers: Task 2.29
+(step 12's exit and seat state) and the final qa-reviewer. Left for the host agent: steps 03,
+10 and 13 again on [chooser-teams-up.bash](chooser-teams-up.bash)'s teams, after Task 2.28's
+fix is deployed. Left for the owner: step 08's consent No/Yes (the record is outside the
+repository, which the host agent may not rename) and check 11 (a real password paste at the
+owner's screen).
 **Created**: 2026-10-15
 **Owner**: joseph
 **Priority**: High
@@ -99,6 +97,11 @@ a repository is no longer offered for a checkout of it. Report:
   `human password`, the sender logging in with it; never the owner's account). Check 03 (homeserver start times unchanged) becomes a scripted leg of
   `_acceptance-m7.inc.bash` (a worker). Check 10 (remove the added scope) has nothing to remove
   when the checks ran on throwaway teams.
+  Host, 27-10-27 at F44 d247e4b2f, on throwaway teams made by `ccy-teams create` (the
+  chooser-teams-up teams stopped at step 03 on Task 2.28): 01-07, 09 and 10 PASS (06 judged on
+  the bus, not in Element; 10 through Edit settings). 08 PARTIAL: `cc --teams` and its host seats
+  pass; the consent No/Yes is the owner's (`~/.config/pingbus/element-accepted` is outside the
+  repository). Step 05's doc text `👥 A,B` is out of date (the line names each seat): Task 2.29.
 
 - [ ] ❌ **Task 2.8**: superseded by Plan 00209 D4 (relay mode deferred to v2). [Full text](DONE-tasks.md).
 
@@ -133,8 +136,10 @@ a repository is no longer offered for a checkout of it. Report:
   member. Local only: nothing on the bus. Deployed at F44 c3391ba9 (play-claude-yolo.yml);
   left: check 12 of ACCEPTANCE-owner.md, the host agent's (a throwaway team with two ccy
   sessions in tmux, `ccy-teams shutdown <team>` from a pane, the released-seat lines read back).
+  Host, 27-10-27: PASS (both sessions, one mid-turn, "exited cleanly; seats … released", no
+  stopped or failed line, the team still up), with two defects: Task 2.29.
 
-- [ ] 🔄 **Task 2.15**: a team's settings from ccy-teams (the owner: "a single update config
+- [x] ✅ **Task 2.15**: a team's settings from ccy-teams (the owner: "a single update config
   thing … that then opens a pane that then has all of the different things editable"), branch
   `feat/team-settings`, CCY 3.99.12.5 / container 2.77.4 (helpers/agent_bus is in the image). A removed person
   is recorded in `removed_humans` and the team file refuses the name for good (S-F14, Fable's
@@ -151,6 +156,9 @@ a repository is no longer offered for a checkout of it. Report:
   with the test human's token).
   Report: `subagent-reports/261016-team-settings-opus.md`.
   Plan 00209 carries this as an expectation ("Requirements carried from other plans").
+  Host, 27-10-27: check 13 PASS (heading, fields, fixed fields and their reasons, the path limit
+  refusal and re-ask, Discard, Description saved with one play and no homeserver restart; the
+  topic read through `pingbus status`'s ABOUT, not in Element).
 
 - [ ] ❌ **Task 2.16**: folded into Plan 00209: renaming a team. [Full text](DONE-tasks.md).
 
@@ -160,7 +168,7 @@ a repository is no longer offered for a checkout of it. Report:
 
 - [x] ✅ **Task 2.19**: run.bash waits on the play lock (run.bash 1.34.0). [Full text](DONE-tasks.md).
 
-- [ ] 🔄 **Task 2.20**: `ccy-teams lxc-add` asked three times over "entries 5 and 6 both
+- [x] ✅ **Task 2.20**: `ccy-teams lxc-add` asked three times over "entries 5 and 6 both
   declare <user>@<container>" for a member an earlier run had declared (branch
   `fix/lxc-add-already-declared`, CCY 3.99.15.5 / container 2.78.18, the image's declare.py).
   DBF class: a declare.py refusal read by its type and not its kind, so a refusal of the
@@ -197,6 +205,9 @@ a repository is no longer offered for a checkout of it. Report:
   that it says the member is declared already and applies after one yes. Reports:
   `subagent-reports/261022-lxc-add-*.md`.
 
+  Host, 27-10-27 on a throwaway LXC: PASS (already declared: one yes, then the apply; a
+  differing role is named with Update or Stop). A deliberate Stop exits 1: Task 2.29.
+
 - [x] ✅ **Task 2.21**: M7's checker copied seat.py's guard; `checker-copies-cited-constant` built. [Full text](DONE-tasks.md).
 
 - [x] ✅ **Task 2.22**: the other plans' copies converted; its referrals decided as coordinator defaults. [Full text](DONE-tasks.md).
@@ -225,7 +236,7 @@ a repository is no longer offered for a checkout of it. Report:
 
 - [x] ✅ **Task 2.23**: the container wait no longer counts an image build; Task 2.22's conversion recorded. [Full text](DONE-tasks.md).
 
-- [ ] ⬜ **Task 2.28**: `CCY_TEAMS_HOST_VARS` is honoured half-way: ccy-teams writes a team's
+- [x] ✅ **Task 2.28**: `CCY_TEAMS_HOST_VARS` is honoured half-way: ccy-teams writes a team's
   change into that file, but `runPlay` (`src-go/internal/teams/ops/ops.go`) runs
   `play-agent-bus.yml` with only `-e agent_bus_only_teams`, so the play reads the default
   host_vars and fails its assert, and the launch then says the team is "not applied" (host
@@ -233,6 +244,21 @@ a repository is no longer offered for a checkout of it. Report:
   changes where ccy-teams writes must change what it applies too, or be refused. Make every play
   run use the same host_vars ccy-teams wrote (or refuse an override the play cannot read), test
   first; sweep for any other reader of the default path that ignores the override.
+  Built (branch `fix/00201-host-vars-override`, bc8c860f2): with `CCY_TEAMS_HOST_VARS` set,
+  ccy-teams hands it to `play-agent-bus.yml` and `play-agent-bus-element.yml` as
+  `-e @<file>`, before the scope; with the default host_vars the plays run as before. A key the
+  override leaves out is still read from the inventory's host_vars (the override is for test
+  suites and harnesses). Report: `subagent-reports/261027-task-2-28.md`. Host: after
+  `play-claude-yolo.yml`, steps 03, 10 and 13 on chooser-teams-up's teams apply the team.
+
+- [ ] ⬜ **Task 2.29**: The host run of 27-10-27 found: (a) `ccy-teams shutdown` exits 1,
+  "failed", only because a cc host seat whose session had already ended is listed as "not
+  reachable from here"; a seat with no running session is nothing to shut down and must not
+  fail the run. (b) After the shutdown the seat rows read STATE `active`, SESSION `-`, never
+  `free` as ACCEPTANCE-owner step 12 says: make the board and the step agree (a released seat
+  should read as free, or the step says what it shows). (c) A deliberate Stop at lxc-add's
+  "Update entry / Stop" exits 1; a person's cancel should exit as a cancel, not a failure.
+  (d) ACCEPTANCE-owner step 05 still says `👥 A,B`; the line names each seat. Tests first.
 
 ## Success Criteria
 

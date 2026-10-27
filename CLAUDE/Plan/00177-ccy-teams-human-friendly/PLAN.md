@@ -113,13 +113,16 @@ started apart from the board; host PASS 26-10-26.
   Diagnosis: `subagent-reports/261015-room-access-diagnosis-opus.md`; the report
   `261015-create-signin-gap-sonnet.md`. Built test first and deployed; the owner's test is
   Task 7.5.
-- [ ] ⬜ **Task 7.5**: The host agent tests Phase 7 on the host, in tmux. Nothing to deploy (all of it is in
+- [x] ✅ **Task 7.5**: The host agent tests Phase 7 on the host, in tmux. Nothing to deploy (all of it is in
   the deployed `ccy-teams` and CCY). Tasks 7.1 and 7.2: Plan 00201's ACCEPTANCE-owner.md steps
   3, 5 and 6. Task 7.4: with a team where a person has never signed in to Element, run
   `ccy-teams apply <team>` in a terminal; after the apply it offers that person the sign-in.
   Host run 26-10-26 (throwaway team): 7.2's quick launch, the seat question, status line and
   `pingbus status`, and 7.4 PASS (the apply path does not offer Element after the password:
   an observation). Still open: step 5 FAILS (Task 11.1), and the launch block is missing (11.2).
+  Host run 27-10-27 (throwaway teams, after 11.1 and 11.2): steps 3, 5 and 6 PASS (the Quick
+  Launch Team line, the seat and role questions with Keep as is, the launch block and the
+  status line naming both seats).
 
 ### Phase 9: Add an LXC container to a team from ccy-teams, no hand edit of localhost.yml
 
@@ -160,6 +163,21 @@ are too, by the same route.
   builds the new `ccy-teams`): `ccy-teams lxc-add <team>` for a real container.
   PARTIAL 26-10-26: container, user and checkout questions and Esc pass on a throwaway; the
   rest needs a prepared container (no play makes its user, checkout or gh login). Finding: 11.3.
+  27-10-27 on a throwaway Ubuntu LXC (user and a checkout made as test set-up): container list,
+  user, checkout suggestion, role, review box, the save and the apply all PASS; the join stops
+  at members.py's "gh is required and must be logged in" (78) and lxc-add says "declared … but
+  not joined". Left for the owner: gh installed and logged in, in a real container; then the
+  join, the agent start and its pingbus check. Finding: Task 9.9.
+- [ ] ⬜ **Task 9.9**: A member lxc-add declared that never joined (no bundle, as when gh is
+  missing) cannot be taken off: after `declare lxc-remove` (state: absent, the board's own
+  hint), `ccy-teams remove <team>` fails in "Take the LXC members declared absent off their
+  teams" with 78, "no bundle in the container names its handle, and the entry leaves out its
+  host or seat" (`members.py` `_absent_one`); lxc-add never writes host or seat, and
+  `lxc-add --update` refuses once the team is absent. The team is left declared absent but
+  running, and every `play-agent-bus.yml` run is blocked by a throwaway member (host agent,
+  27-10-27; it got through by stopping the container). Fix test first: lxc-add records the
+  derived host and seat on the entry, or the absent path parks a never-joined member by
+  derivation (nothing to park when no bundle was ever made).
 - [x] ✅ **Task 9.6**: The review of `lxc-add` answered, F1 to F9.
   [Full text](DONE-phases.md#phase-9-the-done-tasks-96-to-98).
 - [x] ✅ **Task 9.7**: The handle is derived from the repository (`helpers/agent_bus_lxc/derive.py`),

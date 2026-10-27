@@ -207,7 +207,7 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   lxcfreeze, which the stale list before the run (play files only) did not name; afterwards
   nothing is stale. Its reasons never name a src-go package: Task 3.8.
 
-- [ ] 🔄 **Task 3.7**: Inputs the play text cannot show, found by Task 3.6's independent search
+- [x] ✅ **Task 3.7**: Inputs the play text cannot show, found by Task 3.6's independent search
   and outside `play-input-dropped`: `helpers/github_scopes/cli.py` reads
   `vars/github-required-scopes.yml` through `__file__`, so `play-github-cli-multi.yml` does not
   rerun when the required scopes change (class: a helper the play runs reads a checkout file
@@ -220,9 +220,12 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   programs a play runs read: a helper's `__file__` paths and literal checkout paths
   (`helpers/self_update/not-play-inputs.json` lists the names that are not reads), a bash input's sourced library, and the
   Go command it builds with `run_go_tool`/`run_go_command`, with the checkout files that names.
-  Report `subagent-reports/261027-task-3-7.md`. Awaiting merge.
+  Report `subagent-reports/261027-task-3-7.md`. Merged into F44 (daf53f21c); the helpers run
+  from the checkout, so no host run is needed. Helpers are judged a package at a time, so the
+  gnome plays rerun when `vars/fedora-version.yml` changes though no module they run reads it:
+  it errs towards a rerun, never a miss (coordinator default, accepted).
 
-- [ ] 🔄 **Task 3.8**: `run.bash --changed` gives a play made stale by Go packages alone no
+- [x] ✅ **Task 3.8**: `run.bash --changed` gives a play made stale by Go packages alone no
   reason a person can read: its reasons list names play files and `play-golang.yml`, never the
   src-go package path (host, 27-10-26). Name the changed package(s), or the command they build,
   in the reason, test first. Fixed on `fix/00192-changed-reasons-go`: the mapper records which
@@ -234,6 +237,10 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   The login report already used the same judgement; the stale list the host saw names no Go
   path, which only the pre-3.6 mapper gives, so it was collected (hourly timer) before the merge. Report `subagent-reports/261027-task-3-8.md`. Host check: the next
   `run.bash --changed` after a Go-only change names the package and its command for each play.
+  Host, 27-10-27 at d247e4b2f: before the run and in `--changed`'s own output, claude-yolo's
+  reason read "changed Go packages: src-go/internal/teams/choose, …/hot, …/roles (built into
+  ccy-teams)" beside its other paths. No play was stale from Go alone that run, so the Go line's
+  own place was shown, not the Go-alone case; the formatter's tests cover that.
 
 ### Phase 4: Review
 
