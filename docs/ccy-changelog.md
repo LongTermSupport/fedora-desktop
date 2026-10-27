@@ -27,6 +27,16 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.100.34 — container 2.79.15
+
+Follows 3.100.33 (container 2.79.15). Plan 00201 Task 2.31. The image does not change.
+
+- **`CCY_TEAMS_HOST_VARS` reaches the session's launcher.** A test harness that points
+  ccy-teams at a host_vars of its own exports it; ccy's move into tmux carried only the GitHub
+  token hand-off, so the launcher inside the session ran `ccy-teams describe-seats --block`
+  against the default host_vars and lost the harness teams' descriptions from the launch
+  block. The pane's command now carries it, as it carries the hand-off.
+
 ## 3.100.33 — container 2.79.15
 
 Follows 3.100.32 (container 2.79.14). Plan 00201 Task 2.27. The image changes: the pingbus

@@ -33,19 +33,15 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plan 00201 Task 2.24: the plays whose inputs it changed run again. play-claude-yolo.yml
-# rebuilds the ccy image (container 2.79.14: the pingbus zipapp from helpers/pingbus and
-# helpers/agent_bus) and ccy-teams; the team plays reinstall agent-bus, whose software digest
-# changed. Every product names the texts its plan checkers read; no byte printed changes, so no
-# host check of its own (the next acceptance runs read the constants). Plan 00201 Task 2.27
-# adds one more such text (pingbus's "the team syncs again", container 2.79.15), picked up by
-# the same run. The run is at CCY 3.100.33 / container 2.79.15. It also carries Plan 00201
-# Tasks 2.28 and 2.29: play-claude-yolo.yml rebuilds ccy-teams (the team plays read the
-# CCY_TEAMS_HOST_VARS file; a released seat reads free, an ended one is nothing to shut down,
-# a No or Stop exits 0) before the host agent reruns ACCEPTANCE-owner steps 03, 10, 12 and 13
-# and lxc-add's Stop. Plan 00177 Task 9.9 (a never-joined LXC member taken off through the
-# absent path) is in the same ccy-teams build. Plan 00201 Task 2.30 rides the same run:
-# ccy-teams names the CCY_TEAMS_HOST_VARS file to the team plays, and play-agent-bus.yml and
-# play-agent-bus-element.yml name it in their assert messages (text only, so each reruns as a
-# changed play with nothing else to do); its seat-checkouts list drops checkouts gone from disk.
+# Plan 00201 Task 2.30 and Task 2.31: the plays whose inputs changed since the host run at
+# fe894347c run again. play-agent-bus.yml and play-agent-bus-element.yml: Task 2.30's play text,
+# their asserts naming the host_vars file actually read (CCY_TEAMS_HOST_VARS when ccy-teams hands
+# it on); text only, so each reruns as a changed play with nothing else to do. play-claude-yolo.yml
+# (CCY 3.100.34, container 2.79.15 unchanged, so no image rebuild): ccy's move into tmux carries
+# CCY_TEAMS_HOST_VARS to the launcher in the session; and ccy-teams rebuilt with Task 2.31's
+# fixes (shutdown answers Claude Code's "Background work is running" question with "Exit and
+# stop tasks"; the board's KIND for a cc host seat reads host; the settings filter ranks the
+# best match first). Host check after it, by the host agent (Plan 00201 Task 2.31): step 12
+# with a background task in one session, and chooser-teams-up.bash's teams applied once with
+# their homeserver start times unchanged.
 changed-plays

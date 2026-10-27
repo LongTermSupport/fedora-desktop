@@ -26,6 +26,8 @@ const (
 	noteEndedAfter   = "claude ended and its launcher reported an error, so the window was closed"
 	noteEndedBefore  = "it had already ended (its launcher reported an error), so the window was closed"
 	noteKilledSuffix = ", so its tmux session was killed"
+	noteAskedOffExit = `: claude was asking "Background work is running" (a background task of the session) ` +
+		`with the cursor off "Exit and stop tasks"`
 )
 
 // outcome is where a session's shutdown stands.
@@ -45,10 +47,13 @@ type job struct {
 	seats                   []seatRef
 
 	typed, escaped, reentered bool
-	deadline                  time.Time
-	result                    outcome
-	note                      string
-	released                  bool
+	// asked is claude's background work question seen after /exit; answered, its "Exit and
+	// stop tasks" chosen.
+	asked, answered bool
+	deadline        time.Time
+	result          outcome
+	note            string
+	released        bool
 }
 
 func (j *job) done(result outcome, note string) { j.result, j.note = result, note }
@@ -129,15 +134,28 @@ func (s *Shutdown) step(ctx context.Context, j *job, live map[string]bool) {
 		return
 	case restore.StateOK, restore.StateStarting, restore.StateSettingGoing, restore.StateNotSetGoing:
 	}
-	if err := s.act(ctx, j, screen.ClaudeState(pane)); err != nil {
+	err = s.answerBackgroundWork(ctx, j, pane)
+	if err == nil {
+		err = s.act(ctx, j, screen.ClaudeState(pane))
+	}
+	if err != nil {
 		j.done(failed, err.Error())
 		return
 	}
 	if j.result != pending || s.Now().Before(j.deadline) {
 		return
 	}
+	s.timedOut(ctx, j)
+}
+
+// timedOut stops a session whose wait is over, saying which wait it was.
+func (s *Shutdown) timedOut(ctx context.Context, j *job) {
 	if j.typed {
-		s.hardStop(ctx, j, "it did not end within "+seconds(s.Waits.Exit)+" of /exit"+noteKilledSuffix)
+		late := "it did not end within " + seconds(s.Waits.Exit) + " of /exit"
+		if j.asked && !j.answered {
+			late += noteAskedOffExit
+		}
+		s.hardStop(ctx, j, late+noteKilledSuffix)
 		return
 	}
 	s.hardStop(ctx, j, "its prompt was not ready within "+seconds(s.Waits.Prompt)+noteKilledSuffix)
@@ -167,6 +185,27 @@ func (s *Shutdown) act(ctx context.Context, j *job, state screen.State) error {
 		}
 	case screen.NotDrawn:
 	}
+	return nil
+}
+
+// answerBackgroundWork answers claude's "Background work is running" question, which /exit
+// brings up while a background task of the session runs (SD10a): the owner asked for the
+// shutdown, so Enter chooses "Exit and stop tasks", once, and only while the cursor is on it.
+// The wait for the end starts again from the answer.
+func (s *Shutdown) answerBackgroundWork(ctx context.Context, j *job, pane string) error {
+	if !j.typed || j.answered {
+		return nil
+	}
+	shown, exitFocused := screen.AtBackgroundWorkExit(pane)
+	j.asked = j.asked || shown
+	if !exitFocused {
+		return nil
+	}
+	if err := s.Tmux.SendEnter(ctx, j.name); err != nil {
+		return err
+	}
+	j.answered = true
+	j.deadline = s.Now().Add(s.Waits.Exit)
 	return nil
 }
 

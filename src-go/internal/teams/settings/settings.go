@@ -137,6 +137,7 @@ func (sc *screen) once(ctx context.Context) (bool, flow.Result, error) {
 	rows, tags, headers := sc.rows()
 	picked, err := sc.s.Kit.Choose(ctx, sc.heading(""), ui.PickSpec{
 		Title: sc.title(""), Header: sc.header(""), RowHeaders: headers, Rows: rows, Tags: tags, ExitLabel: "Back",
+		RankMatches: true,
 	})
 	sc.notice = ""
 	if errors.Is(err, ui.ErrLeave) {

@@ -50,6 +50,24 @@ func sample() []Row {
 	}
 }
 
+// A seat in a checkout is a ccy row to every flow (KindCcy), but its KIND column says what runs
+// it: a cc session's host seat reads "host", as the same member's roster row does (host run at
+// fe894347c: the board said "ccy"), a ccy session's "ccy", and a seat with no handle yet "ccy".
+func TestASeatsKindColumnIsWhatItsHandleSays(t *testing.T) {
+	cases := map[string]string{
+		"proj.1+local.host":   "host",
+		"proj.1+local.podman": "ccy",
+		"-":                   "ccy",
+		"":                    "ccy",
+	}
+	for handle, want := range cases {
+		r := Row{Team: "alpha", Member: "1", Kind: KindCcy, Handle: handle, Dir: "/proj"}
+		if got := r.cells()[colKind]; got != want {
+			t.Errorf("handle %q: KIND %q, want %q", handle, got, want)
+		}
+	}
+}
+
 // starts is where each heading begins on the line.
 func starts(t *testing.T, heading string) []int {
 	t.Helper()

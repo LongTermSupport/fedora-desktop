@@ -141,6 +141,13 @@ both.
   - **at a launcher question** (`screen.KnownPrompts`) other than compose-stop: claude is not
     running; the session is **stopped** at once (SD12), "it was at the launcher's <name>
     question, so claude was not running".
+- **SD10a** (Task 2.31) After `/exit`, a session with a background task running shows Claude
+  Code's question (2.1.311: title "Background work is running", subtitle "The following will
+  stop when you exit:", options "Exit and stop tasks", "Move to background and exit" when
+  offered, and "Stay"; Esc is Stay), `screen.AtBackgroundWorkExit`. The owner asked for the
+  shutdown, so while the cursor is on "Exit and stop tasks" Enter is pressed, once, and the
+  exit wait starts again. With the cursor elsewhere nothing is pressed; a session stopped at
+  the end of the wait says `: claude was asking "Background work is running" (a background task of the session) with the cursor off "Exit and stop tasks"` before `, so its tmux session was killed`.
 - **SD11** A session is **exited cleanly** when, after `/exit` was typed, its tmux session is
   gone; or its pane shows the launcher's compose-stop question (claude has ended; the line
   adds "its launcher asks whether to stop compose services: attach it (ccy-sessions) to

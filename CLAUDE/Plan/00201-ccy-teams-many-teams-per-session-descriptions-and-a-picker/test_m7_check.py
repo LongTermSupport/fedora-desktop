@@ -137,6 +137,33 @@ class TeamFileTest(TempDir):
         status, _, _ = run("host-vars")
         self.assertEqual(status, 64)
 
+    def rendered(self, path: str, cidr: str | None) -> dict:
+        bridge = mc._checkout_module("helpers.agent_bus.bridge")
+        with mock.patch.object(bridge, "live_subnet", return_value=cidr):
+            status, out, err = run("rendered-team", path)
+        self.assertEqual(status, 0, err)
+        return json.loads(out)
+
+    def test_the_installed_team_is_the_team_the_play_renders_bridge_subnet_included(self) -> None:
+        # The play adds the LXC bridge's subnet to every team's allow_from before it installs
+        # it; a fixture team installed without it is "out of date: config" and its first play
+        # changes the unit drop-in, restarting the homeserver (host run at fe894347c).
+        path = self.team_file(TEAM_A, "6201", DESC_A)
+        status, hv_text, err = run("host-vars", path)
+        self.assertEqual(status, 0, err)
+        declared = declare.parse(hv_text).teams[0]
+        cidr = "198.51.100.0/24"
+        rendered = self.rendered(path, cidr)
+        self.assertEqual(rendered["allow_from"], [mc.ALLOW_FROM_EXAMPLE, cidr])
+        self.assertEqual(
+            teamfile.config_digest(teamfile.parse_team_file(rendered)),
+            declare.declared_config(declared, cidr),
+        )
+
+    def test_with_no_bridge_the_rendered_team_admits_only_its_declared_list(self) -> None:
+        path = self.team_file(TEAM_A, "6201", DESC_A)
+        self.assertEqual(self.rendered(path, None)["allow_from"], [mc.ALLOW_FROM_EXAMPLE])
+
 
 class SmallValuesTest(TempDir):
     def test_github_owner_of_each_remote_form(self) -> None:

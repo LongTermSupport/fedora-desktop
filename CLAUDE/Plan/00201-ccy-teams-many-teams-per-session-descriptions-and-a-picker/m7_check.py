@@ -5,7 +5,7 @@ _acceptance-m7.inc.bash drives the host (agent-bus-install, agent-bus, ccy-teams
 ccy sessions, podman exec into them, the human's curl); this module writes what it hands them
 and judges what comes back. Every judgement rests on what a tool printed or recorded, never on
 the model's prose. Standard library only; the host-side commands read the values the product owns
-from this checkout, lazily, never a copy: `bus-ports` (declare.py), `team-file` (protocol.py),
+from this checkout, lazily, never a copy: `bus-ports` (declare.py), `team-file` (protocol.py), `rendered-team` (bridge.py),
 `session-paths` and `expect-session-settings` (seat.py, membership.py, and the kit's settings.json), `expect-list-row` (the board's
 table.go), `hot-marks` (hot.go), `session-names` (seat.py), `membership-dirs` (ccy-teams'
 membership package), and `status-line-names` and `expect-segment` (statusline.go and
@@ -14,6 +14,8 @@ statusline.py). Commands
 
   team-file TEAM PORT ADDRESS HUMAN ORG DESCRIPTION   a throwaway team file (JSON)
   host-vars TEAMFILE...              a host_vars file declaring those teams (agent_bus_teams)
+  rendered-team TEAMFILE             the team file as play-agent-bus.yml renders it to install:
+                                     the LXC bridge's subnet added (bridge.py), state present
   bus-ports N OWNER_HOST_VARS        N ports by declare.py's finder, clear of the owner's and
                                      of every listening port, one per line
   launch-conf-clean CONF TEAM[,TEAM]   ccy's Quick Launch record names none of the teams
@@ -147,6 +149,19 @@ def team_file(
         "forge_api": GITHUB_API,
         "description": description,
     }
+
+
+def rendered_team(team: dict) -> dict:
+    """The team as play-agent-bus.yml renders the file it installs: allow_from by bridge.py's
+    `apply` on the live bridge (the declared list plus the LXC bridge's subnet), and
+    `state: present`. Installed any other way, the team's first play changes its unit drop-in
+    and restarts its homeserver, and the board calls it out of date until then."""
+    bridge = _checkout_module("helpers.agent_bus.bridge")
+    try:
+        rendered = bridge.apply(bridge.live_subnet(), [team])["teams"][0]
+    except bridge.BridgeError as exc:
+        raise Failed(str(exc)) from None
+    return {**rendered, "state": "present"}
 
 
 def host_vars(teams: Sequence[dict]) -> str:
@@ -949,6 +964,7 @@ def _team_file(a: Sequence[str]) -> None:
 #: name -> (argument count, or -1 for one or more, and the function).
 COMMANDS: dict[str, tuple[int, Callable[[Sequence[str]], int | None]]] = {
     "team-file": (6, _team_file),
+    "rendered-team": (1, lambda a: print(json.dumps(rendered_team(_json_file(a[0])), indent=1))),
     "host-vars": (-1, lambda a: print(host_vars([_json_file(p) for p in a]), end="")),
     "bus-ports": (2, lambda a: _lines(owner_bus_ports(int(a[0]), a[1]))),
     "launch-conf-clean": (2, lambda a: launch_conf_clean(_read(a[0]), a[1].split(","))),

@@ -116,6 +116,41 @@ func TestConversationPickerIsNotSeenElsewhere(t *testing.T) {
 	}
 }
 
+// The question Claude Code 2.1.311 asks when /exit finds background work running: its title,
+// subtitle and options are its own text (the first option focused); the task line is a stand-in.
+var backgroundWorkDialog = lines(
+	"  Background work is running",
+	"  The following will stop when you exit:",
+	"",
+	"  npm run dev",
+	"",
+	"  ❯ 1. Exit and stop tasks",
+	"    2. Stay",
+)
+
+func TestBackgroundWorkExitIsSeenWithItsFocus(t *testing.T) {
+	cases := map[string]struct {
+		pane            string
+		shown, onExitOp bool
+	}{
+		"the question, Exit focused": {backgroundWorkDialog, true, true},
+		"with Move to background, escapes drawn": {lines(
+			"\x1b[1mBackground work is running\x1b[0m", "The following will stop when you exit:",
+			"\x1b[36m❯ 1. Exit and stop tasks\x1b[0m", "  2. Move to background and exit", "  3. Stay"), true, true},
+		"the cursor moved to Stay":         {strings.Replace(strings.Replace(backgroundWorkDialog, "❯ 1.", "  1.", 1), "  2. Stay", "❯ 2. Stay", 1), true, false},
+		"a conversation quoting the title": {lines("● It said Background work is running", "", rule, "❯ ", rule), false, false},
+		"Claude at its prompt":             {lines(" ▐▛███▜▌   Claude Code", "", rule, "❯ ", rule), false, false},
+		"the title without the option":     {lines("Background work is running", "  ❯ 1. Yes"), false, false},
+		"empty":                            {"", false, false},
+	}
+	for name, c := range cases {
+		shown, onExit := AtBackgroundWorkExit(c.pane)
+		if shown != c.shown || onExit != c.onExitOp {
+			t.Errorf("%s: shown %v, Exit focused %v; want %v, %v", name, shown, onExit, c.shown, c.onExitOp)
+		}
+	}
+}
+
 func TestKnownPromptsAreUniqueAndNonEmpty(t *testing.T) {
 	seen := map[string]bool{}
 	for _, p := range KnownPrompts() {

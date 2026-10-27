@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -115,6 +116,10 @@ type PickSpec struct {
 	StartRow int
 	// escMoves is the menu's keys for Esc then an arrow, handed back rather than left on.
 	escMoves bool
+	// RankMatches lists the rows a typed filter matches best first (fzf's score), not in the
+	// list's order: for a list whose rows share words, where the row named in full must come top.
+	// The list without a filter keeps its order either way.
+	RankMatches bool
 	// WrapHeader wraps Header's lines to the window as the heading is, for a header that carries
 	// text of any length (a play run's name and pid): fzf cuts a line wider than its window.
 	WrapHeader bool
@@ -256,6 +261,9 @@ func (s PickSpec) fzfArgs(h Heading, colour bool, width int) ([]string, error) {
 		"--margin=1," + strconv.Itoa(frameMargin), "--padding=1," + strconv.Itoa(framePadding), "--header-first", "--pointer=▶",
 		"--prompt=filter > ", "--bind=q:abort",
 	}, headerArgs...)
+	if s.RankMatches {
+		args = slices.DeleteFunc(args, func(a string) bool { return a == "--no-sort" })
+	}
 	// fzf refuses an empty --expect, so it is passed only when there are keys.
 	if keys := s.expected(); len(keys) > 0 {
 		args = append(args, expectArg(keys))

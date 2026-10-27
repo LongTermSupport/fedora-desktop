@@ -420,8 +420,10 @@ ccy_tmux_insulate() {
     # that was never running, so a failed start takes its record with it. A GitHub token
     # hand-off (lib/token-handoff.bash) goes on the pane's command as the file's path alone,
     # so it reaches this session's launcher and not tmux's environment, which every later
-    # session would inherit.
-    if ! ccy_tmux_start_detached "$name" "$PWD" ${CCY_GH_TOKEN_HANDOFF:+env "CCY_GH_TOKEN_HANDOFF=$CCY_GH_TOKEN_HANDOFF"} "$launcher" "${launch[@]}"; then
+    # session would inherit. So does a harness's CCY_TEAMS_HOST_VARS, which the ccy-teams calls
+    # of the launch inside the session (the launch block) read: a server already running would
+    # not give it to the pane.
+    if ! ccy_tmux_start_detached "$name" "$PWD" ${CCY_GH_TOKEN_HANDOFF:+env "CCY_GH_TOKEN_HANDOFF=$CCY_GH_TOKEN_HANDOFF"} ${CCY_TEAMS_HOST_VARS:+env "CCY_TEAMS_HOST_VARS=$CCY_TEAMS_HOST_VARS"} "$launcher" "${launch[@]}"; then
         ccy_registry_remove "$name"
         return 1
     fi

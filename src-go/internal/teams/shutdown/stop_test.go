@@ -49,6 +49,40 @@ func TestExitLeftInTheBoxGetsOneMoreEnter(t *testing.T) {
 	}
 }
 
+// SD10a: /exit with a background task running brings up claude's "Background work is running"
+// question; the owner asked for the shutdown, so Enter chooses its focused first option, "Exit
+// and stop tasks", and the session exits cleanly (host run at fe894347c: it was killed).
+func TestTheBackgroundWorkQuestionIsAnsweredExitAndStopTasks(t *testing.T) {
+	m := newMachine(t)
+	m.noLxc()
+	s := m.sessions[0]
+	s.backgroundWork = paneBackgroundWork
+	if got := m.run("alpha", "--yes"); got != term.ExitOK {
+		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
+	}
+	if m.killed() || s.enters != 2 || !slices.Equal(m.typedInto("ccy-proj"), []string{"/exit"}) {
+		t.Fatalf("killed %v enters %d typed %q", m.killed(), s.enters, m.typedInto("ccy-proj"))
+	}
+	m.errHas(t, "ccy-proj: exited cleanly; seat 1@alpha released", "alpha: 1 exited cleanly, 0 stopped, 0 failed.")
+}
+
+// SD10a: with the cursor on another option nothing is pressed; once the wait is over the
+// session is stopped, and the result names the question as the reason.
+func TestTheBackgroundWorkQuestionOffExitIsNamedWhenStopped(t *testing.T) {
+	m := newMachine(t)
+	m.noLxc()
+	s := m.sessions[0]
+	s.backgroundWork = paneBackgroundStay
+	if got := m.run("alpha", "--yes"); got != term.ExitOK {
+		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
+	}
+	if !m.killed() || s.enters != 1 {
+		t.Fatalf("killed %v enters %d", m.killed(), s.enters)
+	}
+	m.errHas(t, `ccy-proj: stopped: it did not end within 60 s of /exit: claude was asking "Background work is running" `+
+		`(a background task of the session) with the cursor off "Exit and stop tasks", so its tmux session was killed`)
+}
+
 // SD10, SD12: a prompt that never draws is waited for, then the session is stopped.
 func TestAPromptThatNeverDrawsIsStopped(t *testing.T) {
 	m := newMachine(t)
