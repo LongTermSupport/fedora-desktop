@@ -321,6 +321,14 @@ are Phase 12. [Full text](DONE-phases.md#phase-11-findings-of-the-host-run-of-26
   ms later: step 2's cursor stays on "Leave it running" every time. The board after a plain
   answer still takes a key typed while it loads.
 
+- [ ] ⬜ **Task 12.6**: Task 12.5's real-gum test is flaky:
+  `internal/ui` `TestOnTheRealGumADownSentJustAfterEscDoesNotReachTheNextQuestion/1ms` failed in
+  one `qa-changed` run on 27-10-26 (a branch that does not touch `internal/ui`) and passed when
+  run alone 3 times. A test whose verdict depends on machine load is a gate that cries wolf.
+  Measure how often it fails under load (e.g. `-count` with parallel load), find whether the
+  1 ms case races the settle or the test's own timing, and make the verdict deterministic
+  without weakening what it proves.
+
 - Fact-check of this phase:
   [subagent-reports/261026-fact-check-phase12.md](subagent-reports/261026-fact-check-phase12.md).
 
