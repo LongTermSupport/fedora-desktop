@@ -78,6 +78,23 @@ This plan fixes it under Defence Before Fix:
   and changed a tool's output format, with nothing noticing. Phase 1's stream check covers this
   case. Decide whether the play should also report user services left running on replaced
   libraries (as it reports a kernel change), and build it if so. Open: not started.
+- [x] ✅ **Task 2.2**: The same play replaced python3 under the running main `ansible-playbook`
+  (VM lab, desktop-fresh-install on the 10-06 base: python3 3.14.7 to 3.14.8, then
+  `lookup('url')` in `play-toolbox-install.yml` failed with "name 'ssl' is not defined"), so
+  every fresh install from a base behind the repos died there. Shape chosen: run.bash's
+  dependency step (developer and headless) and `consumer-install` run `dnf -y upgrade --refresh` themselves before any Ansible process starts; a failed upgrade stops the run. Why
+  not a separate `ansible-playbook` of the upgrade play first: that process would itself
+  outlive the upgrade for the play's remaining tasks, and run.bash's ratchet would have to pay
+  for a second three-branch become block; a plain dnf leaves no Ansible process alive across
+  the upgrade at all, and covers python3-libs, openssl-libs and every other library ansible
+  loads without listing them. `play-AB-dnf-upgrade.yml` stays in `playbook-main.yml` at its
+  position (a cheap no-op upgrade there; `--changed`, `--rerun` and the play ledger keep it as
+  a play; a single play of it still upgrades), keeps its half-installed kernel cleanup, and its
+  reboot notice now also fires when the running kernel is not the newest installed (the
+  kernel now changes before its snapshot). Tests first: `scripts/test-run-bash-upgrade-first.bash`
+  (gate `run-bash-upgrade-first`) and the consumer tests pin the order and the stop. run.bash
+  1.35.0. Host check (pending): the VM lab's desktop-fresh-install and
+  desktop-consumer-install on the 10-06 base.
 
 ## Success Criteria
 

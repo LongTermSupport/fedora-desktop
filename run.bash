@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.34.0"
+RUN_BASH_VERSION="1.35.0"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -2558,22 +2558,18 @@ wait_for_network
 echo -e "\n${YELLOW}${INFO} You will be asked for your sudo password${NC}\n"
 title "Installing System Dependencies"
 # L1: list every package actually installed below (python3-pip was missing).
-info "Installing: git, python3, python3-pip, python3-libdnf5, grubby, jq, openssl, pipx, golang"
+info "Upgrading every package, then installing: git, python3, python3-pip, python3-libdnf5, grubby, jq, openssl, pipx, golang"
 # H3: do NOT swallow dnf output. Under set -e a dnf failure here used to abort the
 # run in total silence (output went to /dev/null). Let dnf print so a failure has
 # a visible cause; set -e then stops the run with the error on screen.
+# The upgrade comes before any Ansible process starts (Plan 00229 Task 2.2): one that
+# replaced python3 under a running ansible-playbook broke its later imports of C
+# extensions. play-AB-dnf-upgrade.yml still runs in the main playbook, as a no-op.
 # golang: scripts/gh-account-setup.bash builds its Go command from this checkout, and the
 # GitHub step below runs it before any play has installed Go (play-golang.yml still owns
-# the version floor). It shares the pipx line so the line count stays on its ratchet record.
-_sudo dnf -y install \
-  git \
-  python3 \
-  python3-pip \
-  python3-libdnf5 \
-  grubby \
-  jq \
-  openssl \
-  pipx golang
+# the version floor).
+_sudo dnf -y upgrade --refresh
+_sudo dnf -y install git python3 python3-pip python3-libdnf5 grubby jq openssl pipx golang
 completed
 
 title "Checking for Legacy Grub Configurations"
@@ -3617,7 +3613,6 @@ else
   echo -e "${YELLOW}${INFO} sudo needs a password — Ansible will now prompt you for it (BECOME password; sudo: ${_main_sudo_probe:-a password is required})${NC}"
   ansible-playbook playbooks/playbook-main.yml "${_main_pb_args[@]}" --ask-become-pass || main_exit_code=$?
 fi
-unset _main_sudo_probe
 
 if [[ $main_exit_code -eq 0 ]]; then
   completed

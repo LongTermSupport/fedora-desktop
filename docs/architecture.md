@@ -77,7 +77,7 @@ The bootstrap script:
 
 - Validates system requirements
 - Checks Fedora version against `vars/fedora-version.yml`
-- Installs core dependencies
+- Upgrades every package, then installs core dependencies (before any Ansible process starts)
 - Configures GitHub CLI authentication
 - Generates SSH keys
 - Clones the repository
