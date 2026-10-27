@@ -80,7 +80,7 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
 
 ### Phase 3: Rewrites, one feature branch each
 
-- [ ] 🔄 **Task 3.1**: Programmes from the inventory, ranked; each its own branch.
+- [x] ✅ **Task 3.1**: Programmes from the inventory, ranked; each its own branch.
   `go-port/freeze` (P7), podfreeze and lxcfreeze: merged into F44 and pushed (`f0284848`). Spec
   [SPEC-freeze.md](SPEC-freeze.md); the library (`internal/freeze`), the two engines and the
   shared flow in Go; golden replay of the bash tools' recorded output
@@ -101,10 +101,15 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   and the `acceptance.bash` leg passes). Step 2, partial (bus `$8aqX_PoK5b62YkY5FNbJF0kZ2SBsP8XxhoXIrIR5fkI`):
   podfreeze freeze/thaw and the tmux-driven menu PASS on throwaways. `lxcfreeze` PASS 26-10-26
   (host agent, Alpine and Rocky throwaways: freeze, thaw, list, the fzf menu, raw `lxc-freeze`
-  thawed by the tool); the thaw without NetworkManager exits 1 (Task 3.5). Still left: Ctrl-C
-  mid-batch (130), the numbered-menu fallback without fzf, and sudo asking again after its
-  timestamp lapses. Step 3 NOT ESTABLISHED 26-10-26: the freeze plays did not run (Task 3.6) and
-  `acceptance.bash` failed on its old baseline (Task 3.4); a later run rebuilt both, failed=0.
+  thawed by the tool); the thaw without NetworkManager exits 1 (Task 3.5). The rest PASS
+  27-10-27 (host agent, throwaways): Ctrl-C after the first `✓` gives "interrupted — 1 of N
+  container(s) done, the rest were not touched.", exit 130, in both tools; the numbered menu
+  with no fzf on `PATH` lists the groups, drills in, freezes and thaws all, `q` exits 0. Sudo
+  asking again after its timestamp lapses cannot occur on this host (its sudo needs no
+  password, so it keeps no timestamp); that path rests on the Fable fix's unit tests. Step 3
+  PASS at F44 5340d3ac7 (meta-deploy, META_RC=0): every freeze build and install task `ok`,
+  both plays changed=0, and `acceptance.bash` COVERAGE 11 of 11, the layout kept for `list` and
+  `freeze --all -n` of both tools.
 
 - [ ] ⏸️ **Task 3.2**: `agent-bus-install` on `go-port/agent-bus-install`: spec
   `SPEC-agent-bus-install.md` on the branch; built, reviewed and its review fixed, not merged.

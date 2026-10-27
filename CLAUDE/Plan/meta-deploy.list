@@ -32,10 +32,3 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-
-# Plan 00192 Task 3.4, freeze step 3: deploy.bash runs play-claude-yolo.yml, play-podfreeze.yml
-# and play-lxcfreeze.yml again (asks for sudo at the start, for lxcfreeze), then acceptance.bash,
-# now comparing the Go tools' layout with the saved bash baseline instead of every row, so
-# containers started or stopped since then no longer fail it. Host check, by the host agent: the
-# podfreeze and lxcfreeze build and install tasks report ok, not changed, and acceptance passes.
-00192-bash-line-in-the-sand-go-for-tooling
