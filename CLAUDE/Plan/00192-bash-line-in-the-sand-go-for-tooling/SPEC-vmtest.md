@@ -424,6 +424,50 @@ The tests cite these numbers.
   command runs `verify_response --checkout --key --run-id`, then names the service log of
   record. `verify_response`'s exit is the command's exit.
 
+### prune-runs and the disk guard
+
+No bash had these: a run that did not pass kept its overlay (up to the 20 GiB guest disk) for
+ever, since `sweep` keeps every such run, so the runs directory filled the disk. They are new
+behaviour, not departures.
+
+- E61. `prune-runs [--older-than DAYS] [--yes]` (DAYS a whole number, default 7; anything else,
+  or an option twice, is a usage error) lists libvirt's domains first (`virsh list --all
+  --name`; a failed listing stops the command, removing nothing), then asks
+  `retention prune-plan --lab-dir <home> --now <epoch> --older-than-days <DAYS>`. The plan is one
+  `VMTEST-PRUNE <run-id> prune|keep <reason>` line per run directory and a closing
+  `VMTEST-PRUNE-PLAN-DONE runs=<n>`; a line that is neither, a run id that is not a plain name,
+  or no closing line stops the command. The rule is retention.py's, beside `sweep`'s: an
+  overlay may go when the run passed (`run_passed`, the same rule as the sweep), a later run of
+  the same scenario passed (the scenario and the order are read from the run id
+  `<UTC stamp>-<scenario>`), or the run is older than DAYS. A directory whose name is not a run
+  id is kept. Only runs holding a `*.qcow2` are reported. A run is live, and kept whatever the
+  plan said, when libvirt lists `vmtest-run-<run-id>` or its `run.lock` is held (E63). The dry
+  run prints, on stdout, `VMTEST-PRUNE-RUN <run-id> would-remove|keep|live <files> <size>: <reason>`
+  per run, `VMTEST-PRUNE-BASE <name> <size>: bases are never touched` per base, and
+  `VMTEST-PRUNE-DONE would free <size> from <n> runs; dry run, vmtest prune-runs --yes removes them`.
+  It writes nothing. Sizes are the space allocated on disk, in binary units rounded down.
+- E62. With `--yes`, each prunable run's lock is taken without waiting (a run that now holds it
+  is reported `live` and left), the removal is appended to `retention.log` first
+  (`<epoch> pruned overlay <run-id> <reason>`), and then the run's `*.qcow2` files, and only
+  those, are removed under the lock: its logs, response, transcript and check results stay, so
+  `verify` (which reads the bridge spool) is unaffected. The line says `removed`, and the last
+  line `VMTEST-PRUNE-DONE freed <size> from <n> runs`. A removal that fails stops the command.
+- E63. `run` takes an exclusive `flock` on `runs/<run-id>/run.lock` straight after creating the
+  directory, and releases it after its teardown, so a run is live from before its overlay
+  exists until it is cleaned up. A run directory without the file is from before the lock, and
+  only libvirt's listing says whether it is live.
+- E64. The disk guard runs before anything else: in `run` right after the lab is loaded, and as
+  the first step of every base build (`build-base`, and `ensure-base` and `refresh-base` when
+  they build). A run needs 22 GiB free on the lab's filesystem (the 20 GiB guest disk an overlay
+  can grow to, and retention's 2 GiB margin), a build 26 GiB (the same and 4 GiB of install
+  media). Short, the command fails with
+  `only <free> free under <home>; a run needs 22.0 GiB (...). vmtest prune-runs would free <size> of run overlays; vmtest prune-runs lists them and vmtest prune-runs --yes removes them`,
+  computing the figure from the E61 plan; if the plan cannot be made, the message says so with
+  its error. The retention floor (E34, E16) still runs later: it also checks the RAM, and a
+  rebuild's room for two bases.
+- E65. A run that did not pass and keeps an overlay says, as its last progress line,
+  `overlay (<size>) and console kept for diagnosis: <dir>; vmtest prune-runs --yes removes the overlay once a later run of <scenario> passes or it is older than 7 days`.
+
 ## 4. Where the Go departs from the bash
 
 | #   | bash behaviour                                                                                                                                 | Go                                                         | exp.          |
@@ -456,10 +500,10 @@ virt-install, so there is a race between them, as in the bash. `ssh` host keys a
 - `src-go/cmd/vmtest/main.go`: signals (INT, TERM and HUP cancel a context, and the first one
   sets the exit status) and the real environment. `run` is tested.
 - `src-go/internal/vmtest`: `App` (dispatch, usage, exit status), `Env` (runner, streams,
-  getenv, clock, sleep, free port, random source), the lab and its files, the facts and probe
+  getenv, clock, sleep, free port, free disk space, random source), the lab and its files, the facts and probe
   readers, the helper seam, the guest (ssh, scp, domain state, waits, console), and one file
-  per command family: `fetch`, `build`, `run` with its steps, `hostonly`, `freshness`, `member`
-  and `verify`. A failure is a typed error carrying its message, so a failure deep in a step
+  per command family: `fetch`, `build`, `run` with its steps, `hostonly`, `freshness`, `member`,
+  `verify` and `prune` (prune-runs, the run lock and the disk guard). A failure is a typed error carrying its message, so a failure deep in a step
   unwinds through the deferred teardowns before the `ERROR:` line is printed. A status that is
   not a failure (member-ssh, freshness-status) is a typed exit.
 - The only processes started are through `execx.Runner`, and `git` through `gitx`
@@ -498,3 +542,7 @@ plan's `meta-deploy.list` queues the play, which builds and installs the binary.
 - H5. `vmtest nightly` from its timer: the status file is written, and the sweep log is written.
 - H6. A host-only scenario run with a throwaway account: secrets delivered, scrubbed and
   verified.
+- H7. `vmtest prune-runs` (dry) on the host's lab lists every run holding an overlay with its
+  size and reason, the bases, and the total it would free, and removes nothing; a run started
+  meanwhile is `live`. `vmtest prune-runs --yes` is the owner's call. With the disk short, `vmtest
+  run` refuses at once naming both figures (E64).

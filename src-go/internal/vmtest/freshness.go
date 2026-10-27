@@ -325,7 +325,7 @@ func (c *cli) sweep(ctx context.Context, l *lab) error {
 	if err != nil {
 		return err
 	}
-	if _, err := c.helper(ctx, helperCall{module: "retention", stdout: c.env.Stdout, args: []string{
+	if _, err := c.helper(ctx, helperCall{module: retentionModule, stdout: c.env.Stdout, args: []string{
 		"sweep", "--lab-dir", l.home, "--checkout", checkout, flagLog, l.at(retentionLog),
 	}}); err != nil {
 		return ctxErr(ctx, failf("the retention sweep failed: %v", err))

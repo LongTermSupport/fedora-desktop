@@ -51,11 +51,14 @@
 # session empties its inbox. Exit 2 also as before (no seat, no Quick Launch, np232c not alone).
 00232-ccy-network-policy-per-container/acceptance.bash
 
-# The plays changed since they last ran here. Expected: play-cli-tools.yml only (Plan 00192:
+# The plays changed since they last ran here. Expected: play-cli-tools.yml (Plan 00192:
 # reclaim 2.0.4, whose podman summary gives no summed image size, saying the total is not
-# known, and says how many dangling images a container uses and the prune keeps);
-# play-claude-yolo.yml has already run in the 00232 deploy above. The host agent then reruns
-# reclaim H1's Podman section (no summed size; the dangling count and the prune question
-# agree or differ by the stated number kept) and option 6 answering No to every question,
-# with nothing run.
+# known, and says how many dangling images a container uses and the prune keeps) and
+# play-vm-test-lab.yml (Plan 00192 Task 3.10: the vmtest binary with `vmtest prune-runs` and
+# the free-disk guard, and retention.py's prune plan); play-claude-yolo.yml has already run in
+# the 00232 deploy above. The host agent then reruns reclaim H1's Podman section (no summed
+# size; the dangling count and the prune question agree or differ by the stated number kept)
+# and option 6 answering No to every question, with nothing run; and runs `vmtest prune-runs`
+# without --yes (vmtest H7): it lists each run's overlay with its size and reason, the bases
+# and the total it would free, and removes nothing. Removing them (--yes) is the owner's call.
 changed-plays

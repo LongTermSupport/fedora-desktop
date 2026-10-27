@@ -13,6 +13,11 @@ Two executors and the pure decisions behind them:
         VMTEST-SWEEP-DONE evicted=<n>
         exit 0, or 2 when a spool directory was refused (nothing evicted there)
 
+    python3 -m helpers.vmtest.retention prune-plan --lab-dir DIR --now EPOCH --older-than-days N
+        VMTEST-PRUNE <run-id> prune|keep <reason>    one per run directory, by name
+        VMTEST-PRUNE-PLAN-DONE runs=<n>
+        exit 0; it decides only, and `vmtest prune-runs` removes the overlays it may
+
 Retention keeps the newest --keep-runs runs that PASSED and every run that did
 not (their overlays are the diagnosis); drops a leftover build directory of a
 fast base (rebuilt in minutes) but keeps a desktop one (hours, per §3.5); and
@@ -21,6 +26,10 @@ sandbox-writable and would otherwise be a trivial disk fill — through the
 pinned spool descriptors of spool.py, so a symlinked directory is refused
 rather than swept. Every eviction is written to the off-mount log first, so
 retention is never silent deletion.
+
+The prune plan is the overlay half: a run's overlay (its one large file) may go
+once the run passed, a later run of its scenario passed, or it is older than the
+limit. The logs, verdict and check results are never part of it.
 """
 
 from __future__ import annotations
@@ -29,11 +38,13 @@ import argparse
 import json
 import os
 import pathlib
+import re
 import shutil
 import stat
 import sys
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from helpers.vmtest import spool
 
@@ -42,6 +53,8 @@ RAM_CEILING_FRACTION = 0.75
 DEFAULT_KEEP_RUNS = 10
 DEFAULT_KEEP_SPOOL = 200
 DESKTOP_PREFIX = "desktop-"
+DEFAULT_PRUNE_DAYS = 7
+RUN_ID_RE = re.compile(r"^(\d{8}T\d{6}Z)-(.+)$")  # the name vmtest run gives a run directory
 
 
 @dataclass(frozen=True)
@@ -89,6 +102,48 @@ def plan_sweep(entries: list[Entry], *, keep: int) -> list[Entry]:
     return candidates[keep:]
 
 
+@dataclass(frozen=True)
+class RunFacts:
+    name: str
+    started: float | None  # from the name; None when the name is not a run id
+    scenario: str | None
+    passed: bool
+
+
+@dataclass(frozen=True)
+class PruneDecision:
+    name: str
+    prunable: bool
+    reason: str
+
+
+def run_facts(name: str, passed: bool) -> RunFacts:
+    match = RUN_ID_RE.match(name)
+    if match is None:
+        return RunFacts(name=name, started=None, scenario=None, passed=passed)
+    started = datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC).timestamp()
+    return RunFacts(name=name, started=started, scenario=match.group(2), passed=passed)
+
+
+def plan_prune(runs: list[RunFacts], *, now: float, older_than_days: int) -> list[PruneDecision]:
+    """Whether each run's overlay may go: it passed, a later run of its scenario passed, or it is old."""
+    out = []
+    for run in sorted(runs, key=lambda r: r.name):
+        if run.started is None:
+            out.append(PruneDecision(run.name, False, "not a run directory name (<UTC stamp>-<scenario>)"))
+        elif run.passed:
+            out.append(PruneDecision(run.name, True, "passed"))
+        elif later := next((r for r in sorted(runs, key=lambda r: r.name, reverse=True)
+                            if r.passed and r.scenario == run.scenario and r.started is not None
+                            and r.started > run.started), None):
+            out.append(PruneDecision(run.name, True, f"a later run of {run.scenario} passed: {later.name}"))
+        elif now - run.started > older_than_days * 86400:
+            out.append(PruneDecision(run.name, True, f"did not pass, and is older than {older_than_days} days"))
+        else:
+            out.append(PruneDecision(run.name, False, f"did not pass; kept for diagnosis until a later run of {run.scenario} passes or it is older than {older_than_days} days"))
+    return out
+
+
 # ── host facts ────────────────────────────────────────────────────────────────────────────
 
 
@@ -129,12 +184,9 @@ def run_passed(run_dir: pathlib.Path) -> bool:
 
 def sweep_runs(lab_dir: pathlib.Path, keep: int, log: Log) -> int:
     runs = lab_dir / "runs"
-    if not runs.is_dir():
-        return 0
-    entries = []
-    for child in runs.iterdir():
-        if child.is_dir() and not child.is_symlink():
-            entries.append(Entry(name=child.name, mtime=child.stat().st_mtime, keep_always=not run_passed(child)))
+    entries = [
+        Entry(name=child.name, mtime=child.stat().st_mtime, keep_always=not run_passed(child)) for child in run_dirs(lab_dir)
+    ]
     evicted = 0
     for entry in plan_sweep(entries, keep=keep):
         log.record("evicted", "run", entry.name, "passing run beyond the retention cap")
@@ -198,6 +250,13 @@ def sweep_spool(checkout: str, keep: int, log: Log) -> int:
         os.close(root_fd)
 
 
+def run_dirs(lab_dir: pathlib.Path) -> list[pathlib.Path]:
+    runs = lab_dir / "runs"
+    if not runs.is_dir():
+        return []
+    return [child for child in runs.iterdir() if child.is_dir() and not child.is_symlink()]
+
+
 # ── executors ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -228,6 +287,14 @@ def cmd_sweep(args: argparse.Namespace) -> int:
     return rc
 
 
+def cmd_prune_plan(args: argparse.Namespace) -> int:
+    runs = [run_facts(child.name, run_passed(child)) for child in run_dirs(pathlib.Path(args.lab_dir))]
+    for decision in plan_prune(runs, now=args.now, older_than_days=args.older_than_days):
+        print(f"VMTEST-PRUNE {decision.name} {'prune' if decision.prunable else 'keep'} {decision.reason}")
+    print(f"VMTEST-PRUNE-PLAN-DONE runs={len(runs)}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -244,6 +311,11 @@ def main(argv: list[str] | None = None) -> int:
     sweep.add_argument("--keep-runs", type=int, default=DEFAULT_KEEP_RUNS)
     sweep.add_argument("--keep-spool", type=int, default=DEFAULT_KEEP_SPOOL)
     sweep.set_defaults(func=cmd_sweep)
+    prune = sub.add_parser("prune-plan", help="say which runs' overlays may go, and why; removes nothing")
+    prune.add_argument("--lab-dir", required=True)
+    prune.add_argument("--now", type=int, required=True, help="the epoch second the ages are measured from")
+    prune.add_argument("--older-than-days", type=int, default=DEFAULT_PRUNE_DAYS)
+    prune.set_defaults(func=cmd_prune_plan)
     args = parser.parse_args(argv)
     return args.func(args)
 

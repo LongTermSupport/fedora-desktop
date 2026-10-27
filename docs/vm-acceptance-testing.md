@@ -495,6 +495,8 @@ then the retention sweep. Neither rebuilds anything.
 vmtest freshness-status          # one probe; one line per built base into ~/.local/share/vmtest/freshness-status.txt
 vmtest freshness-status --deep   # the same, re-hashing every base disk against its record (the nightly form)
 vmtest sweep                     # apply the retention policy; every eviction goes to ~/.local/share/vmtest/retention.log
+vmtest prune-runs                # dry run: each run's overlay that may go, its size and why, the bases, the total
+vmtest prune-runs --yes          # remove those overlays (logged to retention.log first); --older-than DAYS, default 7
 ```
 
 A run checks a base's size and mtime against its record before booting it and
@@ -509,10 +511,24 @@ build directory but keeps a desktop one, and bounds `quarantine/` and
 `responses/` on the shared mount to their newest two hundred entries, through
 the same pinned descriptors the watcher uses.
 
-Before every run and every base build the CLI refuses when the disk cannot
-carry the step (an overlay may grow to the base's size; a rebuild holds two
-bases until the rename; two gigabytes of headroom on top) or when the guest's
-RAM exceeds three quarters of the host's. It never cleans up and continues.
+A kept run's overlay can be up to the 20 GiB guest disk, so kept runs fill the
+disk. `prune-runs` removes only the overlays (`runs/<run-id>/*.qcow2`), never a
+run's logs, response or check results, and never a base: an overlay may go once
+its run passed, a later run of the same scenario passed, or it is older than
+seven days. A run whose guest libvirt still lists, or that holds its
+`run.lock` (taken from the moment its directory exists to the end of its
+teardown), is reported live and left. The nightly timer does not prune; a run
+that fails says how big an overlay it kept and that `prune-runs` removes it.
+
+Before anything else, `vmtest run` refuses when the lab's filesystem has less
+than 22 GiB free (a 20 GiB guest disk and a 2 GiB margin), and a base build
+(`build-base`, or `ensure-base` and `refresh-base` when they build) less than
+26 GiB (the same and 4 GiB of install media); the refusal names both figures
+and what `vmtest prune-runs` would free. Later, before every run and every base
+build, the CLI also refuses when the disk cannot carry the step by the base's
+own size (an overlay may grow to the base's size; a rebuild holds two bases
+until the rename; two gigabytes of headroom on top) or when the guest's RAM
+exceeds three quarters of the host's. It never cleans up and continues.
 
 ## The manifest
 

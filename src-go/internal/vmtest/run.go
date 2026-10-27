@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -55,6 +56,9 @@ func (c *cli) cmdRun(ctx context.Context, args []string) error {
 	}
 	l, err := c.loadLab()
 	if err != nil {
+		return err
+	}
+	if err := c.diskGuard(ctx, l, runNeed); err != nil {
 		return err
 	}
 	return c.runScenario(ctx, l, ra)
@@ -172,23 +176,34 @@ func (c *cli) runScenario(ctx context.Context, l *lab, ra runArgs) (err error) {
 		c.p.Print(c.env.Stderr, v.line+"\n")
 		return failf("base %s may not be used (freshness: %s); rebuild it with: vmtest build-base %s", b.Name, v.decision, s.BaseKey)
 	}
-	if err := c.floor(ctx, l.at(runsDir), v.size, "run", b.RAMMiB); err != nil {
+	if err = c.floor(ctx, l.at(runsDir), v.size, "run", b.RAMMiB); err != nil {
 		return ctxErr(ctx, failf("the host cannot carry a run on %s (stage: clone); see the VMTEST-DISK/VMTEST-RAM lines above", b.Name))
 	}
 	r := &running{c: c, l: l, s: s, b: b, baseDir: baseDir, commit: commit, cr: ra.cr, verdict: v}
 	r.id = c.env.Now().UTC().Format("20060102T150405Z") + "-" + s.ID
 	r.dir = l.at(runsDir, r.id)
-	if err := os.MkdirAll(r.dir, 0o755); err != nil {
-		return failf("cannot create %s: %v", r.dir, err)
-	}
-	defer r.teardown(context.WithoutCancel(ctx))
-	if err := r.boot(ctx); err != nil {
+	release, err := r.makeDir()
+	if err != nil {
 		return err
 	}
-	if err := r.provisionAndCheck(ctx, check); err != nil {
+	defer func() { err = errors.Join(err, release()) }()
+	defer r.teardown(context.WithoutCancel(ctx))
+	if err = r.boot(ctx); err != nil {
+		return err
+	}
+	if err = r.provisionAndCheck(ctx, check); err != nil {
 		return err
 	}
 	return r.judge(ctx, v, probeRev)
+}
+
+// makeDir creates the run's directory and takes its lock, which the caller holds to the end of
+// the teardown, so prune-runs never takes a live overlay (E63).
+func (r *running) makeDir() (func() error, error) {
+	if err := os.MkdirAll(r.dir, 0o755); err != nil {
+		return nil, failf("cannot create %s: %v", r.dir, err)
+	}
+	return holdRun(r.dir)
 }
 
 // boot creates the overlay and boots the guest until it answers SSH (E34).
@@ -433,5 +448,15 @@ func (r *running) teardown(ctx context.Context) {
 		}
 		return
 	}
-	r.c.logf("overlay and console kept for diagnosis: %s", r.dir)
+	r.c.logf("%s", r.kept())
+}
+
+// kept says what a run that did not pass leaves behind, and how its overlay goes.
+func (r *running) kept() string {
+	files, size, err := overlays(r.dir)
+	if err != nil || len(files) == 0 {
+		return "the run is kept for diagnosis: " + r.dir
+	}
+	return fmt.Sprintf("overlay (%s) and console kept for diagnosis: %s; vmtest prune-runs --yes removes the overlay once a later run of %s passes or it is older than %d days",
+		humanBytes(size), r.dir, r.s.ID, defaultPruneDays)
 }

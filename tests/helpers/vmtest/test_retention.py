@@ -162,6 +162,83 @@ class TestSweep(SweepCase):
         self.assertFalse((self.lab / "runs" / "r1-pass").exists())
 
 
+DAY = 86400
+NOW = 1_800_000_000.0  # 2027-01-15T08:00:00Z
+
+
+def stamp(seconds_ago):
+    return time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(NOW - seconds_ago))
+
+
+class TestPrunePlan(unittest.TestCase):
+    def plan(self, runs, days=7):
+        return {d.name: (d.prunable, d.reason) for d in retention.plan_prune(runs, now=NOW, older_than_days=days)}
+
+    def facts(self, seconds_ago, scenario, passed):
+        name = f"{stamp(seconds_ago)}-{scenario}"
+        return retention.run_facts(name, passed)
+
+    def test_a_passed_run_is_prunable(self):
+        run = self.facts(60, "server-fast-provision", True)
+        self.assertEqual(self.plan([run]), {run.name: (True, "passed")})
+
+    def test_a_failed_run_is_kept_until_a_later_run_of_its_scenario_passes(self):
+        failed = self.facts(3 * DAY, "server-fast-provision", False)
+        later = self.facts(1 * DAY, "server-fast-provision", True)
+        other = self.facts(2 * DAY, "desktop-fresh-install", False)
+        earlier_pass = self.facts(4 * DAY, "desktop-fresh-install", True)
+        got = self.plan([failed, later, other, earlier_pass])
+        self.assertEqual(got[failed.name], (True, f"a later run of server-fast-provision passed: {later.name}"))
+        self.assertFalse(got[other.name][0], "an EARLIER pass does not supersede a failure")
+        self.assertIn("kept for diagnosis", got[other.name][1])
+
+    def test_a_failed_run_older_than_the_limit_is_prunable(self):
+        old = self.facts(8 * DAY, "server-fast-provision", False)
+        young = self.facts(6 * DAY, "server-full-provision", False)
+        got = self.plan([old, young])
+        self.assertEqual(got[old.name], (True, "did not pass, and is older than 7 days"))
+        self.assertFalse(got[young.name][0])
+        self.assertEqual(self.plan([young], days=5)[young.name], (True, "did not pass, and is older than 5 days"))
+
+    def test_a_directory_that_is_not_a_run_id_is_kept(self):
+        odd = retention.run_facts("scratch", True)
+        self.assertEqual(self.plan([odd]), {"scratch": (False, "not a run directory name (<UTC stamp>-<scenario>)")})
+
+
+class TestPrunePlanExecutor(SweepCase):
+    def prune_plan(self):
+        return subprocess.run(
+            [
+                sys.executable, "-m", "helpers.vmtest.retention", "prune-plan",
+                "--lab-dir", str(self.lab), "--now", str(int(NOW)), "--older-than-days", "7",
+            ],
+            cwd=REPO_ROOT, capture_output=True, text=True, check=False,
+        )
+
+    def test_every_run_directory_gets_one_line_using_the_sweep_pass_rule(self):
+        passed = f"{stamp(DAY)}-server-fast-provision"
+        failed = f"{stamp(2 * DAY)}-server-full-provision"
+        self.run_dir(passed, "pass", 0)
+        self.run_dir(failed, "fail", 0)
+        (self.lab / "runs" / "stray-file").write_text("x")
+        result = self.prune_plan()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout.splitlines(),
+            [
+                f"VMTEST-PRUNE {failed} keep did not pass; kept for diagnosis until a later run of server-full-provision passes or it is older than 7 days",
+                f"VMTEST-PRUNE {passed} prune passed",
+                "VMTEST-PRUNE-PLAN-DONE runs=2",
+            ],
+        )
+
+    def test_no_runs_directory_is_an_empty_plan(self):
+        (self.lab / "runs").rmdir()
+        result = self.prune_plan()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "VMTEST-PRUNE-PLAN-DONE runs=0\n")
+
+
 class TestFloorExecutor(unittest.TestCase):
     def test_floor_prints_marker_and_exits_non_zero_when_short(self):
         with tempfile.TemporaryDirectory() as tmp:
