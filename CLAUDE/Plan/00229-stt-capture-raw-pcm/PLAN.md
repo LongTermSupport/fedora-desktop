@@ -62,6 +62,15 @@ This plan fixes it under Defence Before Fix:
   `wsi-stream-server`. Neither play deploys them. Find why the play ledger counts them as
   those plays' inputs (a glob or directory input too wide, a shared task file) and narrow it,
   test first, so a speech-to-text change re-offers only the speech-to-text play.
+- [x] ✅ **Task 1.6**: A GPU is optional for `play-speech-to-text.yml`. Its header no longer
+  names play-nvidia.yml as a prerequisite but says what each case gets. The `/dev/nvidia[0-9]*`
+  find runs first and is the one GPU fact: only a host with a node installs the CUDA 12
+  cuBLAS/cuDNN wheels and puts them on `faster-whisper-transcribe`'s `LD_LIBRARY_PATH` (now
+  a fail-fast import, never an empty path); without one the wrapper has no `LD_LIBRARY_PATH`
+  line. A GPU host renders the same wrapper as before. `wsi-stream` and `wsi-stream-server`
+  set no library path. Host check pending: a run on a machine with no NVIDIA GPU (likely the
+  owner's consumer laptop) installs no `nvidia-*-cu12` wheel from this play and dictates on
+  the CPU. Report: [subagent-reports/261027-stt-no-gpu.md](subagent-reports/261027-stt-no-gpu.md).
 
 ### Phase 2: The upgrade that changed a tool under running services
 

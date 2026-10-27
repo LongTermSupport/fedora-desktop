@@ -1,8 +1,14 @@
 #!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
 ---
-# Speech-to-Text GNOME Extension with GPU-accelerated Whisper (faster-whisper)
+# Speech-to-Text GNOME Extension with Whisper (faster-whisper), on the GPU when there is one
 #
-# Prerequisites: NVIDIA drivers installed via play-nvidia.yml
+# A GPU is optional. Without an NVIDIA GPU (no /dev/nvidiaN node) the play installs no CUDA
+# wheels and the recorders run on the CPU: auto picks small for batch and base for streaming.
+# With one, play-nvidia.yml must have installed the driver and loaded it (reboot, then run
+# this play), so the nodes exist: the play then installs the CUDA 12 cuBLAS and cuDNN wheels
+# and puts them on the faster-whisper wrapper library path, and auto picks distil-large-v3.5
+# for English or large-v3-turbo for other languages. A GPU host whose GPU CTranslate2 cannot
+# see fails the play.
 #
 # Usage: Press Insert key to toggle recording. Text auto-pastes when stopped.
 # Model: chosen in the extension Settings (Whisper Model). Its default, auto, is resolved
@@ -132,45 +138,68 @@
       failed_when: ydotool_socket.rc != 0
 
     # =========================================================================
-    # faster-whisper with GPU acceleration
+    # faster-whisper, with the CUDA libraries on a GPU host
     # =========================================================================
+
+    # The NVIDIA driver (play-nvidia.yml) creates one /dev/nvidiaN node per GPU. This one
+    # find is the play's GPU fact: the CUDA wheels below and the CTranslate2 check further
+    # down both key on it.
+    - name: Find NVIDIA GPU Device Nodes
+      ansible.builtin.find:
+        paths: /dev
+        patterns: 'nvidia[0-9]*'
+        file_type: any
+      register: nvidia_gpu_nodes
 
     # Pinned to what RealtimeSTT 1.0.0 (below) declares it needs. The continuous-dictation
     # segmenter loads the Silero VAD that faster-whisper ships, so an unpinned upgrade could
     # change it under the server; move both pins together, after re-running Plan 00148's
-    # triage.
-    - name: Install faster-whisper with CUDA Support
+    # triage. faster-whisper runs on the CPU without any CUDA library.
+    - name: Install faster-whisper
       become: true
       become_user: "{{ user_login }}"
       ansible.builtin.pip:
         name:
           - faster-whisper==1.2.1
-          - nvidia-cublas-cu12
-          - nvidia-cudnn-cu12==9.*
           # wsi-model-manager's buttons run their actions through Button(action=...), which
           # textual added in 0.85.0; an older copy already installed is upgraded.
           - textual>=0.85.0
         extra_args: --user
         state: present
 
+    # The CUDA 12 cuBLAS and cuDNN that faster-whisper needs on the GPU: a large download
+    # that a machine with no NVIDIA GPU has no use for.
+    - name: Install The CUDA Libraries For faster-whisper On The GPU
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.pip:
+        name:
+          - nvidia-cublas-cu12
+          - nvidia-cudnn-cu12==9.*
+        extra_args: --user
+        state: present
+      when: nvidia_gpu_nodes.matched > 0
+
+    # Installed just above, so a failed import is a failure, never an empty path.
     - name: Find CUDA Library Paths
       become: true
       become_user: "{{ user_login }}"
-      ansible.builtin.shell: |
-        python3 -c "
-        import os
-        try:
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - |
+            import os
             import nvidia.cublas
             import nvidia.cudnn
             cublas = os.path.join(nvidia.cublas.__path__[0], 'lib')
             cudnn = os.path.join(nvidia.cudnn.__path__[0], 'lib')
             print(f'{cublas}:{cudnn}')
-        except (ImportError, IndexError):
-            print('')
-        "
       register: cuda_lib_paths
       changed_when: false
+      when: nvidia_gpu_nodes.matched > 0
 
+    # No GPU, no library path: the wrapper then runs faster-whisper on the CPU as it is.
     - name: Create faster-whisper Shell Wrapper
       ansible.builtin.copy:
         dest: "/home/{{ user_login }}/.local/bin/faster-whisper-transcribe"
@@ -179,8 +208,10 @@
         mode: '0755'
         content: |
           #!/bin/bash
+          {% if nvidia_gpu_nodes.matched > 0 %}
           # Set CUDA library paths before running Python
           export LD_LIBRARY_PATH="{{ cuda_lib_paths.stdout }}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          {% endif %}
           exec python3 ~/.local/bin/faster-whisper-transcribe.py "$@"
 
     - name: Create faster-whisper Python Script
@@ -510,14 +541,6 @@
       failed_when: >-
         idle_timeout_probe.rc != 0
         or not (idle_timeout_probe.stdout | regex_search('^[0-9]+$'))
-
-    # The NVIDIA driver (play-nvidia.yml) creates one /dev/nvidiaN node per GPU
-    - name: Find NVIDIA GPU Device Nodes
-      ansible.builtin.find:
-        paths: /dev
-        patterns: 'nvidia[0-9]*'
-        file_type: any
-      register: nvidia_gpu_nodes
 
     # CTranslate2 answers 0, not an error, when it cannot reach a GPU that is there, and
     # auto would then load the CPU model. The resolver already refuses that state; this
