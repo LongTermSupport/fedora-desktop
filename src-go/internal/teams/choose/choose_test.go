@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/coordinator"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatcheckouts"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -447,6 +449,45 @@ func TestDescribeBlockOfAnUnreadSeatListSaysTheRoleIsUnknown(t *testing.T) {
 	}
 	if !strings.Contains(h.stdout(), "  alpha  seat 1 (role unknown: the checkout's seats could not all be read (the reason is above))  ") ||
 		!strings.Contains(h.ErrOut.String(), "agent-bus: "+bare+" has no .claude/ccy/") {
+		t.Fatalf("stdout %q stderr %q", h.stdout(), h.ErrOut.String())
+	}
+}
+
+// Plan 00201 Task 2.29: the launch block, which follows every seat take, lists the session's
+// checkout among the seat checkouts, so its seats are read there once the session has ended.
+func TestDescribeBlockListsTheCheckoutAmongTheSeatCheckouts(t *testing.T) {
+	h := newRig(t)
+	store, err := h.Host.Registry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := seatcheckouts.Of(store)
+	if code := h.c.Describe(t.Context(), []string{"--block", "1@alpha"}); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	got, err := list.Read()
+	if err != nil || !slices.Equal(got, []string{h.Checkout()}) {
+		t.Fatalf("list %v, %v", got, err)
+	}
+	other := filepath.Join(h.Root, "other")
+	if code := Block(t.Context(), h.Host, flow.New(h.Host), &strings.Builder{}, other, "1@alpha"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if got, err = list.Read(); err != nil || !slices.Equal(got, []string{h.Checkout(), other}) {
+		t.Fatalf("list %v, %v", got, err)
+	}
+}
+
+func TestDescribeBlockFailsWhenTheCheckoutCannotBeListed(t *testing.T) {
+	h := newRig(t)
+	list := filepath.Join(h.Root, "home/.local/state/ccy/seat-checkouts")
+	if err := os.MkdirAll(list, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if code := h.c.Describe(t.Context(), []string{"--block", "1@alpha"}); code != term.ExitFailure {
+		t.Fatalf("exit %d", code)
+	}
+	if h.stdout() != "" || !strings.Contains(h.ErrOut.String(), list) {
 		t.Fatalf("stdout %q stderr %q", h.stdout(), h.ErrOut.String())
 	}
 }

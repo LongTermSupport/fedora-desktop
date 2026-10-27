@@ -159,6 +159,29 @@ func TestAHeldSeatWithNoNamedSessionIsNotShutDown(t *testing.T) {
 	}
 }
 
+// Plan 00201 Task 2.29: a cc host seat whose session ended before the shutdown, in a checkout no
+// record names any more, is a seat with no session: nothing to shut down, and no failure.
+func TestASeatWhoseSessionHasEndedIsNothingToShutDown(t *testing.T) {
+	m := newMachine(t)
+	other := filepath.Join(m.Root, "other")
+	m.AddSeat(t, other, "alpha", "1", "other.1+local.host")
+	teamtest.MustWrite(t, filepath.Join(m.Root, "home/.local/state/ccy/seat-checkouts"), other+"\n")
+	m.On(teamtest.SudoBus+"list alpha", "MEMBER\tproj.1+local.podman\tdev\tjoin\tactive\n"+
+		"MEMBER\tother.1+local.host\tdev\tjoin\tactive\n", 0)
+	got := m.run("alpha", "--yes")
+	m.errHas(t,
+		"No session running, nothing to shut down:",
+		"  1@alpha (other.1+local.host)   no session running",
+		"ccy-proj: exited cleanly; seat 1@alpha released",
+		"1@alpha (other.1+local.host): no session running, nothing to shut down",
+		"alpha: 1 exited cleanly, 0 stopped, 0 failed.",
+	)
+	m.errLacks(t, "not reachable", "other.1+local.host: not shut down")
+	if got != term.ExitOK {
+		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
+	}
+}
+
 // SD5: members that could not be read are said, not taken as none.
 func TestUnreadMembersAreSaid(t *testing.T) {
 	m := newMachine(t)

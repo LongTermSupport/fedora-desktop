@@ -99,6 +99,21 @@ func TestAMemberDeclaredAlreadyIsRecognisedAndTheTeamApplied(t *testing.T) {
 	}
 }
 
+// Plan 00201 Task 2.29: a No to the apply of a member declared as answered is a decline: exit 0,
+// nothing applied.
+func TestNoToTheApplyOfADeclaredMemberIsADecline(t *testing.T) {
+	r := newRig(t)
+	r.WriteHostVars(t, teamtest.HostVarsWithLxc(declaredMember))
+	r.realDeclare(t)
+	r.answers(choose("container-a"), choose("agent"), choose("worker"), "NO")
+	if code := r.run("alpha"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
+	}
+	if len(r.applied) != 0 || !strings.Contains(r.ErrOut.String(), "Nothing was changed; ccy-teams apply alpha joins it later.") {
+		t.Fatalf("applied %v: %s", r.applied, r.ErrOut.String())
+	}
+}
+
 // A member declared otherwise is told key by key, and the owner chooses to update or stop.
 func TestAMemberDeclaredOtherwiseNamesTheKeysAndUpdatesOnlyWhenChosen(t *testing.T) {
 	other := declaredMember
@@ -116,7 +131,8 @@ func TestAMemberDeclaredOtherwiseNamesTheKeysAndUpdatesOnlyWhenChosen(t *testing
 			t.Fatalf("%s: the differences are not named:\n%s", choice, said)
 		}
 		if choice == stopChoice {
-			if code != term.ExitFailure || r.hostVars(t) != before || len(r.applied) != 0 || !strings.Contains(said, "Nothing was changed.") ||
+			// A person's Stop is a decline, not a failure (Plan 00201 Task 2.29).
+			if code != term.ExitOK || r.hostVars(t) != before || len(r.applied) != 0 || !strings.Contains(said, "Nothing was changed.") ||
 				!strings.Contains(said, "ccy-teams apply alpha joins it as declared") {
 				t.Fatalf("stop: exit %d, applied %v: %s", code, r.applied, said)
 			}

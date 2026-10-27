@@ -126,8 +126,9 @@ func (o *Ops) sessionsOff(ctx context.Context, team string) (term.ExitCode, bool
 		return o.questionFailed(err), false
 	}
 	if !yes {
+		// A person's No is a decline, not a failure (Plan 00201 Task 2.29).
 		o.Term.Printf("Nothing was changed: a team is taken down once no running session is in it.\n")
-		return term.ExitFailure, false
+		return term.ExitOK, false
 	}
 	for _, session := range in {
 		if !o.TakeOut(ctx, session, team) {
@@ -210,8 +211,9 @@ func (o *Ops) chooseFate(ctx context.Context, team string) (bool, term.ExitCode,
 		}
 		return true, 0, true
 	default:
+		// Leaving it running is a decline, not a failure (Plan 00201 Task 2.29).
 		o.Term.Printf("Nothing was changed.\n")
-		return false, term.ExitFailure, false
+		return false, term.ExitOK, false
 	}
 }
 

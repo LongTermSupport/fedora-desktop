@@ -332,7 +332,7 @@ func TestTheCheckoutIsReadFromTheHostSideNeverByEnteringTheContainer(t *testing.
 func TestTheDerivedHandleIsShownInTheSummaryBeforeTheYes(t *testing.T) {
 	r := newRig(t)
 	r.answers(choose("container-a"), choose("agent"), choose("worker"), "NO")
-	if code := r.run("alpha"); code != term.ExitFailure {
+	if code := r.run("alpha"); code != term.ExitOK {
 		t.Fatalf("exit %d", code)
 	}
 	shown := strings.Join(r.Script.Styled, "\n")
@@ -719,7 +719,8 @@ func TestARefusedAnswerIsAskedThreeTimesThenTheRunEndsWithNothingWritten(t *test
 func TestDecliningTheSummaryWritesNothing(t *testing.T) {
 	r := newRig(t)
 	r.answers(choose("container-a"), choose("agent"), choose("worker"), "NO")
-	if code := r.run("alpha"); code != term.ExitFailure {
+	// A person's No is a decline, not a failure (Plan 00201 Task 2.29).
+	if code := r.run("alpha"); code != term.ExitOK {
 		t.Fatalf("exit %d", code)
 	}
 	if r.addLine() != "" || len(r.applied) != 0 || !strings.Contains(r.ErrOut.String(), "Nothing was added.") {
@@ -961,7 +962,7 @@ func TestSeveralNewMembersMeanTheHandleCannotBeTold(t *testing.T) {
 func TestTheSummaryCallsTheHandleExpectedBecauseThePlayMintsIt(t *testing.T) {
 	r := newRig(t)
 	r.answers(choose("container-a"), choose("agent"), choose("worker"), "NO")
-	if code := r.run("alpha"); code != term.ExitFailure {
+	if code := r.run("alpha"); code != term.ExitOK {
 		t.Fatalf("exit %d", code)
 	}
 	if shown := strings.Join(r.Script.Styled, "\n"); !strings.Contains(shown, "Handle (expected)") ||

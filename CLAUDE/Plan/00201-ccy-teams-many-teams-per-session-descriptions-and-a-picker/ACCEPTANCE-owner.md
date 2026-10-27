@@ -49,8 +49,8 @@ Do these in order, once. Each step names what you should see.
    make it the coordinator later, in `ccy-teams` press Enter on its seat, then **Make
    coordinator**, then Yes.
 6. **Check the session.** The launch prints "This session is on 1 team:" (or "on N teams:"),
-   one line per seat with its role and the team's description. The status line ends
-   `👥 <team> (<role>)` (several teams: `👥 <team> (<role>), <team> (<role>)`); a red
+   one line per seat with its role and the team's description. The status line has a row
+   `👥 <team>: <repo>.<seat> (w)` (`c` for a coordinator; several teams: `👥 <team>: <repo>.<seat> (w), <team>: <repo>.<seat> (w)`); a red
    `👥 no record ...` or a `(role?)` is a
    fault (below). Next time in that checkout, plain `ccy` shows the seats on the **Team:**
    line under **Quick Launch Available**, and Enter takes them again.
@@ -95,7 +95,9 @@ team covers, whose own status line is a hooks daemon's.
     a homeserver), and that both timestamps are unchanged afterwards.
 04. Each team asks for its seat; an existing seat then asks its role (choose **Keep as is**).
     The launch block reads "This session is on 2 teams:", with each seat and description.
-05. In the session, the status line shows `👥 A,B` on its own row, below the checkout's own status line.
+05. In the session, the status line shows each seat on its own row, below the checkout's own
+    status line: `👥 A: <repo>.<seat> (w), B: <repo>.<seat> (w)` (the role's letter, `c` for a
+    coordinator).
     A red `👥 no record ...` fails this step. Type `! pingbus status`: two `TEAM` lines, and
     an `ABOUT` line for each team that has a description.
 06. Ask the other agent on A to ping this session, then the one on B. The session is woken once
@@ -107,7 +109,8 @@ team covers, whose own status line is a hooks daemon's.
     consent question again, rename `~/.config/pingbus/element-accepted` first. The question
     names both handles: answer No once (nothing is started or recorded, and a checkout that had
     no `.claude/ccy/` still has none), then run it again and answer Yes.
-09. The cc session shows the launch block, and its status line shows `👥 A,B` on its own row. While it
+09. The cc session shows the launch block, and its status line shows each seat on its own
+    `👥` row, as in step 05. While it
     runs, `ls /tmp/pingbus-sessions-$(id -u)/` (or `$PINGBUS_SESSIONS_DIR` when set) shows one
     file for it; after you end it, that file is gone. A file still there means SessionEnd did
     not remove it: this step fails.
@@ -128,9 +131,10 @@ team covers, whose own status line is a hooks daemon's.
     every session of `<team>`**. It lists each session (and any LXC agent as not reachable),
     then asks, with No highlighted: choose Yes. In the attached terminal you see `/exit` typed
     and the session end; the working one is interrupted first, then ends the same way. Each
-    line reads `exited cleanly; seat N@<team> released`. The list then shows those seats
-    **free**, and the team row still **up**. A line saying `stopped` or `failed` fails this
-    step: send it.
+    line reads `exited cleanly; seat N@<team> released`; a seat whose session had ended
+    already (a cc session from step 09) is listed as `no session running, nothing to shut down`, and the run does not fail on it. The list then shows those seats with SESSION
+    **free** (STATE stays `active`: the member is still on the team), and the team row still
+    **up**. A line saying `stopped` or `failed` fails this step: send it.
 13. A team's settings (Task 2.15, SPEC-many-teams.md section F). In `ccy-teams`, press Enter on
     a team's row and choose **Edit settings**. The screen's heading reads `Teams › <team> › Settings` over `team <team> · no changes waiting`, and it lists the description, people, GitHub owner, repositories, excluded
     repositories, path limit, allowed networks and coordinator with their values. Below them

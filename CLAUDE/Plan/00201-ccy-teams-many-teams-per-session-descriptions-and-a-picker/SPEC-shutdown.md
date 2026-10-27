@@ -16,6 +16,12 @@ are ccy-teams' own: 0, 1 refusal or failure, 64 usage, 130 cancelled.
   seats. cc chooses its seats after tmux starts (`cc-teams.bash`), so a cc record names its
   seats only when it was launched with a full `<seat>@<team>` list. ccy-teams' table already
   joins the records' seats to `agent-bus seat list` per checkout (`board.Snapshot.SeatSession`).
+- **Where a seat is once its session has ended.** A record names its checkout only while the
+  session runs. The list of seat checkouts (`~/.local/state/ccy/seat-checkouts`, beside the
+  registry; package `teams/seatcheckouts`) keeps every checkout a launch took seats in (the
+  launch block, `describe-seats --block`, follows every seat take and adds it) and every one the
+  board has seen with a seat directory, so the board and shutdown read those seats after their
+  sessions end (Task 2.29).
 - **What a seat's "held" is.** `agent-bus seat list` says `held` while a live process holds
   the seat's lock (`helpers/pingbus/seat.py`, `seat_state`: an flock on `seat.lock`). The lock
   is the session's own process (the watcher in a ccy container; `pingbus seat exec`, which
@@ -81,12 +87,20 @@ are ccy-teams' own: 0, 1 refusal or failure, 64 usage, 130 cancelled.
     not fail the run (Plan 00211, rule `offline-member-blocks`). This departs from the first
     version of SD5, under which every LXC member failed the run;
   - any other roster member that is not a seat of a checkout known here (`host`, `docker`,
-    `vm`, or `ccy` with no checkout): "not a session on this host's ccy tmux (another
-    machine, or a checkout ccy-teams does not know); end it where it runs";
+    `vm`, or `ccy` with no checkout; a known checkout is one a live session or record names,
+    the working directory's, or one on the list of seat checkouts): "not a session on this
+    host's ccy tmux (another machine, or a checkout ccy-teams does not know); end it where it
+    runs";
   - the team's members when the roster could not be read (sudo, homeserver down): "the team's
     members could not be read (<why>), so members outside this host's checkouts are not
     listed".
     Parked members are not listed: a parked member has no session.
+- **SD5a** **No session running** (listed, never acted on, never a failure): a seat of a known
+  checkout that is free and that no live session names, such as a cc host seat whose session
+  ended before the shutdown. It is listed under "No session running, nothing to shut down:"
+  and in the result as "<seat>@<team> (<handle>): no session running, nothing to shut down".
+  It is not in the count line. This departs from the first version, under which such a seat,
+  once no record named its checkout, was not reachable and failed the run (Task 2.29).
 - **SD6** The preview, on stderr, lists each session (name, seat and handle, checkout, "open
   on a terminal" when a client is attached, other teams), then the unreachable members with
   their reason, then one line: each session is sent `/exit` as if typed; one that has not
@@ -155,9 +169,12 @@ both.
 ### The result
 
 - **SD15** One line per session on stderr: `<session>: exited cleanly`, `<session>: stopped: <why>`, or `<session>: failed: <why>`, each followed by the seats it held, "released"; then
-  one line per unreachable member, `<member>: not shut down: <why>`. Then a count line.
+  one line per unreachable member, `<member>: not shut down: <why>`, then one per offline
+  member and per seat with no session (SD5, SD5a), each "nothing to shut down". Then a count
+  line.
 - **SD16** Exit 0 only when every session exited cleanly or was stopped, every seat is
-  released and nothing was unreachable; otherwise 1. No member is skipped silently.
+  released and nothing was unreachable; otherwise 1. An offline member and a seat with no
+  session do not fail the run. No member is skipped silently.
 
 ## Limits, stated plainly
 

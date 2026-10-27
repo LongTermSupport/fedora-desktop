@@ -2,6 +2,8 @@ package board
 
 import (
 	"io/fs"
+	"maps"
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -335,6 +337,79 @@ func TestCollectBuildsTheRows(t *testing.T) {
 			t.Logf("got  %+v", s.Rows[i])
 		}
 		t.Fatalf("rows differ from the %d expected", len(want))
+	}
+}
+
+// endSession is what a session's end leaves: no tmux session, no record, its seat released.
+func endSession(t *testing.T, h rig) {
+	t.Helper()
+	h.On("tmux -L ccy list-sessions", "", 0)
+	if err := os.Remove(filepath.Join(h.Root, "home/.local/state/ccy/sessions/ccy-proj")); err != nil {
+		t.Fatal(err)
+	}
+	h.HoldSeat(t, h.Checkout(), "alpha", "1", false)
+}
+
+func seatSessions(s *Snapshot, team string) map[string]string {
+	got := map[string]string{}
+	for _, r := range s.Rows {
+		if r.Team == team && r.Kind == KindCcy && r.Dir != "-" {
+			got[r.Member] = r.Session
+		}
+	}
+	return got
+}
+
+// Plan 00201 Task 2.29: once its session has ended no record names a seat's checkout, and the
+// board still reads its seats there, from the list of seat checkouts, as free.
+func TestASeatWhoseSessionEndedStillReadsAsFree(t *testing.T) {
+	h := populated(t)
+	if _, err := h.c.Collect(t.Context()); err != nil {
+		t.Fatalf("%v: %s", err, h.ErrOut.String())
+	}
+	endSession(t, h)
+	s, err := collectorOf(h.World).Collect(t.Context())
+	if err != nil {
+		t.Fatalf("%v: %s", err, h.ErrOut.String())
+	}
+	if got := seatSessions(s, "alpha"); !maps.Equal(got, map[string]string{"1": "free", "dev": "free"}) {
+		for _, r := range s.Rows {
+			t.Logf("row %+v", r)
+		}
+		t.Fatalf("seats %v", got)
+	}
+	if s.Incomplete != "" || h.ErrOut.String() != "" {
+		t.Fatalf("incomplete %q stderr %q", s.Incomplete, h.ErrOut.String())
+	}
+}
+
+// A listed checkout that has gone, or has no seats, is not read and is no failure.
+func TestAListedCheckoutWithNoSeatsIsNotRead(t *testing.T) {
+	h := populated(t)
+	teamtest.MustWrite(t, filepath.Join(h.Root, "home/.local/state/ccy/seat-checkouts"), "/home/u/gone\n")
+	s, err := h.c.Collect(t.Context())
+	if err != nil || s.Incomplete != "" || h.ErrOut.String() != "" {
+		t.Fatalf("%v incomplete %q stderr %q", err, s.Incomplete, h.ErrOut.String())
+	}
+	if !slices.Contains(s.Checkouts, "/home/u/gone") {
+		t.Fatalf("checkouts %v", s.Checkouts)
+	}
+}
+
+// A list that cannot be read is said, and the board says it is incomplete.
+func TestAnUnreadableListOfSeatCheckoutsIsSaid(t *testing.T) {
+	h := populated(t)
+	list := filepath.Join(h.Root, "home/.local/state/ccy/seat-checkouts")
+	teamtest.MustWrite(t, list, "relative\n")
+	s, err := h.c.Collect(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Incomplete != wordSeatListUnread || !strings.Contains(h.ErrOut.String(), list) {
+		t.Fatalf("incomplete %q stderr %q", s.Incomplete, h.ErrOut.String())
+	}
+	if !slices.Contains(s.Checkouts, h.Checkout()) {
+		t.Fatalf("the sessions' checkouts are still read: %v", s.Checkouts)
 	}
 }
 

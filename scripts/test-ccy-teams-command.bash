@@ -1534,7 +1534,8 @@ check_lacks "  with no traceback" "Traceback" "$out"
 check "  and writes nothing" "$before" "$(cat "$WIZ")"
 fresh_wiz
 out="$(CCY_TEAMS_HOST_VARS="$WIZ" run_in "$CHECKOUT" "$(printf '%s\n' ENTER ENTER '=gamma' '=Builds gamma' ENTER ENTER NO)" create)"
-check "no at the summary adds nothing" "rc=1" "$(rc_of "$out")"
+# A person's No is a decline, not a failure (Plan 00201 Task 2.29): exit 0.
+check "no at the summary adds nothing" "rc=0" "$(rc_of "$out")"
 check_has "  saying so" "Nothing was added." "$out"
 check "  the file is as it was" "$before" "$(cat "$WIZ")"
 

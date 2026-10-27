@@ -4,10 +4,11 @@
 passed on the host at F44 cab255ad4 (commit d2612e8d7), with Tasks 2.21 to 2.23's checker
 fixes. The relay task 2.8 is superseded; Tasks 2.11, 2.12, 2.15, 2.17 and 2.18 are carried by
 Plan 00209. The host agent ran ACCEPTANCE-owner.md on throwaway teams at F44 d247e4b2f
-(27-10-27): steps 01-07, 09, 10, 12 and 13 and Task 2.20 PASS. Left for workers: Task 2.29
-(step 12's exit and seat state) and the final qa-reviewer. Left for the host agent: steps 03,
-10 and 13 again on [chooser-teams-up.bash](chooser-teams-up.bash)'s teams, after Task 2.28's
-fix is deployed. Left for the owner: step 08's consent No/Yes (the record is outside the
+(27-10-27): steps 01-07, 09, 10, 12 and 13 and Task 2.20 PASS. Task 2.29 (step 12's exit and seat
+state) is built, awaiting merge and the host check. Left for workers: the final qa-reviewer.
+Left for the host agent: steps 03, 10 and 13 again on
+[chooser-teams-up.bash](chooser-teams-up.bash)'s teams, after Task 2.28's fix is deployed,
+and Task 2.29's host check. Left for the owner: step 08's consent No/Yes (the record is outside the
 repository, which the host agent may not rename) and check 11 (a real password paste at the
 owner's screen).
 **Created**: 2026-10-15
@@ -251,7 +252,7 @@ a repository is no longer offered for a checkout of it. Report:
   suites and harnesses). Report: `subagent-reports/261027-task-2-28.md`. Host: after
   `play-claude-yolo.yml`, steps 03, 10 and 13 on chooser-teams-up's teams apply the team.
 
-- [ ] ⬜ **Task 2.29**: The host run of 27-10-27 found: (a) `ccy-teams shutdown` exits 1,
+- [ ] 🔄 **Task 2.29**: The host run of 27-10-27 found: (a) `ccy-teams shutdown` exits 1,
   "failed", only because a cc host seat whose session had already ended is listed as "not
   reachable from here"; a seat with no running session is nothing to shut down and must not
   fail the run. (b) After the shutdown the seat rows read STATE `active`, SESSION `-`, never
@@ -259,6 +260,20 @@ a repository is no longer offered for a checkout of it. Report:
   should read as free, or the step says what it shows). (c) A deliberate Stop at lxc-add's
   "Update entry / Stop" exits 1; a person's cancel should exit as a cancel, not a failure.
   (d) ACCEPTANCE-owner step 05 still says `👥 A,B`; the line names each seat. Tests first.
+  Built (branch `fix/00201-task-2-29`). (a) and (b) had one cause: the board knows a checkout
+  only while a record or live session names it, so once a session ended its seats became plain
+  roster rows (SESSION `-`) and a cc host seat became "not reachable". A list of seat checkouts
+  (`teams/seatcheckouts`, `~/.local/state/ccy/seat-checkouts`), added to by the launch block
+  after every seat take and by every board pass, is read by the board and shutdown: a released
+  seat reads SESSION `free`, and a free seat no live session names is "no session running,
+  nothing to shut down", not a failure (SPEC-shutdown SD5a, SD15, SD16 amended). (c) A No or
+  Stop exits 0 (the convention of shutdown, restart and wind-down; Esc stays 130) in lxc-add
+  (three), create (from `ccy --teams` it now goes back to the list) and remove (two); the class
+  is in GoProjectRules.md "cannot be a rule". (d) Steps 05, 06, 09 and 12 corrected. Report:
+  [subagent-reports/261027-task-2-29.md](subagent-reports/261027-task-2-29.md). Host, after
+  `play-claude-yolo.yml`: relaunch the step 12 sessions (so the launch lists their checkouts),
+  rerun step 12 with an ended cc seat (exit 0, its "no session running" line, seats `free`), and
+  Stop at lxc-add's "Update entry / Stop" (exit 0).
 
 ## Success Criteria
 

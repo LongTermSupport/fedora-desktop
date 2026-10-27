@@ -196,7 +196,8 @@ func (a answers) context() string {
 func (a answers) where2() string { return "(container " + a.container + ", user " + a.user + ")" }
 
 // Run is ccy-teams lxc-add with the arguments after "lxc-add". It returns the exit code:
-// 0 done, 1 refused or failed, 64 usage, 130 cancelled, or declare.py's own refusal code.
+// 0 done or declined, 1 refused or failed, 64 usage, 130 cancelled, or declare.py's own refusal
+// code.
 func (a *Adder) Run(ctx context.Context, args []string) term.ExitCode {
 	a.term = a.NewTerm()
 	a.asked = 0
@@ -231,6 +232,14 @@ func (a *Adder) failed(msg string) error {
 func (a *Adder) cancelled() error {
 	a.term.Printf("Cancelled; nothing was changed.\n")
 	return &stop{term.ExitCancelled}
+}
+
+// declined is a person's No or Stop: nothing is done, by choice, and the run succeeds, as a No
+// does in shutdown, restart and wind-down; Esc is the cancel (130). In the picker it goes back to
+// the list (Plan 00201 Task 2.29).
+func (a *Adder) declined(msg string) error {
+	a.term.Printf("%s\n", msg)
+	return &stop{term.ExitOK}
 }
 
 // gumErr is a gum question's error: leaving it is the run's cancellation.
@@ -318,8 +327,7 @@ func (a *Adder) sayDeclared(ctx context.Context, ans answers) error {
 		return a.gumErr(err)
 	}
 	if choice != update {
-		a.term.Printf("Nothing was changed. ccy-teams apply %s joins it as declared.\n", ans.team)
-		return &stop{term.ExitFailure}
+		return a.declined("Nothing was changed. ccy-teams apply " + ans.team + " joins it as declared.")
 	}
 	return nil
 }
@@ -698,8 +706,7 @@ func (a *Adder) summary(ctx context.Context, ans answers) error {
 		return a.gumErr(err)
 	}
 	if !yes {
-		a.term.Printf("Nothing was added.\n")
-		return &stop{term.ExitFailure}
+		return a.declined("Nothing was added.")
 	}
 	return nil
 }
@@ -713,8 +720,7 @@ func (a *Adder) confirmApply(ctx context.Context, ans answers) error {
 		return a.gumErr(err)
 	}
 	if !yes {
-		a.term.Printf("Nothing was changed; ccy-teams apply %s joins it later.\n", ans.team)
-		return &stop{term.ExitFailure}
+		return a.declined("Nothing was changed; ccy-teams apply " + ans.team + " joins it later.")
 	}
 	return nil
 }
