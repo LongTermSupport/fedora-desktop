@@ -231,7 +231,7 @@ func (c *cli) prunePlan(ctx context.Context, l *lab, days int) ([]pruneEntry, er
 
 // markLive makes a run whose guest or lock is still held live, whatever the plan says.
 func markLive(e *pruneEntry, domains map[string]bool, dir string) error {
-	if domain := "vmtest-run-" + e.id; domains[domain] {
+	if domain := runDomain(e.id); domains[domain] {
 		e.action, e.reason = actionLive, "libvirt has the domain "+domain
 		return nil
 	}
