@@ -34,7 +34,7 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00234-stt-model-manager-fits-gpu](00234-stt-model-manager-fits-gpu/) - In Progress (acceptance passed; the review fixes' screen and real-GPU checks queued for the host; the owner's look and Decision 1's approval pending). The speech-to-text model manager shows each model's GPU memory need against this machine's NVIDIA GPU (or says the CPU is used), preselects the most capable English-only model that fits and refuses one that does not; the sizes and fit rule live in wsi-resolve-model --fit. Also the NVIDIA and DisplayLink MOK enrolment steps, screen by screen.
+- [00234-stt-model-manager-fits-gpu](00234-stt-model-manager-fits-gpu/) - In Progress (the review fixes' screen and real-GPU checks queued for the host; the owner's look and Decision 1's approval pending). The speech-to-text model manager shows which models fit this machine's NVIDIA GPU, preselects the best English-only one that fits and refuses one that does not.
 
 - [00232-ccy-network-policy-per-container](00232-ccy-network-policy-per-container/) - In Progress (deployed and ACCEPTED on the host at CCY 3.101.1; left: the final review, the owner's points, and why a seated headless session outlives its input). Issue #114: a network policy per ccy container, held in its own network namespace from the host; the default refuses private ranges and the host itself, derives everything agent teams need, and tells the session its limits.
 
