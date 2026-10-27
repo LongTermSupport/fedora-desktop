@@ -29,6 +29,91 @@
       ansible.builtin.include_vars:
         file: "{{ root_dir }}/vars/fedora-version.yml"
   tasks:
+    # Secure Boot needs a MOK password before anything is installed: the signed driver
+    # cannot load until its key is enrolled with it at the next boot. Asked here, first,
+    # when Secure Boot is on and no mok_password is set, then vault-encrypted into
+    # localhost.yml, so a missing password never fails the play halfway through.
+    - name: Install mokutil for the Secure Boot check
+      ansible.builtin.dnf:
+        name: mokutil
+        state: present
+
+    - name: Check if Secure Boot is enabled
+      ansible.builtin.command:
+        argv: [mokutil, --sb-state]
+      register: secure_boot_state
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — firmware without EFI variables has no Secure Boot to report
+
+    - name: Ask for a MOK password and save it (one-time setup)
+      when:
+        - "'SecureBoot enabled' in secure_boot_state.stdout"
+        - mok_password is not defined
+      block:
+        - name: Explain the MOK password
+          ansible.builtin.debug:
+            msg: |2
+
+              ============================================
+              SECURE BOOT: CHOOSE A MOK PASSWORD
+              ============================================
+
+              Secure Boot is on, so the NVIDIA driver is signed with a key that has to be
+              enrolled once, at the next boot, on a blue "MOK management" screen. That
+              screen asks for the password you choose now (8 to 16 characters is
+              typical; it is typed once, on that screen, and not needed again).
+
+        - name: Prompt for the MOK password
+          ansible.builtin.pause:
+            prompt: "MOK password"
+            echo: false
+          register: mok_password_prompt
+
+        - name: Prompt for the MOK password again
+          ansible.builtin.pause:
+            prompt: "MOK password again"
+            echo: false
+          register: mok_password_again
+
+        - name: Fail if the MOK password is empty or the two differ
+          ansible.builtin.fail:
+            msg: >-
+              The MOK password was empty, or the two entries differed. Nothing was installed;
+              run this play again and type the same password twice.
+          when: >-
+            mok_password_prompt.user_input | length == 0
+            or mok_password_prompt.user_input != mok_password_again.user_input
+
+        # Passed on stdin, never templated into a shell line (see play-qobuz.yml).
+        - name: Vault-encrypt the MOK password
+          ansible.builtin.command:
+            argv:
+              - ansible-vault
+              - encrypt_string
+              - --stdin-name
+              - mok_password
+          args:
+            stdin: "{{ mok_password_prompt.user_input }}"
+            stdin_add_newline: false
+          become: false
+          register: mok_password_encrypted
+          changed_when: false
+          no_log: true
+
+        - name: Save the vault-encrypted MOK password to localhost.yml
+          ansible.builtin.blockinfile:
+            path: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
+            marker: "# {mark} ANSIBLE MANAGED: mok_password"
+            block: "{{ mok_password_encrypted.stdout }}"
+            create: false
+          become: false
+          no_log: true
+
+        - name: Use the MOK password for this run
+          ansible.builtin.set_fact:
+            mok_password: "{{ mok_password_prompt.user_input }}"
+          no_log: true
+
     - name: Enable RPM Fusion repositories
       ansible.builtin.dnf:
         name:
@@ -195,12 +280,6 @@
     # Secure Boot MOK Signing Support
     # =========================================================================
 
-    - name: Check if Secure Boot is enabled
-      ansible.builtin.shell: mokutil --sb-state
-      register: secure_boot_state
-      changed_when: false
-      failed_when: false  # FAIL-FAST-OK: probe — secure boot may not be available
-
     - name: Install MOK prerequisites
       ansible.builtin.dnf:
         name:
@@ -210,19 +289,15 @@
           - kernel-headers
         state: present
 
-    - name: Validate MOK password is in vault
+    - name: Validate a MOK password is set
       ansible.builtin.assert:
         that:
           - mok_password is defined
-        fail_msg: |
-          ERROR: MOK password not found in vault!
-
-          Please add 'mok_password' to your vault configuration:
-          ansible-vault edit environment/localhost/host_vars/localhost.yml
-
-          Add: mok_password: "your-password"
-
-          This password will be used once during boot to enroll the MOK key.
+          - mok_password | length > 0
+        fail_msg: >-
+          Secure Boot is on but no MOK password is set; the first task of this play asks
+          for one when it is missing, so this means that step was skipped. Run the play
+          again from the start.
       when: "'SecureBoot enabled' in secure_boot_state.stdout"
 
     - name: Generate akmods MOK signing key
