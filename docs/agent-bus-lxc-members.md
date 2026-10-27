@@ -221,7 +221,12 @@ same way. A member joined by hand looks the same as a lost bundle, so it is refu
 
 **Leaving.** `state: absent` parks the member's handle in the team, deletes the bundle from
 the container and takes the team out of `PINGBUS_TEAMS`. A container that is already gone
-needs `repo: <repo>` on its entry so the play knows which handle to park. A container that
+needs `repo: <repo>` on its entry so the play knows which handle to park. With no bundle in
+the container, the handle is the one the desktop's member record holds; with no record either
+(a member that never joined, as when gh was missing), the play looks in the team for an active
+member of the entry's `<repo>+<host>.lxc` that no other entry holds: with none there is nothing
+to park and the member just leaves; with one, it may be this container's, so the play refuses,
+naming it and the `seat` to set on the entry to park it. A container that
 exists but is not running has its handle parked from the desktop's side, so the member loses
 the team at once; the bundle, the env file and a supervised session's unit stay in the
 container until the first run with it up, which removes them (the play's line for it is
