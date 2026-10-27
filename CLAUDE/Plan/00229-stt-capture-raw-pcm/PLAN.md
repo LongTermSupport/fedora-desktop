@@ -57,11 +57,18 @@ This plan fixes it under Defence Before Fix:
   the deployed server's `CAPTURE_CMD` and `wsi-stream`'s pre-buffer capture carry `--raw`; the
   owner's dictation pasted exactly what was said (1 segment, status ok, no container-header
   error), and no `pw-record` was left defunct.
-- [ ] ⬜ **Task 1.5**: `changed-plays` ran `play-agent-bus.yml` and `play-network-tools.yml` as
+- [x] ✅ **Task 1.5**: `changed-plays` ran `play-agent-bus.yml` and `play-network-tools.yml` as
   well, as plays whose inputs include `files/home/.local/bin/wsi-stream` and
   `wsi-stream-server`. Neither play deploys them. Find why the play ledger counts them as
   those plays' inputs (a glob or directory input too wide, a shared task file) and narrow it,
   test first, so a speech-to-text change re-offers only the speech-to-text play.
+  Cause: `helpers/self_update/affected_plays` took a rooted path with a template tail
+  (`{{ root_dir }}/files/{{ item }}`, agent-bus line 144; `.../.local/bin/{{ item }}`,
+  network-tools line 112) as a prefix on its literal head. It now fills `{{ item }}`,
+  `{{ item.<key> }}` and `{{ var }}` in from literal loops and variables the walked files
+  set, keeping the prefix for anything else. 24 references swept: 22 narrowed across 13
+  plays, 2 `fileglob` loops left as the directory. Report:
+  [subagent-reports/261027-ledger-inputs.md](subagent-reports/261027-ledger-inputs.md).
 
 ### Phase 2: The upgrade that changed a tool under running services
 
