@@ -2,11 +2,13 @@ package ui
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -103,21 +105,49 @@ const (
 	keep = "Take it down, keep its data"
 )
 
+// confirmEnds tells when the gum confirm's process has ended (its Run returned), so a test can
+// place a key in the window between one screen ending and the next drawing.
+type confirmEnds struct {
+	next  execx.Runner
+	ended chan struct{}
+}
+
+func (r confirmEnds) Run(ctx context.Context, c execx.Cmd) (execx.Result, error) {
+	res, err := r.next.Run(ctx, c)
+	if c.Name == "gum" && slices.Contains(c.Args, "confirm") {
+		close(r.ended)
+	}
+	return res, err
+}
+
 // takeDownSteps is ccy-teams remove's two questions on the real gum under a real hold: "Back it up
 // first?", then, when that is answered and does not cancel, the choice that starts on stay. answer
-// is the keys that answer the first, then after gap a Down sent on its own, as the host agent's
-// tmux send-keys did; Enter takes the choice once it is drawn.
+// is the keys that answer the first; gap after the confirm has ended, a Down is sent on its own,
+// as the host agent's tmux send-keys did; Enter takes the choice once it is drawn.
+//
+// The gap counts from the confirm's end, not from the answer's write. A Down written before gum
+// has read the Esc is read with it as one sequence, which gum takes as Alt+Down: the confirm does
+// not end, and step 2 never draws (Task 12.6: 7 of 50 under load at a 1 ms gap from the write).
+// The confirm ends some 3 ms after the Esc on an idle machine, so the gaps still cover the host's
+// 1 to 40 ms after the Esc, and each Down lands where the host's did: after the confirm, before
+// the next question draws.
 func takeDownSteps(t *testing.T, destructive bool, answer string, gap time.Duration) string {
 	t.Helper()
 	master, terminal, screen := gumPty(t)
 	hold := ttyecho.New(terminal)
-	g := &Gum{Runner: hold.Runner(execx.OS{}), Stdin: terminal, Stderr: terminal}
+	confirm := confirmEnds{next: execx.OS{}, ended: make(chan struct{})}
+	g := &Gum{Runner: hold.Runner(confirm), Stdin: terminal, Stderr: terminal}
 	type result struct {
 		choice string
 		err    error
 	}
 	done := make(chan result, 1)
+	// The questions use the terminal, so on a failure the pty is not closed until they have
+	// ended (t.Context is cancelled first, which ends gum); cleanups run last in, first out.
+	finished := make(chan struct{})
+	t.Cleanup(func() { <-finished })
 	go func() {
+		defer close(finished)
 		var r result
 		r.err = errors.Join(r.err, hold.Held(func() {
 			if destructive {
@@ -133,6 +163,11 @@ func takeDownSteps(t *testing.T, destructive bool, answer string, gap time.Durat
 	}()
 	waitFor(t, screen, "up first?")
 	press(t, master, answer)
+	select {
+	case <-confirm.ended:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("the confirm did not end on %q", answer)
+	}
 	time.Sleep(gap)
 	press(t, master, "\x1b[B")
 	waitFor(t, screen, "What happens to it?")
@@ -149,7 +184,8 @@ func takeDownSteps(t *testing.T, destructive bool, answer string, gap time.Durat
 // Plan 00177 Task 12.5, the host agent's finding at Task 12.4: in ccy-teams remove, Esc on "Back
 // up first?" then a Down sent on its own 1 to 40 ms later moved step 2 off stay, 8 of 8. Task
 // 12.3's flush ran the moment the confirm ended; the Down came after it, while the next gum was
-// starting, and gum read it before it drew. Each gap here is one the host saw carried.
+// starting, and gum read it before it drew. Each gap here is one the host saw carried, counted
+// from the confirm's end (takeDownSteps says why).
 func TestOnTheRealGumADownSentJustAfterEscDoesNotReachTheNextQuestion(t *testing.T) {
 	for _, gap := range []time.Duration{time.Millisecond, 5 * time.Millisecond, 10 * time.Millisecond, 20 * time.Millisecond, 40 * time.Millisecond} {
 		t.Run(gap.String(), func(t *testing.T) {
