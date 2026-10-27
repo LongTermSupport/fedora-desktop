@@ -232,8 +232,6 @@ Use these Unicode icons in plan documents:
 
 - [00086-kernel-modules-absent-enumeration](00086-kernel-modules-absent-enumeration/) - Dormant (downstream live re-proof). A guest without `kernel-modules` no longer fails the kernel enumeration.
 
-- [00080-ccy-session-network-isolation](00080-ccy-session-network-isolation/) - Dormant (until the owner schedules Phase 3). A network per ccy session.
-
 - [00074-grub-cgroup-check-reports-absence-it-cannot-prove](00074-grub-cgroup-check-reports-absence-it-cannot-prove/) - Blocked (host Task 3.3). run.bash's grub cgroup check aborts on a proven failure.
 
 - [00073-headless-sudo-password-file](00073-headless-sudo-password-file/) - Dormant (host verification). `RUN_BASH_SUDO_PASSWORD_FILE` for headless runs with password sudo.
@@ -313,6 +311,8 @@ Use these Unicode icons in plan documents:
 - [004-comprehensive-feature-documentation](004-comprehensive-feature-documentation/) - Dormant (owner to keep or cancel). User documentation for the major features.
 
 ## Completed Plans
+
+- [00080-ccy-session-network-isolation](Completed/00080-ccy-session-network-isolation/) - Superseded by Plan 00232, never built. It decided on a network per ccy session. Plan 00232's default policy refuses the shared bridge's own subnet instead, so sessions cannot reach each other and `ccy --connect` keeps working.
 
 - [00185-terminal-emoji-glyphs](Completed/00185-terminal-emoji-glyphs/) - Colour emoji in the terminal (#60): `play-fonts.yml` makes Noto Color Emoji the emoji fallback after the text fonts, moves Symbola after it for serif, and keeps the font caches readable by every user (rule `root-umask`). Host acceptance 19 of 19; the screen check is Plan 00219's.
 

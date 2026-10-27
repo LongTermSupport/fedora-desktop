@@ -1,6 +1,6 @@
 # Plan 00232: ccy network policy per container
 
-**Status**: In Progress (Phase 1: host triage pending; design written, awaiting review)
+**Status**: In Progress (design accepted, Q1 to Q4 decided; host triage pending before the build)
 **Created**: 2026-10-27
 **Owner**: joseph
 **Priority**: Medium
@@ -40,11 +40,11 @@ in [DESIGN.md](DESIGN.md) and is reviewed before any enforcement is built.
 
 ## Context & Background
 
-**Prior work.** Plan 00080 (Dormant) established that ccy chooses the shared `podman` bridge
-over pasta to keep mid-session `ccy --connect`, and decided on a network per session to stop
-sessions reaching each other. The default policy here refuses the bridge's own subnet, which
-would give that isolation without per-session networks (DESIGN.md section 4, owner question
-Q4). Plan 00160 made `ccy.env.local`, sourced in the container and bound read-only; issue #83
+**Prior work.** Plan 00080 (now Completed as superseded by this plan) established that ccy
+chooses the shared `podman` bridge over pasta to keep mid-session `ccy --connect`, and decided
+on a network per session to stop sessions reaching each other. The default policy here refuses
+the bridge's own subnet, which gives that isolation without per-session networks (DESIGN.md
+section 4, decision Q4). Plan 00160 made `ccy.env.local`, sourced in the container and bound read-only; issue #83
 asks for declared read-only paths. Plan 00161 built the agent bus.
 
 ### Facts
@@ -100,12 +100,17 @@ asks for declared read-only paths. Plan 00161 built the agent bus.
 - [x] ✅ **Task 2.1**: [DESIGN.md](DESIGN.md): the enforcement options, the default policy with every
   team path, where the policy lives, the refusal and the context, the implementation shape, owner
   questions Q1 to Q4
-- [ ] ⬜ **Task 2.2**: Coordinator and owner review the design and answer Q1 to Q4. STOP here until
-  then: no enforcement is built before it
+- [x] ✅ **Task 2.2**: The owner accepted the direction and decided Q1 to Q4 (DESIGN.md section 8):
+  - **Q1**: an `lxc` allow keyword opens exactly the LXC dev-site addresses found on the host;
+    refused unless a checkout asks
+  - **Q2**: `CCY_NETWORK_ALLOW=off` exists; the session's context then says it has open reach
+  - **Q3**: under Docker, run unprotected with a printed warning; the context says no policy
+  - **Q4**: Plan 00080 closed as superseded by this plan (moved to `Completed/`)
 
-### Phase 3: Build (after Task 2.2)
+### Phase 3: Build (after Task 1.4: the build waits for the host triage results)
 
-- [ ] ⬜ **Task 3.1**: The Go policy package and `ccylaunch` subcommand, test first
+- [ ] ⬜ **Task 3.1**: The Go policy package and `ccylaunch` subcommand, test first, including the
+  `lxc` and `off` keywords and the Docker warning path
 - [ ] ⬜ **Task 3.2**: The launcher's create, init, apply, start sequence; the capability guard;
   `ccy --connect`, `--disconnect` and `ccy-teams` widen and narrow the live table; the
   `CCY NETWORK POLICY` context and `/run/ccy/network-policy`; nft declared in
@@ -116,12 +121,13 @@ asks for declared read-only paths. Plan 00161 built the agent bus.
 ## Dependencies
 
 - Builds on: Plan 00161 (the agent bus), Plan 00160 (`ccy.env.local`)
-- Related: issue #83 (read-only paths; A10 feeds it), Plan 00080 (may be superseded, Q4)
+- Related: issue #83 (read-only paths; A10 feeds it)
+- Supersedes: Plan 00080 (`Completed/00080-ccy-session-network-isolation`)
 
 ## Success Criteria
 
 - [ ] H1 to H8 settled by a host triage run
-- [ ] Design reviewed; Q1 to Q4 answered
+- [x] Design reviewed; Q1 to Q4 answered
 - [ ] `acceptance-policy.bash` passes on two sessions under the default policy, including the
   pingbus message each way
 - [ ] `./scripts/qa-all.bash` passes; `qa-reviewer` verdict PASS
@@ -133,7 +139,7 @@ asks for declared read-only paths. Plan 00161 built the agent bus.
 | The policy breaks agent teams                                  | H      | M           | Bus address on all ports and seat-bundle hosts derived automatically; pingbus gate |
 | A session starts before its table is in place (fail open)      | H      | L           | Create, init, apply, verify, then start; any failure stops the launch              |
 | A later change gives the container NET_ADMIN                   | H      | L           | Launch guard on capabilities; acceptance `caps` check                              |
-| Projects that reach LXC dev sites or LAN services stop working | M      | H           | The session is told its limits and how the owner widens them; Q1                   |
+| Projects that reach LXC dev sites or LAN services stop working | M      | H           | The session is told its limits and how the owner widens them; `lxc` keyword (Q1)   |
 | DNS breaks because a resolver is private or link-local         | H      | H           | Nameservers derived from the container's own `resolv.conf`, port 53 only           |
 
 ## Delivery & Milestones

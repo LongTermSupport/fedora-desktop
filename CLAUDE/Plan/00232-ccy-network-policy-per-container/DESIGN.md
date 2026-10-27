@@ -1,6 +1,6 @@
 # Plan 00232 design: a network policy per ccy container
 
-**State**: proposal, for the coordinator's review. Nothing here is built. The parts marked
+**State**: direction accepted by the owner, Q1 to Q4 answered (section 8). Nothing here is built. The parts marked
 **PENDING TRIAGE** are decided by the host run of `triage.bash --active`, not by this text.
 
 ## 1. What is asked
@@ -84,8 +84,8 @@ no capability; Phase 3 adds a guard that refuses a launch whose effective capabi
 `NET_ADMIN` or `SYS_ADMIN`, or a privileged one, so a later flag cannot quietly undo this. The
 acceptance gate checks the live session's `CapEff` (check `caps`).
 
-**Docker engine.** ccy can run on rootful Docker; E1 there needs root. Proposal: refuse the
-launch under Docker with a policy in force, naming the opt-out (owner question Q3).
+**Docker engine.** ccy can run on rootful Docker; E1 there needs root. Decided (Q3): the
+launch runs unprotected, with a printed warning and a context that says it has no policy.
 
 ## 4. The default policy
 
@@ -110,8 +110,8 @@ needs" is the table above).
 
 **Not allowed by default, deliberately:** the other sessions on the shared `podman` bridge.
 This gives Plan 00080 its isolation (sessions cannot reach each other) without a network per
-session: the default policy refuses the bridge's own subnet. Plan 00080 could then close as
-superseded (owner question Q4).
+session: the default policy refuses the bridge's own subnet. Plan 00080 is closed as
+superseded (decided, Q4).
 
 **Agent teams, path by path** (the hard requirement):
 
@@ -145,8 +145,9 @@ host):
 CCY_NETWORK_ALLOW=192.0.2.10,198.51.100.0/24,build.example.com:8443
 ```
 
-and, for one launch, the same `CCY_NETWORK_ALLOW` exported in the host shell. Owner question
-Q2: whether a value of `off` (no policy for this checkout) should exist.
+and, for one launch, the same `CCY_NETWORK_ALLOW` exported in the host shell. Two keywords
+(decided, section 8): `lxc` opens the LXC dev-site addresses found on the host, and `off`
+means no policy for the checkout.
 
 ## 6. A refusal the agent understands
 
@@ -179,13 +180,17 @@ team join widens the live table, the file is rewritten from the host.
 - `deploy.bash` runs the play, launches two throwaway headless seated sessions in a test team,
   and `acceptance-policy.bash` (renamed `acceptance.bash` then) judges them.
 
-## 8. Owner questions
+## 8. Owner decisions (2026-10-27)
 
-- **Q1 the LXC dev sites.** The host's `/etc/hosts` names are copied into every container, and
-  some point at LXC dev sites on the LXC bridge (F7). The default refuses them. A browser-testing
-  session would need its checkout to allow the LXC bridge subnet. Accept that, or add an
-  `lxc` keyword the launcher expands from the bridge it finds?
-- **Q2 an opt-out.** Should `CCY_NETWORK_ALLOW=off` (no policy for a checkout) exist?
-- **Q3 Docker.** Refuse a launch under the Docker engine while a policy is in force?
-- **Q4 Plan 00080.** Close it as superseded by the default policy's refusal of the shared
-  bridge's subnet?
+The owner accepted the design direction and answered the four questions:
+
+- **Q1 the LXC dev sites: an `lxc` keyword.** A checkout's policy may say `lxc` in its
+  allow-list (`CCY_NETWORK_ALLOW=lxc,...`), which opens exactly the LXC dev-site addresses the
+  launcher finds on the host at launch. They stay refused unless a checkout asks.
+- **Q2 an opt-out: yes.** `CCY_NETWORK_ALLOW=off` means no policy for that checkout. The
+  session's `CCY NETWORK POLICY` context then says it has open reach.
+- **Q3 Docker: run unprotected and warn.** Under the Docker engine the launch goes ahead with
+  no policy (the owner chose this over refusing). The launcher prints a warning, and the
+  session's context says it has no network policy. This replaces section 3's proposal to refuse.
+- **Q4 Plan 00080: closed as superseded by this plan.** The default policy refuses the shared
+  bridge's subnet, which is the isolation 00080 set out to give.
