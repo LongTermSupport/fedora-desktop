@@ -45,19 +45,37 @@ func (r *run) report(ctx context.Context) term.ExitCode {
 	if r.have(progPodman) {
 		p("")
 		p("Podman storage:")
-		res, err := r.env.Runner.Run(ctx, podmanEngine.df)
-		if err != nil {
-			r.failf("podman system df: %v", err)
-			p("  (podman storage unavailable)")
-			complete = false
+		storage, ok := r.podmanStorage(ctx)
+		complete = complete && ok
+		if ok {
+			p(strings.TrimRight(storage, "\n"))
 		} else {
-			p(strings.TrimRight(string(res.Stdout), "\n"))
+			p("  (podman storage unavailable)")
 		}
 	}
 	if !complete {
 		return term.ExitFailure
 	}
 	return term.ExitOK
+}
+
+// podmanStorage is E7's `podman system df` output, read again under podman unshare when it was
+// refused permission (a volume's data owned by a container's uid), each failure named; false
+// when neither read.
+func (r *run) podmanStorage(ctx context.Context) (string, bool) {
+	cmd := podmanEngine.df
+	res, err := r.env.Runner.Run(ctx, cmd)
+	if retry, ok := podmanEngine.retry(err); ok {
+		r.failf("%s: %v", cmd.Line(), err)
+		r.failf("reading it again inside podman's user namespace: %s", retry.Line())
+		cmd = retry
+		res, err = r.env.Runner.Run(ctx, cmd)
+	}
+	if err != nil {
+		r.failf("%s: %v", cmd.Line(), err)
+		return "", false
+	}
+	return string(res.Stdout), true
 }
 
 func (r *run) hostname() string {
@@ -143,9 +161,56 @@ func (r *run) size(ctx context.Context, dir string) (string, bool, error) {
 		return "", false, err
 	}
 	if err != nil {
-		r.errOut.Print(r.env.Stderr, string(res.Stderr))
+		r.duComplaints(dir, string(res.Stderr))
 	}
 	return rclonecache.IEC(entries[0].bytes), err != nil, nil
+}
+
+// duRefusals are the openings of du's lines for an entry it was refused, before the quoted path.
+var duRefusals = []string{"du: cannot read directory ", "du: cannot access "}
+
+const duDenied = ": Permission denied"
+
+// duComplaints shows what du said on stderr while sizing root: its permission refusals as one
+// line, counted, the first named (a system directory gives dozens), every other line as it is.
+func (r *run) duComplaints(root, stderr string) {
+	var first string
+	refused := 0
+	for l := range strings.SplitSeq(strings.TrimRight(stderr, "\n"), "\n") {
+		if path, ok := duRefused(l); ok {
+			if refused == 0 {
+				first = path
+			}
+			refused++
+			continue
+		}
+		if l != "" {
+			r.errOut.Print(r.env.Stderr, l+"\n")
+		}
+	}
+	if refused == 0 {
+		return
+	}
+	noun := "entries"
+	if refused == 1 {
+		noun = "entry"
+	}
+	r.failf("du %s: %d %s could not be read (permission denied), the first %s; the size is a lower bound.",
+		root, refused, noun, first)
+}
+
+// duRefused is the path, as du quoted it, of a line saying an entry was refused permission.
+func duRefused(line string) (string, bool) {
+	rest, ok := strings.CutSuffix(line, duDenied)
+	if !ok {
+		return "", false
+	}
+	for _, opening := range duRefusals {
+		if path, ok := strings.CutPrefix(rest, opening); ok {
+			return path, true
+		}
+	}
+	return "", false
 }
 
 // duEntry is one line of `du -B1`: a size in bytes and its path.

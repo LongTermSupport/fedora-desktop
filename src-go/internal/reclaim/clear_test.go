@@ -8,19 +8,20 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
-// B6: a du that could read only part of what it sized shows its own stderr, naming the entry.
+// B6: a du that could read only part of what it sized names the entry it was refused.
 func TestPartialDuShowsItsReason(t *testing.T) {
 	w := newWorld(t)
 	w.answerErr([]string{"du", "-x", "-B1", "--max-depth=1", w.home}, "5\t/d/small\n", "du: cannot read directory '/d/locked': Permission denied\n", 1)
 	w.typed("1", "", "q")
 	wantCode(t, w.run(), term.ExitOK)
-	w.wantErr("du: cannot read directory '/d/locked': Permission denied\n", "  (some entries could not be read)")
+	w.wantErr("reclaim: du "+w.home+": 1 entry could not be read (permission denied), the first '/d/locked'",
+		"  (some entries could not be read)")
 
 	w = newWorld(t)
 	w.dir(".cache")
 	w.answerErr([]string{"du", "-s", "-B1"}, "2048\tx\n", "du: cannot read directory 'x/locked': Permission denied\n", 1)
 	wantCode(t, w.run("report"), term.ExitOK)
-	w.wantErr("du: cannot read directory 'x/locked': Permission denied\n")
+	w.wantErr("1 entry could not be read (permission denied), the first 'x/locked'")
 
 	w = newWorld(t)
 	trash := w.dir(".local/share/Trash")
@@ -28,7 +29,7 @@ func TestPartialDuShowsItsReason(t *testing.T) {
 	w.answerErr([]string{"du", "-s", "-B1", trash}, "8192\t"+trash+"\n", "du: cannot read directory 'files/x': Permission denied\n", 1)
 	w.typed("9", "n", "q")
 	wantCode(t, w.run(), term.ExitOK)
-	w.wantErr("  Trash size: 8.0KB (at least)", "du: cannot read directory 'files/x': Permission denied\n")
+	w.wantErr("  Trash size: 8.0KB (at least)", "the first 'files/x'")
 }
 
 // E24, E26, B3: a listing that fails ends the action before asking, as a failed preview does;

@@ -53,7 +53,7 @@ owner:
 ### Command line
 
 - E1. `reclaim` opens the menu; `reclaim report` prints the report; `-h`/`--help` prints the
-  usage on stdout and exits 0; `--version` prints `reclaim 2.0.0` on stdout and exits 0.
+  usage on stdout and exits 0; `--version` prints `reclaim 2.0.1` on stdout and exits 0.
 - E2. Any other argument, or a second argument, is `reclaim: unknown argument: <arg> — see 'reclaim --help'.` on stderr, exit 64. Every error line is `reclaim: <text>` on stderr.
 
 ### The report
@@ -71,7 +71,14 @@ owner:
   `/var/cache`, each that exists: `<size>\t<path>`, the size `du -s -B1 <path>`'s figure
   formatted as `numfmt --to=iec --suffix=B` does (`rclonecache.IEC`). A `du` that exits non-zero
   but prints its total (an unreadable entry inside) gives `<size>\t<path>\t(at least: some entries could not be read)`. A `du` with no figure gives `?\t<path>`, its reason on stderr.
+  `du`'s permission refusals under one directory (`du: cannot read directory '<p>': Permission denied`, `du: cannot access '<p>': Permission denied`; `/var/log` and `/var/cache` give dozens) are one stderr line,
+  `reclaim: du <dir>: <n> entries could not be read (permission denied), the first '<p>'; the size is a lower bound.`; any other line of `du`'s stderr is shown as it is. The same holds for
+  every `du` the menu runs (E17, E24, E26).
 - E7. A `podman system df` that fails gives `  (podman storage unavailable)`, its output on
+  stderr. One refused `permission denied` (a volume's `_data` owned by a container's uid, which
+  the user's own uid cannot read) is named on stderr and read again as
+  `podman unshare podman system df`, inside podman's user namespace, where those uids are
+  mapped; its figures are the section, and only both failing is unavailable, each reason on
   stderr.
 - E8. The report exits 0 when every section was read, and 1 when any could not be (E4 all
   failed, E5 failed, E6 no figure, E7), after printing every section. A failed write to stdout
@@ -81,7 +88,7 @@ owner:
 
 - E9. The menu needs a terminal: stdin a terminal and `/dev/tty` opened. Otherwise
   `reclaim: needs an interactive terminal; run 'reclaim report' for a non-interactive summary.`, exit 1.
-- E10. The header is a heading `reclaim` with the context `<hostname> · v2.0.0`, then the
+- E10. The header is a heading `reclaim` with the context `<hostname> · v2.0.1`, then the
   filesystem lines indented by two spaces, then the journal line. It is drawn when the menu
   opens and again on `r`.
 - E11. The menu lists, under `Analyse`, `Reclaim (destructive — each confirms first)` and
@@ -142,7 +149,9 @@ owner:
   `podman system prune -af`. A `podman system df` that fails is `  Cannot query podman — skipping podman prune. Reason:` and its output, and when that output names `stale temp dir`, the
   hint to repair the store on the host with
   `ansible-playbook CLAUDE/Plan/00062-disk-reclaim-tui/podman-store-repair.yml`; this is not a
-  failed action (nothing was run). For docker, likewise with `docker system df` and
+  failed action (nothing was run). A `podman system df` refused `permission denied` is first said
+  (`  podman system df was refused permission; reading it again inside podman's user namespace (podman unshare podman system df). Reason:` and its output) and read again
+  as E7 does; only a second failure is the cannot-query message, with the second output. For docker, likewise with `docker system df` and
   `  Prune unused docker data?` → `docker system prune -af`, run as the user whose
   `docker system df` answered (B4); a `docker system df` that fails is
   `  docker is installed but not usable (daemon down, or not in the docker group) — skipping.`.
@@ -221,8 +230,8 @@ sweep's steps.
   it under sudo after asking docker as the user).
 - B5. A bad value is asked again, three tries in all (InteractiveScripts.md rules 1 and 2;
   the bash returned to the menu on the first).
-- B6. The commands' stderr is shown, a partial `du`'s included (E6, E17, E26: the entry it
-  could not read is named) (the bash appended it to a scratch log that it deleted at exit
+- B6. The commands' stderr is shown, a partial `du`'s included (E6, E17, E26: its refusals
+  counted and the first named, its other complaints as they are) (the bash appended it to a scratch log that it deleted at exit
   without showing, while its messages said "see run notes").
 - B7. The report's `du` of a directory the user cannot read in full is printed and marked
   incomplete; the report goes on. In the bash, `du`'s non-zero exit failed the `du | awk`
@@ -281,7 +290,7 @@ sweep's steps.
 Proven only on the host, after `play-cli-tools.yml` (tag `disk-reclaim`) has run:
 
 - H1 (host agent). `~/.local/bin/reclaim` is an ELF; `reclaim --version` prints
-  `reclaim 2.0.0`; `reclaim report` prints its four sections with real figures and exits 0, or
+  `reclaim 2.0.1`; `reclaim report` prints its four sections with real figures and exits 0, or
   1 naming on stderr what it could not read.
 - H2 (host agent, tmux). The menu in a tmux pane, driven by `send-keys` and read with
   `capture-pane`: `1` on a small directory opens ncdu and `q` returns to the menu; `2` lists

@@ -10,9 +10,12 @@ import (
 // engine is one container engine's half of E22: how its storage is read and pruned, and
 // what a failed read says.
 type engine struct {
-	name     string
-	title    string
-	df       execx.Cmd
+	name  string
+	title string
+	df    execx.Cmd
+	// unshared, when set, is df inside the engine's user namespace, where a volume's data
+	// owned by a container's uid can be read; it is tried when df was refused permission.
+	unshared execx.Cmd
 	prune    execx.Cmd
 	question string
 	pruned   string
@@ -23,6 +26,7 @@ type engine struct {
 var podmanEngine = engine{
 	name: progPodman, title: "Podman",
 	df:       execx.Cmd{Name: progPodman, Args: []string{argSystem, "df"}},
+	unshared: execx.Cmd{Name: progPodman, Args: []string{"unshare", progPodman, argSystem, "df"}},
 	prune:    execx.Cmd{Name: progPodman, Args: []string{argSystem, "prune", "-af"}},
 	question: "  Prune unused podman data (images, containers, volumes)?",
 	pruned:   "  Podman pruned.",
@@ -51,6 +55,15 @@ var dockerEngine = engine{
 	},
 }
 
+// retry is the read to make after df failed with err: e's unshared read when df was refused
+// permission, else none.
+func (e engine) retry(err error) (execx.Cmd, bool) {
+	if e.unshared.Name == "" || err == nil || !strings.Contains(err.Error(), "permission denied") {
+		return execx.Cmd{}, false
+	}
+	return e.unshared, true
+}
+
 // containers is E22.
 func (r *run) containers(ctx context.Context) bool {
 	var engines []engine
@@ -74,6 +87,12 @@ func (r *run) containers(ctx context.Context) bool {
 // offered, and is not a failure, since nothing was run.
 func (r *run) pruneEngine(ctx context.Context, e engine) bool {
 	out, err := execx.Combined(ctx, r.env.Runner, e.df)
+	if retry, ok := e.retry(err); ok {
+		r.warn("  " + e.df.Line() + " was refused permission; reading it again inside " + e.name +
+			"'s user namespace (" + retry.Line() + "). Reason:")
+		r.show(out)
+		out, err = execx.Combined(ctx, r.env.Runner, retry)
+	}
 	if err != nil {
 		e.unread(r, out)
 		return true
