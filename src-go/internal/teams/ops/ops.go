@@ -259,7 +259,8 @@ func (o *Ops) childExit(err error) term.ExitCode {
 	return term.ExitFailure
 }
 
-// runPlay is play-agent-bus.yml for those teams alone, run by its own shebang (run.bash's
+// runPlay is play-agent-bus.yml for those teams alone, given the host_vars ccy-teams wrote
+// (Config.PlayVars) before the scope, so the scope wins; run by its own shebang (run.bash's
 // single-play mode knows how this machine gives Ansible its sudo password), streamed. Changed is
 // told as soon as it has run, passed or not, so the read of the teams that checks what it did
 // is a new one.
@@ -273,8 +274,12 @@ func (o *Ops) runPlay(ctx context.Context, teams []string) error {
 	if files == nil {
 		return fmt.Errorf("%w: play-agent-bus.yml", errPlayOutsideLock)
 	}
-	_, err := o.Runner.Run(ctx, execx.Cmd{
-		Name: o.Cfg.Play, Args: []string{"-e", playJSON(teams)}, Env: env, ExtraFiles: files,
+	hostVars, err := o.Cfg.PlayVars()
+	if err != nil {
+		return fmt.Errorf("play-agent-bus.yml: %w", err)
+	}
+	_, err = o.Runner.Run(ctx, execx.Cmd{
+		Name: o.Cfg.Play, Args: append(hostVars, "-e", playJSON(teams)), Env: env, ExtraFiles: files,
 		Stdin: o.Stdin, Stdout: o.Stdout, Stderr: o.Term.Err,
 	})
 	o.changed()
@@ -393,8 +398,13 @@ func (o *Ops) elementPlay(ctx context.Context, left string) error {
 		o.Term.PrintError(errPlayOutsideLock.Error() + ": play-agent-bus-element.yml.")
 		return errOpFailed
 	}
-	_, err := o.Runner.Run(ctx, execx.Cmd{
-		Name: o.Cfg.ElementPlay, Env: env, ExtraFiles: files, Stdin: o.Stdin, Stdout: o.Stdout, Stderr: o.Term.Err,
+	hostVars, err := o.Cfg.PlayVars()
+	if err != nil {
+		o.Term.PrintError("play-agent-bus-element.yml did not run: " + err.Error() + ", so " + left + ".")
+		return errOpFailed
+	}
+	_, err = o.Runner.Run(ctx, execx.Cmd{
+		Name: o.Cfg.ElementPlay, Args: hostVars, Env: env, ExtraFiles: files, Stdin: o.Stdin, Stdout: o.Stdout, Stderr: o.Term.Err,
 	})
 	if err != nil && playExit(err) == playlock.ExitBusy {
 		o.Term.PrintError("play-agent-bus-element.yml did not run: it was refused the play lock (exit 75, above), which another play run took, " +

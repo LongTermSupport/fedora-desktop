@@ -134,7 +134,7 @@ func TestRemoveDeclaredKeepsDataAfterBackup(t *testing.T) {
 		// The cursor starts on leaving it running: no destructive answer is pre-selected (Plan 00203 Task 3.8).
 		"gum choose --header What happens to alpha? --selected Leave it running Leave it running Take it down, keep its data Take it down and delete its data",
 		opsDeclare + "remove --file " + r.hostVars + " --team alpha",
-		opsPlay + ` -e {"agent_bus_only_teams": ["alpha"]}`,
+		opsPlay + r.hostVarsArg() + ` -e {"agent_bus_only_teams": ["alpha"]}`,
 	}
 	got := r.lines()
 	if len(got) != len(want) {
@@ -243,7 +243,8 @@ func TestRemoveOfAWatchedTeamRunsTheElementPlayToRemoveItsLauncher(t *testing.T)
 		t.Fatalf("code %d: %s", code, r.said())
 	}
 	got := r.lines()
-	if len(got) < 2 || got[len(got)-2] != opsPlay+` -e {"agent_bus_only_teams": ["alpha"]}` || got[len(got)-1] != opsElementPlay {
+	if len(got) < 2 || got[len(got)-2] != opsPlay+r.hostVarsArg()+` -e {"agent_bus_only_teams": ["alpha"]}` ||
+		got[len(got)-1] != opsElementPlay+r.hostVarsArg() {
 		t.Fatalf("calls %q", got)
 	}
 	if !strings.Contains(r.said(), "removes alpha's Element launcher and profile") {
