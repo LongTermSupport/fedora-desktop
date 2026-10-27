@@ -1,0 +1,19 @@
+{
+  "helpers/agent_bus/checkout.py": {
+    ".claude/ccy": "a project's, under its own top level"
+  },
+  "helpers/agent_bus_lxc/members.py": {
+    "environment/localhost/host_vars/localhost.yml": "VARS_FILE, named in messages only",
+    "playbooks/imports/play-lxc-install-config.yml": "LXC_PLAY, named in a message only"
+  },
+  "helpers/pingbus/statusline.py": {
+    ".claude/settings.json": "a project's, under the session's project"
+  },
+  "helpers/play_ledger/changed_plays.py": {
+    "playbooks/playbook-main.yml": "read again on every judgement"
+  },
+  "helpers/self_update/affected_plays.py": {
+    "playbooks/imports": "CANDIDATE_DIR, read again on every run",
+    "src-go/qa": "a module _GO_RUNNERS builds a script's command from, not read here"
+  }
+}

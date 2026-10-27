@@ -207,7 +207,7 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   lxcfreeze, which the stale list before the run (play files only) did not name; afterwards
   nothing is stale. Its reasons never name a src-go package: Task 3.8.
 
-- [ ] ⬜ **Task 3.7**: Inputs the play text cannot show, found by Task 3.6's independent search
+- [ ] 🔄 **Task 3.7**: Inputs the play text cannot show, found by Task 3.6's independent search
   and outside `play-input-dropped`: `helpers/github_scopes/cli.py` reads
   `vars/github-required-scopes.yml` through `__file__`, so `play-github-cli-multi.yml` does not
   rerun when the required scopes change (class: a helper the play runs reads a checkout file
@@ -215,6 +215,12 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   (coordinator default of 27-10-27, changeable by the owner, questions-room Q3: not counted;
   a later change may name the plays that read each changed variable); `scripts/qa-toolchain.bash`, run by
   `play-python.yml` as a check, reads `src-go/qa/` and `src-go/go.mod`, which are not inputs.
+  Fixed on `fix/00192-hidden-play-inputs` (DBF): the rule `play-program-read-dropped`
+  (`CLAUDE/QA.md`), red on 30 findings in 9 plays, green after. The mapper counts what the
+  programs a play runs read: a helper's `__file__` paths and literal checkout paths
+  (`helpers/self_update/not-play-inputs.json` lists the names that are not reads), a bash input's sourced library, and the
+  Go command it builds with `run_go_tool`/`run_go_command`, with the checkout files that names.
+  Report `subagent-reports/261027-task-3-7.md`. Awaiting merge.
 
 - [ ] 🔄 **Task 3.8**: `run.bash --changed` gives a play made stale by Go packages alone no
   reason a person can read: its reasons list names play files and `play-golang.yml`, never the
