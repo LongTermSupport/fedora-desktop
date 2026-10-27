@@ -145,34 +145,34 @@ today; rewriting them is out of scope.
     the writing model to `go-qa.toml`, with `record` and `suppression` still off. Find the
     identifiers from go-qa's own output on a scratch run with both switched on, not by hand.
 
-    Worker part done 2026-10-27: 26 entries, one per distinct rule the scratch run printed
-    (46 `.golangci.yml` findings; disabled linters are not a route at this pin, so none is
-    recorded). Written by `claude-opus-5-5`, given `claude-opus = "medium"` (the tier go-qa-ci
-    gives a Claude model in its own record): 30-day horizon, `review_by = 2026-11-26`. Because
-    the record exceeds the default caps, `go-qa.toml` also sets `max_total = 26` and
-    `[record.trust.medium] max_count = 26`, and `history_base = "origin/F44"` (there is no
-    `origin/main`). With the text below prepended on a scratch copy, `go-qa record check` says
-    all 26 valid and no entry is stale. Report: `subagent-reports/261027-task-3-8-record.md`.
+    Worker part done 2026-10-27: 27 entries. 26 are one per distinct rule the scratch run
+    printed for `.golangci.yml` (46 findings; disabled linters are not a route at this pin, so
+    none is recorded). The 27th is `go::generated-header` for
+    `internal/pingbus/statusline/widthtable.go`: the file is generated from Python's
+    unicodedata, so its header stays (coordinator's decision). Written by `claude-opus-5-5`,
+    given `claude-opus = "medium"` (the tier go-qa-ci gives a Claude model in its own record):
+    30-day horizon, `review_by = 2026-11-26`. Because the record exceeds the default caps,
+    `go-qa.toml` also sets `max_total = 27` and `[record.trust.medium] max_count = 27`, and
+    `history_base = "origin/F44"` (there is no `origin/main`). With the text below prepended on
+    a scratch copy and both switches on, `go-qa record check` says all 27 valid, and
+    `-t record -t suppression` passes with nothing unrecorded and no entry stale, so switching
+    on after the signature needs no further entry.
+    Report: `subagent-reports/261027-task-3-8-record.md`.
 
   - Owner: sign. The text to sign is this `[ratchet]` table, put at the top of
     `src-go/qa/record.toml` with `decided_on` set to the day of signing:
 
     ```toml
     [ratchet]
-    high_water = 26
+    high_water = 27
     decided_by = "repository-owner"
     decided_on = <the day of signing>
-    reason = "adopting the ceiling at the configuration exceptions this repository's Go gate has today"
+    reason = "adopting the ceiling at the exceptions this repository's Go gate has today"
     ```
 
     Signing it accepts each entry's justification and the medium tier given to the writing
     model (choose `high` instead in `go-qa.toml` for a 90-day horizon). If signing falls well
     after 2026-10-27, re-date the entries' `decided_on` and `review_by` the same day.
-
-  - Before switching on: the suppression detector also reports `go::generated-header` for
-    `src-go/internal/pingbus/statusline/widthtable.go` (its `DO NOT EDIT` header). It is not a
-    `.golangci.yml` exception, so it is outside this record; it needs its own decision (a 27th
-    entry signed with a raised ceiling, or the header reworded) or the switch-on run fails.
     Then a worker switches `record` and `suppression` on.
 
 - [x] ✅ **Task 3.9**: Re-derive the coverage floor from go-qa's measurement (Fable's review of

@@ -17,12 +17,13 @@ suppression = false
 
 # The record's policy (go-qa-ci docs/record.md). A role, not a person: whoever owns this repository
 # signs as repository-owner, the name the ratchet and any human entry must carry. qa/record.toml
-# holds one entry per configuration exception of .golangci.yml, so max_total is that count, and an
-# entry a Claude Opus model wrote is medium trust (30-day review) with room for the whole record.
+# holds one entry per configuration exception of .golangci.yml and one for the generated header of
+# widthtable.go, so max_total is that count, and an entry a Claude Opus model wrote is medium trust
+# (30-day review) with room for the whole record.
 # history_base is the default branch, which this repository names after the Fedora release.
 [record]
 deciders = ["repository-owner"]
-max_total = 26
+max_total = 27
 history_base = "origin/F44"
 
 [record.trust.models]
@@ -30,7 +31,7 @@ claude-opus = "medium"
 
 [record.trust.medium]
 max_review_days = 30
-max_count = 26
+max_count = 27
 
 [analyzers]
 module = "qa"
