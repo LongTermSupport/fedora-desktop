@@ -135,7 +135,7 @@ func newOpsRig(t *testing.T) *opsRig {
 // hostVarsArg is what every play the rig runs is given before its own arguments: the rig's
 // host_vars is not the checkout's own, so each play is handed it as an extra-vars file.
 func (r *opsRig) hostVarsArg() string {
-	return " -e @" + r.hostVars
+	return " -e @" + r.hostVars + ` -e {"agent_bus_host_vars_file":"` + r.hostVars + `"}`
 }
 
 // A host_vars file other than the checkout's own (CCY_TEAMS_HOST_VARS) is the one ccy-teams
@@ -152,8 +152,9 @@ func TestPlaysReadTheHostVarsCcyTeamsWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := r.fake.Calls()
-	if len(calls) != 2 || !slices.Equal(calls[0].Args, []string{"-e", "@" + r.hostVars, "-e", `{"agent_bus_only_teams": ["beta"]}`}) ||
-		!slices.Equal(calls[1].Args, []string{"-e", "@" + r.hostVars}) {
+	named := `{"agent_bus_host_vars_file":"` + r.hostVars + `"}`
+	if len(calls) != 2 || !slices.Equal(calls[0].Args, []string{"-e", "@" + r.hostVars, "-e", named, "-e", `{"agent_bus_only_teams": ["beta"]}`}) ||
+		!slices.Equal(calls[1].Args, []string{"-e", "@" + r.hostVars, "-e", named}) {
 		t.Fatalf("calls %q", r.lines())
 	}
 

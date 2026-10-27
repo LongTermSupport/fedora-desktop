@@ -59,7 +59,8 @@
           - agent_bus_element_declared is sequence and agent_bus_element_declared is not string
           - agent_bus_element_declared | length > 0
         fail_msg: >-
-          agent_bus_element_teams in environment/localhost/host_vars/localhost.yml must list
+          agent_bus_element_teams in
+          {{ agent_bus_host_vars_file | default('environment/localhost/host_vars/localhost.yml') }} must list
           the teams user_login watches, each with team and base_url. See localhost.yml.dist.
         quiet: true
       tags: [agent-bus-element]

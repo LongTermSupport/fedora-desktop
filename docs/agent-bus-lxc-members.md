@@ -113,7 +113,8 @@ Notes on the table:
    checkout, as for a ccy seat (below). Each answer is checked as it is
    given by the rules the play applies, and asked again when refused (a duplicate, a second
    coordinator, a relative checkout, a path that is not a git checkout). It then shows a
-   summary with the derived handle, asks once, writes the
+   summary with the derived handle, asks once (a No adds nothing and exits 0, as does Stop
+   at "Update entry / Stop" for a member declared otherwise), writes the
    `agent_bus_lxc_members` entry (the file as it was is kept beside it as
    `localhost.yml.backup.<time>`) and applies the team, which is step 3. It ends by saying
    what is left inside the container: `gh auth login` as the agent user if gh is not logged

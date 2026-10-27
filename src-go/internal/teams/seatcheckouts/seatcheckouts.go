@@ -6,9 +6,9 @@
 // whose session has ended still reads as free (Plan 00201 Task 2.29).
 //
 // The file is `seat-checkouts` beside the session registry's directory, one absolute path a
-// line, mode 0600. It is only appended to: two writers adding the same checkout leave it twice,
-// which reads as once. A checkout that has gone is left in it; a reader skips a checkout with
-// no seat directory.
+// line, mode 0600. An add appends: two writers adding the same checkout leave it twice, which
+// reads as once. An add that finds a listed checkout gone from the disk writes the list again
+// without it (whole, renamed into place). A reader skips a checkout with no seat directory.
 package seatcheckouts
 
 import (
@@ -21,8 +21,16 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fsx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 )
+
+// isGone reports whether dir is no longer on the disk; a checkout that cannot be asked about
+// (a permission error) is kept.
+func isGone(dir string) bool {
+	_, err := os.Lstat(dir)
+	return errors.Is(err, fs.ErrNotExist)
+}
 
 const fileName = "seat-checkouts"
 
@@ -75,6 +83,10 @@ func (l *List) Add(dir string) error {
 	}
 	if slices.Contains(listed, dir) {
 		return nil
+	}
+	kept := slices.DeleteFunc(slices.Clone(listed), isGone)
+	if len(kept) < len(listed) {
+		return fsx.WriteAtomic(l.path, "list of seat checkouts", []byte(strings.Join(append(kept, dir), "\n")+"\n"), 0o600)
 	}
 	if err = os.MkdirAll(filepath.Dir(l.path), 0o700); err != nil {
 		return fmt.Errorf("the list of seat checkouts could not be written: %w", err)

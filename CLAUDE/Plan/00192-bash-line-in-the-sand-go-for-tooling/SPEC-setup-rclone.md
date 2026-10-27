@@ -13,6 +13,10 @@ behaviour and section 5 lists the departure (`B*`). The proof is the Go tests in
 temporary directories) and `src-go/cmd/setup-rclone`. What only the host with a real rclone
 remote and the vault can prove is section 7.
 
+**Status: merged into F44** (`61b70d02d`). D1 holds as written: `scripts/setup-rclone.bash` is the
+wrapper, its allowlist row is gone, and `scripts/go-binary-suites.tsv` has `setup-rclone	qa-go`.
+The host checks of section 7 are still the owner's.
+
 ## 1. Why this one next
 
 The programmes ranked above P6 are ported (P3, P5, P7, P8), owned by another plan (P1, the ccy
