@@ -104,6 +104,15 @@ class ClaudeProcessTest(unittest.TestCase):
         self.assertIn("Not logged in", result.stderr)
         self.assertIn("as the desktop login", result.stderr)
 
+    def test_no_claude_says_post_processing_needs_the_developer_install(self):
+        """A consumer install (Plan 00228) has no claude and no ccy: the item says so plainly."""
+        self.chooser()
+        (self.bin / "claude").unlink()
+        result = self.run_script()
+        self.assertEqual((result.returncode, result.stdout), (1, ""))
+        self.assertIn("only the developer install has", result.stderr)
+        self.assertIn("plain dictation (Insert) works without it", result.stderr)
+
     def test_an_empty_answer_fails(self):
         self.chooser()
         result = self.run_script("empty")

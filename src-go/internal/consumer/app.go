@@ -35,6 +35,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fsx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/shellword"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ttyecho"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
@@ -217,7 +218,7 @@ func (r *run) exitFor(ctx context.Context, err error) term.ExitCode {
 }
 
 func (r *run) main(ctx context.Context) error {
-	if err := r.preflight(); err != nil {
+	if err := r.preflight(ctx); err != nil {
 		return err
 	}
 	if err := r.hostVars(); err != nil {
@@ -264,7 +265,7 @@ func (r *run) failf(format string, args ...any) error {
 
 // --- preflight: who, where, which Fedora ---
 
-func (r *run) preflight() error {
+func (r *run) preflight(ctx context.Context) error {
 	if r.env.UID() == 0 {
 		return r.failf("Run this as your normal user, not as root")
 	}
@@ -284,7 +285,26 @@ func (r *run) preflight() error {
 	r.root, r.home = root, home
 	r.path = "PATH=" + filepath.Join(home, ".local/bin") + ":" + r.env.Getenv("PATH")
 	r.sudo = &sudo.Sudo{Runner: r.env.Runner, Term: &term.Term{Err: r.env.Stderr, IsTerminal: func(any) bool { return false }, Getenv: r.env.Getenv}, Stdin: r.env.Stdin, Stdout: r.env.Stderr, OpenTTY: r.env.OpenTTY}
-	return r.checkFedora()
+	if err := r.checkFedora(); err != nil {
+		return err
+	}
+	return r.checkDesktop(ctx)
+}
+
+// desktopTarget is the boot target of the desktop profile; any other is the server profile
+// (provisioning_profile in group_vars/desktop.yml reads the same answer).
+const desktopTarget = "graphical.target"
+
+// checkDesktop refuses the server profile: a consumer install is for someone at a desktop.
+func (r *run) checkDesktop(ctx context.Context) error {
+	target, err := (&systemd.Systemd{Runner: r.env.Runner}).DefaultTarget(ctx)
+	if err != nil {
+		return r.failf("Cannot tell whether this is a desktop: %v", err)
+	}
+	if target != desktopTarget {
+		return r.failf("This machine boots to %s, so it is set up as a server; the consumer install is for a desktop (%s) only", target, desktopTarget)
+	}
+	return nil
 }
 
 func (r *run) checkFedora() error {
@@ -483,17 +503,36 @@ func (r *run) vaultFile(ctx context.Context) (string, error) {
 	return "", r.failf("ansible-config names no %s: ansible.cfg must point the vault at a file", vaultFileSetting)
 }
 
-// vault makes the vault password at random when there is none; it is never asked for, and it
-// stays on this machine only.
+// errVaultEmpty is a vault password file of zero bytes (a write cut short): no password.
+var errVaultEmpty = errors.New("it is empty")
+
+// vaultPresent is nil when the vault password file holds something, errVaultEmpty when it is
+// empty, and the stat error otherwise.
+func vaultPresent(file string) error {
+	fi, err := os.Stat(file)
+	switch {
+	case err != nil:
+		return err
+	case fi.Size() == 0:
+		return errVaultEmpty
+	}
+	return nil
+}
+
+// vault makes the vault password at random when there is none (or it is empty); it is never
+// asked for, and it stays on this machine only.
 func (r *run) vault(ctx context.Context) error {
 	file, err := r.vaultFile(ctx)
 	if err != nil {
 		return err
 	}
-	if _, err := os.Stat(file); err == nil {
+	switch err := vaultPresent(file); {
+	case err == nil:
 		r.ok("Vault password present (kept)")
 		return nil
-	} else if !errors.Is(err, os.ErrNotExist) {
+	case errors.Is(err, errVaultEmpty):
+		r.info("The vault password file is empty, so a new one is made")
+	case !errors.Is(err, os.ErrNotExist):
 		return r.failf("Cannot check %s: %v", file, err)
 	}
 	raw := make([]byte, vaultBytes)
@@ -512,7 +551,7 @@ func (r *run) vaultExists(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if _, err := os.Stat(file); err != nil {
+	if err := vaultPresent(file); err != nil {
 		return r.failf("The vault password %s is missing (%v): run ./run.bash --consumer first", file, err)
 	}
 	return nil

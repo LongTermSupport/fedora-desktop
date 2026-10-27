@@ -68,3 +68,14 @@
 # it frees, then the every-unused-image question naming the claude-yolo images it would remove,
 # and nothing run (SPEC-reclaim.md E7a, E22, E22a).
 changed-plays
+
+# Plan 00228: the consumer install, re-proved after the final review's fixes. deploy.bash runs
+# play-vm-test-lab.yml (deploys the consumer scenario's guest checker, whose podman check is
+# now podman-developer-part-absent and also catches a pip --user podman-compose).
+# acceptance.bash then runs three throwaway VM guests from this checkout's pushed HEAD:
+# desktop-consumer-install (./run.bash --consumer, whose installer now also refuses a machine
+# that does not boot to graphical.target; the lab's desktop does, so it must go on), its
+# re-run changing nothing, then desktop-fresh-install and server-fast-provision (every play's
+# preflight now asserts a consumer install is on the desktop profile, true for both).
+# Expected: COVERAGE 3 of 3, exit 0. Nothing on this host changes but the lab's files.
+00228-consumer-install-without-github

@@ -1,6 +1,6 @@
 # Plan 00228: consumer install without GitHub
 
-**Status**: In Progress (Phases 1, 2 and 4 built; VM acceptance and review open)
+**Status**: In Progress (Phases 1-4 built; the final review's fixes await their VM re-run)
 **Created**: 2026-10-26
 **Owner**: joseph
 **Priority**: Medium
@@ -185,6 +185,17 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   and TERM through the signal context). The checked password also leaves sudo's credential
   cached, so the dnf step asks nothing. The VM lab's consumer driver refuses the new question
   too (its sudo is passwordless). Red and green in the four packages' tests.
+- [x] ✅ **Task 2.8**: a consumer install on a server profile stops (the Goal's promise,
+  found unbuilt by the final review). `consumer-install` asks `systemctl get-default`
+  (`systemd.DefaultTarget`) at the end of its preflight and refuses anything but
+  `graphical.target` before host_vars is written or anything installed; a target it cannot
+  read stops the run too. `play-AA-preflight-sanity.yml` asserts the same
+  (`install_audience` consumer needs `provisioning_profile` desktop), so a single play or
+  `--changed` on such a box stops at play 1. Red and green in `app_test.go` and
+  `systemd/unit_test.go`.
+- [x] ✅ **Task 2.9**: a zero-byte vault password file is no password: `consumer-install`
+  makes it again at random, and `--optional-only` refuses it as missing. Red and green in
+  `app_test.go`.
 
 ### Phase 3: VM lab acceptance
 
@@ -202,9 +213,13 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   scenario's own checker by its id. Host run pending.
   - Acceptance: the checker asserts no `~/.ssh/id`, no `gh` auth state, origin is HTTPS,
     no `NOPASSWD` block, the consumer apps present, Go present (the installer's own build
-    toolchain, so it is expected), the developer tools (Node, Claude Code, ccy, VS Code,
-    LXC, Podman) absent, and a second `run.bash` run changes nothing;
-    `qa-vmtest-manifest.bash` passes.
+    toolchain, so it is expected), the developer tools (Node, host Claude Code, ccy, VS
+    Code, LXC) absent, and of the podman play only its developer part absent (podman-compose
+    and the user's podman.socket; podman itself is on every box, and ccc runs in it), and a
+    second `run.bash` run changes nothing; `qa-vmtest-manifest.bash` passes.
+  - Not proved by the VM run: the lab's sudo needs no password and it chooses no optional
+    app, so Task 2.6 (a failed optional play) and Task 2.7 (the password asked once) are
+    proved by unit tests only, as are Task 2.8 and 2.9.
 - [x] ✅ **Task 3.2**: Plan-local `deploy.bash` and `acceptance.bash` (on `_planlib.inc.bash`)
   that deploy the lab change and run `desktop-consumer-install`, `desktop-fresh-install` and
   `server-fast-provision`, so the developer and server paths are proved unchanged; add the
@@ -228,6 +243,10 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   - Re-run at acfcb6814: COVERAGE 3 of 3, ACCEPTED. desktop-consumer-install 17 of 17
     (rerun-changed-nothing included), desktop-fresh-install 16 of 16, server-fast-provision
     13 of 13.
+  - Re-run queued after the final review's fixes: the installer's preflight now asks
+    `systemctl get-default`, every play's preflight has the consumer/server assert, and the
+    checker's podman check is renamed `podman-developer-part-absent` and also sees a pip
+    `--user` podman-compose; the three scenarios must still pass on that tree.
 - [x] ✅ **Task 3.3**: The vmtest attendant fails an attended run on an unanswered prompt within
   two minutes, not at provisionLimit (90 minutes): an idle-output bound once a prompt-shaped
   line is the last output, so the next unknown question costs 60 to 120 s. Tests first, in
@@ -259,8 +278,13 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   `audience: all`, so the consumer menu offers it, and local dictation needs only Go and Whisper.
   Its Claude post-processing (Ctrl+Insert, the panel's Corporate and Natural items) runs through
   `wsi-claude-token`, which reads ccy's token pool, and a consumer box has no ccy: those items
-  would fail there, ungated. Open, the owner's decision: post-processing for consumers (a Claude
-  login without ccy) or none. Either way the items fail clearly or are hidden on a consumer box,
+  would fail there. Gated now (the safe part): every Claude item runs `wsi-claude-process`,
+  which checks for the `claude` command before the token chooser, and on a box without it
+  (every consumer box: host Claude Code is `play-claude-yolo.yml`, developer) it fails saying
+  post-processing needs the developer install and that plain dictation works; the panel shows
+  that reason (red and green in `tests/speech_to_text/test_claude_process.py`). The items are
+  not hidden. Open, the owner's decision: post-processing for consumers (a Claude login
+  without ccy, perhaps through ccc's sign-in) or none, and whether the items are then hidden;
   and the consumer VM scenario installs speech-to-text and checks plain dictation is set up.
 - [ ] ⬜ **Task 6.6**: The developer path's optional runs, as Task 2.6 did for the consumer:
   headless `RUN_BASH_OPTIONAL_PLAYBOOKS` stops at the first failed play (`hl_abort` in
@@ -274,8 +298,14 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
 
 - [x] ✅ **Task 5.1**: `./scripts/qa-all.bash` passes (at acfcb6814, the tree the VM run
   accepted).
-- [ ] ⬜ **Task 5.2**: `qa-reviewer` over the full plan diff; every BLOCK and
-  FIX-BEFORE-MERGE finding resolved.
+- [ ] 🔄 **Task 5.2**: `qa-reviewer` over the full plan diff; every BLOCK and
+  FIX-BEFORE-MERGE finding resolved. Final review:
+  [subagent-reports/261027-final-qa-review.md](subagent-reports/261027-final-qa-review.md)
+  (FIX-BEFORE-MERGE, no BLOCK). Fixed: the docs (the password asked once; ccc and podman
+  are on a consumer box), the server profile refused (Task 2.8), the Podman claim here and
+  in the guest checker (whose podman check now also sees a pip `--user` podman-compose), the
+  empty vault file (Task 2.9), Task 6.5's safe part. The VM scenarios are re-run for the
+  changed installer preflight and checker (Task 3.2's queue entry).
 
 ## Technical Decisions
 
@@ -367,11 +397,14 @@ record; (b) a Go command from the start for resolution and contradiction checks.
 
 ## Success Criteria
 
-- [ ] `desktop-consumer-install` passes in the VM lab with no GitHub credential present.
-- [ ] `desktop-fresh-install` and `server-fast-provision` still pass.
-- [ ] A consumer re-run keeps origin on HTTPS and changes nothing on a converged box.
-- [ ] Every play declares `audience`, enforced by a QA gate.
-- [ ] The consumer docs page exists and is linked from the README.
+- [x] `desktop-consumer-install` passes in the VM lab with no GitHub credential present
+  (17 of 17 at acfcb6814; its paths through a password sudo and a chosen optional app are
+  proved by unit tests only, Task 3.1).
+- [x] `desktop-fresh-install` and `server-fast-provision` still pass (at acfcb6814).
+- [x] A consumer re-run keeps origin on HTTPS and changes nothing on a converged box
+  (`rerun-changed-nothing`, at acfcb6814).
+- [x] Every play declares `audience`, enforced by a QA gate.
+- [x] The consumer docs page exists and is linked from the README.
 - [ ] `./scripts/qa-all.bash` passes and `qa-reviewer` has no open BLOCK finding.
 
 ## Risks & Mitigations

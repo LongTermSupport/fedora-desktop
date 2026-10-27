@@ -35,6 +35,23 @@ func TestUnitActiveSystemctlThatCannotRunIsAnError(t *testing.T) {
 	}
 }
 
+func TestDefaultTargetIsSystemctlsAnswer(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"systemctl", "get-default"}, execx.Result{Stdout: []byte("multi-user.target\n")})
+	target, err := (&Systemd{Runner: f}).DefaultTarget(context.Background())
+	if err != nil || target != "multi-user.target" {
+		t.Fatalf("got %q %v", target, err)
+	}
+}
+
+func TestDefaultTargetFailureNamesTheVerb(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"systemctl", "get-default"}, execx.Result{ExitCode: 1})
+	if _, err := (&Systemd{Runner: f}).DefaultTarget(context.Background()); err == nil || !strings.Contains(err.Error(), "systemctl get-default") {
+		t.Fatalf("got %v", err)
+	}
+}
+
 func rootFor(f *execx.Fake) *sudo.Sudo {
 	return &sudo.Sudo{
 		Runner: f,

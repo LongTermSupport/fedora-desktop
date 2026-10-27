@@ -156,15 +156,16 @@ absent claude-code-absent "Claude Code" bash -c 'command -v claude'
 absent ccy-absent "the ccy launcher" ls /var/local/claude-yolo/claude-yolo
 absent vscode-absent "VS Code" rpm -q code
 absent lxc-absent "LXC" rpm -q lxc
-# Fedora Workstation ships podman itself, so what is judged is that the repo's podman play
-# did not run: it adds podman-compose and enables the user's podman.socket.
+# Podman itself is on a consumer box (Fedora ships it, and ccc runs in it), so what is judged
+# is the podman play's developer part: podman-compose (a pip --user install, or the rpm) and
+# the user's podman.socket.
 compose_rc=0
 compose="$(rpm -q podman-compose 2>&1)" || compose_rc=$?
 podman_socket="$(systemctl --user is-enabled podman.socket 2>&1)"
-if [[ "${compose_rc}" -eq 0 || "${podman_socket}" == enabled ]]; then
-    check fail podman-play-not-run "podman-compose: ${compose}; podman.socket: ${podman_socket}"
+if [[ "${compose_rc}" -eq 0 || -e "${HOME}/.local/bin/podman-compose" || "${podman_socket}" == enabled ]]; then
+    check fail podman-developer-part-absent "podman-compose: ${compose}; podman.socket: ${podman_socket}"
 else
-    check pass podman-play-not-run "podman.socket: ${podman_socket}"
+    check pass podman-developer-part-absent "podman.socket: ${podman_socket}"
 fi
 
 # ── the second run changed nothing ──────────────────────────────────────────────────

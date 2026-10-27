@@ -87,7 +87,7 @@ if ! [[ "$CLAUDE_TIMEOUT_SECONDS" =~ ^([1-9][0-9]?|1[0-6][0-9]|170)$ ]]; then
     error_exit "WSI_CLAUDE_TIMEOUT_SECONDS must be a whole number of seconds from 1 to 170, not '$CLAUDE_TIMEOUT_SECONDS'"
 fi
 [[ -n "$TRANSCRIPTION" ]] || error_exit "No transcription text provided"
-command -v claude &>/dev/null || error_exit "claude CLI not found in PATH"
+command -v claude &>/dev/null || error_exit "Claude post-processing needs the claude command on the desktop, which only the developer install has (play-claude-yolo.yml; ccc runs Claude in its container only); plain dictation (Insert) works without it"
 
 # claude's stderr, and before it the chooser's, are kept apart: a failed run's reason
 # (e.g. "Not logged in") is what the caller must show.

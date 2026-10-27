@@ -97,16 +97,24 @@ programming tools, open a terminal and run:
 (source <(curl -sS https://raw.githubusercontent.com/LongTermSupport/fedora-desktop/HEAD/run.bash?$(date +%s)) --consumer)
 ```
 
-It asks for your login password (more than once: that is normal), then works on its own.
+It asks for your login password once (nothing shows as you type), checks it straight away,
+and then works on its own. It needs a Fedora Workstation desktop: on a computer set up as a
+server it stops before changing anything.
 
 - **No accounts needed.** No GitHub account, no SSH key, no email address, no vault
   password to choose: one is made at random and stays on this computer. Some apps are
   downloaded from public GitHub pages, which needs no account.
-- **Left out:** programming languages and tools, containers, Claude Code, Slack and the
-  other developer plays. Each ends itself straight away on this kind of install. One
-  exception: Go is installed, because the installer itself is a Go program built on the
-  computer, and some of the everyday tools are built with it too. It is the installer's
-  toolchain, not a language offered to you.
+- **Claude is included, safely.** "Claude" in the app grid (or `ccc` in a terminal) opens
+  Claude Code in a sealed container that works only in the `~/CCC` folder; you sign in
+  once the first time. It needs no GitHub account. The speech-to-text app's Claude
+  rewrite items (Ctrl+Insert and the panel's Corporate and Natural items) are not part of
+  this install and say so if used; plain dictation (Insert) works.
+- **Left out:** programming languages and tools, the developer container tools (ccy,
+  podman-compose and the Docker-compatible socket), Slack and the other developer plays.
+  Each ends itself straight away on this kind of install. One exception: Go is installed,
+  because the installer itself is a Go program built on the computer, and some of the
+  everyday tools are built with it too. It is the installer's toolchain, not a language
+  offered to you.
 - **If something fails**, the error is in the output on screen (nothing is saved to a
   file). Fix what it says and run the same command again, or report it at the project's
   [issues page](https://github.com/LongTermSupport/fedora-desktop/issues).

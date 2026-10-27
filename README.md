@@ -76,7 +76,7 @@ user and run:
 
 <!-- /ssot-quote -->
 
-It asks for the login password (more than once), then lists the everyday apps you can add
+It asks for the login password once, then lists the everyday apps you can add
 at the end. What it leaves out, and how to update: [Install for Someone Who Does Not Write
 Code](docs/installation.md#install-for-someone-who-does-not-write-code).
 

@@ -72,3 +72,13 @@
           install_audience={{ install_audience }} is not recognised.
           Valid values: developer, consumer (set in host_vars/localhost.yml;
           see CLAUDE/AnsibleStyle.md, Install Audience).
+
+    - name: Check a consumer install is on the desktop profile
+      ansible.builtin.assert:
+        that:
+          - install_audience != 'consumer' or provisioning_profile == 'desktop'
+        fail_msg: |
+          install_audience=consumer with provisioning_profile={{ provisioning_profile }}.
+          The consumer install is for someone at a desktop: this machine does not
+          boot to graphical.target, so it is set up as a server. Install Fedora
+          Workstation, or use the developer install for a server.

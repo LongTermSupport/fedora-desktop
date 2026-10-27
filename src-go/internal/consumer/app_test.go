@@ -78,6 +78,7 @@ func newWorld(t *testing.T) *world {
 	writeFile(t, filepath.Join(root, commonDir, "play-videography.yml"), allPlay)
 	writeFile(t, filepath.Join(root, hardwareDir, "play-nvidia.yml"), allPlay)
 	f := w.fake
+	f.On([]string{"systemctl", "get-default"}, execx.Result{Stdout: []byte("graphical.target\n")})
 	f.On([]string{"sudo"}, execx.Result{})
 	f.On([]string{"sudo", "-n", "-k", "true"}, execx.Result{ExitCode: 1, Stderr: []byte("sudo: a password is required\n")})
 	f.On([]string{"pipx"}, execx.Result{})
@@ -701,7 +702,7 @@ func TestOptionalOnlyBeforeAnyInstallIsRefused(t *testing.T) {
 	w := newWorld(t)
 	w.wantCode(w.run("--optional-only=true"), term.ExitFailure)
 	w.wantErr("./run.bash --consumer")
-	if exists(w.path(hostVarsPath)) || len(w.fake.Calls()) != 0 {
+	if exists(w.path(hostVarsPath)) || len(w.changing()) != 0 {
 		t.Error("--optional-only on a fresh box changed something")
 	}
 }
@@ -721,9 +722,53 @@ func TestADeveloperBoxIsRefused(t *testing.T) {
 	writeFile(t, w.path(hostVarsPath), "user_login: \"u\"\ninstall_audience: developer\n")
 	w.wantCode(w.run(), term.ExitFailure)
 	w.wantErr("developer install")
-	if len(w.fake.Calls()) != 0 || exists(w.path(vaultName)) {
+	if len(w.changing()) != 0 || exists(w.path(vaultName)) {
 		t.Error("a developer box was changed")
 	}
+}
+
+// changing is every command run but the read-only question of the boot target.
+func (w *world) changing() []execx.Cmd {
+	return slices.DeleteFunc(w.fake.Calls(), func(c execx.Cmd) bool { return c.Line() == "systemctl get-default" })
+}
+
+// A consumer install is for a desktop: on a server profile (a boot target that is not
+// graphical) it stops before anything is written or installed.
+func TestAServerProfileIsRefused(t *testing.T) {
+	w := newWorld(t)
+	w.fake.On([]string{"systemctl", "get-default"}, execx.Result{Stdout: []byte("multi-user.target\n")})
+	w.wantCode(w.run(), term.ExitFailure)
+	w.wantErr("server", "multi-user.target")
+	if len(w.changing()) != 0 || exists(w.path(hostVarsPath)) {
+		t.Errorf("a server box was changed: %v", w.fake.Calls())
+	}
+}
+
+func TestABootTargetThatCannotBeReadStopsTheRun(t *testing.T) {
+	w := newWorld(t)
+	w.fake.On([]string{"systemctl", "get-default"}, execx.Result{ExitCode: 1})
+	w.wantCode(w.run(), term.ExitFailure)
+	w.wantErr("systemctl get-default")
+	if exists(w.path(hostVarsPath)) {
+		t.Error("host_vars was written with no boot target known")
+	}
+}
+
+// An empty vault password file (a write cut short) is not a password: it is made again.
+func TestAnEmptyVaultPasswordIsMadeAgain(t *testing.T) {
+	w := newWorld(t)
+	writeFile(t, w.path(vaultName), "")
+	w.answers = "\n"
+	w.wantCode(w.run(), term.ExitOK)
+	w.wantRandomVault()
+}
+
+func TestOptionalOnlyWithAnEmptyVaultPasswordIsRefused(t *testing.T) {
+	w := newWorld(t)
+	writeFile(t, w.path(hostVarsPath), consumerYml)
+	writeFile(t, w.path(vaultName), "")
+	w.wantCode(w.run("--optional-only"), term.ExitFailure)
+	w.wantErr(vaultName, "empty")
 }
 
 func TestRefusals(t *testing.T) {
@@ -749,7 +794,7 @@ func TestRefusals(t *testing.T) {
 			tc.setup(w)
 			w.wantCode(w.run(), term.ExitFailure)
 			w.wantErr(tc.want)
-			if len(w.fake.Calls()) != 0 {
+			if len(w.changing()) != 0 {
 				t.Errorf("ran %v before refusing", w.fake.Calls())
 			}
 		})
