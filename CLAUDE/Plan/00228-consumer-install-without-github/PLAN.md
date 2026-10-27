@@ -187,8 +187,8 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
 - [x] ✅ **Task 4.1**: "Install for Someone Who Does Not Write Code" in
   `docs/installation.md`: the one command, what it leaves out, the app menu, how to update,
   and that settings live only on this machine; `run.bash --help` names `--consumer`.
-- [ ] ⬜ **Task 4.2**: Link it from `README.md`, and name the audience in
-  `docs/playbooks.md`.
+- [x] ✅ **Task 4.2**: Linked from `README.md` (its own Quick Start subsection), and the
+  install audience named in `docs/playbooks.md` beside the provisioning profile.
 
 ### Phase 6: Later
 
