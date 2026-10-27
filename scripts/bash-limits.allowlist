@@ -32,7 +32,6 @@ files/home/.local/bin/raw-prune	119	1	95	assoc
 files/home/.local/bin/rclone-cache-warm	101	1	110	-
 files/home/.local/bin/rclone-rc-auth.bash	96	4	111	-
 files/home/.local/bin/rdt	90	6	70	-
-files/home/.local/bin/reclaim	456	29	592	-
 files/home/.local/bin/scp-with-key	85	2	94	-
 files/home/.local/bin/ssh-agent-start	109	6	111	-
 files/home/.local/bin/ssh-copy-id-with-key	73	2	77	-

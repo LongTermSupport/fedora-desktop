@@ -395,3 +395,32 @@ names the one configuration file (B10). `ui.Lines` draws a heading two columns w
 `Width` is zero, though its doc says zero is no limit; the command sets a width of 80, and the
 `ui` defect (which `ccylaunch`'s build-lock question also hits) is left for a fix of its own.
 H1-H4 are the owner's, at the desktop.
+`reclaim` (P6, the sixth tool; chosen in its spec's section 1: the most interactive of the four
+left, and the one a fake proves without the owner, since its danger is which commands run after
+which answer) ported and cut over on `go-port/reclaim`, Fable-reviewed and the review's
+findings fixed, not merged; spec [SPEC-reclaim.md](SPEC-reclaim.md) (D1-D4, E1-E30, B1-B15,
+H1-H5), `src-go/cmd/reclaim` (under `execx.SignalContext`) and `src-go/internal/reclaim` (root
+through `internal/sudo` after a reason and only after a yes, ncdu through
+`execx.Foregrounder`, the biggest-files walk and the removals in Go, sizes by
+`rclonecache.IEC`). `reclaim` joins the owners of `podman` and `docker` in the project rule's
+table. `play-cli-tools.yml` builds it (tag `disk-reclaim`, which now imports `play-golang.yml`
+too); the bash and its allowlist row are gone (it had no suite), and `test-qa-changed.bash`
+takes `nord` as its allowlisted tool. Oracle: one scenario table,
+`internal/reclaim/testdata/scenarios.json` (28 scenarios: exit status, every command that may
+change the machine (any root command, and any with a word of the table's `changingWords`),
+the files left in the home), run against the Go by `TestScenarios` (where a command no
+scenario scripts fails it, unless it only reads) and against both the bash at `842d88ddd` and
+the built Go by `reclaim-parity/parity.py` (fake programs on `PATH`, a pseudo-terminal). Go:
+28 of 28; bash: 15 the same, 13 differing exactly as their `bashDiffers` departure says (B12,
+the root preview, accounts for most). **`parity.py` is a one-off check run by hand, as the
+freeze golden capture was: no gate runs it**, so a change to the table or the Go is judged by
+`TestScenarios` alone until someone reruns it. Bash defects found that way: a failing
+`dnf repoquery` preview read as "nothing to remove" and then ran autoremove and clean on a yes
+(B3), a `du` that could not read every entry ended `reclaim report` with status 1 halfway
+(B7), and a `~/.cache` listing that failed still cleared it on a yes (B3, B14). Review
+dispositions (subagent-reports/261027-reclaim-review-fixes.md): M-1 fixed (Ctrl-C waits for a
+running change, then `Cancelled.` and 130, a half-done clear says so; E30, B15); M-2 fixed (the
+fake fails an unscripted command, the oracle above); L-1 fixed (previews as the user, B12);
+L-2 fixed (a partial du's stderr shown, B6); L-3 fixed (a failed listing stops the clear before
+asking, B3, B14); L-4 noted, as the bash; L-5 fixed by refusing a symlink (B13); L-6 this note;
+L-7 fixed (the unused `styleBlue` removed). Host checks H1-H5 are the host agent's.

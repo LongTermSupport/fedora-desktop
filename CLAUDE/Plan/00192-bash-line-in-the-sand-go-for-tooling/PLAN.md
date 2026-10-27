@@ -197,8 +197,13 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     Run from the checkout through the `scripts/setup-rclone.bash` wrapper, so no play deploys
     it and nothing is queued in `meta-deploy.list`. Host checks H1-H4 are the owner's, at the
     desktop (a real remote and the vault).
-  - Still to do: the remaining programmes in [INVENTORY.md](INVENTORY.md) (account/setup tools
-    after `rclone-cache-status`) and the `ccy` launcher.
+  - `reclaim` (P6): built, Fable-reviewed and its findings fixed, awaiting merge, on
+    `go-port/reclaim` (not merged); spec
+    [SPEC-reclaim.md](SPEC-reclaim.md), oracle the scenario table run against the Go and the
+    bash ([PORTS.md](PORTS.md)). `play-cli-tools.yml` builds it; host checks H1-H5 the host
+    agent's after the merge and its play run.
+  - Still to do: the remaining programmes in [INVENTORY.md](INVENTORY.md) (`nord`,
+    `nvidia-status`, the `ssh-with-key` family) and the `ccy` launcher.
 
 - [x] ✅ **Task 3.4**: Freeze step 3's `acceptance.bash` compared live engine output with the
   baseline saved at the first deploy, so it failed (7 of 11) once containers started or stopped:

@@ -1,0 +1,256 @@
+{
+  "about": "SPEC-reclaim.md section 6. Each scenario: the programs installed, what each answers (argv prefix after sudo), the files in the home, the lines typed; the expected exit status, the commands that may change the machine in order (every command run through sudo, written 'root ...', and every command with a word of changingWords: an option split at '-' and '=', never a path), and the files left in the home. In the Go a command no scenario scripts fails the scenario unless it only reads (world_test.go readOnlyDefaults). TestScenarios runs the Go; CLAUDE/Plan/00192-.../reclaim-parity/parity.py runs the bash and the built Go. bashDiffers names the departure where the bash is expected to differ.",
+  "changingWords": ["rm", "prune", "remove", "autoremove", "clean", "vacuum", "uninstall", "empty", "reset"],
+  "scenarios": [
+    {
+      "name": "help",
+      "args": ["--help"],
+      "installed": ["sudo", "du", "df"],
+      "exit": 0
+    },
+    {
+      "name": "unknown-argument",
+      "args": ["--frob"],
+      "installed": ["sudo", "du", "df"],
+      "exit": 64,
+      "bashDiffers": "B1: the bash exits 2"
+    },
+    {
+      "name": "report",
+      "args": ["report"],
+      "installed": ["sudo", "du", "df", "journalctl", "podman"],
+      "programs": [
+        {"argv": ["du"], "stdout": "4096\t/x\n"},
+        {"argv": ["journalctl", "--disk-usage"], "stdout": "Journals take up 8M.\n"},
+        {"argv": ["podman", "system", "df"], "stdout": "TYPE TOTAL\n"}
+      ],
+      "home": [".cache/a"],
+      "exit": 0,
+      "homeAfter": [".cache/a"]
+    },
+    {
+      "name": "report-du-partial",
+      "args": ["report"],
+      "installed": ["sudo", "du", "df"],
+      "programs": [{"argv": ["du"], "stdout": "4096\t/x\n", "stderr": "du: cannot read directory\n", "exit": 1}],
+      "home": [".cache/a"],
+      "exit": 0,
+      "homeAfter": [".cache/a"],
+      "bashDiffers": "B7: du's non-zero exit ends the bash's report under pipefail, status 1"
+    },
+    {
+      "name": "no-terminal",
+      "args": [],
+      "noTty": true,
+      "installed": ["sudo", "du", "df"],
+      "exit": 1
+    },
+    {
+      "name": "quit",
+      "installed": ["sudo", "du", "df"],
+      "typed": ["q"],
+      "exit": 0
+    },
+    {
+      "name": "end-of-input",
+      "installed": ["sudo", "du", "df"],
+      "typed": [],
+      "exit": 0
+    },
+    {
+      "name": "three-invalid",
+      "installed": ["sudo", "du", "df"],
+      "typed": ["x", "11", "zz"],
+      "exit": 1
+    },
+    {
+      "name": "packages-yes",
+      "installed": ["sudo", "du", "df", "dnf"],
+      "programs": [
+        {"argv": ["dnf", "-y", "autoremove"]},
+        {"argv": ["dnf", "clean", "all"]},
+        {"argv": ["dnf", "repoquery", "--unneeded"], "stdout": "pkg-a\npkg-b\n"}
+      ],
+      "typed": ["3", "y", "q"],
+      "exit": 0,
+      "changes": ["root dnf -y autoremove", "root dnf clean all"],
+      "bashDiffers": "B12: the bash runs the dnf repoquery preview as root, before any yes"
+    },
+    {
+      "name": "packages-no",
+      "installed": ["sudo", "du", "df", "dnf"],
+      "programs": [{"argv": ["dnf", "repoquery", "--unneeded"], "stdout": "pkg-a\n"}],
+      "typed": ["3", "n", "q"],
+      "exit": 0,
+      "bashDiffers": "B12: the bash runs the dnf repoquery preview as root, before any yes"
+    },
+    {
+      "name": "packages-autoremove-fails",
+      "installed": ["sudo", "du", "df", "dnf"],
+      "programs": [{"argv": ["dnf", "-y", "autoremove"], "exit": 1}],
+      "typed": ["3", "y", "q"],
+      "exit": 1,
+      "changes": ["root dnf -y autoremove"],
+      "bashDiffers": "B9: the bash exits 0 after a failed action; B12: the bash runs the dnf repoquery preview as root, before any yes"
+    },
+    {
+      "name": "packages-preview-fails",
+      "installed": ["sudo", "du", "df", "dnf"],
+      "programs": [{"argv": ["dnf", "repoquery"], "stderr": "Error: repo broken\n", "exit": 1}],
+      "typed": ["3", "y", "q"],
+      "exit": 1,
+      "bashDiffers": "B3: the bash ignores the failed preview, asks, and runs autoremove and clean; B12: the bash runs the dnf repoquery preview as root, before any yes"
+    },
+    {
+      "name": "kernels-yes",
+      "installed": ["sudo", "du", "df", "dnf"],
+      "programs": [
+        {"argv": ["dnf", "-y", "remove", "kernel-6.1", "kernel-core-6.1"]},
+        {"argv": ["dnf", "repoquery", "--installonly"], "stdout": "kernel-6.1\nkernel-core-6.1\n"}
+      ],
+      "typed": ["4", "y", "q"],
+      "exit": 0,
+      "changes": ["root dnf -y remove kernel-6.1 kernel-core-6.1"],
+      "bashDiffers": "B12: the bash runs the dnf repoquery preview as root, before any yes"
+    },
+    {
+      "name": "kernels-none",
+      "installed": ["sudo", "du", "df", "dnf"],
+      "typed": ["4", "q"],
+      "exit": 0,
+      "bashDiffers": "B12: the bash runs the dnf repoquery preview as root, before any yes"
+    },
+    {
+      "name": "no-sudo",
+      "installed": ["du", "df", "dnf"],
+      "typed": ["3", "y", "q"],
+      "exit": 1,
+      "bashDiffers": "B2, B9: without sudo the bash's root preview fails unseen, the yes runs nothing, and it exits 0"
+    },
+    {
+      "name": "journal-default",
+      "installed": ["sudo", "du", "df", "journalctl"],
+      "typed": ["5", "", "y", "q"],
+      "exit": 0,
+      "changes": ["root journalctl --vacuum-size=500M"],
+      "programs": [{"argv": ["journalctl", "--vacuum-size=500M"]}]
+    },
+    {
+      "name": "journal-bad-size-asked-again",
+      "installed": ["sudo", "du", "df", "journalctl"],
+      "typed": ["5", "big", "1G", "y", "q"],
+      "exit": 0,
+      "changes": ["root journalctl --vacuum-size=1G"],
+      "bashDiffers": "B5: the bash returns to the menu on the bad size and vacuums nothing",
+      "programs": [{"argv": ["journalctl", "--vacuum-size=1G"]}]
+    },
+    {
+      "name": "containers-podman-yes",
+      "installed": ["sudo", "du", "df", "podman"],
+      "programs": [
+        {"argv": ["podman", "system", "prune", "-af"]},
+        {"argv": ["podman", "system", "df"], "stdout": "TYPE TOTAL\n"}
+      ],
+      "typed": ["6", "y", "q"],
+      "exit": 0,
+      "changes": ["podman system prune -af"]
+    },
+    {
+      "name": "containers-both-yes",
+      "installed": ["sudo", "du", "df", "podman", "docker"],
+      "programs": [
+        {"argv": ["podman", "system", "prune", "-af"]},
+        {"argv": ["docker", "system", "prune", "-af"]},
+        {"argv": ["podman", "system", "df"], "stdout": "TYPE TOTAL\n"},
+        {"argv": ["docker", "system", "df"], "stdout": "TYPE TOTAL\n"}
+      ],
+      "typed": ["6", "y", "y", "q"],
+      "exit": 0,
+      "changes": ["podman system prune -af", "docker system prune -af"],
+      "bashDiffers": "B4: the bash prunes docker under sudo"
+    },
+    {
+      "name": "containers-podman-wedged",
+      "installed": ["sudo", "du", "df", "podman"],
+      "programs": [{"argv": ["podman", "system", "df"], "stderr": "Error: stale temp dir\n", "exit": 125}],
+      "typed": ["6", "q"],
+      "exit": 0
+    },
+    {
+      "name": "flatpak-yes",
+      "installed": ["sudo", "du", "df", "flatpak"],
+      "typed": ["7", "y", "q"],
+      "exit": 0,
+      "changes": ["flatpak uninstall --unused --assumeno", "flatpak uninstall --unused -y"],
+      "programs": [{"argv": ["flatpak", "uninstall", "--unused", "-y"]}]
+    },
+    {
+      "name": "cache-no",
+      "installed": ["sudo", "du", "df"],
+      "programs": [{"argv": ["du"], "stdout": "4096\t/x\n"}],
+      "home": [".cache/a/f", ".cache/b", "keep"],
+      "typed": ["8", "n", "q"],
+      "exit": 0,
+      "homeAfter": [".cache/a/f", ".cache/b", "keep"]
+    },
+    {
+      "name": "cache-yes",
+      "installed": ["sudo", "du", "df"],
+      "programs": [{"argv": ["du"], "stdout": "4096\t/x\n"}],
+      "home": [".cache/a/f", ".cache/b", "keep"],
+      "typed": ["8", "y", "q"],
+      "exit": 0,
+      "homeAfter": ["keep"]
+    },
+    {
+      "name": "trash-directories",
+      "installed": ["sudo", "du", "df"],
+      "programs": [{"argv": ["du"], "stdout": "4096\t/x\n"}],
+      "home": [".local/share/Trash/files/a", ".local/share/Trash/info/a.trashinfo", "keep"],
+      "typed": ["9", "y", "q"],
+      "exit": 0,
+      "homeAfter": ["keep"]
+    },
+    {
+      "name": "trash-cli",
+      "installed": ["sudo", "du", "df", "trash-empty", "trash-list"],
+      "typed": ["9", "y", "q"],
+      "exit": 0,
+      "changes": ["trash-empty -f"],
+      "programs": [{"argv": ["trash-empty", "-f"]}]
+    },
+    {
+      "name": "sweep-all-yes",
+      "installed": ["sudo", "du", "df", "dnf", "journalctl", "podman", "flatpak", "trash-empty", "trash-list"],
+      "programs": [
+        {"argv": ["dnf", "-y", "autoremove"]},
+        {"argv": ["dnf", "clean", "all"]},
+        {"argv": ["journalctl", "--vacuum-size=500M"]},
+        {"argv": ["podman", "system", "prune", "-af"]},
+        {"argv": ["flatpak", "uninstall", "--unused", "-y"]},
+        {"argv": ["trash-empty", "-f"]},
+        {"argv": ["podman", "system", "df"], "stdout": "TYPE TOTAL\n"}
+      ],
+      "typed": ["10", "y", "y", "", "y", "y", "y", "y", "q"],
+      "exit": 0,
+      "changes": ["root dnf -y autoremove", "root dnf clean all", "root journalctl --vacuum-size=500M", "podman system prune -af", "flatpak uninstall --unused --assumeno", "flatpak uninstall --unused -y", "trash-empty -f"],
+      "bashDiffers": "B12: the bash runs the dnf repoquery preview as root, before any yes"
+    },
+    {
+      "name": "sweep-no",
+      "installed": ["sudo", "du", "df", "dnf", "journalctl"],
+      "typed": ["10", "n", "q"],
+      "exit": 0
+    },
+    {
+      "name": "cache-listing-fails",
+      "installed": ["sudo", "du", "df"],
+      "programs": [{"argv": ["du"], "stderr": "du: broken\n", "exit": 1}],
+      "home": [".cache/a", "keep"],
+      "typed": ["8", "y", "q"],
+      "exit": 1,
+      "homeAfter": [".cache/a", "keep"],
+      "bashDiffers": "B3, B14: the bash clears ~/.cache after a listing that failed, and exits 0"
+    }
+  ]
+}

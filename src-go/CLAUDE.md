@@ -2,7 +2,7 @@
 
 One module, `github.com/LongTermSupport/fedora-desktop/src-go`, for this repository's large
 interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfreeze`,
-`lxcfreeze`, `vmtest`, `ftp-camera`, `watermark`, `wsi`, `open`, `rclone-cache-status`, `rclone-tail`, `gh-account-setup`, `setup-rclone` and `consumer-install` live here; their
+`lxcfreeze`, `vmtest`, `ftp-camera`, `watermark`, `wsi`, `open`, `rclone-cache-status`, `rclone-tail`, `gh-account-setup`, `setup-rclone`, `reclaim` and `consumer-install` live here; their
 bash originals are gone (`scripts/gh-account-setup.bash` and `scripts/setup-rclone.bash` stay, as
 the wrappers that build and run the Go commands).
 `convert` is new, with no bash original.
@@ -53,6 +53,12 @@ the wrappers that build and run the Go commands).
   rclone's wizard in the foreground, the rclone configuration vaulted by `ansible-vault` from
   its stdin, `rclone_mounts` edited as two top-level blocks of the `host_vars` text and read
   back as YAML before the atomic write, and the rclone play run in the checkout.
+- `internal/reclaim/` — the `reclaim` command (spec `SPEC-reclaim.md`, E1-E30): the disk report
+  and a numbered menu on `/dev/tty` of cleanups, each behind a default-no confirmation; root
+  through `internal/sudo`, ncdu through `execx.Foregrounder`, podman and docker pruned as the
+  user (it is one of their owners); the biggest-files walk and the `~/.cache` and trash
+  removals in Go. `testdata/scenarios.json` is the scenario table the Go (`TestScenarios`) and
+  the bash it replaced (the plan's `reclaim-parity/parity.py`) were both judged by.
 - `internal/<package>/` — shared adapters, each behind an interface with a fake: `execx`
   (the command runner every external call goes through, and its recording `Fake`), `term`
   (exit codes, error printing), `ui` (gum and fzf prompts), `sudo`, `systemd`, `tmuxccy`,
@@ -256,7 +262,7 @@ the launcher's front `claude-yolo` (root-owned at `/var/local/claude-yolo/claude
 `play-lxcfreeze.yml` import (both import `play-golang.yml` first for the toolchain), and
 `play-vm-test-lab.yml` for `vmtest`, `play-ftp-camera.yml` for `ftp-camera`,
 `play-image-watermarking.yml` for `watermark`, `play-speech-to-text.yml` for `wsi` and
-`play-cli-tools.yml` for `open` and `convert`, `play-rclone.yml` for `rclone-cache-status` and `rclone-tail`,
+`play-cli-tools.yml` for `open`, `convert` and `reclaim`, `play-rclone.yml` for `rclone-cache-status` and `rclone-tail`,
 `play-basic-configs.yml` for `git-fetch-age` and `play-git-configure-and-tools.yml` for
 `git-prompt-fetch`, and `play-claude-yolo.yml` (into the ccy image's build context) and
 `play-agent-bus.yml` (into the member kit, which LXC members copy) for `pingbus-status-line`,
