@@ -24,7 +24,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LIB_DIR="$REPO_ROOT/files/var/local/claude-yolo/lib"
 
-for lib in common-pure.bash network-management.bash session-registry.bash; do
+for lib in common-pure.bash network-management.bash session-registry.bash network-policy.bash; do
     if [ ! -f "$LIB_DIR/$lib" ]; then
         echo "FAIL: $lib not found at $LIB_DIR/$lib" >&2
         exit 1
@@ -37,6 +37,8 @@ source "$LIB_DIR/common-pure.bash"
 source "$LIB_DIR/network-management.bash"
 # shellcheck source=/dev/null
 source "$LIB_DIR/session-registry.bash"
+# shellcheck source=/dev/null
+source "$LIB_DIR/network-policy.bash"
 
 SCRATCH="$(mktemp -d)"
 trap 'rm -rf "$SCRATCH"' EXIT
@@ -74,6 +76,9 @@ CALLS="$SCRATCH/calls"
 declare -A STUB_NETS=()
 # \$ is a literal $: these are Go template variables, not shell ones.
 INSPECT_TEMPLATE="{{range \$k, \$v := .NetworkSettings.Networks}}{{\$k}} {{end}}"
+# STUB_MODE[n]: container n's network mode (default bridge); pasta is a --no-network session.
+MODE_TEMPLATE="{{.HostConfig.NetworkMode}}"
+declare -A STUB_MODE=()
 container_cmd() {
     local words=()
     case "$1 ${2:-}" in
@@ -86,6 +91,10 @@ container_cmd() {
             return 0
             ;;
         "container inspect")
+            if [ "${4:-}" = "--format" ] && [ "${5:-}" = "$MODE_TEMPLATE" ] && [ -n "${STUB_NETS[$3]+set}" ]; then
+                echo "${STUB_MODE[$3]:-bridge}"
+                return 0
+            fi
             if [ "${4:-}" != "--format" ] || [ "${5:-}" != "$INSPECT_TEMPLATE" ]; then
                 echo "container_cmd stub: container inspect called with an unexpected template: $*" >&2
                 return 99
@@ -110,6 +119,10 @@ container_cmd() {
             ;;
         "network disconnect" | "network connect")
             echo "$2 $3 $4" >>"$CALLS"
+            if [ "$2" = connect ] && [ "${STUB_MODE[$4]:-bridge}" = pasta ]; then
+                echo "Error: \"pasta\" is not supported: invalid network mode" >&2
+                return 125
+            fi
             if [ "${STUB_FAIL_VERB:-}" = "$2" ]; then
                 echo "Error: $2 $3 from $4: netavark: simulated engine failure" >&2
                 return 125
@@ -126,6 +139,7 @@ reset() {
     : >"$CALLS"
     STUB_PS="demo_yolo"
     STUB_NETS=([demo_yolo]="podman wrong-network")
+    STUB_MODE=()
     STUB_ALL_NETS="podman wrong-network right-network"
     STUB_FAIL_VERB=""
     STUB_PS_FAILS=""
@@ -446,6 +460,32 @@ OUT="$(connect_to_network right-network "_yolo" "ccy" 2>&1)"
 check "a connect saves the default" "right-network" "$(saved)"
 check "and says every plain launch will reconnect" "yes" "$(says "every plain ccy launch in this project connects to it" "$OUT")"
 check "and names the undo" "yes" "$(says "ccy --disconnect right-network" "$OUT")"
+
+echo ""
+echo "=== --connect: a session started without a network ==="
+# A --no-network session runs on pasta (and a headless replay of an empty saved network is
+# --no-network), which the engine can attach no network to; its own answer is a puzzle
+# ("pasta" is not supported: invalid network mode, then "no network connections").
+reset
+STUB_NETS=([demo_yolo]="")
+STUB_MODE=([demo_yolo]="pasta")
+OUT="$(connect_to_network right-network "_yolo" "ccy" 2>&1)"
+RC=$?
+check "--connect to a pasta session fails" "1" "$RC"
+check "and says a session started without a network cannot join one" "yes" "$(says "demo_yolo was started without a network (pasta), and a session started without one cannot join one" "$OUT")"
+check "and names the way out" "yes" "$(says "Relaunch it with --network right-network" "$OUT")"
+check "and does not call it unusual or ask for a restart" "no" "$(says "This is unusual" "$OUT")"
+check "and asks the engine for nothing" "" "$(calls)"
+check "and saves no default" "(none)" "$(saved)"
+
+reset
+STUB_PS="$(printf 'demo_yolo\ndemo_yolo2')"
+STUB_NETS=([demo_yolo]="podman" [demo_yolo2]="")
+STUB_MODE=([demo_yolo2]="pasta")
+OUT="$(connect_to_network right-network "_yolo" "ccy" 2>&1)"
+check "--connect to several: the pasta one is refused plainly" "yes" "$(says "demo_yolo2 was started without a network (pasta)" "$OUT")"
+check "  and counted as an error" "yes" "$(says "Errors: 1" "$OUT")"
+check "  and the bridge one is still connected" "connect right-network demo_yolo;" "$(calls)"
 
 echo ""
 echo "=== the Quick Launch config forgets the network too ==="

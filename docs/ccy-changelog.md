@@ -27,6 +27,25 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.101.1 — container 2.79.15
+
+Follows 3.101.0. Plan 00232. The image does not change.
+
+- **`ccy --connect` says plainly when a session cannot join a network.** A session started
+  without a network (`--no-network`, or a headless launch replaying a Quick Launch record
+  with no saved network) runs on pasta, which the engine can attach no network to. It used
+  to print the engine's `"pasta" is not supported: invalid network mode`, then "no network
+  connections ... This is unusual. The container may need to be restarted". It now says the
+  session was started without a network, so it cannot join one, and to relaunch it with
+  `--network <network>`; asked for several sessions, the others are still connected. Any
+  other failed connect still prints the engine's error and the session's networks, or
+  `(none)`, without the restart advice.
+- **A headless replay of a saved launch with no network joins the default network.** It
+  used to replay the empty choice as `--no-network`, so the session ran on pasta and could
+  never `--connect`, though an interactive yes to the same record joins `podman`. It now
+  goes on `podman` with no project network, skipping the detection and its offers, as a
+  restart with no network does.
+
 ## 3.101.0 — container 2.79.15
 
 Follows 3.100.36 (container 2.79.15). Plan 00232 Task 3.3. The image does not change.

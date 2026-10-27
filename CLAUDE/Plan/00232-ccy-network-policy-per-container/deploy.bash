@@ -5,7 +5,7 @@
 # Ansible never runs in the CCY container.
 #
 # EFFECT ON THE HOST: play-claude-yolo.yml installs the nftables package, builds
-# ccy-network-policy into ~/.local/bin, and installs the launcher at CCY 3.101.0, whose every
+# ccy-network-policy into ~/.local/bin, and installs the launcher at CCY 3.101.1, whose every
 # later session runs under the policy: the private and LAN ranges and the host refused, the
 # public internet, DNS, the agent bus and the session's project networks open. Sessions
 # already running keep running unprotected until they are relaunched. Nothing else changes.
@@ -50,7 +50,7 @@ plan_require_host "it installs nftables, ccy-network-policy and the ccy launcher
 plan_prime_sudo
 plan_start_log auto
 
-plan_deploy_leg "play-claude-yolo.yml (nftables, ccy-network-policy, CCY 3.101.0)" \
+plan_deploy_leg "play-claude-yolo.yml (nftables, ccy-network-policy, CCY 3.101.1)" \
     plan_ansible_playbook playbooks/imports/play-claude-yolo.yml
 # STANDARD-EXCEPTION(R9): no acceptance.bash leg here, where R9 puts it. meta-deploy.bash
 # runs acceptance.bash after this script (and after triage.bash's second run).

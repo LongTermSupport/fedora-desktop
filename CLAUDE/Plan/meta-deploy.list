@@ -33,31 +33,23 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plan 00232: every ccy session under a network policy. FIRST, ahead of changed-plays, because
-# its passive triage "before" must read the host before play-claude-yolo.yml changes it (this
-# branch changes that play, so changed-plays would otherwise run it first). triage.bash runs
-# before and after (host facts only, nothing changed). deploy.bash runs play-claude-yolo.yml:
-# the nftables package, ccy-network-policy built into ~/.local/bin, and the launcher at CCY
-# 3.101.0. From then on EVERY ccy session launched on this host runs under the policy: refused
-# the private and LAN ranges and this host itself, open to the public internet, DNS, the agent
-# bus and its own project networks (sessions already running keep their old launch until
-# relaunched). To turn it off for a checkout, add the line CCY_NETWORK_ALLOW=off to the file
-# `ccy-network-policy where` prints when run in that checkout, or set CCY_NETWORK_ALLOW=off in
-# the host shell for one launch; a launch the policy stops says the same. acceptance.bash then
-# launches two throwaway headless sessions in this checkout, seats np232a and np232b of the
-# team this checkout already has a seat in (made through sudo agent-bus add-member), sends them
-# no turn, and checks each: not privileged, the policy held in its namespace, told its limits;
-# the host and a neighbour refused at once while one throwaway control container reaches the
-# same short-lived listener; DNS, the forge and the Claude API open; and one pingbus probe
-# message each way between them in that team's room. A third throwaway session, np232c, runs
-# unseated in a throwaway project directory (a new git repository under the run directory), so
-# that ccy --connect and --disconnect, run there, reach it alone and no live session of this
-# checkout: a peer on a throwaway network is refused, reached after the connect, refused again
-# after the disconnect. Before connecting it checks np232c is the only session --connect would
-# reach, else exit 2 with nothing connected. It then ends all three sessions, parks both seats,
-# removes the throwaway project's launcher state and puts the checkout's Quick Launch record
-# back. Exit 2 also if the checkout has no seat in any team or no saved Quick Launch.
-00232-ccy-network-policy-per-container
+# Plan 00232, the rerun after the acceptance was rejected on three checks of its own design (the
+# policy itself is already live and its triage passed; neither is run again). First
+# deploy.bash: play-claude-yolo.yml again, for the launcher at CCY 3.101.1 only: a headless
+# launch replaying a Quick Launch record with no saved network (a restored team session, say)
+# now joins the default podman network instead of running as --no-network on pasta, and
+# ccy --connect says plainly that a session started without a network cannot join one,
+# instead of the engine's "pasta is not supported" error. Sessions already running are not
+# touched. Nothing else in the play changed.
+00232-ccy-network-policy-per-container/deploy.bash
+
+# Then acceptance.bash alone, as before: the throwaway seats np232a and np232b and the unseated
+# np232c, the same checks, the same teardown. Changed: blocked now puts to the session only the
+# host addresses the unpoliced control reaches (exit 2 COULD NOT ESTABLISH if none); np232c is
+# launched on the podman network, as a plain ccy launch is, so --connect is tested on that
+# shape; bus reads each receiver's room history for the message's event id, since the woken
+# session empties its inbox. Exit 2 also as before (no seat, no Quick Launch, np232c not alone).
+00232-ccy-network-policy-per-container/acceptance.bash
 
 # The plays changed since they last ran here. Expected: play-cli-tools.yml (Plan 00192:
 # reclaim 2.0.3 rebuilt, which summarises podman storage in part instead of printing the raw

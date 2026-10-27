@@ -454,6 +454,10 @@ connect_to_network() {
 
         for container in "${matching_containers[@]}"; do
             echo "  → $container"
+            if ! _container_can_join_networks "$container" "$network_name" "    "; then
+                error_count=$((error_count + 1))
+                continue
+            fi
             # Put the call in a condition so errexit is suspended and the
             # status survives. Previously the assignment failed the moment
             # `network connect` returned non-zero and the shell exited right
@@ -507,6 +511,7 @@ connect_to_network() {
         # Connect single container
         echo "Connecting $container_name to $network_name..."
         echo ""
+        _container_can_join_networks "$container_name" "$network_name" "" || return 1
 
         # Same as the multi-container path above: condition, not bare
         # assignment, so a non-zero status is data rather than a silent exit.
@@ -542,22 +547,7 @@ connect_to_network() {
             echo "Error: $error_output"
             echo ""
             echo "Container networks:"
-            local networks_json
-            # This is the ERROR-REPORTING path — we are here because the connect
-            # failed. A bare capture aborted the function under errexit exactly
-            # when the container had gone away, swallowing the diagnostic at the
-            # moment it was needed. The fallback prints "(none)", which is the
-            # right prompt whether the container has no networks or cannot be
-            # inspected at all.
-            networks_json=$(container_cmd inspect "$container_name" --format '{{json .NetworkSettings.Networks}}' 2>/dev/null) || networks_json=""
-            if [ "$networks_json" = "null" ] || [ -z "$networks_json" ]; then
-                echo "  (none - container has no network connections)"
-                echo ""
-                echo "This is unusual. The container may need to be restarted."
-                echo "Try: $tool_name (restart the container)"
-            else
-                echo "$networks_json" | jq -r 'keys[]' | awk '{ print "  " $0 }'
-            fi
+            _container_networks "$container_name" | awk '{ print "  " $0 } END { if (!NR) print "  (none)" }'
             echo ""
             return 1
         fi
