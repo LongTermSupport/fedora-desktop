@@ -34,6 +34,16 @@
         value: "['caps:none']"
         state: present
 
+    # A fresh Fedora 44 profile has gtk-enable-primary-paste false, so selecting text and
+    # middle-clicking pasted nothing; a profile carried over from an older release keeps true.
+    - name: Enable middle-click paste of the selected text
+      become: true
+      become_user: "{{ user_login }}"
+      community.general.dconf:
+        key: /org/gnome/desktop/interface/gtk-enable-primary-paste
+        value: "true"
+        state: present
+
     - name: Disable middle-click closing tabs in Ptyxis terminal
       become: true
       become_user: "{{ user_login }}"
