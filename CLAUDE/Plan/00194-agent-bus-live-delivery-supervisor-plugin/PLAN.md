@@ -5,8 +5,9 @@
 can unblock them. [delivery-acceptance.bash](delivery-acceptance.bash) passed on the host
 on 27-10-26 (H1-H6, 2.0d, 2.0f, E16, C1). H7 is not applicable: no launch omits
 `crossSessionInbound: accept`, so no session refuses a delivery (coordinator default of
-27-10-27, changeable by the owner: questions-room Q2). Left: success criterion step 5, a
-baseline record the host agent takes on a throwaway team. Task 1.2 is superseded.
+27-10-27, changeable by the owner: questions-room Q2). Success criterion step 5, the
+lifecycle-restart baseline for Task 2.0e, was recorded on the host at F44 fe894347c. Task 1.2
+is superseded.
 **Created**: 2026-10-14
 **Owner**: joseph
 **Priority**: High
@@ -143,7 +144,8 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   (or exports a marker path) before it types `/exit` and clears it when it abandons one, an
   upstream hooks-daemon change, filed as #127 (waits on its release); then the hook skips the goodbye for that session and records
   it as said (`seat.record_goodbye`), so the launcher's `seat disconnected` stays quiet
-  too, test first. `docs/agent-bus.md` states today's behaviour until then.)
+  too, test first. `docs/agent-bus.md` states today's behaviour until then.) Today's
+  behaviour, the baseline, is recorded under success criterion step 5: `left the team: session ended (exit)`, then a silent return.
 - [x] ✅ **Task 2.0f**: A human message that reaches no agent is visible. The owner posted
   `@room ...` in Element as plain text (no pill), so it had no `m.mentions.room`; every
   member's watcher ignored it as not addressed, which writes nothing, and the owner could not
@@ -215,7 +217,7 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
 - [ ] Another agent's message appears in the same envelope with its own kind and no
   authority.
 
-- [ ] Host, after `play-agent-bus.yml` and `play-claude-yolo.yml` (branch
+- [x] Host, after `play-agent-bus.yml` and `play-claude-yolo.yml` (branch
   `fix/goodbye-ctrl-c`, journal 2026-10-19). Before the fix no goodbye was ever sent:
   Claude Code's 1.5 s SessionEnd bound, which a plugin hook's `timeout` does not raise, cut
   it off; a stop or a closed terminal ends the container at once, so no hook runs at all.
@@ -229,6 +231,15 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   4. No ending posts both messages.
   5. Baseline for Task 2.0e: a lifecycle restart (`CCY_LIFECYCLE_MAX_AGE_SECONDS` at its
      minimum); record what the team sees (today: `left the team`, then the seat re-joins).
+     **Recorded** by the host agent at F44 fe894347c on a throwaway team: a session launched
+     `ccy --teams --no-ssh` with the minimum `--max-age`, left idle, with the tracked ccy
+     supervisor files in its scratch checkout. The supervisor warned the session first; at the
+     maximum age it asked for the restart, Claude Code was updated in the image, and the
+     session was resumed unattended with the same session id, in the same tmux session, its
+     status line back on both seats. The team's room: the message
+     `<handle> left the team: session ended (exit)`, which a human cannot tell apart from a
+     real `/exit`; then only an `agent_bus.status` event for the seat. The return is silent:
+     no join or rejoin message, so a human in Element sees only "left the team".
 
   Steps 1-4 are automated, as the owner asked, by [acceptance.bash](acceptance.bash), run
   through meta-deploy: G1 = step 1 (Ctrl-C sent until the launcher exits; one goodbye per
@@ -241,9 +252,8 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   run stopped in setup at ccy's commit-signing check; the scratch checkout now turns signing
   off in its own config (launched `--no-ssh`, no key goes in), a launcher that ends early is
   reported by its ERROR lines, and one waiting at a question no flag answers fails at once by
-  name. Steps 1-4 passed on the host at F44 c3391ba9 (G1-G4 and C1); step 5 is still by
-  hand, so this criterion stays open. Step 5 is the host agent's: launch with
-  `CCY_LIFECYCLE_MAX_AGE_SECONDS` at its minimum in the scratch checkout and read the room.
+  name. Steps 1-4 passed on the host at F44 c3391ba9 (G1-G4 and C1); step 5, the baseline,
+  was recorded by hand on the host at F44 fe894347c (above).
 
 - [ ] A message sent to a busy session is typed mid-turn and run when the turn ends.
 

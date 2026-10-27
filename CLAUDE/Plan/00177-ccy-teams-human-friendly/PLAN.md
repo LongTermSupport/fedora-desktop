@@ -168,7 +168,7 @@ are too, by the same route.
   at members.py's "gh is required and must be logged in" (78) and lxc-add says "declared … but
   not joined". Left for the owner: gh installed and logged in, in a real container; then the
   join, the agent start and its pingbus check. Finding: Task 9.9.
-- [ ] 🔄 **Task 9.9**: A member lxc-add declared that never joined (no bundle, as when gh is
+- [x] ✅ **Task 9.9**: A member lxc-add declared that never joined (no bundle, as when gh is
   missing) could not be taken off: `state: absent` failed in `members.py` `_absent_one` with
   "the entry leaves out its host or seat", blocking every `play-agent-bus.yml` run (host agent,
   27-10-27). Fixed in the absent path (option 1; lxc-add still writes no host or seat, Task
@@ -179,6 +179,10 @@ are too, by the same route.
   failing every apply of its team is by design. Red 10, green 167.
   [Report](subagent-reports/261027-task-9-9.md). Host check: lxc-add a throwaway container
   without gh, `declare lxc-remove`, then `ccy-teams remove <team>` passes with nothing parked.
+  Host, 27-10-27 at F44 fe894347c: PASS. On a throwaway team and an Ubuntu container with no
+  gh, lxc-add stopped at "gh is required" (exit 1, "declared … but not joined", by design);
+  `declare lxc-remove` exit 0 ("declared absent"); `ccy-teams remove` ran "Take the LXC members
+  declared absent off their teams" unchanged (nothing parked) and removed the team, exit 0.
 - [x] ✅ **Task 9.6**: The review of `lxc-add` answered, F1 to F9.
   [Full text](DONE-phases.md#phase-9-the-done-tasks-96-to-98).
 - [x] ✅ **Task 9.7**: The handle is derived from the repository (`helpers/agent_bus_lxc/derive.py`),
