@@ -1,0 +1,445 @@
+---
+# The ccy image, claude-yolo:latest: its build context staged under /opt/claude-yolo (the
+# Dockerfile, the entrypoint and every file the Dockerfile COPYs), the shared bash libraries
+# (the build lock among them), and the build itself under the lock every ccy launch takes.
+# Imported by play-claude-yolo.yml and by play-claude-code-consumer.yml, which runs the same
+# image as ccc (Plan 00233). Needs root_dir, user_login and container_engine, and the Go
+# toolchain (play-golang.yml) for the pingbus-status-line build.
+- name: Create Claude YOLO Base Directory
+  become: true
+  ansible.builtin.file:
+    path: /opt/claude-yolo
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create Custom Dockerfiles Directory
+  become: true
+  ansible.builtin.file:
+    path: /opt/claude-yolo/custom-dockerfiles
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Copy Dockerfile
+  become: true
+  ansible.builtin.copy:
+    src: "{{ root_dir }}/files/var/local/claude-yolo/Dockerfile"
+    dest: /opt/claude-yolo/Dockerfile
+    owner: root
+    group: root
+    mode: "0644"
+  tags:
+    - scripts
+    - dockerfile
+
+- name: Copy Entrypoint Script
+  become: true
+  ansible.builtin.copy:
+    src: "{{ root_dir }}/files/var/local/claude-yolo/entrypoint.sh"
+    dest: /opt/claude-yolo/entrypoint.sh
+    owner: root
+    group: root
+    mode: "0755"
+  tags:
+    - scripts
+    - entrypoint
+
+- name: Copy Browser Mode Stub into Docker Build Context
+  become: true
+  ansible.builtin.copy:
+    src: "{{ root_dir }}/files/var/local/claude-yolo/agent-browser-mode-required"
+    dest: /opt/claude-yolo/agent-browser-mode-required
+    owner: root
+    group: root
+    mode: "0755"
+  tags:
+    - scripts
+
+- name: Copy Browser Session Guard into Docker Build Context
+  become: true
+  ansible.builtin.copy:
+    src: "{{ root_dir }}/files/var/local/claude-yolo/agent-browser-session-guard"
+    dest: /opt/claude-yolo/agent-browser-session-guard
+    owner: root
+    group: root
+    mode: "0755"
+  tags:
+    - scripts
+
+# The ctrl+z patch script that used to be copied here is gone (CCY 3.42.0).
+# Suppressing ctrl+z is now the PTY supervisor's job, so remove the stale
+# copy from build contexts provisioned by an earlier run — otherwise the
+# Dockerfile hash changes while a dead file lingers beside it.
+- name: Remove Retired ctrl+z Patch Script from Docker Build Context
+  become: true
+  ansible.builtin.file:
+    path: /opt/claude-yolo/ccy-ctrl-z-patch.js
+    state: absent
+  tags:
+    - scripts
+    - dockerfile
+
+# The Dockerfile COPYs this directory into the image at /opt/claude-yolo/supervisor-plugins/.
+# Without it the build context has no supervisor-plugins/ and the image build fails.
+- name: Copy Supervisor Plugins into Docker Build Context
+  become: true
+  ansible.builtin.copy:
+    src: "{{ root_dir }}/files/var/local/claude-yolo/supervisor-plugins/"
+    dest: /opt/claude-yolo/supervisor-plugins/
+    owner: root
+    group: root
+    mode: "0644"
+    directory_mode: "0755"
+  tags:
+    - scripts
+    - dockerfile
+
+- name: Copy PHPantom LSP Plugin into Docker Build Context
+  become: true
+  ansible.builtin.copy:
+    src: "{{ root_dir }}/files/var/local/claude-yolo/plugins/"
+    dest: /opt/claude-yolo/plugins/
+    owner: root
+    group: root
+    mode: "0644"
+    directory_mode: "0755"
+  tags:
+    - scripts
+    - dockerfile
+
+- name: Create Documentation Directory
+  become: true
+  ansible.builtin.file:
+    path: /opt/claude-yolo/docs
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags:
+    - scripts
+    - docs
+
+- name: Copy CCY Startup Info File
+  become: true
+  ansible.builtin.copy:
+    src: "{{ root_dir }}/files/opt/claude-yolo/ccy-startup-info.txt"
+    dest: /opt/claude-yolo/ccy-startup-info.txt
+    owner: root
+    group: root
+    mode: "0644"
+  tags:
+    - scripts
+
+- name: Copy Documentation into Docker Build Context
+  become: true
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - src: "{{ root_dir }}/files/opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt"
+      dest: /opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt
+    - src: "{{ root_dir }}/files/opt/claude-yolo/docs/CCY-GUIDE.txt"
+      dest: /opt/claude-yolo/docs/CCY-GUIDE.txt
+  tags:
+    - scripts
+    - docs
+
+- name: Create Skills Directory in Docker Build Context
+  become: true
+  ansible.builtin.file:
+    path: /opt/claude-yolo/skills/browsing
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags:
+    - scripts
+    - skills
+
+- name: Copy Browsing Skills into Docker Build Context
+  become: true
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: /opt/claude-yolo/skills/browsing/
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    # SKILL.md is deliberately the only file here. The command reference used to be
+    # duplicated into COMMANDLINE-USAGE.md and EXAMPLES.md, which drifted so far that
+    # all 97 of their examples used an `agent-browser run "..."` syntax the CLI no
+    # longer has. agent-browser ships its own version-matched skills
+    # (`agent-browser-headless skills get core --full`), so the skill now points at those.
+    - "{{ root_dir }}/files/opt/claude-yolo/skills/browsing/SKILL.md"
+  tags:
+    - scripts
+    - skills
+
+- name: Create Optional Child-Claude Directories in Docker Build Context
+  become: true
+  ansible.builtin.file:
+    path: "/opt/claude-yolo/optional/child-claude/{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - bin
+    - skills/child-claude
+  tags:
+    - scripts
+    - skills
+
+# Staged OUTSIDE /opt/claude-yolo/skills/ deliberately. The entrypoint copies
+# that directory into every session unconditionally, so opt-in content cannot
+# live there. Reasoning: Plan 00092, by number under CLAUDE/Plan/.
+#
+# The next two tasks only ever ADD, exactly like the browsing copy above, and the
+# Dockerfile COPYs this whole directory. So deleting a file from
+# files/opt/claude-yolo/optional/ does NOT remove it from a host's build context, and
+# the stale copy keeps shipping into the image. If anything under optional/ is ever
+# removed or renamed, add it to a `state: absent` task — the pattern is at
+# "Remove Obsolete Browsing Skill Files" below, which exists because this was missed once.
+- name: Copy Optional Child-Claude Wrapper into Docker Build Context
+  become: true
+  ansible.builtin.copy:
+    src: "{{ root_dir }}/files/opt/claude-yolo/optional/child-claude/bin/ccy-claude"
+    dest: /opt/claude-yolo/optional/child-claude/bin/ccy-claude
+    owner: root
+    group: root
+    mode: "0755"
+  tags:
+    - scripts
+    - skills
+
+- name: Copy Optional Child-Claude Skill into Docker Build Context
+  become: true
+  ansible.builtin.copy:
+    src: "{{ root_dir }}/files/opt/claude-yolo/optional/child-claude/skills/child-claude/SKILL.md"
+    dest: /opt/claude-yolo/optional/child-claude/skills/child-claude/SKILL.md
+    owner: root
+    group: root
+    mode: "0644"
+  tags:
+    - scripts
+    - skills
+
+# The agent team bus member kit (Plan 00161 DESIGN.md section 5.3): the plugin, its
+# settings and the pingbus zipapp. Loaded, idle, in every session started in ccy's tmux
+# (PINGBUS_MEMBERSHIP, Plan 00203); a seat is held only when the session's desired
+# membership names one. The non-ccy launcher agent-bus-claude is not staged: the entrypoint does
+# its job here. Add-only like the child-claude copies above.
+- name: Create Optional Agent-Bus Directories in Docker Build Context
+  become: true
+  ansible.builtin.file:
+    path: "/opt/claude-yolo/optional/agent-bus/{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - plugin/pingbus/.claude-plugin
+    - plugin/pingbus/hooks
+    - plugin/pingbus/skills/pingbus
+  tags:
+    - scripts
+    - skills
+
+- name: Copy Optional Agent-Bus Plugin and Settings into Docker Build Context
+  become: true
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - src: "{{ root_dir }}/files/opt/claude-yolo/optional/agent-bus/settings.json"
+      dest: /opt/claude-yolo/optional/agent-bus/settings.json
+    - src: "{{ root_dir }}/files/opt/claude-yolo/optional/agent-bus/plugin/pingbus/.claude-plugin/plugin.json"
+      dest: /opt/claude-yolo/optional/agent-bus/plugin/pingbus/.claude-plugin/plugin.json
+    - src: "{{ root_dir }}/files/opt/claude-yolo/optional/agent-bus/plugin/pingbus/hooks/hooks.json"
+      dest: /opt/claude-yolo/optional/agent-bus/plugin/pingbus/hooks/hooks.json
+    - src: "{{ root_dir }}/files/opt/claude-yolo/optional/agent-bus/plugin/pingbus/skills/pingbus/SKILL.md"
+      dest: /opt/claude-yolo/optional/agent-bus/plugin/pingbus/skills/pingbus/SKILL.md
+  tags:
+    - scripts
+    - skills
+
+# Built here from helpers/ with the builder agent-bus-install uses, so the core ccy play
+# never depends on the bus play, and the same source gives the same bytes in both places.
+- name: Build the pingbus Zipapp into Docker Build Context
+  become: true
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -B
+      - -s
+      - -m
+      - helpers.pingbus.bundle
+      - --source
+      - "{{ root_dir }}"
+      - --out
+      - /opt/claude-yolo/optional/agent-bus/pingbus
+      - pingbus
+    chdir: "{{ root_dir }}"
+  register: ccy_pingbus_bundle
+  changed_when: ccy_pingbus_bundle.stdout.startswith('BUNDLE-CHANGED ')
+  failed_when: >-
+    ccy_pingbus_bundle.rc != 0
+    or not (ccy_pingbus_bundle.stdout.startswith('BUNDLE-CHANGED ')
+            or ccy_pingbus_bundle.stdout.startswith('BUNDLE-UNCHANGED '))
+  tags:
+    - scripts
+    - skills
+
+# A seated session's status line (Plan 00213): the Go port of `pingbus status-line`, which
+# starts no Python on a refresh. The entrypoint links it beside pingbus. Static, because the
+# image is Debian and the host's glibc is newer than the image's.
+- name: Build the pingbus-status-line Command into Docker Build Context
+  ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+  vars:
+    go_command_name: pingbus-status-line
+    go_command_dest: /opt/claude-yolo/optional/agent-bus/pingbus-status-line
+    go_command_mode: "0755"
+    go_command_owner: root
+    go_command_static: true
+  tags:
+    - scripts
+    - skills
+
+- name: Remove Obsolete Browsing Skill Files from Docker Build Context
+  become: true
+  ansible.builtin.file:
+    path: "/opt/claude-yolo/skills/browsing/{{ item }}"
+    state: absent
+  loop:
+    - COMMANDLINE-USAGE.md
+    - EXAMPLES.md
+  # The copy task above only ever ADDS files, so deleting these from the repo would
+  # otherwise leave stale copies in the build context on every host that has already
+  # deployed them — and the Dockerfile COPYs the whole directory, so the removed,
+  # wrong documentation would keep shipping into the image indefinitely.
+  tags:
+    - scripts
+    - skills
+
+- name: Copy Custom Dockerfile Templates (Never Overwrite User Changes)
+  become: true
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/opt/claude-yolo/custom-dockerfiles/{{ item | basename }}"
+    owner: root
+    group: root
+    mode: "0644"
+    force: false # NEVER overwrite - users can customize these
+  loop:
+    - "{{ root_dir }}/files/var/local/claude-yolo/Dockerfile.project-template"
+    - "{{ root_dir }}/files/var/local/claude-yolo/Dockerfile.example-ansible"
+    - "{{ root_dir }}/files/var/local/claude-yolo/Dockerfile.example-golang"
+  tags:
+    - scripts
+    - templates
+
+# Shared library for DRY helpers (used by ccy)
+- name: Create Shared Library Directory
+  become: true
+  ansible.builtin.file:
+    path: /var/local/claude-yolo/lib
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags:
+    - scripts
+    - launchers
+
+- name: Install Shared Helper Libraries
+  become: true
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/var/local/claude-yolo/lib/{{ item | basename }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ root_dir }}/files/var/local/claude-yolo/lib/common-pure.bash"
+    - "{{ root_dir }}/files/var/local/claude-yolo/lib/common.bash"
+    - "{{ root_dir }}/files/var/local/claude-yolo/lib/host-paths.bash"
+    - "{{ root_dir }}/files/var/local/claude-yolo/lib/token-handoff.bash"
+    - "{{ root_dir }}/files/var/local/claude-yolo/lib/launcher-path.bash"
+    - "{{ root_dir }}/files/var/local/claude-yolo/lib/ssh-handling.bash"
+    - "{{ root_dir }}/files/var/local/claude-yolo/lib/token-management.bash"
+    - "{{ root_dir }}/files/var/local/claude-yolo/lib/token-usable.bash"
+    - "{{ root_dir }}/files/var/local/claude-yolo/lib/network-management.bash"
+    - "{{ root_dir }}/files/var/local/claude-yolo/lib/dockerfile-custom.bash"
+    - "{{ root_dir }}/files/var/local/claude-yolo/lib/docker-health.bash"
+    - "{{ root_dir }}/files/var/local/claude-yolo/lib/tmux-session.bash"
+    - "{{ root_dir }}/files/var/local/claude-yolo/lib/session-registry.bash"
+    - "{{ root_dir }}/files/var/local/claude-yolo/lib/restart-request.bash"
+    - "{{ root_dir }}/files/var/local/claude-yolo/lib/session-lifecycle.bash"
+    - "{{ root_dir }}/files/var/local/claude-yolo/lib/agent-bus-membership.bash"
+    - "{{ root_dir }}/files/var/local/claude-yolo/lib/agent-bus-seats.bash"
+    - "{{ root_dir }}/files/var/local/claude-yolo/lib/image-build-lock.bash"
+    - "{{ root_dir }}/files/var/local/claude-yolo/lib/image-build.bash"
+    - "{{ root_dir }}/files/var/local/claude-yolo/lib/agent-choice.bash"
+    # ccy's one-key agent, run by path from ssh-handling.bash (stdlib Python, TDD'd in helpers/).
+    - "{{ root_dir }}/helpers/ssh_agent_filter/ssh_agent_filter.py"
+  # `launchers` is on the lib and on every script that sources it (ccy, cc,
+  # ccy-sessions), with the directories they land in: a tag that deployed one
+  # without the others would recreate the new-lib-under-old-cc break.
+  tags:
+    - scripts
+    - launchers
+
+- name: Calculate Dockerfile Hash for Build
+  ansible.builtin.shell: md5sum /opt/claude-yolo/Dockerfile | cut -d' ' -f1 | cut -c1-16
+  register: dockerfile_hash
+  changed_when: false
+
+# `images -q` prints nothing (rc 0) for a missing tag, so a first build or a rebuild is told
+# apart from a full cache hit by comparing the image ID before and after the build.
+- name: Read Claude YOLO Image ID Before Build
+  ansible.builtin.command: "{{ container_engine }} images -q claude-yolo:latest"
+  register: image_id_before
+  changed_when: false
+
+# Under the image's build lock, the one every ccy launch takes (lib/image-build-lock.bash,
+# Plan 00216): a launch started while the play builds waits for this build and uses it, and
+# the play waits for a launch's build. The check is false: the play always builds.
+- name: Build Claude YOLO Container Image with Hash
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -c
+      - source "$0" && ccy_image_build_locked "$@"
+      - /var/local/claude-yolo/lib/image-build-lock.bash
+      - claude-yolo:latest
+      - "false"
+      - --
+      - "{{ container_engine }}"
+      - build
+      - --build-arg
+      - DOCKERFILE_HASH={{ dockerfile_hash.stdout }}
+      - -t
+      - claude-yolo:latest
+      - /opt/claude-yolo
+  register: container_build
+  changed_when: false
+
+- name: Detect Whether Claude YOLO Image Was Rebuilt
+  ansible.builtin.command: "{{ container_engine }} images -q claude-yolo:latest"
+  register: image_id_after
+  changed_when: image_id_after.stdout != image_id_before.stdout
+
+- name: Verify Container Image
+  ansible.builtin.command: "{{ container_engine }} image inspect claude-yolo:latest"
+  register: image_verify
+  changed_when: false
+

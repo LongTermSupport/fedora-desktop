@@ -444,7 +444,9 @@ echo "== the play's form: one build under the lock, from bash -c"
 reset_world
 # The argv is read from the play's own task (each "- word" under its argv:, quotes taken off),
 # with the installed paths and the play's variables pointed at this sandbox.
-PLAY="$REPO_ROOT/playbooks/imports/play-claude-yolo.yml"
+# The image's build-context staging and build are in tasks/claude-yolo-image.yml, which
+# play-claude-yolo.yml and play-claude-code-consumer.yml import (Plan 00233).
+PLAY="$REPO_ROOT/tasks/claude-yolo-image.yml"
 mapfile -t play_argv < <(awk '
     /- name: Build Claude YOLO Container Image with Hash/ { task = 1 }
     task && /^ *argv:/ { in_argv = 1; next }

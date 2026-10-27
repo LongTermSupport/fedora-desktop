@@ -121,6 +121,9 @@ The bootstrap script:
 21. **play-claude-yolo.yml**: Claude Code on the host (`cc`) and in a container (CCY)
     - One play for both, because `cc` sources CCY's lib at runtime: deployed
       separately, a new lib could run under an old `cc`.
+    - Followed by **play-claude-code-consumer.yml**: `ccc`, Claude Code in rootless
+      podman in `~/CCC` with CCY's image and none of its GitHub setup, for every install
+      (a consumer install gets no CCY). Both import `tasks/claude-yolo-image.yml`.
 22. **play-comms.yml**: Communication applications
 23. **play-gnome-shell.yml**: GNOME Shell configuration
 24. **play-gnome-shell-extensions.yml**: GNOME Shell extensions

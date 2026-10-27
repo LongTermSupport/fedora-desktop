@@ -55,3 +55,25 @@ changed-plays
 # lift them, what a refused connection looks like inside, and does ccy --connect survive.
 # Nothing touches a live session or the host firewall; everything it creates is removed.
 00232-ccy-network-policy-per-container --active
+
+# Plan 00228 Task 3.2: the consumer install proved in the VM lab. deploy.bash runs
+# play-vm-test-lab.yml (the vmtest CLI rebuilt with its attended-run driver, the manifest with
+# desktop-consumer-install, the new guest checker). acceptance.bash then ensures the desktop
+# and server-fast bases (the desktop base is an Anaconda install if absent or refused) and
+# runs three throwaway guests from the pushed HEAD: desktop-consumer-install (an attended
+# ./run.bash --consumer and its re-run, 17 checks), desktop-fresh-install and
+# server-fast-provision (the developer and server paths, unchanged). Long: three full
+# provisioning runs. On the 10-06 desktop base the two desktop runs are also Plan 00229
+# Task 2.2's host check: every package is upgraded before Ansible starts, so neither dies at
+# play-toolbox-install.yml's "name 'ssl' is not defined" (00229's PLAN.md records the result).
+00228-consumer-install-without-github
+
+# Plan 00233: ccc, Claude Code in rootless podman in ~/CCC. deploy.bash runs
+# play-claude-yolo.yml (its image tasks moved into tasks/claude-yolo-image.yml) and
+# play-claude-code-consumer.yml (play-podman.yml now for every audience, the image, ccc in
+# ~/.local/bin, the private token and state directories, and the "Claude" app grid entry).
+# acceptance.bash checks ccc --help, the built-in image version, the image's version label, the
+# 0700 directories, the app grid entry and rootless podman. The interactive checks (a first
+# sign-in, the two mounts, ctrl+z, the snapshot commit) are listed in the plan's Host Checks
+# for the host agent.
+00233-ccc-claude-code-for-consumers

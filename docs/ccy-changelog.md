@@ -27,6 +27,13 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.100.36 — container 2.79.15
+
+- **No change to ccy's behaviour.** `internal/gitx`, which the launcher's Go front builds
+  from, gains four methods for `ccc` (Plan 00233): start a repository, set a key in its own
+  config, ask whether the work tree has changed, and stage and commit everything unsigned.
+  The front calls none of them; the bump is the gate's rule for its build closure.
+
 ## 3.100.35 — container 2.79.15
 
 Follows 3.100.34 (container 2.79.15). Plan 00228 Task 2.7. The image does not change, and

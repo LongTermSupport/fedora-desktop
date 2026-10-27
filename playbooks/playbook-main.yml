@@ -34,6 +34,8 @@
 - import_playbook: imports/play-python.yml
 # Deploys both launchers, host cc and container ccy: cc runs on ccy's lib.
 - import_playbook: imports/play-claude-yolo.yml
+# ccc, Claude Code in rootless podman in ~/CCC, for every install (a consumer gets no ccy).
+- import_playbook: imports/play-claude-code-consumer.yml
 - import_playbook: imports/play-comms.yml
 - import_playbook: imports/play-gnome-shell.yml
 - import_playbook: imports/play-gnome-shell-extensions.yml
