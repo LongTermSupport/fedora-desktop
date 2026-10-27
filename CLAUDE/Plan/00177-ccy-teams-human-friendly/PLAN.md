@@ -1,6 +1,6 @@
 # Plan 00177: ccy-teams, human friendly
 
-**Status**: In Progress (host run 26-10-26: 6.4, 10.4 and 10.5 passed; 7.5 and 9.5 still open; Phase 11 passed on the host; Phase 12's host check 12.4 found the drain after Esc not working: Task 12.5)
+**Status**: In Progress (host run 26-10-26: 6.4, 10.4 and 10.5 passed; 7.5 and 9.5 still open; Phase 11 passed on the host; Phase 12 passed on the host, 12.5's fix included, on 27-10-26; left: 12.6, a flaky test)
 **Created**: 2026-10-13
 **Owner**: joseph
 **Priority**: High
@@ -284,7 +284,7 @@ are Phase 12. [Full text](DONE-phases.md#phase-11-findings-of-the-host-run-of-26
   Drain is shared by a command's gum and fzf. Tests: ui fakes, ops and sessions flows, and a
   real pty in `ttyecho_test.go`.
 
-- [ ] ⬜ **Task 12.4**: Host check, after meta-deploy (`play-claude-yolo.yml`, which builds
+- [x] ✅ **Task 12.4**: Host check, after meta-deploy (`play-claude-yolo.yml`, which builds
   ccy-teams, ccy-sessions and CCY 3.100.30 with its image, container 2.79.12; then
   `play-agent-bus.yml`, which rebuilds the host's `agent-bus.pyz` with the new `admin.py`). On
   throwaway teams only, as Task 11.2:
@@ -301,7 +301,7 @@ are Phase 12. [Full text](DONE-phases.md#phase-11-findings-of-the-host-run-of-26
   board keeps type-ahead). 3's first half FAILS 8 of 8: a Down sent 1 to 40 ms after Esc still
   moved step 2 off "Leave it running", while a plain No left it there. Task 12.5.
 
-- [ ] ⬜ **Task 12.5**: Task 12.3's drain does not work on the host: in `ccy-teams remove`, Esc on
+- [x] ✅ **Task 12.5**: Task 12.3's drain does not work on the host: in `ccy-teams remove`, Esc on
   "Back <team> up first?" then a Down sent as a separate write 1 to 40 ms later still reaches
   step 2. Reproduce in a pty test with the real gum (Esc, a pause, then Down as its own write),
   find why 12.3's pty test passed while the host failed and fix the test so it models the host,
@@ -319,7 +319,10 @@ are Phase 12. [Full text](DONE-phases.md#phase-11-findings-of-the-host-run-of-26
   the 150 ms and before gum draws (its own start, about 40 ms) still reaches it.
   Host, after meta-deploy (`play-claude-yolo.yml`), on a throwaway team: `ccy-teams remove <team>`, Esc on "Back <team> up first?", then Down as a separate send-keys 1, 5, 10, 20 and 40
   ms later: step 2's cursor stays on "Leave it running" every time. The board after a plain
-  answer still takes a key typed while it loads.
+  answer still takes a key typed while it loads. Host, 27-10-26 at f9073ce05: PASS, 16 of 16
+  stayed on "Leave it running" (was 0 of 8); a Down after step 2 draws still moves it (the
+  check is not vacuous); a 300 ms gap carries, as expected past the 150 ms wait; the board keeps
+  type-ahead, 5 of 5.
 
 - [ ] ⬜ **Task 12.6**: Task 12.5's real-gum test is flaky:
   `internal/ui` `TestOnTheRealGumADownSentJustAfterEscDoesNotReachTheNextQuestion/1ms` failed in

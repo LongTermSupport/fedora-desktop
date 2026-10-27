@@ -190,7 +190,7 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   note still promised a renewal on every thaw, is SPEC-freeze bug 29: the note says "where
   NetworkManager runs inside", pinned on the 12 lxc scenarios that print it.
 
-- [ ] 🔄 **Task 3.6**: `run.bash --changed` did not count `play-podfreeze.yml` and
+- [x] ✅ **Task 3.6**: `run.bash --changed` did not count `play-podfreeze.yml` and
   `play-lxcfreeze.yml` stale after their Go (`internal/ui`) changed: the staleness misses Go
   dependencies (Plan 00214's area). They were queued by name instead. Fixed on
   `fix/00192-changed-go-deps`: no Go-building play had any of src-go as an input, because
@@ -202,7 +202,10 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   commands, 12 plays). Defence Before Fix rule `play-input-dropped`
   ([QA.md](../../QA.md#play-input-dropped)): 15 findings red, 0 green. Host check: the queued
   `changed-plays` entry lists the Go-building plays whose packages changed since they last ran.
-  Report `subagent-reports/261026-task-3-6.md`.
+  Report `subagent-reports/261026-task-3-6.md`. Host, 27-10-26 at f9073ce05: `changed-plays`
+  ran 49 of 49 (most for Plan 00228's play edits), every Go-building play among them, and
+  lxcfreeze, which the stale list before the run (play files only) did not name; afterwards
+  nothing is stale. Its reasons never name a src-go package: Task 3.8.
 
 - [ ] ⬜ **Task 3.7**: Inputs the play text cannot show, found by Task 3.6's independent search
   and outside `play-input-dropped`: `helpers/github_scopes/cli.py` reads
@@ -211,6 +214,11 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   outside its package); `environment/localhost/group_vars/desktop.yml` is an input of no play
   (owner decision: count it for every play, or not); `scripts/qa-toolchain.bash`, run by
   `play-python.yml` as a check, reads `src-go/qa/` and `src-go/go.mod`, which are not inputs.
+
+- [ ] ⬜ **Task 3.8**: `run.bash --changed` gives a play made stale by Go packages alone no
+  reason a person can read: its reasons list names play files and `play-golang.yml`, never the
+  src-go package path (host, 27-10-26). Name the changed package(s), or the command they build,
+  in the reason, test first.
 
 ### Phase 4: Review
 

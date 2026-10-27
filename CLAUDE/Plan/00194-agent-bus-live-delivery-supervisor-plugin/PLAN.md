@@ -2,11 +2,10 @@
 
 **Status**: In Progress. Tasks 2.1, 2.1b and 2.2 wait on an upstream release, hooks-daemon
 #119 (plugin API 1.1), and are then specified on agent-bus v2 (Plan 00209 D4); nobody here
-can unblock them. Left for the host agent: the host run of
-[delivery-acceptance.bash](delivery-acceptance.bash) (queued in meta-deploy; Tasks 2.0c H1-H6,
-2.0d and 2.0f, with the scripted test human [bus_human.py](bus_human.py) posting in place of
-Element), then H7 and success criterion step 5 by hand. Nothing waits on the owner but H7's
-launch decision: Task 1.2 is superseded.
+can unblock them. [delivery-acceptance.bash](delivery-acceptance.bash) passed on the host
+on 27-10-26 (H1-H6, 2.0d, 2.0f, E16, C1). Left: H7, which waits on the owner's launch decision
+(no launch omits `crossSessionInbound: accept`), and success criterion step 5 by hand. Task 1.2
+is superseded.
 **Created**: 2026-10-14
 **Owner**: joseph
 **Priority**: High
@@ -97,7 +96,7 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   Integrated with Task 2.0 on `feat/agent-bus-presence` (plugin 1.1.0, container 2.56). Host
   run for the image: `play-claude-yolo.yml` (meta-deploy note, queued by the coordinator at
   merge); the goodbye reaches ccy sessions only after the image rebuild.
-- [ ] 🔄 **Task 2.0c**: Inject the message itself through today's inbox socket (the owner's
+- [x] ✅ **Task 2.0c**: Inject the message itself through today's inbox socket (the owner's
   decision of 2026-10-15, journal 17:10), until Task 2.1 can replace it: a nonce-marked
   envelope with kind and sender from pingbus, the body as escaped data capped after escaping
   (the rest in `pingbus history`), a flood limit per agent sender, delivered once, a held
@@ -119,14 +118,17 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   runs stopped in set-up, on live-path faults `--fake` never ran. Every live leg was then
   audited against agent-bus and pingbus, and five faults are fixed (the peer is now a take of
   its own). `--fake` now rehearses the set-up's readers and each seat take:
-  [261026-live-path-audit.md](subagent-reports/261026-live-path-audit.md).
-- [ ] 🔄 **Task 2.0d**: The watcher survives a homeserver restart and is supervised
+  [261026-live-path-audit.md](subagent-reports/261026-live-path-audit.md). Host, 27-10-26 at
+  f9073ce05: H1, H6, H5, H4, H3, H2, E16 and C1 PASS; H7 COULD NOT ESTABLISH (the owner's launch
+  decision, above).
+- [x] ✅ **Task 2.0d**: The watcher survives a homeserver restart and is supervised
   (SPEC-inject E25, E26; Plan 00203's audit F1 and F2). Built test first on branch
   `fix/watcher-survives-homeserver-restart` (container 2.67, CCY 3.98.12); reviewed, merged
   into F44 (4cdd2d3b) and deployed by later `play-claude-yolo.yml` and `play-agent-bus.yml`
   runs. Left, for the host agent: the host run of `delivery-acceptance.bash` (meta-deploy;
   sudo at the run), whose check 2.0d restarts a throwaway team's homeserver under the idle
-  session, waits for the watcher's "syncs again" and posts as the test human.
+  session, waits for the watcher's "syncs again" and posts as the test human. Host, 27-10-26
+  at f9073ce05: PASS.
 - [ ] ❌ **Task 2.0e**: Folded into Plan 00209 Task 3.1 (the Go SessionEnd hook), built there
   once hooks-daemon #127 ships. (Was: A scheduled restart posts nothing (Fable's review of
   `fix/goodbye-ctrl-c`, 3b). Today a lifecycle restart (maximum age, or the relaunch after a
@@ -141,7 +143,7 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   upstream hooks-daemon change, filed as #127 (waits on its release); then the hook skips the goodbye for that session and records
   it as said (`seat.record_goodbye`), so the launcher's `seat disconnected` stays quiet
   too, test first. `docs/agent-bus.md` states today's behaviour until then.)
-- [ ] 🔄 **Task 2.0f**: A human message that reaches no agent is visible. The owner posted
+- [x] ✅ **Task 2.0f**: A human message that reaches no agent is visible. The owner posted
   `@room ...` in Element as plain text (no pill), so it had no `m.mentions.room`; every
   member's watcher ignored it as not addressed, which writes nothing, and the owner could not
   tell. Now a team human's message whose mentions name no agent of the team gets one
@@ -154,6 +156,7 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   (no `m.mentions.room`) as the test human and reads `ignored=` one higher in the session's
   `pingbus status`, with no delivery. Report:
   [261019-ignored-human-visible-opus.md](subagent-reports/261019-ignored-human-visible-opus.md).
+  Host, 27-10-26 at f9073ce05: PASS (a typed `@room` reaches no agent; `ignored=` counts it).
 - [ ] ❌ **Task 2.0g**: Folded into Plan 00209 Task 7.2 (6b); decided in its receive spec.
   (Was: Follow-up to 2.0f (Fable review finding 3): an addressed reply whose
   body is only the quote fallback is ignored as `empty` at the addressee, and every other
