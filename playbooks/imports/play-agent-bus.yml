@@ -104,7 +104,8 @@
           - agent_bus_only_teams is not defined or (agent_bus_only_teams is sequence and agent_bus_only_teams is not string
             and agent_bus_only_teams | difference(agent_bus_team_list | map(attribute='team')) | length == 0)
         fail_msg: >-
-          agent_bus_teams in environment/localhost/host_vars/localhost.yml must be a list
+          agent_bus_teams in
+          {{ agent_bus_host_vars_file | default('environment/localhost/host_vars/localhost.yml') }} must be a list
           of mappings, each with a unique team, a state of present (the default) or absent,
           and purge (true or false) only on an absent team; agent_bus_only_teams, when given,
           a list of declared team names. See localhost.yml.dist.
@@ -118,7 +119,8 @@
         fail_msg: >-
           agent_bus_lxc_bridge is set, but nothing reads it: the LXC bridge is always lxcbr0,
           read live by helpers/agent_bus/bridge.py. Remove it from
-          environment/localhost/host_vars/localhost.yml; admit another bridge's subnet
+          {{ agent_bus_host_vars_file | default('environment/localhost/host_vars/localhost.yml') }};
+          admit another bridge's subnet
           through a team's allow_from.
         quiet: true
       tags: [agent-bus]

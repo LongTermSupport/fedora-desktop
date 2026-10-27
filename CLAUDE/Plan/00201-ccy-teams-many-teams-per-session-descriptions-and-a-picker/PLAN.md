@@ -4,11 +4,11 @@
 passed on the host at F44 cab255ad4 (commit d2612e8d7), with Tasks 2.21 to 2.23's checker
 fixes. The relay task 2.8 is superseded; Tasks 2.11, 2.12, 2.15, 2.17 and 2.18 are carried by
 Plan 00209. The host agent ran ACCEPTANCE-owner.md on throwaway teams at F44 d247e4b2f
-(27-10-27): steps 01-07, 09, 10, 12 and 13 and Task 2.20 PASS. Task 2.29 (step 12's exit and seat
-state) is built, awaiting merge and the host check. Left for workers: the final qa-reviewer.
-Left for the host agent: steps 03, 10 and 13 again on
-[chooser-teams-up.bash](chooser-teams-up.bash)'s teams, after Task 2.28's fix is deployed,
-and Task 2.29's host check. Left for the owner: step 08's consent No/Yes (the record is outside the
+(27-10-27): steps 01-07, 09, 10, 12 and 13 and Task 2.20 PASS. Tasks 2.28 and 2.29 are merged
+into F44 (fe894347c), with the final qa-reviewer's findings fixed by Task 2.30; each waits on
+its host check. Left for the host agent, after `play-claude-yolo.yml` (queued in
+meta-deploy): steps 03, 10 and 13 again on
+[chooser-teams-up.bash](chooser-teams-up.bash)'s teams (Task 2.28), and Task 2.29's host check. Left for the owner: step 08's consent No/Yes (the record is outside the
 repository, which the host agent may not rename) and check 11 (a real password paste at the
 owner's screen).
 **Created**: 2026-10-15
@@ -237,7 +237,8 @@ a repository is no longer offered for a checkout of it. Report:
 
 - [x] ✅ **Task 2.23**: the container wait no longer counts an image build; Task 2.22's conversion recorded. [Full text](DONE-tasks.md).
 
-- [x] ✅ **Task 2.28**: `CCY_TEAMS_HOST_VARS` is honoured half-way: ccy-teams writes a team's
+- [ ] 🔄 **Task 2.28** (built and merged; waits on the host rerun of steps 03, 10 and 13,
+  its only proof that a real play reads the override): `CCY_TEAMS_HOST_VARS` is honoured half-way: ccy-teams writes a team's
   change into that file, but `runPlay` (`src-go/internal/teams/ops/ops.go`) runs
   `play-agent-bus.yml` with only `-e agent_bus_only_teams`, so the play reads the default
   host_vars and fails its assert, and the launch then says the team is "not applied" (host
@@ -275,12 +276,25 @@ a repository is no longer offered for a checkout of it. Report:
   rerun step 12 with an ended cc seat (exit 0, its "no session running" line, seats `free`), and
   Stop at lxc-add's "Update entry / Stop" (exit 0).
 
+- [x] ✅ **Task 2.30**: the final qa-reviewer's findings at fe894347c
+  (branch `fix/00201-final-review-findings`). Plan state and the meta-deploy description made
+  current; docs: shutdown's "no session running" result (`docs/agent-bus.md`), a No or Stop
+  exits 0 (`docs/agent-bus.md`, `docs/agent-bus-lxc-members.md`), `seat-checkouts`
+  (`docs/ccy.md`). Nits: an add to `seat-checkouts` drops a listed checkout no longer on the
+  disk (it already kept each checkout once); with `CCY_TEAMS_HOST_VARS` ccy-teams also hands the
+  plays `agent_bus_host_vars_file`, which their assert messages name. Report:
+  [subagent-reports/261027-final-review-fixes.md](subagent-reports/261027-final-review-fixes.md).
+
 ## Success Criteria
 
-- [ ] From a checkout no team covers, `ccy --teams` offers the teams with their descriptions,
-  and one choice later the session is on that team.
-- [ ] One session is on two teams, and both the launcher and `pingbus status` say so.
-- [ ] Every team listing shows the team's description.
+Proven by the host run of ACCEPTANCE-owner.md at F44 d247e4b2f (Task 2.7).
+
+- [x] From a checkout no team covers, `ccy --teams` offers the teams with their descriptions,
+  and one choice later the session is on that team (steps 01, 02 and 04).
+- [x] One session is on two teams, and both the launcher and `pingbus status` say so (steps 04
+  and 05).
+- [x] Every team listing shows the team's description (steps 01, 04, 05 and 07; D1-D3 of
+  `acceptance.bash`).
 
 ## Delivery & Milestones
 

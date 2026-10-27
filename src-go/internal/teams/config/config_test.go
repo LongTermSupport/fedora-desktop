@@ -3,12 +3,15 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 )
 
 // A play reads the inventory's host_vars itself, so a run with no override is given nothing and
 // runs as before; an override is given to every play as an extra-vars file, absolute (run.bash
-// starts the play in the checkout, not where ccy-teams was started).
+// starts the play in the checkout, not where ccy-teams was started), and named to the play as
+// agent_bus_host_vars_file, so its messages name the file it read.
 func TestPlayVarsNameTheOverrideOnly(t *testing.T) {
 	for _, hv := range []string{"", "/r/environment/localhost/host_vars/localhost.yml", "/r//environment/./localhost/host_vars/localhost.yml"} {
 		c := Load("/r", func(k string) string {
@@ -22,7 +25,8 @@ func TestPlayVarsNameTheOverrideOnly(t *testing.T) {
 	c := Load("/r", func(k string) string {
 		return map[string]string{"HOME": "/h", "CCY_TEAMS_HOST_VARS": "/run/hv.yml"}[k]
 	})
-	if got, err := c.PlayVars(); err != nil || len(got) != 2 || got[0] != "-e" || got[1] != "@/run/hv.yml" {
+	want := []string{"-e", "@/run/hv.yml", "-e", `{"agent_bus_host_vars_file":"/run/hv.yml"}`}
+	if got, err := c.PlayVars(); err != nil || !slices.Equal(got, want) {
 		t.Errorf("override: got %q, %v", got, err)
 	}
 	t.Chdir(t.TempDir())
@@ -30,8 +34,10 @@ func TestPlayVarsNameTheOverrideOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.HostVars = "hv.yml"
-	if got, err := c.PlayVars(); err != nil || len(got) != 2 || got[1] != "@"+filepath.Join(wd, "hv.yml") {
+	c.HostVars = `h"v.yml`
+	abs := filepath.Join(wd, `h"v.yml`)
+	want = []string{"-e", "@" + abs, "-e", `{"agent_bus_host_vars_file":"` + strings.ReplaceAll(abs, `"`, `\"`) + `"}`}
+	if got, err := c.PlayVars(); err != nil || !slices.Equal(got, want) {
 		t.Errorf("relative override: got %q, %v", got, err)
 	}
 }

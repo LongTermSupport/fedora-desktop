@@ -22,7 +22,11 @@ to teams what `ccy-sessions` is to ccy sessions. It has no team logic of its own
 shows and does comes from `agent-bus`, `agent-bus-install` and `ccy`, described below.
 It is a Go binary (`src-go/cmd/ccy-teams`), built from this checkout and installed by
 `play-claude-yolo.yml`, so a change to its source reaches the desktop on the next run of
-that play.
+that play. A No or a Stop you choose at one of its questions (create, lxc-add, remove,
+shutdown, restart, wind-down) changes nothing and exits 0, a choice and not a failure; Esc or
+Ctrl-C exits 130. A No at the end of a create started from `ccy --teams` goes back to its list
+of teams. The one exception is the `cc --teams` consent question: its No exits 1, so the
+launch does not start.
 
 1. **Create a team.** `ccy-teams create`, or `ccy-teams` on a machine with no team yet,
    asks a few questions. First, what the team works on: inside a checkout, **this
@@ -153,9 +157,10 @@ the team, then **Shut down every session of `<team>`**) lists the team's session
 and the members it cannot reach, asks (default No; `--yes` where there is no terminal), then
 types `/exit` into each session's tmux pane, as you would (Escape first if it is busy). A
 session still running after 60 s is stopped as ccy-sessions' End stops it; each seat must then
-be free. Each member is reported: exited cleanly, stopped, failed, or not shut down (an LXC
+be free. Each member is reported: exited cleanly, stopped, failed, not shut down (an LXC
 agent, a session on another machine, a `cc --teams <team>` session whose record lacks its seat:
-end those where they run). A session with unsent text in its input box, or whose screen cannot
+end those where they run), or "no session running, nothing to shut down" (a free seat whose
+session has ended already; it never fails the run). A session with unsent text in its input box, or whose screen cannot
 be read, is left alone. Local only: nothing goes on the bus. Spec: Plan 00201 `SPEC-shutdown.md`.
 
 **Restart a team's desktop sessions**, after a reboot or whenever. `ccy-teams restart <team>`

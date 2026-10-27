@@ -42,14 +42,34 @@ func TestNoFileIsNoCheckouts(t *testing.T) {
 
 func TestAddKeepsEachCheckoutOnceInTheOrderAdded(t *testing.T) {
 	l := listIn(t)
-	for _, dir := range []string{"/home/u/one", "/home/u/two", "/home/u/one", "/home/u/two/"} {
+	one, two := t.TempDir(), t.TempDir()
+	for _, dir := range []string{one, two, one, two + "/"} {
 		if err := l.Add(dir); err != nil {
 			t.Fatal(err)
 		}
 	}
 	got, err := l.Read()
-	if err != nil || !slices.Equal(got, []string{"/home/u/one", "/home/u/two"}) {
+	if err != nil || !slices.Equal(got, []string{one, two}) {
 		t.Fatalf("got %v, %v", got, err)
+	}
+	info, err := os.Stat(l.Path())
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("mode %v, %v", info, err)
+	}
+}
+
+func TestAddDropsCheckoutsThatNoLongerExist(t *testing.T) {
+	l := listIn(t)
+	kept := t.TempDir()
+	added := t.TempDir()
+	gone := filepath.Join(t.TempDir(), "gone")
+	writeList(t, l, gone+"\n"+kept+"\n"+gone+"\n")
+	if err := l.Add(added); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(l.Path())
+	if err != nil || string(data) != kept+"\n"+added+"\n" {
+		t.Fatalf("file %q, %v", data, err)
 	}
 	info, err := os.Stat(l.Path())
 	if err != nil || info.Mode().Perm() != 0o600 {

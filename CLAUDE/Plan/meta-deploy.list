@@ -39,5 +39,13 @@
 # changed. Every product names the texts its plan checkers read; no byte printed changes, so no
 # host check of its own (the next acceptance runs read the constants). Plan 00201 Task 2.27
 # adds one more such text (pingbus's "the team syncs again", container 2.79.15), picked up by
-# the same run.
+# the same run. The run is at CCY 3.100.33 / container 2.79.15. It also carries Plan 00201
+# Tasks 2.28 and 2.29: play-claude-yolo.yml rebuilds ccy-teams (the team plays read the
+# CCY_TEAMS_HOST_VARS file; a released seat reads free, an ended one is nothing to shut down,
+# a No or Stop exits 0) before the host agent reruns ACCEPTANCE-owner steps 03, 10, 12 and 13
+# and lxc-add's Stop. Plan 00177 Task 9.9 (a never-joined LXC member taken off through the
+# absent path) is in the same ccy-teams build. Plan 00201 Task 2.30 rides the same run:
+# ccy-teams names the CCY_TEAMS_HOST_VARS file to the team plays, and play-agent-bus.yml and
+# play-agent-bus-element.yml name it in their assert messages (text only, so each reruns as a
+# changed play with nothing else to do); its seat-checkouts list drops checkouts gone from disk.
 changed-plays

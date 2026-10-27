@@ -259,6 +259,13 @@ behind when the session is killed: a reboot, a power cut, Ctrl-X in `ccy-session
 removes it itself). So a record still present at boot means exactly "this was running when
 the machine went down", with no shutdown hook and no timing to get wrong.
 
+Beside the records, `~/.local/state/ccy/seat-checkouts` lists the checkouts that hold agent
+team seats, one path a line. A record names its checkout only while the session runs, so this
+list is how `ccy-teams` still finds a seat once its session has ended: the board shows it as
+free and `ccy-teams shutdown` says it has no session running. The launch block adds the
+checkout after every seat is taken, and every pass of the `ccy-teams` board adds the checkouts
+it sees with seats; an add drops a listed checkout that is no longer on the disk.
+
 **Restore is opt-in per machine, and off by default.** A laptop rebooted daily does not want
 four agents resuming at login. Declare it in `host_vars`:
 

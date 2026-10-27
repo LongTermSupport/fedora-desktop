@@ -3,7 +3,10 @@
 // original honour.
 package config
 
-import "path/filepath"
+import (
+	"encoding/json"
+	"path/filepath"
+)
 
 // inventoryHostVars is the host_vars file the plays load themselves, from the inventory
 // ansible.cfg names (environment/localhost), relative to the checkout.
@@ -14,6 +17,8 @@ const inventoryHostVars = "environment/localhost/host_vars/localhost.yml"
 // which the play loads itself; otherwise "-e @<HostVars>", made absolute (run.bash starts the
 // play in the checkout). An extra-vars file outranks the inventory, so each key it sets
 // replaces the inventory's, and a key it leaves out is still read from the inventory's file.
+// The file is also named to the play as agent_bus_host_vars_file, so a refusal names the file
+// the play read.
 func (c Config) PlayVars() ([]string, error) {
 	if filepath.Clean(c.HostVars) == filepath.Join(c.RootDir, inventoryHostVars) {
 		return nil, nil
@@ -22,7 +27,11 @@ func (c Config) PlayVars() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []string{"-e", "@" + file}, nil
+	named, err := json.Marshal(map[string]string{"agent_bus_host_vars_file": file})
+	if err != nil {
+		return nil, err
+	}
+	return []string{"-e", "@" + file, "-e", string(named)}, nil
 }
 
 // Config is where ccy-teams finds everything: the fedora-desktop checkout it was built from
