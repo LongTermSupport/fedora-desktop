@@ -6,8 +6,8 @@ fixes. The relay task 2.8 is superseded; Tasks 2.11, 2.12, 2.15, 2.17 and 2.18 a
 Plan 00209. The host agent ran ACCEPTANCE-owner.md on throwaway teams at F44 d247e4b2f
 (27-10-27): steps 01-07, 09, 10, 12 and 13 and Task 2.20 PASS. At F44 fe894347c the host
 agent passed steps 03, 10 and 13 on [chooser-teams-up.bash](chooser-teams-up.bash)'s teams
-(Task 2.28) and step 12 with lxc-add's Stop (Task 2.29). Task 2.31 (its follow-ups) waits on
-its host check after `play-claude-yolo.yml` (queued in meta-deploy). Left for the owner: step 08's consent No/Yes (the record is outside the
+(Task 2.28) and step 12 with lxc-add's Stop (Task 2.29). At F44 842d88ddd it passed Task 2.31's
+follow-ups. Left for the owner: step 08's consent No/Yes (the record is outside the
 repository, which the host agent may not rename) and check 11 (a real password paste at the
 owner's screen).
 **Created**: 2026-10-15
@@ -193,7 +193,7 @@ a repository is no longer offered for a checkout of it. Report:
   rule narrower than its hazard, with what it misses listed in GoProjectRules.md, is this
   project's established pattern (every rule there has its "Not caught"), so the branch merges
   with the misses recorded; it merged into F44 at dda4735c9 (DBF CONFORMS, Opus MERGE). In declare.py a team not declared present is 78 (`ccy-teams apply`
-  and `lxc-add` of an absent team keep their own 64, `ops.go:160`, `adder.go:341`: a command-line
+  and `lxc-add` of an absent team keep their own 64, `ops.go:160`, `adder.go:349`: a command-line
   argument, never asked again), `set` gives 78 only when the refusing rule reads no key the
   change sets (a table of the keys `exclude`, `humans` and `org` read), `add-repo` of a
   repository the team trusts already is UNCHANGED, `lxc-add --update` refuses to lose a comment,
@@ -293,8 +293,13 @@ a repository is no longer offered for a checkout of it. Report:
   plays `agent_bus_host_vars_file`, which their assert messages name. Report:
   [subagent-reports/261027-final-review-fixes.md](subagent-reports/261027-final-review-fixes.md).
 
-- [ ] 🔄 **Task 2.31**: the host run at fe894347c's follow-ups (branch `fix/00201-host-run-fe89`,
-  CCY 3.100.34). Tests first, each red before its fix.
+- [x] ✅ **Task 2.31**: the host run at fe894347c's follow-ups (branch `fix/00201-host-run-fe89`,
+  CCY 3.100.34). Tests first, each red before its fix. Host check PASS at F44 842d88ddd: step 12
+  with `sleep 1800` in the background of one session, "2 exited cleanly, 0 stopped, 0 failed";
+  the question drawn as "Background work is running", "❯ 1. Exit and stop tasks", "2. Stay", so
+  the arrow is U+276F as inferred; chooser-teams-up then Add for A ran one play, both
+  `ActiveEnterTimestamp`s unchanged; KIND `host`, "Discard" ranks Discard changes first, and the
+  launch block in ccy's tmux session shows both descriptions.
 
   1. Fixture: chooser-teams-up installed each team with its declared `allow_from` only, so the
      first play on a team added the LXC bridge's subnet and restarted its homeserver. The
@@ -306,11 +311,9 @@ a repository is no longer offered for a checkout of it. Report:
      "Exit and stop tasks", "Move to background and exit" when offered, "Stay"). Shutdown now
      presses Enter while the cursor is on "Exit and stop tasks", once, and waits again
      (`screen.AtBackgroundWorkExit`, SPEC-shutdown SD10a); with the cursor elsewhere it stops
-     the session as before, naming the question as the cause. **Open, host check**: the cursor
-     arrow on the focused option (`❯`, as Claude Code's other selection dialogs draw it) is
-     inferred from them, not seen on this dialog: rerun step 12 with a background task in one
-     session (`sleep 600 &` run by the agent) and read "exited cleanly"; a `stopped` line naming
-     the question means the arrow is drawn otherwise.
+     the session as before, naming the question as the cause. The cursor arrow on the focused
+     option was inferred as `❯` from Claude Code's other selection dialogs; the host run at
+     842d88ddd saw it on this one (bytes E2 9D AF, U+276F).
   4. `CCY_TEAMS_HOST_VARS` was lost at ccy's move into tmux: the launch inside the session runs
      `ccy-teams describe-seats --block`, which reads team descriptions from the host_vars, so a
      harness's teams lost theirs in the launch block. `lib/tmux-session.bash` carries it on the
