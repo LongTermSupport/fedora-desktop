@@ -178,30 +178,32 @@ stt_language: en  # Default
 
 **Model comparison:**
 
-The authoritative list is `_whisperModels` in
-`extensions/speech-to-text@fedora-desktop/extension.js` — this table is generated from it.
+The models and notes are `_whisperModels` in
+`extensions/speech-to-text@fedora-desktop/extension.js`; the download sizes are
+`SIZE_MB` in `wsi-resolve-model`, the figures the model manager shows (a test checks
+these tables against it).
 **Multilingual:**
 
 | Model            | Size   | Notes                      |
 | ---------------- | ------ | -------------------------- |
 | `auto`           | varies | See the table above        |
-| `tiny`           | ~75MB  | Fastest, basic accuracy    |
-| `base`           | ~142MB | Fast, good accuracy        |
-| `small`          | ~466MB | Balanced — **default**     |
-| `medium`         | ~1.5GB | Slow, great accuracy       |
-| `large-v2`       | ~3GB   | Very high accuracy         |
-| `large-v3`       | ~3GB   | Best quality               |
-| `large-v3-turbo` | ~1.6GB | Distilled, fast + accurate |
+| `tiny`           | 75 MB  | Fastest, basic accuracy    |
+| `base`           | 142 MB | Fast, good accuracy        |
+| `small`          | 464 MB | Balanced speed/accuracy    |
+| `medium`         | 1.4 GB | Slow, great accuracy       |
+| `large-v2`       | 2.9 GB | Very high accuracy         |
+| `large-v3`       | 2.9 GB | Best quality               |
+| `large-v3-turbo` | 1.5 GB | Distilled, fast + accurate |
 
-**English-only** (smaller and faster, no multilingual capability):
+**English-only** (no multilingual capability):
 
 | Model               | Size   | Notes                                         |
 | ------------------- | ------ | --------------------------------------------- |
-| `tiny.en`           | ~41MB  | Fastest, English only                         |
-| `base.en`           | ~77MB  | Fast, good accuracy, English only             |
-| `small.en`          | ~252MB | Balanced, English only                        |
-| `medium.en`         | ~789MB | Great accuracy, English only                  |
-| `distil-large-v3.5` | ~1.5GB | Fewer errors than Turbo, faster, English only |
+| `tiny.en`           | 75 MB  | Fastest, English only                         |
+| `base.en`           | 141 MB | Fast, good accuracy, English only             |
+| `small.en`          | 464 MB | Balanced, English only                        |
+| `medium.en`         | 1.4 GB | Great accuracy, English only                  |
+| `distil-large-v3.5` | 1.4 GB | Fewer errors than Turbo, faster, English only |
 
 A model change applies from the next recording; in Server mode, from the next server
 start. Models are cached in `~/.cache/huggingface/hub/` and shared between batch and streaming modes.
