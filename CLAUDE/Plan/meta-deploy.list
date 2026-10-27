@@ -32,3 +32,10 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Plan 00201 Task 2.24: the plays whose inputs it changed run again. play-claude-yolo.yml
+# rebuilds the ccy image (container 2.79.14: the pingbus zipapp from helpers/pingbus and
+# helpers/agent_bus) and ccy-teams; the team plays reinstall agent-bus, whose software digest
+# changed. Every product names the texts its plan checkers read; no byte printed changes, so no
+# host check of its own (the next acceptance runs read the constants).
+changed-plays

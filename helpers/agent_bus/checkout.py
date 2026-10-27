@@ -69,6 +69,10 @@ TRANSITIONAL = frozenset({"activating", "deactivating", "reloading", "refreshing
 START_WAIT_SECONDS = 180
 START_POLL_SECONDS = 2
 START_SAY_EVERY_SECONDS = 20
+#: What the wait says of the homeserver unit while it starts and once it is up, which Plan
+#: 00203's robustness acceptance looks for.
+STARTING_TEXT = "is starting"
+UP_AFTER_TEXT = "is up after"
 
 CCY_DIR = pathlib.PurePosixPath(".claude/ccy")
 ENV_LOCAL = CCY_DIR / "ccy.env.local"
@@ -684,13 +688,13 @@ def _wait_while_starting(team: str, system: System) -> str:
                 f"see why with: journalctl -u {unit} -n 40 --no-pager"
             )
         if said is None or waited - said >= START_SAY_EVERY_SECONDS:
-            system.progress(f"{unit} is starting ({state}); waiting up to {START_WAIT_SECONDS} s "
+            system.progress(f"{unit} {STARTING_TEXT} ({state}); waiting up to {START_WAIT_SECONDS} s "
                             f"({int(waited)} s so far)")
             said = waited
         system.sleep(START_POLL_SECONDS)
         state = system.team_state(team)
     if state == ACTIVE:
-        system.progress(f"{unit} is up after {int(system.monotonic() - started)} s")
+        system.progress(f"{unit} {UP_AFTER_TEXT} {int(system.monotonic() - started)} s")
     return state
 
 
