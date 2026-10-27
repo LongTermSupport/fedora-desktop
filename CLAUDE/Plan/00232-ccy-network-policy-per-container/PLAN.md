@@ -1,6 +1,6 @@
 # Plan 00232: ccy network policy per container
 
-**Status**: In Progress (design accepted, Q1 to Q4 decided; host triage pending before the build)
+**Status**: In Progress (design accepted, Q1 to Q4 decided; the first host triage run found the candidate table refused by nft, now fixed; the rerun is queued and the build waits on it)
 **Created**: 2026-10-27
 **Owner**: joseph
 **Priority**: Medium
@@ -49,37 +49,54 @@ asks for declared read-only paths. Plan 00161 built the agent bus.
 
 ### Facts
 
-| #   | Fact                                                                                                                                                                                                               | Source                                                                                                         |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
-| F1  | With Podman and no network chosen, ccy sets `--network podman`, the shared rootless bridge                                                                                                                         | `claude-yolo:3336-3341`; Plan 00080 F1                                                                         |
-| F2  | `--no-network` leaves the flag empty, so the session gets pasta                                                                                                                                                    | `claude-yolo:2661-2664`; Plan 00080 F2b                                                                        |
-| F3  | `ccy --connect` runs `podman network connect` on a running session and records the network for later launches                                                                                                      | `claude-yolo:1166-1170`; Plan 00080 F31                                                                        |
-| F4  | The launcher adds no capability and no `--privileged`; a live session's CapEff is podman's default set, without NET_ADMIN (bit 12) or SYS_ADMIN (bit 21)                                                           | `claude-yolo:3880-3920`; `/proc/self/status` in a live session                                                 |
-| F5  | A live session's nameservers are pasta's link-local forwarder, then the host's resolvers, one of them in a private range                                                                                           | `/etc/resolv.conf` in a live session                                                                           |
-| F6  | `host.containers.internal` is a link-local address inside the session                                                                                                                                              | `/etc/hosts` in a live session                                                                                 |
-| F7  | The host's `/etc/hosts` entries are copied into the session, here more than a dozen names on the LXC bridge (dev sites)                                                                                            | `/etc/hosts` in a live session                                                                                 |
-| F8  | The bus `base_url` is `http://<bus_ip>:<port>`, `<bus_ip>` on `agentbus0`, reached through pasta; the launcher reads it live; the installer refuses only loopback, link-local, multicast and unspecified addresses | Plan 00161 DESIGN.md section 3.3; `helpers/agent_bus/checkout.py:134-145,494-505`; `agent-bus-install:194-207` |
-| F9  | Every session without `--no-bus` carries the bus kit, and the owner can seat a running session later                                                                                                               | `lib/agent-bus-membership.bash:2-16`                                                                           |
-| F10 | pingbus calls `https://api.github.com`                                                                                                                                                                             | `helpers/pingbus/forge.py:47`                                                                                  |
-| F11 | Element is a host Flatpak; LXC, docker, VM and other-host members reach the homeserver themselves; a remote team's address would be in the seat bundle's `base_url`                                                | Plan 00161 DESIGN.md section 3.3; `helpers/agent_bus/admin.py:1046-1060`                                       |
-| F12 | The startup system prompt is passed only when the launch has no prompt and no arguments                                                                                                                            | `claude-yolo:3476-3534`                                                                                        |
-| F13 | `ccy.env` and `ccy.env.local` are sourced in the container only; `ccy.env.local` is bound read-only                                                                                                                | `entrypoint.sh` PROJECT-ENV block; `lib/common.bash:704-716`                                                   |
-| F14 | The container's mounts are the workspace, the config import, `CCY_EXTRA_MOUNTS`, `.claude/ccy/mounts`, `ccy.env.local` and the membership directory; `~/.claude-tokens/ccy/` is not among them                     | `claude-yolo:2519-2545`; `lib/agent-bus-membership.bash:67`                                                    |
-| F15 | A live session has no global IPv6 address, only link-local                                                                                                                                                         | `/proc/net/if_inet6` in a live session                                                                         |
-| F16 | The repo's scanners refuse a dotted private address in any tracked file, so the ranges are written short (`10/8`) and expanded in code                                                                             | `scripts/git-hooks/pre-commit:73-77`; the hooks daemon's `private-ipv4` pattern                                |
+| #   | Fact                                                                                                                                                                                                                                                              | Source                                                                                                         |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| F1  | With Podman and no network chosen, ccy sets `--network podman`, the shared rootless bridge                                                                                                                                                                        | `claude-yolo:3336-3341`; Plan 00080 F1                                                                         |
+| F2  | `--no-network` leaves the flag empty, so the session gets pasta                                                                                                                                                                                                   | `claude-yolo:2661-2664`; Plan 00080 F2b                                                                        |
+| F3  | `ccy --connect` runs `podman network connect` on a running session and records the network for later launches                                                                                                                                                     | `claude-yolo:1166-1170`; Plan 00080 F31                                                                        |
+| F4  | The launcher adds no capability and no `--privileged`; a live session's CapEff is podman's default set, without NET_ADMIN (bit 12) or SYS_ADMIN (bit 21)                                                                                                          | `claude-yolo:3880-3920`; `/proc/self/status` in a live session                                                 |
+| F5  | A live session's nameservers are pasta's link-local forwarder, then the host's resolvers, one of them in a private range                                                                                                                                          | `/etc/resolv.conf` in a live session                                                                           |
+| F6  | `host.containers.internal` is a link-local address inside the session                                                                                                                                                                                             | `/etc/hosts` in a live session                                                                                 |
+| F7  | The host's `/etc/hosts` entries are copied into the session, here more than a dozen names on the LXC bridge (dev sites)                                                                                                                                           | `/etc/hosts` in a live session                                                                                 |
+| F8  | The bus `base_url` is `http://<bus_ip>:<port>`, `<bus_ip>` on `agentbus0`, reached through pasta; the launcher reads it live; the installer refuses only loopback, link-local, multicast and unspecified addresses                                                | Plan 00161 DESIGN.md section 3.3; `helpers/agent_bus/checkout.py:134-145,494-505`; `agent-bus-install:194-207` |
+| F9  | Every session without `--no-bus` carries the bus kit, and the owner can seat a running session later                                                                                                                                                              | `lib/agent-bus-membership.bash:2-16`                                                                           |
+| F10 | pingbus calls `https://api.github.com`                                                                                                                                                                                                                            | `helpers/pingbus/forge.py:47`                                                                                  |
+| F11 | Element is a host Flatpak; LXC, docker, VM and other-host members reach the homeserver themselves; a remote team's address would be in the seat bundle's `base_url`                                                                                               | Plan 00161 DESIGN.md section 3.3; `helpers/agent_bus/admin.py:1046-1060`                                       |
+| F12 | The startup system prompt is passed only when the launch has no prompt and no arguments                                                                                                                                                                           | `claude-yolo:3476-3534`                                                                                        |
+| F13 | `ccy.env` and `ccy.env.local` are sourced in the container only; `ccy.env.local` is bound read-only                                                                                                                                                               | `entrypoint.sh` PROJECT-ENV block; `lib/common.bash:704-716`                                                   |
+| F14 | The container's mounts are the workspace, the config import, `CCY_EXTRA_MOUNTS`, `.claude/ccy/mounts`, `ccy.env.local` and the membership directory; `~/.claude-tokens/ccy/` is not among them                                                                    | `claude-yolo:2519-2545`; `lib/agent-bus-membership.bash:67`                                                    |
+| F15 | A live session has no global IPv6 address, only link-local                                                                                                                                                                                                        | `/proc/net/if_inet6` in a live session                                                                         |
+| F16 | The repo's scanners refuse a dotted private address in any tracked file, so the ranges are written short (`10/8`) and expanded in code                                                                                                                            | `scripts/git-hooks/pre-commit:73-77`; the hooks daemon's `private-ipv4` pattern                                |
+| F17 | The host has nft 1.1, nsenter and rootless podman 5.8 on netavark, with pasta for the rootless namespace (`--no-map-gw`, a link-local `--dns-forward`, `--map-guest-addr` for `host.containers.internal`)                                                         | triage P1, P7                                                                                                  |
+| F18 | Plain `nsenter` into a created, initialised, not started container's network namespace is refused (EPERM); `podman unshare nsenter -t <pid> -n nft list ruleset` works, and its nameservers are read on the host before start                                     | triage A2                                                                                                      |
+| F19 | Every live session: not privileged, no `--cap-add`, podman's 11 default capabilities (CapEff `0x800405fb`, bits 12 and 21 clear); the image has no nft, ip or iptables                                                                                            | triage P6, A4                                                                                                  |
+| F20 | On the `podman` bridge (10.88/16) a session's nameservers are pasta's link-local forwarder, the LAN router (192.168/16) and two public resolvers; on a DNS-enabled project network (10.89.N/24) the only one is that network's gateway                            | triage P6                                                                                                      |
+| F21 | nft refused the candidate table at every apply ("conflicting intervals specified"): the host's own addresses lie inside the private ranges, and the bus address came twice; `nft -f` is atomic, so no table existed                                               | triage A3 to A9                                                                                                |
+| F22 | So A3's verdicts, A4's "still in place", A5's apply, A6 and A9 all measured an unfiltered container; the probe harness reported the failed apply and carried on                                                                                                   | triage A3 to A9                                                                                                |
+| F23 | P9's three `FAIL nft parses` lines were the harness, not the ruleset: an unprivileged `nft --check` in the host's namespace cannot open its netlink cache (EPERM); the test also had no overlapping input                                                         | triage P9                                                                                                      |
+| F24 | Unfiltered, the host's outbound-interface address is refused at once from a session (pasta copies it into the rootless namespace, where it is local and netavark's published-port DNAT answers), on the bridge and on pasta                                       | triage A3 mode none, A7, A9                                                                                    |
+| F25 | Unfiltered, a session reaches the host through `host.containers.internal` (169.254/16), a peer session on the bridge, DNS, the forge, the Claude API and the bus                                                                                                  | triage A3 mode none                                                                                            |
+| F26 | Every other host address (the LXC bridge, docker bridges, VPN and WireGuard clients, `agentbus0`) is in a default range; its global IPv6 addresses are public, and a session has no global IPv6 (F15 again); the host routes further private subnets over its VPN | triage P4, A1, A8                                                                                              |
+| F27 | The seat bundles' `base_url` host is the `agentbus0` address (a /32 in 10/8), also their only `plain_http_hosts` entry; several teams are applied on the host, including LXC members                                                                              | triage P5                                                                                                      |
+| F28 | `podman start -ai` of a `--rm` container carries stdin and removes the container on exit; `podman network connect` succeeds on a running one                                                                                                                      | triage A5, A6                                                                                                  |
+| F29 | **A container can replace a read-only bound file**: the write is refused, but renaming the parent directory and writing a new file at the path both succeed, and the host then reads the container's file                                                         | triage A10                                                                                                     |
+| F30 | netavark's table lives in the shared rootless namespace (input, forward, NAT and isolation chains); no ccy table was there                                                                                                                                        | triage A7                                                                                                      |
 
 ### Hypotheses (each settled by a named triage probe)
 
-| #   | Hypothesis                                                                                                                                                    | Settled by |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| H1  | The host user can apply nft rules in a created, not yet started, container's namespace via `podman unshare nsenter`, without root, and plain `nsenter` cannot | A2         |
-| H2  | The container cannot lift them: no nft or ip change succeeds inside, and the table is intact afterwards                                                       | A4         |
-| H3  | One verdict fails in well under 2 s with a message distinct from "service down"                                                                               | A3         |
-| H4  | `podman create --rm`, `init`, apply, `start -ai` runs the process with the policy in place and removes the container                                          | A5         |
-| H5  | The table survives `podman network connect`, the new subnet is refused, and adding it from the host opens it                                                  | A6         |
-| H6  | The same works for a pasta container (`--no-network`)                                                                                                         | A9         |
-| H7  | DNS, the forge, the Claude API and the bus homeserver still answer under each candidate                                                                       | A3         |
-| H8  | A container can replace a read-only bound file by moving its parent aside (bears on where a policy may live)                                                  | A10        |
+The first host run settled H8 and half of H1 and H4; the rest wait on the rerun (Task 1.5),
+because no table was ever applied (F21, F22).
+
+| #   | Hypothesis                                                                                                                                                    | Settled by | After run 1                                                    |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | -------------------------------------------------------------- |
+| H1  | The host user can apply nft rules in a created, not yet started, container's namespace via `podman unshare nsenter`, without root, and plain `nsenter` cannot | A2         | entry and listing confirmed (F18); applying waits on the rerun |
+| H2  | The container cannot lift them: no nft or ip change succeeds with the container's own capabilities, and the table is intact afterwards                        | A4         | open: the lift attempts found no nft or ip in the image (F19)  |
+| H3  | One verdict fails in well under 2 s with a message distinct from "service down"                                                                               | A3         | open (F22)                                                     |
+| H4  | `podman create --rm`, `init`, apply, `start -ai` runs the process with the policy in place, carries its exit status and removes the container                 | A5         | `--rm` and stdin confirmed (F28); apply and exit status open   |
+| H5  | The table survives `podman network connect`, the new subnet is refused, and adding it from the host opens it                                                  | A6         | open (F22)                                                     |
+| H6  | The same works for a pasta container (`--no-network`)                                                                                                         | A9         | open (F22)                                                     |
+| H7  | DNS, the forge, the Claude API and the bus homeserver still answer under each candidate                                                                       | A3         | they answer unfiltered (F25); under a policy open              |
+| H8  | A container can replace a read-only bound file by moving its parent aside (bears on where a policy may live)                                                  | A10        | **confirmed** (F29)                                            |
 
 ## Tasks
 
@@ -92,8 +109,19 @@ asks for declared read-only paths. Plan 00161 built the agent bus.
   `test-netpolicy-inc.bash`
 - [x] ✅ **Task 1.3**: The gate, red first: `acceptance-policy.bash` with `acceptance-checks.bash`
   (caps, held, blocked with a control, allowed, context, and a pingbus message each way)
-- [ ] ⬜ **Task 1.4**: HOST: run `triage.bash --active` (through meta-deploy); turn H1 to H8 into
-  facts; settle the PENDING TRIAGE points of DESIGN.md
+- [x] ✅ **Task 1.4**: HOST: the first `triage.bash --active` run, read into facts F17 to F30.
+  It settled H8 and the passive facts (P5, P6), and found the candidate table refused by nft
+  (F21), so no enforcement probe measured a policy (F22). Fixed in the plan scripts:
+  - the sets take `auto-merge`, and the unit tests feed the host's shape (an address inside a
+    range, the bus address twice) to `nft --check`, which now runs in a throwaway user and
+    network namespace (F23)
+  - a failed apply stops the run (`must`), instead of the probes after it reading as filtered
+  - A4 runs the host's nft and ip in the container's namespace with only the container's own
+    capabilities (`setpriv` bounding set), with a control that adds `net_admin`
+  - the host targets are `host.containers.internal` and an address off the outbound interface
+    (F24), in the triage and in the gate; A5 also checks exit status 75; `nc -v`
+- [ ] ⬜ **Task 1.5**: HOST: rerun `triage.bash --active` (queued in `meta-deploy.list`); settle
+  H1 to H7 and the PENDING TRIAGE points left in DESIGN.md (sections 3 and 6)
 
 ### Phase 2: Decision gate
 
@@ -107,15 +135,26 @@ asks for declared read-only paths. Plan 00161 built the agent bus.
   - **Q3**: under Docker, run unprotected with a printed warning; the context says no policy
   - **Q4**: Plan 00080 closed as superseded by this plan (moved to `Completed/`)
 
-### Phase 3: Build (after Task 1.4: the build waits for the host triage results)
+### Phase 3: Build (after Task 1.5: the build waits for the rerun's results)
 
-- [ ] ⬜ **Task 3.1**: The Go policy package and `ccylaunch` subcommand, test first, including the
-  `lxc` and `off` keywords and the Docker warning path
-- [ ] ⬜ **Task 3.2**: The launcher's create, init, apply, start sequence; the capability guard;
-  `ccy --connect`, `--disconnect` and `ccy-teams` widen and narrow the live table; the
-  `CCY NETWORK POLICY` context and `/run/ccy/network-policy`; nft declared in
-  `play-claude-yolo.yml`; `CCY_VERSION` bump, changelog, `docs/ccy.md`
-- [ ] ⬜ **Task 3.3**: `deploy.bash` (the play, then two throwaway seated headless sessions);
+DESIGN.md section 7 is the shape. In order, each test first:
+
+- [ ] ⬜ **Task 3.1**: The Go policy package (pure): parse the host file and
+  `CCY_NETWORK_ALLOW` (addresses, prefixes, names with `:port`, the `lxc` and `off`
+  keywords); the default ranges from octets; the derived allows (nameservers from a
+  `resolv.conf`, the `agentbus0` address, seat-bundle `base_url` hosts, joined network
+  subnets, the `lxc` addresses from the host's hosts file inside `lxcbr0`'s prefix);
+  normalisation (dedupe, drop an entry another covers); the table, with the verdict A3 chose
+- [ ] ⬜ **Task 3.2**: The `ccylaunch` subcommand: apply through an injected runner
+  (`podman unshare nsenter -t <pid> -n nft -f -`), verify by reading the table back, and
+  replace the allow set whole in one transaction for widen and narrow; the context text;
+  tested through fakes
+- [ ] ⬜ **Task 3.3**: The launcher: create, init, apply, verify, start (fail closed); the
+  capability guard; the `CCY NETWORK POLICY` block for every session and
+  `/run/ccy/network-policy`; the Docker warning path; `ccy --connect`, `--disconnect` and
+  `ccy-teams` widen and narrow the live table; nft declared in `play-claude-yolo.yml`;
+  `CCY_VERSION` bump, changelog, `docs/ccy.md`
+- [ ] ⬜ **Task 3.4**: `deploy.bash` (the play, then two throwaway seated headless sessions);
   rename the gate to `acceptance.bash`; QA; `qa-reviewer`
 
 ## Dependencies
@@ -126,7 +165,7 @@ asks for declared read-only paths. Plan 00161 built the agent bus.
 
 ## Success Criteria
 
-- [ ] H1 to H8 settled by a host triage run
+- [ ] H1 to H8 settled by a host triage run (H8 settled by run 1; H1 to H7 by the rerun)
 - [x] Design reviewed; Q1 to Q4 answered
 - [ ] `acceptance-policy.bash` passes on two sessions under the default policy, including the
   pingbus message each way
@@ -148,4 +187,5 @@ asks for declared read-only paths. Plan 00161 built the agent bus.
      "when" — do not add dates). The blow-by-blow activity log lives in
      JOURNAL/00232-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
-- Research, triage, the red gate and the design written; host triage pending
+- Research, triage, the red gate and the design written
+- Host triage run 1 read (F17 to F30); the refused table fixed in the plan scripts; rerun queued
