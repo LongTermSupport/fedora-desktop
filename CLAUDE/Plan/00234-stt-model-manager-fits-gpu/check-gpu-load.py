@@ -118,9 +118,13 @@ def measure(name):
         return fail(f"{MODEL} is not downloaded; the download leg runs first")
     need = needs_mb()
     baseline = memory_used_mb()
-    # The child is this file, so the processes RealtimeSTT spawns re-import it safely
+    run_dir = os.environ.get("PLAN_RUN_DIR")
+    if not run_dir:
+        return fail("PLAN_RUN_DIR is not set: run this through gpu-load-acceptance.bash")
+    # The child is this file, so the processes RealtimeSTT spawns re-import it safely. It runs
+    # in the run's log directory, where RealtimeSTT writes its realtimesst.log, never the checkout.
     child = subprocess.Popen([sys.executable, __file__, "--child", name, model],
-                             env={**os.environ, "HF_HUB_OFFLINE": "1"})
+                             env={**os.environ, "HF_HUB_OFFLINE": "1"}, cwd=run_dir)
     peak = baseline
     sampling_error = []
 
