@@ -245,7 +245,7 @@ seed_work() {
     git init -q -b "$1" "$WORK"
     git_work remote add origin "$ORIGIN"
     mkdir -p "$WORK/helpers/self_update" "$WORK/helpers/play_lock" "$WORK/playbooks/imports" "$WORK/vars"
-    cp "$REPO_ROOT"/helpers/self_update/*.py "$REPO_ROOT/helpers/self_update/unattended-plays.json" \
+    cp "$REPO_ROOT"/helpers/self_update/*.py "$REPO_ROOT"/helpers/self_update/*.json \
         "$WORK/helpers/self_update/"
     cp "$REPO_ROOT/helpers/play_lock/lock.py" "$WORK/helpers/play_lock/"
     cp "$REPO_ROOT/.gitignore" "$WORK/"
