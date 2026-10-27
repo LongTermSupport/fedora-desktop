@@ -164,6 +164,14 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   ([subagent-reports/261026-review-fixes.md](subagent-reports/261026-review-fixes.md)); the
   audience gate also requires the guard to be the first task the play runs.
 - [x] ✅ **Task 2.4**: `RUN_BASH_VERSION` 1.33.0 and its changelog entry.
+- [x] ✅ **Task 2.6**: a failed optional play no longer ends the consumer run (owner report:
+  "it's not clear which of the optional ones were installed"). Every chosen play runs in menu
+  order; a failure is recorded and the next one runs; Ctrl-C, or a play ended by a signal,
+  stops at once. A summary on stderr always follows: per play installed, failed (exit status;
+  its output is the terminal's, not saved), stopped part way, or not run; then one
+  `run.bash <play>.yml` line per play to retry and the `--optional-only` menu. Exit 1 naming
+  how many failed, 128+n on a signal, 0 only when every chosen play passed (the setup marker
+  only then). The main playbook stays fail-fast. Red and green in `app_test.go`.
 
 ### Phase 3: VM lab acceptance
 
@@ -218,6 +226,13 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   would fail there, ungated. Open, the owner's decision: post-processing for consumers (a Claude
   login without ccy) or none. Either way the items fail clearly or are hidden on a consumer box,
   and the consumer VM scenario installs speech-to-text and checks plain dictation is set up.
+- [ ] ⬜ **Task 6.6**: The developer path's optional runs, as Task 2.6 did for the consumer:
+  headless `RUN_BASH_OPTIONAL_PLAYBOOKS` stops at the first failed play (`hl_abort` in
+  `hl_run_optional_playbooks`), so the plays after it never run and are not named; the
+  attended menu (`show_menu`, its A, W and B choices) goes on after a failure but prints no
+  summary of what installed; `--rerun` (`play_batch_run`) stops at the first failure by its
+  documented design, and mixes main and optional plays, so it is the owner's call whether
+  optional plays there should go on.
 
 ### Phase 5: Review
 

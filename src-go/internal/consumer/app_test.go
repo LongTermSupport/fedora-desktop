@@ -45,6 +45,7 @@ type world struct {
 	osRelease  string
 	userErr    error
 	signal     syscall.Signal
+	cancel     context.CancelCauseFunc
 	stdout     bytes.Buffer
 	stderr     bytes.Buffer
 }
@@ -101,6 +102,7 @@ func (w *world) run(args ...string) term.ExitCode {
 	}
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
+	w.cancel = cancel
 	if w.signal != 0 {
 		cancel(&execx.SignalError{Signal: w.signal})
 	}
@@ -252,18 +254,123 @@ func TestPicksRunInListOrderAfterABadAnswer(t *testing.T) {
 	w.wantErr("Choose numbers from 1 to 3")
 }
 
-func TestAFailedOptionalPlayStopsTheRest(t *testing.T) {
+// optionalLines is the ansible-playbook line of each optional play, by label.
+var optionalLines = map[string]string{
+	"Qobuz":       "ansible-playbook " + commonDir + "/play-qobuz.yml --ask-become-pass",
+	"Videography": "ansible-playbook " + commonDir + "/play-videography.yml --ask-become-pass",
+	"Nvidia":      "ansible-playbook " + hardwareDir + "/play-nvidia.yml --ask-become-pass",
+}
+
+func (w *world) wantOptionalRan(labels ...string) {
+	w.t.Helper()
+	var got []string
+	for _, line := range w.foregrounds() {
+		if strings.HasPrefix(line, "ansible-playbook playbooks/imports/optional/") {
+			got = append(got, line)
+		}
+	}
+	want := make([]string, 0, len(labels))
+	for _, l := range labels {
+		want = append(want, optionalLines[l])
+	}
+	if !slices.Equal(got, want) {
+		w.t.Fatalf("optional plays ran %q, want %q", got, want)
+	}
+}
+
+// retryLine is the command the summary gives to run one play again, in a test's checkout.
+func (w *world) retryLine(dir, file string) string {
+	return filepath.Join(w.root, "run.bash") + " " + dir + "/" + file
+}
+
+func TestAFailedOptionalPlayDoesNotStopTheRest(t *testing.T) {
 	w := newWorld(t)
 	w.fake.On([]string{"ansible-playbook", commonDir + "/play-qobuz.yml"}, execx.Result{ExitCode: 2})
-	w.answers = "1 2\n"
+	w.answers = "1 2 3\n"
 	w.wantCode(w.run(), term.ExitFailure)
-	if slices.Contains(w.foregrounds(), "ansible-playbook "+commonDir+"/play-videography.yml --ask-become-pass") {
-		t.Error("a play ran after one failed")
-	}
+	w.wantOptionalRan("Qobuz", "Videography", "Nvidia")
 	if exists(w.marker()) {
 		t.Error("the marker was written after a failure")
 	}
-	w.wantErr("Qobuz failed (exit 2)", issuesURL)
+	w.wantErr(
+		"✗ Qobuz: failed (exit 2); its output is above, in this terminal (it is not saved to a file)",
+		"✓ Videography: installed",
+		"✓ Nvidia (hardware): installed",
+		w.retryLine(commonDir, "play-qobuz.yml"),
+		"run.bash --optional-only",
+		issuesURL,
+		"1 of 3 optional apps failed",
+	)
+	if strings.Contains(w.stderr.String(), w.retryLine(commonDir, "play-videography.yml")) {
+		t.Error("a play that passed was offered for a retry")
+	}
+}
+
+func TestEveryFailedOptionalPlayIsCountedAndOfferedAgain(t *testing.T) {
+	w := newWorld(t)
+	w.fake.On([]string{"ansible-playbook", commonDir + "/play-qobuz.yml"}, execx.Result{ExitCode: 2})
+	w.fake.OnError([]string{"ansible-playbook", hardwareDir + "/play-nvidia.yml"}, errors.New("no such file"))
+	w.answers = "1 2 3\n"
+	w.wantCode(w.run(), term.ExitFailure)
+	w.wantOptionalRan("Qobuz", "Videography", "Nvidia")
+	w.wantErr(
+		"✗ Qobuz: failed (exit 2)",
+		"✗ Nvidia (hardware): could not run (",
+		"no such file",
+		w.retryLine(commonDir, "play-qobuz.yml"),
+		w.retryLine(hardwareDir, "play-nvidia.yml"),
+		"2 of 3 optional apps failed",
+	)
+}
+
+func TestEveryOptionalPlayPassingIsSummedUp(t *testing.T) {
+	w := newWorld(t)
+	w.answers = "1 3\n"
+	w.wantCode(w.run(), term.ExitOK)
+	w.wantOptionalRan("Qobuz", "Nvidia")
+	w.wantErr("✓ Qobuz: installed", "✓ Nvidia (hardware): installed", "reboot")
+	if strings.Contains(w.stderr.String(), "Videography") && strings.Contains(w.stderr.String(), "not run") {
+		t.Error("a play not chosen is in the summary")
+	}
+	if strings.Contains(w.stderr.String(), "failed") || !exists(w.marker()) {
+		t.Errorf("a clean run was not reported clean:\n%s", w.stderr.String())
+	}
+}
+
+func TestACtrlCDuringAnOptionalPlayStopsAtOnce(t *testing.T) {
+	w := newWorld(t)
+	w.fake.OnFunc([]string{"ansible-playbook", commonDir + "/play-qobuz.yml"}, func(execx.Cmd) (execx.Result, error) {
+		w.cancel(&execx.SignalError{Signal: syscall.SIGINT})
+		return execx.Result{ExitCode: 130}, nil
+	})
+	w.answers = "1 2 3\n"
+	w.wantCode(w.run(), term.ExitCode(130))
+	w.wantOptionalRan("Qobuz")
+	w.wantErr("✗ Qobuz: stopped part way (exit 130)", "- Videography: not run", "- Nvidia (hardware): not run",
+		w.retryLine(commonDir, "play-videography.yml"))
+	if exists(w.marker()) {
+		t.Error("the marker was written after a stop")
+	}
+}
+
+func TestAnOptionalPlayEndedBySignalStopsTheRest(t *testing.T) {
+	w := newWorld(t)
+	w.fake.On([]string{"ansible-playbook", commonDir + "/play-videography.yml"}, execx.Result{ExitCode: 143})
+	w.answers = "1 2 3\n"
+	w.wantCode(w.run(), term.ExitCode(143))
+	w.wantOptionalRan("Qobuz", "Videography")
+	w.wantErr("✓ Qobuz: installed", "✗ Videography: stopped part way (exit 143)", "- Nvidia (hardware): not run")
+}
+
+func TestRetryCommandAbbreviatesTheHome(t *testing.T) {
+	got := retryCommand("/home/u/Projects/fedora-desktop", "/home/u", commonDir+"/play-qobuz.yml")
+	if want := "~/Projects/fedora-desktop/run.bash " + commonDir + "/play-qobuz.yml"; got != want {
+		t.Errorf("retry %q, want %q", got, want)
+	}
+	got = retryCommand("/srv/a checkout", "/home/u", "--optional-only")
+	if want := "'/srv/a checkout/run.bash' --optional-only"; got != want {
+		t.Errorf("retry %q, want %q", got, want)
+	}
 }
 
 func TestAFailedMainPlayStopsBeforeTheMenu(t *testing.T) {

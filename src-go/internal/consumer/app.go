@@ -6,8 +6,10 @@
 // everyone (apps such as Qobuz, no programming tools) are offered as a numbered menu.
 //
 // Every program runs through execx, root through internal/sudo, and every question through
-// ui.Lines. Each step fails fast: the first failure ends the run with exit 1, a child ended by a
-// signal with its own 128+n.
+// ui.Lines. Each step up to the main playbook fails fast: the first failure ends the run with
+// exit 1, a child ended by a signal with its own 128+n. The optional plays chosen are
+// independent, so a failed one is recorded and the next runs; a summary of every chosen play
+// follows, and the run exits 1 if any failed.
 package consumer
 
 import (
@@ -30,6 +32,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fsx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/shellword"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
@@ -514,13 +517,32 @@ func (r *run) probeBecome(ctx context.Context) error {
 	return nil
 }
 
-func (r *run) play(ctx context.Context, path, what string) error {
+// playRun is one play's run in the terminal: its exit, an error starting it, and the signal
+// that ended this whole run while it ran (nil when none did).
+type playRun struct {
+	exit execx.Exit
+	err  error
+	stop *execx.SignalError
+}
+
+func (r *run) runPlay(ctx context.Context, path string) playRun {
 	exit, err := r.env.Foreground.Foreground(execx.Cmd{
 		Name: "ansible-playbook", Args: append([]string{path}, r.become...), Dir: r.root, Env: []string{r.path},
 	})
-	if se := stoppedBy(ctx); se != nil {
-		return se
+	pr := playRun{exit: exit, err: err}
+	if se, ok := errors.AsType[*execx.SignalError](context.Cause(ctx)); ok {
+		pr.stop = se
 	}
+	return pr
+}
+
+// play runs the main playbook, failing fast.
+func (r *run) play(ctx context.Context, path, what string) error {
+	pr := r.runPlay(ctx, path)
+	if pr.stop != nil {
+		return pr.stop
+	}
+	exit, err := pr.exit, pr.err
 	if err == nil && exit.Code == 0 {
 		r.ok(what + " done")
 		return nil
@@ -583,14 +605,124 @@ func (r *run) optional(ctx context.Context) error {
 	}
 	if len(picks) == 0 {
 		r.info("No optional app chosen; run ./run.bash --consumer --optional-only to add some later")
+		return nil
 	}
+	chosen := make([]play, 0, len(picks))
 	for _, i := range picks {
-		r.step(plays[i].label)
-		if err := r.play(ctx, plays[i].path, plays[i].label); err != nil {
-			return err
+		chosen = append(chosen, plays[i])
+	}
+	return r.runOptional(ctx, chosen)
+}
+
+// outcome is what became of one chosen optional play.
+type outcome int
+
+const (
+	notRun outcome = iota
+	installed
+	failed
+	stopped
+)
+
+type playResult struct {
+	play
+
+	outcome outcome
+	detail  string
+}
+
+// runOptional runs every chosen play in menu order. The plays are independent, so a failed one
+// is recorded and the next one runs; a signal (Ctrl-C), or a play ended by one, stops at once.
+// The summary is printed however the loop ends.
+func (r *run) runOptional(ctx context.Context, chosen []play) error {
+	results := make([]playResult, len(chosen))
+	var stop error
+	for i, p := range chosen {
+		res := &results[i]
+		res.play = p
+		if stop != nil {
+			continue
+		}
+		r.step(p.label)
+		pr := r.runPlay(ctx, p.path)
+		exit, err := pr.exit, pr.err
+		switch {
+		case pr.stop != nil:
+			code := exit.Code
+			if err != nil || code == 0 {
+				code = pr.stop.ExitCode()
+			}
+			res.outcome, res.detail, stop = stopped, fmt.Sprintf("stopped part way (exit %d)", code), pr.stop
+		case err != nil:
+			res.outcome, res.detail = failed, fmt.Sprintf("could not run (%v)", err)
+		case exit.Code == 0:
+			res.outcome = installed
+		case exit.Code > 128:
+			res.outcome, res.detail = stopped, fmt.Sprintf("stopped part way (exit %d)", exit.Code)
+			stop = &exitError{code: term.ExitCode(exit.Code)}
+		default:
+			res.outcome, res.detail = failed, fmt.Sprintf("failed (exit %d); its output is above, in this terminal (it is not saved to a file)", exit.Code)
+		}
+		if res.outcome == installed {
+			r.ok(p.label + " done")
+		} else {
+			r.bad(p.label + ": " + res.detail)
 		}
 	}
+	nFailed := r.summary(results)
+	if stop != nil {
+		return stop
+	}
+	if nFailed > 0 {
+		return r.failf("%d of %d optional apps failed", nFailed, len(results))
+	}
 	return nil
+}
+
+// summary prints one line per chosen play and how to retry the ones not installed; it returns
+// how many failed.
+func (r *run) summary(results []playResult) int {
+	r.step("Optional apps: what happened")
+	nFailed := 0
+	retry := make([]string, 0, len(results))
+	for _, res := range results {
+		switch res.outcome {
+		case installed:
+			r.ok(res.label + ": installed")
+			continue
+		case notRun:
+			r.mark("-", res.label+": not run")
+		case failed:
+			nFailed++
+			r.bad(res.label + ": " + res.detail)
+		case stopped:
+			r.bad(res.label + ": " + res.detail)
+		}
+		retry = append(retry, retryCommand(r.root, r.home, res.path))
+	}
+	if len(retry) == 0 {
+		return 0
+	}
+	r.plain("To try again only the apps that did not install, run these one at a time:")
+	for _, line := range retry {
+		r.plain("   " + line)
+	}
+	r.plain("or choose them again from the menu: " + retryCommand(r.root, r.home, "--optional-only"))
+	if nFailed > 0 {
+		r.plain("A play that fails again names the task that failed in its output; fix what it says, or report it at " + issuesURL)
+	}
+	return nFailed
+}
+
+// retryCommand is the checkout's run.bash with one argument, as a person would type it: the
+// home shown as ~ unless the path needs quoting.
+func retryCommand(root, home, arg string) string {
+	runBash := filepath.Join(root, "run.bash")
+	shown := shellword.Quote(runBash)
+	if shown == runBash {
+		shown = term.AbbrevHome(runBash, home)
+	}
+	return shown + " " + shellword.Quote(arg)
 }
 
 func (r *run) done() error {
