@@ -1,6 +1,6 @@
 # Plan 00177: ccy-teams, human friendly
 
-**Status**: In Progress (host run 26-10-26: 6.4, 10.4 and 10.5 passed; 7.5 and 9.5 still open; Phase 11 passed on the host; Phase 12 passed on the host, 12.5's fix included, on 27-10-26; left: 12.6, a flaky test)
+**Status**: In Progress (host run 26-10-26: 6.4, 10.4 and 10.5 passed; 7.5 and 9.5 still open; Phase 11 passed on the host; Phase 12 passed on the host, 12.5's fix included, on 27-10-26; 12.6, the flaky test, fixed in the test on 27-10-26)
 **Created**: 2026-10-13
 **Owner**: joseph
 **Priority**: High
@@ -324,13 +324,26 @@ are Phase 12. [Full text](DONE-phases.md#phase-11-findings-of-the-host-run-of-26
   check is not vacuous); a 300 ms gap carries, as expected past the 150 ms wait; the board keeps
   type-ahead, 5 of 5.
 
-- [ ] ⬜ **Task 12.6**: Task 12.5's real-gum test is flaky:
+- [x] ✅ **Task 12.6**: Task 12.5's real-gum test is flaky:
   `internal/ui` `TestOnTheRealGumADownSentJustAfterEscDoesNotReachTheNextQuestion/1ms` failed in
   one `qa-changed` run on 27-10-26 (a branch that does not touch `internal/ui`) and passed when
   run alone 3 times. A test whose verdict depends on machine load is a gate that cries wolf.
   Measure how often it fails under load (e.g. `-count` with parallel load), find whether the
   1 ms case races the settle or the test's own timing, and make the verdict deterministic
   without weakening what it proves.
+  Done: the test's own timing. Under load, 9 of 80 runs of the 1 ms case failed, every one with
+  "the screen never showed What happens to it?". When the Down is written before gum has read
+  the Esc, the two are read as one sequence, which gum takes as Alt+Down: the confirm does not
+  end (probe: Esc and Down in one write, the confirm never ends, 3 of 3). Fix, test only: the
+  gap now counts from the confirm's end (a runner that reports the confirm's Run returning),
+  so the Down always lands between the confirm and the next draw. A second defect, also in the
+  test and seen by the coordinator's qa-all under `-race`: on a failure, gumPty's cleanup
+  closed the pty while the gum goroutine still ran (a data race on the terminal's fd). The
+  cleanup now waits for that goroutine. Probe red, then green: race reported, then none.
+  After, with `-race` and under CPU load: 0 of 50 (1 ms) and 0 of 150 (all gaps) failed. Beside
+  a parallel `go test -race ./...`, 0 of 100 failed. Before, with `-race`: 2 of 50 failed, and
+  the race was reported. Still red without the settle (`Settle` nil), with `-race`: 10 of 10
+  runs, idle and loaded. No host run: only a test changed. Report: [subagent-reports/261027-task-12-6.md](subagent-reports/261027-task-12-6.md).
 
 - Fact-check of this phase:
   [subagent-reports/261026-fact-check-phase12.md](subagent-reports/261026-fact-check-phase12.md).
