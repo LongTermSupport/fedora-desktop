@@ -524,3 +524,12 @@ func TestALiveChangeThatFailsIsReportedAsRootsAndNamesTheMember(t *testing.T) {
 		t.Fatalf("stderr %q", g.ErrOut.String())
 	}
 }
+
+// TestSetToKeepsItsBytes: the role change's line, named for Plan 00203 M4's check (Plan 00201
+// Task 2.24), is the line it was before it was named.
+func TestSetToKeepsItsBytes(t *testing.T) {
+	if got, want := fmt.Sprintf(setTo, "h", "coordinator", " (it was a's coordinator)"),
+		"h set to coordinator (it was a's coordinator)"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

@@ -31,6 +31,15 @@ const exitConfig term.ExitCode = 78
 // stateNew is a seat the checkout does not have yet: its member is made when the launch starts.
 const stateNew = "new"
 
+// The launch block's head and seat line (S-C4); Plan 00201's m7_check reads them by name. The
+// seat line's first field is the team, padded to the longest team of the block.
+const (
+	blockHead     = "This session is on %d %s:"
+	blockNounOne  = "team"
+	blockNounMany = "teams"
+	blockLine     = "  %s  seat %s (%s)  %s"
+)
+
 // Words of the role question.
 const (
 	stopRole    = "Stop being coordinator"
@@ -172,18 +181,18 @@ func (c *Choose) blockIn(ctx context.Context, w io.Writer, checkout string, args
 		width = max(width, len(st.team))
 	}
 	d := &describer{c: c, checkout: checkout, rosters: map[string]rosterResult{}, about: c.descriptions(ctx)}
-	noun := "teams"
+	noun := blockNounMany
 	if len(seats) == 1 {
-		noun = "team"
+		noun = blockNounOne
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "This session is on %d %s:\n", len(seats), noun)
+	fmt.Fprintf(&b, blockHead+"\n", len(seats), noun)
 	for _, st := range seats {
 		about := d.about[st.team]
 		if about == "" {
 			about = "(no description)"
 		}
-		fmt.Fprintf(&b, "  %-*s  seat %s (%s)  %s\n", width, st.team, st.seat, d.roleWords(ctx, st.seat, st.team), about)
+		fmt.Fprintf(&b, blockLine+"\n", fmt.Sprintf("%-*s", width, st.team), st.seat, d.roleWords(ctx, st.seat, st.team), about)
 	}
 	// Security audit L1: a team human's request carries the owner's authority over the session.
 	which := "these teams"

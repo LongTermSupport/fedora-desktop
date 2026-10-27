@@ -454,7 +454,7 @@ func (x *Hot) resolve(ctx context.Context, r request) (*target, term.ExitCode, b
 		t.lock, err = takeLock(lockPath, holderOf(r))
 	}
 	if busy, ok := errors.AsType[*busyError](err); ok {
-		x.mark(markFailed, "session "+session+": another change to it is in progress: "+busy.holder)
+		x.step(markFailed, fmt.Sprintf(stepSessionNamed, session), fmt.Sprintf(sessionBusy, busy.holder))
 		return nil, exitBusy, false
 	}
 	if err != nil {
@@ -470,7 +470,7 @@ func (x *Hot) resolve(ctx context.Context, r request) (*target, term.ExitCode, b
 		x.letGo(t.lock)
 		return nil, exitConfig, false
 	}
-	x.mark(markDone, "session "+session+": running, can be hot-controlled")
+	x.step(markDone, fmt.Sprintf(stepSessionNamed, session), hotControlled)
 	return t, term.ExitOK, true
 }
 
@@ -496,12 +496,11 @@ func (x *Hot) locate(ctx context.Context, t *target) (term.ExitCode, bool) {
 // notOnBus says why a session whose own launch left the bus out cannot be changed, though a
 // membership is under its name: an earlier session's, left behind (Fable's M6 review B1).
 func (x *Hot) notOnBus(t *target) {
-	started, again := "with --no-bus", "relaunch it from ccy's tmux without --no-bus"
+	started, again := startedCcy, againCcy
 	if t.cc() {
-		started, again = "without --teams or --bus", "start it again with cc --bus or cc --teams"
+		started, again = startedCC, againCC
 	}
-	x.mark(markFailed, "session "+t.session+": it was started "+started+", so it is not on the agent team bus "+
-		"(the membership under its name is an earlier session's); "+again+" to change it while it runs")
+	x.step(markFailed, fmt.Sprintf(stepSessionNamed, t.session), fmt.Sprintf(notOnBusText, started, again))
 }
 
 // notKit says why a session with no readable membership cannot be changed while it runs.
@@ -581,20 +580,20 @@ func (x *Hot) writeRecord(t *target, seats []membership.Seat, note string) error
 		set = t.store.SetCCTeams
 	}
 	if err := set(t.session, list); err != nil {
-		x.mark(markFailed, "record: "+err.Error())
+		x.step(markFailed, stepRecord, err.Error())
 		return err
 	}
-	words := "--teams " + list
+	words := fmt.Sprintf(recordTeams, list)
 	switch {
 	case list == "" && t.cc():
-		words = "no --teams (cc keeps --bus)"
+		words = recordNoTeamsCC
 	case list == "":
-		words = "no --teams"
+		words = recordNoTeams
 	}
 	if note != "" {
-		words = note + " (" + words + ")"
+		words = fmt.Sprintf(withNote, note, words)
 	}
-	x.mark(markDone, "record: "+words)
+	x.step(markDone, stepRecord, words)
 	return nil
 }
 
@@ -605,25 +604,25 @@ func (x *Hot) writeDesired(t *target, seats []membership.Seat, farewell []member
 	d.Generation++
 	d.WrittenMS = x.Now().UnixMilli()
 	if err := membership.Write(t.dir, d); err != nil {
-		x.mark(markFailed, "membership: "+err.Error())
+		x.step(markFailed, stepMembership, err.Error())
 		return err
 	}
 	t.desired = d
-	words := fmt.Sprintf("generation %d written", d.Generation)
+	words := fmt.Sprintf(generationWritten, d.Generation)
 	if note != "" {
-		words += " (" + note + ")"
+		words = fmt.Sprintf(withNote, words, note)
 	}
-	x.mark(markDone, "membership: "+words)
+	x.step(markDone, stepMembership, words)
 	return nil
 }
 
 // dropDesired removes the desired file of a session that has ended (H28).
 func (x *Hot) dropDesired(t *target) error {
 	if err := membership.RemoveDesired(t.dir); err != nil {
-		x.mark(markFailed, "membership: "+err.Error())
+		x.step(markFailed, stepMembership, err.Error())
 		return err
 	}
-	x.mark(markDone, "membership: removed (the session is not running; its next launch writes it)")
+	x.step(markDone, stepMembership, membershipRemoved)
 	return nil
 }
 

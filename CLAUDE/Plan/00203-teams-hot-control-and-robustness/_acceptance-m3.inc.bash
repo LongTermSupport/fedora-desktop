@@ -114,6 +114,32 @@ m3_value() {
     printf -v "$1" '%s' "${text}"
 }
 
+#: ccy-teams' hot package, whose step lines and messages M3, M4 and M6 read from its named texts.
+readonly M3_TEXTS=src-go/internal/teams/hot/texts.go
+
+# m3_pattern <variable> <file> <name> [pattern...] — m7_check product-pattern: the named text of
+# this checkout's product as a grep -P pattern, each placeholder the pattern given, into the
+# variable (named anything but m3_pattern_text).
+m3_pattern() {
+    local m3_pattern_text
+    m3_pattern_text="$("${M3_CHECK[@]}" product-pattern "${@:2}")" || {
+        printf '[FAIL] m7_check product-pattern %s %s could not read the product (above)\n' "$2" "$3" >&2
+        return 1
+    }
+    printf -v "$1" '%s' "${m3_pattern_text}"
+}
+
+# m3_step <variable> <mark> <step-pattern> <words-pattern> — the pattern of a `ccy-teams session`
+# step line from its start: the mark, then texts.go's stepLine of the step and its words.
+m3_step() {
+    local m3_step_line
+    m3_pattern m3_step_line "${M3_TEXTS}" stepLine "$3" "$4" || return 1
+    printf -v "$1" '^\\Q%s\\E %s' "$2" "${m3_step_line}"
+}
+
+# m3_named <variable> <name> [pattern...] — m3_pattern of a texts.go text.
+m3_named() { m3_pattern "$1" "${M3_TEXTS}" "${@:2}"; }
+
 m3_read_names() {
     local seats sessions accepted_dir accepted_file joined left
     m3_lines 4 session-paths || return 1
@@ -295,7 +321,14 @@ m3_room_has() {
 # m3_add <name> — `session add`, exit 0, every step ✓ or -, and no relaunch; the seat chosen
 # the first time is named after that.
 m3_add() {
-    local status=0 err
+    local status=0 err session relaunches relaunched seat_step free seat_free
+    m3_named relaunches relaunchesOnce '\N*' '\N*' || return 1
+    m3_named session stepSession || return 1
+    m3_named relaunched relaunchedOnce '\N*' '\N*' || return 1
+    m3_step relaunched "${M3_MARK_DONE}" "${session}" "${relaunched}" || return 1
+    m3_named seat_step stepSeatNamed '\K[a-z0-9]+(?=' || return 1
+    m3_named free seatFree '\N*)' || return 1
+    m3_step seat_free "${M3_MARK_DONE}" "${seat_step}" "${free}" || return 1
     err="$(m3_ev "add-$1.err")"
     m3_teams session add "${M3_NAME}" "${M3_TEAM_B}${M3_SEAT:+/${M3_SEAT}}" --yes </dev/null 2>"${err}" || status=$?
     cat -- "${err}"
@@ -304,12 +337,12 @@ m3_add() {
         printf '[FAIL] a step failed in an add that exited 0\n' >&2
         return 1
     fi
-    if grep -q 'relaunches once\|relaunched once' "${err}"; then
+    if grep -qP -- "^${relaunches}\$|${relaunched}" "${err}"; then
         printf '[FAIL] a session launched on a team was relaunched\n' >&2
         return 1
     fi
     if [[ -z "${M3_SEAT}" ]]; then
-        M3_SEAT="$(grep -oP "^\\Q${M3_MARK_DONE}\\E seat \\K[a-z0-9]+(?=: free)" "${err}")" \
+        M3_SEAT="$(grep -oP -- "${seat_free}" "${err}")" \
             || { printf '[FAIL] the add named no seat\n' >&2; return 1; }
     fi
 }
@@ -364,8 +397,10 @@ print(tail.strip()); print(membership.FAREWELL_REASONS["removed"])' "${PLAN_REPO
 }
 
 m3_check_remove() {
-    local status=0 err out text goodbye reason
+    local status=0 err out text goodbye reason step rebaseline
     local -a words
+    m3_named step stepRebaseline || return 1
+    m3_step rebaseline "${M3_MARK_DONE}" "${step}" '\N*' || return 1
     text="$(m3_removal_words)" || { printf '[FAIL] cannot read the removal words from helpers/pingbus (above)\n' >&2; return 1; }
     mapfile -t words <<<"${text}"
     [[ "${#words[@]}" -eq 2 && -n "${words[0]}" && -n "${words[1]}" ]] \
@@ -375,7 +410,7 @@ m3_check_remove() {
     m3_teams session remove "${M3_NAME}" "${M3_TEAM_B}" --yes </dev/null 2>"${err}" || status=$?
     cat -- "${err}"
     [[ "${status}" -eq 0 ]] || { printf '[FAIL] session remove exited %d\n' "${status}" >&2; return 1; }
-    grep -qP "^\\Q${M3_MARK_DONE}\\E re-baseline" "${err}" || { printf '[FAIL] no re-baseline step\n' >&2; return 1; }
+    grep -qP -- "${rebaseline}" "${err}" || { printf '[FAIL] no re-baseline step\n' >&2; return 1; }
     m3_poll "${M3_SEEN_S}" "the left notice in the transcript" m3_seen "${M3_LEFT_HEAD}${M3_TEAM_B}" || return 1
     m3_poll 30 "the goodbye in the room" m3_room_has "${goodbye}" || return 1
     m3_poll 10 "the seat free" m3_seat_free || return 1
@@ -402,12 +437,15 @@ m3_check_no_backlog() {
 }
 
 m3_check_noop() {
-    local status=0 err
+    local status=0 err record membership changed
+    m3_named record stepRecord || return 1
+    m3_named membership stepMembership || return 1
+    m3_step changed "${M3_MARK_DONE}" "(?:${record}|${membership})" '\N*' || return 1
     err="$(m3_ev noop.err)"
     m3_teams session add "${M3_NAME}" "${M3_TEAM_B}/${M3_SEAT}" --yes </dev/null 2>"${err}" || status=$?
     cat -- "${err}"
     [[ "${status}" -eq 0 ]] || { printf '[FAIL] the re-run exited %d\n' "${status}" >&2; return 1; }
-    if grep -qP "^\\Q${M3_MARK_DONE}\\E (record|membership)" "${err}"; then
+    if grep -qP -- "${changed}" "${err}"; then
         printf '[FAIL] the re-run changed the record or the membership\n' >&2
         return 1
     fi

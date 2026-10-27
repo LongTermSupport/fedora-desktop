@@ -228,30 +228,56 @@ m4_start() {
 
 # ── the checks ────────────────────────────────────────────────────────────────────────────
 
+# m4_changed <variable> — the pattern of a done role, record or membership step (texts.go).
+m4_changed() {
+    local role record membership
+    m3_named role stepRole || return 1
+    m3_named record stepRecord || return 1
+    m3_named membership stepMembership || return 1
+    m3_step "$1" "${M3_MARK_DONE:?}" "(?:${role}|${record}|${membership})" '\N*'
+}
+
 m4_check_role() {
-    local handle
+    local handle role set_to set session coordinator told told_line changed
+    m3_named role stepRole || return 1
+    m3_pattern set_to src-go/internal/teams/roles/roles.go setTo '[^ ]+' coordinator '' || return 1
+    m3_step set "${M3_MARK_DONE:?}" "${role}" "${set_to}" || return 1
+    m3_named session stepSession || return 1
+    m3_named coordinator coordinatorOf "${M4_TEAM_A}" || return 1
+    m3_named told toldIs "${coordinator}" || return 1
+    m3_step told_line "${M3_MARK_DONE}" "${session}" "${told}" || return 1
+    m4_changed changed || return 1
     handle="$(m4_seat_field "${M4_TEAM_A}" 1 6)" || return 1
     [[ -n "${handle}" ]] || { printf '[FAIL] no seat 1 in %s\n' "${M4_TEAM_A}" >&2; return 1; }
     m4_run role 0 role "${M4_A}" "${M4_TEAM_A}" coordinator --yes || return 1
-    m4_said role "^\\Q${M3_MARK_DONE:?}\\E role: [^ ]+ set to coordinator$" || return 1
-    m4_said role "^\\Q${M3_MARK_DONE:?}\\E session: told it is ${M4_TEAM_A}'s coordinator" || return 1
+    m4_said role "${set}\$" || return 1
+    m4_said role "${told_line}" || return 1
     m4_role_is "${M4_TEAM_A}" "${handle}" coordinator || return 1
     m4_run role-again 0 role "${M4_A}" "${M4_TEAM_A}" coordinator --yes || return 1
-    m4_said role-again "^\\Q${M3_MARK_DONE:?}\\E (role|record|membership)" no || return 1
+    m4_said role-again "${changed}" no || return 1
+}
+
+# m4_goodbye <variable> — the pattern of a done goodbye step (texts.go).
+m4_goodbye() {
+    local goodbye
+    m3_named goodbye stepGoodbye || return 1
+    m3_step "$1" "${M3_MARK_DONE:?}" "${goodbye}" '\N*'
 }
 
 m4_check_coordinator_move() {
-    local heir
+    local heir goodbye changed
+    m4_goodbye goodbye || return 1
+    m4_changed changed || return 1
     heir="$(m4_seat_field "${M4_TEAM_A}" 2 6)" || return 1
     m4_run remove-refused 64 remove "${M4_A}" "${M4_TEAM_A}" --yes || return 1
     m4_desired_is "${M4_A}" "${M4_TEAM_A}" || return 1
     m4_run move 0 move "${M4_A}" "${M4_TEAM_A}" "${M4_TEAM_B}" --coordinator=hand-to=2 --yes || return 1
-    m4_said move "^\\Q${M3_MARK_DONE:?}\\E goodbye: " || return 1
+    m4_said move "${goodbye}" || return 1
     m4_desired_is "${M4_A}" "${M4_TEAM_B}" || return 1
     m4_role_is "${M4_TEAM_A}" "${heir}" coordinator || return 1
     m4_seat_free "${M4_TEAM_A}" 1 || return 1
     m4_run move-again 0 move "${M4_A}" "${M4_TEAM_A}" "${M4_TEAM_B}" --coordinator=hand-to=2 --yes || return 1
-    m4_said move-again "^\\Q${M3_MARK_DONE:?}\\E (role|record|membership)" no || return 1
+    m4_said move-again "${changed}" no || return 1
 }
 
 # m4_wait_line <file> <pattern> <pid> — until the background command <pid> has written a line
@@ -271,17 +297,33 @@ m4_wait_line() {
     done
 }
 
+# m4_written <variable> [note-pattern] — the pattern of a done membership step writing a new
+# generation, with the note when one is given (texts.go).
+m4_written() {
+    local membership generation
+    m3_named membership stepMembership || return 1
+    m3_named generation generationWritten '[0-9]+' || return 1
+    if [[ -n "${2:-}" ]]; then
+        m3_named generation withNote "${generation}" "$2" || return 1
+    fi
+    m3_step "$1" "${M3_MARK_DONE:?}" "${membership}" "${generation}"
+}
+
 # (c): the first add is held in a known window: with A's seat keeper killed it commits, then
 # waits its 10 s for the seat to be held, holding the change lock, and is rolled back. The
 # second add is run inside that window. Then the keeper is repaired and the add made for real.
 m4_check_two_at_once() {
-    local first status=0
+    local first status=0 written session busy busy_line
+    m4_written written || return 1
+    m3_named session stepSessionNamed "${M4_A}" || return 1
+    m3_named busy sessionBusy 'ccy-teams session add\N*' || return 1
+    m3_step busy_line "${M3_MARK_FAILED:?}" "${session}" "${busy}" || return 1
     m4_kill_keeper "${M4_A}" || return 1
     m4_teams session add "${M4_A}" "${M4_TEAM_A}" --yes </dev/null 2>"$(m4_ev concurrent-1.err)" &
     first=$!
-    if ! m4_wait_line "$(m4_ev concurrent-1.err)" "^\\Q${M3_MARK_DONE:?}\\E membership: generation" "${first}" \
+    if ! m4_wait_line "$(m4_ev concurrent-1.err)" "${written}" "${first}" \
         || ! m4_run concurrent-2 75 add "${M4_A}" "${M4_TEAM_A}" --yes \
-        || ! m4_said concurrent-2 'another change to it is in progress: ccy-teams session add'; then
+        || ! m4_said concurrent-2 "${busy_line}"; then
         wait "${first}"
         return 1
     fi
@@ -308,18 +350,26 @@ m4_status_down() {
 }
 
 m4_check_homeserver_down() {
-    local seat removed_down
+    local seat removed_down team down team_down role role_done goodbye farewell_done farewell
     # What a remove says with the homeserver down: ccy-teams' remove.go removedHomeserverDown.
     removed_down="$("${M3_CHECK[@]}" product-value src-go/internal/teams/hot/remove.go removedHomeserverDown)" || return 1
+    m3_named team stepTeamNamed "${M4_TEAM_B}" || return 1
+    m3_named down teamDown "${M4_TEAM_B}" "${M4_TEAM_B}" || return 1
+    m3_step team_down "${M3_MARK_FAILED:?}" "${team}" "${down}" || return 1
+    m3_named role stepRole || return 1
+    m3_step role_done "${M3_MARK_DONE:?}" "${role}" '\N*' || return 1
+    m4_goodbye goodbye || return 1
+    m3_named farewell_done farewellDone || return 1
+    m4_written farewell "${farewell_done}" || return 1
     seat="$(python3 -I -c 'import json, sys; d = json.load(open(sys.argv[1])); print([s["seat"] for s in d["seats"] if s["team"] == sys.argv[2]][0])' \
         "${M3_CCY_DIRS:?}/${M4_A}/${M3_DESIRED:?}" "${M4_TEAM_B}")" || return 1
     sudo -n systemctl stop "agent-bus-hs@${M4_TEAM_B}.service" || return 1
     m4_poll 60 "${M4_A}'s status line marking ${M4_TEAM_B} down" m4_status_down || return 1
     m4_run down-add 1 add "${M4_B}" "${M4_TEAM_B}" --yes || return 1
-    m4_said down-add "homeserver for ${M4_TEAM_B} is down" || return 1
+    m4_said down-add "${team_down}\$" || return 1
     m4_desired_is "${M4_B}" "${M4_TEAM_A}" || return 1
     m4_run down-role 1 role "${M4_A}" "${M4_TEAM_B}" coordinator --yes || return 1
-    m4_said down-role "^\\Q${M3_MARK_DONE:?}\\E role" no || return 1
+    m4_said down-role "${role_done}" no || return 1
     m4_run down-remove 1 remove "${M4_A}" "${M4_TEAM_B}" --yes || return 1
     m4_said down-remove "\\Q${removed_down}\\E" || return 1
     m4_desired_is "${M4_A}" "${M4_TEAM_A}" || return 1
@@ -327,8 +377,8 @@ m4_check_homeserver_down() {
     sudo -n systemctl start "agent-bus-hs@${M4_TEAM_B}.service" || return 1
     m4_poll "${M4_UP_S}" "the homeserver of ${M4_TEAM_B} back" m4_hs_up || return 1
     m4_run owed-remove 0 remove "${M4_A}" "${M4_TEAM_B}" --yes || return 1
-    m4_said owed-remove "^\\Q${M3_MARK_DONE:?}\\E goodbye: " || return 1
-    m4_said owed-remove 'written \(farewell done\)$' || return 1
+    m4_said owed-remove "${goodbye}" || return 1
+    m4_said owed-remove "${farewell}\$" || return 1
 }
 
 # m4_list_state <session> <state> — session list's STATE for the session begins with state.
@@ -340,30 +390,41 @@ m4_list_state() {
 }
 
 m4_check_repair() {
+    local unguarded ok keeper again repaired
+    unguarded="$("${M3_CHECK[@]}" product-value "${M3_TEXTS}" stateUnguarded "${M4_B}")" || return 1
+    ok="$("${M3_CHECK[@]}" product-value "${M3_TEXTS}" stateOK)" || return 1
+    m3_named keeper stepKeeper || return 1
+    m3_named again keeperRunningAgain '1 seat' '[0-9.]+' || return 1
+    m3_step repaired "${M3_MARK_DONE:?}" "${keeper}" "${again}" || return 1
     m4_kill_keeper "${M4_B}" || return 1
-    m4_poll 20 "session list saying ${M4_B} is unguarded" m4_list_state "${M4_B}" unguarded || return 1
+    m4_poll 20 "session list saying ${M4_B} is unguarded" m4_list_state "${M4_B}" "${unguarded}" || return 1
     m4_run repair 0 repair "${M4_B}" --yes || return 1
-    m4_said repair "^\\Q${M3_MARK_DONE:?}\\E keeper: running again, 1 seat held" || return 1
-    m4_poll 20 "session list saying ${M4_B} is ok" m4_list_state "${M4_B}" ok || return 1
+    m4_said repair "${repaired}\$" || return 1
+    m4_poll 20 "session list saying ${M4_B} is ok" m4_list_state "${M4_B}" "${ok}" || return 1
     m4_run remove-launch-seat 0 remove "${M4_B}" "${M4_TEAM_A}" --coordinator=demote --yes || return 1
     m4_desired_is "${M4_B}" "" || return 1
     m4_seat_free "${M4_TEAM_A}" 2 || return 1
 }
 
 m4_check_session_ends() {
-    local add status=0
+    local add status=0 written ended membership removed dropped
+    m4_written written || return 1
+    m3_named ended endedDuringAdd '\N*' || return 1
+    m3_named membership stepMembership || return 1
+    m3_named removed membershipRemoved || return 1
+    m3_step dropped "${M3_MARK_DONE:?}" "${membership}" "${removed}" || return 1
     m4_kill_keeper "${M4_A}" || return 1
     m4_teams session add "${M4_A}" "${M4_TEAM_B}" --yes </dev/null 2>"$(m4_ev ended.err)" &
     add=$!
-    if ! m4_wait_line "$(m4_ev ended.err)" "^\\Q${M3_MARK_DONE:?}\\E membership: generation" "${add}" || ! podman kill "${M2_CTR[${M4_A}]}" >/dev/null; then
+    if ! m4_wait_line "$(m4_ev ended.err)" "${written}" "${add}" || ! podman kill "${M2_CTR[${M4_A}]}" >/dev/null; then
         wait "${add}"
         return 1
     fi
     wait "${add}" || status=$?
     cat -- "$(m4_ev ended.err)"
     [[ "${status}" -eq 1 ]] || { printf '[FAIL] the add exited %d, not 1\n' "${status}" >&2; return 1; }
-    m4_said ended 'session ended during the add' || return 1
-    m4_said ended "^\\Q${M3_MARK_DONE:?}\\E membership: removed" || return 1
+    m4_said ended "${ended}" || return 1
+    m4_said ended "${dropped}\$" || return 1
     m4_desired_is "${M4_A}" gone || return 1
     if [[ ! -f "${M4_RECORDS}/${M4_A}" ]]; then
         printf '[FAIL] the record of %s is gone: the add did not restore it\n' "${M4_A}" >&2

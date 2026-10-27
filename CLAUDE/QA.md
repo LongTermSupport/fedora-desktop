@@ -1383,7 +1383,9 @@ lazily, through the repo root above the checker (`m7_check.py` `_checkout_module
 that runs where no checkout is mounted is handed the value by the script that starts it. Do not
 delete the comment to quiet the rule: the copy is still a copy. For the second clause, ask
 Plan 00201's `m7_check.py` for the value (`product-value FILE NAME` reads any named text of a
-`helpers/` module or a `src-go/` file; `session-paths`, `session-names`, `hot-marks`,
+`helpers/` module or a `src-go/` file, and `product-pattern FILE NAME [PATTERN...]` the same
+text as a `grep -P` pattern, each placeholder the pattern given, as Plan 00203's M3, M4 and M6
+read ccy-teams' step lines from `src-go/internal/teams/hot/texts.go`; `session-paths`, `session-names`, `hot-marks`,
 `status-line-names` and the other readers its usage lists group the common ones). When a checker needs a text the
 product prints inline, name it as a constant in the product, use it there, and add it to
 `OWNED`.
