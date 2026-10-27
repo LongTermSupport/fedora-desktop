@@ -48,14 +48,10 @@
 # `sudo -n /usr/local/bin/shutdown-with-update --in 5 --bogus` is refused by sudo.
 changed-plays
 
-# Plan 00228 Task 3.2: the consumer install proved in the VM lab. deploy.bash runs
-# play-vm-test-lab.yml (the vmtest CLI rebuilt with its attended-run driver, the manifest with
-# desktop-consumer-install, the new guest checker). acceptance.bash then ensures the desktop
-# and server-fast bases (the desktop base is an Anaconda install if absent or refused) and
-# runs three throwaway guests from the pushed HEAD: desktop-consumer-install (an attended
-# ./run.bash --consumer and its re-run, 17 checks), desktop-fresh-install and
-# server-fast-provision (the developer and server paths, unchanged). Long: three full
-# provisioning runs. On the 10-06 desktop base the two desktop runs are also Plan 00229
-# Task 2.2's host check: every package is upgraded before Ansible starts, so neither dies at
-# play-toolbox-install.yml's "name 'ssl' is not defined" (00229's PLAN.md records the result).
-00228-consumer-install-without-github
+# Plan 00232 (issue #114): read-only host facts for ccy's per-container network policy
+# (podman, pasta and netavark versions, the host and bus addresses, each live session's
+# capabilities and networks), then with --active ten probes on throwaway containers only:
+# can rules be put in a container's own network namespace without root, can the container
+# lift them, what a refused connection looks like inside, and does ccy --connect survive.
+# Nothing touches a live session or the host firewall; everything it creates is removed.
+00232-ccy-network-policy-per-container --active

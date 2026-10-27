@@ -1,13 +1,16 @@
 # Plan 00080: ccy session network isolation
 
-**Status**: Dormant
+**Status**: Complete (superseded by Plan 00232, 2026-10-27)
 **Created**: 2026-08-20
 **Owner**: joseph
 **Priority**: Low
 
-> Dormant: decided (Task 2.2, a network per session) and parked at Low priority until the
-> owner schedules Phase 3. The owner's judgement is that sessions on one machine reaching
-> each other is not a significant attack vector.
+> Superseded, not built: the owner closed this plan in favour of
+> [Plan 00232](../../00232-ccy-network-policy-per-container/PLAN.md), a network policy per ccy
+> container. Its default refuses the shared `podman` bridge's own subnet, so sessions cannot
+> reach each other without a network per session, and `ccy --connect` keeps working. Phase 3
+> below was never started. The findings here (F1 to F38) remain the record of what the shared
+> bridge permits.
 
 ## Overview
 
