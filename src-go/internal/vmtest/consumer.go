@@ -14,9 +14,10 @@ const (
 	consumerCheckout = "~/Projects/fedora-desktop"
 	// rerunLog is the second run's output, kept in the guest for the checker to judge.
 	rerunLog = guestRunState + "/rerun.log"
-	// refusedStatus is the provisioning status of a run the harness ended for asking what it
-	// must never ask: run.bash failed, so the verdict is fail, never error.
-	refusedStatus = 1
+	// endedStatus is the provisioning status of a run the harness ended for asking what it
+	// must never ask, or what it has no answer for: run.bash failed, so the verdict is fail,
+	// never error.
+	endedStatus = 1
 )
 
 // consumerPrompts are the questions an attended consumer install can ask in the lab. The
@@ -54,7 +55,7 @@ func (r *running) pinnedCheckout() string {
 }
 
 // consumerProvision is the install and its re-run. It returns the first non-zero status, or
-// refusedStatus for a run that asked what it must never ask.
+// endedStatus for a run the attendant ended.
 func (r *running) consumerProvision(ctx context.Context) (int, error) {
 	// The person types in the session, so it must be there, with its environment recorded.
 	if err := r.waitSession(ctx, "test -r "+guestRunState+"/session.env", " with a session.env recorded"); err != nil {
@@ -71,13 +72,18 @@ func (r *running) consumerProvision(ctx context.Context) (int, error) {
 	for i, run := range runs {
 		which := fmt.Sprintf("attended run %d of %d", i+1, len(runs))
 		r.note("# harness: " + which + ": " + run.what + "\n")
-		rc, refused, err := r.g.attended(ctx, provisionLimit, inSession(run.remote), r.tee(), consumerPrompts)
+		rc, h, err := r.g.attended(ctx, inSession(run.remote), r.tee(), consumerPrompts)
 		if err != nil {
 			return 0, err
 		}
-		if refused != "" {
-			r.note(fmt.Sprintf("\nERROR: %s asked %q, which a consumer install must never ask here; the harness ended it\n", which, refused))
-			return refusedStatus, nil
+		if h.refused != "" {
+			r.note(fmt.Sprintf("\nERROR: %s asked %q, which a consumer install must never ask here; the harness ended it\n", which, h.refused))
+			return endedStatus, nil
+		}
+		if h.unanswered != "" {
+			r.note(fmt.Sprintf("\nERROR: %s stopped at a question the harness has no answer for, and printed nothing for %ds; the harness ended it. Its last lines: %q\n",
+				which, int(promptIdle.Seconds()), h.unanswered))
+			return endedStatus, nil
 		}
 		if rc != 0 {
 			return rc, nil

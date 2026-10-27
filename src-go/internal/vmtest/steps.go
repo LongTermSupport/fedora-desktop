@@ -17,9 +17,13 @@ import (
 )
 
 const (
-	guestRunState     = "/var/lib/vmtest"
-	guestUserEmail    = "vmtest@example.com" // RFC 2606 reserved: the guest's git identity is a placeholder
-	provisionLimit    = 5400 * time.Second
+	guestRunState  = "/var/lib/vmtest"
+	guestUserEmail = "vmtest@example.com" // RFC 2606 reserved: the guest's git identity is a placeholder
+	provisionLimit = 5400 * time.Second
+	// promptIdle is how long an attended run may stand silent at a prompt-shaped line before
+	// it is taken for a question nobody will answer. A prompt is silent until answered; the
+	// bound leaves room for a step that prints a label ending in ':' and then works.
+	promptIdle        = 60 * time.Second
 	prepareLimit      = 1800 * time.Second
 	sessionPoll       = 15 * time.Second
 	sessionReport     = 300 * time.Second

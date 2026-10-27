@@ -84,6 +84,24 @@ func TestConsumerProvisionRefusedPrompt(t *testing.T) {
 	}
 }
 
+// A run that stops at a question no prompt answers fails the provisioning once it has printed
+// nothing for promptIdle, and the transcript says what it asked.
+func TestConsumerProvisionUnansweredQuestion(t *testing.T) {
+	k, r := waitingKit(t, "TASK [Prompt for PS1 colour]\r\nEnter Prompt Colour. Must be one of:\r\n  red / redBold\r\n:")
+	r.s.Audience = audienceConsumer
+	rc, err := r.provision(context.Background())
+	if err != nil || rc != 1 {
+		t.Fatalf("got %d %v", rc, err)
+	}
+	if k.count("ssh -tt") != 1 {
+		t.Fatal("the re-run ran after an unanswered question")
+	}
+	want := "ERROR: attended run 1 of 2 stopped at a question the harness has no answer for, and printed nothing for 60s; the harness ended it. Its last lines: \"Enter Prompt Colour. Must be one of:\\n  red / redBold\\n:\"\n"
+	if !strings.Contains(transcriptOf(t, r), want) {
+		t.Fatalf("transcript %q", transcriptOf(t, r))
+	}
+}
+
 // consumer-install's own password question is refused too: the lab's sudo is passwordless, so a
 // run that asks it has misjudged sudo.
 func TestConsumerProvisionRefusesTheInstallersPasswordQuestion(t *testing.T) {

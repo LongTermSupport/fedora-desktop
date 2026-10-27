@@ -198,7 +198,10 @@ for the autologin session, clones the public repository over HTTPS and pins it a
 commit (run.bash's own `git pull --ff-only` then changes nothing), and runs `~/run.bash --consumer` at a terminal the guest's sshd allocates (`ssh -tt`), with the session's bus
 and display variables. The driver (`src-go/internal/vmtest/attend.go`) answers each
 question when its prompt appears: Enter at the optional-app menu, and nothing else. A
-password or GitHub credential prompt ends the run at once as a fail. It then runs
+password or GitHub credential prompt ends the run at once as a fail. A question it does
+not know (the output stops at a line ending in `:`, `?`, `]`, `)` or `>`) ends the run as a
+fail once nothing more is printed for 60 seconds, and the transcript quotes its last lines;
+a long silent step after a finished line is not affected. It then runs
 `~/Projects/fedora-desktop/run.bash` again, as the update a consumer runs, keeping its
 output in `/var/lib/vmtest/rerun.log`, and reboots. The checker,
 `guest-acceptance-desktop-consumer-install.bash`, asserts no SSH key and no `gh` login, an
