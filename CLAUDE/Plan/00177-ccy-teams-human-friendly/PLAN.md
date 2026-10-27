@@ -208,9 +208,11 @@ are too, by the same route.
   between (`podfreeze`, `lxcfreeze`, `open`, `ftp-camera`); a child given the terminal for its
   own input, and a numbered reply read in the tool itself, run with the echo the terminal had. No rule (run-time state across
   processes), recorded beside 10.1; [search](subagent-reports/261023-search-echo-between-screens.md).
-- [ ] ⬜ **Task 10.3**: The host agent drives `ccy-teams` in tmux again: from `~`, the team and
+- [x] ✅ **Task 10.3**: The host agent drives `ccy-teams` in tmux again: from `~`, the team and
   person menus say Start is unavailable; Esc from a menu then Down pressed quickly shows no
-  `^[[B`.
+  `^[[B`. Passed at cad6b5053: the team, member and person rows and menus each say Start is
+  unavailable because `~` is not a project folder; Esc then Down in one send-keys moved the
+  cursor one row, with no `^[[B` in the pane.
 - [x] ✅ **Task 10.4**: An Esc is never lost to the key after it (the host agent's finding: in a
   row menu, Down within about 50 ms of Esc, or both in one `tmux send-keys`, left the menu open
   and moved its cursor; Ctrl-R then turned a seat's restore off with no question). Cause, proven
@@ -387,10 +389,13 @@ are Phase 12. [Full text](DONE-phases.md#phase-11-findings-of-the-host-run-of-26
   `internal/ghlogin`, shared with `gh-account-setup`. Red then green in the journal;
   `scripts/test-ccy-teams-command.bash` changed with it. Report:
   [subagent-reports/261027-task-13-1.md](subagent-reports/261027-task-13-1.md).
-- [ ] ⬜ **Task 13.2**: Host check, once `changed-plays` has rebuilt ccy-teams
+- [x] ✅ **Task 13.2**: Host check, once `changed-plays` has rebuilt ccy-teams
   (`play-claude-yolo.yml`): in the owner's checkout whose repository only a non-active gh login
   can push to, `ccy-teams create` says "push access through <that login>" and goes on to the
-  team name; `gh auth status` afterwards shows the same active account as before.
+  team name; `gh auth status` afterwards shows the same active account as before. Passed at
+  cad6b5053, in a checkout the active login cannot see: "push access through <that login>",
+  then step 3 (team name); Ctrl-C there said nothing was changed, and `gh auth status` was
+  identical before and after.
 
 ## Success Criteria
 
