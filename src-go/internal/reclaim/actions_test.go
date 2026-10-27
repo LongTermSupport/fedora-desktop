@@ -19,6 +19,7 @@ func TestConfirmAnswers(t *testing.T) {
 	for answer, yes := range answers {
 		w := newWorld(t)
 		w.install("flatpak")
+		w.answer([]string{"flatpak", "uninstall", "--unused", "-y"}, "", 0)
 		w.typed("7", answer, "q")
 		wantCode(t, w.run(), term.ExitOK)
 		if got := w.ran("flatpak uninstall --unused -y"); got != yes {
@@ -44,6 +45,7 @@ func TestConfirmAnswers(t *testing.T) {
 func TestValueQuestions(t *testing.T) {
 	w := newWorld(t)
 	w.install("journalctl")
+	w.answer([]string{"journalctl", "--vacuum-size=500M"}, "", 0)
 	w.typed("5", "", "y", "q")
 	wantCode(t, w.run(), term.ExitOK)
 	w.wantErr("Vacuum journal down to what size? [500M] ", "  Vacuum system journal to 500M? [y/N] ")
@@ -53,6 +55,7 @@ func TestValueQuestions(t *testing.T) {
 
 	w = newWorld(t)
 	w.install("journalctl")
+	w.answer([]string{"journalctl", "--vacuum-size=1G"}, "", 0)
 	w.typed("5", "big", "1G", "y", "q")
 	wantCode(t, w.run(), term.ExitOK)
 	w.wantErr("  Not a valid size (e.g. 500M, 1G): big")
@@ -123,12 +126,15 @@ func TestBiggestDirectoriesDu(t *testing.T) {
 func TestBaobab(t *testing.T) {
 	w := newWorld(t)
 	w.install("ncdu", "baobab")
+	w.answer([]string{"ncdu"}, "", 0)
 	w.typed("1", "", "q")
 	wantCode(t, w.run(), term.ExitOK)
 	w.wantNoErr("baobab")
 
 	w = newWorld(t)
 	w.install("ncdu", "baobab")
+	w.answer([]string{"ncdu"}, "", 0)
+	w.answer([]string{"setsid", "-f", "baobab"}, "", 0)
 	w.env["WAYLAND_DISPLAY"] = "wayland-0"
 	w.typed("1", "", "y", "q")
 	wantCode(t, w.run(), term.ExitOK)
@@ -149,6 +155,7 @@ func TestBaobab(t *testing.T) {
 
 	w = newWorld(t)
 	w.install("ncdu", "baobab")
+	w.answer([]string{"ncdu"}, "", 0)
 	w.env["DISPLAY"] = ":0"
 	w.typed("1", "", "n", "q")
 	wantCode(t, w.run(), term.ExitOK)
@@ -197,17 +204,20 @@ func TestBiggestFilesUnreadable(t *testing.T) {
 	w.wantErr("  1 entries could not be read (first: "+locked, "1B  "+w.home+"/ok")
 }
 
-// E19, E25: the orphan preview after sudo's reason, then autoremove and clean on a yes.
+// E19, E25, B12: the orphan preview as the user, then sudo's reason, autoremove and clean on a
+// yes.
 func TestPackages(t *testing.T) {
 	w := newWorld(t)
 	w.install("dnf")
 	w.answer([]string{"dnf", "repoquery", "--unneeded"}, "pkg-a\npkg-b\n", 0)
+	w.answer([]string{"dnf", "-y", "autoremove"}, "", 0)
+	w.answer([]string{"dnf", "clean", "all"}, "", 0)
 	w.typed("3", "y", "q")
 	wantCode(t, w.run(), term.ExitOK)
 	w.wantErr("  Orphaned packages (2):\n    pkg-a\n    pkg-b\n",
 		"  Run 'dnf autoremove' + 'dnf clean all' now? [y/N] ", "  Package cleanup complete.")
 	want := []string{"root dnf -y autoremove", "root dnf clean all"}
-	if got := w.changes(defaultChanging); !slices.Equal(got, want) {
+	if got := w.changes(); !slices.Equal(got, want) {
 		t.Errorf("changes %v", got)
 	}
 	calls := w.fake.Calls()
@@ -215,9 +225,9 @@ func TestPackages(t *testing.T) {
 	for _, c := range calls {
 		lines = append(lines, c.Line())
 	}
-	ready, preview := slices.Index(lines, "sudo -n -v"), slices.Index(lines, "sudo -n dnf repoquery --unneeded -q")
-	if ready < 0 || preview < ready {
-		t.Errorf("sudo not readied before the preview: %v", lines)
+	preview, ready := slices.Index(lines, "dnf repoquery --unneeded -q"), slices.Index(lines, "sudo -n -v")
+	if preview < 0 || ready < preview {
+		t.Errorf("the preview did not run as the user before sudo was readied: %v", lines)
 	}
 
 	w = newWorld(t)
@@ -225,8 +235,11 @@ func TestPackages(t *testing.T) {
 	w.typed("3", "n", "q")
 	wantCode(t, w.run(), term.ExitOK)
 	w.wantErr("  (no orphaned packages detected in preview)", "  Skipped.")
-	if got := w.changes(defaultChanging); len(got) != 0 {
+	if got := w.changes(); len(got) != 0 {
 		t.Errorf("changes after no: %v", got)
+	}
+	if w.ran("sudo") {
+		t.Error("sudo asked before a yes")
 	}
 }
 
@@ -246,14 +259,15 @@ func TestRootUnavailable(t *testing.T) {
 	w := newWorld(t)
 	w.install("dnf")
 	w.uninstall("sudo")
-	w.typed("3", "q")
+	w.typed("3", "y", "q")
 	wantCode(t, w.run(), term.ExitFailure)
 	w.wantErr("  This action needs root through sudo, and sudo is not installed.")
 
 	w = newWorld(t)
 	w.install("dnf")
 	w.sudoRefuses = true
-	w.typed("4", "q")
+	w.answer([]string{"dnf", "repoquery", "--installonly"}, "kernel-6.1\n", 0)
+	w.typed("4", "y", "q")
 	wantCode(t, w.run(), term.ExitFailure)
 	if w.sudoAsked != 1 {
 		t.Errorf("sudo asked %d times", w.sudoAsked)
@@ -270,17 +284,18 @@ func TestOldKernels(t *testing.T) {
 	w.typed("4", "q")
 	wantCode(t, w.run(), term.ExitOK)
 	w.wantErr("  No superfluous kernels — nothing to remove (keeping newest 2).")
-	if !w.ran("sudo -n dnf repoquery --installonly --latest-limit=-2 -q") {
-		t.Error("preview not run")
+	if !w.ran("dnf repoquery --installonly --latest-limit=-2 -q") || w.ran("sudo") {
+		t.Error("preview not run as the user")
 	}
 
 	w = newWorld(t)
 	w.install("dnf")
 	w.answer([]string{"dnf", "repoquery", "--installonly"}, "kernel-6.1\nkernel-core-6.1\n", 0)
+	w.answer([]string{"dnf", "-y", "remove"}, "", 0)
 	w.typed("4", "yes", "q")
 	wantCode(t, w.run(), term.ExitOK)
 	w.wantErr("    kernel-6.1\n    kernel-core-6.1\n", "  Remove 2 old kernel package(s)? [y/N] ", "  Old kernels removed.")
-	if got := w.changes(defaultChanging); !slices.Equal(got, []string{"root dnf -y remove kernel-6.1 kernel-core-6.1"}) {
+	if got := w.changes(); !slices.Equal(got, []string{"root dnf -y remove kernel-6.1 kernel-core-6.1"}) {
 		t.Errorf("changes %v", got)
 	}
 
@@ -328,12 +343,14 @@ func TestContainers(t *testing.T) {
 	w.install("podman", "docker")
 	w.answer([]string{"podman", "system", "df"}, "TYPE TOTAL\n", 0)
 	w.answer([]string{"docker", "system", "df"}, "DTYPE\n", 0)
+	w.answer([]string{"podman", "system", "prune", "-af"}, "", 0)
+	w.answer([]string{"docker", "system", "prune", "-af"}, "", 0)
 	w.typed("6", "y", "y", "q")
 	wantCode(t, w.run(), term.ExitOK)
 	w.wantErr("  Podman storage usage:\n    TYPE TOTAL\n", "  Prune unused podman data (images, containers, volumes)? [y/N] ",
 		"  Podman pruned.", "  Docker storage usage:\n    DTYPE\n", "  Prune unused docker data? [y/N] ", "  Docker pruned.")
 	want := []string{"podman system prune -af", "docker system prune -af"}
-	if got := w.changes(defaultChanging); !slices.Equal(got, want) {
+	if got := w.changes(); !slices.Equal(got, want) {
 		t.Errorf("changes %v", got)
 	}
 }
@@ -372,6 +389,7 @@ func TestFlatpak(t *testing.T) {
 	w = newWorld(t)
 	w.install("flatpak")
 	w.answer([]string{"flatpak", "uninstall", "--unused", "--assumeno"}, "org.Runtime\n", 1)
+	w.answer([]string{"flatpak", "uninstall", "--unused", "-y"}, "", 0)
 	w.typed("7", "y", "q")
 	wantCode(t, w.run(), term.ExitOK)
 	w.wantErr("org.Runtime", "  (nothing unused, or preview unavailable)", "  Unused runtimes removed.")
@@ -398,25 +416,25 @@ func TestCache(t *testing.T) {
 	}
 }
 
-// E24: an entry that cannot be removed is named and fails the action.
+// E24: an entry that cannot be removed is named and fails the action; the others still go.
 func TestCacheRemovalFails(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root removes everything")
-	}
 	w := newWorld(t)
 	w.file(".cache/stuck/f", "x")
+	w.file(".cache/other", "x")
 	stuck := filepath.Join(w.home, ".cache", "stuck")
-	if err := os.Chmod(stuck, readOnlyDir); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := os.Chmod(stuck, openDir); err != nil {
-			t.Error(err)
+	w.removeAll = func(p string) error {
+		if p == stuck {
+			return &os.PathError{Op: "unlinkat", Path: p, Err: os.ErrPermission}
 		}
-	})
+		return os.RemoveAll(p)
+	}
+	w.answer([]string{"du"}, "4096\t"+stuck+"\n", 0)
 	w.typed("8", "y", "q")
 	wantCode(t, w.run(), term.ExitFailure)
-	w.wantErr("reclaim: could not remove "+stuck, "  Some cache items could not be removed.")
+	w.wantErr("reclaim: could not remove "+stuck, "  Some items in ~/.cache could not be removed.")
+	if got := entries(t, filepath.Join(w.home, ".cache")); !slices.Equal(got, []string{"stuck"}) {
+		t.Errorf("left %v", got)
+	}
 }
 
 // E26: trash-cli when installed, else the trash directories themselves.
@@ -424,10 +442,11 @@ func TestTrash(t *testing.T) {
 	w := newWorld(t)
 	w.install("trash-empty", "trash-list")
 	w.answer([]string{"trash-list"}, "2026-01-01 /home/u/old\n", 0)
+	w.answer([]string{"trash-empty", "-f"}, "", 0)
 	w.typed("9", "y", "q")
 	wantCode(t, w.run(), term.ExitOK)
 	w.wantErr("  Trash contents:", "2026-01-01 /home/u/old", "  Empty the trash now? [y/N] ", "  Trash emptied.")
-	if got := w.changes(defaultChanging); !slices.Equal(got, []string{"trash-empty -f"}) {
+	if got := w.changes(); !slices.Equal(got, []string{"trash-empty -f"}) {
 		t.Errorf("changes %v", got)
 	}
 
@@ -454,13 +473,23 @@ func TestSweep(t *testing.T) {
 	w := newWorld(t)
 	w.install("dnf", "journalctl", "podman", "flatpak", "trash-empty", "trash-list")
 	w.answer([]string{"podman", "system", "df"}, "x\n", 0)
+	for _, argv := range [][]string{
+		{"dnf", "-y", "autoremove"},
+		{"dnf", "clean", "all"},
+		{"journalctl", "--vacuum-size=500M"},
+		{"podman", "system", "prune", "-af"},
+		{"flatpak", "uninstall", "--unused", "-y"},
+		{"trash-empty", "-f"},
+	} {
+		w.answer(argv, "", 0)
+	}
 	w.typed("10", "y", "y", "", "y", "y", "y", "y", "q")
 	wantCode(t, w.run(), term.ExitOK)
 	want := []string{
 		"root dnf -y autoremove", "root dnf clean all", "root journalctl --vacuum-size=500M",
-		"podman system prune -af", "flatpak uninstall --unused -y", "trash-empty -f",
+		"podman system prune -af", "flatpak uninstall --unused --assumeno", "flatpak uninstall --unused -y", "trash-empty -f",
 	}
-	if got := w.changes(defaultChanging); !slices.Equal(got, want) {
+	if got := w.changes(); !slices.Equal(got, want) {
 		t.Errorf("changes %v", got)
 	}
 	w.wantErr("  Safe sweep finished.")

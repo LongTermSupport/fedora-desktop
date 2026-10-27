@@ -132,7 +132,7 @@ func (r *run) dirLine(ctx context.Context, dir string) (string, bool, bool) {
 }
 
 // size is dir's `du -s -B1` figure in numfmt's IEC form, and whether du said some entry
-// inside could not be read (its figure is then a lower bound).
+// inside could not be read (its figure is then a lower bound; du's own words are shown, B6).
 func (r *run) size(ctx context.Context, dir string) (string, bool, error) {
 	res, err := r.env.Runner.Run(ctx, execx.Cmd{Name: "du", Args: []string{"-s", duBytes, dir}})
 	entries := parseDu(string(res.Stdout))
@@ -141,6 +141,9 @@ func (r *run) size(ctx context.Context, dir string) (string, bool, error) {
 			err = errors.New("du printed no figure")
 		}
 		return "", false, err
+	}
+	if err != nil {
+		r.errOut.Print(r.env.Stderr, string(res.Stderr))
 	}
 	return rclonecache.IEC(entries[0].bytes), err != nil, nil
 }

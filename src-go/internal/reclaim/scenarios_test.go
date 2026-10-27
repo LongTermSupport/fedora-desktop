@@ -14,8 +14,8 @@ import (
 // table is testdata/scenarios.json (SPEC-reclaim.md section 6), the one table the Go and the
 // bash are both judged by.
 type table struct {
-	Changing  []string   `json:"changing"`
-	Scenarios []scenario `json:"scenarios"`
+	ChangingWords []string   `json:"changingWords"`
+	Scenarios     []scenario `json:"scenarios"`
 }
 
 type scenario struct {
@@ -40,8 +40,8 @@ type programJSON struct {
 	Exit   int      `json:"exit"`
 }
 
-// defaultChanging is the table's list of changing commands, for the expectation tests.
-var defaultChanging = mustReadTable().Changing
+// changingWords are the table's words that mark a command as one that may change the machine.
+var changingWords = mustReadTable().ChangingWords
 
 func readTable() (table, error) {
 	var tb table
@@ -92,7 +92,7 @@ func TestScenarios(t *testing.T) {
 				w.tty = ""
 			}
 			wantCode(t, w.run(sc.Args...), term.ExitCode(sc.Exit))
-			if got := w.changes(tb.Changing); !slices.Equal(got, sc.Changes) {
+			if got := w.changes(); !slices.Equal(got, sc.Changes) {
 				t.Errorf("changes %q, want %q", got, sc.Changes)
 			}
 			if got := homeFiles(t, w.home); !slices.Equal(got, sc.HomeAfter) {
@@ -139,7 +139,7 @@ func TestScenarioTableCanFail(t *testing.T) {
 	}
 	w.typed("3", "n", "q")
 	w.run()
-	if slices.Equal(w.changes(tb.Changing), sc.Changes) {
+	if slices.Equal(w.changes(), sc.Changes) {
 		t.Fatal("answering no still matched the yes scenario's changes")
 	}
 }

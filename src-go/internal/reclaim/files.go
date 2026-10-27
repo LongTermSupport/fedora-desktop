@@ -1,6 +1,7 @@
 package reclaim
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -122,7 +123,10 @@ func (f *found) note(p string, err error) {
 
 // clearInside removes every entry inside each dir, keeping the dirs themselves (E24, E26). A
 // dir that does not exist has nothing to remove; every entry that cannot be removed is named.
-func (r *run) clearInside(dirs ...string) bool {
+// A cancel stops it before the next entry, saying how far it got (E30); what was is named
+// for the person by what.
+func (r *run) clearInside(ctx context.Context, what string, dirs ...string) bool {
+	var all []string
 	done := true
 	for _, dir := range dirs {
 		des, err := os.ReadDir(dir)
@@ -135,12 +139,29 @@ func (r *run) clearInside(dirs ...string) bool {
 			continue
 		}
 		for _, d := range des {
-			p := filepath.Join(dir, d.Name())
-			if err := os.RemoveAll(p); err != nil {
-				r.failf("could not remove %s: %v", p, err)
-				done = false
-			}
+			all = append(all, filepath.Join(dir, d.Name()))
 		}
 	}
+	for i, p := range all {
+		if ctx.Err() != nil {
+			r.errLine(fmt.Sprintf("  %s is only partly cleared: cancelled after %d of %d entries.", capital(what), i, len(all)))
+			return false
+		}
+		if err := r.env.RemoveAll(p); err != nil {
+			r.failf("could not remove %s: %v", p, err)
+			done = false
+		}
+	}
+	if !done {
+		r.errLine("  Some items in " + what + " could not be removed.")
+	}
 	return done
+}
+
+// capital is s with its first letter upper case, for a name that starts a sentence.
+func capital(s string) string {
+	if s == "" || s[0] < 'a' || s[0] > 'z' {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }

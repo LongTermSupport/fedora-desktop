@@ -80,11 +80,11 @@ func (r *run) pruneEngine(ctx context.Context, e engine) bool {
 	}
 	r.info("  " + e.title + " storage usage:")
 	r.show(out)
-	if !r.confirm(e.question) {
+	if !r.confirm(ctx, e.question) {
 		r.say("  Skipped " + e.name + ".")
 		return true
 	}
-	if err := r.stream(ctx, e.prune); err != nil {
+	if err := r.stream(finished(ctx), e.prune); err != nil {
 		r.errLine("  " + e.name + " system prune reported an error.")
 		return false
 	}

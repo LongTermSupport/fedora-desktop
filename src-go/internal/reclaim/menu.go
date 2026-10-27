@@ -1,7 +1,6 @@
 package reclaim
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -54,9 +53,10 @@ func (r *run) menu(ctx context.Context) term.ExitCode {
 		r.failf(needTerminal)
 		return term.ExitFailure
 	}
-	r.tty = bufio.NewReader(tty)
+	r.tty = newLineReader(tty)
 	r.header(ctx)
 	code, done := r.loop(ctx)
+	r.tty.stop()
 	if cerr := tty.Close(); cerr != nil {
 		r.failf("close the terminal: %v", cerr)
 		return term.ExitFailure
@@ -78,7 +78,10 @@ func (r *run) loop(ctx context.Context) (term.ExitCode, bool) {
 	for {
 		r.printMenu()
 		r.prompt("Choose", "[1-10, r, q]:")
-		choice, err := r.readLine()
+		choice, err := r.readLine(ctx)
+		if errors.Is(err, errCancelled) {
+			return term.ExitCancelled, true
+		}
 		if errors.Is(err, io.EOF) {
 			r.say("")
 			r.info("No more input — exiting.")
@@ -102,6 +105,9 @@ func (r *run) loop(ctx context.Context) (term.ExitCode, bool) {
 		if a, ok := findAction(choice); ok {
 			invalid = 0
 			r.act(ctx, a)
+			if ctx.Err() != nil {
+				return term.ExitCancelled, true
+			}
 			continue
 		}
 		invalid++
@@ -125,7 +131,7 @@ func findAction(key string) (action, bool) {
 // act runs one action under its heading (E14), counting a failure (E13).
 func (r *run) act(ctx context.Context, a action) {
 	r.heading(ui.Here("reclaim", a.name))
-	if !a.do(r, ctx) {
+	if !a.do(r, ctx) && ctx.Err() == nil {
 		r.failed++
 		r.warn("  This action did not complete.")
 	}

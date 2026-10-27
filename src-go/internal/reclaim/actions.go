@@ -48,7 +48,7 @@ func validSize(s string) string {
 
 // bigDirs is E17.
 func (r *run) bigDirs(ctx context.Context) bool {
-	dir, ok := r.askValue("Analyse which directory?", r.home, isDir)
+	dir, ok := r.askValue(ctx, "Analyse which directory?", r.home, isDir)
 	if !ok {
 		return true
 	}
@@ -69,7 +69,7 @@ func (r *run) bigDirs(ctx context.Context) bool {
 		done = r.duSummary(ctx, []string{"-x", duBytes, "--max-depth=1", dir}, dir, dirsListed)
 	}
 	desktop := r.env.Getenv("DISPLAY") != "" || r.env.Getenv("WAYLAND_DISPLAY") != ""
-	if r.have("baobab") && desktop && r.confirm("  Also open baobab (graphical analyser) on "+dir+"?") {
+	if r.have("baobab") && desktop && r.confirm(ctx, "  Also open baobab (graphical analyser) on "+dir+"?") {
 		done = r.baobab(ctx, dir) && done
 	}
 	return done
@@ -119,18 +119,19 @@ func (r *run) duSummary(ctx context.Context, args []string, what string, n int) 
 		r.say(fmt.Sprintf("  %8s  %s", rclonecache.IEC(e.bytes), e.path))
 	}
 	if err != nil {
+		r.errOut.Print(r.env.Stderr, string(res.Stderr))
 		r.dimLine("  (some entries could not be read)")
 	}
 	return true
 }
 
 // bigFiles is E18.
-func (r *run) bigFiles(context.Context) bool {
-	dir, ok := r.askValue("Find big files under which directory?", r.home, isDir)
+func (r *run) bigFiles(ctx context.Context) bool {
+	dir, ok := r.askValue(ctx, "Find big files under which directory?", r.home, isDir)
 	if !ok {
 		return true
 	}
-	countText, ok := r.askValue("How many to list?", filesListedDefault, positive)
+	countText, ok := r.askValue(ctx, "How many to list?", filesListedDefault, positive)
 	if !ok {
 		return true
 	}
@@ -157,10 +158,7 @@ func (r *run) bigFiles(context.Context) bool {
 // packages is E19.
 func (r *run) packages(ctx context.Context) bool {
 	r.info("  Package cache and orphaned dependencies:")
-	if !r.rootReady(ctx, "Listing and removing orphaned packages needs root.") {
-		return false
-	}
-	res, err := r.env.Sudo.Capture(ctx, "dnf", "repoquery", "--unneeded", "-q")
+	res, err := r.env.Runner.Run(ctx, execx.Cmd{Name: progDnf, Args: []string{"repoquery", "--unneeded", "-q"}})
 	if err != nil {
 		r.previewFailed(res, err, "  dnf could not list the orphaned packages.")
 		return false
@@ -174,13 +172,19 @@ func (r *run) packages(ctx context.Context) bool {
 	} else {
 		r.dimLine("  (no orphaned packages detected in preview)")
 	}
-	if !r.confirm("  Run 'dnf autoremove' + 'dnf clean all' now?") {
+	if !r.confirm(ctx, "  Run 'dnf autoremove' + 'dnf clean all' now?") {
 		r.say("  Skipped.")
 		return true
 	}
-	err = r.env.Sudo.Run(ctx, "dnf", "-y", "autoremove")
-	if err == nil {
-		err = r.env.Sudo.Run(ctx, "dnf", "clean", "all")
+	if !r.rootReady(ctx, "Removing orphaned packages and cleaning the dnf cache needs root.") {
+		return false
+	}
+	err = r.env.Sudo.Run(finished(ctx), progDnf, "-y", "autoremove")
+	if err == nil && ctx.Err() == nil {
+		err = r.env.Sudo.Run(finished(ctx), progDnf, "clean", "all")
+	}
+	if ctx.Err() != nil {
+		return false
 	}
 	if err != nil {
 		r.errLine("  dnf reported an error — see output above.")
@@ -192,11 +196,9 @@ func (r *run) packages(ctx context.Context) bool {
 
 // oldKernels is E20.
 func (r *run) oldKernels(ctx context.Context) bool {
-	if !r.rootReady(ctx, "Listing and removing old kernels needs root.") {
-		return false
-	}
-	res, err := r.env.Sudo.Capture(ctx, "dnf", "repoquery", "--installonly",
-		"--latest-limit=-"+strconv.Itoa(kernelsKept), "-q")
+	res, err := r.env.Runner.Run(ctx, execx.Cmd{Name: progDnf, Args: []string{
+		"repoquery", "--installonly", "--latest-limit=-" + strconv.Itoa(kernelsKept), "-q",
+	}})
 	if err != nil {
 		r.previewFailed(res, err, "  dnf could not list the installed kernels.")
 		return false
@@ -210,11 +212,14 @@ func (r *run) oldKernels(ctx context.Context) bool {
 	for _, k := range old {
 		r.say("    " + k)
 	}
-	if !r.confirm(fmt.Sprintf("  Remove %d old kernel package(s)?", len(old))) {
+	if !r.confirm(ctx, fmt.Sprintf("  Remove %d old kernel package(s)?", len(old))) {
 		r.say("  Skipped.")
 		return true
 	}
-	if err := r.env.Sudo.Run(ctx, append([]string{"dnf", "-y", "remove"}, old...)...); err != nil {
+	if !r.rootReady(ctx, "Removing old kernels needs root.") {
+		return false
+	}
+	if err := r.env.Sudo.Run(finished(ctx), append([]string{progDnf, "-y", "remove"}, old...)...); err != nil {
 		r.errLine("  dnf remove reported an error.")
 		return false
 	}
@@ -231,18 +236,18 @@ func (r *run) journal(ctx context.Context) bool {
 	}
 	r.info("  Current journal usage:")
 	r.say("    " + r.journalUsage(ctx))
-	size, ok := r.askValue("Vacuum journal down to what size?", journalDefaultSize, validSize)
+	size, ok := r.askValue(ctx, "Vacuum journal down to what size?", journalDefaultSize, validSize)
 	if !ok {
 		return true
 	}
-	if !r.confirm("  Vacuum system journal to " + size + "?") {
+	if !r.confirm(ctx, "  Vacuum system journal to "+size+"?") {
 		r.say("  Skipped.")
 		return true
 	}
 	if !r.rootReady(ctx, "Vacuuming the system journal needs root.") {
 		return false
 	}
-	if err := r.env.Sudo.Run(ctx, "journalctl", "--vacuum-size="+size); err != nil {
+	if err := r.env.Sudo.Run(finished(ctx), "journalctl", "--vacuum-size="+size); err != nil {
 		r.errLine("  journalctl --vacuum-size reported an error.")
 		return false
 	}
@@ -268,7 +273,7 @@ func (r *run) rootReady(ctx context.Context, why string) bool {
 	return r.env.Sudo.Ready(ctx, why) == nil
 }
 
-// previewFailed reports a root preview that failed: what it printed, then what failed.
+// previewFailed reports a preview that failed: what it printed, then what failed.
 func (r *run) previewFailed(res execx.Result, err error, msg string) {
 	r.errOut.Print(r.env.Stderr, string(res.Stderr))
 	if len(res.Stderr) == 0 {
@@ -297,11 +302,11 @@ func (r *run) flatpak(ctx context.Context) bool {
 	if err := r.stream(ctx, execx.Cmd{Name: progFlatpak, Args: []string{"uninstall", "--unused", "--assumeno"}}); err != nil {
 		r.dimLine("  (nothing unused, or preview unavailable)")
 	}
-	if !r.confirm("  Remove unused flatpak runtimes?") {
+	if !r.confirm(ctx, "  Remove unused flatpak runtimes?") {
 		r.say("  Skipped.")
 		return true
 	}
-	if err := r.stream(ctx, execx.Cmd{Name: progFlatpak, Args: []string{"uninstall", "--unused", "-y"}}); err != nil {
+	if err := r.stream(finished(ctx), execx.Cmd{Name: progFlatpak, Args: []string{"uninstall", "--unused", "-y"}}); err != nil {
 		r.errLine("  flatpak uninstall reported an error.")
 		return false
 	}
@@ -316,34 +321,46 @@ func (r *run) stream(ctx context.Context, c execx.Cmd) error {
 	return err
 }
 
-// cache is E24.
+// cache is E24. A listing that fails ends the action before asking (B3), and ~/.cache as a
+// symbolic link is refused (B13).
 func (r *run) cache(ctx context.Context) bool {
 	cache := filepath.Join(r.home, ".cache")
+	if r.isLink(cache, "~/.cache") {
+		return false
+	}
 	if isDir(cache) != "" {
 		r.okLine("  No ~/.cache directory.")
 		return true
 	}
 	r.info("  Largest items in ~/.cache:")
-	sized := r.duSummary(ctx, []string{duBytes, "--max-depth=1", cache}, cache, cacheItemsListed)
-	r.warn("  Note: applications recreate their caches on next use.")
-	if !r.confirm("  Delete the CONTENTS of ~/.cache now?") {
-		r.say("  Skipped.")
-		return sized
+	if !r.duSummary(ctx, []string{duBytes, "--max-depth=1", cache}, cache, cacheItemsListed) {
+		r.errLine("  Not clearing ~/.cache: its contents could not be listed.")
+		return false
 	}
-	if !r.clearInside(cache) {
-		r.errLine("  Some cache items could not be removed.")
+	r.warn("  Note: applications recreate their caches on next use.")
+	if !r.confirm(ctx, "  Delete the CONTENTS of ~/.cache now?") {
+		r.say("  Skipped.")
+		return true
+	}
+	if !r.clearInside(ctx, "~/.cache", cache) {
 		return false
 	}
 	r.okLine("  ~/.cache cleared.")
-	return sized
+	return true
 }
 
-// trash is E26.
+// trash is E26. A size that cannot be read ends the action before asking (B3), and the trash,
+// its files or its info directory as a symbolic link is refused (B13).
 func (r *run) trash(ctx context.Context) bool {
 	if r.have("trash-empty") {
 		return r.trashCLI(ctx)
 	}
 	trash := filepath.Join(r.home, ".local", "share", "Trash")
+	files, info := filepath.Join(trash, "files"), filepath.Join(trash, "info")
+	if r.isLink(trash, "~/.local/share/Trash") || r.isLink(files, "~/.local/share/Trash/files") ||
+		r.isLink(info, "~/.local/share/Trash/info") {
+		return false
+	}
 	if isDir(trash) != "" {
 		r.okLine("  No trash directory.")
 		return true
@@ -351,21 +368,37 @@ func (r *run) trash(ctx context.Context) bool {
 	size, partial, err := r.size(ctx, trash)
 	if err != nil {
 		r.failf("du %s: %v", trash, err)
-		size = "?"
-	} else if partial {
+		r.errLine("  Not emptying the trash: its size could not be read.")
+		return false
+	}
+	if partial {
 		size += " (at least)"
 	}
 	r.info("  Trash size: " + size)
-	if !r.confirm("  Empty ~/.local/share/Trash now?") {
+	if !r.confirm(ctx, "  Empty ~/.local/share/Trash now?") {
 		r.say("  Skipped.")
-		return err == nil
+		return true
 	}
-	if !r.clearInside(filepath.Join(trash, "files"), filepath.Join(trash, "info")) {
-		r.errLine("  Some trash items could not be removed.")
+	if !r.clearInside(ctx, "the trash", files, info) {
 		return false
 	}
 	r.okLine("  Trash emptied.")
-	return err == nil
+	return true
+}
+
+// isLink says, and is true, when p is a symbolic link: a clear does not follow one (B13).
+func (r *run) isLink(p, name string) bool {
+	info, err := os.Lstat(p)
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		return false
+	}
+	target, err := os.Readlink(p)
+	if err != nil {
+		target = "unreadable: " + err.Error()
+	}
+	r.errLine("  " + name + " is a symbolic link (to " + target + "); reclaim does not clear through a link.")
+	r.errLine("  Clear the directory it points to yourself, or replace the link with a directory.")
+	return true
 }
 
 func (r *run) trashCLI(ctx context.Context) bool {
@@ -373,11 +406,11 @@ func (r *run) trashCLI(ctx context.Context) bool {
 	if err := r.stream(ctx, execx.Cmd{Name: "trash-list"}); err != nil {
 		r.dimLine("  (trash empty or unavailable)")
 	}
-	if !r.confirm("  Empty the trash now?") {
+	if !r.confirm(ctx, "  Empty the trash now?") {
 		r.say("  Skipped.")
 		return true
 	}
-	if err := r.stream(ctx, execx.Cmd{Name: "trash-empty", Args: []string{"-f"}}); err != nil {
+	if err := r.stream(finished(ctx), execx.Cmd{Name: "trash-empty", Args: []string{"-f"}}); err != nil {
 		r.errLine("  trash-empty reported an error.")
 		return false
 	}
@@ -394,7 +427,7 @@ func (r *run) sweep(ctx context.Context) bool {
 	r.say("    • flatpak unused runtimes (if flatpak present)")
 	r.say("    • empty trash")
 	r.say("  Each step asks for its own confirmation.")
-	if !r.confirm("  Begin the safe sweep?") {
+	if !r.confirm(ctx, "  Begin the safe sweep?") {
 		r.say("  Sweep cancelled.")
 		return true
 	}
@@ -408,8 +441,11 @@ func (r *run) sweep(ctx context.Context) bool {
 	steps = append(steps, action{name: nameTrash, do: (*run).trash})
 	done := true
 	for _, s := range steps {
+		if ctx.Err() != nil {
+			return false
+		}
 		r.heading(ui.Here("reclaim", "Safe sweep", s.name))
-		if !s.do(r, ctx) {
+		if !s.do(r, ctx) && ctx.Err() == nil {
 			r.warn("  That step did not complete; the sweep goes on.")
 			done = false
 		}

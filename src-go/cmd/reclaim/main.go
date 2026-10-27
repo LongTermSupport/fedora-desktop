@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/reclaim"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -15,5 +16,7 @@ func main() {
 }
 
 func run(args []string) term.ExitCode {
-	return reclaim.App{Env: reclaim.NewEnv()}.Run(context.Background(), args)
+	ctx, stop := execx.SignalContext(context.Background())
+	defer stop()
+	return reclaim.App{Env: reclaim.NewEnv()}.Run(ctx, args)
 }

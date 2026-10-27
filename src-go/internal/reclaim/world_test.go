@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
@@ -17,11 +19,8 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
-// The modes a test gives a directory it locks and then opens again for its cleanup.
-var (
-	openDir     = fs.FileMode(0o700)
-	readOnlyDir = fs.FileMode(0o500)
-)
+// openDir is the mode a test gives back a directory it locked, for its cleanup.
+var openDir = fs.FileMode(0o700)
 
 // progRule is what one program answers: argv (sudo already taken off) starting with prefix.
 type progRule struct {
@@ -53,6 +52,39 @@ type world struct {
 	devNull     string
 	// varDirs are the system directories the report sizes (/var/log and /var/cache on a host).
 	varDirs []string
+	// unscripted are the commands run that nothing scripted; any fails the test at its end.
+	unscripted []string
+	// runCtx is the run's context; cancel ends it as SignalContext does on a signal.
+	runCtx func() context.Context
+	cancel context.CancelCauseFunc
+	// during runs while the command whose line it is keyed by runs: a Ctrl-C mid-command.
+	during map[string]func()
+	// cancelledUnder are the lines of the commands whose own context ended while they ran, so
+	// that execx.OS would have signalled them instead of waiting for them.
+	cancelledUnder []string
+	// ttyIn, when set, is the terminal instead of the lines typed.
+	ttyIn io.Reader
+	// removeAll, when set, is the removal the clears use.
+	removeAll func(string) error
+}
+
+// ctxRunner is the world's runner: the Fake, with the context each command ran under watched.
+type ctxRunner struct{ w *world }
+
+func (r ctxRunner) Run(ctx context.Context, c execx.Cmd) (execx.Result, error) {
+	res, err := r.w.fake.Run(ctx, c)
+	if hook := r.w.during[c.Line()]; hook != nil {
+		hook()
+	}
+	if ctx.Err() != nil {
+		r.w.cancelledUnder = append(r.w.cancelledUnder, c.Line())
+	}
+	return res, err
+}
+
+// interrupt ends the run's context with SIGINT's cause, as Ctrl-C does.
+func (w *world) interrupt() {
+	w.cancel(&execx.SignalError{Signal: syscall.SIGINT})
 }
 
 func newWorld(t *testing.T) *world {
@@ -62,13 +94,22 @@ func newWorld(t *testing.T) *world {
 		installed: map[string]bool{"sudo": true, "du": true, "df": true, "setsid": true},
 		env:       map[string]string{}, stdinTTY: true, host: "box",
 		devNull: filepath.Join(t.TempDir(), "null"),
+		during:  map[string]func(){},
 	}
+	ctx, cancel := context.WithCancelCause(context.Background())
+	w.runCtx, w.cancel = func() context.Context { return ctx }, cancel
+	t.Cleanup(func() { w.cancel(context.Canceled) })
 	if err := os.MkdirAll(w.home, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	w.env["HOME"] = w.home
 	w.fake = &execx.Fake{}
 	w.fake.OnFunc([]string{}, w.dispatch)
+	t.Cleanup(func() {
+		if len(w.unscripted) > 0 {
+			t.Errorf("unscripted commands ran: %q", w.unscripted)
+		}
+	})
 	return w
 }
 
@@ -148,19 +189,44 @@ func (w *world) dispatch(c execx.Cmd) (execx.Result, error) {
 		return execx.Result{}, &execx.NotInstalledError{Name: argv[0]}
 	}
 	for _, r := range slices.Backward(w.rules) {
-		if len(r.prefix) <= len(argv) && slices.Equal(argv[:len(r.prefix)], r.prefix) {
+		if startsWith(argv, r.prefix) {
 			return execx.Result{Stdout: []byte(r.stdout), Stderr: []byte(r.stderr), ExitCode: r.exit}, nil
 		}
 	}
-	return execx.Result{}, nil
+	for _, p := range readOnlyDefaults {
+		if startsWith(argv, p) {
+			return execx.Result{}, nil
+		}
+	}
+	w.unscripted = append(w.unscripted, c.Line())
+	return execx.Result{}, fmt.Errorf("%w: %s", execx.ErrUnexpected, c.Line())
+}
+
+// readOnlyDefaults are the commands that only read, answered with an empty success when a test
+// scripts nothing for them. Every other command a test does not script fails (execx.ErrUnexpected)
+// and fails the test.
+var readOnlyDefaults = [][]string{
+	{"du"},
+	{"df"},
+	{"duf"},
+	{"journalctl", "--disk-usage"},
+	{"dnf", "repoquery"},
+	{"podman", "system", "df"},
+	{"docker", "system", "df"},
+	{"flatpak", "uninstall", "--unused", "--assumeno"},
+	{"trash-list"},
+}
+
+func startsWith(argv, prefix []string) bool {
+	return len(prefix) <= len(argv) && slices.Equal(argv[:len(prefix)], prefix)
 }
 
 func (w *world) envFor() Env {
 	tm := &term.Term{Err: &w.stderr, IsTerminal: func(any) bool { return w.colour }, Getenv: w.getenv}
 	return Env{
-		Runner: w.fake, Fg: w.fake,
+		Runner: ctxRunner{w}, Fg: w.fake,
 		Sudo: &sudo.Sudo{
-			Runner: w.fake, Term: tm, Stdin: strings.NewReader(""), Stdout: &w.stderr,
+			Runner: ctxRunner{w}, Term: tm, Stdin: strings.NewReader(""), Stdout: &w.stderr,
 			OpenTTY: func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader("")), nil },
 		},
 		Stdout: &w.stdout, Stderr: &w.stderr, Stdin: "stdin",
@@ -182,7 +248,16 @@ func (w *world) envFor() Env {
 			if w.noTTY {
 				return nil, errors.New("no tty")
 			}
+			if w.ttyIn != nil {
+				return io.NopCloser(w.ttyIn), nil
+			}
 			return io.NopCloser(strings.NewReader(w.tty)), nil
+		},
+		RemoveAll: func(p string) error {
+			if w.removeAll != nil {
+				return w.removeAll(p)
+			}
+			return os.RemoveAll(p)
 		},
 		DevNull: func() (*os.File, error) {
 			return os.OpenFile(w.devNull, os.O_CREATE|os.O_WRONLY, 0o600)
@@ -196,7 +271,7 @@ func (w *world) getenv(k string) string { return w.env[k] }
 
 func (w *world) run(args ...string) term.ExitCode {
 	w.t.Helper()
-	return App{Env: w.envFor()}.Run(context.Background(), args)
+	return App{Env: w.envFor()}.Run(w.runCtx(), args)
 }
 
 // ran reports whether a command whose line starts with prefix was run (sudo included).
@@ -212,29 +287,54 @@ func (w *world) ran(prefix string) bool {
 	return false
 }
 
-// changes is every command run that changes the machine, as the scenario table writes it.
-func (w *world) changes(changing []string) []string {
+// changes is every command run that may change the machine, as the scenario table writes it:
+// every command run as root, and every command one of whose words is in changingWords.
+func (w *world) changes() []string {
 	var out []string
 	for _, c := range w.fake.Calls() {
-		line, root := c.Line(), false
-		if c.Name == "sudo" && len(c.Args) > 1 && c.Args[0] == "-n" {
-			line, root = strings.Join(c.Args[1:], " "), true
+		argv, root := append([]string{c.Name}, c.Args...), false
+		if c.Name == "sudo" {
+			if isSudoCredential(c.Args) {
+				continue
+			}
+			argv, root = c.Args[1:], true
 		}
-		if !isChanging(line, changing) {
+		line := strings.Join(argv, " ")
+		if root {
+			out = append(out, "root "+line)
 			continue
 		}
-		if root {
-			line = "root " + line
+		if namesChange(argv) {
+			out = append(out, line)
 		}
-		out = append(out, line)
 	}
 	return out
 }
 
-func isChanging(line string, changing []string) bool {
-	for _, p := range changing {
-		if strings.HasPrefix(line, p) {
+// isSudoCredential is one of internal/sudo's own calls, which get or probe the credential and
+// run nothing: -v, -n -v, -n true and -k.
+func isSudoCredential(args []string) bool {
+	for _, a := range [][]string{{"-v"}, {"-n", "-v"}, {"-n", "true"}, {"-k"}} {
+		if slices.Equal(args, a) {
 			return true
+		}
+	}
+	return len(args) < 2 || args[0] != "-n"
+}
+
+// namesChange is whether a word of argv (an option split at '-' and '=', a path never) is one
+// of changingWords.
+func namesChange(argv []string) bool {
+	for i, arg := range argv {
+		if i == 0 {
+			arg = filepath.Base(arg)
+		} else if strings.Contains(arg, "/") {
+			continue
+		}
+		for word := range strings.FieldsFuncSeq(arg, func(r rune) bool { return r == '-' || r == '=' }) {
+			if slices.Contains(changingWords, word) {
+				return true
+			}
 		}
 	}
 	return false

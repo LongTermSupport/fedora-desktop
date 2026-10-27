@@ -261,6 +261,11 @@ linters:
       - path: internal/wsi/.*_test\.go
         linters: [gosec]
         text: "G304|G306|G703"
+      # reclaim's command test puts an executable fake du on PATH in its own temporary
+      # directory, and opens the fifo there that the fake writes once it has started.
+      - path: cmd/reclaim/main_test\.go
+        linters: [gosec]
+        text: "G304|G306"
       # git-fetch-age reads the git directory of the checkout the prompt is in, by the paths git
       # itself writes there: a .git file's gitdir line and a worktree's commondir (Plan 00183).
       - path: internal/fetchage/fetchage\.go

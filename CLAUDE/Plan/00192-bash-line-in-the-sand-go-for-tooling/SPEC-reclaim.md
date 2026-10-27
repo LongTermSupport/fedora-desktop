@@ -115,7 +115,8 @@ owner:
 - E17. **Biggest directories** asks `Analyse which directory?` (default `$HOME`, must be a
   directory). With `ncdu` installed it runs `ncdu -x <dir>` in the foreground; a non-zero exit
   is `  ncdu exited <code>.`. Without, it prints `  ncdu is not installed — showing a du summary instead.` and the 20 largest entries of `du -x -B1 --max-depth=1 <dir>`, largest
-  first, `  <size, right-aligned to 8>  <path>`; a `du` that exits non-zero after printing adds
+  first, `  <size, right-aligned to 8>  <path>`; a `du` that exits non-zero after printing
+  shows its own stderr (naming what it could not read) and adds
   `  (some entries could not be read)`; one that prints nothing fails the action. Then, when
   `baobab` is installed and `DISPLAY` or `WAYLAND_DISPLAY` is set, it asks `  Also open baobab (graphical analyser) on <dir>?`; yes runs `setsid -f baobab <dir>` with its output to
   `/dev/null` and says `  baobab launched in the background.`
@@ -124,12 +125,13 @@ owner:
   following symlinks and without leaving its filesystem, and lists the regular files, largest
   first (equal sizes by path), `  <size, right-aligned to 8>  <path>`. Entries it could not
   read are counted: `  <n> entries could not be read (first: <path>: <reason>)`.
-- E19. **dnf autoremove + clean all** gets root (E25), lists `sudo -n dnf repoquery --unneeded -q`'s packages (`  Orphaned packages (<n>):` and `    <pkg>` each, or
-  `  (no orphaned packages detected in preview)`), asks `  Run 'dnf autoremove' + 'dnf clean all' now?`; yes runs `sudo -n dnf -y autoremove`, then, only if it succeeded,
+- E19. **dnf autoremove + clean all** lists `dnf repoquery --unneeded -q`'s packages, run as
+  the user (`  Orphaned packages (<n>):` and `    <pkg>` each, or
+  `  (no orphaned packages detected in preview)`), asks `  Run 'dnf autoremove' + 'dnf clean all' now?`; yes gets root (E25) and runs `sudo -n dnf -y autoremove`, then, only if it succeeded,
   `sudo -n dnf clean all`, and says `  Package cleanup complete.`. A failed preview is
   `  dnf could not list the orphaned packages.` and the action fails before asking (B3).
-- E20. **Remove old kernels** gets root and lists
-  `sudo -n dnf repoquery --installonly --latest-limit=-2 -q`. None is `  No superfluous kernels — nothing to remove (keeping newest 2).`; else the list and `  Remove <n> old kernel package(s)?`; yes runs `sudo -n dnf -y remove <pkg>...`. A failed preview fails the action
+- E20. **Remove old kernels** lists, as the user,
+  `dnf repoquery --installonly --latest-limit=-2 -q`. None is `  No superfluous kernels — nothing to remove (keeping newest 2).`; else the list and `  Remove <n> old kernel package(s)?`; yes gets root and runs `sudo -n dnf -y remove <pkg>...`. A failed preview fails the action
   before asking (B3).
 - E21. **Vacuum systemd journal**: without `journalctl`, `  journalctl is not available.`.
   Else it shows the journal line (E5), asks `Vacuum journal down to what size?` (default
@@ -148,26 +150,49 @@ owner:
   `flatpak uninstall --unused --assumeno` (its output shown; a non-zero exit adds
   `  (nothing unused, or preview unavailable)`), then `  Remove unused flatpak runtimes?`; yes
   runs `flatpak uninstall --unused -y`.
-- E24. **Clear ~/.cache**: no directory is `  No ~/.cache directory.`. Else the 15 largest
-  entries (as E17's du summary, `du -B1 --max-depth=1 ~/.cache`), the note that applications
-  recreate their caches, and `  Delete the CONTENTS of ~/.cache now?`; yes removes every entry
-  inside `~/.cache` (the directory itself stays) and says `  ~/.cache cleared.`. Each entry that
-  could not be removed is named on stderr and the action fails.
+- E24. **Clear ~/.cache**: `~/.cache` as a symbolic link is refused (B13):
+  `  ~/.cache is a symbolic link (to <target>); reclaim does not clear through a link.` and
+  what to do instead, and the action fails. No directory is `  No ~/.cache directory.`. Else
+  the 15 largest entries (as E17's du summary, `du -B1 --max-depth=1 ~/.cache`); a `du` that
+  sized nothing is `  Not clearing ~/.cache: its contents could not be listed.` and the action
+  fails before asking (B3). Then the note that applications recreate their caches, and
+  `  Delete the CONTENTS of ~/.cache now?`; yes removes every entry inside `~/.cache` (the
+  directory itself stays) and says `  ~/.cache cleared.`. Each entry that could not be removed
+  is named on stderr, the others are still removed, `  Some items in ~/.cache could not be removed.` is said and the action fails. The action's verdict is the removal's: a listing
+  that worked and a removal that worked is an action done (B14).
 - E25. **Root**: an action that needs root says why and calls `sudo.Ready` (cached or
   passwordless sudo asks nothing; else sudo asks for the password on the terminal), then runs
   its root commands with `sudo -n`. `sudo` not installed is `  This action needs root through sudo, and sudo is not installed.`; sudo not given fails the action. Nothing is run as root
-  before that (B2).
+  before that (B2), and root is asked for only after the yes to the command that needs it:
+  every preview runs as the user (B12).
 - E26. **Empty trash**: with `trash-empty` installed, `trash-list` (its output shown; a
   non-zero exit adds `  (trash empty or unavailable)`), `  Empty the trash now?`, yes runs
-  `trash-empty -f`. Without it: no `~/.local/share/Trash` is `  No trash directory.`; else its
-  size (E6's figure), `  Empty ~/.local/share/Trash now?`, yes removes every entry inside its
-  `files` and `info` directories (either may be missing), as E24.
+  `trash-empty -f`. Without it: `~/.local/share/Trash`, or its `files` or `info` directory, as
+  a symbolic link is refused as in E24 (B13); no `~/.local/share/Trash` is
+  `  No trash directory.`; else its size (E6's figure, `(at least)` and du's stderr when du
+  could not read all of it); a size du could not give is
+  `  Not emptying the trash: its size could not be read.` and the action fails before asking
+  (B3). Then `  Empty ~/.local/share/Trash now?`, yes removes every entry inside its `files`
+  and `info` directories (either may be missing), as E24.
 - E27. **Safe sweep** lists its steps, asks `  Begin the safe sweep?`; yes runs E19, E21, E22
   (when `podman` is installed), E23 (when `flatpak` is installed) and E26, in that order, each
   asking its own questions, then `  Safe sweep finished.`. A step that fails does not stop the
   sweep; it counts towards E13.
 - E28. A command's own output (dnf, journalctl, podman, flatpak, trash) goes to stderr as it
   runs; its failure is said in a line naming it.
+
+### Interrupts
+
+- E30. The command runs under `execx.SignalContext`: Ctrl-C (SIGINT, which the terminal also
+  sends to the command running), or SIGTERM, SIGHUP or SIGQUIT, ends the run instead of
+  killing the process. A command that changes the machine (every root command, the prunes,
+  `flatpak uninstall --unused -y`, `trash-empty -f`) is not signalled or killed by reclaim: the
+  run waits for it to end, however the Ctrl-C it got from the terminal leaves it, and runs
+  nothing after it (`dnf clean all` after an interrupted autoremove, the sweep's next step). A
+  command that only reads (du, df, the previews) is stopped. A wait for a line at the menu or
+  at a question ends at once. A clear of `~/.cache` or the trash stops before its next entry
+  and says `  <~/.cache | The trash> is only partly cleared: cancelled after <i> of <n> entries.`. The run then prints a blank line and `Cancelled.` once, and exits 130
+  (`term.ExitCancelled`), in the menu and in `reclaim report` alike.
 
 ### Output
 
@@ -190,13 +215,15 @@ sweep's steps.
   `sudo` installed too (the bash ran directly as uid 0); every Fedora install has it.
 - B3. A failed `dnf repoquery` preview fails the action. The bash read it through a process
   substitution whose status nobody checked, so a failing preview said "no orphaned packages"
-  or "No superfluous kernels — nothing to remove".
+  or "No superfluous kernels — nothing to remove". The listing before a clear (E24, E26) is a
+  preview too: one that fails ends the action before asking, so nothing is deleted unseen.
 - B4. `docker system prune` runs as the user whose `docker system df` answered (the bash ran
   it under sudo after asking docker as the user).
 - B5. A bad value is asked again, three tries in all (InteractiveScripts.md rules 1 and 2;
   the bash returned to the menu on the first).
-- B6. The commands' stderr is shown (the bash appended it to a scratch log that it deleted at
-  exit without showing, while its messages said "see run notes").
+- B6. The commands' stderr is shown, a partial `du`'s included (E6, E17, E26: the entry it
+  could not read is named) (the bash appended it to a scratch log that it deleted at exit
+  without showing, while its messages said "see run notes").
 - B7. The report's `du` of a directory the user cannot read in full is printed and marked
   incomplete; the report goes on. In the bash, `du`'s non-zero exit failed the `du | awk`
   pipeline under `pipefail` and `set -e` ended the report there, with status 1 and the stderr
@@ -209,6 +236,21 @@ sweep's steps.
 - B10. `y` and `yes` are yes in any case (the bash: `y`, `Y`, `yes`, `YES`). Colour honours
   `NO_COLOR`.
 - B11. Every screen has a heading (InteractiveScripts.md rule 15).
+- B12. The `dnf repoquery` previews of E19 and E20 run as the user, and sudo is readied only
+  after the yes (as E21's vacuum already was). The bash ran them as root first, so a person who
+  only looked, and answered no, had typed a password and left a cached credential for nothing.
+  `dnf repoquery` answers an unprivileged user.
+- B13. `~/.cache`, `~/.local/share/Trash` or its `files` or `info` directory as a symbolic link
+  is refused, naming the link and its target (E24, E26). The bash's `find "$dir" -mindepth 1`
+  did not follow the start symlink, so it removed nothing and still said the directory was
+  cleared; following the link instead would clear wherever it points.
+- B14. A clear's verdict is its removal's (E24, E26): a listing that failed stops the action
+  before asking (B3), so a yes that removed everything is never reported as a failed action,
+  as the port first did when the listing had failed and the removal then worked.
+- B15. A Ctrl-C ends the run with `Cancelled.` and 130 after the command it interrupted has
+  ended (E30). The bash died with the shell's default handling while a root child such as
+  `dnf` could still be running and printing over the prompt, and a half-done clear said
+  nothing.
 
 ## 6. Proof
 
@@ -217,8 +259,16 @@ sweep's steps.
   terminal and temporary trees.
 - **Scenario table** (`src-go/internal/reclaim/testdata/scenarios.json`): each scenario is the
   programs installed, what each answers, the lines typed at the terminal, and the expected
-  exit status and the commands that change the machine (root or not), in order, with the
-  entries left in `~/.cache` and the trash. `TestScenarios` runs every one against the Go.
+  exit status and the commands that may change the machine, in order, with the entries left
+  in `~/.cache` and the trash. A command counts as changing when it runs as root (every
+  `sudo -n` argv but `internal/sudo`'s own credential calls), or when one of its words (an
+  option split at `-` and `=`, never a path) is one of the table's `changingWords` (`rm`,
+  `prune`, `remove`, `autoremove`, `clean`, `vacuum`, `uninstall`, `empty`, `reset`), so a
+  destructive command nobody listed is still recorded and fails the scenario. In the Go a
+  command no scenario scripts fails it too (`execx.ErrUnexpected`), unless it is one of the
+  read-only commands the test world answers by default (`readOnlyDefaults`: `du`, `df`, `duf`,
+  `journalctl --disk-usage`, `dnf repoquery`, the engines' `system df`, flatpak's `--assumeno`
+  preview, `trash-list`). `TestScenarios` runs every one against the Go.
   `CLAUDE/Plan/00192-.../reclaim-parity/parity.py` runs the same table against the bash at
   `842d88ddd` (fake programs on `PATH` that record their argv, a pseudo-terminal for
   `/dev/tty`) and reports every scenario where the bash ran different changing commands or
@@ -235,9 +285,10 @@ Proven only on the host, after `play-cli-tools.yml` (tag `disk-reclaim`) has run
   1 naming on stderr what it could not read.
 - H2 (host agent, tmux). The menu in a tmux pane, driven by `send-keys` and read with
   `capture-pane`: `1` on a small directory opens ncdu and `q` returns to the menu; `2` lists
-  files; `r` redraws; three invalid choices exit 1; Ctrl-D exits 0.
-- H3 (host agent, with sudo given at the run). `3` and `4` show their previews after sudo's
-  reason, and answering No runs nothing (`dnf history` unchanged). `5` with No likewise.
+  files; `r` redraws; three invalid choices exit 1; Ctrl-D exits 0; Ctrl-C at the menu prints
+  `Cancelled.` and exits 130 (E30).
+- H3 (host agent). `3` and `4` show their previews with no sudo question (B12), and
+  answering No runs nothing (`dnf history` unchanged). `5` with No likewise.
 - H4 (host agent). `HOME=<scratch> reclaim`, `8` and `9` answered yes, on a scratch home with a
   `.cache` and a `.local/share/Trash` of throwaway files: the contents go, the directories stay.
   `6` shows `podman system df` and No prunes nothing.

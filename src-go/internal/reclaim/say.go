@@ -14,7 +14,6 @@ const (
 	styleYellow = "\x1b[1;33m"
 	styleRed    = "\x1b[0;31m"
 	styleGreen  = "\x1b[0;32m"
-	styleBlue   = "\x1b[0;34m"
 	styleReset  = "\x1b[0m"
 )
 

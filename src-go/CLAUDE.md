@@ -53,7 +53,7 @@ the wrappers that build and run the Go commands).
   rclone's wizard in the foreground, the rclone configuration vaulted by `ansible-vault` from
   its stdin, `rclone_mounts` edited as two top-level blocks of the `host_vars` text and read
   back as YAML before the atomic write, and the rclone play run in the checkout.
-- `internal/reclaim/` — the `reclaim` command (spec `SPEC-reclaim.md`, E1-E29): the disk report
+- `internal/reclaim/` — the `reclaim` command (spec `SPEC-reclaim.md`, E1-E30): the disk report
   and a numbered menu on `/dev/tty` of cleanups, each behind a default-no confirmation; root
   through `internal/sudo`, ncdu through `execx.Foregrounder`, podman and docker pruned as the
   user (it is one of their owners); the biggest-files walk and the `~/.cache` and trash

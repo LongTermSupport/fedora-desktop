@@ -6,8 +6,8 @@
 
 Each scenario runs in a scratch home with fake programs on PATH that record their argv (sudo
 taken off and noted as root), under a pseudo-terminal for /dev/tty. The verdict compares only
-the exit status, the commands that change the machine and the files left in the home, never
-wording. A scenario with bashDiffers is expected to differ under the bash: that is reported,
+the exit status, the commands that may change the machine (every root command, and every one
+with a word of the table's changingWords) and the files left in the home, never wording. A scenario with bashDiffers is expected to differ under the bash: that is reported,
 and a match there is reported as stale. Any other difference exits 1.
 """
 
@@ -114,6 +114,19 @@ def run_pty(argv, env, typed):
     return "timeout"
 
 
+def names_change(argv, words):
+    """Whether a word of argv (an option split at '-' and '=', never a path) is a changing word;
+    the same judgement as the Go's world_test.go namesChange."""
+    for i, arg in enumerate(argv):
+        if i == 0:
+            arg = os.path.basename(arg)
+        elif "/" in arg:
+            continue
+        if any(w in words for w in arg.replace("=", "-").split("-") if w):
+            return True
+    return False
+
+
 def run_scenario(target, sc, changing):
     work = tempfile.mkdtemp(prefix="reclaim-parity-")
     try:
@@ -130,7 +143,7 @@ def run_scenario(target, sc, changing):
                 for line in f:
                     entry = json.loads(line)
                     text = " ".join(entry["argv"])
-                    if any(text.startswith(p) for p in changing):
+                    if entry["root"] or names_change(entry["argv"], changing):
                         changes.append(("root " if entry["root"] else "") + text)
         left = sorted(os.path.relpath(os.path.join(d, n), home)
                       for d, _, names in os.walk(home) for n in names)
@@ -152,7 +165,7 @@ def main():
         target = build(impl, rev, build_dir)
         for sc in table["scenarios"]:
             want = {"exit": sc.get("exit", 0), "changes": sc.get("changes", []), "homeAfter": sc.get("homeAfter", [])}
-            got = run_scenario(target, sc, table["changing"])
+            got = run_scenario(target, sc, table["changingWords"])
             differs = sc.get("bashDiffers") if impl == "bash" else None
             if got == want:
                 verdict = "STALE: matches although bashDiffers says it differs" if differs else "same"

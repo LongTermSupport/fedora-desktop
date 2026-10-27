@@ -5,7 +5,6 @@
 package reclaim
 
 import (
-	"bufio"
 	"context"
 	_ "embed" // usage.txt is embedded verbatim
 	"errors"
@@ -27,6 +26,7 @@ const (
 	progPodman  = "podman"
 	progDocker  = "docker"
 	progFlatpak = "flatpak"
+	progDnf     = "dnf"
 	argSystem   = "system"
 	duBytes     = "-B1"
 )
@@ -59,6 +59,8 @@ type Env struct {
 	Columns func() int
 	// VarDirs are the system directories the report sizes after the home ones (E6).
 	VarDirs []string
+	// RemoveAll removes one entry of ~/.cache or the trash with everything under it.
+	RemoveAll func(string) error
 }
 
 // NewEnv is the production environment.
@@ -78,8 +80,9 @@ func NewEnv() Env {
 		DevNull: func() (*os.File, error) {
 			return os.OpenFile(os.DevNull, os.O_WRONLY, 0)
 		},
-		Columns: func() int { return term.FileColumns(os.Stderr) },
-		VarDirs: []string{"/var/log", "/var/cache"},
+		Columns:   func() int { return term.FileColumns(os.Stderr) },
+		VarDirs:   []string{"/var/log", "/var/cache"},
+		RemoveAll: os.RemoveAll,
 	}
 }
 
@@ -96,7 +99,7 @@ type run struct {
 	errOut term.Printer
 	colour bool
 	home   string
-	tty    *bufio.Reader
+	tty    *lineReader
 	failed int
 }
 
@@ -105,7 +108,25 @@ func (a App) Run(ctx context.Context, args []string) term.ExitCode {
 	r := &run{env: a.Env, home: a.Env.Getenv("HOME")}
 	r.colour = a.Env.IsTerminal(a.Env.Stderr) && a.Env.Getenv("NO_COLOR") == ""
 	code := r.dispatch(ctx, args)
+	if ctx.Err() != nil {
+		return r.cancelled()
+	}
 	return r.finish(code)
+}
+
+// cancelled ends a run its context ended (Ctrl-C, or another signal SignalContext caught):
+// every command it had started has finished, and nothing more runs (E30).
+func (r *run) cancelled() term.ExitCode {
+	r.say("")
+	r.warn("Cancelled.")
+	return term.ExitCancelled
+}
+
+// finished is ctx left as it is for a command that changes the machine: a cancel does not
+// signal or kill it, so the run waits for it to end however the person's Ctrl-C (which the
+// terminal sends it too) leaves it, and only then stops (E30).
+func finished(ctx context.Context) context.Context {
+	return context.WithoutCancel(ctx)
 }
 
 func (r *run) dispatch(ctx context.Context, args []string) term.ExitCode {
