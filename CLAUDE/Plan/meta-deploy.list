@@ -40,9 +40,10 @@
 # model manager marks which models fit this machine's GPU, and the resolver's --fit it asks),
 # play-claude-yolo.yml and play-podman.yml (Plan 00233 moved the image tasks and made podman
 # every audience's), play-gsettings.yml (middle-click paste) and play-cli-tools.yml (Plan
-# 00192: reclaim 2.0.1 rebuilt, which summarises du's permission refusals and reads podman
-# storage again under podman unshare; the host agent then repeats reclaim's H1 and the
-# podman half of option 6 by hand, SPEC-reclaim.md section 7). play-nvidia.yml's rewritten
+# 00192: reclaim 2.0.2 rebuilt, which reports podman storage in part when a volume cannot be
+# read, naming that volume and why; the host agent then reruns H1's podman section, expecting
+# the partial section and the unreadable volume named, and option 6 answering No, expecting
+# only the image prune offered and nothing run, SPEC-reclaim.md E7a, E22a). play-nvidia.yml's rewritten
 # Secure Boot steps are text only, and it is picked only if it has run here.
 changed-plays
 

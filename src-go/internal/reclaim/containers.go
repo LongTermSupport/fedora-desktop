@@ -21,15 +21,19 @@ type engine struct {
 	pruned   string
 	// unread is said when df fails, given what df printed.
 	unread func(r *run, out string)
+	// partial, when set, replaces unread when df was still refused permission: what can be read
+	// without df shown, and what is safe to prune offered; false when that prune failed.
+	partial func(r *run, ctx context.Context, out string) bool
 }
 
 var podmanEngine = engine{
 	name: progPodman, title: "Podman",
 	df:       execx.Cmd{Name: progPodman, Args: []string{argSystem, "df"}},
 	unshared: execx.Cmd{Name: progPodman, Args: []string{"unshare", progPodman, argSystem, "df"}},
-	prune:    execx.Cmd{Name: progPodman, Args: []string{argSystem, "prune", "-af"}},
+	prune:    execx.Cmd{Name: progPodman, Args: []string{argSystem, argPrune, argAllForce}},
 	question: "  Prune unused podman data (images, containers, volumes)?",
 	pruned:   "  Podman pruned.",
+	partial:  (*run).podmanPartialPrune,
 	unread: func(r *run, out string) {
 		r.warn("  Cannot query podman — skipping podman prune. Reason:")
 		r.show(out)
@@ -47,7 +51,7 @@ var podmanEngine = engine{
 var dockerEngine = engine{
 	name: progDocker, title: "Docker",
 	df:       execx.Cmd{Name: progDocker, Args: []string{argSystem, "df"}},
-	prune:    execx.Cmd{Name: progDocker, Args: []string{argSystem, "prune", "-af"}},
+	prune:    execx.Cmd{Name: progDocker, Args: []string{argSystem, argPrune, argAllForce}},
 	question: "  Prune unused docker data?",
 	pruned:   "  Docker pruned.",
 	unread: func(r *run, _ string) {
@@ -94,6 +98,9 @@ func (r *run) pruneEngine(ctx context.Context, e engine) bool {
 		out, err = execx.Combined(ctx, r.env.Runner, retry)
 	}
 	if err != nil {
+		if e.partial != nil && refusedPermission(out) {
+			return e.partial(r, ctx, out)
+		}
 		e.unread(r, out)
 		return true
 	}

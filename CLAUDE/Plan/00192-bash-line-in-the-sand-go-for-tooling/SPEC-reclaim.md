@@ -53,7 +53,7 @@ owner:
 ### Command line
 
 - E1. `reclaim` opens the menu; `reclaim report` prints the report; `-h`/`--help` prints the
-  usage on stdout and exits 0; `--version` prints `reclaim 2.0.1` on stdout and exits 0.
+  usage on stdout and exits 0; `--version` prints `reclaim 2.0.2` on stdout and exits 0.
 - E2. Any other argument, or a second argument, is `reclaim: unknown argument: <arg> — see 'reclaim --help'.` on stderr, exit 64. Every error line is `reclaim: <text>` on stderr.
 
 ### The report
@@ -80,6 +80,21 @@ owner:
   `podman unshare podman system df`, inside podman's user namespace, where those uids are
   mapped; its figures are the section, and only both failing is unavailable, each reason on
   stderr.
+- E7a. When the second read is refused `permission denied` too (a volume's `_data` owned by a
+  uid outside the user's current subordinate range, left from an older mapping, which no user
+  namespace maps), the section is partial, not unavailable:
+  `  (partial: podman system df could not read every volume, so there are no totals)`, then the
+  volume podman's refusal names (`open <store>/volumes/<name>/_data: permission denied`) as
+  `  Unreadable volume <name> (<path>): <why>`, where why is found, never guessed: its owner
+  (lstat) against the account's uid and its `/etc/subuid` lines (by name or uid), giving
+  outside the current range (`— probably left from an older setup; podman cannot read or size
+  it.`), inside it, the account itself, no range, or which of those could not be read. Then
+  `  To look at it without changing anything:` with `podman volume inspect <name>`,
+  `sudo ls -lan <path>` and the `grep -E` of the account's `/etc/subuid` lines. A refusal naming
+  no volume says so. Then `podman images`, `podman ps --all --size` and `podman volume ls`
+  (none opens a volume's data), each under `  <Title> (<command>):`, one that fails named on
+  stderr and marked `  (unavailable)`. The report still exits 1 (E8). The volume is never
+  touched.
 - E8. The report exits 0 when every section was read, and 1 when any could not be (E4 all
   failed, E5 failed, E6 no figure, E7), after printing every section. A failed write to stdout
   is exit 1.
@@ -88,7 +103,7 @@ owner:
 
 - E9. The menu needs a terminal: stdin a terminal and `/dev/tty` opened. Otherwise
   `reclaim: needs an interactive terminal; run 'reclaim report' for a non-interactive summary.`, exit 1.
-- E10. The header is a heading `reclaim` with the context `<hostname> · v2.0.1`, then the
+- E10. The header is a heading `reclaim` with the context `<hostname> · v2.0.2`, then the
   filesystem lines indented by two spaces, then the journal line. It is drawn when the menu
   opens and again on `r`.
 - E11. The menu lists, under `Analyse`, `Reclaim (destructive — each confirms first)` and
@@ -151,7 +166,17 @@ owner:
   `ansible-playbook CLAUDE/Plan/00062-disk-reclaim-tui/podman-store-repair.yml`; this is not a
   failed action (nothing was run). A `podman system df` refused `permission denied` is first said
   (`  podman system df was refused permission; reading it again inside podman's user namespace (podman unshare podman system df). Reason:` and its output) and read again
-  as E7 does; only a second failure is the cannot-query message, with the second output. For docker, likewise with `docker system df` and
+  as E7 does; only a second failure is the cannot-query message, with the second output.
+  E22a: a second failure that is a refused `permission denied` too is
+  `  Cannot query podman fully: podman system df could not read every volume. Reason:` and its
+  output, E7a's volume lines, `  Podman storage, in part (no totals):` and the three listings.
+  `podman system prune -af` is not offered (`  podman system prune is not offered: ...`): it
+  removes stopped containers, podman could not see all of its storage, and a stopped container
+  may be what still holds that volume. Only `  Prune unused podman images (podman image prune -af)?`
+  is offered, since it removes only images no container uses, from the list just shown, and
+  neither reads nor removes a volume; yes runs it (`  Podman images pruned.`, or
+  `  podman image prune reported an error.` and a failed action). When `podman images` failed
+  too, `  No podman prune is offered: podman could not list its images either.`. For docker, likewise with `docker system df` and
   `  Prune unused docker data?` → `docker system prune -af`, run as the user whose
   `docker system df` answered (B4); a `docker system df` that fails is
   `  docker is installed but not usable (daemon down, or not in the docker group) — skipping.`.
@@ -290,7 +315,7 @@ sweep's steps.
 Proven only on the host, after `play-cli-tools.yml` (tag `disk-reclaim`) has run:
 
 - H1 (host agent). `~/.local/bin/reclaim` is an ELF; `reclaim --version` prints
-  `reclaim 2.0.1`; `reclaim report` prints its four sections with real figures and exits 0, or
+  `reclaim 2.0.2`; `reclaim report` prints its four sections with real figures and exits 0, or
   1 naming on stderr what it could not read.
 - H2 (host agent, tmux). The menu in a tmux pane, driven by `send-keys` and read with
   `capture-pane`: `1` on a small directory opens ncdu and `q` returns to the menu; `2` lists
