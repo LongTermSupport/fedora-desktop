@@ -69,13 +69,19 @@ readonly U23_VM_BASE="server-fast"
 readonly U23_VM_PLAY="playbooks/imports/optional/common/play-vm-test-lab.yml"
 
 # The agent user's commands source its env file once it exists (README step 5), as
-# agent-bus-claude does; before that (suggest-handle) the role is passed inline (step 3).
-U23_AGENT_ENV="$(
-    cat <<'EOF'
-if [ -f "$HOME/.config/pingbus/env" ]; then set -a; . "$HOME/.config/pingbus/env"; set +a; fi; exec "$@"
-EOF
-)"
-readonly U23_AGENT_ENV
+# agent-bus-claude does; before that (suggest-handle) the role is passed inline (step 3). The
+# file is in the pingbus home under the user's home, config.py DEFAULT_HOME_DIR, read on first
+# use by u23_agent_env through Plan 00201's m7_check product-value, never copied.
+U23_PINGBUS_DIR=""
+U23_AGENT_ENV=""
+
+u23_agent_env() {
+    if [[ -n "${U23_PINGBUS_DIR}" ]]; then
+        return 0
+    fi
+    U23_PINGBUS_DIR="$("${U20_NAMES_CHECK[@]}" product-value helpers/pingbus/config.py DEFAULT_HOME_DIR)" || return 1
+    U23_AGENT_ENV="if [ -f \"\$HOME/${U23_PINGBUS_DIR}/env\" ]; then set -a; . \"\$HOME/${U23_PINGBUS_DIR}/env\"; set +a; fi; exec \"\$@\""
+}
 
 #: README step 1's copy: the kit tar on stdin unpacked under argv[1], every directory set to
 #: 0755 explicitly. tarfile's "data" filter creates directories with the caller's umask, and
@@ -183,6 +189,7 @@ u23_exec() {
     shift 4
     local -a inner=(/usr/bin/env -i "PATH=${U23_GUEST_PATH}" HOME=/root)
     if [[ "${who}" == "agent" ]]; then
+        u23_agent_env || return 1
         inner+=(runuser -u "${U23_AGENT}" -- env -i -C "${U23_CHECKOUT}" "PATH=${U23_GUEST_PATH}"
             "HOME=${U23_HOME}" sh -c "${U23_AGENT_ENV}" sh)
     fi
@@ -451,7 +458,8 @@ u23_join() {
     if [[ "${kind}" == "docker" ]]; then
         home="${U23_DOCKER_PINGBUS_HOME}"
     else
-        home="${U23_HOME}/.config/pingbus"
+        u23_agent_env || return 1
+        home="${U23_HOME}/${U23_PINGBUS_DIR}"
     fi
     u23_step "${kind}" agent place "${dir}/bundle.tar" 0 python3 -I -c "${U23_PLACE_PY}" "${home}" || status=1
     rm -f -- "${dir}/bundle.tar" "${dir}/${TEAM}/token" || return 1

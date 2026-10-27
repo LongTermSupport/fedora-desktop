@@ -97,6 +97,8 @@ NO_MEMBERSHIP = "this session's membership is unreadable (pingbus status)"
 #: killed watcher left stops counting after DOWN_FRESH_S.
 DOWN_DIR = "down"
 DOWN_FRESH_S = 300.0
+#: The mark after the role of a team marked down; Plan 00203's M4 looks for it.
+DOWN_MARK = "(down)"
 CANCEL_SIGNALS = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
 #: Shown in place of a role, and of this member's short name, that cannot be read (C16).
 ROLE_UNKNOWN = "role?"
@@ -459,7 +461,7 @@ def _team_piece(environ: Mapping[str, str], team: str, found: MemberRole, colour
     """`team: member (r)`, then each of its marks: the one order every team is shown in."""
     short, role = found
     letter = ROLE_LETTERS.get(role, ROLE_UNKNOWN) if role is not None else ROLE_UNKNOWN
-    marks = (" (down)" if _is_down(environ, team) else "") + (f" ({COLOUR_UNKNOWN})" if colour_unknown else "")
+    marks = (f" {DOWN_MARK}" if _is_down(environ, team) else "") + (f" ({COLOUR_UNKNOWN})" if colour_unknown else "")
     return f"{team}: {short or MEMBER_UNKNOWN} ({letter}){marks}"
 
 

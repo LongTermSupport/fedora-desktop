@@ -231,6 +231,12 @@ def checker_files() -> dict[str, str]:
 #: (after a `^`); or as a whole path, not the head of a longer name (`/var/lib/agent-bus`, and
 #: under it, but not `/var/lib/agent-bus-applied`).
 ANYWHERE, FILE_NAME, DIRECTORY, LINE_START, PATH = "anywhere", "file name", "directory", "line start", "path"
+#: pingbus cli.py's refusal head and the words its watcher's log lines end with, which Plan
+#: 00201's m7_check and Plan 00203's homeserver triage read; each is matched anywhere.
+PINGBUS_CLI_TEXTS = (
+    "CHOICES_HEAD", "WATCHER_EXITS", "WATCHER_ENDED", "WATCHER_REFUSED", "WATCHER_RESTARTED",
+    "TEAM_NOT_WATCHED", "HOMESERVER_SILENT",
+)
 #: The owned values, as (product file, constant, kind). The value is read from the file.
 OWNED: tuple[tuple[str, str, str], ...] = (
     ("helpers/pingbus/seat.py", "SESSION_HOME", ANYWHERE),
@@ -248,6 +254,14 @@ OWNED: tuple[tuple[str, str, str], ...] = (
     ("helpers/pingbus/statusline.py", "SESSIONS_DIR_TEMPLATE", ANYWHERE),
     ("helpers/pingbus/seat.py", "CHECKOUT_SEATS", ANYWHERE),
     ("helpers/pingbus/protocol.py", "TEAM_NAME_PATTERN", ANYWHERE),
+    *(("helpers/pingbus/cli.py", name, ANYWHERE) for name in PINGBUS_CLI_TEXTS),
+    ("helpers/pingbus/inbox.py", "NO_RECORD_YET", ANYWHERE),
+    ("helpers/pingbus/seat.py", "HELD_TEXT", ANYWHERE),
+    ("helpers/pingbus/seat.py", "ONE_PER_TEAM_TEXT", ANYWHERE),
+    ("helpers/pingbus/seat.py", "EMPTY_ITEM_TEXT", ANYWHERE),
+    ("helpers/pingbus/config.py", "ELEMENT_REFUSAL", ANYWHERE),
+    ("helpers/pingbus/config.py", "DEFAULT_HOME_DIR", ANYWHERE),
+    ("helpers/pingbus/statusline.py", "DOWN_MARK", ANYWHERE),
     ("helpers/agent_bus/render.py", "STATE_ROOT", PATH),
     ("helpers/agent_bus/checkout.py", "APPLIED_DIR", PATH),
     ("helpers/agent_bus/health.py", "INSTALL_STATE_ROOT", PATH),

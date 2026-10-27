@@ -56,6 +56,8 @@ SYNC_FILE = "sync.json"
 LOCK_FILE = "lock"
 #: The last verified team record (§12): the `agent_bus.team` content the syncer verified.
 TEAM_FILE = "team.json"
+#: Why a team cannot be judged before its first verified record: send's choices name it too.
+NO_RECORD_YET = "no verified team record yet"
 #: Why the room is not trusted (§8, §12), for an offline `status`; gone while it is trusted.
 UNTRUSTED_FILE = "untrusted.json"
 UNTRUSTED_REASON_MAX = 200
@@ -334,7 +336,7 @@ def load_cached_record(member: config.Member) -> protocol.TeamRecord:
     try:
         raw = _read_regular(path, TEAM_RECORD_MAX_BYTES)
     except FileNotFoundError:
-        raise protocol.Untrusted(f"{where}: no verified team record yet (not joined)") from None
+        raise protocol.Untrusted(f"{where}: {NO_RECORD_YET} (not joined)") from None
     except _Unusable as exc:
         raise protocol.Untrusted(f"{where}: {exc}") from None
     except OSError as exc:

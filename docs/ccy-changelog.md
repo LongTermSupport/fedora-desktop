@@ -27,6 +27,16 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.100.31 — container 2.79.13
+
+Follows 3.100.30 (container 2.79.12). Plan 00201 Task 2.24. The image changes: the pingbus
+helper.
+
+- **No change you can see.** pingbus names the words its plan checkers look for (the
+  several-teams refusal, the seat refusals, the Element refusal, the watcher's log endings,
+  the `(down)` mark, the default home `.config/pingbus`) as constants, and prints the same
+  bytes as before; the checkers read them from this checkout instead of copying them.
+
 ## 3.100.30 — container 2.79.12
 
 Plan 00177 Task 12.3.

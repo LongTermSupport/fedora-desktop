@@ -44,6 +44,9 @@ playbooks/imports/play-claude-yolo.yml
 # speech-to-text, and the rest) runs again here if any package its commands import changed
 # since it last ran. It asks nothing (--yes) and stops at the first failure. Host check (Plan
 # 00192 Task 3.6): its list names those Go-building plays and no play is left that it skipped.
+# It also reinstalls Plan 00201 Task 2.24's pingbus wherever a changed play installs it (the ccy
+# image's copy is built by the play-claude-yolo.yml entry above, container 2.79.13): its plan
+# checkers' texts are named constants, no byte printed changes, so no host check of its own.
 changed-plays
 
 # Plan 00194 delivery host checks (Tasks 2.0c H1-H6, 2.0d, 2.0f), run as the desktop user; it

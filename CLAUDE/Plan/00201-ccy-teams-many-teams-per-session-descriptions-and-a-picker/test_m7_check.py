@@ -543,6 +543,13 @@ class SegmentTest(TempDir):
             with self.assertRaises(mc.Failed):
                 mc.membership_dirs(bad_dirs, bad_relaunch)
 
+    def test_the_say_refusal_texts_are_the_products(self) -> None:
+        """F7 and the choices read pingbus's own words: cli.py CHOICES_HEAD, inbox.py NO_RECORD_YET."""
+        cli = mc._checkout_module("helpers.pingbus.cli")
+        inbox = mc._checkout_module("helpers.pingbus.inbox")
+        self.assertEqual(mc.choices_head(), cli.CHOICES_HEAD)
+        self.assertEqual(mc.no_record_yet(), inbox.NO_RECORD_YET)
+
     def test_a_product_value_is_read_by_name(self) -> None:
         """Any named string of this checkout's helpers/ or Go package, its placeholders filled;
         a missing, doubled, non-text or badly filled one fails."""
@@ -788,7 +795,7 @@ class ReviewFixesTest(TempDir):
     def test_f7_say_waiting_on_an_unverified_record_is_not_yet(self) -> None:
         unverified = self.write(
             "u.err",
-            f"pingbus: {mc.CHOICES_TEXT}\n  {TEAM_A}  (no verified team record yet: run pingbus recv "
+            f"pingbus: {mc.choices_head()}\n  {TEAM_A}  (no verified team record yet: run pingbus recv "
             "or name it with --team)\n",
         )
         other = self.write("o.err", "pingbus: refused: target\n")
