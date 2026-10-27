@@ -225,9 +225,9 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
     overlay/tempdirs on every run, and podman recreates it on each use, now on every consumer
     install because ccc's image is built there (Plan 00233). Fixed: removed only when
     `podman info` fails. Re-run after that fix is pushed.
-- [x] ✅ **Task 3.3**: The vmtest attendant fails an attended run on an unanswered prompt in
-  seconds, not at provisionLimit (90 minutes): an idle-output bound once a prompt-shaped line
-  is the last output, so the next unknown question costs seconds. Tests first, in
+- [x] ✅ **Task 3.3**: The vmtest attendant fails an attended run on an unanswered prompt within
+  two minutes, not at provisionLimit (90 minutes): an idle-output bound once a prompt-shaped
+  line is the last output, so the next unknown question costs 60 to 120 s. Tests first, in
   `src-go/internal/vmtest` (attend.go, steps.go).
   - As built: a partial line ending in `:`, `?`, `]`, `)` or `>` with nothing after it for
     `promptIdle` (60s, on `Env.Sleep`) ends the run as a fail, the transcript quoting its

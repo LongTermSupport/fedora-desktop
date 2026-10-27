@@ -42,7 +42,7 @@
 changed-plays
 
 # Plan 00228 Tasks 3.2 and 3.3 (rerun): the consumer install proved in the VM lab, with the
-# attendant now failing an unanswered prompt in seconds; the last run's one failure (the
+# attendant now failing an unanswered prompt within two minutes; the last run's one failure (the
 # consumer rerun changed play-podman.yml's tempdirs) is fixed above. deploy.bash runs
 # play-vm-test-lab.yml (the vmtest CLI rebuilt with its attended-run driver, the manifest with
 # desktop-consumer-install, the new guest checker). acceptance.bash then ensures the desktop
