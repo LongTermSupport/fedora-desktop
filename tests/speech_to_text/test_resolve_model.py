@@ -12,6 +12,7 @@ The script runs for real with a stub `ctranslate2` module first on PYTHONPATH, s
 GPU answer is controlled without CUDA. Stdlib only. Run by scripts/test-wsi-stop-grace.bash.
 """
 
+import json
 import os
 import pathlib
 import subprocess
@@ -284,6 +285,108 @@ class ModelOnDiskTest(ResolverRun):
                               cache=self.case / "empty")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "distil-whisper/distil-large-v3.5-ct2\n")
+
+
+class FitTest(ResolverRun):
+    """Plan 00234: `--fit` says, for each model the model manager offers, how much GPU
+    memory it needs and whether this machine's NVIDIA GPU has that much, so the manager
+    can mark the models that fit and refuse the ones that do not. The memory is
+    nvidia-smi's; without a GPU CTranslate2 can use, everything runs on the CPU."""
+
+    def setUp(self):
+        self._case = tempfile.TemporaryDirectory()
+        self.case = pathlib.Path(self._case.name)
+        self.bin = self.case / "bin"
+        self.bin.mkdir()
+
+    def tearDown(self):
+        self._case.cleanup()
+
+    def nvidia_smi(self, body):
+        script = self.bin / "nvidia-smi"
+        script.write_text("#!/bin/sh\n" + body)
+        script.chmod(0o755)
+
+    def fit(self, gpus=1, nvidia_nodes=True):
+        path = f"{self.bin}:{os.environ.get('PATH', '/usr/bin:/bin')}"
+        return self.resolve("--fit", gpus=gpus, nvidia_nodes=nvidia_nodes,
+                            env_extra={"PATH": path})
+
+    def report(self, **kwargs):
+        result = self.fit(**kwargs)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_a_4_gb_gpu_fits_the_distilled_models_and_not_large_v3(self):
+        self.nvidia_smi('echo "NVIDIA RTX A2000 Laptop GPU, 4096"\n')
+        report = self.report()
+        self.assertEqual(report["device"], "cuda")
+        self.assertEqual(report["gpu"], "NVIDIA RTX A2000 Laptop GPU")
+        self.assertEqual(report["gpu_memory_mb"], 4096)
+        models = report["models"]
+        self.assertFalse(models["large-v3"]["fits"])
+        self.assertFalse(models["large-v2"]["fits"])
+        for name in ("distil-large-v3.5", "large-v3-turbo", "medium.en", "tiny"):
+            self.assertTrue(models[name]["fits"], name)
+
+    def test_the_need_is_the_download_size_with_room_to_run(self):
+        self.nvidia_smi('echo "Some GPU, 4096"\n')
+        models = self.report()["models"]
+        # 1.25 x the 75 MiB download + 850 MiB, rounded up
+        self.assertEqual(models["tiny"], {"size_mb": 75, "needs_mb": 944, "fits": True})
+        self.assertEqual(models["large-v3"]["needs_mb"], 4535)
+
+    def test_nvidia_smi_is_asked_for_name_and_total_memory_only(self):
+        self.nvidia_smi(f'echo "$*" > "{self.case}/args"\necho "Some GPU, 8192"\n')
+        self.report()
+        self.assertEqual((self.case / "args").read_text().split(),
+                         ["--query-gpu=name,memory.total", "--format=csv,noheader,nounits"])
+
+    def test_with_two_gpus_the_smaller_is_the_one_judged(self):
+        self.nvidia_smi('echo "Big GPU, 24576"\necho "Small GPU, 4096"\n')
+        report = self.report(gpus=2)
+        self.assertEqual(report["gpu"], "Small GPU")
+        self.assertEqual(report["gpu_memory_mb"], 4096)
+
+    def test_without_a_gpu_everything_runs_on_the_cpu(self):
+        self.nvidia_smi(f'touch "{self.case}/asked"\nexit 9\n')
+        report = self.report(gpus=0, nvidia_nodes=False)
+        self.assertEqual(report["device"], "cpu")
+        self.assertIsNone(report["gpu"])
+        self.assertIsNone(report["gpu_memory_mb"])
+        self.assertTrue(all(m["fits"] for m in report["models"].values()))
+        self.assertFalse((self.case / "asked").exists(), "no GPU, so nvidia-smi is not asked")
+
+    def test_a_gpu_without_nvidia_smi_fails_naming_the_play(self):
+        # PATH is only the empty stub directory: python3 is run by absolute path
+        result = self.resolve("--fit", gpus=1, nvidia_nodes=True,
+                              env_extra={"PATH": str(self.bin)})
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("nvidia-smi", result.stderr)
+        self.assertIn("play-nvidia.yml", result.stderr)
+
+    def test_a_failing_nvidia_smi_fails_with_its_reason(self):
+        self.nvidia_smi('echo "NVIDIA-SMI has failed to communicate" >&2\nexit 9\n')
+        result = self.fit()
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("failed to communicate", result.stderr)
+
+    def test_an_unreadable_nvidia_smi_answer_fails(self):
+        for body in ('echo "Some GPU, [N/A]"\n', 'echo ""\n', 'echo "no comma"\n'):
+            self.nvidia_smi(body)
+            result = self.fit()
+            self.assertEqual(result.returncode, 1, body)
+            self.assertEqual(result.stdout, "", body)
+            self.assertIn("nvidia-smi", result.stderr, body)
+
+    def test_a_gpu_ctranslate2_cannot_see_fails(self):
+        self.nvidia_smi('echo "Some GPU, 4096"\n')
+        result = self.fit(gpus=0, nvidia_nodes=True)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("counts 0", result.stderr)
 
 
 if __name__ == "__main__":

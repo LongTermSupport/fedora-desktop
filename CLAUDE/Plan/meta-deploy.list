@@ -46,7 +46,16 @@
 # the old sudo aliases. Host check after it, by the host agent: `sudo -n -l` lists only the
 # two commands, a bare `shutdown-with-update --help` runs with no password prompt, and
 # `sudo -n /usr/local/bin/shutdown-with-update --in 5 --bogus` is refused by sudo.
+# Plan 00234: play-speech-to-text.yml installs the model manager that marks which models
+# fit this machine's GPU (and the resolver's --fit it asks), and play-nvidia.yml carries the
+# rewritten Secure Boot enrolment steps (text only; nothing else in it changes).
 changed-plays
+
+# Plan 00234: read-only acceptance of the installed model manager against the real GPU:
+# the installed copies are the checkout's, wsi-resolve-model --fit names the NVIDIA GPU and
+# its memory, and the manager preselects an English-only model that fits and refuses each
+# one that does not. Nothing is downloaded or removed.
+00234-stt-model-manager-fits-gpu
 
 # Plan 00232 (issue #114): read-only host facts for ccy's per-container network policy
 # (podman, pasta and netavark versions, the host and bus addresses, each live session's
