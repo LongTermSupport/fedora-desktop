@@ -33,19 +33,6 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plan 00201 Task 2.30 and Task 2.31: the plays whose inputs changed since the host run at
-# fe894347c run again. play-agent-bus.yml and play-agent-bus-element.yml: Task 2.30's play text,
-# their asserts naming the host_vars file actually read (CCY_TEAMS_HOST_VARS when ccy-teams hands
-# it on); text only, so each reruns as a changed play with nothing else to do. play-claude-yolo.yml
-# (CCY 3.100.34, container 2.79.15 unchanged, so no image rebuild): ccy's move into tmux carries
-# CCY_TEAMS_HOST_VARS to the launcher in the session; and ccy-teams rebuilt with Task 2.31's
-# fixes (shutdown answers Claude Code's "Background work is running" question with "Exit and
-# stop tasks"; the board's KIND for a cc host seat reads host; the settings filter ranks the
-# best match first). Host check after it, by the host agent (Plan 00201 Task 2.31): step 12
-# with a background task in one session, and chooser-teams-up.bash's teams applied once with
-# their homeserver start times unchanged.
-changed-plays
-
 # Plan 00192 Task 3.4, freeze step 3: deploy.bash runs play-claude-yolo.yml, play-podfreeze.yml
 # and play-lxcfreeze.yml again (asks for sudo at the start, for lxcfreeze), then acceptance.bash,
 # now comparing the Go tools' layout with the saved bash baseline instead of every row, so
