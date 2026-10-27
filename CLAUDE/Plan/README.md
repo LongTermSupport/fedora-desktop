@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00234-stt-model-manager-fits-gpu](00234-stt-model-manager-fits-gpu/) - In Progress (host acceptance and the owner's look pending). The speech-to-text model manager shows each model's GPU memory need against this machine's NVIDIA GPU (or says the CPU is used), preselects the most capable English-only model that fits and refuses one that does not; the sizes and fit rule live in wsi-resolve-model --fit. Also play-nvidia.yml's MOK enrolment steps, screen by screen.
+
 - [00232-ccy-network-policy-per-container](00232-ccy-network-policy-per-container/) - In Progress (host triage pending, design awaiting review). Issue #114: a network policy per ccy container, held in its own network namespace from the host; the default refuses private ranges and the host itself, derives everything agent teams need, and tells the session its limits.
 
 - [00231-shutdown-with-update-runs-without-a-password-prompt](00231-shutdown-with-update-runs-without-a-password-prompt/) - In Progress. Run bare, shutdown-with-update and reboot-with-update hand themselves to sudo, which a scoped, argument-pinned sudoers rule lets the desktop user through without a password; a consumer install with no ccy has no sessions to warn. Under Defence Before Fix: the `sudoers-rule` check in `qa-ansible`.

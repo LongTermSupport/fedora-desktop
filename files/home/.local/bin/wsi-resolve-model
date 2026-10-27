@@ -3,6 +3,7 @@
 
     wsi-resolve-model [--suggest] --mode batch|streaming [--language CODE] [MODEL]
     wsi-resolve-model --gpu-count
+    wsi-resolve-model --fit
 
 MODEL is the panel's Whisper Model setting (WHISPER_MODEL); empty or `auto` means
 choose. `auto` with a CUDA device picks distil-large-v3.5 for English and
@@ -23,6 +24,12 @@ model manager and the play's verify task.
 
 --gpu-count prints the checked count alone, for the play's verify task.
 
+--fit prints one JSON object for the model manager: `device` (cuda or cpu), `gpu` and
+`gpu_memory_mb` (nvidia-smi's name and total memory of the smallest NVIDIA GPU, null on
+the CPU), and `models`, each offered model's `size_mb`, `needs_mb` (GPU memory, by the
+rule at NEED_FACTOR) and `fits`. On the CPU every model fits. It fails, exit 1, when the
+GPU check above fails or nvidia-smi cannot answer, never guessing a fit.
+
 stdout is the argument for faster-whisper's WhisperModel (or the count) and nothing
 else: a model name, a model directory, or a Hugging Face repo ID for a name the
 installed faster-whisper may not know. Diagnostics go to stderr. Not interactive: the
@@ -34,7 +41,11 @@ Exit: 0 resolved; 1 cannot choose (GPU probe, language, unknown name); 2 usage;
 
 import argparse
 import glob
+import json
+import math
 import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -75,6 +86,22 @@ HF_REPO = {
     "large-v3-turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
     "turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
 }
+
+# What each model the manager offers downloads, in MiB, rounded up: the sum of the repo's
+# file sizes from the Hugging Face API (/api/models/<repo>?blobs=true). model.bin is all
+# but a few MiB of it, float16, as faster-whisper loads it on CUDA.
+SIZE_MB = {
+    "tiny": 75, "base": 142, "small": 464, "medium": 1460,
+    "large-v2": 2947, "large-v3": 2948, "large-v3-turbo": 1547,
+    "tiny.en": 75, "base.en": 141, "small.en": 464, "medium.en": 1460,
+    "distil-large-v3.5": 1447,
+}
+
+# GPU memory a model needs: its weights x 1.25 plus 850 MiB for the CUDA context and
+# decoding. Calibrated on faster-whisper's README figure for large-v2 in float16 with
+# beam 5 (4525 MiB); this rule gives 4534.
+NEED_FACTOR = 1.25
+NEED_OVERHEAD_MB = 850
 
 NOT_DOWNLOADED = 3
 MANAGER_HINT = ("Open the model manager (Manage Whisper Models... in the speech-to-text "
@@ -179,6 +206,61 @@ def checked_gpu_count():
     return None
 
 
+def gpu_memory_needed_mb(name):
+    return math.ceil(SIZE_MB[name] * NEED_FACTOR + NEED_OVERHEAD_MB)
+
+
+def smallest_nvidia_gpu():
+    """(name, total MiB) of the NVIDIA GPU with the least memory, from nvidia-smi: with
+    several, the one CTranslate2 uses may be any of them. Raises with the reason."""
+    smi = shutil.which("nvidia-smi")
+    if smi is None:
+        raise RuntimeError("nvidia-smi is not installed, so the GPU's memory cannot be read. "
+                           "Re-run play-nvidia.yml.")
+    result = subprocess.run([smi, "--query-gpu=name,memory.total",
+                             "--format=csv,noheader,nounits"],
+                            capture_output=True, text=True, timeout=30, check=False)
+    if result.returncode != 0:
+        reason = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError(f"nvidia-smi failed (exit {result.returncode}): {reason}")
+    gpus = []
+    for line in result.stdout.splitlines():
+        name, _, memory = line.rpartition(",")
+        if not name.strip() or not memory.strip().isdigit():
+            raise RuntimeError(f"cannot read nvidia-smi's answer {line!r}: expected "
+                               "'<name>, <MiB>'")
+        gpus.append((name.strip(), int(memory)))
+    if not gpus:
+        raise RuntimeError("nvidia-smi lists no GPU, but CTranslate2 counts one")
+    return min(gpus, key=lambda gpu: gpu[1])
+
+
+def fit_report(gpu):
+    """Each offered model's size, GPU memory need and whether it fits `gpu`, a
+    (name, MiB) pair, or None when the CPU is used and every model fits."""
+    return {
+        "device": "cpu" if gpu is None else "cuda",
+        "gpu": None if gpu is None else gpu[0],
+        "gpu_memory_mb": None if gpu is None else gpu[1],
+        "models": {name: {"size_mb": size, "needs_mb": gpu_memory_needed_mb(name),
+                          "fits": gpu is None or gpu_memory_needed_mb(name) <= gpu[1]}
+                   for name, size in SIZE_MB.items()},
+    }
+
+
+def print_fit():
+    gpu_count = checked_gpu_count()
+    if gpu_count is None:
+        return 1
+    try:
+        gpu = smallest_nvidia_gpu() if gpu_count else None
+    except (RuntimeError, OSError, subprocess.TimeoutExpired) as e:
+        print(f"wsi-resolve-model: {e}", file=sys.stderr)
+        return 1
+    print(json.dumps(fit_report(gpu)))
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="wsi-resolve-model",
@@ -186,6 +268,8 @@ def main(argv=None):
     parser.add_argument("--gpu-count", action="store_true",
                         help="print the CUDA device count CTranslate2 sees, checked against "
                              "the NVIDIA device nodes, and nothing else")
+    parser.add_argument("--fit", action="store_true",
+                        help="print, as JSON, which offered models fit this machine's GPU")
     parser.add_argument("--suggest", action="store_true",
                         help="name the model without checking that it is downloaded")
     parser.add_argument("--mode", choices=sorted(AUTO_WITHOUT_GPU),
@@ -202,8 +286,10 @@ def main(argv=None):
             return 1
         print(gpu_count)
         return 0
+    if args.fit:
+        return print_fit()
     if args.mode is None:
-        parser.error("--mode is required (or --gpu-count)")
+        parser.error("--mode is required (or --gpu-count, or --fit)")
 
     language = args.language.strip().lower()
     name = args.model.strip() or "auto"

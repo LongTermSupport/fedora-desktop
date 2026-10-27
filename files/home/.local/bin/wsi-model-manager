@@ -10,6 +10,13 @@ are on disk. Progress goes to stderr; stdout carries one line per model,
 Exit 0 when all are downloaded, 1 when the resolver cannot choose, a download fails or
 the weights are still missing, 2 on a usage error.
 
+Each row says how much GPU memory the model needs and whether this machine's NVIDIA GPU
+has that much (wsi-resolve-model --fit, the one home of the sizes and the rule), or that
+there is no usable NVIDIA GPU and the models run on the CPU. The cursor starts on the
+most capable English-only model that fits. A model that does not fit is refused with
+what it needs and what fits instead, and the list stays open for another choice; if
+the fit cannot be told, every download is refused with the reason.
+
 Every action is a button on screen, with its key beside it as a shortcut
 (CLAUDE/InteractiveScripts.md rule 14): Download (d, or Enter on a row), Remove (r),
 Refresh (F5), Clear filter (Esc) and Quit (q). / moves to the filter box; Tab moves
@@ -19,6 +26,7 @@ No (n, Esc) buttons.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -56,41 +64,28 @@ except ImportError:
 # Model catalogue
 # ---------------------------------------------------------------------------
 
-# (model_id, label, hf_repo, approx_size, english_only, description)
-MODELS: list[tuple[str, str, str, str, bool, str]] = [
+# (model_id, label, hf_repo, english_only, description), smallest to most capable within
+# each language group: the English-only model preselected is the last one that fits.
+# Sizes and GPU memory needs are wsi-resolve-model's (--fit), never kept here.
+MODELS: list[tuple[str, str, str, bool, str]] = [
     # Multilingual
-    ('tiny',            'Tiny',           'Systran/faster-whisper-tiny',            '~75MB',  False, 'Fastest, basic accuracy'),
-    ('base',            'Base',           'Systran/faster-whisper-base',            '~142MB', False, 'Fast, good accuracy'),
-    ('small',           'Small',          'Systran/faster-whisper-small',           '~466MB', False, 'Balanced speed/accuracy'),
-    ('medium',          'Medium',         'Systran/faster-whisper-medium',          '~1.5GB', False, 'Great accuracy'),
-    ('large-v2',        'Large v2',       'Systran/faster-whisper-large-v2',        '~3.0GB', False, 'Very high accuracy'),
-    ('large-v3',        'Large v3',       'Systran/faster-whisper-large-v3',        '~3.0GB', False, 'Best quality'),
-    ('large-v3-turbo',  'Large v3 Turbo', 'mobiuslabsgmbh/faster-whisper-large-v3-turbo', '~800MB', False, 'Distilled, fast + accurate'),
+    ('tiny',            'Tiny',           'Systran/faster-whisper-tiny',            False, 'Fastest, basic accuracy'),
+    ('base',            'Base',           'Systran/faster-whisper-base',            False, 'Fast, good accuracy'),
+    ('small',           'Small',          'Systran/faster-whisper-small',           False, 'Balanced speed/accuracy'),
+    ('medium',          'Medium',         'Systran/faster-whisper-medium',          False, 'Great accuracy'),
+    ('large-v2',        'Large v2',       'Systran/faster-whisper-large-v2',        False, 'Very high accuracy'),
+    ('large-v3',        'Large v3',       'Systran/faster-whisper-large-v3',        False, 'Best quality'),
+    ('large-v3-turbo',  'Large v3 Turbo', 'mobiuslabsgmbh/faster-whisper-large-v3-turbo', False, 'Distilled, fast + accurate'),
     # English-only
-    ('tiny.en',         'Tiny EN',        'Systran/faster-whisper-tiny.en',         '~41MB',  True,  'English only — fastest'),
-    ('base.en',         'Base EN',        'Systran/faster-whisper-base.en',         '~77MB',  True,  'English only — fast'),
-    ('small.en',        'Small EN',       'Systran/faster-whisper-small.en',        '~252MB', True,  'English only — balanced'),
-    ('medium.en',       'Medium EN',      'Systran/faster-whisper-medium.en',       '~789MB', True,  'English only — great'),
-    ('distil-large-v3.5', 'Distil Large v3.5', 'distil-whisper/distil-large-v3.5-ct2', '~1.5GB', True, 'English only — fewer errors than turbo, faster'),
+    ('tiny.en',         'Tiny EN',        'Systran/faster-whisper-tiny.en',         True,  'English only — fastest'),
+    ('base.en',         'Base EN',        'Systran/faster-whisper-base.en',         True,  'English only — fast'),
+    ('small.en',        'Small EN',       'Systran/faster-whisper-small.en',        True,  'English only — balanced'),
+    ('medium.en',       'Medium EN',      'Systran/faster-whisper-medium.en',       True,  'English only — great'),
+    ('distil-large-v3.5', 'Distil Large v3.5', 'distil-whisper/distil-large-v3.5-ct2', True, 'English only — fewer errors than turbo, faster'),
 ]
+LABEL_FOR = {model_id: label for model_id, label, *_ in MODELS}
 
 CACHE_DIR = Path.home() / '.cache' / 'huggingface' / 'hub'
-
-# Approximate download sizes in bytes (used for progress display)
-EXPECTED_BYTES: dict[str, int] = {
-    'tiny':             75_000_000,
-    'base':            142_000_000,
-    'small':           466_000_000,
-    'medium':        1_500_000_000,
-    'large-v2':      3_000_000_000,
-    'large-v3':      3_000_000_000,
-    'large-v3-turbo':  800_000_000,
-    'tiny.en':          41_000_000,
-    'base.en':          77_000_000,
-    'small.en':        252_000_000,
-    'medium.en':       789_000_000,
-    'distil-large-v3.5': 1_517_000_000,
-}
 
 
 RESOLVER = Path(__file__).resolve().parent / 'wsi-resolve-model'
@@ -130,6 +125,72 @@ def auto_suggestions(language: str) -> dict[str, list[str]]:
         name = result.stdout.strip()
         picks.setdefault(id_for.get(name, name), []).append(mode)
     return picks
+
+
+def machine_fit() -> dict:
+    """wsi-resolve-model --fit: each offered model's size, GPU memory need and whether it
+    fits this machine. Raises RuntimeError with the resolver's reason when it cannot tell."""
+    result = subprocess.run([str(RESOLVER), '--fit'], capture_output=True, text=True,
+                            timeout=60, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip().splitlines()[-1]
+                           if result.stderr.strip() else f'{RESOLVER} --fit failed')
+    return json.loads(result.stdout)
+
+
+def gb(mb: int) -> str:
+    return f'{mb / 1024:.1f} GB'
+
+
+def human_mb(mb: int) -> str:
+    return gb(mb) if mb >= 1024 else f'{mb} MB'
+
+
+def best_english_fit(fit: dict) -> str | None:
+    """The most capable English-only model that fits, or None if none does."""
+    fitting = [model_id for model_id, _label, _repo, english_only, _desc in MODELS
+               if english_only and fit['models'][model_id]['fits']]
+    return fitting[-1] if fitting else None
+
+
+def fit_unknown_reason(fit_error: str) -> str:
+    return (f'Downloads are off: this manager cannot tell which models fit this '
+            f'machine ({fit_error}). Fix that, then reopen the manager.')
+
+
+def download_refusal(model_id: str, fit: dict | None, fit_error: str) -> str | None:
+    """Why model_id may not be downloaded here, or None when it may."""
+    if fit is None:
+        return fit_unknown_reason(fit_error)
+    model = fit['models'][model_id]
+    if model['fits']:
+        return None
+    best = best_english_fit(fit)
+    instead = (f'{LABEL_FOR[best]} fits and is the best English model here.' if best
+               else 'No English model fits this GPU.')
+    return (f'{LABEL_FOR[model_id]} needs about {gb(model["needs_mb"])} of GPU memory, '
+            f'but the {fit["gpu"]} has {gb(fit["gpu_memory_mb"])}, so it would not load. '
+            f'Choose a smaller model: {instead}')
+
+
+def fit_cell(model_id: str, fit: dict | None) -> str:
+    if fit is None:
+        return '?'
+    if fit['device'] == 'cpu':
+        return 'CPU'
+    model = fit['models'][model_id]
+    verdict = '✓ fits' if model['fits'] else '✗ too big'
+    return f'{verdict} ({gb(model["needs_mb"])})'
+
+
+def machine_line(fit: dict | None, fit_error: str) -> str:
+    """One line on what the models are judged against."""
+    if fit is None:
+        return f'cannot tell which models fit this machine: {fit_error}'
+    if fit['device'] == 'cpu':
+        return ('No usable NVIDIA GPU: models run on the CPU (slower); no GPU memory '
+                'limit applies')
+    return f'GPU: {fit["gpu"]}, {gb(fit["gpu_memory_mb"])}'
 
 
 def repo_cache_dir(repo_id: str) -> Path:
@@ -231,7 +292,7 @@ class ModelManagerApp(App):
         height: 1fr;
     }
     #status {
-        height: 1;
+        height: auto;
         padding: 0 1;
         background: $surface;
         color: $text-muted;
@@ -259,6 +320,8 @@ class ModelManagerApp(App):
         self._download_progress: dict[str, str] = {}  # model_id → progress string
         self._suggested: dict[str, list[str]] = {}  # model_id → modes auto picks it for
         self._suggest_error = ''
+        self._fit: dict | None = None  # wsi-resolve-model --fit; None when it cannot tell
+        self._fit_error = ''
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -279,13 +342,21 @@ class ModelManagerApp(App):
         self.title = 'Whisper Model Manager'
         self.sub_title = 'faster-whisper (Systran)'
         table = self.query_one('#table', DataTable)
-        table.add_columns('Status', 'Model', 'Size', 'Lang', 'Description')
+        table.add_columns('Status', 'Model', 'Size', 'GPU memory', 'Lang', 'Description')
         try:
             self._suggested = auto_suggestions(session_language())
         except (RuntimeError, OSError, subprocess.TimeoutExpired) as e:
             self._suggest_error = f'auto cannot choose a model here: {e}'
+        try:
+            self._fit = machine_fit()
+        except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired) as e:
+            self._fit_error = str(e)
+            self.notify(fit_unknown_reason(self._fit_error), severity='error', timeout=30)
         self._installed = get_installed()
         self._rebuild_table()
+        best = best_english_fit(self._fit) if self._fit else None
+        if best in self._visible_model_ids:
+            table.move_cursor(row=self._visible_model_ids.index(best))
         table.focus()
 
     # ------------------------------------------------------------------
@@ -298,7 +369,7 @@ class ModelManagerApp(App):
         self._visible_model_ids = []
         f = self._filter_text.lower()
 
-        for model_id, label, _repo, size, english_only, desc in MODELS:
+        for model_id, label, _repo, english_only, desc in MODELS:
             if f and f not in label.lower() and f not in desc.lower() and f not in model_id.lower():
                 continue
 
@@ -315,7 +386,11 @@ class ModelManagerApp(App):
 
             if model_id in self._suggested:
                 label = f'{label}  ★ auto'
-            table.add_row(status, label, size, lang, desc, key=model_id)
+            size = '?' if self._fit is None else human_mb(self._fit['models'][model_id]['size_mb'])
+            cell = fit_cell(model_id, self._fit)
+            fit_style = 'red' if cell.startswith('✗') else 'green' if cell.startswith('✓') else 'dim'
+            table.add_row(status, label, size, Text(cell, style=fit_style), lang, desc,
+                          key=model_id)
             self._visible_model_ids.append(model_id)
 
         self._update_status()
@@ -324,14 +399,13 @@ class ModelManagerApp(App):
         n = len(self._installed)
         total = len(MODELS)
         dl = len(self._downloading)
-        msg = f'{n} of {total} models installed'
+        msg = f'{machine_line(self._fit, self._fit_error)}  ·  {n} of {total} models installed'
         if dl:
             msg += f'  ·  {dl} downloading...'
         if self._suggest_error:
             msg += f'  ·  {self._suggest_error}'
         elif self._suggested:
-            label_for = {model_id: label for model_id, label, *_ in MODELS}
-            picks = ', '.join(f"{label_for.get(m, m)} ({' and '.join(modes)})"
+            picks = ', '.join(f"{LABEL_FOR.get(m, m)} ({' and '.join(modes)})"
                               for m, modes in self._suggested.items())
             msg += f'  ·  ★ auto picks {picks} here'
             if not n:
@@ -389,11 +463,17 @@ class ModelManagerApp(App):
         if model_id in self._downloading:
             self.notify(f'{model_id} is already downloading', severity='warning')
             return
+        self._start_download(model_id)
 
-        entry = next((m for m in MODELS if m[0] == model_id), None)
-        if not entry:
+    def _start_download(self, model_id: str) -> None:
+        """Download model_id unless it does not fit here; then say why and stay, so
+        another model can be chosen."""
+        refusal = download_refusal(model_id, self._fit, self._fit_error)
+        if refusal:
+            self.notify(refusal, title='Too big for this machine' if self._fit else
+                        'Cannot check this machine', severity='error', timeout=15)
             return
-
+        entry = next(m for m in MODELS if m[0] == model_id)
         self._downloading.add(model_id)
         self._rebuild_table()
         self.notify(f'Downloading {model_id}… this may take several minutes')
@@ -415,7 +495,7 @@ class ModelManagerApp(App):
         entry = next((m for m in MODELS if m[0] == model_id), None)
         repo_id = entry[2] if entry else f'Systran/faster-whisper-{model_id}'
         blobs_dir = repo_cache_dir(repo_id) / 'blobs'
-        expected = EXPECTED_BYTES.get(model_id, 0)
+        expected = self._fit['models'][model_id]['size_mb'] * 1024 * 1024
         while model_id in self._downloading:
             try:
                 if blobs_dir.exists():
@@ -486,14 +566,7 @@ class ModelManagerApp(App):
         if not model_id:
             return
         if model_id not in self._installed and model_id not in self._downloading:
-            entry = next((m for m in MODELS if m[0] == model_id), None)
-            if not entry:
-                return
-            self._downloading.add(model_id)
-            self._rebuild_table()
-            self.notify(f'Downloading {model_id}… this may take several minutes')
-            self._do_download(model_id, entry[2])
-            self._poll_progress(model_id)
+            self._start_download(model_id)
 
 
 # ---------------------------------------------------------------------------
@@ -503,7 +576,6 @@ class ModelManagerApp(App):
 def download_auto() -> int:
     """Download each model `auto` picks here, then verify its weights are on disk."""
     repo_for = {model_id: repo for model_id, _label, repo, *_ in MODELS}
-    size_for = {model_id: size for model_id, _label, _repo, size, *_ in MODELS}
     try:
         language = session_language()
         picks = auto_suggestions(language)
@@ -518,7 +590,7 @@ def download_auto() -> int:
 
     for model_id, modes in picks.items():
         repo = repo_for[model_id]
-        print(f'wsi-model-manager: downloading {model_id} ({repo}, {size_for[model_id]}) '
+        print(f'wsi-model-manager: downloading {model_id} ({repo}) '
               f'for {" and ".join(modes)}, language {language}', file=sys.stderr)
         try:
             # token=False: the models are public; avoids system keyring password prompts

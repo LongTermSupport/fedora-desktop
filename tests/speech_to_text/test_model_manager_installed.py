@@ -1,4 +1,5 @@
-"""wsi-model-manager counts a model as installed only when its weights are on disk.
+"""wsi-model-manager counts a model as installed only when its weights are on disk, and
+offers only the models that fit this machine's GPU (Plan 00234).
 
 An interrupted download leaves a cache snapshot holding the small config files and no
 model.bin. The manager once counted any snapshot as installed, and then refused to
@@ -297,6 +298,88 @@ class DownloadAutoTest(unittest.TestCase):
             rc = manager.main(["--bogus"])
         self.assertEqual(rc, 2)
         self.app.assert_not_called()
+
+
+class FitsThisMachineTest(unittest.TestCase):
+    """Plan 00234: the manager shows which models fit this machine's GPU, preselects the
+    biggest English-only one that does, and refuses to download one that does not. The
+    sizes and the fit rule are wsi-resolve-model's (`--fit`), so these tests build the
+    machine's report with the resolver's own fit_report."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.resolver = stt_stubs.load_script("wsi-resolve-model", "wsi_resolve_model_fit")
+
+    def report(self, gpu=("NVIDIA RTX A2000 Laptop GPU", 4096)):
+        return self.resolver.fit_report(gpu)
+
+    def test_every_offered_model_has_a_size_and_the_resolvers_language(self):
+        report = self.report()
+        for model_id, _label, _repo, english_only, _desc in manager.MODELS:
+            self.assertIn(model_id, report["models"], model_id)
+            self.assertEqual(english_only, self.resolver.is_english_only(model_id), model_id)
+
+    def test_the_biggest_english_only_model_that_fits_is_preselected(self):
+        self.assertEqual(manager.best_english_fit(self.report()), "distil-large-v3.5")
+        self.assertEqual(manager.best_english_fit(self.report(("Small GPU", 2048))), "small.en")
+        self.assertEqual(manager.best_english_fit(self.report(None)), "distil-large-v3.5")
+
+    def test_nothing_is_preselected_when_no_english_model_fits(self):
+        self.assertIsNone(manager.best_english_fit(self.report(("Tiny GPU", 512))))
+
+    def test_a_model_too_big_is_refused_saying_what_it_needs_and_what_fits(self):
+        reason = manager.download_refusal("large-v3", self.report(), "")
+        self.assertIsNotNone(reason)
+        for phrase in ("Large v3", "4.4 GB", "4.0 GB", "NVIDIA RTX A2000 Laptop GPU",
+                       "Distil Large v3.5"):
+            self.assertIn(phrase, reason)
+
+    def test_a_model_that_fits_is_not_refused(self):
+        self.assertIsNone(manager.download_refusal("distil-large-v3.5", self.report(), ""))
+
+    def test_on_the_cpu_nothing_is_refused(self):
+        self.assertIsNone(manager.download_refusal("large-v3", self.report(None), ""))
+
+    def test_when_the_fit_cannot_be_told_every_download_is_refused_with_the_reason(self):
+        reason = manager.download_refusal("tiny", None, "nvidia-smi is not installed")
+        self.assertIn("nvidia-smi is not installed", reason)
+
+    def test_the_fit_column_says_fits_or_too_big_with_the_memory_needed(self):
+        report = self.report()
+        self.assertEqual(manager.fit_cell("distil-large-v3.5", report), "✓ fits (2.6 GB)")
+        self.assertEqual(manager.fit_cell("large-v3", report), "✗ too big (4.4 GB)")
+        self.assertEqual(manager.fit_cell("large-v3", self.report(None)), "CPU")
+        self.assertEqual(manager.fit_cell("tiny", None), "?")
+
+    def test_the_machine_line_names_the_gpu_or_says_the_cpu_is_used(self):
+        self.assertEqual(manager.machine_line(self.report(), ""),
+                         "GPU: NVIDIA RTX A2000 Laptop GPU, 4.0 GB")
+        line = manager.machine_line(self.report(None), "")
+        self.assertIn("No usable NVIDIA GPU", line)
+        self.assertIn("CPU", line)
+        self.assertIn("cannot tell", manager.machine_line(None, "nvidia-smi failed"))
+
+    def test_the_report_is_asked_of_the_resolver(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            script = pathlib.Path(tmp) / "wsi-resolve-model"
+            script.write_text(f"#!/bin/sh\necho \"$*\" > {tmp}/args\n"
+                              "echo '{\"device\": \"cpu\", \"gpu\": null, "
+                              "\"gpu_memory_mb\": null, \"models\": {}}'\n")
+            script.chmod(0o755)
+            with mock.patch.object(manager, "RESOLVER", script):
+                self.assertEqual(manager.machine_fit()["device"], "cpu")
+            self.assertEqual(pathlib.Path(tmp, "args").read_text().split(), ["--fit"])
+
+    def test_a_resolver_that_cannot_judge_raises_its_last_stderr_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            script = pathlib.Path(tmp) / "wsi-resolve-model"
+            script.write_text("#!/bin/sh\necho 'detail' >&2\n"
+                              "echo 'wsi-resolve-model: nvidia-smi failed' >&2\nexit 1\n")
+            script.chmod(0o755)
+            with mock.patch.object(manager, "RESOLVER", script), \
+                    self.assertRaises(RuntimeError) as raised:
+                manager.machine_fit()
+            self.assertIn("nvidia-smi failed", str(raised.exception))
 
 
 if __name__ == "__main__":
