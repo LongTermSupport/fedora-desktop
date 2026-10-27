@@ -1,14 +1,18 @@
 # shellcheck shell=bash
 #
-# _acceptance-sessions.inc.bash — the two throwaway sessions acceptance.bash launches, judges and
-# removes: their launch, the waits for their container and seat, their end, the parking of
-# their seats and the teardown. Sourced by acceptance.bash after its constants (SEAT_A, SEAT_B,
-# TEAM, CCY_LAUNCHER, AGENT_BUS, LAST_LAUNCH, CHECKS and the waits), never executed: no shell
-# options, no exit.
+# _acceptance-sessions.inc.bash — the throwaway sessions acceptance.bash launches, judges and
+# removes: the two seated ones in the checkout, and an unseated one in a throwaway project
+# directory (CONNECT_KEY in CONNECT_DIR, a new git repository under the run directory) for the
+# `ccy --connect` check, so that check reaches no live session of the checkout. Their launch,
+# the waits for their container and seat, their end, the parking of their seats and the
+# teardown. Sourced by acceptance.bash after its constants (SEAT_A, SEAT_B, CONNECT_KEY, TEAM,
+# CCY_LAUNCHER, AGENT_BUS, LAST_LAUNCH, CHECKS and the waits), never executed: no shell options,
+# no exit.
 
 # Each session's launcher pid, the write end of its input fifo, and its container, by seat.
 declare -A PID=() FD=() CTR=()
 LAUNCH_CONF_SAVED=""
+CONNECT_DIR=""
 
 ccy_containers() { podman ps -a --filter label=ccy=true --format '{{.ID}}' | LC_ALL=C sort; }
 
@@ -71,30 +75,56 @@ poll() {
     done
 }
 
-# start <seat> — ccy headless in the checkout, seated, reading stream-json from a fifo this
-# script holds open; then its container, and its seat claimed.
-start() {
-    local seat="$1" before="${PLAN_RUN_DIR}/$1.containers-before" fifo="${PLAN_RUN_DIR}/$1.stdin" fd
+# launch <key> <dir> <ccy options...> — ccy headless in <dir>, reading stream-json from a fifo
+# this script holds open; then its container.
+launch() {
+    local key="$1" dir="$2" before="${PLAN_RUN_DIR}/$1.containers-before" fifo="${PLAN_RUN_DIR}/$1.stdin" fd
+    shift 2
     ccy_containers >"${before}" || return 1
     mkfifo -- "${fifo}" || return 1
     # Outside any tmux pane: a launch inside one would take that pane's session identity.
-    (cd -- "${PLAN_REPO_ROOT}" && unset TMUX TMUX_PANE && exec "${CCY_LAUNCHER}" --headless --no-restore --no-supervise \
-        --teams "${seat}@${TEAM}" --prompt "Plan 00232 acceptance: a throwaway session; no turn will be sent" \
+    (cd -- "${dir}" && unset TMUX TMUX_PANE && exec "${CCY_LAUNCHER}" --headless --no-restore --no-supervise "$@" \
+        --prompt "Plan 00232 acceptance: a throwaway session; no turn will be sent" \
         -- --input-format stream-json --output-format stream-json --verbose --model haiku) \
-        <"${fifo}" >"${PLAN_RUN_DIR}/${seat}.out" 2>"${PLAN_RUN_DIR}/${seat}.err" &
-    PID[${seat}]=$!
+        <"${fifo}" >"${PLAN_RUN_DIR}/${key}.out" 2>"${PLAN_RUN_DIR}/${key}.err" &
+    PID[${key}]=$!
     exec {fd}<>"${fifo}" || return 1
-    FD[${seat}]="${fd}"
-    printf '==> session %s: ccy started (pid %d)\n' "${seat}" "${PID[${seat}]}"
-    poll "${seat}" "${START_S}" "session ${seat}'s container" new_container "${seat}" "${before}" || return 1
+    FD[${key}]="${fd}"
+    printf '==> session %s: ccy started in %s (pid %d)\n' "${key}" "${dir}" "${PID[${key}]}"
+    poll "${key}" "${START_S}" "session ${key}'s container" new_container "${key}" "${before}" || return 1
+    printf '==> session %s: container %s\n' "${key}" "${CTR[${key}]}"
+}
+
+# start <seat> — a seated session in the checkout, and its seat claimed.
+start() {
+    local seat="$1"
+    launch "${seat}" "${PLAN_REPO_ROOT}" --teams "${seat}@${TEAM}" || return 1
     poll "${seat}" "${READY_S}" "session ${seat}'s seat claimed" seat_ready "${seat}" || return 1
-    printf '==> session %s: container %s, seat %s@%s claimed\n' "${seat}" "${CTR[${seat}]}" "${seat}" "${TEAM}"
+    printf '==> session %s: seat %s@%s claimed\n' "${seat}" "${seat}" "${TEAM}"
 }
 
 start_both() {
     cp -p -- "${LAST_LAUNCH}" "${PLAN_RUN_DIR}/last-launch.conf.before" || return 1
     LAUNCH_CONF_SAVED=1
     start "${SEAT_A}" && start "${SEAT_B}"
+}
+
+# connect_home <dir> — the launcher's per-project state directory of <dir> (its saved default
+# network; lib/network-management.bash get_network_persistence_file).
+connect_home() {
+    printf '%s/.claude-tokens/ccy/projects/%s\n' "${HOME}" "$(printf '%s' "$1" | sha256sum | cut -c1-16)"
+}
+
+# start_connect — an unseated session in a new git repository under the run directory, its own
+# ccy project, with the checkout's Quick Launch choices (token, keys) but no team and no network.
+start_connect() {
+    CONNECT_DIR="${PLAN_RUN_DIR}/np232-connect"
+    mkdir -p -- "${CONNECT_DIR}/.claude/ccy" || return 1
+    git -C "${CONNECT_DIR}" init -q || return 1
+    awk '/^LAST_TEAMS=/ { print "LAST_TEAMS=\"\""; next } /^LAST_NETWORK=/ { print "LAST_NETWORK=\"\""; next } { print }' \
+        "${LAST_LAUNCH}" >"${CONNECT_DIR}/.claude/ccy/.last-launch.conf" || return 1
+    chmod 600 -- "${CONNECT_DIR}/.claude/ccy/.last-launch.conf" || return 1
+    launch "${CONNECT_KEY}" "${CONNECT_DIR}"
 }
 
 # end_session <seat> — close its input (claude ends, the container goes); after EXIT_S, remove
@@ -138,6 +168,11 @@ teardown() {
     local failed=0
     end_session "${SEAT_A}" || failed=1
     end_session "${SEAT_B}" || failed=1
+    end_session "${CONNECT_KEY}" || failed=1
+    if [[ -n "${CONNECT_DIR}" ]]; then
+        rm -rf -- "$(connect_home "${CONNECT_DIR}")" || failed=1
+        CONNECT_DIR=""
+    fi
     park_seats || failed=1
     if [[ -n "${LAUNCH_CONF_SAVED}" ]]; then
         cp -p -- "${PLAN_RUN_DIR}/last-launch.conf.before" "${LAST_LAUNCH}" || failed=1

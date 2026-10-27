@@ -16,11 +16,15 @@
 #                                  control), and refused from the session at once (under 2 s, not
 #                                  a timeout)
 #   allowed <session>              DNS, the forge and the Claude API still work
-#   connect <session> <image> <launcher> <checkout>
+#   sole <session>                 the session is the only running container `ccy --connect` in
+#                                  its project reaches; exit 2 (COULD NOT ESTABLISH), naming the
+#                                  others, when it is not
+#   connect <session> <image> <launcher> <project-dir>
 #                                  a peer on a throwaway project network is refused, then reached
-#                                  after `ccy --connect <network>` (whose refresh opens its subnet
-#                                  and names it in the session's context file), then refused again
-#                                  after `ccy --disconnect <network>`
+#                                  after `ccy --connect <network>` run in <project-dir> (whose
+#                                  refresh opens its subnet and names it in the session's context
+#                                  file), then refused again after `ccy --disconnect <network>`;
+#                                  the session must be its project's sole one (exit 2 if not)
 #   context <session>              the session was started with its network limits in its system
 #                                  prompt (the marker CCY NETWORK POLICY)
 #   bus <session> <peer> <team> <seat> <peer-seat>
@@ -36,9 +40,9 @@
 #
 # Side effects: `blocked` runs a throwaway container (label ccy-netpolicy-acceptance) and a
 # python3 http.server on a random high port for its duration; `connect` makes a throwaway
-# network (same label) with a peer on it, and `ccy --connect` joins EVERY running ccy session of
-# <checkout> to it until its `ccy --disconnect`; the checkout's saved default network is put back
-# as it was. `bus` posts one message each way in <team>'s room. Nothing else is changed.
+# network (same label) with a peer on it, and `ccy --connect` in <project-dir> joins the one
+# session it is checked to reach to it until its `ccy --disconnect`; that project's saved
+# default network is put back as it was. `bus` posts one message each way in <team>'s room. Nothing else is changed.
 set -euo pipefail
 
 scriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -233,8 +237,29 @@ context_names() {
     fi
 }
 
+# check_sole <session> — `ccy --connect` reaches every running container whose name starts
+# <project>_yolo (lib/network-management.bash _project_running_containers), the project being
+# the session's ccy-project label. Exit 2 unless this session is the only one.
+check_sole() {
+    local c="$1" project name others
+    project="$(podman inspect --format '{{index .Config.Labels "ccy-project"}}' "${c}")"
+    name="$(podman inspect --format '{{.Name}}' "${c}")"
+    name="${name#/}"
+    others="$(podman ps --format '{{.Names}}' | awk -v p="${project}_yolo" -v n="${name}" 'index($0, p) == 1 && $0 != n')"
+    if [[ -z "${project}" ]] || [[ "${name}" != "${project}_yolo"* ]]; then
+        printf 'COULD NOT ESTABLISH: %s (project %s) is not a session ccy --connect in its project would reach\n' "${name}" "${project:-none}" >&2
+        exit 2
+    fi
+    if [[ -n "${others}" ]]; then
+        printf 'COULD NOT ESTABLISH: ccy --connect in project %s would also reach %s, not only %s\n' "${project}" "${others//$'\n'/ }" "${name}" >&2
+        exit 2
+    fi
+    pass "${name} is the only running session ccy --connect in project ${project} reaches"
+}
+
 check_connect() {
     local c="$1" image="$2" launcher="$3" checkout="$4" net peer peerIp name out pref saved="" connected=""
+    check_sole "${c}"
     net="ccy-np232-net-$$"
     peer="ccy-netpolicy-acceptance-net-$$"
     # The saved default network, as the launcher keeps it (lib/network-management.bash
@@ -332,15 +357,16 @@ case "${1-}" in
     held) check_held "${2:?held <session>}" ;;
     blocked) check_blocked "${2:?blocked <session> <image>}" "${3:?blocked <session> <image>}" ;;
     allowed) check_allowed "${2:?allowed <session>}" ;;
-    connect) check_connect "${2:?connect <session> <image> <launcher> <checkout>}" "${3:?connect <session> <image> <launcher> <checkout>}" \
-        "${4:?connect <session> <image> <launcher> <checkout>}" "${5:?connect <session> <image> <launcher> <checkout>}" ;;
+    sole) check_sole "${2:?sole <session>}" ;;
+    connect) check_connect "${2:?connect <session> <image> <launcher> <project-dir>}" "${3:?connect <session> <image> <launcher> <project-dir>}" \
+        "${4:?connect <session> <image> <launcher> <project-dir>}" "${5:?connect <session> <image> <launcher> <project-dir>}" ;;
     context) check_context "${2:?context <session>}" ;;
     bus) check_bus "${2:?bus <session> <peer> <team> <seat> <peer-seat>}" "${3:?bus <session> <peer> <team> <seat> <peer-seat>}" \
         "${4:?bus <session> <peer> <team> <seat> <peer-seat>}" "${5:?bus <session> <peer> <team> <seat> <peer-seat>}" \
         "${6:?bus <session> <peer> <team> <seat> <peer-seat>}" ;;
     ready) bus "${2:?ready <session> <team>}" "${3:?ready <session> <team>}" inbox </dev/null >/dev/null ;;
     *)
-        printf 'usage: %s caps|held|blocked|allowed|connect|context|bus|ready <args>\n' "$0" >&2
+        printf 'usage: %s caps|held|blocked|allowed|sole|connect|context|bus|ready <args>\n' "$0" >&2
         exit 64
         ;;
 esac

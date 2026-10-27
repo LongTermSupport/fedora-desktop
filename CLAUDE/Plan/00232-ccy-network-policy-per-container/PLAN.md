@@ -169,7 +169,7 @@ DESIGN.md section 7 is the shape, as section 10 settles it. In order, each test 
   checkout has a seat in), judges them and removes them, since a session must not outlive the
   script that can remove it; the `meta-deploy.list` entry (ahead of `changed-plays`); QA;
   `qa-reviewer` (FIX-BEFORE-MERGE, its seven should-fix findings fixed red first: the refresh
-  skips unprotected sessions, the probes must measure, a `connect` check, the queue order,
+  skips unprotected sessions, the probes must measure, a `connect` check on a third throwaway session in its own throwaway project, so `--connect` reaches no live session, the queue order,
   IPv6 neighbour discovery, the way out named, the tokens given to the container alone);
   the review of the fixes
 - [ ] ⬜ **Task 3.5**: HOST: the `meta-deploy.bash` run; read the acceptance into the plan

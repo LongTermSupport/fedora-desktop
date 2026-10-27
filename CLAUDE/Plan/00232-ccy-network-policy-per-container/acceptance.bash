@@ -4,7 +4,9 @@
 # installs nftables and ccy-network-policy).
 #
 # It launches two THROWAWAY seated headless ccy sessions in this checkout, np232a and np232b of
-# one team, under the default policy, judges them from the host, and removes them:
+# one team, and a third, np232c, unseated in a throwaway project directory (a new git repository
+# under the run directory), all under the default policy, judges them from the host, and removes
+# them:
 #   caps     nothing inside can change the session's network (not privileged; no NET_ADMIN or
 #            SYS_ADMIN)
 #   held     the policy is held outside the container, in its own network namespace
@@ -12,9 +14,11 @@
 #   blocked  the host itself and a neighbouring container are refused at once, while a control
 #            container without the policy reaches the same listeners
 #   allowed  DNS, the forge and the Claude API still work
-#   connect  a peer on a throwaway project network is refused, reached after `ccy --connect`
-#            (its refresh opens the subnet and names it in the context file), and refused
-#            again after `ccy --disconnect`
+#   connect  on np232c: a peer on a throwaway project network is refused, reached after
+#            `ccy --connect` run in np232c's directory (its refresh opens the subnet and names it
+#            in the context file), and refused again after `ccy --disconnect`. np232c must be
+#            the only session that --connect reaches, so no live session of this checkout is
+#            touched: if any other is, COULD NOT ESTABLISH (exit 2) before anything is changed
 #   bus      both sessions reach their homeserver, and a pingbus message sent each way arrives
 #
 # The sessions are started and ended here, not by deploy.bash: a session must not outlive the
@@ -31,14 +35,15 @@
 # EFFECT ON THE HOST: two seats np232a and np232b made in the team (sudo agent-bus add-member,
 # through the launch) and parked again at the end (agent-bus seat remove); two headless ccy
 # sessions for the run's length; one throwaway control container and a short-lived listener
-# during `blocked`; during `connect`, a throwaway network with a peer on it, which `ccy --connect`
-# joins EVERY running ccy session of this checkout to until `ccy --disconnect` takes them off
-# (the saved default network is put back as it was); one probe message each way in the team's room during `bus`. The checkout's
+# during `blocked`; a third headless session np232c in a throwaway project directory, and during
+# `connect` a throwaway network with a peer on it, which `ccy --connect` joins np232c alone to
+# until `ccy --disconnect` (the throwaway project's launcher state is removed at the end); one
+# probe message each way in the team's room during `bus`. The checkout's
 # Quick Launch record is saved first and put back, since a seated launch rewrites it.
 #
 # EXIT CODES: 0 every check passed; 1 at least one failed (each names itself), or the sessions
-# could not be started or removed; 2 COULD NOT ESTABLISH (no team, no saved Quick Launch); 64
-# usage.
+# could not be started or removed; 2 COULD NOT ESTABLISH (no team, no saved Quick Launch, or
+# np232c not the only session ccy --connect would reach); 64 usage.
 set -euo pipefail
 
 # ── R1 bootstrap: script-relative, filesystem-only, bounded at the repo boundary ──────────
@@ -101,6 +106,7 @@ fi
 
 readonly SEAT_A="np232a"
 readonly SEAT_B="np232b"
+readonly CONNECT_KEY="np232c"
 readonly CCY_LAUNCHER="/var/local/claude-yolo/claude-yolo"
 readonly AGENT_BUS="/usr/local/bin/agent-bus"
 readonly LAST_LAUNCH="${PLAN_REPO_ROOT}/.claude/ccy/.last-launch.conf"
@@ -158,6 +164,7 @@ check() {
 
 plan_deploy_leg "park throwaway seats an interrupted run left" park_seats
 plan_deploy_leg "launch ${SEAT_A} and ${SEAT_B}, headless and seated in ${TEAM}, under the default policy" start_both
+plan_deploy_leg "launch ${CONNECT_KEY}, headless and unseated, in a throwaway project directory" start_connect
 
 a="${CTR[${SEAT_A}]}"
 b="${CTR[${SEAT_B}]}"
@@ -168,13 +175,21 @@ for c in "${a}" "${b}"; do
 done
 check "blocked: the host and a neighbour are refused at once" "${CHECKS}" blocked "${a}" "${image}"
 check "allowed: DNS, the forge and the Claude API work" "${CHECKS}" allowed "${a}"
-check "connect: ccy --connect and --disconnect move the policy with the session's networks" "${CHECKS}" connect "${a}" "${image}" "${CCY_LAUNCHER}" "${PLAN_REPO_ROOT}"
+# --connect reaches every running session of the project it runs in: np232c must be its
+# project's only one, or the check would change a live session. Asked before anything changes.
+sole=0
+"${CHECKS}" sole "${CTR[${CONNECT_KEY}]}" || sole=$?
+if [[ "${sole}" -ne 0 ]]; then
+    printf 'COULD NOT ESTABLISH: the connect check would reach more than its throwaway session (above); nothing was connected\n' >&2
+    exit 2
+fi
+check "connect: ccy --connect and --disconnect move the policy with the session's networks" "${CHECKS}" connect "${CTR[${CONNECT_KEY}]}" "${image}" "${CCY_LAUNCHER}" "${CONNECT_DIR}"
 check "bus: the homeserver is reached and pingbus messages arrive both ways" "${CHECKS}" bus "${a}" "${b}" "${TEAM}" "${SEAT_A}" "${SEAT_B}"
 
-plan_deploy_leg "end both sessions, park their seats, restore the Quick Launch record" teardown
+plan_deploy_leg "end the sessions, park the seats, restore the Quick Launch record" teardown
 if [[ -n "${FAILED_CHECKS}" ]]; then
     printf '\nREJECTED: %s\n' "${FAILED_CHECKS}" >&2
     exit 1
 fi
-printf '\nACCEPTED: both sessions held the policy, were refused the host and a neighbour, and reached DNS, the forge, the API, a network joined by ccy --connect and each other over the bus; both removed\n'
+printf '\nACCEPTED: both sessions held the policy, were refused the host and a neighbour, and reached DNS, the forge, the API and each other over the bus, then np232c reached a network joined by ccy --connect in its own project; all removed\n'
 plan_finish
