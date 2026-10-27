@@ -64,6 +64,40 @@ func TestSaveTokenWritesAPrivateDatedFile(t *testing.T) {
 	}
 }
 
+func TestSaveTokenReportsAPoolItCannotMake(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := saveToken(filepath.Join(file, "pool"), "ccc", testToken, testNow); err == nil {
+		t.Fatal("want an error")
+	}
+}
+
+func TestAPoolThatCannotBeSavedToFailsTheSignIn(t *testing.T) {
+	w := newWorld(t)
+	if err := os.MkdirAll(filepath.Join(w.home, ".claude-tokens"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(w.home, ".claude-tokens", "ccy"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	signIn(w, testToken+"\n")
+	if code := w.app.Run(context.Background(), nil); code != term.ExitFailure {
+		t.Fatalf("exit %d", code)
+	}
+}
+
+func TestASignInThatCannotStartFails(t *testing.T) {
+	w := newWorld(t)
+	w.run.OnFunc([]string{"podman", "run"}, func(execx.Cmd) (execx.Result, error) {
+		return execx.Result{}, os.ErrPermission
+	})
+	if code := w.app.Run(context.Background(), nil); code != term.ExitFailure {
+		t.Fatalf("exit %d", code)
+	}
+}
+
 func signIn(w *world, outputs ...string) {
 	n := 0
 	w.run.OnFunc([]string{"podman", "run"}, func(c execx.Cmd) (execx.Result, error) {

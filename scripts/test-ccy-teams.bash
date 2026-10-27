@@ -31,7 +31,9 @@ LAUNCHER="$CCY_DIR/claude-yolo"
 LIB_DIR="$CCY_DIR/lib"
 SEATS_LIB="$LIB_DIR/agent-bus-seats.bash"
 MEMBERSHIP_LIB="$LIB_DIR/agent-bus-membership.bash"
-PLAY="$REPO_ROOT/playbooks/imports/play-claude-yolo.yml"
+# The image's build-context staging and build are in tasks/claude-yolo-image.yml, which
+# play-claude-yolo.yml and play-claude-code-consumer.yml import (Plan 00233).
+PLAY="$REPO_ROOT/tasks/claude-yolo-image.yml"
 
 for f in "$LAUNCHER" "$SEATS_LIB" "$MEMBERSHIP_LIB" "$LIB_DIR/common-pure.bash" "$LIB_DIR/session-registry.bash" \
     "$LIB_DIR/restart-request.bash" "$LIB_DIR/ssh-handling.bash"; do

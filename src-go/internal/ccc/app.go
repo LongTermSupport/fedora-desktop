@@ -83,6 +83,9 @@ type App struct {
 	Pid int
 	// RequiredVersion is the oldest image this build runs, ccy's REQUIRED_CONTAINER_VERSION.
 	RequiredVersion string
+	// SetupErr is a failure found while these fields were gathered (no home directory, no
+	// account); it stops the run before anything else.
+	SetupErr error
 
 	answers *bufio.Reader
 }
@@ -116,6 +119,9 @@ func (a *App) run(ctx context.Context, args []string) (term.ExitCode, error) {
 			return term.ExitFailure, fmt.Errorf("write the usage: %w", werr)
 		}
 		return term.ExitOK, nil
+	}
+	if a.SetupErr != nil {
+		return term.ExitFailure, a.SetupErr
 	}
 	if a.RequiredVersion == "" {
 		return term.ExitFailure, fmt.Errorf("this ccc was built without the image version it needs; re-run %s", Play)

@@ -531,7 +531,7 @@ check "the Dockerfile ships the plugin directory" "1" \
 check "…root owned, directory 755, file 644" "3" \
     "$(grep -c -E 'chown -R root:root /opt/claude-yolo/supervisor-plugins|chmod 755 /opt/claude-yolo/supervisor-plugins|chmod 644 /opt/claude-yolo/supervisor-plugins/ccy_lifecycle.py' "$DOCKERFILE")"
 check "the playbook copies the plugin into the build context" "1" \
-    "$(grep -c -F 'Copy Supervisor Plugins into Docker Build Context' "$REPO_ROOT/playbooks/imports/play-claude-yolo.yml")"
+    "$(grep -c -F 'Copy Supervisor Plugins into Docker Build Context' "$REPO_ROOT/tasks/claude-yolo-image.yml")"
 check "the plugin source exists" "yes" "$([ -f "$CCY_DIR/supervisor-plugins/ccy_lifecycle.py" ] && echo yes || echo no)"
 check "the host probes for the plugin API major the plugin declares" \
     "PLUGIN_API = $CCY_LIFECYCLE_PLUGIN_API_MAJOR" \
@@ -546,7 +546,7 @@ for lib_path in "$LIB_DIR"/*.bash; do
     lib_count=$((lib_count + 1))
     lib=$(basename "$lib_path")
     check "the playbook deploys lib/$lib" "1" \
-        "$(grep -c -F -- "files/var/local/claude-yolo/lib/$lib\"" "$REPO_ROOT/playbooks/imports/play-claude-yolo.yml")"
+        "$(grep -c -F -- "files/var/local/claude-yolo/lib/$lib\"" "$REPO_ROOT/tasks/claude-yolo-image.yml")"
 done
 check "the library check found the libraries" "yes" "$([ "$lib_count" -ge 11 ] && echo yes || echo no)"
 

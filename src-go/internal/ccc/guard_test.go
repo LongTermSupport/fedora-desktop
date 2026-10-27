@@ -67,6 +67,23 @@ func TestTheGuardGivesTheSessionTheTerminalsSizeAndPutsTheModeBack(t *testing.T)
 	}
 }
 
+func TestTheGuardPassesAWindowChangeOn(t *testing.T) {
+	outer, person, err := openPty()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if cerr := errors.Join(outer.Close(), person.Close()); cerr != nil {
+			t.Error(cerr)
+		}
+	})
+	g := &PtyGuard{Foreground: execx.OS{}, In: strings.NewReader(""), Out: &bytes.Buffer{}, InFd: int(person.Fd())}
+	exit, err := g.Run(execx.Cmd{Name: "sh", Args: []string{"-c", `kill -WINCH "$PPID"; sleep 0.3`}})
+	if err != nil || exit.Code != 0 {
+		t.Fatalf("exit %d, %v", exit.Code, err)
+	}
+}
+
 func TestTheGuardRefusesAnInputThatIsNotATerminal(t *testing.T) {
 	g := &PtyGuard{Foreground: execx.OS{}, In: strings.NewReader(""), Out: &bytes.Buffer{}, InFd: int(os.Stdin.Fd())}
 	if _, err := unix.IoctlGetTermios(g.InFd, unix.TCGETS); err == nil {

@@ -1,6 +1,6 @@
 # Plan 00233: ccc, Claude Code containerised for consumers
 
-**Status**: Not Started (design written; awaiting review before any build)
+**Status**: In Progress (built; host deploy and acceptance open)
 **Created**: 2026-10-27
 **Owner**: joseph
 **Priority**: Medium
@@ -9,305 +9,177 @@
 
 The owner asked for "a new ccc command - claude code consumer. runs in podman, normalises to a
 folder in home dir, (can be a repo for internal tracking purposes but no forced github) -
-becomes a safe default way to run claude code containerised for general chat etc".
+becomes a safe default way to run claude code containerised for general chat etc", and on
+review: "its basically ccy, but without the github coupling".
 
-Today a consumer install (`./run.bash --consumer`, Plan 00228) gets no way to run Claude Code
-at all. `play-podman.yml` and `play-claude-yolo.yml` are both `audience: developer`, and ccy
-could not serve a consumer even if it were installed: it refuses to start outside a git
-repository root (`files/var/local/claude-yolo/lib/common.bash` `check_git_repo`), and its
-container entrypoint exits without `GH_TOKEN` and a working `gh auth login`
-(`files/var/local/claude-yolo/entrypoint.sh` lines 30-33 and 64-127). Host `cc` falls back to
-the fedora-desktop checkout outside a repository (Plan 00167), which is a developer's answer.
+A consumer install (`./run.bash --consumer`, Plan 00228) had no way to run Claude Code:
+`play-podman.yml` and `play-claude-yolo.yml` were `audience: developer`, ccy refuses to start
+outside a git repository root (`lib/common.bash` `check_git_repo`), and its entrypoint exits
+without `GH_TOKEN` and a working `gh auth login` (`entrypoint.sh` lines 30-33, 64-127).
 
-This plan adds `ccc`: a Go command that runs Claude Code in rootless podman, always in one
-folder, `~/Claude`, with nothing from the host but that folder and the Claude login. It
-reuses ccy's image, token pool and Go packages, and none of ccy's developer prerequisites: no
-GitHub, no SSH keys, no `gh` tokens, no agent bus, no project Dockerfiles. It is started from
-a terminal as `ccc` or from the desktop's app grid as "Claude".
+`ccc` is a Go command that runs Claude Code in rootless podman, always in `~/CCC`, with
+nothing from the host but that folder, the agent's own state and its sign-in token. It reuses
+ccy's image, token pool, permission mode and Go packages and none of ccy's developer
+prerequisites. It is started as `ccc` in a terminal or as "Claude" from the app grid.
 
 ## Goals
 
-- `ccc`, run from any directory, starts Claude Code in a rootless podman container whose
-  working directory is `~/Claude`, created on first use.
-- `~/Claude` is a local git repository with no remote; ccc never runs `gh`, `ssh` or any
-  forge call.
-- The container sees only `~/Claude` and ccc's own Claude state, carries only the Claude
-  token, and has no host networking, no published ports and no device or socket passthrough.
-- One Claude login (a long-lived token from `claude setup-token`) is made on first use, kept
-  in the token pool ccy already uses, and reused on every later run.
-- A consumer install offers it on the optional-play menu; a developer install can install it
-  too, and shares the image ccy already builds.
-- A desktop launcher, "Claude", opens ccc in a terminal window.
+- `ccc`, run from any directory, starts Claude Code in rootless podman in `~/CCC`, made on
+  first use as a local git repository with no remote.
+- The container sees only `~/CCC` and the agent's state, carries only the sign-in token, and
+  has no host networking, no published ports and no device or socket passthrough.
+- One sign-in, made on first use, kept in ccy's token pool and reused on every later run.
+- Core on every install, podman with it; on a developer box the image is ccy's.
+- The agent is a parameter: a later `ccc --opencode` in the same folder is one table entry.
 
 ## Non-Goals
 
-- A per-container network policy of its own. Issue #114 (another worker) designs ccy's
-  policy, blocking private ranges by default; ccc adopts that policy when it lands (Design 4).
-- Any developer feature: project Dockerfiles, compose networks, SSH, GitHub accounts, the
-  agent team bus, `--teams`, session restore after reboot, multiple projects.
-- A second image or a second Dockerfile. ccc uses `claude-yolo:latest`.
-- A graphical chat client. ccc is Claude Code's own terminal UI.
-- Changing ccy's behaviour. Anything shared that moves is a refactor with ccy's tests held.
+- A network policy of its own: issue #114 / Plan 00232 owns it; ccc has one seam for it.
+- Building `--opencode`, or any developer feature (project Dockerfiles, compose, SSH, GitHub,
+  the agent bus, tmux, session restore after reboot).
+- A second image or Dockerfile.
 
-## Context & Background
+## Owner Decisions
 
-- ccy: the bash launcher `files/var/local/claude-yolo/claude-yolo` (about 4,000 lines, on the
-  bash-limits ratchet), its `lib/*.bash`, its Go front `src-go/cmd/claude-yolo` +
-  `src-go/internal/ccylaunch`, and the image built from `files/var/local/claude-yolo/Dockerfile`
-  by `play-claude-yolo.yml`.
-- The token pool `~/.claude-tokens/ccy/tokens/<name>.<YYYY-MM-DD>.token` is already shared by
-  ccy, cc and speech-to-text (`src-go/internal/wsitoken`), through `src-go/internal/tokens`.
-- ccy's token creation runs `claude setup-token` with `--entrypoint claude`, which bypasses
-  `entrypoint.sh` (`lib/token-management.bash` `create_token`); its insistence on `GH_TOKEN`
-  is the bash function's own check, not something the login needs.
-- The Go toolchain is `audience: all` (`play-golang.yml`), so a consumer box can build Go
-  commands through `tasks/build-go-command.yml`.
-- The ctrl+z hazard (CLAUDE/ContainerRules.md): Ink stops Claude Code with SIGSTOP on ctrl+z,
-  which a container cannot recover from. ccy's guard is the hooks-daemon supervisor deployed
-  into each project; `~/Claude` has no hooks daemon, so ccc needs its own guard (Design 9).
+1. **Folder**: `~/CCC` — "future it might not be just claude, it might be ccc --opencode". The
+   agent is a parameter (`internal/ccc/agent.go`, `agents`), Claude the default.
+2. **Permission mode**: "Full bypass now", as ccy: `--dangerously-skip-permissions`.
+3. **History**: a snapshot commit at session end; a shipped `.gitignore` (caches,
+   `node_modules`, venvs, build output, OS junk, secret-looking files); never a remote.
+4. **Install**: core for consumers, podman with it. `play-claude-code-consumer.yml` is
+   imported by `playbook-main.yml` with `audience: all` (the audience key has no
+   consumer-only value, so a developer install gets ccc too; its image is ccy's).
 
 ## Design
 
-### 1. How ccc relates to ccy: a new Go command beside ccylaunch, not a mode of the launcher
+01. **A new Go command beside ccylaunch** (`src-go/cmd/ccc`, `src-go/internal/ccc`), not a
+    mode of the bash launcher (on the ratchet) or of the Go front (which hands over to the
+    bash). It runs `podman run` itself, with `--entrypoint /usr/bin/tini`, so ccy's
+    `entrypoint.sh` (GitHub-bound, on the ratchet) is not used and the image is unchanged.
+02. **Podman**: `play-podman.yml` is `audience: all`; podman-compose and the Docker-API socket
+    carry `when: install_audience == 'developer'`.
+03. **Folder** (C3 in the package doc): `~/CCC` whatever the working directory; refused when a
+    symbolic link or not a folder; a non-repository is made one (branch `main`, a
+    repository-local identity `<full name>` / `<login>@localhost`, `.gitignore` and the
+    agent's guide file `CLAUDE.md` when absent, a first commit); files there are kept.
+04. **Network**: `networkArgs()` in `internal/ccc/run.go`, the network ccy uses by default
+    (`podman`), no host network, no ports. It is the one seam Plan 00232 changes when its
+    policy lands, with no ccc option to turn it off.
+05. **Sign-in** (C5): the latest usable `ccc.<date>.token` in `~/.claude-tokens/ccy/tokens`
+    (mentioned within 14 days of expiry); none is a `claude setup-token` in a throwaway
+    container with nothing mounted, saved as `ccc.<today+90>.token`, 0600, ccy's estimate. A
+    failed sign-in is offered again `[Y/n]`, at most three. `--token NAME` uses another pool
+    token and never signs in. The token goes by name (`-e CLAUDE_CODE_OAUTH_TOKEN`).
+06. **Mounts**: `~/CCC` at `/workspace` and `~/.local/share/ccc/<agent>` at `/var/lib/ccc`
+    (`CLAUDE_CONFIG_DIR`), both `:z`; nothing else. Before each run ccc records in the state's
+    `.claude.json` what ccy's entrypoint records: onboarding done, the bypass accepted,
+    `/workspace` trusted.
+07. **Image and version check** (C4): `claude-yolo:latest`, staged and built by
+    `tasks/claude-yolo-image.yml`, which `play-claude-yolo.yml` and the ccc play both import.
+    ccc refuses an image whose `claude-yolo-version` label is older than the launcher's
+    `REQUIRED_CONTAINER_VERSION`, which the play reads from the launcher and builds in.
+08. **ctrl+z guard** (`internal/ccc/guard.go`): the session runs on ccc's own pseudo-terminal;
+    keys are copied in raw mode with the `0x1a` byte removed, the window size followed.
+09. **Start**: `ccc [--claude] [--continue] [--token NAME]`; the app grid entry "Claude" runs
+    it with `Terminal=true`.
+10. **Versions**: no image or entrypoint change, so no container bump. `internal/gitx` (in the
+    ccy front's build closure) gained four methods: CCY_VERSION 3.100.36.
 
-**Decision**: `src-go/cmd/ccc` + `src-go/internal/ccc`, a Go program that runs `podman run`
-itself. It is not a `--consumer` mode of `claude-yolo`.
+## ccy Parity ("basically ccy, without the GitHub coupling")
 
-- A mode of the bash launcher is ruled out: the launcher is on the ratchet allowlist and may
-  only shrink, and every consumer branch would run beside four thousand lines of GitHub, SSH,
-  compose and bus logic that a consumer must never reach.
-- A mode of the Go front (`ccylaunch`) is ruled out: the front exists to answer a few flags
-  and hand over to the bash launcher; a consumer launch would be a second launcher inside it,
-  and every ccc change would then demand a CCY version bump.
-- What ccc reuses, rather than copies: the image (`claude-yolo:latest`), `internal/tokens`
-  (pool reading, file naming, expiry), `internal/engine` (podman calls, the SELinux relabel
-  verdict), `internal/execx`, `internal/term`, `internal/gitx`, `internal/fsx`, and the image
-  build lock (Design 7).
-- ccc does **not** use `entrypoint.sh`. It runs `--entrypoint /usr/bin/tini` and starts
-  `claude` directly, after writing the few settings the entrypoint would have written into
-  its own state directory on the host (Design 6). So the image is unchanged, and
-  `entrypoint.sh` (764 lines, on the ratchet) does not grow a consumer branch.
-
-### 2. Podman for the consumer profile
-
-**Decision**: `play-podman.yml` becomes `audience: all`; its Docker-compatibility parts stay
-developer-only, behind `when: install_audience == 'developer'`.
-
-- Rootless podman is what ccc needs, and podman is already on Fedora Workstation; the play's
-  `podman system migrate`, the stale `tempdirs` clean and `podman info` check are repairs a
-  consumer needs as much as a developer.
-- `podman-compose` (a pip `--user` install) and the user `podman.socket` (a Docker-API socket)
-  serve compose and Docker tooling only, so they keep the developer guard as tasks rather than
-  the play.
-- No second podman play, no consumer subset file: the play already exists and is small.
-
-### 3. The folder: `~/Claude`, and its git behaviour
-
-**Decision**: `~/Claude`, fixed, wherever ccc is started from.
-
-- Why `~/Claude`: it is visible in Files at the top of the home folder beside `Documents` and
-  `Downloads`, named after the product the user knows, capitalised like the XDG folders. A
-  dotfolder would hide the user's own files from them; `~/Documents/Claude` buries it a level
-  down and mixes it into whatever syncs or backs up `Documents` by other means.
-- Normalisation: ccc ignores its working directory; the container's `/workspace` is always
-  `~/Claude`. It refuses (fails fast, naming the path) if `~/Claude` exists and is not a
-  directory, or is a symlink to somewhere outside the home folder.
-- First use: create `~/Claude` (0700), `git init` it with branch `main`, set a
-  repository-local identity (`user.name` from the account's full name, `user.email`
-  `<login>@localhost`) so no global git config is needed, write a short `CLAUDE.md` saying
-  this is a general-purpose folder for someone who may not write code, and make the first
-  commit. An existing folder that is not a repository is initialised the same way; its files
-  are not moved.
-- Tracking: at the end of each session ccc commits whatever changed (`git add -A`, message
-  `ccc session <start time>`), on the host, so every session is a restorable snapshot. It
-  never adds a remote, never pushes, never fetches. A commit that fails stops ccc with git's
-  words; a session with no changes makes no commit.
-
-### 4. Network
-
-- The container joins the network ccy uses by default, never `--network host`, and publishes
-  no ports. No `host.containers.internal` alias is added.
-- Adopting #114: ccc must not grow its own blocking. When #114 lands, its policy is applied
-  through whatever single component it ships (a named network, a Go package that returns the
-  `podman run` network arguments, or nftables rules keyed on a container label). ccc's
-  network choice is one function in `internal/ccc` returning its `podman run` arguments, so
-  adopting the policy is a change to that function and its test, with the private-range block
-  on by default and no ccc option to turn it off. Until then the container can reach the
-  LAN, which is the main reason for the permission mode in Design 8.
-
-### 5. Login
-
-**Decision**: the long-lived token from `claude setup-token`, in ccy's pool, under the name
-`ccc`.
-
-- First use with no usable token named `ccc` (none, or expired by its file stamp): ccc
-  explains in plain words what is about to happen, runs `claude setup-token` in a throwaway
-  container (`--entrypoint claude`, no mounts), the user signs in through the browser link and
-  pastes the code back, and ccc stores the token as `ccc.<expiry>.token`, 0600, through the
-  `tokens` package's naming. A failed or cancelled sign-in is re-offered in a bounded loop
-  (CLAUDE/InteractiveScripts.md), then exits naming what to do.
-- The token goes to the container by name (`-e CLAUDE_CODE_OAUTH_TOKEN`, value in ccc's child
-  environment only), never in the `podman run` argv, as ccy does (BSH-09).
-- Why not Claude Code's in-app `/login` persisted in the state directory: two ccc windows
-  would share one refresh token and race on its rotation, logging one out; the pool token has
-  no refresh. It also keeps one login story across ccc, ccy and cc on a developer box, which
-  can point `ccc --token NAME` at an existing pool token.
-- The pool directory `~/.claude-tokens/ccy/tokens` is created by the ccc play (0700), as the
-  ccy play does today.
-
-### 6. What is mounted
-
-| Host                        | Container      | Mode | Why                                                  |
-| --------------------------- | -------------- | ---- | ---------------------------------------------------- |
-| `~/Claude`                  | `/workspace`   | rw   | the user's folder; Claude's working directory        |
-| `~/.local/share/ccc/claude` | `/var/lib/ccc` | rw   | Claude Code's config and history (CLAUDE_CONFIG_DIR) |
-
-Nothing else: no SSH, gitconfig, `gh`, docker or podman socket, GPU, display, clipboard,
-D-Bus or agent-bus mount, and no `GH_TOKEN`. SELinux relabelling follows ccy's verdict
-through `internal/engine` (`:z` where enforcing). Claude Code's state is kept outside
-`~/Claude` so the user's folder and its git snapshots never hold transcripts or credentials.
-Before each run ccc merges into the state's `.claude.json` what ccy's entrypoint writes into
-its own: `/workspace` trusted (`hasTrustDialogAccepted`) and onboarding complete, so the user
-meets no developer-facing dialogs.
-
-### 7. The image and keeping Claude Code current
-
-- ccc uses `claude-yolo:latest`. On a developer box it is the image ccy already built; on a
-  consumer box the ccc play builds it. Building it needs the build-context staging that is
-  inside `play-claude-yolo.yml` today, so that staging and the build move into one task file,
-  `tasks/claude-yolo-image.yml`, imported by `play-claude-yolo.yml` and by the ccc play
-  (DRY). `scripts/test-ccy-container-version-hook.bash` reads what the play stages into the
-  image, so it follows the move.
-- A missing image is not built by ccc: it fails, naming the play to re-run.
-- Claude Code freshness: ccc does what ccy's `update_claude_inplace` does (compare the
-  image's `claude --version` with the latest release, `npm install -g` in place and commit)
-  under the same image build lock, so a ccc and a ccy launch never update one image at once.
-  The lock's Go side is `internal/ccylaunch/buildlock.go` today; the lock-taking half moves to
-  a shared package (`internal/imagelock`) both use. Update failures stop the launch; there is
-  no "start stale and warn".
-- The image is large (Node, language servers, browsers). Accepted for one image; a slimmer
-  build target is a later plan if a consumer laptop proves too small.
-
-### 8. Permission mode inside the container
-
-**Decision (open for the owner)**: `acceptEdits` until #114's private-range block is applied
-to ccc; then `bypassPermissions`, as ccy runs.
-
-- `acceptEdits` lets Claude create and change files in `~/Claude` without asking (every
-  session is a git snapshot, so edits are undoable) and asks before commands and web fetches.
-- The container is the real boundary. Once it cannot reach the LAN, prompts about shell
-  commands inside a sandbox that holds only `~/Claude` add little for someone who cannot
-  judge a shell command, and `bypassPermissions` is the friendlier default.
-- Without the LAN block, a prompt-injected session in bypass mode could reach a router or NAS
-  on the local network, so the prompt stays until the network is closed.
-
-### 9. The ctrl+z guard
-
-**Decision (open for the owner)**: ccc holds the terminal and filters it. It runs `podman run -it` on a pseudo-terminal of its own and copies the user's keystrokes to it with the `0x1a`
-SUSP byte removed, and ignores SIGTSTP itself. This is the supervisor's `strip_suspend()`
-done on the host side. It needs no image change and nothing from the hooks daemon, and it
-uses `golang.org/x/sys/unix`, already a module dependency. The alternative, a guard binary
-baked into the image, needs a container version bump and duplicates the daemon's supervisor
-inside ccy's image.
-
-### 10. How a consumer starts it
-
-- Terminal: `ccc`. Options are kept to `--help`, `--token NAME` and `--continue`, which
-  resumes the last conversation; with no option it starts a new one, and `/resume` inside
-  Claude Code lists earlier ones from the state directory.
-- Desktop: `~/.local/share/applications/ccc.desktop`, `Name=Claude`, `Terminal=true`,
-  `Exec=ccc`, an icon from the icon theme, so GNOME opens it in the default terminal without
-  this repo naming one. Closing the window ends the container (`--rm`) and ccc still makes the
-  session's commit before it exits.
-
-### 11. Install and version bumps
-
-- A new optional play, `playbooks/imports/optional/common/play-claude-code-consumer.yml`,
-  `scope: gnome` (it installs a desktop entry), `audience: all`. It imports `play-golang.yml`
-  and `play-podman.yml`, imports `tasks/claude-yolo-image.yml`, builds `ccc` into
-  `~/.local/bin` with `tasks/build-go-command.yml`, creates the token pool directory and
-  `~/.local/share/ccc/claude` (0700), and deploys the desktop entry. Optional, not core: it
-  needs a Claude subscription and a large image, and not every consumer has or wants either.
-- CCY version: no image file, `entrypoint.sh` or launcher changes, so no container version
-  bump. `internal/ccylaunch` and the shared packages in the front's dependency set
-  (`tokens`, `engine`, `execx`, ...) are under the CCY gate: moving the build lock out of
-  `ccylaunch` and anything added to `tokens` take a CCY_VERSION patch bump with a
-  `docs/ccy-changelog.md` entry, in the commit that makes them.
-- `ccc` itself carries no version of its own (YAGNI).
+| ccy feature                                | In ccc | Why                                                                    |
+| ------------------------------------------ | ------ | ---------------------------------------------------------------------- |
+| Token pool, expiry stamps, expiry warning  | Yes    | Same pool and `tokens` package; warned within 14 days                  |
+| Token creation by `setup-token`            | Yes    | Same flow, no `GH_TOKEN` (the login never needed it)                   |
+| Permission bypass, `IS_SANDBOX`            | Yes    | Owner decision 2                                                       |
+| Claude state persisted and pre-trusted     | Yes    | Outside the folder, so snapshots never hold transcripts or credentials |
+| Image version check                        | Yes    | Against `REQUIRED_CONTAINER_VERSION`, built in by the play             |
+| ctrl+z guard                               | Yes    | ccc's own guard; the folder has no hooks-daemon supervisor             |
+| Host time zone, auto-compact window 600000 | Yes    | `TZ` from `/etc/localtime`; `ccclaude.DefaultWindow`                   |
+| Claude Code updated in place in the image  | Later  | Task 5.1: needs the image build lock shared out of `ccylaunch`         |
+| Shutdown warning for running sessions      | Later  | Task 5.2: the containers carry `ccc=true`; Plan 00231 owns the warning |
+| Network DNS repair (`ensure_network_dns`)  | No     | A VPN-specific developer fix; Plan 00232 owns the network              |
+| tmux, restore after reboot, supervisor arm | No     | A closed window is a finished session; `--continue` resumes            |
+| Picker of many tokens, usage report        | No     | One sign-in; `--token NAME` for the rest                               |
+| SSH, gh, project Dockerfiles, compose, bus | No     | GitHub-coupled or developer-only                                       |
 
 ## Tasks
 
-### Phase 1: Design review
+### Phase 1: Design and decisions
 
-- [ ] ⬜ **Task 1.1**: Coordinator and owner review the design; settle the open questions
-  below and record the answers in this plan
+- [x] ✅ **Task 1.1**: Design reviewed; owner decisions recorded above
 
-### Phase 2: ccc core, tests first
+### Phase 2: ccc, tests first
 
-- [ ] ⬜ **Task 2.1**: Folder normalisation and first use (`~/Claude` resolved from the home
-  folder whatever the working directory; refusals for a non-directory or an escaping symlink;
-  `git init`, local identity, seeded `CLAUDE.md`, first commit), tests first
-- [ ] ⬜ **Task 2.2**: Session snapshot commit at exit, including after the window is closed
-- [ ] ⬜ **Task 2.3**: Token: pick the `ccc` token from the pool; the `setup-token` first-use
-  flow with a bounded retry; `--token NAME`
-- [ ] ⬜ **Task 2.4**: State directory and its `.claude.json` merge (trust, onboarding)
-- [ ] ⬜ **Task 2.5**: The `podman run` argument builder (mounts, env by name, network
-  function, labels, permission mode), each argument held by a test
-- [ ] ⬜ **Task 2.6**: The pseudo-terminal proxy that strips `0x1a` (Design 9)
-- [ ] ⬜ **Task 2.7**: Claude Code in-place update under the shared image lock; move the lock
-  into `internal/imagelock` with a CCY patch bump
-- [ ] ⬜ **Task 2.8**: Run `./scripts/qa-changed.bash`; the Go gate passes
+- [x] ✅ **Task 2.1**: Folder, repository and `.gitignore` (C3)
+- [x] ✅ **Task 2.2**: Snapshot commit at session end (C8)
+- [x] ✅ **Task 2.3**: Token from the pool, sign-in with bounded retry, `--token` (C5)
+- [x] ✅ **Task 2.4**: State and `.claude.json` (C6)
+- [x] ✅ **Task 2.5**: `podman run` arguments, network seam, version check (C4, C7)
+- [x] ✅ **Task 2.6**: The pseudo-terminal ctrl+z guard
+- [x] ✅ **Task 2.7**: `cmd/ccc`, `gitx` additions, CCY 3.100.36, the seam rule's podman owner
 
 ### Phase 3: IaC
 
-- [ ] ⬜ **Task 3.1**: `play-podman.yml` to `audience: all`, compose and socket developer-only
-- [ ] ⬜ **Task 3.2**: Extract `tasks/claude-yolo-image.yml` from `play-claude-yolo.yml`; move
-  `test-ccy-container-version-hook.bash` with it
-- [ ] ⬜ **Task 3.3**: `play-claude-code-consumer.yml` and the desktop entry
-- [ ] ⬜ **Task 3.4**: `ansible-playbook --syntax-check` on the changed plays; QA
+- [x] ✅ **Task 3.1**: `play-podman.yml` to `audience: all`
+- [x] ✅ **Task 3.2**: `tasks/claude-yolo-image.yml` extracted from `play-claude-yolo.yml`
+- [x] ✅ **Task 3.3**: `play-claude-code-consumer.yml`, imported by `playbook-main.yml`
+- [ ] ⬜ **Task 3.4**: `ansible-playbook --syntax-check` on the changed plays (no
+  `ansible-playbook` in this container; the host's `qa-all.bash` runs it)
 
-### Phase 4: Docs and host verification
+### Phase 4: Host verification
 
-- [ ] ⬜ **Task 4.1**: User docs: a consumer page for ccc and a pointer in `docs/ccy.md`
-- [ ] ⬜ **Task 4.2**: `deploy.bash`, `triage.bash` and `acceptance.bash` (folder created,
-  repository with no remote, only the two mounts, no `GH_TOKEN`, token reused on a second
-  run, ctrl+z inert, desktop entry present), queued in `CLAUDE/Plan/meta-deploy.list`
-- [ ] ⬜ **Task 4.3**: Adopt #114's policy in the network function when it lands
-- [ ] ⬜ **Task 4.4**: `qa-reviewer` over the plan's full diff
+- [ ] ⬜ **Task 4.1**: `deploy.bash` and `acceptance.bash` through `meta-deploy.bash`
+- [ ] ⬜ **Task 4.2**: The host checks below, by the host agent or the owner
+- [ ] ⬜ **Task 4.3**: `qa-reviewer` over the plan's diff
+
+### Phase 5: Follow-ups
+
+- [ ] ⬜ **Task 5.1**: Claude Code updated in place in the image under the shared build lock
+- [ ] ⬜ **Task 5.2**: The shutdown warning counts `ccc=true` containers (with Plan 00231)
+- [ ] ⬜ **Task 5.3**: Adopt Plan 00232's policy in `networkArgs()` when it lands
+
+## Host Checks
+
+`acceptance.bash` checks what a script can: `ccc --help`; the build carries the image version
+(no terminal is refused for the terminal, not the version); the image is at least
+`REQUIRED_CONTAINER_VERSION`; the token pool and state are 0700; the app grid entry runs ccc in
+a terminal and validates; podman is rootless. NOT ESTABLISHABLE by it, so done by hand:
+
+1. `ccc` from any directory: a sign-in on first use, then Claude Code in `~/CCC`.
+2. A second `ccc`: no sign-in.
+3. While it runs: `podman ps --filter label=ccc=true --format '{{.Mounts}}'` lists only
+   `~/CCC` and `~/.local/share/ccc/claude`; `podman exec <name> printenv GH_TOKEN` prints
+   nothing.
+4. ctrl+z does nothing; resizing the window redraws the session.
+5. After `/exit`: `git -C ~/CCC log --oneline | cat` shows the snapshot, `git -C ~/CCC remote`
+   prints nothing.
+6. "Claude" in the app grid opens the same in a terminal window.
 
 ## Dependencies
 
-- Depends on: Plan 00228 (consumer install, In Progress) for the audience model and the
-  consumer optional-play menu.
-- Related: issue #114 (ccy network policy) for Design 4 and Design 8; Plan 00226 (cc under
-  the supervisor) for the ctrl+z guard ccy and cc rely on.
-
-## Open Questions for the Owner
-
-1. Folder name: `~/Claude` (recommended) or another?
-2. Permission mode (Design 8): `acceptEdits` until the LAN is blocked, then bypass?
-3. ctrl+z guard (Design 9): host-side terminal filter in ccc, or a guard baked into the
-   image?
-4. Snapshot commit after every session (Design 3): wanted, or git only when the user asks?
-5. Optional play (Design 11), or core on a consumer install?
+- Depends on: Plan 00228 (consumer install) for the audience model.
+- Related: Plan 00232 / issue #114 (network policy, Task 5.3); Plan 00231 (shutdown
+  warning, Task 5.2); Plan 00226 (the supervisor's ctrl+z guard for cc).
 
 ## Success Criteria
 
-- [ ] `ccc` from any directory opens Claude Code in `~/Claude`, created on first use
-- [ ] A consumer install with no GitHub account can install and run it
-- [ ] The container's mounts are exactly the two in Design 6, and it has no `GH_TOKEN`
-- [ ] A second run reuses the first run's login without asking
+- [ ] `ccc` from any directory opens Claude Code in `~/CCC`, made on first use
+- [ ] A consumer install with no GitHub account installs and runs it
+- [ ] The container's mounts are exactly the two above, and it has no `GH_TOKEN`
+- [ ] A second run reuses the first run's sign-in
 - [ ] ctrl+z does not freeze a session
 - [ ] QA passes, and `qa-reviewer` raises no BLOCK or FIX-BEFORE-MERGE finding
 
 ## Risks & Mitigations
 
-| Risk                                                         | Impact | Probability | Mitigation                                                   |
-| ------------------------------------------------------------ | ------ | ----------- | ------------------------------------------------------------ |
-| The image is too large for a small consumer laptop           | M      | M           | Optional play; a slimmer build target as a later plan        |
-| LAN reachable until #114 lands                               | M      | H           | `acceptEdits` until then (Design 8)                          |
-| Moving the image build out of the ccy play breaks ccy builds | H      | L           | One task file imported by both; ccy's version-hook test held |
-| Snapshot commits of large files the user drops in            | L      | M           | Revisit with a size rule if it is seen                       |
+| Risk                                           | Impact | Probability | Mitigation                                                     |
+| ---------------------------------------------- | ------ | ----------- | -------------------------------------------------------------- |
+| The image is large for a small consumer laptop | M      | M           | One image; a slimmer build target as a later plan if seen      |
+| Bypass mode while the LAN is reachable         | M      | H           | Owner decision; Plan 00232's block lands in `networkArgs()`    |
+| Moving the image tasks breaks the ccy play     | H      | L           | One task file imported by both; the version-hook test walks it |
+| Claude Code in the image ages until a rebuild  | M      | M           | Task 5.1                                                       |
+| A process left holding the session's terminal  | L      | L           | The output drain is bounded (`drainWait`)                      |
 
 ## Delivery & Milestones
 
@@ -315,4 +187,5 @@ inside ccy's image.
      "when" — do not add dates). The blow-by-blow activity log lives in
      JOURNAL/00233-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
-- Design written for review
+- Design for review: bda19d3e6
+- The ccc package and gitx additions: 72e1641ad

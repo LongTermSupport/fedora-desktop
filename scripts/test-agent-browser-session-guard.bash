@@ -350,7 +350,9 @@ fi
 echo ""
 echo "=== the guard is wired into the image ==="
 DOCKERFILE="$CCY_DIR/Dockerfile"
-PLAY="$REPO_ROOT/playbooks/imports/play-claude-yolo.yml"
+# The image's build-context staging and build are in tasks/claude-yolo-image.yml, which
+# play-claude-yolo.yml and play-claude-code-consumer.yml import (Plan 00233).
+PLAY="$REPO_ROOT/tasks/claude-yolo-image.yml"
 for mode in headed headless lite-headless; do
     line="$(grep -E "^[[:space:]]*\"exec /opt/claude-yolo/agent-browser-session-guard agent-browser-$mode \\\$REAL " "$DOCKERFILE")"
     if [[ -n "$line" && "$line" == *' -- \"\$@\""'* ]]; then

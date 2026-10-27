@@ -27,7 +27,9 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CCY_DIR="$REPO_ROOT/files/var/local/claude-yolo"
 ENTRYPOINT="$CCY_DIR/entrypoint.sh"
 KIT_SRC="$REPO_ROOT/files/opt/claude-yolo/optional/agent-bus"
-PLAY="$REPO_ROOT/playbooks/imports/play-claude-yolo.yml"
+# The image's build-context staging and build are in tasks/claude-yolo-image.yml, which
+# play-claude-yolo.yml and play-claude-code-consumer.yml import (Plan 00233).
+PLAY="$REPO_ROOT/tasks/claude-yolo-image.yml"
 
 # The caller's own bus variables must not leak into the cases.
 unset "${!PINGBUS_@}"

@@ -533,6 +533,18 @@ pipx install ruff
 > **Note**: `cc` and CCY are one play because `cc` sources CCY's lib at runtime. Deployed
 > separately, a new lib could run under an old `cc`.
 
+### play-claude-code-consumer.yml
+
+**Purpose**: `ccc`, Claude Code in a safe container for someone who does not write code\
+**Actions**:
+
+- Builds CCY's image (`tasks/claude-yolo-image.yml`, shared with `play-claude-yolo.yml`) and
+  the `ccc` command, and adds a "Claude" entry to the app grid
+- `ccc` always works in `~/CCC`, a local git repository with no remote; it mounts only that
+  folder and its own Claude state, signs in once into CCY's token pool, and needs no GitHub
+- Core on every install; imports `play-podman.yml`, which is now for every audience
+- Design and the parity with CCY: `CLAUDE/Plan/00233-ccc-claude-code-for-consumers/PLAN.md`
+
 **What's installed**:
 
 - git, gh, ripgrep, jq, yq, vim, python, Node.js (current LTS), Claude Code

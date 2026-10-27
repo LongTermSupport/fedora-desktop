@@ -121,6 +121,17 @@ func TestRefusesWithoutATerminal(t *testing.T) {
 	}
 }
 
+func TestASetupFailureStopsTheRun(t *testing.T) {
+	w := newWorld(t)
+	w.app.SetupErr = errors.New("no home directory")
+	if code := w.app.Run(context.Background(), nil); code != term.ExitFailure {
+		t.Fatalf("exit %d", code)
+	}
+	if !strings.Contains(w.stderr.String(), "no home directory") || len(w.run.Calls()) != 0 {
+		t.Fatalf("stderr %q", w.stderr)
+	}
+}
+
 func TestRefusesABuildWithoutTheRequiredVersion(t *testing.T) {
 	w := newWorld(t)
 	w.app.RequiredVersion = ""
@@ -220,6 +231,31 @@ func TestMissingImageNamesThePlay(t *testing.T) {
 	}
 	if !strings.Contains(w.stderr.String(), Play) || len(w.guard.cmds) != 0 {
 		t.Fatalf("stderr %q", w.stderr)
+	}
+}
+
+func TestAnImageQuestionPodmanCannotAnswerFails(t *testing.T) {
+	w := newWorld(t)
+	w.run.On([]string{"podman", "image", "inspect"}, execx.Result{ExitCode: 125, Stderr: []byte("Error: storage is corrupt")})
+	if code := w.app.Run(context.Background(), nil); code != term.ExitFailure {
+		t.Fatalf("exit %d", code)
+	}
+	if !strings.Contains(w.stderr.String(), "storage is corrupt") {
+		t.Fatalf("stderr %q", w.stderr)
+	}
+}
+
+func TestAStateDirectoryThatCannotBeMadeFails(t *testing.T) {
+	w := newWorld(t)
+	w.putToken(t, "ccc.2027-06-01.token")
+	if err := os.MkdirAll(filepath.Join(w.home, ".local", "share"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(w.home, ".local", "share", "ccc"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code := w.app.Run(context.Background(), nil); code != term.ExitFailure {
+		t.Fatalf("exit %d", code)
 	}
 }
 

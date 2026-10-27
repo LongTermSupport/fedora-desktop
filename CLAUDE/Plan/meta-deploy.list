@@ -59,3 +59,13 @@ changed-plays
 # Task 2.2's host check: every package is upgraded before Ansible starts, so neither dies at
 # play-toolbox-install.yml's "name 'ssl' is not defined" (00229's PLAN.md records the result).
 00228-consumer-install-without-github
+
+# Plan 00233: ccc, Claude Code in rootless podman in ~/CCC. deploy.bash runs
+# play-claude-yolo.yml (its image tasks moved into tasks/claude-yolo-image.yml) and
+# play-claude-code-consumer.yml (play-podman.yml now for every audience, the image, ccc in
+# ~/.local/bin, the private token and state directories, and the "Claude" app grid entry).
+# acceptance.bash checks ccc --help, the built-in image version, the image's version label, the
+# 0700 directories, the app grid entry and rootless podman. The interactive checks (a first
+# sign-in, the two mounts, ctrl+z, the snapshot commit) are listed in the plan's Host Checks
+# for the host agent.
+00233-ccc-claude-code-for-consumers
