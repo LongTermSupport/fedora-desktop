@@ -1469,6 +1469,32 @@ Task 3.6). Found and defended under Defence Before Fix.
 UNRESOLVED; a play's Go builds are its `go_command_name` commands and every package they import.
 Never reword the play to hide the reference: the play still reads the path.
 
+### play-program-read-dropped
+
+**What it is.** A checkout file read by a program a host play runs that the play's inputs drop.
+`play-input-dropped` reads the play text; this rule reads the programs. In every helper package
+that is an input of a play, a path built from `__file__` and literal segments, or a quoted literal
+naming an existing checkout path outside the package (a path with a `/`, or a dot-file of the
+root), must be an input. In every bash file that is an exact input, a `source` of a file beside
+the script must be an input, and a `run_go_tool` / `run_go_command` (`scripts/lib/go-tool.bash`)
+must be one of the play's Go builds, whose packages' literals naming checkout paths must be
+inputs too. Not judged: a bare climb from `__file__` to a directory (`--repo-root`'s default),
+a source of a host path or a runtime variable, the literals of a Go command a play installs
+(it reads the checkout, if at all, live when it runs), and a literal the module lists in its
+`NOT_PLAY_INPUTS` tuple. Run by `tests/helpers/self_update/test_program_read_rule.py` (in
+`qa-helper-tests.bash`), which proves the rule against its fixtures first.
+
+**Why it exists.** `helpers/github_scopes/cli.py` reads `vars/github-required-scopes.yml`
+through `__file__`, so `play-github-cli-multi.yml` never ran again when the required scopes
+changed; `scripts/qa-toolchain.bash`, run by `play-python.yml`, builds and runs a Go tool that
+reads `src-go/go.mod`, and neither the library it sources nor the tool was an input (Plan 00192
+Task 3.7). Found and defended under Defence Before Fix.
+
+**How to fix a finding.** Teach the mapper the form, so it counts the read or reports it
+UNRESOLVED. A literal that is not a read of the checkout (named in a message, relative to another
+directory, or read again by the program on every run, so no rerun is owed) goes in the module's
+`NOT_PLAY_INPUTS`, with the reason beside it.
+
 ---
 
 ## Changing a Gate
