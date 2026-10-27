@@ -55,6 +55,17 @@ FORGE_REFUSED = "forge check refused"
 #: ask-human's refusal when an open or answered question already asks it (after `pingbus: `),
 #: which Plan 00211's acceptance reads to reuse its test question while it is not closed.
 QUESTION_DUPLICATE = "team {team}: {question} is open and asks the same question"
+#: send and say's refusal when several teams are active and none is inferred; the active teams
+#: follow it, one per line.
+CHOICES_HEAD = "several teams are active and --to/--re fit more than one (or none): name one with --team:"
+#: The words the watcher and its supervisor end each kind of log line with, which Plan 00203's
+#: homeserver triage counts in a session's watch.log.
+WATCHER_EXITS = "the watcher exits"
+WATCHER_ENDED = "the watcher ended"
+WATCHER_REFUSED = "the watcher was refused"
+WATCHER_RESTARTED = "starting it again"
+TEAM_NOT_WATCHED = "no longer watched"
+HOMESERVER_SILENT = "the homeserver does not answer"
 
 EXIT_OK = 0
 EXIT_NOTHING = 3
@@ -1035,8 +1046,7 @@ def _choices_line(member: config.Member, unknown: bool) -> str:
     """One active team with what it is for (or why it cannot be judged), for the message that
     asks which to name."""
     if unknown:
-        return (f"  {member.team}  (no verified team record yet: run pingbus recv or name it "
-                "with --team)")
+        return f"  {member.team}  ({inbox.NO_RECORD_YET}: run pingbus recv or name it with --team)"
     try:
         about = inbox.TeamState.for_member(member).about()
     except inbox.StateError:
@@ -1066,8 +1076,7 @@ def _sending_member(args: argparse.Namespace, environ: Mapping[str, str]) -> con
         if len(fitting) == 1:
             return fitting[0]
     raise config.UsageError(
-        "several teams are active and --to/--re fit more than one (or none): name one with --team:\n"
-        + "\n".join(_choices_line(member, records[member.team] is None) for member in members))
+        f"{CHOICES_HEAD}\n" + "\n".join(_choices_line(member, records[member.team] is None) for member in members))
 
 
 def cmd_send(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
@@ -1841,7 +1850,7 @@ def _watch_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting, e
                     marked = True
                 if outage is None:
                     outage = _describe(exc)
-                    what = ("the homeserver does not answer" if isinstance(exc, matrix.MatrixError)
+                    what = (HOMESERVER_SILENT if isinstance(exc, matrix.MatrixError)
                             else "this team's sync failed")
                     err.write(f"{PROG}: team {team}: {what} ({outage}): retrying, the team stays "
                               "watched\n")
@@ -2190,17 +2199,17 @@ def _supervise(environ: Mapping[str, str], path: str, lock: inbox.Lock, rt: Runt
             err.write(f"{PROG}: the session socket is gone: the supervisor exits\n")
             return EXIT_OK
         if code == EXIT_OK:
-            err.write(f"{PROG}: the watcher ended (the session is on no team, or its socket refuses "
+            err.write(f"{PROG}: {WATCHER_ENDED} (the session is on no team, or its socket refuses "
                       "connections): the supervisor exits\n")
             return EXIT_OK
         if code in SUPERVISE_FINAL:
-            err.write(f"{PROG}: the watcher was refused (exit {code}), which a restart cannot change: "
+            err.write(f"{PROG}: {WATCHER_REFUSED} (exit {code}), which a restart cannot change: "
                       "the supervisor exits\n")
             return code
         if rt.monotonic() - started >= rt.supervise_retry_max_s:
             backoff.reset()
         wait = backoff.next()
-        err.write(f"{PROG}: the watcher exited (exit {code}): starting it again in {wait:g} s\n")
+        err.write(f"{PROG}: the watcher exited (exit {code}): {WATCHER_RESTARTED} in {wait:g} s\n")
         rt.sleep(wait)
 
 
@@ -2291,7 +2300,7 @@ def _watch(members: Sequence[config.Member], path: str, token: str, relaying: bo
                 if rt.stopping.is_set():
                     return EXIT_OK
             elif not notify.socket_present(path):
-                err.write(f"{PROG}: the session socket is gone: the watcher exits\n")
+                err.write(f"{PROG}: the session socket is gone: {WATCHER_EXITS}\n")
                 return EXIT_OK
             waiting.woke.wait(rt.tick_s)
             waiting.woke.clear()
@@ -2302,16 +2311,16 @@ def _watch(members: Sequence[config.Member], path: str, token: str, relaying: bo
                     if injector is not None:
                         _tell(environ, injector, rt, err)
                 except notify.SocketGone as gone:
-                    err.write(f"{PROG}: {gone}: the watcher exits\n")
+                    err.write(f"{PROG}: {gone}: {WATCHER_EXITS}\n")
                     return EXIT_OK
                 if not seats:
-                    err.write(f"{PROG}: this session is on no team now: the watcher exits\n")
+                    err.write(f"{PROG}: this session is on no team now: {WATCHER_EXITS}\n")
                     return EXIT_OK
             elif injector is not None:
                 try:
                     _tell(environ, injector, rt, err, hooks.tell_roles)
                 except notify.SocketGone as gone:
-                    err.write(f"{PROG}: {gone}: the watcher exits\n")
+                    err.write(f"{PROG}: {gone}: {WATCHER_EXITS}\n")
                     return EXIT_OK
             try:
                 if relaying:
@@ -2319,7 +2328,7 @@ def _watch(members: Sequence[config.Member], path: str, token: str, relaying: bo
                 else:
                     _inject_pass(seats, injector, rt, pending, err)
             except notify.SocketGone as gone:
-                err.write(f"{PROG}: {gone}: the watcher exits\n")
+                err.write(f"{PROG}: {gone}: {WATCHER_EXITS}\n")
                 return EXIT_OK
             except Exception as exc:  # contained (E25): the next tick tries again
                 if not pass_failing:
@@ -2338,12 +2347,12 @@ def _watch(members: Sequence[config.Member], path: str, token: str, relaying: bo
                 if not isinstance(exc, FAILURES):
                     raise exc
                 code, message = failure(exc)
-                err.write(f"{PROG}: team {team}: {message}: this team is no longer watched\n")
+                err.write(f"{PROG}: team {team}: {message}: this team is {TEAM_NOT_WATCHED}\n")
                 first_failure = first_failure or code
                 following.failed.add(team)
                 seats = [seat for seat in seats if seat.member.team != team]
             if not seats:
-                err.write(f"{PROG}: no team is left to watch: the watcher exits\n")
+                err.write(f"{PROG}: no team is left to watch: {WATCHER_EXITS}\n")
                 return first_failure
     finally:
         waiting.stop.set()
@@ -2403,7 +2412,7 @@ class _Following:
                 kept.append(seat)
                 continue
             stops[seat.member.team].remove()
-            self.err.write(f"{PROG}: team {seat.member.team}: removed from this session: no longer watched\n")
+            self.err.write(f"{PROG}: team {seat.member.team}: removed from this session: {TEAM_NOT_WATCHED}\n")
         if start is None:
             return kept
         watched = {seat.member.team for seat in kept}

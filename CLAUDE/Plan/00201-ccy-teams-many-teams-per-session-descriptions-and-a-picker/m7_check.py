@@ -101,8 +101,6 @@ _PIECE_TEAM, _PIECE_MEMBER, _PIECE_LETTER = "\x00\x01\x00", "\x00\x02\x00", "\x0
 #: A mark after a team's role, such as `(down)`; a mark of something unreadable (`(colour?)`)
 #: has a `?` and is not one of these.
 _SEGMENT_MARKS = r"(?: \([a-z]+\))*"
-#: pingbus cli.py, word for word: the refusal when several teams are active and none is inferred.
-CHOICES_TEXT = "several teams are active and --to/--re fit more than one (or none): name one with --team:"
 
 
 class Failed(Exception):
@@ -261,8 +259,8 @@ def say_outcome(status: int, stderr: str) -> int:
         return EXIT_OK
     if (
         status == 64
-        and CHOICES_TEXT in stderr
-        and "no verified team record yet" in stderr
+        and choices_head() in stderr
+        and no_record_yet() in stderr
     ):
         return EXIT_NOT_YET
     return EXIT_FAIL
@@ -489,9 +487,20 @@ def expect_sent(text: str, team: str) -> str:
     return lines[0][3]
 
 
+def choices_head() -> str:
+    """pingbus's refusal when several teams are active and none is inferred (cli.py)."""
+    return product_value("helpers/pingbus/cli.py", "CHOICES_HEAD")
+
+
+def no_record_yet() -> str:
+    """Why pingbus cannot judge a team before its first verified record (inbox.py)."""
+    return product_value("helpers/pingbus/inbox.py", "NO_RECORD_YET")
+
+
 def expect_choices(stderr: str, teams: Sequence[tuple[str, str]]) -> None:
-    if CHOICES_TEXT not in stderr:
-        raise Failed(f"the refusal does not say {CHOICES_TEXT!r}: {stderr!r}")
+    head = choices_head()
+    if head not in stderr:
+        raise Failed(f"the refusal does not say {head!r}: {stderr!r}")
     lines = stderr.splitlines()
     missing = [
         f"  {team}  {description}"

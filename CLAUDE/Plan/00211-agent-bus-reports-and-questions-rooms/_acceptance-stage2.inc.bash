@@ -44,9 +44,14 @@ unset inbox_name
 ELEMENT_ACCEPTED_DIR="$(stage2_value helpers/pingbus/config.py ELEMENT_ACCEPTED_DIR)"
 ELEMENT_ACCEPTED_FILE="$(stage2_value helpers/pingbus/config.py ELEMENT_ACCEPTED_FILE)"
 ELEMENT_FLATPAK_DIR="$(stage2_value helpers/pingbus/config.py ELEMENT_FLATPAK_DIR)"
+# pingbus's refusal of a host seat beside an Element profile, which a3_failed tells apart, and
+# the pingbus home under a guest user's home (config.py ELEMENT_REFUSAL, DEFAULT_HOME_DIR).
+ELEMENT_REFUSAL="$(stage2_value helpers/pingbus/config.py ELEMENT_REFUSAL)"
+PINGBUS_DEFAULT_HOME="$(stage2_value helpers/pingbus/config.py DEFAULT_HOME_DIR)"
 # The name pingbus starts its error lines with (cli.py PROG), for open_duplicate.
 CLI_PROG="$(stage2_value helpers/pingbus/cli.py PROG)"
 readonly TEAM_STATE_DIR INBOX_NAMES ELEMENT_ACCEPTED_DIR ELEMENT_ACCEPTED_FILE ELEMENT_FLATPAK_DIR CLI_PROG
+readonly ELEMENT_REFUSAL PINGBUS_DEFAULT_HOME
 # Each team's member.json in a ccy session home, one after another (none: no seat is held).
 readonly CCY_SEATED_SH="for f in ${CCY_PINGBUS_HOME}/*/member.json; do if [ -f \"\$f\" ]; then cat \"\$f\"; fi; done"
 # where.py <state dir> <inbox> <consumed> <dropped log> <event ID...>: `STATE present|missing`,
@@ -133,7 +138,7 @@ session_state() {
     local kind home team
     IFS=$'\t' read -r kind _ _ home team _ <<<"$1"
     if [[ "${kind}" == "lxc" ]]; then
-        home="${home}/.config/pingbus"
+        home="${home}/${PINGBUS_DEFAULT_HOME}"
     fi
     printf '%s/%s/%s\n' "${home}" "${team}" "${TEAM_STATE_DIR}"
 }
@@ -179,7 +184,7 @@ lxc_sessions() {
         user="$(jq -r '.user' <<<"${entry}")" || return 1
         team="$(jq -r '.team' <<<"${entry}")" || return 1
         home="$(guest_home "${container}" "${user}")" || return 1
-        uid="$(in_guest "${container}" "${user}" "${home}" "${team}" cat -- "${home}/.config/pingbus/${team}/member.json" </dev/null |
+        uid="$(in_guest "${container}" "${user}" "${home}" "${team}" cat -- "${home}/${PINGBUS_DEFAULT_HOME}/${team}/member.json" </dev/null |
             jq -r '.user_id')" || {
             printf 'container %s (online): %s has no readable pingbus bundle for team %s: play-agent-bus.yml writes it into an online container, so run that play (meta-deploy)\n' \
                 "${container}" "${user}" "${team}" >&2
@@ -414,7 +419,7 @@ a3_pingbus() {
 # the owner's step only when that error is pingbus refusing a host seat beside an Element
 # profile (config._refuse_beside_element), which a linked seat meets until the user accepts.
 a3_failed() {
-    if grep -qF 'a host member must not run as a user with an Element profile' "${A3_DIR}/pingbus.err"; then
+    if grep -qF -- "${ELEMENT_REFUSAL}" "${A3_DIR}/pingbus.err"; then
         printf 'A3: pingbus %s refused %s beside an Element profile: this user has not accepted a host seat beside it yet: run cc --teams once from a terminal and accept, then run meta-deploy again\n' \
             "$1" "${A3_HANDLE}" >&2
         return 0
@@ -1002,7 +1007,7 @@ EOF
     case "$1 $2" in
         "accepted ok") return "${rc}" ;;
         "unaccepted ok")
-            fake_a3_said "${rc}" 'a host member must not run as a user with an Element profile' 'has not accepted'
+            fake_a3_said "${rc}" "${ELEMENT_REFUSAL}" 'has not accepted'
             ;;
         "accepted join-refused")
             fake_a3_said "${rc}" 'the team room is not trusted: not joined' '' 'has not accepted'

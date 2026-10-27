@@ -376,7 +376,8 @@ def fake_files(directory: str, token: str, team: str, team_b: str) -> None:
         count = 1 if case == "good" else 0
         (folder / "status").write_text(f"TEAM\t{team}\t{FAKE_HANDLE}\ttrust=trusted\tignored={count}\n"
                                        f"TEAM\t{team_b}\t{FAKE_HANDLE}\ttrust=trusted\tignored=0\n", encoding="utf-8")
-        log = f"pingbus: team {team}: the homeserver does not answer (Unreachable): retrying, the team stays watched\n"
+        silent = _product("helpers.pingbus.cli").HOMESERVER_SILENT
+        log = f"pingbus: team {team}: {silent} (Unreachable): retrying, the team stays watched\n"
         log += f"pingbus: team {team}: the team syncs again\n" if case == "good" else (
             "pingbus: delivery 77777777 is missing: it is not in the session's transcript\n")
         (folder / "watch.log").write_text(log, encoding="utf-8")

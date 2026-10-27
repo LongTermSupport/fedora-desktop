@@ -988,16 +988,21 @@ u20_refused() {
 # M2.5 — while the three run, all three held; a launch on a held seat refused (75), one naming
 # two seats of the team (64), one with a trailing comma (64); nothing changed by any of them.
 u20_check_refused() {
-    local name
+    local name held one_per_team empty_item
+    # Each refusal's words are seat.py's own (HELD_TEXT, ONE_PER_TEAM_TEXT, EMPTY_ITEM_TEXT),
+    # read through m7_check product-value, never copied.
+    held="$("${U20_NAMES_CHECK[@]}" product-value helpers/pingbus/seat.py HELD_TEXT)" || return 1
+    one_per_team="$("${U20_NAMES_CHECK[@]}" product-value helpers/pingbus/seat.py ONE_PER_TEAM_TEXT)" || return 1
+    empty_item="$("${U20_NAMES_CHECK[@]}" product-value helpers/pingbus/seat.py EMPTY_ITEM_TEXT)" || return 1
     u20_seat_list "$(u20_ev seats-running)" || return 1
     "${U20[@]}" expect-seats "$(u20_ev seats-running)" "${TEAM}" held acca,accb,accc || return 1
     u20_member_list "$(u20_ev members-running)" || return 1
     u20_record_checkout "$(u20_ev refused-before)" || return 1
     u20_seat_label_listing "$(u20_ev refused-before)/containers" || return 1
     u20_refresh_sudo || return 1
-    u20_refused held 75 "is held by another session" "accb@${TEAM}" || return 1
-    u20_refused two-seats 64 "one seat per team per session" "accd@${TEAM},acce@${TEAM}" || return 1
-    u20_refused trailing-comma 64 "trailing comma" "accd@${TEAM}," || return 1
+    u20_refused held 75 "${held}" "accb@${TEAM}" || return 1
+    u20_refused two-seats 64 "${one_per_team}" "accd@${TEAM},acce@${TEAM}" || return 1
+    u20_refused trailing-comma 64 "${empty_item}" "accd@${TEAM}," || return 1
     u20_seat_list "$(u20_ev seats-refused)" || return 1
     u20_member_list "$(u20_ev members-refused)" || return 1
     u20_record_checkout "$(u20_ev refused-after)" || return 1

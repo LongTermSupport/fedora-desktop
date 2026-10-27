@@ -66,6 +66,11 @@ ELEMENT_NATIVE_NAME = "Element"
 #: Element (`element_accepted`): once per user, not once per seat.
 ELEMENT_ACCEPTED_DIR = ".config/pingbus"
 ELEMENT_ACCEPTED_FILE = "element-accepted"
+#: A host member's refusal to run beside an Element profile, before the profile found and the
+#: way out; Plan 00211's stage-2 acceptance looks for it.
+ELEMENT_REFUSAL = "a host member must not run as a user with an Element profile"
+#: The pingbus home under `$HOME` when neither PINGBUS_HOME nor XDG_CONFIG_HOME names one.
+DEFAULT_HOME_DIR = ".config/pingbus"
 
 _DNS_LABEL = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
 _DNS_NAME_RE = re.compile(rf"{_DNS_LABEL}(?:\.{_DNS_LABEL})*")
@@ -136,7 +141,7 @@ def resolve_home(environ: Mapping[str, str]) -> pathlib.Path:
     home = environ.get("HOME", "")
     if not home or not os.path.isabs(home):
         raise ConfigError("PINGBUS_HOME is unset and HOME is not an absolute path")
-    return pathlib.Path(home) / ".config" / "pingbus"
+    return pathlib.Path(home) / DEFAULT_HOME_DIR
 
 
 def active_teams(environ: Mapping[str, str]) -> tuple[str, ...]:
@@ -169,7 +174,7 @@ def member_env_file(environ: Mapping[str, str]) -> pathlib.Path | None:
     if xdg and os.path.isabs(xdg):
         return pathlib.Path(xdg) / "pingbus" / "env"
     home = environ.get("HOME", "")
-    return pathlib.Path(home) / ".config" / "pingbus" / "env" if os.path.isabs(home) else None
+    return pathlib.Path(home) / DEFAULT_HOME_DIR / "env" if os.path.isabs(home) else None
 
 
 def _env_file_hint(environ: Mapping[str, str]) -> str:
@@ -444,8 +449,7 @@ def _refuse_beside_element(team: str, user_home: pathlib.Path) -> None:
         )
     if found:
         raise ConfigError(
-            f"team {team}: a host member must not run as a user with an Element profile "
-            f"({found[0]}); run it as a dedicated agent user"
+            f"team {team}: {ELEMENT_REFUSAL} ({found[0]}); run it as a dedicated agent user"
         )
 
 

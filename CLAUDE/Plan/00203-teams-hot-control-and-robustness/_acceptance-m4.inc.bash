@@ -24,7 +24,7 @@
 #   (c) two changes at once on one session: with A's keeper killed the first holds the lock
 #       through its 10 s wait; the second is refused (75, naming the first); the first is
 #       rolled back, and after a repair the add is made for real
-#   (d) a homeserver down: A's status line says acc-m4b(down); add and role refused, nothing
+#   (d) a homeserver down: A's status line marks acc-m4b (down); add and role refused, nothing
 #       changed (H26); remove releases the seat with the goodbye owed (exit 1); with the
 #       homeserver back the same remove finishes
 #   (e) B's seat keeper killed: list says unguarded; repair; list says ok; then remove B's
@@ -342,11 +342,15 @@ m4_hs_up() { systemctl is-active --quiet "agent-bus-hs@${M4_TEAM_B}.service" || 
 # session home given by hand, marks acc-m4b down (H26). It proves the status line's code path
 # over the watcher's real mark; it is not claude's own rendering of its status line.
 m4_status_down() {
-    local line
+    local line down piece
+    # The mark is statusline.py DOWN_MARK, after the team's `<team>: <member> (<role>)` piece
+    # (_team_piece), read through m7_check product-value, never copied.
+    m3_value down helpers/pingbus/statusline.py DOWN_MARK || return 1
+    piece="${M4_TEAM_B}: [^ ]+ \\([^)]+\\) "
     line="$(podman exec -i -e "PINGBUS_HOME=${M3_PB_HOME:?}" -e "${M3_INNER_VAR:?}=1" "${M2_CTR[${M4_A}]}" \
         pingbus status-line <<<'{}')" || return 1
     printf '%s\n' "${line}" >"$(m4_ev status-line)"
-    [[ "${line}" == *"${M4_TEAM_B}(down)"* ]] || return 3
+    [[ "${line}" =~ ${piece}"${down}" ]] || return 3
 }
 
 m4_check_homeserver_down() {

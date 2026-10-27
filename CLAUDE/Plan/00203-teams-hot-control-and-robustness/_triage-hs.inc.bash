@@ -165,6 +165,14 @@ watcher_logs() {
         return 1
     fi
     path="${home}/${entries}"
+    # The words each kind of line ends with are cli.py's own, read the same way.
+    local exits ended refused restarted dropped silent
+    exits="$(python3 -I "${TRIAGE_M7_CHECK}" product-value helpers/pingbus/cli.py WATCHER_EXITS)" || return 1
+    ended="$(python3 -I "${TRIAGE_M7_CHECK}" product-value helpers/pingbus/cli.py WATCHER_ENDED)" || return 1
+    refused="$(python3 -I "${TRIAGE_M7_CHECK}" product-value helpers/pingbus/cli.py WATCHER_REFUSED)" || return 1
+    restarted="$(python3 -I "${TRIAGE_M7_CHECK}" product-value helpers/pingbus/cli.py WATCHER_RESTARTED)" || return 1
+    dropped="$(python3 -I "${TRIAGE_M7_CHECK}" product-value helpers/pingbus/cli.py TEAM_NOT_WATCHED)" || return 1
+    silent="$(python3 -I "${TRIAGE_M7_CHECK}" product-value helpers/pingbus/cli.py HOMESERVER_SILENT)" || return 1
     names="$(podman ps --format '{{.Names}}')"
     for name in ${names}; do
         if ! podman exec "${name}" test -f "${path}"; then
@@ -174,10 +182,10 @@ watcher_logs() {
         log="$(podman exec "${name}" cat "${path}")"
         printf '=== %s: %s modified %s\n' "${name}" "${path}" "$(podman exec "${name}" stat -c '%y' "${path}")"
         printf '    exits: %s; supervisor restarts: %s; teams dropped: %s; homeserver outages: %s\n' \
-            "$(grep -c 'the watcher exits\|the watcher ended\|the watcher was refused' <<<"${log}")" \
-            "$(grep -c 'starting it again' <<<"${log}")" \
-            "$(grep -c 'no longer watched' <<<"${log}")" \
-            "$(grep -c 'does not answer' <<<"${log}")"
+            "$(grep -cF -e "${exits}" -e "${ended}" -e "${refused}" <<<"${log}")" \
+            "$(grep -cF -e "${restarted}" <<<"${log}")" \
+            "$(grep -cF -e "${dropped}" <<<"${log}")" \
+            "$(grep -cF -e "${silent}" <<<"${log}")"
         awk '{l[NR]=$0} END{for(i=NR-39;i<=NR;i++) if(i>0) print "    " l[i]}' <<<"${log}"
     done
     if [[ "${found}" -eq 0 ]]; then
