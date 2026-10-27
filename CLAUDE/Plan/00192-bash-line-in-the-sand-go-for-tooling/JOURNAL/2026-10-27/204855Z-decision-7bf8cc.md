@@ -1,0 +1,3 @@
+## 20:48 · decision · —
+
+reclaim 2.0.4. Host check of 2.0.3 found the partial Podman summary's summed image size equal to the whole disk, and the dangling count in the report (638) above the prune question's (628). Cause of the second: the report counts every dangling image, the prune keeps those a container uses. Podman's image JSON gives sizes per image only, no layer sizes, so unique bytes cannot be computed without system df: the summed figure and the dangling and unused size sums are dropped, and the report says the total is not known. The report shows how many dangling images are kept, and a line before the prune question says so. Six tests seen red first, then green.

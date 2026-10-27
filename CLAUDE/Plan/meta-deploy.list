@@ -60,11 +60,11 @@
 00232-ccy-network-policy-per-container
 
 # The plays changed since they last ran here. Expected: play-cli-tools.yml (Plan 00192:
-# reclaim 2.0.3 rebuilt, which summarises podman storage in part instead of printing the raw
+# reclaim 2.0.4 rebuilt (2.0.4 reports no summed image size, and says how many dangling images a container uses and the prune keeps), which summarises podman storage in part instead of printing the raw
 # listings, and whose prunes are dangling-only unless a second question is answered yes). The
 # host agent then reruns H1's podman section, expecting a summary of a few dozen lines (counts,
 # sizes, dangling images, the largest ten of each kind) with the unreadable volume still named,
 # and option 6 answering No to both questions, expecting the dangling prune offered with what
 # it frees, then the every-unused-image question naming the claude-yolo images it would remove,
-# and nothing run (SPEC-reclaim.md E7a, E22, E22a).
+# and nothing run (SPEC-reclaim.md E7a, E22, E22a); the images line says its total is not known, and the dangling count in the report and the prune question agree or differ by the stated number kept.
 changed-plays

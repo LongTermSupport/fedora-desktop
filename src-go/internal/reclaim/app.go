@@ -19,7 +19,7 @@ import (
 )
 
 // Version is the command's version (E1).
-const Version = "2.0.3"
+const Version = "2.0.4"
 
 // The programs and arguments named in more than one place.
 const (
