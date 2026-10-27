@@ -3,8 +3,7 @@
 **Status**: In Progress. M1-M7 built and deployed; the automated two-team acceptance last
 passed on the host at F44 cab255ad4 (commit d2612e8d7), with Tasks 2.21 to 2.23's checker
 fixes. The relay task 2.8 is superseded; Tasks 2.11, 2.12, 2.15, 2.17 and 2.18 are carried by
-Plan 00209. Left for workers: Tasks 2.24 and
-2.26 (from Task 2.22's referrals), a scripted test human for the Element checks, and the
+Plan 00209. Left for workers: Task 2.27 (proposed: the copies Task 2.24 could not read), a scripted test human for the Element checks, and the
 final qa-reviewer. Left for the host agent: the interactive checks of
 [ACCEPTANCE-owner.md](ACCEPTANCE-owner.md) driven through tmux (Tasks 2.7, 2.12 check 11,
 2.14, 2.15 step 13) and Task 2.20's `ccy-teams lxc-add` of the member refused before; the
@@ -400,11 +399,40 @@ a repository is no longer offered for a checkout of it. Report:
   - The bash "only the last command substitution of one assignment reaches errexit" shape:
     Task 2.26.
 
-- [ ] ⬜ **Task 2.24**: Name each referred inline text or value as a constant in the product,
+- [x] ✅ **Task 2.24**: Name each referred inline text or value as a constant in the product,
   tests first, and convert the checker that copies it to read the constant through `m7_check product-value`, under `checker-copies-cited-constant`. One branch per product area (ccy-teams
   Go, pingbus and agent-bus Python), with the version bumps each needs and a meta-deploy entry.
   The rows are Task 2.21's referred list and the first three bullets of Task 2.23's referred
   list (report `subagent-reports/261022-sweep-dbf-report.md`). A worker.
+  Done for every row `product-value` can read, in three branches; no byte printed changes (each
+  named text pinned by a test), so no host check of its own: the next acceptance runs read the
+  constants. Report: [subagent-reports/261027-task-2-24.md](subagent-reports/261027-task-2-24.md).
+
+  - `fix/00201-constants-teams-go` (a3c5e70ba): ccy-teams' hot step lines and messages
+    (`hot/texts.go`), `roles.go setTo`, `choose.go`'s launch block; m7_check gains
+    `product-pattern`; 00203 M3, M4, M6 converted. Red 10, green 0.
+  - `fix/00201-constants-pingbus` (df354133a): cli.py, inbox.py, seat.py, config.py,
+    statusline.py texts (A4, A5, B10/b31, b26, b33, b11, `.config/pingbus`); m7_check, 00161
+    U20/U23, 00203 M4 and the homeserver triage, 00211 stage 2, 00194 delivery_check converted.
+    Red 15, green 0. M4's down check had never matched the status line; fixed. CCY 3.100.31,
+    container 2.79.13.
+  - `fix/00201-constants-agent-bus`: health.py and checkout.py texts and the backup tar prefix
+    (B8/b25, `agent-bus-state-`); 00203 R6-R8 converted. Red 6, green 0. CCY 3.100.32,
+    container 2.79.14. meta-deploy: `changed-plays`.
+  - Left, because `product-value` reads only `helpers/` Python and `src-go/` Go and these live
+    elsewhere: B5 (`LAST_TEAMS=`, `LAST_TOKEN=`, the `ccy-session=` label, `projects/-workspace`:
+    claude-yolo bash; rows 31, 32), cc's mktemp (row 19, `files/var/local/claude-code/cc`), B11
+    (speech-to-text extension JS), B12 (wsimedia Go outside `src-go/internal`), B14 (run.bash),
+    B15 (entrypoint.sh, rclonecache/convert Go, self_update Python), rows 22 and 25-27 (Plans
+    00080, 00137, 00109, 00148), and the Tuwunel path (agent-bus-install only). Also left: the
+    homeserver unit names (row 24): Python holds them (`checkout.hs_unit`, `health.backup_timer`
+    and the rest) but about 25 checker sites in five plans copy them: Task 2.27.
+
+- [ ] ⬜ **Task 2.27** (proposed by Task 2.24's worker): the copies Task 2.24 left. (a) The
+  homeserver unit names as named templates, the checkers of Plans 00194, 00201 and 00203 reading
+  them, in `OWNED`. (b) A reader for the bash and other-language products of the left rows (B5,
+  B11, B12, B14, B15, rows 19, 22, 25-27, 31, 32), or a judgement per row that it stays a copy.
+  (c) 00194's acceptance reads `the team syncs again` (cli.py inline), found on the way.
 
 - [x] ✅ **Task 2.25**: A gate runs each plan folder's own `test_*.py`, so a plan checker's
   tests going red is seen (Plan 00161's `test_acceptance_check` went red at `a5486643d`

@@ -181,22 +181,31 @@ check_watchdog_hang() {
     grep -i 'watchdog timeout' <<<"${journal}"
 }
 
+# The words R6-R8 look for are the product's (health.py PROBLEM_MARK, RESTARTED_TEXT,
+# NEWEST_BACKUP_TEXT, BACKUP_TAR_PREFIX; checkout.py STARTING_TEXT, UP_AFTER_TEXT), read
+# through m7_check product-value (M3's m3_value), never copied.
 check_restarts_noted() {
+    local problem restarted
+    m3_value problem helpers/agent_bus/health.py PROBLEM_MARK || return 1
+    m3_value restarted helpers/agent_bus/health.py RESTARTED_TEXT || return 1
     run_health_check || return 1
     health_status 1 "${PLAN_RUN_DIR}/health-restarts.txt" || return 1
-    grep -F 'PROBLEM systemd restarted the homeserver' "${PLAN_RUN_DIR}/health-restarts.txt"
+    grep -F -- "${problem} ${restarted}" "${PLAN_RUN_DIR}/health-restarts.txt"
 }
 
 check_stale_backup() {
-    local backups newest list rows listed=0
+    local backups newest list rows listed=0 problem stale tar_prefix
+    m3_value problem helpers/agent_bus/health.py PROBLEM_MARK || return 1
+    m3_value stale helpers/agent_bus/health.py NEWEST_BACKUP_TEXT || return 1
+    m3_value tar_prefix helpers/agent_bus/health.py BACKUP_TAR_PREFIX || return 1
     sudo -n "${INSTALLER}" backup-now --team "${TEAM}" || return 1
     backups="$(sudo -n "${INSTALLER}" backups --team "${TEAM}")" || return 1
     newest="$(awk -F'\t' '$1 == "BACKUP" { id = $2 } END { print id }' <<<"${backups}")" || return 1
     [[ -n "${newest}" ]] || return 1
-    sudo -n touch -d '3 days ago' "${M3_INSTALL_ROOT:?}/${TEAM}/backups/agent-bus-state-${newest}.tar" || return 1
+    sudo -n touch -d '3 days ago' "${M3_INSTALL_ROOT:?}/${TEAM}/backups/${tar_prefix}${newest}.tar" || return 1
     run_health_check || return 1
     health_status 1 "${PLAN_RUN_DIR}/health-stale.txt" || return 1
-    grep -F 'PROBLEM the newest backup is 3 d' "${PLAN_RUN_DIR}/health-stale.txt" || return 1
+    grep -F -- "${problem} ${stale} 3 d" "${PLAN_RUN_DIR}/health-stale.txt" || return 1
     # --list exits 1 when any team's members cannot be read; only this team's row is judged.
     list="$(ccy-teams --list)" || listed=$?
     note "ccy-teams --list exited ${listed}" || return 1
@@ -204,11 +213,13 @@ check_stale_backup() {
     # Only the team's own row carries health words; the restarts R6 made come first in them.
     rows="$(grep -E "^${TEAM} " <<<"${list}" | grep -F 'health: ')" || return 1
     printf '%s\n' "${rows}" || return 1
-    grep -F 'the newest backup is 3 d' <<<"${rows}"
+    grep -F -- "${stale} 3 d" <<<"${rows}"
 }
 
 check_seat_check_waits() {
-    local start elapsed waited state err="${PLAN_RUN_DIR}/seat-check.stderr"
+    local start elapsed waited state err="${PLAN_RUN_DIR}/seat-check.stderr" starting up_after
+    m3_value starting helpers/agent_bus/checkout.py STARTING_TEXT || return 1
+    m3_value up_after helpers/agent_bus/checkout.py UP_AFTER_TEXT || return 1
     sudo -n install -d -m 0755 -- "${DELAY_DIR}" || return 1
     printf '[Service]\nExecStartPre=/usr/bin/sleep %d\n' "${DELAY_S}" | sudo -n tee -- "${DELAY_DROPIN}" >/dev/null || return 1
     sudo -n systemctl daemon-reload || return 1
@@ -229,8 +240,8 @@ check_seat_check_waits() {
     note "seat check returned after ${elapsed} s" || return 1
     remove_delay || return 1
     [[ "${elapsed}" -ge $((DELAY_S - 10)) ]] || return 1
-    grep -F 'is starting' "${err}" || return 1
-    grep -F 'is up after' "${err}"
+    grep -F -- "${starting}" "${err}" || return 1
+    grep -F -- "${up_after}" "${err}"
 }
 
 # check_lxc_members — the member unit of each present agent_bus_lxc_members entry with

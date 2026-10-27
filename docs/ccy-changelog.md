@@ -27,6 +27,16 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.100.32 — container 2.79.14
+
+Follows 3.100.31 (container 2.79.13). Plan 00201 Task 2.24. The image changes: the agent_bus
+helpers the pingbus zipapp is built with.
+
+- **No change you can see.** agent-bus names the words its plan checkers look for (the health
+  check's restart and stale backup problems and `PROBLEM` mark, a state backup's file name, and
+  the seat check's wait for a starting homeserver) as constants, and prints the same bytes as
+  before; the checkers read them from this checkout instead of copying them.
+
 ## 3.100.30 — container 2.79.12
 
 Plan 00177 Task 12.3.
