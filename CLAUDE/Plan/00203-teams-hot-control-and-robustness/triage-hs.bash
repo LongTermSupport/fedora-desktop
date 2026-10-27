@@ -75,6 +75,15 @@ readonly PRODUCT_VALUE=(python3 -I "${PLAN_REPO_ROOT}/CLAUDE/Plan/00201-ccy-team
 STATE_ROOT="$("${PRODUCT_VALUE[@]}" helpers/agent_bus/render.py STATE_ROOT)"
 HEALTH_ROOT="$("${PRODUCT_VALUE[@]}" helpers/agent_bus/health.py HEALTH_DIR)"
 readonly STATE_ROOT HEALTH_ROOT
+# The team units as globs over every team (health.py's hs_unit, health_service and the rest,
+# given `*` for the team), for systemctl and journalctl, read the same way.
+UNIT_GLOBS=()
+for unitFn in hs_unit health_service health_timer backup_service backup_timer; do
+    unitGlob="$("${PRODUCT_VALUE[@]}" helpers/agent_bus/health.py "${unitFn}" '*')"
+    UNIT_GLOBS+=("${unitGlob}")
+done
+readonly UNIT_GLOBS
+readonly HS_GLOB="${UNIT_GLOBS[0]}"
 readonly TUWUNEL=/usr/local/lib/agent-bus/tuwunel
 readonly RUNS_ROOT="${PLAN_REPO_ROOT}/untracked/plan-runs"
 readonly FACTS="${PLAN_RUN_DIR}/triage-hs-facts-report.txt"

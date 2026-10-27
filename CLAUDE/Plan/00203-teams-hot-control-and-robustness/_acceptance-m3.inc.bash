@@ -114,6 +114,18 @@ m3_value() {
     printf -v "$1" '%s' "${text}"
 }
 
+# m3_unit <variable> <function> <team> — the systemd unit health.py's function names for the
+# team (hs_unit, health_service, backup_timer and the rest), through m7_check product-value,
+# into the variable: the unit names are agent-bus's, never copied.
+m3_unit() {
+    local text
+    text="$("${M3_CHECK[@]}" product-value helpers/agent_bus/health.py "$2" "$3")" || {
+        printf '[FAIL] m7_check product-value helpers/agent_bus/health.py %s %s could not read the product (above)\n' "$2" "$3" >&2
+        return 1
+    }
+    printf -v "$1" '%s' "${text}"
+}
+
 #: ccy-teams' hot package, whose step lines and messages M3, M4 and M6 read from its named texts.
 readonly M3_TEXTS=src-go/internal/teams/hot/texts.go
 
@@ -197,8 +209,9 @@ m3_teams() { (cd -- "${PLAN_REPO_ROOT}" && CCY_TEAMS_HOST_VARS="${M3_HOST_VARS}"
 
 # m3_team_built <team> — 0 when the installer has built it (unit enabled, or state present).
 m3_team_built() {
-    local enabled
-    enabled="$(systemctl show -P UnitFileState "agent-bus-hs@$1.service")" || return 1
+    local enabled unit
+    m3_unit unit hs_unit "$1" || return 1
+    enabled="$(systemctl show -P UnitFileState "${unit}")" || return 1
     [[ "${enabled}" == enabled ]] || sudo -n test -e "${M3_STATE_ROOT:?}/$1"
 }
 

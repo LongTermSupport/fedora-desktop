@@ -881,7 +881,7 @@ m7_purge_teams() {
 # C1 — after the purge: no firewalld rule the installer recorded, no unit running, no state
 # directory or applied stamp, no seat directory; the Quick Launch record as it was.
 m7_check_gone() {
-    local team zone rule store status state
+    local team zone rule store status state unit
     for team in "${M7_TEAMS[@]}"; do
         while IFS=$'\t' read -r zone rule; do
             for store in permanent runtime; do
@@ -893,9 +893,10 @@ m7_check_gone() {
                 fi
             done
         done <"$(m7_ev "${team}.firewalld.rules")"
-        state="$(systemctl show -p ActiveState --value "agent-bus-hs@${team}.service")" || return 1
+        unit="$("${CHECK[@]}" product-value helpers/agent_bus/checkout.py hs_unit "${team}")" || return 1
+        state="$(systemctl show -p ActiveState --value "${unit}")" || return 1
         if [[ "${state}" == active ]]; then
-            printf '[FAIL] agent-bus-hs@%s.service is still active\n' "${team}" >&2
+            printf '[FAIL] %s is still active\n' "${unit}" >&2
             return 1
         fi
         if sudo -n test -e "${M7_STATE}/${team}" || sudo -n test -e "${M7_INSTALL_STATE}/${team}" \

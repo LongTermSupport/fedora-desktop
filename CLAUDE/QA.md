@@ -1363,7 +1363,9 @@ which proves the rule against its fixtures first. Its second clause needs no com
 module's `OWNED` names product constants (the ccy session home, the membership mount, variable,
 file and directory names, the status line's inner-only variable, the checkout's seat directory,
 the team-name grammar, the agent-bus state roots, the Tuwunel pin, ccy-teams' step marks and
-STATE words, and the message texts the product names for its checkers), reads each value from
+STATE words, the label ccy-teams finds a session's container by, the message texts the product
+names for its checkers, and the team units agent-bus's functions name, such as `checkout.py`
+`hs_unit`, whose one `return f"..."` is read as a text with a placeholder), reads each value from
 the product source, and reports a line of an active plan checker whose code holds one:
 anywhere, as a file name after a `/`, as a directory between two, as a step mark anchored to a
 line start (`^✓`), or as a whole path (`/var/lib/agent-bus` and below it, but not
@@ -1376,14 +1378,17 @@ checkers' own unit tests (`test_*.py`, whose fixtures are fake input) are not ju
 session. The rule catches only the copies a comment admits to. A wider rule (any checker
 literal inside a product constant) would report the Matrix spec, GitHub's address and install
 paths, which the product does not own either; the copies it cannot see soundly are listed in
-Plan 00201 Task 2.21.
+Plan 00201 Task 2.21, and the ones judged to stay copies, each with its reason, in that plan's
+`subagent-reports/261027-task-2-27.md`.
 
 **How to fix a finding.** Read the value from the product: import its module from this checkout,
 lazily, through the repo root above the checker (`m7_check.py` `_checkout_module`). A checker
 that runs where no checkout is mounted is handed the value by the script that starts it. Do not
 delete the comment to quiet the rule: the copy is still a copy. For the second clause, ask
 Plan 00201's `m7_check.py` for the value (`product-value FILE NAME` reads any named text of a
-`helpers/` module or a `src-go/` file, and `product-pattern FILE NAME [PATTERN...]` the same
+`helpers/` module or a `src-go/` file, or calls a `helpers/` function that names one with the
+arguments given, as `product-value helpers/agent_bus/health.py hs_unit TEAM`; and
+`product-pattern FILE NAME [PATTERN...]` the same
 text as a `grep -P` pattern, each placeholder the pattern given, as Plan 00203's M3, M4 and M6
 read ccy-teams' step lines from `src-go/internal/teams/hot/texts.go`; `session-paths`, `session-names`, `hot-marks`,
 `status-line-names` and the other readers its usage lists group the common ones). When a checker needs a text the

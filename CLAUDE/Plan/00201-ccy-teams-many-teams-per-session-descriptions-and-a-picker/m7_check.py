@@ -43,7 +43,8 @@ statusline.py). Commands
                                      relaunch request's file name (membership.go, desired.go)
   status-line-names                  the Go status line's teams row head, then its inner-only variable (statusline.go)
   product-value FILE NAME [FILL...]  any named text of this checkout's helpers/ module or src-go/ file (NAME[key] for a
-                                     table's entry), placeholders filled: key=value for {key}, in order for Go %s/%d
+                                     table's entry), placeholders filled: key=value for {key}, in order for Go %s/%d;
+                                     a helpers/ function naming a text (checkout.py hs_unit) is called with the FILLs
   product-pattern FILE NAME [PATTERN...]  the same text as a grep -P pattern: fixed parts quoted, each placeholder
                                      the PATTERN given (key=PATTERN for {key}, in order for Go)
   expect-session-settings SETTINGS   a seated ccy session's own settings.json: inbound accepted, the seated status line this checkout's seat.py writes
@@ -59,6 +60,7 @@ Exit codes: 0 ok; 1 an expectation failed or the input was malformed; 3 not ther
 from __future__ import annotations
 
 import importlib
+import inspect
 import json
 import os
 import pathlib
@@ -664,6 +666,18 @@ def membership_dirs(membership_go: str | None = None, desired_go: str | None = N
 
 
 _PRODUCT_NAME_RE = re.compile(r"(?P<name>[A-Za-z_]\w*)(?:\[(?P<key>[\w-]+)\])?")
+
+
+def _is_function(value: object) -> bool:
+    """A plain function of a module (not a class, whose call would build an object)."""
+    return inspect.isfunction(value)
+
+
+def _names_function(rel: str, name: str) -> bool:
+    """Whether a helpers/ module's `name` is a function, whose fills are its arguments in order."""
+    if not (rel.startswith("helpers/") and rel.endswith(".py")):
+        return False
+    return _is_function(getattr(_checkout_module(rel.removesuffix(".py").replace("/", ".")), name, None))
 _GO_VERB_RE = re.compile(r"%[-+ #0-9.]*[a-zA-Z]")
 
 
@@ -671,17 +685,27 @@ def product_value(rel: str, name: str, fills: Sequence[str] = (), source: str | 
     """A named text of this checkout's product, never a copy: a module-level constant of a
     helpers/ module (imported; a path is given as text; `NAME[key]` is one entry of a table), or
     a Go package-level string constant (read from `source`, default the file). `fills` complete
-    its placeholders: `key=value` for a Python `{key}`, in order for a Go `%s` or `%d`."""
+    its placeholders: `key=value` for a Python `{key}`, in order for a Go `%s` or `%d`. A helpers/
+    function that names a text from its arguments (checkout.py's `hs_unit(team)`) is called with
+    the fills, in order."""
     match = _PRODUCT_NAME_RE.fullmatch(name)
     if match is None:
         raise Failed(f"{name!r} is not a constant name")
     if rel.startswith("helpers/") and rel.endswith(".py"):
         value = getattr(_checkout_module(rel.removesuffix(".py").replace("/", ".")), match["name"], None)
-        if match["key"] is not None:
+        called = _is_function(value)
+        if called:
+            if match["key"] is not None:
+                raise Failed(f"{rel} {name}: a function has no entries")
+            try:
+                value = value(*fills)
+            except TypeError as e:
+                raise Failed(f"{rel} {match['name']} cannot be called with {list(fills)!r}: {e}") from e
+        elif match["key"] is not None:
             value = value.get(match["key"]) if isinstance(value, dict) else None
         if isinstance(value, pathlib.PurePath):
             value = str(value)
-        if fills and isinstance(value, str):
+        if fills and not called and isinstance(value, str):
             pairs = dict(fill.partition("=")[::2] for fill in fills)
             if set(pairs) != set(re.findall(r"\{(\w+)\}", value)):
                 raise Failed(f"{rel} {name} {value!r} has not one placeholder for each of {list(fills)!r}")
@@ -710,8 +734,8 @@ _SENTINEL_RE = re.compile("\x00([0-9]+)\x00")
 def _product_parts(rel: str, name: str, patterns: Sequence[str], source: str | None) -> tuple[list[str], list[str]]:
     """The named text split at its placeholders: its fixed parts (one more than the placeholders)
     and the pattern for each placeholder, in the text's order. A Python `{key}` takes the
-    `key=PATTERN` given for it; a Go verb the next PATTERN."""
-    if rel.endswith(".py"):
+    `key=PATTERN` given for it; a Go verb, or a helpers/ function's argument, the next PATTERN."""
+    if rel.endswith(".py") and not _names_function(rel, name):
         pairs = [pattern.partition("=") for pattern in patterns]
         fills = [f"{key}=\x00{i}\x00" for i, (key, _, _) in enumerate(pairs)]
         regexes = [regex for _, _, regex in pairs]
