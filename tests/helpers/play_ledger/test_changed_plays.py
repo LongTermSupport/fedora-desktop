@@ -513,5 +513,44 @@ class TestRealGit(unittest.TestCase):
             )
 
 
+class TestRealPlayInputs(unittest.TestCase):
+    """This checkout's plays, with their inputs read from the play text (Plan 00229, Task 1.5).
+
+    A change to a file a play does not deploy does not make it run again. The wsi scripts are
+    play-speech-to-text.yml's; play-agent-bus.yml and play-network-tools.yml each copy or read
+    files from the same directories, but name them in a loop.
+    """
+
+    AGENT_BUS = "playbooks/imports/play-agent-bus.yml"
+    NETWORK = "playbooks/imports/optional/common/play-network-tools.yml"
+    SPEECH = "playbooks/imports/optional/common/play-speech-to-text.yml"
+    WSI = ["files/home/.local/bin/wsi-stream", "files/home/.local/bin/wsi-stream-server"]
+    REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+
+    def _states(self, changed: list[str]) -> dict[str, str]:
+        latest = {
+            play: {"play": play, "commit": COMMIT_A, "outcome": "ok", "dirty": False}
+            for play in (self.AGENT_BUS, self.NETWORK, self.SPEECH)
+        }
+        judgement = changed_plays.judge(
+            latest, repo_root=self.REPO_ROOT,
+            changed_since=lambda root, commit: changed,
+            main_order=lambda root: [],
+        )
+        return judgement.states
+
+    def test_a_change_to_the_wsi_scripts_reruns_only_the_speech_to_text_play(self) -> None:
+        states = self._states(self.WSI)
+        self.assertEqual(states[self.SPEECH], changed_plays.STATE_STALE)
+        self.assertNotIn(states[self.AGENT_BUS], changed_plays.RUN_STATES)
+        self.assertNotIn(states[self.NETWORK], changed_plays.RUN_STATES)
+
+    def test_a_change_to_a_file_each_play_loops_over_still_reruns_it(self) -> None:
+        self.assertEqual(self._states(["files/home/.local/bin/lan-scan"])[self.NETWORK],
+                         changed_plays.STATE_STALE)
+        self.assertEqual(self._states(["files/usr/local/share/agent-bus/tuwunel.pin"])[self.AGENT_BUS],
+                         changed_plays.STATE_STALE)
+
+
 if __name__ == "__main__":
     unittest.main()

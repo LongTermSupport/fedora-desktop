@@ -211,6 +211,142 @@ class TestInputs(FixtureCase):
         self.assertTrue(ap.affects(ap.play_inputs(self.fx.root, play), play))
 
 
+class TestLoopedReferences(FixtureCase):
+    """A templated tail the play text fills in with literals names those paths, not the
+    directory above them (Plan 00229, Task 1.5): a loop of names over files/home/.local/bin/
+    deploys those names, and a change to any other script there is not this play's."""
+
+    def _inputs(self, tasks: str, *, vars_block: str = "") -> ap.Inputs:
+        play = self.fx.play("playbooks/imports/play-a.yml",
+                            "- hosts: desktop\n" + vars_block + "  tasks:\n" + tasks)
+        return ap.play_inputs(self.fx.root, play)
+
+    def test_a_loop_of_literal_names_is_those_files(self) -> None:
+        inputs = self._inputs(f"""\
+    - name: Deploy the scripts
+      ansible.builtin.copy:
+        src: "{ROOT}/files/home/.local/bin/{{{{ item }}}}"
+        dest: /home/u/.local/bin/{{{{ item }}}}
+      loop:
+        - lan-scan
+        - qnap-finder
+""")
+        self.assertEqual(inputs.unresolved, [])
+        self.assertTrue(ap.affects(inputs, "files/home/.local/bin/lan-scan"))
+        self.assertTrue(ap.affects(inputs, "files/home/.local/bin/qnap-finder"))
+        self.assertFalse(ap.affects(inputs, "files/home/.local/bin/wsi-stream"))
+
+    def test_with_items_and_a_literal_suffix_are_read(self) -> None:
+        inputs = self._inputs(f"""\
+    - ansible.builtin.template:
+        src: "{ROOT}/files/units/{{{{ item }}}}.j2"
+        dest: /home/u/.config/systemd/user/{{{{ item }}}}
+      with_items:
+        - "one.service"
+""")
+        self.assertTrue(ap.affects(inputs, "files/units/one.service.j2"))
+        self.assertFalse(ap.affects(inputs, "files/units/two.service.j2"))
+
+    def test_a_loop_over_a_list_variable_of_literals_is_those_files(self) -> None:
+        inputs = self._inputs(f"""\
+    - ansible.builtin.stat:
+        path: "{ROOT}/files/{{{{ item }}}}"
+      loop: "{{{{ swap_paths }}}}"
+""", vars_block="""\
+  vars:
+    swap_paths:
+      - usr/local/share/bus/server.pin
+      - etc/systemd/system/bus@.service
+""")
+        self.assertEqual(inputs.unresolved, [])
+        self.assertTrue(ap.affects(inputs, "files/usr/local/share/bus/server.pin"))
+        self.assertTrue(ap.affects(inputs, "files/etc/systemd/system/bus@.service"))
+        self.assertFalse(ap.affects(inputs, "files/home/.local/bin/wsi-stream"))
+
+    def test_an_attribute_of_a_nested_list_variable_in_a_vars_file_is_read(self) -> None:
+        self.fx.file("vars/extensions.yml", """\
+            extensions:
+              system:
+                - uuid: from-a-package@example.com
+              custom:
+                - name: One
+                  uuid: one@fedora-desktop
+                - name: Two
+                  uuid: two@fedora-desktop
+        """)
+        inputs = self._inputs(f"""\
+    - ansible.builtin.copy:
+        src: "{ROOT}/extensions/{{{{ item.uuid }}}}/"
+        dest: /home/u/.local/share/gnome-shell/extensions/{{{{ item.uuid }}}}/
+      loop: "{{{{ extensions.custom }}}}"
+      loop_control:
+        label: "{{{{ item.uuid }}}}"
+""", vars_block=f"""\
+  vars_files:
+    - "{ROOT}/vars/extensions.yml"
+""")
+        self.assertTrue(ap.affects(inputs, "extensions/one@fedora-desktop/extension.js"))
+        self.assertTrue(ap.affects(inputs, "extensions/two@fedora-desktop/metadata.json"))
+        self.assertFalse(ap.affects(inputs, "extensions/from-a-package@example.com/x.js"))
+        self.assertFalse(ap.affects(inputs, "extensions/speech-to-text@fedora-desktop/x.js"))
+
+    def test_a_scalar_variable_the_play_sets_is_its_value(self) -> None:
+        self.fx.file("extensions/ext@x/extension.js")
+        inputs = self._inputs("""\
+    - ansible.builtin.debug:
+        msg: "{{ extension_src }}"
+""", vars_block=f"""\
+  vars:
+    extension_name: ext@x
+    extension_src: "{ROOT}/extensions/{{{{ extension_name }}}}"
+""")
+        self.assertTrue(ap.affects(inputs, "extensions/ext@x/extension.js"))
+        self.assertFalse(ap.affects(inputs, "extensions/other@x/extension.js"))
+
+    def test_a_loop_it_cannot_read_keeps_the_directory(self) -> None:
+        """No input is lost: a loop built by a filter is not evaluated, so the prefix stays."""
+        inputs = self._inputs(f"""\
+    - ansible.builtin.copy:
+        src: "{ROOT}/files/lab/{{{{ item }}}}"
+        dest: /home/u/lab/{{{{ item }}}}
+      loop: >-
+        {{{{ lookup('ansible.builtin.fileglob', root_dir ~ '/files/lab/*.bash', wantlist=true)
+           | map('basename') }}}}
+""")
+        self.assertTrue(ap.affects(inputs, "files/lab/new.bash"))
+
+    def test_a_list_item_that_is_not_a_literal_keeps_the_directory(self) -> None:
+        inputs = self._inputs(f"""\
+    - ansible.builtin.copy:
+        src: "{ROOT}/files/bin/{{{{ item }}}}"
+        dest: /home/u/bin/{{{{ item }}}}
+      loop:
+        - fixed
+        - "{{{{ chosen_tool }}}}"
+""")
+        self.assertTrue(ap.affects(inputs, "files/bin/anything"))
+
+    def test_a_scalar_variable_no_walked_file_sets_keeps_the_directory(self) -> None:
+        inputs = self._inputs(f"""\
+    - ansible.builtin.copy:
+        src: "{ROOT}/extensions/{{{{ from_the_inventory }}}}/"
+        dest: /home/u/x/
+""")
+        self.assertTrue(ap.affects(inputs, "extensions/anything/extension.js"))
+
+    def test_a_renamed_loop_variable_keeps_the_directory(self) -> None:
+        inputs = self._inputs(f"""\
+    - ansible.builtin.copy:
+        src: "{ROOT}/files/bin/{{{{ item }}}}"
+        dest: /home/u/bin/
+      loop:
+        - one
+      loop_control:
+        loop_var: tool
+""")
+        self.assertTrue(ap.affects(inputs, "files/bin/anything"))
+
+
 class TestUnresolved(FixtureCase):
     def _unresolved(self, body: str) -> list[str]:
         play = self.fx.play("playbooks/imports/play-a.yml", body)
