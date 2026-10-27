@@ -594,6 +594,25 @@ class SegmentTest(TempDir):
             with self.subTest(rel=rel, name=name), self.assertRaises(mc.Failed):
                 mc.product_value(rel, name, fills, source)
 
+    def test_a_product_function_names_the_text_of_its_arguments(self) -> None:
+        """A helpers/ function that names a text (checkout.py's hs_unit, health.py's timers) is
+        called with the fills in order, as product-value and product-pattern; a wrong count of
+        arguments, a class or a function that names no text fails."""
+        checkout = mc._checkout_module("helpers.agent_bus.checkout")
+        health = mc._checkout_module("helpers.agent_bus.health")
+        self.assertEqual(mc.product_value("helpers/agent_bus/checkout.py", "hs_unit", ["t1"]), checkout.hs_unit("t1"))
+        self.assertEqual(mc.product_value("helpers/agent_bus/health.py", "backup_timer", ["t1"]), health.backup_timer("t1"))
+        status, out, _ = run("product-value", "helpers/agent_bus/health.py", "health_service", "t2")
+        self.assertEqual((status, out), (0, health.health_service("t2") + "\n"))
+        pattern = mc.product_pattern("helpers/agent_bus/checkout.py", "hs_unit", ["[a-z0-9-]+"])
+        for text, matches in ((checkout.hs_unit("team-a"), 0), (checkout.hs_unit("team-a") + "x", 1),
+                              (health.health_service("team-a"), 1)):
+            grep = subprocess.run(["grep", "-qxP", pattern], input=text, text=True, check=False)
+            self.assertEqual(grep.returncode, matches, text)
+        for name, fills in (("hs_unit", []), ("hs_unit", ["a", "b"]), ("Choice", ["a"]), ("handle_type", ["?"])):
+            with self.subTest(name=name, fills=fills), self.assertRaises(mc.Failed):
+                mc.product_value("helpers/agent_bus/checkout.py", name, fills)
+
     def test_a_product_pattern_quotes_the_text_and_fills_each_placeholder_with_a_pattern(self) -> None:
         """product-pattern: the named text as a Perl pattern (grep -P), its fixed parts quoted and
         each placeholder the pattern given; a wrong count of patterns fails as product-value does."""

@@ -84,7 +84,8 @@ gb_evidence() { printf -- '- %s\n' "$*" >>"${REPORT}"; }
 # limited to 108 bytes), and where ccy-teams keeps a ccy session's membership directories, read
 # from this checkout's Go source (m7_check membership-dirs), never copied; and the container
 # paths Plan 00201's legs read (m7_session_paths), which gb_leftovers' container listing needs
-# first of all.
+# first of all; and the label a ccy session's container carries, `<tag><session>` (ccy-teams'
+# hot.go sessionTag, the filter it finds a session's container by).
 gb_paths() {
     local dirs seats
     m7_session_paths || return 1
@@ -96,6 +97,7 @@ gb_paths() {
     seats="$("${CHECK[@]}" product-value helpers/pingbus/seat.py CHECKOUT_SEATS)" || return 1
     GB_SEATS_DIR="${GB_CHECKOUT}/${seats}"
     GB_SOCKET="${XDG_RUNTIME_DIR}/accept194-tmux/ccy"
+    GB_SESSION_TAG="$("${CHECK[@]}" product-value src-go/internal/teams/hot/hot.go sessionTag)" || return 1
 }
 
 gb_tmux() { env -u TMUX -u TMUX_PANE tmux -S "${GB_SOCKET}" "$@"; }
@@ -234,7 +236,7 @@ gb_kill_tmux() {
 
 # gb_containers <session> [running] — the IDs of the ccy containers labelled with that session.
 gb_containers() {
-    local filter=(--filter "label=ccy-session=$1")
+    local filter=(--filter "label=${GB_SESSION_TAG:?}$1")
     [[ "${2:-}" != running ]] || filter+=(--filter status=running)
     podman ps -a "${filter[@]}" --format '{{.ID}}'
 }
@@ -445,7 +447,7 @@ gb_container_up() {
         return 3
     fi
     if [[ "${count}" -ne 1 ]]; then
-        printf '[FAIL] %d containers are labelled ccy-session=%s\n' "${count}" "$1" >&2
+        printf '[FAIL] %d containers are labelled %s%s\n' "${count}" "${GB_SESSION_TAG:?}" "$1" >&2
         return 1
     fi
     GB_CTR="${ids}"
@@ -694,7 +696,7 @@ gb_check_ctrl_c() {
 gb_check_podman_stop() {
     local name="${GB_SESSIONS[1]}"
     gb_launch "${name}" || return 1
-    printf '==> podman stop %s (labelled ccy-session=%s)\n' "${GB_CTR}" "${name}"
+    printf '==> podman stop %s (labelled %s%s)\n' "${GB_CTR}" "${GB_SESSION_TAG:?}" "${name}"
     podman stop -t 10 -- "${GB_CTR}" >/dev/null || return 1
     gb_finished "${name}" || return 1
     gb_pane_clean "${name}" || return 1
@@ -781,7 +783,7 @@ gb_cleanup() {
 # C1 — after the purge: no firewalld rule the installer recorded, no unit active, no state
 # directory or applied stamp; no container, tmux server, checkout or membership directory.
 gb_check_gone() {
-    local team zone rule store status state name
+    local team zone rule store status state name unit
     for team in "${GB_TEAMS[@]}"; do
         while IFS=$'\t' read -r zone rule; do
             for store in permanent runtime; do
@@ -793,9 +795,10 @@ gb_check_gone() {
                 fi
             done
         done <"$(gb_ev "${team}.firewalld.rules")"
-        state="$(systemctl show -p ActiveState --value "agent-bus-hs@${team}.service")" || return 1
+        unit="$("${CHECK[@]}" product-value helpers/agent_bus/checkout.py hs_unit "${team}")" || return 1
+        state="$(systemctl show -p ActiveState --value "${unit}")" || return 1
         if [[ "${state}" == active ]]; then
-            printf '[FAIL] agent-bus-hs@%s.service is still active\n' "${team}" >&2
+            printf '[FAIL] %s is still active\n' "${unit}" >&2
             return 1
         fi
         if sudo -n test -e "${M7_STATE}/${team}" || sudo -n test -e "${M7_INSTALL_STATE}/${team}" \

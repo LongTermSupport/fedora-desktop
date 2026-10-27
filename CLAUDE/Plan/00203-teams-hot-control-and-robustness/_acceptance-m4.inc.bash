@@ -70,8 +70,9 @@ m4_poll() {
 }
 
 m4_team_built() {
-    local enabled
-    enabled="$(systemctl show -P UnitFileState "agent-bus-hs@$1.service")" || return 1
+    local enabled unit
+    m3_unit unit hs_unit "$1" || return 1
+    enabled="$(systemctl show -P UnitFileState "${unit}")" || return 1
     [[ "${enabled}" == enabled ]] || sudo -n test -e "${M3_STATE_ROOT:?}/$1"
 }
 
@@ -336,7 +337,7 @@ m4_check_two_at_once() {
     m4_desired_is "${M4_A}" "${M4_TEAM_B},${M4_TEAM_A}" || return 1
 }
 
-m4_hs_up() { systemctl is-active --quiet "agent-bus-hs@${M4_TEAM_B}.service" || return 3; }
+m4_hs_up() { systemctl is-active --quiet "$1" || return 3; }
 
 # m4_status_down — `pingbus status-line` run under podman exec in A's container, with the
 # session home given by hand, marks acc-m4b down (H26). It proves the status line's code path
@@ -354,9 +355,10 @@ m4_status_down() {
 }
 
 m4_check_homeserver_down() {
-    local seat removed_down team down team_down role role_done goodbye farewell_done farewell
+    local seat removed_down team down team_down role role_done goodbye farewell_done farewell hs
     # What a remove says with the homeserver down: ccy-teams' remove.go removedHomeserverDown.
     removed_down="$("${M3_CHECK[@]}" product-value src-go/internal/teams/hot/remove.go removedHomeserverDown)" || return 1
+    m3_unit hs hs_unit "${M4_TEAM_B}" || return 1
     m3_named team stepTeamNamed "${M4_TEAM_B}" || return 1
     m3_named down teamDown "${M4_TEAM_B}" "${M4_TEAM_B}" || return 1
     m3_step team_down "${M3_MARK_FAILED:?}" "${team}" "${down}" || return 1
@@ -367,7 +369,7 @@ m4_check_homeserver_down() {
     m4_written farewell "${farewell_done}" || return 1
     seat="$(python3 -I -c 'import json, sys; d = json.load(open(sys.argv[1])); print([s["seat"] for s in d["seats"] if s["team"] == sys.argv[2]][0])' \
         "${M3_CCY_DIRS:?}/${M4_A}/${M3_DESIRED:?}" "${M4_TEAM_B}")" || return 1
-    sudo -n systemctl stop "agent-bus-hs@${M4_TEAM_B}.service" || return 1
+    sudo -n systemctl stop "${hs}" || return 1
     m4_poll 60 "${M4_A}'s status line marking ${M4_TEAM_B} down" m4_status_down || return 1
     m4_run down-add 1 add "${M4_B}" "${M4_TEAM_B}" --yes || return 1
     m4_said down-add "${team_down}\$" || return 1
@@ -378,8 +380,8 @@ m4_check_homeserver_down() {
     m4_said down-remove "\\Q${removed_down}\\E" || return 1
     m4_desired_is "${M4_A}" "${M4_TEAM_A}" || return 1
     m4_seat_free "${M4_TEAM_B}" "${seat}" || return 1
-    sudo -n systemctl start "agent-bus-hs@${M4_TEAM_B}.service" || return 1
-    m4_poll "${M4_UP_S}" "the homeserver of ${M4_TEAM_B} back" m4_hs_up || return 1
+    sudo -n systemctl start "${hs}" || return 1
+    m4_poll "${M4_UP_S}" "the homeserver of ${M4_TEAM_B} back" m4_hs_up "${hs}" || return 1
     m4_run owed-remove 0 remove "${M4_A}" "${M4_TEAM_B}" --yes || return 1
     m4_said owed-remove "${goodbye}" || return 1
     m4_said owed-remove "${farewell}\$" || return 1

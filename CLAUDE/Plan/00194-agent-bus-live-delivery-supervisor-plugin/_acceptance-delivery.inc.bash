@@ -413,7 +413,8 @@ dl_check_h2() {
 # syncs again, and the next message still arrives. Needs sudo, primed at the start: when it has
 # lapsed the step is the host agent's, said exactly, and nothing is judged.
 dl_check_restart() {
-    local before token unit="agent-bus-hs@${TEAM_A}.service"
+    local before token unit
+    unit="$("${CHECK[@]}" product-value helpers/agent_bus/checkout.py hs_unit "${TEAM_A}")" || return 1
     token="$(dl_token RESTART)"
     dl_quiet || return 1
     if ! sudo -n true; then

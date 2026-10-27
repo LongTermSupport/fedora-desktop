@@ -37,6 +37,8 @@
 
 readonly M2_LAUNCHER="/var/local/claude-yolo/claude-yolo"
 readonly M2_CHECK="${PLAN_SCRIPT_DIR}/m2-check.bash"
+#: Plan 00201's reader of this checkout's product values (m7_check.py product-value).
+readonly M2_PRODUCT=(python3 -I "${PLAN_REPO_ROOT}/CLAUDE/Plan/00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/m7_check.py")
 readonly M2_EV="${PLAN_RUN_DIR}/m2"
 readonly M2_TRANSCRIPTS="${PLAN_REPO_ROOT}/.claude/ccy/projects/-workspace"
 readonly M2_PROMPT="Plan 00203 M2 acceptance: an idle session; nothing to do."
@@ -68,12 +70,13 @@ M2_REPORTS_FOUND=1
 # m2_running <name> — "yes" when a session of that name runs (its tmux session or its
 # container), else "no"; a podman that cannot answer is a failure, never a "no".
 m2_running() {
-    local ids
+    local ids label
     if tmux -L ccy has-session -t "=$1" 2>/dev/null; then
         printf 'yes\n'
         return 0
     fi
-    ids="$(podman ps --filter "label=ccy-session=$1" --filter status=running --format '{{.ID}}')" || return 1
+    m2_label label "$1" || return 1
+    ids="$(podman ps --filter "label=${label}" --filter status=running --format '{{.ID}}')" || return 1
     if [[ -n "${ids}" ]]; then printf 'yes\n'; else printf 'no\n'; fi
 }
 
@@ -142,14 +145,27 @@ m2_ended_early() {
     cat -- "${log}.err" >&2
 }
 
-# m2_container_up <name> — the running container labelled ccy-session=<name>; 120 s at most,
+# m2_label <variable> <name> — the label ccy gives the session's container: ccy-teams' hot.go
+# sessionTag (the filter it finds a session's container by) and the name, read through
+# m7_check product-value, never copied.
+m2_label() {
+    local tag
+    tag="$("${M2_PRODUCT[@]}" product-value src-go/internal/teams/hot/hot.go sessionTag)" || {
+        printf '[FAIL] m7_check product-value hot.go sessionTag could not read the product (above)\n' >&2
+        return 1
+    }
+    printf -v "$1" '%s%s' "${tag}" "$2"
+}
+
+# m2_container_up <name> — the running container with the session's label; 120 s at most,
 # counted from the end of any image build the launch runs or waits for first (the project
 # image after a base image change takes as long as it takes: plan_image_build_grace,
 # CLAUDE/Plan/_image-build.inc.bash). A failed build ends the session, which fails at once.
 m2_container_up() {
-    local name="$1" id="" deadline=$((SECONDS + 120)) status
+    local name="$1" id="" deadline=$((SECONDS + 120)) status label
+    m2_label label "${name}" || return 1
     while ((SECONDS < deadline)); do
-        id="$(podman ps --filter "label=ccy-session=${name}" --filter status=running --format '{{.ID}}')" || return 1
+        id="$(podman ps --filter "label=${label}" --filter status=running --format '{{.ID}}')" || return 1
         if [[ -n "${id}" ]]; then
             M2_CTR[${name}]="${id}"
             # The claim writes the session home just before claude starts; give it a moment.
@@ -170,7 +186,7 @@ m2_container_up() {
         esac
         sleep 1
     done
-    printf '[FAIL] no running container labelled ccy-session=%s after 120 s\n' "${name}" >&2
+    printf '[FAIL] no running container labelled %s after 120 s\n' "${label}" >&2
     return 1
 }
 
@@ -191,7 +207,7 @@ m2_spike() { "${M2_CHECK}" spike "${PLAN_SCRIPT_DIR}/SPEC-hot-control.md"; }
 # m2_cleanup — every throwaway this run made, whether or not it got that far; never fails
 # silently: each step that cannot be done is said, and the cleanup goes on to the next.
 m2_cleanup() {
-    local name fd id records status=0 made=()
+    local name fd id records status=0 made=() label
     records="${XDG_STATE_HOME:-${HOME}/.local/state}/ccy/sessions"
     for name in "${M2_NAMES[@]}"; do
         fd="${M2_FD[${name}]:-}"
@@ -202,9 +218,13 @@ m2_cleanup() {
         if tmux -L ccy has-session -t "=${name}"; then
             tmux -L ccy kill-session -t "=${name}" || status=1
         fi
-        for id in $(podman ps -a --filter "label=ccy-session=${name}" --format '{{.ID}}'); do
-            podman rm -f -t 10 -- "${id}" >/dev/null || status=1
-        done
+        if m2_label label "${name}"; then
+            for id in $(podman ps -a --filter "label=${label}" --format '{{.ID}}'); do
+                podman rm -f -t 10 -- "${id}" >/dev/null || status=1
+            done
+        else
+            status=1
+        fi
         rm -f -- "${records}/${name}" || status=1
         rm -rf -- "${M3_CCY_DIRS:?}/${name}" "${M3_REPORTS:?}/${name}" || status=1
     done

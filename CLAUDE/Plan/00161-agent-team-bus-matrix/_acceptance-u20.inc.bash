@@ -85,6 +85,17 @@ u20_read_names() {
     printf '==> membership mount %s (%s), watcher log %s, named session membership %s\n' \
         "${U20_MOUNT}" "${U20_DESIRED}" "${U20_WATCH_LOG}" "${U20_NAMED_DIR}"
 }
+
+# u20_label <variable> <name> — the label ccy gives the session's container: ccy-teams' hot.go
+# sessionTag (the filter it finds a session's container by) and the name, never copied.
+u20_label() {
+    local tag
+    tag="$("${U20_NAMES_CHECK[@]}" product-value src-go/internal/teams/hot/hot.go sessionTag)" || {
+        printf '[FAIL] m7_check product-value hot.go sessionTag could not read the product (above)\n' >&2
+        return 1
+    }
+    printf -v "$1" '%s%s' "${tag}" "$2"
+}
 readonly U20_CCY_DIR="${PLAN_REPO_ROOT}/.claude/ccy"
 readonly U20_BUS_DIR="${U20_CCY_DIR}/pingbus"
 readonly U20_SEATS_DIR="${U20_BUS_DIR}/seats"
@@ -1200,13 +1211,14 @@ U20_REPORTS_FOUND=1
 
 # u20_remove_stale_reports — the reports of named sessions an earlier run left.
 u20_remove_stale_reports() {
-    local dir name ids
+    local dir name ids label
     if [[ -d "${U20_REPORTS}" ]]; then
         for dir in "${U20_REPORTS}"/*/; do
             [[ -d "${dir}" ]] || continue
             name="$(basename -- "${dir}")"
             [[ "${name}" =~ ${U20_OWN_NAMES} ]] || continue
-            ids="$(podman ps --filter "label=ccy-session=${name}" --filter status=running --format '{{.ID}}')" || return 1
+            u20_label label "${name}" || return 1
+            ids="$(podman ps --filter "label=${label}" --filter status=running --format '{{.ID}}')" || return 1
             if [[ -n "${ids}" ]] || tmux -L ccy has-session -t "=${name}" 2>/dev/null; then
                 printf '==> %s is running, so its report stays: %s\n' "${name}" "${dir}"
                 continue
@@ -1243,8 +1255,9 @@ u20_named_launch() {
 
 # u20_named_up — its container, found by the label naming its tmux session; 3 while none.
 u20_named_up() {
-    local id ev status="not written (the pane's shell was killed)"
-    id="$(podman ps --filter "label=ccy-session=${U20_NAMED}" --filter status=running --format '{{.ID}}')" || return 1
+    local id ev status="not written (the pane's shell was killed)" label
+    u20_label label "${U20_NAMED}" || return 1
+    id="$(podman ps --filter "label=${label}" --filter status=running --format '{{.ID}}')" || return 1
     if [[ -n "${id}" ]]; then
         U20_CTR[named]="${id}"
         return 0
@@ -1265,11 +1278,12 @@ u20_named_up() {
 # u20_named_down — its tmux session, container, membership directory, registry record and
 # keeper report gone (and sessions/ when this run made it), whatever state the run left them in.
 u20_named_down() {
-    local id
+    local id label
     if tmux -L ccy has-session -t "=${U20_NAMED}" 2>/dev/null; then
         tmux -L ccy kill-session -t "=${U20_NAMED}" || return 1
     fi
-    for id in $(podman ps -a --filter "label=ccy-session=${U20_NAMED}" --format '{{.ID}}'); do
+    u20_label label "${U20_NAMED}" || return 1
+    for id in $(podman ps -a --filter "label=${label}" --format '{{.ID}}'); do
         podman rm -f -t 10 -- "${id}" >/dev/null || return 1
     done
     if [[ -n "${U20_NAMED_DIR}" ]]; then

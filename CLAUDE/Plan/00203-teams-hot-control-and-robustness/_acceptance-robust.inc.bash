@@ -30,8 +30,13 @@
 #              offline the verdict names R9 NOT JUDGED
 
 readonly TEAM="acc-robust"
-readonly HS="agent-bus-hs@${TEAM}.service"
-readonly HEALTH_SVC="agent-bus-hs-health@${TEAM}.service"
+#: The team's homeserver and health check units, as agent-bus's health.py names them, read
+#: through Plan 00201's m7_check product-value, never copied.
+readonly ROBUST_PRODUCT=(python3 -I "${PLAN_REPO_ROOT}/CLAUDE/Plan/00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/m7_check.py" product-value helpers/agent_bus/health.py)
+HS="$("${ROBUST_PRODUCT[@]}" hs_unit "${TEAM}")"
+HEALTH_SVC="$("${ROBUST_PRODUCT[@]}" health_service "${TEAM}")"
+BACKUP_TIMER="$("${ROBUST_PRODUCT[@]}" backup_timer "${TEAM}")"
+readonly HS HEALTH_SVC BACKUP_TIMER
 readonly INSTALLER="/usr/local/sbin/agent-bus-install"
 readonly AGENT_BUS="/usr/local/bin/agent-bus"
 readonly DELAY_DIR="/run/systemd/system/${HS}.d"
@@ -123,8 +128,8 @@ teardown() {
     sudo -n systemctl reset-failed "agent-bus-*@${TEAM}.*" || return 1
     # The backup timer's last run (Persistent=true), which the next acc-robust would inherit;
     # remove clears it too, but not for a team an earlier, older run left half removed.
-    if sudo -n test -e "/var/lib/systemd/timers/stamp-agent-bus-backup@${TEAM}.timer"; then
-        sudo -n systemctl clean --what=state "agent-bus-backup@${TEAM}.timer" || return 1
+    if sudo -n test -e "/var/lib/systemd/timers/stamp-${BACKUP_TIMER}"; then
+        sudo -n systemctl clean --what=state "${BACKUP_TIMER}" || return 1
     fi
 }
 
