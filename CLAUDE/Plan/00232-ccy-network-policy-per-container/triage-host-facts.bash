@@ -10,6 +10,14 @@ set -euo pipefail
 report="${1:?usage: triage-host-facts.bash <report-file> <repo-root>}"
 repoRoot="${2:?usage: triage-host-facts.bash <report-file> <repo-root>}"
 
+# The product owns these paths; read them from it, never copy them (QA.md checker-copies-cited-constant).
+product_value() {
+    python3 -P "${repoRoot}/CLAUDE/Plan/00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/m7_check.py" product-value "$@"
+}
+SEATS_REL="$(product_value helpers/pingbus/seat.py CHECKOUT_SEATS)"
+APPLIED_DIR="$(product_value helpers/agent_bus/checkout.py APPLIED_DIR)"
+MEMBERSHIP_MOUNT="$(product_value helpers/pingbus/membership.py CCY_MOUNT)"
+
 probe() {
     local label="$1" out rc
     shift
@@ -61,7 +69,7 @@ bus_address() {
 }
 
 applied_teams() {
-    local d=/var/lib/agent-bus-applied f
+    local d="${APPLIED_DIR}" f
     ls -la "${d}"
     for f in "${d}"/*.json; do
         [[ -e "${f}" ]] || continue
@@ -91,11 +99,11 @@ ccy_session_network_facts() {
     fi
     while IFS= read -r name; do
         printf '== %s\n' "${name}"
-        podman inspect "${name}" | jq -r '.[0] | "networkMode=\(.HostConfig.NetworkMode) privileged=\(.HostConfig.Privileged) userns=\(.HostConfig.UsernsMode) seats=\(.Config.Labels["ccy-seats"] // "-")",
+        podman inspect "${name}" | jq -r --arg mount "${MEMBERSHIP_MOUNT}" '.[0] | "networkMode=\(.HostConfig.NetworkMode) privileged=\(.HostConfig.Privileged) userns=\(.HostConfig.UsernsMode) seats=\(.Config.Labels["ccy-seats"] // "-")",
             "effectiveCaps=\(.EffectiveCaps | join(","))",
             "capAdd=\(.HostConfig.CapAdd // [] | join(","))",
             (.NetworkSettings.Networks // {} | to_entries[] | "network \(.key) ip=\(.value.IPAddress) gw=\(.value.Gateway) ipv6=\(.value.GlobalIPv6Address)"),
-            (.Mounts[] | select(.Destination == "/run/ccy/membership") | "membership mount \(.Source) rw=\(.RW)")'
+            (.Mounts[] | select(.Destination == $mount) | "membership mount \(.Source) rw=\(.RW)")'
         rp="$(podman inspect --format '{{.ResolvConfPath}}' "${name}")"
         hp="$(podman inspect --format '{{.HostsPath}}' "${name}")"
         printf -- '-- resolv.conf nameservers\n'
@@ -113,7 +121,7 @@ seat_bundles_in_checkout() {
         found=1
         printf '== %s\n' "${f#"${root}"/}"
         jq -r '"base_url=\(.base_url) plain_http_hosts=\(.plain_http_hosts // [] | join(","))"' "${f}"
-    done < <(find "${root}/.claude/ccy/pingbus/seats" -name member.json -type f)
+    done < <(find "${root}/${SEATS_REL}" -name member.json -type f)
     [[ "${found}" -eq 1 ]] || printf '(no seat bundle in this checkout)\n'
 }
 

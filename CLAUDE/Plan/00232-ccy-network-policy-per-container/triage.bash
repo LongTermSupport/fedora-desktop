@@ -102,8 +102,10 @@ plan_start_log auto
 # A run killed hard (SIGKILL, a host crash) left its throwaways; remove them before starting.
 sweep_triage_objects
 
-if [[ "${#busUrls[@]}" -eq 0 ]] && [[ -d "${PLAN_REPO_ROOT}/.claude/ccy/pingbus/seats" ]]; then
-    mapfile -t busUrls < <(find "${PLAN_REPO_ROOT}/.claude/ccy/pingbus/seats" -name member.json -type f \
+# The checkout's seat directory is the product's (helpers/pingbus/seat.py CHECKOUT_SEATS); read, never copied.
+seatsDir="${PLAN_REPO_ROOT}/$(python3 -P "${PLAN_REPO_ROOT}/CLAUDE/Plan/00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/m7_check.py" product-value helpers/pingbus/seat.py CHECKOUT_SEATS)"
+if [[ "${#busUrls[@]}" -eq 0 ]] && [[ -d "${seatsDir}" ]]; then
+    mapfile -t busUrls < <(find "${seatsDir}" -name member.json -type f \
         -exec jq -r '.base_url // empty' {} + | sort -u)
 fi
 busUrlCsv="$(IFS=,; printf '%s' "${busUrls[*]+"${busUrls[*]}"}")"

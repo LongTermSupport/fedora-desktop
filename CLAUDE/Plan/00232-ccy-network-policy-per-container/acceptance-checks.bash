@@ -27,6 +27,8 @@ set -euo pipefail
 
 scriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 INSIDE="${scriptDir}/netprobe-inside.bash"
+# The checkout's seat directory is the product's (helpers/pingbus/seat.py CHECKOUT_SEATS); read, never copied.
+SEATS_REL="$(python3 -P "${scriptDir}/../00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/m7_check.py" product-value helpers/pingbus/seat.py CHECKOUT_SEATS)"
 MARKER="CCY NETWORK POLICY"
 FAST_MS=2000
 failed=0
@@ -160,7 +162,7 @@ check_context() {
 }
 
 member_json() {
-    podman exec "$1" find /workspace/.claude/ccy/pingbus/seats/"$2" -name member.json -exec cat {} +
+    podman exec "$1" find "/workspace/${SEATS_REL}/$2" -name member.json -exec cat {} +
 }
 
 check_bus() {
