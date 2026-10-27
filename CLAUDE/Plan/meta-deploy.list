@@ -57,5 +57,7 @@
 # play-claude-yolo.yml has already run in the 00232 deploy above. The host agent then reruns
 # reclaim H1's Podman section (no summed size; the dangling count and the prune question
 # agree or differ by the stated number kept) and option 6 answering No to every question,
-# with nothing run.
+# with nothing run. The same play also rebuilds open (Plan 00192 E11a): inside tmux or screen
+# its chafa image preview draws text symbols instead of graphics tmux does not pass; the host
+# agent then reruns open H4's image in its private tmux and sees the picture drawn as text.
 changed-plays

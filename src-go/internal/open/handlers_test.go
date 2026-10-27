@@ -1,6 +1,7 @@
 package open
 
 import (
+	"maps"
 	"strings"
 	"testing"
 
@@ -108,6 +109,28 @@ func TestHandlerArgv(t *testing.T) {
 	ls := cands[1]
 	if strings.Join(ls.argv, "\x00") != "ls\x00-lAh\x00--color=always\x00--\x00my dir; rm -rf ~" || strings.Join(ls.pager, " ") != "less -R" {
 		t.Fatalf("ls: %+v", ls)
+	}
+}
+
+// E11a: under tmux or screen chafa draws text symbols, since the multiplexer does not pass the
+// graphics it would otherwise pick; elsewhere it chooses for itself.
+func TestChafaDrawsSymbolsUnderAMultiplexer(t *testing.T) {
+	for _, tc := range []struct {
+		env  map[string]string
+		want string
+	}{
+		{map[string]string{"TERM": "xterm-256color"}, "chafa -- T"},
+		{map[string]string{"TERM": "tmux-256color"}, "chafa --format symbols -- T"},
+		{map[string]string{"TERM": "screen.xterm-256color"}, "chafa --format symbols -- T"},
+		{map[string]string{"TERM": "xterm-256color", "TMUX": "/tmp/tmux-1000/default,1,0"}, "chafa --format symbols -- T"},
+	} {
+		w := newWorld(t)
+		maps.Copy(w.env, tc.env)
+		w.install("chafa")
+		cands, known := w.app().newRun().terminalCandidates("image/png", "T")
+		if !known || len(cands) == 0 || strings.Join(cands[0].argv, " ") != tc.want {
+			t.Fatalf("%v: got %+v, want %q", tc.env, cands, tc.want)
+		}
 	}
 }
 
