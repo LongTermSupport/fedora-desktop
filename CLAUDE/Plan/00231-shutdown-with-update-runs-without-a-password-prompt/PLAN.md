@@ -61,8 +61,16 @@ risk, so it is held by a Defence Before Fix rule, `sudoers-rule` in `qa-ansible`
 
 ### Phase 2: Deploy and accept
 
-- [ ] ⬜ **Task 2.1**: The host runs `play-basic-configs.yml` (changed-plays) and this plan's
-  `acceptance.bash` through meta-deploy.
+- [x] ✅ **Task 2.1**: The host runs `play-basic-configs.yml` (changed-plays) and the host
+  checks. Done at ffacd8501: the drop-in is root:root 0440 and parses, the deployed script
+  matches the checkout, and a bare `--help` runs with no prompt. The other two checks cannot
+  hold on the owner's desktop, whose user already has `NOPASSWD: ALL`: `sudo -n -l` lists
+  more than the two commands, and sudo lets `--in 5 --bogus` through (the script's own parser
+  refuses it, rc 64). The listed entry matches the template exactly.
+- [ ] ⬜ **Task 2.3**: Prove the rule refuses an unlisted argument list where it is the only
+  NOPASSWD rule: the consumer laptop (Task 2.2) or a consumer VM guest. `sudo -n -l` lists only
+  the two commands, and `sudo -n /usr/local/bin/shutdown-with-update --in 5 --bogus` is
+  refused by sudo itself.
 - [ ] ⬜ **Task 2.2**: The owner runs a bare `shutdown-with-update` on the consumer laptop: no
   prompt, it updates, counts down and powers off.
 
