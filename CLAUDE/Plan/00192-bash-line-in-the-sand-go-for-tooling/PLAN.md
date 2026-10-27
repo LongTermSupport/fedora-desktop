@@ -242,7 +242,7 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   ccy-teams)" beside its other paths. No play was stale from Go alone that run, so the Go line's
   own place was shown, not the Go-alone case; the formatter's tests cover that.
 
-- [ ] ⬜ **Task 3.9**: `qa-changed` missed a suite a change broke. Task 3.7 made
+- [x] ✅ **Task 3.9**: `qa-changed` missed a suite a change broke. Task 3.7 made
   `helpers/self_update/affected_plays.py` load `not-play-inputs.json` at import, and
   `scripts/test-self-update-cycle.bash`, whose fixture copied `helpers/self_update/*.py` and
   `unattended-plays.json` only, failed 125 checks in qa-all; qa-changed had passed on the branch.
@@ -250,6 +250,11 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   The fixture is fixed (it copies `*.json` too, 218 pass); the gate gap is open: a suite that
   copies or reads files through a glob must be chosen when any file the glob matches changes,
   test first, with a Defence Before Fix sweep for other suites that reach files only by glob.
+  Done: `src-go/qa/changed/reach.go` reads each suite's repository-rooted variables and the
+  globs and directories it reaches through them; a changed file a glob matches, or one under a
+  reached directory, selects the suite ("reaches F through P"), red then green on exactly the
+  self-update case. Over every tracked non-markdown file no suite lost a selection and eleven
+  gained 375 (subagent-reports/261027-task-3-9.md lists them).
 
 ### Phase 4: Review
 
