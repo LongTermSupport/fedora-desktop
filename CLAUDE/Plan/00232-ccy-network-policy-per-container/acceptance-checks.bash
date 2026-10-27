@@ -99,7 +99,7 @@ check_blocked() {
         trap - RETURN
         kill "${pid}"
         rm -rf -- "${dir}" "${dir}.log"
-        if podman container exists "${peer}"; then podman rm -f "${peer}" >/dev/null; fi
+        if podman container exists "${peer}"; then podman rm -f -t 0 "${peer}" >/dev/null; fi
     }
     trap stop RETURN
     local gone

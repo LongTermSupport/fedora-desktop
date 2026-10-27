@@ -1,8 +1,9 @@
 # Plan 00232 design: a network policy per ccy container
 
-**State**: direction accepted by the owner, Q1 to Q4 answered (section 8). Nothing here is built. The first host
-triage run is read into section 9; the parts still marked **PENDING TRIAGE** are decided by its
-rerun, not by this text.
+**State**: direction accepted by the owner, Q1 to Q4 answered (section 8). The first host triage
+run is read into section 9, the rerun into section 10, which settles the points sections 3 and 6
+left open and the build's details. Where section 10 differs from an earlier section, section 10
+holds.
 
 ## 1. What is asked
 
@@ -245,3 +246,54 @@ Changes this made to the design: overlapping inputs are normalised and the sets 
 on `--connect` (section 4); the triage and the gate probe the host through
 `host.containers.internal` and an address off the outbound interface, never the outbound one.
 No new owner question: the design is settled except for what the rerun measures.
+
+## 10. What the rerun answered, and the build's settled points
+
+Facts F31 to F40 in [PLAN.md](PLAN.md); H1 to H7 are confirmed.
+
+- **The verdict is ICMP admin-prohibited** (F33). Drop leaves every attempt to its timeout (5 s
+  in the probes, minutes for a default client). A TCP reset is as fast but says "Connection
+  refused", which reads as a service that is down. Admin-prohibited fails in milliseconds, and
+  nc and ssh say "No route to host". curl says "Couldn't connect to server" either way, so the
+  `CCY NETWORK POLICY` context names the signature: a private or host address failing at once
+  with "No route to host" or curl exit 7 is the policy, not the service.
+- **E1 holds as designed** (F32, F35 to F37): applied from the host between `init` and `start`,
+  unliftable with the container's capabilities, kept across `podman network connect`, and
+  `start -ai` carries exit status 75, so E6 is not needed.
+- **The seat bundles are not a source of allows** (F39). They live in the checkout the
+  container writes, the class A10 proved replaceable (section 5). The bus address comes from
+  `agentbus0` on the host alone, and that is every seat bundle's host today (F27), so no team
+  path changes. A homeserver on another machine will need a host-side source of its address
+  (the installer's records) when one exists; until then the owner opens it in the host file.
+  This replaces the seat-bundle row of section 4's table.
+- **The nameservers are read once**, after `init` and before `start`, while only podman has
+  written the container's `resolv.conf`; a later refresh keeps them, because a running
+  container can rewrite its own `resolv.conf`. A project network joined later needs no re-read:
+  its resolver is its gateway, inside the subnet the refresh opens. This replaces section 4's
+  "re-read on `--connect`".
+- **Joined subnets are opened only for project networks.** The default bridge `podman` stays
+  refused (Q4: sessions do not reach each other); a network ccy joins by `--network`, compose or
+  `--connect` is opened whole.
+- **Unavailable is not failed.** The owner's rule: where enforcement is unavailable the session
+  runs unprotected and is warned loudly. Unavailable is the Docker engine (Q3), a rootful
+  podman, or no `nft` on the host (an IaC gap: the warning names the play). There the launch
+  goes ahead, a warning box goes to stderr, and the context says the session has no network
+  policy. A failure of the mechanism where it is available (the apply, the read-back, the
+  capability guard) stops the launch and removes the container: that is a fault, and starting
+  behind it would be the fail-open this plan rules out.
+- **The shape is a command of its own**, `ccy-network-policy` (`internal/netpolicy`), installed
+  as `ccy-token-usable` is. The launcher's container call goes through `ccy-network-policy launch`, which turns `run` into create, init, apply, verify, start, adds the read-only
+  `/run/ccy/network-policy` mount and the context to the agent's command; `ccy --connect` and
+  `--disconnect` run `ccy-network-policy refresh` after the connect, which replaces the allow
+  set of every live session whole. The bash launcher stays within its ratchet.
+- **A `host:port` entry is a rule of its own** (`ip daddr X tcp dport P accept`, and the same
+  for UDP), not a concatenated set, a form the triage never applied. The allow set keeps the
+  shape the triage applied.
+- **The host file** is `~/.config/claude-yolo/network/<checkout-name>-<16 hex>.env`, the hex the
+  start of the md5 of the checkout's path (as the restart history keys a checkout);
+  `ccy-network-policy where` prints it, and the context names it. Entries from it and from a
+  host-shell `CCY_NETWORK_ALLOW` add up; `off` in either turns the policy off.
+- **Known exposure, accepted with section 4:** the bus address is a host address opened on every
+  port, so a host service bound to every address is reachable through it. The homeserver ports
+  are recorded only in root-readable installer state today; narrowing the allow to them needs a
+  user-readable record first.

@@ -54,7 +54,7 @@ cleanup() {
     local -a ids=()
     mapfile -t ids < <(podman ps -aq --filter "label=${LABEL}")
     if [[ "${#ids[@]}" -gt 0 ]]; then
-        podman rm -f "${ids[@]}" >/dev/null
+        podman rm -f -t 0 "${ids[@]}" >/dev/null
     fi
     mapfile -t ids < <(podman network ls -q --filter "label=${LABEL}")
     if [[ "${#ids[@]}" -gt 0 ]]; then
@@ -295,7 +295,7 @@ main() {
     probe "nsenter WITHOUT podman unshare (expected to need the user namespace)" nsenter -t "${pid}" -n nft list ruleset
     probe "nsenter inside podman unshare: list the container ruleset" in_netns "${pid}" nft list ruleset
     probe "the container nameservers (read on the host before start)" nameservers_csv "${PREFIX}-a2"
-    podman rm -f "${PREFIX}-a2" >/dev/null
+    podman rm -f -t 0 "${PREFIX}-a2" >/dev/null
 
     printf '## A3 each candidate verdict (READ THIS FOR: time to fail and the message the agent sees)\n'
     local mode name dns
@@ -320,7 +320,7 @@ main() {
             probe "with the container's capabilities: delete the default route" as_container "${name}" - ip route del default
             probe "the ruleset is still in place afterwards" in_netns "$(pid_of "${name}")" nft list table inet ccy_netpolicy
         fi
-        podman rm -f "${name}" >/dev/null
+        podman rm -f -t 0 "${name}" >/dev/null
     done
 
     printf '## A5 create, init, apply, then start ATTACHED with --rm (the launch sequence a design would use)\n'
@@ -353,7 +353,7 @@ main() {
     must "add the project subnet ${subnet} to the allow set from the host" in_netns "${pid}" nft add element inet ccy_netpolicy allow4 "{ ${subnet} }"
     probe "the project peer after its subnet is allowed" run_inside "${name}" "http|project-peer|${peer2}|8080"
     probe "podman network disconnect" podman network disconnect "${net}" "${name}"
-    podman rm -f "${name}" >/dev/null
+    podman rm -f -t 0 "${name}" >/dev/null
 
     printf '## A7 the shared rootless network namespace (list only)\n'
     probe "rootless netns addresses" podman unshare --rootless-netns ip -br addr
@@ -364,7 +364,7 @@ main() {
     create_held "${name}"
     podman start "${name}" >/dev/null
     probe "IPv6 addresses inside" podman exec "${name}" cat /proc/net/if_inet6
-    podman rm -f "${name}" >/dev/null
+    podman rm -f -t 0 "${name}" >/dev/null
 
     printf '## A9 the same policy on a pasta container (what ccy --no-network gives)\n'
     name="${PREFIX}-a9"
@@ -375,7 +375,7 @@ main() {
         "dns|dns-forge|api.github.com" "url|forge|https://api.github.com/")
     if [[ -n "${hostOther}" ]]; then pastaTargets+=("http|host-other|${hostOther}|${listenerPort}"); fi
     probe "probes from inside the pasta container" run_inside "${name}" "${pastaTargets[@]}"
-    podman rm -f "${name}" >/dev/null
+    podman rm -f -t 0 "${name}" >/dev/null
 
     printf '## A10 can a container replace a read-only bound file by moving its parent (READ THIS FOR: issue #83, where a policy may live)\n'
     probe "read-only bind escape attempt" ro_mount_escape "$(mktemp -d)"
