@@ -189,3 +189,4 @@ a terminal and validates; podman is rootless. NOT ESTABLISHABLE by it, so done b
 
 - Design for review: bda19d3e6
 - The ccc package and gitx additions: 72e1641ad
+- cmd/ccc, the play, podman for every audience, the shared image tasks: efd3bf13d
