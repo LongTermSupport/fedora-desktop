@@ -66,6 +66,9 @@ WATCHER_REFUSED = "the watcher was refused"
 WATCHER_RESTARTED = "starting it again"
 TEAM_NOT_WATCHED = "no longer watched"
 HOMESERVER_SILENT = "the homeserver does not answer"
+#: The watcher's line once a team it could not sync syncs again, which Plan 00194's delivery
+#: acceptance counts in a session's watch.log.
+TEAM_SYNCS_AGAIN = "the team syncs again"
 
 EXIT_OK = 0
 EXIT_NOTHING = 3
@@ -1834,7 +1837,7 @@ def _watch_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting, e
                     seat.syncer.publish_status(now + WATCH_STATUS_TTL_MS)
                     status_ms = now
                 if outage is not None:
-                    err.write(f"{PROG}: team {team}: the team syncs again\n")
+                    err.write(f"{PROG}: team {team}: {TEAM_SYNCS_AGAIN}\n")
                     outage = None
                     backoff.reset()
                 if marked:

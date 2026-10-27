@@ -3,7 +3,7 @@
 **Status**: In Progress. M1-M7 built and deployed; the automated two-team acceptance last
 passed on the host at F44 cab255ad4 (commit d2612e8d7), with Tasks 2.21 to 2.23's checker
 fixes. The relay task 2.8 is superseded; Tasks 2.11, 2.12, 2.15, 2.17 and 2.18 are carried by
-Plan 00209. Left for workers: Task 2.27 (proposed: the copies Task 2.24 could not read), a scripted test human for the Element checks, and the
+Plan 00209. Left for workers: Task 2.28 (play runs ignore `CCY_TEAMS_HOST_VARS`), a scripted test human for the Element checks, and the
 final qa-reviewer. Left for the host agent: the interactive checks of
 [ACCEPTANCE-owner.md](ACCEPTANCE-owner.md) driven through tmux (Tasks 2.7, 2.12 check 11,
 2.14, 2.15 step 13) and Task 2.20's `ccy-teams lxc-add` of the member refused before; the
@@ -203,11 +203,21 @@ a repository is no longer offered for a checkout of it. Report:
 
 - [x] ✅ **Task 2.24**: the inline texts named in the product and read by the checkers, in three branches. [Full text](DONE-tasks.md).
 
-- [ ] ⬜ **Task 2.27** (proposed by Task 2.24's worker): the copies Task 2.24 left. (a) The
+- [x] ✅ **Task 2.27** (proposed by Task 2.24's worker): the copies Task 2.24 left. (a) The
   homeserver unit names as named templates, the checkers of Plans 00194, 00201 and 00203 reading
   them, in `OWNED`. (b) A reader for the bash and other-language products of the left rows (B5,
   B11, B12, B14, B15, rows 19, 22, 25-27, 31, 32), or a judgement per row that it stays a copy.
   (c) 00194's acceptance reads `the team syncs again` (cli.py inline), found on the way.
+  Done in two branches, no byte printed changing. `fix/00201-copies-checkers` (9d8fa7c74, no
+  product change): `product-value` calls a `helpers/` function naming a text, so the units
+  health.py and checkout.py already name and ccy-teams' `sessionTag` label are read at 39
+  checker lines (00161, 00194, 00201, 00203, `hs_journal.py`); OWNED reads a one-`return f"..."`
+  function as a text. Red 39, green 0. `fix/00201-copies-pingbus`: cli.py `TEAM_SYNCS_AGAIN`,
+  read by 00194; red 4, green 0; CCY 3.100.33, container 2.79.15, under the queued
+  `changed-plays`. The other rows stay copies, each judged with its reason in
+  [subagent-reports/261027-task-2-27.md](subagent-reports/261027-task-2-27.md): a persisted
+  record format, an external layout, the checker's own directory, a plan stating its own
+  deliverable's words that the product's unit tests pin, or run.bash, which may only shrink.
 
 - [x] ✅ **Task 2.25**: the `plan-tests` gate runs each plan folder's own tests. [Full text](DONE-tasks.md).
 

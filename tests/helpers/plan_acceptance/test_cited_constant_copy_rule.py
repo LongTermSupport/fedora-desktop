@@ -243,7 +243,7 @@ HOT_TEXTS = (
 #: 00201's m7_check and Plan 00203's homeserver triage read; each is matched anywhere.
 PINGBUS_CLI_TEXTS = (
     "CHOICES_HEAD", "WATCHER_EXITS", "WATCHER_ENDED", "WATCHER_REFUSED", "WATCHER_RESTARTED",
-    "TEAM_NOT_WATCHED", "HOMESERVER_SILENT",
+    "TEAM_NOT_WATCHED", "HOMESERVER_SILENT", "TEAM_SYNCS_AGAIN",
 )
 #: The owned values, as (product file, constant, kind). The value is read from the file.
 OWNED: tuple[tuple[str, str, str], ...] = (

@@ -33,6 +33,7 @@ class NamedTextsKeepTheirBytes(unittest.TestCase):
         self.assertEqual(cli.WATCHER_RESTARTED, "starting it again")
         self.assertEqual(cli.TEAM_NOT_WATCHED, "no longer watched")
         self.assertEqual(cli.HOMESERVER_SILENT, "the homeserver does not answer")
+        self.assertEqual(cli.TEAM_SYNCS_AGAIN, "the team syncs again")
 
     def test_inbox(self) -> None:
         self.assertEqual(inbox.NO_RECORD_YET, "no verified team record yet")
