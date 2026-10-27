@@ -14,9 +14,9 @@ The rule reads the programs' source, with its own patterns, not the mapper's. A 
 - in a helper package that is an input of a play (`helpers/<pkg>/`), a non-comment line with a
   path built from `__file__` and literal segments (`Path(__file__).parents[2] / "vars" / "x"`),
   or a quoted literal that names an existing checkout path outside the package (a path with a
-  `/`, or a dot-file of the root such as `.qa-versions`), when the path is not an input. A literal the module lists in its
-  `NOT_PLAY_INPUTS` tuple is not judged: it is named in a message, read again on every run, or
-  relative to another directory. A bare climb to a directory (`--repo-root`'s default, a
+  `/`, or a dot-file of the root such as `.qa-versions`), when the path is not an input. A
+  literal `affected_plays.NOT_PLAY_INPUTS` lists for its module is not judged: it is named in a
+  message, read again on every run, or relative to another directory. A bare climb to a directory (`--repo-root`'s default, a
   `sys.path` entry) is not judged: what a program reads under a root it is handed is decided
   as it runs, as play-input-dropped leaves the bare `{{ root_dir }}` alone. Any other
   `__file__` line is a finding unless an UNRESOLVED entry names it;
@@ -32,7 +32,7 @@ checkout file, or is not known before the program runs. A Go command a play inst
 checkout, if at all, when it runs later, live, so its literals are not judged.
 
 Fix a finding in the mapper, so it counts the read (or reports it UNRESOLVED), or, for a literal
-that is not a read, by listing it in the module's NOT_PLAY_INPUTS with the reason beside it.
+that is not a read, by listing it under its module in NOT_PLAY_INPUTS with the reason.
 """
 
 from __future__ import annotations
@@ -54,7 +54,8 @@ RULE_ID = "play-program-read-dropped"
 
 _HELPER_PREFIX = re.compile(r"^helpers/([a-z_][a-z0-9_]*)/$")
 _PY_LITERAL = re.compile(r"""(['"])([A-Za-z0-9_.@+\-/]+)\1""")
-_NOT_INPUTS = re.compile(r"^NOT_PLAY_INPUTS\b[^=\n]*=\s*\((.*?)\)", re.MULTILINE | re.DOTALL)
+#: Text in quotes or backticks, where `__file__` is prose or a pattern, not the module's path.
+_TEXT_SPAN = re.compile(r"""(["'`])(?:(?!\1).)*\1""")
 _PARENTS = re.compile(r"\.parents\[(\d+)\]")
 _PARENT = re.compile(r"\.parent\b")
 _DIRNAME = re.compile(r"\bdirname\(")
@@ -115,7 +116,7 @@ def _file_path(rel: str, line: str) -> str | None:
     return posixpath.normpath(posixpath.join(base, *segments)) if base or segments else None
 
 
-def _python_findings(repo_root: str, inputs: ap.Inputs) -> list[str]:
+def _python_findings(repo_root: str, inputs: ap.Inputs, not_inputs: dict[str, dict[str, str]]) -> list[str]:
     findings = []
     for prefix in sorted(inputs.prefixes):
         package = _HELPER_PREFIX.match(prefix)
@@ -127,13 +128,12 @@ def _python_findings(repo_root: str, inputs: ap.Inputs) -> list[str]:
                     continue
                 rel = os.path.relpath(os.path.join(dirpath, name), repo_root)
                 text = _read(repo_root, rel)
-                declared = _NOT_INPUTS.search(text)
-                exempt = {m.group(2) for m in _PY_LITERAL.finditer(declared.group(1))} if declared else set()
+                exempt = not_inputs.get(rel, {})
                 for number, line in enumerate(text.splitlines(), start=1):
                     if line.lstrip().startswith("#"):
                         continue
                     where = f"{rel}:{number}:"
-                    if "__file__" in line:
+                    if "__file__" in _TEXT_SPAN.sub("", line):
                         if not _PY_LITERAL.search(line) and "/" not in line.split("__file__", 1)[1]:
                             continue
                         path = _file_path(rel, line)
@@ -201,9 +201,12 @@ def _bash_findings(repo_root: str, inputs: ap.Inputs) -> list[str]:
     return findings
 
 
-def dropped_reads(repo_root: str, inputs: ap.Inputs) -> list[str]:
+def dropped_reads(
+    repo_root: str, inputs: ap.Inputs, not_inputs: dict[str, dict[str, str]] | None = None
+) -> list[str]:
     """Every checkout read by a program the play runs that `inputs` does not count."""
-    return _python_findings(repo_root, inputs) + _bash_findings(repo_root, inputs)
+    declared = ap.NOT_PLAY_INPUTS if not_inputs is None else not_inputs
+    return _python_findings(repo_root, inputs, declared) + _bash_findings(repo_root, inputs)
 
 
 def _message(play: str, findings: list[str]) -> str:
@@ -264,6 +267,13 @@ class TestRuleFires(unittest.TestCase):
         """)
         self.assertEqual(dropped_reads(self.root, ap.Inputs(prefixes={"helpers/tool/"})), [])
 
+    def test_file_in_prose_or_a_pattern_is_not_judged(self) -> None:
+        self._file("helpers/tool/cli.py", """
+            '''A path built from `__file__` and "vars"/"x".'''
+            PATTERN = r"Path\\(__file__\\)\\.parent / 'vars'"
+        """)
+        self.assertEqual(dropped_reads(self.root, ap.Inputs(prefixes={"helpers/tool/"})), [])
+
     def test_a_file_use_the_rule_cannot_read_is_a_finding_unless_reported(self) -> None:
         self._file("helpers/tool/cli.py", 'X = str(__file__) + "/../../vars"\n')
         self.assertEqual(len(dropped_reads(self.root, ap.Inputs(prefixes={"helpers/tool/"}))), 1)
@@ -283,12 +293,11 @@ class TestRuleFires(unittest.TestCase):
             PIN = "files/share/pin.txt"
             GONE = "files/never/there"
             HINT = "docs/x.md"
-            NOT_PLAY_INPUTS = (
-                "docs/x.md",  # named in a message
-            )
         """)
         inputs = ap.Inputs(prefixes={"helpers/tool/"}, exact={"files/share/pin.txt"})
-        self.assertEqual(dropped_reads(self.root, inputs), [])
+        self.assertEqual(len(dropped_reads(self.root, inputs, {})), 1)
+        declared = {"helpers/tool/cli.py": {"docs/x.md": "named in a message"}}
+        self.assertEqual(dropped_reads(self.root, inputs, declared), [])
 
     def test_a_root_dot_file_is_a_path_and_a_lone_dot_directory_is_not(self) -> None:
         self._file(".pins")
@@ -336,6 +345,27 @@ class TestRuleFires(unittest.TestCase):
     def test_the_message_carries_the_rule_id(self) -> None:
         self.assertIn(f"[{RULE_ID}]", _message("p", ["f:1: x"]))
         self.assertIn(f"CLAUDE/QA.md#{RULE_ID}", _message("p", ["f:1: x"]))
+
+
+class TestNoPlayDropsAProgramRead(unittest.TestCase):
+    """The rule over every host play of this checkout."""
+
+    def test_no_host_play_drops_a_read_of_a_program_it_runs(self) -> None:
+        plays = ap.candidate_plays(REPO_ROOT)
+        self.assertGreater(len(plays), 30)
+        for play in plays:
+            with self.subTest(play=play):
+                findings = dropped_reads(REPO_ROOT, ap.play_inputs(REPO_ROOT, play))
+                self.assertEqual(findings, [], _message(play, findings))
+
+    def test_every_declared_non_input_is_still_named_by_its_module(self) -> None:
+        """An entry outlives its literal silently otherwise, and would excuse a later read."""
+        for module, literals in ap.NOT_PLAY_INPUTS.items():
+            text = _read(REPO_ROOT, module)
+            for literal, why in literals.items():
+                with self.subTest(module=module, literal=literal):
+                    self.assertTrue(why.strip())
+                    self.assertRegex(text, rf"""["']{re.escape(literal)}["']""")
 
 
 if __name__ == "__main__":

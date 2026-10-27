@@ -29,14 +29,26 @@ with regexes over the play text. The idioms recognised are the ones this repo us
 - `import_playbook: <relative>`, relative to the importing file.
 - `helpers.<pkg>` where `helpers/<pkg>/` exists (`python3 -m helpers.<pkg>.x` in an
   argv): the whole package, plus every `helpers.<other>` package its modules import.
+- What the programs a play runs read from the checkout (rule play-program-read-dropped,
+  `tests/helpers/self_update/test_program_read_rule.py`). In a helper package: a path built
+  from `__file__` and literal segments (`Path(__file__).parents[2] / "vars" / "x.yml"`, or
+  `os.path.join` of a `dirname` climb), and a string literal naming an existing checkout path
+  outside the package (a path with a `/`, or a root dot-file), unless `NOT_PLAY_INPUTS` lists it
+  for that module. A bare climb (a `--repo-root` default) is not a read. In a bash file that
+  is an input: the file it sources beside itself, and the Go command it builds and runs from
+  the checkout (`run_go_tool` / `run_go_command` of scripts/lib/go-tool.bash), whose packages
+  are inputs and whose non-test sources' literals naming checkout paths are too. A path read
+  this way is an input as content: a YAML file read is not walked as a play.
 
 **A reference it cannot follow is reported, never dropped.** A `src:`, `file:`,
 `include_*` or `vars_files` value that is not rooted, not a host path or URL, not a loop
 `item`, not a variable the file defines as rooted or as a host path, and not a registered
 result, is UNRESOLVED. So is a join with no literal path (`root_dir ~ '/' ~ var`), a Go
-module built with no `go_command_name`, a name no walked file sets, and a command the
-module does not have. The rule play-input-dropped (CLAUDE/QA.md,
-`tests/helpers/self_update/test_dropped_input_rule.py`) holds every host play to this. A missed dependency is a play that silently never re-runs, which
+module built with no `go_command_name`, a name no walked file sets, a command the module
+does not have, and a `__file__` form, a sourced file or a run Go command a program names
+that cannot be read. The rule play-input-dropped (CLAUDE/QA.md,
+`tests/helpers/self_update/test_dropped_input_rule.py`) holds every host play to this for
+the play text, and play-program-read-dropped for the programs it runs. A missed dependency is a play that silently never re-runs, which
 is the defect this helper exists to remove.
 
 Run it:
@@ -64,6 +76,24 @@ from typing import TextIO
 #: retired-plays.json: vars/ is Ansible's YAML, which this stdlib-only helper cannot parse.
 ALLOWLIST_PATH = "helpers/self_update/unattended-plays.json"
 CANDIDATE_DIR = "playbooks/imports"
+#: Per helper module, the checkout-looking literals it names that no play running it depends
+#: on, each with why. Kept in data beside this module, not in the modules (some are baked into
+#: the ccy image, where an edit costs a version bump) nor in this file (whose literals it scans).
+NOT_PLAY_INPUTS_FILE = os.path.join(os.path.dirname(os.path.realpath(__file__)), "not-play-inputs.json")
+
+
+def _load_not_inputs(path: str) -> dict[str, dict[str, str]]:
+    with open(path, encoding="utf-8") as handle:
+        data = json.load(handle)
+    if not isinstance(data, dict) or not all(
+        isinstance(literals, dict) and all(isinstance(why, str) and why for why in literals.values())
+        for literals in data.values()
+    ):
+        raise ValueError(f"{path} must map each module to {{literal: why}}")
+    return data
+
+
+NOT_PLAY_INPUTS = _load_not_inputs(NOT_PLAY_INPUTS_FILE)
 
 EXIT_OK = 0
 EXIT_UNRESOLVED = 1
@@ -96,6 +126,28 @@ _PY_FROM_HELPERS = re.compile(r"^\s*from\s+helpers\s+import\s+\(?([^)\n]+)", re.
 _TEMPLATE_HEAD = re.compile(r"^\{\{\s*([A-Za-z_][A-Za-z0-9_]*)")
 _URL = re.compile(r"^[a-z][a-z0-9+.-]*://")
 _REGISTER = re.compile(r"^\s*register:\s*([A-Za-z_][A-Za-z0-9_]*)\s*$", re.MULTILINE)
+_PY_PATH_LITERAL = re.compile(r"""(['"])([A-Za-z0-9_.@+\-/]+)\1""")
+_PATH_CLIMB = re.compile(
+    r"Path\(__file__\)(?:\.resolve\(\)|\.absolute\(\))?(?:((?:\.parent\b)+)|\.parents\[(\d+)\])"
+    r"((?:\s*/\s*['\"][^'\"]+['\"])*)"
+)
+_OS_CLIMB = re.compile(
+    r"((?:os\.path\.dirname\(\s*)+)os\.path\.(?:realpath|abspath)\(__file__\)[\s)]*"
+    r"((?:,\s*['\"][^'\"]+['\"]\s*)*)"
+)
+_QUOTED = re.compile(r"['\"]([^'\"]+)['\"]")
+#: A quoted or backticked span: `__file__` there is text (a docstring, a pattern), not code.
+_QUOTED_SPAN = re.compile(r"(['\"`]).*?\1")
+_SHEBANG = re.compile(r"^#!\s*(?:/\S*/)?(?:env\s+)?(?:bash|sh)\b")
+_BASH_SOURCE = re.compile(
+    r"^\s*(?:source|\.)\s+\"?"
+    r"(?:\$SCRIPT_DIR|\$\{SCRIPT_DIR\}|\$\(dirname \"\$\{BASH_SOURCE\[0\]\}\"\)|\$\{BASH_SOURCE\[0\]%/\*\})"
+    r"/([^\"\s]+)"
+)
+#: The functions of scripts/lib/go-tool.bash and the module each builds `cmd/<name>` of.
+_GO_RUNNERS = {"run_go_tool": "src-go/qa", "run_go_command": "src-go"}
+_BASH_GO_RUN = re.compile(r"\b(" + "|".join(_GO_RUNNERS) + r")\s+([A-Za-z0-9_-]+)")
+_GO_STRING = re.compile(r'"((?:[^"\\\n]|\\.)*)"')
 
 
 @dataclass
@@ -209,7 +261,127 @@ class _Walker:
             self.inputs.exact.add(rel)
             if rel.endswith((".yml", ".yaml")) and self._is_file(rel):
                 self.walk_yaml(rel, context="")
+            elif self._is_bash(rel):
+                self._walk_bash(rel)
         self._maybe_helper_path(rel)
+
+    def _add_read(self, rel: str) -> None:
+        """A checkout path a program reads: its content is the input, so a YAML file is not
+        walked (a helper that reads a play does not deploy what the play deploys)."""
+        if self._is_dir(rel):
+            self.inputs.prefixes.add(rel.rstrip("/") + "/")
+        elif rel not in self.inputs.exact:
+            self.inputs.exact.add(rel)
+            if self._is_bash(rel):
+                self._walk_bash(rel)
+        self._maybe_helper_path(rel)
+
+    def _checkout_literal(self, literal: str) -> str | None:
+        """The checkout path a string literal in a program names, if it names one: an existing
+        path with a `/`, or a dot-file of the root (`.qa-versions`). A lone dot-directory or
+        `.git` is a name under some other directory (`<project>/.claude`)."""
+        if literal == ".git":
+            return None
+        rel = _safe_relpath(literal)
+        if rel is None or rel == ".":
+            return None
+        if "/" in literal:
+            return rel if self._is_file(rel) or self._is_dir(rel) else None
+        return rel if literal.startswith(".") and self._is_file(rel) else None
+
+    def _is_bash(self, rel: str) -> bool:
+        if not self._is_file(rel):
+            return False
+        if rel.endswith((".bash", ".sh")):
+            return True
+        try:
+            with open(os.path.join(self.root, rel), encoding="utf-8") as handle:
+                return bool(_SHEBANG.match(handle.readline()))
+        except UnicodeDecodeError:
+            return False
+
+    def _walk_bash(self, rel_file: str) -> None:
+        """A bash file's library beside it, and the Go command it builds and runs from the
+        checkout (scripts/lib/go-tool.bash) with the checkout files that command names."""
+        with open(os.path.join(self.root, rel_file), encoding="utf-8") as handle:
+            text = handle.read()
+        for line_no, line in _non_comment_lines(text):
+            sourced = _BASH_SOURCE.match(line)
+            if sourced:
+                rel = _safe_relpath(posixpath.join(posixpath.dirname(rel_file), sourced.group(1)))
+                if rel is not None and self._is_file(rel):
+                    self._add_read(rel)
+                else:
+                    self.inputs.unresolved.append(f"{rel_file}:{line_no}: {line.strip()}")
+            for runner, name in _BASH_GO_RUN.findall(line):
+                self._script_go_command(f"{rel_file}:{line_no}", _GO_RUNNERS[runner], name)
+
+    def _script_go_command(self, where: str, module: str, name: str) -> None:
+        """A Go command a script builds and runs as the play runs: its packages, and the
+        checkout files its non-test sources name, are inputs."""
+        command = posixpath.join(module, "cmd", name)
+        if command in self.inputs.go_commands:
+            return
+        if not self._is_go_module(module) or not self._is_dir(command):
+            self.inputs.unresolved.append(f"{where}: runs Go command {name}, but there is no {command}")
+            return
+        self.inputs.go_modules.add(module)
+        self.inputs.go_commands.add(command)
+        self._go_dependencies(module, command)
+        for package, builders in sorted(self.inputs.go_builders.items()):
+            if name not in builders:
+                continue
+            directory = os.path.join(self.root, package)
+            for file_name in sorted(os.listdir(directory)):
+                if not file_name.endswith(".go") or file_name.endswith("_test.go"):
+                    continue
+                with open(os.path.join(directory, file_name), encoding="utf-8") as handle:
+                    source = handle.read()
+                for literal in _GO_STRING.findall(source):
+                    rel = self._checkout_literal(literal)
+                    if rel is not None:
+                        self._add_read(rel)
+
+    def _python_reads(self, rel_file: str, source: str, package_dir: str) -> None:
+        """The checkout paths a helper module names outside its package: a path built from
+        `__file__` and literal segments, or a literal path. A bare climb from `__file__` (a
+        `--repo-root` default) is the root a program is handed, not a read; a `__file__` form
+        not recognised is UNRESOLVED; a literal NOT_PLAY_INPUTS lists for the module is not a read
+        a play depends on."""
+        exempt = NOT_PLAY_INPUTS.get(rel_file, {})
+        for line_no, line in _non_comment_lines(source):
+            if "__file__" in _QUOTED_SPAN.sub("", line):
+                self._file_read(f"{rel_file}:{line_no}", rel_file, line, package_dir)
+                continue
+            for _quote, literal in _PY_PATH_LITERAL.findall(line):
+                rel = self._checkout_literal(literal)
+                if rel is not None and literal not in exempt and not (rel + "/").startswith(package_dir):
+                    self._add_read(rel)
+
+    def _file_read(self, where: str, rel_file: str, line: str, package_dir: str) -> None:
+        climbed = _PATH_CLIMB.search(line)
+        if climbed:
+            levels = len(climbed.group(1).split(".parent")) - 1 if climbed.group(1) else int(climbed.group(2)) + 1
+            segments = _QUOTED.findall(climbed.group(3))
+        else:
+            climbed = _OS_CLIMB.search(line)
+            if climbed is None:
+                self.inputs.unresolved.append(f"{where}: {line.strip()}")
+                return
+            levels = climbed.group(1).count("dirname(")
+            segments = _QUOTED.findall(climbed.group(2))
+        if not segments:
+            return
+        base = rel_file
+        for _ in range(levels):
+            base = posixpath.dirname(base)
+        rel = _safe_relpath(posixpath.join(base, *segments))
+        if rel is not None and (rel + "/").startswith(package_dir):
+            return
+        if rel is None or not (self._is_file(rel) or self._is_dir(rel)):
+            self.inputs.unresolved.append(f"{where}: {line.strip()}")
+        else:
+            self._add_read(rel)
 
     def _maybe_helper_path(self, rel: str) -> None:
         parts = rel.split("/")
@@ -225,8 +397,10 @@ class _Walker:
             for name in sorted(files):
                 if not name.endswith(".py"):
                     continue
-                with open(os.path.join(dirpath, name), encoding="utf-8") as handle:
+                path = os.path.join(dirpath, name)
+                with open(path, encoding="utf-8") as handle:
                     source = handle.read()
+                self._python_reads(os.path.relpath(path, self.root), source, f"helpers/{package}/")
                 for imported in _PY_IMPORT.findall(source):
                     self._add_package(imported)
                 for group in _PY_FROM_HELPERS.findall(source):

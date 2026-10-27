@@ -18,6 +18,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
@@ -33,21 +34,23 @@ FREEZE_PLAYS = (
 )
 
 
-def _go_list_deps(command: str) -> list[str]:
-    """The repo-relative directories of every non-standard package the command at the
-    repo-relative `command` (`src-go/cmd/<name>`) builds from, as the Go toolchain lists them
-    (vendored ones included), with the build's GOFLAGS."""
-    module, package = command.split("/", 1)
-    env = {**os.environ, "GOFLAGS": "-mod=vendor", "GOTOOLCHAIN": "local"}
+def _go_list_deps(module: str, command: str) -> list[str]:
+    """The repo-relative directories of every package of the checkout the command at the
+    repo-relative `command` (`<module>/cmd/<name>`) builds from, as the Go toolchain lists them
+    (vendored ones included; a module without a vendor tree builds from the module cache,
+    which is not the checkout), with the build's GOFLAGS."""
+    vendored = os.path.isdir(os.path.join(REPO_ROOT, module, "vendor"))
+    env = {**os.environ, "GOTOOLCHAIN": "local", "GOFLAGS": "-mod=vendor" if vendored else ""}
     result = subprocess.run(
-        ["go", "list", "-deps", "-f", "{{if not .Standard}}{{.Dir}}{{end}}", "./" + package],
+        ["go", "list", "-deps", "-f", "{{if not .Standard}}{{.Dir}}{{end}}", "./" + command[len(module) + 1:]],
         cwd=os.path.join(REPO_ROOT, module),
         env=env,
         capture_output=True,
         text=True,
         check=True,
     )
-    return [os.path.relpath(line, REPO_ROOT) for line in result.stdout.splitlines() if line]
+    module_root = os.path.join(REPO_ROOT, module) + os.sep
+    return [os.path.relpath(line, REPO_ROOT) for line in result.stdout.splitlines() if line.startswith(module_root)]
 
 
 def _write(root: str, rel: str, text: str) -> None:
@@ -501,6 +504,184 @@ class TestGoChanges(GoFixtureCase):
         self.assertEqual(ap.go_changes(inputs, ["src-go/go.mod", "playbooks/imports/play-a.yml"]), {})
 
 
+class TestHelperReads(FixtureCase):
+    """Plan 00192 Task 3.7: a helper a play runs reads checkout files outside its package, as
+    helpers/github_scopes/cli.py reads vars/github-required-scopes.yml through `__file__`."""
+
+    def _play_running(self, module: str) -> ap.Inputs:
+        play = self.fx.play("playbooks/imports/play-a.yml", f"""
+            - hosts: desktop
+              tasks:
+                - ansible.builtin.command:
+                    argv: [python3, -m, {module}]
+                    chdir: "{ROOT}"
+        """)
+        return ap.play_inputs(self.fx.root, play)
+
+    def test_a_path_built_from_file_is_an_input(self) -> None:
+        self.fx.file("vars/required.yml")
+        self.fx.file("helpers/tool/cli.py", """
+            import pathlib
+
+            DEFAULT = pathlib.Path(__file__).resolve().parents[2] / "vars" / "required.yml"
+        """)
+        inputs = self._play_running("helpers.tool.cli")
+        self.assertTrue(ap.affects(inputs, "vars/required.yml"))
+        self.assertEqual(inputs.unresolved, [])
+
+    def test_an_os_path_join_from_file_is_an_input(self) -> None:
+        self.fx.file("vars/required.yml")
+        self.fx.file("helpers/tool/cli.py", """
+            import os
+
+            DEFAULT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+                os.path.realpath(__file__)))), "vars", "required.yml")
+        """)
+        self.fx.file("helpers/tool/two.py",
+                     'D = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "..", "vars")\n')
+        inputs = self._play_running("helpers.tool.cli")
+        self.assertTrue(ap.affects(inputs, "vars/anything.yml"))
+
+    def test_a_bare_climb_is_no_input_and_no_unresolved(self) -> None:
+        self.fx.file("helpers/tool/cli.py", """
+            import os
+            import pathlib
+
+            ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+            TOP = pathlib.Path(__file__).resolve().parents[2]
+            DATA = pathlib.Path(__file__).parent / "data.json"
+        """)
+        inputs = self._play_running("helpers.tool.cli")
+        self.assertEqual(inputs.unresolved, [])
+        self.assertEqual(inputs.exact, {"playbooks/imports/play-a.yml"})
+
+    def test_file_in_prose_or_a_pattern_is_not_a_read(self) -> None:
+        self.fx.file("helpers/tool/cli.py", """
+            '''A path built from `__file__` and "vars"/"x".'''
+            PATTERN = r"Path\\(__file__\\)\\.parent / 'vars'"
+        """)
+        self.assertEqual(self._play_running("helpers.tool.cli").unresolved, [])
+
+    def test_a_file_use_it_cannot_read_is_reported(self) -> None:
+        self.fx.file("helpers/tool/cli.py", 'X = str(__file__) + "/../../vars"\n')
+        inputs = self._play_running("helpers.tool.cli")
+        self.assertEqual(len(inputs.unresolved), 1)
+        self.assertTrue(inputs.unresolved[0].startswith("helpers/tool/cli.py:1:"))
+
+    def test_a_literal_checkout_path_is_an_input(self) -> None:
+        self.fx.file("files/share/pin.txt")
+        self.fx.file("files/share/dir/a.txt")
+        self.fx.file(".pins")
+        self.fx.file(".claude/settings.json")
+        self.fx.file("helpers/tool/cli.py", """
+            PIN = "files/share/pin.txt"
+            DIR = 'files/share/dir'
+            PINS = ".pins"
+            PROJECT = ".claude"
+            GONE = "files/never/there"
+            # "files/share/commented.txt"
+        """)
+        inputs = self._play_running("helpers.tool.cli")
+        self.assertIn("files/share/pin.txt", inputs.exact)
+        self.assertIn(".pins", inputs.exact)
+        self.assertTrue(ap.affects(inputs, "files/share/dir/new.txt"))
+        self.assertFalse(ap.affects(inputs, ".claude/settings.json"))
+        self.assertFalse(ap.affects(inputs, "files/never/there"))
+
+    def test_a_literal_play_is_an_input_but_is_not_walked(self) -> None:
+        """A helper that names a play reads it, or names it; it does not deploy what it deploys."""
+        self.fx.file("files/x")
+        self.fx.play("playbooks/imports/play-b.yml", f"- copy:\n    src: \"{ROOT}/files/x\"\n")
+        self.fx.file("helpers/tool/cli.py", 'PLAY = "playbooks/imports/play-b.yml"\n')
+        inputs = self._play_running("helpers.tool.cli")
+        self.assertIn("playbooks/imports/play-b.yml", inputs.exact)
+        self.assertNotIn("files/x", inputs.exact)
+
+    def test_a_literal_declared_not_an_input_of_its_module_is_not_one(self) -> None:
+        self.fx.file("docs/x.md")
+        self.fx.file("helpers/tool/cli.py", 'HINT = "docs/x.md"\n')
+        self.assertTrue(ap.affects(self._play_running("helpers.tool.cli"), "docs/x.md"))
+        declared = {"helpers/tool/cli.py": {"docs/x.md": "named in a message"}}
+        with mock.patch.dict(ap.NOT_PLAY_INPUTS, declared):
+            self.assertFalse(ap.affects(self._play_running("helpers.tool.cli"), "docs/x.md"))
+
+
+class TestScriptReads(FixtureCase):
+    """Plan 00192 Task 3.7: a script a play runs sources its library and builds and runs a Go
+    tool that reads checkout files, as scripts/qa-toolchain.bash does."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        fx = self.fx
+        fx.file("src-go/go.mod", "module example.com/m\n\ngo 1.26\n")
+        fx.file("src-go/qa/go.mod", "module example.com/m/qa\n\ngo 1.26\n")
+        fx.file("src-go/qa/go.sum", "")
+        fx.file("src-go/qa/cmd/qa-x/main.go", 'package main\n\nimport "example.com/m/qa/pins"\n\nfunc main() { pins.Read() }\n')
+        fx.file("src-go/qa/pins/pins.go", """
+            package pins
+
+            const pinFile = ".pins"
+
+            var goMods = []string{"src-go/go.mod", "no/such/file"}
+
+            func Read() {}
+        """)
+        fx.file("src-go/qa/pins/pins_test.go", 'package pins\n\nconst fixture = "src-go/testonly.txt"\n')
+        fx.file("src-go/testonly.txt")
+        fx.file("src-go/qa/other/other.go", "package other\n")
+        fx.file(".pins")
+        fx.file("scripts/lib/go-tool.bash", "#!/usr/bin/bash\nrun_go_tool() {\n    :\n}\n")
+        fx.file("scripts/qa-x.bash", """
+            #!/usr/bin/env bash
+            SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+            source "$SCRIPT_DIR/lib/go-tool.bash"
+            source /usr/local/lib/host.bash
+            run_go_tool qa-x --scripts "$SCRIPT_DIR" "$@"
+        """)
+
+    def _play(self, script: str = "scripts/qa-x.bash") -> ap.Inputs:
+        play = self.fx.play("playbooks/imports/play-a.yml", f"""
+            - hosts: desktop
+              tasks:
+                - ansible.builtin.command:
+                    cmd: "{ROOT}/{script}"
+        """)
+        return ap.play_inputs(self.fx.root, play)
+
+    def test_the_sourced_library_is_an_input(self) -> None:
+        inputs = self._play()
+        self.assertIn("scripts/lib/go-tool.bash", inputs.exact)
+        self.assertEqual(inputs.unresolved, [])
+
+    def test_the_go_tool_and_its_packages_are_inputs(self) -> None:
+        inputs = self._play()
+        self.assertIn("src-go/qa/cmd/qa-x", inputs.go_commands)
+        self.assertIn("src-go/qa", inputs.go_modules)
+        for path in ("src-go/qa/cmd/qa-x/main.go", "src-go/qa/pins/pins.go", "src-go/qa/go.mod", "src-go/qa/go.sum"):
+            self.assertTrue(ap.affects(inputs, path), path)
+        self.assertFalse(ap.affects(inputs, "src-go/qa/other/other.go"))
+        self.assertEqual(ap.go_changes(inputs, ["src-go/qa/pins/pins.go"]), {"src-go/qa/pins": {"qa-x"}})
+
+    def test_the_checkout_files_the_go_tool_names_are_inputs(self) -> None:
+        inputs = self._play()
+        self.assertIn("src-go/go.mod", inputs.exact)
+        self.assertIn(".pins", inputs.exact)
+        self.assertFalse(ap.affects(inputs, "src-go/testonly.txt"))
+
+    def test_a_go_tool_the_module_does_not_have_is_reported(self) -> None:
+        self.fx.file("scripts/qa-y.bash", "#!/usr/bin/env bash\nrun_go_tool qa-missing\n")
+        inputs = self._play("scripts/qa-y.bash")
+        self.assertEqual(len(inputs.unresolved), 1)
+        self.assertIn("src-go/qa/cmd/qa-missing", inputs.unresolved[0])
+
+    def test_a_main_module_command_is_built_from_src_go(self) -> None:
+        self.fx.file("src-go/cmd/setup/main.go", "package main\n\nfunc main() {}\n")
+        self.fx.file("scripts/setup.bash", "#!/usr/bin/env bash\nrun_go_command setup \"$@\"\n")
+        inputs = self._play("scripts/setup.bash")
+        self.assertIn("src-go/cmd/setup", inputs.go_commands)
+        self.assertTrue(ap.affects(inputs, "src-go/cmd/setup/main.go"))
+
+
 class TestAllowlist(FixtureCase):
     def test_a_list_of_existing_plays_loads(self) -> None:
         play = self.fx.play("playbooks/imports/play-a.yml", "- hosts: desktop\n")
@@ -709,7 +890,8 @@ class TestRealRepo(unittest.TestCase):
         for play in ap.candidate_plays(REPO_ROOT):
             inputs = ap.play_inputs(REPO_ROOT, play)
             for command in sorted(inputs.go_commands):
-                for package in _go_list_deps(command):
+                module = max((m for m in inputs.go_modules if command.startswith(m + "/")), key=len)
+                for package in _go_list_deps(module, command):
                     self.assertIn(package, inputs.go_packages, f"{play}: {command} imports {package}")
 
     def test_every_play_building_go_names_its_commands(self) -> None:
@@ -722,6 +904,20 @@ class TestRealRepo(unittest.TestCase):
             inputs = ap.play_inputs(REPO_ROOT, play)
             self.assertIn("src-go", inputs.go_modules, play)
             self.assertFalse([u for u in inputs.unresolved if "go_command" in u], play)
+
+    def test_a_required_scopes_change_runs_the_github_play(self) -> None:
+        """Plan 00192 Task 3.7: helpers/github_scopes reads the file through `__file__`."""
+        report = ap.decide(REPO_ROOT, ["vars/github-required-scopes.yml"])
+        self.assertIn("playbooks/imports/play-github-cli-multi.yml", report.run + report.skipped)
+
+    def test_what_the_qa_toolchain_check_reads_runs_the_python_play(self) -> None:
+        """Plan 00192 Task 3.7: play-python runs scripts/qa-toolchain.bash, which sources
+        scripts/lib/go-tool.bash to build src-go/qa/cmd/qa-toolchain, which reads both go.mods."""
+        for path in ("scripts/lib/go-tool.bash", "src-go/go.mod", "src-go/qa/go.mod", "src-go/qa/toolchain/pins.go"):
+            report = ap.decide(REPO_ROOT, [path])
+            self.assertIn("playbooks/imports/play-python.yml", report.run + report.skipped, path)
+        inputs = ap.play_inputs(REPO_ROOT, "playbooks/imports/play-python.yml")
+        self.assertEqual(ap.go_changes(inputs, ["src-go/qa/toolchain/pins.go"]), {"src-go/qa/toolchain": {"qa-toolchain"}})
 
     def test_every_import_play_parses(self) -> None:
         """Parsing never crashes on a real play. The per-play unresolved counts are what

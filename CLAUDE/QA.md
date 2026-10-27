@@ -1480,8 +1480,8 @@ the script must be an input, and a `run_go_tool` / `run_go_command` (`scripts/li
 must be one of the play's Go builds, whose packages' literals naming checkout paths must be
 inputs too. Not judged: a bare climb from `__file__` to a directory (`--repo-root`'s default),
 a source of a host path or a runtime variable, the literals of a Go command a play installs
-(it reads the checkout, if at all, live when it runs), and a literal the module lists in its
-`NOT_PLAY_INPUTS` tuple. Run by `tests/helpers/self_update/test_program_read_rule.py` (in
+(it reads the checkout, if at all, live when it runs), and a literal listed for its module in
+`helpers/self_update/affected_plays.NOT_PLAY_INPUTS`. Run by `tests/helpers/self_update/test_program_read_rule.py` (in
 `qa-helper-tests.bash`), which proves the rule against its fixtures first.
 
 **Why it exists.** `helpers/github_scopes/cli.py` reads `vars/github-required-scopes.yml`
@@ -1492,8 +1492,9 @@ Task 3.7). Found and defended under Defence Before Fix.
 
 **How to fix a finding.** Teach the mapper the form, so it counts the read or reports it
 UNRESOLVED. A literal that is not a read of the checkout (named in a message, relative to another
-directory, or read again by the program on every run, so no rerun is owed) goes in the module's
-`NOT_PLAY_INPUTS`, with the reason beside it.
+directory, or read again by the program on every run, so no rerun is owed) goes in
+`NOT_PLAY_INPUTS` under its module, with the reason. The table is in the mapper rather than the
+modules because some modules are baked into the ccy image, where an edit costs a version bump.
 
 ---
 
