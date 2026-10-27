@@ -132,6 +132,50 @@ func newOpsRig(t *testing.T) *opsRig {
 	return r
 }
 
+// hostVarsArg is what every play the rig runs is given before its own arguments: the rig's
+// host_vars is not the checkout's own, so each play is handed it as an extra-vars file.
+func (r *opsRig) hostVarsArg() string {
+	return " -e @" + r.hostVars
+}
+
+// A host_vars file other than the checkout's own (CCY_TEAMS_HOST_VARS) is the one ccy-teams
+// writes, so both plays read it, given first so the play's own scope still wins; with the
+// checkout's own host_vars, which the plays load from the inventory, they are given nothing new.
+func TestPlaysReadTheHostVarsCcyTeamsWrites(t *testing.T) {
+	r := newOpsRig(t)
+	r.on(opsPlay, execx.Result{})
+	r.declareElement(t, "beta")
+	r.on(opsElementPlay, execx.Result{})
+	r.files[r.home+"/.local/share/applications/agent-bus-beta-element.desktop"] = true
+	r.statuses = []map[string]declare.Status{{"beta": st("current", "")}}
+	if err := r.ops.ApplyTeams(context.Background(), []string{"beta"}); err != nil {
+		t.Fatal(err)
+	}
+	calls := r.fake.Calls()
+	if len(calls) != 2 || !slices.Equal(calls[0].Args, []string{"-e", "@" + r.hostVars, "-e", `{"agent_bus_only_teams": ["beta"]}`}) ||
+		!slices.Equal(calls[1].Args, []string{"-e", "@" + r.hostVars}) {
+		t.Fatalf("calls %q", r.lines())
+	}
+
+	d := newOpsRig(t)
+	d.ops.Cfg.HostVars = filepath.Join(d.ops.Cfg.RootDir, "environment/localhost/host_vars/localhost.yml")
+	d.on(opsPlay, execx.Result{})
+	d.on(opsElementPlay, execx.Result{})
+	d.statuses = []map[string]declare.Status{{"beta": st("current", "")}}
+	if err := d.ops.Locked(context.Background(), "test", func(ctx context.Context) error {
+		if err := d.ops.runPlay(ctx, []string{"beta"}); err != nil {
+			return err
+		}
+		return d.ops.elementPlay(ctx, "left")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{opsPlay + ` -e {"agent_bus_only_teams": ["beta"]}`, opsElementPlay}
+	if got := d.lines(); !slices.Equal(got, want) {
+		t.Fatalf("calls:\n%q\nwant\n%q", got, want)
+	}
+}
+
 // on scripts every command that starts with the space-separated prefix.
 func (r *opsRig) on(prefix string, res execx.Result) {
 	r.fake.On(strings.Fields(prefix), res)
@@ -239,8 +283,8 @@ func TestApplyTeamsRunsPlayThenElementThenSays(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		opsPlay + ` -e {"agent_bus_only_teams": ["beta", "delta"]}`,
-		opsElementPlay,
+		opsPlay + r.hostVarsArg() + ` -e {"agent_bus_only_teams": ["beta", "delta"]}`,
+		opsElementPlay + r.hostVarsArg(),
 	}
 	if got := r.lines(); !slices.Equal(got, want) {
 		t.Errorf("calls:\n%q\nwant\n%q", got, want)
@@ -477,7 +521,7 @@ func TestApplyAllSortedTargetsAndWaiting(t *testing.T) {
 	if code := r.ops.Apply(context.Background(), []string{"--all"}); code != 0 {
 		t.Fatalf("code %d: %s", code, r.said())
 	}
-	if !r.called(opsPlay + ` -e {"agent_bus_only_teams": ["beta", "delta"]}`) {
+	if !r.called(opsPlay + r.hostVarsArg() + ` -e {"agent_bus_only_teams": ["beta", "delta"]}`) {
 		t.Errorf("calls %q", r.lines())
 	}
 	for _, s := range []string{

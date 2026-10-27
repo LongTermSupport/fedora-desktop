@@ -368,16 +368,20 @@ if (cd "$TEST_REPO_ROOT" && python3 -m helpers.play_lock.lock held --user "$(com
 else
     echo "play-lock NOT handed down" >>"$TEST_LOG"
 fi
-[ "$1" = -e ] || { echo "fake play: expected -e JSON" >&2; exit 97; }
+[ "$#" = 4 ] && [ "$1" = -e ] && [ "$2" = "@$CCY_TEAMS_HOST_VARS" ] && [ "$3" = -e ] ||
+    { echo "fake play: expected -e @$CCY_TEAMS_HOST_VARS -e JSON" >&2; exit 97; }
 if [ -n "${TEST_PLAY_FAIL:-}" ]; then echo "fatal: [localhost]: FAILED!" >&2; exit 2; fi
-cd "$TEST_REPO_ROOT" && python3 -m tests.helpers.agent_bus.ccy_teams_play "$2" "$CCY_TEAMS_HOST_VARS" "$TEST_STATE/applied"
+cd "$TEST_REPO_ROOT" && python3 -m tests.helpers.agent_bus.ccy_teams_play "$4" "$CCY_TEAMS_HOST_VARS" "$TEST_STATE/applied"
 EOF
 # play-agent-bus-element.yml: logs its run; unless TEST_ELEMENT_FAIL, writes a launcher for
-# every agent_bus_element_teams entry, as the real play's helper does.
+# every agent_bus_element_teams entry, as the real play's helper does. Like the play, it must
+# be handed the host_vars ccy-teams reads (CCY_TEAMS_HOST_VARS), as an extra-vars file.
 cat >"$BIN/element-play" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'element-profiles %s\n' "$*" >>"$TEST_LOG"
+[ "$#" = 2 ] && [ "$1" = -e ] && [ "$2" = "@$CCY_TEAMS_HOST_VARS" ] ||
+    { echo "fake element play: expected -e @$CCY_TEAMS_HOST_VARS" >&2; exit 97; }
 if [ -n "${TEST_ELEMENT_FAIL:-}" ]; then echo "fatal: [localhost]: FAILED!" >&2; exit 2; fi
 lines="$(cd "$TEST_REPO_ROOT" && python3 -m helpers.agent_bus.declare element-teams --file "$CCY_TEAMS_HOST_VARS")"
 mkdir -p "$HOME/.local/share/applications"
@@ -1117,7 +1121,7 @@ out="$(CCY_TEAMS_HOST_VARS="$SCRATCH/create.yml" "$TOOL" create --team beta --de
     --org example-org --yes </dev/null 2>"$SCRATCH/err")"
 check "create with every value adds the entry" "0" "$?"
 check_has "  saying so on stdout, on a port neither declared nor listening" $'CHANGED\tteam beta, port 6169' "$out"
-check "  and installs it: the play for beta alone" "yes" "$(logged 'play -e {"agent_bus_only_teams": ["beta"]}')"
+check "  and installs it: the play for beta alone" "yes" "$(logged "play -e @$SCRATCH/create.yml -e "'{"agent_bus_only_teams": ["beta"]}')"
 check_has "  then the next steps" "ccy --teams beta" "$(cat "$SCRATCH/err")"
 check_lacks "  never meta-deploy" "meta-deploy" "$(cat "$SCRATCH/err")"
 check_lacks "  nor an edit of localhost.yml" "localhost.yml" "$(grep -v 'kept at' "$SCRATCH/err")"
@@ -1207,7 +1211,7 @@ check_has "  and no other machine" 'allow_from: []' "$written"
 check_has "  what the team is for is asked after its name, and written" 'description: "Builds the example site"' "$written"
 check_has "  the summary says what it is for" "For       Builds the example site" "$out"
 check_has "  its Element profile is declared with it" $'agent_bus_element_teams:\n  - team: proj' "$written"
-check "  the team is installed at once" "yes" "$(logged 'play -e {"agent_bus_only_teams": ["proj"]}')"
+check "  the team is installed at once" "yes" "$(logged "play -e @$NO_TEAMS -e "'{"agent_bus_only_teams": ["proj"]}')"
 check "  and its Element profile written" "yes" "$(logged 'element-profiles')"
 inputs="$(grep -F 'gum input' "$LOG")"
 check_has "  the scope is asked first, listed repositories selected, this one first" \
@@ -1326,7 +1330,7 @@ check_has "  naming what the team covers" "Team legacy (for any repository of ex
 check_has "  and that it is about a team already here, not this checkout" "a team already on this machine" "$out"
 check_lacks "  and never claiming it was the default" "was the default" "$out"
 check_lacks "  and removed from the entry" "path_prefixes" "$(cat "$NO_TEAMS")"
-check "  then applied" "yes" "$(logged 'play -e {"agent_bus_only_teams": ["legacy"]}')"
+check "  then applied" "yes" "$(logged "play -e @$NO_TEAMS -e "'{"agent_bus_only_teams": ["legacy"]}')"
 fresh_no_teams
 cat >"$NO_TEAMS" <<'EOF'
 agent_bus_address: 192.0.2.10
@@ -1388,7 +1392,7 @@ printf '|ABORT\n' >"$TEST_ANSWERS"
 : >"$LOG"
 out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$OUTSIDE" "$(printf '%s\n' YES)")"
 check "a team not built is offered its update at start-up; yes applies it" "yes" \
-    "$(logged 'play -e {"agent_bus_only_teams": ["elsewhere"]}')"
+    "$(logged "play -e @$NO_TEAMS -e "'{"agent_bus_only_teams": ["elsewhere"]}')"
 check_has "  then waits before the list is drawn" "Press Enter to go back to the list." "$out"
 check_lacks "  every step it takes is defined by then" "command not found" "$out"
 check "  and the picker opens" "rc=0" "$(rc_of "$out")"
@@ -1450,7 +1454,7 @@ check_has "  beta is up to date afterwards" "up to date" "$(grep -E '^beta +.+ +
 
 fresh_states
 CCY_TEAMS_HOST_VARS="$STATES" "$TOOL" apply delta >"$SCRATCH/out" 2>"$SCRATCH/err"
-check "apply <team> runs the play for that team" "yes" "$(logged 'play -e {"agent_bus_only_teams": ["delta"]}')"
+check "apply <team> runs the play for that team" "yes" "$(logged "play -e @$STATES -e "'{"agent_bus_only_teams": ["delta"]}')"
 check "  inside ccy-teams' hold of the play lock, handed down as run.bash proves it" "yes" "$(logged 'play-lock handed down')"
 check "  and never outside it" "no" "$(logged 'play-lock NOT handed down')"
 fresh_states
@@ -1474,7 +1478,7 @@ check "remove: a backup first by default, then down with the data kept" "rc=0" "
 check "  the backup is taken first" "yes" "$(logged "$SUDO_INSTALL backup-now --team beta")"
 check_has "  the backup is offered, default yes" "gum confirm --default=true Back beta up first?" "$(cat "$LOG")"
 check_has "  beta is declared absent, its data kept" "purge: false" "$(cat "$STATES")"
-check "  the play runs for beta alone" "yes" "$(logged 'play -e {"agent_bus_only_teams": ["beta"]}')"
+check "  the play runs for beta alone" "yes" "$(logged "play -e @$STATES -e "'{"agent_bus_only_teams": ["beta"]}')"
 check_has "  and says the data is kept" "its data is kept" "$out"
 
 fresh_states
