@@ -93,6 +93,8 @@
               - --stdin-name
               - mok_password
           args:
+            # ansible.cfg names the vault password file relative to the checkout.
+            chdir: "{{ root_dir }}"
             stdin: "{{ mok_password_prompt.user_input }}"
             stdin_add_newline: false
           become: false

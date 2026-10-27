@@ -147,6 +147,8 @@
                   - --stdin-name
                   - lastfm_api_key
               args:
+                # ansible.cfg names the vault password file relative to the checkout.
+                chdir: "{{ root_dir }}"
                 stdin: "{{ lastfm_key_prompt.user_input }}"
                 stdin_add_newline: false
               register: lastfm_key_encrypted
@@ -161,6 +163,7 @@
                   - --stdin-name
                   - lastfm_api_secret
               args:
+                chdir: "{{ root_dir }}"
                 stdin: "{{ lastfm_secret_prompt.user_input }}"
                 stdin_add_newline: false
               register: lastfm_secret_encrypted
