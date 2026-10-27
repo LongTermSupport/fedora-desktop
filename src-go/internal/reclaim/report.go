@@ -47,7 +47,7 @@ func (r *run) report(ctx context.Context) term.ExitCode {
 		p("Podman storage:")
 		storage, ok := r.podmanStorage(ctx)
 		complete = complete && ok
-		if ok {
+		if storage != "" {
 			p(strings.TrimRight(storage, "\n"))
 		} else {
 			p("  (podman storage unavailable)")
@@ -61,7 +61,7 @@ func (r *run) report(ctx context.Context) term.ExitCode {
 
 // podmanStorage is E7's `podman system df` output, read again under podman unshare when it was
 // refused permission (a volume's data owned by a container's uid), each failure named; false
-// when neither read.
+// when neither read, with E7a's partial section when that too was refused permission.
 func (r *run) podmanStorage(ctx context.Context) (string, bool) {
 	cmd := podmanEngine.df
 	res, err := r.env.Runner.Run(ctx, cmd)
@@ -73,6 +73,9 @@ func (r *run) podmanStorage(ctx context.Context) (string, bool) {
 	}
 	if err != nil {
 		r.failf("%s: %v", cmd.Line(), err)
+		if refusedPermission(err.Error()) {
+			return r.podmanPartialReport(ctx, err.Error()), false
+		}
 		return "", false
 	}
 	return string(res.Stdout), true
