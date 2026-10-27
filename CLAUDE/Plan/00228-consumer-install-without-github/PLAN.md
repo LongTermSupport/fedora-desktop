@@ -1,6 +1,6 @@
 # Plan 00228: consumer install without GitHub
 
-**Status**: In Progress (Phases 1-4 built; the final review's fixes await their VM re-run)
+**Status**: In Progress (Phases 1-5 done and VM-accepted; Phase 6 is later work, and Task 6.5 waits on the owner's decision)
 **Created**: 2026-10-26
 **Owner**: joseph
 **Priority**: Medium
@@ -298,14 +298,15 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
 
 - [x] ✅ **Task 5.1**: `./scripts/qa-all.bash` passes (at acfcb6814, the tree the VM run
   accepted).
-- [ ] 🔄 **Task 5.2**: `qa-reviewer` over the full plan diff; every BLOCK and
+- [x] ✅ **Task 5.2**: `qa-reviewer` over the full plan diff; every BLOCK and
   FIX-BEFORE-MERGE finding resolved. Final review:
   [subagent-reports/261027-final-qa-review.md](subagent-reports/261027-final-qa-review.md)
   (FIX-BEFORE-MERGE, no BLOCK). Fixed: the docs (the password asked once; ccc and podman
   are on a consumer box), the server profile refused (Task 2.8), the Podman claim here and
   in the guest checker (whose podman check now also sees a pip `--user` podman-compose), the
   empty vault file (Task 2.9), Task 6.5's safe part. The VM scenarios are re-run for the
-  changed installer preflight and checker (Task 3.2's queue entry).
+  changed installer preflight and checker (Task 3.2's queue entry). Re-run at 04ed5ad39:
+  COVERAGE 3 of 3, ACCEPTED (consumer 17 of 17, fresh 16 of 16, server 13 of 13).
 
 ## Technical Decisions
 
