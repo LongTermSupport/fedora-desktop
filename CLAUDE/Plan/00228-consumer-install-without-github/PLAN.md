@@ -167,10 +167,18 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
 
 ### Phase 3: VM lab acceptance
 
-- [ ] ⬜ **Task 3.1**: Add a `desktop-consumer-install` scenario to
+- [x] ✅ **Task 3.1** (built and tested here; its host run is Task 3.2's): Add a `desktop-consumer-install` scenario to
   `vars/vm-test-scenarios.yml` on the `desktop` base, driving an attended
   `./run.bash --consumer` (the consumer path refuses headless, so the lab needs a pty
-  driver for it), plus its guest checker `files/home/.local/share/vmtest/guest-acceptance-desktop-consumer.bash`.
+  driver for it), plus its guest checker. As built: the manifest key `audience: consumer`
+  (Python validator and the `vmtest` marker, closed list, desktop only, no `run_env` or
+  `host_only`); vmtest had no pty driver, so `src-go/internal/vmtest/attend.go` drives
+  `ssh -tt` and answers a prompt only when it appears (a password or GitHub credential
+  prompt ends the run as a fail); `consumer.go` waits for the session, pins an HTTPS clone
+  at the run's commit, runs `~/run.bash --consumer` and then the re-run (output kept in
+  `/var/lib/vmtest/rerun.log`). The checker is named for the scenario,
+  `guest-acceptance-desktop-consumer-install.bash` (17 checks), because `vmtest` finds a
+  scenario's own checker by its id. Host run pending.
   - Acceptance: the checker asserts no `~/.ssh/id`, no `gh` auth state, origin is HTTPS,
     no `NOPASSWD` block, the consumer apps present, Go present (the installer's own build
     toolchain, so it is expected), the developer tools (Node, Claude Code, ccy, VS Code,

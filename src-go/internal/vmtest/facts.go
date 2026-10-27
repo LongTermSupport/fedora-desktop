@@ -23,7 +23,19 @@ type scenarioFacts struct {
 	ID, BaseKey, BaseName, Profile, Planned, MaxSkipped string
 	Runnable, HostOnly, Reboot                          bool
 	RunEnv                                              []envPair
+	// Audience is the install run.bash makes: audienceDeveloper (headless) or
+	// audienceConsumer (./run.bash --consumer, driven attended at a terminal; Plan 00228).
+	Audience string
 }
+
+const (
+	audienceDeveloper = "developer"
+	audienceConsumer  = "consumer"
+)
+
+// Consumer reports whether the scenario is a consumer install, which run.bash refuses to make
+// headless.
+func (s scenarioFacts) Consumer() bool { return s.Audience == audienceConsumer }
 
 var runEnvRE = regexp.MustCompile(`^(RUN_BASH_[A-Z_]+)=([A-Za-z0-9._,:/=-]+)$`)
 
@@ -98,14 +110,19 @@ func flag(field, value string) (bool, error) {
 func parseScenarioMarker(out string) (scenarioFacts, error) {
 	f, err := markerFields(out, "VMTEST-SCENARIO", []string{
 		"id", "base", "base_name", fieldProfile, "planned",
-		"max_skipped", "runnable", "host_only", "reboot_before_checks", "run_env",
+		"max_skipped", "runnable", "host_only", "reboot_before_checks", "run_env", "audience",
 	})
 	if err != nil {
 		return scenarioFacts{}, err
 	}
 	s := scenarioFacts{
 		ID: f["id"], BaseKey: f["base"], BaseName: f["base_name"], Profile: f[fieldProfile],
-		Planned: f["planned"], MaxSkipped: f["max_skipped"],
+		Planned: f["planned"], MaxSkipped: f["max_skipped"], Audience: f["audience"],
+	}
+	// Defaulting either way would decide how run.bash is driven, so a value this CLI does not
+	// know is the validator and the CLI disagreeing (E10).
+	if s.Audience != audienceDeveloper && s.Audience != audienceConsumer {
+		return scenarioFacts{}, failf("validator reported audience='%s', which is neither %s nor %s", s.Audience, audienceDeveloper, audienceConsumer)
 	}
 	if slices.Contains([]string{s.ID, s.BaseKey, s.BaseName, s.Profile, s.Planned, s.MaxSkipped, f["run_env"]}, "") {
 		return scenarioFacts{}, failf("validator marker has an empty field: %s", strings.TrimSpace(out))

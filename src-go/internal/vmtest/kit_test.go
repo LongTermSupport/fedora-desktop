@@ -39,6 +39,8 @@ type kit struct {
 	// served is the fake web server: URL to the body curl gets; a missing URL fails.
 	served map[string]string
 	gw     *guestWorld // the fake guest, when a test installs one
+	// faultAt, when positive, makes the faultAt'th command the CLI runs exit 1 (fault_test.go).
+	faultAt int
 }
 
 // stubBuild replaces build-base with a recorder, for the commands that call it.
@@ -130,10 +132,10 @@ func (k *kit) base(key, name, kind, profile, tree string) {
 func (k *kit) scenario(id string, fields map[string]string) {
 	f := map[string]string{
 		"id": id, "base": "server-fast", "base_name": "server-fast-44", "profile": "server", "planned": "5",
-		"max_skipped": "0", "runnable": "true", "host_only": "false", "reboot_before_checks": "false", "run_env": "-",
+		"max_skipped": "0", "runnable": "true", "host_only": "false", "reboot_before_checks": "false", "run_env": "-", "audience": "developer",
 	}
 	maps.Copy(f, fields)
-	order := []string{"id", "base", "base_name", "profile", "planned", "max_skipped", "runnable", "host_only", "reboot_before_checks", "run_env"}
+	order := []string{"id", "base", "base_name", "profile", "planned", "max_skipped", "runnable", "host_only", "reboot_before_checks", "run_env", "audience"}
 	parts := make([]string, 0, len(order))
 	for _, key := range order {
 		parts = append(parts, key+"="+f[key])
@@ -207,7 +209,7 @@ func argAfter(args []string, flag string) string {
 
 func (k *kit) environment() Env {
 	return Env{
-		Runner: k.fake,
+		Runner: k.runner(),
 		Stdin:  strings.NewReader(k.stdin),
 		Stdout: &k.out,
 		Stderr: &k.err,

@@ -33,7 +33,7 @@ func TestE9BaseMarker(t *testing.T) {
 	}
 }
 
-const goodScenario = "VMTEST-SCENARIO id=s base=server-fast base_name=server-fast-44 profile=server planned=5 max_skipped=0 runnable=true host_only=false reboot_before_checks=true run_env=RUN_BASH_PLAY=x.yml,RUN_BASH_PROFILE=odd\n"
+const goodScenario = "VMTEST-SCENARIO id=s base=server-fast base_name=server-fast-44 profile=server planned=5 max_skipped=0 runnable=true host_only=false reboot_before_checks=true run_env=RUN_BASH_PLAY=x.yml,RUN_BASH_PROFILE=odd audience=developer\n"
 
 // E10, E11: the scenario marker; the booleans are exactly true or false, run_env is checked.
 func TestE10ScenarioMarker(t *testing.T) {
@@ -50,6 +50,13 @@ func TestE10ScenarioMarker(t *testing.T) {
 	if err != nil || len(none.RunEnv) != 0 {
 		t.Fatalf("got %+v %v", none, err)
 	}
+	if s.Consumer() {
+		t.Fatal("a developer scenario reads as a consumer install")
+	}
+	consumer, err := parseScenarioMarker(strings.Replace(good, "audience=developer", "audience=consumer", 1))
+	if err != nil || !consumer.Consumer() {
+		t.Fatalf("got %+v %v", consumer, err)
+	}
 }
 
 // E10, E11: a spoiled scenario marker is refused, and the refusal names the field.
@@ -63,6 +70,9 @@ func TestE10ScenarioMarkerRefusals(t *testing.T) {
 		{"RUN_BASH_PROFILE=odd", "PATH=/tmp"},
 		{"RUN_BASH_PROFILE=odd", "RUN_BASH_PROFILE=a'b"},
 		{"RUN_BASH_PROFILE=odd", "RUN_BASH_PROFILE="},
+		{"audience=developer", "audience=Consumer"},
+		{"audience=developer", "audience="},
+		{" audience=developer", ""},
 	} {
 		if _, err := parseScenarioMarker(strings.Replace(good, spoil[0], spoil[1], 1)); err == nil {
 			t.Errorf("%s accepted", spoil[1])
@@ -70,6 +80,10 @@ func TestE10ScenarioMarkerRefusals(t *testing.T) {
 	}
 	_, err := parseScenarioMarker(strings.Replace(good, "host_only=false", "host_only=maybe", 1))
 	if err == nil || !strings.Contains(err.Error(), "validator reported host_only='maybe', which is neither true nor false") {
+		t.Fatalf("got %v", err)
+	}
+	_, err = parseScenarioMarker(strings.Replace(good, "audience=developer", "audience=everyone", 1))
+	if err == nil || !strings.Contains(err.Error(), "validator reported audience='everyone', which is neither developer nor consumer") {
 		t.Fatalf("got %v", err)
 	}
 	_, err = parseScenarioMarker(strings.Replace(good, "RUN_BASH_PROFILE=odd", "PATH=/tmp", 1))

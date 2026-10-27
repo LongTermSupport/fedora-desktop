@@ -333,6 +333,66 @@ class TestRebootBeforeChecks(unittest.TestCase):
         self.assertIn("server-fast-provision", scenarios.allowlist(manifest))
 
 
+class TestAudience(unittest.TestCase):
+    """`audience` (Plan 00228): which install run.bash makes, and so how the harness drives it."""
+
+    @staticmethod
+    def _consumer(**overrides):
+        document = copy.deepcopy(MANIFEST)
+        document["vm_test_scenarios"]["desktop-consumer-install"] = {
+            "base": "desktop",
+            "description": "an attended ./run.bash --consumer",
+            "planned": 10,
+            "max_skipped": 0,
+            "reboot_before_checks": True,
+            "audience": "consumer",
+            **overrides,
+        }
+        return document
+
+    def test_it_defaults_to_developer(self):
+        # Every scenario written before the key existed provisions the developer install.
+        for scenario in _parse().scenarios.values():
+            with self.subTest(scenario=scenario.id):
+                self.assertEqual(scenario.audience, "developer")
+
+    def test_a_desktop_scenario_may_be_a_consumer_install(self):
+        scenario = _parse(self._consumer()).scenarios["desktop-consumer-install"]
+        self.assertEqual(scenario.audience, "consumer")
+        self.assertIn("desktop-consumer-install", scenarios.allowlist(_parse(self._consumer())))
+
+    def test_developer_may_be_written_out(self):
+        scenario = _parse(self._consumer(audience="developer")).scenarios["desktop-consumer-install"]
+        self.assertEqual(scenario.audience, "developer")
+
+    def test_it_is_a_closed_list(self):
+        for value in ("Consumer", "everyone", "", None, True, 1):
+            with self.subTest(value=value):
+                with self.assertRaises(scenarios.ManifestError) as caught:
+                    _parse(self._consumer(audience=value))
+                self.assertIn("audience", str(caught.exception))
+                self.assertIn("desktop-consumer-install", str(caught.exception))
+
+    def test_a_consumer_install_needs_a_desktop_base(self):
+        # run.bash refuses a consumer install on a server profile, so such a scenario
+        # could only ever fail, and would look like the product failing.
+        with self.assertRaises(scenarios.ManifestError) as caught:
+            _parse(self._consumer(base="server-fast", reboot_before_checks=False))
+        self.assertIn("desktop", str(caught.exception))
+
+    def test_a_consumer_install_takes_no_run_env_and_no_credential(self):
+        # The consumer path reads no RUN_BASH_* knob and has no GitHub identity: a knob or
+        # a credential there would be silently ignored, and the run would seem to prove it.
+        for overrides, word in (
+            ({"run_env": {"RUN_BASH_REBOOT": "0"}}, "run_env"),
+            ({"host_only": True}, "host_only"),
+        ):
+            with self.subTest(word=word):
+                with self.assertRaises(scenarios.ManifestError) as caught:
+                    _parse(self._consumer(**overrides))
+                self.assertIn(word, str(caught.exception))
+
+
 class TestManifestRejections(unittest.TestCase):
     """Every malformed manifest raises ManifestError naming the offending entry."""
 
