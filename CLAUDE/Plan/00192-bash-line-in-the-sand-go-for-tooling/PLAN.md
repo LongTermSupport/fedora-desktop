@@ -6,8 +6,8 @@ remaining ports of Task 3.3 (the `ccy` launcher's phases 3 to 5 are deferred by 
 D4/D10), and Tasks 4.1 and 4.2 over the finished plan. Left for the host agent: the host checks
 of the merged ports still open (freeze step 2's remainder and step 3, vmtest H2's bridge half,
 H3 and H6, ftp-camera H1, H2 and H5, wsi H2, open H2, H3 and H5, rclone-tail H4,
-gh-account-setup H1 and H3 to H5), and Task 3.2's root run, which
-needs sudo at the run. Left for the owner: only what needs the owner in person, namely
+gh-account-setup H1 and H3 to H5); Task 3.2's root run is on hold
+until Plan 00209 Task 2.5 (see the task). Left for the owner: only what needs the owner in person, namely
 gh-account-setup H2 (a real GitHub device login), ftp-camera H3 and H4 (the physical camera)
 and wsi H1 (speaking into the microphone).
 **Created**: 2026-10-14
@@ -106,12 +106,30 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   timestamp lapses. Step 3 NOT ESTABLISHED 26-10-26: the freeze plays did not run (Task 3.6) and
   `acceptance.bash` failed on its old baseline (Task 3.4); a later run rebuilt both, failed=0.
 
-- [ ] 🔄 **Task 3.2**: `agent-bus-install` on `go-port/agent-bus-install`: spec
+- [ ] ⏸️ **Task 3.2**: `agent-bus-install` on `go-port/agent-bus-install`: spec
   `SPEC-agent-bus-install.md` on the branch; built, reviewed and its review fixed, not merged.
-  It runs as root and changes behaviour (its D7), so it merges only after a host test as root
-  (the branch's `ACCEPTANCE-agent-bus-install.md`): the host agent runs it through meta-deploy
-  on a throwaway team, with sudo given at the run. Before spending that run, the coordinator
-  checks whether Plan 00209 (agent-bus v2 in Go) has made this port moot.
+  It runs as root and changes behaviour (its D7), so it would merge only after a host test as
+  root (the branch's `ACCEPTANCE-agent-bus-install.md`). **On hold, no host run** (checked
+  27-10-27 against Plan 00209, report `subagent-reports/261027-task-3-4-3-2.md`):
+
+  - v2 does not port this installer, it replaces it: `teamchat-admin` (00209 Tasks 2.1-2.3) is
+    v2's own root installer, designed from requirements, citing this spec's bug list as `I-B<n>`
+    (DESIGN-v2-C), so the spec's value is already carried. v1, and this installer with it, runs
+    beside v2 until every team has migrated (Phase 6, owner-paced); retiring v1 is a later plan
+    (Task 6.3). No task of 00209's Phases 1 to 6 is started yet.
+  - The branch is stale: last touched 26-10-14; `git merge-tree` with F44 gives 22 conflicts,
+    the bash installer itself among them (modify/delete). F44 changed the bash installer in 7
+    commits (78 lines: the stamps group, health, backup timer state, the Go status line) and its
+    suite by 115 lines since; none of that is in the port, so a host test now would test an
+    installer that no longer matches v1.
+  - It changes the installer every running v1 team depends on (D7) while 00209's migration
+    calls v1's verbs as they are (`backup-now`, `remove`), and the bash file is held by the
+    ratchet, so leaving it in bash costs nothing until it must grow.
+  - **Decision: park, do not drop.** Re-decide when 00209 Task 2.5 passes (`teamchat-admin`
+    accepted on the host): drop the port then if v2 stands. Revive it earlier only if the v1
+    installer needs a change the ratchet refuses, or 00209 is stopped. Reviving means merging
+    F44 into the branch, porting those 7 commits test first, a review, then the host run. The
+    branch stays, unmerged.
 
 - [ ] 🔄 **Task 3.3**: The rest of the inventory's programmes, ranked there; the `ccy`
   launcher's port is Plan 00191's (D1-D10 defaulted there, phases 0 to 2 built, 3 to 5
