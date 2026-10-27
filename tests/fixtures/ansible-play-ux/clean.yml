@@ -212,3 +212,53 @@
             msg: github_accounts is not set; re-run run.bash, which asks for it
         - name: End play
           ansible.builtin.meta: end_play
+
+# The shared asker supplies the secret its vars name, and is no change; a flag read through
+# its default is its value, not a presence check.
+- hosts: localhost
+  tasks:
+    - name: Install
+      ansible.builtin.dnf:
+        name: vsftpd
+        state: present
+
+    - name: An opt-in flag read through its default after a change
+      ansible.builtin.fail:
+        msg: the restore unit does not match the opt-in
+      when: (restore_sessions | default(false) | bool) and probe_result.rc != 0
+
+- hosts: localhost
+  tasks:
+    - name: Ask for the FTP password, empty skips the play this run
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ask-and-save-secret.yml"
+      vars:
+        secret_name: ftp_password
+        secret_label: Camera FTP password
+        secret_explain: The password the camera logs in with.
+        secret_optional: true
+      when: ftp_password is not defined
+
+    - name: Skip this run when none was given
+      when: ftp_password is not defined
+      block:
+        - name: Say so
+          ansible.builtin.debug:
+            msg: Camera FTP skipped this run; no password was given. The next run asks again.
+        - name: End play
+          ansible.builtin.meta: end_play
+
+# A no_log task in a block whose rescue explains the failure readably.
+- hosts: localhost
+  tasks:
+    - name: Write a secret file
+      block:
+        - name: Write it
+          ansible.builtin.copy:
+            content: "{{ secret }}"
+            dest: /tmp/s
+            mode: "0600"
+          no_log: true
+      rescue:
+        - name: Stop because it could not be written
+          ansible.builtin.fail:
+            msg: "It could not be written: {{ ansible_failed_result.msg | default('no reason given') }}"

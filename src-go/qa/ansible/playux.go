@@ -19,12 +19,14 @@ import (
 //   - setting-checked-late: a play checks a setting the install supplies (a host_vars variable
 //     or a vault secret) only after it has changed the system, so a missing value stops the run
 //     half done. A setting is a variable whose definedness an assert's `that` or a fail's `when`
-//     tests (`is defined`, `is not defined`, `is undefined`, `| default(`), or a block that
+//     tests (`is defined`, `is not defined`, `is undefined`, `| default(...) | length`; a flag
+//     read through `| default(false) | bool` is its value, not a presence check), or a block that
 //     ends the play tests in its when (a skip), that the repository's
 //     own vars (vars/, environment/**/group_vars/), the play's vars, a task's vars, a loop or
 //     an earlier task (register, set_fact, vars_prompt) do not supply. A change is any task but
 //     the read-only modules, a command with changed_when false, and a check_mode run; an include
-//     is taken as a change, because what it runs is not read here.
+//     is taken as a change, because what it runs is not read here, except the shared asker
+//     tasks/ask-and-save-secret.yml, which supplies the secret its vars name (secret_name).
 //   - vault-secret-by-hand: an assert, fail or skip on a secret (a setting named like a password,
 //     key, token, secret, psk, passphrase or webhook) whose message sends the human to
 //     ansible-vault, vault.bash or a vault-encrypted hand edit, where the play could ask for it
@@ -35,7 +37,8 @@ import (
 //     password file, inventory and roles path it names are relative to that.
 //   - no-log-hides-failure: a task under no_log that can fail on the machine (any module but
 //     set_fact, pause, debug and meta) and is not a probe: failed_when false, registered, and
-//     read by a later fail or assert that is not itself under no_log. Ansible replaces a no_log
+//     read by a later fail or assert that is not itself under no_log, nor in a block whose
+//     rescue has a fail or assert not under no_log. Ansible replaces a no_log
 //     task's whole result, its error included, with "the output has been hidden".
 //   - probe-before-install: a probe (a command with failed_when false) of a program that a later
 //     package task of the same play installs: on a machine without it the probe cannot run, and
@@ -43,22 +46,24 @@ import (
 
 // Task and play keys and module names the rules read.
 const (
-	keyVars        = "vars"
-	keyEnvironment = "environment"
-	keyBlock       = "block"
-	keyRescue      = "rescue"
-	keyAlways      = "always"
-	keyPreTasks    = "pre_tasks"
-	keyPostTasks   = "post_tasks"
-	keyHandlers    = "handlers"
-	modAssert      = "assert"
-	modFail        = "fail"
-	modSetFact     = "set_fact"
-	modDebug       = "debug"
-	modCommand     = "command"
-	modShell       = "shell"
-	modRaw         = "raw"
-	modMeta        = "meta"
+	keyVars         = "vars"
+	keyEnvironment  = "environment"
+	keyBlock        = "block"
+	keyRescue       = "rescue"
+	keyAlways       = "always"
+	keyPreTasks     = "pre_tasks"
+	keyPostTasks    = "post_tasks"
+	keyHandlers     = "handlers"
+	modAssert       = "assert"
+	modFail         = "fail"
+	modSetFact      = "set_fact"
+	modDebug        = "debug"
+	modCommand      = "command"
+	modShell        = "shell"
+	modRaw          = "raw"
+	modMeta         = "meta"
+	modIncludeTasks = "include_tasks"
+	modImportTasks  = "import_tasks"
 	// modEndPlayBlock is a block that ends the play: a skip, judged as a check of its when.
 	modEndPlayBlock = "block ending the play"
 )
@@ -78,6 +83,8 @@ type uxTask struct {
 	module    string
 	moduleKey *yaml.Node
 	noLog     bool
+	// rescued is whether the task is in a block whose rescue explains a failure readably.
+	rescued bool
 }
 
 // taskKeywords are the keys of a task that are not its module.
@@ -145,6 +152,12 @@ func isFalse(v *yaml.Node) bool {
 
 // flatten lists the tasks of a task list in run order, blocks opened (block, rescue, always).
 func flatten(list *yaml.Node, noLog bool, out *[]uxTask) {
+	flattenIn(list, noLog, false, out)
+}
+
+// flattenIn is flatten inside blocks: rescued is whether an enclosing block's rescue explains
+// a failure of its tasks.
+func flattenIn(list *yaml.Node, noLog, rescued bool, out *[]uxTask) {
 	if list == nil || list.Kind != yaml.SequenceNode {
 		return
 	}
@@ -157,12 +170,12 @@ func flatten(list *yaml.Node, noLog bool, out *[]uxTask) {
 			if endsPlay(block) {
 				*out = append(*out, uxTask{node: task, module: modEndPlayBlock, moduleKey: blockKey(task)})
 			}
-			for _, key := range []string{keyBlock, keyRescue, keyAlways} {
-				flatten(mappingValue(task, key), nl, out)
-			}
+			flattenIn(block, nl, rescued || readableRescue(mappingValue(task, keyRescue), nl), out)
+			flattenIn(mappingValue(task, keyRescue), nl, rescued, out)
+			flattenIn(mappingValue(task, keyAlways), nl, rescued, out)
 			continue
 		}
-		t := uxTask{node: task, noLog: nl}
+		t := uxTask{node: task, noLog: nl, rescued: rescued}
 		if key := moduleOf(task); key != nil {
 			t.module, t.moduleKey = shortName(key.Value), key
 		} else {
@@ -170,6 +183,26 @@ func flatten(list *yaml.Node, noLog bool, out *[]uxTask) {
 		}
 		*out = append(*out, t)
 	}
+}
+
+// readableRescue is whether a rescue list holds a fail or assert not under no_log: what it
+// prints (ansible_failed_result's msg) is not hidden.
+func readableRescue(rescue *yaml.Node, noLog bool) bool {
+	if rescue == nil || rescue.Kind != yaml.SequenceNode {
+		return false
+	}
+	for _, task := range rescue.Content {
+		if task.Kind != yaml.MappingNode {
+			continue
+		}
+		if key := moduleOf(task); key != nil {
+			module := shortName(key.Value)
+			if (module == modFail || module == modAssert) && !noLogOf(task, noLog) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // endsPlay is whether a block's own tasks end the play or host: a skip.
@@ -265,7 +298,7 @@ func (t uxTask) conditionText() string {
 
 // definednessTest is a variable whose definedness is tested, the base name the first group.
 var definednessTest = regexp.MustCompile(`(?:^|[^\w.'"\]])([A-Za-z_][A-Za-z0-9_]*)(?:\.[A-Za-z_][A-Za-z0-9_]*|\[[^\]]*\])*` +
-	`(?:\s+is\s+(?:not\s+)?(?:defined|undefined)\b|\s*\|\s*default\b)`)
+	`(?:\s+is\s+(?:not\s+)?(?:defined|undefined)\b|\s*\|\s*default\([^)]*\)\s*\|\s*length\b)`)
 
 // magicVars are names Ansible supplies, which are no setting.
 var magicVars = map[string]bool{
@@ -298,6 +331,13 @@ func producedBy(task *yaml.Node, module string, add func(string)) {
 			add(lv)
 		}
 	}
+	if module == modIncludeTasks || module == modImportTasks {
+		if vars := mappingValue(task, keyVars); vars != nil && vars.Kind == yaml.MappingNode {
+			if name := scalarValue(vars, "secret_name"); name != "" {
+				add(name)
+			}
+		}
+	}
 	if module == modSetFact {
 		if args := mappingValue(task, moduleOf(task).Value); args != nil && args.Kind == yaml.MappingNode {
 			for i := 0; i < len(args.Content); i += 2 {
@@ -325,9 +365,26 @@ var readOnlyModules = map[string]bool{
 	modEndPlayBlock: true,
 }
 
+// askerFile is the shared task file that asks for a secret and saves it to the checkout's
+// localhost.yml: it changes no part of the machine a play installs.
+const askerFile = "/ask-and-save-secret.yml"
+
+// asksForSecret is whether a task includes the shared asker.
+func asksForSecret(t uxTask) bool {
+	if t.module != modIncludeTasks && t.module != modImportTasks {
+		return false
+	}
+	v := t.moduleValue()
+	file := nodeText(v)
+	if v != nil && v.Kind == yaml.MappingNode {
+		file = scalarValue(v, "file")
+	}
+	return strings.HasSuffix(strings.TrimSpace(file), askerFile)
+}
+
 // changes is whether a task changes the machine.
 func changes(t uxTask) bool {
-	if readOnlyModules[t.module] {
+	if readOnlyModules[t.module] || asksForSecret(t) {
 		return false
 	}
 	if on, plain := boolOf(mappingValue(t.node, "check_mode")); plain && on {
@@ -406,6 +463,29 @@ func judgeByHand(rel string, t uxTask, settings []string) string {
 	return ""
 }
 
+// templatedName is a variable a template puts in, the name the first group.
+var templatedName = regexp.MustCompile(`\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:\||\}\})`)
+
+// judgePlainSave applies vault-secret-by-hand's second shape: a blockinfile or lineinfile that
+// writes a secret into the install's host_vars as plain text, to be vaulted by hand later.
+func judgePlainSave(rel string, t uxTask) string {
+	if t.module != "blockinfile" && t.module != "lineinfile" {
+		return ""
+	}
+	args := t.moduleValue()
+	if args == nil || args.Kind != yaml.MappingNode || !strings.Contains(scalarValue(args, "path"), "host_vars/") {
+		return ""
+	}
+	text := scalarValue(args, "block") + "\n" + scalarValue(args, "line")
+	for _, m := range templatedName.FindAllStringSubmatch(text, -1) {
+		if secretName.MatchString(m[1]) {
+			return rel + ":" + t.line() + ": " + ruleVaultByHand + ": the secret " + m[1] + " is saved to host_vars as " +
+				"plain text, to be vault-encrypted by hand; ask for it and save it with tasks/ask-and-save-secret.yml"
+		}
+	}
+	return ""
+}
+
 // ansibleCLI is an Ansible command-line tool run as a command: at the start of the text or
 // after a shell operator, behind any sudo, exec, env or assignments, by name or path.
 var ansibleCLI = regexp.MustCompile(`(?m)(?:^|[;&|(\x60]|\$\()\s*(?:(?:sudo|exec|env|command|nice|time)\s+(?:-\S+\s+)*)*` +
@@ -452,7 +532,7 @@ var noFailModules = map[string]bool{modSetFact: true, "pause": true, modDebug: t
 func judgeNoLog(rel string, tasks []uxTask) []string {
 	var findings []string
 	for i, t := range tasks {
-		if !t.noLog || noFailModules[t.module] || t.module == "" {
+		if !t.noLog || t.rescued || noFailModules[t.module] || t.module == "" {
 			continue
 		}
 		if readByLaterCheck(t, tasks[i+1:]) {
@@ -575,6 +655,9 @@ func judgeTasks(rel string, ordered, handlers []uxTask, isPlay bool, known, repo
 	findings := judgeSettingChecks(rel, ordered, isPlay, known, repoVars)
 	for _, t := range all {
 		if f := judgeCLIChdir(rel, t); f != "" {
+			findings = append(findings, f)
+		}
+		if f := judgePlainSave(rel, t); f != "" {
 			findings = append(findings, f)
 		}
 	}

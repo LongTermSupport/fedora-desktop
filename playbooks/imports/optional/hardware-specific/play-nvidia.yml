@@ -31,90 +31,11 @@
   tasks:
     # Secure Boot needs a MOK password before anything is installed: the signed driver
     # cannot load until its key is enrolled with it at the next boot. Asked here, first,
-    # when Secure Boot is on and no mok_password is set, then vault-encrypted into
-    # localhost.yml, so a missing password never fails the play halfway through.
-    - name: Install mokutil for the Secure Boot check
-      ansible.builtin.dnf:
-        name: mokutil
-        state: present
-
-    - name: Check if Secure Boot is enabled
-      ansible.builtin.command:
-        argv: [mokutil, --sb-state]
-      register: secure_boot_state
-      changed_when: false
-      failed_when: false  # FAIL-FAST-OK: probe — firmware without EFI variables has no Secure Boot to report
-
-    - name: Ask for a MOK password and save it (one-time setup)
-      when:
-        - "'SecureBoot enabled' in secure_boot_state.stdout"
-        - mok_password is not defined
-      block:
-        - name: Explain the MOK password
-          ansible.builtin.debug:
-            msg: |2
-
-              ============================================
-              SECURE BOOT: CHOOSE A MOK PASSWORD
-              ============================================
-
-              Secure Boot is on, so the NVIDIA driver is signed with a key that has to be
-              enrolled once, at the next boot, on a blue "MOK management" screen. That
-              screen asks for the password you choose now (8 to 16 characters is
-              typical; it is typed once, on that screen, and not needed again).
-
-        - name: Prompt for the MOK password
-          ansible.builtin.pause:
-            prompt: "MOK password"
-            echo: false
-          register: mok_password_prompt
-
-        - name: Prompt for the MOK password again
-          ansible.builtin.pause:
-            prompt: "MOK password again"
-            echo: false
-          register: mok_password_again
-
-        - name: Fail if the MOK password is empty or the two differ
-          ansible.builtin.fail:
-            msg: >-
-              The MOK password was empty, or the two entries differed. Nothing was installed;
-              run this play again and type the same password twice.
-          when: >-
-            mok_password_prompt.user_input | length == 0
-            or mok_password_prompt.user_input != mok_password_again.user_input
-
-        # Passed on stdin, never templated into a shell line (see play-qobuz.yml).
-        - name: Vault-encrypt the MOK password
-          ansible.builtin.command:
-            argv:
-              - ansible-vault
-              - encrypt_string
-              - --stdin-name
-              - mok_password
-          args:
-            # ansible.cfg names the vault password file relative to the checkout.
-            chdir: "{{ root_dir }}"
-            stdin: "{{ mok_password_prompt.user_input }}"
-            stdin_add_newline: false
-          become: false
-          register: mok_password_encrypted
-          changed_when: false
-          no_log: true
-
-        - name: Save the vault-encrypted MOK password to localhost.yml
-          ansible.builtin.blockinfile:
-            path: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
-            marker: "# {mark} ANSIBLE MANAGED: mok_password"
-            block: "{{ mok_password_encrypted.stdout }}"
-            create: false
-          become: false
-          no_log: true
-
-        - name: Use the MOK password for this run
-          ansible.builtin.set_fact:
-            mok_password: "{{ mok_password_prompt.user_input }}"
-          no_log: true
+    # when Secure Boot is on and none is set, and saved vault-encrypted to localhost.yml.
+    - name: Secure Boot MOK password, asked for now if it is needed and missing
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/secure-boot-mok-password.yml"
+      vars:
+        mok_module: the NVIDIA driver
 
     - name: Enable RPM Fusion repositories
       ansible.builtin.dnf:
@@ -291,17 +212,6 @@
           - kernel-headers
         state: present
 
-    - name: Validate a MOK password is set
-      ansible.builtin.assert:
-        that:
-          - mok_password is defined
-          - mok_password | length > 0
-        fail_msg: >-
-          Secure Boot is on but no MOK password is set; the first task of this play asks
-          for one when it is missing, so this means that step was skipped. Run the play
-          again from the start.
-      when: "'SecureBoot enabled' in secure_boot_state.stdout"
-
     - name: Generate akmods MOK signing key
       ansible.builtin.command: kmodgenca -a
       args:
@@ -358,6 +268,19 @@
         - akmods_mok_key.stat.exists
         - "'is not enrolled' in mok_enrolled.stdout | default('')"
       register: mok_import
+      failed_when: false  # FAIL-FAST-OK: probe under no_log (the password is in the script); the fail below gives the reason
+
+    # Not the output: the expect session's transcript may hold the password.
+    - name: Stop if the MOK key could not be queued for enrolment
+      ansible.builtin.fail:
+        msg: >-
+          mokutil could not queue the driver's signing key for enrolment at the next boot
+          (exit {{ mok_import.rc | default('none') }}). Check that mokutil and expect are
+          installed, then run this play again. Until the key is enrolled, the signed NVIDIA
+          driver cannot load while Secure Boot is on.
+      when:
+        - mok_import is not skipped
+        - mok_import.rc | default(1) != 0
 
     - name: Display MOK enrollment password
       ansible.builtin.debug:

@@ -62,7 +62,7 @@ plan's `SPEC-qa-all.md` section 10 pinned in `testdata/deviations.json`), and th
 | `qa-python.bash`         | Go (`src-go/qa/python`, spec `SPEC-qa-python.md`): one `python3 -I` compile of every file (nothing written into the tree) + ruff (`--no-cache`; exit ≥ 2 = hard fail; no `--fix` mutation). Scope is what git would publish. Exits 2 if discovery finds **0 files**, if ruff does not list **every** file it was given (`ruff check --show-files`), or if `.qa-versions` has no single `RUFF=` pin. A ruff of another version than the pin **fails** the gate (exit 1) without linting. A `.j2` with a Python shebang is **rendered then compiled** — `{{ … }}` → `None`; a `{% … %}` statement is a hard failure, never a skip                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Repo-owned Python files — discovered by extension **or shebang, regardless of file mode**; plus Python `.j2` templates, syntax-checked but not linted                                                           |
 | `qa-patterns.bash`       | Semgrep rules from `.semgrep/bash-conventions.yml` (`\|\| echo` and other error-hiding patterns), applied by the Go tool `src-go/qa/patterns` (script is a build-and-run wrapper; spec `SPEC-qa-patterns.md`). Scans only what git would publish, in a temp mirror so coverage does not depend on file mode, and exits 2 if any discovered file is absent from `.paths.scanned`, could not be parsed, or the rules fail their fixture self-test (Plan 00076)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Repo-owned bash                                                                                                                                                                                                 |
 | `qa-gh-scopes.bash`      | Semgrep rule `gh-scope-outside-ssot` (`.semgrep/gh-scopes.yml`, proven against `.semgrep/gh-scopes.fixture` every run): a GitHub OAuth scope named anywhere but its single source. The Go tool `src-go/qa/ghscopes` (script is a build-and-run wrapper; spec `SPEC-qa-gh-scopes.md`) hands semgrep every file git would publish by name and exits 2 if one it should have read is absent from `.paths.scanned` and `.paths.skipped`, if semgrep reports any error, or if nothing was scanned. See [gh-scope-outside-ssot](#gh-scope-outside-ssot)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Every tracked regular file, any language, minus the rule's excludes                                                                                                                                             |
-| `qa-ansible.bash`        | Fail-fast scan (`failed_when: false`/`ignore_errors`, bare or quoted in either style, without same-line `# FAIL-FAST-OK:`, case-insensitive; the tool is Go, `src-go/qa/ansible`), **self-default vars** (`x: "{{ x \| default(…) }}"` — the 2.19 recursive-loop footgun `--syntax-check` can't see), **deprecated fact vars** (both `ansible_<fact>` and the un-prefixed injected names like `getent_passwd`, which no `ansible_`-anchored pattern can reach), **a guessed uid in a `/run/user/{{ … }}` path**, **[regex-backref-escape](#regex-backref-escape)** (a `regex_search`/`regex_replace`/`regex_findall` backreference with the wrong backslash count for its YAML scalar style and Jinja context; each file is parsed as YAML, and the rule is proven against `tests/fixtures/ansible-regex-backref/`), **[root-umask](#root-umask)** (a file users read, created as root under the inherited umask: a system cache such as `fc-cache` rebuilt, or a download, redirect, clone or extraction into `/usr`, `/opt` or `/etc`, with no `umask 022` or readable mode; proven against `tests/fixtures/ansible-root-umask/`), **plus** playbook shebang + exec-bit hygiene                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | `playbooks/ tasks/ vars/ environment/ roles/` (excludes `roles/vendor`), `*.yml`/`*.yaml`, only files git would publish (gitignored files are never read); a symlink to a directory or a dangling one is exit 2 |
+| `qa-ansible.bash`        | Fail-fast scan (`failed_when: false`/`ignore_errors`, bare or quoted in either style, without same-line `# FAIL-FAST-OK:`, case-insensitive; the tool is Go, `src-go/qa/ansible`), **self-default vars** (`x: "{{ x \| default(…) }}"` — the 2.19 recursive-loop footgun `--syntax-check` can't see), **deprecated fact vars** (both `ansible_<fact>` and the un-prefixed injected names like `getent_passwd`, which no `ansible_`-anchored pattern can reach), **a guessed uid in a `/run/user/{{ … }}` path**, **[regex-backref-escape](#regex-backref-escape)** (a `regex_search`/`regex_replace`/`regex_findall` backreference with the wrong backslash count for its YAML scalar style and Jinja context; each file is parsed as YAML, and the rule is proven against `tests/fixtures/ansible-regex-backref/`), **[root-umask](#root-umask)** (a file users read, created as root under the inherited umask: a system cache such as `fc-cache` rebuilt, or a download, redirect, clone or extraction into `/usr`, `/opt` or `/etc`, with no `umask 022` or readable mode; proven against `tests/fixtures/ansible-root-umask/`), the play-UX rules **[setting-checked-late](#setting-checked-late)**, **[vault-secret-by-hand](#vault-secret-by-hand)**, **[ansible-cli-without-chdir](#ansible-cli-without-chdir)**, **[no-log-hides-failure](#no-log-hides-failure)** and **[probe-before-install](#probe-before-install)** (proven against `tests/fixtures/ansible-play-ux/`), **plus** playbook shebang + exec-bit hygiene                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | `playbooks/ tasks/ vars/ environment/ roles/` (excludes `roles/vendor`), `*.yml`/`*.yaml`, only files git would publish (gitignored files are never read); a symlink to a directory or a dangling one is exit 2 |
 | `qa-ansible-syntax.bash` | `ansible-playbook --syntax-check` on every playbook — a file with a top-level `- hosts:` **or `- import_playbook:`** (Plan 00081 F9/F14: deriving from `hosts:` alone dropped `playbook-main.yml`). Parse-only — safe in the CCY container. The tool is Go (`src-go/qa/ansiblesyntax`, spec `SPEC-qa-ansible-syntax.md`); it checks four playbooks at a time and reports in path order, and exits 2 up front when `ansible-playbook`, `ansible.cfg` or the vault password file the config names is missing. The pass line states the breakdown, so a coverage change is visible                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | **Repo-wide**, not a fixed path list; excludes vendor/upstream trees. Includes playbooks under `CLAUDE/Plan/**`                                                                                                 |
 | `qa-js.bash`             | Go (`src-go/qa/js`, spec `SPEC-qa-js.md`): `node --check` on every JavaScript file git would publish (`.js`, `.mjs`) + the project's ESLint 8 over those under `extensions/`, run as `--no-eslintrc --config extensions/.eslintrc.json --no-inline-config` so a nested config or an `eslint-disable` comment cannot weaken the rules, with the proof that ESLint read every file it was given (`qa-changed`'s per-file eslint runs the same way and is judged by the same code). `--no-inline-config` also makes `/* global X */` and `/* eslint-env */` comments inert: a global or environment a GJS file needs goes in `extensions/.eslintrc.json`. No `eslint-disable` exists in the tree, so there is no suppression allowlist                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Repo-owned `.js` (excludes vendor/node_modules) + `extensions/`                                                                                                                                                 |
 | `qa-docs.bash`           | Link targets exist; every `#anchor` matches a real heading; every play imported by `playbook-main.yml` is named in both `docs/playbooks.md` and `docs/architecture.md`; every `CLAUDE/*.md` has an index row; every gate in `scripts/qa-gates.tsv` has a row in these tables and every row is a gate that runs (Plan 00070; the Go port, Plan 00192, reads Markdown with a CommonMark parser, `playbook-main.yml` as YAML and the gate table with the loader `qa-all` uses)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Core docs only — `docs/`, everything under `CLAUDE/` (daemon-owned `CLAUDE/core/` included), `README.md`, `*/CLAUDE.md`, `.claude/rules/`. **Not** `CLAUDE/Plan/**`                                             |
@@ -1241,6 +1241,156 @@ cannot run it.
 
 A rebuild run as a user, for that user's own cache, is not reported; give the task
 `become_user` or `become: false`.
+
+### setting-checked-late
+
+**What it is.** In a play, an `assert` (its `that`) or a `fail` (its `when`), or a block that
+ends the play (its `when`: a skip), that tests whether a setting is there (`X is defined`,
+`is not defined`, `is undefined`, `X | default(...) | length`) after a task that has already
+changed the machine. A setting is a variable the install supplies in `host_vars`
+(`localhost.yml`): not one of the repository's own (`vars/`, the inventory's `group_vars/`),
+the play's `vars:` or `vars_prompt`, a task's or block's `vars:`, a loop variable, or a name an
+earlier task produced (`register`, `set_fact`, the shared asker's `secret_name`). A change is
+any task except the read-only modules (`assert`, `fail`, `debug`, `set_fact`, `stat`, `getent`,
+`find`, `slurp`, `pause`, `meta`, the fact modules, `wait_for`), a `command`/`shell`/`raw` with
+`changed_when: false`, a `uri` GET, a `check_mode: true` task and the shared asker; any other
+include counts as a change, because the rule does not read what it runs. A flag read through
+`| default(false) | bool` is its value, not a presence check, and is not reported. Run by
+`qa-ansible.bash`; proven against `tests/fixtures/ansible-play-ux/`.
+
+**Why it exists.** play-nvidia asserted the Secure Boot MOK password near its end, after it
+had installed RPM Fusion, the driver and its build tools. A laptop without the password got a
+half-done driver install and an assert telling the owner to edit the vault by hand.
+
+**How to fix a finding.** Move the check before the first change. If the play can ask for the
+value (a password, a key), ask for it there with `tasks/ask-and-save-secret.yml` instead
+([vault-secret-by-hand](#vault-secret-by-hand)). A probe the check depends on may come first:
+probes are not changes.
+
+### vault-secret-by-hand
+
+**What it is.** An `assert`, `fail` or skip (as in [setting-checked-late](#setting-checked-late))
+that tests a secret, a setting whose name says password, passphrase, secret, token, psk,
+`api_key`, `_key` or webhook, and whose message sends the person to make it by hand:
+`ansible-vault`, `vault.bash`, `encrypt_string` or "vault-encrypt". Also a `blockinfile` or
+`lineinfile` into `host_vars/` whose `block` or `line` puts in a secret as plain text, to be
+vault-encrypted by hand afterwards. Run by `qa-ansible.bash`; proven against
+`tests/fixtures/ansible-play-ux/`.
+
+**Why it exists.** A consumer install's owner cannot be expected to run `ansible-vault edit`
+because a play stopped. The play can ask instead, in plain words, and save the answer
+vault-encrypted, so the next run never asks (the owner: "check for config/vault, create on
+demand").
+
+**How to fix a finding.** Ask for it, before the play changes anything, with the shared task
+file, and drop the hand-edit message:
+
+```yaml
+- name: Ask for the MOK password when it is missing
+  ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ask-and-save-secret.yml"
+  vars:
+    secret_name: mok_password
+    secret_label: MOK password
+    secret_explain: What it is for, and where to get it, in plain words.
+  when: mok_password is not defined
+```
+
+Its header lists the options: asking once for a pasted key (`secret_confirm: false`), an
+optional value that an empty answer skips for this run (`secret_optional: true`), and length
+bounds. A typing mistake is asked again, up to three times. A run with no keyboard fails with
+the IaC route (`./vault.bash set <name>`). A secret another play creates is not asked for:
+say which play to run first, without a hand edit (`play-unifi-firmware.yml` is the example).
+
+### ansible-cli-without-chdir
+
+**What it is.** A `command`, `shell` or `raw` task that runs an Ansible command-line tool
+(`ansible`, `ansible-vault`, `ansible-playbook`, `ansible-galaxy`, ...) as a command, at the
+start of the command or after a shell operator, `sudo`, `env` or assignments, by name or path,
+without `chdir:` naming `{{ root_dir }}` and without a `cd "{{ root_dir }}"` before it. Every
+module form is read (free-form, `cmd`, `argv`, `args:`). Run by `qa-ansible.bash`; proven
+against `tests/fixtures/ansible-play-ux/`.
+
+**Why it exists.** These tools find `ansible.cfg` in their working directory, and the
+vault password file, inventory and roles path it names are relative to it. play-nvidia's
+`ansible-vault encrypt_string` ran from the module's own directory, found no password file,
+and failed, with `no_log` hiding why (2b074fb8a).
+
+**How to fix a finding.** Add `chdir: "{{ root_dir }}"` to the task (in the module's mapping
+or under `args:`).
+
+### no-log-hides-failure
+
+**What it is.** A task under `no_log` (its own, or a block's or the play's; a templated
+`no_log` counts as on) that can fail on the machine, which is any module except `set_fact`,
+`pause`, `debug` and `meta`, and is not a probe: `failed_when: false`, a `register:`, and a later
+`fail` or `assert`, not itself under `no_log`, that reads the registered result; nor in a block
+whose `rescue` has a `fail` or `assert` not under `no_log`. An `assert`
+under `no_log` hides its own `fail_msg`. Handlers are read too. Run by `qa-ansible.bash`;
+proven against `tests/fixtures/ansible-play-ux/`.
+
+**Why it exists.** Ansible replaces the whole result of a `no_log` task, its error included,
+with "the output has been hidden due to the fact that 'no_log: true' was specified". When
+play-nvidia's vault-encrypt failed, that sentence was all the owner saw.
+
+**How to fix a finding.** Keep `no_log` on a task that handles a secret, and make it a probe
+whose failure a following task explains, printing only what holds no secret (the exit code,
+the stderr of a command that read the secret on stdin, a module's `msg`):
+
+```yaml
+- name: Vault-encrypt the MOK password
+  ansible.builtin.command:
+    argv: [ansible-vault, encrypt_string, --stdin-name, mok_password]
+    chdir: "{{ root_dir }}"
+    stdin: "{{ mok_password_answer }}"
+  register: mok_encrypted
+  changed_when: false
+  failed_when: false  # FAIL-FAST-OK: probe under no_log; the fail below gives the reason
+  no_log: true
+
+- name: Stop if the MOK password could not be vault-encrypted
+  ansible.builtin.fail:
+    msg: "ansible-vault could not encrypt it (exit {{ mok_encrypted.rc }}): {{ mok_encrypted.stderr }}"
+  when: mok_encrypted.rc != 0
+```
+
+That probe works for a command, whose `rc` survives. Any other module (`copy`, `user`, ...)
+reports failure only through its `failed` flag, which `failed_when: false` overwrites, so put
+it in a block whose `rescue` fails readably, from `ansible_failed_result.msg`; a rescue that is
+itself under `no_log` does not count:
+
+```yaml
+- name: Write the credentials file
+  block:
+    - name: Write it
+      ansible.builtin.copy:
+        content: "{{ vpn_password }}"
+        dest: /home/{{ user_login }}/.config/vpn/.credentials
+        mode: "0600"
+      no_log: true
+  rescue:
+    - name: Stop because the credentials file could not be written
+      ansible.builtin.fail:
+        msg: "It could not be written: {{ ansible_failed_result.msg | default('no reason given') }}"
+```
+
+Where the task handles no secret (an `assert`, whose output names its expression and message
+but never a value; a `blockinfile` of vault-encrypted text), drop `no_log` instead.
+
+### probe-before-install
+
+**What it is.** In a play, a `command` or `shell` probe (`failed_when: false`) whose program,
+the first word of its command, a later `dnf`, `dnf5`, `package` or `yum` task installs by that
+name, with no earlier task installing it. Run by `qa-ansible.bash`; proven against
+`tests/fixtures/ansible-play-ux/`.
+
+**Why it exists.** On a machine without the program the probe cannot run, and its
+`failed_when: false` turns "not installed" into the probe's answer. play-displaylink probed
+`mokutil --sb-state` before installing mokutil, so on a fresh install it read Secure Boot as
+off and skipped the key enrolment the signed driver needs.
+
+**How to fix a finding.** Install the program before the probe. For Secure Boot, include
+`tasks/secure-boot-mok-password.yml`, which installs mokutil, probes, and asks for the MOK
+password when it is needed and missing.
 
 ### offline-member-blocks
 

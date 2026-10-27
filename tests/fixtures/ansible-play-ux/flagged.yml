@@ -252,3 +252,32 @@
       ansible.builtin.package:
         name: jq
         state: present
+
+# vault-secret-by-hand, second shape: a secret written to host_vars as plain text, for the
+# person to vault-encrypt by hand afterwards (play-nordvpn-openvpn).
+- hosts: localhost
+  tasks:
+    - name: Append credentials to localhost.yml
+      ansible.builtin.blockinfile:  # EXPECT-FINDING vault-secret-by-hand
+        path: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
+        marker: "# {mark} ANSIBLE MANAGED: VPN credentials"
+        block: |
+          vpn_username: {{ vpn_username }}
+          vpn_password: {{ vpn_password | trim }}
+        create: false
+
+# no-log-hides-failure: a rescue that is itself under no_log explains nothing.
+- hosts: localhost
+  tasks:
+    - name: Write a secret file
+      no_log: true
+      block:
+        - name: Write it
+          ansible.builtin.copy:  # EXPECT-FINDING no-log-hides-failure
+            content: "{{ secret }}"
+            dest: /tmp/s
+            mode: "0600"
+      rescue:
+        - name: Stop, but hidden
+          ansible.builtin.fail:  # EXPECT-FINDING no-log-hides-failure
+            msg: "It could not be written: {{ ansible_failed_result.msg }}"
