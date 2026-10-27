@@ -33,6 +33,13 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
+# The plays changed since they last ran here. Expected: play-AA-preflight-sanity.yml (Plan
+# 00228: a consumer install refuses a non-graphical default target) and
+# play-speech-to-text.yml (Plan 00228: wsi-claude-process says plainly that Claude
+# post-processing needs the developer install when claude is absent; plain dictation is
+# unchanged). Nothing else should run.
+changed-plays
+
 # Plan 00228: the consumer install, re-proved after the final review's fixes. deploy.bash runs
 # play-vm-test-lab.yml (deploys the consumer scenario's guest checker, whose podman check is
 # now podman-developer-part-absent and also catches a pip --user podman-compose).
