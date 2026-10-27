@@ -395,3 +395,21 @@ names the one configuration file (B10). `ui.Lines` draws a heading two columns w
 `Width` is zero, though its doc says zero is no limit; the command sets a width of 80, and the
 `ui` defect (which `ccylaunch`'s build-lock question also hits) is left for a fix of its own.
 H1-H4 are the owner's, at the desktop.
+`reclaim` (P6, the sixth tool; chosen in its spec's section 1: the most interactive of the four
+left, and the one a fake proves without the owner, since its danger is which commands run after
+which answer) ported and cut over on `go-port/reclaim`, built and awaiting review, not merged;
+spec [SPEC-reclaim.md](SPEC-reclaim.md) (D1-D4, E1-E29, B1-B11, H1-H5),
+`src-go/cmd/reclaim` and `src-go/internal/reclaim` (root through `internal/sudo` after a
+reason, ncdu through `execx.Foregrounder`, the biggest-files walk and the removals in Go, sizes
+by `rclonecache.IEC`). `reclaim` joins the owners of `podman` and `docker` in the project
+rule's table. `play-cli-tools.yml` builds it (tag `disk-reclaim`, which now imports
+`play-golang.yml` too); the bash and its allowlist row are gone (it had no suite), and
+`test-qa-changed.bash` takes `nord` as its allowlisted tool. Oracle: one scenario table,
+`internal/reclaim/testdata/scenarios.json` (27 scenarios: exit status, the changing commands
+with root marked, the files left in the home), run against the Go by `TestScenarios` and
+against both the bash at `842d88ddd` and the built Go by `reclaim-parity/parity.py` (fake
+programs on `PATH`, a pseudo-terminal). Go: 27 of 27; bash: 20 the same, 7 differing exactly
+as their `bashDiffers` departure says. Two bash defects were found that way: a failing
+`dnf repoquery` preview read as "nothing to remove" and then ran autoremove and clean on a yes
+(B3), and a `du` that could not read every entry ended `reclaim report` with status 1 halfway
+(B7). Host checks H1-H5 are the host agent's (H3 with sudo given at the run).

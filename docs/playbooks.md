@@ -878,7 +878,8 @@ CLI Tools — the one home for small command-line utilities (rule:
   `--force`, and a failed conversion leaves no half-written file. A Go binary built from
   `src-go/cmd/convert`. In the login user's shells it shadows ImageMagick's legacy
   `/usr/bin/convert` alias; run ImageMagick as `magick`
-- **`reclaim`** is a bash menu that reports what is using disk and runs targeted cleanups
+- **`reclaim`** is a menu (a Go binary built from `src-go/cmd/reclaim`) that reports what is
+  using disk (`reclaim report` prints it non-interactively) and runs targeted cleanups
   (dnf autoremove/clean, old kernels, journal vacuum, container prune,
   flatpak/cache/trash), **each behind an explicit confirmation**. Installs `ncdu`, `duf`
   and `trash-cli`, plus the `baobab` GUI analyser on desktops only

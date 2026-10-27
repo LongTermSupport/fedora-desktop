@@ -44,4 +44,8 @@
 # best match first). Host check after it, by the host agent (Plan 00201 Task 2.31): step 12
 # with a background task in one session, and chooser-teams-up.bash's teams applied once with
 # their homeserver start times unchanged.
+# Plan 00192 Task 3.3 (once go-port/reclaim is merged): play-cli-tools.yml runs again as a
+# changed play, building ~/.local/bin/reclaim from src-go/cmd/reclaim (the Go port of the bash
+# reclaim, which it replaces at the same path); nothing else in the play changes. Host checks
+# after it, by the host agent: SPEC-reclaim.md H1-H5.
 changed-plays

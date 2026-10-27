@@ -44,6 +44,7 @@ const (
 	wsitokenPkg  = "internal/wsitoken"
 	sttPkg       = "internal/stt"
 	lxcaddPkg    = "internal/teams/lxcadd"
+	reclaimPkg   = "internal/reclaim"
 )
 
 // The functions and the reason the realtime-bound tables repeat.
@@ -57,7 +58,8 @@ const (
 // commandOwners maps a program to the packages that own every use of it, so its flags and
 // target forms are decided once (the gum and fzf prompts, the sudo and tmux argument forms).
 // A program with two owners is used for two different jobs: podman is read for a session's
-// container by sessprobe and driven (pause, unpause, networks) by podfreeze. A program absent
+// container by sessprobe, driven (pause, unpause, networks) by podfreeze, and pruned (with
+// docker) by reclaim, the disk-space menu. A program absent
 // from the table is unowned: any package may run it.
 var commandOwners = map[string][]string{
 	"sudo":         {sudoPkg},
@@ -68,8 +70,8 @@ var commandOwners = map[string][]string{
 	"busctl":       {"internal/systemd", "internal/wsimedia"},
 	"git":          {"internal/gitx"},
 	"ps":           {sessprobePkg},
-	"podman":       {sessprobePkg, podfreezePkg},
-	"docker":       {sessprobePkg},
+	"podman":       {sessprobePkg, podfreezePkg, reclaimPkg},
+	"docker":       {sessprobePkg, reclaimPkg},
 	"lxc-ls":       {lxcfreezePkg},
 	"lxc-info":     {lxcfreezePkg},
 	"lxc-freeze":   {lxcfreezePkg},

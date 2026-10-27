@@ -25,13 +25,14 @@
 # Standalone / opt-in play — run directly:
 #   ./playbooks/imports/optional/common/play-cli-tools.yml
 #
-# open and convert are Go binaries built from this checkout (src-go/cmd/<name>), so the Go
-# toolchain is installed first. play-golang.yml stays its one source of truth; the tags make
-# --tags open-command or --tags convert-command install the toolchain too.
+# open, convert and reclaim are Go binaries built from this checkout (src-go/cmd/<name>), so
+# the Go toolchain is installed first. play-golang.yml stays its one source of truth; the tags
+# make --tags open-command, convert-command or disk-reclaim install the toolchain too.
 - import_playbook: ../../play-golang.yml
   tags:
     - open-command
     - convert-command
+    - disk-reclaim
 
 - hosts: desktop
   name: CLI Tools - small command-line utilities
@@ -148,7 +149,7 @@
       tags: convert-command
 
     # ── reclaim ──────────────────────────────────────────────────────────────────
-    # A dependency-light bash menu that reports what is using disk and runs targeted
+    # A dependency-light menu that reports what is using disk and runs targeted
     # cleanups, each behind an explicit confirmation; ncdu and baobab do deep dives.
     - name: Install reclaim command-line disk-usage tools
       ansible.builtin.package:
@@ -168,13 +169,14 @@
       when: provisioning_profile != 'server'
       tags: disk-reclaim
 
-    - name: Deploy the reclaim TUI
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/.local/bin/reclaim"
-        dest: "{{ user_bin_dir }}/reclaim"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: "0755"
+    # The command is a Go binary (src-go/cmd/reclaim, Plan 00192), built and installed at its
+    # old path by the shared build-go-command.yml.
+    - name: Build and Install the reclaim Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: reclaim
+        go_command_dest: "{{ user_bin_dir }}/reclaim"
+        go_command_mode: "0755"
       tags: disk-reclaim
 
     # ── mpv ──────────────────────────────────────────────────────────────────────
