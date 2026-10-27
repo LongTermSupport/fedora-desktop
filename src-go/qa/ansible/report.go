@@ -17,27 +17,29 @@ type Findings struct {
 	// RootUmask is the root-umask findings, "<file>:<line>: <why>".
 	RootUmask []string
 	// PlayUX is the play-UX findings, "<file>:<line>: <rule>: <why>" (playux.go).
-	PlayUX         []string
+	PlayUX []string
+	// Sudoers is the sudoers-rule findings, "<file>:<line>: <why>".
+	Sudoers        []string
 	Hygiene, Scope []Entry
 	Playbooks      int
 }
 
 // Errors is how many violations there are.
 func (f Findings) Errors() int {
-	return len(f.FailFast) + len(f.Hygiene) + len(f.SelfRef) + len(f.Scope) + len(f.FactVars) + len(f.RegexBackref) + len(f.RootUmask) + len(f.PlayUX)
+	return len(f.FailFast) + len(f.Hygiene) + len(f.SelfRef) + len(f.Scope) + len(f.FactVars) + len(f.RegexBackref) + len(f.RootUmask) + len(f.PlayUX) + len(f.Sudoers)
 }
 
 // Summary is the closing stdout lines: one tick, or the cross with the counts and the pointers.
 func (f Findings) Summary(reportPath string) []string {
 	if f.Errors() == 0 {
 		return []string{fmt.Sprintf("✓ ansible: fail-fast patterns OK; no self-referential vars; no deprecated ansible_<fact> vars; "+
-			"regex backreferences escaped right; system files written as root set umask 022; settings checked first, asked for, Ansible CLIs run from the checkout, no_log failures readable; scope+guard declarations OK; %d playbook(s) have correct shebang+exec "+
+			"regex backreferences escaped right; system files written as root set umask 022; settings checked first, asked for, Ansible CLIs run from the checkout, no_log failures readable; sudoers rules pinned to root-owned targets; scope+guard declarations OK; %d playbook(s) have correct shebang+exec "+
 			"(scoped to playbooks/ tasks/ vars/ environment/ roles/ — qa-ansible-syntax counts repo-wide and will be higher)", f.Playbooks)}
 	}
 	return []string{
-		fmt.Sprintf("✗ ansible: %d violation(s) — %d fail-fast, %d hygiene, %d self-ref var, %d scope/guard, %d deprecated fact var, %d regex backref, %d root umask, %d play ux",
+		fmt.Sprintf("✗ ansible: %d violation(s) — %d fail-fast, %d hygiene, %d self-ref var, %d scope/guard, %d deprecated fact var, %d regex backref, %d root umask, %d play ux, %d sudoers rule",
 			f.Errors(), len(f.FailFast), len(f.Hygiene), len(f.SelfRef), len(f.Scope), len(f.FactVars), len(f.RegexBackref),
-			len(f.RootUmask), len(f.PlayUX)),
+			len(f.RootUmask), len(f.PlayUX), len(f.Sudoers)),
 		"  Hygiene fixer: ./scripts/make-playbooks-executable.bash",
 		"  Details: jq '.failures[]' " + reportPath,
 	}
@@ -81,6 +83,7 @@ type jsonChecks struct {
 	RegexBackref []string `json:"regex_backref"`
 	RootUmask    []string `json:"root_umask"`
 	PlayUX       []string `json:"play_ux"`
+	Sudoers      []string `json:"sudoers_rule"`
 }
 
 type jsonReport struct {
@@ -134,6 +137,9 @@ func (f Findings) JSON() ([]byte, error) {
 	for _, entry := range f.PlayUX {
 		add(entry, "play-ux: a setting checked late or demanded by hand, an Ansible CLI outside the checkout, or a failure no_log hides")
 	}
+	for _, entry := range f.Sudoers {
+		add(entry, "sudoers-rule: a sudoers rule whose target its user can modify or steer")
+	}
 	report := jsonReport{
 		Type:     "ansible",
 		Status:   status,
@@ -143,7 +149,7 @@ func (f Findings) JSON() ([]byte, error) {
 		Checks: jsonChecks{
 			FailFast: nonNil(f.FailFast), Hygiene: entryStrings(f.Hygiene), SelfRef: nonNil(f.SelfRef),
 			Scope: entryStrings(f.Scope), FactVars: nonNil(f.FactVars), RegexBackref: nonNil(f.RegexBackref),
-			RootUmask: nonNil(f.RootUmask), PlayUX: nonNil(f.PlayUX),
+			RootUmask: nonNil(f.RootUmask), PlayUX: nonNil(f.PlayUX), Sudoers: nonNil(f.Sudoers),
 		},
 	}
 	var body bytes.Buffer

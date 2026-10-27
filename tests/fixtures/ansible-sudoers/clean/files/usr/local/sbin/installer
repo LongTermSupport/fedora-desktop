@@ -1,0 +1,10 @@
+#!/bin/bash
+PREFIX=${TEST_PREFIX:-}
+readonly BIN_DIR=$PREFIX/usr/local/bin
+src=${0%/*}
+if [ -n "$PREFIX" ]; then
+    ROOT_OWNER=$(id -un)
+else
+    ROOT_OWNER=root
+fi
+put_file "bus" "$src/bus" "$BIN_DIR/bus" 0755 "$ROOT_OWNER" "$ROOT_GROUP"

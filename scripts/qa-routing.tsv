@@ -191,6 +191,11 @@ also	src-go/qa/ansible/*,src-go/qa/cmd/qa-ansible/*,src-go/qa/internal/cmdmain/*
 also	tests/fixtures/ansible-regex-backref/*	go	covered
 # The root-umask fixtures of qa-ansible are read only by the Go tests of the rule.
 also	tests/fixtures/ansible-root-umask/*	go	covered
+# The sudoers-rule fixtures of qa-ansible are read only by the Go tests of the rule.
+also	tests/fixtures/ansible-sudoers/*	go	covered
+# The sudoers-rule check of qa-ansible reads the sudoers sources the plays install and the root
+# installers' put_file lines, so a change to one runs the gate.
+also	files/etc/sudoers.d/*,files/usr/local/sbin/*	ansible-patterns	-
 # Each .semgrep/ file is read by one gate and no per-file check applies to it (.semgrep is an
 # excluded shell tree, so the rows below would only report it skipped). These rows end the search
 # with no check and no cover: the patterns row above, or the suite that names the file in

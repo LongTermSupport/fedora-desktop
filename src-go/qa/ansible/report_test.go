@@ -9,7 +9,7 @@ import (
 
 func TestSummaryPass(t *testing.T) {
 	got := Findings{Playbooks: 3}.Summary("/tmp/x.json")
-	want := []string{"✓ ansible: fail-fast patterns OK; no self-referential vars; no deprecated ansible_<fact> vars; regex backreferences escaped right; system files written as root set umask 022; settings checked first, asked for, Ansible CLIs run from the checkout, no_log failures readable; scope+guard declarations OK; 3 playbook(s) have correct shebang+exec (scoped to playbooks/ tasks/ vars/ environment/ roles/ — qa-ansible-syntax counts repo-wide and will be higher)"}
+	want := []string{"✓ ansible: fail-fast patterns OK; no self-referential vars; no deprecated ansible_<fact> vars; regex backreferences escaped right; system files written as root set umask 022; settings checked first, asked for, Ansible CLIs run from the checkout, no_log failures readable; sudoers rules pinned to root-owned targets; scope+guard declarations OK; 3 playbook(s) have correct shebang+exec (scoped to playbooks/ tasks/ vars/ environment/ roles/ — qa-ansible-syntax counts repo-wide and will be higher)"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("got %q", got)
 	}
@@ -22,7 +22,7 @@ func TestSummaryFailCountsEachList(t *testing.T) {
 	}
 	got := f.Summary("/tmp/x.json")
 	want := []string{
-		"✗ ansible: 10 violation(s) — 1 fail-fast, 2 hygiene, 1 self-ref var, 1 scope/guard, 3 deprecated fact var, 1 regex backref, 1 root umask, 0 play ux",
+		"✗ ansible: 10 violation(s) — 1 fail-fast, 2 hygiene, 1 self-ref var, 1 scope/guard, 3 deprecated fact var, 1 regex backref, 1 root umask, 0 play ux, 0 sudoers rule",
 		"  Hygiene fixer: ./scripts/make-playbooks-executable.bash",
 		"  Details: jq '.failures[]' /tmp/x.json",
 	}
@@ -93,7 +93,7 @@ func TestJSONOfAPassIsEmptyArrays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "{\n  \"type\": \"ansible\",\n  \"status\": \"pass\",\n  \"summary\": {\n    \"total\": 3,\n    \"passed\": 3,\n    \"failed\": 0\n  },\n  \"failures\": [],\n  \"results\": [],\n  \"checks\": {\n    \"fail_fast\": [],\n    \"hygiene\": [],\n    \"self_ref\": [],\n    \"scope\": [],\n    \"fact_vars\": [],\n    \"regex_backref\": [],\n    \"root_umask\": [],\n    \"play_ux\": []\n  }\n}\n"
+	want := "{\n  \"type\": \"ansible\",\n  \"status\": \"pass\",\n  \"summary\": {\n    \"total\": 3,\n    \"passed\": 3,\n    \"failed\": 0\n  },\n  \"failures\": [],\n  \"results\": [],\n  \"checks\": {\n    \"fail_fast\": [],\n    \"hygiene\": [],\n    \"self_ref\": [],\n    \"scope\": [],\n    \"fact_vars\": [],\n    \"regex_backref\": [],\n    \"root_umask\": [],\n    \"play_ux\": [],\n    \"sudoers_rule\": []\n  }\n}\n"
 	if string(body) != want {
 		t.Fatalf("got\n%s", body)
 	}

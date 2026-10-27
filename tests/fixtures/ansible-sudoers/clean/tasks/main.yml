@@ -1,0 +1,59 @@
+---
+# Fixture for the sudoers-rule check of src-go/qa/ansible: nothing here may be reported. Pinned
+# argument lists on root-owned targets (one deployed by a task, one a root-owned link to it, one
+# put in place by an installer's put_file), validated drop-ins, a deliberate full grant, and
+# removals. A task list, not a play, so no gate syntax-checks it.
+
+- name: The target, root's alone
+  ansible.builtin.copy:
+    src: "{{ root_dir }}/files/tool"
+    dest: /usr/local/bin/tool
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: A second name for it
+  ansible.builtin.file:
+    src: /usr/local/bin/tool
+    dest: /usr/local/bin/tool-link
+    state: link
+    owner: root
+
+- name: The directory above, root's
+  ansible.builtin.file:
+    path: /usr/local/bin
+    state: directory
+    owner: root
+    mode: "0755"
+
+- name: Unrelated user files are not judged
+  ansible.builtin.copy:
+    src: "{{ root_dir }}/files/tool"
+    dest: "/home/{{ user_login }}/bin/tool"
+    owner: "{{ user_login }}"
+    mode: "0775"
+
+- name: The pinned rule
+  ansible.builtin.template:
+    src: "{{ root_dir }}/files/etc/sudoers.d/pinned.j2"
+    dest: /etc/sudoers.d/pinned
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+
+- name: A deliberate full grant is not a scoped rule
+  ansible.builtin.blockinfile:
+    path: /etc/sudoers
+    block: "{{ user_login }}    ALL=(ALL)    NOPASSWD: ALL"
+    state: "{{ 'absent' if consumer else 'present' }}"
+    validate: visudo -cf %s
+
+- name: A removal
+  ansible.builtin.file:
+    path: /etc/sudoers.d/old
+    state: absent
+
+- name: A command that only checks the files
+  ansible.builtin.command: visudo -c
+  changed_when: false

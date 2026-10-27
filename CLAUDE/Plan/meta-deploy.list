@@ -41,6 +41,11 @@
 # play-virtualbox-windows, play-claude-yolo and play-github-cli-multi. A secret that is
 # already saved is not asked for; an optional one (Last.fm, the camera FTP password) is
 # skipped on this unattended run.
+# Plan 00231: play-basic-configs.yml also runs, installing shutdown-with-update's scoped
+# sudoers rule (visudo-validated) and the root-owned install-audience record, and removing
+# the old sudo aliases. Host check after it, by the host agent: `sudo -n -l` lists only the
+# two commands, a bare `shutdown-with-update --help` runs with no password prompt, and
+# `sudo -n /usr/local/bin/shutdown-with-update --in 5 --bogus` is refused by sudo.
 changed-plays
 
 # Plan 00228 Task 3.2: the consumer install proved in the VM lab. deploy.bash runs

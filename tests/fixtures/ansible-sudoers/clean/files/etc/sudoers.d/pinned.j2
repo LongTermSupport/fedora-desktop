@@ -1,0 +1,8 @@
+# {{ ansible_managed }}
+Cmnd_Alias TOOLS = /usr/local/bin/tool "", \
+    /usr/local/bin/tool --help, \
+    /usr/local/bin/tool ^--in [1-9][0-9]?$, \
+    /usr/local/bin/tool-link ^--name [a-z][a-z0-9.-]*$, \
+    /usr/local/bin/bus ^list [a-z][a-z0-9-]*$
+{{ user_login }} ALL=(root) NOPASSWD: TOOLS
+Defaults!/usr/local/bin/tool !setenv

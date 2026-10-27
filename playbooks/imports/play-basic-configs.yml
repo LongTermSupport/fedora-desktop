@@ -73,7 +73,10 @@
           (default: lightblueBold)
           Tip: set hostname_overrides.<hostname>.ps1_colour in localhost.yml to skip this prompt
       register: ps1_colour_prompt
-      when: PS1_Colour is not defined and ps1_colour_file is defined and not ps1_colour_file.stat.exists
+      # A consumer is never asked about a terminal prompt's colour: the default is set below.
+      when: >-
+        PS1_Colour is not defined and ps1_colour_file is defined and not ps1_colour_file.stat.exists
+        and install_audience != 'consumer'
 
     - name: Set PS1_Colour from prompt
       ansible.builtin.set_fact:
@@ -357,6 +360,24 @@
         group: root
         mode: "0644"
 
+    # A consumer install has no ccy (play-claude-yolo.yml ends itself there), so
+    # shutdown-with-update has no sessions to warn. Root-owned, so the user cannot switch the
+    # warnings off by editing it (Plan 00231).
+    - name: Assert the Install Audience Is developer or consumer
+      ansible.builtin.assert:
+        that:
+          - install_audience in ['developer', 'consumer']
+        fail_msg: >-
+          install_audience={{ install_audience }} is not recognised. Expected developer or consumer.
+
+    - name: Record the Install Audience for shutdown-with-update
+      ansible.builtin.copy:
+        content: "{{ install_audience }}\n"
+        dest: /etc/fedora-desktop/install-audience
+        owner: root
+        group: root
+        mode: "0644"
+
     - name: Deploy shutdown-with-update script
       ansible.builtin.copy:
         src: "{{ root_dir }}/files/usr/local/bin/shutdown-with-update"
@@ -376,13 +397,25 @@
         owner: root
         group: root
 
-    - name: Deploy shutdown-with-update alias
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/bashrc-includes/shutdown-with-update.bash"
-        dest: "{{ item }}/.bashrc-includes/shutdown-with-update.bash"
-        owner: "{{ item.split('/')[2] if item != '/root' else 'root' }}"
-        group: "{{ item.split('/')[2] if item != '/root' else 'root' }}"
-        mode: "0644"
+    # Plan 00231: run bare, the script hands itself to sudo by its installed path. This lets
+    # the desktop user, and only that user, through without a password, for the argument
+    # lists its parser accepts and nothing else. Every profile and audience: on a consumer
+    # install it is the one way that account reaches the update and the power action.
+    - name: Let the desktop user run shutdown-with-update without a password (a scoped sudoers rule)
+      ansible.builtin.template:
+        src: "{{ root_dir }}/files/etc/sudoers.d/fedora-desktop-shutdown-with-update.j2"
+        dest: /etc/sudoers.d/fedora-desktop-shutdown-with-update
+        owner: root
+        group: root
+        mode: "0440"
+        validate: "visudo -cf %s"
+
+    # The old `sudo` aliases only worked in a shell opened after the play, and not at all from
+    # a script or over `ssh host cmd`; the script elevates itself now, so they go.
+    - name: Remove the old shutdown-with-update sudo alias
+      ansible.builtin.file:
+        path: "{{ item }}/.bashrc-includes/shutdown-with-update.bash"
+        state: absent
       loop:
         - /root
         - /home/{{ user_login }}

@@ -57,7 +57,8 @@ checked after the play has changed the system, a secret demanded by hand, an Ans
 outside the checkout, a failure no_log hides, a probe of a program installed only later, and
 a kernel module built for the running kernel (CLAUDE/QA.md, setting-checked-late,
 vault-secret-by-hand, ansible-cli-without-chdir, no-log-hides-failure, probe-before-install,
-module-built-for-running-kernel).
+module-built-for-running-kernel), and a sudoers rule whose target its user can modify or
+steer (CLAUDE/QA.md, sudoers-rule).
 
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory; the root is its parent
@@ -214,7 +215,10 @@ func scanPatterns(fsys fs.FS, root string, dirs []string, f *Findings) error {
 	if err := scanRootUmask(fsys, dirs, f); err != nil {
 		return err
 	}
-	return scanPlayUX(fsys, dirs, f)
+	if err := scanPlayUX(fsys, dirs, f); err != nil {
+		return err
+	}
+	return scanSudoers(fsys, dirs, f)
 }
 
 // scanFacts runs checks 5 and 6: deprecated fact variables, then guessed uids in runtime paths.

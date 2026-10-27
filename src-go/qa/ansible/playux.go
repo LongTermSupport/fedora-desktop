@@ -515,7 +515,7 @@ var templatedName = regexp.MustCompile(`\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:\||
 // judgePlainSave applies vault-secret-by-hand's second shape: a blockinfile or lineinfile that
 // writes a secret into the install's host_vars as plain text, to be vaulted by hand later.
 func judgePlainSave(rel string, t uxTask) string {
-	if t.module != "blockinfile" && t.module != "lineinfile" {
+	if !lineModules[t.module] {
 		return ""
 	}
 	args := t.moduleValue()
