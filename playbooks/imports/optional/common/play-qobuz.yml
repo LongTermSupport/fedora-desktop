@@ -80,14 +80,12 @@
       tags:
         - hifi-rs
 
-    # Last.fm scrobbling is optional: not everyone uses Last.fm. An empty API key at the
-    # prompt turns it off, and that answer is kept in localhost.yml as
-    # lastfm_scrobbling: false, so later runs neither ask again nor install rescrobbled.
+    # Last.fm scrobbling is optional: not everyone uses Last.fm. Empty details at the
+    # prompt skip the scrobbling setup for this run and the rest of the play carries on;
+    # nothing is saved, so the next run asks again.
     # Needs a Last.fm API account: https://www.last.fm/api/account/create
-    - name: Ask for Last.fm API credentials, or turn scrobbling off (one-time setup)
-      when:
-        - lastfm_scrobbling | default(true) | bool
-        - lastfm_api_key is not defined or lastfm_api_secret is not defined
+    - name: Ask for Last.fm API credentials (optional)
+      when: lastfm_api_key is not defined or lastfm_api_secret is not defined
       block:
         - name: Display Last.fm API instructions
           ansible.builtin.debug:
@@ -104,26 +102,13 @@
               2. Create an API application (any name/description)
               3. Copy the API Key and Shared Secret
 
-              The next prompts ask for them. Do not use Last.fm? Leave the key
-              empty and press ENTER: scrobbling is turned off and not asked again.
+              The next prompts ask for them. Do not use Last.fm, or not now?
+              Leave the key empty and press ENTER: this run skips scrobbling.
 
         - name: Prompt for Last.fm API Key
           ansible.builtin.pause:
-            prompt: "Enter your Last.fm API Key (empty: no scrobbling)"
+            prompt: "Enter your Last.fm API Key (empty: skip scrobbling this run)"
           register: lastfm_key_prompt
-
-        - name: Record that Last.fm scrobbling is off
-          ansible.builtin.blockinfile:
-            path: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
-            marker: "# {mark} ANSIBLE MANAGED: lastfm_scrobbling"
-            block: "lastfm_scrobbling: false"
-            create: false
-          when: lastfm_key_prompt.user_input | length == 0
-
-        - name: Turn scrobbling off for this run
-          ansible.builtin.set_fact:
-            lastfm_scrobbling: false
-          when: lastfm_key_prompt.user_input | length == 0
 
         - name: Prompt for Last.fm API Secret
           ansible.builtin.pause:
@@ -204,30 +189,12 @@
               ansible.builtin.debug:
                 msg: "Last.fm credentials saved to localhost.yml (vault-encrypted). Future runs will use them automatically."
 
-    - name: Decide whether this run scrobbles to Last.fm
+    - name: Decide whether this run sets up scrobbling
       ansible.builtin.set_fact:
-        qobuz_scrobble: "{{ lastfm_scrobbling | default(true) | bool }}"
-
-    # Scrobbling off on a machine where an earlier run set rescrobbled up: stop it, so
-    # the answer takes effect, rather than leaving a scrobbler running that was refused.
-    - name: Check for an earlier rescrobbled unit
-      ansible.builtin.stat:
-        path: /home/{{ user_login }}/.config/systemd/user/rescrobbled.service
-      register: rescrobbled_unit_file
-      when: not qobuz_scrobble
-
-    - name: Stop and disable rescrobbled where scrobbling is off
-      ansible.builtin.systemd:
-        name: rescrobbled
-        state: stopped
-        enabled: false
-        scope: user
-      when:
-        - not qobuz_scrobble
-        - rescrobbled_unit_file.stat.exists
+        qobuz_scrobble: "{{ lastfm_api_key is defined and lastfm_api_secret is defined }}"
 
     - name: Last.fm scrobbling with rescrobbled
-      when: qobuz_scrobble
+      when: qobuz_scrobble | bool
       block:
         - name: Install Rescrobbled
           ansible.builtin.shell: |
@@ -369,7 +336,7 @@
       ansible.builtin.meta: flush_handlers
 
     - name: Start rescrobbled
-      when: qobuz_scrobble
+      when: qobuz_scrobble | bool
       block:
         - name: Start and Enable Rescrobbled Service
           ansible.builtin.systemd:
@@ -505,7 +472,7 @@
           - ============================================
           - ""
           - ✓ hifi-rs {{ hifiRsVersionFinal }} installed (CLI player)
-          - "{{ ('✓ rescrobbled ' ~ rescrobbledVersion ~ ' installed and running') if qobuz_scrobble else '- Last.fm scrobbling off (lastfm_scrobbling: false in localhost.yml)' }}"
+          - "{{ ('✓ rescrobbled ' ~ rescrobbledVersion ~ ' installed and running') if (qobuz_scrobble | bool) else '- Last.fm scrobbling skipped this run (no API details given; the next run asks again)' }}"
           - ""
           - "Usage:"
           - play <qobuz_url>     - Play a Qobuz URL with hifi-rs
