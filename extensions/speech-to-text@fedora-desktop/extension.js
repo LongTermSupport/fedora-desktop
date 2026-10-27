@@ -116,23 +116,24 @@ export default class SpeechToTextExtension extends Extension {
         this._isArticleMode = false;  // Track if article mode window is open
         this._elapsedSeconds = 0;  // Elapsed seconds shown in article mode indicator
 
-        // Whisper model definitions (name, label, size, description, englishOnly)
+        // Whisper model definitions (name, label, description, englishOnly). A model's
+        // size lives only in wsi-resolve-model (SIZE_MB), which the model manager shows.
         this._whisperModels = [
-            ['auto', 'Auto (optimized per mode)', 'varies', 'GPU: Distil Large v3.5 (English) or Large v3 Turbo; CPU: base streaming, small batch', false],
+            ['auto', 'Auto (optimized per mode)', 'GPU: Distil Large v3.5 (English) or Large v3 Turbo; CPU: base streaming, small batch', false],
             // Multilingual models
-            ['tiny', 'Tiny', '~75MB', 'Fastest, basic accuracy', false],
-            ['base', 'Base', '~142MB', 'Fast, good accuracy', false],
-            ['small', 'Small', '~466MB', 'Balanced speed/accuracy', false],
-            ['medium', 'Medium', '~1.5GB', 'Slow, great accuracy', false],
-            ['large-v2', 'Large v2', '~3GB', 'Very high accuracy', false],
-            ['large-v3', 'Large v3', '~3GB', 'Best quality', false],
-            ['large-v3-turbo', 'Large v3 Turbo', '~1.6GB', 'Distilled, fast + accurate', false],
-            // English-only models (smaller and faster — no multilingual capability)
-            ['tiny.en', 'Tiny English', '~41MB', 'Fastest, English only', true],
-            ['base.en', 'Base English', '~77MB', 'Fast, good accuracy, English only', true],
-            ['small.en', 'Small English', '~252MB', 'Balanced, English only', true],
-            ['medium.en', 'Medium English', '~789MB', 'Great accuracy, English only', true],
-            ['distil-large-v3.5', 'Distil Large v3.5', '~1.5GB', 'Fewer errors than Turbo, faster, English only', true],
+            ['tiny', 'Tiny', 'Fastest, basic accuracy', false],
+            ['base', 'Base', 'Fast, good accuracy', false],
+            ['small', 'Small', 'Balanced speed/accuracy', false],
+            ['medium', 'Medium', 'Slow, great accuracy', false],
+            ['large-v2', 'Large v2', 'Very high accuracy', false],
+            ['large-v3', 'Large v3', 'Best quality', false],
+            ['large-v3-turbo', 'Large v3 Turbo', 'Distilled, fast + accurate', false],
+            // English-only models (no multilingual capability)
+            ['tiny.en', 'Tiny English', 'Fastest, English only', true],
+            ['base.en', 'Base English', 'Fast, good accuracy, English only', true],
+            ['small.en', 'Small English', 'Balanced, English only', true],
+            ['medium.en', 'Medium English', 'Great accuracy, English only', true],
+            ['distil-large-v3.5', 'Distil Large v3.5', 'Fewer errors than Turbo, faster, English only', true],
         ];
 
         // Claude model definitions (name, label, description)

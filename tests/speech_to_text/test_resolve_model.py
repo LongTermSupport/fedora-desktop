@@ -15,6 +15,7 @@ GPU answer is controlled without CUDA. Stdlib only. Run by scripts/test-wsi-stop
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -387,6 +388,42 @@ class FitTest(ResolverRun):
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stdout, "")
         self.assertIn("counts 0", result.stderr)
+
+
+class SizesHaveOneHomeTest(ResolverRun):
+    """Plan 00234: a model's size lives only in wsi-resolve-model's SIZE_MB. The panel
+    keeps no sizes of its own, and the docs' model tables show SIZE_MB's figures."""
+
+    _EXTENSION = _REPO_ROOT / "extensions" / "speech-to-text@fedora-desktop"
+    _DOCS = _REPO_ROOT / "docs" / "features" / "speech-to-text.md"
+    # A hand-kept size such as ~75MB or ~1.5GB
+    _SIZE_STRING = re.compile(r"~\d+(\.\d+)?\s?[MG]B")
+
+    def sizes(self):
+        result = self.resolve("--fit", gpus=0)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return {name: model["size_mb"] for name, model in json.loads(result.stdout)["models"].items()}
+
+    @staticmethod
+    def shown(mb):
+        """A size as the model manager shows it (wsi-model-manager human_mb)."""
+        return f"{mb / 1024:.1f} GB" if mb >= 1024 else f"{mb} MB"
+
+    def test_the_extension_keeps_no_model_sizes(self):
+        for path in sorted(self._EXTENSION.glob("*.js")):
+            found = self._SIZE_STRING.search(path.read_text())
+            self.assertIsNone(found, f"{path.name} keeps a model size ({found and found[0]}); "
+                                     "sizes live in wsi-resolve-model's SIZE_MB")
+
+    def test_the_docs_tables_show_the_resolvers_sizes(self):
+        text = self._DOCS.read_text()
+        section = text[text.index("**Model comparison:**"):text.index("A model change applies")]
+        self.assertIsNone(self._SIZE_STRING.search(section), "a hand-kept size in the docs")
+        rows = dict(re.findall(r"^\| `([^`]+)`\s*\|\s*([^|]*?)\s*\|", section, re.MULTILINE))
+        sizes = self.sizes()
+        self.assertEqual(set(rows) - {"auto"}, set(sizes))
+        for name, mb in sizes.items():
+            self.assertEqual(rows[name], self.shown(mb), name)
 
 
 if __name__ == "__main__":

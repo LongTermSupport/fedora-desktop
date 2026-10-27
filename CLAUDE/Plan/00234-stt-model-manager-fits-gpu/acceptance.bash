@@ -8,9 +8,14 @@
 # an English-only model that fits and refuses every one that does not. The unit tests fake
 # nvidia-smi and CTranslate2; this runs the real ones. HOST ONLY.
 #
-# Read-only: nothing is downloaded or removed. No sudo, no prompts. The manager's screen
-# itself (the GPU memory column, the cursor on the preselected row, the refusal shown when a
-# too-big model is chosen) needs a person: that is the owner's manual check in PLAN.md.
+# The manager's own Textual screen is then run headless through Textual's test pilot
+# (App.run_test): the cursor on the preselected row, the too-big row marked, and choosing a
+# too-big model refused with the list left open. The QA container has no textual, so this is
+# the only place the screen runs under test. How it looks in the foot window is the owner's
+# check in PLAN.md.
+#
+# Read-only: nothing is downloaded or removed (the screen's download is replaced by a
+# recorder). No sudo, no prompts. The real model load is gpu-load-acceptance.bash.
 #
 # Usage: ./acceptance.bash [-h|--help]
 set -euo pipefail
@@ -61,4 +66,5 @@ checker="${PLAN_SCRIPT_DIR}/check-fit.py"
 plan_gather_leg "the installed resolver and manager are the checkout's" python3 "${checker}" deployed
 plan_gather_leg "wsi-resolve-model --fit names this machine's GPU and its memory (or the CPU, with no NVIDIA device)" python3 "${checker}" fit
 plan_gather_leg "the manager preselects an English-only model that fits and refuses each one that does not" python3 "${checker}" preselect
+plan_gather_leg "the manager's screen starts on that model and refuses a too-big one, leaving the list open" python3 "${checker}" screen
 plan_finish

@@ -1,0 +1,49 @@
+---
+# The MOK enrolment steps, screen by screen, for a play that has just queued its signing key
+# with mokutil --import (NVIDIA, DisplayLink). Written for a reader who has never seen the
+# blue MOK Manager screens; the password comes from the vault (mok_password), however long
+# ago it was chosen.
+#
+# Usage:
+#   - name: Show the MOK enrolment steps for the next boot
+#     ansible.builtin.include_tasks: "{{ root_dir }}/tasks/secure-boot-mok-enrolment-steps.yml"
+#     vars:
+#       mok_module: the NVIDIA driver       # what is signed, in the explanation
+#     when: mok_import is changed
+
+- name: Display MOK enrollment password
+  ansible.builtin.debug:
+    msg: |2
+
+      ========================================================================
+      IMPORTANT: SECURE BOOT MOK ENROLLMENT REQUIRED
+      ========================================================================
+
+      {{ mok_module[:1] | upper }}{{ mok_module[1:] }} will not work until you finish one step at the
+      next boot. Write this password down now, on paper or on your phone: the
+      screen you will type it into appears before Fedora starts, so this
+      window will not be there to read.
+
+      Your MOK enrollment password is: {{ mok_password }}
+
+      It is the MOK password you chose the first time a play asked for one,
+      stored as mok_password in your vault.
+
+      WHAT YOU WILL SEE AFTER YOU REBOOT
+      The screen turns blue, before Fedora starts. The mouse does not work:
+      use the Up and Down arrow keys to move, and Enter to choose.
+
+      1. "Press any key to perform MOK management"
+         Press any key AT ONCE: this screen waits only about 10 seconds.
+         (Missed it? Fedora starts as normal and the driver stays off.
+         Run this play again and reboot again.)
+      2. "Perform MOK management"   -> choose "Enroll MOK"
+      3. "[Enroll MOK]"             -> choose "Continue"
+      4. "Enroll the key(s)?"       -> choose "Yes"
+      5. "Password:"                -> type the password above, then Enter.
+         Nothing appears as you type; that is normal. Type it carefully.
+      6. "Perform MOK management"   -> choose "Reboot"
+
+      Fedora then starts with {{ mok_module }} allowed to load. You will
+      not need this password again.
+      ========================================================================

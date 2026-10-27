@@ -1,6 +1,6 @@
 # Plan 00234: the speech-to-text model manager offers only the models that fit this GPU
 
-**Status**: In Progress (host acceptance and the owner's look pending)
+**Status**: In Progress (review fixes made; the screen and real-GPU checks queued for the host; the owner's look and Decision 1's approval pending)
 **Created**: 2026-10-27
 **Owner**: joseph
 **Priority**: Medium
@@ -33,8 +33,10 @@ non-technical person can follow the blue MOK Manager screens after the reboot.
 - Downloading a model that does not fit is refused with a clear message, and the manager
   stays open (InteractiveScripts.md: strict validation, friendly recovery).
 - One home for the sizes and the fit rule: `wsi-resolve-model` (`SIZE_MB`, `NEED_FACTOR`,
-  `NEED_OVERHEAD_MB`); the manager's own size strings and byte table are gone.
-- play-nvidia.yml's MOK message walks through each blue screen by its title.
+  `NEED_OVERHEAD_MB`); the manager's and the panel's own size strings are gone, and the
+  docs' model tables show `SIZE_MB`'s figures (`SizesHaveOneHomeTest` holds both).
+- The MOK message of play-nvidia.yml and play-displaylink.yml walks through each blue screen
+  by its title (one copy, `tasks/secure-boot-mok-enrolment-steps.yml`).
 
 ## Non-Goals
 
@@ -73,16 +75,33 @@ non-technical person can follow the blue MOK Manager screens after the reboot.
 
 - [x] ✅ **Task 2.1**: meta-deploy: `changed-plays` picks up play-speech-to-text.yml and
   play-nvidia.yml; then this plan's `acceptance.bash` (installed copies are the checkout's,
-  `--fit` judges the real GPU, the installed manager preselects and refuses). Passed at
-  525560cfb on a 4.0 GB laptop GPU: Distil Large v3.5 preselected (fits, 2.6 GB), Large v2
-  and v3 refused (about 4.4 GB needed). play-nvidia.yml was not picked: it has not run there.
+  `--fit` judges the real GPU, and the installed manager's helper functions pick and refuse).
+  Passed at 525560cfb on a 4.0 GB laptop GPU: Distil Large v3.5 picked (fits, 2.6 GB), Large
+  v2 and v3 refused (about 4.4 GB needed). play-nvidia.yml was not picked: it has not run
+  there. That run called the helpers only: the screen itself (the cursor move in `on_mount`,
+  `_start_download`'s refusal) did not run under test; Task 2.3 covers it.
+- [ ] ⬜ **Task 2.3**: the review fixes on the host (meta-deploy): `acceptance.bash` again,
+  with its new `screen` leg driving the installed manager's real Textual screen headless
+  (`App.run_test`; textual is installed by the play but not in the QA container, so this
+  cannot run in `qa-all`): the cursor on the preselected model, the too-big row marked, Enter
+  and the Download key on a too-big model refused with the list left open, no download
+  started. Then `gpu-load-acceptance.bash`: distil-large-v3.5 loaded on the real GPU in
+  float16, once as wsi-stream-server loads it (beam 5 over 30 s of noise) and once with
+  wsi-stream's own streaming settings (real-time transcription on, the real-time model
+  beside it), each peak GPU memory reported against the fit rule's figure and failing above
+  it. It downloads distil-large-v3.5 if it is missing, nothing else.
 - [ ] ⬜ **Task 2.2**: The owner's look: open Manage Whisper Models... and check the status
   line names the NVIDIA GPU and its memory, the cursor is on Distil Large v3.5, Large v2 and
   Large v3 show `✗ too big`, and choosing one shows the refusal and leaves the list open
 
 ### Phase 3: Review
 
-- [ ] ⬜ **Task 3.1**: qa-reviewer over the branch diff (the coordinator's full QA run first)
+- [x] ✅ **Task 3.1**: qa-reviewer over the branch diff: FIX-BEFORE-MERGE, six findings
+  (`subagent-reports/261027-final-qa-review.md`)
+- [x] ✅ **Task 3.2**: the review's fixes: the panel's and docs' sizes (finding 1), the
+  screen check and Task 2.1's wording (2), this plan's status (3), the real-GPU load check
+  (4), the shared MOK message and the vault wording (5); Decision 1 recorded as awaiting
+  the owner (6)
 
 ## Technical Decisions
 
@@ -97,8 +116,9 @@ manager's download is huggingface_hub's `snapshot_download`, which writes the ca
 (blobs, snapshots, refs) faster-whisper reads. A Go manager would reimplement the Hugging Face
 download protocol and cache format and still run Python for the GPU answer. The change is an
 owner-visible feature of about 120 lines in two existing scripts. As with Plan 00208's
-`wsi-stream`, the next substantive rework of the manager's screen should be the port; the
-coordinator or owner may overrule this.
+`wsi-stream`, the next substantive rework of the manager's screen should be the port.
+**Awaiting the owner's approval**: CLAUDE.md makes the Go port a hard rule, so this exception
+stands only once the owner approves it (the final review's finding 6).
 
 ### Decision 2: the fit rule
 
@@ -121,7 +141,10 @@ size order would preselect it; the catalogue order is used instead.
 ## Success Criteria
 
 - [x] The tests above pass (`scripts/test-wsi-stop-grace.bash`)
-- [ ] `acceptance.bash` ACCEPTED on the test machine
+- [x] `acceptance.bash` ACCEPTED on the test machine (Task 2.1, at 525560cfb)
+- [ ] `acceptance.bash` with its `screen` leg, and `gpu-load-acceptance.bash`, ACCEPTED on
+  the test machine (Task 2.3)
+- [ ] The owner approves Decision 1's exception to the Go-port rule
 - [ ] The owner's look (Task 2.2) agrees
 
 ## Risks & Mitigations
@@ -137,4 +160,5 @@ size order would preselect it; the catalogue order is used instead.
      "when" — do not add dates). The blow-by-blow activity log lives in
      JOURNAL/00234-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
-- Phase 1: the fit in the resolver and manager, and the MOK message (this branch)
+- Phase 1: the fit in the resolver and manager, and the MOK message (3f4aec19e, merged in 82fcb5a9d)
+- Task 3.2: the final review's fixes (branch `fix/00234-review-findings`)
