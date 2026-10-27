@@ -119,6 +119,22 @@
           {% endif %}
       when: container_service_check.rc != 0
 
+    # Before anything changes: a server restoring sessions unattended unlocks their SSH key
+    # with this passphrase.
+    - name: Ask For The SSH Key Passphrase For Unattended Restore When It Is Missing
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ask-and-save-secret.yml"
+      vars:
+        secret_name: github_ssh_passphrase
+        secret_label: GitHub SSH key passphrase
+        secret_explain: |
+          This server restores ccy sessions after a reboot (ccy_restore_sessions: true), and
+          each restored session unlocks its GitHub SSH key with nobody at the keyboard. Type
+          the passphrase of the ~/.ssh/github_* keys. To not restore sessions, stop here and
+          set ccy_restore_sessions: false in localhost.yml.
+      when:
+        - ccy_restore_ssh_unlock | bool
+        - github_ssh_passphrase is not defined
+
     - name: Create Claude YOLO Base Directory
       become: true
       ansible.builtin.file:
@@ -1131,11 +1147,10 @@
           - github_ssh_passphrase | length > 0
           - "'\n' not in github_ssh_passphrase"
         fail_msg: >-
-          This server restores ccy sessions after a reboot (ccy_restore_sessions: true) and
-          has a GitHub identity, so each restored session must unlock its SSH key with nobody
-          at the keyboard, from github_ssh_passphrase. It is missing, empty or spans several
-          lines. Set it with ./vault.bash set github_ssh_passphrase (the passphrase of the
-          ~/.ssh/github_* keys), or set ccy_restore_sessions: false.
+          The github_ssh_passphrase saved for unattended session restore is empty or spans
+          several lines, so a restored session could not unlock its SSH key with it. Remove
+          its block from localhost.yml and run this play again to be asked for it, or set
+          ccy_restore_sessions: false.
         quiet: true
       when: ccy_restore_ssh_unlock | bool
 
