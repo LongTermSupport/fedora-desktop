@@ -33,22 +33,14 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plan 00230: the optional plays reworked to ask for a missing secret and save it
-# vault-encrypted, to explain a failure that no_log used to hide, and to build kernel modules
-# for the next boot's kernel. Expected to pick up whichever of these have run here:
-# play-nvidia, play-displaylink, play-qobuz, play-ftp-camera, play-rclone,
-# play-unifi-controller, play-self-update, play-nordvpn-openvpn, play-lastpass,
-# play-virtualbox-windows, play-claude-yolo and play-github-cli-multi. A secret that is
-# already saved is not asked for; an optional one (Last.fm, the camera FTP password) is
-# skipped on this unattended run.
-# Plan 00231: play-basic-configs.yml also runs, installing shutdown-with-update's scoped
-# sudoers rule (visudo-validated) and the root-owned install-audience record, and removing
-# the old sudo aliases. Host check after it, by the host agent: `sudo -n -l` lists only the
-# two commands, a bare `shutdown-with-update --help` runs with no password prompt, and
-# `sudo -n /usr/local/bin/shutdown-with-update --in 5 --bogus` is refused by sudo.
-# Plan 00234: play-speech-to-text.yml installs the model manager that marks which models
-# fit this machine's GPU (and the resolver's --fit it asks), and play-nvidia.yml carries the
-# rewritten Secure Boot enrolment steps (text only; nothing else in it changes).
+# The plays changed since they last ran here. Expected: every play that includes
+# tasks/ask-and-save-secret.yml and has run here (Plan 00230: an unattended --yes run now
+# skips a missing optional secret, such as the camera hotspot password, and fails a required
+# one at once instead of waiting at its prompt), play-speech-to-text.yml (Plan 00234: the
+# model manager marks which models fit this machine's GPU, and the resolver's --fit it asks),
+# play-claude-yolo.yml and play-podman.yml (Plan 00233 moved the image tasks and made podman
+# every audience's) and play-gsettings.yml (middle-click paste). play-nvidia.yml's rewritten
+# Secure Boot steps are text only, and it is picked only if it has run here.
 changed-plays
 
 # Plan 00234: read-only acceptance of the installed model manager against the real GPU:
@@ -57,15 +49,8 @@ changed-plays
 # one that does not. Nothing is downloaded or removed.
 00234-stt-model-manager-fits-gpu
 
-# Plan 00232 (issue #114): read-only host facts for ccy's per-container network policy
-# (podman, pasta and netavark versions, the host and bus addresses, each live session's
-# capabilities and networks), then with --active ten probes on throwaway containers only:
-# can rules be put in a container's own network namespace without root, can the container
-# lift them, what a refused connection looks like inside, and does ccy --connect survive.
-# Nothing touches a live session or the host firewall; everything it creates is removed.
-00232-ccy-network-policy-per-container --active
-
-# Plan 00228 Task 3.2: the consumer install proved in the VM lab. deploy.bash runs
+# Plan 00228 Tasks 3.2 and 3.3 (rerun): the consumer install proved in the VM lab, with the
+# attendant now failing an unanswered prompt in seconds. deploy.bash runs
 # play-vm-test-lab.yml (the vmtest CLI rebuilt with its attended-run driver, the manifest with
 # desktop-consumer-install, the new guest checker). acceptance.bash then ensures the desktop
 # and server-fast bases (the desktop base is an Anaconda install if absent or refused) and
