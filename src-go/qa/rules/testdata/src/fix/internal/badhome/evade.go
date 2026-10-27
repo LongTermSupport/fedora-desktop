@@ -58,3 +58,9 @@ func join(rest string) string {
 func notHome(a, b string) string {
 	return a + "~" + b + fmt.Sprintf("%s~", a)
 }
+
+// notText passes constants that are neither text nor whole numbers (a float, a bool), which the
+// rule reads past instead of failing on.
+func notText(a string) string {
+	return fmt.Sprintf("%s %.1f %t", a, 0.25, true)
+}

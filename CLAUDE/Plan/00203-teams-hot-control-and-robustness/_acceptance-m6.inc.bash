@@ -272,17 +272,32 @@ m6_start() {
 
 # ── the checks ────────────────────────────────────────────────────────────────────────────
 
+# m6_ok <variable> — session list's STATE of a session with nothing wrong (texts.go stateOK).
+m6_ok() {
+    local m6_ok_text
+    m6_ok_text="$("${M3_CHECK[@]}" product-value "${M3_TEXTS}" stateOK)" || return 1
+    printf -v "$1" '%s' "${m6_ok_text}"
+}
+
 m6_check_move() {
-    local seat
+    local seat session controlled hot route reaches routed moved ok
+    m3_named session stepSessionNamed "${M6_A}" || return 1
+    m3_named controlled hotControlled || return 1
+    m3_step hot "${M3_MARK_DONE:?}" "${session}" "${controlled}" || return 1
+    m3_named route stepRoute || return 1
+    m3_named reaches routeReaches "${M6_TEAM_B}" || return 1
+    m3_step routed "${M3_MARK_DONE}" "${route}" "${reaches}" || return 1
+    m3_named moved movedText "${M6_A}" "${M6_TEAM_B}" "${M6_TEAM_A}" || return 1
+    m6_ok ok || return 1
     m6_run move 0 move "${M6_A}" "${M6_TEAM_A}" "${M6_TEAM_B}" --yes || return 1
-    m6_said move "^\\Q${M3_MARK_DONE:?}\\E session ${M6_A}: running, can be hot-controlled$" || return 1
-    m6_said move "^\\Q${M3_MARK_DONE:?}\\E route: this host reaches ${M6_TEAM_B}'s homeserver$" || return 1
-    m6_said move "^Moved: ${M6_A} is in ${M6_TEAM_B}, and no longer in ${M6_TEAM_A}\\.$" || return 1
+    m6_said move "${hot}\$" || return 1
+    m6_said move "${routed}\$" || return 1
+    m6_said move "^${moved}\$" || return 1
     seat="$(m6_desired "${M6_A}")" || return 1
     [[ "${seat}" == *"@${M6_TEAM_B}" && "${seat}" != *,* ]] || { printf '[FAIL] %s desires %s, not one seat of %s\n' "${M6_A}" "${seat}" "${M6_TEAM_B}" >&2; return 1; }
     grep -qx -- "arg=${seat}" "${M6_RECORDS}/${M6_A}" || { printf '[FAIL] the record of %s does not name %s\n' "${M6_A}" "${seat}" >&2; return 1; }
     m4_poll 20 "seat 1@${M6_TEAM_A} free" m6_seat_is "${M6_TEAM_A}" 1 free || return 1
-    m4_poll 20 "session list showing ${M6_A} as a cc session, ok" m6_list_state "${M6_A}" ok
+    m4_poll 20 "session list showing ${M6_A} as a cc session, ok" m6_list_state "${M6_A}" "${ok}"
 }
 
 m6_check_detached() {
@@ -330,34 +345,49 @@ m6_keeper_gone() {
 }
 
 m6_check_bus() {
-    local keeper seat
+    local keeper seat session no_inbound no_inbound_any restarted already ok unguarded keeper_step cc_repair
+    local record no_teams_cc record_cc
+    m3_named session stepSession || return 1
+    m3_named no_inbound ccNoInboundText "${M6_C}" "${M6_TEAM_A}" '[0-9]+' '[0-9]+' || return 1
+    m3_step no_inbound "${M3_MARK_FAILED:?}" "${session}" "${no_inbound}" || return 1
+    m3_named no_inbound_any ccNoInboundText "${M6_C}" "${M6_TEAM_A}" '[^,]+' '\N+' || return 1
+    m3_step no_inbound_any "${M3_MARK_FAILED}" "${session}" "${no_inbound_any}" || return 1
+    m3_named restarted doneJoinedNothingRestarted '\N*' '\N*' || return 1
+    m6_ok ok || return 1
+    unguarded="$("${M3_CHECK[@]}" product-value src-go/internal/teams/hot/cc.go ccUnguarded)" || return 1
+    m3_named keeper_step stepKeeper || return 1
+    m3_named cc_repair ccRepairText "${M6_C}" || return 1
+    m3_step cc_repair "${M3_MARK_FAILED}" "${keeper_step}" "${cc_repair}" || return 1
+    m3_named record stepRecord || return 1
+    m3_named no_teams_cc recordNoTeamsCC || return 1
+    m3_step record_cc "${M3_MARK_DONE:?}" "${record}" "${no_teams_cc}" || return 1
     m6_launch "${M6_C}" "" || return 1
     m6_desired_is "${M6_C}" "" || return 1
     m6_inbound "${M6_C}" false || return 1
     m6_run bus-add 1 add "${M6_C}" "${M6_TEAM_A}" --yes || return 1
-    m6_said bus-add "^\\Q${M3_MARK_FAILED:?}\\E session: ${M6_C} is in ${M6_TEAM_A} as seat [0-9]+, but it started on no team" || return 1
-    m6_said bus-add "and cc has nothing that can restart it" || return 1
-    m6_said bus-add 'Nothing restarted' no || return 1
+    m6_said bus-add "${no_inbound}\$" || return 1
+    m6_said bus-add "^${restarted}\$" no || return 1
     [[ ! -e "$(m6_membership "${M6_C}")/${M3_RELAUNCH:?}" ]] || { printf '[FAIL] a relaunch was asked of the cc session %s\n' "${M6_C}" >&2; return 1; }
     seat="$(m6_desired "${M6_C}")" || return 1
     [[ "${seat}" == *"@${M6_TEAM_A}" && "${seat}" != *,* ]] || { printf '[FAIL] %s desires %s, not one seat of %s\n' "${M6_C}" "${seat}" "${M6_TEAM_A}" >&2; return 1; }
     grep -qx -- "arg=${seat}" "${M6_RECORDS}/${M6_C}" || { printf '[FAIL] the record of %s does not name %s\n' "${M6_C}" "${seat}" >&2; return 1; }
     m6_run bus-again 1 add "${M6_C}" "${M6_TEAM_A}" --yes || return 1
-    m6_said bus-again "and cc has nothing that can restart it" || return 1
+    m6_said bus-again "${no_inbound_any}\$" || return 1
     m6_restart "${M6_C}" "${seat}" || return 1
     m6_inbound "${M6_C}" true || return 1
+    m3_named already alreadyIn "${M6_C}" "${M6_TEAM_A}" "${seat%@*}" || return 1
     m6_run bus-joined 0 add "${M6_C}" "${M6_TEAM_A}" --yes || return 1
-    m6_said bus-joined "^Nothing to do: ${M6_C} is already in ${M6_TEAM_A} as seat ${seat%@*}\\.$" || return 1
-    m4_poll 20 "session list showing ${M6_C} as a cc session, ok" m6_list_state "${M6_C}" ok || return 1
+    m6_said bus-joined "^${already}\$" || return 1
+    m4_poll 20 "session list showing ${M6_C} as a cc session, ok" m6_list_state "${M6_C}" "${ok}" || return 1
     keeper="$(m6_keeper_of "${M6_C}")" || return 1
     [[ -n "${keeper}" ]] || { printf '[FAIL] no seat keeper under the claude of %s\n' "${M6_C}" >&2; return 1; }
     kill "${keeper}" || return 1
     m4_poll 20 "the seat keeper of ${M6_C} gone" m6_keeper_gone "${M6_C}" || return 1
-    m4_poll 20 "session list saying ${M6_C} is unguarded" m6_list_state "${M6_C}" "unguarded: end it" || return 1
+    m4_poll 20 "session list saying ${M6_C} is unguarded" m6_list_state "${M6_C}" "${unguarded}" || return 1
     m6_run bus-repair 78 repair "${M6_C}" --yes || return 1
-    m6_said bus-repair "is a cc session: its seat keeper ends with its claude" || return 1
+    m6_said bus-repair "${cc_repair}\$" || return 1
     m6_run bus-remove 0 remove "${M6_C}" "${M6_TEAM_A}" --yes || return 1
-    m6_said bus-remove "^\\Q${M3_MARK_DONE:?}\\E record: no --teams \\(cc keeps --bus\\)$" || return 1
+    m6_said bus-remove "${record_cc}\$" || return 1
     grep -qx -- 'arg=--bus' "${M6_RECORDS}/${M6_C}" || { printf '[FAIL] the record of %s left the bus\n' "${M6_C}" >&2; return 1; }
     if grep -q -- '^arg=--teams' "${M6_RECORDS}/${M6_C}"; then
         printf '[FAIL] the record of %s still names a team\n' "${M6_C}" >&2
@@ -371,6 +401,13 @@ m6_check_bus() {
 # membership left on 1@acc-m6a must make D no cc session of the bus, and reserve no seat: B, a
 # live session of the checkout, still takes 1@acc-m6a.
 m6_check_reused() {
+    local session started not_on_bus refused named_other named_record
+    m3_named session stepSessionNamed "${M6_D}" || return 1
+    m3_named started startedCC || return 1
+    m3_named not_on_bus notOnBusText "${started}" '\N*' || return 1
+    m3_step refused "${M3_MARK_FAILED:?}" "${session}" "${not_on_bus}" || return 1
+    m3_named named_other namedByOther "${M6_D}" || return 1
+    m3_named named_record namedByRecord "${M6_D}" || return 1
     M6_NAMES+=("${M6_D}")
     (cd -- "${PLAN_REPO_ROOT}" && ccy-teams internal membership-init --kind=cc "${M6_D}" "${PLAN_REPO_ROOT}" "1@${M6_TEAM_A}") >/dev/null || return 1
     m6_record "${M6_D}" || return 1
@@ -381,9 +418,9 @@ m6_check_reused() {
         return 1
     fi
     m6_run reused-add 78 add "${M6_D}" "${M6_TEAM_B}" --yes || return 1
-    m6_said reused-add "^\\Q${M3_MARK_FAILED:?}\\E session ${M6_D}: it was started without --teams or --bus" || return 1
+    m6_said reused-add "${refused}\$" || return 1
     m6_run reused-claim 0 add "${M6_B}" "${M6_TEAM_A}/1" --yes || return 1
-    m6_said reused-claim "named by session ${M6_D}" no
+    m6_said reused-claim "${named_other}|${named_record}" no
 }
 
 # ── teardown ──────────────────────────────────────────────────────────────────────────────

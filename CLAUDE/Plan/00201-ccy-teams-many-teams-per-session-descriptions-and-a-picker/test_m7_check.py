@@ -373,6 +373,20 @@ class BlockTest(TempDir):
     def test_arguments_come_in_threes(self) -> None:
         self.assertEqual(run("expect-block", self.stderr(), "1", TEAM_A)[0], 64)
 
+    def test_the_head_and_seat_line_are_read_from_choose_go(self) -> None:
+        """The block's head, nouns and seat line are choose.go's named texts: a changed one is
+        followed, and a source that names none fails."""
+        choose = ('const (\n\tblockHead     = "On %d %s:"\n\tblockNounOne  = "team"\n\tblockNounMany = "teams"\n'
+                  '\tblockLine     = "- %s seat %s [%s] %s"\n)\n')
+        stderr = f"On 2 teams:\n- {TEAM_A} seat 1 [worker] {DESC_A}\n- {TEAM_B} seat 1 [coordinator] {DESC_B}\n"
+        seats = [("1", TEAM_A, DESC_A), ("1", TEAM_B, DESC_B)]
+        mc.expect_block(stderr, seats, choose)
+        with self.assertRaises(mc.Failed):
+            mc.expect_block(stderr.replace("On 2", "This session is on 2"), seats, choose)
+        with self.assertRaises(mc.Failed):
+            mc.expect_block(stderr, seats, choose.replace("blockLine", "line"))
+        mc.expect_block(pathlib.Path(self.stderr()).read_text(), seats)
+
 
 class StatusTest(TempDir):
     def status(self, *, b_trusted: bool = True, b_about: bool = True) -> str:
@@ -572,6 +586,25 @@ class SegmentTest(TempDir):
                                          ("docs/x.md", "A", [], None)):
             with self.subTest(rel=rel, name=name), self.assertRaises(mc.Failed):
                 mc.product_value(rel, name, fills, source)
+
+    def test_a_product_pattern_quotes_the_text_and_fills_each_placeholder_with_a_pattern(self) -> None:
+        """product-pattern: the named text as a Perl pattern (grep -P), its fixed parts quoted and
+        each placeholder the pattern given; a wrong count of patterns fails as product-value does."""
+        go = 'package x\nconst One = "a.b %s (c) %d"\nconst two = "x+y"\n'
+        pattern = mc.product_pattern("src-go/x.go", "One", ["[a-z]+", "[0-9]+"], go)
+        self.assertEqual(pattern, r"\Qa.b \E[a-z]+\Q (c) \E[0-9]+")
+        for text, matches in (("a.b qq (c) 12", 0), ("axb qq (c) 12", 1), ("a.b qq c 12", 1)):
+            grep = subprocess.run(["grep", "-qxP", pattern], input=text, text=True, check=False)
+            self.assertEqual(grep.returncode, matches, text)
+        self.assertEqual(mc.product_pattern("src-go/x.go", "two", source=go), r"\Qx+y\E")
+        status, out, _ = run("product-pattern", "src-go/internal/teams/hot/texts.go", "stepLine", "a", "b")
+        self.assertEqual((status, out), (0, "a\\Q: \\Eb\n"))
+        status, out, _ = run("product-pattern", "helpers/pingbus/statusline.py", "SESSIONS_DIR_TEMPLATE", "uid=[0-9]+")
+        self.assertEqual(status, 0)
+        self.assertTrue(out.endswith(r"\E[0-9]+" + "\n"), out)
+        for fills, source in ((["p"], go), (["p", "q", "r"], go), ([], 'const One = "a \\E b"\n')):
+            with self.subTest(fills=fills), self.assertRaises(mc.Failed):
+                mc.product_pattern("src-go/x.go", "One", fills, source)
 
     def test_the_label_is_read_from_the_go_drawer(self) -> None:
         """The label is the Go statusline's `label` constant and the indent its display width:

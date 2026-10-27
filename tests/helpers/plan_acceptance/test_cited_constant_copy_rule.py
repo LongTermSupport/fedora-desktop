@@ -231,6 +231,14 @@ def checker_files() -> dict[str, str]:
 #: (after a `^`); or as a whole path, not the head of a longer name (`/var/lib/agent-bus`, and
 #: under it, but not `/var/lib/agent-bus-applied`).
 ANYWHERE, FILE_NAME, DIRECTORY, LINE_START, PATH = "anywhere", "file name", "directory", "line start", "path"
+#: ccy-teams' hot step lines and messages (src-go/internal/teams/hot/texts.go) Plan 00203's M3,
+#: M4 and M6 judge; each is matched anywhere, by its fixed parts.
+HOT_TEXTS = (
+    "recordNoTeamsCC", "membershipRemoved", "hotControlled", "sessionBusy", "notOnBusText", "startedCC",
+    "againCC", "againCcy", "teamDown", "seatFree", "endedDuringAdd", "namedByOther", "namedByRecord",
+    "relaunchesOnce", "relaunchedOnce", "alreadyIn", "doneJoinedNothingRestarted", "routeReaches",
+    "ccNoInboundText", "ccRepairText", "movedText", "keeperRunningAgain", "stateUnguarded", "rebaselined",
+)
 #: The owned values, as (product file, constant, kind). The value is read from the file.
 OWNED: tuple[tuple[str, str, str], ...] = (
     ("helpers/pingbus/seat.py", "SESSION_HOME", ANYWHERE),
@@ -254,6 +262,8 @@ OWNED: tuple[tuple[str, str, str], ...] = (
     ("helpers/agent_bus/declare.py", "PIN_FILE", ANYWHERE),
     ("src-go/internal/teams/hot/cc.go", "ccUnguarded", ANYWHERE),
     ("src-go/internal/teams/hot/remove.go", "removedHomeserverDown", ANYWHERE),
+    *(("src-go/internal/teams/hot/texts.go", name, ANYWHERE) for name in HOT_TEXTS),
+    ("src-go/internal/teams/choose/choose.go", "blockHead", ANYWHERE),
     ("helpers/pingbus/cli.py", "QUESTION_DUPLICATE", ANYWHERE),
 )
 #: A text constant with placeholders (`{name}` or a `%` verb) is matched by each fixed part

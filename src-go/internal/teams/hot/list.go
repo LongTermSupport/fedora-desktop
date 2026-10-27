@@ -225,7 +225,7 @@ func stateWord(name string, alive bool, aliveErr, seatsErr, reportErr error, dow
 	case aliveErr != nil:
 		return "its processes cannot be read: " + lastLine(aliveErr)
 	case !alive:
-		return "unguarded: ccy-teams session repair " + name
+		return fmt.Sprintf(stateUnguarded, name)
 	case seatsErr != nil:
 		return "its seats cannot be read: " + lastLine(seatsErr)
 	case reportErr != nil:
@@ -235,7 +235,7 @@ func stateWord(name string, alive bool, aliveErr, seatsErr, reportErr error, dow
 	case len(unheld) > 0:
 		return strings.Join(unheld, ",") + " not held"
 	}
-	return "ok"
+	return stateOK
 }
 
 // checkoutSeats is agent-bus seat list in a checkout, read once per list.
@@ -411,7 +411,7 @@ func (x *Hot) repair(ctx context.Context, t *target, r request) term.ExitCode {
 		unheld := x.unheld(ctx, t)
 		if err == nil && alive && len(unheld) == 0 {
 			n := len(t.desired.Seats)
-			x.mark(markDone, fmt.Sprintf("keeper: running again, %s held (%.1f s)", plural(n, "seat"), x.elapsed(start)))
+			x.step(markDone, stepKeeper, fmt.Sprintf(keeperRunningAgain, plural(n, "seat"), x.elapsed(start)))
 			x.say("Repaired. " + t.session + "'s seat keeper is running again.")
 			return term.ExitOK
 		}

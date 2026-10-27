@@ -37,6 +37,8 @@
 # or a No, and every question of remove, restore and End) now wait 150 ms for keys still on their
 # way before discarding them, so a Down sent just after Esc no longer reaches the next question.
 # No CCY version change (the launcher's front does not use the hold). Then Task 12.5's host check.
+# It also builds Plan 00201 Task 2.24's ccy-teams, whose hot step lines and launch block are named
+# texts the plan checkers read (no byte printed changes, so no host check of its own).
 playbooks/imports/play-claude-yolo.yml
 
 # Plan 00192 Task 3.6: run.bash --changed now counts the Go packages a play builds from, so

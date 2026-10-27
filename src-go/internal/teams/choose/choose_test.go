@@ -2,6 +2,7 @@ package choose
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -485,5 +486,19 @@ func TestDescribeNothingAndATeamAlone(t *testing.T) {
 	h.c.Describe(t.Context(), []string{"alpha"})
 	if h.stdout() != "alpha\n" {
 		t.Fatalf("stdout %q", h.stdout())
+	}
+}
+
+// TestBlockTextsKeepTheirBytes: the launch block's head and seat line, named for Plan 00201's
+// m7_check (Task 2.24), are the lines they were before they were named.
+func TestBlockTextsKeepTheirBytes(t *testing.T) {
+	for _, c := range []struct{ got, want string }{
+		{fmt.Sprintf(blockHead, 1, blockNounOne), "This session is on 1 team:"},
+		{fmt.Sprintf(blockHead, 2, blockNounMany), "This session is on 2 teams:"},
+		{fmt.Sprintf(blockLine, "a    ", "1", "worker", "about"), "  a      seat 1 (worker)  about"},
+	} {
+		if c.got != c.want {
+			t.Errorf("got %q, want %q", c.got, c.want)
+		}
 	}
 }

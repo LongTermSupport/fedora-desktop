@@ -54,7 +54,7 @@ func (x *Hot) setRoleTo(ctx context.Context, team, handle, want string, demote b
 		})
 	}
 	steps = append(steps, roles.Step{Handle: handle, From: member.Role, To: want})
-	done, err := x.Roles.Change(ctx, team, func(line string) { x.mark(markDone, "role: "+line) }, steps...)
+	done, err := x.Roles.Change(ctx, team, func(line string) { x.step(markDone, stepRole, line) }, steps...)
 	if err != nil {
 		x.mark(markFailed, "role: "+lastLine(err))
 		return noUndo, term.ExitFailure, false
@@ -64,7 +64,7 @@ func (x *Hot) setRoleTo(ctx context.Context, team, handle, want string, demote b
 			x.mark(markFailed, "role: not put back ("+lastLine(back)+"): ccy-teams, the member's menu, sets it")
 			return
 		}
-		x.mark(markDone, "role: put back as it was")
+		x.step(markDone, stepRole, "put back as it was")
 	}
 	return undo, term.ExitOK, true
 }
@@ -243,9 +243,9 @@ func (x *Hot) handleOf(ctx context.Context, t *target, team, seat string) string
 // roleWords is a role as a phrase: alpha's coordinator, a worker in alpha.
 func roleWords(team, role string) string {
 	if role == agentbus.RoleCoordinator {
-		return team + "'s coordinator"
+		return fmt.Sprintf(coordinatorOf, team)
 	}
-	return "a worker in " + team
+	return fmt.Sprintf(workerIn, team)
 }
 
 // waitTold waits for the session's report to show it was told its role (H25, H12); changed is
@@ -257,11 +257,11 @@ func (x *Hot) waitTold(ctx context.Context, t *target, team, handle, role string
 		rep, err := membership.ReadReport(t.checkout(), t.session)
 		if err == nil && rep.ToldRole(team, handle) == role {
 			if !changed && first {
-				x.mark(markSkip, "session: told it is "+roleWords(team, role))
+				x.step(markSkip, stepSession, fmt.Sprintf(toldIs, roleWords(team, role)))
 				x.say("Nothing to do: " + handle + " is " + roleWords(team, role) + ", and the session knows it.")
 				return term.ExitOK
 			}
-			x.mark(markDone, fmt.Sprintf("session: told it is %s (%.1f s)", roleWords(team, role), x.elapsed(start)))
+			x.step(markDone, stepSession, fmt.Sprintf(toldIs+" (%.1f s)", roleWords(team, role), x.elapsed(start)))
 			return term.ExitOK
 		}
 		if x.Now().Sub(start) >= x.Waits.Apply || x.ended(ctx, t) {
@@ -296,7 +296,7 @@ func (x *Hot) leaveRole(ctx context.Context, r request, team, handle string, up 
 	}
 	m, found := roster.Member(handle)
 	if !found || m.Role != agentbus.RoleCoordinator {
-		x.mark(markDone, "role: "+agentbus.Label(handle, "")+" is a worker")
+		x.step(markDone, stepRole, agentbus.Label(handle, "")+" is a worker")
 		return nil, "", term.ExitOK, true
 	}
 	who := agentbus.Label(handle, "")

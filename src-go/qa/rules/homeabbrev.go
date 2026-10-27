@@ -105,6 +105,9 @@ func tildeConstant(pass *analysis.Pass, expr ast.Expr) (string, bool) {
 		s := constant.StringVal(tv.Value)
 		return s, strings.HasPrefix(s, "~")
 	}
+	if tv.Value.Kind() != constant.Int {
+		return "", false
+	}
 	if v, exact := constant.Int64Val(tv.Value); exact && v == '~' {
 		return "~", true
 	}

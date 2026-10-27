@@ -44,6 +44,8 @@ statusline.py). Commands
   status-line-names                  the Go status line's teams row head, then its inner-only variable (statusline.go)
   product-value FILE NAME [FILL...]  any named text of this checkout's helpers/ module or src-go/ file (NAME[key] for a
                                      table's entry), placeholders filled: key=value for {key}, in order for Go %s/%d
+  product-pattern FILE NAME [PATTERN...]  the same text as a grep -P pattern: fixed parts quoted, each placeholder
+                                     the PATTERN given (key=PATTERN for {key}, in order for Go)
   expect-session-settings SETTINGS   a seated ccy session's own settings.json: inbound accepted, the seated status line this checkout's seat.py writes
   session-status-line PROC           IN THE SESSION'S CONTAINER: the status line its claude draws, the payload on stdin
   expect-segment OUT TEAMS           the status line printed the session's own line, then 👥 TEAMS on rows of its own
@@ -421,22 +423,30 @@ def expect_list_row(
         )
 
 
-def expect_block(stderr: str, seats: Sequence[tuple[str, str, str]]) -> None:
-    """S-C4: "This session is on N teams:" then one line per seat, team, seat, role, description."""
+#: ccy-teams' launch block, whose head and seat line are read from its named texts.
+CHOOSE_GO = "src-go/internal/teams/choose/choose.go"
+
+
+def expect_block(stderr: str, seats: Sequence[tuple[str, str, str]], source: str | None = None) -> None:
+    """S-C4: the head ("This session is on N teams:") then one line per seat: team, seat, role,
+    description, each as choose.go's named texts (`source`, default the file) print them."""
     lines = stderr.splitlines()
-    noun = "team" if len(seats) == 1 else "teams"
-    head = f"This session is on {len(seats)} {noun}:"
+    noun = product_value(CHOOSE_GO, "blockNounOne" if len(seats) == 1 else "blockNounMany", source=source)
+    head = product_value(CHOOSE_GO, "blockHead", [str(len(seats)), noun], source)
     if head not in lines:
         raise Failed(f"no launch block line {head!r}")
     start = lines.index(head) + 1
     width = max(len(team) for _, team, _ in seats)
+    fixed, _ = _product_parts(CHOOSE_GO, "blockLine", ["", "", "", ""], source)
+    if len(fixed) != 5:
+        raise Failed(f"{CHOOSE_GO} blockLine has not the four fields team, seat, role, description: {fixed!r}")
     problems = []
     for offset, (seat, team, description) in enumerate(seats):
         got = lines[start + offset] if start + offset < len(lines) else ""
+        lead, after_team, after_seat, after_role, tail = (re.escape(part) for part in fixed)
         want = re.compile(
-            re.escape(f"  {team:<{width}}  seat {seat} (")
-            + r"[^()]+"
-            + re.escape(f")  {description}")
+            lead + re.escape(f"{team:<{width}}") + after_team + re.escape(seat) + after_seat
+            + r"[^()\[\]]+" + after_role + re.escape(description) + tail
         )
         if not want.fullmatch(got):
             problems.append(
@@ -685,6 +695,34 @@ def product_value(rel: str, name: str, fills: Sequence[str] = (), source: str | 
     return value
 
 
+_SENTINEL_RE = re.compile("\x00([0-9]+)\x00")
+
+
+def _product_parts(rel: str, name: str, patterns: Sequence[str], source: str | None) -> tuple[list[str], list[str]]:
+    """The named text split at its placeholders: its fixed parts (one more than the placeholders)
+    and the pattern for each placeholder, in the text's order. A Python `{key}` takes the
+    `key=PATTERN` given for it; a Go verb the next PATTERN."""
+    if rel.endswith(".py"):
+        pairs = [pattern.partition("=") for pattern in patterns]
+        fills = [f"{key}=\x00{i}\x00" for i, (key, _, _) in enumerate(pairs)]
+        regexes = [regex for _, _, regex in pairs]
+    else:
+        fills = [f"\x00{i}\x00" for i in range(len(patterns))]
+        regexes = list(patterns)
+    pieces = _SENTINEL_RE.split(product_value(rel, name, fills, source))
+    return pieces[0::2], [regexes[int(i)] for i in pieces[1::2]]
+
+
+def product_pattern(rel: str, name: str, patterns: Sequence[str] = (), source: str | None = None) -> str:
+    """A named text of this checkout's product (as product_value reads it) as a Perl pattern for
+    `grep -P`: each fixed part quoted (`\\Q...\\E`), each placeholder the pattern given for it."""
+    fixed, regexes = _product_parts(rel, name, patterns, source)
+    if any(r"\E" in part for part in fixed):
+        raise Failed(f"{rel} {name} holds \\E, which a quoted part cannot")
+    quoted = [f"\\Q{part}\\E" if part else "" for part in fixed]
+    return "".join(q + r for q, r in zip(quoted, [*regexes, ""], strict=True))
+
+
 def status_line_names(source: str | None = None) -> list[str]:
     """The Go status line's teams row head (segment_label) and the variable that has it draw
     only the bus segment (statusline.go's innerVar)."""
@@ -920,6 +958,7 @@ COMMANDS: dict[str, tuple[int, Callable[[Sequence[str]], int | None]]] = {
     "membership-dirs": (0, lambda a: _lines(membership_dirs())),
     "status-line-names": (0, lambda a: _lines(status_line_names())),
     "product-value": (-1, lambda a: _print(product_value(a[0], a[1], a[2:])) if len(a) >= 2 else _usage(2)),
+    "product-pattern": (-1, lambda a: _print(product_pattern(a[0], a[1], a[2:])) if len(a) >= 2 else _usage(2)),
     "expect-session-settings": (1, lambda a: expect_session_settings(_json_file(a[0]))),
     "session-status-line": (
         1,

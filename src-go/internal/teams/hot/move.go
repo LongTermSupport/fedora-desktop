@@ -2,6 +2,7 @@ package hot
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
@@ -26,7 +27,7 @@ func (x *Hot) move(ctx context.Context, t *target, r request) term.ExitCode {
 		x.say(t.session + " is in " + r.to + ", and the move out of " + r.team + " is not finished: run the same move again to finish it.")
 		return code
 	}
-	x.say("Moved: " + t.session + " is in " + r.to + ", and no longer in " + r.team + ".")
+	x.say(fmt.Sprintf(movedText, t.session, r.to, r.team))
 	return term.ExitOK
 }
 
