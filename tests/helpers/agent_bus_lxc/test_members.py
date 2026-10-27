@@ -1353,6 +1353,125 @@ class StoppedAbsentTest(StoppedFixture):
         self.assertIn("not parked", self.reports[0].why)
 
 
+class NeverJoinedAbsentTest(Fixture):
+    """Plan 00177 Task 9.9: an entry `ccy-teams lxc-add` wrote (no host, no seat) whose member
+    never joined (gh missing, so no bundle was made) is taken off by `state: absent`. With no
+    bundle and no record, its handle is looked for in the team: nothing to park when no active
+    member of its `<repo>+<host>.lxc` is unheld; refused, naming the handle, when one may be its."""
+
+    def derived(self, **overrides: object) -> dict:
+        return entry(**{"host": None, "seat": None, **overrides})
+
+    def never_joined(self) -> None:
+        self.guest.gh_ok = False
+        with self.assertRaisesRegex(members.MemberError, "gh is required"):
+            self.run_phase("present", [self.derived()])
+        self.guest.gh_ok = True
+
+    def test_a_member_that_never_joined_leaves_with_nothing_parked(self) -> None:
+        self.never_joined()
+        self.assertEqual(self.run_phase("absent", [self.derived(state="absent")]), [])
+        self.assertNotIn("park-member", [call[0] for call in self.bus.calls])
+        self.assertEqual(self.bus.members, {})
+        self.assertEqual((self.item()["status"], self.item()["handle"]), ("left", None))
+        self.assertEqual(self.reports, [])
+        self.assertEqual(self.reads, [("devbox", "agent", CHECKOUT)])
+        self.assertEqual(self.run_phase("absent", [self.derived(state="absent")]), [])
+
+    def test_its_team_listed_in_the_env_file_is_still_taken_out(self) -> None:
+        self.never_joined()
+        self.env_file().parent.mkdir(parents=True)
+        self.env_file().write_text(f"PINGBUS_TEAMS={TEAM},{OTHER_TEAM}\n")
+        changed = self.run_phase("absent", [self.derived(state="absent")])
+        self.assertIn(f"agent@devbox: {members.ENV_PATH} no longer lists {TEAM}", changed)
+        self.assertEqual(self.env_file().read_text(), f"PINGBUS_TEAMS={OTHER_TEAM}\n")
+
+    def test_a_parked_member_or_another_repo_or_host_is_not_its_handle(self) -> None:
+        self.bus.members.update({"proj.1+box.lxc": ["worker", True], "other.1+box.lxc": ["worker", False],
+                                 "proj.1+elsewhere.lxc": ["worker", False], "proj.1+box.podman": ["worker", False]})
+        self.never_joined()
+        self.run_phase("absent", [self.derived(state="absent")])
+        self.assertNotIn("park-member", [call[0] for call in self.bus.calls])
+
+    def test_an_active_member_no_entry_holds_may_be_its_own_so_it_is_refused(self) -> None:
+        self.bus.members["proj.1+box.lxc"] = ["worker", False]
+        self.never_joined()
+        with self.assertRaisesRegex(members.MemberError,
+                                    r"agent@devbox: no bundle.*proj\.1\+box\.lxc is an active member.*seat: 1"):
+            self.run_phase("absent", [self.derived(state="absent")])
+        self.assertFalse(self.bus.members["proj.1+box.lxc"][1])
+
+    def test_the_seat_the_refusal_names_parks_it_with_the_host_derived(self) -> None:
+        self.bus.members["proj.1+box.lxc"] = ["worker", False]
+        changed = self.run_phase("absent", [self.derived(state="absent", seat="1")])
+        self.assertEqual(changed, [f"parked proj.1+box.lxc in team {TEAM}"])
+        self.assertTrue(self.bus.members["proj.1+box.lxc"][1])
+
+    def test_a_lost_bundle_is_parked_by_the_handle_the_record_holds(self) -> None:
+        # The present phase's refusal says: set state: absent and run the play, which parks it.
+        self.run_phase("present", [self.derived()])
+        shutil.rmtree(self.bundle_dir())
+        with self.assertRaisesRegex(members.MemberError, "state: absent"):
+            self.run_phase("present", [self.derived()])
+        changed = self.run_phase("absent", [self.derived(state="absent")])
+        self.assertEqual(changed[0], f"parked proj.1+box.lxc in team {TEAM}")
+        self.run_phase("present", [self.derived()])
+        self.assertEqual(sorted(self.bus.members), ["proj.1+box.lxc"])
+        self.assertFalse(self.bus.members["proj.1+box.lxc"][1])
+
+    def test_a_checkout_that_cannot_be_read_fails(self) -> None:
+        self.never_joined()
+        self.unreadable = "container devbox is unprivileged"
+        with self.assertRaisesRegex(members.MemberError, "unprivileged"):
+            self.run_phase("absent", [self.derived(state="absent")])
+
+    def test_a_destroyed_container_is_judged_by_its_repo(self) -> None:
+        self.never_joined()
+        self.state = None
+        with self.assertRaisesRegex(members.MemberError, "repo"):
+            self.run_phase("absent", [self.derived(state="absent")])
+        self.assertEqual(self.run_phase("absent", [self.derived(state="absent", repo="proj")]), [])
+        self.bus.members["proj.1+box.lxc"] = ["worker", False]
+        with self.assertRaisesRegex(members.MemberError, r"proj\.1\+box\.lxc is an active member.*host: box"):
+            self.run_phase("absent", [self.derived(state="absent", repo="proj")])
+        self.assertFalse(self.bus.members["proj.1+box.lxc"][1])
+
+
+class NeverJoinedBesideAJoinedOneTest(Fixture):
+    """Task 9.9: the seat another entry's record holds is that entry's, never the leaver's."""
+
+    ENTRIES = SecondContainerTest.ENTRIES
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.guests = {"container-a": FakeGuest(self.tmp / "guest-a"),
+                       "container-b": FakeGuest(self.tmp / "guest-b")}
+        for guest in self.guests.values():
+            guest.suggest = "--repo=proj-a --host=box --type=lxc"
+        self.remote_config = '[remote "origin"]\n\turl = https://github.com/example-org/proj-a.git\n'
+
+    def host(self) -> members.Host:
+        return dataclasses.replace(super().host(), guest=lambda name: self.guests[name])
+
+    def test_the_other_containers_seat_is_left_alone(self) -> None:
+        self.run_phase("present", self.ENTRIES[:1])
+        self.guests["container-b"].gh_ok = False
+        with self.assertRaisesRegex(members.MemberError, "gh is required"):
+            self.run_phase("present", self.ENTRIES)
+        leaving = [self.ENTRIES[0], {**self.ENTRIES[1], "state": "absent"}]
+        self.assertEqual(self.run_phase("absent", leaving), [])
+        self.assertEqual(self.bus.members, {"proj-a.1+box.lxc": ["worker", False]})
+        self.assertEqual(self.run_phase("present", leaving), [])
+
+    def test_without_the_record_the_other_containers_seat_is_refused_not_parked(self) -> None:
+        self.run_phase("present", self.ENTRIES[:1])
+        self.records.clear()
+        leaving = [self.ENTRIES[0], {**self.ENTRIES[1], "state": "absent"}]
+        with self.assertRaisesRegex(members.MemberError, r"proj-a\.1\+box\.lxc is an active member"):
+            self.run_phase("absent", leaving)
+        self.assertFalse(self.bus.members["proj-a.1+box.lxc"][1])
+
+
 class MemberRecordTest(StoppedFixture):
     """L8: what the play last found for each entry, read by ccy-teams."""
 

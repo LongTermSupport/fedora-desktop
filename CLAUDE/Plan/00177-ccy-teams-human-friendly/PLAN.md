@@ -168,16 +168,17 @@ are too, by the same route.
   at members.py's "gh is required and must be logged in" (78) and lxc-add says "declared … but
   not joined". Left for the owner: gh installed and logged in, in a real container; then the
   join, the agent start and its pingbus check. Finding: Task 9.9.
-- [ ] ⬜ **Task 9.9**: A member lxc-add declared that never joined (no bundle, as when gh is
-  missing) cannot be taken off: after `declare lxc-remove` (state: absent, the board's own
-  hint), `ccy-teams remove <team>` fails in "Take the LXC members declared absent off their
-  teams" with 78, "no bundle in the container names its handle, and the entry leaves out its
-  host or seat" (`members.py` `_absent_one`); lxc-add never writes host or seat, and
-  `lxc-add --update` refuses once the team is absent. The team is left declared absent but
-  running, and every `play-agent-bus.yml` run is blocked by a throwaway member (host agent,
-  27-10-27; it got through by stopping the container). Fix test first: lxc-add records the
-  derived host and seat on the entry, or the absent path parks a never-joined member by
-  derivation (nothing to park when no bundle was ever made).
+- [ ] 🔄 **Task 9.9**: A member lxc-add declared that never joined (no bundle, as when gh is
+  missing) could not be taken off: `state: absent` failed in `members.py` `_absent_one` with
+  "the entry leaves out its host or seat", blocking every `play-agent-bus.yml` run (host agent,
+  27-10-27). Fixed in the absent path (option 1; lxc-add still writes no host or seat, Task
+  9.7's derivation stays the play's): with no bundle, the member record's handle is parked;
+  with no record, the `<repo>+<host>` is derived from the checkout (or the entry's `repo` for a
+  destroyed container) and the team searched: no active unheld member of it means nothing to
+  park, one is refused by name with the `seat` to set. A present member that cannot join (gh)
+  failing every apply of its team is by design. Red 10, green 167.
+  [Report](subagent-reports/261027-task-9-9.md). Host check: lxc-add a throwaway container
+  without gh, `declare lxc-remove`, then `ccy-teams remove <team>` passes with nothing parked.
 - [x] ✅ **Task 9.6**: The review of `lxc-add` answered, F1 to F9.
   [Full text](DONE-phases.md#phase-9-the-done-tasks-96-to-98).
 - [x] ✅ **Task 9.7**: The handle is derived from the repository (`helpers/agent_bus_lxc/derive.py`),

@@ -733,6 +733,28 @@ def known_handle(member: Member, record: Mapping | None) -> str | None:
     return item["handle"]
 
 
+def others_held(record: Mapping | None, member: Member) -> set[str]:
+    """The handles the member record gives the team's other entries (other container or user)."""
+    items = record.get("members") if isinstance(record, Mapping) else None
+    return {item["handle"] for item in (items if isinstance(items, list) else ())
+            if isinstance(item, Mapping) and isinstance(item.get("handle"), str)
+            and (item.get("container"), item.get("user")) != (member.container, member.user)}
+
+
+def unheld_handles(listed: Mapping[str, tuple[str, bool]], repo: str, host: str | None, seat: str | None,
+                   others: Collection[str]) -> list[str]:
+    """The team's active LXC members of `repo` (and of `host` and `seat`, where known) that no
+    other entry holds: the handles an absent entry with no bundle and no record may hold."""
+    found = []
+    for handle, (_role, parked) in listed.items():
+        held = protocol.parse_handle(handle)
+        if parked or held is None or handle in others or held.type != MEMBER_TYPE or held.repo != repo:
+            continue
+        if host in (None, held.host) and seat in (None, held.seat):
+            found.append(handle)
+    return sorted(found)
+
+
 def with_handle(member: Member, handle: str) -> Member:
     """The entry with the host, seat and repo its known handle gives: a seat that is claimed."""
     held = protocol.parse_handle(handle)
@@ -1334,6 +1356,48 @@ def _absent_held_back(host: Host, member: Member, state: str, team_runs: bool, r
     return Seen(member, DEFERRED, held, f"{where}: {held} is parked in team {member.team}; {later}")
 
 
+def _unbundled_handle(host: Host, member: Member, state: str | None, guest, home: str | None,
+                      record: Mapping | None, listed: Mapping[str, tuple[str, bool]]) -> str | None:
+    """The handle of an absent entry whose container holds no bundle for the team and whose
+    handle this host has no record of. An entry giving host and seat names it; otherwise its
+    `<repo>` and `<host>` are derived from the checkout (or taken from the entry) and the team is
+    searched: None, nothing to park, when no active member of them is unheld (it never joined);
+    refused when one is, since it may be this container's (a lost bundle) or another's."""
+    if member.host is not None and member.seat is not None:
+        if member.repo is None and home is None:
+            raise MemberError(f"{member.label}: no user {member.user} in the container to run "
+                              "suggest-handle as: add repo: <repo> to the entry")
+        return member.handle(member.repo if member.repo is not None else
+                             registry.normalise_repo(_suggest(guest, member, home)))
+    repo, where = member.repo, member.host
+    if state is not None and member.checkout is not None:
+        try:
+            identity = derive.identity_of(derive.parse_probe(host.read_checkout(member.container, member.user,
+                                                                                member.checkout)))
+        except derive.DeriveError as exc:
+            raise MemberError(f"{member.label} in team {member.team}: {exc}") from None
+        if repo is not None and repo != identity.repo:
+            raise MemberError(f"{member.label} in team {member.team}: the entry says repo: {repo}, and its "
+                              f"checkout's origin gives {identity.repo}")
+        repo, where = identity.repo, where or identity.host
+    if repo is None:
+        raise MemberError(f"{member.label}: no bundle in the container names its handle: add repo: <repo> "
+                          "to the entry")
+    if member.seat is not None and where is not None:
+        return dataclasses.replace(member, host=where).handle(repo)
+    candidates = unheld_handles(listed, repo, where, member.seat, others_held(record, member))
+    if not candidates:
+        return None
+    named = (f"{candidates[0]} is an active member" if len(candidates) == 1
+             else f"{', '.join(candidates)} are active members")
+    fixes = " or ".join(("" if where is not None else f"host: {protocol.parse_handle(h).host} and ")
+                        + f"seat: {protocol.parse_handle(h).seat}" for h in candidates)
+    raise MemberError(f"{member.label}: no bundle in the container names its handle and this host has no "
+                      f"record of it, and {named} of team {member.team} that no entry holds: it may be this "
+                      "container's (its bundle lost) or another's joined by hand, so nothing is parked "
+                      f"silently. To park the one that is its, set {fixes} on the entry and run the play again")
+
+
 def _absent_one(host: Host, member: Member, teams_present: Sequence[str],
                 emit: Callable[[str], None], record: Mapping | None = None) -> Seen:
     team_runs = host.team_active(member.team)
@@ -1356,17 +1420,13 @@ def _absent_one(host: Host, member: Member, teams_present: Sequence[str],
         if home is not None:
             found, env = _observe(guest, member, home)
     if team_runs:
+        listed = parse_list(host.agent_bus(["list", member.team]).decode())
         held = bundle_handle(found.member) if found.member is not None else None
         if held is None:
-            if member.host is None or member.seat is None:
-                raise MemberError(f"{member.label}: no bundle in the container names its handle, and the entry "
-                                  "leaves out its host or seat: set both on the entry to park it")
-            if member.repo is None and home is None:
-                raise MemberError(f"{member.label}: no user {member.user} in the container to run "
-                                  "suggest-handle as: add repo: <repo> to the entry")
-            held = member.handle(member.repo if member.repo is not None else
-                                 registry.normalise_repo(_suggest(guest, member, home)))
-        registered = parse_list(host.agent_bus(["list", member.team]).decode()).get(held)
+            held = known_handle(member, record)
+        if held is None:
+            held = _unbundled_handle(host, member, state, guest, home, record, listed)
+        registered = listed.get(held) if held is not None else None
     else:
         held, registered = None, None
     plan = absent_plan(found, registered, team_runs)
