@@ -89,6 +89,9 @@ KEEPALIVE_INTERVAL = 5.0
 PROGRESS_INTERVAL = 1.0
 DRAIN_POLL_INTERVAL = 0.5
 DRAIN_GRACE_SECONDS = 10  # beyond the server's own drain deadline
+# The magic a pre-buffer capture starts with when it is a container, not raw PCM (the
+# server's CONTAINER_MAGIC; the two are separate executables with no shared module)
+CONTAINER_MAGIC = {b".snd": "AU", b"RIFF": "WAV", b"FORM": "AIFF", b"fLaC": "FLAC", b"OggS": "Ogg"}
 MIC_CLOSE_SECONDS = 5  # the server's longest wait for pw-record to close (3 s TERM + 2 s KILL)
 NOTIFY_MS = 2000  # a routine notification's lifetime
 SERVER_REPLY_TIMEOUT = 10  # STOP closes the microphone before it replies (up to ~5 s)
@@ -2131,10 +2134,12 @@ def run_prebuffered_streaming(args, stop):
     log("Starting pw-record immediately (pre-buffering enabled)")
 
     try:
-        # Start pw-record to stdout pipe: 16000 Hz, mono, S16_LE format
-        # This is the format RealtimeSTT expects for feed_audio()
+        # Start pw-record to stdout pipe: raw 16000 Hz, mono, S16_LE, the format
+        # RealtimeSTT expects for feed_audio(). Without --raw pw-record 1.6.10 writes
+        # a Sun AU container (big-endian samples) to stdout
         pw_record_cmd = [
             "pw-record",
+            "--raw",
             "--rate", "16000",
             "--channels", "1",
             "--format", "s16",
@@ -2153,6 +2158,16 @@ def run_prebuffered_streaming(args, stop):
         chunk_size = 1024 * 2  # 1024 samples * 2 bytes per sample (S16_LE)
         model_ready = threading.Event()
         model_error = None
+
+        # The first chunk is checked before any audio can reach feed_audio(): a
+        # container stream read as raw PCM is noise the model writes down as words
+        first_chunk = audio_process.stdout.read(chunk_size)
+        container = CONTAINER_MAGIC.get(first_chunk[:4])
+        if container is not None:
+            raise RuntimeError(f"pw-record wrote a {container} container, "
+                               "not raw 16 kHz s16 PCM; the capture command needs --raw")
+        if first_chunk:
+            audio_buffer.append(first_chunk)
 
         def load_model_thread():
             """Load Whisper model in background thread."""

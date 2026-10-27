@@ -408,6 +408,71 @@ class FailureTest(SessionCase):
         self.assert_failed(p, "journal")
 
 
+# What pw-record 1.6.10 writes first to stdout without --raw (Plan 00229): a Sun AU header
+# (".snd", header size 24, unknown length, 16-bit linear PCM, 16000 Hz, 1 channel), whose
+# big-endian samples read as raw little-endian PCM are loud noise that Whisper wrote down as
+# "so so so"; and a WAV header, the other container it can write.
+AU_HEADER_HEX = "2e736e64" "00000018" "ffffffff" "00000003" "00003e80" "00000001"
+WAV_HEADER_HEX = ("52494646" "ffffffff" "57415645" "666d7420" "10000000" "0100" "0100"
+                  "803e0000" "007d0000" "0200" "1000" "64617461" "ffffffff")
+
+
+class CaptureFormatTest(SessionCase):
+    def assert_refused_container(self, header_hex, name):
+        self.start(env={"STUB_HEADER_HEX": header_hex})
+        p = self.finished()
+        self.assertEqual(p["status"], "failed")
+        self.assertIn(name, p["error"])
+        self.assertIn("raw", p["error"], "the error should say raw PCM was expected")
+        self.assertEqual(self.transcriber.calls, [], "a container stream must never reach the model")
+
+    def test_an_au_stream_fails_the_session_and_names_it(self):
+        self.assert_refused_container(AU_HEADER_HEX, "AU")
+
+    def test_a_wav_stream_fails_the_session_and_names_it(self):
+        self.assert_refused_container(WAV_HEADER_HEX, "WAV")
+
+    def test_raw_pcm_is_transcribed(self):
+        s = self.start()
+        self.mic_capturing()
+        s.stop("stop requested")
+        self.assertEqual(self.finished()["status"], "done")
+        self.assertNotEqual(self.transcriber.calls, [])
+
+
+def reaped(pid):
+    """The child is gone from the process table (running or defunct, it is still listed),
+    read without waiting for it: a poll() here would reap it and hide the zombie the
+    session left."""
+    return not pathlib.Path(f"/proc/{pid}").exists()
+
+
+class ReapTest(SessionCase):
+    """The capture child is waited for on every way a dictation ends: each dictation left a
+    defunct pw-record behind (Plan 00229)."""
+
+    def test_the_microphone_is_reaped_when_a_dictation_is_done(self):
+        s = self.start()
+        self.mic_capturing()
+        s.stop("stop requested")
+        self.assertEqual(self.finished()["status"], "done")
+        pid = s._proc.pid
+        self.assertTrue(self.wait_until(lambda: reaped(pid)), "pw-record was left defunct")
+
+    def test_the_microphone_is_reaped_when_a_dictation_fails(self):
+        s = self.start(env={"STUB_HEADER_HEX": AU_HEADER_HEX})
+        self.assertEqual(self.finished()["status"], "failed")
+        pid = s._proc.pid
+        self.assertTrue(self.wait_until(lambda: reaped(pid)), "pw-record was left defunct")
+
+    def test_the_microphone_is_reaped_when_a_dictation_is_aborted(self):
+        s = self.start()
+        self.mic_capturing()
+        s.abort()
+        pid = s._proc.pid
+        self.assertTrue(self.wait_until(lambda: reaped(pid)), "pw-record was left defunct")
+
+
 class SafetyStopTest(SessionCase):
     def test_heartbeat_loss_stops_the_microphone(self):
         self.start(heartbeat_seconds=0.3)

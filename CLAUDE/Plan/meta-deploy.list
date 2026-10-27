@@ -32,3 +32,10 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Plan 00229 Task 1.4, URGENT (dictation broken since pipewire 1.6.10): expected to pick up
+# only play-speech-to-text.yml, the one play whose inputs changed since the 5340d3ac7 run. It
+# deploys wsi-stream and wsi-stream-server, which now record with pw-record --raw, fail a
+# dictation whose stream starts with a container header, and reap pw-record; the server is
+# restarted by the play. Then try a dictation: the words spoken should be pasted, not "so so so".
+changed-plays

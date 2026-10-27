@@ -303,3 +303,58 @@ class OtherAttribute:
         self.count = 0
         # ok: completion-published-before-cleanup
         self.path.unlink(missing_ok=True)
+
+
+# The originating instance in wsi-stream-server: read as raw s16 PCM, it was an AU stream.
+# ruleid: pw-record-stdout-not-raw
+CAPTURE_CMD = ["pw-record", "--rate", "16000", "--channels", "1", "--format", "s16", "-"]
+
+# ok: pw-record-stdout-not-raw
+RAW_CAPTURE_CMD = ["pw-record", "--raw", "--rate", "16000", "--channels", "1", "--format", "s16", "-"]
+
+# ok: pw-record-stdout-not-raw
+SHORT_RAW_CMD = ["pw-record", "-a", "--rate", "16000", "-"]
+
+# A named file: its extension chooses the container, and the reader understands it.
+# ok: pw-record-stdout-not-raw
+FILE_CMD = ["pw-record", "--rate", "44100", "--channels", "2", "/dev/shm/recording.wav"]
+
+PW_RECORD = "pw-record"
+
+
+def prebuffer_capture():
+    # The wsi-stream instance: one element a line, the binary named by a constant.
+    # ruleid: pw-record-stdout-not-raw
+    pw_record_cmd = [
+        PW_RECORD,
+        "--rate", "16000",
+        "--format", "s16",
+        "/dev/stdout",
+    ]
+    return pw_record_cmd
+
+
+def cat_capture():
+    # ruleid: pw-record-stdout-not-raw
+    return ["pw-cat", "--record", "--format", "s16", "/dev/fd/1"]
+
+
+def shell_capture():
+    # ruleid: pw-record-stdout-not-raw
+    return "pw-record --rate 16000 --format s16 - | sox -t raw -r 16000 - out.wav"
+
+
+def shell_raw_capture():
+    # ok: pw-record-stdout-not-raw
+    return "pw-record --raw --rate 16000 --format s16 - | sox -t raw -r 16000 - out.wav"
+
+
+def shell_capture_alone():
+    # ruleid: pw-record-stdout-not-raw
+    return "pw-record --rate 16000 --format s16 -"
+
+
+def mic_close_message(log):
+    # A message, not a command: the dash is prose (wsi-stream-server's stop path).
+    # ok: pw-record-stdout-not-raw
+    log("pw-record did not close its output in 3 s - killing it", "WARN")
