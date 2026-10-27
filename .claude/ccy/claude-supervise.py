@@ -232,7 +232,7 @@ if TYPE_CHECKING:
 # (see CLAUDE/development/RELEASING.md). Display-only for the banner and the
 # runtime status file; staleness detection (Plan 00164 Phase 3) uses a content
 # hash of THIS file so it is correct even between version bumps.
-__version__ = "3.70.0"
+__version__ = "3.71.0"
 
 # Absolute path to THIS running script — hashed for staleness detection so the
 # daemon can tell when the on-disk supervisor differs from the running one.
@@ -664,6 +664,10 @@ _SS3_INTRODUCER = 0x4F  # 'O'
 # ESC followed by one of these starts a string sequence terminated by ST/BEL:
 # OSC ']' , DCS 'P', SOS 'X', PM '^', APC '_'.
 _STRING_INTRODUCERS = frozenset({0x5D, 0x50, 0x58, 0x5E, 0x5F})
+# ESC followed by one of these is an Alt/Meta chord (Alt+b arrives as `ESC b`,
+# Alt+Enter as `ESC CR`, Alt+Backspace as `ESC DEL`), which Claude Code reads
+# as a Meta key, not as Esc: printable ASCII, CR and DEL.
+_META_CHORD_BYTES = frozenset({*range(0x20, 0x7F), 0x0D, 0x7F})
 _BEL = 0x07
 _ST_TERMINATOR = 0x5C  # '\' completing ESC \ (ST)
 # CSI byte ranges (ECMA-48): parameter/intermediate 0x20-0x3F, final 0x40-0x7E.
@@ -926,6 +930,221 @@ class HumanInputLine:
         self._last_changed_at = None
 
 
+_FOCUS_REASON_ARROW = "bare Up/Down arrow (focus may have moved into the sub-agent panel)"
+_FOCUS_REASON_ENTER = "Enter after panel navigation (a sub-agent transcript may be open)"
+# How long an ESC that ended a read may wait for the rest of a split key before
+# it counts as a bare Esc. A terminal delivers a split sequence's halves within
+# milliseconds; a human's next key comes far later than either.
+_FOCUS_ESC_SETTLE_SECONDS = 0.5
+
+
+def _fd_readable(fd: int) -> bool:
+    """True when ``fd`` has bytes waiting; also True when it cannot be checked.
+
+    Plan 00537: the host settles a lone pending ESC only when no stdin byte
+    is waiting, because a waiting byte may be the rest of a split key. An fd
+    that cannot be polled is reported readable so the ESC is NOT settled --
+    the hold stays, which is the safe direction.
+    """
+    try:
+        readable, _, _ = select.select([fd], [], [], 0)
+    except (OSError, ValueError):
+        return True
+    return bool(readable)
+
+
+@dataclass(frozen=True)
+class FocusHold:
+    """Why the supervisor cannot confirm the main prompt has focus (Plan 00537).
+
+    ``since`` is the wall-clock time of the navigation that latched the hold;
+    ``latch_bytes`` is that key's bytes, escaped for a log line.
+    """
+
+    reason: str
+    since: float
+    latch_bytes: str
+
+
+class MainFocusModel:
+    """Whether the main prompt still has focus, judged from the human's own keys.
+
+    Plan 00537 (issue #125): the supervisor cannot see the screen, and text it
+    types while a sub-agent's panel row is selected or its transcript is open
+    goes to that sub-agent. Fed the same forwarded stdin as `HumanInputLine`,
+    in parallel and without changing it. Fails toward HOLD:
+
+    - a bare Up/Down arrow (CSI or SS3, no parameters) latches, because it may
+      have moved focus into the sub-agent panel; a history recall looks the same;
+    - Enter while latched keeps the latch (it may have opened a transcript);
+    - only a bare Esc clears it. Ctrl-C, Ctrl-U, Enter and child output never do.
+
+    A bare Esc is an ESC followed by no CSI/SS3/string introducer and no
+    Meta-chord byte (``_META_CHORD_BYTES``: Alt+b arrives as ``ESC b`` and
+    Claude Code reads it as Meta-b, so a chord keeps the hold). A sequence
+    still open when a read ends never reinterprets the next read: an open
+    string sequence is dropped (a terminal reply arrives whole, and a human
+    never types one), and an open ESC, ESC [ or ESC O is kept PENDING, with
+    any hold left in place. The next read resolves it: if it completes an
+    arrow (``ESC | [A``, a split key) that arrow is honoured, a strict prefix
+    of one keeps it pending, a Meta-chord byte is that chord, and anything
+    else makes the ESC a bare Esc; after a chord or a bare Esc the rest of
+    the read is parsed from ground. A pending ESC that sees no further byte
+    within ``_FOCUS_ESC_SETTLE_SECONDS`` resolves as a bare Esc at
+    :meth:`settle`. Bytes inside a bracketed paste are text, never keys.
+    """
+
+    def __init__(self) -> None:
+        self._state: int = _ST_GROUND
+        self._csi_params: list[int] = []
+        self._in_paste: bool = False
+        self._paste_bytes: int = 0
+        self._hold: FocusHold | None = None
+        # The open sequence (always starting with ESC) a read ended inside of,
+        # and when that read arrived; empty when nothing is pending.
+        self._pending: bytes = b""
+        self._pending_since: float = 0.0
+
+    @property
+    def hold(self) -> FocusHold | None:
+        """The current hold, or None when nothing suggests focus left the prompt."""
+        return self._hold
+
+    @property
+    def confirmed(self) -> bool:
+        """True when no hold is latched."""
+        return self._hold is None
+
+    def settle(self, *, now: float) -> None:
+        """Resolve a lone pending ESC as a bare Esc once nothing followed it in time.
+
+        Only the HOST TICK calls this, and only when no stdin byte is waiting:
+        a read's stamp is when the host read it, not when it arrived, so
+        bytes that have arrived decide a pending ESC, never the clock. A
+        pending `ESC [` / `ESC O` prefix is already a sequence and never
+        settles bare.
+        """
+        if (
+            self._pending == bytes((_ESC,))
+            and now - self._pending_since >= _FOCUS_ESC_SETTLE_SECONDS
+        ):
+            self._pending = b""
+            self._hold = None
+
+    def feed(self, data: bytes, *, now: float | None = None) -> None:
+        """Advance the model with one read of forwarded human stdin bytes."""
+        stamp = time.time() if now is None else now
+        if self._pending and data:
+            data = self._resolve_pending(data)
+        for byte in data:
+            self._consume(byte, stamp)
+        self._end_read(stamp)
+
+    def _resolve_pending(self, data: bytes) -> bytes:
+        """Settle the carried-over sequence against this read; return what to parse.
+
+        A lone ESC followed by ``[`` or ``O``, or by anything after a longer
+        prefix, is parsed together with the read as the sequence they form.
+        A lone ESC followed by a Meta-chord byte was that chord: the hold
+        stays and the rest of the read is parsed from ground. A lone ESC
+        followed by anything else was a bare Esc, and the read is parsed from
+        ground.
+        """
+        pending, self._pending = self._pending, b""
+        if pending != bytes((_ESC,)) or data[0] in (_CSI_INTRODUCER, _SS3_INTRODUCER):
+            return pending + data
+        if data[0] in _META_CHORD_BYTES:
+            return data[1:]
+        self._hold = None
+        return data
+
+    def _end_read(self, now: float) -> None:
+        if self._in_paste:
+            # A paste spans reads; only its end marker matters inside it.
+            return
+        if self._state == _ST_ESC:
+            self._pending = bytes((_ESC,))
+        elif self._state == _ST_CSI:
+            self._pending = bytes((_ESC, _CSI_INTRODUCER, *self._csi_params))
+        elif self._state == _ST_SS3:
+            self._pending = bytes((_ESC, _SS3_INTRODUCER))
+        if self._pending:
+            self._pending_since = now
+        self._state = _ST_GROUND
+
+    def _consume(self, byte: int, now: float) -> None:
+        state = self._state
+        if state == _ST_GROUND:
+            if byte == _ESC:
+                self._state = _ST_ESC
+            elif self._in_paste:
+                self._paste_bytes += 1
+                if self._paste_bytes > _PASTE_LATCH_MAX_BYTES:
+                    # Same bound as `HumanInputLine`: a lost end marker must
+                    # not stop every later arrow from latching.
+                    self._in_paste = False
+            elif byte in _LINE_SUBMIT_BYTES and self._hold is not None:
+                self._hold = replace(self._hold, reason=_FOCUS_REASON_ENTER)
+        elif state == _ST_ESC:
+            self._consume_esc(byte)
+        elif state == _ST_CSI:
+            if _CSI_PARAM_MIN <= byte <= _CSI_PARAM_MAX:
+                self._csi_params.append(byte)
+            else:
+                if _CSI_FINAL_MIN <= byte <= _CSI_FINAL_MAX:
+                    self._finish_csi(byte, now)
+                self._state = _ST_GROUND
+        elif state == _ST_SS3:
+            if byte in (_CSI_ARROW_UP, _CSI_ARROW_DOWN):
+                self._latch(_SS3_INTRODUCER, byte, now)
+            self._state = _ST_GROUND
+        elif state == _ST_STR:
+            if byte == _BEL:
+                self._state = _ST_GROUND
+            elif byte == _ESC:
+                self._state = _ST_STR_ESC
+        else:
+            self._state = _ST_GROUND if byte == _ST_TERMINATOR else _ST_STR
+
+    def _consume_esc(self, byte: int) -> None:
+        if byte == _CSI_INTRODUCER:
+            self._state = _ST_CSI
+            self._csi_params = []
+        elif self._in_paste:
+            # Inside a paste only the ESC [ 201 ~ end marker means anything.
+            self._state = _ST_ESC if byte == _ESC else _ST_GROUND
+        elif byte == _SS3_INTRODUCER:
+            self._state = _ST_SS3
+        elif byte in _STRING_INTRODUCERS:
+            self._state = _ST_STR
+        elif byte == _ESC:
+            # The first ESC was bare; this one starts whatever follows.
+            self._hold = None
+        elif byte in _META_CHORD_BYTES:
+            # An Alt/Meta chord: focus has not been asked to move, so any hold stays.
+            self._state = _ST_GROUND
+        else:
+            self._hold = None
+            self._state = _ST_GROUND
+
+    def _finish_csi(self, final: int, now: float) -> None:
+        params = tuple(self._csi_params)
+        if final == _CSI_FINAL_TILDE and params == _PASTE_START_PARAMS:
+            self._in_paste = True
+            self._paste_bytes = 0
+        elif final == _CSI_FINAL_TILDE and params == _PASTE_END_PARAMS:
+            self._in_paste = False
+        elif not params and final in (_CSI_ARROW_UP, _CSI_ARROW_DOWN):
+            self._latch(_CSI_INTRODUCER, final, now)
+
+    def _latch(self, introducer: int, final: int, now: float) -> None:
+        if self._in_paste or self._hold is not None:
+            return
+        key = bytes((_ESC, introducer, final))
+        latch_bytes = key.decode("ascii").encode("unicode_escape").decode("ascii")
+        self._hold = FocusHold(reason=_FOCUS_REASON_ARROW, since=now, latch_bytes=latch_bytes)
+
+
 @dataclass
 class InputActivity:
     """Tracks observed stdin activity forwarded to the supervised child."""
@@ -933,17 +1152,21 @@ class InputActivity:
     bytes_seen: int = 0
     last_input_monotonic: float | None = None
     line: HumanInputLine = field(default_factory=HumanInputLine)
+    # Plan 00537: host-side, long-lived like `line`, so a worker restart never
+    # loses a hold.
+    focus: MainFocusModel = field(default_factory=MainFocusModel)
 
     def record(self, data: bytes, *, now: float | None = None) -> None:
         """Record a chunk of stdin data that was forwarded to the child.
 
         ``now`` (Plan 00398 Phase 2) is the wall-clock stamp forwarded to
-        `HumanInputLine.feed` for its stability clock; defaults to the real
-        clock, same as `feed` itself.
+        `HumanInputLine.feed` for its stability clock and to the focus model;
+        defaults to the real clock, same as `feed` itself.
         """
         self.bytes_seen += len(data)
         self.last_input_monotonic = os.times().elapsed
         self.line.feed(data, now=now)
+        self.focus.feed(data, now=now)
 
     def take_compact_submitted(self) -> bool:
         """Return True once if the human submitted a `/compact` since last checked."""
@@ -1211,35 +1434,36 @@ _CONTEXT_SIDECAR_GLOB = "*.json"
 
 
 # ---------------------------------------------------------------------------
-# Own-session identity (Plan 00166): namespace-broad session-id filtering.
+# Own-session identity (Plans 00166, 00551): child-tree session-id filtering.
 #
 # Two `ccy` terminals in the SAME repo share ONE context-sidecar dir (a
-# bind-mounted `untracked/`), but each runs in its OWN container / PID
-# namespace. Without a filter, this supervisor reads the freshest sidecar and
-# the first `*.compacting` signal in the shared dir REGARDLESS of which session
-# wrote them -- so a compaction in terminal B makes terminal A's supervisor
-# inject `continue` into A's PTY (the reported cross-injection bug).
+# bind-mounted `untracked/`). Without a filter, this supervisor reads the
+# freshest sidecar and the first `*.compacting` signal in the shared dir
+# REGARDLESS of which session wrote them -- so a compaction in terminal B makes
+# terminal A's supervisor inject `continue` into A's PTY.
 #
-# Fix (Decision 1, option B): a session id reachable in the supervisor's OWN
-# PID namespace belongs to the supervisor's own Claude instance -- a foreign
-# terminal is a separate container and never appears here. So we learn the
-# own-session-id SET by scanning the container's process environs for
-# `CLAUDE_CODE_SESSION_ID`, then act ONLY on sidecars/signals in that set. Fail
-# safe: an empty (not-yet-learned / non-Linux) set means act on NOTHING.
-#
-# Caveat: under a shared PID namespace (e.g. `podman run --pid=host`) the scan
-# could see a sibling terminal's ids. For that deployment give the session its
-# own runtime via CLAUDE_HOOKS_SOCKET_PATH / _PID_PATH / _LOG_PATH.
+# Rule: a session id is this supervisor's own ONLY if it is in the environ of
+# the Claude child the PTY host forked, or of a descendant of that child (by
+# `/proc/<pid>/stat` ppid). Every process `/proc` shows is NOT the rule: on a
+# host or a shared PID namespace that includes other users' and other
+# terminals' sessions (issue #138). The child pid is threaded explicitly; a
+# worker under an older host that sends none walks the host's tree instead (see
+# `WorkerChildPid`). Fail safe: an empty set (child gone, host re-parented,
+# non-Linux) means act on NOTHING.
 # ---------------------------------------------------------------------------
 
 _PROC_ROOT = "/proc"
 _SESSION_ENV_PREFIX = b"CLAUDE_CODE_SESSION_ID="
 
-# Accumulated own-session ids. Union-only: ids are stable per Claude process
-# and only ever come from this process's own namespace, so growth never admits
-# a foreign terminal. Keeps ids learned during active work available on later
-# idle ticks (when no descendant currently exposes the env var).
+# Accumulated own-session ids for ONE child pid. Union-only: ids are stable per
+# Claude process and only ever come from that child's tree, so growth never
+# admits a foreign session; a different child pid clears it first. Keeps ids
+# learned during active work available on later idle ticks (when no descendant
+# currently exposes the env var).
 _own_session_ids_cache: set[str] = set()
+# The scope the cache above was learned under: the child pid, or (host pid,
+# worker pid) for the hot-reload fallback.
+_own_session_ids_child_pid: int | tuple[int, int] | None = None
 # Plan 00182: throttle the expensive full-/proc environ scan. Once our session
 # ids are learned they persist in the accumulate-set above, so re-scanning every
 # worker tick (poll interval 2s) was the latency source that could push a tick
@@ -1271,37 +1495,120 @@ def _read_proc_environ(environ_path: Path) -> bytes:
         return b""
 
 
-def resolve_own_session_ids(proc_root: Path | None = None) -> frozenset[str]:
-    """Scan this container's process environs for ``CLAUDE_CODE_SESSION_ID``.
+def _proc_stat_ppid(stat_line: str) -> int | None:
+    """Parse the ppid from a ``/proc/<pid>/stat`` line; None if malformed.
 
-    Returns every session id found in the supervisor's OWN PID namespace
-    (namespace-broad identity, Plan 00166). Empty on a host without ``/proc``
-    so the caller fails safe.
+    The comm field is in parentheses and may itself hold spaces and
+    parentheses (it is chosen by the process), so the fields are taken after
+    the LAST ``)``: state, then ppid.
+    """
+    close = stat_line.rfind(")")
+    if close < 0:
+        return None
+    fields = stat_line[close + 1 :].split()
+    if len(fields) < 2:
+        return None
+    try:
+        return int(fields[1])
+    except ValueError:
+        return None
+
+
+def _proc_parent_map(root: Path) -> dict[int, int]:
+    """Map every readable pid under ``root`` to its ppid."""
+    parents: dict[int, int] = {}
+    for entry in root.iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            stat_line = (entry / "stat").read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            # The process exited between listdir and read: it is in no tree.
+            continue
+        ppid = _proc_stat_ppid(stat_line)
+        if ppid is not None:
+            parents[int(entry.name)] = ppid
+    return parents
+
+
+def _tree_session_ids(
+    proc_root: Path | None, starts: Callable[[dict[int, int]], list[int]], skip: int | None
+) -> frozenset[str]:
+    """Collect session ids from the subtrees rooted at ``starts(parents)``.
+
+    ``skip``'s whole subtree is never entered. Empty when there is no ``/proc``.
     """
     root = proc_root if proc_root is not None else Path(_PROC_ROOT)
     if not root.is_dir():
         return frozenset()
+    parents = _proc_parent_map(root)
+    children: dict[int, list[int]] = {}
+    for pid, ppid in parents.items():
+        children.setdefault(ppid, []).append(pid)
     found: set[str] = set()
-    for entry in root.iterdir():
-        if entry.name.isdigit():
-            found |= _session_ids_from_environ(_read_proc_environ(entry / "environ"))
+    tree: set[int] = set()
+    pending = starts(parents)
+    while pending:
+        pid = pending.pop()
+        if pid in tree or pid == skip:
+            continue
+        tree.add(pid)
+        found |= _session_ids_from_environ(_read_proc_environ(root / str(pid) / "environ"))
+        pending.extend(children.get(pid, ()))
     return frozenset(found)
 
 
-def cached_own_session_ids(
-    proc_root: Path | None = None, *, now: float | None = None
-) -> frozenset[str]:
-    """Union-accumulate and return the supervisor's own-session-id set.
+def resolve_own_session_ids(child_pid: int, proc_root: Path | None = None) -> frozenset[str]:
+    """Collect ``CLAUDE_CODE_SESSION_ID`` from ``child_pid`` and its descendants.
 
-    Plan 00182: the full /proc environ scan is throttled to
-    ``_OWN_SESSION_SCAN_TTL_SECONDS`` once at least one id is known -- most ticks
-    then return the accumulated set without touching /proc, keeping the worker
-    tick well under its read timeout. An EMPTY cache always re-scans so a
-    supervisor that has not yet discovered its own session is never starved.
-    ``now`` (monotonic seconds) is injectable for tests; production uses the
-    monotonic clock.
+    Only members of the child's process tree (by ``/proc/<pid>/stat`` ppid) have
+    their environ read. Empty when the child is gone or there is no ``/proc``,
+    so the caller fails safe.
     """
-    global _own_session_ids_last_scan
+    return _tree_session_ids(
+        proc_root, lambda parents: [child_pid] if child_pid in parents else [], None
+    )
+
+
+def resolve_host_session_ids(
+    host_pid: int, worker_pid: int, proc_root: Path | None = None
+) -> frozenset[str]:
+    """Collect session ids from every descendant of ``host_pid`` but the worker's tree.
+
+    The hot-reload fallback for a host that sends no child pid: everything
+    below the host was started by this supervisor (Claude, its tool shells and
+    hooks, and siblings such as a pingbus seat). The host's own environ is not
+    read, nor is the worker's subtree. A host of pid 1 (the worker was
+    re-parented after the host died) or a host that is gone gives the empty set.
+    """
+    if host_pid == 1:
+        return frozenset()
+    return _tree_session_ids(
+        proc_root,
+        lambda parents: [pid for pid, ppid in parents.items() if ppid == host_pid],
+        worker_pid,
+    )
+
+
+def _cached_session_ids(
+    scope: int | tuple[int, int], resolve: Callable[[], frozenset[str]], now: float | None
+) -> frozenset[str]:
+    """Union-accumulate the ids ``resolve`` finds for ``scope`` (throttled rescan).
+
+    A scope different from the one the cache was learned under clears it first.
+
+    Plan 00182: the /proc scan is throttled to ``_OWN_SESSION_SCAN_TTL_SECONDS``
+    once at least one id is known -- most ticks then return the accumulated set
+    without touching /proc, keeping the worker tick well under its read timeout.
+    An EMPTY cache always re-scans so a supervisor that has not yet discovered
+    its own session is never starved. ``now`` (monotonic seconds) is injectable
+    for tests; production uses the monotonic clock.
+    """
+    global _own_session_ids_last_scan, _own_session_ids_child_pid
+    if scope != _own_session_ids_child_pid:
+        _own_session_ids_cache.clear()
+        _own_session_ids_last_scan = None
+        _own_session_ids_child_pid = scope
     current = time.monotonic() if now is None else now
     due = (
         not _own_session_ids_cache
@@ -1309,9 +1616,84 @@ def cached_own_session_ids(
         or (current - _own_session_ids_last_scan) >= _OWN_SESSION_SCAN_TTL_SECONDS
     )
     if due:
-        _own_session_ids_cache.update(resolve_own_session_ids(proc_root))
+        _own_session_ids_cache.update(resolve())
         _own_session_ids_last_scan = current
     return frozenset(_own_session_ids_cache)
+
+
+def cached_own_session_ids(
+    child_pid: int | None, proc_root: Path | None = None, *, now: float | None = None
+) -> frozenset[str]:
+    """Union-accumulate and return the own-session-id set of ``child_pid``'s tree.
+
+    ``None`` (child not known) returns the empty set without scanning and
+    without exposing an earlier child's set. A child pid different from the one
+    the cache was learned under clears the cache first.
+    """
+    if child_pid is None:
+        return frozenset()
+    return _cached_session_ids(
+        child_pid, lambda: resolve_own_session_ids(child_pid, proc_root), now
+    )
+
+
+def cached_host_session_ids(
+    host_pid: int, worker_pid: int, proc_root: Path | None = None, *, now: float | None = None
+) -> frozenset[str]:
+    """Union-accumulate the hot-reload fallback set (see ``resolve_host_session_ids``)."""
+    return _cached_session_ids(
+        (host_pid, worker_pid),
+        lambda: resolve_host_session_ids(host_pid, worker_pid, proc_root),
+        now,
+    )
+
+
+class WorkerChildPid:
+    """The Claude child pid as the ``--worker`` subprocess knows it (Plan 00551).
+
+    The worker starts before the host forks Claude, so the pid cannot ride its
+    argv; the host sends it on every tick as ``TickFacts.child_pid``. A sent pid
+    wins and is kept; a tick without one keeps the pid already learned.
+
+    Hot-reload fallback: a host started before ``child_pid`` existed sends none,
+    and a reloaded worker would otherwise fail every tick to the empty set until
+    the next ccy relaunch. While no pid has been sent, the own set is taken from
+    every descendant of the host (this worker's parent) except this worker's own
+    subtree -- everything there was started by this supervisor. A host can have
+    other children beside Claude (a pingbus seat, say), so no single child is
+    picked. A host of pid 1 (the worker was re-parented after the host died)
+    gives the empty set. This is a walk of the host's tree, never the scan of
+    every process.
+    """
+
+    def __init__(
+        self,
+        *,
+        proc_root: Path | None = None,
+        host_pid: Callable[[], int] = os.getppid,
+        own_pid: Callable[[], int] = os.getpid,
+    ) -> None:
+        self._proc_root = proc_root if proc_root is not None else Path(_PROC_ROOT)
+        self._host_pid = host_pid
+        self._own_pid = own_pid
+        self._pid: int | None = None
+
+    @property
+    def pid(self) -> int | None:
+        """The learned child pid, or None while it is unknown."""
+        return self._pid
+
+    def learn(self, sent: int | None) -> int | None:
+        """Take this tick's host-sent pid; a tick without one keeps the last."""
+        if sent is not None:
+            self._pid = sent
+        return self._pid
+
+    def own_session_ids(self) -> frozenset[str]:
+        """The own-session-id set of the learned child's tree, else the host fallback."""
+        if self._pid is not None:
+            return cached_own_session_ids(self._pid, self._proc_root)
+        return cached_host_session_ids(self._host_pid(), self._own_pid(), self._proc_root)
 
 
 def _session_in_scope(session_id: object, own_sessions: frozenset[str] | None) -> bool:
@@ -1343,6 +1725,18 @@ _REASON_FOREGROUND_AMBIGUOUS = "foreground ambiguous (recent thread switch) -> d
 # for the red band only; the elevated + critical bands still act promptly.
 _REASON_RED_WORK_IN_PROGRESS = "red (patient band) but work in progress -> deferring until settled"
 _DEFERRED_LOG_PREFIX = "injection deferred: input box not empty"
+# Plan 00537: a send held because main-thread focus is unconfirmed. Logged at
+# most once per family per minute, and again whenever the hold escalates.
+_FOCUS_HOLD_LOG_PREFIX = "injection deferred: main-thread focus unconfirmed"
+_FOCUS_HOLD_LOG_INTERVAL_SECONDS = 60.0
+_REASON_FOCUS_HOLD = "main-thread focus unconfirmed -> holding"
+_FOCUS_HOLD_BANNER_TEXT = (
+    "supervisor holding: focus may be on a sub-agent; press Esc to return to the main thread"
+)
+_FOCUS_HOLD_BANNER_LOUD_TEMPLATE = (
+    "SUPERVISOR HOLDING {minutes} MIN: nothing is typed until you press Esc to return to"
+    " the main thread (focus may be on a sub-agent)"
+)
 # Plan 00168 Phase 1: prefix for the deduped NOOP-reason diagnostic. Every idle
 # tick that decides NOOP records `<prefix>: <reason>[ band]` so a
 # red-but-not-compacting session names its blocking gate in `decision.log`.
@@ -1454,6 +1848,35 @@ def _model_confirm_enters_from_env() -> int:
     if raw is None:
         return _DEFAULT_MODEL_CONFIRM_ENTERS
     return _parse_model_confirm_enters(raw)
+
+
+# Plan 00537: how long a focus hold lasts before its banner turns louder (first
+# bound) and its log line names the bytes that latched it (second bound). An
+# escalation never resumes typing; only the human's Esc ends a hold.
+_DEFAULT_FOCUS_HOLD_ESCALATE_SECONDS = (300.0, 900.0)
+_FOCUS_HOLD_ESCALATE_ENV_VAR = "CCY_FOCUS_HOLD_ESCALATE_SECONDS"
+
+
+def _parse_focus_hold_escalate(raw: str) -> tuple[float, float]:
+    """Parse "<first>,<second>" seconds; anything but 0 < first < second keeps default."""
+    parts = raw.split(",")
+    if len(parts) != 2:
+        return _DEFAULT_FOCUS_HOLD_ESCALATE_SECONDS
+    try:
+        first, second = float(parts[0].strip()), float(parts[1].strip())
+    except ValueError:
+        return _DEFAULT_FOCUS_HOLD_ESCALATE_SECONDS
+    if not 0 < first < second:
+        return _DEFAULT_FOCUS_HOLD_ESCALATE_SECONDS
+    return (first, second)
+
+
+def _focus_hold_escalate_from_env() -> tuple[float, float]:
+    """Resolve the effective focus-hold escalation bounds (env override or default)."""
+    raw = os.environ.get(_FOCUS_HOLD_ESCALATE_ENV_VAR)
+    if raw is None:
+        return _DEFAULT_FOCUS_HOLD_ESCALATE_SECONDS
+    return _parse_focus_hold_escalate(raw)
 
 
 # /model injections leave NO trace in the chat (unlike /compact and /goal,
@@ -1593,6 +2016,11 @@ class CompactPolicy:
     # downgrade. OFF by default — auto-compaction rewrites context. Env-resolved
     # for host/worker agreement, like the other Plan 00278/00281 toggles.
     flag_compact_enabled: bool = field(default_factory=_flag_compact_enabled_from_env)
+    # Plan 00537: the two focus-hold escalation bounds, in seconds. Env-resolved
+    # for host/worker agreement.
+    focus_hold_escalate_seconds: tuple[float, float] = field(
+        default_factory=_focus_hold_escalate_from_env
+    )
 
 
 @dataclass(frozen=True)
@@ -1665,6 +2093,23 @@ class TickFacts:
     # it). 0.0 -- never quiet -- on a legacy host and when no output has been
     # seen, so the cron-expiry watchdog fails closed.
     output_quiet_seconds: float = 0.0
+    # Plan 00537: False while the host's `MainFocusModel` holds (navigation may
+    # have moved focus off the main prompt). Host-side like
+    # `input_line_abandoned`, so a worker restart keeps the hold; ANDed into
+    # `can_inject` and into every send that bypasses it. True when the host
+    # sends no such key: a host started before the model existed has no hold
+    # to report, and holding for ever there would stop every send with no Esc
+    # able to end it.
+    main_focus_confirmed: bool = True
+    # The hold's reason, wall-clock start and latching bytes ("" / 0.0 when
+    # confirmed), for the deferred log line and the escalation.
+    focus_hold_reason: str = ""
+    focus_held_since: float = 0.0
+    focus_latch_bytes: str = ""
+    # Plan 00551: the pid of the Claude child the host forked, which scopes the
+    # worker's own-session-id scan to that child's process tree. None from a
+    # host that predates it (see `WorkerChildPid` for that case).
+    child_pid: int | None = None
 
 
 @dataclass(frozen=True)
@@ -2551,6 +2996,244 @@ def load_usage_pause(
 
 
 # ---------------------------------------------------------------------------
+# Session modes (Plan 00501 Phase 5).
+#
+# The daemon writes one ``<stem>.session-modes`` file per session holding its
+# focus/blocked entries. While this supervisor's session is BLOCKED
+# (awaiting-human or goal-blocked) the work-DRIVING prompts are skipped, each
+# as a named noop: the post-compact `continue`, the goal, the standing-auth
+# reminder and the session-actions directive. `/compact` still runs (Ruling
+# 07). The names below are copies of ``core.session_mode_registry`` and
+# ``utils.session_modes``, pinned by tests/unit/supervise/test_session_modes_gate.py.
+#
+# Unlike the other readers this one does NOT fail open: a file that cannot be
+# read back as the daemon's record is a named error in decision.log and on the
+# status line, and the gate closes, because the file it replaces may be the
+# BLOCKED entry the gate exists to honour. Withholding a prompt costs a turn the
+# human can restart; typing into a blocked loop is what the mode stops.
+# ---------------------------------------------------------------------------
+
+_SESSION_MODES_SUFFIX = ".session-modes"
+_SESSION_MODES_SCHEMA_VERSION = 1
+_SESSION_MODES_FIELD_VERSION = "version"
+_SESSION_MODES_FIELD_SESSION_ID = "session_id"
+_SESSION_MODES_FIELD_MODES = "modes"
+_SESSION_MODES_FIELD_MODE = "mode"
+_SESSION_MODES_FIELD_REASON = "reason"
+_SESSION_MODES_FIELD_SOURCE = "source"
+_SESSION_MODES_FIELD_LIFETIME = "lifetime"
+_SESSION_MODES_FIELD_ENTERED_AT = "entered_at"
+_SESSION_MODES_FIELD_EXPIRES_AT = "expires_at"
+_SESSION_MODES_FIELD_DETAIL = "detail"
+_SESSION_MODES_RECORD_FIELDS = frozenset(
+    {
+        _SESSION_MODES_FIELD_MODE,
+        _SESSION_MODES_FIELD_REASON,
+        _SESSION_MODES_FIELD_SOURCE,
+        _SESSION_MODES_FIELD_LIFETIME,
+        _SESSION_MODES_FIELD_ENTERED_AT,
+        _SESSION_MODES_FIELD_EXPIRES_AT,
+        _SESSION_MODES_FIELD_DETAIL,
+    }
+)
+_SESSION_MODES_BLOCKED = "blocked"
+# Only "blocked" closes the gate; "focus" and "manual-goals" parse to label None, so
+# manual-goals never withholds `continue` (it suppresses only the daemon's goal intents).
+_SESSION_MODES_STORED_MODES = frozenset({"focus", "manual-goals", _SESSION_MODES_BLOCKED})
+# A blocked entry's reason -> the label the daemon shows for it.
+_SESSION_MODES_BLOCKED_LABELS = {"declared": "awaiting-human", "goal-loop": "goal-blocked"}
+_SESSION_MODES_SOURCES = frozenset({"human", "agent", "detector", "daemon"})
+_SESSION_MODES_LIFETIMES = frozenset({"daemon", "session"})
+_SESSION_MODES_UNSAFE_CHARS = re.compile(r"[^A-Za-z0-9_.-]")
+_SESSION_MODES_STEM_FALLBACK = "unknown"
+# The status-line warning for an unreadable file is re-posted every tick it
+# persists, so it only has to outlive the gap between two ticks.
+_SESSION_MODES_ERROR_STATUS_TTL_SECONDS = 30.0
+
+
+class _SessionModesError(ValueError):
+    """A session-modes file is not a record the daemon could have written."""
+
+
+@dataclass(frozen=True)
+class SessionModesReading:
+    """What this supervisor's own session-modes files say.
+
+    ``blocked_labels`` holds the live BLOCKED labels (``awaiting-human``,
+    ``goal-blocked``); ``errors`` names each own file that could not be read.
+    """
+
+    blocked_labels: tuple[str, ...] = ()
+    errors: tuple[str, ...] = ()
+
+    @property
+    def is_blocked(self) -> bool:
+        """True when a live BLOCKED entry was read."""
+        return bool(self.blocked_labels)
+
+    @property
+    def gate_closed(self) -> bool:
+        """True when the work-driving prompts are withheld: BLOCKED, or a file is unreadable."""
+        return self.is_blocked or bool(self.errors)
+
+    def skip_reason(self) -> str:
+        """Why the gate is closed, for a noop line. Only meaningful when ``gate_closed``."""
+        if self.is_blocked:
+            return f"session BLOCKED ({', '.join(self.blocked_labels)})"
+        return "session-modes file unreadable, treated as BLOCKED"
+
+
+def _session_modes_stem(session_id: str) -> str:
+    """The daemon's ``session_stem``: the filename stem a session's file is written under."""
+    stem = _SESSION_MODES_UNSAFE_CHARS.sub("_", session_id.strip())
+    return stem or _SESSION_MODES_STEM_FALLBACK
+
+
+def _session_modes_number(value: object, name: str) -> float:
+    """``value`` as a finite float (never a bool). Raises ``_SessionModesError``."""
+    number = _usage_pause_number(value)
+    if number is None:
+        raise _SessionModesError(f"{name} is not a finite number")
+    return number
+
+
+def _session_modes_member(value: object, allowed: frozenset[str], name: str) -> str:
+    """``value`` when it is one of ``allowed``. Raises ``_SessionModesError``.
+
+    The ``isinstance`` check comes first: a list or object is unhashable, and a
+    membership test on it would escape as ``TypeError`` instead of the named error.
+    """
+    if not isinstance(value, str) or value not in allowed:
+        raise _SessionModesError(f"{name} {value!r} is unknown")
+    return value
+
+
+def _parse_session_modes_record(record: object) -> tuple[str | None, float]:
+    """Validate one mode record the way the daemon's reader does.
+
+    Returns:
+        The record's BLOCKED label (None for focus) and its expiry.
+
+    Raises:
+        _SessionModesError: the record is not one the daemon could have written.
+    """
+    if not isinstance(record, dict):
+        raise _SessionModesError("a mode record is not an object")
+    if set(record) != _SESSION_MODES_RECORD_FIELDS:
+        raise _SessionModesError(f"a mode record has fields {sorted(record)}")
+    mode = _session_modes_member(
+        record[_SESSION_MODES_FIELD_MODE], _SESSION_MODES_STORED_MODES, _SESSION_MODES_FIELD_MODE
+    )
+    reason = record[_SESSION_MODES_FIELD_REASON]
+    label: str | None = None
+    if mode == _SESSION_MODES_BLOCKED:
+        label = _SESSION_MODES_BLOCKED_LABELS.get(reason) if isinstance(reason, str) else None
+        if label is None:
+            raise _SessionModesError(f"blocked reason {reason!r} is not declared or goal-loop")
+    elif reason is not None:
+        raise _SessionModesError(f"only a blocked mode takes a reason, not {mode!r}")
+    _session_modes_member(
+        record[_SESSION_MODES_FIELD_SOURCE], _SESSION_MODES_SOURCES, _SESSION_MODES_FIELD_SOURCE
+    )
+    _session_modes_member(
+        record[_SESSION_MODES_FIELD_LIFETIME],
+        _SESSION_MODES_LIFETIMES,
+        _SESSION_MODES_FIELD_LIFETIME,
+    )
+    if not isinstance(record[_SESSION_MODES_FIELD_DETAIL], str):
+        raise _SessionModesError(f"{_SESSION_MODES_FIELD_DETAIL} is not a string")
+    entered_at = _session_modes_number(
+        record[_SESSION_MODES_FIELD_ENTERED_AT], _SESSION_MODES_FIELD_ENTERED_AT
+    )
+    expires_at = _session_modes_number(
+        record[_SESSION_MODES_FIELD_EXPIRES_AT], _SESSION_MODES_FIELD_EXPIRES_AT
+    )
+    if expires_at <= entered_at:
+        raise _SessionModesError(
+            f"{_SESSION_MODES_FIELD_EXPIRES_AT} is not after {_SESSION_MODES_FIELD_ENTERED_AT}"
+        )
+    return label, expires_at
+
+
+def _parse_session_modes_file(
+    path: Path, *, now: float, own_sessions: frozenset[str] | None
+) -> tuple[str, ...] | None:
+    """The live BLOCKED labels one file holds, or None when the file is not this session's.
+
+    Raises:
+        _SessionModesError: the file is unreadable or not a valid record.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ()
+    except (OSError, UnicodeDecodeError) as error:
+        raise _SessionModesError(f"unreadable ({type(error).__name__})") from error
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise _SessionModesError(f"not JSON ({error.msg})") from error
+    if not isinstance(data, dict):
+        raise _SessionModesError("the top level is not an object")
+    version = data.get(_SESSION_MODES_FIELD_VERSION)
+    if isinstance(version, bool) or version != _SESSION_MODES_SCHEMA_VERSION:
+        raise _SessionModesError(f"unsupported {_SESSION_MODES_FIELD_VERSION} {version!r}")
+    session_id = data.get(_SESSION_MODES_FIELD_SESSION_ID)
+    if not isinstance(session_id, str):
+        raise _SessionModesError(f"{_SESSION_MODES_FIELD_SESSION_ID} is not a string")
+    if f"{_session_modes_stem(session_id)}{_SESSION_MODES_SUFFIX}" != path.name:
+        raise _SessionModesError(
+            f"{_SESSION_MODES_FIELD_SESSION_ID} {session_id!r} does not match the file name"
+        )
+    if not _session_in_scope(session_id, own_sessions):
+        # Another session whose id shares this one's stem: not ours to judge.
+        return None
+    records = data.get(_SESSION_MODES_FIELD_MODES)
+    if not isinstance(records, list):
+        raise _SessionModesError(f"{_SESSION_MODES_FIELD_MODES} is not a list")
+    labels: list[str] = []
+    for record in records:
+        label, expires_at = _parse_session_modes_record(record)
+        if label is not None and now < expires_at:
+            labels.append(label)
+    if len(set(labels)) != len(labels):
+        raise _SessionModesError("a blocked label appears twice")
+    return tuple(labels)
+
+
+def load_session_modes(
+    directory: Path, *, now: float, own_sessions: frozenset[str] | None
+) -> SessionModesReading:
+    """Read this supervisor's own session-modes files (Plan 00501 Phase 5).
+
+    Only the files named for ``own_sessions`` are opened, so another session's
+    file, readable or not, is never judged. ``None`` disables the filter (every
+    ``*.session-modes`` file counts; unit tests) and the empty set reads
+    nothing. A missing file is no mode. An unreadable or malformed own file is
+    returned as a named error, never as "no modes".
+    """
+    if not directory.is_dir():
+        return SessionModesReading()
+    if own_sessions is None:
+        paths = sorted(directory.glob(f"*{_SESSION_MODES_SUFFIX}"))
+    else:
+        stems = {_session_modes_stem(session_id) for session_id in own_sessions}
+        paths = [directory / f"{stem}{_SESSION_MODES_SUFFIX}" for stem in sorted(stems)]
+    blocked: list[str] = []
+    errors: list[str] = []
+    for path in paths:
+        try:
+            labels = _parse_session_modes_file(path, now=now, own_sessions=own_sessions)
+        except _SessionModesError as error:
+            errors.append(f"{path.name}: {error}")
+            continue
+        for label in labels or ():
+            if label not in blocked:
+                blocked.append(label)
+    return SessionModesReading(blocked_labels=tuple(blocked), errors=tuple(errors))
+
+
+# ---------------------------------------------------------------------------
 # Goal-intent signal (Plan 00269) — structural validation gate (Decision 2).
 #
 # The member allowlist ({'/compact', 'continue'}) cannot express per-plan
@@ -2614,7 +3297,82 @@ _DRY_RUN_GOAL_BODY_PREFIX = "would inject /goal (dry-run — no real /goal sent)
 _GOAL_CLEAR_GLOB = "*.goal-clear"
 _GOAL_CLEAR_COMMAND = "/goal clear"
 _MAX_GOAL_CLEAR_INJECTIONS = 5
+# Plan 00501 Task 5.2: a BLOCKED clear is exempt from the cap above, but a trigger
+# whose delete keeps failing would otherwise be retyped every idle tick for its
+# whole TTL. This higher ceiling still bounds that storm.
+_MAX_BLOCKED_GOAL_CLEAR_INJECTIONS = 3 * _MAX_GOAL_CLEAR_INJECTIONS
 _DRY_RUN_GOAL_CLEAR_BODY = "would inject /goal clear (dry-run — no real /goal clear sent)"
+# Plan 00501 Task 8.2: the transcript records a typed `/goal clear` the same way
+# whoever typed it, so the daemon attributes a clear to this supervisor only by
+# a record written BEFORE typing. Must equal the daemon's
+# `core.goal_clear_attribution.GOAL_CLEAR_RECORD_SUFFIX` (a test pins it), and
+# must not end in `.goal-clear`, or `_GOAL_CLEAR_GLOB` would read it as a trigger.
+_GOAL_CLEAR_RECORD_SUFFIX = ".goal-clear-injected"
+_GOAL_CLEAR_RECORD_GLOB = f"*{_GOAL_CLEAR_RECORD_SUFFIX}"
+_GOAL_CLEAR_TRIGGER_SUFFIX = ".goal-clear"
+
+
+def write_goal_clear_record(directory: Path, *, trigger_path: Path, now: float) -> Path:
+    """Atomically record that this supervisor is about to type ``/goal clear``.
+
+    The session stem is the trigger's name minus ``.goal-clear``: the daemon
+    names the trigger with the same stem its attribution reader looks up.
+    Written via a pid-qualified temp file and ``replace`` so the daemon sees
+    no file or a complete one. ``OSError`` propagates: the caller must not
+    type a clear it could not record. A failed write or replace removes the
+    temp file, which the reaper never matches; if that removal fails too, the
+    raised error names the temp file and both causes.
+    """
+    record_path = goal_clear_record_path(directory, trigger_path=trigger_path)
+    stem = record_path.name.removesuffix(_GOAL_CLEAR_RECORD_SUFFIX)
+    payload = {"session_id": stem, "ts": now, "command": _GOAL_CLEAR_COMMAND}
+    tmp_path = directory / f".{record_path.name}.{os.getpid()}.tmp"
+    try:
+        tmp_path.write_text(json.dumps(payload), encoding="utf-8")
+        tmp_path.replace(record_path)
+    except OSError as error:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError as cleanup_error:
+            raise OSError(
+                f"{error}; and the temp file {tmp_path} could not be removed: {cleanup_error}"
+            ) from error
+        raise
+    return record_path
+
+
+def goal_clear_record_path(directory: Path, *, trigger_path: Path) -> Path:
+    """Where the attribution record for the clear ``trigger_path`` asks for lives."""
+    stem = trigger_path.name.removesuffix(_GOAL_CLEAR_TRIGGER_SUFFIX)
+    return directory / f"{stem}{_GOAL_CLEAR_RECORD_SUFFIX}"
+
+
+def discard_untyped_goal_clear_record(outcome: TickOutcome, log: DecisionLog | None) -> None:
+    """Remove the attribution record of a ``/goal clear`` that was decided but not typed.
+
+    Review D4 (Plan 00474): the record is written when the clear is decided,
+    stamped before typing as the daemon's ``CLOCK_TOLERANCE_SECONDS`` needs.
+    A clear then held at apply time, or whose PTY write failed, must leave no
+    record, or a human ``/goal clear`` inside the daemon's fresh window would
+    be credited to the supervisor and automated goals would stay on. Only a
+    real (non dry-run) clear wrote one. A failed removal is logged.
+    """
+    if (
+        outcome.decision_value != Decision.WOULD_GOAL_CLEAR.value
+        or outcome.payload != _GOAL_CLEAR_COMMAND
+        or outcome.consume_signal_path is None
+    ):
+        return
+    trigger_path = Path(outcome.consume_signal_path)
+    record_path = goal_clear_record_path(trigger_path.parent, trigger_path=trigger_path)
+    try:
+        record_path.unlink(missing_ok=True)
+    except OSError as error:
+        if log is not None:
+            log.write(
+                f"warning: goal clear not typed, but its attribution record "
+                f"{record_path} could not be removed: {error}"
+            )
 
 
 def load_goal_clear_signal(
@@ -3407,7 +4165,8 @@ def reap_stale_sidecars(
     """Delete dead context-sidecar / compaction-signal files older than the TTL.
 
     Reaps ``*.json`` sidecars, ``*.compacting`` signals, ``*.goal-intent``
-    signals, ``*.goal-clear`` triggers, ``*.standing-auth-intent`` signals,
+    signals, ``*.goal-clear`` triggers, ``*.goal-clear-injected`` records,
+    ``*.standing-auth-intent`` signals,
     ``*.model-switch-intent`` signals, ``*.model-downgrade``
     signals, ``*.operator-signal`` signals and ``*.session-actions``
     directives whose FILE MTIME is older than
@@ -3434,6 +4193,7 @@ def reap_stale_sidecars(
         + list(directory.glob(_COMPACTION_SIGNAL_GLOB))
         + list(directory.glob(_GOAL_SIGNAL_GLOB))
         + list(directory.glob(_GOAL_CLEAR_GLOB))
+        + list(directory.glob(_GOAL_CLEAR_RECORD_GLOB))
         + list(directory.glob(_STANDING_AUTH_SIGNAL_GLOB))
         + list(directory.glob(_MODEL_SWITCH_SIGNAL_GLOB))
         + list(directory.glob(_MODEL_DOWNGRADE_SIGNAL_GLOB))
@@ -4153,7 +4913,7 @@ class PluginRuntime:
         state_root: Path,
         status_dir: Path,
         marker_path: Path,
-        session_ids: Callable[[], frozenset[str]] = cached_own_session_ids,
+        session_ids: Callable[[], frozenset[str]],
         allowed_uids: Collection[int] | None = None,
         hook_budget_seconds: float = _PLUGIN_HOOK_BUDGET_SECONDS,
         tick_budget_seconds: float = _PLUGIN_TICK_BUDGET_SECONDS,
@@ -4901,6 +5661,9 @@ class CompactStateMachine:
         self._plugin_noticed: list[str] = []
         self._session_notices_pending: list[str] = []
         self._session_notice_last: dict[str, float] = {}
+        # Plan 00537: per held family, the wall time of its last focus-hold log
+        # line and the escalation level that line reported.
+        self._focus_hold_logged: dict[str, tuple[float, int]] = {}
         # Lifetime count of armed notices per kind, and the kinds whose cap has
         # already been logged (the cap is logged once, not on every request).
         self._session_notice_counts: dict[str, int] = {}
@@ -5649,6 +6412,34 @@ class CompactStateMachine:
         """Latch the dry-run once-only fuse for the process lifetime (Plan 00183)."""
         self._dry_run_fired = True
 
+    def focus_hold_level(self, hold: FocusHold, *, now_wall: float) -> int:
+        """0 below the first escalation bound, 1 past it, 2 past the second."""
+        first, second = self._policy.focus_hold_escalate_seconds
+        held = now_wall - hold.since
+        return 2 if held >= second else 1 if held >= first else 0
+
+    def focus_hold_log(self, family: str, hold: FocusHold, *, now_wall: float) -> str | None:
+        """The deferred line for a send held off main focus, or None when rate-limited.
+
+        Plan 00537: one line per family per minute, plus one whenever the hold
+        reaches a new escalation level, so every step leaves a trace.
+        """
+        level = self.focus_hold_level(hold, now_wall=now_wall)
+        last = self._focus_hold_logged.get(family)
+        if (
+            last is not None
+            and level == last[1]
+            and now_wall - last[0] < _FOCUS_HOLD_LOG_INTERVAL_SECONDS
+        ):
+            return None
+        self._focus_hold_logged[family] = (now_wall, level)
+        line = f"{_FOCUS_HOLD_LOG_PREFIX} ({family} pending; latched by {hold.reason}"
+        if level >= 1:
+            line += f"; held {int((now_wall - hold.since) // 60)} min"
+        if level >= 2:
+            line += f"; latching bytes {hold.latch_bytes}"
+        return f"{line})"
+
     def export_state(self) -> dict[str, object]:
         """Serialise the mutable per-episode state (Plan 00164 Phase 4 fix).
 
@@ -5691,6 +6482,9 @@ class CompactStateMachine:
             "plugin_noticed": list(self._plugin_noticed),
             "session_notices_pending": list(self._session_notices_pending),
             "session_notice_last": dict(self._session_notice_last),
+            "focus_hold_logged": {
+                family: [stamp, level] for family, (stamp, level) in self._focus_hold_logged.items()
+            },
             "session_notice_counts": dict(self._session_notice_counts),
             "session_notice_cap_logged": list(self._session_notice_cap_logged),
             "restore_awaiting": self._restore_awaiting,
@@ -5821,6 +6615,14 @@ class CompactStateMachine:
                     for item in raw_session_notices
                     if isinstance(item, str) and parse_session_notice_item(item) is not None
                 ][:_MAX_SESSION_NOTICES_PENDING]
+        if "focus_hold_logged" in state:
+            raw_logged = state["focus_hold_logged"]
+            if isinstance(raw_logged, dict):
+                self._focus_hold_logged = {
+                    str(family): (_coerce_float(entry[0]), _coerce_int(entry[1]))
+                    for family, entry in raw_logged.items()
+                    if isinstance(entry, list) and len(entry) == 2
+                }
         if "session_notice_last" in state:
             raw_last = state["session_notice_last"]
             if isinstance(raw_last, dict):
@@ -5925,6 +6727,7 @@ class CompactStateMachine:
         work_idle: bool = True,
         foreground_ambiguous: bool = False,
         input_line_abandoned: bool = False,
+        main_focus_confirmed: bool = True,
     ) -> Evaluation:
         """Advance the machine one step and return what it WOULD do.
 
@@ -5959,6 +6762,10 @@ class CompactStateMachine:
         text via the existing resubmit/Enter path, `Decision.WOULD_RESUBMIT`)
         instead of deferring forever, then compacts normally once the box
         reads empty again.
+
+        ``main_focus_confirmed`` (Plan 00537) False holds that flush, because
+        its Enter would open a selected sub-agent row. Every other send is
+        already held through ``idle``, which the caller ANDs it into.
         """
         compacting = reading is not None and reading.compacting
         if compacting:
@@ -6022,6 +6829,7 @@ class CompactStateMachine:
             now=now,
             foreground_ambiguous=foreground_ambiguous,
             input_line_abandoned=input_line_abandoned,
+            main_focus_confirmed=main_focus_confirmed,
         )
 
     def _evaluate_monitor(
@@ -6033,6 +6841,7 @@ class CompactStateMachine:
         now: float,
         foreground_ambiguous: bool = False,
         input_line_abandoned: bool = False,
+        main_focus_confirmed: bool = True,
     ) -> Evaluation:
         # Plan 00398 Phase 3: the flush latch is scoped to the box's CURRENT
         # abandoned spell, consumed here every tick regardless of what follows
@@ -6052,6 +6861,14 @@ class CompactStateMachine:
         if foreground_ambiguous:
             return Evaluation(Decision.NOOP, _REASON_FOREGROUND_AMBIGUOUS)
         if not idle:
+            if (
+                input_line_abandoned
+                and not self._abandoned_box_handled
+                and not main_focus_confirmed
+            ):
+                # Plan 00537: held AHEAD of the one-shot latch below, so the
+                # flush is deferred, not spent.
+                return Evaluation(Decision.NOOP, _REASON_FOCUS_HOLD)
             if input_line_abandoned and not self._abandoned_box_handled:
                 # Owner ruling (Plan 00398): text unchanged for the stability
                 # threshold is "captured text by accident" -- submit it via the
@@ -6682,12 +7499,68 @@ def _noop_band_suffix(reading: SidecarReading | None) -> str:
     return " [red]"
 
 
+def _focus_hold_of(facts: TickFacts) -> FocusHold | None:
+    """The host's focus hold carried by ``facts``, or None when focus is confirmed."""
+    if facts.main_focus_confirmed:
+        return None
+    return FocusHold(
+        reason=facts.focus_hold_reason,
+        since=facts.focus_held_since,
+        latch_bytes=facts.focus_latch_bytes,
+    )
+
+
+def _with_focus_hold(facts: TickFacts, hold: FocusHold | None) -> TickFacts:
+    """``facts`` carrying the host's focus hold (the inverse of :func:`_focus_hold_of`)."""
+    if hold is None:
+        return replace(facts, main_focus_confirmed=True)
+    return replace(
+        facts,
+        main_focus_confirmed=False,
+        focus_hold_reason=hold.reason,
+        focus_held_since=hold.since,
+        focus_latch_bytes=hold.latch_bytes,
+    )
+
+
+def _note_focus_hold(
+    machine: CompactStateMachine,
+    hold: FocusHold,
+    family: str,
+    *,
+    now_wall: float,
+    status_dir: Path | None,
+) -> str | None:
+    """Record that ``family``'s send is held off main focus (Plan 00537).
+
+    Posts the status-line banner on every held tick, at WARNING because an INFO
+    write yields to a live warning, louder once the hold passes the first
+    escalation bound; ``status_dir`` None posts none. Returns the rate-limited
+    decision.log line, or None.
+    """
+    if status_dir is not None:
+        if machine.focus_hold_level(hold, now_wall=now_wall) == 0:
+            text = _FOCUS_HOLD_BANNER_TEXT
+        else:
+            minutes = int((now_wall - hold.since) // 60)
+            text = _FOCUS_HOLD_BANNER_LOUD_TEMPLATE.format(minutes=minutes)
+        write_status_message(
+            status_dir,
+            text=text,
+            expires_at=now_wall + _STATUS_MESSAGE_TTL_SECONDS,
+            level=_STATUS_LEVEL_WARNING,
+            now=now_wall,
+        )
+    return machine.focus_hold_log(family, hold, now_wall=now_wall)
+
+
 def _usage_pause_outcome(
     machine: CompactStateMachine,
     pause: UsagePauseRecord,
     *,
     facts: TickFacts,
     dry_run: bool,
+    status_dir: Path,
 ) -> TickOutcome:
     """Decide a tick while a usage pause holds (Plan 00479 Task 4.5).
 
@@ -6742,6 +7615,22 @@ def _usage_pause_outcome(
             held,
             noop_reason_log=(
                 f"{_NOOP_LOG_PREFIX}: {held}: waiting for the session to stop before compacting"
+            ),
+        )
+    focus_hold = _focus_hold_of(facts)
+    if focus_hold is not None:
+        # Plan 00537: this function bypasses `can_inject` and applies its own
+        # copy of it above, so the focus term is added here -- typed into a
+        # sub-agent, this compact would not pause the main thread anyway.
+        return outcome(
+            Decision.NOOP,
+            held,
+            deferred_log=_note_focus_hold(
+                machine,
+                focus_hold,
+                "usage-pause compact",
+                now_wall=facts.now_wall,
+                status_dir=status_dir,
             ),
         )
     if not facts.input_line_empty:
@@ -6851,7 +7740,20 @@ def decide_once(
     # box content unchanged past the stability threshold) and, for a
     # red-or-worse reading, flushes it via the existing resubmit/Enter
     # machinery instead of deferring forever.
-    can_inject = facts.idle and facts.input_line_empty
+    # Plan 00537: and nothing is typed while the human's own keys say focus may
+    # be off the main prompt; the sends that bypass `can_inject` are gated on
+    # `focus_hold` explicitly below.
+    can_inject = facts.idle and facts.input_line_empty and facts.main_focus_confirmed
+    focus_hold = _focus_hold_of(facts)
+    status_dir = sidecar_dir.parent
+
+    def _held(family: str) -> str | None:
+        if focus_hold is None:
+            return None
+        return _note_focus_hold(
+            machine, focus_hold, family, now_wall=facts.now_wall, status_dir=status_dir
+        )
+
     # Plan 00164 Phase 4 fix: adopt the host's authoritative machine state before
     # deciding so the worker never runs on divergent state. None on the in-process
     # path (the passed machine is already the live authoritative one).
@@ -6861,11 +7763,35 @@ def decide_once(
     # tick (one /compact, then silence) and bypasses every injection family below.
     usage_pause = load_usage_pause(sidecar_dir, now=facts.now_wall, own_sessions=own_sessions)
     if usage_pause is not None:
-        return _usage_pause_outcome(machine, usage_pause, facts=facts, dry_run=dry_run)
+        return _usage_pause_outcome(
+            machine, usage_pause, facts=facts, dry_run=dry_run, status_dir=status_dir
+        )
     pause_lifted_log: str | None = None
     if machine.pause_compacted_for is not None:
         machine.clear_pause_compacted()
         pause_lifted_log = f"{_NOOP_LOG_PREFIX}: usage pause lifted -> normal behaviour resumed"
+    # Plan 00501 Phase 5: while this session is BLOCKED the work-driving prompts
+    # below are skipped as named noops; an unreadable modes file closes the same
+    # gate and is said out loud on every tick it persists (see load_session_modes).
+    session_modes = load_session_modes(sidecar_dir, now=facts.now_wall, own_sessions=own_sessions)
+    modes_gate_closed = session_modes.gate_closed
+    modes_skip_reason = session_modes.skip_reason()
+    modes_error_log: str | None = None
+    if session_modes.errors:
+        modes_error_log = (
+            f"{_NOOP_LOG_PREFIX}: session-modes file unreadable, work-driving prompts withheld: "
+            f"{'; '.join(session_modes.errors)}"
+        )
+        write_status_message(
+            status_dir,
+            text=(
+                "supervisor: session-modes file unreadable -- goal, continue and reminder "
+                "prompts withheld; see decision.log"
+            ),
+            expires_at=facts.now_wall + _SESSION_MODES_ERROR_STATUS_TTL_SECONDS,
+            level=_STATUS_LEVEL_WARNING,
+            now=facts.now_wall,
+        )
     # Plan 00328: adopt the platform's OWN record of a safety downgrade before
     # the reading is tracked, because that is the tick on which the drop is
     # first observed and the episode would open. Nothing else opens one.
@@ -6890,6 +7816,7 @@ def decide_once(
         work_idle=facts.work_idle,
         foreground_ambiguous=foreground_ambiguous,
         input_line_abandoned=facts.input_line_abandoned,
+        main_focus_confirmed=facts.main_focus_confirmed,
     )
     payload = _resolve_payload(
         evaluation.decision,
@@ -6897,6 +7824,17 @@ def decide_once(
         now_wall=facts.now_wall,
         abandoned_box_flush=evaluation.abandoned_box_flush,
     )
+    # Plan 00501 Ruling 07: under BLOCKED the post-compact `continue` is not
+    # typed. The machine has already latched this compaction as handled, so the
+    # skip is not retried; the compaction signal is left to expire, as the usage
+    # pause leaves it. Applied before the dry-run latch so no marker is spent.
+    continue_skipped_log: str | None = None
+    if evaluation.decision is Decision.WOULD_CONTINUE and modes_gate_closed:
+        payload = None
+        evaluation = Evaluation(
+            Decision.NOOP, f"post-compact continue skipped: {modes_skip_reason}"
+        )
+        continue_skipped_log = f"{_NOOP_LOG_PREFIX}: {evaluation.reason}"
     # Additional confirming Enters for a /model injection (set by the manual
     # switch branch and the auto-restore branch below); every other decision
     # leaves this at 0, which is a no-op in _perform_injection.
@@ -6932,7 +7870,16 @@ def decide_once(
         else None
     )
     deferred_log = None
-    if (
+    if payload is None and evaluation.reason == _REASON_FOCUS_HOLD:
+        deferred_log = _held("abandoned-box flush")
+    elif (
+        payload is None
+        and facts.idle
+        and focus_hold is not None
+        and evaluation.reason in _INJECTION_GATED_REASONS
+    ):
+        deferred_log = _held("compact/resume")
+    elif (
         payload is None
         and facts.idle
         and not facts.input_line_empty
@@ -7039,7 +7986,9 @@ def decide_once(
                     f"{_OWN_LINE_NOOP_PREFIX} still in the input box"
                 )
             elif not can_inject:
-                if facts.idle and not facts.input_line_empty:
+                if facts.idle and focus_hold is not None:
+                    deferred_log, noop_reason_log = _held("operator signal"), None
+                elif facts.idle and not facts.input_line_empty:
                     deferred_log = f"{_DEFERRED_LOG_PREFIX} (operator signal pending)"
                 else:
                     noop_reason_log = (
@@ -7090,7 +8039,9 @@ def decide_once(
                     f"{_OWN_LINE_NOOP_PREFIX} still in the input box"
                 )
             elif not can_inject:
-                if facts.idle and not facts.input_line_empty:
+                if facts.idle and focus_hold is not None:
+                    deferred_log, noop_reason_log = _held(notice_label), None
+                elif facts.idle and not facts.input_line_empty:
                     deferred_log = f"{_DEFERRED_LOG_PREFIX} ({notice_label} pending)"
                 else:
                     noop_reason_log = f"{_NOOP_LOG_PREFIX}: {notice_label} pending but session busy"
@@ -7142,7 +8093,9 @@ def decide_once(
             # family, malformed JSON) is dropped and the reason is logged.
             noop_reason_log = f"{_NOOP_LOG_PREFIX}: {switch_reject}"
         elif switch_path is not None and switch_family is not None:
-            if not facts.input_line_empty:
+            if focus_hold is not None:
+                deferred_log, noop_reason_log = _held("model switch"), None
+            elif not facts.input_line_empty:
                 if facts.idle:
                     deferred_log = f"{_DEFERRED_LOG_PREFIX} (model-switch signal pending)"
                 else:
@@ -7241,13 +8194,19 @@ def decide_once(
             # is dropped and the reason is logged (deduped by write_noop).
             noop_reason_log = f"{_NOOP_LOG_PREFIX}: {goal_reject}"
         elif goal_path is not None and goal_line is not None:
-            if own_line_blocks_text:
+            if modes_gate_closed:
+                # Plan 00501: withheld, not consumed. The signal ages out on its
+                # own TTL, and the goal clear below is free to run this tick.
+                noop_reason_log = f"{_NOOP_LOG_PREFIX}: goal injection skipped: {modes_skip_reason}"
+            elif own_line_blocks_text:
                 noop_reason_log = (
                     f"{_NOOP_LOG_PREFIX}: goal signal pending but {_OWN_LINE_NOOP_PREFIX} "
                     "still in the input box"
                 )
             elif not can_inject:
-                if facts.idle and not facts.input_line_empty:
+                if facts.idle and focus_hold is not None:
+                    deferred_log, noop_reason_log = _held("goal injection"), None
+                elif facts.idle and not facts.input_line_empty:
                     deferred_log = f"{_DEFERRED_LOG_PREFIX} (goal injection pending)"
                 else:
                     noop_reason_log = f"{_NOOP_LOG_PREFIX}: goal signal pending but session busy"
@@ -7291,6 +8250,10 @@ def decide_once(
     # trigger are somehow present, the goal wins and the clear waits a tick.
     # In practice they are mutually exclusive -- the daemon removes the
     # `.goal-intent` file in the same call that writes the clear trigger.
+    # Plan 00501 Task 5.2: under BLOCKED the goal is skipped above, so the clear
+    # wins instead, and the per-process cap does not refuse it: the cap exists
+    # against unrelated clears, and a blocked loop is the clear that must land.
+    # The higher BLOCKED ceiling still bounds a trigger that cannot be deleted.
     if (
         payload is None
         and evaluation.decision is Decision.NOOP
@@ -7310,26 +8273,49 @@ def decide_once(
                     "still in the input box"
                 )
             elif not can_inject:
-                if facts.idle and not facts.input_line_empty:
+                if facts.idle and focus_hold is not None:
+                    deferred_log, noop_reason_log = _held("goal clear"), None
+                elif facts.idle and not facts.input_line_empty:
                     deferred_log = f"{_DEFERRED_LOG_PREFIX} (goal clear pending)"
                 else:
                     noop_reason_log = f"{_NOOP_LOG_PREFIX}: goal clear pending but session busy"
-            elif machine.goal_clear_injections >= _MAX_GOAL_CLEAR_INJECTIONS:
+            elif (
+                machine.goal_clear_injections >= _MAX_GOAL_CLEAR_INJECTIONS
+                and not session_modes.is_blocked
+            ):
                 noop_reason_log = f"{_NOOP_LOG_PREFIX}: goal clear cap reached"
+            elif machine.goal_clear_injections >= _MAX_BLOCKED_GOAL_CLEAR_INJECTIONS:
+                noop_reason_log = f"{_NOOP_LOG_PREFIX}: goal clear ceiling reached while BLOCKED"
             else:
-                decision_value = Decision.WOULD_GOAL_CLEAR.value
-                reason = "goal clear trigger -> would inject /goal clear"
-                if dry_run:
-                    payload = f"{_format_bot_prefix(facts.now_wall)} {_DRY_RUN_GOAL_CLEAR_BODY}"
+                record_error: OSError | None = None
+                if not dry_run:
+                    try:
+                        write_goal_clear_record(
+                            sidecar_dir, trigger_path=clear_path, now=facts.now_wall
+                        )
+                    except OSError as error:
+                        record_error = error
+                if record_error is not None:
+                    # An unrecorded clear would be attributed to the human and
+                    # switch automated goals off, so it is not typed at all.
+                    noop_reason_log = (
+                        f"{_NOOP_LOG_PREFIX}: goal clear NOT typed: attribution record "
+                        f"could not be written: {record_error}"
+                    )
                 else:
-                    # Fixed literal: nothing from the trigger file reaches the
-                    # PTY, so this channel cannot type text of a writer's
-                    # choosing (see the note on _GOAL_CLEAR_GLOB).
-                    payload = _GOAL_CLEAR_COMMAND
-                submit = True
-                consume_signal_path = str(clear_path)
-                deferred_log = None
-                noop_reason_log = None
+                    decision_value = Decision.WOULD_GOAL_CLEAR.value
+                    reason = "goal clear trigger -> would inject /goal clear"
+                    if dry_run:
+                        payload = f"{_format_bot_prefix(facts.now_wall)} {_DRY_RUN_GOAL_CLEAR_BODY}"
+                    else:
+                        # Fixed literal: nothing from the trigger file reaches the
+                        # PTY, so this channel cannot type text of a writer's
+                        # choosing (see the note on _GOAL_CLEAR_GLOB).
+                        payload = _GOAL_CLEAR_COMMAND
+                    submit = True
+                    consume_signal_path = str(clear_path)
+                    deferred_log = None
+                    noop_reason_log = None
     # ── Flag-cleaning compaction on a REPEATED downgrade (Plan 00281) ───────
     # Checked JUST BEFORE the model restore: on a flip-flop (an open episode
     # AND a prior auto-restore that the classifier already undid) a re-restore
@@ -7347,7 +8333,9 @@ def decide_once(
         and machine.flag_compact_due(facts.now_wall)
     ):
         if not can_inject:
-            if facts.idle and not facts.input_line_empty:
+            if facts.idle and focus_hold is not None:
+                deferred_log, noop_reason_log = _held("flag-cleaning compact"), None
+            elif facts.idle and not facts.input_line_empty:
                 deferred_log = f"{_DEFERRED_LOG_PREFIX} (flag-cleaning compact pending)"
             else:
                 noop_reason_log = (
@@ -7382,7 +8370,9 @@ def decide_once(
         restore_family = machine.model_restore_due(facts.now_wall)
         if restore_family is not None:
             if not can_inject:
-                if facts.idle and not facts.input_line_empty:
+                if facts.idle and focus_hold is not None:
+                    deferred_log, noop_reason_log = _held("model restore"), None
+                elif facts.idle and not facts.input_line_empty:
                     deferred_log = f"{_DEFERRED_LOG_PREFIX} (model restore pending)"
                 else:
                     noop_reason_log = f"{_NOOP_LOG_PREFIX}: model restore pending but session busy"
@@ -7516,13 +8506,19 @@ def decide_once(
             # the reason logged (deduped by write_noop).
             noop_reason_log = f"{_NOOP_LOG_PREFIX}: {sa_reject}"
         elif sa_path is not None and sa_line is not None:
-            if own_line_blocks_text:
+            if modes_gate_closed:
+                noop_reason_log = (
+                    f"{_NOOP_LOG_PREFIX}: standing-auth reminder skipped: {modes_skip_reason}"
+                )
+            elif own_line_blocks_text:
                 noop_reason_log = (
                     f"{_NOOP_LOG_PREFIX}: standing-auth signal pending but "
                     f"{_OWN_LINE_NOOP_PREFIX} still in the input box"
                 )
             elif not can_inject:
-                if facts.idle and not facts.input_line_empty:
+                if facts.idle and focus_hold is not None:
+                    deferred_log, noop_reason_log = _held("standing-auth reminder"), None
+                elif facts.idle and not facts.input_line_empty:
                     deferred_log = f"{_DEFERRED_LOG_PREFIX} (standing-auth reminder pending)"
                 else:
                     noop_reason_log = (
@@ -7578,13 +8574,19 @@ def decide_once(
             # reason logged.
             noop_reason_log = f"{_NOOP_LOG_PREFIX}: {actions_reject}"
         elif actions_path is not None and actions_message is not None:
-            if own_line_blocks_text:
+            if modes_gate_closed:
+                noop_reason_log = (
+                    f"{_NOOP_LOG_PREFIX}: session-actions directive skipped: {modes_skip_reason}"
+                )
+            elif own_line_blocks_text:
                 noop_reason_log = (
                     f"{_NOOP_LOG_PREFIX}: session-actions directive pending but "
                     f"{_OWN_LINE_NOOP_PREFIX} still in the input box"
                 )
             elif not can_inject:
-                if facts.idle and not facts.input_line_empty:
+                if facts.idle and focus_hold is not None:
+                    deferred_log, noop_reason_log = _held("session-actions directive"), None
+                elif facts.idle and not facts.input_line_empty:
                     deferred_log = f"{_DEFERRED_LOG_PREFIX} (session-actions directive pending)"
                 else:
                     noop_reason_log = (
@@ -7635,7 +8637,9 @@ def decide_once(
                 f"{_OWN_LINE_NOOP_PREFIX} still in the input box"
             )
         elif not can_inject:
-            if facts.idle and not facts.input_line_empty:
+            if facts.idle and focus_hold is not None:
+                deferred_log, noop_reason_log = _held("cron-reconcile prompt"), None
+            elif facts.idle and not facts.input_line_empty:
                 deferred_log = f"{_DEFERRED_LOG_PREFIX} (cron-reconcile prompt pending)"
             else:
                 noop_reason_log = (
@@ -7710,7 +8714,9 @@ def decide_once(
         consume_signal_path=consume_signal_path,
         deferred_log=deferred_log,
         machine_state=machine.export_state(),
-        noop_reason_log=pause_lifted_log or noop_reason_log,
+        noop_reason_log=(
+            pause_lifted_log or modes_error_log or continue_skipped_log or noop_reason_log
+        ),
         confirm_enters=confirm_enters,
         model_switch_family=model_switch_family,
         model_switch_session=model_switch_session,
@@ -7741,6 +8747,7 @@ def _apply_decision(
     master_writer: Callable[[bytes], None],
     log: DecisionLog | None,
     host_state: str | None = None,
+    main_focus_confirmed: bool = True,
 ) -> bool:
     """Perform a :class:`TickOutcome` on the PTY (host side, Plan 00164 P4).
 
@@ -7761,7 +8768,20 @@ def _apply_decision(
     (a compaction is already in flight) -- injecting it would stack a second
     ``/compact``, so it is suppressed and logged rather than performed. The
     in-process path passes ``None`` (single live machine -- no desync possible).
+
+    Plan 00537: ``main_focus_confirmed`` is the host's focus model read at
+    APPLY time. A payload decided before the human's navigation latched it
+    is not typed: an unsent send costs a retry, a sent one lands in a
+    sub-agent.
     """
+    if outcome.payload is not None and not main_focus_confirmed:
+        if log is not None:
+            log.write_noop(
+                f"{_FOCUS_HOLD_LOG_PREFIX} ({outcome.decision_value} decided before the "
+                "focus hold latched; not typed)"
+            )
+        discard_untyped_goal_clear_record(outcome, log)
+        return False
     if (
         host_state == SupervisorState.AWAIT_COMPACTING.value
         and outcome.decision_value == Decision.WOULD_COMPACT.value
@@ -7777,12 +8797,25 @@ def _apply_decision(
     if log is not None and outcome.audit_flush_log is not None:
         log.write_noop(outcome.audit_flush_log)
     if outcome.payload is not None:
-        _perform_injection(
-            master_writer,
-            outcome.payload,
-            submit=outcome.submit,
-            confirm_enters=outcome.confirm_enters,
-        )
+        # A write that fails before any byte reaches the PTY typed nothing, so a
+        # goal clear's record goes; a partial write left supervisor text in the
+        # box, which may yet be submitted, so its record stays.
+        written: list[bool] = []
+
+        def _tracked_writer(data: bytes) -> None:
+            master_writer(data)
+            written.append(True)
+
+        try:
+            _perform_injection(
+                _tracked_writer,
+                outcome.payload,
+                submit=outcome.submit,
+                confirm_enters=outcome.confirm_enters,
+            )
+        finally:
+            if not written:
+                discard_untyped_goal_clear_record(outcome, log)
         if log is not None:
             log.write(f"{outcome.decision_value}: {outcome.reason}; injected {outcome.payload!r}")
         if outcome.consume_signal_path is not None:
@@ -7796,6 +8829,56 @@ def _apply_decision(
         # an unchanged gate never floods). Makes red-but-not-compacting visible.
         log.write_noop(outcome.noop_reason_log)
     return False
+
+
+def _apply_worker_outcome(
+    outcome: TickOutcome,
+    *,
+    machine: CompactStateMachine,
+    line: HumanInputLine,
+    master_writer: Callable[[bytes], None],
+    log: DecisionLog | None,
+    main_focus_confirmed: bool,
+    now_wall: float,
+) -> bool:
+    """Perform a worker-decided outcome on the host and adopt what it decided.
+
+    Returns True when a payload was typed. A payload held by the host's focus
+    model at apply time (Plan 00537) is treated like a failed PTY write: the
+    worker's post-tick state is NOT adopted, nothing is booked and the box
+    model is not cleared, so the held send is retried rather than recorded as
+    sent -- a held `/compact` would otherwise leave the machine awaiting a
+    compaction that never started.
+    """
+    if outcome.payload is not None and not main_focus_confirmed:
+        _apply_decision(outcome, master_writer=master_writer, log=log, main_focus_confirmed=False)
+        return False
+    # Plan 00182: pass the host's authoritative PRE-tick state so a stale
+    # WOULD_COMPACT reply (worker still MONITOR, host already awaiting)
+    # is suppressed instead of stacking a second /compact.
+    injected = _apply_decision(
+        outcome,
+        master_writer=master_writer,
+        log=log,
+        host_state=machine.state.value,
+    )
+    # Adopt the worker's post-tick state so `machine` remains the single
+    # source of truth; a later in-process fallback tick then cannot
+    # diverge and inject a duplicate /compact (Plan 00164 Phase 4 fix).
+    if outcome.machine_state is not None:
+        machine.import_state(outcome.machine_state)
+    # Success-only bookkeeping, run AFTER adopting the worker state
+    # (which carries the pre-injection counts) so no increment is
+    # ever overwritten. A PTY write failure raises above, so no cap
+    # is burned and no pending episode/signal is lost (Plan 00269
+    # review fix; Plan 00278 continuation).
+    _apply_post_injection_bookkeeping(machine, outcome, injected=injected, now_wall=now_wall)
+    # Plan 00398 Phase 3: the flush's own Enter never passes through
+    # `feed` (same as every other supervisor injection), so without
+    # this the model would show the just-flushed text forever.
+    if outcome.abandoned_box_flushed:
+        line.clear()
+    return injected
 
 
 def _apply_post_injection_bookkeeping(
@@ -7877,6 +8960,7 @@ def _poll_once(
     plugins: PluginRuntime | None = None,
     on_outcome: Callable[[TickOutcome], None] | None = None,
     output_quiet_seconds: float = 0.0,
+    focus_hold: FocusHold | None = None,
 ) -> Evaluation:
     """One in-process supervisor tick: decide (``decide_once``) then inject.
 
@@ -7897,15 +8981,21 @@ def _poll_once(
     after it was applied, so the caller can act on what the plugins reported
     (failures, an exit-for-restart request) through the same code the worker
     path uses.
+
+    ``focus_hold`` (Plan 00537) is the host's focus hold, or None when the
+    main prompt's focus is confirmed.
     """
-    facts = TickFacts(
-        now_wall=now_wall,
-        idle=idle,
-        input_line_empty=input_line_empty,
-        human_compact_submitted=human_compact_submitted,
-        work_idle=work_idle,
-        input_line_abandoned=input_line_abandoned,
-        output_quiet_seconds=output_quiet_seconds,
+    facts = _with_focus_hold(
+        TickFacts(
+            now_wall=now_wall,
+            idle=idle,
+            input_line_empty=input_line_empty,
+            human_compact_submitted=human_compact_submitted,
+            work_idle=work_idle,
+            input_line_abandoned=input_line_abandoned,
+            output_quiet_seconds=output_quiet_seconds,
+        ),
+        focus_hold,
     )
     outcome = decide_once(
         machine,
@@ -7922,7 +9012,12 @@ def _poll_once(
         model_confirm_enters=model_confirm_enters,
         plugins=plugins,
     )
-    injected = _apply_decision(outcome, master_writer=master_writer, log=log)
+    injected = _apply_decision(
+        outcome,
+        master_writer=master_writer,
+        log=log,
+        main_focus_confirmed=focus_hold is None,
+    )
     _apply_post_injection_bookkeeping(machine, outcome, injected=injected, now_wall=now_wall)
     if outcome.abandoned_box_flushed and on_input_line_flushed is not None:
         on_input_line_flushed()
@@ -7957,6 +9052,11 @@ def _facts_to_json(facts: TickFacts) -> str:
             "tick_id": facts.tick_id,
             "input_line_abandoned": facts.input_line_abandoned,
             "output_quiet_seconds": facts.output_quiet_seconds,
+            "main_focus_confirmed": facts.main_focus_confirmed,
+            "focus_hold_reason": facts.focus_hold_reason,
+            "focus_held_since": facts.focus_held_since,
+            "focus_latch_bytes": facts.focus_latch_bytes,
+            "child_pid": facts.child_pid,
         }
     )
 
@@ -7975,6 +9075,11 @@ def _facts_from_json(line: str) -> TickFacts:
         tick_id=int(data.get("tick_id", 0)),
         input_line_abandoned=bool(data.get("input_line_abandoned", False)),
         output_quiet_seconds=float(data.get("output_quiet_seconds", 0.0)),
+        main_focus_confirmed=bool(data.get("main_focus_confirmed", True)),
+        focus_hold_reason=str(data.get("focus_hold_reason", "")),
+        focus_held_since=float(data.get("focus_held_since", 0.0)),
+        focus_latch_bytes=str(data.get("focus_latch_bytes", "")),
+        child_pid=int(data["child_pid"]) if data.get("child_pid") is not None else None,
     )
 
 
@@ -8089,6 +9194,7 @@ def run_worker(
     sidecar_dir: Path,
     policy: CompactPolicy,
     plugins: PluginRuntime | None = None,
+    child: WorkerChildPid | None = None,
 ) -> int:
     """Policy-worker loop: read TickFacts lines, emit TickOutcome lines.
 
@@ -8118,7 +9224,12 @@ def run_worker(
     restart -- worse, indefinitely if no further human byte ever arrives to
     seed a fresh reading. The host's own long-lived model never has that gap,
     so its verdict is taken as-is.
+
+    ``child`` (Plan 00551) learns the Claude child pid from each tick's
+    ``child_pid``; own-session identity is scoped to that child's tree.
     """
+    if child is None:
+        child = WorkerChildPid()
     machine = CompactStateMachine(policy)
     line_recognizer = HumanInputLine()
     if plugins is not None:
@@ -8133,6 +9244,7 @@ def run_worker(
         except (ValueError, KeyError) as exc:
             append_worker_error(f"bad tick line: {exc}")
             continue
+        child.learn(facts.child_pid)
         if facts.human_raw_input:
             try:
                 line_recognizer.feed(base64.b64decode(facts.human_raw_input))
@@ -8175,7 +9287,8 @@ def run_worker(
                 compaction_signal_ttl_seconds=policy.compaction_signal_ttl_seconds,
                 reap_ttl_seconds=policy.reap_ttl_seconds,
                 foreground_margin_seconds=policy.foreground_margin_seconds,
-                own_sessions=cached_own_session_ids(),  # Plan 00166: only our own sessions
+                # Plans 00166, 00551: only the sessions of our own child's tree.
+                own_sessions=child.own_session_ids(),
                 goal_signal_ttl_seconds=policy.goal_signal_ttl_seconds,
                 model_confirm_enters=policy.model_confirm_enters,
                 plugins=plugins,
@@ -8538,7 +9651,9 @@ def _exit_code_from_status(status: int) -> int:
 #
 #   1. refuse unless exactly one own session id is known (the relaunch has to
 #      resume THE conversation, and a wrong id would resume another);
-#   2. type `/exit` through the ordinary injection path;
+#   2. write `restart-pending.json` (session_id, plugin, reason, requested_at
+#      and a wall-clock deadline), then type `/exit` through the ordinary
+#      injection path;
 #   3. HOLD every other injection until the child exits -- bounded: a child
 #      that ignores `/exit` is abandoned after `_RESTART_EXIT_WAIT_SECONDS` and
 #      the session carries on as if nothing had been asked;
@@ -8549,6 +9664,14 @@ def _exit_code_from_status(status: int) -> int:
 #
 # The launcher must treat the status as a request only when the file is present
 # and fresh, and delete the file once it has read it.
+#
+# The restart-pending record is for the child's SessionEnd hooks, which run
+# before the child exits. Its path reaches the child as
+# `CCY_SUPERVISOR_RESTART_PENDING`. A hook treats its session as restarting
+# only when the record exists, names the hook's own session id, and its
+# deadline has not passed. The record is removed when typing fails, on abandon,
+# in `finish()`, and when `supervise()` leaves by an exception; the deadline is
+# the backstop for a crash or SIGKILL.
 # ---------------------------------------------------------------------------
 
 # sysexits.h EX_TEMPFAIL: "temporary failure, retry". Never `claude`'s own
@@ -8570,6 +9693,13 @@ _RESTARTED_MARKER_MAX_AGE_SECONDS = 24 * 60 * 60.0
 _CLAUDE_VERSION_TIMEOUT_SECONDS = 3.0
 _SESSION_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
 _RESTART_MAX_ABANDONED = 3
+# Plan 00539: the restart-pending record, beside the request file, and the
+# variable that names it to the child. Its wall-clock deadline is
+# `requested_at` + `_RESTART_EXIT_WAIT_SECONDS` + this margin, so a reader never
+# sees it expire while the supervisor still holds the request.
+_RESTART_PENDING_FILENAME = "restart-pending.json"
+_RESTART_PENDING_ENV = "CCY_SUPERVISOR_RESTART_PENDING"
+_RESTART_PENDING_DEADLINE_MARGIN_SECONDS = 5.0
 
 
 def _restart_request_path() -> Path:
@@ -8621,6 +9751,7 @@ class RestartCoordinator:
         *,
         state_path: Path,
         marker_path: Path | None = None,
+        pending_record_path: Path | None = None,
         wait_seconds: float = _RESTART_EXIT_WAIT_SECONDS,
         cooldown_seconds: float = _RESTART_RETRY_COOLDOWN_SECONDS,
         max_abandoned: int = _RESTART_MAX_ABANDONED,
@@ -8633,6 +9764,11 @@ class RestartCoordinator:
             marker_path
             if marker_path is not None
             else state_path.with_name(_RESTARTED_MARKER_FILENAME)
+        )
+        self._pending_record_path = (
+            pending_record_path
+            if pending_record_path is not None
+            else state_path.with_name(_RESTART_PENDING_FILENAME)
         )
         self._wait_seconds = wait_seconds
         self._cooldown_seconds = cooldown_seconds
@@ -8649,9 +9785,58 @@ class RestartCoordinator:
         """True from the moment `/exit` was typed until the child exits or the wait is abandoned."""
         return self._pending is not None
 
+    @property
+    def pending_record_path(self) -> Path:
+        """Where the restart-pending record is written; exported to the child at spawn."""
+        return self._pending_record_path
+
     def expired(self) -> bool:
         """True when a pending request has waited out its bound."""
         return self._pending is not None and self._monotonic() >= self._pending.deadline
+
+    def _write_pending_record(
+        self,
+        *,
+        plugin: str,
+        reason: str,
+        session_id: str,
+        requested_at: float,
+        log: DecisionLog | None,
+    ) -> None:
+        """Write the record a SessionEnd hook reads; a failure loses only that signal."""
+        payload: dict[str, object] = {
+            "session_id": session_id,
+            "plugin": plugin,
+            "reason": reason,
+            "requested_at": requested_at,
+            "deadline": requested_at
+            + self._wait_seconds
+            + _RESTART_PENDING_DEADLINE_MARGIN_SECONDS,
+        }
+        try:
+            _write_private_json(self._pending_record_path, payload)
+        except OSError as error:
+            _log_line(
+                log, f"exit for restart: could not write {self._pending_record_path}: {error}"
+            )
+
+    def discard_pending_record(self, log: DecisionLog | None) -> None:
+        """Remove a still-pending request's record when the supervisor is leaving abnormally.
+
+        A no-op once `finish()` or `abandon()` has run. A crash or SIGKILL that
+        skips this leaves the record to its wall-clock deadline.
+        """
+        if self._pending is not None:
+            self._remove_pending_record(log)
+
+    def _remove_pending_record(self, log: DecisionLog | None) -> None:
+        """Remove the record: the resumed session keeps the same id, so none may linger."""
+        try:
+            self._pending_record_path.unlink(missing_ok=True)
+        except OSError as error:
+            _log_line(
+                log, f"exit for restart: could not remove {self._pending_record_path}: {error}"
+            )
 
     def request(
         self,
@@ -8663,8 +9848,16 @@ class RestartCoordinator:
         write_master: Callable[[bytes], None],
         log: DecisionLog | None,
         dry_run: bool,
+        focus_hold: FocusHold | None = None,
+        status_dir: Path | None = None,
     ) -> bool:
-        """Start an exit for restart; True only when `/exit` was actually typed."""
+        """Start an exit for restart; True only when `/exit` was actually typed.
+
+        Plan 00537: a ``focus_hold`` holds the `/exit` like every other send.
+        A held request leaves nothing behind -- no pending restart, no own
+        line, no abandon count, no cooldown -- so the plugin's request stands
+        and is judged afresh once the human's Esc releases the hold.
+        """
         if self._pending is not None:
             return False
         if dry_run:
@@ -8689,13 +9882,38 @@ class RestartCoordinator:
             )
             return False
         (session_id,) = session_ids
-        _perform_injection(write_master, _RESTART_EXIT_COMMAND, submit=True, sleep=self._sleep)
+        if focus_hold is not None:
+            held_line = _note_focus_hold(
+                machine,
+                focus_hold,
+                f"exit for restart (plugin {plugin})",
+                now_wall=self._wall_clock(),
+                status_dir=status_dir,
+            )
+            if held_line is not None:
+                _log_line(log, held_line)
+            return False
+        # Plan 00539: every refusal is behind us. The record must exist before
+        # `/exit` is typed, because Claude Code runs SessionEnd hooks as it exits.
+        requested_at = self._wall_clock()
+        self._write_pending_record(
+            plugin=plugin,
+            reason=reason,
+            session_id=session_id,
+            requested_at=requested_at,
+            log=log,
+        )
+        try:
+            _perform_injection(write_master, _RESTART_EXIT_COMMAND, submit=True, sleep=self._sleep)
+        except BaseException:
+            self._remove_pending_record(log)
+            raise
         machine.mark_own_line_typed(_RESTART_EXIT_COMMAND, self._wall_clock())
         self._pending = _PendingRestart(
             plugin=plugin,
             reason=reason,
             session_id=session_id,
-            requested_at=self._wall_clock(),
+            requested_at=requested_at,
             deadline=self._monotonic() + self._wait_seconds,
         )
         _log_line(
@@ -8715,6 +9933,7 @@ class RestartCoordinator:
         pending, self._pending = self._pending, None
         if pending is None:
             return None
+        self._remove_pending_record(log)
         self._cooldown_until = self._monotonic() + self._cooldown_seconds
         count = self._abandoned.get(pending.plugin, 0) + 1
         self._abandoned[pending.plugin] = count
@@ -8737,6 +9956,7 @@ class RestartCoordinator:
         pending, self._pending = self._pending, None
         if pending is None:
             return exit_code
+        self._remove_pending_record(log)
         payload = {
             "session_id": pending.session_id,
             "reason": pending.reason,
@@ -8877,11 +10097,14 @@ def handle_plugin_outcome(
     session_ids: frozenset[str],
     plugin_host: PluginHost | None,
     restart_worker: Callable[[], bool] | None,
+    focus_hold: FocusHold | None = None,
+    status_dir: Path | None = None,
 ) -> None:
     """Act, on the HOST, on what one tick's plugin runtime reported.
 
     The same function serves a worker-decided tick and an in-process one, so
-    plugins behave identically whichever path the tick took.
+    plugins behave identically whichever path the tick took. ``focus_hold``
+    (Plan 00537) is the host's focus model read now, which holds the `/exit`.
     """
     for line in outcome.plugin_log_lines:
         _log_line(log, line)
@@ -8906,6 +10129,8 @@ def handle_plugin_outcome(
             write_master=write_master,
             log=log,
             dry_run=dry_run,
+            focus_hold=focus_hold,
+            status_dir=status_dir,
         )
 
 
@@ -9294,8 +10519,13 @@ def supervise(
         spinner = _StartupSpinner(sys.stderr)
         spinner.start()
 
+    # Plan 00539: the child's SessionEnd hooks find the restart-pending record
+    # here. Set only in the child, so the supervisor's own environment (and the
+    # worker it spawns) is untouched.
+    child_environment = {_RESTART_PENDING_ENV: str(restart.pending_record_path)}
     pid, master_fd = pty.fork()
     if pid == 0:  # pragma: no cover - runs in the forked child process
+        os.environ.update(child_environment)
         # SECURITY: no shell involved -- argv is passed directly to execvp as
         # a list (never a shell string), so there is no command-injection
         # surface here. This IS the supervisor's job: exec the wrapped
@@ -9332,9 +10562,11 @@ def supervise(
                 write_master=_write_master,
                 log=log,
                 dry_run=dry_run,
-                session_ids=cached_own_session_ids(),
+                session_ids=cached_own_session_ids(pid),
                 plugin_host=plugin_host,
                 restart_worker=restart_worker,
+                focus_hold=activity.focus.hold,
+                status_dir=sidecar_dir.parent,
             )
         )
 
@@ -9390,21 +10622,32 @@ def supervise(
         input_line_abandoned = activity.line.is_abandoned(
             now=now_wall, threshold_seconds=input_line_abandon_seconds
         )
+        # Plan 00537: also the host's own long-lived model (see `TickFacts`).
+        # A lone Esc that no further byte followed resolves here -- but never
+        # while stdin has unread bytes, which may be the rest of a split key.
+        if not _fd_readable(resolved_stdin_fd):
+            activity.focus.settle(now=now_wall)
+        focus_hold = activity.focus.hold
         outcome = None
         if decider is not None:
             outcome = decider(
-                TickFacts(
-                    now_wall=now_wall,
-                    idle=idle,
-                    input_line_empty=activity.line.is_empty,
-                    human_compact_submitted=human_compact,
-                    work_idle=work_idle,
-                    human_raw_input=human_raw_input,
-                    # Ship the host's authoritative machine state so the worker
-                    # decides on it -- never on divergent worker-local state.
-                    machine_state=machine.export_state(),
-                    input_line_abandoned=input_line_abandoned,
-                    output_quiet_seconds=output_quiet_seconds,
+                _with_focus_hold(
+                    TickFacts(
+                        now_wall=now_wall,
+                        idle=idle,
+                        input_line_empty=activity.line.is_empty,
+                        human_compact_submitted=human_compact,
+                        work_idle=work_idle,
+                        human_raw_input=human_raw_input,
+                        # Ship the host's authoritative machine state so the worker
+                        # decides on it -- never on divergent worker-local state.
+                        machine_state=machine.export_state(),
+                        input_line_abandoned=input_line_abandoned,
+                        output_quiet_seconds=output_quiet_seconds,
+                        # Plan 00551: scopes the worker's identity scan.
+                        child_pid=pid,
+                    ),
+                    focus_hold,
                 )
             )
             transition = fallback_transitions.note(worker_answered=outcome is not None)
@@ -9428,33 +10671,16 @@ def supervise(
                     )
                 )
         if outcome is not None:
-            # Plan 00182: pass the host's authoritative PRE-tick state so a stale
-            # WOULD_COMPACT reply (worker still MONITOR, host already awaiting)
-            # is suppressed instead of stacking a second /compact.
-            injected = _apply_decision(
+            _apply_worker_outcome(
                 outcome,
+                machine=machine,
+                line=activity.line,
                 master_writer=_write_master,
                 log=log,
-                host_state=machine.state.value,
+                # Read now, not at tick start: the worker was waited on.
+                main_focus_confirmed=activity.focus.confirmed,
+                now_wall=now_wall,
             )
-            # Adopt the worker's post-tick state so `machine` remains the single
-            # source of truth; a later in-process fallback tick then cannot
-            # diverge and inject a duplicate /compact (Plan 00164 Phase 4 fix).
-            if outcome.machine_state is not None:
-                machine.import_state(outcome.machine_state)
-            # Success-only bookkeeping, run AFTER adopting the worker state
-            # (which carries the pre-injection counts) so no increment is
-            # ever overwritten. A PTY write failure raises above, so no cap
-            # is burned and no pending episode/signal is lost (Plan 00269
-            # review fix; Plan 00278 continuation).
-            _apply_post_injection_bookkeeping(
-                machine, outcome, injected=injected, now_wall=now_wall
-            )
-            # Plan 00398 Phase 3: the flush's own Enter never passes through
-            # `feed` (same as every other supervisor injection), so without
-            # this the model would show the just-flushed text forever.
-            if outcome.abandoned_box_flushed:
-                activity.line.clear()
             _handle_plugin_outcome(outcome)
         else:
             _poll_once(
@@ -9472,10 +10698,12 @@ def supervise(
                 work_idle=work_idle,
                 reap_ttl_seconds=policy.reap_ttl_seconds,
                 foreground_margin_seconds=policy.foreground_margin_seconds,
-                own_sessions=cached_own_session_ids(),  # Plan 00166: only our own sessions
+                # Plans 00166, 00551: only the sessions of our own child's tree.
+                own_sessions=cached_own_session_ids(pid),
                 goal_signal_ttl_seconds=policy.goal_signal_ttl_seconds,
                 input_line_abandoned=input_line_abandoned,
                 output_quiet_seconds=output_quiet_seconds,
+                focus_hold=focus_hold,
                 on_input_line_flushed=activity.line.clear,
                 # NEVER a plugin runtime: this fallback runs in the PTY host
                 # process, and plugin code does not (Plan 00487).
@@ -9524,31 +10752,36 @@ def supervise(
             log.write(f"ctrl-c guard: {event}")
 
     try:
-        _forward_io(
-            resolved_stdin_fd,
-            master_fd,
-            activity,
-            poll_seconds=poll_seconds,
-            on_poll=_on_poll,
-            output_activity=output_activity,
-            on_suspend=lambda: status_message_poster.post(
-                _CTRL_Z_NOTICE_TEXT, level=_STATUS_LEVEL_WARNING
-            ),
-            ctrl_c_gate=ctrl_c_gate,
-            on_ctrl_c_event=_on_ctrl_c_event,
-            raw_tap=raw_tap,
-        )
-    finally:
-        for guarded_signal, prior_handler in prev_signal_guards.items():
-            signal.signal(guarded_signal, prior_handler)
-        signal.signal(signal.SIGWINCH, previous_handler)
-        if old_termios is not None:
-            termios.tcsetattr(resolved_stdin_fd, termios.TCSAFLUSH, old_termios)
+        try:
+            _forward_io(
+                resolved_stdin_fd,
+                master_fd,
+                activity,
+                poll_seconds=poll_seconds,
+                on_poll=_on_poll,
+                output_activity=output_activity,
+                on_suspend=lambda: status_message_poster.post(
+                    _CTRL_Z_NOTICE_TEXT, level=_STATUS_LEVEL_WARNING
+                ),
+                ctrl_c_gate=ctrl_c_gate,
+                on_ctrl_c_event=_on_ctrl_c_event,
+                raw_tap=raw_tap,
+            )
+        finally:
+            for guarded_signal, prior_handler in prev_signal_guards.items():
+                signal.signal(guarded_signal, prior_handler)
+            signal.signal(signal.SIGWINCH, previous_handler)
+            if old_termios is not None:
+                termios.tcsetattr(resolved_stdin_fd, termios.TCSAFLUSH, old_termios)
 
-    _pid, status = os.waitpid(pid, 0)
-    # A pending exit-for-restart turns the child's clean exit into the dedicated
-    # status (and the request file) the ccy launcher relaunches on.
-    exit_code = restart.finish(_exit_code_from_status(status), log)
+        _pid, status = os.waitpid(pid, 0)
+        # A pending exit-for-restart turns the child's clean exit into the dedicated
+        # status (and the request file) the ccy launcher relaunches on.
+        exit_code = restart.finish(_exit_code_from_status(status), log)
+    finally:
+        # Plan 00539: a raise anywhere above skips finish(); the record must not
+        # outlive this supervisor and mislabel the session's next genuine exit.
+        restart.discard_pending_record(log)
 
     if log is not None:
         log.write(
@@ -9706,13 +10939,19 @@ def main(argv: list[str] | None = None) -> int:
             # pipes are made private BEFORE any plugin is loaded.
             requests, replies = _isolate_worker_channels()
             worker_sidecar_dir = _default_sidecar_dir()
+            # Plan 00551: one child-pid record feeds both the decision's
+            # identity filter and the plugins' `api.session_id()`.
+            child = WorkerChildPid()
             return run_worker(
                 requests,
                 replies,
                 dry_run="--arm" not in argv,
                 sidecar_dir=worker_sidecar_dir,
                 policy=CompactPolicy(),
-                plugins=_make_worker_plugin_runtime(argv, worker_sidecar_dir.parent),
+                plugins=_make_worker_plugin_runtime(
+                    argv, worker_sidecar_dir.parent, session_ids=child.own_session_ids
+                ),
+                child=child,
             )
         except Exception:
             # Plan 00361: an escaped exception (typically a half-edited source
@@ -9806,12 +11045,18 @@ def _make_plugin_host(
         return None
 
 
-def _make_worker_plugin_runtime(argv: Sequence[str], untracked_dir: Path) -> PluginRuntime | None:
+def _make_worker_plugin_runtime(
+    argv: Sequence[str],
+    untracked_dir: Path,
+    *,
+    session_ids: Callable[[], frozenset[str]],
+) -> PluginRuntime | None:
     """Build the ``--worker`` subprocess's plugin runtime from its argv, or None.
 
     The host passed the loadable plugins (``--plugin``) and the disabled set
     (``--disable-plugin``). The in-hook marker is keyed by the HOST's pid -- this
     process's parent -- so the host can find it when this worker stops answering.
+    ``session_ids`` is the worker's own-session-id source (its child's tree).
     """
     raw_specs, disabled = _parse_worker_plugin_flags(argv)
     if not raw_specs:
@@ -9820,6 +11065,7 @@ def _make_worker_plugin_runtime(argv: Sequence[str], untracked_dir: Path) -> Plu
         state_root=_plugin_state_root(),
         status_dir=untracked_dir,
         marker_path=_plugin_marker_path(untracked_dir, os.getppid()),
+        session_ids=session_ids,
     )
     specs: list[tuple[str, Path]] = []
     for raw in raw_specs:

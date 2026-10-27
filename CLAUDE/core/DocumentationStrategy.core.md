@@ -332,8 +332,9 @@ Each satellite has a contract. They differ, but they share R1.
 
 #### R7a — `.claude/rules/*.md`: POINTERS ONLY (firm)
 
-The whole permitted shape: frontmatter (`paths:` plus `description`), a
-trigger statement, the rule in **at most two imperative lines**, and link(s)
+The whole permitted shape: frontmatter (`paths:` only, the one field
+Claude Code reads from a rule; any other field is ignored), a trigger
+statement, the rule in **at most two imperative lines**, and link(s)
 to the agent tree or a registered `CLAUDE.md`.
 
 **No fences. No tables. No numbered procedures. No quotes.** Plus a small
@@ -725,6 +726,13 @@ comment-block finder for its R7e hunt:
 
 Both are **finders**: they list candidates, they never judge content. The
 judgement is the agent's, or the reviewing human's.
+
+How Claude Code loads `CLAUDE.md`, rules and `@`-imports is pinned in the
+daemon repository's `contracts/claude-code-instructions/` (every fact cites its
+upstream anchor and the contract names the Claude Code version it was audited
+against). `docs-qa --footprint` measures what that contract says loads at
+session start versus on demand, and the `docs-optimise` skill turns the
+measurement into a restructure proposal. It proposes and never applies.
 
 ### Configuration reference
 

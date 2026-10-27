@@ -90,8 +90,8 @@ readonly JOURNAL_DAYFILE_NAME_PATTERN='^[0-9]{1,5}-Journal-[0-9]{2}-[0-9]{2}-[0-
 readonly JOURNAL_CATEGORIES=(action finding decision thought blocker handoff correction)
 
 # A `correction` entry (ledger 00422 N3) names the entry it corrects in its
-# REF: HH:MM for an entry in today's day-file, or YY-MM-DD/HH:MM for one in an
-# earlier day-file of the same plan. The entry must exist when it is named.
+# REF: HH:MM for an entry stamped today, or YY-MM-DD/HH:MM for one on an
+# earlier day of the same plan. The entry must exist when it is named.
 readonly JOURNAL_CORRECTION_CATEGORY="correction"
 readonly JOURNAL_CORRECTION_REF_PATTERN='^(([0-9]{2}-[0-9]{2}-[0-9]{2})/)?([0-9]{2}:[0-9]{2})$'
 
@@ -275,13 +275,13 @@ journal_usage() {
     cat >&2 <<'USAGE'
 Usage: mkplan.bash --journal <plan-number> <category> <body-file> [--ref R] [--title T]
 
-Appends one entry to today's JOURNAL/ day-file for an existing plan. The
-script reads the clock itself (UTC) -- it never accepts a time from the
-caller. Never rewrites: the day-file is created from _JOURNAL_TEMPLATE_.md
-when absent, then the entry is appended.
+Adds one entry to an existing plan's JOURNAL/ as its own new file,
+JOURNAL/YYYY-MM-DD/HHMMSSZ-<category>-<hex>.md. The script reads the clock
+itself (UTC) -- it never accepts a time from the caller. It never opens an
+existing file, so two branches that journal the same day cannot conflict.
 
 This is THE way to add a journal entry. The hooks daemon denies an entry
-written by hand (Edit, Write, a heredoc or a redirect into a day-file),
+written by hand (Edit, Write, a heredoc or a redirect into JOURNAL/),
 because a hand-typed time can be wrong and an append-only journal cannot
 correct it until the clock has passed the wrong time.
 
@@ -295,8 +295,9 @@ Options:
   --ref R      Optional task/phase reference (e.g. T2.1, P1). Defaults to
                the grammar's "no ref" marker (an em dash). REQUIRED for a
                correction, where it names the entry being corrected: HH:MM
-               for an entry in today's day-file, or YY-MM-DD/HH:MM for one
-               in an earlier day-file. That entry must exist. The corrected
+               for an entry stamped today, or YY-MM-DD/HH:MM for one on an
+               earlier day (in its entry folder or a legacy day-file). That
+               entry must exist. The corrected
                entry is never edited or moved.
   --title T    Optional short title appended to the heading.
 
@@ -326,6 +327,33 @@ _journal_has_entry_at() {
         }
         END { exit found ? 0 : 1 }
     ' "$dayfile"
+}
+
+# True (0) iff a journal entry stamped HH:MM exists for the day YY-MM-DD: in
+# that day's legacy day-file, or in any file of that day's entry folder.
+_journal_day_has_entry_at() {
+    local journal_dir="$1" padded_number="$2" day_yy="$3" entry_time="$4"
+    local entry_file
+    _journal_has_entry_at "$journal_dir/$padded_number-Journal-$day_yy.md" "$entry_time" && return 0
+    for entry_file in "$journal_dir/20$day_yy"/*.md; do
+        [[ -f "$entry_file" ]] || continue
+        _journal_has_entry_at "$entry_file" "$entry_time" && return 0
+    done
+    return 1
+}
+
+# Write ONE new journal entry file and print its path (Plan 00543).
+#   $1 journal dir   $2 YYYY-MM-DD   $3 HHMMSS   $4 category   $5 entry text
+# Layout: JOURNAL/YYYY-MM-DD/HHMMSSZ-<category>-<6 hex>.md. The file is created
+# with noclobber, so a name collision fails loudly and never overwrites.
+_write_journal_entry() {
+    local journal_dir="$1" entry_ymd="$2" entry_hms="$3" category="$4" text="$5"
+    local day_dir="$journal_dir/$entry_ymd" suffix entry_file
+    mkdir -p "$day_dir" || return 1
+    suffix="$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')" || return 1
+    entry_file="$day_dir/${entry_hms}Z-$category-$suffix.md"
+    ( set -o noclobber; printf '%s\n' "$text" > "$entry_file" ) || return 1
+    printf '%s\n' "$entry_file"
 }
 
 # Append one journal entry to an existing plan's JOURNAL/, per Plan 00427
@@ -378,7 +406,7 @@ run_journal_mode() {
     local corrected_day="" corrected_time=""
     if [[ "$category" == "$JOURNAL_CORRECTION_CATEGORY" ]]; then
         if [[ ! "$ref" =~ $JOURNAL_CORRECTION_REF_PATTERN ]]; then
-            die "a correction needs --ref naming the entry it corrects: HH:MM in today's day-file, or YY-MM-DD/HH:MM in an earlier one (got '$ref')"
+            die "a correction needs --ref naming the entry it corrects: HH:MM for an entry stamped today, or YY-MM-DD/HH:MM for one on an earlier day (got '$ref')"
         fi
         corrected_day="${BASH_REMATCH[2]}"
         corrected_time="${BASH_REMATCH[3]}"
@@ -429,65 +457,39 @@ run_journal_mode() {
 
     # Read the clock ITSELF, normalised to UTC (D2, D3) -- the caller never
     # supplies a time, so a two-writer cross-zone pair stays consistent. A
-    # SINGLE `date` call produces both fields so a midnight-UTC straddle can't
-    # pair a pre-boundary day with a post-boundary time (or vice versa) --
-    # two separate calls could otherwise write e.g. a "## 00:00" entry into
-    # the PREVIOUS day's file.
-    local journal_stamp journal_day journal_time
-    journal_stamp="$(date -u +%y-%m-%d' '%H:%M)"
-    journal_day="${journal_stamp%% *}"
-    journal_time="${journal_stamp##* }"
-
-    local journal_file="$journal_dir/$padded_number-Journal-$journal_day.md"
+    # SINGLE `date` call produces the folder date and the time so a
+    # midnight-UTC straddle can't pair a pre-boundary day with a post-boundary
+    # time (or vice versa).
+    local journal_stamp journal_ymd journal_hms journal_day journal_time
+    journal_stamp="$(date -u +%Y-%m-%d' '%H%M%S)"
+    journal_ymd="${journal_stamp%% *}"
+    journal_hms="${journal_stamp##* }"
+    journal_day="${journal_ymd:2}"
+    journal_time="${journal_hms:0:2}:${journal_hms:2:2}"
 
     # A correction's named entry is checked before anything is written, so a
     # dangling reference writes nothing (D5).
     if [[ -n "$corrected_time" ]]; then
-        local corrected_file="$journal_dir/$padded_number-Journal-${corrected_day:-$journal_day}.md"
-        if ! _journal_has_entry_at "$corrected_file" "$corrected_time"; then
-            die "--ref $ref names no entry: there is no '## $corrected_time' entry in ${corrected_file#"$repo_root"/}"
+        local corrected_yy="${corrected_day:-$journal_day}"
+        if ! _journal_day_has_entry_at "$journal_dir" "$padded_number" "$corrected_yy" "$corrected_time"; then
+            die "--ref $ref names no entry: there is no '## $corrected_time' entry for $corrected_yy in ${journal_dir#"$repo_root"/}"
         fi
     fi
 
     # --- validation complete; every mutation below this line -----------
 
-    mkdir -p "$journal_dir" || die "could not create journal folder: $journal_dir"
-
-    if [[ ! -f "$journal_file" ]]; then
-        local folder_name plan_title owner journal_body
-        folder_name="$(basename "$plan_folder")"
-        plan_title="${folder_name#*-}"
-        plan_title="${plan_title//-/ }"
-        if ! owner="$(git -C "$repo_root" config user.name)" || [[ -z "$owner" ]]; then
-            owner="Unknown"
-        fi
-        if ! journal_body="$(cat "$journal_template_file")"; then
-            die "could not read journal template '$journal_template_file'"
-        fi
-        # The template ends with a seeded `## {{TIME}} · action` entry that
-        # records plan CREATION. A day-file opened here is not a creation, so
-        # only the preamble above that entry is kept (Plan 00461).
-        journal_body="${journal_body%%$'\n'"## {{TIME}}"*}"
-        journal_body="${journal_body%$'\n'}"
-        journal_body="${journal_body//\{\{PLAN_NUMBER\}\}/$padded_number}"
-        journal_body="${journal_body//\{\{PLAN_TITLE\}\}/$plan_title}"
-        journal_body="${journal_body//\{\{DATE\}\}/$journal_day}"
-        journal_body="${journal_body//\{\{TIME\}\}/$journal_time}"
-        journal_body="${journal_body//\{\{OWNER\}\}/$owner}"
-        printf '%s\n' "$journal_body" > "$journal_file"
-    fi
-
-    # Append-only (D4): the block below only ever adds bytes at the bottom.
+    # One NEW file per entry (Plan 00543): an existing journal file is never
+    # opened, so two branches journalling the same plan on the same day add
+    # different files and merge without a conflict.
     local heading="## $journal_time · $category · $ref"
     if [[ -n "$entry_title" ]]; then
         heading="$heading   — $entry_title"
     fi
-    {
-        printf '\n%s\n\n' "$heading"
-        printf '%s\n' "$body"
-    } >> "$journal_file"
+    local journal_file
+    journal_file="$(_write_journal_entry "$journal_dir" "$journal_ymd" "$journal_hms" "$category" "$heading"$'\n\n'"$body")" \
+        || die "could not write a journal entry under $journal_dir"
 
-    printf 'mkplan: appended a %s entry to %s\n' "$category" "${journal_file#"$repo_root"/}" >&2
+    printf 'mkplan: wrote a %s entry to %s\n' "$category" "${journal_file#"$repo_root"/}" >&2
     printf '%s\n' "$journal_file"
 }
 
@@ -863,7 +865,7 @@ cat > "$plan_file" <<PLAN
 
 <!-- Curated milestones + delivery commit hashes only (git is the SSoT for
      "when" — do not add dates). The blow-by-blow activity log lives in
-     JOURNAL/$padded-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
+     JOURNAL/YYYY-MM-DD/<entry>.md — see CLAUDE/PlanJournalling.md. -->
 
 - <!-- milestone or delivery commit hash -->
 PLAN
@@ -871,9 +873,9 @@ fi
 
 # --- scaffold the plan JOURNAL/ (Plan 00163) -------------------------------
 
-# First-class plan journalling: a JOURNAL/ subfolder of per-day, append-only
-# files NNNNN-Journal-YY-MM-DD.md — the linear activity log complementary to
-# PLAN.md. Gated on a project-owned _JOURNAL_TEMPLATE_.md whose presence is the
+# First-class plan journalling: a JOURNAL/ subfolder of per-day folders holding
+# one append-only file per entry (JOURNAL/YYYY-MM-DD/HHMMSSZ-<category>-<hex>.md)
+# — the linear activity log complementary to PLAN.md. Gated on a project-owned _JOURNAL_TEMPLATE_.md whose presence is the
 # "this project journals" marker, so non-journalling projects get clean plans.
 # Written with bash (mkdir / cat), not the Write tool — same reason as PLAN.md.
 # (JOURNAL_DIR_BASENAME / JOURNAL_TEMPLATE_BASENAME are declared once, near
@@ -884,25 +886,30 @@ if [[ -f "$journal_template_file" ]]; then
     if ! mkdir "$journal_dir"; then
         die "could not create journal folder '$journal_dir'"
     fi
-    # UTC, not local (Plan 00427 D3): every day-file's sentinel promises UTC
-    # timestamps, including this scaffolder-written seed entry.
-    # ONE invocation for both fields: two calls can straddle midnight UTC, and
-    # the day names the FILE while the time stamps the ENTRY — so a straddle
-    # writes a `## 00:00` entry into the previous day's file, which
-    # journal-entry-ordering and journal-entry-future-dated then flag.
-    journal_stamp="$(date -u +%y-%m-%d' '%H:%M)"
-    journal_day="${journal_stamp%% *}"
-    journal_time="${journal_stamp##* }"
-    journal_file="$journal_dir/$padded-Journal-$journal_day.md"
+    # UTC, not local (Plan 00427 D3). ONE `date` call for the folder date and
+    # the time, so a midnight-UTC straddle cannot split them.
+    journal_stamp="$(date -u +%Y-%m-%d' '%H%M%S)"
+    journal_ymd="${journal_stamp%% *}"
+    journal_hms="${journal_stamp##* }"
+    journal_day="${journal_ymd:2}"
+    journal_time="${journal_hms:0:2}:${journal_hms:2:2}"
     if ! journal_body="$(cat "$journal_template_file")"; then
         die "could not read journal template '$journal_template_file'"
     fi
+    # The template's seeded `## {{TIME}} · action` entry records plan CREATION;
+    # it becomes this plan's first entry file (Plan 00543).
+    seed_marker="## {{TIME}}"
+    if [[ "$journal_body" != *"$seed_marker"* ]]; then
+        die "journal template '$journal_template_file' has no seeded '$seed_marker' entry"
+    fi
+    journal_body="$seed_marker${journal_body#*"$seed_marker"}"
     journal_body="${journal_body//\{\{PLAN_NUMBER\}\}/$padded}"
     journal_body="${journal_body//\{\{PLAN_TITLE\}\}/$title}"
     journal_body="${journal_body//\{\{DATE\}\}/$journal_day}"
     journal_body="${journal_body//\{\{TIME\}\}/$journal_time}"
     journal_body="${journal_body//\{\{OWNER\}\}/$owner}"
-    printf '%s\n' "$journal_body" > "$journal_file"
+    _write_journal_entry "$journal_dir" "$journal_ymd" "$journal_hms" action "$journal_body" >/dev/null \
+        || die "could not write the seeded journal entry under '$journal_dir'"
 fi
 
 # --- advance the counter (only after a successful write) -------------------
