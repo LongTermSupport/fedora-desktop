@@ -19,6 +19,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/coordinator"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatcheckouts"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
@@ -176,6 +177,9 @@ func (c *Choose) blockIn(ctx context.Context, w io.Writer, checkout string, args
 	if !ok {
 		return term.ExitUsage
 	}
+	if !c.listCheckout(ctx, checkout) {
+		return term.ExitFailure
+	}
 	width := 0
 	for _, st := range seats {
 		width = max(width, len(st.team))
@@ -202,6 +206,31 @@ func (c *Choose) blockIn(ctx context.Context, w io.Writer, checkout string, args
 	fmt.Fprintf(&b, "Any human listed in %s can direct this session as you can.\n", which)
 	c.Host.Print(w, b.String())
 	return term.ExitOK
+}
+
+// listCheckout adds the session's checkout ("" is the working directory's) to the list of seat
+// checkouts: the block follows every seat take, and once the session ends no record names the
+// checkout, so the board and shutdown read its seats from that list (Plan 00201 Task 2.29). A
+// failure is said and ends the block, so the launch does not start.
+func (c *Choose) listCheckout(ctx context.Context, checkout string) bool {
+	if checkout == "" {
+		top, err := c.Host.Git.TopLevel(ctx, "")
+		if err != nil {
+			c.Kit.ReportErr(err)
+			c.Kit.Term.PrintError("this checkout could not be named, so it is not listed among the seat checkouts.")
+			return false
+		}
+		checkout = top
+	}
+	store, err := c.Host.Registry()
+	if err == nil {
+		err = seatcheckouts.Of(store).Add(checkout)
+	}
+	if err != nil {
+		c.Kit.Term.PrintError(err.Error() + "; without it, its seats are not shown once the session ends.")
+		return false
+	}
+	return true
 }
 
 type seatTeam struct{ seat, team string }

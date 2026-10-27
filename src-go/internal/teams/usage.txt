@@ -149,7 +149,8 @@ Usage:
                                    (Escape first when busy) and is stopped only if it
                                    has not ended within 60 s; then each of its seats must
                                    be free. One line per member: exited cleanly, stopped,
-                                   failed or not shut down; exit 1 unless all ended. The
+                                   failed or not shut down; a seat with no session is
+                                   named, nothing to shut down; exit 1 unless all ended. The
                                    homeserver keeps running. Nothing goes on the bus
   ccy-teams restart <team> [--yes]
                                    restart the team's sessions on this desktop, each
@@ -291,6 +292,7 @@ Backups stay on this machine (docs/agent-bus.md, "Backups are the root of trust"
 The APPLIED column, from `declare.py status` against the installer's stamps (readable
 without sudo): up to date, out of date (config, software or both), not built, removed,
 or needs your decision (declared absent but still built, or built but not declared).
-Exit 64 for a usage mistake, 130 when cancelled, 1 for a refusal or a failure.
+Exit 64 for a usage mistake, 130 when cancelled (Esc, Ctrl-C), 1 for a refusal or a failure;
+a No or Stop you choose at a question changes nothing and exits 0.
 
 Runs on the HOST, as the desktop user.

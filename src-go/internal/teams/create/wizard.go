@@ -87,9 +87,11 @@ type Wizard struct {
 	head  ui.Heading
 	asked int
 	said  []string
-	// forChooser is a run for `choose-teams`; created is the team that run made.
+	// forChooser is a run for `choose-teams`; created is the team that run made; declined is a
+	// run the person said No to at the review.
 	forChooser bool
 	created    string
+	declined   bool
 }
 
 // New is the Wizard over a host and the flows it hands the work after the entry is written to:
@@ -144,18 +146,23 @@ func nonEmpty(in []string) []string {
 }
 
 // Run is ccy-teams create with the arguments after "create". It returns the exit code:
-// 0 done, 1 refused or failed, 64 usage, 130 cancelled, or declare.py's own refusal code.
+// 0 done or declined, 1 refused or failed, 64 usage, 130 cancelled, or declare.py's own refusal
+// code.
 func (c *Wizard) Run(ctx context.Context, args []string) term.ExitCode {
-	c.forChooser, c.created = false, ""
+	c.forChooser, c.created, c.declined = false, "", false
 	return c.run(ctx, args)
 }
 
 // RunForChooser is the wizard for `ccy-teams choose-teams`, with this checkout's repository as
 // the scope's default: it offers no session of its own and prints nothing on stdout (the
-// chooser's payload), and returns the team it made, empty when it made none.
+// chooser's payload), and returns the team it made, empty when it made none. A No at the review
+// is the chooser's cancel of the wizard, so it goes back to the chooser's list as Esc does.
 func (c *Wizard) RunForChooser(ctx context.Context) (string, term.ExitCode) {
-	c.forChooser, c.created = true, ""
+	c.forChooser, c.created, c.declined = true, "", false
 	code := c.run(ctx, nil)
+	if c.declined {
+		return "", term.ExitCancelled
+	}
 	return c.created, code
 }
 
@@ -885,8 +892,11 @@ func (c *Wizard) confirmSummary(ctx context.Context, o createOpts) error {
 		return c.gumErr(err)
 	}
 	if !yes {
+		// A person's No is a decline: nothing is done, by choice, and the run succeeds, as a No
+		// does in shutdown, restart and wind-down; Esc is the cancel (Plan 00201 Task 2.29).
 		c.term.Printf("Nothing was added.\n")
-		return &stop{term.ExitFailure}
+		c.declined = true
+		return &stop{term.ExitOK}
 	}
 	return nil
 }

@@ -60,8 +60,9 @@ const (
 		"in the container, type /exit in its session"
 	whyElsewhere = "not a session on this host's ccy tmux (another machine, or a checkout ccy-teams " +
 		"does not know); end it where it runs"
-	wordParked = "parked"
-	kindLxc    = board.Kind("lxc")
+	whyNoSession = "no session running"
+	wordParked   = "parked"
+	kindLxc      = board.Kind("lxc")
 )
 
 // Shutdown is the flow. Every dependency is a field so a test stands in for each.
@@ -106,11 +107,12 @@ const helpText = `Usage: ccy-teams shutdown <team> [--yes]
 Sends /exit to every ccy session of the team, as if typed, and waits for each to end;
 a session that has not ended within 60 s is stopped (its tmux session killed), and its
 seat is released. The homeserver keeps running. Without --yes it asks first. An LXC
-member whose container is stopped is offline: it is named, with nothing to shut down.
+member whose container is stopped is offline, and a seat whose session has ended has no
+session: each is named, with nothing to shut down.
 
 Exit codes:
   0   every session exited cleanly or stopped, or nothing was shut down on request
-      (offline members included)
+      (offline members and seats with no session included)
   1   a session failed, or a member is not reachable from here (an LXC member whose
       container runs)
   64  usage error
@@ -208,12 +210,13 @@ func (r seatRef) String() string { return r.seat + "@" + r.team }
 // unreached is a member that cannot be shut down from here, and why.
 type unreached struct{ member, why string }
 
-// plan is what a shutdown acts on, what it cannot reach and what is offline; lxc is the LXC
-// member rows still to be resolved (resolveLxc).
+// plan is what a shutdown acts on, what it cannot reach, what is offline and the seats with
+// no session; lxc is the LXC member rows still to be resolved (resolveLxc).
 type plan struct {
 	jobs      []*job
 	unreached []unreached
 	offline   []unreached
+	idle      []unreached
 	lxc       []board.Row
 }
 
@@ -246,7 +249,8 @@ func planFor(snap *board.Snapshot, team string) plan {
 }
 
 // addSeat makes a job of the live session holding a seat row, once per session; a held seat no
-// live session names is out of reach.
+// live session names is out of reach, and a free one no live session names has no session: it is
+// named, and nothing to shut down (Plan 00201 Task 2.29).
 func (p *plan) addSeat(snap *board.Snapshot, team string, row board.Row) {
 	attached, live := snap.Live[row.Record]
 	switch {
@@ -260,6 +264,8 @@ func (p *plan) addSeat(snap *board.Snapshot, team string, row board.Row) {
 		})
 	case row.Held:
 		p.unreached = append(p.unreached, unreached{row.Member + "@" + team + " (" + row.Handle + ")", whyHeld})
+	default:
+		p.idle = append(p.idle, unreached{row.Member + "@" + team + " (" + row.Handle + ")", whyNoSession})
 	}
 }
 
@@ -303,21 +309,23 @@ func (s *Shutdown) preview(team string, p plan) {
 		}
 		s.tell(line)
 	}
-	if len(p.unreached) > 0 {
-		s.tell("Not reachable from here, so not shut down:")
-		for _, u := range p.unreached {
-			s.tell("  " + u.member + "   " + u.why)
-		}
-	}
-	if len(p.offline) > 0 {
-		s.tell("Offline, nothing to shut down:")
-		for _, u := range p.offline {
-			s.tell("  " + u.member + "   " + u.why)
-		}
-	}
+	s.listed("Not reachable from here, so not shut down:", p.unreached)
+	s.listed("Offline, nothing to shut down:", p.offline)
+	s.listed("No session running, nothing to shut down:", p.idle)
 	if len(p.jobs) > 0 {
 		s.tell("Each session is sent /exit, as if typed; one that has not ended within " + seconds(s.Waits.Exit) +
 			" is stopped (its tmux session killed). The homeserver keeps running.")
+	}
+}
+
+// listed is a heading and one line per member under it, when there is any.
+func (s *Shutdown) listed(heading string, members []unreached) {
+	if len(members) == 0 {
+		return
+	}
+	s.tell(heading)
+	for _, u := range members {
+		s.tell("  " + u.member + "   " + u.why)
 	}
 }
 
@@ -351,6 +359,9 @@ func (s *Shutdown) report(team string, p plan) term.ExitCode {
 		s.tell(u.member + ": not shut down: " + u.why)
 	}
 	for _, u := range p.offline {
+		s.tell(u.member + ": " + u.why + ", nothing to shut down")
+	}
+	for _, u := range p.idle {
 		s.tell(u.member + ": " + u.why + ", nothing to shut down")
 	}
 	count := fmt.Sprintf("%s: %d exited cleanly, %d stopped, %d failed", team, exitedN, stoppedN, failedN)

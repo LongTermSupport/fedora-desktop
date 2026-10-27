@@ -187,6 +187,25 @@ func TestRemoveTakesTheTeamsLiveSessionsOffItFirst(t *testing.T) {
 	}
 }
 
+// A No to taking the team's sessions off it first is a decline: exit 0, nothing taken down.
+func TestRemoveDeclinedWhileSessionsAreInTheTeamIsNoFailure(t *testing.T) {
+	r := removeRig(t)
+	r.ops.SessionsIn = func(context.Context, string) ([]string, error) { return []string{"ccy-a"}, nil }
+	r.ops.TakeOut = func(context.Context, string, string) bool { t.Fatal("a session was taken off"); return false }
+	r.onExit("gum confirm", 1, "")
+	if code := r.ops.Remove(context.Background(), []string{"alpha"}); code != 0 {
+		t.Fatalf("code %d: %s", code, r.said())
+	}
+	if !strings.Contains(r.said(), "Nothing was changed: a team is taken down once no running session is in it.") {
+		t.Fatalf("said %q", r.said())
+	}
+	for _, line := range r.lines() {
+		if strings.HasPrefix(line, opsDeclare) || strings.HasPrefix(line, opsInstaller) {
+			t.Fatalf("taken down with a session in it: %q", line)
+		}
+	}
+}
+
 func TestRemoveStopsWhileASessionIsStillInTheTeam(t *testing.T) {
 	r := removeRig(t)
 	r.ops.SessionsIn = func(context.Context, string) ([]string, error) { return []string{"ccy-a"}, nil }
@@ -387,7 +406,8 @@ func TestRemoveChooseCancelledAndLeave(t *testing.T) {
 
 	r = removeRig(t)
 	r.on("gum choose", execx.Result{Stdout: []byte("Leave it running\n")})
-	if code := r.ops.Remove(context.Background(), []string{"alpha"}); code != 1 {
+	// A person's choice to leave it is a decline, not a failure (Plan 00201 Task 2.29).
+	if code := r.ops.Remove(context.Background(), []string{"alpha"}); code != 0 {
 		t.Errorf("leave: code %d", code)
 	}
 	if !strings.Contains(r.said(), "Nothing was changed.") {

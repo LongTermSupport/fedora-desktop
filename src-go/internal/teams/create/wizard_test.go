@@ -527,6 +527,21 @@ func TestWizardForTheChooserCancelledReturnsNoTeam(t *testing.T) {
 	}
 }
 
+// A No at the review, from the chooser, goes back to its list as Esc does (Plan 00201 Task 2.29):
+// before, the decline was exit 1 and ended the launch.
+func TestWizardForTheChooserDeclinedReturnsNoTeamAsACancel(t *testing.T) {
+	h := newWzHarness(t)
+	h.run.queue("gum choose", wzOK(scopeRepos+", starting with example-org/proj\n"))
+	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
+	h.run.queue("gum confirm", wzExit(1))
+	team, code := h.c.RunForChooser(context.Background())
+	wzCode(t, code, term.ExitCancelled, h)
+	if team != "" || len(h.applied) != 0 {
+		t.Fatalf("team %q applied %v", team, h.applied)
+	}
+	wzContain(t, "stderr", h.err(), "Nothing was added.")
+}
+
 func TestWizardRunsItsStepsInTheDocumentedOrder(t *testing.T) {
 	h := newWzHarness(t)
 	h.happyAnswers()
@@ -826,7 +841,8 @@ func TestNoAtTheSummaryAddsNothing(t *testing.T) {
 	h.run.queue("gum choose", wzOK(scopeRepos+"\n"))
 	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
 	h.run.queue("gum confirm", wzExit(1))
-	wzCode(t, h.invoke(), 1, h)
+	// A person's No is a decline, not a failure (Plan 00201 Task 2.29).
+	wzCode(t, h.invoke(), 0, h)
 	wzContain(t, "stderr", h.err(), "Nothing was added.")
 	if len(h.applied) != 0 {
 		t.Error("installed")

@@ -686,6 +686,20 @@ guessing; the catalogue claims no more than the code does.
   with nothing pending (no screen calls them unavailable; choosing one says there is nothing to
   do).
 
+- **A person's decline reported as a failure** (Plan 00201 Task 2.29): a deliberate Stop at
+  `ccy-teams lxc-add`'s "Update entry / Stop" exited 1, so the run read as failed and the picker
+  said "(ccy-teams lxc-add failed, exit 1)". The sweep of every `Confirm`, `AskYes` and `Choose`
+  in `internal/teams` found the same in lxc-add's review No and its apply No, `create`'s review
+  No (from `ccy --teams` it ended the launch instead of going back to the list) and `remove`'s
+  "Leave it running" and its No to taking the sessions off first. Each now exits 0, as a No
+  already did in shutdown, restart, wind-down, `session` and the picker's offers; Esc stays the
+  cancel (130). Read and left at 1: `remove`'s typed name that is not the team's (an answer that
+  confirms nothing, refused), and the `cc --teams` consent decline (the launcher must not start;
+  documented exit 1). Whether a No is a decline or a refusal the caller must stop on is meaning,
+  not a shape: a rule could flag `if !yes { return ExitFailure }` and would need an excuse for
+  every refusal kept. What holds it: the flows' tests of each decline (`lxcadd`, `create`, `ops`)
+  and the exit-code line of `ccy-teams --help`.
+
 - **A terminal left echoing between two screens** (Plan 00177): fzf, gum and Bubble Tea take the
   terminal raw and give back the mode they found; between two screens (the board collecting the
   machine after Esc from a row's menu) the line discipline echoed typed-ahead arrows as `^[[B` on
