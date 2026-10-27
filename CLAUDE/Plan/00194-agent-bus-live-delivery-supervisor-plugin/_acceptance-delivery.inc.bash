@@ -123,9 +123,11 @@ dl_ignored_is() {
 dl_log_count() { awk -v text="$1" 'index($0, text) { n++ } END { print n + 0 }' "${DL_FILES}/watch.log"; }
 
 dl_syncs_again_above() {
-    local now
+    local now syncs
     "${DL_READER}" || return
-    now="$(dl_log_count "team ${TEAM_A}: the team syncs again")" || return 1
+    # The watcher's words, cli.py TEAM_SYNCS_AGAIN, read from this checkout, never copied.
+    syncs="$("${CHECK[@]}" product-value helpers/pingbus/cli.py TEAM_SYNCS_AGAIN)" || return 1
+    now="$(dl_log_count "team ${TEAM_A}: ${syncs}")" || return 1
     [[ "${now}" -gt "$1" ]] || return 3
 }
 
@@ -413,7 +415,7 @@ dl_check_h2() {
 # syncs again, and the next message still arrives. Needs sudo, primed at the start: when it has
 # lapsed the step is the host agent's, said exactly, and nothing is judged.
 dl_check_restart() {
-    local before token unit
+    local before token syncs unit
     unit="$("${CHECK[@]}" product-value helpers/agent_bus/checkout.py hs_unit "${TEAM_A}")" || return 1
     token="$(dl_token RESTART)"
     dl_quiet || return 1
@@ -423,14 +425,15 @@ dl_check_restart() {
         return 0
     fi
     "${DL_READER}" || return 1
-    before="$(dl_log_count "team ${TEAM_A}: the team syncs again")" || return 1
+    syncs="$("${CHECK[@]}" product-value helpers/pingbus/cli.py TEAM_SYNCS_AGAIN)" || return 1
+    before="$(dl_log_count "team ${TEAM_A}: ${syncs}")" || return 1
     printf '==> restarting %s under the idle session\n' "${unit}"
     sudo -n systemctl restart "${unit}" || return 1
     dl_poll "${DL_RESTART_S}" "2.0d: the watcher says ${TEAM_A} syncs again" dl_syncs_again_above "${before}" || return 1
     printf 'Plan 00194 acceptance 2.0d %s: after a homeserver restart; no answer and no action needed.\n' "${token}" |
         dl_post 0 --mention "${DL_SEATS[0]}" || return 1
     dl_arrived "2.0d" "${DL_ARRIVE_S}" "${token}" HUMAN "${TEAM_A}" "${HUMAN}" || return 1
-    dl_evidence "2.0d: ${unit} restarted; the watch log said the team syncs again; the next message arrived"
+    dl_evidence "2.0d: ${unit} restarted; the watch log said '${syncs}'; the next message arrived"
 }
 
 # E16 over the whole run — the watch log calls no delivery of this run missing.

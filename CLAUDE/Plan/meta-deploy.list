@@ -37,5 +37,7 @@
 # rebuilds the ccy image (container 2.79.14: the pingbus zipapp from helpers/pingbus and
 # helpers/agent_bus) and ccy-teams; the team plays reinstall agent-bus, whose software digest
 # changed. Every product names the texts its plan checkers read; no byte printed changes, so no
-# host check of its own (the next acceptance runs read the constants).
+# host check of its own (the next acceptance runs read the constants). Plan 00201 Task 2.27
+# adds one more such text (pingbus's "the team syncs again", container 2.79.15), picked up by
+# the same run.
 changed-plays

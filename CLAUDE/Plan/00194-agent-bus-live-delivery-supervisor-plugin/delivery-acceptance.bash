@@ -195,7 +195,7 @@ if [[ "${FAKE}" -eq 1 ]]; then
     check_leg "2.0f (fake) ignored=1 in team A's status line" dl_fake_ignored good
     reject_leg "2.0f (fake) ignored=0" dl_fake_ignored bad
     check_leg "H2 (fake) the busy turn's sleep 60 is seen" dl_fake_busy good
-    check_leg "2.0d (fake) the watch log says the team syncs again" dl_fake_syncs good
+    check_leg "2.0d (fake) the watch log says the team recovered" dl_fake_syncs good
     reject_leg "2.0d (fake) a watch log without it" dl_fake_syncs bad
     check_leg "E16 (fake) no delivery missing" dl_fake_missing good
     reject_leg "E16 (fake) a delivery the watch log calls missing" dl_fake_missing bad
