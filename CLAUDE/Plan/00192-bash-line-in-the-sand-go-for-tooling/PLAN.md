@@ -122,7 +122,7 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     (DESIGN-v2-C), so the spec's value is already carried. v1, and this installer with it, runs
     beside v2 until every team has migrated (Phase 6, owner-paced); retiring v1 is a later plan
     (Task 6.3). No task of 00209's Phases 1 to 6 is started yet.
-  - The branch is stale: last touched 26-10-14; `git merge-tree` with F44 gives 22 conflicts,
+  - The branch is stale: last touched 26-10-14; `git merge-tree` with F44 gives 24 conflicts (at 4a4f1c634),
     the bash installer itself among them (modify/delete). F44 changed the bash installer in 7
     commits (78 lines: the stamps group, health, backup timer state, the Go status line) and its
     suite by 115 lines since; none of that is in the port, so a host test now would test an
@@ -210,7 +210,7 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   empty stdout. Baseline rows as a subset was rejected: a removed container fails it. Test first:
   `test-freeze-layout.bash`, 10 fixture cases (rows added, removed and thawed, a machine now
   empty pass; a changed header, a renamed heading, a stray stdout line, a wrong verb fail).
-  Host check: step 3, queued in `meta-deploy.list`.
+  Host check: step 3 PASS at F44 5340d3ac7 (COVERAGE 11 of 11; Task 3.1).
 
 - [x] ✅ **Task 3.5**: `lxcfreeze thaw` on a container without NetworkManager exits 1 after a
   thaw that succeeded (SPEC-freeze bug 19, D6). Owner decision 26-10-26: no `nmcli` is not
