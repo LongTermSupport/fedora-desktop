@@ -3,9 +3,10 @@
 **Status**: In Progress. Tasks 2.1, 2.1b and 2.2 wait on an upstream release, hooks-daemon
 #119 (plugin API 1.1), and are then specified on agent-bus v2 (Plan 00209 D4); nobody here
 can unblock them. [delivery-acceptance.bash](delivery-acceptance.bash) passed on the host
-on 27-10-26 (H1-H6, 2.0d, 2.0f, E16, C1). Left: H7, which waits on the owner's launch decision
-(no launch omits `crossSessionInbound: accept`), and success criterion step 5 by hand. Task 1.2
-is superseded.
+on 27-10-26 (H1-H6, 2.0d, 2.0f, E16, C1). H7 is not applicable: no launch omits
+`crossSessionInbound: accept`, so no session refuses a delivery (coordinator default of
+27-10-27, changeable by the owner: questions-room Q2). Left: success criterion step 5, a
+baseline record the host agent takes on a throwaway team. Task 1.2 is superseded.
 **Created**: 2026-10-14
 **Owner**: joseph
 **Priority**: High
@@ -119,8 +120,8 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   audited against agent-bus and pingbus, and five faults are fixed (the peer is now a take of
   its own). `--fake` now rehearses the set-up's readers and each seat take:
   [261026-live-path-audit.md](subagent-reports/261026-live-path-audit.md). Host, 27-10-26 at
-  f9073ce05: H1, H6, H5, H4, H3, H2, E16 and C1 PASS; H7 COULD NOT ESTABLISH (the owner's launch
-  decision, above).
+  f9073ce05: H1, H6, H5, H4, H3, H2, E16 and C1 PASS; H7 COULD NOT ESTABLISH, and is not
+  applicable (coordinator default, above).
 - [x] ✅ **Task 2.0d**: The watcher survives a homeserver restart and is supervised
   (SPEC-inject E25, E26; Plan 00203's audit F1 and F2). Built test first on branch
   `fix/watcher-survives-homeserver-restart` (container 2.67, CCY 3.98.12); reviewed, merged

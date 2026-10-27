@@ -212,7 +212,8 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   `vars/github-required-scopes.yml` through `__file__`, so `play-github-cli-multi.yml` does not
   rerun when the required scopes change (class: a helper the play runs reads a checkout file
   outside its package); `environment/localhost/group_vars/desktop.yml` is an input of no play
-  (owner decision: count it for every play, or not); `scripts/qa-toolchain.bash`, run by
+  (coordinator default of 27-10-27, changeable by the owner, questions-room Q3: not counted;
+  a later change may name the plays that read each changed variable); `scripts/qa-toolchain.bash`, run by
   `play-python.yml` as a check, reads `src-go/qa/` and `src-go/go.mod`, which are not inputs.
 
 - [ ] 🔄 **Task 3.8**: `run.bash --changed` gives a play made stale by Go packages alone no
