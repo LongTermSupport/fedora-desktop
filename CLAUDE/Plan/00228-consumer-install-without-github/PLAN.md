@@ -218,10 +218,14 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
     play-basic-configs asked a consumer for the prompt colour, the attendant had no answer,
     and the run waited out provisionLimit (exit 124). The 3 failed checks all follow from
     that. Fixed in bd342c63d (a consumer is never asked). Re-run after Task 3.3.
-- [ ] ⬜ **Task 3.3**: The vmtest attendant fails an attended run on an unanswered prompt in
+- [x] ✅ **Task 3.3**: The vmtest attendant fails an attended run on an unanswered prompt in
   seconds, not at provisionLimit (90 minutes): an idle-output bound once a prompt-shaped line
   is the last output, so the next unknown question costs seconds. Tests first, in
   `src-go/internal/vmtest` (attend.go, steps.go).
+  - As built: a partial line ending in `:`, `?`, `]`, `)` or `>` with nothing after it for
+    `promptIdle` (60s, on `Env.Sleep`) ends the run as a fail, the transcript quoting its
+    last 3 lines. The colour prompt ended in a bare `:`, not `: `. Its host proof is Task
+    3.2's re-run.
 
 ### Phase 4: Docs for a non-developer
 
