@@ -290,7 +290,7 @@ Facts F31 to F40 in [PLAN.md](PLAN.md); H1 to H7 are confirmed.
   for UDP), not a concatenated set, a form the triage never applied. The allow set keeps the
   shape the triage applied.
 - **The host file** is `~/.config/claude-yolo/network/<checkout-name>-<16 hex>.env`, the hex the
-  start of the md5 of the checkout's path (as the restart history keys a checkout);
+  start of the SHA-256 of the checkout's path, so two checkouts of one name keep two files;
   `ccy-network-policy where` prints it, and the context names it. Entries from it and from a
   host-shell `CCY_NETWORK_ALLOW` add up; `off` in either turns the policy off.
 - **Known exposure, accepted with section 4:** the bus address is a host address opened on every

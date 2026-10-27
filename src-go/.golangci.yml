@@ -220,6 +220,11 @@ linters:
       - path: internal/rclonecache/stats\.go
         linters: [tagliatelle]
         text: "CacheMax"
+      # ccy-network-policy decodes `podman inspect`, whose keys are podman's own Go field names
+      # (State, ResolvConfPath, EffectiveCaps).
+      - path: internal/netpolicy/podman\.go
+        linters: [tagliatelle]
+        text: "'(Pid|Running|State|ResolvConfPath|Privileged|HostConfig|EffectiveCaps|Networks|NetworkSettings)'"
       # wsi-lower-media-volume decodes pactl's JSON sink inputs, whose keys are pactl's own
       # (channel_map) and the sound server's property names (application.process.id).
       - path: internal/wsimedia/app\.go

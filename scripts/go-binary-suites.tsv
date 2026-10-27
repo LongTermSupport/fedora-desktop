@@ -37,3 +37,4 @@ pingbus-status-line	qa-go
 setup-rclone	qa-go
 reclaim	qa-go
 consumer-install	scripts/test-run-bash-consumer.bash
+ccy-network-policy	qa-go

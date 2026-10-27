@@ -149,13 +149,13 @@ Run 1 settled H8; the rerun settled H1 to H7, all confirmed.
 
 DESIGN.md section 7 is the shape, as section 10 settles it. In order, each test first:
 
-- [ ] ⬜ **Task 3.1**: The Go policy package `internal/netpolicy` (pure): parse the host file
+- [x] ✅ **Task 3.1**: The Go policy package `internal/netpolicy` (pure): parse the host file
   and `CCY_NETWORK_ALLOW` (addresses, prefixes, names with `:port`, the `lxc` and `off`
   keywords); the default ranges from octets; the derived allows (nameservers from a
   `resolv.conf`, the `agentbus0` address, project network subnets, the `lxc` addresses from
   the host's hosts file inside `lxcbr0`'s prefix); normalisation (dedupe, drop an entry
   another covers); the table, with the ICMP admin-prohibited verdict
-- [ ] ⬜ **Task 3.2**: The `ccy-network-policy` command: `launch` (create, init, the
+- [x] ✅ **Task 3.2**: The `ccy-network-policy` command: `launch` (create, init, the
   capability guard, apply through an injected runner, `podman unshare nsenter -t <pid> -n nft -f -`, verify by reading the table back, start); `refresh` (replace every live
   session's allow set whole in one transaction); `where`; the context text; tested through
   fakes

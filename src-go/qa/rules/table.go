@@ -45,6 +45,7 @@ const (
 	sttPkg       = "internal/stt"
 	lxcaddPkg    = "internal/teams/lxcadd"
 	reclaimPkg   = "internal/reclaim"
+	netpolicyPkg = "internal/netpolicy"
 )
 
 // The functions and the reason the realtime-bound tables repeat.
@@ -59,7 +60,8 @@ const (
 // target forms are decided once (the gum and fzf prompts, the sudo and tmux argument forms).
 // A program with two owners is used for two different jobs: podman is read for a session's
 // container by sessprobe, driven (pause, unpause, networks) by podfreeze, and pruned (with
-// docker) by reclaim, the disk-space menu. A program absent
+// docker) by reclaim, the disk-space menu; netpolicy creates, holds the network policy of and
+// starts a ccy session's container (and runs one under docker unprotected). A program absent
 // from the table is unowned: any package may run it.
 var commandOwners = map[string][]string{
 	"sudo":         {sudoPkg},
@@ -70,8 +72,8 @@ var commandOwners = map[string][]string{
 	"busctl":       {"internal/systemd", "internal/wsimedia"},
 	"git":          {"internal/gitx"},
 	"ps":           {sessprobePkg},
-	"podman":       {sessprobePkg, podfreezePkg, reclaimPkg, "internal/ccc"},
-	"docker":       {sessprobePkg, reclaimPkg},
+	"podman":       {sessprobePkg, podfreezePkg, reclaimPkg, "internal/ccc", netpolicyPkg},
+	"docker":       {sessprobePkg, reclaimPkg, netpolicyPkg},
 	"lxc-ls":       {lxcfreezePkg},
 	"lxc-info":     {lxcfreezePkg},
 	"lxc-freeze":   {lxcfreezePkg},
