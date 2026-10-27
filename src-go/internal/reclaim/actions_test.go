@@ -370,6 +370,10 @@ func TestContainersUnreachable(t *testing.T) {
 		t.Error("pruned an engine that could not be read")
 	}
 
+	if w.ran("podman unshare") {
+		t.Error("podman unshare run for a failure that was not a refused permission")
+	}
+
 	w = newWorld(t)
 	w.install("podman")
 	w.answer([]string{"podman", "system", "df"}, "x\n", 0)
@@ -377,6 +381,36 @@ func TestContainersUnreachable(t *testing.T) {
 	w.typed("6", "y", "q")
 	wantCode(t, w.run(), term.ExitFailure)
 	w.wantErr("  podman system prune reported an error.")
+}
+
+// E22: a podman system df refused permission is read again under podman unshare, the refusal
+// shown, and pruning is offered on what that read; both refused is not offered.
+func TestContainersPodmanUnshare(t *testing.T) {
+	refused := "Error: open /s/volumes/v/_data: permission denied\n"
+	w := newWorld(t)
+	w.install("podman")
+	w.answerErr([]string{"podman", "system", "df"}, "", refused, 125)
+	w.answer([]string{"podman", "unshare", "podman", "system", "df"}, "TYPE TOTAL\n", 0)
+	w.answer([]string{"podman", "system", "prune", "-af"}, "", 0)
+	w.typed("6", "y", "q")
+	wantCode(t, w.run(), term.ExitOK)
+	w.wantErr("  podman system df was refused permission; reading it again inside podman's user namespace"+
+		" (podman unshare podman system df). Reason:\n    Error: open /s/volumes/v/_data: permission denied\n",
+		"  Podman storage usage:\n    TYPE TOTAL\n", "  Podman pruned.")
+	if got := w.changes(); !slices.Equal(got, []string{"podman system prune -af"}) {
+		t.Errorf("changes %v", got)
+	}
+
+	w = newWorld(t)
+	w.install("podman")
+	w.answerErr([]string{"podman", "system", "df"}, "", refused, 125)
+	w.answerErr([]string{"podman", "unshare", "podman", "system", "df"}, "", "Error: still no\n", 125)
+	w.typed("6", "q")
+	wantCode(t, w.run(), term.ExitOK)
+	w.wantErr("  Cannot query podman — skipping podman prune. Reason:", "    Error: still no")
+	if w.ran("podman system prune") {
+		t.Error("pruned an engine that could not be read")
+	}
 }
 
 // E23: flatpak preview and removal.

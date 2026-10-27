@@ -119,7 +119,7 @@ func (r *run) duSummary(ctx context.Context, args []string, what string, n int) 
 		r.say(fmt.Sprintf("  %8s  %s", rclonecache.IEC(e.bytes), e.path))
 	}
 	if err != nil {
-		r.errOut.Print(r.env.Stderr, string(res.Stderr))
+		r.duComplaints(what, string(res.Stderr))
 		r.dimLine("  (some entries could not be read)")
 	}
 	return true

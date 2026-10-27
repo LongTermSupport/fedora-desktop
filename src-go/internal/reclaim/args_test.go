@@ -22,7 +22,7 @@ func TestHelpAndVersion(t *testing.T) {
 	if got := w.stdout.String(); got != "reclaim "+Version+"\n" {
 		t.Errorf("--version printed %q", got)
 	}
-	if Version != "2.0.0" {
+	if Version != "2.0.1" {
 		t.Errorf("Version is %q", Version)
 	}
 }

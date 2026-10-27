@@ -126,3 +126,59 @@ func TestReportStderrClean(t *testing.T) {
 		t.Errorf("stderr: %q", w.stderr.String())
 	}
 }
+
+// E6: du's permission refusals under one root are one line, counted, the first named; any
+// other complaint of du's is shown as it is.
+func TestReportDuRefusalsSummarised(t *testing.T) {
+	w := newWorld(t)
+	logs := t.TempDir()
+	w.varDirs = []string{logs}
+	w.answerErr([]string{"du", "-s", "-B1", logs}, "8192\t"+logs+"\n",
+		"du: cannot read directory '"+logs+"/audit': Permission denied\n"+
+			"du: cannot read directory '"+logs+"/private': Permission denied\n"+
+			"du: cannot access '"+logs+"/x/y': Permission denied\n"+
+			"du: fts_read failed: odd\n", 1)
+	wantCode(t, w.run("report"), term.ExitOK)
+	w.wantOut("8.0KB\t" + logs + "\t(at least: some entries could not be read)\n")
+	w.wantErr("reclaim: du "+logs+": 3 entries could not be read (permission denied), the first '"+
+		logs+"/audit'; the size is a lower bound.\n", "du: fts_read failed: odd\n")
+	w.wantNoErr("cannot read directory", "cannot access")
+
+	w = newWorld(t)
+	w.varDirs = []string{logs}
+	w.answerErr([]string{"du", "-s", "-B1", logs}, "8192\t"+logs+"\n",
+		"du: cannot read directory '"+logs+"/audit': Permission denied\n", 1)
+	wantCode(t, w.run("report"), term.ExitOK)
+	w.wantErr("reclaim: du " + logs + ": 1 entry could not be read (permission denied), the first '" +
+		logs + "/audit'; the size is a lower bound.\n")
+}
+
+// E7: a podman system df refused permission (a volume's data owned by a container's uid) is
+// read again under podman unshare, the refusal named; both failing names both.
+func TestReportPodmanUnshare(t *testing.T) {
+	refused := "Error: open /s/volumes/v/_data: permission denied\n"
+	w := newWorld(t)
+	w.install("podman")
+	w.answerErr([]string{"podman", "system", "df"}, "", refused, 125)
+	w.answer([]string{"podman", "unshare", "podman", "system", "df"}, "TYPE TOTAL\nImages 3\n", 0)
+	wantCode(t, w.run("report"), term.ExitOK)
+	w.wantOut("\nPodman storage:\nTYPE TOTAL\nImages 3\n")
+	w.wantErr("reclaim: podman system df: podman exited 125: Error: open /s/volumes/v/_data: permission denied\n",
+		"reclaim: reading it again inside podman's user namespace: podman unshare podman system df\n")
+
+	w = newWorld(t)
+	w.install("podman")
+	w.answerErr([]string{"podman", "system", "df"}, "", refused, 125)
+	w.answerErr([]string{"podman", "unshare", "podman", "system", "df"}, "", "Error: still no\n", 125)
+	wantCode(t, w.run("report"), term.ExitFailure)
+	w.wantOut("Podman storage:\n  (podman storage unavailable)\n")
+	w.wantErr("permission denied", "reclaim: podman unshare podman system df: podman exited 125: Error: still no\n")
+
+	w = newWorld(t)
+	w.install("podman")
+	w.answerErr([]string{"podman", "system", "df"}, "", "Error: stale temp dir\n", 125)
+	wantCode(t, w.run("report"), term.ExitFailure)
+	if w.ran("podman unshare") {
+		t.Error("podman unshare run for a failure that was not a refused permission")
+	}
+}

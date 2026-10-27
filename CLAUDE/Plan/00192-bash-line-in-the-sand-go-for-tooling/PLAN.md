@@ -197,11 +197,20 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     Run from the checkout through the `scripts/setup-rclone.bash` wrapper, so no play deploys
     it and nothing is queued in `meta-deploy.list`. Host checks H1-H4 are the owner's, at the
     desktop (a real remote and the vault).
-  - `reclaim` (P6): built, Fable-reviewed and its findings fixed, awaiting merge, on
-    `go-port/reclaim` (not merged); spec
+  - `reclaim` (P6): built, Fable-reviewed and its findings fixed, merged into F44
+    (`2e32edc2a`); spec
     [SPEC-reclaim.md](SPEC-reclaim.md), oracle the scenario table run against the Go and the
-    bash ([PORTS.md](PORTS.md)). `play-cli-tools.yml` builds it; host checks H1-H5 the host
-    agent's after the merge and its play run.
+    bash ([PORTS.md](PORTS.md)). `play-cli-tools.yml` builds it. Host checks on 2.0.0 (host
+    agent): H1-H4 pass; H5 (baobab on the desktop, by screenshot) is the owner's, since the
+    host agent may open no window and take no screenshot. Two limits of that run: H3's "no
+    sudo question" (B12) was not exercised, because the host user's sudo needs no password,
+    and H4's option 6 read the scratch home's empty podman storage, so its podman preview was
+    not seen against real data. H1 found two faults, fixed in 2.0.1: `du`'s ~95 raw
+    `Permission denied` lines under `/var/log` and `/var/cache` (now one line per directory,
+    counted, the first named; E6), and `podman system df` exiting 125 on a volume whose data a
+    container's uid owns, so podman storage was never reported (now read again under
+    `podman unshare`, the refusal named; E7, E22). 2.0.1's host check is queued in
+    `meta-deploy.list`.
   - Still to do: the remaining programmes in [INVENTORY.md](INVENTORY.md) (`nord`,
     `nvidia-status`, the `ssh-with-key` family) and the `ccy` launcher.
 
