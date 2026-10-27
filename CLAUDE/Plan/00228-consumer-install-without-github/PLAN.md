@@ -189,6 +189,9 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   `server-fast-provision`, so the developer and server paths are proved unchanged; add the
   plan to `CLAUDE/Plan/meta-deploy.list`.
   - Acceptance: `acceptance.bash` reports full coverage and a pass on the host.
+  - Built here: `deploy.bash` (play-vm-test-lab.yml) and `acceptance.bash` (ensures the
+    desktop and server-fast bases, runs the three scenarios from the pushed HEAD, `COVERAGE: N of 3`, exit 0/1/2), both lint-clean and refusing the container; queued in
+    `meta-deploy.list`. **Pending: the host run** (the host agent's).
 
 ### Phase 4: Docs for a non-developer
 
