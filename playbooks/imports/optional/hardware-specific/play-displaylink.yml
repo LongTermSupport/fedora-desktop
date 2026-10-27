@@ -199,29 +199,10 @@
         - mok_import is not skipped
         - mok_import.rc | default(1) != 0
 
-    - name: Display MOK enrollment password
-      ansible.builtin.debug:
-        msg: |2
-
-          ========================================================================
-          IMPORTANT: SECURE BOOT MOK ENROLLMENT REQUIRED
-          ========================================================================
-
-          Your MOK enrollment password is: {{ mok_password }}
-
-          MEMORIZE THIS PASSWORD NOW!
-
-          After reboot:
-          1. You will see a blue MOK Manager screen
-          2. Select "Enroll MOK"
-          3. Select "Continue"
-          4. Select "Yes"
-          5. Enter the password shown above: {{ mok_password }}
-          6. Select "Reboot"
-
-          The password will ONLY be needed this one time during enrollment.
-          It is the mok_password value in your vault, if this output is gone by then.
-          ========================================================================
+    - name: Show the MOK enrolment steps for the next boot
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/secure-boot-mok-enrolment-steps.yml"
+      vars:
+        mok_module: the DisplayLink driver
       when:
         - "'SecureBoot enabled' in secure_boot_state.stdout"
         - mok_import is changed
