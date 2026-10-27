@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00233-ccc-claude-code-for-consumers](00233-ccc-claude-code-for-consumers/) - Not Started (design awaiting review). `ccc`: a Go command that runs Claude Code in rootless podman, always in `~/Claude` (a local git repository, no forge), mounting only that folder and its own state and carrying only the Claude login; reuses ccy's image and token pool without its GitHub, SSH or bus prerequisites, and is started as `ccc` or from a "Claude" desktop entry.
+
 - [00231-shutdown-with-update-runs-without-a-password-prompt](00231-shutdown-with-update-runs-without-a-password-prompt/) - In Progress. Run bare, shutdown-with-update and reboot-with-update hand themselves to sudo, which a scoped, argument-pinned sudoers rule lets the desktop user through without a password; a consumer install with no ccy has no sessions to warn. Under Defence Before Fix: the `sudoers-rule` check in `qa-ansible`.
 
 - [00230-optional-plays-fail-fast-ask-for-missing-settings-friendly-errors](00230-optional-plays-fail-fast-ask-for-missing-settings-friendly-errors/) - In Progress. The optional plays failed late on a missing setting, hid failures behind `no_log` and ran `ansible-vault` outside the checkout. Under Defence Before Fix: five `qa-ansible` rules, a shared ask-and-vault-save task file, and every instance fixed.
