@@ -208,13 +208,19 @@ func (w *world) foregrounds() []string {
 	cmds := w.fake.Foregrounds()
 	out := make([]string, 0, len(cmds))
 	for _, c := range cmds {
-		args := slices.Clone(c.Args)
-		if i := slices.Index(args, "--become-password-file"); i >= 0 && i+1 < len(args) {
-			args[i+1] = "PWFILE"
-		}
-		out = append(out, strings.Join(append([]string{c.Name}, args...), " "))
+		out = append(out, lineOf(c))
 	}
 	return out
+}
+
+// lineOf is a command's line with its password file, a fresh temporary path each run, shown
+// as PWFILE.
+func lineOf(c execx.Cmd) string {
+	args := slices.Clone(c.Args)
+	if i := slices.Index(args, "--become-password-file"); i >= 0 && i+1 < len(args) {
+		args[i+1] = "PWFILE"
+	}
+	return strings.Join(append([]string{c.Name}, args...), " ")
 }
 
 // recordOrder makes each of the named commands append its line to the returned slice when it
@@ -223,7 +229,7 @@ func (w *world) recordOrder(prefixes ...[]string) *[]string {
 	order := &[]string{}
 	for _, prefix := range prefixes {
 		w.fake.OnFunc(prefix, func(c execx.Cmd) (execx.Result, error) {
-			*order = append(*order, c.Line())
+			*order = append(*order, lineOf(c))
 			return execx.Result{}, nil
 		})
 	}
@@ -296,7 +302,7 @@ func TestTheUpgradeFinishesBeforeAnyAnsibleProcessStarts(t *testing.T) {
 		"sudo -n dnf -y install python3 python3-pip python3-libdnf5 jq openssl pipx",
 		"pipx install --include-deps ansible",
 		"ansible-galaxy install --keep-scm-meta -r requirements.yml",
-		"ansible-playbook " + mainPlay + " --ask-become-pass",
+		"ansible-playbook " + mainPlay + become,
 	}
 	if !slices.Equal(*order, want) {
 		t.Fatalf("order %q\nwant %q", *order, want)
