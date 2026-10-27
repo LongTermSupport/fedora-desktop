@@ -167,10 +167,18 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
 
 ### Phase 3: VM lab acceptance
 
-- [ ] ⬜ **Task 3.1**: Add a `desktop-consumer-install` scenario to
+- [x] ✅ **Task 3.1** (built and tested here; its host run is Task 3.2's): Add a `desktop-consumer-install` scenario to
   `vars/vm-test-scenarios.yml` on the `desktop` base, driving an attended
   `./run.bash --consumer` (the consumer path refuses headless, so the lab needs a pty
-  driver for it), plus its guest checker `files/home/.local/share/vmtest/guest-acceptance-desktop-consumer.bash`.
+  driver for it), plus its guest checker. As built: the manifest key `audience: consumer`
+  (Python validator and the `vmtest` marker, closed list, desktop only, no `run_env` or
+  `host_only`); vmtest had no pty driver, so `src-go/internal/vmtest/attend.go` drives
+  `ssh -tt` and answers a prompt only when it appears (a password or GitHub credential
+  prompt ends the run as a fail); `consumer.go` waits for the session, pins an HTTPS clone
+  at the run's commit, runs `~/run.bash --consumer` and then the re-run (output kept in
+  `/var/lib/vmtest/rerun.log`). The checker is named for the scenario,
+  `guest-acceptance-desktop-consumer-install.bash` (17 checks), because `vmtest` finds a
+  scenario's own checker by its id. Host run pending.
   - Acceptance: the checker asserts no `~/.ssh/id`, no `gh` auth state, origin is HTTPS,
     no `NOPASSWD` block, the consumer apps present, Go present (the installer's own build
     toolchain, so it is expected), the developer tools (Node, Claude Code, ccy, VS Code,
@@ -181,14 +189,17 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   `server-fast-provision`, so the developer and server paths are proved unchanged; add the
   plan to `CLAUDE/Plan/meta-deploy.list`.
   - Acceptance: `acceptance.bash` reports full coverage and a pass on the host.
+  - Built here: `deploy.bash` (play-vm-test-lab.yml) and `acceptance.bash` (ensures the
+    desktop and server-fast bases, runs the three scenarios from the pushed HEAD, `COVERAGE: N of 3`, exit 0/1/2), both lint-clean and refusing the container; queued in
+    `meta-deploy.list`. **Pending: the host run** (the host agent's).
 
 ### Phase 4: Docs for a non-developer
 
 - [x] ✅ **Task 4.1**: "Install for Someone Who Does Not Write Code" in
   `docs/installation.md`: the one command, what it leaves out, the app menu, how to update,
   and that settings live only on this machine; `run.bash --help` names `--consumer`.
-- [ ] ⬜ **Task 4.2**: Link it from `README.md`, and name the audience in
-  `docs/playbooks.md`.
+- [x] ✅ **Task 4.2**: Linked from `README.md` (its own Quick Start subsection), and the
+  install audience named in `docs/playbooks.md` beside the provisioning profile.
 
 ### Phase 6: Later
 

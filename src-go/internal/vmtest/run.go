@@ -118,11 +118,16 @@ func rawURL(repoURL, commit, path string) string {
 }
 
 // divergences is every known difference between this run and a real install of its profile
-// (§6.6 rule 09), for judge_run.
-func divergences(profile string) string {
+// (§6.6 rule 09), for judge_run. A consumer install is typed at a terminal ssh gives it rather
+// than one in the session, on a checkout the harness pinned, by a user whose passwordless sudo
+// is the lab's (so no password is ever asked).
+func divergences(profile string, consumer bool) string {
 	list := "throwaway-vault-password,lab-ssh-key-baked"
 	if profile == profileDesktop {
 		list += ",luks-unlock-automated,plymouth-disabled,gdm-autologin-enabled-by-harness,session-runner-autostart"
+	}
+	if consumer {
+		list += ",run-bash-attended-over-ssh-terminal,checkout-pinned-by-harness,lab-sudoers-nopasswd"
 	}
 	return list
 }
@@ -250,7 +255,11 @@ func (r *running) provisionAndCheck(ctx context.Context, check string) error {
 	if o := r.overrides(); o != "" {
 		overrides = "; overrides:" + o
 	}
-	c.logf("provisioning (headless run.bash; this is the long part — up to %ds)%s", int(provisionLimit.Seconds()), overrides)
+	mode := "headless run.bash"
+	if r.s.Consumer() {
+		mode = "attended ./run.bash --consumer, then its re-run"
+	}
+	c.logf("provisioning (%s; this is the long part — up to %ds)%s", mode, int(provisionLimit.Seconds()), overrides)
 	rc, err := r.provision(ctx)
 	if err != nil {
 		return err
@@ -388,7 +397,7 @@ func (r *running) runJudge(ctx context.Context, v verdict, probeRev, response, b
 		"--transcript", r.transcript.Name(), "--transcript-path", "runs/" + r.id + "/transcript.log",
 		flagBaseJSON, baseJSON, "--scenario", r.s.ID, "--planned", r.s.Planned, "--max-skipped", r.s.MaxSkipped,
 		"--run-id", r.id, "--commit", r.commit, "--branch", r.l.branch, "--freshness-decision", v.decision,
-		"--freshness-degraded", v.degraded, "--freshness-divergences", v.divergences, "--divergences", divergences(r.b.Profile),
+		"--freshness-degraded", v.degraded, "--freshness-divergences", v.divergences, "--divergences", divergences(r.b.Profile, r.s.Consumer()),
 		"--started-at", strconv.FormatInt(r.startedAt, 10), "--finished-at", strconv.FormatInt(c.env.Now().Unix(), 10),
 		"--probe-revision", probeRev,
 	}})

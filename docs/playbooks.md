@@ -107,6 +107,15 @@ Self-Guard"). On a server, GUI-only plays end via their guard and a handful of
 `general` plays skip their one or two GUI-only tasks (e.g. `play-vpn.yml`'s
 `NetworkManager-openvpn-gnome`, `play-basic-configs.yml`'s USB-audio fix).
 
+**Install audience.** A second, separate axis says who uses the machine:
+`install_audience` is `developer` (the default, every existing machine) or `consumer`
+(chosen once with `./run.bash --consumer` and recorded in `localhost.yml`; see
+[Install for Someone Who Does Not Write Code](installation.md#install-for-someone-who-does-not-write-code)).
+Each play declares `audience: all | developer` beside `scope`; a `developer` play ends
+itself straight away on a consumer box, naming why, and the optional-play menu offers a
+consumer only the `all` plays. The design is in
+[Plan 00228](../CLAUDE/Plan/00228-consumer-install-without-github/PLAN.md).
+
 ## Core Playbooks (Automatically Run)
 
 These playbooks are executed automatically by `playbook-main.yml` during initial installation. They run in the order listed below. Do **not** run them manually — just run `playbook-main.yml`.

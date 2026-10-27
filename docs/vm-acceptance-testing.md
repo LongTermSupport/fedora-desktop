@@ -189,6 +189,25 @@ response lists the divergences from a real install: `luks-unlock-automated`,
 `plymouth-disabled`, `gdm-autologin-enabled-by-harness`,
 `session-runner-autostart`, plus the throwaway vault password and the lab key.
 
+### The consumer install scenario
+
+`desktop-consumer-install` (Plan 00228) proves the install for someone who does not write
+code. Its manifest entry says `audience: consumer` (the default is `developer`), which
+only a desktop scenario with no `run_env` and no `host_only` may say. `./run.bash --consumer` refuses headless, so the CLI does not hand it to the session runner: it waits
+for the autologin session, clones the public repository over HTTPS and pins it at the run's
+commit (run.bash's own `git pull --ff-only` then changes nothing), and runs `~/run.bash --consumer` at a terminal the guest's sshd allocates (`ssh -tt`), with the session's bus
+and display variables. The driver (`src-go/internal/vmtest/attend.go`) answers each
+question when its prompt appears: Enter at the optional-app menu, and nothing else. A
+password or GitHub credential prompt ends the run at once as a fail. It then runs
+`~/Projects/fedora-desktop/run.bash` again, as the update a consumer runs, keeping its
+output in `/var/lib/vmtest/rerun.log`, and reboots. The checker,
+`guest-acceptance-desktop-consumer-install.bash`, asserts no SSH key and no `gh` login, an
+HTTPS origin, no NOPASSWD block from this repo, the everyday apps and Go present, the
+developer tools absent, and every `PLAY RECAP` of the second run `changed=0 failed=0`.
+The response adds the divergences `run-bash-attended-over-ssh-terminal`,
+`checkout-pinned-by-harness` and `lab-sudoers-nopasswd` (the lab user's own passwordless
+sudo, so no password is ever asked).
+
 ### The negative scenarios
 
 Three scenarios exist to go red on purpose, so the harness is known to be able
@@ -221,10 +240,11 @@ aborts the run: a half-applied fixture leaves the checker judging a guest nobody
 set up. `qa-vmtest-manifest.bash` refuses a fixture whose scenario does not
 declare the reboot, since the harness would deploy it and never run it.
 
-| Scenario                           | Second boot for                                                                             |
-| ---------------------------------- | ------------------------------------------------------------------------------------------- |
-| `desktop-fresh-install`            | GNOME loads extensions at session start, so the shell that installed them never sees them   |
-| `server-host-health-kernel-change` | a status document collected under one kernel, read by a login shell running a different one |
+| Scenario                           | Second boot for                                                                              |
+| ---------------------------------- | -------------------------------------------------------------------------------------------- |
+| `desktop-fresh-install`            | GNOME loads extensions at session start, so the shell that installed them never sees them    |
+| `server-host-health-kernel-change` | a status document collected under one kernel, read by a login shell running a different one  |
+| `desktop-consumer-install`         | the restart the consumer install asks for at its end, so the machine is judged as it is used |
 
 `server-host-health-kernel-change` is Plan 00109's server drift-reporting route
 end to end. Its fixture collects a status document on a clean guest, captures

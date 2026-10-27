@@ -76,11 +76,11 @@ class TestValidateManifest(unittest.TestCase):
             result.stdout,
             "VMTEST-SCENARIO id=server-fast-provision base=server-fast base_name=server-fast-44 "
             "profile=server planned=12 max_skipped=0 runnable=true host_only=false "
-            "reboot_before_checks=false run_env=-\n",
+            "reboot_before_checks=false run_env=- audience=developer\n",
         )
         unplanned = _run(json.dumps(MANIFEST), "--scenario", "desktop-fresh-install")
         self.assertIn(
-            "planned=- max_skipped=0 runnable=false host_only=false reboot_before_checks=true run_env=-",
+            "planned=- max_skipped=0 runnable=false host_only=false reboot_before_checks=true run_env=- audience=developer",
             unplanned.stdout,
         )
 
@@ -94,6 +94,15 @@ class TestValidateManifest(unittest.TestCase):
         result = _run(json.dumps(document), "--scenario", "server-fast-provision")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("host_only=false reboot_before_checks=true", result.stdout)
+
+    def test_scenario_flag_reports_the_audience(self):
+        # Printed for every scenario: the CLI decides from it whether run.bash runs
+        # headless or attended at a terminal, and must never default that.
+        document = json.loads(json.dumps(MANIFEST))
+        document["vm_test_scenarios"]["desktop-fresh-install"]["audience"] = "consumer"
+        result = _run(json.dumps(document), "--scenario", "desktop-fresh-install")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(result.stdout.endswith(" run_env=- audience=consumer\n"), result.stdout)
 
     def test_scenario_flag_reports_host_only(self):
         # The `vmtest` CLI reads this field to decide which enumeration a run must

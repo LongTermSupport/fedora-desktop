@@ -88,6 +88,9 @@ func (r *running) overrides() string {
 
 // provision runs run.bash at the pinned commit and returns its status (E36, E37).
 func (r *running) provision(ctx context.Context) (int, error) {
+	if r.s.Consumer() {
+		return r.consumerProvision(ctx)
+	}
 	if r.b.Profile == profileDesktop {
 		return r.sessionProvision(ctx)
 	}
@@ -307,20 +310,31 @@ func (r *running) desktopReboot(ctx context.Context) error {
 	if err := r.g.waitSSH(ctx); err != nil {
 		return err
 	}
+	return r.waitSession(ctx, "", " after the reboot")
+}
+
+// waitSession waits for the autologin session on seat0, and for also (a remote condition, ""
+// for none) to hold, then gives gnome-shell a moment to answer on D-Bus; when is what the
+// timeout says it was waiting after.
+func (r *running) waitSession(ctx context.Context, also, when string) error {
+	probe := "loginctl list-sessions --no-legend"
+	if also != "" {
+		probe += " && " + also
+	}
 	r.c.logf("waiting for the autologin session on seat0 (up to %ds)", int(rebootLimit.Seconds()))
 	start := r.c.env.Now()
 	for {
 		if err := r.g.mustBeUp(ctx, "the autologin session"); err != nil {
 			return err
 		}
-		if out, err := r.g.merged(ctx, "loginctl list-sessions --no-legend"); err == nil && seat0RE.MatchString(out) {
+		if out, err := r.g.merged(ctx, probe); err == nil && seat0RE.MatchString(out) {
 			break
 		}
 		if err := r.c.env.Sleep(ctx, poll); err != nil {
 			return ctxErr(ctx, err)
 		}
 		if r.c.env.Now().Sub(start) >= rebootLimit {
-			return failf("no autologin session on seat0 within %ds after the reboot (stage: boot)", int(rebootLimit.Seconds()))
+			return failf("no autologin session on seat0 within %ds%s (stage: boot)", int(rebootLimit.Seconds()), when)
 		}
 	}
 	// gnome-shell needs a moment after the session appears before its D-Bus interface answers.

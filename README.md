@@ -62,6 +62,12 @@ Make sure you have:
 
 Need more details? See the full [Installation Guide](docs/installation.md).
 
+### Install for Someone Who Does Not Write Code
+
+Setting up a computer for someone who just wants a good desktop, with no GitHub account
+and no programming tools? Add `--consumer` to the command above; see
+[Install for Someone Who Does Not Write Code](docs/installation.md#install-for-someone-who-does-not-write-code).
+
 ### Unattended Server / Cloud Install (IaC)
 
 Provisioning a **Fedora Server or Cloud** box with no prompts (cloud-init / CI / an LLM
