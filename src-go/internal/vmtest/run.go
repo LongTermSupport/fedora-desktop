@@ -206,6 +206,9 @@ func (r *running) makeDir() (func() error, error) {
 	return holdRun(r.dir)
 }
 
+// runDomain is the libvirt domain a run's guest is defined as; prune-runs asks libvirt for it.
+func runDomain(id string) string { return "vmtest-run-" + id }
+
 // boot creates the overlay and boots the guest until it answers SSH (E34).
 func (r *running) boot(ctx context.Context) error {
 	c := r.c
@@ -213,7 +216,7 @@ func (r *running) boot(ctx context.Context) error {
 	if err != nil {
 		return failf("%v", err)
 	}
-	r.g = &guest{c: c, key: r.l.at(sshKeyFile), domain: "vmtest-run-" + r.id, port: port, dir: r.dir}
+	r.g = &guest{c: c, key: r.l.at(sshKeyFile), domain: runDomain(r.id), port: port, dir: r.dir}
 	overlay := filepath.Join(r.dir, "overlay.qcow2")
 	if err := c.overlay(ctx, filepath.Join(r.baseDir, "base.qcow2"), overlay); err != nil {
 		return err

@@ -53,7 +53,6 @@ RAM_CEILING_FRACTION = 0.75
 DEFAULT_KEEP_RUNS = 10
 DEFAULT_KEEP_SPOOL = 200
 DESKTOP_PREFIX = "desktop-"
-DEFAULT_PRUNE_DAYS = 7
 RUN_ID_RE = re.compile(r"^(\d{8}T\d{6}Z)-(.+)$")  # the name vmtest run gives a run directory
 
 
@@ -121,7 +120,10 @@ def run_facts(name: str, passed: bool) -> RunFacts:
     match = RUN_ID_RE.match(name)
     if match is None:
         return RunFacts(name=name, started=None, scenario=None, passed=passed)
-    started = datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC).timestamp()
+    try:
+        started = datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC).timestamp()
+    except ValueError:  # the shape of a stamp with no such date or time: not a run id, so kept
+        return RunFacts(name=name, started=None, scenario=None, passed=passed)
     return RunFacts(name=name, started=started, scenario=match.group(2), passed=passed)
 
 
@@ -314,7 +316,7 @@ def main(argv: list[str] | None = None) -> int:
     prune = sub.add_parser("prune-plan", help="say which runs' overlays may go, and why; removes nothing")
     prune.add_argument("--lab-dir", required=True)
     prune.add_argument("--now", type=int, required=True, help="the epoch second the ages are measured from")
-    prune.add_argument("--older-than-days", type=int, default=DEFAULT_PRUNE_DAYS)
+    prune.add_argument("--older-than-days", type=int, required=True, help="vmtest prune-runs owns the default")
     prune.set_defaults(func=cmd_prune_plan)
     args = parser.parse_args(argv)
     return args.func(args)

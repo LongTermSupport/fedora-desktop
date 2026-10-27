@@ -3,6 +3,8 @@ package vmtest
 import (
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -292,5 +294,25 @@ func TestFreeBytesReadsTheFilesystem(t *testing.T) {
 	}
 	if _, err := freeBytes(filepath.Join(t.TempDir(), "absent")); err == nil {
 		t.Fatal("an absent path had free space")
+	}
+}
+
+// TestDiskMarginIsRetentionsMargin holds the guard's margin to the one retention.py's floor
+// keeps, so the two refusals cannot drift apart.
+func TestDiskMarginIsRetentionsMargin(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "..", "..", "helpers", "vmtest", "retention.py"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`(?m)^MARGIN_BYTES = ([0-9]+) \* 1024\*\*3\b`).FindSubmatch(body)
+	if m == nil {
+		t.Fatal("retention.py has no MARGIN_BYTES = <n> * 1024**3 line")
+	}
+	n, err := strconv.ParseInt(string(m[1]), 10, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n*gib != diskMarginBytes {
+		t.Fatalf("retention.py's MARGIN_BYTES is %d GiB, diskMarginBytes %d bytes", n, diskMarginBytes)
 	}
 }

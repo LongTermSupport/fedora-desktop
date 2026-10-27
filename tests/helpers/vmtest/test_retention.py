@@ -204,6 +204,19 @@ class TestPrunePlan(unittest.TestCase):
         odd = retention.run_facts("scratch", True)
         self.assertEqual(self.plan([odd]), {"scratch": (False, "not a run directory name (<UTC stamp>-<scenario>)")})
 
+    def test_a_name_shaped_like_a_run_id_with_no_such_date_is_kept(self):
+        bad = retention.run_facts("20261399T000000Z-server-fast-provision", False)
+        self.assertIsNone(bad.started)
+        self.assertFalse(self.plan([bad])[bad.name][0])
+
+    def test_the_prune_plan_needs_its_day_count(self):
+        result = subprocess.run(
+            [sys.executable, "-m", "helpers.vmtest.retention", "prune-plan", "--lab-dir", "/nonexistent", "--now", "0"],
+            cwd=REPO_ROOT, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("--older-than-days", result.stderr)
+
 
 class TestPrunePlanExecutor(SweepCase):
     def prune_plan(self):
