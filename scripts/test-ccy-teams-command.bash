@@ -336,14 +336,17 @@ cat >"$BIN/id" <<'EOF'
 exec /usr/bin/id "$@"
 EOF
 
-# gh: logged in unless TEST_GH_NOAUTH; example-org is the one owner GitHub has.
+# gh: one login, account-a, unless TEST_GH_NOAUTH; example-org is the one owner GitHub has.
+# ccy-teams lists the logins as JSON and asks GitHub as each through its own token.
 cat >"$BIN/gh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'gh %s\n' "$*" >>"$TEST_LOG"
 case "$1 ${2:-}" in
 "auth status")
-    if [ -n "${TEST_GH_NOAUTH:-}" ]; then echo "You are not logged into any GitHub hosts." >&2; exit 1; fi ;;
+    if [ -n "${TEST_GH_NOAUTH:-}" ]; then echo "You are not logged into any GitHub hosts." >&2; exit 1; fi
+    echo '{"hosts":{"github.com":[{"login":"account-a","active":true,"state":"success"}]}}' ;;
+"auth token") echo placeholder-token-account-a ;;
 "api users/example-org") ;;
 # A repository's permissions.push for the login: example-org/readonly is read-only.
 "api repos/example-org/proj" | "api repos/example-org/alpha" | "api repos/other/tool")
@@ -1156,7 +1159,10 @@ check "create --repo --yes: a read-only, a missing and a malformed repository fa
 check_has "  the read-only one named with its reason" "example-org/readonly: read-only" "$(cat "$SCRATCH/err")"
 check_has "  the missing one named with its reason" "other/missing: not found" "$(cat "$SCRATCH/err")"
 check_has "  the malformed one named with its reason" "bad: not OWNER/REPO" "$(cat "$SCRATCH/err")"
-check_lacks "  the good one is not blamed" "example-org/proj:" "$(cat "$SCRATCH/err")"
+# A good repository is said with the gh login that can push to it, so it has a line, not a blame.
+check_has "  the good one says which gh login pushes" "example-org/proj: push access through account-a." "$(cat "$SCRATCH/err")"
+check_lacks "  the good one is not blamed as missing" "example-org/proj: not" "$(cat "$SCRATCH/err")"
+check_lacks "  the good one is not blamed as read-only" "example-org/proj: read-only" "$(cat "$SCRATCH/err")"
 check "  nothing is written" "" "$(diff "$SCRATCH/create.before" "$SCRATCH/create.yml")"
 check "  nothing is installed" "no" "$(logged 'play ')"
 reset

@@ -64,6 +64,8 @@ the wrappers that build and run the Go commands).
   (exit codes, error printing), `ui` (gum and fzf prompts), `sudo`, `systemd`, `tmuxccy`,
   `gitx`, `registry`, `agentbus`, `declare`, `marker`, `screen`, `transcript`, `restore`,
   `sessprobe`, `fsx` (atomic file writes), `ccyenv` (is CCY installed, is this a container),
+  `ghlogin` (gh's github.com logins, and each one's own token as GH_TOKEN, so a call acts as one
+  login without `gh auth switch`),
   `shellword` (POSIX shell quoting for a command shown to a person or a value a shell reads),
   `ttyecho` (the terminal's echo held off from an interactive command's first screen to the end
   of its run, so keys typed between two screens are not echoed but kept for the next screen,

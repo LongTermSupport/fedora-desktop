@@ -14,6 +14,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccyenv"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ghlogin"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/hostcheckout"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/playlock"
@@ -82,6 +83,8 @@ type Wizard struct {
 	ExecLauncher func(dir string, argv []string) error
 
 	term *term.Term
+	// accounts is gh's working logins, read by needGh: GitHub is asked as each of them.
+	accounts []ghAccount
 	// head is the heading of the question being asked; asked counts the steps so far, and said
 	// is the answers given, as the heading's context line shows them.
 	head  ui.Heading
@@ -167,7 +170,7 @@ func (c *Wizard) RunForChooser(ctx context.Context) (string, term.ExitCode) {
 }
 
 func (c *Wizard) run(ctx context.Context, args []string) term.ExitCode {
-	c.term = c.NewTerm()
+	c.term, c.accounts = c.NewTerm(), nil
 	c.head, c.asked, c.said = flow.Here(newTeamCrumb), 0, nil
 	err := c.create(ctx, args)
 	if err == nil {
@@ -250,20 +253,59 @@ func (c *Wizard) needTool(name, play string) error {
 	return nil
 }
 
-// needGh is gh installed and logged in: the org and repositories are looked up there.
+// ghAccount is one of gh's working logins with its own token, so GitHub is asked as that login
+// without `gh auth switch`, which would change the active account under every other session.
+type ghAccount struct {
+	login string
+	token execx.Secret
+}
+
+// needGh is gh installed and logged in, and each of its working logins with its token: the
+// org and repositories are looked up as every one of them, as any may be the owner's.
 func (c *Wizard) needGh(ctx context.Context) error {
 	if err := c.needTool("gh", playGh); err != nil {
 		return err
 	}
-	res, err := c.Runner.Run(ctx, execx.Cmd{Name: "gh", Args: []string{"auth", "status"}})
-	if err == nil {
-		return nil
+	st, err := ghlogin.Read(ctx, c.Runner)
+	if exit, ok := errors.AsType[*execx.ExitError](err); ok {
+		said := strings.TrimSpace(exit.Stderr)
+		if strings.Contains(said, "unknown flag") {
+			return c.failed("gh is too old to list its logins as JSON (gh said: " + said + "). " + playGh + " installs a current one; run that play and try again.")
+		}
+		return c.failed("gh is not logged in to GitHub, and the org is looked up there (gh said: " + said + "). Run gh auth login, then try again.")
 	}
-	if !isExit(err) {
-		return fmt.Errorf("gh auth status: %w", err)
+	if err != nil {
+		return err
 	}
-	said := strings.TrimSpace(string(res.Stdout) + string(res.Stderr))
-	return c.failed("gh is not logged in to GitHub, and the org is looked up there (gh said: " + said + "). Run gh auth login, then try again.")
+	if len(st.Working) == 0 {
+		return c.failed("gh has no working login to GitHub, and the org is looked up there. Run gh auth login (or gh auth refresh for a login whose token failed), then try again.")
+	}
+	c.accounts = nil
+	for _, login := range st.Working {
+		token, err := ghlogin.Token(ctx, c.Runner, login)
+		if err != nil {
+			return err
+		}
+		c.accounts = append(c.accounts, ghAccount{login: login, token: token})
+	}
+	return nil
+}
+
+// oneLogin is the only gh login, "" when there are several.
+func (c *Wizard) oneLogin() string {
+	if len(c.accounts) == 1 {
+		return c.accounts[0].login
+	}
+	return ""
+}
+
+// tried is every gh login GitHub was asked as, in gh's order.
+func (c *Wizard) tried() string {
+	logins := make([]string, 0, len(c.accounts))
+	for _, a := range c.accounts {
+		logins = append(logins, a.login)
+	}
+	return strings.Join(logins, ", ")
 }
 
 // remoteRepo is this checkout's lower-case GitHub OWNER/REPO, or "" outside one.
@@ -425,12 +467,6 @@ func repoPart(repo string) string {
 	return parts[len(parts)-1]
 }
 
-// isExit is err being a command that ran and exited non-zero.
-func isExit(err error) bool {
-	var exit *execx.ExitError
-	return errors.As(err, &exit)
-}
-
 // ghNotFound is a gh api call GitHub answered with 404: no such name, or none this login can
 // see. Any other failure (no network, bad credentials, a rate limit, a server error) says
 // nothing about the name, so it is not this.
@@ -439,17 +475,18 @@ func ghNotFound(err error) bool {
 	return ok && strings.Contains(exit.Stderr, "(HTTP 404)")
 }
 
-// ghLookup is gh api path with args: nil when GitHub has it, found false on its 404, and an
-// error carrying gh's own words for any other failure, which ends the run.
-func (c *Wizard) ghLookup(ctx context.Context, path string, args ...string) (execx.Result, bool, error) {
-	res, err := c.Runner.Run(ctx, execx.Cmd{Name: "gh", Args: append([]string{"api", path}, args...)})
+// ghLookup is gh api path with args, as the account (its token as GH_TOKEN): nil when GitHub
+// shows it that, found false on its 404, and an error carrying gh's own words for any other
+// failure, which ends the run.
+func (c *Wizard) ghLookup(ctx context.Context, a ghAccount, path string, args ...string) (execx.Result, bool, error) {
+	res, err := c.Runner.Run(ctx, execx.Cmd{Name: "gh", Args: append([]string{"api", path}, args...), Secrets: []execx.Secret{a.token}})
 	switch {
 	case err == nil:
 		return res, true, nil
 	case ghNotFound(err):
 		return res, false, nil
 	default:
-		return res, false, fmt.Errorf("gh api %s: %w", path, err)
+		return res, false, fmt.Errorf("gh api %s as %s: %w", path, a.login, err)
 	}
 }
 
@@ -471,7 +508,7 @@ func (c *Wizard) askScope(ctx context.Context, o *createOpts, here string) error
 	if strings.HasPrefix(scope, scopeOwner) {
 		return c.askOwner(ctx, o, here)
 	}
-	hint := fmt.Sprintf("owner/repo, comma-separated: one, or up to %d of any owners, each one your gh login can push to.", reposMax)
+	hint := fmt.Sprintf("owner/repo, comma-separated: one, or up to %d of any owners, each one some gh login of yours can push to.", reposMax)
 	if err = c.step(ctx, "Repositories", hint); err != nil {
 		return err
 	}
@@ -787,16 +824,22 @@ func (c *Wizard) checkOwner(ctx context.Context, answer string, say, tryAgain bo
 	if say {
 		c.term.Printf("  Looking up %s on GitHub…\n", owner)
 	}
-	_, found, err := c.ghLookup(ctx, "users/"+owner, "--silent")
-	if found || err != nil {
-		return found, err
+	for _, a := range c.accounts {
+		_, found, err := c.ghLookup(ctx, a, "users/"+owner, "--silent")
+		if found || err != nil {
+			return found, err
+		}
 	}
-	c.problem("GitHub has no user or organisation called '"+owner+"' that your gh login can see", tryAgain)
+	seenBy := "any of your gh logins can see (tried " + c.tried() + ")"
+	if one := c.oneLogin(); one != "" {
+		seenBy = "your gh login " + one + " can see"
+	}
+	c.problem("GitHub has no user or organisation called '"+owner+"' that "+seenBy, tryAgain)
 	return false, nil
 }
 
-// checkRepos is each repository well formed, on GitHub, and one your gh login can push to
-// (GitHub's own answer for that login: the repository's permissions.push). Every entry
+// checkRepos is each repository well formed, on GitHub, and one some gh login of yours can
+// push to (GitHub's own answer for each login: the repository's permissions.push). Every entry
 // that fails is named, with why; then the list as a whole is checked against the team
 // file's limits.
 func (c *Wizard) checkRepos(ctx context.Context, repos []string, tryAgain bool) (bool, error) {
@@ -836,19 +879,45 @@ func (c *Wizard) checkRepo(ctx context.Context, repo string) (bool, error) {
 		return false, nil
 	}
 	c.term.Printf("  Checking %s on GitHub…\n", repo)
-	res, found, err := c.ghLookup(ctx, "repos/"+repo, "--jq", ".permissions.push")
-	if err != nil {
-		return false, err
+	// Every login is asked: which of them pushes is said, and the team keeps none of them (a
+	// ccy session picks its own login when it starts), so nothing is asked of the person.
+	var push, read []string
+	for _, a := range c.accounts {
+		res, found, err := c.ghLookup(ctx, a, "repos/"+repo, "--jq", ".permissions.push")
+		switch {
+		case err != nil:
+			return false, err
+		case !found:
+		case strings.TrimSpace(string(res.Stdout)) == "true":
+			push = append(push, a.login)
+		default:
+			read = append(read, a.login)
+		}
 	}
-	if !found {
-		c.term.Printf("  %s: not found, or your gh login cannot see it.\n", repo)
-		return false, nil
+	one := c.oneLogin()
+	switch {
+	case len(push) > 0:
+		c.term.Printf("  %s: push access through %s.\n", repo, andList(push))
+		return true, nil
+	case len(read) == 0 && one != "":
+		c.term.Printf("  %s: not found, or your gh login %s cannot see it.\n", repo, one)
+	case len(read) == 0:
+		c.term.Printf("  %s: not found, or none of your gh logins can see it (tried %s).\n", repo, c.tried())
+	case one != "":
+		c.term.Printf("  %s: read-only for your gh login %s; a team trusts only repositories you can push to.\n", repo, one)
+	default:
+		c.term.Printf("  %s: none of your gh logins can push to it (read-only for %s; tried %s); a team trusts only repositories you can push to.\n",
+			repo, strings.Join(read, ", "), c.tried())
 	}
-	if strings.TrimSpace(string(res.Stdout)) != "true" {
-		c.term.Printf("  %s: read-only for your gh login; a team trusts only repositories you can push to.\n", repo)
-		return false, nil
+	return false, nil
+}
+
+// andList is names as a person lists them: "a", "a and b", "a, b and c".
+func andList(names []string) string {
+	if len(names) == 1 {
+		return names[0]
 	}
-	return true, nil
+	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
 }
 
 // trusts says what the team trusts, in words.

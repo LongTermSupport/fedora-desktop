@@ -371,6 +371,27 @@ are Phase 12. [Full text](DONE-phases.md#phase-11-findings-of-the-host-run-of-26
 - Fact-check of this phase:
   [subagent-reports/261026-fact-check-phase12.md](subagent-reports/261026-fact-check-phase12.md).
 
+### Phase 13: The wizard asks GitHub as every gh login (the owner's finding)
+
+- [x] ✅ **Task 13.1**: `ccy-teams create` refused the owner's own checkout three times ("not
+  found, or your gh login cannot see it"): it ran plain `gh api repos/<repo>`, as whichever gh
+  login was active, and the host has several (`play-github-cli-multi.yml`'s `gh-<alias>`
+  functions). Now the wizard reads gh's working logins (`gh auth status --json hosts`) and asks
+  GitHub as each one, its token from `gh auth token --user <login>` given as GH_TOKEN through an
+  `execx.Secret`, never `gh auth switch` (which changes the active account under every other
+  session). A repository says which login can push ("push access through account-b"); one no
+  login can see or push to names the logins tried; the owner lookup is asked the same way. The
+  three tries for a mistyped repository stay. Several logins that can push are named, not asked
+  about: nothing in the team keeps a gh login (a ccy session picks its own when it starts,
+  `lib/ssh-handling.bash`), so the answer would change nothing. The parsing and the token are
+  `internal/ghlogin`, shared with `gh-account-setup`. Red then green in the journal;
+  `scripts/test-ccy-teams-command.bash` changed with it. Report:
+  [subagent-reports/261027-task-13-1.md](subagent-reports/261027-task-13-1.md).
+- [ ] ⬜ **Task 13.2**: Host check, once `changed-plays` has rebuilt ccy-teams
+  (`play-claude-yolo.yml`): in the owner's checkout whose repository only a non-active gh login
+  can push to, `ccy-teams create` says "push access through <that login>" and goes on to the
+  team name; `gh auth status` afterwards shows the same active account as before.
+
 ## Success Criteria
 
 - [ ] On the host, `ccy-teams` with no teams offers to create one, and a refused or cancelled

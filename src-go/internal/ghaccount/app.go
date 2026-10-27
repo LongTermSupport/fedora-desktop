@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ghlogin"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -27,7 +28,7 @@ var usageText string
 
 const (
 	tool         = "gh-account-setup"
-	ghHost       = "github.com"
+	ghHost       = ghlogin.Host
 	scopesModule = "helpers.github_scopes.cli"
 	sshTimeout   = 15 * time.Second
 	playbook     = "playbooks/imports/play-github-cli-multi.yml"
@@ -147,7 +148,7 @@ func (r *run) main(ctx context.Context, opts options) term.ExitCode {
 	if err != nil {
 		return exitFor(ctx, err)
 	}
-	r.startActive = st.active
+	r.startActive = st.Active
 	// Every mode returns rather than exits, so the restore runs however the mode ended (E26);
 	// a signal only cancels ctx, which the restore does not use.
 	code := exitFor(ctx, r.runMode(ctx, opts))
@@ -303,22 +304,14 @@ func (r *run) preflight(ctx context.Context) error {
 func ghCmd(args ...string) execx.Cmd { return execx.Cmd{Name: "gh", Args: args} }
 
 // readStatus is gh's local view of the github.com accounts (E6).
-func (r *run) readStatus(ctx context.Context) (status, error) {
-	res, err := r.env.Runner.Run(ctx, ghCmd("auth", "status", "--hostname", ghHost, "--json", "hosts"))
-	if err != nil {
-		return status{}, fmt.Errorf("gh auth status failed: %w", err)
-	}
-	st, err := parseStatus(res.Stdout)
-	if err != nil {
-		return status{}, fmt.Errorf("gh auth status: %w: %q", err, strings.TrimSpace(string(res.Stdout)))
-	}
-	return st, nil
+func (r *run) readStatus(ctx context.Context) (ghlogin.Status, error) {
+	return ghlogin.Read(ctx, r.env.Runner)
 }
 
-func (r *run) status(ctx context.Context) (status, error) {
+func (r *run) status(ctx context.Context) (ghlogin.Status, error) {
 	st, err := r.readStatus(ctx)
 	if err != nil {
-		return status{}, r.failf("%v", err)
+		return ghlogin.Status{}, r.failf("%v", err)
 	}
 	return st, nil
 }
@@ -328,7 +321,7 @@ func (r *run) restore(ctx context.Context, code term.ExitCode) term.ExitCode {
 	if r.startActive == "" {
 		return code
 	}
-	if st, err := r.readStatus(ctx); err == nil && strings.EqualFold(st.active, r.startActive) {
+	if st, err := r.readStatus(ctx); err == nil && strings.EqualFold(st.Active, r.startActive) {
 		return code
 	}
 	out, err := execx.Combined(ctx, r.env.Runner, ghCmd("auth", "switch", "--hostname", ghHost, "--user", r.startActive))
@@ -579,8 +572,8 @@ func (r *run) auditHeadless(ctx context.Context, accounts []account) error {
 }
 
 // ghLogin is the account's login as gh spells it when gh holds it, else as configured.
-func ghLogin(st status, username string) string {
-	if l := st.login(username); l != "" {
+func ghLogin(st ghlogin.Status, username string) string {
+	if l := st.Login(username); l != "" {
 		return l
 	}
 	return username
@@ -601,7 +594,7 @@ func (r *run) setupAccount(ctx context.Context, a account) error {
 	if err != nil {
 		return err
 	}
-	login := st.login(a.username)
+	login := st.Login(a.username)
 	if login != "" {
 		r.okf(r.err, "Authenticated: %s", a.username)
 	} else if login, err = r.logIn(ctx, a, helper); err != nil {
@@ -672,17 +665,17 @@ func (r *run) logIn(ctx context.Context, a account, helper string) (string, erro
 	if err != nil {
 		return "", err
 	}
-	if !strings.EqualFold(st.active, u) {
-		r.badf(r.err, "Authenticated as '%s' but expected '%s'", st.active, u)
+	if !strings.EqualFold(st.Active, u) {
+		r.badf(r.err, "Authenticated as '%s' but expected '%s'", st.Active, u)
 		r.advicef(r.err, "You used the wrong browser profile")
-		if st.active != "" {
-			r.advicef(r.err, "Run: gh auth logout --hostname %s --user %s", ghHost, st.active)
+		if st.Active != "" {
+			r.advicef(r.err, "Run: gh auth logout --hostname %s --user %s", ghHost, st.Active)
 		}
 		r.advicef(r.err, "Then re-run this using the browser profile for '%s'", u)
 		return "", errReported
 	}
 	r.okf(r.err, "Authenticated: %s", u)
-	return st.active, nil
+	return st.Active, nil
 }
 
 func startFailure(err error) string {
@@ -758,7 +751,7 @@ func (r *run) switchTo(ctx context.Context, login string) error {
 	if err != nil {
 		return err
 	}
-	if strings.EqualFold(st.active, login) {
+	if strings.EqualFold(st.Active, login) {
 		return nil
 	}
 	out, err := execx.Combined(ctx, r.env.Runner, ghCmd("auth", "switch", "--hostname", ghHost, "--user", login))
@@ -827,15 +820,7 @@ func makeSSHDir(dir string) error {
 
 // token is the account's own gh token, so a call acts as it and not as the active account.
 func (r *run) token(ctx context.Context, login string) (execx.Secret, error) {
-	res, err := r.env.Runner.Run(ctx, ghCmd("auth", "token", "--hostname", ghHost, "--user", login))
-	if err != nil {
-		return execx.Secret{}, fmt.Errorf("gh holds no token for %s: %w", login, err)
-	}
-	s, err := execx.NewSecret("GH_TOKEN", strings.TrimSpace(string(res.Stdout)))
-	if err != nil {
-		return execx.Secret{}, fmt.Errorf("gh's token for %s: %w", login, err)
-	}
-	return s, nil
+	return ghlogin.Token(ctx, r.env.Runner, login)
 }
 
 // registered reports whether the key's .pub is on the account (E18).
@@ -986,7 +971,7 @@ func (r *run) checkAccount(ctx context.Context, a account) bool {
 	login := ""
 	if st, err := r.readStatus(ctx); err != nil {
 		issue("Auth: could not be read (%v)", err)
-	} else if login = st.login(a.username); login != "" {
+	} else if login = st.Login(a.username); login != "" {
 		r.okf(r.out, "Auth: OK")
 	} else {
 		issue("Auth: not authenticated as %s", a.username)
