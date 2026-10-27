@@ -521,7 +521,8 @@ teardown), is reported live and left. The nightly timer does not prune; a run
 that fails says how big an overlay it kept and that `prune-runs` removes it.
 
 Before anything else, `vmtest run` refuses when the lab's filesystem has less
-than 22 GiB free (a 20 GiB guest disk and a 2 GiB margin), and a base build
+than 22 GiB free (a 20 GiB guest disk and a 2 GiB margin), as does `vmtest
+member-up`, which boots the same overlay, and a base build
 (`build-base`, or `ensure-base` and `refresh-base` when they build) less than
 26 GiB (the same and 4 GiB of install media); the refusal names both figures
 and what `vmtest prune-runs` would free. Later, before every run and every base

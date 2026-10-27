@@ -146,6 +146,9 @@ func (c *cli) cmdMemberUp(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := c.diskGuard(ctx, l, memberNeed); err != nil {
+		return err
+	}
 	return c.memberUp(ctx, l, name, key)
 }
 

@@ -45,8 +45,8 @@ human can review (DESIGN.md §3.4). Exit 0 only on verdict pass; the response
 document is written to runs/<run-id>/response.json either way. A run that does not
 pass keeps its overlay (up to 20 GiB) for diagnosis until prune-runs removes it.
 
-Before anything else, `run` refuses when the lab's filesystem has less than 22 GiB
-free (a 20 GiB guest disk and a 2 GiB margin), and a base build (build-base,
+Before anything else, `run` and `member-up` refuse when the lab's filesystem has less
+than 22 GiB free (a 20 GiB guest disk and a 2 GiB margin), and a base build (build-base,
 ensure-base, refresh-base) less than 26 GiB (the same and 4 GiB of install media),
 saying what `vmtest prune-runs` would free.
 

@@ -319,7 +319,7 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   same scenario, or are older than `--older-than` days (default 7); the rule is retention.py's
   new `prune-plan`, beside the sweep's `run_passed`. A run whose domain libvirt lists, or that
   holds the new `run.lock` (taken from its directory to the end of its teardown), is live and
-  left. `run` refuses with under 22 GiB free and a base build with under 26 GiB, before anything
+  left. `run` and `member-up` refuse with under 22 GiB free and a base build with under 26 GiB, before anything
   else, naming what `prune-runs` would free; a failed run says the size of the overlay it kept.
   Host check open (H7, the host agent's): `vmtest prune-runs` dry on the host's lab once
   `changed-plays` has rebuilt the binary. `--yes` is the owner's call.

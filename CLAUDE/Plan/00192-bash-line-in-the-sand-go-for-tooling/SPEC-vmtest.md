@@ -396,7 +396,7 @@ The tests cite these numbers.
 
 - E55. A member name matches `^[a-z0-9][a-z0-9-]{0,39}$` and is checked before anything else:
   `a member name is 1 to 40 of a-z, 0-9 and '-', not starting with '-'; got '<name>'`.
-- E56. `member-up <name> <key>`: the base must be `server`, and present
+- E56. `member-up <name> <key>`: after the disk guard (E64), the base must be `server`, and present
   (`build it with: vmtest ensure-base <key>`). A member whose directory or domain
   `vmtest-member-<name>` exists is refused, with the `member-down` hint. The gate must accept
   the base (on a refusal the message names `vmtest ensure-base <key>`). Then come the retention
@@ -456,11 +456,13 @@ behaviour, not departures.
   directory, and releases it after its teardown, so a run is live from before its overlay
   exists until it is cleaned up. A run directory without the file is from before the lock, and
   only libvirt's listing says whether it is live.
-- E64. The disk guard runs before anything else: in `run` right after the lab is loaded, and as
-  the first step of every base build (`build-base`, and `ensure-base` and `refresh-base` when
-  they build). A run needs 22 GiB free on the lab's filesystem (the 20 GiB guest disk an overlay
-  can grow to, and retention's 2 GiB margin), a build 26 GiB (the same and 4 GiB of install
-  media). Short, the command fails with
+- E64. The disk guard runs before anything else: in `run` right after the lab is loaded, in
+  `member-up` right after the lab is loaded (after the name check of E55), and as the first
+  step of every base build (`build-base`, and `ensure-base` and `refresh-base` when they
+  build). A run needs 22 GiB free on the lab's filesystem (the 20 GiB guest disk an overlay can
+  grow to, and retention's 2 GiB margin), and so does a member, which boots the same overlay
+  under `members/<name>/` (`a member needs 22.0 GiB (...)`); a build needs 26 GiB (the same and
+  4 GiB of install media). Short, the command fails with
   `only <free> free under <home>; a run needs 22.0 GiB (...). vmtest prune-runs would free <size> of run overlays; vmtest prune-runs lists them and vmtest prune-runs --yes removes them`,
   computing the figure from the E61 plan; if the plan cannot be made, the message says so with
   its error. The retention floor (E34, E16) still runs later: it also checks the RAM, and a

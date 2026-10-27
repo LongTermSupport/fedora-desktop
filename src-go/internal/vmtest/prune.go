@@ -17,7 +17,7 @@ import (
 // pass so its disk can be read. prune-runs removes the overlays retention.py's prune plan says
 // may go (E61-E63); everything else in the run directory (the logs, the response, the check
 // results) stays, and the bases are never touched. The disk guard refuses a run or a build the
-// lab's filesystem cannot carry at its worst, before anything is done (E64).
+// lab's filesystem cannot carry at its worst, and a member-up, before anything is done (E64).
 
 const (
 	gib = int64(1) << 30
@@ -41,6 +41,9 @@ const (
 
 var (
 	runNeed = diskNeed{runDiskNeed, fmt.Sprintf("a run needs %s (a guest disk of up to %d GiB and a %s margin)",
+		humanBytes(runDiskNeed), buildDiskGiB, humanWhole(diskMarginBytes))}
+	// memberNeed is a run's need: a member boots the same overlay of the same guest disk.
+	memberNeed = diskNeed{runDiskNeed, fmt.Sprintf("a member needs %s (a guest disk of up to %d GiB and a %s margin)",
 		humanBytes(runDiskNeed), buildDiskGiB, humanWhole(diskMarginBytes))}
 	buildNeed = diskNeed{buildDiskNeed, fmt.Sprintf("a base build needs %s (a guest disk of up to %d GiB, a %s margin and %s of install media)",
 		humanBytes(buildDiskNeed), buildDiskGiB, humanWhole(diskMarginBytes), humanWhole(installMediaBytes))}

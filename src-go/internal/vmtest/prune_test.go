@@ -226,6 +226,35 @@ func TestE64DiskGuard(t *testing.T) {
 	k.wantErr("ERROR: cannot read the free space under " + k.home + ": permission denied")
 }
 
+// E64: member-up boots an overlay too, so it is refused the same way, after its name is checked.
+func TestE64DiskGuardMemberUp(t *testing.T) {
+	k := memberKit(t)
+	k.planPrune(map[string]string{})
+	k.free = runDiskNeed - 1
+	k.wantCode(k.run("member-up", "m1", "server-fast"), term.ExitFailure)
+	k.wantErr("ERROR: only 21.9 GiB free under " + k.home + "; a member needs 22.0 GiB (a guest disk of up to 20 GiB and a 2 GiB margin). vmtest prune-runs would free 0 B of run overlays")
+	for _, never := range []string{"validate_manifest", "probe_upstream", "qemu-img", "virt-install"} {
+		if k.count(never) != 0 {
+			t.Fatalf("a refused member-up ran %s", never)
+		}
+	}
+	if k.exists("members/m1") {
+		t.Fatal("a refused member-up made its directory")
+	}
+
+	k = memberKit(t)
+	k.free = 0
+	k.wantCode(k.run("member-up", "Bad", "server-fast"), term.ExitFailure)
+	k.wantErr("a member name is 1 to 40")
+	if len(k.fake.Calls()) != 0 {
+		t.Fatal("the guard ran before the name was checked")
+	}
+
+	k = memberKit(t)
+	k.free = runDiskNeed
+	k.wantCode(k.run("member-up", "m1", "server-fast"), term.ExitOK)
+}
+
 // E65: a failed run that keeps its overlay says how much it kept and how it goes.
 func TestE65FailedRunSaysWhatItKept(t *testing.T) {
 	k := runKit(t, "fail")
