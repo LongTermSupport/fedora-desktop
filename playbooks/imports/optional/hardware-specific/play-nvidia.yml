@@ -325,22 +325,11 @@
     # only installed for that newest kernel, so the running one cannot build at all.
 
     - name: Find the kernel the next boot runs
-      ansible.builtin.command: grubby --default-kernel
-      register: nvidia_boot_kernel_path
-      changed_when: false
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/boot-kernel-version.yml"
 
     - name: Record the boot kernel version
       ansible.builtin.set_fact:
-        nvidia_kver: "{{ nvidia_boot_kernel_path.stdout | trim | basename | regex_replace('^vmlinuz-', '') }}"
-
-    - name: Assert the boot kernel version was read
-      ansible.builtin.assert:
-        that:
-          - nvidia_kver | length > 0
-          - nvidia_kver != (nvidia_boot_kernel_path.stdout | trim | basename)
-        fail_msg: >-
-          Could not tell which kernel the next boot runs: grubby --default-kernel printed
-          "{{ nvidia_boot_kernel_path.stdout }}", not a /boot/vmlinuz-VERSION path.
+        nvidia_kver: "{{ boot_kernel_version }}"
 
     - name: Get installed akmod-nvidia package version
       ansible.builtin.shell: rpm -q --qf '%{VERSION}\n' akmod-nvidia

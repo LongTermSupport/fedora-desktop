@@ -470,9 +470,25 @@
       become: false
       register: unifi_admin_password_encrypted
       changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe under no_log; the fail below gives the reason
       no_log: true
       when: unifi_admin_password is not defined
 
+    # The password went in on stdin; ansible-vault's stderr and exit code never carry it.
+    - name: Stop if the Generated UniFi Admin Password Could Not Be Vault-Encrypted
+      ansible.builtin.fail:
+        msg: >-
+          ansible-vault could not encrypt the generated UniFi admin password (exit
+          {{ unifi_admin_password_encrypted.rc | default('none') }}):
+          {{ unifi_admin_password_encrypted.stderr | default('') }}
+          {{ unifi_admin_password_encrypted.msg | default('') }}. Nothing was saved and the
+          admin login was not changed. Check that {{ root_dir }}/ansible.cfg names a vault
+          password file that exists, then run this play again.
+      when:
+        - unifi_admin_password_encrypted is not skipped
+        - unifi_admin_password_encrypted.rc | default(1) != 0
+
+    # Not no_log: the block is vault ciphertext, and a failure here must say which file.
     - name: Save the Vault-Encrypted UniFi Admin Password to localhost.yml
       ansible.builtin.blockinfile:
         path: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
@@ -480,7 +496,6 @@
         block: "{{ unifi_admin_password_encrypted.stdout }}"
         create: false
       become: false
-      no_log: true
       when: unifi_admin_password is not defined
 
     - name: Resolve the UniFi Admin Password for This Run
@@ -522,7 +537,18 @@
                    "print(JSON.stringify(db.admin.find({}, {name: 1, x_shadow: 1}).toArray().map(a => ({id: a._id.toString(), name: a.name, x_shadow: a.x_shadow || ''}))))"]
           register: unifi_admins_read
           changed_when: false
+          failed_when: false  # FAIL-FAST-OK: probe under no_log; the fail below gives the reason
           no_log: true
+
+        # Not the output: it holds the admins' password hashes.
+        - name: Stop if the UniFi Admin Accounts Could Not Be Read
+          ansible.builtin.fail:
+            msg: >-
+              mongosh could not read the admin accounts from the UniFi database (exit
+              {{ unifi_admins_read.rc | default('none') }}):
+              {{ unifi_admins_read.stderr | default('') }}. The admin login was not changed.
+              Check the database with `unifi-controller logs`, then run this play again.
+          when: unifi_admins_read.rc | default(1) != 0
 
         # The admin named unifi_admin_name, or else the only admin there is. More than
         # one admin and none of them named so is a choice for a person, not this play.
@@ -559,7 +585,19 @@
             stdin: "{{ unifi_admin_password_effective }}"
           register: unifi_admin_hash
           changed_when: false
+          failed_when: false  # FAIL-FAST-OK: probe under no_log; the fail below gives the reason
           no_log: true
+
+        # The password went in on stdin; openssl's stderr and exit code never carry it.
+        - name: Stop if the UniFi Admin Password Could Not Be Hashed
+          ansible.builtin.fail:
+            msg: >-
+              openssl could not hash the UniFi admin password (exit
+              {{ unifi_admin_hash.rc | default('none') }}):
+              {{ unifi_admin_hash.stderr | default('') }} {{ unifi_admin_hash.msg | default('') }}.
+              The admin login was not changed. Check that openssl is installed, then run this
+              play again.
+          when: unifi_admin_hash.rc | default(1) != 0
 
         - name: Set the UniFi Admin Name and Password
           ansible.builtin.command:
@@ -571,11 +609,26 @@
             UNIFI_ADMIN_ID: "{{ unifi_admin_target.id }}"
             UNIFI_ADMIN_NAME: "{{ unifi_admin_name }}"
             UNIFI_ADMIN_HASH: "{{ unifi_admin_hash.stdout | trim }}"
+          register: unifi_admin_update
           changed_when: true
+          failed_when: false  # FAIL-FAST-OK: probe under no_log; the fail below gives the reason
           no_log: true
           when: >-
             unifi_admin_target.name != unifi_admin_name
             or unifi_admin_target.x_shadow != (unifi_admin_hash.stdout | trim)
+
+        # The hash went in through the environment; mongosh's stderr and exit code never carry it.
+        - name: Stop if the UniFi Admin Name and Password Could Not Be Set
+          ansible.builtin.fail:
+            msg: >-
+              mongosh could not set the name and password of the UniFi admin (exit
+              {{ unifi_admin_update.rc | default('none') }}; exit 1 with no message means no
+              admin matched): {{ unifi_admin_update.stderr | default('') }}. The admin login
+              is unchanged. Check the database with `unifi-controller logs`, then run this play
+              again.
+          when:
+            - unifi_admin_update is not skipped
+            - unifi_admin_update.rc | default(1) != 0
 
       always:
         - name: Stop UniFi MongoDB if This Play Started It

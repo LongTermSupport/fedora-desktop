@@ -33,6 +33,16 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
+# Plan 00230: the optional plays reworked to ask for a missing secret and save it
+# vault-encrypted, to explain a failure that no_log used to hide, and to build kernel modules
+# for the next boot's kernel. Expected to pick up whichever of these have run here:
+# play-nvidia, play-displaylink, play-qobuz, play-ftp-camera, play-rclone,
+# play-unifi-controller, play-self-update, play-nordvpn-openvpn, play-lastpass,
+# play-virtualbox-windows, play-claude-yolo and play-github-cli-multi. A secret that is
+# already saved is not asked for; an optional one (Last.fm, the camera FTP password) is
+# skipped on this unattended run.
+changed-plays
+
 # Plan 00228 Task 3.2: the consumer install proved in the VM lab. deploy.bash runs
 # play-vm-test-lab.yml (the vmtest CLI rebuilt with its attended-run driver, the manifest with
 # desktop-consumer-install, the new guest checker). acceptance.bash then ensures the desktop

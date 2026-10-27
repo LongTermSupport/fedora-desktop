@@ -42,25 +42,31 @@ missing secret and saves it vault-encrypted, so no play hand-rolls that sequence
   ([SEARCH-independent.md](SEARCH-independent.md)).
 - [x] ✅ **Task 1.2**: Rules in `src-go/qa/ansible/playux.go`, proven against
   `tests/fixtures/ansible-play-ux/` (`setting-checked-late`, `vault-secret-by-hand`,
-  `ansible-cli-without-chdir`, `no-log-hides-failure`, `probe-before-install`).
-- [ ] 🔄 **Task 1.3**: Commit the defence red, before any instance is fixed.
+  `ansible-cli-without-chdir`, `no-log-hides-failure`, `probe-before-install`,
+  `module-built-for-running-kernel`).
+- [x] ✅ **Task 1.3**: Commit the defences red, before their instances are fixed.
 
 ### Phase 2: Sweep and fix
 
-- [ ] ⬜ **Task 2.1**: Shared task files: `tasks/ask-and-save-secret.yml` and the Secure Boot MOK
-  password step both MOK plays share.
-- [ ] ⬜ **Task 2.2**: Fix every instance the rules and the search found.
-- [ ] ⬜ **Task 2.3**: Document each rule in `CLAUDE/QA.md`; the gate green.
+- [x] ✅ **Task 2.1**: Shared task files: `tasks/ask-and-save-secret.yml` (with its attempt file),
+  `tasks/secure-boot-mok-password.yml` and `tasks/boot-kernel-version.yml`.
+- [ ] 🚫 **Task 2.2**: Fix every instance the rules and the search found. 36 of 40 fixed; 4 (the
+  `github_ssh_passphrase` checks in play-claude-yolo and play-github-cli-multi, two core
+  plays outside this plan's brief) wait for the owner (journal, P2).
+- [x] ✅ **Task 2.3**: Document each rule in `CLAUDE/QA.md`.
 
 ### Phase 3: Review and report
 
-- [ ] ⬜ **Task 3.1**: Conformance review and the qa-reviewer agent.
-- [ ] ⬜ **Task 3.2**: The DBF report, `REPORT-dbf.md`.
+- [ ] ⬜ **Task 3.1**: Conformance review and the qa-reviewer agent (the coordinator's run).
+- [x] ✅ **Task 3.2**: The DBF record: the journal (P1, P2) and the worker's reply to the
+  coordinator.
+- [ ] ⬜ **Task 3.3**: Host run: `changed-plays` in `meta-deploy.list`.
 
 ## Success Criteria
 
-- [ ] `scripts/qa-ansible.bash` green on the tree, red on each original defect.
-- [ ] `ansible-playbook --syntax-check` passes on every play touched.
+- [ ] `scripts/qa-ansible.bash` green on the tree (red only on the 4 referred findings), red on
+  each original defect (done: 6b99b1247^, 2b074fb8a^, 08ea913a5^).
+- [x] `ansible-playbook --syntax-check` passes on every play touched.
 - [ ] QA passes (`./scripts/qa-changed.bash`; `./scripts/qa-all.bash` by the coordinator).
 
 ## Delivery & Milestones
@@ -69,4 +75,6 @@ missing secret and saves it vault-encrypted, so no play hand-rolls that sequence
      "when" — do not add dates). The blow-by-blow activity log lives in
      JOURNAL/00230-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
-- Defence committed red: (pending)
+- Five rules committed red: 720d576e7
+- Shared asker and MOK step, rules widened by the search: 1fd803864
+- module-built-for-running-kernel committed red: 6aa6cf70a

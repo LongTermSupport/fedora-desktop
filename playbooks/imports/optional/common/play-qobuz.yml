@@ -80,117 +80,43 @@
       tags:
         - hifi-rs
 
-    # Last.fm scrobbling is optional: not everyone uses Last.fm. Empty details at the
-    # prompt skip the scrobbling setup for this run and the rest of the play carries on;
+    # Last.fm scrobbling is optional: not everyone uses Last.fm. An empty API key at the
+    # prompt skips the scrobbling setup for this run and the rest of the play carries on;
     # nothing is saved, so the next run asks again.
-    # Needs a Last.fm API account: https://www.last.fm/api/account/create
-    - name: Ask for Last.fm API credentials (optional)
-      when: lastfm_api_key is not defined or lastfm_api_secret is not defined
-      block:
-        - name: Display Last.fm API instructions
-          ansible.builtin.debug:
-            msg: |2
+    - name: Ask for the Last.fm API key when it is missing (optional)
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ask-and-save-secret.yml"
+      vars:
+        secret_name: lastfm_api_key
+        secret_label: Last.fm API key
+        secret_explain: |2
 
-              ============================================
-              LAST.FM SCROBBLING (optional)
-              ============================================
+          LAST.FM SCROBBLING (optional)
 
-              Rescrobbled sends what you play to Last.fm. It needs Last.fm API
-              credentials:
+          Rescrobbled sends what you play to Last.fm. It needs a Last.fm API key
+          and its shared secret:
 
-              1. Go to https://www.last.fm/api/account/create
-              2. Create an API application (any name/description)
-              3. Copy the API Key and Shared Secret
+          1. Go to https://www.last.fm/api/account/create
+          2. Create an API application (any name and description)
+          3. Copy the API key, and next the shared secret
 
-              The next prompts ask for them. Do not use Last.fm, or not now?
-              Leave the key empty and press ENTER: this run skips scrobbling.
+          Do not use Last.fm, or not now? Leave the key empty and press ENTER:
+          this run skips scrobbling, and the next run asks again.
+        secret_confirm: false
+        secret_optional: true
+      when: lastfm_api_key is not defined
 
-        - name: Prompt for Last.fm API Key
-          ansible.builtin.pause:
-            prompt: "Enter your Last.fm API Key (empty: skip scrobbling this run)"
-          register: lastfm_key_prompt
-
-        - name: Prompt for Last.fm API Secret
-          ansible.builtin.pause:
-            prompt: "Enter your Last.fm Shared Secret"
-          register: lastfm_secret_prompt
-          when: lastfm_key_prompt.user_input | length > 0
-
-        - name: Fail if API Secret is empty
-          ansible.builtin.fail:
-            msg: >-
-              A Last.fm API Key was given but its Shared Secret was empty. Re-run this play and
-              give both, or leave the key empty to turn scrobbling off.
-          when:
-            - lastfm_key_prompt.user_input | length > 0
-            - lastfm_secret_prompt.user_input | length == 0
-
-        - name: Save the Last.fm credentials
-          when: lastfm_key_prompt.user_input | length > 0
-          block:
-            - name: Set credentials as facts for this run
-              ansible.builtin.set_fact:
-                lastfm_api_key: "{{ lastfm_key_prompt.user_input }}"
-                lastfm_api_secret: "{{ lastfm_secret_prompt.user_input }}"
-
-            # Pass the secret via stdin (NOT inline-templated into quoted shell):
-            # an apostrophe in the user input would otherwise break the single-quote
-            # context and inject shell. encrypt_string reads the value from stdin and
-            # emits the encrypted YAML block on stdout, which we capture then write
-            # idempotently with blockinfile below. stdin_add_newline is off, or ansible
-            # appends a newline that encrypt_string would vault as part of the secret.
-            - name: Vault-encrypt Last.fm API Key
-              ansible.builtin.command:
-                argv:
-                  - ansible-vault
-                  - encrypt_string
-                  - --stdin-name
-                  - lastfm_api_key
-              args:
-                # ansible.cfg names the vault password file relative to the checkout.
-                chdir: "{{ root_dir }}"
-                stdin: "{{ lastfm_key_prompt.user_input }}"
-                stdin_add_newline: false
-              register: lastfm_key_encrypted
-              changed_when: false
-              no_log: true
-
-            - name: Vault-encrypt Last.fm API Secret
-              ansible.builtin.command:
-                argv:
-                  - ansible-vault
-                  - encrypt_string
-                  - --stdin-name
-                  - lastfm_api_secret
-              args:
-                chdir: "{{ root_dir }}"
-                stdin: "{{ lastfm_secret_prompt.user_input }}"
-                stdin_add_newline: false
-              register: lastfm_secret_encrypted
-              changed_when: false
-              no_log: true
-
-            # blockinfile (markered) converges on re-runs instead of appending
-            # duplicate keys the way a raw `>>` redirect would.
-            - name: Save vault-encrypted Last.fm API Key to localhost.yml
-              ansible.builtin.blockinfile:
-                path: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
-                marker: "# {mark} ANSIBLE MANAGED: lastfm_api_key"
-                block: "{{ lastfm_key_encrypted.stdout }}"
-                create: false
-              no_log: true
-
-            - name: Save vault-encrypted Last.fm API Secret to localhost.yml
-              ansible.builtin.blockinfile:
-                path: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
-                marker: "# {mark} ANSIBLE MANAGED: lastfm_api_secret"
-                block: "{{ lastfm_secret_encrypted.stdout }}"
-                create: false
-              no_log: true
-
-            - name: Confirm credentials saved
-              ansible.builtin.debug:
-                msg: "Last.fm credentials saved to localhost.yml (vault-encrypted). Future runs will use them automatically."
+    - name: Ask for the Last.fm shared secret when it is missing
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ask-and-save-secret.yml"
+      vars:
+        secret_name: lastfm_api_secret
+        secret_label: Last.fm shared secret
+        secret_explain: >-
+          The shared secret shown next to your Last.fm API key, at
+          https://www.last.fm/api/accounts. Rescrobbled needs both to scrobble.
+        secret_confirm: false
+      when:
+        - lastfm_api_key is defined
+        - lastfm_api_secret is not defined
 
     - name: Decide whether this run sets up scrobbling
       ansible.builtin.set_fact:
@@ -246,18 +172,29 @@
         # swallowing hifi-rs, which must never be ignored. Confirm an identity with
         # `journalctl --user -u rescrobbled`, which prints it verbatim.
         - name: Configure Rescrobbled
-          ansible.builtin.copy:
-            content: |
-              lastfm-key = "{{ lastfm_api_key }}"
-              lastfm-secret = "{{ lastfm_api_secret }}"
-              player-ignorelist = [ "^QBZ$" ]
-            dest: /home/{{ user_login }}/.config/rescrobbled/config.toml
-            owner: "{{ user_login }}"
-            group: "{{ user_login }}"
-            mode: "0600"
-          no_log: true
-          diff: false
-          notify: Restart rescrobbled
+          block:
+            - name: Configure Rescrobbled
+              ansible.builtin.copy:
+                content: |
+                  lastfm-key = "{{ lastfm_api_key }}"
+                  lastfm-secret = "{{ lastfm_api_secret }}"
+                  player-ignorelist = [ "^QBZ$" ]
+                dest: /home/{{ user_login }}/.config/rescrobbled/config.toml
+                owner: "{{ user_login }}"
+                group: "{{ user_login }}"
+                mode: "0600"
+              no_log: true
+              diff: false
+              notify: Restart rescrobbled
+          rescue:
+            # Only the module msg: the content and diff hold the Last.fm key and secret.
+            - name: Stop because the rescrobbled config could not be written
+              ansible.builtin.fail:
+                msg: >-
+                  The rescrobbled config (~/.config/rescrobbled/config.toml) could not be
+                  written: {{ ansible_failed_result.msg | default('no reason given') }}.
+                  Scrobbling is not set up. Check that the directory exists and belongs to
+                  you, then run this play again.
 
         - name: Create Systemd User Dir
           ansible.builtin.file:

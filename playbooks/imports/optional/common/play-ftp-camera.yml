@@ -32,9 +32,8 @@
     # NOTE: ftp_camera_hotspot_password is intentionally NOT defined here, for
     # the same precedence reason as ftp_camera_rclone_remote below — a play var
     # would silently outrank the user's host_vars/vault value. It is the WPA2
-    # pre-shared key for the hotspot AP and must be vaulted:
-    #   ./vault.bash set ftp_camera_hotspot_password
-    # Minimum 8 characters (WPA2 requirement, asserted below).
+    # pre-shared key for the hotspot AP, asked for when missing at the start of
+    # the play and saved vault-encrypted; 8-63 characters (WPA2 requirement).
 
     # NOTE: ftp_camera_rclone_remote is intentionally NOT defined here.
     # Play `vars:` have HIGHER precedence than inventory host_vars, so setting
@@ -52,24 +51,80 @@
       when: install_audience != 'developer'
 
 
-    # Optional playbook: skip cleanly (no-op) when the FTP password hasn't
-    # been configured, instead of failing the whole optional run. Users who
-    # don't use the camera FTP feature shouldn't have to vault a dummy
-    # value just to let the --optional-only flow proceed.
-    - name: Skip if ftp_camera_password is not configured
+    # Optional playbook: the FTP password is asked for when it is missing, and an empty
+    # answer skips the play cleanly for this run, so someone who does not use the camera
+    # FTP feature is never stopped by it.
+    - name: Ask for the camera FTP password when it is missing
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ask-and-save-secret.yml"
+      vars:
+        secret_name: ftp_camera_password
+        secret_label: camera FTP password
+        secret_optional: true
+        secret_explain: |2
+
+          ============================================
+          CAMERA FTP: CHOOSE A PASSWORD
+          ============================================
+
+          The camera sends its photos to this computer over FTP, and logs in with
+          the user "camera" and the password you choose now. Choose any password,
+          then type the same one into the camera's FTP server settings.
+
+          Press ENTER with nothing typed to skip the camera FTP server this time.
+      when: ftp_camera_password is not defined
+
+    - name: Skip if no camera FTP password was given
       when: (ftp_camera_password | default('') | length) == 0
       block:
         - name: Inform user the Camera FTP play was skipped
           ansible.builtin.debug:
-            msg: |
-              Camera FTP Server skipped — ftp_camera_password is not set in vault.
+            msg: >-
+              Camera FTP Server skipped for this run: no camera FTP password was given.
+              Nothing was installed or changed. The next run asks for it again.
 
-              To enable this feature, set the password and re-run:
-                ./vault.bash set ftp_camera_password
-                ./run.bash --optional-only
-
-        - name: End play (ftp_camera_password not configured)
+        - name: End play (no camera FTP password)
           ansible.builtin.meta: end_play
+
+    - name: Ask for the camera hotspot Wi-Fi password when it is missing
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ask-and-save-secret.yml"
+      vars:
+        secret_name: ftp_camera_hotspot_password
+        secret_label: camera hotspot Wi-Fi password
+        secret_optional: true
+        secret_min_length: 8
+        secret_max_length: 63
+        secret_explain: |2
+
+          ============================================
+          CAMERA HOTSPOT: CHOOSE A WI-FI PASSWORD
+          ============================================
+
+          This computer can make its own Wi-Fi network, called
+          "{{ ftp_camera_hotspot_ssid }}", for the camera to join when there is
+          no trusted Wi-Fi nearby. Choose the password of that network now
+          (8 to 63 characters), then type the same one into the camera when it
+          joins "{{ ftp_camera_hotspot_ssid }}".
+
+          Press ENTER with nothing typed to set up no hotspot this time; the rest
+          of the camera FTP server is installed either way.
+      when: ftp_camera_hotspot_password is not defined
+
+    # WPA2-PSK is defined for 8-63 character passphrases. A shorter value is accepted by
+    # nmcli at write time but the AP silently fails to start, which is far harder to
+    # diagnose than failing here, before anything is changed. The ask above checks the
+    # bounds; this catches a saved value that does not meet them.
+    - name: Assert the hotspot Wi-Fi password meets the WPA2 length
+      ansible.builtin.assert:
+        that:
+          - (ftp_camera_hotspot_password | length) >= 8
+          - (ftp_camera_hotspot_password | length) <= 63
+        fail_msg: >-
+          The saved camera hotspot Wi-Fi password (ftp_camera_hotspot_password in
+          environment/localhost/host_vars/localhost.yml) is
+          {{ ftp_camera_hotspot_password | length }} characters long, and Wi-Fi (WPA2) needs
+          8 to 63. Nothing was installed or changed. Remove the ftp_camera_hotspot_password
+          block from that file and run this play again: it asks for a new one.
+      when: (ftp_camera_hotspot_password | default('') | length) > 0
 
     # Migration: align upload dir name with the rest of the toolchain
     # (ftp-camera command, /etc/ftp-camera/, play-ftp-camera.yml).
@@ -116,14 +171,24 @@
       tags: packages
 
     - name: Create camera FTP user
-      ansible.builtin.user:
-        name: "{{ ftp_camera_user }}"
-        password: "{{ ftp_camera_password | password_hash('sha512') }}"
-        home: "{{ ftp_camera_upload_dir }}"
-        shell: /sbin/nologin
-        create_home: false
-        comment: "Camera FTP upload user — managed by Ansible"
-      no_log: true
+      block:
+        - name: Create camera FTP user
+          ansible.builtin.user:
+            name: "{{ ftp_camera_user }}"
+            password: "{{ ftp_camera_password | password_hash('sha512') }}"
+            home: "{{ ftp_camera_upload_dir }}"
+            shell: /sbin/nologin
+            create_home: false
+            comment: "Camera FTP upload user — managed by Ansible"
+          no_log: true
+      # Only the module message: the task arguments hold the password hash.
+      rescue:
+        - name: Stop because the camera FTP user could not be created
+          ansible.builtin.fail:
+            msg: >-
+              The camera FTP user {{ ftp_camera_user }} could not be created or updated:
+              {{ ansible_failed_result.msg | default('no reason given') }}. The camera
+              cannot log in until it exists; fix the reason above and run this play again.
 
     - name: Ensure /sbin/nologin is listed in /etc/shells (required for FTP auth via PAM)
       ansible.builtin.lineinfile:
@@ -314,19 +379,6 @@
             ftp_camera_hotspot_psk_set: >-
               {{ (ftp_camera_hotspot_password | default('') | length) > 0 }}
 
-        - name: Assert the hotspot PSK meets the WPA2 minimum length
-          # WPA2-PSK is defined for 8-63 character passphrases. A shorter value
-          # is accepted by nmcli at write time but the AP silently fails to
-          # start, which is far harder to diagnose than failing here.
-          ansible.builtin.assert:
-            that:
-              - (ftp_camera_hotspot_password | default('') | length) >= 8
-              - (ftp_camera_hotspot_password | default('') | length) <= 63
-            fail_msg: |
-              ftp_camera_hotspot_password must be 8-63 characters (WPA2-PSK).
-              Set it with: ./vault.bash set ftp_camera_hotspot_password
-          when: ftp_camera_hotspot_psk_set
-
         - name: Create the hotspot AP profile
           # pmf=1 disables Protected Management Frames. Sony camera FTP clients
           # are WPA2-only and do not negotiate PMF; leaving it at the NM default
@@ -370,8 +422,24 @@
             - not ftp_camera_hotspot_exists
             - ftp_camera_hotspot_psk_set
             - ftp_camera_wifi_devs | length > 0
+          register: ftp_camera_hotspot_created
           changed_when: true
+          failed_when: false  # FAIL-FAST-OK: probe under no_log; the fail below gives the reason
           no_log: true
+
+        # Only stderr: the command line holds the Wi-Fi password.
+        - name: Stop if the hotspot AP profile could not be created
+          ansible.builtin.fail:
+            msg: >-
+              nmcli could not create the hotspot profile
+              '{{ ftp_camera_hotspot_connection }}' (exit
+              {{ ftp_camera_hotspot_created.rc | default('none') }}):
+              {{ ftp_camera_hotspot_created.stderr | default('') }}. The camera FTP server
+              is installed, but ftp-camera --hotspot cannot start until the profile exists;
+              fix the reason above and run this play again.
+          when:
+            - ftp_camera_hotspot_created is not skipped
+            - ftp_camera_hotspot_created.rc | default(1) != 0
 
         - name: Apply band=bg, channel=6, channel-width=40MHz to the hotspot profile
           # Runs for a profile this play just created AND for one the user made
@@ -394,22 +462,20 @@
           # short of reading every field back, which isn't worth it.
           changed_when: true
 
-        - name: Explain how to enable hotspot mode when no PSK is vaulted
+        - name: Explain that hotspot mode is not set up this run
           # Not an error: the hotspot is an optional modifier of an optional
           # play. Everything else here still installs and works. This mirrors
-          # how the play treats an unset ftp_camera_password at the top.
+          # how the play treats an empty camera FTP password at the top.
           ansible.builtin.debug:
             msg: |
-              Hotspot mode is NOT configured — ftp_camera_hotspot_password is unset,
-              so no WPA2 AP profile could be created and `ftp-camera --hotspot`
-              will refuse to start.
-
-              To enable it:
-                ./vault.bash set ftp_camera_hotspot_password    # 8-63 characters
-                ansible-playbook playbooks/imports/optional/common/play-ftp-camera.yml
+              Hotspot mode is NOT set up this run: no hotspot Wi-Fi password was
+              given, so no hotspot profile was created and `ftp-camera --hotspot`
+              will refuse to start. The next run of this play asks for it again.
 
               Everything else in this play is installed and working regardless.
-          when: not ftp_camera_hotspot_psk_set
+          when:
+            - not ftp_camera_hotspot_psk_set
+            - not ftp_camera_hotspot_exists
 
         - name: Warn when no WiFi device is present to host an AP
           ansible.builtin.debug:
@@ -515,8 +581,8 @@
             This playbook OWNS the '{{ ftp_camera_hotspot_connection }}' profile —
             it creates it (SSID {{ ftp_camera_hotspot_ssid }}, WPA2) and tunes it
             for 40MHz on channel 6 (~2x throughput vs the GNOME 20MHz default).
-            Do not create it by hand. It requires a vaulted passphrase:
-              ./vault.bash set ftp_camera_hotspot_password    # 8-63 characters
+            Do not create it by hand. Its Wi-Fi password (8-63 characters) is
+            asked for when this play runs without one, and saved vault-encrypted.
 
             NOTE: Intel CNVi radios cannot be WiFi client and AP simultaneously,
             so the laptop loses its own internet while the hotspot is up.
