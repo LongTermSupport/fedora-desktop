@@ -62,7 +62,7 @@ func gotFindings(t *testing.T, findings []string) map[string][]int {
 func TestPlayUXProvesEachRuleAgainstTheFlaggedFixture(t *testing.T) {
 	body := readPlayUXFixture(t, "flagged.yml")
 	want := expectedFindings(body)
-	minimum := map[string]int{ruleSettingLate: 6, ruleVaultByHand: 4, ruleCLIChdir: 5, ruleNoLogHides: 6, ruleProbeFirst: 3}
+	minimum := map[string]int{ruleSettingLate: 6, ruleVaultByHand: 4, ruleCLIChdir: 5, ruleNoLogHides: 6, ruleProbeFirst: 3, ruleRunningKern: 4}
 	for rule, n := range minimum {
 		if len(want[rule]) < n {
 			t.Fatalf("the flagged fixture marks only %d %s findings; it lost cases", len(want[rule]), rule)

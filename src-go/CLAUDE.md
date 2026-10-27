@@ -312,7 +312,7 @@ difference only as a numbered bug of `SPEC-qa-all.md` section 10 pinned in
 `qa/ansible` + `qa/cmd/qa-ansible` (same nested module) are `scripts/qa-ansible.bash`, the static
 Ansible gate (fail-fast directives, playbook hygiene, self-default vars, scope and guard,
 deprecated fact vars, guessed runtime-dir uids, regex backreference escapes and files users read
-created as root under the inherited umask, and the five play-UX rules of Plan 00230, all read from each file parsed as YAML): the script only builds and runs the command. It
+created as root under the inherited umask, and the six play-UX rules of Plan 00230, all read from each file parsed as YAML): the script only builds and runs the command. It
 starts no process itself: the one `git ls-files` it needs (it judges only what git would
 publish) is injected and run by the command through the seam. Its spec is the intended behaviour
 (`SPEC-qa-ansible.md`, expectations E1-E19 and E16a), proven by unit tests and end-to-end scenario trees

@@ -54,9 +54,10 @@ a /run/user path, and a regex backreference with the wrong backslash count for i
 and Jinja context (CLAUDE/QA.md, regex-backref-escape), and a file users read created as root
 under the inherited umask (CLAUDE/QA.md, root-umask), and the play-UX rules: a setting
 checked after the play has changed the system, a secret demanded by hand, an Ansible CLI run
-outside the checkout, a failure no_log hides, and a probe of a program installed only later
-(CLAUDE/QA.md, setting-checked-late, vault-secret-by-hand, ansible-cli-without-chdir,
-no-log-hides-failure, probe-before-install).
+outside the checkout, a failure no_log hides, a probe of a program installed only later, and
+a kernel module built for the running kernel (CLAUDE/QA.md, setting-checked-late,
+vault-secret-by-hand, ansible-cli-without-chdir, no-log-hides-failure, probe-before-install,
+module-built-for-running-kernel).
 
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory; the root is its parent

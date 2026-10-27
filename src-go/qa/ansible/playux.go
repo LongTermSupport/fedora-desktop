@@ -40,6 +40,9 @@ import (
 //     read by a later fail or assert that is not itself under no_log, nor in a block whose
 //     rescue has a fail or assert not under no_log. Ansible replaces a no_log
 //     task's whole result, its error included, with "the output has been hidden".
+//   - module-built-for-running-kernel: akmods, dkms autoinstall/install/build or dracut --force
+//     run for the running kernel (no kernel named, or uname -r): after the system upgrade the
+//     next boot runs a newer kernel, the only one kernel-devel is installed for.
 //   - probe-before-install: a probe (a command with failed_when false) of a program that a later
 //     package task of the same play installs: on a machine without it the probe cannot run, and
 //     failed_when false takes "not installed" as the probe's answer.
@@ -75,6 +78,7 @@ const (
 	ruleCLIChdir    = "ansible-cli-without-chdir"
 	ruleNoLogHides  = "no-log-hides-failure"
 	ruleProbeFirst  = "probe-before-install"
+	ruleRunningKern = "module-built-for-running-kernel"
 )
 
 // uxTask is a task with its module and whether no_log is in effect for it.
@@ -463,6 +467,48 @@ func judgeByHand(rel string, t uxTask, settings []string) string {
 	return ""
 }
 
+// kernelBuild is a kernel module build or initramfs rebuild, the tool the first group: akmods,
+// dkms autoinstall/install/build, or dracut --force.
+var kernelBuild = regexp.MustCompile(`(?:^|[\s;&|(/])(akmods|dkms\s+(?:autoinstall|install|build)|dracut)(?:$|\s)`)
+
+// kernelNamed is a kernel named on the command line, not the running one: akmods --kernels,
+// dkms -k / --kernelver, dracut --kver or --regenerate-all, given anything but uname -r.
+var kernelNamed = regexp.MustCompile(`(?:--kernels|\s-k|--kernelver|--kver)[\s=]+["']?(?:[^\s"'$]|\$[A-Za-z{])|--regenerate-all`)
+
+// unameKernel is the running kernel spelled into a command.
+var unameKernel = regexp.MustCompile(`\$\(\s*uname\s+-r\s*\)|\x60\s*uname\s+-r\s*\x60|ansible_facts(?:\.kernel|\[["']kernel["']\])|ansible_kernel`)
+
+// judgeRunningKernel applies module-built-for-running-kernel: a kernel module build or
+// initramfs rebuild for the running kernel, by default or by uname -r. A play that has just
+// upgraded the system boots a newer kernel next, and kernel-devel exists only for that one.
+func judgeRunningKernel(rel string, t uxTask) string {
+	if t.module != modCommand && t.module != modShell {
+		return ""
+	}
+	v := t.moduleValue()
+	text := commandText(v)
+	if args := mappingValue(t.node, "args"); text == "" && args != nil {
+		text = commandText(args)
+	}
+	for _, line := range regexp.MustCompile(`\n|&&|;|\|\|`).Split(text, -1) {
+		m := kernelBuild.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		tool := strings.Join(strings.Fields(m[1]), " ")
+		if tool == "dracut" && !strings.Contains(line, "--force") {
+			continue
+		}
+		if kernelNamed.MatchString(line) && !unameKernel.MatchString(line) {
+			continue
+		}
+		return rel + ":" + t.line() + ": " + ruleRunningKern + ": " + tool + " builds for the running kernel, but after " +
+			"a system upgrade the next boot runs a newer one, the only one with kernel-devel; name the boot kernel " +
+			"(tasks/boot-kernel-version.yml sets boot_kernel_version)"
+	}
+	return ""
+}
+
 // templatedName is a variable a template puts in, the name the first group.
 var templatedName = regexp.MustCompile(`\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:\||\}\})`)
 
@@ -561,7 +607,7 @@ func readByLaterCheck(t uxTask, later []uxTask) bool {
 	return false
 }
 
-// playUX returns the five rules' findings of one YAML file, "<rel>:<line>: <rule>: <why>", in
+// playUX returns the six rules' findings of one YAML file, "<rel>:<line>: <rule>: <why>", in
 // document order by rule. A file the YAML library cannot parse is a finding.
 func playUX(rel string, data []byte, repoVars map[string]bool) []string {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
@@ -649,7 +695,7 @@ func markBlockVars(list *yaml.Node, known map[string]bool) {
 	}
 }
 
-// judgeTasks runs the five rules over a play's or task list's tasks.
+// judgeTasks runs the six rules over a play's or task list's tasks.
 func judgeTasks(rel string, ordered, handlers []uxTask, isPlay bool, known, repoVars map[string]bool) []string {
 	all := append(append([]uxTask{}, ordered...), handlers...)
 	findings := judgeSettingChecks(rel, ordered, isPlay, known, repoVars)
@@ -658,6 +704,9 @@ func judgeTasks(rel string, ordered, handlers []uxTask, isPlay bool, known, repo
 			findings = append(findings, f)
 		}
 		if f := judgePlainSave(rel, t); f != "" {
+			findings = append(findings, f)
+		}
+		if f := judgeRunningKernel(rel, t); f != "" {
 			findings = append(findings, f)
 		}
 	}
@@ -755,7 +804,7 @@ func repositoryVars(fsys fs.FS) (map[string]bool, error) {
 	return names, nil
 }
 
-// scanPlayUX runs the five rules over the YAML files under dirs (roles/vendor skipped).
+// scanPlayUX runs the six rules over the YAML files under dirs (roles/vendor skipped).
 func scanPlayUX(fsys fs.FS, dirs []string, f *Findings) error {
 	repoVars, err := repositoryVars(fsys)
 	if err != nil {

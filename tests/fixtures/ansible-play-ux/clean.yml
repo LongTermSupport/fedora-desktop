@@ -262,3 +262,27 @@
         - name: Stop because it could not be written
           ansible.builtin.fail:
             msg: "It could not be written: {{ ansible_failed_result.msg | default('no reason given') }}"
+
+# Kernel module builds that name the boot kernel.
+- hosts: localhost
+  tasks:
+    - name: Rebuild for the boot kernel
+      ansible.builtin.shell: |
+        set -euo pipefail
+        akmods --force --kernels "$KVER"
+        dracut --force --kver "$KVER"
+      environment:
+        KVER: "{{ boot_kernel_version }}"
+      changed_when: true
+
+    - name: DKMS for the boot kernel
+      ansible.builtin.command: dkms autoinstall -k {{ boot_kernel_version }}
+      changed_when: true
+
+    - name: Every initramfs
+      ansible.builtin.command: dracut --force --regenerate-all
+      changed_when: true
+
+    - name: Status is not a build
+      ansible.builtin.command: dkms status
+      changed_when: false

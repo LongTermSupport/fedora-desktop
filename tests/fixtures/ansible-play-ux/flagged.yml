@@ -281,3 +281,24 @@
         - name: Stop, but hidden
           ansible.builtin.fail:  # EXPECT-FINDING no-log-hides-failure
             msg: "It could not be written: {{ ansible_failed_result.msg }}"
+
+# module-built-for-running-kernel: a module or initramfs built for the running kernel, by
+# default or by uname -r (play-nvidia before 08ea913a5, play-displaylink, play-virtualbox).
+- hosts: localhost
+  tasks:
+    - name: Rebuild the module and the initramfs
+      ansible.builtin.shell: |  # EXPECT-FINDING module-built-for-running-kernel
+        set -euo pipefail
+        akmods --force
+        dracut --force
+      changed_when: true
+
+    - name: Run DKMS autoinstall
+      ansible.builtin.command: dkms autoinstall  # EXPECT-FINDING module-built-for-running-kernel
+
+    - name: Initramfs only
+      ansible.builtin.command: dracut --force  # EXPECT-FINDING module-built-for-running-kernel
+
+  handlers:
+    - name: akmod
+      ansible.builtin.shell: akmods --kernels $(uname -r) && systemctl restart vboxdrv.service  # EXPECT-FINDING module-built-for-running-kernel
