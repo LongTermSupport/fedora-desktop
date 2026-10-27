@@ -205,7 +205,7 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
     toolchain, so it is expected), the developer tools (Node, Claude Code, ccy, VS Code,
     LXC, Podman) absent, and a second `run.bash` run changes nothing;
     `qa-vmtest-manifest.bash` passes.
-- [ ] ⬜ **Task 3.2**: Plan-local `deploy.bash` and `acceptance.bash` (on `_planlib.inc.bash`)
+- [x] ✅ **Task 3.2**: Plan-local `deploy.bash` and `acceptance.bash` (on `_planlib.inc.bash`)
   that deploy the lab change and run `desktop-consumer-install`, `desktop-fresh-install` and
   `server-fast-provision`, so the developer and server paths are proved unchanged; add the
   plan to `CLAUDE/Plan/meta-deploy.list`.
@@ -225,6 +225,9 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
     overlay/tempdirs on every run, and podman recreates it on each use, now on every consumer
     install because ccc's image is built there (Plan 00233). Fixed: removed only when
     `podman info` fails. Re-run after that fix is pushed.
+  - Re-run at acfcb6814: COVERAGE 3 of 3, ACCEPTED. desktop-consumer-install 17 of 17
+    (rerun-changed-nothing included), desktop-fresh-install 16 of 16, server-fast-provision
+    13 of 13.
 - [x] ✅ **Task 3.3**: The vmtest attendant fails an attended run on an unanswered prompt within
   two minutes, not at provisionLimit (90 minutes): an idle-output bound once a prompt-shaped
   line is the last output, so the next unknown question costs 60 to 120 s. Tests first, in
@@ -269,7 +272,8 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
 
 ### Phase 5: Review
 
-- [ ] ⬜ **Task 5.1**: `./scripts/qa-all.bash` passes.
+- [x] ✅ **Task 5.1**: `./scripts/qa-all.bash` passes (at acfcb6814, the tree the VM run
+  accepted).
 - [ ] ⬜ **Task 5.2**: `qa-reviewer` over the full plan diff; every BLOCK and
   FIX-BEFORE-MERGE finding resolved.
 
