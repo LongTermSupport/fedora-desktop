@@ -43,6 +43,8 @@ type Env struct {
 	Sleep func(ctx context.Context, d time.Duration) error
 	// FreePort is a loopback TCP port nothing listens on at the moment of asking.
 	FreePort func() (int, error)
+	// FreeBytes is the space an unprivileged user can still write on the filesystem holding path.
+	FreeBytes func(path string) (int64, error)
 	// Random is the source of the throwaway secrets a desktop base is built with.
 	Random    io.Reader
 	GPGKeyDir string
@@ -62,6 +64,7 @@ func NewEnv() Env {
 		Now:       time.Now,
 		Sleep:     sleepContext,
 		FreePort:  freeLoopbackPort,
+		FreeBytes: freeBytes,
 		Random:    rand.Reader,
 		GPGKeyDir: DefaultGPGKeyDir,
 	}
@@ -176,6 +179,7 @@ var commands = map[string]command{
 	"member-up":        (*cli).cmdMemberUp,
 	"member-ssh":       (*cli).cmdMemberSSH,
 	"member-down":      (*cli).cmdMemberDown,
+	"prune-runs":       (*cli).cmdPruneRuns,
 }
 
 func (c *cli) dispatch(ctx context.Context, args []string) error {

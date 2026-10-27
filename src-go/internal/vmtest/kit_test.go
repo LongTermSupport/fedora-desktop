@@ -41,6 +41,9 @@ type kit struct {
 	gw     *guestWorld // the fake guest, when a test installs one
 	// faultAt, when positive, makes the faultAt'th command the CLI runs exit 1 (fault_test.go).
 	faultAt int
+	// free is the space the lab's filesystem has, and freeErr what reading it fails with.
+	free    int64
+	freeErr error
 }
 
 // stubBuild replaces build-base with a recorder, for the commands that call it.
@@ -72,6 +75,7 @@ func newKit(t *testing.T) *kit {
 		fake:     &execx.Fake{},
 		now:      time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC),
 		port:     40123,
+		free:     1 << 50,
 		bases:    map[string]string{},
 		scens:    map[string]string{},
 	}
@@ -225,6 +229,7 @@ func (k *kit) environment() Env {
 			return nil
 		},
 		FreePort:  func() (int, error) { return k.port, nil },
+		FreeBytes: func(string) (int64, error) { return k.free, k.freeErr },
 		Random:    zeroReader{},
 		GPGKeyDir: k.gpg,
 		TempDir:   k.t.TempDir(),

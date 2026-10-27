@@ -22,6 +22,10 @@ Usage:
   vmtest freshness-status [--deep]         probe upstream and REPORT every base's freshness; never rebuilds.
                                            --deep re-hashes every base disk against its record
   vmtest sweep                             apply the retention policy (runs, failed builds, spool); logs every eviction
+  vmtest prune-runs [--older-than DAYS] [--yes]
+                                           list each run's overlay that may go (the run passed, a later run of
+                                           its scenario passed, or it is older than DAYS, default 7) and what
+                                           it frees; a dry run unless --yes. Logs, verdicts and bases stay
   vmtest nightly                           freshness-status --deep, then sweep — what the nightly timer runs
   vmtest ensure-base <base-key>            build the base if it is absent, or rebuild it if the freshness
                                            gate refuses it; otherwise change nothing
@@ -38,7 +42,13 @@ Usage:
 `run` provisions from a PUSHED commit of the public repo (the branch tip on the
 remote by default), never from a checkout — a transcript must point at code a
 human can review (DESIGN.md §3.4). Exit 0 only on verdict pass; the response
-document is written to runs/<run-id>/response.json either way.
+document is written to runs/<run-id>/response.json either way. A run that does not
+pass keeps its overlay (up to 20 GiB) for diagnosis until prune-runs removes it.
+
+Before anything else, `run` and `member-up` refuse when the lab's filesystem has less
+than 22 GiB free (a 20 GiB guest disk and a 2 GiB margin), and a base build (build-base,
+ensure-base, refresh-base) less than 26 GiB (the same and 4 GiB of install media),
+saying what `vmtest prune-runs` would free.
 
 Rootless throughout: qemu:///session, user-mode networking with a passt port
 forward to the guest's SSH, the lab's own throwaway ed25519 key. Everything

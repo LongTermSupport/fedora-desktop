@@ -37,16 +37,23 @@ func memberDomain(name string) string { return "vmtest-member-" + name }
 
 // domainListed is libvirt's own answer; an unreachable daemon is a failure, never "absent".
 func (c *cli) domainListed(ctx context.Context, domain string) (bool, error) {
+	domains, err := c.listDomains(ctx)
+	return domains[domain], err
+}
+
+// listDomains is every domain libvirt lists, running or not.
+func (c *cli) listDomains(ctx context.Context) (map[string]bool, error) {
 	res, err := c.env.Runner.Run(ctx, execx.Cmd{Name: virshBin, Args: []string{"-c", libvirtURI, "list", "--all", flagName}})
 	if err != nil {
-		return false, ctxErr(ctx, failf("virsh -c %s list failed", libvirtURI))
+		return nil, ctxErr(ctx, failf("virsh -c %s list failed", libvirtURI))
 	}
+	out := map[string]bool{}
 	for line := range strings.SplitSeq(string(res.Stdout), "\n") {
-		if strings.TrimSpace(line) == domain {
-			return true, nil
+		if name := strings.TrimSpace(line); name != "" {
+			out[name] = true
 		}
 	}
-	return false, nil
+	return out, nil
 }
 
 // removeListedDomain destroys a listed domain unless it is shut off, then undefines it;
@@ -121,7 +128,7 @@ func (c *cli) virtInstall(ctx context.Context, g *guest, b baseFacts, disk strin
 // floor asks retention whether the host can carry one more disk and guest (§10); its
 // VMTEST-DISK and VMTEST-RAM lines go to stderr.
 func (c *cli) floor(ctx context.Context, path string, size int64, step string, ram int) error {
-	_, err := c.helper(ctx, helperCall{module: "retention", stdout: c.env.Stderr, args: []string{
+	_, err := c.helper(ctx, helperCall{module: retentionModule, stdout: c.env.Stderr, args: []string{
 		"floor", "--path", path, "--base-size", strconv.FormatInt(size, 10), "--step", step, "--guest-mib", strconv.Itoa(ram),
 	}})
 	return ctxErr(ctx, err)
@@ -137,6 +144,9 @@ func (c *cli) cmdMemberUp(ctx context.Context, args []string) error {
 	}
 	l, err := c.loadLab()
 	if err != nil {
+		return err
+	}
+	if err := c.diskGuard(ctx, l, memberNeed); err != nil {
 		return err
 	}
 	return c.memberUp(ctx, l, name, key)

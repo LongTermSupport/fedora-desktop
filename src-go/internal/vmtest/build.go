@@ -15,11 +15,14 @@ import (
 )
 
 const (
-	buildDiskSize      = "20G"
+	// buildDiskGiB is the virtual size of every base disk, so the most a run's overlay can grow to.
+	buildDiskGiB       = 20
 	installWaitMinutes = "90"
 	secretBytes        = 24
 	luksFile           = "luks-passphrase"
 )
+
+var buildDiskSize = strconv.Itoa(buildDiskGiB) + "G"
 
 func (c *cli) cmdBuildBase(ctx context.Context, args []string) error {
 	if len(args) != 1 {
@@ -77,6 +80,9 @@ func (c *cli) domainKnown(ctx context.Context, domain string) bool {
 
 // buildBase builds a base from its published media (E15-E21).
 func (c *cli) buildBase(ctx context.Context, l *lab, key string) (err error) {
+	if err = c.diskGuard(ctx, l, buildNeed); err != nil {
+		return err
+	}
 	b, err := c.baseFacts(ctx, l, key)
 	if err != nil {
 		return err

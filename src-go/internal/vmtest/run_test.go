@@ -99,7 +99,7 @@ func TestE46VerdictAndJudge(t *testing.T) {
 	if !strings.HasSuffix(k.out.String(), "verdict=fail response="+k.path("runs/"+runID)+"/response.json\n") || !k.exists("runs/"+runID+"/overlay.qcow2") {
 		t.Fatalf("stdout %q", k.out.String())
 	}
-	k.wantErr("==> overlay and console kept for diagnosis: " + k.path("runs/"+runID))
+	k.wantErr(") and console kept for diagnosis: " + k.path("runs/"+runID) + "; vmtest prune-runs --yes removes")
 
 	k = runKit(t, "pass")
 	k.fake.On(helperArgv("judge_run"), execx.Result{ExitCode: 2})

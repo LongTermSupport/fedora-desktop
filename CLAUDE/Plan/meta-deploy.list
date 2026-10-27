@@ -44,6 +44,11 @@
 # play-cli-tools.yml also rebuilds open (Plan 00192 E11a): inside tmux or screen its chafa image
 # preview draws text symbols instead of graphics tmux does not pass; the host agent then
 # reruns open H4's image in its private tmux and sees the picture drawn as text.
+# play-vm-test-lab.yml too (Plan 00192 Task 3.10: the vmtest binary with `vmtest prune-runs`
+# and the free-disk guard, and retention.py's prune plan). The host agent then runs
+# `vmtest prune-runs` without --yes (vmtest H7): it lists each run's overlay with its size
+# and reason, the bases and the total it would free, and removes nothing. Removing them
+# (--yes) is the owner's call.
 changed-plays
 
 # Plan 00234, the review fixes: acceptance.bash again, read-only, with a new screen leg that

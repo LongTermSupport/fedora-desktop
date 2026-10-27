@@ -162,7 +162,8 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     Host results, 2026-10-23: vmtest H1 and H5 PASS, H2 PASS apart from its bridge half,
     H4 PASS (`$J1MsGTTA4klOto2BoOTEamrIfElxFFz2HuwHLDHUVmE`, `$8aqX_PoK5b62YkY5FNbJF0kZ2SBsP8XxhoXIrIR5fkI`),
     H4's Ctrl-C during member-up PASS, exit 130, no guest left
-    (`$49WVO-g6jUYPrUTWNVTGt_VLL2bk3WD7ydjiJVHMzMY`); left: H2's bridge run, H3 and H6.
+    (`$49WVO-g6jUYPrUTWNVTGt_VLL2bk3WD7ydjiJVHMzMY`); left: H2's bridge run, H3 and H6, and
+    H7 (`prune-runs`, Task 3.10).
     watermark H3 PASS (`$NIHwpSi3rTN-Z2LSvujaLWtueWfi_dZedKS4rkYtB9M`), the source of the
     wording correction above.
     Host, 2026-10-27 (host agent; `$k9uI3FUf_DcvOv_JwAhf17IurP3meue4j1dnETUvOGY`,
@@ -331,6 +332,18 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   reached directory, selects the suite ("reaches F through P"), red then green on exactly the
   self-update case. Over every tracked non-markdown file no suite lost a selection and eleven
   gained 375 (subagent-reports/261027-task-3-9.md lists them).
+
+- [ ] 🔄 **Task 3.10**: The VM lab's runs filled the host's disk: `vmtest sweep` keeps every run
+  that did not pass, with its overlay (up to the 20 GiB guest disk), for ever, and vmtest had no
+  way to remove one. Code done (SPEC-vmtest E61-E65, H7): `vmtest prune-runs`, a dry run unless
+  `--yes`, removes only the `*.qcow2` of runs that passed, were followed by a passing run of the
+  same scenario, or are older than `--older-than` days (default 7); the rule is retention.py's
+  new `prune-plan`, beside the sweep's `run_passed`. A run whose domain libvirt lists, or that
+  holds the new `run.lock` (taken from its directory to the end of its teardown), is live and
+  left. `run` and `member-up` refuse with under 22 GiB free and a base build with under 26 GiB, before anything
+  else, naming what `prune-runs` would free; a failed run says the size of the overlay it kept.
+  Host check open (H7, the host agent's): `vmtest prune-runs` dry on the host's lab once
+  `changed-plays` has rebuilt the binary. `--yes` is the owner's call.
 
 ### Phase 4: Review
 

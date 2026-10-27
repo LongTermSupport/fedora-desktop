@@ -23,7 +23,7 @@ the wrappers that build and run the Go commands).
   derived verb, dry run and act loop (`freeze`), the command-line grammar (`freeze/cli`), the
   flow in spec order (`freeze/app`), and the golden replay (`freeze/golden`, test only). An
   engine implements `freeze.Engine`; never an `if` on the engine in the shared half.
-- `internal/vmtest/` — the VM lab's host CLI (spec `SPEC-vmtest.md`, E1-E60): every verb,
+- `internal/vmtest/` — the VM lab's host CLI (spec `SPEC-vmtest.md`, E1-E65): every verb,
   through `execx` to virsh, virt-install, qemu-img, ssh and curl, and through one seam
   (`python3 -P -m helpers.vmtest.<module>`) to the lab's Python helpers, which stay Python.
 - `internal/ftpcamera/` — the camera FTP session tool (spec `SPEC-ftp-camera.md`, E1-E66): the

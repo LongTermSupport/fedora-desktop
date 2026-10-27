@@ -32,6 +32,7 @@ const (
 	sessionRunner   = "vmtest-session-provision.bash"
 	statusFile      = "freshness-status.txt"
 	retentionLog    = "retention.log"
+	retentionModule = "retention"
 	scrubLibrary    = "lib/run-log-scrub.bash"
 	scrubFront      = "lib/run-log-scrub-cli.bash"
 	defaultHelpers  = "/usr/local/lib/ccy-helpers"
