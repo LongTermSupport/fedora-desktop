@@ -7,11 +7,16 @@ resolver, run as a leg of acceptance.bash. Read-only: nothing is downloaded or r
                 names the GPU and its memory (device cuda), never a CPU fallback
     preselect   the installed manager, given that answer, preselects an English-only model
                 that fits, and refuses every model that does not with a reason
+    screen      the installed manager's real Textual screen, driven headless (App.run_test):
+                the cursor starts on that model, the too-big row is marked, and choosing a
+                too-big model (Enter, and the Download key) shows the refusal and leaves
+                the list open; the download itself is replaced, so nothing is fetched
 
 The report goes to stdout, for the run log; failures say why on stderr, exit 1.
-Usage: check-fit.py deployed|fit|preselect
+Usage: check-fit.py deployed|fit|preselect|screen
 """
 
+import asyncio
 import glob
 import importlib.machinery
 import importlib.util
@@ -60,11 +65,16 @@ def check_fit():
     return 0
 
 
-def check_preselect():
+def load_manager():
     path = str(BIN / "wsi-model-manager")
     loader = importlib.machinery.SourceFileLoader("wsi_model_manager_installed", path)
     manager = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
     loader.exec_module(manager)
+    return manager
+
+
+def check_preselect():
+    manager = load_manager()
     report = fit_report()
     print(manager.machine_line(report, ""))
     best = manager.best_english_fit(report)
@@ -81,7 +91,74 @@ def check_preselect():
     return 0
 
 
-CHECKS = {"deployed": check_deployed, "fit": check_fit, "preselect": check_preselect}
+def check_screen():
+    manager = load_manager()
+    report = fit_report()
+    best = manager.best_english_fit(report)
+    installed = manager.get_installed()
+    too_big = [model_id for model_id, *_ in manager.MODELS
+               if not report["models"][model_id]["fits"] and model_id not in installed]
+    if best is None or not too_big:
+        return fail("this machine has no English-only model that fits, or no model too big "
+                    "that is not downloaded, so the preselection and refusal cannot be shown")
+    problems = asyncio.run(drive_screen(manager, report, best, too_big[0]))
+    for problem in problems:
+        print(f"FAIL: {problem}", file=sys.stderr)
+    return 1 if problems else 0
+
+
+async def drive_screen(manager, report, best, too_big):
+    """The installed manager's real Textual screen, run headless: the cursor starts on
+    `best`, and choosing `too_big` (Enter, then the Download key) is refused with the
+    reason while the list stays open. A download that starts is recorded, not run."""
+
+    class Watched(manager.ModelManagerApp):
+        def __init__(self):
+            super().__init__()
+            self.notes = []
+            self.downloads = []
+
+        def notify(self, message, **kwargs):
+            self.notes.append(str(message))
+            super().notify(message, **kwargs)
+
+        def _do_download(self, model_id, repo):
+            self.downloads.append(model_id)
+
+        def _poll_progress(self, model_id):
+            self.downloads.append(model_id)
+
+    problems = []
+    app = Watched()
+    async with app.run_test(size=(160, 40)) as pilot:
+        await pilot.pause()
+        table = app.query_one("#table", manager.DataTable)
+        start = app._selected_model_id()
+        print(f"cursor starts on: {start}")
+        if start != best:
+            problems.append(f"the cursor starts on {start}, not {best}")
+        cell = str(table.get_row(too_big)[3])
+        print(f"{too_big} GPU memory cell: {cell}")
+        if not cell.startswith("✗"):
+            problems.append(f"{too_big} is too big but its GPU memory cell says {cell!r}")
+        refusal = manager.download_refusal(too_big, report, "")
+        table.move_cursor(row=app._visible_model_ids.index(too_big))
+        for key in ("enter", "d"):
+            app.notes.clear()
+            await pilot.press(key)
+            await pilot.pause()
+            print(f"{key} on {too_big}: {app.notes}")
+            if refusal not in app.notes:
+                problems.append(f"{key} on {too_big} did not show the refusal {refusal!r}")
+        if app.downloads or app._downloading:
+            problems.append(f"a download started: {app.downloads or sorted(app._downloading)}")
+        if len(app.screen_stack) != 1 or app._selected_model_id() != too_big:
+            problems.append("after the refusal the model list is not left open on that row")
+    return problems
+
+
+CHECKS = {"deployed": check_deployed, "fit": check_fit, "preselect": check_preselect,
+          "screen": check_screen}
 
 if __name__ == "__main__":
     if len(sys.argv) != 2 or sys.argv[1] not in CHECKS:

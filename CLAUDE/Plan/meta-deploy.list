@@ -51,11 +51,30 @@
 # session empties its inbox. Exit 2 also as before (no seat, no Quick Launch, np232c not alone).
 00232-ccy-network-policy-per-container/acceptance.bash
 
-# The plays changed since they last ran here. Expected: play-cli-tools.yml only (Plan 00192:
+# The plays changed since they last ran here. Expected: play-cli-tools.yml (Plan 00192:
 # reclaim 2.0.4, whose podman summary gives no summed image size, saying the total is not
-# known, and says how many dangling images a container uses and the prune keeps);
+# known, and says how many dangling images a container uses and the prune keeps), and
+# play-speech-to-text.yml (Plan 00234 review fixes: the panel's extension.js loses its unused
+# model size strings; no behaviour change, so no logout is needed). play-displaylink.yml and
+# play-nvidia.yml (the shared MOK enrolment message) only if they have run here before;
 # play-claude-yolo.yml has already run in the 00232 deploy above. The host agent then reruns
 # reclaim H1's Podman section (no summed size; the dangling count and the prune question
 # agree or differ by the stated number kept) and option 6 answering No to every question,
 # with nothing run.
 changed-plays
+
+# Plan 00234, the review fixes: acceptance.bash again, read-only, with a new screen leg that
+# drives the installed model manager's real Textual screen headless (the cursor on Distil
+# Large v3.5, Large v2/v3 marked too big, Enter and the Download key on one refused with the
+# list left open; the download is replaced, so nothing is fetched). Nothing is downloaded
+# or removed.
+00234-stt-model-manager-fits-gpu
+
+# Then gpu-load-acceptance.bash: loads distil-large-v3.5 on the NVIDIA GPU in float16, once
+# as the dictation server does (beam 5) and once with wsi-stream's streaming settings
+# (real-time transcription on, so the tiny real-time model loads too), and reports each
+# peak GPU memory against the fit rule's figure (about 2.6 GB), failing above it. It
+# DOWNLOADS distil-large-v3.5 (about 1.4 GB) if it is not on disk; nothing else is
+# downloaded (a missing tiny model fails the streaming leg) and nothing is removed. A warm
+# dictation server's model stays loaded and is counted as in use before the load.
+00234-stt-model-manager-fits-gpu/gpu-load-acceptance.bash
