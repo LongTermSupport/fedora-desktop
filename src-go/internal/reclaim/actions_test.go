@@ -343,16 +343,71 @@ func TestContainers(t *testing.T) {
 	w.install("podman", "docker")
 	w.answer([]string{"podman", "system", "df"}, "TYPE TOTAL\n", 0)
 	w.answer([]string{"docker", "system", "df"}, "DTYPE\n", 0)
-	w.answer([]string{"podman", "system", "prune", "-af"}, "", 0)
-	w.answer([]string{"docker", "system", "prune", "-af"}, "", 0)
-	w.typed("6", "y", "y", "q")
+	w.answer([]string{"podman", "system", "prune", "-f"}, "", 0)
+	w.answer([]string{"podman", "images", "--format", "json"}, imagesJSON, 0)
+	w.answer([]string{"podman", "image", "prune", "-af"}, "", 0)
+	w.answer([]string{"docker", "system", "prune", "-f"}, "", 0)
+	w.answer([]string{"docker", "image", "prune", "-af"}, "", 0)
+	w.typed("6", "y", "y", "y", "y", "q")
 	wantCode(t, w.run(), term.ExitOK)
-	w.wantErr("  Podman storage usage:\n    TYPE TOTAL\n", "  Prune unused podman data (images, containers, volumes)? [y/N] ",
-		"  Podman pruned.", "  Docker storage usage:\n    DTYPE\n", "  Prune unused docker data? [y/N] ", "  Docker pruned.")
-	want := []string{"podman system prune -af", "docker system prune -af"}
+	w.wantErr("  Podman storage usage:\n    TYPE TOTAL\n",
+		"  Prune stopped containers, dangling images and unused networks; no volume and no tagged image"+
+			" (podman system prune -f)? [y/N] ",
+		"  Podman pruned.",
+		"  podman image prune -af removes every image no container uses, not only the dangling ones: here 2 tagged"+
+			" image(s), up to 3.5GB;",
+		"  Among them, 1 claude-yolo project image(s), each rebuilt on that project's next launch:\n"+
+			"         3.0GB  localhost/claude-yolo:proj-a\n",
+		"  Also remove all 4 unused podman image(s), tagged ones included (podman image prune -af)? [y/N] ",
+		"  Unused podman images removed.",
+		"  Docker storage usage:\n    DTYPE\n",
+		"  Prune stopped containers, dangling images, unused networks and dangling build cache; no volume and no"+
+			" tagged image (docker system prune -f)? [y/N] ", "  Docker pruned.",
+		"  docker image prune -af removes every image no container uses, not only the dangling ones;"+
+			" each is pulled or rebuilt when it is next needed.\n"+
+			"  Also remove all unused docker images (docker image prune -af)? [y/N] ",
+		"  Unused docker images removed.")
+	want := []string{"podman system prune -f", "podman image prune -af", "docker system prune -f", "docker image prune -af"}
 	if got := w.changes(); !slices.Equal(got, want) {
 		t.Errorf("changes %v", got)
 	}
+}
+
+// E22: no to each question runs nothing; removing every unused image is asked even after no to
+// the prune, and a podman that cannot list its images is not asked it.
+func TestContainersDeclined(t *testing.T) {
+	w := newWorld(t)
+	w.install("podman", "docker")
+	w.answer([]string{"podman", "system", "df"}, "TYPE TOTAL\n", 0)
+	w.answer([]string{"docker", "system", "df"}, "DTYPE\n", 0)
+	w.answer([]string{"podman", "images", "--format", "json"}, imagesJSON, 0)
+	w.typed("6", "n", "n", "n", "n", "q")
+	wantCode(t, w.run(), term.ExitOK)
+	w.wantErr("  Skipped podman system prune -f.", "  Also remove all 4 unused podman image(s)",
+		"  Skipped docker system prune -f.", "  Also remove all unused docker images")
+	if got := w.changes(); len(got) != 0 {
+		t.Errorf("changes %v", got)
+	}
+
+	w = newWorld(t)
+	w.install("podman")
+	w.answer([]string{"podman", "system", "df"}, "TYPE TOTAL\n", 0)
+	w.answerErr([]string{"podman", "images", "--format", "json"}, "", "Error: no images\n", 125)
+	w.typed("6", "n", "q")
+	wantCode(t, w.run(), term.ExitOK)
+	w.wantErr("  Removing every unused image is not offered: podman could not list its images" +
+		" (podman exited 125: Error: no images).")
+	if w.ran("podman image prune") {
+		t.Error("offered removing every unused image without the list")
+	}
+
+	w = newWorld(t)
+	w.install("docker")
+	w.answer([]string{"docker", "system", "df"}, "DTYPE\n", 0)
+	w.answer([]string{"docker", "image", "prune", "-af"}, "", 1)
+	w.typed("6", "n", "y", "q")
+	wantCode(t, w.run(), term.ExitFailure)
+	w.wantErr("  docker image prune -a reported an error.")
 }
 
 // E22: podman wedged is shown with the repair hint and is not a failure; docker unusable skips.
@@ -391,13 +446,14 @@ func TestContainersPodmanUnshare(t *testing.T) {
 	w.install("podman")
 	w.answerErr([]string{"podman", "system", "df"}, "", refused, 125)
 	w.answer([]string{"podman", "unshare", "podman", "system", "df"}, "TYPE TOTAL\n", 0)
-	w.answer([]string{"podman", "system", "prune", "-af"}, "", 0)
+	w.answer([]string{"podman", "system", "prune", "-f"}, "", 0)
+	w.answer([]string{"podman", "images", "--format", "json"}, "[]", 0)
 	w.typed("6", "y", "q")
 	wantCode(t, w.run(), term.ExitOK)
 	w.wantErr("  podman system df was refused permission; reading it again inside podman's user namespace"+
 		" (podman unshare podman system df). Reason:\n    Error: open /s/volumes/v/_data: permission denied\n",
 		"  Podman storage usage:\n    TYPE TOTAL\n", "  Podman pruned.")
-	if got := w.changes(); !slices.Equal(got, []string{"podman system prune -af"}) {
+	if got := w.changes(); !slices.Equal(got, []string{"podman system prune -f"}) {
 		t.Errorf("changes %v", got)
 	}
 
@@ -511,7 +567,7 @@ func TestSweep(t *testing.T) {
 		{"dnf", "-y", "autoremove"},
 		{"dnf", "clean", "all"},
 		{"journalctl", "--vacuum-size=500M"},
-		{"podman", "system", "prune", "-af"},
+		{"podman", "system", "prune", "-f"},
 		{"flatpak", "uninstall", "--unused", "-y"},
 		{"trash-empty", "-f"},
 	} {
@@ -521,12 +577,16 @@ func TestSweep(t *testing.T) {
 	wantCode(t, w.run(), term.ExitOK)
 	want := []string{
 		"root dnf -y autoremove", "root dnf clean all", "root journalctl --vacuum-size=500M",
-		"podman system prune -af", "flatpak uninstall --unused --assumeno", "flatpak uninstall --unused -y", "trash-empty -f",
+		"podman system prune -f", "flatpak uninstall --unused --assumeno", "flatpak uninstall --unused -y", "trash-empty -f",
 	}
 	if got := w.changes(); !slices.Equal(got, want) {
 		t.Errorf("changes %v", got)
 	}
-	w.wantErr("  Safe sweep finished.")
+	w.wantErr("    • container prune: stopped containers, dangling images and unused networks, no tagged image"+
+		" (if podman present)\n", sweepKeepsTagged, "  Safe sweep finished.")
+	if w.ran("podman images") {
+		t.Error("the sweep read the image list it never offers")
+	}
 
 	w = newWorld(t)
 	w.install("dnf")

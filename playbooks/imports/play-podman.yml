@@ -153,15 +153,23 @@
     # `podman info` walks overlay/tempdirs and fails (rc=125) if any stale
     # build temp dirs contain files the user cannot unlink (e.g. files from
     # a half-completed CCY build owned by sub-UIDs the namespace can no
-    # longer reach). The tempdirs/ tree is by definition transient build
-    # scratch — deleting it is safe and idempotent. `podman unshare rm` is
-    # NOT enough on some kernels (it fails when the file UID is outside the
+    # longer reach). Podman recreates tempdirs/ whenever it uses its storage,
+    # so it is removed only when podman info fails: a healthy rerun changes
+    # nothing, and a build that is using it is left alone. `podman unshare rm`
+    # is NOT enough on some kernels (it fails when the file UID is outside the
     # current namespace mapping), so we use host root via passwordless sudo.
+    - name: Probe podman info (fails when stale build temp dirs cannot be walked)
+      ansible.builtin.command: podman info
+      register: podman_info_probe
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe; a failure cleans tempdirs below, and Verify Podman Install fails loudly
+
     - name: Clean Stale Rootless Build Temp Dirs (lets podman info succeed)
       become: true
       ansible.builtin.file:
         path: "/home/{{ user_login }}/.local/share/containers/storage/overlay/tempdirs"
         state: absent
+      when: podman_info_probe.rc != 0
 
     - name: Verify Podman Install
       ansible.builtin.command: podman info

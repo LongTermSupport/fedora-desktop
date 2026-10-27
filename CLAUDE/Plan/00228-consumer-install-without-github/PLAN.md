@@ -218,9 +218,16 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
     play-basic-configs asked a consumer for the prompt colour, the attendant had no answer,
     and the run waited out provisionLimit (exit 124). The 3 failed checks all follow from
     that. Fixed in bd342c63d (a consumer is never asked). Re-run after Task 3.3.
-- [x] ✅ **Task 3.3**: The vmtest attendant fails an attended run on an unanswered prompt in
-  seconds, not at provisionLimit (90 minutes): an idle-output bound once a prompt-shaped line
-  is the last output, so the next unknown question costs seconds. Tests first, in
+  - Re-run at 525560cfb: COVERAGE 2 of 3, REJECTED. desktop-fresh-install 16 of 16 and
+    server-fast-provision 13 of 13 passed. desktop-consumer-install passed 16 of 17 in about
+    18 minutes, with no prompt hang (the colour question was skipped on both runs). The one
+    failure, rerun-changed-nothing, was play-podman.yml's tempdirs clean: it deleted
+    overlay/tempdirs on every run, and podman recreates it on each use, now on every consumer
+    install because ccc's image is built there (Plan 00233). Fixed: removed only when
+    `podman info` fails. Re-run after that fix is pushed.
+- [x] ✅ **Task 3.3**: The vmtest attendant fails an attended run on an unanswered prompt within
+  two minutes, not at provisionLimit (90 minutes): an idle-output bound once a prompt-shaped
+  line is the last output, so the next unknown question costs 60 to 120 s. Tests first, in
   `src-go/internal/vmtest` (attend.go, steps.go).
   - As built: a partial line ending in `:`, `?`, `]`, `)` or `>` with nothing after it for
     `promptIdle` (60s, on `Env.Sleep`) ends the run as a fail, the transcript quoting its

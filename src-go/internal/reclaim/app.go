@@ -19,7 +19,7 @@ import (
 )
 
 // Version is the command's version (E1).
-const Version = "2.0.1"
+const Version = "2.0.3"
 
 // The programs and arguments named in more than one place.
 const (
@@ -28,6 +28,10 @@ const (
 	progFlatpak = "flatpak"
 	progDnf     = "dnf"
 	argSystem   = "system"
+	argPrune    = "prune"
+	argAllForce = "-af"
+	argForce    = "-f"
+	argImage    = "image"
 	duBytes     = "-B1"
 )
 
@@ -61,6 +65,12 @@ type Env struct {
 	VarDirs []string
 	// RemoveAll removes one entry of ~/.cache or the trash with everything under it.
 	RemoveAll func(string) error
+	// Owner is the uid owning a path, not following a symlink: why podman could not read a
+	// volume (E7a).
+	Owner func(string) (int, error)
+	// SubUIDs is /etc/subuid, and Account this account's name and uid (E7a).
+	SubUIDs func() ([]byte, error)
+	Account func() (string, int, error)
 }
 
 // NewEnv is the production environment.
@@ -83,6 +93,9 @@ func NewEnv() Env {
 		Columns:   func() int { return term.FileColumns(os.Stderr) },
 		VarDirs:   []string{"/var/log", "/var/cache"},
 		RemoveAll: os.RemoveAll,
+		Owner:     ownerUID,
+		SubUIDs:   func() ([]byte, error) { return os.ReadFile("/etc/subuid") },
+		Account:   account,
 	}
 }
 

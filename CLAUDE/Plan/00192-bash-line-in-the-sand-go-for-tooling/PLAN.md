@@ -209,8 +209,18 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     `Permission denied` lines under `/var/log` and `/var/cache` (now one line per directory,
     counted, the first named; E6), and `podman system df` exiting 125 on a volume whose data a
     container's uid owns, so podman storage was never reported (now read again under
-    `podman unshare`, the refusal named; E7, E22). 2.0.1's host check is queued in
-    `meta-deploy.list`.
+    `podman unshare`, the refusal named; E7, E22). 2.0.1 on the host: the `du` fix holds, but
+    podman storage was still unavailable, because one rootless volume's data is owned by a uid
+    outside the user's current subordinate range, which no user namespace maps. 2.0.2 reports
+    podman storage in part from the listings that open no volume, names that volume and why
+    (found from its owner and `/etc/subuid`), and option 6 then offers only the image prune
+    (E7a, E22a). 2.0.2 on the host: the wording holds, but the partial section printed the
+    raw listings (hundreds of lines), and option 6's image prune (`-af`) would have removed
+    every unused tagged image, the per-project claude-yolo images included. 2.0.3 summarises
+    the partial section (counts, sizes, dangling images, the largest ten of each kind), makes
+    every default prune dangling-only, and asks separately, default No, about every unused
+    image, listing the claude-yolo images it would remove; the safe sweep never asks it (E7a,
+    E22, E22a, E27, B16). 2.0.3's host check is queued in `meta-deploy.list`.
   - Still to do: the remaining programmes in [INVENTORY.md](INVENTORY.md) (`nord`,
     `nvidia-status`, the `ssh-with-key` family) and the `ccy` launcher.
 

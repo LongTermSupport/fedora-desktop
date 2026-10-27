@@ -124,12 +124,15 @@ prerequisites. It is started as `ccc` in a terminal or as "Claude" from the app 
 - [x] ✅ **Task 3.1**: `play-podman.yml` to `audience: all`
 - [x] ✅ **Task 3.2**: `tasks/claude-yolo-image.yml` extracted from `play-claude-yolo.yml`
 - [x] ✅ **Task 3.3**: `play-claude-code-consumer.yml`, imported by `playbook-main.yml`
-- [ ] ⬜ **Task 3.4**: `ansible-playbook --syntax-check` on the changed plays (no
-  `ansible-playbook` in this container; the host's `qa-all.bash` runs it)
+- [x] ✅ **Task 3.4**: `ansible-playbook --syntax-check` on the changed plays (no
+  `ansible-playbook` in this container; the host's `qa-all.bash` runs it). The host ran
+  them at 525560cfb with no failure.
 
 ### Phase 4: Host verification
 
-- [ ] ⬜ **Task 4.1**: `deploy.bash` and `acceptance.bash` through `meta-deploy.bash`
+- [x] ✅ **Task 4.1**: `deploy.bash` and `acceptance.bash` through `meta-deploy.bash`.
+  Passed at 525560cfb: all six legs (help, built-in version, image, private directories,
+  app grid entry, podman for every audience).
 - [ ] ⬜ **Task 4.2**: The host checks below, by the host agent or the owner
 - [ ] ⬜ **Task 4.3**: `qa-reviewer` over the plan's diff
 

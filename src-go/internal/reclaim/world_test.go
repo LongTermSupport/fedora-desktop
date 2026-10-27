@@ -66,7 +66,20 @@ type world struct {
 	ttyIn io.Reader
 	// removeAll, when set, is the removal the clears use.
 	removeAll func(string) error
+	// owners is the uid owning each path the run asks of; any other path cannot be read.
+	owners map[string]int
+	// subuid is /etc/subuid; subuidErr makes it unreadable.
+	subuid    string
+	subuidErr error
+	// accountErr makes this account's name and uid unreadable.
+	accountErr error
 }
+
+// The account a test runs as.
+const (
+	testUser = "someone"
+	testUID  = 1000
+)
 
 // ctxRunner is the world's runner: the Fake, with the context each command ran under watched.
 type ctxRunner struct{ w *world }
@@ -264,6 +277,14 @@ func (w *world) envFor() Env {
 		},
 		Columns: func() int { return 100 },
 		VarDirs: w.varDirs,
+		Owner: func(p string) (int, error) {
+			if uid, ok := w.owners[p]; ok {
+				return uid, nil
+			}
+			return 0, &fs.PathError{Op: "lstat", Path: p, Err: fs.ErrPermission}
+		},
+		SubUIDs: func() ([]byte, error) { return []byte(w.subuid), w.subuidErr },
+		Account: func() (string, int, error) { return testUser, testUID, w.accountErr },
 	}
 }
 
