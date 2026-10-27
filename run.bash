@@ -993,8 +993,8 @@ Options:
                        the first failure. Names any play it cannot judge, and any
                        that is gone, rather than skip it.
   --yes                With --changed: run the list without asking, and do not
-                       offer a GitHub issue if a play fails. For a caller that
-                       runs it unattended, such as meta-deploy.
+                       offer an issue if a play fails, skip a missing optional
+                       secret and fail a required one. For meta-deploy and such.
   --rerun              List every play that has run here as a numbered menu, the
                        ones that have to run again marked * (changed since, or
                        last run failed). Pick one or more ("3", "1 4"), "a" for
@@ -1232,7 +1232,8 @@ USAGE
       RERUN_PLAYS=true
       ;;
     --yes)
-      ASSUME_YES=true
+      # Exported: tasks/ask-and-save-secret.yml reads it, as nobody answers a prompt here.
+      export ASSUME_YES=true
       ;;
     *.yml)
       # A playbook path is the only positional run.bash takes; everything after it is
