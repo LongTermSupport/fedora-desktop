@@ -4,12 +4,14 @@
 Task 3.3; the Go gate is go-qa-ci through `scripts/qa-go-qa.bash`). Left for workers: the
 remaining ports of Task 3.3 (the `ccy` launcher's phases 3 to 5 are deferred by Plan 00191
 D4/D10), and Tasks 4.1 and 4.2 over the finished plan. Left for the host agent: the host checks
-of the merged ports still open (freeze step 2's remainder and step 3, vmtest H2's bridge half,
-H3 and H6, ftp-camera H1, H2 and H5, wsi H2, open H2, H3 and H5, rclone-tail H4,
-gh-account-setup H1 and H3 to H5); Task 3.2's root run is on hold
+of the merged ports still open (vmtest H3's base build, once the runs are pruned; open H5's
+Ctrl-C in mpv; rclone-tail H4; gh-account-setup H1 and H3 to H5); Task 3.2's root run is on hold
 until Plan 00209 Task 2.5 (see the task). Left for the owner: only what needs the owner in person, namely
-gh-account-setup H2 (a real GitHub device login), ftp-camera H3 and H4 (the physical camera)
-and wsi H1 (speaking into the microphone).
+gh-account-setup H2 (a real GitHub device login), ftp-camera H3 and H4 (the physical camera),
+H1 (it sorts the real upload tree, so it waits on the owner's yes) and H5 (a Wi-Fi access
+point on the owner's machine), wsi H1 (speaking into the microphone) and H2 (a real recording
+and Escape on the owner's desktop), open H2 and H3 and reclaim H5 (the owner's screen), and
+vmtest H6 (a throwaway GitHub account to create).
 **Created**: 2026-10-14
 **Owner**: joseph
 **Priority**: High
@@ -163,13 +165,32 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     (`$49WVO-g6jUYPrUTWNVTGt_VLL2bk3WD7ydjiJVHMzMY`); left: H2's bridge run, H3 and H6.
     watermark H3 PASS (`$NIHwpSi3rTN-Z2LSvujaLWtueWfi_dZedKS4rkYtB9M`), the source of the
     wording correction above.
+    Host, 2026-10-27 (host agent; `$k9uI3FUf_DcvOv_JwAhf17IurP3meue4j1dnETUvOGY`,
+    `$TI8EqLDcYBMAKoH3ZkGnXJtHBgW6qUvqNluei5bMPXM`): vmtest H2's bridge run PASS
+    (`server-fast-provision` through `vmtest-request.bash`, 13 of 13 checks, `vmtest verify`
+    signature ok, verdict pass); H3's run half PASS (`desktop-fresh-install` 16 of 16), its
+    base build (`vmtest build-base desktop-44`) not started: the host's root filesystem was at
+    99%. Finding: the kept overlays of failed runs under the lab's runs directory had grown to
+    about 108G in 37 runs, never removed, and vmtest has no verb to prune them; being fixed on
+    `fix/00192-vmtest-prune-runs`. H6 SKIP, it needs a throwaway GitHub account. ftp-camera H2
+    PASS (`--copy-preflight` printed the rclone RC address, exit 0); H1 and H5 not run (the
+    owner's, above). wsi H2 not run (the owner's).
   - `open` (P6): done, `go-port/open` and `go-port/open-2` both merged into F44 and deployed
-    (`8c2de08c`); its host checks H1-H5 are the host agent's (terminal steps through tmux,
-    the desktop steps by screenshot and `gio mime`), not queued in `meta-deploy.list`. Spec
+    (`8c2de08c`); its host checks H1, H4 and H5 are the host agent's (terminal steps through
+    tmux), H2 and H3 the owner's (the desktop), not queued in `meta-deploy.list`. Spec
     [SPEC-open.md](SPEC-open.md). Host, 2026-10-23 (`$NIHwpSi3rTN-Z2LSvujaLWtueWfi_dZedKS4rkYtB9M`):
     H1 and H4 PASS (H4's image render unproven by `capture-pane`); H5 partial (Ctrl-C in mpv
     not run, mpv was then missing; it is now installed, mpv v0.41.0 by `play-cli-tools.yml`,
     `$SaaNjb_VFudX-vnN6tjA8rXQXtbNv_-y_dJUJgXxFSA`); H2 and H3 (the owner's screen) not run.
+    Host, 2026-10-27 (host agent, a private tmux, `$k9uI3FUf_DcvOv_JwAhf17IurP3meue4j1dnETUvOGY`):
+    H1 PASS; H4 PASS for text (the editor), a directory and `.` (`ls` in `less`), a PDF
+    (`pdftotext` in `less`) and an unknown type (the chooser, Esc exit 130). H4's image: `chafa`
+    ran, exit 0, but drew nothing inside the nested tmux (`TERM=tmux-256color`), while
+    `chafa --format symbols` drew text; fixed on `fix/00192-open-chafa-tmux` (E11a). H5: Ctrl-C
+    in `less` is less's, `q` exits 0 with the terminal normal; a named pipe is classified
+    without blocking, and Ctrl-C at the chooser gives `cancelled — nothing opened.`, exit 130
+    (E31). Not run: Ctrl-C in mpv (left, above), Ctrl-C ending chafa (a still image returns at
+    once) and Ctrl-C during a slow file (no slow file found). H2 and H3 are the owner's.
   - `rclone-cache-status` (P6): ported, merged into F44, deployed and live-checked on the host
     (`deploy-rclone-cache-status.bash` passed), spec
     [SPEC-rclone-cache-status.md](SPEC-rclone-cache-status.md); left, for the host agent: the

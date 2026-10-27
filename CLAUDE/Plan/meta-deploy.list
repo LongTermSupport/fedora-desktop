@@ -41,6 +41,9 @@
 # play-nvidia.yml (the shared MOK enrolment message) only if they have run here before.
 # The host agent then checks reclaim --version says 2.0.5 and reruns option 6 answering No to
 # every question: a Skipped line after each of the four, and nothing run.
+# play-cli-tools.yml also rebuilds open (Plan 00192 E11a): inside tmux or screen its chafa image
+# preview draws text symbols instead of graphics tmux does not pass; the host agent then
+# reruns open H4's image in its private tmux and sees the picture drawn as text.
 changed-plays
 
 # Plan 00234, the review fixes: acceptance.bash again, read-only, with a new screen leg that

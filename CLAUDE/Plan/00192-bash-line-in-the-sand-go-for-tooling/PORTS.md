@@ -320,8 +320,9 @@ and cut over, merged into F44 and deployed (F44 `8c2de08c`); spec [SPEC-open.md]
 `src-go/cmd/open` and `src-go/internal/open` (handlers as an argv table with an optional
 pager over an `os.Pipe`, no shell; the chooser `ui.Picker` with a Cancel row, or a numbered
 menu on `/dev/tty`; desktop apps through `gio` alone); `play-cli-tools.yml` builds it, the bash
-and its allowlist row are gone (it had no suite). Host checks H1-H5 are the
-owner's, done by hand at the desktop, and are not in `meta-deploy.list`; report `subagent-reports/261019-p6-port-opus.md`. Fable's review
+and its allowlist row are gone (it had no suite). Host checks H1, H4 and H5 are the
+host agent's (terminal steps through tmux), H2 and H3 the owner's (the desktop); none is in
+`meta-deploy.list`; report `subagent-reports/261019-p6-port-opus.md`. Fable's review
 (`subagent-reports/261019-open-port-review-fable.md`, FIX-FIRST) is fixed on
 `go-port/open-2`, merged too: a handler's own Ctrl-C is a quiet cancel (130), other signals named
 (128 + n), an interrupt before the handler cancels (E29-E31).
