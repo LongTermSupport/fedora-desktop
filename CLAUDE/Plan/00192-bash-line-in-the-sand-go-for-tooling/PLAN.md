@@ -92,12 +92,13 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   established: the first run matched byte for byte on three of the four commands (the fourth
   stopped on a sudo prompt the Go sudo probe raised wrongly, now fixed), and the second run,
   with no prompt, differed only by the containers started between the runs, every common row
-  identical. A live comparison against a saved baseline cannot repeat on a machine whose
-  containers change, so `acceptance.bash` is retired from the queue. Left, for the host agent:
+  identical. A row comparison against a saved baseline cannot repeat on a machine whose
+  containers change, so `acceptance.bash` now checks the layout only (Task 3.4). Left, for the host agent:
   [ACCEPTANCE-freeze.md](ACCEPTANCE-freeze.md) step 2 (freeze and thaw a throwaway container
   with each tool; the menu driven by tmux keys and read with `capture-pane`; Ctrl-C mid-batch
-  gives 130; `lxcfreeze` needs sudo at the run) and step 3 (a second run of the freeze plays
-  reports ok, not changed). Step 2, partial (bus `$8aqX_PoK5b62YkY5FNbJF0kZ2SBsP8XxhoXIrIR5fkI`):
+  gives 130; `lxcfreeze` needs sudo at the run) and step 3 (the meta-deploy run queued for
+  00192: the freeze build and install tasks report ok, not changed, read from the play recaps,
+  and the `acceptance.bash` leg passes). Step 2, partial (bus `$8aqX_PoK5b62YkY5FNbJF0kZ2SBsP8XxhoXIrIR5fkI`):
   podfreeze freeze/thaw and the tmux-driven menu PASS on throwaways. `lxcfreeze` PASS 26-10-26
   (host agent, Alpine and Rocky throwaways: freeze, thaw, list, the fzf menu, raw `lxc-freeze`
   thawed by the tool); the thaw without NetworkManager exits 1 (Task 3.5). Still left: Ctrl-C
@@ -176,10 +177,17 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   - Still to do: the remaining programmes in [INVENTORY.md](INVENTORY.md) (account/setup tools
     after `rclone-cache-status`) and the `ccy` launcher.
 
-- [ ] ⬜ **Task 3.4**: Freeze step 3's `acceptance.bash` compares live engine output with the
-  baseline saved at the first deploy, so it fails (7 of 11) once containers start or stop: every
-  diff was added rows only. Fix the check (the format, or the baseline rows as a subset) before
-  step 3 is run again.
+- [x] ✅ **Task 3.4**: Freeze step 3's `acceptance.bash` compared live engine output with the
+  baseline saved at the first deploy, so it failed (7 of 11) once containers started or stopped:
+  every diff was added rows only. Kept and fixed, not retired: the golden replay runs under
+  fakes, so this is still the only check that the parsers read a real engine, and step 3 needs a
+  scripted verdict. `freeze-layout.bash` compares the layout: container rows (the lines under a
+  `  NAME` header) and counts dropped, every remaining line one the bash tool printed (the
+  baseline, or the golden for an empty machine and a full dry run). The dry run may exit 1 with
+  empty stdout. Baseline rows as a subset was rejected: a removed container fails it. Test first:
+  `test-freeze-layout.bash`, 10 fixture cases (rows added, removed and thawed, a machine now
+  empty pass; a changed header, a renamed heading, a stray stdout line, a wrong verb fail).
+  Host check: step 3, queued in `meta-deploy.list`.
 
 - [x] ✅ **Task 3.5**: `lxcfreeze thaw` on a container without NetworkManager exits 1 after a
   thaw that succeeded (SPEC-freeze bug 19, D6). Owner decision 26-10-26: no `nmcli` is not

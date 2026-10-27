@@ -847,6 +847,8 @@ Because the suites are white-box (9.1), parity has three legs, in this order:
    captures, **before** the cut-over deploy, `podfreeze list`, `podfreeze freeze --all -n` and the
    `lxcfreeze` equivalents into `untracked/`, and diffs them against the Go binaries' output after
    `meta-deploy`; then freezes and thaws one throwaway container per engine with each binary.
+   Parity was shown on the first deploys (PLAN.md Task 3.1); a later run compares the layout only
+   (`freeze-layout.bash`: container rows and counts dropped), since the containers change.
    This also settles what no fake can: that `podman ps --format` and `lxc-info` emit what the
    parsers expect (the gap `TP` and `TX` both state).
 
