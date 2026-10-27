@@ -1,0 +1,28 @@
+# The fixture of TestSuiteReachesResolvesTheVariablesASuiteRootsInTheRepository: every way a suite
+# roots a variable in the repository, the reaches through them, and the near misses.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+UP="$(cd "${HERE}/.." && pwd -P)"
+CCY_DIR="$REPO_ROOT/files/var/local/claude-yolo"
+LIB_DIR="$CCY_DIR/lib"
+LAUNCHER="$CCY_DIR/claude-yolo"
+SIBLING_LIB="$(dirname "$LAUNCHER")/lib"
+WORK="$(mktemp -d)"
+cp "$REPO_ROOT"/helpers/self_update/*.py "$WORK/"
+for lib in "$LIB_DIR"/*.bash; do :; done
+cat "$SIBLING_LIB"/*.sh
+ls ${ROOT}/playbooks/imports/play-*.yml
+for d in "$SCRIPT_DIR"/../src-go/cmd/*/; do :; done
+cp -r "$UP/files/etc/skel" "$WORK/"
+cp -r "$UP/files/etc/skel/" "$WORK/again"
+HOOK_DIR="$SCRIPT_DIR/git-hooks"
+cp -R "$HOOK_DIR" "$WORK/hooks"
+bash "$CCY_DIR" --version
+ln -s "$CCY_DIR/$helper" "$WORK/$helper"
+cp "$WORK"/*.log "$WORK/out"
+    REPO_ROOT="$WORK/elsewhere" run
+# cp "$ROOT"/commented/*.py out
+grep -c "source \"\$SCRIPT_DIR/lib/x.bash\"" "$LAUNCHER"
+cat "$REPO_ROOT/$name" "$LIB_DIR/$f" "$ROOT/../outside/x"

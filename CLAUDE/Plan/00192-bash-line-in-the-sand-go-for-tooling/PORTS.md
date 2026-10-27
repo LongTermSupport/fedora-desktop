@@ -257,16 +257,17 @@ owes the docs check (F4); goldmark is v1.8.6 (F9). F3, F6, F8 and F10 were not r
 Shared scaffolding (`go-port/qa-cmdmain`, merged): the command-line and output boilerplate the
 gates had each copied now lives in `src-go/qa/internal/cmdmain` (closed-stdout refusal, report
 writers), `emit` (the two-stream writer and the exit rule) and `rootargs` (the `-h`, `--root`,
-`--scripts` grammar): every one of the 28 `qa/cmd` mains uses `cmdmain`, 16 gate packages use
-`rootargs` (10 of them also `emit`), and 12 use `emit` (counted at F44 1d8bc1037 by the
-packages' non-test imports, after the gates added since the merge). Fable review
+`--scripts` grammar): every one of the 29 `qa/cmd` mains uses `cmdmain` (recounted at F44 fe894347c), 16 gate
+packages use `rootargs` (10 of them also `emit`), and 12 use `emit` (counted at F44 1d8bc1037
+by the packages' non-test imports, after the gates added since the merge). Fable review
 (`subagent-reports/261015-fable-review-cmdmain.md`) found no blocker and no behaviour drift.
 Checked in the merged tree: `rootargs.Lenient` is gone, so `--root ""` is refused as
 `--root needs a directory` instead of silently falling back to another tree, and
 `rootargs_test.go` pins `--root ""` and `--scripts ""`; the `ansible-patterns` routing row for
 `qa/ansible`, `qa/cmd/qa-ansible` and the shared packages is in `scripts/qa-routing.tsv`; the
-cmdmain tests read the report back; `src-go/CLAUDE.md` describes the shared packages; all 28
-`qa/cmd` mains call `cmdmain.RefuseClosedStdout` (28 directories, 28 non-test callers); the departure rows for the Strict move exist
+cmdmain tests read the report back; `src-go/CLAUDE.md` describes the shared packages; all 29
+`qa/cmd` mains call `cmdmain.RefuseClosedStdout` (29 directories, 29 non-test callers, at F44
+fe894347c); the departure rows for the Strict move exist
 (SPEC-qa-docs B16, qa-js B12, qa-python B18, qa-patterns B15, qa-gh-scopes B9, qa-ansible-syntax
 D11).
 `qa-go.bash`, the interim Go gate, was not ported (owner's decision, 2026-10-15): Plan 00191
@@ -338,8 +339,8 @@ found that way (B10: with no mount the bash printed only the heading and exited 
 `deploy-rclone-cache-status.bash` (the tagged play, then
 `acceptance-rclone-cache-status.bash` for H1) passed; H2 and H3 are the owner's, by hand inside
 a mount.
-`gh-account-setup` (P6, the third tool; chosen in its spec's section 1) ported on its own branch,
-under review, not merged; spec [SPEC-gh-account-setup.md](SPEC-gh-account-setup.md) (D1-D5,
+`gh-account-setup` (P6, the third tool; chosen in its spec's section 1) ported on its own branch
+and merged into F44 (`9e404ae6b`); spec [SPEC-gh-account-setup.md](SPEC-gh-account-setup.md) (D1-D5,
 E1-E30, B1-B15, H1-H5), `src-go/cmd/gh-account-setup` (the askpass dispatch, else the run) and
 `src-go/internal/ghaccount`. It is not deployed: `scripts/gh-account-setup.bash` is a wrapper that
 builds it from the checkout on each run and execs it, so a signal sent to the wrapper reaches
@@ -381,7 +382,7 @@ next line and `--once` still gets its closing snapshot. Round 2 (CHANGES: 1 Low)
 second signal during either snapshot ends the run at once (its session groups killed, nothing
 more printed, exit 130), so no `rclone rc` outlives the run. Round 3: MERGE (2 Nits, fixed).
 `setup-rclone` (P6, the fifth tool; chosen in its spec's section 1) ported on
-`go-port/setup-rclone-2`, under review, not merged; spec [SPEC-setup-rclone.md](SPEC-setup-rclone.md)
+`go-port/setup-rclone-3` and merged into F44 (`61b70d02d`); spec [SPEC-setup-rclone.md](SPEC-setup-rclone.md)
 (D1-D4, E1-E23, B1-B14, H1-H4), `src-go/cmd/setup-rclone` and `src-go/internal/setuprclone`.
 It is not deployed: `scripts/setup-rclone.bash` is now the wrapper that builds it from the
 checkout and execs it with `SETUP_RCLONE_ROOT` set (as `gh-account-setup`'s); its allowlist
