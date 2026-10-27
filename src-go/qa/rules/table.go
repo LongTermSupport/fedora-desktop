@@ -70,7 +70,7 @@ var commandOwners = map[string][]string{
 	"busctl":       {"internal/systemd", "internal/wsimedia"},
 	"git":          {"internal/gitx"},
 	"ps":           {sessprobePkg},
-	"podman":       {sessprobePkg, podfreezePkg, reclaimPkg},
+	"podman":       {sessprobePkg, podfreezePkg, reclaimPkg, "internal/ccc"},
 	"docker":       {sessprobePkg, reclaimPkg},
 	"lxc-ls":       {lxcfreezePkg},
 	"lxc-info":     {lxcfreezePkg},
