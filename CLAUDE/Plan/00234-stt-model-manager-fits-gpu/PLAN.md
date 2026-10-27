@@ -71,9 +71,11 @@ non-technical person can follow the blue MOK Manager screens after the reboot.
 
 ### Phase 2: On the host
 
-- [ ] ⬜ **Task 2.1**: meta-deploy: `changed-plays` picks up play-speech-to-text.yml and
+- [x] ✅ **Task 2.1**: meta-deploy: `changed-plays` picks up play-speech-to-text.yml and
   play-nvidia.yml; then this plan's `acceptance.bash` (installed copies are the checkout's,
-  `--fit` judges the real GPU, the installed manager preselects and refuses)
+  `--fit` judges the real GPU, the installed manager preselects and refuses). Passed at
+  525560cfb on a 4.0 GB laptop GPU: Distil Large v3.5 preselected (fits, 2.6 GB), Large v2
+  and v3 refused (about 4.4 GB needed). play-nvidia.yml was not picked: it has not run there.
 - [ ] ⬜ **Task 2.2**: The owner's look: open Manage Whisper Models... and check the status
   line names the NVIDIA GPU and its memory, the cursor is on Distil Large v3.5, Large v2 and
   Large v3 show `✗ too big`, and choosing one shows the refusal and leaves the list open

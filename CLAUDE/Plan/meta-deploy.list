@@ -33,35 +33,6 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# The plays changed since they last ran here. Expected: every play that includes
-# tasks/ask-and-save-secret.yml and has run here (Plan 00230: an unattended --yes run now
-# skips a missing optional secret, such as the camera hotspot password, and fails a required
-# one at once instead of waiting at its prompt), play-speech-to-text.yml (Plan 00234: the
-# model manager marks which models fit this machine's GPU, and the resolver's --fit it asks),
-# play-claude-yolo.yml and play-podman.yml (Plan 00233 moved the image tasks and made podman
-# every audience's), play-gsettings.yml (middle-click paste) and play-cli-tools.yml (Plan
-# 00192: reclaim 2.0.1 rebuilt, which summarises du's permission refusals and reads podman
-# storage again under podman unshare; the host agent then repeats reclaim's H1 and the
-# podman half of option 6 by hand, SPEC-reclaim.md section 7). play-nvidia.yml's rewritten
-# Secure Boot steps are text only, and it is picked only if it has run here.
-changed-plays
-
-# Plan 00234: read-only acceptance of the installed model manager against the real GPU:
-# the installed copies are the checkout's, wsi-resolve-model --fit names the NVIDIA GPU and
-# its memory, and the manager preselects an English-only model that fits and refuses each
-# one that does not. Nothing is downloaded or removed.
-00234-stt-model-manager-fits-gpu
-
-# Plan 00232 (issue #114) triage RERUN: the first run's candidate ruleset was refused by nft
-# (the host's own addresses overlap the private ranges), so every enforcement probe measured
-# an unfiltered container. Now fixed and the run stops at the first apply that fails. Same
-# throwaway containers only: read-only host facts, then the policy applied in each throwaway's
-# own network namespace, what a refusal looks like inside, whether the container's own
-# capabilities can lift it (the host's nft, run with only those capabilities), the exit status
-# through podman start -ai, ccy --connect, and pasta. Nothing touches a live session or the
-# host firewall; everything it creates is removed.
-00232-ccy-network-policy-per-container --active
-
 # Plan 00228 Tasks 3.2 and 3.3 (rerun): the consumer install proved in the VM lab, with the
 # attendant now failing an unanswered prompt in seconds. deploy.bash runs
 # play-vm-test-lab.yml (the vmtest CLI rebuilt with its attended-run driver, the manifest with
@@ -74,13 +45,3 @@ changed-plays
 # Task 2.2's host check: every package is upgraded before Ansible starts, so neither dies at
 # play-toolbox-install.yml's "name 'ssl' is not defined" (00229's PLAN.md records the result).
 00228-consumer-install-without-github
-
-# Plan 00233: ccc, Claude Code in rootless podman in ~/CCC. deploy.bash runs
-# play-claude-yolo.yml (its image tasks moved into tasks/claude-yolo-image.yml) and
-# play-claude-code-consumer.yml (play-podman.yml now for every audience, the image, ccc in
-# ~/.local/bin, the private token and state directories, and the "Claude" app grid entry).
-# acceptance.bash checks ccc --help, the built-in image version, the image's version label, the
-# 0700 directories, the app grid entry and rootless podman. The interactive checks (a first
-# sign-in, the two mounts, ctrl+z, the snapshot commit) are listed in the plan's Host Checks
-# for the host agent.
-00233-ccc-claude-code-for-consumers
