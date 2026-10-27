@@ -1,35 +1,51 @@
 package reclaim
 
 import (
+	"cmp"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/user"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/rclonecache"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/shellword"
 )
 
-// titleImages is the listing the image prune of E22a chooses from.
-const titleImages = "Images"
+const (
+	argFormat  = "--format"
+	formatJSON = "json"
+	// summaryListed is how many of each kind E7a's summary lists.
+	summaryListed = 10
+	// yoloImages starts the name of every per-project claude-yolo image.
+	yoloImages    = "localhost/claude-yolo:"
+	shortIDLength = 12
+	itemIndent    = "      "
+)
 
-// podmanListings are what E7a and E22a read when `podman system df` could not read a volume:
-// none of them opens a volume's data.
-var podmanListings = []struct {
-	title string
-	cmd   execx.Cmd
-}{
-	{titleImages, execx.Cmd{Name: progPodman, Args: []string{"images"}}},
-	{"Containers", execx.Cmd{Name: progPodman, Args: []string{"ps", "--all", "--size"}}},
-	{"Volumes", execx.Cmd{Name: progPodman, Args: []string{"volume", "ls"}}},
-}
+// The listings E7a and E22a read when `podman system df` could not read a volume: none of them
+// opens a volume's data.
+var (
+	podmanImages     = execx.Cmd{Name: progPodman, Args: []string{"images", argFormat, formatJSON}}
+	podmanContainers = execx.Cmd{Name: progPodman, Args: []string{"ps", "--all", "--size", argFormat, formatJSON}}
+	podmanVolumes    = execx.Cmd{Name: progPodman, Args: []string{"volume", "ls", argFormat, formatJSON}}
+)
 
-// podmanImagePrune removes only images no container uses; it neither reads nor removes a volume.
-var podmanImagePrune = execx.Cmd{Name: progPodman, Args: []string{"image", argPrune, argAllForce}}
+// podmanDanglingPrune removes only dangling images no container uses; podmanUnusedPrune every
+// image no container uses, tagged ones included. Neither reads nor removes a volume.
+var (
+	podmanDanglingPrune = execx.Cmd{Name: progPodman, Args: []string{argImage, argPrune, argForce}}
+	podmanUnusedPrune   = execx.Cmd{Name: progPodman, Args: []string{argImage, argPrune, argAllForce}}
+)
+
+// sweepKeepsTagged is said where the safe sweep leaves the question of every unused image out.
+const sweepKeepsTagged = "  The safe sweep removes no tagged image; option 6 offers removing every unused one."
 
 // refusedData is the volume data podman says it was refused permission to open.
 var refusedData = regexp.MustCompile(`open (\S*/volumes/([^/\s]+)/_data): permission denied`)
@@ -39,83 +55,325 @@ func refusedPermission(text string) bool {
 	return strings.Contains(text, "permission denied")
 }
 
-// listing is one of podmanListings as read.
-type listing struct {
-	title string
-	cmd   execx.Cmd
-	out   string
-	err   error
+// podmanImage is one entry of `podman images --format json`.
+type podmanImage struct {
+	// ID is podman's Id: json matches a field name in any case.
+	ID         string
+	Names      []string
+	Size       int64
+	Containers int
+	Dangling   bool
 }
 
-func (l listing) heading() string {
-	return "  " + l.title + " (" + l.cmd.Line() + "):"
+func (i podmanImage) dangling() bool { return i.Dangling || len(i.Names) == 0 }
+
+// prunable is whether `podman image prune -f` removes the image.
+func (i podmanImage) prunable() bool { return i.dangling() && i.Containers == 0 }
+
+func (i podmanImage) name() string {
+	if len(i.Names) > 0 {
+		return i.Names[0]
+	}
+	id := strings.TrimPrefix(i.ID, "sha256:")
+	return "<none> " + id[:min(shortIDLength, len(id))]
 }
 
-func (r *run) readPodmanListings(ctx context.Context) []listing {
-	out := make([]listing, 0, len(podmanListings))
-	for _, l := range podmanListings {
-		res, err := r.env.Runner.Run(ctx, l.cmd)
-		out = append(out, listing{title: l.title, cmd: l.cmd, out: string(res.Stdout), err: err})
+func (i podmanImage) yolo() bool {
+	return slices.ContainsFunc(i.Names, func(n string) bool { return strings.HasPrefix(n, yoloImages) })
+}
+
+// podmanContainer is one entry of `podman ps --all --size --format json`.
+type podmanContainer struct {
+	Names []string
+	State string
+	Size  *struct {
+		RwSize int64 `json:"rwSize"`
+	}
+}
+
+type podmanVolume struct{ Name string }
+
+// readList is c's JSON list.
+func readList[T any](ctx context.Context, runner execx.Runner, c execx.Cmd) ([]T, error) {
+	res, err := runner.Run(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	var out []T
+	if err := json.Unmarshal(res.Stdout, &out); err != nil {
+		return nil, fmt.Errorf("its output is not a JSON list: %w", err)
+	}
+	return out, nil
+}
+
+// sized is one line of a summary: a size and what has it.
+type sized struct {
+	bytes int64
+	label string
+}
+
+// sizedLines are items, largest first (equal sizes by label), one line each.
+func sizedLines(items []sized) []string {
+	items = slices.Clone(items)
+	slices.SortStableFunc(items, func(a, b sized) int {
+		if a.bytes != b.bytes {
+			return cmp.Compare(b.bytes, a.bytes)
+		}
+		return strings.Compare(a.label, b.label)
+	})
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		out = append(out, fmt.Sprintf("%s%8s  %s", itemIndent, rclonecache.IEC(it.bytes), it.label))
 	}
 	return out
 }
 
-// podmanPartialReport is E7a's section: what podman can list without opening a volume, labelled
-// as partial, after the unreadable volume named; each listing that fails is named on stderr.
+// firstListed is title (given how many are listed) and the first summaryListed of lines, with
+// how many more there are.
+func firstListed(title string, lines []string) []string {
+	shown := lines[:min(summaryListed, len(lines))]
+	out := append([]string{fmt.Sprintf(title, len(shown))}, shown...)
+	if more := len(lines) - len(shown); more > 0 {
+		out = append(out, fmt.Sprintf("    and %d more", more))
+	}
+	return out
+}
+
+func imageBytes(images []podmanImage) int64 {
+	var n int64
+	for _, i := range images {
+		n += i.Size
+	}
+	return n
+}
+
+func imagesSummary(images []podmanImage) (string, []string) {
+	if len(images) == 0 {
+		return "0", nil
+	}
+	items := make([]sized, 0, len(images))
+	var dangling []podmanImage
+	for _, i := range images {
+		items = append(items, sized{i.Size, i.name()})
+		if i.dangling() {
+			dangling = append(dangling, i)
+		}
+	}
+	line := fmt.Sprintf("    Dangling (<none>): %d", len(dangling))
+	if len(dangling) > 0 {
+		line += ", " + rclonecache.IEC(imageBytes(dangling))
+	}
+	head := fmt.Sprintf("%d, %s summed (a layer shared by several images is counted in each)",
+		len(images), rclonecache.IEC(imageBytes(images)))
+	return head, append([]string{line}, firstListed("    Largest %d:", sizedLines(items))...)
+}
+
+func containersSummary(containers []podmanContainer) (string, []string) {
+	if len(containers) == 0 {
+		return "0", nil
+	}
+	items := make([]sized, 0, len(containers))
+	for _, c := range containers {
+		var rw int64
+		if c.Size != nil {
+			rw = c.Size.RwSize
+		}
+		items = append(items, sized{rw, strings.Join(c.Names, ",") + " (" + c.State + ")"})
+	}
+	return strconv.Itoa(len(containers)), firstListed("    Largest %d by writable layer:", sizedLines(items))
+}
+
+func volumesSummary(volumes []podmanVolume) (string, []string) {
+	if len(volumes) == 0 {
+		return "0", nil
+	}
+	names := make([]string, 0, len(volumes))
+	for _, v := range volumes {
+		names = append(names, itemIndent+v.Name)
+	}
+	slices.Sort(names)
+	return fmt.Sprintf("%d, not sized, since sizing a volume opens its data", len(volumes)),
+		firstListed("    First %d by name:", names)
+}
+
+// podmanPart is one kind of podman storage as E7a summarises it, or why it could not be read.
+type podmanPart struct {
+	title   string
+	cmd     execx.Cmd
+	summary string
+	lines   []string
+	err     error
+}
+
+func (p podmanPart) heading() string {
+	return "  " + p.title + " (" + p.cmd.Line() + "): "
+}
+
+func readPart[T any](ctx context.Context, r *run, title string, c execx.Cmd, sum func([]T) (string, []string)) ([]T, podmanPart) {
+	list, err := readList[T](ctx, r.env.Runner, c)
+	p := podmanPart{title: title, cmd: c, err: err}
+	if err == nil {
+		p.summary, p.lines = sum(list)
+	}
+	return list, p
+}
+
+// podmanInPart is E7a's summary of the images, containers and volumes, and the image list read
+// (its part's err says why it could not be).
+type podmanInPart struct {
+	parts  []podmanPart
+	images []podmanImage
+}
+
+func (s podmanInPart) imagesErr() error { return s.parts[0].err }
+
+func (r *run) readInPart(ctx context.Context) podmanInPart {
+	images, pi := readPart(ctx, r, "Images", podmanImages, imagesSummary)
+	_, pc := readPart(ctx, r, "Containers", podmanContainers, containersSummary)
+	_, pv := readPart(ctx, r, "Volumes", podmanVolumes, volumesSummary)
+	return podmanInPart{parts: []podmanPart{pi, pc, pv}, images: images}
+}
+
+// podmanPartialReport is E7a's section: a summary of what podman can list without opening a
+// volume, labelled as partial, after the unreadable volume named; each listing that fails is
+// named on stderr.
 func (r *run) podmanPartialReport(ctx context.Context, refusal string) string {
 	var b strings.Builder
 	b.WriteString("  (partial: podman system df could not read every volume, so there are no totals)\n")
 	for _, l := range r.unreadableVolume(refusal) {
 		b.WriteString(l + "\n")
 	}
-	for _, l := range r.readPodmanListings(ctx) {
-		b.WriteString(l.heading() + "\n")
-		if l.err != nil {
-			r.failf("%s: %v", l.cmd.Line(), l.err)
-			b.WriteString("  (unavailable)\n")
+	for _, p := range r.readInPart(ctx).parts {
+		if p.err != nil {
+			r.failf("%s: %v", p.cmd.Line(), p.err)
+			b.WriteString(p.heading() + "unavailable\n")
 			continue
 		}
-		if out := strings.TrimRight(l.out, "\n"); out != "" {
-			b.WriteString(out + "\n")
+		b.WriteString(p.heading() + p.summary + "\n")
+		for _, l := range p.lines {
+			b.WriteString(l + "\n")
 		}
 	}
 	return b.String()
 }
 
-// podmanPartialPrune is E22a: podman's storage shown in part, and only the image prune offered,
-// since `podman system prune` would remove stopped containers podman could not fully see.
-func (r *run) podmanPartialPrune(ctx context.Context, out string) bool {
+// podmanPartialPrune is E22a: podman's storage summarised in part, and only image prunes
+// offered, since `podman system prune` would remove stopped containers podman could not fully
+// see; removing every unused image is offered only outside the safe sweep (everything).
+func (r *run) podmanPartialPrune(ctx context.Context, out string, everything bool) bool {
 	r.warn("  Cannot query podman fully: podman system df could not read every volume. Reason:")
 	r.show(out)
 	for _, l := range r.unreadableVolume(out) {
 		r.say(l)
 	}
 	r.info("  Podman storage, in part (no totals):")
-	images := false
-	for _, l := range r.readPodmanListings(ctx) {
-		r.say(l.heading())
-		if l.err != nil {
-			r.say("    (unavailable: " + l.err.Error() + ")")
+	storage := r.readInPart(ctx)
+	for _, p := range storage.parts {
+		if p.err != nil {
+			r.say(p.heading() + "unavailable (" + p.err.Error() + ")")
 			continue
 		}
-		images = images || l.title == titleImages
-		r.show(l.out)
+		r.say(p.heading() + p.summary)
+		for _, l := range p.lines {
+			r.say(l)
+		}
 	}
-	if !images {
+	if storage.imagesErr() != nil {
 		r.warn("  No podman prune is offered: podman could not list its images either.")
 		return true
 	}
 	r.warn("  podman system prune is not offered: podman could not read all of its storage, and the prune" +
 		" removes stopped containers, which may be what still holds that volume.")
-	if !r.confirm(ctx, "  Prune unused podman images ("+podmanImagePrune.Line()+")?") {
-		r.say("  Skipped podman.")
-		return true
-	}
-	if err := r.stream(finished(ctx), podmanImagePrune); err != nil {
-		r.errLine("  podman image prune reported an error.")
+	pruned, ok := r.pruneDangling(ctx, storage.images)
+	if !ok || ctx.Err() != nil {
 		return false
 	}
-	r.okLine("  Podman images pruned.")
+	if !everything {
+		r.dimLine(sweepKeepsTagged)
+		return true
+	}
+	images := storage.images
+	if pruned {
+		images = slices.DeleteFunc(slices.Clone(images), podmanImage.prunable)
+	}
+	return r.offerUnused(ctx, images)
+}
+
+// pruneDangling offers `podman image prune -f` with what it frees; whether it ran, and false
+// when it failed.
+func (r *run) pruneDangling(ctx context.Context, images []podmanImage) (bool, bool) {
+	dangling := slices.DeleteFunc(slices.Clone(images), func(i podmanImage) bool { return !i.prunable() })
+	if len(dangling) == 0 {
+		r.okLine("  No dangling podman image to prune.")
+		return false, true
+	}
+	if !r.confirm(ctx, fmt.Sprintf("  Prune the %d dangling (<none>) podman image(s) no container uses, up to %s (%s)?",
+		len(dangling), rclonecache.IEC(imageBytes(dangling)), podmanDanglingPrune.Line())) {
+		r.say("  Skipped " + podmanDanglingPrune.Line() + ".")
+		return false, true
+	}
+	if err := r.stream(finished(ctx), podmanDanglingPrune); err != nil {
+		r.errLine("  podman image prune reported an error.")
+		return false, false
+	}
+	r.okLine("  Dangling podman images pruned.")
+	return true, true
+}
+
+// podmanUnused is E22's last podman question, asked of the image list as it is now.
+func (r *run) podmanUnused(ctx context.Context) bool {
+	images, err := readList[podmanImage](ctx, r.env.Runner, podmanImages)
+	if err != nil {
+		r.warn("  Removing every unused image is not offered: podman could not list its images (" + err.Error() + ").")
+		return true
+	}
+	return r.offerUnused(ctx, images)
+}
+
+// offerUnused asks, default no, to remove every image no container uses, naming the tagged
+// ones it would take and listing the claude-yolo project images among them.
+func (r *run) offerUnused(ctx context.Context, images []podmanImage) bool {
+	var unused, tagged []podmanImage
+	var yolo []sized
+	for _, i := range images {
+		if i.Containers > 0 {
+			continue
+		}
+		unused = append(unused, i)
+		if i.dangling() {
+			continue
+		}
+		tagged = append(tagged, i)
+		if i.yolo() {
+			yolo = append(yolo, sized{i.Size, i.name()})
+		}
+	}
+	if len(tagged) == 0 {
+		r.dimLine("  No other podman image is unused: nothing more to remove.")
+		return true
+	}
+	r.warn(fmt.Sprintf("  %s removes every image no container uses, not only the dangling ones: here %d tagged"+
+		" image(s), up to %s; each is pulled or rebuilt when it is next needed.",
+		podmanUnusedPrune.Line(), len(tagged), rclonecache.IEC(imageBytes(tagged))))
+	if len(yolo) > 0 {
+		r.say(fmt.Sprintf("  Among them, %d claude-yolo project image(s), each rebuilt on that project's next launch:", len(yolo)))
+		for _, l := range sizedLines(yolo) {
+			r.say(l)
+		}
+		if others := len(tagged) - len(yolo); others > 0 {
+			r.say(fmt.Sprintf("  and %d other tagged image(s).", others))
+		}
+	}
+	if !r.confirm(ctx, fmt.Sprintf("  Also remove all %d unused podman image(s), tagged ones included (%s)?",
+		len(unused), podmanUnusedPrune.Line())) {
+		r.say("  Kept the unused images.")
+		return true
+	}
+	if err := r.stream(finished(ctx), podmanUnusedPrune); err != nil {
+		r.errLine("  podman image prune -a reported an error.")
+		return false
+	}
+	r.okLine("  Unused podman images removed.")
 	return true
 }
 

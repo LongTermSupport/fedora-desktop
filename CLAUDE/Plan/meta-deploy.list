@@ -33,12 +33,14 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# The plays changed since they last ran here. Expected: play-podman.yml (Plan 00228: the
-# overlay/tempdirs clean now runs only when `podman info` fails, so a rerun changes nothing)
-# and play-cli-tools.yml (Plan 00192: reclaim 2.0.2 rebuilt, which reports podman storage in
-# part when a volume cannot be read, naming that volume and why). The host agent then reruns H1's podman section, expecting the
-# partial section and the unreadable volume named, and option 6 answering No, expecting only
-# the image prune offered and nothing run (SPEC-reclaim.md E7a, E22a).
+# The plays changed since they last ran here. Expected: play-cli-tools.yml (Plan 00192:
+# reclaim 2.0.3 rebuilt, which summarises podman storage in part instead of printing the raw
+# listings, and whose prunes are dangling-only unless a second question is answered yes). The
+# host agent then reruns H1's podman section, expecting a summary of a few dozen lines (counts,
+# sizes, dangling images, the largest ten of each kind) with the unreadable volume still named,
+# and option 6 answering No to both questions, expecting the dangling prune offered with what
+# it frees, then the every-unused-image question naming the claude-yolo images it would remove,
+# and nothing run (SPEC-reclaim.md E7a, E22, E22a).
 changed-plays
 
 # Plan 00228 Tasks 3.2 and 3.3 (rerun): the consumer install proved in the VM lab, with the

@@ -19,7 +19,7 @@ import (
 )
 
 // Version is the command's version (E1).
-const Version = "2.0.2"
+const Version = "2.0.3"
 
 // The programs and arguments named in more than one place.
 const (
@@ -30,6 +30,8 @@ const (
 	argSystem   = "system"
 	argPrune    = "prune"
 	argAllForce = "-af"
+	argForce    = "-f"
+	argImage    = "image"
 	duBytes     = "-B1"
 )
 

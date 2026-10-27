@@ -32,7 +32,7 @@ func TestMenuShowsHeaderAndQuits(t *testing.T) {
 	w.answer([]string{"journalctl", "--disk-usage"}, "Journals take up 8M.\n", 0)
 	w.typed("q")
 	wantCode(t, w.run(), term.ExitOK)
-	w.wantErr("reclaim\n", "box · v2.0.2", "  /  100G\n", "  Journals take up 8M.\n",
+	w.wantErr("reclaim\n", "box · v2.0.3", "  /  100G\n", "  Journals take up 8M.\n",
 		"Analyse\n", "   1) Biggest directories        ncdu\n", "   2) Biggest files\n",
 		"Reclaim  (destructive — each confirms first)\n",
 		"   3) dnf autoremove + clean all (sudo)\n",

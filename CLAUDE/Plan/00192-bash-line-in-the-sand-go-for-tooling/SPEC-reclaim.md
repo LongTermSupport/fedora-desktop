@@ -53,7 +53,7 @@ owner:
 ### Command line
 
 - E1. `reclaim` opens the menu; `reclaim report` prints the report; `-h`/`--help` prints the
-  usage on stdout and exits 0; `--version` prints `reclaim 2.0.2` on stdout and exits 0.
+  usage on stdout and exits 0; `--version` prints `reclaim 2.0.3` on stdout and exits 0.
 - E2. Any other argument, or a second argument, is `reclaim: unknown argument: <arg> — see 'reclaim --help'.` on stderr, exit 64. Every error line is `reclaim: <text>` on stderr.
 
 ### The report
@@ -87,14 +87,19 @@ owner:
   volume podman's refusal names (`open <store>/volumes/<name>/_data: permission denied`) as
   `  Unreadable volume <name> (<path>): <why>`, where why is found, never guessed: its owner
   (lstat) against the account's uid and its `/etc/subuid` lines (by name or uid), giving
-  outside the current range (`— probably left from an older setup; podman cannot read or size
-  it.`), inside it, the account itself, no range, or which of those could not be read. Then
+  outside the current range (`— probably left from an older setup; podman cannot read or size it.`), inside it, the account itself, no range, or which of those could not be read. Then
   `  To look at it without changing anything:` with `podman volume inspect <name>`,
   `sudo ls -lan <path>` and the `grep -E` of the account's `/etc/subuid` lines. A refusal naming
-  no volume says so. Then `podman images`, `podman ps --all --size` and `podman volume ls`
-  (none opens a volume's data), each under `  <Title> (<command>):`, one that fails named on
-  stderr and marked `  (unavailable)`. The report still exits 1 (E8). The volume is never
-  touched.
+  no volume says so. Then a summary of `podman images`, `podman ps --all --size` and
+  `podman volume ls`, each read as `--format json` (none opens a volume's data), each on a line
+  `  <Title> (<command>): <summary>`, never the raw listing (a host has hundreds of images):
+  images, their count and summed size (a shared layer counted in each),
+  `    Dangling (<none>): <n>[, <size>]` (no name, or podman's `Dangling`), and the largest ten,
+  `      <size, right-aligned to 8>  <name, or <none> and the short id>`; containers, their
+  count and the largest ten by writable layer, `<name> (<state>)`; volumes, their count (`not sized, since sizing a volume opens its data`) and the first ten by name. A kind with more than
+  ten adds `    and <n> more`; a kind with none is `0`. A listing that fails, or whose output is
+  not a JSON list, is named on stderr and its line ends `unavailable`. The report still exits 1
+  (E8). The volume is never touched.
 - E8. The report exits 0 when every section was read, and 1 when any could not be (E4 all
   failed, E5 failed, E6 no figure, E7), after printing every section. A failed write to stdout
   is exit 1.
@@ -103,7 +108,7 @@ owner:
 
 - E9. The menu needs a terminal: stdin a terminal and `/dev/tty` opened. Otherwise
   `reclaim: needs an interactive terminal; run 'reclaim report' for a non-interactive summary.`, exit 1.
-- E10. The header is a heading `reclaim` with the context `<hostname> · v2.0.2`, then the
+- E10. The header is a heading `reclaim` with the context `<hostname> · v2.0.3`, then the
   filesystem lines indented by two spaces, then the journal line. It is drawn when the menu
   opens and again on `r`.
 - E11. The menu lists, under `Analyse`, `Reclaim (destructive — each confirms first)` and
@@ -160,8 +165,17 @@ owner:
   `500M`, digits with an optional `K`, `M`, `G` or `T`), then `  Vacuum system journal to <size>?`; yes gets root and runs `sudo -n journalctl --vacuum-size=<size>`, then shows the
   journal line again.
 - E22. **Prune containers**: neither `podman` nor `docker` installed is `  Neither podman nor docker is installed.`. For podman, `podman system df` (both streams) shown indented, then
-  `  Prune unused podman data (images, containers, volumes)?`; yes runs
-  `podman system prune -af`. A `podman system df` that fails is `  Cannot query podman — skipping podman prune. Reason:` and its output, and when that output names `stale temp dir`, the
+  `  Prune stopped containers, dangling images and unused networks; no volume and no tagged image (podman system prune -f)?`; yes runs it (never `-a`, B16). Then, whatever the answer,
+  `podman images --format json` is read and every image no container uses is a second,
+  separate question, default no: when a tagged one is among them,
+  `  podman image prune -af removes every image no container uses, not only the dangling ones: here <n> tagged image(s), up to <size>; each is pulled or rebuilt when it is next needed.`,
+  then the claude-yolo project images (`localhost/claude-yolo:<project>`) among them, each
+  rebuilt on that project's next launch, listed largest first as E7a lists, and
+  `  and <n> other tagged image(s).`, then `  Also remove all <n> unused podman image(s), tagged ones included (podman image prune -af)?`; yes runs it (`  Unused podman images removed.`, or
+  `  podman image prune -a reported an error.` and a failed action), no is
+  `  Kept the unused images.`. No tagged image unused is
+  `  No other podman image is unused: nothing more to remove.` and no question; an image list
+  that cannot be read is `  Removing every unused image is not offered: podman could not list its images (<reason>).`. A `podman system df` that fails is `  Cannot query podman — skipping podman prune. Reason:` and its output, and when that output names `stale temp dir`, the
   hint to repair the store on the host with
   `ansible-playbook CLAUDE/Plan/00062-disk-reclaim-tui/podman-store-repair.yml`; this is not a
   failed action (nothing was run). A `podman system df` refused `permission denied` is first said
@@ -169,15 +183,21 @@ owner:
   as E7 does; only a second failure is the cannot-query message, with the second output.
   E22a: a second failure that is a refused `permission denied` too is
   `  Cannot query podman fully: podman system df could not read every volume. Reason:` and its
-  output, E7a's volume lines, `  Podman storage, in part (no totals):` and the three listings.
-  `podman system prune -af` is not offered (`  podman system prune is not offered: ...`): it
-  removes stopped containers, podman could not see all of its storage, and a stopped container
-  may be what still holds that volume. Only `  Prune unused podman images (podman image prune -af)?`
-  is offered, since it removes only images no container uses, from the list just shown, and
-  neither reads nor removes a volume; yes runs it (`  Podman images pruned.`, or
-  `  podman image prune reported an error.` and a failed action). When `podman images` failed
-  too, `  No podman prune is offered: podman could not list its images either.`. For docker, likewise with `docker system df` and
-  `  Prune unused docker data?` → `docker system prune -af`, run as the user whose
+  output, E7a's volume lines, `  Podman storage, in part (no totals):` and E7a's three summary
+  lines, with the reason after `unavailable`. `podman system prune` is not offered
+  (`  podman system prune is not offered: ...`): it removes stopped containers, podman could not
+  see all of its storage, and a stopped container may be what still holds that volume. Only
+  image prunes are offered, which neither read nor remove a volume: first
+  `  Prune the <n> dangling (<none>) podman image(s) no container uses, up to <size> (podman image prune -f)?` (`  No dangling podman image to prune.` and no question when there is none);
+  yes runs it (`  Dangling podman images pruned.`, or `  podman image prune reported an error.`
+  and a failed action, with no second question); no is `  Skipped podman image prune -f.`.
+  Then E22's question of every unused image, from the list just shown (less the dangling images
+  just pruned). When `podman images` failed too,
+  `  No podman prune is offered: podman could not list its images either.`. For docker,
+  `docker system df`, then
+  `  Prune stopped containers, dangling images, unused networks and dangling build cache; no volume and no tagged image (docker system prune -f)?`, then, separately and default no,
+  `  docker image prune -af removes every image no container uses, not only the dangling ones; each is pulled or rebuilt when it is next needed.` and
+  `  Also remove all unused docker images (docker image prune -af)?`, both run as the user whose
   `docker system df` answered (B4); a `docker system df` that fails is
   `  docker is installed but not usable (daemon down, or not in the docker group) — skipping.`.
 - E23. **Flatpak unused runtimes**: without `flatpak`, `  flatpak is not installed.`. Else
@@ -210,7 +230,10 @@ owner:
   and `info` directories (either may be missing), as E24.
 - E27. **Safe sweep** lists its steps, asks `  Begin the safe sweep?`; yes runs E19, E21, E22
   (when `podman` is installed), E23 (when `flatpak` is installed) and E26, in that order, each
-  asking its own questions, then `  Safe sweep finished.`. A step that fails does not stop the
+  asking its own questions, then `  Safe sweep finished.`. Its E22 is the dangling-only prunes
+  alone: the question of every unused image is never asked, and
+  `  The safe sweep removes no tagged image; option 6 offers removing every unused one.` is said
+  in its place. A step that fails does not stop the
   sweep; it counts towards E13.
 - E28. A command's own output (dnf, journalctl, podman, flatpak, trash) goes to stderr as it
   runs; its failure is said in a line naming it.
@@ -237,7 +260,7 @@ owner:
 ## 4. Kept as it was
 
 The menu's numbers and letters, the report's sections and order, the confirmations' wording
-and their default of no, the old-kernel keep count (2) and journal default (500M), the
+(but E22's, B16) and their default of no, the old-kernel keep count (2) and journal default (500M), the
 container stale-temp-dir hint, `ncdu -x` as the deep dive and `baobab` on a desktop, and the
 sweep's steps.
 
@@ -281,6 +304,14 @@ sweep's steps.
 - B14. A clear's verdict is its removal's (E24, E26): a listing that failed stops the action
   before asking (B3), so a yes that removed everything is never reported as a failed action,
   as the port first did when the listing had failed and the removal then worked.
+- B16. Every prune the menu offers by default is dangling-only (`podman system prune -f`,
+  `podman image prune -f`, `docker system prune -f`); removing every image no container uses
+  (`podman image prune -af`, `docker image prune -af`) is a second question, default no, that
+  names the tagged images it removes and lists the claude-yolo project images among them, and
+  the safe sweep never asks it (E22, E22a, E27). The bash's one question ran
+  `system prune -af`, sweep included, which removes every tagged image not in use now: on a ccy
+  host, each project's `localhost/claude-yolo:<project>` image (several GB, rebuilt on that
+  project's next launch). Its question also said volumes, which neither prune removes.
 - B15. A Ctrl-C ends the run with `Cancelled.` and 130 after the command it interrupted has
   ended (E30). The bash died with the shell's default handling while a root child such as
   `dnf` could still be running and printing over the prompt, and a half-done clear said
@@ -315,7 +346,7 @@ sweep's steps.
 Proven only on the host, after `play-cli-tools.yml` (tag `disk-reclaim`) has run:
 
 - H1 (host agent). `~/.local/bin/reclaim` is an ELF; `reclaim --version` prints
-  `reclaim 2.0.2`; `reclaim report` prints its four sections with real figures and exits 0, or
+  `reclaim 2.0.3`; `reclaim report` prints its four sections with real figures and exits 0, or
   1 naming on stderr what it could not read.
 - H2 (host agent, tmux). The menu in a tmux pane, driven by `send-keys` and read with
   `capture-pane`: `1` on a small directory opens ncdu and `q` returns to the menu; `2` lists
@@ -325,7 +356,7 @@ Proven only on the host, after `play-cli-tools.yml` (tag `disk-reclaim`) has run
   answering No runs nothing (`dnf history` unchanged). `5` with No likewise.
 - H4 (host agent). `HOME=<scratch> reclaim`, `8` and `9` answered yes, on a scratch home with a
   `.cache` and a `.local/share/Trash` of throwaway files: the contents go, the directories stay.
-  `6` shows `podman system df` and No prunes nothing.
+  `6` shows `podman system df` and No to both questions prunes nothing.
 - H5 (host agent, by screenshot). On the desktop, `1` with yes to baobab opens baobab, and the
   menu stays usable.
 - The real cleanups (`3`, `4`, `5`, `6` answered yes) are the owner's to run when wanted; they

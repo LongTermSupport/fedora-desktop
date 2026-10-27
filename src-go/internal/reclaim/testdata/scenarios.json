@@ -148,26 +148,42 @@
       "name": "containers-podman-yes",
       "installed": ["sudo", "du", "df", "podman"],
       "programs": [
-        {"argv": ["podman", "system", "prune", "-af"]},
-        {"argv": ["podman", "system", "df"], "stdout": "TYPE TOTAL\n"}
+        {"argv": ["podman", "system", "prune", "-f"]},
+        {"argv": ["podman", "system", "df"], "stdout": "TYPE TOTAL\n"},
+        {"argv": ["podman", "images", "--format", "json"], "stdout": "[]\n"}
       ],
       "typed": ["6", "y", "q"],
       "exit": 0,
-      "changes": ["podman system prune -af"]
+      "changes": ["podman system prune -f"],
+      "bashDiffers": "B16: the bash prunes every unused image (podman system prune -af)"
+    },
+    {
+      "name": "containers-podman-all-unused-yes",
+      "installed": ["sudo", "du", "df", "podman"],
+      "programs": [
+        {"argv": ["podman", "image", "prune", "-af"]},
+        {"argv": ["podman", "system", "df"], "stdout": "TYPE TOTAL\n"},
+        {"argv": ["podman", "images", "--format", "json"], "stdout": "[{\"Id\":\"a\",\"Names\":[\"localhost/claude-yolo:p\"],\"Size\":1024,\"Containers\":0}]\n"}
+      ],
+      "typed": ["6", "n", "y", "q"],
+      "exit": 0,
+      "changes": ["podman image prune -af"],
+      "bashDiffers": "B16: the bash asks one question, so its no prunes nothing and the y is not a menu choice"
     },
     {
       "name": "containers-both-yes",
       "installed": ["sudo", "du", "df", "podman", "docker"],
       "programs": [
-        {"argv": ["podman", "system", "prune", "-af"]},
-        {"argv": ["docker", "system", "prune", "-af"]},
+        {"argv": ["podman", "system", "prune", "-f"]},
+        {"argv": ["docker", "system", "prune", "-f"]},
         {"argv": ["podman", "system", "df"], "stdout": "TYPE TOTAL\n"},
-        {"argv": ["docker", "system", "df"], "stdout": "TYPE TOTAL\n"}
+        {"argv": ["docker", "system", "df"], "stdout": "TYPE TOTAL\n"},
+        {"argv": ["podman", "images", "--format", "json"], "stdout": "[]\n"}
       ],
-      "typed": ["6", "y", "y", "q"],
+      "typed": ["6", "y", "y", "n", "q"],
       "exit": 0,
-      "changes": ["podman system prune -af", "docker system prune -af"],
-      "bashDiffers": "B4: the bash prunes docker under sudo"
+      "changes": ["podman system prune -f", "docker system prune -f"],
+      "bashDiffers": "B4: the bash prunes docker under sudo; B16: and prunes every unused image of both engines (-af)"
     },
     {
       "name": "containers-podman-wedged",
@@ -226,15 +242,15 @@
         {"argv": ["dnf", "-y", "autoremove"]},
         {"argv": ["dnf", "clean", "all"]},
         {"argv": ["journalctl", "--vacuum-size=500M"]},
-        {"argv": ["podman", "system", "prune", "-af"]},
+        {"argv": ["podman", "system", "prune", "-f"]},
         {"argv": ["flatpak", "uninstall", "--unused", "-y"]},
         {"argv": ["trash-empty", "-f"]},
         {"argv": ["podman", "system", "df"], "stdout": "TYPE TOTAL\n"}
       ],
       "typed": ["10", "y", "y", "", "y", "y", "y", "y", "q"],
       "exit": 0,
-      "changes": ["root dnf -y autoremove", "root dnf clean all", "root journalctl --vacuum-size=500M", "podman system prune -af", "flatpak uninstall --unused --assumeno", "flatpak uninstall --unused -y", "trash-empty -f"],
-      "bashDiffers": "B12: the bash runs the dnf repoquery preview as root, before any yes"
+      "changes": ["root dnf -y autoremove", "root dnf clean all", "root journalctl --vacuum-size=500M", "podman system prune -f", "flatpak uninstall --unused --assumeno", "flatpak uninstall --unused -y", "trash-empty -f"],
+      "bashDiffers": "B12: the bash runs the dnf repoquery preview as root, before any yes; B16: its sweep prunes every unused image (-af)"
     },
     {
       "name": "sweep-no",

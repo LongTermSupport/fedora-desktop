@@ -423,7 +423,8 @@ func (r *run) sweep(ctx context.Context) bool {
 	r.warn("  Safe sweep runs, in order:")
 	r.say("    • dnf autoremove + clean all")
 	r.say("    • journal vacuum (default " + journalDefaultSize + ")")
-	r.say("    • podman system prune (if podman present)")
+	r.say("    • container prune: stopped containers, dangling images and unused networks, no tagged image" +
+		" (if podman present)")
 	r.say("    • flatpak unused runtimes (if flatpak present)")
 	r.say("    • empty trash")
 	r.say("  Each step asks for its own confirmation.")
@@ -433,7 +434,7 @@ func (r *run) sweep(ctx context.Context) bool {
 	}
 	steps := []action{{name: namePackages, do: (*run).packages}, {name: nameJournal, do: (*run).journal}}
 	if r.have(progPodman) {
-		steps = append(steps, action{name: nameContainers, do: (*run).containers})
+		steps = append(steps, action{name: nameContainers, do: (*run).sweepContainers})
 	}
 	if r.have(progFlatpak) {
 		steps = append(steps, action{name: nameFlatpak, do: (*run).flatpak})
