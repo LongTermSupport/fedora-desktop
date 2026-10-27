@@ -317,9 +317,30 @@
     # fall back to `akmods --force` on timeout, then report three version
     # states so the operator can tell at a glance whether a reboot is required:
     #   package  — what RPM is installed (target version)
-    #   built    — what's on disk in /lib/modules/$(uname -r)/extra/nvidia/
+    #   built    — what's on disk for the kernel the next boot runs
     #   loaded   — what the running kernel currently has
     # If built != loaded, a reboot is required; otherwise the driver is live.
+    # The module is built for the boot kernel, not uname -r: on a fresh install the
+    # system upgrade installs a newer kernel before this play, and kernel-devel is
+    # only installed for that newest kernel, so the running one cannot build at all.
+
+    - name: Find the kernel the next boot runs
+      ansible.builtin.command: grubby --default-kernel
+      register: nvidia_boot_kernel_path
+      changed_when: false
+
+    - name: Record the boot kernel version
+      ansible.builtin.set_fact:
+        nvidia_kver: "{{ nvidia_boot_kernel_path.stdout | trim | basename | regex_replace('^vmlinuz-', '') }}"
+
+    - name: Assert the boot kernel version was read
+      ansible.builtin.assert:
+        that:
+          - nvidia_kver | length > 0
+          - nvidia_kver != (nvidia_boot_kernel_path.stdout | trim | basename)
+        fail_msg: >-
+          Could not tell which kernel the next boot runs: grubby --default-kernel printed
+          "{{ nvidia_boot_kernel_path.stdout }}", not a /boot/vmlinuz-VERSION path.
 
     - name: Get installed akmod-nvidia package version
       ansible.builtin.shell: rpm -q --qf '%{VERSION}\n' akmod-nvidia
@@ -329,8 +350,8 @@
     - name: Wait for akmods to build nvidia kernel module on disk (up to 5 min)
       ansible.builtin.shell: |
         set -e
-        KMOD="/lib/modules/$(uname -r)/extra/nvidia/nvidia.ko.xz"
-        [ -f "$KMOD" ] || KMOD="/lib/modules/$(uname -r)/extra/nvidia/nvidia.ko"
+        KMOD="/lib/modules/$KVER/extra/nvidia/nvidia.ko.xz"
+        [ -f "$KMOD" ] || KMOD="/lib/modules/$KVER/extra/nvidia/nvidia.ko"
         for i in $(seq 1 60); do
           if [ -f "$KMOD" ]; then
             modinfo -F version "$KMOD"
@@ -339,6 +360,8 @@
           sleep 5
         done
         exit 1
+      environment:
+        KVER: "{{ nvidia_kver }}"
       register: nvidia_kmod_poll
       changed_when: false
       failed_when: false  # FAIL-FAST-OK: probe — retried below with akmods --force; that retry has no failed_when override and will halt the playbook if the build still fails
@@ -348,14 +371,16 @@
       # Operator diagnostics:
       #   systemctl status akmods --no-pager -l
       #   journalctl -u akmods --no-pager --since "20 minutes ago"
-      #   ls -la /lib/modules/$(uname -r)/extra/nvidia/
+      #   ls -la /lib/modules/BOOT-KERNEL-VERSION/extra/nvidia/
       ansible.builtin.shell: |
         set -e
-        akmods --force
-        dracut --force
-        KMOD="/lib/modules/$(uname -r)/extra/nvidia/nvidia.ko.xz"
-        [ -f "$KMOD" ] || KMOD="/lib/modules/$(uname -r)/extra/nvidia/nvidia.ko"
+        akmods --force --kernels "$KVER"
+        dracut --force --kver "$KVER"
+        KMOD="/lib/modules/$KVER/extra/nvidia/nvidia.ko.xz"
+        [ -f "$KMOD" ] || KMOD="/lib/modules/$KVER/extra/nvidia/nvidia.ko"
         modinfo -F version "$KMOD"
+      environment:
+        KVER: "{{ nvidia_kver }}"
       register: nvidia_kmod_force
       when: nvidia_kmod_poll.rc != 0
       changed_when: true
@@ -363,11 +388,13 @@
     - name: Read built NVIDIA module version (on disk)
       ansible.builtin.shell: |
         set -euo pipefail
-        KMOD="/lib/modules/$(uname -r)/extra/nvidia/nvidia.ko.xz"
-        [ -f "$KMOD" ] || KMOD="/lib/modules/$(uname -r)/extra/nvidia/nvidia.ko"
+        KMOD="/lib/modules/$KVER/extra/nvidia/nvidia.ko.xz"
+        [ -f "$KMOD" ] || KMOD="/lib/modules/$KVER/extra/nvidia/nvidia.ko"
         modinfo -F version "$KMOD" 2>/dev/null || echo NONE  # FAIL-FAST-OK: probe — NONE sentinel used by Display task to report missing module
       args:
         executable: /bin/bash
+      environment:
+        KVER: "{{ nvidia_kver }}"
       register: nvidia_built
       changed_when: false
 
@@ -391,6 +418,8 @@
           NVIDIA driver status
           ========================================
           Package (akmod-nvidia): {{ nvidia_pkg.stdout }}
+          Next boot's kernel:     {{ nvidia_kver }}{% if nvidia_kver != ansible_facts.kernel %} (running {{ ansible_facts.kernel }}: a reboot starts the newer one){% endif %}
+
           Built on disk:          {{ nvidia_built.stdout }}
           Loaded in kernel:       {{ nvidia_loaded.stdout }}
           {% if nvidia_loaded.stdout == nvidia_built.stdout %}
