@@ -1,0 +1,254 @@
+---
+# Fixture for the four play-UX rules of src-go/qa/ansible (CLAUDE/QA.md, setting-checked-late,
+# vault-secret-by-hand, ansible-cli-without-chdir, no-log-hides-failure). Every line marked
+# EXPECT-FINDING <rule> must be reported by that rule, and no other line by any rule. The plays
+# are valid for ansible-playbook --syntax-check, which reads this file as a playbook.
+
+# setting-checked-late: the originating instance (play-nvidia before 6b99b1247): the MOK
+# password is asserted after the driver is installed.
+- hosts: localhost
+  tasks:
+    - name: Install the driver
+      ansible.builtin.dnf:
+        name: akmod-nvidia
+        state: present
+
+    - name: Validate MOK password is in vault
+      ansible.builtin.assert:  # EXPECT-FINDING setting-checked-late vault-secret-by-hand
+        that:
+          - mok_password is defined
+        fail_msg: |
+          Please add 'mok_password' to your vault configuration:
+          ansible-vault edit environment/localhost/host_vars/localhost.yml
+      when: "'SecureBoot enabled' in secure_boot_state.stdout"
+
+# setting-checked-late: the other spellings of a check of a setting, each after a change.
+- hosts: localhost
+  tasks:
+    - name: A probe changes nothing
+      ansible.builtin.command: mokutil --sb-state
+      register: probe
+      changed_when: false
+
+    - name: A file write is a change
+      ansible.builtin.copy:
+        content: x
+        dest: /tmp/x
+        mode: "0644"
+
+    - name: Fail on an undefined setting
+      ansible.builtin.fail:  # EXPECT-FINDING setting-checked-late
+        msg: no api key
+      when: api_key is not defined
+
+    - name: A default in an assert is a check of the setting
+      ansible.builtin.assert:  # EXPECT-FINDING setting-checked-late
+        that:
+          - (hotspot_password | default('') | length) >= 8
+
+    - name: A block nests the late check
+      block:
+        - name: Nested assert
+          ansible.builtin.assert:  # EXPECT-FINDING setting-checked-late
+            that: webhook_url.startswith('https') and webhook_url is defined
+
+# A command without changed_when: false is a change; an include is taken as one.
+- hosts: localhost
+  tasks:
+    - name: Include a task file
+      ansible.builtin.include_tasks: some-tasks.yml
+
+    - name: Late after an include
+      ansible.builtin.assert:  # EXPECT-FINDING setting-checked-late
+        that: device_name is defined
+
+# vault-secret-by-hand: a secret asserted with no question, the remedy a hand edit of the vault.
+# Checked before any change, so it is not also late.
+- hosts: localhost
+  tasks:
+    - name: Validate MOK password is in vault (displaylink)
+      ansible.builtin.assert:  # EXPECT-FINDING vault-secret-by-hand
+        that:
+          - mok_password is defined
+        fail_msg: |
+          ERROR: MOK password not found in vault!
+          ansible-vault edit environment/localhost/host_vars/localhost.yml
+          Add: mok_password: "your-password"
+
+    - name: Become password asserted, the remedy to vault-encrypt it by hand
+      ansible.builtin.fail:  # EXPECT-FINDING vault-secret-by-hand
+        msg: >-
+          become_password is missing. Declare it vault-encrypted in host_vars.
+      when: become_password is undefined
+
+    - name: Shown with ./vault.bash
+      ansible.builtin.assert:  # EXPECT-FINDING vault-secret-by-hand
+        that: hotspot_psk is defined
+        fail_msg: "Set it with: ./vault.bash set hotspot_psk"
+
+# ansible-cli-without-chdir: the originating instance (play-nvidia before 2b074fb8a) and the
+# other spellings of running an Ansible command-line tool.
+- hosts: localhost
+  tasks:
+    - name: Vault-encrypt the MOK password
+      ansible.builtin.command:  # EXPECT-FINDING ansible-cli-without-chdir
+        argv:
+          - ansible-vault
+          - encrypt_string
+          - --stdin-name
+          - mok_password
+      args:
+        stdin: "{{ mok_password_prompt.user_input }}"
+        stdin_add_newline: false
+      become: false
+      register: mok_password_encrypted
+      changed_when: false
+
+    - name: Free form, short module name
+      command: ansible-galaxy collection install -r requirements.yml  # EXPECT-FINDING ansible-cli-without-chdir
+
+    - name: Shell, after an operator, with a path
+      ansible.builtin.shell: set -e; /usr/bin/ansible-playbook play.yml  # EXPECT-FINDING ansible-cli-without-chdir
+
+    - name: Shell cmd form, behind env
+      ansible.builtin.shell:  # EXPECT-FINDING ansible-cli-without-chdir
+        cmd: |
+          set -euo pipefail
+          env FOO=1 ansible-inventory --list
+      changed_when: false
+
+    - name: A chdir somewhere else is no better
+      ansible.builtin.command:  # EXPECT-FINDING ansible-cli-without-chdir
+        cmd: ansible-vault view x.yml
+        chdir: /tmp
+      changed_when: false
+
+# no-log-hides-failure: each task can fail, and no_log hides the reason.
+- hosts: localhost
+  tasks:
+    - name: The originating instance, no_log on the encrypt
+      ansible.builtin.command:  # EXPECT-FINDING no-log-hides-failure
+        argv: [ansible-vault, encrypt_string, --stdin-name, mok_password]
+        chdir: "{{ root_dir }}"
+        stdin: "{{ mok_password_prompt.user_input }}"
+      register: mok_password_encrypted
+      changed_when: false
+      no_log: true
+
+    - name: Save with no_log
+      ansible.builtin.blockinfile:  # EXPECT-FINDING no-log-hides-failure
+        path: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
+        block: "{{ mok_password_encrypted.stdout }}"
+        create: false
+      no_log: yes
+
+    - name: An assert with no_log hides its own message
+      ansible.builtin.assert:  # EXPECT-FINDING no-log-hides-failure
+        that: become_password | length > 0
+        fail_msg: the become password is empty
+      no_log: true
+
+    - name: A block's no_log reaches its tasks
+      no_log: true
+      block:
+        - name: Copy a secret
+          ansible.builtin.copy:  # EXPECT-FINDING no-log-hides-failure
+            content: "{{ secret }}"
+            dest: /tmp/s
+            mode: "0600"
+
+    - name: A probe whose result nothing reads is not a probe
+      ansible.builtin.uri:  # EXPECT-FINDING no-log-hides-failure
+        url: https://example.com/login
+        method: POST
+      register: login
+      failed_when: false  # FAIL-FAST-OK: fixture
+      no_log: true
+
+    - name: A templated no_log is taken as on
+      ansible.builtin.user:  # EXPECT-FINDING no-log-hides-failure
+        name: camera
+        password: "{{ camera_password | password_hash('sha512') }}"
+      no_log: "{{ hide | default(true) }}"
+
+    - name: A probe read only by a task that is itself no_log
+      ansible.builtin.command:  # EXPECT-FINDING no-log-hides-failure
+        argv: [openssl, passwd, -6, -stdin]
+        stdin: "{{ secret }}"
+      register: hashed
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: fixture
+      no_log: true
+
+    - name: The consumer hides its own message
+      ansible.builtin.fail:  # EXPECT-FINDING no-log-hides-failure
+        msg: "openssl failed: {{ hashed.stderr }}"
+      when: hashed.rc != 0
+      no_log: true
+
+  handlers:
+    - name: A handler is a task too
+      ansible.builtin.command: podman exec db mongosh --eval x  # EXPECT-FINDING no-log-hides-failure
+      changed_when: true
+      no_log: true
+
+# vault-secret-by-hand and setting-checked-late on a skip: a block that ends the play when a
+# secret is missing and tells the human to vault it by hand (play-ftp-camera's skip).
+- hosts: localhost
+  tasks:
+    - name: Skip if the FTP password is not configured
+      when: (ftp_password | default('') | length) == 0
+      block:  # EXPECT-FINDING vault-secret-by-hand
+        - name: Inform the user
+          ansible.builtin.debug:
+            msg: |
+              Skipped: ftp_password is not set. Set it and re-run:
+                ./vault.bash set ftp_password
+        - name: End play
+          ansible.builtin.meta: end_play
+
+    - name: Install
+      ansible.builtin.dnf:
+        name: vsftpd
+        state: present
+
+    - name: A skip after a change
+      when: radio_psk is not defined
+      block:  # EXPECT-FINDING setting-checked-late
+        - name: End host
+          ansible.builtin.meta: end_host
+
+# probe-before-install: the probe runs a program the play installs only afterwards
+# (play-displaylink probed mokutil before installing it).
+- hosts: localhost
+  tasks:
+    - name: Check if Secure Boot is enabled
+      ansible.builtin.shell: mokutil --sb-state  # EXPECT-FINDING probe-before-install
+      register: secure_boot_state
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: fixture
+
+    - name: A path to the program, argv form
+      ansible.builtin.command:  # EXPECT-FINDING probe-before-install
+        argv: [/usr/bin/expect, -v]
+      register: expect_version
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: fixture
+
+    - name: Install prerequisites
+      ansible.builtin.dnf:
+        name:
+          - mokutil
+          - expect
+        state: present
+
+    - name: Package module, single name
+      ansible.builtin.command: jq --version  # EXPECT-FINDING probe-before-install
+      register: jq_version
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: fixture
+
+    - name: Install jq
+      ansible.builtin.package:
+        name: jq
+        state: present

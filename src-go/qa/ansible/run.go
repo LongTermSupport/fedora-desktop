@@ -52,7 +52,11 @@ without FAIL-FAST-OK, playbook shebang and execute bit, self-default variables, 
 the canonical scope guard, deprecated top-level ansible_<fact> variables, a guessed uid in
 a /run/user path, and a regex backreference with the wrong backslash count for its YAML style
 and Jinja context (CLAUDE/QA.md, regex-backref-escape), and a file users read created as root
-under the inherited umask (CLAUDE/QA.md, root-umask).
+under the inherited umask (CLAUDE/QA.md, root-umask), and the play-UX rules: a setting
+checked after the play has changed the system, a secret demanded by hand, an Ansible CLI run
+outside the checkout, a failure no_log hides, and a probe of a program installed only later
+(CLAUDE/QA.md, setting-checked-late, vault-secret-by-hand, ansible-cli-without-chdir,
+no-log-hides-failure, probe-before-install).
 
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory; the root is its parent
@@ -206,7 +210,10 @@ func scanPatterns(fsys fs.FS, root string, dirs []string, f *Findings) error {
 	if err := scanRegexBackrefs(fsys, dirs, f); err != nil {
 		return err
 	}
-	return scanRootUmask(fsys, dirs, f)
+	if err := scanRootUmask(fsys, dirs, f); err != nil {
+		return err
+	}
+	return scanPlayUX(fsys, dirs, f)
 }
 
 // scanFacts runs checks 5 and 6: deprecated fact variables, then guessed uids in runtime paths.

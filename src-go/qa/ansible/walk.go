@@ -3,7 +3,8 @@
 // directives, playbook shebang and execute bit, self-default variables, provisioning scope and
 // guard, deprecated top-level fact variables, guessed runtime-directory uids and, parsing each
 // file as YAML, regex backreference escapes (regexbackref.go) and files users read created as
-// root under the inherited umask (rootumask.go). It starts no
+// root under the inherited umask (rootumask.go), and the five play-UX rules (playux.go). It
+// starts no
 // process (the bash it replaced ran grep, find, awk, head and jq); the list of gitignored files,
 // which it leaves unread, is injected through Env.Ignored. SPEC-qa-ansible.md is its specification.
 package ansible
