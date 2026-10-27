@@ -40,11 +40,14 @@ netpolicy_expand() {
 }
 
 # _netpolicy_set <name> <ipv4_addr|ipv6_addr> <element>... — one interval set, with no elements
-# line when it is empty (nft rejects `elements = { }`).
+# line when it is empty (nft rejects `elements = { }`). auto-merge, because the inputs overlap:
+# a host's own addresses sit inside the private ranges, and the bus address arrives both from
+# agentbus0 and from the seat bundles. Without it nft refuses the whole table ("conflicting
+# intervals specified").
 _netpolicy_set() {
     local name="$1" type="$2"
     shift 2
-    printf '    set %s {\n        type %s\n        flags interval\n' "${name}" "${type}"
+    printf '    set %s {\n        type %s\n        flags interval\n        auto-merge\n' "${name}" "${type}"
     if [[ "$#" -gt 0 ]]; then
         local joined
         joined="$(printf '%s, ' "$@")"

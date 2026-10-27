@@ -11,7 +11,7 @@
 #   http|<label>|<host>|<port>     curl http://<host>:<port>/  (an IPv6 host is bracketed)
 #   url|<label>|<url>              curl <url>
 #   ssh|<label>|<host>|<port>      ssh in batch mode (no key is offered; only the connect matters)
-#   nc|<label>|<host>|<port>       nc -z
+#   nc|<label>|<host>|<port>       nc -zv (verbose, so a refusal prints its reason)
 #   dns|<label>|<name>             getent ahosts <name>
 #
 # Output: one line per attempt,
@@ -82,7 +82,7 @@ probe_ssh() {
 probe_nc() {
     local label="$1" host="$2" port="$3" start rc out
     start="$(now_ms)"
-    if out="$(nc -z -w "${CONNECT_TIMEOUT}" "${host}" "${port}" 2>&1)"; then rc=0; else rc=$?; fi
+    if out="$(nc -zv -w "${CONNECT_TIMEOUT}" "${host}" "${port}" 2>&1)"; then rc=0; else rc=$?; fi
     result "${label}" nc "${rc}" "$(($(now_ms) - start))" - "${out}"
 }
 

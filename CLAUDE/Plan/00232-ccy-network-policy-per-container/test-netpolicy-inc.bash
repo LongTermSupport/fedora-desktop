@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Plan 00232 — test-netpolicy-inc.bash: unit tests for _netpolicy.inc.bash (the candidate ruleset
 # generator). Pure: runs anywhere, touches nothing. When nft is installed it also asks
-# `nft --check` to parse each ruleset; without nft that one case fails, by name (an absent check
+# `nft --check` to parse each ruleset, in a throwaway user and network namespace (no privilege
+# needed, no real ruleset touched); without nft that one case fails, by name (an absent check
 # is not a passing one).
 #
 # The expected private addresses are assembled from octets (dotted), because the repo's scanners
@@ -90,19 +91,39 @@ tcp="$(netpolicy_ruleset reject-tcp "" "" "")"
 contains "reject-tcp resets TCP" "ip daddr @block4 meta l4proto tcp reject with tcp reset" "${tcp}"
 contains "reject-tcp refuses the rest as admin-prohibited" "ip daddr @block4 reject with icmpx admin-prohibited" "${tcp}"
 
+contains "every set merges overlapping elements" "flags interval
+        auto-merge" "${ruleset}"
+
+# The shape a real host gives: its own addresses inside a default range, and the bus address
+# twice (from agentbus0 and from a seat bundle). nft refused exactly this on the first host run.
+busIp="$(dotted 10 0 0 9)"
+hostShape="$(netpolicy_ruleset reject-icmp "${busIp},${busIp}" "198.51.100.53" "$(dotted 192 168 7 7),2001:db8::7")"
+
 if [[ "${useNft}" -eq 1 ]]; then
-    if ! command -v nft >/dev/null; then
-        printf 'FAIL nft parses each ruleset\n  nft is not installed here; run with --no-nft inside a ccy container\n'
+    if ! command -v nft >/dev/null || ! command -v unshare >/dev/null; then
+        printf 'FAIL nft parses each ruleset\n  nft or unshare is not installed here; run with --no-nft inside a ccy container\n'
         failures=$((failures + 1))
     else
+        # nft --check still opens a netlink cache, which an unprivileged user may not do in the
+        # host's namespace ("cache initialization failed: Operation not permitted"). A fresh user
+        # and network namespace gives it that right over an empty ruleset of its own.
+        nft_check() {
+            unshare --user --map-root-user --net nft --check -f - 2>&1
+        }
         for mode in drop reject-icmp reject-tcp; do
-            if out="$(netpolicy_ruleset "${mode}" "192.0.2.10" "198.51.100.53" "" | nft --check -f - 2>&1)"; then
+            if out="$(netpolicy_ruleset "${mode}" "192.0.2.10" "198.51.100.53" "" | nft_check)"; then
                 printf 'ok   nft parses the %s ruleset\n' "${mode}"
             else
                 printf 'FAIL nft parses the %s ruleset\n%s\n' "${mode}" "${out}"
                 failures=$((failures + 1))
             fi
         done
+        if out="$(nft_check <<<"${hostShape}")"; then
+            printf 'ok   nft takes overlapping and duplicate elements\n'
+        else
+            printf 'FAIL nft takes overlapping and duplicate elements\n%s\n' "${out}"
+            failures=$((failures + 1))
+        fi
     fi
 fi
 

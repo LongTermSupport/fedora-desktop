@@ -1,7 +1,8 @@
 # Plan 00232 design: a network policy per ccy container
 
-**State**: direction accepted by the owner, Q1 to Q4 answered (section 8). Nothing here is built. The parts marked
-**PENDING TRIAGE** are decided by the host run of `triage.bash --active`, not by this text.
+**State**: direction accepted by the owner, Q1 to Q4 answered (section 8). Nothing here is built. The first host
+triage run is read into section 9; the parts still marked **PENDING TRIAGE** are decided by its
+rerun, not by this text.
 
 ## 1. What is asked
 
@@ -53,14 +54,14 @@ Numbered in [PLAN.md](PLAN.md) (F1 to F16). In short:
 
 ## 3. Where the rule can be enforced
 
-| #   | Where                                                                                                                  | Who can lift it                                                                                                    | Per container          | Survives `--connect`           | Root on the host | Verdict                                     |
-| --- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------- | ------------------------------ | ---------------- | ------------------------------------------- |
-| E1  | nft table in the **container's own network namespace**, applied from the host between `podman init` and `podman start` | only a holder of `NET_ADMIN` in that namespace: the host user via `podman unshare nsenter`; not the container (F4) | yes, by construction   | yes (rules key on destination) | no               | **recommended** (PENDING TRIAGE A2, A4, A6) |
-| E2  | nft forward chain in the **shared rootless network namespace**, keyed by container address                             | the host user                                                                                                      | only by address        | needs re-keying                | no               | rejected                                    |
-| E3  | podman network options (`--internal`, `isolate`)                                                                       | n/a                                                                                                                | per network            | n/a                            | no               | rejected: cannot filter by destination      |
-| E4  | pasta options (`--no-map-gw`, `--map-host-loopback`, outbound interface)                                               | the host user                                                                                                      | no: one pasta per user | n/a                            | no               | rejected as the mechanism; possible extra   |
-| E5  | host nftables output chain matched on the pasta process                                                                | root                                                                                                               | no: pasta is shared    | n/a                            | yes              | rejected                                    |
-| E6  | an OCI hook (`createRuntime`) applying E1's table, told the policy by an annotation                                    | as E1                                                                                                              | yes                    | yes                            | no               | the alternative to E1's launch sequence     |
+| #   | Where                                                                                                                  | Who can lift it                                                                                                    | Per container          | Survives `--connect`           | Root on the host | Verdict                                                           |
+| --- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------- | ------------------------------ | ---------------- | ----------------------------------------------------------------- |
+| E1  | nft table in the **container's own network namespace**, applied from the host between `podman init` and `podman start` | only a holder of `NET_ADMIN` in that namespace: the host user via `podman unshare nsenter`; not the container (F4) | yes, by construction   | yes (rules key on destination) | no               | **recommended** (entry confirmed, F18; PENDING TRIAGE A4, A5, A6) |
+| E2  | nft forward chain in the **shared rootless network namespace**, keyed by container address                             | the host user                                                                                                      | only by address        | needs re-keying                | no               | rejected                                                          |
+| E3  | podman network options (`--internal`, `isolate`)                                                                       | n/a                                                                                                                | per network            | n/a                            | no               | rejected: cannot filter by destination                            |
+| E4  | pasta options (`--no-map-gw`, `--map-host-loopback`, outbound interface)                                               | the host user                                                                                                      | no: one pasta per user | n/a                            | no               | rejected as the mechanism; possible extra                         |
+| E5  | host nftables output chain matched on the pasta process                                                                | root                                                                                                               | no: pasta is shared    | n/a                            | yes              | rejected                                                          |
+| E6  | an OCI hook (`createRuntime`) applying E1's table, told the policy by an annotation                                    | as E1                                                                                                              | yes                    | yes                            | no               | the alternative to E1's launch sequence                           |
 
 Why not E2: the rootless namespace is torn down when the last container stops and made again
 by the next, so a table put there vanishes and the next container can start before it is put
@@ -93,16 +94,25 @@ launch runs unprotected, with a printed warning and a context that says it has n
 `ip -j addr` at launch (so a host with a public address is covered too); and so
 `host.containers.internal`, which is link-local.
 
+What "the host itself" is from inside, measured (F24 to F26): a session reaches the host
+through `host.containers.internal` and through the addresses of the host's other interfaces
+(the LXC bridge, docker bridges, VPN and WireGuard clients, `agentbus0`), every one inside a
+default range. The outbound interface's own addresses are not the host: pasta copies them into
+the rootless namespace, where netavark's published-port DNAT answers, so they lead to other
+containers' published ports. A private one is refused by its range; a public one is why the
+host's global addresses stay in the block list. Private subnets the host routes over a VPN are
+refused by the ranges too; a checkout that needs one opts it in.
+
 **Always allowed, derived on the host at launch; never listed by hand:**
 
-| What                                   | Derived from                                                                                          | Why                                                                 |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| loopback inside the container          | the rule set (`oifname lo accept`)                                                                    | the session's own servers                                           |
-| the container's nameservers, port 53   | its `resolv.conf`, read on the host after `podman init` (`ResolvConfPath`)                            | DNS (F5); pasta's forwarder is link-local                           |
-| the agent bus address, **all ports**   | `ip -j addr show dev agentbus0`, as the launcher already reads it                                     | every team on this host, including one joined after launch (F8, F9) |
-| every team homeserver the seats name   | the `base_url` host of each seat bundle of the launch's teams                                         | a team on another machine (WireGuard, later) (F11)                  |
-| the subnets of joined project networks | `podman network inspect` of the `--network` choice at launch                                          | the compose stack the session was asked to join                     |
-| a network joined later                 | `ccy --connect`, which runs on the host, adds the subnet to the live table; `--disconnect` removes it | `--connect` keeps working (F3); triage A6 measures it               |
+| What                                   | Derived from                                                                                          | Why                                                                                |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| loopback inside the container          | the rule set (`oifname lo accept`)                                                                    | the session's own servers                                                          |
+| the container's nameservers, port 53   | its `resolv.conf`, read on the host after `podman init` (`ResolvConfPath`); re-read on `--connect`    | DNS (F5, F20); pasta's forwarder is link-local, a project network's is its gateway |
+| the agent bus address, **all ports**   | `ip -j addr show dev agentbus0`, as the launcher already reads it                                     | every team on this host, including one joined after launch (F8, F9)                |
+| every team homeserver the seats name   | the `base_url` host of each seat bundle of the launch's teams                                         | a team on another machine (WireGuard, later) (F11)                                 |
+| the subnets of joined project networks | `podman network inspect` of the `--network` choice at launch                                          | the compose stack the session was asked to join                                    |
+| a network joined later                 | `ccy --connect`, which runs on the host, adds the subnet to the live table; `--disconnect` removes it | `--connect` keeps working (F3); triage A6 measures it                              |
 
 Everything else, the public internet, stays open, so the package mirrors, the forge, the
 Claude API and the other APIs an agent uses need no list (ask 3's "what every container always
@@ -129,12 +139,13 @@ superseded (decided, Q4).
 
 The owner suggested a ccy env setting. `ccy.env` cannot hold it: it is tracked, so the agent the
 policy binds can edit it, and it is sourced inside the container, never read on the host.
-`ccy.env.local` is read-only inside, but is a file in the checkout, and triage A10 measures
-whether a container can replace a read-only bound file by moving its parent directory aside;
-if it can, the host would read the container's file at the next launch (**PENDING TRIAGE A10**;
-it bears on issue #83 in general, not only here).
+`ccy.env.local` is read-only inside, but is a file in the checkout, and **a container can
+replace it** (triage A10, F29): the write is refused, but the container renames the parent
+directory and writes a new file at the path, which the host then reads. So no file the host
+reads may live in the checkout, bound read-only or not. This bears on issue #83 in general: a
+read-only bind of a file protects that inode, not the path.
 
-**Recommendation: host-side, never mounted** (issue #83's second class):
+**Decided by A10: host-side, never mounted** (issue #83's second class):
 `~/.config/claude-yolo/network/<project-key>.env`, keyed as ccy keys its other per-project host
 state, holding ccy env setting lines that the launcher **parses** (it never sources a file on the
 host):
@@ -172,7 +183,15 @@ team join widens the live table, the file is rewritten from the host.
   allows, the parse of the host file), renders the nft table, and applies and verifies it
   through an injected runner (`podman unshare nsenter`), tested through fakes. The bash
   launcher calls it between `podman init` and `podman start`, and `ccy --connect` and
-  `ccy-teams` call it to widen a live table. The ranges are built from octets
+  `ccy-teams` call it to widen a live table. The inputs overlap by nature (the host's own
+  addresses lie inside the ranges, the bus address comes from `agentbus0` and from every seat
+  bundle), and nft refuses overlapping elements in an interval set (F21). So the package
+  normalises each set (dedupe, drop an entry another entry covers) and the sets also carry
+  `auto-merge`. Because `auto-merge` joins adjacent prefixes, a later `delete element` of one
+  of them can fail: widening and narrowing therefore recompute the allow set and replace it
+  whole (`flush set` and `add element` in one `nft -f` transaction), and verification checks
+  each computed prefix is covered by the read-back table rather than comparing text. The
+  ranges are built from octets
   (`netip.AddrFrom4`), which also keeps the public-repo scanner, which refuses dotted private
   addresses, quiet without an exception.
 - nft must be on the host: declared in `play-claude-yolo.yml`, never installed by hand.
@@ -194,3 +213,35 @@ The owner accepted the design direction and answered the four questions:
   session's context says it has no network policy. This replaces section 3's proposal to refuse.
 - **Q4 Plan 00080: closed as superseded by this plan.** The default policy refuses the shared
   bridge's subnet, which is the isolation 00080 set out to give.
+
+## 9. What the first host triage run answered
+
+Facts F17 to F30 in [PLAN.md](PLAN.md). Per question the triage was built for:
+
+- **A3, what each verdict looks like inside: not answered.** nft refused the table at every
+  apply (F21) and the harness carried on, so all four modes measured the same unfiltered
+  container (F22). The one refusal seen is the baseline: curl's "Couldn't connect to server"
+  and ssh's "Connection refused", from the outbound-interface address that pasta answers
+  locally (F24). Section 6's verdict choice stays PENDING TRIAGE (the rerun).
+- **A4, can the container lift the rules: the capability fact holds, the attempt is to be
+  rerun.** No session is privileged or has a `--cap-add`, and none holds `NET_ADMIN` or
+  `SYS_ADMIN` (F19), so the kernel refuses it any change to its namespace's table or routes.
+  The run's lift attempts proved nothing (the image has no nft or ip). The rerun runs the
+  host's nft and ip in the container's namespace with exactly the container's bounding set,
+  beside a control that adds `net_admin`.
+- **A10, the read-only bound file: replaceable** (F29). Section 5's host-side location is
+  required, not just recommended.
+- **P5 and P6, what a session must keep reaching**, all covered by section 4's derived allows:
+  the bus at the `agentbus0` address, a /32 in 10/8, which is also the only host the seat
+  bundles name (F27); the nameservers in its own `resolv.conf`, including pasta's link-local
+  forwarder and a resolver on the LAN, or on a project network that network's gateway (F20);
+  and the subnet of each network it joined, the shared bridge or a project network (F20).
+- **E1's mechanics so far**: the host user enters a held container's namespace only through
+  `podman unshare` (F18), and `podman start -ai` keeps `--rm` and stdin (F28). Applying a table,
+  its survival across `podman network connect`, exit status 75 and pasta wait on the rerun.
+
+Changes this made to the design: overlapping inputs are normalised and the sets replaced whole
+(section 7); "the host itself" is described as measured (section 4); the nameservers are re-read
+on `--connect` (section 4); the triage and the gate probe the host through
+`host.containers.internal` and an address off the outbound interface, never the outbound one.
+No new owner question: the design is settled except for what the rerun measures.

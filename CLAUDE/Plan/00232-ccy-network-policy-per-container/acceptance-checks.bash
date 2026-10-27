@@ -7,8 +7,11 @@
 #                                  SYS_ADMIN, so nothing inside can change its network namespace
 #   held <session>                 the policy table is in the session's own network namespace,
 #                                  read from the host
-#   blocked <session> <image>      a host listener (on the host's primary address and through
-#                                  host.containers.internal) and a peer on the podman network are
+#   blocked <session> <image>      a host listener (through host.containers.internal, and on a host
+#                                  address off the outbound interface when the host has one: pasta
+#                                  copies the outbound interface's own addresses into the
+#                                  container side, so those never reach the host, policy or not)
+#                                  and a peer on the podman network are
 #                                  reachable from a throwaway container WITHOUT the policy (the
 #                                  control), and refused from the session at once (under 2 s, not
 #                                  a timeout)
@@ -86,7 +89,7 @@ judge_blocked() {
 }
 
 check_blocked() {
-    local c="$1" image="$2" dir port pid hostLan peer peerIp line out i
+    local c="$1" image="$2" dir port pid hostDev hostOther peer peerIp line out i
     dir="$(mktemp -d)"
     port="$((20000 + RANDOM % 20000))"
     python3 -m http.server --bind :: "${port}" --directory "${dir}" >"${dir}.log" 2>&1 &
@@ -112,7 +115,8 @@ check_blocked() {
         fi
         sleep 0.1
     done
-    hostLan="$(ip -j route get 192.0.2.1 | jq -r '.[0].prefsrc')"
+    hostDev="$(ip -j route get 192.0.2.1 | jq -r '.[0].dev')"
+    hostOther="$(ip -j -4 addr | jq -r --arg out "${hostDev}" '[.[] | select(.ifname != $out and .ifname != "agentbus0") | .addr_info[] | select(.scope == "global") | .local] | first // ""')"
     podman run -d --rm --label ccy-netpolicy-acceptance --network podman --name "${peer}" \
         --entrypoint python3 "${image}" -m http.server 8080 >/dev/null
     # Wait inside the peer for its own server (its main process: if that dies, the exec fails).
@@ -130,7 +134,14 @@ sys.exit("nothing listens on 8080")
         return 0
     fi
     peerIp="$(podman inspect --format '{{(index .NetworkSettings.Networks "podman").IPAddress}}' "${peer}")"
-    local -a targets=("http|host-lan|${hostLan}|${port}" "http|host-alias|host.containers.internal|${port}" "http|peer-session|${peerIp}|8080")
+    local -a targets=("http|host-alias|host.containers.internal|${port}" "http|peer-session|${peerIp}|8080")
+    local -a sessionOnly=()
+    if [[ -n "${hostOther}" ]]; then
+        targets+=("http|host-other|${hostOther}|${port}")
+        sessionOnly+=("ssh|host-other-ssh|${hostOther}|${port}")
+    else
+        printf 'NOTE the host has no global address off its outbound interface %s; host.containers.internal is its only address a session can reach\n' "${hostDev}"
+    fi
 
     # The control: the same targets from the peer, which has no policy, must answer.
     while IFS= read -r line; do
@@ -141,7 +152,7 @@ sys.exit("nothing listens on 8080")
     while IFS= read -r line; do
         [[ "${line}" == RESULT* ]] || continue
         judge_blocked "${line}"
-    done < <(run_inside "${c}" "${targets[@]}" "ssh|host-lan-ssh|${hostLan}|${port}")
+    done < <(run_inside "${c}" "${targets[@]}" "${sessionOnly[@]+"${sessionOnly[@]}"}")
 }
 
 check_allowed() {

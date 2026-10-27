@@ -49,6 +49,16 @@ changed-plays
 # one that does not. Nothing is downloaded or removed.
 00234-stt-model-manager-fits-gpu
 
+# Plan 00232 (issue #114) triage RERUN: the first run's candidate ruleset was refused by nft
+# (the host's own addresses overlap the private ranges), so every enforcement probe measured
+# an unfiltered container. Now fixed and the run stops at the first apply that fails. Same
+# throwaway containers only: read-only host facts, then the policy applied in each throwaway's
+# own network namespace, what a refusal looks like inside, whether the container's own
+# capabilities can lift it (the host's nft, run with only those capabilities), the exit status
+# through podman start -ai, ccy --connect, and pasta. Nothing touches a live session or the
+# host firewall; everything it creates is removed.
+00232-ccy-network-policy-per-container --active
+
 # Plan 00228 Tasks 3.2 and 3.3 (rerun): the consumer install proved in the VM lab, with the
 # attendant now failing an unanswered prompt in seconds. deploy.bash runs
 # play-vm-test-lab.yml (the vmtest CLI rebuilt with its attended-run driver, the manifest with
