@@ -35,9 +35,11 @@
 
 # Plan 00192 Task 3.3: play-cli-tools.yml runs again as a changed play, building
 # ~/.local/bin/reclaim from src-go/cmd/reclaim (the Go port of the bash reclaim, which it
-# replaces at the same path); nothing else in the play changes. Any other play whose inputs
-# changed since it last ran here runs too. Host checks after it, by the host agent:
-# SPEC-reclaim.md H1-H5.
+# replaces at the same path); nothing else in the play changes. Expected with it:
+# play-claude-yolo.yml (CCY 3.100.35, Plan 00228 Task 2.7's shared Go packages),
+# play-speech-to-text.yml (Plan 00229 Task 1.6; on this GPU host the same packages and wrapper)
+# and play-AB-dnf-upgrade.yml (Plan 00229 Task 2.2's reboot notice). Host checks after it, by
+# the host agent: SPEC-reclaim.md H1-H5.
 changed-plays
 
 # Plan 00228 Task 3.2: the consumer install proved in the VM lab. deploy.bash runs
