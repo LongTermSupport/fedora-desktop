@@ -1555,7 +1555,11 @@ instruction runs, read back, and nothing inside the container can change it.
 - **Always open**: loopback, the container's own nameservers, the agent team bus address, and
   every project network the session joins (`--network`, the saved default, `--connect`).
   Other ccy sessions on the shared `podman` network stay refused. `--connect` and
-  `--disconnect` update every live session's policy as they change its networks.
+  `--disconnect` join or leave the networks of the project they run in only, then refresh
+  every live session's policy, in every project: each is recomputed from that session's own
+  networks, so a session whose networks did not change keeps the same allow set. A
+  `Network policy of <session> refreshed` line for another project's session is that, and
+  changes nothing.
 - **Widening it** is the owner's, on the host: `ccy-network-policy where`, run in the
   checkout, prints the checkout's policy file (under `~/.config/claude-yolo/network/`, which
   no container sees). It holds `CCY_NETWORK_ALLOW=<entries>` lines and `#` comments; a

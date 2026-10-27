@@ -130,8 +130,8 @@ start_connect() {
     launch "${CONNECT_KEY}" "${CONNECT_DIR}"
 }
 
-# end_session <seat> — close its input (claude ends, the container goes); after EXIT_S, remove
-# the container and stop the launcher.
+# end_session <seat> — close its input (an unseated session ends, its container goes); after
+# EXIT_S, remove the container and stop the launcher, as a seated session needs (PLAN.md F46).
 end_session() {
     local seat="$1" fd="${FD[$1]:-}" pid="${PID[$1]:-}" deadline status=0
     if [[ -n "${fd}" ]]; then
@@ -144,7 +144,7 @@ end_session() {
         sleep 1
     done
     if ps -p "${pid}" -o pid= >/dev/null; then
-        printf '==> session %s did not end within %d s of its input closing: removing it\n' "${seat}" "${EXIT_S}"
+        printf '==> session %s did not end within %d s of its input closing (a seated session does not: PLAN.md F46): removing it\n' "${seat}" "${EXIT_S}"
         if [[ -n "${CTR[${seat}]:-}" ]]; then
             podman rm -f -t 10 -- "${CTR[${seat}]}" >/dev/null || return 1
         fi

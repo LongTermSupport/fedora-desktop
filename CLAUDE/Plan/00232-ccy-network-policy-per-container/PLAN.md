@@ -1,6 +1,6 @@
 # Plan 00232: ccy network policy per container
 
-**Status**: In Progress (research and design settled: the triage rerun confirmed H1 to H7; Phase 3, the build, is under way)
+**Status**: In Progress (built, deployed and ACCEPTED on the host at CCY 3.101.1; left: the final `qa-reviewer`, the owner's points, Task 3.6)
 **Created**: 2026-10-27
 **Owner**: joseph
 **Priority**: Medium
@@ -95,6 +95,8 @@ asks for declared read-only paths. Plan 00161 built the agent bus.
 | F42 | A headless launch replaying a Quick Launch record with no saved network is `--no-network`, so it runs on pasta, and `podman network connect` refuses a pasta container ("pasta" is not supported), policy or not                                                                   | acceptance run 1 `connect`; `claude-yolo:1311-1312`                                                            |
 | F43 | `pingbus inbox` lists only what is still pending, and never the text, so it could not show the probe's nonce; `pingbus history` reads the room and prints each received PEER item with its event id and text                                                                       | `helpers/pingbus/cli.py` `cmd_inbox`, `cmd_history`                                                            |
 | F44 | The throwaway seated sessions take turns of their own, woken by the bus (on their membership notice, and they answered over the bus): harmless, a haiku turn each in a throwaway seat, but they empty their inboxes                                                                | acceptance run 1 `bus`; the coordinator's view of the room                                                     |
+| F45 | `ccy --connect` in np232c's project also printed a refresh line for np232a and np232b: the connect is project-scoped, the refresh covers every live session of every project and recomputes each from its own networks, so an unchanged session keeps the same allow set (N9)      | acceptance run 2 `connect`; `internal/netpolicy/app.go` `refresh`, `refreshOne`                                |
+| F46 | The seated headless sessions do not end within 60 s of their stdin closing, in both runs; the unseated np232c, driven the same way, ends at once (exit 0). The seated ones carry the bus delivery path (an inbox socket and a watcher); which part keeps them alive is not known   | acceptance runs 1 and 2 teardown; `helpers/pingbus/hooks.py` `session-start`                                   |
 
 ### Hypotheses (each settled by a named triage probe)
 
@@ -176,7 +178,7 @@ DESIGN.md section 7 is the shape, as section 10 settles it. In order, each test 
   skips unprotected sessions, the probes must measure, a `connect` check on a third throwaway session in its own throwaway project, so `--connect` reaches no live session, the queue order,
   IPv6 neighbour discovery, the way out named, the tokens given to the container alone);
   the review of the fixes
-- [ ] 🔄 **Task 3.5**: HOST: the `meta-deploy.bash` run; read the acceptance into the plan.
+- [x] ✅ **Task 3.5**: HOST: the `meta-deploy.bash` run; read the acceptance into the plan.
   Run 1: triage, deploy and triage after passed (the policy is live); acceptance REJECTED on
   three checks, each the check's own design (F41 to F44), fixed red first against fakes in
   `test-acceptance-checks.bash`:
@@ -188,7 +190,20 @@ DESIGN.md section 7 is the shape, as section 10 settles it. In order, each test 
     replay of no saved network now joins `podman` as an interactive yes does, not
     `--no-network` (`scripts/test-ccy-teams.bash`), so restored team sessions can `--connect`
   - `bus`: arrival is read from the receiver's `pingbus history` by the sent event id
-  - the rerun: `deploy.bash` (CCY 3.101.1), then `acceptance.bash`
+  - the rerun: `deploy.bash` (CCY 3.101.1), then `acceptance.bash`: **ACCEPTED**, every check
+    passing (caps, held and context on both sessions; blocked against every host address the
+    control reached; allowed; connect; the bus message each way in about 2 s); no throwaway
+    container left, no live session relaunched. Two findings, each decided:
+    - F45, the refresh reaching other projects' sessions: intended (DESIGN.md section 10,
+      `docs/ccy.md` Network policy)
+    - F46, the seated sessions not ending on input close: a session behaviour, not the
+      acceptance's driving; the teardown's wording now says so, and Task 3.6 finds the cause
+- [ ] **Task 3.6**: Why a seated headless session does not end when its stdin closes (F46).
+  A plan-local probe on one throwaway seated headless session: close its input, then list the
+  container's processes (is claude alive, is the watcher), and repeat with the watcher stopped
+  first. If Claude Code holds the session open for its inbox socket, a headless seated session
+  is ended by the launcher or the driver, and that is documented; if the watcher does, it is
+  fixed to end with the session. Not a gate on the policy: the acceptance removes them
 
 ## Dependencies
 
@@ -200,7 +215,7 @@ DESIGN.md section 7 is the shape, as section 10 settles it. In order, each test 
 
 - [x] H1 to H8 settled by a host triage run (H8 settled by run 1; H1 to H7 by the rerun)
 - [x] Design reviewed; Q1 to Q4 answered
-- [ ] `acceptance.bash` passes on two sessions under the default policy, including the
+- [x] `acceptance.bash` passes on two sessions under the default policy, including the
   pingbus message each way
 - [ ] `./scripts/qa-all.bash` passes; `qa-reviewer` verdict PASS
 
@@ -223,3 +238,4 @@ DESIGN.md section 7 is the shape, as section 10 settles it. In order, each test 
 - Research, triage, the red gate and the design written
 - Host triage run 1 read (F17 to F30); the refused table fixed in the plan scripts
 - Host triage rerun read (F31 to F40): H1 to H7 confirmed, design settled (DESIGN.md section 10)
+- Acceptance rerun ACCEPTED on the host at `cad6b5053` (CCY 3.101.1); F45 and F46 decided

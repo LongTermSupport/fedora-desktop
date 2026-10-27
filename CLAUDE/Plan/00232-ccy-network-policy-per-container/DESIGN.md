@@ -287,6 +287,12 @@ Facts F31 to F40 in [PLAN.md](PLAN.md); H1 to H7 are confirmed.
   `/run/ccy/network-policy` mount and the context to the agent's command; `ccy --connect` and
   `--disconnect` run `ccy-network-policy refresh` after the connect, which replaces the allow
   set of every live session whole. The bash launcher stays within its ratchet.
+- **The refresh covers every live session, by design** (F45). The connect is scoped to the
+  project it runs in; the refresh is not, because it cannot know which sessions a network
+  change touched (`--network <net>` lets sessions of any project share a network), and it needs no such knowledge: each session's allow set is recomputed from its
+  own current networks and its recorded inputs, so for a session whose networks did not
+  change the new set equals the old one. A refresh line for another project's session is
+  that idempotent rewrite.
 - **A `host:port` entry is a rule of its own** (`ip daddr X tcp dport P accept`, and the same
   for UDP), not a concatenated set, a form the triage never applied. The allow set keeps the
   shape the triage applied.

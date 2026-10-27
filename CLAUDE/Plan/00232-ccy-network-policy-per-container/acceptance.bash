@@ -28,7 +28,10 @@
 #
 # The sessions are started and ended here, not by deploy.bash: a session must not outlive the
 # script that can remove it. Each runs claude reading stream-json from a fifo this script holds,
-# and this script sends it no turn; closing the fifo ends it. The seated two do take turns of
+# and this script sends it no turn. Closing the fifo ends the unseated np232c; the seated two
+# have not ended on it in any host run (PLAN.md F46, Task 3.6), so after EXIT_S the teardown
+# removes their containers and stops their launchers, which then exit 143 (the SIGTERM). That
+# is expected and is not a failure. The seated two do take turns of
 # their own, woken by the bus: on the team's membership notice for their seat and on the
 # probe messages. That is harmless (a haiku turn each, in a throwaway seat, answering over
 # the bus), and it is why `bus` reads the room, not the inbox the woken session empties.
