@@ -45,9 +45,13 @@ This plan fixes it under Defence Before Fix:
 - [x] ✅ **Task 1.2**: The rule `pw-record-stdout-not-raw` in `.semgrep/speech-to-text.yml`, red on
   its Python and JavaScript fixtures and on the real tree (the server's `CAPTURE_CMD`, the
   `wsi-stream` pre-buffer capture).
-- [ ] ⬜ **Task 1.3**: Green: `--raw` in every stdout capture, the header check, the reaping. The
+- [x] ✅ **Task 1.3**: Green: `--raw` in every stdout capture, the header check, the reaping. The
   sweep: every `pw-record`/`pw-cat` caller in the repo is listed with its verdict. `CLAUDE/QA.md`
-  gets the rule's section.
+  gets the rule's section. Sweep verdicts: the server's `CAPTURE_CMD` and `wsi-stream`'s
+  pre-buffer capture were the only stdout captures (fixed); `wsi` (Go) records to a `.wav` file
+  (correct); `wsi-server-manager` only finds and signals pw-record; the extension and docs only
+  mention it; the test stubs stand in for it. `wsi-stream`'s standard mode has no `pw-record`
+  (RealtimeSTT opens the microphone), so its check is in pre-buffer mode, before `feed_audio()`.
 - [ ] ⬜ **Task 1.4**: Deploy `play-speech-to-text.yml` through `meta-deploy.bash`; the owner
   dictates and gets the words spoken.
 
@@ -56,7 +60,7 @@ This plan fixes it under Defence Before Fix:
 - [ ] ⬜ **Task 2.1**: `play-AB-dnf-upgrade.yml` replaced pipewire-utils under running user services
   and changed a tool's output format, with nothing noticing. Phase 1's stream check covers this
   case. Decide whether the play should also report user services left running on replaced
-  libraries (as it reports a kernel change), and build it if so.
+  libraries (as it reports a kernel change), and build it if so. Open: not started.
 
 ## Success Criteria
 
