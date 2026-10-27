@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.101.0"  # Container 2.79.15: every session runs under a network policy (ccy-network-policy). See docs/ccy-changelog.md.
+CCY_VERSION="3.101.1"  # Container 2.79.15: a headless replay of no saved network joins podman; --connect explains a session that cannot join. See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -1299,9 +1299,11 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
                         CCY_ORIG_ARGS+=(--teams "$CCY_SEATS")
                         [ -z "$CCY_SESSION_NAME" ] || ccy-teams record-seats "$CCY_SESSION_NAME" "$CCY_SEATS" || exit 1
                     fi
-                    # Headless, an empty saved choice is that choice (no key, no network),
-                    # never the picker it would otherwise fall through to; a saved launch
-                    # with no token cannot be replayed.
+                    # Headless, an empty saved choice is that choice (no key; no project
+                    # network, so the default one, as the launch that saved it had), never the
+                    # picker or the network detection it would otherwise fall through to; a
+                    # saved launch with no token cannot be replayed. Not --no-network: a session
+                    # on pasta can join no network later (ccy --connect).
                     if [ "$HEADLESS_MODE" = true ]; then
                         if [[ -z "$LAST_TOKEN" ]]; then
                             print_error "Headless launch: the saved Quick Launch choices name no token, and a headless launch never asks for one."
@@ -1309,7 +1311,7 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
                             exit 1
                         fi
                         [[ -n "$LAST_SSH_KEYS" ]] || NO_SSH_MODE=true
-                        [[ -n "$LAST_NETWORK" ]] || NO_NETWORK_MODE=true
+                        [[ -n "$LAST_NETWORK" ]] || CCY_NO_PROJECT_NETWORK=true
                     fi
                     break
                     ;;
@@ -2656,10 +2658,11 @@ elif [[ "$NO_NETWORK_MODE" = true ]]; then
     # --no-network flag provided
     echo "✓ Skipping network connection (--no-network flag)"
     echo ""
-elif [[ -n "$CCY_RESTART_RELAUNCH_SESSION" ]]; then
-    # A restart with neither flag: the session joined no project network, so the relaunch
-    # joins none either, without the detection and offers below.
-    echo "✓ No project network (the session had none before its restart)"
+elif [[ -n "$CCY_RESTART_RELAUNCH_SESSION" || "${CCY_NO_PROJECT_NETWORK:-}" = true ]]; then
+    # A restart with neither flag, or a headless replay of a saved launch with no network: the
+    # session joined no project network, so this launch joins none either, without the
+    # detection and offers below, and goes on the default network.
+    echo "✓ No project network (the launch this replays had none)"
     echo ""
 else
     # No network flags - check for persisted network preference first

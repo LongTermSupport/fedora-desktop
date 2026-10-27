@@ -664,6 +664,7 @@ quick() {
         printf "%s|%s" "$TEAMS_LIST" "${CCY_ORIG_ARGS[*]}" >"$TEAMS_END"
         printf "%s" "${quick_kept_team:-}" >"$TEAMS_KEPT"
         printf "%s" "$CCY_SEATS" >"$TEAMS_SEATS"
+        printf "%s" "${CCY_NO_PROJECT_NETWORK:-false}" >"$QUICK_NO_PROJECT_NET"
         printf "token=%s keys=%s no_ssh=%s net=%s no_net=%s" "$SPECIFIED_TOKEN" "${SSH_KEYS[*]}" \
             "$NO_SSH_MODE" "$SPECIFIED_NETWORK" "$NO_NETWORK_MODE"' "$work/quick.bash" "$headless" "$@" \
         2>"$work/quick.err")
@@ -677,6 +678,8 @@ export TEAMS_LOG="$work/teams-launched.log" TEAMS_END="$work/teams-end.txt" TEAM
 export TEAMS_KEPT="$work/teams-kept.txt"
 # The seats the launch goes on to take (CCY_SEATS, which ccy_seats_take is given) after the block.
 export TEAMS_SEATS="$work/teams-seats.txt"
+# Whether the launch goes on with no project network but the default one (CCY_NO_PROJECT_NETWORK).
+export QUICK_NO_PROJECT_NET="$work/no-project-net.txt"
 # recorded_after <quick args...>: what the launch put into its session's record (ccy-teams
 # record-seats calls), or none.
 recorded_after() {
@@ -708,8 +711,16 @@ save personal /keys/id_a proj_net
 check "interactive with saved choices: the prompt is still asked" "yes" \
     "$(grep -q 'prompt=yes' <<<"$(quick false)" && echo yes || echo no)"
 save personal "" ""
+# No saved network is what an interactive launch onto the default network saves too, so a
+# headless replay of it joins the default network (podman), as that launch did, and skips the
+# project-network detection and its offers. It is not --no-network: a session on pasta can join
+# no network later (ccy --connect), and an interactive yes to the same record is not one either.
 check "headless, saved with no key and no network: those are the choices, not a menu" \
-    "token=personal keys= no_ssh=true net= no_net=true rc=0 prompt=no" "$(quick true)"
+    "token=personal keys= no_ssh=true net= no_net=false rc=0 prompt=no" "$(quick true)"
+check "  no project network, but not --no-network: the default network, without detection" "true" "$(cat "$QUICK_NO_PROJECT_NET")"
+save personal /keys/id_a ""
+quick false >/dev/null
+check "  interactive, the same record: detection as before" "false" "$(cat "$QUICK_NO_PROJECT_NET")"
 save "" /keys/id_a ""
 check "headless, saved with no token: refused, no prompt" "yes" \
     "$(grep -q 'rc=1 prompt=no' <<<"$(quick true)" && echo yes || echo no)"

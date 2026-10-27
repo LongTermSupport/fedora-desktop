@@ -33,6 +33,24 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
+# Plan 00232, the rerun after the acceptance was rejected on three checks of its own design (the
+# policy itself is already live and its triage passed; neither is run again). First
+# deploy.bash: play-claude-yolo.yml again, for the launcher at CCY 3.101.1 only: a headless
+# launch replaying a Quick Launch record with no saved network (a restored team session, say)
+# now joins the default podman network instead of running as --no-network on pasta, and
+# ccy --connect says plainly that a session started without a network cannot join one,
+# instead of the engine's "pasta is not supported" error. Sessions already running are not
+# touched. Nothing else in the play changed.
+00232-ccy-network-policy-per-container/deploy.bash
+
+# Then acceptance.bash alone, as before: the throwaway seats np232a and np232b and the unseated
+# np232c, the same checks, the same teardown. Changed: blocked now puts to the session only the
+# host addresses the unpoliced control reaches (exit 2 COULD NOT ESTABLISH if none); np232c is
+# launched on the podman network, as a plain ccy launch is, so --connect is tested on that
+# shape; bus reads each receiver's room history for the message's event id, since the woken
+# session empties its inbox. Exit 2 also as before (no seat, no Quick Launch, np232c not alone).
+00232-ccy-network-policy-per-container/acceptance.bash
+
 # The plays changed since they last ran here. Expected: play-AA-preflight-sanity.yml (Plan
 # 00228: a consumer install refuses a non-graphical default target), play-speech-to-text.yml
 # (Plan 00228: wsi-claude-process says plainly that Claude post-processing needs the developer

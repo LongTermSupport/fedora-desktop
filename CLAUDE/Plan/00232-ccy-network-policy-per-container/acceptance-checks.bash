@@ -7,14 +7,15 @@
 #                                  SYS_ADMIN, so nothing inside can change its network namespace
 #   held <session>                 the policy table is in the session's own network namespace,
 #                                  read from the host
-#   blocked <session> <image>      a host listener (through host.containers.internal, and on a host
-#                                  address off the outbound interface when the host has one: pasta
-#                                  copies the outbound interface's own addresses into the
-#                                  container side, so those never reach the host, policy or not)
-#                                  and a peer on the podman network are
+#   blocked <session> <image>      a host listener (through host.containers.internal, and on each
+#                                  host address off the outbound interface that the control
+#                                  reaches: pasta copies its template interface's address into the
+#                                  rootless namespace, so that one never reaches the host, policy
+#                                  or not) and a peer on the podman network are
 #                                  reachable from a throwaway container WITHOUT the policy (the
 #                                  control), and refused from the session at once (under 2 s, not
-#                                  a timeout)
+#                                  a timeout); exit 2 (COULD NOT ESTABLISH) when the control
+#                                  reaches no such host address
 #   allowed <session>              DNS, the forge and the Claude API still work
 #   sole <session>                 the session is the only running container `ccy --connect` in
 #                                  its project reaches; exit 2 (COULD NOT ESTABLISH), naming the
@@ -29,9 +30,13 @@
 #                                  prompt (the marker CCY NETWORK POLICY)
 #   bus <session> <peer> <team> <seat> <peer-seat>
 #                                  both reach their homeserver, and a message sent each way with
-#                                  `pingbus say` arrives in the other's inbox (`pingbus inbox`,
-#                                  which does not consume it). Both must be throwaway seated
-#                                  sessions of <team> (not working agents: they receive a message)
+#                                  `pingbus say` is in the other's `pingbus history` (read from
+#                                  the room by the receiver's own seat) as a PEER item it received,
+#                                  by the event id say printed. Not `pingbus inbox`: it shows only
+#                                  what is still pending, never the text, and the receiving
+#                                  session, woken by the message, consumes it. Both must be
+#                                  throwaway seated sessions of <team> (not working agents: they
+#                                  receive a message)
 #   ready <session> <team>         the session's pingbus answers for <team> (its seat is claimed);
 #                                  no PASS line, only the status
 #
@@ -56,6 +61,7 @@ CTR_PINGBUS_HOME="$(python3 -P "${M7_CHECK}" session-paths | awk 'NR == 1')"
 MARKER="CCY NETWORK POLICY"
 FAST_MS=2000
 failed=0
+unestablished=0
 
 pass() { printf 'PASS %s\n' "$*"; }
 fail() {
@@ -125,7 +131,7 @@ judge_blocked() {
 }
 
 check_blocked() {
-    local c="$1" image="$2" dir port pid hostDev hostOther peer peerIp line out i
+    local c="$1" image="$2" dir port pid hostDev peer peerIp line out i
     dir="$(mktemp -d)"
     port="$((20000 + RANDOM % 20000))"
     python3 -m http.server --bind :: "${port}" --directory "${dir}" >"${dir}.log" 2>&1 &
@@ -152,7 +158,12 @@ check_blocked() {
         sleep 0.1
     done
     hostDev="$(ip -j route get 192.0.2.1 | jq -r '.[0].dev')"
-    hostOther="$(ip -j -4 addr | jq -r --arg out "${hostDev}" '[.[] | select(.ifname != $out and .ifname != "agentbus0") | .addr_info[] | select(.scope == "global") | .local] | first // ""')"
+    # Every host address but the outbound interface's (refused even unpoliced, above) and the
+    # bus's (the policy allows it): the control is asked which of them it reaches.
+    local addrs
+    local -a hostOthers=()
+    addrs="$(ip -j -4 addr | jq -r --arg out "${hostDev}" '.[] | select(.ifname != $out and .ifname != "agentbus0") | .addr_info[] | select(.scope == "global") | .local')"
+    if [[ -n "${addrs}" ]]; then mapfile -t hostOthers <<<"${addrs}"; fi
     podman run -d --rm --label ccy-netpolicy-acceptance --network podman --name "${peer}" \
         --entrypoint python3 "${image}" -m http.server 8080 >/dev/null
     # Wait inside the peer for its own server (its main process: if that dies, the exec fails).
@@ -171,19 +182,35 @@ sys.exit("nothing listens on 8080")
     fi
     peerIp="$(podman inspect --format '{{(index .NetworkSettings.Networks "podman").IPAddress}}' "${peer}")"
     local -a targets=("http|host-alias|host.containers.internal|${port}" "http|peer-session|${peerIp}|8080")
-    local -a sessionOnly=()
-    if [[ -n "${hostOther}" ]]; then
-        targets+=("http|host-other|${hostOther}|${port}")
-        sessionOnly+=("ssh|host-other-ssh|${hostOther}|${port}")
-    else
-        printf 'NOTE the host has no global address off its outbound interface %s; host.containers.internal is its only address a session can reach\n' "${hostDev}"
-    fi
-
-    # The control: the same targets from the peer, which has no policy, must answer.
-    probe "${peer}" "${targets[@]}" || return 0
-    for line in "${PROBED[@]}"; do
-        if [[ "$(field "${line}" rc)" == 0 ]]; then pass "control reaches it without the policy: ${line}"; else fail "control could not reach it, so a refusal would prove nothing: ${line}"; fi
+    local -a candidates=() sessionOnly=()
+    local addr label
+    for addr in "${hostOthers[@]+"${hostOthers[@]}"}"; do
+        candidates+=("http|host-other:${addr}|${addr}|${port}")
     done
+
+    # The control: the same targets from the peer, which has no policy, must answer. Of the
+    # other host addresses only those it reaches are put to the session: pasta copies its
+    # template interface's address into the rootless namespace, so that one is local there and
+    # unreachable, policy or not, and a refusal of it would prove nothing.
+    probe "${peer}" "${targets[@]}" "${candidates[@]+"${candidates[@]}"}" || return 0
+    for line in "${PROBED[@]}"; do
+        label="$(awk '{ print $2 }' <<<"${line}")"
+        if [[ "${label}" != host-other:* ]]; then
+            if [[ "$(field "${line}" rc)" == 0 ]]; then pass "control reaches it without the policy: ${line}"; else fail "control could not reach it, so a refusal would prove nothing: ${line}"; fi
+        elif [[ "$(field "${line}" rc)" == 0 ]]; then
+            pass "control reaches it without the policy: ${line}"
+            addr="${label#host-other:}"
+            targets+=("http|${label}|${addr}|${port}")
+            sessionOnly+=("ssh|host-other-ssh:${addr}|${addr}|${port}")
+        else
+            printf 'NOTE not put to the session, since the control cannot reach it either: %s\n' "${line}"
+        fi
+    done
+    if [[ "${#sessionOnly[@]}" -eq 0 ]]; then
+        printf 'COULD NOT ESTABLISH: no host address off the outbound interface %s is reachable without the policy (of: %s), so the host is measured only through host.containers.internal\n' \
+            "${hostDev}" "${hostOthers[*]:-none}"
+        unestablished=1
+    fi
 
     probe "${c}" "${targets[@]}" "${sessionOnly[@]+"${sessionOnly[@]}"}" || return 0
     for line in "${PROBED[@]}"; do
@@ -333,23 +360,36 @@ check_bus() {
 }
 
 # send_and_see <from> <to> <to-user-id> <team> — one message, then up to 60 s for it to arrive.
+# Arrival is read from the receiver's own `pingbus history` (from the room, through its own
+# network): a PEER item it received, with the event id `say` printed and the nonce in its text.
+# Not `pingbus inbox`: that lists only what is still pending, and never the text, while the
+# receiving session is woken by the message and consumes it.
 send_and_see() {
-    local from="$1" to="$2" toId="$3" team="$4" nonce out i
+    local from="$1" to="$2" toId="$3" team="$4" nonce out eventId i
     nonce="netpolicy-acceptance-$(date +%s)-${RANDOM}"
     if ! out="$(printf 'Plan 00232 acceptance: a network-policy probe message, %s. No reply needed.\n' "${nonce}" |
         bus "${from}" "${team}" say --to "${toId}" 2>&1)"; then
         fail "${from} could not send to ${toId}: ${out}"
         return 0
     fi
-    pass "${from} sent ${nonce}"
+    # SENT <version> <team> <event id>, tab-separated.
+    eventId="$(awk -F '\t' '$1 == "SENT" { print $4 }' <<<"${out}")"
+    if [[ -z "${eventId}" ]]; then
+        fail "${from}'s pingbus say printed no SENT line: ${out}"
+        return 0
+    fi
+    pass "${from} sent ${nonce} as ${eventId}"
     for i in $(seq 1 30); do
-        if out="$(bus "${to}" "${team}" inbox 2>&1 </dev/null)" && [[ "${out}" == *"${nonce}"* ]]; then
-            pass "${to} received ${nonce} after about $((i * 2)) s"
+        # HISTORY <version> in <ts> PEER <team> <event id> <sender> <ts> <text> ..., tab-separated.
+        if out="$(bus "${to}" "${team}" history --limit 50 2>&1 </dev/null)" &&
+            awk -F '\t' -v id="${eventId}" -v nonce="${nonce}" \
+                '$1 == "HISTORY" && $3 == "in" && $5 == "PEER" && $7 == id && index($0, nonce) { found = 1 } END { exit !found }' <<<"${out}"; then
+            pass "${to} received ${eventId} after about $((i * 2)) s"
             return 0
         fi
         sleep 2
     done
-    fail "${to} did not receive ${nonce} within 60 s; its last inbox read: ${out}"
+    fail "${to} did not receive ${eventId} (${nonce}) within 60 s; its last history read: ${out}"
 }
 
 case "${1-}" in
@@ -370,4 +410,5 @@ case "${1-}" in
         exit 64
         ;;
 esac
-[[ "${failed}" -eq 0 ]]
+[[ "${failed}" -eq 0 ]] || exit 1
+[[ "${unestablished}" -eq 0 ]] || exit 2

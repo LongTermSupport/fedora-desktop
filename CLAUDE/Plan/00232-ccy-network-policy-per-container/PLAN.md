@@ -91,6 +91,10 @@ asks for declared read-only paths. Plan 00161 built the agent bus.
 | F38 | The host's global IPv6 addresses changed between P4 and A7, minutes apart (temporary addresses), so they are read at each launch; a session still has no global IPv6                                                                                                               | rerun P4, A7, A8                                                                                               |
 | F39 | The checkout's seat bundles (`.claude/ccy/pingbus/seats/`) are inside the workspace the container writes, so a `base_url` there is the container's to change                                                                                                                       | rerun P5; `acceptance-checks.bash` `member_json`                                                               |
 | F40 | Each probe container ignored SIGTERM (its PID 1 is `sleep` or a shell), so `podman rm -f` waited 10 s per container before SIGKILL                                                                                                                                                 | rerun log                                                                                                      |
+| F41 | The first host address off the outbound interface was unreachable from the unpoliced control too (curl 7): it is the address pasta copies into the rootless namespace, so a refusal of it proves nothing                                                                           | acceptance run 1 `blocked`                                                                                     |
+| F42 | A headless launch replaying a Quick Launch record with no saved network is `--no-network`, so it runs on pasta, and `podman network connect` refuses a pasta container ("pasta" is not supported), policy or not                                                                   | acceptance run 1 `connect`; `claude-yolo:1311-1312`                                                            |
+| F43 | `pingbus inbox` lists only what is still pending, and never the text, so it could not show the probe's nonce; `pingbus history` reads the room and prints each received PEER item with its event id and text                                                                       | `helpers/pingbus/cli.py` `cmd_inbox`, `cmd_history`                                                            |
+| F44 | The throwaway seated sessions take turns of their own, woken by the bus (on their membership notice, and they answered over the bus): harmless, a haiku turn each in a throwaway seat, but they empty their inboxes                                                                | acceptance run 1 `bus`; the coordinator's view of the room                                                     |
 
 ### Hypotheses (each settled by a named triage probe)
 
@@ -172,7 +176,19 @@ DESIGN.md section 7 is the shape, as section 10 settles it. In order, each test 
   skips unprotected sessions, the probes must measure, a `connect` check on a third throwaway session in its own throwaway project, so `--connect` reaches no live session, the queue order,
   IPv6 neighbour discovery, the way out named, the tokens given to the container alone);
   the review of the fixes
-- [ ] ⬜ **Task 3.5**: HOST: the `meta-deploy.bash` run; read the acceptance into the plan
+- [ ] 🔄 **Task 3.5**: HOST: the `meta-deploy.bash` run; read the acceptance into the plan.
+  Run 1: triage, deploy and triage after passed (the policy is live); acceptance REJECTED on
+  three checks, each the check's own design (F41 to F44), fixed red first against fakes in
+  `test-acceptance-checks.bash`:
+  - `blocked`: only the host addresses the unpoliced control reaches are put to the session;
+    none is COULD NOT ESTABLISH (exit 2), which `acceptance.bash` now passes on
+  - `connect`: np232c is launched on the `podman` network, as a plain launch is; and
+    `ccy --connect` to a session with no network now says it cannot join one and to relaunch
+    with `--network` (CCY 3.101.1, `scripts/test-ccy-network-disconnect.bash`); a headless
+    replay of no saved network now joins `podman` as an interactive yes does, not
+    `--no-network` (`scripts/test-ccy-teams.bash`), so restored team sessions can `--connect`
+  - `bus`: arrival is read from the receiver's `pingbus history` by the sent event id
+  - the rerun: `deploy.bash` (CCY 3.101.1), then `acceptance.bash`
 
 ## Dependencies
 

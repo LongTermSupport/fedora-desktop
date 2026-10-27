@@ -12,18 +12,26 @@
 #   held     the policy is held outside the container, in its own network namespace
 #   context  the session was told its network limits at start
 #   blocked  the host itself and a neighbouring container are refused at once, while a control
-#            container without the policy reaches the same listeners
+#            container without the policy reaches the same listeners; of the host's other
+#            addresses only those the control reaches are put to the session, and with none,
+#            COULD NOT ESTABLISH (exit 2)
 #   allowed  DNS, the forge and the Claude API still work
-#   connect  on np232c: a peer on a throwaway project network is refused, reached after
+#   connect  on np232c, launched on the podman network as a plain ccy launch is (a session
+#            started with no network, on pasta, can join none, policy or not): a peer on a
+#            throwaway project network is refused, reached after
 #            `ccy --connect` run in np232c's directory (its refresh opens the subnet and names it
 #            in the context file), and refused again after `ccy --disconnect`. np232c must be
 #            the only session that --connect reaches, so no live session of this checkout is
 #            touched: if any other is, COULD NOT ESTABLISH (exit 2) before anything is changed
-#   bus      both sessions reach their homeserver, and a pingbus message sent each way arrives
+#   bus      both sessions reach their homeserver, and a pingbus message sent each way arrives:
+#            the receiver's own room history holds it, by the event id the send printed
 #
 # The sessions are started and ended here, not by deploy.bash: a session must not outlive the
 # script that can remove it. Each runs claude reading stream-json from a fifo this script holds,
-# and is sent no turn, so no model time is spent; closing the fifo ends it.
+# and this script sends it no turn; closing the fifo ends it. The seated two do take turns of
+# their own, woken by the bus: on the team's membership notice for their seat and on the
+# probe messages. That is harmless (a haiku turn each, in a throwaway seat, answering over
+# the bus), and it is why `bus` reads the room, not the inbox the woken session empties.
 #
 # The team is --team=<team>, else the team of this checkout's first seat (`agent-bus seat list`):
 # a team that covers this checkout and whose homeserver runs here. With none, COULD NOT
@@ -42,8 +50,9 @@
 # Quick Launch record is saved first and put back, since a seated launch rewrites it.
 #
 # EXIT CODES: 0 every check passed; 1 at least one failed (each names itself), or the sessions
-# could not be started or removed; 2 COULD NOT ESTABLISH (no team, no saved Quick Launch, or
-# np232c not the only session ccy --connect would reach); 64 usage.
+# could not be started or removed; 2 COULD NOT ESTABLISH (no team, no saved Quick Launch,
+# np232c not the only session ccy --connect would reach, or, with no check failed, a check that
+# could not measure what it vouches for); 64 usage.
 set -euo pipefail
 
 # ── R1 bootstrap: script-relative, filesystem-only, bounded at the repo boundary ──────────
@@ -148,18 +157,26 @@ printf '==> team %s, throwaway seats %s and %s\n' "${TEAM}" "${SEAT_A}" "${SEAT_
 source "${PLAN_SCRIPT_DIR}/_acceptance-sessions.inc.bash"
 plan_on_cleanup teardown
 
-# check <name> <cmd...> — one check; every check runs, and any failure makes the run exit 1.
+# check <name> <cmd...> — one check; every check runs. Any failure makes the run exit 1; a check
+# that could not measure what it vouches for (its exit 2), with no failure, makes it exit 2.
 FAILED_CHECKS=""
+UNESTABLISHED_CHECKS=""
 check() {
-    local name="$1"
+    local name="$1" status=0
     shift
     printf '\n==> [check] %s\n' "${name}"
-    if "$@"; then
-        printf 'PASS  %s\n' "${name}"
-    else
-        printf 'FAIL  %s\n' "${name}" >&2
-        FAILED_CHECKS+="${FAILED_CHECKS:+; }${name}"
-    fi
+    "$@" || status=$?
+    case "${status}" in
+        0) printf 'PASS  %s\n' "${name}" ;;
+        2)
+            printf 'COULD NOT ESTABLISH  %s\n' "${name}" >&2
+            UNESTABLISHED_CHECKS+="${UNESTABLISHED_CHECKS:+; }${name}"
+            ;;
+        *)
+            printf 'FAIL  %s\n' "${name}" >&2
+            FAILED_CHECKS+="${FAILED_CHECKS:+; }${name}"
+            ;;
+    esac
 }
 
 plan_deploy_leg "park throwaway seats an interrupted run left" park_seats
@@ -190,6 +207,10 @@ plan_deploy_leg "end the sessions, park the seats, restore the Quick Launch reco
 if [[ -n "${FAILED_CHECKS}" ]]; then
     printf '\nREJECTED: %s\n' "${FAILED_CHECKS}" >&2
     exit 1
+fi
+if [[ -n "${UNESTABLISHED_CHECKS}" ]]; then
+    printf '\nCOULD NOT ESTABLISH: %s (each says what it could not measure, above)\n' "${UNESTABLISHED_CHECKS}" >&2
+    exit 2
 fi
 printf '\nACCEPTED: both sessions held the policy, were refused the host and a neighbour, and reached DNS, the forge, the API and each other over the bus, then np232c reached a network joined by ccy --connect in its own project; all removed\n'
 plan_finish

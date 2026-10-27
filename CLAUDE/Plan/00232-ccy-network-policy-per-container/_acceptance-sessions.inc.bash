@@ -116,12 +116,15 @@ connect_home() {
 }
 
 # start_connect — an unseated session in a new git repository under the run directory, its own
-# ccy project, with the checkout's Quick Launch choices (token, keys) but no team and no network.
+# ccy project, with the checkout's Quick Launch choices (token, keys), no team, and the podman
+# network: what a plain ccy launch with no network chosen joins. It is named, so the shape does
+# not hang on how the installed launcher replays an empty saved network: a session on pasta
+# (--no-network) can join no network at all.
 start_connect() {
     CONNECT_DIR="${PLAN_RUN_DIR}/np232-connect"
     mkdir -p -- "${CONNECT_DIR}/.claude/ccy" || return 1
     git -C "${CONNECT_DIR}" init -q || return 1
-    awk '/^LAST_TEAMS=/ { print "LAST_TEAMS=\"\""; next } /^LAST_NETWORK=/ { print "LAST_NETWORK=\"\""; next } { print }' \
+    awk '/^LAST_TEAMS=/ { print "LAST_TEAMS=\"\""; next } /^LAST_NETWORK=/ { print "LAST_NETWORK=\"podman\""; next } { print }' \
         "${LAST_LAUNCH}" >"${CONNECT_DIR}/.claude/ccy/.last-launch.conf" || return 1
     chmod 600 -- "${CONNECT_DIR}/.claude/ccy/.last-launch.conf" || return 1
     launch "${CONNECT_KEY}" "${CONNECT_DIR}"
