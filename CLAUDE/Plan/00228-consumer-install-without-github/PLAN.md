@@ -149,7 +149,7 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   `github_accounts: {}`), a developer one refused; dnf base packages through
   `internal/sudo`; pipx ansible with only the missing injects; the vault password file that
   `ansible-config` resolves made at random (32 bytes, base64, 0600) when absent; galaxy; the
-  main playbook with `--ask-become-pass` unless sudo is truly passwordless; a numbered menu
+  main playbook (root as Task 2.7 says); a numbered menu
   of the optional plays whose every play is `audience: all`; the setup marker; a reboot
   advised. No gh, no ssh-keygen, no git. Unit tests through `execx.Fake` (coverage 91%),
   including a test over this checkout's real optional plays.
@@ -172,6 +172,19 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   `run.bash <play>.yml` line per play to retry and the `--optional-only` menu. Exit 1 naming
   how many failed, 128+n on a signal, 0 only when every chosen play passed (the setup marker
   only then). The main playbook stays fail-fast. Red and green in `app_test.go`.
+- [x] ✅ **Task 2.7**: the password asked once per run (owner report: "asks for sudo password
+  for every single play"). Each play used to run with `--ask-become-pass`, so Ansible asked
+  before the main play and again before every optional one. Now, unless sudo is truly
+  passwordless, the login password is typed once with the echo off (`ui.Lines.Secret`,
+  `ttyecho.Off`), checked at once by `sudo -k -S -v` with the password fed on stdin
+  (`sudo.CheckPassword`), asked again on a refusal (three tries, then exit 1 before anything
+  is installed), and written (`execx.Secret.WriteFile`) to a 0600 file in a 0700 directory of
+  its own under `XDG_RUNTIME_DIR` (memory only); every `ansible-playbook` gets
+  `--become-password-file` naming it. Never argv, never an environment, never printed. Run
+  removes the directory on every exit path (success, a failed play, the input ending, Ctrl-C
+  and TERM through the signal context). The checked password also leaves sudo's credential
+  cached, so the dnf step asks nothing. The VM lab's consumer driver refuses the new question
+  too (its sudo is passwordless). Red and green in the four packages' tests.
 
 ### Phase 3: VM lab acceptance
 

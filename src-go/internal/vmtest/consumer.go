@@ -26,6 +26,7 @@ var consumerPrompts = []prompt{
 	{text: "Numbers to install (e.g. 1 3), or Enter for none: ", reply: "\n"},
 	{text: "[sudo] password for ", refuse: true},
 	{text: "BECOME password: ", refuse: true},
+	{text: "Your login password (nothing shows as you type): ", refuse: true},
 	{text: "Username for 'https://", refuse: true},
 	{text: "Password for 'https://", refuse: true},
 	{text: "Enter passphrase", refuse: true},

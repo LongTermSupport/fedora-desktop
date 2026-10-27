@@ -84,6 +84,19 @@ func TestConsumerProvisionRefusedPrompt(t *testing.T) {
 	}
 }
 
+// consumer-install's own password question is refused too: the lab's sudo is passwordless, so a
+// run that asks it has misjudged sudo.
+func TestConsumerProvisionRefusesTheInstallersPasswordQuestion(t *testing.T) {
+	_, r := consumerRunning(t, printing("i The install needs your login password once.\r\nYour login password (nothing shows as you type): ", 255))
+	rc, err := r.provision(context.Background())
+	if err != nil || rc != 1 {
+		t.Fatalf("got %d %v", rc, err)
+	}
+	if !strings.Contains(transcriptOf(t, r), "asked \"Your login password") {
+		t.Fatalf("transcript %q", transcriptOf(t, r))
+	}
+}
+
 // The checkout that cannot be made is the harness failing, not the product.
 func TestConsumerProvisionCheckoutFails(t *testing.T) {
 	k, r := consumerRunning(t, printing("", 0))

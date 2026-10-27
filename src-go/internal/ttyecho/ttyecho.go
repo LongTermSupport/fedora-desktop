@@ -75,6 +75,32 @@ func (ioctlModes) Flush(fd int) error {
 	return nil
 }
 
+// Off turns off the echo of the terminal on fd for a line read with nothing shown (a password),
+// and gives back the function that puts back the mode it found: ui.Lines.EchoOff.
+func Off(fd int) func() (func() error, error) { return OffVia(ioctlModes{}, fd) }
+
+// OffVia is Off through m, for a test. Only ECHO is cleared: the line is still read whole and
+// Ctrl-C still ends the run.
+func OffVia(m Modes, fd int) func() (func() error, error) {
+	return func() (func() error, error) {
+		found, err := m.Get(fd)
+		if err != nil {
+			return nil, fmt.Errorf("read the terminal's mode: %w", err)
+		}
+		quiet := *found
+		quiet.Lflag &^= unix.ECHO
+		if err := m.Set(fd, &quiet); err != nil {
+			return nil, fmt.Errorf("turn the terminal's echo off: %w", err)
+		}
+		return func() error {
+			if err := m.Set(fd, found); err != nil {
+				return fmt.Errorf("put the terminal's echo back: %w", err)
+			}
+			return nil
+		}, nil
+	}
+}
+
 // Hold is the echo of one terminal, held off from the first screen to the end of the run. A nil
 // Hold holds nothing. Every field is a seam a test replaces.
 type Hold struct {

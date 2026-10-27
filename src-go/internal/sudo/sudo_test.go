@@ -358,3 +358,34 @@ func TestForgetThatFailsIsAnError(t *testing.T) {
 		t.Fatal("a failed sudo -k was not reported")
 	}
 }
+
+func TestCheckPasswordFeedsItOnStdinIgnoringTheCache(t *testing.T) {
+	f := &execx.Fake{}
+	fed := false
+	f.OnFunc([]string{"sudo", "-k", "-S", "-p", "", "-v"}, func(c execx.Cmd) (execx.Result, error) {
+		fed = c.Feed != nil && c.Feed.Secret.Is("right") && c.Feed.After == "\n" && c.Feed.Before == ""
+		if !fed {
+			return execx.Result{ExitCode: 1, Stderr: []byte("Sorry, try again.\n")}, nil
+		}
+		return execx.Result{}, nil
+	})
+	s := newSudo(f, true)
+	right, err := execx.NewSecret("SUDO_PASSWORD", "right")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.CheckPassword(context.Background(), right); err != nil || !fed {
+		t.Fatalf("a right password: %v (fed %v)", err, fed)
+	}
+	wrong, err := execx.NewSecret("SUDO_PASSWORD", "wrong")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CheckPassword(context.Background(), wrong); !errors.Is(err, ErrWrongPassword) {
+		t.Fatalf("a wrong password: %v", err)
+	}
+	f.OnError([]string{"sudo", "-k"}, errors.New("no sudo"))
+	if err := s.CheckPassword(context.Background(), right); err == nil || errors.Is(err, ErrWrongPassword) {
+		t.Fatalf("sudo not starting: %v", err)
+	}
+}

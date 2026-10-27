@@ -35,6 +35,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/shellword"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ttyecho"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
@@ -83,14 +84,16 @@ Options:
 
 // Env is everything a run touches outside its own memory and the checkout's files.
 type Env struct {
-	Runner          execx.Runner
-	Foreground      execx.Foregrounder
-	Getenv          func(string) string
-	UID             func() int
-	CurrentUser     func() (*user.User, error)
-	OSRelease       string
-	Random          io.Reader
-	OpenTTY         func() (io.ReadCloser, error)
+	Runner      execx.Runner
+	Foreground  execx.Foregrounder
+	Getenv      func(string) string
+	UID         func() int
+	CurrentUser func() (*user.User, error)
+	OSRelease   string
+	Random      io.Reader
+	OpenTTY     func() (io.ReadCloser, error)
+	// EchoOff turns the terminal's echo off while the password is typed (ttyecho.Off).
+	EchoOff         func() (restore func() error, err error)
 	Stdin           io.Reader
 	Stdout, Stderr  io.Writer
 	StdinIsTerminal bool
@@ -101,7 +104,7 @@ func NewEnv() Env {
 	return Env{
 		Runner: execx.OS{}, Foreground: execx.OS{}, Getenv: os.Getenv, UID: os.Getuid,
 		CurrentUser: user.Current, OSRelease: "/etc/os-release", Random: rand.Reader,
-		OpenTTY: openTTY, Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
+		OpenTTY: openTTY, EchoOff: ttyecho.Off(int(os.Stdin.Fd())), Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
 		StdinIsTerminal: term.FileIsTerminal(os.Stdin),
 	}
 }
@@ -134,12 +137,15 @@ type run struct {
 	root, home   string
 	path         string
 	become       []string
+	// becomeDir is the private directory holding the password file every play is handed;
+	// empty when sudo needs no password. Run removes it however the run ends.
+	becomeDir string
 }
 
 // Run is the whole command; it returns the exit code.
 func (a App) Run(ctx context.Context, args []string) term.ExitCode {
 	r := &run{env: a.Env}
-	r.lines = &ui.Lines{In: a.Env.Stdin, Out: a.Env.Stderr, Width: headingWidth}
+	r.lines = &ui.Lines{In: a.Env.Stdin, Out: a.Env.Stderr, Width: headingWidth, EchoOff: a.Env.EchoOff}
 	help, err := r.parse(args)
 	switch {
 	case err != nil:
@@ -149,7 +155,14 @@ func (a App) Run(ctx context.Context, args []string) term.ExitCode {
 		r.p.Print(a.Env.Stdout, usageText)
 		return r.finish(term.ExitOK)
 	}
-	return r.finish(r.exitFor(ctx, r.main(ctx)))
+	err = r.main(ctx)
+	if dropErr := r.dropBecomeFile(); dropErr != nil {
+		r.bad(dropErr.Error())
+		if err == nil {
+			err = errReported
+		}
+	}
+	return r.finish(r.exitFor(ctx, err))
 }
 
 func (r *run) parse(args []string) (bool, error) {
@@ -193,7 +206,7 @@ func (r *run) exitFor(ctx context.Context, err error) term.ExitCode {
 	switch {
 	case errors.Is(err, ui.ErrInputEnded):
 		// The person left the question: a cancel (ui.ErrInputEnded's contract), not a failure.
-		r.bad("The input ended before an answer; no optional app was installed")
+		r.bad("The input ended before an answer; the install stopped there")
 		return term.ExitCancelled
 	case !errors.Is(err, errReported):
 		r.bad(err.Error())
@@ -208,15 +221,18 @@ func (r *run) main(ctx context.Context) error {
 	if err := r.hostVars(); err != nil {
 		return err
 	}
+	if r.optionalOnly {
+		if err := r.vaultExists(ctx); err != nil {
+			return err
+		}
+	}
+	if err := r.becomeOnce(ctx); err != nil {
+		return err
+	}
 	if !r.optionalOnly {
 		if err := r.install(ctx); err != nil {
 			return err
 		}
-	} else if err := r.vaultExists(ctx); err != nil {
-		return err
-	}
-	if err := r.probeBecome(ctx); err != nil {
-		return err
 	}
 	if !r.optionalOnly {
 		r.step("The main install")
@@ -497,10 +513,16 @@ func (r *run) vaultExists(ctx context.Context) error {
 
 // --- plays ---
 
-// probeBecome decides once whether Ansible must ask for the sudo password: only a real
-// passwordless sudo (-k ignores a cached credential, which Ansible's become cannot use) needs no
-// --ask-become-pass.
-func (r *run) probeBecome(ctx context.Context) error {
+// becomeFile is the name of the password file in becomeDir.
+const becomeFile = "become-password"
+
+// becomeOnce asks for the login password once per run, so that no play asks again. Only a real
+// passwordless sudo (-k ignores a cached credential, which Ansible's become cannot use) is asked
+// nothing. Otherwise the password is typed with the echo off and checked by sudo at once, asked
+// again when sudo refuses it (three tries), and written to a 0600 file in a 0700 directory of
+// its own under XDG_RUNTIME_DIR (memory only, this user's alone), which every ansible-playbook
+// is handed with --become-password-file: never argv, never an environment. Run removes it.
+func (r *run) becomeOnce(ctx context.Context) error {
 	if err := stoppedBy(ctx); err != nil {
 		return err
 	}
@@ -508,12 +530,63 @@ func (r *run) probeBecome(ctx context.Context) error {
 	switch {
 	case err == nil:
 		r.become = nil
-	case errors.Is(err, sudo.ErrNeedsPassword):
-		r.become = []string{"--ask-become-pass"}
-		r.info("Ansible asks for your password (BECOME password) before each play")
-	default:
+		return nil
+	case !errors.Is(err, sudo.ErrNeedsPassword):
 		return r.failf("sudo could not be checked: %v", err)
 	}
+	runtimeDir := r.env.Getenv("XDG_RUNTIME_DIR")
+	if !filepath.IsAbs(runtimeDir) {
+		return r.failf("XDG_RUNTIME_DIR is not set ('%s'), so there is nowhere private to keep your password for the install: run this from a terminal in your desktop session", runtimeDir)
+	}
+	r.step("Your password")
+	r.info("The install needs your login password once. It is checked now, used for every step, and forgotten when the install ends")
+	var pw execx.Secret
+	_, err = r.lines.Secret(ctx, ui.Here(tool, "Your password"), "Your login password (nothing shows as you type)", func(line string) error {
+		s, emptyErr := execx.NewSecret("SUDO_PASSWORD", line)
+		if emptyErr != nil {
+			return errors.New("nothing was typed: type your password, then press Enter")
+		}
+		switch checkErr := r.sudo.CheckPassword(ctx, s); {
+		case errors.Is(checkErr, sudo.ErrWrongPassword):
+			return errors.New("sudo did not accept that password; type it again")
+		case checkErr != nil:
+			return fmt.Errorf("sudo could not check it (%w); try again", checkErr)
+		}
+		pw = s
+		return nil
+	})
+	if gaveUp, ok := errors.AsType[*ui.GaveUpError](err); ok {
+		return r.failf("Your password was not accepted %d times, so nothing was installed. Run ./run.bash --consumer again to retry", gaveUp.Tries)
+	}
+	if err != nil {
+		return err
+	}
+	r.ok("Password accepted")
+	return r.writeBecomeFile(runtimeDir, pw)
+}
+
+func (r *run) writeBecomeFile(runtimeDir string, pw execx.Secret) error {
+	dir, err := os.MkdirTemp(runtimeDir, tool+"-")
+	if err != nil {
+		return r.failf("Cannot make a private directory in %s: %v", runtimeDir, err)
+	}
+	r.becomeDir = dir
+	if err := pw.WriteFile(dir, becomeFile); err != nil {
+		return r.failf("Cannot keep the password for the install: %v", err)
+	}
+	r.become = []string{"--become-password-file", filepath.Join(dir, becomeFile)}
+	return nil
+}
+
+// dropBecomeFile removes the password file and its directory, if this run made them.
+func (r *run) dropBecomeFile() error {
+	if r.becomeDir == "" {
+		return nil
+	}
+	if err := os.RemoveAll(r.becomeDir); err != nil {
+		return fmt.Errorf("could not remove the password file in %s: %w; remove that directory now", r.becomeDir, err)
+	}
+	r.becomeDir = ""
 	return nil
 }
 
