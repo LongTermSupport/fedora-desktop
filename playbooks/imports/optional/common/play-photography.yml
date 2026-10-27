@@ -245,11 +245,12 @@
         state: link
       tags: art
 
-    - name: Download ART icon
-      ansible.builtin.get_url:
-        url: "https://raw.githubusercontent.com/artraweditor/ART/master/rtdata/images/png/ART-logo-256.png"
-        dest: /usr/share/pixmaps/ART.png
-        mode: "0644"
+    # The desktop entry uses a stock theme icon: the ART logo was fetched from upstream's
+    # default branch, which moved it, and a menu icon is not worth a download that can 404.
+    - name: Remove the ART icon an earlier run downloaded
+      ansible.builtin.file:
+        path: /usr/share/pixmaps/ART.png
+        state: absent
       tags: art
 
     - name: Create ART desktop entry
@@ -261,7 +262,7 @@
           Name=ART
           Comment=Advanced RAW photo editor
           Exec=/usr/local/bin/ART %f
-          Icon=ART
+          Icon=image-x-generic
           Terminal=false
           Type=Application
           Categories=Graphics;Photography;RasterGraphics;
