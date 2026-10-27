@@ -146,9 +146,9 @@ So, for any plan whose remaining work touches the host:
 `CLAUDE/Plan/meta-deploy.list` (one entry per line; `#` comment lines say what the entry
 will do), holds, at every commit, exactly what needs running now: a plan folder (its triage,
 `deploy.bash` and `acceptance.bash` run in order), a playbook path for a change no plan
-owns, or `changed-plays` for every play changed since it ran here. When work needs a host run, the same commit adds it to that file, and the owner is
-told "I have updated meta-deploy; run `./CLAUDE/Plan/meta-deploy.bash`", with what it will
-do. Never hand over individual plays or scripts, and never say `git pull` first (the
+owns, or `changed-plays` for every play changed since it ran here. When work needs a host run, the same commit adds it to that file, and the team's host agent
+is asked to run `./CLAUDE/Plan/meta-deploy.bash` (the owner only where there is no host
+agent), with what it will do. Never hand over individual plays or scripts, and never say `git pull` first (the
 container works in the host's own checkout). Remove an entry once it has run and passed.
 A run that needs a logout before its acceptance can judge it goes in two rounds: the deploy
 now, the plan (deploy again, then acceptance) after the logout. The full standing rule:

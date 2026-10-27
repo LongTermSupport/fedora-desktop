@@ -12,8 +12,9 @@
 
 **Host runs go through `meta-deploy.bash`, never a list of commands.** Whatever needs running
 on the host (a plan's `deploy.bash`, a play no plan owns) is added to the queue in
-`CLAUDE/Plan/meta-deploy.list` in the same commit, and the owner is told "I have updated
-meta-deploy; run `./CLAUDE/Plan/meta-deploy.bash`", with what it will do. Never hand over
+`CLAUDE/Plan/meta-deploy.list` in the same commit, and the team's host agent is asked to run
+`./CLAUDE/Plan/meta-deploy.bash` (the owner only where there is no host agent), with what it
+will do. Never hand over
 individual plays or scripts, and never say `git pull` first: this container works in the
 host's own checkout. Only a reboot, a login, a look at the screen, a decision or another
 machine is asked for separately. Full rule: [AgentNotes.md](CLAUDE/AgentNotes.md#meta-deploybash-is-how-host-runs-reach-the-owner--keep-its-list-exact).

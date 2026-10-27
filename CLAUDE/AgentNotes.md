@@ -115,9 +115,12 @@ entry below), is, at every commit, exactly what needs running **now**:
 - **It cannot usefully run yet: leave it out.** A triage that reads the next boot's journal
   goes in once the reboot has happened, not before. A run that would only repeat one
   already passed is not pending.
-- **Then ask the owner to run it.** Say "run `./CLAUDE/Plan/meta-deploy.bash`", with what it
-  will do and anything it will ask of them (a browser authorisation, say). Ask whenever the
-  list holds something; do not route the run through another agent instead.
+- **Then have the host agent run it.** Owner: "you dont need me to run meta, you ask the
+  desktop agent". Where the team has a host agent (a seat on the host, on the agent bus), ask
+  it to run `./CLAUDE/Plan/meta-deploy.bash`, saying what the run will do and what to report;
+  it runs the host side and reports back. Ask the owner only where no host agent is on the
+  team, or for what only the owner can give (a browser authorisation, a login, a look at the
+  screen), naming it. Ask whenever the list holds something.
 - **Meta-deploy runs plan scripts, never a tool's routine job.** Owner: "meta deploy is
   only a convenience for running plan level deploy/triage scripts". Downloading models,
   rebuilding VM bases or cleaning disk is the owner running the deployed tool
