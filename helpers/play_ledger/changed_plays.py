@@ -12,7 +12,9 @@ Run it:
     python3 -m helpers.play_ledger.changed_plays [--repo-root DIR]
 
 stdout carries only marker lines, in the order the plays should run: the order
-`playbook-main.yml` imports them, then the plays it does not import, by path.
+`playbook-main.yml` imports them, then the plays it does not import, by path. Without
+`--all`, stderr says why each RUN play runs, one `changed-plays: <play>: <reasons>` line
+each, for the person reading `run.bash --changed`.
 
     RUN <play>                  run it again
     UNRESOLVED <play> <where>   not changed as far as can be told, but it holds a reference
@@ -43,7 +45,7 @@ import re
 import subprocess
 import sys
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TextIO
 
 from helpers.play_ledger import git_history, ledger, retired, store
@@ -61,6 +63,9 @@ STATE_CURRENT = "current"
 
 #: The states `run.bash --changed` runs.
 RUN_STATES = (STATE_STALE, STATE_FAILED)
+
+#: How many changed paths (or Go packages, or commands) a reason names before it counts the rest.
+PATHS_SHOWN = 3
 
 MAIN_PLAYBOOK ="playbooks/playbook-main.yml"
 _IMPORT_KEY = re.compile(r"^\s*-\s*(?:ansible\.builtin\.)?import_playbook:")
@@ -84,6 +89,8 @@ class Judgement:
     (none when it is stale only because it ran dirty, which `dirty` says). `took_over`
     names, for a successor that has to run, the removed plays it takes over. `not_judged`
     is every ledgered play outside `playbooks/imports/`, which no catch-up runs.
+    `changed_go` holds, for a stale play, the Go packages among its changed inputs, each
+    with the commands built from it.
     """
 
     order: tuple[str, ...]
@@ -94,6 +101,7 @@ class Judgement:
     dirty: frozenset[str]
     took_over: dict[str, list[str]]
     not_judged: tuple[str, ...]
+    changed_go: dict[str, dict[str, frozenset[str]]] = field(default_factory=dict)
 
     @property
     def runs(self) -> list[str]:
@@ -179,6 +187,7 @@ def judge(
     diffs: dict[str, list[str]] = {}
     states: dict[str, str] = {}
     changed_inputs: dict[str, list[str]] = {}
+    changed_go: dict[str, dict[str, frozenset[str]]] = {}
     for play in host_plays:
         record = latest[play]
         commit = record["commit"]
@@ -202,6 +211,9 @@ def judge(
         if record["dirty"] or changed:
             states[play] = STATE_STALE
             changed_inputs[play] = changed
+            go = affected_plays.go_changes(inputs, changed)
+            if go:
+                changed_go[play] = {package: frozenset(names) for package, names in go.items()}
             continue
         if inputs.unresolved:
             unresolved[play] = list(inputs.unresolved)
@@ -231,7 +243,40 @@ def judge(
         dirty=frozenset(play for play in states if latest.get(play, {}).get("dirty")),
         took_over=took_over,
         not_judged=tuple(sorted(play for play in latest if not play.startswith(prefix))),
+        changed_go=changed_go,
     )
+
+
+def _shown(items: list[str], noun: str = "") -> str:
+    """The first PATHS_SHOWN of `items`, and a count of the rest."""
+    more = len(items) - PATHS_SHOWN
+    text = ", ".join(items[:PATHS_SHOWN])
+    if more > 0:
+        text += f" and {more} more" + (f" {noun}{'' if more == 1 else 's'}" if noun else "")
+    return text
+
+
+def reasons(judgement: Judgement, play: str) -> list[str]:
+    """Why a stale play has to run again, one reason a line, for a person to read.
+
+    A changed Go file is named as its package, with the commands built from it, on a line
+    of its own, so other changed paths can never crowd it into a count.
+    """
+    lines = [
+        f"it takes over {old}, which the checkout removed"
+        for old in judgement.took_over.get(play, [])
+    ]
+    go = judgement.changed_go.get(play, {})
+    paths = [path for path in judgement.changed_inputs.get(play, [])
+             if posixpath.dirname(path) not in go]
+    if paths:
+        lines.append(f"changed: {_shown(paths)}")
+    if go:
+        commands = sorted(set().union(*go.values()))
+        lines.append(f"changed Go packages: {_shown(list(go))} (built into {_shown(commands, 'command')})")
+    if play in judgement.dirty:
+        lines.append("it last ran from a checkout with uncommitted changes")
+    return lines
 
 
 def run(
@@ -272,6 +317,10 @@ def run(
             stdout.write(f"PLAY {judgement.states[play]} {play}\n")
         elif play in runs:
             stdout.write(f"RUN {play}\n")
+            why = (["its last run here did not succeed"]
+                   if judgement.states[play] == STATE_FAILED else reasons(judgement, play))
+            if why:
+                stderr.write(f"changed-plays: {play}: {'; '.join(why)}\n")
         elif play in judgement.unresolved:
             stdout.writelines(f"UNRESOLVED {play} {where}\n" for where in judgement.unresolved[play])
     return EXIT_OK

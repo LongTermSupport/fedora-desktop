@@ -50,12 +50,13 @@ def _judgement(states: dict[str, str] | None = None, *, gone: tuple[str, ...] = 
                unresolved: dict[str, list[str]] | None = None,
                changed: dict[str, list[str]] | None = None, dirty: frozenset[str] = frozenset(),
                took_over: dict[str, list[str]] | None = None,
-               not_judged: tuple[str, ...] = ()) -> changed_plays.Judgement:
+               not_judged: tuple[str, ...] = (),
+               changed_go: dict[str, dict[str, frozenset[str]]] | None = None) -> changed_plays.Judgement:
     states = states or {}
     return changed_plays.Judgement(
         order=tuple(states) + gone, states=states, gone=gone, unresolved=unresolved or {},
         changed_inputs=changed or {}, dirty=dirty, took_over=took_over or {},
-        not_judged=not_judged,
+        not_judged=not_judged, changed_go=changed_go or {},
     )
 
 
@@ -124,6 +125,48 @@ class TestFindings(unittest.TestCase):
             paths = [f"files/{n}.conf" for n in range(5)]
             _, out, _ = _run(base, _judgement({A: changed_plays.STATE_STALE}, changed={A: paths}))
             self.assertIn("changed: files/0.conf, files/1.conf, files/2.conf and 2 more\n", out)
+
+    def test_a_play_stale_from_go_code_alone_names_the_package_and_its_command(self) -> None:
+        """Plan 00192 Task 3.8: the files of a package are one reason, named as the package."""
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [A])
+            judgement = _judgement(
+                {A: changed_plays.STATE_STALE},
+                changed={A: ["src-go/internal/ui/ui.go", "src-go/internal/ui/list.go"]},
+                changed_go={A: {"src-go/internal/ui": frozenset({"podfreeze"})}},
+            )
+            _, out, _ = _run(base, judgement)
+            self.assertEqual(out, f"{A} — changed since it was run here\n"
+                                  "    changed Go packages: src-go/internal/ui (built into podfreeze)\n")
+
+    def test_go_packages_are_named_however_many_other_paths_changed(self) -> None:
+        """The host's case: play files filled the shown paths, and the Go change was a count."""
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [A])
+            others = [f"playbooks/imports/play-{n}.yml" for n in range(4)]
+            judgement = _judgement(
+                {A: changed_plays.STATE_STALE},
+                changed={A: [*others, "src-go/internal/ui/ui.go"]},
+                changed_go={A: {"src-go/internal/ui": frozenset({"lxcfreeze"})}},
+            )
+            _, out, _ = _run(base, judgement)
+            self.assertIn("    changed: playbooks/imports/play-0.yml, playbooks/imports/play-1.yml, "
+                          "playbooks/imports/play-2.yml and 1 more\n", out)
+            self.assertIn("    changed Go packages: src-go/internal/ui (built into lxcfreeze)\n", out)
+
+    def test_many_go_packages_and_commands_are_counted_past_the_first_few(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [A])
+            packages = {f"src-go/internal/p{n}": frozenset({f"c{n}"}) for n in range(5)}
+            judgement = _judgement(
+                {A: changed_plays.STATE_STALE},
+                changed={A: [f"{package}/x.go" for package in packages]},
+                changed_go={A: packages},
+            )
+            _, out, _ = _run(base, judgement)
+            self.assertIn(
+                "    changed Go packages: src-go/internal/p0, src-go/internal/p1, src-go/internal/p2"
+                " and 2 more (built into c0, c1, c2 and 2 more commands)\n", out)
 
     def test_a_dirty_run_says_so(self) -> None:
         with tempfile.TemporaryDirectory() as base:
