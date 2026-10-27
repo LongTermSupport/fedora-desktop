@@ -328,9 +328,8 @@ BUILD_TASK = """
 """
 
 
-class TestGoBuilds(FixtureCase):
-    """A play that builds a Go command counts every package the command imports, within the
-    module and from its vendor tree, so a shared package change marks every such play stale."""
+class GoFixtureCase(FixtureCase):
+    """A src-go module with one command, `tool`, and the build task file."""
 
     def setUp(self) -> None:
         super().setUp()
@@ -382,6 +381,11 @@ class TestGoBuilds(FixtureCase):
             {textwrap.indent(textwrap.dedent(go_vars), "          ")}
         """)
         return ap.play_inputs(self.fx.root, play)
+
+
+class TestGoBuilds(GoFixtureCase):
+    """A play that builds a Go command counts every package the command imports, within the
+    module and from its vendor tree, so a shared package change marks every such play stale."""
 
     def test_every_package_the_command_imports_is_an_input(self) -> None:
         inputs = self._play("go_command_name: tool\n")
@@ -447,6 +451,54 @@ class TestGoBuilds(FixtureCase):
         inputs = self._play("other_var: 1\n")
         self.assertEqual(len(inputs.unresolved), 1)
         self.assertIn("go_command_name", inputs.unresolved[0])
+
+
+class TestGoChanges(GoFixtureCase):
+    """Plan 00192 Task 3.8: a changed Go file is named as its package and the commands built
+    from it, so a play stale from Go code alone gives a reason a person can read."""
+
+    def _two_commands(self) -> ap.Inputs:
+        """tool imports ui and term; other imports term only."""
+        self.fx.file("src-go/cmd/other/main.go", 'package main\n\nimport "example.com/m/internal/term"\n')
+        play = self.fx.play("playbooks/imports/play-a.yml", f"""
+            - hosts: desktop
+              vars:
+                root_dir: "{CONFIG_ROOT}"
+              tasks:
+                - ansible.builtin.import_tasks: "{ROOT}/tasks/build-go-command.yml"
+                  vars:
+                    go_command_name: tool
+                - ansible.builtin.import_tasks: "{ROOT}/tasks/build-go-command.yml"
+                  vars:
+                    go_command_name: other
+        """)
+        return ap.play_inputs(self.fx.root, play)
+
+    def test_each_package_knows_the_commands_built_from_it(self) -> None:
+        inputs = self._two_commands()
+        self.assertEqual(inputs.unresolved, [])
+        self.assertEqual(inputs.go_builders["src-go/internal/term"], {"tool", "other"})
+        self.assertEqual(inputs.go_builders["src-go/internal/ui"], {"tool"})
+        self.assertEqual(inputs.go_builders["src-go/cmd/other"], {"other"})
+        self.assertEqual(inputs.go_builders["src-go/vendor/github.com/x/z"], {"tool"})
+
+    def test_changed_files_are_grouped_by_package_in_the_order_seen(self) -> None:
+        inputs = self._two_commands()
+        changes = ap.go_changes(inputs, [
+            "playbooks/imports/play-a.yml",
+            "src-go/internal/term/term.go",
+            "src-go/internal/ui/ui.go",
+            "src-go/internal/ui/new_file.go",
+            "src-go/internal/ui/ui_test.go",
+            "src-go/internal/commented/c.go",
+        ])
+        self.assertEqual(list(changes), ["src-go/internal/term", "src-go/internal/ui"])
+        self.assertEqual(changes["src-go/internal/term"], {"tool", "other"})
+        self.assertEqual(changes["src-go/internal/ui"], {"tool"})
+
+    def test_no_go_change_is_an_empty_answer(self) -> None:
+        inputs = self._play("go_command_name: tool\n")
+        self.assertEqual(ap.go_changes(inputs, ["src-go/go.mod", "playbooks/imports/play-a.yml"]), {})
 
 
 class TestAllowlist(FixtureCase):
@@ -645,6 +697,12 @@ class TestRealRepo(unittest.TestCase):
         changed = report.run + report.skipped
         for play in FREEZE_PLAYS:
             self.assertIn(play, changed)
+
+    def test_a_shared_go_package_change_names_each_freeze_command(self) -> None:
+        """Plan 00192 Task 3.8: the reason names the package and the command it is built into."""
+        for play, command in zip(FREEZE_PLAYS, ("podfreeze", "lxcfreeze"), strict=True):
+            changes = ap.go_changes(ap.play_inputs(REPO_ROOT, play), ["src-go/internal/ui/ui.go"])
+            self.assertEqual(changes, {"src-go/internal/ui": {command}}, play)
 
     def test_every_go_command_counts_the_packages_go_list_names(self) -> None:
         """The oracle is the toolchain: `go list -deps` of each command a play builds."""

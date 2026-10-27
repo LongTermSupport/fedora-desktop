@@ -105,7 +105,8 @@ class Inputs:
 
     A Go package directory counts its own files, not its subdirectories (each is a package
     of its own) nor its `_test.go` files. `go_modules` are the Go module roots the play
-    builds from and `go_commands` the command directories it builds.
+    builds from and `go_commands` the command directories it builds. `go_builders` names,
+    for each package, the commands built from it, which is how a reason names a change.
     """
 
     exact: set[str] = field(default_factory=set)
@@ -114,6 +115,7 @@ class Inputs:
     go_packages: set[str] = field(default_factory=set)
     go_modules: set[str] = field(default_factory=set)
     go_commands: set[str] = field(default_factory=set)
+    go_builders: dict[str, set[str]] = field(default_factory=dict)
 
 
 @dataclass
@@ -126,7 +128,26 @@ class Report:
 def affects(inputs: Inputs, path: str) -> bool:
     if path in inputs.exact or any(path.startswith(prefix) for prefix in inputs.prefixes):
         return True
-    return posixpath.dirname(path) in inputs.go_packages and not path.endswith("_test.go")
+    return _go_package_of(inputs, path) is not None
+
+
+def _go_package_of(inputs: Inputs, path: str) -> str | None:
+    """The Go package the play builds that `path` is a file of, or None."""
+    package = posixpath.dirname(path)
+    if package in inputs.go_packages and not path.endswith("_test.go"):
+        return package
+    return None
+
+
+def go_changes(inputs: Inputs, paths: list[str]) -> dict[str, set[str]]:
+    """The packages among `paths` the play builds, in the order first seen, each with the
+    names of the commands built from it."""
+    changes: dict[str, set[str]] = {}
+    for path in paths:
+        package = _go_package_of(inputs, path)
+        if package is not None and package not in changes:
+            changes[package] = set(inputs.go_builders.get(package, ()))
+    return changes
 
 
 def _non_comment_lines(text: str) -> list[tuple[int, str]]:
@@ -173,6 +194,7 @@ class _Walker:
         self._module_refs: list[tuple[str, str]] = []
         self._go_names: list[tuple[str, str]] = []
         self._external_go_files: set[str] = set()
+        self._go_import_cache: dict[str, set[str]] = {}
 
     def _is_dir(self, rel: str) -> bool:
         return os.path.isdir(os.path.join(self.root, rel))
@@ -309,13 +331,18 @@ class _Walker:
         for meta in ("go.mod", "go.sum", "vendor/modules.txt"):
             if self._is_file(posixpath.join(module, meta)):
                 self.inputs.exact.add(posixpath.join(module, meta))
+        name = posixpath.basename(command)
         pending = [command]
         while pending:
             package = pending.pop()
-            if package in self.inputs.go_packages:
+            builders = self.inputs.go_builders.setdefault(package, set())
+            if name in builders:
                 continue
+            builders.add(name)
             self.inputs.go_packages.add(package)
-            for imported in self._go_imports(package):
+            if package not in self._go_import_cache:
+                self._go_import_cache[package] = self._go_imports(package)
+            for imported in self._go_import_cache[package]:
                 if imported == module_path or imported.startswith(module_path + "/"):
                     pending.append(module + imported[len(module_path):])
                 elif self._is_dir(posixpath.join(module, "vendor", imported)):

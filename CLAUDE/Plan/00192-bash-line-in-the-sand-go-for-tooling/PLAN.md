@@ -215,10 +215,18 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   (owner decision: count it for every play, or not); `scripts/qa-toolchain.bash`, run by
   `play-python.yml` as a check, reads `src-go/qa/` and `src-go/go.mod`, which are not inputs.
 
-- [ ] ⬜ **Task 3.8**: `run.bash --changed` gives a play made stale by Go packages alone no
+- [ ] 🔄 **Task 3.8**: `run.bash --changed` gives a play made stale by Go packages alone no
   reason a person can read: its reasons list names play files and `play-golang.yml`, never the
   src-go package path (host, 27-10-26). Name the changed package(s), or the command they build,
-  in the reason, test first.
+  in the reason, test first. Fixed on `fix/00192-changed-reasons-go`: the mapper records which
+  commands each Go package is built into, the judgement keeps the changed packages, and one
+  formatter (`changed_plays.reasons`) gives a Go change its own line, up to three packages and
+  three commands (`changed Go packages: src-go/internal/ui (built into podfreeze)`). The login
+  report and the panel read that formatter; `run.bash --changed` had printed no reasons at all,
+  and now its helper writes one line per play to stderr before the list (run.bash unchanged).
+  The login report already used the same judgement; the stale list the host saw names no Go
+  path, which only the pre-3.6 mapper gives, so it was collected (hourly timer) before the merge. Report `subagent-reports/261027-task-3-8.md`. Host check: the next
+  `run.bash --changed` after a Go-only change names the package and its command for each play.
 
 ### Phase 4: Review
 

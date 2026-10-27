@@ -58,9 +58,6 @@ _VERDICT_STATE = {
     changed_plays.STATE_CURRENT: freshness.FRESH,
 }
 
-#: How many changed paths a finding names before it counts the rest.
-_PATHS_SHOWN = 3
-
 
 def run(
     *,
@@ -174,18 +171,7 @@ def _verdict(judgement: changed_plays.Judgement, play: str) -> freshness.Verdict
     state = _VERDICT_STATE[judgement.states[play]]
     if state != freshness.STALE:
         return freshness.Verdict(play, state)
-    detail = [
-        f"it takes over {old}, which the checkout removed"
-        for old in judgement.took_over.get(play, [])
-    ]
-    paths = judgement.changed_inputs.get(play, [])
-    if paths:
-        shown = ", ".join(paths[:_PATHS_SHOWN])
-        more = len(paths) - _PATHS_SHOWN
-        detail.append(f"changed: {shown}" + (f" and {more} more" if more > 0 else ""))
-    if play in judgement.dirty:
-        detail.append("it last ran from a checkout with uncommitted changes")
-    return freshness.Verdict(play, state, tuple(detail))
+    return freshness.Verdict(play, state, tuple(changed_plays.reasons(judgement, play)))
 
 
 def coverage_sentence(judgement: changed_plays.Judgement) -> str:

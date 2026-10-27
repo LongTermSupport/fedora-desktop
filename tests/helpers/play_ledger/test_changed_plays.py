@@ -34,6 +34,7 @@ OPT_B = "playbooks/imports/optional/common/play-b-optional.yml"
 OPT_A = "playbooks/imports/optional/common/play-a-optional.yml"
 SCRATCH = "untracked/scratch/probe.yml"
 DEV = "playbooks/dev/play-repo-tool.yml"
+FREEZE = "playbooks/imports/optional/common/play-podfreeze.yml"
 
 OLD = "playbooks/imports/play-claude-code.yml"
 
@@ -65,6 +66,8 @@ INPUTS = {
     BASIC: Inputs(exact={BASIC}),
     OPT_A: Inputs(exact={OPT_A}),
     OPT_B: Inputs(exact={OPT_B}),
+    FREEZE: Inputs(exact={FREEZE}, go_packages={"src-go/internal/ui", "src-go/cmd/podfreeze"},
+                   go_builders={"src-go/internal/ui": {"podfreeze"}, "src-go/cmd/podfreeze": {"podfreeze"}}),
 }
 
 
@@ -193,6 +196,43 @@ class TestWhatRuns(_Case):
             _seed(base, [(YOLO, COMMIT_A, "ok"), (BASIC, COMMIT_A, "ok")], dirty=frozenset({YOLO}))
             _, out, _ = self._run(base, changed={})
             self.assertEqual(out, f"RUN {YOLO}\n")
+
+
+class TestReasons(_Case):
+    """Plan 00192 Task 3.8: why each play runs, for a person, on stderr; stdout stays markers."""
+
+    GO_CHANGE = ["src-go/internal/ui/ui.go", "src-go/internal/ui/list.go", "src-go/internal/ui/ui_test.go"]
+
+    def test_the_judgement_names_the_changed_go_packages_and_their_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [(FREEZE, COMMIT_A, "ok")])
+            judgement = changed_plays.judge(
+                ledger.fold_latest(store.read_lines(base)), repo_root="/repo",
+                changed_since=lambda root, commit: self.GO_CHANGE,
+                exists_now=lambda root, play: True,
+                inputs_of=lambda root, play: INPUTS[play],
+                main_order=lambda root: MAIN_ORDER,
+            )
+            self.assertEqual(judgement.states[FREEZE], changed_plays.STATE_STALE)
+            self.assertEqual(judgement.changed_go[FREEZE], {"src-go/internal/ui": frozenset({"podfreeze"})})
+            self.assertEqual(changed_plays.reasons(judgement, FREEZE),
+                             ["changed Go packages: src-go/internal/ui (built into podfreeze)"])
+
+    def test_each_play_run_is_given_its_reason_on_stderr(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [(FREEZE, COMMIT_A, "ok"), (BASIC, COMMIT_A, "failed")])
+            code, out, err = self._run(base, changed={COMMIT_A: self.GO_CHANGE})
+            self.assertEqual(code, changed_plays.EXIT_OK)
+            self.assertEqual(out, f"RUN {BASIC}\nRUN {FREEZE}\n")
+            self.assertEqual(err, f"changed-plays: {BASIC}: its last run here did not succeed\n"
+                                  f"changed-plays: {FREEZE}: changed Go packages: src-go/internal/ui"
+                                  " (built into podfreeze)\n")
+
+    def test_the_rerun_list_gives_no_reasons(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [(FREEZE, COMMIT_A, "ok")])
+            _, _, err = self._run(base, changed={COMMIT_A: self.GO_CHANGE}, list_all=True)
+            self.assertEqual(err, "")
 
 
 class TestListAll(_Case):
