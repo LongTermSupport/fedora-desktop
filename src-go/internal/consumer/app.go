@@ -7,8 +7,10 @@
 // everyone (apps such as Qobuz, no programming tools) are offered as a numbered menu.
 //
 // Every program runs through execx, root through internal/sudo, and every question through
-// ui.Lines. Each step fails fast: the first failure ends the run with exit 1, a child ended by a
-// signal with its own 128+n.
+// ui.Lines. Each step up to the main playbook fails fast: the first failure ends the run with
+// exit 1, a child ended by a signal with its own 128+n. The optional plays chosen are
+// independent, so a failed one is recorded and the next runs; a summary of every chosen play
+// follows, and the run exits 1 if any failed.
 package consumer
 
 import (
@@ -31,8 +33,10 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fsx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/shellword"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ttyecho"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
@@ -82,14 +86,16 @@ Options:
 
 // Env is everything a run touches outside its own memory and the checkout's files.
 type Env struct {
-	Runner          execx.Runner
-	Foreground      execx.Foregrounder
-	Getenv          func(string) string
-	UID             func() int
-	CurrentUser     func() (*user.User, error)
-	OSRelease       string
-	Random          io.Reader
-	OpenTTY         func() (io.ReadCloser, error)
+	Runner      execx.Runner
+	Foreground  execx.Foregrounder
+	Getenv      func(string) string
+	UID         func() int
+	CurrentUser func() (*user.User, error)
+	OSRelease   string
+	Random      io.Reader
+	OpenTTY     func() (io.ReadCloser, error)
+	// EchoOff turns the terminal's echo off while the password is typed (ttyecho.Off).
+	EchoOff         func() (restore func() error, err error)
 	Stdin           io.Reader
 	Stdout, Stderr  io.Writer
 	StdinIsTerminal bool
@@ -100,7 +106,7 @@ func NewEnv() Env {
 	return Env{
 		Runner: execx.OS{}, Foreground: execx.OS{}, Getenv: os.Getenv, UID: os.Getuid,
 		CurrentUser: user.Current, OSRelease: "/etc/os-release", Random: rand.Reader,
-		OpenTTY: openTTY, Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
+		OpenTTY: openTTY, EchoOff: ttyecho.Off(int(os.Stdin.Fd())), Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
 		StdinIsTerminal: term.FileIsTerminal(os.Stdin),
 	}
 }
@@ -133,12 +139,15 @@ type run struct {
 	root, home   string
 	path         string
 	become       []string
+	// becomeDir is the private directory holding the password file every play is handed;
+	// empty when sudo needs no password. Run removes it however the run ends.
+	becomeDir string
 }
 
 // Run is the whole command; it returns the exit code.
 func (a App) Run(ctx context.Context, args []string) term.ExitCode {
 	r := &run{env: a.Env}
-	r.lines = &ui.Lines{In: a.Env.Stdin, Out: a.Env.Stderr, Width: headingWidth}
+	r.lines = &ui.Lines{In: a.Env.Stdin, Out: a.Env.Stderr, Width: headingWidth, EchoOff: a.Env.EchoOff}
 	help, err := r.parse(args)
 	switch {
 	case err != nil:
@@ -148,7 +157,14 @@ func (a App) Run(ctx context.Context, args []string) term.ExitCode {
 		r.p.Print(a.Env.Stdout, usageText)
 		return r.finish(term.ExitOK)
 	}
-	return r.finish(r.exitFor(ctx, r.main(ctx)))
+	err = r.main(ctx)
+	if dropErr := r.dropBecomeFile(); dropErr != nil {
+		r.bad(dropErr.Error())
+		if err == nil {
+			err = errReported
+		}
+	}
+	return r.finish(r.exitFor(ctx, err))
 }
 
 func (r *run) parse(args []string) (bool, error) {
@@ -192,7 +208,7 @@ func (r *run) exitFor(ctx context.Context, err error) term.ExitCode {
 	switch {
 	case errors.Is(err, ui.ErrInputEnded):
 		// The person left the question: a cancel (ui.ErrInputEnded's contract), not a failure.
-		r.bad("The input ended before an answer; no optional app was installed")
+		r.bad("The input ended before an answer; the install stopped there")
 		return term.ExitCancelled
 	case !errors.Is(err, errReported):
 		r.bad(err.Error())
@@ -207,15 +223,18 @@ func (r *run) main(ctx context.Context) error {
 	if err := r.hostVars(); err != nil {
 		return err
 	}
+	if r.optionalOnly {
+		if err := r.vaultExists(ctx); err != nil {
+			return err
+		}
+	}
+	if err := r.becomeOnce(ctx); err != nil {
+		return err
+	}
 	if !r.optionalOnly {
 		if err := r.install(ctx); err != nil {
 			return err
 		}
-	} else if err := r.vaultExists(ctx); err != nil {
-		return err
-	}
-	if err := r.probeBecome(ctx); err != nil {
-		return err
 	}
 	if !r.optionalOnly {
 		r.step("The main install")
@@ -501,10 +520,16 @@ func (r *run) vaultExists(ctx context.Context) error {
 
 // --- plays ---
 
-// probeBecome decides once whether Ansible must ask for the sudo password: only a real
-// passwordless sudo (-k ignores a cached credential, which Ansible's become cannot use) needs no
-// --ask-become-pass.
-func (r *run) probeBecome(ctx context.Context) error {
+// becomeFile is the name of the password file in becomeDir.
+const becomeFile = "become-password"
+
+// becomeOnce asks for the login password once per run, so that no play asks again. Only a real
+// passwordless sudo (-k ignores a cached credential, which Ansible's become cannot use) is asked
+// nothing. Otherwise the password is typed with the echo off and checked by sudo at once, asked
+// again when sudo refuses it (three tries), and written to a 0600 file in a 0700 directory of
+// its own under XDG_RUNTIME_DIR (memory only, this user's alone), which every ansible-playbook
+// is handed with --become-password-file: never argv, never an environment. Run removes it.
+func (r *run) becomeOnce(ctx context.Context) error {
 	if err := stoppedBy(ctx); err != nil {
 		return err
 	}
@@ -512,22 +537,92 @@ func (r *run) probeBecome(ctx context.Context) error {
 	switch {
 	case err == nil:
 		r.become = nil
-	case errors.Is(err, sudo.ErrNeedsPassword):
-		r.become = []string{"--ask-become-pass"}
-		r.info("Ansible asks for your password (BECOME password) before each play")
-	default:
+		return nil
+	case !errors.Is(err, sudo.ErrNeedsPassword):
 		return r.failf("sudo could not be checked: %v", err)
 	}
+	runtimeDir := r.env.Getenv("XDG_RUNTIME_DIR")
+	if !filepath.IsAbs(runtimeDir) {
+		return r.failf("XDG_RUNTIME_DIR is not set ('%s'), so there is nowhere private to keep your password for the install: run this from a terminal in your desktop session", runtimeDir)
+	}
+	r.step("Your password")
+	r.info("The install needs your login password once. It is checked now, used for every step, and forgotten when the install ends")
+	var pw execx.Secret
+	_, err = r.lines.Secret(ctx, ui.Here(tool, "Your password"), "Your login password (nothing shows as you type)", func(line string) error {
+		s, emptyErr := execx.NewSecret("SUDO_PASSWORD", line)
+		if emptyErr != nil {
+			return errors.New("nothing was typed: type your password, then press Enter")
+		}
+		switch checkErr := r.sudo.CheckPassword(ctx, s); {
+		case errors.Is(checkErr, sudo.ErrWrongPassword):
+			return errors.New("sudo did not accept that password; type it again")
+		case checkErr != nil:
+			return fmt.Errorf("sudo could not check it (%w); try again", checkErr)
+		}
+		pw = s
+		return nil
+	})
+	if gaveUp, ok := errors.AsType[*ui.GaveUpError](err); ok {
+		return r.failf("Your password was not accepted %d times, so nothing was installed. Run ./run.bash --consumer again to retry", gaveUp.Tries)
+	}
+	if err != nil {
+		return err
+	}
+	r.ok("Password accepted")
+	return r.writeBecomeFile(runtimeDir, pw)
+}
+
+func (r *run) writeBecomeFile(runtimeDir string, pw execx.Secret) error {
+	dir, err := os.MkdirTemp(runtimeDir, tool+"-")
+	if err != nil {
+		return r.failf("Cannot make a private directory in %s: %v", runtimeDir, err)
+	}
+	r.becomeDir = dir
+	if err := pw.WriteFile(dir, becomeFile); err != nil {
+		return r.failf("Cannot keep the password for the install: %v", err)
+	}
+	r.become = []string{"--become-password-file", filepath.Join(dir, becomeFile)}
 	return nil
 }
 
-func (r *run) play(ctx context.Context, path, what string) error {
+// dropBecomeFile removes the password file and its directory, if this run made them.
+func (r *run) dropBecomeFile() error {
+	if r.becomeDir == "" {
+		return nil
+	}
+	if err := os.RemoveAll(r.becomeDir); err != nil {
+		return fmt.Errorf("could not remove the password file in %s: %w; remove that directory now", r.becomeDir, err)
+	}
+	r.becomeDir = ""
+	return nil
+}
+
+// playRun is one play's run in the terminal: its exit, an error starting it, and the signal
+// that ended this whole run while it ran (nil when none did).
+type playRun struct {
+	exit execx.Exit
+	err  error
+	stop *execx.SignalError
+}
+
+func (r *run) runPlay(ctx context.Context, path string) playRun {
 	exit, err := r.env.Foreground.Foreground(execx.Cmd{
 		Name: "ansible-playbook", Args: append([]string{path}, r.become...), Dir: r.root, Env: []string{r.path},
 	})
-	if se := stoppedBy(ctx); se != nil {
-		return se
+	pr := playRun{exit: exit, err: err}
+	if se, ok := errors.AsType[*execx.SignalError](context.Cause(ctx)); ok {
+		pr.stop = se
 	}
+	return pr
+}
+
+// play runs the main playbook, failing fast.
+func (r *run) play(ctx context.Context, path, what string) error {
+	pr := r.runPlay(ctx, path)
+	if pr.stop != nil {
+		return pr.stop
+	}
+	exit, err := pr.exit, pr.err
 	if err == nil && exit.Code == 0 {
 		r.ok(what + " done")
 		return nil
@@ -590,14 +685,124 @@ func (r *run) optional(ctx context.Context) error {
 	}
 	if len(picks) == 0 {
 		r.info("No optional app chosen; run ./run.bash --consumer --optional-only to add some later")
+		return nil
 	}
+	chosen := make([]play, 0, len(picks))
 	for _, i := range picks {
-		r.step(plays[i].label)
-		if err := r.play(ctx, plays[i].path, plays[i].label); err != nil {
-			return err
+		chosen = append(chosen, plays[i])
+	}
+	return r.runOptional(ctx, chosen)
+}
+
+// outcome is what became of one chosen optional play.
+type outcome int
+
+const (
+	notRun outcome = iota
+	installed
+	failed
+	stopped
+)
+
+type playResult struct {
+	play
+
+	outcome outcome
+	detail  string
+}
+
+// runOptional runs every chosen play in menu order. The plays are independent, so a failed one
+// is recorded and the next one runs; a signal (Ctrl-C), or a play ended by one, stops at once.
+// The summary is printed however the loop ends.
+func (r *run) runOptional(ctx context.Context, chosen []play) error {
+	results := make([]playResult, len(chosen))
+	var stop error
+	for i, p := range chosen {
+		res := &results[i]
+		res.play = p
+		if stop != nil {
+			continue
+		}
+		r.step(p.label)
+		pr := r.runPlay(ctx, p.path)
+		exit, err := pr.exit, pr.err
+		switch {
+		case pr.stop != nil:
+			code := exit.Code
+			if err != nil || code == 0 {
+				code = pr.stop.ExitCode()
+			}
+			res.outcome, res.detail, stop = stopped, fmt.Sprintf("stopped part way (exit %d)", code), pr.stop
+		case err != nil:
+			res.outcome, res.detail = failed, fmt.Sprintf("could not run (%v)", err)
+		case exit.Code == 0:
+			res.outcome = installed
+		case exit.Code > 128:
+			res.outcome, res.detail = stopped, fmt.Sprintf("stopped part way (exit %d)", exit.Code)
+			stop = &exitError{code: term.ExitCode(exit.Code)}
+		default:
+			res.outcome, res.detail = failed, fmt.Sprintf("failed (exit %d); its output is above, in this terminal (it is not saved to a file)", exit.Code)
+		}
+		if res.outcome == installed {
+			r.ok(p.label + " done")
+		} else {
+			r.bad(p.label + ": " + res.detail)
 		}
 	}
+	nFailed := r.summary(results)
+	if stop != nil {
+		return stop
+	}
+	if nFailed > 0 {
+		return r.failf("%d of %d optional apps failed", nFailed, len(results))
+	}
 	return nil
+}
+
+// summary prints one line per chosen play and how to retry the ones not installed; it returns
+// how many failed.
+func (r *run) summary(results []playResult) int {
+	r.step("Optional apps: what happened")
+	nFailed := 0
+	retry := make([]string, 0, len(results))
+	for _, res := range results {
+		switch res.outcome {
+		case installed:
+			r.ok(res.label + ": installed")
+			continue
+		case notRun:
+			r.mark("-", res.label+": not run")
+		case failed:
+			nFailed++
+			r.bad(res.label + ": " + res.detail)
+		case stopped:
+			r.bad(res.label + ": " + res.detail)
+		}
+		retry = append(retry, retryCommand(r.root, r.home, res.path))
+	}
+	if len(retry) == 0 {
+		return 0
+	}
+	r.plain("To try again only the apps that did not install, run these one at a time:")
+	for _, line := range retry {
+		r.plain("   " + line)
+	}
+	r.plain("or choose them again from the menu: " + retryCommand(r.root, r.home, "--optional-only"))
+	if nFailed > 0 {
+		r.plain("A play that fails again names the task that failed in its output; fix what it says, or report it at " + issuesURL)
+	}
+	return nFailed
+}
+
+// retryCommand is the checkout's run.bash with one argument, as a person would type it: the
+// home shown as ~ unless the path needs quoting.
+func retryCommand(root, home, arg string) string {
+	runBash := filepath.Join(root, "run.bash")
+	shown := shellword.Quote(runBash)
+	if shown == runBash {
+		shown = term.AbbrevHome(runBash, home)
+	}
+	return shown + " " + shellword.Quote(arg)
 }
 
 func (r *run) done() error {

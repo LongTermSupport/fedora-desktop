@@ -255,3 +255,78 @@ func TestAReadThatFailsIsAnError(t *testing.T) {
 type failingReader struct{ err error }
 
 func (r failingReader) Read([]byte) (int, error) { return 0, r.err }
+
+// echoSwitch is a terminal's echo for Secret: how often it was turned off and put back, and
+// whether it was off when each line was read.
+type echoSwitch struct {
+	off, restored int
+	failOff       error
+}
+
+func (e *echoSwitch) turnOff() (func() error, error) {
+	if e.failOff != nil {
+		return nil, e.failOff
+	}
+	e.off++
+	return func() error { e.restored++; return nil }, nil
+}
+
+func TestSecretReadsWithTheEchoOffAndAsksAgainOnARefusal(t *testing.T) {
+	echo := &echoSwitch{}
+	l, out := lines("wrong\nright\n")
+	l.EchoOff = echo.turnOff
+	got, err := l.Secret(t.Context(), here, "Password", func(s string) error {
+		if s != "right" {
+			return errors.New("not accepted")
+		}
+		return nil
+	})
+	if err != nil || got != "right" {
+		t.Fatalf("Secret = %q, %v", got, err)
+	}
+	if echo.off != 2 || echo.restored != 2 {
+		t.Fatalf("echo off %d times, restored %d", echo.off, echo.restored)
+	}
+	if strings.Contains(out.String(), "right") || strings.Contains(out.String(), "wrong") ||
+		!strings.Contains(out.String(), "Password: \n   not accepted\nPassword: \n") {
+		t.Fatalf("Secret wrote %q", out.String())
+	}
+}
+
+func TestSecretPutsTheEchoBackWhenTheQuestionEnds(t *testing.T) {
+	echo := &echoSwitch{}
+	l := asker("")
+	l.EchoOff = echo.turnOff
+	if _, err := l.Secret(t.Context(), here, "Password", nil); !errors.Is(err, ErrInputEnded) {
+		t.Fatalf("Secret at the end of input = %v", err)
+	}
+	ctx, cancel := context.WithCancelCause(t.Context())
+	cancel(errors.New("interrupt"))
+	if _, err := asker("x\n").Secret(ctx, here, "Password", nil); err == nil {
+		t.Fatal("a cancelled Secret with no EchoOff answered")
+	}
+	l = asker("x\n")
+	l.EchoOff = echo.turnOff
+	if _, err := l.Secret(ctx, here, "Password", nil); !errors.Is(err, ErrCancelled) {
+		t.Fatalf("Secret on an ended context = %v", err)
+	}
+	if echo.off != echo.restored || echo.off == 0 {
+		t.Fatalf("echo off %d times, restored %d", echo.off, echo.restored)
+	}
+}
+
+func TestSecretRefusesToAskWithTheEchoOn(t *testing.T) {
+	l, out := lines("x\n")
+	if _, err := l.Secret(t.Context(), here, "Password", nil); !errors.Is(err, ErrNoEchoOff) {
+		t.Fatalf("Secret with no EchoOff = %v", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("a refused secret drew %q", out.String())
+	}
+	l = asker("x\n")
+	broken := errors.New("not a terminal")
+	l.EchoOff = (&echoSwitch{failOff: broken}).turnOff
+	if _, err := l.Secret(t.Context(), here, "Password", nil); !errors.Is(err, broken) {
+		t.Fatalf("Secret whose echo cannot be turned off = %v", err)
+	}
+}

@@ -46,6 +46,9 @@ type Lines struct {
 	Colour bool
 	Width  int
 	Tries  int
+	// EchoOff turns the terminal's echo off for a Secret's line and returns what puts it back
+	// (ttyecho.Off); with none, Secret refuses to ask.
+	EchoOff func() (restore func() error, err error)
 
 	want    chan struct{}
 	replies chan lineRead
@@ -88,6 +91,29 @@ func (l *Lines) YesNo(ctx context.Context, h Heading, question string, defaultYe
 func (l *Lines) Ask(ctx context.Context, h Heading, prompt string, check func(string) error) (string, error) {
 	var answer string
 	err := l.ask(ctx, h, "", prompt+": ", func(reply string) (string, bool) {
+		if check != nil {
+			if err := check(reply); err != nil {
+				return err.Error(), false
+			}
+		}
+		answer = reply
+		return "", true
+	})
+	return answer, err
+}
+
+// ErrNoEchoOff is a Secret asked of Lines with no EchoOff: the answer would be shown.
+var ErrNoEchoOff = errors.New("ui: a secret needs the echo turned off (Lines.EchoOff)")
+
+// Secret is Ask for a line that must not be shown (a password): the echo is off while each try is
+// read and put back after it, however the read ends, and the Enter the terminal did not echo is
+// written in its place.
+func (l *Lines) Secret(ctx context.Context, h Heading, prompt string, check func(string) error) (string, error) {
+	if l.EchoOff == nil {
+		return "", ErrNoEchoOff
+	}
+	var answer string
+	err := l.askWith(ctx, h, "", prompt+": ", l.readSecret, func(reply string) (string, bool) {
 		if check != nil {
 			if err := check(reply); err != nil {
 				return err.Error(), false
@@ -142,6 +168,11 @@ func checkMenu(choices []Choice) error {
 // ask draws the heading and the body once, then asks the prompt until judge accepts a reply,
 // showing judge's complaint after each one it refuses.
 func (l *Lines) ask(ctx context.Context, h Heading, body, prompt string, judge func(reply string) (complaint string, ok bool)) error {
+	return l.askWith(ctx, h, body, prompt, l.readLine, judge)
+}
+
+// askWith is ask with each reply read by read.
+func (l *Lines) askWith(ctx context.Context, h Heading, body, prompt string, read func(context.Context) (string, error), judge func(reply string) (complaint string, ok bool)) error {
 	heading, err := h.Draw(l.Colour, l.Width)
 	if err != nil {
 		return err
@@ -157,7 +188,7 @@ func (l *Lines) ask(ctx context.Context, h Heading, body, prompt string, judge f
 		if err := l.write(prompt); err != nil {
 			return err
 		}
-		reply, err := l.readLine(ctx)
+		reply, err := read(ctx)
 		if err != nil {
 			return err
 		}
@@ -210,6 +241,20 @@ func (l *Lines) readLine(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("read the answer: %w", err)
 	}
 	return strings.TrimSpace(line), nil
+}
+
+// readSecret is readLine with the echo off, put back however the read ends.
+func (l *Lines) readSecret(ctx context.Context) (string, error) {
+	restore, err := l.EchoOff()
+	if err != nil {
+		return "", err
+	}
+	line, err := l.readLine(ctx)
+	err = errors.Join(err, restore())
+	if err == nil {
+		err = l.write("\n")
+	}
+	return line, err
 }
 
 // readLines reads one line of r for each request on want and replies with it, until a read

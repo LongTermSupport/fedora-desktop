@@ -694,3 +694,28 @@ func TestOnARealTerminalKeysTypedBetweenScreensAreNotEchoedAndStillRead(t *testi
 		t.Fatalf("held, the terminal showed %q before the next key", got)
 	}
 }
+
+func TestOffClearsOnlyTheEchoAndRestorePutsTheModeBack(t *testing.T) {
+	m := &FakeModes{Mode: unix.Termios{Lflag: Cooked}}
+	restore, err := OffVia(m, 0)()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Echo() || m.Mode.Lflag&unix.ISIG == 0 || m.Mode.Lflag&unix.ICANON == 0 {
+		t.Fatalf("mode while off %#x", m.Mode.Lflag)
+	}
+	if err := restore(); err != nil || m.Mode.Lflag != Cooked {
+		t.Fatalf("restored %#x %v", m.Mode.Lflag, err)
+	}
+	m.GetErr = errors.New("not a terminal")
+	if _, err := OffVia(m, 0)(); err == nil {
+		t.Error("a mode that cannot be read was not an error")
+	}
+	m.GetErr, m.SetErr = nil, errors.New("cannot set")
+	if _, err := OffVia(m, 0)(); err == nil {
+		t.Error("a mode that cannot be set was not an error")
+	}
+	if Off(0) == nil {
+		t.Error("Off is nil")
+	}
+}

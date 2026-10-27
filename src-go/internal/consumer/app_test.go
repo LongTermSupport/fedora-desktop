@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -19,6 +21,10 @@ import (
 )
 
 const (
+	// password is the login password the tests type; become is how a play line shows the file
+	// that hands it to Ansible (its random path normalised by foregrounds).
+	password    = "s3cr3t-placeholder"
+	become      = " --become-password-file PWFILE"
 	vaultName   = "vault.txt"
 	pipxListOut = `{"venvs":{"ansible":{"metadata":{"injected_packages":{"jmespath":{}}}}}}`
 	consumerYml = "user_login: \"u\"\ninstall_audience: consumer\n"
@@ -38,21 +44,29 @@ type world struct {
 	t          *testing.T
 	root, home string
 	fake       *execx.Fake
-	answers    string
-	uid        int
-	terminal   bool
-	gecos      string
-	osRelease  string
-	userErr    error
-	signal     syscall.Signal
-	stdout     bytes.Buffer
-	stderr     bytes.Buffer
+	runtime    string
+	// typed is what is typed at the password question, before answers; echo counts the
+	// terminal's echo turned off and put back; handed is the password file as each play saw it.
+	typed     string
+	answers   string
+	echoOff   int
+	echoBack  int
+	handed    []string
+	uid       int
+	terminal  bool
+	gecos     string
+	osRelease string
+	userErr   error
+	signal    syscall.Signal
+	cancel    context.CancelCauseFunc
+	stdout    bytes.Buffer
+	stderr    bytes.Buffer
 }
 
 func newWorld(t *testing.T) *world {
 	t.Helper()
 	root := t.TempDir()
-	w := &world{t: t, root: root, home: t.TempDir(), fake: &execx.Fake{}, uid: 1000, terminal: true, gecos: "Una \"U\" User"}
+	w := &world{t: t, root: root, home: t.TempDir(), runtime: t.TempDir(), typed: password + "\n", fake: &execx.Fake{}, uid: 1000, terminal: true, gecos: "Una \"U\" User"}
 	w.osRelease = filepath.Join(root, "os-release")
 	writeFile(t, w.osRelease, "NAME=\"Fedora Linux\"\nVERSION_ID=44\n")
 	writeFile(t, filepath.Join(root, versionPath), "---\nfedora_version: 44\n")
@@ -70,8 +84,69 @@ func newWorld(t *testing.T) *world {
 	f.On([]string{"pipx", "list", "--json"}, execx.Result{Stdout: []byte(pipxListOut)})
 	w.configSays(`[{"name":"DEFAULT_ASK_VAULT_PASS","value":false},{"GALAXY_SERVERS":{}},{"name":"` + vaultFileSetting + `","value":"` + w.path(vaultName) + `"}]`)
 	f.On([]string{"ansible-galaxy"}, execx.Result{})
-	f.On([]string{"ansible-playbook"}, execx.Result{})
+	f.OnFunc([]string{"ansible-playbook"}, func(c execx.Cmd) (execx.Result, error) {
+		w.seeBecomeFile(c)
+		return execx.Result{}, nil
+	})
 	return w
+}
+
+// passwordless is a box whose sudo needs no password: nothing is asked.
+func (w *world) passwordless() {
+	w.fake.On([]string{"sudo", "-n", "-k", "true"}, execx.Result{})
+	w.typed = ""
+}
+
+// seeBecomeFile records the password file a play is handed as the play finds it: its text and
+// the modes of the file and its directory.
+func (w *world) seeBecomeFile(c execx.Cmd) {
+	i := slices.Index(c.Args, "--become-password-file")
+	if i < 0 || i+1 >= len(c.Args) {
+		return
+	}
+	file := c.Args[i+1]
+	dir, fi, err := statBoth(file)
+	if err != nil {
+		w.handed = append(w.handed, err.Error())
+		return
+	}
+	text, err := fs.ReadFile(os.DirFS(filepath.Dir(file)), filepath.Base(file))
+	if err != nil {
+		w.handed = append(w.handed, err.Error())
+		return
+	}
+	w.handed = append(w.handed, fmt.Sprintf("%s %v %v %v", text, fi.Mode().Perm(), dir.Mode().Perm(), filepath.Dir(filepath.Dir(file)) == w.runtime))
+}
+
+func statBoth(file string) (os.FileInfo, os.FileInfo, error) {
+	dir, err := os.Stat(filepath.Dir(file))
+	if err != nil {
+		return nil, nil, err
+	}
+	fi, err := os.Stat(file)
+	return dir, fi, err
+}
+
+// wantNoPasswordLeft fails when anything of the run is left in the runtime directory.
+func (w *world) wantNoPasswordLeft() {
+	w.t.Helper()
+	left, err := os.ReadDir(w.runtime)
+	if err != nil || len(left) != 0 {
+		w.t.Fatalf("the runtime directory holds %v (%v) after the run", left, err)
+	}
+}
+
+// wantPasswordNowhere fails when the password is in any command's argv or environment.
+func (w *world) wantPasswordNowhere() {
+	w.t.Helper()
+	for _, c := range append(w.fake.Calls(), w.fake.Foregrounds()...) {
+		if strings.Contains(c.Line()+strings.Join(c.Env, " "), password) {
+			w.t.Errorf("the password is in %s", c.Line())
+		}
+	}
+	if strings.Contains(w.stderr.String()+w.stdout.String(), password) {
+		w.t.Error("the password was printed")
+	}
 }
 
 func (w *world) configSays(out string) {
@@ -85,7 +160,11 @@ func (w *world) run(args ...string) term.ExitCode {
 	env := Env{
 		Runner: w.fake, Foreground: w.fake,
 		Getenv: func(k string) string {
-			return map[string]string{rootEnv: w.root, "HOME": w.home, "PATH": "/usr/bin"}[k]
+			return map[string]string{rootEnv: w.root, "HOME": w.home, "PATH": "/usr/bin", "XDG_RUNTIME_DIR": w.runtime}[k]
+		},
+		EchoOff: func() (func() error, error) {
+			w.echoOff++
+			return func() error { w.echoBack++; return nil }, nil
 		},
 		UID: func() int { return w.uid },
 		CurrentUser: func() (*user.User, error) {
@@ -94,13 +173,14 @@ func (w *world) run(args ...string) term.ExitCode {
 		OSRelease:       w.osRelease,
 		Random:          bytes.NewReader(bytes.Repeat([]byte{7}, 64)),
 		OpenTTY:         func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader("")), nil },
-		Stdin:           strings.NewReader(w.answers),
+		Stdin:           strings.NewReader(w.typed + w.answers),
 		Stdout:          &w.stdout,
 		Stderr:          &w.stderr,
 		StdinIsTerminal: w.terminal,
 	}
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
+	w.cancel = cancel
 	if w.signal != 0 {
 		cancel(&execx.SignalError{Signal: w.signal})
 	}
@@ -128,7 +208,11 @@ func (w *world) foregrounds() []string {
 	cmds := w.fake.Foregrounds()
 	out := make([]string, 0, len(cmds))
 	for _, c := range cmds {
-		out = append(out, c.Line())
+		args := slices.Clone(c.Args)
+		if i := slices.Index(args, "--become-password-file"); i >= 0 && i+1 < len(args) {
+			args[i+1] = "PWFILE"
+		}
+		out = append(out, strings.Join(append([]string{c.Name}, args...), " "))
 	}
 	return out
 }
@@ -163,7 +247,7 @@ func TestFreshInstallRunsEveryStepWithNoGitHub(t *testing.T) {
 		"pipx install --include-deps ansible",
 		"pipx inject ansible passlib",
 		"ansible-galaxy install --keep-scm-meta -r requirements.yml",
-		"ansible-playbook " + mainPlay + " --ask-become-pass",
+		"ansible-playbook " + mainPlay + become,
 	}
 	if got := w.foregrounds(); !slices.Equal(got, want) {
 		t.Fatalf("foreground %q\nwant %q", got, want)
@@ -266,9 +350,12 @@ func TestReRunKeepsTheConsumerFilesAndInjectsOnlyWhatIsMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.fake.On([]string{"pipx", "list", "--json"}, execx.Result{Stdout: []byte(`{"venvs":{"ansible":{"metadata":{"injected_packages":{"jmespath":{},"passlib":{}}}}}}`)})
-	w.fake.On([]string{"sudo", "-n", "-k", "true"}, execx.Result{})
+	w.passwordless()
 	w.answers = "\n"
 	w.wantCode(w.run(), term.ExitOK)
+	if w.echoOff != 0 || w.fake.Called("sudo -k -S") {
+		t.Error("a passwordless sudo was asked for a password")
+	}
 	want := []string{
 		"ansible-galaxy install --keep-scm-meta -r requirements.yml",
 		"ansible-playbook " + mainPlay,
@@ -290,8 +377,8 @@ func TestPicksRunInListOrderAfterABadAnswer(t *testing.T) {
 	w.wantCode(w.run(), term.ExitOK)
 	got := w.foregrounds()
 	want := []string{
-		"ansible-playbook " + commonDir + "/play-qobuz.yml --ask-become-pass",
-		"ansible-playbook " + hardwareDir + "/play-nvidia.yml --ask-become-pass",
+		"ansible-playbook " + commonDir + "/play-qobuz.yml" + become,
+		"ansible-playbook " + hardwareDir + "/play-nvidia.yml" + become,
 	}
 	if !slices.Equal(got[len(got)-2:], want) {
 		t.Fatalf("optional plays %q, want %q", got, want)
@@ -299,18 +386,232 @@ func TestPicksRunInListOrderAfterABadAnswer(t *testing.T) {
 	w.wantErr("Choose numbers from 1 to 3")
 }
 
-func TestAFailedOptionalPlayStopsTheRest(t *testing.T) {
+// optionalLines is the ansible-playbook line of each optional play, by label.
+var optionalLines = map[string]string{
+	"Qobuz":       "ansible-playbook " + commonDir + "/play-qobuz.yml" + become,
+	"Videography": "ansible-playbook " + commonDir + "/play-videography.yml" + become,
+	"Nvidia":      "ansible-playbook " + hardwareDir + "/play-nvidia.yml" + become,
+}
+
+func (w *world) wantOptionalRan(labels ...string) {
+	w.t.Helper()
+	var got []string
+	for _, line := range w.foregrounds() {
+		if strings.HasPrefix(line, "ansible-playbook playbooks/imports/optional/") {
+			got = append(got, line)
+		}
+	}
+	want := make([]string, 0, len(labels))
+	for _, l := range labels {
+		want = append(want, optionalLines[l])
+	}
+	if !slices.Equal(got, want) {
+		w.t.Fatalf("optional plays ran %q, want %q", got, want)
+	}
+}
+
+// retryLine is the command the summary gives to run one play again, in a test's checkout.
+func (w *world) retryLine(dir, file string) string {
+	return filepath.Join(w.root, "run.bash") + " " + dir + "/" + file
+}
+
+func TestAFailedOptionalPlayDoesNotStopTheRest(t *testing.T) {
 	w := newWorld(t)
 	w.fake.On([]string{"ansible-playbook", commonDir + "/play-qobuz.yml"}, execx.Result{ExitCode: 2})
-	w.answers = "1 2\n"
+	w.answers = "1 2 3\n"
 	w.wantCode(w.run(), term.ExitFailure)
-	if slices.Contains(w.foregrounds(), "ansible-playbook "+commonDir+"/play-videography.yml --ask-become-pass") {
-		t.Error("a play ran after one failed")
-	}
+	w.wantOptionalRan("Qobuz", "Videography", "Nvidia")
 	if exists(w.marker()) {
 		t.Error("the marker was written after a failure")
 	}
-	w.wantErr("Qobuz failed (exit 2)", issuesURL)
+	w.wantErr(
+		"✗ Qobuz: failed (exit 2); its output is above, in this terminal (it is not saved to a file)",
+		"✓ Videography: installed",
+		"✓ Nvidia (hardware): installed",
+		w.retryLine(commonDir, "play-qobuz.yml"),
+		"run.bash --optional-only",
+		issuesURL,
+		"1 of 3 optional apps failed",
+	)
+	if strings.Contains(w.stderr.String(), w.retryLine(commonDir, "play-videography.yml")) {
+		t.Error("a play that passed was offered for a retry")
+	}
+}
+
+func TestEveryFailedOptionalPlayIsCountedAndOfferedAgain(t *testing.T) {
+	w := newWorld(t)
+	w.fake.On([]string{"ansible-playbook", commonDir + "/play-qobuz.yml"}, execx.Result{ExitCode: 2})
+	w.fake.OnError([]string{"ansible-playbook", hardwareDir + "/play-nvidia.yml"}, errors.New("no such file"))
+	w.answers = "1 2 3\n"
+	w.wantCode(w.run(), term.ExitFailure)
+	w.wantOptionalRan("Qobuz", "Videography", "Nvidia")
+	w.wantErr(
+		"✗ Qobuz: failed (exit 2)",
+		"✗ Nvidia (hardware): could not run (",
+		"no such file",
+		w.retryLine(commonDir, "play-qobuz.yml"),
+		w.retryLine(hardwareDir, "play-nvidia.yml"),
+		"2 of 3 optional apps failed",
+	)
+}
+
+func TestEveryOptionalPlayPassingIsSummedUp(t *testing.T) {
+	w := newWorld(t)
+	w.answers = "1 3\n"
+	w.wantCode(w.run(), term.ExitOK)
+	w.wantOptionalRan("Qobuz", "Nvidia")
+	w.wantErr("✓ Qobuz: installed", "✓ Nvidia (hardware): installed", "reboot")
+	if strings.Contains(w.stderr.String(), "Videography") && strings.Contains(w.stderr.String(), "not run") {
+		t.Error("a play not chosen is in the summary")
+	}
+	if strings.Contains(w.stderr.String(), "failed") || !exists(w.marker()) {
+		t.Errorf("a clean run was not reported clean:\n%s", w.stderr.String())
+	}
+}
+
+func TestACtrlCDuringAnOptionalPlayStopsAtOnce(t *testing.T) {
+	w := newWorld(t)
+	w.fake.OnFunc([]string{"ansible-playbook", commonDir + "/play-qobuz.yml"}, func(execx.Cmd) (execx.Result, error) {
+		w.cancel(&execx.SignalError{Signal: syscall.SIGINT})
+		return execx.Result{ExitCode: 130}, nil
+	})
+	w.answers = "1 2 3\n"
+	w.wantCode(w.run(), term.ExitCode(130))
+	w.wantOptionalRan("Qobuz")
+	w.wantErr("✗ Qobuz: stopped part way (exit 130)", "- Videography: not run", "- Nvidia (hardware): not run",
+		w.retryLine(commonDir, "play-videography.yml"))
+	if exists(w.marker()) {
+		t.Error("the marker was written after a stop")
+	}
+}
+
+func TestAnOptionalPlayEndedBySignalStopsTheRest(t *testing.T) {
+	w := newWorld(t)
+	w.fake.On([]string{"ansible-playbook", commonDir + "/play-videography.yml"}, execx.Result{ExitCode: 143})
+	w.answers = "1 2 3\n"
+	w.wantCode(w.run(), term.ExitCode(143))
+	w.wantOptionalRan("Qobuz", "Videography")
+	w.wantErr("✓ Qobuz: installed", "✗ Videography: stopped part way (exit 143)", "- Nvidia (hardware): not run")
+}
+
+// checks is how many times sudo was asked whether a password is right.
+func (w *world) checks() int {
+	n := 0
+	for _, c := range w.fake.Calls() {
+		if strings.HasPrefix(c.Line(), "sudo -k -S") {
+			n++
+		}
+	}
+	return n
+}
+
+func TestThePasswordIsAskedOnceForTheMainPlayAndEveryOptionalOne(t *testing.T) {
+	w := newWorld(t)
+	w.answers = "1 2 3\n"
+	w.wantCode(w.run(), term.ExitOK)
+	w.wantOptionalRan("Qobuz", "Videography", "Nvidia")
+	if w.echoOff != 1 || w.echoBack != 1 || w.checks() != 1 {
+		t.Fatalf("asked %d times (echo back %d), checked %d times", w.echoOff, w.echoBack, w.checks())
+	}
+	for _, line := range w.foregrounds() {
+		if strings.HasPrefix(line, "ansible-playbook") && !strings.HasSuffix(line, become) || strings.Contains(line, "--ask-become-pass") {
+			t.Errorf("a play was not handed the password file: %s", line)
+		}
+	}
+	want := slices.Repeat([]string{password + " -rw------- -rwx------ true"}, 4)
+	if !slices.Equal(w.handed, want) {
+		t.Fatalf("the plays found %q, want %q", w.handed, want)
+	}
+	w.wantPasswordNowhere()
+	w.wantNoPasswordLeft()
+}
+
+func TestAWrongPasswordIsAskedAgain(t *testing.T) {
+	w := newWorld(t)
+	w.fake.OnFunc([]string{"sudo", "-k", "-S"}, func(c execx.Cmd) (execx.Result, error) {
+		if c.Feed == nil || !c.Feed.Secret.Is(password) {
+			return execx.Result{ExitCode: 1, Stderr: []byte("Sorry, try again.\nsudo: 1 incorrect password attempt\n")}, nil
+		}
+		return execx.Result{}, nil
+	})
+	w.typed = "wrong\n\n" + password + "\n"
+	w.answers = "1\n"
+	w.wantCode(w.run(), term.ExitOK)
+	if w.echoOff != 3 || w.echoBack != 3 || w.checks() != 2 {
+		t.Fatalf("asked %d times (echo back %d), checked %d times", w.echoOff, w.echoBack, w.checks())
+	}
+	w.wantErr("sudo did not accept that password", "type your password")
+	if want := slices.Repeat([]string{password + " -rw------- -rwx------ true"}, 2); !slices.Equal(w.handed, want) {
+		t.Fatalf("the plays found %q, want %q", w.handed, want)
+	}
+	w.wantPasswordNowhere()
+	w.wantNoPasswordLeft()
+}
+
+func TestThreeWrongPasswordsStopBeforeAnythingIsInstalled(t *testing.T) {
+	w := newWorld(t)
+	w.fake.On([]string{"sudo", "-k", "-S"}, execx.Result{ExitCode: 1, Stderr: []byte("Sorry, try again.\n")})
+	w.typed = "a\nb\nc\n"
+	w.wantCode(w.run(), term.ExitFailure)
+	w.wantErr("not accepted 3 times")
+	if len(w.foregrounds()) != 0 || w.fake.Called("sudo -n dnf") {
+		t.Errorf("ran %q after the password was refused", w.foregrounds())
+	}
+	w.wantNoPasswordLeft()
+}
+
+func TestNoRuntimeDirectoryStopsBeforeThePasswordIsAsked(t *testing.T) {
+	w := newWorld(t)
+	w.runtime = ""
+	w.wantCode(w.run(), term.ExitFailure)
+	w.wantErr("XDG_RUNTIME_DIR")
+	if w.echoOff != 0 || len(w.foregrounds()) != 0 {
+		t.Error("the password was asked with nowhere private to keep it")
+	}
+}
+
+func TestThePasswordFileIsGoneAfterAFailureAndAStop(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(*world)
+		code  term.ExitCode
+	}{
+		{"main play failed", func(w *world) {
+			w.fake.On([]string{"ansible-playbook", mainPlay}, execx.Result{ExitCode: 2})
+		}, term.ExitFailure},
+		{"optional play failed", func(w *world) {
+			w.fake.On([]string{"ansible-playbook", commonDir + "/play-qobuz.yml"}, execx.Result{ExitCode: 2})
+		}, term.ExitFailure},
+		{"Ctrl-C in a play", func(w *world) {
+			w.fake.OnFunc([]string{"ansible-playbook", commonDir + "/play-qobuz.yml"}, func(execx.Cmd) (execx.Result, error) {
+				w.cancel(&execx.SignalError{Signal: syscall.SIGINT})
+				return execx.Result{ExitCode: 130}, nil
+			})
+		}, term.ExitCode(130)},
+		{"input ended at the menu", func(w *world) { w.answers = "" }, term.ExitCancelled},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := newWorld(t)
+			w.answers = "1 2\n"
+			tc.setup(w)
+			w.wantCode(w.run(), tc.code)
+			if len(w.handed) == 0 && tc.name != "input ended at the menu" && tc.name != "main play failed" {
+				t.Error("no play was handed the password file")
+			}
+			w.wantNoPasswordLeft()
+		})
+	}
+}
+
+func TestRetryCommandAbbreviatesTheHome(t *testing.T) {
+	got := retryCommand("/home/u/Projects/fedora-desktop", "/home/u", commonDir+"/play-qobuz.yml")
+	if want := "~/Projects/fedora-desktop/run.bash " + commonDir + "/play-qobuz.yml"; got != want {
+		t.Errorf("retry %q, want %q", got, want)
+	}
+	got = retryCommand("/srv/a checkout", "/home/u", "--optional-only")
+	if want := "'/srv/a checkout/run.bash' --optional-only"; got != want {
+		t.Errorf("retry %q, want %q", got, want)
+	}
 }
 
 func TestAFailedMainPlayStopsBeforeTheMenu(t *testing.T) {
@@ -346,7 +647,7 @@ func TestEachEarlierStepFailingStopsTheRun(t *testing.T) {
 			w.fake.On(tc.prefix, execx.Result{ExitCode: 3, Stderr: []byte("broken\n")})
 			w.wantCode(w.run(), term.ExitFailure)
 			w.wantErr(tc.want)
-			if slices.Contains(w.foregrounds(), "ansible-playbook "+mainPlay+" --ask-become-pass") {
+			if slices.Contains(w.foregrounds(), "ansible-playbook "+mainPlay+become) {
 				t.Error("the main play ran after an earlier step failed")
 			}
 		})
@@ -370,7 +671,7 @@ func TestAnsibleNamingNoVaultPasswordFileStopsTheRun(t *testing.T) {
 	w.configSays(`[{"name":"DEFAULT_ASK_VAULT_PASS","value":false}]`)
 	w.wantCode(w.run(), term.ExitFailure)
 	w.wantErr(vaultFileSetting)
-	if slices.Contains(w.foregrounds(), "ansible-playbook "+mainPlay+" --ask-become-pass") {
+	if slices.Contains(w.foregrounds(), "ansible-playbook "+mainPlay+become) {
 		t.Error("the main play ran with no vault password file")
 	}
 }
@@ -381,7 +682,7 @@ func TestOptionalOnlySkipsTheMainInstall(t *testing.T) {
 	writeFile(t, w.path(vaultName), "kept\n")
 	w.answers = "2\n"
 	w.wantCode(w.run("--optional-only=true"), term.ExitOK)
-	want := []string{"ansible-playbook " + commonDir + "/play-videography.yml --ask-become-pass"}
+	want := []string{"ansible-playbook " + commonDir + "/play-videography.yml" + become}
 	if got := w.foregrounds(); !slices.Equal(got, want) {
 		t.Fatalf("foreground %q, want %q", got, want)
 	}

@@ -149,7 +149,7 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   `github_accounts: {}`), a developer one refused; dnf base packages through
   `internal/sudo`; pipx ansible with only the missing injects; the vault password file that
   `ansible-config` resolves made at random (32 bytes, base64, 0600) when absent; galaxy; the
-  main playbook with `--ask-become-pass` unless sudo is truly passwordless; a numbered menu
+  main playbook (root as Task 2.7 says); a numbered menu
   of the optional plays whose every play is `audience: all`; the setup marker; a reboot
   advised. No gh, no ssh-keygen, no git. Unit tests through `execx.Fake` (coverage 91%),
   including a test over this checkout's real optional plays.
@@ -164,6 +164,27 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   ([subagent-reports/261026-review-fixes.md](subagent-reports/261026-review-fixes.md)); the
   audience gate also requires the guard to be the first task the play runs.
 - [x] ✅ **Task 2.4**: `RUN_BASH_VERSION` 1.33.0 and its changelog entry.
+- [x] ✅ **Task 2.6**: a failed optional play no longer ends the consumer run (owner report:
+  "it's not clear which of the optional ones were installed"). Every chosen play runs in menu
+  order; a failure is recorded and the next one runs; Ctrl-C, or a play ended by a signal,
+  stops at once. A summary on stderr always follows: per play installed, failed (exit status;
+  its output is the terminal's, not saved), stopped part way, or not run; then one
+  `run.bash <play>.yml` line per play to retry and the `--optional-only` menu. Exit 1 naming
+  how many failed, 128+n on a signal, 0 only when every chosen play passed (the setup marker
+  only then). The main playbook stays fail-fast. Red and green in `app_test.go`.
+- [x] ✅ **Task 2.7**: the password asked once per run (owner report: "asks for sudo password
+  for every single play"). Each play used to run with `--ask-become-pass`, so Ansible asked
+  before the main play and again before every optional one. Now, unless sudo is truly
+  passwordless, the login password is typed once with the echo off (`ui.Lines.Secret`,
+  `ttyecho.Off`), checked at once by `sudo -k -S -v` with the password fed on stdin
+  (`sudo.CheckPassword`), asked again on a refusal (three tries, then exit 1 before anything
+  is installed), and written (`execx.Secret.WriteFile`) to a 0600 file in a 0700 directory of
+  its own under `XDG_RUNTIME_DIR` (memory only); every `ansible-playbook` gets
+  `--become-password-file` naming it. Never argv, never an environment, never printed. Run
+  removes the directory on every exit path (success, a failed play, the input ending, Ctrl-C
+  and TERM through the signal context). The checked password also leaves sudo's credential
+  cached, so the dnf step asks nothing. The VM lab's consumer driver refuses the new question
+  too (its sudo is passwordless). Red and green in the four packages' tests.
 
 ### Phase 3: VM lab acceptance
 
@@ -218,6 +239,13 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   would fail there, ungated. Open, the owner's decision: post-processing for consumers (a Claude
   login without ccy) or none. Either way the items fail clearly or are hidden on a consumer box,
   and the consumer VM scenario installs speech-to-text and checks plain dictation is set up.
+- [ ] ⬜ **Task 6.6**: The developer path's optional runs, as Task 2.6 did for the consumer:
+  headless `RUN_BASH_OPTIONAL_PLAYBOOKS` stops at the first failed play (`hl_abort` in
+  `hl_run_optional_playbooks`), so the plays after it never run and are not named; the
+  attended menu (`show_menu`, its A, W and B choices) goes on after a failure but prints no
+  summary of what installed; `--rerun` (`play_batch_run`) stops at the first failure by its
+  documented design, and mixes main and optional plays, so it is the owner's call whether
+  optional plays there should go on.
 
 ### Phase 5: Review
 

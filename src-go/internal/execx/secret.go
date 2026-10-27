@@ -66,6 +66,26 @@ func (s Secret) Renamed(name string) (Secret, error) { return NewSecret(name, s.
 // Is reports whether the secret's value is v, for a test or a comparison that must not copy it.
 func (s Secret) Is(v string) bool { return s.value == v }
 
+// WriteFile writes the value alone to a new file of mode 0600, name in dir, for a program that
+// reads a secret from a file it is named (ansible-playbook --become-password-file). The name
+// cannot leave dir, and a file already there is an error, never written over; the caller
+// removes the file.
+func (s Secret) WriteFile(dir, name string) error {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return fmt.Errorf("open the directory for %s: %w", s.name, err)
+	}
+	f, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return errors.Join(fmt.Errorf("make the file for %s: %w", s.name, err), root.Close())
+	}
+	_, werr := f.WriteString(s.value)
+	if werr != nil {
+		werr = fmt.Errorf("write the file for %s: %w", s.name, werr)
+	}
+	return errors.Join(werr, f.Close(), root.Close())
+}
+
 // String is the secret as it may be shown: its name, never its value.
 func (s Secret) String() string { return s.name + "=<redacted>" }
 
