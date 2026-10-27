@@ -100,8 +100,10 @@ This plan fixes it under Defence Before Fix:
   reboot notice now also fires when the running kernel is not the newest installed (the
   kernel now changes before its snapshot). Tests first: `scripts/test-run-bash-upgrade-first.bash`
   (gate `run-bash-upgrade-first`) and the consumer tests pin the order and the stop. run.bash
-  1.35.0. Host check (pending): the VM lab's desktop-fresh-install and
-  desktop-consumer-install on the 10-06 base.
+  1.35.0. Host check: the VM lab's desktop-fresh-install on the 10-06 base passed 16 of 16
+  at 3781e559f, with no "is not defined" in its transcript. desktop-consumer-install on the
+  same base stopped at the prompt-colour question before reaching that play (Plan 00228), so
+  it is not evidence either way.
 
 ## Success Criteria
 

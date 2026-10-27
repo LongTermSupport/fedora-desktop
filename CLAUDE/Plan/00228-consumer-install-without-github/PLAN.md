@@ -212,7 +212,16 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   - Acceptance: `acceptance.bash` reports full coverage and a pass on the host.
   - Built here: `deploy.bash` (play-vm-test-lab.yml) and `acceptance.bash` (ensures the
     desktop and server-fast bases, runs the three scenarios from the pushed HEAD, `COVERAGE: N of 3`, exit 0/1/2), both lint-clean and refusing the container; queued in
-    `meta-deploy.list`. **Pending: the host run** (the host agent's).
+    `meta-deploy.list`.
+  - Host run at 3781e559f: COVERAGE 2 of 3, REJECTED. desktop-fresh-install passed 16 of 16
+    and server-fast-provision 13 of 13. desktop-consumer-install failed 14 of 17:
+    play-basic-configs asked a consumer for the prompt colour, the attendant had no answer,
+    and the run waited out provisionLimit (exit 124). The 3 failed checks all follow from
+    that. Fixed in bd342c63d (a consumer is never asked). Re-run after Task 3.3.
+- [ ] ⬜ **Task 3.3**: The vmtest attendant fails an attended run on an unanswered prompt in
+  seconds, not at provisionLimit (90 minutes): an idle-output bound once a prompt-shaped line
+  is the last output, so the next unknown question costs seconds. Tests first, in
+  `src-go/internal/vmtest` (attend.go, steps.go).
 
 ### Phase 4: Docs for a non-developer
 
