@@ -6,8 +6,8 @@ remaining ports of Task 3.3 (the `ccy` launcher's phases 3 to 5 are deferred by 
 D4/D10), and Tasks 4.1 and 4.2 over the finished plan. Left for the host agent: the host checks
 of the merged ports still open (freeze step 2's remainder and step 3, vmtest H2's bridge half,
 H3 and H6, ftp-camera H1, H2 and H5, wsi H2, open H2, H3 and H5, rclone-tail H4,
-gh-account-setup H1 and H3 to H5), and Task 3.2's root run, which
-needs sudo at the run. Left for the owner: only what needs the owner in person, namely
+gh-account-setup H1 and H3 to H5); Task 3.2's root run is on hold
+until Plan 00209 Task 2.5 (see the task). Left for the owner: only what needs the owner in person, namely
 gh-account-setup H2 (a real GitHub device login), ftp-camera H3 and H4 (the physical camera)
 and wsi H1 (speaking into the microphone).
 **Created**: 2026-10-14
@@ -92,12 +92,13 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   established: the first run matched byte for byte on three of the four commands (the fourth
   stopped on a sudo prompt the Go sudo probe raised wrongly, now fixed), and the second run,
   with no prompt, differed only by the containers started between the runs, every common row
-  identical. A live comparison against a saved baseline cannot repeat on a machine whose
-  containers change, so `acceptance.bash` is retired from the queue. Left, for the host agent:
+  identical. A row comparison against a saved baseline cannot repeat on a machine whose
+  containers change, so `acceptance.bash` now checks the layout only (Task 3.4). Left, for the host agent:
   [ACCEPTANCE-freeze.md](ACCEPTANCE-freeze.md) step 2 (freeze and thaw a throwaway container
   with each tool; the menu driven by tmux keys and read with `capture-pane`; Ctrl-C mid-batch
-  gives 130; `lxcfreeze` needs sudo at the run) and step 3 (a second run of the freeze plays
-  reports ok, not changed). Step 2, partial (bus `$8aqX_PoK5b62YkY5FNbJF0kZ2SBsP8XxhoXIrIR5fkI`):
+  gives 130; `lxcfreeze` needs sudo at the run) and step 3 (the meta-deploy run queued for
+  00192: the freeze build and install tasks report ok, not changed, read from the play recaps,
+  and the `acceptance.bash` leg passes). Step 2, partial (bus `$8aqX_PoK5b62YkY5FNbJF0kZ2SBsP8XxhoXIrIR5fkI`):
   podfreeze freeze/thaw and the tmux-driven menu PASS on throwaways. `lxcfreeze` PASS 26-10-26
   (host agent, Alpine and Rocky throwaways: freeze, thaw, list, the fzf menu, raw `lxc-freeze`
   thawed by the tool); the thaw without NetworkManager exits 1 (Task 3.5). Still left: Ctrl-C
@@ -105,12 +106,30 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   timestamp lapses. Step 3 NOT ESTABLISHED 26-10-26: the freeze plays did not run (Task 3.6) and
   `acceptance.bash` failed on its old baseline (Task 3.4); a later run rebuilt both, failed=0.
 
-- [ ] 🔄 **Task 3.2**: `agent-bus-install` on `go-port/agent-bus-install`: spec
+- [ ] ⏸️ **Task 3.2**: `agent-bus-install` on `go-port/agent-bus-install`: spec
   `SPEC-agent-bus-install.md` on the branch; built, reviewed and its review fixed, not merged.
-  It runs as root and changes behaviour (its D7), so it merges only after a host test as root
-  (the branch's `ACCEPTANCE-agent-bus-install.md`): the host agent runs it through meta-deploy
-  on a throwaway team, with sudo given at the run. Before spending that run, the coordinator
-  checks whether Plan 00209 (agent-bus v2 in Go) has made this port moot.
+  It runs as root and changes behaviour (its D7), so it would merge only after a host test as
+  root (the branch's `ACCEPTANCE-agent-bus-install.md`). **On hold, no host run** (checked
+  27-10-27 against Plan 00209, report `subagent-reports/261027-task-3-4-3-2.md`):
+
+  - v2 does not port this installer, it replaces it: `teamchat-admin` (00209 Tasks 2.1-2.3) is
+    v2's own root installer, designed from requirements, citing this spec's bug list as `I-B<n>`
+    (DESIGN-v2-C), so the spec's value is already carried. v1, and this installer with it, runs
+    beside v2 until every team has migrated (Phase 6, owner-paced); retiring v1 is a later plan
+    (Task 6.3). No task of 00209's Phases 1 to 6 is started yet.
+  - The branch is stale: last touched 26-10-14; `git merge-tree` with F44 gives 22 conflicts,
+    the bash installer itself among them (modify/delete). F44 changed the bash installer in 7
+    commits (78 lines: the stamps group, health, backup timer state, the Go status line) and its
+    suite by 115 lines since; none of that is in the port, so a host test now would test an
+    installer that no longer matches v1.
+  - It changes the installer every running v1 team depends on (D7) while 00209's migration
+    calls v1's verbs as they are (`backup-now`, `remove`), and the bash file is held by the
+    ratchet, so leaving it in bash costs nothing until it must grow.
+  - **Decision: park, do not drop.** Re-decide when 00209 Task 2.5 passes (`teamchat-admin`
+    accepted on the host): drop the port then if v2 stands. Revive it earlier only if the v1
+    installer needs a change the ratchet refuses, or 00209 is stopped. Reviving means merging
+    F44 into the branch, porting those 7 commits test first, a review, then the host run. The
+    branch stays, unmerged.
 
 - [ ] 🔄 **Task 3.3**: The rest of the inventory's programmes, ranked there; the `ccy`
   launcher's port is Plan 00191's (D1-D10 defaulted there, phases 0 to 2 built, 3 to 5
@@ -176,10 +195,17 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   - Still to do: the remaining programmes in [INVENTORY.md](INVENTORY.md) (account/setup tools
     after `rclone-cache-status`) and the `ccy` launcher.
 
-- [ ] ⬜ **Task 3.4**: Freeze step 3's `acceptance.bash` compares live engine output with the
-  baseline saved at the first deploy, so it fails (7 of 11) once containers start or stop: every
-  diff was added rows only. Fix the check (the format, or the baseline rows as a subset) before
-  step 3 is run again.
+- [x] ✅ **Task 3.4**: Freeze step 3's `acceptance.bash` compared live engine output with the
+  baseline saved at the first deploy, so it failed (7 of 11) once containers started or stopped:
+  every diff was added rows only. Kept and fixed, not retired: the golden replay runs under
+  fakes, so this is still the only check that the parsers read a real engine, and step 3 needs a
+  scripted verdict. `freeze-layout.bash` compares the layout: container rows (the lines under a
+  `  NAME` header) and counts dropped, every remaining line one the bash tool printed (the
+  baseline, or the golden for an empty machine and a full dry run). The dry run may exit 1 with
+  empty stdout. Baseline rows as a subset was rejected: a removed container fails it. Test first:
+  `test-freeze-layout.bash`, 10 fixture cases (rows added, removed and thawed, a machine now
+  empty pass; a changed header, a renamed heading, a stray stdout line, a wrong verb fail).
+  Host check: step 3, queued in `meta-deploy.list`.
 
 - [x] ✅ **Task 3.5**: `lxcfreeze thaw` on a container without NetworkManager exits 1 after a
   thaw that succeeded (SPEC-freeze bug 19, D6). Owner decision 26-10-26: no `nmcli` is not
