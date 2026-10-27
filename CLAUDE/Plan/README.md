@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00232-ccy-network-policy-per-container](00232-ccy-network-policy-per-container/) - In Progress (host triage pending, design awaiting review). Issue #114: a network policy per ccy container, held in its own network namespace from the host; the default refuses private ranges and the host itself, derives everything agent teams need, and tells the session its limits.
+
 - [00230-optional-plays-fail-fast-ask-for-missing-settings-friendly-errors](00230-optional-plays-fail-fast-ask-for-missing-settings-friendly-errors/) - In Progress. The optional plays failed late on a missing setting, hid failures behind `no_log` and ran `ansible-vault` outside the checkout. Under Defence Before Fix: five `qa-ansible` rules, a shared ask-and-vault-save task file, and every instance fixed.
 
 - [00229-stt-capture-raw-pcm](00229-stt-capture-raw-pcm/) - In Progress. Dictation pasted "so so so": pipewire 1.6.10's `pw-record` writes an AU container to stdout and the server read it as raw PCM. Under Defence Before Fix: `--raw` everywhere, a container header fails the dictation, and a semgrep rule against a stdout capture without `--raw`.
