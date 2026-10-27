@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.100.36"  # Container 2.79.15: gitx gains repository init, local config, dirty check and commit-all for ccc. See docs/ccy-changelog.md.
+CCY_VERSION="3.101.0"  # Container 2.79.15: every session runs under a network policy (ccy-network-policy). See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -30,7 +30,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # from lib/ (see CCY_HASH), because a hand-written list of what the program
 # consists of is a list that goes stale — this one omitted common-pure.bash,
 # which common.bash sources, for two months.
-CCY_LIBS=(token-handoff common host-paths token-management token-usable ssh-handling network-management dockerfile-custom docker-health session-registry restart-request session-lifecycle tmux-session agent-bus-membership agent-bus-seats image-build-lock image-build agent-choice)
+CCY_LIBS=(token-handoff common host-paths token-management token-usable ssh-handling network-management dockerfile-custom docker-health session-registry restart-request session-lifecycle tmux-session agent-bus-membership agent-bus-seats image-build-lock image-build network-policy agent-choice)
 
 # First, before anything that can end this launch: a GitHub token handed on by the launch
 # that started this one is taken, and its file deleted, at once; and the Go front's path, when
@@ -86,6 +86,8 @@ source "$SCRIPT_DIR/lib/agent-bus-seats.bash"
 source "$SCRIPT_DIR/lib/image-build-lock.bash"
 # shellcheck source=lib/image-build.bash
 source "$SCRIPT_DIR/lib/image-build.bash"
+# shellcheck source=lib/network-policy.bash
+source "$SCRIPT_DIR/lib/network-policy.bash"
 # shellcheck source=lib/agent-choice.bash
 source "$SCRIPT_DIR/lib/agent-choice.bash"
 
@@ -1156,18 +1158,10 @@ if [ "$EXPORT_TOKEN_MODE" = true ]; then
     exit $?
 fi
 
-# Handle connect and disconnect modes (neither needs SSH/GH setup). Both at once would
-# attach and detach in one breath, so it is refused rather than one silently winning.
-if [ "$CONNECT_MODE" = true ] && [ "$DISCONNECT_MODE" = true ]; then
-    print_error "--connect and --disconnect cannot be used together"
-    exit 1
-fi
-if [ "$DISCONNECT_MODE" = true ]; then
-    disconnect_from_network "$DISCONNECT_NETWORK" "_yolo" "ccy"
-    exit $?
-fi
-if [ "$CONNECT_MODE" = true ]; then
-    connect_to_network "$CONNECT_NETWORK" "_yolo" "ccy"
+# Handle connect and disconnect modes (neither needs SSH/GH setup); the live sessions' network
+# policies follow (lib/network-policy.bash).
+if [ "$CONNECT_MODE" = true ] || [ "$DISCONNECT_MODE" = true ]; then
+    ccy_network_change "$CONNECT_MODE" "$DISCONNECT_MODE" "$CONNECT_NETWORK" "$DISCONNECT_NETWORK"
     exit $?
 fi
 

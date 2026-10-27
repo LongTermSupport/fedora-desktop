@@ -159,13 +159,16 @@ DESIGN.md section 7 is the shape, as section 10 settles it. In order, each test 
   capability guard, apply through an injected runner, `podman unshare nsenter -t <pid> -n nft -f -`, verify by reading the table back, start); `refresh` (replace every live
   session's allow set whole in one transaction); `where`; the context text; tested through
   fakes
-- [ ] ⬜ **Task 3.3**: The launcher: its container call through `ccy-network-policy launch`
+- [x] ✅ **Task 3.3**: The launcher: its container call through `ccy-network-policy launch`
   (the `CCY NETWORK POLICY` block for every session and `/run/ccy/network-policy`; the
   unavailable path's warning); `ccy --connect` and `--disconnect` refresh the live tables;
   nft declared in `play-claude-yolo.yml`, the command built and installed there;
-  `CCY_VERSION` bump, changelog, `docs/ccy.md`
-- [ ] ⬜ **Task 3.4**: `deploy.bash` (the play, then two throwaway seated headless sessions);
-  rename the gate to `acceptance.bash`; QA; `qa-reviewer`
+  `CCY_VERSION` bump (3.101.0), changelog, `docs/ccy.md`; the difftest goldens re-recorded
+- [ ] 🔄 **Task 3.4**: `deploy.bash` (the play); the gate renamed `acceptance.bash`, which
+  launches the two throwaway seated headless sessions itself (np232a and np232b of the team the
+  checkout has a seat in), judges them and removes them, since a session must not outlive the
+  script that can remove it; the `meta-deploy.list` entry; QA; `qa-reviewer`
+- [ ] ⬜ **Task 3.5**: HOST: the `meta-deploy.bash` run; read the acceptance into the plan
 
 ## Dependencies
 
@@ -177,7 +180,7 @@ DESIGN.md section 7 is the shape, as section 10 settles it. In order, each test 
 
 - [x] H1 to H8 settled by a host triage run (H8 settled by run 1; H1 to H7 by the rerun)
 - [x] Design reviewed; Q1 to Q4 answered
-- [ ] `acceptance-policy.bash` passes on two sessions under the default policy, including the
+- [ ] `acceptance.bash` passes on two sessions under the default policy, including the
   pingbus message each way
 - [ ] `./scripts/qa-all.bash` passes; `qa-reviewer` verdict PASS
 

@@ -42,10 +42,10 @@ const (
 // from the scenario's rules: what the launcher asks of the world outside the sandbox. A Go
 // launcher must make the same calls.
 var observedTools = []string{
-	"ccy-teams", "ccy-token-usable", "claude", "curl", "docker", "docker-compose", "fzf", "getenforce", "gh", "gum",
-	"loginctl", "notify-send", "podman", "podman-compose", "python3", "ssh", "ssh-add", "ssh-agent",
-	"ssh-keygen", "stty", "sudo", "systemctl", "systemd-run", "timedatectl", "tmux", "tput",
-	"xdg-open",
+	"ccy-network-policy", "ccy-teams", "ccy-token-usable", "claude", "curl", "docker", "docker-compose",
+	"fzf", "getenforce", "gh", "gum", "loginctl", "notify-send", "podman", "podman-compose", "python3",
+	"ssh", "ssh-add", "ssh-agent", "ssh-keygen", "stty", "sudo", "systemctl", "systemd-run",
+	"timedatectl", "tmux", "tput", "xdg-open",
 }
 
 // quietTools are the environment fakes: answered from the rules like an observed tool, but
@@ -277,8 +277,9 @@ func fixedDateArgs(args []string, epoch int64) []string {
 //   - wholeEnvTools hand their whole environment on: systemd-run --scope runs tmux as its own
 //     child, and the tmux server it starts gives that environment to every session and pane,
 //     where the relaunched launcher reads its CCY_* hand-over. Every name is recorded.
-//   - passByNameTools (the engines and compose) see the environment only through the names a
-//     call passes by name (-e NAME, --env NAME, --build-arg NAME): the container gets those,
+//   - passByNameTools (the engines, compose, and ccy-network-policy, which runs the engine
+//     call it is given) see the environment only through the names a call passes by name
+//     (-e NAME, --env NAME, --build-arg NAME): the container gets those,
 //     and whether each was set decides whether it gets it. Those names alone are recorded.
 //     The token setup (an engine run of claude setup-token) passes none, so records none.
 //   - readEnvNames are the names a tool reads for itself: gh its token, the host's claude its
@@ -287,7 +288,7 @@ func fixedDateArgs(args []string, epoch int64) []string {
 // Every other call records no environment.
 var (
 	wholeEnvTools   = []string{"systemd-run", "tmux"}
-	passByNameTools = []string{"docker", "docker-compose", "podman", "podman-compose"}
+	passByNameTools = []string{"ccy-network-policy", "docker", "docker-compose", "podman", "podman-compose"}
 	sshEnvNames     = []string{"DISPLAY", "SSH_ASKPASS", "SSH_ASKPASS_REQUIRE", "SSH_AUTH_SOCK"}
 	readEnvNames    = map[string][]string{
 		"claude":  {"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"},

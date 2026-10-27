@@ -27,6 +27,27 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.101.0 — container 2.79.15
+
+Follows 3.100.36 (container 2.79.15). Plan 00232 Task 3.3. The image does not change.
+
+- **Every session runs under a network policy.** The launch goes through
+  `ccy-network-policy launch` (a Go binary, `src-go/cmd/ccy-network-policy`), which creates the
+  container, holds an nftables table in its own network namespace, reads it back, and only
+  then starts it. The default refuses the private and LAN ranges and the host's own
+  addresses, with ICMP admin-prohibited so a refusal fails at once; the public internet, the
+  container's nameservers, the agent bus address and the session's project networks stay
+  open. The owner widens it in a host file no container sees (`ccy-network-policy where`), with
+  addresses, prefixes, host names, `:port`, `lxc` or `off` ([Network policy](ccy.md#network-policy)).
+- **The session is told its limits**, in a `CCY NETWORK POLICY` block on Claude Code's system
+  prompt and at `/run/ccy/network-policy`.
+- **Where the policy cannot be held** (Docker, no `nft` on the host) the session runs
+  unprotected with a loud warning; a policy that fails to apply or read back removes the
+  container and stops the launch. A missing `ccy-network-policy` stops it too.
+- **`--connect` and `--disconnect` refresh** every live session's allow sets after changing
+  its networks.
+- `play-claude-yolo.yml` installs `nftables` and builds `ccy-network-policy` into `~/.local/bin`.
+
 ## 3.100.36 — container 2.79.15
 
 - **No change to ccy's behaviour.** `internal/gitx`, which the launcher's Go front builds

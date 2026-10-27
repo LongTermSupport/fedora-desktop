@@ -197,8 +197,9 @@ team join widens the live table, the file is rewritten from the host.
   addresses, quiet without an exception.
 - nft must be on the host: declared in `play-claude-yolo.yml`, never installed by hand.
 - `CCY_VERSION` minor bump; `docs/ccy.md` (networking and security); the changelog.
-- `deploy.bash` runs the play, launches two throwaway headless seated sessions in a test team,
-  and `acceptance-policy.bash` (renamed `acceptance.bash` then) judges them.
+- `deploy.bash` runs the play; `acceptance.bash` launches two throwaway headless seated
+  sessions in a team of the checkout, judges them and removes them (a session must not outlive
+  the script that can remove it).
 
 ## 8. Owner decisions (2026-10-27)
 

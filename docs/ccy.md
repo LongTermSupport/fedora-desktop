@@ -560,7 +560,7 @@ risks are bounded and named below, not eliminated.
 | Commit signing                          | Through an ssh-agent holding the session's SSH key; no key is copied in for it (Plan 00139)                                                                                                                             |
 | Your Wayland or X11 display socket      | Mounted read-only and auto-detected, so the agent can open browser windows on your desktop and Ctrl+V can paste images ([container clipboard](features/container-clipboard.md))                                         |
 | The host GPU render device              | `--device /dev/dri` — always attached, for accelerated browser rendering                                                                                                                                                |
-| The network                             | Normal outbound; optionally a named container network                                                                                                                                                                   |
+| The network                             | The public internet, under the [network policy](#network-policy): the private and LAN ranges and the host itself are refused unless you allow them; optionally a named container network                                |
 | The host machine's name                 | `CCY_HOST_HOSTNAME` — the container's own `HOSTNAME` is its container id, not the machine                                                                                                                               |
 | The host's time zone                    | `TZ`, the host's IANA zone name (timedatectl, else the `/etc/localtime` link); the launch stops rather than run on UTC if neither gives one. An `export TZ=...` in `ccy.env` or `ccy.env.local` overrides it            |
 | Anything you add via `CCY_EXTRA_MOUNTS` | Explicit opt-in — see [debug mounts](ccy-debug-mounts.md)                                                                                                                                                               |
@@ -609,9 +609,10 @@ The residual risks worth naming honestly:
   this design accepts: a signature proves the commit came from you or your machine, not
   which of your agents made it. A `user.signingkey` set in the project's own config is
   refused outright.
-- **Your Claude and GitHub tokens are live inside the container.** Combined with
-  unrestricted network access, a misled or compromised agent process could exfiltrate
-  them, not merely misuse them locally.
+- **Your Claude and GitHub tokens are live inside the container.** The
+  [network policy](#network-policy) keeps the session off your LAN and the host, not off the
+  public internet, so a misled or compromised agent process could still exfiltrate them,
+  not merely misuse them locally.
 - **Uncommitted work in the project can be destroyed.** Commit before long unattended
   runs.
 - **The display socket is not confined the way the filesystem is.** A process with it
@@ -1537,6 +1538,36 @@ A network comes back on a later launch from three places:
   network instead.
 - If the container engine cannot list its containers or networks, nothing is changed and
   the engine's error is shown. That goes for `--connect` too.
+
+### Network policy
+
+Every session runs under a network policy (Plan 00232), held as an nftables table in the
+container's own network namespace by `ccy-network-policy` (a Go binary from
+`src-go/cmd/ccy-network-policy`, built by `play-claude-yolo.yml`, which also installs
+`nftables`). It is applied from the host after the container is created and before its first
+instruction runs, read back, and nothing inside the container can change it.
+
+- **By default** the session reaches the public internet and is refused the private and LAN
+  ranges (10/8, 172.16/12, 192.168/16, 100.64/10, 169.254/16, fe80::/10, fc00::/7) and every
+  address of the host itself. A refused connection fails at once ("No route to host").
+- **Always open**: loopback, the container's own nameservers, the agent team bus address, and
+  every project network the session joins (`--network`, the saved default, `--connect`).
+  Other ccy sessions on the shared `podman` network stay refused. `--connect` and
+  `--disconnect` update every live session's policy as they change its networks.
+- **Widening it** is the owner's, on the host: `ccy-network-policy where`, run in the
+  checkout, prints the checkout's policy file (under `~/.config/claude-yolo/network/`, which
+  no container sees). It holds `CCY_NETWORK_ALLOW=<entries>` lines and `#` comments; a
+  `CCY_NETWORK_ALLOW` set in the host shell adds to it for one launch. An entry is an address,
+  a prefix or a host name (resolved on the host at launch), any of them with `:port`
+  (`[addr]:port` for IPv6), `lxc` for the LXC dev sites in the host's `/etc/hosts`, or `off`
+  for no policy at all. Anything else, or a name that does not resolve, stops the launch.
+- **The session is told.** A `CCY NETWORK POLICY` block is added to Claude Code's system
+  prompt, and the same text is mounted read-only at `/run/ccy/network-policy`, so the agent
+  knows what is refused and how the owner can open it.
+- **Where it cannot be held** (the Docker engine, or no `nft` on the host) the session runs
+  unprotected with a warning, and is told so; `off` runs it unprotected on the owner's word.
+  If the policy cannot be applied or read back, the container is removed and the launch stops.
+- `ccy-network-policy` missing from `~/.local/bin` stops the launch: run `play-claude-yolo.yml`.
 
 ---
 

@@ -74,3 +74,18 @@ changed-plays
 # sign-in, the two mounts, ctrl+z, the snapshot commit) are listed in the plan's Host Checks
 # for the host agent.
 00233-ccc-claude-code-for-consumers
+
+# Plan 00232: every ccy session under a network policy. triage.bash runs passively before and
+# after (host facts only, nothing changed). deploy.bash runs play-claude-yolo.yml: the nftables
+# package, ccy-network-policy built into ~/.local/bin, and the launcher at CCY 3.101.0, so every
+# later ccy session is refused the private and LAN ranges and this host (sessions already
+# running keep their old launch until relaunched). acceptance.bash then launches two throwaway
+# headless sessions in this checkout, seats np232a and np232b of the team this checkout already
+# has a seat in (made through sudo agent-bus add-member), sends them no turn, and checks each:
+# not privileged, the policy held in its namespace, told its limits; the host and a neighbour
+# refused at once while one throwaway control container reaches the same short-lived listener;
+# DNS, the forge and the Claude API open; and one pingbus probe message each way between them
+# in that team's room. It then ends both sessions, parks both seats and puts the checkout's
+# Quick Launch record back. Exit 2 if the checkout has no seat in any team or no saved Quick
+# Launch.
+00232-ccy-network-policy-per-container

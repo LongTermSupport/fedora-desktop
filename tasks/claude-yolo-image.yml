@@ -388,6 +388,7 @@
     - "{{ root_dir }}/files/var/local/claude-yolo/lib/agent-bus-seats.bash"
     - "{{ root_dir }}/files/var/local/claude-yolo/lib/image-build-lock.bash"
     - "{{ root_dir }}/files/var/local/claude-yolo/lib/image-build.bash"
+    - "{{ root_dir }}/files/var/local/claude-yolo/lib/network-policy.bash"
     - "{{ root_dir }}/files/var/local/claude-yolo/lib/agent-choice.bash"
     # ccy's one-key agent, run by path from ssh-handling.bash (stdlib Python, TDD'd in helpers/).
     - "{{ root_dir }}/helpers/ssh_agent_filter/ssh_agent_filter.py"

@@ -284,6 +284,8 @@
           - wget
           - git
           - openssh-clients
+          # ccy-network-policy holds each session's network policy in an nft table
+          - nftables
 
     - name: Check if Claude Code is Already Installed
       ansible.builtin.stat:
@@ -643,6 +645,21 @@
       vars:
         go_command_name: ccy-token-usable
         go_command_dest: "/home/{{ user_login }}/.local/bin/ccy-token-usable"
+        go_command_mode: "0755"
+      tags:
+        - scripts
+        - launchers
+
+    # A ccy session's network policy (Plan 00232): the launcher (lib/agent-choice.bash) runs
+    # the session's container through it, which blocks private ranges and the host unless the
+    # checkout's policy file allows them, and ccy --connect and --disconnect refresh it. A Go
+    # binary (src-go/cmd/ccy-network-policy) built and installed like ccy-sessions; it needs
+    # the nftables this play installs, and without nft a session runs unprotected and is told.
+    - name: Build and Install the ccy-network-policy Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: ccy-network-policy
+        go_command_dest: "/home/{{ user_login }}/.local/bin/ccy-network-policy"
         go_command_mode: "0755"
       tags:
         - scripts

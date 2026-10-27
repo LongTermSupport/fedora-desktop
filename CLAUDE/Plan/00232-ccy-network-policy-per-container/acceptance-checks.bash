@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Plan 00232 — acceptance-checks.bash: the checks acceptance-policy.bash runs, one per invocation, so
-# each is its own leg. Each prints PASS or FAIL lines with the evidence and exits 0 only when all
+# Plan 00232 — acceptance-checks.bash: the checks acceptance.bash runs, one per invocation, so
+# each is its own check. Each prints PASS or FAIL lines with the evidence and exits 0 only when all
 # of its lines pass.
 #
 #   caps <session>                 the session is not privileged and holds neither NET_ADMIN nor
@@ -18,10 +18,13 @@
 #   allowed <session>              DNS, the forge and the Claude API still work
 #   context <session>              the session was started with its network limits in its system
 #                                  prompt (the marker CCY NETWORK POLICY)
-#   bus <session> <peer> <team>    both reach their homeserver, and a message sent each way with
+#   bus <session> <peer> <team> <seat> <peer-seat>
+#                                  both reach their homeserver, and a message sent each way with
 #                                  `pingbus say` arrives in the other's inbox (`pingbus inbox`,
 #                                  which does not consume it). Both must be throwaway seated
 #                                  sessions of <team> (not working agents: they receive a message)
+#   ready <session> <team>         the session's pingbus answers for <team> (its seat is claimed);
+#                                  no PASS line, only the status
 #
 # Side effects: `blocked` runs a throwaway container (label ccy-netpolicy-acceptance) and a
 # python3 http.server on a random high port for its duration; `bus` posts one message each way
@@ -31,7 +34,11 @@ set -euo pipefail
 scriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 INSIDE="${scriptDir}/netprobe-inside.bash"
 # The checkout's seat directory is the product's (helpers/pingbus/seat.py CHECKOUT_SEATS); read, never copied.
-SEATS_REL="$(python3 -P "${scriptDir}/../00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/m7_check.py" product-value helpers/pingbus/seat.py CHECKOUT_SEATS)"
+M7_CHECK="${scriptDir}/../00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/m7_check.py"
+SEATS_REL="$(python3 -P "${M7_CHECK}" product-value helpers/pingbus/seat.py CHECKOUT_SEATS)"
+# A podman exec does not get the session's pingbus environment, so it is given the session home
+# the entrypoint uses (seat.py, the first line of m7_check.py session-paths) and the one team.
+CTR_PINGBUS_HOME="$(python3 -P "${M7_CHECK}" session-paths | awk 'NR == 1')"
 MARKER="CCY NETWORK POLICY"
 FAST_MS=2000
 failed=0
@@ -172,15 +179,23 @@ check_context() {
     if [[ "${cmd}" == *"${MARKER}"* ]]; then pass "${c} was told its network limits at start"; else fail "${c}'s command line carries no '${MARKER}' system prompt"; fi
 }
 
+# member_json <session> <team> <seat> — the seat's bundle, as the session sees it.
 member_json() {
-    podman exec "$1" find "/workspace/${SEATS_REL}/$2" -name member.json -exec cat {} +
+    podman exec "$1" cat "/workspace/${SEATS_REL}/$2/$3/member.json"
+}
+
+# bus <session> <team> <pingbus args...> — the session's pingbus, as its own session runs it.
+bus() {
+    local c="$1" team="$2"
+    shift 2
+    podman exec -i "${c}" env "PINGBUS_HOME=${CTR_PINGBUS_HOME}" "PINGBUS_TEAMS=${team}" pingbus --team "${team}" "$@"
 }
 
 check_bus() {
-    local a="$1" b="$2" team="$3" urlA idA idB line
-    urlA="$(member_json "${a}" "${team}" | jq -rs 'first | .base_url')"
-    idA="$(member_json "${a}" "${team}" | jq -rs 'first | .user_id')"
-    idB="$(member_json "${b}" "${team}" | jq -rs 'first | .user_id')"
+    local a="$1" b="$2" team="$3" seatA="$4" seatB="$5" urlA idA idB line
+    urlA="$(member_json "${a}" "${team}" "${seatA}" | jq -r '.base_url')"
+    idA="$(member_json "${a}" "${team}" "${seatA}" | jq -r '.user_id')"
+    idB="$(member_json "${b}" "${team}" "${seatB}" | jq -r '.user_id')"
     line="$(run_inside "${a}" "url|homeserver|${urlA%/}/_matrix/client/versions" | awk '/^RESULT/')"
     if [[ "$(field "${line}" http)" == 200 ]]; then pass "${a} reaches its homeserver: ${line}"; else fail "${a} cannot reach its homeserver: ${line}"; fi
     send_and_see "${a}" "${b}" "${idB}" "${team}"
@@ -192,13 +207,13 @@ send_and_see() {
     local from="$1" to="$2" toId="$3" team="$4" nonce out i
     nonce="netpolicy-acceptance-$(date +%s)-${RANDOM}"
     if ! out="$(printf 'Plan 00232 acceptance: a network-policy probe message, %s. No reply needed.\n' "${nonce}" |
-        podman exec -i "${from}" pingbus --team "${team}" say --to "${toId}" 2>&1)"; then
+        bus "${from}" "${team}" say --to "${toId}" 2>&1)"; then
         fail "${from} could not send to ${toId}: ${out}"
         return 0
     fi
     pass "${from} sent ${nonce}"
     for i in $(seq 1 30); do
-        if out="$(podman exec "${to}" pingbus --team "${team}" inbox 2>&1)" && [[ "${out}" == *"${nonce}"* ]]; then
+        if out="$(bus "${to}" "${team}" inbox 2>&1 </dev/null)" && [[ "${out}" == *"${nonce}"* ]]; then
             pass "${to} received ${nonce} after about $((i * 2)) s"
             return 0
         fi
@@ -213,9 +228,12 @@ case "${1-}" in
     blocked) check_blocked "${2:?blocked <session> <image>}" "${3:?blocked <session> <image>}" ;;
     allowed) check_allowed "${2:?allowed <session>}" ;;
     context) check_context "${2:?context <session>}" ;;
-    bus) check_bus "${2:?bus <session> <peer> <team>}" "${3:?bus <session> <peer> <team>}" "${4:?bus <session> <peer> <team>}" ;;
+    bus) check_bus "${2:?bus <session> <peer> <team> <seat> <peer-seat>}" "${3:?bus <session> <peer> <team> <seat> <peer-seat>}" \
+        "${4:?bus <session> <peer> <team> <seat> <peer-seat>}" "${5:?bus <session> <peer> <team> <seat> <peer-seat>}" \
+        "${6:?bus <session> <peer> <team> <seat> <peer-seat>}" ;;
+    ready) bus "${2:?ready <session> <team>}" "${3:?ready <session> <team>}" inbox </dev/null >/dev/null ;;
     *)
-        printf 'usage: %s caps|held|blocked|allowed|context|bus <args>\n' "$0" >&2
+        printf 'usage: %s caps|held|blocked|allowed|context|bus|ready <args>\n' "$0" >&2
         exit 64
         ;;
 esac

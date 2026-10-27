@@ -43,6 +43,7 @@
         {"tool": "ccy-teams", "args": ["internal", "claim-container-name", "difftest-project", "yolo"], "stdout": "difftest-project_yolo\n"},
         {"tool": "ccy-teams", "args": ["describe-seats"]},
         {"tool": "ccy-token-usable", "args": ["--"]},
+        {"tool": "ccy-network-policy", "args": ["launch"]},
         {"tool": "timedatectl", "args": ["show", "-p", "Timezone", "--value"], "stdout": "Europe/London\n"},
         {"tool": "hostname", "args": [], "stdout": "difftest-host\n"},
         {"tool": "uname", "args": ["-n"], "stdout": "difftest-host\n"},
@@ -62,8 +63,7 @@
         {"tool": "podman", "args": ["image", "inspect", "claude-yolo:latest"], "stdout": "[]\n"},
         {"tool": "podman", "args": ["run", "--rm", "--entrypoint", "claude", "claude-yolo:latest", "--version"], "stdout": "2.0.0 (Claude Code)\n"},
         {"tool": "podman", "args": ["network", "ls", "--format", "{{.Name}}"], "stdout": "podman\n"},
-        {"tool": "podman", "args": ["run", "--rm", "--network", "podman", "alpine", "wget"], "stdout": "<html></html>\n"},
-        {"tool": "podman", "args": ["run", "-it", "--rm"]}
+        {"tool": "podman", "args": ["run", "--rm", "--network", "podman", "alpine", "wget"], "stdout": "<html></html>\n"}
       ]
     },
     "docker": {
@@ -76,8 +76,7 @@
         {"tool": "docker", "args": ["image", "inspect", "claude-yolo:latest"], "stdout": "[]\n"},
         {"tool": "docker", "args": ["run", "--rm", "--entrypoint", "claude", "claude-yolo:latest", "--version"], "stdout": "2.0.0 (Claude Code)\n"},
         {"tool": "docker", "args": ["network", "ls", "--format", "{{.Name}}"], "stdout": "bridge\n"},
-        {"tool": "docker", "args": ["run", "--rm", "--network", "bridge", "alpine", "wget"], "stdout": "<html></html>\n"},
-        {"tool": "docker", "args": ["run", "-it", "--rm"]}
+        {"tool": "docker", "args": ["run", "--rm", "--network", "bridge", "alpine", "wget"], "stdout": "<html></html>\n"}
       ]
     }
   },
@@ -153,7 +152,7 @@
     {"name": "launch-prompt-argument", "area": "launch", "about": "a claude argument is passed on to claude", "worlds": ["common", "podman", "token"], "args": ["--token", "work", "fix the bug"]},
     {"name": "launch-prompt-flag", "area": "launch", "about": "--prompt seeds claude with a prompt", "worlds": ["common", "podman", "token"], "args": ["--token", "work", "--prompt", "fix the bug"]},
     {"name": "launch-headless", "area": "launch", "about": "--headless --prompt with every choice given runs without asking", "worlds": ["common", "podman", "token"], "args": ["--headless", "--prompt", "run the tests", "--token", "work", "--no-ssh", "--no-network"],
-     "rules": [{"tool": "podman", "args": ["run", "-i", "--rm"], "stdout": "all tests passed\n"}]},
+     "rules": [{"tool": "ccy-network-policy", "args": ["launch"], "stdout": "all tests passed\n"}]},
     {"name": "launch-token-used-up", "area": "tokens", "about": "--token naming a token with no usage left, where nobody can choose another, stops before anything starts", "worlds": ["common", "podman", "token"], "args": ["--token", "work"],
      "rules": [{"tool": "ccy-token-usable", "args": ["--"], "stderr": "✗ No usage left on token work: 7-day limit used up; clears Fri 20:53, in 3d 8h. ccy will not start a session on it.\n", "exit": 3}]},
     {"name": "launch-headless-used-up", "area": "tokens", "about": "a headless launch on a token with no usage left fails rather than asking", "worlds": ["common", "podman", "token"], "args": ["--headless", "--prompt", "run the tests", "--token", "work", "--no-ssh", "--no-network"],
@@ -197,7 +196,7 @@
      "rules": [{"tool": "podman", "args": ["image", "inspect", "claude-yolo:latest", "--format", "{{index .Config.Labels \"claude-yolo-version\"}}"], "stdout": "0.0.1\n"},
                {"tool": "podman", "args": ["build"]}]},
     {"name": "launch-exit-status", "area": "launch", "about": "the container's exit status 3 is the launcher's own", "worlds": ["common", "podman", "token"], "args": ["--token", "work", "--no-ssh"],
-     "rules": [{"tool": "podman", "args": ["run", "-it", "--rm"], "exit": 3}]},
+     "rules": [{"tool": "ccy-network-policy", "args": ["launch"], "exit": 3}]},
     {"name": "launch-quick-replay", "area": "launch", "about": "a saved launch configuration is replayed when nobody can answer", "worlds": ["common", "podman", "token"], "args": [],
      "files": [{"path": "project/.claude/ccy/.last-launch.conf", "mode": "0600",
                 "content": "# CCY Launch Configuration\nSAVED_CONFIG_VERSION=2\nSAVED_CCY_VERSION=\"1.0.0\"\nSAVED_CCY_HASH=\"abc\"\nLAST_TOKEN=\"work\"\nLAST_SSH_KEYS=\"\"\nLAST_NETWORK=\"\"\nLAST_TEAMS=\"\"\nLAST_LAUNCH_DATE=\"2030-01-10\"\n"}]},

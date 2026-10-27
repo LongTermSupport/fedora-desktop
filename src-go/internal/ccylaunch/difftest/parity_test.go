@@ -342,7 +342,7 @@ func TestLaunchHandsTokensOn(t *testing.T) {
 			t.Parallel()
 			got := runScenario(t, m, l, scenarioNamed(t, m, name))
 			idx := slices.IndexFunc(got.calls, func(c call) bool {
-				return c.Tool == "podman" && len(c.Args) > 0 && c.Args[0] == "run" && slices.Contains(c.Args, "--dangerously-skip-permissions")
+				return sessionRun(c) && slices.Contains(c.Args, "--dangerously-skip-permissions")
 			})
 			if idx < 0 {
 				t.Fatalf("scenario %s started no session container", name)
@@ -373,7 +373,7 @@ func TestOpencodeLaunchHandsKeyOn(t *testing.T) {
 			t.Parallel()
 			got := runScenario(t, m, l, scenarioNamed(t, m, name))
 			idx := slices.IndexFunc(got.calls, func(c call) bool {
-				return c.Tool == "podman" && len(c.Args) > 0 && c.Args[0] == "run" && slices.Contains(c.Args, "opencode")
+				return sessionRun(c) && slices.Contains(c.Args, "opencode")
 			})
 			if idx < 0 {
 				t.Fatalf("scenario %s started no opencode container", name)
@@ -381,6 +381,12 @@ func TestOpencodeLaunchHandsKeyOn(t *testing.T) {
 			checkKeyOnlyTo(t, name, got.calls, idx)
 		})
 	}
+}
+
+// sessionRun is the session's container run: the engine's run, handed to ccy-network-policy
+// launch, which holds the session's network policy around it (Plan 00232).
+func sessionRun(c call) bool {
+	return c.Tool == "ccy-network-policy" && len(c.Args) > 0 && c.Args[0] == "launch"
 }
 
 // checkKeyOnlyTo holds the provider key, and both tokens, to calls[idx] by name, and the key to
