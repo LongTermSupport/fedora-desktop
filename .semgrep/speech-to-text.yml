@@ -479,3 +479,63 @@ rules:
     severity: ERROR
     metadata:
       dbf-class: a process killed uncatchably whose files the killer leaves on disk
+
+  # Rule: a capture piped to a reader asks for raw PCM (Defence Before Fix; CLAUDE/QA.md
+  # "pw-record-stdout-not-raw", Plan 00229).
+  #
+  # What pw-record writes to stdout is the tool's choice unless --raw says otherwise:
+  # pipewire 1.6.10 began writing a Sun AU container there, whose big-endian samples, read
+  # as raw little-endian PCM, are loud noise that still follows the speech. Whisper wrote
+  # every dictation down as "so so so", and nothing failed.
+  #
+  # WRONG: ["pw-record", "--rate", "16000", "--channels", "1", "--format", "s16", "-"]
+  # RIGHT: ["pw-record", "--raw", "--rate", "16000", "--channels", "1", "--format", "s16", "-"]
+  #
+  # The rule reports an argv list, or a command string, that runs pw-record or pw-cat with
+  # its output to stdout ("-", /dev/stdout or /dev/fd/1) and has neither --raw nor -a. In a
+  # string, the output must end the string or be followed by a pipe, a redirect or a
+  # command separator, so a message such as "pw-record ... 3 s - killing it" is prose. A
+  # recording to a named file is left alone: its container is chosen by the file's
+  # extension and read by a tool that understands it.
+  - id: pw-record-stdout-not-raw
+    languages: [python]
+    patterns:
+      - pattern-either:
+          - pattern: '[..., "pw-record", ..., "-", ...]'
+          - pattern: '[..., "pw-record", ..., "/dev/stdout", ...]'
+          - pattern: '[..., "pw-record", ..., "/dev/fd/1", ...]'
+          - pattern: '[..., "pw-cat", ..., "-", ...]'
+          - pattern: '[..., "pw-cat", ..., "/dev/stdout", ...]'
+          - pattern: '[..., "pw-cat", ..., "/dev/fd/1", ...]'
+          - pattern-regex: '[''"]pw-(?:record|cat)\b[^''"\n]*\s(?:-|/dev/stdout|/dev/fd/1)(?=\s*(?:[|>;&]|[''"]))'
+      - pattern-not: '[..., "--raw", ...]'
+      - pattern-not: '[..., "-a", ...]'
+      - pattern-not-regex: '[''"]pw-(?:record|cat)\b[^''"\n]*\s(?:--raw|-a)\b'
+    message: >
+      pw-record-stdout-not-raw: pw-record or pw-cat writes to stdout here without --raw, so
+      the stream may carry a container header and samples in another byte order. Add
+      --raw. See CLAUDE/QA.md "pw-record-stdout-not-raw".
+    severity: ERROR
+    metadata:
+      dbf-class: an audio capture piped to a reader in a format the reader did not ask for
+  - id: pw-record-stdout-not-raw
+    languages: [javascript]
+    patterns:
+      - pattern-either:
+          - pattern: '[..., "pw-record", ..., "-", ...]'
+          - pattern: '[..., "pw-record", ..., "/dev/stdout", ...]'
+          - pattern: '[..., "pw-record", ..., "/dev/fd/1", ...]'
+          - pattern: '[..., "pw-cat", ..., "-", ...]'
+          - pattern: '[..., "pw-cat", ..., "/dev/stdout", ...]'
+          - pattern: '[..., "pw-cat", ..., "/dev/fd/1", ...]'
+          - pattern-regex: '[''"`]pw-(?:record|cat)\b[^''"`\n]*\s(?:-|/dev/stdout|/dev/fd/1)(?=\s*(?:[|>;&]|[''"`]))'
+      - pattern-not: '[..., "--raw", ...]'
+      - pattern-not: '[..., "-a", ...]'
+      - pattern-not-regex: '[''"`]pw-(?:record|cat)\b[^''"`\n]*\s(?:--raw|-a)\b'
+    message: >
+      pw-record-stdout-not-raw: pw-record or pw-cat writes to stdout here without --raw, so
+      the stream may carry a container header and samples in another byte order. Add
+      --raw. See CLAUDE/QA.md "pw-record-stdout-not-raw".
+    severity: ERROR
+    metadata:
+      dbf-class: an audio capture piped to a reader in a format the reader did not ask for

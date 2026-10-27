@@ -63,12 +63,19 @@ while True:
 # "speech=1.5,silence=1.0" (seconds of audio, repeated); STUB_SPEED how many times real
 # time; STUB_EXIT_AFTER, if set, makes it die with exit code 3 after that many seconds of
 # wall time, as a pw-record that loses its device would. Speech samples are 2, silence 0,
-# and the stop burst 1, so a test can tell where every sample came from.
+# and the stop burst 1, so a test can tell where every sample came from. STUB_HEADER_HEX,
+# if set, is written first, as pw-record 1.6.10 writes a container header to stdout
+# without --raw.
 FAKE_PATTERN_MIC = STOP_PROLOGUE + r'''
 pattern = [(kind, float(secs)) for kind, secs in
            (p.split("=") for p in os.environ.get("STUB_PATTERN", "speech=1").split(","))]
 speed = float(os.environ.get("STUB_SPEED", "4"))
 exit_after = os.environ.get("STUB_EXIT_AFTER")
+header = bytes.fromhex(os.environ.get("STUB_HEADER_HEX", ""))
+if header:
+    sys.stdout.buffer.write(header)
+    sys.stdout.buffer.flush()
+    written += len(header)
 started = time.monotonic()
 chunk_samples = 512
 while True:
