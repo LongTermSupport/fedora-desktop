@@ -365,7 +365,7 @@ func (r *run) offerUnused(ctx context.Context, images []podmanImage) bool {
 	}
 	if !r.confirm(ctx, fmt.Sprintf("  Also remove all %d unused podman image(s), tagged ones included (%s)?",
 		len(unused), podmanUnusedPrune.Line())) {
-		r.say("  Kept the unused images.")
+		r.say("  Skipped " + podmanUnusedPrune.Line() + ".")
 		return true
 	}
 	if err := r.stream(finished(ctx), podmanUnusedPrune); err != nil {

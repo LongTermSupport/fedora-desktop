@@ -75,7 +75,7 @@ func (r *run) dockerUnused(ctx context.Context) bool {
 	r.warn("  " + dockerUnusedPrune.Line() + " removes every image no container uses, not only the dangling ones;" +
 		" each is pulled or rebuilt when it is next needed.")
 	if !r.confirm(ctx, "  Also remove all unused docker images ("+dockerUnusedPrune.Line()+")?") {
-		r.say("  Kept the unused images.")
+		r.say("  Skipped " + dockerUnusedPrune.Line() + ".")
 		return true
 	}
 	if err := r.stream(finished(ctx), dockerUnusedPrune); err != nil {

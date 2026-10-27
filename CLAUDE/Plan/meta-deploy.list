@@ -32,3 +32,10 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# The plays changed since they last ran here. Expected: play-cli-tools.yml only (Plan 00192:
+# reclaim 2.0.5, which after a No to either "Also remove all unused ... (-af)?" question, podman
+# or docker, prints "Skipped <command>." as it does after the first question of each pair).
+# The host agent then checks reclaim --version says 2.0.5 and reruns option 6 answering No to
+# every question: a Skipped line after each of the four, and nothing run.
+changed-plays

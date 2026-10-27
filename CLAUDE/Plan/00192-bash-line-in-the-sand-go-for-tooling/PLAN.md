@@ -220,7 +220,7 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     the partial section (counts, sizes, dangling images, the largest ten of each kind), makes
     every default prune dangling-only, and asks separately, default No, about every unused
     image, listing the claude-yolo images it would remove; the safe sweep never asks it (E7a,
-    E22, E22a, E27, B16). 2.0.3's host check is queued in `meta-deploy.list`. 2.0.4 drops the summed image size (it equalled the whole disk; no layer sizes are available without `podman system df`) and explains the dangling count that differs between the report and the prune question (images a container uses are kept).
+    E22, E22a, E27, B16). 2.0.3's host check is queued in `meta-deploy.list`. 2.0.4 drops the summed image size (it equalled the whole disk; no layer sizes are available without `podman system df`) and explains the dangling count that differs between the report and the prune question (images a container uses are kept); its host recheck passed at `cad6b5053`. 2.0.5 prints `Skipped <command>.` after a No to either "Also remove all unused" question as well; its host recheck (option 6, No to every question) is queued in `meta-deploy.list`.
   - Still to do: the remaining programmes in [INVENTORY.md](INVENTORY.md) (`nord`,
     `nvidia-status`, the `ssh-with-key` family) and the `ccy` launcher.
 

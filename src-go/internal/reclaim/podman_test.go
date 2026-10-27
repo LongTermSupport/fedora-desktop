@@ -195,7 +195,8 @@ func TestContainersPodmanPartial(t *testing.T) {
 	w = unreadableVolume(t)
 	w.typed("6", "n", "n", "q")
 	wantCode(t, w.run(), term.ExitOK)
-	w.wantErr("  Skipped podman image prune -f.", "  Also remove all 4 unused podman image(s)", "  Kept the unused images.")
+	w.wantErr("  Skipped podman image prune -f.", "  Also remove all 4 unused podman image(s)",
+		"(podman image prune -af)? [y/N]   Skipped podman image prune -af.\n")
 	if got := w.changes(); len(got) != 0 {
 		t.Errorf("changes %v", got)
 	}

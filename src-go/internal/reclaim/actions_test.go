@@ -383,8 +383,10 @@ func TestContainersDeclined(t *testing.T) {
 	w.answer([]string{"podman", "images", "--format", "json"}, imagesJSON, 0)
 	w.typed("6", "n", "n", "n", "n", "q")
 	wantCode(t, w.run(), term.ExitOK)
-	w.wantErr("  Skipped podman system prune -f.", "  Also remove all 4 unused podman image(s)",
-		"  Skipped docker system prune -f.", "  Also remove all unused docker images")
+	w.wantErr("  Skipped podman system prune -f.",
+		"(podman image prune -af)? [y/N]   Skipped podman image prune -af.\n",
+		"  Skipped docker system prune -f.",
+		"(docker image prune -af)? [y/N]   Skipped docker image prune -af.\n")
 	if got := w.changes(); len(got) != 0 {
 		t.Errorf("changes %v", got)
 	}

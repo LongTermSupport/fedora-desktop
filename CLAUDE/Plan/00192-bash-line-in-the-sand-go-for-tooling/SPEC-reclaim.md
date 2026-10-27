@@ -53,7 +53,7 @@ owner:
 ### Command line
 
 - E1. `reclaim` opens the menu; `reclaim report` prints the report; `-h`/`--help` prints the
-  usage on stdout and exits 0; `--version` prints `reclaim 2.0.4` on stdout and exits 0.
+  usage on stdout and exits 0; `--version` prints `reclaim 2.0.5` on stdout and exits 0.
 - E2. Any other argument, or a second argument, is `reclaim: unknown argument: <arg> — see 'reclaim --help'.` on stderr, exit 64. Every error line is `reclaim: <text>` on stderr.
 
 ### The report
@@ -108,7 +108,7 @@ owner:
 
 - E9. The menu needs a terminal: stdin a terminal and `/dev/tty` opened. Otherwise
   `reclaim: needs an interactive terminal; run 'reclaim report' for a non-interactive summary.`, exit 1.
-- E10. The header is a heading `reclaim` with the context `<hostname> · v2.0.4`, then the
+- E10. The header is a heading `reclaim` with the context `<hostname> · v2.0.5`, then the
   filesystem lines indented by two spaces, then the journal line. It is drawn when the menu
   opens and again on `r`.
 - E11. The menu lists, under `Analyse`, `Reclaim (destructive — each confirms first)` and
@@ -173,7 +173,7 @@ owner:
   rebuilt on that project's next launch, listed largest first as E7a lists, and
   `  and <n> other tagged image(s).`, then `  Also remove all <n> unused podman image(s), tagged ones included (podman image prune -af)?`; yes runs it (`  Unused podman images removed.`, or
   `  podman image prune -a reported an error.` and a failed action), no is
-  `  Kept the unused images.`. No tagged image unused is
+  `  Skipped podman image prune -af.`, as no to the first question is its `Skipped` line. No tagged image unused is
   `  No other podman image is unused: nothing more to remove.` and no question; an image list
   that cannot be read is `  Removing every unused image is not offered: podman could not list its images (<reason>).`. A `podman system df` that fails is `  Cannot query podman — skipping podman prune. Reason:` and its output, and when that output names `stale temp dir`, the
   hint to repair the store on the host with
@@ -197,7 +197,8 @@ owner:
   `docker system df`, then
   `  Prune stopped containers, dangling images, unused networks and dangling build cache; no volume and no tagged image (docker system prune -f)?`, then, separately and default no,
   `  docker image prune -af removes every image no container uses, not only the dangling ones; each is pulled or rebuilt when it is next needed.` and
-  `  Also remove all unused docker images (docker image prune -af)?`, both run as the user whose
+  `  Also remove all unused docker images (docker image prune -af)?` (no is
+  `  Skipped docker image prune -af.`), both run as the user whose
   `docker system df` answered (B4); a `docker system df` that fails is
   `  docker is installed but not usable (daemon down, or not in the docker group) — skipping.`.
 - E23. **Flatpak unused runtimes**: without `flatpak`, `  flatpak is not installed.`. Else
@@ -346,7 +347,7 @@ sweep's steps.
 Proven only on the host, after `play-cli-tools.yml` (tag `disk-reclaim`) has run:
 
 - H1 (host agent). `~/.local/bin/reclaim` is an ELF; `reclaim --version` prints
-  `reclaim 2.0.4`; `reclaim report` prints its four sections with real figures and exits 0, or
+  `reclaim 2.0.5`; `reclaim report` prints its four sections with real figures and exits 0, or
   1 naming on stderr what it could not read.
 - H2 (host agent, tmux). The menu in a tmux pane, driven by `send-keys` and read with
   `capture-pane`: `1` on a small directory opens ncdu and `q` returns to the menu; `2` lists

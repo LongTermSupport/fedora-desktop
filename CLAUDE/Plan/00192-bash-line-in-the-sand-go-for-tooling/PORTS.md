@@ -423,4 +423,8 @@ running change, then `Cancelled.` and 130, a half-done clear says so; E30, B15);
 fake fails an unscripted command, the oracle above); L-1 fixed (previews as the user, B12);
 L-2 fixed (a partial du's stderr shown, B6); L-3 fixed (a failed listing stops the clear before
 asking, B3, B14); L-4 noted, as the bash; L-5 fixed by refusing a symlink (B13); L-6 this note;
-L-7 fixed (the unused `styleBlue` removed). Host checks H1-H5 are the host agent's.
+L-7 fixed (the unused `styleBlue` removed). Host checks H1-H5 are the host agent's. 2.0.4's
+host recheck passed (H1's Podman section with no summed size, and the dangling count and the
+prune question differing by the stated number kept; option 6 answering No to every question
+ran nothing). 2.0.5 says `Skipped <command>.` after a No to either "Also remove all unused"
+question too, as after the first question of each pair (E22); its recheck is queued.
