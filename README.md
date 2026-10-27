@@ -65,8 +65,20 @@ Need more details? See the full [Installation Guide](docs/installation.md).
 ### Install for Someone Who Does Not Write Code
 
 Setting up a computer for someone who just wants a good desktop, with no GitHub account
-and no programming tools? Add `--consumer` to the command above; see
-[Install for Someone Who Does Not Write Code](docs/installation.md#install-for-someone-who-does-not-write-code).
+and no programming tools? On a fresh Fedora installation, open a terminal as the regular
+user and run:
+
+<!-- ssot-quote: docs/installation.md#install-for-someone-who-does-not-write-code -->
+
+```bash
+(source <(curl -sS https://raw.githubusercontent.com/LongTermSupport/fedora-desktop/HEAD/run.bash?$(date +%s)) --consumer)
+```
+
+<!-- /ssot-quote -->
+
+It asks for the login password (more than once), then lists the everyday apps you can add
+at the end. What it leaves out, and how to update: [Install for Someone Who Does Not Write
+Code](docs/installation.md#install-for-someone-who-does-not-write-code).
 
 ### Unattended Server / Cloud Install (IaC)
 
