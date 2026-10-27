@@ -135,7 +135,11 @@ These playbooks are executed automatically by `playbook-main.yml` during initial
 **Actions**:
 
 - Refreshes DNF metadata
-- Upgrades all installed packages to latest versions
+- Upgrades all installed packages to latest versions (a no-op under `./run.bash` and
+  `./run.bash --consumer`, which upgrade every package before any Ansible process starts, so
+  python3 is never replaced under a running `ansible-playbook`: Plan 00229)
+- Removes half-installed kernels, and says a reboot is due when the running kernel is not the
+  newest installed
 
 ### play-basic-configs.yml
 

@@ -133,6 +133,19 @@ func (w *world) foregrounds() []string {
 	return out
 }
 
+// recordOrder makes each of the named commands append its line to the returned slice when it
+// runs, through Run or Foreground alike, so a test can see the order across both.
+func (w *world) recordOrder(prefixes ...[]string) *[]string {
+	order := &[]string{}
+	for _, prefix := range prefixes {
+		w.fake.OnFunc(prefix, func(c execx.Cmd) (execx.Result, error) {
+			*order = append(*order, c.Line())
+			return execx.Result{}, nil
+		})
+	}
+	return order
+}
+
 func (w *world) marker() string {
 	return filepath.Join(w.home, ".local/state/fedora-desktop-setup-complete")
 }
@@ -179,6 +192,40 @@ func TestFreshInstallRunsEveryStepWithNoGitHub(t *testing.T) {
 	}
 	if w.stdout.Len() != 0 {
 		t.Errorf("stdout is not the payload: %q", w.stdout.String())
+	}
+}
+
+// Plan 00229 Task 2.2: the system is upgraded before any Ansible process starts, so no Ansible
+// process runs on an interpreter that an upgrade replaced under it.
+func TestTheUpgradeFinishesBeforeAnyAnsibleProcessStarts(t *testing.T) {
+	w := newWorld(t)
+	w.answers = "\n"
+	order := w.recordOrder(
+		[]string{"sudo", "-n", "dnf"},
+		[]string{"pipx", "install"},
+		[]string{"ansible-galaxy"},
+		[]string{"ansible-playbook"},
+	)
+	w.wantCode(w.run(), term.ExitOK)
+	want := []string{
+		"sudo -n dnf -y upgrade --refresh",
+		"sudo -n dnf -y install python3 python3-pip python3-libdnf5 jq openssl pipx",
+		"pipx install --include-deps ansible",
+		"ansible-galaxy install --keep-scm-meta -r requirements.yml",
+		"ansible-playbook " + mainPlay + " --ask-become-pass",
+	}
+	if !slices.Equal(*order, want) {
+		t.Fatalf("order %q\nwant %q", *order, want)
+	}
+}
+
+func TestAFailedUpgradeStopsTheRunBeforeAnsible(t *testing.T) {
+	w := newWorld(t)
+	w.fake.On([]string{"sudo", "-n", "dnf", "-y", "upgrade"}, execx.Result{ExitCode: 1, Stderr: []byte("no network\n")})
+	w.wantCode(w.run(), term.ExitFailure)
+	w.wantErr("dnf upgrade failed")
+	if w.fake.Called("sudo -n dnf -y install") || len(w.fake.Foregrounds()) != 0 {
+		t.Errorf("the run went on after the upgrade failed: %v %v", w.fake.Calls(), w.foregrounds())
 	}
 }
 
