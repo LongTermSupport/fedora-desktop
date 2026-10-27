@@ -36,26 +36,19 @@
       ansible.builtin.meta: end_play
       when: (scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')
 
-    - name: Check if Secure Boot is enabled
-      ansible.builtin.shell: mokutil --sb-state
-      register: secure_boot_state
-      changed_when: false
-      failed_when: false  # FAIL-FAST-OK: probe — secure boot may not be available
+    # Secure Boot needs a MOK password before anything is installed: the signed driver
+    # cannot load until its key is enrolled with it at the next boot. Asked here, first,
+    # when Secure Boot is on and none is set, and saved vault-encrypted to localhost.yml.
+    # Registers secure_boot_state, which the tasks below read.
+    - name: Secure Boot MOK password, asked for now if it is needed and missing
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/secure-boot-mok-password.yml"
+      vars:
+        mok_module: the DisplayLink driver
 
-    - name: Validate MOK password is in vault
-      ansible.builtin.assert:
-        that:
-          - mok_password is defined
-        fail_msg: |
-          ERROR: MOK password not found in vault!
-
-          Please add 'mok_password' to your vault configuration:
-          ansible-vault edit environment/localhost/host_vars/localhost.yml
-
-          Add: mok_password: "your-password"
-
-          This password will be used once during boot to enroll the MOK key.
-      when: "'SecureBoot enabled' in secure_boot_state.stdout"
+    # DKMS builds for this kernel, not the running one: kernel-devel is installed for the
+    # newest kernel only, which is the one the next boot runs after a system upgrade.
+    - name: Find the kernel the next boot runs
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/boot-kernel-version.yml"
 
     - name: Install prerequisites for DisplayLink
       ansible.builtin.dnf:
@@ -192,6 +185,19 @@
         - mok_key.stat.exists
         - "'is not enrolled' in mok_enrolled.stdout | default('')"
       register: mok_import
+      failed_when: false  # FAIL-FAST-OK: probe under no_log (the password is in the script); the fail below gives the reason
+
+    # Not the output: the expect session's transcript may hold the password.
+    - name: Stop if the MOK key could not be queued for enrolment
+      ansible.builtin.fail:
+        msg: >-
+          mokutil could not queue the driver's signing key for enrolment at the next boot
+          (exit {{ mok_import.rc | default('none') }}). Check that mokutil and expect are
+          installed, then run this play again. Until the key is enrolled, the signed
+          DisplayLink driver cannot load while Secure Boot is on.
+      when:
+        - mok_import is not skipped
+        - mok_import.rc | default(1) != 0
 
     - name: Display MOK enrollment password
       ansible.builtin.debug:
@@ -221,7 +227,8 @@
         - mok_import is changed
 
     - name: Run DKMS autoinstall
-      ansible.builtin.command: dkms autoinstall
+      ansible.builtin.command:
+        argv: [dkms, autoinstall, -k, "{{ boot_kernel_version }}"]
       when:
         - "'SecureBoot enabled' in secure_boot_state.stdout"
         - "'is already enrolled' in mok_enrolled.stdout | default('')"

@@ -172,7 +172,7 @@ func TestMainReportsEveryCheckInOrder(t *testing.T) {
 	if got := strings.Join(order, " "); got != want {
 		t.Fatalf("order %q want %q\n%s", got, want, res.out)
 	}
-	if !strings.Contains(res.out, "✗ ansible: 9 violation(s) — 1 fail-fast, 1 hygiene, 1 self-ref var, 2 scope/guard, 2 deprecated fact var, 1 regex backref, 1 root umask\n") {
+	if !strings.Contains(res.out, "✗ ansible: 9 violation(s) — 1 fail-fast, 1 hygiene, 1 self-ref var, 2 scope/guard, 2 deprecated fact var, 1 regex backref, 1 root umask, 0 play ux\n") {
 		t.Fatalf("summary:\n%s", res.out)
 	}
 }

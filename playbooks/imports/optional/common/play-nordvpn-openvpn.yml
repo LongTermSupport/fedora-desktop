@@ -72,88 +72,63 @@
     # Credentials Collection (Encrypted with Vault)
     # =========================================================================
 
-    - name: Check if NordVPN Credentials Already Configured
-      ansible.builtin.set_fact:
-        nordvpn_credentials_exist: "{{ nordvpn_username is defined and nordvpn_password is defined }}"
+    # Asked for once and saved vault-encrypted in localhost.yml; later runs use them.
+    - name: Ask for the NordVPN service username when it is missing
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ask-and-save-secret.yml"
+      vars:
+        secret_name: nordvpn_username
+        secret_label: NordVPN service username
+        secret_confirm: false
+        secret_explain: |2
 
-    - block:
-        - name: Prompt for NordVPN Service Username
-          ansible.builtin.pause:
-            prompt: |
+          ========================================================================
+          NORDVPN OPENVPN CREDENTIALS
+          ========================================================================
 
-              ========================================================================
-              NORDVPN OPENVPN CREDENTIALS
-              ========================================================================
+          This needs your NordVPN SERVICE credentials, which are not the email
+          and password you log in to nordvpn.com with. To get them:
+          1. Log in to nordvpn.com
+          2. Go to Dashboard, then Services, then NordVPN
+          3. Click "Set up NordVPN manually"
+          4. Copy the "Service credentials" (a username like aBcD1eF2gH3iJ4kL,
+             and a password)
 
-              You need your NordVPN SERVICE credentials (not your account login).
+          Both are saved vault-encrypted in localhost.yml, and not asked again.
+      when: nordvpn_username is not defined
 
-              To get them:
-              1. Log into nordvpn.com
-              2. Go to Dashboard → Services → NordVPN
-              3. Click "Set up NordVPN manually"
-              4. Copy "Service credentials" (username/password)
-
-              These credentials will be stored in localhost.yml.
-              You should encrypt them with ansible-vault after initial setup.
-
-              Enter NordVPN service username (format: aBcD1eF2gH3iJ4kL)
-          register: vpn_username_prompt
-
-        - name: Prompt for NordVPN Service Password
-          ansible.builtin.pause:
-            prompt: "Enter NordVPN service password"
-            echo: false
-          register: vpn_password_prompt
-
-        - name: Set Credentials Facts
-          ansible.builtin.set_fact:
-            nordvpn_username: "{{ vpn_username_prompt.user_input }}"
-            nordvpn_password: "{{ vpn_password_prompt.user_input }}"
-
-        - name: Append Credentials to localhost.yml
-          become: false
-          ansible.builtin.blockinfile:
-            path: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
-            marker: "# {mark} ANSIBLE MANAGED: NordVPN Credentials"
-            block: |
-              # NordVPN OpenVPN service credentials (not account login)
-              # TODO: Encrypt these with ansible-vault encrypt_string
-              nordvpn_username: {{ nordvpn_username }}
-              nordvpn_password: {{ nordvpn_password }}
-            create: false
-          delegate_to: localhost
-
-        - name: Display Encryption Reminder
-          ansible.builtin.debug:
-            msg:
-              - "⚠️  IMPORTANT: Encrypt your credentials before committing!"
-              - ""
-              - "Run these commands to encrypt the credentials in place:"
-              - ""
-              - "  cd {{ root_dir }}"
-              - "  ./vault.bash replace nordvpn_username"
-              - "  ./vault.bash replace nordvpn_password"
-              - ""
-              - "Use 'replace', NOT 'set': the task above has just written both"
-              - "variables as plaintext, and 'set' refuses when a variable already"
-              - "exists. 'replace' encrypts the existing value in place, in:"
-              - "  {{ root_dir }}/environment/localhost/host_vars/localhost.yml"
-
-      when: not nordvpn_credentials_exist
+    - name: Ask for the NordVPN service password when it is missing
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ask-and-save-secret.yml"
+      vars:
+        secret_name: nordvpn_password
+        secret_label: NordVPN service password
+        secret_explain: >-
+          The password from the same "Service credentials" box on nordvpn.com (Dashboard,
+          Services, NordVPN, "Set up NordVPN manually").
+      when: nordvpn_password is not defined
 
     # =========================================================================
     # Deploy Credentials File
     # =========================================================================
 
     - name: Create Credentials File
-      ansible.builtin.copy:
-        dest: "/home/{{ user_login }}/.config/nordvpn/.credentials"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: '0600'
-        content: |
-          {{ nordvpn_username }}
-          {{ nordvpn_password }}
+      block:
+        - name: Write the Credentials File
+          ansible.builtin.copy:
+            dest: "/home/{{ user_login }}/.config/nordvpn/.credentials"
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            mode: '0600'
+            content: |
+              {{ nordvpn_username }}
+              {{ nordvpn_password }}
+          no_log: true
+      rescue:
+        - name: Stop Because the Credentials File Could Not Be Written
+          ansible.builtin.fail:
+            msg: >-
+              The NordVPN credentials file ~/.config/nordvpn/.credentials could not be
+              written: {{ ansible_failed_result.msg | default('no reason given') }}. The nord
+              command cannot connect without it; fix the cause and run this play again.
 
     # =========================================================================
     # Deploy Script
@@ -246,11 +221,6 @@
           - "  • Configs auto-import on first connect"
           - "  • Connections persist across reboots"
           - "  • Use GNOME Settings → Network to see connections"
-          - "  • Credentials stored securely (mode 0600)"
-          - ""
-          - "🔒 SECURITY REMINDER"
-          - ""
-          - "  Remember to encrypt your credentials with ansible-vault!"
-          - "  See the instructions displayed above."
+          - "  • Credentials stored securely (mode 0600), and vault-encrypted in localhost.yml"
           - ""
           - "════════════════════════════════════════════════════════════════"

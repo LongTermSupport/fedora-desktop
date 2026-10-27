@@ -119,6 +119,22 @@
           {% endif %}
       when: container_service_check.rc != 0
 
+    # Before anything changes: a server restoring sessions unattended unlocks their SSH key
+    # with this passphrase.
+    - name: Ask For The SSH Key Passphrase For Unattended Restore When It Is Missing
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ask-and-save-secret.yml"
+      vars:
+        secret_name: github_ssh_passphrase
+        secret_label: GitHub SSH key passphrase
+        secret_explain: |
+          This server restores ccy sessions after a reboot (ccy_restore_sessions: true), and
+          each restored session unlocks its GitHub SSH key with nobody at the keyboard. Type
+          the passphrase of the ~/.ssh/github_* keys. To not restore sessions, stop here and
+          set ccy_restore_sessions: false in localhost.yml.
+      when:
+        - ccy_restore_ssh_unlock | bool
+        - github_ssh_passphrase is not defined
+
     - name: Create Claude YOLO Base Directory
       become: true
       ansible.builtin.file:
@@ -1123,6 +1139,7 @@
     # run that fails part-way never leaves a drop-in naming a file that is not there (the
     # next boot would restore nothing). Both go where the unlock does not apply, so a box
     # that leaves the server profile or the opt-in keeps no plaintext copy of the passphrase.
+    # Not no_log: an assert's output names the expression and the message, never the value.
     - name: Assert The Vault Holds The SSH Key Passphrase For Unattended Restore
       ansible.builtin.assert:
         that:
@@ -1130,13 +1147,11 @@
           - github_ssh_passphrase | length > 0
           - "'\n' not in github_ssh_passphrase"
         fail_msg: >-
-          This server restores ccy sessions after a reboot (ccy_restore_sessions: true) and
-          has a GitHub identity, so each restored session must unlock its SSH key with nobody
-          at the keyboard, from github_ssh_passphrase. It is missing, empty or spans several
-          lines. Set it with ./vault.bash set github_ssh_passphrase (the passphrase of the
-          ~/.ssh/github_* keys), or set ccy_restore_sessions: false.
+          The github_ssh_passphrase saved for unattended session restore is empty or spans
+          several lines, so a restored session could not unlock its SSH key with it. Remove
+          its block from localhost.yml and run this play again to be asked for it, or set
+          ccy_restore_sessions: false.
         quiet: true
-      no_log: true
       when: ccy_restore_ssh_unlock | bool
 
     - name: Create Claude YOLO Root Directory
@@ -1148,16 +1163,27 @@
         mode: "0700"
 
     # In the owner-only directory above, beside the Claude tokens, readable by this user alone:
-    # the same boundary as the vault password file and the key itself.
+    # the same boundary as the vault password file and the key itself. A copy module's msg
+    # names the file and the error, never the content, so the rescue can print it.
     - name: Write The SSH Key Passphrase For Unattended Session Restore
-      ansible.builtin.copy:
-        content: "{{ github_ssh_passphrase }}"
-        dest: "{{ ccy_restore_ssh_passphrase_file }}"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: "0600"
-      no_log: true
       when: ccy_restore_ssh_unlock | bool
+      block:
+        - name: Write The SSH Key Passphrase For Unattended Session Restore
+          ansible.builtin.copy:
+            content: "{{ github_ssh_passphrase }}"
+            dest: "{{ ccy_restore_ssh_passphrase_file }}"
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            mode: "0600"
+          no_log: true
+      rescue:
+        - name: Stop Because The SSH Key Passphrase Could Not Be Written
+          ansible.builtin.fail:
+            msg: >-
+              Could not write {{ ccy_restore_ssh_passphrase_file }}:
+              {{ ansible_failed_result.msg | default('no reason given') }}. Sessions
+              restored after a reboot could not unlock their SSH key, so the restore unlock
+              is not set up. Fix the cause above and run the play again.
 
     - name: Ensure The Restore Unit's Drop-In Directory Exists
       ansible.builtin.file:

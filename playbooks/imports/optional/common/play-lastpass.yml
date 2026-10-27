@@ -37,6 +37,13 @@
               Enter choice (1 or 2)
           register: config_choice
 
+        - name: Stop if the choice was not 1 or 2
+          ansible.builtin.fail:
+            msg: >-
+              "{{ config_choice.user_input | default('') }}" is not one of the choices. Nothing was
+              saved; run this play again and type 1 (one account) or 2 (several).
+          when: (config_choice.user_input | default('') | trim) not in ['1', '2']
+
         - name: Get single account details
           ansible.builtin.pause:
             prompt: "Enter your LastPass email address"
@@ -69,6 +76,15 @@
               {% endfor %}
               {{ accounts }}
           when: config_choice.user_input == "2"
+
+        - name: Stop if no account was given
+          ansible.builtin.fail:
+            msg: >-
+              No LastPass account was given (for several accounts, the form is
+              name:email,name:email). Nothing was saved; run this play again.
+          when: >-
+            (config_choice.user_input == "1" and (single_email.user_input | default('') | trim | length == 0))
+            or (config_choice.user_input == "2" and ((parsed_accounts | string | trim) in ['{}', '']))
 
         - name: Write single account configuration
           ansible.builtin.blockinfile:

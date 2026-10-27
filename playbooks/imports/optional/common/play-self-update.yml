@@ -127,19 +127,33 @@
       changed_when: false
       when: self_update_on
 
-    # Its own task so no_log hides only the password, not the other inputs' remedy.
-    - name: Assert the Become Password Is Declared
+    - name: Ask for the Become Password When It Is Missing
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ask-and-save-secret.yml"
+      vars:
+        secret_name: self_update_become_password
+        secret_label: login password
+        secret_explain: |
+          The automatic update runs while nobody is at the keyboard, and some of its steps
+          need administrator rights. For those it needs the password you type to log in to
+          this computer (the same one sudo asks for). It is saved vault-encrypted in
+          localhost.yml and only ever handed to the update, never shown.
+      when:
+        - self_update_on
+        - self_update_become_password is not defined
+
+    # Not no_log: an assert's output names the expression and the message, never the value.
+    - name: Assert the Become Password Is Usable
       ansible.builtin.assert:
         that:
           - self_update_become_password is defined
           - self_update_become_password | length > 0
           - "'\n' not in self_update_become_password"
         fail_msg: >-
-          self_update_enabled is true, but self_update_become_password is missing, empty,
-          or spans several lines. Declare it vault-encrypted in host_vars: this user's sudo
-          password, which the unattended plays need for their become tasks.
+          self_update_become_password is empty or spans several lines, so the unattended
+          update could not use it for its administrator steps. Nothing has been changed.
+          Remove the self_update_become_password entry from localhost.yml and run the play
+          again: it then asks for the password and saves it.
         quiet: true
-      no_log: true
       when: self_update_on
 
     # D8 and Task 0.4: the one alert sink is a Slack webhook, optional and per install. It
@@ -220,12 +234,28 @@
       become: false
       register: self_update_webhook_encrypted
       changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe under no_log; the fail below gives the reason
       no_log: true
       when:
         - self_update_on
         - self_update_webhook_asked | default(false)
         - self_update_slack_webhook_url | length > 0
 
+    # The URL went in on stdin; ansible-vault's stderr and exit code never carry it.
+    - name: Stop If the Slack Webhook URL Could Not Be Vault-Encrypted
+      ansible.builtin.fail:
+        msg: >-
+          ansible-vault could not encrypt the Slack webhook URL (exit
+          {{ self_update_webhook_encrypted.rc | default('none') }}):
+          {{ self_update_webhook_encrypted.stderr | default('') }}
+          {{ self_update_webhook_encrypted.msg | default('') }}. Nothing was saved and the
+          self-update was not set up. Check that {{ root_dir }}/ansible.cfg names a vault
+          password file that exists, then run the play again.
+      when:
+        - self_update_webhook_encrypted is not skipped
+        - self_update_webhook_encrypted.rc | default(1) != 0
+
+    # Not no_log: the block is vault ciphertext, and a failure here must say which file.
     - name: Save the Vault-Encrypted Slack Webhook URL to localhost.yml
       ansible.builtin.blockinfile:
         path: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
@@ -233,7 +263,6 @@
         block: "{{ self_update_webhook_encrypted.stdout }}"
         create: false
       become: false
-      no_log: true
       when:
         - self_update_on
         - self_update_webhook_asked | default(false)
@@ -333,15 +362,27 @@
     # D5: the plays run as the user and Ansible needs this user's sudo password for their
     # become tasks. It lives root-only; the entry point opens it and hands the plays an
     # inherited descriptor, so the user's shell and the ccy containers cannot open it.
+    # A copy module's msg names the file and the error, never the content, so the rescue
+    # can print it.
     - name: Provision the Become Password
-      ansible.builtin.copy:
-        content: "{{ self_update_become_password }}\n"
-        dest: "{{ self_update_etc_dir }}/self-update.become"
-        owner: root
-        group: root
-        mode: "0600"
-      no_log: true
       when: self_update_on
+      block:
+        - name: Provision the Become Password
+          ansible.builtin.copy:
+            content: "{{ self_update_become_password }}\n"
+            dest: "{{ self_update_etc_dir }}/self-update.become"
+            owner: root
+            group: root
+            mode: "0600"
+          no_log: true
+      rescue:
+        - name: Stop Because the Become Password Could Not Be Written
+          ansible.builtin.fail:
+            msg: >-
+              Could not write {{ self_update_etc_dir }}/self-update.become:
+              {{ ansible_failed_result.msg | default('no reason given') }}. The unattended
+              update has no password for its administrator steps and is not set up. Fix
+              the cause above and run the play again.
 
     # The plays decrypt host_vars, and the deploy clone has no vault password file of its
     # own (it is untracked). This is a root-only copy of the one ansible.cfg names in the
@@ -357,29 +398,51 @@
       when: self_update_on
 
     - name: Provision the Root-Only Vault Password Copy
-      ansible.builtin.copy:
-        src: "{{ self_update_vault_source }}"
-        dest: "{{ self_update_etc_dir }}/self-update.vault"
-        remote_src: true
-        owner: root
-        group: root
-        mode: "0600"
-      no_log: true
       when: self_update_on
+      block:
+        - name: Provision the Root-Only Vault Password Copy
+          ansible.builtin.copy:
+            src: "{{ self_update_vault_source }}"
+            dest: "{{ self_update_etc_dir }}/self-update.vault"
+            remote_src: true
+            owner: root
+            group: root
+            mode: "0600"
+          no_log: true
+      rescue:
+        - name: Stop Because the Vault Password Could Not Be Copied
+          ansible.builtin.fail:
+            msg: >-
+              Could not copy the vault password file {{ self_update_vault_source }} to
+              {{ self_update_etc_dir }}/self-update.vault:
+              {{ ansible_failed_result.msg | default('no reason given') }}. The unattended
+              update could not read the vault-encrypted settings and is not set up. Check
+              that {{ root_dir }}/ansible.cfg names a vault password file that exists, then
+              run the play again.
 
     # The cycle reads it only when the config names slack, and refuses to run when it
     # does and this file is missing or open to others.
     - name: Provision the Slack Webhook
-      ansible.builtin.copy:
-        content: "{{ self_update_slack_webhook_url }}\n"
-        dest: "{{ self_update_slack_webhook_file }}"
-        owner: root
-        group: root
-        mode: "0600"
-      no_log: true
       when:
         - self_update_on
         - (self_update_slack_webhook_url | default('')) | length > 0
+      block:
+        - name: Provision the Slack Webhook
+          ansible.builtin.copy:
+            content: "{{ self_update_slack_webhook_url }}\n"
+            dest: "{{ self_update_slack_webhook_file }}"
+            owner: root
+            group: root
+            mode: "0600"
+          no_log: true
+      rescue:
+        - name: Stop Because the Slack Webhook Could Not Be Written
+          ansible.builtin.fail:
+            msg: >-
+              Could not write {{ self_update_slack_webhook_file }}:
+              {{ ansible_failed_result.msg | default('no reason given') }}. The update
+              cycle would refuse to run without it, so the self-update is not set up. Fix
+              the cause above and run the play again.
 
     - name: Remove the Slack Webhook When None Is Declared
       ansible.builtin.file:

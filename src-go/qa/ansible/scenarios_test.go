@@ -182,6 +182,8 @@ func fileAndQuoteScenarios() []scenario {
 				regexBackrefAdvice,
 				"  ERROR (root-umask): tasks/bin.yml:1: cannot be parsed as YAML, so the files its root tasks create cannot be judged: yaml: control characters are not allowed",
 				rootUmaskAdvice,
+				"  ERROR (play-ux): tasks/bin.yml:1: cannot be parsed as YAML, so its plays cannot be judged: yaml: control characters are not allowed",
+				"    A file that is not YAML cannot be judged; fix its syntax",
 			},
 		},
 		{

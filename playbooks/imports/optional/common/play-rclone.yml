@@ -321,17 +321,29 @@
     # so punctuation is avoided rather than escaped. Rendering this task is what
     # triggers the lookup, and so what creates the store on a first run.
     - name: Deploy the rclone RC credential file
-      ansible.builtin.copy:
-        dest: "/home/{{ user_login }}/.config/rclone/rc-auth.env"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: '0600'
-        content: |
-          RCLONE_RC_USER=rclone-rc
-          RCLONE_RC_PASS={{ lookup('ansible.builtin.password', '/home/' + user_login + '/.config/rclone/.rc-pass', length=32, chars=['ascii_letters', 'digits']) }}
-      no_log: true
-      notify: restart rclone mounts
       tags: rclone, rc-auth
+      block:
+        - name: Deploy the rclone RC credential file
+          ansible.builtin.copy:
+            dest: "/home/{{ user_login }}/.config/rclone/rc-auth.env"
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            mode: '0600'
+            content: |
+              RCLONE_RC_USER=rclone-rc
+              RCLONE_RC_PASS={{ lookup('ansible.builtin.password', '/home/' + user_login + '/.config/rclone/.rc-pass', length=32, chars=['ascii_letters', 'digits']) }}
+          no_log: true
+          notify: restart rclone mounts
+      # Only the module message: the file content is the RC password.
+      rescue:
+        - name: Stop because the rclone RC credential file could not be written
+          ansible.builtin.fail:
+            msg: >-
+              The rclone remote control credential file
+              /home/{{ user_login }}/.config/rclone/rc-auth.env could not be written:
+              {{ ansible_failed_result.msg | default('no reason given') }}. The rclone mounts
+              and ftp-camera's copy modes cannot authenticate without it; fix the reason
+              above and run this play again.
 
     # The lookup creates the store with the controller umask and the invoking
     # user, so ownership and mode are pinned here rather than before it.

@@ -16,6 +16,9 @@
       ansible.builtin.meta: end_play
       when: install_audience != 'developer'
 
+    - name: Find the kernel the next boot runs, which the akmod handler builds for
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/boot-kernel-version.yml"
+
     - name: Install Virtualbox Dependencies
       become: true
       ansible.builtin.dnf:
@@ -50,4 +53,16 @@
   handlers:
     - name: akmod
       become: true
-      ansible.builtin.shell: akmods --kernels $(uname -r) && systemctl restart vboxdrv.service
+      # Built for the kernel the next boot runs, the one kernel-devel is installed for; the
+      # driver is reloaded now only when that is the running kernel, else at the reboot.
+      ansible.builtin.shell: |
+        set -euo pipefail
+        akmods --kernels "$KVER"
+        if [ "$KVER" = "$(uname -r)" ]; then
+          systemctl restart vboxdrv.service
+        fi
+      args:
+        executable: /bin/bash
+      environment:
+        KVER: "{{ boot_kernel_version }}"
+      changed_when: true

@@ -57,6 +57,23 @@
         fail_msg: "GitHub CLI v2.40.0+ required for multi-account support. Current: {{ gh_version_output.stdout | default('not installed') }}"
         success_msg: "GitHub CLI {{ gh_version_output.stdout }} supports multi-account"
 
+    # Before anything changes: the GitHub SSH keys are generated with this passphrase.
+    - name: Ask for the GitHub SSH key passphrase when it is missing
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ask-and-save-secret.yml"
+      vars:
+        secret_name: github_ssh_passphrase
+        secret_label: GitHub SSH key passphrase
+        secret_explain: |
+          Your GitHub SSH keys (~/.ssh/github_*) are protected by a passphrase, and none is
+          saved yet. If the keys already exist, type the passphrase they were made with. If
+          not, choose a new one: every GitHub account here uses the same passphrase, and you
+          type it when a key is first unlocked after login.
+        secret_min_length: 8
+      when:
+        - github_accounts is defined
+        - github_accounts | length > 0
+        - github_ssh_passphrase is not defined
+
     - name: Ensure jq is available
       ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ensure-jq.yml"
 
@@ -249,21 +266,6 @@
         - scope_audit.stdout_lines | reject('match', '^SCOPES-OK ') | list | length > 0
 
     # SSH KEY GENERATION AND SETUP
-    - name: Assert github_ssh_passphrase is set in vault
-      ansible.builtin.assert:
-        that:
-          - github_ssh_passphrase is defined
-          - github_ssh_passphrase | length > 0
-        fail_msg: |
-          ERROR: github_ssh_passphrase not found in vault!
-
-          Add it using the vault helper:
-            ./vault.bash set github_ssh_passphrase
-
-          This passphrase protects your GitHub SSH private keys.
-          All github_* keys use the same passphrase.
-      when: github_accounts_configured
-
     - name: Generate SSH keys for accounts
       block:
         - name: Ensure .ssh directory exists
@@ -303,13 +305,24 @@
           loop_control:
             label: "{{ item.item.key }}"
 
+        # A copy module's msg names the file and the error, never the content, so the
+        # rescue can print it.
         - name: Create passphrase file for SSH key operations
-          ansible.builtin.copy:
-            content: "{{ github_ssh_passphrase }}"
-            dest: "/tmp/.github_ssh_pp"
-            mode: "0600"
-            owner: "{{ user_login }}"
-          no_log: true
+          block:
+            - name: Create passphrase file for SSH key operations
+              ansible.builtin.copy:
+                content: "{{ github_ssh_passphrase }}"
+                dest: "/tmp/.github_ssh_pp"
+                mode: "0600"
+                owner: "{{ user_login }}"
+              no_log: true
+          rescue:
+            - name: Stop because the passphrase file could not be written
+              ansible.builtin.fail:
+                msg: >-
+                  Could not write the temporary passphrase file /tmp/.github_ssh_pp:
+                  {{ ansible_failed_result.msg | default('no reason given') }}. No SSH key
+                  was checked or generated. Fix the cause above and run the play again.
 
         - name: Verify existing keys work with vault passphrase
           ansible.builtin.shell: |
@@ -350,11 +363,30 @@
               -N "{{ github_ssh_passphrase }}" 2>&1
           args:
             executable: /bin/bash
+          register: ssh_key_generated
+          failed_when: false  # FAIL-FAST-OK: probe under no_log; the fail below gives the reason
           no_log: true
           when: not item.stat.exists
           loop: "{{ ssh_key_status.results }}"
           loop_control:
             label: "{{ item.item.key }}"
+
+        # Only the account and the exit code: the passphrase is on ssh-keygen's command line,
+        # so its output is not printed.
+        - name: Fail fast if an SSH key could not be generated
+          ansible.builtin.fail:
+            msg: >-
+              ssh-keygen could not generate ~/.ssh/github_{{ item.item.item.key }} (exit
+              {{ item.rc | default('none') }}). No key was made for this account. Check that
+              ~/.ssh exists and is writable by {{ user_login }} and that the disk is not full,
+              then run the play again.
+          when:
+            - ssh_key_generated is not skipped
+            - item.rc is defined
+            - item.rc != 0
+          loop: "{{ ssh_key_generated.results | default([]) }}"
+          loop_control:
+            label: "{{ item.item.item.key | default('unknown') }}"
 
         - name: Re-stat SSH keys after generation
           ansible.builtin.stat:
