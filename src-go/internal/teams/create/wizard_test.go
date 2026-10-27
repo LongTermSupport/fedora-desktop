@@ -142,6 +142,58 @@ func wzExit(code int) execx.Result     { return execx.Result{ExitCode: code} }
 func wzNotARepo() execx.Result         { return wzRefuse(teamtest.NotARepository) }
 func wzRefuse(msg string) execx.Result { return execx.Result{ExitCode: 64, Stderr: []byte(msg + "\n")} }
 
+// wzNotFound is gh api's answer for a name GitHub does not show the login.
+var wzNotFound = execx.Result{ExitCode: 1, Stderr: []byte("gh: Not Found (HTTP 404)\n")}
+
+// wzStatus is `gh auth status --json hosts` with logins working, the first active.
+func wzStatus(logins ...string) string {
+	entries := make([]string, 0, len(logins))
+	for i, l := range logins {
+		entries = append(entries, fmt.Sprintf(`{"login":%q,"active":%t,"state":"success"}`, l, i == 0))
+	}
+	return `{"hosts":{"github.com":[` + strings.Join(entries, ",") + `]}}` + "\n"
+}
+
+// wzToken is the placeholder token gh holds for login.
+func wzToken(login string) string { return "placeholder-token-" + login }
+
+// wzAs is the login whose token a command carries as GH_TOKEN, "" when it carries none.
+func wzAs(c execx.Cmd) string {
+	for _, s := range c.Secrets {
+		for _, l := range []string{"account-a", "account-b", "account-c"} {
+			if s.Name() == "GH_TOKEN" && s.Is(wzToken(l)) {
+				return l
+			}
+		}
+	}
+	return ""
+}
+
+// logins makes gh hold these working logins, the first active, each with its own token.
+func (h *wzHarness) logins(logins ...string) {
+	h.fake.On([]string{"gh", "auth", "status"}, wzOK(wzStatus(logins...)))
+	for _, l := range logins {
+		h.fake.On([]string{"gh", "auth", "token", "--hostname", "github.com", "--user", l}, wzOK(wzToken(l)+"\n"))
+	}
+}
+
+// onAPI answers gh api path by the login whose token the call carries: a login not in byLogin
+// gets GitHub's 404, and a call that carries no login's token fails the test.
+func (h *wzHarness) onAPI(t *testing.T, path string, byLogin map[string]execx.Result) {
+	t.Helper()
+	h.fake.OnFunc([]string{"gh", "api", path}, func(c execx.Cmd) (execx.Result, error) {
+		login := wzAs(c)
+		if login == "" {
+			t.Errorf("%s ran as gh's active account, with no login's own GH_TOKEN", c.Line())
+			return execx.Result{}, errors.New("no GH_TOKEN")
+		}
+		if res, ok := byLogin[login]; ok {
+			return res, nil
+		}
+		return wzNotFound, nil
+	})
+}
+
 // dp is the argv prefix of a declare.py call on the host_vars file.
 func wzDP(sub string, rest ...string) []string {
 	return append([]string{"env", "PYTHONPATH=" + wzRoot, "/usr/bin/python3", "-P", "-m", "helpers.agent_bus.declare", sub, "--file", wzHostVars}, rest...)
@@ -266,7 +318,8 @@ func newWzHarness(t *testing.T) *wzHarness {
 	f.On([]string{"gum", "style"}, wzOK(""))
 	f.On([]string{"gum", "spin"}, wzOK(""))
 	f.On([]string{"id", "-un"}, wzOK("owner\n"))
-	f.On([]string{"gh", "auth", "status"}, wzOK(""))
+	f.On([]string{"gh", "auth", "status"}, wzOK(wzStatus("account-a")))
+	f.On([]string{"gh", "auth", "token", "--hostname", "github.com", "--user", "account-a"}, wzOK(wzToken("account-a")+"\n"))
 	f.On([]string{"gh", "api", "users/example-org"}, wzOK(""))
 	f.On([]string{"gh", "api", "repos/example-org/proj"}, wzOK("true\n"))
 	f.On([]string{"gh", "api", "repos/example-org/alpha"}, wzOK("true\n"))
@@ -616,7 +669,7 @@ func TestAnOwnerGitHubDoesNotKnowIsRefusedWithAReason(t *testing.T) {
 	h.run.queue("gum input", wzOK("nope\n"), wzOK("example-org\n"), wzOK("example-org\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
 	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1), wzExit(1))
 	wzCode(t, h.invoke(), 0, h)
-	wzContain(t, "stderr", h.err(), "GitHub has no user or organisation called 'nope' that your gh login can see. Try again.")
+	wzContain(t, "stderr", h.err(), "GitHub has no user or organisation called 'nope' that your gh login account-a can see. Try again.")
 	// the refused answer is the next try's value
 	wzContain(t, "retry", h.run.matching("gum input")[1], "--header GitHub owner (organisation or user)", "--value nope")
 }
@@ -667,13 +720,14 @@ func TestARefusedAnswerComesBackAsTypedNotLowerCased(t *testing.T) {
 	wzCode(t, h.invoke(), 0, h)
 	e := h.err()
 	wzContain(t, "stderr", e,
-		"  example-org/readonly: read-only for your gh login; a team trusts only repositories you can push to.",
-		"  other/missing: not found, or your gh login cannot see it.",
+		"  example-org/readonly: read-only for your gh login account-a; a team trusts only repositories you can push to.",
+		"  other/missing: not found, or your gh login account-a cannot see it.",
+		"  example-org/alpha: push access through account-a.",
 		"  bad: not OWNER/REPO (lower-case; the name not ., .. or ending .git).",
 		"  Checking example-org/alpha on GitHub…", "  Try again.",
 	)
 	wzContain(t, "summary", h.boxes(), "only these repositories, on any branch: example-org/alpha, other/tool")
-	wzLack(t, "stderr", e, "example-org/alpha:", "example-org/alpha: not")
+	wzLack(t, "stderr", e, "example-org/alpha: not", "example-org/alpha: read-only")
 	wzContain(t, "second try", h.run.matching("gum input")[1], "--value "+typed+" --width 0")
 	wzContain(t, "create", strings.Join(h.run.matching("env "), "\n"), "--repo example-org/alpha --repo other/tool")
 }
@@ -915,7 +969,7 @@ func TestYesChecksTheOrgOnGitHubAsTheQuestionWould(t *testing.T) {
 	h.tty = false
 	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "beta", "--human", "owner", "--org", "nope"), 1, h)
 	wzContain(t, "stderr", h.err(),
-		"GitHub has no user or organisation called 'nope' that your gh login can see.",
+		"GitHub has no user or organisation called 'nope' that your gh login account-a can see.",
 		"ERROR: create stopped: fix the organisation above (or drop it); nothing was written.")
 	wzLack(t, "stderr", h.err(), "Try again")
 	if h.run.called("env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare create") || len(h.applied) != 0 {
@@ -947,7 +1001,8 @@ func TestYesChecksEveryRepositoryAndNamesTheBadOnes(t *testing.T) {
 	e := h.err()
 	wzContain(t, "stderr", e, "example-org/readonly: read-only", "other/missing: not found", "bad: not OWNER/REPO",
 		"ERROR: create stopped: fix the repositories above (or drop them); nothing was written.")
-	wzLack(t, "stderr", e, "example-org/proj:", "Try again")
+	wzLack(t, "stderr", e, "example-org/proj: not", "example-org/proj: read-only", "Try again")
+	wzContain(t, "stderr", e, "  example-org/proj: push access through account-a.")
 	if h.run.called("env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare create") || len(h.applied) != 0 {
 		t.Error("something was written or installed")
 	}
@@ -1549,15 +1604,169 @@ func TestARepositoryLookupThatFailsOtherwiseThanNotFoundEndsTheRunWithGhsWords(t
 	h.fake.On([]string{"gh", "api", "repos/other/tool"}, execx.Result{ExitCode: 1, Stderr: []byte("error connecting to api.github.com\n")})
 	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "beta", "--human", "owner", "--repo", "other/tool"), 1, h)
 	wzContain(t, "stderr", h.err(), "ERROR:", "repos/other/tool", "error connecting to api.github.com")
-	wzLack(t, "stderr", h.err(), "not found, or your gh login cannot see it", "create stopped: fix the repositories")
+	wzLack(t, "stderr", h.err(), "not found, or", "create stopped: fix the repositories")
 }
 
 func TestAnOwnerGitHubAnswers404ForIsTheOnlyNotFound(t *testing.T) {
 	h := newWzHarness(t)
 	h.tty = false
 	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "beta", "--human", "owner", "--org", "nope"), 1, h)
-	wzContain(t, "stderr", h.err(), "GitHub has no user or organisation called 'nope' that your gh login can see.")
+	wzContain(t, "stderr", h.err(), "GitHub has no user or organisation called 'nope' that your gh login account-a can see.")
 	wzLack(t, "stderr", h.err(), "ERROR: gh")
+}
+
+// ── every gh login on the machine is asked, each through its own token ──────────────────
+
+// yesOnTool is a --yes create of team beta on other/tool, which checks it on GitHub and asks
+// nothing.
+func (h *wzHarness) yesOnTool() term.ExitCode {
+	h.tty = false
+	return h.invoke("--yes", "--description", "Builds the site", "--team", "beta", "--human", "owner", "--repo", "other/tool")
+}
+
+// noSwitch fails the test when gh's active account was changed, or a call ran without a login's token.
+func (h *wzHarness) noSwitch(t *testing.T) {
+	t.Helper()
+	if h.run.called("gh auth switch") {
+		t.Error("gh's active account was switched; other sessions would race with it")
+	}
+	for _, c := range h.run.calls {
+		if c.Name == "gh" && len(c.Args) > 0 && c.Args[0] == "api" && wzAs(c) == "" {
+			t.Errorf("%s ran as gh's active account", c.Line())
+		}
+	}
+}
+
+func TestARepositoryOnlyASecondLoginCanPushToIsFoundThroughIt(t *testing.T) {
+	h := newWzHarness(t)
+	h.logins("account-a", "account-b")
+	h.onAPI(t, "repos/other/tool", map[string]execx.Result{"account-b": wzOK("true\n")})
+	wzCode(t, h.yesOnTool(), 0, h)
+	wzContain(t, "stderr", h.err(), "  other/tool: push access through account-b.")
+	wzLack(t, "stderr", h.err(), "not found, or", "read-only")
+	h.noSwitch(t)
+	if got := h.run.matching("gh api repos/other/tool"); len(got) != 2 {
+		t.Errorf("each login asked once: %q", got)
+	}
+}
+
+func TestTheWizardAsksEveryLoginWhenTheOwnersRepoIsNotTheActiveOnes(t *testing.T) {
+	// The owner's report: the active login cannot see the checkout's repository, another can.
+	h := newWzHarness(t)
+	h.logins("account-a", "account-b")
+	h.onAPI(t, "repos/example-org/proj", map[string]execx.Result{"account-b": wzOK("true\n")})
+	h.run.queue("gum choose", wzOK(scopeRepos+", starting with example-org/proj\n"))
+	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
+	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1), wzExit(1))
+	wzCode(t, h.invoke(), 0, h)
+	wzContain(t, "stderr", h.err(), "  example-org/proj: push access through account-b.")
+	wzLack(t, "stderr", h.err(), "Try again", "Giving up")
+	h.noSwitch(t)
+}
+
+func TestSeveralLoginsThatCanPushAreAllNamedAndNothingIsAsked(t *testing.T) {
+	h := newWzHarness(t)
+	h.logins("account-a", "account-b", "account-c")
+	h.onAPI(t, "repos/other/tool", map[string]execx.Result{"account-a": wzOK("true\n"), "account-b": wzOK("false\n"), "account-c": wzOK("true\n")})
+	wzCode(t, h.yesOnTool(), 0, h)
+	wzContain(t, "stderr", h.err(), "  other/tool: push access through account-a and account-c.")
+	if h.run.called("gum") {
+		t.Error("a question was asked: which login can push changes nothing the team keeps")
+	}
+}
+
+func TestARepositoryNoLoginCanSeeNamesTheLoginsTried(t *testing.T) {
+	h := newWzHarness(t)
+	h.logins("account-a", "account-b")
+	h.onAPI(t, "repos/other/tool", nil)
+	wzCode(t, h.yesOnTool(), 1, h)
+	wzContain(t, "stderr", h.err(), "  other/tool: not found, or none of your gh logins can see it (tried account-a, account-b).")
+	h.noSwitch(t)
+}
+
+func TestARepositoryReadOnlyForEveryLoginThatSeesItNamesThem(t *testing.T) {
+	h := newWzHarness(t)
+	h.logins("account-a", "account-b")
+	h.onAPI(t, "repos/other/tool", map[string]execx.Result{"account-b": wzOK("false\n")})
+	wzCode(t, h.yesOnTool(), 1, h)
+	wzContain(t, "stderr", h.err(), "  other/tool: none of your gh logins can push to it (read-only for account-b; tried account-a, account-b); a team trusts only repositories you can push to.")
+}
+
+func TestAMistypedRepositoryIsStillAskedThreeTimesAcrossLogins(t *testing.T) {
+	h := newWzHarness(t)
+	h.logins("account-a", "account-b")
+	h.onAPI(t, "repos/other/typo", nil)
+	h.run.queue("gum choose", wzOK(scopeRepos+"\n"))
+	h.run.queue("gum input", wzOK("other/typo\n"), wzOK("other/typo\n"), wzOK("other/typo\n"))
+	wzCode(t, h.invoke(), 1, h)
+	wzContain(t, "stderr", h.err(), "(tried account-a, account-b)", "Giving up after 3 tries; nothing was changed.")
+	if n := len(h.run.matching("gum input --header Repositories")); n != 3 {
+		t.Errorf("%d tries", n)
+	}
+}
+
+func TestAnOwnerOnlyASecondLoginCanSeeIsFound(t *testing.T) {
+	h := newWzHarness(t)
+	h.logins("account-a", "account-b")
+	h.onAPI(t, "users/private-org", map[string]execx.Result{"account-b": wzOK("")})
+	h.fake.On(wzDP("suggest-team", "--name", "private-org"), wzOK("private-org\n"))
+	wzCode(t, h.yesOnOrg("private-org"), 0, h)
+	wzLack(t, "stderr", h.err(), "no user or organisation")
+	h.noSwitch(t)
+}
+
+func TestAnOwnerNoLoginCanSeeNamesTheLoginsTried(t *testing.T) {
+	h := newWzHarness(t)
+	h.logins("account-a", "account-b")
+	h.onAPI(t, "users/nope", nil)
+	wzCode(t, h.yesOnOrg("nope"), 1, h)
+	wzContain(t, "stderr", h.err(), "GitHub has no user or organisation called 'nope' that any of your gh logins can see (tried account-a, account-b).")
+}
+
+// yesOnOrg is a --yes create of team beta for everything owner owns.
+func (h *wzHarness) yesOnOrg(owner string) term.ExitCode {
+	h.tty = false
+	return h.invoke("--yes", "--description", "Builds the site", "--team", "beta", "--human", "owner", "--org", owner)
+}
+
+func TestTheTokensNeverReachArgvOrOutput(t *testing.T) {
+	h := newWzHarness(t)
+	h.logins("account-a", "account-b")
+	h.onAPI(t, "repos/other/tool", map[string]execx.Result{"account-b": wzOK("true\n")})
+	wzCode(t, h.yesOnTool(), 0, h)
+	for _, l := range []string{"account-a", "account-b"} {
+		wzLack(t, "stderr", h.err(), wzToken(l))
+		wzLack(t, "stdout", h.stdout.String(), wzToken(l))
+		wzLack(t, "argv", strings.Join(h.run.lines(), "\n"), wzToken(l))
+	}
+}
+
+func TestAGhWithNoWorkingLoginIsNotLoggedIn(t *testing.T) {
+	h := newWzHarness(t)
+	h.fake.On([]string{"gh", "auth", "status"}, wzOK(`{"hosts":{"github.com":[{"login":"account-a","active":true,"state":"error"}]}}`))
+	wzCode(t, h.invoke(), 1, h)
+	wzContain(t, "stderr", h.err(), "ERROR: gh has no working login to GitHub, and the org is looked up there. Run gh auth login (or gh auth refresh for a login whose token failed), then try again.")
+	if h.run.called("gum choose") {
+		t.Error("went on")
+	}
+}
+
+func TestAGhTooOldToListItsLoginsNamesThePlay(t *testing.T) {
+	h := newWzHarness(t)
+	h.fake.On([]string{"gh", "auth", "status"}, execx.Result{ExitCode: 1, Stderr: []byte("unknown flag: --json\n")})
+	wzCode(t, h.invoke(), 1, h)
+	wzContain(t, "stderr", h.err(), "ERROR: gh is too old to list its logins as JSON (gh said: unknown flag: --json). playbooks/imports/play-git-configure-and-tools.yml installs a current one; run that play and try again.")
+}
+
+func TestALoginGhHoldsNoTokenForEndsTheRun(t *testing.T) {
+	h := newWzHarness(t)
+	h.logins("account-a", "account-b")
+	h.fake.On([]string{"gh", "auth", "token", "--hostname", "github.com", "--user", "account-b"}, execx.Result{ExitCode: 1, Stderr: []byte("no oauth token found for account-b\n")})
+	wzCode(t, h.yesOnTool(), 1, h)
+	wzContain(t, "stderr", h.err(), "ERROR:", "account-b")
+	if h.run.called("gh api") {
+		t.Error("GitHub was asked with a login missing")
+	}
 }
 
 func TestYesPassesTheDescriptionToTheEntry(t *testing.T) {

@@ -47,51 +47,6 @@ func (v version) atLeast(floor version) bool {
 	return true
 }
 
-// status is what `gh auth status --json hosts` says of github.com (E6).
-type status struct {
-	active  string   // the logged-in active account, "" for none
-	working []string // every account whose token is good
-}
-
-func (s status) loggedIn(login string) bool { return s.login(login) != "" }
-
-// login is the logged-in account matching login, spelled as gh holds it; "" when none is.
-func (s status) login(login string) string {
-	for _, l := range s.working {
-		if strings.EqualFold(l, login) {
-			return l
-		}
-	}
-	return ""
-}
-
-func parseStatus(out []byte) (status, error) {
-	var doc struct {
-		Hosts map[string][]struct {
-			Login  string `json:"login"`
-			Active bool   `json:"active"`
-			State  string `json:"state"`
-		} `json:"hosts"`
-	}
-	if err := json.Unmarshal(out, &doc); err != nil {
-		return status{}, fmt.Errorf("not gh's status JSON: %w", err)
-	}
-	if doc.Hosts == nil {
-		return status{}, errors.New("not gh's status JSON: no hosts")
-	}
-	var st status
-	for _, e := range doc.Hosts["github.com"] {
-		if e.State != "success" {
-			continue
-		}
-		st.working = append(st.working, e.Login)
-		if e.Active {
-			st.active = e.Login
-		}
-	}
-	return st, nil
-}
-
 type verdictKind int
 
 const (
