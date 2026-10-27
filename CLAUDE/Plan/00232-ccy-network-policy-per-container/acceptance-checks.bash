@@ -16,6 +16,11 @@
 #                                  control), and refused from the session at once (under 2 s, not
 #                                  a timeout)
 #   allowed <session>              DNS, the forge and the Claude API still work
+#   connect <session> <image> <launcher> <checkout>
+#                                  a peer on a throwaway project network is refused, then reached
+#                                  after `ccy --connect <network>` (whose refresh opens its subnet
+#                                  and names it in the session's context file), then refused again
+#                                  after `ccy --disconnect <network>`
 #   context <session>              the session was started with its network limits in its system
 #                                  prompt (the marker CCY NETWORK POLICY)
 #   bus <session> <peer> <team> <seat> <peer-seat>
@@ -26,9 +31,14 @@
 #   ready <session> <team>         the session's pingbus answers for <team> (its seat is claimed);
 #                                  no PASS line, only the status
 #
+# Every probe must give one RESULT line per target and exit 0 (probe), or the check fails: a
+# check never passes on nothing measured.
+#
 # Side effects: `blocked` runs a throwaway container (label ccy-netpolicy-acceptance) and a
-# python3 http.server on a random high port for its duration; `bus` posts one message each way
-# in <team>'s room. Nothing else is changed.
+# python3 http.server on a random high port for its duration; `connect` makes a throwaway
+# network (same label) with a peer on it, and `ccy --connect` joins EVERY running ccy session of
+# <checkout> to it until its `ccy --disconnect`; the checkout's saved default network is put back
+# as it was. `bus` posts one message each way in <team>'s room. Nothing else is changed.
 set -euo pipefail
 
 scriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -53,6 +63,21 @@ run_inside() {
     local name="$1"
     shift
     podman exec -i "${name}" bash -s -- "$@" <"${INSIDE}"
+}
+
+# probe <session> <target...> — the probe's RESULT lines in PROBED, one per target; 1, with a
+# FAIL line, when the probe itself failed or a target gave no line.
+PROBED=()
+probe() {
+    local c="$1" out rc=0
+    shift
+    out="$(run_inside "${c}" "$@" 2>&1)" || rc=$?
+    mapfile -t PROBED < <(awk '/^RESULT /' <<<"${out}")
+    if [[ "${rc}" -ne 0 ]] || [[ "${#PROBED[@]}" -ne "$#" ]]; then
+        fail "the probe in ${c} exited ${rc} with ${#PROBED[@]} RESULT line(s) for $# target(s), so nothing was measured: ${out}"
+        PROBED=()
+        return 1
+    fi
 }
 
 # field <RESULT-line> <key> — the value of key=... on a netprobe RESULT line.
@@ -151,26 +176,105 @@ sys.exit("nothing listens on 8080")
     fi
 
     # The control: the same targets from the peer, which has no policy, must answer.
-    while IFS= read -r line; do
-        [[ "${line}" == RESULT* ]] || continue
+    probe "${peer}" "${targets[@]}" || return 0
+    for line in "${PROBED[@]}"; do
         if [[ "$(field "${line}" rc)" == 0 ]]; then pass "control reaches it without the policy: ${line}"; else fail "control could not reach it, so a refusal would prove nothing: ${line}"; fi
-    done < <(run_inside "${peer}" "${targets[@]}")
+    done
 
-    while IFS= read -r line; do
-        [[ "${line}" == RESULT* ]] || continue
+    probe "${c}" "${targets[@]}" "${sessionOnly[@]+"${sessionOnly[@]}"}" || return 0
+    for line in "${PROBED[@]}"; do
         judge_blocked "${line}"
-    done < <(run_inside "${c}" "${targets[@]}" "${sessionOnly[@]+"${sessionOnly[@]}"}")
+    done
 }
 
 check_allowed() {
     local c="$1" line rc http label
-    while IFS= read -r line; do
-        [[ "${line}" == RESULT* ]] || continue
+    probe "${c}" "dns|dns-forge|api.github.com" "url|forge|https://api.github.com/" "url|anthropic|https://api.anthropic.com/" || return 0
+    for line in "${PROBED[@]}"; do
         label="$(awk '{ print $2 }' <<<"${line}")"
         rc="$(field "${line}" rc)"
         http="$(field "${line}" http)"
         if [[ "${rc}" == 0 ]] && [[ "${http}" != 000 ]]; then pass "${label}: ${line}"; else fail "${label} is not reachable: ${line}"; fi
-    done < <(run_inside "${c}" "dns|dns-forge|api.github.com" "url|forge|https://api.github.com/" "url|anthropic|https://api.anthropic.com/")
+    done
+}
+
+# ccy_in <launcher> <checkout> <args...> — the launcher run in the checkout, as the owner runs it.
+ccy_in() {
+    local launcher="$1" checkout="$2"
+    shift 2
+    (cd -- "${checkout}" && "${launcher}" "$@") </dev/null
+}
+
+# peer_reach <session> <target> <want: reached|refused> <when>
+peer_reach() {
+    local c="$1" target="$2" want="$3" when="$4" line
+    probe "${c}" "${target}" || return 0
+    line="${PROBED[0]}"
+    if [[ "${want}" == refused ]]; then
+        judge_blocked "${line}"
+    elif [[ "$(field "${line}" rc)" == 0 ]]; then
+        pass "${when}: the peer is reached: ${line}"
+    else
+        fail "${when}: the peer is not reached: ${line}"
+    fi
+}
+
+# context_names <session> <network> <yes|no> <when> — the session's context file names it or not.
+context_names() {
+    local c="$1" net="$2" want="$3" when="$4" text
+    if ! text="$(podman exec "${c}" cat /run/ccy/network-policy 2>&1)"; then
+        fail "${when}: ${c}'s context file cannot be read: ${text}"
+    elif [[ "${text}" == *"project network ${net} ("* ]] && [[ "${want}" == yes ]]; then
+        pass "${when}: ${c}'s context file names ${net}"
+    elif [[ "${text}" != *"project network ${net} ("* ]] && [[ "${want}" == no ]]; then
+        pass "${when}: ${c}'s context file no longer names ${net}"
+    else
+        fail "${when}: ${c}'s context file is not as expected (names ${net}: ${want}): ${text}"
+    fi
+}
+
+check_connect() {
+    local c="$1" image="$2" launcher="$3" checkout="$4" net peer peerIp name out pref saved="" connected=""
+    net="ccy-np232-net-$$"
+    peer="ccy-netpolicy-acceptance-net-$$"
+    # The saved default network, as the launcher keeps it (lib/network-management.bash
+    # get_network_persistence_file): --connect writes it and --disconnect clears it.
+    pref="${HOME}/.claude-tokens/ccy/projects/$(printf '%s' "${checkout}" | sha256sum | cut -c1-16)/network"
+    if [[ -f "${pref}" ]]; then saved="$(cat -- "${pref}")"; fi
+    stop_connect() {
+        trap - RETURN
+        if [[ -n "${connected}" ]] && ! out="$(ccy_in "${launcher}" "${checkout}" --disconnect "${net}" 2>&1)"; then
+            fail "the cleanup's ccy --disconnect ${net} failed: ${out}"
+        fi
+        if podman container exists "${peer}"; then podman rm -f -t 0 "${peer}" >/dev/null; fi
+        if podman network exists "${net}"; then podman network rm "${net}" >/dev/null; fi
+        if [[ -n "${saved}" ]]; then printf '%s\n' "${saved}" >"${pref}"; fi
+    }
+    trap stop_connect RETURN
+    podman network create --label ccy-netpolicy-acceptance "${net}" >/dev/null
+    podman run -d --rm --label ccy-netpolicy-acceptance --network "${net}" --name "${peer}" \
+        --entrypoint python3 "${image}" -m http.server 8080 >/dev/null
+    peerIp="$(podman inspect --format "{{(index .NetworkSettings.Networks \"${net}\").IPAddress}}" "${peer}")"
+    printf 'NOTE throwaway network %s, peer %s at %s\n' "${net}" "${peer}" "${peerIp}"
+    peer_reach "${c}" "http|net-peer|${peerIp}|8080" refused "before --connect"
+
+    if ! out="$(ccy_in "${launcher}" "${checkout}" --connect "${net}" 2>&1)"; then
+        fail "ccy --connect ${net} failed: ${out}"
+        return 0
+    fi
+    connected=1
+    name="$(podman inspect --format '{{.Name}}' "${c}")"
+    if [[ "${out}" == *"Network policy of ${name#/} refreshed"* ]]; then pass "ccy --connect refreshed ${name#/}'s policy: $(awk '/refreshed/' <<<"${out}")"; else fail "ccy --connect printed no refresh of ${name#/}: ${out}"; fi
+    peer_reach "${c}" "http|net-peer|${peerIp}|8080" reached "after --connect"
+    context_names "${c}" "${net}" yes "after --connect"
+
+    if ! out="$(ccy_in "${launcher}" "${checkout}" --disconnect "${net}" 2>&1)"; then
+        fail "ccy --disconnect ${net} failed: ${out}"
+        return 0
+    fi
+    connected=""
+    peer_reach "${c}" "http|net-peer|${peerIp}|8080" refused "after --disconnect"
+    context_names "${c}" "${net}" no "after --disconnect"
 }
 
 check_context() {
@@ -196,7 +300,8 @@ check_bus() {
     urlA="$(member_json "${a}" "${team}" "${seatA}" | jq -r '.base_url')"
     idA="$(member_json "${a}" "${team}" "${seatA}" | jq -r '.user_id')"
     idB="$(member_json "${b}" "${team}" "${seatB}" | jq -r '.user_id')"
-    line="$(run_inside "${a}" "url|homeserver|${urlA%/}/_matrix/client/versions" | awk '/^RESULT/')"
+    probe "${a}" "url|homeserver|${urlA%/}/_matrix/client/versions" || return 0
+    line="${PROBED[0]}"
     if [[ "$(field "${line}" http)" == 200 ]]; then pass "${a} reaches its homeserver: ${line}"; else fail "${a} cannot reach its homeserver: ${line}"; fi
     send_and_see "${a}" "${b}" "${idB}" "${team}"
     send_and_see "${b}" "${a}" "${idA}" "${team}"
@@ -227,13 +332,15 @@ case "${1-}" in
     held) check_held "${2:?held <session>}" ;;
     blocked) check_blocked "${2:?blocked <session> <image>}" "${3:?blocked <session> <image>}" ;;
     allowed) check_allowed "${2:?allowed <session>}" ;;
+    connect) check_connect "${2:?connect <session> <image> <launcher> <checkout>}" "${3:?connect <session> <image> <launcher> <checkout>}" \
+        "${4:?connect <session> <image> <launcher> <checkout>}" "${5:?connect <session> <image> <launcher> <checkout>}" ;;
     context) check_context "${2:?context <session>}" ;;
     bus) check_bus "${2:?bus <session> <peer> <team> <seat> <peer-seat>}" "${3:?bus <session> <peer> <team> <seat> <peer-seat>}" \
         "${4:?bus <session> <peer> <team> <seat> <peer-seat>}" "${5:?bus <session> <peer> <team> <seat> <peer-seat>}" \
         "${6:?bus <session> <peer> <team> <seat> <peer-seat>}" ;;
     ready) bus "${2:?ready <session> <team>}" "${3:?ready <session> <team>}" inbox </dev/null >/dev/null ;;
     *)
-        printf 'usage: %s caps|held|blocked|allowed|context|bus|ready <args>\n' "$0" >&2
+        printf 'usage: %s caps|held|blocked|allowed|connect|context|bus|ready <args>\n' "$0" >&2
         exit 64
         ;;
 esac

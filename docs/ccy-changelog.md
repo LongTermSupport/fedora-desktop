@@ -37,15 +37,19 @@ Follows 3.100.36 (container 2.79.15). Plan 00232 Task 3.3. The image does not ch
   then starts it. The default refuses the private and LAN ranges and the host's own
   addresses, with ICMP admin-prohibited so a refusal fails at once; the public internet, the
   container's nameservers, the agent bus address and the session's project networks stay
-  open. The owner widens it in a host file no container sees (`ccy-network-policy where`), with
+  open, and so does IPv6 neighbour discovery to link-local addresses. The owner widens it in a host file no container sees (`ccy-network-policy where`), with
   addresses, prefixes, host names, `:port`, `lxc` or `off` ([Network policy](ccy.md#network-policy)).
 - **The session is told its limits**, in a `CCY NETWORK POLICY` block on Claude Code's system
   prompt and at `/run/ccy/network-policy`.
 - **Where the policy cannot be held** (Docker, no `nft` on the host) the session runs
   unprotected with a loud warning; a policy that fails to apply or read back removes the
-  container and stops the launch. A missing `ccy-network-policy` stops it too.
+  container and stops the launch, naming `CCY_NETWORK_ALLOW=off` as the way out. A missing
+  `ccy-network-policy` stops it too.
 - **`--connect` and `--disconnect` refresh** every live session's allow sets after changing
-  its networks.
+  its networks; an unprotected session is skipped.
+- **The tokens go to the container alone**: `ccy-network-policy` takes each `-e NAME` token out
+  of its environment and gives it to the container's create or run, not to the podman and nft
+  calls around it.
 - `play-claude-yolo.yml` installs `nftables` and builds `ccy-network-policy` into `~/.local/bin`.
 
 ## 3.100.36 — container 2.79.15

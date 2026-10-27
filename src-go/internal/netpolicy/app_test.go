@@ -123,6 +123,8 @@ type world struct {
 	exit    int
 	// started is the state directory's files as they were while the session ran.
 	started map[string][]byte
+	tokens  map[string]string // the environment's tokens, for TakeSecret
+	taken   []string          // every name TakeSecret was asked for, in order
 }
 
 const (
@@ -229,6 +231,15 @@ func (w *world) app(args ...string) App {
 		Args:   args,
 		Getenv: func(k string) string { return env[k] },
 		Runner: w.fake, Fg: w.fake,
+		TakeSecret: func(n string) (execx.Secret, bool, error) {
+			w.taken = append(w.taken, n)
+			v, ok := w.tokens[n]
+			if !ok {
+				return execx.Secret{}, false, nil
+			}
+			s, err := execx.NewSecret(n, v)
+			return s, err == nil, err
+		},
 		LookPath: func(p string) (string, error) {
 			if p == "nft" && w.noNft {
 				return "", errors.New("not found")
@@ -575,5 +586,90 @@ func TestRefreshFailureIsLoud(t *testing.T) {
 	w.run(term.ExitFailure, "refresh")
 	if !strings.Contains(w.stderr.String(), name) {
 		t.Errorf("stderr: %s", w.stderr.String())
+	}
+}
+
+// An unprotected session (off, or Docker) is not one a refresh can change: it is skipped by
+// its state, and its live context file is left alone.
+func TestRefreshSkipsUnprotectedSessions(t *testing.T) {
+	for _, c := range []struct{ label, engine, file string }{
+		{"off", "podman", "CCY_NETWORK_ALLOW=off\n"},
+		{"docker", "docker", ""},
+	} {
+		t.Run(c.label, func(t *testing.T) {
+			w := newWorld(t)
+			if c.file != "" {
+				w.write(HostFile(w.home, w.dir), c.file)
+			}
+			w.run(0, launchArgs(c.engine, nil, "claude")...)
+			for file, data := range w.started {
+				w.write(filepath.Join(w.stateDir(), file), string(data))
+			}
+			w.fake.On([]string{"podman", "inspect"}, execx.Result{ExitCode: 125, Stderr: []byte("no such container")})
+			calls := len(w.fake.Calls())
+			w.run(0, "refresh")
+			if got := w.fake.Calls()[calls:]; len(got) != 0 {
+				t.Errorf("an unprotected session was inspected or changed: %v", got)
+			}
+			if _, err := os.Stat(filepath.Join(w.stateDir(), "context")); err != nil {
+				t.Errorf("the live session's context file is gone: %v", err)
+			}
+		})
+	}
+}
+
+func TestLaunchFailureNamesTheWayOut(t *testing.T) {
+	w := newWorld(t)
+	w.nft.refuse = true
+	w.run(term.ExitFailure, launchArgs("podman", nil, "claude")...)
+	if !strings.Contains(w.stderr.String(), AllowVar+"=off") || !strings.Contains(w.stderr.String(), HostFile(w.home, w.dir)) {
+		t.Errorf("the failure does not name the way out: %s", w.stderr.String())
+	}
+}
+
+// The tokens the run passes by name (-e NAME) are taken out of this process's environment and
+// given to the container's create or run alone, never to inspect or nsenter.
+func TestLaunchGivesTokensToTheContainerOnly(t *testing.T) {
+	for _, c := range []struct {
+		label, engine, file, holder string
+	}{
+		{"enforced", "podman", "", "podman create"},
+		{"off", "podman", "CCY_NETWORK_ALLOW=off\n", "FG podman run"},
+		{"docker", "docker", "", "FG docker run"},
+	} {
+		t.Run(c.label, func(t *testing.T) {
+			w := newWorld(t)
+			if c.file != "" {
+				w.write(HostFile(w.home, w.dir), c.file)
+			}
+			held := []string{"GH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"}
+			w.tokens = map[string]string{}
+			for _, n := range held {
+				w.tokens[n] = "value-of-" + n
+			}
+			w.run(0, launchArgs(c.engine, []string{"-e", "GH_TOKEN", "-e", "GITHUB_USERNAME=u", "--env", "CLAUDE_CODE_OAUTH_TOKEN", "-e", "UNSET_KEY"}, "claude")...)
+			if want := append(slices.Clone(held), "UNSET_KEY"); !slices.Equal(w.taken, want) {
+				t.Errorf("taken %v, want %v", w.taken, want)
+			}
+			w.onlyHolds(c.holder, held)
+		})
+	}
+}
+
+// onlyHolds is the check that the command prefix names the one command given tokens, these.
+func (w *world) onlyHolds(prefix string, want []string) {
+	w.t.Helper()
+	holder := w.call(prefix)
+	names := make([]string, 0, len(holder.Secrets))
+	for _, s := range holder.Secrets {
+		names = append(names, s.Name())
+	}
+	if !slices.Equal(names, want) {
+		w.t.Errorf("%s holds %v", prefix, names)
+	}
+	for _, cmd := range slices.Concat(w.fake.Calls(), w.fake.Foregrounds()) {
+		if len(cmd.Secrets) > 0 && cmd.Line() != holder.Line() {
+			w.t.Errorf("%s was given the tokens", cmd.Line())
+		}
 	}
 }

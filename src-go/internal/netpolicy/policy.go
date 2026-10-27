@@ -7,7 +7,8 @@
 //
 //   - N1. The default refuses the private and LAN ranges (10/8, 172.16/12, 192.168/16,
 //     100.64/10, 169.254/16, fe80::/10, fc00::/7, built from octets) and every global address
-//     of the host itself, and keeps the public internet open.
+//     of the host itself, and keeps the public internet open. ICMPv6 neighbour discovery to
+//     fe80::/10 passes, so a link-local IPv6 gateway (pasta's) stays reachable.
 //   - N2. Always open, derived on the host, never listed by hand: loopback, the container's
 //     own nameservers on port 53 (read once, before start), the agent bus address on
 //     agentbus0 on every port, and the subnet of every project network the session joins
@@ -30,14 +31,18 @@
 //     SYS_ADMIN, or the launch stops: those would let it lift the table.
 //   - N7. Where enforcement is unavailable (the Docker engine, no nft on the host) the
 //     session runs unprotected, with a warning on stderr; `off` runs it unprotected on the
-//     owner's word. Either way the session is told.
+//     owner's word. Either way the session is told. A launch the policy stops names the way
+//     out: CCY_NETWORK_ALLOW=off.
 //   - N8. Every session is told its limits: a `CCY NETWORK POLICY` block appended to the
 //     Claude Code system prompt (added to the agent's command), and the same text mounted
 //     read-only at /run/ccy/network-policy.
 //   - N9. `refresh` (run by `ccy --connect` and `--disconnect`) recomputes the allow sets of
 //     every live session from its current networks and replaces them whole in one
 //     transaction (a `delete element` can fail on a merged interval), verifies them, and
-//     rewrites the context file in place.
+//     rewrites the context file in place. An unprotected session (N7) is skipped by its
+//     recorded state, never inspected: a Docker one is not podman's to see.
+//   - N10. A token the run passes by name (`-e NAME`) is taken out of this process's
+//     environment and given to the container's create or run alone, never to inspect or nft.
 package netpolicy
 
 import (
@@ -235,10 +240,13 @@ func DefaultBlock() []netip.Prefix {
 	}
 	return []netip.Prefix{
 		octets(10, 0, 8), octets(172, 16, 12), octets(192, 168, 16), octets(100, 64, 10), octets(169, 254, 16),
-		netip.PrefixFrom(netip.AddrFrom16([16]byte{0xfe, 0x80}), 10),
+		linkLocal6(),
 		netip.PrefixFrom(netip.AddrFrom16([16]byte{0xfc}), 7),
 	}
 }
+
+// linkLocal6 is fe80::/10, refused but for neighbour discovery.
+func linkLocal6() netip.Prefix { return netip.PrefixFrom(netip.AddrFrom16([16]byte{0xfe, 0x80}), 10) }
 
 // Normalise masks each prefix, sorts them, and drops every one another covers (N4).
 func Normalise(in []netip.Prefix) []netip.Prefix {
@@ -377,7 +385,9 @@ func setsOf(p Policy) []namedSet {
 	}
 }
 
-// rules are the output chain's rules, in order: every allow before any block.
+// rules are the output chain's rules, in order: every allow before any block. Neighbour
+// discovery (ICMPv6 133 to 137) to a link-local address passes, so a session whose IPv6 gateway
+// is link-local (pasta) keeps IPv6; ff02::/16, where solicitations go, is never refused.
 func rulesOf(p Policy) []string {
 	rules := []string{`oifname "lo" accept`, "ip daddr @allow4 accept", "ip6 daddr @allow6 accept"}
 	for _, pa := range p.Ports {
@@ -392,6 +402,7 @@ func rulesOf(p Policy) []string {
 	return append(rules,
 		"ip daddr @dns4 udp dport 53 accept", "ip daddr @dns4 tcp dport 53 accept",
 		"ip6 daddr @dns6 udp dport 53 accept", "ip6 daddr @dns6 tcp dport 53 accept",
+		"ip6 daddr "+linkLocal6().String()+" icmpv6 type { nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert, nd-redirect } accept",
 		"ip daddr @block4 reject with icmpx admin-prohibited", "ip6 daddr @block6 reject with icmpx admin-prohibited")
 }
 

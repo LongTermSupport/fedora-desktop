@@ -28,7 +28,7 @@ func run(args []string) term.ExitCode {
 		return term.ExitFailure
 	}
 	app := netpolicy.App{
-		Args: args, Getenv: os.Getenv, Runner: execx.OS{}, Fg: execx.OS{}, LookPath: exec.LookPath,
+		Args: args, Getenv: os.Getenv, Runner: execx.OS{}, Fg: execx.OS{}, TakeSecret: execx.TakeSecret, LookPath: exec.LookPath,
 		Ifaces: netpolicy.SystemIfaces,
 		Resolve: func(ctx context.Context, host string) ([]netip.Addr, error) {
 			return net.DefaultResolver.LookupNetIP(ctx, "ip", host)

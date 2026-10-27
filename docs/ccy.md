@@ -1549,7 +1549,9 @@ instruction runs, read back, and nothing inside the container can change it.
 
 - **By default** the session reaches the public internet and is refused the private and LAN
   ranges (10/8, 172.16/12, 192.168/16, 100.64/10, 169.254/16, fe80::/10, fc00::/7) and every
-  address of the host itself. A refused connection fails at once ("No route to host").
+  address of the host itself. A refused connection fails at once ("No route to host"). IPv6
+  neighbour discovery to link-local addresses still passes, so a link-local IPv6 gateway
+  (`--no-network`'s pasta) keeps working.
 - **Always open**: loopback, the container's own nameservers, the agent team bus address, and
   every project network the session joins (`--network`, the saved default, `--connect`).
   Other ccy sessions on the shared `podman` network stay refused. `--connect` and
@@ -1566,7 +1568,8 @@ instruction runs, read back, and nothing inside the container can change it.
   knows what is refused and how the owner can open it.
 - **Where it cannot be held** (the Docker engine, or no `nft` on the host) the session runs
   unprotected with a warning, and is told so; `off` runs it unprotected on the owner's word.
-  If the policy cannot be applied or read back, the container is removed and the launch stops.
+  If the policy cannot be applied or read back, the container is removed and the launch stops,
+  naming the way out: `CCY_NETWORK_ALLOW=off` in the policy file or the host shell.
 - `ccy-network-policy` missing from `~/.local/bin` stops the launch: run `play-claude-yolo.yml`.
 
 ---

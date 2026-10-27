@@ -237,3 +237,20 @@ func TestAllowUpdate(t *testing.T) {
 		t.Errorf("%q, want %q", got, want)
 	}
 }
+
+// A pasta (--no-network) session's IPv6 gateway is link-local, so the neighbour discovery
+// packets to it (ICMPv6 133 to 137) must pass the fe80::/10 refusal, and nothing else to it.
+func TestRulesetKeepsNeighbourDiscovery(t *testing.T) {
+	r := mustCompute(t, hostShape()).Ruleset()
+	nd := "ip6 daddr fe80::/10 icmpv6 type { nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert, nd-redirect } accept"
+	i := strings.Index(r, nd)
+	if i < 0 {
+		t.Fatalf("the ruleset lacks %q:\n%s", nd, r)
+	}
+	if i > strings.Index(r, "@block6") {
+		t.Errorf("neighbour discovery comes after the block:\n%s", r)
+	}
+	if strings.Count(r, "fe80::/10") != 2 {
+		t.Errorf("fe80::/10 is opened beyond neighbour discovery:\n%s", r)
+	}
+}

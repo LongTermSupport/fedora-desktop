@@ -12,6 +12,9 @@
 #   blocked  the host itself and a neighbouring container are refused at once, while a control
 #            container without the policy reaches the same listeners
 #   allowed  DNS, the forge and the Claude API still work
+#   connect  a peer on a throwaway project network is refused, reached after `ccy --connect`
+#            (its refresh opens the subnet and names it in the context file), and refused
+#            again after `ccy --disconnect`
 #   bus      both sessions reach their homeserver, and a pingbus message sent each way arrives
 #
 # The sessions are started and ended here, not by deploy.bash: a session must not outlive the
@@ -28,7 +31,9 @@
 # EFFECT ON THE HOST: two seats np232a and np232b made in the team (sudo agent-bus add-member,
 # through the launch) and parked again at the end (agent-bus seat remove); two headless ccy
 # sessions for the run's length; one throwaway control container and a short-lived listener
-# during `blocked`; one probe message each way in the team's room during `bus`. The checkout's
+# during `blocked`; during `connect`, a throwaway network with a peer on it, which `ccy --connect`
+# joins EVERY running ccy session of this checkout to until `ccy --disconnect` takes them off
+# (the saved default network is put back as it was); one probe message each way in the team's room during `bus`. The checkout's
 # Quick Launch record is saved first and put back, since a seated launch rewrites it.
 #
 # EXIT CODES: 0 every check passed; 1 at least one failed (each names itself), or the sessions
@@ -62,7 +67,7 @@ PLAN_USAGE="usage: acceptance.bash [--team=<team>] [--image=<ref>] [-h|--help]
 
 The Plan 00232 gate: two throwaway seated headless ccy sessions under the default network
 policy cannot reach the host or a neighbour, still reach DNS, the forge and the Claude API,
-were told their limits, and still send and receive pingbus messages; then both are removed.
+follow ccy --connect and --disconnect, were told their limits, and still send and receive pingbus messages; then both are removed.
 Host-only; prompts for sudo once, before the run log opens (the seats are made and parked).
   --team=<team>   the team to seat them in (default: the team of this checkout's first seat)
   --image=<ref>   the image of the control container (default claude-yolo:latest)
@@ -163,6 +168,7 @@ for c in "${a}" "${b}"; do
 done
 check "blocked: the host and a neighbour are refused at once" "${CHECKS}" blocked "${a}" "${image}"
 check "allowed: DNS, the forge and the Claude API work" "${CHECKS}" allowed "${a}"
+check "connect: ccy --connect and --disconnect move the policy with the session's networks" "${CHECKS}" connect "${a}" "${image}" "${CCY_LAUNCHER}" "${PLAN_REPO_ROOT}"
 check "bus: the homeserver is reached and pingbus messages arrive both ways" "${CHECKS}" bus "${a}" "${b}" "${TEAM}" "${SEAT_A}" "${SEAT_B}"
 
 plan_deploy_leg "end both sessions, park their seats, restore the Quick Launch record" teardown
@@ -170,5 +176,5 @@ if [[ -n "${FAILED_CHECKS}" ]]; then
     printf '\nREJECTED: %s\n' "${FAILED_CHECKS}" >&2
     exit 1
 fi
-printf '\nACCEPTED: both sessions held the policy, were refused the host and a neighbour, and reached DNS, the forge, the API and each other over the bus; both removed\n'
+printf '\nACCEPTED: both sessions held the policy, were refused the host and a neighbour, and reached DNS, the forge, the API, a network joined by ccy --connect and each other over the bus; both removed\n'
 plan_finish

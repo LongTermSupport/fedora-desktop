@@ -28,17 +28,20 @@ where    prints this checkout's policy file on the host
 
 // App is one run of the ccy-network-policy command.
 type App struct {
-	Args      []string
-	Getenv    func(string) string
-	Runner    execx.Runner
-	Fg        execx.Foregrounder
-	LookPath  func(string) (string, error)
-	Ifaces    func() ([]Iface, error)
-	Resolve   func(ctx context.Context, host string) ([]netip.Addr, error)
-	HostsFile string // the host's hosts file, read for the lxc keyword
-	Dir       string // the checkout the launch runs in
-	Stdout    io.Writer
-	Stderr    io.Writer
+	Args   []string
+	Getenv func(string) string
+	Runner execx.Runner
+	Fg     execx.Foregrounder
+	// TakeSecret moves a token the run passes by name (-e NAME) out of this process's
+	// environment (execx.TakeSecret), so only the container's create or run is given it.
+	TakeSecret func(string) (execx.Secret, bool, error)
+	LookPath   func(string) (string, error)
+	Ifaces     func() ([]Iface, error)
+	Resolve    func(ctx context.Context, host string) ([]netip.Addr, error)
+	HostsFile  string // the host's hosts file, read for the lxc keyword
+	Dir        string // the checkout the launch runs in
+	Stdout     io.Writer
+	Stderr     io.Writer
 }
 
 // launch is a parsed `launch` command line.
@@ -46,6 +49,7 @@ type launch struct {
 	name, image string
 	docker      bool // the engine is docker, where no policy can be held (N7)
 	opts, cmd   []string
+	tokens      []execx.Secret // the -e NAME values, for the container's create or run alone (N10)
 }
 
 // The two engines ccy drives; every policy step is podman's, the only one that can hold it.
@@ -73,6 +77,9 @@ func (a App) Run(ctx context.Context) term.ExitCode {
 		l, err := parseLaunch(a.Args[1:])
 		if err != nil {
 			return a.usage()
+		}
+		if l.tokens, err = a.takeTokens(l.opts); err != nil {
+			return a.fail("ccy: network policy: " + err.Error() + ". The session was not started.")
 		}
 		return a.launch(ctx, l)
 	case "refresh":
@@ -122,10 +129,30 @@ func parseLaunch(args []string) (launch, error) {
 	return l, nil
 }
 
+// takeTokens is every variable the run passes by name only (-e NAME, --env NAME), moved out
+// of this process's environment (N10).
+func (a App) takeTokens(opts []string) ([]execx.Secret, error) {
+	var out []execx.Secret
+	for i := 0; i+1 < len(opts); i++ {
+		if (opts[i] != "-e" && opts[i] != "--env") || strings.Contains(opts[i+1], "=") {
+			continue
+		}
+		s, ok, err := a.TakeSecret(opts[i+1])
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			out = append(out, s)
+		}
+		i++
+	}
+	return out, nil
+}
+
 func (a App) launch(ctx context.Context, l launch) term.ExitCode {
 	allow, hostFile, err := a.allowList()
 	if err != nil {
-		return a.notStarted(err)
+		return a.fail("ccy: network policy: " + err.Error() + ". The session was not started.")
 	}
 	runtime := a.Getenv("XDG_RUNTIME_DIR")
 	if runtime == "" {
@@ -159,7 +186,7 @@ func (a App) launch(ctx context.Context, l launch) term.ExitCode {
 		return a.notStarted(err)
 	}
 	args := slices.Concat([]string{"create"}, l.opts, mount, []string{l.image}, withContext(l.cmd, cx.Text()))
-	if _, createErr := a.Runner.Run(ctx, execx.Cmd{Name: podman, Args: args}); createErr != nil {
+	if _, createErr := a.Runner.Run(ctx, execx.Cmd{Name: podman, Args: args, Secrets: l.tokens}); createErr != nil {
 		return a.notStarted(fmt.Errorf("podman create: %w", createErr))
 	}
 	p, err := a.hold(ctx, l, in, dir, cx)
@@ -374,7 +401,13 @@ func (a App) refresh(ctx context.Context) term.ExitCode {
 	return code
 }
 
+// refreshOne is one session's refresh. An unprotected one (N7) is skipped by its state before
+// podman is asked anything: a Docker session is not podman's, and would read as gone.
 func (a App) refreshOne(ctx context.Context, dir, name string) error {
+	st, stErr := readState(dir)
+	if stErr == nil && st.Context.State != Enforced {
+		return nil
+	}
 	c, err := a.inspect(ctx, name)
 	var exit *execx.ExitError
 	if errors.As(err, &exit) && strings.Contains(strings.ToLower(exit.Stderr), "no such") {
@@ -386,13 +419,8 @@ func (a App) refreshOne(ctx context.Context, dir, name string) error {
 	if !c.State.Running {
 		return nil
 	}
-	data, err := os.ReadFile(filepath.Clean(filepath.Join(dir, "state.json")))
-	if err != nil {
-		return err
-	}
-	var st state
-	if jsonErr := json.Unmarshal(data, &st); jsonErr != nil {
-		return fmt.Errorf("its state: %w", jsonErr)
+	if stErr != nil {
+		return stErr
 	}
 	names := make([]string, 0, len(c.NetworkSettings.Networks))
 	for n := range c.NetworkSettings.Networks {
@@ -437,6 +465,18 @@ func (a App) writeContext(dir string, cx Context) ([]string, error) {
 	return []string{"-v", path + ":" + ContextPath + ":" + opts}, nil
 }
 
+func readState(dir string) (state, error) {
+	var st state
+	data, err := os.ReadFile(filepath.Clean(filepath.Join(dir, "state.json")))
+	if err != nil {
+		return st, err
+	}
+	if err := json.Unmarshal(data, &st); err != nil {
+		return st, fmt.Errorf("its state: %w", err)
+	}
+	return st, nil
+}
+
 func (a App) writeState(dir string, st state) error {
 	data, err := json.Marshal(st)
 	if err != nil {
@@ -468,6 +508,9 @@ func (a App) unprotected(l launch, dir string, cx Context) term.ExitCode {
 	if err != nil {
 		return a.notStarted(err)
 	}
+	if err := a.writeState(dir, state{Context: cx}); err != nil {
+		return a.notStarted(err)
+	}
 	if cx.State == Off {
 		a.say("Network policy: off for this checkout (" + AllowVar + "=off): this session reaches the LAN and this host.\n")
 	} else {
@@ -477,9 +520,9 @@ func (a App) unprotected(l launch, dir string, cx Context) term.ExitCode {
 	}
 	args := slices.Concat([]string{"run"}, l.opts, mount, []string{l.image}, withContext(l.cmd, cx.Text()))
 	if l.docker {
-		return a.foreground(execx.Cmd{Name: docker, Args: args})
+		return a.foreground(execx.Cmd{Name: docker, Args: args, Secrets: l.tokens})
 	}
-	return a.foreground(execx.Cmd{Name: podman, Args: args})
+	return a.foreground(execx.Cmd{Name: podman, Args: args, Secrets: l.tokens})
 }
 
 func (a App) foreground(c execx.Cmd) term.ExitCode {
@@ -496,8 +539,11 @@ func (a App) cleanup(dir string) {
 	}
 }
 
+// notStarted is a launch the policy stopped, and the way out the owner has (N7).
 func (a App) notStarted(err error) term.ExitCode {
-	return a.fail("ccy: network policy: " + err.Error() + ". The session was not started.")
+	return a.fail("ccy: network policy: " + err.Error() + ". The session was not started.\n" +
+		"  To start it with no network policy (it then reaches the LAN and this host), add the line " + AllowVar + "=off to " +
+		HostFile(a.Getenv("HOME"), a.Dir) + ", or set " + AllowVar + "=off in the host shell for one launch.")
 }
 
 func (a App) usage() term.ExitCode {
