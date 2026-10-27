@@ -211,6 +211,13 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
 - [ ] ⬜ **Task 6.3**: A consumer `--changed` path in Go (today `--changed` on a consumer
   box runs run.bash's own play runner, which offers no GitHub issue there).
 - [ ] ⬜ **Task 6.4**: A consumer choice in the kickstart (`fedora-install/ks.cfg`).
+- [ ] ⬜ **Task 6.5**: Speech-to-text on a consumer box. `play-speech-to-text.yml` is
+  `audience: all`, so the consumer menu offers it, and local dictation needs only Go and Whisper.
+  Its Claude post-processing (Ctrl+Insert, the panel's Corporate and Natural items) runs through
+  `wsi-claude-token`, which reads ccy's token pool, and a consumer box has no ccy: those items
+  would fail there, ungated. Open, the owner's decision: post-processing for consumers (a Claude
+  login without ccy) or none. Either way the items fail clearly or are hidden on a consumer box,
+  and the consumer VM scenario installs speech-to-text and checks plain dictation is set up.
 
 ### Phase 5: Review
 

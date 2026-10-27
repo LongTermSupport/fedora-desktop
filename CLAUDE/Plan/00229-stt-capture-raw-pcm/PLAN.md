@@ -52,8 +52,16 @@ This plan fixes it under Defence Before Fix:
   (correct); `wsi-server-manager` only finds and signals pw-record; the extension and docs only
   mention it; the test stubs stand in for it. `wsi-stream`'s standard mode has no `pw-record`
   (RealtimeSTT opens the microphone), so its check is in pre-buffer mode, before `feed_audio()`.
-- [ ] ⬜ **Task 1.4**: Deploy `play-speech-to-text.yml` through `meta-deploy.bash`; the owner
-  dictates and gets the words spoken.
+- [x] ✅ **Task 1.4**: Deploy `play-speech-to-text.yml` through `meta-deploy.bash`; the owner
+  dictates and gets the words spoken. PASS 27-10-27 at F44 59ada11bb (host agent): META_RC=0,
+  the deployed server's `CAPTURE_CMD` and `wsi-stream`'s pre-buffer capture carry `--raw`; the
+  owner's dictation pasted exactly what was said (1 segment, status ok, no container-header
+  error), and no `pw-record` was left defunct.
+- [ ] ⬜ **Task 1.5**: `changed-plays` ran `play-agent-bus.yml` and `play-network-tools.yml` as
+  well, as plays whose inputs include `files/home/.local/bin/wsi-stream` and
+  `wsi-stream-server`. Neither play deploys them. Find why the play ledger counts them as
+  those plays' inputs (a glob or directory input too wide, a shared task file) and narrow it,
+  test first, so a speech-to-text change re-offers only the speech-to-text play.
 
 ### Phase 2: The upgrade that changed a tool under running services
 
@@ -64,11 +72,12 @@ This plan fixes it under Defence Before Fix:
 
 ## Success Criteria
 
-- [ ] A dictation on pipewire 1.6.10 transcribes the words spoken.
-- [ ] A capture stream with a container header fails the dictation with an error naming it.
-- [ ] `qa-speech-to-text-rules` is red on a stdout `pw-record` without `--raw` and green on the
-  tree.
-- [ ] No `pw-record` is left defunct after a dictation.
+- [x] A dictation on pipewire 1.6.10 transcribes the words spoken (Task 1.4).
+- [x] A capture stream with a container header fails the dictation with an error naming it
+  (Task 1.1's tests, green at Task 1.3).
+- [x] `qa-speech-to-text-rules` is red on a stdout `pw-record` without `--raw` and green on the
+  tree (Task 1.2, Task 1.3).
+- [x] No `pw-record` is left defunct after a dictation (Task 1.3's tests; on the host, Task 1.4).
 
 ## Delivery & Milestones
 
