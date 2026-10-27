@@ -4,11 +4,10 @@
 passed on the host at F44 cab255ad4 (commit d2612e8d7), with Tasks 2.21 to 2.23's checker
 fixes. The relay task 2.8 is superseded; Tasks 2.11, 2.12, 2.15, 2.17 and 2.18 are carried by
 Plan 00209. The host agent ran ACCEPTANCE-owner.md on throwaway teams at F44 d247e4b2f
-(27-10-27): steps 01-07, 09, 10, 12 and 13 and Task 2.20 PASS. Tasks 2.28 and 2.29 are merged
-into F44 (fe894347c), with the final qa-reviewer's findings fixed by Task 2.30; each waits on
-its host check. Left for the host agent, after `play-claude-yolo.yml` (queued in
-meta-deploy): steps 03, 10 and 13 again on
-[chooser-teams-up.bash](chooser-teams-up.bash)'s teams (Task 2.28), and Task 2.29's host check. Left for the owner: step 08's consent No/Yes (the record is outside the
+(27-10-27): steps 01-07, 09, 10, 12 and 13 and Task 2.20 PASS. At F44 fe894347c the host
+agent passed steps 03, 10 and 13 on [chooser-teams-up.bash](chooser-teams-up.bash)'s teams
+(Task 2.28) and step 12 with lxc-add's Stop (Task 2.29). Task 2.31 (its follow-ups) waits on
+its host check after `play-claude-yolo.yml` (queued in meta-deploy). Left for the owner: step 08's consent No/Yes (the record is outside the
 repository, which the host agent may not rename) and check 11 (a real password paste at the
 owner's screen).
 **Created**: 2026-10-15
@@ -103,6 +102,8 @@ a repository is no longer offered for a checkout of it. Report:
   the bus, not in Element; 10 through Edit settings). 08 PARTIAL: `cc --teams` and its host seats
   pass; the consent No/Yes is the owner's (`~/.config/pingbus/element-accepted` is outside the
   repository). Step 05's doc text `👥 A,B` is out of date (the line names each seat): Task 2.29.
+  Host, 27-10-27 at F44 fe894347c, on chooser-teams-up's teams: 01-04, 10, 12 and 13 PASS
+  (Tasks 2.28 and 2.29). Left: the owner's 08 consent and 11.
 
 - [ ] ❌ **Task 2.8**: superseded by Plan 00209 D4 (relay mode deferred to v2). [Full text](DONE-tasks.md).
 
@@ -128,7 +129,7 @@ a repository is no longer offered for a checkout of it. Report:
 
 - [x] ✅ **Task 2.13**: the Morning start dry run's ccy-teams defects. [Full text](DONE-tasks.md).
 
-- [ ] 🔄 **Task 2.14**: shut down every session of a team from ccy-teams (the owner: "pass /exit
+- [x] ✅ **Task 2.14**: shut down every session of a team from ccy-teams (the owner: "pass /exit
   to all members of a team"), branch `feat/teams-shutdown`, ccy-teams only. Spec:
   [SPEC-shutdown.md](SPEC-shutdown.md) (SD1-SD16). `ccy-teams shutdown <team> [--yes]` and a
   team row's menu line show the team's live sessions and what cannot be reached from here,
@@ -138,7 +139,8 @@ a repository is no longer offered for a checkout of it. Report:
   left: check 12 of ACCEPTANCE-owner.md, the host agent's (a throwaway team with two ccy
   sessions in tmux, `ccy-teams shutdown <team>` from a pane, the released-seat lines read back).
   Host, 27-10-27: PASS (both sessions, one mid-turn, "exited cleanly; seats … released", no
-  stopped or failed line, the team still up), with two defects: Task 2.29.
+  stopped or failed line, the team still up), with two defects: Task 2.29, fixed and passed
+  again on the host at F44 fe894347c. A session with a background task: Task 2.31 item 3.
 
 - [x] ✅ **Task 2.15**: a team's settings from ccy-teams (the owner: "a single update config
   thing … that then opens a pane that then has all of the different things editable"), branch
@@ -237,8 +239,7 @@ a repository is no longer offered for a checkout of it. Report:
 
 - [x] ✅ **Task 2.23**: the container wait no longer counts an image build; Task 2.22's conversion recorded. [Full text](DONE-tasks.md).
 
-- [ ] 🔄 **Task 2.28** (built and merged; waits on the host rerun of steps 03, 10 and 13,
-  its only proof that a real play reads the override): `CCY_TEAMS_HOST_VARS` is honoured half-way: ccy-teams writes a team's
+- [x] ✅ **Task 2.28**: `CCY_TEAMS_HOST_VARS` is honoured half-way: ccy-teams writes a team's
   change into that file, but `runPlay` (`src-go/internal/teams/ops/ops.go`) runs
   `play-agent-bus.yml` with only `-e agent_bus_only_teams`, so the play reads the default
   host_vars and fails its assert, and the launch then says the team is "not applied" (host
@@ -250,10 +251,13 @@ a repository is no longer offered for a checkout of it. Report:
   ccy-teams hands it to `play-agent-bus.yml` and `play-agent-bus-element.yml` as
   `-e @<file>`, before the scope; with the default host_vars the plays run as before. A key the
   override leaves out is still read from the inventory's host_vars (the override is for test
-  suites and harnesses). Report: `subagent-reports/261027-task-2-28.md`. Host: after
-  `play-claude-yolo.yml`, steps 03, 10 and 13 on chooser-teams-up's teams apply the team.
+  suites and harnesses). Report: `subagent-reports/261027-task-2-28.md`. Host, 27-10-27 at F44
+  fe894347c, on chooser-teams-up's teams: steps 03, 10 and 13 PASS. The play read the run's
+  host_vars and passed, the scope landed in that file only (the owner's untouched), one play
+  per change for the one team, and both homeservers' `ActiveEnterTimestamp` unchanged. Step
+  03's first try restarted A's homeserver: a fixture gap (Task 2.31 item 1), not this path.
 
-- [ ] 🔄 **Task 2.29**: The host run of 27-10-27 found: (a) `ccy-teams shutdown` exits 1,
+- [x] ✅ **Task 2.29**: The host run of 27-10-27 found: (a) `ccy-teams shutdown` exits 1,
   "failed", only because a cc host seat whose session had already ended is listed as "not
   reachable from here"; a seat with no running session is nothing to shut down and must not
   fail the run. (b) After the shutdown the seat rows read STATE `active`, SESSION `-`, never
@@ -274,7 +278,11 @@ a repository is no longer offered for a checkout of it. Report:
   [subagent-reports/261027-task-2-29.md](subagent-reports/261027-task-2-29.md). Host, after
   `play-claude-yolo.yml`: relaunch the step 12 sessions (so the launch lists their checkouts),
   rerun step 12 with an ended cc seat (exit 0, its "no session running" line, seats `free`), and
-  Stop at lxc-add's "Update entry / Stop" (exit 0).
+  Stop at lxc-add's "Update entry / Stop" (exit 0). Host, 27-10-27 at F44 fe894347c: PASS.
+  Step 12 on two fresh sessions (one mid-reply) and an ended `cc --teams` seat: both "exited
+  cleanly; seats … released", the cc seat "no session running, nothing to shut down", exit 0,
+  every seat SESSION `free` after, the team still up. lxc-add's Stop on a differing role:
+  "Nothing was changed", exit 0. Found on the way: Task 2.31 items 3 and 5.
 
 - [x] ✅ **Task 2.30**: the final qa-reviewer's findings at fe894347c
   (branch `fix/00201-final-review-findings`). Plan state and the meta-deploy description made
@@ -285,9 +293,43 @@ a repository is no longer offered for a checkout of it. Report:
   plays `agent_bus_host_vars_file`, which their assert messages name. Report:
   [subagent-reports/261027-final-review-fixes.md](subagent-reports/261027-final-review-fixes.md).
 
+- [ ] 🔄 **Task 2.31**: the host run at fe894347c's follow-ups (branch `fix/00201-host-run-fe89`,
+  CCY 3.100.34). Tests first, each red before its fix.
+
+  1. Fixture: chooser-teams-up installed each team with its declared `allow_from` only, so the
+     first play on a team added the LXC bridge's subnet and restarted its homeserver. The
+     teams are now installed from the file `play-agent-bus.yml` renders (`m7_check.py rendered-team`: `helpers/agent_bus/bridge.py`'s `apply` on the live bridge, `state: present`; its config digest is the one `declare.py status` computes).
+  2. Docs: step 03's evidence "no `restarted` line" cannot show a restart (Ansible prints only
+     `changed: (item=A)`); steps 03 and 10 now rest on `ActiveEnterTimestamp`, as 13 does.
+  3. Shutdown: `/exit` with a background task running brings up Claude Code's "Background work
+     is running" question (title, subtitle and options read from Claude Code 2.1.311 itself:
+     "Exit and stop tasks", "Move to background and exit" when offered, "Stay"). Shutdown now
+     presses Enter while the cursor is on "Exit and stop tasks", once, and waits again
+     (`screen.AtBackgroundWorkExit`, SPEC-shutdown SD10a); with the cursor elsewhere it stops
+     the session as before, naming the question as the cause. **Open, host check**: the cursor
+     arrow on the focused option (`❯`, as Claude Code's other selection dialogs draw it) is
+     inferred from them, not seen on this dialog: rerun step 12 with a background task in one
+     session (`sleep 600 &` run by the agent) and read "exited cleanly"; a `stopped` line naming
+     the question means the arrow is drawn otherwise.
+  4. `CCY_TEAMS_HOST_VARS` was lost at ccy's move into tmux: the launch inside the session runs
+     `ccy-teams describe-seats --block`, which reads team descriptions from the host_vars, so a
+     harness's teams lost theirs in the launch block. `lib/tmux-session.bash` carries it on the
+     pane's command beside the token hand-off (`scripts/test-ccy-token-handoff.bash`); nothing
+     else in the session reads it (membership-init, record-seats, claim-container-name and
+     restart-args read no host_vars).
+  5. Board: a cc session's host seat read KIND `ccy`. A seat in a checkout stays `KindCcy` to
+     every flow (shutdown, restart and the seat menus key on it); only the column now says what
+     its handle says (`host`, as the member's roster row did).
+  6. Settings: the filter "Discard" ranked "Description: ..." first, because every picker keeps
+     its order (`--no-sort`). `ui.PickSpec.RankMatches` drops it, and the settings list sets it.
+     Host check after `play-claude-yolo.yml`: item 3 above, and `chooser-teams-up.bash` then one
+     play on a chooser team leaves its `ActiveEnterTimestamp` unchanged.
+     Report: [subagent-reports/261027-host-run-fe89.md](subagent-reports/261027-host-run-fe89.md).
+
 ## Success Criteria
 
-Proven by the host run of ACCEPTANCE-owner.md at F44 d247e4b2f (Task 2.7).
+Proven by the host run of ACCEPTANCE-owner.md at F44 d247e4b2f (Task 2.7), and again at F44
+fe894347c on chooser-teams-up's teams declared only in a run's host_vars (steps 01-04).
 
 - [x] From a checkout no team covers, `ccy --teams` offers the teams with their descriptions,
   and one choice later the session is on that team (steps 01, 02 and 04).

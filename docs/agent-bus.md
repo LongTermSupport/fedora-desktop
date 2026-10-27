@@ -155,7 +155,8 @@ moments, so its line and the wind-down's can interleave. Nothing is ended. Spec:
 **Shut down a team's sessions** (the team stays up). `ccy-teams shutdown <team>` (or Enter on
 the team, then **Shut down every session of `<team>`**) lists the team's sessions on this host
 and the members it cannot reach, asks (default No; `--yes` where there is no terminal), then
-types `/exit` into each session's tmux pane, as you would (Escape first if it is busy). A
+types `/exit` into each session's tmux pane, as you would (Escape first if it is busy). When
+Claude Code answers "Background work is running", it chooses **Exit and stop tasks**. A
 session still running after 60 s is stopped as ccy-sessions' End stops it; each seat must then
 be free. Each member is reported: exited cleanly, stopped, failed, not shut down (an LXC
 agent, a session on another machine, a `cc --teams <team>` session whose record lacks its seat:

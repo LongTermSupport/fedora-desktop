@@ -389,11 +389,16 @@ m7_write_teams() {
     cat -- "${HOST_VARS_FILE}"
 }
 
+# m7_install_teams — each team installed from the file play-agent-bus.yml would render from the
+# host_vars (the LXC bridge's subnet added), so a later play on the team changes nothing and
+# restarts no homeserver.
 m7_install_teams() {
-    local team
+    local team rendered
     TEAMS_PRESENT=1 # before the call: a half-installed team still needs removing
     for team in "${M7_TEAMS[@]}"; do
-        m7_installer "team-${team}" team --team-file "$(m7_ev "${team}.team.json")" || return 1
+        rendered="$(m7_ev "${team}.rendered-team.json")"
+        "${CHECK[@]}" rendered-team "$(m7_ev "${team}.team.json")" >"${rendered}" || return 1
+        m7_installer "team-${team}" team --team-file "${rendered}" || return 1
     done
 }
 

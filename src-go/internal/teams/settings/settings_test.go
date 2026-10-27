@@ -191,6 +191,10 @@ func TestTheScreenListsEveryFieldThenSaveDiscardAndBack(t *testing.T) {
 	if got := r.title(0); got != "Team alpha › Settings" {
 		t.Fatalf("title %q", got)
 	}
+	// A filter ranks the best match first: "Discard" finds Discard changes before Description.
+	if slices.Contains(r.Script.FzfArgs[0], "--no-sort") {
+		t.Fatalf("the settings list keeps its order under a filter: %q", r.Script.FzfArgs[0])
+	}
 	if len(r.saves()) != 0 {
 		t.Fatal("Back with nothing changed ran set")
 	}

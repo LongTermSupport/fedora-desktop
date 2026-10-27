@@ -106,7 +106,9 @@ new-session)
             printf 'MODES file=%s dir=%s\n' "$(stat -c %a "$f")" "$(stat -c %a "$(dirname "$f")")" >>"$T_LOG" ;;
         esac
     done
-    "${pane[@]}" </dev/null >>"$T_LOG" 2>&1
+    # A server already running gives a new pane its own environment, not this client's: only
+    # what the pane's command carries reaches the launcher.
+    env -u CCY_TEAMS_HOST_VARS "${pane[@]}" </dev/null >>"$T_LOG" 2>&1
     exit 0 ;;
 attach-session) [ -f "$T_STATE" ] && exit 1; exit 0 ;;
 esac
@@ -139,6 +141,7 @@ for lib in $T_LIBS; do
 done
 printf 'INNER GH_TOKEN=%s HANDOFF=%s CHILD=%s\n' "${GH_TOKEN-unset}" "${CCY_GH_TOKEN_HANDOFF-unset}" \
     "$(bash -c 'printf %s "${GH_TOKEN-unset}/${CCY_GH_TOKEN_HANDOFF-unset}"')"
+printf 'HOSTVARS %s\n' "${CCY_TEAMS_HOST_VARS-unset}"
 EOF
 # The outer launcher: the libraries, the caller's token as the launcher holds it after its
 # first line (a plain variable), then the entry point.
@@ -221,6 +224,17 @@ echo "=== no token: nothing is written, and the inner launcher asks gh as before
 drive terminal ""
 check "the inner launcher has no GH_TOKEN" "INNER GH_TOKEN=unset HANDOFF=unset CHILD=unset/unset" "$(line INNER)"
 check "no hand-off file was named" "" "$(line MODES)"
+
+echo ""
+echo "=== CCY_TEAMS_HOST_VARS reaches the inner launcher, as its ccy-teams calls read it ==="
+# A harness's host_vars (Plan 00201 chooser-teams-up.bash): the launch block inside the session
+# (ccy-teams describe-seats --block) reads the teams' descriptions from it.
+rm -f "$T_STATE"
+CCY_TEAMS_HOST_VARS="$SCRATCH/harness host_vars.yml" drive terminal "$TOKEN"
+check "the inner launcher has the caller's CCY_TEAMS_HOST_VARS" "HOSTVARS $SCRATCH/harness host_vars.yml" "$(line HOSTVARS)"
+check "  and the token as before" "INNER GH_TOKEN=$TOKEN HANDOFF=unset CHILD=unset/unset" "$(line 'INNER ')"
+drive terminal ""
+check "without it, the inner launcher has none" "HOSTVARS unset" "$(line HOSTVARS)"
 
 echo ""
 echo "=== the session record names the program that started the launch ==="

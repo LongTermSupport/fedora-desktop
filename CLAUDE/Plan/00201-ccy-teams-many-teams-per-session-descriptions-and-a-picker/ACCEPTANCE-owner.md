@@ -91,8 +91,9 @@ team covers, whose own status line is a hooks daemon's.
 02. Tab-mark A and B, then Enter. For each, the scope question names the repository; choose
     Add for A and "Join without adding" for B.
 03. Before step 01, note `systemctl show -P ActiveEnterTimestamp agent-bus-hs@A agent-bus-hs@B`;
-    check that `play-agent-bus.yml` ran once, for A only (its output has no `restarted` line for
-    a homeserver), and that both timestamps are unchanged afterwards.
+    check that `play-agent-bus.yml` ran once, for A only, and that both timestamps are unchanged
+    afterwards. The timestamps are the evidence of no restart: the play prints only
+    `changed: (item=A)` for the install task, never the installer's own `restarted` line.
 04. Each team asks for its seat; an existing seat then asks its role (choose **Keep as is**).
     The launch block reads "This session is on 2 teams:", with each seat and description.
 05. In the session, the status line shows each seat on its own row, below the checkout's own
@@ -115,7 +116,8 @@ team covers, whose own status line is a hooks daemon's.
     file for it; after you end it, that file is gone. A file still there means SessionEnd did
     not remove it: this step fails.
 10. If the scope added in step 02 should not stay, remove the repository from A's `repos` in
-    the host_vars and run `ccy-teams apply A`.
+    the host_vars and run `ccy-teams apply A` (or clear Repositories in A's **Edit settings**
+    and choose **Save and apply**). A's `ActiveEnterTimestamp`, as in step 03, is unchanged.
 11. One real Ctrl-P paste (a new password signs out your Element sessions of A, so do this
     last and keep the new password). In `ccy-teams`, Ctrl-P on your row under A, answer Yes.
     With the Clipboard Indicator extension on (this repo's default), no copy is offered: one

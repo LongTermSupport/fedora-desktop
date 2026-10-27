@@ -97,6 +97,38 @@ func AtConversationPicker(pane string) bool {
 	return false
 }
 
+// The question Claude Code (2.1.311) asks when /exit finds background work running: its title,
+// and its first option, which ends the session and the work. The other options are "Move to
+// background and exit" (when offered) and "Stay"; Esc is Stay. Claude Code's text, not ccy's.
+const (
+	backgroundWorkTitle = "Background work is running"
+	exitAndStopTasks    = "Exit and stop tasks"
+)
+
+// exitOption is the first option's line once indented space is removed: the cursor arrow when
+// focused, then its number.
+var exitOption = regexp.MustCompile(`^(❯\s*)?(?:\d+\.\s*)?` + exitAndStopTasks + `$`)
+
+// AtBackgroundWorkExit says whether a pane shows Claude Code's "Background work is running"
+// question (a line starting with its title and a line that is its "Exit and stop tasks"
+// option), and whether the cursor is on that option, so that Enter chooses it.
+func AtBackgroundWorkExit(pane string) (bool, bool) {
+	titled, shown, exitFocused := false, false, false
+	for line := range strings.SplitSeq(Plain(pane), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, backgroundWorkTitle) {
+			titled = true
+		}
+		if m := exitOption.FindStringSubmatch(line); m != nil {
+			shown, exitFocused = true, m[1] != ""
+		}
+	}
+	if !titled {
+		return false, false
+	}
+	return shown, exitFocused
+}
+
 var csi = regexp.MustCompile(`\x1b\[[0-9;:?]*[A-Za-z]`)
 
 // sgr is a leading Select Graphic Rendition sequence, with its parameters captured.

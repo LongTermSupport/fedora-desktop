@@ -28,6 +28,23 @@ func TestRowChromeIsWhatTheFrameTakesFromTheTerminal(t *testing.T) {
 	}
 }
 
+// A list keeps its order under a filter (--no-sort); one that asks for RankMatches lists the
+// best match first, so "Discard" puts "Discard changes" above "Description: ..." (host run at
+// fe894347c, the team settings screen).
+func TestRankMatchesDropsNoSort(t *testing.T) {
+	kept, err := PickSpec{Title: "t", Rows: []string{"a"}}.fzfArgs(testHead, false, 80)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ranked, err := PickSpec{Title: "t", Rows: []string{"a"}, RankMatches: true}.fzfArgs(testHead, false, 80)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(kept, "--no-sort") || slices.Contains(ranked, "--no-sort") {
+		t.Fatalf("kept %q\nranked %q", kept, ranked)
+	}
+}
+
 func TestPickReturnsTheRowAndTreatsExitAsLeave(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("alpha   up\n")})

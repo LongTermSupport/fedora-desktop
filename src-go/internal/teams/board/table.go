@@ -102,7 +102,17 @@ func (r Row) Crumb() string {
 
 // cells are the row's columns as words.
 func (r Row) cells() [columns]string {
-	return [columns]string{r.Team, r.Label(), string(r.Kind), r.State, r.Applied, r.Session, r.Restore, r.Where}
+	return [columns]string{r.Team, r.Label(), r.kindWord(), r.State, r.Applied, r.Session, r.Restore, r.Where}
+}
+
+// kindWord is the KIND column. A seat in a checkout is KindCcy to every flow, ccy's or a cc
+// session's; the column says what runs it, by its handle's type (agentbus.Member.Kind), as the
+// member's roster row would: "host" for a cc session's seat. A seat with no handle yet is ccy's.
+func (r Row) kindWord() string {
+	if r.Kind != KindCcy || r.Handle == "" || r.Handle == "-" {
+		return string(r.Kind)
+	}
+	return agentbus.Member{Handle: r.Handle}.Kind()
 }
 
 // Table is a set of rows laid out together: each column as wide as its longest value, measured

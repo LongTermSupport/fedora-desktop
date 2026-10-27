@@ -26,6 +26,13 @@ var (
 	paneCompose = "CCY Session Ended — Compose Services Running\nStop compose services? [Y/n]: "
 	paneEnded   = "\nccy exited with status 1. Press Enter to close this session.\n"
 	paneSSHKey  = "Select SSH key"
+	// Claude Code 2.1.311's question when /exit finds background work running (its title,
+	// subtitle and options; the task line is a stand-in).
+	paneBackgroundWork = strings.Join([]string{
+		"  Background work is running", "  The following will stop when you exit:", "", "  sleep 600", "",
+		"  ❯ 1. Exit and stop tasks", "    2. Stay",
+	}, "\n")
+	paneBackgroundStay = strings.Replace(strings.Replace(paneBackgroundWork, "❯ 1.", "  1.", 1), "  2. Stay", "❯ 2. Stay", 1)
 )
 
 // session is one fake tmux session: what its pane shows and what it does with keys.
@@ -40,6 +47,10 @@ type session struct {
 	afterExit string
 	// ignoreExit leaves the pane as it is after /exit, as a session that does not end.
 	ignoreExit bool
+	// backgroundWork is the pane /exit brings up instead of ending, as claude asks with a
+	// background task running: paneBackgroundWork, whose Enter goes on with the exit, or
+	// paneBackgroundStay, whose cursor is on Stay.
+	backgroundWork string
 	// keepSeat leaves the seats held when the session ends.
 	keepSeat bool
 	// seats are the seat names in the team that the session's process holds.
@@ -167,27 +178,41 @@ func (m *machine) press(s *session, last []string) {
 		}
 	case last[1] == "Enter":
 		s.enters++
-		if s.typed != "/exit" {
-			return
+		m.enter(s)
+	}
+}
+
+// enter is an Enter press: it sends what was typed, or answers claude's background work question.
+func (m *machine) enter(s *session) {
+	if s.typed == "/exit" && s.backgroundWork != "" {
+		// claude asks before it stops the background work: the question takes the place of
+		// the input box, and an Enter on its focused first option goes on with the exit.
+		s.typed, s.pane = "", s.backgroundWork
+		return
+	}
+	if s.typed == "" && s.pane == paneBackgroundWork {
+		s.typed = "/exit"
+	}
+	if s.typed != "/exit" {
+		return
+	}
+	if s.ignoreExit {
+		if s.afterExit != "" {
+			s.pane = s.afterExit
 		}
-		if s.ignoreExit {
-			if s.afterExit != "" {
-				s.pane = s.afterExit
-			}
-			return
-		}
-		s.typed = ""
-		if s.afterExit == "" {
-			m.end(s)
-			return
-		}
-		// claude has ended, and the container with it: its seats are free, though tmux still
-		// runs the launcher.
-		s.pane = s.afterExit
-		if !s.keepSeat {
-			for _, seat := range s.seats {
-				m.HoldSeat(m.t, m.Checkout(), "alpha", seat, false)
-			}
+		return
+	}
+	s.typed = ""
+	if s.afterExit == "" {
+		m.end(s)
+		return
+	}
+	// claude has ended, and the container with it: its seats are free, though tmux still
+	// runs the launcher.
+	s.pane = s.afterExit
+	if !s.keepSeat {
+		for _, seat := range s.seats {
+			m.HoldSeat(m.t, m.Checkout(), "alpha", seat, false)
 		}
 	}
 }
