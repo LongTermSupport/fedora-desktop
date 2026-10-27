@@ -2,7 +2,8 @@
 // does not write code, started by `./run.bash --consumer`. It needs no GitHub account, no SSH
 // key and no vault password typed in: host_vars says install_audience consumer (so every
 // developer play ends itself), the vault password is made at random and kept only on this
-// machine, Ansible is installed with pipx, the main playbook runs, and the optional plays for
+// machine, every package is upgraded before any Ansible process starts (so none runs on an
+// interpreter replaced under it), Ansible is installed with pipx, the main playbook runs, and the optional plays for
 // everyone (apps such as Qobuz, no programming tools) are offered as a numbered menu.
 //
 // Every program runs through execx, root through internal/sudo, and every question through
@@ -67,7 +68,8 @@ const usageText = `Usage: consumer-install [--optional-only[=true|false]]
 
 The install for someone who does not write code: no GitHub account, no SSH key, no
 programming tools. It writes host_vars for a consumer install (once), makes the vault
-password at random (once, kept only on this machine), installs Ansible, runs the main
+password at random (once, kept only on this machine), upgrades every package, installs
+Ansible, runs the main
 playbook, then offers the optional apps.
 
 Run it as ./run.bash --consumer, which installs Go and git, fetches the checkout and runs
@@ -362,6 +364,11 @@ func (r *run) install(ctx context.Context) error {
 	r.step("Installing what the install needs")
 	if err := r.sudo.Ready(ctx, "Installing Python, pipx and the tools Ansible needs."); err != nil {
 		return r.failf("sudo was not available: %v", err)
+	}
+	// Upgrade before any Ansible process starts: an upgrade of python3 under a running
+	// ansible-playbook breaks its later imports of C extensions (Plan 00229 Task 2.2).
+	if err := r.sudo.Run(ctx, "dnf", "-y", "upgrade", "--refresh"); err != nil {
+		return r.failf("dnf upgrade failed: %v", err)
 	}
 	if err := r.sudo.Run(ctx, append([]string{"dnf", "-y", install}, basePackages...)...); err != nil {
 		return r.failf("dnf install failed: %v", err)

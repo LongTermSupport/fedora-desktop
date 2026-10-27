@@ -58,7 +58,8 @@ The bootstrap script (`run.bash`) performs these steps in order:
 
 **Phase 2: Dependencies** (2-5 minutes)
 
-- Installs git, ansible, python3-libdnf5
+- Upgrades every package first (on an older install image this takes longer), then installs
+  git, ansible, python3-libdnf5
 - May prompt for sudo password
 
 **Phase 3: GitHub Setup** (1-2 minutes)

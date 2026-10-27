@@ -13,9 +13,13 @@ with regexes over the play text. The idioms recognised are the ones this repo us
   definition, `{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}`, and the
   Jinja joins `root_dir ~ '/<path>'` and `root_dir + '/<path>'`. A literal path is an exact
   input, or a directory input when it ends in `/` or is a directory in the checkout. A
-  path with a template or a glob in its tail (`.../bin/{{ item }}`, `.../*.bash`, a join
-  that goes on `~ var`) is an input on its literal prefix. That is conservative, because
-  the loop that fills it in is not something a regex can evaluate.
+  rooted path whose tail is one template and a literal suffix is the paths the play text
+  fills it in with (Plan 00229, Task 1.5): `{{ item }}` or `{{ item.<key> }}` under the
+  task's `loop:` / `with_items:` of literals, given inline or as a list variable a walked
+  file sets, and `{{ var }}` a walked file sets to a literal. Any other template or glob in
+  the tail (a loop built by a filter, a renamed loop_var, `.../*.bash`, a join that goes on
+  `~ var`) is an input on its literal prefix: conservative, because a regex cannot
+  evaluate it.
 - A reference to a Go module root (a directory holding `go.mod`, src-go) is a Go build:
   `tasks/build-go-command.yml` builds `<module>/cmd/<go_command_name>`. The play's inputs
   are then every package that command imports, transitively, within the module and from
@@ -148,6 +152,99 @@ _BASH_SOURCE = re.compile(
 _GO_RUNNERS = {"run_go_tool": "src-go/qa", "run_go_command": "src-go"}
 _BASH_GO_RUN = re.compile(r"\b(" + "|".join(_GO_RUNNERS) + r")\s+([A-Za-z0-9_-]+)")
 _GO_STRING = re.compile(r'"((?:[^"\\\n]|\\.)*)"')
+#: A templated tail: one template, then the literal rest of the path, then no more template.
+_TAIL = re.compile(
+    r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)\s*\}\}([A-Za-z0-9_.@+\-/]*)(?!\{)"
+)
+_PATH_VALUE = re.compile(r"^[A-Za-z0-9_.@+\-/]+$")
+_LIST_VAR = re.compile(r"^\{\{\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*\}\}$")
+_MAPPING_LINE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*(.*)$")
+_DASH = re.compile(r"^(\s*)-(?:\s+(.*))?$")
+
+
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def _skip(line: str) -> bool:
+    stripped = line.strip()
+    return not stripped or stripped.startswith("#")
+
+
+def _literal(value: str) -> str | None:
+    """A plain path-shaped scalar, unquoted, or None for anything else."""
+    value = _unquote(value)
+    return value if _PATH_VALUE.match(value) else None
+
+
+#: A list item: a literal, or a mapping of keys to literals (None where a value is not one).
+#: None for the whole list is a list that cannot be read.
+Item = str | dict[str, str | None] | None
+
+
+def _flow_items(value: str) -> list[Item] | None:
+    value = value.strip()
+    if not (value.startswith("[") and value.endswith("]")):
+        return None
+    items: list[Item] = [_literal(part) for part in value[1:-1].split(",") if part.strip()]
+    return None if None in items else items
+
+
+def _block_items(lines: list[str], start: int, parent: int) -> list[Item] | None:
+    """The block list starting at `lines[start]`, under a key indented `parent`."""
+    items: list[Item] = []
+    dash = None
+    for line in lines[start:]:
+        if _skip(line):
+            continue
+        indent = _indent(line)
+        if indent <= parent:
+            break
+        item = _DASH.match(line)
+        if dash is None or (item and indent == dash):
+            if item is None or (dash is not None and indent != dash):
+                return None
+            dash = indent
+            content = (item.group(2) or "").split(" #", 1)[0].strip()
+            keyed = _MAPPING_LINE.match(content)
+            if keyed and not content.startswith(("'", '"')):
+                items.append({keyed.group(1): _literal(keyed.group(2))})
+            else:
+                items.append(_literal(content))
+            continue
+        current = items[-1]
+        if indent < dash + 2 or not isinstance(current, dict):
+            return None
+        if indent > dash + 2:
+            continue
+        keyed = _MAPPING_LINE.match(line.strip())
+        if keyed is None:
+            return None
+        current[keyed.group(1)] = _literal(keyed.group(2))
+    return items if dash is not None else None
+
+
+def _list_in(lines: list[str], path: list[str], start: int = 0, parent: int = -1) -> list[list[Item] | None]:
+    """Every list the dotted `path` names in `lines`, each key inside the block of the last."""
+    found: list[list[Item] | None] = []
+    key = re.compile(rf"^(\s*)(?:-\s+)?{re.escape(path[0])}\s*:\s*(.*)$")
+    for index in range(start, len(lines)):
+        line = lines[index]
+        if _skip(line):
+            continue
+        if _indent(line) <= parent:
+            break
+        match = key.match(line)
+        if match is None:
+            continue
+        indent, value = len(match.group(1)), match.group(2).split(" #", 1)[0].strip()
+        if len(path) > 1:
+            found.extend(_list_in(lines, path[1:], index + 1, indent))
+        elif not value:
+            found.append(_block_items(lines, index + 1, indent))
+        else:
+            found.append(_flow_items(value))
+    return found
 
 
 @dataclass
@@ -159,6 +256,8 @@ class Inputs:
     of its own) nor its `_test.go` files. `go_modules` are the Go module roots the play
     builds from and `go_commands` the command directories it builds. `go_builders` names,
     for each package, the commands built from it, which is how a reason names a change.
+    `filled` names, for each `<file>:<line>` holding a templated rooted reference the play
+    text fills in, the paths it was filled in with (rule play-input-dropped reads it).
     """
 
     exact: set[str] = field(default_factory=set)
@@ -168,6 +267,7 @@ class Inputs:
     go_modules: set[str] = field(default_factory=set)
     go_commands: set[str] = field(default_factory=set)
     go_builders: dict[str, set[str]] = field(default_factory=dict)
+    filled: dict[str, list[str]] = field(default_factory=dict)
 
 
 @dataclass
@@ -247,6 +347,8 @@ class _Walker:
         self._go_names: list[tuple[str, str]] = []
         self._external_go_files: set[str] = set()
         self._go_import_cache: dict[str, set[str]] = {}
+        #: Templated rooted references, resolved once every file is walked: (file, line, literal, tail, shown).
+        self._templated: list[tuple[str, int, str, str, str]] = []
 
     def _is_dir(self, rel: str) -> bool:
         return os.path.isdir(os.path.join(self.root, rel))
@@ -410,7 +512,10 @@ class _Walker:
     def _rooted(self, rel_file: str, line_no: int, line: str) -> None:
         where = f"{rel_file}:{line_no}"
         for match in _ROOTED.finditer(line):
-            self._reference(where, match.group(1), bool(match.group(2)), match.group(0))
+            if match.group(2):
+                self._templated.append((rel_file, line_no, match.group(1), line[match.start(2):], match.group(0)))
+                continue
+            self._reference(where, match.group(1), False, match.group(0))
         for match in _JOINED.finditer(line):
             self._reference(where, match.group(2), bool(match.group(3)), match.group(0))
 
@@ -436,6 +541,123 @@ class _Walker:
             self._module_refs.append((where, rel))
         else:
             self._add_path(rel, as_dir=literal.endswith("/"))
+
+    def finish_templates(self) -> None:
+        """Each templated rooted reference: the paths the play text fills it in with, or its
+        literal prefix when it cannot say. A resolved path may walk a file with more."""
+        while self._templated:
+            rel_file, line_no, literal, tail, shown = self._templated.pop(0)
+            paths = self._filled_in(rel_file, line_no, literal, tail)
+            if paths is None:
+                self._reference(f"{rel_file}:{line_no}", literal, True, shown)
+                continue
+            filled = self.inputs.filled.setdefault(f"{rel_file}:{line_no}", [])
+            for rel, as_dir in paths:
+                filled.append(rel)
+                self._add_path(rel, as_dir=as_dir)
+
+    def _filled_in(self, rel_file: str, line_no: int, literal: str, tail: str) -> list[tuple[str, bool]] | None:
+        """The checkout paths `literal` + `tail` stands for, each with whether it is a
+        directory, or None when the template is not one the play text fills with literals."""
+        tail_match = _TAIL.match(tail)
+        prefix = _safe_relpath(literal.rstrip("/")) if literal.rstrip("/") else None
+        if tail_match is None or prefix is None or self._is_go_module(prefix):
+            return None
+        name, suffix = tail_match.group(1), tail_match.group(2)
+        if name == "item" or name.startswith("item."):
+            items = self._loop_items(rel_file, line_no)
+            key = name.partition(".")[2]
+            if items is None:
+                values = None
+            elif key:
+                values = [item.get(key) if isinstance(item, dict) else None for item in items]
+            else:
+                values = items
+        elif "." in name:
+            return None
+        else:
+            values = self._scalar_values(name)
+        if not values or any(not isinstance(value, str) for value in values):
+            return None
+        paths = []
+        for value in values:
+            rel = _safe_relpath(literal + value + suffix)
+            if rel is None or not (rel + "/").startswith(prefix + "/"):
+                return None
+            paths.append((rel, suffix.endswith("/")))
+        return paths
+
+    def _loop_items(self, rel_file: str, line_no: int) -> list[Item] | None:
+        """The items of the `loop:` / `with_items:` of the task holding line `line_no`."""
+        lines = self._texts[rel_file].splitlines()
+        index = line_no - 1
+        if _DASH.match(lines[index]):
+            return None
+        own = _indent(lines[index])
+        start = next((j for j in range(index - 1, -1, -1)
+                      if not _skip(lines[j]) and _DASH.match(lines[j]) and _indent(lines[j]) < own), None)
+        if start is None:
+            return None
+        task = _indent(lines[start])
+        key_indent = task + 2
+        found: list[list[Item] | None] = []
+        for j in range(start + 1, len(lines)):
+            line = lines[j]
+            if _skip(line):
+                continue
+            if _indent(line) <= task:
+                break
+            if _indent(line) != key_indent:
+                continue
+            keyed = _MAPPING_LINE.match(line.strip())
+            if keyed is None:
+                continue
+            key, value = keyed.group(1), keyed.group(2).split(" #", 1)[0].strip()
+            if key == "loop_control" and self._renames_item(lines, j + 1, key_indent):
+                return None
+            if key not in ("loop", "with_items"):
+                continue
+            if not value:
+                found.append(_block_items(lines, j + 1, key_indent))
+            elif value.startswith("["):
+                found.append(_flow_items(value))
+            else:
+                named = _LIST_VAR.match(_unquote(value))
+                found.append(self._list_values(named.group(1)) if named else None)
+        if len(found) != 1:
+            return None
+        return found[0]
+
+    @staticmethod
+    def _renames_item(lines: list[str], start: int, parent: int) -> bool:
+        """Whether the `loop_control:` block starting at `lines[start]` sets a `loop_var`."""
+        for line in lines[start:]:
+            if _skip(line):
+                continue
+            if _indent(line) <= parent:
+                return False
+            if line.strip().startswith("loop_var:"):
+                return True
+        return False
+
+    def _list_values(self, dotted: str) -> list[Item] | None:
+        """Every item of the list variable `dotted`, from every walked file that sets it."""
+        lists = [found for text in self._texts.values()
+                 for found in _list_in(text.splitlines(), dotted.split("."))]
+        if not lists or any(found is None for found in lists):
+            return None
+        return [item for found in lists for item in found]
+
+    def _scalar_values(self, name: str) -> list[str | None] | None:
+        """Every value a walked file sets `name` to; None in place of one that is not a literal."""
+        setting = re.compile(rf"^\s*(?:-\s+)?{re.escape(name)}\s*:\s*(.*)$")
+        values: list[str | None] = []
+        for text in self._texts.values():
+            for _line_no, line in _non_comment_lines(text):
+                found = setting.match(line)
+                if found:
+                    values.append(_literal(found.group(1)))
+        return values or None
 
     def _is_go_module(self, rel: str) -> bool:
         return self._is_file(posixpath.join(rel, "go.mod"))
@@ -620,6 +842,7 @@ def play_inputs(repo_root: str, play: str) -> Inputs:
     """Every checkout path `play` deploys, and every reference it could not follow."""
     walker = _Walker(repo_root)
     walker.walk_yaml(play, context="")
+    walker.finish_templates()
     walker.finish_go()
     return walker.inputs
 

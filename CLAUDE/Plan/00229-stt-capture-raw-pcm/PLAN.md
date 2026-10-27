@@ -57,11 +57,27 @@ This plan fixes it under Defence Before Fix:
   the deployed server's `CAPTURE_CMD` and `wsi-stream`'s pre-buffer capture carry `--raw`; the
   owner's dictation pasted exactly what was said (1 segment, status ok, no container-header
   error), and no `pw-record` was left defunct.
-- [ ] ⬜ **Task 1.5**: `changed-plays` ran `play-agent-bus.yml` and `play-network-tools.yml` as
+- [x] ✅ **Task 1.5**: `changed-plays` ran `play-agent-bus.yml` and `play-network-tools.yml` as
   well, as plays whose inputs include `files/home/.local/bin/wsi-stream` and
   `wsi-stream-server`. Neither play deploys them. Find why the play ledger counts them as
   those plays' inputs (a glob or directory input too wide, a shared task file) and narrow it,
   test first, so a speech-to-text change re-offers only the speech-to-text play.
+  Cause: `helpers/self_update/affected_plays` took a rooted path with a template tail
+  (`{{ root_dir }}/files/{{ item }}`, agent-bus line 144; `.../.local/bin/{{ item }}`,
+  network-tools line 112) as a prefix on its literal head. It now fills `{{ item }}`,
+  `{{ item.<key> }}` and `{{ var }}` in from literal loops and variables the walked files
+  set, keeping the prefix for anything else. 24 references swept: 22 narrowed across 13
+  plays, 2 `fileglob` loops left as the directory. Report:
+  [subagent-reports/261027-ledger-inputs.md](subagent-reports/261027-ledger-inputs.md).
+- [x] ✅ **Task 1.6**: A GPU is optional for `play-speech-to-text.yml`. Its header no longer
+  names play-nvidia.yml as a prerequisite but says what each case gets. The `/dev/nvidia[0-9]*`
+  find runs first and is the one GPU fact: only a host with a node installs the CUDA 12
+  cuBLAS/cuDNN wheels and puts them on `faster-whisper-transcribe`'s `LD_LIBRARY_PATH` (now
+  a fail-fast import, never an empty path); without one the wrapper has no `LD_LIBRARY_PATH`
+  line. A GPU host renders the same wrapper as before. `wsi-stream` and `wsi-stream-server`
+  set no library path. Host check pending: a run on a machine with no NVIDIA GPU (likely the
+  owner's consumer laptop) installs no `nvidia-*-cu12` wheel from this play and dictates on
+  the CPU. Report: [subagent-reports/261027-stt-no-gpu.md](subagent-reports/261027-stt-no-gpu.md).
 
 ### Phase 2: The upgrade that changed a tool under running services
 
@@ -69,6 +85,23 @@ This plan fixes it under Defence Before Fix:
   and changed a tool's output format, with nothing noticing. Phase 1's stream check covers this
   case. Decide whether the play should also report user services left running on replaced
   libraries (as it reports a kernel change), and build it if so. Open: not started.
+- [x] ✅ **Task 2.2**: The same play replaced python3 under the running main `ansible-playbook`
+  (VM lab, desktop-fresh-install on the 10-06 base: python3 3.14.7 to 3.14.8, then
+  `lookup('url')` in `play-toolbox-install.yml` failed with "name 'ssl' is not defined"), so
+  every fresh install from a base behind the repos died there. Shape chosen: run.bash's
+  dependency step (developer and headless) and `consumer-install` run `dnf -y upgrade --refresh` themselves before any Ansible process starts; a failed upgrade stops the run. Why
+  not a separate `ansible-playbook` of the upgrade play first: that process would itself
+  outlive the upgrade for the play's remaining tasks, and run.bash's ratchet would have to pay
+  for a second three-branch become block; a plain dnf leaves no Ansible process alive across
+  the upgrade at all, and covers python3-libs, openssl-libs and every other library ansible
+  loads without listing them. `play-AB-dnf-upgrade.yml` stays in `playbook-main.yml` at its
+  position (a cheap no-op upgrade there; `--changed`, `--rerun` and the play ledger keep it as
+  a play; a single play of it still upgrades), keeps its half-installed kernel cleanup, and its
+  reboot notice now also fires when the running kernel is not the newest installed (the
+  kernel now changes before its snapshot). Tests first: `scripts/test-run-bash-upgrade-first.bash`
+  (gate `run-bash-upgrade-first`) and the consumer tests pin the order and the stop. run.bash
+  1.35.0. Host check (pending): the VM lab's desktop-fresh-install and
+  desktop-consumer-install on the 10-06 base.
 
 ## Success Criteria
 

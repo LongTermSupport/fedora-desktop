@@ -7,6 +7,14 @@
 # workflow with up-to-date packages and security patches. Idempotent:
 # a no-op if everything is already current.
 #
+# run.bash and consumer-install also run `dnf -y upgrade --refresh`
+# before any Ansible process starts, so on those paths the upgrade task
+# here is a no-op: an upgrade of python3 under the running
+# ansible-playbook replaces its extension modules, and the first later
+# import of one fails (Plan 00229 Task 2.2). This play keeps the
+# half-installed kernel cleanup and the reboot notice, and is the
+# upgrade for a single-play run or `--changed`.
+#
 # Respects existing versionlocks. See `play-advanced-kernel-management.yml`
 # which locks the highest patch of the PREVIOUS-minor kernel as a
 # hardware-compat fallback. The versionlock on the `kernel` metapackage
@@ -165,6 +173,18 @@
         - upgrade
         - dnf
 
+    - name: Find the newest installed kernel that is not half-installed
+      # run.bash and consumer-install upgrade every package before Ansible starts (Plan 00229
+      # Task 2.2), so the kernel may have changed before this play took its snapshot: a reboot
+      # is due whenever the running kernel is not the newest installed one.
+      ansible.builtin.set_fact:
+        newest_kernel_version: >-
+          {{ kc_versions.stdout.split() | difference(half_installed_kernels)
+             | community.general.version_sort | last }}
+      tags:
+        - upgrade
+        - dnf
+
     - name: Report half-installed kernels (if any)
       ansible.builtin.debug:
         msg:
@@ -251,9 +271,8 @@
           KERNEL CHANGE DETECTED — REBOOT REQUIRED
           ========================================================================
 
-          The kernel package set changed during this upgrade. The currently
-          running kernel ({{ running_kernel.stdout }}) is no longer the
-          newest installed kernel.
+          The currently running kernel ({{ running_kernel.stdout }}) is no
+          longer the newest installed kernel ({{ newest_kernel_version }}).
 
           Reboot when convenient to load the new kernel:
 
@@ -264,7 +283,9 @@
           drivers (WiFi, Bluetooth, IPU6 camera, etc.) will not benefit
           from the new kernel until reboot.
           ========================================================================
-      when: pre_upgrade_kernels.stdout != post_upgrade_kernels.stdout
+      when: >-
+        pre_upgrade_kernels.stdout != post_upgrade_kernels.stdout
+        or newest_kernel_version != running_kernel_version
       tags:
         - upgrade
         - dnf

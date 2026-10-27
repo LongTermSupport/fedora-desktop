@@ -47,5 +47,7 @@ changed-plays
 # runs three throwaway guests from the pushed HEAD: desktop-consumer-install (an attended
 # ./run.bash --consumer and its re-run, 17 checks), desktop-fresh-install and
 # server-fast-provision (the developer and server paths, unchanged). Long: three full
-# provisioning runs.
+# provisioning runs. On the 10-06 desktop base the two desktop runs are also Plan 00229
+# Task 2.2's host check: every package is upgraded before Ansible starts, so neither dies at
+# play-toolbox-install.yml's "name 'ssl' is not defined" (00229's PLAN.md records the result).
 00228-consumer-install-without-github

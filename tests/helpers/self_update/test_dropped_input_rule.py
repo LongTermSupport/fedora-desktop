@@ -14,7 +14,10 @@ file it reaches) holding a checkout reference, `{{ root_dir }}/<path>` (or root_
 config lookup) or a Jinja concatenation `root_dir ~ '/<path>'` / `root_dir + '/<path>'`,
 whose path is not an input of that play and is not named by an UNRESOLVED entry for that
 line. A reference to a Go module root (a directory holding go.mod) is accounted for when the
-mapper took it as that module's Go builds.
+mapper took it as that module's Go builds. A rooted reference with a template in its tail
+(`{{ root_dir }}/files/bin/{{ item }}`) is accounted for by its literal head, or by the paths
+the mapper says it filled THAT line in with (`Inputs.filled`), when every one of them lies
+under the head and is an input (Plan 00229, Task 1.5).
 
 The bare checkout root (`chdir: "{{ root_dir }}"`, an argv element, `-X main.RootDir=`) is
 not judged. The next wider rule, any checkout path handed to a program that reads what it
@@ -88,11 +91,18 @@ def dropped(repo_root: str, inputs: ap.Inputs) -> list[str]:
             where = f"{rel}:{number}:"
             if any(entry.startswith(where) for entry in inputs.unresolved):
                 continue
+            filled = inputs.filled.get(where[:-1])
             for match in _REFERENCE.finditer(line):
                 literal = match.group("rooted")
                 if literal is None:
                     literal = match.group("joined")
                 path = _reference_path(literal)
+                templated = match.group("rooted") is not None and line[match.end():].startswith("{{")
+                if templated and filled and all(
+                    (posixpath.normpath(rel) + "/").startswith(path + "/") and _accounted(inputs, rel)
+                    for rel in filled
+                ):
+                    continue
                 if not _accounted(inputs, path):
                     findings.append(f"{where} {match.group(0)}")
     return findings
@@ -156,6 +166,37 @@ class TestRuleFires(unittest.TestCase):
         """)
         inputs = ap.Inputs(exact={play, "files/conf/x"}, prefixes={"helpers/tool/", "files/bin/"})
         self.assertEqual(dropped(self.root, inputs), [])
+
+    def test_a_templated_reference_the_mapper_filled_in_is_not_a_finding(self) -> None:
+        play = self._play("""
+            - ansible.builtin.copy:
+                src: "{{ root_dir }}/files/bin/{{ item }}"
+              loop: [one]
+        """)
+        inputs = ap.Inputs(exact={play, "files/bin/one"}, filled={f"{play}:3": ["files/bin/one"]})
+        self.assertEqual(dropped(self.root, inputs), [])
+
+    def test_a_filled_in_path_that_is_not_an_input_is_a_finding(self) -> None:
+        play = self._play("""
+            - ansible.builtin.copy:
+                src: "{{ root_dir }}/files/bin/{{ item }}"
+              loop: [one]
+        """)
+        inputs = ap.Inputs(exact={play}, filled={f"{play}:3": ["files/bin/one"]})
+        self.assertEqual(len(dropped(self.root, inputs)), 1)
+
+    def test_an_input_under_the_head_from_another_line_does_not_cover_a_template(self) -> None:
+        """Only the mapper's word for THAT line covers it: a path under files/bin/ the play
+        names elsewhere says nothing about what the loop deploys."""
+        play = self._play("""
+            - ansible.builtin.copy:
+                src: "{{ root_dir }}/files/bin/{{ item }}"
+              loop: "{{ tools }}"
+            - ansible.builtin.copy:
+                src: "{{ root_dir }}/files/bin/fixed"
+        """)
+        inputs = ap.Inputs(exact={play, "files/bin/fixed"}, filled={f"{play}:6": ["files/bin/fixed"]})
+        self.assertEqual(len(dropped(self.root, inputs)), 1)
 
     def test_a_reference_reported_unresolved_is_not_a_finding(self) -> None:
         play = self._play("""

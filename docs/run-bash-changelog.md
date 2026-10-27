@@ -15,6 +15,17 @@ the index, not the record.
 
 ---
 
+## 1.35.0 — every package is upgraded before any Ansible process starts (Plan 00229 Task 2.2)
+
+The dependency step runs `dnf -y upgrade --refresh` before it installs Ansible's dependencies,
+on the developer and the headless path alike, and a failed upgrade stops the run there. The
+main playbook's upgrade play used to replace python3 under the running `ansible-playbook`; its
+extension modules then no longer matched the interpreter, and the first later import of one
+failed (`lookup('url')` in `play-toolbox-install.yml`: "name 'ssl' is not defined"), so a fresh
+install from a base behind the repos died there. `play-AB-dnf-upgrade.yml` stays in the main
+playbook as a no-op upgrade with its kernel cleanup, and its reboot notice now fires whenever
+the running kernel is not the newest installed. `consumer-install` upgrades first the same way.
+
 ## 1.34.0 — a busy play lock is waited for, not refused at once (Plan 00201 Task 2.19)
 
 When another play run holds the shared play lock, run.bash says who holds it and waits up to
