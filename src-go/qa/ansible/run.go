@@ -52,7 +52,8 @@ without FAIL-FAST-OK, playbook shebang and execute bit, self-default variables, 
 the canonical scope guard, deprecated top-level ansible_<fact> variables, a guessed uid in
 a /run/user path, and a regex backreference with the wrong backslash count for its YAML style
 and Jinja context (CLAUDE/QA.md, regex-backref-escape), and a file users read created as root
-under the inherited umask (CLAUDE/QA.md, root-umask).
+under the inherited umask (CLAUDE/QA.md, root-umask), and a sudoers rule whose target its user
+can modify or steer (CLAUDE/QA.md, sudoers-rule).
 
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory; the root is its parent
@@ -206,7 +207,10 @@ func scanPatterns(fsys fs.FS, root string, dirs []string, f *Findings) error {
 	if err := scanRegexBackrefs(fsys, dirs, f); err != nil {
 		return err
 	}
-	return scanRootUmask(fsys, dirs, f)
+	if err := scanRootUmask(fsys, dirs, f); err != nil {
+		return err
+	}
+	return scanSudoers(fsys, dirs, f)
 }
 
 // scanFacts runs checks 5 and 6: deprecated fact variables, then guessed uids in runtime paths.

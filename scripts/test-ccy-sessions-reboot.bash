@@ -651,14 +651,32 @@ echo "=== shutdown-with-update / reboot-with-update, driven for real under fakes
 # fake home), getent, fwupdmgr, dnf, flatpak, shutdown and systemd-inhibit, plus the
 # systemctl above. `bash -lc` through sudo (the pipx and rustup probes) answers "not
 # installed" so no real tool upgrade can run from a test.
+# A bare run as the user (TEST_UID not 0, read through the fake `id -u`) hands itself to sudo
+# by its installed path; the fake records that argv exactly and runs the copy under test as
+# root would see it (uid 0, SUDO_USER set). Real sudo also resets the environment, so the
+# WITH_UPDATE_* seams would not reach a real elevated run; that is checked on the host.
 WITH_UPDATE="$REPO_ROOT/files/usr/local/bin/shutdown-with-update"
 WU_DIR="$SCRATCH/with-update"
 mkdir -p "$WU_DIR"
 ln -s "$WITH_UPDATE" "$WU_DIR/shutdown-with-update"
 ln -s "$WITH_UPDATE" "$WU_DIR/reboot-with-update"
+cat >"$BIN/id" <<'EOF'
+#!/usr/bin/env bash
+if [ "$*" = "-u" ] && [ -n "${TEST_UID:-}" ]; then
+    printf '%s\n' "$TEST_UID"
+    exit 0
+fi
+exec /usr/bin/id "$@"
+EOF
 cat >"$BIN/sudo" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+case "${1:-}" in
+/usr/local/bin/*)
+    printf 'sudo %s\n' "$*" >>"$TEST_LOG"
+    TEST_UID=0 SUDO_USER=tester exec bash "$TEST_WU_DIR/${1##*/}" "${@:2}"
+    ;;
+esac
 [ "${1:-}" = "-u" ] && shift 2
 [ "${1:-}" = "-H" ] && shift
 if [ "${1:-}" = "bash" ]; then
@@ -697,19 +715,25 @@ cat >"$BIN/systemd-inhibit" <<'EOF'
 printf 'WHO WHAT\nsomeone sleep\n'
 EOF
 chmod 755 "$BIN/sudo" "$BIN/getent" "$BIN/fwupdmgr" "$BIN/dnf" "$BIN/flatpak" \
-    "$BIN/shutdown" "$BIN/systemd-inhibit"
+    "$BIN/shutdown" "$BIN/systemd-inhibit" "$BIN/id"
 
 # with_update <name> <home> <stdin-text-or-empty> <args...> — status in $rc. The recorded
-# provisioning profile is TEST_PROFILE (default desktop), or the file TEST_PROFILE_FILE names.
+# provisioning profile is TEST_PROFILE (default desktop), or the file TEST_PROFILE_FILE names;
+# the recorded install audience is TEST_AUDIENCE (default developer), or TEST_AUDIENCE_FILE.
+# It runs as root (TEST_UID 0) unless TEST_UID says otherwise; SUDO_USER is TEST_SUDO_USER,
+# default tester, and an empty TEST_SUDO_USER is a root shell that did not come through sudo.
 with_update() {
     local name="$1" home="$2" answer="$3"
     shift 3
     : >"$LOG"
     printf '%s\n' "${TEST_PROFILE:-desktop}" >"$WU_DIR/profile"
-    out="$(printf '%s' "$answer" | SUDO_USER="${TEST_SUDO_USER:-tester}" TEST_USER_HOME="$home" \
+    printf '%s\n' "${TEST_AUDIENCE:-developer}" >"$WU_DIR/audience"
+    out="$(printf '%s' "$answer" | SUDO_USER="${TEST_SUDO_USER-tester}" TEST_USER_HOME="$home" \
+        TEST_UID="${TEST_UID:-0}" TEST_WU_DIR="$WU_DIR" \
         PATH="$BIN:$PATH" CCY_LIB="$LIB_DIR" CCY_SESSIONS_MINUTE_SECONDS=0 \
-        WITH_UPDATE_MINUTE_SECONDS=0 CCY_STATE_DIR="$SCRATCH/state" \
+        WITH_UPDATE_MINUTE_SECONDS="${TEST_MINUTE_SECONDS:-0}" CCY_STATE_DIR="$SCRATCH/state" \
         WITH_UPDATE_PROFILE_FILE="${TEST_PROFILE_FILE:-$WU_DIR/profile}" \
+        WITH_UPDATE_AUDIENCE_FILE="${TEST_AUDIENCE_FILE:-$WU_DIR/audience}" \
         WITH_UPDATE_SESSIONS_TIMEOUT_SECONDS="${TEST_SESSIONS_TIMEOUT:-120}" \
         bash "$WU_DIR/$name" "$@" 2>&1)"
     rc=$?
@@ -878,6 +902,88 @@ check "and nothing was updated" "0" "$(calls | grep -c '^dnf')"
 check "and the refusal is journalled" "1" "$(calls | grep -c '^logger .*not from a root shell')"
 with_update shutdown-with-update "$HOME_OFF" "" --bogus
 check "a usage error: exits 64 and journals nothing (nothing ran)" "64:0" "$rc:$(calls | grep -c '^logger')"
+with_update shutdown-with-update "$HOME_OFF" "" --in 10000
+check "--in past the 9999 minutes the sudoers rule allows: a usage error" "64:0" "$rc:$(calls | grep -c '^dnf')"
+
+echo ""
+echo "=== a bare run elevates itself through sudo (Plan 00231) ==="
+printf '%s\n' "cc-a 1 $A" "cc-b 0 $B" >"$SESSIONS"
+TEST_UID=1000 with_update shutdown-with-update "$HOME_OFF" ""
+check "a bare run as the user hands itself to sudo by its installed path, adding nothing" \
+    "sudo /usr/local/bin/shutdown-with-update" "$(calls | grep '^sudo ')"
+check "  and the elevated run updates, warns both projects twice and shuts down" "0:1:4:1" \
+    "$rc:$(calls | grep -c '^dnf -y upgrade$'):$(calls | grep -c 'signal shutdown-warning'):$(calls | grep -c '^shutdown -h now$')"
+TEST_UID=1000 with_update reboot-with-update "$HOME_OFF" "" --in 1 --strict-sessions
+check "reboot-with-update keeps its name and its arguments through sudo" \
+    "sudo /usr/local/bin/reboot-with-update --in 1 --strict-sessions" "$(calls | grep '^sudo ')"
+check "  and reboots" "0:1" "$rc:$(calls | grep -c '^systemctl reboot$')"
+TEST_UID=1000 with_update shutdown-with-update "$HOME_OFF" "" --bogus
+check "a bad argument is judged by the elevated parser: 64, nothing updated" "64:0" "$rc:$(calls | grep -c '^dnf')"
+TEST_SUDO_USER="" with_update shutdown-with-update "$HOME_OFF" "" --in 1
+check "root that did not come through sudo: refused, nothing updated" "1:0" "$rc:$(calls | grep -c '^dnf')"
+check "  saying to run it as the desktop user" "yes" \
+    "$([[ "$out" == *"as the desktop user"* ]] && echo yes || echo no)"
+TEST_MINUTE_SECONDS="x[\$(touch $WU_DIR/evaluated)]" with_update shutdown-with-update "$HOME_OFF" "" --in 1
+check "a minute that is not digits is refused, never evaluated" "1:0:no" \
+    "$rc:$(calls | grep -c '^dnf'):$([ -e "$WU_DIR/evaluated" ] && echo yes || echo no)"
+
+echo ""
+echo "=== no ccy on a consumer install: nothing to warn, still updates and goes down ==="
+HOME_NO_CCY="$SCRATCH/home-no-ccy"
+mkdir -p "$HOME_NO_CCY"
+TEST_AUDIENCE=consumer with_update shutdown-with-update "$HOME_NO_CCY" "" --in 1
+check "consumer, no ccy-sessions: updates and shuts down" "0:1:1" \
+    "$rc:$(calls | grep -c '^dnf -y upgrade$'):$(calls | grep -c '^shutdown -h now$')"
+check "  saying once that there are no ccy/cc sessions to warn" "1" \
+    "$(grep -c 'no ccy/cc sessions to warn' <<<"$out")"
+check "  and signalling nothing" "0" "$(calls | grep -c 'signal ')"
+TEST_AUDIENCE=consumer TEST_UID=1000 with_update reboot-with-update "$HOME_NO_CCY" "" --in 1
+check "consumer, bare reboot-with-update: elevates and reboots" "0:1" \
+    "$rc:$(calls | grep -c '^systemctl reboot$')"
+with_update shutdown-with-update "$HOME_NO_CCY" "" --in 1
+check "developer, ccy-sessions missing: still refused before anything is updated" "1:0" \
+    "$rc:$(calls | grep -c '^dnf')"
+check "  naming the play that deploys it" "yes" \
+    "$([[ "$out" == *"play-claude-yolo.yml deploys it"* ]] && echo yes || echo no)"
+TEST_AUDIENCE_FILE="$WU_DIR/no-such-audience" with_update shutdown-with-update "$HOME_OFF" "" --in 1
+check "no recorded install audience: refused, naming the play that records it" "1:0:yes" \
+    "$rc:$(calls | grep -c '^dnf'):$([[ "$out" == *"no-such-audience is missing"*"play-basic-configs.yml"* ]] && echo yes || echo no)"
+TEST_AUDIENCE=student with_update shutdown-with-update "$HOME_OFF" "" --in 1
+check "an unknown install audience: refused" "1:0" "$rc:$(calls | grep -c '^dnf')"
+
+echo ""
+echo "=== the sudoers rule admits exactly the argument lists the script accepts ==="
+# Each command of the drop-in is "<path> <arguments>", one to a line; the arguments are ""
+# (none), a literal, or an anchored ERE, which sudo matches against the arguments joined by
+# spaces, as [[ =~ ]] does here.
+SUDOERS_RULE="$REPO_ROOT/files/etc/sudoers.d/fedora-desktop-shutdown-with-update.j2"
+# sudo_allows <name> <joined-arguments> — yes when a line of the rule for that name admits them.
+sudo_allows() {
+    local name="$1" args="$2" line spec
+    while IFS= read -r line; do
+        [[ "$line" == *"/usr/local/bin/$name "* ]] || continue
+        spec="${line#*"/usr/local/bin/$name "}"
+        spec="${spec%\\}"
+        spec="${spec% }"
+        spec="${spec%,}"
+        if [ "$spec" = '""' ] && [ -z "$args" ]; then echo yes && return; fi
+        if [[ "$spec" == ^*\$ ]] && [[ "$args" =~ $spec ]]; then echo yes && return; fi
+        if [ "$spec" = "$args" ]; then echo yes && return; fi
+    done <"$SUDOERS_RULE"
+    echo no
+}
+for name in shutdown-with-update reboot-with-update; do
+    for args in "" "--in 5" "--in 9999" "--strict-sessions" "--in 5 --strict-sessions" \
+        "--strict-sessions --in 12" "--help" "-h"; do
+        check "$name '$args' is admitted" "yes" "$(sudo_allows "$name" "$args")"
+    done
+    for args in "--in 0" "--in 05" "--in 10000" "--in" "--in 5 --in 6" "--in 5;id" "--bogus" \
+        "--in 5 --strict-sessions --strict-sessions" "--strict-sessions --strict-sessions" "x" "--help x"; do
+        check "$name '$args' is refused" "no" "$(sudo_allows "$name" "$args")"
+    done
+done
+check "the rule is granted to the desktop user alone" "1:1" \
+    "$(grep -c '^{{ user_login }} ALL=(root) NOPASSWD: SHUTDOWN_WITH_UPDATE$' "$SUDOERS_RULE"):$(grep -c 'NOPASSWD' "$SUDOERS_RULE")"
 
 echo ""
 echo "=== restore is reachable as a subcommand ==="

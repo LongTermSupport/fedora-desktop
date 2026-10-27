@@ -10,8 +10,12 @@
 #   reboot-with-update [--in N]     systemctl reboot
 # The warning kind is NOT the name's: ccy-sessions picks it by whether the user's session
 # restore is enabled, because that is what decides whether an agent should hand off.
-# Both run as root via sudo from the desktop user and need SUDO_USER: the sessions belong
-# to that user and are found through that user's tmux server.
+# Both are run bare by the desktop user and hand themselves to sudo, which the drop-in
+# /etc/sudoers.d/fedora-desktop-shutdown-with-update lets that user do without a password,
+# for exactly the argument lists the parser below accepts (Plan 00231). The root run needs
+# SUDO_USER: the sessions belong to that user and are found through that user's tmux server.
+# A consumer install has no ccy, so there are no sessions to warn (the install audience,
+# recorded by play-basic-configs.yml in AUDIENCE_FILE, says which).
 #
 # How much the sessions may hold the machine up follows the provisioning profile, which
 # play-basic-configs.yml records in PROFILE_FILE:
@@ -28,17 +32,22 @@
 #            a desktop too.
 set -euo pipefail
 
-MODE="shutdown"
+MODE="shutdown" ENDING="shuts the machine down."
 case "$(basename "$0")" in
 shutdown-with-update) ;;
-reboot-with-update)
-    MODE="reboot"
-    ;;
+reboot-with-update) MODE="reboot" ENDING="reboots." ;;
 *)
     echo "Error: this script must be invoked as shutdown-with-update or reboot-with-update, not $(basename "$0")" >&2
     exit 64
     ;;
 esac
+
+# Not root: hand this run to sudo by the installed path, never by $0, so a copy elsewhere is
+# never what runs as root. The arguments go as they are: the sudoers rule admits only the
+# lists the parser accepts, and sudo resets the environment and PATH on the way in.
+if [ "$(id -u)" -ne 0 ]; then
+    exec sudo "/usr/local/bin/$(basename "$0")" "$@"
+fi
 
 # Ctrl+C: stop, and if the sessions have already been told the machine is going down, tell
 # them it is not. `reboot-cancelled` is the daemon's one withdrawal signal and covers both
@@ -104,6 +113,12 @@ trap on_exit EXIT
 MINUTE_SECONDS="${WITH_UPDATE_MINUTE_SECONDS:-60}"
 SESSIONS_TIMEOUT_SECONDS="${WITH_UPDATE_SESSIONS_TIMEOUT_SECONDS:-120}"
 PROFILE_FILE="${WITH_UPDATE_PROFILE_FILE:-/etc/fedora-desktop/provisioning-profile}"
+AUDIENCE_FILE="${WITH_UPDATE_AUDIENCE_FILE:-/etc/fedora-desktop/install-audience}"
+# sudo's env_reset keeps these from a run it elevated; even so, a minute that is not digits
+# is never handed to $(( )), which would evaluate it as code.
+if ! [[ "$MINUTE_SECONDS" =~ ^[0-9]+$ ]]; then
+    refuse "WITH_UPDATE_MINUTE_SECONDS must be a whole number of seconds; got '$MINUTE_SECONDS'"
+fi
 
 # ccy-sessions as the user whose sessions they are, and never for longer than the bound: a
 # daemon CLI that hangs inside a container must not hold the machine up all night.
@@ -161,20 +176,17 @@ while [ $# -gt 0 ]; do
         echo "Usage: $(basename "$0") [--in MINUTES] [--strict-sessions]"
         echo "Updates firmware, dnf packages, Flatpaks, pipx tools and the Rust toolchain, then"
         echo "warns every running ccy/cc session (default 2 minutes, again at 1) and"
-        if [ "$MODE" = reboot ]; then
-            echo "reboots."
-        else
-            echo "shuts the machine down."
-        fi
-        echo ""
-        echo "On a desktop nothing a session does stops it: a session that cannot be warned"
-        echo "is reported and the $MODE goes ahead, past any inhibitor. ccy sessions with no"
-        echo "container (still at ccy's startup prompts) are left out altogether. A failed"
-        echo "update step, dnf included, is logged (journalctl -t shutdown-with-update) and"
-        echo "the $MODE still happens."
-        echo "On a server, or with --strict-sessions, a session that cannot be warned stops it"
-        echo "before anything is updated, a failed dnf stops it, and a refused shutdown asks"
-        echo "before forcing."
+        echo "$ENDING"
+        printf '%s\n' "" \
+            "On a desktop nothing a session does stops it: a session that cannot be warned" \
+            "is reported and the $MODE goes ahead, past any inhibitor. ccy sessions with no" \
+            "container (still at ccy's startup prompts) are left out altogether. A failed" \
+            "update step, dnf included, is logged (journalctl -t shutdown-with-update) and" \
+            "the $MODE still happens." \
+            "On a server, or with --strict-sessions, a session that cannot be warned stops it" \
+            "before anything is updated, a failed dnf stops it, and a refused shutdown asks" \
+            "before forcing. Run it as yourself: it hands itself to sudo, which needs no" \
+            "password for the desktop user and these options."
         exit 0
         ;;
     --strict-sessions)
@@ -182,8 +194,8 @@ while [ $# -gt 0 ]; do
         shift
         ;;
     --in)
-        if ! [[ "${2:-}" =~ ^[1-9][0-9]*$ ]]; then
-            echo "Error: --in needs a whole number of minutes, at least 1; got '${2:-}'" >&2
+        if ! [[ "${2:-}" =~ ^[1-9][0-9]?[0-9]?[0-9]?$ ]]; then
+            echo "Error: --in needs a whole number of minutes from 1 to 9999; got '${2:-}'" >&2
             exit 64
         fi
         REBOOT_MINUTES="$2"
@@ -219,7 +231,7 @@ fi
 # out after twenty minutes of dnf would be the wrong order. The rehearsal is the same notify
 # with --dry-run: it signals nothing, and prints the kind the sessions will actually be sent.
 if [ -z "${SUDO_USER:-}" ]; then
-    refuse "$(basename "$0") must be run through sudo from the user whose sessions are to be warned"
+    refuse "run $(basename "$0") as the desktop user whose sessions are to be warned (it hands itself to sudo), not as root"
 fi
 # From a root shell sudo reports SUDO_USER=root, and root has no ccy-sessions: the ccy
 # sessions are the desktop user's. Refused rather than run unwarned — an agent killed
@@ -232,7 +244,17 @@ fi
 if ! user_home="$(getent passwd "$SUDO_USER" | cut -d: -f6)" || [ -z "$user_home" ]; then
     refuse "could not resolve a home directory for $SUDO_USER (getent passwd), so ccy-sessions cannot be found"
 fi
-CCY_SESSIONS="$user_home/.local/bin/ccy-sessions"
+if [ ! -r "$AUDIENCE_FILE" ]; then
+    refuse "$AUDIENCE_FILE is missing, so it is not known whether ccy is installed; playbooks/imports/play-basic-configs.yml deploys it"
+fi
+# A consumer install has no ccy or cc (play-claude-yolo.yml ends itself there), so no session
+# can be running and every call to them is /usr/bin/true. Decided by the root-owned record the
+# play wrote, not by what is or is not in the user's home.
+case "$(<"$AUDIENCE_FILE")" in
+developer) CCY_SESSIONS="$user_home/.local/bin/ccy-sessions" ;;
+consumer) CCY_SESSIONS=/usr/bin/true && echo "A consumer install has no ccy: no ccy/cc sessions to warn." >&2 ;;
+*) refuse "$AUDIENCE_FILE says '$(<"$AUDIENCE_FILE")'; expected developer or consumer. Re-run playbooks/imports/play-basic-configs.yml" ;;
+esac
 if [ ! -x "$CCY_SESSIONS" ]; then
     refuse "$CCY_SESSIONS is missing; playbooks/imports/play-claude-yolo.yml deploys it"
 fi
@@ -282,44 +304,30 @@ if command -v flatpak >/dev/null; then
     if ! flatpak uninstall --system --unused -y; then
         step_failed "system Flatpak cleanup"
     fi
-    # Also update any per-user Flatpaks, as the invoking user rather than root.
-    if [ -n "${SUDO_USER:-}" ]; then
-        if ! sudo -u "$SUDO_USER" -H flatpak update --user -y; then
-            step_failed "user Flatpak update"
-        fi
-        if ! sudo -u "$SUDO_USER" -H flatpak uninstall --user --unused -y; then
-            step_failed "user Flatpak cleanup"
-        fi
+    # Also update any per-user Flatpaks, as the invoking user rather than root (SUDO_USER is
+    # checked above).
+    if ! sudo -u "$SUDO_USER" -H flatpak update --user -y; then
+        step_failed "user Flatpak update"
+    fi
+    if ! sudo -u "$SUDO_USER" -H flatpak uninstall --user --unused -y; then
+        step_failed "user Flatpak cleanup"
     fi
 else
     echo "flatpak not installed, skipping."
 fi
 
-# pipx CLI tools (pdm, huggingface CLI) are installed into the invoking user's
-# ~/.local/pipx by play-python.yml — not root's — so upgrade them as that user.
-# The QA tools (ruff, semgrep) are pipx-pinned to .qa-versions, so upgrade-all
-# skips them. Non-fatal for the same reason as the Flatpak block above.
-echo "Starting pipx tool updates..."
-update_user="${SUDO_USER:-$USER}"
-if sudo -u "$update_user" -H bash -lc 'command -v pipx >/dev/null'; then
-    if ! sudo -u "$update_user" -H bash -lc 'pipx upgrade-all'; then
-        step_failed "pipx upgrade-all"
+# pipx CLI tools (pdm, huggingface CLI; play-python.yml) and the Rust toolchain
+# (play-rust-dev.yml, optional) live in the invoking user's home, not root's, so each is
+# updated as that user, never as root. The QA tools (ruff, semgrep) are pipx-pinned to
+# .qa-versions, so upgrade-all skips them. Non-fatal for the same reason as the Flatpak block.
+for tool in "pipx upgrade-all" "rustup update"; do
+    echo "Starting ${tool%% *} updates..."
+    if ! sudo -u "$SUDO_USER" -H bash -lc "command -v ${tool%% *} >/dev/null"; then
+        echo "${tool%% *} not installed for $SUDO_USER, skipping."
+    elif ! sudo -u "$SUDO_USER" -H bash -lc "$tool"; then
+        step_failed "$tool"
     fi
-else
-    echo "pipx not installed for $update_user, skipping."
-fi
-
-# Rust toolchain is installed into the invoking user's ~/.rustup / ~/.cargo by
-# play-rust-dev.yml (optional), so update it as that user rather than root.
-# Non-fatal for the same reason as the blocks above.
-echo "Starting Rust toolchain updates..."
-if sudo -u "$update_user" -H bash -lc 'command -v rustup >/dev/null'; then
-    if ! sudo -u "$update_user" -H bash -lc 'rustup update'; then
-        step_failed "rustup update"
-    fi
-else
-    echo "rustup not installed for $update_user, skipping."
-fi
+done
 
 echo "Updates complete. Checking for kernel module builds..."
 # akmods is building when its process is present or its unit reports so. A bash pattern
@@ -346,11 +354,8 @@ if akmods_building; then
         echo -n "."
     done
     echo ""
-    
     if [ $count -ge 60 ]; then
         echo "Warning: akmods took longer than 5 minutes, proceeding anyway"
-    else
-        echo "Kernel modules built successfully."
     fi
 fi
 
@@ -358,7 +363,7 @@ fi
 # reach each project's own daemon. The power action itself is root's: `systemctl reboot`
 # as the user is refused by polkit on a session that is not local and active, which an SSH
 # login is not, and this command is as likely to be run over SSH as not.
-echo "Warning running ccy/cc sessions: $MODE in $REBOOT_MINUTES minute(s)..."
+echo "${MODE^} in $REBOOT_MINUTES minute(s); warning any running ccy/cc sessions..."
 # Set BEFORE the notify: one that fails part-way has already reached some projects.
 SESSIONS_WARNED=true
 warn_sessions "$REBOOT_MINUTES"

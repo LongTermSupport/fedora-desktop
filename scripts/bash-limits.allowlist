@@ -44,7 +44,7 @@ files/home/bashrc-includes/history-search.bash	56	2	64	ui
 files/usr/lib/systemd/system-sleep/resuspend-aborted-suspend	91	2	95	-
 files/usr/local/bin/agent-bus	119	9	124	-
 files/usr/local/bin/compress	96	2	63	-
-files/usr/local/bin/shutdown-with-update	290	10	298	-
+files/usr/local/bin/shutdown-with-update	286	10	295	-
 files/usr/local/bin/uncompress	106	2	80	-
 files/usr/local/sbin/agent-bus-install	988	62	1156	assoc,data
 files/usr/local/sbin/fedora-desktop-self-update	94	2	99	-
