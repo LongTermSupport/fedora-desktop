@@ -51,8 +51,7 @@ coexist cleanly — different sockets, different storage, different networking s
 
 `play-podman.yml` installs `container-images-prune.timer`, which runs
 `container-images prune --yes` (`src-go/cmd/container-images`, Plan 00235) every day: dangling
-images no container uses, over a day old; `claude-yolo:<project>` images no container uses, over
-30 days old; buildah working containers over a day old while no ccy image build runs. Volumes
+images no container uses, over a day old; `claude-yolo:<project>` images no container uses, built and last launched over 30 days ago; buildah working containers over a day old; nothing while a ccy image build runs. Volumes
 and images in use are never removed, and `podman system df` is never asked (it fails on a volume
 owned outside the user's subuid range). Each removal is logged to
 `~/.local/state/fedora-desktop/container-images.log`; `container-images prune` without `--yes`

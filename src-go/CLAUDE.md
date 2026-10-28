@@ -288,7 +288,7 @@ the launcher's front `claude-yolo` (root-owned at `/var/local/claude-yolo/claude
 `play-lxcfreeze.yml` import (both import `play-golang.yml` first for the toolchain), and
 `play-vm-test-lab.yml` for `vmtest`, `play-ftp-camera.yml` for `ftp-camera`,
 `play-image-watermarking.yml` for `watermark`, `play-speech-to-text.yml` for `wsi` and
-`play-cli-tools.yml` for `open`, `convert` and `reclaim`, `play-nordvpn-openvpn.yml` for `nord`, `play-rclone.yml` for `rclone-cache-status` and `rclone-tail`,
+`play-cli-tools.yml` for `open`, `convert` and `reclaim`, `play-podman.yml` for `container-images`, `play-nordvpn-openvpn.yml` for `nord`, `play-rclone.yml` for `rclone-cache-status` and `rclone-tail`,
 `play-basic-configs.yml` for `git-fetch-age` and the `ssh-with-key` family, and `play-git-configure-and-tools.yml` for
 `git-prompt-fetch`, and `play-claude-yolo.yml` (into the ccy image's build context) and
 `play-agent-bus.yml` (into the member kit, which LXC members copy) for `pingbus-status-line`,

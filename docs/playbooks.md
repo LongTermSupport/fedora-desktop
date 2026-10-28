@@ -460,11 +460,12 @@ open across a font upgrade can draw the wrong emoji (Plan 00185, issue #60).
 - Installs Podman (rootless, daemonless)
 - Installs podman-compose for compose-file workflows
 - Default engine for CCY and all new container work
+- Imports `play-golang.yml`, builds `container-images`, and installs `container-images-prune.timer`, the daily prune of the podman store (see [Containerization Guide](containerization.md#the-daily-prune-of-the-podman-store))
 - See [Containerization Guide](containerization.md) for Podman vs Docker role split
 
 ### play-golang.yml
 
-**Purpose**: Go toolchain, imported by `play-python.yml` and `play-claude-yolo.yml` (not optional)
+**Purpose**: Go toolchain, imported by `play-python.yml`, `play-claude-yolo.yml` and `play-podman.yml` (not optional)
 
 - Golang compiler and standard tools from DNF repositories
 - The toolchain only: no QA tooling, because `play-claude-yolo.yml` imports this play and runs unattended on self-update

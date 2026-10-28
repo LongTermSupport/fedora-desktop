@@ -45,7 +45,7 @@ Research, with file:line for every claim below:
 - Changing what ccy builds or when it rebuilds.
 - The interactive `reclaim` tool (Plan 00062, Plan 00192's port): it stays the manual tool for
   everything else; this plan is the automation it lacks.
-- Docker's store. The commands take `container_engine`; podman is the target (Docker is
+- Docker's store. The command and the timer hard-code podman, whose store is the subject (Docker is
   compatibility only, and DDEV owns its images).
 
 ## Context & Background
@@ -123,15 +123,14 @@ the plans cite kept.
 - [x] ✅ **Task 3.4**: Stale project images: `claude-yolo:<project>` tags no container uses and
   unused for longer than Q1's age are removed by the timer (Phase 4), recorded in its log; the
   next launch of that project rebuilds it as it does today. Built into `prune` (rule P2 in
-  `src-go/internal/containerimages`): the age is the image's creation, since podman records no
-  last use, and ccy's daily in-place update makes a new image on each day a project is used
+  `src-go/internal/containerimages`): stale only when both its creation and its last ccy launch (the mtime of
+  ~/.cache/claude-yolo-update-checks/claude-yolo\_<project>; creation alone when absent) are over 30 days old
 
 ### Phase 4: The daily catch-all
 
 - [x] ✅ **Task 4.1**: Tests first, then the same command's `prune [--yes]`: a dry run unless
   `--yes`; removes dangling images used by no container and older than a day (so a build in
-  flight is never touched), buildah working containers older than a day while no build lock is
-  held, and Task 3.4's stale project tags; lists dangling volumes (count, names) and removes
+  flight is never touched), buildah working containers (command "buildah", never another "storage" container) older than a day; nothing at all while a ccy build lock is held; one --yes run at a time (a run lock); a success stamp `container-images.succeeded`, and Task 3.4's stale project tags; lists dangling volumes (count, names) and removes
   none; never calls `podman system df` (F8); appends each removal to
   `~/.local/state/fedora-desktop/container-images.log` (time, id, size, labels, why) only after
   the removal succeeded, and reports a failed one by name, exiting non-zero. `src-go/cmd/container-images`
@@ -139,17 +138,20 @@ the plans cite kept.
   the podman output shapes it reads are in [subagent-reports/261028-prune-timer-built.md](subagent-reports/261028-prune-timer-built.md)
 - [x] ✅ **Task 4.2**: `play-podman.yml` (Decision 2) imports `play-golang.yml`, builds the
   command with `tasks/build-go-command.yml`, and installs `container-images-prune.service` and
-  `.timer` (user scope, daily, `Persistent=true`, `container_engine`), modelled on
-  `play-container-watch.yml:94-155`; the service runs `prune --yes`. When the unit is first
-  installed the play starts the service once, so the deploy itself clears the backlog (Q4).
+  `.timer` (user scope, daily, `Persistent=true`; podman hard-coded on purpose, see below), modelled on
+  `playbooks/imports/optional/common/play-container-watch.yml`; the service runs `prune --yes`. Until a prune has succeeded (its stamp) the play starts the service once, so the deploy itself clears the backlog (Q4).
   The timer prunes podman's store, which this play installs whatever `container_engine` names
 - [x] ✅ **Task 4.3**: `docs/` and `CLAUDE/ContainerEngines.md`: what is removed, when, where the
   log is, and how to see what the next run would remove (`container-images prune`)
-- [ ] ⬜ **Task 4.4**: The orphaned volume (F8: its data is owned by a uid outside the user's
-  subuid range) removed by a one-off root probe-then-remove play step, found by that property
-  (never a name), each removal logged. Not in Task 4.2: it deletes volume data as root inside
-  the user's store, then needs `podman volume rm` as the user, so it wants its own design and
-  review. The prune does not need it: it never asks `podman system df`
+- [ ] ⬜ **Task 4.4**: The orphaned volume (Q2b), removed once by a root step in `play-podman.yml`,
+  probe then remove. The probe finds it by its property, never by a hard-coded name: a volume of
+  the user's rootless store whose data is owned by a uid that is neither the user's nor inside
+  the user's current subuid range (read from `/etc/subuid`), and that no container (`ps -a`)
+  mounts. The step removes each such volume's data as root and then its record as the user
+  (`podman volume rm`), logs each removal (name, owner uid, size) to the play output and the
+  retention log of Task 4.1, and fails on a removal that does not succeed; with no such volume it
+  changes nothing. Tests first for the probe's judgement (a volume in range, out of range, in
+  use). Acceptance (Task 7.1): `podman system df` exits 0 afterwards
 
 ### Phase 5: The health report says so
 
@@ -193,6 +195,9 @@ the plans cite kept.
 ### Phase 8: Review
 
 - [ ] ⬜ **Task 8.1**: qa-reviewer over the branch diff; every BLOCK and FIX-BEFORE-MERGE resolved
+- [ ] FOLLOW-UP (review U3): acceptance prints podman's `until=24h` count beside a `before=` count, to confirm the filter's meaning
+- [ ] FOLLOW-UP (review U5): decide whether a dead-code change to a shared package needs a CCY version bump
+- [ ] FOLLOW-UP: the `StoreContainer.External` comment in engine/store.go names only buildah (left so as not to bump CCY here)
 
 ## Questions for the owner
 
@@ -251,7 +256,7 @@ timer, prune dangling images older than a day. Both leave anything a container u
 | Risk                                                         | Impact | Probability | Mitigation                                                                                 |
 | ------------------------------------------------------------ | ------ | ----------- | ------------------------------------------------------------------------------------------ |
 | An image an agent-team member needs is removed               | H      | L           | `ps -a` checked first, podman's own refusal second; tests with two containers on one image |
-| A build in flight loses its intermediate images to the timer | M      | L           | the timer's one-day age filter; buildah containers only while no build lock is held        |
+| A build in flight loses its intermediate images to the timer | M      | L           | the timer's one-day age filter; nothing removed while a build lock is held                 |
 | The orphaned volume breaks the timer or the probe            | M      | M           | `system df` never called (F8); a test with that error shape                                |
 | The lock's bash passes the 60-line limit                     | L      | M           | the Go command takes the logic; the lock's lines shrink if needed (Task 3.2)               |
 

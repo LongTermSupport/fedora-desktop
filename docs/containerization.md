@@ -272,15 +272,12 @@ name is left dangling (`<none>:<none>`). `play-podman.yml` installs a user timer
 them, so the store does not grow without end.
 
 - **When**: `container-images-prune.timer` runs `container-images prune --yes` once a day
-  (`Persistent=true`, so a day the machine was off is caught up at the next boot). The deploy
-  that first installs the timer runs the prune once straight away, clearing the backlog.
+  (`Persistent=true`, so a day the machine was off is caught up at the next boot). Until one prune has succeeded, each deploy runs it straight away, clearing the backlog.
 - **What is removed**:
   - dangling images no container uses (running, stopped, or a buildah working container), over
     a day old, so a build in flight is never touched;
-  - `claude-yolo:<project>` images (never `:base` or `:latest`) no container uses, over 30 days
-    old; that project's next `ccy` launch rebuilds its image;
-  - buildah working containers over a day old, left by a build that did not finish, and only
-    while no ccy image build is running.
+  - `claude-yolo:<project>` images (never `:base` or `:latest`) no container uses, built over 30 days ago and not launched for 30 days (ccy touches `~/.cache/claude-yolo-update-checks/claude-yolo_<project>` on each launch day); that project's next `ccy` launch rebuilds its image;
+  - buildah working containers over a day old, left by a build that did not finish; another "storage" container (one whose podman record was lost) is listed, never removed. While a ccy image build runs, nothing is removed.
 - **What is never removed**: an image any container uses, a tagged image other than a stale
   project image, and volumes. Dangling volumes are listed in each run's output; deciding about
   them is yours, since a volume holds data.
