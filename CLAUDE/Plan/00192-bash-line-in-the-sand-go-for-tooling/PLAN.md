@@ -7,10 +7,12 @@ and 4.2 are done; no code is left for workers. Left for the host agent: the
 `changed-plays` run queued in `meta-deploy.list` and its check (the next vmtest-nightly
 timer run evicts overlays and keeps every run directory, which also settles vmtest H5); the host checks
 of the merged ports still open (vmtest H3's base build and ssh-with-key H2 and H4's guest
-part, once the runs are pruned; open H5's Ctrl-C in mpv; rclone-tail H4; gh-account-setup H1
-and H3 to H5); Task 3.2's root run is on hold until Plan 00209 Task 2.5 (see the task). Left
+part and gh-account-setup H4's headless scenario, once the runs are pruned; gh-account-setup
+H3, a full `run.bash`); Task 3.2's root run is on hold until Plan 00209 Task 2.5 (see the task). Left
 for the owner: only what needs the owner in person, namely vmtest H7's `prune-runs --yes`
-(which the vmtest H3 and ssh-with-key checks wait on) and H6 (a throwaway GitHub account to
+(which the vmtest H3, ssh-with-key and gh-account-setup H4 checks wait on), open H5's Ctrl-C
+in mpv (it plays through the speakers), gh-account-setup H5 (Ctrl-C during H2's login) and
+vmtest H6 (a throwaway GitHub account to
 create), gh-account-setup H2 (a real GitHub device login), ftp-camera H3 and H4 (the physical
 camera), H1 (it sorts the real upload tree, so it waits on the owner's yes) and H5 (a Wi-Fi
 access point on the owner's machine), wsi H1 (speaking into the microphone) and H2 (a real
@@ -199,6 +201,12 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     without blocking, and Ctrl-C at the chooser gives `cancelled — nothing opened.`, exit 130
     (E31). Not run: Ctrl-C in mpv (left, above), Ctrl-C ending chafa (a still image returns at
     once) and Ctrl-C during a slow file (no slow file found). H2 and H3 are the owner's.
+    Host, 2026-10-28 at `f6efc0b04` (host agent, a private tmux, scratch files,
+    `$_NU5YS7PTfylzk4ZzGtjm9e5lCwZi19xQAKhyDnXJBc`): H5 PASS for `less` (Ctrl-C left less on
+    screen; `q` exit 0, `stty -a` unchanged), the editor (Ctrl-C was vim's own) and before the
+    handler (a FIFO with no writer: `open: cancelled — nothing opened.`, exit 130, `stty -a`
+    unchanged). Ctrl-C in mpv is the owner's: the auto-mode classifier denied playing media in
+    the host session, and it would sound through the owner's speakers.
   - `rclone-cache-status` (P6): ported, merged into F44, deployed and live-checked on the host
     (`deploy-rclone-cache-status.bash` passed), spec
     [SPEC-rclone-cache-status.md](SPEC-rclone-cache-status.md); left, for the host agent: the
@@ -214,13 +222,19 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     the host agent's (a file written into a mount while `rclone-tail` runs in a tmux pane,
     Ctrl-C by `send-keys`, `ftp-camera`'s closing status). H2 and H3 PASS 26-10-26 (host agent,
     a copy and delete into a `<remote>` mount: queue and rate during the upload, then idle;
-    Ctrl-C exit 0); one overwrite showed two uploads, cause not found in the log. H4 left.
+    Ctrl-C exit 0); one overwrite showed two uploads, cause not found in the log. H4 PASS
+    2026-10-28 (host agent, `$_NU5YS7PTfylzk4ZzGtjm9e5lCwZi19xQAKhyDnXJBc`): `rclone-tail --once <mount>`, the call behind `ftp-camera`'s closing status, printed each mount `idle`,
+    exit 0, with no `error:`, alone and for all mounts; no camera session was started.
   - `gh-account-setup` (P6): ported and merged into F44 at 9e404ae6b (Opus MERGE in round 4;
     `src-go/cmd/gh-account-setup`); it is run from the checkout, so no play deploys it. Spec
     [SPEC-gh-account-setup.md](SPEC-gh-account-setup.md). Host checks: H1, H3 and H5 the host
     agent's, H4 in the VM lab (host agent); H5's Ctrl-C mid-login leaves the host's `gh`
     accounts as it found them. H2 is the owner's (completing a GitHub device-code login for a
-    real account; the script side up to the printed URL is the host agent's).
+    real account; the script side up to the printed URL is the host agent's). H1 PASS
+    2026-10-28 (host agent, `$_NU5YS7PTfylzk4ZzGtjm9e5lCwZi19xQAKhyDnXJBc`): `--check` found
+    every configured account healthy (auth, scopes, key, registered key, SSH verified), exit 0,
+    no token printed, and `gh auth status --active` the same before and after. H5 needs H2's
+    login, so it is the owner's with H2; H3 is a full `run.bash`; H4 waits on the VM lab's disk.
   - `setup-rclone` (P6): ported (`go-port/setup-rclone-3`, the review's FIX-FIRST findings
     fixed) and merged into F44 (`61b70d02d`); spec [SPEC-setup-rclone.md](SPEC-setup-rclone.md).
     Run from the checkout through the `scripts/setup-rclone.bash` wrapper, so no play deploys
