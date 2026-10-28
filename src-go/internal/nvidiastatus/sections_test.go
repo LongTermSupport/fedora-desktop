@@ -294,3 +294,138 @@ func TestKernelJournal(t *testing.T) {
 	_, out = w.report(t)
 	wantLines(t, out, "Could not read the kernel journal in full (journalctl exited 1: No journal files were found.)")
 }
+
+// mismatchSMI is what nvidia-smi says when the loaded kernel driver is not the libraries' version.
+const mismatchSMI = "Failed to initialize NVML: Driver/library version mismatch\nNVML library version: 580.95\n"
+
+// E26, B15: after an akmod upgrade the running kernel keeps the old driver: reboot, with both versions.
+func TestDriverVersionMismatch(t *testing.T) {
+	upgraded := func() *world {
+		w := healthy()
+		w.nvrm = "NVRM version: NVIDIA UNIX Open Kernel Module for x86_64  575.64.05  Release Build  (builder)\n"
+		return w
+	}
+
+	w := upgraded()
+	w.smi = reply{code: 18, out: mismatchSMI}
+	code, out := w.report(t)
+	wantCode(t, code, term.ExitFailure)
+	wantLines(t, out,
+		"  ⚠  nvidia driver loaded: Version 575.64.05, but 580.95.05 is installed (reboot to load it)\n",
+		"  ❌ nvidia-smi: Failed to communicate with GPU\n",
+		"  ℹ  Driver/library version mismatch: the running kernel has the old driver; reboot\n",
+		"⚠  REBOOT REQUIRED: NEW DRIVER INSTALLED",
+		"Loaded in the running kernel: 575.64.05",
+		"Installed: 580.95.05",
+		"Reboot to load the new driver.",
+	)
+	wantNot(t, out, "INSTALLATION INCOMPLETE")
+
+	// nvidia-smi's words alone, the loaded version unreadable.
+	w = healthy()
+	w.nvrm = ""
+	w.smi = reply{code: 18, out: mismatchSMI}
+	_, out = w.report(t)
+	wantLines(t, out,
+		"  ⚠  nvidia driver loaded: could not read /proc/driver/nvidia/version",
+		"⚠  REBOOT REQUIRED: NEW DRIVER INSTALLED",
+		"Loaded in the running kernel: unknown",
+		"Installed: 580.95.05",
+	)
+
+	// The versions alone: nvidia-smi broken some other way.
+	w = upgraded()
+	w.smi = reply{code: 9, out: "NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver.\n"}
+	_, out = w.report(t)
+	wantLines(t, out, "⚠  REBOOT REQUIRED: NEW DRIVER INSTALLED")
+
+	// Built unknown: the package's version is the installed one.
+	w = upgraded()
+	w.smi = reply{code: 18, out: mismatchSMI}
+	w.modinfo = reply{fail: errStart}
+	_, out = w.report(t)
+	wantLines(t, out, "Installed: 580.95.05")
+
+	// Still working on the old driver: complete, with the reboot named.
+	w = upgraded()
+	code, out = w.report(t)
+	wantCode(t, code, term.ExitOK)
+	wantLines(t, out, "✅ INSTALLATION COMPLETE AND FUNCTIONAL",
+		"Driver 580.95.05 is installed but 575.64.05 is running: reboot to load it.")
+}
+
+// The verdict when no akmods key exists at all names the play, not an enrolment already queued.
+func TestMokRequiredWithoutAKeyNamesThePlay(t *testing.T) {
+	w := healthy()
+	w.modules = ""
+	w.keyFile = false
+	w.listEnrolled = said("")
+	_, out := w.report(t)
+	wantLines(t, out, "⚠  ACTION REQUIRED: MOK ENROLLMENT",
+		"1. Run play-nvidia.yml: it creates the akmods key and queues it for enrollment",
+		"2. Reboot your system")
+	wantNot(t, out, "1. Reboot your system")
+}
+
+// E22a, B16: NVIDIA's own VA-API driver, asked by name.
+func TestNvidiaVAAPI(t *testing.T) {
+	w := healthy()
+	w.vaNvidia = reply{code: 1, out: "libva info: Trying to open /usr/lib64/dri/nvidia_drv_video.so\n" +
+		"libva error: /usr/lib64/dri/nvidia_drv_video.so init failed\nvaInitialize failed with error code 1 (operation failed),exit\n"}
+	code, out := w.report(t)
+	wantCode(t, code, term.ExitOK)
+	wantLines(t, out,
+		"  ✅ VA-API (default driver): Driver loaded\n",
+		"  ⚠  VA-API (NVIDIA driver): Could not initialise (vaInitialize failed with error code 1 (operation failed),exit)\n",
+		"  ℹ  Try: LIBVA_DRIVER_NAME=nvidia vainfo\n",
+	)
+
+	w = healthy()
+	w.vaNvidia = said("vainfo: Driver version: VA-API NVDEC driver [direct backend]\n")
+	_, out = w.report(t)
+	wantLines(t, out, "  ⚠  VA-API (NVIDIA driver): Driver loaded but no profiles\n")
+
+	// Not asked when its package is not installed.
+	w = healthy()
+	delete(w.rpm, "libva-nvidia-driver")
+	_, out = w.report(t)
+	wantLines(t, out, "  ⚠  VA-API (NVIDIA driver): not asked (libva-nvidia-driver not installed)\n")
+	for _, c := range w.fake.Calls() {
+		if len(c.Env) > 0 {
+			t.Errorf("asked %v %s", c.Env, c.Line())
+		}
+	}
+}
+
+// E19, B17: rpm failing is not "not installed".
+func TestVulkanWhenRpmFails(t *testing.T) {
+	w := healthy()
+	w.missing["vulkaninfo"] = true
+	w.rpm["vulkan-loader"] = reply{code: 2, err: "error: rpmdb open failed\n"}
+	_, out := w.report(t)
+	wantLines(t, out, "  ⚠  vulkaninfo: Not available; could not tell whether Vulkan is installed (rpm failed, section 2)\n")
+	wantNot(t, out, "Vulkan support not configured")
+}
+
+// E23a, B18: the nvidia-gpu i2c timeouts (the card's USB-C controller) are named, not errors.
+func TestJournalI2CNoise(t *testing.T) {
+	w := healthy()
+	w.journal = said("Oct 28 09:00:01 host kernel: nvidia-gpu 0000:01:00.3: i2c timeout error e0000000\n" +
+		"Oct 28 09:00:02 host kernel: nvidia-gpu 0000:01:00.3: i2c timeout error e0000000\n")
+	code, out := w.report(t)
+	wantCode(t, code, term.ExitOK)
+	wantLines(t, out,
+		"  ✅ Recent errors: None found\n",
+		"  ℹ  2 nvidia-gpu i2c timeout line(s) left out: the card's USB-C controller, not the driver\n",
+	)
+	wantNot(t, out, "Recent kernel errors found")
+
+	w = healthy()
+	w.journal = said("Oct 28 09:00:01 host kernel: nvidia-gpu 0000:01:00.3: i2c timeout error e0000000\n" +
+		"Oct 28 09:00:02 host kernel: NVRM: Xid (PCI:0000:01:00): 79, GPU has fallen off the bus.\n")
+	_, out = w.report(t)
+	wantLines(t, out, "  ⚠  Recent kernel errors found:\n",
+		"      Oct 28 09:00:02 host kernel: NVRM: Xid (PCI:0000:01:00): 79, GPU has fallen off the bus.\n",
+		"  ℹ  1 nvidia-gpu i2c timeout line(s) left out")
+	wantNot(t, out, "      Oct 28 09:00:01")
+}

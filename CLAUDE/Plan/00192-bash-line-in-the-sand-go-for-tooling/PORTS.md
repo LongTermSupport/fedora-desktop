@@ -472,7 +472,7 @@ like). U1 left: the credentials are checked for every connect by design (E8: eve
 piece said before anything acts), and reading the file when the profile already exists costs
 nothing; the reviewer marked it low priority.
 `nvidia-status` (P6) built on `go-port/nvidia-status`; spec
-[SPEC-nvidia-status.md](SPEC-nvidia-status.md) (D1-D4, E1-E25, B1-B14, H1-H5),
+[SPEC-nvidia-status.md](SPEC-nvidia-status.md) (D1-D4, E1-E26 with E22a and E23a, B1-B19, H1-H6),
 `src-go/cmd/nvidia-status` and `src-go/internal/nvidiastatus` (facts gathered once, rendered,
 and the exit status the verdict over them; every program through `execx` under a fixed 30s
 bound; `/proc/modules` read directly). Run from the checkout as before:
@@ -487,13 +487,16 @@ always got `Could not read the kernel journal` (B2); `--check` still printed lin
 `lsmod | grep ^nvidia` counted `nvidia_drm` as the driver (B5); an unrecognised `--test-key`
 answer led to "enrol the MOK key" (B6); an unknown Secure Boot state was summarised as
 disabled (B7); a missing `akmod-nvidia` read as "still building" (B8). H1-H4 are the host
-agent's (read-only), H5 the owner's. Fable review
+agent's (read-only), H5 the owner's, H6 the host agent's (read-only). Fable review
 (`subagent-reports/261028-fable-review-nvidia-status.md`): no blocker; F1 fixed (B14, a key not
-enrolled is a fault only under Secure Boot); F8 fixed (the fixtures name a generic GPU); left as
-follow-ups F2 (the production timeout path untested), F3 (a library/driver version mismatch
-after an akmod upgrade reads as "incomplete", not "reboot"), F4 (NVIDIA's own VA-API driver not
-probed), F5 (section 6 contradicts 2 when rpm fails), F6 (`nvidia-gpu` i2c noise shown as
-errors), F7 (INVENTORY.md still marks it interactive).
+enrolled is a fault only under Secure Boot); F8 fixed (the fixtures name a generic GPU). The
+follow-ups are fixed too (`subagent-reports/261028-nvidia-status-follow-ups.md`): F2 (the
+production timeout, an exit by SIGTERM at the 30s deadline, tested in a synctest bubble, E6);
+F3 (a loaded driver other than the installed one, or NVML's version mismatch, is its own verdict,
+reboot, with both versions: E26, B15; and with no akmods key the MOK verdict names the play
+first, B19); F4 (NVIDIA's VA-API driver asked by name, E22a, B16; H6 checks it on the laptop);
+F5 (rpm failing reads as "could not tell" in section 6, B17); F6 (`nvidia-gpu` i2c timeouts
+counted apart, E23a, B18); F7 (INVENTORY.md no longer marks it interactive).
 The `ssh-with-key` family (P6: `ssh-with-key`, `scp-with-key`, `ssh-copy-id-with-key`) ported
 and cut over on `go-port/ssh-with-key`, Fable-reviewed and its findings fixed; spec
 [SPEC-ssh-with-key.md](SPEC-ssh-with-key.md) (D1-D5, E1-E20, B1-B12, H1-H5), `src-go/internal/sshkey`

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io/fs"
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -26,19 +27,21 @@ func said(out string) reply { return reply{out: out} }
 // world is a hybrid-GPU laptop's answers to every command the report asks, healthy by default;
 // a test breaks the part it is about.
 type world struct {
-	sb, testKey, listEnrolled reply
-	keyFile                   bool
-	rpm                       map[string]reply
-	modinfo                   reply
-	modules                   string
-	noModules                 bool // /proc/modules unreadable
-	missing                   map[string]bool
-	smi, glx, vk, va, journal reply
-	env                       map[string]string
-	tty                       bool
-	stdout                    *bytes.Buffer
-	stderr                    *bytes.Buffer
-	fake                      *execx.Fake
+	sb, testKey, listEnrolled  reply
+	keyFile                    bool
+	rpm                        map[string]reply
+	modinfo                    reply
+	modules                    string
+	noModules                  bool   // /proc/modules unreadable
+	nvrm                       string // /proc/driver/nvidia/version; empty is absent
+	missing                    map[string]bool
+	smi, glx, vk, va, vaNvidia reply
+	journal                    reply
+	env                        map[string]string
+	tty                        bool
+	stdout                     *bytes.Buffer
+	stderr                     *bytes.Buffer
+	fake                       *execx.Fake
 }
 
 const healthyModules = "nvidia_uvm 4956160 0 - Live 0x0000000000000000\n" +
@@ -70,6 +73,16 @@ const intelVainfo = "Trying display: wayland\nlibva info: VA-API version 1.22.0\
 	"      VAProfileNone                   :\tVAEntrypointVideoProc\n" +
 	"      VAProfileH264Main               :\tVAEntrypointVLD\n"
 
+const nvidiaVainfo = "libva info: VA-API version 1.22.0\n" +
+	"libva info: User environment variable requested driver 'nvidia'\n" +
+	"vainfo: VA-API version: 1.22 (libva 2.22.0)\n" +
+	"vainfo: Driver version: VA-API NVDEC driver [direct backend]\n" +
+	"vainfo: Supported profile and entrypoints\n" +
+	"      VAProfileH264Main               :\tVAEntrypointVLD\n"
+
+const healthyNVRM = "NVRM version: NVIDIA UNIX Open Kernel Module for x86_64  580.95.05  Release Build  (builder)  Thu Sep 18 2025\n" +
+	"GCC version:  gcc version 15.2.1 (GCC)\n"
+
 func notInstalled(name string) reply {
 	return reply{out: "package " + name + " is not installed\n", code: 1}
 }
@@ -86,15 +99,17 @@ func healthy() *world {
 			"vulkan-loader":            said("1.4.313.0\n"),
 			"vulkan-tools":             said("1.4.313.0\n"),
 		},
-		modinfo: said("580.95.05\n"),
-		modules: healthyModules,
-		missing: map[string]bool{},
-		smi:     said("NVIDIA GeForce RTX 3050 Laptop GPU, 580.95.05, 4094 MiB\n"),
-		glx:     said(hybridGLX),
-		vk:      said(hybridVulkan),
-		va:      said(intelVainfo),
-		journal: said(""),
-		env:     map[string]string{},
+		modinfo:  said("580.95.05\n"),
+		modules:  healthyModules,
+		nvrm:     healthyNVRM,
+		missing:  map[string]bool{},
+		smi:      said("NVIDIA GeForce RTX 3050 Laptop GPU, 580.95.05, 4094 MiB\n"),
+		glx:      said(hybridGLX),
+		vk:       said(hybridVulkan),
+		va:       said(intelVainfo),
+		vaNvidia: said(nvidiaVainfo),
+		journal:  said(""),
+		env:      map[string]string{},
 	}
 }
 
@@ -125,11 +140,19 @@ func (w *world) run(t *testing.T, args ...string) (term.ExitCode, string, string
 	w.fake.OnFunc([]string{"nvidia-smi", "--query-gpu=name,driver_version,memory.total", "--format=csv,noheader"}, answer(w.smi))
 	w.fake.OnFunc([]string{"glxinfo", "-B"}, answer(w.glx))
 	w.fake.OnFunc([]string{"vulkaninfo", "--summary"}, answer(w.vk))
-	w.fake.OnFunc([]string{"vainfo"}, answer(w.va))
+	w.fake.OnFunc([]string{"vainfo"}, func(c execx.Cmd) (execx.Result, error) {
+		if slices.Contains(c.Env, "LIBVA_DRIVER_NAME=nvidia") {
+			return answer(w.vaNvidia)(c)
+		}
+		return answer(w.va)(c)
+	})
 	w.fake.OnFunc([]string{"journalctl", "-k", "-b", "-p", "err", "--no-pager"}, answer(w.journal))
 	proc := fstest.MapFS{}
 	if !w.noModules {
 		proc["modules"] = &fstest.MapFile{Data: []byte(w.modules)}
+	}
+	if w.nvrm != "" {
+		proc["driver/nvidia/version"] = &fstest.MapFile{Data: []byte(w.nvrm)}
 	}
 	if w.stdout == nil {
 		w.stdout = &bytes.Buffer{}
