@@ -188,6 +188,11 @@ the plans cite kept.
   written with a doubled backslash (`\\d`, `\\s`, `\\w`) inside a Jinja string literal in YAML,
   red on a fixture and on the three lines above before their fix, green after; the independent
   searcher run first
+- [ ] ⬜ **Task 4.11**: triage.bash's "disk free and the store's location" leg failed on the
+  host with a complete df output and no error line before its warning, so the failing command
+  is not shown: make each leg name the command that failed. Its image count (podman info: 749)
+  does not square with the morning's 694 less the 604 removed: count images the same way in
+  every leg and run
 - [x] ✅ **Task 4.9**: the gate on ccy's self-prune and a manual prune. play-podman.yml writes
   `~/.local/state/fedora-desktop/container-images.store-clean` (the user's, 0644, the probe's
   time) when the Task 4.8 probe finds no foreign-owned file and removes it when it finds one.
