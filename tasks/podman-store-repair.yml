@@ -1,0 +1,164 @@
+---
+# The rootless podman store's repair, as root (Plan 00235). play-podman.yml imports it before it
+# first asks podman anything, and again after its first prune, so the play never leaves the
+# store broken.
+#
+# When c/storage removes a layer it moves it to <graphroot>/overlay/tempdirs/temp-dir-<N> and
+# deletes it there. A layer holding directories owned by host uids outside the user's current
+# subuid range (left from an older range) cannot be deleted by the rootless user, so the
+# directory stays, and c/storage retries it on every load of its layer store and fails: every
+# image operation fails until it is gone. Removing it as root finishes a deletion c/storage had
+# already decided.
+#
+# c/storage's convention (internal/tempdir): each temp-dir-<N> has a lock file lock-<N> beside
+# it, held with a POSIX record lock by the process using the directory for as long as it does;
+# its own recovery removes a stale directory and its lock file together once it can take the
+# lock. This file does the same, and fails instead of racing when any lock in tempdirs is held
+# or any podman or buildah process of the user is removing or building.
+#
+# Needs: user_login.
+
+- name: Look Up the Login User for the Store Repair
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ user_login }}"
+
+- name: Resolve the Rootless Store Paths
+  ansible.builtin.set_fact:
+    podman_store_home: "{{ ansible_facts['getent_passwd'][user_login][4] }}"
+    podman_store_tempdirs: "{{ ansible_facts['getent_passwd'][user_login][4] }}/.local/share/containers/storage/overlay/tempdirs"
+
+# The repair looks at the standard rootless path under the home directory. A configuration that
+# moves the store would make it look in the wrong place and report nothing to do, so it fails.
+- name: Find the Storage Configuration That Could Move the Rootless Store
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+  loop:
+    - { path: "{{ podman_store_home }}/.config/containers/storage.conf", key: graphroot }
+    - { path: /etc/containers/storage.conf, key: rootless_storage_path }
+  register: podman_store_conf_stat
+
+- name: Read the Storage Configuration Found
+  ansible.builtin.slurp:
+    path: "{{ item.item.path }}"
+  loop: "{{ podman_store_conf_stat.results | selectattr('stat.exists') | list }}"
+  loop_control:
+    label: "{{ item.item.path }}"
+  register: podman_store_conf
+
+- name: Assert the Rootless Store Is at Its Standard Path
+  ansible.builtin.assert:
+    that:
+      - (item.content | b64decode) is not regex('(?m)^\\s*' ~ item.item.item.key ~ '\\s*=')
+    fail_msg: >-
+      {{ item.item.item.path }} sets {{ item.item.item.key }}, so the rootless store may not be
+      under {{ podman_store_home }}/.local/share/containers/storage, where this repair looks.
+      Teach tasks/podman-store-repair.yml that path.
+    quiet: true
+  loop: "{{ podman_store_conf.results }}"
+  loop_control:
+    label: "{{ item.item.item.path }}"
+
+- name: Check Whether the Rootless Store Has a Temporary Directory Area
+  become: true
+  ansible.builtin.stat:
+    path: "{{ podman_store_tempdirs }}"
+  register: podman_store_tempdirs_stat
+
+- name: Find c/storage Temporary Directories Left in the Rootless Store
+  become: true
+  ansible.builtin.find:
+    paths: "{{ podman_store_tempdirs }}"
+    patterns:
+      - temp-dir-*
+      - lock-*
+    file_type: any
+  register: podman_store_tempdir_entries
+  when: podman_store_tempdirs_stat.stat.isdir | default(false)
+
+- name: Repair the Store When a Temporary Directory Is Left
+  when:
+    - podman_store_tempdir_entries is not skipped
+    - podman_store_tempdir_dirs | length > 0
+  vars:
+    podman_store_tempdir_dirs: >-
+      {{ podman_store_tempdir_entries.files | selectattr('isdir')
+         | selectattr('path', 'search', '/temp-dir-[^/]+$') | list }}
+    podman_store_tempdir_locks: >-
+      {{ podman_store_tempdir_entries.files | rejectattr('isdir')
+         | selectattr('path', 'search', '/lock-[^/]+$') | list }}
+    # A process that removes or builds, by its command line: buildah, container-images, or a
+    # podman whose subcommand is one of these (after any leading options).
+    podman_store_busy_pattern: >-
+      ^\s*\d+\s+(\S*/)?(buildah|container-images)(\s|$)|^\s*\d+\s+(\S*/)?podman(\s+-\S+)*\s+((image|container|system|volume|manifest|buildx)\s+)?(build|commit|rm|rmi|prune|pull|load|import|reset|migrate|renumber)(\s|$)
+  block:
+    - name: List the Login User's Processes
+      ansible.builtin.command:
+        argv: [ps, -u, "{{ user_login }}", -o, "pid=,args="]
+      register: podman_store_ps
+      changed_when: false
+      # ps exits 1 when the user runs no process at all, which is a clean answer here.
+      failed_when: podman_store_ps.rc not in [0, 1]
+
+    - name: Read the Kernel's Table of File Locks
+      ansible.builtin.slurp:
+        path: /proc/locks
+      register: podman_store_proc_locks
+
+    - name: Assert No podman or buildah Process Is Removing or Building
+      ansible.builtin.assert:
+        that:
+          - podman_store_busy | length == 0
+        fail_msg: >-
+          The store repair would race a running podman or buildah ({{ podman_store_busy | join('; ') }}).
+          Let it finish, then run play-podman.yml again.
+        quiet: true
+      vars:
+        podman_store_busy: "{{ podman_store_ps.stdout_lines | select('match', podman_store_busy_pattern) | list }}"
+
+    # /proc/locks names a held lock by device and inode; matching on the inode alone can only
+    # take an unrelated lock for a held one, which stops the play: the safe side.
+    - name: Assert No Process Holds a Lock in the Temporary Directories
+      ansible.builtin.assert:
+        that:
+          - podman_store_held | length == 0
+        fail_msg: >-
+          {{ podman_store_held | join(', ') }} is held by a running process, so its temporary
+          directory is in use. Let it finish, then run play-podman.yml again.
+        quiet: true
+      vars:
+        podman_store_held_inodes: >-
+          {{ podman_store_proc_locks.content | b64decode
+             | regex_findall('\\s[0-9a-f]+:[0-9a-f]+:(\\d+)\\s') | map('int') | list }}
+        podman_store_held: >-
+          {{ podman_store_tempdir_locks | selectattr('inode', 'in', podman_store_held_inodes)
+             | map(attribute='path') | list }}
+
+    - name: Measure Each Temporary Directory
+      become: true
+      ansible.builtin.command:
+        argv: [du, -sh, "{{ item.path }}"]
+      loop: "{{ podman_store_tempdir_dirs }}"
+      loop_control:
+        label: "{{ item.path }}"
+      register: podman_store_tempdir_sizes
+      changed_when: false
+
+    # Each line of the play output names the directory removed and its size.
+    - name: Remove Each Temporary Directory as Root, Finishing the Deletion c/storage Began
+      become: true
+      ansible.builtin.file:
+        path: "{{ item.item.path }}"
+        state: absent
+      loop: "{{ podman_store_tempdir_sizes.results }}"
+      loop_control:
+        label: "removed {{ item.item.path }} ({{ item.stdout.split() | first }})"
+
+    - name: Remove Each Removed Directory's Lock File
+      become: true
+      ansible.builtin.file:
+        path: "{{ podman_store_tempdirs }}/lock-{{ item.path | basename | regex_replace('^temp-dir-', '') }}"
+        state: absent
+      loop: "{{ podman_store_tempdir_dirs }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
