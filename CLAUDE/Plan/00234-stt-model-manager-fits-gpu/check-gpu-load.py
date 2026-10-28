@@ -7,7 +7,8 @@ the peak GPU memory with what wsi-resolve-model --fit says the model needs.
     decode      WhisperModel on CUDA in float16, as wsi-stream-server loads it, transcribing
                 30 s of noise with beam 5 (the case the fit rule was calibrated on)
     streaming   wsi-stream's own AudioToTextRecorder settings (real-time transcription on,
-                so the real-time model loads beside the main one, in its own process)
+                so its live preview model, wsi-resolve-model --realtime's, loads beside the
+                main one); that model must already be on disk, or the leg fails at once
 
 Each measurement runs in a child process with HF_HUB_OFFLINE=1, so nothing else can be
 downloaded; the parent samples nvidia-smi's memory.used every 0.2 s while the child runs and
@@ -44,14 +45,23 @@ def load_decode(model):
     time.sleep(SETTLE_SECONDS)
 
 
-def load_streaming(model):
-    """Child: wsi-stream's prebuffered recorder_config, word for word but the callback."""
+def load_streaming(model, realtime_model):
+    """Child: wsi-stream's prebuffered recorder_config, word for word but the callback.
+
+    RealtimeSTT 1.0.0 starts its main transcription worker as a thread it means to be a
+    daemon (`thread.deamon = True`, misspelt), so when a later step of its constructor
+    raises, that thread keeps the process alive for ever. The error ends it here at once."""
     from RealtimeSTT import AudioToTextRecorder
-    recorder = AudioToTextRecorder(
-        model=model, language="en", use_microphone=False, silero_sensitivity=0.4,
-        enable_realtime_transcription=True, realtime_processing_pause=0.2,
-        on_realtime_transcription_update=lambda text: None, spinner=False,
-        device="cuda", compute_type="float16")
+    try:
+        recorder = AudioToTextRecorder(
+            model=model, language="en", use_microphone=False, silero_sensitivity=0.4,
+            enable_realtime_transcription=True, realtime_model_type=realtime_model,
+            realtime_processing_pause=0.2, on_realtime_transcription_update=lambda text: None,
+            no_log_file=True, spinner=False, device="cuda", compute_type="float16")
+    except Exception as e:
+        print(f"FAIL: the recorder did not load: {e!r}", file=sys.stderr)
+        sys.stderr.flush()
+        os._exit(1)
     print("recorder loaded", file=sys.stderr)
     time.sleep(SETTLE_SECONDS)
     recorder.shutdown()
@@ -65,10 +75,11 @@ def fail(reason):
     return 1
 
 
-def resolve():
-    """The model wsi-stream would hand faster-whisper, or None if it is not downloaded."""
-    result = subprocess.run([str(BIN / "wsi-resolve-model"), "--mode", "streaming",
-                             "--language", "en", MODEL],
+def resolve(*args):
+    """The model wsi-stream would hand faster-whisper (by default the one under test), or
+    None if it is not downloaded."""
+    result = subprocess.run([str(BIN / "wsi-resolve-model"),
+                             *(args or ("--mode", "streaming", "--language", "en", MODEL))],
                             capture_output=True, text=True, timeout=60, check=False)
     if result.returncode == NOT_DOWNLOADED:
         return None
@@ -112,18 +123,35 @@ def check_download():
     return 0
 
 
+def realtime_model():
+    """wsi-stream's live preview model for English, or None after saying how to get it."""
+    model = resolve("--realtime", "--language", "en")
+    if model is None:
+        fail("the live preview model wsi-stream loads (wsi-resolve-model --realtime "
+             "--language en) is not on disk, so the streaming load cannot run offline. "
+             "Run play-speech-to-text.yml, which downloads it, then this again.")
+    return model
+
+
 def measure(name):
     model = resolve()
     if model is None:
         return fail(f"{MODEL} is not downloaded; the download leg runs first")
+    child_args = [name, model]
+    if name == "streaming":
+        preview = realtime_model()
+        if preview is None:
+            return 1
+        print(f"streaming: the live preview model is {preview}")
+        child_args.append(preview)
     need = needs_mb()
     baseline = memory_used_mb()
     run_dir = os.environ.get("PLAN_RUN_DIR")
     if not run_dir:
         return fail("PLAN_RUN_DIR is not set: run this through gpu-load-acceptance.bash")
     # The child is this file, so the processes RealtimeSTT spawns re-import it safely. It runs
-    # in the run's log directory, where RealtimeSTT writes its realtimesst.log, never the checkout.
-    child = subprocess.Popen([sys.executable, __file__, "--child", name, model],
+    # in the run's log directory, so nothing it writes lands in the checkout.
+    child = subprocess.Popen([sys.executable, __file__, "--child", *child_args],
                              env={**os.environ, "HF_HUB_OFFLINE": "1"}, cwd=run_dir)
     peak = baseline
     sampling_error = []
@@ -164,9 +192,13 @@ CHECKS = {"download": check_download,
           "streaming": lambda: measure("streaming")}
 
 if __name__ == "__main__":
-    if len(sys.argv) == 4 and sys.argv[1] == "--child" and sys.argv[2] in CHILDREN:
-        CHILDREN[sys.argv[2]](sys.argv[3])
-        sys.exit(0)
+    if len(sys.argv) >= 4 and sys.argv[1] == "--child" and sys.argv[2] in CHILDREN:
+        CHILDREN[sys.argv[2]](*sys.argv[3:])
+        # The load has been measured; RealtimeSTT's worker thread (above) must not keep
+        # the child alive past it.
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(0)
     if len(sys.argv) != 2 or sys.argv[1] not in CHECKS:
         print(f"usage: check-gpu-load.py {'|'.join(CHECKS)}", file=sys.stderr)
         sys.exit(64)

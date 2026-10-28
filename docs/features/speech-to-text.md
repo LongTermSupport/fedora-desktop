@@ -142,12 +142,14 @@ gnome-extensions list --enabled | grep speech-to-text
 
 Choose the model in **Settings... → Transcription → Whisper Model** (only downloaded
 models are listed, meaning a cache snapshot holds the weights, `model.bin`; **Manage
-Whisper Models...** downloads them). **No model is downloaded for you**: the model that
+Whisper Models...** downloads them). **The model you dictate with is not downloaded for
+you**: the model that
 suits one machine does not suit every machine, so download at least one with **Manage
 Whisper Models...** before the first recording. The default, `auto`, is decided at each
 recording by `~/.local/bin/wsi-resolve-model`, and is the one to download unless you
 want another. `wsi-model-manager --download-auto` downloads `auto`'s pick for each mode
-without the TUI or any prompt, and fails unless the weights are then on disk:
+(and the live preview models below) without the TUI or any prompt, and fails unless the
+weights are then on disk:
 
 | Machine      | English                         | Other languages or detection    |
 | ------------ | ------------------------------- | ------------------------------- |
@@ -164,6 +166,14 @@ not transcribed as English. `distil-large-v3.5` is handed to faster-whisper as i
 Hugging Face repo, `distil-whisper/distil-large-v3.5-ct2`: faster-whisper 1.2.1 knows
 the short name, but 1.1.1 (pinned by older RealtimeSTT releases) does not. Article mode
 uses the warm server's model, like streaming server mode.
+
+The one download the play does make is the **live preview model**: streaming mode's
+standard and pre-buffer startups show the words as you speak with a second, small model
+beside the selected one, `tiny.en` for English and `tiny` for other languages or
+detection (`wsi-resolve-model --realtime`). They are the same on every machine and 75 MB
+each, so play-speech-to-text.yml downloads both (`wsi-model-manager --download-realtime`),
+and fails if it cannot. If one is removed in the manager, streaming says so and does not
+start until it is downloaded again.
 
 `stt_model` and `stt_language` in the host variables are only the defaults of
 `faster-whisper-transcribe` when you run that script by hand; the recorders always pass

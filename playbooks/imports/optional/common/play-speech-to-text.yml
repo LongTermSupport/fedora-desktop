@@ -585,10 +585,26 @@
       changed_when: false
       failed_when: auto_model_probe.rc != 0 or (auto_model_probe.stdout | trim | length == 0)
 
-    # No model is downloaded here: the model that suits one machine does not suit every
+    # No main model is downloaded here: the model that suits one machine does not suit every
     # install of this repo. The resolver above is the suggestion, shown in Settings and the
     # model manager, and the user downloads from the model manager. The recorders refuse to
     # start without a model on disk and say so.
+    #
+    # The live preview models are the exception: wsi-stream loads one beside the main model
+    # (tiny.en for English, tiny otherwise; wsi-resolve-model --realtime-models), the same on
+    # every machine and 75 MiB each, so both are fetched here and a language change never
+    # finds its preview model missing. One already on disk is not fetched again.
+    - name: Download The Live Preview Models
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        argv:
+          - "/home/{{ user_login }}/.local/bin/wsi-model-manager"
+          - --download-realtime
+      environment:
+        HOME: "/home/{{ user_login }}"
+      register: live_preview_download
+      changed_when: "'WSI-MODEL-DOWNLOADED' in live_preview_download.stdout"
 
     # =========================================================================
     # Warm Server at Login (Settings: "Start the server at login")

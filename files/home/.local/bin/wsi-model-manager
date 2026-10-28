@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """Whisper Model Manager — browse and download faster-whisper models.
 
-Usage: wsi-model-manager [--download-auto]
+Usage: wsi-model-manager [--download-auto | --download-realtime]
 
---download-auto downloads the model `auto` picks on this machine for each recorder
-mode, with no TUI and no prompt, then checks with wsi-resolve-model that its weights
-are on disk. Progress goes to stderr; stdout carries one line per model,
-`WSI-MODEL-DOWNLOADED <model_id> <repo>`, written only once every pick is verified.
-Exit 0 when all are downloaded, 1 when the resolver cannot choose, a download fails or
-the weights are still missing, 2 on a usage error.
+--download-realtime downloads each live preview model (wsi-resolve-model
+--realtime-models) that is not on disk, for play-speech-to-text.yml; one on disk is not
+fetched again. --download-auto downloads the model `auto` picks on this machine for each
+recorder mode, and the live preview models too. Neither starts the TUI or prompts; both
+check with wsi-resolve-model that the weights are on disk. Progress goes to stderr;
+stdout carries one line per model, `WSI-MODEL-DOWNLOADED <model_id> <repo>`, or
+`WSI-MODEL-PRESENT` for a live preview model already on disk, written only once every
+model is verified. Exit 0 when all are on disk, 1 when the resolver cannot choose, a
+download fails or the weights are still missing, 2 on a usage error.
 
 Each row says how much GPU memory the model needs and whether this machine's NVIDIA GPU
 has that much (wsi-resolve-model --fit, the one home of the sizes and the rule), or that
@@ -573,8 +576,61 @@ class ModelManagerApp(App):
 # Entry point
 # ---------------------------------------------------------------------------
 
+NOT_DOWNLOADED = 3  # wsi-resolve-model's exit when the weights are not on disk
+
+
+def model_on_disk(model_id: str) -> bool:
+    """Whether model_id's weights are on disk, asked of the resolver. Raises with its
+    reason when it cannot tell."""
+    result = subprocess.run([str(RESOLVER), '--mode', 'streaming', '--language', '', model_id],
+                            capture_output=True, text=True, timeout=30, check=False)
+    if result.returncode == NOT_DOWNLOADED:
+        return False
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or f'{RESOLVER} exited {result.returncode}')
+    return True
+
+
+def fetch_realtime_models() -> list[str]:
+    """Download each live preview model not on disk; its marker lines. Raises with the
+    reason on any failure."""
+    result = subprocess.run([str(RESOLVER), '--realtime-models'], capture_output=True,
+                            text=True, timeout=30, check=False)
+    if result.returncode != 0 or not result.stdout.split():
+        raise RuntimeError('cannot list the live preview models: '
+                           f'{result.stderr.strip() or "the resolver printed none"}')
+    repo_for = {model_id: repo for model_id, _label, repo, *_ in MODELS}
+    lines = []
+    for model_id in result.stdout.split():
+        if model_id not in repo_for:
+            raise RuntimeError(f'the live preview model {model_id} has no download here')
+        repo = repo_for[model_id]
+        if model_on_disk(model_id):
+            lines.append(f'WSI-MODEL-PRESENT {model_id} {repo}')
+            continue
+        print(f'wsi-model-manager: downloading the live preview model {model_id} ({repo})',
+              file=sys.stderr)
+        # token=False: the models are public; avoids system keyring password prompts
+        snapshot_download(repo_id=repo, local_files_only=False, token=False)
+        if not model_on_disk(model_id):
+            raise RuntimeError(f'{model_id} ({repo}) is still not on disk after its download')
+        lines.append(f'WSI-MODEL-DOWNLOADED {model_id} {repo}')
+    return lines
+
+
+def download_realtime() -> int:
+    try:
+        lines = fetch_realtime_models()
+    except Exception as e:
+        print(f'wsi-model-manager: {e}', file=sys.stderr)
+        return 1
+    print('\n'.join(lines))
+    return 0
+
+
 def download_auto() -> int:
-    """Download each model `auto` picks here, then verify its weights are on disk."""
+    """Download each model `auto` picks here and the live preview models, then verify
+    their weights are on disk."""
     repo_for = {model_id: repo for model_id, _label, repo, *_ in MODELS}
     try:
         language = session_language()
@@ -612,19 +668,28 @@ def download_auto() -> int:
         print(f'wsi-model-manager: {mode} resolves to {result.stdout.strip()}, on disk',
               file=sys.stderr)
 
+    try:
+        realtime_lines = fetch_realtime_models()
+    except Exception as e:
+        print(f'wsi-model-manager: {e}', file=sys.stderr)
+        return 1
     for model_id in picks:
         print(f'WSI-MODEL-DOWNLOADED {model_id} {repo_for[model_id]}')
+    print('\n'.join(realtime_lines))
     return 0
 
 
 def main(argv: list[str]) -> int:
     if argv == ['--download-auto']:
         return download_auto()
+    if argv == ['--download-realtime']:
+        return download_realtime()
     if argv in (['-h'], ['--help']):
         print(__doc__)
         return 0
     if argv:
-        print(f'usage: wsi-model-manager [--download-auto] (got: {" ".join(argv)})',
+        print('usage: wsi-model-manager [--download-auto | --download-realtime] '
+              f'(got: {" ".join(argv)})',
               file=sys.stderr)
         return 2
     ModelManagerApp().run()

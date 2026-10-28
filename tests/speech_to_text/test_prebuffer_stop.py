@@ -48,6 +48,7 @@ class StubRecorder:
         else:
             time.sleep(self.load_seconds)
         self.ready_at = time.monotonic()
+        self.config = config
         self.fed_bytes = 0
         self.started = False
         self.stopped = False
@@ -90,6 +91,7 @@ class PrebufferStopTest(unittest.TestCase):
         self.patches = {
             "check_dependencies": lambda: True,
             "resolve_model": lambda mode, language: "base",
+            "resolve_realtime_model": lambda language: f"realtime-for-{language}",
             "notify": lambda state, message: self.states.append(state),
             "emit_dbus_signal": lambda *a: None,
             "desktop_notification": lambda *a: None,
@@ -176,6 +178,7 @@ class PrebufferStopTest(unittest.TestCase):
             "written": mic["written"],
             "fed": StubRecorder.instance.fed_bytes,
             "ready": StubRecorder.instance.ready_at,
+            "config": StubRecorder.instance.config,
         }
 
     # The model below loads only once the microphone has closed, so a stop that waited for
@@ -214,6 +217,17 @@ class PrebufferStopTest(unittest.TestCase):
         self.assertEqual(r["fed"], r["written"], "the pipe was not drained at stop")
         self.assertIn("RECORDING", self.states)
         self.assertEqual(self.pasted, ["Words so far"])
+
+    def test_the_live_preview_model_is_the_resolvers_and_no_log_file_is_written(self):
+        # Plan 00234 Task 4.1: RealtimeSTT's default real-time model is one nothing
+        # downloads, and its realtimesst.log lands in the working directory (the home
+        # directory, when the panel starts wsi-stream)
+        r = self.run_mode(load_seconds=0.0, grace=0, term_after=[0.3], after="model")
+        self.assertEqual(r["rc"], 0)
+        self.assertTrue(r["config"]["enable_realtime_transcription"])
+        self.assertEqual(r["config"]["realtime_model_type"], "realtime-for-en")
+        self.assertIs(r["config"]["no_log_file"], True)
+        self.assertEqual(r["config"]["model"], "base")
 
 
 if __name__ == "__main__":

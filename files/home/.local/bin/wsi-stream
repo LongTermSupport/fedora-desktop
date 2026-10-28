@@ -213,9 +213,32 @@ def resolve_model(mode, language, setting=None):
     """
     if setting is None:
         setting = os.environ.get("WHISPER_MODEL", "auto")
-    result = subprocess.run(
-        [str(MODEL_RESOLVER), "--mode", mode, "--language", language or "", setting],
-        capture_output=True, text=True, timeout=30, check=False)
+    return ask_resolver(["--mode", mode, "--language", language or "", setting])
+
+
+def resolve_realtime_model(language):
+    """The live preview model RealtimeSTT loads beside the main one, checked on disk the
+    same way. Raises as resolve_model does."""
+    return ask_resolver(["--realtime", "--language", language or ""])
+
+
+def realtime_config(language):
+    """RealtimeSTT's live preview settings, the same in both of its modes. The model is
+    named, never RealtimeSTT's default, which nothing downloads; and no realtimesst.log,
+    which it writes into the working directory: the home directory, from the panel."""
+    return {
+        "enable_realtime_transcription": True,
+        "realtime_model_type": resolve_realtime_model(language),
+        "realtime_processing_pause": 0.2,
+        "on_realtime_transcription_update": on_realtime_update,
+        "no_log_file": True,
+    }
+
+
+def ask_resolver(argv):
+    """wsi-resolve-model's answer for argv; ModelNotDownloaded on its exit 3."""
+    result = subprocess.run([str(MODEL_RESOLVER), *argv], capture_output=True, text=True,
+                            timeout=30, check=False)
     if result.returncode == RESOLVER_NOT_DOWNLOADED:
         reason = result.stderr.strip().splitlines()[-1]
         raise ModelNotDownloaded(reason.removeprefix("wsi-resolve-model: "))
@@ -1878,7 +1901,9 @@ def run_standard_streaming(args, stop):
     # Language from arg, then env, then default to English
     language = args.language or os.environ.get("WHISPER_LANGUAGE", "en") or None
     model_size = resolve_model("streaming", language)
-    log(f"Using model: {model_size}, language: {language or 'auto-detect'}")
+    live_preview = realtime_config(language)
+    log(f"Using model: {model_size}, language: {language or 'auto-detect'}, "
+        f"live preview: {live_preview['realtime_model_type']}")
 
     final_text = ""
     recorder_error = None
@@ -1916,9 +1941,7 @@ def run_standard_streaming(args, stop):
             "min_length_of_recording": 0.3,
             "min_gap_between_recordings": 0.1,
             # Real-time transcription streams to buffer file
-            "enable_realtime_transcription": True,
-            "realtime_processing_pause": 0.2,
-            "on_realtime_transcription_update": on_realtime_update,
+            **live_preview,
             "spinner": False,
         }
 
@@ -2184,9 +2207,7 @@ def run_prebuffered_streaming(args, stop):
                     "language": language,
                     "use_microphone": False,  # We'll feed audio manually
                     "silero_sensitivity": 0.4,
-                    "enable_realtime_transcription": True,
-                    "realtime_processing_pause": 0.2,
-                    "on_realtime_transcription_update": on_realtime_update,
+                    **realtime_config(language),
                     "spinner": False,
                 }
 

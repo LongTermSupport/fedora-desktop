@@ -33,31 +33,19 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# The plays changed since they last ran here. Expected: play-cli-tools.yml (Plan 00192:
-# reclaim 2.0.5, which after a No to either "Also remove all unused ... (-af)?" question, podman
-# or docker, prints "Skipped <command>." as it does after the first question of each pair), and
-# play-speech-to-text.yml (Plan 00234 review fixes: the panel's extension.js loses its unused
-# model size strings; no behaviour change, so no logout is needed). play-displaylink.yml and
-# play-nvidia.yml (the shared MOK enrolment message) only if they have run here before.
-# The host agent then checks reclaim --version says 2.0.5 and reruns option 6 answering No to
-# every question: a Skipped line after each of the four, and nothing run.
-# play-cli-tools.yml also rebuilds open (Plan 00192 E11a): inside tmux or screen its chafa image
-# preview draws text symbols instead of graphics tmux does not pass; the host agent then
-# reruns open H4's image in its private tmux and sees the picture drawn as text.
+# The plays changed since they last ran here. Expected: play-speech-to-text.yml (Plan 00234
+# Task 4.1): wsi-stream names its live preview model (tiny.en for English, tiny otherwise)
+# and writes no realtimesst.log into the home directory, and the play's new "Download The
+# Live Preview Models" task downloads both (75 MB each) unless they are on disk; the play
+# fails if it cannot. Nothing else is downloaded. No logout is needed.
 changed-plays
 
-# Plan 00234, the review fixes: acceptance.bash again, read-only, with a new screen leg that
-# drives the installed model manager's real Textual screen headless (the cursor on Distil
-# Large v3.5, Large v2/v3 marked too big, Enter and the Download key on one refused with the
-# list left open; the download is replaced, so nothing is fetched). Nothing is downloaded
-# or removed.
-00234-stt-model-manager-fits-gpu
-
-# Then gpu-load-acceptance.bash: loads distil-large-v3.5 on the NVIDIA GPU in float16, once
-# as the dictation server does (beam 5) and once with wsi-stream's streaming settings
-# (real-time transcription on, so the tiny real-time model loads too), and reports each
-# peak GPU memory against the fit rule's figure (about 2.6 GB), failing above it. It
-# DOWNLOADS distil-large-v3.5 (about 1.4 GB) if it is not on disk; nothing else is
-# downloaded (a missing tiny model fails the streaming leg) and nothing is removed. A warm
-# dictation server's model stays loaded and is counted as in use before the load.
+# Then Plan 00234's gpu-load-acceptance.bash again, the leg that failed: loads
+# distil-large-v3.5 on the NVIDIA GPU in float16, once as the dictation server does (beam 5)
+# and once with wsi-stream's streaming settings (its live preview model, tiny.en, loaded
+# beside it), and reports each peak GPU memory against the fit rule's figure (about
+# 2.6 GB), failing above it. The streaming leg now fails at once, naming the play, if
+# tiny.en is not on disk, and a recorder that fails to load ends at once instead of
+# hanging to the 600 s timeout. Nothing is downloaded (distil-large-v3.5 is on disk from
+# the last run) and nothing is removed.
 00234-stt-model-manager-fits-gpu/gpu-load-acceptance.bash

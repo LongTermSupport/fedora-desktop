@@ -208,6 +208,7 @@ class DownloadAutoTest(unittest.TestCase):
             "#!/bin/sh\n"
             f'echo "$*" >> "{self.calls}"\n'
             'case "$*" in\n'
+            '  --realtime-models) echo tiny.en ;;\n'
             f'  *--suggest*) [ {suggest_rc} -eq 0 ] || '
             f'{{ echo "wsi-resolve-model: no GPU answer" >&2; exit {suggest_rc}; }}\n'
             f'    case "$*" in *"--mode batch"*) echo "{batch}" ;; *) echo "{streaming}" ;; esac ;;\n'
@@ -235,7 +236,8 @@ class DownloadAutoTest(unittest.TestCase):
         self.assertEqual([d["repo_id"] for d in self.downloads],
                          ["distil-whisper/distil-large-v3.5-ct2"])
         self.assertEqual(out.splitlines(), [
-            "WSI-MODEL-DOWNLOADED distil-large-v3.5 distil-whisper/distil-large-v3.5-ct2"])
+            "WSI-MODEL-DOWNLOADED distil-large-v3.5 distil-whisper/distil-large-v3.5-ct2",
+            "WSI-MODEL-PRESENT tiny.en Systran/faster-whisper-tiny.en"])
 
     def test_two_picks_are_both_downloaded(self):
         self.resolver("small", "base")
@@ -243,7 +245,7 @@ class DownloadAutoTest(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(sorted(d["repo_id"] for d in self.downloads),
                          ["Systran/faster-whisper-base", "Systran/faster-whisper-small"])
-        self.assertEqual(len(out.splitlines()), 2)
+        self.assertEqual(len(out.splitlines()), 3, "two picks and the real-time model")
 
     def test_the_download_is_anonymous_and_may_use_the_network(self):
         self.resolver("small", "small")
@@ -260,7 +262,8 @@ class DownloadAutoTest(unittest.TestCase):
     def test_each_mode_is_checked_on_disk_without_suggest_after_downloading(self):
         self.resolver("small", "base")
         self.run_flag()
-        checks = [c for c in self.calls.read_text().splitlines() if "--suggest" not in c]
+        checks = [c for c in self.calls.read_text().splitlines()
+                  if "--suggest" not in c and c.endswith(" auto")]
         self.assertEqual(sorted(checks), ["--mode batch --language en auto",
                                           "--mode streaming --language en auto"])
 
@@ -298,6 +301,113 @@ class DownloadAutoTest(unittest.TestCase):
             rc = manager.main(["--bogus"])
         self.assertEqual(rc, 2)
         self.app.assert_not_called()
+
+
+class DownloadRealtimeTest(unittest.TestCase):
+    """Plan 00234 Task 4.1: `--download-realtime` fetches each live preview model the
+    resolver lists (`--realtime-models`) that is not on disk, for play-speech-to-text.yml;
+    `--download-auto` fetches them too. One already on disk is not fetched again, so a
+    run with nothing missing needs no network. Every model is checked on disk afterwards
+    with the resolver, and any failure exits 1 with nothing on stdout."""
+
+    REPOS = {"tiny.en": "Systran/faster-whisper-tiny.en", "tiny": "Systran/faster-whisper-tiny"}
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.dir = pathlib.Path(self._tmp.name)
+        self.present = self.dir / "present"
+        self.present.mkdir()
+        self.downloads = []
+        self.lands = True
+        script = self.dir / "wsi-resolve-model"
+        script.write_text(
+            "#!/bin/sh\n"
+            'case "$*" in\n'
+            '  --realtime-models) [ -e "$STUB_LIST_FAILS" ] && { echo "wsi-resolve-model: broken" >&2; exit 1; }\n'
+            '    printf "tiny.en\\ntiny\\n" ;;\n'
+            '  *--suggest*) echo small ;;\n'
+            '  *) for last in "$@"; do :; done\n'
+            f'    [ -e "{self.present}/$last" ] || '
+            '{ echo "wsi-resolve-model: $last is not downloaded" >&2; exit 3; }\n'
+            '    echo "$last" ;;\n'
+            'esac\n')
+        script.chmod(0o755)
+        self.list_fails = self.dir / "list-fails"
+        for patcher in (mock.patch.object(manager, "RESOLVER", script),
+                        mock.patch.object(manager, "snapshot_download", self.fake_download),
+                        mock.patch.object(manager, "session_language", lambda: "en"),
+                        mock.patch.dict(manager.os.environ,
+                                        {"STUB_LIST_FAILS": str(self.list_fails)})):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def fake_download(self, **kwargs):
+        self.downloads.append(kwargs["repo_id"])
+        name = next((n for n, repo in self.REPOS.items() if repo == kwargs["repo_id"]), None)
+        if self.lands and name:
+            (self.present / name).touch()
+
+    def on_disk(self, *names):
+        for name in names:
+            (self.present / name).touch()
+
+    def run_flag(self, flag="--download-realtime"):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = manager.main([flag])
+        return rc, out.getvalue(), err.getvalue()
+
+    def test_each_missing_real_time_model_is_downloaded_and_reported(self):
+        rc, out, err = self.run_flag()
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(self.downloads, list(self.REPOS.values()))
+        self.assertEqual(out.splitlines(), [f"WSI-MODEL-DOWNLOADED {n} {r}"
+                                            for n, r in self.REPOS.items()])
+
+    def test_a_model_on_disk_is_not_fetched_again(self):
+        self.on_disk("tiny.en", "tiny")
+        rc, out, err = self.run_flag()
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(self.downloads, [], "a model on disk was fetched again")
+        self.assertEqual(out.splitlines(), [f"WSI-MODEL-PRESENT {n} {r}"
+                                            for n, r in self.REPOS.items()])
+
+    def test_a_download_error_fails_naming_the_repo(self):
+        def broken(**kwargs):
+            raise OSError("connection reset")
+
+        with mock.patch.object(manager, "snapshot_download", broken):
+            rc, out, err = self.run_flag()
+        self.assertEqual(rc, 1)
+        self.assertEqual(out, "")
+        self.assertIn("connection reset", err)
+        self.assertIn("Systran/faster-whisper-tiny.en", err)
+
+    def test_a_download_that_leaves_no_weights_fails(self):
+        self.lands = False
+        rc, out, err = self.run_flag()
+        self.assertEqual(rc, 1)
+        self.assertEqual(out, "")
+        self.assertIn("tiny.en", err)
+        self.assertIn("not on disk", err)
+
+    def test_a_resolver_that_cannot_list_them_fails_before_any_download(self):
+        self.list_fails.touch()
+        rc, out, err = self.run_flag()
+        self.assertEqual(rc, 1)
+        self.assertEqual(out, "")
+        self.assertEqual(self.downloads, [])
+        self.assertIn("broken", err)
+
+    def test_download_auto_fetches_the_real_time_models_too(self):
+        self.on_disk("auto")
+        rc, out, err = self.run_flag("--download-auto")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(self.downloads, ["Systran/faster-whisper-small",
+                                          *self.REPOS.values()])
+        self.assertIn("WSI-MODEL-DOWNLOADED tiny.en Systran/faster-whisper-tiny.en",
+                      out.splitlines())
 
 
 class FitsThisMachineTest(unittest.TestCase):

@@ -5,12 +5,14 @@
 # R9). The rule (wsi-resolve-model: 1.25 x the download size + 850 MiB) was calibrated on one
 # published batch figure; this loads the model the manager preselects, distil-large-v3.5, on
 # this machine's GPU twice, as wsi-stream-server does (beam 5) and with wsi-stream's own
-# streaming settings (real-time transcription on, which loads the real-time model too), and
+# streaming settings (real-time transcription on, which loads its live preview model, tiny.en,
+# too), and
 # fails if the peak GPU memory either uses is more than the rule's figure. HOST ONLY.
 #
 # CHANGES: downloads distil-large-v3.5 (about 1.4 GB) if it is not already on disk. Nothing
-# else is downloaded (the loads run with HF_HUB_OFFLINE=1, so a missing real-time model
-# fails the streaming leg instead of being fetched) and nothing is removed. No sudo, no
+# else is downloaded (the loads run with HF_HUB_OFFLINE=1; the live preview model is the
+# play's download, and the streaming leg fails at once, naming the play, if it is missing)
+# and nothing is removed. No sudo, no
 # prompts. A warm dictation server's model stays loaded and is counted as already in use.
 #
 # Usage: ./gpu-load-acceptance.bash [-h|--help]
@@ -61,5 +63,5 @@ plan_start_log auto
 checker="${PLAN_SCRIPT_DIR}/check-gpu-load.py"
 plan_deploy_leg "distil-large-v3.5 is on disk (downloaded now if it was not)" python3 "${checker}" download
 plan_deploy_leg "a beam-5 transcription, as wsi-stream-server loads it, fits the rule's figure" python3 "${checker}" decode
-plan_deploy_leg "wsi-stream's streaming load, real-time model included, fits the rule's figure" python3 "${checker}" streaming
+plan_deploy_leg "wsi-stream's streaming load, live preview model included, fits the rule's figure" python3 "${checker}" streaming
 plan_finish
