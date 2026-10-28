@@ -1,10 +1,11 @@
 # Plan 00192: Line in the sand: tooling is Go, bash only for small helpers
 
 **Status**: In Progress. Every QA script is ported or retired (`qa-go.bash` by Plan 00191
-Task 3.3; the Go gate is go-qa-ci through `scripts/qa-go-qa.bash`). Left for workers: the
-remaining ports of Task 3.3 (the `ccy` launcher's phases 3 to 5 are deferred by Plan 00191
-D4/D10), and Tasks 4.1 and 4.2 over the finished plan. Left for the host agent: the host checks
-of the merged ports still open (vmtest H3's base build, once the runs are pruned; open H5's
+Task 3.3; the Go gate is go-qa-ci through `scripts/qa-go-qa.bash`). Every port of Task 3.3 is merged
+except the `ccy` launcher, whose phases 3 to 5 are deferred by Plan 00191 D4/D10. Left for
+workers: Tasks 4.1 and 4.2 over the finished plan. Left for the host agent: the host checks
+of the merged ports still open (vmtest H3's base build and ssh-with-key H2 and H4's guest
+part, once the runs are pruned; open H5's
 Ctrl-C in mpv; rclone-tail H4; gh-account-setup H1 and H3 to H5); Task 3.2's root run is on hold
 until Plan 00209 Task 2.5 (see the task). Left for the owner: only what needs the owner in person, namely
 gh-account-setup H2 (a real GitHub device login), ftp-camera H3 and H4 (the physical camera),
@@ -262,13 +263,20 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     against the real mokutil, vulkaninfo, glxinfo and vainfo output. Noted there: the akmods key
     file is absent while the modules load signed (section 1 warns, as it should). Left: H5 (the
     owner's, optional: the not-functional verdicts need a driver install or reboot).
-  - The `ssh-with-key` family (P6): built on `go-port/ssh-with-key`, Fable-reviewed
+  - The `ssh-with-key` family (P6): ported, Fable-reviewed
     ([subagent-reports/261028-fable-review-ssh-with-key.md](subagent-reports/261028-fable-review-ssh-with-key.md)),
     findings fixed (B11: ssh-copy-id-with-key installed nothing; now it checks with the new key
-    alone and runs `ssh-copy-id -f`); spec [SPEC-ssh-with-key.md](SPEC-ssh-with-key.md) (D1-D5, E1-E20, B1-B12, H1-H5),
-    detail in [PORTS.md](PORTS.md). `play-basic-configs.yml` builds the three commands. H1-H4
-    are the host agent's (a throwaway key against a VM-lab guest); H5 (the owner's hosts, and
-    whether E11's refusal stands for a configuration with a global IdentityFile) is the owner's.
+    alone and runs `ssh-copy-id -f`), merged into F44 and deployed; spec [SPEC-ssh-with-key.md](SPEC-ssh-with-key.md) (D1-D5, E1-E20, B1-B12, H1-H5),
+    detail in [PORTS.md](PORTS.md). `play-basic-configs.yml` builds the three commands. Host, at
+    `e3d67048d` (host agent, `$vhPS9DKUjsqIN_1rUby3ZBYsOMxFEp1C5zl2jJwushA`, throwaway keys only):
+    `changed-plays` ran it, the three are ELF binaries; H1 PASS (help, usage exit 64, a public
+    key refused); H3 PASS (a second IdentityFile named and nothing run); H4 in part (the menu,
+    `q` giving 130 and no agent left; its "no agent left" check reworded, since the containers'
+    agents share the user). H2 and the rest of H4 need a VM-lab guest, and `vmtest member-up`
+    refuses for lack of disk until the owner allows `vmtest prune-runs --yes` (Task 3.10's H7 open item); the host
+    agent did not fall back to the host's own sshd, which would put a throwaway key in the
+    owner's `authorized_keys`. H5 (the owner's hosts, and whether E11's refusal stands for a
+    configuration with a global IdentityFile) is the owner's.
   - Still to do: the `ccy` launcher (Plan 00191's, deferred there).
 
 - [x] ✅ **Task 3.4**: Freeze step 3's `acceptance.bash` compared live engine output with the

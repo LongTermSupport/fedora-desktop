@@ -240,7 +240,9 @@ line removed from `authorized_keys` afterwards.
   keys in `~/.ssh`; choosing one (or a throwaway placed there for the check and removed after)
   then `d`, the remote `ssh-add -l` lists it; the same run with `-v` (`ssh-with-key -i KEY -A -v <guest> 'ssh-add -l'`, an agent holding other keys reachable) has exactly one
   `Will attempt key:` line, KEY's; afterwards no `ssh-agent` whose parent was the run
-  is left (`pgrep -u "$USER" -x ssh-agent` counts the same before and after). The same with
+  is left: no `ssh-agent` started after the run began is still running outside a container
+  (a count by user alone is not a check, since the containers' agents run as the same user
+  and come and go). The same with
   `q` at the menu: `Cancelled`, exit 130, no agent left.
 - H5 (owner). The owner's own hosts with the owner's keys: an ordinary login, and an
   interactive `-A` login where `git push` works on the far side. If the owner's
