@@ -35,6 +35,10 @@ func memberName(name string) error {
 
 func memberDomain(name string) string { return "vmtest-member-" + name }
 
+// buildDomain is the libvirt domain a base's build runs in; while libvirt lists it, the build's
+// directory is in use.
+func buildDomain(base string) string { return "vmtest-build-" + base }
+
 // domainListed is libvirt's own answer; an unreachable daemon is a failure, never "absent".
 func (c *cli) domainListed(ctx context.Context, domain string) (bool, error) {
 	domains, err := c.listDomains(ctx)

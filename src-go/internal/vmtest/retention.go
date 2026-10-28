@@ -212,7 +212,7 @@ func (c *cli) sweep(ctx context.Context, l *lab) error {
 	if err := c.sweepRuns(l, &removed); err != nil {
 		return err
 	}
-	if err := c.sweepBuilds(l, &removed); err != nil {
+	if err := c.sweepBuilds(ctx, l, &removed); err != nil {
 		return err
 	}
 	if _, err := c.helper(ctx, helperCall{module: retentionModule, stdout: c.env.Stdout, args: []string{
@@ -252,8 +252,8 @@ func (c *cli) sweepRuns(l *lab, removed *[]string) error {
 
 // sweepBuilds removes a failed fast-base build's disk (minutes to redo), keeping its console log
 // until the next build of that base clears the directory, and keeps a desktop one whole (hours,
-// and the diagnosis).
-func (c *cli) sweepBuilds(l *lab, removed *[]string) error {
+// and the diagnosis). A build libvirt still lists is running, and is kept whole.
+func (c *cli) sweepBuilds(ctx context.Context, l *lab, removed *[]string) error {
 	entries, err := os.ReadDir(l.at(basesDir))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -261,22 +261,33 @@ func (c *cli) sweepBuilds(l *lab, removed *[]string) error {
 	if err != nil {
 		return failf("cannot list %s: %v", l.at(basesDir), err)
 	}
+	var domains map[string]bool // asked of libvirt once, and only if a fast-base build is found
 	for _, e := range entries {
-		name := e.Name()
-		if !e.IsDir() || !strings.HasSuffix(name, buildSuffix) {
-			continue
-		}
-		if strings.HasPrefix(name, desktopPrefix) {
-			if err := c.record(l, "kept build "+name+" failed desktop build kept for diagnosis"); err != nil {
+		if name := e.Name(); e.IsDir() && strings.HasSuffix(name, buildSuffix) {
+			if err = c.sweepBuild(ctx, l, name, &domains, removed); err != nil {
 				return err
 			}
-			continue
-		}
-		if err := c.evictDisks(l, "build-disk", name, "failed fast-base build; its console log is kept", l.at(basesDir, name), removed); err != nil {
-			return err
 		}
 	}
 	return nil
+}
+
+// sweepBuild judges one build directory for sweepBuilds.
+func (c *cli) sweepBuild(ctx context.Context, l *lab, name string, domains *map[string]bool, removed *[]string) error {
+	if strings.HasPrefix(name, desktopPrefix) {
+		return c.record(l, "kept build "+name+" failed desktop build kept for diagnosis")
+	}
+	if *domains == nil {
+		listed, err := c.listDomains(ctx)
+		if err != nil {
+			return err
+		}
+		*domains = listed
+	}
+	if domain := buildDomain(strings.TrimSuffix(name, buildSuffix)); (*domains)[domain] {
+		return c.record(l, "kept build "+name+" libvirt has the domain "+domain)
+	}
+	return c.evictDisks(l, "build-disk", name, "failed fast-base build; its console log is kept", l.at(basesDir, name), removed)
 }
 
 // evictDisks logs an eviction, then removes the disk images (*.qcow2) in dir and says so; the

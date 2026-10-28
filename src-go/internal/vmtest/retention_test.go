@@ -215,6 +215,7 @@ func TestHostMiB(t *testing.T) {
 func sweepKit(t *testing.T, verdicts ...string) (*kit, []string) {
 	t.Helper()
 	k := newKit(t)
+	k.withLibvirt()
 	k.fake.On(append(helperArgv("retention"), "sweep-spool"), spoolDone)
 	ids := make([]string, 0, len(verdicts))
 	for i, v := range verdicts {
@@ -324,6 +325,21 @@ func TestE51SweepRemovalFails(t *testing.T) {
 	if k.exists("runs/"+ids[1]+"/overlay.qcow2") || !k.exists("runs/"+ids[0]+"/overlay.qcow2") ||
 		!k.exists("bases/server-fast-44.build/disk.qcow2") || k.count("sweep-spool") != 0 {
 		t.Fatal("the sweep went on past a failed removal")
+	}
+}
+
+// E51: a fast-base build libvirt still lists is running (the nightly tick can land during an
+// evening build-base), so its disk is the installer's and is kept, and the log says so.
+func TestE51SweepKeepsALiveBuild(t *testing.T) {
+	k, ids := sweepKit(t)
+	k.write("bases/server-fast-44.build/disk.qcow2", "the installer's disk")
+	k.lv.domains = []string{"vmtest-build-server-fast-44"}
+	k.wantCode(k.run("sweep"), term.ExitOK)
+	if len(ids) != 0 || !k.exists("bases/server-fast-44.build/disk.qcow2") || k.out.String() != string(spoolDone.Stdout) {
+		t.Fatal("the sweep removed the disk of a build libvirt still lists")
+	}
+	if line := "kept build server-fast-44.build libvirt has the domain vmtest-build-server-fast-44\n"; !strings.Contains(k.read(retentionLog), line) {
+		t.Fatalf("log lacks %q", line)
 	}
 }
 

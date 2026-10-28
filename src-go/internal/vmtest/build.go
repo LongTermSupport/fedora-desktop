@@ -122,7 +122,7 @@ func (c *cli) buildFromProbe(ctx context.Context, l *lab, b baseFacts, p *probe)
 	if err = c.buildFloor(l, b, arts[0]); err != nil {
 		return err
 	}
-	st := &building{c: c, domain: "vmtest-build-" + b.Name, dir: l.at(basesDir, b.Name+".build")}
+	st := &building{c: c, domain: buildDomain(b.Name), dir: l.at(basesDir, b.Name+".build")}
 	if c.domainKnown(ctx, st.domain) {
 		return failf("a domain named %s already exists; a previous build did not clean up. Inspect it, then: virsh -c %s undefine --nvram %s", st.domain, libvirtURI, st.domain)
 	}

@@ -387,7 +387,9 @@ The tests cite these numbers.
   newest 10 are untouched and the rest lose their `*.qcow2`, keeping the transcript, console,
   `response.json`, signature and check results, which plans cite as evidence; a run that did
   not pass is left to `prune-runs` (E61). A leftover `bases/*.build` directory of a fast base
-  loses its `*.qcow2` and keeps its console log until the next build of that base clears it; a
+  loses its `*.qcow2` and keeps its console log until the next build of that base clears it,
+  unless libvirt lists its `vmtest-build-<base>` domain: then the build is running (the
+  nightly tick can land during an evening `build-base`) and is kept whole; a
   desktop one (`desktop-*`, hours to rebuild, and the diagnosis) is kept whole. A directory
   with no `*.qcow2` is left alone and nothing is printed for it, so a second sweep evicts
   nothing. Each eviction is appended to `retention.log` first (`<epoch> evicted run-overlay|build-disk <name> <files>: <why>`, or `<epoch> kept build <name> ...`) and
