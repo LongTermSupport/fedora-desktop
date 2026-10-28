@@ -221,6 +221,13 @@
         - container-images-prune.service
         - container-images-prune.timer
 
+    # Only when given the host agent's decisions on the store's old-range files (Plan 00235 Q6,
+    # through CLAUDE/Plan/00235-*/old-range.bash): each item re-owned or removed as decided, a
+    # dry run unless podman_store_old_range_apply is true. The probe below then judges the result.
+    - name: Clean Up the Store's Old-Range Files as the Host Agent Decided
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/podman-store-old-range.yml"
+      when: podman_store_old_range_decisions is defined
+
     # A store holding files owned outside the user's subuid range would be broken by the timer's
     # next prune, with no root to repair it, so the timer is held off and the play fails at its
     # end (tasks/podman-store-ownership-probe.yml, Plan 00235 Q6).

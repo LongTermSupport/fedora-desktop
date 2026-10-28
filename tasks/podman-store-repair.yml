@@ -14,9 +14,10 @@
 # it, held with a POSIX record lock by the process using the directory for as long as it does;
 # its own recovery removes a stale directory and its lock file together once it can take the
 # lock. This file does the same, and fails instead of racing when any lock in tempdirs is held
-# or any podman or buildah process of the user is removing or building.
+# or any podman or buildah process of the user is removing or building
+# (tasks/podman-store-busy-guard.yml).
 #
-# Needs: user_login.
+# Needs: user_login, root_dir.
 
 - name: Look Up the Login User for the Store Repair
   ansible.builtin.getent:
@@ -84,55 +85,15 @@
     podman_store_tempdir_dirs: >-
       {{ podman_store_tempdir_entries.files | selectattr('isdir')
          | selectattr('path', 'search', '/temp-dir-[^/]+$') | list }}
-    podman_store_tempdir_locks: >-
-      {{ podman_store_tempdir_entries.files | rejectattr('isdir')
-         | selectattr('path', 'search', '/lock-[^/]+$') | list }}
-    # A process that removes or builds, by its command line: buildah, container-images, or a
-    # podman whose subcommand is one of these (after any leading options).
-    podman_store_busy_pattern: >-
-      ^\s*\d+\s+(\S*/)?(buildah|container-images)(\s|$)|^\s*\d+\s+(\S*/)?podman(\s+-\S+)*\s+((image|container|system|volume|manifest|buildx)\s+)?(build|commit|rm|rmi|prune|pull|load|import|reset|migrate|renumber)(\s|$)
   block:
-    - name: List the Login User's Processes
-      ansible.builtin.command:
-        argv: [ps, -u, "{{ user_login }}", -o, "pid=,args="]
-      register: podman_store_ps
-      changed_when: false
-      # ps exits 1 when the user runs no process at all, which is a clean answer here.
-      failed_when: podman_store_ps.rc not in [0, 1]
-
-    - name: Read the Kernel's Table of File Locks
-      ansible.builtin.slurp:
-        path: /proc/locks
-      register: podman_store_proc_locks
-
-    - name: Assert No podman or buildah Process Is Removing or Building
-      ansible.builtin.assert:
-        that:
-          - podman_store_busy | length == 0
-        fail_msg: >-
-          The store repair would race a running podman or buildah ({{ podman_store_busy | join('; ') }}).
-          Let it finish, then run play-podman.yml again.
-        quiet: true
+    # A held lock-<N> is a temporary directory in use (tasks/podman-store-busy-guard.yml).
+    - name: Fail While a podman or buildah Removes or Builds, or a Temporary Directory Is in Use
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/podman-store-busy-guard.yml"
       vars:
-        podman_store_busy: "{{ podman_store_ps.stdout_lines | select('match', podman_store_busy_pattern) | list }}"
-
-    # /proc/locks names a held lock by device and inode; matching on the inode alone can only
-    # take an unrelated lock for a held one, which stops the play: the safe side.
-    - name: Assert No Process Holds a Lock in the Temporary Directories
-      ansible.builtin.assert:
-        that:
-          - podman_store_held | length == 0
-        fail_msg: >-
-          {{ podman_store_held | join(', ') }} is held by a running process, so its temporary
-          directory is in use. Let it finish, then run play-podman.yml again.
-        quiet: true
-      vars:
-        podman_store_held_inodes: >-
-          {{ podman_store_proc_locks.content | b64decode
-             | regex_findall('\s[0-9a-f]+:[0-9a-f]+:(\d+)\s') | map('int') | list }}
-        podman_store_held: >-
-          {{ podman_store_tempdir_locks | selectattr('inode', 'in', podman_store_held_inodes)
-             | map(attribute='path') | list }}
+        podman_store_guard_what: The store repair
+        podman_store_guard_locks: >-
+          {{ podman_store_tempdir_entries.files | rejectattr('isdir')
+             | selectattr('path', 'search', '/lock-[^/]+$') | list }}
 
     - name: Measure Each Temporary Directory
       become: true

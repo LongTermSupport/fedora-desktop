@@ -1,6 +1,6 @@
 # Plan 00235: podman images cleaned up automatically
 
-**Status**: In Progress (the first prune freed 299G, then broke the store; the repair and timer gate (4.5, 4.6, 4.8) are deployed or deploying; Phase 3 (3.1, 3.2) built and gated on a clean store; Q6 answered: no reset, the host agent triages and decides each old-range item (Task 4.7, Decision 4))
+**Status**: In Progress (the first prune freed 299G, then broke the store; the repair and timer gate (4.5, 4.6, 4.8) are deployed or deploying; Phase 3 (3.1, 3.2) built and gated on a clean store; Q6 answered: no reset, the host agent triages and decides each old-range item (Task 4.7, Decision 4); 4.7a-c built, 4.7d waits for the host agent's triage and decisions)
 **Created**: 2026-10-28
 **Owner**: joseph
 **Priority**: High
@@ -92,6 +92,9 @@ Research, with file:line for every claim below:
 - That chown on a lower layer of a running container's overlay is unsafe (the kernel calls a
   change under a mounted overlay undefined), so such a layer is HELD, never re-owned, until its
   containers stop.
+- That no running container holds one of c/storage's lock files (storage.lock, the record
+  stores' locks) for as long as it runs: the old-range busy guard fails on a held one, so if a
+  running ccy session does hold one, the apply waits for the sessions to stop (the safe side).
 
 ### Precedent
 
@@ -182,23 +185,27 @@ the plans cite kept.
 - [ ] 🔄 **Task 4.7** (FIX, Q6 answered: case by case, Decision 4): layers and volumes with
   files owned by host uids of the old range (100000+k) cannot be deleted rootless; each prune
   meeting one stops (P6a). The host agent triages them item by item and decides
-  - [ ] ⬜ **4.7a**: tests first, then `container-images old-range` (package
-    `internal/containerimages/oldrange`, O1-O15 in its package doc): `scan` (root, read-only:
+  - [x] ✅ **4.7a**: tests first, then `container-images old-range` (in
+    `internal/containerimages`, beside the prune whose removal log it shares, O1-O15 in its
+    package doc): `scan` (root, read-only:
     per store directory, the old-range paths, their owners and sizes), `triage` (the user:
     each item grouped by what owns it, with its proposed action, and the proposed decisions
     file), `plan` (the user: a decisions file checked against a fresh scan and podman's view),
     `reown --plan [--yes]` (root: the shift, setuid bits and file capabilities put back, and
     the unattributed paths decided `remove`), `remove --plan [--yes]` (the user: podman's own
-    unforced removals, logged)
-  - [ ] ⬜ **4.7b**: `old-range.bash` in this folder: the triage (report and proposed decisions in
+    unforced removals, after a fresh look at podman, logged); package coverage 94.7%
+  - [x] ✅ **4.7b**: `old-range.bash` in this folder: the triage (report and proposed decisions in
     the run directory, under `untracked/`); `--decisions FILE` adds the dry run of that file;
     `--decisions FILE --apply` runs play-podman.yml with it. The file must be under
-    `untracked/`, since it names this install's images and volumes
-  - [ ] ⬜ **4.7c**: `tasks/podman-store-old-range.yml`, imported by play-podman.yml after the
+    `untracked/`, since it names this install's images and volumes. It builds the command from
+    the checkout into the run directory; its read-only legs are `old-range-steps.bash`
+  - [x] ✅ **4.7c**: `tasks/podman-store-old-range.yml`, imported by play-podman.yml after the
     command is built and before the Task 4.8 probe, only when `podman_store_old_range_decisions`
     is given: the busy guard (factored out of the repair into `tasks/podman-store-busy-guard.yml`,
-    which both use, with every lock file of the store), then scan, plan, reown and remove. The
-    probe then finds nothing, writes the marker and starts the timer
+    which both use, with c/storage's own lock files: the store's, the record stores' and
+    tempdirs'), then scan, plan, reown and remove (dry runs unless
+    `podman_store_old_range_apply`), the repair in `always:`. The probe then finds nothing,
+    writes the marker and starts the timer
   - [ ] ⬜ **4.7d**: on the host: the host agent runs `old-range.bash` through meta-deploy, reads
     the report, writes its decisions under `untracked/`, runs the dry run, then `--apply`
 - [x] ✅ **Task 4.8**: `tasks/podman-store-ownership-probe.yml`, imported by play-podman.yml after
@@ -303,6 +310,11 @@ Each has the default this plan proceeds on unless the owner says otherwise.
   can be a bit more clever than one decision for all - can the desktop level session properly
   triage and decide case by case? crap can be removed". So **B is rejected: no `podman system reset`, ever**. The host agent (the desktop-level session) triages and decides item by item:
   what is junk is removed, what is kept is re-owned (Decision 4, Task 4.7).
+- **Q7**: A layer under a running container (its own, or one of its image's) is HELD: never
+  re-owned or removed while the container runs. If the running ccy sessions' base layers hold
+  old-range files, the store cannot be made clean (and the daily prune stays held off) until
+  those sessions stop and the apply is run again. Default: **hold**, and apply in two rounds
+  (everything else now, the held layers once the sessions are stopped for another reason).
 
 ## Technical Decisions
 
