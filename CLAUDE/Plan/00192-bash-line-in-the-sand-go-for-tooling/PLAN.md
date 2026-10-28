@@ -439,19 +439,24 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
 - [x] A new bash file over the thresholds fails QA; an allowlisted one that grows fails QA
   (Task 1.3's controls: over-long, too many functions, `declare -A`, `fzf`, growth and an added
   entry each fail the gate).
-- [ ] Every port in Phase 3 passes its existing suite against the Go binary before cut-over.
+- [x] Every port in Phase 3 passes its existing suite against the Go binary before cut-over.
   Where the bash tool and its suites were deleted, the oracle was replaced, not dropped: the
   freeze tools' white-box bash suites are replaced by a golden replay of the shipped bash tools'
   recorded output (stdout, stderr, status and commands over a scenario corpus) plus Go tests, and
   qa-all's by a golden replay of the legacy script plus the Go tests that took over the cases of
   the deleted `qa-helper-summary` suite. That meets the criterion because the replay compares the
   Go with the bash byte for byte, and a difference is allowed only as a numbered bug pinned with
-  its reason, which a suite of a deleted tool could no longer do. Not yet shown for every merged
-  port (the audit, `subagent-reports/261028-defect-classes-audit.md`): open, the rclone tools,
-  setup-rclone, reclaim, nord and nvidia-status had no suite; wsi's suite drives the Go binary;
-  but vmtest's four bash suites were deleted with their cases moved into Go tests, with no
-  record of a run against the Go binary before cut-over, and the record is not read yet for
-  ftp-camera, watermark, gh-account-setup and the ssh-with-key family.
+  its reason, which a suite of a deleted tool could no longer do. Every merged port, one row each:
+  `subagent-reports/261028-criterion-2-suites.md`. Black-box suites ran against the Go
+  (qa-changed, qa-ansible, qa-docs, wsi, gh-account-setup's wrapper cases); the white-box ones
+  (qa-docs' and ready-wait's Python unit tests, gh-account-setup's extracted functions) are
+  expectation tests now; ftp-camera, watermark, the ssh-with-key family, the 16 other qa gates
+  and the P6 tools had no suite. vmtest's four deleted suites: the member and host-only-gate
+  cases are black-box, re-pointed at the binary
+  ([vmtest-blackbox/blackbox-vmtest.bash](vmtest-blackbox/blackbox-vmtest.bash)) and pass 81 of
+  81 against today's build and the cut-over build of `2c9878497` (run after the cut-over, since
+  nothing recorded one before); reboot-dispatch and build-dir-cleanup test bash functions, and
+  their cases are SPEC-vmtest section 6's Go tests. No defect found.
 - [x] Each defect class found in the ports has a rule, or a recorded reason it cannot
   ([GoProjectRules.md](../../GoProjectRules.md): `project_waitdelay` for the dropped capture
   (B25); the `sudo -n -v` probe is recorded as not a rule, with what holds it). The audit of
