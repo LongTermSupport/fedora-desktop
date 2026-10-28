@@ -128,10 +128,11 @@ A config's name is its `.ovpn` file name without the extension and without a
 there, each is named in full (`uk1234.nordvpn.com.udp`) and the short name is refused as
 ambiguous. The full file name without `.ovpn` always works as the argument too.
 
-The password is never put on a command line: `nord` reads it from the credentials file and
-gives it to `nmcli connection up` on its standard input at each connect, so a profile `nord`
-imports holds the username but no password. Connecting such a profile from GNOME's network
-settings therefore asks for the password.
+The password is never put on a command line: when `nord` imports a config it reads the
+password from the credentials file and stores it in the profile through nmcli's editor, fed
+on its standard input. The profile then holds both credentials, so it connects from GNOME's
+network settings too. New credentials reach a profile when it is imported again
+(`nord cleanup`, then `nord connect <name>`).
 
 Connections persist in NetworkManager across reboots. Use GNOME Settings → Network to
 view or remove them via the GUI.

@@ -23,11 +23,13 @@ var (
 	needConnect = need{networkManager: true, connect: true}
 )
 
-// credentials are the account's service credentials (E10): the username, stored in the
-// profile, and the password, which only ever reaches nmcli's stdin (D4).
+// credentials are the account's service credentials (E10), both stored in the profile: the
+// username through an argv, the password only through nmcli's stdin (D4). hide replaces the
+// password in text nmcli printed, before it is shown.
 type credentials struct {
 	user     string
 	password execx.Secret
+	hide     func(string) string
 }
 
 // feedVar names the password inside nord; nmcli reads it from its stdin, never by name.
@@ -106,5 +108,7 @@ func (r *run) readCredentials() (credentials, string) {
 	if err != nil {
 		return credentials{}, err.Error()
 	}
-	return credentials{user: lines[0], password: secret}, ""
+	password := lines[1]
+	hide := func(text string) string { return strings.ReplaceAll(text, password, "<password>") }
+	return credentials{user: lines[0], password: secret, hide: hide}, ""
 }

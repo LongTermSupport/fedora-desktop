@@ -32,9 +32,10 @@ command list proves all of that without a VPN; the connection itself is the owne
   owners of `nmcli` in the project rule's table (`project_seam_commands`): managing its own
   VPN profiles is a job of its own, beside lxcfreeze's (inside a container) and ftpcamera's
   (the hotspot). `curl` (the public address, E19) is unowned.
-- **D4. The password is never in an argv.** It is read from the credentials file and given to
-  `nmcli connection up` on its standard input (`passwd-file /dev/stdin`, an `execx.Feed`), at
-  every connect (E14, B3). It is not stored in the NetworkManager profile by nord.
+- **D4. The password is stored in the profile, and never in an argv** (the lead's decision:
+  a person connecting from GNOME's network settings must not start being asked for it). It
+  is read from the credentials file at import and given to nmcli's editor
+  (`nmcli connection edit`) on its standard input, an `execx.Feed` (E13, B3).
 - **D5. The chooser is a numbered menu on `/dev/tty`** through `ui.Lines.Choose` (the shared
   numbered menu: every choice a visible line with its key, a bad key asked again, three tries;
   InteractiveScripts.md rules 1, 2 and 14), each screen with a `ui.Heading` (rule 15).
@@ -120,16 +121,20 @@ command list proves all of that without a VPN; the connection itself is the owne
   `nmcli connection import type openvpn file <path>`, whose output names the new profile's
   UUID (`Connection '<id>' (<uuid>) successfully added.`); an import that fails, or whose
   output names no UUID, fails with nmcli's output, exit 1. Then
-  `nmcli connection modify uuid <uuid> connection.id nordvpn-<name> +vpn.data username=<user>`. When that fails, the imported profile is deleted
-  (`nmcli connection delete uuid <uuid>`), so no half-configured profile is left (its failure
-  named too), and the run fails, exit 1 (B9). `Imported nordvpn-<name>.` follows a success.
+  `nmcli connection modify uuid <uuid> connection.id nordvpn-<name> +vpn.data username=<user>`, then the password is stored in the profile through
+  nmcli's editor, `nmcli connection edit uuid <uuid>` with the lines
+  `set vpn.secrets password=<password>`, `save persistent` and `quit` on its standard input
+  (D4); the session succeeds only when nmcli exits 0 and prints `successfully updated`. When
+  either step fails, the imported profile is deleted (`nmcli connection delete uuid <uuid>`),
+  so no half-configured profile is left (its failure named too), and the run fails, exit 1
+  (B9); nmcli's words are shown with the password replaced by `<password>`. `execx` refuses to
+  start the editor when the password is found inside its argv (a password `edit` would be), so
+  a password that could be read there never is. `Imported nordvpn-<name>.` follows a success.
 - E14. Then every other active nord profile is brought down
   (`Disconnecting <other>...`, `nmcli connection down uuid <uuid>`); one that fails stops the
   run before the new connection is brought up (`nord: could not disconnect <other>: <reason>; not connecting <name> beside it.`, exit 1) (B10). Then
-  `Connecting to <name>...` and `nmcli connection up uuid <uuid> passwd-file /dev/stdin`, its
-  standard input the line `vpn.secrets.password:<password>` (D4); `execx` refuses to start it
-  when the password is found inside the argv itself (a password `pass` is in `passwd-file`),
-  so a password that could be read there never is. Success is
+  `Connecting to <name>...` and `nmcli connection up uuid <uuid>`, the password the profile's
+  own (E13). Success is
   `Connected to <name>.`, exit 0. Failure is `nord: could not connect to <name>: <nmcli's output>` and the troubleshooting lines
   (`journalctl -u NetworkManager --no-pager --since '5 minutes ago'`, then
   `nord cleanup && nord connect <name>` to import it again), exit 1 (B11).
@@ -207,7 +212,7 @@ command list proves all of that without a VPN; the connection itself is the owne
 
 The commands and their names, the `nordvpn-` prefix and the profile names (`nordvpn-<name>`
 for the short name), the paths of the configs, the credentials and the log, the log's 1 MiB
-rotation to `nord.log.old`, the import on first connect, the username stored in the profile,
+rotation to `nord.log.old`, the import on first connect, the username and the password stored in the profile (the password now through stdin, B3),
 `status` exiting 1 when not connected, the public address from api.ipify.org, `--debug`, and
 the help's examples.
 
@@ -220,13 +225,11 @@ the help's examples.
   built `$OVPN_DIR/${name}.ovpn`, so `nord connect ../x` read outside the directory.
 - B3. The password never reaches an argv (D4). The bash ran
   `nmcli connection modify ... +vpn.secrets password=<password>`, visible to every user in
-  `/proc/<pid>/cmdline` while it ran, and stored it in the profile. It is given to
-  `nmcli connection up` on stdin at each connect instead, so new credentials from the play
-  take effect at the next connect without a re-import. A profile the bash imported still
-  holds its stored password; NetworkManager then needs none from nord, and both work. Its
-  consequence: a profile nord imports holds no password, so connecting it from GNOME's
-  network settings asks for the password (the play's tips say the settings show the
-  connections; connecting them there was never described).
+  `/proc/<pid>/cmdline` while it ran, and stored it in the profile. The port stores it in the
+  profile too, as the bash did, so connecting from GNOME's network settings asks for nothing,
+  but through nmcli's editor fed on stdin (E13). The bash also swallowed that step's failure
+  (`|| true`); a failed or unsaved store now deletes the import (B9). As before, new
+  credentials from the play reach a profile only when it is imported again (`nord cleanup`).
 - B4. The credentials are read and checked before anything is imported or brought down
   (E10). The bash imported first and read them after, used `head -1` and `tail -1` (a
   one-line file gave the username as the password), and never noticed a third line.
@@ -291,8 +294,10 @@ host has, the host agent's own included, so it is neither harmless nor the agent
   after).
 - H4 (owner). `nord connect <a server not yet imported>`: it imports, connects, and
   `nord status` shows the NordVPN address; `ps` during the connect shows no password in any
-  argv; the profile holds the username and no password
-  (`nmcli -s -g vpn.secrets connection show nordvpn-<name>` is empty).
+  argv; the profile holds the username and the password
+  (`nmcli -s -g vpn.secrets connection show nordvpn-<name>` names it), so the editor fed on
+  stdin was accepted (E13); and connecting it from GNOME's network settings asks for no
+  password.
 - H5 (owner). `nord switch <another>` brings the first down and the second up;
   `nord switch nosuch` fails and leaves the connection up (B12).
 - H6 (owner). `nord disconnect` brings it down; `nord status` exits 1.

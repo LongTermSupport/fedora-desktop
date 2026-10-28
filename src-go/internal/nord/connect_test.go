@@ -8,8 +8,8 @@ import (
 
 const configsDir = ".config/nordvpn/configs/"
 
-// E13, E14: a first connect imports, names the profile, stores the username and brings it up
-// with the password on stdin.
+// E13, E14: a first connect imports, names the profile, stores the username and the password
+// (fed to nmcli's editor on stdin), then brings it up.
 func TestFirstConnectImports(t *testing.T) {
 	w := newWorld(t)
 	w.config("uk1.nordvpn.com.udp.ovpn")
@@ -18,10 +18,11 @@ func TestFirstConnectImports(t *testing.T) {
 	wantChanges(t, w,
 		"nmcli connection import type openvpn file "+w.home+"/"+configsDir+"uk1.nordvpn.com.udp.ovpn",
 		"nmcli connection modify uuid "+uuid+" connection.id nordvpn-uk1 +vpn.data username="+testUser,
-		"nmcli connection up uuid "+uuid+" passwd-file /dev/stdin",
+		"nmcli connection edit uuid "+uuid,
+		"nmcli connection up uuid "+uuid,
 	)
 	w.wantErr("Importing uk1...\n", "Imported nordvpn-uk1.\n", "Connecting to uk1...\n", "Connected to uk1.\n")
-	if p := w.profileAt(0); p.name != "nordvpn-uk1" || p.active != "activated" {
+	if p := w.profileAt(0); p.name != "nordvpn-uk1" || p.active != "activated" || !p.stored {
 		t.Errorf("profile %+v", p)
 	}
 	if w.stdout.Len() != 0 {
@@ -36,7 +37,7 @@ func TestConnectUsesTheImportedProfile(t *testing.T) {
 	w.config("uk1.ovpn")
 	p := w.imported("nordvpn-uk1")
 	wantCode(t, w.run("connect", "uk1"), term.ExitOK)
-	wantChanges(t, w, "nmcli connection up uuid "+p.uuid+" passwd-file /dev/stdin")
+	wantChanges(t, w, "nmcli connection up uuid "+p.uuid)
 	w.wantNoErr("Importing")
 }
 
@@ -135,7 +136,7 @@ func TestConnectBringsTheOtherDown(t *testing.T) {
 	wantCode(t, w.run("connect", "uk1"), term.ExitOK)
 	wantChanges(t, w,
 		"nmcli connection down uuid "+de.uuid,
-		"nmcli connection up uuid "+uk.uuid+" passwd-file /dev/stdin",
+		"nmcli connection up uuid "+uk.uuid,
 	)
 	w.wantErr("Disconnecting de2...\n", "Connected to uk1.\n")
 }
@@ -197,7 +198,30 @@ func TestSwitch(t *testing.T) {
 	wantChanges(t, w,
 		"nmcli connection import type openvpn file "+w.home+"/"+configsDir+"de2.ovpn",
 		"nmcli connection modify uuid "+de.uuid+" connection.id nordvpn-de2 +vpn.data username="+testUser,
+		"nmcli connection edit uuid "+de.uuid,
 		"nmcli connection down uuid "+uk.uuid,
-		"nmcli connection up uuid "+de.uuid+" passwd-file /dev/stdin",
+		"nmcli connection up uuid "+de.uuid,
 	)
+}
+
+// E13, B9: an edit session that fails, or does not say it saved, deletes the imported profile.
+func TestFailedPasswordStoreDeletesTheImport(t *testing.T) {
+	// nmcli's words naming the password are shown with it hidden.
+	odd := "Error: invalid value '" + testPassword + "'\n"
+	for name, set := range map[string]func(*world){
+		"failed":    func(w *world) { w.fail["edit"] = failure{stderr: "Error: not permitted\n", exit: 1} },
+		"not saved": func(w *world) { w.editOut = &odd },
+	} {
+		w := newWorld(t)
+		w.config("uk1.ovpn")
+		set(w)
+		wantCode(t, w.run("connect", "uk1"), term.ExitFailure)
+		uuid := "00000000-0000-4000-8000-000000000001"
+		got := w.changes()
+		if len(got) != 4 || got[2] != "nmcli connection edit uuid "+uuid || got[3] != "nmcli connection delete uuid "+uuid {
+			t.Errorf("%s: changes %q", name, got)
+		}
+		w.wantErr("nord: could not store the password in nordvpn-uk1: ", "Removed the half-imported connection.")
+		w.wantNoPassword()
+	}
 }

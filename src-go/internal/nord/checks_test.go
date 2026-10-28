@@ -85,7 +85,7 @@ func TestBadCredentials(t *testing.T) {
 }
 
 // E10, E14: the values read are exactly the lines, less the line ending, and the password goes
-// to nmcli on its standard input as its passwd-file line.
+// to nmcli's editor on its standard input, to be stored in the profile.
 func TestCredentialsAreTheLines(t *testing.T) {
 	w := newWorld(t)
 	w.config("uk1.ovpn")
@@ -94,16 +94,15 @@ func TestCredentialsAreTheLines(t *testing.T) {
 	if len(w.profiles) != 1 || w.profiles[0].username != testUser {
 		t.Errorf("profiles %+v", w.profiles)
 	}
-	if len(w.fed) != 1 || w.fed[0] != passwdKey+"<password>\n" {
+	if len(w.fed) != 1 || w.fed[0] != editFeed("<password>") {
 		t.Errorf("fed %q", w.fed)
 	}
 	w.wantNoPassword()
 }
 
-// E14: the passwd-file key is nmcli's <setting>.<property>.<key> for the VPN's password.
-func TestPasswdKeyIsTheVPNPassword(t *testing.T) {
-	if passwdKey != vpnSetting+"."+vpnSecretsProperty+"."+vpnPasswordKey+":" ||
-		vpnSetting != "vpn" || vpnPasswordKey != "password" || len(vpnSecretsProperty) != len("secrets") {
-		t.Errorf("passwdKey %q", passwdKey)
+// E13: the password is stored in nmcli's VPN secrets setting, under the key password.
+func TestPasswordSettingIsTheVPNSecrets(t *testing.T) {
+	if vpnSetting != "vpn" || vpnSecretsProperty != "secrets" || vpnPasswordKey != "password" {
+		t.Errorf("setting %q.%q key %q", vpnSetting, vpnSecretsProperty, vpnPasswordKey)
 	}
 }

@@ -61,8 +61,9 @@ the wrappers that build and run the Go commands).
   the bash it replaced (the plan's `reclaim-parity/parity.py`) were both judged by.
 - `internal/nord/` — the `nord` command (spec `SPEC-nord.md`, E1-E24): NordVPN's `.ovpn`
   configs imported into NetworkManager and connected, switched and disconnected through `nmcli`
-  (nord is one of its owners), profiles named by UUID after each listing, the password only
-  on `nmcli connection up`'s stdin (`passwd-file /dev/stdin`, an `execx.Feed`); the chooser is
+  (nord is one of its owners), profiles named by UUID after each listing, the password stored
+  in the profile only through nmcli's editor on its stdin (`nmcli connection edit`, an
+  `execx.Feed`); the chooser is
   `ui.Lines.Choose` on `/dev/tty`, NetworkManager's state asked through `internal/systemd`.
 - `internal/<package>/` — shared adapters, each behind an interface with a fake: `execx`
   (the command runner every external call goes through, and its recording `Fake`), `term`

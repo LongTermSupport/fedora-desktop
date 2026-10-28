@@ -20,14 +20,16 @@ const (
 	stateActivated = "activated"
 )
 
-// nmcli's passwd-file line for a VPN's password is <setting>.<property>.<key>:<value> (nmcli(1),
-// `connection up ... passwd-file`); nord gives it on nmcli's stdin (D4).
+// The profile setting the password is stored in, and its key (nmcli-settings(5)). The setting's
+// name is nmcli's, not a file, but the secret-file guard reads it as one token, so it is joined here.
 const (
 	vpnSetting         = "vpn"
 	vpnSecretsProperty = "secrets"
 	vpnPasswordKey     = "password"
-	passwdKey          = vpnSetting + "." + vpnSecretsProperty + "." + vpnPasswordKey + ":"
 )
+
+// savedMark is what nmcli's editor prints once it has saved the profile.
+const savedMark = "successfully updated"
 
 // importedUUID is the UUID in nmcli's "Connection '<id>' (<uuid>) successfully added."
 var importedUUID = regexp.MustCompile(`\(([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\)`)
@@ -175,7 +177,7 @@ func (r *run) connectTo(ctx context.Context, cfg config, creds credentials) term
 			return term.ExitCancelled
 		}
 	}
-	return r.bringUp(ctx, cfg, uuid, creds)
+	return r.bringUp(ctx, cfg, uuid)
 }
 
 // profileFor is the UUID of cfg's profile, imported when there is none (E12, E13); false after
@@ -198,12 +200,10 @@ func (r *run) profileFor(ctx context.Context, cfg config, all []nmProfile, creds
 	return "", false
 }
 
-// bringUp is E14's connect, the password on nmcli's stdin.
-func (r *run) bringUp(ctx context.Context, cfg config, uuid string, creds credentials) term.ExitCode {
+// bringUp is E14's connect; the password is the profile's own (E13).
+func (r *run) bringUp(ctx context.Context, cfg config, uuid string) term.ExitCode {
 	r.say("Connecting to " + cfg.name + "...")
-	up := nmByUUID("up", uuid, "passwd-file", "/dev/stdin")
-	up.Feed = &execx.Feed{Secret: creds.password, Before: passwdKey, After: "\n"}
-	_, err := r.nmChange(ctx, up)
+	_, err := r.nmChange(ctx, nmByUUID("up", uuid))
 	if err != nil {
 		r.failf("could not connect to %s: %v", cfg.name, err)
 		r.say("Troubleshooting:")
@@ -241,8 +241,33 @@ func (r *run) importConfig(ctx context.Context, cfg config, creds credentials) (
 		r.removeHalfImport(ctx, uuid)
 		return "", false
 	}
+	if problem := r.storePassword(ctx, uuid, creds); problem != "" {
+		r.failf("could not store the password in %s%s: %s", prefix, cfg.name, problem)
+		r.removeHalfImport(ctx, uuid)
+		return "", false
+	}
 	r.say("Imported " + prefix + cfg.name + ".")
 	return uuid, ctx.Err() == nil
+}
+
+// storePassword saves the password in the profile through nmcli's editor, its commands on
+// nmcli's stdin so the password is in no argv (D4); what went wrong, or "" once nmcli says it
+// saved. nmcli's words are shown with the password hidden.
+func (r *run) storePassword(ctx context.Context, uuid string, creds credentials) string {
+	edit := nmByUUID("edit", uuid)
+	edit.Feed = &execx.Feed{
+		Secret: creds.password,
+		Before: "set " + vpnSetting + "." + vpnSecretsProperty + " " + vpnPasswordKey + "=",
+		After:  "\nsave persistent\nquit\n",
+	}
+	res, err := r.nmChange(ctx, edit)
+	if err != nil {
+		return creds.hide(err.Error())
+	}
+	if !strings.Contains(string(res.Stdout), savedMark) {
+		return "nmcli did not say it saved the profile: " + creds.hide(strings.TrimSpace(string(res.Stdout)))
+	}
+	return ""
 }
 
 // removeHalfImport deletes a profile the import made and could not finish (E13, B9).

@@ -28,6 +28,8 @@ const (
 type profile struct {
 	name, uuid, kind string
 	username         string
+	// stored is the password saved in the profile by nmcli's editor.
+	stored bool
 	// active is "" when the connection is down, else its state (activated, activating).
 	active string
 	device string
@@ -54,16 +56,18 @@ type world struct {
 	fail map[string]failure
 	// importOut replaces what a successful import prints.
 	importOut *string
-	curl      failure
-	curlOut   string
-	fake      *execx.Fake
-	stdout    bytes.Buffer
-	stderr    bytes.Buffer
-	tty       string
-	ttyIn     io.Reader
-	noTTY     bool
-	stdinTTY  bool
-	// fed is the standard input each `nmcli connection up` was given, as text.
+	// editOut replaces what a successful edit session prints.
+	editOut  *string
+	curl     failure
+	curlOut  string
+	fake     *execx.Fake
+	stdout   bytes.Buffer
+	stderr   bytes.Buffer
+	tty      string
+	ttyIn    io.Reader
+	noTTY    bool
+	stdinTTY bool
+	// fed is the standard input each `nmcli connection edit` was given, as text.
 	fed []string
 	// during runs while the command whose line it is keyed by runs: a Ctrl-C mid-command.
 	during map[string]func()
@@ -213,9 +217,11 @@ var nmVerbs = []nmVerb{
 		return len(a) == 8 && slices.Equal(a[:3], []string{"connection", "modify", "uuid"}) &&
 			a[4] == "connection.id" && a[6] == "+vpn.data"
 	}, (*world).modify},
+	{"edit", func(a []string) bool {
+		return len(a) == 4 && slices.Equal(a[:3], []string{"connection", "edit", "uuid"})
+	}, (*world).edit},
 	{"up", func(a []string) bool {
-		return len(a) == 6 && slices.Equal(a[:3], []string{"connection", "up", "uuid"}) &&
-			slices.Equal(a[4:], []string{"passwd-file", "/dev/stdin"})
+		return len(a) == 4 && slices.Equal(a[:3], []string{"connection", "up", "uuid"})
 	}, (*world).up},
 	{"down", func(a []string) bool {
 		return len(a) == 4 && slices.Equal(a[:3], []string{"connection", "down", "uuid"})
@@ -231,7 +237,7 @@ func (w *world) nmcli(c execx.Cmd) (execx.Result, bool) {
 		if !v.match(c.Args) {
 			continue
 		}
-		if v.name == "up" {
+		if v.name == "edit" {
 			w.fed = append(w.fed, fedText(c))
 		}
 		if res, bad := w.failed(v.name); bad {
@@ -279,6 +285,28 @@ func (w *world) modify(c execx.Cmd) execx.Result {
 	}
 	p.name, p.username = c.Args[5], user
 	return execx.Result{}
+}
+
+// edit is nmcli's editor fed its commands on stdin: the password stored when they are the ones
+// nord sends.
+func (w *world) edit(c execx.Cmd) execx.Result {
+	p := w.byUUID(c.Args[3])
+	if p == nil {
+		return unknownConnection
+	}
+	if fedText(c) == editFeed("<password>") {
+		p.stored = true
+	}
+	out := fmt.Sprintf("Connection '%s' (%s) successfully updated.\n", p.name, p.uuid)
+	if w.editOut != nil {
+		out = *w.editOut
+	}
+	return execx.Result{Stdout: []byte(out)}
+}
+
+// editFeed is what nord feeds nmcli's editor, the password given as pw.
+func editFeed(pw string) string {
+	return "set " + vpnSetting + "." + vpnSecretsProperty + " " + vpnPasswordKey + "=" + pw + "\nsave persistent\nquit\n"
 }
 
 func (w *world) up(c execx.Cmd) execx.Result {

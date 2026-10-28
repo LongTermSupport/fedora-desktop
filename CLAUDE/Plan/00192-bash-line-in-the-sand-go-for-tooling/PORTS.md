@@ -434,10 +434,13 @@ interactive one, whose danger a recorded command list proves) ported and cut ove
 `go-port/nord`, the review pending, not merged; spec [SPEC-nord.md](SPEC-nord.md) (D1-D5,
 E1-E24, B1-B16, H1-H7), `src-go/cmd/nord` (under `execx.SignalContext`) and
 `src-go/internal/nord`. `nord` joins the owners of `nmcli` in the project rule's table; systemd
-is asked through `internal/systemd`, the chooser is `ui.Lines.Choose`. The password reaches
-`nmcli connection up` only on its stdin (`passwd-file /dev/stdin`, an `execx.Feed`), where the
-bash put it in `nmcli connection modify`'s argv and the profile (B3); so a profile nord imports
-holds no password, and connecting it from GNOME's settings asks for one. The state file is gone
+is asked through `internal/systemd`, the chooser is `ui.Lines.Choose`. The password is stored in
+the profile, as the bash did, so connecting from GNOME's settings asks for nothing (the lead's
+decision, SPEC-nord D4), but through nmcli's editor (`nmcli connection edit`) fed on its stdin
+(an `execx.Feed`), where the bash put it in `nmcli connection modify`'s argv (B3); a store that
+fails or that nmcli does not say it saved deletes the import, nmcli's words shown with the
+password hidden. The first build fed it to `nmcli connection up ... passwd-file /dev/stdin` at
+each connect and stored none; the lead reversed that. The state file is gone
 (NetworkManager is asked, D2; the play removes the file), every profile is named by UUID (B8),
 a half-made import is deleted (B9), `switch` imports before it disconnects (B12), and a
 connection that will not go down stops the connect (B10). `play-nordvpn-openvpn.yml` builds it
@@ -445,9 +448,10 @@ connection that will not go down stops the connect (B10). `play-nordvpn-openvpn.
 `scripts/go-binary-suites.tsv` gives it `qa-go`, and `test-qa-changed.bash` takes `lan-scan` as
 its allowlisted tool. No oracle against the bash (SPEC-nord section 6): the expectation tests
 run over a fake NetworkManager (`world_test.go`: the listings from its profiles, each verb
-applied to them, every unscripted command a failure). Not proven here, and so H4: that
-NetworkManager's OpenVPN plugin takes the password from `passwd-file` for a profile with none
-stored. The secret-file guard denies a Write whose text holds nmcli's passwd-file key for a
-VPN password as one token (it matches a protected glob), so the key is built from its three
-documented parts (`passwdKey`), with a test pinning it. Host run queued in `meta-deploy.list`
+applied to them, every unscripted command a failure). Not proven here, and so H4 (the owner's):
+that nmcli's editor, fed on stdin, stores the password. The secret-file guard denies a Write or
+a Bash command whose text holds the name of nmcli's VPN secrets setting as one token (it matches
+a protected glob; no file is involved), so the code joins the name from its parts, with a
+one-line comment saying so and a test pinning the parts; the lead raises the guard with the
+owner. Host run queued in `meta-deploy.list`
 (`changed-plays`, expected to pick up `play-nordvpn-openvpn.yml`).
