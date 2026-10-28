@@ -282,7 +282,11 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     against the real mokutil, vulkaninfo, glxinfo and vainfo output. Noted there: the akmods key
     file is absent while the modules load signed (section 1 warns, as it should). Left: H5 (the
     owner's, optional: the not-functional verdicts need a driver install or reboot).
-    Follow-ups F2-F7 fixed (`subagent-reports/261028-nvidia-status-follow-ups.md`; E26, E22a, E23a, B15-B19); left: H6 (host agent, read-only).
+    Follow-ups F2-F7 fixed (`subagent-reports/261028-nvidia-status-follow-ups.md`; E26, E22a, E23a, B15-B19). H6 at `77d68ab96` (host agent, `$LYt33COy9oe25XqZBVmuHXbQqle-1EIIqRYKM-kc55Y`):
+    E22a PASS (section 7's NVIDIA VA-API line agrees with `LIBVA_DRIVER_NAME=nvidia vainfo` by
+    hand, its profiles listed), E26 PASS (section 3's loaded version equals
+    `/proc/driver/nvidia/version`'s); E23a not shown on real data, as this boot's journal has no
+    `nvidia-gpu` i2c line, so its fakes carry it.
   - The `ssh-with-key` family (P6): ported, Fable-reviewed
     ([subagent-reports/261028-fable-review-ssh-with-key.md](subagent-reports/261028-fable-review-ssh-with-key.md)),
     findings fixed (B11: ssh-copy-id-with-key installed nothing; now it checks with the new key
