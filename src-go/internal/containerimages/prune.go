@@ -8,12 +8,20 @@
 //     stopped or another tool's, uses it, podman counts none, and it is over a day old, so a
 //     build in flight is never touched. Removal is podman's own unforced `image rm`.
 //   - P2. A claude-yolo:<project> tag (any but base and latest) is removed when no container uses
-//     its image and the image is over 30 days old (podman records no last use, so the age is the
-//     image's; ccy's daily in-place update makes a new one on each day a project is used). The
-//     project's next launch rebuilds it. A tag of an image with other names only untags it.
-//   - P3. A container another tool made (buildah's working container, left by an interrupted
-//     build) is removed when it is over a day old and no ccy image build holds its lock
-//     ($XDG_RUNTIME_DIR/ccy/image-builds/*.lock, lib/image-build-lock.bash).
+//     its image, the image was created over 30 days ago, and the project was last launched over
+//     30 days ago: ccy touches ~/.cache/claude-yolo-update-checks/claude-yolo_<project> on every
+//     launch day, and with no such stamp the creation alone decides. The project's next launch
+//     rebuilds it. A tag of an image with other names only untags it.
+//   - P3. buildah's working container (podman lists it in the "storage" state with the command
+//     "buildah"), left by an interrupted build, is removed when it is over a day old. Any other
+//     "storage" container, one whose record podman's database lost (a toolbox, say), is named
+//     and kept.
+//   - P3a. While a ccy image build holds its lock ($XDG_RUNTIME_DIR/ccy/image-builds/*.lock,
+//     lib/image-build-lock.bash), no image and no buildah container is removed, and the run says
+//     so on stderr: a `--layers` cache hit can reuse an old dangling image.
+//   - P3b. One `prune --yes` at a time: a second refuses while the first holds
+//     ~/.local/state/fedora-desktop/container-images.lock. Only a `prune --yes` that succeeded
+//     writes container-images.succeeded beside it, the play's sign that the first run is done.
 //   - P4. Dangling volumes are listed (count and names) and never removed: a volume is data.
 //   - P5. `podman system df` is never asked: it fails on a store holding a volume owned outside
 //     the user's subuid range.
@@ -57,14 +65,19 @@ const (
 	repository = "claude-yolo"
 	shortID    = 12
 	logName    = "container-images.log"
-	kindImage  = "image"
-	kindTag    = "tag"
-	kindCtr    = "container"
-	usage      = `usage: container-images prune [--yes]
+	lockName   = "container-images.lock"
+	stampName  = "container-images.succeeded"
+	// launchStamps is the ccy launcher's per-image update-check stamps (VERSION_CHECK_CACHE).
+	launchStamps = ".cache/claude-yolo-update-checks"
+	kindImage    = "image"
+	kindTag      = "tag"
+	kindCtr      = "container"
+	usage        = `usage: container-images prune [--yes]
 
   prune          list what the daily prune would remove from the podman store (a dry run)
   prune --yes    remove it: dangling images no container uses, over a day old; claude-yolo
-                 project images no container uses, over 30 days old; buildah working
+                 project images no container uses, built and last launched over 30
+                 days ago; buildah working
                  containers over a day old while no ccy image build runs. Dangling volumes
                  are listed, never removed. Each removal is logged to
                  ~/.local/state/fedora-desktop/container-images.log.
@@ -129,6 +142,13 @@ type store struct {
 	containers []engine.StoreContainer
 	// building is the build lock held, "" when no ccy image build runs.
 	building string
+	// launched is each project tag's last ccy launch, absent when none is recorded.
+	launched map[string]time.Time
+}
+
+// buildRunning is why nothing is removed while a ccy image build runs (P3a).
+func (s store) buildRunning() string {
+	return "a ccy image build is running (" + s.building + " is held)"
 }
 
 // plan is what a pass removes and keeps (P1-P3), containers first: a buildah working container
@@ -146,19 +166,22 @@ func plan(now time.Time, s store) ([]action, []keep) {
 		}
 		what := kindCtr + " " + cmp.Or(c.Name, c.ID)
 		switch age := now.Sub(c.Created); {
+		case c.Command != "buildah":
+			keeps = append(keeps, keep{what, "not buildah's working container (its command is " + cmp.Or(c.Command, "unknown") +
+				"): podman's record of it is gone; left for a person"})
 		case s.building != "":
-			keeps = append(keeps, keep{what, "a ccy image build is running (" + s.building + " is held)"})
+			keeps = append(keeps, keep{what, s.buildRunning()})
 		case age < danglingAge:
 			keeps = append(keeps, keep{what, "created " + age.String() + " ago, under a day: a build may still be using it"})
 		default:
 			acts = append(acts, action{
 				kind: kindCtr, ref: c.ID, name: cmp.Or(c.Name, c.ID), id: c.ID,
-				why: "a " + cmp.Or(c.Command, "storage") + " working container over a day old, left by a build that did not finish",
+				why: "a buildah working container over a day old, left by a build that did not finish",
 			})
 		}
 	}
 	for _, img := range s.images {
-		acts, keeps = planTags(now, img, users[img.ID], acts, keeps)
+		acts, keeps = planTags(now, s, img, users[img.ID], acts, keeps)
 	}
 	for _, img := range s.dangling {
 		what := kindImage + " " + short(img.ID)
@@ -167,6 +190,8 @@ func plan(now time.Time, s store) ([]action, []keep) {
 			keeps = append(keeps, keep{what, "used by container " + strings.Join(users[img.ID], ", ")})
 		case img.Containers > 0:
 			keeps = append(keeps, keep{what, "podman counts " + strconv.Itoa(img.Containers) + " container using it"})
+		case s.building != "":
+			keeps = append(keeps, keep{what, s.buildRunning()})
 		case age < danglingAge:
 			keeps = append(keeps, keep{what, "created " + age.String() + " ago, under a day: a build may still be using it"})
 		default:
@@ -180,20 +205,29 @@ func plan(now time.Time, s store) ([]action, []keep) {
 }
 
 // planTags is P2 for one image's names.
-func planTags(now time.Time, img engine.StoreImage, users []string, acts []action, keeps []keep) ([]action, []keep) {
+func planTags(now time.Time, s store, img engine.StoreImage, users []string, acts []action, keeps []keep) ([]action, []keep) {
 	for _, name := range img.Names {
 		if !projectTag(name) {
 			continue
 		}
 		what := kindTag + " " + name
-		days := int(now.Sub(img.Created) / (24 * time.Hour))
+		days := wholeDays(now.Sub(img.Created))
+		launched, wasLaunched := s.launched[name]
+		lastUse := "no launch recorded"
+		if wasLaunched {
+			lastUse = "last launched " + wholeDays(now.Sub(launched)) + " days ago"
+		}
 		switch {
 		case len(users) > 0:
 			keeps = append(keeps, keep{what, "used by container " + strings.Join(users, ", ")})
 		case img.Containers > 0:
 			keeps = append(keeps, keep{what, "podman counts " + strconv.Itoa(img.Containers) + " container using it"})
+		case s.building != "":
+			keeps = append(keeps, keep{what, s.buildRunning()})
 		case now.Sub(img.Created) < staleTagAge:
-			keeps = append(keeps, keep{what, "created " + strconv.Itoa(days) + " days ago, under 30"})
+			keeps = append(keeps, keep{what, "created " + days + " days ago, under 30"})
+		case wasLaunched && now.Sub(launched) < staleTagAge:
+			keeps = append(keeps, keep{what, lastUse + ", under 30"})
 		default:
 			size := img.Size
 			if len(img.Names) > 1 {
@@ -201,11 +235,43 @@ func planTags(now time.Time, img engine.StoreImage, users []string, acts []actio
 			}
 			acts = append(acts, action{
 				kind: kindTag, ref: name, name: name, id: img.ID, size: size, labels: img.Labels,
-				why: "a " + repository + " project image used by no container, created " + strconv.Itoa(days) + " days ago",
+				why: "a " + repository + " project image used by no container, created " + days + " days ago, " + lastUse,
 			})
 		}
 	}
 	return acts, keeps
+}
+
+func wholeDays(d time.Duration) string { return strconv.Itoa(int(d / (24 * time.Hour))) }
+
+// launchStamp is the file the ccy launcher touches on each launch day of a project image: its
+// image name with ':' and '/' made '_' (auto_update_claude_code).
+func launchStamp(home, tag string) string {
+	name := strings.NewReplacer(":", "_", "/", "_").Replace(strings.TrimPrefix(tag, "localhost/"))
+	return filepath.Join(home, launchStamps, name)
+}
+
+// launches reads the last launch of each project tag (P2); a stamp that cannot be read stops
+// the run, since a missing reading could remove an image in use.
+func launches(home string, images []engine.StoreImage) (map[string]time.Time, error) {
+	out := map[string]time.Time{}
+	for _, img := range images {
+		for _, name := range img.Names {
+			if !projectTag(name) {
+				continue
+			}
+			path := launchStamp(home, name)
+			info, err := os.Stat(path)
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			if err != nil {
+				return nil, fmt.Errorf("cannot read the ccy launch stamp %s: %w", path, err)
+			}
+			out[name] = info.ModTime()
+		}
+	}
+	return out, nil
 }
 
 // projectTag is a claude-yolo tag other than base and latest.
@@ -237,6 +303,8 @@ type run struct {
 	freed   int64
 	removed int
 	seen    map[keep]bool
+	// toldBuilding is a run that has said on stderr that a ccy image build is running.
+	toldBuilding bool
 }
 
 func (a App) prune(ctx context.Context, yes bool) term.ExitCode {
@@ -245,34 +313,43 @@ func (a App) prune(ctx context.Context, yes bool) term.ExitCode {
 		return a.fail(err)
 	}
 	r := &run{App: a, eng: eng, yes: yes, seen: map[keep]bool{}}
-	if yes {
-		if r.log, err = a.openLog(); err != nil {
-			return a.fail(err)
-		}
-		defer func() {
-			if cerr := r.log.Close(); cerr != nil {
-				r.failed = append(r.failed, "the log: "+cerr.Error())
-			}
-		}()
-	} else {
+	if !yes {
 		r.p.Print(a.Env.Stdout, "container-images prune: a dry run, nothing is removed. prune --yes removes what is listed.\n")
+		return r.body(ctx)
 	}
-	volumes, err := eng.DanglingVolumes(ctx)
+	release, err := a.takeRunLock()
 	if err != nil {
 		return a.fail(err)
 	}
-	code := r.passes(ctx)
-	if code != term.ExitOK && len(r.failed) == 0 {
+	defer release()
+	if r.log, err = a.openLog(); err != nil {
+		return a.fail(err)
+	}
+	code := r.body(ctx)
+	if err := r.log.Close(); err != nil {
+		return a.fail(fmt.Errorf("close the removal log %s: %w", r.log.Name(), err))
+	}
+	if code != term.ExitOK {
 		return code
 	}
+	return a.stampSuccess()
+}
+
+// body is one run after its setup: the passes, then the report.
+func (r *run) body(ctx context.Context) term.ExitCode {
+	volumes, err := r.eng.DanglingVolumes(ctx)
+	if err != nil {
+		return r.App.fail(err)
+	}
+	code := r.passes(ctx)
 	if len(volumes) > 0 {
-		r.p.Print(a.Env.Stdout, fmt.Sprintf("dangling volumes: %d, never removed by this command: %s\n", len(volumes), strings.Join(volumes, " ")))
+		r.p.Print(r.Env.Stdout, fmt.Sprintf("dangling volumes: %d, never removed by this command: %s\n", len(volumes), strings.Join(volumes, " ")))
 	}
 	verb := "would free"
-	if yes {
+	if r.yes {
 		verb = "freed"
 	}
-	r.p.Print(a.Env.Stdout, fmt.Sprintf("%s about %s (image sizes summed; layers they share are counted again)\n", verb, humanBytes(r.freed)))
+	r.p.Print(r.Env.Stdout, fmt.Sprintf("%s about %s (image sizes summed; layers they share are counted again)\n", verb, humanBytes(r.freed)))
 	return r.finish(code)
 }
 
@@ -284,12 +361,7 @@ func (r *run) passes(ctx context.Context) term.ExitCode {
 			return r.fail(err)
 		}
 		acts, keeps := plan(r.Env.Now(), s)
-		for _, k := range keeps {
-			if !r.seen[k] {
-				r.seen[k] = true
-				r.p.Print(r.Env.Stdout, "keep "+k.what+": "+k.why+"\n")
-			}
-		}
+		r.tell(s, keeps)
 		if len(acts) == 0 {
 			return term.ExitOK
 		}
@@ -306,6 +378,20 @@ func (r *run) passes(ctx context.Context) term.ExitCode {
 	return term.ExitFailure
 }
 
+// tell names a running ccy image build once, on stderr (P3a), and each kept thing once.
+func (r *run) tell(s store, keeps []keep) {
+	if s.building != "" && !r.toldBuilding {
+		r.toldBuilding = true
+		r.p.Print(r.Env.Stderr, "container-images: "+s.buildRunning()+": this run removes no image and no buildah container\n")
+	}
+	for _, k := range keeps {
+		if !r.seen[k] {
+			r.seen[k] = true
+			r.p.Print(r.Env.Stdout, "keep "+k.what+": "+k.why+"\n")
+		}
+	}
+}
+
 // look reads the store for one pass (P8).
 func (r *run) look(ctx context.Context) (store, error) {
 	var s store
@@ -317,6 +403,9 @@ func (r *run) look(ctx context.Context) (store, error) {
 		return s, err
 	}
 	if s.dangling, err = r.eng.StoreImages(ctx, true); err != nil {
+		return s, err
+	}
+	if s.launched, err = launches(r.Env.Home, s.images); err != nil {
 		return s, err
 	}
 	s.building, err = heldBuildLock(filepath.Join(playlock.RuntimeDir(r.Env.Getenv, r.Env.UID), "ccy", "image-builds"))
@@ -406,12 +495,45 @@ func (a App) fail(err error) term.ExitCode {
 	return term.ExitFailure
 }
 
-func (a App) openLog() (*os.File, error) {
-	dir := filepath.Join(a.Env.Home, ".local", "state", "fedora-desktop")
-	path := filepath.Join(dir, logName)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return nil, fmt.Errorf("cannot open the removal log %s: %w", path, err)
+func (a App) stateDir() string { return filepath.Join(a.Env.Home, ".local", "state", "fedora-desktop") }
+
+// takeRunLock is P3b: one `prune --yes` at a time. The lock is held until release.
+func (a App) takeRunLock() (func(), error) {
+	path := filepath.Join(a.stateDir(), lockName)
+	if err := os.MkdirAll(a.stateDir(), 0o750); err != nil {
+		return nil, fmt.Errorf("cannot make %s for the run lock: %w", a.stateDir(), err)
 	}
+	fh, err := os.OpenFile(filepath.Clean(path), os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("cannot open the run lock %s: %w", path, err)
+	}
+	if err := syscall.Flock(int(fh.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		msg := fmt.Errorf("cannot take the run lock %s: %w", path, err)
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			msg = fmt.Errorf("another container-images prune --yes is running (%s is held); this run removes nothing", path)
+		}
+		return nil, errors.Join(msg, fh.Close())
+	}
+	// Closing the descriptor lets the lock go; a close that fails after the run has nothing
+	// left to protect.
+	return func() {
+		if err := fh.Close(); err != nil {
+			a.fail(fmt.Errorf("close the run lock %s: %w", path, err))
+		}
+	}, nil
+}
+
+// stampSuccess records a `prune --yes` that succeeded (P3b): the time, in the stamp file.
+func (a App) stampSuccess() term.ExitCode {
+	path := filepath.Join(a.stateDir(), stampName)
+	if err := os.WriteFile(path, []byte(a.Env.Now().UTC().Format(time.RFC3339)+"\n"), 0o600); err != nil {
+		return a.fail(fmt.Errorf("the prune succeeded but its stamp %s could not be written: %w", path, err))
+	}
+	return term.ExitOK
+}
+
+func (a App) openLog() (*os.File, error) {
+	path := filepath.Join(a.stateDir(), logName)
 	f, err := os.OpenFile(filepath.Clean(path), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("cannot open the removal log %s: %w", path, err)

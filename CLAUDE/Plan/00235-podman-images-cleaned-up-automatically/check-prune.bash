@@ -39,6 +39,12 @@ case "${1:-}" in
             exit 1
         }
         printf 'removal log: %s lines\n' "$(wc -l <"${log}")"
+        stamp="${HOME}/.local/state/fedora-desktop/container-images.succeeded"
+        [[ -f "${stamp}" ]] || {
+            printf 'no success stamp at %s: only a prune --yes that succeeded writes it\n' "${stamp}" >&2
+            exit 1
+        }
+        printf 'last successful prune: %s\n' "$(<"${stamp}")"
         ;;
     no-old-unused-dangling)
         used="$(podman ps --all --external --no-trunc --format '{{.ImageID}}')"

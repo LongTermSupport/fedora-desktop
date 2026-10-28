@@ -185,8 +185,9 @@
     # Every ccy rebuild and daily in-place update re-points a fixed tag and leaves the image it
     # named dangling; nothing else removes them. container-images-prune.timer runs
     # `container-images prune --yes` daily: dangling images no container uses (over a day old),
-    # claude-yolo project images no container uses (over 30 days old) and buildah working
-    # containers left by an interrupted build; never a volume, never an image in use. It prunes
+    # claude-yolo project images no container uses (built and last launched over 30 days ago) and
+    # buildah working containers left by an interrupted build; never a volume, never an image in
+    # use, nothing while a ccy image build runs. It prunes
     # podman's store, the one this play installs for every audience whatever container_engine
     # names: ccc always runs in podman, and Docker's store is DDEV's (CLAUDE/ContainerEngines.md).
     - name: Ensure the User Local Bin and systemd Unit Directories Exist
@@ -209,12 +210,13 @@
       tags:
         - container-images
 
-    # Read before the units are copied: the deploy that first installs them also runs the prune
-    # once, so the backlog is cleared by the deploy itself, not a day later.
-    - name: Check Whether the Prune Service Is Already Installed
+    # Until a prune has succeeded the deploy runs one itself, so the backlog is cleared by the
+    # deploy, not a day later, and a first run that failed is run again by the next deploy.
+    # Only a `prune --yes` that succeeded writes this stamp.
+    - name: Check Whether a Prune Has Ever Succeeded
       ansible.builtin.stat:
-        path: "/home/{{ user_login }}/.config/systemd/user/container-images-prune.service"
-      register: container_images_unit_before
+        path: "/home/{{ user_login }}/.local/state/fedora-desktop/container-images.succeeded"
+      register: container_images_succeeded
 
     - name: Deploy the container-images Prune Service and Timer
       ansible.builtin.copy:
@@ -248,7 +250,7 @@
       environment:
         XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
         DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}/bus"
-      when: not container_images_unit_before.stat.exists
+      when: not container_images_succeeded.stat.exists
 
     - name: Show Podman Version
       ansible.builtin.debug:

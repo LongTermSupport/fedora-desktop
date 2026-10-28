@@ -448,13 +448,28 @@ func TestAnEngineThatCannotListStopsTheRunBeforeAnyRemoval(t *testing.T) {
 func TestALogThatCannotBeWrittenStopsTheRunBeforeAnyRemoval(t *testing.T) {
 	w := newWorld(t)
 	backlog(w)
-	if err := os.WriteFile(filepath.Join(w.home, ".local"), []byte("a file"), 0o600); err != nil {
+	if err := os.MkdirAll(filepath.Join(w.home, ".local", "state", "fedora-desktop", "container-images.log"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if code := w.run("prune", "--yes"); code != term.ExitFailure {
 		t.Fatalf("exit %d, want failure", code)
 	}
 	if len(w.removed()) != 0 || !strings.Contains(w.err.String(), "container-images.log") {
+		t.Fatalf("removed %v; stderr %s", w.removed(), w.err.String())
+	}
+}
+
+// A state directory that cannot be made stops the run before anything is removed.
+func TestAStateDirectoryThatCannotBeMadeStopsTheRun(t *testing.T) {
+	w := newWorld(t)
+	backlog(w)
+	if err := os.WriteFile(filepath.Join(w.home, ".local"), []byte("a file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code := w.run("prune", "--yes"); code != term.ExitFailure {
+		t.Fatalf("exit %d, want failure", code)
+	}
+	if len(w.removed()) != 0 || !strings.Contains(w.err.String(), "for the run lock") {
 		t.Fatalf("removed %v; stderr %s", w.removed(), w.err.String())
 	}
 }
@@ -515,6 +530,203 @@ func TestHumanBytesAndProjectTags(t *testing.T) {
 		if got := projectTag(name); got != want {
 			t.Errorf("projectTag(%q) = %v, want %v", name, got, want)
 		}
+	}
+}
+
+// holdLock takes an exclusive flock on path, as the ccy launcher's flock does, until the test ends.
+func holdLock(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	held, err := os.OpenFile(filepath.Clean(path), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := held.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// launched is a ccy launch of a claude-yolo:<project> image age ago: the launcher touches
+// ~/.cache/claude-yolo-update-checks/claude-yolo_<project> on every launch day.
+func (w *world) launched(project string, age time.Duration) {
+	w.t.Helper()
+	dir := filepath.Join(w.home, ".cache", "claude-yolo-update-checks")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		w.t.Fatal(err)
+	}
+	path := filepath.Join(dir, "claude-yolo_"+project)
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		w.t.Fatal(err)
+	}
+	when := now.Add(-age)
+	if err := os.Chtimes(path, when, when); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+// F1: podman lists two kinds of "storage" container: buildah's working containers (command
+// "buildah") and a container whose record podman's database lost (command "storage"), which
+// may be a person's toolbox. Only buildah's is removed; the other is named and kept, and so is
+// the image it was made from.
+func TestAStorageContainerThatIsNotBuildahsIsNeverRemoved(t *testing.T) {
+	w := newWorld(t)
+	w.ctrs = []ctr{
+		{ID: "t1", Names: []string{"toolbox-a"}, ImageID: id("f"), Created: agoText(days(40)), State: "storage", Command: []string{"storage"}},
+		{ID: "t2", ImageID: id("9"), Created: agoText(days(40)), State: "storage"},
+	}
+	w.dangling = [][]img{{{ID: id("f"), Size: 10, Created: ago(days(50))}}}
+	if code := w.run("prune", "--yes"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, w.err.String())
+	}
+	if got := w.removed(); len(got) != 0 {
+		t.Fatalf("removed %v, want nothing", got)
+	}
+	out := w.out.String()
+	for _, want := range []string{
+		"keep container toolbox-a: not buildah's working container (its command is storage): podman's record of it is gone; left for a person",
+		"keep container t2: not buildah's working container (its command is unknown)",
+		"keep image ffffffffffff: used by container toolbox-a",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output does not say %q:\n%s", want, out)
+		}
+	}
+}
+
+// The dangling image an old buildah working container was made from goes in the pass after
+// the container: while the container is there, it is in use.
+func TestTheImageOfABuildahContainerIsKeptWhileTheContainerIsThere(t *testing.T) {
+	w := newWorld(t)
+	w.ctrs = []ctr{{ID: "b1", Names: []string{"working-a"}, ImageID: id("f"), Created: agoText(days(2)), State: "storage", Command: []string{"buildah"}}}
+	w.dangling = [][]img{{{ID: id("f"), Size: 10, Created: ago(days(5))}}}
+	if code := w.run("prune"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, w.err.String())
+	}
+	if !strings.Contains(w.out.String(), "keep image ffffffffffff: used by container working-a") ||
+		!strings.Contains(w.out.String(), "would remove container working-a") {
+		t.Fatalf("output: %s", w.out.String())
+	}
+}
+
+// F2: Q1 is "30 days since it was created or last used": a project image is stale only when
+// both its creation and its last launch (ccy's per-image update-check stamp) are over 30 days
+// old; with no stamp, its creation alone.
+func TestAProjectImageLaunchedRecentlyIsKept(t *testing.T) {
+	w := newWorld(t)
+	w.images = []img{
+		{ID: id("3"), Names: []string{"localhost/claude-yolo:project-b"}, Size: 5, Created: ago(days(31))},
+		{ID: id("4"), Names: []string{"claude-yolo:project-c"}, Size: 5, Created: ago(days(60))},
+		{ID: id("5"), Names: []string{"localhost/claude-yolo:project-d"}, Size: 5, Created: ago(days(60))},
+	}
+	w.launched("project-b", days(1))
+	w.launched("project-c", days(45))
+	if code := w.run("prune", "--yes"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, w.err.String())
+	}
+	got := w.removed()
+	if len(got) != 2 || got[0] != "podman image rm claude-yolo:project-c" || got[1] != "podman image rm localhost/claude-yolo:project-d" {
+		t.Fatalf("removed %v, want project-c (both old) and project-d (no stamp, old)", got)
+	}
+	out := w.out.String()
+	for _, want := range []string{
+		"keep tag localhost/claude-yolo:project-b: last launched 1 days ago, under 30",
+		"removed tag claude-yolo:project-c (5 B): a claude-yolo project image used by no container, created 60 days ago, last launched 45 days ago",
+		"removed tag localhost/claude-yolo:project-d (5 B): a claude-yolo project image used by no container, created 60 days ago, no launch recorded",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output does not say %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestALaunchStampThatCannotBeReadStopsTheRun(t *testing.T) {
+	w := newWorld(t)
+	w.images = []img{{ID: id("3"), Names: []string{"claude-yolo:project-b"}, Size: 5, Created: ago(days(60))}}
+	if err := os.WriteFile(filepath.Join(w.home, ".cache"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code := w.run("prune", "--yes"); code != term.ExitFailure {
+		t.Fatalf("exit %d, want failure", code)
+	}
+	if len(w.removed()) != 0 || !strings.Contains(w.err.String(), "claude-yolo_project-b") {
+		t.Fatalf("removed %v; stderr %s", w.removed(), w.err.String())
+	}
+}
+
+// F3: a `podman build --layers` cache hit can reuse an old dangling image, so while a ccy
+// image build holds its lock no dangling image or project tag is removed either.
+func TestNothingIsRemovedWhileACcyImageBuildHoldsItsLock(t *testing.T) {
+	w := newWorld(t)
+	w.dangling = [][]img{{{ID: id("a"), Size: 10, Created: ago(days(40))}}}
+	w.images = []img{{ID: id("3"), Names: []string{"claude-yolo:project-b"}, Size: 5, Created: ago(days(60))}}
+	holdLock(t, filepath.Join(w.runtime, "ccy", "image-builds", "claude-yolo_latest.lock"))
+	if code := w.run("prune", "--yes"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, w.err.String())
+	}
+	if got := w.removed(); len(got) != 0 {
+		t.Fatalf("removed %v while a build ran", got)
+	}
+	if !strings.Contains(w.err.String(), "a ccy image build is running (claude-yolo_latest.lock is held): this run removes no image and no buildah container") {
+		t.Fatalf("stderr: %s", w.err.String())
+	}
+	for _, want := range []string{
+		"keep image aaaaaaaaaaaa: a ccy image build is running",
+		"keep tag claude-yolo:project-b: a ccy image build is running",
+	} {
+		if !strings.Contains(w.out.String(), want) {
+			t.Errorf("output does not say %q:\n%s", want, w.out.String())
+		}
+	}
+}
+
+// A second `prune --yes` while one runs (the timer and a person) would plan the same removals
+// and fail on the ones the first made: it refuses, removing nothing.
+func TestASecondPruneWhileOneRunsRefuses(t *testing.T) {
+	w := newWorld(t)
+	backlog(w)
+	holdLock(t, filepath.Join(w.home, ".local", "state", "fedora-desktop", "container-images.lock"))
+	if code := w.run("prune", "--yes"); code != term.ExitFailure {
+		t.Fatalf("exit %d, want failure", code)
+	}
+	if len(w.removed()) != 0 || !strings.Contains(w.err.String(), "another container-images prune --yes is running") {
+		t.Fatalf("removed %v; stderr %s", w.removed(), w.err.String())
+	}
+	if code := w.run("prune"); code != term.ExitOK {
+		t.Fatalf("a dry run beside a running prune: exit %d: %s", code, w.err.String())
+	}
+}
+
+// The play runs the first prune until one has succeeded: only a successful `prune --yes`
+// writes its stamp.
+func TestOnlyASuccessfulRunWritesTheSuccessStamp(t *testing.T) {
+	stamp := func(w *world) bool {
+		_, err := os.Stat(filepath.Join(w.home, ".local", "state", "fedora-desktop", "container-images.succeeded"))
+		if err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		return err == nil
+	}
+	w := newWorld(t)
+	backlog(w)
+	if code := w.run("prune"); code != term.ExitOK || stamp(w) {
+		t.Fatalf("a dry run: exit %d, stamp %v", code, stamp(w))
+	}
+	if code := w.run("prune", "--yes"); code != term.ExitOK || !stamp(w) {
+		t.Fatalf("a successful run: exit %d, stamp %v: %s", code, stamp(w), w.err.String())
+	}
+	w = newWorld(t)
+	backlog(w)
+	w.script()
+	w.fake.On([]string{"podman", "image", "rm", id("a")}, execx.Result{ExitCode: 2, Stderr: []byte("Error: refused\n")})
+	if code := w.run("prune", "--yes"); code != term.ExitFailure || stamp(w) {
+		t.Fatalf("a failed run: exit %d, stamp %v", code, stamp(w))
 	}
 }
 

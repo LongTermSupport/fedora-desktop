@@ -6,10 +6,10 @@
 #
 # EFFECT ON THE HOST: play-podman.yml (which imports play-golang.yml) builds container-images
 # into ~/.local/bin, installs container-images-prune.service and .timer in the user manager
-# and enables the timer. On the run that first installs the service it also starts it once and
-# waits for it: that run REMOVES the backlog (dangling images no container uses, over a day
-# old; claude-yolo:<project> images no container uses, over 30 days old; buildah working
-# containers over a day old while no ccy build runs), each removal logged to
+# and enables the timer. Until a prune has succeeded once it also starts the service and waits
+# for it: that run REMOVES the backlog (dangling images no container uses, over a day old;
+# claude-yolo:<project> images no container uses, built and last launched over 30 days ago;
+# buildah working containers over a day old; nothing while a ccy build runs), each removal logged to
 # ~/.local/state/fedora-desktop/container-images.log. No volume and no image in use is removed.
 # The owner agreed to the first run clearing the backlog with no dry run read first (Q4).
 #

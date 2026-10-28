@@ -5,8 +5,9 @@ Documentation=https://github.com/LongTermSupport/fedora-desktop
 [Service]
 Type=oneshot
 # Removes dangling images no container uses (over a day old), claude-yolo project images no
-# container uses (over 30 days old), and buildah working containers over a day old while no ccy
-# image build runs. Never a volume, never an image a container uses. Each removal goes to
+# container uses (built and last launched over 30 days ago), and buildah working containers over
+# a day old; while a ccy image build runs it removes nothing. Never a volume, never an image a
+# container uses, never a container that is not buildah's. Each removal goes to
 # ~/.local/state/fedora-desktop/container-images.log and, through stdout, to the journal; a
 # failed removal fails the unit. `container-images prune` (no --yes) shows what the next run
 # would remove.
