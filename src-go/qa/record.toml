@@ -4,6 +4,12 @@
 # so its justification names each one by its path pattern.
 # The [ratchet] table is the repository owner's signature (Plan 00191 Task 3.8).
 
+[ratchet]
+high_water = 27
+decided_by = "repository-owner"
+decided_on = 2026-10-28
+reason = "adopting the ceiling at the exceptions this repository's Go gate has today"
+
 [[exception]]
 rule = "golangci.yml::exclusions.rules::goconst+dupword"
 path = ".golangci.yml"
