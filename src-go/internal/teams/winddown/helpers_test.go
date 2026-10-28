@@ -1,6 +1,10 @@
 package winddown
 
 import (
+	"errors"
+	"fmt"
+	"hash/crc32"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -8,11 +12,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/compactfloor"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/transcript"
 )
 
 var rule = strings.Repeat("─", 60)
@@ -52,6 +60,23 @@ type session struct {
 	entered          []string
 	enters, escapes  int
 	busyAfterEntered bool
+	// answerLooks is how many captures show the session busy answering the wind-down.
+	answerLooks int
+	// transcript is the conversation's file on the host, empty for an LXC member; compactLooks
+	// is how many captures a /compact shows busy, and a compact_boundary is written when they
+	// end unless compactFails.
+	transcript   string
+	compactLooks int
+	compactFails bool
+	boundaryDue  bool
+	// boundaryLag is how many idle looks after the compaction's busy end show no boundary yet
+	// (the transcript is written after the pane redraws); boundaryAt, when set, writes the
+	// boundary at the first look at or after it instead, the pane still busy.
+	boundaryLag int
+	boundaryAt  time.Time
+	// busyAgain makes the session busy for good from the look after it has answered the
+	// wind-down (a cron tick or the supervisor putting it back to work).
+	busyAgain bool
 }
 
 // machine is teamtest's populated world with a stateful tmux and a clock.
@@ -67,15 +92,61 @@ type machine struct {
 	// container runs.
 	lxcSessions []*session
 	lxcRunning  bool
+	// log is every line any session took, as "<session>: <line>", in order.
+	log []string
 }
+
+// The compact floor the set-going unit carries in these tests, and contexts either side of it.
+const (
+	floorTokens = 150000
+	smallTokens = 9000
+	largeTokens = 400000
+)
+
+var showFloor = "systemctl --user show --property=Environment --value " + compactfloor.Unit
 
 func newMachine(t *testing.T) *machine {
 	t.Helper()
 	m := &machine{World: teamtest.Populated(t), t: t, now: time.Unix(1_800_000_000, 0)}
 	m.sessions = []*session{{name: "ccy-proj", dir: m.Checkout(), pane: paneReady}}
+	m.On(showFloor, compactfloor.Env+"="+strconv.Itoa(floorTokens)+"\n", 0)
+	m.converse(m.sessions[0], smallTokens)
 	m.fakeTmux()
 	m.build()
 	return m
+}
+
+// conversationOf is the conversation a test session is in: one per name.
+func conversationOf(name string) string {
+	return fmt.Sprintf("%08x-0000-4000-8000-000000000000", crc32.ChecksumIEEE([]byte(name)))
+}
+
+// converse leaves what the session's SessionStart hook leaves, its conversation record, and a
+// transcript whose context is tokens.
+func (m *machine) converse(s *session, tokens int) {
+	id := conversationOf(s.name)
+	teamtest.MustWrite(m.t, filepath.Join(membership.SessionDir(m.Checkout(), s.name), conversation.File),
+		`{"v":1,"session":"`+s.name+`","session_id":"`+id+`","source":"startup","written_ms":1}`)
+	dir, err := transcript.Dir("ccy", m.Checkout(), conversation.ClaudeHome(m.Host.Getenv))
+	if err != nil {
+		m.t.Fatal(err)
+	}
+	s.transcript = filepath.Join(dir, id+".jsonl")
+	teamtest.MustWrite(m.t, s.transcript,
+		`{"type":"assistant","timestamp":"2026-10-28T09:00:00Z","message":{"model":"m","usage":{"input_tokens":`+strconv.Itoa(tokens)+`}}}`+"\n")
+}
+
+// compacted writes the compact_boundary a finished compaction writes, at the fake clock's time.
+func (m *machine) compacted(s *session) {
+	f, err := os.OpenFile(s.transcript, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		m.t.Fatal(err)
+	}
+	stamp := m.now.UTC().Format("2006-01-02T15:04:05.000Z")
+	_, err = f.WriteString(`{"type":"system","subtype":"compact_boundary","timestamp":"` + stamp + `","compactMetadata":{"postTokens":9000}}` + "\n")
+	if err = errors.Join(err, f.Close()); err != nil {
+		m.t.Fatal(err)
+	}
 }
 
 // build makes the WindDown over the host as it now is, on the fake clock.
@@ -219,6 +290,7 @@ func (m *machine) lxcTyped() []string {
 // look is what the pane shows now: busy while busyLooks lasts, else the box's text, else idle.
 // A line slow to clear shows once more after its Enter, and is entered then.
 func (m *machine) look(s *session) string {
+	m.writeDueBoundary(s)
 	switch {
 	case s.lagging:
 		s.lagging = false
@@ -227,11 +299,31 @@ func (m *machine) look(s *session) string {
 		return out
 	case s.busyLooks > 0:
 		s.busyLooks--
+		m.writeDueBoundary(s)
 		return paneBusy
 	case s.box != "":
 		return paneHolding(s.box)
 	}
+	if s.boundaryDue && s.boundaryLag > 0 {
+		s.boundaryLag--
+	}
+	if s.busyAgain && len(s.entered) == 2 {
+		s.busyAgain, s.busyLooks = false, 100000
+	}
 	return s.pane
+}
+
+// writeDueBoundary writes the compaction's boundary once it is due: at boundaryAt when that is
+// set, else when the compaction's busy looks and the lag after them are over.
+func (m *machine) writeDueBoundary(s *session) {
+	due := s.busyLooks == 0 && s.boundaryLag == 0
+	if !s.boundaryAt.IsZero() {
+		due = !m.now.Before(s.boundaryAt)
+	}
+	if s.boundaryDue && due {
+		s.boundaryDue = false
+		m.compacted(s)
+	}
 }
 
 // press is one send-keys: the last two arguments are "-l <text>" or "<target> <key>".
@@ -260,6 +352,13 @@ func (m *machine) submit(s *session) {
 	line := s.box
 	s.box = ""
 	s.entered = append(s.entered, line)
+	m.log = append(m.log, s.name+": "+line)
+	if strings.HasPrefix(line, "/compact ") {
+		s.busyLooks = s.compactLooks
+		s.boundaryDue = s.transcript != "" && !s.compactFails
+		m.writeDueBoundary(s)
+		return
+	}
 	if (line == goalClear && s.endAfterGoal) || (line != goalClear && s.endAfterText) {
 		m.sessions = slices.DeleteFunc(m.sessions, func(x *session) bool { return x == s })
 		m.lxcSessions = slices.DeleteFunc(m.lxcSessions, func(x *session) bool { return x == s })
@@ -269,18 +368,19 @@ func (m *machine) submit(s *session) {
 		s.busyLooks = s.busyAfterGoal
 		return
 	}
+	s.busyLooks = s.answerLooks
 	if s.busyAfterEntered {
-		s.busyLooks = 1000
+		s.busyLooks = 100000
 	}
 	if s.paneAfterText != "" {
 		s.pane = s.paneAfterText
 	}
 }
 
-// record writes a session record of prefix for dir with the --teams list.
-func (m *machine) record(name, prefix, dir, teams string) {
+// record writes a ccy session record for dir with the --teams list.
+func (m *machine) record(name, dir, teams string) {
 	teamtest.MustWrite(m.t, filepath.Join(m.Root, "home/.local/state/ccy/sessions", name),
-		"ccy-session-record 1\nname="+name+"\ndir="+dir+"\nlauncher=/x/"+prefix+"\nprefix="+prefix+"\nrestore=yes\narg=--teams\narg="+teams+"\n")
+		"ccy-session-record 1\nname="+name+"\ndir="+dir+"\nlauncher=/x/ccy\nprefix=ccy\nrestore=yes\narg=--teams\narg="+teams+"\n")
 }
 
 func (m *machine) run(args ...string) term.ExitCode {

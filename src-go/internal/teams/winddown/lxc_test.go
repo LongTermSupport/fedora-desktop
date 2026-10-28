@@ -18,10 +18,11 @@ func TestAnLxcMemberIsWoundDownInItsContainer(t *testing.T) {
 		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
 	}
 	typed := m.lxcTyped()
-	if len(typed) != 2 || typed[0] != "/goal clear" || !strings.Contains(typed[1], "wind-down of team alpha") {
+	if len(typed) != 3 || typed[0] != "/goal clear" || !strings.Contains(typed[1], "wind-down of team alpha") ||
+		!strings.HasPrefix(typed[2], "/compact ") {
 		t.Fatalf("typed %q", typed)
 	}
-	if len(box.entered) != 2 || box.escapes != 0 {
+	if len(box.entered) != 3 || box.escapes != 0 {
 		t.Fatalf("entered %q escapes %d", box.entered, box.escapes)
 	}
 	if !m.Fake.Called("sudo -n lxc-attach -P /var/lib/lxc -n box --clear-env -- runuser -u agent -- env -i") {

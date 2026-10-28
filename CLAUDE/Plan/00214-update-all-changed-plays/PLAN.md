@@ -1,6 +1,7 @@
 # Plan 00214: update all changed plays
 
-**Status**: In Progress
+**Status**: In Progress (Task 4.4's host run open; Phase 5, the plays unrecorded since the
+ledger was cleared, decided 2026-10-28 and to build)
 **Created**: 2026-10-22
 **Owner**: joseph
 **Priority**: Medium
@@ -121,6 +122,22 @@ one definition, read by both.
   stand-in checkout. Report `subagent-reports/261022-report-leg-findings-exit.md`.
 - [ ] ⬜ **Task 4.4**: The owner runs meta-deploy: the acceptance passes on the host, then
   the `changed-plays` entry runs every changed play.
+
+### Phase 5: plays with no record since the ledger was cleared
+
+A play that last ran before the play ledger's recorded hole was cleared (the `CLEARED` marker
+`clear_broken` writes in `helpers/play_ledger/store.py`) has no record, so `--changed` reads it as
+never run here and, by Plan 00141's non-goal, does not run it: found with
+`play-nordvpn-openvpn.yml`, run by name instead (Plan 00192 PORTS.md, nord). Decided 2026-10-28
+(part C item 8 of the unblocking list the owner answered "all recommended").
+
+- [ ] ⬜ **Task 5.1**: Tests first: when the ledger holds a `CLEARED` marker, `changed_plays.judge`
+  names each play with no record since the clear as "not recorded since the ledger was cleared
+  on <date>; run it once by name", rather than treating it as never run; the report and the
+  panel read the same judgement. It runs nothing itself, so it opts nobody in; with no marker,
+  never-run plays are judged as today.
+- [ ] ⬜ **Task 5.2**: Seat 2 (the host agent) runs the installed ones once, by name, through
+  meta-deploy, judged from the deployed artefacts; afterwards `--changed` names none of them.
 
 ## Success Criteria
 

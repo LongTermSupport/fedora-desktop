@@ -1,6 +1,6 @@
 # Plan 00228: consumer install without GitHub
 
-**Status**: In Progress (Phases 1-5 done and VM-accepted; Phase 6 is later work, and Task 6.5 waits on the owner's decision)
+**Status**: In Progress (Phases 1-5 done and VM-accepted; Phase 6 is later work: Tasks 6.5 and 6.6 are decided, 2026-10-28, and wait to be built)
 **Created**: 2026-10-26
 **Owner**: joseph
 **Priority**: Medium
@@ -274,25 +274,32 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
 - [ ] ⬜ **Task 6.3**: A consumer `--changed` path in Go (today `--changed` on a consumer
   box runs run.bash's own play runner, which offers no GitHub issue there).
 - [ ] ⬜ **Task 6.4**: A consumer choice in the kickstart (`fedora-install/ks.cfg`).
-- [ ] ⬜ **Task 6.5**: Speech-to-text on a consumer box. `play-speech-to-text.yml` is
-  `audience: all`, so the consumer menu offers it, and local dictation needs only Go and Whisper.
-  Its Claude post-processing (Ctrl+Insert, the panel's Corporate and Natural items) runs through
-  `wsi-claude-token`, which reads ccy's token pool, and a consumer box has no ccy: those items
-  would fail there. Gated now (the safe part): every Claude item runs `wsi-claude-process`,
-  which checks for the `claude` command before the token chooser, and on a box without it
-  (every consumer box: host Claude Code is `play-claude-yolo.yml`, developer) it fails saying
-  post-processing needs the developer install and that plain dictation works; the panel shows
-  that reason (red and green in `tests/speech_to_text/test_claude_process.py`). The items are
-  not hidden. Open, the owner's decision: post-processing for consumers (a Claude login
-  without ccy, perhaps through ccc's sign-in) or none, and whether the items are then hidden;
-  and the consumer VM scenario installs speech-to-text and checks plain dictation is set up.
-- [ ] ⬜ **Task 6.6**: The developer path's optional runs, as Task 2.6 did for the consumer:
-  headless `RUN_BASH_OPTIONAL_PLAYBOOKS` stops at the first failed play (`hl_abort` in
-  `hl_run_optional_playbooks`), so the plays after it never run and are not named; the
-  attended menu (`show_menu`, its A, W and B choices) goes on after a failure but prints no
-  summary of what installed; `--rerun` (`play_batch_run`) stops at the first failure by its
-  documented design, and mixes main and optional plays, so it is the owner's call whether
-  optional plays there should go on.
+- [ ] ⬜ **Task 6.5**: Speech-to-text on a consumer box: no Claude post-processing, and its
+  menu items hidden there (the owner's decision, 2026-10-28; revisit only if a real consumer
+  asks). `play-speech-to-text.yml` is `audience: all`, so the consumer menu offers it, and
+  local dictation needs only Go and Whisper. Its Claude post-processing (Ctrl+Insert, the
+  panel's Corporate and Natural items) runs through `wsi-claude-token`, which reads ccy's token
+  pool, and a consumer box has no ccy. Already built (the safe part): every Claude item runs
+  `wsi-claude-process`, which checks for the `claude` command before the token chooser and on a
+  box without it fails saying post-processing needs the developer install and that plain
+  dictation works (red and green in `tests/speech_to_text/test_claude_process.py`). To build,
+  tests first:
+  - the panel does not show the post-processing items (Ctrl+Insert's binding included) on a
+    consumer box, decided from one fact the play knows (the install's audience, or `claude`
+    absent), never a second guess of it; the developer panel is unchanged;
+  - the consumer VM scenario installs speech-to-text and checks that plain dictation is set up
+    and that the post-processing items are absent.
+- [ ] ⬜ **Task 6.6**: The developer path's optional runs, as Task 2.6 did for the consumer.
+  Decided (2026-10-28, part C item 5 of the unblocking list): on the developer path, optional
+  plays go on after one fails, a summary naming every failed and installed play is printed at
+  the end, and the exit is non-zero if any failed; main plays, and `--rerun`'s main plays,
+  still stop at the first failure. Today headless `RUN_BASH_OPTIONAL_PLAYBOOKS` stops at the
+  first failed play (`hl_abort` in `hl_run_optional_playbooks`), so the plays after it never
+  run and are not named; the attended menu (`show_menu`, its A, W and B choices) goes on after
+  a failure but prints no summary; `--rerun` (`play_batch_run`) stops at the first failure and
+  mixes main and optional plays. To build, tests first: the headless run, the menu's A, W and
+  B, and `--rerun`'s optional part go on with the summary and the non-zero exit; a failed main
+  play (in `--rerun` too) still stops the run before anything after it.
 
 ### Phase 5: Review
 
@@ -326,8 +333,9 @@ What that settles: Decision 1 is (b) without Slack (`play-comms.yml` is develope
 2 is (a); Decision 3 is (a); Decision 10 is (b), the consumer flow is a Go command and
 run.bash only hands over to it. The other decisions keep their defaults.
 
-Open owner Decisions. Each states the default the plan proceeds on if the owner does not
-answer.
+Decisions 4-9 stand on their defaults (2026-10-28, part C item 5 of the unblocking list the
+owner answered "all recommended"; the owner may still overrule any). Each below states its
+default.
 
 ### Decision 1: Which apps are "consumer level"
 

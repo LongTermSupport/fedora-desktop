@@ -1,6 +1,6 @@
 # Plan 00177: ccy-teams, human friendly
 
-**Status**: In Progress (host run 26-10-26: 6.4, 10.4 and 10.5 passed; 7.5 and 9.5 still open; Phase 11 passed on the host; Phase 12 passed on the host, 12.5's fix included, on 27-10-26; 12.6, the flaky test, fixed in the test on 27-10-26)
+**Status**: In Progress (host run 26-10-26: 6.4, 10.4 and 10.5 passed; 7.5 and 9.5 still open; 10.6, the restore toggle's confirm, decided 2026-10-28 and to build; Phase 11 passed on the host; Phase 12 passed on the host, 12.5's fix included, on 27-10-26; 12.6, the flaky test, fixed in the test on 27-10-26)
 **Created**: 2026-10-13
 **Owner**: joseph
 **Priority**: High
@@ -251,6 +251,11 @@ are too, by the same route.
   still lose the Esc. PASS 26-10-26 (host agent): split 20 ms apart, a real ccy-teams confirm
   and gum confirm, choose and input 9 of 9 leave; joined in one call 6 of 6 lose the Esc, as
   decided below.
+- [ ] ⬜ **Task 10.6**: The restore toggle asks before turning restore OFF (decided 2026-10-28,
+  below). Tests first: turning a seat's restore OFF, from the menu row and with Ctrl-R in the
+  list, shows a Confirm, default No, naming the seat and that its session will not come back
+  after a reboot; No (and Esc) leaves restore on and changes nothing; Yes turns it off. Turning
+  it ON asks nothing.
 
 #### Owner decisions (Task 10.4, an Esc joined to the key after it)
 
@@ -264,9 +269,11 @@ are too, by the same route.
   is lost), and Esc then Enter reaches the app as a plain Enter. On the remove confirmation,
   which focuses Yes, that removes the model. To be fixed (queued); a possible mitigation is
   `ESCDELAY=10` before textual is imported.
-- **Restore toggle** (open; asked of the owner): proposed, not changed. Turning a seat's restore OFF (the menu row and
-  Ctrl-R from the list) asks first (Confirm, default No, naming the seat and that its session
-  will not come back after a reboot); turning it ON needs no question.
+- **Restore toggle** (decided 2026-10-28: part C item 4 of the unblocking list, which the owner
+  answered "all recommended"; it follows the standing condition above, a destructive confirm
+  defaults to No). Turning a seat's restore OFF (the menu row and Ctrl-R from the list) asks
+  first (Confirm, default No, naming the seat and that its session will not come back after a
+  reboot); turning it ON needs no question. Built by Task 10.6.
 
 ### Phase 11: Findings of the host run of 26-10-26 (done)
 

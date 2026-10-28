@@ -152,7 +152,7 @@ the facts in section 3 show `--continue` picks the wrong conversation or refuses
 
 ## 5. Decisions for the owner
 
-Recorded in PLAN.md as Decisions 8 to 12; each runs as stated until the owner decides.
+Recorded in PLAN.md as Decisions 8 to 12; each stands as stated (the owner, 2026-10-28).
 
 - D8. A running ccy member is restarted in place, at its next idle moment, through its own
   supervisor (B4), rather than skipped. It picks up the current image, keeps its tmux session
@@ -172,7 +172,7 @@ Recorded in PLAN.md as Decisions 8 to 12; each runs as stated until the owner de
 ## 6. Resuming the whole team as at its last shutdown (Task 3.17, draft expectations)
 
 Draft: numbered for the Fable review, built tests first after it. The owner's ruling and the
-open defaults are Decisions 13 and 18 to 24 of [DECISIONS-lifecycle.md](DECISIONS-lifecycle.md);
+defaults (standing since 2026-10-28) are Decisions 13 and 18 to 24 of [DECISIONS-lifecycle.md](DECISIONS-lifecycle.md);
 CR1 to CR8 there are the offline and lock rules. A clean `/exit` removes the session's registry
 record (SPEC-shutdown.md, "What ends after `/exit`"), so after a team shutdown
 `ccy-teams restart` finds nothing to start (B3). This section is what brings the team back.

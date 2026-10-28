@@ -1,6 +1,6 @@
 # Plan 00234: the speech-to-text model manager offers only the models that fit this GPU
 
-**Status**: In Progress (every host check passed; waiting on the owner: the look at the manager, Task 2.2, and Decision 1's approval)
+**Status**: In Progress (every host check passed, and Decision 1 is approved by the owner; waiting on the owner's look at the manager, Task 2.2)
 **Created**: 2026-10-27
 **Owner**: joseph
 **Priority**: Medium
@@ -162,8 +162,10 @@ manager's download is huggingface_hub's `snapshot_download`, which writes the ca
 download protocol and cache format and still run Python for the GPU answer. The change is an
 owner-visible feature of about 120 lines in two existing scripts. As with Plan 00208's
 `wsi-stream`, the next substantive rework of the manager's screen should be the port.
-**Awaiting the owner's approval**: CLAUDE.md makes the Go port a hard rule, so this exception
-stands only once the owner approves it (the final review's finding 6).
+**Approved by the owner, 2026-10-28** (pingbus Q6; "all recommended" to the unblocking list,
+item A4): the manager and `wsi-resolve-model` stay Python as an exception to the Go-port rule,
+because they are thin wrappers over CTranslate2 and huggingface_hub, which have no Go
+equivalent. The same reading keeps Plan 00235's two new host-health probes in Python (its Q5).
 
 ### Decision 2: the fit rule
 
@@ -189,7 +191,7 @@ size order would preselect it; the catalogue order is used instead.
 - [x] `acceptance.bash` ACCEPTED on the test machine (Task 2.1, at 525560cfb)
 - [x] `acceptance.bash` with its `screen` leg, and `gpu-load-acceptance.bash`, ACCEPTED on
   the test machine (Task 2.3; the streaming leg after Task 4.2)
-- [ ] The owner approves Decision 1's exception to the Go-port rule
+- [x] The owner approves Decision 1's exception to the Go-port rule (2026-10-28, Q6)
 - [ ] The owner's look (Task 2.2) agrees
 
 ## Risks & Mitigations

@@ -1,6 +1,6 @@
 # Plan 00235: podman images cleaned up automatically
 
-**Status**: Not Started (research done; the host triage is queued in meta-deploy.list)
+**Status**: Not Started (research done; the owner's questions decided 2026-10-28; the host triage is queued in meta-deploy.list)
 **Created**: 2026-10-28
 **Owner**: joseph
 **Priority**: High
@@ -40,7 +40,8 @@ Research, with file:line for every claim below:
 
 ## Non-Goals
 
-- Removing volumes. Dangling volumes are reported; the owner decides (Question Q2).
+- Removing volumes automatically. Dangling volumes are reported and the owner reviews the list
+  (Q2); the one exception is the orphaned volume, removed once by Task 4.4 (Q2b).
 - Removing `claude-yolo:base` or `:latest`, or any image a container uses.
 - Changing what ccy builds or when it rebuilds.
 - The interactive `reclaim` tool (Plan 00062, Plan 00192's port): it stays the manual tool for
@@ -140,6 +141,15 @@ the plans cite kept.
   installed the play starts the service once, so the deploy itself clears the backlog (Q4)
 - [ ] ⬜ **Task 4.3**: `docs/` and `CLAUDE/ContainerEngines.md`: what is removed, when, where the
   log is, and how to see what the next run would remove (`container-images prune`)
+- [ ] ⬜ **Task 4.4**: The orphaned volume (Q2b), removed once by a root step in `play-podman.yml`,
+  probe then remove. The probe finds it by its property, never by a hard-coded name: a volume of
+  the user's rootless store whose data is owned by a uid that is neither the user's nor inside
+  the user's current subuid range (read from `/etc/subuid`), and that no container (`ps -a`)
+  mounts. The step removes each such volume's data as root and then its record as the user
+  (`podman volume rm`), logs each removal (name, owner uid, size) to the play output and the
+  retention log of Task 4.1, and fails on a removal that does not succeed; with no such volume it
+  changes nothing. Tests first for the probe's judgement (a volume in range, out of range, in
+  use). Acceptance (Task 7.1): `podman system df` exits 0 afterwards
 
 ### Phase 5: The health report says so
 
@@ -174,8 +184,8 @@ the plans cite kept.
   run; its first run succeeded and logged its removals; unused dangling images older than a day
   are 0; every container that existed before still has its image; `claude-yolo:base`/`:latest`
   exist; a `--rebuild=claude` launch of one project leaves no new unused dangling image; the
-  health report's new findings are present or clean, judged against Q3; free space recorded
-  before and after
+  health report's new findings are present or clean, judged against Q3; `podman system df`
+  exits 0 (Task 4.4); free space recorded before and after
 - [ ] ⬜ **Task 7.2**: `triage.bash --du` again a week after Task 7.1: the dangling count stays
   near zero (F3's rate absorbed)
 
@@ -183,25 +193,31 @@ the plans cite kept.
 
 - [ ] ⬜ **Task 8.1**: qa-reviewer over the branch diff; every BLOCK and FIX-BEFORE-MERGE resolved
 
-## Questions for the owner
+## Questions for the owner (decided 2026-10-28)
 
-Each has the default this plan proceeds on unless the owner says otherwise.
+The owner answered the unblocking list with "all recommended": Q1, Q3 and Q4 are the
+coordinator's decisions there (part C item 7), not overruled; Q2 and the orphaned volume are its
+item A6; Q5 follows item A4 (Plan 00234 Decision 1).
 
 - **Q1**: How long may a `claude-yolo:<project>` image go unused before the timer removes it?
-  Default: **30 days** since it was created or last used by a container, and never while any
+  Decided: **30 days** since it was created or last used by a container, and never while any
   container uses it. Cost of a wrong guess: one rebuild on that project's next launch.
-- **Q2**: Dangling volumes (30 now): remove automatically, or report only? Default: **report
-  only** (count and names, in the timer's log and the health report). A volume is data; a
-  dangling one may be a stopped project's only copy.
-- **Q3**: Health thresholds. Default: a finding when `/` or `/home` has under **10% or under 50
+- **Q2**: Dangling volumes (30 now): remove automatically, or report only? Decided: **report
+  only** (count and names, in the timer's log and the health report); the owner reviews the list
+  when the timer prints it. A volume is data; a dangling one may be a stopped project's only
+  copy.
+- **Q2b**: The one orphaned volume (F8: its data is owned by a uid outside the user's current
+  subuid range, so no user namespace can read it, and it makes `podman system df` fail). Decided:
+  **removed once, by a root play step** (Task 4.4).
+- **Q3**: Health thresholds. Decided: a finding when `/` or `/home` has under **10% or under 50
   GiB** free, or there are over **50** unused dangling images, or the prune timer has not run
   successfully for **3 days**.
 - **Q4**: May the deploy's first timer run clear the whole backlog without a dry run being
-  read first? Default: **yes**: it removes only dangling, unused, rebuildable images, and the
+  read first? Decided: **yes**: it removes only dangling, unused, rebuildable images, and the
   triage (Task 2.1) is the dry run's list.
 - **Q5**: host_health is Python, and CLAUDE.md ports "a standalone Python CLI ... when it is next
-  reworked". Default: **two probes added to the existing function are not a rework**; it stays
-  Python. If the owner disagrees, the port is a plan of its own and Phase 5 waits for it.
+  reworked". Decided: **two probes added to the existing function are not a rework**; it stays
+  Python, by the same reading the owner approved for the Whisper model manager.
 
 ## Technical Decisions
 

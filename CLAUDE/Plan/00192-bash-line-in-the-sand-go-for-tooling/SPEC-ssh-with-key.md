@@ -247,7 +247,9 @@ line removed from `authorized_keys` afterwards.
 - H5 (owner). The owner's own hosts with the owner's keys: an ordinary login, and an
   interactive `-A` login where `git push` works on the far side. If the owner's
   `~/.ssh/config` gives every host an `IdentityFile`, E11 refuses; that is the decision B1
-  records, and the owner says whether it stands.
+  records. Decided by the owner, 2026-10-28: the refusal stands. A read-only `ssh -G <host>` by
+  seat 2, for two of the owner's real hosts, checks first; if it finds an IdentityFile that every
+  host gets, the owner scopes those lines to their hosts.
 
 Left by decision: keys typed ahead between the forwarding menu and the program are lost (the
 menus read `/dev/tty` through a buffer that is closed before ssh starts). `internal/ttyecho`

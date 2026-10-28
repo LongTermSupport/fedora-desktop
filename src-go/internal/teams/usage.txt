@@ -184,7 +184,12 @@ Usage:
                                    No; with no terminal, --yes is required). One line per
                                    member; exit 1 unless every running session got both
                                    lines and none was out of reach, whose text it prints
-                                   to give by hand. Nothing is ended; shutdown does that
+                                   to give by hand. Once a session has answered, it is
+                                   typed /compact when its context is at or above
+                                   set-going's compact floor (an LXC member whatever its
+                                   size), one at a time, the coordinator first, inside a
+                                   15-minute window; a compaction that failed or could not
+                                   be judged is exit 1. Nothing is ended; shutdown does that
   ccy-teams for-checkout        print the team(s) that work on this checkout's GitHub
                                    OWNER/REPO (an organisation team by its owner, unless
                                    it excludes the repository), one per line on stdout, the

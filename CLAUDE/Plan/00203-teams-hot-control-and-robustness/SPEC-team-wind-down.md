@@ -269,40 +269,79 @@ Draft, as section 5. Decisions 14 to 17 and 21 of
 The owner's request: compact each session just before it is shut down, so the next day's
 resume does not reload a large conversation into a cold prompt cache. A compaction run while
 the cache is warm costs a fraction of one run after a restore, which is what `ccy-sessions set-going` does today (Plan 00135 Task 8.2: `/compact` as the first input when the context is
-at or above the floor). Draft, as section 5.
+at or above the floor). Built in 3.20 on 3.14's wind-down; the parts that name 3.16's window
+and force apply once 3.16 lands.
 
-- WC1. **A supervised session is always compacted through its supervisor** (the owner's
-  ruling: the hooks-daemon supervisor must be used whenever it is present). The supervisor
-  already injects a real `/compact` at an idle moment; a wind-down request to it does the
-  same with the wind-down instruction, with no pane timing. This needs an upstream change (a
-  request the supervisor reads, WC8, filed with `hooks-daemon issue-report`). Until it ships,
-  a supervised session is **not** compacted by typing: it is named as waiting on the
-  supervisor request and is shut down as before, never typed into behind the supervisor's
-  back. Only a session with no supervisor is typed `/compact` through 3.14's path. Today that
-  is an LXC member, whose `agent-bus-claude` execs `claude` with no supervisor
-  (SPEC-lxc-connect-and-resume F3), reached in its tmux session `agent-bus-claude` through
-  `lxc-attach` (F1, `winddown.go` `lxcTmux`); host `cc` sessions until Plan 00226 lands are
-  the other. Whether a session is supervised is read from the session, not assumed from its
-  kind. Either way a compaction's end is the transcript's `compact_boundary` entry
-  (`src-go/internal/transcript`).
-- WC2. After the wind-down instruction has been answered (or at the inner deadline, TW1), each
-  open session whose context is at or above `set-going`'s floor is typed `/compact` followed by
-  a fixed instruction: it is being wound down, should keep what it needs to resume the work
-  another time, and should drop the rest. A session below the floor is not compacted.
-- WC3. The shutdown waits for that session's `compact_boundary`, bounded by the outer window
-  (TW1, TW3): a compaction not finished by then is reported, and the session is forced as TW11
-  says. A session busy at the deadline is not compacted: TW3 interrupts it as before.
-- WC4. Coordinator first, as TW2, then the others; compactions run one session at a time
-  unless the window would not hold them, so the host is not loaded by several at once.
+- WC1. **Every session 3.14's path reaches is typed `/compact` through that path**: a ccy or
+  cc session on the host's ccy tmux, supervised or not, and an LXC member in its tmux session
+  `agent-bus-claude` through `lxc-attach` (F1, `winddown.go` `lxcTmux`). This is the owner's
+  direction of 2026-10-28, which replaces the earlier ruling that a supervised session waits
+  for a hooks-daemon supervisor request: "maybe for now we do need to allow typing into
+  sessions because blocking on hooks daemon will slow us down a lot". The reason: the
+  supervisor route needs an upstream change first (WC8), and the compaction is wanted now. The
+  typing is 3.14's: at an idle, empty box, the line then Enter after the submit pause, one
+  poll of grace and one more Enter for a line left in the box. The supervisor can type at the
+  same idle moments (section 4's known limit); that limit is accepted for now, as it is for
+  the wind-down text.
+- WC2. A session is compacted once it has answered the wind-down instruction: its box is idle
+  and empty again after the instruction left it, having been seen busy since, or idle for the
+  settle bound (30 s) when no busy look was caught. Its context is then read from its
+  transcript (`transcript.Cache.ContextTokens`, the conversation the session's SessionStart
+  hook recorded, `conversation.For`). At or above `set-going`'s floor it is typed `/compact`
+  followed by a fixed instruction: it is being wound down, should keep what it needs to
+  resume the work another time, and should drop the rest. Below the floor it is not
+  compacted, and the report says so with both numbers. The floor has one home: the play's
+  `ccy_restore_compact_floor` written into `ccy-sessions-set-going.service` as
+  `CCY_RESTORE_COMPACT_FLOOR_TOKENS`, parsed by one parser (`src-go/internal/compactfloor`)
+  that `set-going` and `wind-down` share. `wind-down` reads it from that unit's environment
+  (`systemctl --user show`); a floor that cannot be read, or a transcript that cannot be
+  found, leaves the session wound down and not compacted, said why, and fails the run (exit
+  1), as a fault the owner must see.
+- WC3. **An LXC member's transcript is in its container**, under the member user's home, which
+  the host reads only as root through its rootfs; ccy-teams reads none of it. So an LXC member
+  is compacted whatever its context (the floor cannot be read for it, and the report says so),
+  and its compaction's end is read from its pane: busy after `/compact` went in, then idle
+  and empty again (or idle for the settle bound with no busy look caught), bounded by the
+  window. A host session's end is its transcript's `compact_boundary` after the moment
+  `/compact` was typed (`transcript.Cache.CompactedSince`), read on every look. Claude writes
+  the transcript after it redraws the pane, so a host session idle again with no boundary yet
+  is given the settle bound (30 s, the same `Waits.Settle`) for it, the transcript read again
+  on each look; a busy look in that time starts the grace again. Still no boundary at its end
+  means a compaction that did not finish (Claude refused or failed it), which is reported as
+  such and fails the run.
+- WC4. Coordinator first, as TW2, then the others, **one compaction at a time**, so the host is
+  not loaded by several at once. The wind-down instruction still goes to every session
+  together (3.14); only the compactions queue. Whenever no compaction runs, the next is the
+  coordinator's if it has answered, else the first other session that has; a coordinator
+  still answering does not hold up a worker that has. **The turn is bounded**: a session given
+  it whose box is not idle and empty within the settle bound (30 s; busy again, from a cron
+  tick or its supervisor, or a line left in its box) is not interrupted. It goes back to the
+  queue behind every session the turn has not yet passed on from, and the turn passes to the
+  next. A session the turn passed on from and that is never compacted is named at the end of
+  the window ("its box was not idle and empty when its turn to compact came"). When the turn
+  comes, a host session's context is read again before `/compact` is typed: one compacted
+  since it answered (by its supervisor at the same idle moment) is below the floor and is not
+  compacted again. The same holds for a session wound down by two teams' wind-downs: the
+  first's `compact_boundary` sets its context to the compacted size, below the floor.
+- WC4a. **The window.** Until 3.16 brings the outer window (TW1), the whole wind-down,
+  instruction, answers and compactions, is bounded by a window of 15 minutes (TW1's default)
+  from its start. A session still answering at its end is not compacted, and one whose
+  compaction has not finished is reported as not finished; neither fails the run (they are
+  not faults, the session is shut down as today), and nothing is interrupted. A host
+  session's transcript is read once more on the window's last look before it is judged, so a
+  compaction that ended on that look counts as compacted. When 3.16 lands
+  its `--then-shutdown` window is this window, and the force follows it.
 - WC5. A plain `ccy-teams shutdown` (no wind-down) does not compact unless asked
   (`--compact`), since it is the quick path.
 - WC6. On resume, a compacted session is below the floor, so `set-going` types `continue`
   and no cold `/compact` is spent.
-- WC7. A member neither way reaches (none today: every kind has a tmux pane, on the host or in
-  its container) is named as not compacted, and is shut down as before.
-- WC8. The upstream request (WC1) is filed first, before the build: the supervisor takes a
-  wind-down request (a file it watches, or a signal), waits for an idle moment, injects
-  `/compact` with the given instruction, and records when it is done. The typed path exists
-  only for unsupervised sessions.
-- WC9. Putting LXC members under the supervisor too (so every kind takes the same route) is
-  the owner's direction of travel; it belongs with Plan 00226, which brings `cc` under it.
+- WC7. A member 3.14's path does not reach (offline, or not reachable from here) is named as
+  not wound down, so not compacted, and is shut down as before.
+- WC8. **The supervisor route is the later direction of travel, not a precondition** (owner,
+  2026-10-28). A follow-up, not this task, asks the hooks-daemon supervisor for a wind-down
+  request (a file it watches, or a signal): it waits for an idle moment, injects `/compact`
+  with the given instruction, and records when it is done, with no pane timing. Once it
+  ships, a supervised session moves to it and the typed path stays for the rest. Nothing is
+  filed upstream in 3.20.
+- WC9. Putting LXC members under the supervisor too (so every kind takes the same route) goes
+  with WC8 and Plan 00226, which brings `cc` under it.

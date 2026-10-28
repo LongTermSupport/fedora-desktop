@@ -3,7 +3,8 @@
 **Status**: In Progress. Everything built is deployed (`play-claude-yolo.yml` last passed on
 the host at F44 cab255ad4; `play-python.yml` at 67033c224). Left for the host agent: Task
 5.1's comparison of `--prevent` and `--export-token` with `CCY_LEGACY=1` (the other flags
-match). Left for workers: Task 3.8's record entries. Left for the owner: one signature on Task 3.8's record. Launcher
+match). Task 3.8's record is signed (2026-10-28); its switch-on waits on two exclusions added
+after the record (entries, or a fix, and the owner raising `high_water` past 27). Launcher
 phases 3 to 5 are deferred by D4/D10 until the owner hits launcher defects or asks; nothing
 waits on that.
 **Created**: 2026-10-13
@@ -174,6 +175,21 @@ today; rewriting them is out of scope.
     model (choose `high` instead in `go-qa.toml` for a 90-day horizon). If signing falls well
     after 2026-10-27, re-date the entries' `decided_on` and `review_by` the same day.
     Then a worker switches `record` and `suppression` on.
+
+    Signed 2026-10-28: the owner answered "all recommended" to the unblocking list (item A3:
+    sign, medium tier). The `[ratchet]` table above is at the top of `src-go/qa/record.toml`
+    with `decided_on = 2026-10-28`; `go-qa.toml`'s tier is unchanged (`claude-opus = "medium"`), and the entries keep their dates (signed one day after writing).
+
+  - [ ] ⬜ Switch `record` and `suppression` on. Tried at signing: `go-qa record check` says
+    all 27 valid, but `-t record -t suppression` fails on two exclusions added to
+    `.golangci.yml` on 2026-10-27 after the record was written, so both switches stay off:
+    `internal/netpolicy/podman\.go` tagliatelle (rule
+    `golangci.yml::exclusions.rules::tagliatelle/'(Pid|Running|State|ResolvConfPath|Privileged|HostConfig|EffectiveCaps|Networks|NetworkSettings)'`,
+    Plan 00232) and `cmd/reclaim/main_test\.go` gosec (rule
+    `golangci.yml::exclusions.rules::gosec/G304|G306`, Plan 00192). Each needs an entry (or
+    its code fixed); two entries take the record past the signed `high_water = 27`, which
+    only the owner can raise. Then switch both on and rerun
+    `scripts/qa-go-qa.bash -t record -t suppression`.
 
 - [x] ✅ **Task 3.9**: Re-derive the coverage floor from go-qa's measurement (Fable's review of
   Task 3.3, finding 4; `subagent-reports/261019-go-qa-ci-pin-review-fable.md`). `qa-go.bash`

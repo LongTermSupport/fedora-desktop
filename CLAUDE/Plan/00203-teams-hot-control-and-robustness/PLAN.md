@@ -1,6 +1,7 @@
 # Plan 00203: teams hot control and robustness
 
-**Status**: In Progress
+**Status**: In Progress (Decisions 5-24 decided by the owner, 2026-10-28; Tasks 3.21 to 3.23
+to build and accept)
 **Created**: 2026-10-16
 **Owner**: joseph
 **Priority**: High
@@ -120,8 +121,8 @@ Built on `fix/teams-server-robustness`; design and evidence in
 - [ ] 🔄 **Task 3.3** (M4): the full non-interactive surface, built on `feat/hot-control-m4`;
   Fable's review said FIX-FIRST
   ([subagent-reports/261016-m4-review-fable.md](subagent-reports/261016-m4-review-fable.md)).
-  B1, B2, N1, N3, N5 and the acceptance points are fixed; N2 and N4 are open for the owner
-  (Decisions 5 and 6). Host acceptance is still to come. `ccy-teams session role`, `move`, `list` and
+  B1, B2, N1, N3, N5 and the acceptance points are fixed; N2 and N4 are decided (Decisions 5
+  and 6, 2026-10-28) and built by Tasks 3.21 and 3.22. Host acceptance is still to come. `ccy-teams session role`, `move`, `list` and
   `repair`, the coordinator options of remove and move (`--coordinator=demote|hand-to=<seat>`),
   `add --role`, `remove --park` (H23-H25, H10); one change at a time per session and one seat
   allocation at a time per checkout, `agent-bus seat take` and `seat choose` honouring both
@@ -316,13 +317,46 @@ team at a time, under a lock in the owner's runtime directory (CR4 to CR8).
   provision the ones the work needs. It extends `role_coordinator` in `helpers/pingbus/hooks.py`
   (Plan 00196 Task 1.5); the CCY, container and pingbus plugin bumps. Spec:
   [SPEC-hot-control.md](SPEC-hot-control.md) section 9, H36-H39; the wording is Decision 22.
-- [ ] ⬜ **Task 3.20** (owner request; extends 3.14 and 3.16): each session is compacted just
+- [ ] 🔄 **Task 3.20** (owner request; extends 3.14 and 3.16): each session is compacted just
   before its wind-down shutdown, while its prompt cache is warm, so the resume reloads a small
-  conversation. A supervised session always goes through the hooks-daemon supervisor (owner's
-  ruling; an upstream request, filed first); only an unsupervised one (an LXC member, `cc`
-  before Plan 00226) is typed `/compact` through 3.14's path. Its end is read from the
-  transcript, bounded by the outer window. Spec:
-  [SPEC-team-wind-down.md](SPEC-team-wind-down.md) section 7, WC1-WC9.
+  conversation. Every session 3.14's path reaches (ccy and cc on the host, LXC members through
+  `lxc-attach`) is typed `/compact` through that path once it has answered the wind-down
+  (the owner's direction of 2026-10-28: "blocking on hooks daemon will slow us down a lot";
+  the supervisor route is a later follow-up, WC8). A host session is compacted at or above
+  `set-going`'s floor (one home, `internal/compactfloor`, read from the set-going unit) and
+  its end is its transcript's `compact_boundary`; an LXC member's transcript is in its
+  container, so it is always compacted and its end is read from its pane. One at a time,
+  coordinator first, inside a 15-minute window until 3.16 brings its own. Spec:
+  [SPEC-team-wind-down.md](SPEC-team-wind-down.md) section 7, WC1-WC9. Built and tested, tests
+  first ([report](subagent-reports/261028-wind-down-compact.md)); ccy-teams and ccy-sessions
+  only, no CCY or image change.
+  - [ ] ⬜ Host acceptance: a team wound down on the host, each session compacted (or said
+    below the floor), and its resume typed `continue` (WC6).
+  - [ ] ⬜ Follow-up WC5: `ccy-teams shutdown --compact`.
+  - [ ] ⬜ Follow-up WC8: the supervisor wind-down request upstream.
+  - [x] ✅ Review fixes, tests first ([review fixes](subagent-reports/261028-wind-down-compact-fixes.md)):
+    the boundary's 30 s grace after the pane is idle (WC3), the bounded compaction turn (WC4),
+    the context read again at the turn, and the window's last look read first (WC4a).
+  - [ ] ⬜ FOLLOW-UP: an LXC member's "compacted" has no transcript evidence; read its
+    transcript in its container through lxc-attach, or tell Claude's compaction line from an error.
+  - [ ] ⬜ FOLLOW-UP: a UserPromptSubmit hook slower than 30 s makes a session "answered" before it
+    starts; name it in section 4's known limits, or judge the answer on the transcript.
+- [ ] ⬜ **Task 3.21** (Decision 5, decided 2026-10-28): `ccy-teams session remove` (and `move`
+  off a team) of a team's coordinator while that team's homeserver is down is refused unless
+  `--coordinator=demote` is given; with it, the demotion stays owed with the goodbye and is
+  done on the re-run (H26), so the record never names a coordinator whose seat is free. Tests
+  first; SPEC-hot-control.md says so where H26 and the coordinator options are.
+- [ ] ⬜ **Task 3.22** (Decision 6, decided 2026-10-28): one definition of "live". `agent-bus seat take` and `seat choose` apply ccy-teams' two tests (a session on ccy's tmux server, and a
+  stopped session's restorable record), excluding by name the session being launched, so the
+  chooser offers no seat a restorable session will replay and a relaunching session keeps its
+  seat (no `held-elsewhere`). One home for the rule, read by both. Tests first, with the
+  age-restart and first-join relaunch cases.
+- [ ] ⬜ **Task 3.23** (the owner's "all recommended", item A2, 2026-10-28): host acceptance of
+  two LXC members in one team, one coordinator and one worker. Seat 2 (the host agent) runs it
+  with two throwaway members: `ccy-teams lxc-add` twice, the second through the Role step
+  (ACCEPTANCE.md M4 (e2); Plan 00204 D6 is that step's design), each member's `user@container`
+  identity and its own seat on the board, both up, the coordinator and the worker exchanging a
+  message on the bus, then both removed.
 
 ## Decisions
 
@@ -346,11 +380,19 @@ may reverse any of them.** Full detail: SPEC-hot-control.md section 8.
 4. `PINGBUS_SEATS` and the `ccy-seats` label are retired in M2, together with the explicit
    `PINGBUS_MEMBERSHIP` marker.
 
-### Open: for the owner (from Fable's M4 review)
+### Decided by the owner, 2026-10-28 (Decisions 5-24)
 
-These are not settled. Each runs on the interim default below until the owner decides.
+The owner answered the unblocking list of 2026-10-28 with "all recommended", which accepts its
+part C item 6: every default of Decisions 5-24 below stands, except two, where the alternative
+is taken. **Decision 5 (N2)**: a remove of a coordinator while its homeserver is down is refused
+without `--coordinator=demote`, which then stays owed (Task 3.21). **Decision 6 (N4)**: one
+definition of "live": agent-bus applies ccy-teams' two tests (Task 3.22). The text below keeps
+each decision's default and alternatives as they were weighed; the owner may still reverse any.
 
-5. **N2: a coordinator removed while its homeserver is down.** Interim default: it keeps the
+### From Fable's M4 review
+
+5. **N2: a coordinator removed while its homeserver is down.** Decided: the second
+   alternative below (refused without `--coordinator=demote`). The default was: it keeps the
    role. The remove releases the seat, and the goodbye and status stay owed (H26). The role is
    not checked and is not owed, so the team record names a coordinator whose seat is free.
    The re-run that sends the goodbye does not return to the role. The alternatives:
@@ -359,8 +401,8 @@ These are not settled. Each runs on the interim default below until the owner de
      would expect);
    - such a remove is refused without `--coordinator=demote`, which then stays owed.
 
-6. **N4: "live" means different things in ccy-teams and agent-bus.** Interim default: they
-   stay different.
+6. **N4: "live" means different things in ccy-teams and agent-bus.** Decided: the
+   alternative below (one definition). The default was: they stay different.
 
    - ccy-teams counts a session on ccy's tmux server, and honours a stopped session's
      restorable record.
@@ -373,7 +415,7 @@ These are not settled. Each runs on the interim default below until the owner de
    is then refused `held-elsewhere`. The alternative: agent-bus applies ccy-teams' two tests,
    excluding by name the session being launched.
 
-### Open: for the owner (from M6)
+### From M6 (decided: the default stands)
 
 7. **A `cc --bus` session on no team refuses cross-session inbound until it is on a team.**
    Interim default, set by the coordinator to match Decision 1: `cc --bus` starts with
@@ -384,9 +426,9 @@ These are not settled. Each runs on the interim default below until the owner de
    already do for `--teams`), so its first join is hot with no restart, and until then any
    process of the owner's uid can post into it.
 
-### Open: for the owner (team add and restart)
+### Team add and restart (decided: the defaults stand)
 
-Each runs as stated until the owner decides; detail in SPEC-team-add-and-restart.md section 5.
+Detail in SPEC-team-add-and-restart.md section 5.
 
 08. **A running ccy member of a restarted team restarts in place**, at its next idle moment,
     through its own supervisor, resuming its exact conversation on the current image. The
@@ -422,9 +464,7 @@ Full text, with each default's reasons: [DECISIONS-lifecycle.md](DECISIONS-lifec
     `cd` into its recorded working directory, then `ccy --continue`; no id is passed to claude
     in the container.
 
-### Open: for the owner (the whole-team lifecycle)
-
-Each runs on its default until the owner decides.
+### The whole-team lifecycle, continued (decided: the defaults stand)
 
 14. **The inner deadline**: the outer window less 3 minutes, and a window under 5 minutes is
     refused. The alternative: a separate `--coordinator-deadline`.
