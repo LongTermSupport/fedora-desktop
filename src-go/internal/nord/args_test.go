@@ -41,6 +41,7 @@ func TestUsageErrors(t *testing.T) {
 		"status takes no argument":          {"status", "x"},
 		"disconnect takes no argument":      {"disconnect", "x"},
 		"cleanup takes no argument":         {"cleanup", "x"},
+		"--yes is only for cleanup":         {"disconnect", "--yes"},
 		"list-active takes no argument":     {"list-active", "x"},
 		"connect takes one name":            {"connect", "a", "b"},
 		"switch takes one name":             {"switch", "a", "b"},

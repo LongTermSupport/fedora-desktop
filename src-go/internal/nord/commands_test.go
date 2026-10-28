@@ -133,9 +133,12 @@ func TestCleanup(t *testing.T) {
 	a.active = "activated"
 	b := w.imported("nordvpn-de2")
 	w.imported("home-wifi")
+	w.typed("y")
 	wantCode(t, w.run("cleanup"), term.ExitOK)
 	wantChanges(t, w, "nmcli connection delete uuid "+a.uuid, "nmcli connection delete uuid "+b.uuid)
-	w.wantErr("Removing all nordvpn-* connections from NetworkManager...\n",
+	w.wantErr("nord › Cleanup", "  nordvpn-uk1 (connected)\n", "  nordvpn-de2\n",
+		"Remove these 2 connection(s) from NetworkManager? [y/N] ",
+		"Removing all nordvpn-* connections from NetworkManager...\n",
 		"  Removing nordvpn-uk1 (connected: this disconnects it)\n", "  Removing nordvpn-de2\n",
 		"Removed 2 nordvpn connection(s).\n")
 	if len(w.profiles) != 1 {
@@ -156,9 +159,41 @@ func TestCleanupFailure(t *testing.T) {
 	w.imported("nordvpn-uk1")
 	w.imported("nordvpn-de2")
 	w.fail["delete"] = failure{stderr: "Error: busy\n", exit: 1}
-	wantCode(t, w.run("cleanup"), term.ExitFailure)
+	wantCode(t, w.run("cleanup", "--yes"), term.ExitFailure)
 	if len(w.changes()) != 2 {
 		t.Errorf("changes %q", w.changes())
 	}
 	w.wantErr("nord: could not remove nordvpn-uk1: ", "busy", "nord: removed 0 connection(s); 2 could not be removed.\n")
+}
+
+// E20, InteractiveScripts rule 6: cleanup asks first, default no; --yes skips the question, and
+// without a terminal it is required.
+func TestCleanupConfirmation(t *testing.T) {
+	for _, reply := range []string{"", "n"} {
+		w := newWorld(t)
+		w.imported("nordvpn-uk1")
+		w.typed(reply)
+		wantCode(t, w.run("cleanup"), term.ExitOK)
+		wantChanges(t, w)
+		w.wantErr("Nothing removed.\n")
+	}
+	for _, flag := range []string{"-y", "--yes"} {
+		w := newWorld(t)
+		w.stdinTTY = false
+		p := w.imported("nordvpn-uk1")
+		wantCode(t, w.run("cleanup", flag), term.ExitOK)
+		wantChanges(t, w, "nmcli connection delete uuid "+p.uuid)
+		w.wantNoErr("[y/N]")
+	}
+	w := newWorld(t)
+	w.stdinTTY = false
+	w.imported("nordvpn-uk1")
+	wantCode(t, w.run("cleanup"), term.ExitFailure)
+	w.wantErr("nord: cleanup asks before it removes anything, and there is no terminal to ask on; run 'nord cleanup --yes' to remove without asking.\n")
+	wantChanges(t, w)
+	w2 := newWorld(t)
+	w2.tty = ""
+	w2.imported("nordvpn-uk1")
+	wantCode(t, w2.run("cleanup"), term.ExitCancelled)
+	wantChanges(t, w2)
 }

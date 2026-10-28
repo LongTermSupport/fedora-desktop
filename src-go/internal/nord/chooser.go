@@ -35,7 +35,10 @@ func (r *run) chooser(ctx context.Context) term.ExitCode {
 		r.failf(needTerminal)
 		return term.ExitFailure
 	}
-	code := r.choose(ctx, r.lines(tty))
+	code := term.ExitFailure
+	if r.openLog() {
+		code = r.choose(ctx, r.lines(tty))
+	}
 	if cerr := tty.Close(); cerr != nil {
 		r.failf("close the terminal: %v", cerr)
 		return term.ExitFailure

@@ -81,6 +81,8 @@ type run struct {
 	errOut term.Printer
 	home   string
 	debug  bool
+	// yes is cleanup's --yes: remove without asking (E20).
+	yes    bool
 	runner execx.Runner
 	log    *runLog
 }
@@ -90,7 +92,8 @@ func (a App) Run(ctx context.Context, args []string) term.ExitCode {
 	r := &run{env: a.Env, home: a.Env.Getenv("HOME")}
 	r.runner = debugRunner{r: r, next: a.Env.Runner}
 	code := r.dispatch(ctx, args)
-	if ctx.Err() != nil {
+	// A signal after the command succeeded does not undo its success (the VPN is up).
+	if ctx.Err() != nil && code != term.ExitOK {
 		code = r.cancelled(ctx)
 	}
 	return r.finish(code)
@@ -119,6 +122,9 @@ type command struct {
 	changes bool
 }
 
+// cmdCleanup is the one command with an option of its own (--yes, E20).
+const cmdCleanup = "cleanup"
+
 var commands = map[string]command{
 	"list":        {},
 	"list-active": {},
@@ -126,7 +132,7 @@ var commands = map[string]command{
 	"connect":     {names: 1, changes: true},
 	"switch":      {names: 1, changes: true},
 	"disconnect":  {changes: true},
-	"cleanup":     {changes: true},
+	cmdCleanup:    {changes: true},
 }
 
 // dispatch is the command line (E1, E2).
@@ -147,9 +153,6 @@ func (r *run) dispatch(ctx context.Context, args []string) term.ExitCode {
 		args = args[1:]
 	}
 	if len(args) == 0 {
-		if !r.openLog() {
-			return term.ExitFailure
-		}
 		return r.chooser(ctx)
 	}
 	name, rest := args[0], args[1:]
@@ -157,10 +160,9 @@ func (r *run) dispatch(ctx context.Context, args []string) term.ExitCode {
 	if !ok {
 		return r.usageError("unknown command: " + name)
 	}
-	for _, a := range rest {
-		if strings.HasPrefix(a, "-") {
-			return r.usageError("unknown option: " + a + " (options come before the command)")
-		}
+	rest, ok = r.commandOptions(name, rest)
+	if !ok {
+		return term.ExitUsage
 	}
 	if code, ok := r.checkArity(name, cmd, rest); !ok {
 		return code
@@ -169,6 +171,24 @@ func (r *run) dispatch(ctx context.Context, args []string) term.ExitCode {
 		return term.ExitFailure
 	}
 	return r.runCommand(ctx, name, rest)
+}
+
+// commandOptions takes cleanup's --yes out of the arguments after the command; any other option
+// there is a usage error, said, and false (E2).
+func (r *run) commandOptions(name string, rest []string) ([]string, bool) {
+	var names []string
+	for _, a := range rest {
+		switch {
+		case name == cmdCleanup && (a == "-y" || a == "--yes"):
+			r.yes = true
+		case strings.HasPrefix(a, "-"):
+			r.usageError("unknown option: " + a + " (options come before the command)")
+			return nil, false
+		default:
+			names = append(names, a)
+		}
+	}
+	return names, true
 }
 
 // checkArity is E2's count of a command's names.
@@ -196,7 +216,7 @@ func (r *run) runCommand(ctx context.Context, name string, rest []string) term.E
 		return r.status(ctx)
 	case "disconnect":
 		return r.disconnect(ctx)
-	case "cleanup":
+	case cmdCleanup:
 		return r.cleanup(ctx)
 	}
 	return r.connect(ctx, rest[0])

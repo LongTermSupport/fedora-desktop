@@ -45,6 +45,7 @@ const (
 	sttPkg       = "internal/stt"
 	lxcaddPkg    = "internal/teams/lxcadd"
 	reclaimPkg   = "internal/reclaim"
+	nordPkg      = "internal/nord"
 	netpolicyPkg = "internal/netpolicy"
 )
 
@@ -80,7 +81,7 @@ var commandOwners = map[string][]string{
 	"lxc-freeze":   {lxcfreezePkg},
 	"lxc-unfreeze": {lxcfreezePkg},
 	"lxc-attach":   {lxcfreezePkg},
-	"nmcli":        {lxcfreezePkg, ftpcameraPkg, "internal/nord"},
+	"nmcli":        {lxcfreezePkg, ftpcameraPkg, nordPkg},
 }
 
 // programRunner is a function or method that runs the program named by its arguments from

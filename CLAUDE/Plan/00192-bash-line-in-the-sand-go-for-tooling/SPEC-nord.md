@@ -101,7 +101,15 @@ command list proves all of that without a VPN; the connection itself is the owne
   newline is dropped; nothing else is trimmed); blank lines after line 2 are ignored. A file
   that is missing or unreadable, or whose line 1 or 2 is empty, or that has a third non-blank
   line, is `nord: <the file>: <what is wrong>` and a line naming the play that writes it, exit
-  1, before anything is imported or brought down (B4). Neither value is ever printed.
+  1, before anything is imported or brought down (B4). Neither value is ever printed. A
+  value nmcli would not store as it is is refused the same way (B17): the username goes into
+  `vpn.data` and the password into the VPN secrets setting, option lists that nmcli splits at
+  `,` and `=`, trims round each part, and reads `\` in as an escape; so a value that starts or
+  ends with a space, or holds `,`, `=` or `\`, is
+  `the <username (line 1) | password (line 2)> starts or ends with a space, which nmcli would trim`,
+  `... contains '<c>', which nmcli would split` or `... contains '\', which nmcli would read as an escape`. The file is not asked for at a prompt (it is the play's, from the vault), so
+  the fix is the vault's value and the play again; NordVPN's service credentials are
+  generated letters and digits, so none of these is expected.
 
 ### NetworkManager
 
@@ -160,7 +168,14 @@ command list proves all of that without a VPN; the connection itself is the owne
   `Public IP: <address>` from `curl -fsS --max-time 5 https://api.ipify.org`, its reply
   accepted only when it is an IP address; otherwise `Public IP: unknown (<why>)` (curl missing,
   failed, or answered something else). Exit 0. None active prints `Not connected` and exits 1.
-- E20. **`nord cleanup`** prints `Removing all nordvpn-* connections from NetworkManager...`
+- E20. **`nord cleanup [-y|--yes]`** first asks, on the terminal and default no
+  (InteractiveScripts.md rule 6): the heading `nord › Cleanup` with the context
+  `<n> connection(s)`, a line `  nordvpn-<name>` for each profile (` (connected)` when
+  active), then `Remove these <n> connection(s) from NetworkManager? [y/N] `. No (or Enter)
+  is `Nothing removed.`, exit 0; the end of input is E22's cancel, exit 130. `--yes` (only
+  after `cleanup`) removes without asking; without it and with no terminal,
+  `nord: cleanup asks before it removes anything, and there is no terminal to ask on; run 'nord cleanup --yes' to remove without asking.`, exit 1, and nothing is removed (B18). After
+  a yes it prints `Removing all nordvpn-* connections from NetworkManager...`
   on stderr, then for each nord profile `  Removing nordvpn-<name>` (` (connected: this disconnects it)` when active) and `nmcli connection delete uuid <uuid>`; every profile is
   tried. None is `No nordvpn connections found.`, exit 0. All removed is
   `Removed <n> nordvpn connection(s).`, exit 0; any that failed is named with nmcli's reason,
@@ -169,7 +184,7 @@ command list proves all of that without a VPN; the connection itself is the owne
 ### The log
 
 - E21. The commands that change something (`connect`, `switch`, `disconnect`, `cleanup`, and
-  the chooser) open `~/.local/share/nordvpn/nord.log` for appending (mode 0600, its directory
+  the chooser, once it has its terminal, E22) open `~/.local/share/nordvpn/nord.log` for appending (mode 0600, its directory
   made when missing) before they act; one that cannot be opened is
   `nord: cannot write the log <path>: <reason>`, exit 1, and nothing is run. A log over
   1 MiB is first renamed to `nord.log.old` (replacing it). Every line those commands print on
@@ -202,11 +217,14 @@ command list proves all of that without a VPN; the connection itself is the owne
 - E23. stdout carries only `list`, `list-active` and `status` reports, the usage and the
   version; progress, menus, questions and diagnostics go to stderr.
 - E24. The command runs under `execx.SignalContext`. A command that changes the machine
-  (`nmcli connection import`, `modify`, `up`, `down`, `delete`) is not signalled or killed by
-  nord: the run waits for it to end and then runs nothing after it, except the delete that
-  undoes a half-made import (E13), which still runs. A command that only reads is stopped,
-  and a wait at the menu ends at once. The run then prints a blank line and `Cancelled.` and
-  exits with the signal's code.
+  (`nmcli connection import`, `modify`, `edit`, `up`, `down`, `delete`) is not signalled or
+  killed by nord, and runs in a session of its own (`execx.Cmd.NewSession`), outside the
+  terminal's foreground process group, so the terminal's Ctrl-C reaches nord and not nmcli: the
+  run waits for it to end and then runs nothing after it, except the delete that undoes a
+  half-made import (E13), which still runs. A command that only reads is stopped, and a wait
+  at the menu ends at once. The run then prints a blank line and `Cancelled.` and exits with
+  the signal's code; a signal that arrives once the command has succeeded leaves its success
+  (exit 0: the VPN that came up is up).
 
 ## 4. Kept as it was
 
@@ -261,8 +279,14 @@ the help's examples.
   server, and has a visible `q) Cancel` line (the bash: Enter to cancel).
 - B15. Usage errors exit 64 (the bash: 1), and an extra argument is an error (the bash
   ignored it).
-- B16. A Ctrl-C waits for the `nmcli` command that changes something, then says `Cancelled.`
-  (E24). The bash's trap only exited 130, whatever was half done.
+- B16. A Ctrl-C waits for the `nmcli` command that changes something (in its own session, so
+  the terminal's SIGINT does not kill it), then says `Cancelled.` (E24). The bash's trap only
+  exited 130, whatever was half done, and its nmcli died with it.
+- B17. A credential nmcli would split, trim or unescape is refused (E10). The bash stored a
+  password with a comma as its first half and still reported success, so the connect failed
+  later with an authentication error naming the wrong cause.
+- B18. `cleanup` asks first, default no, with `--yes` to skip (E20). The bash removed every
+  profile at once.
 
 ## 6. Proof
 
@@ -297,7 +321,10 @@ host has, the host agent's own included, so it is neither harmless nor the agent
   argv; the profile holds the username and the password
   (`nmcli -s -g vpn.secrets connection show nordvpn-<name>` names it), so the editor fed on
   stdin was accepted (E13); and connecting it from GNOME's network settings asks for no
-  password.
+  password. Two things only this shows: that nmcli's editor takes its commands from a pipe,
+  and that `save persistent` asks nothing on an existing profile. Either failing is safe: nmcli
+  prints no `successfully updated`, the import is deleted, and nmcli's words are shown with
+  the password hidden (`could not store the password in nordvpn-<name>: ...`).
 - H5 (owner). `nord switch <another>` brings the first down and the second up;
   `nord switch nosuch` fails and leaves the connection up (B12).
 - H6 (owner). `nord disconnect` brings it down; `nord status` exits 1.

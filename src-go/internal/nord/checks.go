@@ -104,6 +104,12 @@ func (r *run) readCredentials() (credentials, string) {
 			return credentials{}, "a third line; expected the username on line 1 and the password on line 2 only"
 		}
 	}
+	if problem := nmcliValue("the username (line 1)", lines[0]); problem != "" {
+		return credentials{}, problem
+	}
+	if problem := nmcliValue("the password (line 2)", lines[1]); problem != "" {
+		return credentials{}, problem
+	}
 	secret, err := execx.NewSecret(feedVar, lines[1])
 	if err != nil {
 		return credentials{}, err.Error()
@@ -111,4 +117,22 @@ func (r *run) readCredentials() (credentials, string) {
 	password := lines[1]
 	hide := func(text string) string { return strings.ReplaceAll(text, password, "<password>") }
 	return credentials{user: lines[0], password: secret, hide: hide}, ""
+}
+
+// nmcliValue is what is wrong with a value nmcli would not store as it is, "" when nothing: the
+// username goes into vpn.data and the password into the VPN secrets, both option lists that
+// nmcli splits at ',' and at '=', trims round each part, and reads '\\' in as an escape (E10).
+func nmcliValue(what, value string) string {
+	if strings.TrimSpace(value) != value {
+		return what + " starts or ends with a space, which nmcli would trim"
+	}
+	for _, c := range []string{",", "="} {
+		if strings.Contains(value, c) {
+			return what + " contains '" + c + "', which nmcli would split"
+		}
+	}
+	if strings.Contains(value, `\`) {
+		return what + ` contains '\', which nmcli would read as an escape`
+	}
+	return ""
 }

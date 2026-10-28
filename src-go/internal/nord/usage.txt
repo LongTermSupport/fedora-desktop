@@ -13,7 +13,8 @@ COMMANDS:
     disconnect          Bring down every NordVPN connection
     status              Show the connection, its device and the public IP
                         (exit 1 when not connected)
-    cleanup             Remove every nordvpn-* connection from NetworkManager
+    cleanup [-y|--yes]  Remove every nordvpn-* connection from NetworkManager, after a
+                        [y/N] question on the terminal (--yes: without asking)
 
 OPTIONS (before the command):
     -h, --help          Show this help

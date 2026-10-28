@@ -244,8 +244,8 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     every default prune dangling-only, and asks separately, default No, about every unused
     image, listing the claude-yolo images it would remove; the safe sweep never asks it (E7a,
     E22, E22a, E27, B16). 2.0.3's host check is queued in `meta-deploy.list`. 2.0.4 drops the summed image size (it equalled the whole disk; no layer sizes are available without `podman system df`) and explains the dangling count that differs between the report and the prune question (images a container uses are kept); its host recheck passed at `cad6b5053`. 2.0.5 prints `Skipped <command>.` after a No to either "Also remove all unused" question as well; its host recheck passed at `071969780` (option 6, No to all four: a Skipped line after each, nothing run, podman and docker figures unchanged).
-  - `nord` (P6): built on `go-port/nord`, the review pending, not merged; spec
-    [SPEC-nord.md](SPEC-nord.md) (D1-D5, E1-E24, B1-B16, H1-H7), detail in
+  - `nord` (P6): built on `go-port/nord`, Fable-reviewed (no blocker) and its findings fixed,
+    not merged; spec [SPEC-nord.md](SPEC-nord.md) (D1-D5, E1-E24, B1-B18, H1-H7), detail in
     [PORTS.md](PORTS.md). `play-nordvpn-openvpn.yml` builds it. Host checks H1-H3 are the host
     agent's (read-only, and the chooser cancelled in tmux); H4-H7 (a VPN brought up, switched,
     down, and the profiles removed) are the owner's, since they reroute the host's network.

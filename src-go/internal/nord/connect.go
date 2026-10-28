@@ -107,6 +107,9 @@ func (r *run) listing(ctx context.Context, active bool, args ...string) ([]nmPro
 // nmChange runs an nmcli command that changes something, waited for even when the run is
 // cancelled (E24); the error says what nmcli said.
 func (r *run) nmChange(ctx context.Context, c execx.Cmd) (execx.Result, error) {
+	// Its own session puts nmcli outside the terminal's foreground group, so a Ctrl-C reaches
+	// nord alone and nmcli finishes what it started (E24): a half import is then seen and undone.
+	c.NewSession = true
 	res, err := r.runner.Run(changing(ctx), c)
 	if err != nil {
 		return res, errors.New(reason(res, err))

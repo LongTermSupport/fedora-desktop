@@ -1,6 +1,8 @@
 package nord
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -105,6 +107,9 @@ func TestChooserNeedsATerminal(t *testing.T) {
 		w.wantErr("nord: the chooser needs an interactive terminal; see 'nord --help' for the commands.\n")
 		if len(w.fake.Calls()) != 0 {
 			t.Errorf("calls %d", len(w.fake.Calls()))
+		}
+		if _, err := os.Stat(filepath.Join(w.home, ".local/share/nordvpn/nord.log")); !os.IsNotExist(err) {
+			t.Errorf("the log was opened before the terminal was checked: %v", err)
 		}
 	}
 }

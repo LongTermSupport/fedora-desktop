@@ -65,6 +65,13 @@ func TestBadCredentials(t *testing.T) {
 		"user\npass\nmore\n":     file + "a third line; expected the username on line 1 and the password on line 2 only",
 		"user\n\n":               file + "the password (line 2) is empty",
 		"user\nhunter2\n\n \n\n": "",
+		"user\nhun,ter2\n":       file + "the password (line 2) contains ',', which nmcli would split",
+		"user\n hunter2\n":       file + "the password (line 2) starts or ends with a space, which nmcli would trim",
+		"user\nhunter2 \n":       file + "the password (line 2) starts or ends with a space, which nmcli would trim",
+		"user\nhun=ter2\n":       file + "the password (line 2) contains '=', which nmcli would split",
+		"user\nhun\\ter2\n":      file + "the password (line 2) contains '\\', which nmcli would read as an escape",
+		"us,er\nhunter2\n":       file + "the username (line 1) contains ',', which nmcli would split",
+		" user\nhunter2\n":       file + "the username (line 1) starts or ends with a space, which nmcli would trim",
 		"user\r\npass word\r\n":  "",
 	}
 	for content, want := range cases {

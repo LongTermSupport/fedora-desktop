@@ -77,3 +77,37 @@ func TestCtrlCDuringAListing(t *testing.T) {
 	}
 	wantChanges(t, w)
 }
+
+// E24, B16: every command that changes something runs in a session of its own, outside the
+// terminal's foreground group, so a Ctrl-C at the terminal reaches nord and not nmcli; the
+// listings do not.
+func TestChangingCommandsRunInTheirOwnSession(t *testing.T) {
+	w := newWorld(t)
+	w.config("uk1.ovpn", "de2.ovpn")
+	w.imported("nordvpn-de2").active = "activated"
+	wantCode(t, w.run("connect", "uk1"), term.ExitOK)
+	changing := 0
+	for _, c := range w.fake.Calls() {
+		isChange := c.Name == "nmcli" && c.Args[0] == "connection" && c.Args[1] != "show"
+		if isChange {
+			changing++
+		}
+		if c.NewSession != isChange {
+			t.Errorf("%s: NewSession %v", c.Line(), c.NewSession)
+		}
+	}
+	if changing != 5 {
+		t.Errorf("%d changing commands", changing)
+	}
+}
+
+// U5: a signal after the connect has finished does not turn its success into a cancel.
+func TestLateSignalKeepsTheSuccess(t *testing.T) {
+	w := newWorld(t)
+	w.config("uk1.ovpn")
+	p := w.imported("nordvpn-uk1")
+	w.during["nmcli connection up uuid "+p.uuid] = w.interrupt
+	wantCode(t, w.run("connect", "uk1"), term.ExitOK)
+	w.wantErr("Connected to uk1.\n")
+	w.wantNoErr("Cancelled.")
+}

@@ -112,7 +112,7 @@ nord switch us1234.nordvpn.com.udp
 # Disconnect
 nord disconnect
 
-# Remove all nordvpn-* connections from NetworkManager
+# Remove all nordvpn-* connections from NetworkManager (asks first; --yes does not)
 nord cleanup
 
 # Debug output

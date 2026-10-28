@@ -9,6 +9,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
 // ipService answers the address the machine reaches the internet from (E19).
@@ -143,7 +144,6 @@ func (r *run) cleanup(ctx context.Context) term.ExitCode {
 	if _, ok := r.check(ctx, needNM); !ok {
 		return term.ExitFailure
 	}
-	r.say("Removing all nordvpn-* connections from NetworkManager...")
 	all, ok := r.profiles(ctx)
 	if !ok {
 		return term.ExitFailure
@@ -156,6 +156,12 @@ func (r *run) cleanup(ctx context.Context) term.ExitCode {
 	if !ok {
 		return term.ExitFailure
 	}
+	if !r.yes {
+		if code, yes := r.confirmCleanup(ctx, all, up); !yes {
+			return code
+		}
+	}
+	r.say("Removing all nordvpn-* connections from NetworkManager...")
 	removed, failed := 0, 0
 	for _, p := range all {
 		note := ""
@@ -179,4 +185,41 @@ func (r *run) cleanup(ctx context.Context) term.ExitCode {
 	}
 	r.say(fmt.Sprintf("Removed %d nordvpn connection(s).", removed))
 	return term.ExitOK
+}
+
+// confirmCleanup is E20's question, default no, on the terminal (InteractiveScripts.md rule 6):
+// the profiles it would remove, then whether to; the exit code when the answer is not yes.
+func (r *run) confirmCleanup(ctx context.Context, all, up []nmProfile) (term.ExitCode, bool) {
+	if !r.env.IsTerminal(r.env.Stdin) {
+		r.failf("cleanup asks before it removes anything, and there is no terminal to ask on; run 'nord cleanup --yes' to remove without asking.")
+		return term.ExitFailure, false
+	}
+	tty, err := r.env.OpenTTY()
+	if err != nil {
+		r.failf("cleanup asks before it removes anything, and there is no terminal to ask on; run 'nord cleanup --yes' to remove without asking.")
+		return term.ExitFailure, false
+	}
+	var question strings.Builder
+	for _, p := range all {
+		mark := ""
+		if isActivated(up, p.uuid) {
+			mark = " (connected)"
+		}
+		question.WriteString("  " + prefix + p.name + mark + "\n")
+	}
+	fmt.Fprintf(&question, "Remove these %d connection(s) from NetworkManager?", len(all))
+	yes, err := r.lines(tty).YesNo(ctx, ui.Here("nord", "Cleanup").About(plural(len(all), "connection")),
+		question.String(), false)
+	code := term.ExitOK
+	switch {
+	case err != nil:
+		code = r.unanswered(ctx, err)
+	case !yes:
+		r.say("Nothing removed.")
+	}
+	if cerr := tty.Close(); cerr != nil {
+		r.failf("close the terminal: %v", cerr)
+		return term.ExitFailure, false
+	}
+	return code, err == nil && yes
 }

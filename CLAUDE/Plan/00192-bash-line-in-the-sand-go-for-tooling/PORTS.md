@@ -431,8 +431,8 @@ ran nothing). 2.0.5 says `Skipped <command>.` after a No to either "Also remove 
 question too, as after the first question of each pair (E22); its recheck is queued.
 `nord` (P6, the seventh tool; chosen in its spec's section 1: the largest left and the only
 interactive one, whose danger a recorded command list proves) ported and cut over on
-`go-port/nord`, the review pending, not merged; spec [SPEC-nord.md](SPEC-nord.md) (D1-D5,
-E1-E24, B1-B16, H1-H7), `src-go/cmd/nord` (under `execx.SignalContext`) and
+`go-port/nord`, Fable-reviewed and the review's findings fixed, not merged; spec
+[SPEC-nord.md](SPEC-nord.md) (D1-D5, E1-E24, B1-B18, H1-H7), `src-go/cmd/nord` (under `execx.SignalContext`) and
 `src-go/internal/nord`. `nord` joins the owners of `nmcli` in the project rule's table; systemd
 is asked through `internal/systemd`, the chooser is `ui.Lines.Choose`. The password is stored in
 the profile, as the bash did, so connecting from GNOME's settings asks for nothing (the lead's
@@ -454,4 +454,15 @@ a Bash command whose text holds the name of nmcli's VPN secrets setting as one t
 a protected glob; no file is involved), so the code joins the name from its parts, with a
 one-line comment saying so and a test pinning the parts; the lead raises the guard with the
 owner. Host run queued in `meta-deploy.list`
-(`changed-plays`, expected to pick up `play-nordvpn-openvpn.yml`).
+(`changed-plays`, expected to pick up `play-nordvpn-openvpn.yml`). Review dispositions
+(`subagent-reports/261028-fable-review-nord.md`, no BLOCKER): F1 fixed (a credential nmcli's
+option lists would split, trim or unescape, `,` `=` `\\` or an edge space, is refused at E10,
+B17; the credentials file is the play's, so the fix is the vault's value, not a prompt); F2
+fixed (every changing nmcli runs with `NewSession`, outside the terminal's foreground group, so
+a Ctrl-C cannot kill a half import before its rollback; E24, B16); U2 fixed (the chooser checks
+its terminal before it opens the log); U3 fixed (`cleanup` asks `[y/N]` on the terminal, with
+`--yes`, and refuses without either; E20, B18); U4 fixed (`nordPkg`); U5 fixed (a signal after
+a success keeps exit 0); U6 fixed (H4 names its two unknowns and what their failure looks
+like). U1 left: the credentials are checked for every connect by design (E8: every missing
+piece said before anything acts), and reading the file when the profile already exists costs
+nothing; the reviewer marked it low priority.
