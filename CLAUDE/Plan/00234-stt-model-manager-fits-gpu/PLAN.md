@@ -1,6 +1,6 @@
 # Plan 00234: the speech-to-text model manager offers only the models that fit this GPU
 
-**Status**: In Progress (every host check passed; the play's rerun-changes-nothing fix queued for the host; the owner's look and Decision 1's approval pending)
+**Status**: In Progress (every host check passed; waiting on the owner: the look at the manager, Task 2.2, and Decision 1's approval)
 **Created**: 2026-10-27
 **Owner**: joseph
 **Priority**: Medium
@@ -143,9 +143,10 @@ directory, the home directory when the panel starts `wsi-stream`.
   the file is gone (`$jlZOEoyPuagxUS1VfJjSLGfu9erhMcBQr_mz9peM7FQ`). That run also showed
   three tasks changed on every run: ydotool restarted (cutting into a session typing through
   it) and the panel extension disabled and enabled (the panel flickers)
-- [ ] ⬜ **Task 4.4**: the play restarts ydotool only when its override changed, and reloads
-  the extension only when its files changed (or enables it when it is not enabled) (code
-  done); on the host, `changed-plays` runs play-speech-to-text.yml and reports changed=0
+- [x] ✅ **Task 4.4**: the play restarts ydotool only when its override changed, and reloads
+  the extension only when its files changed (or enables it when it is not enabled); on the
+  host at `a08948346`, play-speech-to-text.yml reported `ok=70 changed=0`, ydotool still
+  active and the extension not toggled (`$ihFoh81erl9tdE1iyZrPSQoUMuyL3KlaXFIZ2rzwURA`)
 
 ## Technical Decisions
 
