@@ -1,6 +1,6 @@
 # Plan 00234: the speech-to-text model manager offers only the models that fit this GPU
 
-**Status**: In Progress (every host check passed, and Decision 1 is approved by the owner; waiting on the owner's look at the manager, Task 2.2)
+**Status**: In Progress (the owner's look passed, Task 2.2; its two follow-ups are built, Tasks 2.4 and 2.5, and wait on the host run and the owner's look, Task 2.6)
 **Created**: 2026-10-27
 **Owner**: joseph
 **Priority**: Medium
@@ -93,9 +93,27 @@ non-technical person can follow the blue MOK Manager screens after the reboot.
   it. It downloads distil-large-v3.5 if it is missing, nothing else. Passed: `acceptance.bash`
   with the screen leg at `071969780`, and `gpu-load-acceptance.bash` at `36889021f` after
   Phase 4.
-- [ ] ⬜ **Task 2.2**: The owner's look: open Manage Whisper Models... and check the status
+- [x] ✅ **Task 2.2**: The owner's look: open Manage Whisper Models... and check the status
   line names the NVIDIA GPU and its memory, the cursor is on Distil Large v3.5, Large v2 and
-  Large v3 show `✗ too big`, and choosing one shows the refusal and leaves the list open
+  Large v3 show `✗ too big`, and choosing one shows the refusal and leaves the list open.
+  Passed (the owner, 2026-10-28): "listing models at 4.4GB as too big, other things all look
+  fine, it's showing the GPU detail". Two follow-ups, verbatim: "it opens as a black screen
+  for quite a long time - can we have a loading message?" (Task 2.4) and "the GPU detail
+  ... could be clearer, it's quite low contrast" (Task 2.5)
+- [x] ✅ **Task 2.4**: Tests first (`OpensAtOnceTest`), then: the window draws at once with
+  `Checking the GPU and the models...` as its status line. The black screen was `on_mount`
+  asking the resolver three times (`--suggest` per recorder mode, then `--fit`, each loading
+  CTranslate2) on the screen's own thread, so nothing was drawn until all three answered.
+  `probe_machine` now asks them in a worker (`_probe_machine`) and `_machine_probed` fills the
+  table, the status line and the cursor; a download chosen before then is held with
+  `Still checking...`. The `screen` leg of `check-fit.py` checks the first status line and
+  waits for the worker before driving the list
+- [x] ✅ **Task 2.5**: Tests first: the status line is in the normal text colour (`$text`, was
+  `$text-muted`), and its GPU part is bold
+- [ ] ⬜ **Task 2.6**: on the host (meta-deploy): `changed-plays` picks up
+  play-speech-to-text.yml, then `acceptance.bash` (its `screen` leg now sees the checking line
+  first); then the owner opens Manage Whisper Models... and sees the checking message at once
+  and a readable GPU line
 
 ### Phase 3: Review
 
@@ -192,7 +210,8 @@ size order would preselect it; the catalogue order is used instead.
 - [x] `acceptance.bash` with its `screen` leg, and `gpu-load-acceptance.bash`, ACCEPTED on
   the test machine (Task 2.3; the streaming leg after Task 4.2)
 - [x] The owner approves Decision 1's exception to the Go-port rule (2026-10-28, Q6)
-- [ ] The owner's look (Task 2.2) agrees
+- [x] The owner's look (Task 2.2) agrees (2026-10-28)
+- [ ] The manager opens with a checking message and a readable GPU line (Task 2.6)
 
 ## Risks & Mitigations
 

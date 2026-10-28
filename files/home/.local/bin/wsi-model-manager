@@ -15,7 +15,8 @@ download fails or the weights are still missing, 2 on a usage error.
 
 Each row says how much GPU memory the model needs and whether this machine's NVIDIA GPU
 has that much (wsi-resolve-model --fit, the one home of the sizes and the rule), or that
-there is no usable NVIDIA GPU and the models run on the CPU. The cursor starts on the
+there is no usable NVIDIA GPU and the models run on the CPU. That takes seconds, so the
+window opens saying it is checking and fills in when the answer comes. The cursor starts on the
 most capable English-only model that fits. A model that does not fit is refused with
 what it needs and what fits instead, and the list stays open for another choice; if
 the fit cannot be told, every download is refused with the reason.
@@ -186,8 +187,32 @@ def fit_cell(model_id: str, fit: dict | None) -> str:
     return f'{verdict} ({gb(model["needs_mb"])})'
 
 
-def machine_line(fit: dict | None, fit_error: str) -> str:
+CHECKING_LINE = 'Checking the GPU and the models...'
+STILL_CHECKING = 'Still checking the GPU and the models; try again in a moment.'
+
+
+def probe_machine() -> tuple[dict[str, list[str]], str, dict | None, str]:
+    """The slow questions for the resolver, asked off the screen's thread so the window
+    draws at once: (auto's picks, why auto cannot choose, the fit, why it cannot tell)."""
+    suggested: dict[str, list[str]] = {}
+    suggest_error = ''
+    try:
+        suggested = auto_suggestions(session_language())
+    except (RuntimeError, OSError, subprocess.TimeoutExpired) as e:
+        suggest_error = f'auto cannot choose a model here: {e}'
+    fit = None
+    fit_error = ''
+    try:
+        fit = machine_fit()
+    except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired) as e:
+        fit_error = str(e)
+    return suggested, suggest_error, fit, fit_error
+
+
+def machine_line(fit: dict | None, fit_error: str, checking: bool = False) -> str:
     """One line on what the models are judged against."""
+    if checking:
+        return CHECKING_LINE
     if fit is None:
         return f'cannot tell which models fit this machine: {fit_error}'
     if fit['device'] == 'cpu':
@@ -298,7 +323,7 @@ class ModelManagerApp(App):
         height: auto;
         padding: 0 1;
         background: $surface;
-        color: $text-muted;
+        color: $text;
     }
     #actions {
         height: auto;
@@ -325,12 +350,13 @@ class ModelManagerApp(App):
         self._suggest_error = ''
         self._fit: dict | None = None  # wsi-resolve-model --fit; None when it cannot tell
         self._fit_error = ''
+        self._probing = True  # probe_machine has not answered yet
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
         yield Input(placeholder='Filter models...  (press / to focus)', id='filter')
         yield DataTable(id='table', cursor_type='row', zebra_stripes=True)
-        yield Static('', id='status')
+        yield Static(CHECKING_LINE, id='status')
         yield Horizontal(
             Button('Download  (d)', action='app.download', variant='primary'),
             Button('Remove  (r)', action='app.remove'),
@@ -346,18 +372,25 @@ class ModelManagerApp(App):
         self.sub_title = 'faster-whisper (Systran)'
         table = self.query_one('#table', DataTable)
         table.add_columns('Status', 'Model', 'Size', 'GPU memory', 'Lang', 'Description')
-        try:
-            self._suggested = auto_suggestions(session_language())
-        except (RuntimeError, OSError, subprocess.TimeoutExpired) as e:
-            self._suggest_error = f'auto cannot choose a model here: {e}'
-        try:
-            self._fit = machine_fit()
-        except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired) as e:
-            self._fit_error = str(e)
-            self.notify(fit_unknown_reason(self._fit_error), severity='error', timeout=30)
+        self._probe_machine()
+
+    @work(thread=True)
+    def _probe_machine(self) -> None:
+        """The resolver takes seconds (CTranslate2 loads three times); asked here, the
+        window shows CHECKING_LINE meanwhile instead of staying black."""
+        self.call_from_thread(self._machine_probed, *probe_machine())
+
+    def _machine_probed(self, suggested: dict[str, list[str]], suggest_error: str,
+                        fit: dict | None, fit_error: str) -> None:
+        self._suggested, self._suggest_error = suggested, suggest_error
+        self._fit, self._fit_error = fit, fit_error
+        self._probing = False
+        if fit is None:
+            self.notify(fit_unknown_reason(fit_error), severity='error', timeout=30)
         self._installed = get_installed()
         self._rebuild_table()
-        best = best_english_fit(self._fit) if self._fit else None
+        table = self.query_one('#table', DataTable)
+        best = best_english_fit(fit) if fit else None
         if best in self._visible_model_ids:
             table.move_cursor(row=self._visible_model_ids.index(best))
         table.focus()
@@ -402,7 +435,10 @@ class ModelManagerApp(App):
         n = len(self._installed)
         total = len(MODELS)
         dl = len(self._downloading)
-        msg = f'{machine_line(self._fit, self._fit_error)}  ·  {n} of {total} models installed'
+        if self._probing:
+            self.query_one('#status', Static).update(CHECKING_LINE)
+            return
+        msg = f'  ·  {n} of {total} models installed'
         if dl:
             msg += f'  ·  {dl} downloading...'
         if self._suggest_error:
@@ -413,7 +449,9 @@ class ModelManagerApp(App):
             msg += f'  ·  ★ auto picks {picks} here'
             if not n:
                 msg += ': download one to start dictating'
-        self.query_one('#status', Static).update(msg)
+        # the GPU every row is judged against, in bold so it stands out from the counts
+        self.query_one('#status', Static).update(
+            Text.assemble((machine_line(self._fit, self._fit_error), 'bold'), msg))
 
     def _selected_model_id(self) -> str | None:
         table = self.query_one('#table', DataTable)
@@ -471,6 +509,9 @@ class ModelManagerApp(App):
     def _start_download(self, model_id: str) -> None:
         """Download model_id unless it does not fit here; then say why and stay, so
         another model can be chosen."""
+        if self._probing:
+            self.notify(STILL_CHECKING, severity='warning')
+            return
         refusal = download_refusal(model_id, self._fit, self._fit_error)
         if refusal:
             self.notify(refusal, title='Too big for this machine' if self._fit else
