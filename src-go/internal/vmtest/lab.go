@@ -145,6 +145,11 @@ func isDir(path string) bool {
 // loadLab checks the deployed lab and reads lab.env (E7, E8).
 func (c *cli) loadLab() (*lab, error) {
 	p := c.paths
+	wait, err := c.secondsSetting(sshWaitSetting, sshWaitDefault)
+	if err != nil {
+		return nil, err
+	}
+	c.sshWait = wait
 	envPath := p.at(labEnvFile)
 	body, err := os.ReadFile(envPath)
 	if err != nil {

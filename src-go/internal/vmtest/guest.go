@@ -15,16 +15,17 @@ import (
 )
 
 const (
-	cloudUser     = "fedora"
-	guestHost     = cloudUser + "@127.0.0.1"
-	libvirtURI    = "qemu:///session"
-	stateShutOff  = "shut off"
-	stateCrashed  = "crashed"
-	sshWait       = 600 * time.Second
-	shutdownWait  = 300 * time.Second
-	poll          = 5 * time.Second
-	followerLimit = "86400"
-	sigtermStatus = 143
+	cloudUser      = "fedora"
+	guestHost      = cloudUser + "@127.0.0.1"
+	libvirtURI     = "qemu:///session"
+	stateShutOff   = "shut off"
+	stateCrashed   = "crashed"
+	sshWaitDefault = 600 * time.Second
+	sshWaitSetting = "VMTEST_SSH_WAIT_TIMEOUT"
+	shutdownWait   = 300 * time.Second
+	poll           = 5 * time.Second
+	followerLimit  = "86400"
+	sigtermStatus  = 143
 )
 
 // guestOpts are the ssh options every guest connection carries (E22). IdentitiesOnly: without
@@ -151,7 +152,8 @@ func (g *guest) mustBeUp(ctx context.Context, what string) error {
 
 // waitSSH waits for the guest to answer SSH, by the clock (E24, B12).
 func (g *guest) waitSSH(ctx context.Context) error {
-	g.c.logf("waiting for SSH on 127.0.0.1:%d (up to %ds)", g.port, int(sshWait.Seconds()))
+	wait := g.c.sshWait
+	g.c.logf("waiting for SSH on 127.0.0.1:%d (up to %ds)", g.port, int(wait.Seconds()))
 	start := g.c.env.Now()
 	for {
 		if err := g.mustBeUp(ctx, "SSH"); err != nil {
@@ -163,8 +165,8 @@ func (g *guest) waitSSH(ctx context.Context) error {
 		if err := g.c.env.Sleep(ctx, poll); err != nil {
 			return ctxErr(ctx, err)
 		}
-		if g.c.env.Now().Sub(start) >= sshWait {
-			return failf("guest did not answer SSH within %ds; see %s", int(sshWait.Seconds()), filepath.Join(g.dir, "console.log"))
+		if g.c.env.Now().Sub(start) >= wait {
+			return failf("guest did not answer SSH within %ds (%s); see %s", int(wait.Seconds()), sshWaitSetting, filepath.Join(g.dir, "console.log"))
 		}
 	}
 	g.c.logf("guest answered SSH after ~%ds", int(g.c.env.Now().Sub(start).Seconds()))
@@ -250,7 +252,7 @@ func (f *follower) stop() {
 func (g *guest) unlock(ctx context.Context, dir, passphraseFile string) (*follower, error) {
 	res, err := g.c.helper(ctx, helperCall{module: "serial_console", args: []string{
 		"--socket", filepath.Join(dir, "serial.sock"), flagLog, filepath.Join(dir, "console.log"),
-		"--unlock-with", passphraseFile, "--until", "login: ", "--timeout", strconv.Itoa(int(sshWait.Seconds())),
+		"--unlock-with", passphraseFile, "--until", "login: ", "--timeout", strconv.Itoa(int(g.c.sshWait.Seconds())),
 		"--connect-wait", "60", "--domain", g.domain, "--libvirt-uri", libvirtURI,
 	}})
 	reason := ""

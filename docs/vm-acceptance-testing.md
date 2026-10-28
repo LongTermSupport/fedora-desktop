@@ -99,9 +99,15 @@ vmtest member-ssh <name> '<command>'    # as the cloud user (passwordless sudo),
 vmtest member-down <name>               # destroy, undefine, remove members/<name>/; nothing there is no error
 ```
 
-A failed `member-up` removes its guest and overlay and keeps `console.log` until
-`member-down`. Members are never swept: the script that made one removes it,
-on its own way out and first if an interrupted run left it.
+A failed or interrupted (Ctrl-C) `member-up` removes its guest and overlay,
+prints the last lines of `console.log` with its error, and keeps
+`members/<name>/` with that log until `member-down`. Members are never swept:
+the script that made one removes it, on its own way out and first if an
+interrupted run left it.
+
+Every wait for a booted guest to answer SSH is bounded by
+`VMTEST_SSH_WAIT_TIMEOUT` seconds (default 600, up to 86400); on a busy host,
+raise it for the call, e.g. `VMTEST_SSH_WAIT_TIMEOUT=1200 vmtest member-up …`.
 
 A `full` base is installed by `fedora-install/ks-vm-server.cfg`, a VM-only,
 non-interactive Fedora Server kickstart: Anaconda runs in cmdline mode on the

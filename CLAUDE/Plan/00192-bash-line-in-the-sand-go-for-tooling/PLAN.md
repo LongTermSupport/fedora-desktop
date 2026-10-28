@@ -448,16 +448,16 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   should judge path-like tokens, or the operands of file-reading commands, rather than every
   token. Record the issue's number here and in PORTS.md.
 
-- [ ] ⬜ **Task 3.13**: FOLLOW-UP of vmtest H4 (2026-10-28): a failed `member-up` prints the
+- [x] ✅ **Task 3.13**: FOLLOW-UP of vmtest H4 (2026-10-28): a failed `member-up` prints the
   last lines of the member's console log with its error, so a timeout says what the guest was
   doing. Tests first, in `internal/vmtest`.
 
-- [ ] ⬜ **Task 3.14**: FOLLOW-UP of vmtest H4: review the 600 s bound on the wait for SSH (E24)
+- [x] ✅ **Task 3.14**: FOLLOW-UP of vmtest H4: review the 600 s bound on the wait for SSH (E24)
   under host load. Attempt 1 timed out at a load average of about 10; attempt 2 answered after
   about 192 s. Decide whether the bound scales with load, is settable, or stays, and say why
   in SPEC-vmtest.
 
-- [ ] ⬜ **Task 3.15**: FOLLOW-UP of vmtest H4: SPEC-vmtest states that Ctrl-C during
+- [x] ✅ **Task 3.15**: FOLLOW-UP of vmtest H4: SPEC-vmtest states that Ctrl-C during
   `member-up` keeps `members/<name>` for its console log until `member-down` (E57 says it for
   any failure or signal; H4's "leaves no guest" does not say the directory stays).
 

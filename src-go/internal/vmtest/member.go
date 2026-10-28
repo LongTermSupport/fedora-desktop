@@ -19,12 +19,53 @@ import (
 // key and member-down removes it. The caller owns its lifetime, so a member is never swept.
 
 const (
-	memberSSHDefault = 1800
-	// memberSSHMax is the longest VMTEST_MEMBER_SSH_TIMEOUT taken, a day: a guest command
+	memberSSHDefault = 1800 * time.Second
+	memberPortFile   = "ssh-port"
+	// settingMaxSeconds is the longest a seconds setting takes, a day: a guest command or boot
 	// that runs longer is hung, and a number past a time.Duration would wrap the bound negative.
-	memberSSHMax   = 86400
-	memberPortFile = "ssh-port"
+	settingMaxSeconds = 86400
+	// consoleTailLines is how much of a failed member's console log is shown with its error.
+	consoleTailLines = 10
 )
+
+// secondsSetting is the environment variable name as whole seconds, 1 to a day, or def unset.
+func (c *cli) secondsSetting(name string, def time.Duration) (time.Duration, error) {
+	raw := c.env.Getenv(name)
+	if raw == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 || n > settingMaxSeconds || strconv.Itoa(n) != raw {
+		return 0, failf("%s must be a positive number of seconds up to %d, got '%s'", name, settingMaxSeconds, raw)
+	}
+	return time.Duration(n) * time.Second, nil
+}
+
+// consoleControl is a terminal escape sequence or a control byte other than a tab: what a serial
+// console writes that is not text.
+var consoleControl = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]|[\x00-\x08\x0a-\x1f\x7f]`)
+
+// showConsoleTail prints the last lines of a member's console log as progress, so a failure
+// says what the guest was doing.
+func (c *cli) showConsoleTail(dir string) {
+	path := filepath.Join(dir, "console.log")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		c.logf("no console output to show: %v", err)
+		return
+	}
+	lines := strings.Split(string(body), "\n")
+	for i, l := range lines {
+		lines[i] = consoleControl.ReplaceAllString(l, "")
+	}
+	tail := lastLines([]byte(strings.Join(lines, "\n")), consoleTailLines)
+	if tail == "" {
+		c.logf("%s holds no console output", path)
+		return
+	}
+	c.logf("the last %d lines of %s:", consoleTailLines, path)
+	c.p.Print(c.env.Stderr, "    "+strings.ReplaceAll(tail, "\n", "\n    ")+"\n")
+}
 
 var memberNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
 
@@ -229,6 +270,7 @@ func (c *cli) memberTeardown(ctx context.Context, name, dir, domain string) {
 			c.logf("could not remove %s: %v", filepath.Join(dir, f), err)
 		}
 	}
+	c.showConsoleTail(dir)
 	c.logf("member not started; its console log is kept in %s until: vmtest member-down %s", dir, name)
 }
 
@@ -254,19 +296,16 @@ func (c *cli) cmdMemberSSH(ctx context.Context, args []string) error {
 	if !readable(key) {
 		return failf("no lab SSH key at %s; deploy the lab first", key)
 	}
-	limit := memberSSHDefault
-	if raw := c.env.Getenv("VMTEST_MEMBER_SSH_TIMEOUT"); raw != "" {
-		limit, err = strconv.Atoi(raw)
-		if err != nil || limit <= 0 || limit > memberSSHMax || strconv.Itoa(limit) != raw {
-			return failf("VMTEST_MEMBER_SSH_TIMEOUT must be a positive number of seconds up to %d, got '%s'", memberSSHMax, raw)
-		}
+	limit, err := c.secondsSetting("VMTEST_MEMBER_SSH_TIMEOUT", memberSSHDefault)
+	if err != nil {
+		return err
 	}
 	g := &guest{c: c, key: key, port: port}
 	// Bounded twice: keepalives end a session whose guest stopped answering, and the bound
 	// ends one whose command never finishes.
 	sshArgs := g.sshArgs([]string{"-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4"}, args[1])
 	sshArgs = append(sshArgs, args[2:]...)
-	bounded, cancel := c.bound(ctx, time.Duration(limit)*time.Second)
+	bounded, cancel := c.bound(ctx, limit)
 	defer cancel()
 	_, runErr := c.env.Runner.Run(bounded, execx.Cmd{Name: sshBin, Args: sshArgs, Stdin: c.env.Stdin, Stdout: c.env.Stdout, Stderr: c.env.Stderr})
 	code, err := statusOf(ctx, bounded, runErr)
@@ -274,7 +313,7 @@ func (c *cli) cmdMemberSSH(ctx context.Context, args []string) error {
 		return err
 	}
 	if code == timedOut {
-		c.errorLine("member-ssh " + name + ": the command did not finish within " + strconv.Itoa(limit) + "s (VMTEST_MEMBER_SSH_TIMEOUT)")
+		c.errorLine("member-ssh " + name + ": the command did not finish within " + strconv.Itoa(int(limit.Seconds())) + "s (VMTEST_MEMBER_SSH_TIMEOUT)")
 	}
 	if code != 0 {
 		return &exitStatusError{code: term.ExitCode(code)}

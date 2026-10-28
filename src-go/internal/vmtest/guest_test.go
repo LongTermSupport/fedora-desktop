@@ -85,7 +85,7 @@ func TestE24SSHWaitIsBoundedByTheClock(t *testing.T) {
 		return execx.Result{ExitCode: 255}, nil
 	})
 	err := testGuest(k).waitSSH(context.Background())
-	if err == nil || err.Error() != "guest did not answer SSH within 600s; see /stub/build/console.log" {
+	if err == nil || err.Error() != "guest did not answer SSH within 600s (VMTEST_SSH_WAIT_TIMEOUT); see /stub/build/console.log" {
 		t.Fatalf("got %v", err)
 	}
 	if n := len(k.slept); n != 60 {

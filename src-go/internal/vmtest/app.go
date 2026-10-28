@@ -236,10 +236,12 @@ type cli struct {
 	build func(ctx context.Context, l *lab, key string) error
 	// bound is the deadline put on a bounded remote command (timeout(1) in the bash).
 	bound func(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc)
+	// sshWait bounds every wait for a booted guest (E24); the lab load reads its setting.
+	sshWait time.Duration
 }
 
 func newCLI(env Env) *cli {
-	c := &cli{env: env, paths: newPaths(env), git: gitx.New(env.Runner), bound: context.WithTimeout}
+	c := &cli{env: env, paths: newPaths(env), git: gitx.New(env.Runner), bound: context.WithTimeout, sshWait: sshWaitDefault}
 	c.build = c.buildBase
 	return c
 }
