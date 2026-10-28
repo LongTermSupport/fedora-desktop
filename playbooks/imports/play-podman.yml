@@ -11,6 +11,11 @@
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     audience: all   # all | developer — see CLAUDE/AnsibleStyle.md
+    # container-images' state directory (stateDir in src-go/internal/containerimages/prune.go).
+    container_images_state_dir: "/home/{{ user_login }}/.local/state/fedora-desktop"
+    # Present only while the ownership probe finds the store clean; without it container-images
+    # removes nothing (storeCleanName in the same Go file, P9).
+    container_images_store_clean: "{{ container_images_state_dir }}/container-images.store-clean"
   # Rootless podman is for everyone: ccc (play-claude-code-consumer.yml) runs Claude Code in it
   # on a consumer install. The Docker-compatibility parts, podman-compose and the Docker-API
   # socket, serve developer tooling only.
@@ -202,7 +207,7 @@
     # Only a `prune --yes` that succeeded writes this stamp.
     - name: Check Whether a Prune Has Ever Succeeded
       ansible.builtin.stat:
-        path: "/home/{{ user_login }}/.local/state/fedora-desktop/container-images.succeeded"
+        path: "{{ container_images_state_dir }}/container-images.succeeded"
       register: container_images_succeeded
 
     - name: Deploy the container-images Prune Service and Timer
@@ -221,6 +226,32 @@
     # end (tasks/podman-store-ownership-probe.yml, Plan 00235 Q6).
     - name: Find Whether the Store Holds Files the Rootless User Cannot Delete
       ansible.builtin.import_tasks: "{{ root_dir }}/tasks/podman-store-ownership-probe.yml"
+
+    # ccy's self-prune and a manual `container-images prune --yes` have no root to repair the
+    # store either, so they remove nothing unless the probe's verdict is this marker. The play
+    # runs as the user, so the directory and its parents are the user's.
+    - name: Ensure the container-images State Directory Exists
+      ansible.builtin.file:
+        path: "{{ container_images_state_dir }}"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0750"
+
+    - name: Mark the Store Clean for container-images
+      ansible.builtin.copy:
+        content: "{{ now(utc=true).strftime('%Y-%m-%dT%H:%M:%SZ') }}\n"
+        dest: "{{ container_images_store_clean }}"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
+      when: not (podman_store_foreign_owner | bool)
+
+    - name: Remove the container-images Store-Clean Mark
+      ansible.builtin.file:
+        path: "{{ container_images_store_clean }}"
+        state: absent
+      when: podman_store_foreign_owner | bool
 
     - name: Enable and Start the container-images Prune Timer, or Hold It Off
       ansible.builtin.systemd:

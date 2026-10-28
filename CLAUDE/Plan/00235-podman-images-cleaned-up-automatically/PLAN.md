@@ -1,6 +1,6 @@
 # Plan 00235: podman images cleaned up automatically
 
-**Status**: In Progress (the first prune freed 299G, then broke the store on the host; the repair and the timer gate, Tasks 4.5, 4.6 and 4.8, are built and queued in meta-deploy.list; Q6 is the owner's)
+**Status**: In Progress (the first prune freed 299G, then broke the store; the repair and timer gate (4.5, 4.6, 4.8) are deployed or deploying; Phase 3 (3.1, 3.2) built and gated on a clean store; Q6 is the owner's)
 **Created**: 2026-10-28
 **Owner**: joseph
 **Priority**: High
@@ -106,19 +106,24 @@ the plans cite kept.
 
 ### Phase 3: ccy removes what its build replaced
 
-- [ ] ⬜ **Task 3.1**: Tests first, then a Go command (working name `container-images`, Decision
+- [x] ✅ **Task 3.1**: Tests first, then a Go command (working name `container-images`, Decision
   1. in `src-go/cmd/` over `internal/engine`: `before <repository>` prints the id of each of the
      repository's tags; `replaced <repository> <ids-file>` removes each recorded id that no tag now
      names and no container (`ps -a`) uses, naming each removal and each kept image (with why) on
-     stderr. A removal podman refuses is reported, not fatal to the launch. Fakes mirror the real
+     stderr. A self-prune failure after the build (a refused removal, a list or log it cannot
+     get) is reported and not fatal to the launch; while another ccy build lock is held,
+     `replaced --lock <own lock>` removes nothing (review F1, F2). Fakes mirror the real
      engine's output (`execx.ErrUnexpected` for anything unscripted)
-  - [ ] ⬜ cases: two containers of one project on the old image (agent teams) keep it; a stopped
+  - [x] ✅ cases: two containers of one project on the old image (agent teams) keep it; a stopped
     container keeps it; `:base` re-tagged under the `:latest` key is covered; a failed build
     removes nothing; an id another tag still names is kept
-- [ ] ⬜ **Task 3.2**: `ccy_image_build_locked` (`lib/image-build-lock.bash:28`) records before the
+- [x] ✅ **Task 3.2**: `ccy_image_build_locked` (`lib/image-build-lock.bash:28`) records before the
   build and calls `replaced` after a successful one, inside the lock; within the 60-line limit
   (measured by `qa-bash-limits`), else the lock's own lines shrink. This covers B1-B6. CCY
-  version bump; play-claude-yolo.yml builds and installs the command
+  version bump; play-claude-yolo.yml builds and installs the command. Built:
+  `lib/image-build-prune.bash` (sourced by the lock, which stays at 58 lines and 90
+  statements, and passes its lock file to it); CCY 3.102.0, 3.102.1 with the review fixes; `tasks/claude-yolo-image.yml`
+  installs the command before it copies the libs that call it
 - [ ] ⬜ **Task 3.3**: B7: `play-claude-devtools.yml` runs the same `before`/`replaced` around its
   build
 - [x] ✅ **Task 3.4**: Stale project images: `claude-yolo:<project>` tags no container uses and
@@ -183,6 +188,13 @@ the plans cite kept.
   written with a doubled backslash (`\\d`, `\\s`, `\\w`) inside a Jinja string literal in YAML,
   red on a fixture and on the three lines above before their fix, green after; the independent
   searcher run first
+- [x] ✅ **Task 4.9**: the gate on ccy's self-prune and a manual prune. play-podman.yml writes
+  `~/.local/state/fedora-desktop/container-images.store-clean` (the user's, 0644, the probe's
+  time) when the Task 4.8 probe finds no foreign-owned file and removes it when it finds one.
+  Without it `container-images replaced` removes nothing, says so once and exits 0 (R7), and
+  `prune --yes` removes nothing and exits 1 (P9); a dry run lists and notes the missing marker
+  (tests first, journalled; the lock suite's sandbox gets its own HOME holding the marker, and a
+  case without it) ([report](subagent-reports/261028-clean-store-gate.md))
 
 ### Phase 5: The health report says so
 
@@ -229,6 +241,7 @@ the plans cite kept.
 - [ ] FOLLOW-UP (review U3): acceptance prints podman's `until=24h` count beside a `before=` count, to confirm the filter's meaning
 - [ ] FOLLOW-UP (review U5): decide whether a dead-code change to a shared package needs a CCY version bump
 - [ ] FOLLOW-UP: the `StoreContainer.External` comment in engine/store.go names only buildah (left so as not to bump CCY here)
+- [ ] FOLLOW-UP (self-prune review U2): on docker an in-place update's old `:latest` is the new one's parent, so every daily update prints "could not remove" and the image stays until a full rebuild; decide whether `replaced` should say so once instead of as a refusal
 
 ## Questions for the owner
 

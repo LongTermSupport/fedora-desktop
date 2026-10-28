@@ -902,7 +902,8 @@ m7_sudo_alive() { :; }
 lock="${XDG_RUNTIME_DIR}/ccy/image-builds/claude-yolo_latest.lock"
 case "${kind}" in
     live)
-        bash -c 'source "$1" && ccy_image_build_locked claude-yolo:latest false -- sleep 5 && : >"$2"' \
+        # Its self-prune (lib/image-build-prune.bash) is `true`: it records and removes nothing.
+        CCY_CONTAINER_IMAGES=true bash -c 'source "$1" && ccy_image_build_locked claude-yolo:latest false -- sleep 5 && : >"$2"' \
             _ "${repo}/files/var/local/claude-yolo/lib/image-build-lock.bash" "${tmp}/built" &
         for _ in 1 2 3 4 5 6 7 8 9 10; do
             [[ -s "${lock}" ]] && break

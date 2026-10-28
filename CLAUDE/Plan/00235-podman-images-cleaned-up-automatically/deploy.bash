@@ -22,7 +22,14 @@
 # the timer is STOPPED and DISABLED, the first prune is not run, and the play FAILS ON PURPOSE
 # at its end: "the podman store holds files owned outside your subuid range (old range); the
 # daily prune is held off until they are re-owned (Plan 00235 Q6)". The store is repaired by
-# then, so podman works; the failure is the owner's Q6 decision.
+# then, so podman works; the failure is the owner's Q6 decision. A clean probe writes
+# ~/.local/state/fedora-desktop/container-images.store-clean, a failing one removes it.
+# Then play-claude-yolo.yml installs CCY 3.102.1 (lib/image-build-prune.bash) and
+# container-images again, and rebuilds claude-yolo:latest under the build lock: that build
+# removes the :latest and :base images it replaced when no container uses them, and from then
+# on every ccy build and in-place update does the same, while the store-clean marker is
+# present. If play-podman.yml fails on purpose (Q6), play-claude-yolo.yml does not run in this
+# deploy; CCY 3.102.1 then arrives through changed-plays on a later run.
 #
 # Usage: ./deploy.bash [-h|--help] [--check]
 set -euo pipefail
@@ -53,7 +60,9 @@ as root (leftover c/storage temporary directories), builds container-images,
 installs and enables the daily container-images-prune timer and, the first time, runs the
 prune once (it removes the backlog of unused dangling images). If the store holds files owned
 outside the user's subuid range (the old range), the timer is held off (stopped, disabled), no
-prune runs, and the play fails on purpose with that message (Plan 00235 Q6).
+prune runs, and the play fails on purpose with that message (Plan 00235 Q6), so the next leg
+does not run. Then play-claude-yolo.yml, whose image build, and every ccy build after it,
+removes the images it replaced while the store is confirmed clean.
   --check   the play as a dry run
 Prompts for sudo once, before the run log opens."
 
@@ -70,6 +79,8 @@ plan_start_log auto
 
 plan_deploy_leg "play-podman.yml (container-images, its daily timer, the first prune)" \
     plan_ansible_playbook playbooks/imports/play-podman.yml
+plan_deploy_leg "play-claude-yolo.yml (CCY 3.102.1: a build removes the images it replaced)" \
+    plan_ansible_playbook playbooks/imports/play-claude-yolo.yml
 # STANDARD-EXCEPTION(R9): no acceptance.bash leg here, where R9 puts it. meta-deploy.bash
 # runs acceptance.bash after this script.
 plan_finish

@@ -82,8 +82,36 @@ func newWorld(t *testing.T) *world {
 			t.Fatal(err)
 		}
 	}
+	markStoreClean(t, w.home)
 	return w
 }
+
+// storeCleanPath is the marker play-podman.yml writes when root's probe finds no store file
+// owned outside the user's subuid range (P9).
+func storeCleanPath(home string) string {
+	return filepath.Join(home, ".local", "state", "fedora-desktop", "container-images.store-clean")
+}
+
+// markStoreClean writes the marker as the play does; every world and shelf starts with it.
+func markStoreClean(t *testing.T, home string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(storeCleanPath(home)), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(storeCleanPath(home), []byte("2026-10-28T11:00:00Z\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// unconfirmStore removes the marker, as the play does when its probe finds such a file.
+func unconfirmStore(t *testing.T, home string) {
+	t.Helper()
+	if err := os.Remove(storeCleanPath(home)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+const unconfirmedSays = "the podman store has not been confirmed free of old-range files (Plan 00235 Q6)"
 
 func (w *world) script() {
 	if w.scripted {
@@ -463,6 +491,9 @@ func TestALogThatCannotBeWrittenStopsTheRunBeforeAnyRemoval(t *testing.T) {
 func TestAStateDirectoryThatCannotBeMadeStopsTheRun(t *testing.T) {
 	w := newWorld(t)
 	backlog(w)
+	if err := os.RemoveAll(filepath.Join(w.home, ".local")); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(w.home, ".local"), []byte("a file"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -794,5 +825,62 @@ func TestAStoreThatCannotLoadForThatCauseNamesTheRepair(t *testing.T) {
 	}
 	if len(w.removed()) != 0 || strings.Count(w.err.String(), wantCause) != 1 {
 		t.Fatalf("removed %v; stderr %s", w.removed(), w.err.String())
+	}
+}
+
+// While the store is not confirmed free of old-range files, a removal could leave a temporary
+// directory only root can delete (P6a), so prune --yes removes nothing and fails, loudly (P9).
+func TestYesRemovesNothingWhileTheStoreIsNotConfirmedClean(t *testing.T) {
+	w := newWorld(t)
+	backlog(w)
+	unconfirmStore(t, w.home)
+	if code := w.run("prune", "--yes"); code != term.ExitFailure {
+		t.Fatalf("exit %d, want failure: %s", code, w.err.String())
+	}
+	if got := w.removed(); len(got) != 0 {
+		t.Fatalf("removed %v from an unconfirmed store", got)
+	}
+	want := "container-images: " + unconfirmedSays + "; nothing removed; run play-podman.yml\n"
+	if w.err.String() != want {
+		t.Fatalf("stderr %q, want %q", w.err.String(), want)
+	}
+	if w.logText() != "" {
+		t.Fatalf("log %q", w.logText())
+	}
+	if _, err := os.Stat(filepath.Join(w.home, ".local", "state", "fedora-desktop", "container-images.succeeded")); !os.IsNotExist(err) {
+		t.Fatalf("the success stamp was written: %v", err)
+	}
+}
+
+// A dry run lists as ever and notes that prune --yes would remove nothing (P9).
+func TestADryRunNotesAStoreNotConfirmedClean(t *testing.T) {
+	w := newWorld(t)
+	backlog(w)
+	unconfirmStore(t, w.home)
+	if code := w.run("prune"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, w.err.String())
+	}
+	if !strings.Contains(w.out.String(), "would remove image aaaaaaaaaaaa") || len(w.removed()) != 0 {
+		t.Fatalf("removed %v; stdout %s", w.removed(), w.out.String())
+	}
+	if strings.Count(w.err.String(), unconfirmedSays) != 1 || !strings.Contains(w.err.String(), "prune --yes would remove nothing") {
+		t.Fatalf("stderr %s", w.err.String())
+	}
+}
+
+func TestAMarkerThatCannotBeReadStopsTheDryRun(t *testing.T) {
+	w := newWorld(t)
+	backlog(w)
+	if err := os.RemoveAll(filepath.Join(w.home, ".local")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(w.home, ".local"), []byte("a file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code := w.run("prune"); code != term.ExitFailure {
+		t.Fatalf("exit %d, want failure", code)
+	}
+	if len(w.fake.Calls()) != 0 || !strings.Contains(w.err.String(), "store-clean marker") {
+		t.Fatalf("calls %v; stderr %s", w.fake.Calls(), w.err.String())
 	}
 }
