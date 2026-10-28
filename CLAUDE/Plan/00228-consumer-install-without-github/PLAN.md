@@ -274,7 +274,7 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
 - [ ] ⬜ **Task 6.3**: A consumer `--changed` path in Go (today `--changed` on a consumer
   box runs run.bash's own play runner, which offers no GitHub issue there).
 - [ ] ⬜ **Task 6.4**: A consumer choice in the kickstart (`fedora-install/ks.cfg`).
-- [ ] ⬜ **Task 6.5**: Speech-to-text on a consumer box: no Claude post-processing, and its
+- [x] ✅ **Task 6.5**: Speech-to-text on a consumer box: no Claude post-processing, and its
   menu items hidden there (the owner's decision, 2026-10-28; revisit only if a real consumer
   asks). `play-speech-to-text.yml` is `audience: all`, so the consumer menu offers it, and
   local dictation needs only Go and Whisper. Its Claude post-processing (Ctrl+Insert, the
@@ -283,13 +283,18 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   `wsi-claude-process`, which checks for the `claude` command before the token chooser and on a
   box without it fails saying post-processing needs the developer install and that plain
   dictation works (red and green in `tests/speech_to_text/test_claude_process.py`). To build,
-  tests first:
-  - the panel does not show the post-processing items (Ctrl+Insert's binding included) on a
-    consumer box, decided from one fact the play knows (the install's audience, or `claude`
-    absent), never a second guess of it; the developer panel is unchanged;
-  - the consumer VM scenario installs speech-to-text and checks that plain dictation is set up
-    and that the post-processing items are absent.
-- [ ] ⬜ **Task 6.6**: The developer path's optional runs, as Task 2.6 did for the consumer.
+  tests first: the panel does not show the post-processing items (Ctrl+Insert's binding
+  included) on a consumer box, decided from one fact the play knows, never a second guess of
+  it; the developer panel is unchanged. Built (2026-10-28,
+  [report](subagent-reports/261028-tasks-6-5-6-6.md)): the play writes the schema override key
+  `post-processing-offered`, true only when `install_audience` is `developer`, and the panel
+  hides Ctrl+Insert, Alt+Insert, the Post-Process items, Create Article and the Claude Settings
+  group when it is false; the Node test went red, then green.
+- [ ] ⬜ **Task 6.7**: The consumer VM scenario installs speech-to-text and checks that plain
+  dictation is set up and that the post-processing items are absent (split from 6.5). Not
+  cheap: the attendant answers the app menu with a fixed Enter, and the manifest allows no
+  optional app for a consumer, so both change first.
+- [x] ✅ **Task 6.6**: The developer path's optional runs, as Task 2.6 did for the consumer.
   Decided (2026-10-28, part C item 5 of the unblocking list): on the developer path, optional
   plays go on after one fails, a summary naming every failed and installed play is printed at
   the end, and the exit is non-zero if any failed; main plays, and `--rerun`'s main plays,
@@ -299,7 +304,10 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   a failure but prints no summary; `--rerun` (`play_batch_run`) stops at the first failure and
   mixes main and optional plays. To build, tests first: the headless run, the menu's A, W and
   B, and `--rerun`'s optional part go on with the summary and the non-zero exit; a failed main
-  play (in `--rerun` too) still stops the run before anything after it.
+  play (in `--rerun` too) still stops the run before anything after it. Built (2026-10-28,
+  `RUN_BASH_VERSION` 1.36.0): the new suite `scripts/test-run-bash-optional.bash` and four new
+  `--rerun` cases went red, then green; a play ended by a signal or Ctrl-C (exit 99) stops the
+  run at once.
 
 ### Phase 5: Review
 
