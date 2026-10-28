@@ -1,8 +1,8 @@
 # shellcheck shell=bash
 # ssh-with-agent.bash — shared agent-forwarding helpers for the with-* wrappers
 #
-# Sourced (never executed) by ssh-with-password, scp-with-password,
-# ssh-with-key and scp-with-key. It backs their -A (agent forwarding) support.
+# Sourced (never executed) by ssh-with-password and scp-with-password. It backs
+# their -A (agent forwarding) support.
 #
 # Policy: when the caller passes -A we ALWAYS start a fresh, dedicated ssh-agent
 # scoped to this one invocation and ask which keys to add — we never trust

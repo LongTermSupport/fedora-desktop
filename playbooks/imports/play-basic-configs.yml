@@ -514,21 +514,21 @@
         group: "{{ user_login }}"
         mode: "0755"
 
-    - name: Install ssh-with-key helper script
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/.local/bin/ssh-with-key"
-        dest: "/home/{{ user_login }}/.local/bin/ssh-with-key"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: "0755"
+    # The three with-key commands are Go binaries (src-go/cmd/*-with-key, Plan 00192), built
+    # and installed at their old paths by the shared build-go-command.yml.
+    - name: Build and Install the ssh-with-key Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: ssh-with-key
+        go_command_dest: "/home/{{ user_login }}/.local/bin/ssh-with-key"
+        go_command_mode: "0755"
 
-    - name: Install scp-with-key helper script
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/.local/bin/scp-with-key"
-        dest: "/home/{{ user_login }}/.local/bin/scp-with-key"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: "0755"
+    - name: Build and Install the scp-with-key Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: scp-with-key
+        go_command_dest: "/home/{{ user_login }}/.local/bin/scp-with-key"
+        go_command_mode: "0755"
 
     - name: Install ssh-copy-id-with-password helper script
       ansible.builtin.copy:
@@ -538,13 +538,12 @@
         group: "{{ user_login }}"
         mode: "0755"
 
-    - name: Install ssh-copy-id-with-key helper script
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/.local/bin/ssh-copy-id-with-key"
-        dest: "/home/{{ user_login }}/.local/bin/ssh-copy-id-with-key"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: "0755"
+    - name: Build and Install the ssh-copy-id-with-key Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: ssh-copy-id-with-key
+        go_command_dest: "/home/{{ user_login }}/.local/bin/ssh-copy-id-with-key"
+        go_command_mode: "0755"
 
     - name: Install ssh-keys-rekey helper script
       ansible.builtin.copy:

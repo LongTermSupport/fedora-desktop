@@ -1,0 +1,22 @@
+Usage: ssh-with-key [-i KEY] [ssh-options...] destination [command [argument...]]
+
+  ssh offering ONLY one private key: no key from the ssh-agent, no other key in
+  ~/.ssh or in ssh's configuration, and no password.
+
+  -i KEY       The private key to log in with. It must be the first argument.
+               Without it, choose one of the private keys in ~/.ssh.
+  -A           Forward a new agent made for this connection alone: choose the
+               keys it holds, and it ends when the connection ends. A login with
+               no command gets GIT_SSH_COMMAND set on the far side, so git push
+               there uses the forwarded keys.
+  -h, --help   Show this text.
+
+  Every other argument goes to ssh as it is. A second key (-i or -o IdentityFile)
+  is refused, and so is a configuration that gives the host another key. So is
+  an agent named (-o IdentityAgent, -o ForwardAgent=SOCKET), and with -A a
+  configuration that names one.
+
+Examples:
+  ssh-with-key -i ~/.ssh/work_key admin@host.example.com
+  ssh-with-key admin@host.example.com
+  ssh-with-key -i ~/.ssh/work_key -A admin@host.example.com

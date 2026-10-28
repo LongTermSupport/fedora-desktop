@@ -2,7 +2,7 @@
 
 One module, `github.com/LongTermSupport/fedora-desktop/src-go`, for this repository's large
 interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfreeze`,
-`lxcfreeze`, `vmtest`, `ftp-camera`, `watermark`, `wsi`, `open`, `rclone-cache-status`, `rclone-tail`, `gh-account-setup`, `setup-rclone`, `reclaim`, `nord`, `nvidia-status` and `consumer-install` live here; their
+`lxcfreeze`, `vmtest`, `ftp-camera`, `watermark`, `wsi`, `open`, `rclone-cache-status`, `rclone-tail`, `gh-account-setup`, `setup-rclone`, `reclaim`, `nord`, `nvidia-status`, the `ssh-with-key` family and `consumer-install` live here; their
 bash originals are gone (`scripts/gh-account-setup.bash`, `scripts/setup-rclone.bash` and
 `scripts/nvidia-status.bash` stay, as the wrappers that build and run the Go commands).
 `convert` is new, with no bash original.
@@ -69,6 +69,13 @@ bash originals are gone (`scripts/gh-account-setup.bash`, `scripts/setup-rclone.
   E1-E25): the NVIDIA driver's report, from mokutil, rpm, modinfo, `/proc/modules`,
   nvidia-smi, glxinfo, vulkaninfo, vainfo and journalctl, each asked once under a fixed bound;
   facts first, then the words, and the exit status is the verdict. It only reads.
+- `internal/sshkey/` — `ssh-with-key`, `scp-with-key` and `ssh-copy-id-with-key` (spec
+  `SPEC-ssh-with-key.md`, E1-E20), three thin `cmd/` mains over one package: one login key,
+  `ssh -G` asked before connecting whether ssh's configuration would offer another, and the
+  program exec'd; with `-A`, the run re-executes itself under `ssh-agent` (its command mode, so
+  the agent ends with the run), adds the chosen keys with `ssh-add` and runs the program through
+  `execx.Foregrounder`. ssh-copy-id-with-key checks itself, with the new key alone, whether the
+  key is installed, then runs `ssh-copy-id -f`. No passphrase passes through it.
 - `internal/<package>/` — shared adapters, each behind an interface with a fake: `execx`
   (the command runner every external call goes through, and its recording `Fake`), `term`
   (exit codes, error printing), `ui` (gum and fzf prompts), `sudo`, `systemd`, `tmuxccy`,
@@ -275,7 +282,7 @@ the launcher's front `claude-yolo` (root-owned at `/var/local/claude-yolo/claude
 `play-vm-test-lab.yml` for `vmtest`, `play-ftp-camera.yml` for `ftp-camera`,
 `play-image-watermarking.yml` for `watermark`, `play-speech-to-text.yml` for `wsi` and
 `play-cli-tools.yml` for `open`, `convert` and `reclaim`, `play-nordvpn-openvpn.yml` for `nord`, `play-rclone.yml` for `rclone-cache-status` and `rclone-tail`,
-`play-basic-configs.yml` for `git-fetch-age` and `play-git-configure-and-tools.yml` for
+`play-basic-configs.yml` for `git-fetch-age` and the `ssh-with-key` family, and `play-git-configure-and-tools.yml` for
 `git-prompt-fetch`, and `play-claude-yolo.yml` (into the ccy image's build context) and
 `play-agent-bus.yml` (into the member kit, which LXC members copy) for `pingbus-status-line`,
 built with `go_command_static: true` (`CGO_ENABLED=0`) because it runs in other distributions

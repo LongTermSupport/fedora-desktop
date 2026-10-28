@@ -27,6 +27,12 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.101.2 — container 2.79.15
+
+- **No change to what ccy does.** The Go `term` package the launcher's front is built from
+  gains `ExpandHome` (the inverse of `AbbrevHome`), for the `ssh-with-key` family's port (Plan
+  00192); the bump is the launcher's code changing, not its behaviour.
+
 ## 3.101.1 — container 2.79.15
 
 Follows 3.101.0. Plan 00232. The image does not change.

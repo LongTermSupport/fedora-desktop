@@ -262,8 +262,14 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     against the real mokutil, vulkaninfo, glxinfo and vainfo output. Noted there: the akmods key
     file is absent while the modules load signed (section 1 warns, as it should). Left: H5 (the
     owner's, optional: the not-functional verdicts need a driver install or reboot).
-  - Still to do: the last programmes in [INVENTORY.md](INVENTORY.md) (the `ssh-with-key`
-    family) and the `ccy` launcher.
+  - The `ssh-with-key` family (P6): built on `go-port/ssh-with-key`, Fable-reviewed
+    ([subagent-reports/261028-fable-review-ssh-with-key.md](subagent-reports/261028-fable-review-ssh-with-key.md)),
+    findings fixed (B11: ssh-copy-id-with-key installed nothing; now it checks with the new key
+    alone and runs `ssh-copy-id -f`); spec [SPEC-ssh-with-key.md](SPEC-ssh-with-key.md) (D1-D5, E1-E20, B1-B12, H1-H5),
+    detail in [PORTS.md](PORTS.md). `play-basic-configs.yml` builds the three commands. H1-H4
+    are the host agent's (a throwaway key against a VM-lab guest); H5 (the owner's hosts, and
+    whether E11's refusal stands for a configuration with a global IdentityFile) is the owner's.
+  - Still to do: the `ccy` launcher (Plan 00191's, deferred there).
 
 - [x] ✅ **Task 3.4**: Freeze step 3's `acceptance.bash` compared live engine output with the
   baseline saved at the first deploy, so it failed (7 of 11) once containers started or stopped:

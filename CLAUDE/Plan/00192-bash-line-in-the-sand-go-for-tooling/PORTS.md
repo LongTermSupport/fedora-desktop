@@ -493,3 +493,42 @@ follow-ups F2 (the production timeout path untested), F3 (a library/driver versi
 after an akmod upgrade reads as "incomplete", not "reboot"), F4 (NVIDIA's own VA-API driver not
 probed), F5 (section 6 contradicts 2 when rpm fails), F6 (`nvidia-gpu` i2c noise shown as
 errors), F7 (INVENTORY.md still marks it interactive).
+The `ssh-with-key` family (P6: `ssh-with-key`, `scp-with-key`, `ssh-copy-id-with-key`) ported
+and cut over on `go-port/ssh-with-key`, Fable-reviewed and its findings fixed; spec
+[SPEC-ssh-with-key.md](SPEC-ssh-with-key.md) (D1-D5, E1-E20, B1-B12, H1-H5), `src-go/internal/sshkey`
+and three thin mains `src-go/cmd/{ssh,scp,ssh-copy-id}-with-key` (not one binary answering to
+its argv[0]: `tasks/build-go-command.yml` installs one command per name, and a binary that acts
+on the name it was started by changes when copied or linked). The main finding (B1): with
+`IdentitiesOnly=yes` ssh still offers every `IdentityFile` its configuration gives the host,
+and nothing on the command line clears them, so the bash's "only one key" was false under any
+`Host *` IdentityFile; E11 asks `ssh -G` before connecting and stops, naming the keys (the
+choice was sent to the lead for the owner; H5). Without `-A` the program is exec'd. With `-A`
+the run re-executes itself under `ssh-agent -- <itself>` (command mode: the agent exits when
+its parent goes, even after SIGKILL, where the bash's `eval "$(ssh-agent -s)"` and EXIT trap
+left one), trusts it only when a marker variable holds its own pid and the agent's parent is
+itself (`/proc`), adds the chosen keys with `ssh-add` in the foreground (it asks the passphrase
+itself; none passes through the tool), runs ssh or scp through `execx.Foregrounder`, then
+`ssh-agent -k`. Forwarding is now read from the options only (B3: the bash took `ls -A` in a
+remote command, `-oForwardAgent=no` and `-lAdmin` as asks). `term.ExpandHome` joins
+`term.AbbrevHome` (project_homeabbrev keeps `~` in `internal/term`). The bash files and their
+allowlist rows are gone; `ssh-with-agent.bash` stays for the two password wrappers, and
+`go-binary-suites.tsv` gives the three `qa-go`. No oracle against the bash. Checked in the
+container beyond the fakes: the built binary under a pty with a throwaway key, `HOME` in
+scratch and a `ProxyCommand` standing in for the host: the agent re-exec, the `/proc` check,
+`ssh-add`, the agent reaching ssh's children, `q` giving 130, no `ssh-agent` left after, and
+E11 refusing a `-F` configuration naming a second key. A real login is H2-H5. Host run queued
+in `meta-deploy.list` (`changed-plays`, expected to pick up `play-basic-configs.yml`).
+Review dispositions
+([subagent-reports/261028-fable-review-ssh-with-key.md](subagent-reports/261028-fable-review-ssh-with-key.md)):
+B1 fixed (B11, E20: ssh-copy-id folds every `-o` into its already-installed check, so the login
+key made every new key read as installed; the tool now requires `-i FILE`, logs in offering only
+its private half in batch mode, says "already installed" on a login or `Server accepts key:`,
+and otherwise runs `ssh-copy-id -f`; H2 now needs the dry run's `Would have added` line, the
+key working afterwards and one line of it in `authorized_keys`). F1 fixed (B12: `-o
+IdentityAgent` refused, and a forwarded run's probe refuses a configured `identityagent` or
+`forwardagent` socket). F2 fixed (the `meta-deploy.list` entry names `play-claude-yolo.yml`).
+F3 fixed (H4 requires one `Will attempt key:` line under `-A`). U1 fixed (`%h %n %r %p`
+expanded from `ssh -G`'s own lines; `%u` and the rest still count), U2 fixed (`none`), U3 fixed
+(a stale `SSH_WITH_KEY_AGENT` is named), U4 fixed (scp `-S` refused), U5 fixed (`-T` in every
+probe), U7 fixed (these lines no longer say "not merged"). U6 left by decision (typed-ahead
+keys between the menu and ssh; spec section 7).
