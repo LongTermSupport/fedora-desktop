@@ -168,6 +168,18 @@ are too, by the same route.
   at members.py's "gh is required and must be logged in" (78) and lxc-add says "declared … but
   not joined". Left for the owner: gh installed and logged in, in a real container; then the
   join, the agent start and its pingbus check. Finding: Task 9.9.
+  Owner, 2026-10-28: "Make it IaC". Built 28-10-26: `members.py` (the present phase that
+  `ccy-teams lxc-add`'s apply runs, through `play-agent-bus.yml`) now installs gh in each
+  container where it is missing, once every container has passed the other checks
+  (`GH_INSTALL_SH`: GitHub's apt or dnf repository, as `play-git-configure-and-tools.yml` does
+  for the host, or Alpine's `github-cli`; nothing when gh is there), then checks every agent
+  user's login before any team change and stops with one message giving, per missing login,
+  `sudo lxc-attach -n <container> -- su - <user> -c 'gh auth login --hostname github.com --web'`
+  and "ccy-teams lxc-add <team> again, or ccy-teams apply <team>". lxc-add's own failure text
+  points at that command instead of giving a second one. Left: the host agent's meta-deploy
+  run (`play-claude-yolo.yml` for the new `ccy-teams`, then `play-agent-bus.yml`: gh installed
+  in the throwaway container, the login message seen); the owner's device-code login only; then
+  `ccy-teams lxc-add <team>` again joins, and the agent start and pingbus check as above.
 - [x] ✅ **Task 9.9**: A member lxc-add declared that never joined (no bundle, as when gh is
   missing) could not be taken off: `state: absent` failed in `members.py` `_absent_one` with
   "the entry leaves out its host or seat", blocking every `play-agent-bus.yml` run (host agent,

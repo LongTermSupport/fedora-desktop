@@ -408,9 +408,12 @@ seat, which the launch creates (see [A ccy session: seats](#a-ccy-session-seats)
 pingbus checks every reference at GitHub with gh's login and has no other credential
 and no anonymous mode: `pingbus config check`, and every command that reaches the forge,
 stops (exit 78) with "gh is required and must be logged in: install gh and run
-`gh auth login --hostname github.com`". Whoever sets the member up provides it; nothing in
-this repository installs gh in a member or logs it in (only Plan 00161's acceptance run
-does, for the throwaway members it makes and removes). A ccy session already has it: the
+`gh auth login --hostname github.com`". Whoever sets the member up provides it. The one
+exception is an LXC member declared in `agent_bus_lxc_members`: `play-agent-bus.yml`
+installs gh in its container when it is missing, and says the command for the login, which
+stays the owner's (gh's one-time device code). Nothing in this repository logs gh in for a
+member (only Plan 00161's acceptance run does, for the throwaway members it makes and
+removes). A ccy session already has it: the
 container logs gh in from its own token at start. gh answers with `GH_TOKEN` or
 `GITHUB_TOKEN` when one is set in the member's environment, so either also meets the
 requirement.
@@ -472,9 +475,13 @@ The play records what it found per team in `/var/lib/agent-bus-applied/lxc/<team
 row, and `ccy-teams lxc-add` to name the team's stopped members before it asks; a team with no
 entry left keeps no record. The full rules are in
 [agent-bus-lxc-members.md](agent-bus-lxc-members.md#containers-that-are-not-running).
-The agent user must have gh logged in to github.com inside the container: the play checks
-it for every running container before it changes anything, and stops naming the container and
-`gh auth login` when it is missing; it never installs gh or supplies a token.
+The agent user must have gh logged in to github.com inside the container. Once every running
+container has passed the play's other checks, the play installs gh in it when missing (GitHub's
+apt or dnf repository, or Alpine's github-cli), then checks every agent user's login before any
+team changes, and stops with one message giving, for each login missing, the command to run on
+the host (`sudo lxc-attach -n <container> -- su - <user> -c 'gh auth login --hostname github.com --web'`).
+It never supplies a token; after the login, `ccy-teams lxc-add <team>` again (or
+`ccy-teams apply <team>`) finishes the join.
 `play-agent-bus.yml` adds the LXC bridge's subnet (read from the live `lxcbr0`, which
 `play-lxc-install-config.yml` sets up, by `ip -j -4 addr show`) to every present
 team's `allow_from`, so `allow_from` is only for other machines (WireGuard) or a

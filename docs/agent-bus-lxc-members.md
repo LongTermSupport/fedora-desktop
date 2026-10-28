@@ -12,16 +12,17 @@ Names below are placeholders: `<team>`, `<container>`, `<agent-user>`, `<role>`,
 The route this page recommends splits the work so the member's token never leaves the
 desktop's tooling:
 
-| The fedora-desktop host does                                                                                                                                 | The provisioner repository does                                                                 |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
-| Hosts the team and mints the member: an account and a token, together the **bundle**.                                                                        | Creates the container and starts it.                                                            |
-| Pushes the member kit, the bundle and the env file into the container (`lxc-attach`, as root and as the agent user) and puts the bundle in the agent's home. | Creates the agent user and its checkout; installs Python, Claude Code, gh and a few base tools. |
-| Checks the container before it changes anything, and runs `pingbus config check` in it on every run.                                                         | Logs gh in to github.com as the agent user.                                                     |
-| Keeps the member's handle fixed, and parks it when the member leaves.                                                                                        | Starts the agent's sessions with the bus switched on ([Starting sessions](#starting-sessions)). |
+| The fedora-desktop host does                                                                                                                                 | The provisioner repository does                                                                                               |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| Hosts the team and mints the member: an account and a token, together the **bundle**.                                                                        | Creates the container and starts it.                                                                                          |
+| Pushes the member kit, the bundle and the env file into the container (`lxc-attach`, as root and as the agent user) and puts the bundle in the agent's home. | Creates the agent user and its checkout; installs Python, Claude Code and a few base tools (gh too, or the play installs it). |
+| Checks the container before it changes anything, and runs `pingbus config check` in it on every run.                                                         | Logs gh in to github.com as the agent user.                                                                                   |
+| Keeps the member's handle fixed, and parks it when the member leaves.                                                                                        | Starts the agent's sessions with the bus switched on ([Starting sessions](#starting-sessions)).                               |
 
 The desktop's side is `agent_bus_lxc_members` in the desktop's `localhost.yml`, applied by
 `play-agent-bus.yml` (`helpers/agent_bus_lxc/members.py`). It never creates a container or a
-user, never installs gh and never supplies a token for gh. A running container that is missing
+user and never supplies a token for gh; it installs gh where it is missing, and the login is the
+owner's (below). A running container that is missing
 something stops the play with a message naming it; nothing is changed in any container until
 every declared running container has passed the checks. A container that is not running never
 stops the play: its member is held back until a run with the container up
@@ -41,21 +42,20 @@ changes anything. The "stops with" column is the message to look for; the play e
 prints it to stderr. A container that exists but is not running is not checked and is not a
 failure ([Containers that are not running](#containers-that-are-not-running)).
 
-| Prerequisite                                                                                                                                      | Checked by                                                              | A failure says                                                                                                              |
-| ------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| The container exists, in the desktop's LXC (`lxc-ls`)                                                                                             | `lxc-ls`, `lxc-info`                                                    | `LXC container <container> does not exist: this play joins existing containers, it never makes one`                         |
-| The agent user exists (`getent passwd` gives a home)                                                                                              | `lxc-attach`                                                            | `LXC container <container> has no user <agent-user>: make the agent user in the container first`                            |
-| gh is installed and logged in to github.com as the agent user                                                                                     | `gh auth token --hostname github.com`, as the agent user                | `LXC container <container>: gh is required and must be logged in for <agent-user>: install gh in the container and run ...` |
-| The container reaches the homeserver host's bus address through an LXC bridge of the desktop                                                      | The container's source address towards the bus address                  | `... is on no network of this host` or `... reaches <bus> through <dev>, which is not a bridge of this host`                |
-| The team admits that source address (the LXC bridge `lxcbr0` always is; another bridge needs `allow_from`)                                        | The team file                                                           | `team <team>'s allow_from (...) does not cover LXC container ... add "<cidr>" ...`                                          |
-| `python3` 3.11 or later, on `/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin` for root (the play runs `python3 -I` in the container) | The kit sync, as root                                                   | `pingbus needs Python 3.11 or later; this container has <version>`                                                          |
-| `runuser` (util-linux) and GNU `env` with `-C` (coreutils 8.28 or later)                                                                          | Every command run as the agent user is `runuser -u <user> -- env -i -C` | The failing command's own error, as `container <container>: ... failed (exit N)`; there is no separate version probe        |
-| `git`, and a checkout of a GitHub repository (an `origin` remote on github.com) at the declared `checkout` path                                   | `pingbus suggest-handle`, run as the agent user in the checkout         | `suggest-handle` refuses with its own message; a checkout that is not the declared `repo` is refused naming both            |
-| `systemd-detect-virt`, reporting an `lxc` container                                                                                               | `pingbus suggest-handle`                                                | `suggest-handle says --type=<type>, not lxc: the agent does not run in an LXC container` (or "needs systemd-detect-virt")   |
-| Claude Code (`claude`) on the agent user's `PATH`                                                                                                 | `agent-bus-claude`, at session start; the play does not check           | `agent-bus-claude: claude is not on PATH`                                                                                   |
-| No Element profile in the agent user's home                                                                                                       | `agent-bus-claude` and `pingbus config check`                           | `this user has an Element profile (...); an agent must never run as a user that holds a human's Matrix session`             |
-| The kit directory `/usr/local/share/agent-bus` is root-owned and not group- or world-writable, if it already exists                               | The kit sync                                                            | `<path> is not owned by uid 0 or is writable by others` (a kit copied by hand must go before the play installs it)          |
-| `/usr/local/bin/pingbus` and `/usr/local/bin/agent-bus-claude` are absent, or already links to the kit                                            | The kit sync                                                            | `<link> exists and is not a link to <kit>/<name>; README.lxc step 1 links it`                                               |
+| Prerequisite                                                                                                                                      | Checked by                                                              | A failure says                                                                                                            |
+| ------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| The container exists, in the desktop's LXC (`lxc-ls`)                                                                                             | `lxc-ls`, `lxc-info`                                                    | `LXC container <container> does not exist: this play joins existing containers, it never makes one`                       |
+| The agent user exists (`getent passwd` gives a home)                                                                                              | `lxc-attach`                                                            | `LXC container <container> has no user <agent-user>: make the agent user in the container first`                          |
+| The container reaches the homeserver host's bus address through an LXC bridge of the desktop                                                      | The container's source address towards the bus address                  | `... is on no network of this host` or `... reaches <bus> through <dev>, which is not a bridge of this host`              |
+| The team admits that source address (the LXC bridge `lxcbr0` always is; another bridge needs `allow_from`)                                        | The team file                                                           | `team <team>'s allow_from (...) does not cover LXC container ... add "<cidr>" ...`                                        |
+| `python3` 3.11 or later, on `/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin` for root (the play runs `python3 -I` in the container) | The kit sync, as root                                                   | `pingbus needs Python 3.11 or later; this container has <version>`                                                        |
+| `runuser` (util-linux) and GNU `env` with `-C` (coreutils 8.28 or later)                                                                          | Every command run as the agent user is `runuser -u <user> -- env -i -C` | The failing command's own error, as `container <container>: ... failed (exit N)`; there is no separate version probe      |
+| `git`, and a checkout of a GitHub repository (an `origin` remote on github.com) at the declared `checkout` path                                   | `pingbus suggest-handle`, run as the agent user in the checkout         | `suggest-handle` refuses with its own message; a checkout that is not the declared `repo` is refused naming both          |
+| `systemd-detect-virt`, reporting an `lxc` container                                                                                               | `pingbus suggest-handle`                                                | `suggest-handle says --type=<type>, not lxc: the agent does not run in an LXC container` (or "needs systemd-detect-virt") |
+| Claude Code (`claude`) on the agent user's `PATH`                                                                                                 | `agent-bus-claude`, at session start; the play does not check           | `agent-bus-claude: claude is not on PATH`                                                                                 |
+| No Element profile in the agent user's home                                                                                                       | `agent-bus-claude` and `pingbus config check`                           | `this user has an Element profile (...); an agent must never run as a user that holds a human's Matrix session`           |
+| The kit directory `/usr/local/share/agent-bus` is root-owned and not group- or world-writable, if it already exists                               | The kit sync                                                            | `<path> is not owned by uid 0 or is writable by others` (a kit copied by hand must go before the play installs it)        |
+| `/usr/local/bin/pingbus` and `/usr/local/bin/agent-bus-claude` are absent, or already links to the kit                                            | The kit sync                                                            | `<link> exists and is not a link to <kit>/<name>; README.lxc step 1 links it`                                             |
 
 Notes on the table:
 
@@ -64,10 +64,20 @@ Notes on the table:
   not use SSH, and it needs no network route from the desktop into the container.
 - The agent user needs no password and no sudo, and is never `root` (an entry or an answer
   naming `root` is refused). It must be a real login-style account with a home directory; the bundle goes to `~/.config/pingbus/<team>/`.
+- gh is not a prerequisite: once every container has passed the checks above that need no
+  change, the play installs gh where it is missing (GitHub's apt or dnf repository, as the
+  desktop gets it, or Alpine's `github-cli`; a container with none of `apt-get`, `dnf` or
+  `apk` is refused). Then, before any team changes, it checks every agent user's login
+  (`gh auth token --hostname github.com`; the token goes to `/dev/null` inside the container).
+  Each missing login is named in one message, with the command the owner runs on the desktop:
+  `sudo lxc-attach -n <container> -- su - <agent-user> -c 'gh auth login --hostname github.com --web'`.
+  gh shows a one-time device code to enter at GitHub; no token is written down or passed on a
+  command line. After it, `ccy-teams lxc-add <team>` again (or `ccy-teams apply <team>`)
+  finishes the join with no other step.
 - gh's login may be a stored login or `GH_TOKEN`/`GITHUB_TOKEN` in
   `~/.config/pingbus/env`. The play reads that file (when it exists) before it checks gh.
 - Python is the only language runtime the member kit needs. The play installs the kit as
-  files and two links in `/usr/local/bin`; it installs no packages.
+  files and two links in `/usr/local/bin`; gh is the only package it installs.
 
 ## The desktop side
 
@@ -117,8 +127,8 @@ Notes on the table:
    at "Update entry / Stop" for a member declared otherwise), writes the
    `agent_bus_lxc_members` entry (the file as it was is kept beside it as
    `localhost.yml.backup.<time>`) and applies the team, which is step 3. It ends by saying
-   what is left inside the container: `gh auth login` as the agent user if gh is not logged
-   in (the play stops naming it when it is not; fix that, then `ccy-teams apply <team>`), and
+   what is left inside the container: gh's login, when the play stopped for it (it gives the
+   command; after the login, `ccy-teams lxc-add <team>` again or `ccy-teams apply <team>`), and
    `agent-bus-claude` (the kit's launcher) as that user in the checkout. It looks, read only,
    for a Claude session of that user already running in the container: one started before
    the add has not joined, and is named with when it started, to be ended and started again.

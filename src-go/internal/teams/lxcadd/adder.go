@@ -824,7 +824,7 @@ func (a *Adder) write(ctx context.Context, ans answers) error {
 		"(ccy --teams, with no value)\n", ans.checkout, launcher)
 	a.term.Printf("  Check    set -a; . ~/.config/pingbus/env; set +a; pingbus config check && pingbus history --limit 1"+
 		"   (reads %s's room live, as this member)\n", ans.team)
-	a.term.Printf("  GitHub   the play checked that %s is logged in to GitHub there, and agent-bus-claude refuses to start "+
+	a.term.Printf("  GitHub   the play installed gh there if it was missing and checked that %s is logged in to GitHub, and agent-bus-claude refuses to start "+
 		"until it is; if it is ever logged out: gh auth login --hostname github.com, as %s.\n", ans.user, ans.user)
 	return nil
 }
@@ -863,9 +863,8 @@ func (a *Adder) declareAndApply(ctx context.Context, ans answers) error {
 				ans.takeover.holder, ans.team, ans.team)
 		}
 		return a.failed(ans.label() + " is declared in " + term.AbbrevHome(a.HostVars, a.Home) + " but not joined. " +
-			"If the cause above is about gh, log in inside the container as " + ans.user + ":\n" +
-			"  " + a.attach(ans) + "     (then gh auth login, and exit)\n" +
-			"Once the cause is fixed, ccy-teams apply " + ans.team + " joins it.")
+			"If the cause above is gh's login, run the command it gives (gh shows a one-time code to enter at GitHub). " +
+			"Once the cause is fixed, ccy-teams lxc-add " + ans.team + " again, or ccy-teams apply " + ans.team + ", joins it.")
 	}
 	return nil
 }

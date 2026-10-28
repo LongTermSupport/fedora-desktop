@@ -8,15 +8,19 @@ docs/agent-bus.md in the fedora-desktop repository.
 REQUIRED: gh in the container, logged in to github.com as the agent user. pingbus checks
 every reference at GitHub with gh's login and nothing else; without it `pingbus config
 check` and `agent-bus-claude` refuse (exit 78): "gh is required and must be logged in:
-install gh and run `gh auth login --hostname github.com`". Setting this up is yours,
-whether the member is joined by hand or by the play below; nothing here does it.
+install gh and run `gh auth login --hostname github.com`". By hand, setting this up is
+yours. The play below installs gh in the container when it is missing (GitHub's apt or
+dnf repository, or Alpine's github-cli); the login stays the owner's, by gh's one-time
+device code, and the play never writes a token.
 
 On a fedora-desktop host, declare the member in `agent_bus_lxc_members` instead and run
 play-agent-bus.yml: it runs these steps (helpers/agent_bus_lxc/members.py), adding a
 fixed `--seat` so the handle stays the same, leaves a member already joined alone, and
 refuses with what to fix. It needs `runuser` and GNU `env` (coreutils 8.28 or later) in
-the container, and checks gh's login for the agent user in every container before it
-changes anything, stopping with the container's name when it is missing. A member joined by hand keeps its numbered seat: declare it with `seat: <n>`.
+the container. Once every container has passed its checks it installs gh where it is
+missing, then checks gh's login for every agent user before any team changes, stopping
+with the one command to run for each login missing (`sudo lxc-attach -n <container> --
+su - <user> -c 'gh auth login --hostname github.com --web'`); a rerun then joins. A member joined by hand keeps its numbered seat: declare it with `seat: <n>`.
 A repository that makes the containers itself: docs/agent-bus-lxc-members.md in the
 fedora-desktop repository lists what it must provide and how its sessions start.
 Elsewhere, by hand:

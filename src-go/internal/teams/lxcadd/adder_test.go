@@ -753,10 +753,18 @@ func TestAFailedApplyKeepsTheEntryAndSaysHowToGoOn(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	said := r.ErrOut.String()
-	for _, want := range []string{"is declared in", "ccy-teams apply alpha", "gh auth login", "lxc-attach -P /var/lib/lxc -n container-a", "agent"} {
+	wants := []string{
+		"is declared in", "but not joined", "gh's login", "run the command it gives",
+		"ccy-teams lxc-add alpha again, or ccy-teams apply alpha",
+	}
+	for _, want := range wants {
 		if !strings.Contains(said, want) {
 			t.Fatalf("stderr lacks %q:\n%s", want, said)
 		}
+	}
+	// The play's message carries the one login command; a second, different one here would compete.
+	if strings.Contains(said, "lxc-attach") || strings.Contains(said, "gh auth login") {
+		t.Fatalf("a login command of its own is given beside the play's:\n%s", said)
 	}
 	if strings.Contains(said, "agent-bus-claude") || slices.Contains(r.lxc.reads, "sessions container-a agent -") {
 		t.Fatalf("the sessions step is offered before the member is applied:\n%s", said)
