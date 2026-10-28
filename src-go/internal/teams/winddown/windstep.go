@@ -87,6 +87,11 @@ type job struct {
 	// seen busy counts as idle again.
 	sawBusy bool
 	quietBy time.Time
+	// turnBy bounds the wait, once given the turn, for an idle, empty box to type /compact into;
+	// passes is how often the turn passed on for want of one (WC4). boundaryBy bounds the wait
+	// for a host session's compact_boundary once its pane is idle again (WC3).
+	turnBy, boundaryBy time.Time
+	passes             int
 }
 
 func (j *job) fail(note string) { j.result, j.note = resultFailed, note }
@@ -141,15 +146,16 @@ func (w *WindDown) windAll(ctx context.Context, jobs []*job) {
 		if !left {
 			return
 		}
-		nextCompaction(jobs)
+		nextCompaction(jobs, w.Now().Add(w.Waits.Settle))
 		w.Sleep(w.Waits.Poll)
 	}
 }
 
 // nextCompaction gives the turn to compact, when no session has it, to the coordinator if it is
 // waiting for one, else to the first session that is (WC4): one compaction at a time, and a
-// coordinator still answering holds up no one.
-func nextCompaction(jobs []*job) {
+// coordinator still answering holds up no one. A session the turn passed on from goes behind
+// those it has not; turnBy bounds the wait for its box.
+func nextCompaction(jobs []*job, turnBy time.Time) {
 	var next *job
 	for _, j := range jobs {
 		if j.result != resultPending {
@@ -159,7 +165,7 @@ func nextCompaction(jobs []*job) {
 		case phaseCompactWait, phaseCompact:
 			return
 		case phaseQueued:
-			if next == nil || (j.coordinator && !next.coordinator) {
+			if next == nil || j.aheadOf(next) {
 				next = j
 			}
 		case phaseIdle, phaseGoal, phaseText, phaseAnswer:
@@ -167,7 +173,16 @@ func nextCompaction(jobs []*job) {
 	}
 	if next != nil {
 		next.enter(phaseCompactWait)
+		next.turnBy = turnBy
 	}
+}
+
+// aheadOf is whether j has the turn before o: fewer passes, then the coordinator.
+func (j *job) aheadOf(o *job) bool {
+	if j.passes != o.passes {
+		return j.passes < o.passes
+	}
+	return j.coordinator && !o.coordinator
 }
 
 // listing is one pass's read of a tmux server's sessions.

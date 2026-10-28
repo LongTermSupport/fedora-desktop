@@ -91,17 +91,33 @@ func (w *WindDown) compactStep(ctx context.Context, j *job, state screen.State, 
 			w.answered(j)
 		}
 	case phaseCompactWait:
-		if state == screen.Ready {
-			at := w.Now()
-			if err := w.typeLine(ctx, j, compactText, phaseCompact); err != nil {
-				return err
-			}
-			j.compactAt, j.sawBusy, j.quietBy = at, false, time.Time{}
-		}
+		return w.takeTurn(ctx, j, state, now)
 	case phaseCompact:
 		return w.compacting(ctx, j, state, now)
 	case phaseIdle, phaseGoal, phaseText, phaseQueued:
 	}
+	return nil
+}
+
+// takeTurn types /compact into an idle, empty box once the session has the turn. A box not so
+// within the settle bound (busy again, or a line left in it) is not interrupted: the session goes
+// back to the queue and the turn passes on (WC4). A host session's context is read again first,
+// as it may have been compacted since it answered.
+func (w *WindDown) takeTurn(ctx context.Context, j *job, state screen.State, now time.Time) error {
+	if state != screen.Ready {
+		if !now.Before(j.turnBy) {
+			j.phase, j.passes = phaseQueued, j.passes+1
+		}
+		return nil
+	}
+	if !j.lxc && !w.aboveFloor(j) {
+		return nil
+	}
+	at := w.Now()
+	if err := w.typeLine(ctx, j, compactText, phaseCompact); err != nil {
+		return err
+	}
+	j.compactAt, j.sawBusy, j.quietBy, j.boundaryBy = at, false, time.Time{}, time.Time{}
 	return nil
 }
 
@@ -110,26 +126,45 @@ func (w *WindDown) answered(j *job) {
 	switch {
 	case j.noCompact != "":
 		j.fail(j.after("it was not compacted: " + j.noCompact))
-		return
-	case j.lxc:
+	case j.lxc || w.aboveFloor(j):
 		j.phase = phaseQueued
-		return
 	}
+}
+
+// aboveFloor reads a host session's context and is whether it is at or above the floor; a
+// session below it, or whose context cannot be read, is finished.
+func (w *WindDown) aboveFloor(j *job) bool {
 	tokens, err := w.Transcripts.ContextTokens(j.file)
 	if err != nil {
 		j.fail(j.after("it was not compacted: " + err.Error()))
-		return
+		return false
 	}
 	if tokens < j.floorTokens {
 		j.finish(false, "not compacted: its context, "+strconv.FormatInt(tokens, 10)+" tokens, is below the floor, "+j.floor.String()+" tokens")
-		return
+		return false
 	}
-	j.tokens, j.phase = tokens, phaseQueued
+	j.tokens = tokens
+	return true
+}
+
+// recorded finishes a host session whose transcript records its compaction, and fails one whose
+// transcript cannot be read; it is whether the job ended.
+func (w *WindDown) recorded(j *job) bool {
+	done, err := w.Transcripts.CompactedSince(j.file, j.compactAt.Unix())
+	if err != nil {
+		j.fail(j.after("its compaction could not be read: " + err.Error()))
+		return true
+	}
+	if done {
+		j.finish(true, "compacted (context "+strconv.FormatInt(j.tokens, 10)+" tokens, floor "+j.floor.String()+" tokens)")
+	}
+	return done
 }
 
 // compacting watches a typed /compact: a line left in the box is entered once more; a host
 // session is done when its transcript records the compaction, and an LXC member when its pane
-// is idle again (WC3).
+// is idle again (WC3). The transcript is written after the pane redraws, so a host session idle
+// again with no boundary is given the settle bound for it, its transcript read on every look.
 func (w *WindDown) compacting(ctx context.Context, j *job, state screen.State, now time.Time) error {
 	if state == screen.Typed {
 		return w.reenter(ctx, j, now, j.after("/compact stayed in its input box after a second Enter"))
@@ -141,14 +176,15 @@ func (w *WindDown) compacting(ctx context.Context, j *job, state screen.State, n
 		return nil
 	}
 	idle := w.idleAgain(j, state, now)
-	done, err := w.Transcripts.CompactedSince(j.file, j.compactAt.Unix())
 	switch {
-	case err != nil:
-		j.fail(j.after("its compaction could not be read: " + err.Error()))
-	case done:
-		j.finish(true, "compacted (context "+strconv.FormatInt(j.tokens, 10)+" tokens, floor "+j.floor.String()+" tokens)")
-	case idle:
-		j.fail(j.after("its compaction ended with no compact_boundary in its transcript; look at it (ccy-sessions)"))
+	case w.recorded(j):
+	case !idle:
+		j.boundaryBy = time.Time{}
+	case j.boundaryBy.IsZero():
+		j.boundaryBy = now.Add(w.Waits.Settle)
+	case !now.Before(j.boundaryBy):
+		j.fail(j.after("its compaction ended with no compact_boundary in its transcript within " + seconds(w.Waits.Settle) +
+			" of its end; look at it (ccy-sessions)"))
 	}
 	return nil
 }
@@ -174,17 +210,25 @@ func (w *WindDown) idleAgain(j *job, state screen.State, now time.Time) bool {
 }
 
 // windowEnded is a session the window ran out on: reported, not a failure, and not interrupted
-// (WC4a).
+// (WC4a). A host session's transcript is read once more first, so a compaction that ended on
+// this last look counts.
 func (w *WindDown) windowEnded(j *job) {
 	window := "at the end of the " + seconds(w.Waits.Window) + " window"
 	if j.noCompact != "" {
 		j.fail(j.after("it was not compacted: " + j.noCompact))
 		return
 	}
+	if j.phase == phaseCompact && !j.lxc && w.recorded(j) {
+		return
+	}
 	switch j.phase {
 	case phaseCompact:
 		j.finish(false, "its compaction had not finished "+window)
 	case phaseQueued, phaseCompactWait:
+		if j.passes > 0 {
+			j.finish(false, "not compacted: its box was not idle and empty when its turn to compact came, "+window)
+			return
+		}
 		j.finish(false, "not compacted: its turn to compact had not come, or its box was not idle, "+window)
 	case phaseIdle, phaseGoal, phaseText, phaseAnswer:
 		j.finish(false, "not compacted: it was still answering the wind-down "+window)

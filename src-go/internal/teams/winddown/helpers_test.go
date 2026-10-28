@@ -69,6 +69,14 @@ type session struct {
 	compactLooks int
 	compactFails bool
 	boundaryDue  bool
+	// boundaryLag is how many idle looks after the compaction's busy end show no boundary yet
+	// (the transcript is written after the pane redraws); boundaryAt, when set, writes the
+	// boundary at the first look at or after it instead, the pane still busy.
+	boundaryLag int
+	boundaryAt  time.Time
+	// busyAgain makes the session busy for good from the look after it has answered the
+	// wind-down (a cron tick or the supervisor putting it back to work).
+	busyAgain bool
 }
 
 // machine is teamtest's populated world with a stateful tmux and a clock.
@@ -282,6 +290,7 @@ func (m *machine) lxcTyped() []string {
 // look is what the pane shows now: busy while busyLooks lasts, else the box's text, else idle.
 // A line slow to clear shows once more after its Enter, and is entered then.
 func (m *machine) look(s *session) string {
+	m.writeDueBoundary(s)
 	switch {
 	case s.lagging:
 		s.lagging = false
@@ -290,15 +299,31 @@ func (m *machine) look(s *session) string {
 		return out
 	case s.busyLooks > 0:
 		s.busyLooks--
-		if s.busyLooks == 0 && s.boundaryDue {
-			s.boundaryDue = false
-			m.compacted(s)
-		}
+		m.writeDueBoundary(s)
 		return paneBusy
 	case s.box != "":
 		return paneHolding(s.box)
 	}
+	if s.boundaryDue && s.boundaryLag > 0 {
+		s.boundaryLag--
+	}
+	if s.busyAgain && len(s.entered) == 2 {
+		s.busyAgain, s.busyLooks = false, 100000
+	}
 	return s.pane
+}
+
+// writeDueBoundary writes the compaction's boundary once it is due: at boundaryAt when that is
+// set, else when the compaction's busy looks and the lag after them are over.
+func (m *machine) writeDueBoundary(s *session) {
+	due := s.busyLooks == 0 && s.boundaryLag == 0
+	if !s.boundaryAt.IsZero() {
+		due = !m.now.Before(s.boundaryAt)
+	}
+	if s.boundaryDue && due {
+		s.boundaryDue = false
+		m.compacted(s)
+	}
 }
 
 // press is one send-keys: the last two arguments are "-l <text>" or "<target> <key>".
@@ -331,10 +356,7 @@ func (m *machine) submit(s *session) {
 	if strings.HasPrefix(line, "/compact ") {
 		s.busyLooks = s.compactLooks
 		s.boundaryDue = s.transcript != "" && !s.compactFails
-		if s.busyLooks == 0 && s.boundaryDue {
-			s.boundaryDue = false
-			m.compacted(s)
-		}
+		m.writeDueBoundary(s)
 		return
 	}
 	if (line == goalClear && s.endAfterGoal) || (line != goalClear && s.endAfterText) {

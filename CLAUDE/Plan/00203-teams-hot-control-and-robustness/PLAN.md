@@ -333,6 +333,13 @@ team at a time, under a lock in the owner's runtime directory (CR4 to CR8).
     below the floor), and its resume typed `continue` (WC6).
   - [ ] ⬜ Follow-up WC5: `ccy-teams shutdown --compact`.
   - [ ] ⬜ Follow-up WC8: the supervisor wind-down request upstream.
+  - [x] ✅ Review fixes, tests first ([review fixes](subagent-reports/261028-wind-down-compact-fixes.md)):
+    the boundary's 30 s grace after the pane is idle (WC3), the bounded compaction turn (WC4),
+    the context read again at the turn, and the window's last look read first (WC4a).
+  - [ ] ⬜ FOLLOW-UP: an LXC member's "compacted" has no transcript evidence; read its
+    transcript in its container through lxc-attach, or tell Claude's compaction line from an error.
+  - [ ] ⬜ FOLLOW-UP: a UserPromptSubmit hook slower than 30 s makes a session "answered" before it
+    starts; name it in section 4's known limits, or judge the answer on the transcript.
 
 ## Decisions
 
