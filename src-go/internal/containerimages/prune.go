@@ -55,6 +55,7 @@ import (
 	"io/fs"
 	"maps"
 	"os"
+	"os/user"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -119,6 +120,13 @@ type Env struct {
 	UID      int
 	Stdout   io.Writer
 	Stderr   io.Writer
+	// EUID, Etc (where subuid and subgid are, "/etc") and LookupUser are old-range's, and so
+	// are Walk and Files, the store walk and root's file changes (nil and zero: the real ones).
+	EUID       int
+	Etc        string
+	LookupUser func(string) (*user.User, error)
+	Walk       walkFunc
+	Files      fileOps
 }
 
 // App is the command.

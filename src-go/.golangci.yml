@@ -220,6 +220,11 @@ linters:
       - path: internal/rclonecache/stats\.go
         linters: [tagliatelle]
         text: "CacheMax"
+      # container-images old-range decodes c/storage's own image records, whose keys are
+      # c/storage's (mapped-layers).
+      - path: internal/containerimages/oldrange_records\.go
+        linters: [tagliatelle]
+        text: "mapped-layers"
       # ccy-network-policy decodes `podman inspect`, whose keys are podman's own Go field names
       # (State, ResolvConfPath, EffectiveCaps).
       - path: internal/netpolicy/podman\.go
