@@ -61,7 +61,10 @@ changed-plays
 #    REMOVES the backlog of dangling images no container uses (over a day old), claude-yolo
 #    project images no container uses (over 30 days old) and buildah leftovers over a day old
 #    while no ccy build runs, logging each to ~/.local/state/fedora-desktop/container-images.log.
-#    It removes no volume and no image a container uses. It may take some minutes.
+#    It removes no volume and no image a container uses. It may take some minutes. Then
+#    play-claude-yolo.yml (Tasks 3.1-3.2) installs CCY 3.102.0 and rebuilds claude-yolo:latest:
+#    that build, and every ccy build and in-place update after it, removes the images it
+#    replaced (old :latest, :base, project images) that no tag names and no container uses.
 # 3. triage.bash --du again: the after figures.
 # 4. acceptance.bash (read-only): the timer is enabled with a next run, the first run
 #    succeeded and logged, no unused dangling image over a day old is left, every container

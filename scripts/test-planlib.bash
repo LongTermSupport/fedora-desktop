@@ -904,8 +904,9 @@ FOUND="$(plan_image_build 2>"${CAPTURE_FILE}")"
 RC=$?
 assert_eq "no build lock directory is no build" "3" "${RC}"
 # A real build, as the launcher runs one: its own ccy_image_build_locked takes the lock and
-# writes the record (a check of `false` always builds); the build is a sleep.
-bash -c 'source "$1" && ccy_image_build_locked claude-yolo:latest false -- sleep 8' _ "${CCY_BUILD_LOCK_LIB}" &
+# writes the record (a check of `false` always builds); the build is a sleep. Its self-prune
+# (lib/image-build-prune.bash) is `true`, which records nothing and removes nothing.
+CCY_CONTAINER_IMAGES=true bash -c 'source "$1" && ccy_image_build_locked claude-yolo:latest false -- sleep 8' _ "${CCY_BUILD_LOCK_LIB}" &
 BUILDER=$!
 for _ in 1 2 3 4 5 6 7 8 9 10; do
     if [[ -s "${LOCK}" ]] || ! kill -0 "${BUILDER}" 2>/dev/null; then

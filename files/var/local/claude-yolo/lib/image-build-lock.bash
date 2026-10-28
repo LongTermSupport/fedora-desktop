@@ -18,7 +18,12 @@
 # says on stderr every CCY_IMAGE_BUILD_REPORT_SECONDS (30) whose build it waits for and how to
 # stop it. Once it holds the lock it runs the check again, so it uses the image the holder built
 # instead of building it again. The build it runs gets no errexit (it runs as `build || rc=$?`),
-# so every build function checks each of its own steps.
+# so every build function checks each of its own steps. The build runs through
+# ccy_image_build_pruned (lib/image-build-prune.bash), which removes what it replaced.
+
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=image-build-prune.bash
+source "${BASH_SOURCE[0]%/*}/image-build-prune.bash"
 
 # ccy_image_build_locked <image> <check> [args...] -- <build> [args...]
 #   The check succeeds when no build is needed: it runs first without the lock, and again once
@@ -29,7 +34,7 @@ ccy_image_build_locked() {
     local key="${1:?ccy_image_build_locked needs the image}" dir file fd rc=0 waited="" seen
     local -a check=()
     shift
-    while [[ $# -gt 0 && "$1" != "--" ]]; do check+=("$1") && shift; done
+    while [[ $# -gt 0 && "$1" != "--" ]]; do check+=("$1"); shift; done
     if [[ $# -lt 2 || ${#check[@]} -eq 0 ]]; then
         printf 'ccy: ccy_image_build_locked %s needs <check> -- <build>.\n' "$key" >&2
         return 2
@@ -61,7 +66,7 @@ ccy_image_build_locked() {
     if "${check[@]}" >/dev/null {fd}>&-; then
         [[ -z "$waited" ]] || printf 'ccy: ✓ %s was built while this launch waited; using it.\n' "$key" >&2
     else
-        "$@" {fd}>&- || rc=$?
+        ccy_image_build_pruned "${key%%:*}" "$@" {fd}>&- || rc=$?
     fi
     : >"$file" || { printf 'ccy: could not empty the image build lock record %s.\n' "$file" >&2 && rc=1; }
     exec {fd}>&-

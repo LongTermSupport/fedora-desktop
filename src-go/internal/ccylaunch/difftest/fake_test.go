@@ -42,7 +42,7 @@ const (
 // from the scenario's rules: what the launcher asks of the world outside the sandbox. A Go
 // launcher must make the same calls.
 var observedTools = []string{
-	"ccy-network-policy", "ccy-teams", "ccy-token-usable", "claude", "curl", "docker", "docker-compose",
+	"ccy-network-policy", "ccy-teams", "ccy-token-usable", "claude", "container-images", "curl", "docker", "docker-compose",
 	"fzf", "getenforce", "gh", "gum", "loginctl", "notify-send", "podman", "podman-compose", "python3",
 	"ssh", "ssh-add", "ssh-agent", "ssh-keygen", "stty", "sudo", "systemctl", "systemd-run",
 	"timedatectl", "tmux", "tput", "xdg-open",

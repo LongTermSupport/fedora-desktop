@@ -61,6 +61,8 @@ const (
 	kindTag    = "tag"
 	kindCtr    = "container"
 	usage      = `usage: container-images prune [--yes]
+       container-images [--engine podman|docker] before <repository>
+       container-images [--engine podman|docker] replaced <repository> <ids-file>
 
   prune          list what the daily prune would remove from the podman store (a dry run)
   prune --yes    remove it: dangling images no container uses, over a day old; claude-yolo
@@ -68,6 +70,11 @@ const (
                  containers over a day old while no ccy image build runs. Dangling volumes
                  are listed, never removed. Each removal is logged to
                  ~/.local/state/fedora-desktop/container-images.log.
+  before         print each tag of the repository with its image id (ccy's build lock
+                 records this before a build)
+  replaced       remove each image of that record no tag now names and no container uses
+                 (ccy's build lock runs it after a build); ids-file may be /dev/stdin. The
+                 engine is --engine's, else CCY_CONTAINER_ENGINE's, else podman.
 `
 )
 
@@ -88,11 +95,14 @@ type App struct{ Env Env }
 
 // Run runs the command line.
 func (a App) Run(ctx context.Context, args []string) term.ExitCode {
+	req, rest, selfPrune := selfPruneArgs(a.Env.Getenv(engine.EnvName), args)
 	switch {
 	case len(args) == 1 && (args[0] == "--help" || args[0] == "-h"):
 		return a.print(a.Env.Stdout, usage)
 	case len(args) >= 1 && args[0] == "prune" && (len(args) == 1 || len(args) == 2 && args[1] == "--yes"):
 		return a.prune(ctx, len(args) == 2)
+	case selfPrune:
+		return a.selfPrune(ctx, req, rest)
 	default:
 		if code := a.print(a.Env.Stderr, usage); code != term.ExitOK {
 			return code
