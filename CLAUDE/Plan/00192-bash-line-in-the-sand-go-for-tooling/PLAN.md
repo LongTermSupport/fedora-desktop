@@ -7,10 +7,9 @@ and 4.2 are done; no code is left for workers. Left for the host agent: the
 `changed-plays` run queued in `meta-deploy.list` and its check (the next vmtest-nightly
 timer run evicts overlays and keeps every run directory, which also settles vmtest H5); the host checks
 of the merged ports still open (vmtest H3's base build and ssh-with-key H2 and H4's guest
-part and gh-account-setup H4's headless scenario, once the runs are pruned; gh-account-setup
-H3, a full `run.bash`); Task 3.2's root run is on hold until Plan 00209 Task 2.5 (see the task). Left
-for the owner: only what needs the owner in person, namely vmtest H7's `prune-runs --yes`
-(which the vmtest H3, ssh-with-key and gh-account-setup H4 checks wait on), open H5's Ctrl-C
+part, vmtest H4 and gh-account-setup H4's headless scenario, running now that the runs are
+pruned; gh-account-setup H3, a full `run.bash`); Task 3.2's root run is on hold until Plan
+00209 Task 2.5 (see the task). Left for the owner: only what needs the owner in person, namely open H5's Ctrl-C
 in mpv (it plays through the speakers), gh-account-setup H5 (Ctrl-C during H2's login) and
 vmtest H6 (a throwaway GitHub account to
 create), gh-account-setup H2 (a real GitHub device login), ftp-camera H3 and H4 (the physical
@@ -404,7 +403,11 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   else, naming what `prune-runs` would free; a failed run says the size of the overlay it kept.
   H7 PASS at `886288d70` (`$kRFFD7XyKl4N7zP_QpP9m39uVvM3NxHI55Kcb0HwOm0`): the dry run listed
   15 of 37 runs (a later pass of the scenario, or failed and older than 7 days), the three
-  bases untouched, "would free 107.5 GiB", and removed nothing. Open: `--yes`, the owner's call.
+  bases untouched, "would free 107.5 GiB", and removed nothing. `--yes` at the owner's word to
+  the host agent, 2026-10-28 (`$7wVDWemAHDml9Z6pGS5TIbDalKYTqipZLira-taMYvI`): "freed 107.5
+  GiB from 15 runs", the same 15 overlays as the dry run, the bases untouched, `runs/` from
+  108G to 15M with all 25 run directories kept (logs, `response.json`, signatures), and the
+  disk from 19G free to 146G. H7 PASS.
   The nightly sweep removed 12 passing runs' whole directories, plan-cited evidence included
   (`$7zLrx0PlxkebT2F8RqwaGSEf4cRO3g9cH6A7vOGvjrA`); it now removes only `*.qcow2` (E51, B19).
   The two reviews' follow-ups are fixed or answered (subagent-reports/261028-vmtest-follow-ups.md).
