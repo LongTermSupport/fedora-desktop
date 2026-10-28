@@ -442,10 +442,21 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   qa-all's by a golden replay of the legacy script plus the Go tests that took over the cases of
   the deleted `qa-helper-summary` suite. That meets the criterion because the replay compares the
   Go with the bash byte for byte, and a difference is allowed only as a numbered bug pinned with
-  its reason, which a suite of a deleted tool could no longer do.
-- [ ] Each defect class found in the ports has a rule, or a recorded reason it cannot
+  its reason, which a suite of a deleted tool could no longer do. Not yet shown for every merged
+  port (the audit, `subagent-reports/261028-defect-classes-audit.md`): open, the rclone tools,
+  setup-rclone, reclaim, nord and nvidia-status had no suite; wsi's suite drives the Go binary;
+  but vmtest's four bash suites were deleted with their cases moved into Go tests, with no
+  record of a run against the Go binary before cut-over, and the record is not read yet for
+  ftp-camera, watermark, gh-account-setup and the ssh-with-key family.
+- [x] Each defect class found in the ports has a rule, or a recorded reason it cannot
   ([GoProjectRules.md](../../GoProjectRules.md): `project_waitdelay` for the dropped capture
-  (B25); the `sudo -n -v` probe is recorded as not a rule, with what holds it).
+  (B25); the `sudo -n -v` probe is recorded as not a rule, with what holds it). The audit of
+  the P6 ports and vmtest's prune-runs, retention and sweep
+  (`subagent-reports/261028-defect-classes-audit.md`) found 19 classes: a new rule,
+  `project_duration_overflow`, for a Duration built from an unbounded number (6 found, all
+  fixed); three held by existing linters (`errcheck`, gosec G304, `project_seam_commands`); and
+  15 recorded under "Defect classes that cannot be a rule" (13 new, two existing entries
+  extended), each with what holds it.
 
 ## Delivery & Milestones
 

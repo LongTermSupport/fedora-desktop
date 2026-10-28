@@ -718,6 +718,19 @@ guessing; the catalogue claims no more than the code does.
   bad credentials or a rate limit asked the person for another name. Only gh's `(HTTP 404)` is
   not found now (`ghNotFound`); any other failure ends the run with gh's own words. What holds
   it: the wizard's tests, which run a 404 against no network, a 401, a 403 and a 502.
+  The Plan 00192 P6 ports found it again in both directions, in their bash and in review (the
+  defect-class audit, `subagent-reports/261028-defect-classes-audit.md` of that plan): a probe
+  that cannot tell no match from an error (`journalctl -g` exits 1 on no match, so nvidia-status's
+  bash said "could not read the journal" on every clean boot, B2; `modinfo` failing for another
+  reason read as "not built", B8), an error read as an answer (reclaim's failed `dnf repoquery`
+  read as "no orphaned packages", B3; open's failing type detector discarded, B11; an unknown
+  `mokutil --test-key` answer read as "not enrolled", B6), a success read as a verdict it does not
+  give (ssh-copy-id's own check logged in with the login key and called every new key installed,
+  ssh-with-key B11), and a timeout told by the error it does not return (`execx.OS` gives the
+  SIGTERM's `ExitError`, not the deadline: nvidia-status F2). What holds them: each tool's tests
+  of every answer the program can give (nvidia-status's parsers against real output and
+  `TestTimeoutIsNamedNotTheKill`, run on the real error shape; reclaim's B3 scenario; sshkey's
+  probe tests with the new key alone), and the host checks, which run the real programs.
 
 - **A declare.py refusal given the wrong kind** (the other half of `project_refusal_kind`, Plan
   00201): `check_lxc` and `derive_lxc` raised a clash with an entry already in the file as a
@@ -798,6 +811,102 @@ guessing; the catalogue claims no more than the code does.
   left: a screen followed only by a prompt that reads a typed line (the bash launcher's
   `ccy_tmux_pick` then `read -rp`), where an echo is what the person needs; `ccy-teams`' "Press
   Enter to go back to the list", read held, since it waits for Enter alone.
+  Plan 00192's ssh-with-key review found the same class (U6: keys typed between the key menu and
+  ssh are read into the menu's buffer and lost); that family does not run under the hold yet.
+
+The classes below were found by Plan 00192's audit of the P6 ports (reclaim, open, nord,
+nvidia-status, the ssh-with-key family, and vmtest's prune-runs, retention and sweep), in the
+bash they replaced and in the Go during review; each instance is in the audit report
+(`subagent-reports/261028-defect-classes-audit.md` of that plan).
+
+- **A secret reaching an argv, an output or a log** (nord: the bash passed the VPN password to
+  `nmcli connection modify` in argv, visible in `/proc/<pid>/cmdline`, B3, and its
+  troubleshooting said to `cat` the credentials file, B11; nmcli may echo a fed line). Which
+  string is a secret is meaning: no shape tells a password from any other argument, and gosec's
+  G101 sees only credentials written in the source. What holds it: `execx.Secret` and
+  `execx.Feed`, which refuse at run time a command whose argv holds the value (`checkSecrets`)
+  and print as its name only; nord's `creds.hide` over nmcli's output; and the tests that check
+  every recorded argv, both streams and the log for the password (`wantNoPassword`).
+- **Output on the wrong stream, or terminal bytes into a pipe** (open's `--list` on stderr, B12;
+  nvidia-status's `--check` printing lines, B3, and colour escapes written into a pipe, B10).
+  Which text is a command's payload is meaning ([StderrHygiene.md](StderrHygiene.md)). What
+  holds it: each tool's tests assert stdout and stderr apart, colour is drawn only when
+  `IsTerminal` and no `NO_COLOR`, and the reviews read every print against the rule.
+- **A removal wider than the action means** (vmtest's sweep removed whole passing-run
+  directories, with the transcripts plans cite as evidence, where only the overlay frees disk,
+  B19; it removed the disk of a fast-base build still running, inferring "failed" from the
+  directory's existence; reclaim's bash pruned every unused tagged image with `-af`, B16, and
+  cleared through a symlinked `~/.cache`, B13; nord's `cleanup` removed every profile unasked,
+  B18). What may be removed is meaning. A rule that every `os.RemoveAll` carry a table row with
+  its reason was weighed and not built: the module has 15, and the sweep's whole-directory
+  removal would have got its row from the same belief that was wrong. What holds it: the tests
+  that name what must survive (`TestE51Sweep`, `TestE51SweepKeepsALiveBuild`,
+  `TestE51SymlinksAreLeft`, reclaim's prune and clear tests), the specs (SPEC-vmtest E51, E61;
+  SPEC-reclaim E22, E24), and a default-no question before every destructive action
+  ([InteractiveScripts.md](InteractiveScripts.md) rule 6).
+- **Ordering or ageing by a value the code itself changes** (the sweep ordered runs by their
+  directory's mtime, which a removal inside moves, so a run it had just evicted read as the
+  newest). Whether a `ModTime` belongs to a directory, and whether anything changes it, is not
+  in the syntax tree; the search over the module found no other directory's mtime ordered by
+  (`transcript` and `ftpcamera` read regular files). What holds it: the sweep orders by the
+  start time in the run id, and `TestE51Sweep` gives the newest run the oldest mtime.
+- **A live thing taken as a leftover** (the sweep and the build directory above; a run
+  `prune-runs` must not touch while it boots). Whether a process holds something is a run-time
+  fact. What holds it: libvirt's listing and the run's `run.lock`, both read before a removal
+  (SPEC-vmtest E61, E63), and the tests of a live run and a running build.
+- **A record that says done before it is** (`retention.log` said "evicted" before a removal that
+  then failed, and a partial `prune-runs --yes` named nothing it had removed; a Ctrl-C landing
+  after nord's connect turned a success into `Cancelled.`, U5). Which order is true is meaning.
+  What holds it: `TestE62PruneRunsRemovalFails` and `TestE51SweepRemovalFails` (the log's
+  `failed to remove` line and the "removed so far" list).
+- **An interrupt that kills a change half made, or is misread** (nord's and reclaim's bash died
+  on Ctrl-C with nmcli or dnf still changing the machine, nord B16 and F2, reclaim B15 and M-1;
+  open reported a handler ended by Ctrl-C as `exited -1`, B20). Which command changes state and
+  must finish is meaning. What holds it: changing commands run under `context.WithoutCancel`
+  and, where the terminal's SIGINT would reach them, in their own session (`execx` `NewSession`);
+  each tool's cancel tests, and reclaim's `TestCtrlCEndsTheRun`, which sends a real SIGINT.
+- **A value another program re-parses, written or read differently from how it reads it**
+  (nmcli splits `vpn.secrets` at `,` and trims, so a password with a comma was stored as half,
+  nord B17; a path starting `-` reached `jq` as an option, open B16; the bash read ssh's options
+  with a wrong list of argument letters, ssh-with-key B3 and B4; `IdentityFile` tokens and
+  `none`, U1 and U2; another spelling of a forwarded agent, B12). Each depends on one program's
+  grammar. What holds it: the value refused before it reaches the program (`readCredentials`),
+  the `./` prefix, the tests against the program's own option strings (scp's getopt string), and
+  the host checks.
+- **A structured value matched as loose text** (`lsmod | grep "^nvidia"` counted `nvidia_drm`,
+  nvidia-status B5; `grep -F | head -1` picked an older profile, nord B8; any `://` read as a URL
+  and a desktop ID matched at any depth, open B15 and B3; a package asked by its old name,
+  nvidia-status B1). What a field is, is meaning. What holds it: parsers that split the fields
+  the program prints, and tests of the near-miss names (`nvidia_drm`, two profiles of one name).
+- **A fake that answers what the real program does not** (reclaim's fake answered any unscripted
+  command, M-2; nvidia-status's fake returned the deadline where `execx.OS` returns the kill,
+  F2; nord's fake cancelled a context where a terminal delivers SIGINT, F2; ssh-copy-id's check
+  was assumed, not read, B11). Whether a fake is faithful is a fact about the real program.
+  What holds it: fakes that fail on an unscripted command (`execx.ErrUnexpected`), tests run
+  on the real error shape, and each port's host checks (`H*`), which run the real programs.
+- **A verdict that names the wrong next step** (nvidia-status told a person to enrol a key with
+  Secure Boot off, B14, called a driver/library mismatch "incomplete" instead of a reboot, B15,
+  and sent a person to the blue screen with nothing queued, B19; open's bash advised `--ask`
+  where there is no terminal, B17; hints of `sudo dnf install` instead of the play, nord B7,
+  nvidia-status B12). Which step is right is meaning. What holds it: the verdict tests
+  (`TestVerdictOrder`, `TestMokKey`) and the review of every message against the play.
+- **A command with no bound, or a resource never given back** (nvidia-status's bash waited for
+  ever on a hung `nvidia-smi`, B11; vmtest kept every failed run's overlay for ever, about 108G
+  on the host; ssh-with-key's bash left an agent holding forwarded keys when killed, B7). Which
+  command may hang, and what must be reclaimed when, is design. What holds it: fixed bounds on
+  each probe (and `project_realtime_bound` for a bound a test could shorten), `prune-runs` and
+  the disk guard (SPEC-vmtest E61, E64), and ssh-agent's command mode, which ends with the run.
+- **Mechanical, but one site** (statfs's free space computed with `Bsize` where POSIX counts
+  `Bavail` in `Frsize` units, vmtest F7). A rule is possible (any `Statfs_t.Bsize` in a product)
+  and would guard one function: `freeOf` is the module's only free-space reading, and
+  `TestFreeOfCountsFragments` (Bsize 4096, Frsize 1024) holds it.
+
+Classes the bundled linters already hold, each seen firing on a minimal case in the audit: an
+error or status thrown away (the bash's `|| true`, unchecked process substitutions and
+`2>/dev/null`: nord B3, B11, reclaim B3, B6, open B5, B10, B11) is `errcheck`'s and `nilerr`'s in
+Go, and the hooks' `R-ERROR-HIDING`; a path joined from a name the user gave (nord's
+`connect ../x`, B2) is gosec's G304, and nord matches the name against the listing instead; a
+shell template (open's `bash -c` handlers, B8) is `project_seam_commands`' `sh -c` finding.
 
 ## Control
 
