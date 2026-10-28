@@ -48,3 +48,13 @@
 # play-speech-to-text.yml rebuilds wsi (a stop grace over the setting's 30 seconds is refused).
 # Rebuilds only: nothing is rebooted, recorded or pruned, and nothing is asked.
 changed-plays
+# Plan 00235 Task 2.1, triage only (read-only, needs no sudo, asks nothing): re-measures the
+# rootless podman store the plan rests on: disk free on / and /home, `podman system df` (its
+# exit status recorded), the store's size on disk (--du, walked inside `podman unshare`, slow
+# on a large store), image counts (dangling, and dangling used by no container, with their
+# summed size), dangling images by month created, the newest 400 dangling by title and
+# claude-yolo-version label, every tag and whether a container uses it, containers and
+# buildah leftovers, volumes and which are dangling, user timers, and whether the deployed ccy
+# tree removes any image. It lists and inspects only: nothing is removed, pruned, built or
+# pulled. The report is in the run directory under untracked/plan-runs/.
+00235-podman-images-cleaned-up-automatically --du
