@@ -263,12 +263,12 @@ func TestE58MemberSSH(t *testing.T) {
 	k.wantCode(k.run("member-ssh", "m5", "dnf", "-y", "install", "git-core"), 124)
 	k.wantErr("ERROR: member-ssh m5: the command did not finish within 1s (VMTEST_MEMBER_SSH_TIMEOUT)")
 
-	for _, bad := range []string{"soon", "0", "-5", "1.5"} {
+	for _, bad := range []string{"soon", "0", "-5", "1.5", "86401", "9223372037"} {
 		k = newKit(t)
 		k.write("members/m5/ssh-port", "40123\n")
 		k.env["VMTEST_MEMBER_SSH_TIMEOUT"] = bad
 		k.wantCode(k.run("member-ssh", "m5", "true"), term.ExitFailure)
-		k.wantErr("VMTEST_MEMBER_SSH_TIMEOUT must be a positive number of seconds, got '" + bad + "'")
+		k.wantErr("VMTEST_MEMBER_SSH_TIMEOUT must be a positive number of seconds up to 86400, got '" + bad + "'")
 	}
 
 	k = newKit(t)

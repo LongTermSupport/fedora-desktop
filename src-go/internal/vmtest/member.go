@@ -20,7 +20,10 @@ import (
 
 const (
 	memberSSHDefault = 1800
-	memberPortFile   = "ssh-port"
+	// memberSSHMax is the longest VMTEST_MEMBER_SSH_TIMEOUT taken, a day: a guest command
+	// that runs longer is hung, and a number past a time.Duration would wrap the bound negative.
+	memberSSHMax   = 86400
+	memberPortFile = "ssh-port"
 )
 
 var memberNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
@@ -254,8 +257,8 @@ func (c *cli) cmdMemberSSH(ctx context.Context, args []string) error {
 	limit := memberSSHDefault
 	if raw := c.env.Getenv("VMTEST_MEMBER_SSH_TIMEOUT"); raw != "" {
 		limit, err = strconv.Atoi(raw)
-		if err != nil || limit <= 0 || strconv.Itoa(limit) != raw {
-			return failf("VMTEST_MEMBER_SSH_TIMEOUT must be a positive number of seconds, got '%s'", raw)
+		if err != nil || limit <= 0 || limit > memberSSHMax || strconv.Itoa(limit) != raw {
+			return failf("VMTEST_MEMBER_SSH_TIMEOUT must be a positive number of seconds up to %d, got '%s'", memberSSHMax, raw)
 		}
 	}
 	g := &guest{c: c, key: key, port: port}

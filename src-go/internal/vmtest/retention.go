@@ -81,7 +81,7 @@ func planPrune(runs []runFacts, now time.Time, days int) []pruneDecision {
 			d.action, d.reason = actionPrune, "passed"
 		case later != "":
 			d.action, d.reason = actionPrune, "a later run of "+r.scenario+" passed: "+later
-		case now.Sub(r.started) > time.Duration(days)*24*time.Hour:
+		case now.After(r.started.AddDate(0, 0, days)):
 			d.action, d.reason = actionPrune, fmt.Sprintf("did not pass, and is older than %d days", days)
 		default:
 			d.reason = fmt.Sprintf("did not pass; kept for diagnosis until a later run of %s passes or it is older than %d days", r.scenario, days)

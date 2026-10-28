@@ -87,6 +87,8 @@ bash originals are gone (`scripts/gh-account-setup.bash`, `scripts/setup-rclone.
   `sessprobe`, `fsx` (atomic file writes), `ccyenv` (is CCY installed, is this a container),
   `ghlogin` (gh's github.com logins, and each one's own token as GH_TOKEN, so a call acts as one
   login without `gh auth switch`),
+  `duration` (`duration.Times`, a Duration times a number that refuses a product past int64,
+  for a number no refusal in its package bounds: `project_duration_overflow`),
   `shellword` (POSIX shell quoting for a command shown to a person or a value a shell reads),
   `ttyecho` (the terminal's echo held off from an interactive command's first screen to the end
   of its run, so keys typed between two screens are not echoed but kept for the next screen,
@@ -177,7 +179,8 @@ bash originals are gone (`scripts/gh-account-setup.bash`, `scripts/setup-rclone.
 
 - **Project rules.** `qa/` is a nested module (so the QA tooling's dependencies stay out of
   this `go.mod` and out of the binaries) of `go/analysis` rules for the defect classes the ports hit: one process seam, owned programs,
-  tmux target forms, no wall clock in tests, no real-time bound a test can shorten, one home abbreviation, a `WaitDelay` that names
+  tmux target forms, no wall clock in tests, no real-time bound a test can shorten, no Duration
+  built from a number nothing bounds, one home abbreviation, a `WaitDelay` that names
   its error, no action reachable only by a key (a key reaches fzf only as a `ui.Action`, and a Bubble Tea key only `internal/ui`, through a
   `key.Binding` with help; Tab completing a text input is navigation).
   [GoProjectRules.md](../CLAUDE/GoProjectRules.md) is the catalogue.

@@ -263,6 +263,22 @@ func TestW12EachPreflightFailureIsExit1BeforeTheMicrophone(t *testing.T) {
 	}
 }
 
+// The setting's schema allows 0 to 30 seconds; a larger answer is not the setting, and one
+// past a time.Duration would wrap negative and stop at once (project_duration_overflow).
+func TestW13AGraceOverTheSettingsRangeIsRefused(t *testing.T) {
+	for _, big := range []string{"31", "9223372037"} {
+		k := newKit(t)
+		k.run.On([]string{filepath.Join(k.bin, "wsi-stop-grace")}, execx.Result{Stdout: []byte(big + "\n")})
+		if code := k.exec(); code != 1 {
+			t.Fatalf("%s: exit %d", big, code)
+		}
+		k.wantStderr("[ERROR] The stop grace is " + big + "s, more than the 30s the setting allows (" + filepath.Join(k.bin, "wsi-stop-grace") + "; re-run play-speech-to-text.yml)")
+		if k.rec.started != 0 {
+			t.Fatalf("%s: recorded", big)
+		}
+	}
+}
+
 func TestW13NoGraceNoRecording(t *testing.T) {
 	for _, res := range []execx.Result{{ExitCode: 1}, {Stdout: []byte("uint32 3\n")}} {
 		k := newKit(t)

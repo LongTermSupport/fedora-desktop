@@ -17,6 +17,10 @@ import (
 
 var wholeSeconds = regexp.MustCompile(`^[0-9]+$`)
 
+// maxVerifyWait is the longest --wait taken, a day: a restore that has not settled by then is
+// not settling, and a number past a time.Duration would wrap the wait negative.
+const maxVerifyWait = 86400
+
 // parseVerify reads `verify-restore [--wait SECONDS]`; a mistake is returned as its sentence.
 func parseVerify(args []string) (time.Duration, string) {
 	var wait time.Duration
@@ -31,6 +35,9 @@ func parseVerify(args []string) (time.Duration, string) {
 		secs, err := strconv.Atoi(value)
 		if !wholeSeconds.MatchString(value) || err != nil {
 			return 0, fmt.Sprintf("--wait needs a whole number of seconds; got '%s'.", value)
+		}
+		if secs > maxVerifyWait {
+			return 0, fmt.Sprintf("--wait takes at most %d seconds; got '%s'.", maxVerifyWait, value)
 		}
 		wait = time.Duration(secs) * time.Second
 		i++

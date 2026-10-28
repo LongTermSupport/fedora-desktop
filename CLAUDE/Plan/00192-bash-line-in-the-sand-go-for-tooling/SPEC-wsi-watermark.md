@@ -138,7 +138,9 @@ Python and are run from the directory the binary is in.
 - W13. The stop grace is what `<bin dir>/wsi-stop-grace` prints (a whole number of seconds);
   it failing, or printing anything else, is
   `Cannot read the stop grace (<path> failed; re-run play-speech-to-text.yml)`, exit 1, before
-  the microphone opens.
+  the microphone opens. A grace over 30 seconds, the top of the setting's schema range, is
+  `The stop grace is <n>s, more than the 30s the setting allows (<path>; re-run play-speech-to-text.yml)`,
+  exit 1, the same way (project_duration_overflow).
 - W14. Without a server: the language is `--language`, else `$WHISPER_LANGUAGE` if set (even
   empty), else `<bin dir>/wsi-setting language` (`system` means `$LANG`, default
   `en_GB.UTF-8`, up to its first `_`); a failing setting reader is

@@ -33,6 +33,10 @@ const (
 
 var wholeSeconds = regexp.MustCompile(`^[0-9]+$`)
 
+// maxStopGrace is the largest stop-grace-seconds the extension's schema allows (its range is
+// 0 to 30); a larger answer is not the setting.
+const maxStopGrace = 30
+
 const banner = `┌─────────────────────────────────────────────────────────────────┐
 │  WSI - Whisper Speech Input v2.0 (Enhanced)                    │
 │  Speech-to-text orchestrator for GNOME extension               │
@@ -233,6 +237,9 @@ func (r *run) readGrace(ctx context.Context) error {
 	}
 	if err != nil || !wholeSeconds.MatchString(out) {
 		return r.fail(ctx, "Cannot read the stop grace ("+path+" failed; re-run play-speech-to-text.yml)")
+	}
+	if r.grace > maxStopGrace {
+		return r.fail(ctx, fmt.Sprintf("The stop grace is %ds, more than the %ds the setting allows (%s; re-run play-speech-to-text.yml)", r.grace, maxStopGrace, path))
 	}
 	r.log.debug(fmt.Sprintf("Stop grace: %ds", r.grace))
 	return nil

@@ -175,7 +175,9 @@ func TestW16TheRealRecorderIsInterruptedWhenStopped(t *testing.T) {
 }
 
 func TestW16ALimitIsArmedEvenWhenAStopWasPendingAtTheEndOfThePrepareDelay(t *testing.T) {
-	k := graceKit(t, "100")
+	// The grace is the setting's largest but one (30 is the schema's top, W13); its timer is not
+	// fired here, so only the limit can end the recording.
+	k := graceKit(t, "29")
 	delete(k.onState, "RECORDING")
 	k.held = make(chan chan time.Time, 1)
 	k.autoFire[maxRecording] = true

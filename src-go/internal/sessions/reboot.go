@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/duration"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -176,7 +176,11 @@ func (a *App) secondWarning(ctx context.Context, run *rebootRun) (term.ExitCode,
 		a.sayf("would wait %d minute(s), then warn again at one minute\n", run.minutes-1)
 		return term.ExitOK, false
 	}
-	wait := time.Duration(run.minutes-1) * a.cfg.Minute
+	wait, err := duration.Times(run.minutes-1, a.cfg.Minute)
+	if err != nil {
+		a.sayf("cannot wait %d minute(s): %v\n", run.minutes-1, err)
+		return term.ExitFailure, true
+	}
 	if a.Pause(wait, run.sig) {
 		return a.cancelled(run), true
 	}

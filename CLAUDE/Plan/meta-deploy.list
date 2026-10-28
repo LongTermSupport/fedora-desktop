@@ -41,4 +41,10 @@
 # is asked. The host agent then checks, read-only, that `vmtest prune-runs` (the dry run) still
 # lists its plan and that the next vmtest-nightly timer run's journal shows no new kept build
 # line in retention.log; it does not run vmtest nightly or prune-runs --yes by hand.
+# Also expected, for the project_duration_overflow fixes (Plan 00192 criterion 3):
+# play-vm-test-lab.yml's vmtest refuses VMTEST_MEMBER_SSH_TIMEOUT over 86400 and prunes by
+# calendar days; play-claude-yolo.yml rebuilds ccy-sessions (reboot and notify take at most
+# 10080 minutes, verify-restore --wait at most 86400 seconds, its timing knobs at most a day);
+# play-speech-to-text.yml rebuilds wsi (a stop grace over the setting's 30 seconds is refused).
+# Rebuilds only: nothing is rebooted, recorded or pruned, and nothing is asked.
 changed-plays

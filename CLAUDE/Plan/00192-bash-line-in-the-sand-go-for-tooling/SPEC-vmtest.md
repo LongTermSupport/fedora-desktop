@@ -433,7 +433,7 @@ The tests cite these numbers.
   says so with the `member-down` hint, and exits non-zero (E4 for a signal).
 - E58. `member-ssh <name> <command...>` needs no lab load. It needs `members/<name>/ssh-port`
   holding a number, the lab key, and `VMTEST_MEMBER_SSH_TIMEOUT` (default 1800) as a positive
-  whole number of seconds. It runs ssh with the E22 options, `ServerAliveInterval=15` and
+  whole number of seconds up to 86400 (a day; more would also wrap the bound negative). It runs ssh with the E22 options, `ServerAliveInterval=15` and
   `ServerAliveCountMax=4`, with stdin, stdout and stderr passed through. It exits with the remote
   command's status. At the bound it exits 124 with
   `ERROR: member-ssh <name>: the command did not finish within <n>s (VMTEST_MEMBER_SSH_TIMEOUT)`.

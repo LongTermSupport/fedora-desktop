@@ -291,6 +291,8 @@ func TestVerifyRestoreUsageMistakes(t *testing.T) {
 		{[]string{"--wait", "soon"}, "--wait needs a whole number of seconds; got 'soon'."},
 		{[]string{"--wait"}, "--wait needs a whole number of seconds; got ''."},
 		{[]string{"--wait", "-1"}, "--wait needs a whole number of seconds; got '-1'."},
+		{[]string{"--wait", "86401"}, "--wait takes at most 86400 seconds; got '86401'."},
+		{[]string{"--wait", "9223372037"}, "--wait takes at most 86400 seconds; got '9223372037'."},
 		{[]string{"--bogus"}, "unknown verify-restore option '--bogus'."},
 	}
 	for _, c := range cases {

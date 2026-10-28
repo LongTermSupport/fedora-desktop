@@ -675,6 +675,26 @@ package (a usage error or a failure naming the largest value taken), or build th
   by then bounded by `maxPruneDays` in `parsePruneArgs`, on another function's local, which the
   rule cannot see). The independent search, made before the rule, found the same six (the sixth as bounded
   elsewhere) and no other.
+- Green: `ccy-sessions` refuses a knob over 86400 seconds, `verify-restore --wait` over 86400 and
+  `--in`/`--minutes` over 10080 (a week), and `secondWarning` builds its wait with
+  `duration.Times` (the configured minute is a field no refusal reaches); `wsi` refuses a grace
+  over 30 seconds, the top of the setting's schema range; `vmtest` refuses
+  `VMTEST_MEMBER_SSH_TIMEOUT` over 86400, and `planPrune` compares against
+  `started.AddDate(0, 0, days)`, so no Duration is built. Each with a test first seen red; the
+  prune cutoff's (`--older-than 106752` kept, not pruned) reproduces the originating defect.
+- Not caught: a comparison with the refusal's shape that does not refuse (a block that returns
+  the number as accepted); a large negative number (only the upper bound is read); a number held
+  in a variable other than by a direct conversion (`d := n; time.Duration(d)` is judged through
+  `d`'s own bound, but `secs := parse(); wait := secs * 1000` then `time.Duration(wait)` is not
+  multiplied and not seen); a bound in another package; a `uint64` converted to a Duration;
+  package-level initialisers; `time.Unix` and `AddDate` with a huge count (no instance found).
+- **The next wider rule, not built:** every arithmetic on a Duration whose operand comes from
+  input, addition and a Duration parameter times a constant included. Not built because a
+  Duration that reached the code as a Duration was already in range, and telling input from a
+  computed value needs data flow across functions; `time.ParseDuration` refuses an overflow
+  itself.
+
+## Defect classes that cannot be a rule
 
 ## Defect classes that cannot be a rule
 

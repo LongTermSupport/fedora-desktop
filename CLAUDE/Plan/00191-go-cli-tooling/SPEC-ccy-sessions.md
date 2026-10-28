@@ -439,7 +439,7 @@ Argument grammar (positional, after `notify`):
 | (absent)                                           | `'notify' needs a signal kind: going-down, reboot-warning, shutdown-warning or reboot-cancelled.`                                                                                                     |
 | other                                              | `unknown signal kind '<kind>'.`                                                                                                                                                                       |
 
-Errors: `'notify <kind>' needs --minutes N.` (when arg 2 is not `--minutes` or arg 3 empty); `--minutes needs a whole number of minutes, at least 1; got '<v>'.` (all usage errors, exit 64). `going-down` is
+Errors: `'notify <kind>' needs --minutes N.` (when arg 2 is not `--minutes` or arg 3 empty); `--minutes needs a whole number of minutes, at least 1; got '<v>'.`; over 10080, as for `reboot --in`, `--minutes takes at most 10080 minutes (a week); got '<v>'.` (Plan 00192, project_duration_overflow) (all usage errors, exit 64). `going-down` is
 rewritten to `reboot-warning` when `${HOME}/.config/systemd/user/default.target.wants/ccy-sessions-restore.service` exists (`-e`: **follows** the link, so a dangling link is "off"; R L382-384), else `shutdown-warning` (L426-434).
 Then `signal_projects kind minutes dry-run >/dev/null`: stdout empty, exit status of that call (0/1). A dry run **does** run `check_projects` (R L385-389). Stderr strings asserted: `No CCY or cc sessions` (R L366), `would signal shutdown-warning --minutes 5` (R L389).
 
@@ -561,7 +561,7 @@ decision in Plan 00135.
 
 ### 4.8 `verify-restore` (L900-1001)
 
-`verify-restore [--wait SECONDS]`: `--wait` value must match `^[0-9]+$` else `--wait needs a whole number of seconds; got '<v>'.` (64, R L998-999); other -> `unknown verify-restore option '<arg>'.`.
+`verify-restore [--wait SECONDS]`: `--wait` value must match `^[0-9]+$` else `--wait needs a whole number of seconds; got '<v>'.` (64, R L998-999), and over 86400 `--wait takes at most 86400 seconds; got '<v>'.` (64; the timing knobs of the table above are refused over 86400 seconds too, `<NAME> is '<v>', more than 86400 seconds`: Plan 00192, project_duration_overflow); other -> `unknown verify-restore option '<arg>'.`.
 
 1. `ccy_restore_manifest_read` failure -> exit 1 (`ERROR: no session restore has been recorded (<path> does not exist).` R L947-948).
 2. `boot` mismatch -> `ERROR: the last session restore ran in an earlier boot, so it says nothing about this one; nothing restored these sessions since this machine started.`, exit 1 (R L953).

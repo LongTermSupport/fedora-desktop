@@ -136,6 +136,10 @@ func (f TokenFloor) Tokens() (int64, bool) { return f.tokens, f.valid }
 // String is the floor as it was written.
 func (f TokenFloor) String() string { return f.raw }
 
+// maxKnobSeconds is the longest a timing knob may be set to, a day: past it a knob is a
+// mistake, and a number past a time.Duration would wrap negative.
+const maxKnobSeconds = 86400
+
 // seconds is the named variable as a duration; unset is def.
 func seconds(getenv func(string) string, name string, def time.Duration) (time.Duration, error) {
 	raw := getenv(name)
@@ -145,6 +149,9 @@ func seconds(getenv func(string) string, name string, def time.Duration) (time.D
 	f, err := strconv.ParseFloat(raw, 64)
 	if err != nil || f < 0 || math.IsNaN(f) || math.IsInf(f, 0) {
 		return 0, fmt.Errorf("%s is '%s', not a number of seconds", name, raw)
+	}
+	if f > maxKnobSeconds {
+		return 0, fmt.Errorf("%s is '%s', more than %d seconds", name, raw, maxKnobSeconds)
 	}
 	return time.Duration(f * float64(time.Second)), nil
 }

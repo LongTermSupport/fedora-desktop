@@ -111,6 +111,19 @@ func TestConfigDefaults(t *testing.T) {
 }
 
 func TestConfigRefusesWhatIsNotANumber(t *testing.T) {
+	// 1e300 seconds is past a time.Duration, and so is anything over a day of seconds as far as
+	// these knobs go (project_duration_overflow).
+	for _, big := range []string{"86401", "1e300"} {
+		_, err := loadConfig(func(k string) string {
+			if k == "CCY_SESSIONS_POLL_SECONDS" {
+				return big
+			}
+			return ""
+		})
+		if err == nil || !strings.Contains(err.Error(), "CCY_SESSIONS_POLL_SECONDS is '"+big+"', more than 86400 seconds") {
+			t.Fatalf("%q: %v", big, err)
+		}
+	}
 	for _, bad := range []string{"soon", "-1", "NaN", "Inf"} {
 		_, err := loadConfig(func(k string) string {
 			if k == "CCY_SESSIONS_POLL_SECONDS" {

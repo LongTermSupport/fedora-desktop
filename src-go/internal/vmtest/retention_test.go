@@ -64,6 +64,13 @@ func TestE61PrunePlanByAge(t *testing.T) {
 	if d := planOf([]runFacts{young}, k.now, 5)[young.name]; d.action != actionPrune || d.reason != "did not pass, and is older than 5 days" {
 		t.Fatalf("--older-than 5: %+v", d)
 	}
+	// 106752 days of 24 hours is past a time.Duration: the cutoff must not wrap negative and
+	// prune every failed run (project_duration_overflow).
+	for _, days := range []int{maxPruneDays, 106752, 1 << 40} {
+		if d := planOf([]runFacts{old}, k.now, days)[old.name]; d.action != actionKeep {
+			t.Fatalf("--older-than %d: %+v", days, d)
+		}
+	}
 
 	for _, name := range []string{"scratch", "20261399T000000Z-server-fast-provision"} {
 		d := planOf([]runFacts{factsOf(name, true)}, k.now, 7)[name]
