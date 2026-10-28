@@ -120,13 +120,25 @@ func (r *report) secureBoot(f *facts) {
 	r.mokKey(f)
 }
 
+// keyNotEnrolled is B14: a key that is not enrolled is a fault only under Secure Boot.
+func (r *report) keyNotEnrolled(sb sbState) {
+	switch sb {
+	case sbDisabled:
+		r.info("akmods MOK Key: Not needed (Secure Boot disabled)")
+	case sbUnknown:
+		r.warn("akmods MOK Key: Not enrolled, which matters only if Secure Boot is on")
+	case sbEnabled:
+		r.bad("akmods MOK Key: Not enrolled (requires reboot and enrollment)")
+	}
+}
+
 // mokKey is E8 and E9: what section 1 found, before E13 may prove the key.
 func (r *report) mokKey(f *facts) {
 	switch {
 	case f.keyFile && f.found == mokEnrolled:
 		r.good("akmods MOK Key: Successfully enrolled (" + akmodsKey + ")")
 	case f.keyFile && f.found == mokNotEnrolled:
-		r.bad("akmods MOK Key: Not enrolled (requires reboot and enrollment)")
+		r.keyNotEnrolled(f.sb)
 	case f.keyFile && f.testKey.problem != "":
 		r.warn("akmods MOK Key: Unknown status (" + f.testKey.problem + ")")
 	case f.keyFile:

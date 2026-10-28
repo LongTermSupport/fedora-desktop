@@ -429,8 +429,8 @@ host recheck passed (H1's Podman section with no summed size, and the dangling c
 prune question differing by the stated number kept; option 6 answering No to every question
 ran nothing). 2.0.5 says `Skipped <command>.` after a No to either "Also remove all unused"
 question too, as after the first question of each pair (E22); its recheck is queued.
-`nvidia-status` (P6) built on `go-port/nvidia-status`, review pending; spec
-[SPEC-nvidia-status.md](SPEC-nvidia-status.md) (D1-D4, E1-E25, B1-B13, H1-H5),
+`nvidia-status` (P6) built on `go-port/nvidia-status`; spec
+[SPEC-nvidia-status.md](SPEC-nvidia-status.md) (D1-D4, E1-E25, B1-B14, H1-H5),
 `src-go/cmd/nvidia-status` and `src-go/internal/nvidiastatus` (facts gathered once, rendered,
 and the exit status the verdict over them; every program through `execx` under a fixed 30s
 bound; `/proc/modules` read directly). Run from the checkout as before:
@@ -445,4 +445,10 @@ always got `Could not read the kernel journal` (B2); `--check` still printed lin
 `lsmod | grep ^nvidia` counted `nvidia_drm` as the driver (B5); an unrecognised `--test-key`
 answer led to "enrol the MOK key" (B6); an unknown Secure Boot state was summarised as
 disabled (B7); a missing `akmod-nvidia` read as "still building" (B8). H1-H4 are the host
-agent's (read-only), H5 the owner's.
+agent's (read-only), H5 the owner's. Fable review
+(`subagent-reports/261028-fable-review-nvidia-status.md`): no blocker; F1 fixed (B14, a key not
+enrolled is a fault only under Secure Boot); F8 fixed (the fixtures name a generic GPU); left as
+follow-ups F2 (the production timeout path untested), F3 (a library/driver version mismatch
+after an akmod upgrade reads as "incomplete", not "reboot"), F4 (NVIDIA's own VA-API driver not
+probed), F5 (section 6 contradicts 2 when rpm fails), F6 (`nvidia-gpu` i2c noise shown as
+errors), F7 (INVENTORY.md still marks it interactive).

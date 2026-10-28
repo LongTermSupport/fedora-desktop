@@ -179,6 +179,9 @@ to apply to. It had no test suite.
 - B13. The summary branch for Secure Boot on and off was duplicated with different orders; one
   order now (E25). A loaded, working driver whose `modinfo` cannot see it is complete, not
   "still building".
+- B14. A key file whose key is not enrolled printed `❌ Not enrolled (requires reboot and enrollment)` whatever the Secure Boot state, a wrong next step with Secure Boot off. It is a
+  fault only with Secure Boot on; off, the key is "Not needed"; unknown, a warning says it
+  matters only if Secure Boot is on (E8).
 
 ## 6. Host checks (`H*`)
 

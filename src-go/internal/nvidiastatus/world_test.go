@@ -50,7 +50,7 @@ const healthyModules = "nvidia_uvm 4956160 0 - Live 0x0000000000000000\n" +
 const hybridGLX = "name of display: :0\ndisplay: :0  screen: 0\ndirect rendering: Yes\n" +
 	"Extended renderer info (GLX_MESA_query_renderer):\n    Vendor: Intel (0x8086)\n" +
 	"OpenGL vendor string: Intel\n" +
-	"OpenGL renderer string: Mesa Intel(R) Graphics (RPL-P)\n" +
+	"OpenGL renderer string: Mesa Intel(R) Iris(R) Xe Graphics\n" +
 	"OpenGL core profile version string: 4.6 (Core Profile) Mesa 25.1.9\n" +
 	"OpenGL version string: 4.6 (Compatibility Profile) Mesa 25.1.9\n"
 
@@ -58,10 +58,10 @@ const hybridVulkan = "==========\nVULKANINFO\n==========\n\nVulkan Instance Vers
 	"Devices:\n========\nGPU0:\n" +
 	"\tapiVersion         = 1.4.312\n\tdriverVersion      = 580.95.5.0\n" +
 	"\tvendorID           = 0x10de\n\tdeviceType         = PHYSICAL_DEVICE_TYPE_DISCRETE_GPU\n" +
-	"\tdeviceName         = NVIDIA RTX 500 Ada Generation Laptop GPU\n" +
+	"\tdeviceName         = NVIDIA GeForce RTX 3050 Laptop GPU\n" +
 	"GPU1:\n\tapiVersion         = 1.4.311\n\tdriverVersion      = 25.1.9\n" +
 	"\tvendorID           = 0x8086\n\tdeviceType         = PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU\n" +
-	"\tdeviceName         = Intel(R) Graphics (RPL-P)\n"
+	"\tdeviceName         = Intel(R) Iris(R) Xe Graphics\n"
 
 const intelVainfo = "Trying display: wayland\nlibva info: VA-API version 1.22.0\n" +
 	"vainfo: VA-API version: 1.22 (libva 2.22.0)\n" +
@@ -89,7 +89,7 @@ func healthy() *world {
 		modinfo: said("580.95.05\n"),
 		modules: healthyModules,
 		missing: map[string]bool{},
-		smi:     said("NVIDIA RTX 500 Ada Generation Laptop GPU, 580.95.05, 4094 MiB\n"),
+		smi:     said("NVIDIA GeForce RTX 3050 Laptop GPU, 580.95.05, 4094 MiB\n"),
 		glx:     said(hybridGLX),
 		vk:      said(hybridVulkan),
 		va:      said(intelVainfo),

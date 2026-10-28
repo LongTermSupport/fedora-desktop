@@ -51,6 +51,21 @@ func TestMokKey(t *testing.T) {
 	wantLines(t, out, "  ❌ akmods MOK Key: Not enrolled (requires reboot and enrollment)\n",
 		"⚠  ACTION REQUIRED: MOK ENROLLMENT", "mok_password")
 
+	// B14: a key that is not enrolled matters only under Secure Boot.
+	w = healthy()
+	w.sb = said("SecureBoot disabled\n")
+	w.testKey = said("/etc/pki/akmods/certs/public_key.der is not enrolled\n")
+	_, out = w.report(t)
+	wantLines(t, out, "  ℹ  akmods MOK Key: Not needed (Secure Boot disabled)\n")
+	wantNot(t, out, "Not enrolled (requires reboot and enrollment)")
+
+	w = healthy()
+	w.sb = reply{code: 1, err: "EFI variables are not supported on this system\n"}
+	w.testKey = said("/etc/pki/akmods/certs/public_key.der is not enrolled\n")
+	_, out = w.report(t)
+	wantLines(t, out, "  ⚠  akmods MOK Key: Not enrolled, which matters only if Secure Boot is on\n")
+	wantNot(t, out, "Not enrolled (requires reboot and enrollment)")
+
 	w = notLoaded(healthy())
 	w.testKey = said("something new\n")
 	_, out = w.report(t)
