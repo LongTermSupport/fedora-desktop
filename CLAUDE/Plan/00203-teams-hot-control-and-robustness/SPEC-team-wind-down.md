@@ -303,19 +303,33 @@ and force apply once 3.16 lands.
   and its compaction's end is read from its pane: busy after `/compact` went in, then idle
   and empty again (or idle for the settle bound with no busy look caught), bounded by the
   window. A host session's end is its transcript's `compact_boundary` after the moment
-  `/compact` was typed (`transcript.Cache.CompactedSince`); a host session idle again with no
-  boundary written has a compaction that did not finish (Claude refused or failed it), which
-  is reported as such and fails the run.
+  `/compact` was typed (`transcript.Cache.CompactedSince`), read on every look. Claude writes
+  the transcript after it redraws the pane, so a host session idle again with no boundary yet
+  is given the settle bound (30 s, the same `Waits.Settle`) for it, the transcript read again
+  on each look; a busy look in that time starts the grace again. Still no boundary at its end
+  means a compaction that did not finish (Claude refused or failed it), which is reported as
+  such and fails the run.
 - WC4. Coordinator first, as TW2, then the others, **one compaction at a time**, so the host is
   not loaded by several at once. The wind-down instruction still goes to every session
   together (3.14); only the compactions queue. Whenever no compaction runs, the next is the
   coordinator's if it has answered, else the first other session that has; a coordinator
-  still answering does not hold up a worker that has.
+  still answering does not hold up a worker that has. **The turn is bounded**: a session given
+  it whose box is not idle and empty within the settle bound (30 s; busy again, from a cron
+  tick or its supervisor, or a line left in its box) is not interrupted. It goes back to the
+  queue behind every session the turn has not yet passed on from, and the turn passes to the
+  next. A session the turn passed on from and that is never compacted is named at the end of
+  the window ("its box was not idle and empty when its turn to compact came"). When the turn
+  comes, a host session's context is read again before `/compact` is typed: one compacted
+  since it answered (by its supervisor at the same idle moment) is below the floor and is not
+  compacted again. The same holds for a session wound down by two teams' wind-downs: the
+  first's `compact_boundary` sets its context to the compacted size, below the floor.
 - WC4a. **The window.** Until 3.16 brings the outer window (TW1), the whole wind-down,
   instruction, answers and compactions, is bounded by a window of 15 minutes (TW1's default)
   from its start. A session still answering at its end is not compacted, and one whose
   compaction has not finished is reported as not finished; neither fails the run (they are
-  not faults, the session is shut down as today), and nothing is interrupted. When 3.16 lands
+  not faults, the session is shut down as today), and nothing is interrupted. A host
+  session's transcript is read once more on the window's last look before it is judged, so a
+  compaction that ended on that look counts as compacted. When 3.16 lands
   its `--then-shutdown` window is this window, and the force follows it.
 - WC5. A plain `ccy-teams shutdown` (no wind-down) does not compact unless asked
   (`--compact`), since it is the quick path.

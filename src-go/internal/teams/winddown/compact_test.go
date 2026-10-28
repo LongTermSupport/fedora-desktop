@@ -40,12 +40,12 @@ func (m *machine) compactOrder() []string {
 	return names
 }
 
-// other adds the running session ccy-other in seat dev of alpha, its context tokens.
-func (m *machine) other(tokens int) *session {
+// other adds the running session ccy-other in seat dev of alpha, its context above the floor.
+func (m *machine) other() *session {
 	m.record("ccy-other", m.Checkout(), "dev@alpha")
 	s := &session{name: "ccy-other", dir: m.Checkout(), pane: paneReady}
 	m.sessions = append(m.sessions, s)
-	m.converse(s, tokens)
+	m.converse(s, largeTokens)
 	m.build()
 	return s
 }
@@ -128,7 +128,7 @@ func TestACompactionThatWritesNoBoundaryFails(t *testing.T) {
 	if got := m.run("alpha", "--yes"); got != term.ExitFailure {
 		t.Fatalf("exit %d", got)
 	}
-	m.errHas(t, "✗ ccy-proj: /goal clear and the wind-down went in, but its compaction ended with no compact_boundary in its transcript")
+	m.errHas(t, "✗ ccy-proj: /goal clear and the wind-down went in, but its compaction ended with no compact_boundary in its transcript within "+secs(30)+" of its end")
 }
 
 // WC4a: a session still answering at the end of the window is not compacted, and that is not
@@ -166,7 +166,7 @@ func TestTheCoordinatorIsCompactedFirstAndOneAtATime(t *testing.T) {
 	m := newMachine(t)
 	m.coordinator()
 	m.converse(m.proj(), largeTokens)
-	o := m.other(largeTokens)
+	o := m.other()
 	m.proj().compactLooks, o.compactLooks = 5, 5
 	if got := m.run("alpha", "--yes"); got != term.ExitOK {
 		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
@@ -184,7 +184,7 @@ func TestAWorkerThatHasAnsweredIsNotHeldUpByTheCoordinator(t *testing.T) {
 	m.coordinator()
 	p := m.proj()
 	m.converse(p, largeTokens)
-	o := m.other(largeTokens)
+	o := m.other()
 	p.answerLooks, p.compactLooks = 40, 5
 	o.answerLooks, o.compactLooks = 1, 60
 	if got := m.run("alpha", "--yes"); got != term.ExitOK {
@@ -289,7 +289,7 @@ func TestASessionWaitingForItsTurnAtTheWindowIsNamed(t *testing.T) {
 	m := newMachine(t)
 	m.coordinator()
 	m.converse(m.proj(), largeTokens)
-	o := m.other(largeTokens)
+	o := m.other()
 	m.proj().compactLooks = 100000
 	if got := m.run("alpha", "--yes"); got != term.ExitOK {
 		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
@@ -317,4 +317,109 @@ func TestACompactStuckInTheBoxFails(t *testing.T) {
 		t.Fatalf("exit %d", got)
 	}
 	m.errHas(t, "✗ ccy-proj: /goal clear and the wind-down went in, but /compact stayed in its input box after a second Enter")
+}
+
+// WC3: the transcript is written after the pane redraws, so a host session idle again with no
+// boundary yet is given the settle bound for it, the transcript read again on every look.
+func TestABoundaryWrittenAfterThePaneIsIdleAgainIsWaitedFor(t *testing.T) {
+	m := newMachine(t)
+	m.noLxc()
+	s := m.proj()
+	m.converse(s, largeTokens)
+	s.answerLooks, s.compactLooks, s.boundaryLag = 2, 3, 5
+	if got := m.run("alpha", "--yes"); got != term.ExitOK {
+		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
+	}
+	m.errHas(t, "✓ ccy-proj: /goal clear and the wind-down typed; compacted (context "+tokens(largeTokens)+", floor "+tokens(floorTokens)+")")
+}
+
+// WC4: a session given the turn whose box is not idle and empty within the settle bound (busy
+// again, or a line left in it) goes back to the queue, never interrupted, and the turn passes on;
+// it is named at the end of the window if its compaction never came.
+func TestAHolderThatIsNotIdlePassesTheTurnOn(t *testing.T) {
+	m := newMachine(t)
+	m.coordinator()
+	p := m.proj()
+	m.converse(p, largeTokens)
+	o := m.other()
+	p.answerLooks, p.busyAgain = 2, true
+	o.answerLooks, o.compactLooks = 5, 3
+	if got := m.run("alpha", "--yes"); got != term.ExitOK {
+		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
+	}
+	if got := m.compactOrder(); !slices.Equal(got, []string{"ccy-other"}) {
+		t.Fatalf("compacted in the order %q", got)
+	}
+	if p.escapes != 0 || o.escapes != 0 {
+		t.Fatalf("interrupted: escapes %d, %d", p.escapes, o.escapes)
+	}
+	m.errHas(t,
+		"✓ ccy-other: /goal clear and the wind-down typed; compacted (context "+tokens(largeTokens),
+		"✓ ccy-proj: /goal clear and the wind-down typed; not compacted: its box was not idle and empty when its turn to compact came, at the end of the "+secs(900)+" window",
+		"alpha: 1 compacted, 1 not compacted.",
+	)
+}
+
+// WC2: the context is read again when the turn comes, so a session compacted since it answered
+// (by its supervisor, at the same idle moment) is not compacted a second time.
+func TestASessionCompactedWhileQueuedIsNotCompactedAgain(t *testing.T) {
+	m := newMachine(t)
+	m.coordinator()
+	p := m.proj()
+	m.converse(p, largeTokens)
+	o := m.other()
+	p.answerLooks, p.compactLooks = 1, 20
+	o.answerLooks = 1
+	m.Fake.OnFunc([]string{"tmux", "-L", "ccy", "send-keys"}, func(c execx.Cmd) (execx.Result, error) {
+		if target(c.Args) == "ccy-proj" && strings.HasPrefix(c.Args[len(c.Args)-1], "/compact ") {
+			m.compacted(o)
+		}
+		return m.answer(m.sessions, c.Args[2:])
+	})
+	if got := m.run("alpha", "--yes"); got != term.ExitOK {
+		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
+	}
+	if got := m.compactOrder(); !slices.Equal(got, []string{"ccy-proj"}) {
+		t.Fatalf("compacted in the order %q", got)
+	}
+	m.errHas(t, "✓ ccy-other: /goal clear and the wind-down typed; not compacted: its context, "+tokens(smallTokens)+", is below the floor, "+tokens(floorTokens))
+}
+
+// WC2: a session wound down a second time (by its other team's wind-down) was compacted by the
+// first, so its context is below the floor and it is not compacted again.
+func TestASecondWindDownDoesNotCompactAgain(t *testing.T) {
+	m := newMachine(t)
+	m.noLxc()
+	s := m.proj()
+	m.converse(s, largeTokens)
+	s.answerLooks, s.compactLooks = 2, 3
+	for range 2 {
+		if got := m.run("alpha", "--yes"); got != term.ExitOK {
+			t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
+		}
+	}
+	n := 0
+	for _, line := range s.entered {
+		if strings.HasPrefix(line, "/compact ") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("compacted %d times: %q", n, s.entered)
+	}
+	m.errHas(t, "not compacted: its context, "+tokens(smallTokens)+", is below the floor")
+}
+
+// WC4a: a boundary on disk at the window's last look is read before the window is judged.
+func TestACompactionFinishedOnTheWindowsLastLookIsCompacted(t *testing.T) {
+	m := newMachine(t)
+	m.noLxc()
+	s := m.proj()
+	m.converse(s, largeTokens)
+	s.answerLooks, s.compactLooks = 2, 100000
+	s.boundaryAt = m.now.Add(DefaultWaits.Window)
+	if got := m.run("alpha", "--yes"); got != term.ExitOK {
+		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
+	}
+	m.errHas(t, "✓ ccy-proj: /goal clear and the wind-down typed; compacted (context "+tokens(largeTokens))
 }
