@@ -116,6 +116,14 @@
               cache. After this play finishes, rebuild downstream images
               (e.g. ansible-playbook playbooks/imports/play-claude-yolo.yml).
 
+    # A layer c/storage could not finish deleting (files owned outside the current subuid range,
+    # which the rootless user cannot unlink) makes every later podman command fail, the podman
+    # ps probe below included, and a failed probe would let the migrate stop every running
+    # container. So the store is repaired as root first (tasks/podman-store-repair.yml): a
+    # temporary directory no process uses is removed; nothing to do changes nothing.
+    - name: Repair the Rootless Store as Root
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/podman-store-repair.yml"
+
     # After podman / crun / runc / kernel upgrades, the user-namespace storage
     # state can fall out of sync with the new binaries; symptoms are rootless
     # builds failing with EPERM in overlay storage (chmod / unlink on lower
@@ -153,27 +161,6 @@
       when: >-
         podman_running_containers.rc == 0
         and (podman_running_containers.stdout_lines | length) > 0
-
-    # `podman info` walks overlay/tempdirs and fails (rc=125) if any stale
-    # build temp dirs contain files the user cannot unlink (e.g. files from
-    # a half-completed CCY build owned by sub-UIDs the namespace can no
-    # longer reach). Podman recreates tempdirs/ whenever it uses its storage,
-    # so it is removed only when podman info fails: a healthy rerun changes
-    # nothing, and a build that is using it is left alone. `podman unshare rm`
-    # is NOT enough on some kernels (it fails when the file UID is outside the
-    # current namespace mapping), so we use host root via passwordless sudo.
-    - name: Probe podman info (fails when stale build temp dirs cannot be walked)
-      ansible.builtin.command: podman info
-      register: podman_info_probe
-      changed_when: false
-      failed_when: false  # FAIL-FAST-OK: probe; a failure cleans tempdirs below, and Verify Podman Install fails loudly
-
-    - name: Clean Stale Rootless Build Temp Dirs (lets podman info succeed)
-      become: true
-      ansible.builtin.file:
-        path: "/home/{{ user_login }}/.local/share/containers/storage/overlay/tempdirs"
-        state: absent
-      when: podman_info_probe.rc != 0
 
     - name: Verify Podman Install
       ansible.builtin.command: podman info
@@ -241,16 +228,23 @@
         DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}/bus"
 
     # A oneshot's start waits for the run to end, so a prune that fails fails this task, and
-    # the play, loudly. Later runs are the timer's.
+    # the play, loudly. Later runs are the timer's. A prune that meets a layer it cannot delete
+    # stops there and leaves that layer's temporary directory, which breaks the store, so the
+    # repair runs again after the prune whatever its result; the play still fails after it.
     - name: Run the First Prune Now, Clearing the Backlog
-      ansible.builtin.systemd:
-        name: container-images-prune.service
-        scope: user
-        state: started
-      environment:
-        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
-        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}/bus"
       when: not container_images_succeeded.stat.exists
+      block:
+        - name: Start the container-images Prune Service and Wait for It
+          ansible.builtin.systemd:
+            name: container-images-prune.service
+            scope: user
+            state: started
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+            DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}/bus"
+      always:
+        - name: Repair the Rootless Store as Root After the Prune
+          ansible.builtin.import_tasks: "{{ root_dir }}/tasks/podman-store-repair.yml"
 
     - name: Show Podman Version
       ansible.builtin.debug:

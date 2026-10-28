@@ -4,7 +4,12 @@
 # PURPOSE: deploy the daily prune of the rootless podman store. HOST ONLY
 # (CLAUDE/PlanScriptStandards.md R2): Ansible never runs in the CCY container.
 #
-# EFFECT ON THE HOST: play-podman.yml (which imports play-golang.yml) builds container-images
+# EFFECT ON THE HOST: play-podman.yml first repairs the rootless store as root
+# (tasks/podman-store-repair.yml): each c/storage temporary directory left in
+# overlay/tempdirs, and its lock file, is removed and named with its size, unless a podman or
+# buildah of the user is removing or building or a lock there is held, which fails the play
+# instead. It repairs again after the first prune, whatever that prune's result.
+# play-podman.yml (which imports play-golang.yml) then builds container-images
 # into ~/.local/bin, installs container-images-prune.service and .timer in the user manager
 # and enables the timer. Until a prune has succeeded once it also starts the service and waits
 # for it: that run REMOVES the backlog (dangling images no container uses, over a day old;
@@ -37,7 +42,8 @@ plan_init "${BASH_SOURCE[0]}"
 
 PLAN_USAGE="usage: deploy.bash [-h|--help] [--check]
 
-Plan 00235, the deploy half: runs play-podman.yml on the HOST, which builds container-images,
+Plan 00235, the deploy half: runs play-podman.yml on the HOST, which repairs the rootless store
+as root (leftover c/storage temporary directories), builds container-images,
 installs and enables the daily container-images-prune timer and, the first time, runs the
 prune once (it removes the backlog of unused dangling images).
   --check   the play as a dry run
