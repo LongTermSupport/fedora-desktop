@@ -59,9 +59,19 @@
   `sha256:`), `ps --all --quiet --no-trunc` and `container inspect --format '{{.Image}}'`: the
   same templates in podman and docker.
 
+## Phase 3: not started by this agent
+
+The Phase 4 commit is `007dd94ba` (CCY bumped to 3.101.3, since `internal/engine` is ccy
+code). Phase 3 (Tasks 3.1, 3.2, the owner's "ccy should prune after rebuild") was handed off
+at the context budget, with its design, in
+`untracked/scratch/261028-afcfe147f8dd98198-handoff.md` in this worktree. The engine questions
+it needs (`RepositoryTags`, `ContainerImageIDs`) are already built and tested.
+
 ## Gates
 
 `golangci-lint run` and `golangci-lint fmt` over the changed packages: 0 issues;
 `go test -race` green (coverage: containerimages 93.4%, engine 99.7%).
-`./scripts/qa-changed.bash` before each commit. qa-all not run (not mine to run).
+`./scripts/qa-changed.bash` on the Phase 4 diff: every check green except `ansible-syntax`,
+which cannot run in this worktree (no vault password file for `ansible-playbook
+--syntax-check`). qa-all not run (not mine to run).
 Nothing ran against a real podman or Ansible.
