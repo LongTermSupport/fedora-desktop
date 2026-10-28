@@ -345,12 +345,13 @@ difference only as a numbered bug of `SPEC-qa-all.md` section 10 pinned in
 `testdata/deviations.json`), and the real tree (`scripts/test-qa-changed.bash`, the docs gate).
 `qa/ansible` + `qa/cmd/qa-ansible` (same nested module) are `scripts/qa-ansible.bash`, the static
 Ansible gate (fail-fast directives, playbook hygiene, self-default vars, scope and guard,
-deprecated fact vars, guessed runtime-dir uids, regex backreference escapes and files users read
+deprecated fact vars, guessed runtime-dir uids, regex backreference and letter escapes and files users read
 created as root under the inherited umask, and the six play-UX rules of Plan 00230, all read from each file parsed as YAML): the script only builds and runs the command. It
 starts no process itself: the one `git ls-files` it needs (it judges only what git would
 publish) is injected and run by the command through the seam. Its spec is the intended behaviour
 (`SPEC-qa-ansible.md`, expectations E1-E19 and E16a), proven by unit tests and end-to-end scenario trees
-(the backreference rule also against `tests/fixtures/ansible-regex-backref/`, the root umask
+(the backreference rule also against `tests/fixtures/ansible-regex-backref/`, the letter
+escape rule against `tests/fixtures/ansible-regex-class-escape/`, the root umask
 rule against `tests/fixtures/ansible-root-umask/`, the play-UX rules against
 `tests/fixtures/ansible-play-ux/`),
 not by a recording of the old bash; `scripts/test-qa-ansible-failfast.bash` drives the built tool.

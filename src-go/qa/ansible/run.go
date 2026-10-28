@@ -51,7 +51,9 @@ Static Ansible QA over playbooks/ tasks/ vars/ environment/ roles/: error-hiding
 without FAIL-FAST-OK, playbook shebang and execute bit, self-default variables, vars.scope and
 the canonical scope guard, deprecated top-level ansible_<fact> variables, a guessed uid in
 a /run/user path, and a regex backreference with the wrong backslash count for its YAML style
-and Jinja context (CLAUDE/QA.md, regex-backref-escape), and a file users read created as root
+and Jinja context (CLAUDE/QA.md, regex-backref-escape), and a regex letter escape (\d, \s,
+\w ...) that reaches the regex as a literal backslash or a backspace (CLAUDE/QA.md,
+regex-class-escape), and a file users read created as root
 under the inherited umask (CLAUDE/QA.md, root-umask), and the play-UX rules: a setting
 checked after the play has changed the system, a secret demanded by hand, an Ansible CLI run
 outside the checkout, a failure no_log hides, a probe of a program installed only later, and
@@ -210,6 +212,9 @@ func scanPatterns(fsys fs.FS, root string, dirs []string, f *Findings) error {
 		return err
 	}
 	if err := scanRegexBackrefs(fsys, dirs, f); err != nil {
+		return err
+	}
+	if err := scanRegexEscapes(fsys, dirs, f); err != nil {
 		return err
 	}
 	if err := scanRootUmask(fsys, dirs, f); err != nil {

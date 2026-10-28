@@ -14,6 +14,8 @@ type Findings struct {
 	FailFast, SelfRef, FactVars []string
 	// RegexBackref is the regex-backref-escape findings, "<file>:<line>: <why>".
 	RegexBackref []string
+	// RegexEscape is the regex-class-escape findings, "<file>:<line>: <why>".
+	RegexEscape []string
 	// RootUmask is the root-umask findings, "<file>:<line>: <why>".
 	RootUmask []string
 	// PlayUX is the play-UX findings, "<file>:<line>: <rule>: <why>" (playux.go).
@@ -26,19 +28,19 @@ type Findings struct {
 
 // Errors is how many violations there are.
 func (f Findings) Errors() int {
-	return len(f.FailFast) + len(f.Hygiene) + len(f.SelfRef) + len(f.Scope) + len(f.FactVars) + len(f.RegexBackref) + len(f.RootUmask) + len(f.PlayUX) + len(f.Sudoers)
+	return len(f.FailFast) + len(f.Hygiene) + len(f.SelfRef) + len(f.Scope) + len(f.FactVars) + len(f.RegexBackref) + len(f.RegexEscape) + len(f.RootUmask) + len(f.PlayUX) + len(f.Sudoers)
 }
 
 // Summary is the closing stdout lines: one tick, or the cross with the counts and the pointers.
 func (f Findings) Summary(reportPath string) []string {
 	if f.Errors() == 0 {
 		return []string{fmt.Sprintf("✓ ansible: fail-fast patterns OK; no self-referential vars; no deprecated ansible_<fact> vars; "+
-			"regex backreferences escaped right; system files written as root set umask 022; settings checked first, asked for, Ansible CLIs run from the checkout, no_log failures readable; sudoers rules pinned to root-owned targets; scope+guard declarations OK; %d playbook(s) have correct shebang+exec "+
+			"regex backreferences and letter escapes escaped right; system files written as root set umask 022; settings checked first, asked for, Ansible CLIs run from the checkout, no_log failures readable; sudoers rules pinned to root-owned targets; scope+guard declarations OK; %d playbook(s) have correct shebang+exec "+
 			"(scoped to playbooks/ tasks/ vars/ environment/ roles/ — qa-ansible-syntax counts repo-wide and will be higher)", f.Playbooks)}
 	}
 	return []string{
-		fmt.Sprintf("✗ ansible: %d violation(s) — %d fail-fast, %d hygiene, %d self-ref var, %d scope/guard, %d deprecated fact var, %d regex backref, %d root umask, %d play ux, %d sudoers rule",
-			f.Errors(), len(f.FailFast), len(f.Hygiene), len(f.SelfRef), len(f.Scope), len(f.FactVars), len(f.RegexBackref),
+		fmt.Sprintf("✗ ansible: %d violation(s) — %d fail-fast, %d hygiene, %d self-ref var, %d scope/guard, %d deprecated fact var, %d regex backref, %d regex escape, %d root umask, %d play ux, %d sudoers rule",
+			f.Errors(), len(f.FailFast), len(f.Hygiene), len(f.SelfRef), len(f.Scope), len(f.FactVars), len(f.RegexBackref), len(f.RegexEscape),
 			len(f.RootUmask), len(f.PlayUX), len(f.Sudoers)),
 		"  Hygiene fixer: ./scripts/make-playbooks-executable.bash",
 		"  Details: jq '.failures[]' " + reportPath,
@@ -81,6 +83,7 @@ type jsonChecks struct {
 	Scope        []string `json:"scope"`
 	FactVars     []string `json:"fact_vars"`
 	RegexBackref []string `json:"regex_backref"`
+	RegexEscape  []string `json:"regex_escape"`
 	RootUmask    []string `json:"root_umask"`
 	PlayUX       []string `json:"play_ux"`
 	Sudoers      []string `json:"sudoers_rule"`
@@ -131,6 +134,9 @@ func (f Findings) JSON() ([]byte, error) {
 	for _, entry := range f.RegexBackref {
 		add(entry, "regex-backref-escape: a backreference with the wrong backslash count for its YAML style and context")
 	}
+	for _, entry := range f.RegexEscape {
+		add(entry, "regex-class-escape: a regex letter escape that reaches the regex as a literal backslash or a backspace")
+	}
 	for _, entry := range f.RootUmask {
 		add(entry, "root-umask: a file users read created as root under the inherited umask")
 	}
@@ -149,7 +155,7 @@ func (f Findings) JSON() ([]byte, error) {
 		Checks: jsonChecks{
 			FailFast: nonNil(f.FailFast), Hygiene: entryStrings(f.Hygiene), SelfRef: nonNil(f.SelfRef),
 			Scope: entryStrings(f.Scope), FactVars: nonNil(f.FactVars), RegexBackref: nonNil(f.RegexBackref),
-			RootUmask: nonNil(f.RootUmask), PlayUX: nonNil(f.PlayUX), Sudoers: nonNil(f.Sudoers),
+			RegexEscape: nonNil(f.RegexEscape), RootUmask: nonNil(f.RootUmask), PlayUX: nonNil(f.PlayUX), Sudoers: nonNil(f.Sudoers),
 		},
 	}
 	var body bytes.Buffer

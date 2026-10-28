@@ -184,10 +184,14 @@ the plans cite kept.
   held off. The repair file's two regexes (the store-path guard and the held-lock inodes) had
   the same defect and silently never matched. All three now use single backslashes, the form the
   host agent proved on the host's Ansible with a read-only scratch play
-- [ ] ⬜ **Task 4.10** (Defence Before Fix): a qa-ansible rule for a regex class escape
-  written with a doubled backslash (`\\d`, `\\s`, `\\w`) inside a Jinja string literal in YAML,
-  red on a fixture and on the three lines above before their fix, green after; the independent
-  searcher run first
+- [x] ✅ **Task 4.10** (Defence Before Fix): qa-ansible rule
+  [regex-class-escape](../../QA.md#regex-class-escape), a letter escape that reaches the regex as
+  a literal backslash (or `\b` as a backspace), counted per YAML style and Jinja context as
+  regex-backref-escape counts; fixtures `tests/fixtures/ansible-regex-class-escape/`. Red on the
+  tree before 0d1a61321 (the subuid and held-lock regexes), green after and on the live tree (0
+  instances; the independent searcher found none more). The store-path guard is an assert
+  `that`, which Jinja unescapes, so its `'\\s'` was already right and the rule is silent on it;
+  `regex-escape-proof/render_three.py` renders all three on real Ansible for the host to confirm
 - [ ] ⬜ **Task 4.11**: triage.bash's "disk free and the store's location" leg failed on the
   host with a complete df output and no error line before its warning, so the failing command
   is not shown: make each leg name the command that failed. Its image count (podman info: 749)

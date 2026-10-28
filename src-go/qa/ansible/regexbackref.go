@@ -97,6 +97,13 @@ var yamlErrorLine = regexp.MustCompile(`line ([0-9]+)`)
 // in document order. A file the YAML library cannot parse is a finding, so its backreferences
 // are never skipped silently, and the other checks still run over it.
 func regexBackrefs(rel string, data []byte) []string {
+	return scalarChecks(rel, data, "backreferences", scalarFindings)
+}
+
+// scalarChecks runs judge over every string scalar of every YAML document in data, in document
+// order, and returns its findings as "<rel>:<line>: <why>". A file the YAML library cannot parse
+// is one finding, naming what (what the check reads) as what cannot be judged.
+func scalarChecks(rel string, data []byte, what string, judge func(*yaml.Node, evalContext) []string) []string {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	var findings []string
 	for {
@@ -110,10 +117,10 @@ func regexBackrefs(rel string, data []byte) []string {
 			if m := yamlErrorLine.FindStringSubmatch(err.Error()); m != nil {
 				line = m[1]
 			}
-			return append(findings, rel+":"+line+": cannot be parsed as YAML, so its backreferences cannot be judged: "+err.Error())
+			return append(findings, rel+":"+line+": cannot be parsed as YAML, so its "+what+" cannot be judged: "+err.Error())
 		}
 		visit(&doc, "", ctxTemplate, func(n *yaml.Node, bare evalContext) {
-			for _, why := range scalarFindings(n, bare) {
+			for _, why := range judge(n, bare) {
 				findings = append(findings, rel+":"+strconv.Itoa(n.Line)+": "+why)
 			}
 		})
@@ -157,19 +164,22 @@ type region struct {
 	ctx  evalContext
 }
 
-// scalarFindings checks every regex filter call in one scalar's value.
-func scalarFindings(n *yaml.Node, bare evalContext) []string {
-	var regions []region
+// expressionRegions is the Jinja expression text of one scalar's value, each stretch with its
+// context: the whole value when it is a bare expression, else its {{ }} and {% %} bodies.
+func expressionRegions(n *yaml.Node, bare evalContext) []region {
 	trimmed := strings.TrimSpace(n.Value)
 	allTemplate := (strings.HasPrefix(trimmed, "{{") || strings.HasPrefix(trimmed, "{%")) &&
 		(strings.HasSuffix(trimmed, "}}") || strings.HasSuffix(trimmed, "%}"))
 	if bare != ctxTemplate && !allTemplate {
-		regions = []region{{n.Value, bare}}
-	} else {
-		regions = templateRegions(n.Value)
+		return []region{{n.Value, bare}}
 	}
+	return templateRegions(n.Value)
+}
+
+// scalarFindings checks every regex filter call in one scalar's value.
+func scalarFindings(n *yaml.Node, bare evalContext) []string {
 	var out []string
-	for _, r := range regions {
+	for _, r := range expressionRegions(n, bare) {
 		for _, arg := range regexArgs(r.text) {
 			if why := judge(arg, r.ctx, scalarStyle(n)); why != "" {
 				out = append(out, why)

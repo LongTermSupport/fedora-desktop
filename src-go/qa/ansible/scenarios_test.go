@@ -180,6 +180,8 @@ func fileAndQuoteScenarios() []scenario {
 				"  ERROR (fail-fast): tasks/bin.yml:1:      failed_when: false",
 				"  ERROR (regex-backref-escape): tasks/bin.yml:1: cannot be parsed as YAML, so its backreferences cannot be judged: yaml: control characters are not allowed",
 				regexBackrefAdvice,
+				"  ERROR (regex-class-escape): tasks/bin.yml:1: cannot be parsed as YAML, so its regex escapes cannot be judged: yaml: control characters are not allowed",
+				regexEscapeAdvice,
 				"  ERROR (root-umask): tasks/bin.yml:1: cannot be parsed as YAML, so the files its root tasks create cannot be judged: yaml: control characters are not allowed",
 				rootUmaskAdvice,
 				"  ERROR (play-ux): tasks/bin.yml:1: cannot be parsed as YAML, so its plays cannot be judged: yaml: control characters are not allowed",

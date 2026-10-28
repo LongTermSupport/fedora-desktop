@@ -15,6 +15,8 @@
 #   regex backref a regex_search/regex_replace/regex_findall backreference with the wrong
 #                 backslash count for its YAML style and Jinja context (CLAUDE/QA.md,
 #                 regex-backref-escape); a file that is not YAML is reported too
+#   regex escape  a regex letter escape (\d, \s, \w ...) that reaches the regex as a literal
+#                 backslash, or \b as a backspace (CLAUDE/QA.md, regex-class-escape)
 #   root umask    a file users read created as root under the inherited umask: a system cache
 #                 rebuilt (fc-cache, dconf update, ...), or a download, redirect, clone or
 #                 extraction into /usr, /opt or /etc, without umask 022 or a readable mode
@@ -31,7 +33,7 @@
 #   jq '.status'                          # "pass" or "fail"
 #   jq '.summary'                         # {total, passed, failed}
 #   jq '.failures[]'                      # all violations
-#   jq '.checks.fail_fast[]'              # one check's list (hygiene, self_ref, scope, fact_vars, regex_backref, root_umask)
+#   jq '.checks.fail_fast[]'              # one check's list (hygiene, self_ref, scope, fact_vars, regex_backref, regex_escape, root_umask)
 #
 # Exit codes: 0 no violation, 1 a violation, 2 bad usage or the run could not complete (no
 # Ansible directory, a missing playbooks/, an unreadable file, a build failure of the tool).
