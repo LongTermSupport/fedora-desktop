@@ -288,6 +288,46 @@ class ModelOnDiskTest(ResolverRun):
         self.assertEqual(result.stdout, "distil-whisper/distil-large-v3.5-ct2\n")
 
 
+class RealtimeModelTest(ResolverRun):
+    """Plan 00234 Task 4.1: wsi-stream's live preview loads a second, small model beside
+    the main one (RealtimeSTT's realtime_model_type). Left unnamed, RealtimeSTT loads its
+    default "tiny", which nothing downloaded, so the first live dictation fetched it, or
+    failed offline. `--realtime` names it for the language, checked on disk like the main
+    one; `--realtime-models` lists every one, for the download."""
+
+    NOT_DOWNLOADED = 3
+
+    def test_english_previews_with_tiny_en(self):
+        result = self.resolve("--realtime", "--language", "en", gpus=-1)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "tiny.en\n", "stdout must be the model and nothing else")
+
+    def test_another_language_or_detection_previews_with_multilingual_tiny(self):
+        for language in ("de", ""):
+            result = self.resolve("--realtime", "--language", language, gpus=-1)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "tiny\n", language)
+
+    def test_a_real_time_model_not_on_disk_names_it_the_play_and_the_manager(self):
+        with tempfile.TemporaryDirectory() as empty:
+            result = self.resolve("--realtime", "--language", "en", cache=empty)
+        self.assertEqual(result.returncode, self.NOT_DOWNLOADED, result.stderr)
+        self.assertEqual(result.stdout, "")
+        last = result.stderr.strip().splitlines()[-1]
+        for phrase in ("tiny.en", "live preview", "play-speech-to-text.yml", "model manager"):
+            self.assertIn(phrase, last)
+
+    def test_realtime_models_lists_each_one_the_download_must_fetch(self):
+        result = self.resolve("--realtime-models", gpus=-1)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "tiny.en\ntiny\n")
+
+    def test_realtime_with_a_mode_is_a_usage_error(self):
+        result = self.resolve("--realtime", "--mode", "streaming", "--language", "en")
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stdout, "")
+
+
 class FitTest(ResolverRun):
     """Plan 00234: `--fit` says, for each model the model manager offers, how much GPU
     memory it needs and whether this machine's NVIDIA GPU has that much, so the manager

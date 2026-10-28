@@ -931,6 +931,19 @@ class ModelNotDownloadedTest(ClientCase):
             wsi_stream.resolve_model("streaming", "en")
         self.assertEqual(str(raised.exception), REASON)
 
+    def test_the_live_preview_model_is_asked_of_the_resolver_and_checked_on_disk(self):
+        # Plan 00234 Task 4.1: the real-time model is resolved like the main one, so a
+        # missing one is the resolver's reason, never a download by RealtimeSTT
+        self.stub_resolver(3, f"wsi-resolve-model: {REASON}\n")
+        with self.assertRaises(wsi_stream.ModelNotDownloaded) as raised:
+            wsi_stream.resolve_realtime_model("en")
+        self.assertEqual(str(raised.exception), REASON)
+        script = pathlib.Path(self.tmp.name) / "wsi-resolve-model"
+        script.write_text(f"#!/bin/sh\necho \"$*\" > {self.tmp.name}/args\necho tiny.en\n")
+        self.assertEqual(wsi_stream.resolve_realtime_model("en"), "tiny.en")
+        self.assertEqual(pathlib.Path(self.tmp.name, "args").read_text(),
+                         "--realtime --language en\n")
+
     def test_another_failure_is_not_model_not_downloaded(self):
         self.stub_resolver(1, "wsi-resolve-model: cannot ask CTranslate2 for CUDA devices\n")
         with self.assertRaises(RuntimeError) as raised:

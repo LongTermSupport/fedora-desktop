@@ -1,6 +1,6 @@
 # Plan 00234: the speech-to-text model manager offers only the models that fit this GPU
 
-**Status**: In Progress (review fixes made; the screen and real-GPU checks queued for the host; the owner's look and Decision 1's approval pending)
+**Status**: In Progress (the live preview model fix made, its host rerun queued; the owner's look and Decision 1's approval pending)
 **Created**: 2026-10-27
 **Owner**: joseph
 **Priority**: Medium
@@ -45,7 +45,8 @@ non-technical person can follow the blue MOK Manager screens after the reboot.
 - Judging a CPU machine by its RAM. On the CPU every model loads, only slower; the status
   line says so.
 - Porting `wsi-model-manager` to Go (Decision 1).
-- `--download-auto` (the unattended download of `auto`'s picks) is unchanged.
+- `--download-auto` (the unattended download of `auto`'s picks) is unchanged, but for
+  also fetching the live preview models (Phase 4).
 
 ## Context & Background
 
@@ -103,6 +104,35 @@ non-technical person can follow the blue MOK Manager screens after the reboot.
   (4), the shared MOK message and the vault wording (5); Decision 1 recorded as awaiting
   the owner (6)
 
+### Phase 4: The live preview model nothing downloaded
+
+The host run of `gpu-load-acceptance.bash` after Task 2.3: the beam-5 leg passed
+(distil-large-v3.5 peaked at 2080 MiB against the rule's 2659). The streaming leg failed:
+neither `wsi-stream` nor the check named a real-time model, so RealtimeSTT loaded its
+default `tiny`, which nothing downloads; offline that raised LocalEntryNotFoundError, and
+RealtimeSTT 1.0.0 then hung (its transcription worker is a non-daemon thread, its
+`deamon` misspelt) until the 600 s timeout. From the panel, live streaming would have
+downloaded tiny on first use. RealtimeSTT also wrote `realtimesst.log` into its working
+directory, the home directory when the panel starts `wsi-stream`.
+
+- [x] ✅ **Task 4.1**: Tests first, then: `wsi-resolve-model --realtime` names the live
+  preview model (tiny.en for English, tiny otherwise, `REALTIME_MODELS`), checked on disk
+  like the main one, and `--realtime-models` lists both; `wsi-stream` passes it as
+  `realtime_model_type` with `no_log_file` in both RealtimeSTT modes (`realtime_config`);
+  `wsi-model-manager --download-realtime` fetches the missing ones (and `--download-auto`
+  does too), run by the play's new Download The Live Preview Models task, failing if
+  either cannot be fetched; `check-gpu-load.py`'s streaming leg uses the resolver's model,
+  fails at once naming the play when it is not on disk, and its child exits at once on a
+  recorder that fails to load. RealtimeSTT can also fail without raising: a main-model
+  load error ends only its worker thread, and the constructor waits for the model for
+  ever. So `wsi-stream`'s `load_recorder` (both RealtimeSTT modes) ends the process at
+  once with `os._exit(1)`, ERROR and a notification that stays, on a constructor that
+  raises or on any thread that dies while the recorder is built (`threading.excepthook`,
+  set for that window only); the pre-buffer's pw-record is killed first
+- [ ] ⬜ **Task 4.2**: on the host (meta-deploy): `changed-plays` picks up
+  play-speech-to-text.yml (downloads tiny.en and tiny), then `gpu-load-acceptance.bash`
+  again, both legs within the rule's figure
+
 ## Technical Decisions
 
 ### Decision 1: no Go port in this change
@@ -143,7 +173,7 @@ size order would preselect it; the catalogue order is used instead.
 - [x] The tests above pass (`scripts/test-wsi-stop-grace.bash`)
 - [x] `acceptance.bash` ACCEPTED on the test machine (Task 2.1, at 525560cfb)
 - [ ] `acceptance.bash` with its `screen` leg, and `gpu-load-acceptance.bash`, ACCEPTED on
-  the test machine (Task 2.3)
+  the test machine (Task 2.3; the streaming leg after Task 4.2)
 - [ ] The owner approves Decision 1's exception to the Go-port rule
 - [ ] The owner's look (Task 2.2) agrees
 
@@ -162,3 +192,4 @@ size order would preselect it; the catalogue order is used instead.
 
 - Phase 1: the fit in the resolver and manager, and the MOK message (3f4aec19e, merged in 82fcb5a9d)
 - Task 3.2: the final review's fixes (branch `fix/00234-review-findings`)
+- Task 4.1: the live preview model (branch `fix/00234-gpu-load-log-cwd`)
