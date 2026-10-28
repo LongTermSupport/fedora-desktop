@@ -399,7 +399,7 @@ H1-H4 are the owner's, at the desktop.
 `reclaim` (P6, the sixth tool; chosen in its spec's section 1: the most interactive of the four
 left, and the one a fake proves without the owner, since its danger is which commands run after
 which answer) ported and cut over on `go-port/reclaim`, Fable-reviewed and the review's
-findings fixed, not merged; spec [SPEC-reclaim.md](SPEC-reclaim.md) (D1-D4, E1-E30, B1-B15,
+findings fixed, merged into F44 at `2e32edc2a`; spec [SPEC-reclaim.md](SPEC-reclaim.md) (D1-D4, E1-E30, B1-B15,
 H1-H5), `src-go/cmd/reclaim` (under `execx.SignalContext`) and `src-go/internal/reclaim` (root
 through `internal/sudo` after a reason and only after a yes, ncdu through
 `execx.Foregrounder`, the biggest-files walk and the removals in Go, sizes by
@@ -428,10 +428,11 @@ L-7 fixed (the unused `styleBlue` removed). Host checks H1-H5 are the host agent
 host recheck passed (H1's Podman section with no summed size, and the dangling count and the
 prune question differing by the stated number kept; option 6 answering No to every question
 ran nothing). 2.0.5 says `Skipped <command>.` after a No to either "Also remove all unused"
-question too, as after the first question of each pair (E22); its recheck is queued.
+question too, as after the first question of each pair (E22); its recheck passed at
+`071969780` (PLAN.md Task 3.3 has the host results).
 `nord` (P6, the seventh tool; chosen in its spec's section 1: the largest left and the only
 interactive one, whose danger a recorded command list proves) ported and cut over on
-`go-port/nord`, Fable-reviewed and the review's findings fixed, not merged; spec
+`go-port/nord`, Fable-reviewed and the review's findings fixed, merged into F44 at `075d2418f`; spec
 [SPEC-nord.md](SPEC-nord.md) (D1-D5, E1-E24, B1-B18, H1-H7), `src-go/cmd/nord` (under `execx.SignalContext`) and
 `src-go/internal/nord`. `nord` joins the owners of `nmcli` in the project rule's table; systemd
 is asked through `internal/systemd`, the chooser is `ui.Lines.Choose`. The password is stored in
@@ -455,8 +456,8 @@ a protected glob; no file is involved), so the code joins the name from its part
 one-line comment saying so and a test pinning the parts; the lead raises the guard with the
 owner. Host run: `changed-plays` at `b9fdc8adb` picked nothing, because the play ran on the
 host only before its play ledger was cleared, so `--changed` cannot see it
-(`$pmo505uje_JUY88QP54JD_65CQfD2oK_Vr-OfYdbwvM`); the play is queued by name in
-`meta-deploy.list` instead. Before that run its firewalld step was made to ask first
+(`$pmo505uje_JUY88QP54JD_65CQfD2oK_Vr-OfYdbwvM`), so it was run by name instead, and ran
+at `037892368` (H1-H3 PASS; PLAN.md Task 3.3 has the host results). Before that run its firewalld step was made to ask first
 (`--permanent --query-service openvpn`), so a run finding the rule in place no longer reloads
 firewalld, which drops every runtime-only rule. Review dispositions
 (`subagent-reports/261028-fable-review-nord.md`, no BLOCKER): F1 fixed (a credential nmcli's
@@ -516,8 +517,9 @@ allowlist rows are gone; `ssh-with-agent.bash` stays for the two password wrappe
 container beyond the fakes: the built binary under a pty with a throwaway key, `HOME` in
 scratch and a `ProxyCommand` standing in for the host: the agent re-exec, the `/proc` check,
 `ssh-add`, the agent reaching ssh's children, `q` giving 130, no `ssh-agent` left after, and
-E11 refusing a `-F` configuration naming a second key. A real login is H2-H5. Host run queued
-in `meta-deploy.list` (`changed-plays`, expected to pick up `play-basic-configs.yml`).
+E11 refusing a `-F` configuration naming a second key. A real login is H2-H5. The host run
+(`changed-plays`, which picked up `play-basic-configs.yml`) ran at `e3d67048d`: H1 and H3
+PASS, H4 in part (PLAN.md Task 3.3 has the host results).
 Review dispositions
 ([subagent-reports/261028-fable-review-ssh-with-key.md](subagent-reports/261028-fable-review-ssh-with-key.md)):
 B1 fixed (B11, E20: ssh-copy-id folds every `-o` into its already-installed check, so the login

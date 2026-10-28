@@ -3,16 +3,21 @@
 **Status**: In Progress. Every QA script is ported or retired (`qa-go.bash` by Plan 00191
 Task 3.3; the Go gate is go-qa-ci through `scripts/qa-go-qa.bash`). Every port of Task 3.3 is merged
 except the `ccy` launcher, whose phases 3 to 5 are deferred by Plan 00191 D4/D10. Left for
-workers: Tasks 4.1 and 4.2 over the finished plan. Left for the host agent: the host checks
+workers: Tasks 4.1 and 4.2 over the finished plan. Left for the host agent: the
+`changed-plays` run queued in `meta-deploy.list` and its checks (vmtest H5 and H7's dry run
+after the retention port, the nord play run again with no firewalld warning); the host checks
 of the merged ports still open (vmtest H3's base build and ssh-with-key H2 and H4's guest
-part, once the runs are pruned; open H5's
-Ctrl-C in mpv; rclone-tail H4; gh-account-setup H1 and H3 to H5); Task 3.2's root run is on hold
-until Plan 00209 Task 2.5 (see the task). Left for the owner: only what needs the owner in person, namely
-gh-account-setup H2 (a real GitHub device login), ftp-camera H3 and H4 (the physical camera),
-H1 (it sorts the real upload tree, so it waits on the owner's yes) and H5 (a Wi-Fi access
-point on the owner's machine), wsi H1 (speaking into the microphone) and H2 (a real recording
-and Escape on the owner's desktop), open H2 and H3 and reclaim H5 (the owner's screen), and
-vmtest H6 (a throwaway GitHub account to create).
+part, once the runs are pruned; open H5's Ctrl-C in mpv; rclone-tail H4; gh-account-setup H1
+and H3 to H5); Task 3.2's root run is on hold until Plan 00209 Task 2.5 (see the task). Left
+for the owner: only what needs the owner in person, namely vmtest H7's `prune-runs --yes`
+(which the vmtest H3 and ssh-with-key checks wait on) and H6 (a throwaway GitHub account to
+create), gh-account-setup H2 (a real GitHub device login), ftp-camera H3 and H4 (the physical
+camera), H1 (it sorts the real upload tree, so it waits on the owner's yes) and H5 (a Wi-Fi
+access point on the owner's machine), wsi H1 (speaking into the microphone) and H2 (a real
+recording and Escape on the owner's desktop), open H2 and H3 and reclaim H5 (the owner's
+screen), nord H4-H7 (they reroute the host's network), nvidia-status H5 (a driver install or
+reboot), ssh-with-key H5 (the owner's hosts and keys) and setup-rclone H1-H4 (a real remote
+and the vault).
 **Created**: 2026-10-14
 **Owner**: joseph
 **Priority**: High
@@ -244,7 +249,7 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     the partial section (counts, sizes, dangling images, the largest ten of each kind), makes
     every default prune dangling-only, and asks separately, default No, about every unused
     image, listing the claude-yolo images it would remove; the safe sweep never asks it (E7a,
-    E22, E22a, E27, B16). 2.0.3's host check is queued in `meta-deploy.list`. 2.0.4 drops the summed image size (it equalled the whole disk; no layer sizes are available without `podman system df`) and explains the dangling count that differs between the report and the prune question (images a container uses are kept); its host recheck passed at `cad6b5053`. 2.0.5 prints `Skipped <command>.` after a No to either "Also remove all unused" question as well; its host recheck passed at `071969780` (option 6, No to all four: a Skipped line after each, nothing run, podman and docker figures unchanged).
+    E22, E22a, E27, B16). 2.0.3's host check ran, and 2.0.4 fixes what it found: it drops the summed image size (it equalled the whole disk; no layer sizes are available without `podman system df`) and explains the dangling count that differs between the report and the prune question (images a container uses are kept); its host recheck passed at `cad6b5053`. 2.0.5 prints `Skipped <command>.` after a No to either "Also remove all unused" question as well; its host recheck passed at `071969780` (option 6, No to all four: a Skipped line after each, nothing run, podman and docker figures unchanged).
   - `nord` (P6): ported, Fable-reviewed (no blocker) and its findings fixed, merged into F44 and
     deployed; spec [SPEC-nord.md](SPEC-nord.md) (D1-D5, E1-E24, B1-B18, H1-H7), detail in
     [PORTS.md](PORTS.md). `play-nordvpn-openvpn.yml` builds it. Host, at `037892368` (host agent,
@@ -398,11 +403,15 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
 - [ ] 🔄 **Task 4.2**: qa-reviewer over the plan: done once
   ([subagent-reports/261014-qa-reviewer-plan.md](subagent-reports/261014-qa-reviewer-plan.md));
   its fixes are on `go-port/qa-all` ([the fix report](subagent-reports/261014-qa-reviewer-fixes-sonnet.md)).
-  Runs again over the finished plan.
+  Second pass, over the Phase 3 ports at `e3d67048d`: FIX-BEFORE-MERGE, no blocker; every
+  finding fixed ([the fix report](subagent-reports/261028-qa-reviewer-r2-fixes.md)). Runs
+  again over the finished plan.
 
 ## Success Criteria
 
-- [ ] A new bash file over the thresholds fails QA; an allowlisted one that grows fails QA.
+- [x] A new bash file over the thresholds fails QA; an allowlisted one that grows fails QA
+  (Task 1.3's controls: over-long, too many functions, `declare -A`, `fzf`, growth and an added
+  entry each fail the gate).
 - [ ] Every port in Phase 3 passes its existing suite against the Go binary before cut-over.
   Where the bash tool and its suites were deleted, the oracle was replaced, not dropped: the
   freeze tools' white-box bash suites are replaced by a golden replay of the shipped bash tools'
@@ -417,4 +426,17 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
 
 ## Delivery & Milestones
 
-- <!-- milestone or delivery commit hash -->
+Merges into F44 (`git log --merges --first-parent F44`):
+
+- The gate and the rules: `a6123672c` (qa-bash-limits with its ratchet), `e4fc8a2a2` (the
+  project DBF rules), `ed7a42be4` (the gate on a real bash parser), `b4edbe8b2`, `78ce2a21b`,
+  `4f0aaf616` (the Fable review fixes).
+- The QA scripts: `f0284848f` (freeze), `de85afbc3` (qa-changed), `6e0ae8aaa` (qa-all),
+  `b4027b70f` (qa-ansible), `14058c622` (every QA script but qa-go.bash), `0d39334e3`
+  (qa-go.bash retired for go-qa-ci).
+- The tools: `3474744f3` (vmtest), `a069fd963` (ftp-camera), `8c2ec4ccc` (wsi and watermark),
+  `507827626` (open), `e3126b64c` (rclone-cache-status), `1d8bc1037` (rclone-tail), `9e404ae6b`
+  (gh-account-setup), `61b70d02d` (setup-rclone), `2e32edc2a` (reclaim), `075d2418f` (nord),
+  `791118b60` (nvidia-status), `e3d67048d` (the ssh-with-key family).
+- Fixes from the host checks: `d318f5dba` and `76a72ec5f` (vmtest prune-runs, Task 3.10),
+  `866fcb2e5` and `cc2b83ab1` (reclaim), `071969780` (open's chafa in tmux).
