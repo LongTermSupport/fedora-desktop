@@ -33,19 +33,20 @@ and the per-rule pages are not written; this catalogue stands in for them.
 
 ## The rules
 
-| Rule                      | Defect class                                                                                                                                    | Found in                                                                                   |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `project_seam_exec`       | a process started outside the runner, so no fake sees it                                                                                        | `teams`: `syscall.Exec` in the launcher hand-over                                          |
-| `project_seam_commands`   | a program run outside the package that owns it, or a command the rule cannot judge (run-time name, hidden wrapper argv, shell `-c`)             | `sessions`: `systemctl reboot`; `teams`: the take-down heading via `gum style`             |
-| `project_tmux_targets`    | a tmux `-t` target in the wrong form for its command (fedora-desktop#69)                                                                        | the bash library, before the port                                                          |
-| `project_testclock`       | wall-clock reads in tests (date-dependent tests failed in the hour after midnight)                                                              | `transcript` and `sessprobe` tests: 23 `time.Now()` fixtures                               |
-| `project_waitdelay`       | a function that sets `exec.Cmd.WaitDelay` and never names `exec.ErrWaitDelay`, so a finished command's output is dropped                        | `qa/internal/proc`: bug B25 of the qa-all port                                             |
-| `project_package_tests`   | a package with no `_test.go` file, whose code the module-wide coverage floor can hide behind the rest of the module                             | the old Go gate's every-package-has-tests check, kept when go-qa-ci replaced it            |
-| `project_homeabbrev`      | a hand-rolled `~` home abbreviation (a bare prefix replace turned `/home/<user>X` into `~X`)                                                    | `teams` tests: `strings.Replace(..., "~", 1)` twice                                        |
-| `project_hidden_bindings` | an action reachable only by a key, with no visible, named choice for it (also in shell fzf and Python Textual: `qa-hidden-bindings.bash`)       | `teams` picker: Ctrl-A/X/O on Running sessions; `ccy-sessions`: Ctrl-T/X/N                 |
-| `project_refusal_kind`    | a declare.py refusal recovered by its type and never by its kind, so a refusal of the host_vars file is asked again as if the answer were wrong | `teams lxc-add`: "entries 5 and 6 both declare" asked three times (Plan 00201)             |
-| `project_realtime_bound`  | a bound on real time that a test can shorten, which then races the step the test asserts; a test that passes when a real timer fires            | teamchat `host/lxc`: 1 of 4 probes reached the fake hang before a 20 ms bound (Plan 00209) |
-| `project_esc_joined`      | a screen that loses an Esc typed just before another key, which arrives as that key with Alt (also in shell fzf: `qa-hidden-bindings.bash`)     | `teams` row menu: Esc then Down left the menu open and moved its cursor (Plan 00177)       |
+| Rule                        | Defect class                                                                                                                                    | Found in                                                                                   |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `project_seam_exec`         | a process started outside the runner, so no fake sees it                                                                                        | `teams`: `syscall.Exec` in the launcher hand-over                                          |
+| `project_seam_commands`     | a program run outside the package that owns it, or a command the rule cannot judge (run-time name, hidden wrapper argv, shell `-c`)             | `sessions`: `systemctl reboot`; `teams`: the take-down heading via `gum style`             |
+| `project_tmux_targets`      | a tmux `-t` target in the wrong form for its command (fedora-desktop#69)                                                                        | the bash library, before the port                                                          |
+| `project_testclock`         | wall-clock reads in tests (date-dependent tests failed in the hour after midnight)                                                              | `transcript` and `sessprobe` tests: 23 `time.Now()` fixtures                               |
+| `project_waitdelay`         | a function that sets `exec.Cmd.WaitDelay` and never names `exec.ErrWaitDelay`, so a finished command's output is dropped                        | `qa/internal/proc`: bug B25 of the qa-all port                                             |
+| `project_package_tests`     | a package with no `_test.go` file, whose code the module-wide coverage floor can hide behind the rest of the module                             | the old Go gate's every-package-has-tests check, kept when go-qa-ci replaced it            |
+| `project_homeabbrev`        | a hand-rolled `~` home abbreviation (a bare prefix replace turned `/home/<user>X` into `~X`)                                                    | `teams` tests: `strings.Replace(..., "~", 1)` twice                                        |
+| `project_hidden_bindings`   | an action reachable only by a key, with no visible, named choice for it (also in shell fzf and Python Textual: `qa-hidden-bindings.bash`)       | `teams` picker: Ctrl-A/X/O on Running sessions; `ccy-sessions`: Ctrl-T/X/N                 |
+| `project_refusal_kind`      | a declare.py refusal recovered by its type and never by its kind, so a refusal of the host_vars file is asked again as if the answer were wrong | `teams lxc-add`: "entries 5 and 6 both declare" asked three times (Plan 00201)             |
+| `project_realtime_bound`    | a bound on real time that a test can shorten, which then races the step the test asserts; a test that passes when a real timer fires            | teamchat `host/lxc`: 1 of 4 probes reached the fake hang before a 20 ms bound (Plan 00209) |
+| `project_esc_joined`        | a screen that loses an Esc typed just before another key, which arrives as that key with Alt (also in shell fzf: `qa-hidden-bindings.bash`)     | `teams` row menu: Esc then Down left the menu open and moved its cursor (Plan 00177)       |
+| `project_duration_overflow` | a `time.Duration` built from a number with no bound that keeps it inside int64 nanoseconds, so a large input comes out negative                 | `vmtest prune-runs --older-than 200000` pruned every failed run (Plan 00192 Task 3.10)     |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -622,6 +623,58 @@ shell, give the fzf call the same bindings as literal `--bind` words.
 must treat Esc joined to the next key as Esc. Not built because gum takes no bindings at all
 (its fix is replacing the prompt, the owner's decision) and Textual is Python, outside both
 gates; the tmux `escape-time` of `files/etc/tmux.conf` narrows the window for all of them.
+
+### project_duration_overflow
+
+**What it is about.** A `time.Duration` is an int64 count of nanoseconds, and Go's integer
+arithmetic wraps: 106752 days, or about 292 years of seconds, is past it, and the product comes
+out negative. A number read from input (an argument, the environment, a file, another program's
+output) has no size of its own, so a duration built from it can mean the opposite of what was
+asked. A negative wait or timeout fires at once.
+
+**Why it exists.** Plan 00192 Task 3.10, the Fable review of the retention move:
+`time.Duration(days)*24*time.Hour` in `vmtest`'s prune rule, with `--older-than` taken as any
+whole number, made the cutoff negative from 106752 days, so `vmtest prune-runs --older-than 999999 --yes` (meant as "never by age") pruned the overlay of every failed run. The bundled
+`durationcheck` linter does not see it: it allows `time.Duration(x) * time.Second` on purpose,
+and only flags two durations multiplied when neither is spelt as that conversion of the `time`
+package (it fired on the fixture's `stdtime` import alias, never on the real tree).
+
+**What it flags**, outside the `_test.go` files and the owner `internal/duration`: a
+multiplication of type `time.Duration` (either operand order, a chain, `*=`) with a factor that is
+`time.Duration(x)` of a number `x` that is not a constant, or a variable assigned such a
+conversion; and a conversion of a float that is not a constant to `time.Duration`. Each is judged
+by the largest value its factors can have: a constant, or a number the package refuses above a
+constant. A refusal is `x > K` or `x >= K` (`K < x`, `K <= x`) in the condition of an `if`, alone
+or joined by `||`, whose block ends in a `return`; it bounds `x` (a variable or a field) in the
+whole package, so a field refused where it is read bounds its use in another function. Sums,
+differences, products, quotients by a constant and conversions of bounded numbers are bounded. A
+factor with no bound, or a bound whose product leaves int64, is a finding.
+
+**Narrowings, each with its sentence.** A plain `time.Duration(n)` of an integer is not
+multiplied, and an int or int64 converted to int64 cannot overflow. A product of constants is the
+compiler's to check. A `_test.go` file's numbers are written in it. `internal/duration` is where a
+product is checked (`duration.Times`), so it is not judged.
+
+**How to fix a violation.** Refuse the number above a constant where it is read, in the same
+package (a usage error or a failure naming the largest value taken), or build the duration with
+`duration.Times(n, unit)`, which refuses a negative number and a product that leaves int64.
+
+- Red, fixture: `testdata/src/fix/internal/durations` (`bad.go`: the originating prune cutoff,
+  the unit first, a parsed number refused only below, a unit set at run time, a field bounded
+  nowhere, a comparison that only accepts, a refusal that goes on; `evade.go`: an import alias, a
+  conversion held in a variable, `*=`, parentheses and an offset, a float, a bound whose product
+  leaves int64, two numbers one unbounded, a bound on another variable; `good.go`: rclone-tail's
+  refusal, the reversed comparison, a bounded float, a field bounded in another function, an
+  offset of a bounded number, constants, a duration times a constant, `duration.Times`, a plain
+  conversion, clean; `good_test.go` clean) and `fix/internal/duration` (the owner, clean).
+- Red, real tree (`./scripts/qa-changed.bash` at the rule's commit): 6 findings, all in `src-go`,
+  none in the nested `qa` module: `sessions` `seconds` (six environment knobs in seconds, as a
+  float), `parseVerify` (`verify-restore --wait`), `secondWarning` (`reboot --in` minutes times
+  the configured minute), `wsi` `stopRequested` (the stop grace read from `wsi-stop-grace`),
+  `vmtest` `cmdMemberSSH` (`VMTEST_MEMBER_SSH_TIMEOUT`) and `planPrune` (the originating cutoff,
+  by then bounded by `maxPruneDays` in `parsePruneArgs`, on another function's local, which the
+  rule cannot see). The independent search, made before the rule, found the same six (the sixth as bounded
+  elsewhere) and no other.
 
 ## Defect classes that cannot be a rule
 
