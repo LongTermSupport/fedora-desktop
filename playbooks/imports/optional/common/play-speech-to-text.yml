@@ -107,11 +107,13 @@
         daemon_reload: true
       when: ydotool_override.changed
 
+    # Restarted only when its override changed: dictation types through this daemon, so a
+    # restart on every run would cut into a session that is typing.
     - name: Enable and Start System ydotool Daemon
       ansible.builtin.systemd:
         name: ydotool
         enabled: true
-        state: restarted
+        state: "{{ 'restarted' if ydotool_override.changed else 'started' }}"
 
     # A daemon that dies after its start would leave a bare wait for the socket to time
     # out with nothing said about why. So each try first asks systemd for the unit state,
@@ -401,6 +403,7 @@
         - stt-hourglass-symbolic.svg
         - prefs.js
         - metadata.json
+      register: extension_copy
 
     - name: Copy GSettings Schema
       ansible.builtin.copy:
@@ -861,12 +864,19 @@
       changed_when: false
       failed_when: false  # FAIL-FAST-OK: probe — extension may not be enabled yet
 
+    # Reloaded only when its files changed, or enabled when it is not: a reload on every run
+    # makes the panel flicker and reports a change that did not happen.
+    - name: Note Whether The Extension Needs Loading
+      ansible.builtin.set_fact:
+        extension_files_changed: "{{ extension_copy.changed or schema_copy.changed }}"
+        extension_needs_enable: "{{ extension_enabled.rc != 0 or extension_copy.changed or schema_copy.changed }}"
+
     - name: Disable Extension (to force reload)
       become: true
       become_user: "{{ user_login }}"
       ansible.builtin.command:
         cmd: gnome-extensions disable {{ extension_name }}
-      when: extension_enabled.rc == 0
+      when: extension_enabled.rc == 0 and extension_files_changed
       register: disable_result
       changed_when: disable_result.rc == 0
       failed_when: false  # FAIL-FAST-OK: disable may fail if GNOME session is unavailable
@@ -875,26 +885,27 @@
     - name: Wait for Extension to Unload
       ansible.builtin.pause:
         seconds: 2
-      when: extension_enabled.rc == 0
+      when: extension_enabled.rc == 0 and extension_files_changed
 
     - name: Enable Extension
       become: true
       become_user: "{{ user_login }}"
       ansible.builtin.command:
         cmd: gnome-extensions enable {{ extension_name }}
+      when: extension_needs_enable
       register: enable_result
-      changed_when: "'is now enabled' in enable_result.stderr or enable_result.rc == 0"
+      changed_when: enable_result.rc == 0
       failed_when: false  # FAIL-FAST-OK: enable may fail if GNOME session is unavailable
 
     - name: Extension Reload Complete
       ansible.builtin.debug:
         msg: "✓ Speech-to-Text extension reloaded successfully"
-      when: enable_result.rc == 0
+      when: extension_needs_enable and enable_result.rc == 0
 
     - name: Extension Enable Deferred
       ansible.builtin.debug:
         msg: "⚠ Extension will be enabled on next GNOME session start (no active session detected)"
-      when: enable_result.rc != 0
+      when: extension_needs_enable and enable_result.rc != 0
 
   handlers:
     # Stop the warm streaming server so the next dictation cold-starts it with the updated

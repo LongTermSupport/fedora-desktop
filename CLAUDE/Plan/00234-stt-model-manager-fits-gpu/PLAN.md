@@ -1,6 +1,6 @@
 # Plan 00234: the speech-to-text model manager offers only the models that fit this GPU
 
-**Status**: In Progress (every host check passed; the old log's removal queued for the host; the owner's look and Decision 1's approval pending)
+**Status**: In Progress (every host check passed; the play's rerun-changes-nothing fix queued for the host; the owner's look and Decision 1's approval pending)
 **Created**: 2026-10-27
 **Owner**: joseph
 **Priority**: Medium
@@ -138,9 +138,14 @@ directory, the home directory when the panel starts `wsi-stream`.
   decode peaked at 2080 MiB and streaming (tiny.en beside it) at 2184 MiB, against 2659; no
   hang, and no new `realtimesst.log` anywhere. An 87 MB one left in the home directory by
   earlier versions was found; Task 4.3 removes it.
-- [ ] ⬜ **Task 4.3**: the play removes the `realtimesst.log` earlier versions left in the
-  home directory (code done); on the host, `changed-plays` runs play-speech-to-text.yml and
-  the file is gone
+- [x] ✅ **Task 4.3**: the play removes the `realtimesst.log` earlier versions left in the
+  home directory; on the host, `changed-plays` ran play-speech-to-text.yml at `d153a3a0a` and
+  the file is gone (`$jlZOEoyPuagxUS1VfJjSLGfu9erhMcBQr_mz9peM7FQ`). That run also showed
+  three tasks changed on every run: ydotool restarted (cutting into a session typing through
+  it) and the panel extension disabled and enabled (the panel flickers)
+- [ ] ⬜ **Task 4.4**: the play restarts ydotool only when its override changed, and reloads
+  the extension only when its files changed (or enables it when it is not enabled) (code
+  done); on the host, `changed-plays` runs play-speech-to-text.yml and reports changed=0
 
 ## Technical Decisions
 
