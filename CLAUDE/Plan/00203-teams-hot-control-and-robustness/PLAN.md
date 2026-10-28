@@ -357,6 +357,27 @@ team at a time, under a lock in the owner's runtime directory (CR4 to CR8).
   (ACCEPTANCE.md M4 (e2); Plan 00204 D6 is that step's design), each member's `user@container`
   identity and its own seat on the board, both up, the coordinator and the worker exchanging a
   message on the bus, then both removed.
+  The route, run by hand on the host (nothing is queued in meta-deploy), as the desktop user
+  from this checkout; `HV` is the `host_vars.yml` in the run directory step 1 prints:
+  1. `./CLAUDE/Plan/00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/chooser-teams-up.bash`:
+     the throwaway team chooser201a (and chooser201b, unused here).
+  2. [lxc-throwaways-up.bash](lxc-throwaways-up.bash): the running containers t00203-coord and
+     t00203-worker, each with user `agent`, checkout `~/t00203-work` in that user's home and gh logged in.
+  3. `CCY_TEAMS_HOST_VARS=HV ccy-teams lxc-add chooser201a`: t00203-coord, `agent`, that
+     checkout; the Role step offers the coordinator (the team has none): take it.
+  4. The same for t00203-worker. The Role step names `agent@t00203-coord` as the coordinator and
+     offers worker (selected) and the takeover: choose the takeover, answer No, and it joins as
+     worker (ACCEPTANCE.md M4 (e2)).
+  5. Seats: `CCY_TEAMS_HOST_VARS=HV ccy-teams` lists both, each `agent@<container>` on its own
+     seat (`t00203-work.1+local.lxc` and `.2`), up, with the role each was given (ccy-teams has
+     no `roles` subcommand; the board is where the role is read).
+  6. The bus from each: `sudo lxc-attach -n <container> -- su - agent -c 'cd ~/t00203-work && set -a && . ~/.config/pingbus/env && set +a && pingbus status'` in both; then the worker's
+     `echo hello | pingbus say --to-coordinator`, the coordinator's `pingbus recv` showing it and
+     its REPLY command answering, and the worker's `pingbus recv` showing the answer.
+  7. Remove both: in HV set `state: absent` on both `agent_bus_lxc_members` entries, then
+     `CCY_TEAMS_HOST_VARS=HV ccy-teams apply chooser201a`; the board lists neither.
+  8. [lxc-throwaways-down.bash](lxc-throwaways-down.bash) (it refuses any name not starting
+     `t00203-`), then `chooser-teams-down.bash` from Plan 00201's folder.
 
 ## Decisions
 
