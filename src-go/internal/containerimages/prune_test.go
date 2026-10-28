@@ -742,3 +742,57 @@ func TestAnUnreadableLockDirectoryStopsTheRun(t *testing.T) {
 		t.Fatalf("exit %d; stderr %s", code, w.err.String())
 	}
 }
+
+// The two errors podman gave when c/storage could not unlink files a removed layer held,
+// owned by host uids of an old subuid range: the removal that met them, and every store load
+// after it (c/storage retries the stale temporary directory on each load).
+const (
+	unlinkDenied = "Error: unlinkat /srv/store/overlay/tempdirs/temp-dir-17/1-0f3c/diff/etc/skel/.bash_logout: permission denied\n"
+	staleDenied  = "Error: loading primary layer store data: error removing stale temp dir: unlinkat /srv/store/overlay/tempdirs/temp-dir-17/1-0f3c/diff/opt/yarn-v1.22.22/bin/yarn: permission denied\n"
+	wantCause    = "files owned outside your subuid range; run play-podman.yml, which repairs the store as root"
+)
+
+// P6a: a removal c/storage refuses with a permission denied in its temporary directories stops
+// the run at once: every later removal would fail the same way.
+func TestAStoreHoldingFilesOutsideTheSubuidRangeStopsTheRunAtOnce(t *testing.T) {
+	for _, denied := range []string{unlinkDenied, staleDenied} {
+		w := newWorld(t)
+		w.dangling = [][]img{{
+			{ID: id("e"), Size: 10, Created: ago(days(5))},
+			{ID: id("a"), Size: 20, Created: ago(days(5))},
+			{ID: id("f"), Size: 30, Created: ago(days(5))},
+		}, nil}
+		w.script()
+		w.fake.On([]string{"podman", "image", "rm", id("a")}, execx.Result{ExitCode: 125, Stderr: []byte(denied)})
+		w.fake.On([]string{"podman", "image", "rm", id("f")}, execx.Result{ExitCode: 125, Stderr: []byte(staleDenied)})
+		if code := w.run("prune", "--yes"); code != term.ExitFailure {
+			t.Fatalf("exit %d, want failure", code)
+		}
+		want := []string{"podman image rm " + id("e"), "podman image rm " + id("a")}
+		if got := w.removed(); !slices.Equal(got, want) {
+			t.Fatalf("removals %v, want %v", got, want)
+		}
+		stderr := w.err.String()
+		if strings.Count(stderr, wantCause) != 1 || !strings.Contains(stderr, "image aaaaaaaaaaaa") ||
+			strings.Contains(stderr, "ffffffffffff") {
+			t.Fatalf("stderr: %s", stderr)
+		}
+		if log := w.logText(); !strings.Contains(log, id("e")) || strings.Contains(log, id("a")) {
+			t.Fatalf("log: %s", log)
+		}
+	}
+}
+
+// A store that cannot even be listed for that cause says so too, before any removal.
+func TestAStoreThatCannotLoadForThatCauseNamesTheRepair(t *testing.T) {
+	w := newWorld(t)
+	backlog(w)
+	w.script()
+	w.fake.On([]string{"podman", "ps"}, execx.Result{ExitCode: 125, Stderr: []byte(staleDenied)})
+	if code := w.run("prune", "--yes"); code != term.ExitFailure {
+		t.Fatalf("exit %d, want failure", code)
+	}
+	if len(w.removed()) != 0 || strings.Count(w.err.String(), wantCause) != 1 {
+		t.Fatalf("removed %v; stderr %s", w.removed(), w.err.String())
+	}
+}

@@ -29,6 +29,12 @@
 //     kind, what, id, size, labels, why; tab-separated) only after it succeeded. A failed one is
 //     named on stderr and not logged, and the run exits 1. A log that cannot be opened stops the
 //     run before anything is removed.
+//   - P6a. A removal that c/storage refuses with a permission denied in its temporary
+//     directories (overlay/tempdirs/temp-dir-N: files of a removed layer owned by host uids
+//     outside the user's current subuid range, which the rootless user cannot unlink) stops the
+//     run at once, since every later removal and every store load fails the same way. The run
+//     names the cause and the repair (play-podman.yml, as root) once, and exits 1. A store that
+//     cannot be listed for that cause names it too. Any other failed removal is P6's.
 //   - P7. With --yes the run looks again after each pass, since a removed image can leave its
 //     parent dangling, until a pass removes nothing; the passes are bounded, and a run that
 //     still finds work at the bound fails.
@@ -305,6 +311,8 @@ type run struct {
 	seen    map[keep]bool
 	// toldBuilding is a run that has said on stderr that a ccy image build is running.
 	toldBuilding bool
+	// storeDenied is a run stopped by P6a.
+	storeDenied bool
 }
 
 func (a App) prune(ctx context.Context, yes bool) term.ExitCode {
@@ -358,6 +366,9 @@ func (r *run) passes(ctx context.Context) term.ExitCode {
 	for range maxPasses {
 		s, err := r.look(ctx)
 		if err != nil {
+			if deniedInTempdirs(err) {
+				return r.fail(fmt.Errorf("the store cannot be read: it holds %s. podman said: %w", storeCause, err))
+			}
 			return r.fail(err)
 		}
 		acts, keeps := plan(r.Env.Now(), s)
@@ -368,6 +379,9 @@ func (r *run) passes(ctx context.Context) term.ExitCode {
 		for _, act := range acts {
 			if err := r.act(ctx, act); err != nil {
 				return r.fail(err)
+			}
+			if r.storeDenied {
+				return term.ExitFailure
 			}
 		}
 		if !r.yes || len(r.failed) > 0 {
@@ -445,10 +459,26 @@ func (r *run) remove(ctx context.Context, act action) bool {
 	} else {
 		err = r.eng.RemoveImage(ctx, act.ref)
 	}
-	if err != nil {
+	switch {
+	case err != nil && deniedInTempdirs(err):
+		r.storeDenied = true
+		r.failed = append(r.failed, "stopped at the removal of "+act.kind+" "+act.name+": the store holds "+storeCause+
+			"; this run removes nothing more. podman said: "+err.Error())
+	case err != nil:
 		r.failed = append(r.failed, "could not remove "+act.kind+" "+act.name+": "+err.Error())
 	}
 	return err == nil
+}
+
+// storeCause is P6a's cause and its repair, as the run reports them.
+const storeCause = "files owned outside your subuid range; run play-podman.yml, which repairs the store as root"
+
+// deniedInTempdirs is P6a's failure: c/storage could not unlink a removed layer's files in its
+// temporary directories, either while removing it or when retrying a stale one on a store load.
+func deniedInTempdirs(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "permission denied") &&
+		(strings.Contains(msg, "/overlay/tempdirs/temp-dir-") || strings.Contains(msg, "stale temp dir"))
 }
 
 func (r *run) record(act action) error {
