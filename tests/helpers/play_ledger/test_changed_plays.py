@@ -19,7 +19,8 @@ from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-from helpers.play_ledger import changed_plays, ledger, store
+from helpers.play_ledger import changed_plays, group_vars, ledger, store
+from helpers.self_update import affected_plays
 from helpers.self_update.affected_plays import Inputs
 
 COMMIT_A = "a" * 40
@@ -37,6 +38,8 @@ DEV = "playbooks/dev/play-repo-tool.yml"
 FREEZE = "playbooks/imports/optional/common/play-podfreeze.yml"
 
 OLD = "playbooks/imports/play-claude-code.yml"
+
+GROUP_VARS = "environment/localhost/group_vars/desktop.yml"
 
 #: The order playbook-main.yml imports the core plays in, for the stubbed cases.
 MAIN_ORDER = [BASIC, GIT, YOLO]
@@ -233,6 +236,112 @@ class TestReasons(_Case):
             _seed(base, [(FREEZE, COMMIT_A, "ok")])
             _, _, err = self._run(base, changed={COMMIT_A: self.GO_CHANGE}, list_all=True)
             self.assertEqual(err, "")
+
+
+class TestGroupVars(unittest.TestCase):
+    """Plan 00192 Task 3.11: a change to the group_vars file reruns the plays reading what changed."""
+
+    OLD_VARS = "---\naudience: developer\nprofile: desktop\nunread: 1\n"
+    TEXTS = {BASIC: "when: audience == 'consumer'\n", YOLO: "state: \"{{ profile }}\"\n", GIT: "nothing\n"}
+
+    def _judge(self, new_vars: str | None, *, changed: list[str] | None = None,
+               old_vars: str | None = OLD_VARS, plays=(BASIC, GIT, YOLO)):
+        self.read_at: list[str] = []
+
+        def group_vars_at(root: str, commit: str) -> str | None:
+            self.read_at.append(commit)
+            return old_vars
+
+        latest = {play: {"play": play, "commit": COMMIT_A, "outcome": "ok", "dirty": False} for play in plays}
+        return changed_plays.judge(
+            latest, repo_root="/repo",
+            changed_since=lambda root, commit: [GROUP_VARS] if changed is None else changed,
+            exists_now=lambda root, play: True,
+            inputs_of=lambda root, play: INPUTS[play],
+            main_order=lambda root: MAIN_ORDER,
+            group_vars_at=group_vars_at,
+            group_vars_now=lambda root: new_vars,
+            play_text=lambda root, inputs: next(text for play, text in self.TEXTS.items() if INPUTS[play] is inputs),
+        )
+
+    def _stale(self, judgement) -> list[str]:
+        return [play for play in judgement.order if judgement.states[play] == changed_plays.STATE_STALE]
+
+    def test_a_changed_variable_reruns_the_plays_reading_it_and_no_other(self) -> None:
+        judgement = self._judge(self.OLD_VARS.replace("developer", "consumer"))
+        self.assertEqual(self._stale(judgement), [BASIC])
+        self.assertEqual(judgement.changed_vars, {BASIC: ["audience"]})
+
+    def test_a_changed_variable_no_play_reads_reruns_none(self) -> None:
+        judgement = self._judge(self.OLD_VARS.replace("unread: 1", "unread: 2"))
+        self.assertEqual(self._stale(judgement), [])
+        self.assertEqual(judgement.states[BASIC], changed_plays.STATE_CURRENT)
+
+    def test_an_added_variable_reruns_the_plays_reading_it(self) -> None:
+        judgement = self._judge("---\nunread: 1\n", old_vars="---\nunread: 1\n")
+        self.assertEqual(self._stale(judgement), [])
+        judgement = self._judge(self.OLD_VARS, old_vars="---\nunread: 1\n")
+        self.assertEqual(self._stale(judgement), [BASIC, YOLO])
+
+    def test_a_removed_variable_reruns_the_plays_reading_it(self) -> None:
+        judgement = self._judge(self.OLD_VARS.replace("profile: desktop\n", ""))
+        self.assertEqual(self._stale(judgement), [YOLO])
+        self.assertEqual(changed_plays.reasons(judgement, YOLO),
+                         [f"changed variables of {GROUP_VARS}: profile"])
+
+    def test_the_file_is_read_once_a_commit_and_only_when_it_changed(self) -> None:
+        self._judge(self.OLD_VARS.replace("developer", "consumer"))
+        self.assertEqual(self.read_at, [COMMIT_A])
+        self._judge(self.OLD_VARS, changed=[BASIC])
+        self.assertEqual(self.read_at, [])
+
+    def test_a_play_stale_for_a_path_also_names_the_variables(self) -> None:
+        judgement = self._judge(self.OLD_VARS.replace("developer", "consumer"), changed=[GROUP_VARS, BASIC])
+        self.assertEqual(changed_plays.reasons(judgement, BASIC),
+                         [f"changed: {BASIC}", f"changed variables of {GROUP_VARS}: audience"])
+
+    def test_a_file_it_cannot_read_answers_nothing(self) -> None:
+        with self.assertRaises(changed_plays.NoAnswer) as caught:
+            self._judge("---\n{{ odd }}\n")
+        self.assertIn(GROUP_VARS, " ".join(caught.exception.lines))
+
+
+class TestGroupVarsRealGit(unittest.TestCase):
+    """End to end: the real mapper reading the play text, the real git, the real ledger."""
+
+    def test_main_reruns_only_the_play_reading_the_changed_variable(self) -> None:
+        play_text = (
+            "- hosts: desktop\n  tasks:\n    - name: Say\n      ansible.builtin.debug:\n"
+            "        msg: \"{{{{ {var} }}}}\"\n"
+        )
+        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as state:
+            _init_repo(root)
+            _write(root, changed_plays.MAIN_PLAYBOOK,
+                   "- import_playbook: imports/play-one.yml\n- import_playbook: imports/play-two.yml\n")
+            _write(root, "playbooks/imports/play-one.yml", play_text.format(var="first_var"))
+            _write(root, "playbooks/imports/play-two.yml", play_text.format(var="second_var"))
+            _write(root, GROUP_VARS, "---\nfirst_var: a\nsecond_var: b\n")
+            _git(root, "add", ".")
+            _git(root, "commit", "-q", "-m", "first")
+            first = _git(root, "rev-parse", "HEAD").strip()
+
+            env = {**_isolated_git_env(), "XDG_STATE_HOME": state}
+            base = ledger.ledger_dir(env, state)
+            os.makedirs(base)
+            store.ensure_ledger(base, commit=first, at=STAMP)
+            for name in ("one", "two"):
+                store.append_record(base, ledger.build_record(
+                    play=f"playbooks/imports/play-{name}.yml", name=name, commit=first, dirty=False,
+                    play_sha256=SHA, outcome="ok", changed=0, started=STAMP, finished=STAMP,
+                ))
+            _write(root, GROUP_VARS, "---\nfirst_var: a\nsecond_var: c\n")
+
+            out, err = io.StringIO(), io.StringIO()
+            with (mock.patch.dict(os.environ, env, clear=True), contextlib.redirect_stdout(out),
+                  contextlib.redirect_stderr(err)):
+                code = changed_plays.main(["--repo-root", root])
+            self.assertEqual((code, out.getvalue()), (changed_plays.EXIT_OK, "RUN playbooks/imports/play-two.yml\n"))
+            self.assertIn(f"changed variables of {GROUP_VARS}: second_var", err.getvalue())
 
 
 class TestListAll(_Case):
@@ -550,6 +659,35 @@ class TestRealPlayInputs(unittest.TestCase):
                          changed_plays.STATE_STALE)
         self.assertEqual(self._states(["files/usr/local/share/agent-bus/tuwunel.pin"])[self.AGENT_BUS],
                          changed_plays.STATE_STALE)
+
+    def test_the_group_vars_file_is_an_input_of_no_play(self) -> None:
+        """Else a change to it reruns that play whatever changed: the helpers that judge
+        variables name the file, and not-play-inputs.json says they only judge it."""
+        for play in affected_plays.candidate_plays(self.REPO_ROOT):
+            inputs = affected_plays.play_inputs(self.REPO_ROOT, play)
+            self.assertFalse(affected_plays.affects(inputs, GROUP_VARS), play)
+
+    def test_the_real_group_vars_file_is_judged_a_variable_at_a_time(self) -> None:
+        """Task 3.11 on this checkout's plays: a variable none reads reruns none of them."""
+        basic = "playbooks/imports/play-basic-configs.yml"
+        fonts = "playbooks/imports/play-fonts.yml"
+        now = group_vars.text_now(self.REPO_ROOT)
+        self.assertIsNotNone(now)
+
+        def states(new: str) -> dict[str, str]:
+            latest = {play: {"play": play, "commit": COMMIT_A, "outcome": "ok", "dirty": False}
+                      for play in (basic, fonts)}
+            return changed_plays.judge(
+                latest, repo_root=self.REPO_ROOT,
+                changed_since=lambda root, commit: [GROUP_VARS], main_order=lambda root: [],
+                group_vars_at=lambda root, commit: now, group_vars_now=lambda root: new,
+            ).states
+
+        unread = states(f"{now}\nnot_read_by_any_play_3_11: 1\n")
+        self.assertEqual(set(unread.values()), {changed_plays.STATE_CURRENT})
+        audience = states(now.replace("install_audience: developer", "install_audience: consumer"))
+        self.assertEqual(audience[basic], changed_plays.STATE_STALE)
+        self.assertEqual(audience[fonts], changed_plays.STATE_CURRENT)
 
 
 if __name__ == "__main__":
