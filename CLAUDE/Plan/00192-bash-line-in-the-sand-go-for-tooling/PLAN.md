@@ -244,16 +244,24 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     every default prune dangling-only, and asks separately, default No, about every unused
     image, listing the claude-yolo images it would remove; the safe sweep never asks it (E7a,
     E22, E22a, E27, B16). 2.0.3's host check is queued in `meta-deploy.list`. 2.0.4 drops the summed image size (it equalled the whole disk; no layer sizes are available without `podman system df`) and explains the dangling count that differs between the report and the prune question (images a container uses are kept); its host recheck passed at `cad6b5053`. 2.0.5 prints `Skipped <command>.` after a No to either "Also remove all unused" question as well; its host recheck passed at `071969780` (option 6, No to all four: a Skipped line after each, nothing run, podman and docker figures unchanged).
-  - `nord` (P6): built on `go-port/nord`, Fable-reviewed (no blocker) and its findings fixed,
-    not merged; spec [SPEC-nord.md](SPEC-nord.md) (D1-D5, E1-E24, B1-B18, H1-H7), detail in
-    [PORTS.md](PORTS.md). `play-nordvpn-openvpn.yml` builds it. Host checks H1-H3 are the host
-    agent's (read-only, and the chooser cancelled in tmux); H4-H7 (a VPN brought up, switched,
-    down, and the profiles removed) are the owner's, since they reroute the host's network.
-  - `nvidia-status` (P6): built on `go-port/nvidia-status`, Fable-reviewed (no blocker) and its
-    fix-before-merge finding fixed (B14; `subagent-reports/261028-fable-review-nvidia-status.md`); spec
+  - `nord` (P6): ported, Fable-reviewed (no blocker) and its findings fixed, merged into F44 and
+    deployed; spec [SPEC-nord.md](SPEC-nord.md) (D1-D5, E1-E24, B1-B18, H1-H7), detail in
+    [PORTS.md](PORTS.md). `play-nordvpn-openvpn.yml` builds it. Host, at `037892368` (host agent,
+    `$AbDvJXw-PoXVxcyjVoVyG-8BDAIQktS9JyvA3iNfHhk`): the play ran by name, firewalld not reloaded,
+    the network connections and firewall unchanged; H1, H2 and H3 PASS (the ELF at its old path,
+    2.0.0; list, list-active and status read NetworkManager; the chooser cancelled with q, Ctrl-D,
+    Ctrl-C and three bad answers, nothing changed). Left: H4-H7 (a VPN brought up, switched,
+    down, and the profiles removed), the owner's, since they reroute the host's network.
+  - `nvidia-status` (P6): ported, Fable-reviewed (no blocker) and its fix-before-merge finding
+    fixed (B14; `subagent-reports/261028-fable-review-nvidia-status.md`), merged into F44; spec
     [SPEC-nvidia-status.md](SPEC-nvidia-status.md). Run from the checkout through the
-    `scripts/nvidia-status.bash` wrapper, so no play deploys it and nothing is queued in
-    `meta-deploy.list`. Host checks H1-H4 are the host agent's (read-only), H5 the owner's.
+    `scripts/nvidia-status.bash` wrapper, so no play deploys it. Host, at `037892368` (host agent,
+    same message as nord's): H1-H4 PASS on the hybrid laptop: every section read, verdict
+    complete and functional, `--check` silent with exit 0, no escape bytes in a pipe, a headless
+    glxinfo failure named as no display rather than a driver fault, and each parser checked
+    against the real mokutil, vulkaninfo, glxinfo and vainfo output. Noted there: the akmods key
+    file is absent while the modules load signed (section 1 warns, as it should). Left: H5 (the
+    owner's, optional: the not-functional verdicts need a driver install or reboot).
   - Still to do: the last programmes in [INVENTORY.md](INVENTORY.md) (the `ssh-with-key`
     family) and the `ccy` launcher.
 
