@@ -1,0 +1,86 @@
+---
+# Fixture for the regex-class-escape check of src-go/qa/ansible: nothing here may be
+# reported. Each letter escape reaches the regex as exactly one backslash and the letter (or as
+# escaped backslashes and then one), given its YAML style and Jinja context.
+# A task list, not a play, so no gate syntax-checks it.
+
+- name: The /etc/subuid regex of tasks/podman-store-ownership-probe.yml after its fix
+  ansible.builtin.set_fact:
+    podman_store_subuid_ranges: >-
+      {{ podman_store_subuid.content | b64decode
+         | regex_findall('(?m)^(?:' ~ (user_login | regex_escape) ~ '|'
+                         ~ ansible_facts['getent_passwd'][user_login][1] ~ '):(\d+):(\d+)\s*$') }}
+
+- name: The held-lock regex of tasks/podman-store-repair.yml after its fix
+  ansible.builtin.assert:
+    that:
+      - podman_store_held | length == 0
+  vars:
+    podman_store_held_inodes: >-
+      {{ podman_store_proc_locks.content | b64decode
+         | regex_findall('\s[0-9a-f]+:[0-9a-f]+:(\d+)\s') | map('int') | list }}
+
+# The store-path guard of tasks/podman-store-repair.yml, before and after its fix. An assert
+# that is a bare conditional, which Jinja unescapes: \\s becomes \s, and \s, an escape Jinja
+# does not know, keeps its backslash. Both reach the regex as \s.
+- name: The store-path guard before its fix
+  ansible.builtin.assert:
+    that:
+      - (item.content | b64decode) is not regex('(?m)^\\s*' ~ item.item.item.key ~ '\\s*=')
+
+- name: The store-path guard after its fix
+  ansible.builtin.assert:
+    that:
+      - (item.content | b64decode) is not regex('(?m)^\s*' ~ item.item.item.key ~ '\s*=')
+
+- name: Hex escapes in a conditional, which Jinja decodes (play-speech-to-text.yml)
+  ansible.builtin.assert:
+    that:
+      - stt_watch_folders | select('search', '[\\x22\\x5c\\x0a]') | list | length == 0
+
+- name: A double-quoted scalar, where YAML halves the backslashes
+  ansible.builtin.set_fact:
+    double: "{{ s | regex_search('\\d+\\s') }}"
+
+- name: A conditional, two backslashes before b
+  ansible.builtin.debug:
+    msg: x
+  when: s is regex('\\bword\\b')
+
+- name: A literal backslash before a letter, spelled as a class
+  ansible.builtin.set_fact:
+    literal_backslash: x{{ s | regex_search('C:[\\]Users') }}
+
+- name: An escaped backslash then a letter escape, three backslashes
+  ansible.builtin.set_fact:
+    three: x{{ s | regex_search('\\\d') }}
+
+- name: A doubled backslash in a replacement, not a pattern
+  ansible.builtin.set_fact:
+    replacement: x{{ s | regex_replace('a', '\\n') }}
+
+- name: A regex_search group argument, not a pattern
+  ansible.builtin.set_fact:
+    group: x{{ s | regex_search('a(?P<v>b)', '\g<v>') }}
+
+- name: A string that is no regex argument
+  ansible.builtin.set_fact:
+    other: x{{ s | replace('\\d', 'x') ~ '\\s' }}
+
+- name: A name that is not a test, given to a call that does not take one
+  ansible.builtin.set_fact:
+    lookalike: x{{ d.get('search', '\\d') }}
+
+- name: A module regexp, which no Jinja string literal holds
+  ansible.builtin.lineinfile:
+    path: /tmp/x
+    regexp: '^\d+'
+    line: x
+
+- name: A raw block is never templated
+  ansible.builtin.set_fact:
+    raw: x{% raw %}{{ s | regex_search('\\d') }}{% endraw %}
+
+- name: A comment is not an expression
+  ansible.builtin.set_fact:
+    comment: x{# regex_search('\\d') #}
