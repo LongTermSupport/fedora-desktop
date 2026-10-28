@@ -1,7 +1,8 @@
 # Plan 00203: the whole-team lifecycle, rules and decisions (Tasks 3.15 to 3.19)
 
 PLAN.md lists each decision in a line or two; this is the full text. Decision 13 is the
-owner's. Decisions 14 to 24 are open: each runs on its default until the owner decides. The
+owner's. Decisions 14 to 24 are decided: their defaults stand (the owner, 2026-10-28, "all
+recommended" to the unblocking list; PLAN.md "Decisions"), and the owner may still reverse any. The
 expectations themselves are in the SPEC each task names:
 
 - 3.15 and 3.16: [SPEC-team-wind-down.md](SPEC-team-wind-down.md) sections 5 and 6;
@@ -70,10 +71,10 @@ The owner's rule, CLAUDE/AgentNotes.md "An offline team member never blocks anyt
     `ccy --continue` resumes a session cleanly and is what the owner uses today, so an LXC
     member is resumed by 3.18's connect command, a `cd` into its recorded working directory and
     its resume command, default `ccy --continue`. No conversation id is passed to claude in the
-    container. How a `service: true` member fits this ruling is Decision 24, which is open. The
+    container. How a `service: true` member fits this ruling is Decision 24 (its default stands). The
     limits of `--continue` are Decision 23's.
 
-### Open: for the owner
+### Decided: the defaults stand (2026-10-28)
 
 14. **The inner deadline.** Default: the outer window less 3 minutes (15 gives 12, 30 gives
     27), and an outer window under 5 minutes is refused. The 3 minutes cover the forced
