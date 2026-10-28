@@ -182,32 +182,38 @@ func (t *triager) add(it *item, d StoreDir) {
 // attribute is O5: a directory belongs to a container's own layer, the images whose chains
 // hold its layer, a volume, a recorded layer nothing uses, or nothing known.
 func (t *triager) attribute(d StoreDir) {
-	if layer, ok := strings.CutPrefix(d.Key, "overlay/"); ok {
-		for _, c := range t.rec.containers {
-			if c.Layer == layer {
-				t.add(t.get(kindCtr, c.ID), d)
-				return
-			}
-		}
-		if _, recorded := t.rec.parent[layer]; recorded {
-			found := false
-			for _, img := range t.rec.images {
-				if t.chains[img.ID][layer] {
-					t.add(t.get(kindImage, img.ID), d)
-					found = true
-				}
-			}
-			if !found {
-				t.add(t.get(kindLayer, layer), d)
-			}
-			return
-		}
+	if layer, ok := strings.CutPrefix(d.Key, "overlay/"); ok && t.attributeLayer(layer, d) {
+		return
 	}
 	if name, ok := strings.CutPrefix(d.Key, "volumes/"); ok && t.pv.volumes[name] {
 		t.add(t.get(kindVolume, name), d)
 		return
 	}
 	t.add(t.get(kindPath, d.Key), d)
+}
+
+// attributeLayer is attribute for an overlay/<id> directory: false when no record names id.
+func (t *triager) attributeLayer(layer string, d StoreDir) bool {
+	for _, c := range t.rec.containers {
+		if c.Layer == layer {
+			t.add(t.get(kindCtr, c.ID), d)
+			return true
+		}
+	}
+	if _, recorded := t.rec.parent[layer]; !recorded {
+		return false
+	}
+	found := false
+	for _, img := range t.rec.images {
+		if t.chains[img.ID][layer] {
+			t.add(t.get(kindImage, img.ID), d)
+			found = true
+		}
+	}
+	if !found {
+		t.add(t.get(kindLayer, layer), d)
+	}
+	return true
 }
 
 func (t *triager) propose() {

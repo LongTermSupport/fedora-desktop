@@ -130,12 +130,17 @@ func check(it item, action string, actions map[itemKey]string) error {
 		return fmt.Errorf("%s has owners outside the old range, so it cannot be shifted; only leave is possible", what)
 	case action == actRemove && it.used:
 		return fmt.Errorf("%s is used by %s, so it cannot be removed", what, strings.Join(it.users, ", "))
+	case action == actRemove && it.kind == kindImage:
+		return childrenRemoved(it, actions)
 	}
-	if action == actRemove && it.kind == kindImage {
-		for _, child := range it.children {
-			if actions[itemKey{kindImage, child}] != actRemove {
-				return fmt.Errorf("%s cannot be removed unless image %s, built on it, is removed too", what, short(child))
-			}
+	return nil
+}
+
+// childrenRemoved is O6: an image is removed only with every image built on it.
+func childrenRemoved(it item, actions map[itemKey]string) error {
+	for _, child := range it.children {
+		if actions[itemKey{kindImage, child}] != actRemove {
+			return fmt.Errorf("%s %s cannot be removed unless image %s, built on it, is removed too", it.kind, it.key, short(child))
 		}
 	}
 	return nil

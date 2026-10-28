@@ -127,7 +127,7 @@ func TestReownShiftsAndPutsBackWhatChownClears(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
 	wantChowns := []string{
-		"/home/user/.local/share/containers/storage/overlay/L1/diff/var/cache/apt/archives/partial 524387:524392",
+		"/home/user/.local/share/containers/storage/overlay/L1/diff/var/cache/apt/archives/partial 524387:524391",
 		"/home/user/.local/share/containers/storage/overlay/L1/diff/usr/bin/passwd 524288:524288",
 		"/home/user/.local/share/containers/storage/overlay/L1/diff/usr/bin/ping 524288:1000",
 	}

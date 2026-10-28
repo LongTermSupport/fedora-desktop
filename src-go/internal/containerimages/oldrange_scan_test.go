@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -17,10 +18,10 @@ import (
 func TestDirKeyIsTheStoreDirectoryAPathBelongsTo(t *testing.T) {
 	for rel, want := range map[string]string{
 		"overlay/abc/diff/var/cache/apt/archives/partial": "overlay/abc",
-		"overlay/abc":                     "overlay/abc",
-		"volumes/db-data/_data/base/1":    "volumes/db-data",
-		"overlay":                         "overlay",
-		"overlay-images/images.json":      "overlay-images/images.json",
+		"overlay/abc":                      "overlay/abc",
+		"volumes/db-data/_data/base/1":     "volumes/db-data",
+		"overlay":                          "overlay",
+		"overlay-images/images.json":       "overlay-images/images.json",
 		"overlay-containers/c1/userdata/x": "overlay-containers/c1",
 	} {
 		if got := dirKey(rel); got != want {
@@ -48,17 +49,13 @@ func TestAggregateSumsEachDirectory(t *testing.T) {
 	if len(got) != 3 {
 		t.Fatalf("got %d directories, want the 3 with old-range paths: %+v", len(got), got)
 	}
-	l1, empty, v := got[0], got[1], got[2]
-	if l1.Key != "overlay/L1" || l1.Paths != 1 || l1.Size != 700 || !l1.Data ||
-		!slices.Equal(l1.UIDs, []int64{100099}) || !slices.Equal(l1.GIDs, []int64{100103}) ||
-		!slices.Equal(l1.Samples, []string{"overlay/L1/diff/var/cache/apt/archives/partial"}) {
-		t.Errorf("overlay/L1 = %+v", l1)
+	want := []StoreDir{
+		{Key: "overlay/L1", Paths: 1, UIDs: []int64{100099}, GIDs: []int64{100103}, Samples: []string{"overlay/L1/diff/var/cache/apt/archives/partial"}, Size: 700, Data: true},
+		{Key: "volumes/empty", Paths: 1, UIDs: []int64{100998}, GIDs: []int64{100998}, Samples: []string{"volumes/empty/_data"}},
+		{Key: "volumes/v", Paths: 2, UIDs: []int64{100998}, GIDs: []int64{100998}, Samples: []string{"volumes/v/_data/db", "volumes/v/_data/db2"}, Size: 4096, Data: true},
 	}
-	if empty.Key != "volumes/empty" || empty.Data || empty.Paths != 1 {
-		t.Errorf("volumes/empty = %+v", empty)
-	}
-	if v.Key != "volumes/v" || v.Paths != 2 || v.Size != 4096 || !v.Data || !slices.Equal(v.UIDs, []int64{100998}) {
-		t.Errorf("volumes/v = %+v", v)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("directories = %+v, want %+v", got, want)
 	}
 }
 
@@ -85,7 +82,7 @@ func TestWalkStoreSeesEveryPathWithItsOwner(t *testing.T) {
 	if err := walkStore(root, func(e scanEntry) error { seen = append(seen, e); return nil }); err != nil {
 		t.Fatal(err)
 	}
-	var rels []string
+	rels := make([]string, 0, len(seen))
 	for _, e := range seen {
 		rels = append(rels, e.rel)
 		if e.uid != int64(os.Getuid()) || e.gid != int64(os.Getgid()) {
@@ -95,7 +92,7 @@ func TestWalkStoreSeesEveryPathWithItsOwner(t *testing.T) {
 			t.Errorf("the file read as %+v", e)
 		}
 	}
-	want := []string{".", "overlay","overlay/L1", "overlay/L1/diff", "overlay/L1/diff/etc", "overlay/L1/diff/etc/hosts", "volumes", "volumes/v", "volumes/v/_data"}
+	want := []string{".", "overlay", "overlay/L1", "overlay/L1/diff", "overlay/L1/diff/etc", "overlay/L1/diff/etc/hosts", "volumes", "volumes/v", "volumes/v/_data"}
 	if !slices.Equal(rels, want) {
 		t.Fatalf("walked %v, want %v", rels, want)
 	}
@@ -161,13 +158,21 @@ func TestScanPrintsTheStoreTheOwnersAndTheDirectories(t *testing.T) {
 
 func TestScanRefusesWhatItCannotJudge(t *testing.T) {
 	cases := map[string]func(a *App, store string){
-		"not root":      func(a *App, _ string) { a.Env.EUID = 1000 },
-		"unknown user":  func(a *App, _ string) { a.Env.LookupUser = func(n string) (*user.User, error) { return nil, user.UnknownUserError(n) } },
-		"no subuid":     func(a *App, _ string) { a.Env.Etc = t.TempDir() },
-		"moved store":   func(_ *App, store string) { writeFile(t, filepath.Join(store, "..", "..", "..", "..", ".config", "containers", "storage.conf"), "[storage]\ngraphroot = \"/srv/x\"\n") },
-		"system moved":  func(a *App, _ string) { writeFile(t, filepath.Join(a.Env.Etc, "containers", "storage.conf"), " rootless_storage_path = \"/srv\"\n") },
-		"no store":      func(_ *App, store string) { mustRemoveAll(t, store) },
-		"bad uid":       func(a *App, _ string) { a.Env.LookupUser = func(string) (*user.User, error) { return &user.User{Uid: "x", Gid: "1"}, nil } },
+		"not root": func(a *App, _ string) { a.Env.EUID = 1000 },
+		"unknown user": func(a *App, _ string) {
+			a.Env.LookupUser = func(n string) (*user.User, error) { return nil, user.UnknownUserError(n) }
+		},
+		"no subuid": func(a *App, _ string) { a.Env.Etc = t.TempDir() },
+		"moved store": func(_ *App, store string) {
+			writeFile(t, filepath.Join(store, "..", "..", "..", "..", ".config", "containers", "storage.conf"), "[storage]\ngraphroot = \"/srv/x\"\n")
+		},
+		"system moved": func(a *App, _ string) {
+			writeFile(t, filepath.Join(a.Env.Etc, "containers", "storage.conf"), " rootless_storage_path = \"/srv\"\n")
+		},
+		"no store": func(_ *App, store string) { mustRemoveAll(t, store) },
+		"bad uid": func(a *App, _ string) {
+			a.Env.LookupUser = func(string) (*user.User, error) { return &user.User{Uid: "x", Gid: "1"}, nil }
+		},
 	}
 	for name, spoil := range cases {
 		a, out, errOut, store := scanApp(t)

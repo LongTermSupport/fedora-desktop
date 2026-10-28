@@ -1,5 +1,6 @@
 // Command container-images removes what nothing uses from the rootless podman store (Plan
-// 00235): `prune [--yes]`, run daily by container-images-prune.timer.
+// 00235): `prune [--yes]`, run daily by container-images-prune.timer, ccy's self-prune, and the
+// old-range triage and re-own that play-podman.yml applies.
 package main
 
 import (
@@ -7,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/containerimages"
@@ -29,13 +31,16 @@ func run(args []string) term.ExitCode {
 	ctx, stop := execx.SignalContext(context.Background())
 	defer stop()
 	return containerimages.App{Env: containerimages.Env{
-		Runner:   execx.OS{},
-		Getenv:   os.Getenv,
-		LookPath: exec.LookPath,
-		Now:      time.Now,
-		Home:     home,
-		UID:      os.Getuid(),
-		Stdout:   os.Stdout,
-		Stderr:   os.Stderr,
+		Runner:     execx.OS{},
+		Getenv:     os.Getenv,
+		LookPath:   exec.LookPath,
+		Now:        time.Now,
+		Home:       home,
+		UID:        os.Getuid(),
+		Stdout:     os.Stdout,
+		Stderr:     os.Stderr,
+		EUID:       os.Geteuid(),
+		Etc:        "/etc",
+		LookupUser: user.Lookup,
 	}}.Run(ctx, args)
 }

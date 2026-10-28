@@ -233,8 +233,9 @@ func TestPathsTheRepairOwnsAreNeverRemovedByRoot(t *testing.T) {
 
 func TestItemsAreInAFixedOrder(t *testing.T) {
 	w := newStore().layers("L1").image("I2", "L1").image("I1", "L1").volume("v").old("volumes/v", 100099, false).old("overlay/L1", 100099, true)
-	var keys []string
-	for _, it := range w.items() {
+	items := w.items()
+	keys := make([]string, 0, len(items))
+	for _, it := range items {
 		keys = append(keys, it.kind+" "+it.key)
 	}
 	if !slices.Equal(keys, []string{"image I1", "image I2", "volume v"}) {

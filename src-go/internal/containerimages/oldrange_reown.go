@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -178,7 +179,7 @@ func verb(yes bool, done, would string) string {
 	return would
 }
 
-func writeLines(w interface{ Write([]byte) (int, error) }, lines []string) error {
+func writeLines(w io.Writer, lines []string) error {
 	if len(lines) == 0 {
 		return nil
 	}

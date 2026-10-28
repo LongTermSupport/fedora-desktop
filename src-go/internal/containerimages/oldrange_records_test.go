@@ -50,7 +50,7 @@ func TestChainIsEveryLayerAnImageStandsOn(t *testing.T) {
 		t.Errorf("chain(L3) = %v", got)
 	}
 	img := r.images[0]
-	if got := slices.Sorted(maps.Keys(r.imageChain(img)));!slices.Equal(got, []string{"L1", "L2", "M2"}) {
+	if got := slices.Sorted(maps.Keys(r.imageChain(img))); !slices.Equal(got, []string{"L1", "L2", "M2"}) {
 		t.Errorf("imageChain(I2) = %v", got)
 	}
 }
@@ -58,7 +58,7 @@ func TestChainIsEveryLayerAnImageStandsOn(t *testing.T) {
 // A loop in the parents (a damaged record) ends the walk rather than looping.
 func TestChainEndsOnALoop(t *testing.T) {
 	r := records{parent: map[string]string{"A": "B", "B": "A"}}
-	if got := slices.Sorted(maps.Keys(r.chain("A")));!slices.Equal(got, []string{"A", "B"}) {
+	if got := slices.Sorted(maps.Keys(r.chain("A"))); !slices.Equal(got, []string{"A", "B"}) {
 		t.Fatalf("chain = %v", got)
 	}
 }
