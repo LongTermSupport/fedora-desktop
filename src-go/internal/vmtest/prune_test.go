@@ -1,9 +1,11 @@
 package vmtest
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
@@ -88,14 +90,37 @@ func TestE62PruneRunsRemoves(t *testing.T) {
 		t.Fatalf("stdout %s", k.out.String())
 	}
 	log := k.read(retentionLog)
-	if !strings.Contains(log, "1792065600 pruned overlay "+passedRun+" passed\n") {
+	if !strings.Contains(log, "1792065600 pruned overlay "+passedRun+" disk2.qcow2,overlay.qcow2: passed\n") {
 		t.Fatalf("log %q", log)
 	}
 
 	k = pruneKit(t)
 	k.wantCode(k.run("prune-runs", "--yes", "--older-than", "3"), term.ExitOK)
-	if k.exists("runs/"+failedRun+"/overlay.qcow2") || !strings.Contains(k.read(retentionLog), " pruned overlay "+failedRun+" did not pass, and is older than 3 days\n") {
+	if k.exists("runs/"+failedRun+"/overlay.qcow2") || !strings.Contains(k.read(retentionLog), " pruned overlay "+failedRun+" overlay.qcow2: did not pass, and is older than 3 days\n") {
 		t.Fatal("--older-than 3 kept a failed run three days and four hours old")
+	}
+}
+
+// E62: a removal that fails stops the command, naming the file, what of that run already went,
+// and saying in the log that the removal it recorded failed.
+func TestE62PruneRunsRemovalFails(t *testing.T) {
+	k := pruneKit(t)
+	k.write("runs/"+passedRun+"/a.qcow2", "x")
+	k.write("runs/"+passedRun+"/disk2.qcow2/x", "a directory that cannot be removed as a file")
+	k.wantCode(k.run("prune-runs", "--yes"), term.ExitFailure)
+	k.wantErr("ERROR: cannot remove " + k.path("runs/"+passedRun+"/disk2.qcow2"))
+	k.wantErr("; removed so far: " + k.path("runs/"+passedRun+"/a.qcow2") + "\n")
+	if k.exists("runs/"+passedRun+"/a.qcow2") || !k.exists("runs/"+passedRun+"/overlay.qcow2") {
+		t.Fatal("prune-runs went on past a failed removal")
+	}
+	log := k.read(retentionLog)
+	for _, line := range []string{
+		" pruned overlay " + passedRun + " a.qcow2,disk2.qcow2,overlay.qcow2: passed\n",
+		" failed to remove " + k.path("runs/"+passedRun+"/disk2.qcow2") + ": ",
+	} {
+		if !strings.Contains(log, line) {
+			t.Fatalf("log lacks %q:\n%s", line, log)
+		}
 	}
 }
 
@@ -276,5 +301,21 @@ func TestFreeBytesReadsTheFilesystem(t *testing.T) {
 	}
 	if _, err := freeBytes(filepath.Join(t.TempDir(), "absent")); err == nil {
 		t.Fatal("an absent path had free space")
+	}
+}
+
+// E64: statfs counts the free blocks in fragments (f_frsize), not in the preferred I/O size.
+func TestFreeOfCountsFragments(t *testing.T) {
+	if n, err := freeOf("/x", &syscall.Statfs_t{Bsize: 4096, Frsize: 1024, Bavail: 10}); err != nil || n != 10240 {
+		t.Fatalf("freeOf = %d, %v, want 10240", n, err)
+	}
+	if n, err := freeOf("/x", &syscall.Statfs_t{Frsize: 1 << 40, Bavail: 1 << 40}); err != nil || n != math.MaxInt64 {
+		t.Fatalf("freeOf = %d, %v, want the largest figure", n, err)
+	}
+	if n, err := freeOf("/x", &syscall.Statfs_t{Frsize: 1, Bavail: math.MaxUint64}); err != nil || n != math.MaxInt64 {
+		t.Fatalf("freeOf = %d, %v, want the largest figure", n, err)
+	}
+	if _, err := freeOf("/x", &syscall.Statfs_t{Bsize: 4096, Bavail: 10}); err == nil || err.Error() != "statfs /x: fragment size 0" {
+		t.Fatalf("a zero fragment size read as %v", err)
 	}
 }

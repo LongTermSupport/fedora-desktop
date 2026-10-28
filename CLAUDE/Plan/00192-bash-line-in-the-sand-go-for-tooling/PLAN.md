@@ -402,6 +402,7 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   bases untouched, "would free 107.5 GiB", and removed nothing. Open: `--yes`, the owner's call.
   The nightly sweep removed 12 passing runs' whole directories, plan-cited evidence included
   (`$7zLrx0PlxkebT2F8RqwaGSEf4cRO3g9cH6A7vOGvjrA`); it now removes only `*.qcow2` (E51, B19).
+  The two reviews' follow-ups are fixed or answered (subagent-reports/261028-vmtest-follow-ups.md).
 
 ### Phase 4: Review
 

@@ -112,15 +112,10 @@ func runPassed(dir string) (bool, error) {
 	if err != nil {
 		return false, failf("cannot read %s: %v", path, err)
 	}
-	if !json.Valid(body) {
-		return false, nil
-	}
-	var doc any
-	if err := json.Unmarshal(body, &doc); err != nil {
-		return false, failf("cannot read %s: %v", path, err)
-	}
-	fields, ok := doc.(map[string]any)
-	return ok && fields["state"] == "finished" && fields["verdict"] == "pass", nil
+	var doc map[string]any
+	// A body that is not a JSON object (a response cut off mid-write) is no pass: one decision.
+	passed := json.Unmarshal(body, &doc) == nil && doc["state"] == "finished" && doc["verdict"] == "pass"
+	return passed, nil
 }
 
 // runDirs is the facts of every directory under runs/ (not a symlink, not a file); none is an
@@ -163,7 +158,7 @@ func memTotalMiB(meminfo string) (int, error) {
 			continue
 		}
 		if len(fields) < 2 {
-			break
+			return 0, errors.New("/proc/meminfo has a MemTotal line with no value")
 		}
 		kib, err := strconv.Atoi(fields[1])
 		if err != nil {
@@ -275,7 +270,8 @@ func (c *cli) sweepBuilds(ctx context.Context, l *lab, removed *[]string) error 
 // sweepBuild judges one build directory for sweepBuilds.
 func (c *cli) sweepBuild(ctx context.Context, l *lab, name string, domains *map[string]bool, removed *[]string) error {
 	if strings.HasPrefix(name, desktopPrefix) {
-		return c.record(l, "kept build "+name+" failed desktop build kept for diagnosis")
+		c.logf("kept build %s: failed desktop build kept for diagnosis", name)
+		return nil
 	}
 	if *domains == nil {
 		listed, err := c.listDomains(ctx)
@@ -285,7 +281,8 @@ func (c *cli) sweepBuild(ctx context.Context, l *lab, name string, domains *map[
 		*domains = listed
 	}
 	if domain := buildDomain(strings.TrimSuffix(name, buildSuffix)); (*domains)[domain] {
-		return c.record(l, "kept build "+name+" libvirt has the domain "+domain)
+		c.logf("kept build %s: libvirt has the domain %s", name, domain)
+		return nil
 	}
 	return c.evictDisks(l, "build-disk", name, "failed fast-base build; its console log is kept", l.at(basesDir, name), removed)
 }
@@ -301,16 +298,8 @@ func (c *cli) evictDisks(l *lab, kind, name, why, dir string, removed *[]string)
 	if err := c.record(l, "evicted "+kind+" "+name+" "+strings.Join(files, ",")+": "+why); err != nil {
 		return err
 	}
-	for _, f := range files {
-		path := filepath.Join(dir, f)
-		if err := os.Remove(path); err != nil {
-			so := "nothing"
-			if len(*removed) > 0 {
-				so = strings.Join(*removed, ", ")
-			}
-			return failf("cannot remove %s: %v; removed so far: %s", path, err, so)
-		}
-		*removed = append(*removed, path)
+	if err := c.removeDisks(l, dir, files, removed); err != nil {
+		return err
 	}
 	c.sayf("VMTEST-EVICTED %s %s %s", kind, name, strings.Join(files, ","))
 	return nil

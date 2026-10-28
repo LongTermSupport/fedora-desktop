@@ -2,6 +2,7 @@ package vmtest
 
 import (
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -96,6 +97,8 @@ func TestE61RunPassed(t *testing.T) {
 		`{"state": "finished", "verdict": "pass"`:   false,
 		`["finished", "pass"]`:                      false,
 		`{"state": "finished", "verdict": "error"}`: false,
+		"\xff\xfe": false,
+		"":         false,
 	} {
 		k.write("runs/r/response.json", body)
 		got, err := runPassed(k.path("runs/r"))
@@ -200,9 +203,14 @@ func TestHostMiB(t *testing.T) {
 	if n, err := memTotalMiB("MemFree:  10 kB\nMemTotal:       16384000 kB\n"); err != nil || n != 16000 {
 		t.Fatalf("got %d %v", n, err)
 	}
-	for _, bad := range []string{"", "MemFree: 1 kB\n", "MemTotal: lots kB\n", "MemTotal:\n"} {
-		if _, err := memTotalMiB(bad); err == nil {
-			t.Fatalf("%q read as a memory size", bad)
+	for bad, want := range map[string]string{
+		"":                    "/proc/meminfo has no MemTotal line",
+		"MemFree: 1 kB\n":     "/proc/meminfo has no MemTotal line",
+		"MemTotal: lots kB\n": "/proc/meminfo has a MemTotal that is not a number: MemTotal: lots kB",
+		"MemTotal:\n":         "/proc/meminfo has a MemTotal line with no value",
+	} {
+		if _, err := memTotalMiB(bad); err == nil || err.Error() != want {
+			t.Fatalf("%q: got %v, want %q", bad, err, want)
 		}
 	}
 	if n, err := hostMiB(); err != nil || n <= 0 {
@@ -232,7 +240,8 @@ func sweepKit(t *testing.T, verdicts ...string) (*kit, []string) {
 	return k, ids
 }
 
-// age sets a run directory's time to ago before the kit's now, as the sweep orders runs by it.
+// age sets a directory's time to ago before the kit's now. The sweep orders runs by their id,
+// never by this; the kit keeps the two in step so a test can set them against each other.
 func (k *kit) age(rel string, ago time.Duration) {
 	k.t.Helper()
 	if err := os.Chtimes(k.path(rel), k.now.Add(-ago), k.now.Add(-ago)); err != nil {
@@ -272,6 +281,10 @@ func TestE51Sweep(t *testing.T) {
 	k.write("bases/server-fast-44.build/console.log", "the installer's log")
 	k.write("bases/desktop-44.build/disk.qcow2", "x")
 	k.builtBase("server-fast-44")
+	// Ranking is by the run id: the newest passing run's directory is made the oldest, and an
+	// evicted one's the newest, and the same two are evicted.
+	k.age("runs/"+ids[len(ids)-1], 1000*time.Hour)
+	k.age("runs/"+ids[3], 0)
 	k.wantCode(k.run("sweep"), term.ExitOK)
 	k.wantOverlaysGone(ids, verdicts, 0, 3)
 	if !k.exists("runs/by-hand/overlay.qcow2") {
@@ -289,13 +302,17 @@ func TestE51Sweep(t *testing.T) {
 	log := k.read(retentionLog)
 	for _, line := range []string{
 		"1792065600 evicted run-overlay " + ids[0] + " overlay.qcow2: passing run beyond the retention cap; the run's logs, response and signature are kept\n",
-		"1792065600 kept build desktop-44.build failed desktop build kept for diagnosis\n",
 		"1792065600 evicted build-disk server-fast-44.build disk.qcow2: failed fast-base build; its console log is kept\n",
 	} {
 		if !strings.Contains(log, line) {
 			t.Fatalf("log lacks %q:\n%s", line, log)
 		}
 	}
+	// What the sweep keeps is no change, so it is said on stderr and not logged every night.
+	if strings.Contains(log, "kept build") {
+		t.Fatalf("the log records a build the sweep kept:\n%s", log)
+	}
+	k.wantErr("==> kept build desktop-44.build: failed desktop build kept for diagnosis\n")
 	checkout := strings.TrimSuffix(k.home, "/lab")
 	if c := k.mustCall("retention sweep-spool"); !strings.HasSuffix(c.Line(), "sweep-spool --checkout "+checkout+" --log "+k.path(retentionLog)) {
 		t.Fatalf("got %s", c.Line())
@@ -322,6 +339,9 @@ func TestE51SweepRemovalFails(t *testing.T) {
 	k.wantCode(k.run("sweep"), term.ExitFailure)
 	k.wantErr("ERROR: cannot remove " + k.path("runs/"+ids[0]+"/disk2.qcow2"))
 	k.wantErr("; removed so far: " + k.path("runs/"+ids[1]+"/overlay.qcow2"))
+	if line := " failed to remove " + k.path("runs/"+ids[0]+"/disk2.qcow2") + ": "; !strings.Contains(k.read(retentionLog), line) {
+		t.Fatalf("the log does not say the eviction it recorded failed:\n%s", k.read(retentionLog))
+	}
 	if k.exists("runs/"+ids[1]+"/overlay.qcow2") || !k.exists("runs/"+ids[0]+"/overlay.qcow2") ||
 		!k.exists("bases/server-fast-44.build/disk.qcow2") || k.count("sweep-spool") != 0 {
 		t.Fatal("the sweep went on past a failed removal")
@@ -338,8 +358,38 @@ func TestE51SweepKeepsALiveBuild(t *testing.T) {
 	if len(ids) != 0 || !k.exists("bases/server-fast-44.build/disk.qcow2") || k.out.String() != string(spoolDone.Stdout) {
 		t.Fatal("the sweep removed the disk of a build libvirt still lists")
 	}
-	if line := "kept build server-fast-44.build libvirt has the domain vmtest-build-server-fast-44\n"; !strings.Contains(k.read(retentionLog), line) {
-		t.Fatalf("log lacks %q", line)
+	k.wantErr("==> kept build server-fast-44.build: libvirt has the domain vmtest-build-server-fast-44\n")
+	if k.exists(retentionLog) {
+		t.Fatal("a kept build was logged as a change")
+	}
+}
+
+// E51, E61: a symlink under runs/ or bases/ is not a run or a build: it is never followed, and
+// what it points at keeps every file, however its name reads.
+func TestE51SymlinksAreLeft(t *testing.T) {
+	verdicts := make([]string, 0, 1+defaultKeepRuns)
+	for range 1 + defaultKeepRuns {
+		verdicts = append(verdicts, "pass")
+	}
+	k, ids := sweepKit(t, verdicts...)
+	k.builtBase("server-fast-44")
+	elsewhere := t.TempDir()
+	k.writeAbs(filepath.Join(elsewhere, "overlay.qcow2"), "the owner's disk")
+	k.writeAbs(filepath.Join(elsewhere, responseFile), `{"state": "finished", "verdict": "pass"}`)
+	link := stampAgo(k, 1000*time.Hour, "s")
+	for target, name := range map[string]string{elsewhere: "runs/" + link, k.path("bases/server-fast-44"): "bases/server-fast-44.build"} {
+		if err := os.Symlink(target, k.path(name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	k.wantCode(k.run("sweep"), term.ExitOK)
+	k.wantOverlaysGone(ids, verdicts, 0)
+	if !k.exists("bases/server-fast-44/base.qcow2") {
+		t.Fatal("the sweep followed a symlinked build into a base")
+	}
+	k.wantCode(k.run("prune-runs", "--yes"), term.ExitOK)
+	if _, err := os.Stat(filepath.Join(elsewhere, "overlay.qcow2")); err != nil || strings.Contains(k.out.String(), link) {
+		t.Fatalf("a symlinked run was followed (%v):\n%s", err, k.out.String())
 	}
 }
 

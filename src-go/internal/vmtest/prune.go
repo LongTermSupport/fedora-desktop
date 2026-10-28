@@ -75,17 +75,23 @@ func freeBytes(path string) (int64, error) {
 	if err := syscall.Statfs(path, &st); err != nil {
 		return 0, fmt.Errorf("statfs %s: %w", path, err)
 	}
-	if st.Bsize <= 0 {
-		return 0, fmt.Errorf("statfs %s: block size %d", path, st.Bsize)
+	return freeOf(path, &st)
+}
+
+// freeOf is the space statfs says an unprivileged user can still write under path: f_bavail
+// counts fragments (f_frsize), which POSIX distinguishes from the preferred I/O size.
+func freeOf(path string, st *syscall.Statfs_t) (int64, error) {
+	if st.Frsize <= 0 {
+		return 0, fmt.Errorf("statfs %s: fragment size %d", path, st.Frsize)
 	}
 	if st.Bavail > math.MaxInt64 {
 		return math.MaxInt64, nil
 	}
 	blocks := int64(st.Bavail)
-	if blocks > math.MaxInt64/st.Bsize {
+	if blocks > math.MaxInt64/st.Frsize {
 		return math.MaxInt64, nil
 	}
-	return blocks * st.Bsize, nil
+	return blocks * st.Frsize, nil
 }
 
 // allocated is the space a file takes on disk: an overlay is sparse once the guest discards.
@@ -333,13 +339,27 @@ func (c *cli) removeLocked(l *lab, e *pruneEntry) (string, error) {
 }
 
 func (c *cli) removeOverlays(l *lab, dir string, e *pruneEntry) error {
-	if err := c.record(l, "pruned overlay "+e.id+" "+e.reason); err != nil {
+	if err := c.record(l, "pruned overlay "+e.id+" "+strings.Join(e.files, ",")+": "+e.reason); err != nil {
 		return err
 	}
-	for _, name := range e.files {
-		if err := os.Remove(filepath.Join(dir, name)); err != nil {
-			return failf("cannot remove %s: %v", filepath.Join(dir, name), err)
+	var removed []string
+	return c.removeDisks(l, dir, e.files, &removed)
+}
+
+// removeDisks removes the named files of dir one by one. The first that fails stops it, logged
+// as failed (the log already recorded the removal) and named with what went before it.
+func (c *cli) removeDisks(l *lab, dir string, files []string, removed *[]string) error {
+	for _, f := range files {
+		path := filepath.Join(dir, f)
+		if err := os.Remove(path); err != nil {
+			so := "nothing"
+			if len(*removed) > 0 {
+				so = strings.Join(*removed, ", ")
+			}
+			return errors.Join(failf("cannot remove %s: %v; removed so far: %s", path, err, so),
+				c.record(l, "failed to remove "+path+": "+err.Error()))
 		}
+		*removed = append(*removed, path)
 	}
 	return nil
 }

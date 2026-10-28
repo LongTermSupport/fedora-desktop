@@ -386,16 +386,21 @@ The tests cite these numbers.
   newest by the start their run id names, a directory not named as a run id being left), the
   newest 10 are untouched and the rest lose their `*.qcow2`, keeping the transcript, console,
   `response.json`, signature and check results, which plans cite as evidence; a run that did
-  not pass is left to `prune-runs` (E61). A leftover `bases/*.build` directory of a fast base
+  not pass is left to `prune-runs` (E61). Nothing in vmtest removes a run directory: the sweep
+  and `prune-runs` take only its `*.qcow2`, so a run directory stays until the owner removes
+  it. A symlink under `runs/` or `bases/` is neither a run nor a build, and is never followed. A leftover `bases/*.build` directory of a fast base
   loses its `*.qcow2` and keeps its console log until the next build of that base clears it,
   unless libvirt lists its `vmtest-build-<base>` domain: then the build is running (the
   nightly tick can land during an evening `build-base`) and is kept whole; a
   desktop one (`desktop-*`, hours to rebuild, and the diagnosis) is kept whole. A directory
   with no `*.qcow2` is left alone and nothing is printed for it, so a second sweep evicts
-  nothing. Each eviction is appended to `retention.log` first (`<epoch> evicted run-overlay|build-disk <name> <files>: <why>`, or `<epoch> kept build <name> ...`) and
+  nothing. A build it keeps is no change, so it is said on stderr only
+  (`==> kept build <name>: <why>`), never in the log, which would otherwise grow a line a
+  night. Each eviction is appended to `retention.log` first (`<epoch> evicted run-overlay|build-disk <name> <files>: <why>`) and
   printed as `VMTEST-EVICTED run-overlay|build-disk <name> <files>` (files comma-separated).
   A removal that fails stops the sweep before the builds and the spool, naming the file and
-  every file the sweep had removed so far (B19). Then it runs `retention sweep-spool --checkout <checkout> --log <home>/retention.log`,
+  every file the sweep had removed so far (B19), and appends
+  `<epoch> failed to remove <path>: <error>` to the log, so the log alone does not claim it went. Then it runs `retention sweep-spool --checkout <checkout> --log <home>/retention.log`,
   the Python half that bounds the bridge spool through spool.py's pinned descriptors (they are
   shared with the bridge helpers), whose lines pass through, and names the log. A response
   that cannot be read, or a log that cannot be written, stops the sweep before the spool.
@@ -465,10 +470,12 @@ behaviour, not departures.
   It writes nothing. Sizes are the space allocated on disk, in binary units rounded down.
 - E62. With `--yes`, each prunable run's lock is taken without waiting (a run that now holds it
   is reported `live` and left), the removal is appended to `retention.log` first
-  (`<epoch> pruned overlay <run-id> <reason>`), and then the run's `*.qcow2` files, and only
+  (`<epoch> pruned overlay <run-id> <files>: <reason>`, files comma-separated), and then the run's `*.qcow2` files, and only
   those, are removed under the lock: its logs, response, transcript and check results stay, so
   `verify` (which reads the bridge spool) is unaffected. The line says `removed`, and the last
-  line `VMTEST-PRUNE-DONE freed <size> from <n> runs`. A removal that fails stops the command.
+  line `VMTEST-PRUNE-DONE freed <size> from <n> runs`. A removal that fails stops the command,
+  naming the file and the files of that run already removed (`; removed so far: <paths>` or
+  `nothing`), and appends `<epoch> failed to remove <path>: <error>` to the log, as the sweep does (E51).
 - E63. `run` takes an exclusive `flock` on `runs/<run-id>/run.lock` straight after creating the
   directory, and releases it after its teardown, so a run is live from before its overlay
   exists until it is cleaned up. A run directory without the file is from before the lock, and
@@ -476,7 +483,10 @@ behaviour, not departures.
 - E64. The disk guard runs before anything else: in `run` right after the lab is loaded, in
   `member-up` right after the lab is loaded (after the name check of E55), and as the first
   step of every base build (`build-base`, and `ensure-base` and `refresh-base` when they
-  build). A run needs 22 GiB free on the lab's filesystem (the 20 GiB guest disk an overlay can
+  build). The lab is one filesystem, the one holding `<home>` (statfs's available fragments
+  times the fragment size): `runs/`, `members/` and `bases/` are its directories, and a mount of
+  their own under them is not supported, so the guard measures `<home>`, which exists before any
+  of them does. A run needs 22 GiB free on the lab's filesystem (the 20 GiB guest disk an overlay can
   grow to, and retention's 2 GiB margin), and so does a member, which boots the same overlay
   under `members/<name>/` (`a member needs 22.0 GiB (...)`); a build needs 26 GiB (the same and
   4 GiB of install media). Short, the command fails with

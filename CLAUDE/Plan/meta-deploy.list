@@ -34,11 +34,11 @@
 # that is not an entry is a fatal error naming its line number.
 
 # The plays changed since they last ran here. Expected: play-vm-test-lab.yml (Plan 00192
-# Task 3.10, the sweep keeps evidence): vmtest's nightly sweep no longer removes a run
-# directory; past the newest ten passing runs it removes only a run's *.qcow2, and of a failed
-# fast-base build only its disk, keeping every log, response.json and signature. The play
-# rebuilds and reinstalls vmtest; no guest is booted, nothing is removed and nothing is asked.
-# The host agent then checks, read-only, that the next vmtest-nightly timer run's journal shows
-# VMTEST-EVICTED run-overlay lines (or none) with every run directory still present; it does
-# not run vmtest nightly by hand, which is denied as destructive.
+# Task 3.10, the review follow-ups): vmtest's retention.log names the files prune-runs
+# --yes removes and records a removal that failed; the nightly sweep says a kept build on
+# stderr instead of logging it every night; the free-space figure counts statfs fragments.
+# The play rebuilds and reinstalls vmtest; no guest is booted, nothing is removed and nothing
+# is asked. The host agent then checks, read-only, that `vmtest prune-runs` (the dry run) still
+# lists its plan and that the next vmtest-nightly timer run's journal shows no new kept build
+# line in retention.log; it does not run vmtest nightly or prune-runs --yes by hand.
 changed-plays

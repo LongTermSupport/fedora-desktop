@@ -507,7 +507,8 @@ hash, so the status line says which (`integrity=quick|deep`).
 a rebuild shows up as the nightly unit failing in `systemctl --user list-units --failed`, not as an unattended rebuild on a workstation. The
 sweep never removes a run directory: a run's transcript, console,
 `response.json` and signature are small, and they are the evidence plans cite.
-It removes only disk images. A passing run past the newest ten loses its
+Nothing in vmtest removes a run directory; delete one yourself when it is no
+longer wanted. The sweep removes only disk images. A passing run past the newest ten loses its
 overlay (`*.qcow2`) if it still holds one (a pass's teardown normally removes
 it), printed as `VMTEST-EVICTED run-overlay <run-id> <files>`; a run that did
 not pass is left for `prune-runs` (its overlay and console are the diagnosis).
