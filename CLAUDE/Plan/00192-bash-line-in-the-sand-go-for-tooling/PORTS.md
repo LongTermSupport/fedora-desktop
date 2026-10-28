@@ -453,8 +453,12 @@ that nmcli's editor, fed on stdin, stores the password. The secret-file guard de
 a Bash command whose text holds the name of nmcli's VPN secrets setting as one token (it matches
 a protected glob; no file is involved), so the code joins the name from its parts, with a
 one-line comment saying so and a test pinning the parts; the lead raises the guard with the
-owner. Host run queued in `meta-deploy.list`
-(`changed-plays`, expected to pick up `play-nordvpn-openvpn.yml`). Review dispositions
+owner. Host run: `changed-plays` at `b9fdc8adb` picked nothing, because the play ran on the
+host only before its play ledger was cleared, so `--changed` cannot see it
+(`$pmo505uje_JUY88QP54JD_65CQfD2oK_Vr-OfYdbwvM`); the play is queued by name in
+`meta-deploy.list` instead. Before that run its firewalld step was made to ask first
+(`--permanent --query-service openvpn`), so a run finding the rule in place no longer reloads
+firewalld, which drops every runtime-only rule. Review dispositions
 (`subagent-reports/261028-fable-review-nord.md`, no BLOCKER): F1 fixed (a credential nmcli's
 option lists would split, trim or unescape, `,` `=` `\\` or an edge space, is refused at E10,
 B17; the credentials file is the play's, so the fix is the vault's value, not a prompt); F2

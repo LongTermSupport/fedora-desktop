@@ -33,12 +33,12 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# The plays changed since they last ran here. Expected: play-nordvpn-openvpn.yml (Plan 00192
-# Task 3.3), when it has run here before: nord is now a Go binary built from src-go/cmd/nord
-# (the play imports play-golang.yml first) and installed at ~/.local/bin/nord, and the old
-# ~/.config/nordvpn/.current-connection is removed. No credentials are asked when they are
-# already in host_vars, and no VPN is brought up or down. The host agent then checks SPEC-nord
-# H1-H3: nord --version says 2.0.0, list, list-active and status read the real
-# NetworkManager, and the chooser in tmux cancels with q, Ctrl-D and Ctrl-C changing nothing.
-# H4-H7 (connect, switch, disconnect, cleanup) are the owner's: they reroute the host's network.
-changed-plays
+# Plan 00192 Task 3.3, by name: changed-plays cannot see this play, which ran here before the
+# play ledger was cleared. It builds nord as a Go binary (src-go/cmd/nord, after
+# play-golang.yml) at ~/.local/bin/nord and removes the old ~/.config/nordvpn/.current-connection.
+# It brings no VPN up or down; it asks for the NordVPN service credentials only when they are
+# missing from host_vars; firewalld is reloaded only if it does not yet allow OpenVPN. The host
+# agent then checks SPEC-nord H1-H3 (nord --version says 2.0.0; list, list-active and status
+# read the real NetworkManager; the chooser in tmux cancels with q, Ctrl-D and Ctrl-C changing
+# nothing). H4-H7 (connect, switch, disconnect, cleanup) are the owner's.
+playbooks/imports/optional/common/play-nordvpn-openvpn.yml

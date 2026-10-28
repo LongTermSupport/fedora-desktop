@@ -166,6 +166,16 @@
       failed_when: false  # FAIL-FAST-OK: probe — firewalld may not be running
       changed_when: false
 
+    # Asked first, so a run that finds the rule in place does not reload firewalld: a reload
+    # drops every runtime-only rule, and the VPNs and containers running here may hold some.
+    - name: Check Whether Firewalld Already Allows OpenVPN
+      become: true
+      ansible.builtin.command: firewall-cmd --permanent --query-service openvpn
+      register: firewall_openvpn_query
+      changed_when: false
+      failed_when: firewall_openvpn_query.rc not in [0, 1]
+      when: firewalld_status.rc == 0
+
     - name: Add OpenVPN to Firewalld
       become: true
       ansible.builtin.shell: |
@@ -174,9 +184,7 @@
         firewall-cmd --reload
       args:
         executable: /bin/bash
-      register: firewall_result
-      changed_when: "'ALREADY_ENABLED' not in firewall_result.stderr"
-      when: firewalld_status.rc == 0
+      when: firewalld_status.rc == 0 and firewall_openvpn_query.rc == 1
 
     - name: Warn if Firewalld is Not Running
       ansible.builtin.debug:
