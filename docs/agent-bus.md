@@ -116,8 +116,8 @@ launch does not start.
    [Talking to agents from Element](#talking-to-agents-from-element).
 6. **After a reboot.** Homeservers, their data and every seat stay. A ccy session in a team
    comes back in the same seats when this machine restores sessions
-   (`ccy_restore_sessions`, [ccy.md](ccy.md)); Ctrl-R in `ccy-teams` keeps one out, or puts
-   it back. Other members keep their bundles, and their sessions are started as before.
+   (`ccy_restore_sessions`, [ccy.md](ccy.md)); Ctrl-R in `ccy-teams` keeps one out (after a
+   yes/no, default no), or puts it back. Other members keep their bundles, and their sessions are started as before.
 7. **Back up and restore.** Each team is backed up daily on this machine.
    `ccy-teams backup <team>` takes one now; `ccy-teams restore <team> [<n>]` puts one back
    after a yes/no ([Backups](#backups-are-the-root-of-trust)).
@@ -207,7 +207,7 @@ restored after a reboot; LXC and other members, active or parked; and the people
 room or not and how many Element sessions they are signed in with. Enter on any row opens a
 menu of what can be done to it, in words, each with its shortcut beside it; a shortcut works
 only on a row whose menu has it. The shortcuts are Ctrl-N (start a session), Ctrl-U (on a
-team row: apply every team out of date), Ctrl-R (toggle a restore), Ctrl-X (remove a seat,
+team row: apply every team out of date), Ctrl-R (toggle a restore; off after a yes/no), Ctrl-X (remove a seat,
 park a member after a yes/no, or take a team down, as `remove`), Ctrl-P (a person's new
 password), Ctrl-E (open Element), and `?` explains every key. The last row, Running sessions
 (or Tab), lists the running sessions. Enter on one lists, in words, what can be done to it

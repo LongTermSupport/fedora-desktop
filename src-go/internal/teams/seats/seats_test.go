@@ -177,6 +177,16 @@ func TestNewSessionCancelledStartsNothing(t *testing.T) {
 	}
 }
 
+func TestStartCcyThatCannotExecTheLauncherFails(t *testing.T) {
+	h := newRig(t)
+	h.s.Exec = func(string, []string, string) error { return fs.ErrPermission }
+	err := h.s.StartCcy(h.Checkout(), "1@alpha")
+	if code, ok := flow.ExitCodeOf(err); !ok || code != term.ExitFailure ||
+		!strings.Contains(h.ErrOut.String(), "ERROR: "+fs.ErrPermission.Error()) {
+		t.Fatalf("%v %q", err, h.ErrOut.String())
+	}
+}
+
 func TestNewSessionNeverStartsInAContainersCheckout(t *testing.T) {
 	h := newRig(t)
 	top := h.InLxcCheckout()
@@ -235,8 +245,83 @@ func TestNewSessionRefusals(t *testing.T) {
 	}
 }
 
+// restoreQuestion is what turning seat 1's restore off asks (Plan 00177 Task 10.6).
+const restoreQuestion = "Turn restore off for seat 1@alpha? Its session, ccy-proj, will not come back after a reboot: " +
+	"it stays down until it is started by hand. Ctrl-R on the seat's row turns restore on again."
+
+// restoreRecord is whether session ccy-proj's record says it is started again after a reboot.
+func (h rig) restoreRecord(t *testing.T) bool {
+	t.Helper()
+	store, err := h.s.Registry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, err := store.Get("ccy-proj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rec.Restore
+}
+
+// Plan 00177 Task 10.6: turning restore off asks first, default No, naming the seat and that
+// its session will not come back after a reboot.
+func TestToggleRestoreOffAsksFirstDefaultNoNamingTheSeat(t *testing.T) {
+	h := newRig(t)
+	h.Script.Columns = wideTerminal
+	h.Script.Fzf = []string{"|YES"}
+	snap := h.pass(t)
+	if _, err := h.s.ToggleRestore(context.Background(), snap, h.row(t, snap, "1")); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.Script.Rows) != 1 || !slices.Equal(h.Script.Rows[0], []string{"Yes, turn restore off for 1@alpha", "Exit"}) {
+		t.Fatalf("rows %q", h.Script.Rows)
+	}
+	if !slices.Contains(h.Script.FzfArgs[0], "--bind=start:last") {
+		t.Fatalf("the cursor starts on the no: %q", h.Script.FzfArgs[0])
+	}
+	if !strings.Contains(h.HeaderOf(0), restoreQuestion) {
+		t.Fatalf("header %q", h.HeaderOf(0))
+	}
+	h.Script.HeadingAt(0, "Teams › alpha › proj.1+local.podman › Restore off\nseat 1@alpha · session ccy-proj · in "+h.Checkout())
+	if h.restoreRecord(t) {
+		t.Fatal("a yes turns restore off")
+	}
+}
+
+// No and Esc leave restore on, change nothing, and go back to the list.
+func TestToggleRestoreOffAnsweredNoOrEscChangesNothing(t *testing.T) {
+	for _, answer := range []string{"|EXIT", "|ABORT"} {
+		h := newRig(t)
+		h.Script.Fzf = []string{answer}
+		snap := h.pass(t)
+		res, err := h.s.ToggleRestore(context.Background(), snap, h.row(t, snap, "1"))
+		if err != nil || res != flow.Done {
+			t.Fatalf("%s: %v %v", answer, res, err)
+		}
+		if !h.restoreRecord(t) {
+			t.Fatalf("%s: restore was turned off", answer)
+		}
+		if !strings.Contains(h.ErrOut.String(), "Nothing was changed: session ccy-proj will still be started again after a reboot.\n"+
+			"Press Enter to go back to the list.\n") {
+			t.Fatalf("%s: stderr %q", answer, h.ErrOut.String())
+		}
+	}
+}
+
+// A confirm that cannot be shown (no fzf) ends the picker and changes nothing.
+func TestToggleRestoreOffWithoutFzfChangesNothing(t *testing.T) {
+	h := newRig(t)
+	snap := h.pass(t)
+	h.s.Kit.LookPath = func(string) (string, error) { return "", fs.ErrNotExist }
+	_, err := h.s.ToggleRestore(context.Background(), snap, h.row(t, snap, "1"))
+	if code, ok := flow.ExitCodeOf(err); !ok || code != term.ExitFailure || !h.restoreRecord(t) {
+		t.Fatalf("%v: restore %v", err, h.restoreRecord(t))
+	}
+}
+
 func TestToggleRestoreFlipsTheRecordAndKeepsItsSeats(t *testing.T) {
 	h := newRig(t)
+	h.Script.Fzf = []string{"|YES"}
 	snap := h.pass(t)
 	res, err := h.s.ToggleRestore(context.Background(), snap, h.row(t, snap, "1"))
 	if err != nil || res != flow.Done {
@@ -254,6 +339,7 @@ func TestToggleRestoreFlipsTheRecordAndKeepsItsSeats(t *testing.T) {
 		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
 
+	// Turning it on asks nothing: no answer is queued, and no screen is shown.
 	snap = h.pass(t)
 	if _, err = h.s.ToggleRestore(context.Background(), snap, h.row(t, snap, "1")); err != nil {
 		t.Fatal(err)
@@ -261,6 +347,9 @@ func TestToggleRestoreFlipsTheRecordAndKeepsItsSeats(t *testing.T) {
 	rec, err = store.Get("ccy-proj")
 	if err != nil || !rec.Restore {
 		t.Fatalf("record %+v %v", rec, err)
+	}
+	if len(h.Script.Rows) != 1 || len(h.Script.Headings) != 1 {
+		t.Fatalf("turning restore on asked a question: %q", h.Script.Headings)
 	}
 	if !strings.Contains(h.ErrOut.String(), "Session ccy-proj will be started again after a reboot.\n") {
 		t.Fatalf("stderr %q", h.ErrOut.String())
@@ -289,6 +378,7 @@ func TestToggleRestoreReportsARecordThatIsGone(t *testing.T) {
 	if err := store.Remove("ccy-proj"); err != nil {
 		t.Fatal(err)
 	}
+	h.Script.Fzf = []string{"|YES"}
 	row := h.row(t, snap, "1")
 	row.Restore = "yes"
 	snap.SeatRestore[row.Dir+"|1@alpha"] = true
@@ -303,6 +393,7 @@ func TestToggleRestoreReportsARecordThatIsGone(t *testing.T) {
 func TestToggleRestoreReportsAnUnlocatableRegistry(t *testing.T) {
 	h := newRig(t)
 	snap := h.pass(t)
+	h.Script.Fzf = []string{"|YES"}
 	h.s.Registry = func() (*registry.Store, error) { return nil, &registry.RelativeBaseError{Value: "x"} }
 	if _, err := h.s.ToggleRestore(context.Background(), snap, h.row(t, snap, "1")); err != nil {
 		t.Fatal(err)
