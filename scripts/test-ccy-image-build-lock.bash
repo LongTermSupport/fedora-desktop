@@ -76,6 +76,15 @@ if [ "$build_rc" -ne 0 ]; then
     echo "$build_out" >&2
     exit 1
 fi
+# The self-prune the lock runs every build through (lib/image-build-prune.bash), the real
+# command, found on PATH as the launcher finds it.
+build_out="$(cd "$REPO_ROOT/src-go" && go build -trimpath -buildvcs=false -o "$BIN/container-images" ./cmd/container-images 2>&1)"
+build_rc=$?
+check "container-images builds" "0" "$build_rc"
+if [ "$build_rc" -ne 0 ]; then
+    echo "$build_out" >&2
+    exit 1
+fi
 
 # The fake engine. An image is a file in $TEST_STATE/images holding "<id> <version> <hash>
 # <Claude Code version>": a build has Claude Code 2.0.0, a commit (the in-place update) 2.0.1,
@@ -84,13 +93,24 @@ fi
 # the launcher's bash), sleep $TEST_BUILD_SLEEP, then write the image; `build` fails when
 # $TEST_STATE/build-fails exists, and with $TEST_BUILD_LINGER leaves a child behind that
 # outlives it, as podman's pause process can. Every fake's pid goes to podman.pids for cleanup.
+# An id is 64 digits, as podman's are 64 hex digits. container-images' questions: `images` lists
+# the claude-yolo tags, `ps` finds no container, and `image rm <id>` appends the id to removed.log.
 cat >"$BIN/podman" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 echo "$$" >>"$TEST_STATE/podman.pids"
 img_file() { printf '%s/images/%s' "$TEST_STATE" "${1//[:\/]/_}"; }
+new_id() { printf '%064d' "$RANDOM$RANDOM$RANDOM"; }
 case "$1" in
+images)
+    for f in "$TEST_STATE"/images/claude-yolo_*; do
+        [ -f "$f" ] || continue
+        read -r id _ <"$f"
+        echo "localhost/claude-yolo:${f##*/claude-yolo_} sha256:$id"
+    done ;;
+ps) ;;
 image)
+    if [ "$2" = rm ]; then echo "$3" >>"$TEST_STATE/removed.log" && exit 0; fi
     shift 2
     format="" name=""
     while [ $# -gt 0 ]; do
@@ -130,7 +150,7 @@ build)
     fi
     sleep "${TEST_BUILD_SLEEP:-0}"
     if [ -e "$TEST_STATE/build-fails" ]; then echo "Error: the build failed" >&2; exit 1; fi
-    printf '%s %s %s 2.0.0\n' "id-$RANDOM$RANDOM" "${version:-0}" "${hash:-unknown}" >"$(img_file "$tag")" ;;
+    printf '%s %s %s 2.0.0\n' "$(new_id)" "${version:-0}" "${hash:-unknown}" >"$(img_file "$tag")" ;;
 run)
     if [ "${!#}" = --version ]; then
         args=("$@")
@@ -143,7 +163,7 @@ commit)
     sleep "${TEST_BUILD_SLEEP:-0}"
     f="$(img_file "$image")"
     read -r id version hash claude <"$f"
-    printf '%s %s %s 2.0.1\n' "id-$RANDOM$RANDOM" "$version" "$hash" >"$f" ;;
+    printf '%s %s %s 2.0.1\n' "$(new_id)" "$version" "$hash" >"$f" ;;
 rm) ;;
 *) echo "fake podman: unexpected call: $*" >&2; exit 97 ;;
 esac
@@ -407,6 +427,37 @@ check "the lock is free" yes "$(lock_free)"
 check "the record is emptied" 0 "$(wc -c <"$LOCK" | tr -d ' ')"
 rm -f "$TEST_STATE/build-fails"
 
+echo "== a rebuild removes the images it replaced (Plan 00235)"
+reset_world
+TEST_BUILD_SLEEP=0 run_launch base.bash >>"$QUIET" 2>&1
+check "a first build replaces nothing" absent "$([ -s "$TEST_STATE/removed.log" ] && echo present || echo absent)"
+old_latest="$(awk '{print $1}' "$TEST_STATE/images/claude-yolo_latest")"
+old_base="$(awk '{print $1}' "$TEST_STATE/images/claude-yolo_base")"
+TEST_BUILD_SLEEP=0 run_launch base.bash force >>"$QUIET" 2>"$SCRATCH/a.err"
+check "the rebuild succeeds" 0 "$?"
+check "the old :latest and the old :base are removed, once each" "$(printf '%s\n' "$old_latest" "$old_base" | sort)" "$(sort "$TEST_STATE/removed.log")"
+has "and it says so" "$SCRATCH/a.err" "removed image ${old_latest:0:12} (was localhost/claude-yolo:latest)"
+: >"$TEST_STATE/removed.log"
+old_latest="$(awk '{print $1}' "$TEST_STATE/images/claude-yolo_latest")"
+TEST_BUILD_SLEEP=0 run_launch update-launch.bash restart >>"$QUIET" 2>&1
+check "an in-place update removes the :latest it replaced" "$old_latest" "$(cat "$TEST_STATE/removed.log")"
+
+echo "== a failed rebuild removes nothing"
+: >"$TEST_STATE/removed.log"
+touch "$TEST_STATE/build-fails"
+TEST_BUILD_SLEEP=0 run_launch base.bash force >>"$QUIET" 2>&1
+check "the launch fails" 1 "$?"
+check "nothing is removed" 0 "$(wc -l <"$TEST_STATE/removed.log" | tr -d ' ')"
+rm -f "$TEST_STATE/build-fails"
+
+echo "== a launch that cannot record the images before its build does not build"
+reset_world
+CCY_CONTAINER_IMAGES="$SCRATCH/no-such-command" TEST_BUILD_SLEEP=0 run_launch base.bash force >>"$QUIET" 2>"$SCRATCH/a.err"
+check "the launch fails" 1 "$?"
+check "nothing was built" 0 "$(builds)"
+has "it says why" "$SCRATCH/a.err" "could not record the images of claude-yolo before its build"
+check "the lock is free" yes "$(lock_free)"
+
 echo "== a holder killed mid-build: the waiter builds the image itself"
 reset_world
 TEST_BUILD_SLEEP=30 run_launch base.bash >>"$QUIET" 2>&1 &
@@ -422,7 +473,7 @@ check "the holder was killed" 0 "$?"
 wait "$pid_b"
 check "the waiter succeeds" 0 "$?"
 check "the waiter built the image" 1 "$(grep -c "^build claude-yolo:latest by" "$TEST_STATE/builds.log")"
-has "and uses it" "$SCRATCH/b.out" "ready id-"
+has "and uses it" "$SCRATCH/b.out" "ready $(awk '{print $1}' "$TEST_STATE/images/claude-yolo_latest")"
 
 echo "== a record whose process has gone is named stale and ignored"
 reset_world

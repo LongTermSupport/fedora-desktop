@@ -1,6 +1,6 @@
 # Plan 00235: podman images cleaned up automatically
 
-**Status**: In Progress (Phase 4 built; its deploy, bracketed by the triage, is queued in meta-deploy.list)
+**Status**: In Progress (Phase 4 built and deploying through meta-deploy.list; Phase 3, ccy's prune after its own rebuild, built: Tasks 3.1 and 3.2)
 **Created**: 2026-10-28
 **Owner**: joseph
 **Priority**: High

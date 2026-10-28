@@ -73,6 +73,8 @@ const (
 	kindTag      = "tag"
 	kindCtr      = "container"
 	usage        = `usage: container-images prune [--yes]
+       container-images [--engine podman|docker] before <repository>
+       container-images [--engine podman|docker] replaced <repository> <ids-file>
 
   prune          list what the daily prune would remove from the podman store (a dry run)
   prune --yes    remove it: dangling images no container uses, over a day old; claude-yolo
@@ -81,6 +83,11 @@ const (
                  containers over a day old while no ccy image build runs. Dangling volumes
                  are listed, never removed. Each removal is logged to
                  ~/.local/state/fedora-desktop/container-images.log.
+  before         print each tag of the repository with its image id (ccy's build lock
+                 records this before a build)
+  replaced       remove each image of that record no tag now names and no container uses
+                 (ccy's build lock runs it after a build); ids-file may be /dev/stdin. The
+                 engine is --engine's, else CCY_CONTAINER_ENGINE's, else podman.
 `
 )
 
@@ -101,11 +108,14 @@ type App struct{ Env Env }
 
 // Run runs the command line.
 func (a App) Run(ctx context.Context, args []string) term.ExitCode {
+	req, rest, selfPrune := selfPruneArgs(a.Env.Getenv(engine.EnvName), args)
 	switch {
 	case len(args) == 1 && (args[0] == "--help" || args[0] == "-h"):
 		return a.print(a.Env.Stdout, usage)
 	case len(args) >= 1 && args[0] == "prune" && (len(args) == 1 || len(args) == 2 && args[1] == "--yes"):
 		return a.prune(ctx, len(args) == 2)
+	case selfPrune:
+		return a.selfPrune(ctx, req, rest)
 	default:
 		if code := a.print(a.Env.Stderr, usage); code != term.ExitOK {
 			return code
@@ -497,11 +507,20 @@ func (a App) fail(err error) term.ExitCode {
 
 func (a App) stateDir() string { return filepath.Join(a.Env.Home, ".local", "state", "fedora-desktop") }
 
+// stateFile is the path of name in the state directory, made first: a fresh home has no
+// ~/.local/state. what names the file in the error.
+func (a App) stateFile(name, what string) (string, error) {
+	if err := os.MkdirAll(a.stateDir(), 0o750); err != nil {
+		return "", fmt.Errorf("cannot make %s for the %s: %w", a.stateDir(), what, err)
+	}
+	return filepath.Join(a.stateDir(), name), nil
+}
+
 // takeRunLock is P3b: one `prune --yes` at a time. The lock is held until release.
 func (a App) takeRunLock() (func(), error) {
-	path := filepath.Join(a.stateDir(), lockName)
-	if err := os.MkdirAll(a.stateDir(), 0o750); err != nil {
-		return nil, fmt.Errorf("cannot make %s for the run lock: %w", a.stateDir(), err)
+	path, err := a.stateFile(lockName, "run lock")
+	if err != nil {
+		return nil, err
 	}
 	fh, err := os.OpenFile(filepath.Clean(path), os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0o600)
 	if err != nil {
@@ -532,8 +551,12 @@ func (a App) stampSuccess() term.ExitCode {
 	return term.ExitOK
 }
 
+// openLog is the removal log both prune and replaced append to (P6, R2).
 func (a App) openLog() (*os.File, error) {
-	path := filepath.Join(a.stateDir(), logName)
+	path, err := a.stateFile(logName, "removal log")
+	if err != nil {
+		return nil, err
+	}
 	f, err := os.OpenFile(filepath.Clean(path), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("cannot open the removal log %s: %w", path, err)

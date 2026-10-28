@@ -74,9 +74,11 @@ podman ps --filter name=difftest-project_yolo --format '{{.Names}}'
 podman image inspect claude-yolo:latest
 podman image inspect claude-yolo:latest --format '{{.Id}}'
 podman image inspect claude-yolo:latest --format '{{.Id}}'
+container-images --engine podman before claude-yolo
 podman run --name 'ccy-claude-update-{pid}' --entrypoint sh claude-yolo:latest -c 'set -e; npm install -g @anthropic-ai/claude-code@latest 2>&1'
 podman commit --change 'ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]' --change 'CMD ["claude", "--help"]' 'ccy-claude-update-{pid}' claude-yolo:latest
 podman rm -f 'ccy-claude-update-{pid}'
+container-images --engine podman replaced claude-yolo /dev/stdin
 podman image inspect claude-yolo:base
 podman image inspect claude-yolo:latest --format '{{.Id}}'
 podman image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-version"}}'

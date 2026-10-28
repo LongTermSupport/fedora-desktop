@@ -44,6 +44,7 @@
         {"tool": "ccy-teams", "args": ["describe-seats"]},
         {"tool": "ccy-token-usable", "args": ["--"]},
         {"tool": "ccy-network-policy", "args": ["launch"]},
+        {"tool": "container-images", "args": ["--engine"]},
         {"tool": "timedatectl", "args": ["show", "-p", "Timezone", "--value"], "stdout": "Europe/London\n"},
         {"tool": "hostname", "args": [], "stdout": "difftest-host\n"},
         {"tool": "uname", "args": ["-n"], "stdout": "difftest-host\n"},

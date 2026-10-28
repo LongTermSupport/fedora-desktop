@@ -387,6 +387,7 @@
     - "{{ root_dir }}/files/var/local/claude-yolo/lib/agent-bus-membership.bash"
     - "{{ root_dir }}/files/var/local/claude-yolo/lib/agent-bus-seats.bash"
     - "{{ root_dir }}/files/var/local/claude-yolo/lib/image-build-lock.bash"
+    - "{{ root_dir }}/files/var/local/claude-yolo/lib/image-build-prune.bash"
     - "{{ root_dir }}/files/var/local/claude-yolo/lib/image-build.bash"
     - "{{ root_dir }}/files/var/local/claude-yolo/lib/network-policy.bash"
     - "{{ root_dir }}/files/var/local/claude-yolo/lib/agent-choice.bash"
@@ -395,6 +396,21 @@
   # `launchers` is on the lib and on every script that sources it (ccy, cc,
   # ccy-sessions), with the directories they land in: a tag that deployed one
   # without the others would recreate the new-lib-under-old-cc break.
+  tags:
+    - scripts
+    - launchers
+
+# ccy's self-prune (lib/image-build-prune.bash, Plan 00235): every build under the lock, the
+# launcher's and the one below, records the repository's images before it and removes what it
+# replaced after it, through this command. The launcher finds it on PATH, as it finds
+# ccy-token-usable; the build below names it by path. play-podman.yml installs the same binary
+# for its daily prune; the build is checksum-compared, so the second install changes nothing.
+- name: Build and Install the container-images Command
+  ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+  vars:
+    go_command_name: container-images
+    go_command_dest: "/home/{{ user_login }}/.local/bin/container-images"
+    go_command_mode: "0755"
   tags:
     - scripts
     - launchers
@@ -413,8 +429,12 @@
 
 # Under the image's build lock, the one every ccy launch takes (lib/image-build-lock.bash,
 # Plan 00216): a launch started while the play builds waits for this build and uses it, and
-# the play waits for a launch's build. The check is false: the play always builds.
+# the play waits for a launch's build. The check is false: the play always builds. The images
+# the build replaces are removed after it (lib/image-build-prune.bash), by the command above.
 - name: Build Claude YOLO Container Image with Hash
+  environment:
+    CCY_CONTAINER_IMAGES: "/home/{{ user_login }}/.local/bin/container-images"
+    CONTAINER_ENGINE: "{{ container_engine }}"
   ansible.builtin.command:
     argv:
       - bash
