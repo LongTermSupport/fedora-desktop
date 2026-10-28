@@ -2,10 +2,10 @@
 
 **Status**: In Progress. Every QA script is ported or retired (`qa-go.bash` by Plan 00191
 Task 3.3; the Go gate is go-qa-ci through `scripts/qa-go-qa.bash`). Every port of Task 3.3 is merged
-except the `ccy` launcher, whose phases 3 to 5 are deferred by Plan 00191 D4/D10. Left for
-workers: Tasks 4.1 and 4.2 over the finished plan. Left for the host agent: the
-`changed-plays` run queued in `meta-deploy.list` and its checks (vmtest H5 and H7's dry run
-after the retention port, the nord play run again with no firewalld warning); the host checks
+except the `ccy` launcher, whose phases 3 to 5 are deferred by Plan 00191 D4/D10. Tasks 4.1
+and 4.2 are done; no code is left for workers. Left for the host agent: the
+`changed-plays` run queued in `meta-deploy.list` and its check (the next vmtest-nightly
+timer run evicts overlays and keeps every run directory, which also settles vmtest H5); the host checks
 of the merged ports still open (vmtest H3's base build and ssh-with-key H2 and H4's guest
 part, once the runs are pruned; open H5's Ctrl-C in mpv; rclone-tail H4; gh-account-setup H1
 and H3 to H5); Task 3.2's root run is on hold until Plan 00209 Task 2.5 (see the task). Left
@@ -391,7 +391,7 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
 
 ### Phase 4: Review
 
-- [ ] 🔄 **Task 4.1**: Fable adversarial review of the rule, gate, rules and rewrites; findings
+- [x] ✅ **Task 4.1**: Fable adversarial review of the rule, gate, rules and rewrites; findings
   fixed. Three reviews (subagent-reports/261014-fable-review-{gate,go,gqaci}.md) found
   blockers in each: the gate is evadable and its CI ratchet bypassable; the DBF rules caught
   1 of 13 planted evasions and Ctrl-C can wedge the terminal; go-qa-ci cannot be adopted (no
@@ -401,13 +401,18 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   merged (go-qa-ci's on its own remote), and so are typed state, the ccy-sessions and
   ccy-teams redraw cost, and the `teams` package split. The ports get their own review before
   merge: freeze's found two blockers, fixed and merged; qa-changed's and qa-all's findings are
-  fixed; agent-bus-install's are fixed on its branch.
-- [ ] 🔄 **Task 4.2**: qa-reviewer over the plan: done once
+  fixed; agent-bus-install's are fixed on its branch. Every Phase 3 port since was reviewed
+  before merge (reclaim, open, nord, nvidia-status, the ssh-with-key family, vmtest prune-runs,
+  the retention move and the sweep fix: the `fable-review` reports in `subagent-reports/`), each with
+  no blocker left and its fix-before-merge findings fixed; their follow-ups are recorded in
+  those reports. The `ccy` launcher's review goes with its port, which is Plan 00191's.
+- [x] ✅ **Task 4.2**: qa-reviewer over the plan: done once
   ([subagent-reports/261014-qa-reviewer-plan.md](subagent-reports/261014-qa-reviewer-plan.md));
   its fixes are on `go-port/qa-all` ([the fix report](subagent-reports/261014-qa-reviewer-fixes-sonnet.md)).
   Second pass, over the Phase 3 ports at `e3d67048d`: FIX-BEFORE-MERGE, no blocker; every
-  finding fixed ([the fix report](subagent-reports/261028-qa-reviewer-r2-fixes.md)). Runs
-  again over the finished plan.
+  finding fixed ([the fix report](subagent-reports/261028-qa-reviewer-r2-fixes.md)). What is
+  left of the plan is host and owner checks, no more code; the `ccy` launcher's work, and its
+  review, are Plan 00191's.
 
 ## Success Criteria
 
