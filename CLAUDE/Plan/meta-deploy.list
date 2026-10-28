@@ -48,13 +48,22 @@
 # play-speech-to-text.yml rebuilds wsi (a stop grace over the setting's 30 seconds is refused).
 # Rebuilds only: nothing is rebooted, recorded or pruned, and nothing is asked.
 changed-plays
-# Plan 00235 Task 2.1, triage only (read-only, needs no sudo, asks nothing): re-measures the
-# rootless podman store the plan rests on: disk free on / and /home, `podman system df` (its
-# exit status recorded), the store's size on disk (--du, walked inside `podman unshare`, slow
-# on a large store), image counts (dangling, and dangling used by no container, with their
-# summed size), dangling images by month created, the newest 400 dangling by title and
-# claude-yolo-version label, every tag and whether a container uses it, containers and
-# buildah leftovers, volumes and which are dangling, user timers, and whether the deployed ccy
-# tree removes any image. It lists and inspects only: nothing is removed, pruned, built or
-# pulled. The report is in the run directory under untracked/plan-runs/.
+# Plan 00235, the disk-space priority: triage, the daily prune deployed, triage again (so the
+# store and the free space are measured before and after), then acceptance.
+# 1. triage.bash --du (Task 2.1, read-only, no sudo): disk free on / and /home, `podman system
+#    df` (its exit status recorded), the store's size on disk (--du, slow on a large store),
+#    image counts (dangling, unused dangling, summed size), dangling by month, the newest 400
+#    dangling by label, tags and whether a container uses each, containers and buildah
+#    leftovers, volumes, user timers. It lists and inspects only.
+# 2. deploy.bash (Tasks 4.1-4.2, asks for sudo once): play-podman.yml builds container-images
+#    into ~/.local/bin and installs and enables container-images-prune.timer (daily,
+#    Persistent=true). Because the service is new, the play starts it once and waits: that run
+#    REMOVES the backlog of dangling images no container uses (over a day old), claude-yolo
+#    project images no container uses (over 30 days old) and buildah leftovers over a day old
+#    while no ccy build runs, logging each to ~/.local/state/fedora-desktop/container-images.log.
+#    It removes no volume and no image a container uses. It may take some minutes.
+# 3. triage.bash --du again: the after figures.
+# 4. acceptance.bash (read-only): the timer is enabled with a next run, the first run
+#    succeeded and logged, no unused dangling image over a day old is left, every container
+#    still has its image, claude-yolo:base and :latest exist, free space now.
 00235-podman-images-cleaned-up-automatically --du
