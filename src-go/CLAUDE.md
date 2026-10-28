@@ -69,8 +69,9 @@ bash originals are gone (`scripts/gh-account-setup.bash`, `scripts/setup-rclone.
   `execx.Feed`); the chooser is
   `ui.Lines.Choose` on `/dev/tty`, NetworkManager's state asked through `internal/systemd`.
 - `internal/nvidiastatus/` — the `nvidia-status` command (spec `SPEC-nvidia-status.md`,
-  E1-E25): the NVIDIA driver's report, from mokutil, rpm, modinfo, `/proc/modules`,
-  nvidia-smi, glxinfo, vulkaninfo, vainfo and journalctl, each asked once under a fixed bound;
+  E1-E26): the NVIDIA driver's report, from mokutil, rpm, modinfo, `/proc/modules`,
+  `/proc/driver/nvidia/version`, nvidia-smi, glxinfo, vulkaninfo, vainfo (libva's default
+  driver, then NVIDIA's by name) and journalctl, each question asked once under a fixed bound;
   facts first, then the words, and the exit status is the verdict. It only reads.
 - `internal/sshkey/` — `ssh-with-key`, `scp-with-key` and `ssh-copy-id-with-key` (spec
   `SPEC-ssh-with-key.md`, E1-E20), three thin `cmd/` mains over one package: one login key,

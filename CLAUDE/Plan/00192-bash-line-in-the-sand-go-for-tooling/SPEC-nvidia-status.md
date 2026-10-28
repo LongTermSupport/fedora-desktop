@@ -25,7 +25,8 @@ to apply to. It had no test suite.
 - **D2. External programs stay where they are the source.** `mokutil`, `rpm`, `modinfo`,
   `nvidia-smi`, `glxinfo`, `vulkaninfo`, `vainfo` and `journalctl` are asked; their output is
   parsed in Go (no `grep`, `cut` or `xargs`). The loaded modules are read from `/proc/modules`
-  (what `lsmod` prints) and the akmods key's presence with a stat.
+  (what `lsmod` prints), the loaded driver's version from
+  `/proc/driver/nvidia/version`, and the akmods key's presence with a stat.
 - **D3. One seam for processes.** Everything runs through `internal/execx`. Nothing runs as
   root and nothing is changed: every command only reads. So Ctrl-C needs no handling: it ends
   the run at once (the default signal action) with nothing to put back.
@@ -48,7 +49,11 @@ to apply to. It had no test suite.
   `NO_COLOR` is unset; otherwise plain text with the same marks (`✅`, `❌`, `⚠`, `ℹ`).
 - E6. Every command runs under a fixed bound of 30 seconds. One that does not answer in time
   (`nvidia-smi` hangs on a wedged GPU) is reported as `<program> did not answer within 30s` in
-  its section, and the run goes on.
+  its section, and the run goes on. A child killed at the deadline reaches the probe as an exit
+  by SIGTERM, not as the context's error, so the deadline is read from the context first
+  (`TestTimeoutIsNamedNotTheKill`, the production 30s in a `testing/synctest` bubble). The bound
+  holds only for a process that can die: an `nvidia-smi` in uninterruptible sleep on a dead GPU
+  ignores SIGTERM and SIGKILL alike, and the report waits for it.
 
 ## 3. The sections (in this order, each a heading and a rule line)
 
@@ -108,7 +113,8 @@ to apply to. It had no test suite.
 
 ### 6. Vulkan
 
-- E19. `vulkaninfo` not on `PATH`: ❌ `install vulkan-tools` when `vulkan-loader` is installed,
+- E19. `vulkaninfo` not on `PATH`: ❌ `install vulkan-tools` when `vulkan-loader` is installed;
+  ⚠ `could not tell whether Vulkan is installed (rpm failed, section 2)` when rpm could not say;
   else ⚠ not installed. Otherwise `vulkaninfo --summary` once; a failure is ❌ `Failed to initialize` with the first line of its stderr.
 - E20. Each device is a `deviceName = <name>` line, with the `apiVersion = <v>` of the same
   device block. A device naming NVIDIA is ✅ Working, listing every device with its API version;
@@ -122,11 +128,19 @@ to apply to. It had no test suite.
   Otherwise `vainfo`, stdout and stderr together: exit 0 with a `VAProfile` line is ✅ `Driver loaded` with the `Driver version:` text; exit 0 with none is ⚠ no profiles; a failure is ⚠
   `Could not initialise` with its last line. The driver named is libva's default, which on a
   hybrid laptop is the integrated GPU's; the line says `(default driver)`.
+- E22a. NVIDIA's own VA-API driver: unless `libva-nvidia-driver` is known not installed (then ⚠
+  `not asked`), `vainfo` a second time with `LIBVA_DRIVER_NAME=nvidia` in its environment, judged
+  as E22 under the label `VA-API (NVIDIA driver)`; anything but ✅ adds the hint
+  `Try: LIBVA_DRIVER_NAME=nvidia vainfo`. Neither VA-API line changes the verdict.
 
 ### 8. Kernel errors this boot
 
 - E23. `journalctl -k -b -p err --no-pager` (no `-g`). The lines naming `nvidia` or `NVRM` (any
   case), leaving out journalctl's `-- ... --` marker lines, the last 5 shown under ⚠ `Recent kernel errors found`; none is ✅ `None found`.
+- E23a. A line `nvidia-gpu <pci address>: i2c timeout error` is the NVIDIA card's USB-C
+  controller (the `nvidia-gpu` i2c driver), logged at err priority on most boots of a hybrid
+  laptop, not the driver: such lines are left out of E23 and counted in one ℹ line,
+  `N nvidia-gpu i2c timeout line(s) left out: the card's USB-C controller, not the driver`.
 - E24. A failure, or anything on its stderr (no permission to the system journal, no journal
   files), is ⚠ `Could not read the kernel journal in full` with the first stderr line and the
   hint `sudo journalctl -k -b -p err --no-pager`; never `None found`.
@@ -136,15 +150,30 @@ to apply to. It had no test suite.
 - E25. In this order, the first that holds:
   1. **Complete and functional** (exit 0): `nvidia` loaded and `nvidia-smi` worked. The words
      say Secure Boot enabled (with `Modules: Loaded and signed`), disabled, or unknown; then
-     Vulkan working, OpenGL (NVIDIA renderer, or integrated under hybrid), the hybrid note, and
-     a missing `libva-nvidia-driver`.
+     Vulkan working, OpenGL (NVIDIA renderer, or integrated under hybrid), the hybrid note, a
+     loaded driver other than the installed one (E26: `reboot to load it`), and a missing
+     `libva-nvidia-driver`.
   2. **MOK enrollment required**: Secure Boot enabled and the key definitely not enrolled (E8,
-     E9) — the four steps (reboot, enroll at the blue screen, the vault's `mok_password`).
+     E9) — the four steps (reboot, enroll at the blue screen, the vault's `mok_password`),
+     preceded, when the akmods key file does not exist, by `Run play-nvidia.yml`, which creates
+     the key and queues it for enrollment.
   3. **Driver not installed**: `akmod-nvidia` not installed — run `play-nvidia.yml`.
   4. **Kernel module still building**: built is no (E11) — check with `modinfo -F version nvidia`, reboot when done.
-  5. **Reboot required**: built, not loaded.
-  6. **Installation incomplete**: everything else (loaded but `nvidia-smi` fails, or a fact that
+  5. **Reboot required: new driver installed**: `nvidia` loaded and mismatched (E26) — the
+     loaded and installed versions (`unknown` where unread), reboot.
+  6. **Reboot required**: built, not loaded.
+  7. **Installation incomplete**: everything else (loaded but `nvidia-smi` fails, or a fact that
      could not be read) — review the errors above.
+- E26. The driver the running kernel has, against the installed one (as `play-nvidia.yml`
+  compares them at its end). With `nvidia` loaded, its version is the first `N.N.N` of the
+  `NVRM version:` line of `/proc/driver/nvidia/version`; section 3 shows ✅
+  `nvidia driver loaded: Version <v>`, or ⚠ when the file cannot be read. The installed version
+  is E11's built version, else `akmod-nvidia`'s single version. When both are known and differ,
+  the line is ⚠ `Version <loaded>, but <installed> is installed (reboot to load it)`. The driver
+  is mismatched when they differ, or when `nvidia-smi` failed saying `version mismatch` (NVML's
+  `Driver/library version mismatch`) unless both are known and equal (a reboot would load the
+  same driver); then section 4 adds ℹ
+  `Driver/library version mismatch: the running kernel has the old driver; reboot`.
 
 ## 5. Departures from the bash (`B*`)
 
@@ -152,36 +181,66 @@ to apply to. It had no test suite.
   43 renamed `nvidia-vaapi-driver`). The bash asked for the old name, so on Fedora 43 and later
   it always reported the package missing, the "side issue" Plan 029 recorded, and the play was
   never at fault.
+
 - B2. The kernel journal: `journalctl -g` exits 1 when nothing matches, so the bash reported
   `Could not read the kernel journal` on every healthy machine. The Go filters itself (E23),
   also matches `NVRM` (the driver's own prefix, which the bash missed), reads this boot only
   (the bash showed errors from any past boot as recent), drops `-- No entries --`, and treats
   a journal it may not fully read as unread (E24). The hint is a `journalctl` command, not
   `sudo $0`, which would build the Go as root.
+
 - B3. `--check` printed lines (`Secure Boot: Enabled`, the GPU, renderer and version lines, and
   others the bash did not guard); now it prints nothing (E4).
+
 - B4. Unknown arguments were ignored; now a usage error (E2), and `--help` exists.
+
 - B5. `lsmod | grep "^nvidia"` counted the driver as loaded when only `nvidia_drm` (any name
   starting `nvidia`) was; now exact names, and the driver is loaded only with `nvidia` (E12).
+
 - B6. A `--test-key` answer the bash did not recognise left the key as "not enrolled", which
   then told the person to enrol it; now uncertain (E8).
+
 - B7. With the Secure Boot state unknown the summary said `Secure Boot disabled`; it now says
   unknown (E25).
+
 - B8. A missing `akmod-nvidia` was reported as `KERNEL MODULE STILL BUILDING`; now its own
   verdict (E25.3). A `modinfo` failure other than "not found" is no longer read as not built.
+
 - B9. `vainfo`'s exit status was ignored (a failure read as `no profiles`), and its driver was
   shown as if NVIDIA's (E22). `vulkaninfo --summary` ran three times and `nvidia-vaapi-driver`
   was queried twice; each once now.
+
 - B10. Colour escapes were written into a pipe; now only on a terminal (E5).
+
 - B11. No command had a bound; a hung `nvidia-smi` hung the report (E6).
+
 - B12. Hints point at the play that installs the tool (`mesa-demos`, `libva-utils`,
   `vulkan-tools` are all in `play-nvidia.yml`), not "add to playbook".
+
 - B13. The summary branch for Secure Boot on and off was duplicated with different orders; one
   order now (E25). A loaded, working driver whose `modinfo` cannot see it is complete, not
   "still building".
+
 - B14. A key file whose key is not enrolled printed `❌ Not enrolled (requires reboot and enrollment)` whatever the Secure Boot state, a wrong next step with Secure Boot off. It is a
   fault only with Secure Boot on; off, the key is "Not needed"; unknown, a warning says it
   matters only if Secure Boot is on (E8).
+
+- B15. After an akmod upgrade the running kernel keeps the old driver and `nvidia-smi` fails with
+  `Driver/library version mismatch`; the bash called that `INSTALLATION INCOMPLETE`, review the
+  errors. It is now a reboot, with both versions (E26, E25.5).
+
+- B16. The bash showed only libva's default driver, which on a hybrid laptop is the integrated
+  GPU's, so nothing said whether NVIDIA's VA-API driver works; it is now asked by name (E22a).
+
+- B17. With rpm failing and `vulkaninfo` absent, section 6 said `Vulkan support not configured`
+  while section 2 said rpm could not be queried; it now says it could not tell (E19).
+
+- B18. The `nvidia-gpu` i2c timeouts of the card's USB-C controller were shown as driver errors
+  (the bash's `-g nvidia` matched them); they are now counted apart (E23a).
+
+- B19. With no akmods key file and no key enrolled under Secure Boot, the verdict told the
+  person to enrol at the blue screen, which needs a key already queued; it now names the play
+  first (E25.2).
 
 ## 6. Host checks (`H*`)
 
@@ -199,6 +258,12 @@ says otherwise.
   the NVIDIA device with its API version, `glxinfo -B` gives the three strings, `vainfo` names
   its default driver, `mokutil --sb-state` and `--test-key` give the words E7 and E8 key on.
   Any mismatch is a fault of the parser, to fix here.
+- H6 (host agent, read-only). E22a and E26 on the laptop: section 7's `VA-API (NVIDIA driver)`
+  line against `LIBVA_DRIVER_NAME=nvidia vainfo` run by hand (✅ with profiles, or the failure
+  it prints), and section 3's `nvidia driver loaded: Version` equal to the version in
+  `cat /proc/driver/nvidia/version`. Any `nvidia-gpu ... i2c timeout error` line in
+  `journalctl -k -b -p err --no-pager` appears in the E23a count, not under the errors.
 - H5 (owner). The not-functional verdicts on real hardware (a fresh install before its reboot:
-  reboot required; MOK enrollment pending): only reached by installing or upgrading the driver
+  reboot required; MOK enrollment pending; after a driver upgrade and before its reboot, E25.5
+  with both versions): only reached by installing or upgrading the driver
   and rebooting, which change driver state. Optional; the fakes cover the logic.

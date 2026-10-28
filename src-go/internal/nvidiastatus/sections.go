@@ -2,6 +2,7 @@ package nvidiastatus
 
 import (
 	"context"
+	"errors"
 	"io/fs"
 	"regexp"
 	"strings"
@@ -74,6 +75,8 @@ type facts struct {
 	loaded                      []string
 	modulesErr                  error
 	nvidiaLoaded                bool
+	loadedVersion               string // /proc/driver/nvidia/version: the driver the kernel runs
+	nvrmErr                     error  // that file unread while nvidia is loaded
 	smiPresent                  bool
 	smi                         outcome
 	gpus                        [][3]string
@@ -85,8 +88,11 @@ type facts struct {
 	devices                     []vkDevice
 	vaPresent                   bool
 	va                          outcome
+	vaNvidiaAsked               bool // libva-nvidia-driver not known missing (E22a)
+	vaNvidia                    outcome
 	journal                     outcome
 	journalLines                []string
+	i2cNoise                    int // nvidia-gpu i2c timeout lines left out (E23a)
 }
 
 func (f *facts) pkg(name string) pkg {
@@ -110,7 +116,43 @@ func (f *facts) hybrid() bool {
 var (
 	integratedGPU = regexp.MustCompile(`(?i)intel|radeon|amd`)
 	nvidiaLine    = regexp.MustCompile(`(?i)nvidia|nvrm`)
+	// i2cTimeout is the USB-C controller on the NVIDIA card (the nvidia-gpu i2c driver), which
+	// hybrid laptops log at err priority on most boots; it says nothing of the driver (E23a).
+	i2cTimeout = regexp.MustCompile(`nvidia-gpu \S+: i2c timeout error`)
+	// nvrmVersion is the version in /proc/driver/nvidia/version's NVRM line, as play-nvidia.yml reads it.
+	nvrmVersion = regexp.MustCompile(`[0-9]+\.[0-9]+\.[0-9]+`)
 )
+
+// installedVersion is the driver the next load would bring: the module built for this kernel,
+// else akmod-nvidia's one version; empty when neither is known (E26).
+func (f *facts) installedVersion() string {
+	if f.built == yes && f.builtVersion != unknownVersion {
+		return f.builtVersion
+	}
+	if p := f.pkg("akmod-nvidia"); p.state == yes && !strings.Contains(p.version, ",") {
+		return p.version
+	}
+	return ""
+}
+
+// versionsDiffer is E26: the loaded driver is not the installed one.
+func (f *facts) versionsDiffer() bool {
+	installed := f.installedVersion()
+	return f.loadedVersion != "" && installed != "" && f.loadedVersion != installed
+}
+
+// smiMismatch is E26: nvidia-smi's NVML refused a kernel driver of another version.
+func (f *facts) smiMismatch() bool {
+	return f.smiPresent && !f.smi.ok() && containsFold(f.smi.both(), "version mismatch")
+}
+
+// driverMismatch is E26: the running kernel has a driver other than the installed one. nvidia-smi's
+// words count unless both versions are known and equal: then a reboot would load the same driver.
+func (f *facts) driverMismatch() bool {
+	installed := f.installedVersion()
+	same := f.loadedVersion != "" && installed != "" && f.loadedVersion == installed
+	return f.nvidiaLoaded && (f.versionsDiffer() || (f.smiMismatch() && !same))
+}
 
 func (f *facts) vulkanOK() bool {
 	if !f.vkPresent || !f.vk.ok() {
@@ -132,9 +174,13 @@ func (f *facts) journalRead() bool {
 // runFunc runs one reading command through probe.
 type runFunc func(execx.Cmd) outcome
 
-const mokutil = "mokutil"
+const (
+	mokutil = "mokutil"
+	// unknownVersion is a version a program did not say.
+	unknownVersion = "unknown"
+)
 
-// gather asks every program once, in the report's order (D4).
+// gather asks each question once, in the report's order (D4).
 func gather(ctx context.Context, env Env) *facts {
 	f := &facts{}
 	run := func(c execx.Cmd) outcome { return probe(ctx, env.Runner, c) }
@@ -214,7 +260,7 @@ func (f *facts) modules(run runFunc, proc fs.FS) {
 	case f.modinfo.ok():
 		f.built, f.builtVersion = yes, firstLine(f.modinfo.out)
 		if f.builtVersion == "" {
-			f.builtVersion = "unknown"
+			f.builtVersion = unknownVersion
 		}
 	case f.modinfo.problem == "" && containsFold(f.modinfo.both(), "not found"):
 		f.built = no
@@ -256,6 +302,9 @@ func (f *facts) gpu(run runFunc, present func(string) bool) {
 
 	if f.vaPresent = present("vainfo"); f.vaPresent {
 		f.va = run(execx.Cmd{Name: "vainfo"})
+		if f.vaNvidiaAsked = f.pkg("libva-nvidia-driver").state != no; f.vaNvidiaAsked {
+			f.vaNvidia = run(execx.Cmd{Name: "vainfo", Env: []string{"LIBVA_DRIVER_NAME=nvidia"}})
+		}
 	}
 }
 
@@ -274,6 +323,10 @@ func (f *facts) kernelJournal(run runFunc) {
 	f.journal = run(execx.Cmd{Name: "journalctl", Args: []string{"-k", "-b", "-p", "err", "--no-pager"}})
 	for _, l := range lines(f.journal.out) {
 		if strings.HasPrefix(l, "-- ") && strings.HasSuffix(l, " --") {
+			continue
+		}
+		if i2cTimeout.MatchString(l) {
+			f.i2cNoise++
 			continue
 		}
 		if nvidiaLine.MatchString(l) {
@@ -302,6 +355,22 @@ func (f *facts) readModules(proc fs.FS) {
 		}
 	}
 	f.nvidiaLoaded = names[driverModules[0]]
+	if !f.nvidiaLoaded {
+		return
+	}
+	nvrm, err := fs.ReadFile(proc, "driver/nvidia/version")
+	if err != nil {
+		f.nvrmErr = err
+		return
+	}
+	for _, l := range lines(string(nvrm)) {
+		if strings.HasPrefix(l, "NVRM version:") {
+			f.loadedVersion = nvrmVersion.FindString(l)
+		}
+	}
+	if f.loadedVersion == "" {
+		f.nvrmErr = errors.New("no NVRM version in it")
+	}
 }
 
 // vulkanDevices is E20: each GPUn: block's deviceName and apiVersion.

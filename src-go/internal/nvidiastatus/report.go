@@ -17,6 +17,7 @@ const (
 	mokRequired
 	driverMissing
 	building
+	driverMismatch
 	rebootRequired
 	incomplete
 )
@@ -32,6 +33,8 @@ func judge(f *facts) verdict {
 		return driverMissing
 	case f.built == no:
 		return building
+	case f.driverMismatch():
+		return driverMismatch
 	case f.built == yes && !f.nvidiaLoaded && f.modulesErr == nil:
 		return rebootRequired
 	default:
@@ -200,6 +203,7 @@ func (r *report) modules(f *facts) {
 		if len(missing) > 0 {
 			r.info("Not loaded: " + strings.Join(missing, " "))
 		}
+		r.loadedDriver(f)
 	case len(f.loaded) > 0:
 		r.bad("Loaded modules: " + strings.Join(f.loaded, " ") + " (nvidia not loaded; requires reboot)")
 	default:
@@ -210,6 +214,19 @@ func (r *report) modules(f *facts) {
 	}
 	if f.mokProven {
 		r.info("MOK verification: Enrollment confirmed by loaded signed modules")
+	}
+}
+
+// loadedDriver is E26: the version the running kernel has, against the installed one.
+func (r *report) loadedDriver(f *facts) {
+	switch {
+	case f.nvrmErr != nil:
+		r.warn("nvidia driver loaded: could not read /proc/driver/nvidia/version: " + f.nvrmErr.Error())
+	case f.versionsDiffer():
+		r.warn("nvidia driver loaded: Version " + f.loadedVersion + ", but " + f.installedVersion() +
+			" is installed (reboot to load it)")
+	default:
+		r.good("nvidia driver loaded: Version " + f.loadedVersion)
 	}
 }
 
@@ -229,6 +246,9 @@ func (r *report) driver(f *facts) {
 	default:
 		r.bad("nvidia-smi: Failed to communicate with GPU")
 		r.detail(f.smi.why())
+		if f.driverMismatch() {
+			r.info("Driver/library version mismatch: the running kernel has the old driver; reboot")
+		}
 	}
 }
 
@@ -264,6 +284,8 @@ func (r *report) vulkan(f *facts) {
 	switch {
 	case !f.vkPresent && f.pkg("vulkan-loader").state == yes:
 		r.bad("vulkaninfo: Not available (install vulkan-tools, by play-nvidia.yml)")
+	case !f.vkPresent && f.pkg("vulkan-loader").state == unknown:
+		r.warn("vulkaninfo: Not available; could not tell whether Vulkan is installed (rpm failed, section 2)")
 	case !f.vkPresent:
 		r.warn("vulkaninfo: Not installed (Vulkan support not configured)")
 	case !f.vk.ok():
@@ -307,27 +329,43 @@ func (r *report) video(f *facts) {
 	case unknown:
 		r.warn("libva-nvidia-driver: could not query rpm (section 2)")
 	}
-	const label = "VA-API (default driver): "
-	switch {
-	case !f.vaPresent:
+	if !f.vaPresent {
 		r.warn("vainfo: Not available (libva-utils, installed by play-nvidia.yml)")
-	case !f.va.ok():
-		why := lastLine(f.va.both())
-		if why == "" || f.va.problem != "" {
-			why = f.va.why()
+		return
+	}
+	r.vainfo("VA-API (default driver): ", f.va)
+	const nvidia = "VA-API (NVIDIA driver): "
+	if !f.vaNvidiaAsked {
+		r.warn(nvidia + "not asked (libva-nvidia-driver not installed)")
+		return
+	}
+	if !r.vainfo(nvidia, f.vaNvidia) {
+		r.info("Try: LIBVA_DRIVER_NAME=nvidia vainfo")
+	}
+}
+
+// vainfo is E22's judgement of one vainfo run; true when the driver loaded with profiles.
+func (r *report) vainfo(label string, va outcome) bool {
+	switch {
+	case !va.ok():
+		why := lastLine(va.both())
+		if why == "" || va.problem != "" {
+			why = va.why()
 		}
 		r.warn(label + "Could not initialise (" + why + ")")
-	case strings.Contains(f.va.both(), "VAProfile"):
+	case strings.Contains(va.both(), "VAProfile"):
 		r.good(label + "Driver loaded")
-		for _, l := range lines(f.va.both()) {
+		for _, l := range lines(va.both()) {
 			if _, version, ok := strings.Cut(l, "Driver version:"); ok && strings.TrimSpace(version) != "" {
 				r.detail("Driver: " + strings.TrimSpace(version))
 				break
 			}
 		}
+		return true
 	default:
 		r.warn(label + "Driver loaded but no profiles")
 	}
+	return false
 }
 
 // journal is E23 and E24.
@@ -341,15 +379,17 @@ func (r *report) journal(f *facts) {
 		r.warn("Recent errors: Could not read the kernel journal in full (" + why + ")")
 		r.info("Not the same as 'no errors' — try: sudo journalctl -k -b -p err --no-pager")
 	}
-	if len(f.journalLines) > 0 {
+	switch {
+	case len(f.journalLines) > 0:
 		r.warn("Recent kernel errors found:")
 		for _, l := range f.journalLines {
 			r.detail(l)
 		}
-		return
-	}
-	if f.journalRead() {
+	case f.journalRead():
 		r.good("Recent errors: None found")
+	}
+	if f.i2cNoise > 0 {
+		r.info(fmt.Sprintf("%d nvidia-gpu i2c timeout line(s) left out: the card's USB-C controller, not the driver", f.i2cNoise))
 	}
 }
 
@@ -385,6 +425,11 @@ func (r *report) complete(f *facts) {
 		r.say("System uses integrated GPU by default for power savings.")
 		r.say("Use PRIME render offload to run apps on NVIDIA GPU.")
 	}
+	if f.versionsDiffer() {
+		r.line("")
+		r.say(r.paint(yellow, "⚠  Driver "+f.installedVersion()+" is installed but "+f.loadedVersion+
+			" is running: reboot to load it."))
+	}
 	if f.pkg("libva-nvidia-driver").state == no {
 		r.line("")
 		r.say(r.paint(yellow, "⚠  Missing optional package: libva-nvidia-driver"))
@@ -400,10 +445,32 @@ func (r *report) summary(f *facts, v verdict) {
 		r.complete(f)
 	case mokRequired:
 		r.line(r.paint(yellow+term.Bold, "⚠  ACTION REQUIRED: MOK ENROLLMENT"))
-		say("1. Reboot your system")
-		say("2. Enroll the MOK key when prompted at the blue screen")
-		say("3. Use the password from your vault configuration (mok_password)")
-		say("4. System will reboot and NVIDIA drivers will work")
+		steps := []string{
+			"Reboot your system",
+			"Enroll the MOK key when prompted at the blue screen",
+			"Use the password from your vault configuration (mok_password)",
+			"System will reboot and NVIDIA drivers will work",
+		}
+		if !f.keyFile {
+			steps = append([]string{"Run play-nvidia.yml: it creates the akmods key and queues it for enrollment"}, steps...)
+		}
+		for i, s := range steps {
+			say(fmt.Sprintf("%d. %s", i+1, s))
+		}
+	case driverMismatch:
+		installed := f.installedVersion()
+		if installed == "" {
+			installed = unknownVersion
+		}
+		loaded := f.loadedVersion
+		if loaded == "" {
+			loaded = unknownVersion
+		}
+		r.line(r.paint(yellow+term.Bold, "⚠  REBOOT REQUIRED: NEW DRIVER INSTALLED"))
+		say("The running kernel has an NVIDIA driver other than the one installed.")
+		say("Loaded in the running kernel: " + loaded)
+		say("Installed: " + installed)
+		say("Reboot to load the new driver.")
 	case driverMissing:
 		r.line(r.paint(yellow+term.Bold, "⚠  NVIDIA DRIVER NOT INSTALLED"))
 		say("akmod-nvidia is not installed. Install it with:")

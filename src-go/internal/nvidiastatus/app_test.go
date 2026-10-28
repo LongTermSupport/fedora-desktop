@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"syscall"
 	"testing"
+	"testing/synctest"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -53,6 +56,7 @@ func TestHealthyHybridLaptop(t *testing.T) {
 		"3. KERNEL MODULE STATUS",
 		"  ✅ nvidia module built: Version 580.95.05\n",
 		"  ✅ Loaded modules: nvidia nvidia_drm nvidia_modeset nvidia_uvm\n",
+		"  ✅ nvidia driver loaded: Version 580.95.05\n",
 		"  ✅ Secure Boot signature: Valid (modules working with Secure Boot)\n",
 		"4. DRIVER FUNCTIONALITY",
 		"  ✅ nvidia-smi: Working\n",
@@ -70,6 +74,8 @@ func TestHealthyHybridLaptop(t *testing.T) {
 		"  ✅ libva-nvidia-driver: Installed\n",
 		"  ✅ VA-API (default driver): Driver loaded\n",
 		"      Driver: Intel iHD driver for Intel(R) Gen Graphics - 25.2.6 ()\n",
+		"  ✅ VA-API (NVIDIA driver): Driver loaded\n",
+		"      Driver: VA-API NVDEC driver [direct backend]\n",
 		"8. RECENT DRIVER LOGS (THIS BOOT)",
 		"  ✅ Recent errors: None found\n",
 		"SUMMARY",
@@ -89,7 +95,7 @@ func TestEachCommandRunsOnce(t *testing.T) {
 	w.report(t)
 	seen := map[string]int{}
 	for _, c := range w.fake.Calls() {
-		seen[c.Line()]++
+		seen[strings.TrimSpace(strings.Join(c.Env, " ")+" "+c.Line())]++
 		if strings.Contains(c.Line(), "nvidia-vaapi-driver") {
 			t.Errorf("asked for the old package name: %s", c.Line())
 		}
@@ -99,8 +105,8 @@ func TestEachCommandRunsOnce(t *testing.T) {
 			t.Errorf("%q ran %d times", line, n)
 		}
 	}
-	if len(seen) != 13 {
-		t.Errorf("%d distinct commands, want 13: %v", len(seen), seen)
+	if len(seen) != 14 {
+		t.Errorf("%d distinct commands, want 14: %v", len(seen), seen)
 	}
 }
 
@@ -144,6 +150,27 @@ func TestUnwritableStdoutFails(t *testing.T) {
 	if errOut != "nvidia-status: cannot write the report: broken pipe\n" {
 		t.Errorf("stderr %q", errOut)
 	}
+}
+
+// hangingRunner is execx.OS's answer to a child that does not answer before its context's
+// deadline: it waits for the deadline, then reports what os/exec's Wait does for the child the
+// cancel sent SIGTERM, an ExitError with the signal, never the context's error.
+type hangingRunner struct{}
+
+func (hangingRunner) Run(ctx context.Context, c execx.Cmd) (execx.Result, error) {
+	<-ctx.Done()
+	return execx.Result{ExitCode: -1}, &execx.ExitError{Name: c.Name, Code: -1, Signal: syscall.SIGTERM}
+}
+
+// E6: the production bound and the production error. In a synctest bubble the 30s pass at
+// once, when the runner blocks on the deadline; the probe must name the deadline, not the kill.
+func TestTimeoutIsNamedNotTheKill(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		o := probe(context.Background(), hangingRunner{}, execx.Cmd{Name: "nvidia-smi"})
+		if o.problem != "nvidia-smi did not answer within 30s" {
+			t.Errorf("problem %q", o.problem)
+		}
+	})
 }
 
 // E6, B11: a command that does not answer in time is said in its section, and the run goes on.

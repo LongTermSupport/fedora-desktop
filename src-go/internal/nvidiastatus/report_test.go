@@ -27,3 +27,24 @@ func TestVerdictOrder(t *testing.T) {
 		}
 	}
 }
+
+// E25: a driver whose loaded version is not the installed one is a reboot, after building.
+func TestVerdictMismatchOrder(t *testing.T) {
+	installed := []pkg{{name: "akmod-nvidia", state: yes, version: "580.95.05"}}
+	broken := outcome{name: "nvidia-smi", code: 18, out: mismatchSMI}
+	for _, c := range []struct {
+		name string
+		f    facts
+		want verdict
+	}{
+		{"loaded old, smi says mismatch", facts{nvidiaLoaded: true, smiPresent: true, smi: broken, pkgs: installed, built: yes, builtVersion: "580.95.05", loadedVersion: "575.64.05"}, driverMismatch},
+		{"smi alone", facts{nvidiaLoaded: true, smiPresent: true, smi: broken, pkgs: installed, built: unknown}, driverMismatch},
+		{"building first", facts{nvidiaLoaded: true, smiPresent: true, smi: broken, pkgs: installed, built: no}, building},
+		{"same version, smi says mismatch", facts{nvidiaLoaded: true, smiPresent: true, smi: broken, pkgs: installed, built: yes, builtVersion: "580.95.05", loadedVersion: "580.95.05"}, incomplete},
+		{"same version, smi fails", facts{nvidiaLoaded: true, smiPresent: true, smi: outcome{name: "nvidia-smi", code: 9}, pkgs: installed, built: yes, builtVersion: "580.95.05", loadedVersion: "580.95.05"}, incomplete},
+	} {
+		if got := judge(&c.f); got != c.want {
+			t.Errorf("%s: verdict %d, want %d", c.name, got, c.want)
+		}
+	}
+}

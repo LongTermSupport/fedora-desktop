@@ -1,8 +1,8 @@
-// Package nvidiastatus is the nvidia-status command (Plan 00192 SPEC-nvidia-status.md, E1-E25):
+// Package nvidiastatus is the nvidia-status command (Plan 00192 SPEC-nvidia-status.md, E1-E26):
 // whether the NVIDIA driver play-nvidia.yml installs is built, loaded and working, with Secure
 // Boot and the MOK key, the packages, Vulkan, OpenGL, VA-API and the kernel's NVIDIA errors of
-// this boot. It only reads: every program it asks runs as the user, through execx, once, under
-// a fixed bound. The facts are gathered first, then rendered, and the exit status is the
+// this boot. It only reads: every program it asks runs as the user, through execx, once per
+// question (vainfo twice: libva's default driver, then NVIDIA's), under a fixed bound. The facts are gathered first, then rendered, and the exit status is the
 // verdict over them.
 package nvidiastatus
 
@@ -150,6 +150,8 @@ func probe(ctx context.Context, runner execx.Runner, c execx.Cmd) outcome {
 	if err == nil {
 		return o
 	}
+	// Before the ExitError: os/exec reports a child killed at the deadline by its signal, so
+	// only the context says it was the deadline (TestTimeoutIsNamedNotTheKill).
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(bounded.Err(), context.DeadlineExceeded) {
 		o.problem = fmt.Sprintf("%s did not answer within %s", c.Name, commandBound)
 		return o
