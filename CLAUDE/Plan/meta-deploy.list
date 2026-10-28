@@ -40,5 +40,8 @@
 # guest is booted and nothing is asked. The host agent then checks SPEC-vmtest H5 (vmtest
 # nightly writes the status file and the sweep log, the sweep's lines ending
 # VMTEST-SPOOL-SWEEP-DONE) and H7's dry run (vmtest prune-runs lists the runs holding an
-# overlay with their reasons, and removes nothing).
+# overlay with their reasons, and removes nothing). play-basic-configs.yml joins the run too:
+# the ssh-with-key family's Go package changed (the "already installed" line is a status line
+# now, the same words on stderr), so the play rebuilds the three binaries; nothing is asked
+# and no host is contacted.
 changed-plays

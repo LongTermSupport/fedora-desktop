@@ -36,7 +36,7 @@ func (r *run) alreadyInstalled(ctx context.Context, inv invocation) (bool, term.
 	case !ok:
 		return true, term.ExitFailure
 	case installed:
-		r.failf("%s is already installed on %s (the host accepts the key); nothing to do.",
+		r.notef("%s is already installed on %s (the host accepts the key); nothing to do.",
 			r.show(publicHalf(inv.install)), inv.dests[0].name)
 		return true, term.ExitOK
 	}

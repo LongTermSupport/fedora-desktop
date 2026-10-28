@@ -231,6 +231,10 @@ func (r *run) show(path string) string { return term.AbbrevHome(path, r.home) }
 
 func (r *run) say(text string) { r.out.Print(r.env.Stderr, text+"\n") }
 
-func (r *run) failf(format string, args ...any) {
+// notef is a status line naming the tool, on stderr: stdout is the program's it runs.
+func (r *run) notef(format string, args ...any) {
 	r.say(r.tool.Name + ": " + fmt.Sprintf(format, args...))
 }
+
+// failf is why the run stops, in the same form.
+func (r *run) failf(format string, args ...any) { r.notef(format, args...) }
