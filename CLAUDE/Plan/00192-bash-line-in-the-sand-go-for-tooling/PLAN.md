@@ -461,6 +461,15 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   `member-up` keeps `members/<name>` for its console log until `member-down` (E57 says it for
   any failure or signal; H4's "leaves no guest" does not say the directory stays).
 
+- [ ] 🔄 **Task 3.16**: FOLLOW-UP (the owner's decision, 2026-10-28): the camera hotspot's
+  Wi-Fi password is generated, not asked for. `play-ftp-camera.yml` runs
+  `ftp-camera --new-hotspot-password` (three random words from the list the binary embeds)
+  when none is saved and saves it through the new `tasks/save-secret.yml`, the save path
+  `tasks/ask-and-save-secret.yml` now shares; a saved one is kept, and an unattended run no
+  longer stops. `ftp-camera` shows the hotspot's network name and password in the camera
+  settings, read from the NetworkManager profile (as the user, then root). SPEC-ftp-camera
+  E67, E68; the code and tests are on the branch. Left: the host checks H6, H7.
+
 ### Phase 4: Review
 
 - [x] ✅ **Task 4.1**: Fable adversarial review of the rule, gate, rules and rewrites; findings

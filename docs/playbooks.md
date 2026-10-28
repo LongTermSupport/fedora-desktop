@@ -1193,6 +1193,9 @@ Configure fast file manager and optimize file picker performance:
 Install camera FTP server (Sony A7V):
 
 - Deploys an FTP server for tethered shooting from Sony cameras
+- Creates a Wi-Fi hotspot profile (`ftp-camera --hotspot`) for the camera to join. Its
+  password is three random words, made on the first run and saved vault-encrypted;
+  `ftp-camera` shows the network name and password whenever the hotspot is up
 
 #### play-gnome-shell-dev.yml
 

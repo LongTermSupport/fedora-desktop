@@ -38,6 +38,8 @@ type kit struct {
 	stdinTTY bool
 	colour   bool
 	proc     fstest.MapFS
+	// random is the source of the hotspot password's words.
+	random io.Reader
 
 	mu    sync.Mutex
 	now   time.Time
@@ -185,6 +187,7 @@ func (k *kit) app() *App {
 		OpenTTY:    func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader("")), nil },
 		ConfigPath: k.config,
 		Echo:       k.echo,
+		Random:     k.random,
 	}}
 }
 

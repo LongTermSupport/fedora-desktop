@@ -13,8 +13,8 @@ import (
 
 // hotspotInfo is an active NetworkManager shared connection (E45).
 type hotspotInfo struct {
-	active        bool
-	dev, ip, ssid string
+	active              bool
+	conn, dev, ip, ssid string
 }
 
 func (c *cli) nmcli(ctx context.Context, args ...string) (execx.Result, error) {
@@ -34,7 +34,7 @@ func lines(out []byte) []string {
 
 // connections is the NetworkManager profile names, all or only the active ones.
 func (c *cli) connections(ctx context.Context, active bool) ([]string, error) {
-	args := []string{"-t", "-f", "NAME", "connection", nmShow}
+	args := []string{"-t", "-f", "NAME", nmConn, nmShow}
 	if active {
 		args = append(args, "--active")
 	}
@@ -56,7 +56,7 @@ func (c *cli) detectHotspot(ctx context.Context) hotspotInfo {
 	}
 	conn := ""
 	for _, name := range active {
-		method, err := execx.Combined(ctx, c.env.Runner, execx.Cmd{Name: nmcliBin, Args: []string{"-g", "ipv4.method", "connection", nmShow, name}})
+		method, err := execx.Combined(ctx, c.env.Runner, execx.Cmd{Name: nmcliBin, Args: []string{"-g", "ipv4.method", nmConn, nmShow, name}})
 		if err != nil {
 			c.err.f("WARNING: could not read ipv4.method for '%s': %s\n", name, strings.TrimRight(method, "\n"))
 			continue
@@ -69,7 +69,7 @@ func (c *cli) detectHotspot(ctx context.Context) hotspotInfo {
 	if conn == "" {
 		return hotspotInfo{}
 	}
-	h := hotspotInfo{dev: c.nmValue(ctx, "GENERAL.DEVICES", conn)}
+	h := hotspotInfo{conn: conn, dev: c.nmValue(ctx, "GENERAL.DEVICES", conn)}
 	if h.dev == "" {
 		return hotspotInfo{}
 	}
@@ -84,7 +84,7 @@ func (c *cli) detectHotspot(ctx context.Context) hotspotInfo {
 // nmValue is one field of a connection, "" when it cannot be read (a wired shared connection
 // has no SSID).
 func (c *cli) nmValue(ctx context.Context, field, conn string) string {
-	res, err := c.nmcli(ctx, "-g", field, "connection", nmShow, conn)
+	res, err := c.nmcli(ctx, "-g", field, nmConn, nmShow, conn)
 	if err != nil {
 		return ""
 	}

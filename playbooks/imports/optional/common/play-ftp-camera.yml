@@ -29,11 +29,15 @@
     # it functional rather than personally identifying.
     ftp_camera_hotspot_ssid: "ftp-camera"
 
+    # The command the play builds, and runs to make the hotspot password.
+    ftp_camera_command: "/home/{{ user_login }}/.local/bin/ftp-camera"
+
     # NOTE: ftp_camera_hotspot_password is intentionally NOT defined here, for
     # the same precedence reason as ftp_camera_rclone_remote below — a play var
     # would silently outrank the user's host_vars/vault value. It is the WPA2
-    # pre-shared key for the hotspot AP, asked for when missing at the start of
-    # the play and saved vault-encrypted; 8-63 characters (WPA2 requirement).
+    # pre-shared key for the hotspot AP, 8-63 characters (WPA2 requirement).
+    # When none is saved, the play makes one (three random words) and saves it
+    # vault-encrypted; a saved one is never replaced.
 
     # NOTE: ftp_camera_rclone_remote is intentionally NOT defined here.
     # Play `vars:` have HIGHER precedence than inventory host_vars, so setting
@@ -85,35 +89,11 @@
         - name: End play (no camera FTP password)
           ansible.builtin.meta: end_play
 
-    - name: Ask for the camera hotspot Wi-Fi password when it is missing
-      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ask-and-save-secret.yml"
-      vars:
-        secret_name: ftp_camera_hotspot_password
-        secret_label: camera hotspot Wi-Fi password
-        secret_optional: true
-        secret_min_length: 8
-        secret_max_length: 63
-        secret_explain: |2
-
-          ============================================
-          CAMERA HOTSPOT: CHOOSE A WI-FI PASSWORD
-          ============================================
-
-          This computer can make its own Wi-Fi network, called
-          "{{ ftp_camera_hotspot_ssid }}", for the camera to join when there is
-          no trusted Wi-Fi nearby. Choose the password of that network now
-          (8 to 63 characters), then type the same one into the camera when it
-          joins "{{ ftp_camera_hotspot_ssid }}".
-
-          Press ENTER with nothing typed to set up no hotspot this time; the rest
-          of the camera FTP server is installed either way.
-      when: ftp_camera_hotspot_password is not defined
-
     # WPA2-PSK is defined for 8-63 character passphrases. A shorter value is accepted by
     # nmcli at write time but the AP silently fails to start, which is far harder to
-    # diagnose than failing here, before anything is changed. The ask above checks the
-    # bounds; this catches a saved value that does not meet them.
-    - name: Assert the hotspot Wi-Fi password meets the WPA2 length
+    # diagnose than failing here, before anything is changed. A password the play makes
+    # is always in bounds; this catches a saved value that is not.
+    - name: Assert the saved hotspot Wi-Fi password meets the WPA2 length
       ansible.builtin.assert:
         that:
           - (ftp_camera_hotspot_password | length) >= 8
@@ -123,8 +103,8 @@
           environment/localhost/host_vars/localhost.yml) is
           {{ ftp_camera_hotspot_password | length }} characters long, and Wi-Fi (WPA2) needs
           8 to 63. Nothing was installed or changed. Remove the ftp_camera_hotspot_password
-          block from that file and run this play again: it asks for a new one.
-      when: (ftp_camera_hotspot_password | default('') | length) > 0
+          block from that file and run this play again: it makes and saves a new one.
+      when: ftp_camera_hotspot_password is defined
 
     # Migration: align upload dir name with the rest of the toolchain
     # (ftp-camera command, /etc/ftp-camera/, play-ftp-camera.yml).
@@ -302,8 +282,46 @@
       ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
       vars:
         go_command_name: ftp-camera
-        go_command_dest: "/home/{{ user_login }}/.local/bin/ftp-camera"
+        go_command_dest: "{{ ftp_camera_command }}"
         go_command_mode: "0755"
+
+    # No hotspot Wi-Fi password saved: ftp-camera makes one (three random words from the
+    # list it ships, from the kernel's secure random source) and it is saved vault-encrypted
+    # through the same task file an asked-for secret is saved by. Never asked for, so an
+    # unattended run goes on; once saved it is never made again. ftp-camera shows it with
+    # the network name whenever the hotspot is up.
+    - name: Make and save a camera hotspot Wi-Fi password when none is saved
+      when: ftp_camera_hotspot_password is not defined
+      block:
+        - name: Make a camera hotspot Wi-Fi password
+          ansible.builtin.command:
+            argv:
+              - "{{ ftp_camera_command }}"
+              - --new-hotspot-password
+          become: false
+          register: ftp_camera_new_hotspot_password
+          changed_when: false
+          check_mode: false
+          failed_when: false  # FAIL-FAST-OK: probe under no_log; the fail below gives the reason
+          no_log: true
+
+        # Only rc and stderr: stdout is the password.
+        - name: Stop if the camera hotspot Wi-Fi password could not be made
+          ansible.builtin.fail:
+            msg: >-
+              {{ ftp_camera_command }} --new-hotspot-password could not make the camera
+              hotspot Wi-Fi password (exit {{ ftp_camera_new_hotspot_password.rc | default('none') }}):
+              {{ ftp_camera_new_hotspot_password.stderr | default('') }}
+              {{ ftp_camera_new_hotspot_password.msg | default('') }}. Nothing was saved and
+              no hotspot profile was made; fix the reason above and run this play again.
+          when: ftp_camera_new_hotspot_password.rc | default(1) != 0
+
+        - name: Save the camera hotspot Wi-Fi password
+          ansible.builtin.include_tasks: "{{ root_dir }}/tasks/save-secret.yml"
+          vars:
+            secret_name: ftp_camera_hotspot_password
+            secret_label: camera hotspot Wi-Fi password
+            secret_value: "{{ ftp_camera_new_hotspot_password.stdout }}"
 
     - name: Create /etc/ftp-camera config directory
       ansible.builtin.file:
@@ -366,9 +384,8 @@
           changed_when: false
           check_mode: false
 
-        # Creating the AP profile needs a concrete wifi interface to bind to,
-        # and a PSK. Each precondition is handled separately so the failure
-        # message names the one thing that is actually missing.
+        # Creating the AP profile needs a concrete wifi interface to bind to. The
+        # PSK is always set by now: saved, or made and saved above.
         - name: Determine hotspot creation preconditions
           ansible.builtin.set_fact:
             ftp_camera_hotspot_exists: >-
@@ -376,8 +393,6 @@
             ftp_camera_wifi_devs: >-
               {{ ftp_camera_nm_devices.stdout_lines
                  | select('match', '^[^:]+:wifi$') | list }}
-            ftp_camera_hotspot_psk_set: >-
-              {{ (ftp_camera_hotspot_password | default('') | length) > 0 }}
 
         - name: Create the hotspot AP profile
           # pmf=1 disables Protected Management Frames. Sony camera FTP clients
@@ -420,7 +435,6 @@
               - ignore
           when:
             - not ftp_camera_hotspot_exists
-            - ftp_camera_hotspot_psk_set
             - ftp_camera_wifi_devs | length > 0
           register: ftp_camera_hotspot_created
           changed_when: true
@@ -456,26 +470,10 @@
               - "6"
               - "802-11-wireless.channel-width"
               - "40"
-          when: ftp_camera_hotspot_exists or
-                (ftp_camera_hotspot_psk_set and ftp_camera_wifi_devs | length > 0)
+          when: ftp_camera_hotspot_exists or ftp_camera_wifi_devs | length > 0
           # nmcli modify writes to disk unconditionally; no idempotency check
           # short of reading every field back, which isn't worth it.
           changed_when: true
-
-        - name: Explain that hotspot mode is not set up this run
-          # Not an error: the hotspot is an optional modifier of an optional
-          # play. Everything else here still installs and works. This mirrors
-          # how the play treats an empty camera FTP password at the top.
-          ansible.builtin.debug:
-            msg: |
-              Hotspot mode is NOT set up this run: no hotspot Wi-Fi password was
-              given, so no hotspot profile was created and `ftp-camera --hotspot`
-              will refuse to start. The next run of this play asks for it again.
-
-              Everything else in this play is installed and working regardless.
-          when:
-            - not ftp_camera_hotspot_psk_set
-            - not ftp_camera_hotspot_exists
 
         - name: Warn when no WiFi device is present to host an AP
           ansible.builtin.debug:
@@ -504,8 +502,7 @@
               time, so the laptop loses its own internet while the hotspot is
               up. --async-copy still works: files land in the local rclone VFS
               cache and drain to the remote once you reconnect.
-          when: ftp_camera_hotspot_exists or
-                (ftp_camera_hotspot_psk_set and ftp_camera_wifi_devs | length > 0)
+          when: ftp_camera_hotspot_exists or ftp_camera_wifi_devs | length > 0
 
     - name: Display installation summary
       ansible.builtin.debug:
@@ -581,8 +578,10 @@
             This playbook OWNS the '{{ ftp_camera_hotspot_connection }}' profile —
             it creates it (SSID {{ ftp_camera_hotspot_ssid }}, WPA2) and tunes it
             for 40MHz on channel 6 (~2x throughput vs the GNOME 20MHz default).
-            Do not create it by hand. Its Wi-Fi password (8-63 characters) is
-            asked for when this play runs without one, and saved vault-encrypted.
+            Do not create it by hand. Its Wi-Fi password is three random words,
+            made the first time this play runs and saved vault-encrypted (a saved
+            one is kept). ftp-camera shows it, with the network name, whenever
+            the hotspot is up, ready to type into the camera.
 
             NOTE: Intel CNVi radios cannot be WiFi client and AP simultaneously,
             so the laptop loses its own internet while the hotspot is up.

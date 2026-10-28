@@ -21,25 +21,28 @@ type options struct {
 	async, asyncCopy                         bool
 	viewer                                   string
 	hotspot, debugFTP                        bool
+	// newPassword is --new-hotspot-password, the mode play-ftp-camera.yml runs (E67).
+	newPassword bool
 }
 
 // server is whether the mode runs the FTP server: default, --async, --async-copy.
 func (o options) server() bool {
-	return !o.sort && !o.pass && !o.push && !o.copy && !o.preflight && !o.prune
+	return !o.sort && !o.pass && !o.push && !o.copy && !o.preflight && !o.prune && !o.newPassword
 }
 
 var flagSetters = map[string]func(*options){
-	"--sort":           func(o *options) { o.sort = true },
-	"--pass":           func(o *options) { o.pass = true },
-	"--push":           func(o *options) { o.push = true },
-	"--copy":           func(o *options) { o.copy = true },
-	"--copy-preflight": func(o *options) { o.preflight = true },
-	"--prune":          func(o *options) { o.prune = true },
-	"--async":          func(o *options) { o.async = true },
-	"--async-copy":     func(o *options) { o.async, o.asyncCopy = true, true },
-	"--hotspot":        func(o *options) { o.hotspot = true },
-	"--debug-ftp":      func(o *options) { o.debugFTP = true },
-	"--no-tui":         func(*options) {},
+	"--sort":                 func(o *options) { o.sort = true },
+	"--pass":                 func(o *options) { o.pass = true },
+	"--push":                 func(o *options) { o.push = true },
+	"--copy":                 func(o *options) { o.copy = true },
+	"--copy-preflight":       func(o *options) { o.preflight = true },
+	"--prune":                func(o *options) { o.prune = true },
+	"--async":                func(o *options) { o.async = true },
+	"--async-copy":           func(o *options) { o.async, o.asyncCopy = true, true },
+	"--hotspot":              func(o *options) { o.hotspot = true },
+	"--debug-ftp":            func(o *options) { o.debugFTP = true },
+	"--no-tui":               func(*options) {},
+	"--new-hotspot-password": func(o *options) { o.newPassword = true },
 }
 
 var viewerFlags = map[string]string{"--view": viewRAW, "--view-jpg": viewJPG}
@@ -71,7 +74,7 @@ func parse(args []string) (options, bool, []string) {
 // check refuses two primary modes and a server modifier without a server mode (E4, E5).
 func (o options) check() []string {
 	modes := 0
-	for _, on := range []bool{o.sort, o.pass, o.push, o.copy, o.prune, o.preflight, o.async} {
+	for _, on := range []bool{o.sort, o.pass, o.push, o.copy, o.prune, o.preflight, o.async, o.newPassword} {
 		if on {
 			modes++
 		}
@@ -79,7 +82,7 @@ func (o options) check() []string {
 	if modes > 1 {
 		return []string{
 			"ERROR: only one primary mode at a time",
-			"  Pick one of: --sort --pass --push --copy --copy-preflight --prune --async --async-copy",
+			"  Pick one of: --sort --pass --push --copy --copy-preflight --prune --async --async-copy --new-hotspot-password",
 		}
 	}
 	if o.server() {
