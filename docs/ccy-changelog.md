@@ -27,6 +27,17 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.102.0 — container 2.79.15
+
+- **An image build removes the images it replaced (Plan 00235).** Every build and in-place
+  update under the build lock, the launcher's and the play's, records the `claude-yolo`
+  repository's tags before it (`container-images before`) and, after a build that succeeded,
+  removes each recorded image no tag now names and no container, running or stopped, uses
+  (`container-images replaced`, through `lib/image-build-prune.bash`), naming each removal and
+  kept image on stderr and logging removals to `~/.local/state/fedora-desktop/container-images.log`.
+  A removal the engine refuses (an old `:latest` a project image is built on) is reported and
+  the launch goes on; the daily prune removes it later.
+
 ## 3.101.3 — container 2.79.15
 
 - **No change to what ccy does.** The Go `engine` package the launcher's front is built from

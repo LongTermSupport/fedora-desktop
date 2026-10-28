@@ -105,19 +105,21 @@ the plans cite kept.
 
 ### Phase 3: ccy removes what its build replaced
 
-- [ ] ⬜ **Task 3.1**: Tests first, then a Go command (working name `container-images`, Decision
+- [x] ✅ **Task 3.1**: Tests first, then a Go command (working name `container-images`, Decision
   1. in `src-go/cmd/` over `internal/engine`: `before <repository>` prints the id of each of the
      repository's tags; `replaced <repository> <ids-file>` removes each recorded id that no tag now
      names and no container (`ps -a`) uses, naming each removal and each kept image (with why) on
      stderr. A removal podman refuses is reported, not fatal to the launch. Fakes mirror the real
      engine's output (`execx.ErrUnexpected` for anything unscripted)
-  - [ ] ⬜ cases: two containers of one project on the old image (agent teams) keep it; a stopped
+  - [x] ✅ cases: two containers of one project on the old image (agent teams) keep it; a stopped
     container keeps it; `:base` re-tagged under the `:latest` key is covered; a failed build
     removes nothing; an id another tag still names is kept
-- [ ] ⬜ **Task 3.2**: `ccy_image_build_locked` (`lib/image-build-lock.bash:28`) records before the
+- [x] ✅ **Task 3.2**: `ccy_image_build_locked` (`lib/image-build-lock.bash:28`) records before the
   build and calls `replaced` after a successful one, inside the lock; within the 60-line limit
   (measured by `qa-bash-limits`), else the lock's own lines shrink. This covers B1-B6. CCY
-  version bump; play-claude-yolo.yml builds and installs the command
+  version bump; play-claude-yolo.yml builds and installs the command. Built:
+  `lib/image-build-prune.bash` (sourced by the lock, which stays at 58 lines and 90
+  statements); CCY 3.102.0; `tasks/claude-yolo-image.yml` installs the command
 - [ ] ⬜ **Task 3.3**: B7: `play-claude-devtools.yml` runs the same `before`/`replaced` around its
   build
 - [x] ✅ **Task 3.4**: Stale project images: `claude-yolo:<project>` tags no container uses and

@@ -271,6 +271,11 @@ Every ccy rebuild and every daily in-place Claude Code update moves a fixed tag
 name is left dangling (`<none>:<none>`). `play-podman.yml` installs a user timer that removes
 them, so the store does not grow without end.
 
+Each ccy build and in-place update also removes, straight after it succeeds, the images it
+replaced that no tag names and no container uses (`container-images replaced`, run by the build
+lock); the timer catches what that leaves, such as an old `:latest` a project image was still
+built on.
+
 - **When**: `container-images-prune.timer` runs `container-images prune --yes` once a day
   (`Persistent=true`, so a day the machine was off is caught up at the next boot). Until one prune has succeeded, each deploy runs it straight away, clearing the backlog.
 - **What is removed**:
