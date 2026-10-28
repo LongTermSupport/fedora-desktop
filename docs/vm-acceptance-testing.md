@@ -505,9 +505,15 @@ hash, so the status line says which (`integrity=quick|deep`).
 
 `freshness-status` exits with the worst verdict it found, so a base that needs
 a rebuild shows up as the nightly unit failing in `systemctl --user list-units --failed`, not as an unattended rebuild on a workstation. The
-sweep keeps the newest ten passing runs and **every** run that did not pass
-(its overlay and console are the diagnosis), removes a leftover fast-base
-build directory but keeps a desktop one, and bounds `quarantine/` and
+sweep never removes a run directory: a run's transcript, console,
+`response.json` and signature are small, and they are the evidence plans cite.
+It removes only disk images. A passing run past the newest ten loses its
+overlay (`*.qcow2`) if it still holds one (a pass's teardown normally removes
+it), printed as `VMTEST-EVICTED run-overlay <run-id> <files>`; a run that did
+not pass is left for `prune-runs` (its overlay and console are the diagnosis).
+A leftover fast-base build directory loses its disk and keeps its console log
+(`VMTEST-EVICTED build-disk <name> <files>`); a desktop one is kept whole. A
+removal that fails stops the sweep, naming what it had removed. It bounds `quarantine/` and
 `responses/` on the shared mount to their newest two hundred entries, through
 the same pinned descriptors the watcher uses.
 
@@ -521,8 +527,7 @@ teardown), is reported live and left. The nightly timer does not prune; a run
 that fails says how big an overlay it kept and that `prune-runs` removes it.
 
 Before anything else, `vmtest run` refuses when the lab's filesystem has less
-than 22 GiB free (a 20 GiB guest disk and a 2 GiB margin), as does `vmtest
-member-up`, which boots the same overlay, and a base build
+than 22 GiB free (a 20 GiB guest disk and a 2 GiB margin), as does `vmtest member-up`, which boots the same overlay, and a base build
 (`build-base`, or `ensure-base` and `refresh-base` when they build) less than
 26 GiB (the same and 4 GiB of install media); the refusal names both figures
 and what `vmtest prune-runs` would free. Later, before every run and every base

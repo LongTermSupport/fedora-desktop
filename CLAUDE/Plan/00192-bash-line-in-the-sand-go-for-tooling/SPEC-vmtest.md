@@ -381,12 +381,19 @@ The tests cite these numbers.
   in name order. A base with a record and no disk fails the command. When every base is done,
   the file is renamed into place. The exit is the worst gate status (0 or 1). It never builds
   anything.
-- E51. `sweep` keeps the newest 10 runs that passed (`response.json` says `finished` and
-  `pass`) and every run that did not, and removes the rest; removes a leftover `bases/*.build`
-  directory of a fast base and keeps a desktop one (`desktop-*`, hours to rebuild, and the
-  diagnosis). Each eviction is appended to `retention.log` first (`<epoch> evicted run|build
-  <name> <why>`, or `<epoch> kept build <name> ...`) and printed as `VMTEST-EVICTED run|build
-  <name>`. Then it runs `retention sweep-spool --checkout <checkout> --log <home>/retention.log`,
+- E51. `sweep` never removes a run directory, nor a build directory: it removes only disk
+  images (`*.qcow2`). Of the runs that passed (`response.json` says `finished` and `pass`;
+  newest by the start their run id names, a directory not named as a run id being left), the
+  newest 10 are untouched and the rest lose their `*.qcow2`, keeping the transcript, console,
+  `response.json`, signature and check results, which plans cite as evidence; a run that did
+  not pass is left to `prune-runs` (E61). A leftover `bases/*.build` directory of a fast base
+  loses its `*.qcow2` and keeps its console log until the next build of that base clears it; a
+  desktop one (`desktop-*`, hours to rebuild, and the diagnosis) is kept whole. A directory
+  with no `*.qcow2` is left alone and nothing is printed for it, so a second sweep evicts
+  nothing. Each eviction is appended to `retention.log` first (`<epoch> evicted run-overlay|build-disk <name> <files>: <why>`, or `<epoch> kept build <name> ...`) and
+  printed as `VMTEST-EVICTED run-overlay|build-disk <name> <files>` (files comma-separated).
+  A removal that fails stops the sweep before the builds and the spool, naming the file and
+  every file the sweep had removed so far (B19). Then it runs `retention sweep-spool --checkout <checkout> --log <home>/retention.log`,
   the Python half that bounds the bridge spool through spool.py's pinned descriptors (they are
   shared with the bridge helpers), whose lines pass through, and names the log. A response
   that cannot be read, or a log that cannot be written, stops the sweep before the spool.
@@ -442,8 +449,7 @@ ever, since `sweep` keeps every such run, so the runs directory filled the disk.
 behaviour, not departures.
 
 - E61. `prune-runs [--older-than DAYS] [--yes]` (DAYS a whole number, default 7; anything else,
-  or an option twice, is a usage error) lists libvirt's domains first (`virsh list --all
-  --name`; a failed listing stops the command, removing nothing), then reads every directory
+  or an option twice, is a usage error) lists libvirt's domains first (`virsh list --all --name`; a failed listing stops the command, removing nothing), then reads every directory
   under `runs/` in name order (a response that cannot be read stops the command). The rule is
   the sweep's neighbour in the same Go: an
   overlay may go when the run passed (the same rule as the sweep, E51), a later run of
@@ -501,6 +507,7 @@ behaviour, not departures.
 | B16 | a desktop host-only run's session `run.env` carried no GitHub identity, so run.bash in the session provisioned as `none`                       | the same identity lines a server run passes                | E36, E37      |
 | B17 | a probe artefact URL was used as printed, any scheme                                                                                           | `https://` required, with a 64-hex sha256                  | E13           |
 | B18 | nothing set `VMTEST_FROM_BRIDGE`, so the CLI's bridge refusal never fired                                                                      | `bridge_run.py` sets it on both of its vmtest launches     | E30           |
+| B19 | the sweep removed whole passing-run directories past the newest ten (logs, response, signature) and a fast-base build's console log            | only `*.qcow2` removed; order by run id                    | E51           |
 
 Kept as they were, and accepted. The free port is chosen, released and then handed to
 virt-install, so there is a race between them, as in the bash. `ssh` host keys are not checked
@@ -555,5 +562,4 @@ plan's `meta-deploy.list` queues the play, which builds and installs the binary.
   verified.
 - H7. `vmtest prune-runs` (dry) on the host's lab lists every run holding an overlay with its
   size and reason, the bases, and the total it would free, and removes nothing; a run started
-  meanwhile is `live`. `vmtest prune-runs --yes` is the owner's call. With the disk short, `vmtest
-  run` refuses at once naming both figures (E64).
+  meanwhile is `live`. `vmtest prune-runs --yes` is the owner's call. With the disk short, `vmtest run` refuses at once naming both figures (E64).

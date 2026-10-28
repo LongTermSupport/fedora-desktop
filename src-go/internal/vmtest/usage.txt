@@ -21,7 +21,7 @@ Usage:
                                            published image (minutes); a full base is reinstalled from its media
   vmtest freshness-status [--deep]         probe upstream and REPORT every base's freshness; never rebuilds.
                                            --deep re-hashes every base disk against its record
-  vmtest sweep                             apply the retention policy (runs, failed builds, spool); logs every eviction
+  vmtest sweep                             apply the retention policy (old passing runs' overlays, failed fast builds' disks, spool); logs every eviction
   vmtest prune-runs [--older-than DAYS] [--yes]
                                            list each run's overlay that may go (the run passed, a later run of
                                            its scenario passed, or it is older than DAYS, default 7) and what

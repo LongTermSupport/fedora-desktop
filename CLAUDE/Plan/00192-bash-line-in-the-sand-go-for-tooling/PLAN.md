@@ -386,6 +386,8 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   H7 PASS at `886288d70` (`$kRFFD7XyKl4N7zP_QpP9m39uVvM3NxHI55Kcb0HwOm0`): the dry run listed
   15 of 37 runs (a later pass of the scenario, or failed and older than 7 days), the three
   bases untouched, "would free 107.5 GiB", and removed nothing. Open: `--yes`, the owner's call.
+  The nightly sweep removed 12 passing runs' whole directories, plan-cited evidence included
+  (`$7zLrx0PlxkebT2F8RqwaGSEf4cRO3g9cH6A7vOGvjrA`); it now removes only `*.qcow2` (E51, B19).
 
 ### Phase 4: Review
 

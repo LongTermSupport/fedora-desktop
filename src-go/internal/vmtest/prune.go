@@ -190,13 +190,9 @@ func (c *cli) prunePlan(ctx context.Context, l *lab, days int) ([]pruneEntry, er
 	if err != nil {
 		return nil, err
 	}
-	runs, err := l.runDirs()
+	facts, err := l.runDirs()
 	if err != nil {
 		return nil, err
-	}
-	facts := make([]runFacts, 0, len(runs))
-	for _, r := range runs {
-		facts = append(facts, r.runFacts)
 	}
 	var plan []pruneEntry
 	for _, d := range planPrune(facts, c.env.Now(), days) {

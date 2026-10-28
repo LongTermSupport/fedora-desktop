@@ -123,15 +123,9 @@ func runPassed(dir string) (bool, error) {
 	return ok && fields["state"] == "finished" && fields["verdict"] == "pass", nil
 }
 
-// runDir is one directory under runs/, with its time and whether it passed.
-type runDir struct {
-	runFacts
-
-	mtime time.Time
-}
-
-// runDirs is every directory under runs/ (not a symlink, not a file); none is an empty lab.
-func (l *lab) runDirs() ([]runDir, error) {
+// runDirs is the facts of every directory under runs/ (not a symlink, not a file); none is an
+// empty lab.
+func (l *lab) runDirs() ([]runFacts, error) {
 	entries, err := os.ReadDir(l.at(runsDir))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -139,20 +133,16 @@ func (l *lab) runDirs() ([]runDir, error) {
 	if err != nil {
 		return nil, failf("cannot list %s: %v", l.at(runsDir), err)
 	}
-	var out []runDir
+	var out []runFacts
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
-		}
-		info, err := e.Info()
-		if err != nil {
-			return nil, failf("cannot read %s: %v", l.at(runsDir, e.Name()), err)
 		}
 		passed, err := runPassed(l.at(runsDir, e.Name()))
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, runDir{runFacts: factsOf(e.Name(), passed), mtime: info.ModTime()})
+		out = append(out, factsOf(e.Name(), passed))
 	}
 	return out, nil
 }
@@ -218,10 +208,11 @@ func (c *cli) sweep(ctx context.Context, l *lab) error {
 	if err != nil {
 		return err
 	}
-	if err := c.sweepRuns(l); err != nil {
+	var removed []string
+	if err := c.sweepRuns(l, &removed); err != nil {
 		return err
 	}
-	if err := c.sweepBuilds(l); err != nil {
+	if err := c.sweepBuilds(l, &removed); err != nil {
 		return err
 	}
 	if _, err := c.helper(ctx, helperCall{module: retentionModule, stdout: c.env.Stdout, args: []string{
@@ -233,30 +224,36 @@ func (c *cli) sweep(ctx context.Context, l *lab) error {
 	return nil
 }
 
-// sweepRuns removes the passing runs beyond the newest defaultKeepRuns.
-func (c *cli) sweepRuns(l *lab) error {
+// sweepRuns removes the overlays of the passing runs beyond the newest defaultKeepRuns, newest
+// by the start their id names (a directory's own time moves when a file in it is removed). A run
+// directory is never removed: its logs, response and signature are small and are the evidence
+// plans cite; the overlay is what costs disk. A directory not named as a run is not a run's,
+// and is left, as prune-runs leaves it.
+func (c *cli) sweepRuns(l *lab, removed *[]string) error {
 	runs, err := l.runDirs()
 	if err != nil {
 		return err
 	}
-	var passed []runDir
+	var passed []runFacts
 	for _, r := range runs {
-		if r.passed {
+		if r.passed && r.isRun {
 			passed = append(passed, r)
 		}
 	}
-	sort.SliceStable(passed, func(i, j int) bool { return passed[i].mtime.After(passed[j].mtime) })
+	sort.SliceStable(passed, func(i, j int) bool { return passed[i].started.After(passed[j].started) })
 	for _, r := range passed[min(defaultKeepRuns, len(passed)):] {
-		if err := c.evict(l, "run", r.name, "passing run beyond the retention cap", l.at(runsDir, r.name)); err != nil {
+		if err := c.evictDisks(l, "run-overlay", r.name, "passing run beyond the retention cap; the run's logs, response and signature are kept",
+			l.at(runsDir, r.name), removed); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// sweepBuilds removes a failed fast-base build directory (minutes to redo) and keeps a desktop
-// one (hours, and the diagnosis).
-func (c *cli) sweepBuilds(l *lab) error {
+// sweepBuilds removes a failed fast-base build's disk (minutes to redo), keeping its console log
+// until the next build of that base clears the directory, and keeps a desktop one whole (hours,
+// and the diagnosis).
+func (c *cli) sweepBuilds(l *lab, removed *[]string) error {
 	entries, err := os.ReadDir(l.at(basesDir))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -275,22 +272,36 @@ func (c *cli) sweepBuilds(l *lab) error {
 			}
 			continue
 		}
-		if err := c.evict(l, "build", name, "failed fast-base build directory", l.at(basesDir, name)); err != nil {
+		if err := c.evictDisks(l, "build-disk", name, "failed fast-base build; its console log is kept", l.at(basesDir, name), removed); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// evict logs an eviction, then removes the directory and says so.
-func (c *cli) evict(l *lab, kind, name, why, dir string) error {
-	if err := c.record(l, "evicted "+kind+" "+name+" "+why); err != nil {
+// evictDisks logs an eviction, then removes the disk images (*.qcow2) in dir and says so; the
+// directory and everything else in it stay. A directory with none is left alone, unlogged. A
+// removal that fails stops the sweep, naming what this sweep removed so far.
+func (c *cli) evictDisks(l *lab, kind, name, why, dir string, removed *[]string) error {
+	files, _, err := overlays(dir)
+	if err != nil || len(files) == 0 {
 		return err
 	}
-	if err := os.RemoveAll(dir); err != nil {
-		return failf("cannot remove %s: %v", dir, err)
+	if err := c.record(l, "evicted "+kind+" "+name+" "+strings.Join(files, ",")+": "+why); err != nil {
+		return err
 	}
-	c.sayf("VMTEST-EVICTED %s %s", kind, name)
+	for _, f := range files {
+		path := filepath.Join(dir, f)
+		if err := os.Remove(path); err != nil {
+			so := "nothing"
+			if len(*removed) > 0 {
+				so = strings.Join(*removed, ", ")
+			}
+			return failf("cannot remove %s: %v; removed so far: %s", path, err, so)
+		}
+		*removed = append(*removed, path)
+	}
+	c.sayf("VMTEST-EVICTED %s %s %s", kind, name, strings.Join(files, ","))
 	return nil
 }
 

@@ -210,7 +210,8 @@ func TestHostMiB(t *testing.T) {
 	}
 }
 
-// sweepKit is a lab with one run per verdict ("" is no response), oldest first, an hour apart.
+// sweepKit is a lab with one run per verdict ("" is no response), oldest first, an hour apart,
+// each still holding its overlay.
 func sweepKit(t *testing.T, verdicts ...string) (*kit, []string) {
 	t.Helper()
 	k := newKit(t)
@@ -220,20 +221,41 @@ func sweepKit(t *testing.T, verdicts ...string) (*kit, []string) {
 		ago := time.Duration(len(verdicts)-i) * time.Hour
 		id := stampAgo(k, ago, "s")
 		k.write("runs/"+id+"/transcript.log", "x")
+		k.write("runs/"+id+"/overlay.qcow2", "disk")
 		if v != "" {
 			k.write("runs/"+id+"/response.json", `{"state": "finished", "verdict": "`+v+`"}`)
 		}
-		if err := os.Chtimes(k.path("runs/"+id), k.now.Add(-ago), k.now.Add(-ago)); err != nil {
-			t.Fatal(err)
-		}
+		k.age("runs/"+id, ago)
 		ids = append(ids, id)
 	}
 	return k, ids
 }
 
-// E51: the sweep keeps the newest passing runs and every run that did not pass, drops a failed
-// fast-base build directory but keeps a desktop one, logs each eviction first, then bounds the
-// spool through the helper.
+// age sets a run directory's time to ago before the kit's now, as the sweep orders runs by it.
+func (k *kit) age(rel string, ago time.Duration) {
+	k.t.Helper()
+	if err := os.Chtimes(k.path(rel), k.now.Add(-ago), k.now.Add(-ago)); err != nil {
+		k.t.Fatal(err)
+	}
+}
+
+// wantOverlaysGone checks that every run kept its transcript and response, and that only the
+// runs at the indexes given lost their overlay.
+func (k *kit) wantOverlaysGone(ids, verdicts []string, gone ...int) {
+	k.t.Helper()
+	for i, id := range ids {
+		if !k.exists("runs/"+id+"/transcript.log") || (verdicts[i] != "" && !k.exists("runs/"+id+"/response.json")) {
+			k.t.Fatalf("run %d (%s, %q) lost its evidence", i, id, verdicts[i])
+		}
+		if evicted := slices.Contains(gone, i); k.exists("runs/"+id+"/overlay.qcow2") == evicted {
+			k.t.Fatalf("run %d (%s, %q): overlay exists=%v", i, id, verdicts[i], !evicted)
+		}
+	}
+}
+
+// E51: the sweep keeps every run directory; it removes only the overlays of the passing runs
+// beyond the newest ten and the disk of a failed fast-base build, keeping their logs, keeps a
+// desktop build whole, logs each eviction first, then bounds the spool through the helper.
 func TestE51Sweep(t *testing.T) {
 	verdicts := make([]string, 0, 5+defaultKeepRuns)
 	verdicts = append(verdicts, "pass", "fail", "", "pass", "error")
@@ -241,28 +263,33 @@ func TestE51Sweep(t *testing.T) {
 		verdicts = append(verdicts, "pass")
 	}
 	k, ids := sweepKit(t, verdicts...)
+	// A directory not named as a run is not a run's, however old and whatever it says: left.
+	k.write("runs/by-hand/overlay.qcow2", "disk")
+	k.write("runs/by-hand/response.json", `{"state": "finished", "verdict": "pass"}`)
+	k.age("runs/by-hand", 100*time.Hour)
 	k.write("bases/server-fast-44.build/disk.qcow2", "x")
+	k.write("bases/server-fast-44.build/console.log", "the installer's log")
 	k.write("bases/desktop-44.build/disk.qcow2", "x")
 	k.builtBase("server-fast-44")
 	k.wantCode(k.run("sweep"), term.ExitOK)
-	for i, id := range ids {
-		evicted := i == 0 || i == 3
-		if k.exists("runs/"+id) == evicted {
-			t.Fatalf("run %d (%s, %q): exists=%v", i, id, verdicts[i], !evicted)
-		}
+	k.wantOverlaysGone(ids, verdicts, 0, 3)
+	if !k.exists("runs/by-hand/overlay.qcow2") {
+		t.Fatal("the sweep evicted from a directory not named as a run")
 	}
-	if k.exists("bases/server-fast-44.build") || !k.exists("bases/desktop-44.build") || !k.exists("bases/server-fast-44/base.qcow2") {
+	if k.exists("bases/server-fast-44.build/disk.qcow2") || !k.exists("bases/server-fast-44.build/console.log") ||
+		!k.exists("bases/desktop-44.build/disk.qcow2") || !k.exists("bases/server-fast-44/base.qcow2") {
 		t.Fatal("the build directories were swept wrongly")
 	}
-	want := "VMTEST-EVICTED run " + ids[3] + "\nVMTEST-EVICTED run " + ids[0] + "\nVMTEST-EVICTED build server-fast-44.build\n" + string(spoolDone.Stdout)
+	want := "VMTEST-EVICTED run-overlay " + ids[3] + " overlay.qcow2\nVMTEST-EVICTED run-overlay " + ids[0] +
+		" overlay.qcow2\nVMTEST-EVICTED build-disk server-fast-44.build disk.qcow2\n" + string(spoolDone.Stdout)
 	if k.out.String() != want {
 		t.Fatalf("stdout %q, want %q", k.out.String(), want)
 	}
 	log := k.read(retentionLog)
 	for _, line := range []string{
-		"1792065600 evicted run " + ids[0] + " passing run beyond the retention cap\n",
+		"1792065600 evicted run-overlay " + ids[0] + " overlay.qcow2: passing run beyond the retention cap; the run's logs, response and signature are kept\n",
 		"1792065600 kept build desktop-44.build failed desktop build kept for diagnosis\n",
-		"1792065600 evicted build server-fast-44.build failed fast-base build directory\n",
+		"1792065600 evicted build-disk server-fast-44.build disk.qcow2: failed fast-base build; its console log is kept\n",
 	} {
 		if !strings.Contains(log, line) {
 			t.Fatalf("log lacks %q:\n%s", line, log)
@@ -271,6 +298,32 @@ func TestE51Sweep(t *testing.T) {
 	checkout := strings.TrimSuffix(k.home, "/lab")
 	if c := k.mustCall("retention sweep-spool"); !strings.HasSuffix(c.Line(), "sweep-spool --checkout "+checkout+" --log "+k.path(retentionLog)) {
 		t.Fatalf("got %s", c.Line())
+	}
+
+	k.out.Reset()
+	k.wantCode(k.run("sweep"), term.ExitOK)
+	if k.out.String() != string(spoolDone.Stdout) {
+		t.Fatalf("a second sweep evicted again: %q", k.out.String())
+	}
+}
+
+// E51: a removal that fails stops the sweep, before the builds and the spool, naming what it
+// removed so far.
+func TestE51SweepRemovalFails(t *testing.T) {
+	verdicts := make([]string, 0, 2+defaultKeepRuns)
+	for range 2 + defaultKeepRuns {
+		verdicts = append(verdicts, "pass")
+	}
+	k, ids := sweepKit(t, verdicts...)
+	k.write("runs/"+ids[0]+"/disk2.qcow2/x", "a directory that cannot be removed as a file")
+	k.age("runs/"+ids[0], time.Duration(len(verdicts))*time.Hour)
+	k.write("bases/server-fast-44.build/disk.qcow2", "x")
+	k.wantCode(k.run("sweep"), term.ExitFailure)
+	k.wantErr("ERROR: cannot remove " + k.path("runs/"+ids[0]+"/disk2.qcow2"))
+	k.wantErr("; removed so far: " + k.path("runs/"+ids[1]+"/overlay.qcow2"))
+	if k.exists("runs/"+ids[1]+"/overlay.qcow2") || !k.exists("runs/"+ids[0]+"/overlay.qcow2") ||
+		!k.exists("bases/server-fast-44.build/disk.qcow2") || k.count("sweep-spool") != 0 {
+		t.Fatal("the sweep went on past a failed removal")
 	}
 }
 
