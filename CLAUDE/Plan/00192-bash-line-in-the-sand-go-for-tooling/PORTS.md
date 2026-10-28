@@ -429,3 +429,20 @@ host recheck passed (H1's Podman section with no summed size, and the dangling c
 prune question differing by the stated number kept; option 6 answering No to every question
 ran nothing). 2.0.5 says `Skipped <command>.` after a No to either "Also remove all unused"
 question too, as after the first question of each pair (E22); its recheck is queued.
+`nvidia-status` (P6) built on `go-port/nvidia-status`, review pending; spec
+[SPEC-nvidia-status.md](SPEC-nvidia-status.md) (D1-D4, E1-E25, B1-B13, H1-H5),
+`src-go/cmd/nvidia-status` and `src-go/internal/nvidiastatus` (facts gathered once, rendered,
+and the exit status the verdict over them; every program through `execx` under a fixed 30s
+bound; `/proc/modules` read directly). Run from the checkout as before:
+`scripts/nvidia-status.bash` is now the wrapper that builds and execs it (as
+`gh-account-setup`'s), so no play and no `meta-deploy.list` entry; its allowlist row is gone
+and `go-binary-suites.tsv` gives it `qa-go` (it had no suite). It asks nothing, so the
+interactive rules do not apply. Oracle: the expectation tests alone (a fake world of the
+hybrid laptop's answers, one test per section), 97% coverage. Bash defects found: the VA-API
+package was asked under its pre-Fedora-43 name, so it always read as missing (B1, the cause of
+Plan 029's "side issue"); `journalctl -g` exits 1 when nothing matches, so a healthy machine
+always got `Could not read the kernel journal` (B2); `--check` still printed lines (B3);
+`lsmod | grep ^nvidia` counted `nvidia_drm` as the driver (B5); an unrecognised `--test-key`
+answer led to "enrol the MOK key" (B6); an unknown Secure Boot state was summarised as
+disabled (B7); a missing `akmod-nvidia` read as "still building" (B8). H1-H4 are the host
+agent's (read-only), H5 the owner's.

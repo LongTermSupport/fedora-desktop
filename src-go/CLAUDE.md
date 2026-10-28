@@ -2,9 +2,9 @@
 
 One module, `github.com/LongTermSupport/fedora-desktop/src-go`, for this repository's large
 interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfreeze`,
-`lxcfreeze`, `vmtest`, `ftp-camera`, `watermark`, `wsi`, `open`, `rclone-cache-status`, `rclone-tail`, `gh-account-setup`, `setup-rclone`, `reclaim` and `consumer-install` live here; their
-bash originals are gone (`scripts/gh-account-setup.bash` and `scripts/setup-rclone.bash` stay, as
-the wrappers that build and run the Go commands).
+`lxcfreeze`, `vmtest`, `ftp-camera`, `watermark`, `wsi`, `open`, `rclone-cache-status`, `rclone-tail`, `gh-account-setup`, `setup-rclone`, `reclaim`, `nvidia-status` and `consumer-install` live here; their
+bash originals are gone (`scripts/gh-account-setup.bash`, `scripts/setup-rclone.bash` and
+`scripts/nvidia-status.bash` stay, as the wrappers that build and run the Go commands).
 `convert` is new, with no bash original.
 
 ## Layout
@@ -59,6 +59,10 @@ the wrappers that build and run the Go commands).
   user (it is one of their owners); the biggest-files walk and the `~/.cache` and trash
   removals in Go. `testdata/scenarios.json` is the scenario table the Go (`TestScenarios`) and
   the bash it replaced (the plan's `reclaim-parity/parity.py`) were both judged by.
+- `internal/nvidiastatus/` — the `nvidia-status` command (spec `SPEC-nvidia-status.md`,
+  E1-E25): the NVIDIA driver's report, from mokutil, rpm, modinfo, `/proc/modules`,
+  nvidia-smi, glxinfo, vulkaninfo, vainfo and journalctl, each asked once under a fixed bound;
+  facts first, then the words, and the exit status is the verdict. It only reads.
 - `internal/<package>/` — shared adapters, each behind an interface with a fake: `execx`
   (the command runner every external call goes through, and its recording `Fake`), `term`
   (exit codes, error printing), `ui` (gum and fzf prompts), `sudo`, `systemd`, `tmuxccy`,
@@ -276,7 +280,9 @@ at its old path. A new deployed command takes a row in
 `scripts/go-binary-suites.tsv`. `gh-account-setup`, `setup-rclone` and `consumer-install` are not deployed: they run from the
 checkout (before any play, and to edit its `host_vars`), so `scripts/gh-account-setup.bash`,
 `scripts/setup-rclone.bash` and `scripts/consumer-install.bash` build them there (`run_go_command` in
-`scripts/lib/go-tool.bash`, the same flags) and execs it, so a signal sent to a wrapper reaches its command. Never
+`scripts/lib/go-tool.bash`, the same flags) and execs it, so a signal sent to a wrapper reaches its command.
+`nvidia-status` is not deployed either: `play-nvidia.yml` tells the person to run
+`scripts/nvidia-status.bash` from the checkout, which builds it the same way. Never
 install a binary by hand: the play is the only route
 ([InfrastructureAsCode.md](../CLAUDE/InfrastructureAsCode.md)).
 

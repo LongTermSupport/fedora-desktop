@@ -1625,6 +1625,8 @@ NVIDIA GPU drivers:
 
 - Installs proprietary NVIDIA drivers
 - Configures kernel modules
+- Check the result with `./scripts/nvidia-status.bash` (a read-only report; `--check` gives only
+  the exit status)
 
 ### Experimental
 
