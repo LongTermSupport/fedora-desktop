@@ -23,7 +23,7 @@ suppression = false
 # history_base is the default branch, which this repository names after the Fedora release.
 [record]
 deciders = ["repository-owner"]
-max_total = 27
+max_total = 28
 history_base = "origin/F44"
 
 [record.trust.models]
@@ -31,7 +31,7 @@ claude-opus = "medium"
 
 [record.trust.medium]
 max_review_days = 30
-max_count = 27
+max_count = 28
 
 [analyzers]
 module = "qa"

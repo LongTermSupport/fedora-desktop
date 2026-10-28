@@ -191,6 +191,31 @@ today; rewriting them is out of scope.
     only the owner can raise. Then switch both on and rerun
     `scripts/qa-go-qa.bash -t record -t suppression`.
 
+    Owner's decision 2026-10-28: `high_water` goes to 28, not 29. Worker part done the same
+    day: `cmd/reclaim/main_test.go` reaches its files through an `os.Root` over its temporary
+    directory and writes the fake du `0o600` before making it executable, so gosec G304/G306
+    no longer fire there and that exclusion is gone from `.golangci.yml`; the netpolicy
+    tagliatelle exclusion is the record's 28th entry, and `go-qa.toml`'s `max_total` and
+    `[record.trust.medium] max_count` are 28. Until the owner signs, `go-qa record check`
+    fails (28 exceptions past `high_water = 27`); `record` is off, so the gate does not run it.
+    With the table below in place and both switches on, on a scratch copy, `record check` said
+    all 28 valid and `-t record -t suppression` passed.
+
+    - Owner: sign the raise. Replace the `[ratchet]` table at the top of
+      `src-go/qa/record.toml` with this (a raise on the day of the previous signature is
+      fresh only with a new `reason`, so the reason must change):
+
+      ```toml
+      [ratchet]
+      high_water = 28
+      decided_by = "repository-owner"
+      decided_on = <the day of signing>
+      reason = "raising the ceiling by one for the tagliatelle exclusion of internal/netpolicy/podman.go, which decodes podman inspect by podman's own field names (Plan 00232)"
+      ```
+
+    - Then a worker sets `record = true` and `suppression = true` in `src-go/qa/go-qa.toml`,
+      runs `scripts/qa-go-qa.bash -t record -t suppression`, and ticks this item when it passes.
+
 - [x] ✅ **Task 3.9**: Re-derive the coverage floor from go-qa's measurement (Fable's review of
   Task 3.3, finding 4; `subagent-reports/261019-go-qa-ci-pin-review-fable.md`). `qa-go.bash`
   measured each package by its own tests (no `-coverpkg`); go-qa measures `-coverpkg=./...`

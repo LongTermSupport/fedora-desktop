@@ -200,6 +200,15 @@ decided_on = 2026-10-27
 review_by = 2026-11-26
 
 [[exception]]
+rule = "golangci.yml::exclusions.rules::tagliatelle/'(Pid|Running|State|ResolvConfPath|Privileged|HostConfig|EffectiveCaps|Networks|NetworkSettings)'"
+path = ".golangci.yml"
+justification = "tagliatelle guards against JSON key case drift; ccy-network-policy decodes podman inspect, whose keys are podman's own Go field names (State, Pid, Running, ResolvConfPath, HostConfig, Privileged, EffectiveCaps, NetworkSettings, Networks). Scope: those keys in internal/netpolicy/podman.go only."
+decided_by = "repository-owner"
+added_by_model = "claude-opus-5-5"
+decided_on = 2026-10-28
+review_by = 2026-11-27
+
+[[exception]]
 rule = "golangci.yml::exclusions.rules::gosec/G301|G302|G306"
 path = ".golangci.yml"
 justification = "gosec G301/G302/G306 guard against permissive directory and file modes; open's tests build home and application trees under a temporary directory with the modes a real one has (SPEC-open.md E9, E10). Scope: internal/open/ test files only."
