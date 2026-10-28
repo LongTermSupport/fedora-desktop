@@ -11,7 +11,7 @@ official NordVPN CLI client. There is no `nordvpnd` daemon, no `nordvpn` group, 
 
 - `openvpn`, `NetworkManager-openvpn`, and `NetworkManager-openvpn-gnome` are installed
 - You download `.ovpn` server config files from NordVPN manually
-- The `nord` helper script manages import and connection via `nmcli`
+- The `nord` command (a Go binary built from `src-go/cmd/nord`) manages import and connection via `nmcli`
 - NordVPN **service credentials** (not your account login) are stored in
   `~/.config/nordvpn/.credentials` (mode 0600)
 
@@ -65,7 +65,8 @@ This playbook:
 - Creates `~/.config/nordvpn/` (mode 0700) and `~/.config/nordvpn/configs/` (mode 0755)
 - Creates `~/.local/share/nordvpn/` for logs
 - Deploys credentials to `~/.config/nordvpn/.credentials` (mode 0600)
-- Deploys the `nord` helper script to `~/.local/bin/nord`
+- Builds the `nord` command from this checkout and installs it at `~/.local/bin/nord`
+  (it imports `play-golang.yml` first, for the Go toolchain)
 - Adds the `openvpn` service to firewalld (if firewalld is running)
 
 ### Step 3: Download OpenVPN Configs
@@ -95,7 +96,7 @@ nord
 # List available .ovpn configs in ~/.config/nordvpn/configs/
 nord list
 
-# List configs already imported into NetworkManager
+# List configs already imported into NetworkManager (the connected one marked)
 nord list-active
 
 # Connect to a server (imports .ovpn into NetworkManager if not yet imported)
@@ -104,13 +105,14 @@ nord connect uk1234.nordvpn.com.udp
 # Show current connection status and public IP
 nord status
 
-# Switch to a different server (disconnects current first)
+# Switch to a different server: the same as connect, which brings any other NordVPN
+# connection down first, once the new one is found and imported
 nord switch us1234.nordvpn.com.udp
 
 # Disconnect
 nord disconnect
 
-# Remove all nordvpn-* connections from NetworkManager
+# Remove all nordvpn-* connections from NetworkManager (asks first; --yes does not)
 nord cleanup
 
 # Debug output
@@ -120,10 +122,17 @@ nord --debug connect <name>
 nord --version
 ```
 
-The `<name>` argument matches the `.ovpn` filename without its extension. NordVPN file
-names typically follow the pattern `<server>.nordvpn.com.udp` or
-`<server>.nordvpn.com.tcp` — `nord list` strips the `.nordvpn.com.(udp|tcp)` suffix for
-display but the short form works as the argument too.
+A config's name is its `.ovpn` file name without the extension and without a
+`.nordvpn.com.udp` or `.nordvpn.com.tcp` suffix (`uk1234.nordvpn.com.udp.ovpn` is
+`uk1234`); `nord list` shows the names. When the UDP and TCP files of one server are both
+there, each is named in full (`uk1234.nordvpn.com.udp`) and the short name is refused as
+ambiguous. The full file name without `.ovpn` always works as the argument too.
+
+The password is never put on a command line: when `nord` imports a config it reads the
+password from the credentials file and stores it in the profile through nmcli's editor, fed
+on its standard input. The profile then holds both credentials, so it connects from GNOME's
+network settings too. New credentials reach a profile when it is imported again
+(`nord cleanup`, then `nord connect <name>`).
 
 Connections persist in NetworkManager across reboots. Use GNOME Settings → Network to
 view or remove them via the GUI.
@@ -188,13 +197,12 @@ sudo systemctl start firewalld
 | --------------------------------------- | -------------------------------------- |
 | `~/.config/nordvpn/configs/`            | Downloaded `.ovpn` server config files |
 | `~/.config/nordvpn/.credentials`        | Service credentials (mode 0600)        |
-| `~/.config/nordvpn/.current-connection` | State file tracking active connection  |
-| `~/.local/bin/nord`                     | Connection manager script              |
+| `~/.local/bin/nord`                     | Connection manager (Go binary)         |
 | `~/.local/share/nordvpn/nord.log`       | Connection log (rotates at 1 MB)       |
 
 **Source files in this repo:**
 
 | Repo path                                                    | Deployed to           |
 | ------------------------------------------------------------ | --------------------- |
-| `files/home/.local/bin/nord`                                 | `~/.local/bin/nord`   |
+| `src-go/cmd/nord`, `src-go/internal/nord` (built by the play) | `~/.local/bin/nord`   |
 | `playbooks/imports/optional/common/play-nordvpn-openvpn.yml` | (runs the deployment) |

@@ -2,10 +2,15 @@
 ---
 # NordVPN OpenVPN Manager
 #
-# Deploys a bash script (nord) to manage NordVPN OpenVPN connections via NetworkManager CLI.
-# User downloads .ovpn files from NordVPN, script handles import/connect/disconnect operations.
+# Deploys the nord command, which manages NordVPN OpenVPN connections through NetworkManager's
+# CLI. The user downloads .ovpn files from NordVPN; nord imports, connects and disconnects them.
 #
-# Usage: ansible-playbook playbooks/imports/optional/common/play-nordvpn-openvpn.yml
+# Usage: ./playbooks/imports/optional/common/play-nordvpn-openvpn.yml
+
+# nord is a Go binary built from this checkout (src-go/cmd/nord), so the Go toolchain is
+# installed first. play-golang.yml stays its one source of truth.
+- import_playbook: ../../play-golang.yml
+
 - hosts: desktop
   name: NordVPN OpenVPN Manager
   become: false
@@ -131,16 +136,24 @@
               command cannot connect without it; fix the cause and run this play again.
 
     # =========================================================================
-    # Deploy Script
+    # Deploy the nord Command
     # =========================================================================
 
-    - name: Deploy nord Script
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/.local/bin/nord"
-        dest: "/home/{{ user_login }}/.local/bin/nord"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: '0755'
+    # The command is a Go binary (src-go/cmd/nord, Plan 00192), built and installed at its
+    # old path by the shared build-go-command.yml.
+    - name: Build and Install the nord Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: nord
+        go_command_dest: "/home/{{ user_login }}/.local/bin/nord"
+        go_command_mode: "0755"
+
+    # The bash nord recorded its last connection here; the Go nord asks NetworkManager instead
+    # (SPEC-nord D2), so the stale record is removed.
+    - name: Remove the Old Connection Record
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.config/nordvpn/.current-connection"
+        state: absent
 
     # =========================================================================
     # Firewall Configuration

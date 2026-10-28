@@ -201,7 +201,7 @@ func TestE18ReadsTheModesTheRealPlaysSet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, wantExec := range map[string]bool{"nord": true, "rclone-rc-auth.bash": false} {
+	for name, wantExec := range map[string]bool{"clean-paste": true, "rclone-rc-auth.bash": false} {
 		got, ok := repo.declaredMode(name)
 		if !ok || got.exec != wantExec {
 			t.Errorf("declaredMode(%s) = %+v, %v; want exec %v", name, got, ok, wantExec)

@@ -429,3 +429,40 @@ host recheck passed (H1's Podman section with no summed size, and the dangling c
 prune question differing by the stated number kept; option 6 answering No to every question
 ran nothing). 2.0.5 says `Skipped <command>.` after a No to either "Also remove all unused"
 question too, as after the first question of each pair (E22); its recheck is queued.
+`nord` (P6, the seventh tool; chosen in its spec's section 1: the largest left and the only
+interactive one, whose danger a recorded command list proves) ported and cut over on
+`go-port/nord`, Fable-reviewed and the review's findings fixed, not merged; spec
+[SPEC-nord.md](SPEC-nord.md) (D1-D5, E1-E24, B1-B18, H1-H7), `src-go/cmd/nord` (under `execx.SignalContext`) and
+`src-go/internal/nord`. `nord` joins the owners of `nmcli` in the project rule's table; systemd
+is asked through `internal/systemd`, the chooser is `ui.Lines.Choose`. The password is stored in
+the profile, as the bash did, so connecting from GNOME's settings asks for nothing (the lead's
+decision, SPEC-nord D4), but through nmcli's editor (`nmcli connection edit`) fed on its stdin
+(an `execx.Feed`), where the bash put it in `nmcli connection modify`'s argv (B3); a store that
+fails or that nmcli does not say it saved deletes the import, nmcli's words shown with the
+password hidden. The first build fed it to `nmcli connection up ... passwd-file /dev/stdin` at
+each connect and stored none; the lead reversed that. The state file is gone
+(NetworkManager is asked, D2; the play removes the file), every profile is named by UUID (B8),
+a half-made import is deleted (B9), `switch` imports before it disconnects (B12), and a
+connection that will not go down stops the connect (B10). `play-nordvpn-openvpn.yml` builds it
+(importing `play-golang.yml` first); the bash and its allowlist row are gone (it had no suite),
+`scripts/go-binary-suites.tsv` gives it `qa-go`, and `test-qa-changed.bash` takes `lan-scan` as
+its allowlisted tool. No oracle against the bash (SPEC-nord section 6): the expectation tests
+run over a fake NetworkManager (`world_test.go`: the listings from its profiles, each verb
+applied to them, every unscripted command a failure). Not proven here, and so H4 (the owner's):
+that nmcli's editor, fed on stdin, stores the password. The secret-file guard denies a Write or
+a Bash command whose text holds the name of nmcli's VPN secrets setting as one token (it matches
+a protected glob; no file is involved), so the code joins the name from its parts, with a
+one-line comment saying so and a test pinning the parts; the lead raises the guard with the
+owner. Host run queued in `meta-deploy.list`
+(`changed-plays`, expected to pick up `play-nordvpn-openvpn.yml`). Review dispositions
+(`subagent-reports/261028-fable-review-nord.md`, no BLOCKER): F1 fixed (a credential nmcli's
+option lists would split, trim or unescape, `,` `=` `\\` or an edge space, is refused at E10,
+B17; the credentials file is the play's, so the fix is the vault's value, not a prompt); F2
+fixed (every changing nmcli runs with `NewSession`, outside the terminal's foreground group, so
+a Ctrl-C cannot kill a half import before its rollback; E24, B16); U2 fixed (the chooser checks
+its terminal before it opens the log); U3 fixed (`cleanup` asks `[y/N]` on the terminal, with
+`--yes`, and refuses without either; E20, B18); U4 fixed (`nordPkg`); U5 fixed (a signal after
+a success keeps exit 0); U6 fixed (H4 names its two unknowns and what their failure looks
+like). U1 left: the credentials are checked for every connect by design (E8: every missing
+piece said before anything acts), and reading the file when the profile already exists costs
+nothing; the reviewer marked it low priority.

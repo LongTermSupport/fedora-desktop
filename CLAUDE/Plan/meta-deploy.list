@@ -33,9 +33,12 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# The plays changed since they last ran here. Expected: play-speech-to-text.yml (Plan 00234
-# Task 4.4): ydotool is restarted only when its override changed, and the panel extension is
-# reloaded only when its files changed, so a rerun no longer cuts into dictation or makes the
-# panel flicker. Nothing is downloaded. The host agent checks the recap says changed=0 (this
-# run changes no file, so ydotool is left running and the extension is not reloaded).
+# The plays changed since they last ran here. Expected: play-nordvpn-openvpn.yml (Plan 00192
+# Task 3.3), when it has run here before: nord is now a Go binary built from src-go/cmd/nord
+# (the play imports play-golang.yml first) and installed at ~/.local/bin/nord, and the old
+# ~/.config/nordvpn/.current-connection is removed. No credentials are asked when they are
+# already in host_vars, and no VPN is brought up or down. The host agent then checks SPEC-nord
+# H1-H3: nord --version says 2.0.0, list, list-active and status read the real
+# NetworkManager, and the chooser in tmux cancels with q, Ctrl-D and Ctrl-C changing nothing.
+# H4-H7 (connect, switch, disconnect, cleanup) are the owner's: they reroute the host's network.
 changed-plays
