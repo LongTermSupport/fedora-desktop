@@ -39,6 +39,8 @@ type world struct {
 	env    map[string]string
 	// parents maps a pid to its parent's, as /proc says.
 	parents map[int]int
+	// probeExtra are the identity files probeSays gave.
+	probeExtra []string
 }
 
 func newWorld(t *testing.T) *world {
@@ -82,14 +84,33 @@ func (w *world) file(name, text string) string {
 
 // probeSays makes every `ssh -G` answer with these identity files after the given key.
 func (w *world) probeSays(extra ...string) {
+	w.probeExtra = extra
 	w.fake.OnFunc([]string{"ssh", "-G"}, func(c execx.Cmd) (execx.Result, error) {
 		var out strings.Builder
-		out.WriteString("user someone\nhostname host.example.com\n")
+		out.WriteString("host host.example.com\nuser someone\nhostname host.example.com\n")
 		if i := slices.Index(c.Args, "-i"); i >= 0 {
 			out.WriteString("identityfile " + c.Args[i+1] + "\n")
 		}
 		for _, e := range extra {
 			out.WriteString("identityfile " + e + "\n")
+		}
+		return execx.Result{Stdout: []byte(out.String())}, nil
+	})
+}
+
+// probeAlsoSays adds these lines to every `ssh -G` answer, after the identity files.
+func (w *world) probeAlsoSays(lines ...string) {
+	w.fake.OnFunc([]string{"ssh", "-G"}, func(c execx.Cmd) (execx.Result, error) {
+		var out strings.Builder
+		out.WriteString("host host.example.com\nuser someone\nhostname host.example.com\n")
+		if i := slices.Index(c.Args, "-i"); i >= 0 {
+			out.WriteString("identityfile " + c.Args[i+1] + "\n")
+		}
+		for _, e := range w.probeExtra {
+			out.WriteString("identityfile " + e + "\n")
+		}
+		for _, l := range lines {
+			out.WriteString(l + "\n")
 		}
 		return execx.Result{Stdout: []byte(out.String())}, nil
 	})

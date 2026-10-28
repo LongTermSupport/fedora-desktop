@@ -12,7 +12,9 @@ Usage: ssh-with-key [-i KEY] [ssh-options...] destination [command [argument...]
   -h, --help   Show this text.
 
   Every other argument goes to ssh as it is. A second key (-i or -o IdentityFile)
-  is refused, and so is a configuration that gives the host another key.
+  is refused, and so is a configuration that gives the host another key. So is
+  an agent named (-o IdentityAgent, -o ForwardAgent=SOCKET), and with -A a
+  configuration that names one.
 
 Examples:
   ssh-with-key -i ~/.ssh/work_key admin@host.example.com

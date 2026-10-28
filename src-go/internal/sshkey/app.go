@@ -152,6 +152,9 @@ func (r *run) main(ctx context.Context, args []string) term.ExitCode {
 	if inv.forward {
 		return r.startAgent(inv)
 	}
+	if r.tool.kind == kindCopyID {
+		return r.copyID(ctx, inv)
+	}
 	return r.replace(r.tool.command(append(r.ownOptions(key, true), inv.passed...)))
 }
 
@@ -177,18 +180,22 @@ func (r *run) replace(c execx.Cmd) term.ExitCode {
 	return term.ExitOK
 }
 
+// The ssh options that keep a login to the one key (E10).
+const (
+	optIdentitiesOnly = "IdentitiesOnly=yes"
+	optPublicKeyOnly  = "PreferredAuthentications=publickey"
+	optNoAgent        = "IdentityAgent=none"
+)
+
 // ownOptions are the tool's options, which come before the passed ones so ssh's first value
 // wins (E10). noAgent adds IdentityAgent=none, left out when an agent is being forwarded (E18).
 func (r *run) ownOptions(key string, noAgent bool) []string {
 	if r.tool.kind == kindCopyID {
-		return []string{
-			"-o", "IdentityFile=" + key, "-o", "IdentitiesOnly=yes",
-			"-o", "IdentityAgent=none", "-o", "PreferredAuthentications=publickey",
-		}
+		return []string{"-o", "IdentityFile=" + key, "-o", optIdentitiesOnly, "-o", optNoAgent, "-o", optPublicKeyOnly}
 	}
-	opts := []string{"-i", key, "-o", "IdentitiesOnly=yes", "-o", "PreferredAuthentications=publickey"}
+	opts := []string{"-i", key, "-o", optIdentitiesOnly, "-o", optPublicKeyOnly}
 	if noAgent {
-		opts = append(opts, "-o", "IdentityAgent=none")
+		opts = append(opts, "-o", optNoAgent)
 	}
 	return opts
 }

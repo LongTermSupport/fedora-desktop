@@ -71,7 +71,7 @@ func TestE4ASecondIdentityIsRefused(t *testing.T) {
 		{SSH, []string{"-i", "k", "host.example.com", "-o", "IdentityFile=other"}},
 		{SCP, []string{"-i", "k", "-i", "other", "f", "host.example.com:/tmp/"}},
 		{SCP, []string{"-i", "k", "-o", "IdentityFile=other", "f", "host.example.com:/tmp/"}},
-		{CopyID, []string{"--auth-key", "k", "-o", "IdentityFile=other", "host.example.com"}},
+		{CopyID, []string{"--auth-key", "k", "-i", "new.pub", "-o", "IdentityFile=other", "host.example.com"}},
 	}
 	for _, c := range cases {
 		_, err := c.tool.parse(c.args)
@@ -125,7 +125,7 @@ func TestE13ForwardingIsAskedByTheOptionsAlone(t *testing.T) {
 		{SCP, []string{"f", "-A"}, false},
 		{SCP, []string{"-o", "ForwardAgent=yes", "f", "host.example.com:/tmp/"}, true},
 		{SCP, []string{"-lA", "f", "host.example.com:/tmp/"}, false},
-		{CopyID, []string{"-A", "host.example.com"}, false},
+		{CopyID, []string{"-i", "new.pub", "-A", "host.example.com"}, false},
 	}
 	for _, c := range cases {
 		inv, err := c.tool.parse(append([]string{c.tool.KeyFlag, "k"}, c.args...))
@@ -144,6 +144,70 @@ func TestE13AnotherAgentIsRefused(t *testing.T) {
 		_, err := SSH.parse([]string{"-i", "k", "-o", value, "host.example.com"})
 		if !errors.Is(err, errOtherAgent) {
 			t.Errorf("%s: err %v", value, err)
+		}
+	}
+	// IdentityAgent is the other way to name an agent: with -A, ssh would forward that one.
+	cases := []struct {
+		tool Tool
+		args []string
+	}{
+		{SSH, []string{"-i", "k", "-A", "-o", "IdentityAgent=/run/user.sock", "host.example.com"}},
+		{SSH, []string{"-i", "k", "-oidentityagent $SSH_AUTH_SOCK", "host.example.com"}},
+		{SCP, []string{"-i", "k", "-A", "-o", "IdentityAgent /run/user.sock", "f", "host.example.com:/tmp/"}},
+		{CopyID, []string{"--auth-key", "k", "-i", "new.pub", "-o", "IdentityAgent=none", "host.example.com"}},
+	}
+	for _, c := range cases {
+		if _, err := c.tool.parse(c.args); !errors.Is(err, errOwnAgent) {
+			t.Errorf("%s %v: err %v, want IdentityAgent refused", c.tool.Name, c.args, err)
+		}
+	}
+}
+
+func TestE13SCPsOtherSSHIsRefused(t *testing.T) {
+	for _, args := range [][]string{{"-S", "other-ssh", "f", "host.example.com:/tmp/"}, {"-qSother-ssh", "f", "host.example.com:/tmp/"}} {
+		if _, err := SCP.parse(append([]string{"-i", "k"}, args...)); !errors.Is(err, errOtherProgram) {
+			t.Errorf("%v: err %v, want -S refused", args, err)
+		}
+	}
+}
+
+func TestE20TheKeyToInstallIsRequired(t *testing.T) {
+	for _, args := range [][]string{
+		{"host.example.com"}, {"-i", "host.example.com"}, {"-n", "host.example.com"}, {"-i", "new.pub"}, {},
+	} {
+		_, err := CopyID.parse(append([]string{"--auth-key", "k"}, args...))
+		if !errors.Is(err, errNoInstallKey) {
+			t.Errorf("%v: err %v, want -i FILE required", args, err)
+		}
+	}
+	w := newWorld(t)
+	wantCode(t, w.run(CopyID, "--auth-key", "k", "admin@host.example.com"), term.ExitUsage)
+	w.stderrHas("ssh-copy-id-with-key: -i FILE, the public key to install, is required — see 'ssh-copy-id-with-key --help'.")
+	if len(w.ran()) != 0 {
+		t.Errorf("ran %v", w.ran())
+	}
+}
+
+func TestE20TheKeyToInstallAndForceAreRead(t *testing.T) {
+	cases := []struct {
+		args    []string
+		install string
+		force   bool
+	}{
+		{[]string{"-i", "new.pub", "host.example.com"}, "new.pub", false},
+		{[]string{"-inew.pub", "-n", "host.example.com"}, "new.pub", false},
+		{[]string{"-f", "-i", "new.pub", "host.example.com"}, "new.pub", true},
+		{[]string{"-fi", "new.pub", "host.example.com"}, "new.pub", true},
+		{[]string{"-nf", "-p", "22", "-i", "new", "host.example.com"}, "new", true},
+	}
+	for _, c := range cases {
+		inv, err := CopyID.parse(append([]string{"--auth-key", "k"}, c.args...))
+		if err != nil {
+			t.Errorf("%v: %v", c.args, err)
+			continue
+		}
+		if inv.install != c.install || inv.force != c.force {
+			t.Errorf("%v: install %q force %v, want %q %v", c.args, inv.install, inv.force, c.install, c.force)
 		}
 	}
 }
@@ -202,8 +266,6 @@ func TestE11TheDestinationsProbed(t *testing.T) {
 			[]string{"-i", "new.pub", "-p", "2222", "-o", "Port=1", "-f", "admin@host.example.com"},
 			[][]string{{"-p", "2222", "-o", "Port=1", "admin@host.example.com"}},
 		},
-		{CopyID, []string{"-i", "admin@host.example.com"}, [][]string{{"admin@host.example.com"}}},
-		{CopyID, []string{"-n"}, nil},
 	}
 	for _, c := range cases {
 		inv, err := c.tool.parse(append([]string{c.tool.KeyFlag, "k"}, c.args...))

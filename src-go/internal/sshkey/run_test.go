@@ -32,10 +32,10 @@ func TestE10TheToolsOptionsComeFirst(t *testing.T) {
 				"-o", "IdentityAgent=none", "f", "host.example.com:/tmp/",
 			}
 		}},
-		{CopyID, []string{"-i", "new.pub", "host.example.com"}, func(k string) []string {
+		{CopyID, []string{"-f", "-i", "new.pub", "host.example.com"}, func(k string) []string {
 			return []string{
 				"ssh-copy-id", "-o", "IdentityFile=" + k, "-o", "IdentitiesOnly=yes",
-				"-o", "IdentityAgent=none", "-o", "PreferredAuthentications=publickey", "-i", "new.pub", "host.example.com",
+				"-o", "IdentityAgent=none", "-o", "PreferredAuthentications=publickey", "-f", "-i", "new.pub", "host.example.com",
 			}
 		}},
 	}
@@ -61,7 +61,7 @@ func TestE11TheProbeAsksSSHWithTheToolsOptions(t *testing.T) {
 		t.Fatalf("calls %v", w.ran())
 	}
 	want := []string{
-		"-G", "-i", key, "-o", "IdentitiesOnly=yes", "-o", "PreferredAuthentications=publickey",
+		"-G", "-T", "-i", key, "-o", "IdentitiesOnly=yes", "-o", "PreferredAuthentications=publickey",
 		"-o", "IdentityAgent=none", "-p", "2222", "host.example.com",
 	}
 	if !slices.Equal(calls[0].Args, want) {
@@ -69,18 +69,69 @@ func TestE11TheProbeAsksSSHWithTheToolsOptions(t *testing.T) {
 	}
 }
 
+func TestE11AForwardedRunsProbeLeavesTheAgentToTheConfiguration(t *testing.T) {
+	w := newWorld(t)
+	key := w.key("id_a")
+	w.probeSays()
+	w.tty = "1\n"
+	wantCode(t, w.run(SSH, "-i", key, "-A", "host.example.com"), term.ExitOK)
+	if probe := w.fake.Calls()[0]; slices.Contains(probe.Args, "IdentityAgent=none") {
+		t.Errorf("the forwarded run's probe hides the configured agent: %s", probe.Line())
+	}
+}
+
+func TestE11AConfiguredAgentStopsAForwardedRun(t *testing.T) {
+	for _, line := range []string{"identityagent /run/user.sock", "forwardagent /run/user.sock", "identityagent none"} {
+		w := newWorld(t)
+		key := w.key("id_a")
+		w.probeSays()
+		w.probeAlsoSays(line)
+		wantCode(t, w.run(SSH, "-i", key, "-A", "host.example.com"), term.ExitFailure)
+		w.stderrHas("ssh-with-key: ssh's configuration gives host.example.com " + line + ", so -A would forward that agent, " +
+			"not the one this run starts. Remove that line for this host, or pass -F with a configuration that has none. Nothing was run.")
+		w.noExec()
+	}
+	for _, line := range []string{"identityagent SSH_AUTH_SOCK", "forwardagent yes"} {
+		w := newWorld(t)
+		key := w.key("id_a")
+		w.probeSays()
+		w.probeAlsoSays(line)
+		wantCode(t, w.run(SSH, "-i", key, "-A", "host.example.com"), term.ExitOK)
+		w.execd()
+	}
+	// Not forwarding, the tool's IdentityAgent=none wins, so a configured agent is not asked about.
+	w := newWorld(t)
+	key := w.key("id_a")
+	w.probeSays()
+	w.probeAlsoSays("identityagent /run/user.sock")
+	wantCode(t, w.run(SSH, "-i", key, "host.example.com"), term.ExitOK)
+}
+
 func TestE11AnotherKeyInTheConfigurationStopsTheRun(t *testing.T) {
 	w := newWorld(t)
 	key := w.key("id_a")
 	w.key("id_work")
-	w.probeSays("~/.ssh/id_work", "~/.ssh/id_gone", "%d/.ssh/id_a", "/etc/ssh/%r_key")
+	w.probeSays("~/.ssh/id_work", "~/.ssh/id_gone", "%d/.ssh/id_a", "/etc/ssh/%C_key", "none")
 	wantCode(t, w.run(SSH, "-i", key, "host.example.com"), term.ExitFailure)
-	w.stderrHas("ssh-with-key: ssh's configuration also gives host.example.com the key(s) ~/.ssh/id_work, /etc/ssh/%r_key, " +
+	w.stderrHas("ssh-with-key: ssh's configuration also gives host.example.com the key(s) ~/.ssh/id_work, /etc/ssh/%C_key, " +
 		"which ssh would offer too; this tool offers only ~/.ssh/id_a.")
 	w.stderrHas("Nothing was run.")
 	w.noExec()
 	if strings.Contains(w.stderr.String(), "id_gone") {
 		t.Error("a configured key that does not exist is not offered")
+	}
+}
+
+func TestE11TheConnectionsTokensAreExpandedAsSSHDoes(t *testing.T) {
+	w := newWorld(t)
+	key := w.key("id_a")
+	w.key("host.example.com_someone_22_host.example.com")
+	w.probeSays("~/.ssh/%h_%r_%p_%n", "~/.ssh/%h_gone", "~/.ssh/%%h", "~/.ssh/%u_key")
+	w.probeAlsoSays("port 22")
+	wantCode(t, w.run(SSH, "-i", key, "host.example.com"), term.ExitFailure)
+	w.stderrHas("the key(s) ~/.ssh/host.example.com_someone_22_host.example.com, ~/.ssh/%u_key, which")
+	if strings.Contains(w.stderr.String(), "gone") || strings.Contains(w.stderr.String(), "%%h") {
+		t.Errorf("a token path that names no file is offered:\n%s", w.stderr.String())
 	}
 }
 
@@ -132,7 +183,7 @@ func TestE12AMissingProgram(t *testing.T) {
 	key := w.key("id_a")
 	w.probeSays()
 	w.fake.ExecError(&execx.NotInstalledError{Name: "ssh-copy-id"})
-	wantCode(t, w.run(CopyID, "--auth-key", key, "host.example.com"), term.ExitFailure)
+	wantCode(t, w.run(CopyID, "--auth-key", key, "-f", "-i", "new.pub", "host.example.com"), term.ExitFailure)
 	w.stderrHas("ssh-copy-id-with-key: ssh-copy-id is not installed.")
 }
 
@@ -156,9 +207,21 @@ func TestE14AForwardedRunReExecsUnderItsOwnAgent(t *testing.T) {
 	}
 }
 
+func TestE14AStaleMarkerIsNamed(t *testing.T) {
+	w := newWorld(t)
+	key := w.key("id_a")
+	w.insideAgent()
+	w.env[markerVar] = "1"
+	wantCode(t, w.run(SSH, "-i", key, "-A", "host.example.com"), term.ExitFailure)
+	w.stderrHas("ssh-with-key: SSH_WITH_KEY_AGENT is set (to 1) in the environment, but not by this run; " +
+		"unset it and run again. Nothing was run.")
+	if len(w.ran()) != 0 {
+		t.Errorf("ran %v", w.ran())
+	}
+}
+
 func TestE14AnAgentThatIsNotTheRunsOwnIsRefused(t *testing.T) {
 	breaks := map[string]func(w *world){
-		"another pid":       func(w *world) { w.env[markerVar] = "1" },
 		"no socket":         func(w *world) { delete(w.env, "SSH_AUTH_SOCK") },
 		"no agent pid":      func(w *world) { delete(w.env, "SSH_AGENT_PID") },
 		"another's agent":   func(w *world) { w.parents[testAgent] = 1 },

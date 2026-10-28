@@ -1,4 +1,4 @@
-Usage: ssh-copy-id-with-key [--auth-key KEY] [ssh-copy-id-options...] [user@]host
+Usage: ssh-copy-id-with-key [--auth-key KEY] -i FILE [ssh-copy-id-options...] [user@]host
 
   Install a public key on a host, logging in with ONLY one private key: no key
   from the ssh-agent, no other key in ~/.ssh or in ssh's configuration, and no
@@ -8,13 +8,18 @@ Usage: ssh-copy-id-with-key [--auth-key KEY] [ssh-copy-id-options...] [user@]hos
 
   --auth-key KEY   The PRIVATE key to LOG IN with. It must be the first
                    argument. Without it, choose one of the private keys in ~/.ssh.
-  -i FILE          The PUBLIC key to INSTALL: ssh-copy-id's own flag, passed to
-                   it as it is. Without it, ssh-copy-id installs its usual keys.
+  -i FILE          The PUBLIC key to INSTALL (required): ssh-copy-id's own flag,
+                   passed to it as it is.
+  -f               Install it without first checking whether it is there.
   -h, --help       Show this text.
 
+  First the tool logs in offering the key to install alone (its private half,
+  beside FILE): if the host accepts it, it is already installed and nothing
+  more is done. Otherwise ssh-copy-id installs it, logging in with KEY.
+
   Every other argument goes to ssh-copy-id as it is. A second login key
-  (-o IdentityFile) is refused, and so is a configuration that gives the host
-  another key.
+  (-o IdentityFile) or an agent (-o IdentityAgent) is refused, and so is a
+  configuration that gives the host another key.
 
 Examples:
   ssh-copy-id-with-key --auth-key ~/.ssh/existing -i ~/.ssh/new.pub admin@host.example.com

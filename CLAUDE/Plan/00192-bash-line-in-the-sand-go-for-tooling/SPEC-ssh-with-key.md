@@ -4,7 +4,7 @@ Programme P6 of [INVENTORY.md](INVENTORY.md): `ssh-with-key`, `scp-with-key` and
 `ssh-copy-id-with-key`, the wrappers that log in to a host offering one private key and nothing
 else: no key from the ssh-agent, no other file in `~/.ssh`, no password. **Method: the legacy
 bash is not an oracle.** This document states the intended behaviour as numbered, testable
-expectations (`E*`). The three bash files (`files/home/.local/bin/{ssh,scp,ssh-copy-id}-with-key`,
+expectations (`E*`, E1-E20). The three bash files (`files/home/.local/bin/{ssh,scp,ssh-copy-id}-with-key`,
 87, 85 and 73 code lines, and the agent half of `ssh-with-agent.bash` they source, at
 `a08948346`) were read only to find the requirements; where they were wrong, the expectation
 states the correct behaviour and section 5 lists the departure (`B*`). The proof is the Go tests
@@ -63,7 +63,9 @@ program itself prints.
 - E4. A second identity among the passed arguments is a usage error, exit 64, before anything
   runs: for ssh and scp a `-i` in an option cluster or any `-o IdentityFile` (`-oIdentityFile=…`,
   the key in any case, `=` or a space); for ssh-copy-id only `-o IdentityFile` (its `-i` is the
-  key to install). The message says to give the one key as the first argument.
+  key to install). The message says to give the one key as the first argument. ssh-copy-id-with-key
+  requires its `-i FILE` (E20): without it (or with `-i` given no value)
+  `<tool>: -i FILE, the public key to install, is required — see '<tool> --help'.`, exit 64.
 - E5. A given key must be a readable regular file whose first line is a private-key header
   (`-----BEGIN ` … `PRIVATE KEY-----`). A path ending `.pub`:
   `<tool>: <path> is a public key; give its private key <path without .pub>.`; anything else
@@ -86,16 +88,23 @@ program itself prints.
 
 - E10. The tool's options come before the passed ones, so ssh's first-value-wins keeps them:
   ssh and scp get `-i KEY -o IdentitiesOnly=yes -o PreferredAuthentications=publickey`, and
-  `-o IdentityAgent=none` when not forwarding; ssh-copy-id gets `-o IdentityFile=KEY -o IdentitiesOnly=yes -o IdentityAgent=none -o PreferredAuthentications=publickey`.
+  `-o IdentityAgent=none` when not forwarding; ssh-copy-id gets `-f` (unless E20 found the key
+  already installed) then `-o IdentityFile=KEY -o IdentitiesOnly=yes -o IdentityAgent=none -o PreferredAuthentications=publickey`.
 - E11. Before anything connects (and before any agent starts), ssh is asked which identity
-  files it would offer: `ssh -G` with the tool's options and the passed options that decide
+  files it would offer: `ssh -G -T` (`-T` keeps ssh's "stdin is not a terminal" note out of a
+  failure's message) with the tool's options and the passed options that decide
   ssh's configuration, once per destination. For ssh-with-key that is every passed argument;
   for scp `-F`, `-o`, `-J`, `-4`, `-6`, `-P` given as `-p`, and each remote operand's user and
   host (and a `scp://` operand's port); for ssh-copy-id `-F`, `-o`, `-p` and the destination. An
-  `identityfile` line other than KEY that names a file which may exist (after `~` and `%d` are
-  the home directory, the file or its `.pub` exists; a path with any other `%` token counts) stops
-  the run: `<tool>: ssh's configuration also gives <destination> the key(s) <list>, which ssh would offer too; this tool offers only KEY. Remove those IdentityFile lines for this host, or pass -F with a configuration that has none. Nothing was run.`, exit 1. A probe that fails shows
-  ssh's words and exits 1. An scp with no remote operand needs no probe.
+  `identityfile` line other than KEY that names a file which may exist stops the run. ssh prints
+  the paths unexpanded, so `~` and `%d` are made the home directory, `%%` a percent sign, and
+  `%h`, `%n`, `%r`, `%p` the `hostname`, `host`, `user` and `port` lines of the same output; the
+  file or its `.pub` must exist, a path with any other `%` token (`%u`, `%C`, `%l`...) counts,
+  and `none` (the keyword) is no file. The message: `<tool>: ssh's configuration also gives <destination> the key(s) <list>, which ssh would offer too; this tool offers only KEY. Remove those IdentityFile lines for this host, or pass -F with a configuration that has none. Nothing was run.`, exit 1. A probe that fails shows
+  ssh's words and exits 1. An scp with no remote operand needs no probe. A forwarded run's probe
+  leaves out `IdentityAgent=none`, and an `identityagent` other than `SSH_AUTH_SOCK`, or a
+  `forwardagent` that is a socket (it survives a command-line `-A`), stops the run:
+  `<tool>: ssh's configuration gives <destination> <line>, so -A would forward that agent, not the one this run starts. Remove that line for this host, or pass -F with a configuration that has none. Nothing was run.`, exit 1.
 - E12. Without forwarding the program replaces the process (D2). A program not installed:
   `<tool>: <program> is not installed.`, exit 1.
 
@@ -106,7 +115,9 @@ program itself prints.
   option's value), with a later `-a` (ssh) turning it off again; with neither flag, the first
   `-o ForwardAgent` decides (`yes` forwards, `no` does not, keys and values in any case). Any
   other ForwardAgent value (a socket, a variable) is a usage error, exit 64: this tool forwards
-  only an agent it started. ssh's argument-taking letters are `BbcDEeFIiJLlmOoPpQRSWw`, and its
+  only an agent it started. So is any `-o IdentityAgent` in every tool (with `-A` ssh would
+  forward that agent; without, the tool's `none` is the only value it may have), and scp's `-S`
+  (another program run as ssh, which E11's probe cannot ask). ssh's argument-taking letters are `BbcDEeFIiJLlmOoPpQRSWw`, and its
   options run to the destination and on from there to the first word of the remote command (or
   `--`); scp's are `cDFiJlMoPSX`, its options ending at the first operand. ssh-copy-id has no
   forwarding (a `-A` reaches ssh-copy-id, which refuses it).
@@ -114,7 +125,8 @@ program itself prints.
   (E11) first, then replaces itself with `ssh-agent -- <this program> -i KEY <passed args>`
   with `SSH_WITH_KEY_AGENT=<its pid>` in the environment. The run inside (same pid) trusts the
   agent only when that variable is its own pid, `SSH_AUTH_SOCK` is set and `SSH_AGENT_PID` names
-  a process whose parent is this process (`/proc/<pid>/stat`); otherwise
+  a process whose parent is this process (`/proc/<pid>/stat`). A variable that is not its pid was
+  exported by hand: `<tool>: SSH_WITH_KEY_AGENT is set (to <value>) in the environment, but not by this run; unset it and run again. Nothing was run.`, exit 1; any other failure
   `<tool>: the agent in SSH_AUTH_SOCK is not one this run started; nothing was run.`, exit 1. A
   variable set by hand never makes a run trust another agent. The variable is removed from
   every child's environment, and the inside run does not probe again.
@@ -138,6 +150,26 @@ program itself prints.
   agent, and the exit status is the program's (128+n for a program killed by signal n).
 - E19. An `ssh-agent -k` that fails is said; the run exits 1 if the program had succeeded,
   otherwise with the program's status.
+
+### Installing a key (ssh-copy-id)
+
+- E20. ssh-copy-id's own already-installed check logs in with each new key **and every `-o`
+  it was given** (`filter_ids` in `/usr/bin/ssh-copy-id`), so with E10's `-o IdentityFile=KEY`
+  the login key always succeeds and every new key reads as installed; only `-f` skips that
+  check. So the tool checks itself, then runs ssh-copy-id with `-f`. `-i FILE` is required (E4);
+  its private half is FILE without `.pub`, and must be a private key (E5's test), or
+  `<tool>: <private> is not a readable private key (<reason>), and the check whether <FILE.pub> is already installed logs in with it. Pass -f to install it without the check. Nothing was run.`, exit 1.
+  `ssh -G` with the check's options (below) must show no identity file but the private half (the
+  configuration may give the host KEY itself, which E11 allows), or
+  `<tool>: ssh's configuration also gives <destination> the key(s) <list>, so a login with <private> alone cannot be tried to see whether it is already installed. Remove those IdentityFile lines for this host, pass -F with a configuration that has none, or pass -f to install it without the check. Nothing was run.`, exit 1.
+  Then `ssh -v -T -o BatchMode=yes -o ControlPath=none -o IdentitiesOnly=yes -o IdentityAgent=none -o PreferredAuthentications=publickey -i <private> <-F, -o, -p passed> <destination> exit`:
+  a login, or `Server accepts key:` in its output (the host accepts the key, but batch mode could
+  not unlock it to sign), is
+  `<tool>: <FILE.pub> is already installed on <destination> (the host accepts the key); nothing to do.`,
+  exit 0, nothing more run; `Permission denied` runs `ssh-copy-id -f <E10 options> <passed>`;
+  anything else (an unknown host key, no route) is
+  `<tool>: could not log in to <destination> with <private> alone to see whether it is already installed: <ssh's words without its debug lines> Pass -f to install it without the check. Nothing was run.`,
+  exit 1. A passed `-f` skips the check (and is not doubled); a dry run (`-n`) is checked too.
 
 ## 4. Kept as it was
 
@@ -168,6 +200,13 @@ one per run that the person fills.
 - B9. `-A` with `-N` (or `-W`, `-s`…) still got the remote init as a command (E18).
 - B10. No arguments printed the usage on stdout with exit 1; now a usage error on stderr, exit
   64 (E2).
+- B11. ssh-copy-id-with-key installed nothing: ssh-copy-id's check logged in with the login key
+  the tool gave it and skipped every new key as "already installed" (exit 0). The check is now
+  the tool's, with the new key alone, and `-i FILE` is required: a tool about choosing keys
+  does not install "whatever ssh-copy-id finds" (E4, E20).
+- B12. `-o IdentityAgent=<socket>` with `-A`, or a configuration's `IdentityAgent` or
+  `ForwardAgent <socket>`, forwarded an agent the tool did not start; scp's `-S` ran a program the
+  tool never asked about (E11, E13).
 
 ## 6. Proof
 
@@ -187,17 +226,28 @@ line removed from `authorized_keys` afterwards.
   refuses with E5's message and runs nothing.
 - H2 (host agent). `ssh-with-key -i KEY -v <guest> true` exits 0, and its `-v` output has one
   `Will attempt key:` line, KEY's; `ssh-with-key -i KEY <guest> 'exit 7'` exits 7;
-  `scp-with-key -i KEY` copies a file to the guest and back unchanged;
-  `ssh-copy-id-with-key --auth-key KEY -n -i <second throwaway>.pub <guest>` (dry run) logs in
-  and changes nothing.
+  `scp-with-key -i KEY` copies a file to the guest and back unchanged. With a second throwaway
+  key NEW not on the guest: `ssh-copy-id-with-key --auth-key KEY -n -i NEW.pub <guest>` (dry
+  run) exits 0, prints ssh-copy-id's `Would have added the following key(s):` with NEW's line,
+  and does not print `already installed`; `ssh-with-key -i NEW <guest> true` still fails
+  (nothing changed). The same without `-n` exits 0 with `Number of key(s) added: 1`, after which
+  `ssh-with-key -i NEW <guest> true` exits 0; a third run says
+  `NEW.pub is already installed on <guest>`, exits 0, and the guest's `authorized_keys` holds
+  NEW's line once (`ssh-with-key -i KEY <guest> "grep -c '<NEW's base64>' .ssh/authorized_keys"` prints 1). NEW's line is removed afterwards.
 - H3 (host agent). With `-F <temporary config>` giving the guest a second `IdentityFile` that
   exists, the run stops with E11's message naming it, and nothing connects.
 - H4 (host agent, in tmux). `ssh-with-key -i KEY -A <guest> 'ssh-add -l'`: the menu lists the
   keys in `~/.ssh`; choosing one (or a throwaway placed there for the check and removed after)
-  then `d`, the remote `ssh-add -l` lists it; afterwards no `ssh-agent` whose parent was the run
+  then `d`, the remote `ssh-add -l` lists it; the same run with `-v` (`ssh-with-key -i KEY -A -v <guest> 'ssh-add -l'`, an agent holding other keys reachable) has exactly one
+  `Will attempt key:` line, KEY's; afterwards no `ssh-agent` whose parent was the run
   is left (`pgrep -u "$USER" -x ssh-agent` counts the same before and after). The same with
   `q` at the menu: `Cancelled`, exit 130, no agent left.
 - H5 (owner). The owner's own hosts with the owner's keys: an ordinary login, and an
   interactive `-A` login where `git push` works on the far side. If the owner's
   `~/.ssh/config` gives every host an `IdentityFile`, E11 refuses; that is the decision B1
   records, and the owner says whether it stands.
+
+Left by decision: keys typed ahead between the forwarding menu and the program are lost (the
+menus read `/dev/tty` through a buffer that is closed before ssh starts). `internal/ttyecho`
+would keep them; the menus are short and a lost keystroke there costs a retype, so this family
+does not run under it.

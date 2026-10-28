@@ -48,6 +48,11 @@ func (r *run) startAgent(inv invocation) term.ExitCode {
 // inAgent is the run inside the agent (E14-E19): the agent checked, the keys added, the program
 // in the foreground, then the agent ended.
 func (r *run) inAgent(ctx context.Context, inv invocation) term.ExitCode {
+	if marker := r.env.Getenv(markerVar); marker != strconv.Itoa(r.env.Getpid()) {
+		r.failf("%s is set (to %s) in the environment, but not by this run; unset it and run again. Nothing was run.",
+			markerVar, marker)
+		return term.ExitFailure
+	}
 	if !r.ownAgent() {
 		r.failf("the agent in SSH_AUTH_SOCK is not one this run started; nothing was run.")
 		return term.ExitFailure

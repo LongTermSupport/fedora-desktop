@@ -15,12 +15,22 @@ const (
 	scpValueLetters = "cDFiJlMoPSX"
 )
 
+// The values of a yes-or-no ssh option.
+const (
+	yes = "yes"
+	no  = "no"
+)
+
 // sshNoCommandLetters are ssh's modes that run no remote command (E18).
 const sshNoCommandLetters = "NWOGVQs"
 
 var (
 	errSecondKey  = errors.New("is a second key; give the one key as the first argument")
 	errOtherAgent = errors.New("would forward an agent this tool did not start; use -A for a new one")
+	errOwnAgent   = errors.New("is this tool's to set: it uses no agent, or with -A only the one it starts")
+	// errOtherProgram is scp's -S: the probe asks ssh, not the program scp would run (E13).
+	errOtherProgram = errors.New("would run another program as ssh, which the check of ssh's configuration cannot ask")
+	errNoInstallKey = errors.New("-i FILE, the public key to install, is required")
 )
 
 // invocation is a command line read (E3, E4, E11, E13).
@@ -35,6 +45,9 @@ type invocation struct {
 	command, noCommand bool
 	// dests are what the identity probe asks ssh about (E11).
 	dests []destination
+	// install is ssh-copy-id's -i, the key to install; force its -f (E20).
+	install string
+	force   bool
 }
 
 // destination is one host the probe asks `ssh -G` about: its name in messages, and the
@@ -79,18 +92,21 @@ func (a *agentAsk) forward() bool {
 	if a.flag != 0 {
 		return a.flag == 'A'
 	}
-	return a.value == "yes"
+	return a.value == yes
 }
 
-// option judges one -o value: a second key is refused, ForwardAgent is recorded (E4, E13).
+// option judges one -o value: a second key and an agent named are refused, ForwardAgent is
+// recorded (E4, E13).
 func (a *agentAsk) option(value string) error {
 	key, val := splitOption(value)
 	switch {
 	case strings.EqualFold(key, "IdentityFile"):
 		return fmt.Errorf("-o %s %w", value, errSecondKey)
+	case strings.EqualFold(key, "IdentityAgent"):
+		return fmt.Errorf("-o %s %w", value, errOwnAgent)
 	case strings.EqualFold(key, "ForwardAgent"):
 		val = strings.ToLower(val)
-		if val != "yes" && val != "no" {
+		if val != yes && val != no {
 			return fmt.Errorf("-o %s %w", value, errOtherAgent)
 		}
 		if !a.optioned {
@@ -233,6 +249,8 @@ func (o *scpOptions) value(ch byte, v string) error {
 			return err
 		}
 		o.probe = append(o.probe, "-o", v)
+	case 'S':
+		return fmt.Errorf("-S %s %w", v, errOtherProgram)
 	case 'F', 'J':
 		o.probe = append(o.probe, "-"+string(ch), v)
 	case 'P':
@@ -327,22 +345,25 @@ func remoteOperand(op string) (remote, bool) {
 	return r, r.host != ""
 }
 
-// readCopyID is ssh-copy-id's grammar: options, then the destination last (E4, E11).
+// readCopyID is ssh-copy-id's grammar: options, then the destination last (E4, E11, E20).
 func (inv *invocation) readCopyID() error {
 	p := inv.passed
 	if len(p) == 0 {
-		return nil
+		return errNoInstallKey
 	}
 	var ask agentAsk
 	var probe []string
 	opts, dest := p[:len(p)-1], p[len(p)-1]
 	for i := 0; i < len(opts); i++ {
-		n, args, err := copyIDOption(opts, i, &ask)
+		n, args, err := inv.copyIDOption(opts, i, &ask)
 		if err != nil {
 			return err
 		}
 		probe = append(probe, args...)
 		i += n
+	}
+	if inv.install == "" {
+		return errNoInstallKey
 	}
 	if !strings.HasPrefix(dest, "-") {
 		inv.dests = []destination{{name: dest, args: append(probe, dest)}}
@@ -350,25 +371,41 @@ func (inv *invocation) readCopyID() error {
 	return nil
 }
 
-// copyIDOption reads the ssh-copy-id option at opts[i]: how many more tokens its value used, and
-// what the probe takes from it (-o, -p, -F). Its -i takes an optional value, a word that is not
-// an option.
-func copyIDOption(opts []string, i int, ask *agentAsk) (int, []string, error) {
+// copyIDOptionLetters are ssh-copy-id's argument-taking letters.
+const copyIDOptionLetters = "iopFt"
+
+// copyIDOption reads the ssh-copy-id option cluster at opts[i]: how many more tokens its value
+// used, and what the probe takes from it (-o, -p, -F). -f is recorded, and -i's value is the key
+// to install, which is optional to ssh-copy-id: a word that is not an option.
+func (inv *invocation) copyIDOption(opts []string, i int, ask *agentAsk) (int, []string, error) {
 	tok := opts[i]
-	if len(tok) < 2 || tok[0] != '-' || !strings.ContainsRune("iopFt", rune(tok[1])) {
+	if !isOption(tok) {
 		return 0, nil, nil
 	}
-	letter, v, used := tok[1], tok[2:], 0
-	if v == "" && i+1 < len(opts) && (letter != 'i' || !strings.HasPrefix(opts[i+1], "-")) {
-		v, used = opts[i+1], 1
-	}
-	switch letter {
-	case 'i', 't':
-		return used, nil, nil
-	case 'o':
-		if err := ask.option(v); err != nil {
-			return used, nil, err
+	for j := 1; j < len(tok); j++ {
+		letter := tok[j]
+		if strings.IndexByte(copyIDOptionLetters, letter) < 0 {
+			inv.force = inv.force || letter == 'f'
+			continue
 		}
+		v, used := tok[j+1:], 0
+		if v == "" && i+1 < len(opts) && (letter != 'i' || !strings.HasPrefix(opts[i+1], "-")) {
+			v, used = opts[i+1], 1
+		}
+		switch letter {
+		case 'i':
+			if inv.install == "" {
+				inv.install = v
+			}
+			return used, nil, nil
+		case 't':
+			return used, nil, nil
+		case 'o':
+			if err := ask.option(v); err != nil {
+				return used, nil, err
+			}
+		}
+		return used, []string{"-" + string(letter), v}, nil
 	}
-	return used, []string{"-" + string(letter), v}, nil
+	return 0, nil, nil
 }

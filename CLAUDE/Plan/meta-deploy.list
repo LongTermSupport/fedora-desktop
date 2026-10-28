@@ -41,8 +41,13 @@
 # Also play-basic-configs.yml (Plan 00192 Task 3.3): ssh-with-key, scp-with-key and
 # ssh-copy-id-with-key are now Go binaries built from src-go/cmd and installed at their old
 # paths in ~/.local/bin; nothing else in the play changes, nothing is asked and no host is
-# contacted. The host agent then checks SPEC-ssh-with-key H1-H4 with a throwaway key against a
-# VM-lab guest (help, usage errors, a login offering one key, scp both ways, an ssh-copy-id dry
-# run, a configuration with a second key refused, and -A in tmux leaving no agent behind). H5
-# (the owner's own hosts and keys) is the owner's.
+# contacted. play-claude-yolo.yml joins the run too, for the CCY 3.101.2 bump (the shared Go
+# term package the launcher's front is built from gained ExpandHome): it reinstalls the launcher
+# file and rebuilds the claude-yolo front binary, and nothing in ccy changes (the container
+# version is the same, so the image is not rebuilt). The host agent then checks
+# SPEC-ssh-with-key H1-H4 with throwaway keys against a VM-lab guest (help, usage errors, a
+# login offering one key, scp both ways, ssh-copy-id: a dry run, an install, then "already
+# installed" with the key in authorized_keys once, a configuration with a second key refused,
+# and -A in tmux offering one key and leaving no agent behind). H5 (the owner's own hosts and
+# keys) is the owner's.
 changed-plays

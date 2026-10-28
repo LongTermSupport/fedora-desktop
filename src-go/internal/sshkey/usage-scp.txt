@@ -10,7 +10,9 @@ Usage: scp-with-key [-i KEY] [scp-options...] source... target
   -h, --help   Show this text.
 
   Every other argument goes to scp as it is. A second key (-i or -o IdentityFile)
-  is refused, and so is a configuration that gives a host another key. scp's port
+  is refused, and so is a configuration that gives a host another key. So is
+  an agent named (-o IdentityAgent, -o ForwardAgent=SOCKET), with -A a
+  configuration that names one, and -S (another program run as ssh). scp's port
   option is -P (uppercase), unlike ssh's -p.
 
 Examples:

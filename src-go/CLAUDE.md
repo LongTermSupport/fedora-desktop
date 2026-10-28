@@ -60,11 +60,12 @@ the wrappers that build and run the Go commands).
   removals in Go. `testdata/scenarios.json` is the scenario table the Go (`TestScenarios`) and
   the bash it replaced (the plan's `reclaim-parity/parity.py`) were both judged by.
 - `internal/sshkey/` — `ssh-with-key`, `scp-with-key` and `ssh-copy-id-with-key` (spec
-  `SPEC-ssh-with-key.md`, E1-E19), three thin `cmd/` mains over one package: one login key,
+  `SPEC-ssh-with-key.md`, E1-E20), three thin `cmd/` mains over one package: one login key,
   `ssh -G` asked before connecting whether ssh's configuration would offer another, and the
   program exec'd; with `-A`, the run re-executes itself under `ssh-agent` (its command mode, so
   the agent ends with the run), adds the chosen keys with `ssh-add` and runs the program through
-  `execx.Foregrounder`. No passphrase passes through it.
+  `execx.Foregrounder`. ssh-copy-id-with-key checks itself, with the new key alone, whether the
+  key is installed, then runs `ssh-copy-id -f`. No passphrase passes through it.
 - `internal/<package>/` — shared adapters, each behind an interface with a fake: `execx`
   (the command runner every external call goes through, and its recording `Fake`), `term`
   (exit codes, error printing), `ui` (gum and fzf prompts), `sudo`, `systemd`, `tmuxccy`,

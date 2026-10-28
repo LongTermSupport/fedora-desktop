@@ -26,7 +26,7 @@ func TestE5WhatIsNotAReadablePrivateKeyIsRefused(t *testing.T) {
 	notKey := w.file("known_hosts", "host.example.com ssh-ed25519 AAAA\n")
 	for _, path := range []string{notKey, filepath.Join(w.sshDir(), "missing"), w.sshDir()} {
 		w.stderr.Reset()
-		wantCode(t, w.run(CopyID, "--auth-key", path, "host.example.com"), term.ExitFailure)
+		wantCode(t, w.run(CopyID, "--auth-key", path, "-i", "new.pub", "host.example.com"), term.ExitFailure)
 		w.stderrHas("ssh-copy-id-with-key: " + term.AbbrevHome(path, w.home) + " is not a readable private key: ")
 	}
 	if len(w.ran()) != 0 {
@@ -87,7 +87,7 @@ func TestE6SSHCopyIDSaysWhichKeyItAsksFor(t *testing.T) {
 	w.key("id_a")
 	w.probeSays()
 	w.tty = "1\n"
-	wantCode(t, w.run(CopyID, "-i", "new.pub", "host.example.com"), term.ExitOK)
+	wantCode(t, w.run(CopyID, "-f", "-i", "new.pub", "host.example.com"), term.ExitOK)
 	w.stderrHas("the key to log in with, not the key to install")
 }
 
@@ -138,7 +138,7 @@ func TestE8NoTerminalToChooseOn(t *testing.T) {
 func TestE9NoPrivateKeys(t *testing.T) {
 	w := newWorld(t)
 	w.file("id_a.pub", "ssh-ed25519 AAAA a\n")
-	wantCode(t, w.run(CopyID, "host.example.com"), term.ExitFailure)
+	wantCode(t, w.run(CopyID, "-i", "new.pub", "host.example.com"), term.ExitFailure)
 	w.stderrHas("ssh-copy-id-with-key: no private keys in ~/.ssh; give one with --auth-key KEY.")
 	if err := os.RemoveAll(w.sshDir()); err != nil {
 		t.Fatal(err)
