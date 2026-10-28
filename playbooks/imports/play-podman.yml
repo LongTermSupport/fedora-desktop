@@ -216,12 +216,18 @@
         - container-images-prune.service
         - container-images-prune.timer
 
-    - name: Enable and Start the container-images Prune Timer
+    # A store holding files owned outside the user's subuid range would be broken by the timer's
+    # next prune, with no root to repair it, so the timer is held off and the play fails at its
+    # end (tasks/podman-store-ownership-probe.yml, Plan 00235 Q6).
+    - name: Find Whether the Store Holds Files the Rootless User Cannot Delete
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/podman-store-ownership-probe.yml"
+
+    - name: Enable and Start the container-images Prune Timer, or Hold It Off
       ansible.builtin.systemd:
         name: container-images-prune.timer
         scope: user
-        enabled: true
-        state: started
+        enabled: "{{ not (podman_store_foreign_owner | bool) }}"
+        state: "{{ 'stopped' if podman_store_foreign_owner | bool else 'started' }}"
         daemon_reload: true
       environment:
         XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
@@ -232,7 +238,9 @@
     # stops there and leaves that layer's temporary directory, which breaks the store, so the
     # repair runs again after the prune whatever its result; the play still fails after it.
     - name: Run the First Prune Now, Clearing the Backlog
-      when: not container_images_succeeded.stat.exists
+      when:
+        - not container_images_succeeded.stat.exists
+        - not (podman_store_foreign_owner | bool)
       block:
         - name: Start the container-images Prune Service and Wait for It
           ansible.builtin.systemd:
@@ -245,6 +253,14 @@
       always:
         - name: Repair the Rootless Store as Root After the Prune
           ansible.builtin.import_tasks: "{{ root_dir }}/tasks/podman-store-repair.yml"
+
+    - name: Fail While the Store Holds Files Owned Outside the subuid Range
+      ansible.builtin.fail:
+        msg: >-
+          the podman store holds files owned outside your subuid range (old range); the daily
+          prune is held off until they are re-owned (Plan 00235 Q6). First found:
+          {{ podman_store_foreign_file.stdout }}
+      when: podman_store_foreign_owner | bool
 
     - name: Show Podman Version
       ansible.builtin.debug:

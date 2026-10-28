@@ -17,6 +17,12 @@
 # buildah working containers over a day old; nothing while a ccy build runs), each removal logged to
 # ~/.local/state/fedora-desktop/container-images.log. No volume and no image in use is removed.
 # The owner agreed to the first run clearing the backlog with no dry run read first (Q4).
+# Before the timer, a root probe (tasks/podman-store-ownership-probe.yml) looks for a store
+# file owned outside the user's uid and current subuid range (the old range). If it finds one
+# the timer is STOPPED and DISABLED, the first prune is not run, and the play FAILS ON PURPOSE
+# at its end: "the podman store holds files owned outside your subuid range (old range); the
+# daily prune is held off until they are re-owned (Plan 00235 Q6)". The store is repaired by
+# then, so podman works; the failure is the owner's Q6 decision.
 #
 # Usage: ./deploy.bash [-h|--help] [--check]
 set -euo pipefail
@@ -45,7 +51,9 @@ PLAN_USAGE="usage: deploy.bash [-h|--help] [--check]
 Plan 00235, the deploy half: runs play-podman.yml on the HOST, which repairs the rootless store
 as root (leftover c/storage temporary directories), builds container-images,
 installs and enables the daily container-images-prune timer and, the first time, runs the
-prune once (it removes the backlog of unused dangling images).
+prune once (it removes the backlog of unused dangling images). If the store holds files owned
+outside the user's subuid range (the old range), the timer is held off (stopped, disabled), no
+prune runs, and the play fails on purpose with that message (Plan 00235 Q6).
   --check   the play as a dry run
 Prompts for sudo once, before the run log opens."
 
