@@ -40,6 +40,14 @@
 # fails if it cannot. A recorder that fails to load (CUDA out of memory, a missing model)
 # now ends the dictation at once with a notification that stays, instead of hanging.
 # Nothing else is downloaded. No logout is needed.
+# Also play-nordvpn-openvpn.yml (Plan 00192 Task 3.3), when it has run here before: nord is
+# now a Go binary built from src-go/cmd/nord (the play imports play-golang.yml first) and
+# installed at ~/.local/bin/nord, and the old ~/.config/nordvpn/.current-connection is
+# removed. No credentials are asked when they are already in host_vars, and no VPN is brought
+# up or down. The host agent then checks SPEC-nord H1-H3: nord --version says 2.0.0, list,
+# list-active and status read the real NetworkManager, and the chooser in tmux cancels with q,
+# Ctrl-D and Ctrl-C changing nothing. H4-H7 (connect, switch, disconnect, cleanup) are the
+# owner's: they reroute the host's network.
 changed-plays
 
 # Then Plan 00234's gpu-load-acceptance.bash again, the leg that failed: loads

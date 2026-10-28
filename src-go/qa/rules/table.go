@@ -61,7 +61,8 @@ const (
 // A program with two owners is used for two different jobs: podman is read for a session's
 // container by sessprobe, driven (pause, unpause, networks) by podfreeze, and pruned (with
 // docker) by reclaim, the disk-space menu; netpolicy creates, holds the network policy of and
-// starts a ccy session's container (and runs one under docker unprotected). A program absent
+// starts a ccy session's container (and runs one under docker unprotected); nmcli is run inside
+// a container by lxcfreeze, for the hotspot by ftpcamera and for its VPN profiles by nord. A program absent
 // from the table is unowned: any package may run it.
 var commandOwners = map[string][]string{
 	"sudo":         {sudoPkg},
@@ -79,7 +80,7 @@ var commandOwners = map[string][]string{
 	"lxc-freeze":   {lxcfreezePkg},
 	"lxc-unfreeze": {lxcfreezePkg},
 	"lxc-attach":   {lxcfreezePkg},
-	"nmcli":        {lxcfreezePkg, ftpcameraPkg},
+	"nmcli":        {lxcfreezePkg, ftpcameraPkg, "internal/nord"},
 }
 
 // programRunner is a function or method that runs the program named by its arguments from

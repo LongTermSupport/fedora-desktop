@@ -1297,7 +1297,8 @@ Network discovery tools:
 NordVPN OpenVPN manager:
 
 - Installs openvpn and NetworkManager-openvpn packages
-- Deploys `nord` helper for interactive OpenVPN connection management
+- Builds and installs the `nord` command (Go, `src-go/cmd/nord`) for interactive OpenVPN
+  connection management
 - Uses NordVPN service credentials (stored encrypted in `localhost.yml`)
 - See [docs/nordvpn-installation.md](nordvpn-installation.md) for setup guide
 

@@ -429,3 +429,25 @@ host recheck passed (H1's Podman section with no summed size, and the dangling c
 prune question differing by the stated number kept; option 6 answering No to every question
 ran nothing). 2.0.5 says `Skipped <command>.` after a No to either "Also remove all unused"
 question too, as after the first question of each pair (E22); its recheck is queued.
+`nord` (P6, the seventh tool; chosen in its spec's section 1: the largest left and the only
+interactive one, whose danger a recorded command list proves) ported and cut over on
+`go-port/nord`, the review pending, not merged; spec [SPEC-nord.md](SPEC-nord.md) (D1-D5,
+E1-E24, B1-B16, H1-H7), `src-go/cmd/nord` (under `execx.SignalContext`) and
+`src-go/internal/nord`. `nord` joins the owners of `nmcli` in the project rule's table; systemd
+is asked through `internal/systemd`, the chooser is `ui.Lines.Choose`. The password reaches
+`nmcli connection up` only on its stdin (`passwd-file /dev/stdin`, an `execx.Feed`), where the
+bash put it in `nmcli connection modify`'s argv and the profile (B3); so a profile nord imports
+holds no password, and connecting it from GNOME's settings asks for one. The state file is gone
+(NetworkManager is asked, D2; the play removes the file), every profile is named by UUID (B8),
+a half-made import is deleted (B9), `switch` imports before it disconnects (B12), and a
+connection that will not go down stops the connect (B10). `play-nordvpn-openvpn.yml` builds it
+(importing `play-golang.yml` first); the bash and its allowlist row are gone (it had no suite),
+`scripts/go-binary-suites.tsv` gives it `qa-go`, and `test-qa-changed.bash` takes `lan-scan` as
+its allowlisted tool. No oracle against the bash (SPEC-nord section 6): the expectation tests
+run over a fake NetworkManager (`world_test.go`: the listings from its profiles, each verb
+applied to them, every unscripted command a failure). Not proven here, and so H4: that
+NetworkManager's OpenVPN plugin takes the password from `passwd-file` for a profile with none
+stored. The secret-file guard denies a Write whose text holds nmcli's passwd-file key for a
+VPN password as one token (it matches a protected glob), so the key is built from its three
+documented parts (`passwdKey`), with a test pinning it. Host run queued in `meta-deploy.list`
+(`changed-plays`, expected to pick up `play-nordvpn-openvpn.yml`).

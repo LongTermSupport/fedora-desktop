@@ -1,0 +1,43 @@
+nord - NordVPN OpenVPN connections through NetworkManager
+
+USAGE:
+    nord [--debug]                   Interactive chooser (connect, switch, disconnect)
+    nord [--debug] <command> [name]
+
+COMMANDS:
+    list                List the .ovpn configs and their names
+    list-active         List the imported NetworkManager connections (the connected one marked)
+    connect <name>      Connect to a config, importing it first if needed; any other
+                        NordVPN connection is brought down first
+    switch <name>       The same as connect
+    disconnect          Bring down every NordVPN connection
+    status              Show the connection, its device and the public IP
+                        (exit 1 when not connected)
+    cleanup             Remove every nordvpn-* connection from NetworkManager
+
+OPTIONS (before the command):
+    -h, --help          Show this help
+    -v, --version       Show the version
+    --debug             Print each command nord runs
+
+NAMES:
+    A config's name is its file name less .ovpn and less .nordvpn.com.udp or
+    .nordvpn.com.tcp (uk1234.nordvpn.com.udp.ovpn is uk1234). When the UDP and TCP
+    files of one server are both there, each is named in full (uk1234.nordvpn.com.udp).
+    The full file name less .ovpn always works too.
+
+EXAMPLES:
+    nord
+    nord list
+    nord connect uk1234
+    nord status
+    nord switch us5678
+    nord disconnect
+
+FILES:
+    Configs:      ~/.config/nordvpn/configs/
+    Credentials:  ~/.config/nordvpn/.credentials (username, then password)
+    Log:          ~/.local/share/nordvpn/nord.log
+
+Set up (packages, directories, credentials, this command):
+    ./playbooks/imports/optional/common/play-nordvpn-openvpn.yml
