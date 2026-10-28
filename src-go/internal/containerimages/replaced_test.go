@@ -43,6 +43,7 @@ func newShelf(t *testing.T) *shelf {
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	markStoreClean(t, home)
 	env := map[string]string{"XDG_RUNTIME_DIR": filepath.Join(t.TempDir(), "run")}
 	return &shelf{t: t, engine: "podman", fake: &execx.Fake{}, home: home, env: env, refuse: map[string]string{}}
 }
@@ -395,6 +396,46 @@ func TestARecordItCannotReadFailsTheRunBeforeAnyQuestion(t *testing.T) {
 
 func TestALogThatCannotBeOpenedStopsTheRunBeforeARemoval(t *testing.T) {
 	s := newShelf(t)
+	if err := os.MkdirAll(filepath.Join(s.home, ".local", "state", "fedora-desktop", "container-images.log"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	before := s.record("localhost/claude-yolo:latest " + id("a") + "\n")
+	s.tags = "localhost/claude-yolo:latest sha256:" + id("b") + "\n"
+	if code := s.run("replaced", "claude-yolo", before); code != term.ExitFailure {
+		t.Fatalf("exit %d", code)
+	}
+	if len(s.removed()) != 0 || !strings.Contains(s.err.String(), "removal log") {
+		t.Fatalf("removed %v; stderr %s", s.removed(), s.err.String())
+	}
+}
+
+// While the store is not confirmed free of old-range files a removal could break it until root
+// repairs it, so the self-prune removes nothing, says so once, and the launch goes on (R7).
+func TestNothingIsReplacedWhileTheStoreIsNotConfirmedClean(t *testing.T) {
+	s := newShelf(t)
+	unconfirmStore(t, s.home)
+	before := s.record("localhost/claude-yolo:latest " + id("a") + "\nlocalhost/claude-yolo:proj " + id("c") + "\n")
+	s.tags = "localhost/claude-yolo:latest sha256:" + id("b") + "\n"
+	if code := s.run("replaced", "claude-yolo", before); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, s.err.String())
+	}
+	if got := s.removed(); len(got) != 0 {
+		t.Fatalf("removed %v from an unconfirmed store", got)
+	}
+	want := "container-images: " + unconfirmedSays + "; nothing removed; run play-podman.yml\n"
+	if s.err.String() != want {
+		t.Fatalf("stderr %q, want %q", s.err.String(), want)
+	}
+	if s.logText() != "" {
+		t.Fatalf("log %q", s.logText())
+	}
+}
+
+func TestAMarkerThatCannotBeReadStopsTheSelfPruneBeforeARemoval(t *testing.T) {
+	s := newShelf(t)
+	if err := os.RemoveAll(filepath.Join(s.home, ".local")); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Join(s.home, ".local"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -406,7 +447,7 @@ func TestALogThatCannotBeOpenedStopsTheRunBeforeARemoval(t *testing.T) {
 	if code := s.run("replaced", "claude-yolo", before); code != term.ExitFailure {
 		t.Fatalf("exit %d", code)
 	}
-	if len(s.removed()) != 0 || !strings.Contains(s.err.String(), "removal log") {
+	if len(s.removed()) != 0 || !strings.Contains(s.err.String(), "store-clean marker") {
 		t.Fatalf("removed %v; stderr %s", s.removed(), s.err.String())
 	}
 }

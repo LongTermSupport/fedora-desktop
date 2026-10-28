@@ -175,15 +175,20 @@ chmod +x "$BIN/podman"
 CONTEXT="$SCRATCH/context"
 PROJECT="$SCRATCH/project"
 mkdir -p "$CONTEXT" "$PROJECT/.claude/ccy"
+# Each world's HOME holds the marker play-podman.yml writes once root's probe finds the store
+# clean (container_images_store_clean); without it the self-prune removes nothing.
 reset_world() {
     kill_fakes
-    rm -rf "$SCRATCH/state" "$SCRATCH/run"
-    mkdir -p "$SCRATCH/state/images" "$SCRATCH/run"
+    rm -rf "$SCRATCH/state" "$SCRATCH/run" "$HOME"
+    mkdir -p "$SCRATCH/state/images" "$SCRATCH/run" "$HOME/.local/state/fedora-desktop"
+    date -u +%FT%TZ >"$HOME/.local/state/fedora-desktop/container-images.store-clean"
     chmod 700 "$SCRATCH/run"
     : >"$SCRATCH/state/builds.log"
     printf 'FROM scratch\nLABEL claude-yolo-version="%s"\n' "${1:-9.9.9}" >"$CONTEXT/Dockerfile"
 }
 
+# The self-prune writes its removal log under HOME, so HOME is the sandbox's, set after the builds.
+export HOME="$SCRATCH/home"
 export TEST_STATE="$SCRATCH/state"
 export TEST_CONTEXT="$CONTEXT"
 export XDG_RUNTIME_DIR="$SCRATCH/run"
@@ -493,6 +498,17 @@ check "nothing is removed" 0 "$(wc -l <"$TEST_STATE/removed.log" | tr -d ' ')"
 has "it says why" "$SCRATCH/a.err" "another ccy image build is running (claude-yolo_proj.lock is held)"
 kill "$pid_other" 2>>"$QUIET"
 wait "$pid_other" 2>>"$QUIET"
+
+echo "== while the store is not confirmed clean (Plan 00235 Q6), a rebuild removes nothing"
+reset_world
+TEST_BUILD_SLEEP=0 run_launch base.bash >>"$QUIET" 2>&1
+: >"$TEST_STATE/removed.log"
+rm "$HOME/.local/state/fedora-desktop/container-images.store-clean"
+TEST_BUILD_SLEEP=0 run_launch base.bash force >"$SCRATCH/a.out" 2>"$SCRATCH/a.err"
+check "the rebuild succeeds" 0 "$?"
+has "it uses the new image" "$SCRATCH/a.out" "ready $(awk '{print $1}' "$TEST_STATE/images/claude-yolo_latest")"
+check "nothing is removed" 0 "$(wc -l <"$TEST_STATE/removed.log" | tr -d ' ')"
+has "it says why" "$SCRATCH/a.err" "the podman store has not been confirmed free of old-range files (Plan 00235 Q6); nothing removed; run play-podman.yml"
 
 echo "== a launch that cannot record the images before its build does not build"
 reset_world

@@ -21,6 +21,8 @@ package containerimages
 //   - R6. The build locks are per image and the record is the whole repository, so while a
 //     ccy image build lock other than the caller's own (--lock) is held, nothing is removed:
 //     each id that would go is named as kept, and the daily prune removes it later (P3a).
+//   - R7. Without play-podman.yml's store-clean marker (P9) nothing is removed: the run says so
+//     once on stderr and exits 0, since a launch never fails for its self-prune.
 
 import (
 	"context"
@@ -142,6 +144,13 @@ func (a App) replaced(ctx context.Context, eng engine.Engine, repo, path, ownLoc
 	}
 	if len(gone) == 0 {
 		return r.finish(term.ExitOK)
+	}
+	clean, err := a.storeClean()
+	if err != nil {
+		return r.finish(r.fail(err))
+	}
+	if !clean {
+		return a.sayUnconfirmed()
 	}
 	other, err := heldBuildLock(a.buildLocks(), ownLock)
 	if err != nil {

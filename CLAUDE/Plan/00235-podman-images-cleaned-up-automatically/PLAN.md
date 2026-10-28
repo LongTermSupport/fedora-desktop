@@ -179,6 +179,13 @@ the plans cite kept.
   not run, and the play fails at its end ("the podman store holds files owned outside your
   subuid range (old range); the daily prune is held off until they are re-owned (Plan 00235
   Q6)"), with the store already repaired
+- [x] ✅ **Task 4.9**: the gate on ccy's self-prune and a manual prune. play-podman.yml writes
+  `~/.local/state/fedora-desktop/container-images.store-clean` (the user's, 0644, the probe's
+  time) when the Task 4.8 probe finds no foreign-owned file and removes it when it finds one.
+  Without it `container-images replaced` removes nothing, says so once and exits 0 (R7), and
+  `prune --yes` removes nothing and exits 1 (P9); a dry run lists and notes the missing marker
+  (tests first, journalled; the lock suite's sandbox gets its own HOME holding the marker, and a
+  case without it) ([report](subagent-reports/261028-clean-store-gate.md))
 
 ### Phase 5: The health report says so
 

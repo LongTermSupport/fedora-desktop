@@ -39,6 +39,11 @@
 //     parent dangling, until a pass removes nothing; the passes are bounded, and a run that
 //     still finds work at the bound fails.
 //   - P8. Any list the engine cannot give stops the run before a removal.
+//   - P9. Without ~/.local/state/fedora-desktop/container-images.store-clean, which only
+//     play-podman.yml writes once root's probe finds no store file owned outside the user's
+//     subuid range, `prune --yes` removes nothing: a removal could leave what P6a describes,
+//     which only root repairs. It says so once on stderr and exits 1. A dry run lists as
+//     ever and notes the missing marker. A marker that cannot be read stops the run.
 package containerimages
 
 import (
@@ -73,6 +78,10 @@ const (
 	logName    = "container-images.log"
 	lockName   = "container-images.lock"
 	stampName  = "container-images.succeeded"
+	// storeCleanName is written and removed by play-podman.yml (container_images_store_clean),
+	// never by this command (P9).
+	storeCleanName = "container-images.store-clean"
+	unconfirmed    = "the podman store has not been confirmed free of old-range files (Plan 00235 Q6)"
 	// launchStamps is the ccy launcher's per-image update-check stamps (VERSION_CHECK_CACHE).
 	launchStamps = ".cache/claude-yolo-update-checks"
 	kindImage    = "image"
@@ -88,8 +97,10 @@ const (
                  days ago; buildah working
                  containers over a day old while no ccy image build runs. Dangling volumes
                  are listed, never removed. Each removal is logged to
-                 ~/.local/state/fedora-desktop/container-images.log.
-  before         print each tag of the repository with its image id (ccy's build lock
+                 ~/.local/state/fedora-desktop/container-images.log. Neither this nor
+                 replaced removes anything until play-podman.yml has found the store
+                 free of files of an old subuid range (container-images.store-clean).
+  before        print each tag of the repository with its image id (ccy's build lock
                  records this before a build)
   replaced       remove each image of that record no tag now names and no container uses
                  (ccy's build lock runs it after a build); ids-file may be /dev/stdin.
@@ -333,14 +344,23 @@ func (a App) prune(ctx context.Context, yes bool) term.ExitCode {
 	}
 	r := &run{App: a, eng: eng, yes: yes, seen: map[keep]bool{}}
 	if !yes {
-		r.p.Print(a.Env.Stdout, "container-images prune: a dry run, nothing is removed. prune --yes removes what is listed.\n")
-		return r.body(ctx)
+		return r.dryRun(ctx)
 	}
 	release, err := a.takeRunLock()
 	if err != nil {
 		return a.fail(err)
 	}
 	defer release()
+	clean, err := a.storeClean()
+	if err != nil {
+		return a.fail(err)
+	}
+	if !clean {
+		if code := a.sayUnconfirmed(); code != term.ExitOK {
+			return code
+		}
+		return term.ExitFailure
+	}
 	if r.log, err = a.openLog(); err != nil {
 		return a.fail(err)
 	}
@@ -352,6 +372,19 @@ func (a App) prune(ctx context.Context, yes bool) term.ExitCode {
 		return code
 	}
 	return a.stampSuccess()
+}
+
+// dryRun lists what `prune --yes` would remove, noting a store not confirmed clean (P9).
+func (r *run) dryRun(ctx context.Context) term.ExitCode {
+	clean, err := r.storeClean()
+	if err != nil {
+		return r.App.fail(err)
+	}
+	if !clean {
+		r.p.Print(r.Env.Stderr, "container-images: "+unconfirmed+"; prune --yes would remove nothing; run play-podman.yml\n")
+	}
+	r.p.Print(r.Env.Stdout, "container-images prune: a dry run, nothing is removed. prune --yes removes what is listed.\n")
+	return r.body(ctx)
 }
 
 // body is one run after its setup: the passes, then the report.
@@ -580,6 +613,26 @@ func (a App) stampSuccess() term.ExitCode {
 		return a.fail(fmt.Errorf("the prune succeeded but its stamp %s could not be written: %w", path, err))
 	}
 	return term.ExitOK
+}
+
+// storeClean is whether play-podman.yml's marker of a store with no old-range file is there (P9).
+func (a App) storeClean() (bool, error) {
+	path := filepath.Join(a.stateDir(), storeCleanName)
+	_, err := os.Stat(path)
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, fs.ErrNotExist):
+		return false, nil
+	default:
+		return false, fmt.Errorf("cannot read the store-clean marker %s: %w", path, err)
+	}
+}
+
+// sayUnconfirmed is the one line of a run that removes nothing for want of the marker (P9, R7);
+// exit 1 only when stderr cannot take it.
+func (a App) sayUnconfirmed() term.ExitCode {
+	return a.print(a.Env.Stderr, "container-images: "+unconfirmed+"; nothing removed; run play-podman.yml\n")
 }
 
 // openLog is the removal log both prune and replaced append to (P6, R2).

@@ -32,7 +32,9 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
 - **A failed self-prune never fails a launch, and none runs beside another build.** The
   review fixes of 3.102.0's self-prune, which was never released alone: the behaviour is the
   3.102.0 entry below. `container-images replaced` is given the build's own lock (`--lock`)
-  and removes nothing while another ccy image build lock is held.
+  and removes nothing while another ccy image build lock is held. It also removes nothing, saying
+  so once, until `play-podman.yml` has confirmed the store holds no file of an old subuid range
+  (`~/.local/state/fedora-desktop/container-images.store-clean`, Plan 00235 Q6).
 
 ## 3.102.0 — container 2.79.15
 
