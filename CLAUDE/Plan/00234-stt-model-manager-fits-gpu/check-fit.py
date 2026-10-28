@@ -131,7 +131,16 @@ async def drive_screen(manager, report, best, too_big):
     problems = []
     app = Watched()
     async with app.run_test(size=(160, 40)) as pilot:
+        first = str(app.query_one("#status", manager.Static).render())
+        print(f"first status line: {first}")
+        if manager.CHECKING_LINE not in first:
+            problems.append(f"the first status line is {first!r}, not the checking line")
+        await app.workers.wait_for_complete()
         await pilot.pause()
+        status = str(app.query_one("#status", manager.Static).render())
+        print(f"status line after the checks: {status}")
+        if manager.machine_line(report, "") not in status:
+            problems.append(f"the status line {status!r} does not name the GPU")
         table = app.query_one("#table", manager.DataTable)
         start = app._selected_model_id()
         print(f"cursor starts on: {start}")

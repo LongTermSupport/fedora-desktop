@@ -492,5 +492,70 @@ class FitsThisMachineTest(unittest.TestCase):
             self.assertIn("nvidia-smi failed", str(raised.exception))
 
 
+class OpensAtOnceTest(unittest.TestCase):
+    """Plan 00234 Tasks 2.4 and 2.5: the manager's window was black for seconds after it
+    opened, because on_mount ran the resolver three times (two --suggest, one --fit, each
+    loading CTranslate2) before the first frame was drawn. The first frame now says what
+    it is checking, the probes run in a worker, and the GPU line is in the normal text
+    colour, not the muted one."""
+
+    def test_the_first_frame_says_what_is_being_checked(self):
+        made = []
+
+        class Recorded:
+            def __init__(self, *args, **kwargs):
+                made.append((args, kwargs))
+
+        with mock.patch.object(manager, "Static", Recorded):
+            list(manager.ModelManagerApp.compose(mock.MagicMock()))
+        status = [args for args, kwargs in made if kwargs.get("id") == "status"]
+        self.assertEqual(status, [(manager.CHECKING_LINE,)])
+        self.assertEqual(manager.CHECKING_LINE, "Checking the GPU and the models...")
+
+    def test_on_mount_runs_no_probe_itself_and_starts_the_worker(self):
+        app = mock.MagicMock()
+        with mock.patch.object(manager, "machine_fit") as fit, \
+                mock.patch.object(manager, "auto_suggestions") as suggest, \
+                mock.patch.object(manager, "session_language") as language:
+            manager.ModelManagerApp.on_mount(app)
+        fit.assert_not_called()
+        suggest.assert_not_called()
+        language.assert_not_called()
+        app._probe_machine.assert_called_once_with()
+
+    def test_the_probe_returns_the_fit_and_the_suggestions(self):
+        with mock.patch.object(manager, "session_language", return_value="en"), \
+                mock.patch.object(manager, "auto_suggestions",
+                                  return_value={"distil-large-v3.5": ["batch"]}), \
+                mock.patch.object(manager, "machine_fit", return_value={"device": "cpu"}):
+            self.assertEqual(manager.probe_machine(),
+                             ({"distil-large-v3.5": ["batch"]}, "", {"device": "cpu"}, ""))
+
+    def test_the_probe_reports_each_failure_with_its_reason(self):
+        with mock.patch.object(manager, "session_language", return_value="en"), \
+                mock.patch.object(manager, "auto_suggestions",
+                                  side_effect=RuntimeError("no model")), \
+                mock.patch.object(manager, "machine_fit",
+                                  side_effect=RuntimeError("nvidia-smi failed")):
+            suggested, suggest_error, fit, fit_error = manager.probe_machine()
+        self.assertEqual((suggested, fit), ({}, None))
+        self.assertIn("no model", suggest_error)
+        self.assertEqual(fit_error, "nvidia-smi failed")
+
+    def test_while_checking_the_machine_line_says_so_and_downloads_wait(self):
+        self.assertEqual(manager.machine_line(None, "", checking=True), manager.CHECKING_LINE)
+        app = mock.MagicMock()
+        app._probing = True
+        manager.ModelManagerApp._start_download(app, "tiny")
+        app._do_download.assert_not_called()
+        self.assertIn("Still checking", app.notify.call_args.args[0])
+
+    def test_the_status_line_is_in_the_normal_text_colour(self):
+        status_rule = re.search(r"#status \{(.*?)\}", manager.ModelManagerApp.CSS, re.S).group(1)
+        self.assertNotIn("muted", status_rule)
+        self.assertNotIn("dim", status_rule)
+        self.assertIn("color: $text;", status_rule)
+
+
 if __name__ == "__main__":
     unittest.main()
