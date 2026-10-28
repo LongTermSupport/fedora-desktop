@@ -73,7 +73,7 @@ podman image inspect claude-yolo:latest --format '{{.Id}}'
 container-images --engine podman before claude-yolo
 podman build --build-arg 'DOCKERFILE_HASH={image_hash}' --target base -t claude-yolo:base '{sandbox}/opt/claude-yolo'
 podman build --build-arg 'DOCKERFILE_HASH={image_hash}' -t claude-yolo:latest '{sandbox}/opt/claude-yolo'
-container-images --engine podman replaced claude-yolo /dev/stdin
+container-images --engine podman replaced --lock '{sandbox}/run/ccy/image-builds/claude-yolo_latest.lock' claude-yolo /dev/stdin
 podman run --rm --entrypoint claude claude-yolo:latest --version
 curl -fsSL https://registry.npmjs.org/@anthropic-ai/claude-code/latest
 podman network ls --format '{{.Name}}'

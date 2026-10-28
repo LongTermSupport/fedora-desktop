@@ -94,7 +94,8 @@ fi
 # $TEST_STATE/build-fails exists, and with $TEST_BUILD_LINGER leaves a child behind that
 # outlives it, as podman's pause process can. Every fake's pid goes to podman.pids for cleanup.
 # An id is 64 digits, as podman's are 64 hex digits. container-images' questions: `images` lists
-# the claude-yolo tags, `ps` finds no container, and `image rm <id>` appends the id to removed.log.
+# the claude-yolo tags, `ps` finds no container (fails when $TEST_STATE/ps-fails exists), and
+# `image rm <id>` appends the id to removed.log (refuses when $TEST_STATE/rm-refuses exists).
 cat >"$BIN/podman" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -108,8 +109,9 @@ images)
         read -r id _ <"$f"
         echo "localhost/claude-yolo:${f##*/claude-yolo_} sha256:$id"
     done ;;
-ps) ;;
+ps) if [ -e "$TEST_STATE/ps-fails" ]; then echo "Error: the storage is locked" >&2; exit 125; fi ;;
 image)
+    if [ "$2" = rm ] && [ -e "$TEST_STATE/rm-refuses" ]; then echo "Error: image has dependent child images" >&2; exit 2; fi
     if [ "$2" = rm ]; then echo "$3" >>"$TEST_STATE/removed.log" && exit 0; fi
     shift 2
     format="" name=""
@@ -449,6 +451,48 @@ TEST_BUILD_SLEEP=0 run_launch base.bash force >>"$QUIET" 2>&1
 check "the launch fails" 1 "$?"
 check "nothing is removed" 0 "$(wc -l <"$TEST_STATE/removed.log" | tr -d ' ')"
 rm -f "$TEST_STATE/build-fails"
+
+echo "== a removal the engine refuses is reported and the launch goes on"
+reset_world
+TEST_BUILD_SLEEP=0 run_launch base.bash >>"$QUIET" 2>&1
+touch "$TEST_STATE/rm-refuses"
+TEST_BUILD_SLEEP=0 run_launch base.bash force >"$SCRATCH/a.out" 2>"$SCRATCH/a.err"
+check "the launch succeeds" 0 "$?"
+has "it uses the new image" "$SCRATCH/a.out" "ready $(awk '{print $1}' "$TEST_STATE/images/claude-yolo_latest")"
+has "the refusal is reported" "$SCRATCH/a.err" "could not remove image"
+has "and names the daily prune" "$SCRATCH/a.err" "the daily prune (container-images-prune.timer) removes it"
+rm -f "$TEST_STATE/rm-refuses"
+
+echo "== a self-prune that fails after the build does not fail the launch"
+reset_world
+TEST_BUILD_SLEEP=0 run_launch base.bash >>"$QUIET" 2>&1
+: >"$TEST_STATE/removed.log"
+touch "$TEST_STATE/ps-fails"
+TEST_BUILD_SLEEP=0 run_launch base.bash force >"$SCRATCH/a.out" 2>"$SCRATCH/a.err"
+check "the launch succeeds" 0 "$?"
+has "it uses the new image" "$SCRATCH/a.out" "ready $(awk '{print $1}' "$TEST_STATE/images/claude-yolo_latest")"
+has "the failure is reported" "$SCRATCH/a.err" "the images the build of claude-yolo replaced were not removed (container-images exit 1)"
+check "nothing is removed" 0 "$(wc -l <"$TEST_STATE/removed.log" | tr -d ' ')"
+: >"$TEST_STATE/builds.log"
+TEST_BUILD_SLEEP=0 run_launch update-launch.bash restart >>"$QUIET" 2>"$SCRATCH/a.err"
+check "an in-place update succeeds too" 0 "$?"
+check "and committed once" 1 "$(grep -c '^commit claude-yolo:latest' "$TEST_STATE/builds.log")"
+rm -f "$TEST_STATE/ps-fails"
+
+echo "== while another build of the repository runs, a rebuild removes nothing"
+reset_world
+TEST_BUILD_SLEEP=0 run_launch base.bash >>"$QUIET" 2>&1
+: >"$TEST_STATE/removed.log"
+other_lock="$SCRATCH/run/ccy/image-builds/claude-yolo_proj.lock"
+timeout 60 flock "$other_lock" bash -c 'echo held >"$1" && sleep 60' _ "$SCRATCH/other.held" &
+pid_other=$!
+wait_for "$pid_other" "$SCRATCH/other.held" held
+TEST_BUILD_SLEEP=0 run_launch base.bash force >>"$QUIET" 2>"$SCRATCH/a.err"
+check "the rebuild succeeds" 0 "$?"
+check "nothing is removed" 0 "$(wc -l <"$TEST_STATE/removed.log" | tr -d ' ')"
+has "it says why" "$SCRATCH/a.err" "another ccy image build is running (claude-yolo_proj.lock is held)"
+kill "$pid_other" 2>>"$QUIET"
+wait "$pid_other" 2>>"$QUIET"
 
 echo "== a launch that cannot record the images before its build does not build"
 reset_world

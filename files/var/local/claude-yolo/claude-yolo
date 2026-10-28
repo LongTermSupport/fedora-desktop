@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.102.0"  # Container 2.79.15: an image build removes the images it replaced (container-images). See docs/ccy-changelog.md.
+CCY_VERSION="3.102.1"  # Container 2.79.15: a failed self-prune never fails a launch; none while another build runs. See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the

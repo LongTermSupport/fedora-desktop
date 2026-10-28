@@ -43,7 +43,13 @@ func newShelf(t *testing.T) *shelf {
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	return &shelf{t: t, engine: "podman", fake: &execx.Fake{}, home: home, env: map[string]string{}, refuse: map[string]string{}}
+	env := map[string]string{"XDG_RUNTIME_DIR": filepath.Join(t.TempDir(), "run")}
+	return &shelf{t: t, engine: "podman", fake: &execx.Fake{}, home: home, env: env, refuse: map[string]string{}}
+}
+
+// buildLock is the path of a ccy image build lock in the shelf's runtime directory.
+func (s *shelf) buildLock(name string) string {
+	return filepath.Join(s.env["XDG_RUNTIME_DIR"], "ccy", "image-builds", name)
 }
 
 func (s *shelf) script() {
@@ -261,6 +267,66 @@ func TestARemovalTheEngineRefusesIsReportedAndNotFatal(t *testing.T) {
 	}
 }
 
+// The locks are per image and the record is the whole repository: while another build of it
+// runs (a project image built on the old :latest), nothing is removed, and the daily prune
+// removes it later. The caller's own lock, named by --lock, is no other build.
+func TestNothingIsRemovedWhileAnotherBuildOfTheRepositoryHoldsItsLock(t *testing.T) {
+	s := newShelf(t)
+	own := s.buildLock("claude-yolo_latest.lock")
+	holdLock(t, own)
+	holdLock(t, s.buildLock("claude-yolo_proj.lock"))
+	before := s.record("localhost/claude-yolo:latest " + id("a") + "\n")
+	s.tags = "localhost/claude-yolo:latest sha256:" + id("b") + "\n"
+	if code := s.run("replaced", "--lock", own, "claude-yolo", before); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, s.err.String())
+	}
+	if got := s.removed(); len(got) != 0 {
+		t.Fatalf("removed %v while another build ran", got)
+	}
+	if !strings.Contains(s.err.String(), "kept image aaaaaaaaaaaa (was localhost/claude-yolo:latest): another ccy image build is running (claude-yolo_proj.lock is held); the daily prune") {
+		t.Fatalf("stderr %s", s.err.String())
+	}
+	if s.logText() != "" {
+		t.Fatalf("log %q", s.logText())
+	}
+}
+
+func TestTheCallersOwnBuildLockDoesNotStopTheRemoval(t *testing.T) {
+	s := newShelf(t)
+	own := s.buildLock("claude-yolo_latest.lock")
+	holdLock(t, own)
+	before := s.record("localhost/claude-yolo:latest " + id("a") + "\n")
+	s.tags = "localhost/claude-yolo:latest sha256:" + id("b") + "\n"
+	if code := s.run("replaced", "--lock", own, "claude-yolo", before); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, s.err.String())
+	}
+	if got := s.removed(); len(got) != 1 || got[0] != id("a") {
+		t.Fatalf("removed %v; stderr %s", got, s.err.String())
+	}
+	s = newShelf(t)
+	holdLock(t, s.buildLock("claude-yolo_latest.lock"))
+	before = s.record("localhost/claude-yolo:latest " + id("a") + "\n")
+	s.tags = "localhost/claude-yolo:latest sha256:" + id("b") + "\n"
+	if code := s.run("replaced", "claude-yolo", before); code != term.ExitOK || len(s.removed()) != 0 {
+		t.Fatalf("with no --lock every held lock is another build's: exit %d, removed %v", code, s.removed())
+	}
+}
+
+func TestABuildLockItCannotProbeStopsTheRunBeforeARemoval(t *testing.T) {
+	s := newShelf(t)
+	if err := os.MkdirAll(s.buildLock("odd.lock"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	before := s.record("localhost/claude-yolo:latest " + id("a") + "\n")
+	s.tags = "localhost/claude-yolo:latest sha256:" + id("b") + "\n"
+	if code := s.run("replaced", "claude-yolo", before); code != term.ExitFailure {
+		t.Fatalf("exit %d", code)
+	}
+	if len(s.removed()) != 0 || !strings.Contains(s.err.String(), "odd.lock") {
+		t.Fatalf("removed %v; stderr %s", s.removed(), s.err.String())
+	}
+}
+
 // A container that goes between the listing and the inspect (an agent team's --rm member) is
 // a race, not a broken engine: the pair is asked once more.
 func TestAContainerThatGoesMidQuestionIsAskedAgain(t *testing.T) {
@@ -385,6 +451,9 @@ func TestBeforeAndReplacedUsage(t *testing.T) {
 		{"--engine", "podman", "prune"},
 		{"before", ""},
 		{"replaced", "", "f"},
+		{"replaced", "--lock", "", "claude-yolo", "f"},
+		{"replaced", "--lock", "l", "claude-yolo"},
+		{"replaced", "claude-yolo", "f", "--lock", "l"},
 	} {
 		s := newShelf(t)
 		if code := s.run(args...); code != term.ExitUsage {
@@ -395,7 +464,7 @@ func TestBeforeAndReplacedUsage(t *testing.T) {
 		}
 	}
 	s := newShelf(t)
-	if code := s.run("--help"); code != term.ExitOK || !strings.Contains(s.out.String(), "replaced <repository> <ids-file>") {
+	if code := s.run("--help"); code != term.ExitOK || !strings.Contains(s.out.String(), "replaced [--lock <file>] <repository> <ids-file>") {
 		t.Fatalf("--help: %s", s.out.String())
 	}
 }

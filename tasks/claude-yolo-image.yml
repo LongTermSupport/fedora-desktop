@@ -360,6 +360,23 @@
     - scripts
     - launchers
 
+# ccy's self-prune (lib/image-build-prune.bash, Plan 00235): every build under the lock, the
+# launcher's and the one below, records the repository's images before it and removes what it
+# replaced after it, through this command. The launcher finds it on PATH, as it finds
+# ccy-token-usable; the build below names it by path. play-podman.yml installs the same binary
+# for its daily prune; the build is checksum-compared, so the second install changes nothing.
+# It is installed before the libs that call it, so a play run that stops between the two never
+# leaves libs calling a command that is missing or older than they are.
+- name: Build and Install the container-images Command
+  ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+  vars:
+    go_command_name: container-images
+    go_command_dest: "/home/{{ user_login }}/.local/bin/container-images"
+    go_command_mode: "0755"
+  tags:
+    - scripts
+    - launchers
+
 - name: Install Shared Helper Libraries
   become: true
   ansible.builtin.copy:
@@ -396,21 +413,6 @@
   # `launchers` is on the lib and on every script that sources it (ccy, cc,
   # ccy-sessions), with the directories they land in: a tag that deployed one
   # without the others would recreate the new-lib-under-old-cc break.
-  tags:
-    - scripts
-    - launchers
-
-# ccy's self-prune (lib/image-build-prune.bash, Plan 00235): every build under the lock, the
-# launcher's and the one below, records the repository's images before it and removes what it
-# replaced after it, through this command. The launcher finds it on PATH, as it finds
-# ccy-token-usable; the build below names it by path. play-podman.yml installs the same binary
-# for its daily prune; the build is checksum-compared, so the second install changes nothing.
-- name: Build and Install the container-images Command
-  ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
-  vars:
-    go_command_name: container-images
-    go_command_dest: "/home/{{ user_login }}/.local/bin/container-images"
-    go_command_mode: "0755"
   tags:
     - scripts
     - launchers

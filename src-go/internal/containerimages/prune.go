@@ -74,7 +74,7 @@ const (
 	kindCtr      = "container"
 	usage        = `usage: container-images prune [--yes]
        container-images [--engine podman|docker] before <repository>
-       container-images [--engine podman|docker] replaced <repository> <ids-file>
+       container-images [--engine podman|docker] replaced [--lock <file>] <repository> <ids-file>
 
   prune          list what the daily prune would remove from the podman store (a dry run)
   prune --yes    remove it: dangling images no container uses, over a day old; claude-yolo
@@ -86,8 +86,9 @@ const (
   before         print each tag of the repository with its image id (ccy's build lock
                  records this before a build)
   replaced       remove each image of that record no tag now names and no container uses
-                 (ccy's build lock runs it after a build); ids-file may be /dev/stdin. The
-                 engine is --engine's, else CCY_CONTAINER_ENGINE's, else podman.
+                 (ccy's build lock runs it after a build); ids-file may be /dev/stdin.
+                 While a ccy image build lock other than --lock's is held, it removes
+                 nothing. The engine is --engine's, else CCY_CONTAINER_ENGINE's, else podman.
 `
 )
 
@@ -418,7 +419,7 @@ func (r *run) look(ctx context.Context) (store, error) {
 	if s.launched, err = launches(r.Env.Home, s.images); err != nil {
 		return s, err
 	}
-	s.building, err = heldBuildLock(filepath.Join(playlock.RuntimeDir(r.Env.Getenv, r.Env.UID), "ccy", "image-builds"))
+	s.building, err = heldBuildLock(r.buildLocks(), "")
 	return s, err
 }
 
@@ -564,9 +565,15 @@ func (a App) openLog() (*os.File, error) {
 	return f, nil
 }
 
+// buildLocks is the directory of the ccy image build locks (lib/image-build-lock.bash).
+func (a App) buildLocks() string {
+	return filepath.Join(playlock.RuntimeDir(a.Env.Getenv, a.Env.UID), "ccy", "image-builds")
+}
+
 // heldBuildLock is the name of a ccy image build lock some process holds, "" when none is: each
-// *.lock is probed with a shared lock that never waits and is let go at once.
-func heldBuildLock(dir string) (string, error) {
+// *.lock but the path except (the caller's own, "" for none) is probed with a shared lock that
+// never waits and is let go at once.
+func heldBuildLock(dir, except string) (string, error) {
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", nil
@@ -575,7 +582,7 @@ func heldBuildLock(dir string) (string, error) {
 		return "", fmt.Errorf("cannot read the ccy image build locks in %s: %w", dir, err)
 	}
 	for _, e := range entries {
-		if !strings.HasSuffix(e.Name(), ".lock") {
+		if !strings.HasSuffix(e.Name(), ".lock") || except != "" && filepath.Join(dir, e.Name()) == filepath.Clean(except) {
 			continue
 		}
 		held, err := lockHeld(filepath.Join(dir, e.Name()))

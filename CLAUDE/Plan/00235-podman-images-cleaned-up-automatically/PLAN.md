@@ -109,7 +109,9 @@ the plans cite kept.
   1. in `src-go/cmd/` over `internal/engine`: `before <repository>` prints the id of each of the
      repository's tags; `replaced <repository> <ids-file>` removes each recorded id that no tag now
      names and no container (`ps -a`) uses, naming each removal and each kept image (with why) on
-     stderr. A removal podman refuses is reported, not fatal to the launch. Fakes mirror the real
+     stderr. A self-prune failure after the build (a refused removal, a list or log it cannot
+     get) is reported and not fatal to the launch; while another ccy build lock is held,
+     `replaced --lock <own lock>` removes nothing (review F1, F2). Fakes mirror the real
      engine's output (`execx.ErrUnexpected` for anything unscripted)
   - [x] ✅ cases: two containers of one project on the old image (agent teams) keep it; a stopped
     container keeps it; `:base` re-tagged under the `:latest` key is covered; a failed build
@@ -119,7 +121,8 @@ the plans cite kept.
   (measured by `qa-bash-limits`), else the lock's own lines shrink. This covers B1-B6. CCY
   version bump; play-claude-yolo.yml builds and installs the command. Built:
   `lib/image-build-prune.bash` (sourced by the lock, which stays at 58 lines and 90
-  statements); CCY 3.102.0; `tasks/claude-yolo-image.yml` installs the command
+  statements, and passes its lock file to it); CCY 3.102.0, 3.102.1 with the review fixes; `tasks/claude-yolo-image.yml`
+  installs the command before it copies the libs that call it
 - [ ] ⬜ **Task 3.3**: B7: `play-claude-devtools.yml` runs the same `before`/`replaced` around its
   build
 - [x] ✅ **Task 3.4**: Stale project images: `claude-yolo:<project>` tags no container uses and
@@ -200,6 +203,7 @@ the plans cite kept.
 - [ ] FOLLOW-UP (review U3): acceptance prints podman's `until=24h` count beside a `before=` count, to confirm the filter's meaning
 - [ ] FOLLOW-UP (review U5): decide whether a dead-code change to a shared package needs a CCY version bump
 - [ ] FOLLOW-UP: the `StoreContainer.External` comment in engine/store.go names only buildah (left so as not to bump CCY here)
+- [ ] FOLLOW-UP (self-prune review U2): on docker an in-place update's old `:latest` is the new one's parent, so every daily update prints "could not remove" and the image stays until a full rebuild; decide whether `replaced` should say so once instead of as a refusal
 
 ## Questions for the owner
 

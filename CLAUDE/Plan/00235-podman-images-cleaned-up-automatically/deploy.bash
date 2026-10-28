@@ -12,7 +12,7 @@
 # buildah working containers over a day old; nothing while a ccy build runs), each removal logged to
 # ~/.local/state/fedora-desktop/container-images.log. No volume and no image in use is removed.
 # The owner agreed to the first run clearing the backlog with no dry run read first (Q4).
-# Then play-claude-yolo.yml installs CCY 3.102.0 (lib/image-build-prune.bash) and
+# Then play-claude-yolo.yml installs CCY 3.102.1 (lib/image-build-prune.bash) and
 # container-images again, and rebuilds claude-yolo:latest under the build lock: that build
 # removes the :latest and :base images it replaced when no container uses them, and from then
 # on every ccy build and in-place update does the same.
@@ -61,7 +61,7 @@ plan_start_log auto
 
 plan_deploy_leg "play-podman.yml (container-images, its daily timer, the first prune)" \
     plan_ansible_playbook playbooks/imports/play-podman.yml
-plan_deploy_leg "play-claude-yolo.yml (CCY 3.102.0: a build removes the images it replaced)" \
+plan_deploy_leg "play-claude-yolo.yml (CCY 3.102.1: a build removes the images it replaced)" \
     plan_ansible_playbook playbooks/imports/play-claude-yolo.yml
 # STANDARD-EXCEPTION(R9): no acceptance.bash leg here, where R9 puts it. meta-deploy.bash
 # runs acceptance.bash after this script.

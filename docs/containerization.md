@@ -274,7 +274,8 @@ them, so the store does not grow without end.
 Each ccy build and in-place update also removes, straight after it succeeds, the images it
 replaced that no tag names and no container uses (`container-images replaced`, run by the build
 lock); the timer catches what that leaves, such as an old `:latest` a project image was still
-built on.
+built on, or everything a build replaced while another ccy image build was running. A cleanup
+that fails is reported and never fails the build that ran before it.
 
 - **When**: `container-images-prune.timer` runs `container-images prune --yes` once a day
   (`Persistent=true`, so a day the machine was off is caught up at the next boot). Until one prune has succeeded, each deploy runs it straight away, clearing the backlog.

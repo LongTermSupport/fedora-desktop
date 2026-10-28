@@ -2,8 +2,8 @@ package containerimages
 
 // replaced.go is ccy's self-prune (Plan 00235 Phase 3): the image build lock
 // (files/var/local/claude-yolo/lib/image-build-lock.bash) runs `before <repository>` once it
-// holds the lock and `replaced <repository> <ids-file>` after a build that succeeded, so what
-// the build replaced goes the moment it is replaced.
+// holds the lock and `replaced --lock <its lock> <repository> <ids-file>` after a build that
+// succeeded, so what the build replaced goes the moment it is replaced.
 //
 //   - R1. `before` prints each tag of the repository with the id it names, `<name> <id>` a
 //     line; a repository with no image prints nothing.
@@ -18,6 +18,9 @@ package containerimages
 //     log that cannot be opened stops the run, exit 1, before any removal. The containers are
 //     asked twice before that: one that goes between the listing and the inspect is a race.
 //   - R5. The engine is --engine's, else CCY_CONTAINER_ENGINE's, else podman (engine.Select).
+//   - R6. The build locks are per image and the record is the whole repository, so while a
+//     ccy image build lock other than the caller's own (--lock) is held, nothing is removed:
+//     each id that would go is named as kept, and the daily prune removes it later (P3a).
 
 import (
 	"context"
@@ -41,9 +44,10 @@ type recorded struct {
 	names []string
 }
 
-// selfPruneArgs reads `[--engine E] before <repository>` and `[--engine E] replaced
-// <repository> <ids-file>`: the engine request, the words after the flag, and whether they
-// are one of the two.
+// selfPruneArgs reads `[--engine E] before <repository>` and `[--engine E] replaced [--lock
+// <file>] <repository> <ids-file>`: the engine request, the words after the flag (for
+// `replaced`, always the verb, repository, ids-file and lock, "" for none), and whether they are
+// one of the two.
 func selfPruneArgs(envEngine string, args []string) (engine.Request, []string, bool) {
 	req := engine.Request{Env: envEngine}
 	rest := args
@@ -57,11 +61,28 @@ func selfPruneArgs(envEngine string, args []string) (engine.Request, []string, b
 	switch {
 	case len(rest) == 2 && rest[0] == "before" && rest[1] != "":
 		return req, rest, true
-	case len(rest) == 3 && rest[0] == "replaced" && rest[1] != "" && rest[2] != "":
-		return req, rest, true
+	case len(rest) > 0 && rest[0] == "replaced":
+		words, ok := replacedArgs(rest[1:])
+		return req, words, ok
 	default:
 		return req, nil, false
 	}
+}
+
+// replacedArgs reads `[--lock <file>] <repository> <ids-file>` as the verb, repository,
+// ids-file and lock.
+func replacedArgs(args []string) ([]string, bool) {
+	lock := ""
+	if len(args) == 4 && args[0] == "--lock" {
+		lock, args = args[1], args[2:]
+		if lock == "" {
+			return nil, false
+		}
+	}
+	if len(args) != 2 || args[0] == "" || args[1] == "" {
+		return nil, false
+	}
+	return []string{"replaced", args[0], args[1], lock}, true
 }
 
 // selfPrune selects the engine and runs `before` or `replaced`.
@@ -80,7 +101,7 @@ func (a App) selfPrune(ctx context.Context, req engine.Request, args []string) t
 	if args[0] == "before" {
 		return a.before(ctx, eng, args[1])
 	}
-	return a.replaced(ctx, eng, args[1], args[2])
+	return a.replaced(ctx, eng, args[1], args[2], args[3])
 }
 
 func (a App) before(ctx context.Context, eng engine.Engine, repo string) term.ExitCode {
@@ -95,7 +116,7 @@ func (a App) before(ctx context.Context, eng engine.Engine, repo string) term.Ex
 	return a.print(a.Env.Stdout, b.String())
 }
 
-func (a App) replaced(ctx context.Context, eng engine.Engine, repo, path string) term.ExitCode {
+func (a App) replaced(ctx context.Context, eng engine.Engine, repo, path, ownLock string) term.ExitCode {
 	recs, err := readRecord(path)
 	if err != nil {
 		return a.fail(err)
@@ -119,10 +140,21 @@ func (a App) replaced(ctx context.Context, eng engine.Engine, repo, path string)
 			r.say("kept", rec, "still named by "+strings.Join(now, ", "))
 		}
 	}
-	if len(gone) > 0 {
-		if err := r.removeReplaced(ctx, repo, gone); err != nil {
-			return r.finish(r.fail(err))
+	if len(gone) == 0 {
+		return r.finish(term.ExitOK)
+	}
+	other, err := heldBuildLock(a.buildLocks(), ownLock)
+	if err != nil {
+		return r.finish(r.fail(err))
+	}
+	if other != "" {
+		for _, rec := range gone {
+			r.say("kept", rec, "another ccy image build is running ("+other+" is held); the daily prune (container-images-prune.timer) removes it once no build runs")
 		}
+		return r.finish(term.ExitOK)
+	}
+	if err := r.removeReplaced(ctx, repo, gone); err != nil {
+		return r.finish(r.fail(err))
 	}
 	return r.finish(term.ExitOK)
 }

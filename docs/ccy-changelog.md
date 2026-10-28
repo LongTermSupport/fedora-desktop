@@ -27,6 +27,13 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.102.1 — container 2.79.15
+
+- **A failed self-prune never fails a launch, and none runs beside another build.** The
+  review fixes of 3.102.0's self-prune, which was never released alone: the behaviour is the
+  3.102.0 entry below. `container-images replaced` is given the build's own lock (`--lock`)
+  and removes nothing while another ccy image build lock is held.
+
 ## 3.102.0 — container 2.79.15
 
 - **An image build removes the images it replaced (Plan 00235).** Every build and in-place
@@ -35,8 +42,12 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   removes each recorded image no tag now names and no container, running or stopped, uses
   (`container-images replaced`, through `lib/image-build-prune.bash`), naming each removal and
   kept image on stderr and logging removals to `~/.local/state/fedora-desktop/container-images.log`.
-  A removal the engine refuses (an old `:latest` a project image is built on) is reported and
-  the launch goes on; the daily prune removes it later.
+  A failed cleanup is reported on stderr and never fails a launch, a restart or an update: a
+  removal the engine refuses (an old `:latest` a project image is built on), or a cleanup that
+  cannot list the containers or open its log, leaves the images to the daily prune. While
+  another image of the repository is being built (each image has its own build lock), the
+  cleanup removes nothing and says so. On docker, an in-place update's old `:latest` is the
+  new one's parent, so docker refuses to remove it and it stays until the next full rebuild.
 
 ## 3.101.3 — container 2.79.15
 

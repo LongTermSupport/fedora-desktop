@@ -66,7 +66,7 @@ ccy_image_build_locked() {
     if "${check[@]}" >/dev/null {fd}>&-; then
         [[ -z "$waited" ]] || printf 'ccy: ✓ %s was built while this launch waited; using it.\n' "$key" >&2
     else
-        ccy_image_build_pruned "${key%%:*}" "$@" {fd}>&- || rc=$?
+        ccy_image_build_pruned "$file" "${key%%:*}" "$@" {fd}>&- || rc=$?
     fi
     : >"$file" || { printf 'ccy: could not empty the image build lock record %s.\n' "$file" >&2 && rc=1; }
     exec {fd}>&-
