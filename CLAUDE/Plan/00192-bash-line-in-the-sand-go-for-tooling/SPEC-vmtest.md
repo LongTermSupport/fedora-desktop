@@ -111,7 +111,9 @@ The tests cite these numbers.
   or a non-zero exit from the validator is an `ERROR:` and exit 1.
 - E10. Scenario facts come from `--scenario ID` in the same way: one `VMTEST-SCENARIO` line with
   `id`, `base`, `base_name`, `profile`, `planned`, `max_skipped`, `runnable`, `host_only`,
-  `reboot_before_checks` and `run_env`. Each of `runnable`, `host_only` and
+  `reboot_before_checks`, `run_env`, `audience` and `optional_plays`. `optional_plays` is `-` or
+  comma-separated `play-<a-z0-9->.yml` names; any other entry is
+  `malformed optional_plays entry: '<p>'`. Each of `runnable`, `host_only` and
   `reboot_before_checks` must be exactly `true` or `false`. Any other value is refused:
   `validator reported host_only='<v>', which is neither true nor false`.
 - E11. `run_env` is `-` (no overrides) or comma-separated `RUN_BASH_<A-Z_>=<[A-Za-z0-9._,:/=-]+>`

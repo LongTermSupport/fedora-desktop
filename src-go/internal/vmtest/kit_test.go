@@ -143,9 +143,10 @@ func (k *kit) scenario(id string, fields map[string]string) {
 	f := map[string]string{
 		"id": id, "base": "server-fast", "base_name": "server-fast-44", "profile": "server", "planned": "5",
 		"max_skipped": "0", "runnable": "true", "host_only": "false", "reboot_before_checks": "false", "run_env": "-", "audience": "developer",
+		"optional_plays": "-",
 	}
 	maps.Copy(f, fields)
-	order := []string{"id", "base", "base_name", "profile", "planned", "max_skipped", "runnable", "host_only", "reboot_before_checks", "run_env", "audience"}
+	order := []string{"id", "base", "base_name", "profile", "planned", "max_skipped", "runnable", "host_only", "reboot_before_checks", "run_env", "audience", "optional_plays"}
 	parts := make([]string, 0, len(order))
 	for _, key := range order {
 		parts = append(parts, key+"="+f[key])

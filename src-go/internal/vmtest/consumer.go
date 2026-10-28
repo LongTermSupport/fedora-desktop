@@ -2,8 +2,14 @@ package vmtest
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"regexp"
+	"slices"
+	"strconv"
 	"strings"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/consumer"
 )
 
 // A consumer-install scenario (Plan 00228): `./run.bash --consumer`, which refuses headless,
@@ -20,17 +26,70 @@ const (
 	endedStatus = 1
 )
 
-// consumerPrompts are the questions an attended consumer install can ask in the lab. The
-// lab's user has passwordless sudo, so a password prompt is a defect, as is any request for a
-// GitHub credential the consumer path promises never to make.
-var consumerPrompts = []prompt{
-	{text: "Numbers to install (e.g. 1 3), or Enter for none: ", reply: "\n"},
-	{text: "[sudo] password for ", refuse: true},
-	{text: "BECOME password: ", refuse: true},
-	{text: "Your login password (nothing shows as you type): ", refuse: true},
-	{text: "Username for 'https://", refuse: true},
-	{text: "Password for 'https://", refuse: true},
-	{text: "Enter passphrase", refuse: true},
+// consumerPrompts are the questions an attended consumer install can ask in the lab: the
+// optional-app menu, answered with the numbers of picks (Enter for none), and the questions
+// refused. The lab's user has passwordless sudo, so a password prompt is a defect, as is any
+// request for a GitHub credential the consumer path promises never to make.
+func consumerPrompts(picks []string) []prompt {
+	menu := prompt{text: "Numbers to install (e.g. 1 3), or Enter for none: ", reply: "\n"}
+	if len(picks) > 0 {
+		menu.answer = menuAnswer(picks)
+	}
+	return []prompt{
+		menu,
+		{text: "[sudo] password for ", refuse: true},
+		{text: "BECOME password: ", refuse: true},
+		{text: "Your login password (nothing shows as you type): ", refuse: true},
+		{text: "Username for 'https://", refuse: true},
+		{text: "Password for 'https://", refuse: true},
+		{text: "Enter passphrase", refuse: true},
+	}
+}
+
+// menuLine is one line of the optional-app menu: "  <n>) <label>".
+var menuLine = regexp.MustCompile(`^  ([0-9]+)\) (.+)$`)
+
+// menuAnswer reads the optional-app menu, the last block of numbered lines printed before its
+// question, and answers with each pick's number, in the picks' order. A pick is found by the
+// label the menu gives its file (consumer.MenuLabel), as a common or a hardware play. A pick
+// the menu does not offer is an error: answering without it would pass a run that never
+// installed it.
+func menuAnswer(picks []string) func(before []byte) (string, error) {
+	return func(before []byte) (string, error) {
+		var labels []string
+		misnumbered := "" // the line that broke the block's numbering, if one did
+		for line := range strings.SplitSeq(string(before), "\n") {
+			m := menuLine.FindStringSubmatch(line)
+			switch {
+			case m == nil:
+				// The question's heading follows the menu; only a new "1)" starts a new block.
+			case m[1] == "1":
+				labels, misnumbered = append(labels[:0], m[2]), ""
+			case m[1] == strconv.Itoa(len(labels)+1) && misnumbered == "":
+				labels = append(labels, m[2])
+			case misnumbered == "":
+				misnumbered = fmt.Sprintf("the optional-app menu is not numbered 1 to %d: %s) %s", len(labels)+1, m[1], m[2])
+			}
+		}
+		if misnumbered != "" {
+			return "", errors.New(misnumbered)
+		}
+		if len(labels) == 0 {
+			return "", errors.New("no numbered menu was printed before the optional-app question")
+		}
+		numbers := make([]string, 0, len(picks))
+		for _, pick := range picks {
+			i := slices.IndexFunc(labels, func(l string) bool {
+				return l == consumer.MenuLabel(pick, false) || l == consumer.MenuLabel(pick, true)
+			})
+			if i < 0 {
+				return "", fmt.Errorf("the optional-app menu offers no %s (%s); it offers %s",
+					consumer.MenuLabel(pick, false), pick, strings.Join(labels, ", "))
+			}
+			numbers = append(numbers, strconv.Itoa(i+1))
+		}
+		return strings.Join(numbers, " ") + "\n", nil
+	}
 }
 
 // sessionVars are the autologin session's display and desktop variables, read from the
@@ -65,19 +124,31 @@ func (r *running) consumerProvision(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	r.note("# harness: the checkout cloned over HTTPS and pinned at " + r.commit[:12] + ", where run.bash --consumer pulls it\n")
-	runs := []struct{ what, remote string }{
-		{"~/run.bash --consumer", "~/run.bash --consumer"},
-		{consumerCheckout + "/run.bash, the update a consumer runs", "set -o pipefail && " + consumerCheckout + "/run.bash 2>&1 | tee " + rerunLog},
+	// The install picks the scenario's optional plays; the re-run, an update that adds nothing,
+	// answers the menu with Enter, so its recaps are the main install's alone.
+	runs := []struct {
+		what, remote string
+		picks        []string
+	}{
+		{"~/run.bash --consumer", "~/run.bash --consumer", r.s.OptionalPlays},
+		{consumerCheckout + "/run.bash, the update a consumer runs", "set -o pipefail && " + consumerCheckout + "/run.bash 2>&1 | tee " + rerunLog, nil},
 	}
 	for i, run := range runs {
 		which := fmt.Sprintf("attended run %d of %d", i+1, len(runs))
 		r.note("# harness: " + which + ": " + run.what + "\n")
-		rc, h, err := r.g.attended(ctx, inSession(run.remote), r.tee(), consumerPrompts)
+		if len(run.picks) > 0 {
+			r.note("# harness: the optional-app menu is answered with " + strings.Join(run.picks, ", ") + "\n")
+		}
+		rc, h, err := r.g.attended(ctx, inSession(run.remote), r.tee(), consumerPrompts(run.picks))
 		if err != nil {
 			return 0, err
 		}
 		if h.refused != "" {
 			r.note(fmt.Sprintf("\nERROR: %s asked %q, which a consumer install must never ask here; the harness ended it\n", which, h.refused))
+			return endedStatus, nil
+		}
+		if h.unanswerable != "" {
+			r.note(fmt.Sprintf("\nERROR: %s asked a question the harness could not answer: %s; the harness ended it\n", which, h.unanswerable))
 			return endedStatus, nil
 		}
 		if h.unanswered != "" {

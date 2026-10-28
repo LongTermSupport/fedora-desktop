@@ -66,7 +66,7 @@ _ARTEFACT_KEYS = frozenset({"variant", "subvariant", "prefix", "suffix"})
 # `Everything` — and nothing that could walk elsewhere.
 _TREE_RE = re.compile(r"^[A-Z][A-Za-z]+$")
 _SCENARIO_KEYS = frozenset({"base", "description", "planned", "max_skipped"})
-_SCENARIO_OPTIONAL_KEYS = frozenset({"run_env", "host_only", "reboot_before_checks", "audience"})
+_SCENARIO_OPTIONAL_KEYS = frozenset({"run_env", "host_only", "reboot_before_checks", "audience", "optional_plays"})
 
 #: The install a scenario's run.bash makes (Plan 00228). `developer` is today's headless
 #: run; `consumer` is `./run.bash --consumer`, which refuses headless, so the CLI drives it
@@ -76,6 +76,8 @@ AUDIENCE_DEVELOPER = "developer"
 AUDIENCE_CONSUMER = "consumer"
 AUDIENCES = frozenset({AUDIENCE_DEVELOPER, AUDIENCE_CONSUMER})
 _CONSUMER_PROFILES = frozenset({"desktop"})
+#: An optional play as run.bash names it: the file name alone, under one of the optional dirs.
+_OPTIONAL_PLAY_RE = re.compile(r"^play-[a-z0-9]+(-[a-z0-9]+)*\.yml$")
 
 #: The profiles for which `reboot_before_checks` may NOT be left to its default.
 #: A desktop's checks read a GNOME Shell that loads its extensions at session
@@ -133,6 +135,9 @@ class Scenario:
     reboot_before_checks: bool = False
     #: Which install run.bash makes: `developer` (headless) or `consumer` (attended).
     audience: str = AUDIENCE_DEVELOPER
+    #: The optional plays a consumer install picks at the optional-app menu, in order; none
+    #: is Enter. A developer scenario names its optional plays in run_env instead.
+    optional_plays: tuple[str, ...] = ()
 
     @property
     def profile(self) -> str:
@@ -340,6 +345,7 @@ def _parse_scenario(scenario_id: str, raw: object, bases: Mapping[str, Base]) ->
 
     run_env = _parse_run_env(raw.get("run_env"), where)
     audience = _parse_audience(raw, where, base, run_env, host_only)
+    optional_plays = _parse_optional_plays(raw, where, audience)
 
     return Scenario(
         id=scenario_id,
@@ -351,6 +357,7 @@ def _parse_scenario(scenario_id: str, raw: object, bases: Mapping[str, Base]) ->
         host_only=host_only,
         reboot_before_checks=reboot_before_checks,
         audience=audience,
+        optional_plays=optional_plays,
     )
 
 
@@ -372,6 +379,29 @@ def _parse_audience(raw: Mapping, where: str, base: Base, run_env: Mapping[str, 
     if host_only:
         raise ManifestError(f"{where}: a consumer install cannot be host_only; it has no GitHub credential to deliver")
     return audience
+
+
+def _parse_optional_plays(raw: Mapping, where: str, audience: str) -> tuple[str, ...]:
+    if "optional_plays" not in raw:
+        return ()
+    if audience != AUDIENCE_CONSUMER:
+        raise ManifestError(
+            f"{where}: optional_plays is for a consumer install's menu; a headless run names "
+            "its optional plays in run_env as RUN_BASH_OPTIONAL_PLAYBOOKS"
+        )
+    plays = raw["optional_plays"]
+    if not isinstance(plays, list) or not plays:
+        raise ManifestError(
+            f"{where}: optional_plays must be a non-empty list of play file names (omit it for none), got {plays!r}"
+        )
+    for play in plays:
+        if not isinstance(play, str) or not _OPTIONAL_PLAY_RE.fullmatch(play):
+            raise ManifestError(
+                f"{where}: optional_plays entry {play!r} is not a play file name such as play-speech-to-text.yml"
+            )
+    if len(set(plays)) != len(plays):
+        raise ManifestError(f"{where}: optional_plays names a play twice: {plays!r}")
+    return tuple(plays)
 
 
 def parse_manifest(document: object, fedora_version: int) -> Manifest:

@@ -11,15 +11,16 @@
 #
 # What a consumer install promises: no GitHub identity of any kind, the checkout fetched
 # and kept over HTTPS, no passwordless sudo from this repo, the everyday apps present, Go
-# present (the installer's own build toolchain), the developer tools absent, and a second
-# run that changes nothing. The second run's output is /var/lib/vmtest/rerun.log, which the
+# present (the installer's own build toolchain), speech-to-text (the optional app the
+# scenario picks) set up for plain dictation with no Claude post-processing, the developer
+# tools absent, and a second run that changes nothing. The second run's output is /var/lib/vmtest/rerun.log, which the
 # host's run tees there.
 #
 # Inputs (environment, set by the host over SSH):
 #   VMTEST_COMMIT       the 40-hex commit the guest was told to provision from
 set -uo pipefail
 
-PLANNED=17
+PLANNED=20
 readonly PLANNED
 REPO="${HOME}/Projects/fedora-desktop"
 readonly REPO
@@ -148,6 +149,49 @@ if [[ -e "${HOME}/.local/state/fedora-desktop-setup-complete" ]]; then
     check pass setup-complete-marker
 else
     check fail setup-complete-marker "${HOME}/.local/state/fedora-desktop-setup-complete is missing"
+fi
+
+# ── speech-to-text, the optional app the scenario picks (optional_plays) ──────────────
+# Plain dictation is set up as play-speech-to-text.yml sets it up: the panel extension
+# loaded by the session the reboot started, Whisper importable by the wrapper that runs it,
+# and the commands the panel starts. Claude post-processing is absent: the play compiles
+# post-processing-offered false into the extension's own schema on a consumer install, and
+# the panel hides its items when it is false.
+stt_uuid=speech-to-text@fedora-desktop
+stt_schemas="${HOME}/.local/share/gnome-shell/extensions/${stt_uuid}/schemas"
+stt_info=""
+stt_state=""
+if stt_info="$(gnome-extensions info "${stt_uuid}" 2>&1)"; then
+    stt_state="$(printf '%s\n' "${stt_info}" | grep -E '^\s*State:' | awk '{print $2}')"
+fi
+stt_enabled="$(gnome-extensions list --enabled 2>&1 | grep -cx "${stt_uuid}")"
+if [[ "${stt_state}" == ACTIVE && "${stt_enabled}" == 1 ]]; then
+    check pass stt-extension-active
+else
+    check fail stt-extension-active "state '${stt_state}', enabled lines '${stt_enabled}': ${stt_info}"
+fi
+
+whisper=""
+missing_cmds=""
+for cmd in faster-whisper-transcribe wsi stt wsi-setting; do
+    [[ -x "${HOME}/.local/bin/${cmd}" ]] || missing_cmds="${missing_cmds} ${cmd}"
+done
+# The wrapper runs this with python3, so it is installed readable, not executable.
+[[ -r "${HOME}/.local/bin/faster-whisper-transcribe.py" ]] || missing_cmds="${missing_cmds} faster-whisper-transcribe.py"
+if ! whisper="$(python3 -c 'import faster_whisper; print(faster_whisper.__version__)' 2>&1)"; then
+    check fail stt-whisper-set-up "faster_whisper does not import: ${whisper}"
+elif [[ -n "${missing_cmds}" ]]; then
+    check fail stt-whisper-set-up "missing or not usable in ~/.local/bin:${missing_cmds}"
+else
+    check pass stt-whisper-set-up "faster-whisper ${whisper}"
+fi
+
+offered=""
+if offered="$(gsettings --schemadir "${stt_schemas}" get org.gnome.shell.extensions.speech-to-text post-processing-offered 2>&1)" \
+    && [[ "${offered}" == false ]]; then
+    check pass stt-post-processing-not-offered
+else
+    check fail stt-post-processing-not-offered "post-processing-offered is '${offered}' in ${stt_schemas}"
 fi
 
 # ── what a consumer does not get ────────────────────────────────────────────────────

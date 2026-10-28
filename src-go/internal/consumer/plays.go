@@ -51,7 +51,7 @@ func optionalPlays(root string) ([]play, error) {
 				return nil, err
 			}
 			if forAll {
-				plays = append(plays, play{label: label(file, dir == hardwareDir), path: filepath.Join(dir, filepath.Base(file))})
+				plays = append(plays, play{label: MenuLabel(file, dir == hardwareDir), path: filepath.Join(dir, filepath.Base(file))})
 			}
 		}
 	}
@@ -85,8 +85,10 @@ func forEveryone(file string) (bool, error) {
 	return all, nil
 }
 
-// label is a play's file name as words: play-hd-audio.yml is "Hd Audio".
-func label(file string, hardware bool) string {
+// MenuLabel is a play's file name as words, as the optional-app menu shows it:
+// play-hd-audio.yml is "Hd Audio", and a hardware play is labelled so. The VM lab's attendant
+// finds a scenario's picks on the menu by it.
+func MenuLabel(file string, hardware bool) string {
 	name := strings.TrimPrefix(strings.TrimSuffix(filepath.Base(file), ".yml"), "play-")
 	words := strings.Fields(strings.ReplaceAll(name, "-", " "))
 	for i, w := range words {

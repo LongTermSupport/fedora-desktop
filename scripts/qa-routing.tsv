@@ -165,7 +165,7 @@ also	scripts/qa-hook-handler-rules.bash,src-go/qa/sttrules/*,src-go/qa/cmd/qa-ho
 # package, command, the shared discovery that lists the guest scripts, or the trees table change.
 # The guest scripts and the validator are code other checks cover; this row adds the gate.
 also	vars/vm-test-scenarios.yml	vmtest-manifest	covered
-also	vars/fedora-version.yml,helpers/vmtest/scenarios.py,helpers/vmtest/upstream.py,helpers/vmtest/validate_manifest.py,files/home/.local/share/vmtest/guest-acceptance-*,files/home/.local/share/vmtest/guest-prepare-*	vmtest-manifest	-
+also	vars/fedora-version.yml,helpers/vmtest/scenarios.py,helpers/vmtest/upstream.py,helpers/vmtest/validate_manifest.py,files/home/.local/share/vmtest/guest-acceptance-*,files/home/.local/share/vmtest/guest-prepare-*,playbooks/imports/optional/common/*,playbooks/imports/optional/hardware-specific/*	vmtest-manifest	-
 also	scripts/qa-vmtest-manifest.bash,src-go/qa/vmtestmanifest/*,src-go/qa/cmd/qa-vmtest-manifest/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash,scripts/qa-trees.tsv,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	vmtest-manifest	-
 # The project-owned hooks-daemon handlers and their tests run whole (it is fast) when one changes
 # or is deleted, or the gate's wrapper, Go package or command does. It needs the daemon's

@@ -383,7 +383,7 @@ through `qa/internal/proc`, which gained `Cmd.Stdin` for it; one definition of a
 the gate needs python3), then cross-checked against the guest scripts that `qa/discovery` lists as
 published: each runnable scenario's `planned` against the `PLANNED` assignment read from its
 checker's `mvdan.cc/sh` syntax tree, each `guest-prepare-*` fixture against a declared reboot, and
-orphaned guest scripts. `SPEC-qa-vmtest-manifest.md` (V1-V16) is the specification, proven by unit
+orphaned guest scripts. `SPEC-qa-vmtest-manifest.md` (V1-V17) is the specification, proven by unit
 tests over real temporary git repositories with a fake validator and by the real validator in
 `qa/cmd/qa-vmtest-manifest`.
 

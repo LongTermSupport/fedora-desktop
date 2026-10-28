@@ -26,6 +26,9 @@ type scenarioFacts struct {
 	// Audience is the install run.bash makes: audienceDeveloper (headless) or
 	// audienceConsumer (./run.bash --consumer, driven attended at a terminal; Plan 00228).
 	Audience string
+	// OptionalPlays are the plays a consumer install picks at the optional-app menu, in order;
+	// none is Enter.
+	OptionalPlays []string
 }
 
 const (
@@ -37,7 +40,11 @@ const (
 // headless.
 func (s scenarioFacts) Consumer() bool { return s.Audience == audienceConsumer }
 
-var runEnvRE = regexp.MustCompile(`^(RUN_BASH_[A-Z_]+)=([A-Za-z0-9._,:/=-]+)$`)
+var (
+	runEnvRE = regexp.MustCompile(`^(RUN_BASH_[A-Z_]+)=([A-Za-z0-9._,:/=-]+)$`)
+	// optionalPlayRE is an optional play's file name, as the validator allows it.
+	optionalPlayRE = regexp.MustCompile(`^play-[a-z0-9]+(-[a-z0-9]+)*\.yml$`)
+)
 
 // markerFields reads the one line `<marker> k=v ...` the validator prints: every key in want
 // exactly once and nothing else.
@@ -110,7 +117,7 @@ func flag(field, value string) (bool, error) {
 func parseScenarioMarker(out string) (scenarioFacts, error) {
 	f, err := markerFields(out, "VMTEST-SCENARIO", []string{
 		"id", "base", "base_name", fieldProfile, "planned",
-		"max_skipped", "runnable", "host_only", "reboot_before_checks", "run_env", "audience",
+		"max_skipped", "runnable", "host_only", "reboot_before_checks", "run_env", "audience", "optional_plays",
 	})
 	if err != nil {
 		return scenarioFacts{}, err
@@ -142,6 +149,14 @@ func parseScenarioMarker(out string) (scenarioFacts, error) {
 				return scenarioFacts{}, failf("malformed run_env entry: %s", pair)
 			}
 			s.RunEnv = append(s.RunEnv, envPair{m[1], m[2]})
+		}
+	}
+	if f["optional_plays"] != "-" {
+		for play := range strings.SplitSeq(f["optional_plays"], ",") {
+			if !optionalPlayRE.MatchString(play) {
+				return scenarioFacts{}, failf("malformed optional_plays entry: '%s'", play)
+			}
+			s.OptionalPlays = append(s.OptionalPlays, play)
 		}
 	}
 	return s, nil

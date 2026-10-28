@@ -48,6 +48,16 @@
 # play-speech-to-text.yml rebuilds wsi (a stop grace over the setting's 30 seconds is refused).
 # Rebuilds only: nothing is rebooted, recorded or pruned, and nothing is asked.
 changed-plays
+# Plan 00228 Task 6.7: the consumer VM scenario installs speech-to-text. deploy.bash runs
+# play-vm-test-lab.yml (asks for sudo once): it rebuilds vmtest, whose attendant now answers
+# the consumer's optional-app menu with the scenario's picks, and deploys the manifest
+# (desktop-consumer-install picks play-speech-to-text.yml) and its checker (20 checks: the
+# panel extension active, Whisper set up, post-processing-offered false). acceptance.bash
+# then runs desktop-consumer-install, desktop-fresh-install and server-fast-provision, each on
+# a throwaway guest at the pushed HEAD (it reports COULD NOT ESTABLISH if HEAD is not pushed);
+# the consumer run is long, as speech-to-text downloads its models. Nothing on the host
+# changes beyond the lab.
+00228-consumer-install-without-github
 # Plan 00235, URGENT: the store repair, then the prune finished. The first prune left three
 # layers c/storage could not delete (files owned by uids of the old subuid range), and since
 # then every podman image operation fails: ccy launches and builds, vmtest, the prune timer.

@@ -290,10 +290,17 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   `post-processing-offered`, true only when `install_audience` is `developer`, and the panel
   hides Ctrl+Insert, Alt+Insert, the Post-Process items, Create Article and the Claude Settings
   group when it is false; the Node test went red, then green.
-- [ ] ⬜ **Task 6.7**: The consumer VM scenario installs speech-to-text and checks that plain
+- [x] ✅ **Task 6.7**: The consumer VM scenario installs speech-to-text and checks that plain
   dictation is set up and that the post-processing items are absent (split from 6.5). Not
   cheap: the attendant answers the app menu with a fixed Enter, and the manifest allows no
-  optional app for a consumer, so both change first.
+  optional app for a consumer, so both change first. Built (2026-10-28): the manifest's
+  `optional_plays` (validated by helpers/vmtest and the gate's V17: a play the consumer menu
+  offers), the attendant answering the menu with the picks' numbers found by the menu's own
+  label (a pick it lacks ends the run as a fail; the re-run answers Enter), and the checker's
+  three speech-to-text checks (PLANNED 20). Red, then green. Awaiting the VM run
+  (meta-deploy.list).
+- [ ] ⬜ **Task 6.7 VM run**: The host runs `./CLAUDE/Plan/meta-deploy.bash`; the consumer
+  scenario passes 20 of 20 with speech-to-text installed.
 - [x] ✅ **Task 6.6**: The developer path's optional runs, as Task 2.6 did for the consumer.
   Decided (2026-10-28, part C item 5 of the unblocking list): on the developer path, optional
   plays go on after one fails, a summary naming every failed and installed play is printed at
@@ -415,7 +422,7 @@ record; (b) a Go command from the start for resolution and contradiction checks.
 ## Success Criteria
 
 - [x] `desktop-consumer-install` passes in the VM lab with no GitHub credential present
-  (17 of 17 at acfcb6814; its paths through a password sudo and a chosen optional app are
+  (17 of 17 at acfcb6814; a re-run for its 20 checks is pending; its paths through a password sudo and a chosen optional app are
   proved by unit tests only, Task 3.1).
 - [x] `desktop-fresh-install` and `server-fast-provision` still pass (at acfcb6814).
 - [x] A consumer re-run keeps origin on HTTPS and changes nothing on a converged box
