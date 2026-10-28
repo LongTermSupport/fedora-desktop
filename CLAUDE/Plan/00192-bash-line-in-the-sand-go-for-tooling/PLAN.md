@@ -435,7 +435,7 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   (`$7zLrx0PlxkebT2F8RqwaGSEf4cRO3g9cH6A7vOGvjrA`); it now removes only `*.qcow2` (E51, B19).
   The two reviews' follow-ups are fixed or answered (subagent-reports/261028-vmtest-follow-ups.md).
 
-- [ ] ⬜ **Task 3.11**: FOLLOW-UP of Task 3.7 (Q3, decided 2026-10-28): `run.bash --changed`
+- [x] ✅ **Task 3.11**: FOLLOW-UP of Task 3.7 (Q3, decided 2026-10-28): `run.bash --changed`
   names the plays that read each changed variable of `environment/localhost/group_vars/desktop.yml`,
   rather than none (today) or every play. Tests first: a change to one variable makes stale the
   plays that read it and no other; a variable no play reads makes none stale.

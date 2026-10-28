@@ -56,10 +56,15 @@ failure. If sudo needs a password, each play asks for it, as it does when run on
 play needs to run again when its own file, or any file it deploys, has changed since the
 commit it last ran from. For a play that builds a Go command from `src-go/`, that includes
 every Go package the command imports, so a change to a shared package such as
-`src-go/internal/ui` makes every play building a command that uses it run again. Before the
-list, it says why each play runs, one line each: the changed paths, and the changed Go
+`src-go/internal/ui` makes every play building a command that uses it run again. Every play
+loads `environment/localhost/group_vars/desktop.yml`, so a change there is judged a variable
+at a time: a variable changed, added or removed (or one whose value uses such a variable)
+makes a play run again only when the variable's name appears, as a whole word, in the play's
+own file or a file it includes, templates, copies or runs (`helpers/play_ledger/group_vars.py`
+has the full rule). Before the
+list, it says why each play runs, one line each: the changed paths, the changed Go
 packages by package with the commands built from them, such as
-`src-go/internal/ui (built into podfreeze)`. It also runs again when its last run failed, or when that run
+`src-go/internal/ui (built into podfreeze)`, and the changed variables it reads. It also runs again when its last run failed, or when that run
 came from a checkout with uncommitted changes, so while the checkout stays dirty it
 offers the same plays each time, and it warns about this before it asks. A removed play
 that has a successor in `helpers/play_ledger/retired-plays.json` runs that successor

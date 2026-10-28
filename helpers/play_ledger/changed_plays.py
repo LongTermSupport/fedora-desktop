@@ -3,7 +3,10 @@
 A play has to run again when any of its inputs changed between the commit it last ran
 from and the working tree, when that last run did not succeed, or when it ran from a
 checkout with uncommitted changes. Its inputs are its own file and every checkout path it
-deploys, as `helpers/self_update/affected_plays.py` reads them from the play text. A
+deploys, as `helpers/self_update/affected_plays.py` reads them from the play text. The
+group_vars file every play loads is judged a variable at a time instead: a play has to run
+again when a variable of it that changed is one the play's input files name
+(`helpers/play_ledger/group_vars.py` gives the rule). A
 dirty run is run again because what it deployed may be an edit since reverted, which no
 diff can show.
 
@@ -48,7 +51,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TextIO
 
-from helpers.play_ledger import git_history, ledger, retired, store
+from helpers.play_ledger import git_history, group_vars, ledger, retired, store
 from helpers.self_update import affected_plays
 
 EXIT_OK = 0
@@ -90,7 +93,8 @@ class Judgement:
     names, for a successor that has to run, the removed plays it takes over. `not_judged`
     is every ledgered play outside `playbooks/imports/`, which no catch-up runs.
     `changed_go` holds, for a stale play, the Go packages among its changed inputs, each
-    with the commands built from it.
+    with the commands built from it. `changed_vars` holds, for a stale play, the changed
+    variables of the group_vars file it reads.
     """
 
     order: tuple[str, ...]
@@ -102,6 +106,7 @@ class Judgement:
     took_over: dict[str, list[str]]
     not_judged: tuple[str, ...]
     changed_go: dict[str, dict[str, frozenset[str]]] = field(default_factory=dict)
+    changed_vars: dict[str, list[str]] = field(default_factory=dict)
 
     @property
     def runs(self) -> list[str]:
@@ -160,8 +165,14 @@ def judge(
     inputs_of: Callable[[str, str], affected_plays.Inputs] | None = None,
     main_order: Callable[[str], list[str]] = main_order,
     retired_plays: Callable[[str], dict[str, str]] = retired.load,
+    group_vars_at: Callable[[str, str], str | None] = group_vars.text_at,
+    group_vars_now: Callable[[str], str | None] = group_vars.text_now,
+    play_text: Callable[[str, affected_plays.Inputs], str] = group_vars.play_text,
 ) -> Judgement:
     """Judge every host play in `latest` (the ledger folded to each play's last run).
+
+    A change to the group_vars file is judged a variable at a time (`group_vars`): it makes
+    stale the plays that read a variable that changed, and no other.
 
     Raises `NoAnswer` rather than return a partial judgement. The callables are test seams.
     """
@@ -188,6 +199,8 @@ def judge(
     states: dict[str, str] = {}
     changed_inputs: dict[str, list[str]] = {}
     changed_go: dict[str, dict[str, frozenset[str]]] = {}
+    changed_vars: dict[str, list[str]] = {}
+    vars_since: dict[str, set[str]] = {}
     for play in host_plays:
         record = latest[play]
         commit = record["commit"]
@@ -199,6 +212,11 @@ def judge(
             if commit not in diffs:
                 diffs[commit] = changed_since(repo_root, commit)
             inputs = inputs_of(repo_root, play)
+            if group_vars.GROUP_VARS in diffs[commit] and commit not in vars_since:
+                vars_since[commit] = group_vars.changed_names(group_vars_at(repo_root, commit),
+                                                              group_vars_now(repo_root))
+            names = vars_since.get(commit, set())
+            read = group_vars.names_read(names, play_text(repo_root, inputs)) if names else []
         except Exception as error:
             raise NoAnswer(
                 f"cannot judge {play}, which last ran from {commit}: {error}",
@@ -208,7 +226,9 @@ def judge(
             states[play] = STATE_FAILED
             continue
         changed = [path for path in diffs[commit] if affected_plays.affects(inputs, path)]
-        if record["dirty"] or changed:
+        if read:
+            changed_vars[play] = read
+        if record["dirty"] or changed or read:
             states[play] = STATE_STALE
             changed_inputs[play] = changed
             go = affected_plays.go_changes(inputs, changed)
@@ -244,6 +264,7 @@ def judge(
         took_over=took_over,
         not_judged=tuple(sorted(play for play in latest if not play.startswith(prefix))),
         changed_go=changed_go,
+        changed_vars=changed_vars,
     )
 
 
@@ -274,6 +295,9 @@ def reasons(judgement: Judgement, play: str) -> list[str]:
     if go:
         commands = sorted(set().union(*go.values()))
         lines.append(f"changed Go packages: {_shown(list(go))} (built into {_shown(commands, 'command')})")
+    variables = judgement.changed_vars.get(play, [])
+    if variables:
+        lines.append(f"changed variables of {group_vars.GROUP_VARS}: {_shown(variables, 'variable')}")
     if play in judgement.dirty:
         lines.append("it last ran from a checkout with uncommitted changes")
     return lines
