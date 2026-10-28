@@ -173,7 +173,16 @@ the plans cite kept.
   `/etc/subuid` range. If one is found, the timer is stopped and disabled, the first prune is
   not run, and the play fails at its end ("the podman store holds files owned outside your
   subuid range (old range); the daily prune is held off until they are re-owned (Plan 00235
-  Q6)"), with the store already repaired
+  Q6)"), with the store already repaired. On the host (2026-10-28) the probe never ran: its
+  `/etc/subuid` regex was written `\\d` inside a Jinja string in YAML, which reaches the regex as
+  a literal backslash, so it found no range and the assert failed the play before the timer was
+  held off. The repair file's two regexes (the store-path guard and the held-lock inodes) had
+  the same defect and silently never matched. All three now use single backslashes, the form the
+  host agent proved on the host's Ansible with a read-only scratch play
+- [ ] ⬜ **Task 4.10** (Defence Before Fix): a qa-ansible rule for a regex class escape
+  written with a doubled backslash (`\\d`, `\\s`, `\\w`) inside a Jinja string literal in YAML,
+  red on a fixture and on the three lines above before their fix, green after; the independent
+  searcher run first
 
 ### Phase 5: The health report says so
 

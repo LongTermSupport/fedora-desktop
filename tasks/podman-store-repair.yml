@@ -49,7 +49,7 @@
 - name: Assert the Rootless Store Is at Its Standard Path
   ansible.builtin.assert:
     that:
-      - (item.content | b64decode) is not regex('(?m)^\\s*' ~ item.item.item.key ~ '\\s*=')
+      - (item.content | b64decode) is not regex('(?m)^\s*' ~ item.item.item.key ~ '\s*=')
     fail_msg: >-
       {{ item.item.item.path }} sets {{ item.item.item.key }}, so the rootless store may not be
       under {{ podman_store_home }}/.local/share/containers/storage, where this repair looks.
@@ -129,7 +129,7 @@
       vars:
         podman_store_held_inodes: >-
           {{ podman_store_proc_locks.content | b64decode
-             | regex_findall('\\s[0-9a-f]+:[0-9a-f]+:(\\d+)\\s') | map('int') | list }}
+             | regex_findall('\s[0-9a-f]+:[0-9a-f]+:(\d+)\s') | map('int') | list }}
         podman_store_held: >-
           {{ podman_store_tempdir_locks | selectattr('inode', 'in', podman_store_held_inodes)
              | map(attribute='path') | list }}

@@ -27,7 +27,7 @@
     podman_store_subuid_ranges: >-
       {{ podman_store_subuid.content | b64decode
          | regex_findall('(?m)^(?:' ~ (user_login | regex_escape) ~ '|'
-                         ~ ansible_facts['getent_passwd'][user_login][1] ~ '):(\\d+):(\\d+)\\s*$') }}
+                         ~ ansible_facts['getent_passwd'][user_login][1] ~ '):(\d+):(\d+)\s*$') }}
 
 - name: Assert the Login User Has Exactly One subuid Range
   ansible.builtin.assert:
