@@ -849,12 +849,17 @@ check "a session open elsewhere is not attached" "no" "$(logged 'attach-session'
 check_has "  ccy-sessions is named for taking it over" "Ctrl-T" "$out"
 
 reset
-out="$(run_picker "$OUTSIDE" "ctrl-r|ccy-proj" "|ABORT")"
+# Turning restore off asks first, default No (Plan 00177 Task 10.6): Esc keeps it on.
+out="$(run_picker "$OUTSIDE" "ctrl-r|ccy-proj" "|ABORT" "|ABORT")"
 ccy_registry_read "$CCY_STATE_DIR/sessions/ccy-proj"
-check "Ctrl-R turns the seat's session's restore off" "no" "$REC_RESTORE"
+check "Ctrl-R then Esc at its question keeps the seat's session's restore on" "yes" "$REC_RESTORE"
+check_has "  the question names the seat and the reboot" "will not come back after a reboot" "$(cat "$TEST_FZF_RAW")"
+out="$(run_picker "$OUTSIDE" "ctrl-r|ccy-proj" "|YES" "|ABORT")"
+ccy_registry_read "$CCY_STATE_DIR/sessions/ccy-proj"
+check "Ctrl-R then yes turns the seat's session's restore off" "no" "$REC_RESTORE"
 check "  keeping its seats" "--teams 1@alpha" "${REC_ARGS[*]}"
 check_has "  and the refreshed list shows it" " no " \
-    "$(grep -E '^alpha +proj\.1\+local\.podman +ccy' "$TEST_FZF_ROWS" | awk 'NR == 2')"
+    "$(grep -E '^alpha +proj\.1\+local\.podman +ccy' "$TEST_FZF_ROWS" | awk 'END { print }')"
 out="$(run_picker "$OUTSIDE" "ctrl-r|ccy-proj" "|ABORT")"
 ccy_registry_read "$CCY_STATE_DIR/sessions/ccy-proj"
 check "  and on again" "yes" "$REC_RESTORE"
