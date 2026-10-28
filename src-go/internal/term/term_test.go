@@ -112,6 +112,21 @@ func TestAbbrevHome(t *testing.T) {
 	}
 }
 
+func TestExpandHome(t *testing.T) {
+	cases := []struct{ path, home, want string }{
+		{"~/.ssh/id_x", "/home/u", "/home/u/.ssh/id_x"},
+		{"~", "/home/u", "/home/u"},
+		{"~other/x", "/home/u", "~other/x"},
+		{"/etc/x", "/home/u", "/etc/x"},
+		{"~/x", "", "~/x"},
+	}
+	for _, c := range cases {
+		if got := ExpandHome(c.path, c.home); got != c.want {
+			t.Errorf("ExpandHome(%q,%q)=%q want %q", c.path, c.home, got, c.want)
+		}
+	}
+}
+
 func TestFileIsTerminal(t *testing.T) {
 	if FileIsTerminal(&bytes.Buffer{}) {
 		t.Error("a buffer is not a terminal")

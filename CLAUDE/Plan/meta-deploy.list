@@ -38,4 +38,11 @@
 # reloaded only when its files changed, so a rerun no longer cuts into dictation or makes the
 # panel flicker. Nothing is downloaded. The host agent checks the recap says changed=0 (this
 # run changes no file, so ydotool is left running and the extension is not reloaded).
+# Also play-basic-configs.yml (Plan 00192 Task 3.3): ssh-with-key, scp-with-key and
+# ssh-copy-id-with-key are now Go binaries built from src-go/cmd and installed at their old
+# paths in ~/.local/bin; nothing else in the play changes, nothing is asked and no host is
+# contacted. The host agent then checks SPEC-ssh-with-key H1-H4 with a throwaway key against a
+# VM-lab guest (help, usage errors, a login offering one key, scp both ways, an ssh-copy-id dry
+# run, a configuration with a second key refused, and -A in tmux leaving no agent behind). H5
+# (the owner's own hosts and keys) is the owner's.
 changed-plays

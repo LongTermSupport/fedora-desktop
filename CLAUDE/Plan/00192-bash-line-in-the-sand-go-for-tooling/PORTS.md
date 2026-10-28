@@ -429,3 +429,28 @@ host recheck passed (H1's Podman section with no summed size, and the dangling c
 prune question differing by the stated number kept; option 6 answering No to every question
 ran nothing). 2.0.5 says `Skipped <command>.` after a No to either "Also remove all unused"
 question too, as after the first question of each pair (E22); its recheck is queued.
+The `ssh-with-key` family (P6: `ssh-with-key`, `scp-with-key`, `ssh-copy-id-with-key`) ported
+and cut over on `go-port/ssh-with-key`, review pending, not merged; spec
+[SPEC-ssh-with-key.md](SPEC-ssh-with-key.md) (D1-D5, E1-E19, B1-B10, H1-H5), `src-go/internal/sshkey`
+and three thin mains `src-go/cmd/{ssh,scp,ssh-copy-id}-with-key` (not one binary answering to
+its argv[0]: `tasks/build-go-command.yml` installs one command per name, and a binary that acts
+on the name it was started by changes when copied or linked). The main finding (B1): with
+`IdentitiesOnly=yes` ssh still offers every `IdentityFile` its configuration gives the host,
+and nothing on the command line clears them, so the bash's "only one key" was false under any
+`Host *` IdentityFile; E11 asks `ssh -G` before connecting and stops, naming the keys (the
+choice was sent to the lead for the owner; H5). Without `-A` the program is exec'd. With `-A`
+the run re-executes itself under `ssh-agent -- <itself>` (command mode: the agent exits when
+its parent goes, even after SIGKILL, where the bash's `eval "$(ssh-agent -s)"` and EXIT trap
+left one), trusts it only when a marker variable holds its own pid and the agent's parent is
+itself (`/proc`), adds the chosen keys with `ssh-add` in the foreground (it asks the passphrase
+itself; none passes through the tool), runs ssh or scp through `execx.Foregrounder`, then
+`ssh-agent -k`. Forwarding is now read from the options only (B3: the bash took `ls -A` in a
+remote command, `-oForwardAgent=no` and `-lAdmin` as asks). `term.ExpandHome` joins
+`term.AbbrevHome` (project_homeabbrev keeps `~` in `internal/term`). The bash files and their
+allowlist rows are gone; `ssh-with-agent.bash` stays for the two password wrappers, and
+`go-binary-suites.tsv` gives the three `qa-go`. No oracle against the bash. Checked in the
+container beyond the fakes: the built binary under a pty with a throwaway key, `HOME` in
+scratch and a `ProxyCommand` standing in for the host: the agent re-exec, the `/proc` check,
+`ssh-add`, the agent reaching ssh's children, `q` giving 130, no `ssh-agent` left after, and
+E11 refusing a `-F` configuration naming a second key. A real login is H2-H5. Host run queued
+in `meta-deploy.list` (`changed-plays`, expected to pick up `play-basic-configs.yml`).

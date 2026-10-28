@@ -1,0 +1,18 @@
+Usage: scp-with-key [-i KEY] [scp-options...] source... target
+
+  scp offering ONLY one private key: no key from the ssh-agent, no other key in
+  ~/.ssh or in ssh's configuration, and no password.
+
+  -i KEY       The private key to log in with. It must be the first argument.
+               Without it, choose one of the private keys in ~/.ssh.
+  -A           Forward a new agent made for this copy alone: choose the keys it
+               holds, and it ends when the copy ends.
+  -h, --help   Show this text.
+
+  Every other argument goes to scp as it is. A second key (-i or -o IdentityFile)
+  is refused, and so is a configuration that gives a host another key. scp's port
+  option is -P (uppercase), unlike ssh's -p.
+
+Examples:
+  scp-with-key -i ~/.ssh/work_key file.txt admin@host.example.com:/tmp/
+  scp-with-key file.txt admin@host.example.com:/tmp/
