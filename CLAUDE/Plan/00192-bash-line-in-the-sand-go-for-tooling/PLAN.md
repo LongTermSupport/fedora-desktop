@@ -412,7 +412,7 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   self-update case. Over every tracked non-markdown file no suite lost a selection and eleven
   gained 375 (subagent-reports/261027-task-3-9.md lists them).
 
-- [ ] 🔄 **Task 3.10**: The VM lab's runs filled the host's disk: `vmtest sweep` keeps every run
+- [ ] ⏸️ **Task 3.10**: The VM lab's runs filled the host's disk: `vmtest sweep` keeps every run
   that did not pass, with its overlay (up to the 20 GiB guest disk), for ever, and vmtest had no
   way to remove one. Code done (SPEC-vmtest E61-E65, H7): `vmtest prune-runs`, a dry run unless
   `--yes`, removes only the `*.qcow2` of runs that passed, were followed by a passing run of the
@@ -434,13 +434,20 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   The nightly sweep removed 12 passing runs' whole directories, plan-cited evidence included
   (`$7zLrx0PlxkebT2F8RqwaGSEf4cRO3g9cH6A7vOGvjrA`); it now removes only `*.qcow2` (E51, B19).
   The two reviews' follow-ups are fixed or answered (subagent-reports/261028-vmtest-follow-ups.md).
+  **Left, blocked (2026-10-28):** the host check that the vmtest-nightly run at 2026-10-29 04:07
+  writes no kept-build line to retention.log, which cannot be read before that run; and
+  play-vm-test-lab's rebuild with these fixes, queued behind the run that waits on the owner at
+  play-ftp-camera's password prompt (questions room Q9), as are Task 3.3's host checks.
 
 - [x] ✅ **Task 3.11**: FOLLOW-UP of Task 3.7 (Q3, decided 2026-10-28): `run.bash --changed`
   names the plays that read each changed variable of `environment/localhost/group_vars/desktop.yml`,
   rather than none (today) or every play. Tests first: a change to one variable makes stale the
   plays that read it and no other; a variable no play reads makes none stale.
 
-- [ ] ⬜ **Task 3.12**: FOLLOW-UP (part C item 9 of the unblocking list, decided 2026-10-28): the
+- [ ] ⏸️ **Task 3.12**: **Blocked on the owner (questions room Q8):** the deny is deliberate
+  upstream (`secret_file_guard.py`, documented as an accepted cost), so there is no defect to
+  file; a feature request, or closing the task, is the owner's call.
+  FOLLOW-UP (part C item 9 of the unblocking list, decided 2026-10-28): the
   hooks-daemon secret-file guard denies a Write or a Bash command whose text holds nmcli's VPN
   secrets setting name as one token, though no file is involved ([PORTS.md](PORTS.md), nord).
   The `nord` workaround (the name joined from its parts, pinned by a test) is kept and the guard

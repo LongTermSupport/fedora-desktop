@@ -299,8 +299,10 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   label (a pick it lacks ends the run as a fail; the re-run answers Enter), and the checker's
   three speech-to-text checks (PLANNED 20). Red, then green. Awaiting the VM run
   (meta-deploy.list).
-- [ ] ⬜ **Task 6.7 VM run**: The host runs `./CLAUDE/Plan/meta-deploy.bash`; the consumer
-  scenario passes 20 of 20 with speech-to-text installed.
+- [ ] ⏸️ **Task 6.7 VM run**: The host runs `./CLAUDE/Plan/meta-deploy.bash`; the consumer
+  scenario passes 20 of 20 with speech-to-text installed. **Blocked on the owner (2026-10-28):**
+  the run at dcc5721c8 waits, ahead of this entry, at play-ftp-camera's prompt for the camera
+  hotspot Wi-Fi password, which only the owner may answer (questions room Q9).
 - [x] ✅ **Task 6.6**: The developer path's optional runs, as Task 2.6 did for the consumer.
   Decided (2026-10-28, part C item 5 of the unblocking list): on the developer path, optional
   plays go on after one fails, a summary naming every failed and installed play is printed at
