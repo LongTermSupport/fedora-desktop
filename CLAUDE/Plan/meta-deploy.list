@@ -34,20 +34,7 @@
 # that is not an entry is a fatal error naming its line number.
 
 # The plays changed since they last ran here. Expected: play-speech-to-text.yml (Plan 00234
-# Task 4.1): wsi-stream names its live preview model (tiny.en for English, tiny otherwise)
-# and writes no realtimesst.log into the home directory, and the play's new "Download The
-# Live Preview Models" task downloads both (75 MB each) unless they are on disk; the play
-# fails if it cannot. A recorder that fails to load (CUDA out of memory, a missing model)
-# now ends the dictation at once with a notification that stays, instead of hanging.
-# Nothing else is downloaded. No logout is needed.
+# Task 4.3): the play removes the realtimesst.log earlier versions of wsi-stream left in the
+# home directory (it grew without bound; wsi-stream now writes none). Nothing else changes and
+# nothing is downloaded. The host agent then checks the file is gone from the home directory.
 changed-plays
-
-# Then Plan 00234's gpu-load-acceptance.bash again, the leg that failed: loads
-# distil-large-v3.5 on the NVIDIA GPU in float16, once as the dictation server does (beam 5)
-# and once with wsi-stream's streaming settings (its live preview model, tiny.en, loaded
-# beside it), and reports each peak GPU memory against the fit rule's figure (about
-# 2.6 GB), failing above it. The streaming leg now fails at once, naming the play, if
-# tiny.en is not on disk, and a recorder that fails to load ends at once instead of
-# hanging to the 600 s timeout. Nothing is downloaded (distil-large-v3.5 is on disk from
-# the last run) and nothing is removed.
-00234-stt-model-manager-fits-gpu/gpu-load-acceptance.bash

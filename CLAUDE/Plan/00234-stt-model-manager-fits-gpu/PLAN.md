@@ -1,6 +1,6 @@
 # Plan 00234: the speech-to-text model manager offers only the models that fit this GPU
 
-**Status**: In Progress (the live preview model fix made, its host rerun queued; the owner's look and Decision 1's approval pending)
+**Status**: In Progress (every host check passed; the old log's removal queued for the host; the owner's look and Decision 1's approval pending)
 **Created**: 2026-10-27
 **Owner**: joseph
 **Priority**: Medium
@@ -81,7 +81,7 @@ non-technical person can follow the blue MOK Manager screens after the reboot.
   v2 and v3 refused (about 4.4 GB needed). play-nvidia.yml was not picked: it has not run
   there. That run called the helpers only: the screen itself (the cursor move in `on_mount`,
   `_start_download`'s refusal) did not run under test; Task 2.3 covers it.
-- [ ] ⬜ **Task 2.3**: the review fixes on the host (meta-deploy): `acceptance.bash` again,
+- [x] ✅ **Task 2.3**: the review fixes on the host (meta-deploy): `acceptance.bash` again,
   with its new `screen` leg driving the installed manager's real Textual screen headless
   (`App.run_test`; textual is installed by the play but not in the QA container, so this
   cannot run in `qa-all`): the cursor on the preselected model, the too-big row marked, Enter
@@ -90,7 +90,9 @@ non-technical person can follow the blue MOK Manager screens after the reboot.
   float16, once as wsi-stream-server loads it (beam 5 over 30 s of noise) and once with
   wsi-stream's own streaming settings (real-time transcription on, the real-time model
   beside it), each peak GPU memory reported against the fit rule's figure and failing above
-  it. It downloads distil-large-v3.5 if it is missing, nothing else.
+  it. It downloads distil-large-v3.5 if it is missing, nothing else. Passed: `acceptance.bash`
+  with the screen leg at `071969780`, and `gpu-load-acceptance.bash` at `36889021f` after
+  Phase 4.
 - [ ] ⬜ **Task 2.2**: The owner's look: open Manage Whisper Models... and check the status
   line names the NVIDIA GPU and its memory, the cursor is on Distil Large v3.5, Large v2 and
   Large v3 show `✗ too big`, and choosing one shows the refusal and leaves the list open
@@ -129,9 +131,16 @@ directory, the home directory when the panel starts `wsi-stream`.
   once with `os._exit(1)`, ERROR and a notification that stays, on a constructor that
   raises or on any thread that dies while the recorder is built (`threading.excepthook`,
   set for that window only); the pre-buffer's pw-record is killed first
-- [ ] ⬜ **Task 4.2**: on the host (meta-deploy): `changed-plays` picks up
+- [x] ✅ **Task 4.2**: on the host (meta-deploy): `changed-plays` picks up
   play-speech-to-text.yml (downloads tiny.en and tiny), then `gpu-load-acceptance.bash`
-  again, both legs within the rule's figure
+  again, both legs within the rule's figure. Passed at `36889021f`
+  (`$_Pb6VdryWr-hG2RoCKditTB9DpomZO1RzxLTsRQzdR8`): both live preview models downloaded;
+  decode peaked at 2080 MiB and streaming (tiny.en beside it) at 2184 MiB, against 2659; no
+  hang, and no new `realtimesst.log` anywhere. An 87 MB one left in the home directory by
+  earlier versions was found; Task 4.3 removes it.
+- [ ] ⬜ **Task 4.3**: the play removes the `realtimesst.log` earlier versions left in the
+  home directory (code done); on the host, `changed-plays` runs play-speech-to-text.yml and
+  the file is gone
 
 ## Technical Decisions
 
@@ -172,7 +181,7 @@ size order would preselect it; the catalogue order is used instead.
 
 - [x] The tests above pass (`scripts/test-wsi-stop-grace.bash`)
 - [x] `acceptance.bash` ACCEPTED on the test machine (Task 2.1, at 525560cfb)
-- [ ] `acceptance.bash` with its `screen` leg, and `gpu-load-acceptance.bash`, ACCEPTED on
+- [x] `acceptance.bash` with its `screen` leg, and `gpu-load-acceptance.bash`, ACCEPTED on
   the test machine (Task 2.3; the streaming leg after Task 4.2)
 - [ ] The owner approves Decision 1's exception to the Go-port rule
 - [ ] The owner's look (Task 2.2) agrees

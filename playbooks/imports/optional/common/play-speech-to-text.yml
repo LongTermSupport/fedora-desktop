@@ -606,6 +606,14 @@
       register: live_preview_download
       changed_when: "'WSI-MODEL-DOWNLOADED' in live_preview_download.stdout"
 
+    # RealtimeSTT wrote realtimesst.log into its working directory, the home directory when the
+    # panel starts wsi-stream, and it grew without bound. wsi-stream now turns that log off, so
+    # the file left by earlier versions is removed.
+    - name: Remove The Old Live Preview Log From The Home Directory
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/realtimesst.log"
+        state: absent
+
     # =========================================================================
     # Warm Server at Login (Settings: "Start the server at login")
     # =========================================================================
