@@ -1,6 +1,6 @@
 # Plan 00177: ccy-teams, human friendly
 
-**Status**: In Progress (host run 26-10-26: 6.4, 10.4 and 10.5 passed; 7.5 and 9.5 still open; 10.6, the restore toggle's confirm, decided 2026-10-28 and to build; Phase 11 passed on the host; Phase 12 passed on the host, 12.5's fix included, on 27-10-26; 12.6, the flaky test, fixed in the test on 27-10-26)
+**Status**: In Progress (host run 26-10-26: 6.4, 10.4 and 10.5 passed; 7.5 and 9.5 still open; 10.6, the restore toggle's confirm, decided 2026-10-28 and built 28-10-26; Phase 11 passed on the host; Phase 12 passed on the host, 12.5's fix included, on 27-10-26; 12.6, the flaky test, fixed in the test on 27-10-26)
 **Created**: 2026-10-13
 **Owner**: joseph
 **Priority**: High
@@ -251,11 +251,13 @@ are too, by the same route.
   still lose the Esc. PASS 26-10-26 (host agent): split 20 ms apart, a real ccy-teams confirm
   and gum confirm, choose and input 9 of 9 leave; joined in one call 6 of 6 lose the Esc, as
   decided below.
-- [ ] ⬜ **Task 10.6**: The restore toggle asks before turning restore OFF (decided 2026-10-28,
+- [x] ✅ **Task 10.6**: The restore toggle asks before turning restore OFF (decided 2026-10-28,
   below). Tests first: turning a seat's restore OFF, from the menu row and with Ctrl-R in the
   list, shows a Confirm, default No, naming the seat and that its session will not come back
   after a reboot; No (and Esc) leaves restore on and changes nothing; Yes turns it off. Turning
-  it ON asks nothing.
+  it ON asks nothing. Built in `seats.ToggleRestore` (both routes reach it) with the picker's
+  `flow.Kit.Confirm`, heading `… › <seat> › Restore off`; the help, usage text and
+  docs/agent-bus.md say so.
 
 #### Owner decisions (Task 10.4, an Esc joined to the key after it)
 

@@ -48,25 +48,40 @@
 # play-speech-to-text.yml rebuilds wsi (a stop grace over the setting's 30 seconds is refused).
 # Rebuilds only: nothing is rebooted, recorded or pruned, and nothing is asked.
 changed-plays
-# Plan 00235, the disk-space priority: triage, the daily prune deployed, triage again (so the
-# store and the free space are measured before and after), then acceptance.
-# 1. triage.bash --du (Task 2.1, read-only, no sudo): disk free on / and /home, `podman system
-#    df` (its exit status recorded), the store's size on disk (--du, slow on a large store),
-#    image counts (dangling, unused dangling, summed size), dangling by month, the newest 400
-#    dangling by label, tags and whether a container uses each, containers and buildah
-#    leftovers, volumes, user timers. It lists and inspects only.
-# 2. deploy.bash (Tasks 4.1-4.2, asks for sudo once): play-podman.yml builds container-images
-#    into ~/.local/bin and installs and enables container-images-prune.timer (daily,
-#    Persistent=true). Because the service is new, the play starts it once and waits: that run
-#    REMOVES the backlog of dangling images no container uses (over a day old), claude-yolo
-#    project images no container uses (over 30 days old) and buildah leftovers over a day old
-#    while no ccy build runs, logging each to ~/.local/state/fedora-desktop/container-images.log.
-#    It removes no volume and no image a container uses. It may take some minutes. Then
-#    play-claude-yolo.yml (Tasks 3.1-3.2) installs CCY 3.102.1 and rebuilds claude-yolo:latest:
-#    that build, and every ccy build and in-place update after it, removes the images it
-#    replaced (old :latest, :base, project images) that no tag names and no container uses.
+# Plan 00235, URGENT: the store repair, then the prune finished. The first prune left three
+# layers c/storage could not delete (files owned by uids of the old subuid range), and since
+# then every podman image operation fails: ccy launches and builds, vmtest, the prune timer.
+# 1. triage.bash --du (read-only, no sudo): the before figures; with the store broken its
+#    podman legs fail, which is recorded and does not stop the run.
+# 2. deploy.bash (Tasks 4.5-4.6, asks for sudo once): play-podman.yml first REMOVES, AS ROOT,
+#    each leftover c/storage temporary directory (overlay/tempdirs/temp-dir-N and its lock-N)
+#    in the user's rootless store, naming each and its size in the play output; it stops
+#    instead, removing nothing, if a podman or buildah of the user is removing or building or a
+#    lock there is held. That makes podman work again before the play asks it anything, so the
+#    migrate step cannot stop the running containers on a failed probe. It then rebuilds
+#    container-images and starts the prune once more (no prune has succeeded yet): dangling
+#    images no container uses (over a day old), unused claude-yolo project images over 30 days,
+#    buildah leftovers, each logged to ~/.local/state/fedora-desktop/container-images.log; no
+#    volume, no image in use. If another layer holds old-range files the prune now stops at it
+#    and exits 1, the play repairs the store again as root and then fails: the store is left
+#    working, and the failure is Q6 of the plan (old-range files still in the store), the
+#    owner's decision. Running containers are not stopped. It may take some minutes.
+#    Before the timer, a root probe searches the store for a file owned outside the user's uid
+#    and current subuid range. If it finds one, the play does NOT run the prune, STOPS and
+#    DISABLES container-images-prune.timer, and FAILS ON PURPOSE at its end with "the podman
+#    store holds files owned outside your subuid range (old range); the daily prune is held off
+#    until they are re-owned (Plan 00235 Q6)". That failure is expected: the store is repaired
+#    and podman works, only the daily prune waits for Q6. A clean probe writes the marker
+#    ~/.local/state/fedora-desktop/container-images.store-clean; a failing one removes it, and
+#    without it ccy's self-prune and `container-images prune --yes` remove nothing.
+#    Then play-claude-yolo.yml (Tasks 3.1-3.2) installs CCY 3.102.1 and rebuilds
+#    claude-yolo:latest: that build, and every ccy build and in-place update after it, removes
+#    the images it replaced (old :latest, :base, project images) that no tag names and no
+#    container uses, while the store-clean marker is present. If play-podman.yml fails on
+#    purpose (Q6), play-claude-yolo.yml does not run in this deploy; CCY 3.102.1 then arrives
+#    through changed-plays on a later run.
 # 3. triage.bash --du again: the after figures.
-# 4. acceptance.bash (read-only): the timer is enabled with a next run, the first run
-#    succeeded and logged, no unused dangling image over a day old is left, every container
-#    still has its image, claude-yolo:base and :latest exist, free space now.
+# 4. acceptance.bash (read-only; skipped if the deploy failed): the timer is enabled with a
+#    next run, the prune succeeded and logged, no unused dangling image over a day old is
+#    left, every container still has its image, claude-yolo:base and :latest exist.
 00235-podman-images-cleaned-up-automatically --du

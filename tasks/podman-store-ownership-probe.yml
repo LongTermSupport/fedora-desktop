@@ -1,0 +1,78 @@
+---
+# Whether the rootless podman store holds files the rootless user cannot delete (Plan 00235 Q6).
+# play-podman.yml imports it after the store repair and before it enables the prune timer.
+#
+# Rootless podman owns every file of its store as the user's uid or a uid of the user's current
+# subuid range; root's files (uid 0) are fine too. A file owned by any other uid, in practice one
+# of an older subuid range (100000-based), cannot be unlinked by the user, so a prune removing
+# its layer leaves a c/storage temporary directory that breaks every image operation until root
+# removes it. The daily timer has no root to repair that, so the play holds it off while such a
+# file exists: podman_store_foreign_owner is true and play-podman.yml stops the timer, skips the
+# first prune and fails at its end.
+#
+# The search stops at the first such file (-quit) and stays on the store's filesystem (-xdev),
+# which keeps it out of mounted container roots. Running containers add and delete files in the
+# store while it walks, so a file gone before find reaches it is not an error
+# (-ignore_readdir_race).
+#
+# Needs: user_login, and podman_store_home from tasks/podman-store-repair.yml.
+
+- name: Read the Subordinate uid Ranges
+  ansible.builtin.slurp:
+    path: /etc/subuid
+  register: podman_store_subuid
+
+- name: Resolve the Login User's Current subuid Range
+  ansible.builtin.set_fact:
+    podman_store_subuid_ranges: >-
+      {{ podman_store_subuid.content | b64decode
+         | regex_findall('(?m)^(?:' ~ (user_login | regex_escape) ~ '|'
+                         ~ ansible_facts['getent_passwd'][user_login][1] ~ '):(\\d+):(\\d+)\\s*$') }}
+
+- name: Assert the Login User Has Exactly One subuid Range
+  ansible.builtin.assert:
+    that:
+      - podman_store_subuid_ranges | length == 1
+    fail_msg: >-
+      /etc/subuid gives {{ user_login }} {{ podman_store_subuid_ranges | length }} ranges, not one,
+      so the store ownership probe cannot tell which uids rootless podman maps.
+    quiet: true
+
+- name: Check Whether the Rootless Store Has an Overlay Directory
+  become: true
+  ansible.builtin.stat:
+    path: "{{ podman_store_home }}/.local/share/containers/storage/overlay"
+  register: podman_store_overlay_stat
+
+# find's -uid +N is "greater than N" and -uid -N "less than N", so the range test is
+# start-1 < uid < start+count.
+- name: Find a File in the Store Owned Outside the User's uid and subuid Range
+  become: true
+  ansible.builtin.command:
+    argv:
+      - find
+      - "{{ podman_store_home }}/.local/share/containers/storage/overlay"
+      - -xdev
+      - -ignore_readdir_race
+      - "!"
+      - -uid
+      - "0"
+      - "!"
+      - -uid
+      - "{{ ansible_facts['getent_passwd'][user_login][1] }}"
+      - "!"
+      - (
+      - -uid
+      - "+{{ (podman_store_subuid_ranges[0][0] | int) - 1 }}"
+      - -uid
+      - "-{{ (podman_store_subuid_ranges[0][0] | int) + (podman_store_subuid_ranges[0][1] | int) }}"
+      - )
+      - -print
+      - -quit
+  register: podman_store_foreign_file
+  changed_when: false
+  when: podman_store_overlay_stat.stat.isdir | default(false)
+
+- name: Record Whether the Store Holds a File Owned Outside the Range
+  ansible.builtin.set_fact:
+    podman_store_foreign_owner: "{{ podman_store_foreign_file is not skipped and podman_store_foreign_file.stdout | length > 0 }}"
