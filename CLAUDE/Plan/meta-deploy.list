@@ -33,36 +33,9 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# The plays changed since they last ran here. Expected: play-cli-tools.yml (Plan 00192:
-# reclaim 2.0.5, which after a No to either "Also remove all unused ... (-af)?" question, podman
-# or docker, prints "Skipped <command>." as it does after the first question of each pair), and
-# play-speech-to-text.yml (Plan 00234 review fixes: the panel's extension.js loses its unused
-# model size strings; no behaviour change, so no logout is needed). play-displaylink.yml and
-# play-nvidia.yml (the shared MOK enrolment message) only if they have run here before.
-# The host agent then checks reclaim --version says 2.0.5 and reruns option 6 answering No to
-# every question: a Skipped line after each of the four, and nothing run.
-# play-cli-tools.yml also rebuilds open (Plan 00192 E11a): inside tmux or screen its chafa image
-# preview draws text symbols instead of graphics tmux does not pass; the host agent then
-# reruns open H4's image in its private tmux and sees the picture drawn as text.
-# play-vm-test-lab.yml too (Plan 00192 Task 3.10: the vmtest binary with `vmtest prune-runs`
-# and the free-disk guard, and retention.py's prune plan). The host agent then runs
-# `vmtest prune-runs` without --yes (vmtest H7): it lists each run's overlay with its size
-# and reason, the bases and the total it would free, and removes nothing. Removing them
-# (--yes) is the owner's call.
+# The plays changed since they last ran here. Expected: play-vm-test-lab.yml only (Plan 00192
+# Task 3.10: the vmtest binary with `vmtest prune-runs` and the free-disk guard, and
+# retention.py's prune plan). The host agent then runs `vmtest prune-runs` without --yes
+# (vmtest H7): it lists each run's overlay with its size and reason, the bases and the total
+# it would free, and removes nothing. Removing them (--yes) is the owner's call.
 changed-plays
-
-# Plan 00234, the review fixes: acceptance.bash again, read-only, with a new screen leg that
-# drives the installed model manager's real Textual screen headless (the cursor on Distil
-# Large v3.5, Large v2/v3 marked too big, Enter and the Download key on one refused with the
-# list left open; the download is replaced, so nothing is fetched). Nothing is downloaded
-# or removed.
-00234-stt-model-manager-fits-gpu
-
-# Then gpu-load-acceptance.bash: loads distil-large-v3.5 on the NVIDIA GPU in float16, once
-# as the dictation server does (beam 5) and once with wsi-stream's streaming settings
-# (real-time transcription on, so the tiny real-time model loads too), and reports each
-# peak GPU memory against the fit rule's figure (about 2.6 GB), failing above it. It
-# DOWNLOADS distil-large-v3.5 (about 1.4 GB) if it is not on disk; nothing else is
-# downloaded (a missing tiny model fails the streaming leg) and nothing is removed. A warm
-# dictation server's model stays loaded and is counted as in use before the load.
-00234-stt-model-manager-fits-gpu/gpu-load-acceptance.bash

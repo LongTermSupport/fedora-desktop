@@ -187,7 +187,8 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     H1 PASS; H4 PASS for text (the editor), a directory and `.` (`ls` in `less`), a PDF
     (`pdftotext` in `less`) and an unknown type (the chooser, Esc exit 130). H4's image: `chafa`
     ran, exit 0, but drew nothing inside the nested tmux (`TERM=tmux-256color`), while
-    `chafa --format symbols` drew text; fixed on `fix/00192-open-chafa-tmux` (E11a). H5: Ctrl-C
+    `chafa --format symbols` drew text; fixed (E11a), and the rerun at `071969780` in the same
+    tmux drew the image in text symbols, exit 0 (`$WJ4Fgyz5sHTT3KCDHHKiNF8P6i4Z8PLlx9f7rcZS2Wk`). H5: Ctrl-C
     in `less` is less's, `q` exits 0 with the terminal normal; a named pipe is classified
     without blocking, and Ctrl-C at the chooser gives `cancelled — nothing opened.`, exit 130
     (E31). Not run: Ctrl-C in mpv (left, above), Ctrl-C ending chafa (a still image returns at
@@ -242,7 +243,7 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     the partial section (counts, sizes, dangling images, the largest ten of each kind), makes
     every default prune dangling-only, and asks separately, default No, about every unused
     image, listing the claude-yolo images it would remove; the safe sweep never asks it (E7a,
-    E22, E22a, E27, B16). 2.0.3's host check is queued in `meta-deploy.list`. 2.0.4 drops the summed image size (it equalled the whole disk; no layer sizes are available without `podman system df`) and explains the dangling count that differs between the report and the prune question (images a container uses are kept); its host recheck passed at `cad6b5053`. 2.0.5 prints `Skipped <command>.` after a No to either "Also remove all unused" question as well; its host recheck (option 6, No to every question) is queued in `meta-deploy.list`.
+    E22, E22a, E27, B16). 2.0.3's host check is queued in `meta-deploy.list`. 2.0.4 drops the summed image size (it equalled the whole disk; no layer sizes are available without `podman system df`) and explains the dangling count that differs between the report and the prune question (images a container uses are kept); its host recheck passed at `cad6b5053`. 2.0.5 prints `Skipped <command>.` after a No to either "Also remove all unused" question as well; its host recheck passed at `071969780` (option 6, No to all four: a Skipped line after each, nothing run, podman and docker figures unchanged).
   - Still to do: the remaining programmes in [INVENTORY.md](INVENTORY.md) (`nord`,
     `nvidia-status`, the `ssh-with-key` family) and the `ccy` launcher.
 
