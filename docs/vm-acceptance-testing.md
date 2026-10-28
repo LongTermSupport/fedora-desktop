@@ -197,7 +197,11 @@ only a desktop scenario with no `run_env` and no `host_only` may say. `./run.bas
 for the autologin session, clones the public repository over HTTPS and pins it at the run's
 commit (run.bash's own `git pull --ff-only` then changes nothing), and runs `~/run.bash --consumer` at a terminal the guest's sshd allocates (`ssh -tt`), with the session's bus
 and display variables. The driver (`src-go/internal/vmtest/attend.go`) answers each
-question when its prompt appears: Enter at the optional-app menu, and nothing else. A
+question when its prompt appears: at the optional-app menu, the numbers of the scenario's
+`optional_plays` (found by the label the menu gives each play; a pick the menu does not
+offer ends the run as a fail), Enter on the re-run, and nothing else. `optional_plays` is
+allowed only on a consumer scenario; a headless one uses `RUN_BASH_OPTIONAL_PLAYBOOKS` in
+`run_env`. A
 password or GitHub credential prompt ends the run at once as a fail. A question it does
 not know (the output stops at a line ending in `:`, `?`, `]`, `)` or `>`) ends the run as a
 fail once nothing more is printed for 60 seconds, and the transcript quotes its last lines;
@@ -206,7 +210,8 @@ a long silent step after a finished line is not affected. It then runs
 output in `/var/lib/vmtest/rerun.log`, and reboots. The checker,
 `guest-acceptance-desktop-consumer-install.bash`, asserts no SSH key and no `gh` login, an
 HTTPS origin, no NOPASSWD block from this repo, the everyday apps and Go present, the
-developer tools absent, and every `PLAY RECAP` of the second run `changed=0 failed=0`.
+developer tools absent, speech-to-text set up (the panel extension ACTIVE, faster-whisper
+importable, its commands installed) with `post-processing-offered` false, and every `PLAY RECAP` of the second run `changed=0 failed=0`.
 The response adds the divergences `run-bash-attended-over-ssh-terminal`,
 `checkout-pinned-by-harness` and `lab-sudoers-nopasswd` (the lab user's own passwordless
 sudo, so no password is ever asked).

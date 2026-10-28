@@ -116,6 +116,12 @@ Both read the manifest as the validator accepted it, and the guest scripts of
 - V12. For every published `guest-acceptance-<name>.bash`, `<name>` must be a scenario id or the
   profile of some base of the manifest; otherwise
   `ERROR: <file> is the checker of no scenario and of no base profile, so it would be deployed and never run`.
+- V17. For every scenario's `optional_plays` entry: the name must be a file in exactly one of
+  `playbooks/imports/optional/common` and `.../hardware-specific`, and every play in it (an
+  entry with hosts) must declare `vars.audience` `all`. Findings:
+  `<id>: optional_plays names <p>, which is not a play in ...`; `... which is in both ...`;
+  `... names <path>, which is not for every audience (vars.audience all in each of its plays), so the consumer menu never offers it`.
+  A picked file that is not regular, unreadable or not YAML is exit 2. Stdout is unchanged (V15).
 
 ### Output
 
