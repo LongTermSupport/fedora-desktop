@@ -123,7 +123,12 @@ directory, the home directory when the panel starts `wsi-stream`.
   does too), run by the play's new Download The Live Preview Models task, failing if
   either cannot be fetched; `check-gpu-load.py`'s streaming leg uses the resolver's model,
   fails at once naming the play when it is not on disk, and its child exits at once on a
-  recorder that fails to load
+  recorder that fails to load. RealtimeSTT can also fail without raising: a main-model
+  load error ends only its worker thread, and the constructor waits for the model for
+  ever. So `wsi-stream`'s `load_recorder` (both RealtimeSTT modes) ends the process at
+  once with `os._exit(1)`, ERROR and a notification that stays, on a constructor that
+  raises or on any thread that dies while the recorder is built (`threading.excepthook`,
+  set for that window only); the pre-buffer's pw-record is killed first
 - [ ] ⬜ **Task 4.2**: on the host (meta-deploy): `changed-plays` picks up
   play-speech-to-text.yml (downloads tiny.en and tiny), then `gpu-load-acceptance.bash`
   again, both legs within the rule's figure

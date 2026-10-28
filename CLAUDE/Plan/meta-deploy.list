@@ -37,7 +37,9 @@
 # Task 4.1): wsi-stream names its live preview model (tiny.en for English, tiny otherwise)
 # and writes no realtimesst.log into the home directory, and the play's new "Download The
 # Live Preview Models" task downloads both (75 MB each) unless they are on disk; the play
-# fails if it cannot. Nothing else is downloaded. No logout is needed.
+# fails if it cannot. A recorder that fails to load (CUDA out of memory, a missing model)
+# now ends the dictation at once with a notification that stays, instead of hanging.
+# Nothing else is downloaded. No logout is needed.
 changed-plays
 
 # Then Plan 00234's gpu-load-acceptance.bash again, the leg that failed: loads

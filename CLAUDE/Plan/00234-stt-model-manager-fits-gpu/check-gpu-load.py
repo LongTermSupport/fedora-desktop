@@ -48,10 +48,18 @@ def load_decode(model):
 def load_streaming(model, realtime_model):
     """Child: wsi-stream's prebuffered recorder_config, word for word but the callback.
 
-    RealtimeSTT 1.0.0 starts its main transcription worker as a thread it means to be a
-    daemon (`thread.deamon = True`, misspelt), so when a later step of its constructor
-    raises, that thread keeps the process alive for ever. The error ends it here at once."""
+    RealtimeSTT 1.0.0 loads the main model in a worker thread it means to be a daemon
+    (`thread.deamon = True`, misspelt). An error there ends only that thread and the
+    constructor waits for ever; an error the constructor raises leaves that thread keeping
+    the process alive. Both end the child here at once, as wsi-stream's load_recorder does."""
     from RealtimeSTT import AudioToTextRecorder
+
+    def thread_died(hook_args):
+        print(f"FAIL: a recorder thread died: {hook_args.exc_value!r}", file=sys.stderr)
+        sys.stderr.flush()
+        os._exit(1)
+
+    threading.excepthook = thread_died
     try:
         recorder = AudioToTextRecorder(
             model=model, language="en", use_microphone=False, silero_sensitivity=0.4,

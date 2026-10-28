@@ -23,6 +23,7 @@ import socket
 import json
 import fcntl
 import re
+import threading
 from pathlib import Path
 from datetime import datetime
 
@@ -235,6 +236,47 @@ def realtime_config(language):
     }
 
 
+def load_recorder(config, release=lambda: None):
+    """AudioToTextRecorder(**config), or this process ends at once with the reason shown.
+
+    RealtimeSTT 1.0.0 loads the main model in a worker thread it means to be a daemon and
+    is not (`thread.deamon = True`, misspelt). A load error there is logged and ends that
+    thread alone, and the constructor waits for the model for ever; an error the
+    constructor raises (the live preview model, the VAD) leaves that thread keeping the
+    process alive. Either way the dictation hung. A thread dying while the recorder is
+    built, and the constructor raising, both end the process here. release() frees what
+    the caller holds (the pre-buffer's pw-record) first.
+    """
+    from RealtimeSTT import AudioToTextRecorder
+    previous_hook = threading.excepthook
+
+    def thread_died(hook_args):
+        recorder_load_failed(f"{hook_args.exc_type.__name__}: {hook_args.exc_value}", release)
+
+    threading.excepthook = thread_died
+    try:
+        return AudioToTextRecorder(**config)
+    except Exception as e:
+        recorder_load_failed(f"{type(e).__name__}: {e}", release)
+    finally:
+        threading.excepthook = previous_hook
+
+
+def recorder_load_failed(reason, release):
+    """ERROR, a notification that stays, and os._exit: a normal exit would wait on
+    RealtimeSTT's worker thread for ever, and atexit's cleanup would shut down a recorder
+    that never came up."""
+    log(f"The speech recorder did not load: {reason}", "ERROR")
+    release()
+    remove_own_pid_file(PID_FILE)
+    emit_dbus_signal("StateChanged", "ERROR")
+    urgent_notification(f"Dictation could not start: the speech recorder did not load "
+                        f"({reason}). Nothing was transcribed.")
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(1)
+
+
 def ask_resolver(argv):
     """wsi-resolve-model's answer for argv; ModelNotDownloaded on its exit 3."""
     result = subprocess.run([str(MODEL_RESOLVER), *argv], capture_output=True, text=True,
@@ -316,7 +358,6 @@ def read_remaining_audio(proc, chunk_size, feed):
     a pw-record that ignores SIGTERM so the read always reaches EOF.
     """
     import array
-    import threading
     proc.terminate()
     killer = threading.Timer(2, proc.kill)
     killer.start()
@@ -1887,9 +1928,6 @@ def run_standard_streaming(args, stop):
     if not check_dependencies():
         return 1
 
-    from RealtimeSTT import AudioToTextRecorder
-    import threading
-
     # Write PID file
     PID_FILE.write_text(str(os.getpid()))
     log(f"PID file written: {PID_FILE}")
@@ -1950,7 +1988,7 @@ def run_standard_streaming(args, stop):
         recorder_config["compute_type"] = "float16"
         log("Requesting GPU (CUDA)")
 
-        recorder = AudioToTextRecorder(**recorder_config)
+        recorder = load_recorder(recorder_config)
         log("Recorder initialized, waiting for audio pipeline...")
 
         # Notify user that model is loaded, now initializing audio
@@ -2133,8 +2171,6 @@ def run_prebuffered_streaming(args, stop):
     if not check_dependencies():
         return 1
 
-    from RealtimeSTT import AudioToTextRecorder
-    import threading
     import array
 
     # Without handlers SIGTERM's default action killed this process outright: no
@@ -2216,7 +2252,7 @@ def run_prebuffered_streaming(args, stop):
                 recorder_config["compute_type"] = "float16"
                 log("Requesting GPU (CUDA)")
 
-                recorder = AudioToTextRecorder(**recorder_config)
+                recorder = load_recorder(recorder_config, release=audio_process.kill)
                 log("Model loaded successfully!")
                 model_ready.set()
             except Exception as e:
