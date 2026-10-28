@@ -249,8 +249,13 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     [PORTS.md](PORTS.md). `play-nordvpn-openvpn.yml` builds it. Host checks H1-H3 are the host
     agent's (read-only, and the chooser cancelled in tmux); H4-H7 (a VPN brought up, switched,
     down, and the profiles removed) are the owner's, since they reroute the host's network.
-  - Still to do: the remaining programmes in [INVENTORY.md](INVENTORY.md) (`nvidia-status`,
-    the `ssh-with-key` family) and the `ccy` launcher.
+  - `nvidia-status` (P6): built on `go-port/nvidia-status`, Fable-reviewed (no blocker) and its
+    fix-before-merge finding fixed (B14; `subagent-reports/261028-fable-review-nvidia-status.md`); spec
+    [SPEC-nvidia-status.md](SPEC-nvidia-status.md). Run from the checkout through the
+    `scripts/nvidia-status.bash` wrapper, so no play deploys it and nothing is queued in
+    `meta-deploy.list`. Host checks H1-H4 are the host agent's (read-only), H5 the owner's.
+  - Still to do: the last programmes in [INVENTORY.md](INVENTORY.md) (the `ssh-with-key`
+    family) and the `ccy` launcher.
 
 - [x] ✅ **Task 3.4**: Freeze step 3's `acceptance.bash` compared live engine output with the
   baseline saved at the first deploy, so it failed (7 of 11) once containers started or stopped:

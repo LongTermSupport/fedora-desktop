@@ -466,3 +466,26 @@ a success keeps exit 0); U6 fixed (H4 names its two unknowns and what their fail
 like). U1 left: the credentials are checked for every connect by design (E8: every missing
 piece said before anything acts), and reading the file when the profile already exists costs
 nothing; the reviewer marked it low priority.
+`nvidia-status` (P6) built on `go-port/nvidia-status`; spec
+[SPEC-nvidia-status.md](SPEC-nvidia-status.md) (D1-D4, E1-E25, B1-B14, H1-H5),
+`src-go/cmd/nvidia-status` and `src-go/internal/nvidiastatus` (facts gathered once, rendered,
+and the exit status the verdict over them; every program through `execx` under a fixed 30s
+bound; `/proc/modules` read directly). Run from the checkout as before:
+`scripts/nvidia-status.bash` is now the wrapper that builds and execs it (as
+`gh-account-setup`'s), so no play and no `meta-deploy.list` entry; its allowlist row is gone
+and `go-binary-suites.tsv` gives it `qa-go` (it had no suite). It asks nothing, so the
+interactive rules do not apply. Oracle: the expectation tests alone (a fake world of the
+hybrid laptop's answers, one test per section), 97% coverage. Bash defects found: the VA-API
+package was asked under its pre-Fedora-43 name, so it always read as missing (B1, the cause of
+Plan 029's "side issue"); `journalctl -g` exits 1 when nothing matches, so a healthy machine
+always got `Could not read the kernel journal` (B2); `--check` still printed lines (B3);
+`lsmod | grep ^nvidia` counted `nvidia_drm` as the driver (B5); an unrecognised `--test-key`
+answer led to "enrol the MOK key" (B6); an unknown Secure Boot state was summarised as
+disabled (B7); a missing `akmod-nvidia` read as "still building" (B8). H1-H4 are the host
+agent's (read-only), H5 the owner's. Fable review
+(`subagent-reports/261028-fable-review-nvidia-status.md`): no blocker; F1 fixed (B14, a key not
+enrolled is a fault only under Secure Boot); F8 fixed (the fixtures name a generic GPU); left as
+follow-ups F2 (the production timeout path untested), F3 (a library/driver version mismatch
+after an akmod upgrade reads as "incomplete", not "reboot"), F4 (NVIDIA's own VA-API driver not
+probed), F5 (section 6 contradicts 2 when rpm fails), F6 (`nvidia-gpu` i2c noise shown as
+errors), F7 (INVENTORY.md still marks it interactive).
