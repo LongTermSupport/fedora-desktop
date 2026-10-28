@@ -16,7 +16,11 @@ other way, and that is how two instances shipped in Plan 00122's work before its
 found them by reading.
 
 Widening the pattern to `(?m)\|\|[ \t]*(true|:)[ \t]*($|[);&|#])` makes the gate see
-the enclosed form. Run against the repo that way, it finds **18 live sites in 8 files**.
+the enclosed form. Run against the repo that way, it found **18 live sites in 8 files**
+when Plan 00122 measured it. Plan 00192 has since ported `watermark`, `nord`,
+`rclone-cache-status` and `rclone-tail` to Go, which took 11 of those sites with them;
+re-measured against the tree, **7 live sites in 4 files** remain (Phase 2's three and
+the hooks' four).
 `|| true` is banned outright by `CLAUDE.md`'s Fail Fast rule, so each of those is either
 a real error-hiding defect or a case needing the explicit `grep_rc`-style treatment —
 there is no third category.
@@ -30,7 +34,7 @@ repo. That is the whole reason this is its own plan: the risk, not the size.
 ## Goals
 
 - The `|| true` / `|| :` rule sees the enclosed form as well as the line-anchored one.
-- All 18 sites are resolved — each either fixed to consume the status explicitly, or
+- All 7 remaining sites are resolved — each either fixed to consume the status explicitly, or
   annotated `# FAIL-FAST-OK: <reason>` where the suppression is genuinely correct.
 - The secret-scanning hooks are changed **last**, separately, and proven still to catch
   a planted secret afterwards.
@@ -53,15 +57,17 @@ repo. That is the whole reason this is its own plan: the risk, not the size.
   *correct* line newly trips it — a rule that fires on `|| true` inside a comment or a
   string is worse than the narrow one, because it will be suppressed rather than fixed.
 
-### Phase 2: The 16 non-hook sites
+### Phase 2: The 3 non-hook sites
 
 Recorded by Plan 00122 so nobody pays to rediscover them; re-measure rather than trust
 the list, since the files have moved since.
 
-- [ ] ⬜ **Task 2.1**: `files/home/.local/bin/clean-paste` (41),
-  `files/usr/local/bin/watermark` (279, 296)
-- [ ] ⬜ **Task 2.2**: `files/home/.local/bin/nord` (211, 382, 432, 462, 521)
-- [ ] ⬜ **Task 2.3**: `rclone-cache-warm` (71, 99). (`rclone-cache-status` and `rclone-tail`
+- [ ] ⬜ **Task 2.1**: `files/home/.local/bin/clean-paste` (41). (`watermark` is gone from
+  this task: Plan 00192 ported it to Go, `src-go/internal/watermark`, with no shell left to
+  fix.)
+- [x] ✅ **Task 2.2**: ~~`files/home/.local/bin/nord`~~ is gone: Plan 00192 ported it to Go,
+  `src-go/internal/nord`, with no shell left to fix.
+- [ ] ⬜ **Task 2.3**: `rclone-cache-warm` (71, 103). (`rclone-cache-status` and `rclone-tail`
   are gone from this task: Plan 00192 ported them to Go, `src-go/internal/rclonecache` and
   `src-go/internal/rclonetail`, with no shell left to fix.) Mostly `grep … || true`, where
   no-match is an ANSWER and needs the `grep_rc` treatment, not suppression.
@@ -86,7 +92,7 @@ the list, since the files have moved since.
 
 - [ ] The widened rule trips on the enclosed-form fixture and the old rule does not
 - [ ] `./scripts/qa-all.bash` is green with the widened rule in place
-- [ ] Every one of the 18 sites is fixed or explicitly annotated `# FAIL-FAST-OK:`
+- [ ] Every one of the 7 remaining sites is fixed or explicitly annotated `# FAIL-FAST-OK:`
 - [ ] A planted secret is still caught by both git hooks after Phase 3, and a clean
   commit still passes
 - [ ] `qa-reviewer` returns PASS
