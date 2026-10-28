@@ -143,17 +143,21 @@ vm_test_scenarios:
     reboot_before_checks: true
   # Plan 00228's install for someone who does not write code. `./run.bash --consumer`
   # refuses headless, so `audience: consumer` has the CLI drive it attended at a terminal
-  # (ssh -tt, in the session's environment), answering only the optional-app menu; a
-  # password prompt ends the run as a fail. It then runs ./run.bash again as the update a
-  # consumer runs, and the checker judges that second run changed nothing. Judged after
-  # the reboot the run asks for, as a consumer would use the machine.
+  # (ssh -tt, in the session's environment), answering only the optional-app menu, with the
+  # numbers of `optional_plays` (a consumer scenario's picks, found on the menu by label; one
+  # the menu does not offer ends the run as a fail); a password prompt ends the run as a
+  # fail. It then runs ./run.bash again as the update a consumer runs, answering the menu
+  # with Enter, and the checker judges that second run changed nothing. Judged after the
+  # reboot the run asks for, as a consumer would use the machine.
   desktop-consumer-install:
     base: desktop
-    description: an attended ./run.bash --consumer with no GitHub credential, then its re-run; no developer tools, HTTPS origin, no NOPASSWD block, nothing changed the second time
-    planned: 17   # = PLANNED in files/home/.local/share/vmtest/guest-acceptance-desktop-consumer-install.bash
+    description: an attended ./run.bash --consumer with no GitHub credential, picking speech-to-text, then its re-run; no developer tools, HTTPS origin, no NOPASSWD block, plain dictation without post-processing, nothing changed the second time
+    planned: 20   # = PLANNED in files/home/.local/share/vmtest/guest-acceptance-desktop-consumer-install.bash
     max_skipped: 0
     reboot_before_checks: true
     audience: consumer
+    optional_plays:
+      - play-speech-to-text.yml
   # Plan 00109's server drift-reporting route, across the boot it was built for: a
   # status document collected under one kernel, read by a login shell running
   # another. The fixture collects, breaks a unit so the boot-scoped section has a

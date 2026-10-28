@@ -1,7 +1,9 @@
 package vmtest
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"strings"
 	"testing"
 
@@ -53,6 +55,78 @@ func TestConsumerProvision(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("transcript lacks %q:\n%s", want, got)
 		}
+	}
+}
+
+// testMenu is the optional-app menu as run.bash --consumer prints it: the numbered plays, then
+// the question's heading, then the question.
+const testMenu = "\n━━━ Optional apps ━━━\n  1) Hd Audio\n  2) Qobuz\n  3) Speech To Text\n  4) Displaylink (hardware)\n" +
+	"consumer-install › Optional apps\n"
+
+// The menu is answered with the numbers of the scenario's picks, in its order, a hardware play
+// by its labelled name.
+func TestConsumerMenuAnswer(t *testing.T) {
+	got, err := menuAnswer([]string{"play-speech-to-text.yml", "play-displaylink.yml", "play-hd-audio.yml"})([]byte("PLAY RECAP\n  9) not the menu\nok\n" + testMenu))
+	if err != nil || got != "3 4 1\n" {
+		t.Fatalf("got %q %v", got, err)
+	}
+}
+
+// A pick the menu does not offer, no menu at all, or a menu whose numbers are not 1 to n cannot
+// be answered: each says why, so the run is ended rather than answered with none.
+func TestConsumerMenuAnswerRefusals(t *testing.T) {
+	for name, tc := range map[string]struct{ printed, want string }{
+		"not offered": {testMenu, "the optional-app menu offers no Rust Dev (play-rust-dev.yml); it offers Hd Audio, Qobuz, Speech To Text, Displaylink (hardware)"},
+		"no menu":     {"PLAY RECAP\nconsumer-install › Optional apps\n", "no numbered menu was printed before the optional-app question"},
+		"numbering":   {"  1) Hd Audio\n  3) Rust Dev\n", "the optional-app menu is not numbered 1 to 2: 3) Rust Dev"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := menuAnswer([]string{"play-rust-dev.yml"})([]byte(tc.printed))
+			if err == nil || err.Error() != tc.want {
+				t.Fatalf("got %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// The install's menu is answered with the picks; the re-run's with Enter, as an update that
+// adds nothing; with no picks, both are Enter.
+func TestConsumerPrompts(t *testing.T) {
+	for name, tc := range map[string]struct {
+		picks []string
+		want  string
+	}{
+		"picks":    {[]string{"play-qobuz.yml"}, "2\n"},
+		"no picks": {nil, "\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var keys bytes.Buffer
+			a := &attendant{out: io.Discard, keys: &keys, prompts: consumerPrompts(tc.picks), stop: func() {}, wake: make(chan struct{}, 1)}
+			if _, err := a.Write([]byte(testMenu + menuPrompt)); err != nil {
+				t.Fatal(err)
+			}
+			if keys.String() != tc.want || a.halt.ended() {
+				t.Fatalf("typed %q halt %+v", keys.String(), a.halt)
+			}
+		})
+	}
+}
+
+// A menu that does not offer a pick ends the install as a fail, saying what it lacked, and
+// the re-run never runs.
+func TestConsumerProvisionMenuLacksAPick(t *testing.T) {
+	k, r := consumerRunning(t, printing(strings.ReplaceAll(testMenu, "\n", "\r\n")+menuPrompt, 255))
+	r.s.OptionalPlays = []string{"play-rust-dev.yml"}
+	rc, err := r.provision(context.Background())
+	if err != nil || rc != 1 {
+		t.Fatalf("got %d %v", rc, err)
+	}
+	if k.count("ssh -tt") != 1 {
+		t.Fatal("the re-run ran after an unanswerable menu")
+	}
+	want := "\nERROR: attended run 1 of 2 asked a question the harness could not answer: the optional-app menu offers no Rust Dev (play-rust-dev.yml); it offers Hd Audio, Qobuz, Speech To Text, Displaylink (hardware); the harness ended it\n"
+	if !strings.Contains(transcriptOf(t, r), want) {
+		t.Fatalf("transcript %q", transcriptOf(t, r))
 	}
 }
 

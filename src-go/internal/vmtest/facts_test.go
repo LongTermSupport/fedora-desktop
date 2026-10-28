@@ -1,6 +1,7 @@
 package vmtest
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -33,7 +34,7 @@ func TestE9BaseMarker(t *testing.T) {
 	}
 }
 
-const goodScenario = "VMTEST-SCENARIO id=s base=server-fast base_name=server-fast-44 profile=server planned=5 max_skipped=0 runnable=true host_only=false reboot_before_checks=true run_env=RUN_BASH_PLAY=x.yml,RUN_BASH_PROFILE=odd audience=developer\n"
+const goodScenario = "VMTEST-SCENARIO id=s base=server-fast base_name=server-fast-44 profile=server planned=5 max_skipped=0 runnable=true host_only=false reboot_before_checks=true run_env=RUN_BASH_PLAY=x.yml,RUN_BASH_PROFILE=odd audience=developer optional_plays=-\n"
 
 // E10, E11: the scenario marker; the booleans are exactly true or false, run_env is checked.
 func TestE10ScenarioMarker(t *testing.T) {
@@ -56,6 +57,31 @@ func TestE10ScenarioMarker(t *testing.T) {
 	consumer, err := parseScenarioMarker(strings.Replace(good, "audience=developer", "audience=consumer", 1))
 	if err != nil || !consumer.Consumer() {
 		t.Fatalf("got %+v %v", consumer, err)
+	}
+}
+
+// E10: optional_plays is `-` for none, or the picks in order.
+func TestE10ScenarioMarkerOptionalPlays(t *testing.T) {
+	none, err := parseScenarioMarker(goodScenario)
+	if err != nil || len(none.OptionalPlays) != 0 {
+		t.Fatalf("got %+v %v", none, err)
+	}
+	picks, err := parseScenarioMarker(strings.Replace(goodScenario, "optional_plays=-", "optional_plays=play-speech-to-text.yml,play-hd-audio.yml", 1))
+	if err != nil || !slices.Equal(picks.OptionalPlays, []string{"play-speech-to-text.yml", "play-hd-audio.yml"}) {
+		t.Fatalf("got %+v %v", picks, err)
+	}
+}
+
+// E10: a spoiled optional_plays is refused, naming the entry; it decides what the menu is told.
+func TestE10ScenarioMarkerOptionalPlaysRefusals(t *testing.T) {
+	for _, value := range []string{"", "play-a.yml,", ",play-a.yml", "../play-a.yml", "play-a.yml;reboot", "Play-A.yml", "play-a"} {
+		_, err := parseScenarioMarker(strings.Replace(goodScenario, "optional_plays=-", "optional_plays="+value, 1))
+		if err == nil || !strings.Contains(err.Error(), "optional_plays") {
+			t.Errorf("%q: got %v", value, err)
+		}
+	}
+	if _, err := parseScenarioMarker(strings.Replace(goodScenario, " optional_plays=-", "", 1)); err == nil {
+		t.Error("a marker with no optional_plays was accepted")
 	}
 }
 

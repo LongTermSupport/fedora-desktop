@@ -295,6 +295,44 @@ func TestAttendantStopsOnARefusedPrompt(t *testing.T) {
 	}
 }
 
+// A prompt answered from what the run printed is given the output before it, across writes and
+// without the prompt itself, and its answer is typed.
+func TestAttendantAnswersFromWhatWasPrinted(t *testing.T) {
+	var out, keys bytes.Buffer
+	stops := 0
+	var seen string
+	a := newAttendant(&out, &keys, &stops)
+	a.prompts = []prompt{{text: "Choose: ", answer: func(before []byte) (string, error) {
+		seen = string(before)
+		return "2\n", nil
+	}}}
+	for _, chunk := range []string{"  1) A\r\n", "  2) B\r\nChoo", "se: "} {
+		if _, err := a.Write([]byte(chunk)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if seen != "  1) A\n  2) B\n" || keys.String() != "2\n" || stops != 0 {
+		t.Fatalf("saw %q typed %q stops %d", seen, keys.String(), stops)
+	}
+}
+
+// A prompt whose answer cannot be made from what was printed ends the run, typing nothing, and
+// says why.
+func TestAttendantStopsWhenNoAnswerCanBeMade(t *testing.T) {
+	var out, keys bytes.Buffer
+	stops := 0
+	a := newAttendant(&out, &keys, &stops)
+	a.prompts = []prompt{{text: "Choose: ", answer: func([]byte) (string, error) {
+		return "", errors.New("the menu offers no C")
+	}}}
+	if _, err := a.Write([]byte("  1) A\nChoose: ")); err != nil {
+		t.Fatal(err)
+	}
+	if stops != 1 || keys.Len() != 0 || a.halt.unanswerable != "the menu offers no C" || !a.halt.ended() {
+		t.Fatalf("stops %d typed %q halt %+v", stops, keys.String(), a.halt)
+	}
+}
+
 // A transcript that cannot be written is the write's error, not a silent drop; so is an
 // answer that cannot be typed.
 func TestAttendantReportsWhatItCannotWrite(t *testing.T) {

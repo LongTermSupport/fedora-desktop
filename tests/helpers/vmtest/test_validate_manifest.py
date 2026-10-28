@@ -76,7 +76,7 @@ class TestValidateManifest(unittest.TestCase):
             result.stdout,
             "VMTEST-SCENARIO id=server-fast-provision base=server-fast base_name=server-fast-44 "
             "profile=server planned=12 max_skipped=0 runnable=true host_only=false "
-            "reboot_before_checks=false run_env=- audience=developer\n",
+            "reboot_before_checks=false run_env=- audience=developer optional_plays=-\n",
         )
         unplanned = _run(json.dumps(MANIFEST), "--scenario", "desktop-fresh-install")
         self.assertIn(
@@ -102,7 +102,21 @@ class TestValidateManifest(unittest.TestCase):
         document["vm_test_scenarios"]["desktop-fresh-install"]["audience"] = "consumer"
         result = _run(json.dumps(document), "--scenario", "desktop-fresh-install")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue(result.stdout.endswith(" run_env=- audience=consumer\n"), result.stdout)
+        self.assertTrue(result.stdout.endswith(" run_env=- audience=consumer optional_plays=-\n"), result.stdout)
+
+    def test_scenario_flag_reports_the_optional_plays(self):
+        # The CLI answers the consumer's optional-app menu with these, in order; a CLI
+        # that never saw the field would answer with none and still look like a pass.
+        document = json.loads(json.dumps(MANIFEST))
+        scenario = document["vm_test_scenarios"]["desktop-fresh-install"]
+        scenario["audience"] = "consumer"
+        scenario["optional_plays"] = ["play-speech-to-text.yml", "play-hd-audio.yml"]
+        result = _run(json.dumps(document), "--scenario", "desktop-fresh-install")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(
+            result.stdout.endswith(" audience=consumer optional_plays=play-speech-to-text.yml,play-hd-audio.yml\n"),
+            result.stdout,
+        )
 
     def test_scenario_flag_reports_host_only(self):
         # The `vmtest` CLI reads this field to decide which enumeration a run must

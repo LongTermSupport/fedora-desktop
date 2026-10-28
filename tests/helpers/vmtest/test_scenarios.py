@@ -393,6 +393,53 @@ class TestAudience(unittest.TestCase):
                 self.assertIn(word, str(caught.exception))
 
 
+class TestOptionalPlays(unittest.TestCase):
+    """`optional_plays` (Plan 00228): the optional-app menu picks a consumer scenario makes."""
+
+    @staticmethod
+    def _consumer(**overrides):
+        return TestAudience._consumer(**overrides)
+
+    def test_it_defaults_to_none(self):
+        for scenario in _parse(self._consumer()).scenarios.values():
+            with self.subTest(scenario=scenario.id):
+                self.assertEqual(scenario.optional_plays, ())
+
+    def test_a_consumer_install_names_its_picks_in_order(self):
+        plays = ["play-speech-to-text.yml", "play-hd-audio.yml"]
+        scenario = _parse(self._consumer(optional_plays=plays)).scenarios["desktop-consumer-install"]
+        self.assertEqual(scenario.optional_plays, ("play-speech-to-text.yml", "play-hd-audio.yml"))
+
+    def test_a_developer_scenario_takes_none(self):
+        # A headless run's optional plays are RUN_BASH_OPTIONAL_PLAYBOOKS in run_env; a second
+        # way to say it would be read by nothing on that path, and look proved.
+        with self.assertRaises(scenarios.ManifestError) as caught:
+            _parse(self._consumer(audience="developer", optional_plays=["play-speech-to-text.yml"]))
+        message = str(caught.exception)
+        self.assertIn("optional_plays", message)
+        self.assertIn("RUN_BASH_OPTIONAL_PLAYBOOKS", message)
+        self.assertIn("desktop-consumer-install", message)
+
+    def test_malformed_picks_are_refused(self):
+        for value in (
+            "play-speech-to-text.yml",
+            [],
+            [""],
+            [1],
+            ["speech-to-text"],
+            ["play-Speech.yml"],
+            ["../play-x.yml"],
+            ["common/play-x.yml"],
+            ["play-x.yml", "play-x.yml"],
+            None,
+        ):
+            with self.subTest(value=value):
+                with self.assertRaises(scenarios.ManifestError) as caught:
+                    _parse(self._consumer(optional_plays=value))
+                self.assertIn("optional_plays", str(caught.exception))
+                self.assertIn("desktop-consumer-install", str(caught.exception))
+
+
 class TestManifestRejections(unittest.TestCase):
     """Every malformed manifest raises ManifestError naming the offending entry."""
 

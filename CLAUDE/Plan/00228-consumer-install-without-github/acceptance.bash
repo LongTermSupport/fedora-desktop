@@ -5,7 +5,8 @@
 # not have changed. Runs three scenarios, each on a throwaway guest, from this checkout's
 # HEAD (which must be pushed: the guest fetches it from the public repository):
 #
-#   desktop-consumer-install  an attended ./run.bash --consumer, its re-run, 17 guest checks
+#   desktop-consumer-install  an attended ./run.bash --consumer picking speech-to-text, its
+#                             re-run, 20 guest checks
 #   desktop-fresh-install     the developer desktop path, unchanged
 #   server-fast-provision     the headless server path, unchanged
 #

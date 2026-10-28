@@ -30,7 +30,7 @@ func copyTree(t *testing.T) string {
 	copying := proc.Cmd{
 		Argv: []string{
 			"cp", "-r", "--parents", "helpers/vmtest", "vars/fedora-version.yml", "vars/vm-test-scenarios.yml",
-			"files/home/.local/share/vmtest", "scripts/qa-trees.tsv", dst,
+			"files/home/.local/share/vmtest", "scripts/qa-trees.tsv", "playbooks/imports/optional", dst,
 		},
 		Dir: repoRoot(t),
 	}

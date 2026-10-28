@@ -28,6 +28,9 @@ import (
 type prompt struct {
 	text  string // the prompt as the guest prints it
 	reply string // typed in answer
+	// answer, when set, makes the reply from the output printed before the prompt (up to
+	// tailKeep of it), as a person reads a menu before answering; its error ends the run.
+	answer func(before []byte) (string, error)
 	// refuse is a question the run must never ask: it ends the run, typing nothing.
 	refuse bool
 }
@@ -37,13 +40,17 @@ type halt struct {
 	refused string // the refused prompt the run printed
 	// unanswered is the last lines of a run that stood at a question no prompt answers.
 	unanswered string
+	// unanswerable is why a prompt's answer could not be made from what the run printed.
+	unanswerable string
 }
 
-func (h halt) ended() bool { return h.refused != "" || h.unanswered != "" }
+func (h halt) ended() bool { return h.refused != "" || h.unanswered != "" || h.unanswerable != "" }
 
 const (
-	lineKeep  = 256  // of the line being printed; its end is what makes it prompt-shaped
-	tailKeep  = 1024 // of the output, which an unanswered question is reported by
+	lineKeep = 256 // of the line being printed; its end is what makes it prompt-shaped
+	// tailKeep is of the output: an unanswered question is reported by its end, and a prompt
+	// that reads a menu reads it there.
+	tailKeep  = 16384
 	tailLines = 3
 )
 
@@ -87,13 +94,25 @@ func (a *attendant) Write(p []byte) (int, error) {
 		if at < 0 {
 			break
 		}
+		// a.seen and a.tail end at the same byte, so the prompt starts this far into the tail.
+		start := max(0, len(a.tail)-(len(a.seen)-at))
 		a.seen = a.seen[at+len(pr.text):]
 		if pr.refuse {
 			a.halt.refused, a.seen = pr.text, nil
 			a.stop()
 			return len(p), nil
 		}
-		if _, err := io.WriteString(a.keys, pr.reply); err != nil {
+		reply := pr.reply
+		if pr.answer != nil {
+			made, err := pr.answer(a.tail[:start])
+			if err != nil {
+				a.halt.unanswerable, a.seen = err.Error(), nil
+				a.stop()
+				return len(p), nil
+			}
+			reply = made
+		}
+		if _, err := io.WriteString(a.keys, reply); err != nil {
 			return 0, fmt.Errorf("typing the answer to %q: %w", pr.text, err)
 		}
 		answered = true
