@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00236-subagents-cannot-speak-for-their-seat](00236-subagents-cannot-speak-for-their-seat/) - Not Started (decided by the owner). A hooks-daemon project rule that applies only inside a sub-agent denies pingbus's speaking commands, `ccy-teams` mutations and the Agent tool, each with a reason pointing at the final reply to the coordinator; read-only pingbus stays allowed and the main session is never affected; coordinators are told not to use fork sub-agents for worker tasks.
+
 - [00235-podman-images-cleaned-up-automatically](00235-podman-images-cleaned-up-automatically/) - Not Started (research done; the owner's questions decided; the host triage is queued). The rootless podman store filled half the disk with images ccy's rebuilds and updates left untagged: ccy removes what its own build replaced, a daily user timer from play-podman.yml prunes unused dangling images and logs each removal, the host-health report names low disk and an overgrown store, and a QA rule refuses an image build with no cleanup.
 
 - [00234-stt-model-manager-fits-gpu](00234-stt-model-manager-fits-gpu/) - In Progress (every host check passed; Decision 1 approved by the owner; the owner's look pending). The speech-to-text model manager shows which models fit this machine's NVIDIA GPU, preselects the best English-only one that fits and refuses one that does not.
