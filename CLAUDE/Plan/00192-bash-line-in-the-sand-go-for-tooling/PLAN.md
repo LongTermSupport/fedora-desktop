@@ -370,8 +370,11 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   that did not pass, with its overlay (up to the 20 GiB guest disk), for ever, and vmtest had no
   way to remove one. Code done (SPEC-vmtest E61-E65, H7): `vmtest prune-runs`, a dry run unless
   `--yes`, removes only the `*.qcow2` of runs that passed, were followed by a passing run of the
-  same scenario, or are older than `--older-than` days (default 7); the rule is retention.py's
-  new `prune-plan`, beside the sweep's `run_passed`. A run whose domain libvirt lists, or that
+  same scenario, or are older than `--older-than` days (default 7). The rule, the disk and RAM
+  floors and the run and build sweep are Go in `internal/vmtest` (`retention.go`), so the 2 GiB
+  margin has one home and a run one disk check; `helpers/vmtest/retention.py` keeps only the
+  bridge spool's sweep (`sweep-spool`), Python because spool.py is the bridge helpers' too
+  (second qa-reviewer pass, finding 2). A run whose domain libvirt lists, or that
   holds the new `run.lock` (taken from its directory to the end of its teardown), is live and
   left. `run` and `member-up` refuse with under 22 GiB free and a base build with under 26 GiB, before anything
   else, naming what `prune-runs` would free; a failed run says the size of the overlay it kept.

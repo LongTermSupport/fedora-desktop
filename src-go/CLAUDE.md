@@ -25,7 +25,10 @@ bash originals are gone (`scripts/gh-account-setup.bash`, `scripts/setup-rclone.
   engine implements `freeze.Engine`; never an `if` on the engine in the shared half.
 - `internal/vmtest/` — the VM lab's host CLI (spec `SPEC-vmtest.md`, E1-E65): every verb,
   through `execx` to virsh, virt-install, qemu-img, ssh and curl, and through one seam
-  (`python3 -P -m helpers.vmtest.<module>`) to the lab's Python helpers, which stay Python.
+  (`python3 -P -m helpers.vmtest.<module>`) to the lab's Python helpers, which stay Python. The
+  lab's own retention (the disk and RAM floors, the run and build sweep, the overlay prune rule)
+  is Go (`retention.go`); the bridge spool's sweep stays in `helpers/vmtest/retention.py`,
+  because spool.py's pinned descriptors are the bridge helpers' too.
 - `internal/ftpcamera/` — the camera FTP session tool (spec `SPEC-ftp-camera.md`, E1-E66): the
   launcher, the sort, push, copy and prune modes, and the vsftpd session with its log
   followers and teardown; root through `sudo`, systemctl through `systemd`, and the rclone

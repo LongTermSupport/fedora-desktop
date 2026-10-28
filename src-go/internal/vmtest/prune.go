@@ -7,21 +7,20 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
 )
 
 // A run's overlay is its one large file: up to the guest disk's size, kept when the run did not
-// pass so its disk can be read. prune-runs removes the overlays retention.py's prune plan says
+// pass so its disk can be read. prune-runs removes the overlays the prune rule (planPrune) says
 // may go (E61-E63); everything else in the run directory (the logs, the response, the check
 // results) stays, and the bases are never touched. The disk guard refuses a run or a build the
 // lab's filesystem cannot carry at its worst, and a member-up, before anything is done (E64).
 
 const (
 	gib = int64(1) << 30
-	// diskMarginBytes is retention.py's MARGIN_BYTES: the headroom kept below a step that fits.
+	// diskMarginBytes is the headroom kept below a step that fits.
 	diskMarginBytes = 2 * gib
 	// installMediaBytes is room for the media a full base is installed from (the netinst ISO,
 	// and a desktop's Live ISO beside it), which the build downloads into images/.
@@ -47,9 +46,6 @@ var (
 		humanBytes(runDiskNeed), buildDiskGiB, humanWhole(diskMarginBytes))}
 	buildNeed = diskNeed{buildDiskNeed, fmt.Sprintf("a base build needs %s (a guest disk of up to %d GiB, a %s margin and %s of install media)",
 		humanBytes(buildDiskNeed), buildDiskGiB, humanWhole(diskMarginBytes), humanWhole(installMediaBytes))}
-	// pruneLineRE is one decision of the prune plan; a run id is a directory name, never a path.
-	pruneLineRE = regexp.MustCompile(`^VMTEST-PRUNE ([A-Za-z0-9][A-Za-z0-9._-]*) (prune|keep) (.+)$`)
-	planDoneRE  = regexp.MustCompile(`^VMTEST-PRUNE-PLAN-DONE runs=[0-9]+$`)
 )
 
 // diskNeed is what a step needs free, and the sentence that says so.
@@ -60,11 +56,10 @@ type diskNeed struct {
 
 // pruneEntry is one run holding an overlay, and what prune-runs does with it.
 type pruneEntry struct {
-	id     string
-	action string
-	reason string
-	files  []string // base names of the overlays, sorted
-	bytes  int64
+	pruneDecision
+
+	files []string // base names of the overlays, sorted
+	bytes int64
 }
 
 // freed is what the prunable entries of a plan add up to.
@@ -186,31 +181,24 @@ func overlays(dir string) ([]string, int64, error) {
 	return names, total, nil
 }
 
-// prunePlan is every run holding an overlay, decided by retention.py and checked against the
+// prunePlan is every run holding an overlay, decided by planPrune and checked against the
 // runs still live: libvirt lists their domain, or they hold their lock.
 func (c *cli) prunePlan(ctx context.Context, l *lab, days int) ([]pruneEntry, error) {
 	domains, err := c.listDomains(ctx)
 	if err != nil {
 		return nil, err
 	}
-	res, err := c.helper(ctx, helperCall{module: retentionModule, args: []string{
-		"prune-plan", "--lab-dir", l.home, "--now", strconv.FormatInt(c.env.Now().Unix(), 10), "--older-than-days", strconv.Itoa(days),
-	}})
+	runs, err := l.runDirs()
 	if err != nil {
-		return nil, ctxErr(ctx, failf("the prune plan failed: %v", err))
+		return nil, err
+	}
+	facts := make([]runFacts, 0, len(runs))
+	for _, r := range runs {
+		facts = append(facts, r.runFacts)
 	}
 	var plan []pruneEntry
-	done := false
-	for line := range strings.SplitSeq(strings.TrimRight(string(res.Stdout), "\n"), "\n") {
-		if planDoneRE.MatchString(line) && !done {
-			done = true
-			continue
-		}
-		m := pruneLineRE.FindStringSubmatch(line)
-		if m == nil || done {
-			return nil, failf("the prune plan has a line vmtest cannot read: %s", line)
-		}
-		e := pruneEntry{id: m[1], action: m[2], reason: m[3]}
+	for _, d := range planPrune(facts, c.env.Now(), days) {
+		e := pruneEntry{pruneDecision: d}
 		dir := l.at(runsDir, e.id)
 		if e.files, e.bytes, err = overlays(dir); err != nil {
 			return nil, err
@@ -222,9 +210,6 @@ func (c *cli) prunePlan(ctx context.Context, l *lab, days int) ([]pruneEntry, er
 			return nil, err
 		}
 		plan = append(plan, e)
-	}
-	if !done {
-		return nil, failf("the prune plan did not finish (no VMTEST-PRUNE-PLAN-DONE line)")
 	}
 	return plan, nil
 }
@@ -345,13 +330,8 @@ func (c *cli) removeLocked(l *lab, e *pruneEntry) (string, error) {
 }
 
 func (c *cli) removeOverlays(l *lab, dir string, e *pruneEntry) error {
-	log, err := os.OpenFile(l.at(retentionLog), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return failf("cannot open %s: %v", l.at(retentionLog), err)
-	}
-	_, werr := fmt.Fprintf(log, "%d pruned overlay %s %s\n", c.env.Now().Unix(), e.id, e.reason)
-	if err := errors.Join(werr, log.Close()); err != nil {
-		return failf("cannot record the prune in %s: %v", l.at(retentionLog), err)
+	if err := c.record(l, "pruned overlay "+e.id+" "+e.reason); err != nil {
+		return err
 	}
 	for _, name := range e.files {
 		if err := os.Remove(filepath.Join(dir, name)); err != nil {

@@ -58,7 +58,6 @@ func (k *kit) withLibvirt() *libvirt {
 		}
 		return execx.Result{}, nil
 	})
-	k.fake.On(helperArgv("retention"), execx.Result{})
 	return lv
 }
 
@@ -151,7 +150,7 @@ func TestE56MemberUp(t *testing.T) {
 	if !k.exists("members/m1/overlay.qcow2") || k.read("members/m1/ssh-port") != "40123\n" {
 		t.Fatal("no overlay or no port in the member's directory")
 	}
-	if k.count("backend.type=passt") != 1 || k.count("retention floor --path "+k.path("members")+" --base-size 4 --step run --guest-mib 4096") != 1 {
+	if k.count("backend.type=passt") != 1 || k.count("retention") != 0 {
 		t.Fatalf("calls %v", k.lines(""))
 	}
 	assertNoProbeFiles(t, k)

@@ -125,15 +125,6 @@ func (c *cli) virtInstall(ctx context.Context, g *guest, b baseFacts, disk strin
 	return nil
 }
 
-// floor asks retention whether the host can carry one more disk and guest (§10); its
-// VMTEST-DISK and VMTEST-RAM lines go to stderr.
-func (c *cli) floor(ctx context.Context, path string, size int64, step string, ram int) error {
-	_, err := c.helper(ctx, helperCall{module: retentionModule, stdout: c.env.Stderr, args: []string{
-		"floor", "--path", path, "--base-size", strconv.FormatInt(size, 10), "--step", step, "--guest-mib", strconv.Itoa(ram),
-	}})
-	return ctxErr(ctx, err)
-}
-
 func (c *cli) cmdMemberUp(ctx context.Context, args []string) error {
 	if len(args) != 2 {
 		return usagef("usage: vmtest member-up <name> <base-key>")
@@ -184,8 +175,8 @@ func (c *cli) memberUp(ctx context.Context, l *lab, name, key string) error {
 	if err = os.MkdirAll(l.at(membersDir), 0o755); err != nil {
 		return failf("cannot create %s: %v", l.at(membersDir), err)
 	}
-	if err = c.floor(ctx, l.at(membersDir), v.size, "run", b.RAMMiB); err != nil {
-		return ctxErr(ctx, failf("the host cannot carry a member on %s; see the VMTEST-DISK/VMTEST-RAM lines above", b.Name))
+	if err = c.ramFloor(b.RAMMiB); err != nil {
+		return failf("the host cannot carry a member on %s: %v", b.Name, err)
 	}
 	if err = os.MkdirAll(dir, 0o755); err != nil {
 		return failf("cannot create %s: %v", dir, err)

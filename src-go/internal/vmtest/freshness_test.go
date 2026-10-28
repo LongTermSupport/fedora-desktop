@@ -155,12 +155,10 @@ func TestE50FreshnessStatus(t *testing.T) {
 // E51, E52: sweep's arguments; nightly always sweeps and reports the worse status (B13).
 func TestE51E52SweepAndNightly(t *testing.T) {
 	k := newKit(t)
-	k.fake.On(helperArgv("retention"), execx.Result{})
+	k.fake.On(helperArgv("retention"), spoolDone)
 	k.wantCode(k.run("sweep"), term.ExitOK)
-	c := k.mustCall("retention sweep")
-	checkout := strings.TrimSuffix(k.home, "/lab")
-	if !strings.HasSuffix(c.Line(), "retention sweep --lab-dir "+k.home+" --checkout "+checkout+" --log "+k.path(retentionLog)) {
-		t.Fatalf("got %s", c.Line())
+	if k.out.String() != string(spoolDone.Stdout) {
+		t.Fatalf("stdout %q", k.out.String())
 	}
 	k.wantErr("==> every eviction is recorded in " + k.path(retentionLog))
 
@@ -172,9 +170,9 @@ func TestE51E52SweepAndNightly(t *testing.T) {
 	k = newKit(t)
 	k.builtBase("server-fast-44")
 	k.gate(1, "reinstall")
-	k.fake.On(helperArgv("retention"), execx.Result{})
+	k.fake.On(helperArgv("retention"), spoolDone)
 	k.wantCode(k.run("nightly"), 1)
-	if k.count("retention sweep") != 1 || k.count("freshness_gate") != 2 {
+	if k.count("retention sweep-spool") != 1 || k.count("freshness_gate") != 2 {
 		t.Fatalf("calls %v", k.lines(""))
 	}
 	if !strings.Contains(k.read(statusFile), "integrity=deep") {
@@ -183,9 +181,9 @@ func TestE51E52SweepAndNightly(t *testing.T) {
 
 	k = newKit(t)
 	k.fake.On(helperArgv("probe_upstream"), execx.Result{ExitCode: 1})
-	k.fake.On(helperArgv("retention"), execx.Result{})
+	k.fake.On(helperArgv("retention"), spoolDone)
 	k.wantCode(k.run("nightly"), term.ExitFailure)
-	if k.count("retention sweep") != 1 {
+	if k.count("retention sweep-spool") != 1 {
 		t.Fatal("an unreachable upstream skipped the sweep")
 	}
 

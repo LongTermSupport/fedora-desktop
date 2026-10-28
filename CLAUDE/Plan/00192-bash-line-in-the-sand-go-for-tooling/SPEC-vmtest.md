@@ -12,7 +12,7 @@ listed in section 7.
 ## 1. Role and callers
 
 `vmtest` is a thin executor. Every decision (manifest parsing, freshness, the base record, the
-verdict, retention) lives in the unit-tested Python helpers that `play-vm-test-lab.yml` deploys
+verdict, the bridge spool's retention) lives in the unit-tested Python helpers that `play-vm-test-lab.yml` deploys
 to `/usr/local/lib/ccy-helpers/helpers/vmtest`. The CLI fetches, verifies, boots, drives a guest
 over SSH and calls the helpers. It reads only Ansible-deployed copies (the manifest, the guest
 scripts, the helpers, the kickstarts), never the checkout (DESIGN.md §2.3).
@@ -156,10 +156,12 @@ The tests cite these numbers.
   record (`--artefact <file>=<sha>`). The first artefact names the compose label and is the
   file that a fast base is seeded from. The compose id and the revision come from the probe
   (E13).
-- E16. Before anything is built: `retention floor --path bases --base-size <n> --step rebuild --guest-mib <ram>`.
-  `<n>` is the size of the existing base disk if there is one, otherwise the size of the first
-  artefact. A refusal is
-  `the host cannot carry a rebuild of <name> (stage: base); see the VMTEST-DISK/VMTEST-RAM lines above`.
+- E16. Before anything is built, the rebuild floor: free space under `bases/` for two bases of
+  `<n>` bytes and the 2 GiB margin (the old base stays until the rename), and the RAM ceiling
+  (E33). `<n>` is the size of the existing base disk if there is one, otherwise the size of the
+  first artefact. A refusal is
+  `the host cannot carry a rebuild of <name> (stage: base): only <free> free under <bases>; a rebuild needs <need> (the old and the new base, <n> each, and a 2 GiB margin)`,
+  or the RAM sentence of E33 after the colon.
 - E17. The build domain is `vmtest-build-<name>`, and its directory is `bases/<name>.build`. If
   libvirt already knows the domain, the command fails before any change, and the message names
   the `virsh ... undefine --nvram` command. Otherwise the directory is recreated empty and a
@@ -257,8 +259,10 @@ The tests cite these numbers.
 - E33. The freshness gate (E48) runs. A refusing verdict prints its marker line to stderr and
   fails with
   `base <name> may not be used (freshness: <decision>); rebuild it with: vmtest build-base <key>`.
-  Then comes `retention floor --path runs --base-size <size> --step run --guest-mib <ram>`. A
-  refusal there names `(stage: clone)`.
+  Then comes the RAM ceiling: a guest may have at most 75% of the host's memory (MemTotal of
+  `/proc/meminfo`). A refusal is
+  `the host cannot carry a run on <name> (stage: clone): guest <ram> MiB exceeds the <ceiling> MiB ceiling of a <host> MiB host`.
+  The disk is the guard's alone (E64).
 
 - E34. The run id is `<UTC %Y%m%dT%H%M%SZ>-<id>`, the directory is `runs/<run-id>`, and the domain
   is `vmtest-run-<run-id>`. The overlay is `qemu-img create -q -f qcow2 -F qcow2 -b <base>`, and
@@ -377,8 +381,15 @@ The tests cite these numbers.
   in name order. A base with a record and no disk fails the command. When every base is done,
   the file is renamed into place. The exit is the worst gate status (0 or 1). It never builds
   anything.
-- E51. `sweep` runs `retention sweep --lab-dir <home> --checkout <checkout> --log <home>/retention.log`
-  and then names the log.
+- E51. `sweep` keeps the newest 10 runs that passed (`response.json` says `finished` and
+  `pass`) and every run that did not, and removes the rest; removes a leftover `bases/*.build`
+  directory of a fast base and keeps a desktop one (`desktop-*`, hours to rebuild, and the
+  diagnosis). Each eviction is appended to `retention.log` first (`<epoch> evicted run|build
+  <name> <why>`, or `<epoch> kept build <name> ...`) and printed as `VMTEST-EVICTED run|build
+  <name>`. Then it runs `retention sweep-spool --checkout <checkout> --log <home>/retention.log`,
+  the Python half that bounds the bridge spool through spool.py's pinned descriptors (they are
+  shared with the bridge helpers), whose lines pass through, and names the log. A response
+  that cannot be read, or a log that cannot be written, stops the sweep before the spool.
 - E52. `nightly` runs `freshness-status --deep` and then `sweep`, always both. The exit is 0 only
   if both succeed. Otherwise it is the status's own exit if that is non-zero, or else 1.
 - E53. `ensure-base <key>`: if the base is present and the gate accepts it, the command prints
@@ -399,8 +410,8 @@ The tests cite these numbers.
 - E56. `member-up <name> <key>`: after the disk guard (E64), the base must be `server`, and present
   (`build it with: vmtest ensure-base <key>`). A member whose directory or domain
   `vmtest-member-<name>` exists is refused, with the `member-down` hint. The gate must accept
-  the base (on a refusal the message names `vmtest ensure-base <key>`). Then come the retention
-  floor under `members/`, the overlay in `members/<name>/`, and the boot (a server boot, as in
+  the base (on a refusal the message names `vmtest ensure-base <key>`). Then come the
+  RAM ceiling (E33; the disk was the guard's, E64), the overlay in `members/<name>/`, and the boot (a server boot, as in
   E34). The port goes to `ssh-port` before the wait for SSH. On success the command prints
   `VMTEST-MEMBER-UP <name> domain=<domain>` and leaves the guest running.
 - E57. A member-up that does not finish (any failure or signal after its directory exists)
@@ -432,12 +443,10 @@ behaviour, not departures.
 
 - E61. `prune-runs [--older-than DAYS] [--yes]` (DAYS a whole number, default 7; anything else,
   or an option twice, is a usage error) lists libvirt's domains first (`virsh list --all
-  --name`; a failed listing stops the command, removing nothing), then asks
-  `retention prune-plan --lab-dir <home> --now <epoch> --older-than-days <DAYS>`. The plan is one
-  `VMTEST-PRUNE <run-id> prune|keep <reason>` line per run directory and a closing
-  `VMTEST-PRUNE-PLAN-DONE runs=<n>`; a line that is neither, a run id that is not a plain name,
-  or no closing line stops the command. The rule is retention.py's, beside `sweep`'s: an
-  overlay may go when the run passed (`run_passed`, the same rule as the sweep), a later run of
+  --name`; a failed listing stops the command, removing nothing), then reads every directory
+  under `runs/` in name order (a response that cannot be read stops the command). The rule is
+  the sweep's neighbour in the same Go: an
+  overlay may go when the run passed (the same rule as the sweep, E51), a later run of
   the same scenario passed (the scenario and the order are read from the run id
   `<UTC stamp>-<scenario>`), or the run is older than DAYS. A directory whose name is not a run
   id is kept. Only runs holding a `*.qcow2` are reported. A run is live, and kept whatever the
@@ -465,8 +474,8 @@ behaviour, not departures.
   4 GiB of install media). Short, the command fails with
   `only <free> free under <home>; a run needs 22.0 GiB (...). vmtest prune-runs would free <size> of run overlays; vmtest prune-runs lists them and vmtest prune-runs --yes removes them`,
   computing the figure from the E61 plan; if the plan cannot be made, the message says so with
-  its error. The retention floor (E34, E16) still runs later: it also checks the RAM, and a
-  rebuild's room for two bases.
+  its error. This is the one disk check of a run and a member; later they check only the RAM
+  (E33). A rebuild also has its floor (E16): room for two bases of the size it replaces.
 - E65. A run that did not pass and keeps an overlay says, as its last progress line,
   `overlay (<size>) and console kept for diagnosis: <dir>; vmtest prune-runs --yes removes the overlay once a later run of <scenario> passes or it is older than 7 days`.
 

@@ -319,21 +319,6 @@ func (c *cli) cmdSweep(ctx context.Context, args []string) error {
 	return c.sweep(ctx, l)
 }
 
-// sweep applies the retention policy; the evictions it prints are its payload (E51).
-func (c *cli) sweep(ctx context.Context, l *lab) error {
-	checkout, err := l.needCheckout()
-	if err != nil {
-		return err
-	}
-	if _, err := c.helper(ctx, helperCall{module: retentionModule, stdout: c.env.Stdout, args: []string{
-		"sweep", "--lab-dir", l.home, "--checkout", checkout, flagLog, l.at(retentionLog),
-	}}); err != nil {
-		return ctxErr(ctx, failf("the retention sweep failed: %v", err))
-	}
-	c.logf("every eviction is recorded in %s", l.at(retentionLog))
-	return nil
-}
-
 // cmdNightly is freshness-status --deep, then sweep, always both (E52, B13).
 func (c *cli) cmdNightly(ctx context.Context, args []string) error {
 	if err := noArgs(args, "vmtest nightly"); err != nil {

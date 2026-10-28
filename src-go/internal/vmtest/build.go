@@ -119,7 +119,7 @@ func (c *cli) buildFromProbe(ctx context.Context, l *lab, b baseFacts, p *probe)
 	if err != nil {
 		return err
 	}
-	if err = c.buildFloor(ctx, l, b, arts[0]); err != nil {
+	if err = c.buildFloor(l, b, arts[0]); err != nil {
 		return err
 	}
 	st := &building{c: c, domain: "vmtest-build-" + b.Name, dir: l.at(basesDir, b.Name+".build")}
@@ -164,7 +164,7 @@ func parseWhole(what, raw string) (int64, error) {
 }
 
 // buildFloor refuses a rebuild the disk or the RAM cannot carry (E16, §10).
-func (c *cli) buildFloor(ctx context.Context, l *lab, b baseFacts, first artefact) error {
+func (c *cli) buildFloor(l *lab, b baseFacts, first artefact) error {
 	sizeOf := l.at(imagesDir, first.File)
 	if existing := l.at(basesDir, b.Name, "base.qcow2"); readable(existing) {
 		sizeOf = existing
@@ -173,8 +173,8 @@ func (c *cli) buildFloor(ctx context.Context, l *lab, b baseFacts, first artefac
 	if err != nil {
 		return failf("cannot read %s: %v", sizeOf, err)
 	}
-	if err := c.floor(ctx, l.at(basesDir), info.Size(), "rebuild", b.RAMMiB); err != nil {
-		return ctxErr(ctx, failf("the host cannot carry a rebuild of %s (stage: base); see the VMTEST-DISK/VMTEST-RAM lines above", b.Name))
+	if err := c.rebuildFloor(l.at(basesDir), info.Size(), b.RAMMiB); err != nil {
+		return failf("the host cannot carry a rebuild of %s (stage: base): %v", b.Name, err)
 	}
 	return nil
 }

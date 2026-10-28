@@ -44,6 +44,11 @@ type kit struct {
 	// free is the space the lab's filesystem has, and freeErr what reading it fails with.
 	free    int64
 	freeErr error
+	// freeErrAt is what reading the free space under one path fails with.
+	freeErrAt map[string]error
+	// hostMiB is the host's memory, and hostErr what reading it fails with.
+	hostMiB int
+	hostErr error
 }
 
 // stubBuild replaces build-base with a recorder, for the commands that call it.
@@ -76,6 +81,7 @@ func newKit(t *testing.T) *kit {
 		now:      time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC),
 		port:     40123,
 		free:     1 << 50,
+		hostMiB:  1 << 16,
 		bases:    map[string]string{},
 		scens:    map[string]string{},
 	}
@@ -228,8 +234,14 @@ func (k *kit) environment() Env {
 			k.now = k.now.Add(d)
 			return nil
 		},
-		FreePort:  func() (int, error) { return k.port, nil },
-		FreeBytes: func(string) (int64, error) { return k.free, k.freeErr },
+		FreePort: func() (int, error) { return k.port, nil },
+		FreeBytes: func(path string) (int64, error) {
+			if err, ok := k.freeErrAt[path]; ok {
+				return 0, err
+			}
+			return k.free, k.freeErr
+		},
+		HostMiB:   func() (int, error) { return k.hostMiB, k.hostErr },
 		Random:    zeroReader{},
 		GPGKeyDir: k.gpg,
 		TempDir:   k.t.TempDir(),

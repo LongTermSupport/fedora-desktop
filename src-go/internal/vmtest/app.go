@@ -1,8 +1,8 @@
 // Package vmtest is the host CLI of the VM lifecycle acceptance lab (Plan 00110): it fetches and
 // verifies published Fedora media, builds base images, boots throwaway guests from them, drives
 // run.bash and the in-guest checks over SSH, and hands every decision (the manifest, freshness,
-// the base record, the verdict, retention) to the Python helpers the lab play deploys, through
-// one seam (Lab.helper). The specification is CLAUDE/Plan/00192-.../SPEC-vmtest.md; the
+// the base record, the verdict, the bridge spool's retention) to the Python helpers the lab play
+// deploys, through one seam (Lab.helper); the lab's own retention is retention.go. The specification is CLAUDE/Plan/00192-.../SPEC-vmtest.md; the
 // expectation numbers (E1...) and departures from the bash (B1...) the comments cite are its.
 package vmtest
 
@@ -45,6 +45,8 @@ type Env struct {
 	FreePort func() (int, error)
 	// FreeBytes is the space an unprivileged user can still write on the filesystem holding path.
 	FreeBytes func(path string) (int64, error)
+	// HostMiB is the host's memory in MiB.
+	HostMiB func() (int, error)
 	// Random is the source of the throwaway secrets a desktop base is built with.
 	Random    io.Reader
 	GPGKeyDir string
@@ -65,6 +67,7 @@ func NewEnv() Env {
 		Sleep:     sleepContext,
 		FreePort:  freeLoopbackPort,
 		FreeBytes: freeBytes,
+		HostMiB:   hostMiB,
 		Random:    rand.Reader,
 		GPGKeyDir: DefaultGPGKeyDir,
 	}

@@ -33,17 +33,12 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# The plays changed since they last ran here. Expected: play-basic-configs.yml (Plan 00192
-# Task 3.3): ssh-with-key, scp-with-key and
-# ssh-copy-id-with-key are now Go binaries built from src-go/cmd and installed at their old
-# paths in ~/.local/bin; nothing else in the play changes, nothing is asked and no host is
-# contacted. play-claude-yolo.yml joins the run too, for the CCY 3.101.2 bump (the shared Go
-# term package the launcher's front is built from gained ExpandHome): it reinstalls the launcher
-# file and rebuilds the claude-yolo front binary, and nothing in ccy changes (the container
-# version is the same, so the image is not rebuilt). The host agent then checks
-# SPEC-ssh-with-key H1-H4 with throwaway keys against a VM-lab guest (help, usage errors, a
-# login offering one key, scp both ways, ssh-copy-id: a dry run, an install, then "already
-# installed" with the key in authorized_keys once, a configuration with a second key refused,
-# and -A in tmux offering one key and leaving no agent behind). H5 (the owner's own hosts and
-# keys) is the owner's.
+# The plays changed since they last ran here. Expected: play-vm-test-lab.yml (Plan 00192
+# Task 3.10, second review): vmtest's own retention (the disk and RAM floors, the run and
+# build sweep, the overlay prune rule) is now Go, and helpers/vmtest/retention.py keeps only
+# the bridge spool's sweep, so the play rebuilds vmtest and redeploys the lab helpers; no
+# guest is booted and nothing is asked. The host agent then checks SPEC-vmtest H5 (vmtest
+# nightly writes the status file and the sweep log, the sweep's lines ending
+# VMTEST-SPOOL-SWEEP-DONE) and H7's dry run (vmtest prune-runs lists the runs holding an
+# overlay with their reasons, and removes nothing).
 changed-plays

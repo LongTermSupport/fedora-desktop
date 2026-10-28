@@ -176,11 +176,11 @@ func (c *cli) runScenario(ctx context.Context, l *lab, ra runArgs) (err error) {
 		c.p.Print(c.env.Stderr, v.line+"\n")
 		return failf("base %s may not be used (freshness: %s); rebuild it with: vmtest build-base %s", b.Name, v.decision, s.BaseKey)
 	}
-	if err = c.floor(ctx, l.at(runsDir), v.size, "run", b.RAMMiB); err != nil {
-		return ctxErr(ctx, failf("the host cannot carry a run on %s (stage: clone); see the VMTEST-DISK/VMTEST-RAM lines above", b.Name))
+	if err = c.ramFloor(b.RAMMiB); err != nil {
+		return failf("the host cannot carry a run on %s (stage: clone): %v", b.Name, err)
 	}
 	r := &running{c: c, l: l, s: s, b: b, baseDir: baseDir, commit: commit, cr: ra.cr, verdict: v}
-	r.id = c.env.Now().UTC().Format("20060102T150405Z") + "-" + s.ID
+	r.id = c.env.Now().UTC().Format(runIDLayout) + "-" + s.ID
 	r.dir = l.at(runsDir, r.id)
 	release, err := r.makeDir()
 	if err != nil {

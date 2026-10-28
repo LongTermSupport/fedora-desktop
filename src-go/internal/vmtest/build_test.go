@@ -144,7 +144,6 @@ func TestE15FastBaseBuild(t *testing.T) {
 		t.Fatal("the record or the build directory is wrong")
 	}
 	order := []string{
-		"retention floor --path " + k.path("bases") + " --base-size 35 --step rebuild --guest-mib 4096",
 		"virsh -c qemu:///session dominfo vmtest-build-server-fast-44",
 		"cp --reflink=auto " + k.path("images/"+imageName) + " " + k.path("bases/server-fast-44.build/disk.qcow2"),
 		"qemu-img resize -q " + k.path("bases/server-fast-44.build/disk.qcow2") + " 20G",
@@ -217,14 +216,6 @@ func TestE15BuildRefusals(t *testing.T) {
 	k.wantErr("ERROR: a desktop base must be kind full; desk-fast-44 is fast")
 	if k.count("curl") != 0 {
 		t.Fatal("a refused base was fetched")
-	}
-
-	k = buildKit(t)
-	k.fake.On(helperArgv("retention"), execx.Result{ExitCode: 1})
-	k.wantCode(k.run("build-base", "server-fast"), term.ExitFailure)
-	k.wantErr("ERROR: the host cannot carry a rebuild of server-fast-44 (stage: base); see the VMTEST-DISK/VMTEST-RAM lines above")
-	if k.count("virt-install") != 0 {
-		t.Fatal("built past a refused floor")
 	}
 
 	k = buildKit(t)

@@ -50,7 +50,6 @@ func TestE28ServerRunPasses(t *testing.T) {
 	assertInOrder(t, k, []string{
 		"git ls-remote " + testRepoURL + " refs/heads/" + testBranch,
 		"helpers.vmtest.probe_upstream",
-		"retention floor --path " + k.path("runs") + " --base-size 4 --step run --guest-mib 4096",
 		"qemu-img create -q -f qcow2 -F qcow2 -b " + k.path("bases/server-fast-44/base.qcow2") + " " + dir + "/overlay.qcow2",
 		"--name vmtest-run-" + runID,
 		"fedora@127.0.0.1 curl -fsSL -o ~/run.bash 'https://raw.githubusercontent.com/example/fedora-desktop/" + testCommit + "/run.bash' && chmod 0755 ~/run.bash",
@@ -171,10 +170,6 @@ func TestE28RunRefusals(t *testing.T) {
 		{
 			"a refused base", func(k *kit) { k.gate(1, "reinstall") }, nil,
 			"base server-fast-44 may not be used (freshness: reinstall); rebuild it with: vmtest build-base server-fast",
-		},
-		{
-			"no room for the clone", func(k *kit) { k.fake.On(helperArgv("retention"), execx.Result{ExitCode: 1}) }, nil,
-			"the host cannot carry a run on server-fast-44 (stage: clone); see the VMTEST-DISK/VMTEST-RAM lines above",
 		},
 	}
 	for _, tc := range cases {

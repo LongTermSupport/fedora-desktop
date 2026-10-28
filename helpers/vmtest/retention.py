@@ -1,168 +1,46 @@
-"""Disk floor, guest-RAM ceiling and the retention sweep (Plan 00110, §9 T6.4, §10).
+"""The bridge spool's retention sweep (Plan 00110, §9 T6.4).
 
-Two executors and the pure decisions behind them:
-
-    python3 -m helpers.vmtest.retention floor --path DIR --base-size BYTES --step run|rebuild --guest-mib N
-        VMTEST-DISK ok|short free=<bytes> need=<bytes>
-        VMTEST-RAM ok|over guest_mib=<n> host_mib=<n>
-        exit 0 when both hold, 1 otherwise — the caller REFUSES; nothing is cleaned up
-
-    python3 -m helpers.vmtest.retention sweep --lab-dir DIR --checkout DIR --log FILE \\
-        [--keep-runs N] [--keep-spool N]
-        VMTEST-EVICTED <kind> <name>        one per eviction, also appended to --log
-        VMTEST-SWEEP-DONE evicted=<n>
+    python3 -m helpers.vmtest.retention sweep-spool --checkout DIR --log FILE [--keep-spool N]
+        VMTEST-EVICTED quarantine|responses <name>   one per eviction, also appended to --log
+        VMTEST-SPOOL-SWEEP-DONE evicted=<n>
         exit 0, or 2 when a spool directory was refused (nothing evicted there)
 
-    python3 -m helpers.vmtest.retention prune-plan --lab-dir DIR --now EPOCH --older-than-days N
-        VMTEST-PRUNE <run-id> prune|keep <reason>    one per run directory, by name
-        VMTEST-PRUNE-PLAN-DONE runs=<n>
-        exit 0; it decides only, and `vmtest prune-runs` removes the overlays it may
+It bounds `quarantine/` and `responses/` on the shared mount (the former is
+sandbox-writable and would otherwise be a trivial disk fill) to their newest
+--keep-spool files, through the pinned spool descriptors of spool.py, so a
+symlinked directory is refused rather than swept. Every eviction is written to
+the off-mount log first, so retention is never silent deletion.
 
-Retention keeps the newest --keep-runs runs that PASSED and every run that did
-not (their overlays are the diagnosis); drops a leftover build directory of a
-fast base (rebuilt in minutes) but keeps a desktop one (hours, per §3.5); and
-bounds `quarantine/` and `responses/` on the shared mount — the former is
-sandbox-writable and would otherwise be a trivial disk fill — through the
-pinned spool descriptors of spool.py, so a symlinked directory is refused
-rather than swept. Every eviction is written to the off-mount log first, so
-retention is never silent deletion.
-
-The prune plan is the overlay half: a run's overlay (its one large file) may go
-once the run passed, a later run of its scenario passed, or it is older than the
-limit. The logs, verdict and check results are never part of it.
+This is the spool's half only, Python because spool.py is shared with the bridge
+helpers. The lab's own retention (the disk and RAM floors, the run and build
+sweep, the overlay prune plan) is `vmtest`'s, in src-go/internal/vmtest, which
+runs this after its own sweep.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import pathlib
-import re
-import shutil
 import stat
 import sys
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
 
 from helpers.vmtest import spool
 
-MARGIN_BYTES = 2 * 1024**3  # headroom below which a run is refused even if the arithmetic fits
-RAM_CEILING_FRACTION = 0.75
-DEFAULT_KEEP_RUNS = 10
 DEFAULT_KEEP_SPOOL = 200
-DESKTOP_PREFIX = "desktop-"
-RUN_ID_RE = re.compile(r"^(\d{8}T\d{6}Z)-(.+)$")  # the name vmtest run gives a run directory
-
-
-@dataclass(frozen=True)
-class Verdict:
-    ok: bool
-    reason: str
 
 
 @dataclass(frozen=True)
 class Entry:
     name: str
     mtime: float
-    keep_always: bool
-
-
-# ── pure decisions ────────────────────────────────────────────────────────────────────────
-
-
-def needed_for_run(base_size: int) -> int:
-    """An overlay can grow to the base's size in the worst case."""
-    return base_size + MARGIN_BYTES
-
-
-def needed_for_rebuild(base_size: int) -> int:
-    """Old base and new base coexist until the rename (§3.3)."""
-    return 2 * base_size + MARGIN_BYTES
-
-
-def assess_disk(*, free_bytes: int, needed_bytes: int) -> Verdict:
-    if free_bytes >= needed_bytes:
-        return Verdict(True, f"{free_bytes} bytes free, {needed_bytes} needed")
-    return Verdict(False, f"only {free_bytes} bytes free, {needed_bytes} needed; free space or lower the guest sizing")
-
-
-def assess_ram(*, guest_mib: int, host_mib: int) -> Verdict:
-    ceiling = int(host_mib * RAM_CEILING_FRACTION)
-    if guest_mib <= ceiling:
-        return Verdict(True, f"guest {guest_mib} MiB within the {ceiling} MiB ceiling of a {host_mib} MiB host")
-    return Verdict(False, f"guest {guest_mib} MiB exceeds the {ceiling} MiB ceiling of a {host_mib} MiB host")
 
 
 def plan_sweep(entries: list[Entry], *, keep: int) -> list[Entry]:
-    """Evict the entries that are neither protected nor among the newest `keep` unprotected ones."""
-    candidates = sorted((e for e in entries if not e.keep_always), key=lambda e: e.mtime, reverse=True)
-    return candidates[keep:]
-
-
-@dataclass(frozen=True)
-class RunFacts:
-    name: str
-    started: float | None  # from the name; None when the name is not a run id
-    scenario: str | None
-    passed: bool
-
-
-@dataclass(frozen=True)
-class PruneDecision:
-    name: str
-    prunable: bool
-    reason: str
-
-
-def run_facts(name: str, passed: bool) -> RunFacts:
-    match = RUN_ID_RE.match(name)
-    if match is None:
-        return RunFacts(name=name, started=None, scenario=None, passed=passed)
-    try:
-        started = datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC).timestamp()
-    except ValueError:  # the shape of a stamp with no such date or time: not a run id, so kept
-        return RunFacts(name=name, started=None, scenario=None, passed=passed)
-    return RunFacts(name=name, started=started, scenario=match.group(2), passed=passed)
-
-
-def plan_prune(runs: list[RunFacts], *, now: float, older_than_days: int) -> list[PruneDecision]:
-    """Whether each run's overlay may go: it passed, a later run of its scenario passed, or it is old."""
-    out = []
-    for run in sorted(runs, key=lambda r: r.name):
-        if run.started is None:
-            out.append(PruneDecision(run.name, False, "not a run directory name (<UTC stamp>-<scenario>)"))
-        elif run.passed:
-            out.append(PruneDecision(run.name, True, "passed"))
-        elif later := next((r for r in sorted(runs, key=lambda r: r.name, reverse=True)
-                            if r.passed and r.scenario == run.scenario and r.started is not None
-                            and r.started > run.started), None):
-            out.append(PruneDecision(run.name, True, f"a later run of {run.scenario} passed: {later.name}"))
-        elif now - run.started > older_than_days * 86400:
-            out.append(PruneDecision(run.name, True, f"did not pass, and is older than {older_than_days} days"))
-        else:
-            out.append(PruneDecision(run.name, False, f"did not pass; kept for diagnosis until a later run of {run.scenario} passes or it is older than {older_than_days} days"))
-    return out
-
-
-# ── host facts ────────────────────────────────────────────────────────────────────────────
-
-
-def host_mib() -> int:
-    with open("/proc/meminfo", encoding="utf-8") as handle:
-        for line in handle:
-            if line.startswith("MemTotal:"):
-                return int(line.split()[1]) // 1024
-    raise RuntimeError("/proc/meminfo has no MemTotal line")
-
-
-def free_bytes(path: str) -> int:
-    usage = os.statvfs(path)
-    return usage.f_bavail * usage.f_frsize
-
-
-# ── the sweep ─────────────────────────────────────────────────────────────────────────────
+    """Evict the entries that are not among the newest `keep`."""
+    return sorted(entries, key=lambda e: e.mtime, reverse=True)[keep:]
 
 
 class Log:
@@ -173,47 +51,6 @@ class Log:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("a", encoding="utf-8") as handle:
             handle.write(f"{int(time.time())} {event} {kind} {name} {detail}".rstrip() + "\n")
-
-
-def run_passed(run_dir: pathlib.Path) -> bool:
-    """Only a judged `pass` is evictable; an unjudged or non-passing run is kept for diagnosis."""
-    try:
-        document = json.loads((run_dir / "response.json").read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return False
-    return isinstance(document, dict) and document.get("state") == "finished" and document.get("verdict") == "pass"
-
-
-def sweep_runs(lab_dir: pathlib.Path, keep: int, log: Log) -> int:
-    runs = lab_dir / "runs"
-    entries = [
-        Entry(name=child.name, mtime=child.stat().st_mtime, keep_always=not run_passed(child)) for child in run_dirs(lab_dir)
-    ]
-    evicted = 0
-    for entry in plan_sweep(entries, keep=keep):
-        log.record("evicted", "run", entry.name, "passing run beyond the retention cap")
-        shutil.rmtree(runs / entry.name)
-        print(f"VMTEST-EVICTED run {entry.name}")
-        evicted += 1
-    return evicted
-
-
-def sweep_builds(lab_dir: pathlib.Path, log: Log) -> int:
-    """A leftover `<base>.build` directory is a failed build; fast bases are cheap to redo."""
-    bases = lab_dir / "bases"
-    if not bases.is_dir():
-        return 0
-    evicted = 0
-    for child in sorted(bases.iterdir()):
-        if child.is_dir() and not child.is_symlink() and child.name.endswith(".build"):
-            if child.name.startswith(DESKTOP_PREFIX):
-                log.record("kept", "build", child.name, "failed desktop build kept for diagnosis")
-                continue
-            log.record("evicted", "build", child.name, "failed fast-base build directory")
-            shutil.rmtree(child)
-            print(f"VMTEST-EVICTED build {child.name}")
-            evicted += 1
-    return evicted
 
 
 def sweep_spool_dir(root_fd: int, name: str, keep: int, log: Log) -> int:
@@ -229,7 +66,7 @@ def sweep_spool_dir(root_fd: int, name: str, keep: int, log: Log) -> int:
         for entry_name in names:
             info = os.stat(entry_name, dir_fd=dir_fd, follow_symlinks=False)
             if stat.S_ISREG(info.st_mode):
-                entries.append(Entry(name=entry_name, mtime=info.st_mtime, keep_always=False))
+                entries.append(Entry(name=entry_name, mtime=info.st_mtime))
         evicted = 0
         for entry in plan_sweep(entries, keep=keep):
             log.record("evicted", name, entry.name, "beyond the spool retention cap")
@@ -252,72 +89,26 @@ def sweep_spool(checkout: str, keep: int, log: Log) -> int:
         os.close(root_fd)
 
 
-def run_dirs(lab_dir: pathlib.Path) -> list[pathlib.Path]:
-    runs = lab_dir / "runs"
-    if not runs.is_dir():
-        return []
-    return [child for child in runs.iterdir() if child.is_dir() and not child.is_symlink()]
-
-
-# ── executors ─────────────────────────────────────────────────────────────────────────────
-
-
-def cmd_floor(args: argparse.Namespace) -> int:
-    need = needed_for_run(args.base_size) if args.step == "run" else needed_for_rebuild(args.base_size)
-    disk = assess_disk(free_bytes=free_bytes(args.path), needed_bytes=need)
-    ram = assess_ram(guest_mib=args.guest_mib, host_mib=host_mib())
-    print(f"VMTEST-DISK {'ok' if disk.ok else 'short'} free={free_bytes(args.path)} need={need}")
-    print(f"VMTEST-RAM {'ok' if ram.ok else 'over'} guest_mib={args.guest_mib} host_mib={host_mib()}")
-    for verdict in (disk, ram):
-        if not verdict.ok:
-            print(f"ERROR: {verdict.reason}", file=sys.stderr)
-    return 0 if disk.ok and ram.ok else 1
-
-
-def cmd_sweep(args: argparse.Namespace) -> int:
+def cmd_sweep_spool(args: argparse.Namespace) -> int:
     log = Log(pathlib.Path(args.log))
-    lab_dir = pathlib.Path(args.lab_dir)
-    evicted = sweep_runs(lab_dir, args.keep_runs, log) + sweep_builds(lab_dir, log)
-    rc = 0
     try:
-        evicted += sweep_spool(args.checkout, args.keep_spool, log)
+        evicted = sweep_spool(args.checkout, args.keep_spool, log)
     except spool.SpoolRefusal as exc:
         log.record("refused", "spool", "-", str(exc))
         print(f"REFUSED: {exc}", file=sys.stderr)
-        rc = 2
-    print(f"VMTEST-SWEEP-DONE evicted={evicted}")
-    return rc
-
-
-def cmd_prune_plan(args: argparse.Namespace) -> int:
-    runs = [run_facts(child.name, run_passed(child)) for child in run_dirs(pathlib.Path(args.lab_dir))]
-    for decision in plan_prune(runs, now=args.now, older_than_days=args.older_than_days):
-        print(f"VMTEST-PRUNE {decision.name} {'prune' if decision.prunable else 'keep'} {decision.reason}")
-    print(f"VMTEST-PRUNE-PLAN-DONE runs={len(runs)}")
+        return 2
+    print(f"VMTEST-SPOOL-SWEEP-DONE evicted={evicted}")
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
-    floor = sub.add_parser("floor", help="refuse when the disk or the host RAM cannot carry the next step")
-    floor.add_argument("--path", required=True, help="a path on the filesystem the lab writes to")
-    floor.add_argument("--base-size", type=int, required=True, help="bytes of the base the step works on")
-    floor.add_argument("--step", choices=("run", "rebuild"), required=True)
-    floor.add_argument("--guest-mib", type=int, required=True)
-    floor.set_defaults(func=cmd_floor)
-    sweep = sub.add_parser("sweep", help="apply the retention policy; every eviction is logged")
-    sweep.add_argument("--lab-dir", required=True)
+    sweep = sub.add_parser("sweep-spool", help="bound the bridge spool; every eviction is logged")
     sweep.add_argument("--checkout", required=True, help="the checkout whose spool to bound; absent is fine")
     sweep.add_argument("--log", required=True, help="the off-mount retention log")
-    sweep.add_argument("--keep-runs", type=int, default=DEFAULT_KEEP_RUNS)
     sweep.add_argument("--keep-spool", type=int, default=DEFAULT_KEEP_SPOOL)
-    sweep.set_defaults(func=cmd_sweep)
-    prune = sub.add_parser("prune-plan", help="say which runs' overlays may go, and why; removes nothing")
-    prune.add_argument("--lab-dir", required=True)
-    prune.add_argument("--now", type=int, required=True, help="the epoch second the ages are measured from")
-    prune.add_argument("--older-than-days", type=int, required=True, help="vmtest prune-runs owns the default")
-    prune.set_defaults(func=cmd_prune_plan)
+    sweep.set_defaults(func=cmd_sweep_spool)
     args = parser.parse_args(argv)
     return args.func(args)
 

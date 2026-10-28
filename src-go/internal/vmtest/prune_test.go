@@ -3,8 +3,6 @@ package vmtest
 import (
 	"os"
 	"path/filepath"
-	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -32,37 +30,22 @@ func pruneKit(t *testing.T) *kit {
 	}
 	k.write("runs/"+bareRun+"/transcript.log", "log\n")
 	k.lv.domains = []string{"vmtest-run-" + liveRun, "vmtest-member-m0"}
-	k.planPrune(map[string]string{
-		passedRun: "prune passed",
-		failedRun: "keep did not pass; kept for diagnosis until a later run of server-full-provision passes or it is older than 7 days",
-		liveRun:   "keep did not pass; kept for diagnosis",
-		bareRun:   "prune passed",
-	})
+	k.response(passedRun, "pass")
+	k.response(failedRun, "fail")
+	k.response(liveRun, "fail")
+	k.response(bareRun, "pass")
 	return k
 }
 
-// planPrune answers retention prune-plan with one line per run.
-func (k *kit) planPrune(decisions map[string]string) {
-	k.fake.OnFunc(append(helperArgv("retention"), "prune-plan"), func(execx.Cmd) (execx.Result, error) {
-		var b strings.Builder
-		for _, id := range []string{bareRun, passedRun, failedRun, liveRun} {
-			if d, ok := decisions[id]; ok {
-				b.WriteString("VMTEST-PRUNE " + id + " " + d + "\n")
-			}
-		}
-		b.WriteString("VMTEST-PRUNE-PLAN-DONE runs=" + itoa(int64(len(decisions))) + "\n")
-		return execx.Result{Stdout: []byte(b.String())}, nil
-	})
+// response is the judged response of a finished run.
+func (k *kit) response(id, verdict string) {
+	k.write("runs/"+id+"/response.json", `{"state": "finished", "verdict": "`+verdict+`"}`)
 }
 
 // E61: the dry run lists what it would remove and why, removes nothing, and names the bases.
 func TestE61PruneRunsDryRun(t *testing.T) {
 	k := pruneKit(t)
 	k.wantCode(k.run("prune-runs"), term.ExitOK)
-	call := k.mustCall("retention prune-plan")
-	if !strings.HasSuffix(call.Line(), "prune-plan --lab-dir "+k.home+" --now 1792065600 --older-than-days 7") {
-		t.Fatalf("got %s", call.Line())
-	}
 	out := k.out.String()
 	for _, want := range []string{
 		"VMTEST-PRUNE-RUN " + passedRun + " would-remove overlay.qcow2 " + overlaySize(t, k, passedRun) + ": passed\n",
@@ -93,10 +76,7 @@ func TestE61PruneRunsDryRun(t *testing.T) {
 func TestE62PruneRunsRemoves(t *testing.T) {
 	k := pruneKit(t)
 	k.write("runs/"+passedRun+"/disk2.qcow2", "x")
-	k.wantCode(k.run("prune-runs", "--yes", "--older-than", "3"), term.ExitOK)
-	if !strings.HasSuffix(k.mustCall("retention prune-plan").Line(), "--older-than-days 3") {
-		t.Fatal("--older-than did not reach the plan")
-	}
+	k.wantCode(k.run("prune-runs", "--yes", "--older-than", "4"), term.ExitOK)
 	if k.exists("runs/"+passedRun+"/overlay.qcow2") || k.exists("runs/"+passedRun+"/disk2.qcow2") {
 		t.Fatal("the passed run's overlays are still there")
 	}
@@ -110,6 +90,12 @@ func TestE62PruneRunsRemoves(t *testing.T) {
 	log := k.read(retentionLog)
 	if !strings.Contains(log, "1792065600 pruned overlay "+passedRun+" passed\n") {
 		t.Fatalf("log %q", log)
+	}
+
+	k = pruneKit(t)
+	k.wantCode(k.run("prune-runs", "--yes", "--older-than", "3"), term.ExitOK)
+	if k.exists("runs/"+failedRun+"/overlay.qcow2") || !strings.Contains(k.read(retentionLog), " pruned overlay "+failedRun+" did not pass, and is older than 3 days\n") {
+		t.Fatal("--older-than 3 kept a failed run three days and four hours old")
 	}
 }
 
@@ -166,22 +152,20 @@ func TestE61PruneRunsRefusals(t *testing.T) {
 	}
 
 	k = pruneKit(t)
-	k.fake.On(append(helperArgv("retention"), "prune-plan"), execx.Result{Stdout: []byte("VMTEST-PRUNE " + passedRun + " prune passed\n")})
-	k.wantCode(k.run("prune-runs", "--yes"), term.ExitFailure)
-	k.wantErr("ERROR: the prune plan did not finish")
-	if !k.exists("runs/" + passedRun + "/overlay.qcow2") {
-		t.Fatal("an unfinished plan still pruned")
+	if err := os.Remove(k.path("runs/" + failedRun + "/response.json")); err != nil {
+		t.Fatal(err)
 	}
-
-	k = pruneKit(t)
-	k.fake.On(append(helperArgv("retention"), "prune-plan"), execx.Result{Stdout: []byte("VMTEST-PRUNE ../x prune passed\nVMTEST-PRUNE-PLAN-DONE runs=1\n")})
-	k.wantCode(k.run("prune-runs"), term.ExitFailure)
-	k.wantErr("ERROR: the prune plan has a line vmtest cannot read: VMTEST-PRUNE ../x prune passed")
+	k.write("runs/"+failedRun+"/response.json/x", "a directory where the response goes")
+	k.wantCode(k.run("prune-runs", "--yes"), term.ExitFailure)
+	k.wantErr("ERROR: cannot read " + k.path("runs/"+failedRun+"/response.json"))
+	if !k.exists("runs/"+passedRun+"/overlay.qcow2") || k.out.Len() != 0 {
+		t.Fatal("a run whose response cannot be read still pruned")
+	}
 
 	for _, args := range [][]string{{"--older-than"}, {"--older-than", "x"}, {"--older-than", "-1"}, {"--now"}, {"--yes", "--yes"}} {
 		k = pruneKit(t)
 		k.wantCode(k.run(append([]string{"prune-runs"}, args...)...), term.ExitUsage)
-		if k.count("prune-plan") != 0 {
+		if len(k.fake.Calls()) != 0 {
 			t.Fatalf("%v reached the plan", args)
 		}
 	}
@@ -193,7 +177,7 @@ func TestE64DiskGuard(t *testing.T) {
 	k := runKit(t, "pass")
 	k.withLibvirt()
 	k.write("runs/"+passedRun+"/overlay.qcow2", strings.Repeat("o", 4096))
-	k.planPrune(map[string]string{passedRun: "prune passed"})
+	k.response(passedRun, "pass")
 	k.free = runDiskNeed - 1
 	k.wantCode(k.run("run", "server-fast-provision"), term.ExitFailure)
 	k.wantErr("ERROR: only 21.9 GiB free under " + k.home + "; a run needs 22.0 GiB (a guest disk of up to 20 GiB and a 2 GiB margin). " +
@@ -208,7 +192,6 @@ func TestE64DiskGuard(t *testing.T) {
 
 	k = buildKit(t)
 	k.free = buildDiskNeed - 1
-	k.planPrune(map[string]string{})
 	k.wantCode(k.run("build-base", "server-fast"), term.ExitFailure)
 	k.wantErr("a base build needs 26.0 GiB (a guest disk of up to 20 GiB, a 2 GiB margin and 4 GiB of install media)")
 	k.wantErr("vmtest prune-runs would free 0 B of run overlays")
@@ -231,7 +214,6 @@ func TestE64DiskGuard(t *testing.T) {
 // E64: member-up boots an overlay too, so it is refused the same way, after its name is checked.
 func TestE64DiskGuardMemberUp(t *testing.T) {
 	k := memberKit(t)
-	k.planPrune(map[string]string{})
 	k.free = runDiskNeed - 1
 	k.wantCode(k.run("member-up", "m1", "server-fast"), term.ExitFailure)
 	k.wantErr("ERROR: only 21.9 GiB free under " + k.home + "; a member needs 22.0 GiB (a guest disk of up to 20 GiB and a 2 GiB margin). vmtest prune-runs would free 0 B of run overlays")
@@ -294,25 +276,5 @@ func TestFreeBytesReadsTheFilesystem(t *testing.T) {
 	}
 	if _, err := freeBytes(filepath.Join(t.TempDir(), "absent")); err == nil {
 		t.Fatal("an absent path had free space")
-	}
-}
-
-// TestDiskMarginIsRetentionsMargin holds the guard's margin to the one retention.py's floor
-// keeps, so the two refusals cannot drift apart.
-func TestDiskMarginIsRetentionsMargin(t *testing.T) {
-	body, err := os.ReadFile(filepath.Join("..", "..", "..", "helpers", "vmtest", "retention.py"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	m := regexp.MustCompile(`(?m)^MARGIN_BYTES = ([0-9]+) \* 1024\*\*3\b`).FindSubmatch(body)
-	if m == nil {
-		t.Fatal("retention.py has no MARGIN_BYTES = <n> * 1024**3 line")
-	}
-	n, err := strconv.ParseInt(string(m[1]), 10, 64)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n*gib != diskMarginBytes {
-		t.Fatalf("retention.py's MARGIN_BYTES is %d GiB, diskMarginBytes %d bytes", n, diskMarginBytes)
 	}
 }
