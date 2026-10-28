@@ -14,6 +14,10 @@ Primary modes (pick at most one; default = full FTP server):
                 Run --copy's checks and stop. Read-only: copies nothing, starts
                 nothing. Prints the RC address it resolved for the mount.
   --prune       Remove RAW files whose corresponding JPG has been deleted
+  --new-hotspot-password
+                Print a new hotspot Wi-Fi password (three random words, e.g.
+                maple-river-candle) to stdout and exit. play-ftp-camera.yml
+                runs it once, when no password is saved, and vaults it.
 
 Modifiers (apply to FTP-server modes only; combinable):
   --view        Live single-window preview of each ARW arrival via geeqie
@@ -28,7 +32,9 @@ Modifiers (apply to FTP-server modes only; combinable):
                 the laptop — bypasses any public WiFi. Fail-fast if the named
                 profile doesn't exist (it is created by play-ftp-camera.yml).
                 If the hotspot is already up when ftp-camera starts, the flag
-                uses it as-is and leaves it alone on exit.
+                uses it as-is and leaves it alone on exit. With any Wi-Fi
+                hotspot up, the camera settings show its network name and
+                password, read from the NetworkManager profile.
                 NOTE: on Intel CNVi cards the radio cannot be client and AP at
                 the same time, so the laptop loses its own internet while the
                 hotspot is up. --async-copy still works: files land in the

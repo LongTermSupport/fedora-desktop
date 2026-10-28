@@ -7,6 +7,7 @@ package ftpcamera
 
 import (
 	"context"
+	"crypto/rand"
 	_ "embed" // usage.txt is embedded verbatim
 	"errors"
 	"fmt"
@@ -37,6 +38,7 @@ const (
 	firewallCmd = "firewall-cmd"
 	exifShort   = "-s3"
 	nmShow      = "show"
+	nmConn      = "connection"
 	extARW      = "arw"
 	extJPG      = "jpg"
 	extJPEG     = "jpeg"
@@ -72,6 +74,8 @@ type Env struct {
 	// Echo holds the terminal's echo off for the run, so keys typed between two screens are not
 	// echoed over the next (ttyecho); nil holds nothing. NewEnv runs Runner and Execer under it.
 	Echo *ttyecho.Hold
+	// Random is the cryptographically secure source a new hotspot password is drawn from (E67).
+	Random io.Reader
 }
 
 // NewEnv is the production environment on the process's own streams.
@@ -98,6 +102,7 @@ func NewEnv() Env {
 		IsTerminal: term.FileIsTerminal,
 		OpenTTY:    openTTY,
 		ConfigPath: DefaultConfigPath,
+		Random:     rand.Reader,
 	}
 }
 
@@ -195,6 +200,9 @@ func (c *cli) run(ctx context.Context, args []string) term.ExitCode {
 	if help {
 		c.out.f("%s", usageText)
 		return term.ExitOK
+	}
+	if opts.newPassword {
+		return c.newHotspotPasswordMode()
 	}
 	tun, problems := readTunables(c.env.Getenv)
 	if len(problems) > 0 {

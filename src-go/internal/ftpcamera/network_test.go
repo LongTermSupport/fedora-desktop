@@ -38,7 +38,7 @@ func TestDetectHotspot(t *testing.T) {
 	ipAddr(k, "wlp1", hotspotIP)
 	c := newCLI(k.app().Env)
 	got := c.detectHotspot(t.Context())
-	if got != (hotspotInfo{active: true, dev: "wlp1", ip: hotspotIP, ssid: "ftp-camera"}) {
+	if got != (hotspotInfo{active: true, conn: "Hotspot", dev: "wlp1", ip: hotspotIP, ssid: "ftp-camera"}) {
 		t.Fatalf("%+v", got)
 	}
 	k.wantErr("WARNING: could not read ipv4.method for 'Broken': Error: no such connection\n")

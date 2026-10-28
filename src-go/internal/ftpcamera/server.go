@@ -37,11 +37,13 @@ const (
 
 // session is one FTP-server run (E41-E63).
 type session struct {
-	c        *cli
-	start    time.Time
-	remote   string
-	mount    string
-	hotspot  hotspotInfo
+	c       *cli
+	start   time.Time
+	remote  string
+	mount   string
+	hotspot hotspotInfo
+	// wifiPass is the active hotspot's Wi-Fi password, shown for the camera to join (E68).
+	wifiPass string
 	profile  string
 	ownsAP   bool
 	ip       string
@@ -112,6 +114,13 @@ func (s *session) prepare(ctx context.Context) error {
 		}
 	}
 	s.hotspot = c.detectHotspot(ctx)
+	if s.hotspot.active && s.hotspot.ssid != "" {
+		pass, err := c.hotspotPassword(ctx, s.hotspot.conn)
+		if err != nil {
+			return err
+		}
+		s.wifiPass = pass
+	}
 	wifi := c.detectWifi(ctx)
 	c.link.mu.Lock()
 	c.link.wifi = wifi
@@ -233,9 +242,8 @@ func (s *session) hotspotUp(ctx context.Context) error {
 func (s *session) profileMissing() {
 	e := s.c.err
 	e.f("ERROR: NetworkManager connection '%s' not found\n\n", s.profile)
-	e.f("  play-ftp-camera.yml creates this AP profile for you, but only\n")
-	e.f("  once a WPA2 passphrase has been vaulted. Run, from the repo:\n\n")
-	e.f("    ./vault.bash set ftp_camera_hotspot_password    # 8-63 chars\n")
+	e.f("  play-ftp-camera.yml creates this AP profile for you, with a\n")
+	e.f("  Wi-Fi password it generates and saves in the vault. Run, from the repo:\n\n")
 	e.f("    ansible-playbook playbooks/imports/optional/common/play-ftp-camera.yml\n\n")
 	e.f("  Then re-run this command. Do NOT create the profile by hand —\n")
 	e.f("  the playbook owns it, and a hand-made one will not be tuned.\n")
@@ -341,6 +349,7 @@ func (s *session) banner() {
 	o.f("  %-13s ftp://camera@%s/\n", "FTP URL:", s.ip)
 	o.f("%s%s%s%s\n\n", o.b, o.g, hr, o.n)
 	o.f("  %sSony A7V camera settings%s (Menu → Network → FTP Transfer Func.):\n", o.b, o.n)
+	s.wifiRows()
 	o.f("    Server:      %s%s%s\n", o.c, s.ip, o.n)
 	o.f("    Port:        %s21%s\n", o.c, o.n)
 	o.f("    User:        %scamera%s\n", o.c, o.n)
@@ -349,6 +358,21 @@ func (s *session) banner() {
 	o.f("    Destination: %s/%s\n\n", o.c, o.n)
 	s.landingAdvisory()
 	o.f("%sMonitoring for uploads — press Ctrl+C to stop%s\n\n", o.y, o.n)
+}
+
+// wifiRows are the hotspot's network name and password, for the person to type into the camera
+// (E68); none without a Wi-Fi hotspot.
+func (s *session) wifiRows() {
+	if !s.hotspot.active || s.hotspot.ssid == "" {
+		return
+	}
+	o := s.c.out
+	o.f("    Wi-Fi:       %s%s%s   (join this network on the camera first)\n", o.c, s.hotspot.ssid, o.n)
+	if s.wifiPass == "" {
+		o.f("    Wi-Fi pass:  (none: profile '%s' has no Wi-Fi password)\n", s.hotspot.conn)
+		return
+	}
+	o.f("    Wi-Fi pass:  %s%s%s\n", o.c, s.wifiPass, o.n)
 }
 
 func (s *session) hotspotRows() {

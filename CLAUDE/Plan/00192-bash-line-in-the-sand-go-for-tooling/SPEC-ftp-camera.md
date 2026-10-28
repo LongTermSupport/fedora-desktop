@@ -61,7 +61,7 @@ The tests cite these numbers.
   `Run 'ftp-camera --help' for usage` on stderr and exits 2.
 - E3. `--view` and `--view-jpg` together: `ERROR: --view and --view-jpg are mutually exclusive`,
   exit 2.
-- E4. More than one primary mode (`--sort --pass --push --copy --copy-preflight --prune --async --async-copy`; `--async-copy` is the async mode with copying) prints
+- E4. More than one primary mode (`--sort --pass --push --copy --copy-preflight --prune --async --async-copy --new-hotspot-password`; `--async-copy` is the async mode with copying) prints
   `ERROR: only one primary mode at a time` and the list of modes, exit 2.
 - E5. `--view`/`--view-jpg`, then `--hotspot`, then `--debug-ftp`, with a mode that is not an
   FTP-server mode (default, `--async`, `--async-copy`), each print their three-line refusal,
@@ -248,8 +248,9 @@ The tests cite these numbers.
   `Supported interface modes` in `iw list` followed within twelve lines by the word `AP` is yes,
   else no. Yes prints the capability line; no is the hardware error; unknown prints the
   three-line note and goes on. Then the single-radio note (three lines). The profile must be a
-  whole line of `nmcli -t -f NAME connection show` (else the eleven-line error naming the vault
-  key and the play). Already active (a whole line of `... --active`): the yellow
+  whole line of `nmcli -t -f NAME connection show` (else the error naming the play,
+  which makes the profile and its password, E67; it no longer sends the person to set the
+  password by hand). Already active (a whole line of `... --active`): the yellow
   `already active` line, and it is not taken down at the end. Otherwise
   `Activating hotspot '<name>'...`, `nmcli connection up <name>` as root, a two-second wait, and
   the session owns it.
@@ -278,8 +279,9 @@ The tests cite these numbers.
   whether ftp-camera owns it), viewer (class, the watched folder: today's
   `photos/YYYY/MM/DD/<class>/` in async modes, the upload root in default mode; and whether it
   pre-warms), the remote and mount (`--async-copy`), debug, the laptop's WiFi (when known, said
-  to be the laptop's), the upload directory and `ftp://camera@<ip>/`, then the camera settings,
-  the landing-zone advisory (E50), and `Monitoring for uploads — press Ctrl+C to stop`.
+  to be the laptop's), the upload directory and `ftp://camera@<ip>/`, then the camera settings
+  (led, with a Wi-Fi hotspot active, by its network name and password, E68), the landing-zone
+  advisory (E50), and `Monitoring for uploads — press Ctrl+C to stop`.
 - E50. Landing-zone advisory: the regular files under the upload directory whose age in whole
   days is above `LANDING_WARN_AGE_DAYS`, summed; at or above `LANDING_WARN_GB` GiB, the
   six-line suggestion with the size to one decimal. Entries below the upload directory that
@@ -371,6 +373,35 @@ The tests cite these numbers.
   still in the upload root as regular files (a file that has vanished, or a name logged twice,
   adds nothing). The files stay in the upload root.
 
+### The hotspot's Wi-Fi password (Task 3.16, the owner's decision of 2026-10-28)
+
+- E67. `--new-hotspot-password` is a primary mode of its own (E4; the server modifiers are
+  refused with it, E5). It prints one new hotspot Wi-Fi password and a newline on stdout and
+  nothing else, exit 0; it needs no config, no camera account (E7), runs no program and takes no
+  suspend lock (E9). The password is three words joined by `-` (`maple-river-candle`), each
+  drawn uniformly from the word list the binary embeds (`words.txt`: at least 800 distinct words
+  of 3 to 9 lowercase letters, so every password is 11 to 29 characters, inside WPA2's 8 to 63)
+  from the kernel's secure random source (`crypto/rand`): two bytes big-endian per draw, a draw
+  at or above the largest multiple of the list's length drawn again. A list that breaks the rule,
+  or a random source that fails, is `ERROR: could not make a hotspot password: <reason>`, exit
+  1, nothing on stdout. `play-ftp-camera.yml` runs it, after building the binary, only when no
+  `ftp_camera_hotspot_password` is saved, and saves what it prints through
+  `tasks/save-secret.yml` (the save path `tasks/ask-and-save-secret.yml` uses); a saved one is
+  kept, so it is never made twice. The play never asks for this password, so an unattended run
+  goes on.
+- E68. With a hotspot active that has an SSID (E45), the session reads that profile's Wi-Fi
+  password before vsftpd starts: `nmcli -s -g 802-11-wireless-security.psk connection show <name>`
+  as the user first (NetworkManager gives the secret to a caller polkit allows, which an active
+  local session usually is); an empty answer or a failure is asked again as root (E44's sudo).
+  Root's read failing is `ERROR: could not read the Wi-Fi password of hotspot '<name>': <reason>`,
+  and the session tears down (E41). The camera settings then begin
+  `    Wi-Fi:       <ssid>   (join this network on the camera first)` and
+  `    Wi-Fi pass:  <password>` (stdout only); a profile with no password says
+  `(none: profile '<name>' has no Wi-Fi password)`. No hotspot, or a shared connection with no
+  SSID (wired): no read and no Wi-Fi rows. The profile, not the vault, is read: it is what the
+  camera must match (a profile the user made in GNOME is adopted with its own password), and it
+  needs no vault password file and no new copy of the secret on disk.
+
 ### Shared
 
 - E64. A command that fails where nothing above names its message prints
@@ -425,7 +456,8 @@ shipping mode should leave behind is a behaviour change for its own plan, not th
   clock, sleep, the process's own path and pid, `/proc` as an `fs.FS`, the terminal seams);
   the command line and launcher; the config file; completeness; the sort pass; the remote modes
   (push, preflight, copy); prune; the server session (start, followers, per-upload handler,
-  teardown); the hotspot and WiFi probes; the weak-link advisory; the IEC size format.
+  teardown); the hotspot and WiFi probes; the hotspot password's making and reading
+  (`wifipass.go`, `words.txt`, E67, E68); the weak-link advisory; the IEC size format.
   Messages are printed where they arise and the function returns a reported error, so the
   stream and text of each line is the bash's.
 - `src-go/internal/rclonerc`: the credential, the RC call, the availability probe, and the RC
@@ -452,3 +484,10 @@ unchanged in meaning.
 - H4. `--async-copy --view`: per-file sort, copy into the mount, geeqie shows the frame.
 - H5. `--hotspot`: the profile comes up, the nm-shared rules are added, and it goes down at the
   end.
+- H6. `play-ftp-camera.yml` on a host with no `ftp_camera_hotspot_password` saved, run
+  unattended (`run.bash --yes`): no prompt, the run goes on, a vault-encrypted
+  `ftp_camera_hotspot_password` block appears in `localhost.yml`, the hotspot profile is created,
+  and no password appears in the Ansible output. A second run leaves the block unchanged.
+- H7. `ftp-camera --hotspot`: the camera settings show `Wi-Fi: ftp-camera` and the saved
+  password; record whether the read as the user answered or root's was needed (an
+  `nmcli -s` run without sudo shows which); the camera joins with what is shown.

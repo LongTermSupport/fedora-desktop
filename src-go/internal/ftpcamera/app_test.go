@@ -1,6 +1,7 @@
 package ftpcamera
 
 import (
+	"crypto/rand"
 	"errors"
 	"os"
 	"path/filepath"
@@ -43,7 +44,7 @@ func TestUsageRefusals(t *testing.T) {
 	}{
 		{[]string{"--view", "--view-jpg"}, "ERROR: --view and --view-jpg are mutually exclusive\n"},
 		{[]string{"--view-jpg", "--view"}, "ERROR: --view and --view-jpg are mutually exclusive\n"},
-		{[]string{"--sort", "--push"}, "ERROR: only one primary mode at a time\n  Pick one of: --sort --pass --push --copy --copy-preflight --prune --async --async-copy\n"},
+		{[]string{"--sort", "--push"}, "ERROR: only one primary mode at a time\n  Pick one of: --sort --pass --push --copy --copy-preflight --prune --async --async-copy --new-hotspot-password\n"},
 		{[]string{"--async", "--copy"}, "ERROR: only one primary mode at a time\n"},
 		{[]string{"--prune", "--view"}, "ERROR: --view / --view-jpg requires an FTP-server mode\n  (default, --async, or --async-copy). The mode you picked\n  exits before any uploads arrive, so there's nothing to view.\n"},
 		{[]string{"--copy-preflight", "--hotspot"}, "ERROR: --hotspot requires an FTP-server mode\n  (default, --async, or --async-copy). The mode you picked\n  exits without running the FTP server.\n"},
@@ -261,7 +262,7 @@ func TestOutputThatCannotBeWrittenFailsTheRun(t *testing.T) {
 
 func TestNewEnvIsTheRealMachine(t *testing.T) {
 	env := NewEnv()
-	if env.ConfigPath != DefaultConfigPath || env.PID != os.Getpid() || env.Runner == nil || env.Self == "" {
+	if env.ConfigPath != DefaultConfigPath || env.PID != os.Getpid() || env.Runner == nil || env.Self == "" || env.Random != rand.Reader {
 		t.Fatalf("%+v", env)
 	}
 	if err := env.Sleep(t.Context(), 0); err != nil {
