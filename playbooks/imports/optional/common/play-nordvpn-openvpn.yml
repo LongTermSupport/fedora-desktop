@@ -159,6 +159,8 @@
     # Firewall Configuration
     # =========================================================================
 
+    # With no firewalld running there is no firewall to open, so OpenVPN needs nothing and the
+    # two tasks below are skipped. A firewalld started later gets the rule on the next run.
     - name: Check if Firewalld is Running
       become: true
       ansible.builtin.command: systemctl is-active firewalld
@@ -185,16 +187,6 @@
       args:
         executable: /bin/bash
       when: firewalld_status.rc == 0 and firewall_openvpn_query.rc == 1
-
-    - name: Warn if Firewalld is Not Running
-      ansible.builtin.debug:
-        msg:
-          - "WARNING: firewalld is not running — OpenVPN firewall rule was NOT applied."
-          - "VPN connections may fail until you enable the firewall rule."
-          - "To fix, start firewalld and re-run this playbook:"
-          - "  sudo systemctl start firewalld"
-          - "  ansible-playbook playbooks/imports/optional/common/play-nordvpn-openvpn.yml"
-      when: firewalld_status.rc != 0
 
     # =========================================================================
     # Usage Instructions
@@ -223,13 +215,13 @@
           - "    nord list"
           - ""
           - "  Connect to VPN:"
-          - "    nord connect uk-london"
+          - "    nord connect uk1234   (a name nord list shows)"
           - ""
           - "  Check status:"
           - "    nord status"
           - ""
           - "  Switch servers:"
-          - "    nord switch us-newyork"
+          - "    nord switch us5678"
           - ""
           - "  Disconnect:"
           - "    nord disconnect"

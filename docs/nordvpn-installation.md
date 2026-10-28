@@ -33,25 +33,17 @@ separate from your NordVPN account login. To find them:
 3. Click "Set up NordVPN manually"
 4. Copy the **Service credentials** username and password
 
-On first run the playbook appends them in plaintext to
-`environment/localhost/host_vars/localhost.yml`. Encrypt them immediately afterwards:
+The playbook saves each answer **vault-encrypted** in
+`environment/localhost/host_vars/localhost.yml`, as `nordvpn_username` and
+`nordvpn_password` (`tasks/ask-and-save-secret.yml`: the value reaches `ansible-vault` on
+its standard input, never on a command line). There is nothing to encrypt afterwards. A
+typing mistake is asked again, up to three times, and a run with no keyboard cannot answer,
+so it stops and says how to add them.
 
-```bash
-./vault.bash replace nordvpn_username
-./vault.bash replace nordvpn_password
-```
-
-`replace` encrypts each value **in place**, so there is nothing to paste by hand. Use
-`replace` and not `set` — `set` appends a new variable and refuses when one already
-exists, which it will, because the playbook just wrote both in plaintext.
-
-The raw `ansible-vault encrypt_string 'value' --name 'nordvpn_username'` form still
-works if you prefer it, but it puts the secret in your shell history and leaves you to
-swap the `!vault |` block in yourself. See `CLAUDE/SecurityRules.md` for the full
+When both are already in `localhost.yml`, nothing is asked. To change them, replace each
+value with `./vault.bash replace nordvpn_username` (and `nordvpn_password`), then run the
+playbook again to rewrite the credentials file. See `CLAUDE/SecurityRules.md` for the
 variable-level vault workflow.
-
-If credentials are already present in `localhost.yml` (as `nordvpn_username` /
-`nordvpn_password`), the prompt is skipped.
 
 ### Step 2: Run the Playbook
 
@@ -67,7 +59,8 @@ This playbook:
 - Deploys credentials to `~/.config/nordvpn/.credentials` (mode 0600)
 - Builds the `nord` command from this checkout and installs it at `~/.local/bin/nord`
   (it imports `play-golang.yml` first, for the Go toolchain)
-- Adds the `openvpn` service to firewalld (if firewalld is running)
+- Adds the `openvpn` service to firewalld, when firewalld is running and does not allow
+  it yet (with no firewall running there is nothing to open, so nothing is done)
 
 ### Step 3: Download OpenVPN Configs
 
@@ -141,9 +134,8 @@ view or remove them via the GUI.
 
 - Credentials are stored at `~/.config/nordvpn/.credentials` with mode 0600
 - The file contains two lines: service username on line 1, service password on line 2
-- `nordvpn_username` and `nordvpn_password` in `localhost.yml` must be encrypted with
-  `ansible-vault encrypt_string` before committing — the playbook prints a reminder if
-  they were just written in plaintext
+- `nordvpn_username` and `nordvpn_password` are kept vault-encrypted in `localhost.yml`;
+  the playbook saves them that way, so no plaintext copy is written there
 - This is a public repo — never commit plaintext credentials
 
 ## Troubleshooting
@@ -181,28 +173,27 @@ ls ~/.config/nordvpn/configs/
 
 If empty, download configs from nordvpn.com (see Step 3 above).
 
-### Firewall warning during playbook run
+### Firewalld started after the playbook ran
 
-If the playbook prints "firewalld is not running — OpenVPN firewall rule was NOT
-applied", start firewalld and re-run:
+The playbook adds the `openvpn` service only to a running firewalld. If firewalld is
+started later, run the playbook again so it allows OpenVPN:
 
 ```bash
-sudo systemctl start firewalld
 ./playbooks/imports/optional/common/play-nordvpn-openvpn.yml
 ```
 
 ## File Locations
 
-| Path                                    | Purpose                                |
-| --------------------------------------- | -------------------------------------- |
-| `~/.config/nordvpn/configs/`            | Downloaded `.ovpn` server config files |
-| `~/.config/nordvpn/.credentials`        | Service credentials (mode 0600)        |
-| `~/.local/bin/nord`                     | Connection manager (Go binary)         |
-| `~/.local/share/nordvpn/nord.log`       | Connection log (rotates at 1 MB)       |
+| Path                              | Purpose                                |
+| --------------------------------- | -------------------------------------- |
+| `~/.config/nordvpn/configs/`      | Downloaded `.ovpn` server config files |
+| `~/.config/nordvpn/.credentials`  | Service credentials (mode 0600)        |
+| `~/.local/bin/nord`               | Connection manager (Go binary)         |
+| `~/.local/share/nordvpn/nord.log` | Connection log (rotates at 1 MB)       |
 
 **Source files in this repo:**
 
-| Repo path                                                    | Deployed to           |
-| ------------------------------------------------------------ | --------------------- |
+| Repo path                                                     | Deployed to           |
+| ------------------------------------------------------------- | --------------------- |
 | `src-go/cmd/nord`, `src-go/internal/nord` (built by the play) | `~/.local/bin/nord`   |
-| `playbooks/imports/optional/common/play-nordvpn-openvpn.yml` | (runs the deployment) |
+| `playbooks/imports/optional/common/play-nordvpn-openvpn.yml`  | (runs the deployment) |

@@ -43,5 +43,9 @@
 # overlay with their reasons, and removes nothing). play-basic-configs.yml joins the run too:
 # the ssh-with-key family's Go package changed (the "already installed" line is a status line
 # now, the same words on stderr), so the play rebuilds the three binaries; nothing is asked
-# and no host is contacted.
+# and no host is contacted. play-nordvpn-openvpn.yml joins it as well: the warning it printed
+# when firewalld is not running is gone (with no firewall there is nothing to open), and its
+# closing message names configs the way nord does (uk1234). Nothing is asked when the
+# credentials are already in localhost.yml. The host agent then checks that a second run of
+# that play reports no change and prints no firewalld warning.
 changed-plays
