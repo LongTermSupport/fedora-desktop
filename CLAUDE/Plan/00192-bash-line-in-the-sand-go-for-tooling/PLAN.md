@@ -3,12 +3,15 @@
 **Status**: In Progress. Every QA script is ported or retired (`qa-go.bash` by Plan 00191
 Task 3.3; the Go gate is go-qa-ci through `scripts/qa-go-qa.bash`). Every port of Task 3.3 is merged
 except the `ccy` launcher, whose phases 3 to 5 are deferred by Plan 00191 D4/D10. Tasks 4.1
-and 4.2 are done; no code is left for workers. Left for the host agent: the
+and 4.2 are done. Left for workers: the follow-ups of 2026-10-28 (Tasks 3.11 to 3.15: the
+plays that read a changed group_vars variable, an upstream issue on the secret-file guard, and
+three vmtest follow-ups from H4). Left for the host agent: the
 `changed-plays` run queued in `meta-deploy.list` and its check (the next vmtest-nightly
 timer run evicts overlays and keeps every run directory, which also settles vmtest H5); the host checks
 of the merged ports still open (vmtest H3's base build and ssh-with-key H2 and H4's guest
-part, vmtest H4 and gh-account-setup H4's headless scenario, running now that the runs are
-pruned; gh-account-setup H3, a full `run.bash`); Task 3.2's root run is on hold until Plan
+part, and gh-account-setup H4's headless scenario, running now that the runs are
+pruned; gh-account-setup H3, a full `run.bash`; seat 2's read-only `ssh -G` check for
+ssh-with-key H5); vmtest H4 PASSED on the host on 2026-10-28. Task 3.2's root run is on hold until Plan
 00209 Task 2.5 (see the task). Left for the owner: only what needs the owner in person, namely open H5's Ctrl-C
 in mpv (it plays through the speakers), gh-account-setup H5 (Ctrl-C during H2's login) and
 vmtest H6 (a throwaway GitHub account to
@@ -183,6 +186,11 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     `fix/00192-vmtest-prune-runs`. H6 SKIP, it needs a throwaway GitHub account. ftp-camera H2
     PASS (`--copy-preflight` printed the rclone RC address, exit 0); H1 and H5 not run (the
     owner's, above). wsi H2 not run (the owner's).
+    Host, 2026-10-28 (host agent): vmtest H4 PASS. Attempt 1's `member-up` timed out (`guest did not answer SSH within 600s`) under a load average of about 10. Attempt 2 answered SSH after
+    about 192 s; `member-ssh` passed exit 3 through; `member-down` removed the guest and its
+    directory. Ctrl-C during `member-up` destroyed and undefined the domain and kept
+    `members/<name>` for its console log until `member-down` (`VM_RC=130`). Follow-ups: Tasks
+    3.13 to 3.15.
   - `open` (P6): done, `go-port/open` and `go-port/open-2` both merged into F44 and deployed
     (`8c2de08c`); its host checks H1, H4 and H5 are the host agent's (terminal steps through
     tmux), H2 and H3 the owner's (the desktop), not queued in `meta-deploy.list`. Spec
@@ -298,8 +306,11 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     agents share the user). H2 and the rest of H4 need a VM-lab guest, and `vmtest member-up`
     refuses for lack of disk until the owner allows `vmtest prune-runs --yes` (Task 3.10's H7 open item); the host
     agent did not fall back to the host's own sshd, which would put a throwaway key in the
-    owner's `authorized_keys`. H5 (the owner's hosts, and whether E11's refusal stands for a
-    configuration with a global IdentityFile) is the owner's.
+    owner's `authorized_keys`. H5's logins (the owner's hosts and keys) are the owner's. H5's
+    decision, the owner's on 2026-10-28 ("all recommended" to the unblocking list, item A8): E11's
+    refusal stands. Seat 2 first runs the read-only `ssh -G <host>` for two of the owner's real
+    hosts (no connection is made); if it finds an IdentityFile other than the default that every
+    host gets, the owner scopes those lines to their hosts. If none, the decision is moot.
   - Still to do: the `ccy` launcher (Plan 00191's, deferred there).
 
 - [x] ✅ **Task 3.4**: Freeze step 3's `acceptance.bash` compared live engine output with the
@@ -345,8 +356,9 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   `vars/github-required-scopes.yml` through `__file__`, so `play-github-cli-multi.yml` does not
   rerun when the required scopes change (class: a helper the play runs reads a checkout file
   outside its package); `environment/localhost/group_vars/desktop.yml` is an input of no play
-  (coordinator default of 27-10-27, changeable by the owner, questions-room Q3: not counted;
-  a later change may name the plays that read each changed variable); `scripts/qa-toolchain.bash`, run by
+  (decided 2026-10-28, questions-room Q3 closed: not counted, since counting it would rerun every
+  play after any variable edit; the follow-up that names the plays reading each changed variable
+  is Task 3.11); `scripts/qa-toolchain.bash`, run by
   `play-python.yml` as a check, reads `src-go/qa/` and `src-go/go.mod`, which are not inputs.
   Fixed on `fix/00192-hidden-play-inputs` (DBF): the rule `play-program-read-dropped`
   (`CLAUDE/QA.md`), red on 30 findings in 9 plays, green after. The mapper counts what the
@@ -411,6 +423,32 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   The nightly sweep removed 12 passing runs' whole directories, plan-cited evidence included
   (`$7zLrx0PlxkebT2F8RqwaGSEf4cRO3g9cH6A7vOGvjrA`); it now removes only `*.qcow2` (E51, B19).
   The two reviews' follow-ups are fixed or answered (subagent-reports/261028-vmtest-follow-ups.md).
+
+- [ ] ⬜ **Task 3.11**: FOLLOW-UP of Task 3.7 (Q3, decided 2026-10-28): `run.bash --changed`
+  names the plays that read each changed variable of `environment/localhost/group_vars/desktop.yml`,
+  rather than none (today) or every play. Tests first: a change to one variable makes stale the
+  plays that read it and no other; a variable no play reads makes none stale.
+
+- [ ] ⬜ **Task 3.12**: FOLLOW-UP (part C item 9 of the unblocking list, decided 2026-10-28): the
+  hooks-daemon secret-file guard denies a Write or a Bash command whose text holds nmcli's VPN
+  secrets setting name as one token, though no file is involved ([PORTS.md](PORTS.md), nord).
+  The `nord` workaround (the name joined from its parts, pinned by a test) is kept and the guard
+  is not weakened locally. File the upstream issue with `hooks-daemon issue-report`: the guard
+  should judge path-like tokens, or the operands of file-reading commands, rather than every
+  token. Record the issue's number here and in PORTS.md.
+
+- [ ] ⬜ **Task 3.13**: FOLLOW-UP of vmtest H4 (2026-10-28): a failed `member-up` prints the
+  last lines of the member's console log with its error, so a timeout says what the guest was
+  doing. Tests first, in `internal/vmtest`.
+
+- [ ] ⬜ **Task 3.14**: FOLLOW-UP of vmtest H4: review the 600 s bound on the wait for SSH (E24)
+  under host load. Attempt 1 timed out at a load average of about 10; attempt 2 answered after
+  about 192 s. Decide whether the bound scales with load, is settable, or stays, and say why
+  in SPEC-vmtest.
+
+- [ ] ⬜ **Task 3.15**: FOLLOW-UP of vmtest H4: SPEC-vmtest states that Ctrl-C during
+  `member-up` keeps `members/<name>` for its console log until `member-down` (E57 says it for
+  any failure or signal; H4's "leaves no guest" does not say the directory stays).
 
 ### Phase 4: Review
 

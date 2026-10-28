@@ -453,8 +453,9 @@ applied to them, every unscripted command a failure). Not proven here, and so H4
 that nmcli's editor, fed on stdin, stores the password. The secret-file guard denies a Write or
 a Bash command whose text holds the name of nmcli's VPN secrets setting as one token (it matches
 a protected glob; no file is involved), so the code joins the name from its parts, with a
-one-line comment saying so and a test pinning the parts; the lead raises the guard with the
-owner. Host run: `changed-plays` at `b9fdc8adb` picked nothing, because the play ran on the
+one-line comment saying so and a test pinning the parts. Decided 2026-10-28 (part C item 9 of
+the unblocking list the owner answered "all recommended"): the workaround stays, the guard is
+not weakened locally, and an upstream issue is filed (PLAN.md Task 3.12). Host run: `changed-plays` at `b9fdc8adb` picked nothing, because the play ran on the
 host only before its play ledger was cleared, so `--changed` cannot see it
 (`$pmo505uje_JUY88QP54JD_65CQfD2oK_Vr-OfYdbwvM`), so it was run by name instead, and ran
 at `037892368` (H1-H3 PASS; PLAN.md Task 3.3 has the host results). Before that run its firewalld step was made to ask first
@@ -501,7 +502,7 @@ The `ssh-with-key` family (P6: `ssh-with-key`, `scp-with-key`, `ssh-copy-id-with
 and cut over on `go-port/ssh-with-key`, Fable-reviewed and its findings fixed; spec
 [SPEC-ssh-with-key.md](SPEC-ssh-with-key.md) (D1-D5, E1-E20, B1-B12, H1-H5), `src-go/internal/sshkey`
 and three thin mains `src-go/cmd/{ssh,scp,ssh-copy-id}-with-key` (not one binary answering to
-its argv[0]: `tasks/build-go-command.yml` installs one command per name, and a binary that acts
+its argv\[0\]: `tasks/build-go-command.yml` installs one command per name, and a binary that acts
 on the name it was started by changes when copied or linked). The main finding (B1): with
 `IdentitiesOnly=yes` ssh still offers every `IdentityFile` its configuration gives the host,
 and nothing on the command line clears them, so the bash's "only one key" was false under any
@@ -529,8 +530,7 @@ B1 fixed (B11, E20: ssh-copy-id folds every `-o` into its already-installed chec
 key made every new key read as installed; the tool now requires `-i FILE`, logs in offering only
 its private half in batch mode, says "already installed" on a login or `Server accepts key:`,
 and otherwise runs `ssh-copy-id -f`; H2 now needs the dry run's `Would have added` line, the
-key working afterwards and one line of it in `authorized_keys`). F1 fixed (B12: `-o
-IdentityAgent` refused, and a forwarded run's probe refuses a configured `identityagent` or
+key working afterwards and one line of it in `authorized_keys`). F1 fixed (B12: `-o IdentityAgent` refused, and a forwarded run's probe refuses a configured `identityagent` or
 `forwardagent` socket). F2 fixed (the `meta-deploy.list` entry names `play-claude-yolo.yml`).
 F3 fixed (H4 requires one `Will attempt key:` line under `-A`). U1 fixed (`%h %n %r %p`
 expanded from `ssh -G`'s own lines; `%u` and the rest still count), U2 fixed (`none`), U3 fixed
