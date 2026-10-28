@@ -226,8 +226,8 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     checks inside a mount (H2, H3) and `rclone-cache-warm`. Host, 2026-10-23: H1, H2 and H3
     PASS, `rclone-cache-warm` brackets its run (`$NIHwpSi3rTN-Z2LSvujaLWtueWfi_dZedKS4rkYtB9M`).
     H3's wording "`rclone-tail --once` still brackets" is wrong against the code: only the
-    streaming mode brackets (`$SaaNjb_VFudX-vnN6tjA8rXQXtbNv_-y_dJUJgXxFSA`); the spec needs
-    that correction.
+    streaming mode brackets (`$SaaNjb_VFudX-vnN6tjA8rXQXtbNv_-y_dJUJgXxFSA`); the spec's H3
+    now says so.
   - `rclone-tail` (P6): ported, cut over and merged into F44 at 1d8bc1037; spec
     [SPEC-rclone-tail.md](SPEC-rclone-tail.md). Its host run `deploy-rclone-tail.bash` (H1
     scripted by `acceptance-rclone-tail.bash`) PASSED through meta-deploy at b1e298e1c, 5 of 5
