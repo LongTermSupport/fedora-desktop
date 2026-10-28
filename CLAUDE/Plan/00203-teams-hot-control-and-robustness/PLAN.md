@@ -357,6 +357,8 @@ team at a time, under a lock in the owner's runtime directory (CR4 to CR8).
   (ACCEPTANCE.md M4 (e2); Plan 00204 D6 is that step's design), each member's `user@container`
   identity and its own seat on the board, both up, the coordinator and the worker exchanging a
   message on the bus, then both removed.
+  The owner, 2026-10-28: "Yes, use my token": the throwaways' gh login uses the owner's token
+  for this run only, and the containers are removed afterwards.
   The route, run by hand on the host (nothing is queued in meta-deploy), as the desktop user
   from this checkout; `HV` is the `host_vars.yml` in the run directory step 1 prints:
   1. `./CLAUDE/Plan/00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/chooser-teams-up.bash`:
