@@ -15,6 +15,17 @@ the index, not the record.
 
 ---
 
+## 1.36.0 — a failed optional play no longer ends the developer run (Plan 00228 Task 6.6)
+
+The headless `RUN_BASH_OPTIONAL_PLAYBOOKS` list, the attended menu (a number, A, W and B), the
+hardware plays it runs by itself, and the optional plays `--rerun` and `--changed` pick all go
+on past a failed optional play. At the end a summary on stderr names every optional play
+installed, failed (with its exit status and the `./run.bash <play>` that retries it alone) or
+stopped part way, and the run exits 1 before the setup marker when any failed. A play ended by
+a signal, or by Ctrl-C (Ansible's exit 99), stops the run at once with its own status. Every
+name in `RUN_BASH_OPTIONAL_PLAYBOOKS` is resolved before any play runs. Main plays, `--rerun`'s
+included, still stop at the first failure. The consumer path (Task 2.6) already worked this way.
+
 ## 1.35.0 — every package is upgraded before any Ansible process starts (Plan 00229 Task 2.2)
 
 The dependency step runs `dnf -y upgrade --refresh` before it installs Ansible's dependencies,

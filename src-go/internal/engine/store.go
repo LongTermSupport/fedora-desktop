@@ -1,0 +1,230 @@
+package engine
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+)
+
+// store.go is what the container-images command (Plan 00235) asks of the engine's store: its
+// images and containers read from podman's own JSON lists, the removals, and the two questions
+// ccy's self-prune asks, which use only what podman and docker both print. The lists never ask
+// `podman system df`, which fails on a store holding a volume owned outside the user's subuid
+// range.
+
+// ErrPodmanOnly is a store question only podman answers (JSON lists, external containers).
+var ErrPodmanOnly = errors.New("only podman's store is read this way")
+
+// StoreImage is one image of `podman images --format json`.
+type StoreImage struct {
+	ID     string // the full id, without "sha256:"
+	Names  []string
+	Size   int64
+	Labels map[string]string
+	// Containers is podman's own count of the containers using the image.
+	Containers int
+	Created    time.Time
+}
+
+// StoreContainer is one container of `podman ps --all --external --format json`.
+type StoreContainer struct {
+	ID      string
+	Name    string
+	ImageID string
+	Created time.Time
+	State   string
+	// External is a container another tool made in podman's store (buildah's working
+	// containers): podman lists it in the "storage" state.
+	External bool
+	Command  string // the first word of its command ("buildah" for buildah's)
+}
+
+// Tag is one tag of a repository and the id of the image it names.
+type Tag struct {
+	Name string
+	ID   string
+}
+
+// storeImage and storeContainer are podman's JSON, matched by field name in any case.
+type storeImage struct {
+	ID         string
+	Names      []string
+	Size       int64
+	Labels     map[string]string
+	Containers int
+	Created    int64
+}
+
+type storeContainer struct {
+	ID      string
+	Names   []string
+	ImageID string
+	Created created
+	State   string
+	Command []string
+}
+
+// created is a container's creation time: podman 4 and 5 write an RFC 3339 time, podman 3 wrote
+// Unix seconds.
+type created struct{ time.Time }
+
+func (c *created) UnmarshalJSON(b []byte) error {
+	var secs int64
+	if err := json.Unmarshal(b, &secs); err == nil {
+		c.Time = time.Unix(secs, 0)
+		return nil
+	}
+	var text string
+	if err := json.Unmarshal(b, &text); err != nil {
+		return fmt.Errorf("a created time is neither seconds nor a time: %s", b)
+	}
+	t, err := time.Parse(time.RFC3339Nano, text)
+	if err != nil {
+		return fmt.Errorf("a created time is not an RFC 3339 time: %w", err)
+	}
+	c.Time = t
+	return nil
+}
+
+func bareID(id string) string { return strings.TrimPrefix(strings.TrimSpace(id), "sha256:") }
+
+// podmanList runs a podman list and decodes its JSON.
+func podmanList[T any](ctx context.Context, e Engine, what string, args ...string) ([]T, error) {
+	if err := e.known(); err != nil {
+		return nil, err
+	}
+	if e.kind != Podman {
+		return nil, fmt.Errorf("%s of %s: %w", what, e.kind, ErrPodmanOnly)
+	}
+	res, err := e.run(ctx, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list %s: %w", what, err)
+	}
+	var out []T
+	if err := json.Unmarshal(bytes.TrimSpace(res.Stdout), &out); err != nil {
+		return nil, fmt.Errorf("list %s: podman's answer is not a JSON list: %w", what, err)
+	}
+	return out, nil
+}
+
+// StoreImages is every image podman lists (not the intermediate ones), or only the dangling
+// ones: untagged, with no image built on them.
+func (e Engine) StoreImages(ctx context.Context, dangling bool) ([]StoreImage, error) {
+	args := []string{"images"}
+	if dangling {
+		args = append(args, "--filter", "dangling=true")
+	}
+	raw, err := podmanList[storeImage](ctx, e, "images", append(args, "--format", "json")...)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]StoreImage, 0, len(raw))
+	for _, r := range raw {
+		out = append(out, StoreImage{
+			ID: bareID(r.ID), Names: r.Names, Size: r.Size, Labels: r.Labels,
+			Containers: r.Containers, Created: time.Unix(r.Created, 0),
+		})
+	}
+	return out, nil
+}
+
+// StoreContainers is every container, running or not, and those other tools made.
+func (e Engine) StoreContainers(ctx context.Context) ([]StoreContainer, error) {
+	raw, err := podmanList[storeContainer](ctx, e, "containers", "ps", "--all", "--external", "--format", "json")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]StoreContainer, 0, len(raw))
+	for _, r := range raw {
+		c := StoreContainer{
+			ID: r.ID, ImageID: bareID(r.ImageID), Created: r.Created.Time, State: r.State,
+			External: r.State == "storage",
+		}
+		if len(r.Names) > 0 {
+			c.Name = r.Names[0]
+		}
+		if len(r.Command) > 0 {
+			c.Command = r.Command[0]
+		}
+		out = append(out, c)
+	}
+	return out, nil
+}
+
+// DanglingVolumes is the names of the volumes no container uses.
+func (e Engine) DanglingVolumes(ctx context.Context) ([]string, error) {
+	res, err := e.run(ctx, "volume", "ls", "--filter", "dangling=true", "--format", "{{.Name}}")
+	if err != nil {
+		return nil, fmt.Errorf("list dangling volumes: %w", err)
+	}
+	return lines(res.Stdout), nil
+}
+
+// RemoveImage is `image rm REF`, never forced: the engine refuses an image a container uses or
+// another image is built on, and a tag of an image with other names only untags it.
+func (e Engine) RemoveImage(ctx context.Context, ref string) error {
+	if _, err := e.run(ctx, "image", "rm", ref); err != nil {
+		return fmt.Errorf("remove image %s: %w", ref, err)
+	}
+	return nil
+}
+
+// RemoveExternalContainer removes a container another tool made: podman removes one it did not
+// create only when forced.
+func (e Engine) RemoveExternalContainer(ctx context.Context, id string) error {
+	if err := e.known(); err != nil {
+		return err
+	}
+	if e.kind != Podman {
+		return fmt.Errorf("external container of %s: %w", e.kind, ErrPodmanOnly)
+	}
+	if _, err := e.run(ctx, "rm", "--force", id); err != nil {
+		return fmt.Errorf("remove container %s: %w", id, err)
+	}
+	return nil
+}
+
+// RepositoryTags is each tag of the repository with the id of the image it names.
+func (e Engine) RepositoryTags(ctx context.Context, repository string) ([]Tag, error) {
+	res, err := e.run(ctx, "images", "--no-trunc", "--format", "{{.Repository}}:{{.Tag}} {{.ID}}", repository)
+	if err != nil {
+		return nil, fmt.Errorf("list the tags of %s: %w", repository, err)
+	}
+	var tags []Tag
+	for _, line := range lines(res.Stdout) {
+		name, imageID, ok := strings.Cut(line, " ")
+		if !ok || strings.TrimSpace(imageID) == "" {
+			return nil, fmt.Errorf("list the tags of %s: cannot read %q", repository, line)
+		}
+		if strings.HasSuffix(name, ":<none>") {
+			continue
+		}
+		tags = append(tags, Tag{Name: name, ID: bareID(imageID)})
+	}
+	return tags, nil
+}
+
+// ContainerImageIDs is the image id of every container, running or not.
+func (e Engine) ContainerImageIDs(ctx context.Context) ([]string, error) {
+	res, err := e.run(ctx, "ps", "--all", "--quiet", "--no-trunc")
+	if err != nil {
+		return nil, fmt.Errorf("list containers: %w", err)
+	}
+	ids := lines(res.Stdout)
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	res, err = e.run(ctx, append([]string{"container", "inspect", "--format", "{{.Image}}"}, ids...)...)
+	if err != nil {
+		return nil, fmt.Errorf("ask which image each container uses: %w", err)
+	}
+	var images []string
+	for _, line := range lines(res.Stdout) {
+		images = append(images, bareID(line))
+	}
+	return images, nil
+}

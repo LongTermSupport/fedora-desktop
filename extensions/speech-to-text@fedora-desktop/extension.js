@@ -25,7 +25,7 @@ import { PasteTargetPin } from './pasteTarget.js';
 import { PanelSession } from './panelSession.js';
 import { spawnWatched, killArgv, discardRecorder } from './recorderLaunch.js';
 import { lookFor, isKnownState, recordingBadgeColor, articleBadgeColor, shownState, claudeEmoji, COLOURS } from './panelLook.js';
-import { POST_PROCESS_STYLES, LastTranscriptPostProcessor, unusableKeybindings } from './postProcess.js';
+import { POST_PROCESS_STYLES, LastTranscriptPostProcessor, unusableKeybindings, postProcessingOffered, recordKeys } from './postProcess.js';
 import { TOKEN_WARNING_FILE, tokenWarning } from './tokenWarning.js';
 import { LOWER_MEDIA_KEY, migratePauseMediaKey, startMediaHold } from './mediaHold.js';
 
@@ -80,6 +80,9 @@ export default class SpeechToTextExtension extends Extension {
         this._whisperModel = 'auto';  // Whisper model: 'auto', 'tiny', 'base', 'small', 'medium', 'large-v3'
         this._claudeEnabled = false;  // Enable Claude Code post-processing
         this._claudeModel = 'sonnet';  // Claude model: 'sonnet', 'opus', 'haiku'
+        // Whether this install offers Claude post-processing, and the record keys bound
+        this._postProcessingOffered = false;
+        this._recordKeys = [];
         // The one recorder the panel follows, and what each key does (panelSession.js)
         this._panel = null;
         this._hourglassIcon = null;
@@ -206,53 +209,28 @@ export default class SpeechToTextExtension extends Extension {
                 if (migratePauseMediaKey(this._settings))
                     this._log('The Pause Media switch carried over to Lower Media Volume');
 
-                this._log('Attempting to add keybinding...');
-                const bindingAdded = Main.wm.addKeybinding(
-                    'toggle-recording',
-                    this._settings,
-                    Meta.KeyBindingFlags.NONE,
-                    Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW,
-                    () => {
-                        this._log('INSERT KEY PRESSED - callback fired!');
-                        this._onRecordKey('dictation');
-                    }
-                );
-                this._log(`Keybinding registration result: ${bindingAdded}`);
-
-                // Add Ctrl+Insert keybinding for Claude processing (corporate style)
-                const claudeBindingAdded = Main.wm.addKeybinding(
-                    'toggle-recording-claude',
-                    this._settings,
-                    Meta.KeyBindingFlags.NONE,
-                    Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW,
-                    () => {
-                        this._log('CTRL+INSERT PRESSED - Claude processing (corporate)!');
-                        this._onRecordKey('claude', 'corporate');
-                    }
-                );
-                this._log(`Claude keybinding registration result: ${claudeBindingAdded}`);
-
-                // Add Alt+Insert keybinding for Claude processing (natural style)
-                const claudeNaturalBindingAdded = Main.wm.addKeybinding(
-                    'toggle-recording-claude-natural',
-                    this._settings,
-                    Meta.KeyBindingFlags.NONE,
-                    Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW,
-                    () => {
-                        this._log('ALT+INSERT PRESSED - Claude processing (natural)!');
-                        this._onRecordKey('claude', 'natural');
-                    }
-                );
-                this._log(`Claude natural keybinding registration result: ${claudeNaturalBindingAdded}`);
+                // Insert records dictation; Ctrl+Insert (corporate) and Alt+Insert (natural)
+                // record for Claude post-processing, bound only where the install offers it
+                this._postProcessingOffered = postProcessingOffered(this._settings);
+                this._recordKeys = recordKeys(this._postProcessingOffered);
+                const results = this._recordKeys.map(({name, kind, style}) => {
+                    const action = Main.wm.addKeybinding(
+                        name,
+                        this._settings,
+                        Meta.KeyBindingFlags.NONE,
+                        Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW,
+                        () => {
+                            this._log(`${name} pressed (${kind}${style ? `, ${style}` : ''})`);
+                            this._onRecordKey(kind, style ?? undefined);
+                        }
+                    );
+                    this._log(`Keybinding ${name} registration result: ${action}`);
+                    return {name, action, accels: this._settings.get_strv(name)};
+                });
 
                 // A key the shell refused, or with no key set, does nothing when pressed;
                 // the debug log above is off by default, so say it where it is seen
-                const unusable = unusableKeybindings([
-                    ['toggle-recording', bindingAdded],
-                    ['toggle-recording-claude', claudeBindingAdded],
-                    ['toggle-recording-claude-natural', claudeNaturalBindingAdded],
-                ].map(([name, action]) => ({name, action, accels: this._settings.get_strv(name)})),
-                Meta.KeyBindingAction.NONE);
+                const unusable = unusableKeybindings(results, Meta.KeyBindingAction.NONE);
                 if (unusable.length > 0) {
                     this._log(`Unusable record keys: ${unusable.join('; ')}`);
                     Main.notify('STT Error', `These record keys do nothing: ${unusable.join('; ')}. ` +
@@ -331,9 +309,9 @@ export default class SpeechToTextExtension extends Extension {
 
         // Remove keybindings
         try {
-            Main.wm.removeKeybinding('toggle-recording');
-            Main.wm.removeKeybinding('toggle-recording-claude');
-            Main.wm.removeKeybinding('toggle-recording-claude-natural');
+            for (const {name} of this._recordKeys)
+                Main.wm.removeKeybinding(name);
+            this._recordKeys = [];
             this._removeAbortKeybinding();
         } catch (e) {
             // A keybinding may not have been registered; surface it rather than swallow it.
@@ -483,8 +461,10 @@ export default class SpeechToTextExtension extends Extension {
         copyItem.connect('activate', () => { this._copyLastTranscription(); });
         menu.addMenuItem(copyItem);
 
-        // Claude post-processing after the fact, one item per Ctrl/Alt+Insert style
-        for (const {style, label} of POST_PROCESS_STYLES) {
+        // Claude post-processing after the fact, one item per Ctrl/Alt+Insert style, and
+        // Create Article (Claude writes it): only where the install offers post-processing
+        const styles = this._postProcessingOffered ? POST_PROCESS_STYLES : [];
+        for (const {style, label} of styles) {
             const item = new PopupMenu.PopupMenuItem(label);
             item.connect('activate', () => { this._postProcessLast(style); });
             menu.addMenuItem(item);
@@ -494,9 +474,11 @@ export default class SpeechToTextExtension extends Extension {
         viewLogItem.connect('activate', () => { this._openLogViewer(); });
         menu.addMenuItem(viewLogItem);
 
-        const articleItem = new PopupMenu.PopupMenuItem('Create Article...');
-        articleItem.connect('activate', () => { this._onArticleItem(); });
-        menu.addMenuItem(articleItem);
+        if (this._postProcessingOffered) {
+            const articleItem = new PopupMenu.PopupMenuItem('Create Article...');
+            articleItem.connect('activate', () => { this._onArticleItem(); });
+            menu.addMenuItem(articleItem);
+        }
 
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 

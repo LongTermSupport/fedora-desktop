@@ -76,6 +76,11 @@
       <summary>Toggle Recording with Claude Processing (Natural)</summary>
       <description>Keybinding to toggle speech-to-text recording with Claude Code post-processing (natural/personal style)</description>
     </key>
+    <key name="post-processing-offered" type="b">
+      <default>true</default>
+      <summary>Offer Claude Post-Processing</summary>
+      <description>Whether this install offers Claude post-processing (Ctrl+Insert, Alt+Insert, the Post-Process and Create Article items, the Claude settings). Set by play-speech-to-text.yml from the install's audience, in a schema override beside this file: a consumer install has no ccy token pool, so it is false there. The panel reads this default only; a value set by hand is not used.</description>
+    </key>
     <key name="claude-enabled" type="b">
       <default>false</default>
       <summary>Enable Claude Code Processing</summary>

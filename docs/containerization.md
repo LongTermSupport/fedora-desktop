@@ -264,6 +264,34 @@ podman ps
 podman images
 ```
 
+### The Daily Prune of the Podman Store
+
+Every ccy rebuild and every daily in-place Claude Code update moves a fixed tag
+(`claude-yolo:base`, `:latest`, `:<project>`) onto a new image, and the image the tag used to
+name is left dangling (`<none>:<none>`). `play-podman.yml` installs a user timer that removes
+them, so the store does not grow without end.
+
+- **When**: `container-images-prune.timer` runs `container-images prune --yes` once a day
+  (`Persistent=true`, so a day the machine was off is caught up at the next boot). Until one prune has succeeded, each deploy runs it straight away, clearing the backlog.
+- **What is removed**:
+  - dangling images no container uses (running, stopped, or a buildah working container), over
+    a day old, so a build in flight is never touched;
+  - `claude-yolo:<project>` images (never `:base` or `:latest`) no container uses, built over 30 days ago and not launched for 30 days (ccy touches `~/.cache/claude-yolo-update-checks/claude-yolo_<project>` on each launch day); that project's next `ccy` launch rebuilds its image;
+  - buildah working containers over a day old, left by a build that did not finish; another "storage" container (one whose podman record was lost) is listed, never removed. While a ccy image build runs, nothing is removed.
+- **What is never removed**: an image any container uses, a tagged image other than a stale
+  project image, and volumes. Dangling volumes are listed in each run's output; deciding about
+  them is yours, since a volume holds data.
+- **The log**: each removal is appended to `~/.local/state/fedora-desktop/container-images.log`
+  (time, kind, what, id, size in bytes, labels, why; tab-separated), only once it has happened.
+  The run's report is in the journal:
+  `journalctl --user -u container-images-prune.service --no-pager`.
+- **What the next run would remove**: `container-images prune` (without `--yes`) is a dry run.
+  It lists what would go and what is kept, with why, and removes nothing.
+- A removal that fails fails the unit, which the host health report shows as a failed user unit.
+
+The timer cleans podman's store, which `play-podman.yml` installs for every install whatever
+`container_engine` says. Docker's store (DDEV's) is not touched.
+
 ### Further Reading
 
 See `CLAUDE/ContainerEngines.md` for the complete Podman-first policy, the rationale for rootful Docker as a compatibility layer, and the FAQ.

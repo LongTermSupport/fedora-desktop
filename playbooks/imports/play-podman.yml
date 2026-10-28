@@ -1,5 +1,9 @@
 #!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
 ---
+# The daily prune of the store (container-images, below) is a Go command built here, so the Go
+# toolchain is installed first. play-golang.yml stays its one source of truth.
+- import_playbook: play-golang.yml
+
 - hosts: desktop
   name: Install Podman and podman-compose
   become: false
@@ -174,6 +178,79 @@
     - name: Verify Podman Install
       ansible.builtin.command: podman info
       changed_when: false
+
+    # =========================================================================
+    # The daily prune of the rootless store (Plan 00235)
+    # =========================================================================
+    # Every ccy rebuild and daily in-place update re-points a fixed tag and leaves the image it
+    # named dangling; nothing else removes them. container-images-prune.timer runs
+    # `container-images prune --yes` daily: dangling images no container uses (over a day old),
+    # claude-yolo project images no container uses (built and last launched over 30 days ago) and
+    # buildah working containers left by an interrupted build; never a volume, never an image in
+    # use, nothing while a ccy image build runs. It prunes
+    # podman's store, the one this play installs for every audience whatever container_engine
+    # names: ccc always runs in podman, and Docker's store is DDEV's (CLAUDE/ContainerEngines.md).
+    - name: Ensure the User Local Bin and systemd Unit Directories Exist
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/{{ item }}"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      loop:
+        - .local/bin
+        - .config/systemd/user
+
+    - name: Build and Install the container-images Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: container-images
+        go_command_dest: "/home/{{ user_login }}/.local/bin/container-images"
+        go_command_mode: "0755"
+      tags:
+        - container-images
+
+    # Until a prune has succeeded the deploy runs one itself, so the backlog is cleared by the
+    # deploy, not a day later, and a first run that failed is run again by the next deploy.
+    # Only a `prune --yes` that succeeded writes this stamp.
+    - name: Check Whether a Prune Has Ever Succeeded
+      ansible.builtin.stat:
+        path: "/home/{{ user_login }}/.local/state/fedora-desktop/container-images.succeeded"
+      register: container_images_succeeded
+
+    - name: Deploy the container-images Prune Service and Timer
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.config/systemd/user/{{ item }}"
+        dest: "/home/{{ user_login }}/.config/systemd/user/{{ item }}"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
+      loop:
+        - container-images-prune.service
+        - container-images-prune.timer
+
+    - name: Enable and Start the container-images Prune Timer
+      ansible.builtin.systemd:
+        name: container-images-prune.timer
+        scope: user
+        enabled: true
+        state: started
+        daemon_reload: true
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}/bus"
+
+    # A oneshot's start waits for the run to end, so a prune that fails fails this task, and
+    # the play, loudly. Later runs are the timer's.
+    - name: Run the First Prune Now, Clearing the Backlog
+      ansible.builtin.systemd:
+        name: container-images-prune.service
+        scope: user
+        state: started
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}/bus"
+      when: not container_images_succeeded.stat.exists
 
     - name: Show Podman Version
       ansible.builtin.debug:
