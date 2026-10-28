@@ -343,8 +343,9 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   holds the new `run.lock` (taken from its directory to the end of its teardown), is live and
   left. `run` and `member-up` refuse with under 22 GiB free and a base build with under 26 GiB, before anything
   else, naming what `prune-runs` would free; a failed run says the size of the overlay it kept.
-  Host check open (H7, the host agent's): `vmtest prune-runs` dry on the host's lab once
-  `changed-plays` has rebuilt the binary. `--yes` is the owner's call.
+  H7 PASS at `886288d70` (`$kRFFD7XyKl4N7zP_QpP9m39uVvM3NxHI55Kcb0HwOm0`): the dry run listed
+  15 of 37 runs (a later pass of the scenario, or failed and older than 7 days), the three
+  bases untouched, "would free 107.5 GiB", and removed nothing. Open: `--yes`, the owner's call.
 
 ### Phase 4: Review
 
