@@ -8,10 +8,9 @@ plays that read a changed group_vars variable, an upstream issue on the secret-f
 three vmtest follow-ups from H4). Left for the host agent: the
 `changed-plays` run queued in `meta-deploy.list` and its check (the next vmtest-nightly
 timer run evicts overlays and keeps every run directory, which also settles vmtest H5); the host checks
-of the merged ports still open (vmtest H3's base build and ssh-with-key H2 and H4's guest
-part, and gh-account-setup H4's headless scenario, running now that the runs are
-pruned; gh-account-setup H3, a full `run.bash`; seat 2's read-only `ssh -G` check for
-ssh-with-key H5); vmtest H4 PASSED on the host on 2026-10-28. Task 3.2's root run is on hold until Plan
+of the merged ports still open (gh-account-setup H3, a full `run.bash`); vmtest H3 and H4,
+gh-account-setup H4, ssh-with-key H2 and H4's guest part and the read-only `ssh -G` check for
+ssh-with-key H5 are done on the host (2026-10-28). Task 3.2's root run is on hold until Plan
 00209 Task 2.5 (see the task). Left for the owner: only what needs the owner in person, namely open H5's Ctrl-C
 in mpv (it plays through the speakers), gh-account-setup H5 (Ctrl-C during H2's login) and
 vmtest H6 (a throwaway GitHub account to
@@ -191,6 +190,13 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     directory. Ctrl-C during `member-up` destroyed and undefined the domain and kept
     `members/<name>` for its console log until `member-down` (`VM_RC=130`). Follow-ups: Tasks
     3.13 to 3.15.
+    Host, 2026-10-28 (host agent, `$Qi9JTl2_tuoIcv1oOAJMrklJOZELQGCGhl4oIIkayQc`): vmtest H3
+    PASS, both halves. `vmtest build-base desktop` built `desktop-44` unattended (both ISOs
+    current and verified against the GPG-signed CHECKSUM and releases.json, the session runner
+    installed, the guest cleaned, a LUKS root, `VMTEST-BASE-BUILT ... refresh_state=complete`,
+    `BUILD_RC=0`); `vmtest run desktop-fresh-install` at `77d68ab96` on it: the LUKS unlock
+    answered by the harness, `run.bash` headless to completion, the reboot into the session,
+    16 of 16 checks, `VMTEST-BASE-CERTIFIED desktop-44`, verdict pass.
   - `open` (P6): done, `go-port/open` and `go-port/open-2` both merged into F44 and deployed
     (`8c2de08c`); its host checks H1, H4 and H5 are the host agent's (terminal steps through
     tmux), H2 and H3 the owner's (the desktop), not queued in `meta-deploy.list`. Spec
@@ -241,7 +247,12 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     2026-10-28 (host agent, `$_NU5YS7PTfylzk4ZzGtjm9e5lCwZi19xQAKhyDnXJBc`): `--check` found
     every configured account healthy (auth, scopes, key, registered key, SSH verified), exit 0,
     no token printed, and `gh auth status --active` the same before and after. H5 needs H2's
-    login, so it is the owner's with H2; H3 is a full `run.bash`; H4 waits on the VM lab's disk.
+    login, so it is the owner's with H2; H3 is a full `run.bash`. H4 PASS 2026-10-28 (host
+    agent, `$Qi9JTl2_tuoIcv1oOAJMrklJOZELQGCGhl4oIIkayQc`, the same fresh-guest headless run as
+    vmtest H3): the preflight installed golang with the system dependencies, the golang play's
+    minimum-version assert passed on both runs, and the GitHub step completed. The scenario has
+    no GitHub identity, so that step passes trivially: H4 proves it does not break a headless
+    install, not that account setup works (vmtest H6's ground).
   - `setup-rclone` (P6): ported (`go-port/setup-rclone-3`, the review's FIX-FIRST findings
     fixed) and merged into F44 (`61b70d02d`); spec [SPEC-setup-rclone.md](SPEC-setup-rclone.md).
     Run from the checkout through the `scripts/setup-rclone.bash` wrapper, so no play deploys
