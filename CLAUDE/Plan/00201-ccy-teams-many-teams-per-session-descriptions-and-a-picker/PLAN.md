@@ -7,9 +7,9 @@ Plan 00209. The host agent ran ACCEPTANCE-owner.md on throwaway teams at F44 d24
 (27-10-27): steps 01-07, 09, 10, 12 and 13 and Task 2.20 PASS. At F44 fe894347c the host
 agent passed steps 03, 10 and 13 on [chooser-teams-up.bash](chooser-teams-up.bash)'s teams
 (Task 2.28) and step 12 with lxc-add's Stop (Task 2.29). At F44 842d88ddd it passed Task 2.31's
-follow-ups. Left for the owner: step 08's consent No/Yes (the record is outside the
-repository, which the host agent may not rename) and check 11 (a real password paste at the
-owner's screen).
+follow-ups. Left for the host agent: step 08's consent No/Yes (the owner authorised it on
+2026-10-28 to rename and restore `~/.config/pingbus/element-accepted` for the check). Left for
+the owner: check 11 (a real password paste at the owner's screen).
 **Created**: 2026-10-15
 **Owner**: joseph
 **Priority**: High
@@ -103,7 +103,12 @@ a repository is no longer offered for a checkout of it. Report:
   pass; the consent No/Yes is the owner's (`~/.config/pingbus/element-accepted` is outside the
   repository). Step 05's doc text `👥 A,B` is out of date (the line names each seat): Task 2.29.
   Host, 27-10-27 at F44 fe894347c, on chooser-teams-up's teams: 01-04, 10, 12 and 13 PASS
-  (Tasks 2.28 and 2.29). Left: the owner's 08 consent and 11.
+  (Tasks 2.28 and 2.29). Left: 08's consent and the owner's 11.
+
+  - [ ] ⬜ Step 08's consent No/Yes, now the host agent's: on 2026-10-28 the owner ("all
+    recommended" to the unblocking list, item A7) authorised the host agent to rename
+    `~/.config/pingbus/element-accepted` for the check and put it back afterwards, so the host
+    agent runs 08 whole on throwaway teams and restores the file however the check ends.
 
 - [ ] ❌ **Task 2.8**: superseded by Plan 00209 D4 (relay mode deferred to v2). [Full text](DONE-tasks.md).
 
