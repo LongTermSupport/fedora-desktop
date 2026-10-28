@@ -65,8 +65,8 @@ the list, since the files have moved since.
 - [ ] ⬜ **Task 2.1**: `files/home/.local/bin/clean-paste` (41). (`watermark` is gone from
   this task: Plan 00192 ported it to Go, `src-go/internal/watermark`, with no shell left to
   fix.)
-- [x] ✅ **Task 2.2**: ~~`files/home/.local/bin/nord`~~ is gone: Plan 00192 ported it to Go,
-  `src-go/internal/nord`, with no shell left to fix.
+- ~~**Task 2.2**~~ (removed, not done): `files/home/.local/bin/nord` is gone; Plan 00192
+  ported it to Go, `src-go/internal/nord`, with no shell left to fix.
 - [ ] ⬜ **Task 2.3**: `rclone-cache-warm` (71, 103). (`rclone-cache-status` and `rclone-tail`
   are gone from this task: Plan 00192 ported them to Go, `src-go/internal/rclonecache` and
   `src-go/internal/rclonetail`, with no shell left to fix.) Mostly `grep … || true`, where
