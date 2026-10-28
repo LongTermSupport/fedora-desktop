@@ -47,6 +47,18 @@ coexist cleanly — different sockets, different storage, different networking s
 - If you're writing a new playbook that needs a container, use the `container_engine` variable — do not hardcode `podman` or `docker`.
 - If Podman does not work for your use case, that is a concrete signal that you need the Docker compatibility path. Document the reason.
 
+### The store is pruned daily
+
+`play-podman.yml` installs `container-images-prune.timer`, which runs
+`container-images prune --yes` (`src-go/cmd/container-images`, Plan 00235) every day: dangling
+images no container uses, over a day old; `claude-yolo:<project>` images no container uses, over
+30 days old; buildah working containers over a day old while no ccy image build runs. Volumes
+and images in use are never removed, and `podman system df` is never asked (it fails on a volume
+owned outside the user's subuid range). Each removal is logged to
+`~/.local/state/fedora-desktop/container-images.log`; `container-images prune` without `--yes`
+shows what the next run would remove. The detail for users is in
+[docs/containerization.md](../docs/containerization.md#the-daily-prune-of-the-podman-store).
+
 ## Docker — compatibility mode only
 
 **Docker is installed as rootful (system-level daemon).** Not rootless. This is a deliberate choice — see `CLAUDE/Plan/Completed/033-ddev-installation/container-engine-strategy.md` for the full analysis.

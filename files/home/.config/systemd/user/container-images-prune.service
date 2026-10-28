@@ -1,0 +1,15 @@
+[Unit]
+Description=Remove what nothing uses from the rootless podman store (container-images prune)
+Documentation=https://github.com/LongTermSupport/fedora-desktop
+
+[Service]
+Type=oneshot
+# Removes dangling images no container uses (over a day old), claude-yolo project images no
+# container uses (over 30 days old), and buildah working containers over a day old while no ccy
+# image build runs. Never a volume, never an image a container uses. Each removal goes to
+# ~/.local/state/fedora-desktop/container-images.log and, through stdout, to the journal; a
+# failed removal fails the unit. `container-images prune` (no --yes) shows what the next run
+# would remove.
+ExecStart=%h/.local/bin/container-images prune --yes
+Nice=10
+IOSchedulingClass=idle
