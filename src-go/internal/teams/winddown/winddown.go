@@ -24,8 +24,10 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/compactfloor"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/lxcfreeze"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
@@ -33,6 +35,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/lxcrecord"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/transcript"
 )
 
 // Waits are the pauses and the bounds of a wind-down (W6).
@@ -43,12 +46,18 @@ type Waits struct {
 	Poll time.Duration
 	// Idle bounds the wait for a busy session to become idle before a line is typed.
 	Idle time.Duration
-	// Settle bounds the wait for a typed line to leave the input box.
+	// Settle bounds the wait for a typed line to leave the input box, and is how long an idle
+	// box never seen busy must stay idle to count as an answer or a compaction's end.
 	Settle time.Duration
+	// Window bounds the whole wind-down, the answers and the compactions included (WC4a).
+	Window time.Duration
 }
 
-// DefaultWaits are the production waits.
-var DefaultWaits = Waits{Submit: 200 * time.Millisecond, Poll: time.Second, Idle: 300 * time.Second, Settle: 30 * time.Second}
+// DefaultWaits are the production waits; the window is TW1's default outer window.
+var DefaultWaits = Waits{
+	Submit: 200 * time.Millisecond, Poll: time.Second, Idle: 300 * time.Second, Settle: 30 * time.Second,
+	Window: 15 * time.Minute,
+}
 
 // Why a member is not reached or not running, in the words the preview and the report use.
 const (
@@ -87,6 +96,12 @@ type WindDown struct {
 	Lxc        Containers
 	Sudo       *sudo.Sudo
 	AppliedDir string
+	// Floor is the compact floor; Registry finds the session records, Getenv where cc keeps its
+	// transcripts, and Transcripts reads them (Task 3.20).
+	Floor       func(context.Context) (compactfloor.Floor, error)
+	Registry    func() (*registry.Store, error)
+	Getenv      func(string) string
+	Transcripts *transcript.Cache
 
 	Term   *term.Term
 	Out    *term.Printer
@@ -107,6 +122,10 @@ func New(h *host.Host, kit *flow.Kit, b *board.Collector) *WindDown {
 	return &WindDown{
 		Kit: kit, Collect: b.Collect, Tmux: h.Tmux,
 		Lxc: &lxcfreeze.Lister{Sudo: h.Sudo, LookPath: h.LookPath}, Sudo: h.Sudo, AppliedDir: h.AppliedDir,
+		Floor: func(ctx context.Context) (compactfloor.Floor, error) {
+			return compactfloor.FromUnit(ctx, h.Systemd.UserUnitEnvironment)
+		},
+		Registry: h.Registry, Getenv: h.Getenv, Transcripts: transcript.NewCache(),
 		Term: h.Term, Out: h.Out, Stderr: h.Stderr, Payload: h.Payload, Stdin: h.Stdin, IsTerminal: h.IsTerminal, Home: h.Home,
 		Now: time.Now, Sleep: time.Sleep, Waits: DefaultWaits,
 	}
@@ -119,15 +138,24 @@ about to shut down: the work is not done, so commit what is in progress, stop su
 what passes its QA gate, write down where unfinished work stands, and stop. Into each session's
 tmux pane, at an idle moment (a busy one is waited for, up to 300 s, never interrupted), it
 types /goal clear and then that instruction, as if you typed them: it is your turn in the
-session, not a team message. Nothing is ended; ccy-teams shutdown <team> does that afterwards.
+session, not a team message. Once a session has answered (it is idle again), it is typed
+/compact with a wind-down instruction when its context is at or above the compact floor that
+ccy-sessions set-going uses (ccy_restore_compact_floor_tokens, read from
+ccy-sessions-set-going.service), so tomorrow's resume reloads a small conversation; one session
+at a time, the coordinator first. All of it is bounded by a 15-minute window; a session still
+answering or compacting at its end is named, never interrupted. Nothing is ended; ccy-teams
+shutdown <team> does that afterwards.
 An LXC member in a running container is reached in its session there (the agent-bus-claude
 tmux session of its service unit), through sudo lxc-attach as its user. A member whose container
-is stopped or was held back is offline: it is named, with nothing to wind down. One on another
-machine is named, with the text to give it by hand. Without --yes it asks first.
+is stopped or was held back is offline: it is named, with nothing to wind down. An LXC member's
+transcript is in its container, so it is compacted whatever its size, and the end of its
+compaction is read from its pane. One on another machine is named, with the text to give it by
+hand. Without --yes it asks first.
 
 Exit codes:
   0   every running session was wound down, and no member was out of reach (offline ones included)
-  1   a session failed, or a member is not reachable from here (another machine)
+  1   a session failed, its compaction failed or could not be judged (no floor, no transcript),
+      or a member is not reachable from here (another machine)
   64  usage error
 `
 
@@ -184,7 +212,8 @@ func (w *WindDown) forTeam(ctx context.Context, team string, yes bool) term.Exit
 		w.tell("Team " + team + " has no member to wind down.")
 		return term.ExitOK
 	}
-	w.preview(team, p)
+	floor := w.prepareCompaction(ctx, p.jobs)
+	w.preview(team, p, floor)
 	if len(p.jobs) > 0 {
 		if code, proceed := w.confirm(ctx, team, len(p.jobs), yes); !proceed {
 			return code
@@ -344,7 +373,7 @@ func (w *WindDown) reachLxc(ctx context.Context, team string, snap *board.Snapsh
 			continue
 		}
 		p.jobs = append(p.jobs, &job{
-			name: it.Label(), handle: row.Handle, team: team,
+			name: it.Label(), handle: row.Handle, team: team, lxc: true,
 			coordinator: snap.RoleOf(team, row.Handle) == agentbus.RoleCoordinator,
 			tmux:        &tmuxccy.Tmux{Runner: w.Lxc.InContainer(lxcPath, it.Container, it.User), Term: w.Term, Socket: lxcTmux},
 			pane:        lxcTmux, prefix: prefixDirect,
@@ -390,7 +419,7 @@ func othersOf(snap *board.Snapshot, name, team string) []seatRef {
 }
 
 // preview says what will be wound down, what has nothing to tell and what cannot be reached (W3).
-func (w *WindDown) preview(team string, p plan) {
+func (w *WindDown) preview(team string, p plan, floor string) {
 	if len(p.jobs) > 0 {
 		w.tell("Team " + team + ": " + sessions(len(p.jobs)) + " to wind down.")
 	}
@@ -409,6 +438,9 @@ func (w *WindDown) preview(team string, p plan) {
 			}
 			line += ", also on " + strings.Join(names, ", ")
 		}
+		if j.noCompact != "" {
+			line += ", not to be compacted: " + j.noCompact
+		}
 		w.tell(line)
 	}
 	w.list("Not running, nothing to wind down:", p.idle)
@@ -417,6 +449,14 @@ func (w *WindDown) preview(team string, p plan) {
 		w.tell("Each session is sent /goal clear, then the wind-down instruction, typed into its pane at an idle moment " +
 			"(a busy one is waited for, up to " + seconds(w.Waits.Idle) + ", never interrupted). " +
 			"Nothing is ended: ccy-teams shutdown " + team + " does that afterwards.")
+		threshold := "the compact floor (" + floor + " tokens)"
+		if floor == "" {
+			threshold = "the compact floor"
+		}
+		w.tell("Then each session that has answered, and whose context is at or above " + threshold + ", is typed /compact, " +
+			"one at a time and the coordinator first, so its resume reloads a small conversation; an LXC member's context " +
+			"is not read, so it is compacted whatever its size. All of it is bounded by a " + seconds(w.Waits.Window) +
+			" window, and nothing still going at its end is interrupted.")
 	}
 }
 
@@ -433,11 +473,21 @@ func (w *WindDown) list(heading string, members []member) {
 // report is one line per member, then the count, and the exit code: success only when every
 // running session was wound down and nothing was out of reach (W9, W10).
 func (w *WindDown) report(team string, p plan) term.ExitCode {
-	var doneN, failedN int
+	var doneN, failedN, woundN, compactedN int
 	for _, j := range p.jobs {
+		if j.wound {
+			woundN++
+		}
+		if j.compacted {
+			compactedN++
+		}
 		if j.result == resultDone {
 			doneN++
-			w.tell("✓ " + j.name + ": /goal clear and the wind-down typed")
+			line := "✓ " + j.name + ": /goal clear and the wind-down typed"
+			if j.compactNote != "" {
+				line += "; " + j.compactNote
+			}
+			w.tell(line)
 			continue
 		}
 		failedN++
@@ -455,6 +505,9 @@ func (w *WindDown) report(team string, p plan) term.ExitCode {
 		count += "; " + strconv.Itoa(n) + " member" + plural(n) + " not reachable from here"
 	}
 	w.tell(count + ".")
+	if woundN > 0 {
+		w.tell(team + ": " + strconv.Itoa(compactedN) + " compacted, " + strconv.Itoa(woundN-compactedN) + " not compacted.")
+	}
 	if len(p.unreached) > 0 {
 		w.tell("To wind them down by hand, type /goal clear in each one's session, then:")
 		w.tell("  " + Instruction(team, false))

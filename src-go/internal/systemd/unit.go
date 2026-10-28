@@ -47,6 +47,16 @@ func (s *Systemd) DaemonReloadAsRoot(ctx context.Context, root *sudo.Sudo) error
 	return named("systemctl daemon-reload", root.Run(ctx, "systemctl", "daemon-reload"))
 }
 
+// UserUnitEnvironment is the Environment= a user unit gives its process, as systemd has loaded
+// it ("NAME=value" words, space-separated); a unit that sets none, or is not there, is "".
+func (s *Systemd) UserUnitEnvironment(ctx context.Context, unit string) (string, error) {
+	res, err := s.Runner.Run(ctx, execx.Cmd{Name: systemctlBin, Args: []string{"--user", "show", "--property=Environment", "--value", unit}})
+	if err != nil {
+		return "", named("systemctl --user show "+unit, err)
+	}
+	return strings.TrimSpace(string(res.Stdout)), nil
+}
+
 func named(what string, err error) error {
 	if err == nil {
 		return nil

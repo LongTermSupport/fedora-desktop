@@ -100,7 +100,7 @@ func TestGoalClearLandsBeforeTheWindDownText(t *testing.T) {
 func TestStoppedAndParkedMembersAreNamedAndDoNotFail(t *testing.T) {
 	m := newMachine(t)
 	m.noLxc()
-	m.record("ccy-other", "ccy", m.Checkout(), "dev@alpha")
+	m.record("ccy-other", m.Checkout(), "dev@alpha")
 	m.build()
 	if got := m.run("alpha", "--yes"); got != term.ExitOK {
 		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
@@ -140,7 +140,7 @@ func TestTheCoordinatorIsToldItsWorkersAreToo(t *testing.T) {
 func TestASessionOnOtherTeamsIsNamedWithThem(t *testing.T) {
 	m := newMachine(t)
 	m.noLxc()
-	m.record("ccy-proj", "ccy", m.Checkout(), "1@alpha,2@beta")
+	m.record("ccy-proj", m.Checkout(), "1@alpha,2@beta")
 	m.build()
 	m.run("alpha", "--yes")
 	m.errHas(t, "  ccy-proj   seat 1 (proj.1+local.podman) in ~/proj, also on beta (seat 2)")
@@ -345,7 +345,7 @@ func TestOtherKindsAreNotReachedAndASessionIsOneJob(t *testing.T) {
 	m := newMachine(t)
 	m.On(teamtest.SudoBus+"list alpha", teamtest.BusList+"MEMBER\tother.1+box.host\tdev\tjoin\tactive\n", 0)
 	m.HoldSeat(t, m.Checkout(), "alpha", "dev", true)
-	m.record("ccy-proj", "ccy", m.Checkout(), "1@alpha,dev@alpha,3@gamma,2@beta")
+	m.record("ccy-proj", m.Checkout(), "1@alpha,dev@alpha,3@gamma,2@beta")
 	m.build()
 	if got := m.run("alpha", "--yes"); got != term.ExitFailure {
 		t.Fatalf("exit %d", got)

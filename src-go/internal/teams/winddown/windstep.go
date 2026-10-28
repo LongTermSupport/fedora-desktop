@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/compactfloor"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/restore"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/screen"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
@@ -36,6 +37,14 @@ const (
 	phaseGoal
 	// phaseText has entered the wind-down text and waits for the box to be empty.
 	phaseText
+	// phaseAnswer waits for the session to have answered the wind-down: idle and empty again.
+	phaseAnswer
+	// phaseQueued is to be compacted, and waits for its turn (WC4).
+	phaseQueued
+	// phaseCompactWait has its turn, and waits for an idle, empty box to type /compact into.
+	phaseCompactWait
+	// phaseCompact has entered /compact and waits for the compaction to end.
+	phaseCompact
 )
 
 // job is one session being wound down: what it is, and how far it has gone.
@@ -54,29 +63,61 @@ type job struct {
 	// graced is the one poll a line still in the box is given before Enter is pressed again,
 	// reentered whether it has been.
 	graced, reentered bool
-	// idleBy bounds the wait for an idle session, settleBy the wait for a typed line to go.
-	idleBy, settleBy time.Time
-	result           result
-	note             string
+	// idleBy bounds the wait for an idle session, settleBy the wait for a typed line to go, and
+	// windowBy the answer and the compaction (WC4a).
+	idleBy, settleBy, windowBy time.Time
+	result                     result
+	note                       string
+
+	// The compaction (Task 3.20). lxc is a member whose transcript is in its container, so its
+	// end is read from its pane; file is a host session's transcript and floor the compact floor,
+	// or noCompact why it cannot be compacted. tokens is its context when it answered, and
+	// compactAt when /compact was typed.
+	lxc         bool
+	file        string
+	floor       compactfloor.Floor
+	floorTokens int64
+	noCompact   string
+	tokens      int64
+	compactAt   time.Time
+	wound       bool
+	compacted   bool
+	compactNote string
+	// sawBusy is a busy look since the phase began; quietBy, once set, is when an idle box never
+	// seen busy counts as idle again.
+	sawBusy bool
+	quietBy time.Time
 }
 
 func (j *job) fail(note string) { j.result, j.note = resultFailed, note }
 
+// finish ends a job whose wind-down went in, with what became of its compaction.
+func (j *job) finish(compacted bool, note string) {
+	j.result, j.compacted, j.compactNote = resultDone, compacted, note
+}
+
 // after is a failure note that says how far the job had gone: once /goal clear is in, the goal
 // is gone whatever else fails, and the owner needs to know it.
 func (j *job) after(note string) string {
-	if j.phase == phaseIdle {
+	switch {
+	case j.phase == phaseIdle:
 		return note + "; nothing was typed"
+	case j.phase >= phaseAnswer:
+		return "/goal clear and the wind-down went in, but " + note
+	default:
+		return "/goal clear went in, but " + note
 	}
-	return "/goal clear went in, but " + note
 }
+
+// enter moves the job to a phase that waits for the session to be idle again.
+func (j *job) enter(p phase) { j.phase, j.sawBusy, j.quietBy = p, false, time.Time{} }
 
 // windAll reads every pane, then again every poll, until each job is done or failed (W6): the
 // jobs are watched together, so a slow session does not hold the others up.
 func (w *WindDown) windAll(ctx context.Context, jobs []*job) {
 	start := w.Now()
 	for _, j := range jobs {
-		j.idleBy = start.Add(w.Waits.Idle)
+		j.idleBy, j.windowBy = start.Add(w.Waits.Idle), start.Add(w.Waits.Window)
 	}
 	for {
 		lists := map[*tmuxccy.Tmux]listing{}
@@ -100,7 +141,32 @@ func (w *WindDown) windAll(ctx context.Context, jobs []*job) {
 		if !left {
 			return
 		}
+		nextCompaction(jobs)
 		w.Sleep(w.Waits.Poll)
+	}
+}
+
+// nextCompaction gives the turn to compact, when no session has it, to the coordinator if it is
+// waiting for one, else to the first session that is (WC4): one compaction at a time, and a
+// coordinator still answering holds up no one.
+func nextCompaction(jobs []*job) {
+	var next *job
+	for _, j := range jobs {
+		if j.result != resultPending {
+			continue
+		}
+		switch j.phase {
+		case phaseCompactWait, phaseCompact:
+			return
+		case phaseQueued:
+			if next == nil || (j.coordinator && !next.coordinator) {
+				next = j
+			}
+		case phaseIdle, phaseGoal, phaseText, phaseAnswer:
+		}
+	}
+	if next != nil {
+		next.enter(phaseCompactWait)
 	}
 }
 
@@ -151,8 +217,11 @@ func (w *WindDown) step(ctx context.Context, j *job, live map[string]bool) {
 // ended is a session whose tmux session has gone: done only once the wind-down was entered.
 func (w *WindDown) ended(j *job) {
 	switch j.phase {
-	case phaseText:
-		j.result = resultDone
+	case phaseText, phaseAnswer, phaseQueued, phaseCompactWait:
+		j.wound = true
+		j.finish(false, "not compacted: the session ended")
+	case phaseCompact:
+		j.finish(false, "not compacted: the session ended during its compaction")
 	case phaseGoal:
 		j.fail(j.after("the session ended before the wind-down was typed"))
 	case phaseIdle:
@@ -182,10 +251,14 @@ func (w *WindDown) act(ctx context.Context, j *job, state screen.State) error {
 		case screen.Busy, screen.NotDrawn:
 			w.waitIdle(j, state, now)
 		}
+	case phaseAnswer, phaseQueued, phaseCompactWait, phaseCompact:
+		return w.compactStep(ctx, j, state, now)
 	case phaseText:
 		switch state {
 		case screen.Ready, screen.Busy:
-			j.result = resultDone
+			j.wound = true
+			j.enter(phaseAnswer)
+			j.sawBusy = state == screen.Busy
 		case screen.Typed:
 			return w.reenter(ctx, j, now, j.after("the wind-down stayed in its input box after a second Enter"))
 		case screen.NotDrawn:

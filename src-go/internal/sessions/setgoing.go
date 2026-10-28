@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -26,8 +25,6 @@ const (
 	setGoingCompact  = "/compact This session was restored after a reboot. After compacting, carry on with the work that was in progress."
 	setGoingContinue = "continue"
 )
-
-var wholeTokens = regexp.MustCompile(`^[1-9][0-9]*$`)
 
 // lookKind is what a restored session's pane shows.
 type lookKind int
