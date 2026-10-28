@@ -31,11 +31,13 @@ const (
 	buildDiskNeed = runDiskNeed + installMediaBytes
 	// defaultPruneDays is how long a run that did not pass keeps its overlay with no later pass.
 	defaultPruneDays = 7
-	runLockFile      = "run.lock"
-	actionPrune      = "prune"
-	actionKeep       = "keep"
-	actionLive       = "live"
-	lockHeld         = runLockFile + " is held, the run is in progress"
+	// maxPruneDays is the largest --older-than taken: a century, far inside time.Duration.
+	maxPruneDays = 36500
+	runLockFile  = "run.lock"
+	actionPrune  = "prune"
+	actionKeep   = "keep"
+	actionLive   = "live"
+	lockHeld     = runLockFile + " is held, the run is in progress"
 )
 
 var (
@@ -254,6 +256,11 @@ func parsePruneArgs(args []string) (int, bool, error) {
 			n, err := strconv.Atoi(args[i+1])
 			if err != nil || n < 0 {
 				return 0, false, usagef("--older-than takes a whole number of days, not %s", args[i+1])
+			}
+			// The age is compared as a time.Duration, which a count much past this overflows to a
+			// negative age that every failed run would exceed.
+			if n > maxPruneDays {
+				return 0, false, usagef("--older-than takes at most %d days, not %d", maxPruneDays, n)
 			}
 			days, seenDays = n, true
 			i++

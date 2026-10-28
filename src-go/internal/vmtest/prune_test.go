@@ -162,7 +162,7 @@ func TestE61PruneRunsRefusals(t *testing.T) {
 		t.Fatal("a run whose response cannot be read still pruned")
 	}
 
-	for _, args := range [][]string{{"--older-than"}, {"--older-than", "x"}, {"--older-than", "-1"}, {"--now"}, {"--yes", "--yes"}} {
+	for _, args := range [][]string{{"--older-than"}, {"--older-than", "x"}, {"--older-than", "-1"}, {"--older-than", "36501"}, {"--older-than", "999999"}, {"--now"}, {"--yes", "--yes"}} {
 		k = pruneKit(t)
 		k.wantCode(k.run(append([]string{"prune-runs"}, args...)...), term.ExitUsage)
 		if len(k.fake.Calls()) != 0 {
