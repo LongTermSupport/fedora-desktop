@@ -7,9 +7,9 @@ Plan 00209. The host agent ran ACCEPTANCE-owner.md on throwaway teams at F44 d24
 (27-10-27): steps 01-07, 09, 10, 12 and 13 and Task 2.20 PASS. At F44 fe894347c the host
 agent passed steps 03, 10 and 13 on [chooser-teams-up.bash](chooser-teams-up.bash)'s teams
 (Task 2.28) and step 12 with lxc-add's Stop (Task 2.29). At F44 842d88ddd it passed Task 2.31's
-follow-ups. Left for the host agent: step 08's consent No/Yes (the owner authorised it on
-2026-10-28 to rename and restore `~/.config/pingbus/element-accepted` for the check). Left for
-the owner: check 11 (a real password paste at the owner's screen).
+follow-ups. Left for the host agent: step 08's consent No/Yes, one meta-deploy run of
+[acceptance-consent.bash](acceptance-consent.bash). Left for the owner: check 11 (a real
+password paste at the owner's screen).
 **Created**: 2026-10-15
 **Owner**: joseph
 **Priority**: High
@@ -105,15 +105,16 @@ a repository is no longer offered for a checkout of it. Report:
   Host, 27-10-27 at F44 fe894347c, on chooser-teams-up's teams: 01-04, 10, 12 and 13 PASS
   (Tasks 2.28 and 2.29). Left: 08's consent and the owner's 11.
 
-  - [ ] ⬜ Step 08's consent No/Yes, now the host agent's: on 2026-10-28 the owner ("all
-    recommended" to the unblocking list, item A7) authorised the host agent to rename
-    `~/.config/pingbus/element-accepted` for the check and put it back afterwards, so the host
-    agent runs 08 whole on throwaway teams and restores the file however the check ends. The
-    host agent's hooks refuse that write (outside the project root), and no environment
-    variable can stand in: pingbus and, since the fix on 2026-10-28, the chooser both read the
-    record under the passwd home only (JOURNAL 2026-10-28, RED and GREEN "the consent record
-    under the passwd home"). So the owner types the rename and the restore as `! mv` lines in
-    the host agent's session, as step 08 now says.
+  - [ ] 🔄 Step 08's consent No/Yes is a script, built and waiting for its host run:
+    [acceptance-consent.bash](acceptance-consent.bash), run through `meta-deploy.bash`. Nobody
+    types an `! mv`: the owner asked for a script, not hand-managed files (2026-10-28). It runs
+    on its own throwaway teams (consent201a, consent201b). It holds the consent record aside and
+    puts it back however the run ends, and puts back first anything a killed run left. It drives
+    `cc --teams` in a private tmux, in a scratch checkout. No must start and record nothing;
+    Yes must write the record and hold both seats. The judgements are in `consent_check.py`
+    (tests: `test_consent_check.py`). No environment variable can stand in for the record:
+    pingbus and the chooser both read it under the passwd home only (JOURNAL 2026-10-28). A
+    person is needed only if sudo asks for a password in the private tmux.
 
 - [ ] ❌ **Task 2.8**: superseded by Plan 00209 D4 (relay mode deferred to v2). [Full text](DONE-tasks.md).
 
