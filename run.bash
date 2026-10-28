@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.35.0"
+RUN_BASH_VERSION="1.36.0"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -829,7 +829,8 @@ hl_checkout_ref() {
 # play-foo.yml | foo | play-foo), in order; 'none'/unset skips the whole section. The
 # reserved token 'server-recommended' expands to the curated, generic dev/server bundle in
 # playbooks/imports/optional/server-recommended.bundle (composes with explicit tokens).
-# Any unknown name or failing play aborts LOUD (a server run must not silently under-provision).
+# An unknown name aborts LOUD before anything runs; a failing play is recorded and the next
+# runs, and optional_summary then names it and fails the run (no silent under-provisioning).
 hl_run_optional_playbooks() {
   local spec="${RUN_BASH_OPTIONAL_PLAYBOOKS:-none}"
   if [[ -z "$spec" || "$spec" == "none" ]]; then
@@ -884,9 +885,10 @@ hl_run_optional_playbooks() {
   done
   _reqs=("${_reqs_deduped[@]}")
 
-  local pb base found name
+  # Every name is resolved before any play runs, so a typo provisions nothing. (_reqs holds no
+  # empty name: the bundle expansion above skips them.)
+  local pb base found _resolved=()
   for req in "${_reqs[@]}"; do
-    [[ -z "$req" ]] && continue
     found=""
     for pb in "${_all_optional[@]}"; do
       base="$(basename "$pb")"
@@ -898,22 +900,11 @@ hl_run_optional_playbooks() {
       hl_abort "optional playbooks" "requested optional playbook '${req}' not found under playbooks/imports/optional/" \
         "use an exact name like play-docker.yml (or docker), or set RUN_BASH_OPTIONAL_PLAYBOOKS=none"
     fi
-    name="$(basename "$found" .yml)"
-    info "Headless: running optional playbook ${name}"
-    # Same become contract as the main playbook: a headless run that resolved a sudo
-    # password in preflight hands Ansible the 0600 file. Nothing on the box grants
-    # NOPASSWD under the server profile, so an optional play run bare here fails at its
-    # first `become` with "a password is required".
-    local -a _optional_become=()
-    if [[ "${#HL_SUDO_OPTS[@]}" -gt 0 ]]; then
-      _optional_become=(--become-password-file "$HL_SUDO_PW_FILE")
-    fi
-    # ansible-playbook explicitly, never the play file: its shebang re-enters run.bash.
-    if ! ansible-playbook "$found" "${_optional_become[@]}"; then
-      hl_abort "optional playbook ${name}" "${found} FAILED" \
-        "scroll up for the Ansible output; fix it, drop it from RUN_BASH_OPTIONAL_PLAYBOOKS, or set =none"
-    fi
-    success "Headless: optional playbook ${name} complete"
+    _resolved+=("$found")
+  done
+  # The runner hands Ansible the preflight's 0600 password file, as for the main playbook.
+  for found in "${_resolved[@]}"; do
+    run_playbook "$found"
   done
 }
 
@@ -948,6 +939,7 @@ main() {
   HL_SUDO_OPTS=()
   HL_SUDO_PW_FILE=""    # set by hl_sudo_askpass_start; also Ansible's --become-password-file
   HL_SUDO_BY_PASSWORD=false  # true when the proven credential is a password, not NOPASSWD
+  OPTIONAL_RESULTS=()   # "<exit status> <play>" per optional play run_playbook ran, for optional_summary
   trap hl_cleanup EXIT
 
 # Flags
@@ -1731,15 +1723,6 @@ sanitize_error_log(){
   echo "$sanitized"
 }
 
-# Function to check if Claude Code is available for enhanced sanitization
-check_claude_code(){
-  if command -v claude &> /dev/null; then
-    return 0
-  else
-    return 1
-  fi
-}
-
 # Function to create GitHub issue for failed playbook
 create_github_issue(){
   local playbook_name="$1"
@@ -1788,7 +1771,7 @@ create_github_issue(){
   # issue-creation flow rather than silently downgrading to regex-only output.
   # The regex-only path is taken ONLY when `claude` is genuinely not installed,
   # and even then the explicit confirmation below still gates the post.
-  if check_claude_code; then
+  if command -v claude >/dev/null; then
     info "Using Claude Code for enhanced sensitive data removal..."
     local temp_file
     temp_file=$(mktemp)
@@ -1957,7 +1940,6 @@ run_playbook_with_issue_option(){
   # TTY). Checked before the probe so `sudo -k` never runs on that path and never discards
   # the timestamp the preflight probe just established.
   local _sudo_probe=""
-  exit_code=0
   # ansible-playbook explicitly, never the play file: its shebang re-enters run.bash.
   if [[ "${#HL_SUDO_OPTS[@]}" -gt 0 ]]; then
     ansible-playbook "$playbook" --become-password-file "$HL_SUDO_PW_FILE" "${extra_args[@]}" || exit_code=$?
@@ -1980,13 +1962,50 @@ run_playbook_with_issue_option(){
     # is offered. A consumer box has no GitHub account, so it is told where the log is instead.
     if [[ "$CONSUMER_BOX" == "true" ]]; then
       echo -e "${YELLOW}${ARROW} The log of this run is the output above (it is not saved to a file); it names the task that failed. Fix what it says and run this again, or report it at https://github.com/LongTermSupport/fedora-desktop/issues${NC}" >&2
-    elif [[ "${ASSUME_YES:-}" != "true" && "${RUN_BASH_OFFER_ISSUE:-1}" != "0" ]] \
+    elif [[ "$HEADLESS" != "true" && "${ASSUME_YES:-}" != "true" && "${RUN_BASH_OFFER_ISSUE:-1}" != "0" ]] \
         && confirm "Would you like to create a GitHub issue for this failure? (posts to the PUBLIC tracker)" n; then
       create_github_issue "$playbook" "$exit_code"
     fi
 
     return $exit_code
   fi
+}
+
+# run_playbook <play> — one optional play (the menus, the headless list, --rerun's and
+# --changed's optional part). The plays are independent, so a failure (already reported by the
+# runner) is recorded for optional_summary and the next one runs. A play ended by a signal, or
+# by Ctrl-C (Ansible's exit 99, "User interrupted execution"), stops the run at once.
+run_playbook() {
+  local _rc=0
+  run_playbook_with_issue_option "$1" "$(basename "$1" .yml)" || _rc=$?
+  OPTIONAL_RESULTS+=("${_rc} ${1#"$PWD"/}")
+  if [[ $_rc -eq 99 || $_rc -gt 128 ]]; then
+    optional_summary "$_rc"
+  fi
+}
+
+# optional_summary [stop-status] — on stderr, what happened to every optional play run_playbook
+# ran, and how to retry those that did not install. Exits with the stop status when given, else
+# 1 when any failed; returns when every play installed (or none ran).
+optional_summary() {
+  local _entry _rc _play _failed=0
+  [[ ${#OPTIONAL_RESULTS[@]} -gt 0 ]] || return 0
+  echo -e "\n${BOLD}Optional plays: what happened${NC}" >&2
+  for _entry in "${OPTIONAL_RESULTS[@]}"; do
+    _rc="${_entry%% *}" _play="${_entry#* }"
+    if [[ "$_rc" -eq 0 ]]; then
+      echo -e "  ${GREEN}${CHECK}${NC} ${_play}: installed" >&2
+    elif [[ "$_rc" -eq 99 || "$_rc" -gt 128 ]]; then
+      echo -e "  ${RED}${CROSS}${NC} ${_play}: stopped part way (exit ${_rc}); nothing after it was run" >&2
+    else
+      _failed=$((_failed + 1))
+      echo -e "  ${RED}${CROSS}${NC} ${_play}: failed (exit ${_rc}); its output is above, and retry it alone from ${PWD}: ./run.bash ${_play}" >&2
+    fi
+  done
+  [[ -z "${1:-}" ]] || exit "$1"
+  [[ "$_failed" -eq 0 ]] && return 0
+  error "${_failed} of ${#OPTIONAL_RESULTS[@]} optional play(s) failed; or choose them again from the menu: ./run.bash --optional-only" >&2
+  exit 1
 }
 
 # ── changed plays: every play whose inputs changed since it ran here, then exit ───────
@@ -2035,8 +2054,8 @@ play_batch_warn_dirty(){
 }
 
 # play_batch_run <what> <adjective> <play>… — under one play lock, each play through the
-# single-play runner in the order given; the first failure stops the run and is its exit
-# status. Always exits.
+# single-play runner in the order given; the first failed main play stops the run and is its
+# exit status, while an optional play runs as the menus run one (run_playbook). Always exits.
 play_batch_run(){
   local _what="$1" _adjective="$2"
   shift 2
@@ -2045,6 +2064,10 @@ play_batch_run(){
   play_lock_take "$_what"
   for _i in "${!_plays[@]}"; do
     _play="${_plays[$_i]}"
+    if [[ "$_play" == playbooks/imports/optional/* ]]; then
+      run_playbook "$_play"
+      continue
+    fi
     _rc=0
     run_playbook_with_issue_option "$_play_repo/$_play" "$(basename "$_play" .yml)" || _rc=$?
     if [[ "$_rc" -ne 0 ]]; then
@@ -2055,6 +2078,7 @@ play_batch_run(){
       exit "$_rc"
     fi
   done
+  optional_summary
   success "All ${#_plays[@]} ${_adjective} play(s) ran"
   exit 0
 }
@@ -3672,23 +3696,6 @@ fi # end: OPTIONAL_ONLY skip block
 
 ## Optional Playbooks Menu System
 
-# Function to run a playbook (wrapper for backward compatibility).
-# The optional-menu call sites invoke this as a bare statement inside loops under
-# set -e. run_playbook_with_issue_option already surfaces any failure (error
-# message + offer to file an issue), so a non-zero return here must NOT abort the
-# whole optional menu — the user stays in control and can pick the next item.
-# Handle the failure explicitly (it is already reported) and return 0 so set -e
-# lets the menu continue. (B2: the issue-reporting UX runs AND the installer keeps
-# going instead of dying mid-menu.)
-run_playbook() {
-  local _rc=0
-  run_playbook_with_issue_option "$1" "$2" || _rc=$?
-  if [[ $_rc -ne 0 ]]; then
-    warning "Continuing the optional menu after a failure in: $2 (exit $_rc)"
-  fi
-  return 0
-}
-
 # Parse a space/comma-separated list of numbers; print valid ones (one per line)
 _parse_number_list() {
   local input="$1"
@@ -3742,10 +3749,7 @@ show_menu() {
     case "$choice" in
       [1-9]|[1-9][0-9])
         if [[ $choice -le ${#playbooks[@]} ]]; then
-          local selected="${playbooks[$((choice-1))]}"
-          local name
-          name=$(basename "$selected" .yml | sed 's/^play-//' | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
-          run_playbook "$selected" "$name"
+          run_playbook "${playbooks[$((choice-1))]}"
         else
           error "Invalid selection: $choice (choose 1-${#playbooks[@]})"
           echo -e "${YELLOW}${ARROW} Please try again${NC}\n"
@@ -3754,9 +3758,7 @@ show_menu() {
         ;;
       [Aa])
         for pb in "${playbooks[@]}"; do
-          local name
-          name=$(basename "$pb" .yml | sed 's/^play-//' | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
-          run_playbook "$pb" "$name"
+          run_playbook "$pb"
         done
         break
         ;;
@@ -3771,10 +3773,7 @@ show_menu() {
           warning "No valid numbers entered — try again"
         else
           for n in "${_wl_nums[@]}"; do
-            local pb="${playbooks[$((n-1))]}"
-            local name
-            name=$(basename "$pb" .yml | sed 's/^play-//' | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
-            run_playbook "$pb" "$name"
+            run_playbook "${playbooks[$((n-1))]}"
           done
           break
         fi
@@ -3796,9 +3795,7 @@ show_menu() {
             fi
           done
           if [[ "$_skip" == "false" ]]; then
-            local name
-            name=$(basename "$pb" .yml | sed 's/^play-//' | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
-            run_playbook "$pb" "$name"
+            run_playbook "$pb"
           fi
           ((_idx++))
         done
@@ -3910,8 +3907,7 @@ elif [[ "$OPTIONAL_ONLY" == "true" ]] || confirm "Would you like to install opti
 
       # Auto-run recommended hardware playbooks
       for pb in "${hw_auto[@]}"; do
-        name=$(basename "$pb" .yml | sed 's/^play-//' | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
-        run_playbook "$pb" "$name"
+        run_playbook "$pb"
       done
 
       # Prompt for uncertain hardware playbooks
@@ -3968,6 +3964,8 @@ elif [[ "$OPTIONAL_ONLY" == "true" ]] || confirm "Would you like to install opti
     fi
   fi
 fi
+# Exits 1, before the setup marker, when any optional play failed.
+optional_summary
 
 # Final completion message
 echo -e "\n${GREEN}${BOLD}╔══════════════════════════════════════════════════════════════╗${NC}"

@@ -414,6 +414,21 @@
         mode: '0644'
       register: schema_copy
 
+    # Claude post-processing runs as a token from ccy's pool, which only the developer install
+    # has, so a consumer install offers none: the panel and Settings read this compiled default
+    # of post-processing-offered and hide Ctrl+Insert, Alt+Insert, the Post-Process and Create
+    # Article items and the Claude settings (Plan 00228 Task 6.5). Plain dictation stays.
+    - name: Compile The Install Audience Into The Schema
+      ansible.builtin.copy:
+        content: |
+          [org.gnome.shell.extensions.speech-to-text]
+          post-processing-offered={{ 'true' if install_audience == 'developer' else 'false' }}
+        dest: "{{ extension_dest }}/schemas/fedora-desktop-audience.gschema.override"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+      register: schema_override
+
     # Every run, not only when the XML copy changed: a run that copied the XML and
     # died before compiling would otherwise leave a stale compiled schema for good,
     # and the recorders refuse to start without the stop-grace-seconds key.
@@ -423,7 +438,7 @@
       ansible.builtin.command:
         cmd: glib-compile-schemas "{{ extension_dest }}/schemas"
       register: schema_compile
-      changed_when: schema_copy.changed
+      changed_when: schema_copy.changed or schema_override.changed
       failed_when: schema_compile.rc != 0
 
     # The batch recorder is a Go binary (src-go/cmd/wsi, Plan 00192), built and installed at
@@ -868,8 +883,8 @@
     # makes the panel flicker and reports a change that did not happen.
     - name: Note Whether The Extension Needs Loading
       ansible.builtin.set_fact:
-        extension_files_changed: "{{ extension_copy.changed or schema_copy.changed }}"
-        extension_needs_enable: "{{ extension_enabled.rc != 0 or extension_copy.changed or schema_copy.changed }}"
+        extension_files_changed: "{{ extension_copy.changed or schema_copy.changed or schema_override.changed }}"
+        extension_needs_enable: "{{ extension_enabled.rc != 0 or extension_copy.changed or schema_copy.changed or schema_override.changed }}"
 
     - name: Disable Extension (to force reload)
       become: true
