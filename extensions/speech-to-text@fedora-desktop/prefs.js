@@ -10,6 +10,7 @@ import Gtk from 'gi://Gtk';
 import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
 import { ExtensionPreferences } from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
+import { postProcessingOffered } from './postProcess.js';
 
 // Whisper model catalogue — mirrors wsi-model-manager, which shows each model's size.
 // Each entry: [modelId, huggingFaceRepo, displayLabel]; a label is a short name, since
@@ -142,7 +143,19 @@ export default class SpeechToTextPreferences extends ExtensionPreferences {
         this._addListRow(outputGroup, settings, 'paste-save-apps',
             'Apps to save after pasting (Ctrl+S; never terminals)');
 
-        // === Claude Code ===
+        // === Claude Code === (a consumer install offers no post-processing)
+        if (postProcessingOffered(settings))
+            this._addClaudeGroup(page, settings);
+
+        // === Debug ===
+        const debugGroup = new Adw.PreferencesGroup({ title: 'Debug' });
+        page.add(debugGroup);
+
+        this._addSwitchRow(debugGroup, settings, 'debug-mode',
+            'Debug logging', 'Write debug output to ~/.local/share/speech-to-text/debug.log');
+    }
+
+    _addClaudeGroup(page, settings) {
         const claudeGroup = new Adw.PreferencesGroup({ title: 'Claude Code Post-Processing' });
         page.add(claudeGroup);
 
@@ -183,13 +196,6 @@ export default class SpeechToTextPreferences extends ExtensionPreferences {
             'Edit Natural Prompt',
             'Casual/natural style — used with Alt+Insert',
             'claude-prompt-natural.txt');
-
-        // === Debug ===
-        const debugGroup = new Adw.PreferencesGroup({ title: 'Debug' });
-        page.add(debugGroup);
-
-        this._addSwitchRow(debugGroup, settings, 'debug-mode',
-            'Debug logging', 'Write debug output to ~/.local/share/speech-to-text/debug.log');
     }
 
     // -------------------------------------------------------------------------

@@ -24,6 +24,31 @@ export const POST_PROCESS_STYLES = [
         label: 'Post-Process Last Transcription: Natural (as Alt+Insert)'},
 ];
 
+/** The schema key whose compiled default says whether this install offers Claude
+ * post-processing. play-speech-to-text.yml sets it from the install's audience (a schema
+ * override): a consumer install has no ccy, so no token pool to post-process with. */
+export const OFFERED_KEY = 'post-processing-offered';
+
+/** Whether this install offers Claude post-processing: the play's answer, the key's compiled
+ * default, never a value a user could set. No schema, or a schema without the key, offers
+ * nothing (no key can record then, and the key ships with the code that reads it). */
+export function postProcessingOffered(settings) {
+    if (!settings?.settings_schema.has_key(OFFERED_KEY))
+        return false;
+    return settings.get_default_value(OFFERED_KEY).get_boolean();
+}
+
+const RECORD_KEYS = [
+    {name: 'toggle-recording', kind: 'dictation', style: null},
+    {name: 'toggle-recording-claude', kind: 'claude', style: 'corporate'},
+    {name: 'toggle-recording-claude-natural', kind: 'claude', style: 'natural'},
+];
+
+/** The record keys to bind: Insert always, Ctrl+Insert and Alt+Insert only where offered. */
+export function recordKeys(offered) {
+    return RECORD_KEYS.filter(k => offered || k.kind === 'dictation');
+}
+
 const TOOL = 'wsi-postprocess';
 const PREVIEW_CHARS = 120;
 
