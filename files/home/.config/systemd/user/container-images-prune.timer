@@ -1,0 +1,12 @@
+[Unit]
+Description=Prune the rootless podman store daily (container-images prune --yes)
+Documentation=https://github.com/LongTermSupport/fedora-desktop
+
+[Timer]
+OnCalendar=daily
+# A day the machine was off is caught up at the next boot.
+Persistent=true
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target

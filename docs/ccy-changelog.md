@@ -27,6 +27,13 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.101.3 — container 2.79.15
+
+- **No change to what ccy does.** The Go `engine` package the launcher's front is built from
+  gains the store questions (images and containers as podman lists them, image and external
+  container removal) that `container-images`, the daily prune of the podman store, asks (Plan
+  00235); the bump is the launcher's code changing, not its behaviour.
+
 ## 3.101.2 — container 2.79.15
 
 - **No change to what ccy does.** The Go `term` package the launcher's front is built from

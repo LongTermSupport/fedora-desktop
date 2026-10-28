@@ -43,3 +43,4 @@ ccy-network-policy	qa-go
 ssh-with-key	qa-go
 scp-with-key	qa-go
 ssh-copy-id-with-key	qa-go
+container-images	qa-go
