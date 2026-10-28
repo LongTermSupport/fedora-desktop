@@ -194,10 +194,10 @@ func TestOpenGL(t *testing.T) {
 	wantNot(t, out, "expected: NVIDIA Corporation", "OpenGL: Using")
 
 	w = healthy()
-	w.glx = said("OpenGL vendor string: NVIDIA Corporation\nOpenGL renderer string: NVIDIA RTX 500/PCIe/SSE2\n" +
+	w.glx = said("OpenGL vendor string: NVIDIA Corporation\nOpenGL renderer string: NVIDIA GeForce RTX 3050 Laptop GPU/PCIe/SSE2\n" +
 		"OpenGL version string: 4.6.0 NVIDIA 580.95.05\n")
 	_, out = w.report(t)
-	wantLines(t, out, "  ✅ OpenGL vendor: NVIDIA Corporation\n", "      Renderer: NVIDIA RTX 500/PCIe/SSE2\n",
+	wantLines(t, out, "  ✅ OpenGL vendor: NVIDIA Corporation\n", "      Renderer: NVIDIA GeForce RTX 3050 Laptop GPU/PCIe/SSE2\n",
 		"      Version: 4.6.0 NVIDIA 580.95.05\n", "OpenGL: Using NVIDIA renderer")
 	wantNot(t, out, "Hybrid Graphics System Detected")
 
