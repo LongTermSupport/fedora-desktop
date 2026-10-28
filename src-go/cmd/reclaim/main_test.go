@@ -27,27 +27,43 @@ func TestCtrlCEndsTheRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Every file is reached through an os.Root over the test's own temporary directory, by
+	// names fixed here, so no path the test opens comes from outside it.
 	dir := t.TempDir()
-	home, bin := filepath.Join(dir, "home"), filepath.Join(dir, "bin")
-	for _, d := range []string{filepath.Join(home, ".cache"), bin} {
-		if mkErr := os.MkdirAll(d, 0o750); mkErr != nil {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if closeErr := root.Close(); closeErr != nil {
+			t.Error(closeErr)
+		}
+	})
+	const homeName, binName, startedName = "home", "bin", "started"
+	for _, d := range []string{filepath.Join(homeName, ".cache"), binName} {
+		if mkErr := root.MkdirAll(d, 0o750); mkErr != nil {
 			t.Fatal(mkErr)
 		}
 	}
-	started := filepath.Join(dir, "started")
+	started := filepath.Join(dir, startedName)
 	if fifoErr := syscall.Mkfifo(started, 0o600); fifoErr != nil {
 		t.Fatal(fifoErr)
 	}
+	// The fake du is written owner-only and then made executable: PATH lookup needs the bit.
+	du := filepath.Join(binName, "du")
 	script := "#!/bin/sh\necho up > '" + started + "'\nexec '" + sleep + "' 60\n"
-	if writeErr := os.WriteFile(filepath.Join(bin, "du"), []byte(script), 0o700); writeErr != nil {
+	if writeErr := root.WriteFile(du, []byte(script), 0o600); writeErr != nil {
 		t.Fatal(writeErr)
 	}
-	t.Setenv("HOME", home)
-	t.Setenv("PATH", bin)
+	if chErr := root.Chmod(du, 0o700); chErr != nil {
+		t.Fatal(chErr)
+	}
+	t.Setenv("HOME", filepath.Join(dir, homeName))
+	t.Setenv("PATH", filepath.Join(dir, binName))
 	done := make(chan term.ExitCode, 1)
 	go func() { done <- run([]string{"report"}) }()
 	// The fifo opens once du has started, so the signal lands while the report waits on it.
-	f, err := os.Open(started)
+	f, err := root.Open(startedName)
 	if err != nil {
 		t.Fatal(err)
 	}
