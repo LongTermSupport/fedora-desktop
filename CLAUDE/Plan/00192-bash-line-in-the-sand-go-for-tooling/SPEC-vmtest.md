@@ -93,7 +93,8 @@ The tests cite these numbers.
 
 - E6. `VMTEST_HOME` (default `~/.local/share/vmtest`) is the lab tree, and `VMTEST_HELPERS_LIB`
   (default `/usr/local/lib/ccy-helpers`) is the helpers' `PYTHONPATH`. An empty value means the
-  default.
+  default, as it does for the two bounds in seconds, `VMTEST_SSH_WAIT_TIMEOUT` (E24) and
+  `VMTEST_MEMBER_SSH_TIMEOUT` (E58).
 - E7. `lab.env` is read as data and never executed. It is `KEY=VALUE` lines; blank lines and `#`
   comments are skipped. Any other line, or a repeated key, is
   `ERROR: <lab.env>:<n>: ...`. The keys that matter are `VMTEST_FEDORA_VERSION` (digits only),
@@ -205,11 +206,24 @@ The tests cite these numbers.
   failure is `guest <domain> is <state> while waiting for <what>; see <dir>/console.log`. A
   failed `domstate` is
   `cannot read the state of guest <domain> while waiting for <what>`.
-- E24. The wait for SSH: `==> waiting for SSH on 127.0.0.1:<port> (up to 600s)`. Each try first
+- E24. The wait for SSH: `==> waiting for SSH on 127.0.0.1:<n> (up to <s>s)`. Each try first
   checks that the guest is up (E23), then runs `ssh ... true`. The wait sleeps 5s between tries
-  and ends by the clock after 600s with
-  `guest did not answer SSH within 600s; see <dir>/console.log`. Success is
-  `==> guest answered SSH after ~<n>s`.
+  and ends by the clock after `<s>` seconds with
+  `guest did not answer SSH within <s>s (VMTEST_SSH_WAIT_TIMEOUT); see <dir>/console.log`. Success is
+  `==> guest answered SSH after ~<n>s`. `<s>` is `VMTEST_SSH_WAIT_TIMEOUT`, default 600, a
+  positive whole number of seconds up to 86400, read when the lab is loaded (E7), so a bad value
+  fails as `VMTEST_SSH_WAIT_TIMEOUT must be a positive number of seconds up to 86400, got '<v>'`
+  before anything boots. It bounds every wait for SSH (build, run, member-up) and a desktop's
+  wait for its login prompt (E26's `--timeout`).
+  - Why settable, and not scaled with load (Task 3.14). On a host at a load average of about 10,
+    a member's first boot did not answer within 600s, and the next answered after about 192s.
+    Two readings do not give a relation between load and boot time, and the load average lags
+    and counts tasks waiting on I/O, so a bound computed from it would be a guess that no test
+    here can check. The default stays 600s, three times the slow boot measured, so a guest that
+    never comes up still fails within ten minutes. A caller that knows its host is busy (an
+    acceptance script starting a member beside other work) raises it for that call, and a
+    failed member-up shows the console's last lines (E57), which say whether the guest was
+    still booting or stuck.
 - E25. The wait for power-off polls `domstate` every 5s for up to 300s:
   `guest did not shut off within 300s (state: <s>)`. A failed `domstate` is a failure.
 - E26. On a desktop, `serial_console --unlock-with <passphrase> --until 'login: '` answers the
@@ -431,8 +445,16 @@ The tests cite these numbers.
   E34). The port goes to `ssh-port` before the wait for SSH. On success the command prints
   `VMTEST-MEMBER-UP <name> domain=<domain>` and leaves the guest running.
 - E57. A member-up that does not finish (any failure or signal after its directory exists)
-  removes the domain, the overlay and `ssh-port`. It keeps the directory and its console log,
-  says so with the `member-down` hint, and exits non-zero (E4 for a signal).
+  removes the domain, the overlay and `ssh-port`. It shows the last 10 lines of the console log
+  that are not blank, on stderr after `==> the last 10 lines of <dir>/console.log:`, each indented
+  four spaces, with carriage returns, terminal escape sequences and other control bytes but tabs
+  dropped (`==> <path> holds no console output` for none; `==> no console output to show: <error>`
+  when it cannot be read, as after a failed virt-install). It keeps the directory and its console
+  log, says so with the `member-down` hint, and exits non-zero (E4 for a signal); the `ERROR:`
+  line comes last. A signal is the same: Ctrl-C (SIGINT, 130) or SIGTERM (143) during member-up,
+  in the boot or the wait for SSH, removes the guest, the overlay and `ssh-port` and keeps
+  `members/<name>/` with its console log until `vmtest member-down <name>` removes it, so a
+  second `member-up <name>` is refused until then (E56).
 - E58. `member-ssh <name> <command...>` needs no lab load. It needs `members/<name>/ssh-port`
   holding a number, the lab key, and `VMTEST_MEMBER_SSH_TIMEOUT` (default 1800) as a positive
   whole number of seconds up to 86400 (a day; more would also wrap the bound negative). It runs ssh with the E22 options, `ServerAliveInterval=15` and
@@ -570,7 +592,8 @@ plan's `meta-deploy.list` queues the play, which builds and installs the binary.
 - H3. A desktop base build and a desktop run: the LUKS unlock, the session runner, the reboot
   into the session, and the evidence.
 - H4. `vmtest member-up m1 server-fast`, `member-ssh m1 true`, `member-down m1`, and Ctrl-C
-  during a `member-up` leaves no guest.
+  during a `member-up` leaves no guest, and keeps `members/<name>/` with its console log until
+  `member-down` (E57).
 - H5. `vmtest nightly` from its timer: the status file is written, and the sweep log is written.
 - H6. A host-only scenario run with a throwaway account: secrets delivered, scrubbed and
   verified.

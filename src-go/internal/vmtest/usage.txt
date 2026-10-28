@@ -31,7 +31,9 @@ Usage:
                                            gate refuses it; otherwise change nothing
   vmtest member-up <name> <base-key>       boot a server base as a guest that STAYS UP for another script to
                                            drive (freshness gate, overlay, boot, SSH answered); prints
-                                           VMTEST-MEMBER-UP. A failed boot removes the guest and its overlay
+                                           VMTEST-MEMBER-UP. A failed or interrupted boot removes the guest
+                                           and its overlay, shows the console log's last lines, and keeps
+                                           members/<name>/ with that log until member-down
   vmtest member-ssh <name> <command>       run <command> in the member as the cloud user (passwordless sudo),
                                            stdin passed through; exits with the command's status.
                                            Bounded: SSH keepalives, and VMTEST_MEMBER_SSH_TIMEOUT
@@ -49,6 +51,9 @@ Before anything else, `run` and `member-up` refuse when the lab's filesystem has
 than 22 GiB free (a 20 GiB guest disk and a 2 GiB margin), and a base build (build-base,
 ensure-base, refresh-base) less than 26 GiB (the same and 4 GiB of install media),
 saying what `vmtest prune-runs` would free.
+
+Every wait for a booted guest to answer SSH (build, run, member-up) is bounded by
+VMTEST_SSH_WAIT_TIMEOUT seconds (default 600, up to 86400); raise it on a busy host.
 
 Rootless throughout: qemu:///session, user-mode networking with a passt port
 forward to the guest's SSH, the lab's own throwaway ed25519 key. Everything
