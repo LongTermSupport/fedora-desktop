@@ -107,7 +107,12 @@ team covers, whose own status line is a hooks daemon's.
 07. Run `ccy-teams`: A's row shows its description (cut to fit) and **up to date**. The board
     has no scope column: in the same checkout `ccy-teams for-checkout` prints A (and `ccy --teams` now shows A as "covers owner/repo").
 08. In a host checkout of another project, run `cc --teams` and mark A and B. To see the
-    consent question again, rename `~/.config/pingbus/element-accepted` first. The question
+    consent question again, rename `~/.config/pingbus/element-accepted` first, and put it back
+    however the step ends. The record is always there, under your passwd home: no environment
+    variable (HOME, PINGBUS_HOME, XDG_CONFIG_HOME) moves it, for cc or for pingbus, which reads
+    it when a host seat starts, so a record kept anywhere else would test nothing. A host agent
+    whose hooks refuse a write outside its checkout asks the owner to type the rename and the
+    restore as two `! mv` lines in its session. The question
     names both handles: answer No once (nothing is started or recorded, and a checkout that had
     no `.claude/ccy/` still has none), then run it again and answer Yes.
 09. The cc session shows the launch block, and its status line shows each seat on its own

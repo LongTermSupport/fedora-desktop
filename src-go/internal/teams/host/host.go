@@ -11,7 +11,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
+	"strconv"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccyenv"
@@ -83,6 +85,9 @@ type Host struct {
 	Exec     func(path string, argv []string, dir string) error
 	// InContainer says whether this is a CCY container, where ccy-teams has no business.
 	InContainer func() bool
+	// UserHome is the passwd database's home of a uid: where pingbus looks for its owner's
+	// Element acceptance (helpers/pingbus/config.py _home_of), whatever HOME says.
+	UserHome func(uid int) (string, error)
 }
 
 // New is the production Host: the real OS and the process's own streams.
@@ -136,11 +141,23 @@ func (h *Host) Wire() {
 	if h.Out == nil {
 		h.Out = &term.Printer{}
 	}
+	if h.UserHome == nil {
+		h.UserHome = passwdHome
+	}
 	if h.Term == nil {
 		h.Term = h.FreshTerm()
 	}
 	h.wireTools()
 	h.wireAsking()
+}
+
+// passwdHome is the passwd database's home of uid.
+func passwdHome(uid int) (string, error) {
+	u, err := user.LookupId(strconv.Itoa(uid))
+	if err != nil {
+		return "", err
+	}
+	return u.HomeDir, nil
 }
 
 // FreshTerm is a Term over the host's streams with no steps counted yet: a flow that numbers

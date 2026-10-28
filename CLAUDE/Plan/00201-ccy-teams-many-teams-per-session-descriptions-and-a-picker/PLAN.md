@@ -108,7 +108,12 @@ a repository is no longer offered for a checkout of it. Report:
   - [ ] ⬜ Step 08's consent No/Yes, now the host agent's: on 2026-10-28 the owner ("all
     recommended" to the unblocking list, item A7) authorised the host agent to rename
     `~/.config/pingbus/element-accepted` for the check and put it back afterwards, so the host
-    agent runs 08 whole on throwaway teams and restores the file however the check ends.
+    agent runs 08 whole on throwaway teams and restores the file however the check ends. The
+    host agent's hooks refuse that write (outside the project root), and no environment
+    variable can stand in: pingbus and, since the fix on 2026-10-28, the chooser both read the
+    record under the passwd home only (JOURNAL 2026-10-28, RED and GREEN "the consent record
+    under the passwd home"). So the owner types the rename and the restore as `! mv` lines in
+    the host agent's session, as step 08 now says.
 
 - [ ] ❌ **Task 2.8**: superseded by Plan 00209 D4 (relay mode deferred to v2). [Full text](DONE-tasks.md).
 
