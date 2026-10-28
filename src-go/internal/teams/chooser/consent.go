@@ -20,9 +20,9 @@ import (
 // exitConfig is the launcher's code for a state that stops the launch (agent-bus's own 78).
 const exitConfig term.ExitCode = 78
 
-// Where the owner's acceptance lives, under their home: the path pingbus reads
-// (helpers/pingbus/config.py ELEMENT_ACCEPTED_DIR and ELEMENT_ACCEPTED_FILE), kept equal by
-// scripts/test-cc-teams.bash.
+// Where the owner's acceptance lives, under their passwd home (never HOME, PINGBUS_HOME or
+// XDG_CONFIG_HOME): the path pingbus reads (helpers/pingbus/config.py ELEMENT_ACCEPTED_DIR and
+// ELEMENT_ACCEPTED_FILE under _home_of), kept equal by scripts/test-cc-teams.bash.
 const (
 	acceptedDir  = ".config/pingbus"
 	acceptedFile = "element-accepted"
@@ -43,9 +43,10 @@ func (c *Chooser) finish(ctx context.Context, memberType string, refs []string) 
 // session, asked after the seats are chosen and before any is made. A record that is already
 // there answers it. A decline, or Ctrl-C at the question, records nothing and ends the run (1).
 func (c *Chooser) consent(ctx context.Context, refs []string) term.ExitCode {
-	home := c.Host.Getenv("HOME")
-	if home == "" {
-		c.say("ccy-teams: HOME is not set, so the Element acceptance cannot be found or recorded.")
+	home, err := c.Host.UserHome(c.UID())
+	if err != nil {
+		c.say("ccy-teams: your home is not in the passwd database (" + err.Error() +
+			"), so the Element acceptance cannot be found or recorded.")
 		return exitConfig
 	}
 	dir := filepath.Join(home, acceptedDir)

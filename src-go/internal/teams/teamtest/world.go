@@ -85,6 +85,8 @@ func New(t *testing.T) *World {
 		Config: config.Load(root, getenv),
 		Runner: w.Fake, Stdout: w.Out, Stderr: w.ErrOut, Getenv: getenv, Stdin: &bytes.Buffer{},
 		InContainer: func() bool { return false },
+		// The test's HOME stands in for the passwd database, so no test reaches the real home.
+		UserHome: func(int) (string, error) { return w.Env["HOME"], nil },
 	}
 	w.Host.AppliedDir = filepath.Join(root, "applied")
 	w.Host.Wire()
