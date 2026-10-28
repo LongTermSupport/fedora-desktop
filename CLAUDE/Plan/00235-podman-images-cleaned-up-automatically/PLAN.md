@@ -1,6 +1,6 @@
 # Plan 00235: podman images cleaned up automatically
 
-**Status**: In Progress (Phase 4 built; its deploy, bracketed by the triage, is queued in meta-deploy.list)
+**Status**: In Progress (the first prune freed 299G, then broke the store on the host; the repair and the timer gate, Tasks 4.5, 4.6 and 4.8, are built and queued in meta-deploy.list; Q6 is the owner's)
 **Created**: 2026-10-28
 **Owner**: joseph
 **Priority**: High
@@ -52,17 +52,18 @@ Research, with file:line for every claim below:
 
 ### Facts
 
-| #   | Fact                                                                                                                                                                       | Source                  |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
-| F1  | One btrfs for `/` and `/home`, 1.6T; 146G free (91%) after the VM lab's prune freed 107.5 GiB; it had been at 99%                                                          | host agent, 2026-10-28  |
-| F2  | Rootless overlay storage 769G; 694 images, 639 dangling, 628 used by no container; 14 containers; 35 volumes, 30 dangling                                                  | host agent              |
-| F3  | Dangling by month: 2025-12 1, 2026-01 4, 02 13, 03 7, 04 3, 05 4, 06 10, 07 85, 08 249, 09 141, 10 122                                                                     | host agent              |
-| F4  | Of the 400 newest dangling: 314 carry no `org.opencontainers.image.title`, 84 are one project's custom-Dockerfile base (a PHP server image), 2 the unifi controller's      | host agent              |
-| F5  | Eight image-making paths (B1-B8); B1-B6 all run inside `ccy_image_build_locked`; B7 (devtools build) and B8 (unifi `compose pull`) do not; none removes the replaced image | research §1             |
-| F6  | Nothing in `playbooks/`, `tasks/`, `files/` prunes images; no prune timer exists                                                                                           | research §2, host agent |
-| F7  | `helpers/host_health` has no disk or podman probe; a failed user unit is already a finding                                                                                 | research §4             |
-| F8  | An orphaned volume owned outside the current subuid range makes `podman system df` exit 125; reclaim 2.0.x copes by listing as JSON                                        | host agent; research §2 |
-| F9  | `lib/image-build-lock.bash` has 57 code lines (limit 60); the launcher is on the bash-limits ratchet (`scripts/bash-limits.allowlist:50`)                                  | research §1             |
+| #   | Fact                                                                                                                                                                                                                | Source                  |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| F1  | One btrfs for `/` and `/home`, 1.6T; 146G free (91%) after the VM lab's prune freed 107.5 GiB; it had been at 99%                                                                                                   | host agent, 2026-10-28  |
+| F2  | Rootless overlay storage 769G; 694 images, 639 dangling, 628 used by no container; 14 containers; 35 volumes, 30 dangling                                                                                           | host agent              |
+| F3  | Dangling by month: 2025-12 1, 2026-01 4, 02 13, 03 7, 04 3, 05 4, 06 10, 07 85, 08 249, 09 141, 10 122                                                                                                              | host agent              |
+| F4  | Of the 400 newest dangling: 314 carry no `org.opencontainers.image.title`, 84 are one project's custom-Dockerfile base (a PHP server image), 2 the unifi controller's                                               | host agent              |
+| F5  | Eight image-making paths (B1-B8); B1-B6 all run inside `ccy_image_build_locked`; B7 (devtools build) and B8 (unifi `compose pull`) do not; none removes the replaced image                                          | research §1             |
+| F6  | Nothing in `playbooks/`, `tasks/`, `files/` prunes images; no prune timer exists                                                                                                                                    | research §2, host agent |
+| F7  | `helpers/host_health` has no disk or podman probe; a failed user unit is already a finding                                                                                                                          | research §4             |
+| F8  | An orphaned volume owned outside the current subuid range makes `podman system df` exit 125; reclaim 2.0.x copes by listing as JSON                                                                                 | host agent; research §2 |
+| F9  | `lib/image-build-lock.bash` has 57 code lines (limit 60); the launcher is on the bash-limits ratchet (`scripts/bash-limits.allowlist:50`)                                                                           | research §1             |
+| F10 | The first prune removed 639 things (299G freed), then left 3 c/storage temp dirs holding files owned by old-range uids; c/storage retries them on every layer store load and fails, so every image operation failed | host agent, 2026-10-28  |
 
 `triage.bash` re-measures F1-F4 and F6 (`./triage.bash --du` for the store's size on disk).
 
@@ -151,7 +152,28 @@ the plans cite kept.
   (`podman volume rm`), logs each removal (name, owner uid, size) to the play output and the
   retention log of Task 4.1, and fails on a removal that does not succeed; with no such volume it
   changes nothing. Tests first for the probe's judgement (a volume in range, out of range, in
-  use). Acceptance (Task 7.1): `podman system df` exits 0 afterwards
+  use). Acceptance (Task 7.1): `podman system df` exits 0 afterwards. NOT BUILT: Plan 00062
+  found 9 such volumes, one holding real database data, so "removed once" needs the owner's
+  confirmation (Q2b, and Q6's option A would make them usable again instead)
+- [x] ✅ **Task 4.5**: `tasks/podman-store-repair.yml`, imported by play-podman.yml before its
+  first podman question and after the first prune: as root, removes each
+  `overlay/tempdirs/temp-dir-N` and its `lock-N`, logging path and size; fails instead while a
+  podman or buildah of the user removes or builds, or a lock there is held (`/proc/locks`)
+  ([report](subagent-reports/261028-store-repair.md))
+- [x] ✅ **Task 4.6**: P6a: the prune stops at the first removal refused with permission denied
+  in c/storage's tempdirs, names the cause and the repair once, and exits 1 (tests first,
+  journalled)
+- [ ] ⬜ **Task 4.7** (FIX, Q6): layers still in the store with files owned by host uids outside
+  the user's uid and current subuid range (the old range, 100000+k) cannot be deleted rootless;
+  each prune meeting one stops (P6a) and needs the repair. The same open question as Plan 00062
+  Task 4.8
+- [x] ✅ **Task 4.8**: `tasks/podman-store-ownership-probe.yml`, imported by play-podman.yml after
+  the repair and before the timer: as root, `find -xdev -ignore_readdir_race -quit` looks in the
+  store's overlay for a file owned by a uid other than 0, the user's, or the current
+  `/etc/subuid` range. If one is found, the timer is stopped and disabled, the first prune is
+  not run, and the play fails at its end ("the podman store holds files owned outside your
+  subuid range (old range); the daily prune is held off until they are re-owned (Plan 00235
+  Q6)"), with the store already repaired
 
 ### Phase 5: The health report says so
 
@@ -218,6 +240,13 @@ Each has the default this plan proceeds on unless the owner says otherwise.
 - **Q5**: host_health is Python, and CLAUDE.md ports "a standalone Python CLI ... when it is next
   reworked". Default: **two probes added to the existing function are not a rework**; it stays
   Python. If the owner disagrees, the port is a plan of its own and Phase 5 waits for it.
+- **Q6**: Old-range files in the store (F10, Task 4.7). (A) A root step shifting files owned by
+  100000+k to the current range's start+k, with the containers stopped, and setuid bits and
+  file capabilities restored after the chown. (B) `podman system reset`, which destroys every
+  container, image and volume, including the 9 volumes Plan 00062 found. Recommendation: **A**,
+  after a read-only triage counts the affected layers and volumes. It keeps the containers'
+  state and the volumes, and every later deletion works. Until then the play-podman.yml repair
+  keeps the store usable, and the timer is held off (Task 4.8).
 
 ## Technical Decisions
 
@@ -253,12 +282,13 @@ timer, prune dangling images older than a day. Both leave anything a container u
 
 ## Risks & Mitigations
 
-| Risk                                                         | Impact | Probability | Mitigation                                                                                 |
-| ------------------------------------------------------------ | ------ | ----------- | ------------------------------------------------------------------------------------------ |
-| An image an agent-team member needs is removed               | H      | L           | `ps -a` checked first, podman's own refusal second; tests with two containers on one image |
-| A build in flight loses its intermediate images to the timer | M      | L           | the timer's one-day age filter; nothing removed while a build lock is held                 |
-| The orphaned volume breaks the timer or the probe            | M      | M           | `system df` never called (F8); a test with that error shape                                |
-| The lock's bash passes the 60-line limit                     | L      | M           | the Go command takes the logic; the lock's lines shrink if needed (Task 3.2)               |
+| Risk                                                         | Impact | Probability | Mitigation                                                                                                                                                                               |
+| ------------------------------------------------------------ | ------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| An image an agent-team member needs is removed               | H      | L           | `ps -a` checked first, podman's own refusal second; tests with two containers on one image                                                                                               |
+| A build in flight loses its intermediate images to the timer | M      | L           | the timer's one-day age filter; nothing removed while a build lock is held                                                                                                               |
+| A prune meets an old-range layer and breaks the store        | H      | M           | P6a stops at once; play-podman.yml repairs as root before and after, and holds the timer off (stopped, disabled) and fails while any such file remains (Task 4.8); Q6 is the lasting fix |
+| The orphaned volume breaks the timer or the probe            | M      | M           | `system df` never called (F8); a test with that error shape                                                                                                                              |
+| The lock's bash passes the 60-line limit                     | L      | M           | the Go command takes the logic; the lock's lines shrink if needed (Task 3.2)                                                                                                             |
 
 ## Delivery & Milestones
 

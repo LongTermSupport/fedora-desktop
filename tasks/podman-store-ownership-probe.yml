@@ -11,7 +11,9 @@
 # first prune and fails at its end.
 #
 # The search stops at the first such file (-quit) and stays on the store's filesystem (-xdev),
-# which keeps it out of mounted container roots.
+# which keeps it out of mounted container roots. Running containers add and delete files in the
+# store while it walks, so a file gone before find reaches it is not an error
+# (-ignore_readdir_race).
 #
 # Needs: user_login, and podman_store_home from tasks/podman-store-repair.yml.
 
@@ -51,6 +53,7 @@
       - find
       - "{{ podman_store_home }}/.local/share/containers/storage/overlay"
       - -xdev
+      - -ignore_readdir_race
       - "!"
       - -uid
       - "0"
