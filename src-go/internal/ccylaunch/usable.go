@@ -3,6 +3,7 @@ package ccylaunch
 import (
 	"context"
 	"fmt"
+	"io"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -25,6 +26,9 @@ const (
 	markFlag    = "--mark"
 	argsEnd     = "--"
 	daysShown   = 6
+	// bannerColour is bold, bright white, on red.
+	bannerColour = "\x1b[1;97;41m"
+	eraseToEnd   = "\x1b[K"
 )
 
 // UsageState is what is known of a token's usage.
@@ -213,6 +217,17 @@ func (r *usageReport) cachedRow(n usageName) usageRow {
 	return row
 }
 
+// alarm is text as one line, or on a terminal (D10's rule) as a three-line banner of bold
+// bright white on red, each line filled to its end (erase-to-end-of-line paints the
+// background), so a refusal printed before the chooser cannot be missed.
+func (f Front) alarm(w io.Writer, text string) string {
+	if !f.colourOnFor(w) {
+		return text + "\n"
+	}
+	fill := bannerColour + eraseToEnd + colourReset + "\n"
+	return fill + bannerColour + " " + text + " " + eraseToEnd + colourReset + "\n" + fill
+}
+
 // TokenUsable is F15, the ccy-token-usable command.
 func (f Front) TokenUsable(ctx context.Context) term.ExitCode {
 	args := f.Args
@@ -241,7 +256,7 @@ func (f Front) TokenUsable(ctx context.Context) term.ExitCode {
 			p.Print(f.Stdout, "   ✗ no usage left: "+u.Explain(now)+"\n")
 		}
 	case u.State == UsageUsedUp:
-		p.Print(f.Stderr, fmt.Sprintf("✗ No usage left on token %s: %s. ccy will not start a session on it.\n", u.Name, u.Explain(now)))
+		p.Print(f.Stderr, f.alarm(f.Stderr, fmt.Sprintf("✗ No usage left on token %s: %s. ccy will not start a session on it.", u.Name, u.Explain(now))))
 		code = ExitUsedUp
 	case u.State == UsageFault:
 		p.Print(f.Stderr, "ccy-token-usable: "+u.Reason+"\n")

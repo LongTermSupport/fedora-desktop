@@ -184,6 +184,39 @@ func TestUsableNoResetTime(t *testing.T) {
 		"✗ No usage left on token work: 7-day limit used up; the API gave no time it clears. ccy will not start a session on it.\n", 1)
 }
 
+// U9: on a terminal the refusal is a banner, bold bright white on red and filled to the
+// line's end, so it is not missed before the chooser; NO_COLOR and a pipe keep the plain line.
+func TestUsableUsedUpBannerOnlyOnATerminal(t *testing.T) {
+	text := "✗ No usage left on token work: 7-day limit used up; clears Fri 20:53, in 3d 8h. ccy will not start a session on it."
+	banner := "\x1b[1;97;41m\x1b[K\x1b[0m\n" +
+		"\x1b[1;97;41m " + text + " \x1b[K\x1b[0m\n" +
+		"\x1b[1;97;41m\x1b[K\x1b[0m\n"
+	for name, c := range map[string]struct {
+		terminal bool
+		env      string
+		want     string
+	}{"a terminal": {true, "", banner}, "NO_COLOR": {true, "NO_COLOR=1", text + "\n"}, "a pipe": {false, "", text + "\n"}} {
+		t.Run(name, func(t *testing.T) {
+			r := usableRun(t, "200", limitHeaders("0.25", "1.02"), 0)
+			r.front.IsTerminal = func(any) bool { return c.terminal }
+			if c.env != "" {
+				r.env(c.env)
+			}
+			r.front.Args = []string{"--", r.work()}
+			r.usable(t, ExitUsedUp, "", c.want, 1)
+		})
+	}
+}
+
+// U9: the chooser's mark is captured into the chooser's row, so it is never a banner.
+func TestUsableMarkIsNeverABanner(t *testing.T) {
+	r := usableRun(t, "200", limitHeaders("0", "0"), 0)
+	r.front.IsTerminal = func(any) bool { return true }
+	r.result(t, "work.2030-06-01.token\n429\n1.0\t"+reset5h+"\t0.4\t"+reset7d+"\tfive_hour\n", pinnedNow.Add(-2*time.Hour+time.Minute))
+	r.front.Args = []string{"--mark", "--", r.work()}
+	r.usable(t, term.ExitOK, "   ✗ no usage left: 5-hour limit used up; clears today 13:00, in 1h\n", "", 0)
+}
+
 // U6: anything but [--mark] [--] FILE is exit 64.
 func TestUsableUsage(t *testing.T) {
 	for _, args := range [][]string{nil, {"--"}, {"--mark"}, {"--bogus", "f"}, {"a", "b"}} {

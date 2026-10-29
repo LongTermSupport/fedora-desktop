@@ -755,6 +755,17 @@ today; rewriting them is out of scope.
   `HookHandlers` spec. Red: the rule fires on all 9 `ruleid:` lines of its fixture and no `ok:`
   line; green: 368 Python files, 0 findings, and the speech-to-text gate 404, 0.
 
+- [ ] 🔄 **Task 4.7**: The owner's request (2026-10-29): `ccy-token-usable`'s refusal of a
+  token with no usage left, printed before ccy falls back to the token chooser, was plain
+  white text that was easy to miss. No active plan owns F15 (Plan 00223 only depends on it),
+  so it is tracked here. On a terminal without NO_COLOR (D10's rule) the refusal is now a
+  three-line banner of bold bright white on red (`ESC[1;97;41m`), each line filled to its end
+  with `ESC[K` (`Front.alarm`, usable.go); on stderr as before, and unchanged in a pipe. The
+  chooser's `--mark` line is left as it is: it is captured into the chooser's row, not printed
+  before it. Test first (`TestUsableUsedUpBannerOnlyOnATerminal`, `TestUsableMarkIsNeverABanner`).
+  CCY 3.102.2 (front sources; no bash change). Left: `play-claude-yolo.yml` on the host, and
+  the owner seeing the banner on a used-up token.
+
 ### Phase 5: Review
 
 - [ ] ⬜ **Task 5.1**: qa-reviewer over the whole plan (a worker; it ran once, 7205384c3, and
