@@ -170,6 +170,12 @@ class FakeGuest:
         self.source, self.suggest, self.users, self.config_ok = source, suggest, users, config_ok
         self.gh_ok = True
         self.gh_checks: list[tuple[str, str]] = []
+        #: gh is on the container's PATH; when it is not, GH_INSTALL_SH installs it (with
+        #: gh_manager), or fails with gh_install_error.
+        self.gh_installed = True
+        self.gh_manager = "apt"
+        self.gh_install_error: str | None = None
+        self.gh_installs = 0
         self.agent_runs: list[tuple[str, str, tuple[str, ...]]] = []
         # systemd inside the container, for a member's supervised session (Plan 00203 gap 9).
         self.unit_dir = str(root / "etc" / "systemd" / "system")
@@ -226,6 +232,14 @@ class FakeGuest:
             if self.tmux is None:
                 raise members.MemberError(f"{what} failed (exit 4): no tmux")
             return f"{self.tmux}\n".encode()
+        if list(argv) == ["sh", "-c", members.GH_INSTALL_SH]:
+            self.gh_installs += 1
+            if self.gh_installed:
+                return b""
+            if self.gh_install_error is not None:
+                raise members.MemberError(f"{what} failed (exit 5): {self.gh_install_error}")
+            self.gh_installed = True
+            return f"{self.gh_manager}\n".encode()
         if list(argv[:3]) == ["sh", "-c", members.PYTHON_FIND_SH]:
             # The real search, over this container's root: what it prints is said as the
             # container sees it.
@@ -241,10 +255,11 @@ class FakeGuest:
               stdin: bytes = b"", env: Sequence[str] = ()) -> bytes:
         assert argv[3:4] not in ([s] for s in ROOT_SCRIPTS), f"{what} ran as the agent"
         if list(argv) == ["sh", "-c", members.GH_CHECK_SH]:
+            assert self.gh_installed, "gh's login was checked before gh was installed"
             self.gh_checks.append((user, argv[2]))
             if not self.gh_ok:
-                raise members.MemberError(f"{what} failed (exit 1): no oauth token found for github.com")
-            return b""
+                return b"logged-out no oauth token found for github.com\n"
+            return b"logged-in\n"
         self.agent_runs.append((user, cwd, tuple(env)))
         return self._run(argv, what, stdin, env)
 
@@ -713,21 +728,153 @@ class PresentPhaseTest(Fixture):
         with self.assertRaisesRegex(members.MemberError, "bundle unreadable"):
             self.run_phase("present", [entry()])
 
-    def test_gh_is_checked_as_the_agent_user_before_any_change(self) -> None:
-        """README.lxc: gh is required and logged in. The play checks it, never provides it."""
+    def test_gh_login_is_checked_as_the_agent_user_before_any_team_change(self) -> None:
+        """README.lxc: gh is required and logged in. The play installs gh; the login is the owner's."""
         self.run_phase("present", [entry()])
         self.assertEqual(self.guest.gh_checks, [("agent", members.GH_CHECK_SH)])
 
-    def test_gh_missing_or_logged_out_refused_naming_the_container(self) -> None:
+    def test_gh_logged_out_stops_with_the_one_command_the_owner_runs(self) -> None:
         self.guest.gh_ok = False
         with self.assertRaises(members.MemberError) as caught:
             self.run_phase("present", [entry()])
         message = str(caught.exception)
-        self.assertIn("LXC container devbox", message)
-        self.assertIn("gh auth login --hostname github.com", message)
+        self.assertIn("LXC container devbox: gh is required and must be logged in", message)
         self.assertIn("no oauth token", message)
+        self.assertIn("  sudo lxc-attach -n devbox -- su - agent -c 'gh auth login --hostname github.com --web'",
+                      message)
+        self.assertIn("device code", message)
+        self.assertIn(f"ccy-teams lxc-add {TEAM} again, or ccy-teams apply {TEAM}", message)
+        self.assertNotIn("install gh", message)
         self.assertFalse(pathlib.Path(self.guest.kit_parent).exists())
         self.assertEqual(self.bus.calls, [])
+
+    def test_once_logged_in_a_rerun_joins_with_no_other_step(self) -> None:
+        self.guest.gh_installed = False
+        self.guest.gh_ok = False
+        with self.assertRaisesRegex(members.MemberError, "gh auth login"):
+            self.run_phase("present", [entry()])
+        self.guest.gh_ok = True  # the owner's device-code login, and nothing else
+        changed = self.run_phase("present", [entry()])
+        self.assertIn(f"{HANDLE} joined team {TEAM} (agent@devbox)", changed)
+        self.assertEqual(self.guest.gh_installs, 2)
+        self.assertFalse(any("gh installed" in line for line in changed))
+
+    def test_gh_missing_is_installed_as_root_then_its_login_checked(self) -> None:
+        self.guest.gh_installed = False
+        changed = self.run_phase("present", [entry()])
+        self.assertIn("container devbox: gh installed (apt, from cli.github.com)", changed)
+        self.assertEqual(self.guest.gh_checks, [("agent", members.GH_CHECK_SH)])
+        self.assertEqual(self.run_phase("present", [entry()]), [])
+        self.assertEqual(self.guest.gh_installs, 2)
+
+    def test_gh_from_alpine_is_said_as_its_own_package(self) -> None:
+        self.guest.gh_installed = False
+        self.guest.gh_manager = "apk"
+        self.assertIn("container devbox: gh installed (apk, the distribution's github-cli)",
+                      self.run_phase("present", [entry()]))
+
+    def test_gh_that_cannot_be_installed_fails_before_any_team_change(self) -> None:
+        self.guest.gh_installed = False
+        self.guest.gh_install_error = "this container has none of apt-get, dnf or apk"
+        with self.assertRaises(members.MemberError) as caught:
+            self.run_phase("present", [entry()])
+        self.assertIn("LXC container devbox: installing gh", str(caught.exception))
+        self.assertIn("none of apt-get, dnf or apk", str(caught.exception))
+        self.assertEqual(self.guest.gh_checks, [])
+        self.assertFalse(pathlib.Path(self.guest.kit_parent).exists())
+        self.assertEqual(self.bus.calls, [])
+
+    def test_gh_is_not_installed_when_another_check_fails_first(self) -> None:
+        self.guest.gh_installed = False
+        self.bridge = False
+        with self.assertRaisesRegex(members.MemberError, "not a bridge"):
+            self.run_phase("present", [entry()])
+        self.assertEqual(self.guest.gh_installs, 0)
+
+
+class GhLoginRefusalTest(unittest.TestCase):
+    """Every member whose gh is not logged in is named in one message, each with its command."""
+
+    def test_two_members_one_message(self) -> None:
+        found = members.parse_members([entry(), entry(container="box2", user="bot", team=OTHER_TEAM)])
+        message = members.gh_login_refusal([(found[0], "no oauth token"), (found[1], "")])
+        self.assertIn("sudo lxc-attach -n devbox -- su - agent -c 'gh auth login --hostname github.com --web'", message)
+        self.assertIn("sudo lxc-attach -n box2 -- su - bot -c 'gh auth login --hostname github.com --web'", message)
+        self.assertIn(f"ccy-teams lxc-add {TEAM} again, or ccy-teams apply {TEAM}", message)
+        self.assertIn(f"ccy-teams lxc-add {OTHER_TEAM} again, or ccy-teams apply {OTHER_TEAM}", message)
+        self.assertEqual(message.count("gh is required and must be logged in"), 2)
+
+
+class GhScriptsTest(unittest.TestCase):
+    """GH_INSTALL_SH and GH_CHECK_SH run for real by sh, with stand-ins for gh and the package
+    managers on a PATH that holds nothing else (the apt and dnf branches write under /etc, so
+    only their choice is reached here, by the branches that stop first)."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.bin = pathlib.Path(self._tmp.name) / "bin"
+        self.bin.mkdir()
+        self.home = pathlib.Path(self._tmp.name) / "home"
+        self.home.mkdir()
+
+    def tool(self, name: str, body: str) -> None:
+        path = self.bin / name
+        path.write_text(f"#!/bin/sh\n{body}\n")
+        path.chmod(0o755)
+
+    def sh(self, script: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["/bin/sh", "-c", script], capture_output=True, text=True, check=False,
+                              env={"PATH": str(self.bin), "HOME": str(self.home)})
+
+    def test_gh_present_changes_nothing(self) -> None:
+        self.tool("gh", "exit 0")
+        self.tool("apk", "echo apk ran >&2; exit 9")
+        run = self.sh(members.GH_INSTALL_SH)
+        self.assertEqual((run.returncode, run.stdout), (0, ""), run.stderr)
+
+    def test_no_package_manager_fails_naming_them(self) -> None:
+        run = self.sh(members.GH_INSTALL_SH)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn("none of apt-get, dnf or apk", run.stderr)
+        self.assertEqual(run.stdout, "")
+
+    def test_alpine_installs_github_cli_and_says_apk(self) -> None:
+        chmod = shutil.which("chmod")
+        self.tool("apk", f'[ "$*" = "add --no-cache github-cli" ] || exit 9\n'
+                         f'printf "#!/bin/sh\\nexit 0\\n" > "{self.bin}/gh"; {chmod} 755 "{self.bin}/gh"\n'
+                         'echo "OK: installed"')
+        run = self.sh(members.GH_INSTALL_SH)
+        self.assertEqual((run.returncode, run.stdout), (0, "apk\n"), run.stderr)
+        self.assertIn("OK: installed", run.stderr)
+
+    def test_a_failing_package_manager_fails(self) -> None:
+        self.tool("apk", "echo 'ERROR: unable to select packages' >&2; exit 1")
+        run = self.sh(members.GH_INSTALL_SH)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertEqual(run.stdout, "")
+
+    def test_the_check_says_logged_in_and_never_prints_the_token(self) -> None:
+        self.tool("gh", '[ "$*" = "auth token --hostname github.com" ] || exit 9\necho gho_SECRETVALUE')
+        run = self.sh(members.GH_CHECK_SH)
+        self.assertEqual((run.returncode, run.stdout, run.stderr), (0, "logged-in\n", ""))
+
+    def test_the_check_says_logged_out_with_what_gh_said(self) -> None:
+        self.tool("gh", "echo 'no oauth token found for github.com' >&2; exit 1")
+        run = self.sh(members.GH_CHECK_SH)
+        self.assertEqual((run.returncode, run.stdout), (0, "logged-out no oauth token found for github.com\n"))
+
+    def test_the_check_reads_the_env_file(self) -> None:
+        env = self.home / members.PINGBUS_DIR
+        env.mkdir(parents=True)
+        (env / "env").write_text("MARK=from-env\n")
+        self.tool("gh", '[ "$MARK" = from-env ] || exit 1\necho t')
+        self.assertEqual(self.sh(members.GH_CHECK_SH).stdout, "logged-in\n")
+
+    def test_the_check_without_gh_says_logged_out_not_a_crash(self) -> None:
+        run = self.sh(members.GH_CHECK_SH)
+        self.assertEqual(run.returncode, 0)
+        self.assertTrue(run.stdout.startswith("logged-out "), run.stdout)
 
 
 class ResolveMembersTest(unittest.TestCase):
