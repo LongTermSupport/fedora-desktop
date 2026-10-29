@@ -412,7 +412,7 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   self-update case. Over every tracked non-markdown file no suite lost a selection and eleven
   gained 375 (subagent-reports/261027-task-3-9.md lists them).
 
-- [ ] ⏸️ **Task 3.10**: The VM lab's runs filled the host's disk: `vmtest sweep` keeps every run
+- [x] ✅ **Task 3.10**: The VM lab's runs filled the host's disk: `vmtest sweep` keeps every run
   that did not pass, with its overlay (up to the 20 GiB guest disk), for ever, and vmtest had no
   way to remove one. Code done (SPEC-vmtest E61-E65, H7): `vmtest prune-runs`, a dry run unless
   `--yes`, removes only the `*.qcow2` of runs that passed, were followed by a passing run of the
@@ -434,10 +434,13 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   The nightly sweep removed 12 passing runs' whole directories, plan-cited evidence included
   (`$7zLrx0PlxkebT2F8RqwaGSEf4cRO3g9cH6A7vOGvjrA`); it now removes only `*.qcow2` (E51, B19).
   The two reviews' follow-ups are fixed or answered (subagent-reports/261028-vmtest-follow-ups.md).
-  **Left, blocked (2026-10-28):** the host check that the vmtest-nightly run at 2026-10-29 04:07
-  writes no kept-build line to retention.log, which cannot be read before that run; and
-  play-vm-test-lab's rebuild with these fixes, queued behind the run that waits on the owner at
-  play-ftp-camera's password prompt (questions room Q9), as are Task 3.3's host checks.
+  Nightly check PASS 2026-10-29 (host agent, `$xit0eCSFI_bH4I5yj4ZiI7UiLkb2Ewm8WZKQr5_NV1E`):
+  the vmtest-nightly run with the Go sweep fired at 03:37 and finished in 16 s with no error,
+  deep-hashed the three bases (each `decision=refresh`: the updates repository moved overnight;
+  reporting only, nothing rebuilt), evicted nothing (`VMTEST-SPOOL-SWEEP-DONE evicted=0`, no
+  `VMTEST-EVICTED` line), kept every run directory (the 25 of the baseline, plus one newer run),
+  wrote `freshness-status.txt`, and left `retention.log` untouched: no kept-build line. SPEC-vmtest
+  H5 PASS.
 
 - [x] ✅ **Task 3.11**: FOLLOW-UP of Task 3.7 (Q3, decided 2026-10-28): `run.bash --changed`
   names the plays that read each changed variable of `environment/localhost/group_vars/desktop.yml`,

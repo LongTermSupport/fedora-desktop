@@ -34,64 +34,63 @@
 # that is not an entry is a fatal error naming its line number.
 
 # The changed plays are named one by one, not run as changed-plays: changed-plays stops at its
-# first failure, and play-podman.yml comes first and fails on purpose until Plan 00235 Q6 is
-# settled, so none of the others would run. play-podman.yml runs in the 00235 entry below.
-# play-claude-code-consumer.yml imports play-podman.yml, so it waits for Q6 too.
-# Plan 00235 Tasks 3.1-3.2 and the Plan 00192 duration fixes: installs CCY 3.102.1 and rebuilds
-# claude-yolo:latest and ccy-sessions (reboot and notify take at most 10080 minutes,
-# verify-restore --wait at most 86400 seconds). Its build removes the images it replaced only
-# while the store-clean marker is present, which it is not until Q6, so it removes nothing.
+# first failure, and play-podman.yml comes first and fails on purpose until the old-range files
+# in the podman store are dealt with (Plan 00235 Q6, now triaged case by case below), so none
+# of the others would run. play-podman.yml runs in the 00235 entry. play-claude-code-consumer.yml
+# imports play-podman.yml, so it waits too.
+# CCY 3.103.1: a token with no usage left is refused in a red banner on a terminal (Plan 00191
+# Task 4.7); every image ccy builds is labelled ccy-version, and a build removes project images
+# an older ccy built (Plan 00235 Q7; it removes nothing while the store-clean marker is absent,
+# as it is now); lxc-add's new gh login message (Plan 00177 Task 9.5). Rebuilds
+# claude-yolo:latest, ccy-sessions and ccy-token-usable. Nothing is asked.
 playbooks/imports/play-claude-yolo.yml
-# Rebuilds the ftp-camera tool (Go). Nothing else changes.
+# Plan 00177 Task 9.5: the LXC member join installs gh in each declared running container where
+# it is missing (GitHub's apt or dnf repository, or Alpine's github-cli), then stops with one
+# message naming the gh device-code login command for each agent user not yet logged in.
+playbooks/imports/play-agent-bus.yml
+# Plan 00192 Task 3.16: the camera hotspot Wi-Fi password is no longer asked for. With none
+# saved, the play makes a three-word one, vaults it and keeps it on later runs; ftp-camera
+# shows the network name and password whenever the hotspot is up. Rebuilds the ftp-camera tool.
+# It may restart vsftpd: if the owner is uploading photos, hold this run until they are done.
 playbooks/imports/optional/common/play-ftp-camera.yml
 # Rebuilds the nordvpn-openvpn tool (Go). Nothing else changes.
 playbooks/imports/optional/common/play-nordvpn-openvpn.yml
-# Rebuilds wsi and its panel extension: a stop grace over the setting's 30 seconds is refused.
+# Rebuilds wsi and the speech-to-text panel extension and its schema: the model manager says
+# "Checking the GPU and the models..." on its first frame and its GPU line reads clearly (Plan
+# 00234 Tasks 2.4-2.5); a notification when recorded files start and finish transcribing,
+# behind the new "Notify on file transcription" switch (Plan 00179 Task 4.5). The extension
+# changes take effect after the owner logs out and in.
 playbooks/imports/optional/common/play-speech-to-text.yml
+# Plan 00234: the model manager's screen check (read only), now waiting for the checking line.
+00234-stt-model-manager-fits-gpu/acceptance.bash
+# Plan 00198 (Complete): the Text Editor override moved to play-gnome-shell.yml beside the
+# editor's install, unchanged; expect no change to the per-user desktop file.
+playbooks/imports/play-gnome-shell.yml
 # Plan 00228 Task 6.7: the consumer VM scenario installs speech-to-text. deploy.bash runs
-# play-vm-test-lab.yml (asks for sudo once): it rebuilds vmtest, whose attendant now answers
-# the consumer's optional-app menu with the scenario's picks, and deploys the manifest
-# (desktop-consumer-install picks play-speech-to-text.yml) and its checker (20 checks: the
-# panel extension active, Whisper set up, post-processing-offered false). acceptance.bash
-# then runs desktop-consumer-install, desktop-fresh-install and server-fast-provision, each on
-# a throwaway guest at the pushed HEAD (it reports COULD NOT ESTABLISH if HEAD is not pushed);
-# the consumer run is long, as speech-to-text downloads its models. Nothing on the host
-# changes beyond the lab.
+# play-vm-test-lab.yml (asks for sudo once): it rebuilds vmtest (also Plan 00192 Tasks
+# 3.13-3.15: a failed member-up prints the end of the guest's console log; the SSH wait is
+# settable by VMTEST_SSH_WAIT_TIMEOUT), and deploys the manifest and its checker (20 checks).
+# acceptance.bash then runs desktop-consumer-install, desktop-fresh-install and
+# server-fast-provision, each on a throwaway guest at the pushed HEAD (COULD NOT ESTABLISH if
+# HEAD is not pushed); the consumer run is long, as speech-to-text downloads its models.
 00228-consumer-install-without-github
-# Plan 00235, URGENT: the store repair, then the prune finished. The first prune left three
-# layers c/storage could not delete (files owned by uids of the old subuid range), and since
-# then every podman image operation fails: ccy launches and builds, vmtest, the prune timer.
-# 1. triage.bash --du (read-only, no sudo): the before figures; with the store broken its
-#    podman legs fail, which is recorded and does not stop the run.
-# 2. deploy.bash (Tasks 4.5-4.6, asks for sudo once): play-podman.yml first REMOVES, AS ROOT,
-#    each leftover c/storage temporary directory (overlay/tempdirs/temp-dir-N and its lock-N)
-#    in the user's rootless store, naming each and its size in the play output; it stops
-#    instead, removing nothing, if a podman or buildah of the user is removing or building or a
-#    lock there is held. That makes podman work again before the play asks it anything, so the
-#    migrate step cannot stop the running containers on a failed probe. It then rebuilds
-#    container-images and starts the prune once more (no prune has succeeded yet): dangling
-#    images no container uses (over a day old), unused claude-yolo project images over 30 days,
-#    buildah leftovers, each logged to ~/.local/state/fedora-desktop/container-images.log; no
-#    volume, no image in use. If another layer holds old-range files the prune now stops at it
-#    and exits 1, the play repairs the store again as root and then fails: the store is left
-#    working, and the failure is Q6 of the plan (old-range files still in the store), the
-#    owner's decision. Running containers are not stopped. It may take some minutes.
-#    Before the timer, a root probe searches the store for a file owned outside the user's uid
-#    and current subuid range. If it finds one, the play does NOT run the prune, STOPS and
-#    DISABLES container-images-prune.timer, and FAILS ON PURPOSE at its end with "the podman
-#    store holds files owned outside your subuid range (old range); the daily prune is held off
-#    until they are re-owned (Plan 00235 Q6)". That failure is expected: the store is repaired
-#    and podman works, only the daily prune waits for Q6. A clean probe writes the marker
-#    ~/.local/state/fedora-desktop/container-images.store-clean; a failing one removes it, and
-#    without it ccy's self-prune and `container-images prune --yes` remove nothing.
-#    Then play-claude-yolo.yml (Tasks 3.1-3.2) installs CCY 3.102.1 and rebuilds
-#    claude-yolo:latest: that build, and every ccy build and in-place update after it, removes
-#    the images it replaced (old :latest, :base, project images) that no tag names and no
-#    container uses, while the store-clean marker is present. If play-podman.yml fails on
-#    purpose (Q6), play-claude-yolo.yml does not run in this deploy; CCY 3.102.1 has
-#    arrived through its own entry above.
-# 3. triage.bash --du again: the after figures.
-# 4. acceptance.bash (read-only; skipped if the deploy failed): the timer is enabled with a
-#    next run, the prune succeeded and logged, no unused dangling image over a day old is
-#    left, every container still has its image, claude-yolo:base and :latest exist.
+# Plan 00201 Task 2.7, ACCEPTANCE-owner.md step 08: cc --teams's Element consent, No then Yes,
+# driven in a private tmux on two throwaway teams (consent201a, consent201b) in a scratch
+# checkout, all removed after. Holds ~/.config/pingbus/element-accepted aside and puts it back
+# however the run ends (and puts back first what a killed run left). Prompts for sudo once; if
+# sudo also asks inside the private tmux, it prints how to attach and waits (exit 2 if nobody
+# types it). Exit 2 is COULD NOT ESTABLISH.
+00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/acceptance-consent.bash
+# Plan 00235: triage.bash --du (read only), then deploy.bash (asks for sudo once):
+# play-podman.yml repairs the store as root if needed (it removes c/storage's leftover
+# temp-dir-N, refusing while podman or buildah is busy), rebuilds container-images, and its root
+# probe still finds old-range files, so it keeps container-images-prune.timer stopped and
+# disabled and FAILS ON PURPOSE with the Q6 message, as last time. The opt-in podman system
+# reset block is gone (the owner: no reset, ever). Acceptance is skipped as the deploy fails.
 00235-podman-images-cleaned-up-automatically --du
+# Plan 00235 Task 4.7d, the owner's Q6 answer (case by case, no reset): the old-range triage of
+# the rootless podman store, read only: a root scan and the user's triage. Its report and the
+# proposed decisions (REMOVE, RE-OWN, ASK, HELD per item) are in its run directory; the host
+# agent reads them, writes untracked/plan-00235/old-range-decisions.tsv, and the next run's
+# dry run and old-range-apply.bash are queued after that.
+00235-podman-images-cleaned-up-automatically/old-range.bash
