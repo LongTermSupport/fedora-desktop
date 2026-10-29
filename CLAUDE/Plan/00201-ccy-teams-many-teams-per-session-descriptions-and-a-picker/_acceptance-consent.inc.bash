@@ -451,8 +451,8 @@ consent_check_yes() {
         return "${status}"
     fi
     "${CONSENT[@]}" expect-record "${CONSENT_RECORD}" "${EUID}" "${since}" || return 1
-    cp -p -- "${CONSENT_RECORD}" "$(m7_ev yes/element-accepted)" || return 1
-    evidence "08 Yes: the question named ${HANDLE_A} and ${HANDLE_B} (yes/consent.pane); the record was written owner-only (yes/element-accepted); ${CC_LIST} held by them (yes/seat-list.out)"
+    cp -p -- "${CONSENT_RECORD}" "$(m7_ev yes/consent-record)" || return 1
+    evidence "08 Yes: the question named ${HANDLE_A} and ${HANDLE_B} (yes/consent.pane); the record was written owner-only (yes/consent-record); ${CC_LIST} held by them (yes/seat-list.out)"
 }
 
 # consent_end_session — the Yes session ended as a person would (Ctrl-C twice to claude), then
