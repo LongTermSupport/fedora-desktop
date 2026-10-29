@@ -651,6 +651,11 @@ ccy --custom
 
 **Purpose**: GNOME desktop customization and extensions
 
+**GNOME Text Editor** (`play-gnome-shell.yml`): installs the editor and writes a per-user
+`~/.local/share/applications/org.gnome.TextEditor.desktop` so each file opens in a new
+window on the current workspace. Undoing it is in
+[configuration.md](configuration.md#gnome-text-editor-windows).
+
 **System extensions**:
 
 - **dash-to-dock**: Application dock with customization. Intellihide is set to
@@ -820,7 +825,8 @@ nmcli connection down vpn-name
 **Purpose**: Desktop settings configuration\
 **Actions**:
 
-- Applies custom GNOME settings via gsettings
+- Applies custom GNOME settings via dconf: Caps Lock off, middle-click paste of the
+  selected text on, and middle-click no longer closes Ptyxis tabs
 
 ### play-ZZ-repo-cleanup.yml
 

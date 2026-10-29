@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Plan 00198 acceptance.bash: the per-user GNOME Text Editor override is deployed and in force.
 # Read-only; run on the host as the desktop user (through meta-deploy.bash, after
-# playbooks/imports/play-gsettings.yml). It cannot prove the workspace behaviour, which is the
+# playbooks/imports/play-gnome-shell.yml). It cannot prove the workspace behaviour, which is the
 # owner's check in Task 2.2: open files from Nautilus on two workspaces.
 set -euo pipefail
 
@@ -20,7 +20,7 @@ done
     exit 1
 }
 # shellcheck source-path=SCRIPTDIR
-# shellcheck source=../_planlib.inc.bash
+# shellcheck source=../../_planlib.inc.bash
 source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
 plan_init "${BASH_SOURCE[0]}"
 
@@ -41,7 +41,8 @@ fi
 plan_require_host "it inspects the desktop user's own desktop files and default handlers"
 plan_start_log auto
 
-override="${XDG_DATA_HOME:-${HOME}/.local/share}/applications/org.gnome.TextEditor.desktop"
+# The path play-gnome-shell.yml writes, not $XDG_DATA_HOME: the check must look where the play wrote.
+override="${HOME}/.local/share/applications/org.gnome.TextEditor.desktop"
 
 plan_gather_leg "override file exists" test -f "${override}"
 plan_gather_leg "override has D-Bus activation off" grep -qx 'DBusActivatable=false' "${override}"

@@ -96,8 +96,6 @@ Use these Unicode icons in plan documents:
 
 - [00197-agent-bus-seat-broker-daemon](00197-agent-bus-seat-broker-daemon/) - Not Started. A host daemon that grants team seats on the owner's approval, so `ccy --teams` inside an LXC container joins with no config edit
 
-- [00198-gnome-text-editor-opens-a-new-window-on-the-current-workspace](00198-gnome-text-editor-opens-a-new-window-on-the-current-workspace/) - In Progress. Opening a file from Nautilus opens GNOME Text Editor in a new window on the current workspace, not as a tab on another workspace
-
 - [00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker](00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/) - In Progress. `ccy --teams`: one session on several teams, a description for every team, and a picker instead of a hard stop when no team covers the checkout
 
 - [00200-repo-watch-list](00200-repo-watch-list/) - In Progress. A list of external public repositories scanned at intervals for ideas, with a `watchlist` Go command, a scout agent and a `/watchlist` skill; findings become issues or plans
@@ -321,6 +319,8 @@ Use these Unicode icons in plan documents:
 - [004-comprehensive-feature-documentation](004-comprehensive-feature-documentation/) - Dormant (owner to keep or cancel). User documentation for the major features.
 
 ## Completed Plans
+
+- [00198-gnome-text-editor-opens-a-new-window-on-the-current-workspace](Completed/00198-gnome-text-editor-opens-a-new-window-on-the-current-workspace/) - Opening a file from Nautilus opened it as a tab in GNOME Text Editor's existing window and switched workspace, because the editor is D-Bus activated. `play-gnome-shell.yml` writes a per-user desktop file with D-Bus activation off and `--new-window`, regenerated from the system file on every run. Deployed and accepted; the owner confirmed each file opens where they are.
 
 - [00080-ccy-session-network-isolation](Completed/00080-ccy-session-network-isolation/) - Superseded by Plan 00232, never built. It decided on a network per ccy session. Plan 00232's default policy refuses the shared bridge's own subnet instead, so sessions cannot reach each other and `ccy --connect` keeps working.
 

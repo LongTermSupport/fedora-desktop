@@ -12,7 +12,7 @@
 # triage-probe.bash beside this script.
 #
 # RUN ON THE HOST, as the desktop user: through CLAUDE/Plan/meta-deploy.bash, or
-#   ./CLAUDE/Plan/00198-gnome-text-editor-opens-a-new-window-on-the-current-workspace/triage.bash
+#   ./CLAUDE/Plan/Completed/00198-gnome-text-editor-opens-a-new-window-on-the-current-workspace/triage.bash
 # It never prompts and needs no sudo.
 #
 # EFFECT ON THE HOST: nothing. The editor is run only with --help-all, which opens no window.
@@ -36,7 +36,7 @@ done
     exit 1
 }
 # shellcheck source-path=SCRIPTDIR
-# shellcheck source=../_planlib.inc.bash
+# shellcheck source=../../_planlib.inc.bash
 source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
 plan_init "${BASH_SOURCE[0]}"
 
