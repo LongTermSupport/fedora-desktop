@@ -288,11 +288,23 @@ repairs it.
 - **What is removed**:
   - dangling images no container uses (running, stopped, or a buildah working container), over
     a day old, so a build in flight is never touched;
-  - `claude-yolo:<project>` images (never `:base` or `:latest`) no container uses, built over 30 days ago and not launched for 30 days (ccy touches `~/.cache/claude-yolo-update-checks/claude-yolo_<project>` on each launch day); that project's next `ccy` launch rebuilds its image;
+  - tagged images no container uses and no other image is built on, created over 28 days ago
+    (the owner's four weeks; podman records no last use of an image, so the age is its
+    creation, which for a pulled image is its build upstream, and a pull fetches it again);
+    a `claude-yolo:<project>` image also only once its project has not been launched for 28
+    days (ccy touches `~/.cache/claude-yolo-update-checks/claude-yolo_<project>` on each
+    launch day), and that project's next `ccy` launch rebuilds it;
   - buildah working containers over a day old, left by a build that did not finish; another "storage" container (one whose podman record was lost) is listed, never removed. While a ccy image build runs, nothing is removed.
-- **What is never removed**: an image any container uses, a tagged image other than a stale
-  project image, and volumes. Dangling volumes are listed in each run's output; deciding about
-  them is yours, since a volume holds data.
+- **What is never removed**: an image any container uses, `claude-yolo:base` and `:latest`,
+  an image built on this host that nothing here builds again (a `localhost/` name other than
+  a ccy project image, such as `claude-devtools`, which its play builds), any container, and
+  volumes. Dangling volumes are listed in each run's output; deciding about them is yours,
+  since a volume holds data.
+- **Stale ccy images**: every image ccy builds is labelled `ccy-version=<CCY_VERSION>`. After
+  each build (a launch's, or `play-claude-yolo.yml`'s right after it installs a new ccy),
+  `container-images stale` removes the project images an older ccy built, or that have no such
+  label, once no container uses them. A stopped container keeping a stale image alive is named
+  and logged as `held`; remove that old session yourself to let the image go.
 - **The log**: each removal is appended to `~/.local/state/fedora-desktop/container-images.log`
   (time, kind, what, id, size in bytes, labels, why; tab-separated), only once it has happened.
   The run's report is in the journal:

@@ -16,6 +16,9 @@ import (
 // `podman system df`, which fails on a store holding a volume owned outside the user's subuid
 // range.
 
+// inspect is the engine verb that answers about one or more named objects.
+const inspect = "inspect"
+
 // ErrPodmanOnly is a store question only podman answers (JSON lists, external containers).
 var ErrPodmanOnly = errors.New("only podman's store is read this way")
 
@@ -132,6 +135,30 @@ func (e Engine) StoreImages(ctx context.Context, dangling bool) ([]StoreImage, e
 	return out, nil
 }
 
+// inspectedImage is the part of `podman image inspect` that names an image's layers.
+type inspectedImage struct {
+	ID     string
+	RootFS struct{ Layers []string }
+}
+
+// ImageLayers is each image's RootFS layers, base first, by bare id, in one inspect. An image
+// built on another starts with all of the other's layers, which is how a caller tells that
+// podman would refuse to remove the other.
+func (e Engine) ImageLayers(ctx context.Context, ids []string) (map[string][]string, error) {
+	out := map[string][]string{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	raw, err := podmanList[inspectedImage](ctx, e, "the layers of each image", append([]string{"image", inspect, "--format", "json"}, ids...)...)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range raw {
+		out[bareID(r.ID)] = r.RootFS.Layers
+	}
+	return out, nil
+}
+
 // StoreContainers is every container, running or not, and those other tools made.
 func (e Engine) StoreContainers(ctx context.Context) ([]StoreContainer, error) {
 	raw, err := podmanList[storeContainer](ctx, e, "containers", "ps", "--all", "--external", "--format", "json")
@@ -191,7 +218,7 @@ func (e Engine) ContainerVolumes(ctx context.Context, ids []string) (map[string]
 	if len(ids) == 0 {
 		return out, nil
 	}
-	raw, err := podmanList[inspectedContainer](ctx, e, "the mounts of each container", append([]string{"container", "inspect"}, ids...)...)
+	raw, err := podmanList[inspectedContainer](ctx, e, "the mounts of each container", append([]string{"container", inspect}, ids...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -276,7 +303,7 @@ func (e Engine) ContainerImageIDs(ctx context.Context) ([]string, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	res, err = e.run(ctx, append([]string{"container", "inspect", "--format", "{{.Image}}"}, ids...)...)
+	res, err = e.run(ctx, append([]string{"container", inspect, "--format", "{{.Image}}"}, ids...)...)
 	if err != nil {
 		return nil, fmt.Errorf("ask which image each container uses: %w", err)
 	}

@@ -211,37 +211,15 @@
         - launchers
 
     # The front carries CCY_VERSION from -ldflags and refuses --version and --help when it
-    # differs from the bash launcher's, so the build reads it from the same file the copy above
-    # installs. The group is one backslash: a >- scalar keeps it and {{ }} hands it to the filter
-    # as written (CLAUDE/QA.md, regex-backref-escape).
-    - name: Read CCY_VERSION for the Go Front's Build
-      ansible.builtin.set_fact:
-        ccy_front_version: >-
-          {{ lookup('ansible.builtin.file', root_dir ~ '/files/var/local/claude-yolo/claude-yolo')
-          | regex_search('^CCY_VERSION="([0-9][0-9.]*)"', '\1', multiline=True)
-          | default([], true) | first | default('') }}
-      tags:
-        - scripts
-        - launchers
-
-    - name: Assert CCY_VERSION Was Read for the Go Front
-      ansible.builtin.assert:
-        that:
-          - ccy_front_version is match('^[0-9][0-9.]*$')
-        fail_msg: >-
-          No CCY_VERSION="x.y.z" line was found in files/var/local/claude-yolo/claude-yolo; the
-          Go front cannot be built without its version.
-      tags:
-        - scripts
-        - launchers
-
+    # differs from the bash launcher's, so the build uses the ccy_version that
+    # tasks/claude-yolo-image.yml read from the same file the copy above installs.
     - name: Build and Install the Go Front of the ccy Launcher
       ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
       vars:
         go_command_name: claude-yolo
         go_command_dest: /var/local/claude-yolo/claude-yolo
         go_command_mode: "0755"
-        go_command_ldflags: "-X main.Version={{ ccy_front_version }}"
+        go_command_ldflags: "-X main.Version={{ ccy_version }}"
         go_command_owner: root
       tags:
         - scripts

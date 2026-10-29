@@ -17,6 +17,12 @@
 # build that succeeded, it is reported and the build's success is returned, because the image
 # the launch needs is built and the daily prune removes what this run left.
 #
+# Then `container-images stale` (Plan 00235 Q7): every ccy build labels its image ccy-version=
+# <CCY_VERSION>, so a project image an older ccy built, or one from before the label, is stale
+# once ccy has moved on; its tags go when no container uses it, and each stopped container
+# keeping a stale image is named and logged, never removed. CCY_VERSION is the launcher's, or
+# the play's environment for its own build.
+#
 # container-images is the Go command src-go/cmd/container-images, installed in ~/.local/bin by
 # tasks/claude-yolo-image.yml; CCY_CONTAINER_IMAGES names another path (the play's own build
 # runs with no ~/.local/bin on PATH). The engine is the launcher's CONTAINER_ENGINE.
@@ -36,4 +42,7 @@ ccy_image_build_pruned() {
     # (container-images-prune.timer) is the backstop for what this run could not remove.
     "$images" --engine "$engine" replaced --lock "$lock" "$repo" /dev/stdin <<<"$before" ||
         printf 'ccy: the images the build of %s replaced were not removed (container-images exit %s); the daily prune removes them.\n' "$repo" "$?" >&2
+    # FAIL-FAST-OK: as above; an image an older ccy built is removed by the next build's run.
+    "$images" --engine "$engine" stale --lock "$lock" --yes "${CCY_VERSION:-}" ||
+        printf 'ccy: the project images an older ccy built were not all removed (container-images exit %s).\n' "$?" >&2
 }

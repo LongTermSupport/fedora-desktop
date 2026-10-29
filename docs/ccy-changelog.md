@@ -27,6 +27,19 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.103.0 — container 2.79.15
+
+- **Every image ccy makes says which ccy made it.** The builds of `claude-yolo:base`,
+  `:latest` and a project image, the in-place Claude Code update and the play's build label
+  the image `ccy-version=<CCY_VERSION>`.
+- **A build removes the project images an older ccy built.** After each build the lock runs
+  `container-images stale` (Plan 00235 Q7): a `claude-yolo:<project>` image whose
+  `ccy-version` is older than this ccy, or that has none, is removed once no container uses
+  it and no image is built on it; its next launch rebuilds it. `:base` and `:latest` are never
+  removed. A stopped container keeping a stale image is named on stderr and logged to
+  `~/.local/state/fedora-desktop/container-images.log` (`held`); ccy never removes a
+  container. A failure is reported and never fails the launch.
+
 ## 3.102.2 — container 2.79.15
 
 - **No change to what ccy does.** The shared engine package gained the volume listing, each

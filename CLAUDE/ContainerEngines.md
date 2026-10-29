@@ -51,11 +51,11 @@ coexist cleanly — different sockets, different storage, different networking s
 
 `play-podman.yml` installs `container-images-prune.timer`, which runs
 `container-images prune --yes` (`src-go/cmd/container-images`, Plan 00235) every day: dangling
-images no container uses, over a day old; `claude-yolo:<project>` images no container uses, built and last launched over 30 days ago; buildah working containers over a day old; nothing while a ccy image build runs. Volumes
+images no container uses, over a day old; tagged images no container uses and none is built on, created (and for a ccy project image, last launched) over 28 days ago, never `claude-yolo:base`/`:latest` nor an image built here that nothing builds again; buildah working containers over a day old; nothing while a ccy image build runs. Volumes
 and images in use are never removed, and `podman system df` is never asked (it fails on a volume
 owned outside the user's subuid range). Each removal is logged to
 `~/.local/state/fedora-desktop/container-images.log`; `container-images prune` without `--yes`
-shows what the next run would remove. The detail for users is in
+shows what the next run would remove. After each ccy build, `container-images stale` removes the project images an older ccy built (label `ccy-version`) that no container uses. No play runs `podman system reset`. The detail for users is in
 [docs/containerization.md](../docs/containerization.md#the-daily-prune-of-the-podman-store).
 
 ## Docker — compatibility mode only

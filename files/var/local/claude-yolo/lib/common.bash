@@ -1032,7 +1032,7 @@ build_container_with_hash() {
     if [[ -n "$base_image_name" ]]; then
         container_cmd build \
             "${extra_flags[@]}" \
-            --build-arg DOCKERFILE_HASH="$dockerfile_hash" \
+            --build-arg DOCKERFILE_HASH="$dockerfile_hash" --label "ccy-version=${CCY_VERSION:?the build needs CCY_VERSION}" \
             --target base \
             -t "$base_image_name" \
             "$dockerfile_dir" || return
@@ -1041,7 +1041,7 @@ build_container_with_hash() {
     # Build with hash as build arg (builds final stage: full image with LSPs)
     container_cmd build \
         "${extra_flags[@]}" \
-        --build-arg DOCKERFILE_HASH="$dockerfile_hash" \
+        --build-arg DOCKERFILE_HASH="$dockerfile_hash" --label "ccy-version=${CCY_VERSION:?the build needs CCY_VERSION}" \
         -t "$image_name" \
         "$dockerfile_dir"
 }

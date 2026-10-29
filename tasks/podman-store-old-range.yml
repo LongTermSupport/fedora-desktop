@@ -6,7 +6,8 @@
 # Files of the store owned by host ids of an older subuid range (100000+k) cannot be removed by
 # the rootless user, and every prune meeting one breaks the store. CLAUDE/Plan/00235-*/old-range.bash
 # triages them (`container-images old-range scan` and `triage`); the host agent writes one
-# remove, reown or leave per item in a decisions file under untracked/. Here, behind the busy
+# remove, reown or leave per item in untracked/plan-00235/old-range-decisions.tsv, which
+# old-range-apply.bash hands this file. Here, behind the busy
 # guard: root scans the store again; the user checks the decisions against that scan and
 # podman's view (`plan`, which refuses unsafe or incomplete decisions); root re-owns the planned
 # directories into the current range and removes the stray ones decided remove (`reown`); the

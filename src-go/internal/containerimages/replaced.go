@@ -66,6 +66,9 @@ func selfPruneArgs(envEngine string, args []string) (engine.Request, []string, b
 	case len(rest) > 0 && rest[0] == "replaced":
 		words, ok := replacedArgs(rest[1:])
 		return req, words, ok
+	case len(rest) > 0 && rest[0] == verbStale:
+		words, ok := staleArgs(rest[1:])
+		return req, words, ok
 	default:
 		return req, nil, false
 	}
@@ -100,8 +103,14 @@ func (a App) selfPrune(ctx context.Context, req engine.Request, args []string) t
 	if err != nil {
 		return a.fail(err)
 	}
-	if args[0] == "before" {
+	switch args[0] {
+	case "before":
 		return a.before(ctx, eng, args[1])
+	case verbStale:
+		if choice.Kind != engine.Podman {
+			return a.print(a.Env.Stderr, "container-images: the stale-image rule reads podman's store only; nothing removed\n")
+		}
+		return a.stale(ctx, eng, args[1], args[2], args[3] != "")
 	}
 	return a.replaced(ctx, eng, args[1], args[2], args[3])
 }

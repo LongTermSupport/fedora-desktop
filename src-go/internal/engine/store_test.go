@@ -165,6 +165,41 @@ func TestStoreListsArePodmansOnly(t *testing.T) {
 	}
 }
 
+// imageInspectJSON is the part of `podman image inspect --format json` ImageLayers reads: each
+// image's id (podman writes it bare, docker with "sha256:") and its RootFS layers, base first.
+const imageInspectJSON = `[
+ {"Id":"1111111111111111111111111111111111111111111111111111111111111111","Digest":"sha256:d",
+  "RepoTags":["localhost/claude-yolo:latest"],"RootFS":{"Type":"layers","Layers":["sha256:l1","sha256:l2"]}},
+ {"Id":"sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "RootFS":{"Type":"layers","Layers":["sha256:l1"]}}
+]
+`
+
+func TestImageLayersAreEachImagesRootFSLayersInOneInspect(t *testing.T) {
+	e, f := engineOn(t, Podman)
+	f.On([]string{"podman", "image", "inspect", "--format", "json", "id-1", "id-2"}, execx.Result{Stdout: []byte(imageInspectJSON)})
+	got, err := e.ImageLayers(context.Background(), []string{"id-1", "id-2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || !slices.Equal(got["1111111111111111111111111111111111111111111111111111111111111111"], []string{"sha256:l1", "sha256:l2"}) ||
+		!slices.Equal(got["2222222222222222222222222222222222222222222222222222222222222222"], []string{"sha256:l1"}) {
+		t.Fatalf("ImageLayers = %v", got)
+	}
+	none, err := e.ImageLayers(context.Background(), nil)
+	if err != nil || len(none) != 0 || len(f.Calls()) != 1 {
+		t.Fatalf("no ids: %v, %v, ran %v", none, err, f.Calls())
+	}
+	d, df := engineOn(t, Docker)
+	if _, err := d.ImageLayers(context.Background(), []string{"x"}); !errors.Is(err, ErrPodmanOnly) || len(df.Calls()) != 0 {
+		t.Fatalf("docker: %v, ran %v", err, df.Calls())
+	}
+	f.On([]string{"podman", "image", "inspect"}, execx.Result{ExitCode: 125, Stderr: []byte("Error: boom\n")})
+	if _, err := e.ImageLayers(context.Background(), []string{"x"}); err == nil {
+		t.Fatal("a failed inspect was read")
+	}
+}
+
 func TestDanglingVolumesAreTheirNames(t *testing.T) {
 	e, f := engineOn(t, Podman)
 	f.On([]string{"podman", "volume", "ls", "--filter", "dangling=true", "--format", "{{.Name}}"},

@@ -93,9 +93,13 @@ fi
 # the launcher's bash), sleep $TEST_BUILD_SLEEP, then write the image; `build` fails when
 # $TEST_STATE/build-fails exists, and with $TEST_BUILD_LINGER leaves a child behind that
 # outlives it, as podman's pause process can. Every fake's pid goes to podman.pids for cleanup.
-# An id is 64 digits, as podman's are 64 hex digits. container-images' questions: `images` lists
-# the claude-yolo tags, `ps` finds no container (fails when $TEST_STATE/ps-fails exists), and
-# `image rm <id>` appends the id to removed.log (refuses when $TEST_STATE/rm-refuses exists).
+# An id is 64 digits, as podman's are 64 hex digits. An image file's fifth field is its
+# ccy-version label (a build's --label, a commit's --change LABEL), absent for an image made
+# before ccy labelled its images. container-images' questions: `images` lists the claude-yolo
+# tags (as JSON with --format json), `ps` finds the containers of $TEST_STATE/containers.json,
+# none without it (fails when $TEST_STATE/ps-fails exists), `image inspect --format json` gives
+# each image a layer of its own, and `image rm <ref>` appends the ref to removed.log (refuses
+# when $TEST_STATE/rm-refuses exists).
 cat >"$BIN/podman" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -104,13 +108,28 @@ img_file() { printf '%s/images/%s' "$TEST_STATE" "${1//[:\/]/_}"; }
 new_id() { printf '%064d' "$RANDOM$RANDOM$RANDOM"; }
 case "$1" in
 images)
+    sep=""
+    [ "${3:-}" != json ] || printf '['
     for f in "$TEST_STATE"/images/claude-yolo_*; do
         [ -f "$f" ] || continue
-        read -r id _ <"$f"
-        echo "localhost/claude-yolo:${f##*/claude-yolo_} sha256:$id"
-    done ;;
-ps) if [ -e "$TEST_STATE/ps-fails" ]; then echo "Error: the storage is locked" >&2; exit 125; fi ;;
+        read -r id version _ _ ccyv <"$f"
+        name="localhost/claude-yolo:${f##*/claude-yolo_}"
+        if [ "${3:-}" != json ]; then echo "$name sha256:$id" && continue; fi
+        printf '%s{"Id":"%s","Names":["%s"],"Labels":{"claude-yolo-version":"%s"%s},"Created":0}' \
+            "$sep" "$id" "$name" "$version" "${ccyv:+,\"ccy-version\":\"$ccyv\"}"
+        sep=","
+    done
+    [ "${3:-}" != json ] || printf ']\n' ;;
+ps) if [ -e "$TEST_STATE/ps-fails" ]; then echo "Error: the storage is locked" >&2; exit 125; fi
+    if [ "${!#}" = json ] && [ -f "$TEST_STATE/containers.json" ]; then cat "$TEST_STATE/containers.json"
+    elif [ "${!#}" = json ]; then echo '[]'; fi ;;
 image)
+    if [ "$2" = inspect ] && [ "${4:-}" = json ]; then
+        shift 4
+        sep="" && printf '['
+        for ref in "$@"; do printf '%s{"Id":"%s","RootFS":{"Layers":["sha256:%s"]}}' "$sep" "$ref" "$ref" && sep=","; done
+        printf ']\n' && exit 0
+    fi
     if [ "$2" = rm ] && [ -e "$TEST_STATE/rm-refuses" ]; then echo "Error: image has dependent child images" >&2; exit 2; fi
     if [ "$2" = rm ]; then echo "$3" >>"$TEST_STATE/removed.log" && exit 0; fi
     shift 2
@@ -123,7 +142,7 @@ image)
     done
     f="$(img_file "$name")"
     [ -f "$f" ] || { echo "Error: $name: image not known" >&2; exit 125; }
-    read -r id version hash claude <"$f"
+    read -r id version hash claude _ <"$f"
     case "$format" in
     *claude-yolo-version*) echo "$version" ;;
     *dockerfile-hash*) echo "$hash" ;;
@@ -132,10 +151,11 @@ image)
     esac ;;
 build)
     shift
-    tag="" hash="" dockerfile="" ctx=""
+    tag="" hash="" dockerfile="" ctx="" ccyv=""
     while [ $# -gt 0 ]; do
         case "$1" in
         -t) tag="$2"; shift 2 ;;
+        --label) case "$2" in ccy-version=*) ccyv="${2#ccy-version=}" ;; esac; shift 2 ;;
         -f) dockerfile="$2"; shift 2 ;;
         --build-arg) case "$2" in DOCKERFILE_HASH=*) hash="${2#DOCKERFILE_HASH=}" ;; esac; shift 2 ;;
         --target) shift 2 ;;
@@ -152,20 +172,21 @@ build)
     fi
     sleep "${TEST_BUILD_SLEEP:-0}"
     if [ -e "$TEST_STATE/build-fails" ]; then echo "Error: the build failed" >&2; exit 1; fi
-    printf '%s %s %s 2.0.0\n' "$(new_id)" "${version:-0}" "${hash:-unknown}" >"$(img_file "$tag")" ;;
+    printf '%s %s %s 2.0.0 %s\n' "$(new_id)" "${version:-0}" "${hash:-unknown}" "$ccyv" >"$(img_file "$tag")" ;;
 run)
     if [ "${!#}" = --version ]; then
         args=("$@")
-        read -r id version hash claude <"$(img_file "${args[$# - 2]}")"
+        read -r id version hash claude _ <"$(img_file "${args[$# - 2]}")"
         echo "$claude (Claude Code)"
     fi ;;
 commit)
-    image="${!#}"
+    image="${!#}" ccyv=""
+    for arg in "$@"; do case "$arg" in "LABEL ccy-version="*) ccyv="${arg#LABEL ccy-version=}" ;; esac; done
     echo "commit $image by $PPID" >>"$TEST_STATE/builds.log"
     sleep "${TEST_BUILD_SLEEP:-0}"
     f="$(img_file "$image")"
-    read -r id version hash claude <"$f"
-    printf '%s %s %s 2.0.1\n' "$(new_id)" "$version" "$hash" >"$f" ;;
+    read -r id version hash claude _ <"$f"
+    printf '%s %s %s 2.0.1 %s\n' "$(new_id)" "$version" "$hash" "$ccyv" >"$f" ;;
 rm) ;;
 *) echo "fake podman: unexpected call: $*" >&2; exit 97 ;;
 esac
@@ -195,6 +216,10 @@ export XDG_RUNTIME_DIR="$SCRATCH/run"
 export CCY_IMAGE_BUILD_REPORT_SECONDS=1
 export PATH="$BIN:$PATH"
 export LIB_DIR
+# The launcher's own CCY_VERSION, which its builds label their images with and its self-prune
+# judges older images by (lib/image-build-prune.bash); a launch script here inherits it.
+CCY_VERSION="$(awk -F'"' '/^CCY_VERSION=/ {print $2; exit}' "$LAUNCHER")"
+export CCY_VERSION
 LOCK="$SCRATCH/run/ccy/image-builds/claude-yolo_latest.lock"
 
 # The launcher's own functions that run under the lock, lifted from it: the in-place update
@@ -449,6 +474,31 @@ old_latest="$(awk '{print $1}' "$TEST_STATE/images/claude-yolo_latest")"
 TEST_BUILD_SLEEP=0 run_launch update-launch.bash restart >>"$QUIET" 2>&1
 check "an in-place update removes the :latest it replaced" "$old_latest" "$(cat "$TEST_STATE/removed.log")"
 
+echo "== every build and in-place update labels its image with the ccy that made it"
+check "the launcher's CCY_VERSION was read" yes "$([[ "$CCY_VERSION" =~ ^[0-9]+(\.[0-9]+)*$ ]] && echo yes || echo "no: '$CCY_VERSION'")"
+check ":latest's in-place update is labelled" "$CCY_VERSION" "$(awk '{print $5}' "$TEST_STATE/images/claude-yolo_latest")"
+check ":base's build is labelled" "$CCY_VERSION" "$(awk '{print $5}' "$TEST_STATE/images/claude-yolo_base")"
+TEST_BUILD_SLEEP=0 run_launch project.bash >>"$QUIET" 2>&1
+check "a project build is labelled" "$CCY_VERSION" "$(awk '{print $5}' "$TEST_STATE/images/claude-yolo_proj")"
+
+echo "== a build removes the project images an older ccy built, and names a session keeping one (Plan 00235 Q7)"
+reset_world
+TEST_BUILD_SLEEP=0 run_launch base.bash >>"$QUIET" 2>&1
+: >"$TEST_STATE/removed.log"
+printf '%064d 0 x 2.0.0 0.0.1\n' 1 >"$TEST_STATE/images/claude-yolo_old-a"
+printf '%064d 0 x 2.0.0\n' 2 >"$TEST_STATE/images/claude-yolo_old-b"
+printf '%064d 0 x 2.0.0 0.0.1\n' 3 >"$TEST_STATE/images/claude-yolo_old-c"
+printf '%064d 0 x 2.0.0 %s\n' 4 "$CCY_VERSION" >"$TEST_STATE/images/claude-yolo_current"
+printf '[{"Id":"s1","Names":["old-session"],"ImageID":"%064d","Created":"2026-09-01T00:00:00Z","State":"exited"}]\n' 3 >"$TEST_STATE/containers.json"
+TEST_BUILD_SLEEP=0 run_launch base.bash force >>"$QUIET" 2>"$SCRATCH/a.err"
+check "the rebuild succeeds" 0 "$?"
+check "the older ccy's and the unlabelled project tags are removed, and only those" \
+    "$(printf '%s\n' localhost/claude-yolo:old-a localhost/claude-yolo:old-b)" "$(grep '^localhost/' "$TEST_STATE/removed.log" | sort)"
+has "it says why" "$SCRATCH/a.err" "removed tag localhost/claude-yolo:old-a: built by ccy 0.0.1, older than the installed $CCY_VERSION, and no container uses it"
+has "it names the stopped session keeping one" "$SCRATCH/a.err" "but the stopped container old-session (exited, created 2026-09-01) uses it; ccy never removes a container"
+has "and logs it" "$HOME/.local/state/fedora-desktop/container-images.log" "	held	old-session	$(printf '%064d' 3)	"
+rm -f "$TEST_STATE/containers.json"
+
 echo "== a failed rebuild removes nothing"
 : >"$TEST_STATE/removed.log"
 touch "$TEST_STATE/build-fails"
@@ -563,19 +613,21 @@ mapfile -t play_argv < <(awk '
     task && /^ *argv:/ { in_argv = 1; next }
     in_argv && /^ *- / { sub(/^ *- /, ""); if ($0 ~ /^".*"$/) $0 = substr($0, 2, length($0) - 2); print; next }
     in_argv { exit }' "$PLAY")
-check "the play's build argv was found" 14 "${#play_argv[@]}"
+check "the play's build argv was found" 16 "${#play_argv[@]}"
 for i in "${!play_argv[@]}"; do
     case "${play_argv[$i]}" in
     /var/local/claude-yolo/lib/image-build-lock.bash) play_argv[i]="$LIB_DIR/image-build-lock.bash" ;;
     /opt/claude-yolo) play_argv[i]="$CONTEXT" ;;
     "{{ container_engine }}") play_argv[i]=podman ;;
     *"{{ dockerfile_hash.stdout }}"*) play_argv[i]="${play_argv[$i]/"{{ dockerfile_hash.stdout }}"/x}" ;;
+    *"{{ ccy_version }}"*) play_argv[i]="${play_argv[$i]/"{{ ccy_version }}"/$CCY_VERSION}" ;;
     esac
 done
 check "the play builds through the lock" "bash -c" "${play_argv[0]} ${play_argv[1]}"
 timeout 60 "${play_argv[@]}"
 check "it succeeds" 0 "$?"
 check "one build" 1 "$(builds)"
+check "the play's build is labelled with the ccy it installs" "$CCY_VERSION" "$(awk '{print $5}' "$TEST_STATE/images/claude-yolo_latest")"
 check "the record is emptied" 0 "$(wc -c <"$LOCK" | tr -d ' ')"
 
 echo "== the lock refuses a directory that is not the user's own"
