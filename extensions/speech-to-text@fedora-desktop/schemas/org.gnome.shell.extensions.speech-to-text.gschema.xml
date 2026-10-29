@@ -61,6 +61,11 @@
       <summary>Show Notifications</summary>
       <description>Show desktop notifications for recording status and transcription results</description>
     </key>
+    <key name="notify-file-jobs" type="b">
+      <default>true</default>
+      <summary>Notify on file transcription</summary>
+      <description>Show a desktop notification when the server starts and finishes transcribing recorded files, as the panel icon turns to the pen and back</description>
+    </key>
     <key name="whisper-model" type="s">
       <default>'auto'</default>
       <summary>Whisper Model</summary>

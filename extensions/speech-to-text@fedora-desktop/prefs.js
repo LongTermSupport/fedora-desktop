@@ -131,6 +131,10 @@ export default class SpeechToTextPreferences extends ExtensionPreferences {
         this._addSwitchRow(outputGroup, settings, 'show-notifications',
             'Show notifications', 'Show desktop notifications for transcription events');
 
+        this._addSwitchRow(outputGroup, settings, 'notify-file-jobs',
+            'Notify on file transcription',
+            'A notification when recorded files start and finish transcribing (the pen icon)');
+
         this._addComboRow(outputGroup, settings, 'paste-default-mode',
             'Paste shortcut for other apps',
             'Chosen at each paste for the window focused then. Terminals always get ' +

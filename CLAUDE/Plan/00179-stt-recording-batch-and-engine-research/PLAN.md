@@ -216,6 +216,14 @@ one.
 - [ ] ⬜ **Task 4.3**: `deploy.bash`, `acceptance.bash`, an entry in `meta-deploy.bash`, and
   docs in `docs/features/speech-to-text.md`.
 - [ ] ⬜ **Task 4.4**: `qa-all.bash`, then the `qa-reviewer` agent over the plan's diff.
+- [ ] 🔄 **Task 4.5**: FOLLOW-UP, the owner on 2026-10-29: the pen icon while a file job
+  runs "works great", and a GNOME Shell notification should come with it, toggleable. Built:
+  the GSettings key `notify-file-jobs` (default on) and its switch "Notify on file
+  transcription" in the preferences' output group; when the panel sees a file job start or end
+  (`_checkFileJob`, the same check that switches the icon) it notifies "Transcribing recorded
+  files…" or "Recorded files transcribed". Left: `play-speech-to-text.yml` through
+  meta-deploy (it compiles the schema), a log out and in, and the owner seeing both
+  notifications. Task 4.3's docs cover the key.
 
 ## Success Criteria
 

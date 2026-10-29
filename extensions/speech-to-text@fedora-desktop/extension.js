@@ -696,6 +696,11 @@ export default class SpeechToTextExtension extends Extension {
         if (filesRunning !== this._filesRunning) {
             this._filesRunning = filesRunning;
             this._log(`File transcription ${filesRunning ? 'started' : 'ended'}`);
+            if (this._settings?.get_boolean('notify-file-jobs')) {
+                Main.notify('Speech to Text', filesRunning
+                    ? 'Transcribing recorded files…'
+                    : 'Recorded files transcribed');
+            }
             if (this._icon && this._iconState === 'IDLE')
                 this._showLook('IDLE');
         }
