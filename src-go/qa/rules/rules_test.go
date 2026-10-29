@@ -65,6 +65,10 @@ func TestWaitDelay(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), WaitDelay, "fix/internal/badwait")
 }
 
+func TestCommandFailureDropped(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), CommandFailureDropped, "fix/internal/execx", "fix/internal/badfailure")
+}
+
 func TestRefusalKind(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), RefusalKind, "fix/internal/declare", "fix/internal/badrefusal")
 }
@@ -84,8 +88,8 @@ func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 12 {
-		t.Fatalf("want 12 rules, got %d", got)
+	if got := len(All()); got != 13 {
+		t.Fatalf("want 13 rules, got %d", got)
 	}
 }
 
