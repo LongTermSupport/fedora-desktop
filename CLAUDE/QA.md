@@ -1996,14 +1996,18 @@ before their first check and hold it to their verdict: `<git common dir>/fedora-
 shares: the main checkout, every linked worktree, every CCY container that bind-mounts the
 checkout, and the host. A flock belongs to the open file description of one inode, and a bind
 mount shows the same inode, so a lock taken through one path is seen through every other on the
-same kernel (`TestTwoProcessesShareTheLock` proves it with two real processes). The kernel
+same kernel. The tests prove the two halves: `TestTwoProcessesShareTheLock` (two real processes
+exclude each other) and `TestTheLockBelongsToTheInodeNotThePath` (a hard link, a second path to
+the inode, sees the holder). A real bind mount needs a mount namespace no unit test sets up;
+it rests on flock's per-inode semantics and is confirmed by a container run waiting for a host
+run. The kernel
 releases it when the holder ends, however it ends, so a dead holder never blocks a run. A
 second clone of the repository has its own common directory and its own lock. `--plan`, `--help`
 and a `qa-changed` with nothing changed take no lock; the build of the tool by
 `scripts/lib/go-tool.bash` (a cached `go build`) happens before it.
 
-**A second run waits; it does not fail.** The holder writes its record (pid, command, start,
-worktree) into the lock file, and a run that finds the lock held prints, on stderr, once:
+**A second run waits; it does not fail.** The holder writes its record (pid, pid namespace,
+command, start, worktree) into the lock file, and a run that finds the lock held prints, on stderr, once:
 
 ```text
 qa: waiting for the QA run <pid> (<command>, started <time>, in <worktree>)
@@ -2019,11 +2023,17 @@ one is going gets a queued run, not an error.
 - `QA_LOCK_TIMEOUT` (a Go duration, e.g. `30m`) bounds the wait: exit `2` naming the holder when
   it passes. Unset or `0` waits for as long as the lock is held.
 - **Nested runs inherit the lock.** `qa-all` and `qa-changed` both run `qa-go-qa.bash`, which
-  takes the lock when run on its own. The holder exports `QA_LOCK_HELD=<lock path>`; a run that
-  finds it naming the same lock **and** the record's pid among its own ancestors does not take
-  the lock again. The variable alone proves nothing (exported by hand, or left over), so a run
-  that is not a descendant of the holder waits as usual. The lock is therefore taken once per
-  top-level run and never deadlocks on its own children.
+  takes the lock when run on its own. A run that finds the lock held by a record whose pid
+  namespace is its own and whose pid is among its own ancestors (a walk up `/proc/<pid>/stat`)
+  does not wait. It is decided from the process tree alone, never the environment, so a gate
+  that scrubs its children's environment (`env -i`) cannot make a run wait for its own parent;
+  the namespace keeps the same pid number in another container from counting. The lock is taken
+  once per top-level run and never deadlocks on its own children
+  (`TestANestedRunInheritsTheRealLock` runs the real chain, through an `env -i` shell).
+- **A SIGKILLed holder frees the lock with its children still running.** The lock's descriptor
+  is not inherited (each gate runs in its own process group), so if `qa-all` itself is killed
+  with SIGKILL the next run can start beside its orphaned gates. Ctrl-C and SIGTERM end the
+  gates first; kill a QA run with those, never `kill -9` on the parent alone.
 
 **Low priority.** Every `qa-all`, `qa-changed` and `qa-lock` run is a background job: the whole
 process tree runs at nice 19 and in the idle I/O class (ionice class 3). Both are per thread on
@@ -2031,7 +2041,8 @@ Linux, inherited from the thread that creates a thread or process, so the comman
 its calling thread (`setpriority`, `ioprio_set`, in `src-go/qa/internal/proc/priority.go`) and
 re-executes itself from it once at the top: everything it then runs starts low. A run already
 low (started under `nice -n 19 ionice -c3`, or a nested run) does nothing. **`QA_FULL_PRIORITY=1`**
-keeps the priority the run was started with (CI, or a machine with nothing else to do).
+keeps the priority the run was started with (a machine with nothing else to do; CI does not
+set it, and runs low).
 
 ---
 

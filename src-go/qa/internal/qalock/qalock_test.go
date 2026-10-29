@@ -73,7 +73,13 @@ type world struct {
 	env     map[string]string
 	pid     int
 	parents map[int]int
+	ns      string
+	// real reads this process's own pid, parents and namespace (the multi-process tests).
+	real bool
 }
+
+// testNS is the fake pid namespace every fake holder and waiter shares.
+const testNS = "pid:[4026531836]"
 
 func newWorld() *world {
 	return &world{
@@ -82,13 +88,22 @@ func newWorld() *world {
 		env:     map[string]string{},
 		pid:     4242,
 		parents: map[int]int{4242: 1},
+		ns:      testNS,
 	}
 }
 
+func realWorld() *world {
+	w := newWorld()
+	w.real = true
+	return w
+}
+
 func (w *world) Env() Env {
+	if w.real {
+		return Env{Getenv: func(k string) string { return w.env[k] }, Stderr: w.stderr, Clock: w.clock, Getpid: os.Getpid, Parent: ParentOf, PIDNS: OwnPIDNS}
+	}
 	return Env{
 		Getenv: func(k string) string { return w.env[k] },
-		Setenv: func(k, v string) error { w.env[k] = v; return nil },
 		Stderr: w.stderr,
 		Clock:  w.clock,
 		Getpid: func() int { return w.pid },
@@ -98,6 +113,12 @@ func (w *world) Env() Env {
 				return 0, os.ErrNotExist
 			}
 			return ppid, nil
+		},
+		PIDNS: func() (string, error) {
+			if w.ns == "" {
+				return "", os.ErrNotExist
+			}
+			return w.ns, nil
 		},
 	}
 }
@@ -133,7 +154,7 @@ func holdAs(t *testing.T, path string, h Holder) func() {
 	return release
 }
 
-var other = Holder{PID: 777, Command: "qa-all", Started: started, Worktree: "/checkout/main"}
+var other = Holder{PID: 777, PIDNS: testNS, Command: "qa-all", Started: started, Worktree: "/checkout/main"}
 
 func TestAFreeLockIsTakenAndItsRecordNamesTheHolder(t *testing.T) {
 	w := newWorld()
@@ -146,11 +167,8 @@ func TestAFreeLockIsTakenAndItsRecordNamesTheHolder(t *testing.T) {
 		t.Fatalf("lock %+v", l)
 	}
 	h, ok := readRecord(path)
-	if !ok || h.PID != 4242 || h.Command != "qa-changed" || h.Worktree != "/checkout/wt" || !h.Started.Equal(w.clock.now) {
+	if !ok || h.PID != 4242 || h.PIDNS != testNS || h.Command != "qa-changed" || h.Worktree != "/checkout/wt" || !h.Started.Equal(w.clock.now) {
 		t.Fatalf("record %+v ok=%v", h, ok)
-	}
-	if w.env[HeldEnv] != path {
-		t.Fatalf("%s=%q, want the lock's path for the children", HeldEnv, w.env[HeldEnv])
 	}
 	if w.stderr.String() != "" {
 		t.Fatalf("a free lock printed %q", w.stderr.String())
@@ -303,7 +321,6 @@ func TestANestedRunInheritsTheLockOfItsAncestor(t *testing.T) {
 	// The holder is 777; this process is its grandchild, 4242 -> 900 -> 777.
 	holdAs(t, path, other)
 	w.parents = map[int]int{4242: 900, 900: 777, 777: 1}
-	w.env[HeldEnv] = path
 	l, err := Acquire(context.Background(), w.Env(), Request{Path: path, Command: "qa-go-qa"})
 	if err != nil {
 		t.Fatal(err)
@@ -322,26 +339,58 @@ func TestANestedRunInheritsTheLockOfItsAncestor(t *testing.T) {
 	}
 }
 
-func TestAnInheritedVariableFromANonAncestorDoesNotSkipTheLock(t *testing.T) {
-	w := newWorld()
+func TestAHolderThatIsNotAnAncestorIsWaitedFor(t *testing.T) {
+	w := newWorld() // 4242 -> 1: the holder, 777, is another run
 	path := lockPath(t)
 	holdAs(t, path, other)
-	w.env[HeldEnv] = path // exported by hand, or left over: 777 is not an ancestor
 	_, err := Acquire(context.Background(), w.Env(), Request{Path: path, NoWait: true})
 	if !errors.Is(err, ErrBusy) {
 		t.Fatalf("err %v, want ErrBusy", err)
 	}
 }
 
-func TestAVariableNamingAnotherLockDoesNotSkipThisOne(t *testing.T) {
+func TestTheSamePidInAnotherPidNamespaceIsNotAnAncestor(t *testing.T) {
 	w := newWorld()
 	path := lockPath(t)
-	holdAs(t, path, other)
+	// 777 is this run's parent here, but the holder's 777 is a process of another namespace
+	// (a run on the host, or in another container).
 	w.parents = map[int]int{4242: 777, 777: 1}
-	w.env[HeldEnv] = "/elsewhere/" + FileName
+	elsewhere := other
+	elsewhere.PIDNS = "pid:[4026532999]"
+	holdAs(t, path, elsewhere)
 	_, err := Acquire(context.Background(), w.Env(), Request{Path: path, NoWait: true})
 	if !errors.Is(err, ErrBusy) {
 		t.Fatalf("err %v, want ErrBusy", err)
+	}
+}
+
+func TestAnUnreadableNamespaceIsAnError(t *testing.T) {
+	w := newWorld()
+	w.ns = ""
+	path := lockPath(t)
+	holdAs(t, path, other)
+	if _, err := Acquire(context.Background(), w.Env(), Request{Path: path}); err == nil || !strings.Contains(err.Error(), "pid namespace") {
+		t.Fatalf("held: err %v", err)
+	}
+	free := lockPath(t)
+	if _, err := Acquire(context.Background(), w.Env(), Request{Path: free}); err == nil || !strings.Contains(err.Error(), "pid namespace") {
+		t.Fatalf("free: err %v", err)
+	}
+}
+
+// A hard link is a second path to the lock's inode, as a bind mount is: the lock is the inode's,
+// so a run through either path waits for a holder through the other.
+func TestTheLockBelongsToTheInodeNotThePath(t *testing.T) {
+	w := newWorld()
+	path := lockPath(t)
+	holdAs(t, path, other)
+	alias := filepath.Join(t.TempDir(), "alias.lock")
+	if err := os.Link(path, alias); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Acquire(context.Background(), w.Env(), Request{Path: alias, NoWait: true})
+	if !errors.Is(err, ErrBusy) || !strings.Contains(err.Error(), "the QA run 777") {
+		t.Fatalf("through a second path: err %v, want ErrBusy naming 777", err)
 	}
 }
 
@@ -350,7 +399,6 @@ func TestAnUnreadableAncestryIsAnError(t *testing.T) {
 	path := lockPath(t)
 	holdAs(t, path, other)
 	w.parents = map[int]int{} // this process's parent cannot be read
-	w.env[HeldEnv] = path
 	_, err := Acquire(context.Background(), w.Env(), Request{Path: path})
 	if err == nil || !strings.Contains(err.Error(), "parent") {
 		t.Fatalf("err %v", err)
@@ -432,7 +480,6 @@ func TestPathOfThisCheckoutIsTheSharedCommonDirectory(t *testing.T) {
 // lands in that repository's git directory, is held until released, and a second take with
 // --no-wait meanwhile is refused.
 func TestOSTakerHoldsTheLockOfTheRepositoryAtRoot(t *testing.T) {
-	t.Setenv(HeldEnv, "")
 	t.Setenv(TimeoutEnv, "")
 	root := t.TempDir()
 	res, err := proc.OS{}.Run(context.Background(), proc.Cmd{Argv: []string{"git", "init", "-q", root}})
@@ -446,14 +493,18 @@ func TestOSTakerHoldsTheLockOfTheRepositoryAtRoot(t *testing.T) {
 	}
 	lockFile := filepath.Join(root, ".git", FileName)
 	h, ok := readRecord(lockFile)
-	if !ok || h.Command != "qa-test" || h.Worktree != root || h.PID != os.Getpid() {
-		t.Fatalf("record %+v %v", h, ok)
+	ns, nsErr := OwnPIDNS()
+	if !ok || nsErr != nil || h.Command != "qa-test" || h.Worktree != root || h.PID != os.Getpid() || h.PIDNS != ns {
+		t.Fatalf("record %+v %v (namespace %q %v)", h, ok, ns, nsErr)
 	}
-	if os.Getenv(HeldEnv) != lockFile {
-		t.Fatalf("%s=%q", HeldEnv, os.Getenv(HeldEnv))
+	// This process is the holder, so a second take from it is nested, not refused.
+	again, err := OSTaker("qa-test", &stderr)(context.Background(), root, true)
+	if err != nil {
+		t.Fatalf("the holder's own second take: %v", err)
 	}
-	// This process is the holder, so a take from it counts as nested; a separate holder is
-	// what --no-wait refuses, which TestTwoProcessesShareTheLock proves.
+	if err := again(); err != nil {
+		t.Fatal(err)
+	}
 	if err := release(); err != nil {
 		t.Fatal(err)
 	}
@@ -523,8 +574,7 @@ func TestTwoProcessesShareTheLock(t *testing.T) {
 	if !ok || child.Command != "qa-child" {
 		t.Fatalf("the child's record %+v %v", child, ok)
 	}
-	w := newWorld()
-	w.pid = os.Getpid()
+	w := realWorld()
 	_, err = Acquire(context.Background(), w.Env(), Request{Path: path, Command: "qa-parent", NoWait: true})
 	if !errors.Is(err, ErrBusy) || !strings.Contains(err.Error(), "the QA run "+strconv.Itoa(child.PID)+" (qa-child") {
 		t.Fatalf("no-wait while the child holds: %v", err)
@@ -555,8 +605,7 @@ func TestTwoProcessesShareTheLock(t *testing.T) {
 // holdUntilTold is the child's side: take the lock, mark it held, wait for the go file.
 func holdUntilTold(t *testing.T, path string) {
 	t.Helper()
-	w := newWorld()
-	w.pid = os.Getpid()
+	w := realWorld()
 	l, err := Acquire(context.Background(), w.Env(), Request{Path: path, Command: "qa-child", Worktree: "/child"})
 	if err != nil {
 		t.Fatal(err)

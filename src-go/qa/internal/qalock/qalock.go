@@ -10,15 +10,17 @@
 // seen through every other on that kernel. It is released by the kernel when the holder ends,
 // however it ends, so a dead holder never blocks a run.
 //
-// The holder writes its record (pid, command, start, worktree) into the lock file; a waiter
-// prints it once and then a short line every minute, both on stderr. The pid and the worktree
-// are as the holder sees them: a run in a container names its container's pid and path.
+// The holder writes its record (pid, pid namespace, command, start, worktree) into the lock
+// file; a waiter prints it once and then a short line every minute, both on stderr. The pid and
+// the worktree are as the holder sees them: a run in a container names its container's pid and
+// path.
 //
-// A run started inside a run inherits the lock: the holder exports QA_LOCK_HELD naming the
-// lock's path, and a run that finds it AND finds the record's pid among its own ancestors does
-// not take the lock again (qa-all and qa-changed both run qa-go-qa.bash, which takes it alone).
-// The variable alone proves nothing (it can be exported by hand or left over), so a run whose
-// ancestry does not include the holder takes the lock as usual.
+// A run started inside a run inherits the lock: a run that finds the lock held, by a record
+// whose pid namespace is its own and whose pid is among its own ancestors, does not wait (qa-all
+// and qa-changed both run qa-go-qa.bash, which takes the lock when run alone). It is decided
+// from the process tree alone, never from the environment, so a gate that scrubs its children's
+// environment cannot make a run wait for its own parent; the namespace keeps a pid that only
+// looks like an ancestor (the same number in another container) from counting.
 package qalock
 
 import (
@@ -39,9 +41,6 @@ import (
 
 // FileName is the lock file in the git common directory.
 const FileName = "fedora-desktop-qa.lock"
-
-// HeldEnv names the lock a run holds, for the runs it starts.
-const HeldEnv = "QA_LOCK_HELD"
 
 // TimeoutEnv bounds the wait, as a Go duration; empty or 0 waits for as long as the lock is held.
 const TimeoutEnv = "QA_LOCK_TIMEOUT"
@@ -67,7 +66,10 @@ var ErrTimedOut = errors.New("the wait for the QA lock timed out")
 
 // Holder is the record a holder writes into the lock file.
 type Holder struct {
-	PID      int       `json:"pid"`
+	PID int `json:"pid"`
+	// PIDNS is the holder's pid namespace (the target of /proc/self/ns/pid): its pid means a
+	// process only to a run in the same namespace.
+	PIDNS    string    `json:"pidns"`
 	Command  string    `json:"command"`
 	Started  time.Time `json:"started"`
 	Worktree string    `json:"worktree"`
@@ -120,19 +122,24 @@ func (RealClock) Sleep(ctx context.Context, d time.Duration) error {
 // Env is everything a take touches outside the lock file.
 type Env struct {
 	Getenv func(string) string
-	// Setenv exports HeldEnv to the runs this one starts.
-	Setenv func(key, value string) error
 	// Stderr receives the wait lines.
 	Stderr io.Writer
 	Clock  Clock
 	Getpid func() int
 	// Parent is a process's parent pid.
 	Parent func(pid int) (int, error)
+	// PIDNS is this process's pid namespace.
+	PIDNS func() (string, error)
 }
 
 // OSEnv is the real environment of this process.
 func OSEnv(stderr io.Writer) Env {
-	return Env{Getenv: os.Getenv, Setenv: os.Setenv, Stderr: stderr, Clock: RealClock{}, Getpid: os.Getpid, Parent: ParentOf}
+	return Env{Getenv: os.Getenv, Stderr: stderr, Clock: RealClock{}, Getpid: os.Getpid, Parent: ParentOf, PIDNS: OwnPIDNS}
+}
+
+// OwnPIDNS is this process's pid namespace, as /proc/self/ns/pid names it ("pid:[<inode>]").
+func OwnPIDNS() (string, error) {
+	return os.Readlink("/proc/self/ns/pid")
 }
 
 // Request is one take.
@@ -207,7 +214,7 @@ func Path(ctx context.Context, runner proc.Runner, root string) (string, error) 
 }
 
 // Acquire takes the lock, waiting while another run holds it, or inherits it from an ancestor
-// run. A taken lock exports HeldEnv for the runs this one starts.
+// run.
 func Acquire(ctx context.Context, env Env, req Request) (*Lock, error) {
 	timeout, err := parseTimeout(env.Getenv(TimeoutEnv))
 	if err != nil {
@@ -229,15 +236,6 @@ func Acquire(ctx context.Context, env Env, req Request) (*Lock, error) {
 
 // take is Acquire with the file open: the caller closes it unless a lock was taken on it.
 func take(ctx context.Context, env Env, req Request, f *os.File, timeout time.Duration) (*Lock, error) {
-	if env.Getenv(HeldEnv) == req.Path {
-		inherited, err := heldByAncestor(env, req.Path)
-		if err != nil {
-			return nil, err
-		}
-		if inherited {
-			return &Lock{path: req.Path, nested: true}, nil
-		}
-	}
 	w := &wait{env: env, req: req, timeout: timeout, start: env.Clock.Now()}
 	w.nextReminder = w.start.Add(remindEvery)
 	for {
@@ -247,6 +245,14 @@ func take(ctx context.Context, env Env, req Request, f *os.File, timeout time.Du
 		}
 		if !errors.Is(flockErr, syscall.EWOULDBLOCK) {
 			return nil, fmt.Errorf("cannot lock %s: %w", req.Path, flockErr)
+		}
+		// Held: by an ancestor run, which this run is part of, or by another run to wait for.
+		inherited, err := heldByAncestor(env, req.Path)
+		if err != nil {
+			return nil, err
+		}
+		if inherited {
+			return &Lock{path: req.Path, nested: true}, nil
 		}
 		if err := w.busy(); err != nil {
 			return nil, err
@@ -289,22 +295,32 @@ func (w *wait) busy() error {
 	return nil
 }
 
-// hold writes this run's record into the locked file and exports the lock to its children.
+// hold writes this run's record into the locked file, before the run starts anything that
+// could look for it.
 func hold(env Env, req Request, f *os.File) (*Lock, error) {
-	h := Holder{PID: env.Getpid(), Command: req.Command, Started: env.Clock.Now(), Worktree: req.Worktree}
+	ns, err := env.PIDNS()
+	if err != nil {
+		return nil, fmt.Errorf("cannot read this run's pid namespace for the QA lock's record: %w", err)
+	}
+	h := Holder{PID: env.Getpid(), PIDNS: ns, Command: req.Command, Started: env.Clock.Now(), Worktree: req.Worktree}
 	if err := writeRecord(f, h); err != nil {
 		return nil, fmt.Errorf("cannot write the QA lock's record: %w", err)
-	}
-	if err := env.Setenv(HeldEnv, req.Path); err != nil {
-		return nil, fmt.Errorf("cannot export %s: %w", HeldEnv, err)
 	}
 	return &Lock{path: req.Path, file: f}, nil
 }
 
-// heldByAncestor is whether the lock's record names this process or one of its ancestors.
+// heldByAncestor is whether the lock's record names, in this run's own pid namespace, this
+// process or one of its ancestors.
 func heldByAncestor(env Env, path string) (bool, error) {
 	holder, ok := readRecord(path)
 	if !ok {
+		return false, nil
+	}
+	ns, err := env.PIDNS()
+	if err != nil {
+		return false, fmt.Errorf("cannot tell whether the QA lock is held by an ancestor: this run's pid namespace: %w", err)
+	}
+	if holder.PIDNS != ns {
 		return false, nil
 	}
 	pid := env.Getpid()

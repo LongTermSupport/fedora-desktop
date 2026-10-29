@@ -218,6 +218,10 @@ func reportPriorities(t *testing.T) {
 	if childNice := statNice(t, res.Stdout); childNice != lowNice {
 		t.Fatalf("a child runs at nice %d", childNice)
 	}
+	res, err = OS{}.Run(context.Background(), Cmd{Argv: []string{"sh", "-c", "exec ionice -p $$"}})
+	if err != nil || res.Code != 0 || strings.TrimSpace(res.Stdout) != "idle" {
+		t.Fatalf("a child's I/O class: %v %+v, want idle", err, res)
+	}
 	fmt.Printf("PRIORITY-LOW threads=%d\n", len(tasks))
 }
 

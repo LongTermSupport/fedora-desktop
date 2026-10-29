@@ -7,8 +7,8 @@ import (
 	"syscall"
 )
 
-// FullPriorityEnv set to 1 keeps a QA run at the priority it was started with (CI, a machine
-// with nothing else to do).
+// FullPriorityEnv set to 1 keeps a QA run at the priority it was started with (a machine with
+// nothing else to do).
 const FullPriorityEnv = "QA_FULL_PRIORITY"
 
 // lowPriorityMarkEnv marks the run Ensure re-executed, so a re-exec that did not lower it is an

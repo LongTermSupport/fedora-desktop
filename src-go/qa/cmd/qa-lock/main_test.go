@@ -137,24 +137,46 @@ func TestTheCommandLineIsStrict(t *testing.T) {
 	}
 }
 
-// TestTheRealLockIsExportedToTheCommand runs a real command under the real lock of a scratch
-// repository: the command sees QA_LOCK_HELD naming the lock, which is what lets a QA run it
-// starts inherit the lock instead of waiting for it.
-func TestTheRealLockIsExportedToTheCommand(t *testing.T) {
-	t.Setenv(qalock.HeldEnv, "")
+// nestedRootEnv names the repository a re-run of this test binary takes the lock of, as a QA
+// run started inside a QA run.
+const nestedRootEnv = "QA_LOCK_TEST_NESTED_ROOT"
+
+// TestANestedRunInheritsTheRealLock is the real chain: this process holds the real lock of a
+// scratch repository through run, whose command is a shell running this test binary again, and
+// that grandchild takes the same lock with --no-wait. It must inherit the lock (exit 0), not be
+// refused by its own grandparent; the shell between them scrubs the environment, so nothing but
+// the process tree carries the inheritance.
+func TestANestedRunInheritsTheRealLock(t *testing.T) {
 	t.Setenv(qalock.TimeoutEnv, "")
+	if root := os.Getenv(nestedRootEnv); root != "" {
+		var out, errOut strings.Builder
+		d := osDeps()
+		d.stdout, d.stderr, d.stdin = &out, &errOut, strings.NewReader("")
+		if code := run(context.Background(), []string{"--no-wait", "--name", "qa-nested", "--root", root, "--", "true"}, d); code != 0 {
+			t.Fatalf("the nested run: exit %d, stderr %q", code, errOut.String())
+		}
+		return
+	}
 	root := t.TempDir()
 	if res, err := (proc.OS{}).Run(context.Background(), proc.Cmd{Argv: []string{"git", "init", "-q", root}}); err != nil || res.Code != 0 {
 		t.Fatalf("git init: %v %+v", err, res)
 	}
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
 	var out, errOut strings.Builder
 	d := osDeps()
 	d.stdout, d.stderr, d.stdin = &out, &errOut, strings.NewReader("")
-	code := run(context.Background(), []string{"--name", "qa-go-qa", "--root", root, "--", "sh", "-c", `printf %s "$QA_LOCK_HELD"`}, d)
+	nested := `exec env -i PATH="$PATH" ` + nestedRootEnv + `="$1" "$0" -test.run='^TestANestedRunInheritsTheRealLock$'`
+	code := run(context.Background(), []string{"--name", "qa-go-qa", "--root", root, "--", "sh", "-c", nested, self, root}, d)
 	if code != 0 {
-		t.Fatalf("exit %d, stderr %q", code, errOut.String())
+		t.Fatalf("exit %d\nstdout: %s\nstderr: %s", code, out.String(), errOut.String())
 	}
-	if want := filepath.Join(root, ".git", qalock.FileName); out.String() != want {
-		t.Fatalf("the command saw %s=%q, want %q", qalock.HeldEnv, out.String(), want)
+	if strings.Contains(errOut.String(), "waiting for") {
+		t.Fatalf("the nested run waited for its own ancestor: %q", errOut.String())
+	}
+	if !strings.Contains(out.String(), "PASS") {
+		t.Fatalf("the nested run did not run its test: %s", out.String())
 	}
 }
