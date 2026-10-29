@@ -811,6 +811,16 @@ today; rewriting them is out of scope.
   `test-ccy-token-usage-command.bash` drives the built front (102 checks). CCY 3.104.0. Left:
   `play-claude-yolo.yml` on the host, and the owner seeing the bars.
 
+- [ ] 🔄 **Task 4.9**: Defence Before Fix for the owner's incident (2026-10-29 ~12:57, triaged
+  by seat 2): every token showed "could not reach the API" for 15 minutes after one failed read.
+  `ask()` kept only whether curl's run failed (status 000, no cause) and the entry was cached
+  for the TTL. Class: a command's failure only tested, never carried. Rule
+  `project_command_failure_dropped` (src-go/qa/rules, wrappers through facts), committed red
+  (e47fc3a04), widened after the independent search (010158bcd); 107 instances in the two
+  modules. Origin fixed (CCY 3.104.1): the cause is the entry's fourth line and in the reason,
+  a 000 entry is never fresh, Go and the bash menu alike. Left: the other instances, the rule
+  green and catalogued, the conformance review and report.
+
 ### Phase 5: Review
 
 - [ ] ⬜ **Task 5.1**: qa-reviewer over the whole plan (a worker; it ran once, 7205384c3, and

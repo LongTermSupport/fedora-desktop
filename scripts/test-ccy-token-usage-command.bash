@@ -322,7 +322,10 @@ check "exit 1" "1" "$RC"
 check "still one JSON object" "no" "$(has INVALID "$FLAT")"
 check "global error" '"usage could not be read for any token"' "$(field .error)"
 check "each token says why" '"unavailable" "unavailable"' "$(field a.status) $(field b.status)"
-check "unreachable: says so" '"could not reach the API"' "$(field b.reason)"
+check "unreachable: says what failed (curl's exit code)" '"could not read the API: curl exited 7"' "$(field b.reason)"
+run_ccy "$DENIED" -- --token-usage --json
+check "a failed read is asked again, not served from the cache; the refusal is" "1 yes no" \
+    "$(curl_calls) $(called_with placeholder-unreachable) $(called_with placeholder-denied)"
 check "unreachable: no HTTP status (curl's 000 is not one)" "null" "$(field b.http_status)"
 run_ccy "$DENIED" -- --token-usage
 check "table: exit 1" "1" "$RC"

@@ -26,6 +26,7 @@ import (
 
 const (
 	usageFlag       = "--token-usage"
+	usageNoResponse = "000"
 	usageJSONOption = "--json"
 	usageCurl       = "curl"
 	usagePrefix     = "ccy --token-usage: "
@@ -357,7 +358,8 @@ const (
 // fresh reports whether name's entry was read with this very file within the TTL.
 func (r *usageReport) fresh(n usageName, now time.Time) bool {
 	lines, why := r.entry(n.name)
-	if why != "" || line(lines, 0) != n.file {
+	// A failed read (000) is never fresh: the next read asks again rather than repeat it.
+	if why != "" || line(lines, 0) != n.file || line(lines, 1) == usageNoResponse {
 		return false
 	}
 	info, err := os.Stat(r.entryPath(n.name))
@@ -419,7 +421,7 @@ func tempStart(dir string) string {
 func (r *usageReport) curlArgs(hdr, body string) []string {
 	data := `{"model":"` + r.s.model + `","max_tokens":1,"messages":[{"role":"user","content":"."}]}`
 	return []string{
-		"--config", "-", "--silent", "--request", "POST",
+		"--config", "-", "--silent", "--show-error", "--request", "POST",
 		curlHeader, "content-type: application/json",
 		curlHeader, "anthropic-version: 2023-06-01",
 		curlHeader, "anthropic-beta: oauth-2025-04-20",
@@ -434,24 +436,42 @@ func (r *usageReport) ask(ctx context.Context, n usageName, hdr, body string) er
 		Name: usageCurl, Args: r.curlArgs(hdr, body),
 		Feed: &execx.Feed{Secret: *n.token, Before: usageFeedBefore, After: usageFeedAfter},
 	})
-	code := "000"
+	code, cause := usageNoResponse, ""
 	switch {
 	case errors.Is(err, execx.ErrSecretInArgv):
 		return err
 	case err == nil:
 		// As $(...) gives it: NULs dropped, trailing newlines removed.
 		code = strings.TrimRight(strings.ReplaceAll(string(res.Stdout), "\x00", ""), "\n")
+	default:
+		// curl's exit code and words (an execx.ExitError), or why it could not run: the
+		// entry's fourth line, so a failed read says what failed.
+		cause = usageCause(err)
 	}
-	raw, err := os.ReadFile(hdr)
-	if err != nil {
-		return err
+	raw, readErr := os.ReadFile(hdr)
+	if readErr != nil {
+		return readErr
 	}
-	content := n.file + "\n" + code + "\n" + usageRecord(raw) + "\n"
+	content := n.file + "\n" + code + "\n" + usageRecord(raw) + "\n" + cause + "\n"
 	path := r.entryPath(n.name)
 	if err := fsx.WriteAtomic(path, "usage cache entry", []byte(content), fileMode); err != nil {
 		return err
 	}
 	return os.Chmod(path, fileMode)
+}
+
+// usageCause is a failed run's error as one line of printable ASCII, the cache's text.
+func usageCause(err error) string {
+	var b strings.Builder
+	for _, c := range []byte(err.Error()) {
+		switch {
+		case c == '\n' || c == '\r' || c == '\t':
+			b.WriteByte(' ')
+		case c >= ' ' && c < 0x7f:
+			b.WriteByte(c)
+		}
+	}
+	return strings.Join(strings.Fields(b.String()), " ")
 }
 
 // usageRecord is _usage_extract: the figures of the dumped headers as one record,
@@ -565,7 +585,7 @@ func (r *usageReport) row(n usageName) usageRow {
 	case mtime < now && now-mtime >= r.s.ttl:
 		row.reason = "this run's fetch did not complete, and the cached figures are out of date"
 	case record == "":
-		row.reason = usageStatusReason(code)
+		row.reason = usageFailureReason(code, line(lines, 3))
 	default:
 		r.figures(&row, record)
 	}
@@ -625,10 +645,19 @@ func (r *usageReport) pct(raw string) (string, string) {
 	return strings.TrimSuffix(strings.TrimRight(fmt.Sprintf("%.2f", x), "0"), "."), ""
 }
 
+// usageFailureReason is why an entry has no figures: what the failed read recorded, else its
+// status's reason.
+func usageFailureReason(code, cause string) string {
+	if code == usageNoResponse && cause != "" {
+		return "could not read the API: " + cause
+	}
+	return usageStatusReason(code)
+}
+
 // usageStatusReason is _usage_status_reason.
 func usageStatusReason(code string) string {
 	switch code {
-	case "000":
+	case usageNoResponse:
 		return "could not reach the API"
 	case "401", "403":
 		return "this token was not authorised to read it"

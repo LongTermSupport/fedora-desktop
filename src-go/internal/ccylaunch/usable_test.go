@@ -88,7 +88,7 @@ func TestUsableUnreadableFailsOpen(t *testing.T) {
 	r := usableRun(t, "000", "", 6)
 	r.front.Args = []string{"--", r.work()}
 	r.usable(t, term.ExitOK, "",
-		"⚠ Could not check the usage left on token work (could not reach the API), so ccy starts on it anyway.\n", 1)
+		"⚠ Could not check the usage left on token work (could not read the API: curl exited 6), so ccy starts on it anyway.\n", 1)
 }
 
 // U3: usage reading turned off asks nothing and does not block.

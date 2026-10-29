@@ -1,6 +1,7 @@
 package ccylaunch
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -149,7 +150,7 @@ func (r *run) checkCurl(t *testing.T, c execx.Cmd) {
 		}
 	}
 	wantArgs := []string{
-		"--config", "-", "--silent", "--request", "POST", "--header", "content-type: application/json",
+		"--config", "-", "--silent", "--show-error", "--request", "POST", "--header", "content-type: application/json",
 		"--header", "anthropic-version: 2023-06-01", "--header", "anthropic-beta: oauth-2025-04-20",
 		"--data", `{"model":"claude-haiku-4-5-20251001","max_tokens":1,"messages":[{"role":"user","content":"."}]}`,
 		"--dump-header", "TMP", "--connect-timeout", "5", "--max-time", "20", "--output", "TMP",
@@ -183,7 +184,7 @@ func (r *run) checkEntry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "work.2030-06-01.token\n200\n0.25\t" + reset5h + "\t0.6\t" + reset7d + "\tfive_hour\n"; string(raw) != want {
+	if want := "work.2030-06-01.token\n200\n0.25\t" + reset5h + "\t0.6\t" + reset7d + "\tfive_hour\n\n"; string(raw) != want {
 		t.Fatalf("the cache entry %q, want %q", raw, want)
 	}
 	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
@@ -240,7 +241,7 @@ func TestTokenUsageStatuses(t *testing.T) {
 		exit                       int
 		row                        string
 	}{
-		{"no response", "000", "", "", 7, `"status": "unavailable", "reason": "could not reach the API", "five_hour_pct": null, "seven_day_pct": null, "resets": {"five_hour": null, "seven_day": null}, "binding_limit": null, "http_status": null`},
+		{"no response", "000", "", "", 7, `"status": "unavailable", "reason": "could not read the API: curl exited 7", "five_hour_pct": null, "seven_day_pct": null, "resets": {"five_hour": null, "seven_day": null}, "binding_limit": null, "http_status": null`},
 		{"refused", "401", "HTTP/2 401\r\n", "", 0, `"reason": "this token was not authorised to read it"`},
 		{"rate limited without figures", "429", "", "", 0, `"reason": "rate limited", "five_hour_pct": null, "seven_day_pct": null, "resets": {"five_hour": null, "seven_day": null}, "binding_limit": null, "http_status": 429`},
 		{"no limits", "200", "", "", 0, `"reason": "the API reported no limits"`},
@@ -340,6 +341,50 @@ func TestTokenUsageBarsColour(t *testing.T) {
 	r.answered(t, term.ExitOK)
 	if r.stdout.String() != barsWork {
 		t.Fatalf("NO_COLOR: stdout %q", r.stdout)
+	}
+}
+
+// F11, the 2026-10-29 incident: a failed read says why (curl's exit code and words, or why
+// curl could not run), keeps that in the cache entry, and is not served from the cache: the
+// next read asks again.
+func TestTokenUsageFailureIsNamedAndNotCached(t *testing.T) {
+	for name, c := range map[string]struct {
+		res    execx.Result
+		err    error
+		reason string
+	}{
+		"curl failed": {
+			execx.Result{Stdout: []byte("000"), Stderr: []byte("curl: (6) Could not resolve host: api.anthropic.com\n"), ExitCode: 6},
+			nil,
+			"could not read the API: curl exited 6: curl: (6) Could not resolve host: api.anthropic.com",
+		},
+		"curl could not run": {
+			execx.Result{},
+			errors.New("fork/exec /usr/bin/curl: resource\ttemporarily\nunavailable \xff"),
+			"could not read the API: fork/exec /usr/bin/curl: resource temporarily unavailable",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := usageRun(t, []string{"work.2030-06-01.token"}, "200", usageHeaders, "--json")
+			r.runner.OnFunc([]string{"curl"}, func(execx.Cmd) (execx.Result, error) { return c.res, c.err })
+			r.answered(t, term.ExitFailure)
+			if want := `"reason": "` + c.reason + `"`; !strings.Contains(r.stdout.String(), want) {
+				t.Fatalf("stdout lacks %s:\n%s", want, r.stdout)
+			}
+			raw, err := os.ReadFile(filepath.Join(r.cache(), "work.result"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := "work.2030-06-01.token\n000\n\n" + strings.TrimPrefix(c.reason, "could not read the API: ") + "\n"; string(raw) != want {
+				t.Fatalf("the cache entry %q, want %q", raw, want)
+			}
+		})
+	}
+	r := usageRun(t, []string{"work.2030-06-01.token"}, "200", usageHeaders, "--json")
+	r.result(t, "work.2030-06-01.token\n000\n\ncurl exited 6: x\n", pinnedNow)
+	r.answered(t, term.ExitOK)
+	if len(r.curls()) != 1 || !strings.Contains(r.stdout.String(), `"five_hour_pct": 25`) {
+		t.Fatalf("a failed read was served from the cache: %d calls\n%s", len(r.curls()), r.stdout)
 	}
 }
 

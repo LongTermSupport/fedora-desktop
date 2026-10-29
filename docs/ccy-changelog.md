@@ -27,6 +27,19 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.104.1 — container 2.79.15
+
+The image is unchanged, so there is no rebuild.
+
+- **A failed usage read says what failed, and is not cached.** Every token showed "could not
+  reach the API" for 15 minutes after one failed read (2026-10-29), because any failure of
+  curl was recorded as status 000 with no cause and served from the cache like an answer. Now
+  curl runs with `--show-error`, and its exit code and words (or why it could not run) are a
+  fourth line of the cache entry: `ccy --token-usage`, `ccy-token-usable` and the token menu
+  say `could not read the API: curl exited 6: curl: (6) Could not resolve host: ...`. An entry
+  with no response is never fresh, so the next read asks again. Held by the Go gate's new rule
+  `project_command_failure_dropped` (CLAUDE/GoProjectRules.md).
+
 ## 3.104.0 — container 2.79.15
 
 The image is unchanged, so there is no rebuild.

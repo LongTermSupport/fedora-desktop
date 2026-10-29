@@ -210,7 +210,7 @@ func (r *usageReport) cachedRow(n usageName) usageRow {
 	case line(lines, 0) != n.file:
 		row.reason = "no figures were fetched for this token file"
 	case line(lines, 2) == "":
-		row.reason = usageStatusReason(line(lines, 1))
+		row.reason = usageFailureReason(line(lines, 1), line(lines, 3))
 	default:
 		r.figures(&row, line(lines, 2))
 	}

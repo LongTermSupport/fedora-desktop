@@ -435,9 +435,11 @@ _usage_fetch_one() {
     hdr="$(mktemp)"; body="$(mktemp)"
     printf '' > "$out_prefix.summary"
 
+    # curl's words on a failure (--show-error: "curl: (6) Could not resolve host: ...") are the
+    # entry's fourth line, so a failed read says what failed.
     if code="$(printf 'header = "Authorization: Bearer %s"\n' "$token" \
         | curl --config - \
-               --silent \
+               --silent --show-error \
                --request POST \
                --header 'content-type: application/json' \
                --header 'anthropic-version: 2023-06-01' \
@@ -448,7 +450,7 @@ _usage_fetch_one() {
                --max-time "$CCY_USAGE_TIMEOUT" \
                --output "$body" \
                --write-out '%{http_code}' \
-               "$CCY_USAGE_ENDPOINT")"; then
+               "$CCY_USAGE_ENDPOINT" 2> "$out_prefix.cause")"; then
         :
     else
         # curl itself failed (DNS, TLS, refused, timeout). 000 is curl's own
@@ -469,16 +471,17 @@ _usage_fetch_one() {
 
     printf '%s\n' "$code" > "$out_prefix.status"
     rm -f "$hdr" "$body"
-    chmod 600 "$out_prefix.summary" "$out_prefix.status"
+    chmod 600 "$out_prefix.summary" "$out_prefix.status" "$out_prefix.cause"
     return 0
 }
 
 # Refreshes the cache for every given token file, fanning the fetches out in
 # parallel so N accounts cost roughly one round trip rather than N.
 #
-# One entry per token NAME, `<cache>/<name>.result`, three lines: the token file name it
-# was read with, the HTTP status (000 when no response came back), and the
-# _usage_extract record (empty when the response carried no figures).
+# One entry per token NAME, `<cache>/<name>.result`, four lines: the token file name it
+# was read with, the HTTP status (000 when no response came back), the
+# _usage_extract record (empty when the response carried no figures), and for a 000 what
+# failed (curl's exit code and words). A 000 entry is never fresh: the next read asks again.
 #
 # Args: $1 = token_dir, $2.. = token file paths
 usage_prime_cache() {
@@ -491,8 +494,7 @@ usage_prime_cache() {
     mkdir -p "$cache_dir"
     chmod 700 "$cache_dir"
 
-    local now pids=() token_file filename token_name entry_file mtime age
-    local -a entry=()
+    local now pids=() entry=() token_file filename token_name entry_file mtime age
     now="$(date +%s)"
 
     for token_file in "$@"; do
@@ -505,7 +507,7 @@ usage_prime_cache() {
         # name (an old and a renewed token) are two different credentials.
         if [ -f "$entry_file" ]; then
             mapfile -t entry < "$entry_file"
-            if [ "${entry[0]:-}" = "$filename" ] && mtime="$(stat -c %Y "$entry_file")"; then
+            if [[ "${entry[0]:-}" = "$filename" && "${entry[1]:-}" != 000 ]] && mtime="$(stat -c %Y "$entry_file")"; then
                 age=$(( now - mtime ))
                 if [ "$age" -ge 0 ] && [ "$age" -lt "$CCY_USAGE_TTL" ]; then
                     continue
@@ -528,11 +530,11 @@ usage_prime_cache() {
             if [ -n "$token" ]; then
                 part="$cache_dir/$token_name.$BASHPID"
                 _usage_fetch_one "$token" "$part"
-                printf '%s\n%s\n%s\n' "$filename" "$(cat "$part.status")" \
-                    "$(cat "$part.summary")" > "$part.result"
+                printf '%s\n%s\n%s\n%s\n' "$filename" "$(cat "$part.status")" \
+                    "$(cat "$part.summary")" "$(tr -c ' -~' ' ' < "$part.cause")" > "$part.result"
                 chmod 600 "$part.result"
                 mv -f "$part.result" "$cache_dir/$token_name.result"
-                rm -f "$part.status" "$part.summary"
+                rm -f "$part.status" "$part.summary" "$part.cause"
             fi
             exit 0
         ) &
@@ -617,7 +619,7 @@ usage_render_block() {
     # Real figures win over the status word — a 429 carrying numbers is more
     # useful than being told "rate limited".
     if [ -z "$record" ]; then
-        _usage_note "$(_usage_status_reason "${entry[1]:-000}")"
+        _usage_note "$(_usage_status_reason "${entry[1]:-000}")${entry[3]:+ (${entry[3]})}"
         return 0
     fi
 
