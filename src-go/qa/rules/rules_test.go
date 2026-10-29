@@ -66,7 +66,7 @@ func TestWaitDelay(t *testing.T) {
 }
 
 func TestCommandFailureDropped(t *testing.T) {
-	analysistest.Run(t, analysistest.TestData(), CommandFailureDropped, "fix/internal/execx", "fix/internal/badfailure")
+	analysistest.Run(t, analysistest.TestData(), CommandFailureDropped, "fix/internal/execx", "fix/internal/wrapper", "fix/internal/badfailure")
 }
 
 func TestRefusalKind(t *testing.T) {

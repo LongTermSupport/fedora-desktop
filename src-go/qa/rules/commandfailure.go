@@ -36,14 +36,24 @@ How to fix: put the error itself, or what errors.As finds in it (the exit code, 
 the message or the record the caller sees, or return it.`,
 	Run:        perPass(runCommandFailureDropped),
 	ResultType: noResultType,
+	FactTypes:  []analysis.Fact{new(commandErrFact)},
 }
 
 const failureDroppedMsg = "a command's failure is only tested, never carried: put its error (exit code, stderr) in what the caller sees, or return it"
+
+// commandErrFact marks a function whose error is a command's failure: it returns the error of
+// a command it ran, directly or through another such function (systemd.State runs systemctl).
+type commandErrFact struct{}
+
+func (*commandErrFact) AFact() {}
+
+func (*commandErrFact) String() string { return "returns a command's failure" }
 
 func runCommandFailureDropped(pass *analysis.Pass) {
 	if ownedByAny(pass.Pkg.Path(), execOwners) {
 		return
 	}
+	markWrappers(pass)
 	for _, f := range pass.Files {
 		if isTestFile(pass, f) {
 			continue
@@ -94,15 +104,84 @@ func checkRunAssign(pass *analysis.Pass, body *ast.BlockStmt, as *ast.AssignStmt
 	}
 }
 
-// runsCommand is whether call is to a function of a seam package that takes a Cmd and returns
-// an error last.
+// markWrappers exports commandErrFact for each function of the package that returns a
+// command's failure, to a fixed point so a wrapper of a wrapper is marked too.
+func markWrappers(pass *analysis.Pass) {
+	for changed := true; changed; {
+		changed = false
+		for _, f := range pass.Files {
+			for _, decl := range f.Decls {
+				fd, ok := decl.(*ast.FuncDecl)
+				if !ok || fd.Body == nil {
+					continue
+				}
+				fn, ok := pass.TypesInfo.Defs[fd.Name].(*types.Func)
+				if !ok || !errorLast(fn) || pass.ImportObjectFact(fn, new(commandErrFact)) || !returnsCommandErr(pass, fd.Body) {
+					continue
+				}
+				pass.ExportObjectFact(fn, new(commandErrFact))
+				changed = true
+			}
+		}
+	}
+}
+
+// returnsCommandErr is whether body returns a command's failure: a run's call, or a variable
+// a run's error went into.
+func returnsCommandErr(pass *analysis.Pass, body *ast.BlockStmt) bool {
+	errVars := map[types.Object]bool{}
+	ast.Inspect(body, func(n ast.Node) bool {
+		if as, ok := n.(*ast.AssignStmt); ok && len(as.Rhs) == 1 && len(as.Lhs) > 0 {
+			if call, isCall := as.Rhs[0].(*ast.CallExpr); isCall && runsCommand(pass, call) {
+				if id, isIdent := as.Lhs[len(as.Lhs)-1].(*ast.Ident); isIdent {
+					errVars[pass.TypesInfo.ObjectOf(id)] = true
+				}
+			}
+		}
+		return true
+	})
+	found := false
+	ast.Inspect(body, func(n ast.Node) bool {
+		if _, isLit := n.(*ast.FuncLit); isLit {
+			return false
+		}
+		if ret, ok := n.(*ast.ReturnStmt); ok {
+			for _, e := range ret.Results {
+				found = found || holdsCommandErr(pass, e, errVars)
+			}
+		}
+		return !found
+	})
+	return found
+}
+
+// holdsCommandErr is whether e is a run's call or names one of errVars.
+func holdsCommandErr(pass *analysis.Pass, e ast.Expr, errVars map[types.Object]bool) bool {
+	found := false
+	ast.Inspect(e, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.CallExpr:
+			found = found || runsCommand(pass, n)
+		case *ast.Ident:
+			found = found || errVars[pass.TypesInfo.Uses[n]]
+		}
+		return !found
+	})
+	return found
+}
+
+// runsCommand is whether call runs a command and returns its failure last: a function of a
+// seam package that takes a Cmd, or one commandErrFact marks.
 func runsCommand(pass *analysis.Pass, call *ast.CallExpr) bool {
 	f := calledFunc(pass, call)
-	if f == nil || f.Pkg() == nil || !ownedByAny(f.Pkg().Path(), execOwners) {
+	if f == nil || f.Pkg() == nil || !errorLast(f) {
 		return false
 	}
+	if !ownedByAny(f.Pkg().Path(), execOwners) {
+		return pass.ImportObjectFact(f, new(commandErrFact))
+	}
 	sig, ok := f.Type().(*types.Signature)
-	if !ok || sig.Results().Len() == 0 || !isErrorType(sig.Results().At(sig.Results().Len()-1).Type()) {
+	if !ok {
 		return false
 	}
 	for p := range sig.Params().Variables() {
@@ -111,6 +190,12 @@ func runsCommand(pass *analysis.Pass, call *ast.CallExpr) bool {
 		}
 	}
 	return false
+}
+
+// errorLast is whether f's last result is an error.
+func errorLast(f *types.Func) bool {
+	sig, ok := f.Type().(*types.Signature)
+	return ok && sig.Results().Len() > 0 && isErrorType(sig.Results().At(sig.Results().Len()-1).Type())
 }
 
 func isErrorType(t types.Type) bool {
@@ -186,12 +271,20 @@ func markIdent(pass *analysis.Pass, e ast.Expr, v *types.Var, tests map[*ast.Ide
 	}
 }
 
-// nextAssign is the position of the first assignment to v after from, or the end of body.
+// nextAssign is the position of the first assignment to v after from that every path past it
+// takes, or the end of body: one in a branch that does not hold from (an if's body, the other
+// branch of an else) may not run, so the failure may still be what v holds after it.
 func nextAssign(pass *analysis.Pass, body *ast.BlockStmt, v *types.Var, from token.Pos) token.Pos {
 	until := body.End()
+	var blocks []ast.Node
 	ast.Inspect(body, func(n ast.Node) bool {
+		if n == nil {
+			blocks = blocks[:len(blocks)-1]
+			return true
+		}
+		blocks = append(blocks, n)
 		as, ok := n.(*ast.AssignStmt)
-		if !ok || as.Pos() <= from || as.Pos() >= until {
+		if !ok || as.Pos() <= from || as.Pos() >= until || !innermostHolds(blocks, from) {
 			return true
 		}
 		for _, lhs := range as.Lhs {
@@ -202,4 +295,16 @@ func nextAssign(pass *analysis.Pass, body *ast.BlockStmt, v *types.Var, from tok
 		return true
 	})
 	return until
+}
+
+// innermostHolds is whether the innermost block or case of path (the nodes from body down to
+// an assignment) holds pos.
+func innermostHolds(path []ast.Node, pos token.Pos) bool {
+	for _, n := range slices.Backward(path) {
+		switch n.(type) {
+		case *ast.BlockStmt, *ast.CaseClause, *ast.CommClause:
+			return n.Pos() <= pos && pos < n.End()
+		}
+	}
+	return false
 }

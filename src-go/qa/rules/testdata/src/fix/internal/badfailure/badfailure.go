@@ -11,7 +11,7 @@ import (
 // status 000, printed as "could not reach the API" and cached, the exit code and stderr lost.
 // The refusal it returns is carried for that one sentinel only, and the later err is another
 // assignment, so neither carries the run's other failures.
-func ask(r execx.Runner, c execx.Cmd) (string, error) {
+func ask(r execx.Runner, c execx.Cmd) (string, error) { // want ask:"returns a command's failure"
 	res, err := r.Run(c) // want `a command's failure is only tested, never carried`
 	code := "000"
 	switch {
@@ -43,7 +43,7 @@ func unread(r execx.Runner, c execx.Cmd) string {
 }
 
 // sentinelOnly carries the failure only when it is the refusal, in an if.
-func sentinelOnly(c execx.Cmd) error {
+func sentinelOnly(c execx.Cmd) error { // want sentinelOnly:"returns a command's failure"
 	err := execx.Probe(c) // want `a command's failure is only tested, never carried`
 	if errors.Is(err, execx.ErrSecretInArgv) {
 		return err
