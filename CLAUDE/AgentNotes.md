@@ -176,6 +176,25 @@ cannot, and the user has to keep re-granting something they already mandated.
   instruction sits above daemon config, so no `.claude/hooks-daemon.yaml`
   setting can clear it.
 
+### A second QA run waits for the first — it is queued, not refused
+
+**QA never runs in parallel**, from any worktree, CCY container or the host: `qa-all`,
+`qa-changed` and `qa-go-qa.bash` take one shared lock in the git common directory, and every
+QA run is nice 19, ionice idle ([QA.md](QA.md#qa-runs-one-at-a-time-the-qa-lock-and-low-priority)).
+
+**How to apply:**
+
+- A coordinator does not need to sequence workers' QA by hand: a worker's
+  `./scripts/qa-changed.bash` started while a full run goes simply waits, printing
+  `qa: waiting for the QA run <pid> (<command>, started <time>, in <worktree>)` on stderr and a
+  line a minute after. That line is a queued run, not a hang and not a failure; do not kill it.
+- Run QA in the background (it can wait a long time) and wait on its exit, never in the
+  foreground.
+- A script or CI step that would rather fail passes `--no-wait` (exit `2`, the holder named), or
+  bounds the wait with `QA_LOCK_TIMEOUT=<duration>`.
+- `R-SUBAGENT-FULL-QA` still stands: a sub-agent does not run the full gate at all; the lock only
+  stops runs overlapping.
+
 ### Tell a read-only reviewer WHERE to write, never that it must not write
 
 **Do not instruct a `qa-reviewer` to return a long report inline.** Name the file

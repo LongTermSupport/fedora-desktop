@@ -168,6 +168,11 @@ linters:
       - path: qa/(patterns/helpers_test|cmd/qa-patterns/main_test)\.go
         linters: [gosec]
         text: "G304"
+      # The QA lock's tests hold the lock through a second open of a file under a temporary
+      # directory, read its record back, and signal a child process by marker files beside it.
+      - path: qa/internal/qalock/.*_test\.go
+        linters: [gosec]
+        text: "G304|G703"
       # A test writes an executable stub to prove the executable check.
       - path: qa/changed/.*_test\.go
         linters: [gosec]

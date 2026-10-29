@@ -57,7 +57,34 @@ func Main(ctx context.Context, args []string, env Env) ExitCode {
 		return ExitCannotRun
 	}
 	defer s.cleanup()
-	return s.settle(s.run(ctx))
+	release, code, held := s.lock(ctx)
+	if !held {
+		return code
+	}
+	code = s.run(ctx)
+	if err := release(); err != nil {
+		s.errf(abortPrefix+"cannot release the QA lock: %v\n", err)
+		return ExitCannotRun
+	}
+	return s.settle(code)
+}
+
+// lock takes the QA lock for the whole run; held is false when the run must end with code.
+func (s *session) lock(ctx context.Context) (func() error, ExitCode, bool) {
+	if s.env.Lock == nil {
+		s.errf(abortPrefix + "no QA lock is wired into this command\n")
+		return nil, ExitCannotRun, false
+	}
+	release, err := s.env.Lock(ctx, s.root, s.opts.noWait)
+	if err == nil {
+		return release, ExitOK, true
+	}
+	if ctx.Err() != nil {
+		s.outf("✗ qa-all interrupted\n")
+		return nil, ExitInterrupted, false
+	}
+	s.errf(abortPrefix+"%v\n", err)
+	return nil, ExitCannotRun, false
 }
 
 // outf and errf write to the two streams, remembering the first write that failed.

@@ -281,6 +281,7 @@ var clockAllowances = []clockAllowance{}
 // realClocks are the real side of a clock seam: each is handed its duration by a caller whose
 // tests replace the seam whole, so no test shortens the real one. fn is "func" or "Type.method".
 var realClocks = []allowance{
+	{pkg: "qa/internal/qalock", fn: "RealClock.Sleep", reason: "the real side of qalock.Clock, the QA lock's one-second poll; its tests replace the clock whole, and the one that keeps RealClock asserts only that a cancelled context ends it"},
 	{pkg: "internal/tmuxccy", fn: "Tmux.pause", reason: "the real side of Tmux.Sleep, the take-over's wait between client checks; the one test that keeps it runs in a synctest bubble"},
 	{pkg: "internal/ccylaunch", fn: "Front.pause", reason: "the real side of Front.Pause, the build lock's poll; its tests replace Pause"},
 	{pkg: sessprobePkg, fn: "Probe.sleep", reason: "the real side of Probe.Sleep, the CPU sample; the one test that keeps it samples fixed /proc readings, so nothing races the sleep"},

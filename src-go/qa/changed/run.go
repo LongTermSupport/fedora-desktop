@@ -134,7 +134,29 @@ func (s *session) run(ctx context.Context) ExitCode {
 	if s.preflight() != nil {
 		return ExitCannotRun
 	}
-	return s.execute(ctx)
+	return s.locked(ctx)
+}
+
+// locked runs the checks under the QA lock, so no other QA run overlaps them.
+func (s *session) locked(ctx context.Context) ExitCode {
+	if s.env.Lock == nil {
+		s.errf("ERROR: no QA lock is wired into this command\n")
+		return ExitCannotRun
+	}
+	release, err := s.env.Lock(ctx, s.root, s.opts.noWait)
+	if err != nil {
+		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+			return s.interrupted()
+		}
+		s.errf("ERROR: %v\n", err)
+		return ExitCannotRun
+	}
+	code := s.execute(ctx)
+	if err := release(); err != nil {
+		s.errf("ERROR: cannot release the QA lock: %v\n", err)
+		return ExitCannotRun
+	}
+	return code
 }
 
 func (s *session) collect(ctx context.Context) (collected, error) {

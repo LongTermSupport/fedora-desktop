@@ -545,7 +545,12 @@ when the root is stripped unresolved. A gate whose tests run on a fake tree take
 a field (`rootpath.RootVia`).
 
 `qa/internal/proc` can stream a command's output to a writer (a report stage's output reaches the
-terminal live and in order).
+terminal live and in order). Its `Priority.Ensure` is how a QA command becomes a background job
+(nice 19, ionice idle, by re-executing itself from a lowered thread; `QA_FULL_PRIORITY=1` opts
+out), and `qa/internal/qalock` is the one QA lock (flock(2) on a file in the git common
+directory, a wait that names the holder, inherited by nested runs): `qa-all`, `qa-changed` and
+`qa/cmd/qa-lock` (which `scripts/qa-go-qa.bash` runs go-qa under) take both
+([QA.md](../CLAUDE/QA.md#qa-runs-one-at-a-time-the-qa-lock-and-low-priority)).
 
 A new gate's command and package are built on four shared packages under `qa/internal`, never on
 a copy of their code. `cmdmain` is for the `main`: every command's `run` starts with
