@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.102.2"  # Container 2.79.15: the engine package's volume questions, unused by the launcher. See docs/ccy-changelog.md.
+CCY_VERSION="3.103.0"  # Container 2.79.15: images labelled ccy-version; a build removes project images an older ccy built. See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -2004,7 +2004,7 @@ update_claude_inplace() {
     # the container is always cleaned up.
     if ! container_cmd commit \
         --change 'ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]' \
-        --change 'CMD ["claude", "--help"]' \
+        --change 'CMD ["claude", "--help"]' --change "LABEL ccy-version=${CCY_VERSION:?}" \
         "$temp_name" "$image_name" >/dev/null; then
         remove_temp_container "$temp_name"
         print_error "Failed to commit updated image $image_name"
@@ -2171,7 +2171,7 @@ if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
             set -o pipefail
             DOCKER_BUILDKIT=1 container_cmd build \
                 --build-arg BUILDKIT_INLINE_CACHE=1 \
-                --build-arg DOCKERFILE_HASH="$project_dockerfile_hash" \
+                --build-arg DOCKERFILE_HASH="$project_dockerfile_hash" --label "ccy-version=${CCY_VERSION:?}" \
                 -t "$PROJECT_IMAGE_NAME" \
                 -f "$PROJECT_DOCKERFILE" \
                 . 2>&1 | tee "$build_log" || return

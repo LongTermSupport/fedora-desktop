@@ -7,11 +7,17 @@
 //   - P1. A dangling image (no tag, no image built on it) is removed when no container, running,
 //     stopped or another tool's, uses it, podman counts none, and it is over a day old, so a
 //     build in flight is never touched. Removal is podman's own unforced `image rm`.
-//   - P2. A claude-yolo:<project> tag (any but base and latest) is removed when no container uses
-//     its image, the image was created over 30 days ago, and the project was last launched over
-//     30 days ago: ccy touches ~/.cache/claude-yolo-update-checks/claude-yolo_<project> on every
-//     launch day, and with no such stamp the creation alone decides. The project's next launch
-//     rebuilds it. A tag of an image with other names only untags it.
+//   - P2. The owner's four weeks: a tagged image's names are removed when no container uses it,
+//     podman counts none, no image is built on it (no other image's layers start with all of
+//     its own: podman would refuse), and it was created over 28 days ago. Created is the age,
+//     because podman records no last use of an image; a pulled image's is its build upstream.
+//     The names are a claude-yolo:<project> image's project tags, which go only when the
+//     project was also last launched over 28 days ago (ccy touches
+//     ~/.cache/claude-yolo-update-checks/claude-yolo_<project> on every launch day; with no
+//     stamp the creation alone decides) and its next launch rebuilds it; else every name a
+//     registry serves, which a pull fetches again. claude-yolo:base and :latest are never
+//     removed, and a name built on this host that nothing here builds again (localhost/, or
+//     bare) is named and kept. A name of an image with other names only untags it.
 //   - P3. buildah's working container (podman lists it in the "storage" state with the command
 //     "buildah"), left by an interrupted build, is removed when it is over a day old. Any other
 //     "storage" container, one whose record podman's database lost (a toolbox, say), is named
@@ -119,7 +125,9 @@ import (
 
 const (
 	danglingAge = 24 * time.Hour
-	staleTagAge = 30 * 24 * time.Hour
+	// unusedTagAge is the owner's four weeks (P2); unusedTagDays says it.
+	unusedTagAge  = 28 * 24 * time.Hour
+	unusedTagDays = "28"
 	// maxPasses bounds the passes of one run (P7): far more than the depth of any image chain.
 	maxPasses  = 20
 	repository = "claude-yolo"
@@ -139,12 +147,15 @@ const (
 	usage        = `usage: container-images prune [--yes]
        container-images [--engine podman|docker] before <repository>
        container-images [--engine podman|docker] replaced [--lock <file>] <repository> <ids-file>
+       container-images [--engine podman|docker] stale [--lock <file>] [--yes] <ccy-version>
        container-images old-range scan|triage|plan|reown|remove ...
 
   prune          list what the daily prune would remove from the podman store (a dry run)
-  prune --yes    remove it: dangling images no container uses, over a day old; claude-yolo
-                 project images no container uses, built and last launched over 30
-                 days ago; buildah working
+  prune --yes    remove it: dangling images no container uses, over a day old; tagged
+                 images no container uses and none is built on, created over 28 days
+                 ago (claude-yolo project images also last launched over 28 days ago;
+                 never claude-yolo:base or :latest, nor an image built here that
+                 nothing builds again); buildah working
                  containers over a day old while no ccy image build runs. Dangling volumes
                  are listed, never removed. Each removal is logged to
                  ~/.local/state/fedora-desktop/container-images.log. Neither this nor
@@ -156,6 +167,11 @@ const (
                  (ccy's build lock runs it after a build); ids-file may be /dev/stdin.
                  While a ccy image build lock other than --lock's is held, it removes
                  nothing. The engine is --engine's, else CCY_CONTAINER_ENGINE's, else podman.
+  stale          name the claude-yolo images an older ccy built (label ccy-version older
+                 than <ccy-version>, the installed CCY_VERSION, or no such label) and the
+                 containers keeping them; with --yes remove the project tags of those no
+                 container uses (never :base or :latest; ccy's build lock runs it after a
+                 build), and log each stopped container keeping one. Never a container.
 ` + oldRangeUsage
 )
 
@@ -232,6 +248,8 @@ type store struct {
 	building string
 	// launched is each project tag's last ccy launch, absent when none is recorded.
 	launched map[string]time.Time
+	// layers is each image's RootFS layers by id, asked only when an image is tagged (P2).
+	layers map[string][]string
 }
 
 // buildRunning is why nothing is removed while a ccy image build runs (P3a).
@@ -292,42 +310,92 @@ func plan(now time.Time, s store) ([]action, []keep) {
 	return acts, keeps
 }
 
-// planTags is P2 for one image's names.
+// planTags is P2 for one image's names. Each removal of a name only untags while the image has
+// another; the last of its names to go carries its size.
 func planTags(now time.Time, s store, img engine.StoreImage, users []string, acts []action, keeps []keep) ([]action, []keep) {
+	if len(img.Names) == 0 || slices.ContainsFunc(img.Names, baseOrLatest) {
+		return acts, keeps
+	}
+	project := slices.ContainsFunc(img.Names, projectTag)
+	var names []string
 	for _, name := range img.Names {
-		if !projectTag(name) {
+		if project && !projectTag(name) || !project && builtHere(name) {
+			keeps = append(keeps, keep{kindTag + " " + name, "built on this host, and nothing here builds it again: left for a person"})
 			continue
 		}
-		what := kindTag + " " + name
-		days := wholeDays(now.Sub(img.Created))
-		launched, wasLaunched := s.launched[name]
-		lastUse := "no launch recorded"
-		if wasLaunched {
-			lastUse = "last launched " + wholeDays(now.Sub(launched)) + " days ago"
+		names = append(names, name)
+	}
+	for i, name := range names {
+		keepWhy, why := judgeTag(now, s, img, users, name, project)
+		if keepWhy != "" {
+			keeps = append(keeps, keep{kindTag + " " + name, keepWhy})
+			continue
 		}
-		switch {
-		case len(users) > 0:
-			keeps = append(keeps, keep{what, "used by container " + strings.Join(users, ", ")})
-		case img.Containers > 0:
-			keeps = append(keeps, keep{what, "podman counts " + strconv.Itoa(img.Containers) + " container using it"})
-		case s.building != "":
-			keeps = append(keeps, keep{what, s.buildRunning()})
-		case now.Sub(img.Created) < staleTagAge:
-			keeps = append(keeps, keep{what, "created " + days + " days ago, under 30"})
-		case wasLaunched && now.Sub(launched) < staleTagAge:
-			keeps = append(keeps, keep{what, lastUse + ", under 30"})
-		default:
-			size := img.Size
-			if len(img.Names) > 1 {
-				size = 0
-			}
-			acts = append(acts, action{
-				kind: kindTag, ref: name, name: name, id: img.ID, size: size, labels: img.Labels,
-				why: "a " + repository + " project image used by no container, created " + days + " days ago, " + lastUse,
-			})
+		size := int64(0)
+		if i == len(names)-1 && len(names) == len(img.Names) {
+			size = img.Size
 		}
+		acts = append(acts, action{kind: kindTag, ref: name, name: name, id: img.ID, size: size, labels: img.Labels, why: why})
 	}
 	return acts, keeps
+}
+
+// judgeTag is why P2 keeps one name of an image, or "" and why it goes.
+func judgeTag(now time.Time, s store, img engine.StoreImage, users []string, name string, project bool) (string, string) {
+	days := wholeDays(now.Sub(img.Created))
+	launched, wasLaunched := s.launched[name]
+	lastUse := "no launch recorded"
+	if wasLaunched {
+		lastUse = "last launched " + wholeDays(now.Sub(launched)) + " days ago"
+	}
+	child, known := builtOn(s, img.ID)
+	switch {
+	case len(users) > 0:
+		return "used by container " + strings.Join(users, ", "), ""
+	case img.Containers > 0:
+		return "podman counts " + strconv.Itoa(img.Containers) + " container using it", ""
+	case s.building != "":
+		return s.buildRunning(), ""
+	case !known:
+		return "podman did not report its layers", ""
+	case child != "":
+		return "image " + short(child) + " is built on it", ""
+	case now.Sub(img.Created) < unusedTagAge:
+		return "created " + days + " days ago, under " + unusedTagDays, ""
+	case project && wasLaunched && now.Sub(launched) < unusedTagAge:
+		return lastUse + ", under " + unusedTagDays, ""
+	case project:
+		return "", "a " + repository + " project image used by no container, created " + days + " days ago, " + lastUse
+	default:
+		return "", "an image used by no container and with none built on it, created " + days + " days ago; a pull fetches it again"
+	}
+}
+
+// builtOn is an image whose layers start with all of id's (podman refuses to remove id while
+// it is there), "" for none; known is false when podman reported no layers for id.
+func builtOn(s store, id string) (string, bool) {
+	base := s.layers[id]
+	if len(base) == 0 {
+		return "", false
+	}
+	for _, other := range slices.Concat(s.images, s.dangling) {
+		layers := s.layers[other.ID]
+		if other.ID != id && len(layers) > len(base) && slices.Equal(layers[:len(base)], base) {
+			return other.ID, true
+		}
+	}
+	return "", true
+}
+
+// builtHere is a name no registry serves: podman's localhost/ ones, and a bare name.
+func builtHere(name string) bool {
+	return strings.HasPrefix(name, "localhost/") || !strings.Contains(name, "/")
+}
+
+// baseOrLatest is claude-yolo:base or :latest, which ccy keeps current and P2 never removes.
+func baseOrLatest(name string) bool {
+	repo, tag, ok := cutLast(name, ":")
+	return ok && strings.TrimPrefix(repo, "localhost/") == repository && (tag == "base" || tag == "latest")
 }
 
 func wholeDays(d time.Duration) string { return strconv.Itoa(int(d / (24 * time.Hour))) }
@@ -526,8 +594,27 @@ func (r *run) look(ctx context.Context) (store, error) {
 	if s.launched, err = launches(r.Env.Home, s.images); err != nil {
 		return s, err
 	}
+	if s.layers, err = imageLayers(ctx, r.eng, s.images, s.dangling); err != nil {
+		return s, err
+	}
 	s.building, err = heldBuildLock(r.buildLocks(), "")
 	return s, err
+}
+
+// imageLayers asks the layers of every image listed, once, and only when one has a name.
+func imageLayers(ctx context.Context, eng engine.Engine, images, dangling []engine.StoreImage) (map[string][]string, error) {
+	if !slices.ContainsFunc(images, func(img engine.StoreImage) bool { return len(img.Names) > 0 }) {
+		return map[string][]string{}, nil
+	}
+	seen := map[string]bool{}
+	var ids []string
+	for _, img := range slices.Concat(images, dangling) {
+		if !seen[img.ID] {
+			seen[img.ID] = true
+			ids = append(ids, img.ID)
+		}
+	}
+	return eng.ImageLayers(ctx, ids)
 }
 
 // act removes one thing, or in a dry run says it would; only a log write that fails is an

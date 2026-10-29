@@ -42,6 +42,14 @@ type ctr struct {
 	Command []string
 }
 
+// inspected is the part of one entry of `podman image inspect --format json` that is read.
+type inspected struct {
+	ID     string
+	RootFS rootFS
+}
+
+type rootFS struct{ Layers []string }
+
 func ago(d time.Duration) int64      { return now.Add(-d).Unix() }
 func agoText(d time.Duration) string { return now.Add(-d).Format(time.RFC3339Nano) }
 func days(n int) time.Duration       { return time.Duration(n) * 24 * time.Hour }
@@ -68,6 +76,9 @@ type world struct {
 	images   []img
 	ctrs     []ctr
 	volumes  string
+	// layers is each image's RootFS layers by id, for `podman image inspect`; an image not
+	// named here stands on one layer of its own.
+	layers   map[string][]string
 	scripted bool
 	// sticky is a podman whose removals report success and leave the thing there.
 	sticky bool
@@ -132,8 +143,9 @@ func (w *world) script() {
 	w.fake.OnFunc([]string{"podman", "images", "--format", "json"}, func(execx.Cmd) (execx.Result, error) {
 		var left []img
 		for _, m := range w.images {
+			named := len(m.Names) > 0
 			m.Names = slices.DeleteFunc(slices.Clone(m.Names), func(n string) bool { return gone[n] })
-			if len(m.Names) > 0 {
+			if (len(m.Names) > 0 || !named) && !gone[m.ID] {
 				left = append(left, m)
 			}
 		}
@@ -144,6 +156,17 @@ func (w *world) script() {
 		return execx.Result{Stdout: listJSON(w.t, left)}, nil
 	})
 	w.fake.On([]string{"podman", "volume", "ls", "--filter", "dangling=true", "--format", "{{.Name}}"}, execx.Result{Stdout: []byte(w.volumes)})
+	w.fake.OnFunc([]string{"podman", "image", "inspect", "--format", "json"}, func(c execx.Cmd) (execx.Result, error) {
+		out := make([]inspected, 0, len(c.Args)-4)
+		for _, ref := range c.Args[4:] {
+			layers, ok := w.layers[ref]
+			if !ok {
+				layers = []string{"sha256:own-" + ref}
+			}
+			out = append(out, inspected{ID: ref, RootFS: rootFS{Layers: layers}})
+		}
+		return execx.Result{Stdout: listJSON(w.t, out)}, nil
+	})
 	removal := func(c execx.Cmd) (execx.Result, error) {
 		if !w.sticky {
 			gone[c.Args[len(c.Args)-1]] = true
@@ -300,40 +323,99 @@ func TestThePassesAreBounded(t *testing.T) {
 	}
 }
 
-func TestAStaleProjectImageIsRemovedAndBaseAndLatestNeverAre(t *testing.T) {
+// P2: four weeks unused and an image goes, a project image of ccy's or a pulled one; ccy's
+// :base and :latest never, and an image built here that nothing rebuilds is left for a person.
+func TestAnImageUnusedForFourWeeksIsRemovedAndBaseAndLatestNeverAre(t *testing.T) {
 	w := newWorld(t)
 	w.images = []img{
 		{ID: id("1"), Names: []string{"localhost/claude-yolo:latest"}, Size: 5, Created: ago(days(90))},
 		{ID: id("2"), Names: []string{"localhost/claude-yolo:base"}, Size: 5, Created: ago(days(90))},
-		{ID: id("3"), Names: []string{"localhost/claude-yolo:project-b"}, Size: 3 << 30, Created: ago(days(31))},
-		{ID: id("4"), Names: []string{"localhost/claude-yolo:project-c"}, Size: 5, Created: ago(days(29))},
+		{ID: id("3"), Names: []string{"localhost/claude-yolo:project-b"}, Size: 3 << 30, Created: ago(days(29))},
+		{ID: id("4"), Names: []string{"localhost/claude-yolo:project-c"}, Size: 5, Created: ago(days(27))},
 		{ID: id("5"), Names: []string{"localhost/claude-yolo:project-d"}, Size: 5, Created: ago(days(60))},
 		{ID: id("6"), Names: []string{"localhost/claude-yolo:project-e", "localhost/other:1"}, Size: 7, Created: ago(days(60))},
-		{ID: id("7"), Names: []string{"quay.io/example/tool:1"}, Size: 5, Created: ago(days(400))},
+		{ID: id("7"), Names: []string{"quay.io/example/tool:1", "quay.io/example/tool:latest"}, Size: 9, Created: ago(days(400))},
+		{ID: id("8"), Names: []string{"localhost/devtools:latest"}, Size: 5, Created: ago(days(400))},
+		{ID: id("9"), Names: []string{"docker.io/library/postgres:16"}, Size: 5, Created: ago(days(20))},
 	}
 	w.ctrs = []ctr{{ID: "s1", Names: []string{"project-d"}, ImageID: id("5"), Created: agoText(days(50)), State: "exited"}}
 	if code := w.run("prune", "--yes"); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, w.err.String())
 	}
 	got := w.removed()
-	if len(got) != 2 || got[0] != "podman image rm localhost/claude-yolo:project-b" ||
-		got[1] != "podman image rm localhost/claude-yolo:project-e" {
-		t.Fatalf("removed %v, want the two stale unused project tags", got)
+	want := []string{
+		"podman image rm localhost/claude-yolo:project-b", "podman image rm localhost/claude-yolo:project-e",
+		"podman image rm quay.io/example/tool:1", "podman image rm quay.io/example/tool:latest",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("removed %v, want %v", got, want)
 	}
 	log := w.logText()
-	if !strings.Contains(log, "tag\tlocalhost/claude-yolo:project-b\t"+id("3")+"\t3221225472\t") ||
-		!strings.Contains(log, "tag\tlocalhost/claude-yolo:project-e\t"+id("6")+"\t0\t") {
-		t.Fatalf("log: %s", log)
+	for _, line := range []string{
+		"tag\tlocalhost/claude-yolo:project-b\t" + id("3") + "\t3221225472\t",
+		"tag\tlocalhost/claude-yolo:project-e\t" + id("6") + "\t0\t",
+		"tag\tquay.io/example/tool:1\t" + id("7") + "\t0\t",
+		"tag\tquay.io/example/tool:latest\t" + id("7") + "\t9\t",
+	} {
+		if !strings.Contains(log, line) {
+			t.Errorf("log does not hold %q:\n%s", line, log)
+		}
 	}
 	out := w.out.String()
 	for _, want := range []string{
-		"keep tag localhost/claude-yolo:project-c: created 29 days ago, under 30",
+		"keep tag localhost/claude-yolo:project-c: created 27 days ago, under 28",
 		"keep tag localhost/claude-yolo:project-d: used by container project-d",
 		"untagged localhost/claude-yolo:project-e: it keeps its other names",
+		"keep tag localhost/other:1: built on this host, and nothing here builds it again: left for a person",
+		"keep tag localhost/devtools:latest: built on this host, and nothing here builds it again: left for a person",
+		"keep tag docker.io/library/postgres:16: created 20 days ago, under 28",
+		"removed tag quay.io/example/tool:latest (9 B): an image used by no container and with none built on it, created 400 days ago; a pull fetches it again",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output does not say %q:\n%s", want, out)
 		}
+	}
+}
+
+// podman refuses to remove an image another is built on, so an old unused base image whose
+// layers start another image's (a pulled php:8 under a project's own build) is kept, and so is
+// one whose layers podman did not report.
+func TestAnImageAnotherIsBuiltOnIsKept(t *testing.T) {
+	w := newWorld(t)
+	w.images = []img{
+		{ID: id("7"), Names: []string{"docker.io/library/php:8"}, Size: 5, Created: ago(days(90))},
+		{ID: id("8"), Names: []string{"quay.io/example/gone:1"}, Size: 5, Created: ago(days(90))},
+	}
+	w.dangling = [][]img{{{ID: id("c"), Size: 5, Created: ago(2 * time.Hour)}}}
+	w.layers = map[string][]string{id("7"): {"sha256:l1", "sha256:l2"}, id("c"): {"sha256:l1", "sha256:l2", "sha256:l3"}, id("8"): nil}
+	if code := w.run("prune", "--yes"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, w.err.String())
+	}
+	if got := w.removed(); len(got) != 0 {
+		t.Fatalf("removed %v", got)
+	}
+	for _, want := range []string{
+		"keep tag docker.io/library/php:8: image cccccccccccc is built on it",
+		"keep tag quay.io/example/gone:1: podman did not report its layers",
+	} {
+		if !strings.Contains(w.out.String(), want) {
+			t.Errorf("output does not say %q:\n%s", want, w.out.String())
+		}
+	}
+}
+
+// The layers are asked only when there is a tagged image; an inspect that fails stops the run.
+func TestAnInspectThatFailsStopsTheRunBeforeAnyRemoval(t *testing.T) {
+	w := newWorld(t)
+	backlog(w)
+	w.images = []img{{ID: id("7"), Names: []string{"quay.io/example/tool:1"}, Size: 5, Created: ago(days(90))}}
+	w.script()
+	w.fake.On([]string{"podman", "image", "inspect"}, execx.Result{ExitCode: 125, Stderr: []byte("Error: boom\n")})
+	if code := w.run("prune", "--yes"); code != term.ExitFailure {
+		t.Fatalf("exit %d, want failure", code)
+	}
+	if len(w.removed()) != 0 || !strings.Contains(w.err.String(), "boom") {
+		t.Fatalf("removed %v; stderr %s", w.removed(), w.err.String())
 	}
 }
 
@@ -646,9 +728,9 @@ func TestTheImageOfABuildahContainerIsKeptWhileTheContainerIsThere(t *testing.T)
 	}
 }
 
-// F2: Q1 is "30 days since it was created or last used": a project image is stale only when
-// both its creation and its last launch (ccy's per-image update-check stamp) are over 30 days
-// old; with no stamp, its creation alone.
+// F2: Q1, now the owner's four weeks, is "since it was created or last used": a project image
+// goes only when both its creation and its last launch (ccy's per-image update-check stamp) are
+// over 28 days old; with no stamp, its creation alone.
 func TestAProjectImageLaunchedRecentlyIsKept(t *testing.T) {
 	w := newWorld(t)
 	w.images = []img{
@@ -667,7 +749,7 @@ func TestAProjectImageLaunchedRecentlyIsKept(t *testing.T) {
 	}
 	out := w.out.String()
 	for _, want := range []string{
-		"keep tag localhost/claude-yolo:project-b: last launched 1 days ago, under 30",
+		"keep tag localhost/claude-yolo:project-b: last launched 1 days ago, under 28",
 		"removed tag claude-yolo:project-c (5 B): a claude-yolo project image used by no container, created 60 days ago, last launched 45 days ago",
 		"removed tag localhost/claude-yolo:project-d (5 B): a claude-yolo project image used by no container, created 60 days ago, no launch recorded",
 	} {

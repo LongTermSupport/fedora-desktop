@@ -1,6 +1,6 @@
 # Plan 00235: podman images cleaned up automatically
 
-**Status**: In Progress (the first prune freed 299G, then broke the store; the repair and timer gate (4.5, 4.6, 4.8) are deployed or deploying; Phase 3 (3.1, 3.2) built and gated on a clean store; Q6 answered: no reset, the host agent triages and decides each old-range item (Task 4.7, Decision 4); 4.7a-c built, 4.7d waits for the host agent's triage and decisions)
+**Status**: In Progress (the first prune freed 299G, then broke the store; the repair and timer gate (4.5, 4.6, 4.8) are deployed or deploying; Phase 3 (3.1, 3.2) built and gated on a clean store; Q6 answered: no reset, the host agent triages and decides each old-range item (Task 4.7, Decision 4); 4.7a-c built, 4.7d waits for the host agent's triage and decisions; Q7 answered: stale ccy images by label, other images by a four-week TTL (4.12-4.15, built); no play runs podman system reset (4.16))
 **Created**: 2026-10-28
 **Owner**: joseph
 **Priority**: High
@@ -92,6 +92,11 @@ Research, with file:line for every claim below:
 - That chown on a lower layer of a running container's overlay is unsafe (the kernel calls a
   change under a mounted overlay undefined), so such a layer is HELD, never re-owned, until its
   containers stop.
+- That an image podman calls a parent of another (it refuses to remove it) is one whose RootFS
+  layers are all the first layers of the other's (P2 and S3 keep such an image; a wrong guess
+  is a refused removal, which fails the prune run by name)
+- That `podman commit --change 'LABEL k=v'` and `build --label` set an image label docker
+  and podman both read (`images --format json` Labels)
 - That no running container holds one of c/storage's lock files (storage.lock, the record
   stores' locks) for as long as it runs: the old-range busy guard fails on a held one, so if a
   running ccy session does hold one, the apply waits for the sessions to stop (the safe side).
@@ -142,7 +147,7 @@ the plans cite kept.
   unused for longer than Q1's age are removed by the timer (Phase 4), recorded in its log; the
   next launch of that project rebuilds it as it does today. Built into `prune` (rule P2 in
   `src-go/internal/containerimages`): stale only when both its creation and its last ccy launch (the mtime of
-  ~/.cache/claude-yolo-update-checks/claude-yolo\_<project>; creation alone when absent) are over 30 days old
+  ~/.cache/claude-yolo-update-checks/claude-yolo\_<project>; creation alone when absent) are over 30 days old (28 since Task 4.14)
 
 ### Phase 4: The daily catch-all
 
@@ -154,13 +159,16 @@ the plans cite kept.
   the removal succeeded, and reports a failed one by name, exiting non-zero. `src-go/cmd/container-images`
   over `src-go/internal/containerimages` (P1-P8 in its package doc) and `internal/engine/store.go`;
   the podman output shapes it reads are in [subagent-reports/261028-prune-timer-built.md](subagent-reports/261028-prune-timer-built.md)
+
 - [x] ✅ **Task 4.2**: `play-podman.yml` (Decision 2) imports `play-golang.yml`, builds the
   command with `tasks/build-go-command.yml`, and installs `container-images-prune.service` and
   `.timer` (user scope, daily, `Persistent=true`; podman hard-coded on purpose, see below), modelled on
   `playbooks/imports/optional/common/play-container-watch.yml`; the service runs `prune --yes`. Until a prune has succeeded (its stamp) the play starts the service once, so the deploy itself clears the backlog (Q4).
   The timer prunes podman's store, which this play installs whatever `container_engine` names
+
 - [x] ✅ **Task 4.3**: `docs/` and `CLAUDE/ContainerEngines.md`: what is removed, when, where the
   log is, and how to see what the next run would remove (`container-images prune`)
+
 - [ ] ⬜ **Task 4.4**: The orphaned volume (Q2b), removed once by a root step in `play-podman.yml`,
   probe then remove. The probe finds it by its property, never by a hard-coded name: a volume of
   the user's rootless store whose data is owned by a uid that is neither the user's nor inside
@@ -174,17 +182,21 @@ the plans cite kept.
   removes them; each is an item of the Task 4.7 triage, which proposes RE-OWN for a volume a
   container mounts, REMOVE for an unmounted empty one and ASK for an unmounted one with data,
   and the host agent decides
+
 - [x] ✅ **Task 4.5**: `tasks/podman-store-repair.yml`, imported by play-podman.yml before its
   first podman question and after the first prune: as root, removes each
   `overlay/tempdirs/temp-dir-N` and its `lock-N`, logging path and size; fails instead while a
   podman or buildah of the user removes or builds, or a lock there is held (`/proc/locks`)
   ([report](subagent-reports/261028-store-repair.md))
+
 - [x] ✅ **Task 4.6**: P6a: the prune stops at the first removal refused with permission denied
   in c/storage's tempdirs, names the cause and the repair once, and exits 1 (tests first,
   journalled)
+
 - [ ] 🔄 **Task 4.7** (FIX, Q6 answered: case by case, Decision 4): layers and volumes with
   files owned by host uids of the old range (100000+k) cannot be deleted rootless; each prune
   meeting one stops (P6a). The host agent triages them item by item and decides
+
   - [x] ✅ **4.7a**: tests first, then `container-images old-range` (in
     `internal/containerimages`, beside the prune whose removal log it shares, O1-O15 in its
     package doc): `scan` (root, read-only:
@@ -195,10 +207,12 @@ the plans cite kept.
     the unattributed paths decided `remove`), `remove --plan [--yes]` (the user: podman's own
     unforced removals, after a fresh look at podman, logged); package coverage 94.7%
   - [x] ✅ **4.7b**: `old-range.bash` in this folder: the triage (report and proposed decisions in
-    the run directory, under `untracked/`); `--decisions FILE` adds the dry run of that file;
-    `--decisions FILE --apply` runs play-podman.yml with it. The file must be under
-    `untracked/`, since it names this install's images and volumes. It builds the command from
-    the checkout into the run directory; its read-only legs are `old-range-steps.bash`
+    the run directory, under `untracked/`), then, when the decisions file exists at its one fixed
+    path `untracked/plan-00235/old-range-decisions.tsv` (it names this install's images and
+    volumes), the dry run of it; `old-range-apply.bash` runs play-podman.yml with that file.
+    Neither takes an argument, so each is a plain meta-deploy.list entry (meta-deploy cannot
+    pass one to a script entry). It builds the command from the checkout into the run
+    directory; its read-only legs are `old-range-steps.bash`
   - [x] ✅ **4.7c**: `tasks/podman-store-old-range.yml`, imported by play-podman.yml after the
     command is built and before the Task 4.8 probe, only when `podman_store_old_range_decisions`
     is given: the busy guard (factored out of the repair into `tasks/podman-store-busy-guard.yml`,
@@ -207,7 +221,9 @@ the plans cite kept.
     `podman_store_old_range_apply`), the repair in `always:`. The probe then finds nothing,
     writes the marker and starts the timer
   - [ ] ⬜ **4.7d**: on the host: the host agent runs `old-range.bash` through meta-deploy, reads
-    the report, writes its decisions under `untracked/`, runs the dry run, then `--apply`
+    the report, copies the proposal to `untracked/plan-00235/old-range-decisions.tsv` and decides
+    each ask, runs `old-range.bash` again for the dry run, then `old-range-apply.bash`
+
 - [x] ✅ **Task 4.8**: `tasks/podman-store-ownership-probe.yml`, imported by play-podman.yml after
   the repair and before the timer: as root, `find -xdev -ignore_readdir_race -quit` looks in the
   store's overlay for a file owned by a uid other than 0, the user's, or the current
@@ -220,6 +236,7 @@ the plans cite kept.
   held off. The repair file's two regexes (the store-path guard and the held-lock inodes) had
   the same defect and silently never matched. All three now use single backslashes, the form the
   host agent proved on the host's Ansible with a read-only scratch play
+
 - [x] ✅ **Task 4.10** (Defence Before Fix): qa-ansible rule
   [regex-class-escape](../../QA.md#regex-class-escape), a letter escape that reaches the regex as
   a literal backslash (or `\b` as a backspace), counted per YAML style and Jinja context as
@@ -228,11 +245,13 @@ the plans cite kept.
   instances; the independent searcher found none more). The store-path guard is an assert
   `that`, which Jinja unescapes, so its `'\\s'` was already right and the rule is silent on it;
   `regex-escape-proof/render_three.py` renders all three on real Ansible for the host to confirm
+
 - [ ] ⬜ **Task 4.11**: triage.bash's "disk free and the store's location" leg failed on the
   host with a complete df output and no error line before its warning, so the failing command
   is not shown: make each leg name the command that failed. Its image count (podman info: 749)
   does not square with the morning's 694 less the 604 removed: count images the same way in
   every leg and run
+
 - [x] ✅ **Task 4.9**: the gate on ccy's self-prune and a manual prune. play-podman.yml writes
   `~/.local/state/fedora-desktop/container-images.store-clean` (the user's, 0644, the probe's
   time) when the Task 4.8 probe finds no foreign-owned file and removes it when it finds one.
@@ -240,6 +259,39 @@ the plans cite kept.
   `prune --yes` removes nothing and exits 1 (P9); a dry run lists and notes the missing marker
   (tests first, journalled; the lock suite's sandbox gets its own HOME holding the marker, and a
   case without it) ([report](subagent-reports/261028-clean-store-gate.md))
+
+- [x] ✅ **Task 4.12** (Q7): every image ccy makes carries `ccy-version=<CCY_VERSION>`: the
+  builds of `:base` and `:latest` (`lib/common.bash` `build_container_with_hash`), a project
+  image (`run_project_build`), the in-place update (`commit --change LABEL`) and the play's
+  build of `:latest` (`tasks/claude-yolo-image.yml`, which now reads `ccy_version` for the label
+  and for the Go front). CCY 3.103.0
+
+- [x] ✅ **Task 4.13** (Q7): `container-images stale [--lock F] [--yes] <ccy-version>` (S1-S6 in
+  `internal/containerimages/stale.go`): a claude-yolo image whose `ccy-version` is older than
+  the installed CCY_VERSION, or that has none, is stale; its project tags go when no container
+  uses it and no image is built on it, never `:base`/`:latest`; the store-clean marker and the
+  other build locks gate it as they gate `replaced`. `lib/image-build-prune.bash` runs it after
+  `replaced`, inside the lock, so every launch's build and the play's build of `:latest` (run
+  right after it installs a new ccy) apply it; one home, in Go
+
+- [x] ✅ **Task 4.14** (Q7, "other images ... a TTL of 4 weeks"): P2 generalised: a tagged image
+  no container uses, podman counts none and no image is built on (no other image's RootFS
+  layers start with all of its own), created over 28 days ago, is removed by the daily prune;
+  Q1's 30 days for project images is now the same 28 (project images also need their last ccy
+  launch over 28 days ago). Created is the age: podman records no last use of an image. Never
+  `:base`/`:latest`, and an image built here that nothing builds again (`localhost/` other than
+  a ccy project image, e.g. `claude-devtools`) is named and kept. Needs `ImageLayers` (one
+  `podman image inspect --format json`) in `internal/engine`
+
+- [x] ✅ **Task 4.15** (Q7): a stale image a container uses is kept and so is the container; each
+  stopped container keeping one is named on stderr and logged as a `held` line in
+  `container-images.log`; running ones are named on stderr
+
+- [x] ✅ **Task 4.16** (owner: "Remove it"): play-podman.yml's opt-in `podman_storage_reset` block
+  (stop every container, `podman system reset --force`) and its variable are gone; no play runs
+  `podman system reset`. No QA rule: no existing rule home matches a command inside Ansible
+  YAML cheaply (qa-ansible rules are each a spec expectation with fixtures); the owner's rule is
+  recorded in Q6 and ContainerEngines.md
 
 ### Phase 5: The health report says so
 
@@ -292,9 +344,9 @@ the plans cite kept.
 
 Each has the default this plan proceeds on unless the owner says otherwise.
 
-- **Q1**: How long may a `claude-yolo:<project>` image go unused before the timer removes it?
-  Default: **30 days** since it was created or last used by a container, and never while any
-  container uses it. Cost of a wrong guess: one rebuild on that project's next launch.
+- **Q1** (SUPERSEDED by Q7's four weeks): How long may a `claude-yolo:<project>` image go
+  unused before the timer removes it? Now **28 days** since it was created and last launched,
+  never while any container uses it (Task 4.14). Cost of a wrong guess: one rebuild.
 - **Q2**: Dangling volumes (30 now): remove automatically, or report only? Default: **report
   only** (count and names, in the timer's log and the health report). A volume is data; a
   dangling one may be a stopped project's only copy.
@@ -314,11 +366,17 @@ Each has the default this plan proceeds on unless the owner says otherwise.
   can be a bit more clever than one decision for all - can the desktop level session properly
   triage and decide case by case? crap can be removed". So **B is rejected: no `podman system reset`, ever**. The host agent (the desktop-level session) triages and decides item by item:
   what is junk is removed, what is kept is re-owned (Decision 4, Task 4.7).
-- **Q7**: A layer under a running container (its own, or one of its image's) is HELD: never
-  re-owned or removed while the container runs. If the running ccy sessions' base layers hold
-  old-range files, the store cannot be made clean (and the daily prune stays held off) until
-  those sessions stop and the apply is run again. Default: **hold**, and apply in two rounds
-  (everything else now, the held layers once the sessions are stopped for another reason).
+- **Q7** (ANSWERED 2026-10-28): A layer under a running container (its own, or one of its
+  image's) is HELD: never re-owned or removed while the container runs. The owner: "can we TTL
+  these? any ccy session not run for a while - when it is next run, its highly likely to be
+  stale and need rebuilding. in fact - can we tag images somehow and auto prune stale images
+  when the system ccy moves on? the ccy play itself could handle this action perhaps? ccy
+  images are automatically kept up to date - stale image is deterministic in that sense WRT
+  ccy. Other images - I'd suggest a TTL of 4 weeks and then we prune". So: HELD stays (a
+  running container's layers are never touched); ccy images are labelled with the ccy that
+  built them and removed once ccy moves on (Tasks 4.12, 4.13, Decision 5); other images go
+  after four weeks unused (Task 4.14); the stopped sessions keeping stale images are reported,
+  never removed (Task 4.15). Also on Q6's option B: "Remove it" (Task 4.16).
 
 ## Technical Decisions
 
@@ -376,8 +434,17 @@ the setuid and setgid bits and the `security.capability` the chown cleared, and 
 root only the unattributed directories decided `remove`; `remove` is podman's own unforced
 `image rm`, `rm` and `volume rm`, after the re-own made their files the user's. A removal
 always follows the re-own, so the store ends clean whatever podman refuses. The apply is
-play-podman.yml's (IaC), behind the repair's busy guard; the plan script's dry run is the
-default and `--apply` the explicit flag.
+play-podman.yml's (IaC), behind the repair's busy guard; `old-range.bash` dry-runs the decisions
+file at its fixed path and `old-range-apply.bash` applies it.
+
+### Decision 5: a ccy image is stale once ccy moves on (Q7)
+
+**Context**: ccy keeps its own images current (the in-place update, the play's rebuild), so an
+image an older ccy made is replaced, not reused, the next time that project launches.
+**Decision**: a label `ccy-version` set by every ccy build, and one rule, `container-images stale`, run by the build lock after every build: no age, no guess. It removes only project tags
+no container uses; `:base`/`:latest` are ccy's to rebuild; a stopped container is the owner's,
+so it is reported, not removed. Dangling stale images are left to the daily prune's P1.
+Everything else falls to the four-week TTL, by creation time, since podman records no last use.
 
 ## Success Criteria
 
