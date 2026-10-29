@@ -191,7 +191,21 @@ See the full guide for the complete workflow, commands, and troubleshooting:
 `play-gsettings.yml` applies:
 
 - Disable the Caps Lock key (via xkb-options)
+- Enable middle-click paste of the selected text (`gtk-enable-primary-paste`; a fresh
+  Fedora 44 profile has it off)
 - Disable middle-click closing tabs in the Ptyxis terminal
+
+### GNOME Text Editor Windows
+
+`play-gnome-shell.yml` makes GNOME Text Editor open every file in a new window on the
+current workspace, instead of as a tab in an existing window on another workspace. It
+writes `~/.local/share/applications/org.gnome.TextEditor.desktop`, a copy of the system
+file with D-Bus activation off and `--new-window` added, regenerated on every run so
+editor upgrades are kept. A file already open in a window still raises that window.
+
+To undo it, remove the override tasks from `play-gnome-shell.yml` and delete that file
+(the system file then applies again); deleting the file alone lasts only until the play
+next runs.
 
 ### Crash Reporting (ABRT)
 

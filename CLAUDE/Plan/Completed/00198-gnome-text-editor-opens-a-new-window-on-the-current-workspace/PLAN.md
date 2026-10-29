@@ -1,6 +1,6 @@
 # Plan 00198: gnome text editor opens a new window on the current workspace
 
-**Status**: In Progress (deployed and accepted on the host; waiting on the owner's two-workspace check in Nautilus)
+**Status**: Complete (2026-10-29)
 **Created**: 2026-10-15
 **Owner**: joseph
 **Priority**: Medium
@@ -62,19 +62,20 @@ desktop files in play.
 ### Phase 2: The fix
 
 - [x] ✅ **Task 2.1**: Decision: `--new-window` (it keeps the running instance, so no second
-  process per file, unlike `--standalone`). `playbooks/imports/play-gsettings.yml` slurps the
-  system desktop file, asserts it still has the two lines to change, writes the per-user copy
+  process per file, unlike `--standalone`). `playbooks/imports/play-gnome-shell.yml`, which
+  installs the editor, slurps the system desktop file after the install, asserts it still has the two lines to change, writes the per-user copy
   with `DBusActivatable=false` and `Exec=gnome-text-editor --new-window %U` on every run (so
   upgrades are kept), and refreshes the desktop database when it changed. `acceptance.bash`
   checks the file and the `text/plain` default.
-- [ ] 🔄 **Task 2.2**: Host run through `meta-deploy.bash`; the owner opens files from Nautilus on
+- [x] ✅ **Task 2.2**: Host run through `meta-deploy.bash`; the owner opens files from Nautilus on
   two workspaces and confirms each opens where they are. qa-reviewer over the plan. The host run
-  at fb78d4ce passed: the gsettings play, triage and acceptance. Waiting on the owner's
-  two-workspace check.
+  at fb78d4ce passed (the play, then in `play-gsettings.yml`; triage; acceptance). The owner's
+  two-workspace check passed: "Yes, each opens where I am". The reviewer's fixes moved the
+  tasks into `play-gnome-shell.yml` unchanged and added the docs.
 
 ## Success Criteria
 
-- [ ] A double-click in Nautilus opens the file in a new editor window on the current workspace.
+- [x] A double-click in Nautilus opens the file in a new editor window on the current workspace.
 - [x] The override is deployed by a play and is idempotent.
 
 ## Delivery & Milestones
@@ -83,4 +84,8 @@ desktop files in play.
      "when" — do not add dates). The blow-by-blow activity log lives in
      JOURNAL/00198-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
-- <!-- milestone or delivery commit hash -->
+- 83f1f4dee: the per-user desktop file override, triage and acceptance
+- 6dbfc19ae: review fixes (acceptance on the plan library, the editor package owned by
+  `play-gnome-shell.yml`, one shared var)
+- 04131c434: deployed and accepted on the host
+- The closing commit: the override moved into `play-gnome-shell.yml`, docs, plan Complete
