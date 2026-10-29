@@ -106,15 +106,18 @@ team covers, whose own status line is a hooks daemon's.
     Element.
 07. Run `ccy-teams`: A's row shows its description (cut to fit) and **up to date**. The board
     has no scope column: in the same checkout `ccy-teams for-checkout` prints A (and `ccy --teams` now shows A as "covers owner/repo").
-08. In a host checkout of another project, run `cc --teams` and mark A and B. To see the
-    consent question again, rename `~/.config/pingbus/element-accepted` first, and put it back
-    however the step ends. The record is always there, under your passwd home: no environment
-    variable (HOME, PINGBUS_HOME, XDG_CONFIG_HOME) moves it, for cc or for pingbus, which reads
-    it when a host seat starts, so a record kept anywhere else would test nothing. A host agent
-    whose hooks refuse a write outside its checkout asks the owner to type the rename and the
-    restore as two `! mv` lines in its session. The question
-    names both handles: answer No once (nothing is started or recorded, and a checkout that had
-    no `.claude/ccy/` still has none), then run it again and answer Yes.
+08. `cc --teams`'s consent question, answered No and then Yes. Nobody types this step:
+    [acceptance-consent.bash](acceptance-consent.bash) does it, run through `meta-deploy.bash`.
+    The question is asked only while the consent record (`element-accepted` under your passwd
+    home's `.config/pingbus`) does not exist, and no environment variable moves it. So the
+    script holds the record aside under another name in the same directory, and puts it back
+    however the run ends. A run killed outright leaves the held copy; the next run puts it back
+    first. On two throwaway teams, in a scratch checkout with no `.claude/`, it drives
+    `cc --teams` in a private tmux. The question must name both handles. After No, nothing is
+    started or recorded, and the checkout still has no `.claude/ccy/`. After Yes, the record
+    exists and both seats are held. Then the session ends, the seats are released, and the
+    teams are purged. A person is needed only if sudo asks for a password inside that tmux; the
+    script then prints how to attach, and waits.
 09. The cc session shows the launch block, and its status line shows each seat on its own
     `👥` row, as in step 05. While it
     runs, `ls /tmp/pingbus-sessions-$(id -u)/` (or `$PINGBUS_SESSIONS_DIR` when set) shows one

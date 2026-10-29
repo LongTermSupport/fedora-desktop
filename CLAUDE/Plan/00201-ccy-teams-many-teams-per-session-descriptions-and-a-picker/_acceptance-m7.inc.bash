@@ -883,9 +883,9 @@ m7_purge_teams() {
     m7_remove_teams final
 }
 
-# C1 — after the purge: no firewalld rule the installer recorded, no unit running, no state
-# directory or applied stamp, no seat directory; the Quick Launch record as it was.
-m7_check_gone() {
+# m7_check_teams_gone — after the purge: no firewalld rule the installer recorded, no unit
+# running, no state directory or applied stamp, no seat directory in this checkout.
+m7_check_teams_gone() {
     local team zone rule store status state unit
     for team in "${M7_TEAMS[@]}"; do
         while IFS=$'\t' read -r zone rule; do
@@ -910,6 +910,11 @@ m7_check_gone() {
             return 1
         fi
     done
+}
+
+# C1 — the teams wholly gone (m7_check_teams_gone), and the Quick Launch record as it was.
+m7_check_gone() {
+    m7_check_teams_gone || return 1
     if ! cmp -s -- "${M7_LAST_LAUNCH_SAVED}" "${M7_LAST_LAUNCH}"; then
         printf '[FAIL] the Quick Launch record differs from the one saved before the launches\n' >&2
         return 1
