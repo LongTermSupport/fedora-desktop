@@ -164,6 +164,64 @@ func (e Engine) DanglingVolumes(ctx context.Context) ([]string, error) {
 	return lines(res.Stdout), nil
 }
 
+// StoreVolume is one volume of `podman volume ls --format json`.
+type StoreVolume struct {
+	Name       string
+	Mountpoint string
+}
+
+// StoreVolumes is every volume, with the directory holding its data.
+func (e Engine) StoreVolumes(ctx context.Context) ([]StoreVolume, error) {
+	return podmanList[StoreVolume](ctx, e, "volumes", "volume", "ls", "--format", "json")
+}
+
+// inspectedContainer is the part of `podman container inspect` that names its mounts.
+type inspectedContainer struct {
+	ID     string
+	Mounts []struct {
+		Type string
+		Name string
+	}
+}
+
+// ContainerVolumes is the names of the named volumes each container mounts, by container id.
+// Only podman's own containers can be inspected, so ids is never an external container's.
+func (e Engine) ContainerVolumes(ctx context.Context, ids []string) (map[string][]string, error) {
+	out := map[string][]string{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	raw, err := podmanList[inspectedContainer](ctx, e, "the mounts of each container", append([]string{"container", "inspect"}, ids...)...)
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range raw {
+		out[c.ID] = nil
+		for _, m := range c.Mounts {
+			if m.Type == "volume" && m.Name != "" {
+				out[c.ID] = append(out[c.ID], m.Name)
+			}
+		}
+	}
+	return out, nil
+}
+
+// RemoveContainer is `rm ID`, never forced: the engine refuses a running container.
+func (e Engine) RemoveContainer(ctx context.Context, id string) error {
+	if _, err := e.run(ctx, "rm", id); err != nil {
+		return fmt.Errorf("remove container %s: %w", id, err)
+	}
+	return nil
+}
+
+// RemoveVolume is `volume rm NAME`, never forced: the engine refuses a volume a container uses.
+func (e Engine) RemoveVolume(ctx context.Context, name string) error {
+	if _, err := e.run(ctx, "volume", "rm", name); err != nil {
+		return fmt.Errorf("remove volume %s: %w", name, err)
+	}
+	return nil
+}
+
 // RemoveImage is `image rm REF`, never forced: the engine refuses an image a container uses or
 // another image is built on, and a tag of an image with other names only untags it.
 func (e Engine) RemoveImage(ctx context.Context, ref string) error {

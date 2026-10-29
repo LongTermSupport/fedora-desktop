@@ -27,6 +27,12 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.102.2 — container 2.79.15
+
+- **No change to what ccy does.** The shared engine package gained the volume listing, each
+  container's volume mounts, and the unforced container and volume removals that
+  `container-images old-range` uses (Plan 00235 Task 4.7); the launcher calls none of them.
+
 ## 3.102.1 — container 2.79.15
 
 - **A failed self-prune never fails a launch, and none runs beside another build.** The

@@ -246,3 +246,109 @@ func TestContainerImageIDsFailsWhenTheInspectFails(t *testing.T) {
 		t.Fatalf("read %v", got)
 	}
 }
+
+// volumesJSON is the shape `podman volume ls --format json` prints.
+const volumesJSON = `[
+ {"Name":"db-data","Driver":"local","Mountpoint":"/home/u/.local/share/containers/storage/volumes/db-data/_data",
+  "CreatedAt":"2025-01-01T00:00:00Z","Labels":{},"Scope":"local","Options":{},"MountCount":0},
+ {"Name":"cache","Driver":"local","Mountpoint":"/home/u/.local/share/containers/storage/volumes/cache/_data"}
+]
+`
+
+func TestStoreVolumesReadsPodmansList(t *testing.T) {
+	e, f := engineOn(t, Podman)
+	f.On([]string{"podman", "volume", "ls", "--format", "json"}, execx.Result{Stdout: []byte(volumesJSON)})
+	got, err := e.StoreVolumes(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []StoreVolume{
+		{Name: "db-data", Mountpoint: "/home/u/.local/share/containers/storage/volumes/db-data/_data"},
+		{Name: "cache", Mountpoint: "/home/u/.local/share/containers/storage/volumes/cache/_data"},
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("StoreVolumes = %v, want %v", got, want)
+	}
+}
+
+// inspectJSON is the shape `podman container inspect` prints: each container's Mounts, of
+// which only the named volumes are a volume's users.
+const inspectJSON = `[
+ {"Id":"c1","Name":"project-a","Mounts":[
+   {"Type":"volume","Name":"db-data","Source":"/x/_data","Destination":"/var/lib/db"},
+   {"Type":"bind","Source":"/home/u/p","Destination":"/workspace"}]},
+ {"Id":"c2","Name":"other","Mounts":[]}
+]
+`
+
+func TestContainerVolumesAreTheNamedVolumesEachMounts(t *testing.T) {
+	e, f := engineOn(t, Podman)
+	f.On([]string{"podman", "container", "inspect", "c1", "c2"}, execx.Result{Stdout: []byte(inspectJSON)})
+	got, err := e.ContainerVolumes(context.Background(), []string{"c1", "c2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || !slices.Equal(got["c1"], []string{"db-data"}) || len(got["c2"]) != 0 {
+		t.Fatalf("ContainerVolumes = %v", got)
+	}
+}
+
+func TestContainerVolumesOfNoContainerAsksNothing(t *testing.T) {
+	e, f := engineOn(t, Podman)
+	got, err := e.ContainerVolumes(context.Background(), nil)
+	if err != nil || len(got) != 0 || len(f.Calls()) != 0 {
+		t.Fatalf("ContainerVolumes(nil) = %v, %v after %v", got, err, f.Calls())
+	}
+}
+
+func TestVolumeQuestionsFailWhenTheEngineFails(t *testing.T) {
+	e, f := engineOn(t, Podman)
+	f.On([]string{"podman"}, execx.Result{ExitCode: 125, Stderr: []byte("Error: boom\n")})
+	ctx := context.Background()
+	errOf := func(_ any, err error) error { return err }
+	for name, err := range map[string]error{
+		"StoreVolumes":     errOf(e.StoreVolumes(ctx)),
+		"ContainerVolumes": errOf(e.ContainerVolumes(ctx, []string{"c1"})),
+		"RemoveContainer":  e.RemoveContainer(ctx, "c1"),
+		"RemoveVolume":     e.RemoveVolume(ctx, "v"),
+	} {
+		if exit, ok := errors.AsType[*execx.ExitError](err); !ok || exit.Code != 125 {
+			t.Errorf("%s = %v, want the engine's exit 125", name, err)
+		}
+	}
+}
+
+// A container and a volume are removed by the engine's own unforced rm: it refuses a running
+// container and a volume a container uses.
+func TestContainerAndVolumeRemovalsAreUnforced(t *testing.T) {
+	e, f := engineOn(t, Podman)
+	f.On([]string{"podman"}, execx.Result{})
+	ctx := context.Background()
+	if err := e.RemoveContainer(ctx, "c1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.RemoveVolume(ctx, "v"); err != nil {
+		t.Fatal(err)
+	}
+	calls := f.Calls()
+	if len(calls) != 2 || calls[0].Line() != "podman rm c1" || calls[1].Line() != "podman volume rm v" {
+		t.Fatalf("ran %v", calls)
+	}
+}
+
+func TestVolumeListsArePodmansOnly(t *testing.T) {
+	e, f := engineOn(t, Docker)
+	ctx := context.Background()
+	errOf := func(_ any, err error) error { return err }
+	for name, err := range map[string]error{
+		"StoreVolumes":     errOf(e.StoreVolumes(ctx)),
+		"ContainerVolumes": errOf(e.ContainerVolumes(ctx, []string{"c1"})),
+	} {
+		if !errors.Is(err, ErrPodmanOnly) {
+			t.Errorf("%s on docker = %v, want ErrPodmanOnly", name, err)
+		}
+	}
+	if len(f.Calls()) != 0 {
+		t.Fatalf("docker was run: %v", f.Calls())
+	}
+}

@@ -44,6 +44,54 @@
 //     subuid range, `prune --yes` removes nothing: a removal could leave what P6a describes,
 //     which only root repairs. It says so once on stderr and exits 1. A dry run lists as
 //     ever and notes the missing marker. A marker that cannot be read stops the run.
+//
+// `old-range` (Plan 00235 Q6, Decision 4) clears a store whose files are owned by host ids the
+// user's namespace no longer maps, item by item as the host agent decides; never a reset. Root
+// only reads and carries out; every judgement is the user's half.
+//
+//   - O1. An old-range path is one whose uid is not 0, the user's, or in the user's current
+//     subuid range.
+//   - O2. `scan --user NAME` (root) sums them per store directory (overlay/<id>, volumes/<name>,
+//     else the first two parts of the path): count, distinct uids and gids, a few samples, the
+//     size of every regular file under it and whether one holds data. It prints JSON.
+//   - O3. The walk stays on the store's filesystem (a running container's merged root is not
+//     entered), and a path gone mid-walk is not an error.
+//   - O4. The store is the standard rootless path; a storage.conf that could move it is
+//     refused, and so is a user with no subuid or subgid range, or more than one.
+//   - O5. `triage` attributes each directory with c/storage's records (layers, images,
+//     containers, the volatile ones too) and podman's view (`ps --all --external`, each
+//     container's named volumes, `volume ls`): a container's own layer, every image whose chain
+//     holds the layer, a volume, a recorded layer nothing uses, or nothing.
+//   - O6. An image: REMOVE when no container uses it or an image built on it, RE-OWN when a
+//     stopped one does or a kept image is built on it, or it is claude-yolo:base or :latest,
+//     HELD while a running container does. It is removed only with every image built on it.
+//   - O7. A container's own layer: RE-OWN while stopped, REMOVE for buildah's leftover, HELD
+//     while running or when podman does not list it.
+//   - O8. A volume: RE-OWN when a container mounts it, HELD while a running one does, REMOVE
+//     when none does and it holds no data, ASK when none does and it holds data.
+//   - O9. Anything else is ASK, and so is any item with an owner outside the old range or past
+//     the current range's size (it cannot be shifted).
+//   - O10. A re-own moves each old-range uid to the same offset in the current range, the gid
+//     too when it is the old range's, and puts back the setuid and setgid bits and the
+//     security.capability the chown cleared.
+//   - O11. A decisions file is `old-range START COUNT` and one `remove|reown|leave KIND KEY` per
+//     item. `plan` refuses it whole when it misses an item, keeps an ask, names what is not an
+//     item now, or would remove what a container uses or touch what is held or unshiftable;
+//     and an old range that holds root, the user, or overlaps a current range.
+//   - O12. A layer under a running container's overlay (its own or its image's chain) is never
+//     re-owned, whatever is decided for another image using it; the plan names it held.
+//   - O13. `reown --plan F [--yes]` (root) checks the plan first: the store a rootless store
+//     path, every directory a store directory (two parts, inside the store), and a root
+//     removal only an unrecorded directory under overlay/ (never l or tempdirs) or volumes/.
+//     A dry run without --yes. The first path it cannot shift or chown stops it, by name.
+//   - O14. `triage`, `plan` and `remove` run as the store's user, never as root, and stop
+//     before any output when a scan, a record or a podman list cannot be read. triage prints
+//     a markdown report and writes the proposed decisions (ask for ASK, leave for HELD).
+//   - O15. `remove --plan F [--yes]` (the user, after the re-own) asks podman again first: a
+//     container it removes is still listed and not running, and no container it keeps uses an
+//     image or mounts a volume it removes; else nothing is removed. Then podman's own removals
+//     in the plan's order (forced only for buildah's container), each logged as P6 once it
+//     went; a refusal is named and the run fails, P6a stops it at once. A dry run without --yes.
 package containerimages
 
 import (
@@ -55,6 +103,7 @@ import (
 	"io/fs"
 	"maps"
 	"os"
+	"os/user"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -90,6 +139,7 @@ const (
 	usage        = `usage: container-images prune [--yes]
        container-images [--engine podman|docker] before <repository>
        container-images [--engine podman|docker] replaced [--lock <file>] <repository> <ids-file>
+       container-images old-range scan|triage|plan|reown|remove ...
 
   prune          list what the daily prune would remove from the podman store (a dry run)
   prune --yes    remove it: dangling images no container uses, over a day old; claude-yolo
@@ -106,7 +156,7 @@ const (
                  (ccy's build lock runs it after a build); ids-file may be /dev/stdin.
                  While a ccy image build lock other than --lock's is held, it removes
                  nothing. The engine is --engine's, else CCY_CONTAINER_ENGINE's, else podman.
-`
+` + oldRangeUsage
 )
 
 // Env is what a run reaches outside itself.
@@ -119,6 +169,13 @@ type Env struct {
 	UID      int
 	Stdout   io.Writer
 	Stderr   io.Writer
+	// EUID, Etc (where subuid and subgid are, "/etc") and LookupUser are old-range's, and so
+	// are Walk and Files, the store walk and root's file changes (nil and zero: the real ones).
+	EUID       int
+	Etc        string
+	LookupUser func(string) (*user.User, error)
+	Walk       walkFunc
+	Files      fileOps
 }
 
 // App is the command.
@@ -126,11 +183,14 @@ type App struct{ Env Env }
 
 // Run runs the command line.
 func (a App) Run(ctx context.Context, args []string) term.ExitCode {
+	if len(args) >= 1 && args[0] == "old-range" {
+		return a.oldRange(ctx, args[1:])
+	}
 	req, rest, selfPrune := selfPruneArgs(a.Env.Getenv(engine.EnvName), args)
 	switch {
 	case len(args) == 1 && (args[0] == "--help" || args[0] == "-h"):
 		return a.print(a.Env.Stdout, usage)
-	case len(args) >= 1 && args[0] == "prune" && (len(args) == 1 || len(args) == 2 && args[1] == "--yes"):
+	case len(args) >= 1 && args[0] == "prune" && (len(args) == 1 || len(args) == 2 && args[1] == flagYes):
 		return a.prune(ctx, len(args) == 2)
 	case selfPrune:
 		return a.selfPrune(ctx, req, rest)
@@ -525,21 +585,24 @@ func deniedInTempdirs(err error) bool {
 		(strings.Contains(msg, "/overlay/tempdirs/temp-dir-") || strings.Contains(msg, "stale temp dir"))
 }
 
-func (r *run) record(act action) error {
+func (r *run) record(act action) error { return appendRemoval(r.log, r.Env.Now(), act) }
+
+// appendRemoval is one line of the removal log (P6, O15), written only after the removal.
+func appendRemoval(log *os.File, now time.Time, act action) error {
 	labels := slices.Sorted(maps.Keys(act.labels))
 	pairs := make([]string, 0, len(labels))
 	for _, k := range labels {
 		pairs = append(pairs, k+"="+act.labels[k])
 	}
 	fields := []string{
-		r.Env.Now().UTC().Format(time.RFC3339), act.kind, act.name, act.id,
+		now.UTC().Format(time.RFC3339), act.kind, act.name, act.id,
 		strconv.FormatInt(act.size, 10), strings.Join(pairs, ","), act.why,
 	}
 	for i, f := range fields {
 		fields[i] = strings.NewReplacer("\t", " ", "\n", " ").Replace(f)
 	}
-	if _, err := io.WriteString(r.log, strings.Join(fields, "\t")+"\n"); err != nil {
-		return fmt.Errorf("could not write %s: %w; the removal of %s %s is not recorded", r.log.Name(), err, act.kind, act.name)
+	if _, err := io.WriteString(log, strings.Join(fields, "\t")+"\n"); err != nil {
+		return fmt.Errorf("could not write %s: %w; the removal of %s %s is not recorded", log.Name(), err, act.kind, act.name)
 	}
 	return nil
 }

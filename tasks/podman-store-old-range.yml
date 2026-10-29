@@ -1,0 +1,123 @@
+---
+# The old-range clean-up of the rootless podman store, item by item as the host agent decided
+# (Plan 00235 Q6, Decision 4; never a reset). play-podman.yml imports it, after it built
+# container-images and before the ownership probe, only when it is given the decisions file.
+#
+# Files of the store owned by host ids of an older subuid range (100000+k) cannot be removed by
+# the rootless user, and every prune meeting one breaks the store. CLAUDE/Plan/00235-*/old-range.bash
+# triages them (`container-images old-range scan` and `triage`); the host agent writes one
+# remove, reown or leave per item in a decisions file under untracked/. Here, behind the busy
+# guard: root scans the store again; the user checks the decisions against that scan and
+# podman's view (`plan`, which refuses unsafe or incomplete decisions); root re-owns the planned
+# directories into the current range and removes the stray ones decided remove (`reown`); the
+# user has podman remove what was decided remove (`remove`), each removal logged to
+# ~/.local/state/fedora-desktop/container-images.log. Without podman_store_old_range_apply the
+# reown and the remove are dry runs that only list. The repair runs after, whatever happened.
+#
+# Needs: user_login, root_dir, podman_store_old_range_decisions (an absolute path under
+# root_dir/untracked/); podman_store_old_range_apply (default false).
+
+- name: Assert the Old-Range Decisions File Is Under untracked/
+  ansible.builtin.assert:
+    that:
+      - podman_store_old_range_decisions is string
+      - (podman_store_old_range_decisions | realpath).startswith(root_dir ~ '/untracked/')
+    fail_msg: >-
+      podman_store_old_range_decisions ({{ podman_store_old_range_decisions }}) must be a file
+      under {{ root_dir }}/untracked/: it names this install's images and volumes.
+    quiet: true
+
+- name: Check the Old-Range Decisions File Exists
+  ansible.builtin.stat:
+    path: "{{ podman_store_old_range_decisions }}"
+  register: podman_store_old_range_decisions_stat
+
+- name: Assert the Old-Range Decisions File Exists
+  ansible.builtin.assert:
+    that:
+      - podman_store_old_range_decisions_stat.stat.isreg | default(false)
+    fail_msg: "{{ podman_store_old_range_decisions }} is not a file; run old-range.bash for the triage first"
+    quiet: true
+
+- name: Look Up the Login User for the Old-Range Clean-Up
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ user_login }}"
+
+- name: Resolve the Rootless Store and the container-images Command
+  ansible.builtin.set_fact:
+    podman_store_old_range_root: "{{ ansible_facts['getent_passwd'][user_login][4] }}/.local/share/containers/storage"
+    podman_store_old_range_bin: "{{ ansible_facts['getent_passwd'][user_login][4] }}/.local/bin/container-images"
+    podman_store_old_range_yes: "{{ ['--yes'] if podman_store_old_range_apply | default(false) | bool else [] }}"
+
+# c/storage's own lock files: the store's, and each record store's and temporary directory's.
+# A layer's files are not searched: a lock file inside an image is not c/storage's.
+- name: Find the Lock Files of the Rootless Store
+  become: true
+  ansible.builtin.find:
+    paths:
+      - "{{ podman_store_old_range_root }}"
+      - "{{ podman_store_old_range_root }}/overlay-layers"
+      - "{{ podman_store_old_range_root }}/overlay-images"
+      - "{{ podman_store_old_range_root }}/overlay-containers"
+      - "{{ podman_store_old_range_root }}/overlay/tempdirs"
+    patterns:
+      - "*.lock"
+      - lock-*
+    file_type: file
+  register: podman_store_old_range_locks
+
+- name: Fail While a podman or buildah Removes or Builds, or the Store Is Locked
+  ansible.builtin.import_tasks: "{{ root_dir }}/tasks/podman-store-busy-guard.yml"
+  vars:
+    podman_store_guard_what: The old-range clean-up
+    podman_store_guard_locks: "{{ podman_store_old_range_locks.files }}"
+
+- name: Clean Up the Old-Range Files as Decided
+  block:
+    - name: Scan the Store for Old-Range Files as Root
+      become: true
+      ansible.builtin.command:
+        argv: ["{{ podman_store_old_range_bin }}", old-range, scan, --user, "{{ user_login }}"]
+      register: podman_store_old_range_scan
+      changed_when: false
+
+    - name: Check the Decisions Against the Store Now and Plan Them
+      ansible.builtin.command:
+        argv:
+          - "{{ podman_store_old_range_bin }}"
+          - old-range
+          - plan
+          - --scan
+          - /dev/stdin
+          - --decisions
+          - "{{ podman_store_old_range_decisions }}"
+        stdin: "{{ podman_store_old_range_scan.stdout }}"
+      register: podman_store_old_range_plan
+      changed_when: false
+
+    - name: Re-Own the Planned Directories into the Current Range as Root
+      become: true
+      ansible.builtin.command:
+        argv: "{{ [podman_store_old_range_bin, 'old-range', 'reown', '--plan', '/dev/stdin'] + podman_store_old_range_yes }}"
+        stdin: "{{ podman_store_old_range_plan.stdout }}"
+      register: podman_store_old_range_reown
+      changed_when: podman_store_old_range_yes | length > 0
+
+    - name: Show What the Re-Own Did
+      ansible.builtin.debug:
+        var: podman_store_old_range_reown.stdout_lines
+
+    - name: Remove What Was Decided Remove with podman
+      ansible.builtin.command:
+        argv: "{{ [podman_store_old_range_bin, 'old-range', 'remove', '--plan', '/dev/stdin'] + podman_store_old_range_yes }}"
+        stdin: "{{ podman_store_old_range_plan.stdout }}"
+      register: podman_store_old_range_remove
+      changed_when: podman_store_old_range_yes | length > 0
+
+    - name: Show What podman Removed
+      ansible.builtin.debug:
+        var: podman_store_old_range_remove.stdout_lines
+  always:
+    - name: Repair the Rootless Store as Root After the Old-Range Clean-Up
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/podman-store-repair.yml"

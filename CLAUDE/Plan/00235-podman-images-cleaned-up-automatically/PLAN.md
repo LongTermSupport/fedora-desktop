@@ -1,6 +1,6 @@
 # Plan 00235: podman images cleaned up automatically
 
-**Status**: In Progress (the first prune freed 299G, then broke the store; the repair and timer gate (4.5, 4.6, 4.8) are deployed or deploying; Phase 3 (3.1, 3.2) built and gated on a clean store; Q6 is the owner's)
+**Status**: In Progress (the first prune freed 299G, then broke the store; the repair and timer gate (4.5, 4.6, 4.8) are deployed or deploying; Phase 3 (3.1, 3.2) built and gated on a clean store; Q6 answered: no reset, the host agent triages and decides each old-range item (Task 4.7, Decision 4); 4.7a-c built, 4.7d waits for the host agent's triage and decisions)
 **Created**: 2026-10-28
 **Owner**: joseph
 **Priority**: High
@@ -83,6 +83,18 @@ Research, with file:line for every claim below:
   probe and the timer both rely on it; the Go fake must mirror the real output, Task 3.1).
 - That `podman image rm <id>` refuses, rather than forces, an image a container uses (the
   self-prune leans on podman's own refusal as a second guard, never as the first).
+- That c/storage's records are `overlay-layers/layers.json` (`id`, `parent`),
+  `overlay-images/images.json` (`id`, `names`, `layer`, `mapped-layers`) and
+  `overlay-containers/containers.json` (`id`, `names`, `image`, `layer`), each with a
+  `volatile-` twin when present, and that a layer's files are under `overlay/<id>/` (Task 4.7a
+  reads them; no vendored c/storage was reachable). The host triage shows it: an old-range
+  directory under `overlay/` that no record names is reported as unattributed, never guessed.
+- That chown on a lower layer of a running container's overlay is unsafe (the kernel calls a
+  change under a mounted overlay undefined), so such a layer is HELD, never re-owned, until its
+  containers stop.
+- That no running container holds one of c/storage's lock files (storage.lock, the record
+  stores' locks) for as long as it runs: the old-range busy guard fails on a held one, so if a
+  running ccy session does hold one, the apply waits for the sessions to stop (the safe side).
 
 ### Precedent
 
@@ -157,9 +169,11 @@ the plans cite kept.
   (`podman volume rm`), logs each removal (name, owner uid, size) to the play output and the
   retention log of Task 4.1, and fails on a removal that does not succeed; with no such volume it
   changes nothing. Tests first for the probe's judgement (a volume in range, out of range, in
-  use). Acceptance (Task 7.1): `podman system df` exits 0 afterwards. NOT BUILT: Plan 00062
-  found 9 such volumes, one holding real database data, so "removed once" needs the owner's
-  confirmation (Q2b, and Q6's option A would make them usable again instead)
+  use). Acceptance (Task 7.1): `podman system df` exits 0 afterwards. NOT BUILT, and superseded
+  by Task 4.7: Plan 00062 found 9 such volumes, one holding real database data, so no rule
+  removes them; each is an item of the Task 4.7 triage, which proposes RE-OWN for a volume a
+  container mounts, REMOVE for an unmounted empty one and ASK for an unmounted one with data,
+  and the host agent decides
 - [x] ✅ **Task 4.5**: `tasks/podman-store-repair.yml`, imported by play-podman.yml before its
   first podman question and after the first prune: as root, removes each
   `overlay/tempdirs/temp-dir-N` and its `lock-N`, logging path and size; fails instead while a
@@ -168,10 +182,32 @@ the plans cite kept.
 - [x] ✅ **Task 4.6**: P6a: the prune stops at the first removal refused with permission denied
   in c/storage's tempdirs, names the cause and the repair once, and exits 1 (tests first,
   journalled)
-- [ ] ⬜ **Task 4.7** (FIX, Q6): layers still in the store with files owned by host uids outside
-  the user's uid and current subuid range (the old range, 100000+k) cannot be deleted rootless;
-  each prune meeting one stops (P6a) and needs the repair. The same open question as Plan 00062
-  Task 4.8
+- [ ] 🔄 **Task 4.7** (FIX, Q6 answered: case by case, Decision 4): layers and volumes with
+  files owned by host uids of the old range (100000+k) cannot be deleted rootless; each prune
+  meeting one stops (P6a). The host agent triages them item by item and decides
+  - [x] ✅ **4.7a**: tests first, then `container-images old-range` (in
+    `internal/containerimages`, beside the prune whose removal log it shares, O1-O15 in its
+    package doc): `scan` (root, read-only:
+    per store directory, the old-range paths, their owners and sizes), `triage` (the user:
+    each item grouped by what owns it, with its proposed action, and the proposed decisions
+    file), `plan` (the user: a decisions file checked against a fresh scan and podman's view),
+    `reown --plan [--yes]` (root: the shift, setuid bits and file capabilities put back, and
+    the unattributed paths decided `remove`), `remove --plan [--yes]` (the user: podman's own
+    unforced removals, after a fresh look at podman, logged); package coverage 94.7%
+  - [x] ✅ **4.7b**: `old-range.bash` in this folder: the triage (report and proposed decisions in
+    the run directory, under `untracked/`); `--decisions FILE` adds the dry run of that file;
+    `--decisions FILE --apply` runs play-podman.yml with it. The file must be under
+    `untracked/`, since it names this install's images and volumes. It builds the command from
+    the checkout into the run directory; its read-only legs are `old-range-steps.bash`
+  - [x] ✅ **4.7c**: `tasks/podman-store-old-range.yml`, imported by play-podman.yml after the
+    command is built and before the Task 4.8 probe, only when `podman_store_old_range_decisions`
+    is given: the busy guard (factored out of the repair into `tasks/podman-store-busy-guard.yml`,
+    which both use, with c/storage's own lock files: the store's, the record stores' and
+    tempdirs'), then scan, plan, reown and remove (dry runs unless
+    `podman_store_old_range_apply`), the repair in `always:`. The probe then finds nothing,
+    writes the marker and starts the timer
+  - [ ] ⬜ **4.7d**: on the host: the host agent runs `old-range.bash` through meta-deploy, reads
+    the report, writes its decisions under `untracked/`, runs the dry run, then `--apply`
 - [x] ✅ **Task 4.8**: `tasks/podman-store-ownership-probe.yml`, imported by play-podman.yml after
   the repair and before the timer: as root, `find -xdev -ignore_readdir_race -quit` looks in the
   store's overlay for a file owned by a uid other than 0, the user's, or the current
@@ -271,13 +307,18 @@ Each has the default this plan proceeds on unless the owner says otherwise.
 - **Q5**: host_health is Python, and CLAUDE.md ports "a standalone Python CLI ... when it is next
   reworked". Default: **two probes added to the existing function are not a rework**; it stays
   Python. If the owner disagrees, the port is a plan of its own and Phase 5 waits for it.
-- **Q6**: Old-range files in the store (F10, Task 4.7). (A) A root step shifting files owned by
-  100000+k to the current range's start+k, with the containers stopped, and setuid bits and
-  file capabilities restored after the chown. (B) `podman system reset`, which destroys every
-  container, image and volume, including the 9 volumes Plan 00062 found. Recommendation: **A**,
-  after a read-only triage counts the affected layers and volumes. It keeps the containers'
-  state and the volumes, and every later deletion works. Until then the play-podman.yml repair
-  keeps the store usable, and the timer is held off (Task 4.8).
+- **Q6** (ANSWERED 2026-10-28): Old-range files in the store (F10, Task 4.7). The options were
+  (A) a root step shifting files owned by 100000+k to the current range's start+k, and (B)
+  `podman system reset`. The owner: "reset would nuke ALL podman? that is definitely not
+  acceptable, we have lots of running ccy sessions eg this one. re own I guess? but maybe we
+  can be a bit more clever than one decision for all - can the desktop level session properly
+  triage and decide case by case? crap can be removed". So **B is rejected: no `podman system reset`, ever**. The host agent (the desktop-level session) triages and decides item by item:
+  what is junk is removed, what is kept is re-owned (Decision 4, Task 4.7).
+- **Q7**: A layer under a running container (its own, or one of its image's) is HELD: never
+  re-owned or removed while the container runs. If the running ccy sessions' base layers hold
+  old-range files, the store cannot be made clean (and the daily prune stays held off) until
+  those sessions stop and the apply is run again. Default: **hold**, and apply in two rounds
+  (everything else now, the held layers once the sessions are stopped for another reason).
 
 ## Technical Decisions
 
@@ -302,6 +343,41 @@ for the build (the order `tasks/build-go-command.yml` requires).
 images.
 **Decision**: after a build, remove only the ids that build's tags named before it; on the
 timer, prune dangling images older than a day. Both leave anything a container uses.
+
+### Decision 4: old-range files triaged and decided item by item, never a reset (Q6)
+
+**Context**: the owner rejected `podman system reset` (running ccy sessions) and asked for the
+host agent to decide case by case: junk removed, the rest re-owned.
+**Decision**: the root half only reads and executes; every judgement is the user's half, in
+Go, tested through fakes. `scan` (root) walks the store once (`-xdev`, a file vanishing
+mid-walk is not an error) and sums, per store directory (`overlay/<id>`, `volumes/<name>`,
+anything else), the paths whose uid is not 0, the user's, or the current subuid range: count,
+owners, a few sample paths, size, and whether a volume holds data. `triage` (the user) joins
+that with c/storage's records and podman's (`ps -a --external`, each container's volume
+mounts, `volume ls`) into items, each with its owners and a proposed action:
+
+- an image whose layers hold old-range files: REMOVE when no container uses it or an image
+  built on it that is kept; RE-OWN when one does, or it is `claude-yolo:base`/`:latest`;
+  HELD while a running container uses it
+- a layer goes with its images (an apt `partial` directory inside it is never an item of its
+  own): it is re-owned when any image using it is decided, and HELD while a running
+  container's chain holds it
+- a container's own layer: RE-OWN when stopped, HELD while running
+- a volume: RE-OWN when a container mounts it, REMOVE when none does and it holds no data,
+  ASK when none does and it holds data, HELD while a running container mounts it
+- anything else (an `overlay/` directory no record names, a recorded layer no image or
+  container uses, an owner outside both ranges): ASK
+
+The host agent writes a decisions file under `untracked/` (one `remove`, `reown` or `leave`
+per item, and the old range's start and size); `plan` refuses one that misses an item, keeps
+an ASK, or would remove what a container uses or touch what a running container holds.
+`reown` shifts each old-range uid to `uid - old_start + new_start` (gids likewise), puts back
+the setuid and setgid bits and the `security.capability` the chown cleared, and removes as
+root only the unattributed directories decided `remove`; `remove` is podman's own unforced
+`image rm`, `rm` and `volume rm`, after the re-own made their files the user's. A removal
+always follows the re-own, so the store ends clean whatever podman refuses. The apply is
+play-podman.yml's (IaC), behind the repair's busy guard; the plan script's dry run is the
+default and `--apply` the explicit flag.
 
 ## Success Criteria
 
