@@ -98,7 +98,9 @@
 //     F11 states), and a 5-hour or 7-day utilisation at or past 100% whose reset is still ahead
 //     is used up: exit 3, one stderr line naming the token by its name (never its value), each
 //     used-up window, the clock time it clears and the time to go ("7-day limit used up; clears
-//     Fri 20:53, in 3d 8h"). Usage left is exit 0 and silent. Usage that cannot be read (turned
+//     Fri 20:53, in 3d 8h"); on a terminal without NO_COLOR (D10's rule) that line is a
+//     banner, bold bright white on red (`ESC[1;97;41m`), with a red line above and below,
+//     each filled to its end with `ESC[K`. Usage left is exit 0 and silent. Usage that cannot be read (turned
 //     off, offline, a refused or limitless answer, a file that is not a name's launch file in
 //     the pool: a later file of a name, or a path outside it) is exit 0 with one stderr line saying it could not be checked and why: it
 //     fails open on unknown because the reading is only a forecast of a refusal the API makes

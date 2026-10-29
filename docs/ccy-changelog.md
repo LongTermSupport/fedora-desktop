@@ -27,6 +27,14 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.103.1 — container 2.79.15
+
+- **A token with no usage left is refused in a red banner.** On a terminal, the `✗ No usage left on token <name>: ...` line printed before ccy falls back to the token chooser is a
+  three-line block of bold bright white on a red background, filled to the width of the
+  terminal, so it cannot be missed. With `NO_COLOR`, or when stderr is not a terminal, it is
+  the plain line it was. The chooser's own `✗ no usage left:` mark beside a token is
+  unchanged. Built into `ccy-token-usable` by `play-claude-yolo.yml`.
+
 ## 3.103.0 — container 2.79.15
 
 - **Every image ccy makes says which ccy made it.** The builds of `claude-yolo:base`,
