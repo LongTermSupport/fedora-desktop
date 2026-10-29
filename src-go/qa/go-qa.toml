@@ -11,9 +11,9 @@ modules = ["qa"]
 # The project record (qa/record.toml) is the owner's to sign: its [ratchet] table is the owner's
 # signature, which accepts each entry and the trust tier given to the model that wrote it. Until
 # it is signed the record fails, and without it every exclusion in .golangci.yml would fail the
-# suppression detector. Both are switched on together once it is signed (Plan 00191 Task 3.8).
-record = false
-suppression = false
+# suppression detector. Both are on, together, since the owner's signature (Plan 00191 Task 3.8).
+record = true
+suppression = true
 
 # The record's policy (go-qa-ci docs/record.md). A role, not a person: whoever owns this repository
 # signs as repository-owner, the name the ratchet and any human entry must carry. qa/record.toml
@@ -23,7 +23,7 @@ suppression = false
 # history_base is the default branch, which this repository names after the Fedora release.
 [record]
 deciders = ["repository-owner"]
-max_total = 28
+max_total = 29
 history_base = "origin/F44"
 
 [record.trust.models]
@@ -31,7 +31,7 @@ claude-opus = "medium"
 
 [record.trust.medium]
 max_review_days = 30
-max_count = 28
+max_count = 29
 
 [analyzers]
 module = "qa"

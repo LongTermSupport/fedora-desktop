@@ -5,10 +5,10 @@
 # The [ratchet] table is the repository owner's signature (Plan 00191 Task 3.8).
 
 [ratchet]
-high_water = 27
+high_water = 29
 decided_by = "repository-owner"
-decided_on = 2026-10-28
-reason = "adopting the ceiling at the exceptions this repository's Go gate has today"
+decided_on = 2026-10-29
+reason = "raising the ceiling by two for the tagliatelle exclusions of internal/netpolicy/podman.go (podman inspect's own field names, Plan 00232) and internal/containerimages/oldrange_records.go (c/storage's own mapped-layers key, Plan 00235)"
 
 [[exception]]
 rule = "golangci.yml::exclusions.rules::goconst+dupword"
@@ -207,6 +207,15 @@ decided_by = "repository-owner"
 added_by_model = "claude-opus-5-5"
 decided_on = 2026-10-28
 review_by = 2026-11-27
+
+[[exception]]
+rule = "golangci.yml::exclusions.rules::tagliatelle/mapped-layers"
+path = ".golangci.yml"
+justification = "tagliatelle guards against JSON key case drift; container-images old-range decodes c/storage's own image records (overlay-images/images.json), whose key for an image's mapped layer copies is c/storage's mapped-layers. Scope: that key in internal/containerimages/oldrange_records.go only."
+decided_by = "repository-owner"
+added_by_model = "claude-opus-5-5"
+decided_on = 2026-10-29
+review_by = 2026-11-28
 
 [[exception]]
 rule = "golangci.yml::exclusions.rules::gosec/G301|G302|G306"

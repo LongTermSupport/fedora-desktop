@@ -130,7 +130,7 @@ today; rewriting them is out of scope.
   comments. Full gate green, coverage
   included. Report: `subagent-reports/261019-go-qa-ci-pin-opus.md`.
 
-- [ ] ⬜ **Task 3.8**: The owner signs a go-qa project record for this repository (go-qa-ci adopt
+- [x] ✅ **Task 3.8**: The owner signs a go-qa project record for this repository (go-qa-ci adopt
   step B2), then `[tools] record` and `suppression` are switched on in `src-go/qa/go-qa.toml`.
   Both are off until then: without a record every `.golangci.yml` exclusion would fail the
   suppression detector. `qa-go.bash` had neither check, so nothing was lost by Task 3.3.
@@ -180,7 +180,7 @@ today; rewriting them is out of scope.
     sign, medium tier). The `[ratchet]` table above is at the top of `src-go/qa/record.toml`
     with `decided_on = 2026-10-28`; `go-qa.toml`'s tier is unchanged (`claude-opus = "medium"`), and the entries keep their dates (signed one day after writing).
 
-  - [ ] ⬜ Switch `record` and `suppression` on. Tried at signing: `go-qa record check` says
+  - [x] ✅ Switch `record` and `suppression` on. Tried at signing: `go-qa record check` says
     all 27 valid, but `-t record -t suppression` fails on two exclusions added to
     `.golangci.yml` on 2026-10-27 after the record was written, so both switches stay off:
     `internal/netpolicy/podman\.go` tagliatelle (rule
@@ -215,6 +215,15 @@ today; rewriting them is out of scope.
 
     - Then a worker sets `record = true` and `suppression = true` in `src-go/qa/go-qa.toml`,
       runs `scripts/qa-go-qa.bash -t record -t suppression`, and ticks this item when it passes.
+
+    Done 2026-10-29. Plan 00235's old-range triage had added a third exclusion meanwhile
+    (tagliatelle `mapped-layers`, c/storage's own key in its image records), so the owner
+    raised the ceiling to 29 instead ("Raise to 29", 2026-10-29) and asked the coordinator to
+    write the signature in their name ("You write it for me", 2026-10-28). The `[ratchet]`
+    table now says `high_water = 29`, `decided_on = 2026-10-29`, with a reason naming both
+    tagliatelle exclusions; the 29th entry is `tagliatelle/mapped-layers`; `max_total` and
+    `max_count` are 29; `record` and `suppression` are on, and
+    `scripts/qa-go-qa.bash -t record -t suppression` passes (both detectors passed).
 
 - [x] ✅ **Task 3.9**: Re-derive the coverage floor from go-qa's measurement (Fable's review of
   Task 3.3, finding 4; `subagent-reports/261019-go-qa-ci-pin-review-fable.md`). `qa-go.bash`
