@@ -890,11 +890,19 @@ container:
 
 ```
 $ ccy --token-usage
-NAME      EXPIRES     5-HOUR  RESETS                             7-DAY  RESETS                            STATUS
-personal  2027-10-10       -  -                                      -  -                                 unavailable: this token was not authorised to read it
-work      2027-10-10     34%  in 4 hours (2026-10-10 13:13 UTC)     8%  in 6 days (2026-10-16 09:13 UTC)  ok; binding: 5-hour limit; shadows a later file of this name, which ccy never uses: remove the one you do not want
-work      2028-02-22       -  -                                      -  -                                 shadowed: ccy --token work launches with work.2027-10-10.token
+personal   expires 2027-10-10
+       usage unavailable — this token was not authorised to read it
+
+work       expires 2027-10-10
+       5-hour limit   ███████░░░░░░░░░░░░░  34%   resets in 4 hours (2026-10-10 13:13 UTC)
+       weekly limit   ██░░░░░░░░░░░░░░░░░░   8%   resets in 6 days (2026-10-16 09:13 UTC)
+       binding limit: 5-hour limit
+       warning: shadows a later file of this name, which ccy never uses: remove the one you do not want
+       shadowed: work.2028-02-22.token is never used; ccy --token work launches with work.2027-10-10.token
 ```
+
+The bars are the token menu's: on a terminal the filled part is green below 50%, orange below
+85% and red from there, and `NO_COLOR` or output that is not a terminal leaves out the colour.
 
 `ccy --token-usage --json` prints one JSON object instead; `ccy --help` lists every key.
 `--token-usage` must be the first option, and `--json` is the only one it takes. Given later
@@ -906,16 +914,19 @@ repository check every launch makes first.
 - **Percentages are the menu's**, normalised to 0-100 under `CCY_USAGE_SCALE`. A value the
   scale cannot produce is reported as `null` with a `SCALE MISMATCH` warning, never as a
   number.
-- **One row per token name.** When a name has two files (an old token and its renewal), the
-  row is the earliest-dated file, because that is the one `ccy --token NAME` launches with.
-  The other is listed as `shadowed` and is never sent. An expired token is reported as
-  unavailable and is not sent either. When the file a launch uses is expired and a later one
-  is not, the row carries a `SHADOWED RENEWAL` warning naming the file to remove, and
-  `ccy --token NAME` warns too whenever a name has more than one dated file.
+- **One entry per token name.** When a name has two files (an old token and its renewal),
+  the entry is the earliest-dated file, because that is the one `ccy --token NAME` launches
+  with. The other is listed as `shadowed` and is never sent. An expired token, or a file with
+  no date in its name, is reported as unavailable and is not sent either. When the file a
+  launch uses is expired and a later one is not, the entry carries a `SHADOWED RENEWAL`
+  warning naming the file to remove, and `ccy --token NAME` warns too whenever a name has
+  more than one dated file.
 - **Exit status**: 0 when at least one token's usage was read; 1 when none was (no tokens,
   every one unavailable, `CCY_TOKEN_USAGE=0`, no curl), with the reason in the JSON's
-  `error`, or on stderr for the table; 64 on any other option. A token that cannot be read on its own is
-  `"status": "unavailable"` with a `reason`, and does not fail the command.
+  `error`, or on stderr for the bars; 64 on any other option. A token that cannot be read on its own is
+  `"status": "unavailable"` with a `reason`, and does not fail the command. Something it
+  cannot read safely (a setting it refuses, a token curl's arguments would hold, a pool or
+  cache entry that is not a plain file) is exit 1 with one line naming it, and nothing on stdout.
 
 `ccy` is a shell alias, which a script does not see. From a script, cron job or systemd
 unit, call the launcher by its path: `/var/local/claude-yolo/claude-yolo --token-usage --json`.
@@ -1812,10 +1823,11 @@ banner prints it verbatim, so it must stay short.
 
 The launcher is being ported to Go one flag at a time (Plan 00191). `/var/local/claude-yolo/claude-yolo`
 is a Go program that answers `--version`, `--help`, `--list-tokens` (on its own),
-`--token-usage [--json]`, `--prevent`, `--export-token NAME` and `--build-lock` (the Go
-program's own flag: the bash refuses it, so `CCY_LEGACY` cannot run it) itself, with the bash launcher's
-output (and the same JSON document, usage cache and API call, the token fed to curl on its
-stdin; for the last two, the same `.claude/ccy/` set-up first), and runs the bash launcher,
+`--prevent`, `--export-token NAME`, and its own two flags, `--token-usage [--json]` and
+`--build-lock` (the bash refuses both, so `CCY_LEGACY` cannot run them) itself. The first
+three print the bash launcher's output (for the last two, after the same `.claude/ccy/`
+set-up), and `--token-usage` reads the usage cache the token menu reads, the token fed to
+curl on its stdin. It runs the bash launcher,
 installed beside it as `claude-yolo.bash`, for everything else, with the same arguments and
 environment plus `CCY_LAUNCHER_FRONT`, its own path. The bash launcher reads that once, takes
 it only if it is the `claude-yolo` beside it, and unsets it before it starts tmux, the engine

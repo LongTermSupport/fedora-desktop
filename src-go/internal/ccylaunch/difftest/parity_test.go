@@ -213,8 +213,6 @@ func TestFrontParity(t *testing.T) {
 var frontAnswers = []string{
 	"version", "version-short", "help-no-image", "help-image", "help-short-image-broken",
 	"list-tokens-bare", "list-tokens-one", "list-tokens-states",
-	"token-usage-no-tokens", "token-usage-expired-only", "token-usage-disabled", "token-usage-bad-option",
-	"token-usage-table", "token-usage-json", "token-usage-api-down",
 	"prevent", "export-token-named", "export-token-missing",
 }
 
@@ -224,7 +222,6 @@ var frontAnswerLines = []string{
 	`printf 'ccy version %s\nHash: %s\n' "$CCY_VERSION" "$CCY_HASH"`,
 	"Claude Code YOLO Mode (ccy) - Container-based execution with --dangerously-skip-permissions",
 	"if [ \"$#\" -eq 1 ] && [ \"$1\" = \"--list-tokens\" ]; then\n    list_tokens \"$TOKEN_DIR\" \"ccy\"",
-	`usage_report "$TOKEN_DIR" "$@" || ccy_token_usage_rc=$?`,
 	`echo "never" >> "$allowed_file"`,
 	`export_token "$TOKEN_DIR" "$EXPORT_TOKEN_NAME"`,
 }

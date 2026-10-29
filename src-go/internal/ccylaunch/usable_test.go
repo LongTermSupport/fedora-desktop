@@ -3,6 +3,7 @@ package ccylaunch
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -124,10 +125,12 @@ func TestUsableLocalFaultFails(t *testing.T) {
 // U3: an odd file elsewhere in the pool (one the reader refuses) does not block this token.
 func TestUsableOddSiblingFailsOpen(t *testing.T) {
 	r := usableRun(t, "200", limitHeaders("1", "1"), 0)
-	r.token(t, "old.token")
+	if err := os.Mkdir(filepath.Join(r.pool(), "odd.2030-06-01.token"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	r.front.Args = []string{"--", r.work()}
 	r.usable(t, term.ExitOK, "",
-		"⚠ Could not check the usage left on token work (a token file name has no date: old.token), so ccy starts on it anyway.\n", 0)
+		"⚠ Could not check the usage left on token work (a token file is not a regular file: odd.2030-06-01.token), so ccy starts on it anyway.\n", 0)
 }
 
 // U3: a relative path to the launch file is the launch file.

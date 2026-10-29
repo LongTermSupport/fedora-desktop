@@ -111,15 +111,18 @@ func (r *run) curls() []execx.Cmd {
 	return calls
 }
 
-const tableHead = "NAME  EXPIRES     5-HOUR  RESETS                                7-DAY  RESETS                            STATUS\n"
+// barsWork is the report of the name work over usageHeaders, uncoloured.
+const barsWork = "work   expires 2030-06-01\n" +
+	"       5-hour limit   █████░░░░░░░░░░░░░░░  25%   resets in 60 minutes (2030-01-15 13:00 UTC)\n" +
+	"       weekly limit   ████████████░░░░░░░░  60%   resets in 3 days (2030-01-18 20:53 UTC)\n" +
+	"       binding limit: 5-hour limit\n"
 
-// F11: the table, one API call with the token on stdin and never in argv or the environment,
+// F11: the bars, one API call with the token on stdin and never in argv or the environment,
 // and the cache entry it leaves.
-func TestTokenUsageTable(t *testing.T) {
+func TestTokenUsageBars(t *testing.T) {
 	r := usageRun(t, []string{"work.2030-06-01.token"}, "200", usageHeaders)
 	r.answered(t, term.ExitOK)
-	want := tableHead +
-		"work  2030-06-01     25%  in 60 minutes (2030-01-15 13:00 UTC)    60%  in 3 days (2030-01-18 20:53 UTC)  ok; binding: 5-hour limit\n"
+	want := barsWork
 	if r.stdout.String() != want {
 		t.Fatalf("stdout:\n%s\nwant:\n%s", r.stdout, want)
 	}
@@ -207,14 +210,18 @@ func TestTokenUsageJSON(t *testing.T) {
 	}
 }
 
-// F11: the shadow rows of the table, and a shadowed renewal behind an expired file.
-func TestTokenUsageTableShadows(t *testing.T) {
-	r := usageRun(t, []string{"old.2030-01-15.token", "old.2030-08-01.token"}, "200", usageHeaders)
+// F11: why a name has no figures, its warnings, its shadowed file, and a blank line between
+// names, whose headings are aligned.
+func TestTokenUsageBarsShadows(t *testing.T) {
+	r := usageRun(t, []string{"old.2030-01-15.token", "old.2030-08-01.token", "personal.2030-01-01.token"}, "200", usageHeaders)
 	r.answered(t, term.ExitFailure)
-	blank := "       -  -           -  -       "
-	want := "NAME  EXPIRES     5-HOUR  RESETS  7-DAY  RESETS  STATUS\n" +
-		"old   2030-01-15" + blank + "unavailable: token expires today, so ccy will not launch with it; renew: ccy --update-token=old; SHADOWED RENEWAL: ccy launches with this unusable file, not the later one; remove old.2030-01-15.token\n" +
-		"old   2030-08-01" + blank + "shadowed: ccy --token old launches with old.2030-01-15.token\n"
+	want := "old        expires 2030-01-15\n" +
+		"       usage unavailable — token expires today, so ccy will not launch with it; renew: ccy --update-token=old\n" +
+		"       warning: SHADOWED RENEWAL: ccy launches with this unusable file, not the later one; remove old.2030-01-15.token\n" +
+		"       shadowed: old.2030-08-01.token is never used; ccy --token old launches with old.2030-01-15.token\n" +
+		"\n" +
+		"personal   expires 2030-01-01\n" +
+		"       usage unavailable — token expired on 2030-01-01; renew: ccy --update-token=personal\n"
 	if r.stdout.String() != want {
 		t.Fatalf("stdout:\n%s\nwant:\n%s", r.stdout, want)
 	}
@@ -277,17 +284,62 @@ func TestTokenUsageStatuses(t *testing.T) {
 	}
 }
 
-// F11: the table's figures: a value below one percent, a reset already passed, hours.
-func TestTokenUsageTableFigures(t *testing.T) {
+// F11: the bars' figures: a value below one percent, a reset already passed, hours, no reset
+// time, over the limit, and a bucket the API did not report.
+func TestTokenUsageBarsFigures(t *testing.T) {
 	headers := "anthropic-ratelimit-unified-5h-utilization: 0.004\nanthropic-ratelimit-unified-5h-reset: 1894708000\n" +
 		"anthropic-ratelimit-unified-7d-utilization: 0\nanthropic-ratelimit-unified-7d-reset: 1894716000\n" +
 		"anthropic-ratelimit-unified-representative-claim: seven_day_opus\n"
 	r := usageRun(t, []string{"work.2030-06-01.token"}, "200", headers)
 	r.answered(t, term.ExitOK)
-	want := "NAME  EXPIRES     5-HOUR  RESETS" + strings.Repeat(" ", 30) + "  7-DAY  RESETS" + strings.Repeat(" ", 27) + "  STATUS\n" +
-		"work  2030-06-01     <1%  resetting now (2030-01-15 11:46 UTC)     0%  in 2 hours (2030-01-15 14:00 UTC)  ok; binding: weekly limit (Opus)\n"
+	empty := strings.Repeat("░", usageBarWidth)
+	want := "work   expires 2030-06-01\n" +
+		"       5-hour limit   " + empty + "  <1%   resetting now (2030-01-15 11:46 UTC)\n" +
+		"       weekly limit   " + empty + "   0%   resets in 2 hours (2030-01-15 14:00 UTC)\n" +
+		"       binding limit: weekly limit (Opus)\n"
 	if r.stdout.String() != want {
 		t.Fatalf("stdout:\n%s\nwant:\n%s", r.stdout, want)
+	}
+	r = usageRun(t, []string{"work.2030-06-01.token"}, "200", "anthropic-ratelimit-unified-7d-utilization: 1.01\n")
+	r.answered(t, term.ExitOK)
+	want = "work   expires 2030-06-01\n" +
+		"       weekly limit   " + strings.Repeat("█", usageBarWidth) + " 101%\n" +
+		"       warning: 5-hour: the API did not report it\n"
+	if r.stdout.String() != want {
+		t.Fatalf("stdout:\n%s\nwant:\n%s", r.stdout, want)
+	}
+}
+
+// F11: on a terminal without NO_COLOR, the token menu's colours: the filled part green below
+// 50%, orange below 85% and red from there, the track grey, the notes dim, a warning yellow.
+func TestTokenUsageBarsColour(t *testing.T) {
+	headers := "anthropic-ratelimit-unified-5h-utilization: 0.25\nanthropic-ratelimit-unified-7d-utilization: 0.85\n" +
+		"anthropic-ratelimit-unified-representative-claim: five_hour\n"
+	r := usageRun(t, []string{"work.2030-06-01.token", "work.2030-09-01.token"}, "200", headers)
+	r.front.IsTerminal = func(any) bool { return true }
+	r.answered(t, term.ExitOK)
+	for _, want := range []string{
+		barGreen + strings.Repeat("█", 5) + barTrack + strings.Repeat("░", 15) + colourReset + "  25%",
+		barRed + strings.Repeat("█", 17) + barTrack + strings.Repeat("░", 3) + colourReset + "  85%",
+		usageDim + "binding limit: 5-hour limit" + colourReset,
+		colourYellow + "warning: shadows a later file",
+	} {
+		if !strings.Contains(r.stdout.String(), want) {
+			t.Errorf("stdout lacks %q:\n%s", want, r.stdout)
+		}
+	}
+	r = usageRun(t, []string{"work.2030-06-01.token"}, "200", "anthropic-ratelimit-unified-5h-utilization: 0.5\n")
+	r.front.IsTerminal = func(any) bool { return true }
+	r.answered(t, term.ExitOK)
+	if want := barOrange + strings.Repeat("█", 10); !strings.Contains(r.stdout.String(), want) {
+		t.Errorf("50%% is not orange:\n%s", r.stdout)
+	}
+	r = usageRun(t, []string{"work.2030-06-01.token"}, "200", usageHeaders)
+	r.front.IsTerminal = func(any) bool { return true }
+	r.env("NO_COLOR=1")
+	r.answered(t, term.ExitOK)
+	if r.stdout.String() != barsWork {
+		t.Fatalf("NO_COLOR: stdout %q", r.stdout)
 	}
 }
 
@@ -374,9 +426,9 @@ func TestTokenUsageErrors(t *testing.T) {
 	}
 }
 
-// F11's F4: wherever the bash could read the pool, the settings or the API's answer otherwise,
-// the bash answers.
-func TestTokenUsageHandsOver(t *testing.T) {
+// F11: what the front cannot read as it should is refused before anything is printed or
+// written, naming it; nothing is handed to the bash.
+func TestTokenUsageRefuses(t *testing.T) {
 	cases := map[string]func(t *testing.T, r *run){
 		"a TTL that is not a number": func(_ *testing.T, r *run) { r.env("CCY_USAGE_TTL=15m") },
 		"a junk token a curl argument holds": func(t *testing.T, r *run) {
@@ -387,10 +439,11 @@ func TestTokenUsageHandsOver(t *testing.T) {
 			t.Helper()
 			r.tokenHolding(t, "tmp.")
 		},
-		"an undated token file":       func(t *testing.T, r *run) { t.Helper(); r.token(t, "plain.token") },
-		"a name outside ASCII":        func(t *testing.T, r *run) { t.Helper(); r.token(t, "wörk.2030-06-01.token") },
+		"a pool entry that is not a file": func(t *testing.T, r *run) {
+			t.Helper()
+			mkdirAll(t, filepath.Join(r.pool(), "dir.2030-06-01.token"))
+		},
 		"a setting outside ASCII":     func(_ *testing.T, r *run) { r.env("CCY_USAGE_MODEL=modèle") },
-		"a home outside ASCII":        func(_ *testing.T, r *run) { r.front.Environ[0] += "/\u00e9" },
 		"a setting holding the token": func(_ *testing.T, r *run) { r.env("CCY_USAGE_ENDPOINT=https://x/secret-work.2030-06-01.token") },
 		"a token holding a NUL": func(t *testing.T, r *run) {
 			t.Helper()
@@ -415,29 +468,69 @@ func TestTokenUsageHandsOver(t *testing.T) {
 		},
 		"an entry that is not a file": func(t *testing.T, r *run) {
 			t.Helper()
-			if err := os.MkdirAll(filepath.Join(r.cache(), "work.result"), 0o700); err != nil {
-				t.Fatal(err)
-			}
+			mkdirAll(t, filepath.Join(r.cache(), "work.result"))
 		},
 		"an entry outside ASCII": func(t *testing.T, r *run) {
 			t.Helper()
 			r.result(t, "work.2030-06-01.token\n200\n0.25\t\t0.6\t\tfünf\n", pinnedNow)
 		},
-		"another version": func(_ *testing.T, r *run) { r.front.Version = "0.0.1" },
+		"a junk token an unclean TMPDIR's names hold": func(t *testing.T, r *run) {
+			t.Helper()
+			r.setenv("TMPDIR=" + r.front.getenv("TMPDIR") + "/./")
+			r.tokenHolding(t, "/./")
+		},
 	}
 	for name, change := range cases {
 		t.Run(name, func(t *testing.T) {
 			r := usageRun(t, []string{"work.2030-06-01.token"}, "200", usageHeaders, "--json")
 			change(t, r)
-			r.start(t)
-			if len(r.execer.Execs()) != 1 {
-				t.Fatalf("answered: stdout %q stderr %q", r.stdout, r.stderr)
+			r.answered(t, term.ExitFailure)
+			if r.stdout.Len() != 0 || len(r.curls()) != 0 {
+				t.Fatalf("printed %q or fetched before refusing", r.stdout)
 			}
-			if r.stdout.Len() != 0 {
-				t.Fatalf("printed %q before handing over", r.stdout)
+			if err := r.stderr.String(); !strings.HasPrefix(err, usagePrefix) || strings.Count(err, "\n") != 1 || strings.Contains(err, "secret-") {
+				t.Fatalf("stderr %q, want one line naming what was refused", err)
 			}
 		})
 	}
+}
+
+func mkdirAll(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// F11: the front answers whatever the bash launcher beside it is, or would make of the shell
+// and the engine; only CCY_LEGACY sends the flag to the bash (which refuses it).
+func TestTokenUsageIsTheFrontsOwn(t *testing.T) {
+	cases := map[string]func(t *testing.T, r *run){
+		"another version":          func(_ *testing.T, r *run) { r.front.Version = "0.0.1" },
+		"BASH_ENV":                 func(_ *testing.T, r *run) { r.env("BASH_ENV=/x") },
+		"an engine ccy drives not": func(_ *testing.T, r *run) { r.env("CCY_CONTAINER_ENGINE=lxc") },
+		"a gh token hand-off":      func(_ *testing.T, r *run) { r.env("CCY_GH_TOKEN_HANDOFF=/x") },
+		"no bash launcher beside it": func(t *testing.T, r *run) {
+			t.Helper()
+			if err := os.Remove(filepath.Join(filepath.Dir(r.front.Self), BashName)); err != nil {
+				t.Fatal(err)
+			}
+		},
+	}
+	for name, change := range cases {
+		t.Run(name, func(t *testing.T) {
+			r := usageRun(t, []string{"work.2030-06-01.token"}, "200", usageHeaders)
+			change(t, r)
+			r.answered(t, term.ExitOK)
+			if r.stdout.String() != barsWork {
+				t.Fatalf("stdout %q", r.stdout)
+			}
+		})
+	}
+	r := usageRun(t, []string{"work.2030-06-01.token"}, "200", usageHeaders)
+	r.env(LegacyEnv + "=1")
+	r.start(t)
+	r.handedOver(t, filepath.Dir(r.front.Self))
 }
 
 // tokenHolding makes the work token file hold token.
@@ -462,6 +555,7 @@ func TestTokenUsageAnswersWhatTheBashOnlyReadOtherwise(t *testing.T) {
 		"an answer outside ASCII": {func(_ *testing.T, r *run) {
 			r.curl("200", "anthropic-ratelimit-unified-5h-utilization: 0.25\nanthropic-ratelimit-unified-representative-claim: fünf\n", 0)
 		}, `"binding_limit": null`},
+		"a name outside ASCII": {func(t *testing.T, r *run) { t.Helper(); r.token(t, "wörk.2030-07-01.token") }, `"name": "wörk"`},
 		"a typical desktop": {func(t *testing.T, r *run) {
 			t.Helper()
 			r.setenv("LANG=en_GB.UTF-8")
@@ -570,15 +664,31 @@ func (r *run) noTemporaries(t *testing.T) {
 	}
 }
 
-// Finding 4 of the review: the names' prefix is held as os.CreateTemp builds it, uncleaned, so
-// a junk token an unclean TMPDIR's names hold hands over rather than failing every try.
-func TestTokenUsageHandsOverATokenAnUncleanTMPDIRHolds(t *testing.T) {
-	r := usageRun(t, []string{"work.2030-06-01.token"}, "200", usageHeaders, "--json")
-	r.setenv("TMPDIR=" + r.front.getenv("TMPDIR") + "/./")
-	r.tokenHolding(t, "/./")
-	r.start(t)
-	if len(r.execer.Execs()) != 1 || r.stdout.Len() != 0 || r.stderr.Len() != 0 {
-		t.Fatalf("answered: stdout %q stderr %q", r.stdout, r.stderr)
+// F11: a file with no date in its name is listed, never read, and blocks no other name; one of
+// a dated name's is a shadow of it.
+func TestTokenUsageUndatedFile(t *testing.T) {
+	r := usageRun(t, []string{"plain.token", "work.2030-06-01.token", "work.backup.token"}, "200", usageHeaders)
+	r.answered(t, term.ExitOK)
+	want := "plain.token   no expiry date in its file name\n" +
+		"       usage unavailable — the file name has no date (NAME.YYYY-MM-DD.token), so ccy will not launch with it\n" +
+		"\n" + strings.Replace(barsWork, "work   ", "work          ", 1) +
+		"       warning: shadows a later file of this name, which ccy never uses: remove the one you do not want\n" +
+		"       shadowed: work.backup.token is never used; ccy --token work launches with work.2030-06-01.token\n"
+	if r.stdout.String() != want {
+		t.Fatalf("stdout:\n%s\nwant:\n%s", r.stdout, want)
+	}
+	if len(r.curls()) != 1 {
+		t.Fatalf("%d curl calls, want work's alone", len(r.curls()))
+	}
+}
+
+// A HOME outside ASCII is read as it is: here it names no token directory, and says so.
+func TestTokenUsageReadsAHomeOutsideASCII(t *testing.T) {
+	r := usageRun(t, []string{"work.2030-06-01.token"}, "200", usageHeaders)
+	r.front.Environ[0] += "/é"
+	r.answered(t, term.ExitFailure)
+	if want := usagePrefix + "no token directory at " + r.home + "/é/.claude-tokens/ccy/tokens (create a token with: ccy --create-token)\n"; r.stderr.String() != want {
+		t.Fatalf("stderr %q, want %q", r.stderr, want)
 	}
 }
 

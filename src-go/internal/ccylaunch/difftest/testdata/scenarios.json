@@ -100,10 +100,6 @@
     {"name": "list-tokens-one", "area": "standalone", "about": "--list-tokens alone with one token, outside a repository", "worlds": ["token"], "args": ["--list-tokens"], "cwd": "outside"},
     {"name": "list-tokens-states", "area": "standalone", "about": "--list-tokens with a valid, a second valid and an expired token", "worlds": ["token", "two-tokens", "expired-token"], "args": ["--list-tokens"], "cwd": "outside"},
     {"name": "list-tokens-in-repo", "area": "standalone", "about": "--list-tokens beside another option goes through the repository checks", "worlds": ["common", "podman", "token"], "args": ["--list-tokens", "--no-ssh"]},
-    {"name": "token-usage-no-tokens", "area": "standalone", "about": "--token-usage with no token: exit 1 and why", "worlds": ["bare"], "args": ["--token-usage"], "cwd": "outside"},
-    {"name": "token-usage-expired-only", "area": "standalone", "about": "--token-usage --json with only an expired token: unavailable, and no API call", "worlds": ["expired-token"], "args": ["--token-usage", "--json"], "cwd": "outside"},
-    {"name": "token-usage-disabled", "area": "standalone", "about": "--token-usage with CCY_TOKEN_USAGE=0", "worlds": ["token"], "args": ["--token-usage", "--json"], "cwd": "outside", "env": {"CCY_TOKEN_USAGE": "0"}},
-    {"name": "token-usage-bad-option", "area": "standalone", "about": "--token-usage with an option other than --json: exit 64", "worlds": ["token"], "args": ["--token-usage", "--fast"], "cwd": "outside"},
     {"name": "token-usage-not-first", "area": "standalone", "about": "--token-usage that is not the first option: refused with exit 64", "worlds": ["common", "podman", "token"], "args": ["--no-ssh", "--token-usage"]},
     {"name": "export-token-named", "area": "standalone", "about": "--export-token work prints the portable import script", "worlds": ["common", "podman", "token"], "args": ["--export-token", "work"]},
     {"name": "export-token-missing", "area": "standalone", "about": "--export-token of a token that does not exist", "worlds": ["common", "podman", "token"], "args": ["--export-token", "nobody"]},
@@ -213,9 +209,6 @@
     {"name": "launch-opencode-short-prompt", "area": "launch", "about": "-oc is --opencode; --prompt becomes opencode's --prompt", "worlds": ["common", "podman", "token", "provider-key"], "args": ["-oc", "--token", "work", "--no-ssh", "--prompt", "fix the bug"]},
     {"name": "launch-opencode-no-key", "area": "launch", "about": "--opencode with no provider key fails before anything is asked or started", "worlds": ["common", "podman", "token"], "args": ["--opencode", "--token", "work", "--no-ssh"]},
     {"name": "launch-opencode-headless", "area": "launch", "about": "--opencode with --headless is refused (64)", "worlds": ["common", "podman", "token", "provider-key"], "args": ["--opencode", "--headless", "--prompt", "x", "--token", "work", "--no-ssh"]},
-    {"name": "token-usage-table", "area": "standalone", "about": "--token-usage with one token: one API call, the token on stdin, the table", "worlds": ["token", "usage-api"], "args": ["--token-usage"], "cwd": "outside"},
-    {"name": "token-usage-json", "area": "standalone", "about": "--token-usage --json with two tokens: two API calls, the JSON report, the cache written", "worlds": ["token", "two-tokens", "usage-api"], "args": ["--token-usage", "--json"], "cwd": "outside"},
-    {"name": "token-usage-api-down", "area": "standalone", "about": "--token-usage when curl gets no response: status 000", "worlds": ["token"], "args": ["--token-usage", "--json"], "cwd": "outside", "rules": [{"tool": "curl", "args": ["--config", "-"], "stdout": "000", "exit": 7}]},
     {"name": "update-token-no-terminal", "area": "tokens", "about": "--update-token=work with no terminal", "worlds": ["common", "podman", "token"], "args": ["--update-token=work"]}
   ]
 }

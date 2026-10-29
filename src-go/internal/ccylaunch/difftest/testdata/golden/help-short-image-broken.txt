@@ -130,7 +130,7 @@ Examples:
   ccy --update-token=personal   # Renew an existing token (e.g. after invalidation)
   ccy --token personal          # Use "personal" token
   ccy --list-tokens             # List available tokens
-  ccy --token-usage             # Usage limits of every token, as a table
+  ccy --token-usage             # Usage limits of every token, as bars
   ccy --token-usage --json      # The same, as one JSON document
   ccy --export-token             # Interactive multi-token export
   ccy --export-token personal    # Export specific token
@@ -155,7 +155,7 @@ Token Management:
   Desktop Claude Code (~/.claude/) is NEVER modified
 
 Token usage report (ccy --token-usage [--json]):
-  One row per token name. A name with two files reports the earliest-dated one, the file
+  One entry per token name. A name with two files reports the earliest-dated one, the file
   'ccy --token NAME' launches with; the later file is listed as shadowed and not read.
   A token expired or expiring today is reported unavailable and not read. Percentages are 0-100, the scale
   the token menu shows (over 100 means past the limit). Token values are never printed.

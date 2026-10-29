@@ -19,12 +19,13 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
-// F11, `--token-usage [--json]`: the usage of every token as a table or one JSON document (the
-// document wsi-claude-token parses), read from the API's rate-limit headers by one small
-// request per account unless the cache (the format a bash launch reads too) holds a fresh
-// answer.
+// F11, `--token-usage [--json]`: the usage of every token as the token menu's bars or one JSON
+// document (the document wsi-claude-token parses), read from the API's rate-limit headers by
+// one small request per account unless the cache (the format the token menu reads too) holds a
+// fresh answer.
 
 const (
+	usageFlag       = "--token-usage"
 	usageJSONOption = "--json"
 	usageCurl       = "curl"
 	usagePrefix     = "ccy --token-usage: "
@@ -90,29 +91,28 @@ type usageReport struct {
 	rows               []usageRow
 }
 
-// tokenUsage is F11: its exit code, or why the bash should answer instead, decided before
-// anything is written.
-func (f Front) tokenUsage(ctx context.Context) (term.ExitCode, string) {
+// tokenUsage is F11: what it cannot read is refused before anything is written.
+func (f Front) tokenUsage(ctx context.Context) term.ExitCode {
 	r := usageReport{f: f}
 	for _, arg := range f.Args[1:] {
 		if arg != usageJSONOption {
 			var p term.Printer
 			p.Print(f.Stderr, usagePrefix+"unknown option "+arg+" (usage: ccy --token-usage [--json])\n")
 			if p.Err() != nil {
-				return term.ExitFailure, ""
+				return term.ExitFailure
 			}
-			return term.ExitUsage, ""
+			return term.ExitUsage
 		}
 		r.json = true
 	}
 	if why := r.prepare(); why != "" {
-		return term.ExitFailure, why
+		return f.fail(usagePrefix + why)
 	}
 	if code := r.fetchAll(ctx); code != term.ExitOK {
-		return code, ""
+		return code
 	}
 	r.readRows()
-	return r.print(), ""
+	return r.print()
 }
 
 // fetchAll says what it is about to ask (in the table's run) and asks it: a failure's exit code.
@@ -134,7 +134,7 @@ func (r *usageReport) fetchAll(ctx context.Context) term.ExitCode {
 	return term.ExitOK
 }
 
-// usageSettings reads the settings, or why the bash could read them otherwise.
+// usageSettings reads the settings, or why one is refused.
 func (f Front) usageSettings() (usageSettings, string) {
 	or := func(name, def string) string {
 		if v := f.getenv(name); v != "" {
@@ -165,16 +165,13 @@ func (f Front) usageSettings() (usageSettings, string) {
 }
 
 // prepare reads the settings and the pool, and checks every file the run will read, before
-// anything is written: why the bash should answer, or "".
+// anything is written: why the run is refused, or "".
 func (r *usageReport) prepare() string {
 	s, why := r.f.usageSettings()
 	if why != "" {
 		return why
 	}
 	r.s = s
-	if !printableASCII(r.f.getenv("HOME")) {
-		return "HOME is not printable ASCII"
-	}
 	r.tmp = r.f.getenv("TMPDIR")
 	if r.tmp == "" {
 		r.tmp = "/tmp"
@@ -211,21 +208,19 @@ func isDir(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-// readNames is the pool as the bash groups it: one name per first file of the name, in byte
-// order, and the later files of the name as its shadows.
+// readNames is the pool as a launch groups it: one name per first file of the name, in byte
+// order, and the later files of the name as its shadows. A file with no date in its name is
+// listed, and never launched with or read.
 func (r *usageReport) readNames() string {
-	files, why := poolWhy(r.dir)
+	files, _, why := tokenGlob(r.dir, isTokenFile)
 	if why != "" {
 		return why
 	}
 	at := map[string]int{}
 	for _, fn := range files {
-		m := bashDate.FindStringSubmatch(fn)
-		if m == nil {
-			return "a token file name has no date: " + fn
-		}
-		if !printableASCII(fn) {
-			return "a token file name is not printable ASCII"
+		var expires string
+		if m := bashDate.FindStringSubmatch(fn); m != nil {
+			expires = m[1]
 		}
 		name := bashName(fn)
 		if i, seen := at[name]; seen {
@@ -233,13 +228,13 @@ func (r *usageReport) readNames() string {
 			continue
 		}
 		at[name] = len(r.names)
-		r.names = append(r.names, usageName{name: name, file: fn, expires: m[1], valid: m[1] > r.today})
+		r.names = append(r.names, usageName{name: name, file: fn, expires: expires, valid: expires > r.today})
 	}
 	return ""
 }
 
 // checkFetch reads the token of every name a launch could use, and every cache entry the run
-// reads: why the bash could read one otherwise, or "".
+// reads: why one is refused, or "".
 func (r *usageReport) checkFetch() string {
 	if len(r.toFetch()) == 0 {
 		return ""
@@ -259,10 +254,9 @@ func (r *usageReport) checkFetch() string {
 	return ""
 }
 
-// readToken is $(cat "$token_file") as a secret (none when it is empty), or why the bash could
-// read it otherwise, or why curl's argv could not be made without it: a token that curl's fixed
-// arguments or the start of every temporary name hold (a junk file such as "on"), which the
-// bash sends and the front cannot.
+// readToken is the token file's text as a secret (none when it is empty), or why it is
+// refused: unreadable, holding a NUL, or a token that curl's fixed arguments or the start of
+// every temporary name hold (a junk file such as "on"), which execx refuses to send.
 func (r *usageReport) readToken(n *usageName) string {
 	raw, err := os.ReadFile(filepath.Join(r.dir, n.file))
 	if err != nil {
@@ -544,9 +538,12 @@ func (r *usageReport) readRows() {
 func (r *usageReport) row(n usageName) usageRow {
 	row := usageRow{status: "unavailable"}
 	if !n.valid {
-		if n.expires == r.today {
+		switch n.expires {
+		case "":
+			row.reason = "the file name has no date (NAME.YYYY-MM-DD.token), so ccy will not launch with it"
+		case r.today:
 			row.reason = "token expires today, so ccy will not launch with it; renew: ccy --update-token=" + n.name
-		} else {
+		default:
 			row.reason = "token expired on " + n.expires + "; renew: ccy --update-token=" + n.name
 		}
 		return row
@@ -649,7 +646,7 @@ func (r *usageReport) print() term.ExitCode {
 	if r.json {
 		p.Print(r.f.Stdout, r.jsonText())
 	} else {
-		p.Print(r.f.Stdout, r.table())
+		p.Print(r.f.Stdout, r.bars())
 		if r.err != "" {
 			p.Print(r.f.Stderr, usagePrefix+r.err+"\n")
 		}
@@ -746,61 +743,105 @@ func usageJSONTime(epoch string) string {
 	return usageJSONString(time.Unix(e, 0).UTC().Format("2006-01-02T15:04:05Z"))
 }
 
-// table is _usage_report_print_table: one aligned row per name, then one per shadowed file.
-func (r *usageReport) table() string {
-	if len(r.names) == 0 {
-		return ""
-	}
-	rows := [][]string{{"NAME", "EXPIRES", "5-HOUR", "RESETS", "7-DAY", "RESETS", "STATUS"}}
-	for i, n := range r.names {
-		row := r.rows[i]
-		p5, t5 := r.bucketCells(row.p5, row.r5)
-		p7, t7 := r.bucketCells(row.p7, row.r7)
-		rows = append(rows, []string{n.name, n.expires, p5, t5, p7, t7, statusCell(row)})
-		for _, sh := range n.shadows {
-			sexp := "-"
-			if m := bashDate.FindStringSubmatch(sh); m != nil {
-				sexp = m[1]
-			}
-			rows = append(rows, []string{n.name, sexp, "-", "-", "-", "-", "shadowed: ccy --token " + n.name + " launches with " + n.file})
+// The token menu's bar (lib/token-management.bash _usage_bar): its width, and the colours of
+// its filled part by how much is used and of its track.
+const (
+	usageBarWidth = 20
+	barOrangeFrom = 50
+	barRedFrom    = 85
+	barGreen      = "\x1b[32m"
+	barOrange     = "\x1b[38;5;208m"
+	barRed        = "\x1b[31m"
+	barTrack      = "\x1b[90m"
+	usageDim      = "\x1b[2m"
+	usageIndent   = "       "
+)
+
+// bars draws each name as the token menu does: a heading with the expiry, a bar per limit with
+// its figure and reset, the binding limit, then why there are no figures, the warnings and the
+// shadowed files; a blank line between names.
+func (r *usageReport) bars() string {
+	colour := r.f.colourOnFor(r.f.Stdout)
+	paint := func(code, text string) string {
+		if colour {
+			return code + text + colourReset
 		}
+		return text
 	}
-	width := make([]int, 6)
-	for _, row := range rows {
-		for c := range width {
-			width[c] = max(width[c], len(row[c]))
-		}
+	width := 0
+	for _, n := range r.names {
+		width = max(width, len(n.name))
 	}
 	var b strings.Builder
-	for _, row := range rows {
-		fmt.Fprintf(&b, "%-*s  %-*s  %*s  %-*s  %*s  %-*s  %s\n",
-			width[0], row[0], width[1], row[1], width[2], row[2], width[3], row[3],
-			width[4], row[4], width[5], row[5], row[6])
+	for i, n := range r.names {
+		row := r.rows[i]
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		expires := "expires " + n.expires
+		if n.expires == "" {
+			expires = "no expiry date in its file name"
+		}
+		fmt.Fprintf(&b, "%-*s   %s\n", width, n.name, expires)
+		if row.status != "ok" {
+			b.WriteString(usageIndent + paint(usageDim, "usage unavailable — "+row.reason) + "\n")
+		}
+		r.barLine(&b, colour, "5-hour limit", row.p5, row.r5)
+		r.barLine(&b, colour, "weekly limit", row.p7, row.r7)
+		if row.claim != "" {
+			b.WriteString(usageIndent + paint(usageDim, "binding limit: "+usageClaimLabel(row.claim)) + "\n")
+		}
+		for _, w := range row.warn {
+			b.WriteString(usageIndent + paint(colourYellow, "warning: "+w) + "\n")
+		}
+		for _, sh := range n.shadows {
+			b.WriteString(usageIndent + "shadowed: " + sh + " is never used; ccy --token " + n.name + " launches with " + n.file + "\n")
+		}
 	}
 	return b.String()
 }
 
-// statusCell is a row's STATUS: ok and the binding limit, or why not; then the warnings.
-func statusCell(row usageRow) string {
-	status := "unavailable: " + row.reason
-	if row.status == "ok" {
-		status = "ok"
-		if row.claim != "" {
-			status += "; binding: " + usageClaimLabel(row.claim)
-		}
+// barLine is one limit's line, none for a limit with no figure (its warning says why).
+func (r *usageReport) barLine(b *strings.Builder, colour bool, label, pct, reset string) {
+	if pct == "" {
+		return
 	}
-	if len(row.warn) > 0 {
-		status += "; " + strings.Join(row.warn, "; ")
+	when := r.resetText(reset)
+	switch {
+	case when == "-":
+		when = ""
+	case strings.HasPrefix(when, "in "):
+		when = "   resets " + when
+	default:
+		when = "   " + when
 	}
-	return status
+	fmt.Fprintf(b, "%s%-14s %s %s%s\n", usageIndent, label, usageBar(pct, colour), usagePctLabel(pct), when)
 }
 
-// bucketCells are a bucket's percentage and reset cells, "-" for a bucket with no figure.
-func (r *usageReport) bucketCells(pct, reset string) (string, string) {
-	if pct == "" {
-		return "-", "-"
+// usageBar is _usage_bar: the share used, rounded, of usageBarWidth cells, over a track.
+func usageBar(pct string, colour bool) string {
+	x, err := strconv.ParseFloat(pct, 64)
+	if err != nil {
+		x = 0
 	}
-	return usagePctLabel(pct), r.resetText(reset)
+	p, err := strconv.Atoi(strconv.FormatFloat(x, 'f', 0, 64))
+	if err != nil {
+		p = 0
+	}
+	p = min(max(p, 0), percentOfOne)
+	filled := (p*usageBarWidth + percentOfOne/2) / percentOfOne
+	full, empty := strings.Repeat("█", filled), strings.Repeat("░", usageBarWidth-filled)
+	if !colour {
+		return full + empty
+	}
+	code := barGreen
+	switch {
+	case p >= barRedFrom:
+		code = barRed
+	case p >= barOrangeFrom:
+		code = barOrange
+	}
+	return code + full + barTrack + empty + colourReset
 }
 
 // resetText is _usage_report_reset_text: "in 4 hours (2026-10-10 18:00 UTC)", or "-".

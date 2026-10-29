@@ -27,6 +27,22 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.104.0 — container 2.79.15
+
+The image is unchanged, so there is no rebuild.
+
+- **`ccy --token-usage` draws the token menu's coloured bars.** Each token name is a heading
+  with its expiry, then a bar per limit with its percentage and reset, the binding limit, and
+  any warning or shadowed file; the table is gone. On a terminal the bars are coloured as the
+  menu's are (green, orange from 50%, red from 85%); `NO_COLOR` or output that is not a
+  terminal leaves out the colour. `--json` is unchanged.
+- **`--token-usage` is the Go front's alone.** It no longer hands over to the bash launcher,
+  whose report is deleted (`lib/token-management.bash` 2.0.0); under `CCY_LEGACY` the bash
+  refuses the flag. What the front used to hand over is now answered (another version of the
+  bash beside it, a name or `HOME` outside ASCII, a file with no date in its name, which is
+  listed as unavailable) or refused with exit 1 and one line naming it (a setting it refuses,
+  a token curl's arguments would hold, a pool or cache entry that is not a plain file).
+
 ## 3.103.1 — container 2.79.15
 
 - **A token with no usage left is refused in a red banner.** On a terminal, the `✗ No usage left on token <name>: ...` line printed before ccy falls back to the token chooser is a

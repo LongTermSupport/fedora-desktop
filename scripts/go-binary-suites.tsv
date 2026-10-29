@@ -11,7 +11,7 @@
 ccc	qa-go
 ccy-teams	scripts/test-ccy-teams-command.bash scripts/test-ccy-container-name.bash
 ccy-token-usable	qa-go
-claude-yolo	scripts/test-ccy-info-flags.bash scripts/test-ccy-image-build-lock.bash
+claude-yolo	scripts/test-ccy-info-flags.bash scripts/test-ccy-image-build-lock.bash scripts/test-ccy-token-usage-command.bash
 ccy-sessions	scripts/test-ccy-sessions-reboot.bash scripts/test-ccy-sessions-take-over.bash scripts/test-ccy-tmux-targets.bash scripts/test-ccy-restore-askpass.bash
 podfreeze	qa-go
 lxcfreeze	qa-go

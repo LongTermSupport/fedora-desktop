@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.103.1"  # Container 2.79.15: a token with no usage left is refused in a red banner on a terminal. See docs/ccy-changelog.md.
+CCY_VERSION="3.104.0"  # Container 2.79.15: ccy --token-usage draws the token menu's coloured bars, and is the Go front's alone. See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -309,7 +309,7 @@ Examples:
   ccy --update-token=personal   # Renew an existing token (e.g. after invalidation)
   ccy --token personal          # Use "personal" token
   ccy --list-tokens             # List available tokens
-  ccy --token-usage             # Usage limits of every token, as a table
+  ccy --token-usage             # Usage limits of every token, as bars
   ccy --token-usage --json      # The same, as one JSON document
   ccy --export-token             # Interactive multi-token export
   ccy --export-token personal    # Export specific token
@@ -334,7 +334,7 @@ Token Management:
   Desktop Claude Code (~/.claude/) is NEVER modified
 
 Token usage report (ccy --token-usage [--json]):
-  One row per token name. A name with two files reports the earliest-dated one, the file
+  One entry per token name. A name with two files reports the earliest-dated one, the file
   'ccy --token NAME' launches with; the later file is listed as shadowed and not read.
   A token expired or expiring today is reported unavailable and not read. Percentages are 0-100, the scale
   the token menu shows (over 100 means past the limit). Token values are never printed.
@@ -436,14 +436,11 @@ if [ "$#" -eq 1 ] && [ "$1" = "--list-tokens" ]; then
     exit 0
 fi
 
-# `ccy --token-usage [--json]` prints every token's usage limits and exits (usage_report,
-# lib/token-management.bash). Here, before the repository check, the session registry, tmux
-# and every engine call: it needs none of them, and must work from a script with no terminal.
+# `ccy --token-usage [--json]` is the Go front's (src-go/internal/ccylaunch): it reaches this
+# bash launcher only under CCY_LEGACY, or run by its own path.
 if [ "$1" = "--token-usage" ]; then
-    shift
-    ccy_token_usage_rc=0
-    usage_report "$TOKEN_DIR" "$@" || ccy_token_usage_rc=$?
-    exit "$ccy_token_usage_rc"
+    print_error "--token-usage is answered by the Go front, /var/local/claude-yolo/claude-yolo; run that without CCY_LEGACY"
+    exit 1
 fi
 
 # Fail fast: Must be run from a git repository root

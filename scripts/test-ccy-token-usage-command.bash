@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Test `ccy --token-usage [--json]`: every token's usage limits, printed without the menu.
 #
-# Runs the real launcher from THIS repo (not the deployed /var/local copy), from a scratch
+# Runs the Go front from THIS repo (src-go/cmd/claude-yolo, which answers the flag alone),
+# built and laid out as play-claude-yolo.yml installs it, with the bash launcher and lib/
+# beside it, from a scratch
 # directory that is not a repository, with stdin from /dev/null, HOME pointed at a scratch
 # home holding placeholder token files, and curl, podman, docker and tmux replaced by stubs
 # on PATH. The curl stub answers from fixture response headers and logs which placeholder
@@ -35,11 +37,29 @@ if ! command -v python3 > /dev/null; then
     echo "FAIL: python3 is needed to parse the JSON output" >&2
     exit 1
 fi
+if ! command -v go > /dev/null; then
+    echo "FAIL: go is not installed (playbooks/imports/play-golang.yml installs it)" >&2
+    exit 1
+fi
+WANT_VERSION=$(grep -m1 '^CCY_VERSION=' "$LAUNCHER" | cut -d'"' -f2)
 
 # Under the repo's gitignored scratch area rather than /tmp, as the sibling usage test does.
 WORK="$(mktemp -d "$REPO_ROOT/untracked/ccy-token-usage-command.XXXXXX")"
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT INT TERM
+
+# The front's install: the binary as the play builds it, the bash launcher and lib/ beside it.
+FRONT_DIR="$WORK/front"
+mkdir -p "$FRONT_DIR"
+cp -r "$LIB_DIR" "$FRONT_DIR/lib"
+cp "$LAUNCHER" "$FRONT_DIR/claude-yolo.bash"
+if ! build_out="$(cd "$REPO_ROOT/src-go" && go build -trimpath -buildvcs=false \
+    -ldflags "-X main.Version=$WANT_VERSION" -o "$FRONT_DIR/claude-yolo" ./cmd/claude-yolo 2>&1)"; then
+    echo "FAIL: the Go front did not build:" >&2
+    echo "$build_out" >&2
+    exit 1
+fi
+FRONT="$FRONT_DIR/claude-yolo"
 
 STUB_BIN="$WORK/bin"
 CALLS="$WORK/calls"
@@ -138,7 +158,7 @@ run_ccy() {
     : >"$CALLS"
     RC=0
     OUT=$(cd "$NOT_A_REPO" && env HOME="$home" PATH="$STUB_BIN:$PATH" TZ=UTC \
-        CCY_CONTAINER_ENGINE=podman "${envs[@]}" bash "$LAUNCHER" "$@" </dev/null 2>"$WORK/stderr") || RC=$?
+        CCY_CONTAINER_ENGINE=podman "${envs[@]}" "$FRONT" "$@" </dev/null 2>"$WORK/stderr") || RC=$?
     ERR=$(cat "$WORK/stderr")
 }
 
@@ -275,28 +295,21 @@ check "says the read did not complete" "yes" "$(has "did not complete" "$(field 
 check "no request (the file is empty)" "0" "$(curl_calls)"
 
 echo ""
-echo "=== the table ==="
+echo "=== the bars ==="
 run_ccy "$MIXED" -- --token-usage
 check "exit 0" "0" "$RC"
-header=$(head -n1 <<<"$OUT")
-check "header names the columns" "yes" \
-    "$([[ "$header" =~ ^NAME\ +EXPIRES\ +5-HOUR\ +RESETS\ +7-DAY\ +RESETS\ +STATUS$ ]] && echo yes || echo "no: $header")"
-work_row=$(grep -E "^work +$NEXT_YEAR " <<<"$OUT")
-check "work row: 34% and 8%" "yes" \
-    "$([[ "$work_row" =~ \ 34%\ .*\ 8%\  ]] && echo yes || echo "no: $work_row")"
-check "work row: reset in words with the time" "yes" "$(has "in 4 hours (" "$work_row")"
-check "work row: binding limit" "yes" "$(has "ok; binding: 5-hour limit" "$work_row")"
-check "personal row says why" "yes" "$(has "unavailable: this token was not authorised to read it" "$OUT")"
-check "shadowed row names the file a launch uses" "yes" \
-    "$(has "shadowed: ccy --token work launches with work.$NEXT_YEAR.token" "$OUT")"
-status_col=${header%%STATUS*}
-misaligned=""
-while IFS= read -r line; do
-    [[ "${line:${#status_col}}" =~ ^(STATUS|ok|unavailable:|shadowed:) ]] || misaligned+="[$line] "
-done <<<"$OUT"
-check "every row's status starts in the STATUS column" "" "$misaligned"
-check "one row per name plus the shadowed file and the header" "5" "$(wc -l <<<"$OUT" | tr -d ' ')"
-check "no colour codes" "no" "$(has $'\033' "$OUT")"
+check "each name's heading, aligned, with its expiry" "yesyes" \
+    "$(has $'old        expires '"$YESTERDAY" "$OUT")$(has $'\n\npersonal   expires '"$NEXT_YEAR" "$OUT")"
+check "work's heading" "yes" "$(has $'\n\nwork       expires '"$NEXT_YEAR"$'\n' "$OUT")"
+check "work: 34% as 7 of 20 cells, reset in words with the time" "yes" \
+    "$(has "       5-hour limit   ███████░░░░░░░░░░░░░  34%   resets in 4 hours (" "$OUT")"
+check "work: 8% as 2 of 20 cells" "yes" "$(has "       weekly limit   ██░░░░░░░░░░░░░░░░░░   8%   resets in 6 days (" "$OUT")"
+check "work: binding limit" "yes" "$(has "       binding limit: 5-hour limit" "$OUT")"
+check "personal says why" "yes" "$(has "       usage unavailable — this token was not authorised to read it" "$OUT")"
+check "the shadowed file and the file a launch uses" "yes" \
+    "$(has "       shadowed: work.$LATER.token is never used; ccy --token work launches with work.$NEXT_YEAR.token" "$OUT")"
+check "a heading, a note or a bar per line, a blank line between names" "12" "$(wc -l <<<"$OUT" | tr -d ' ')"
+check "no colour codes when stdout is not a terminal" "no" "$(has $'\033' "$OUT")"
 check "progress goes to stderr" "yes" "$(has "Reading usage for 2 account(s)" "$ERR")"
 check "no token value on stdout or stderr" "" "$(leaks)"
 
@@ -328,17 +341,12 @@ check "CCY_TOKEN_USAGE=0: exit 1" "1" "$RC"
 check "CCY_TOKEN_USAGE=0: error names it" "yes" "$(has "CCY_TOKEN_USAGE=0" "$(field .error)")"
 check "CCY_TOKEN_USAGE=0: no request" "0" "$(curl_calls)"
 
-# No curl: PATH holds only `date`, the one external tool usage_report runs before it asks
-# for curl, so the absence is real rather than simulated.
+# No curl: PATH is an empty directory, so the absence is real rather than simulated.
 NOCURL_BIN="$WORK/nocurl-bin"
 mkdir -p "$NOCURL_BIN"
-ln -s "$(command -v date)" "$NOCURL_BIN/date"
 RC=0
-OUT=$(env PATH="$NOCURL_BIN" "$(command -v bash)" -c "
-    source '$LIB_DIR/common-pure.bash'
-    source '$LIB_DIR/token-management.bash'
-    usage_report '$MIXED/.claude-tokens/ccy/tokens' --json
-" 2>"$WORK/stderr") || RC=$?
+OUT=$(cd "$NOT_A_REPO" && env HOME="$MIXED" PATH="$NOCURL_BIN" TZ=UTC "$FRONT" --token-usage --json \
+    </dev/null 2>"$WORK/stderr") || RC=$?
 FLAT=$(flatten <<<"$OUT")
 check "no curl: exit 1" "1" "$RC"
 check "no curl: error names the remedy" '"needs curl (run play-claude-yolo.yml)"' "$(field .error)"

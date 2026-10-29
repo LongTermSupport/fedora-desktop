@@ -800,6 +800,17 @@ today; rewriting them is out of scope.
   CCY 3.103.1 on merge with Plan 00235's 3.103.0 (front sources; no bash change). Left: `play-claude-yolo.yml` on the host, and
   the owner seeing the banner on a used-up token.
 
+- [ ] 🔄 **Task 4.8**: The owner's request (2026-10-29): `ccy --token-usage` printed a table
+  where the token menu draws coloured bars; it should draw the bars. Asked whether to keep the
+  bash fallback, the owner chose "Go only, delete bash". F11 is now the front's own flag, as
+  F14 is (`Front.ownFlag`): only CCY_LEGACY hands it over, and the bash refuses it. The front
+  draws the menu's bars (`usageReport.bars`, colour by D10's rule). What it used to hand over
+  is answered (another bash version, a name or HOME outside ASCII, an undated file, listed as
+  unavailable) or refused with exit 1 naming it. The bash report is deleted (lib 2.0.0). The 7
+  front-answered token-usage difftest scenarios are retired for expectation tests, and
+  `test-ccy-token-usage-command.bash` drives the built front (102 checks). CCY 3.104.0. Left:
+  `play-claude-yolo.yml` on the host, and the owner seeing the bars.
+
 ### Phase 5: Review
 
 - [ ] ⬜ **Task 5.1**: qa-reviewer over the whole plan (a worker; it ran once, 7205384c3, and

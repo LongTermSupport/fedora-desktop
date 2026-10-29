@@ -49,18 +49,19 @@
 //     for this flag and every later one, to a bash of another version (F6 refuses only
 //     --version and --help).
 //   - F11. `--token-usage` first, with nothing after it but `--json`, prints every token's usage
-//     as the bash's usage_report does (tokenusage.go): a table, or one JSON document (the one
+//     (tokenusage.go): the token menu's coloured bars, or one JSON document (the one
 //     wsi-claude-token parses); exit 0 when any token's usage was read, 1 when none was, 64 for
-//     another option. A token a launch could use is asked of the API once, by curl with the
+//     another option. It is the front's own flag, as F14 is: only CCY_LEGACY hands it over (and
+//     the bash refuses it). A token a launch could use is asked of the API once, by curl with the
 //     token fed on its stdin (execx.Feed), unless the cache holds a fresh answer from that very
-//     file; the answer is cached in the format and with the TTL the bash uses, so either reads
-//     the other's. It hands over where the bash could read the pool, a setting, a token or a
-//     cache entry otherwise: poolWhy's reasons, an undated file, a name, HOME or setting
-//     outside printable ASCII, a TTL that is not a whole number, an unreadable token or one
-//     holding a NUL, a token curl's argv would hold (a setting holds it, or it is junk such as
-//     `on` that a fixed argument or the start of a temporary name holds: the bash sends it,
-//     execx refuses to), a cache that is not a directory or an entry that is not a regular file
-//     or not printable ASCII. Every hand-over is decided before anything is printed or written.
+//     file; the answer is cached in the format and with the TTL the token menu uses, so either
+//     reads the other's. What it cannot read as it should is refused with exit 1 and one stderr
+//     line naming it, before anything is printed or written: poolWhy's reasons, an undated file,
+//     a setting outside printable ASCII, a TTL that is not a whole number, an unreadable token or
+//     one holding a NUL, a token curl's argv would hold (a setting holds it, or it is junk such
+//     as `on` that a fixed argument or the start of a temporary name holds: execx refuses to
+//     send it), a cache that is not a directory or an entry that is not a regular file or not
+//     printable ASCII. The bars are colour only on a terminal without NO_COLOR (D10's rule).
 //   - F12. `--prevent` alone, and `--export-token NAME`, run first what the bash runs in the
 //     checkout before them (inrepo.go): the .gitignore of .claude/ccy written when it lacks its
 //     ignore-everything line, its two exceptions appended, the tracked ccy.env.local.dist
@@ -251,9 +252,8 @@ type launcher struct {
 // Run answers the run or hands it to the bash launcher.
 func (f Front) Run(ctx context.Context) term.ExitCode {
 	bash := filepath.Join(filepath.Dir(f.Self), BashName)
-	if len(f.Args) > 0 && f.Args[0] == buildLockFlag && !f.legacy() {
-		// F14: the bash has no answer of its own, so nothing about it decides this one.
-		return f.buildLock(ctx)
+	if code, own := f.ownFlag(ctx); own {
+		return code
 	}
 	kind, l, flag, why := f.plan(bash)
 	if why != "" {
@@ -290,6 +290,21 @@ func (f Front) Run(ctx context.Context) term.ExitCode {
 	return term.ExitOK
 }
 
+// ownFlag answers the front's own flags, F11 and F14, which nothing about the bash launcher
+// decides: only CCY_LEGACY hands them over. Its exit code, and false for every other run.
+func (f Front) ownFlag(ctx context.Context) (term.ExitCode, bool) {
+	if len(f.Args) == 0 || f.legacy() {
+		return term.ExitOK, false
+	}
+	switch f.Args[0] {
+	case buildLockFlag:
+		return f.buildLock(ctx), true
+	case usageFlag:
+		return f.tokenUsage(ctx), true
+	}
+	return term.ExitOK, false
+}
+
 // flagKind is the run the front answers itself, or flagNone.
 type flagKind int
 
@@ -298,7 +313,6 @@ const (
 	flagVersion
 	flagHelp
 	flagListTokens
-	flagTokenUsage
 	flagPrevent
 	flagExportToken
 )
@@ -317,8 +331,6 @@ func flagOf(args []string) flagKind {
 		if len(args) == 1 {
 			return flagListTokens
 		}
-	case "--token-usage":
-		return flagTokenUsage
 	case "--prevent":
 		if len(args) == 1 {
 			return flagPrevent
@@ -340,7 +352,6 @@ var inRepoTools = []string{"git", "mkdir", "chmod", "tr", "sed", "awk", "basenam
 // flagTools are the programs the bash launcher runs to answer the flag, beyond bashTools.
 var flagTools = map[flagKind][]string{
 	flagListTokens:  listTools,
-	flagTokenUsage:  slices.Concat(listTools, []string{"stat", "mktemp", "mv", "rm", "chmod", "mkdir", "awk"}),
 	flagPrevent:     inRepoTools,
 	flagExportToken: slices.Concat(inRepoTools, listTools),
 }
@@ -352,8 +363,6 @@ func (f Front) answer(ctx context.Context, flag flagKind) (term.ExitCode, string
 	switch flag {
 	case flagListTokens:
 		return f.listTokens()
-	case flagTokenUsage:
-		return f.tokenUsage(ctx)
 	case flagPrevent:
 		return f.prevent(ctx)
 	case flagExportToken:
