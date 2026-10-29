@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/qalock"
 )
 
 // ExitCode is the status qa-all exits with.
@@ -42,20 +43,29 @@ type Env struct {
 	NewToken func() string
 	// Cwd is the working directory, the default root when neither --root nor --scripts is given.
 	Cwd string
+	// Lock takes the QA lock for the run (qalock.OSTaker); a run without one is refused.
+	Lock qalock.Taker
 }
 
-const usageText = `usage: qa-all [--root DIR] [--scripts DIR]
+const usageText = `usage: qa-all [--root DIR] [--scripts DIR] [--no-wait]
 
 The full QA run, the gate before a push. Runs every gate of scripts/qa-gates.tsv in order,
 never stopping at the first failure, prints one stage line per gate and one verdict, and
 writes the machine report (jq '.failures[]' on it names every failing file).
 
+QA never runs in parallel: the run holds the QA lock, shared by every worktree and container
+of the checkout, from its first gate to its verdict. While another QA run holds it this one
+waits, naming that run on stderr once and then every minute.
+
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory holding qa-gates.tsv and the gates
+  --no-wait       exit 2 at once, naming the holder, if another QA run holds the lock
   -h, --help      this text
 
 QA_ALL_TIMEOUT    the per-gate time limit as a Go duration (30m default, 0 disables).
 QA_RESULTS_JSON   where the machine report goes (default /tmp/qa-results.json).
+QA_LOCK_TIMEOUT   the longest wait for the QA lock as a Go duration (default: as long as it is held).
+QA_FULL_PRIORITY  1 runs at the priority started with; by default the run is nice 19, ionice idle.
 
 Exit codes: 0 every gate passed, 1 a gate failed, 2 bad usage or the run could not complete
 (a stage reporting a missing tool, an unreadable gate table). stdout is the stage lines and the
@@ -65,6 +75,7 @@ verdict; failure detail goes to stderr.
 // options is the parsed command line.
 type options struct {
 	help    bool
+	noWait  bool
 	root    string
 	scripts string
 }
@@ -91,6 +102,8 @@ func parseArgs(args []string) (options, error) {
 		switch arg {
 		case "-h", "--help":
 			opts.help = true
+		case "--no-wait":
+			opts.noWait = true
 		case "--root":
 			rest, err = takeValue(rest, &opts.root, "--root needs a directory")
 		case "--scripts":

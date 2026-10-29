@@ -24,6 +24,7 @@ type runWorld struct {
 	errOut  strings.Builder
 	missing map[string]bool
 	env     map[string]string
+	lock    lockRecorder
 }
 
 func newRunWorld(t *testing.T) *runWorld {
@@ -58,7 +59,8 @@ func (w *runWorld) main(args ...string) ExitCode {
 			}
 			return nil
 		},
-		Cwd: w.root,
+		Cwd:  w.root,
+		Lock: w.lock.take(func() int { return len(w.runner.calls) }),
 	}
 	return Main(context.Background(), append([]string{"--scripts", w.scripts, "--root", w.root}, args...), env)
 }
@@ -353,7 +355,7 @@ func TestInterruptStopsTheRunAndKeepsTheStatus(t *testing.T) {
 			cancel()
 		}
 	}
-	env := Env{Getenv: func(string) string { return "" }, Stdout: &w.out, Stderr: &w.errOut, Runner: w.runner, LookPath: func(string) error { return nil }}
+	env := Env{Getenv: func(string) string { return "" }, Stdout: &w.out, Stderr: &w.errOut, Runner: w.runner, LookPath: func(string) error { return nil }, Lock: freeLock}
 	code := Main(ctx, []string{"--scripts", w.scripts, "--root", w.root}, env)
 	if code != ExitInterrupted {
 		t.Fatalf("exit %d", code)
@@ -556,7 +558,7 @@ func TestMainRefusesBadInputWithExitTwo(t *testing.T) {
 		}
 		w.out.Reset()
 		w.errOut.Reset()
-		env := Env{Getenv: func(k string) string { return w.env[k] }, Stdout: &w.out, Stderr: &w.errOut, Runner: w.runner, LookPath: func(string) error { return nil }, Cwd: w.root}
+		env := Env{Getenv: func(k string) string { return w.env[k] }, Stdout: &w.out, Stderr: &w.errOut, Runner: w.runner, LookPath: func(string) error { return nil }, Cwd: w.root, Lock: freeLock}
 		args := append([]string{"--scripts", w.scripts, "--root", w.root}, c.args...)
 		if code := Main(context.Background(), args, env); code != ExitCannotRun {
 			t.Errorf("%s: exit %d", name, code)
@@ -619,7 +621,7 @@ func TestRunnerFailureOfACheckIsReportedAsAFailure(t *testing.T) {
 	good := w.runner
 	w.runner = &scriptedRunner{}
 	broken := &mixedRunner{good: good, bad: "shellcheck"}
-	env := Env{Getenv: func(string) string { return "" }, Stdout: &w.out, Stderr: &w.errOut, Runner: broken, LookPath: func(string) error { return nil }}
+	env := Env{Getenv: func(string) string { return "" }, Stdout: &w.out, Stderr: &w.errOut, Runner: broken, LookPath: func(string) error { return nil }, Lock: freeLock}
 	if code := Main(context.Background(), []string{"--scripts", w.scripts, "--root", w.root}, env); code != ExitFailed {
 		t.Fatalf("exit %d", code)
 	}
@@ -632,7 +634,7 @@ func TestRelativeRootAndScriptsBecomeAbsoluteBeforeAnythingRunsElsewhere(t *test
 	w := newRunWorld(t)
 	w.changeKept()
 	t.Chdir(filepath.Dir(w.scripts))
-	env := Env{Getenv: func(string) string { return "" }, Stdout: &w.out, Stderr: &w.errOut, Runner: w.runner, LookPath: func(string) error { return nil }}
+	env := Env{Getenv: func(string) string { return "" }, Stdout: &w.out, Stderr: &w.errOut, Runner: w.runner, LookPath: func(string) error { return nil }, Lock: freeLock}
 	if code := Main(context.Background(), []string{"--scripts", "scripts", "--root", w.root}, env); code != ExitOK {
 		t.Fatalf("exit %d, stderr %q", code, w.errOut.String())
 	}

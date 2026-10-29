@@ -14,9 +14,15 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/changed"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/cmdmain"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/qalock"
 )
 
 func main() {
+	// The whole run is a background job (nice 19, ionice idle): this re-executes itself low.
+	if err := proc.OSPriority().Ensure(); err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: qa-changed: %v\n", err)
+		os.Exit(int(changed.ExitCannotRun))
+	}
 	os.Exit(run(os.Args[1:]))
 }
 
@@ -38,6 +44,7 @@ func run(args []string) int {
 		Runner:   proc.OS{},
 		LookPath: lookPath,
 		Cwd:      cwd,
+		Lock:     qalock.OSTaker("qa-changed", os.Stderr),
 	}
 	return int(changed.Main(ctx, args, env))
 }
