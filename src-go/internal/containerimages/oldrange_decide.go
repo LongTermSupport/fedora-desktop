@@ -114,6 +114,7 @@ type Plan struct {
 	Remove     []PlanStep `json:"remove"`
 	Held       []PlanStep `json:"held"`
 	Left       []string   `json:"left"`
+	Done       []string   `json:"done"`
 }
 
 // check is O11 for one item's action: nil when it is safe.
@@ -146,20 +147,47 @@ func childrenRemoved(it item, actions map[itemKey]string) error {
 	return nil
 }
 
-// makePlan is O11: the decisions checked against the items, then the steps.
-func makePlan(scan Scan, items []item, d decisions) (Plan, error) {
+// notItems is every decided key that is no item of the store now, in order.
+func notItems(items []item, d decisions) []itemKey {
+	known := map[itemKey]bool{}
+	for _, it := range items {
+		known[itemKey{it.kind, it.key}] = true
+	}
+	var out []itemKey
+	for _, k := range slices.SortedFunc(maps.Keys(d.actions), func(a, b itemKey) int { return cmp.Or(cmp.Compare(a.kind, b.kind), cmp.Compare(a.key, b.key)) }) {
+		if !known[k] {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// done is O11 for a decided key that is no item now, given whether the store still has it: a
+// remove it no longer has is already gone, a reown it still has holds no old-range file; any
+// other is not done.
+func done(k itemKey, action string, present bool) (string, bool) {
+	switch {
+	case action == actRemove && !present:
+		return "already gone: " + k.kind + " " + k.key, true
+	case action == actReown && present:
+		return "already re-owned: " + k.kind + " " + k.key, true
+	}
+	return "", false
+}
+
+// makePlan is O11: the decisions checked against the items, then the steps; present is whether
+// the store still has each decided key that is no item now.
+func makePlan(scan Scan, items []item, d decisions, present map[itemKey]bool) (Plan, error) {
 	p := Plan{
 		Store: scan.Store, Owners: scan.Owners, Old: d.old,
-		Reown: []PlanStep{}, RootRemove: []PlanStep{}, Remove: []PlanStep{}, Held: []PlanStep{}, Left: []string{},
+		Reown: []PlanStep{}, RootRemove: []PlanStep{}, Remove: []PlanStep{}, Held: []PlanStep{}, Left: []string{}, Done: []string{},
 	}
 	if err := scan.Owners.checkOld(d.old); err != nil {
 		return p, err
 	}
 	var errs []error
-	known := map[itemKey]bool{}
 	for _, it := range items {
 		k := itemKey{it.kind, it.key}
-		known[k] = true
 		action, decided := d.actions[k]
 		if !decided {
 			errs = append(errs, fmt.Errorf("%s %s is not decided", it.kind, it.key))
@@ -169,10 +197,12 @@ func makePlan(scan Scan, items []item, d decisions) (Plan, error) {
 			errs = append(errs, err)
 		}
 	}
-	for _, k := range slices.SortedFunc(maps.Keys(d.actions), func(a, b itemKey) int { return cmp.Or(cmp.Compare(a.kind, b.kind), cmp.Compare(a.key, b.key)) }) {
-		if !known[k] {
-			errs = append(errs, fmt.Errorf("%s %s is decided but is no item of the store now; triage again", k.kind, k.key))
+	for _, k := range notItems(items, d) {
+		if line, ok := done(k, d.actions[k], present[k]); ok {
+			p.Done = append(p.Done, line)
+			continue
 		}
+		errs = append(errs, fmt.Errorf("%s %s is decided %s but is no item of the store now; triage again", k.kind, k.key, d.actions[k]))
 	}
 	if err := errors.Join(errs...); err != nil {
 		return p, err

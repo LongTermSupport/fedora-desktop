@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.104.4"  # Container 2.79.17: reports and questions are drawn formatted in Element. See docs/ccy-changelog.md.
+CCY_VERSION="3.104.5"  # Container 2.79.17: the engine adapter asks podman whether it has an item. See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the

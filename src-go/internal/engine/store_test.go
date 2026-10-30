@@ -371,6 +371,37 @@ func TestContainerAndVolumeRemovalsAreUnforced(t *testing.T) {
 	}
 }
 
+// StoreHas asks podman's own exists question: exit 0 is there, exit 1 is gone, anything else
+// is podman failing, never read as gone; an external container is asked about too.
+func TestStoreHasAsksPodmansExists(t *testing.T) {
+	e, f := engineOn(t, Podman)
+	f.On([]string{"podman", "image", "exists", "there"}, execx.Result{})
+	f.On([]string{"podman", "image", "exists", "gone"}, execx.Result{ExitCode: 1})
+	f.On([]string{"podman", "volume", "exists", "v"}, execx.Result{ExitCode: 1})
+	f.On([]string{"podman", "container", "exists", "--external", "c1"}, execx.Result{})
+	f.On([]string{"podman", "image", "exists", "broken"}, execx.Result{ExitCode: 125, Stderr: []byte("Error: boom\n")})
+	ctx := context.Background()
+	for _, c := range []struct {
+		kind, key string
+		want      bool
+	}{{"image", "there", true}, {"image", "gone", false}, {"volume", "v", false}, {"container", "c1", true}} {
+		got, err := e.StoreHas(ctx, c.kind, c.key)
+		if err != nil || got != c.want {
+			t.Errorf("StoreHas(%s, %s) = %v, %v; want %v", c.kind, c.key, got, err, c.want)
+		}
+	}
+	if _, err := e.StoreHas(ctx, "image", "broken"); err == nil {
+		t.Error("a failing podman was read as an answer")
+	}
+	if _, err := e.StoreHas(ctx, "layer", "x"); err == nil {
+		t.Error("a layer is not podman's to answer for")
+	}
+	d, df := engineOn(t, Docker)
+	if _, err := d.StoreHas(ctx, "image", "x"); !errors.Is(err, ErrPodmanOnly) || len(df.Calls()) != 0 {
+		t.Errorf("docker StoreHas = %v after %v, want ErrPodmanOnly", err, df.Calls())
+	}
+}
+
 func TestVolumeListsArePodmansOnly(t *testing.T) {
 	e, f := engineOn(t, Docker)
 	ctx := context.Background()

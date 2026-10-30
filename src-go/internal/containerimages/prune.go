@@ -83,7 +83,11 @@
 //   - O11. A decisions file is `old-range START COUNT` and one `remove|reown|leave KIND KEY` per
 //     item. `plan` refuses it whole when it misses an item, keeps an ask, names what is not an
 //     item now, or would remove what a container uses or touch what is held or unshiftable;
-//     and an old range that holds root, the user, or overlaps a current range.
+//     and an old range that holds root, the user, or overlaps a current range. A decided key
+//     that is no item now is done, named in the plan's done list, when the store says so: a
+//     remove podman (or, for a path, the store's directory) does not have is already gone, a
+//     reown it still has holds no old-range file; anything else such is refused, so a rerun of
+//     carried-out decisions plans nothing and passes.
 //   - O12. A layer under a running container's overlay (its own or its image's chain) is never
 //     re-owned, whatever is decided for another image using it; the plan names it held.
 //   - O13. `reown --plan F [--yes]` (root) checks the plan first: the store a rootless store
@@ -98,6 +102,11 @@
 //     image or mounts a volume it removes; else nothing is removed. Then podman's own removals
 //     in the plan's order (forced only for buildah's container), each logged as P6 once it
 //     went; a refusal is named and the run fails, P6a stops it at once. A dry run without --yes.
+//     An item podman does not have (its `exists` asked first) is already gone: named, not
+//     logged, no failure. A removal that fails is asked of podman again: gone, it went with an
+//     earlier item of the run (an untagged parent with the image built on it), named so and
+//     logged; still there, or podman cannot say, the failure stands. podman's error text never
+//     decides absence.
 package containerimages
 
 import (

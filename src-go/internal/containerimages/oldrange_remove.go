@@ -103,6 +103,9 @@ func (a App) removeOld(ctx context.Context, planPath string, yes bool) term.Exit
 	if err != nil {
 		return a.fail(err)
 	}
+	if p.Remove, err = r.dropGone(ctx, p); err != nil {
+		return a.fail(err)
+	}
 	if err = stillSafe(p, pv); err != nil {
 		return a.fail(err)
 	}
@@ -120,6 +123,27 @@ func (a App) removeOld(ctx context.Context, planPath string, yes bool) term.Exit
 	return code
 }
 
+// dropGone is O15's look before any removal: each step podman no longer has is already gone,
+// named and dropped, and the steps left are returned. The plan's own done items are named too.
+func (r *run) dropGone(ctx context.Context, p Plan) ([]PlanStep, error) {
+	for _, line := range p.Done {
+		r.p.Print(r.Env.Stdout, line+"\n")
+	}
+	left := make([]PlanStep, 0, len(p.Remove))
+	for _, s := range p.Remove {
+		there, err := r.eng.StoreHas(ctx, s.Kind, s.Key)
+		if err != nil {
+			return nil, err
+		}
+		if !there {
+			r.p.Print(r.Env.Stdout, "already gone: "+s.Kind+" "+s.Name+"\n")
+			continue
+		}
+		left = append(left, s)
+	}
+	return left, nil
+}
+
 // sayRemovals is the dry run's list.
 func (r *run) sayRemovals(p Plan) term.ExitCode {
 	for _, s := range p.Remove {
@@ -135,20 +159,34 @@ func (r *run) sayLeft(p Plan) {
 	}
 }
 
-// removeAll removes each step: a refusal is named and the rest still go; P6a's stops the run.
+// takenEarlier is O15 after a failed removal: podman, asked, no longer has the item, so an
+// earlier removal of this run took it with it (an untagged parent goes with the image built on
+// it). Never podman's error text: podman is asked.
+func (r *run) takenEarlier(ctx context.Context, s PlanStep) (bool, error) {
+	there, err := r.eng.StoreHas(ctx, s.Kind, s.Key)
+	return err == nil && !there, err
+}
+
+// removeAll removes each step: a refusal is named and the rest still go; P6a's stops the run. A
+// failed removal of what podman no longer has is done, logged as any other.
 func (r *run) removeAll(ctx context.Context, p Plan) term.ExitCode {
 	for _, s := range p.Remove {
 		err := removeStep(ctx, r.eng, s)
+		said := "removed "
 		switch {
 		case err != nil && deniedInTempdirs(err):
 			r.failed = append(r.failed, "stopped at the removal of "+s.Kind+" "+s.Name+": the store holds "+storeCause+
 				"; this run removes nothing more. podman said: "+err.Error())
 			return r.finish(term.ExitFailure)
 		case err != nil:
-			r.failed = append(r.failed, "could not remove "+s.Kind+" "+s.Name+": "+err.Error())
-			continue
+			taken, askErr := r.takenEarlier(ctx, s)
+			if !taken {
+				r.failed = append(r.failed, "could not remove "+s.Kind+" "+s.Name+": "+errors.Join(err, askErr).Error())
+				continue
+			}
+			said = "removed with an earlier item: "
 		}
-		r.p.Print(r.Env.Stdout, "removed "+s.Kind+" "+s.Name+": "+s.Why+"\n")
+		r.p.Print(r.Env.Stdout, said+s.Kind+" "+s.Name+": "+s.Why+"\n")
 		if err := r.record(action{kind: s.Kind, name: s.Name, id: s.Key, why: removeWhy + s.Why}); err != nil {
 			return r.fail(err)
 		}

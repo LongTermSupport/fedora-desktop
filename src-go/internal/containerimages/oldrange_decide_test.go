@@ -56,7 +56,7 @@ func decide(t *testing.T, w *storeWorld, text string) (Plan, error) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return makePlan(w.scan, w.items(), d)
+	return makePlan(w.scan, w.items(), d, nil)
 }
 
 // O10: a removed or kept image's old-range layers are re-owned (root), then podman removes the
@@ -131,7 +131,7 @@ func TestPlanRefusesAnUnsafeOrIncompleteDecision(t *testing.T) {
 	for name, text := range map[string]string{
 		"an item missing":         strings.Replace(ok, "remove image FREE\n", "", 1),
 		"still ask":               strings.Replace(ok, "remove volume data", "ask volume data", 1),
-		"not an item":             ok + "remove image NOPE\n",
+		"not an item, gone":       ok + "reown image NOPE\n",
 		"remove a used image":     strings.Replace(ok, "reown image USED", "remove image USED", 1),
 		"touch a held image":      strings.Replace(ok, "leave image LIVE", "reown image LIVE", 1),
 		"remove a mounted volume": strings.Replace(ok, "reown volume mounted", "remove volume mounted", 1),
@@ -158,7 +158,7 @@ func TestPlanRefusesAnOldRangeOverTheMappedOnes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := makePlan(w.scan, w.items(), d); err == nil {
+	if _, err := makePlan(w.scan, w.items(), d, nil); err == nil {
 		t.Fatal("an old range over the current one was planned")
 	}
 }
