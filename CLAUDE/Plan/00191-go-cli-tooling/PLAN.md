@@ -822,8 +822,12 @@ today; rewriting them is out of scope.
   (subagent-reports: the 261030-dbf-cfd-N reports): every instance fixed, none excluded, the
   rule unnarrowed; probes whose failure is the answer ask `execx.ExitedNonZero` (a program that
   ran said no), and any other failure is reported. vmtest's run.exit wait no longer reads a lost
-  guest as "not yet" (red first). Catalogued in CLAUDE/GoProjectRules.md. CCY 3.104.3. Left:
-  full QA green with the rule blocking, the conformance review and the report.
+  guest as "not yet" (red first). Catalogued in CLAUDE/GoProjectRules.md. CCY 3.104.3. Full
+  QA green with the rule blocking (2b8b79917, after a false positive was fixed in the rule,
+  83772ce1c). The conformance review reproduced red (108 at 010158bcd) and green; its seven
+  findings are resolved in the report, `dbf-report-command-failure-dropped.md`, which also
+  gives the count as 111, not 110. Left, the owner's: the 8 bash instances of the search,
+  the bash class without a rule, and the wider any-error rule (the report's referrals).
 
 ### Phase 5: Review
 

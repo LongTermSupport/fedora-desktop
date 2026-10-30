@@ -39,7 +39,7 @@ the message or the record the caller sees, or return it.`,
 	FactTypes:  []analysis.Fact{new(commandErrFact)},
 }
 
-const failureDroppedMsg = "a command's failure is only tested, never carried: put its error (exit code, stderr) in what the caller sees, or return it"
+const failureDroppedMsg = "a command's failure is only tested, never carried (project_command_failure_dropped): put its error (exit code, stderr) in what the caller sees, or return it"
 
 // commandErrFact marks a function whose error is a command's failure: it returns the error of
 // a command it ran, directly or through another such function (systemd.State runs systemctl).

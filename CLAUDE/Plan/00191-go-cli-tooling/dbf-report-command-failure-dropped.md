@@ -3,8 +3,9 @@
 Plan 00191 Task 4.9. The defence was committed red in `e47fc3a04` and widened to wrappers,
 still red, in `010158bcd`. The origin was fixed in `62ccb796c` (CCY 3.104.1). The sweep is
 five batches, merged in `31c8dc3b7`, `00ae4be6d`, `74423dadf`, `7e569bd86` and `4aca4eaad`.
-The specs and the catalogue are in `2afcdb0af`. Full QA was green with the rule blocking at
-`2afcdb0af`, and the work is on F44 at `969948482`.
+The specs and the catalogue are in `2afcdb0af`. A false positive was fixed in the rule in
+`83772ce1c` and the identifier added to its message after the conformance review. Full QA was
+green with the rule blocking at `2b8b79917`, which is on F44.
 
 ## Specification followed
 
@@ -48,8 +49,10 @@ grades no tool for this, and the analyzer set declares no spec version.
 
 - **Detector.** A `go/analysis` analyzer in `src-go/qa/rules/commandfailure.go`.
 - **Identifier.** `project_command_failure_dropped`.
-- **Message.** "a command's failure is only tested, never carried: put its error (exit code,
-  stderr) in what the caller sees, or return it".
+- **Message.** "a command's failure is only tested, never carried
+  (project_command_failure_dropped): put its error (exit code, stderr) in what the caller
+  sees, or return it". The identifier is in the text, as the sibling rules have it, because
+  the vet driver prints no analyzer name; it was missing until the conformance review.
 - **Documentation.** `CLAUDE/GoProjectRules.md#project_command_failure_dropped`.
 - **Width.** Any call of a function or method of `internal/execx` or `qa/internal/proc` that
   takes a `Cmd`, plus, through facts, any function that returns such a call's error, so a
@@ -57,13 +60,15 @@ grades no tool for this, and the analyzer set declares no spec version.
   the variable is next assigned. Carrying is any other use: returning it, passing it to a
   call, calling a method on it, or storing it.
 - **Excluded, as not carrying the hazard.** `_test.go` files, which report through the test
-  framework. The seam packages themselves, whose job is to return the error. A run whose
-  call is a statement, or whose error goes to the blank identifier: these discard rather
-  than guess, and other rules and review hold them.
+  framework, and the seam packages themselves, whose job is to return the error. A run whose
+  call is a statement, or whose error goes to the blank identifier, is not excluded: the rule
+  reports it (it carries nothing), and errcheck with `check-blank` reports it too.
 - **The next wider rule, not built.** Any error, not only a command's, that is tested and
   then replaced by a fixed message. Most such errors are sentinels compared on purpose
   (`errors.Is(err, fs.ErrNotExist)`), and telling a dropped cause from a decided branch
-  needs the meaning of each sentinel.
+  needs the meaning of each sentinel. That judgement is a cost the owner may weigh
+  differently, so it is referred below. A second wider rule, the same class in bash, is also
+  not built, and also referred.
 
 ## Proof
 
@@ -73,12 +78,18 @@ grades no tool for this, and the analyzer set declares no spec version.
   stay clean. It runs over `fix/internal/execx` and `fix/internal/wrapper`, through
   `go test ./rules -run CommandFailure`. The red proof survives on its own in `e47fc3a04`,
   and the wrapper widening in `010158bcd`, both before any instance was fixed.
-- **Red, real tree.** The driver over both modules reported 107 findings at `010158bcd`.
+- **Red, real tree,** as the conformance reviewer reproduced it: the driver reports 43
+  findings at `e47fc3a04`, and 108 at `010158bcd` (106 in `src-go`, 2 in `src-go/qa`).
+  An earlier draft said 107.
+- **Green:** the driver reports nothing in either module at `2b8b79917`.
 
 ## Independent search
 
-The searcher ran before the rule existed and without sight of it. Its report is
-`subagent-reports/261029-dbf-command-failure-search.md`.
+The searcher was dispatched before the rule was written and was told to keep out of the rule
+and fixture directories. Its report is `subagent-reports/261029-dbf-command-failure-search.md`.
+That file was committed after the rule commit, so its independence rests on the dispatch,
+not on commit order. The reviewer found the searcher read three lines of other rules'
+fixture files, none of this rule's.
 
 - **It looked for** every way a command's failure can be tested and replaced with a guess,
   in Go and in the launcher's bash. It wrote its expected forms down before searching.
@@ -102,17 +113,19 @@ The searcher ran before the rule existed and without sight of it. Its report is
 
 - **Scope, recorded as the project's decision:** first-party Go in both modules (`src-go`
   and `src-go/qa`), with `vendor/` and `testdata` excluded.
-- **Count.** 107 findings at the red commit, plus 3 that appeared during the sweep, for 110
-  in all. No narrowing was applied.
+- **Count.** 108 findings at the widened red commit, plus 3 that appeared during the sweep
+  as helpers became wrappers, for 111 in all. No narrowing was applied. The scope is my
+  decision for the project, which recorded none. It is the scope the `go` gate already runs.
 - **The other language, bash, is not covered by the rule.** The search found 9 instances
   present in the launcher's bash (its B1 to B9) and about 12 borderline entries. The
-  project's only bash detector is semgrep, and no semgrep pattern can tell a documented
-  probe from a guessed cause: the search needed the surrounding message to tell them apart.
-  B1 is the origin and is fixed. B2 to B9 are referred below.
+  project's bash detectors are semgrep and the Go gates over the `mvdan.cc/sh` syntax tree.
+  No bash rule was attempted. The reason given here is a judgement, not a tested result:
+  the search needed the surrounding message to tell a documented probe from a guessed cause.
+  B1 is the origin and is fixed. B2 to B9 and the borderline entries are referred below.
 
 ## Fixes
 
-- All 110 Go findings are fixed, in five batches. The reports are
+- All 111 Go findings are fixed, in five batches. The reports are
   `subagent-reports/261030-dbf-cfd-1.md` to `-5.md`.
 - **Examined individually:** every site. Each batch report lists each site, the message the
   person now sees, and its test.
@@ -124,6 +137,9 @@ The searcher ran before the rule existed and without sight of it. Its report is
   (`f9f1b9e88`).
 - No instance was satisfied by suppression, by an exclusion, or by leaving the hazard in
   place. The specs that quote the changed messages now quote them as they are.
+- **A departure from the method's order.** The origin was fixed (`62ccb796c`) before the
+  sweep began (`31c8dc3b7`), not last. It was the owner's live incident on every ccy launch,
+  and it was fixed after the rule was red, with its own reproducing test.
 - **A false positive found after the sweep, and fixed in the rule.** New code (vmtest's orphan
   removal, Plan 00192 Task 3.17) wrote `err = errors.Join(err, release())`. The rule ended
   an error's window at the start of the assignment that replaces it, so this read was missed
@@ -134,9 +150,24 @@ The searcher ran before the rule existed and without sight of it. Its report is
 
 ## Decisions referred to the owner
 
-- **The bash instances B2 to B9** of the independent search are in
-  `files/var/local/claude-yolo/` (the launcher, `token-management.bash`,
-  `docker-health.bash` and `entrypoint.sh`). 1 is fixed (B1, the origin) and 8 remain.
+The owner is the repository's single maintainer. These are put to them in the session's
+decisions list.
+
+- **The bash instances B2 to B9** of the independent search. 1 is fixed (B1, the origin)
+  and 8 remain. Each one is a small change once its file may grow:
+  - B2: `lib/token-management.bash` `validate_token`. Any engine failure is "token invalid".
+  - B3: `claude-yolo` network check. A failed `alpine wget` run is "no internet access".
+  - B4: `entrypoint.sh`. A failed GitHub meta fetch is "offline?".
+  - B5: `claude-yolo` version probes. The captured cause is dropped as "offline?".
+  - B6: `claude-yolo` `network rm`. Any failure is "may still have containers".
+  - B7: `lib/docker-health.bash` stops. Any failure is "may already be stopped".
+  - B8: `claude-yolo` config `source`. A failure deletes the file on the guess that it is
+    corrupt.
+  - B9: `lib/docker-health.bash` listings. An engine failure is "no containers found".
+- **The search's borderline bash entries** (about 12, listed in its report) need the same
+  decision. Some are documented probes, and none has been judged one by one.
+- **Leaving the bash class without a rule**, and **not building the wider any-error rule**:
+  both are the owner's to accept.
 - **What stopped the fixing.** They are bash files on the bash-limits ratchet allowlist,
   which may shrink and never grow, and carrying each cause adds lines. The owner's direction
   is also to retire this bash for Go (Plan 00209 direction 4, and Plan 00191 itself).
@@ -150,8 +181,24 @@ The searcher ran before the rule existed and without sight of it. Its report is
 
 The rule is in `All()`, so the `go` gate's `go vet` driver runs it in `qa-all.bash`,
 `qa-changed.bash` and CI, and a finding fails the gate. Full `./scripts/qa-all.bash` passed
-at `2afcdb0af` with the rule blocking, through the project's own entry point: "go: coverage
-passed", "QA passed: 1768 files checked".
+at `2b8b79917` with the rule blocking, through the project's own entry point: "go: coverage
+passed", "QA passed: 1768 files checked". The message change after the review was checked
+with the rule's harness and `qa-changed.bash`.
+
+## Conformance review
+
+`defence-before-fix:conformance-reviewer` reproduced the red and green runs: 108 findings at
+`010158bcd`, none at `2b8b79917`, and the harness passes. All seven of its findings are
+resolved above:
+- the identifier in the message;
+- the departure in the order;
+- the per-instance bash referral, with no bash rule attempted;
+- the wider rules referred;
+- the exclusions corrected;
+- the counts and the green commit;
+- the search's independence.
+
+The full review is in the session's agent reports.
 
 ## Toolchain and detector gaps
 
@@ -166,4 +213,4 @@ of the reason the person sees. An entry with status 000 is never fresh, so the n
 reads again, in Go and in the bash menu alike. The tests are
 `src-go/internal/ccylaunch/tokenusage_test.go`, which reproduces a failed curl with its exit
 code and stderr and shows the reason carries them and the entry is not reused, and
-`scripts/test-ccy-token-usage-command.bash`. Both failed before the fix and pass after it.
+`scripts/test-ccy-token-usage-command.bash`, both changed in the fix's commit.
