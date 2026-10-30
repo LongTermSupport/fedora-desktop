@@ -32,3 +32,9 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# CCY 3.104.8 (Plan 00191 Task 4.10 unit 3): the launch network check and the Claude version
+# probes say what failed. An engine, pull or image fault stops the launch with its cause, no
+# longer read as "no internet" or "offline?". This rebuilds the ccy base image (any CCY bump
+# does today, Plan 00239), so each project image rebuilds at its next launch:
+playbooks/imports/play-claude-yolo.yml
