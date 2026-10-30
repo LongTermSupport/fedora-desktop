@@ -204,6 +204,7 @@ QUESTION_STATES = (STATE_OPEN, STATE_ANSWERED, STATE_CLOSED)
 DROP_REASONS = (
     "version", "schema", "size", "edit", "sender", "role", "target", "verb", "ref",
     "allowlist", "excluded", "re", "body", "stale", "rate", "forge-rate", "unresolved", "provenance",
+    "gap",
 )
 #: The ignore reason for an agent's text that does not name the receiving agent (spec §7,
 #: §9): it is for others, so the agent skips it silently and it is never a drop.
@@ -223,7 +224,7 @@ UNHEARD_REASONS = (IGNORE_NOT_ADDRESSED,)
 #: reports or questions room yet (the agent-bus play creates them).
 SEND_REFUSALS = ("secret", "no-room")
 #: Codes this module never produces: limits (`stale`, `rate`) and the forge check (`forge-rate`, `unresolved`, `provenance`).
-REASONS_DECIDED_ELSEWHERE = frozenset({"stale", "rate", "forge-rate", "unresolved", "provenance"})
+REASONS_DECIDED_ELSEWHERE = frozenset({"stale", "rate", "forge-rate", "unresolved", "provenance", "gap"})
 
 REQUIRED = "required"
 OPTIONAL = "optional"

@@ -146,7 +146,7 @@ class TestConstants(unittest.TestCase):
             (
                 "version", "schema", "size", "edit", "sender", "role", "target", "verb",
                 "ref", "allowlist", "excluded", "re", "body", "stale", "rate", "forge-rate",
-                "unresolved", "provenance",
+                "unresolved", "provenance", "gap",
             ),
         )
 
@@ -1063,7 +1063,7 @@ class TestPingEvent(unittest.TestCase):
                 self.assertEqual((out.kind, out.reason), (p.DROP, reason))
         self.assertEqual(set(producers) | p.REASONS_DECIDED_ELSEWHERE, set(p.DROP_REASONS))
         self.assertFalse(set(producers) & p.REASONS_DECIDED_ELSEWHERE)
-        self.assertEqual(p.REASONS_DECIDED_ELSEWHERE, {"stale", "rate", "forge-rate", "unresolved", "provenance"})
+        self.assertEqual(p.REASONS_DECIDED_ELSEWHERE, {"stale", "rate", "forge-rate", "unresolved", "provenance", "gap"})
 
 
 class TestHumanMessage(unittest.TestCase):

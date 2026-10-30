@@ -208,9 +208,11 @@ func inRanges(ranges [][2]rune) map[rune]bool {
 	return set
 }
 
-// goAssigned is whether Go's own tables (Unicode unicode.Version) assign a code point.
+// goAssigned is whether Go's own tables (Unicode unicode.Version) assign a code point. The C
+// subcategories are named one by one: unicode.C also holds code points Go leaves unassigned.
 func goAssigned(r rune) bool {
-	return unicode.In(r, unicode.L, unicode.M, unicode.N, unicode.P, unicode.S, unicode.Z, unicode.C)
+	return unicode.In(r, unicode.L, unicode.M, unicode.N, unicode.P, unicode.S, unicode.Z,
+		unicode.Cc, unicode.Cf, unicode.Cs, unicode.Co)
 }
 
 // TestPythonUnicodeTables compares every code point: isspace, isprintable (repr's escaping),

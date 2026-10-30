@@ -772,21 +772,37 @@ class GapFillTest(TeamCase):
         self.assertTrue(gap)
         self.assertEqual(gap[0].query["dir"], "f")
 
-    def test_the_gap_fill_is_bounded(self):
+    def test_a_gap_past_the_bound_reads_its_newest_end_and_drops_the_rest_as_gap(self):
+        s = self.ready()
+        pages = syncer.GAP_MAX_PAGES
+        sent = [self.human(f"message {n}") for n in range(syncer.TIMELINE_LIMIT + 5)]
+        for n in range(pages):
+            self.fake.inject("GET", r"/messages$", 200,
+                             {"chunk": [{"type": "m.room.message"}], "start": "s", "end": f"e{n}"})
+        self.fake.inject("GET", r"/messages$", 200, {"chunk": [], "start": "s", "end": "b0"})
+        token = self.state.sync_token()
+        batch = s.sync_once()
+        gap = [r for r in self.fake.http_log if r.path.endswith("/messages")]
+        self.assertEqual([r.query["dir"] for r in gap], ["f"] * pages + ["b"])
+        self.assertEqual(gap[-1].query["to"], token)
+        self.assertEqual(dict(batch.drops), {"gap": pages})
+        self.assertNotEqual(self.state.sync_token(), token)
+        self.assertEqual(sorted(self.stored()), sorted(sent[-syncer.TIMELINE_LIMIT:]))
+
+    def test_the_newest_end_of_a_gap_is_bounded(self):
         s = self.ready()
         pages = syncer.GAP_MAX_PAGES
         for n in range(syncer.TIMELINE_LIMIT + 5):
             self.human(f"message {n}")
-        for n in range(pages):
+        for n in range(2 * pages + 1):
             self.fake.inject("GET", r"/messages$", 200,
                              {"chunk": [{"type": "m.room.message"}], "start": "s", "end": f"e{n}"})
-        token = self.state.sync_token()
-        with self.assertRaises(matrix.Unreachable):
-            s.sync_once()
+        s.sync_once()
         gap = [r for r in self.fake.http_log if r.path.endswith("/messages")]
-        self.assertEqual(len(gap), pages)
-        self.assertEqual(self.state.sync_token(), token)
-        self.assertEqual(self.stored(), [])
+        self.assertEqual(len(gap), 2 * pages)
+
+    def test_a_gap_drop_is_a_drop_reason(self):
+        self.assertIn("gap", protocol.DROP_REASONS)
 
 
 class WiringTest(TeamCase):

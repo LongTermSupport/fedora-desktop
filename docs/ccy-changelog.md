@@ -27,7 +27,12 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
-## 3.104.1 — container 2.79.15
+## 3.104.2 — container 2.79.16
+
+- 3.104.0 and 3.104.1 (below) joined with 3.103.2's image, whose pingbus reads a long sync
+  gap from its newest end. Nothing else changes.
+
+## 3.104.1 — container 2.79.16
 
 The image is unchanged, so there is no rebuild.
 
@@ -40,7 +45,7 @@ The image is unchanged, so there is no rebuild.
   with no response is never fresh, so the next read asks again. Held by the Go gate's new rule
   `project_command_failure_dropped` (CLAUDE/GoProjectRules.md).
 
-## 3.104.0 — container 2.79.15
+## 3.104.0 — container 2.79.16
 
 The image is unchanged, so there is no rebuild.
 
@@ -55,6 +60,14 @@ The image is unchanged, so there is no rebuild.
   bash beside it, a name or `HOME` outside ASCII, a file with no date in its name, which is
   listed as unavailable) or refused with exit 1 and one line naming it (a setting it refuses,
   a token curl's arguments would hold, a pool or cache entry that is not a plain file).
+
+## 3.103.2 — container 2.79.16
+
+- **A seat whose sync position is days old hears its team again** (issue #115). Its watcher
+  exited 7 every minute, "the gap runs past 20 pages", and it never moved on, because the seat
+  state outlives every restart. pingbus now reads such a gap from its newest end, within the
+  same bound, and drops the older messages as `gap`, which the session sees as a `DROPPED` line.
+  The image changes: the pingbus zipapp, built from helpers/pingbus.
 
 ## 3.103.1 — container 2.79.15
 
