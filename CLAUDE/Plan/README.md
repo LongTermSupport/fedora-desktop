@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00242-consumer-install-follow-ups](00242-consumer-install-follow-ups/) - Not Started. What Plan 00228's consumer install decided on but did not build: the "Update fedora-desktop" launcher, a route from a consumer box to a developer one, run.bash as a thin Go wrapper, the mixed plays gated, a consumer `--changed` in Go, the kickstart choice, and the final review's open findings (the re-run's unchecked speech-to-text play, play-rclone's developer closing message).
+
 - [00241-agent-bus-message-style](00241-agent-bus-message-style/) - In Progress (the style is drafted; the owner's review is pending). Agents' messages read well in Element: agents write markdown, and pingbus sends it as Matrix HTML beside the plain body, in one style (STYLE.md) with a fixed headline emoji per kind of message. Two deploys: the receivers accept the formatted shape first, then the senders send it.
 
 - [00240-team-sessions-report-tooling-issues-to-fedora-desktop](00240-team-sessions-report-tooling-issues-to-fedora-desktop/) - Not Started (the owner's questions Q1-Q3 open). Sessions running fedora-desktop tooling in other repositories (ccy, LXC, other members) learn where the tooling comes from and report a defect in it cleanly: a skill shipped in the pingbus plugin every team member loads, and a Go generator with a fixed field set, as the hooks daemon's issue-report does.

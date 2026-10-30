@@ -284,21 +284,21 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   (run.bash 1.36.0), the speech-to-text consumer notes. Decisions 5 and 6(a), Tasks 6.1-6.4,
   the consumer re-run's unchecked speech-to-text play, play-rclone's developer closing
   message and the run.bash:1296 repeated URL (run.bash needs a version bump on any change)
-  go to the follow-up plan.
+  go to [Plan 00242](../00242-consumer-install-follow-ups/PLAN.md).
 
 ### Phase 6: Later
 
-- [ ] ⬜ **Task 6.1**: run.bash fully becomes a thin wrapper over Go, as its own plan: a
+- [x] ✅ **Task 6.1**: moved to [Plan 00242](../00242-consumer-install-follow-ups/PLAN.md) Task 2.1. Was: run.bash fully becomes a thin wrapper over Go, as its own plan: a
   fresh box has no Go and no checkout until the bash bootstrap has run, so that plan owns
   the bootstrap's shape.
 
-- [ ] ⬜ **Task 6.2**: Gate the developer parts of mixed plays on a consumer box: linger
+- [x] ✅ **Task 6.2**: moved to [Plan 00242](../00242-consumer-install-follow-ups/PLAN.md) Task 2.2. Was: Gate the developer parts of mixed plays on a consumer box: linger
   (`play-systemd-user-tweaks.yml`) and any developer-only GNOME extension.
 
-- [ ] ⬜ **Task 6.3**: A consumer `--changed` path in Go (today `--changed` on a consumer
+- [x] ✅ **Task 6.3**: moved to [Plan 00242](../00242-consumer-install-follow-ups/PLAN.md) Task 2.3. Was: A consumer `--changed` path in Go (today `--changed` on a consumer
   box runs run.bash's own play runner, which offers no GitHub issue there).
 
-- [ ] ⬜ **Task 6.4**: A consumer choice in the kickstart (`fedora-install/ks.cfg`).
+- [x] ✅ **Task 6.4**: moved to [Plan 00242](../00242-consumer-install-follow-ups/PLAN.md) Task 2.4. Was: A consumer choice in the kickstart (`fedora-install/ks.cfg`).
 
 - [x] ✅ **Task 6.5**: Speech-to-text on a consumer box: no Claude post-processing, and its
   menu items hidden there (the owner's decision, 2026-10-28; revisit only if a real consumer
@@ -428,7 +428,8 @@ account prompt; (b) `run.bash` prompts for and creates an account.
 (b) extend Plan 00137's signed self-update timer to consumer desktops; (c) only Fedora's own
 updates after install.
 **Default**: (a) in this plan, with a desktop launcher entry named "Update fedora-desktop";
-(b) is a follow-up raised against Plan 00137.
+(b) is a follow-up raised against Plan 00137. The re-run is built; the launcher is not, and
+moved to [Plan 00242](../00242-consumer-install-follow-ups/PLAN.md) Task 1.1.
 
 ### Decision 6: Changing audience later
 
@@ -436,7 +437,10 @@ updates after install.
 which then runs the GitHub steps and moves origin to SSH; (b) refused. Developer to
 consumer: (c) refused; (d) supported with uninstalls.
 **Default**: (a) and (c): upgrading adds; downgrading would need every developer play to
-learn to remove itself, which is out of scope.
+learn to remove itself, which is out of scope. (c) is built (`--consumer` refuses on a
+developer box). (a) is not: no developer flag exists, and every plain run on a consumer box
+hands over to the consumer install; it moved to
+[Plan 00242](../00242-consumer-install-follow-ups/PLAN.md) Task 1.2.
 
 ### Decision 7: Backing up a consumer's `localhost.yml`
 
