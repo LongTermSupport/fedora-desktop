@@ -60,8 +60,9 @@ type diskNeed struct {
 type pruneEntry struct {
 	pruneDecision
 
-	files []string // base names of the overlays, sorted
-	bytes int64
+	files  []string // base names of the overlays, sorted
+	bytes  int64
+	orphan string // the run's domain, when libvirt lists it and the run holds no lock (E66)
 }
 
 // freed is what the prunable entries of a plan add up to.
@@ -218,20 +219,39 @@ func (c *cli) prunePlan(ctx context.Context, l *lab, days int) ([]pruneEntry, er
 	return plan, nil
 }
 
-// markLive makes a run whose guest or lock is still held live, whatever the plan says.
+// markLive makes a run whose lock is held live, whatever the plan says, and so is one from
+// before the lock that libvirt lists. A listed domain whose run holds no lock is an orphan, a
+// run that ended without its teardown (E66): the plan decides its overlay.
 func markLive(e *pruneEntry, domains map[string]bool, dir string) error {
-	if domain := runDomain(e.id); domains[domain] {
-		e.action, e.reason = actionLive, "libvirt has the domain "+domain
-		return nil
+	hasLock, err := lockFileExists(dir)
+	if err != nil {
+		return err
 	}
 	release, locked, err := tryRun(dir)
 	if err != nil {
 		return err
 	}
-	if !locked {
+	domain := runDomain(e.id)
+	switch {
+	case !locked:
 		e.action, e.reason = actionLive, lockHeld
+	case domains[domain] && !hasLock:
+		e.action, e.reason = actionLive, "libvirt has the domain "+domain
+	case domains[domain]:
+		e.orphan = domain
 	}
 	return release()
+}
+
+func lockFileExists(dir string) (bool, error) {
+	_, err := os.Stat(filepath.Join(dir, runLockFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, failf("cannot read the run lock in %s: %v", dir, err)
+	}
+	return true, nil
 }
 
 func prunable(plan []pruneEntry) freed {
@@ -287,6 +307,9 @@ func (c *cli) cmdPruneRuns(ctx context.Context, args []string) error {
 		return err
 	}
 	for i := range plan {
+		if err := c.pruneOrphan(ctx, l, &plan[i], yes); err != nil {
+			return err
+		}
 		if err := c.pruneOne(l, &plan[i], yes); err != nil {
 			return err
 		}
@@ -305,6 +328,46 @@ func (c *cli) cmdPruneRuns(ctx context.Context, args []string) error {
 	}
 	c.sayf("VMTEST-PRUNE-DONE would free %s from %d %s; dry run, vmtest prune-runs --yes removes %s", humanBytes(f.bytes), f.runs, runs, them)
 	return nil
+}
+
+// pruneOrphan reports a run's orphaned domain and, with yes, destroys and undefines it under the
+// run's lock, logged first (E66). A run that took the lock since the plan was made is live.
+func (c *cli) pruneOrphan(ctx context.Context, l *lab, e *pruneEntry, yes bool) error {
+	if e.orphan == "" {
+		return nil
+	}
+	verb := "would-remove"
+	if yes {
+		removed, err := c.removeOrphan(ctx, l, e)
+		if err != nil || !removed {
+			return err
+		}
+		verb = "removed"
+	}
+	c.sayf("VMTEST-PRUNE-ORPHAN %s %s %s: libvirt has the domain and no run holds %s; the run ended without its teardown",
+		e.id, verb, e.orphan, runLockFile)
+	return nil
+}
+
+// removeOrphan removes an orphaned domain under its run's lock; removed is false, and the run
+// live, when a run holds the lock now.
+func (c *cli) removeOrphan(ctx context.Context, l *lab, e *pruneEntry) (bool, error) {
+	release, locked, err := tryRun(l.at(runsDir, e.id))
+	if err != nil {
+		return false, err
+	}
+	if !locked {
+		e.action, e.reason, e.orphan = actionLive, lockHeld, ""
+		return false, nil
+	}
+	err = c.record(l, "removed orphaned domain "+e.orphan+" of "+e.id)
+	if err == nil {
+		err = c.removeListedDomain(ctx, e.orphan)
+	}
+	if err = errors.Join(err, release()); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // pruneOne reports one run and, with yes, removes its overlays under its lock, logged first.

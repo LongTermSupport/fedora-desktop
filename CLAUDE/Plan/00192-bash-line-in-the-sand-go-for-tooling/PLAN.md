@@ -480,12 +480,15 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   settings, read from the NetworkManager profile (as the user, then root). SPEC-ftp-camera
   E67, E68; the code and tests are on the branch. Left: the host checks H6, H7.
 
-- [ ] ⬜ **Task 3.17**: FOLLOW-UP of a cut run (host, 2026-10-30): a run that dies with its
+- [ ] 🔄 **Task 3.17**: FOLLOW-UP of a cut run (host, 2026-10-30): a run that dies with its
   guest still defined (the host powered off mid-run) leaves the libvirt domain behind, and
   `prune-runs` reads any listed domain as live, so its overlay is never freed and nothing
   removes the domain. A run's domain whose run holds no lock is an orphan: `prune-runs`
-  shows it as such and, with `--yes`, destroys and undefines the domain, then removes the
-  overlay. A domain whose lock is held stays live. SPEC-vmtest first, then red, then green.
+  shows it as such and, with `--yes`, destroys and undefines the domain; the plan then judges
+  the overlay as for any run. A domain whose lock is held stays live, and so does a listed run
+  from before the lock. SPEC-vmtest E66; red (fe3f985f6: the dry run named no orphan, and a
+  failed removal passed), then green. Left: the host prunes the cut 10-29 server-fast run
+  after play-vm-test-lab.
 
 ### Phase 4: Review
 
