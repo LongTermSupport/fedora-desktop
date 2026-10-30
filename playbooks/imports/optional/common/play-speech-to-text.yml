@@ -303,7 +303,9 @@
 
     # pip stages its downloads (torch and its CUDA wheels, about 3 GB) in TMPDIR. /tmp is a tmpfs
     # with a per-user quota, which a machine with little RAM exceeds (Errno 122), so they are
-    # staged on disk instead.
+    # staged on disk instead. They are not also kept in pip's cache: a re-run skips the install
+    # because the package is installed, so a cached copy is 3 GB of disk nothing reads, and on
+    # a small disk it is what fills it (Errno 28).
     - name: Create the Disk Staging Directory for pip Downloads
       ansible.builtin.file:
         path: "/home/{{ user_login }}/.cache/pip-tmp"
@@ -320,7 +322,7 @@
       ansible.builtin.pip:
         name:
           - RealtimeSTT==1.0.0
-        extra_args: --user --resume-retries 5
+        extra_args: --user --resume-retries 5 --no-cache-dir
         state: present
 
     # PERF-11: the warm streaming server (which loads the speech model — "CAN TAKE MANY

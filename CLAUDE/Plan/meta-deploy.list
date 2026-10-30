@@ -61,6 +61,5 @@ playbooks/imports/optional/common/play-lxcfreeze.yml
 playbooks/imports/optional/common/play-speech-to-text.yml
 # vmtest:
 playbooks/imports/optional/common/play-vm-test-lab.yml
-# ftp-camera. Last, because it asks for the camera hotspot Wi-Fi password at the screen
-# (Enter alone sets up no hotspot this run):
+# ftp-camera (the play makes the hotspot password itself; nothing is asked):
 playbooks/imports/optional/common/play-ftp-camera.yml

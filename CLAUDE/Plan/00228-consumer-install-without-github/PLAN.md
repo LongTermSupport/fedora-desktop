@@ -305,7 +305,13 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   pip's RealtimeSTT install failed with Errno 122 (Disk quota exceeded) while staging the torch
   and CUDA wheels (about 3 GB) in TMPDIR, which is /tmp, a tmpfs with a per-user quota; the other
   four failures follow from it, and the other two scenarios passed. Fixed in
-  play-speech-to-text.yml: the install stages in `~/.cache/pip-tmp` on disk. Queued again.
+  play-speech-to-text.yml: the install stages in `~/.cache/pip-tmp` on disk. The run at
+  667809725 failed the same 5 checks with Errno 28 (No space left on device): the staging
+  worked, and the guest's 20 GiB disk itself filled. pip no longer also keeps the 3 GB of
+  wheels in its cache (`--no-cache-dir`); whether that alone is enough is unknown, since the
+  run does not record the guest's free space. The owner decides what else (owner decisions
+  A6: torch without the CUDA wheels on a machine with no NVIDIA GPU, or larger lab disks).
+  Queued again.
 - [x] ✅ **Task 6.6**: The developer path's optional runs, as Task 2.6 did for the consumer.
   Decided (2026-10-28, part C item 5 of the unblocking list): on the developer path, optional
   plays go on after one fails, a summary naming every failed and installed play is printed at
