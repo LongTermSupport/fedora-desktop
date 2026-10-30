@@ -220,9 +220,16 @@ the plans cite kept.
     tempdirs'), then scan, plan, reown and remove (dry runs unless
     `podman_store_old_range_apply`), the repair in `always:`. The probe then finds nothing,
     writes the marker and starts the timer
-  - [ ] ⬜ **4.7d**: on the host: the host agent runs `old-range.bash` through meta-deploy, reads
+  - [x] ✅ **4.7d**: on the host: the host agent runs `old-range.bash` through meta-deploy, reads
     the report, copies the proposal to `untracked/plan-00235/old-range-decisions.tsv` and decides
-    each ask, runs `old-range.bash` again for the dry run, then `old-range-apply.bash`
+    each ask, runs `old-range.bash` again for the dry run, then `old-range-apply.bash`. Done on
+    the host (2026-10-30): the owner approved the decisions (remove 33 images and 8 empty
+    volumes, re-own 4 images, 2 orphan layers and the browser-overlay postgres volume); the
+    dry run at 784e4dace matched them; the apply at 9bd2a6528 re-owned all and removed 28 images
+    and 8 volumes, then stopped on 5 images already gone (4.7e); the rerun at c832a1b2c found
+    the rest gone, the probe clean: the store-clean marker written and the timer on. Its first
+    prune removed 36 images (+14 GiB) and then failed on a tag already gone, with the play's
+    start racing the timer (4.7f)
   - [x] ✅ **4.7e** (FIX, host run of 4.7d at 9bd2a6528): re-own did everything; remove took 28
     images and 8 volumes, but 5 images failed "image not known", untagged parents podman had
     removed with an image earlier in the run, so remove exited 1 and the play stopped before the
