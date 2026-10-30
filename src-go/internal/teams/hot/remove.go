@@ -136,7 +136,14 @@ func (x *Hot) farewell(ctx context.Context, t *target, r request, team, seat str
 		return term.ExitFailure
 	}
 	farewell := slices.DeleteFunc(slices.Clone(t.desired.Farewell), func(f membership.Farewell) bool { return f.Team == team })
-	if len(farewell) == 0 && x.ended(ctx, t) {
+	ended := false
+	if len(farewell) == 0 {
+		var endedErr error
+		if ended, endedErr = x.ended(ctx, t); endedErr != nil {
+			x.say("Whether " + t.session + " still runs could not be read (" + endedErr.Error() + "), so its membership file is kept.")
+		}
+	}
+	if ended {
 		if err := x.dropDesired(t); err != nil {
 			return term.ExitFailure
 		}

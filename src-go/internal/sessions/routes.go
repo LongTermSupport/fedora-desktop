@@ -2,6 +2,7 @@ package sessions
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strconv"
 	"strings"
@@ -64,7 +65,7 @@ func (a *App) sessionContainers(ctx context.Context) ([]sessprobe.Owner, error) 
 	}
 	table, err := sessprobe.ProcessTable(ctx, a.Runner)
 	if err != nil {
-		a.fail("the process table could not be read, so no session can be matched to its container: " + strings.TrimSpace(table))
+		a.fail("the process table could not be read, so no session can be matched to its container: " + strings.TrimSpace(err.Error()))
 		return nil, errReported
 	}
 	procs, err := sessprobe.ParseProcs(table)
@@ -73,6 +74,15 @@ func (a *App) sessionContainers(ctx context.Context) ([]sessprobe.Owner, error) 
 		return nil, errReported
 	}
 	return sessprobe.SessionContainers(panes, procs), nil
+}
+
+// signalFailure is why a project's signal command failed: its exit, its output having been
+// streamed above, or the error that kept it from running.
+func signalFailure(err error) string {
+	if exitErr, ok := errors.AsType[*execx.ExitError](err); ok {
+		return "exit " + strconv.Itoa(exitErr.Code)
+	}
+	return err.Error()
 }
 
 // groupProjects splits the live sessions into projects (each directory once, in order of first
@@ -236,7 +246,7 @@ func (a *App) deliverSignal(ctx context.Context, projects []projectInfo, kind st
 		cmd := r.run(slices.Concat(args, []string{"--project-root", r.root})...)
 		cmd.Stdout, cmd.Stderr = a.Stderr, a.Stderr
 		if _, err := a.Runner.Run(ctx, cmd); err != nil {
-			a.fail("signalling " + kind + " to " + p.Dir + r.via + " failed.")
+			a.fail("signalling " + kind + " to " + p.Dir + r.via + " failed (" + signalFailure(err) + ").")
 			if kind != kindCancelled {
 				return 0, errReported
 			}

@@ -63,9 +63,12 @@ func (x *Hot) panePID(ctx context.Context, session string) (int, error) {
 }
 
 // ccEnded is whether a cc session's pane is gone, or another runs in its place.
-func (x *Hot) ccEnded(ctx context.Context, t *target) bool {
+func (x *Hot) ccEnded(ctx context.Context, t *target) (bool, error) {
 	pid, err := x.panePID(ctx, t.session)
-	return err == nil && pid != t.pane
+	if err != nil {
+		return false, err
+	}
+	return pid != t.pane, nil
 }
 
 // sessionKeeper is whether a listed session's seat keeper runs: in its container, or (it has
@@ -78,11 +81,11 @@ func (x *Hot) sessionKeeper(ctx context.Context, container string, pane int) (bo
 }
 
 // rowState is a listed session's STATE: a cc session with no keeper cannot be repaired.
-func rowState(name, kind string, alive bool, aliveErr, seatsErr, reportErr error, down, unheld []string) string {
-	if kind == membership.KindCC && aliveErr == nil && !alive {
+func rowState(name, kind string, alive bool, p problems, down, unheld []string) string {
+	if kind == membership.KindCC && p.alive == nil && !alive {
 		return ccUnguarded
 	}
-	return stateWord(name, alive, aliveErr, seatsErr, reportErr, down, unheld)
+	return stateWord(name, alive, p, down, unheld)
 }
 
 // ccKeeperAlive is whether a seat keeper runs in the process tree under the cc session's pane.

@@ -542,13 +542,16 @@ func (x *Hot) container(ctx context.Context, session string) (string, error) {
 }
 
 // ended is whether the session's container (a cc session's pane) has stopped or been replaced
-// since it was resolved.
-func (x *Hot) ended(ctx context.Context, t *target) bool {
+// since it was resolved; a look that fails is returned, never read as either.
+func (x *Hot) ended(ctx context.Context, t *target) (bool, error) {
 	if t.cc() {
 		return x.ccEnded(ctx, t)
 	}
 	id, err := x.container(ctx, t.session)
-	return err == nil && id != t.container
+	if err != nil {
+		return false, err
+	}
+	return id != t.container, nil
 }
 
 // commit writes the record, then the desired file with one more generation (H5). note, when

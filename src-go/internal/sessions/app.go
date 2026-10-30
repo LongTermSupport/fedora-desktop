@@ -368,6 +368,14 @@ func (a *App) fail(msg string) { a.Term.PrintError(msg) }
 
 func (a *App) failErr(err error) { a.Term.PrintError(err.Error()) }
 
+// failed is a run's exit on err, printing err unless it was reported where it happened.
+func (a *App) failed(err error) term.ExitCode {
+	if !errors.Is(err, errReported) {
+		a.failErr(err)
+	}
+	return term.ExitFailure
+}
+
 // pauseFor waits d, or until a signal arrives on sig, and reports whether one did.
 func pauseFor(d time.Duration, sig <-chan os.Signal) bool {
 	if d <= 0 {

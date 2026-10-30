@@ -384,7 +384,11 @@ type waited struct {
 func (x *Hot) waitHeld(ctx context.Context, t *target, team, seat string) waited {
 	start := x.Now()
 	for {
-		if x.ended(ctx, t) {
+		ended, err := x.ended(ctx, t)
+		if err != nil {
+			return waited{why: fmt.Sprintf("seat %s: whether %s still runs could not be read: %v", seat, t.session, err)}
+		}
+		if ended {
 			return waited{why: fmt.Sprintf(endedDuringAdd, seat), ended: true}
 		}
 		held, heldErr := x.isHeld(ctx, t, team, seat)
@@ -430,8 +434,12 @@ func (x *Hot) relaunch(ctx context.Context, t *target, team, seat string) term.E
 		return term.ExitFailure
 	}
 	start := x.Now()
+	// A look that fails mid-relaunch (two containers for a moment) is looked at again; the last
+	// failure is said if the wait runs out.
+	var lookErr error
 	for x.Now().Sub(start) < x.Waits.Relaunch {
 		id, err := x.container(ctx, t.session)
+		lookErr = err
 		if err == nil && id != "" && id != t.container {
 			rep, repErr := membership.ReadReport(t.checkout(), t.session)
 			if repErr != nil && !errors.Is(repErr, os.ErrNotExist) {
@@ -445,6 +453,11 @@ func (x *Hot) relaunch(ctx context.Context, t *target, team, seat string) term.E
 			}
 		}
 		x.Sleep(x.Waits.Poll)
+	}
+	if lookErr != nil {
+		x.mark(markFailed, "session: whether it relaunched could not be read within "+seconds(x.Waits.Relaunch)+": "+lookErr.Error()+
+			". The request stays, so it relaunches at its next idle moment; run ccy-teams session list to see it.")
+		return term.ExitFailure
 	}
 	x.mark(markFailed, "session: not relaunched within "+seconds(x.Waits.Relaunch)+". It holds seat "+seat+
 		" but cannot be woken by team messages yet. The request stays, so it relaunches at its next idle moment; "+

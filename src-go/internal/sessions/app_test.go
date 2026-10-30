@@ -10,6 +10,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/compactfloor"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ttyecho"
 )
 
@@ -296,5 +297,16 @@ func TestStdoutIsFedByOutAndStderrByTheTerm(t *testing.T) {
 	h.app.failErr(errBoom)
 	if h.stdout() != "payload\n" || h.stderr() != "status 1\nERROR: broke\nERROR: boom\n" {
 		t.Fatalf("stdout %q stderr %q", h.stdout(), h.stderr())
+	}
+}
+
+// A failure reported where it happened is not printed again; any other is printed.
+func TestFailedPrintsOnlyAnUnreportedError(t *testing.T) {
+	h := newHarness(t)
+	if code := h.app.failed(errReported); code != term.ExitFailure || h.stderr() != "" {
+		t.Fatalf("reported: exit %d stderr %q", code, h.stderr())
+	}
+	if code := h.app.failed(errBoom); code != term.ExitFailure || h.stderr() != "ERROR: boom\n" {
+		t.Fatalf("unreported: exit %d stderr %q", code, h.stderr())
 	}
 }

@@ -80,7 +80,7 @@ func (a *App) verifyRestore(ctx context.Context, args []string) term.ExitCode {
 	}
 	states, err := a.settledStates(ctx, store, wait)
 	if err != nil {
-		return term.ExitFailure
+		return a.failed(err)
 	}
 	a.out(strings.Join(states, "\n") + "\n")
 	if !allOK(states) {

@@ -264,7 +264,12 @@ func (x *Hot) waitTold(ctx context.Context, t *target, team, handle, role string
 			x.step(markDone, stepSession, fmt.Sprintf(toldIs+" (%.1f s)", roleWords(team, role), x.elapsed(start)))
 			return term.ExitOK
 		}
-		if x.Now().Sub(start) >= x.Waits.Apply || x.ended(ctx, t) {
+		ended, endedErr := x.ended(ctx, t)
+		if endedErr != nil {
+			x.mark(markFailed, "session: whether it still runs could not be read: "+endedErr.Error())
+			return term.ExitFailure
+		}
+		if x.Now().Sub(start) >= x.Waits.Apply || ended {
 			if err != nil && !errors.Is(err, os.ErrNotExist) {
 				x.mark(markFailed, "session: not told within "+seconds(x.Waits.Apply)+" that it is "+roleWords(team, role)+
 					": the session's report could not be read: "+err.Error()+"; fix or remove that file, then run the same command again")

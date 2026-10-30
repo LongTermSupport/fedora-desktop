@@ -45,13 +45,13 @@ func (l *Lister) Containers(ctx context.Context) ([]string, []string, error) {
 	if err := l.preflight(); err != nil {
 		return nil, nil, err
 	}
-	res, err := l.Sudo.Capture(ctx, "lxc-ls", "-1")
-	all, err := namesOf(res, err)
+	res, lsErr := l.Sudo.Capture(ctx, "lxc-ls", "-1")
+	all, err := namesOf(res, lsErr)
 	if err != nil {
 		return nil, nil, err
 	}
-	res, err = l.Sudo.Capture(ctx, "lxc-ls", "-1", "--running")
-	running, err := namesOf(res, err)
+	res, lsErr = l.Sudo.Capture(ctx, "lxc-ls", "-1", "--running")
+	running, err := namesOf(res, lsErr)
 	if err != nil {
 		return nil, nil, err
 	}

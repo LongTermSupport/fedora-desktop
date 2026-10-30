@@ -816,6 +816,33 @@ func TestTheActiveAccountIsPutBack(t *testing.T) {
 	}
 }
 
+// E26: a status read that fails at the end is said, with gh's failure, and gh is switched back.
+func TestAnUnreadableStatusAtTheEndIsSaidAndSwitchedBack(t *testing.T) {
+	w := newWorld(t)
+	w.config("oss:bob")
+	w.logIn("alice")
+	w.active = "alice"
+	w.loginAs = "bob"
+	if code := w.run("--setup-all"); code != term.ExitOK {
+		t.Fatalf("exit %d\n%s", code, w.stderr.String())
+	}
+	last := w.statusCalls
+
+	w = newWorld(t)
+	w.config("oss:bob")
+	w.logIn("alice")
+	w.active = "alice"
+	w.loginAs = "bob"
+	w.statusFailAt = last
+	if code := w.run("--setup-all"); code != term.ExitOK {
+		t.Fatalf("exit %d\n%s", code, w.stderr.String())
+	}
+	w.mustContain("stderr", "Could not read which account gh has active (gh auth status failed: gh exited 1: fatal), so it is switched back to alice anyway")
+	if w.active != "alice" {
+		t.Errorf("active %q", w.active)
+	}
+}
+
 func TestARestoreThatFailsFailsTheRun(t *testing.T) {
 	w := newWorld(t)
 	w.config("oss:bob")

@@ -43,7 +43,7 @@ func (a *App) runRestore(ctx context.Context, args []string) term.ExitCode {
 		return a.usageError(problem)
 	}
 	if err := a.restoreSessions(ctx, dryRun); err != nil {
-		return term.ExitFailure
+		return a.failed(err)
 	}
 	return term.ExitOK
 }

@@ -109,5 +109,5 @@ func TestAJoinedLxcMemberWithoutSudoIsNotReached(t *testing.T) {
 	if got := m.run("alpha", "--yes"); got != term.ExitFailure {
 		t.Fatalf("exit %d", got)
 	}
-	m.errHas(t, "proj.box+role.lxc: not shut down: lxc-ls needs sudo, which is not ready")
+	m.errHas(t, "proj.box+role.lxc: not shut down: lxc-ls needs sudo: sudo is not ready: no terminal")
 }

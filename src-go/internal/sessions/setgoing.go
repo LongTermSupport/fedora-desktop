@@ -148,7 +148,7 @@ func (a *App) setGoing(ctx context.Context, args []string) term.ExitCode {
 		return term.ExitFailure
 	}
 	if err = g.loop(ctx, work); err != nil {
-		return term.ExitFailure
+		return a.failed(err)
 	}
 	return g.verdict()
 }
@@ -371,15 +371,10 @@ func (g *goingRun) leave(name string, expect restore.Going, reason, why string) 
 // as part of it.
 func (a *App) typeInto(ctx context.Context, name, text string) error {
 	if err := a.Tmux.SendKeys(ctx, name, text); err != nil {
-		a.failErr(err)
 		return err
 	}
 	a.Pause(a.cfg.SubmitDelay, nil)
-	if err := a.Tmux.SendEnter(ctx, name); err != nil {
-		a.failErr(err)
-		return err
-	}
-	return nil
+	return a.Tmux.SendEnter(ctx, name)
 }
 
 // lookAt is what the session's pane shows.
@@ -484,6 +479,7 @@ func (g *goingRun) setOne(ctx context.Context, name string, live bool, attached 
 	// Taken before typing, so whatever the input writes to the transcript is at or after it.
 	at := g.app.Now()
 	if err = g.app.typeInto(ctx, name, text); err != nil {
+		g.app.failErr(err)
 		return g.leaveAlone(name, restore.GoingPending, "send-failed")
 	}
 	g.app.sayf("set %s going: %s (context %d tokens, compact floor %s, supervised: %s).\n",
@@ -619,6 +615,7 @@ func (g *goingRun) continueAfterCompaction(ctx context.Context, name string, liv
 func (g *goingRun) typeContinue(ctx context.Context, e restore.Entry) error {
 	at := g.app.Now()
 	if err := g.app.typeInto(ctx, e.Name, setGoingContinue); err != nil {
+		g.app.failErr(err)
 		return g.leaveAlone(e.Name, restore.GoingCompacting, "send-failed-after-compaction")
 	}
 	g.app.sayf("set %s going after its compaction: continue.\n", e.Name)
