@@ -65,7 +65,8 @@ TIMELINE_LIMIT = 50
 #: A limited timeline's gap is read forward with `/messages` (fixture 072).
 GAP_FILTER = {"types": [protocol.EVENT_MESSAGE]}
 GAP_PAGE_LIMIT = 100
-#: A gap longer than this many pages is a misbehaving server, not a backlog: exit 7.
+#: A gap longer than this many pages is read from its newest end instead, within the same
+#: bound, and the rest is dropped as `gap`.
 GAP_MAX_PAGES = 20
 #: `history` reads the room backwards in pages of this many messages, at most this many
 #: pages: the newest 5000 room messages bound one team's scan (§13).
@@ -309,6 +310,8 @@ class Syncer:
         #: True from joining the questions room until the sync that holds the join: that
         #: sync's events before the join are the room's history, never processed.
         self._fresh_questions = False
+        #: Messages a gap past `GAP_MAX_PAGES` left unread, counted into the next batch.
+        self._gap_drops = 0
 
     def _say(self, text: str) -> None:
         self._log(f"team {self.member.team}: {text}")
@@ -731,7 +734,33 @@ class Syncer:
             if not chunk or not isinstance(end, str) or end == cursor:
                 return found
             cursor = end
-        raise matrix.Unreachable("GET /messages", detail=f"the gap runs past {GAP_MAX_PAGES} pages")
+        return self._newest_of_gap(room_id, since, prev_batch, found)
+
+    def _newest_of_gap(self, room_id: str, since: str, prev_batch: object, oldest: list) -> list:
+        """A gap past `GAP_MAX_PAGES` (a seat whose sync position is days old): its newest
+        messages, read backwards from `prev_batch` within the same bound, oldest first. The
+        older ones read forward and not among them are counted as `gap` drops, so the
+        session is told, and the token moves on: refusing the batch would fail it for ever."""
+        found: list = []
+        cursor = str(prev_batch)
+        for _ in range(GAP_MAX_PAGES):
+            page = self.client.messages(room_id, from_token=cursor, to_token=since,
+                                        direction="b", limit=GAP_PAGE_LIMIT, filter=GAP_FILTER)
+            chunk = page.get("chunk")
+            if not isinstance(chunk, list):
+                raise matrix.Unreachable("GET /messages", detail="the answer has no chunk list")
+            found.extend(chunk)
+            end = page.get("end")
+            if not chunk or not isinstance(end, str) or end == cursor:
+                break
+            cursor = end
+        kept = {e.get("event_id") for e in found if isinstance(e, dict)}
+        skipped = sum(1 for e in oldest if not isinstance(e, dict) or e.get("event_id") not in kept)
+        self._gap_drops += skipped
+        self._say(f"the gap since the last sync runs past {GAP_MAX_PAGES} pages: its newest "
+                  f"{len(found)} messages are read, at least {skipped} older ones are not "
+                  "(pingbus history shows the room)")
+        return found[::-1]
 
     def _read_room_state(self, events: Sequence[object]) -> None:
         """Memberships and statuses, saved to `room.json` when either changed. §8: a status
@@ -777,6 +806,9 @@ class Syncer:
         asked: list[dict] = []
         answers: list[protocol.Ping] = []
         drops: collections.Counter[str] = collections.Counter()
+        if self._gap_drops:
+            drops["gap"] += self._gap_drops
+            self._gap_drops = 0
         for room, event in [(protocol.ROOM_MAIN, e) for e in events] + [(protocol.PURPOSE_QUESTIONS, e) for e in questions]:
             outcome = protocol.validate_event(event, ctx, member.user_id, seen, human_text=member.human_text,
                                               room=room)

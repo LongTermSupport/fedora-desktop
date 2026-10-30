@@ -649,7 +649,13 @@ member's own join on, never its history; a limited timeline is gap-filled as the
 
 **Drop reason codes** (closed set): `version`, `schema`, `size`, `edit`, `sender`, `role`,
 `target`, `verb`, `ref`, `allowlist`, `excluded`, `re`, `body`, `stale`, `rate`, `forge-rate`, `unresolved`,
-`provenance`.
+`provenance`, `gap`.
+
+**A gap past its bound.** A limited timeline's gap is read forward with `/messages`, at most 20
+pages of 100. A longer one (a seat whose sync position is days old) is read instead from its
+newest end, backwards from `prev_batch` within the same bound; the messages read forward and not
+among those are dropped as `gap`, whoever they named, with one watcher line, and the token moves
+on. `history` still shows them.
 
 **Send-only refusals**: `secret` (§7), `no-room` (§8.1: the team has no reports or questions
 room yet). Each refuses a send and never names a receive drop: text already in the room is in
