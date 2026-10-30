@@ -41,6 +41,13 @@
 //     run at once, since every later removal and every store load fails the same way. The run
 //     names the cause and the repair (play-podman.yml, as root) once, and exits 1. A store that
 //     cannot be listed for that cause names it too. Any other failed removal is P6's.
+//   - P6b. Every removal of this package (prune, old-range remove, replaced, stale) goes through
+//     one path, removeItem. A failed removal is asked of podman again (`exists`, a tag by its
+//     name): gone, an earlier removal of the run took it (podman lists an image once per tag,
+//     so a second round of its tags meets an image its last tag already took; an untagged
+//     parent goes with the image built on it), which is done, said "removed with an earlier
+//     item" and logged; still there, or podman cannot say, the failure stands. podman's error
+//     text never decides absence.
 //   - P7. With --yes the run looks again after each pass, since a removed image can leave its
 //     parent dangling, until a pass removes nothing; the passes are bounded, and a run that
 //     still finds work at the bound fails.
@@ -103,10 +110,7 @@
 //     in the plan's order (forced only for buildah's container), each logged as P6 once it
 //     went; a refusal is named and the run fails, P6a stops it at once. A dry run without --yes.
 //     An item podman does not have (its `exists` asked first) is already gone: named, not
-//     logged, no failure. A removal that fails is asked of podman again: gone, it went with an
-//     earlier item of the run (an untagged parent with the image built on it), named so and
-//     logged; still there, or podman cannot say, the failure stands. podman's error text never
-//     decides absence.
+//     logged, no failure. A removal that fails is P6b's.
 package containerimages
 
 import (
@@ -638,27 +642,69 @@ func (r *run) act(ctx context.Context, act action) error {
 		r.freed += act.size
 		return nil
 	}
-	if !r.remove(ctx, act) {
+	earlier, ok := r.remove(ctx, act)
+	if !ok {
 		return nil
 	}
 	r.removed++
 	r.freed += act.size
 	verb := "removed " + act.kind + " " + act.name + size
-	if act.kind == kindTag && act.size == 0 {
+	switch {
+	case earlier:
+		verb = withEarlier + act.kind + " " + act.name
+	case act.kind == kindTag && act.size == 0:
 		verb = "untagged " + act.name + ": it keeps its other names"
 	}
 	r.p.Print(r.Env.Stdout, verb+": "+act.why+"\n")
 	return r.record(act)
 }
 
-// remove is one removal; a failed one is noted for the end of the run, by name.
-func (r *run) remove(ctx context.Context, act action) bool {
+// withEarlier is what a run says of an item an earlier removal of the run took with it (P6b).
+const withEarlier = "removed with an earlier item: "
+
+// removeItem is P6b, the one way this package removes anything: podman's own removal, forced
+// only for a container another tool made. After a failed one podman is asked whether it still
+// has the item (engine.StoreHas; a tag by its name): gone, an earlier removal took it, which is
+// done (earlier is true); still there, or podman cannot say, the failure stands. podman's error
+// text never decides absence. P6a's refusal is returned as it is, and so is a failure under an
+// engine that cannot be asked.
+func (r *run) removeItem(ctx context.Context, kind, key string, external bool) (bool, error) {
 	var err error
-	if act.kind == kindCtr {
-		err = r.eng.RemoveExternalContainer(ctx, act.ref)
-	} else {
-		err = r.eng.RemoveImage(ctx, act.ref)
+	switch {
+	case kind == kindCtr && external:
+		err = r.eng.RemoveExternalContainer(ctx, key)
+	case kind == kindCtr:
+		err = r.eng.RemoveContainer(ctx, key)
+	case kind == kindImage || kind == kindTag:
+		err = r.eng.RemoveImage(ctx, key)
+	case kind == kindVolume:
+		err = r.eng.RemoveVolume(ctx, key)
+	default:
+		return false, fmt.Errorf("a %s %s is not podman's to remove", kind, key)
 	}
+	if err == nil || deniedInTempdirs(err) {
+		return false, err
+	}
+	storeKind := kind
+	if kind == kindTag {
+		storeKind = engine.KindImage
+	}
+	there, askErr := r.eng.StoreHas(ctx, storeKind, key)
+	switch {
+	case errors.Is(askErr, engine.ErrPodmanOnly):
+		return false, err
+	case askErr != nil:
+		return false, errors.Join(err, askErr)
+	case there:
+		return false, err
+	}
+	return true, nil
+}
+
+// remove is one removal of the prune; a failed one is noted for the end of the run, by name.
+// It is whether the item went with an earlier one, and whether it is gone.
+func (r *run) remove(ctx context.Context, act action) (bool, bool) {
+	earlier, err := r.removeItem(ctx, act.kind, act.ref, act.kind == kindCtr)
 	switch {
 	case err != nil && deniedInTempdirs(err):
 		r.storeDenied = true
@@ -667,7 +713,7 @@ func (r *run) remove(ctx context.Context, act action) bool {
 	case err != nil:
 		r.failed = append(r.failed, "could not remove "+act.kind+" "+act.name+": "+err.Error())
 	}
-	return err == nil
+	return earlier, err == nil
 }
 
 // storeCause is P6a's cause and its repair, as the run reports them.

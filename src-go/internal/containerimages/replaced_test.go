@@ -85,6 +85,7 @@ func (s *shelf) script() {
 		}
 		return execx.Result{Stdout: []byte("Deleted: " + c.Args[len(c.Args)-1] + "\n")}, nil
 	})
+	s.fake.On([]string{e, "image", "exists"}, execx.Result{})
 }
 
 func (s *shelf) run(args ...string) term.ExitCode {
@@ -265,6 +266,23 @@ func TestARemovalTheEngineRefusesIsReportedAndNotFatal(t *testing.T) {
 	}
 	if s.logText() != "" {
 		t.Fatalf("a refused removal was logged: %q", s.logText())
+	}
+}
+
+// P6b: a removal that fails on an image podman no longer has is done, said and logged so.
+func TestARemovalOfAnImageAlreadyGoneIsDone(t *testing.T) {
+	s := newShelf(t)
+	s.refuse[id("a")] = "Error: " + id("a") + ": image not known\n"
+	before := s.record("localhost/claude-yolo:latest " + id("a") + "\n")
+	s.tags = "localhost/claude-yolo:latest sha256:" + id("b") + "\n"
+	s.script()
+	s.fake.On([]string{"podman", "image", "exists", id("a")}, execx.Result{ExitCode: 1})
+	if code := s.run("replaced", "claude-yolo", before); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, s.err.String())
+	}
+	if !strings.Contains(s.err.String(), "removed with an earlier item image aaaaaaaaaaaa") ||
+		!strings.Contains(s.logText(), "\timage\taaaaaaaaaaaa\t"+id("a")+"\t") {
+		t.Fatalf("stderr %s; log %q", s.err.String(), s.logText())
 	}
 }
 

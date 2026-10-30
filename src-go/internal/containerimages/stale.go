@@ -254,11 +254,16 @@ func (r *staleRun) logAndRemove(ctx context.Context, ownLock string) term.ExitCo
 			r.say("keep " + act.kind + " " + act.name + sizeNote(act.size) + ": another ccy image build is running (" + other + " is held)")
 			continue
 		}
-		if err := r.eng.RemoveImage(ctx, act.ref); err != nil {
+		earlier, err := r.removeItem(ctx, act.kind, act.ref, false)
+		if err != nil {
 			r.failed = append(r.failed, "could not remove "+act.kind+" "+act.name+": "+err.Error())
 			continue
 		}
-		r.say("removed " + act.kind + " " + act.name + sizeNote(act.size) + ": " + act.why)
+		said := "removed "
+		if earlier {
+			said = withEarlier
+		}
+		r.say(said + act.kind + " " + act.name + sizeNote(act.size) + ": " + act.why)
 		if err := r.record(act); err != nil {
 			return r.finish(r.fail(err))
 		}

@@ -59,20 +59,6 @@ func stepSafe(s PlanStep, pv podmanView, removing map[string]bool) error {
 	return nil
 }
 
-// removeStep is one of podman's own removals: unforced, but for a container another tool made.
-func removeStep(ctx context.Context, eng engine.Engine, s PlanStep) error {
-	switch {
-	case s.Kind == kindCtr && s.External:
-		return eng.RemoveExternalContainer(ctx, s.Key)
-	case s.Kind == kindCtr:
-		return eng.RemoveContainer(ctx, s.Key)
-	case s.Kind == kindImage:
-		return eng.RemoveImage(ctx, s.Key)
-	default:
-		return eng.RemoveVolume(ctx, s.Key)
-	}
-}
-
 // removeOld is `old-range remove --plan FILE [--yes]` (O15): as the plan's user, podman removes
 // each thing the plan removes, in its order, once a fresh look finds it still safe; each
 // removal is logged once it went. A dry run without --yes.
@@ -159,19 +145,12 @@ func (r *run) sayLeft(p Plan) {
 	}
 }
 
-// takenEarlier is O15 after a failed removal: podman, asked, no longer has the item, so an
-// earlier removal of this run took it with it (an untagged parent goes with the image built on
-// it). Never podman's error text: podman is asked.
-func (r *run) takenEarlier(ctx context.Context, s PlanStep) (bool, error) {
-	there, err := r.eng.StoreHas(ctx, s.Kind, s.Key)
-	return err == nil && !there, err
-}
-
-// removeAll removes each step: a refusal is named and the rest still go; P6a's stops the run. A
-// failed removal of what podman no longer has is done, logged as any other.
+// removeAll removes each step through removeItem (P6b): a refusal is named and the rest still
+// go; P6a's stops the run. An item an earlier removal took is done, logged as any other (an
+// untagged parent goes with the image built on it).
 func (r *run) removeAll(ctx context.Context, p Plan) term.ExitCode {
 	for _, s := range p.Remove {
-		err := removeStep(ctx, r.eng, s)
+		earlier, err := r.removeItem(ctx, s.Kind, s.Key, s.External)
 		said := "removed "
 		switch {
 		case err != nil && deniedInTempdirs(err):
@@ -179,12 +158,10 @@ func (r *run) removeAll(ctx context.Context, p Plan) term.ExitCode {
 				"; this run removes nothing more. podman said: "+err.Error())
 			return r.finish(term.ExitFailure)
 		case err != nil:
-			taken, askErr := r.takenEarlier(ctx, s)
-			if !taken {
-				r.failed = append(r.failed, "could not remove "+s.Kind+" "+s.Name+": "+errors.Join(err, askErr).Error())
-				continue
-			}
-			said = "removed with an earlier item: "
+			r.failed = append(r.failed, "could not remove "+s.Kind+" "+s.Name+": "+err.Error())
+			continue
+		case earlier:
+			said = withEarlier
 		}
 		r.p.Print(r.Env.Stdout, said+s.Kind+" "+s.Name+": "+s.Why+"\n")
 		if err := r.record(action{kind: s.Kind, name: s.Name, id: s.Key, why: removeWhy + s.Why}); err != nil {

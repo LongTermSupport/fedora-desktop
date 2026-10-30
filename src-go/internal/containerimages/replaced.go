@@ -205,11 +205,16 @@ func (r *run) removeReplaced(ctx context.Context, repo string, gone []recorded) 
 		}
 	}()
 	for _, rec := range unused {
-		if err := r.eng.RemoveImage(ctx, rec.id); err != nil {
+		earlier, err := r.removeItem(ctx, kindImage, rec.id, false)
+		if err != nil {
 			r.say("could not remove", rec, err.Error()+"; the daily prune (container-images-prune.timer) removes it once nothing holds it")
 			continue
 		}
-		r.say("removed", rec, "replaced by this build; no tag names it and no container uses it")
+		verb := "removed"
+		if earlier {
+			verb = "removed with an earlier item"
+		}
+		r.say(verb, rec, "replaced by this build; no tag names it and no container uses it")
 		if err := r.record(action{kind: kindImage, name: short(rec.id), id: rec.id, why: "replaced by a build of " + repo}); err != nil {
 			return err
 		}

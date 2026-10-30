@@ -233,6 +233,16 @@ the plans cite kept.
     file, as done, so a rerun of the same decisions plans nothing and passes. A reown podman
     lacks, a leave that is no item, and a remove still present stay refused. Report:
     `subagent-reports/261030-old-range-remove-gone.md`
+  - [x] ✅ **4.7f** (FIX, host run at c832a1b2c): `prune --yes` exited 1 on an image podman
+    lists once per tag (two tags): the second round of its tags met an image its last tag had
+    taken ("image not known"), so `container-images-prune.service` failed. Now every removal of
+    the package (prune, old-range remove, replaced, stale) goes through one path, `removeItem`
+    (P6b): after a failed removal podman's `exists` is asked (a tag by its name); gone is done,
+    "removed with an earlier item" and logged; still there, the failure stands. And
+    `play-podman.yml` runs the first prune and its repair before the timer is started: a due
+    timer fired the service at once, the play's start returned without waiting, and the
+    repair's busy guard failed on the running prune. Report:
+    `subagent-reports/261030-prune-gone-and-timer-race.md`
 
 - [x] ✅ **Task 4.8**: `tasks/podman-store-ownership-probe.yml`, imported by play-podman.yml after
   the repair and before the timer: as root, `find -xdev -ignore_readdir_race -quit` looks in the

@@ -201,6 +201,21 @@ func TestStaleFailsOnAListItCannotGetOrARefusedRemoval(t *testing.T) {
 	}
 }
 
+// P6b: a removal that fails on a tag podman no longer has is done, said and logged so.
+func TestAStaleTagAlreadyGoneIsDone(t *testing.T) {
+	w := staleWorld(t)
+	w.script()
+	w.fake.On([]string{"podman", "image", "rm", "localhost/claude-yolo:project-a"}, execx.Result{ExitCode: 1, Stderr: []byte("Error: image not known\n")})
+	w.fake.On([]string{"podman", "image", "exists", "localhost/claude-yolo:project-a"}, execx.Result{ExitCode: 1})
+	if code := w.run("stale", "--yes", installed); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, w.err.String())
+	}
+	if !strings.Contains(w.err.String(), "removed with an earlier item: tag localhost/claude-yolo:project-a") ||
+		!strings.Contains(w.logText(), "\ttag\tlocalhost/claude-yolo:project-a\t") {
+		t.Fatalf("stderr %s; log %s", w.err.String(), w.logText())
+	}
+}
+
 // The rule reads podman's store only; under docker it says so and removes nothing.
 func TestStaleUnderDockerSaysSoAndRemovesNothing(t *testing.T) {
 	w := newWorld(t)

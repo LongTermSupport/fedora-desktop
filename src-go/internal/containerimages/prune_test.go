@@ -82,6 +82,8 @@ type world struct {
 	scripted bool
 	// sticky is a podman whose removals report success and leave the thing there.
 	sticky bool
+	// gone is each image id, name and container id podman no longer has.
+	gone map[string]bool
 }
 
 func newWorld(t *testing.T) *world {
@@ -130,6 +132,7 @@ func (w *world) script() {
 	}
 	w.scripted = true
 	gone := map[string]bool{}
+	w.gone = gone
 	listings := 0
 	w.fake.OnFunc([]string{"podman", "images", "--filter", "dangling=true", "--format", "json"}, func(execx.Cmd) (execx.Result, error) {
 		i := min(listings, len(w.dangling)-1)
@@ -175,6 +178,14 @@ func (w *world) script() {
 	}
 	w.fake.OnFunc([]string{"podman", "image", "rm"}, removal)
 	w.fake.OnFunc([]string{"podman", "rm", "--force"}, removal)
+	exists := func(c execx.Cmd) (execx.Result, error) {
+		if gone[c.Args[len(c.Args)-1]] {
+			return execx.Result{ExitCode: 1}, nil
+		}
+		return execx.Result{}, nil
+	}
+	w.fake.OnFunc([]string{"podman", "image", "exists"}, exists)
+	w.fake.OnFunc([]string{"podman", "container", "exists"}, exists)
 }
 
 func (w *world) run(args ...string) term.ExitCode {
@@ -501,6 +512,43 @@ func TestAFailedRemovalIsNamedNotLoggedAndTheRunFails(t *testing.T) {
 	log := w.logText()
 	if strings.Contains(log, id("a")) || !strings.Contains(log, id("e")) {
 		t.Fatalf("log: %s", log)
+	}
+	if !w.fake.Called("podman image exists " + id("a")) {
+		t.Fatal("podman was not asked whether it still has the image a failed removal left")
+	}
+}
+
+// P6b: podman lists an image once per tag, so an image named composer:latest and composer:2
+// is planned twice. The first :latest untags it, :2 takes the image, and the second round's
+// removals fail on what podman no longer has: done, said and logged so, and the run passes.
+func TestATagAnEarlierRemovalTookIsDone(t *testing.T) {
+	const latest, two = "docker.io/library/composer:latest", "docker.io/library/composer:2"
+	w := newWorld(t)
+	composer := img{ID: id("c"), Names: []string{latest, two}, Size: 9, Created: ago(days(400))}
+	w.images = []img{composer, composer}
+	w.script()
+	w.fake.OnFunc([]string{"podman", "image", "rm"}, func(c execx.Cmd) (execx.Result, error) {
+		ref := c.Args[len(c.Args)-1]
+		switch {
+		case w.gone[ref]:
+			return execx.Result{ExitCode: 1, Stderr: []byte("Error: " + ref + ": image not known\n")}, nil
+		case ref == two:
+			w.gone[latest], w.gone[two], w.gone[id("c")] = true, true, true
+		default:
+			w.gone[ref] = true
+		}
+		return execx.Result{}, nil
+	})
+	if code := w.run("prune", "--yes"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, w.err.String())
+	}
+	for _, say := range []string{"removed with an earlier item: tag " + latest, "removed with an earlier item: tag " + two} {
+		if !strings.Contains(w.out.String(), say) {
+			t.Errorf("output does not say %q:\n%s", say, w.out.String())
+		}
+	}
+	if n := strings.Count(w.logText(), "\ttag\t"); n != 4 {
+		t.Errorf("log holds %d tag lines, want 4:\n%s", n, w.logText())
 	}
 }
 
