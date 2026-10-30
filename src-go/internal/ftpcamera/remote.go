@@ -62,7 +62,7 @@ func (c *cli) mountPath(ctx context.Context, remote string) (string, error) {
 	name, path := splitRemote(remote)
 	found, err := c.findMount(ctx, name)
 	if err != nil {
-		return "", advise("could not list the rclone mounts: %v", err)
+		return "", &advice{text: "could not list the rclone mounts: " + err.Error(), cause: err}
 	}
 	target, source := found.target, found.source
 	if target == "" {
@@ -154,10 +154,17 @@ func (c *cli) push(ctx context.Context) error {
 	o.f("\n%sPush complete.%s\n", o.g, o.n)
 	o.f("%sLocal copy retained at:%s %s%s%s\n", o.y, o.n, o.c, c.upload, o.n)
 	o.f("%sVerify on the remote, then remove locally when ready.%s\n", o.y, o.n)
-	if mount, err := c.mountPath(ctx, remote); err == nil {
-		o.f("\n%sTo browse via mount without re-downloading:%s\n", o.b, o.n)
-		o.f("  rclone-cache-warm %s%s%s\n", o.c, mount, o.n)
+	mount, err := c.mountPath(ctx, remote)
+	if err != nil {
+		// No mount, or a findmnt that ran and refused, is no hint; a findmnt that could not run
+		// is a fault the person should see, though the push itself succeeded.
+		if cause := errors.Unwrap(err); cause != nil && !execx.ExitedNonZero(cause) {
+			c.err.f("WARNING: no mount hint: %v\n", err)
+		}
+		return nil
 	}
+	o.f("\n%sTo browse via mount without re-downloading:%s\n", o.b, o.n)
+	o.f("  rclone-cache-warm %s%s%s\n", o.c, mount, o.n)
 	return nil
 }
 

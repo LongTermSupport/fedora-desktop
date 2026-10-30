@@ -116,9 +116,10 @@ func (e *Engine) ListFooter(inv freeze.Inventory[record]) string {
 // not prompt for a password with no explanation.
 func (e *Engine) BeforeAct(ctx context.Context) error {
 	if err := e.Sudo.Ready(ctx, actWhy); err != nil {
-		return freeze.Die("sudo was refused, so nothing was frozen or thawed.\n" +
-			"  Nothing was changed. This is NOT 'nothing to do' — the question was\n" +
-			"  never asked.")
+		return freeze.Die("sudo was refused, so nothing was frozen or thawed.\n"+
+			"  (%v)\n"+
+			"  Nothing was changed. This is NOT 'nothing to do' — the question was\n"+
+			"  never asked.", err)
 	}
 	return nil
 }
@@ -144,9 +145,10 @@ func (e *Engine) Act(ctx context.Context, verb freeze.Verb, name string) (string
 // once, after this load. stdout is parsed; stderr only ever feeds an error's text.
 func (e *Engine) Load(ctx context.Context) (freeze.Inventory[record], error) {
 	if err := e.Sudo.Ready(ctx, readyWhy); err != nil {
-		return freeze.Inventory[record]{}, freeze.Die("sudo was refused, so no LXC state could be read.\n" +
-			"  Nothing was changed. This is NOT 'no containers found' — the question was\n" +
-			"  never asked, and reporting an empty machine here would be a guess.")
+		return freeze.Inventory[record]{}, freeze.Die("sudo was refused, so no LXC state could be read.\n"+
+			"  (%v)\n"+
+			"  Nothing was changed. This is NOT 'no containers found' — the question was\n"+
+			"  never asked, and reporting an empty machine here would be a guess.", err)
 	}
 	listed, err := e.Sudo.Capture(ctx, "lxc-ls", "-1")
 	if err != nil {

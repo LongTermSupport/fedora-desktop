@@ -1,11 +1,14 @@
 package hot
 
 import (
+	"errors"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -74,6 +77,42 @@ func TestMoveOfTheCoordinatorNeedsTheOptionBeforeAnythingChanges(t *testing.T) {
 	}
 	if code := r.run(t, "move", session, "beta", "alpha", "--coordinator=demote", "--yes"); code != term.ExitOK {
 		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+}
+
+// The coordinator pre-check that cannot read the old team stops the move with the cause, before
+// the add changes anything: an unread team is never taken as "not the coordinator".
+func TestMoveWhoseCoordinatorCheckCannotReadTheOldTeamChangesNothing(t *testing.T) {
+	cases := []struct {
+		name string
+		fail func(r *rig)
+		say  string
+	}{
+		{"systemctl cannot run", func(r *rig) {
+			r.Fake.OnFunc([]string{"systemctl", "is-active", "agent-bus-hs@beta.service"}, func(execx.Cmd) (execx.Result, error) {
+				return execx.Result{}, errors.New("no systemctl")
+			})
+		}, "✗ team beta: whether its homeserver is up could not be read, so whether seat 1 is its coordinator is unknown: "},
+		{"the seat list cannot be read", func(r *rig) {
+			r.CrashSeat(t, r.Checkout(), "beta", "9")
+		}, "✗ team beta: its seat lock could not be read, so whether seat 1 is its coordinator is unknown: agent-bus seat list in "},
+		{"the roster cannot be read", func(r *rig) {
+			r.OnErr(teamtest.SudoBus+"list beta", "no route", 2)
+		}, "✗ team beta: its members could not be read, so whether seat 1 is its coordinator is unknown: "},
+	}
+	for _, c := range cases {
+		r := newRig(t, membership.Seat{Team: "beta", Seat: "1"})
+		c.fail(r)
+		if code := r.run(t, "move", session, "beta", "alpha", "--yes"); code != term.ExitFailure {
+			t.Errorf("%s: exit %d:\n%s", c.name, code, r.ErrOut.String())
+			continue
+		}
+		if got := r.ErrOut.String(); !strings.Contains(got, c.say) || !strings.Contains(got, "nothing was changed.") {
+			t.Errorf("%s: stderr lacks %q:\n%s", c.name, c.say, got)
+		}
+		if r.desired(t).Generation != 1 {
+			t.Errorf("%s: the membership changed", c.name)
+		}
 	}
 }
 

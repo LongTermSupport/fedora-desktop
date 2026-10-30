@@ -38,7 +38,7 @@ func wantDrains(t *testing.T, f *execx.Fake, want ...bool) {
 // later moved the next screen's cursor. A screen after one the person left starts on no key they
 // typed before seeing it; a screen after an answer keeps them (ttyecho's type-ahead).
 func TestTheGumPromptAfterALeaveDrainsAndTheOneAfterAnAnswerDoesNot(t *testing.T) {
-	f := &execx.Fake{}
+	f := noTerminal()
 	f.On([]string{"gum", "confirm"}, execx.Result{ExitCode: 1}) // Esc, or No: gum confirm exits 1
 	f.On([]string{"gum", "choose"}, execx.Result{Stdout: []byte("a\n")})
 	ctx := context.Background()
@@ -56,7 +56,7 @@ func TestTheGumPromptAfterALeaveDrainsAndTheOneAfterAnAnswerDoesNot(t *testing.T
 }
 
 func TestACancelledInputDrainsTheNextPrompt(t *testing.T) {
-	f := &execx.Fake{}
+	f := noTerminal()
 	f.On([]string{"gum", "input"}, execx.Result{ExitCode: 130})
 	f.On([]string{"gum", "confirm"}, execx.Result{})
 	ctx := context.Background()
@@ -72,7 +72,7 @@ func TestACancelledInputDrainsTheNextPrompt(t *testing.T) {
 
 // A destructive flow drains every prompt, its first included, until it ends.
 func TestEveryPromptOfADestructiveFlowDrains(t *testing.T) {
-	f := &execx.Fake{}
+	f := noTerminal()
 	f.On([]string{"gum", "confirm"}, execx.Result{})
 	f.On([]string{"gum", "choose"}, execx.Result{Stdout: []byte("a\n")})
 	ctx := context.Background()
@@ -94,7 +94,7 @@ func TestEveryPromptOfADestructiveFlowDrains(t *testing.T) {
 // A Gum and a Picker of one command share a Drain: leaving a gum question drains the picker
 // drawn next, and leaving the picker the gum question after it.
 func TestASharedDrainCarriesALeaveAcrossGumAndThePicker(t *testing.T) {
-	f := &execx.Fake{}
+	f := noTerminal()
 	f.On([]string{"gum", "confirm"}, execx.Result{ExitCode: 1})
 	f.On([]string{"fzf"}, execx.Result{ExitCode: fzfInterrupted})
 	f.On([]string{"gum", "choose"}, execx.Result{Stdout: []byte("a\n")})
@@ -115,7 +115,7 @@ func TestASharedDrainCarriesALeaveAcrossGumAndThePicker(t *testing.T) {
 }
 
 func TestAPickerConfirmLeftOrAnsweredNoDrainsTheNextScreen(t *testing.T) {
-	f := &execx.Fake{}
+	f := noTerminal()
 	f.On([]string{"fzf"}, execx.Result{ExitCode: fzfInterrupted})
 	ctx := context.Background()
 	p := &Picker{Runner: f, Stderr: &bytes.Buffer{}, Plain: true}
@@ -136,7 +136,7 @@ func TestAPickerConfirmLeftOrAnsweredNoDrainsTheNextScreen(t *testing.T) {
 // Draining is the screen's own business: the flow's Destructive nests, and ends only with the
 // outermost.
 func TestDestructiveNests(t *testing.T) {
-	f := &execx.Fake{}
+	f := noTerminal()
 	f.On([]string{"gum", "confirm"}, execx.Result{})
 	ctx := context.Background()
 	g := newGum(f)

@@ -334,18 +334,20 @@
  },
  "lxc-sudo-needs-password-no-terminal": {
   "bugs": [
-   6
+   6,
+   30
   ],
-  "why": "bug 6: root is readied by sudo.Ready before each load and act batch: its own words replace the old authenticating lines",
+  "why": "bug 6: root is readied by sudo.Ready before each load and act batch: its own words replace the old authenticating lines; bug 30: the refusal carries sudo.Ready's error, the line after it",
   "streams": [
    "stderr"
   ]
  },
  "lxc-sudo-refused": {
   "bugs": [
-   6
+   6,
+   30
   ],
-  "why": "bug 6: root is readied by sudo.Ready before each load and act batch: its own words replace the old authenticating lines",
+  "why": "bug 6: root is readied by sudo.Ready before each load and act batch: its own words replace the old authenticating lines; bug 30: the refusal carries sudo.Ready's error, the line after it",
   "streams": [
    "stderr"
   ]

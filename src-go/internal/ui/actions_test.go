@@ -44,7 +44,7 @@ func fzfSays(f *execx.Fake, outs ...string) {
 }
 
 func TestEveryActionIsAVisibleRowOrMenuLineWithItsKeyBesideIt(t *testing.T) {
-	f := &execx.Fake{}
+	f := noTerminal()
 	p := &Picker{Runner: f, Plain: true}
 	fzfSays(f, "\nalpha\t0\n", "\nShut down alpha\t1\n")
 	got, err := p.Pick(context.Background(), testHead, teamsSpec())
@@ -88,7 +88,7 @@ func TestAKeyChoosesOnlyWhatTheScreenOrTheRowOffers(t *testing.T) {
 		{"\nHelp\t3\n", "help", "", false},
 	}
 	for _, c := range cases {
-		f := &execx.Fake{}
+		f := noTerminal()
 		fzfSays(f, c.out)
 		got, err := (&Picker{Runner: f}).Pick(context.Background(), testHead, teamsSpec())
 		no, isNo := errors.AsType[*NotOfferedError](err)
@@ -102,19 +102,19 @@ func TestAKeyChoosesOnlyWhatTheScreenOrTheRowOffers(t *testing.T) {
 }
 
 func TestLeavingARowMenuIsBackNotLeave(t *testing.T) {
-	f := &execx.Fake{}
+	f := noTerminal()
 	fzfSays(f, "\nbeta\t1\n", "\nBack to the list\n")
 	_, err := (&Picker{Runner: f}).Pick(context.Background(), testHead, teamsSpec())
 	if !errors.Is(err, ErrBack) || errors.Is(err, ErrLeave) {
 		t.Fatalf("got %v", err)
 	}
-	f = &execx.Fake{}
+	f = noTerminal()
 	fzfSays(f, "\nbeta\t1\n", "ctrl-x\nBack to the list\n")
 	got, err := (&Picker{Runner: f}).Pick(context.Background(), testHead, teamsSpec())
 	if err != nil || got.Action != "remove" || got.Row != "beta" {
 		t.Fatalf("a menu's own key chooses its line wherever the cursor is: %+v, %v", got, err)
 	}
-	f = &execx.Fake{}
+	f = noTerminal()
 	fzfSays(f, "\nbeta\t1\n", fzfFails)
 	if _, err := (&Picker{Runner: f}).Pick(context.Background(), testHead, teamsSpec()); err == nil || errors.Is(err, ErrBack) {
 		t.Fatalf("a failing menu is a failure: %v", err)
@@ -146,7 +146,7 @@ func TestActionsThatCannotBeShownAreRefused(t *testing.T) {
 }
 
 func TestActionRowsCanHaveHeadersOfTheirOwn(t *testing.T) {
-	f := &execx.Fake{}
+	f := noTerminal()
 	fzfSays(f, "\nExit\n")
 	_, err := (&Picker{Runner: f, Plain: true}).Pick(context.Background(), testHead, PickSpec{
 		Title: "t", Header: "base", Rows: []string{"a"}, Actions: []Action{{ID: "s", Label: "S", Key: "tab"}},
@@ -176,7 +176,7 @@ func TestKeyNameIsHowAPersonReadsTheKey(t *testing.T) {
 
 func TestAnAnswerThatIsNotInTheListIsAnError(t *testing.T) {
 	for _, out := range []string{"ctrl-e", "\nalpha\t9\n", "\nalpha\tx\n", "\nnot a row\n"} {
-		f := &execx.Fake{}
+		f := noTerminal()
 		fzfSays(f, out)
 		if _, err := (&Picker{Runner: f}).Pick(context.Background(), testHead, teamsSpec()); err == nil || errors.Is(err, ErrLeave) {
 			t.Errorf("%q: want an error, got %v", out, err)
@@ -185,7 +185,7 @@ func TestAnAnswerThatIsNotInTheListIsAnError(t *testing.T) {
 }
 
 func TestAPlainScreenActionNeedsNoMenus(t *testing.T) {
-	f := &execx.Fake{}
+	f := noTerminal()
 	fzfSays(f, "?\nr\t0\n")
 	got, err := (&Picker{Runner: f}).Pick(context.Background(), testHead, PickSpec{
 		Title: "t", Rows: []string{"r"}, Tags: []string{"row-r"}, Actions: []Action{{ID: "help", Label: "Help", Key: "?"}},

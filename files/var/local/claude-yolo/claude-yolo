@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.104.2"  # Container 2.79.16: 3.104.1's usage work on 3.103.2's image (pingbus gap fix). See docs/ccy-changelog.md.
+CCY_VERSION="3.104.3"  # Container 2.79.16: ccy --help names an engine that could not run. See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the

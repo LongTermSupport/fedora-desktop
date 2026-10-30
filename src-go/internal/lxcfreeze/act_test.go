@@ -314,8 +314,10 @@ func TestBeforeActReadiesSudoSoAnIdleMenuDoesNotPromptWithoutAWord(t *testing.T)
 func TestBeforeActRefusedSudoChangesNothingAndSaysSo(t *testing.T) {
 	f := actFake()
 	f.On([]string{"sudo", "-n", "-v"}, exit1("sudo: a password is required\n"))
+	f.On([]string{"sudo", "-n", "true"}, exit1("sudo: a password is required\n"))
 	err := newEngine(f).BeforeAct(context.Background())
 	want := "sudo was refused, so nothing was frozen or thawed.\n" +
+		"  (sudo is not ready: no terminal: no tty (sudo -n -v: sudo exited 1: sudo: a password is required; sudo -n true: sudo exited 1: sudo: a password is required))\n" +
 		"  Nothing was changed. This is NOT 'nothing to do' — the question was\n" +
 		"  never asked."
 	if msg := dieText(t, err); msg != want {

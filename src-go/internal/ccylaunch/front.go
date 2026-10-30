@@ -38,9 +38,10 @@
 //   - F7. A hand-over that cannot exec (the bash launcher missing, not executable) fails with
 //     exit 1, naming the path, the error and CCY_LEGACY; it never does nothing.
 //   - F8. `--help` or `-h` prints the bash launcher's help text (help.txt, held to the
-//     launcher's by a test), then asks the engine for the image (engine E10): absent, how to
-//     build it; present, claude --help from the image, or the engine's own words when that
-//     fails ("no output" when it said none). Exit 0, as the bash.
+//     launcher's by a test), then asks the engine for the image (engine E10): an engine that
+//     ran and said no, how to build it; one that could not run, that and its error; present,
+//     claude --help from the image, or the engine's own words when that fails ("no output" and
+//     the run's failure when it said none). Exit 0, as the bash.
 //   - F9. Output that could not be written is exit 1.
 //   - F10. `--list-tokens` as the only argument prints the token pool as the bash's list_tokens
 //     does (tokens.List), but in the front's own order and colour (D1 to D5); exit 1 for an
@@ -484,8 +485,12 @@ func (f Front) help(ctx context.Context, p *term.Printer, kind engine.Kind) {
 		err = eng.Inspect(ctx, imageName)
 	}
 	if err != nil {
-		p.Print(f.Stdout, helpRule+"Claude Code Help:\n"+helpRule+"\n"+
-			"Container image not built yet. Run 'ccy --rebuild' first to build the container,\n"+
+		p.Print(f.Stdout, helpRule+"Claude Code Help:\n"+helpRule+"\n")
+		if !execx.ExitedNonZero(err) {
+			p.Print(f.Stdout, "Could not ask "+string(kind)+" whether the image is built: "+err.Error()+"\n")
+			return
+		}
+		p.Print(f.Stdout, "Container image not built yet. Run 'ccy --rebuild' first to build the container,\n"+
 			"then run 'ccy --help' again to see Claude Code options.\n")
 		return
 	}
@@ -498,7 +503,7 @@ func (f Front) help(ctx context.Context, p *term.Printer, kind engine.Kind) {
 		return
 	}
 	if out == "" {
-		out = "no output"
+		out = "no output (" + err.Error() + ")"
 	}
 	p.Print(f.Stdout, "Note: the image exists, but 'claude --help' would not run inside it.\n  "+string(kind)+" said: "+out+"\n")
 }

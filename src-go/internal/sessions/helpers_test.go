@@ -62,6 +62,7 @@ func newHarness(t *testing.T) *harness {
 		t: t, fake: &execx.Fake{}, root: root, clock: time.Unix(1_000_000, 0),
 		signals: make(chan os.Signal, 1),
 	}
+	h.fake.On([]string{"tput", "cols"}, execx.Result{ExitCode: 1}) // no terminal: the common width
 	h.env = map[string]string{
 		"CCY_LIB": lib, "HOME": filepath.Join(root, "home"), "PWD": filepath.Join(root, "home", "proj"),
 		"CCY_STATE_DIR": filepath.Join(root, "state"), "CCY_BOOT_ID_FILE": filepath.Join(root, "boot_id"),

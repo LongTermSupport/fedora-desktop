@@ -46,7 +46,7 @@ func TestRankMatchesDropsNoSort(t *testing.T) {
 }
 
 func TestPickReturnsTheRowAndTreatsExitAsLeave(t *testing.T) {
-	f := &execx.Fake{}
+	f := noTerminal()
 	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("alpha   up\n")})
 	p := &Picker{Runner: f}
 	got, err := p.Pick(context.Background(), testHead, PickSpec{Title: "Agent teams", Header: "legend", Rows: []string{"alpha   up"}})
@@ -76,7 +76,7 @@ func TestPickReturnsTheRowAndTreatsExitAsLeave(t *testing.T) {
 }
 
 func TestConfirmInPickerDefaultsToExitUnlessAskedForYes(t *testing.T) {
-	f := &execx.Fake{}
+	f := noTerminal()
 	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("Yes, copy the password\n")})
 	p := &Picker{Runner: f}
 	yes, err := p.Confirm(context.Background(), Here("Teams", "Copy the password?"), "Put it on the clipboard.", "copy the password", true)
@@ -95,7 +95,7 @@ func TestConfirmInPickerDefaultsToExitUnlessAskedForYes(t *testing.T) {
 }
 
 func TestTaggedRowsCarryAHiddenTailThatComesBack(t *testing.T) {
-	f := &execx.Fake{}
+	f := noTerminal()
 	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("alpha   up\t1\n")})
 	p := &Picker{Runner: f}
 	got, err := p.Pick(context.Background(), testHead, PickSpec{
@@ -124,7 +124,7 @@ func TestTaggedRowsCarryAHiddenTailThatComesBack(t *testing.T) {
 
 func TestPickSurfacesAFzfThatFailedAndOneThatIsMissing(t *testing.T) {
 	spec := PickSpec{Title: "t", Rows: []string{"r"}}
-	f := &execx.Fake{}
+	f := noTerminal()
 	f.On([]string{"fzf"}, execx.Result{ExitCode: 1})
 	if _, err := (&Picker{Runner: f}).Pick(context.Background(), testHead, spec); !errors.Is(err, ErrLeave) {
 		t.Fatalf("fzf exit 1 (no match) leaves, got %v", err)
@@ -148,7 +148,7 @@ func TestPickSurfacesAFzfThatFailedAndOneThatIsMissing(t *testing.T) {
 }
 
 func TestUntaggedPicksPassNoDelimiter(t *testing.T) {
-	f := &execx.Fake{}
+	f := noTerminal()
 	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("r\n")})
 	if _, err := (&Picker{Runner: f}).Pick(context.Background(), testHead, PickSpec{Title: "t", Rows: []string{"r"}}); err != nil {
 		t.Fatal(err)
@@ -159,7 +159,7 @@ func TestUntaggedPicksPassNoDelimiter(t *testing.T) {
 }
 
 func TestRowHeadersFollowTheCursorAndTheExitRowKeepsTheBaseHeader(t *testing.T) {
-	f := &execx.Fake{}
+	f := noTerminal()
 	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("Exit\n")})
 	p := &Picker{Runner: f, Plain: true}
 	_, err := p.Pick(context.Background(), testHead, PickSpec{
@@ -187,7 +187,7 @@ func TestRowHeadersFollowTheCursorAndTheExitRowKeepsTheBaseHeader(t *testing.T) 
 }
 
 func TestRowHeadersTooLargeForOneArgumentAreRefusedNotTruncated(t *testing.T) {
-	p := &Picker{Runner: &execx.Fake{}}
+	p := &Picker{Runner: noTerminal()}
 	rows := make([]string, 200)
 	headers := make([]string, 200)
 	for i := range rows {
@@ -200,7 +200,7 @@ func TestRowHeadersTooLargeForOneArgumentAreRefusedNotTruncated(t *testing.T) {
 }
 
 func TestExitLabelNamesTheLastRow(t *testing.T) {
-	f := &execx.Fake{}
+	f := noTerminal()
 	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("Back to the list\n")})
 	p := &Picker{Runner: f}
 	_, err := p.Pick(context.Background(), testHead, PickSpec{Title: "t", Rows: []string{"a"}, ExitLabel: "Back to the list"})
@@ -220,7 +220,7 @@ func TestHeaderJoinsLegendAndContextDroppingEmpty(t *testing.T) {
 }
 
 func TestAPickThatMatchesNothingLeaves(t *testing.T) {
-	f := &execx.Fake{}
+	f := noTerminal()
 	f.On([]string{"fzf"}, execx.Result{ExitCode: 1})
 	p := &Picker{Runner: f}
 	if _, err := p.Pick(context.Background(), testHead, PickSpec{Title: "t", Rows: []string{"a/"}}); !errors.Is(err, ErrLeave) {

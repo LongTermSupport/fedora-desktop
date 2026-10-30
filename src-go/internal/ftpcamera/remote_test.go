@@ -168,6 +168,16 @@ func TestPush(t *testing.T) {
 		t.Errorf("no mount: no hint and no error:\n%s%s", k.out.String(), k.err.String())
 	}
 
+	k.fake.On([]string{"findmnt", "-n", "-o", "TARGET", "-t", "fuse.rclone"}, execx.Result{ExitCode: 4})
+	k.wantCode(k.run("--push"), term.ExitOK)
+	if strings.Contains(k.out.String()+k.err.String(), "rclone-cache-warm") || strings.Contains(k.err.String(), "WARNING") {
+		t.Errorf("a findmnt that ran and refused: no hint and no warning:\n%s%s", k.out.String(), k.err.String())
+	}
+
+	k.fake.OnError([]string{"findmnt"}, &execx.NotInstalledError{Name: "findmnt"})
+	k.wantCode(k.run("--push"), term.ExitOK)
+	k.wantErr("WARNING: no mount hint: could not list the rclone mounts: " + (&execx.NotInstalledError{Name: "findmnt"}).Error() + "\n")
+
 	k.fake.On([]string{"rclone", "copy"}, execx.Result{ExitCode: 7})
 	k.wantCode(k.run("--push"), term.ExitFailure)
 	k.wantErr("ERROR: rclone copy failed: rclone exited 7\n")

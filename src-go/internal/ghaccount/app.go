@@ -92,8 +92,6 @@ type run struct {
 	startActive       string
 	executable        string
 	executableChecked bool
-	// passOptional: --check goes on without a passphrase, so its failure is a warning (E12).
-	passOptional bool
 }
 
 const (
@@ -406,13 +404,36 @@ func (r *run) takeGivenPassphrase() error {
 	return nil
 }
 
-// loadPassphrase is the passphrase from run.bash, else the vault's; it reports its failure.
+// loadPassphrase is the passphrase from run.bash, else the vault's. A vault that could not be
+// decrypted is a *decryptError, not yet printed: the caller says it, as a failure or (--check)
+// a warning. Every other failure is already reported.
 func (r *run) loadPassphrase(ctx context.Context) error {
 	if r.hasPass {
 		return nil
 	}
 	return r.decryptPassphrase(ctx)
 }
+
+// needPassphrase is loadPassphrase for a mode that cannot go on without it: a decrypt failure is
+// reported as the run's failure.
+func (r *run) needPassphrase(ctx context.Context) error {
+	err := r.loadPassphrase(ctx)
+	if failed, ok := errors.AsType[*decryptError](err); ok {
+		r.badf(r.err, "%s", failed.Error())
+		r.advicef(r.err, decryptAdvice)
+		return errReported
+	}
+	return err
+}
+
+// decryptError is why github_ssh_passphrase could not be read from the vault.
+type decryptError struct{ why string }
+
+func (e *decryptError) Error() string {
+	return "Failed to decrypt github_ssh_passphrase from the vault (" + e.why + ")"
+}
+
+const decryptAdvice = "Check the vault password file ansible.cfg names, or run run.bash first to set up the vault"
 
 func (r *run) decryptPassphrase(ctx context.Context) error {
 	cmd := execx.Cmd{
@@ -439,27 +460,17 @@ func (r *run) decryptPassphrase(ctx context.Context) error {
 	res, err := r.env.Runner.Run(ctx, cmd)
 	if err != nil {
 		// An execx.ExitError's text carries ansible's stderr, so it is not printed again.
-		return r.decryptFailed("ansible failed: " + err.Error())
+		return &decryptError{why: "ansible failed: " + err.Error()}
 	}
 	pass, err := parseVaultOutput(string(res.Stdout))
 	if err != nil {
-		return r.decryptFailed(err.Error())
+		return &decryptError{why: err.Error()}
 	}
 	if r.pass, err = execx.NewSecret(askpassSecretVar, pass); err != nil {
-		return r.decryptFailed(err.Error())
+		return &decryptError{why: err.Error()}
 	}
 	r.hasPass = true
 	return nil
-}
-
-func (r *run) decryptFailed(why string) error {
-	report := r.badf
-	if r.passOptional {
-		report = r.warnf
-	}
-	report(r.err, "Failed to decrypt github_ssh_passphrase from the vault (%s)", why)
-	r.advicef(r.err, "Check the vault password file ansible.cfg names, or run run.bash first to set up the vault")
-	return errReported
 }
 
 // askpass is c set up to get the passphrase from this binary as its askpass program (E21).
@@ -495,7 +506,7 @@ func (r *run) add(ctx context.Context, a account) error {
 		r.infof(r.err, "Account '%s' is already in %s", c.alias, r.yml)
 		a, configured = c, true
 	}
-	if err := r.loadPassphrase(ctx); err != nil {
+	if err := r.needPassphrase(ctx); err != nil {
 		return err
 	}
 	if !configured {
@@ -532,7 +543,7 @@ func (r *run) setupAll(ctx context.Context) error {
 	} else {
 		r.infof(r.err, "Each account needs at most one browser authorisation, asking for every scope it lacks — log in as the correct user when prompted")
 	}
-	if err := r.loadPassphrase(ctx); err != nil {
+	if err := r.needPassphrase(ctx); err != nil {
 		return err
 	}
 	for _, a := range accounts {
@@ -938,11 +949,14 @@ func (r *run) check(ctx context.Context) error {
 		return nil
 	}
 	r.say(r.out, fmt.Sprintf("Checking %d GitHub account(s)", len(accounts)))
-	r.passOptional = true
-	switch err := r.loadPassphrase(ctx); {
-	case errors.Is(err, errVaultFileMissing):
-		return err
-	case err != nil:
+	// --check goes on without a passphrase, so a vault it cannot decrypt is a warning (E12).
+	if err := r.loadPassphrase(ctx); err != nil {
+		failed, ok := errors.AsType[*decryptError](err)
+		if !ok {
+			return err
+		}
+		r.warnf(r.err, "%s", failed.Error())
+		r.advicef(r.err, decryptAdvice)
 		r.warnf(r.err, "Could not decrypt the passphrase — SSH tests may be limited")
 	}
 	healthy := true

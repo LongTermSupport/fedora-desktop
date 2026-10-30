@@ -96,12 +96,16 @@ func (r *run) notableDirs() []string {
 	return append(dirs, r.env.VarDirs...)
 }
 
-// filesystems is E4: duf, else the filtered df, else df -h; false when all failed.
+// filesystems is E4: duf, else the filtered df, else df -h; false when all failed, with every
+// step's reason on stderr.
 func (r *run) filesystems(ctx context.Context) (string, bool) {
+	var reasons []string
 	if r.have("duf") {
-		if res, err := r.env.Runner.Run(ctx, execx.Cmd{Name: "duf", Args: []string{"--only", "local"}}); err == nil {
+		res, err := r.env.Runner.Run(ctx, execx.Cmd{Name: "duf", Args: []string{"--only", "local"}})
+		if err == nil {
 			return string(res.Stdout), true
 		}
+		reasons = append(reasons, "duf: "+err.Error())
 	}
 	res, err := r.env.Runner.Run(ctx, execx.Cmd{Name: "df", Args: []string{
 		"-h", "-x", "tmpfs", "-x", "devtmpfs", "-x", "efivarfs", "-x", "overlay",
@@ -110,11 +114,13 @@ func (r *run) filesystems(ctx context.Context) (string, bool) {
 	if err == nil {
 		return string(res.Stdout), true
 	}
+	reasons = append(reasons, "filtered df: "+err.Error())
 	res, err = r.env.Runner.Run(ctx, execx.Cmd{Name: "df", Args: []string{"-h"}})
 	if err == nil {
 		return string(res.Stdout), true
 	}
-	r.failf("df: %v", err)
+	reasons = append(reasons, "df -h: "+err.Error())
+	r.failf("filesystem usage: %s", strings.Join(reasons, "; "))
 	return "", false
 }
 

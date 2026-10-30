@@ -66,7 +66,11 @@ func (g *Gum) Confirm(ctx context.Context, h Heading, question string, defaultYe
 	if err := h.check(); err != nil {
 		return false, err
 	}
-	_, err := g.run(ctx, "confirm", fmt.Sprintf("--default=%t", defaultYes), h.above(question, !g.Plain, g.headingWidth(ctx)))
+	width, err := g.headingWidth(ctx)
+	if err != nil {
+		return false, err
+	}
+	_, err = g.run(ctx, "confirm", fmt.Sprintf("--default=%t", defaultYes), h.above(question, !g.Plain, width))
 	switch code := exitCode(err); {
 	case err == nil:
 		return true, nil
@@ -87,7 +91,11 @@ func (g *Gum) Input(ctx context.Context, h Heading, header, placeholder, value s
 	if err := h.check(); err != nil {
 		return "", err
 	}
-	res, err := g.run(ctx, "input", "--header", h.above(header, !g.Plain, g.headingWidth(ctx)), "--placeholder", placeholder, "--value", value, "--width", "0")
+	width, err := g.headingWidth(ctx)
+	if err != nil {
+		return "", err
+	}
+	res, err := g.run(ctx, "input", "--header", h.above(header, !g.Plain, width), "--placeholder", placeholder, "--value", value, "--width", "0")
 	if err != nil {
 		return "", g.cancelOrFail("gum input", err)
 	}
@@ -99,7 +107,11 @@ func (g *Gum) Choose(ctx context.Context, h Heading, header, selected string, op
 	if err := h.check(); err != nil {
 		return "", err
 	}
-	args := append([]string{"choose", "--header", h.above(header, !g.Plain, g.headingWidth(ctx)), "--selected", selected}, options...)
+	width, err := g.headingWidth(ctx)
+	if err != nil {
+		return "", err
+	}
+	args := append([]string{"choose", "--header", h.above(header, !g.Plain, width), "--selected", selected}, options...)
 	res, err := g.run(ctx, args...)
 	if err != nil {
 		return "", g.cancelOrFail("gum choose", err)

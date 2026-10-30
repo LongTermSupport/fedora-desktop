@@ -289,9 +289,13 @@ const (
 )
 
 // headingWidth is the width a gum question's heading is wrapped to.
-func (g *Gum) headingWidth(ctx context.Context) int { return g.columns(ctx) - gumMargin }
+func (g *Gum) headingWidth(ctx context.Context) (int, error) {
+	cols, err := g.columns(ctx)
+	return cols - gumMargin, err
+}
 
 // headingWidth is the width a picker's heading is wrapped to, on a screen that takes margin.
-func (p *Picker) headingWidth(ctx context.Context, margin int) int {
-	return columns(ctx, p.Runner, nil, p.Stderr) - margin
+func (p *Picker) headingWidth(ctx context.Context, margin int) (int, error) {
+	cols, err := columns(ctx, p.Runner, nil, p.Stderr)
+	return cols - margin, err
 }
