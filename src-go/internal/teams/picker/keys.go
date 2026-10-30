@@ -2,6 +2,7 @@ package picker
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
@@ -9,10 +10,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
 )
 
-// nothingOnThisRow is what a key that is not one of the row's shortcuts says.
-const nothingOnThisRow = "That key does nothing on this row. Enter lists what can be done to it, each with its key."
-
-// do is one action on row, chosen from its menu or by the shortcut ui shows beside it there.
+// do is one action on row, chosen from the menu Enter on the row opens.
 func (r *run) do(ctx context.Context, id string, row board.Row) (flow.Result, error) {
 	switch id {
 	case actNew:
@@ -46,7 +44,7 @@ func (r *run) do(ctx context.Context, id string, row board.Row) (flow.Result, er
 func (r *run) doTeam(ctx context.Context, id string, row board.Row) (flow.Result, error) {
 	switch id {
 	case actElementAll:
-		// Unlike one team's Ctrl-E, this can name several teams with no profile, so it waits
+		// Unlike opening one team, this can name several teams with no profile, so it waits
 		// for Enter before the list is redrawn over what it said.
 		res, err := r.p.Login.OpenEveryTeam(ctx, r.snap)
 		if err == nil {
@@ -66,9 +64,8 @@ func (r *run) doTeam(ctx context.Context, id string, row board.Row) (flow.Result
 	case actAskDescription, actAskLimit:
 		return r.askAgainOf(ctx, id, row.Team)
 	}
-	r.p.Kit.Tell(nothingOnThisRow)
-	r.p.Kit.BackToList(ctx)
-	return flow.Done, nil
+	// Every ID comes from a menu line actionsFor built, so an unknown one is a defect here.
+	return flow.Done, fmt.Errorf("picker: no action %q on the row", id)
 }
 
 // updateAll brings every team that is out of date or not built up to what is declared.

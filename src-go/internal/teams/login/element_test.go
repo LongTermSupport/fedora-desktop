@@ -348,7 +348,7 @@ func TestOpenEveryTeamLaunchesEachTeamWithAProfileInItsOwnWindow(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Opening alpha, beta in Element: one window each (each team is its own Matrix server, and an Element window holds one account).\n",
-		"gamma has no Element profile on this desktop yet: Open gamma in Element (Ctrl-E on its row) sets one up.\n",
+		"gamma has no Element profile on this desktop yet: Open gamma in Element (on its row's menu) sets one up.\n",
 	} {
 		if !strings.Contains(h.ErrOut.String(), want) {
 			t.Fatalf("stderr %q lacks %q", h.ErrOut.String(), want)
@@ -369,7 +369,7 @@ func TestOpenEveryTeamWithNoProfileSaysSoAndLaunchesNothing(t *testing.T) {
 	if h.Fake.Called("systemd-run") {
 		t.Fatal("Element was started with no profile")
 	}
-	if want := "alpha has no Element profile on this desktop yet: Open alpha in Element (Ctrl-E on its row) sets one up.\n"; !strings.Contains(h.ErrOut.String(), want) {
+	if want := "alpha has no Element profile on this desktop yet: Open alpha in Element (on its row's menu) sets one up.\n"; !strings.Contains(h.ErrOut.String(), want) {
 		t.Fatalf("stderr %q lacks %q", h.ErrOut.String(), want)
 	}
 }

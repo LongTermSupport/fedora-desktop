@@ -14,8 +14,8 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
-// The actions on a row, by ID. Every one is a line of the row's menu (Enter); some also have a
-// shortcut key, which ui prints beside the line and accepts on the row from the list.
+// The actions on a row, by ID. Every one is a line of the row's menu, which Enter on the row
+// opens, and that is the only way to it: the list takes no shortcut keys.
 const (
 	actNew         = "new"
 	actRestore     = "restore"
@@ -36,23 +36,9 @@ const (
 	actWindDown   = "wind-down"
 	actSettings   = "settings"
 	// actAskDescription and actAskLimit undo a never answer to an offer: menu lines of a team
-	// marked never, with no shortcut.
+	// marked never.
 	actAskDescription = "ask-description"
 	actAskLimit       = "ask-limit"
-)
-
-// The shortcut keys, as fzf names them. Attaching, the coordinator role, adding an LXC
-// container's agent, opening every team, restarting a team's sessions, winding them down and
-// shutting them down have none: they are menu lines only, and a key that ends sessions is too easy to press by
-// mistake.
-const (
-	keyNew      = "ctrl-n"
-	keyRestore  = "ctrl-r"
-	keyRemove   = "ctrl-x"
-	keyElement  = "ctrl-e"
-	keyPassword = "ctrl-p"
-	keyUpdate   = "ctrl-u"
-	keyHelp     = "?"
 )
 
 // windDownLabel is the team row's wind-down line (Plan 00203 SPEC-team-wind-down.md W12).
@@ -61,24 +47,16 @@ const windDownLabel = "Wind down the team's sessions (clear goals, save and push
 // backToList is the last line of every question: leaving it does nothing and shows the list.
 const backToList = "Back to the list"
 
-// action is one thing that can be done to a row: its ID, its shortcut ("" for none), what it is
-// called in the menu, and the few words the footer gives it.
+// action is one thing that can be done to a row: its ID, what it is called in the menu, and the
+// few words the footer gives it.
 type action struct {
-	id, key string
+	id string
 	// label is the menu line; short is the footer's wording.
 	label, short string
 }
 
-// ui is the action as the picker lists it.
-func (a action) ui() ui.Action { return ui.Action{ID: a.id, Label: a.label, Key: a.key} }
-
-// footerPart is the action as the footer says it: the shortcut and what it does.
-func (a action) footerPart() string {
-	if a.key == "" {
-		return a.short + " via Enter"
-	}
-	return ui.KeyName(a.key) + " " + a.short
-}
+// ui is the action as the picker lists it: a menu line, with no key.
+func (a action) ui() ui.Action { return ui.Action{ID: a.id, Label: a.label} }
 
 // actionsFor is everything that can be done to row, the likeliest first and every destructive
 // action last (lastDestructive). Every row offers adding an LXC container's agent to its team,
@@ -86,7 +64,7 @@ func (a action) footerPart() string {
 // adding a running session (addActions): the add lines stay together.
 func (r *run) actionsFor(row board.Row) []action {
 	acts := r.kindActions(row)
-	lxc := action{actLxc, "", "Add an LXC container's agent to " + row.Team, "add an LXC container to " + row.Team}
+	lxc := action{actLxc, "Add an LXC container's agent to " + row.Team, "add an LXC container to " + row.Team}
 	adds := append([]action{lxc}, r.addActions(row)...)
 	return lastDestructive(slices.Insert(acts, slices.IndexFunc(acts, func(a action) bool { return a.id == actNew })+1, adds...))
 }
@@ -112,21 +90,21 @@ func lastDestructive(acts []action) []action {
 // kindActions is what can be done to row because of what it is.
 func (r *run) kindActions(row board.Row) []action {
 	team := row.Team
-	open := action{actElement, keyElement, "Open " + team + " in Element", "open " + team + " in Element"}
+	open := action{actElement, "Open " + team + " in Element", "open " + team + " in Element"}
 	start := r.startAction(team)
-	help := action{actHelp, keyHelp, "What the columns and keys mean", "help"}
+	help := action{actHelp, helpLabel, "help"}
 	switch row.Kind {
 	case board.KindTeam:
 		return append(append([]action{
 			open,
-			{actElementAll, "", "Open every team in Element, a window each", "open every team in Element"},
+			{actElementAll, "Open every team in Element, a window each", "open every team in Element"},
 			start,
-			{actSettings, "", "Edit settings", "edit " + team + "'s settings"},
-			{actUpdate, keyUpdate, "Update every team that is out of date or not built", "update out-of-date teams"},
-			{actRestart, "", "Restart the team's desktop sessions", "restart " + team + "'s desktop sessions"},
-			{actWindDown, "", windDownLabel, "wind down " + team + "'s sessions"},
-			{actShutdown, "", "Shut down every session of " + team, "shut down " + team + "'s sessions"},
-			{actRemove, keyRemove, "Take " + team + " down", "take " + team + " down"},
+			{actSettings, "Edit settings", "edit " + team + "'s settings"},
+			{actUpdate, "Update every team that is out of date or not built", "update out-of-date teams"},
+			{actRestart, "Restart the team's desktop sessions", "restart " + team + "'s desktop sessions"},
+			{actWindDown, windDownLabel, "wind down " + team + "'s sessions"},
+			{actShutdown, "Shut down every session of " + team, "shut down " + team + "'s sessions"},
+			{actRemove, "Take " + team + " down", "take " + team + " down"},
 		}, r.askAgainActions(team)...), help)
 	case board.KindHuman:
 		return r.humanActions(row, open, start, help)
@@ -135,19 +113,19 @@ func (r *run) kindActions(row board.Row) []action {
 	return r.memberActions(row, open, start, help)
 }
 
-// startAction is starting a ccy session in team, in this folder. Where the header says Ctrl-N is
-// unavailable the line stays, saying why, as ccy-sessions' new-session row does: choosing it
-// shows the refusal (seats.NewSession), and the menu never offers what the header calls
-// unavailable as if it ran.
+// startAction is starting a ccy session in team, in this folder. Where the header says a new
+// session is unavailable the line stays, saying why, as ccy-sessions' new-session row does:
+// choosing it shows the refusal (seats.NewSession), and the menu never offers what the header
+// calls unavailable as if it ran.
 func (r *run) startAction(team string) action {
 	why := r.frame.newRefusal
 	if why == "" && r.snap.StateOf(team) != systemd.HomeserverUp {
 		why = team + "'s homeserver is not up"
 	}
 	if why != "" {
-		return action{actNew, keyNew, unavailable("Start a ccy session in "+team, why), "start a session: unavailable"}
+		return action{actNew, unavailable("Start a ccy session in "+team, why), "start a session: unavailable"}
 	}
-	return action{actNew, keyNew, "Start a ccy session in " + team + ", in this folder", "start a session in " + team}
+	return action{actNew, "Start a ccy session in " + team + ", in this folder", "start a session in " + team}
 }
 
 // unavailable is label when the action cannot be done, saying why, so the line stays where it
@@ -163,10 +141,10 @@ func unavailable(label, why string) string {
 func (r *run) askAgainActions(team string) []action {
 	var acts []action
 	if r.snap.Description[team] == "" && saidNever(r.p.descriptionMarker(team)) {
-		acts = append(acts, action{actAskDescription, "", askDescriptionLabel(team), "be asked to describe " + team + " again"})
+		acts = append(acts, action{actAskDescription, askDescriptionLabel(team), "be asked to describe " + team + " again"})
 	}
 	if saidNever(r.p.pathLimitMarker(team)) {
-		acts = append(acts, action{actAskLimit, "", askLimitLabel(team), "be asked about " + team + "'s limit again"})
+		acts = append(acts, action{actAskLimit, askLimitLabel(team), "be asked about " + team + "'s limit again"})
 	}
 	return acts
 }
@@ -176,10 +154,10 @@ func (r *run) askAgainActions(team string) []action {
 func (r *run) humanActions(row board.Row, open, start, help action) []action {
 	count, known := r.snap.SessionsOf(row.Team, row.Member)
 	if known && count == 0 {
-		signIn := action{actPassword, keyPassword, "Sign in: set a password (shown once)", "set a password"}
+		signIn := action{actPassword, "Sign in: set a password (shown once)", "set a password"}
 		return []action{signIn, open, start, help}
 	}
-	password := action{actPassword, keyPassword, "New password — " + login.SignOutPhrase(r.snap, row.Team, row.Member), "new password"}
+	password := action{actPassword, "New password — " + login.SignOutPhrase(r.snap, row.Team, row.Member), "new password"}
 	return []action{open, password, start, help}
 }
 
@@ -199,11 +177,11 @@ func (r *run) memberActions(row board.Row, open, start, help action) []action {
 	acts = append(acts, open, start, help)
 	switch {
 	case seat:
-		return append(acts, action{actRemove, keyRemove, "Remove seat " + row.Label() + " from " + row.Team, "remove seat " + row.Label()})
+		return append(acts, action{actRemove, "Remove seat " + row.Label() + " from " + row.Team, "remove seat " + row.Label()})
 	case handleless:
 		return acts
 	}
-	return append(acts, action{actRemove, keyRemove, "Park " + row.Handle, "park it"})
+	return append(acts, action{actRemove, "Park " + row.Handle, "park it"})
 }
 
 // seatOwnActions are what only a ccy seat has, first in its menu: attaching its session, and
@@ -212,14 +190,14 @@ func (r *run) seatOwnActions(row board.Row) []action {
 	if row.Kind != board.KindCcy {
 		return nil
 	}
-	acts := []action{{actAttach, "", unavailable("Attach this terminal to the seat's session", r.attachRefusal(row)), "attach its session"}}
+	acts := []action{{actAttach, unavailable("Attach this terminal to the seat's session", r.attachRefusal(row)), "attach its session"}}
 	current, recorded := r.snap.SeatRestore[row.Dir+"|"+row.Member+"@"+row.Team]
 	switch {
 	case !recorded:
 	case current:
-		acts = append(acts, action{actRestore, keyRestore, "Stop starting its session again after a reboot", "turn restore off"})
+		acts = append(acts, action{actRestore, "Stop starting its session again after a reboot", "turn restore off"})
 	default:
-		acts = append(acts, action{actRestore, keyRestore, "Start its session again after a reboot", "turn restore on"})
+		acts = append(acts, action{actRestore, "Start its session again after a reboot", "turn restore on"})
 	}
 	return acts
 }
@@ -254,17 +232,17 @@ func (r *run) sessionRefusal(session string) string {
 // takeover, which, like making the coordinator a worker, demotes someone and so is destructive.
 func (r *run) roleAction(row board.Row) action {
 	if r.snap.RoleOf(row.Team, row.Handle) == agentbus.RoleCoordinator {
-		return action{actDemote, "", coordinator.WorkerChoice(row.Handle, row.Team), "make it a worker"}
+		return action{actDemote, coordinator.WorkerChoice(row.Handle, row.Team), "make it a worker"}
 	}
 	holder := coordinator.Holding(r.snap.Members[row.Team], row.Handle, seats.SnapshotRunning(r.snap))
 	if holder.Handle != "" {
-		return action{actDemote, "", coordinator.TakeoverChoice(holder), "replace the coordinator"}
+		return action{actDemote, coordinator.TakeoverChoice(holder), "replace the coordinator"}
 	}
-	return action{actCoordinator, "", coordinator.MakeChoice(row.Handle, row.Team), "make it the coordinator"}
+	return action{actCoordinator, coordinator.MakeChoice(row.Handle, row.Team), "make it the coordinator"}
 }
 
-// menuFor is Enter on a row: everything that can be done to it, in words, each with its shortcut.
-// Leaving the menu does nothing.
+// menuFor is Enter on a row: everything that can be done to it, in words. Leaving the menu does
+// nothing.
 func (r *run) menuFor(row board.Row) ui.Menu {
 	acts := r.actionsFor(row)
 	items := make([]ui.Action, len(acts))
@@ -300,12 +278,12 @@ func aboutLine(row board.Row) string {
 	return row.Member
 }
 
-// footerFor is the line of the header that names row's actions in words.
+// footerFor is the line of the header that says what Enter on row offers, in words.
 func (r *run) footerFor(row board.Row) string {
 	acts := r.actionsFor(row)
 	parts := make([]string, len(acts))
 	for i, a := range acts {
-		parts[i] = a.footerPart()
+		parts[i] = a.short
 	}
-	return "This row: " + strings.Join(parts, "   ")
+	return "This row, Enter to: " + strings.Join(parts, ", ")
 }

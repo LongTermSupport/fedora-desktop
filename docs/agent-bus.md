@@ -62,8 +62,9 @@ launch does not start.
    "Open `<team>` in Element", and a new password is a separate choice that says how many of
    your Element sessions it signs out, and asks first
    ([The human's account](#the-humans-account)). Element starts apart from `ccy-teams`,
-   which stays on the list. Every choice shows its shortcut (Ctrl-P, Ctrl-E, ...) beside
-   it, and the header names the selected row's actions, so no key has to be guessed.
+   which stays on the list. Every choice is a line of the
+   menu Enter opens (there are no shortcut keys), and the header names what Enter on the
+   selected row offers.
    Every screen starts with where you are and what it acts on, for example
    `Teams › alpha › Add LXC member · step 3/4 Checkout` over
    `into team alpha · container container-a · user agent`.
@@ -96,7 +97,7 @@ launch does not start.
    configuration" at the Quick Launch prompt launches into them again (and records them in that
    session's own record, which is all a reboot restore reads: a restore never gives a session
    a team it was not launched into), and an explicit `--teams` overrides them. `ccy-teams create`, and `ccy-teams` itself, run in a checkout the team
-   covers, offer to start one; so does Ctrl-N ([seats](#a-ccy-session-seats)).
+   covers, offer to start one; so does Start a ccy session on a row's menu ([seats](#a-ccy-session-seats)).
 4. **Add an LXC container's agent.** In `ccy-teams`, Enter on a row of the team, then *Add an
    LXC container's agent to `<team>`*, or `ccy-teams lxc-add <team>`: it lists the host's
    running containers, asks for the user, the checkout and the role (the handle's repo, host
@@ -116,14 +117,14 @@ launch does not start.
    [Talking to agents from Element](#talking-to-agents-from-element).
 6. **After a reboot.** Homeservers, their data and every seat stay. A ccy session in a team
    comes back in the same seats when this machine restores sessions
-   (`ccy_restore_sessions`, [ccy.md](ccy.md)); Ctrl-R in `ccy-teams` keeps one out (after a
+   (`ccy_restore_sessions`, [ccy.md](ccy.md)); the seat's menu in `ccy-teams` keeps one out (after a
    yes/no, default no), or puts it back. Other members keep their bundles, and their sessions are started as before.
 7. **Back up and restore.** Each team is backed up daily on this machine.
    `ccy-teams backup <team>` takes one now; `ccy-teams restore <team> [<n>]` puts one back
    after a yes/no ([Backups](#backups-are-the-root-of-trust)).
 8. **Keep teams up to date.** After you edit a team's entry, or after this repository's
    software changes, its APPLIED column says "out of date". `ccy-teams apply <team>`, or
-   `apply --all` (Ctrl-U in the picker, which also offers it when it opens), runs
+   `apply --all` (Update every team on a team row's menu in the picker, which also offers it when it opens), runs
    `play-agent-bus.yml` for those teams and checks the result. Neither ever takes a team
    down or deletes data: a team declared `absent`, or running but no longer declared,
    says "decide" and is left alone. A full run of `play-agent-bus.yml` (the main playbook)
@@ -133,7 +134,7 @@ launch does not start.
    play run holds it (a `meta-deploy.bash` unit, say), ccy-teams names it and how long it has
    held the lock, and waits up to 30 minutes (with a **Stop waiting** row on a terminal). It
    writes the host_vars only once it has the lock, so stopping the wait changes nothing.
-9. **Take a team down.** `ccy-teams remove <team>` (or Ctrl-X on the team), on a terminal
+9. **Take a team down.** `ccy-teams remove <team>` (or Take `<team>` down on the team's menu), on a terminal
    only, one team at a time. It says what is lost, offers a backup first, and by default
    keeps the team's data (its whole room history); deleting the data as well needs the
    team's name typed. A team watched in Element loses its launcher and Element profile too
@@ -205,12 +206,12 @@ addresses are in every member's credentials. Spec: Plan 00201 `SPEC-many-teams.m
 APPLIED: up to date, out of date, not built, or decide), then its members. They are ccy seats, each with the session holding it and whether it is
 restored after a reboot; LXC and other members, active or parked; and the people, in the
 room or not and how many Element sessions they are signed in with. Enter on any row opens a
-menu of what can be done to it, in words, each with its shortcut beside it; a shortcut works
-only on a row whose menu has it. The shortcuts are Ctrl-N (start a session), Ctrl-U (on a
-team row: apply every team out of date), Ctrl-R (toggle a restore; off after a yes/no), Ctrl-X (remove a seat,
-park a member after a yes/no, or take a team down, as `remove`), Ctrl-P (a person's new
-password), Ctrl-E (open Element), and `?` explains every key. The last row, Running sessions
-(or Tab), lists the running sessions. Enter on one lists, in words, what can be done to it
+menu of what can be done to it, in words, and that menu is the only way to an action: there
+are no shortcut keys. Its lines include starting a session, updating every team out of date
+(on a team row), turning a seat's restore off (after a yes/no) or on, removing a seat,
+parking a member (after a yes/no) or taking a team down (as `remove`), a person's new
+password, opening Element, and a help line that explains the columns and the lines. The last
+row, Running sessions, lists the running sessions. Enter on one lists, in words, what can be done to it
 while it runs: Add to a team, Remove from `<team>`, Change role in `<team>`, Move to another
 team, Attach, and Repair when its seat keeper has stopped. Each is the `ccy-teams session`
 command, run for you. Status words are in colour on a terminal, but

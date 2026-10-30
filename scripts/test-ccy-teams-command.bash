@@ -177,6 +177,10 @@ YES) row="$(awk '/^Yes, / { print; exit }' <<<"$rows")" ;;
 esac
 if [[ "$*" == *--expect* ]]; then
     printf '%s\n' "$key"
+elif [ -n "$key" ]; then
+    # fzf hands back only a key its --expect names; a queued key here is a key the screen does not take
+    echo "fake fzf: answer '$answer' presses $key, which call $n does not hand back" >&2
+    exit 2
 fi
 printf '%s\n' "$row"
 EOF
@@ -775,11 +779,11 @@ check "a seat that cannot be read: the checkout's other seats are still listed" 
     "$(grep -cE '^alpha +proj\.1\+local\.podman +ccy' <<<"$out")"
 check_has "  and every team row says something is unreadable" "a seat is unreadable" \
     "$(grep -E '^alpha +.+ +team ' <<<"$out")"
-out="$(run_picker "$OUTSIDE" "ctrl-x|proj.2+local.podman" "|ABORT")"
-check "  so Ctrl-X parks no ccy member whose checkout is unknown" "no" "$(logged 'park-member')"
+out="$(run_picker "$OUTSIDE" "|proj.2+local.podman" "|Park" "|ABORT")"
+check "  so Park parks no ccy member whose checkout is unknown" "no" "$(logged 'park-member')"
 check_has "  saying why" "could not be read" "$out"
-out="$(run_picker "$CHECKOUT" "ctrl-n|port 6167" "|ABORT")"
-check "  and Ctrl-N in that checkout offers no seat" "no" "$(logged 'launcher')"
+out="$(run_picker "$CHECKOUT" "|port 6167" "|Start a ccy session" "|ABORT")"
+check "  and Start a ccy session in that checkout offers no seat" "no" "$(logged 'launcher')"
 check_has "  saying why" "Not every seat" "$out"
 
 # ── the picker ───────────────────────────────────────────────────────────────────────────
@@ -834,8 +838,11 @@ reset
 out="$(run_picker "$OUTSIDE" "|ccy-proj" "|Attach this terminal")"
 check "Enter on a seat, then Attach, attaches its session" "yes" "$(logged 'tmux attach-session -t =ccy-proj')"
 check "  and exits 0" "rc=0" "$(rc_of "$out")"
-check_has "  Enter lists the seat's choices, with their shortcuts" "Stop starting its session again after a reboot   (Ctrl-R)" \
+check_has "  Enter lists the seat's choices, in words" "Stop starting its session again after a reboot" \
     "$(cat "$TEST_FZF_RAW")"
+check_lacks "  with no shortcut key beside them" "   (Ctrl-" "$(cat "$TEST_FZF_RAW")"
+check_lacks "  and the list hands back no shortcut key (the owner wants none)" "ctrl-" \
+    "$(grep -o -- '--expect=[^ ]*' "$TEST_FZF_RAW")"
 
 reset
 out="$(run_picker "$OUTSIDE" "|ccy-proj" "|EXIT" "|ABORT")"
@@ -850,74 +857,69 @@ check_has "  ccy-sessions is named for taking it over" "Ctrl-T" "$out"
 
 reset
 # Turning restore off asks first, default No (Plan 00177 Task 10.6): Esc keeps it on.
-out="$(run_picker "$OUTSIDE" "ctrl-r|ccy-proj" "|ABORT" "|ABORT")"
+out="$(run_picker "$OUTSIDE" "|ccy-proj" "|Stop starting its session" "|ABORT" "|ABORT")"
 ccy_registry_read "$CCY_STATE_DIR/sessions/ccy-proj"
-check "Ctrl-R then Esc at its question keeps the seat's session's restore on" "yes" "$REC_RESTORE"
+check "Restore off then Esc at its question keeps the seat's session's restore on" "yes" "$REC_RESTORE"
 check_has "  the question names the seat and the reboot" "will not come back after a reboot" "$(cat "$TEST_FZF_RAW")"
-out="$(run_picker "$OUTSIDE" "ctrl-r|ccy-proj" "|YES" "|ABORT")"
+out="$(run_picker "$OUTSIDE" "|ccy-proj" "|Stop starting its session" "|YES" "|ABORT")"
 ccy_registry_read "$CCY_STATE_DIR/sessions/ccy-proj"
-check "Ctrl-R then yes turns the seat's session's restore off" "no" "$REC_RESTORE"
+check "Restore off then yes turns the seat's session's restore off" "no" "$REC_RESTORE"
 check "  keeping its seats" "--teams 1@alpha" "${REC_ARGS[*]}"
 check_has "  and the refreshed list shows it" " no " \
     "$(grep -E '^alpha +proj\.1\+local\.podman +ccy' "$TEST_FZF_ROWS" | awk 'END { print }')"
-out="$(run_picker "$OUTSIDE" "ctrl-r|ccy-proj" "|ABORT")"
+out="$(run_picker "$OUTSIDE" "|ccy-proj" "|Start its session again" "|ABORT")"
 ccy_registry_read "$CCY_STATE_DIR/sessions/ccy-proj"
 check "  and on again" "yes" "$REC_RESTORE"
 
 reset
-# A key acts only on a row whose menu shows it (CLAUDE/InteractiveScripts.md rule 14).
-out="$(run_picker "$OUTSIDE" "ctrl-r|proj.box+role.lxc" "|ABORT")"
-check_has "Ctrl-R on a row whose menu has no restore does nothing, saying so" "That key does nothing on this row" "$out"
-
+out="$(run_picker "$OUTSIDE" "|ccy-proj" "|Remove seat" "|YES" "|ABORT")"
+check "Remove seat then yes removes the seat, in its checkout" "yes" "$(logged 'agent-bus seat remove 1@alpha (in proj)')"
 reset
-out="$(run_picker "$OUTSIDE" "ctrl-x|ccy-proj" "|YES" "|ABORT")"
-check "Ctrl-X then yes removes the seat, in its checkout" "yes" "$(logged 'agent-bus seat remove 1@alpha (in proj)')"
+out="$(run_picker "$OUTSIDE" "|ccy-proj" "|Remove seat" "|EXIT" "|ABORT")"
+check "Remove seat then no removes nothing" "no" "$(logged 'seat remove')"
 reset
-out="$(run_picker "$OUTSIDE" "ctrl-x|ccy-proj" "|EXIT" "|ABORT")"
-check "Ctrl-X then no removes nothing" "no" "$(logged 'seat remove')"
-reset
-out="$(run_picker "$OUTSIDE" "ctrl-x|proj.box+role.lxc" "|YES" "|ABORT")"
-check "Ctrl-X then yes on an LXC member parks it" "yes" \
+out="$(run_picker "$OUTSIDE" "|proj.box+role.lxc" "|Park" "|YES" "|ABORT")"
+check "Park then yes on an LXC member parks it" "yes" \
     "$(logged 'sudo -n /usr/local/bin/agent-bus park-member alpha proj.box+role.lxc')"
 reset
-out="$(run_picker "$OUTSIDE" "ctrl-x|proj.2+local.podman" "|YES" "|ABORT")"
+out="$(run_picker "$OUTSIDE" "|proj.2+local.podman" "|Park" "|YES" "|ABORT")"
 check "  as it does a ccy member whose checkout is not known" "yes" \
     "$(logged 'agent-bus park-member alpha proj.2+local.podman')"
 reset
 printf '%s\n' NO "=Leave it running" >"$TEST_GUM_ANSWERS"
 printf '0\n' >"$STATE/gum-calls"
-out="$(run_picker "$OUTSIDE" "ctrl-x|port 6167" "|ABORT")"
-check_has "Ctrl-X on a team starts its removal, saying what is lost" "history" "$out"
+out="$(run_picker "$OUTSIDE" "|port 6167" "|Take alpha down" "|ABORT")"
+check_has "Take alpha down starts its removal, saying what is lost" "history" "$out"
 check "  and leaving it running changes nothing" "no" "$(logged 'play ')"
 
 reset
-out="$(run_picker "$OUTSIDE" "ctrl-n|port 6167" "|ABORT")"
-check_has "Ctrl-N outside a project says so" "not a project folder" "$out"
+out="$(run_picker "$OUTSIDE" "|port 6167" "|Start a ccy session" "|ABORT")"
+check_has "Start a ccy session outside a project says so" "not a project folder" "$out"
 check "  and starts nothing" "no" "$(logged 'launcher')"
 reset
-out="$(run_picker "$CHECKOUT" "ctrl-n|port 6167" "|new")"
-check "Ctrl-N offers the free seat, and a new one numbered after every numbered seat" "yes" \
+out="$(run_picker "$CHECKOUT" "|port 6167" "|Start a ccy session" "|new")"
+check "Start a ccy session offers the free seat, and a new one numbered after every numbered seat" "yes" \
     "$(grep -q 'proj\.dev+local\.podman   free' "$TEST_FZF_ROWS" && grep -q 'Seat 3@alpha   new' "$TEST_FZF_ROWS" && echo yes || echo no)"
 check "  and starts ccy --teams in the new one" "yes" "$(logged 'launcher --teams 3@alpha')"
 reset
-out="$(run_picker "$CHECKOUT" "ctrl-n|owner" "|free")"
+out="$(run_picker "$CHECKOUT" "|owner" "|Start a ccy session" "|free")"
 check "  or in the free one, from any row of the team" "yes" "$(logged 'launcher --teams dev@alpha')"
 reset
-out="$(run_picker "$CHECKOUT" "ctrl-n|extra" "|ABORT")"
+out="$(run_picker "$CHECKOUT" "|extra" "|Start a ccy session" "|ABORT")"
 # The refusal uses the words the team menu's unavailable line uses (Plan 00177 Task 10.1).
-check_has "Ctrl-N on a team whose homeserver is down says so" "homeserver is not up" "$out"
+check_has "Start a ccy session on a team whose homeserver is down says so" "homeserver is not up" "$out"
 reset
 mkdir -p "$CHECKOUT/sub/dir"
-out="$(run_picker "$CHECKOUT/sub/dir" "ctrl-n|port 6167" "|new")"
-check "Ctrl-N from a subdirectory starts ccy at the checkout's top, where its seats are" "yes" \
+out="$(run_picker "$CHECKOUT/sub/dir" "|port 6167" "|Start a ccy session" "|new")"
+check "Start a ccy session from a subdirectory starts ccy at the checkout's top, where its seats are" "yes" \
     "$(logged 'launcher --teams 3@alpha (in proj)')"
 # A checkout in an LXC container's files, seen from the host, is the container's: no host or
 # podman session is offered or started there, whatever its origin covers.
 reset
-out="$(run_picker "$IN_CONTAINER" "ctrl-n|port 6167" "|ABORT")"
-check_has "in an LXC container's checkout the header says Ctrl-N is unavailable, and why" \
-    "Ctrl-N unavailable: $IN_CONTAINER is LXC container box's checkout" "$(cat "$TEST_FZF_RAW")"
-check_has "  Ctrl-N there says so" "is LXC container box's checkout" "$out"
+out="$(run_picker "$IN_CONTAINER" "|port 6167" "|Start a ccy session" "|ABORT")"
+check_has "in an LXC container's checkout the header says a new session is unavailable, and why" \
+    "A new ccy session is unavailable: $IN_CONTAINER is LXC container box's checkout" "$(cat "$TEST_FZF_RAW")"
+check_has "  Start a ccy session there says so" "is LXC container box's checkout" "$out"
 check_has "  and points to lxc-add" "ccy-teams lxc-add" "$out"
 check "  and starts nothing" "no" "$(logged 'launcher')"
 out="$(cd "$IN_CONTAINER" && "$TOOL" for-checkout 2>&1)"
@@ -933,15 +935,15 @@ gum_queue() {
 reset
 cp "$HOST_VARS" "$SCRATCH/element.yml"
 gum_queue NO
-out="$(CCY_TEAMS_HOST_VARS="$SCRATCH/element.yml" run_picker "$OUTSIDE" "ctrl-e|owner" "|ABORT")"
-check_has "Ctrl-E with no Element profile says so" "has no Element profile on this desktop yet" "$out"
+out="$(CCY_TEAMS_HOST_VARS="$SCRATCH/element.yml" run_picker "$OUTSIDE" "|owner" "|Open alpha in Element" "|ABORT")"
+check_has "Open alpha in Element with no Element profile says so" "has no Element profile on this desktop yet" "$out"
 check_lacks "  never telling you to edit the host_vars" "agent_bus_element_teams" "$out"
 check "  offering to set it up; no opens nothing" "no" "$(logged 'gio')"
 check "  and changes nothing" "$(cat "$HOST_VARS")" "$(cat "$SCRATCH/element.yml")"
 reset
 printf 'DEVICE\tABC\t1\n' >"$STATE/devices/owner"
 gum_queue YES
-out="$(CCY_TEAMS_HOST_VARS="$SCRATCH/element.yml" run_picker "$OUTSIDE" "ctrl-e|owner" "|ABORT")"
+out="$(CCY_TEAMS_HOST_VARS="$SCRATCH/element.yml" run_picker "$OUTSIDE" "|owner" "|Open alpha in Element" "|ABORT")"
 check_has "  yes declares the team's Element profile" 'base_url: "http://192.0.2.10:6167"' \
     "$(cat "$SCRATCH/element.yml")"
 check "  runs play-agent-bus-element.yml" "yes" "$(logged 'element-profiles')"
@@ -949,17 +951,17 @@ check "  then opens it" "yes" "$(logged "gio launch $LAUNCHER_FILE")"
 reset
 cp "$HOST_VARS" "$SCRATCH/element.yml"
 gum_queue YES
-out="$(CCY_TEAMS_HOST_VARS="$SCRATCH/element.yml" TEST_ELEMENT_FAIL=1 run_picker "$OUTSIDE" "ctrl-e|owner" "|ABORT")"
+out="$(CCY_TEAMS_HOST_VARS="$SCRATCH/element.yml" TEST_ELEMENT_FAIL=1 run_picker "$OUTSIDE" "|owner" "|Open alpha in Element" "|ABORT")"
 check_has "  a failed Element play is said" "play-agent-bus-element.yml failed" "$out"
 check "  and nothing is opened" "no" "$(logged 'gio')"
 reset
 element_profile
 printf 'DEVICE\tABC\t1\n' >"$STATE/devices/owner"
-out="$(run_picker "$OUTSIDE" "ctrl-e|owner" "|ABORT")"
-check "Ctrl-E opens the team's Element launcher" "yes" "$(logged "gio launch $LAUNCHER_FILE")"
+out="$(run_picker "$OUTSIDE" "|owner" "|Open alpha in Element" "|ABORT")"
+check "Open alpha in Element opens the team's Element launcher" "yes" "$(logged "gio launch $LAUNCHER_FILE")"
 check "  asking no password of a human who has a session" "no" "$(logged 'human password')"
 check "  and returns to the list, which Esc then leaves with 0" "rc=0" "$(rc_of "$out")"
-check "  the list is drawn again after Element is started" "2" "$(cat "$STATE/fzf-calls")"
+check "  the list is drawn again after Element is started" "3" "$(cat "$STATE/fzf-calls")"
 check "  and the person's Element sessions are read again for it" "2" \
     "$(grep -c '^sudo -n /usr/local/bin/agent-bus human devices alpha owner' "$LOG")"
 check_has "  in its own user scope, so closing the terminal tab does not end it" \
@@ -971,18 +973,18 @@ check_has "  and holds both its streams" $'electron chatter on stdout\nelectron 
 reset
 element_profile
 printf 'DEVICE\tABC\t1\n' >"$STATE/devices/owner"
-out="$(TEST_GIO_FAIL=1 run_picker "$OUTSIDE" "ctrl-e|owner")"
+out="$(TEST_GIO_FAIL=1 run_picker "$OUTSIDE" "|owner" "|Open alpha in Element")"
 check_has "a failed Element launch is said, with the log's tail" "Element did not start" "$out"
 check_has "  showing what it said" "electron chatter on stderr" "$out"
 check "  and is a failure" "rc=1" "$(rc_of "$out")"
 reset
 element_profile
-out="$(run_picker "$OUTSIDE" "ctrl-e|ccy-proj" "|EXIT" "|ABORT")"
+out="$(run_picker "$OUTSIDE" "|ccy-proj" "|Open alpha in Element" "|EXIT" "|ABORT")"
 check "a human with no session is offered a password; no sets none" "no" "$(logged 'human password')"
 check "  and Element still opens" "yes" "$(logged 'gio launch')"
 reset
 element_profile
-out="$(run_picker "$OUTSIDE" "ctrl-e|ccy-proj" "|YES" "|ABORT")"
+out="$(run_picker "$OUTSIDE" "|ccy-proj" "|Open alpha in Element" "|YES" "|ABORT")"
 check "  yes sets one, through sudo agent-bus" "yes" "$(logged 'sudo -n /usr/local/bin/agent-bus human password alpha owner')"
 check_has "  printed once, here" "a-new-password" "$out"
 
@@ -991,7 +993,7 @@ reset
 out="$(run_picker "$OUTSIDE" "|owner" "|Sign in" "|EXIT" "|ABORT")"
 check "Enter on a person who never signed in offers signing in first, asking nothing" "yes" \
     "$(logged 'agent-bus human password alpha owner')"
-check_has "  the menu says so in words, with the shortcut" "Sign in: set a password (shown once)   (Ctrl-P)" \
+check_has "  the menu says so in words" "Sign in: set a password (shown once)" \
     "$(cat "$TEST_FZF_RAW")"
 check_has "  the login shows the homeserver" "http://192.0.2.10:6167" "$out"
 check_has "  the username" "Username" "$out"
@@ -1011,7 +1013,7 @@ out="$(run_picker "$OUTSIDE" "|owner" "|New password" "|YES" "|EXIT" "|ABORT")"
 check "Enter on a person with a session offers Element first, and a password only on request" "yes" \
     "$(logged 'agent-bus human password alpha owner')"
 check_has "  the menu names the sessions the password signs out" \
-    "New password — signs out owner's 1 Element session   (Ctrl-P)" "$(cat "$TEST_FZF_RAW")"
+    "New password — signs out owner's 1 Element session" "$(cat "$TEST_FZF_RAW")"
 check_has "  and the question says it again" "This signs out owner's 1 Element session." "$(cat "$TEST_FZF_RAW")"
 check_has "  while the reset itself defaults to Exit" "start:last" \
     "$(awk '/This signs out owner/ { on = 1 } on { print } on && /--bind=q:abort/ { exit }' "$TEST_FZF_RAW")"
@@ -1020,8 +1022,8 @@ printf 'DEVICE\tABC\t1\n' >"$STATE/devices/owner"
 out="$(run_picker "$OUTSIDE" "|owner" "|New password" "|EXIT" "|ABORT")"
 check "  no sets none" "no" "$(logged 'human password')"
 reset
-out="$(WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "ctrl-p|owner" "|YES" "|EXIT" "|ABORT")"
-check "Ctrl-P does the same, and offers the clipboard where wl-copy can reach it" "a-new-password" \
+out="$(WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "|owner" "|Sign in" "|YES" "|EXIT" "|ABORT")"
+check "Sign in offers the clipboard where wl-copy can reach it" "a-new-password" \
     "$(cat "$STATE/clipboard" 2>&1)"
 check_lacks "  the password never reaches wl-copy's arguments" "a-new-password" "$(grep -F 'wl-copy' "$LOG")"
 check "  and served to one paste only" "yes" "$(logged 'wl-copy --paste-once')"
@@ -1031,12 +1033,12 @@ copy_call="$(awk '/Copy the password\?/ { on = 1 } on { print } on && /--bind=q:
 check_has "  the copy question is asked" "Yes, copy the password" "$(cat "$TEST_FZF_RAW")"
 check_lacks "  with Yes, not Exit, as the default" "start:last" "$copy_call"
 reset
-out="$(TEST_ENABLED_EXTENSIONS="['clipboard-indicator@tudmotu.com']" WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "ctrl-p|owner" "|EXIT" "|ABORT")"
+out="$(TEST_ENABLED_EXTENSIONS="['clipboard-indicator@tudmotu.com']" WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "|owner" "|Sign in" "|EXIT" "|ABORT")"
 check "with Clipboard Indicator on, the clipboard is not offered" "no" "$(logged 'wl-copy')"
 check_has "  and the person is told why" "the Clipboard Indicator extension is on" "$out"
 check_lacks "  and never that it is on the clipboard" "The password is on the clipboard" "$out"
 reset
-out="$(TEST_WLCOPY_FAIL=1 WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "ctrl-p|owner" "|YES" "|EXIT" "|ABORT")"
+out="$(TEST_WLCOPY_FAIL=1 WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "|owner" "|Sign in" "|YES" "|EXIT" "|ABORT")"
 check_has "a failed wl-copy says the password is not on the clipboard" "not on the clipboard" "$out"
 check_lacks "  and never that it is" "The password is on the clipboard." "$out"
 reset
@@ -1044,21 +1046,17 @@ rm -f "$STATE/sudo-cached"
 out="$(TEST_SUDO_RULE=1 TEST_SUDO_REFUSE=1 run_picker "$OUTSIDE" "|owner" "|Sign in" "|ABORT")"
 check "a password needs sudo; refused, none is set" "no" "$(logged 'agent-bus human password')"
 check_has "  saying so" "No password was set for owner." "$out"
-reset
-out="$(run_picker "$OUTSIDE" "ctrl-p|ccy-proj" "|ABORT")"
-check_has "Ctrl-P on a row whose menu has no password does nothing, saying so" "That key does nothing on this row" "$out"
 
 echo "== help and repositories"
 reset
-out="$(run_picker "$OUTSIDE" "?|port 6167" "|ABORT")"
-check_has "? shows every key, explained" "Ctrl-U" "$out"
-check_has "  and the APPLIED words" "decide: absent" "$out"
-check_has "  and the status words" "need sudo" "$out"
-reset
 out="$(run_picker "$OUTSIDE" "|port 6167" "|What the columns" "|ABORT")"
 check_has "Enter on a team lists its choices; the help is one of them" "Colours:" "$out"
-check_has "  with Element, a session, an update and taking the team down, each with its shortcut" \
-    "Take alpha down   (Ctrl-X)" "$(cat "$TEST_FZF_RAW")"
+check_has "  explaining the menu lines" "Update every team" "$out"
+check_has "  and that there are no shortcut keys" "There are no shortcut keys." "$out"
+check_has "  and the APPLIED words" "decide: absent" "$out"
+check_has "  and the status words" "need sudo" "$out"
+check_has "  with Element, a session, an update and taking the team down, in words" \
+    "Take alpha down" "$(cat "$TEST_FZF_RAW")"
 
 # ── applied or not (D65), apply and remove ──────────────────────────────────────────────
 echo "== backup and restore"

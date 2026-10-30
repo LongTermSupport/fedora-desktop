@@ -62,7 +62,7 @@ func TestAttachSessionAttachesALiveSessionByName(t *testing.T) {
 
 func TestAttachSeatRefusesWhatCannotBeAttached(t *testing.T) {
 	cases := map[string]string{
-		"dev":                 "Seat proj.dev+local.podman in alpha has no running session to attach. Ctrl-N starts one.\n",
+		"dev":                 "Seat proj.dev+local.podman in alpha has no running session to attach. Start a ccy session, on the row's menu, starts one.\n",
 		"proj.2+local.podman": "proj.2+local.podman is a ccy member whose checkout is not known here, so there is no session to attach.\n",
 	}
 	for member, want := range cases {
@@ -247,7 +247,7 @@ func TestNewSessionRefusals(t *testing.T) {
 
 // restoreQuestion is what turning seat 1's restore off asks (Plan 00177 Task 10.6).
 const restoreQuestion = "Turn restore off for seat 1@alpha? Its session, ccy-proj, will not come back after a reboot: " +
-	"it stays down until it is started by hand. Ctrl-R on the seat's row turns restore on again."
+	"it stays down until it is started by hand. Start its session again after a reboot, on the seat's menu, turns restore on again."
 
 // restoreRecord is whether session ccy-proj's record says it is started again after a reboot.
 func (h rig) restoreRecord(t *testing.T) bool {
@@ -362,7 +362,7 @@ func TestToggleRestoreOnARowWithNoSessionSaysSo(t *testing.T) {
 	if _, err := h.s.ToggleRestore(context.Background(), snap, h.row(t, snap, "proj.box+role.lxc")); err != nil {
 		t.Fatal(err)
 	}
-	want := "Ctrl-R changes whether a seat's ccy session comes back after a reboot, and this row has no session.\nPress Enter to go back to the list.\n"
+	want := "Restore after a reboot is whether a seat's ccy session comes back after a reboot, and this row has no session.\nPress Enter to go back to the list.\n"
 	if !strings.Contains(h.ErrOut.String(), want) {
 		t.Fatalf("stderr %q", h.ErrOut.String())
 	}

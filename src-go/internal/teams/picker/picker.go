@@ -157,8 +157,8 @@ func (p *Picker) pickerSession(ctx context.Context) error {
 	return (&run{p: p, frame: above}).loop(ctx)
 }
 
-// frame is what stays above the rows whichever row the cursor is on: where Ctrl-N would start a
-// session and what RESTORE means. It is built once; the column headings are each pass's.
+// frame is what stays above the rows whichever row the cursor is on: where a new session would
+// start and what RESTORE means. It is built once; the column headings are each pass's.
 // newRefusal is why no session can start in this folder, "" when one can: the header line and
 // every menu's start line are both drawn from it, so they never disagree.
 type frame struct {
@@ -177,7 +177,7 @@ func (r *run) header(footer, rest string) string {
 		rest = "This row: " + rest
 	}
 	return ui.Header(
-		"Enter lists what can be done to the row   Tab running sessions (the last row)   ? help   Esc or q quit",
+		"Enter lists what can be done to the row, help among it   Running sessions is the last row   Esc or q quit",
 		footer, rest, r.frame.newLine, r.frame.restoreLine, heading,
 	)
 }
@@ -199,10 +199,10 @@ func (p *Picker) pickerFrame(ctx context.Context) (frame, error) {
 	case !here.Host():
 		refusal = here.Refusal(p.Kit.Abbrev(here.Top))
 	default:
-		newLine = "Ctrl-N starts a new ccy session in the row's team, in " + p.Kit.Abbrev(here.Top)
+		newLine = "A new ccy session (Enter on a row) starts in the row's team, in " + p.Kit.Abbrev(here.Top)
 	}
 	if refusal != "" {
-		newLine = "Ctrl-N unavailable: " + refusal
+		newLine = "A new ccy session is unavailable: " + refusal
 	}
 	return frame{
 		newLine: newLine, newRefusal: refusal,
@@ -218,7 +218,7 @@ func (r *run) rowHeaders() []string {
 	for _, row := range r.snap.Rows {
 		headers = append(headers, r.header(r.footerFor(row), r.table.Rest(row)))
 	}
-	return append(headers, r.header("This row: Enter or Tab shows the running sessions, and what can be done to each", ""))
+	return append(headers, r.header("This row: Enter shows the running sessions, and what can be done to each", ""))
 }
 
 // listHeading is the teams list's heading: how many teams there are, and which are not up.
@@ -286,7 +286,6 @@ func (r *run) listPass(ctx context.Context) error {
 		StartRow: r.startRow,
 	})
 	r.startRow = 0
-	var notOffered *ui.NotOfferedError
 	switch {
 	case errors.Is(err, ui.ErrLeave):
 		if err = p.Kit.Interrupted(ctx); err != nil {
@@ -298,10 +297,6 @@ func (r *run) listPass(ctx context.Context) error {
 		if err = p.Kit.Interrupted(ctx); err != nil {
 			return err
 		}
-		return r.count(flow.Done)
-	case errors.As(err, &notOffered):
-		p.Kit.Tell(nothingOnThisRow)
-		p.Kit.BackToList(ctx)
 		return r.count(flow.Done)
 	case err != nil:
 		return err

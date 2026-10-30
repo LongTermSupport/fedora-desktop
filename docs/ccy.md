@@ -439,7 +439,7 @@ twice running. It also stops when the time runs out.
 | Machine not opted in                      | Nothing runs. Records are still written and removed as sessions end; one left by a killed session stays until that name is reused |
 
 `ccy --no-restore` marks a one-off session as not worth bringing back; for a session in an
-agent team, `ccy-teams` (Ctrl-R) turns that mark off or on while it runs. `ccy-sessions restore --dry-run` prints what a restore would start and starts nothing.
+agent team, `ccy-teams` (the seat's menu) turns that mark off or on while it runs. `ccy-sessions restore --dry-run` prints what a restore would start and starts nothing.
 
 ### Warning sessions before a reboot
 
