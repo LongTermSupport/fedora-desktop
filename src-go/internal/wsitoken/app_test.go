@@ -149,7 +149,8 @@ func TestK1AnUnreadableAutoSettingFailsBeforeAnyTokenIsRead(t *testing.T) {
 	k := newKit(t)
 	k.run.On([]string{filepath.Join(k.bin, "wsi-setting"), "claude-token-auto"}, execx.Result{ExitCode: 1})
 	k.want(k.exec(), term.ExitFailure, "")
-	k.wantStderr("wsi-claude-token: cannot read the claude-token-auto setting (re-run play-speech-to-text.yml)")
+	k.wantStderr("wsi-claude-token: cannot read the claude-token-auto setting (" +
+		filepath.Join(k.bin, "wsi-setting") + " exited 1; re-run play-speech-to-text.yml)")
 }
 
 func TestK1AnAutoSettingThatIsNotABooleanFails(t *testing.T) {
@@ -174,7 +175,8 @@ func TestK2AnUnreadableNamedTokenSettingFails(t *testing.T) {
 	k.auto(false)
 	k.run.On([]string{filepath.Join(k.bin, "wsi-setting"), "claude-token"}, execx.Result{ExitCode: 1})
 	k.want(k.exec(), term.ExitFailure, "")
-	k.wantStderr("cannot read the claude-token setting (re-run play-speech-to-text.yml)")
+	k.wantStderr("cannot read the claude-token setting (" + filepath.Join(k.bin, "wsi-setting") +
+		" exited 1; re-run play-speech-to-text.yml)")
 }
 
 // K3

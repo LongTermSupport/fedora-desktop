@@ -167,6 +167,16 @@ func TestP5AClaudeFailureSaysWhyAndSavesNothing(t *testing.T) {
 	}
 	k.wantStderr("Claude post-processing failed: exit 3, no output")
 	k.noResult()
+
+	// A helper that cannot start has no exit code: its error is the reason.
+	k = newKit(t)
+	k.last("Hello world")
+	k.run.OnError([]string{filepath.Join(k.bin, "wsi-claude-process")}, context.DeadlineExceeded)
+	if code := k.exec("--style", "natural"); code != term.ExitFailure {
+		t.Fatalf("exit %d", code)
+	}
+	k.wantStderr("Claude post-processing failed: context deadline exceeded")
+	k.noResult()
 }
 
 func TestP6AWrongCommandLineIsAUsageErrorThatRunsNothing(t *testing.T) {

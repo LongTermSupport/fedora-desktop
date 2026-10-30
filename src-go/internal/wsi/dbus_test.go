@@ -105,7 +105,7 @@ func TestW10NotificationsReplaceTheLastAndCanBeTurnedOff(t *testing.T) {
 	p.noNotify = false
 	f.On([]string{"gdbus", "call"}, execx.Result{ExitCode: 1})
 	p.notify(ctx, "refused", "x", 1)
-	if !strings.Contains(l.errb.String(), "[DEBUG] Desktop notification was not accepted (gdbus call failed)") || p.notifID != "7" {
+	if !strings.Contains(l.errb.String(), "[DEBUG] Desktop notification was not accepted (gdbus call failed: gdbus exited 1)") || p.notifID != "7" {
 		t.Fatalf("stderr %q, id %s", l.errb.String(), p.notifID)
 	}
 }

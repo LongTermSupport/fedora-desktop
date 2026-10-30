@@ -5,8 +5,9 @@
 // What it does, numbered as its tests are:
 //
 //   - K1. The `claude-token-auto` setting is read through `<dir>/wsi-setting` (dir: this
-//     binary's). Anything but `true` or `false`, or a failed read: `cannot read the
-//     claude-token-auto setting (re-run play-speech-to-text.yml)`, exit 1.
+//     binary's). Anything but `true` or `false`: `cannot read the claude-token-auto setting
+//     (re-run play-speech-to-text.yml)`; a failed read says the read's error before the `;`
+//     (`(<error>; re-run ...)`), and the same for the `claude-token` setting; exit 1.
 //   - K2. Off: the `claude-token` setting names the token. Empty is the desktop login: nothing
 //     on stdout, exit 0.
 //   - K3. Off, a name: the newest file NAME.YYYY-MM-DD.token in ~/.claude-tokens/ccy/tokens
@@ -139,7 +140,11 @@ func (a App) Run(ctx context.Context, args []string) term.ExitCode {
 
 func (a App) choose(ctx context.Context) (string, error) {
 	auto, err := a.setting(ctx, "claude-token-auto")
-	if err != nil || (auto != "true" && auto != "false") {
+	if err != nil {
+		a.say("cannot read the claude-token-auto setting (" + err.Error() + "; re-run play-speech-to-text.yml)")
+		return "", errFailed
+	}
+	if auto != "true" && auto != "false" {
 		a.say("cannot read the claude-token-auto setting (re-run play-speech-to-text.yml)")
 		return "", errFailed
 	}
@@ -154,7 +159,7 @@ func (a App) named(ctx context.Context) (string, error) {
 	name, err := a.setting(ctx, "claude-token")
 	switch {
 	case err != nil:
-		a.say("cannot read the claude-token setting (re-run play-speech-to-text.yml)")
+		a.say("cannot read the claude-token setting (" + err.Error() + "; re-run play-speech-to-text.yml)")
 		return "", errFailed
 	case name == "":
 		a.info("using the desktop login (claude-token is empty)")

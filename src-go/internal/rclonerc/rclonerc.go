@@ -121,7 +121,11 @@ func (c *Client) AddrForMount(ctx context.Context, path string) (string, error) 
 	}
 	res, err := c.Runner.Run(ctx, execx.Cmd{Name: "findmnt", Args: []string{"-n", "-o", "TARGET", "--target", path}})
 	if err != nil {
-		return "", fmt.Errorf("%s is not inside any mount", path)
+		// findmnt exits 1 for a path no mount holds; any other failure is its own cause.
+		if exitErr, ok := errors.AsType[*execx.ExitError](err); ok && exitErr.Code == 1 && exitErr.Signal == 0 {
+			return "", fmt.Errorf("%s is not inside any mount", path)
+		}
+		return "", fmt.Errorf("findmnt --target %s: %w", path, err)
 	}
 	root := string(res.Stdout)
 	if i := strings.IndexByte(root, '\n'); i >= 0 {

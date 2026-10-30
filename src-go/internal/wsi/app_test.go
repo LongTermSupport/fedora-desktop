@@ -341,7 +341,7 @@ func TestW14ResolverAndSettingFailures(t *testing.T) {
 	if code := k.exec(); code != 1 {
 		t.Fatalf("exit %d", code)
 	}
-	k.wantStderr("Cannot read the language setting (" + filepath.Join(k.bin, "wsi-setting") + " failed; reason above)")
+	k.wantStderr("Cannot read the language setting (" + filepath.Join(k.bin, "wsi-setting") + " exited 1; reason above)")
 }
 
 func TestW19AnEmptyRecordingIsAnError(t *testing.T) {
@@ -369,7 +369,7 @@ func TestW20AudioToolFailures(t *testing.T) {
 	if code := k.exec(); code != 0 {
 		t.Fatalf("a soxi failure is a problem only: exit %d", code)
 	}
-	k.wantStderr("[ERROR] Could not read the audio duration (soxi): bad header")
+	k.wantStderr("[ERROR] Could not read the audio duration (soxi): soxi exited 1: bad header")
 	k.wantStderr("[ERROR]   Skipping the minimum-length pad; transcription may reject short audio.")
 
 	k = newKit(t)

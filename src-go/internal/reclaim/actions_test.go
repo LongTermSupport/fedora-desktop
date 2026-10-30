@@ -329,7 +329,7 @@ func TestJournal(t *testing.T) {
 	w.answer([]string{"journalctl", "--vacuum-size=500M"}, "", 1)
 	w.typed("5", "", "y", "q")
 	wantCode(t, w.run(), term.ExitFailure)
-	w.wantErr("  journalctl --vacuum-size reported an error.")
+	w.wantErr("  journalctl --vacuum-size reported an error (sudo exited 1).")
 }
 
 // E22: podman shown and pruned on a yes; docker pruned as the user (B4).
@@ -409,7 +409,7 @@ func TestContainersDeclined(t *testing.T) {
 	w.answer([]string{"docker", "image", "prune", "-af"}, "", 1)
 	w.typed("6", "n", "y", "q")
 	wantCode(t, w.run(), term.ExitFailure)
-	w.wantErr("  docker image prune -a reported an error.")
+	w.wantErr("  docker image prune -a reported an error (docker exited 1).")
 }
 
 // E22: podman wedged is shown with the repair hint and is not a failure; docker unusable skips.
@@ -422,7 +422,7 @@ func TestContainersUnreachable(t *testing.T) {
 	wantCode(t, w.run(), term.ExitOK)
 	w.wantErr("  Cannot query podman — skipping podman prune. Reason:", "    Error: stale temp dir in storage",
 		"ansible-playbook CLAUDE/Plan/00062-disk-reclaim-tui/podman-store-repair.yml",
-		"  docker is installed but not usable (daemon down, or not in the docker group) — skipping.")
+		"  docker is installed but not usable (daemon down, or not in the docker group) — skipping (docker exited 1).")
 	if w.ran("podman system prune") || w.ran("docker system prune") {
 		t.Error("pruned an engine that could not be read")
 	}
@@ -431,13 +431,21 @@ func TestContainersUnreachable(t *testing.T) {
 		t.Error("podman unshare run for a failure that was not a refused permission")
 	}
 
+	// A df that fails printing nothing is reasoned by its error.
+	w = newWorld(t)
+	w.install("podman")
+	w.answer([]string{"podman", "system", "df"}, "", 125)
+	w.typed("6", "q")
+	wantCode(t, w.run(), term.ExitOK)
+	w.wantErr("  Cannot query podman — skipping podman prune. Reason:", "    podman exited 125")
+
 	w = newWorld(t)
 	w.install("podman")
 	w.answer([]string{"podman", "system", "df"}, "x\n", 0)
 	w.answer([]string{"podman", "system", "prune"}, "", 1)
 	w.typed("6", "y", "q")
 	wantCode(t, w.run(), term.ExitFailure)
-	w.wantErr("  podman system prune reported an error.")
+	w.wantErr("  podman system prune reported an error (podman exited 1).")
 }
 
 // E22: a podman system df refused permission is read again under podman unshare, the refusal
@@ -484,7 +492,7 @@ func TestFlatpak(t *testing.T) {
 	w.answer([]string{"flatpak", "uninstall", "--unused", "-y"}, "", 0)
 	w.typed("7", "y", "q")
 	wantCode(t, w.run(), term.ExitOK)
-	w.wantErr("org.Runtime", "  (nothing unused, or preview unavailable)", "  Unused runtimes removed.")
+	w.wantErr("org.Runtime", "  (nothing unused, or preview unavailable: flatpak exited 1)", "  Unused runtimes removed.")
 }
 
 // E24: ~/.cache emptied, the directory kept.

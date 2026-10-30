@@ -23,8 +23,8 @@ type engine struct {
 	// unused is the default-no question of removing every image no container uses, tagged
 	// ones included, asked after prune and never in the safe sweep; false when it failed.
 	unused func(r *run, ctx context.Context) bool
-	// unread is said when df fails, given what df printed.
-	unread func(r *run, out string)
+	// unread is said when df fails, given what df printed and its error.
+	unread func(r *run, out string, err error)
 	// partial, when set, replaces unread when df was still refused permission: what can be read
 	// without df shown, and what is safe to prune offered (every unused image only with
 	// everything); false when a prune failed.
@@ -40,8 +40,11 @@ var podmanEngine = engine{
 	pruned:   "  Podman pruned.",
 	unused:   (*run).podmanUnused,
 	partial:  (*run).podmanPartialPrune,
-	unread: func(r *run, out string) {
+	unread: func(r *run, out string, err error) {
 		r.warn("  Cannot query podman — skipping podman prune. Reason:")
+		if out == "" {
+			out = err.Error()
+		}
 		r.show(out)
 		if strings.Contains(out, "stale temp dir") {
 			r.warn("  Your rootless podman store is wedged by stale temp dirs")
@@ -65,8 +68,9 @@ var dockerEngine = engine{
 		" no volume and no tagged image",
 	pruned: "  Docker pruned.",
 	unused: (*run).dockerUnused,
-	unread: func(r *run, _ string) {
-		r.dimLine("  docker is installed but not usable (daemon down, or not in the docker group) — skipping.")
+	unread: func(r *run, _ string, err error) {
+		r.dimLine("  docker is installed but not usable (daemon down, or not in the docker group) — skipping (" +
+			err.Error() + ").")
 	},
 }
 
@@ -79,7 +83,7 @@ func (r *run) dockerUnused(ctx context.Context) bool {
 		return true
 	}
 	if err := r.stream(finished(ctx), dockerUnusedPrune); err != nil {
-		r.errLine("  docker image prune -a reported an error.")
+		r.errLine("  docker image prune -a reported an error (" + err.Error() + ").")
 		return false
 	}
 	r.okLine("  Unused docker images removed.")
@@ -138,14 +142,14 @@ func (r *run) pruneEngine(ctx context.Context, e engine, everything bool) bool {
 		if e.partial != nil && refusedPermission(out) {
 			return e.partial(r, ctx, out, everything)
 		}
-		e.unread(r, out)
+		e.unread(r, out, err)
 		return true
 	}
 	r.info("  " + e.title + " storage usage:")
 	r.show(out)
 	if r.confirm(ctx, e.question+" ("+e.prune.Line()+")?") {
 		if err := r.stream(finished(ctx), e.prune); err != nil {
-			r.errLine("  " + e.name + " system prune reported an error.")
+			r.errLine("  " + e.name + " system prune reported an error (" + err.Error() + ").")
 			return false
 		}
 		r.okLine(e.pruned)
