@@ -918,28 +918,28 @@
     # reloaded when its files changed; only then, since a reload makes the panel flicker.
     - name: Note Whether A Running Shell Needs The Extension Reloaded
       ansible.builtin.set_fact:
-        extension_reload: "{{ extension_enabled.rc == 0 and (extension_copy.changed or schema_copy.changed or schema_override.changed) }}"
+        extension_files_changed: "{{ extension_copy.changed or schema_copy.changed or schema_override.changed }}"
 
     - name: Disable Extension (to force reload)
       become: true
       become_user: "{{ user_login }}"
       ansible.builtin.command:
         cmd: gnome-extensions disable {{ extension_name }}
-      when: extension_reload | bool
+      when: extension_enabled.rc == 0 and extension_files_changed | bool
       changed_when: true
 
     # PAUSE-OK: a fixed 2 s wait for the extension to unload; asks nothing
     - name: Wait for Extension to Unload
       ansible.builtin.pause:
         seconds: 2
-      when: extension_reload | bool
+      when: extension_enabled.rc == 0 and extension_files_changed | bool
 
     - name: Enable Extension Again in the Running Shell
       become: true
       become_user: "{{ user_login }}"
       ansible.builtin.command:
         cmd: gnome-extensions enable {{ extension_name }}
-      when: extension_reload | bool
+      when: extension_enabled.rc == 0 and extension_files_changed | bool
       changed_when: true
 
   handlers:
