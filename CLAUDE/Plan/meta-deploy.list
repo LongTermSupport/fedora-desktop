@@ -33,18 +33,10 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plan 00177 Task 14.1: ccy-teams has no shortcut keys; every action is a line of the menu
-# Enter opens on a row. play-claude-yolo builds ccy-teams; CCY and the image are unchanged
-# since the last run, so no image rebuild:
-playbooks/imports/play-claude-yolo.yml
-
-# Plan 00192 Task 3.16 check H6: play-ftp-camera a second time, unattended. The first run
-# (2026-10-30) generated and saved the hotspot password; this one must ask nothing and leave
-# the vault block in localhost.yml unchanged, with no password in the output:
-playbooks/imports/optional/common/play-ftp-camera.yml
-
-# Plan 00235 Task 4.7d: the old-range triage again, then the DRY RUN of the decisions file the
-# host agent wrote with the owner (untracked/plan-00235/old-range-decisions.tsv: remove 33
-# images and 8 empty volumes; re-own 4 images, 2 orphan layers and the postgres volume). It
-# changes nothing; the host agent reads it, and old-range-apply.bash is queued after its OK.
-00235-podman-images-cleaned-up-automatically/old-range.bash
+# Plan 00235 Task 4.7d: APPLY the old-range decisions (CHANGES THE STORE). The dry run at
+# 784e4dace matched untracked/plan-00235/old-range-decisions.tsv exactly, and the owner approved
+# that list (remove 33 images no container uses and 8 empty volumes; re-own 4 images, 2 orphan
+# layers and the browser-overlay postgres volume). It runs play-podman.yml with the file: re-own
+# and remove behind the busy guard, the repair, then the probe; a clean store gets its marker,
+# the daily prune timer and the first prune. Anything left holds the timer off and fails it.
+00235-podman-images-cleaned-up-automatically/old-range-apply.bash

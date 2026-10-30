@@ -428,6 +428,8 @@ are Phase 12. [Full text](DONE-phases.md#phase-11-findings-of-the-host-run-of-26
   `scripts/test-ccy-teams-command.bash` now refuses a key fzf would not hand back. Deployed by
   `play-claude-yolo.yml`. Report:
   [subagent-reports/261030-no-shortcut-keys.md](subagent-reports/261030-no-shortcut-keys.md).
+  Deployed at 784e4dace (2026-10-30): on the host the footer reads "↑↓ choose  Enter lists
+  what can be done to the row  Esc or q quit", and Enter on a team row opens its menu.
 
 ## Success Criteria
 

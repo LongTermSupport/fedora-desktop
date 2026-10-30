@@ -478,7 +478,10 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   `tasks/ask-and-save-secret.yml` now shares; a saved one is kept, and an unattended run no
   longer stops. `ftp-camera` shows the hotspot's network name and password in the camera
   settings, read from the NetworkManager profile (as the user, then root). SPEC-ftp-camera
-  E67, E68; the code and tests are on the branch. Left: the host checks H6, H7.
+  E67, E68; the code and tests are on the branch. H6 PASSED on the host (2026-10-30): the
+  password was made and vaulted unattended on the 10-29 run, and the second run at 784e4dace
+  asked nothing, left the vault block byte-identical (by sha256) and printed no password.
+  Left: H7, the owner's look with the camera (`ftp-camera --hotspot`).
 
 - [x] ✅ **Task 3.17**: FOLLOW-UP of a cut run (host, 2026-10-30): a run that dies with its
   guest still defined (the host powered off mid-run) leaves the libvirt domain behind, and
