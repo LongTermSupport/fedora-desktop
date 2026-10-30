@@ -140,6 +140,6 @@ func TestPruneRemovalFailureGoesOn(t *testing.T) {
 	k.fake.On([]string{"sudo", "-n", "rm", "-f", filepath.Join(k.upload, "photos/2026/10/14/RAW/B.ARW")}, execx.Result{ExitCode: 1})
 	k.stdin = "Y\n"
 	k.wantCode(k.run("--prune"), term.ExitOK)
-	k.wantErr("  failed  photos/2026/10/14/RAW/B.ARW\n")
+	k.wantErr("  failed  photos/2026/10/14/RAW/B.ARW  (sudo exited 1)\n")
 	k.wantOut("Prune complete: 1 of 2 files removed")
 }

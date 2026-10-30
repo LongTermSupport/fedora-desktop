@@ -84,6 +84,39 @@ func TestCameraAccountMissing(t *testing.T) {
 	}
 }
 
+// E7, E64: a lookup that fails for another reason says why, not that the account is missing.
+func TestCameraAccountLookupFails(t *testing.T) {
+	k := newKit(t)
+	k.fake.On([]string{"getent", "passwd", "camera"}, execx.Result{Stderr: []byte("getent: cannot open database\n"), ExitCode: 1})
+	k.wantCode(k.run("--sort"), term.ExitFailure)
+	k.wantErr("ERROR: could not look up the 'camera' user: getent exited 1: getent: cannot open database\n")
+	if strings.Contains(k.err.String(), "not found") {
+		t.Errorf("a failed lookup guessed a missing account: %q", k.err.String())
+	}
+}
+
+// E64: a failure no step printed is printed once by the dispatch; one already printed is not
+// printed again.
+func TestReportPrintsOnlyWhatWasNotPrinted(t *testing.T) {
+	k := newKit(t)
+	c := newCLI(k.app().Env)
+	c.report(errors.New("rm -f x: sudo exited 1"))
+	c.report(errFailed)
+	c.report(&printed{cause: errors.New("sudo: not ready")})
+	if got := k.err.String(); got != "ERROR: rm -f x: sudo exited 1\n" {
+		t.Errorf("stderr %q", got)
+	}
+	if !errors.Is(&printed{cause: errors.New("x")}, errFailed) {
+		t.Error("printed is not errFailed")
+	}
+	if got := unprinted(errors.New("exiftool exited 2")); got != ": exiftool exited 2" {
+		t.Errorf("unprinted %q", got)
+	}
+	if got := unprinted(errFailed); got != "" {
+		t.Errorf("unprinted of a printed failure %q", got)
+	}
+}
+
 // E8: gum, three steps, the chosen flags carried into the run.
 func TestLauncherWithGum(t *testing.T) {
 	k := newKit(t)

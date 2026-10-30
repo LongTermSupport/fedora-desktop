@@ -2,6 +2,7 @@ package ftpcamera
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,6 +13,20 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
+
+// E61: an arrival whose completeness check failed says why, not that its type has no check.
+func TestScreenSaysWhyTheCheckFailed(t *testing.T) {
+	k := newKit(t)
+	s := &session{c: newCLI(k.app().Env)}
+	why := errors.New("exiftool exited 2: Error: cannot open")
+	if !s.screen(unverifiable, why, filepath.Join(k.upload, "X.ARW"), "X.ARW", "09:30:00") {
+		t.Fatal("an unverified arrival was kept out")
+	}
+	k.wantOut("  [09:30:00] unverified  X.ARW  (the completeness check failed: exiftool exited 2: Error: cannot open)\n")
+	if strings.Contains(k.out.String(), "no completeness check for this type") {
+		t.Errorf("a failed check was called a missing one: %q", k.out.String())
+	}
+}
 
 func okUpload(name string, bytes int, rate string) string {
 	return `Thu Oct 15 09:31:03 2026 [pid 3] [camera] OK UPLOAD: Client "::ffff:192.0.2.30", "/` + name + `", ` +
@@ -198,8 +213,8 @@ func TestAsyncCopyMountGone(t *testing.T) {
 	k.fake.On([]string{"rclone-tail"}, execx.Result{ExitCode: 1})
 	ctx := interruptAt(k)
 	k.wantCode(k.runCtx(ctx, "--async-copy"), term.ExitOK)
-	k.wantErr("    " + remoteDest(k) + " is no longer served by an rclone mount\n")
-	k.wantOut("  could not read upload status — no matching mount, or the rclone RC is unreachable\n")
+	k.wantErr("    " + remoteDest(k) + " is no longer served by an rclone mount: findmnt exited 1\n")
+	k.wantOut("  could not read upload status: rclone-tail exited 1\n")
 }
 
 // E42: the mount must be there before vsftpd starts; no async summary when the counters never

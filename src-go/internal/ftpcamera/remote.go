@@ -3,6 +3,7 @@ package ftpcamera
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"path/filepath"
@@ -59,11 +60,19 @@ func splitRemote(remote string) (string, string) {
 // text is the explanation to print after "ERROR: ".
 func (c *cli) mountPath(ctx context.Context, remote string) (string, error) {
 	name, path := splitRemote(remote)
-	target, source := c.findMount(ctx, name)
+	found, err := c.findMount(ctx, name)
+	if err != nil {
+		return "", advise("could not list the rclone mounts: %v", err)
+	}
+	target, source := found.target, found.source
 	if target == "" {
+		var why strings.Builder
+		for _, u := range found.unread {
+			why.WriteString("\n  " + u)
+		}
 		return "", advise("No rclone mount found for remote '%s'\n"+
 			"  Is rclone-%s.service running?\n"+
-			"  Start it: systemctl --user start rclone-%s", name, name, name)
+			"  Start it: systemctl --user start rclone-%s%s", name, name, name, why.String())
 	}
 	srcPath := strings.SplitN(source, ":", 2)
 	rel := strings.TrimPrefix(strings.TrimPrefix(path, srcPath[len(srcPath)-1]), "/")
@@ -73,25 +82,52 @@ func (c *cli) mountPath(ctx context.Context, remote string) (string, error) {
 	return target + "/" + rel, nil
 }
 
-// findMount is the first rclone mount whose source is the named remote, and that source.
-func (c *cli) findMount(ctx context.Context, name string) (string, string) {
+// findmntNone is findmnt's exit status when no file system matches.
+const findmntNone = 1
+
+// howEnded is how a failed command ended (its exit code or signal, or why it did not run),
+// without its output.
+func howEnded(err error) string {
+	if exitErr, ok := errors.AsType[*execx.ExitError](err); ok {
+		bare := *exitErr
+		bare.Stderr = ""
+		return bare.Error()
+	}
+	return err.Error()
+}
+
+// foundMount is what findMount found: the mount and its source, or, when there is none, why
+// each mount passed over could not be read.
+type foundMount struct {
+	target, source string
+	unread         []string
+}
+
+// findMount is the first rclone mount whose source is the named remote. The error is a
+// listing that failed.
+func (c *cli) findMount(ctx context.Context, name string) (foundMount, error) {
+	var found foundMount
 	res, err := c.env.Runner.Run(ctx, execx.Cmd{Name: findmntBin, Args: []string{"-n", "-o", "TARGET", "-t", "fuse.rclone"}})
 	if err != nil {
-		return "", ""
+		if exitErr, ok := errors.AsType[*execx.ExitError](err); ok && exitErr.Code == findmntNone {
+			return found, nil
+		}
+		return found, err
 	}
 	for mnt := range strings.SplitSeq(string(res.Stdout), "\n") {
 		if mnt == "" {
 			continue
 		}
-		src, err := c.env.Runner.Run(ctx, execx.Cmd{Name: findmntBin, Args: []string{"-n", "-o", "SOURCE", mnt}})
-		if err != nil {
+		src, srcErr := c.env.Runner.Run(ctx, execx.Cmd{Name: findmntBin, Args: []string{"-n", "-o", "SOURCE", mnt}})
+		if srcErr != nil {
+			found.unread = append(found.unread, fmt.Sprintf("could not read the source of %s: %v", mnt, srcErr))
 			continue
 		}
 		if source := strings.TrimSpace(string(src.Stdout)); strings.HasPrefix(source, name+":") {
-			return mnt, source
+			return foundMount{target: mnt, source: source}, nil
 		}
 	}
-	return "", ""
+	return found, nil
 }
 
 // push ships the upload tree to the remote with rclone copy (E29).
@@ -216,7 +252,7 @@ func (c *cli) copyToMount(ctx context.Context) error {
 	}
 	cp := execx.Cmd{Name: "cp", Args: []string{"-r", c.upload + "/.", t.dest + "/"}, Stdout: c.out.w, Stderr: c.err.w}
 	if _, err := c.env.Runner.Run(ctx, cp); err != nil {
-		return c.failErr("Failed to copy files to mount")
+		return c.failErr("Failed to copy files to mount: %v", err)
 	}
 	o.f("  %s%d files copied to mount.%s\n\n", o.g, count, o.n)
 	o.f("%sWaiting for uploads to complete (Ctrl+C to abort)...%s\n", o.b, o.n)
@@ -236,7 +272,7 @@ func (c *cli) verifyOnRemote(ctx context.Context, remote string, count int) erro
 	out, err := execx.Combined(ctx, c.env.Runner, execx.Cmd{Name: "rclone", Args: []string{"check", c.upload, remote, "--one-way"}})
 	if err != nil {
 		e := c.err
-		e.f("%sVerification failed:%s\n%s\n\n", e.r, e.n, strings.TrimRight(out, "\n"))
+		e.f("%sVerification failed: %s%s\n%s\n\n", e.r, howEnded(err), e.n, strings.TrimRight(out, "\n"))
 		e.f("%sSome files may not have reached Drive.%s\n", e.y, e.n)
 		e.f("Run %sftp-camera --push%s to push remaining files directly.\n", e.c, e.n)
 		return errFailed

@@ -171,7 +171,8 @@ func TestHotspotPasswordUnreadable(t *testing.T) {
 	k.fake.On(pskArgv("nmcli"), execx.Result{ExitCode: 1, Stderr: []byte("Error: not authorized\n")})
 	k.fake.On(pskArgv("sudo", "-n", "nmcli"), execx.Result{ExitCode: 4, Stderr: []byte("Error: no secrets\n")})
 	k.wantCode(k.run("--hotspot"), term.ExitFailure)
-	k.wantErr("ERROR: could not read the Wi-Fi password of hotspot 'Camera AP': ")
+	k.wantErr("ERROR: could not read the Wi-Fi password of hotspot 'Camera AP': ", "Error: no secrets",
+		"(as the user: nmcli exited 1: Error: not authorized)\n")
 	k.wantNotRan("sudo -n systemctl start")
 	k.wantRan("sudo -n nmcli connection down Camera AP")
 }

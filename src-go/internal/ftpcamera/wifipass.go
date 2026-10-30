@@ -117,15 +117,18 @@ func (c *cli) newHotspotPasswordMode() term.ExitCode {
 // gives nothing is it asked as root.
 func (c *cli) hotspotPassword(ctx context.Context, conn string) (string, error) {
 	args := []string{"-s", "-g", pskField, nmConn, nmShow, conn}
-	if res, err := c.env.Runner.Run(ctx, execx.Cmd{Name: nmcliBin, Args: args}); err == nil {
-		if pass := strings.TrimSpace(string(res.Stdout)); pass != "" {
-			return pass, nil
-		}
+	userRes, userErr := c.env.Runner.Run(ctx, execx.Cmd{Name: nmcliBin, Args: args})
+	if pass := strings.TrimSpace(string(userRes.Stdout)); userErr == nil && pass != "" {
+		return pass, nil
 	}
 	res, err := c.rootCapture(ctx, append([]string{nmcliBin}, args...)...)
 	if err != nil {
-		return "", c.failErr("could not read the Wi-Fi password of hotspot '%s': %v %s",
-			conn, err, strings.TrimSpace(string(res.Stderr)))
+		asUser := ""
+		if userErr != nil {
+			asUser = fmt.Sprintf(" (as the user: %v)", userErr)
+		}
+		return "", c.failErr("could not read the Wi-Fi password of hotspot '%s': %v %s%s",
+			conn, err, strings.TrimSpace(string(res.Stderr)), asUser)
 	}
 	return strings.TrimSpace(string(res.Stdout)), nil
 }

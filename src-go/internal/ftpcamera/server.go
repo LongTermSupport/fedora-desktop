@@ -68,6 +68,7 @@ func (c *cli) serve(ctx context.Context) term.ExitCode {
 	defer cancel()
 	code := s.run(ctx, bg)
 	if err := s.teardown(context.WithoutCancel(ctx)); err != nil {
+		c.report(err)
 		return term.ExitFailure
 	}
 	return code
@@ -78,6 +79,7 @@ func (s *session) run(ctx, bg context.Context) term.ExitCode {
 		if ctx.Err() != nil {
 			return term.ExitOK
 		}
+		s.c.report(err)
 		return term.ExitFailure
 	}
 	s.follow(bg)
@@ -615,7 +617,7 @@ func (s *session) report(bg context.Context, who string, err error) {
 func (s *session) tailLog(bg context.Context, handle func(string)) error {
 	c := s.c
 	if err := c.ready(bg); err != nil {
-		return errors.New("sudo is not ready")
+		return fmt.Errorf("sudo is not ready: %w", err)
 	}
 	tailCtx, stopTail := context.WithCancel(bg)
 	defer stopTail()

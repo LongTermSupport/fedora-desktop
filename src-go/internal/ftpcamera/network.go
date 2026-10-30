@@ -2,6 +2,7 @@ package ftpcamera
 
 import (
 	"context"
+	"errors"
 	"math"
 	"regexp"
 	"slices"
@@ -52,13 +53,14 @@ func (c *cli) detectHotspot(ctx context.Context) hotspotInfo {
 	}
 	active, err := c.connections(ctx, true)
 	if err != nil {
+		c.err.f("WARNING: could not list the active connections, so no hotspot is used: %v\n", err)
 		return hotspotInfo{}
 	}
 	conn := ""
 	for _, name := range active {
-		method, err := execx.Combined(ctx, c.env.Runner, execx.Cmd{Name: nmcliBin, Args: []string{"-g", "ipv4.method", nmConn, nmShow, name}})
-		if err != nil {
-			c.err.f("WARNING: could not read ipv4.method for '%s': %s\n", name, strings.TrimRight(method, "\n"))
+		method, methodErr := execx.Combined(ctx, c.env.Runner, execx.Cmd{Name: nmcliBin, Args: []string{"-g", "ipv4.method", nmConn, nmShow, name}})
+		if methodErr != nil {
+			c.err.f("WARNING: could not read ipv4.method for '%s': %v\n", name, methodErr)
 			continue
 		}
 		if strings.TrimSpace(method) == "shared" {
@@ -73,7 +75,11 @@ func (c *cli) detectHotspot(ctx context.Context) hotspotInfo {
 	if h.dev == "" {
 		return hotspotInfo{}
 	}
-	if h.ip = c.firstIPv4(ctx, h.dev); h.ip == "" {
+	if h.ip, err = c.firstIPv4(ctx, h.dev); err != nil {
+		c.err.f("WARNING: could not read the address of '%s', so no hotspot is used: %v\n", h.dev, err)
+		return hotspotInfo{}
+	}
+	if h.ip == "" {
 		return hotspotInfo{}
 	}
 	h.ssid = c.nmValue(ctx, "802-11-wireless.ssid", conn)
@@ -92,20 +98,20 @@ func (c *cli) nmValue(ctx context.Context, field, conn string) string {
 }
 
 // firstIPv4 is a device's first IPv4 address, "" when it has none.
-func (c *cli) firstIPv4(ctx context.Context, dev string) string {
+func (c *cli) firstIPv4(ctx context.Context, dev string) (string, error) {
 	res, err := c.env.Runner.Run(ctx, execx.Cmd{Name: "ip", Args: []string{"-4", "addr", nmShow, "dev", dev}})
 	if err != nil {
-		return ""
+		return "", err
 	}
 	for _, l := range lines(res.Stdout) {
 		if !strings.Contains(l, "inet ") {
 			continue
 		}
 		if f := strings.Fields(l); len(f) >= 2 {
-			return strings.SplitN(f[1], "/", 2)[0]
+			return strings.SplitN(f[1], "/", 2)[0], nil
 		}
 	}
-	return ""
+	return "", nil
 }
 
 // wifiDevice is the first WiFi device NetworkManager knows, "" when there is none.
@@ -179,13 +185,14 @@ func (c *cli) localIP(ctx context.Context, h hotspotInfo) (string, error) {
 		return h.ip, nil
 	}
 	res, err := c.env.Runner.Run(ctx, execx.Cmd{Name: "ip", Args: []string{"-4", "route", nmShow, "default"}})
+	if err != nil {
+		return "", c.failErr("could not read the default route: %v", err)
+	}
 	dev := ""
-	if err == nil {
-		if first := lines(res.Stdout); len(first) > 0 {
-			f := strings.Fields(first[0])
-			if i := slices.Index(f, "dev"); i >= 0 && i+1 < len(f) {
-				dev = f[i+1]
-			}
+	if first := lines(res.Stdout); len(first) > 0 {
+		f := strings.Fields(first[0])
+		if i := slices.Index(f, "dev"); i >= 0 && i+1 < len(f) {
+			dev = f[i+1]
 		}
 	}
 	if dev == "" {
@@ -195,7 +202,10 @@ func (c *cli) localIP(ctx context.Context, h hotspotInfo) (string, error) {
 		e.f("  settings (or via 'nmcli device wifi hotspot') and try again.\n")
 		return "", errFailed
 	}
-	ip := c.firstIPv4(ctx, dev)
+	ip, err := c.firstIPv4(ctx, dev)
+	if err != nil {
+		return "", c.failErr("could not read the IPv4 address of %s: %v", dev, err)
+	}
 	if ip == "" {
 		return "", c.failErr("%s has no IPv4 address", dev)
 	}
@@ -214,22 +224,24 @@ const (
 	apNo  = "no"
 )
 
-// apSupported is apYes, apNo or "" (unknown) for dev (E44): nmcli first, then iw.
-func (c *cli) apSupported(ctx context.Context, dev string) string {
-	if probe, err := execx.Combined(ctx, c.env.Runner, execx.Cmd{Name: nmcliBin, Args: []string{"-g", "WIFI-PROPERTIES.AP", "device", nmShow, dev}}); err == nil {
+// apSupported is apYes, apNo or "" (unknown) for dev (E44): nmcli first, then iw. When it is
+// unknown, the error is why each program that failed gave no answer.
+func (c *cli) apSupported(ctx context.Context, dev string) (string, error) {
+	probe, nmErr := execx.Combined(ctx, c.env.Runner, execx.Cmd{Name: nmcliBin, Args: []string{"-g", "WIFI-PROPERTIES.AP", "device", nmShow, dev}})
+	if nmErr == nil {
 		switch lower := strings.ToLower(probe); {
 		case strings.Contains(lower, apYes):
-			return apYes
+			return apYes, nil
 		case strings.Contains(lower, apNo):
-			return apNo
+			return apNo, nil
 		}
 	}
 	if !c.onPath("iw") {
-		return ""
+		return "", nmErr
 	}
 	probe, err := execx.Combined(ctx, c.env.Runner, execx.Cmd{Name: "iw", Args: []string{"list"}})
 	if err != nil {
-		return ""
+		return "", errors.Join(nmErr, err)
 	}
 	all := strings.Split(probe, "\n")
 	for i, l := range all {
@@ -237,10 +249,10 @@ func (c *cli) apSupported(ctx context.Context, dev string) string {
 			continue
 		}
 		if slices.ContainsFunc(all[i:min(i+ifaceModesWindow, len(all))], apWord.MatchString) {
-			return apYes
+			return apYes, nil
 		}
 	}
-	return apNo
+	return apNo, nil
 }
 
 // assertHotspotSupported refuses hardware that cannot be an access point (E44).
@@ -255,7 +267,8 @@ func (c *cli) assertHotspotSupported(ctx context.Context) error {
 		e.f("  This machine has no radio that could host an access point.\n")
 		return errFailed
 	}
-	switch c.apSupported(ctx, dev) {
+	answer, why := c.apSupported(ctx, dev)
+	switch answer {
 	case apYes:
 		e.f("%sHotspot capability: '%s' supports AP mode.%s\n", e.g, dev, e.n)
 	case apNo:
@@ -270,6 +283,11 @@ func (c *cli) assertHotspotSupported(ctx context.Context) error {
 		e.f("  Note: could not determine whether '%s' supports AP mode\n", dev)
 		e.f("  (neither nmcli nor iw gave a usable answer). Continuing —\n")
 		e.f("  if the hardware cannot do it, activation below will fail.\n")
+		if why != nil {
+			for line := range strings.SplitSeq(why.Error(), "\n") {
+				e.f("  %s\n", line)
+			}
+		}
 	}
 	e.f("%s  Note: a single-radio card cannot be WiFi client and AP at once,%s\n", e.y, e.n)
 	e.f("%s  so this laptop will likely drop its own internet while the%s\n", e.y, e.n)

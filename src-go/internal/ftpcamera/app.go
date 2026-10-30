@@ -128,6 +128,29 @@ func sleepContext(ctx context.Context, d time.Duration) error {
 // errFailed is a failure whose message has already been printed: exit 1.
 var errFailed = errors.New("failed")
 
+// printed is a failure whose message has already been printed, keeping its cause: it is
+// errFailed to errors.Is, and its text is the cause's.
+type printed struct{ cause error }
+
+func (p *printed) Error() string        { return p.cause.Error() }
+func (p *printed) Unwrap() error        { return p.cause }
+func (p *printed) Is(target error) bool { return target == errFailed }
+
+// report prints err as ERROR: <err> unless its message has already been printed (E64).
+func (c *cli) report(err error) {
+	if !errors.Is(err, errFailed) {
+		c.err.f("ERROR: %v\n", err)
+	}
+}
+
+// unprinted is ": <err>" for a message, or "" when err's message has already been printed.
+func unprinted(err error) string {
+	if errors.Is(err, errFailed) {
+		return ""
+	}
+	return ": " + err.Error()
+}
+
 // advice is a failure explained for the person who has to fix it, over several lines, printed
 // after "ERROR: " as written.
 type advice struct{ text string }
@@ -211,6 +234,7 @@ func (c *cli) run(ctx context.Context, args []string) term.ExitCode {
 	}
 	c.tun = tun
 	if err := c.findUploadDir(ctx); err != nil {
+		c.report(err)
 		return term.ExitFailure
 	}
 	if len(args) == 0 {
@@ -255,7 +279,7 @@ func (c *cli) ready(ctx context.Context) error {
 		return err
 	}
 	if err := c.root.Ready(ctx, rootWhy); err != nil {
-		return errFailed
+		return &printed{cause: err}
 	}
 	return nil
 }
@@ -305,15 +329,20 @@ func (c *cli) onPath(name string) bool {
 	return err == nil
 }
 
+// getentNotFound is getent's exit status for a key the database does not hold.
+const getentNotFound = 2
+
 // findUploadDir is the camera account's home (E7).
 func (c *cli) findUploadDir(ctx context.Context) error {
 	res, err := c.env.Runner.Run(ctx, execx.Cmd{Name: "getent", Args: []string{"passwd", "camera"}})
-	if err == nil {
-		fields := strings.Split(strings.TrimSpace(string(res.Stdout)), ":")
-		if len(fields) >= 6 && fields[5] != "" {
-			c.upload = fields[5]
-			return nil
+	if err != nil {
+		if exitErr, ok := errors.AsType[*execx.ExitError](err); !ok || exitErr.Code != getentNotFound {
+			return c.failErr("could not look up the 'camera' user: %v", err)
 		}
+	}
+	if fields := strings.Split(strings.TrimSpace(string(res.Stdout)), ":"); err == nil && len(fields) >= 6 && fields[5] != "" {
+		c.upload = fields[5]
+		return nil
 	}
 	c.err.f("ERROR: 'camera' user not found — run play-ftp-camera.yml first\n")
 	return errFailed
@@ -366,6 +395,7 @@ func (c *cli) dispatch(ctx context.Context) term.ExitCode {
 	case ctx.Err() != nil:
 		return term.ExitCancelled
 	default:
+		c.report(err)
 		return term.ExitFailure
 	}
 }

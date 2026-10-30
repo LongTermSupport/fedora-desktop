@@ -3,6 +3,7 @@ package ftpcamera
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -33,22 +34,27 @@ const jpegTail = 64
 
 var truncationWords = regexp.MustCompile(`(?i)truncat|premature|unexpected end|missing .*end of`)
 
-// completeness checks one file (E13-E16). onPath says whether a program is installed.
-func completeness(ctx context.Context, r execx.Runner, onPath func(string) bool, path string) verdict {
+// completeness checks one file (E13-E16). onPath says whether a program is installed. The
+// error is why a file that could not be read is truncated, or why a check that should have
+// judged it failed (unverifiable).
+func completeness(ctx context.Context, r execx.Runner, onPath func(string) bool, path string) (verdict, error) {
 	info, err := os.Stat(path)
-	if err != nil || info.Size() == 0 {
-		return truncated
+	if err != nil {
+		return truncated, err
+	}
+	if info.Size() == 0 {
+		return truncated, nil
 	}
 	switch strings.ToLower(strings.TrimPrefix(filepath.Ext(path), ".")) {
 	case extJPG, extJPEG:
-		return jpegComplete(path, info.Size())
+		return jpegComplete(path, info.Size()), nil
 	case extARW, "mp4", "mov":
 		if !onPath(exiftoolBin) {
-			return unverifiable
+			return unverifiable, nil
 		}
 		return exifComplete(ctx, r, path)
 	}
-	return unverifiable
+	return unverifiable, nil
 }
 
 func jpegComplete(path string, size int64) verdict {
@@ -79,19 +85,20 @@ func closeQuietly(f *os.File) {
 	}
 }
 
-func exifComplete(ctx context.Context, r execx.Runner, path string) verdict {
-	res, err := r.Run(ctx, execx.Cmd{Name: exiftoolBin, Args: []string{exifShort, "-a", "-FileSize#", "-StripOffsets", "-StripByteCounts", path}})
-	if err == nil && stripsPastEnd(string(res.Stdout)) {
-		return truncated
+// exifComplete is E15 and E16; the error is why exiftool could not judge an unverifiable file.
+func exifComplete(ctx context.Context, r execx.Runner, path string) (verdict, error) {
+	res, stripErr := r.Run(ctx, execx.Cmd{Name: exiftoolBin, Args: []string{exifShort, "-a", "-FileSize#", "-StripOffsets", "-StripByteCounts", path}})
+	if stripErr == nil && stripsPastEnd(string(res.Stdout)) {
+		return truncated, nil
 	}
 	out, err := execx.Combined(ctx, r, execx.Cmd{Name: exiftoolBin, Args: []string{"-validate", "-warning", "-error", "-a", exifShort, path}})
 	if err != nil {
-		return unverifiable
+		return unverifiable, errors.Join(stripErr, err)
 	}
 	if truncationWords.MatchString(out) {
-		return truncated
+		return truncated, nil
 	}
-	return complete
+	return complete, nil
 }
 
 // stripsPastEnd reads exiftool's file size, strip offsets and strip byte counts (E15): any
