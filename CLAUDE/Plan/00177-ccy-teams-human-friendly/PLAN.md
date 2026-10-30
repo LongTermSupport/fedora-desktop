@@ -418,6 +418,17 @@ are Phase 12. [Full text](DONE-phases.md#phase-11-findings-of-the-host-run-of-26
   then step 3 (team name); Ctrl-C there said nothing was changed, and `gh auth status` was
   identical before and after.
 
+### Phase 14: No shortcut keys (the owner's request)
+
+- [x] ✅ **Task 14.1**: The owner: "i dont want magic key comboes in ccy-teams - i want context
+  menu items when i hit return". Built: no ccy-teams screen takes a shortcut key (Ctrl-N, -P,
+  -E, -R, -X, -U, Tab, ? are gone; no `--expect` on its lists), every action is a line of the
+  menu Enter opens, the footer says what Enter on the row offers, and help is the menu line
+  "What the columns and the menu lines mean". The fake fzf of `teamtest` and of
+  `scripts/test-ccy-teams-command.bash` now refuses a key fzf would not hand back. Deployed by
+  `play-claude-yolo.yml`. Report:
+  [subagent-reports/261030-no-shortcut-keys.md](subagent-reports/261030-no-shortcut-keys.md).
+
 ## Success Criteria
 
 - [ ] On the host, `ccy-teams` with no teams offers to create one, and a refused or cancelled

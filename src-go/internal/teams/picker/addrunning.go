@@ -25,9 +25,9 @@ const addRunningCrumb = "Add a running session"
 func (r *run) addActions(row board.Row) []action {
 	switch {
 	case row.Kind == board.KindTeam:
-		return []action{{actAddRunning, "", "Add a running session to " + row.Team, "add a running session to " + row.Team}}
+		return []action{{actAddRunning, "Add a running session to " + row.Team, "add a running session to " + row.Team}}
 	case row.Kind == board.KindCcy && row.Record != "" && r.live(row.Record):
-		return []action{{actAddThis, "", "Add this session to another team", "add its session to another team"}}
+		return []action{{actAddThis, "Add this session to another team", "add its session to another team"}}
 	}
 	return nil
 }

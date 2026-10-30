@@ -301,7 +301,7 @@ func TestAddRefusesANewMemberWhenTheRosterIsFull(t *testing.T) {
 		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
 	}
 	wantLines(t, r.ErrOut.String(), "✓ team alpha: homeserver up, 64 of 64 agents",
-		"✗ seat 4: alpha has 64 agents, the most a team can have: park or remove a member first (ccy-teams, Ctrl-X on a member)")
+		"✗ seat 4: alpha has 64 agents, the most a team can have: park or remove a member first (ccy-teams, Enter on a member)")
 	if r.Fake.Called("agent-bus seat take") || r.desired(t).Generation != 1 {
 		t.Fatal("nothing is created or written for a full roster")
 	}

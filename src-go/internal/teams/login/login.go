@@ -88,7 +88,7 @@ func (l *Login) OpenEveryTeam(ctx context.Context, snap *board.Snapshot) (flow.R
 		case statErr == nil:
 			ready = append(ready, team)
 		case errors.Is(statErr, os.ErrNotExist):
-			l.Kit.Tell(team + " has no Element profile on this desktop yet: Open " + team + " in Element (Ctrl-E on its row) sets one up.")
+			l.Kit.Tell(team + " has no Element profile on this desktop yet: Open " + team + " in Element (on its row's menu) sets one up.")
 		default:
 			l.Kit.Term.PrintError("the Element launcher of " + team + " could not be looked for: " + statErr.Error())
 			return flow.Refused, flow.Leave(term.ExitFailure)

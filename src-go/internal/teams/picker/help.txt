@@ -2,11 +2,12 @@ Each team is a bold row: its homeserver (up, down, or not installed yet), its po
 APPLIED, whether it runs what the host_vars declare:
   up to date          as declared
   out of date: ...    the declaration (config), the bus software, or both changed since;
-                      Ctrl-U (or ccy-teams apply) brings it up to date
-  not built           declared, never installed: Ctrl-U builds it
+                      Update every team, on a team row's menu (or ccy-teams apply), brings
+                      it up to date
+  not built           declared, never installed: Update every team builds it
   decide: absent      declared absent but still running; decide: undeclared, running but
-                      no longer declared. Never updated in bulk: Ctrl-X on the team takes
-                      it down (its data kept unless you delete it)
+                      no longer declared. Never updated in bulk: Take <team> down, on the
+                      team's menu, takes it down (its data kept unless you delete it)
 Under it, its members and people:
   ccy      a seat of a ccy checkout: the session in it, and RESTORE, whether that
            session is started again after a reboot (yes or no)
@@ -20,26 +21,23 @@ the headings while the cursor is on it.
 A folder inside an LXC container's files (as the host sees them) is the container's
 checkout: no session is started there from the host; ccy-teams lxc-add adds its agent.
 
-Keys:
-  Enter    a menu of everything that can be done to the row, in words, each with its
-           shortcut beside it (Esc goes back to the list). The keys below are those
-           shortcuts, and each works only on a row whose menu has it: nothing needs a key
-  Ctrl-N   start a ccy session in a free or new seat of the team, in this folder
-  Ctrl-P   a new Element password for the person on the row (shown once). If they are
-           signed in to Element it asks first, saying how many sessions it signs out
-  Ctrl-E   open the team in Element; it starts apart, and you stay on the list. Each
-           team is its own Element window (each is its own Matrix server); Enter on a
-           team row has Open every team in Element, a window each
-  Ctrl-U   on a team row: update every team out of date or not built (never takes one
-           down)
-  Ctrl-R   restore after a reboot, on or off, for the seat's session (off after a
-           yes/no, default no)
-  Ctrl-X   remove a seat, park a member, or take a team down (after a yes/no; a
-           backup first, and the data kept unless you type the team's name)
-  Tab      the last row, Running sessions (below)
-  ?        this help          Esc or q   leave
+Enter on a row opens a menu of everything that can be done to it, in words; Esc goes back to
+the list, and Esc or q on the list leaves. There are no shortcut keys. Among the lines:
+  Start a ccy session      in a free or new seat of the team, in this folder
+  New password             a new Element password for the person on the row (shown once). If
+                           they are signed in to Element it asks first, saying how many
+                           sessions it signs out; one never signed in has Sign in instead
+  Open <team> in Element   it starts apart, and you stay on the list. Each team is its own
+                           Element window (each is its own Matrix server); a team row also
+                           has Open every team in Element, a window each
+  Update every team        on a team row: every team out of date or not built (never takes
+                           one down)
+  Restore after a reboot   on or off, for the seat's session (off after a yes/no, default no)
+  Remove, Park, Take down  a seat, a member, or a team (after a yes/no; a backup first, and
+                           the data kept unless you type the team's name)
+  Help                     this text: What the columns and the menu lines mean
 
-Running sessions, the last row of the teams (or Tab), lists every session ccy's tmux started
+Running sessions, the last row of the teams, lists every session ccy's tmux started
 (the ones ccy-sessions lists): its checkout, its teams (seat, and the role it was told) and
 its state. Its teams can be changed while it runs; nothing restarts, except a session started
 on no team, which relaunches once on its first join. A ccy run in a plain terminal is not
@@ -54,11 +52,11 @@ listed and cannot be changed. Enter on a session lists what can be done to it:
   Move to another team      the team it joins (with several teams: Move from <team>)
   Attach                    this terminal joins the session
   Repair                    only when its seat keeper has stopped (unguarded)
-"What this list shows" (or ?) is this help; "Back to the teams" (or Esc) goes back.
+"What this list shows" is this help; "Back to the teams" (or Esc) goes back.
 Each change is `ccy-teams session add|remove|move|role|repair`, run for you: it asks
 before it changes anything and prints each step (✓ done, ✗ failed, - already so).
 
-Add an LXC container's agent to <team> is in the menu of every row (Enter; it has no key).
+Add an LXC container's agent to <team> is in the menu of every row (Enter).
 It lists the host's running LXC containers and asks for the container, its user, the
 checkout inside it and the role (the handle comes from the checkout), shows a summary, writes the
 agent_bus_lxc_members entry for you and applies the team. It is the same as
@@ -95,7 +93,7 @@ folder limit: now, not now (asked again next time; Esc is the same), or never. A
 said never to has "Ask me to describe <team> again" (or "Ask me about <team>'s limit again")
 in its row's menu.
 
-Edit settings is in the menu of a team row (Enter; it has no key). One screen lists the team's
+Edit settings is in the menu of a team row (Enter). One screen lists the team's
 description, people, GitHub owner, repositories, excluded repositories, path limit, allowed
 networks and coordinator, each with its value. Choose one to change it; each value is checked
 as you type it. Save and apply shows what changes and what applying does, then writes the

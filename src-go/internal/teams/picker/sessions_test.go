@@ -96,10 +96,10 @@ func TestRunningSessionsIsAChoiceInTheTeamsList(t *testing.T) {
 	}
 	teams := untagged(h.Script.Rows[0])
 	if n := len(teams); n < 2 || teams[n-1] != "Exit" ||
-		teams[n-2] != "Running sessions: change a session's teams while it runs   (Tab)" {
+		teams[n-2] != "Running sessions: change a session's teams while it runs" {
 		t.Fatalf("the teams end with Running sessions, then Exit: %q", teams)
 	}
-	if !slices.Contains(h.argsOf(1), "--border-label= Running sessions ") || !slices.Contains(h.argsOf(1), "--expect=?") {
+	if !slices.Contains(h.argsOf(1), "--border-label= Running sessions ") {
 		t.Fatalf("args %q", h.argsOf(1))
 	}
 	if !slices.ContainsFunc(h.Script.Rows[1], func(r string) bool {
@@ -108,11 +108,11 @@ func TestRunningSessionsIsAChoiceInTheTeamsList(t *testing.T) {
 		t.Fatalf("rows %q", h.Script.Rows[1])
 	}
 	sessions := untagged(h.Script.Rows[1])
-	if n := len(sessions); sessions[n-1] != "Back to the teams" || sessions[n-2] != "What this list shows   (?)" {
+	if n := len(sessions); sessions[n-1] != "Back to the teams" || sessions[n-2] != "What this list shows" {
 		t.Fatalf("help and the way back are rows too: %q", sessions)
 	}
 	for _, want := range []string{
-		"Enter lists what can be done to the session   ? help   Esc back to the teams",
+		"Enter lists what can be done to the session   Esc back to the teams",
 		hot.OnlyTmuxLine, "SESSION ", "TEAMS (seat, role)",
 	} {
 		if !strings.Contains(h.HeaderOf(1), want) {
@@ -125,19 +125,35 @@ func TestRunningSessionsIsAChoiceInTheTeamsList(t *testing.T) {
 	h.wantRuns(t)
 }
 
-// Tab is the Running sessions row's shortcut, shown beside it and in the header; it is never
-// the only way there.
-func TestTabIsTheShortcutShownBesideRunningSessions(t *testing.T) {
+// The owner wants no key combinations in ccy-teams: every action is a line of the menu Enter
+// opens. No list hands a key back (no --expect), and a row's menu hands back only Esc then an
+// arrow, which leaves it; so a former shortcut such as Ctrl-N is left to fzf (a cursor move),
+// and no line is printed with a key beside it.
+func TestNoFormerShortcutKeyChoosesAnything(t *testing.T) {
 	h := newRig(t)
-	h.Script.Fzf = []string{"tab|alpha", "|ABORT", "|ABORT"}
+	h.ses.list = []hot.Session{h.seated()}
+	h.Script.Fzf = []string{"|owner", "|EXIT", toSessions, "|ABORT", "|ABORT"}
 	if code := h.run(); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
-	if !slices.Contains(h.argsOf(1), "--border-label= Running sessions ") {
-		t.Fatalf("Tab shows the running sessions: %q", h.argsOf(1))
+	former := []string{"ctrl-n", "ctrl-r", "ctrl-x", "ctrl-e", "ctrl-p", "ctrl-u", "tab", "?"}
+	for n, args := range h.Script.FzfArgs {
+		for _, a := range args {
+			if expect, ok := strings.CutPrefix(a, "--expect="); ok && expect != "alt-up,alt-down" {
+				t.Fatalf("fzf call %d hands back keys: %q", n, a)
+			}
+			if slices.ContainsFunc(former, func(k string) bool { return strings.HasPrefix(a, "--bind="+k+":") }) {
+				t.Fatalf("fzf call %d binds a former shortcut: %q", n, a)
+			}
+		}
+		for _, row := range h.Script.Rows[n] {
+			if strings.Contains(row, "   (") {
+				t.Fatalf("fzf call %d lists a line with a key beside it: %q", n, row)
+			}
+		}
 	}
-	if len(h.Script.Rows) != 3 || h.Script.Rows[1][len(h.Script.Rows[1])-1] != "Back to the teams" {
-		t.Fatalf("teams, no sessions, teams again: %q", h.Script.Rows)
+	if len(h.Script.FzfArgs) != 5 {
+		t.Fatalf("list, menu, list, sessions, list: %d calls", len(h.Script.FzfArgs))
 	}
 }
 
@@ -148,7 +164,7 @@ func TestTheRunningSessionsHelpRowShowsTheHelp(t *testing.T) {
 	if code := h.run(); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
-	h.wantErr(t, "Running sessions, the last row of the teams (or Tab), lists every session ccy's tmux started",
+	h.wantErr(t, "Running sessions, the last row of the teams, lists every session ccy's tmux started",
 		"  Remove from <team>        for the team's coordinator", "Press Enter to go back to the list.\n")
 	if !slices.Contains(h.argsOf(2), "--border-label= Running sessions ") {
 		t.Fatalf("back on the sessions after the help: %q", h.argsOf(2))

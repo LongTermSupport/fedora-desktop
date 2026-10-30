@@ -126,12 +126,13 @@ team covers, whose own status line is a hooks daemon's.
 10. If the scope added in step 02 should not stay, remove the repository from A's `repos` in
     the host_vars and run `ccy-teams apply A` (or clear Repositories in A's **Edit settings**
     and choose **Save and apply**). A's `ActiveEnterTimestamp`, as in step 03, is unchanged.
-11. One real Ctrl-P paste (a new password signs out your Element sessions of A, so do this
-    last and keep the new password). In `ccy-teams`, Ctrl-P on your row under A, answer Yes.
+11. One real New password paste (a new password signs out your Element sessions of A, so do
+    this last and keep the new password). In `ccy-teams`, Enter on your row under A, then New
+    password, answer Yes.
     With the Clipboard Indicator extension on (this repo's default), no copy is offered: one
     line says the extension would use up the paste and keep the password, and the password is
     typed from the screen; its menu in the top bar must not list the password. Then, in the
-    Extensions app, switch Clipboard Indicator off, Ctrl-P again and answer "Yes, copy the
+    Extensions app, switch Clipboard Indicator off, Enter on your row then New password again and answer "Yes, copy the
     password": paste it into Element's sign-in (Ctrl-V) and sign in; a second Ctrl-V anywhere
     pastes nothing. Switch Clipboard Indicator back on.
 12. Shut a team's sessions down (Task 2.14, [SPEC-shutdown.md](SPEC-shutdown.md)). Use a

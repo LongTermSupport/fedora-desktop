@@ -48,7 +48,7 @@ func (x *Hot) addTo(ctx context.Context, t *target, r request, team, given strin
 		return seatCode
 	}
 	if !c.exists && len(roster.Members) >= rosterLimit {
-		x.mark(markFailed, fmt.Sprintf("seat %s: %s has %d agents, the most a team can have: park or remove a member first (ccy-teams, Ctrl-X on a member)",
+		x.mark(markFailed, fmt.Sprintf("seat %s: %s has %d agents, the most a team can have: park or remove a member first (ccy-teams, Enter on a member)",
 			c.seat, team, len(roster.Members)))
 		return term.ExitFailure
 	}

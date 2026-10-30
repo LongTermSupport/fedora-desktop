@@ -35,7 +35,8 @@
 
 # Plan 00241: reports and questions are drawn formatted in Element (headings, bullets, bold).
 # CCY 3.104.4 with container 2.79.17, so the ccy image is rebuilt; running sessions keep
-# their image until they restart:
+# their image until they restart. The same play rebuilds ccy-teams for Plan 00177 Task 14.1: no
+# shortcut keys, every action a line of the menu Enter opens:
 playbooks/imports/play-claude-yolo.yml
 # The agent-bus member kit on the host, the same pingbus change:
 playbooks/imports/play-agent-bus.yml

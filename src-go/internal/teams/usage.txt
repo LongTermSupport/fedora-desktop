@@ -21,36 +21,35 @@ whether what runs is what the host_vars declare, DESIGN.md D65), followed by its
                          with no checkout
   human                  a person in the team room: in it or not, and how many Element
                          sessions they are signed in with
-Enter on any row opens a menu of everything that can be done to it, in words, each with its
-shortcut beside it (Esc goes back to the list); the picker's header names the row's actions
-too (? there shows every key, explained). The shortcuts:
-  Enter    a menu for the row. On a seat it begins with attaching its session (as
-           ccy-sessions does); on a person who is signed in, with opening Element; on a
-           person who never has been, with signing in (a password, shown once); on a team,
-           with opening Element
-  Ctrl-N   start a new ccy session in a free or new seat of the row's team, here
-  Ctrl-P   a new Element password for the person on the row; it asks first, saying how
-           many of their Element sessions it signs out (none: no question)
-  Ctrl-E   open the team in Element (setting its profile up first, when it has none);
-           Element starts apart from ccy-teams, which stays on the list. Each team is its
-           own Element window, because each team is its own Matrix server and an Element
-           window holds one account; the menu of a team row has Open every team in
-           Element, a window each (no shortcut), which opens every team with a profile
-  Ctrl-U   on a team row: update every team that is out of date or not built (never one
-           to take down)
-  Ctrl-R   turn the seat's session's restore after a reboot off (after a yes/no) or on
-  Ctrl-X   remove a seat, park a member, or take a team down (each after a yes/no)
-  Tab      the last row, Running sessions: every session ccy's tmux started, its teams
-           (seat, role) and its state. Enter on one lists, in words, what can be done to
-           it: Add to a team, Remove from <team>, Change role in <team>, Move to another
-           team, Attach, and Repair when its seat keeper has stopped. Each is
-           `ccy-teams session ...` below, run for you, with its question and its steps.
-           Back to the teams, or Esc, comes back
-A key works only on a row whose menu has it.
+Enter on any row opens a menu of everything that can be done to it, in words (Esc goes back
+to the list); the picker's header says what Enter on the row offers. There are no shortcut
+keys: every action is a line of that menu. On a seat it begins with attaching its session (as
+ccy-sessions does); on a person who is signed in, with opening Element; on a person who never
+has been, with signing in (a password, shown once); on a team, with opening Element. Among
+the lines:
+  Start a ccy session      in a free or new seat of the row's team, here
+  New password             a new Element password for the person on the row; it asks
+                           first, saying how many of their Element sessions it signs out
+                           (none: no question)
+  Open <team> in Element   setting its profile up first, when it has none; Element starts
+                           apart from ccy-teams, which stays on the list. Each team is its
+                           own Element window, because each team is its own Matrix server
+                           and an Element window holds one account; the menu of a team row
+                           has Open every team in Element, a window each, which opens every
+                           team with a profile
+  Update every team        on a team row: every team that is out of date or not built
+                           (never one to take down)
+  Restore after a reboot   turn the seat's session's restore off (after a yes/no) or on
+  Remove, Park, Take down  a seat, a member, or a team (each after a yes/no)
+The last row, Running sessions, lists every session ccy's tmux started, its teams (seat, role)
+and its state. Enter on one lists, in words, what can be done to it: Add to a team, Remove
+from <team>, Change role in <team>, Move to another team, Attach, and Repair when its seat
+keeper has stopped. Each is `ccy-teams session ...` below, run for you, with its question and
+its steps. Back to the teams, or Esc, comes back.
 The menu of a team row also has Restart the team's desktop sessions, Wind down the team's
-sessions and Shut down every session of <team> (no shortcut): the same as
+sessions and Shut down every session of <team>: the same as
 `ccy-teams restart <team>`, `ccy-teams wind-down <team>` and `ccy-teams shutdown <team>` below.
-The menu of a team row also has Edit settings (no shortcut): every field of the team's entry
+The menu of a team row also has Edit settings: every field of the team's entry
 with its value. Each editable one is checked as it is typed; Save and apply writes the changes
 to the host_vars in one edit and applies the team, as ccy-teams apply does. The coordinator
 changes at once; the name, port, listen addresses, server name, forge API and removed people
