@@ -346,7 +346,10 @@ func TestADecryptThatFailsStopsSetup(t *testing.T) {
 		if code := w.run("--setup-all"); code != term.ExitFailure {
 			t.Fatalf("%s: exit %d", name, code)
 		}
-		w.mustContain("stderr", "Failed to decrypt github_ssh_passphrase from the vault")
+		w.mustContain("stderr", "✗ Failed to decrypt github_ssh_passphrase from the vault (")
+		if n := strings.Count(w.stderr.String(), "Failed to decrypt"); n != 1 {
+			t.Errorf("%s: the cause is said %d times, want once:\n%s", name, n, w.stderr.String())
+		}
 		if w.ran("ssh") {
 			t.Errorf("%s: went on to the SSH test", name)
 		}
@@ -780,7 +783,10 @@ func TestCheckWithoutAPassphrase(t *testing.T) {
 		t.Fatalf("exit %d\n%s", code, w.stderr.String())
 	}
 	w.mustContain("stderr", "Could not decrypt the passphrase — SSH tests may be limited")
-	w.mustContain("stderr", "⚠ Failed to decrypt github_ssh_passphrase from the vault")
+	cause := "⚠ Failed to decrypt github_ssh_passphrase from the vault (ansible failed: ansible exited 2: Decryption failed)"
+	if n := strings.Count(w.stderr.String(), cause); n != 1 {
+		t.Errorf("the cause is said %d times, want once:\n%s", n, w.stderr.String())
+	}
 	if strings.Contains(w.stderr.String(), "✗") {
 		t.Errorf("a run without a passphrase may only warn:\n%s", w.stderr.String())
 	}

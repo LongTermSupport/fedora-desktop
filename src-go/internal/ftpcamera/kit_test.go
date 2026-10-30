@@ -147,6 +147,7 @@ func newKit(t *testing.T) *kit {
 		proc:   fstest.MapFS{},
 		live:   make(chan struct{}, 8),
 	}
+	k.fake.On([]string{"tput", "cols"}, execx.Result{ExitCode: 1}) // no terminal: the common width
 	if err := os.MkdirAll(k.upload, 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -56,7 +56,17 @@ func TestReportFilesystems(t *testing.T) {
 	w.answerErr([]string{"df"}, "", "df: broken\n", 1)
 	wantCode(t, w.run("report"), term.ExitFailure)
 	w.wantOut("  (filesystem usage unavailable)\n", "Journal:")
-	w.wantErr("df: broken")
+	w.wantErr("reclaim: filesystem usage: filtered df: df exited 1: df: broken; df -h: df exited 1: df: broken\n")
+
+	// Every step's reason is said, not only the last one's.
+	w = newWorld(t)
+	w.install("duf")
+	w.answerErr([]string{"duf"}, "", "duf: no mounts\n", 2)
+	w.answerErr([]string{"df", "-h", "-x"}, "", "df: bad filter\n", 1)
+	w.answerErr([]string{"df", "-h"}, "", "df: broken\n", 1)
+	w.answerErr([]string{"df", "-h", "-x"}, "", "df: bad filter\n", 1)
+	wantCode(t, w.run("report"), term.ExitFailure)
+	w.wantErr("reclaim: filesystem usage: duf: duf exited 2: duf: no mounts; filtered df: df exited 1: df: bad filter; df -h: df exited 1: df: broken\n")
 }
 
 // E5: journalctl absent, and failing.

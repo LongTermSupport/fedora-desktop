@@ -199,7 +199,11 @@ func (p *Picker) pick(ctx context.Context, h Heading, s PickSpec) (Picked, error
 	if len(s.Tags) > 0 && len(s.Tags) != len(s.Rows) {
 		return Picked{}, errTagCount
 	}
-	args, err := s.fzfArgs(h, !p.Plain, p.headingWidth(ctx, framedMargin))
+	width, err := p.headingWidth(ctx, framedMargin)
+	if err != nil {
+		return Picked{}, err
+	}
+	args, err := s.fzfArgs(h, !p.Plain, width)
 	if err != nil {
 		return Picked{}, err
 	}

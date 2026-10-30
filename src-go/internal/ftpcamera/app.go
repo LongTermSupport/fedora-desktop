@@ -152,10 +152,15 @@ func unprinted(err error) string {
 }
 
 // advice is a failure explained for the person who has to fix it, over several lines, printed
-// after "ERROR: " as written.
-type advice struct{ text string }
+// after "ERROR: " as written; cause, when set, is the command failure it explains.
+type advice struct {
+	text  string
+	cause error
+}
 
 func (a *advice) Error() string { return a.text }
+
+func (a *advice) Unwrap() error { return a.cause }
 
 func advise(format string, args ...any) error { return &advice{text: fmt.Sprintf(format, args...)} }
 

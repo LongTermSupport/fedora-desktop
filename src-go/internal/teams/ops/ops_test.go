@@ -60,6 +60,7 @@ func newOpsRig(t *testing.T) *opsRig {
 		fake: &execx.Fake{}, err: &bytes.Buffer{}, out: &bytes.Buffer{}, tty: true,
 		files: map[string]bool{}, tools: map[string]bool{"gum": true, "fzf": true},
 	}
+	r.fake.On([]string{"tput", "cols"}, execx.Result{ExitCode: 1}) // no terminal: the common width
 	r.statuses = []map[string]declare.Status{{}}
 	r.home = t.TempDir()
 	r.hostVars = filepath.Join(r.home, "hv", "localhost.yml")

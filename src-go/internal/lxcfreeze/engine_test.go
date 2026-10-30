@@ -274,9 +274,11 @@ func TestLoadReadiesSudoFirstAndThenUsesDashN(t *testing.T) {
 func TestLoadASudoRefusedIsNotAnEmptyMachine(t *testing.T) {
 	f := scripted(fixtureBoxes())
 	f.On([]string{"sudo", "-n", "-v"}, exit1("sudo: a password is required\n"))
+	f.On([]string{"sudo", "-n", "true"}, exit1("sudo: a password is required\n"))
 	e := newEngine(f)
 	_, err := e.Load(context.Background())
 	want := "sudo was refused, so no LXC state could be read.\n" +
+		"  (sudo is not ready: no terminal: no tty (sudo -n -v: sudo exited 1: sudo: a password is required; sudo -n true: sudo exited 1: sudo: a password is required))\n" +
 		"  Nothing was changed. This is NOT 'no containers found' — the question was\n" +
 		"  never asked, and reporting an empty machine here would be a guess."
 	if msg := dieText(t, err); msg != want {

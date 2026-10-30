@@ -33,24 +33,36 @@ func (x *Hot) move(ctx context.Context, t *target, r request) term.ExitCode {
 
 // coordinatorSaid refuses, before the add changes anything, what the remove half would refuse
 // for the old team's coordinator: no --coordinator and no terminal to ask on, or a hand-to
-// that names no member or several (H23 step 2).
+// that names no member or several (H23 step 2). A question it cannot have answered stops the
+// move with its cause before anything is changed: it is never taken as "not the coordinator".
 func (x *Hot) coordinatorSaid(ctx context.Context, t *target, r request) (term.ExitCode, bool) {
 	seat, in := seatOf(t.desired.Seats, r.team)
 	handingTo := strings.HasPrefix(r.coordinator, coordHandTo)
 	if !in || r.coordinator == coordDemote || (r.coordinator == "" && x.interactive()) {
 		return term.ExitOK, true
 	}
+	unread := func(what string, err error) (term.ExitCode, bool) {
+		x.mark(markFailed, "team "+r.team+": "+what+" could not be read, so whether seat "+seat+
+			" is its coordinator is unknown: "+err.Error()+"; nothing was changed.")
+		return term.ExitFailure, false
+	}
 	state, err := x.Host.Systemd.HomeserverState(ctx, r.team)
-	if err != nil || state != systemd.HomeserverUp {
+	if err != nil {
+		return unread("whether its homeserver is up", err)
+	}
+	if state != systemd.HomeserverUp {
 		return term.ExitOK, true
 	}
 	_, handle, err := x.seatHeld(ctx, t, r.team, seat)
-	if err != nil || handle == "" {
+	if err != nil {
+		return unread("its seat lock", err)
+	}
+	if handle == "" {
 		return term.ExitOK, true
 	}
 	roster, err := x.Host.Bus.List(ctx, r.team)
 	if err != nil {
-		return term.ExitOK, true
+		return unread("its members", err)
 	}
 	if m, found := roster.Member(handle); !found || m.Role != agentbus.RoleCoordinator {
 		return term.ExitOK, true

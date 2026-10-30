@@ -3,6 +3,7 @@ package ftpcamera
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"regexp"
 	"slices"
@@ -87,11 +88,12 @@ func (c *cli) detectHotspot(ctx context.Context) hotspotInfo {
 	return h
 }
 
-// nmValue is one field of a connection, "" when it cannot be read (a wired shared connection
-// has no SSID).
+// nmValue is one field of a connection, "" when nmcli answers that it has none (a wired shared
+// connection has no SSID); an nmcli that could not run is warned with its cause.
 func (c *cli) nmValue(ctx context.Context, field, conn string) string {
 	res, err := c.nmcli(ctx, "-g", field, nmConn, nmShow, conn)
 	if err != nil {
+		c.probeFailed(fmt.Sprintf("read %s of '%s'", field, conn), err)
 		return ""
 	}
 	return strings.TrimSpace(string(res.Stdout))
@@ -128,17 +130,31 @@ func (c *cli) wifiDevice(ctx context.Context) (string, error) {
 	return "", nil
 }
 
-// detectWifi is the laptop's own band and signal (E46); every failure is "unknown".
+// probeFailed says why a probe gave no answer, unless the program ran and refused, which is
+// the answer "unknown" itself. One that could not start or was killed is a fault to see.
+func (c *cli) probeFailed(what string, err error) {
+	if !execx.ExitedNonZero(err) {
+		c.err.f("WARNING: could not %s: %v\n", what, err)
+	}
+}
+
+// detectWifi is the laptop's own band and signal (E46): a probe that ran and failed is
+// "unknown"; one that could not run is warned with its cause, and is "unknown" too.
 func (c *cli) detectWifi(ctx context.Context) wifiInfo {
 	if !c.onPath("iw") {
 		return wifiInfo{}
 	}
 	dev, err := c.wifiDevice(ctx)
-	if err != nil || dev == "" {
+	if err != nil {
+		c.probeFailed("list the WiFi devices", err)
+		return wifiInfo{}
+	}
+	if dev == "" {
 		return wifiInfo{}
 	}
 	res, err := c.env.Runner.Run(ctx, execx.Cmd{Name: "iw", Args: []string{"dev", dev, "link"}})
 	if err != nil {
+		c.probeFailed(fmt.Sprintf("read the WiFi link of '%s'", dev), err)
 		return wifiInfo{}
 	}
 	freq, signal := parseLink(res.Stdout)

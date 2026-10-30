@@ -33,9 +33,10 @@
 //     included). The uid map is read from stdout only.
 //   - E9. An Engine is built only by New, which refuses any kind but podman or docker; the
 //     zero Engine runs nothing. So the program an Engine runs is always one of the two.
-//   - E10. ccy --help's two questions: a bare image inspect (Inspect), whose every failure the
+//   - E10. ccy --help's two questions: a bare image inspect (Inspect), whose every refusal the
 //     help reads as "not built yet" as the bash launcher did, since it only says how to build
-//     the image; and claude --help run in the image (ClaudeHelp), its output merged.
+//     the image (an engine that could not run is said with its error); and claude --help run in
+//     the image (ClaudeHelp), its output merged.
 package engine
 
 import (
@@ -128,7 +129,7 @@ func (e Engine) ImageExists(ctx context.Context, image string) (bool, error) {
 }
 
 // Inspect is a bare `image inspect IMAGE`, its output discarded: nil when the engine answered
-// for the image. --help asks only this, and says how to build the image on any failure, as the
+// for the image. --help asks only this, and says how to build the image on any refusal, as the
 // bash launcher did (E10); a launch asks ImageExists, which tells a missing image apart.
 func (e Engine) Inspect(ctx context.Context, image string) error {
 	if _, err := e.run(ctx, "image", "inspect", image); err != nil {

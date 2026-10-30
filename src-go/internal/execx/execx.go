@@ -92,6 +92,14 @@ func (e *ExitError) Error() string {
 	return msg
 }
 
+// ExitedNonZero reports whether err is a program that ran and ended itself with a non-zero
+// status: the answer of a probe whose failure is its answer. A program that could not start,
+// was missing or was killed by a signal is not; its error is a fault to report.
+func ExitedNonZero(err error) bool {
+	exit, ok := errors.AsType[*ExitError](err)
+	return ok && exit.Signal == 0
+}
+
 // Runner runs a command to completion.
 type Runner interface {
 	Run(ctx context.Context, c Cmd) (Result, error)

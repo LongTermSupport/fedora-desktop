@@ -83,7 +83,7 @@ func leavesOnEveryJoinedKey(t *testing.T, screen string, args []string) {
 
 func TestAnEscJoinedToTheNextKeyLeavesEveryFzfScreen(t *testing.T) {
 	ctx := context.Background()
-	f := &execx.Fake{}
+	f := noTerminal()
 	fzfSays(f, "\nalpha\t0\n", "\nBack to the list\n", "Exit\n", "r\n", "\nr\t0\n")
 	p := &Picker{Runner: f, Plain: true}
 	if _, err := p.Pick(ctx, testHead, teamsSpec()); !errors.Is(err, ErrBack) {
@@ -112,7 +112,7 @@ func TestAnEscJoinedToTheNextKeyLeavesEveryFzfScreen(t *testing.T) {
 // opened on comes back with the cursor, so the list can move it. Esc then Up the same.
 func TestEscThenAnArrowInARowMenuLeavesItForTheRowItWasOpenedOn(t *testing.T) {
 	for _, arrow := range []string{"alt-down", "alt-up"} {
-		f := &execx.Fake{}
+		f := noTerminal()
 		fzfSays(f, "\nbeta\t1\n", arrow+"\nTake beta down   (Ctrl-X)\t0\n")
 		got, err := (&Picker{Runner: f, Plain: true}).Pick(context.Background(), testHead, teamsSpec())
 		if !errors.Is(err, ErrBack) || errors.Is(err, ErrLeave) {
@@ -130,7 +130,7 @@ func TestEscThenAnArrowInARowMenuLeavesItForTheRowItWasOpenedOn(t *testing.T) {
 // The list says how far its cursor moves after Esc then an arrow: up -1, down 1, else 0.
 func TestMovedByIsTheArrowAfterTheEsc(t *testing.T) {
 	for arrow, want := range map[string]int{"alt-down": 1, "alt-up": -1} {
-		f := &execx.Fake{}
+		f := noTerminal()
 		fzfSays(f, "\nbeta\t1\n", arrow+"\nTake beta down   (Ctrl-X)\t0\n")
 		_, err := (&Picker{Runner: f, Plain: true}).Pick(context.Background(), testHead, teamsSpec())
 		if got := MovedBy(err); got != want {
@@ -148,7 +148,7 @@ func TestMovedByIsTheArrowAfterTheEsc(t *testing.T) {
 // A list given a start row starts its cursor there, over CursorLast; a list with none starts as
 // before.
 func TestAListCanStartOnAGivenRow(t *testing.T) {
-	f := &execx.Fake{}
+	f := noTerminal()
 	fzfSays(f, "r\n", "r\n")
 	p := &Picker{Runner: f, Plain: true}
 	if _, err := p.Pick(context.Background(), testHead, PickSpec{Title: "t", Rows: []string{"q", "r"}, StartRow: 2, CursorLast: true}); err != nil {
@@ -168,7 +168,7 @@ func TestAListCanStartOnAGivenRow(t *testing.T) {
 
 // A plain Esc from a row's menu (fzf exits 130) is back to the list on the same row.
 func TestLeavingARowMenuNamesTheRowItWasOpenedOn(t *testing.T) {
-	f := &execx.Fake{}
+	f := noTerminal()
 	runs := 0
 	f.OnFunc([]string{"fzf"}, func(execx.Cmd) (execx.Result, error) {
 		runs++

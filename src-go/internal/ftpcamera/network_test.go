@@ -1,6 +1,7 @@
 package ftpcamera
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -119,6 +120,59 @@ func TestDetectWifi(t *testing.T) {
 	if got := newCLI(k.app().Env).detectWifi(t.Context()); got != (wifiInfo{}) {
 		t.Errorf("no wifi device: %+v", got)
 	}
+	if k.err.Len() != 0 {
+		t.Errorf("no wifi device is no warning: %q", k.err.String())
+	}
+}
+
+// E46: a probe that ran and refused is "unknown" and silent; one that could not run is
+// "unknown" and says why.
+func TestDetectWifiFailures(t *testing.T) {
+	k := newKit(t)
+	k.path("iw")
+	onNM(k, "-t -f DEVICE,TYPE device", "", 8)
+	if got := newCLI(k.app().Env).detectWifi(t.Context()); got != (wifiInfo{}) || k.err.Len() != 0 {
+		t.Errorf("nmcli refused: %+v %q", got, k.err.String())
+	}
+
+	k = newKit(t)
+	k.path("iw")
+	k.fake.OnError([]string{"nmcli"}, &execx.NotInstalledError{Name: "nmcli"})
+	if got := newCLI(k.app().Env).detectWifi(t.Context()); got != (wifiInfo{}) {
+		t.Errorf("nmcli missing: %+v", got)
+	}
+	k.wantErr("WARNING: could not list the WiFi devices: " + (&execx.NotInstalledError{Name: "nmcli"}).Error() + "\n")
+
+	k = newKit(t)
+	k.path("iw")
+	onNM(k, "-t -f DEVICE,TYPE device", "wlp1:wifi\n", 0)
+	k.fake.On([]string{"iw", "dev", "wlp1", "link"}, execx.Result{ExitCode: 1})
+	if got := newCLI(k.app().Env).detectWifi(t.Context()); got != (wifiInfo{}) || k.err.Len() != 0 {
+		t.Errorf("iw refused: %+v %q", got, k.err.String())
+	}
+
+	k = newKit(t)
+	k.path("iw")
+	onNM(k, "-t -f DEVICE,TYPE device", "wlp1:wifi\n", 0)
+	k.fake.OnError([]string{"iw"}, errors.New("exec format error"))
+	if got := newCLI(k.app().Env).detectWifi(t.Context()); got != (wifiInfo{}) {
+		t.Errorf("iw broken: %+v", got)
+	}
+	k.wantErr("WARNING: could not read the WiFi link of 'wlp1': exec format error\n")
+}
+
+// E45: a field nmcli answers it has none of is "" and silent; an nmcli that could not run says why.
+func TestNMValueFailures(t *testing.T) {
+	k := newKit(t)
+	onNM(k, "-g 802-11-wireless.ssid connection show Wired", "", 10)
+	if got := newCLI(k.app().Env).nmValue(t.Context(), "802-11-wireless.ssid", "Wired"); got != "" || k.err.Len() != 0 {
+		t.Errorf("nmcli refused: %q %q", got, k.err.String())
+	}
+	k.fake.OnError([]string{"nmcli"}, errors.New("exec format error"))
+	if got := newCLI(k.app().Env).nmValue(t.Context(), "802-11-wireless.ssid", "Wired"); got != "" {
+		t.Errorf("nmcli broken: %q", got)
+	}
+	k.wantErr("WARNING: could not read 802-11-wireless.ssid of 'Wired': exec format error\n")
 }
 
 // E47, B7, B8.
