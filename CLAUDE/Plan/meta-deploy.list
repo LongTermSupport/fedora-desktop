@@ -33,33 +33,23 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
+# Plan 00241: reports and questions are drawn formatted in Element (headings, bullets, bold).
+# CCY 3.104.4 with container 2.79.17, so the ccy image is rebuilt; running sessions keep
+# their image until they restart:
+playbooks/imports/play-claude-yolo.yml
+# The agent-bus member kit on the host, the same pingbus change:
+playbooks/imports/play-agent-bus.yml
+# Plan 00192 Task 3.17: vmtest prune-runs removes a run domain whose run ended without its
+# teardown. Before the acceptance below, which runs vmtest:
+playbooks/imports/optional/common/play-vm-test-lab.yml
+# Plan 00228: the speech-to-text extension is declared enabled in GNOME's settings, so it is
+# enabled at the next login when the play runs with no session:
+playbooks/imports/optional/common/play-speech-to-text.yml
+
 # Plan 00228 Task 6.7 VM run: acceptance.bash again (desktop-consumer-install,
 # desktop-fresh-install and server-fast-provision, each on a throwaway guest at the pushed
-# HEAD). The consumer guest failed last time on a full /tmp quota while installing
-# speech-to-text; the play now stages pip's downloads on disk. Long: about 1.5 h of VMs.
+# HEAD). The last run passed all but two consumer checks, the speech-to-text extension
+# and a re-run that reported changes; both are fixed (play-podman's store-clean mark is
+# tested here in the guest; on this host play-podman is still held by Plan 00235 Q6).
+# Long: about 1.5 h of VMs.
 00228-consumer-install-without-github/acceptance.bash
-
-# Plan 00191: the Go tools whose failures are now carried to the person (the Defence Before
-# Fix sweep for project_command_failure_dropped) and the ccy usage-read fix and bars. Named
-# one by one because changed-plays stops at play-podman's hold-off until Plan 00235 Q6 is
-# settled. gh-account-setup:
-playbooks/imports/play-git-configure-and-tools.yml
-# CCY 3.104.3 (launcher, ccy-sessions, ccy-teams, ccy-token-usable); the image stays at
-# 2.79.16, so no rebuild:
-playbooks/imports/play-claude-yolo.yml
-# open and reclaim:
-playbooks/imports/optional/common/play-cli-tools.yml
-# rclone-cache-status and rclone-tail:
-playbooks/imports/optional/common/play-rclone.yml
-# watermark:
-playbooks/imports/optional/common/play-image-watermarking.yml
-# podfreeze:
-playbooks/imports/optional/common/play-podfreeze.yml
-# lxcfreeze:
-playbooks/imports/optional/common/play-lxcfreeze.yml
-# wsi, wsi-postprocess and wsi-claude-token:
-playbooks/imports/optional/common/play-speech-to-text.yml
-# vmtest:
-playbooks/imports/optional/common/play-vm-test-lab.yml
-# ftp-camera (the play makes the hotspot password itself; nothing is asked):
-playbooks/imports/optional/common/play-ftp-camera.yml
