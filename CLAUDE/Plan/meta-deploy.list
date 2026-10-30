@@ -38,13 +38,17 @@
 # in the podman store are dealt with (Plan 00235 Q6, now triaged case by case below), so none
 # of the others would run. play-podman.yml runs in the 00235 entry. play-claude-code-consumer.yml
 # imports play-podman.yml, so it waits too.
-# CCY 3.103.1: a token with no usage left is refused in a red banner on a terminal (Plan 00191
+# URGENT, issue #115/#116: CCY 3.103.2, container 2.79.16. pingbus reads a sync gap past 20 pages
+# from its newest end instead of failing, so a member offline for hours hears its team again (a
+# stuck ccy member recovers once its session is restarted on the new image). Also from CCY 3.103.1:
+# a token with no usage left is refused in a red banner on a terminal (Plan 00191
 # Task 4.7); every image ccy builds is labelled ccy-version, and a build removes project images
 # an older ccy built (Plan 00235 Q7; it removes nothing while the store-clean marker is absent,
 # as it is now); lxc-add's new gh login message (Plan 00177 Task 9.5). Rebuilds
 # claude-yolo:latest, ccy-sessions and ccy-token-usable. Nothing is asked.
 playbooks/imports/play-claude-yolo.yml
-# Plan 00177 Task 9.5: the LXC member join installs gh in each declared running container where
+# The same pingbus gap fix in the member kit LXC and host members run. Plan 00177 Task 9.5: the
+# LXC member join installs gh in each declared running container where
 # it is missing (GitHub's apt or dnf repository, or Alpine's github-cli), then stops with one
 # message naming the gh device-code login command for each agent user not yet logged in.
 playbooks/imports/play-agent-bus.yml

@@ -32,6 +32,11 @@ team has moved, and that is raised with the owner then.
    teams onto it comes before further v1 hardening; a v1 defect is fixed in v1 only when it stops
    a team now, and is otherwise carried as a v2 requirement. `bus/pycompat` and its python3
    oracle tests exist only to read v1's files, and go with v1.
+5. "go for breaking changes on the ccy teams stuff - I am the single user, as long as your plays
+   handle updating the desktop teams then we're good. Push hard, break stuff - move forwards"
+   (2026-10-30). This answers OD-CUTOVER: every team moves by one step, which the plays run, and
+   v1 is then retired. Direction 3's "already running teams must keep working" now means the
+   plays carry each team across, not that v1 and v2 run side by side.
 
 Clarified with direction 3: **v2 is a separate system.** None of its wire, files, locks, CLI or
 process model has to stay compatible with v1, so there is no compatibility contract and no parity
@@ -56,15 +61,14 @@ status-line work.
 - v2 touches nothing v1 uses, proven by a static gate and a VM-lab footprint diff (D 4).
 - Each team moves with an acceptance and a rollback, and nothing is lost silently (D 5, 6).
 - Every v1 requirement and hard-won lesson carried where it still applies (DESIGN-v2.md section 8).
+- v1 retired (directions 4 and 5): the plays move every desktop team to v2 in one step, then remove
+  v1's Python and bash and `bus/pycompat`. The cut-over and removal tasks are still to be written.
 
 ## Non-Goals
 
 - Compatibility with v1's wire, files, locks or CLI.
 - Relay mode, until the hooks-daemon plugin API (#119) ships; it is then specified on v2.
 - Importing v1 room history (OD-D4: an export, the v1 archive and a link).
-- Retiring v1: its own plan, raised with the owner when no team is v1-live (D 7.2). Direction 4
-  asks for it soon: whether every team is moved by one step rather than one at a time is open
-  with the owner (OD-CUTOVER).
 - Plan 00197's seat broker, and reworking the board's git, tmux and podman probes.
 
 ## Decisions
