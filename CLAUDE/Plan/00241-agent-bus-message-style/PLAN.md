@@ -14,6 +14,7 @@ HTML (`format: org.matrix.custom.html`, `formatted_body`), which Element renders
 own composer turns the markdown a person types into that HTML before sending.
 
 The owner's decisions (2026-10-30):
+
 - On the human-facing channels (reports, questions and their threads, and anything
   human-facing added later), agents write markdown and pingbus converts it. There is one
   style, with a fixed headline emoji for each kind of message.
@@ -68,7 +69,12 @@ deploy is enough. Agent text (`validate_text_content`, which is exact) does not 
   questions, and the line protocol for `say`.
 - [ ] 🔄 **Task 2.4**: The deploy: play-agent-bus for the member kit, and play-claude-yolo
   for the kit in the ccy image (CCY 3.104.4, container 2.79.17, which means one image
-  rebuild). Then the owner reads a message of each kind in Element.
+  rebuild). Then the owner reads a message of each kind in Element. Deployed on the host
+  at be1611132 (2026-10-30, both plays passed). The host agent posted the first formatted
+  report (`$WApOGs6ePK8RScdlyJOM8ePNT_Hl223gW25vJ1ui-zk`) and found the markdown formatter
+  rewrites a `.md` draft before it is sent, so STYLE.md now says to draft in `.txt`. Left:
+  the owner's verdict in Element; sessions on an older ccy image send plain text until they
+  restart.
 
 ## Success Criteria
 

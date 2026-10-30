@@ -67,6 +67,11 @@ takes.
 Fifteen lines at most. Anything longer goes in a file, and the message names its path
 and gives its three main points.
 
+**Draft a message in a `.txt` file, never `.md`.** The repository's markdown formatter
+rewrites a `.md` file when it is written, before pingbus reads it: grouped bullets become
+one loose list with a blank line between every item, so Element shows them spaced apart and
+the grouping is lost.
+
 ## 5. An example
 
 ```
