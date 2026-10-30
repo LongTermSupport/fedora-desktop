@@ -71,7 +71,7 @@ func TestValueRefusals(t *testing.T) {
 		{"", []string{"  - !vault x"}, KindRefused, "w is tagged (vault-encrypted?); ccy-teams reads only plain values"},
 		{" " + strings.Repeat("9", 4301), nil, KindCrash, ""},
 		{" [" + strings.Repeat("9", 4301) + "]", nil, KindCrash, ""},
-		{" " + strings.Repeat("[", 1000) + strings.Repeat("]", 1000), nil, KindCrash, ""},
+		{" " + strings.Repeat("[", 10000) + strings.Repeat("]", 10000), nil, KindCrash, ""},
 	} {
 		_, err := value(c.rest, c.nested, "w")
 		e, ok := asError(err)

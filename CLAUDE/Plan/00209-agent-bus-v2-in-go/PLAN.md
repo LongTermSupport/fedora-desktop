@@ -27,6 +27,11 @@ team has moved, and that is raised with the owner then.
 2. "i dont even care about staying compatible - now is the time for breaking changes and really
    making this system PROPERLY DECENT"
 3. "already running teams like yours msut keep workiing", "teams v2 can be a different thing"
+4. "It's time to properly lock into Go - ditch the python and bash legacy and push hard into Go. We
+   need fast tools, fast tests and CI, clean and robust" (2026-10-30). Finishing v2 and moving the
+   teams onto it comes before further v1 hardening; a v1 defect is fixed in v1 only when it stops
+   a team now, and is otherwise carried as a v2 requirement. `bus/pycompat` and its python3
+   oracle tests exist only to read v1's files, and go with v1.
 
 Clarified with direction 3: **v2 is a separate system.** None of its wire, files, locks, CLI or
 process model has to stay compatible with v1, so there is no compatibility contract and no parity
@@ -57,7 +62,9 @@ status-line work.
 - Compatibility with v1's wire, files, locks or CLI.
 - Relay mode, until the hooks-daemon plugin API (#119) ships; it is then specified on v2.
 - Importing v1 room history (OD-D4: an export, the v1 archive and a link).
-- Retiring v1: its own plan, raised with the owner when no team is v1-live (D 7.2).
+- Retiring v1: its own plan, raised with the owner when no team is v1-live (D 7.2). Direction 4
+  asks for it soon: whether every team is moved by one step rather than one at a time is open
+  with the owner (OD-CUTOVER).
 - Plan 00197's seat broker, and reworking the board's git, tmux and podman probes.
 
 ## Decisions
