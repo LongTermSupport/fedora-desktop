@@ -33,7 +33,15 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plan 00235 Task 4.7d: APPLY the old-range decisions (CHANGES THE STORE). The dry run at
+# CCY 3.104.6, no image rebuild: Plan 00191 Task 4.10 unit 1 (the saved launch configuration
+# is read by the Go front and a file it cannot read is kept, never deleted on a guess) and the
+# engine adapter's exists question (Plan 00235):
+playbooks/imports/play-claude-yolo.yml
+
+# Plan 00235 Task 4.7d, AGAIN: the run at 9bd2a6528 re-owned everything and removed 28 images
+# and 8 volumes, then failed on 5 images podman had already removed with an earlier one; a
+# removal of something already gone is now done (Task 4.7e), and the rerun meets every removed
+# item as gone. APPLY the old-range decisions (CHANGES THE STORE). The dry run at
 # 784e4dace matched untracked/plan-00235/old-range-decisions.tsv exactly, and the owner approved
 # that list (remove 33 images no container uses and 8 empty volumes; re-own 4 images, 2 orphan
 # layers and the browser-overlay postgres volume). It runs play-podman.yml with the file: re-own
