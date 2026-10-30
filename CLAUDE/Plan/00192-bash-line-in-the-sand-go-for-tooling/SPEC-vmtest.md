@@ -487,7 +487,9 @@ behaviour, not departures.
   the same scenario passed (the scenario and the order are read from the run id
   `<UTC stamp>-<scenario>`), or the run is older than DAYS. A directory whose name is not a run
   id is kept. Only runs holding a `*.qcow2` are reported. A run is live, and kept whatever the
-  plan said, when libvirt lists `vmtest-run-<run-id>` or its `run.lock` is held (E63). The dry
+  plan said, when its `run.lock` is held, or when it has no `run.lock` and libvirt lists
+  `vmtest-run-<run-id>` (E63); a listed domain whose run has a `run.lock` nobody holds is an
+  orphan (E66). The dry
   run prints, on stdout, `VMTEST-PRUNE-RUN <run-id> would-remove|keep|live <files> <size>: <reason>`
   per run, `VMTEST-PRUNE-BASE <name> <size>: bases are never touched` per base, and
   `VMTEST-PRUNE-DONE would free <size> from <n> runs; dry run, vmtest prune-runs --yes removes them`.
@@ -520,6 +522,15 @@ behaviour, not departures.
   (E33). A rebuild also has its floor (E16): room for two bases of the size it replaces.
 - E65. A run that did not pass and keeps an overlay says, as its last progress line,
   `overlay (<size>) and console kept for diagnosis: <dir>; vmtest prune-runs --yes removes the overlay once a later run of <scenario> passes or it is older than 7 days`.
+- E66. A run that ends without its teardown (the host powered off, the process killed) leaves
+  its domain defined and its `run.lock` free. `prune-runs` reports such an orphan before the
+  run's own line:
+  `VMTEST-PRUNE-ORPHAN <run-id> would-remove|removed vmtest-run-<run-id>: libvirt has the domain and no run holds run.lock; the run ended without its teardown`.
+  The dry run touches nothing. With `--yes`, the run's lock is taken without waiting (a run
+  that now holds it is `live`, and nothing of it is touched), `<epoch> removed orphaned domain <domain> of <run-id>` is appended to `retention.log`, and the domain is destroyed (unless shut
+  off) and undefined with its NVRAM (E59's removal). A removal that fails stops the command
+  with virsh's error, before the run's overlay is judged. The plan then decides the overlay as
+  for any run (E61, E62): an orphaned failed run keeps its overlay for diagnosis.
 
 ## 4. Where the Go departs from the bash
 

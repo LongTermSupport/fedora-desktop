@@ -4,6 +4,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -17,6 +18,7 @@ const (
 	failedRun = "20261012T080000Z-server-full-provision"
 	liveRun   = "20261015T110000Z-server-fast-provision"
 	bareRun   = "20261009T080000Z-server-fast-provision"
+	orphanRun = "20261029T145952Z-server-fast-provision"
 )
 
 // pruneKit is a lab with four runs: one passed, one failed and young, one whose guest is up,
@@ -274,6 +276,93 @@ func TestE65FailedRunSaysWhatItKept(t *testing.T) {
 	k.wantCode(k.run("run", "server-fast-provision"), term.ExitFailure)
 	k.wantErr("==> overlay (" + overlaySize(t, k, runID) + ") and console kept for diagnosis: " + k.path("runs/"+runID) +
 		"; vmtest prune-runs --yes removes the overlay once a later run of server-fast-provision passes or it is older than 7 days")
+}
+
+// orphanKit is pruneKit with one more run: its domain is still defined and its run.lock is
+// free, as a run cut by a power-off leaves it.
+func orphanKit(t *testing.T, verdict string) *kit {
+	t.Helper()
+	id := orphanRun
+	k := pruneKit(t)
+	k.write("runs/"+id+"/overlay.qcow2", strings.Repeat("o", 4096))
+	k.write("runs/"+id+"/"+runLockFile, "")
+	k.response(id, verdict)
+	k.lv.domains = append(k.lv.domains, runDomain(id))
+	return k
+}
+
+// E66: a listed run domain whose run holds no lock is an orphan. The dry run names it and
+// touches nothing; --yes removes it under the lock, logged first, and the plan then decides the
+// overlay as for any run.
+func TestE66PruneRunsRemovesAnOrphanedDomain(t *testing.T) {
+	const orphan = orphanRun
+	orphanLine := "VMTEST-PRUNE-ORPHAN " + orphan + " %s " + runDomain(orphan) +
+		": libvirt has the domain and no run holds run.lock; the run ended without its teardown\n"
+
+	k := orphanKit(t, "fail")
+	k.wantCode(k.run("prune-runs"), term.ExitOK)
+	if out := k.out.String(); !strings.Contains(out, strings.Replace(orphanLine, "%s", "would-remove", 1)) ||
+		!strings.Contains(out, "VMTEST-PRUNE-RUN "+orphan+" keep overlay.qcow2 ") {
+		t.Fatalf("stdout %s", out)
+	}
+	if k.count("undefine") != 0 || k.count("destroy") != 0 || k.exists(retentionLog) {
+		t.Fatal("the dry run touched the orphaned domain")
+	}
+
+	k = orphanKit(t, "fail")
+	k.wantCode(k.run("prune-runs", "--yes"), term.ExitOK)
+	if !strings.Contains(k.out.String(), strings.Replace(orphanLine, "%s", "removed", 1)) {
+		t.Fatalf("stdout %s", k.out.String())
+	}
+	if slices.Contains(k.lv.domains, runDomain(orphan)) || k.count("destroy "+runDomain(orphan)) != 1 ||
+		k.count("undefine --nvram "+runDomain(orphan)) != 1 {
+		t.Fatalf("the orphaned domain was not destroyed and undefined: %v", k.lv.domains)
+	}
+	if !strings.Contains(k.read(retentionLog), " removed orphaned domain "+runDomain(orphan)+" of "+orphan+"\n") {
+		t.Fatalf("log %q", k.read(retentionLog))
+	}
+	if !k.exists("runs/"+orphan+"/overlay.qcow2") || !slices.Contains(k.lv.domains, runDomain(liveRun)) {
+		t.Fatal("prune-runs removed what the plan keeps: a young failed run's overlay, or a pre-lock run's domain")
+	}
+
+	k = orphanKit(t, "pass")
+	k.wantCode(k.run("prune-runs", "--yes"), term.ExitOK)
+	if k.exists("runs/"+orphan+"/overlay.qcow2") || slices.Contains(k.lv.domains, runDomain(orphan)) {
+		t.Fatal("a passed run's orphaned domain and overlay were not both removed")
+	}
+}
+
+// E66: a run that holds its lock is live with its domain; nothing of it is touched.
+func TestE66PruneRunsLeavesALockedRunsDomain(t *testing.T) {
+	const orphan = orphanRun
+	k := orphanKit(t, "pass")
+	release, err := holdRun(k.path("runs/" + orphan))
+	if err != nil {
+		t.Fatal(err)
+	}
+	k.wantCode(k.run("prune-runs", "--yes"), term.ExitOK)
+	if err = release(); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(k.lv.domains, runDomain(orphan)) || !k.exists("runs/"+orphan+"/overlay.qcow2") ||
+		strings.Contains(k.out.String(), "VMTEST-PRUNE-ORPHAN") {
+		t.Fatalf("prune-runs touched a run that holds its lock: %s", k.out.String())
+	}
+}
+
+// E66: an orphaned domain that cannot be removed stops the command, with virsh's cause.
+func TestE66PruneRunsOrphanRemovalFails(t *testing.T) {
+	const orphan = orphanRun
+	k := orphanKit(t, "pass")
+	k.fake.OnFunc([]string{"virsh", "-c", libvirtURI, "undefine"}, func(execx.Cmd) (execx.Result, error) {
+		return execx.Result{}, &execx.ExitError{Name: "virsh", Code: 1, Stderr: "error: domain is busy"}
+	})
+	k.wantCode(k.run("prune-runs", "--yes"), term.ExitFailure)
+	k.wantErr("could not undefine " + runDomain(orphan) + ": ")
+	k.wantErr("domain is busy")
+	if !k.exists("runs/" + orphan + "/overlay.qcow2") {
+		t.Fatal("prune-runs removed the overlay of a run whose domain it could not remove")
+	}
 }
 
 // overlaySize is what prune-runs reports for a run's overlay.
