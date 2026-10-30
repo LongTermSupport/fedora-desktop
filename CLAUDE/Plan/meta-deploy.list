@@ -38,3 +38,29 @@
 # HEAD). The consumer guest failed last time on a full /tmp quota while installing
 # speech-to-text; the play now stages pip's downloads on disk. Long: about 1.5 h of VMs.
 00228-consumer-install-without-github/acceptance.bash
+
+# Plan 00191: the Go tools whose failures are now carried to the person (the Defence Before
+# Fix sweep for project_command_failure_dropped) and the ccy usage-read fix and bars. Named
+# one by one because changed-plays stops at play-podman's hold-off until Plan 00235 Q6 is
+# settled. gh-account-setup:
+playbooks/imports/play-git-configure-and-tools.yml
+# CCY 3.104.3 (launcher, ccy-sessions, ccy-teams, ccy-token-usable); the image stays at
+# 2.79.16, so no rebuild:
+playbooks/imports/play-claude-yolo.yml
+# open and reclaim:
+playbooks/imports/optional/common/play-cli-tools.yml
+# rclone-cache-status and rclone-tail:
+playbooks/imports/optional/common/play-rclone.yml
+# watermark:
+playbooks/imports/optional/common/play-image-watermarking.yml
+# podfreeze:
+playbooks/imports/optional/common/play-podfreeze.yml
+# lxcfreeze:
+playbooks/imports/optional/common/play-lxcfreeze.yml
+# wsi, wsi-postprocess and wsi-claude-token:
+playbooks/imports/optional/common/play-speech-to-text.yml
+# vmtest:
+playbooks/imports/optional/common/play-vm-test-lab.yml
+# ftp-camera. Last, because it asks for the camera hotspot Wi-Fi password at the screen
+# (Enter alone sets up no hotspot this run):
+playbooks/imports/optional/common/play-ftp-camera.yml
