@@ -27,6 +27,18 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.104.5 — container 2.79.17
+
+The image is unchanged, so there is no rebuild.
+
+- **The saved launch configuration is never deleted on a guess** (Plan 00191 Task 4.10).
+  The launcher sourced `.claude/ccy/.last-launch.conf` and deleted it on any failure (a
+  permissions error, a read error, a bad line), calling it corrupt. The Go front now reads it
+  strictly (`claude-yolo --read-launch-config FILE`: only the keys ccy writes, in the form it
+  writes them) and hands the values back as data, never as code to run. A file it cannot read
+  is named on stderr with its cause and kept; the launch asks again, and a headless launch is
+  refused for want of saved choices, as with no file.
+
 ## 3.104.4 — container 2.79.17
 
 - **Reports and questions are drawn formatted in Element** (Plan 00241). pingbus sends the

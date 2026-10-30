@@ -839,8 +839,11 @@ today; rewriting them is out of scope.
   a step into `internal/ccylaunch` behind the front, with its test first and the bash removed,
   so the bash-limits allowlist entries only shrink. Order, by harm:
 
-  1. B8: the saved launch configuration. Read it in Go, strictly. A file that cannot be read
-     is reported with its cause and kept, never deleted on a guess.
+  1. ✅ B8: the saved launch configuration. Read it in Go, strictly. A file that cannot be
+     read is reported with its cause and kept, never deleted on a guess. Built (CCY 3.104.5):
+     the front's `--read-launch-config FILE` (F16, `launchconfig.go`); the bash takes its
+     KEY<TAB>value lines with `read` and reconfigures with the file kept
+     (`subagent-reports/261030-task-4.10-unit1-config.md`).
   2. B2: `validate_token`. An engine failure is reported as one, not as "token invalid".
   3. B3, B5: the network check and the Claude version probes. Each carries its cause.
   4. B6, B7, B9: network removal, container stops and listings (`lib/docker-health.bash`).

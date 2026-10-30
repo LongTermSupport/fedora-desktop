@@ -118,11 +118,11 @@ ccy_registry_launch_args() {
 #
 # The groups are the one list; scripts/test-ccy-session-registry.bash derives the
 # launcher's flags from its parser and fails on any flag in none of them. --help, --version,
-# -h, -v and --build-lock exit before a session exists, so they never reach a record; they are
-# listed so the population is complete.
+# -h, -v, --build-lock and --read-launch-config exit before a session exists, so they never
+# reach a record; they are listed so the population is complete.
 CCY_REGISTRY_DROP_FLAGS=(--rebuild --create-token --list-tokens --token-usage --custom --custom-docker --top
     --prevent --debug --headless --disable-custom-docker --ssh-agent --no-restore
-    --help --version -h -v --build-lock)
+    --help --version -h -v --build-lock --read-launch-config)
 CCY_REGISTRY_DROP_VALUE_FLAGS=(--update-token --export-token --connect --disconnect --prompt --run-for --until --compose)
 CCY_REGISTRY_KEEP_VALUE_FLAGS=(--token --ssh-key --network --engine --max-age --teams)
 CCY_REGISTRY_KEEP_FLAGS=(--no-ssh --github-443 --no-network --supervise --no-supervise --no-bus --opencode -oc)

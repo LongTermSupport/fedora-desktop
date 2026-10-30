@@ -116,6 +116,10 @@
 //     quota on each), and prints the used-up mark on stdout ("   ✗ no usage left: ...", led
 //     by three spaces because the chooser prints it straight after the token's row), nothing
 //     otherwise; exit 0. Anything but `[--mark] [--] FILE` is exit 64.
+//   - F16. `--read-launch-config FILE` (launchconfig.go) reads the bash launcher's saved launch
+//     configuration strictly and hands it back one KEY<TAB>value line per key; a file that
+//     cannot be read or is malformed is exit 1, its path and cause on stderr, and is never
+//     changed. Answered under CCY_LEGACY too: the bash asks it.
 //
 // Intended divergences from the bash, where it only replicated incidental behaviour that the
 // goldens (C locale, UTC, a pinned clock) do not exercise; each goes when the bash retires:
@@ -292,8 +296,12 @@ func (f Front) Run(ctx context.Context) term.ExitCode {
 }
 
 // ownFlag answers the front's own flags, F11 and F14, which nothing about the bash launcher
-// decides: only CCY_LEGACY hands them over. Its exit code, and false for every other run.
+// decides: only CCY_LEGACY hands them over. F16 is the bash launcher's own question, answered
+// under CCY_LEGACY too. Its exit code, and false for every other run.
 func (f Front) ownFlag(ctx context.Context) (term.ExitCode, bool) {
+	if len(f.Args) > 0 && f.Args[0] == launchConfigFlag {
+		return f.launchConfig(), true
+	}
 	if len(f.Args) == 0 || f.legacy() {
 		return term.ExitOK, false
 	}
