@@ -13,7 +13,7 @@ Start a new session with: ccy
 === stderr
 ✓ Writing .claude/ccy/ccy.env.local.dist (version 3); commit it
 === calls
-podman ps -a --filter name=_yolo --filter status=exited --format '{{.Names}}'
+podman ps -a --filter name=_yolo --filter status=exited --filter status=created --format '{{.Names}}'
 podman ps --filter name=_yolo --format '{{.Names}}'
 === files
 dir  home/.claude-tokens 0700

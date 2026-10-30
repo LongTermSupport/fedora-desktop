@@ -855,9 +855,14 @@ today; rewriting them is out of scope.
      the launch without the network guide) and `--claude-versions ENGINE IMAGE` (F19:
      "INSTALLED LATEST", or exit 1 naming the image's or the registry's cause), both in
      `netcheck.go` over `engine` E12 (`subagent-reports/261030-task-4.10-unit3-network-version.md`).
-  4. B6, B7, B9: network removal, container stops and listings (`lib/docker-health.bash`).
+  4. ✅ B6, B7, B9: network removal, container stops and listings (`lib/docker-health.bash`).
      An engine failure is said, not read as "may still have containers", "may already be
-     stopped" or "no containers found".
+     stopped" or "no containers found". Built (CCY 3.104.9): the front's `--list-containers`,
+     `--stop-containers` and `--remove-network` (F20-F22, `containers.go`, over `engine` E13
+     and `StoreHas`, which now answers networks, and on docker containers and networks):
+     "already gone" only when the store no longer has it, else the engine's words; a failed
+     listing or stop fails the launch or `ccy --top`
+     (`subagent-reports/261030-task-4.10-unit4-engine-housekeeping.md`).
   5. B4: `entrypoint.sh`'s GitHub meta fetch, in the image (a container version bump).
 
 ### Phase 5: Review

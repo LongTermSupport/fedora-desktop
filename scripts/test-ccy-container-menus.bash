@@ -15,7 +15,8 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-LIB_DIR="$REPO_ROOT/files/var/local/claude-yolo/lib"
+# CCY_TEST_LIB_DIR: another lib/ to judge (an older revision, to see this suite fail on it).
+LIB_DIR="${CCY_TEST_LIB_DIR:-$REPO_ROOT/files/var/local/claude-yolo/lib}"
 LAUNCHER="$REPO_ROOT/files/var/local/claude-yolo/claude-yolo"
 
 for lib in common-pure.bash docker-health.bash; do
@@ -31,13 +32,43 @@ source "$LIB_DIR/common-pure.bash"
 # shellcheck source=../files/var/local/claude-yolo/lib/docker-health.bash
 source "$LIB_DIR/docker-health.bash"
 
-# The engine and the zombie scan, stubbed after the library so these definitions win.
-container_cmd() {
-    case "$1" in
-        ps) printf '%s\n' "proj_yolo" ;;
-        *) return 0 ;;
-    esac
+if [ -z "$(command -v go)" ]; then
+    echo "FAIL: go is needed by this test" >&2
+    exit 1
+fi
+mkdir -p "$REPO_ROOT/untracked/scratch"
+work=$(mktemp -d "$REPO_ROOT/untracked/scratch/ccy-container-menus-test.XXXXXX")
+trap 'rm -rf "$work"' EXIT
+MENU_INPUT="$work/input"
+
+# The listings and stops are asked of the real Go front (ccylaunch F20, F21), built here, through
+# a fake podman: `ps` answers FAKE_PS_*, `stop` FAKE_STOP_*, `container exists` FAKE_EXISTS_EXIT.
+build_out="$(cd "$REPO_ROOT/src-go" && go build -trimpath -buildvcs=false -o "$work/claude-yolo" ./cmd/claude-yolo 2>&1)" || {
+    echo "FAIL: the Go front did not build: $build_out" >&2
+    exit 1
 }
+mkdir -p "$work/bin"
+cat >"$work/bin/podman" <<'EOF'
+#!/usr/bin/env bash
+case "$1" in
+ps) printf '%s' "${FAKE_PS_OUT-proj_yolo
+}"; printf '%s' "${FAKE_PS_ERR:-}" >&2; exit "${FAKE_PS_EXIT:-0}" ;;
+stop) printf '%s' "${FAKE_STOP_ERR:-}" >&2; exit "${FAKE_STOP_EXIT:-0}" ;;
+container) exit "${FAKE_EXISTS_EXIT:-0}" ;;
+esac
+echo "fake podman: unscripted: $*" >&2
+exit 99
+EOF
+chmod +x "$work/bin/podman"
+export PATH="$work/bin:$PATH"
+SCRIPT_DIR="$work"
+CONTAINER_ENGINE=podman
+
+# The real zombie scan, judged before it is stubbed: a listing that failed is a failure.
+zombie_out=$(FAKE_PS_EXIT=125 FAKE_PS_ERR="Error: database is locked" find_zombie_containers yolo 2>&1)
+zombie_rc=$?
+
+# The zombie scan and the per-row stats, stubbed after the library so these definitions win.
 find_zombie_containers() { printf '%s\n' "other_yolo"; }
 get_container_stats() { printf '1%%|1MiB\n'; }
 get_container_uptime() { printf 'a minute\n'; }
@@ -61,10 +92,6 @@ menu() {
     rc=$?
 }
 
-work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
-MENU_INPUT="$work/input"
-
 echo "=== the existing-containers menu ==="
 : >"$MENU_INPUT"
 menu check_project_containers_startup proj yolo true
@@ -87,6 +114,36 @@ check "a wrong answer, then c: continues" "0" "$rc"
 printf 'q\n' >"$MENU_INPUT"
 menu check_project_containers_startup proj yolo false
 check "q: the person quits (1)" "1" "$rc"
+
+echo "=== listings and stops say what failed ==="
+: >"$MENU_INPUT"
+FAKE_PS_EXIT=125 FAKE_PS_ERR="Error: database is locked" menu check_project_containers_startup proj yolo false
+check "a listing that failed fails the launch (2), never 'no containers'" "2" "$rc"
+check "  with the engine's cause" "1" "$(grep -c 'could not be listed: .*database is locked' <<<"$out")"
+check "  and no menu" "0" "$(grep -c 'Options:' <<<"$out")"
+printf 's\n' >"$MENU_INPUT"
+menu check_project_containers_startup proj yolo false
+check "s: a stopped container continues (0)" "0" "$rc"
+check "  ticked" "1" "$(grep -c 'Stopping proj_yolo... ✓' <<<"$out")"
+FAKE_STOP_EXIT=125 FAKE_EXISTS_EXIT=1 menu check_project_containers_startup proj yolo false
+check "s: a container the store no longer has is already gone, and continues (0)" "0" "$rc"
+check "  said so" "1" "$(grep -c 'Stopping proj_yolo... already gone' <<<"$out")"
+FAKE_STOP_EXIT=125 FAKE_STOP_ERR="Error: permission denied" menu check_project_containers_startup proj yolo false
+check "s: a stop that failed fails the launch (2)" "2" "$rc"
+check "  with the engine's cause, never 'may already be stopped'" "1 0" \
+    "$(grep -c 'Stopping proj_yolo... ✗ .*permission denied' <<<"$out") $(grep -c 'may already' <<<"$out")"
+printf 'a\n' >"$MENU_INPUT"
+FAKE_STOP_EXIT=125 FAKE_STOP_ERR="Error: permission denied" menu check_zombie_containers_startup yolo false
+check "orphans, a: a stop that failed fails the launch (2)" "2" "$rc"
+check "  and does not say they all stopped" "0" "$(grep -c 'All orphaned containers stopped' <<<"$out")"
+check "the zombie scan whose listing failed is a failure (1)" "1" "$zombie_rc"
+check "  with the engine's cause" "1" "$(grep -c 'database is locked' <<<"$zombie_out")"
+FAKE_PS_EXIT=125 FAKE_PS_ERR="Error: database is locked" menu clean_stale_containers_startup yolo
+check "the stale cleanup whose listing failed is a failure (1)" "1" "$rc"
+check "  with the engine's cause" "1" "$(grep -c 'database is locked' <<<"$out")"
+FAKE_PS_EXIT=125 FAKE_PS_ERR="Error: database is locked" menu show_container_top yolo
+check "ccy --top whose listing failed is a failure (1)" "1" "$rc"
+check "  never 'No CCY containers currently running'" "0" "$(grep -c 'No CCY containers' <<<"$out")"
 
 echo "=== the orphaned-containers menu ==="
 : >"$MENU_INPUT"

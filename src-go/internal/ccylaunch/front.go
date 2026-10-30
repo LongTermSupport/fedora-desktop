@@ -132,6 +132,11 @@
 //     Claude Code version in the image and the npm registry's latest; exit 1 with the cause
 //     (the image's run, the registry's reach or answer) when either could not be read. Answered
 //     under CCY_LEGACY too: the bash asks it.
+//   - F20-F22. `--list-containers ENGINE [--all] [FILTER...]`, `--stop-containers ENGINE
+//     NAME...` and `--remove-network ENGINE NETWORK` (containers.go): a listing that failed is
+//     exit 1 with its cause, never "no containers"; a stop or removal that failed is "already
+//     gone" (F22: exit 5) only when the engine's store no longer has the object, else exit 1
+//     with the engine's words. Answered under CCY_LEGACY too: the bash asks them.
 //
 // Intended divergences from the bash, where it only replicated incidental behaviour that the
 // goldens (C locale, UTC, a pinned clock) do not exercise; each goes when the bash retires:
@@ -309,19 +314,16 @@ func (f Front) Run(ctx context.Context) term.ExitCode {
 
 // ownFlag answers the front's own flags, F11 and F14, which nothing about the bash launcher
 // decides: only CCY_LEGACY hands them over. F16 is the bash launcher's own question, answered
-// under CCY_LEGACY too. Its exit code, and false for every other run.
+// under CCY_LEGACY too, as are the others of bashQuestions. Its exit code, and false for every
+// other run.
 func (f Front) ownFlag(ctx context.Context) (term.ExitCode, bool) {
 	if len(f.Args) > 0 && f.Args[0] == launchConfigFlag {
 		return f.launchConfig(), true
 	}
-	if len(f.Args) > 0 && f.Args[0] == checkTokenFlag {
-		return f.checkToken(ctx), true
-	}
-	if len(f.Args) > 0 && f.Args[0] == checkNetworkFlag {
-		return f.checkNetwork(ctx), true
-	}
-	if len(f.Args) > 0 && f.Args[0] == claudeVersionsFlag {
-		return f.claudeVersions(ctx), true
+	if len(f.Args) > 0 {
+		if answer, ok := bashQuestions[f.Args[0]]; ok {
+			return answer(f, ctx), true
+		}
 	}
 	if len(f.Args) == 0 || f.legacy() {
 		return term.ExitOK, false
@@ -333,6 +335,17 @@ func (f Front) ownFlag(ctx context.Context) (term.ExitCode, bool) {
 		return f.tokenUsage(ctx), true
 	}
 	return term.ExitOK, false
+}
+
+// bashQuestions are the questions the bash launcher asks the front (F17-F22), answered under
+// CCY_LEGACY too.
+var bashQuestions = map[string]func(Front, context.Context) term.ExitCode{
+	checkTokenFlag:     Front.checkToken,
+	checkNetworkFlag:   Front.checkNetwork,
+	claudeVersionsFlag: Front.claudeVersions,
+	listContainersFlag: Front.listContainers,
+	stopContainersFlag: Front.stopContainers,
+	removeNetworkFlag:  Front.removeNetwork,
 }
 
 // flagKind is the run the front answers itself, or flagNone.

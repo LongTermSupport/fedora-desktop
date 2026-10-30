@@ -70,7 +70,7 @@ ccy-token-usable -- '{sandbox}/home/.claude-tokens/ccy/tokens/work.2030-06-01.to
 docker run --rm --pull=never -e CLAUDE_CODE_OAUTH_TOKEN --entrypoint sh claude-yolo:latest -c 'printf '\''header = "Authorization: Bearer %s"\n'\'' "$CLAUDE_CODE_OAUTH_TOKEN" | curl --config - "$@"' ccy-check-token --silent --show-error --request POST --header 'content-type: application/json' --header 'anthropic-version: 2023-06-01' --header 'anthropic-beta: oauth-2025-04-20' --data '{"model":"claude-haiku-4-5-20251001","max_tokens":1,"messages":[{"role":"user","content":"."}]}' --connect-timeout 5 --max-time 20 --output /dev/null --write-out '%{http_code}' https://api.anthropic.com/v1/messages
     env: CLAUDE_CODE_OAUTH_TOKEN
 docker info --format '{{.SecurityOptions}}'
-docker ps -a --filter name=_yolo --filter status=exited --format '{{.Names}}'
+docker ps -a --filter name=_yolo --filter status=exited --filter status=created --format '{{.Names}}'
 docker ps --filter name=_yolo --format '{{.Names}}'
 docker ps --filter name=difftest-project_yolo --format '{{.Names}}'
 docker image inspect claude-yolo:latest --format '{{.Id}}'

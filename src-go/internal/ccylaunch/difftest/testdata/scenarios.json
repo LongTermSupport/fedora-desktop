@@ -54,8 +54,9 @@
       ]
     },
     "podman": {
-      "about": "a working rootless podman: SELinux off, the image built and current, the default network online",
+      "about": "a working rootless podman: SELinux off, the image built and current, the default network online, no containers",
       "rules": [
+        {"tool": "podman", "args": ["ps"]},
         {"tool": "podman", "args": ["info", "--format", "{{.Host.Security.SELinuxEnabled}}"], "stdout": "false\n"},
         {"tool": "podman", "args": ["info", "--format", "{{.Host.Security.Rootless}}"], "stdout": "true\n"},
         {"tool": "podman", "args": ["run", "--rm", "--pull=never", "-e", "CLAUDE_CODE_OAUTH_TOKEN", "--entrypoint", "sh"], "stdout": "200"},
@@ -70,6 +71,7 @@
     "docker": {
       "about": "a working rootless docker answering as the podman world does",
       "rules": [
+        {"tool": "docker", "args": ["ps"]},
         {"tool": "docker", "args": ["info", "--format", "{{.SecurityOptions}}"], "stdout": "[name=seccomp,profile=builtin name=rootless]\n"},
         {"tool": "docker", "args": ["run", "--rm", "--pull=never", "-e", "CLAUDE_CODE_OAUTH_TOKEN", "--entrypoint", "sh"], "stdout": "200"},
         {"tool": "docker", "args": ["image", "inspect", "claude-yolo:latest", "--format", "{{index .Config.Labels \"claude-yolo-version\"}}"], "stdout": "{image_version}\n"},

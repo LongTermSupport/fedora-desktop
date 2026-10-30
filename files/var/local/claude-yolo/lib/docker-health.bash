@@ -20,18 +20,14 @@ CCY_CONTAINER_MENU_TRIES=3
 
 # Find CCY containers that have lost their controlling terminal
 # These are containers started with -it but whose docker run process has died
-# Returns: newline-separated list of container names
+# Returns: newline-separated list of container names; 1 when the running containers could not
+# be listed (the Go front's cause on stderr), never "none found"
 find_zombie_containers() {
     local suffix="${1:-yolo}"  # Default to "yolo" containers
     local zombies=()
 
-    # Get all running containers matching the suffix pattern
     local containers
-    # Explicit fallback, NOT a bare capture. Under the caller's `set -e` a bare
-    # `containers=$(cmd)` aborts this function when the engine cannot be asked —
-    # it does not leave an empty string. The old annotation here claimed the
-    # empty-string behaviour it did not have. Make the claim true instead.
-    containers=$(container_cmd ps --filter "name=_${suffix}" --format '{{.Names}}' 2>/dev/null) || containers=""
+    containers=$("$SCRIPT_DIR/claude-yolo" --list-containers "$CONTAINER_ENGINE" "name=_${suffix}") || return 1
 
     if [ -z "$containers" ]; then
         return 0  # No containers found
@@ -59,36 +55,6 @@ find_zombie_containers() {
     done <<< "$containers"
 
     printf '%s\n' "${zombies[@]}"
-}
-
-# Find CCY containers that are stopped or in created state
-# These are leftover from unclean shutdowns (battery death, crash, kill -9)
-# where the --rm flag never fired
-# Args: suffix (default: "yolo")
-# Returns: newline-separated list of container names
-find_stale_containers() {
-    local suffix="${1:-yolo}"
-    local stale=()
-
-    # Query all non-running containers matching CCY naming pattern
-    # Valid states for both Docker and Podman: exited, created
-    # (Docker also has "dead" but Podman does not)
-    local status
-    for status in exited created; do
-        local containers
-        containers=$(container_cmd ps -a \
-            --filter "name=_${suffix}" \
-            --filter "status=${status}" \
-            --format '{{.Names}}' 2>/dev/null)
-
-        while IFS= read -r name; do
-            [ -n "$name" ] && stale+=("$name")
-        done <<< "$containers"
-    done
-
-    if [ ${#stale[@]} -gt 0 ]; then
-        printf '%s\n' "${stale[@]}" | sort -u
-    fi
 }
 
 # Get detailed stats for a container
@@ -147,20 +113,11 @@ get_container_uptime() {
 }
 
 # Show zombie container management TUI
-# Args: suffix (default: "yolo")
-# Returns: 0 if zombies were handled or none found, 1 if user cancelled
+# Args: the zombie containers' names
+# Returns: 0 if zombies were handled, 1 if user cancelled, 2 when no answer came or a stop
+# failed (the Go front's cause on stderr)
 show_zombie_container_tui() {
-    local suffix="${1:-yolo}"
-    local zombies=()
-
-    # Find zombie containers
-    while IFS= read -r zombie; do
-        [ -n "$zombie" ] && zombies+=("$zombie")
-    done < <(find_zombie_containers "$suffix")
-
-    if [ ${#zombies[@]} -eq 0 ]; then
-        return 0  # No zombies found
-    fi
+    local zombies=("$@")
 
     echo ""
     echo "════════════════════════════════════════════════════════════════════════════════"
@@ -216,14 +173,7 @@ show_zombie_container_tui() {
         case "$choice" in
             a|A)
                 echo "Stopping all orphaned containers..."
-                for container in "${zombies[@]}"; do
-                    echo -n "  Stopping $container... "
-                    if container_cmd stop "$container" >/dev/null 2>&1; then
-                        echo "✓"
-                    else
-                        echo "✗ (may already be stopped)"
-                    fi
-                done
+                "$SCRIPT_DIR/claude-yolo" --stop-containers "$CONTAINER_ENGINE" "${zombies[@]}" || return 2
                 echo ""
                 echo "✓ All orphaned containers stopped"
                 return 0
@@ -232,19 +182,15 @@ show_zombie_container_tui() {
                 echo "Enter container numbers to stop (space-separated, e.g., '1 3 4'):"
                 read -rp "> " selections
 
+                local chosen=()
                 for sel in $selections; do
                     if [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 1 ] && [ "$sel" -le ${#zombies[@]} ]; then
-                        local container="${zombies[$((sel-1))]}"
-                        echo -n "  Stopping $container... "
-                        if container_cmd stop "$container" >/dev/null 2>&1; then
-                            echo "✓"
-                        else
-                            echo "✗ (may already be stopped)"
-                        fi
+                        chosen+=("${zombies[$((sel-1))]}")
                     else
                         echo "  Invalid selection: $sel (skipped)"
                     fi
                 done
+                [ ${#chosen[@]} -eq 0 ] || "$SCRIPT_DIR/claude-yolo" --stop-containers "$CONTAINER_ENGINE" "${chosen[@]}" || return 2
                 echo ""
                 return 0
                 ;;
@@ -274,7 +220,8 @@ show_zombie_container_tui() {
 # Quick check for zombie containers at startup
 # This is meant to be called early in ccy startup
 # Args: suffix (default: "yolo"), restoring (true when this launch is a session restore)
-# Returns: 0 to continue, 1 to abort
+# Returns: 0 to continue, 1 when the person quit, 2 when no answer came or the containers
+# could not be listed or stopped
 #
 # A restore answers "ignore" without asking: nobody is at a restored session to answer, and
 # ignoring is the one choice that destroys nothing. A container still running after a boot
@@ -284,11 +231,12 @@ show_zombie_container_tui() {
 check_zombie_containers_startup() {
     local suffix="${1:-yolo}" restoring="${2:-false}"
 
-    # Get zombie list into array, filtering empty lines
-    local zombies=()
+    # A scan that could not list the containers fails the launch (2), never "none found".
+    local zombies=() found
+    found=$(find_zombie_containers "$suffix") || return 2
     while IFS= read -r line; do
         [[ -n "$line" ]] && zombies+=("$line")
-    done < <(find_zombie_containers "$suffix")
+    done <<<"$found"
 
     local zombie_count=${#zombies[@]}
 
@@ -297,7 +245,7 @@ check_zombie_containers_startup() {
             echo "Unattended launch: leaving ${zombie_count} container(s) without a terminal running (${zombies[*]}); a launch nobody answers never stops a container it cannot prove dead." >&2
             return 0
         fi
-        show_zombie_container_tui "$suffix"
+        show_zombie_container_tui "${zombies[@]}"
         return $?
     fi
 
@@ -307,15 +255,18 @@ check_zombie_containers_startup() {
 # Clean up stale (stopped/dead) CCY containers at startup
 # These are leftover from unclean shutdowns where --rm didn't fire
 # Auto-removes without prompting since these containers are unrecoverable
+# (exited or created: the states docker and podman share; the engine ORs a repeated filter).
 # Args: suffix (default: "yolo")
-# Returns: 0 always (cleanup is best-effort)
+# Returns: 0 when listed (each removal's failure is shown with its cause), 1 when the stopped
+# containers could not be listed (the Go front's cause on stderr), never "none found"
 clean_stale_containers_startup() {
     local suffix="${1:-yolo}"
-    local stale=()
+    local stale=() found
 
+    found=$("$SCRIPT_DIR/claude-yolo" --list-containers "$CONTAINER_ENGINE" --all "name=_${suffix}" status=exited status=created) || return 1
     while IFS= read -r name; do
         [ -n "$name" ] && stale+=("$name")
-    done < <(find_stale_containers "$suffix")
+    done <<<"$found"
 
     if [ ${#stale[@]} -eq 0 ]; then
         return 0
@@ -368,13 +319,14 @@ show_container_top() {
 
     while true; do
     # Clean up stale containers first (stopped/dead from unclean shutdowns)
-    clean_stale_containers_startup "$suffix"
+    clean_stale_containers_startup "$suffix" || return 1
 
-    # Get all containers matching the suffix
-    local containers=()
+    # Get all containers matching the suffix; a listing that failed ends --top with its cause.
+    local containers=() found
+    found=$("$SCRIPT_DIR/claude-yolo" --list-containers "$CONTAINER_ENGINE" "name=_${suffix}") || return 1
     while IFS= read -r line; do
         [[ -n "$line" ]] && containers+=("$line")
-    done < <(container_cmd ps --filter "name=_${suffix}" --format '{{.Names}}' 2>/dev/null)
+    done <<<"$found"
 
     echo ""
     echo "════════════════════════════════════════════════════════════════════════════════"
@@ -449,51 +401,30 @@ show_container_top() {
                 ;;
             a|A|all)
                 echo "Stopping all containers..."
-                for container in "${containers[@]}"; do
-                    echo -n "  Stopping $container... "
-                    if container_cmd stop "$container" >/dev/null 2>&1; then
-                        echo "✓"
-                    else
-                        echo "✗"
-                    fi
-                done
+                "$SCRIPT_DIR/claude-yolo" --stop-containers "$CONTAINER_ENGINE" "${containers[@]}" || return 1
                 echo ""
                 echo "✓ All containers stopped"
                 return 0
                 ;;
             *)
                 # Try to parse as space-separated numbers
-                local valid_selection=false
+                local chosen=()
                 for sel in $action; do
                     if [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 1 ] && [ "$sel" -le ${#containers[@]} ]; then
-                        valid_selection=true
-                        local container="${containers[$((sel-1))]}"
-                        echo -n "Stopping $container... "
-                        if container_cmd stop "$container" >/dev/null 2>&1; then
-                            echo "✓"
-                        else
-                            echo "✗"
-                        fi
+                        chosen+=("${containers[$((sel-1))]}")
                     elif [[ "$sel" =~ ^[0-9]+$ ]]; then
                         echo "Invalid number: $sel (valid range: 1-${#containers[@]})"
                     fi
                 done
 
-                if [ "$valid_selection" = false ]; then
+                if [ ${#chosen[@]} -eq 0 ]; then
                     echo "Invalid input. Enter container numbers, 'a' for all, 'r' to refresh, or 'q' to quit."
                 else
+                    "$SCRIPT_DIR/claude-yolo" --stop-containers "$CONTAINER_ENGINE" "${chosen[@]}" || return 1
                     echo ""
-                    # Show updated list.
-                    # `wc -l` always succeeds, so the old form reported ZERO
-                    # containers whenever the engine query FAILED — printing
-                    # "✓ All CCY containers stopped" as reassurance derived from
-                    # a query that never ran. Check the ps status itself.
+                    # Show updated list; one that could not be listed is a failure, never "all stopped".
                     local remaining remaining_out
-                    if ! remaining_out="$(container_cmd ps --filter "name=_${suffix}" --format '{{.Names}}' 2>&1)"; then
-                        echo "⚠ Could not list containers — cannot confirm they stopped." >&2
-                        echo "  ${CONTAINER_ENGINE} said: ${remaining_out:-"(no output)"}" >&2
-                        return 1
-                    fi
+                    remaining_out=$("$SCRIPT_DIR/claude-yolo" --list-containers "$CONTAINER_ENGINE" "name=_${suffix}") || return 1
                     # Not `grep -c .`: grep exits 1 on zero matches, so under
                     # `set -e` an empty (correct, all-stopped) result would abort
                     # the function — the same defect class, reintroduced.
@@ -521,7 +452,8 @@ show_container_top() {
 # Called at ccy startup after git repo check
 # Args: project_name, suffix, unattended (true when nobody can answer: a restore, a
 # restart or a headless launch)
-# Returns: 0 to continue, 1 when the person quit, 2 when no answer came
+# Returns: 0 to continue, 1 when the person quit, 2 when no answer came or the containers
+# could not be listed or stopped
 #
 # Unattended, it answers "continue alongside" without asking. Sessions that ran together in
 # one project are restored together, and several seats of one team run headless in one
@@ -531,11 +463,12 @@ check_project_containers_startup() {
     local suffix="${2:-yolo}"
     local restoring="${3:-false}"
 
-    # Get containers for this project
-    local containers=()
+    # Get containers for this project; a listing that failed fails the launch (2).
+    local containers=() found
+    found=$("$SCRIPT_DIR/claude-yolo" --list-containers "$CONTAINER_ENGINE" "name=${project_name}_${suffix}") || return 2
     while IFS= read -r line; do
         [[ -n "$line" ]] && containers+=("$line")
-    done < <(container_cmd ps --filter "name=${project_name}_${suffix}" --format '{{.Names}}' 2>/dev/null)
+    done <<<"$found"
 
     if [ ${#containers[@]} -eq 0 ]; then
         return 0  # No containers, continue normally
@@ -595,14 +528,7 @@ check_project_containers_startup() {
                 ;;
             s|S)
                 echo "Stopping existing containers..."
-                for container in "${containers[@]}"; do
-                    echo -n "  Stopping $container... "
-                    if container_cmd stop "$container" >/dev/null 2>&1; then
-                        echo "✓"
-                    else
-                        echo "✗"
-                    fi
-                done
+                "$SCRIPT_DIR/claude-yolo" --stop-containers "$CONTAINER_ENGINE" "${containers[@]}" || return 2
                 echo ""
                 return 0
                 ;;
@@ -614,17 +540,13 @@ check_project_containers_startup() {
                     continue
                 fi
 
+                local chosen=()
                 for sel in $selections; do
                     if [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 1 ] && [ "$sel" -le ${#containers[@]} ]; then
-                        local container="${containers[$((sel-1))]}"
-                        echo -n "  Stopping $container... "
-                        if container_cmd stop "$container" >/dev/null 2>&1; then
-                            echo "✓"
-                        else
-                            echo "✗"
-                        fi
+                        chosen+=("${containers[$((sel-1))]}")
                     fi
                 done
+                [ ${#chosen[@]} -eq 0 ] || "$SCRIPT_DIR/claude-yolo" --stop-containers "$CONTAINER_ENGINE" "${chosen[@]}" || return 2
                 echo ""
                 return 0
                 ;;

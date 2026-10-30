@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.104.8"  # Container 2.79.17: the network check and the version probes say what failed. See docs/ccy-changelog.md.
+CCY_VERSION="3.104.9"  # Container 2.79.17: network removal, container stops and listings say what failed. See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -171,8 +171,9 @@ if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
     printf 'ccy version %s\nHash: %s\n' "$CCY_VERSION" "$CCY_HASH"
     exit 0
 fi
-if [ "$1" = "--build-lock" ] || [ "$1" = "--read-launch-config" ] || [ "$1" = "--check-token" ] ||
-    [ "$1" = "--check-network" ] || [ "$1" = "--claude-versions" ]; then
+if [[ "$1" = "--build-lock" || "$1" = "--read-launch-config" || "$1" = "--check-token" ||
+    "$1" = "--check-network" || "$1" = "--claude-versions" || "$1" = "--list-containers" ||
+    "$1" = "--stop-containers" || "$1" = "--remove-network" ]]; then
     print_error "ccy $1 is answered by the Go front, $SCRIPT_DIR/claude-yolo; run it without CCY_LEGACY."
     exit 1
 fi
@@ -1806,7 +1807,8 @@ if [ "$HEADLESS_MODE" = true ]; then
     CCY_NO_CONTAINER_PROMPTS=true
 fi
 
-# A menu answered q (1) is the person's choice to stop; one that got no answer (2) is a failure.
+# A menu answered q (1) is the person's choice to stop; one that got no answer, or whose
+# containers could not be listed or stopped (2), is a failure.
 ccy_container_menu_exit() {
     local rc="$1"
     [ "$rc" -eq 0 ] && return 0
@@ -2777,24 +2779,18 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
                                 echo "Stopping containers and removing project networks..."
                                 # Stop containers on these networks first
                                 for net in "${DOCKER_NETWORKS[@]}"; do
-                                    # Get containers attached to this network.
-                                    # An inspect that fails used to read as "no
-                                    # containers attached", so nothing was
-                                    # stopped and the network removal below then
-                                    # failed for a reason the user never saw.
-                                    if ! containers=$(docker network inspect "$net" --format '{{range .Containers}}{{.Name}} {{end}}' 2>&1); then
-                                        echo "    ⚠ Could not inspect $net — its containers were NOT stopped: $containers"
-                                        containers=""
-                                    fi
+                                    # The containers attached to this network; an inspect that
+                                    # failed stops the cleanup with its words.
+                                    containers=$(docker network inspect "$net" --format '{{range .Containers}}{{.Name}} {{end}}' 2>&1) ||
+                                        { print_error "Could not inspect $net, so its containers were not stopped: $containers"; exit 1; }
                                     if [[ -n "$containers" ]]; then
                                         echo "  Stopping containers on $net: $containers"
                                         read -ra _ctrs <<< "$containers"
-                                        if ! docker stop "${_ctrs[@]}" >/dev/null 2>/dev/null; then
-                                            echo "    ⚠ Some containers could not be stopped (continuing)"
-                                        fi
+                                        "$SCRIPT_DIR/claude-yolo" --stop-containers docker "${_ctrs[@]}" || exit 1
                                     fi
+                                    # The front says why a removal failed; one already gone (5) goes on.
                                     echo "  Removing network: $net"
-                                    docker network rm "$net" 2>/dev/null && echo "    ✓ Removed" || echo "    ⚠ Could not remove (may still have containers)"
+                                    "$SCRIPT_DIR/claude-yolo" --remove-network docker "$net" || [ $? -eq 5 ] || exit 1
                                 done
                                 break
                                 ;;

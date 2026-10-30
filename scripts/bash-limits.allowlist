@@ -47,11 +47,11 @@ files/usr/local/sbin/fedora-desktop-self-update	94	2	99	-
 files/var/local/claude-code/cc	182	2	196	-
 files/var/local/claude-code/cc-teams.bash	87	7	159	-
 files/var/local/claude-yolo/agent-browser-session-guard	123	2	113	data
-files/var/local/claude-yolo/claude-yolo	2745	12	2672	-
+files/var/local/claude-yolo/claude-yolo	2742	12	2665	-
 files/var/local/claude-yolo/entrypoint.sh	440	5	443	data
 files/var/local/claude-yolo/lib/common-pure.bash	324	15	318	-
 files/var/local/claude-yolo/lib/common.bash	697	21	720	assoc
-files/var/local/claude-yolo/lib/docker-health.bash	454	9	477	-
+files/var/local/claude-yolo/lib/docker-health.bash	394	8	450	-
 files/var/local/claude-yolo/lib/dockerfile-custom.bash	595	4	231	-
 files/var/local/claude-yolo/lib/network-management.bash	956	30	1115	assoc
 files/var/local/claude-yolo/lib/restart-request.bash	318	8	316	data

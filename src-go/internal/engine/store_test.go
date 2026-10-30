@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -399,6 +400,53 @@ func TestStoreHasAsksPodmansExists(t *testing.T) {
 	d, df := engineOn(t, Docker)
 	if _, err := d.StoreHas(ctx, "image", "x"); !errors.Is(err, ErrPodmanOnly) || len(df.Calls()) != 0 {
 		t.Errorf("docker StoreHas = %v after %v, want ErrPodmanOnly", err, df.Calls())
+	}
+}
+
+// A network is asked of podman's own `network exists`, its exit 1 the one gone.
+func TestStoreHasAsksPodmanAboutANetwork(t *testing.T) {
+	e, f := engineOn(t, Podman)
+	f.On([]string{"podman", "network", "exists", "appnet"}, execx.Result{})
+	f.On([]string{"podman", "network", "exists", "gone"}, execx.Result{ExitCode: 1})
+	f.On([]string{"podman", "network", "exists", "broken"}, execx.Result{ExitCode: 125, Stderr: []byte("Error: boom\n")})
+	ctx := context.Background()
+	if got, err := e.StoreHas(ctx, KindNetwork, "appnet"); err != nil || !got {
+		t.Errorf("appnet = %v, %v; want there", got, err)
+	}
+	if got, err := e.StoreHas(ctx, KindNetwork, "gone"); err != nil || got {
+		t.Errorf("gone = %v, %v; want gone", got, err)
+	}
+	if _, err := e.StoreHas(ctx, KindNetwork, "broken"); err == nil {
+		t.Error("a failing podman was read as an answer")
+	}
+}
+
+// Docker has no exists question: a container or a network is asked for by a list filtered on
+// its name, and is there only when a line is exactly that name (the filter also matches a
+// longer name). A list that fails is an error, never a gone; an image or a volume is still
+// podman's only.
+func TestStoreHasAsksDockersListsForAContainerOrANetwork(t *testing.T) {
+	e, f := engineOn(t, Docker)
+	f.On([]string{"docker", "ps", "--all", "--filter", "name=c1", "--format", "{{.Names}}"}, execx.Result{Stdout: []byte("c1\nc1_other\n")})
+	f.On([]string{"docker", "ps", "--all", "--filter", "name=c2"}, execx.Result{Stdout: []byte("c2_longer\n")})
+	f.On([]string{"docker", "network", "ls", "--filter", "name=net", "--format", "{{.Name}}"}, execx.Result{Stdout: []byte("net\n")})
+	f.On([]string{"docker", "network", "ls", "--filter", "name=gone"}, execx.Result{})
+	f.On([]string{"docker", "network", "ls", "--filter", "name=broken"}, execx.Result{ExitCode: 1, Stderr: []byte("Cannot connect to the Docker daemon\n")})
+	ctx := context.Background()
+	for _, c := range []struct {
+		kind, key string
+		want      bool
+	}{{KindContainer, "c1", true}, {KindContainer, "c2", false}, {KindNetwork, "net", true}, {KindNetwork, "gone", false}} {
+		got, err := e.StoreHas(ctx, c.kind, c.key)
+		if err != nil || got != c.want {
+			t.Errorf("StoreHas(%s, %s) = %v, %v; want %v", c.kind, c.key, got, err, c.want)
+		}
+	}
+	if _, err := e.StoreHas(ctx, KindNetwork, "broken"); err == nil || !strings.Contains(err.Error(), "Cannot connect") {
+		t.Errorf("a failing docker list = %v, want its cause", err)
+	}
+	if _, err := e.StoreHas(ctx, KindVolume, "v"); !errors.Is(err, ErrPodmanOnly) {
+		t.Errorf("docker volume = %v, want ErrPodmanOnly", err)
 	}
 }
 

@@ -267,6 +267,15 @@ var storeHasArgs = map[string][]string{
 	KindImage:     {KindImage, exists},
 	KindVolume:    {KindVolume, exists},
 	KindContainer: {KindContainer, exists, "--external"},
+	KindNetwork:   {KindNetwork, exists},
+}
+
+// dockerList is docker's list, and its name template, for each kind StoreHas answers for on
+// docker, which has no exists question; the name filter matches a substring, so the answer is
+// an exact line.
+var dockerList = map[string][]string{
+	KindContainer: {"{{.Names}}", "ps", "--all"},
+	KindNetwork:   {"{{.Name}}", KindNetwork, "ls"},
 }
 
 // The kinds StoreHas answers for, as podman names its object verbs.
@@ -274,14 +283,20 @@ const (
 	KindImage     = "image"
 	KindVolume    = "volume"
 	KindContainer = "container"
+	KindNetwork   = "network"
 	exists        = "exists"
+	formatFlag    = "--format"
 )
 
 // StoreHas is podman's own `KIND exists KEY`: exit 0 is there, exit 1 is gone, and any other
-// end is podman failing, so an error, never a gone.
+// end is podman failing, so an error, never a gone. Docker is asked about a container or a
+// network by its list filtered on the name; a list that fails is an error, never a gone.
 func (e Engine) StoreHas(ctx context.Context, kind, key string) (bool, error) {
 	if err := e.known(); err != nil {
 		return false, err
+	}
+	if list, ok := dockerList[kind]; ok && e.kind == Docker {
+		return e.dockerHas(ctx, kind, key, list)
 	}
 	if e.kind != Podman {
 		return false, fmt.Errorf("whether there is a %s of %s: %w", kind, e.kind, ErrPodmanOnly)
@@ -298,6 +313,16 @@ func (e Engine) StoreHas(ctx context.Context, kind, key string) (bool, error) {
 		return false, fmt.Errorf("ask podman whether there is a %s %s: %w", kind, key, err)
 	}
 	return true, nil
+}
+
+// dockerHas is docker's list of the kind filtered on key, holding a line that is key exactly.
+func (e Engine) dockerHas(ctx context.Context, kind, key string, list []string) (bool, error) {
+	args := append(slices.Clone(list[1:]), "--filter", "name="+key, formatFlag, list[0])
+	res, err := e.run(ctx, args...)
+	if err != nil {
+		return false, fmt.Errorf("ask docker whether there is a %s %s: %w", kind, key, err)
+	}
+	return slices.Contains(lines(res.Stdout), key), nil
 }
 
 // RemoveExternalContainer removes a container another tool made: podman removes one it did not

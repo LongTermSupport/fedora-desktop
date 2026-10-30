@@ -52,14 +52,16 @@ func TestTheZeroEngineRunsNothing(t *testing.T) {
 	ctx := context.Background()
 	errOf := func(_ any, err error) error { return err }
 	checks := map[string]error{
-		"ImageInspect": errOf(e.ImageInspect(ctx, "x", "{{.Id}}")),
-		"ImageExists":  errOf(e.ImageExists(ctx, "x")),
-		"Containers":   errOf(e.Containers(ctx, ContainerQuery{})),
-		"Remove":       e.Remove(ctx, "x"),
-		"Networks":     errOf(e.Networks(ctx)),
-		"Rootless":     errOf(e.Rootless(ctx)),
-		"SELinuxMode":  errOf(e.SELinuxMode(ctx)),
-		"UIDMap":       errOf(e.UIDMap(ctx)),
+		"ImageInspect":  errOf(e.ImageInspect(ctx, "x", "{{.Id}}")),
+		"ImageExists":   errOf(e.ImageExists(ctx, "x")),
+		"Containers":    errOf(e.Containers(ctx, ContainerQuery{})),
+		"Remove":        e.Remove(ctx, "x"),
+		"Stop":          e.Stop(ctx, "x"),
+		"RemoveNetwork": e.RemoveNetwork(ctx, "x"),
+		"Networks":      errOf(e.Networks(ctx)),
+		"Rootless":      errOf(e.Rootless(ctx)),
+		"SELinuxMode":   errOf(e.SELinuxMode(ctx)),
+		"UIDMap":        errOf(e.UIDMap(ctx)),
 	}
 	for name, err := range checks {
 		if !errors.Is(err, ErrUnknownKind) {
@@ -168,6 +170,29 @@ func TestRemove(t *testing.T) {
 	err := e.Remove(context.Background(), "proj_ccy_1")
 	if exit, ok := errors.AsType[*execx.ExitError](err); !ok || exit.Code != 2 {
 		t.Fatalf("Remove error = %v, want the engine's exit 2", err)
+	}
+}
+
+// Stop is `stop NAME` and RemoveNetwork `network rm NAME`; each failure is the engine's own
+// exit, its words kept, for the caller to ask the store what it means.
+func TestStopAndRemoveNetwork(t *testing.T) {
+	e, f := engineOn(t, Docker)
+	f.On([]string{"docker", "stop", "c1"}, execx.Result{Stdout: []byte("c1\n")})
+	f.On([]string{"docker", "network", "rm", "net"}, execx.Result{Stdout: []byte("net\n")})
+	ctx := context.Background()
+	if err := e.Stop(ctx, "c1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.RemoveNetwork(ctx, "net"); err != nil {
+		t.Fatal(err)
+	}
+	f.On([]string{"docker", "stop"}, execx.Result{ExitCode: 1, Stderr: []byte("Error: busy\n")})
+	f.On([]string{"docker", "network", "rm"}, execx.Result{ExitCode: 1, Stderr: []byte("Error: has active endpoints\n")})
+	if err := e.Stop(ctx, "c1"); err == nil || !strings.Contains(err.Error(), "busy") {
+		t.Errorf("Stop error = %v, want the engine's words", err)
+	}
+	if err := e.RemoveNetwork(ctx, "net"); err == nil || !strings.Contains(err.Error(), "active endpoints") {
+		t.Errorf("RemoveNetwork error = %v, want the engine's words", err)
 	}
 }
 

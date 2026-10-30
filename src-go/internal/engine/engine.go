@@ -46,6 +46,9 @@
 //     ContainerFailed, which tells the container command's own non-zero exit from the
 //     engine's (125, 126, 127, a signal, or no engine started), so a check can say which
 //     failed.
+//   - E13. A container stop (Stop) and a network removal (RemoveNetwork) that fail are the
+//     engine's exit with its words; whether the object is still there is asked of the store
+//     (StoreHas), never read from those words.
 package engine
 
 import (
@@ -236,6 +239,22 @@ func (e Engine) Containers(ctx context.Context, q ContainerQuery) ([]string, err
 func (e Engine) Remove(ctx context.Context, name string) error {
 	if _, err := e.run(ctx, "rm", "-f", name); err != nil {
 		return fmt.Errorf("remove container %s: %w", name, err)
+	}
+	return nil
+}
+
+// Stop is `stop NAME` (E13).
+func (e Engine) Stop(ctx context.Context, name string) error {
+	if _, err := e.run(ctx, "stop", name); err != nil {
+		return fmt.Errorf("stop container %s: %w", name, err)
+	}
+	return nil
+}
+
+// RemoveNetwork is `network rm NAME` (E13).
+func (e Engine) RemoveNetwork(ctx context.Context, name string) error {
+	if _, err := e.run(ctx, "network", "rm", name); err != nil {
+		return fmt.Errorf("remove network %s: %w", name, err)
 	}
 	return nil
 }

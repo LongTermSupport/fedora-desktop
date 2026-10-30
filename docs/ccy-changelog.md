@@ -27,6 +27,26 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.104.9 — container 2.79.17
+
+The image is unchanged, so there is no rebuild.
+
+- **Container stops say what happened.** The orphaned- and existing-container menus and
+  `ccy --top` said "✗ (may already be stopped)" or a bare "✗" for any failed stop, and the
+  orphan menu then said "All orphaned containers stopped". Stops are now the Go front's
+  `--stop-containers`: "✓", "already gone" (the engine's store no longer has it, asked of
+  the engine, never read from the error), or "✗" with the engine's words. A stop that
+  really failed stops the launch (or `ccy --top`) instead of starting beside it.
+- **Container listings say when they failed.** The orphan scan, the stale-container cleanup,
+  both menus and `ccy --top` read an engine that could not list as "no containers found".
+  They are now the Go front's `--list-containers`; a listing that failed stops the launch
+  (or `ccy --top`) with the engine's cause.
+- **The Docker-network cleanup says why a removal failed.** Option 1 of the cross-engine
+  mismatch said "Could not remove (may still have containers)" for any failure and went
+  on. It is now `--remove-network`: a network already gone goes on, any other failure stops
+  with the engine's words. A container stop or a network inspect that failed there also
+  stops, instead of "(continuing)" into a removal that could not work.
+
 ## 3.104.8 — container 2.79.17
 
 The image is unchanged, so there is no rebuild.
