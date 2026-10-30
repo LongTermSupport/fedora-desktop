@@ -187,7 +187,7 @@ func (r *run) packages(ctx context.Context) bool {
 		return false
 	}
 	if err != nil {
-		r.errLine("  dnf reported an error — see output above.")
+		r.errLine("  dnf reported an error (" + err.Error() + ") — see output above.")
 		return false
 	}
 	r.okLine("  Package cleanup complete.")
@@ -220,7 +220,7 @@ func (r *run) oldKernels(ctx context.Context) bool {
 		return false
 	}
 	if err := r.env.Sudo.Run(finished(ctx), append([]string{progDnf, "-y", "remove"}, old...)...); err != nil {
-		r.errLine("  dnf remove reported an error.")
+		r.errLine("  dnf remove reported an error (" + err.Error() + ").")
 		return false
 	}
 	r.okLine("  Old kernels removed.")
@@ -248,7 +248,7 @@ func (r *run) journal(ctx context.Context) bool {
 		return false
 	}
 	if err := r.env.Sudo.Run(finished(ctx), "journalctl", "--vacuum-size="+size); err != nil {
-		r.errLine("  journalctl --vacuum-size reported an error.")
+		r.errLine("  journalctl --vacuum-size reported an error (" + err.Error() + ").")
 		return false
 	}
 	r.okLine("  Journal vacuumed. Now: " + r.journalUsage(ctx))
@@ -300,14 +300,14 @@ func (r *run) flatpak(ctx context.Context) bool {
 	}
 	r.info("  Unused flatpak runtimes:")
 	if err := r.stream(ctx, execx.Cmd{Name: progFlatpak, Args: []string{"uninstall", "--unused", "--assumeno"}}); err != nil {
-		r.dimLine("  (nothing unused, or preview unavailable)")
+		r.dimLine("  (nothing unused, or preview unavailable: " + err.Error() + ")")
 	}
 	if !r.confirm(ctx, "  Remove unused flatpak runtimes?") {
 		r.say("  Skipped.")
 		return true
 	}
 	if err := r.stream(finished(ctx), execx.Cmd{Name: progFlatpak, Args: []string{"uninstall", "--unused", "-y"}}); err != nil {
-		r.errLine("  flatpak uninstall reported an error.")
+		r.errLine("  flatpak uninstall reported an error (" + err.Error() + ").")
 		return false
 	}
 	r.okLine("  Unused runtimes removed.")
@@ -404,14 +404,14 @@ func (r *run) isLink(p, name string) bool {
 func (r *run) trashCLI(ctx context.Context) bool {
 	r.info("  Trash contents:")
 	if err := r.stream(ctx, execx.Cmd{Name: "trash-list"}); err != nil {
-		r.dimLine("  (trash empty or unavailable)")
+		r.dimLine("  (trash empty or unavailable: " + err.Error() + ")")
 	}
 	if !r.confirm(ctx, "  Empty the trash now?") {
 		r.say("  Skipped.")
 		return true
 	}
 	if err := r.stream(finished(ctx), execx.Cmd{Name: "trash-empty", Args: []string{"-f"}}); err != nil {
-		r.errLine("  trash-empty reported an error.")
+		r.errLine("  trash-empty reported an error (" + err.Error() + ").")
 		return false
 	}
 	r.okLine("  Trash emptied.")

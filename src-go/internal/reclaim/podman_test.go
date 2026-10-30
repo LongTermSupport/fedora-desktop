@@ -205,7 +205,7 @@ func TestContainersPodmanPartial(t *testing.T) {
 	w.answer([]string{"podman", "image", "prune"}, "", 1)
 	w.typed("6", "y", "q")
 	wantCode(t, w.run(), term.ExitFailure)
-	w.wantErr("  podman image prune reported an error.")
+	w.wantErr("  podman image prune reported an error (podman exited 1).")
 	if w.ran("podman image prune -af") {
 		t.Error("offered the second prune after the first failed")
 	}
@@ -214,7 +214,7 @@ func TestContainersPodmanPartial(t *testing.T) {
 	w.answer([]string{"podman", "image", "prune", "-af"}, "", 1)
 	w.typed("6", "n", "y", "q")
 	wantCode(t, w.run(), term.ExitFailure)
-	w.wantErr("  podman image prune -a reported an error.")
+	w.wantErr("  podman image prune -a reported an error (podman exited 1).")
 }
 
 // E22a: with no dangling image there is no first question, and with no unused tagged image no

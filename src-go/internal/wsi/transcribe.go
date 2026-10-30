@@ -58,7 +58,11 @@ func (r *run) duration(ctx context.Context) (int, bool) {
 	if err == nil && ok {
 		return seconds, true
 	}
-	r.problem(ctx, "Could not read the audio duration (soxi): "+strings.TrimSpace(out))
+	reason := strings.TrimSpace(out)
+	if err != nil {
+		reason = err.Error() // soxi's exit and, through Combined, all it printed
+	}
+	r.problem(ctx, "Could not read the audio duration (soxi): "+reason)
 	r.problem(ctx, "  Skipping the minimum-length pad; transcription may reject short audio.")
 	return 0, false
 }
@@ -174,7 +178,7 @@ func (r *run) claude(ctx context.Context, text string) (string, error) {
 	}
 	r.logError(ctx, "Claude: "+reason)
 	if cerr := r.copyText(ctx, selectionClipboard, text, true); cerr != nil {
-		r.log.debug("The raw transcript could not be copied either")
+		r.log.debug("The raw transcript could not be copied either: " + cerr.Error())
 	}
 	r.panel.notify(ctx, "Claude post-processing failed: "+reason+". Nothing was pasted. The raw transcript is on the clipboard: Ctrl+V.",
 		errorIcon, notifyStaysMS)

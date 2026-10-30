@@ -133,7 +133,7 @@ func TestFailedActionFailsTheRun(t *testing.T) {
 	w.answer([]string{"dnf", "-y", "autoremove"}, "", 1)
 	w.typed("3", "y", "q")
 	wantCode(t, w.run(), term.ExitFailure)
-	w.wantErr("  dnf reported an error — see output above.", "Bye.",
+	w.wantErr("  dnf reported an error (sudo exited 1) — see output above.", "Bye.",
 		"reclaim: 1 action(s) failed in this run; see the messages above.")
 	if w.ran("sudo -n dnf clean all") {
 		t.Error("clean ran after autoremove failed")

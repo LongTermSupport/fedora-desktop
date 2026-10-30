@@ -15,7 +15,7 @@ func TestTrashCLIFailures(t *testing.T) {
 	w.answer([]string{"trash-list"}, "", 1)
 	w.typed("9", "n", "q")
 	wantCode(t, w.run(), term.ExitOK)
-	w.wantErr("  (trash empty or unavailable)", "  Skipped.")
+	w.wantErr("  (trash empty or unavailable: trash-list exited 1)", "  Skipped.")
 	if w.ran("trash-empty") {
 		t.Error("emptied after no")
 	}
@@ -25,7 +25,7 @@ func TestTrashCLIFailures(t *testing.T) {
 	w.answer([]string{"trash-empty", "-f"}, "", 1)
 	w.typed("9", "y", "q")
 	wantCode(t, w.run(), term.ExitFailure)
-	w.wantErr("  trash-empty reported an error.")
+	w.wantErr("  trash-empty reported an error (trash-empty exited 1).")
 }
 
 // E17: baobab that cannot be started fails the action, named.
@@ -57,7 +57,7 @@ func TestOldKernelsRemovalFails(t *testing.T) {
 	w.answer([]string{"dnf", "-y", "remove"}, "", 1)
 	w.typed("4", "y", "q")
 	wantCode(t, w.run(), term.ExitFailure)
-	w.wantErr("  dnf remove reported an error.")
+	w.wantErr("  dnf remove reported an error (sudo exited 1).")
 
 	w = newWorld(t)
 	w.install("dnf")

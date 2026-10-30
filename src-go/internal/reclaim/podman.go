@@ -312,7 +312,7 @@ func (r *run) pruneDangling(ctx context.Context, images []podmanImage) (bool, bo
 		return false, true
 	}
 	if err := r.stream(finished(ctx), podmanDanglingPrune); err != nil {
-		r.errLine("  podman image prune reported an error.")
+		r.errLine("  podman image prune reported an error (" + err.Error() + ").")
 		return false, false
 	}
 	r.okLine("  Dangling podman images pruned.")
@@ -369,7 +369,7 @@ func (r *run) offerUnused(ctx context.Context, images []podmanImage) bool {
 		return true
 	}
 	if err := r.stream(finished(ctx), podmanUnusedPrune); err != nil {
-		r.errLine("  podman image prune -a reported an error.")
+		r.errLine("  podman image prune -a reported an error (" + err.Error() + ").")
 		return false
 	}
 	r.okLine("  Unused podman images removed.")

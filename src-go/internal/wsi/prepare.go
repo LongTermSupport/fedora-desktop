@@ -297,9 +297,9 @@ func (r *run) chooseLanguage(ctx context.Context) error {
 		r.language = lang
 		return nil
 	}
-	setting, path, err := r.sibling(ctx, "wsi-setting", r.env.Stderr, "language")
+	setting, _, err := r.sibling(ctx, "wsi-setting", r.env.Stderr, "language")
 	if err != nil {
-		return r.fail(ctx, "Cannot read the language setting ("+path+" failed; reason above)")
+		return r.fail(ctx, "Cannot read the language setting ("+err.Error()+"; reason above)")
 	}
 	r.language = setting
 	if setting == "system" {

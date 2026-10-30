@@ -387,13 +387,13 @@ func TestM14AFailingToolHasItsCodeAndAFailedMetadataWriteRemovesTheOutput(t *tes
 	k.semantic()
 	img := k.image("p.jpg", jpegBytes)
 	k.run.On([]string{"magick"}, execx.Result{ExitCode: 1})
-	k.wantErr(k.exec(img), 4, "magick failed (visible watermark)")
+	k.wantErr(k.exec(img), 4, "magick failed (visible watermark): magick exited 1")
 
 	k = newKit(t)
 	k.semantic()
 	img = k.image("p.jpg", jpegBytes)
 	k.run.On([]string{"exiftool", "-config", k.exifCfg, "-overwrite_original"}, execx.Result{ExitCode: 1})
-	k.wantErr(k.exec(img), 5, "exiftool failed (metadata write)")
+	k.wantErr(k.exec(img), 5, "exiftool failed (metadata write): exiftool exited 1")
 	if _, err := os.Stat(filepath.Join(k.dir, "pics", "p.watermarked.jpg")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("the unmarked output is still there: %v", err)
 	}
