@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
@@ -395,5 +396,66 @@ func TestRunWithSecretHandsTheSecretByNameAndNeverPulls(t *testing.T) {
 	var zero Engine
 	if _, err = zero.RunWithSecret(ctx, "x", secret, "sh"); !errors.Is(err, ErrUnknownKind) {
 		t.Fatalf("zero Engine RunWithSecret = %v", err)
+	}
+}
+
+func TestRunOnNetworkRunsTheImageOnTheNetworkAsGiven(t *testing.T) {
+	ctx := context.Background()
+	e, f := engineOn(t, Podman)
+	f.On([]string{"podman", "run"}, execx.Result{Stdout: []byte("<html></html>")})
+	res, err := e.RunOnNetwork(ctx, "appnet", "alpine", "wget", "-q")
+	if err != nil || string(res.Stdout) != "<html></html>" {
+		t.Fatalf("RunOnNetwork = %q, %v", res.Stdout, err)
+	}
+	want := []string{"run", "--rm", "--network", "appnet", "alpine", "wget", "-q"}
+	if c := f.Calls()[0]; !slices.Equal(c.Args, want) {
+		t.Fatalf("ran %q, want %q", c.Args, want)
+	}
+	var zero Engine
+	if _, err = zero.RunOnNetwork(ctx, "n", "x"); !errors.Is(err, ErrUnknownKind) {
+		t.Fatalf("zero Engine RunOnNetwork = %v", err)
+	}
+}
+
+func TestClaudeVersionIsTheImagesOwnAnswerMerged(t *testing.T) {
+	ctx := context.Background()
+	e, f := engineOn(t, Podman)
+	f.On([]string{"podman", "run"}, execx.Result{Stdout: []byte("2.0.0 (Claude Code)\n")})
+	out, err := e.ClaudeVersion(ctx, "claude-yolo:latest")
+	if err != nil || out != "2.0.0 (Claude Code)\n" {
+		t.Fatalf("ClaudeVersion = %q, %v", out, err)
+	}
+	want := []string{"run", "--rm", "--entrypoint", "claude", "claude-yolo:latest", "--version"}
+	if c := f.Calls()[0]; !slices.Equal(c.Args, want) {
+		t.Fatalf("ran %q, want %q", c.Args, want)
+	}
+	f.On([]string{"podman", "run"}, execx.Result{ExitCode: 127, Stderr: []byte("claude: not found")})
+	if _, err = e.ClaudeVersion(ctx, "img"); err == nil || !strings.Contains(err.Error(), "claude: not found") {
+		t.Fatalf("a failed probe = %v, want its words", err)
+	}
+	var zero Engine
+	if _, err = zero.ClaudeVersion(ctx, "x"); !errors.Is(err, ErrUnknownKind) {
+		t.Fatalf("zero Engine ClaudeVersion = %v", err)
+	}
+}
+
+func TestContainerFailedIsOnlyTheContainersOwnExit(t *testing.T) {
+	cases := []struct {
+		err  error
+		want bool
+	}{
+		{&execx.ExitError{Name: "podman", Code: 1}, true},
+		{&execx.ExitError{Name: "podman", Code: 8}, true},
+		{&execx.ExitError{Name: "podman", Code: 125}, false},
+		{&execx.ExitError{Name: "podman", Code: 126}, false},
+		{&execx.ExitError{Name: "podman", Code: 127}, false},
+		{&execx.ExitError{Name: "podman", Code: 143, Signal: 15}, false},
+		{errors.New("exec: podman: permission denied"), false},
+		{nil, false},
+	}
+	for _, tc := range cases {
+		if got := ContainerFailed(tc.err); got != tc.want {
+			t.Fatalf("ContainerFailed(%v) = %v, want %v", tc.err, got, tc.want)
+		}
 	}
 }

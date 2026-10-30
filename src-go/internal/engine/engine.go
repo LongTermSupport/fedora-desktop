@@ -41,6 +41,11 @@
 //     name only (`-e NAME`, an execx.Secret, so a command whose argv holds it is refused), the
 //     image never pulled (`--pull=never`), and a missing image (the engine's exit 125 with its
 //     "no such image" wording) told apart from every other failure, the container's included.
+//   - E12. The launch's network check and version probe: a run on a named network
+//     (RunOnNetwork), `claude --version` in the image (ClaudeVersion, merged), and
+//     ContainerFailed, which tells the container command's own non-zero exit from the
+//     engine's (125, 126, 127, a signal, or no engine started), so a check can say which
+//     failed.
 package engine
 
 import (
@@ -174,6 +179,34 @@ func (e Engine) RunWithSecret(ctx context.Context, image string, secret execx.Se
 		return res, fmt.Errorf("%s: %w", image, ErrNoImage)
 	}
 	return res, err
+}
+
+// RunOnNetwork is `run --rm --network NETWORK IMAGE ARGS...`, its output captured (E12): the
+// image pulled when the engine lacks it, as a plain run does. ContainerFailed tells the
+// container's own failure from the engine's.
+func (e Engine) RunOnNetwork(ctx context.Context, network, image string, args ...string) (execx.Result, error) {
+	return e.run(ctx, append([]string{"run", "--rm", "--network", network, image}, args...)...)
+}
+
+// ClaudeVersion is `claude --version` run in the image, stdout and stderr as one stream; on a
+// failure the error carries that text (E12).
+func (e Engine) ClaudeVersion(ctx context.Context, image string) (string, error) {
+	if err := e.known(); err != nil {
+		return "", err
+	}
+	out, err := execx.Combined(ctx, e.runner, e.cmd("run", "--rm", "--entrypoint", "claude", image, "--version"))
+	if err != nil {
+		return out, fmt.Errorf("claude --version in %s: %w", image, err)
+	}
+	return out, nil
+}
+
+// ContainerFailed reports whether err is a run's container command ending itself non-zero:
+// not the engine failing to run it (125), the command not runnable (126) or not found (127)
+// in the image, a signal, or an engine that did not start (E12).
+func ContainerFailed(err error) bool {
+	exit, ok := errors.AsType[*execx.ExitError](err)
+	return ok && exit != nil && exit.Signal == 0 && exit.Code != 0 && exit.Code < engineFailed
 }
 
 // ContainerQuery is a `ps`: every container (All) or the running ones, narrowed by the
