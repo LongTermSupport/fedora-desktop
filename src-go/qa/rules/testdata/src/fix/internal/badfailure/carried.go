@@ -79,6 +79,16 @@ func eitherBranch(r execx.Runner, c execx.Cmd, first bool) error { // want eithe
 	return nil
 }
 
+// joinedIntoItself carries the failure into its own next value: the right of an assignment is
+// read before v is replaced.
+func joinedIntoItself(r execx.Runner, c execx.Cmd, release func() error) error { // want joinedIntoItself:"returns a command's failure"
+	_, err := r.Run(c)
+	if err = errors.Join(err, release()); err != nil {
+		return err
+	}
+	return nil
+}
+
 // noCommand's error is not a command's failure: NewName takes no command.
 func noCommand() string {
 	name, err := execx.NewName("x")

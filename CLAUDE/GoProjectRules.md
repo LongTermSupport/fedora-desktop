@@ -711,7 +711,8 @@ function or method of `internal/execx` or `qa/internal/proc` that takes a `Cmd` 
 facts, any function that returns such a call's error, so a wrapper is judged as the seam is)
 whose error is only tested before the variable is next assigned. Carrying is any other use:
 returning it, passing it to a call (`fmt.Errorf`, `errors.Join`, `errors.As`, a logger,
-`execx.ExitedNonZero`), calling a method on it, or storing it. A run whose call is a statement,
+`execx.ExitedNonZero`), calling a method on it, or storing it, also on the right of the
+assignment that replaces it (`err = errors.Join(err, release())`, read before the store). A run whose call is a statement,
 or whose error goes to the blank identifier, carries nothing.
 
 **How to fix a violation.** Put the error itself, or what `errors.As` finds in it (the exit code,

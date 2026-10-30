@@ -202,21 +202,32 @@ func isErrorType(t types.Type) bool {
 	return types.Identical(t, types.Universe.Lookup("error").Type())
 }
 
-// carried is whether v, assigned at from, is used other than tested before it is next assigned.
-// A use inside a branch errors.Is(v, ...) chose carries only that one failure, so it is not
-// counted.
+// carried is whether v, assigned at from, is used other than tested before it is next assigned,
+// or on the right of that assignment, which is read before v is replaced (err = errors.Join(err,
+// ...)). A use inside a branch errors.Is(v, ...) chose carries only that one failure, so it is
+// not counted.
 func carried(pass *analysis.Pass, body *ast.BlockStmt, v *types.Var, from token.Pos) bool {
-	until := nextAssign(pass, body, v, from)
+	next := nextAssign(pass, body, v, from)
+	until := body.End()
+	if next != nil {
+		until = next.Pos()
+	}
 	tests, sentinel := testsOf(pass, body, v)
 	found := false
 	ast.Inspect(body, func(n ast.Node) bool {
 		id, ok := n.(*ast.Ident)
-		if ok && id.Pos() > from && id.Pos() < until && pass.TypesInfo.Uses[id] == v && !tests[id] && !within(id.Pos(), sentinel) {
+		if ok && id.Pos() > from && (id.Pos() < until || onTheRight(next, id.Pos())) &&
+			pass.TypesInfo.Uses[id] == v && !tests[id] && !within(id.Pos(), sentinel) {
 			found = true
 		}
 		return !found
 	})
 	return found
+}
+
+// onTheRight is whether pos is in the right-hand side of as.
+func onTheRight(as *ast.AssignStmt, pos token.Pos) bool {
+	return as != nil && slices.ContainsFunc(as.Rhs, func(e ast.Expr) bool { return pos >= e.Pos() && pos < e.End() })
 }
 
 // testsOf is every use of v in body that only tests it, and the branches errors.Is(v, ...)
@@ -271,11 +282,12 @@ func markIdent(pass *analysis.Pass, e ast.Expr, v *types.Var, tests map[*ast.Ide
 	}
 }
 
-// nextAssign is the position of the first assignment to v after from that every path past it
-// takes, or the end of body: one in a branch that does not hold from (an if's body, the other
-// branch of an else) may not run, so the failure may still be what v holds after it.
-func nextAssign(pass *analysis.Pass, body *ast.BlockStmt, v *types.Var, from token.Pos) token.Pos {
+// nextAssign is the first assignment to v after from that every path past it takes, or nil:
+// one in a branch that does not hold from (an if's body, the other branch of an else) may not
+// run, so the failure may still be what v holds after it.
+func nextAssign(pass *analysis.Pass, body *ast.BlockStmt, v *types.Var, from token.Pos) *ast.AssignStmt {
 	until := body.End()
+	var next *ast.AssignStmt
 	var blocks []ast.Node
 	ast.Inspect(body, func(n ast.Node) bool {
 		if n == nil {
@@ -289,12 +301,12 @@ func nextAssign(pass *analysis.Pass, body *ast.BlockStmt, v *types.Var, from tok
 		}
 		for _, lhs := range as.Lhs {
 			if id, isIdent := lhs.(*ast.Ident); isIdent && pass.TypesInfo.ObjectOf(id) == v {
-				until = as.Pos()
+				until, next = as.Pos(), as
 			}
 		}
 		return true
 	})
-	return until
+	return next
 }
 
 // innermostHolds is whether the innermost block or case of path (the nodes from body down to
