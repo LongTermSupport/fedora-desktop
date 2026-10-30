@@ -714,29 +714,12 @@ list_tokens() {
     printf '%s\n\n' "$rule"
 }
 
-# Function to validate a token by testing it against the Claude API
-# Args: $1 = token to validate, $2 = image_name
-# Returns: 0 if valid, 1 if invalid
+# validate_token TOKEN IMAGE — the Go front's --check-token (F17) asks the API from inside the
+# image. 0: accepted. 3: the API refused the token (the one case for recovery). Anything else:
+# the check could not be made, its cause already on stderr; never a verdict on the token.
+# The token goes in that one command's environment, never in an argv (BSH-09).
 validate_token() {
-    local token="$1"
-    local image_name="$2"
-
-    # Test the token by making a simple API call
-    # Claude Code with a valid token should be able to show version.
-    #
-    # BSH-09: pass the token by NAME (-e CLAUDE_CODE_OAUTH_TOKEN, no '=value') so
-    # the secret is taken from this process's environment and never appears in the
-    # container run's argv, which is world-readable via /proc/<pid>/cmdline. It is set
-    # in that one command's environment, so no other program is given it.
-    if CLAUDE_CODE_OAUTH_TOKEN="$token" container_cmd run --rm \
-        -e CLAUDE_CODE_OAUTH_TOKEN \
-        --entrypoint claude \
-        "$image_name" \
-        --version >/dev/null 2>/dev/null; then
-        return 0  # Token works
-    else
-        return 1  # Token invalid
-    fi
+    CLAUDE_CODE_OAUTH_TOKEN="$1" "$SCRIPT_DIR/claude-yolo" --check-token "$CONTAINER_ENGINE" "$2"
 }
 
 # Function to create a new long-lived token
@@ -902,9 +885,7 @@ create_token() {
                 echo "════════════════════════════════════════════════════════════════════════════"
             else
                 echo ""
-                print_error "Token validation failed"
-                echo "The extracted token does not authenticate properly."
-                echo "Please try creating the token again."
+                print_error "The new token was not saved: its check failed, for the reason above. Please try creating the token again."
                 rm -f "$tmp_output"
                 return 1
             fi
@@ -1000,13 +981,7 @@ create_token() {
                     break
                 else
                     echo ""
-                    print_error "Token validation failed"
-                    echo "The provided token does not authenticate with Claude API."
-                    echo ""
-                    echo "Possible causes:"
-                    echo "  • Token was copied incorrectly (missing characters)"
-                    echo "  • Token has expired or been revoked"
-                    echo "  • Network connectivity issues"
+                    print_error "The token was not saved: its check failed, for the reason above."
                     echo ""
                     read -r -p "Try again? (Y/n): " retry
                     if [ "$retry" = "n" ] || [ "$retry" = "N" ]; then

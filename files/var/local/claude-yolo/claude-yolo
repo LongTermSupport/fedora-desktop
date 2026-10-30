@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.104.6"  # Container 2.79.17: the engine adapter asks podman whether it has an item (Plan 00235). See docs/ccy-changelog.md.
+CCY_VERSION="3.104.7"  # Container 2.79.17: a token check that could not run is said, never read as an invalid token. See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -171,7 +171,7 @@ if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
     printf 'ccy version %s\nHash: %s\n' "$CCY_VERSION" "$CCY_HASH"
     exit 0
 fi
-if [ "$1" = "--build-lock" ] || [ "$1" = "--read-launch-config" ]; then
+if [ "$1" = "--build-lock" ] || [ "$1" = "--read-launch-config" ] || [ "$1" = "--check-token" ]; then
     print_error "ccy $1 is answered by the Go front, $SCRIPT_DIR/claude-yolo; run it without CCY_LEGACY."
     exit 1
 fi
@@ -1634,14 +1634,17 @@ if [ "$TOKEN_BYTES" -lt 90 ] || [ "$TOKEN_BYTES" -gt 120 ]; then
     TOKEN_VALIDATION_FAILED=true
     VALIDATION_FAILURE_REASON="length"
 else
-    # Validate token against Claude API (sanity check for corruption)
+    # Only a refusal by the API (3) is an invalid token. A check that could not run stops the
+    # launch with its cause: nothing is known about the token, and the session needs the same
+    # engine, image and API.
     echo "Validating token..."
-    if ! validate_token "$CLAUDE_OAUTH_TOKEN" "$IMAGE_NAME"; then
-        TOKEN_VALIDATION_FAILED=true
-        VALIDATION_FAILURE_REASON="api"
-    else
-        echo "✓ Token validated successfully"
-    fi
+    check_rc=0
+    validate_token "$CLAUDE_OAUTH_TOKEN" "$IMAGE_NAME" || check_rc=$?
+    case "$check_rc" in
+    0) echo "✓ Token validated successfully" ;;
+    3) TOKEN_VALIDATION_FAILED=true; VALIDATION_FAILURE_REASON="api" ;;
+    *) print_error "Token $(basename "$SELECTED_TOKEN") was not checked (above); it is kept. Fix the cause and launch again."; exit 1 ;;
+    esac
 fi
 
 # Handle token validation failure with unified recovery UI
@@ -1674,21 +1677,12 @@ if [ "$TOKEN_VALIDATION_FAILED" = true ]; then
         echo "The token has valid format, but does not authenticate with Claude API."
     fi
 
-    echo ""
-    echo "Common causes:"
-    echo "  • Token file corrupted (truncated, extra characters, etc.)"
-    echo "  • Token was manually edited incorrectly"
-    echo "  • Token was revoked on Claude's side"
-    echo "  • File was damaged (filesystem issue, interrupted write, etc.)"
-    echo ""
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
-    echo "Recovery options:"
-    echo ""
-    echo "  1) Recreate token (same name: '$token_name')"
-    echo "  2) Select different token"
-    echo "  3) Exit and fix manually"
-    echo ""
+    printf '%s\n' "" "Common causes:" "  • Token file corrupted (truncated, extra characters, etc.)" \
+        "  • Token was manually edited incorrectly" "  • Token was revoked on Claude's side" \
+        "  • File was damaged (filesystem issue, interrupted write, etc.)" "" \
+        "════════════════════════════════════════════════════════════════════════════════" "" \
+        "Recovery options:" "" "  1) Recreate token (same name: '$token_name')" \
+        "  2) Select different token" "  3) Exit and fix manually" ""
 
     if ccy_nobody_to_ask; then
         ccy_prompt_refuse token-recovery "Check it with ccy --list-tokens, or launch with another --token NAME."
@@ -1736,8 +1730,7 @@ if [ "$TOKEN_VALIDATION_FAILED" = true ]; then
                 fi
 
                 if ! validate_token "$CLAUDE_OAUTH_TOKEN" "$IMAGE_NAME"; then
-                    print_error "Selected token also failed validation"
-                    echo "Please check your tokens or create a new one with: ccy --create-token"
+                    print_error "The selected token failed its check, for the reason above. Check your tokens or create one with: ccy --create-token"
                     exit 1
                 fi
 

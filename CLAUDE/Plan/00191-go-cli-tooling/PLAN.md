@@ -844,7 +844,11 @@ today; rewriting them is out of scope.
      the front's `--read-launch-config FILE` (F16, `launchconfig.go`); the bash takes its
      KEY<TAB>value lines with `read` and reconfigures with the file kept
      (`subagent-reports/261030-task-4.10-unit1-config.md`).
-  2. B2: `validate_token`. An engine failure is reported as one, not as "token invalid".
+  2. ✅ B2: `validate_token`. An engine failure is reported as one, not as "token invalid".
+     Built (CCY 3.104.7): the front's `--check-token ENGINE IMAGE` (F17, `checktoken.go`, the
+     run through `engine.RunWithSecret`, E11) asks the API from the image, since the old
+     `claude --version` never asked it: 0 accepted, 3 refused (recovery), 1 not checked, which
+     stops the launch with its cause (`subagent-reports/261030-task-4.10-unit2-validate-token.md`).
   3. B3, B5: the network check and the Claude version probes. Each carries its cause.
   4. B6, B7, B9: network removal, container stops and listings (`lib/docker-health.bash`).
      An engine failure is said, not read as "may still have containers", "may already be
