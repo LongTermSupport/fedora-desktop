@@ -62,7 +62,7 @@ func TestCollectTeamsReportsWhatItCouldNotRead(t *testing.T) {
 	if err := h.c.collectTeams(t.Context(), NewSnapshot()); err == nil {
 		t.Fatal("a systemctl failure fails the collection")
 	}
-	if !strings.Contains(h.ErrOut.String(), "ERROR: systemctl could not list the agent-bus homeserver units.\n") {
+	if !strings.Contains(h.ErrOut.String(), "ERROR: systemctl could not list the agent-bus homeserver units: systemctl exited 1: boom\n") {
 		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
 

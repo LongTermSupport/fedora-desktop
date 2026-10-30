@@ -251,7 +251,7 @@ func TestPasswordClipboardFailureIsNotCalledSuccess(t *testing.T) {
 	if _, err := h.l.PasswordRow(context.Background(), snap, h.row(t, snap, "owner")); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(h.ErrOut.String(), "ERROR: wl-copy failed (above), so the password is not on the clipboard; copy it from above.\n") ||
+	if !strings.Contains(h.ErrOut.String(), "ERROR: wl-copy failed (wl-copy exited 1: no display), so the password is not on the clipboard; copy it from above.\n") ||
 		strings.Contains(h.ErrOut.String(), "The password is on the clipboard.") {
 		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
@@ -298,7 +298,7 @@ func TestPasswordIsNotOfferedForTheClipboardWhenTheExtensionsCannotBeRead(t *tes
 	if h.Fake.Called("wl-copy") {
 		t.Fatalf("wl-copy ran: %v", h.Fake.Calls())
 	}
-	if !strings.Contains(h.ErrOut.String(), "ERROR: whether the Clipboard Indicator extension is on could not be read, so the password is not offered for the clipboard; type it from above.\n") {
+	if !strings.Contains(h.ErrOut.String(), "ERROR: whether the Clipboard Indicator extension is on could not be read (gsettings exited 1: No such schema), so the password is not offered for the clipboard; type it from above.\n") {
 		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
 }

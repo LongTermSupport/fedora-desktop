@@ -3,7 +3,6 @@ package ansiblesyntax
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,8 +18,12 @@ const vaultPasswordFileSuffix = "_VAULT_PASSWORD_FILE"
 // missing prerequisite is one clear exit 2 and never a report of every playbook failing alike.
 func (g *gate) requireMachine(ctx context.Context) error {
 	res, err := g.runTool(ctx, probeTimeout, "ansible-playbook", "--version")
-	if err != nil || res.Code != 0 {
-		return errors.New("ansible-playbook not installed or not working (run.bash installs it with pipx)")
+	const hint = "ansible-playbook not installed or not working (run.bash installs it with pipx)"
+	switch {
+	case err != nil:
+		return fmt.Errorf("%s: %w", hint, err)
+	case res.Code != 0:
+		return fmt.Errorf("%s: ansible-playbook --version exited %d: %s", hint, res.Code, strings.TrimSpace(res.Stderr))
 	}
 	config := filepath.Join(g.root, "ansible.cfg")
 	if info, err := os.Stat(config); err != nil || !info.Mode().IsRegular() {

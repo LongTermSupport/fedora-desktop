@@ -1,6 +1,7 @@
 package hot
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -125,6 +126,38 @@ func TestRepairStartsTheKeeperAgainAndWaitsForItsSeats(t *testing.T) {
 		t.Fatalf("rerun exit %d:\n%s", code, r.ErrOut.String())
 	}
 	wantLines(t, r.ErrOut.String(), "- keeper: running", "Nothing to do: "+session+"'s seat keeper is running.")
+}
+
+func TestRepairWhoseKeeperCannotBeSeenSaysWhy(t *testing.T) {
+	r := newRig(t, membership.Seat{Team: "alpha", Seat: "3"})
+	r.m.alive, r.m.keeper = false, false
+	started := false
+	r.Fake.OnFunc([]string{"podman", "exec", "-d"}, func(execx.Cmd) (execx.Result, error) {
+		started = true
+		return execx.Result{}, nil
+	})
+	r.Fake.OnFunc([]string{"podman", "top"}, func(execx.Cmd) (execx.Result, error) {
+		if started {
+			return execx.Result{ExitCode: 125, Stderr: []byte("no such container\n")}, nil
+		}
+		return execx.Result{Stdout: []byte("COMMAND\n/bin/bash /usr/local/bin/entrypoint\n")}, nil
+	})
+	if code := r.run(t, "repair", session, "--yes"); code != term.ExitFailure {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	wantLines(t, r.ErrOut.String(), "✗ keeper: whether it runs could not be read after 10 s: no such container")
+}
+
+func TestListSaysWhenATeamsStateCannotBeRead(t *testing.T) {
+	r := newRig(t, membership.Seat{Team: "alpha", Seat: "3"})
+	r.labelled("abc123\trunning\t" + session + "\n")
+	r.Fake.OnFunc([]string{"systemctl", "is-active", "agent-bus-hs@alpha.service"}, func(execx.Cmd) (execx.Result, error) {
+		return execx.Result{}, errors.New("no systemctl")
+	})
+	if code := r.run(t, "list"); code != term.ExitOK ||
+		!strings.HasSuffix(r.Out.String(), "\twhether its teams' homeservers are up cannot be read: no systemctl\n") {
+		t.Fatalf("exit %d: %q", code, r.Out.String())
+	}
 }
 
 func TestRepairWhoseKeeperDoesNotComeBackSaysSo(t *testing.T) {

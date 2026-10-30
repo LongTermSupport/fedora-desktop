@@ -14,11 +14,15 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport"
 )
 
-// requireSemgrep is that semgrep runs at all.
+// requireSemgrep is that semgrep runs at all; the reason it does not is part of the error.
 func (g *gate) requireSemgrep(ctx context.Context) error {
+	const hint = "semgrep not found: run ./playbooks/imports/play-python.yml (it installs the pinned semgrep; do not install it by hand)"
 	res, err := g.runTool(ctx, gitTimeout, g.root, "semgrep", "--version")
-	if err != nil || res.Code != 0 {
-		return errors.New("semgrep not found: run ./playbooks/imports/play-python.yml (it installs the pinned semgrep; do not install it by hand)")
+	switch {
+	case err != nil:
+		return fmt.Errorf("%s (%w)", hint, err)
+	case res.Code != 0:
+		return fmt.Errorf("%s (semgrep --version exited %d: %s)", hint, res.Code, strings.TrimSpace(res.Stderr))
 	}
 	return nil
 }

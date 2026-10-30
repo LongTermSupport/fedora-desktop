@@ -163,5 +163,5 @@ func TestAnLxcMemberWithoutSudoIsNotReached(t *testing.T) {
 	if len(m.lxcTyped()) != 0 || len(m.proj().entered) != 2 {
 		t.Fatalf("lxc %q desktop %q", m.lxcTyped(), m.proj().entered)
 	}
-	m.errHas(t, "✗ proj.box+role.lxc: not reached: lxc-attach needs sudo, which is not ready")
+	m.errHas(t, "✗ proj.box+role.lxc: not reached: lxc-attach needs sudo: sudo is not ready: no terminal")
 }

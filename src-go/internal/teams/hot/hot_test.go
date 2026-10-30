@@ -46,6 +46,7 @@ type machine struct {
 	roles     map[string]string // team\thandle -> role, for the checkout's seats and others
 	others    map[string]int    // team -> members of other checkouts, beside roles
 	onPs      func()            // run at each podman ps, when set
+	psErr     string            // podman ps fails with this on stderr, when set
 	onPanes   func()            // run at each tmux list-panes, when set
 	report    string            // the keeper's report file: "" follows the desired file, "-" none, else its bytes
 }
@@ -216,6 +217,9 @@ func (r *rig) podmanPs(t *testing.T) execx.Result {
 	defer r.m.mu.Unlock()
 	if r.m.onPs != nil {
 		r.m.onPs()
+	}
+	if r.m.psErr != "" {
+		return execx.Result{ExitCode: 125, Stderr: []byte(r.m.psErr + "\n")}
 	}
 	request := filepath.Join(r.dir(), membership.RelaunchFile)
 	if _, err := os.Lstat(request); err == nil && r.m.relaunch {

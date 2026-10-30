@@ -66,7 +66,7 @@ const (
 	whyLxcUnknown = "no LXC member record of this host names it (a container on another machine, or one " +
 		"joined by hand): type /goal clear in its session where it runs, then the text below"
 	whyLxcDeferred = "offline (its container was not running at the last apply, so it has not joined yet)"
-	whyNoSudo      = "lxc-attach needs sudo, which is not ready"
+	whyNoSudo      = "lxc-attach needs sudo"
 	whyElsewhere   = "not a session on this host's ccy tmux (another machine, or a checkout ccy-teams " +
 		"does not know); type /goal clear in its session where it runs, then the text below"
 	whyFree    = "no session holds it"
@@ -353,7 +353,7 @@ func (w *WindDown) reachLxc(ctx context.Context, team string, snap *board.Snapsh
 		return
 	}
 	if err = w.Sudo.Ready(ctx, "Typing into the LXC members' sessions runs lxc-attach as root."); err != nil {
-		notReached(whyNoSudo, reachable...)
+		notReached(whyNoSudo+": "+err.Error(), reachable...)
 		return
 	}
 	lxcPath, err := w.Lxc.LxcPath(ctx)

@@ -172,6 +172,21 @@ func TestAddThatTheKeeperRefusesIsRolledBack(t *testing.T) {
 	}
 }
 
+func TestAddWhoseSessionCannotBeSeenMidwaySaysWhy(t *testing.T) {
+	r := newRig(t)
+	r.Fake.OnFunc([]string{"podman", "exec"}, func(execx.Cmd) (execx.Result, error) {
+		r.m.psErr = "cannot connect to podman"
+		return execx.Result{}, nil
+	})
+	if code := r.run(t, "add", session, "alpha/3", "--yes"); code != term.ExitFailure {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	if got := r.ErrOut.String(); !strings.Contains(got, "✗ session: seat 3: whether "+session+" still runs could not be read: "+
+		"podman could not list its container: podman exited 125: cannot connect to podman") {
+		t.Fatalf("the look's failure is said:\n%s", got)
+	}
+}
+
 func TestAddWhenTheSessionEndsMidwayIsRolledBack(t *testing.T) {
 	r := newRig(t)
 	r.Fake.OnFunc([]string{"podman", "exec"}, func(execx.Cmd) (execx.Result, error) {
@@ -403,6 +418,22 @@ func TestAddWhoseRelaunchedSessionHasNoReportYetWaitsForIt(t *testing.T) {
 	got := r.ErrOut.String()
 	if !strings.Contains(got, "not relaunched within 180 s") || strings.Contains(got, "could not be read") {
 		t.Fatalf("a report not written yet is waited for:\n%s", got)
+	}
+}
+
+func TestAddWhoseRelaunchCannotBeSeenSaysWhy(t *testing.T) {
+	r := newRig(t)
+	r.m.onPs = func() {
+		if _, err := os.Lstat(filepath.Join(r.dir(), membership.RelaunchFile)); err == nil {
+			r.m.psErr = "cannot connect to podman"
+		}
+	}
+	if code := r.run(t, "add", session, "alpha/3", "--yes"); code != term.ExitFailure {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	if got := r.ErrOut.String(); !strings.Contains(got, "✗ session: whether it relaunched could not be read within 180 s: "+
+		"podman could not list its container: podman exited 125: cannot connect to podman.") {
+		t.Fatalf("the look's failure is said:\n%s", got)
 	}
 }
 

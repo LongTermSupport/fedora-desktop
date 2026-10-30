@@ -1,6 +1,7 @@
 package hot
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -45,7 +46,7 @@ const OnlyTmuxLine = "Only sessions started through ccy's tmux (the ones ccy-ses
 // running cc session's pane; and whether each session's own launch carried the bus (its record).
 type listCache struct {
 	seats map[string][]agentbus.Seat
-	up    map[string]bool
+	up    map[string]upState
 	panes map[string]int
 	bus   map[string]bool
 }
@@ -78,7 +79,7 @@ func (x *Hot) Sessions(ctx context.Context) ([]Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	cache := listCache{seats: map[string][]agentbus.Seat{}, up: map[string]bool{}, panes: cc, bus: bus}
+	cache := listCache{seats: map[string][]agentbus.Seat{}, up: map[string]upState{}, panes: cc, bus: bus}
 	names := make([]string, 0, len(running))
 	for name := range running {
 		names = append(names, name)
@@ -181,7 +182,8 @@ func (x *Hot) session(ctx context.Context, runtime, container, name string, cach
 	if repErr != nil {
 		rep = membership.Report{}
 	}
-	var down, unheld []string
+	down, teamErr := x.downTeams(ctx, d.Seats, cache)
+	var unheld []string
 	for _, s := range d.Seats {
 		cell := Cell{Team: s.Team, Seat: s.Seat, Role: "-"}
 		held := false
@@ -194,9 +196,6 @@ func (x *Hot) session(ctx context.Context, runtime, container, name string, cach
 			}
 		}
 		row.Teams = append(row.Teams, cell)
-		if !x.teamIsUp(ctx, s.Team, cache) {
-			down = append(down, s.Team)
-		}
 		if !held {
 			unheld = append(unheld, s.Seat+"@"+s.Team)
 		}
@@ -204,7 +203,7 @@ func (x *Hot) session(ctx context.Context, runtime, container, name string, cach
 	alive, aliveErr := x.sessionKeeper(ctx, container, cache.panes[name])
 	// A cc session's keeper cannot be repaired from outside (ccRepair), so it is not Unguarded.
 	row.Unguarded = aliveErr == nil && !alive && kind == kindCcy
-	row.State = rowState(name, kind, alive, aliveErr, seatsErr, repErr, down, unheld)
+	row.State = rowState(name, kind, alive, problems{aliveErr, seatsErr, repErr, teamErr}, down, unheld)
 	return row
 }
 
@@ -219,17 +218,25 @@ func ownMembership(runtime, kind, name string, cache listCache) (membership.Desi
 	return d, err
 }
 
+// problems are the reads of a listed session that failed: its processes, its seats, its seat
+// keeper's report, its teams' homeserver states.
+type problems struct {
+	alive, seats, report, team error
+}
+
 // stateWord is a session's STATE: what is wrong with it first, else ok.
-func stateWord(name string, alive bool, aliveErr, seatsErr, reportErr error, down, unheld []string) string {
+func stateWord(name string, alive bool, p problems, down, unheld []string) string {
 	switch {
-	case aliveErr != nil:
-		return "its processes cannot be read: " + lastLine(aliveErr)
+	case p.alive != nil:
+		return "its processes cannot be read: " + lastLine(p.alive)
 	case !alive:
 		return fmt.Sprintf(stateUnguarded, name)
-	case seatsErr != nil:
-		return "its seats cannot be read: " + lastLine(seatsErr)
-	case reportErr != nil:
-		return "its seat keeper's report cannot be read: " + lastLine(reportErr)
+	case p.seats != nil:
+		return "its seats cannot be read: " + lastLine(p.seats)
+	case p.report != nil:
+		return "its seat keeper's report cannot be read: " + lastLine(p.report)
+	case p.team != nil:
+		return "whether its teams' homeservers are up cannot be read: " + lastLine(p.team)
 	case len(down) > 0:
 		return strings.Join(down, ",") + " down"
 	case len(unheld) > 0:
@@ -251,14 +258,35 @@ func (x *Hot) checkoutSeats(ctx context.Context, checkout string, cache listCach
 	return seats, nil
 }
 
-// teamIsUp is whether a team's homeserver is up, asked once per list.
-func (x *Hot) teamIsUp(ctx context.Context, team string, cache listCache) bool {
-	if up, ok := cache.up[team]; ok {
-		return up
+// downTeams is the seats' teams whose homeserver is down, and the first failure to ask one.
+func (x *Hot) downTeams(ctx context.Context, seats []membership.Seat, cache listCache) ([]string, error) {
+	var down []string
+	var first error
+	for _, s := range seats {
+		up, err := x.teamIsUp(ctx, s.Team, cache)
+		if err != nil {
+			first = cmp.Or(first, err)
+		} else if !up {
+			down = append(down, s.Team)
+		}
+	}
+	return down, first
+}
+
+// teamIsUp is whether a team's homeserver is up, asked once per list; a failed ask is returned.
+func (x *Hot) teamIsUp(ctx context.Context, team string, cache listCache) (bool, error) {
+	if s, ok := cache.up[team]; ok {
+		return s.up, s.err
 	}
 	state, err := x.Host.Systemd.HomeserverState(ctx, team)
-	cache.up[team] = err == nil && state == systemd.HomeserverUp
-	return cache.up[team]
+	cache.up[team] = upState{up: err == nil && state == systemd.HomeserverUp, err: err}
+	return cache.up[team].up, err
+}
+
+// upState is one team's homeserver state as a list asked it.
+type upState struct {
+	up  bool
+	err error
 }
 
 // runningSessions is the running sessions in sessprobe.LabelledSessions' lines: name -> container.
@@ -416,9 +444,12 @@ func (x *Hot) repair(ctx context.Context, t *target, r request) term.ExitCode {
 			return term.ExitOK
 		}
 		if x.Now().Sub(start) >= x.Waits.Apply {
-			if !alive {
+			switch {
+			case err != nil:
+				x.mark(markFailed, "keeper: whether it runs could not be read after "+seconds(x.Waits.Apply)+": "+lastLine(err))
+			case !alive:
 				x.mark(markFailed, "keeper: not running after "+seconds(x.Waits.Apply)+": see "+keeperLog+" in the session")
-			} else {
+			default:
 				x.mark(markFailed, "keeper: running, but not holding "+strings.Join(unheld, ", ")+" after "+seconds(x.Waits.Apply)+
 					" (ccy-teams session list says why)")
 			}

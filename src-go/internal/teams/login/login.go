@@ -442,11 +442,12 @@ func (l *Login) offerCopy(ctx context.Context, h ui.Heading, name, password stri
 			"playbooks/imports/play-claude-yolo.yml installs wl-clipboard.")
 		return nil
 	}
-	switch l.clipboardHistory(ctx) {
+	kept, keptErr := l.clipboardHistory(ctx)
+	switch kept {
 	case historyOff:
 	case historyUnknown:
-		l.Kit.Term.PrintError("whether the Clipboard Indicator extension is on could not be read, so the password is not offered " +
-			"for the clipboard; type it from above.")
+		l.Kit.Term.PrintError("whether the Clipboard Indicator extension is on could not be read (" + keptErr.Error() +
+			"), so the password is not offered for the clipboard; type it from above.")
 		return nil
 	case historyOn:
 		l.Kit.Tell("The password is not offered for the clipboard: the Clipboard Indicator extension is on, " +
@@ -460,8 +461,8 @@ func (l *Login) offerCopy(ctx context.Context, h ui.Heading, name, password stri
 	if err != nil || !yes {
 		return err
 	}
-	if !l.copyToClipboard(ctx, password) {
-		l.Kit.Term.PrintError("wl-copy failed (above), so the password is not on the clipboard; copy it from above.")
+	if failed := l.copyToClipboard(ctx, password); failed != "" {
+		l.Kit.Term.PrintError("wl-copy failed (" + failed + "), so the password is not on the clipboard; copy it from above.")
 		return nil
 	}
 	l.Kit.Tell("The password is on the clipboard for one paste; after that it is gone from the clipboard.")
@@ -481,28 +482,32 @@ const (
 	historyUnknown         // the enabled extensions could not be read (gsettings said why)
 )
 
-// clipboardHistory is whether GNOME Shell's enabled extensions include Clipboard Indicator.
-// With no gsettings there is no GNOME Shell, so it is off.
-func (l *Login) clipboardHistory(ctx context.Context) history {
+// clipboardHistory is whether GNOME Shell's enabled extensions include Clipboard Indicator,
+// and, when that could not be read, why. With no gsettings there is no GNOME Shell, so it is off.
+func (l *Login) clipboardHistory(ctx context.Context) (history, error) {
 	if !l.Kit.HasTool("gsettings") {
-		return historyOff
+		return historyOff, nil
 	}
 	res, err := l.Runner.Run(ctx, execx.Cmd{
 		Name: "gsettings", Args: []string{"get", "org.gnome.shell", "enabled-extensions"}, Stderr: l.Kit.Stderr,
 	})
 	switch {
 	case err != nil:
-		return historyUnknown
+		return historyUnknown, err
 	case strings.Contains(string(res.Stdout), "'"+clipboardHistoryUUID+"'"):
-		return historyOn
+		return historyOn, nil
 	}
-	return historyOff
+	return historyOff, nil
 }
 
-// copyToClipboard puts text on the clipboard for one paste; it says whether wl-copy took it.
-func (l *Login) copyToClipboard(ctx context.Context, text string) bool {
+// copyToClipboard puts text on the clipboard for one paste; it is how wl-copy failed, or ""
+// when it took it.
+func (l *Login) copyToClipboard(ctx context.Context, text string) string {
 	_, err := l.Runner.Run(ctx, execx.Cmd{Name: "wl-copy", Args: []string{"--paste-once"}, Stdin: strings.NewReader(text), Stderr: l.Kit.Stderr})
-	return err == nil
+	if err != nil {
+		return err.Error()
+	}
+	return ""
 }
 
 func offerResult(err error) error {

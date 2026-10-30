@@ -232,7 +232,7 @@ func (c *Collector) readTeams(ctx context.Context) (*teamsRead, error) {
 	}
 	units, err := c.Systemd.HomeserverUnits(ctx)
 	if err != nil {
-		c.Term.PrintError("systemctl could not list the agent-bus homeserver units.")
+		c.Term.PrintError(err.Error())
 		return nil, errReported
 	}
 	installed := make([]string, 0, len(units))

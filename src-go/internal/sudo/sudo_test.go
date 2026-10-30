@@ -94,6 +94,9 @@ func TestReadyNoTerminalRefusesWithProbe(t *testing.T) {
 	if !errors.Is(err, ErrNotReady) {
 		t.Fatalf("got %v", err)
 	}
+	if !strings.Contains(err.Error(), "sudo -n -v: sudo exited 1: sudo: a password is required; sudo -n true: sudo exited 1") {
+		t.Errorf("the probes' failures are not carried: %v", err)
+	}
 	want := "ERROR: Backing up. That needs sudo, and with no terminal there is nowhere to ask for your password (sudo said: sudo: a password is required). Run sudo -v first.\n"
 	if said(s) != want {
 		t.Errorf("got %q", said(s))

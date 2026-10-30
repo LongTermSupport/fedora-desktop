@@ -217,7 +217,7 @@ func TestTakeOverDetachFailsButTheClientHadLeft(t *testing.T) {
 	if err != nil || outcome != tmuxccy.Detached {
 		t.Fatalf("got %v, %v", outcome, err)
 	}
-	if !strings.Contains(g.out.String(), "The detach from /dev/pts/3 (idle 3 h) failed (no client); checking whether 'alpha' is free anyway.") {
+	if !strings.Contains(g.out.String(), "The detach from /dev/pts/3 (idle 3 h) failed (tmux exited 1: no client); checking whether 'alpha' is free anyway.") {
 		t.Fatalf("output %q", g.out.String())
 	}
 }

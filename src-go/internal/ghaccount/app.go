@@ -321,8 +321,12 @@ func (r *run) restore(ctx context.Context, code term.ExitCode) term.ExitCode {
 	if r.startActive == "" {
 		return code
 	}
-	if st, err := r.readStatus(ctx); err == nil && strings.EqualFold(st.Active, r.startActive) {
+	st, err := r.readStatus(ctx)
+	if err == nil && strings.EqualFold(st.Active, r.startActive) {
 		return code
+	}
+	if err != nil {
+		r.warnf(r.err, "Could not read which account gh has active (%v), so it is switched back to %s anyway", err, r.startActive)
 	}
 	out, err := execx.Combined(ctx, r.env.Runner, ghCmd("auth", "switch", "--hostname", ghHost, "--user", r.startActive))
 	if err != nil {

@@ -93,13 +93,14 @@ func (s *Sudo) Ready(ctx context.Context, why string) error {
 	}
 	// "-v" wants authentication unless every sudoers entry is NOPASSWD, so on a host with some
 	// NOPASSWD entries it fails while root commands run without a password.
-	if _, rootErr := s.Runner.Run(ctx, execx.Cmd{Name: cmd, Args: []string{"-n", "true"}}); rootErr == nil {
+	_, rootErr := s.Runner.Run(ctx, execx.Cmd{Name: cmd, Args: []string{"-n", "true"}})
+	if rootErr == nil {
 		return nil
 	}
 	said := strings.TrimRight(string(probe.Stdout)+string(probe.Stderr), "\n")
 	if noTTY := s.noTerminal(); noTTY != nil {
 		s.Term.PrintError(why + " That needs sudo, and with no terminal there is nowhere to ask for your password (sudo said: " + said + "). Run sudo -v first.")
-		return fmt.Errorf("%w: no terminal: %w", ErrNotReady, noTTY)
+		return fmt.Errorf("%w: no terminal: %w (sudo -n -v: %w; sudo -n true: %w)", ErrNotReady, noTTY, err, rootErr)
 	}
 	s.Term.Printf("\n")
 	s.Term.Say(why)

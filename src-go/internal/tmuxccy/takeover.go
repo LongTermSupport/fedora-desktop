@@ -97,7 +97,7 @@ func (t *Tmux) detachAndWait(ctx context.Context, name string, clients []Client,
 		// The other terminal may have left between the listing and the detach, and tmux then
 		// fails the detach for want of a client. That is the outcome wanted, so it is only a
 		// failure if a client is still there.
-		t.Term.Printf("The detach from %s failed (%s); checking whether '%s' is free anyway.\n", words, out, name)
+		t.Term.Printf("The detach from %s failed (%s); checking whether '%s' is free anyway.\n", words, strings.TrimRight(detachErr.Error(), "\n"), name)
 	}
 	for waited := 0; ; waited++ {
 		left, err := t.Clients(ctx, name)
