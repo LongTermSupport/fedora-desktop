@@ -629,6 +629,17 @@ awk '/^# Try to load previous launch configuration/ {p=1} /^# A headless launch 
 check "the Quick Launch block was found" "yes" "$(has 'load_launch_config ".claude/ccy"' "$work/quick.bash")"
 proj="$work/proj"
 mkdir -p "$proj/.claude/ccy"
+# The saved file is read by the Go front beside the launcher (--read-launch-config, F16): the
+# real one, built here, in QUICK_FRONT_DIR (a case may point it at a stand-in).
+mkdir -p "$work/front" "$work/front-fails"
+export QUICK_FRONT_DIR="$work/front"
+front_build=$(cd "$REPO_ROOT/src-go" && go build -trimpath -buildvcs=false -o "$work/front/claude-yolo" ./cmd/claude-yolo 2>&1)
+check "the Go front builds" "" "$front_build"
+# A front that cannot read the file, as for a permissions or read error (which root, running
+# this suite in ccy, cannot be given on a regular file).
+printf '#!/bin/bash\necho "ccy: cannot read the saved launch configuration %s: permission denied" >&2\nexit 1\n' \
+    "$proj/.claude/ccy/.last-launch.conf" >"$work/front-fails/claude-yolo"
+chmod 755 "$work/front-fails/claude-yolo"
 
 # quick <headless> <args-as-flags...>: run the block in proj; prints the resulting choices,
 # whether a prompt was reached, and the exit code.
@@ -655,6 +666,7 @@ quick() {
             printf "%s\n" "$*" >>"$TEAMS_REC"; return "${FAKE_RECORD_RC:-0}"
         }
         CONFIG_VERSION=2 CCY_VERSION=9.9.9 CCY_HASH=h TOKEN_DIR=/nonexistent CCY_PROMPT_QUICK_LAUNCH="?"
+        SCRIPT_DIR="$QUICK_FRONT_DIR"
         HEADLESS_MODE="$1" SESSION_RESTORE="${QUICK_RESTORE:-false}" NO_SSH_MODE=false SSH_KEYS=() SPECIFIED_TOKEN=""
         SPECIFIED_NETWORK="" NO_NETWORK_MODE=false NETWORK_FROM_CONFIG=false
         TEAMS_GIVEN="${QUICK_TEAMS_GIVEN:-false}" TEAMS_LIST="${QUICK_TEAMS_LIST:-}" CCY_SEATS="" CCY_ORIG_ARGS=(--orig)
@@ -876,6 +888,25 @@ check "  it names the missing key" "yes" "$(has "LAST_TEAMS" "$work/quick.err")"
 save_as SAVED_CONFIG_VERSION=2 3.80.0 old LAST_TOKEN
 check "a missing key is not filled from the environment" "$refused removed" \
     "$(LAST_TOKEN=leaked quick true | grep -o 'rc=.*') $(file_left)"
+
+echo "=== a saved file that does not read is kept, never deleted on a guess ==="
+
+save_as SAVED_CONFIG_VERSION=2 9.9.9 h
+check "a file the front cannot read: headless is refused, the file is kept" "$refused kept" \
+    "$(QUICK_FRONT_DIR="$work/front-fails" quick true | grep -o 'rc=.*') $(file_left)"
+check "  the front's cause is shown" "yes" "$(has "permission denied" "$work/quick.err")"
+check "  and it says the file is kept" "yes" "$(has "it is kept" "$work/quick.err")"
+save_as SAVED_CONFIG_VERSION=2 9.9.9 h
+check "  interactive: the prompts are asked again, the file is kept" "yes kept" \
+    "$(QUICK_FRONT_DIR="$work/front-fails" quick false >/dev/null; has "Reconfiguring" "$work/quick.err") $(file_left)"
+save_as SAVED_CONFIG_VERSION=2 9.9.9 h
+printf '%s\n' "LAST_LAUNCH_DATE=\$(touch pwned)" >>"$conf"
+cp "$conf" "$work/malformed.conf"
+check "a malformed line (once sourced, run): refused, the file kept as it was" "$refused kept same" \
+    "$(quick true | grep -o 'rc=.*') $(file_left) $(cmp -s "$conf" "$work/malformed.conf" && echo same || echo changed)"
+check "  the line is named, with the path" "yes yes" \
+    "$(has "line 8" "$work/quick.err") $(has ".last-launch.conf" "$work/quick.err")"
+check "  and nothing in it ran" "no" "$(if [ -e "$proj/pwned" ]; then echo yes; else echo no; fi)"
 
 echo "=== headless: a key that needs a passphrase is refused before launch ==="
 

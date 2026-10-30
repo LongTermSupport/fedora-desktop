@@ -553,8 +553,13 @@ EOF
 read -r FIXED_NAME <<'EOF'
 "$SCRIPT_DIR/claude-yolo"
 EOF
+# The one use of the front's own name re-runs nothing: it asks the front beside the bash to
+# read the saved launch configuration (ccylaunch F16), which only the front answers.
 check "the launcher gives both modes, and the restart, the launch's own program; no fixed name" "2 1 0" \
-    "$(grep -cF -- "$FRONT_ARG" "$LAUNCHER") $(grep -cF -- "$RELAUNCH" "$LAUNCHER") $(grep -cF -- "$FIXED_NAME" "$LAUNCHER")"
+    "$(grep -cF -- "$FRONT_ARG" "$LAUNCHER") $(grep -cF -- "$RELAUNCH" "$LAUNCHER") \
+$(grep -F -- "$FIXED_NAME" "$LAUNCHER" | grep -cvF -- "$FIXED_NAME --read-launch-config ")"
+check "  the front is named only to read the saved launch configuration" "1" \
+    "$(grep -cF -- "$FIXED_NAME --read-launch-config " "$LAUNCHER")"
 cat >"$SCRATCH/show-token" <<'EOF'
 #!/usr/bin/env bash
 printf '%s' "${GH_TOKEN-unset}"

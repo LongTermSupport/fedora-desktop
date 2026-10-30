@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.104.4"  # Container 2.79.17: reports and questions are drawn formatted in Element. See docs/ccy-changelog.md.
+CCY_VERSION="3.104.5"  # Container 2.79.17: the saved launch configuration is read by the Go front and never deleted on a guess. See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -171,8 +171,8 @@ if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
     printf 'ccy version %s\nHash: %s\n' "$CCY_VERSION" "$CCY_HASH"
     exit 0
 fi
-if [ "$1" = "--build-lock" ]; then
-    print_error "ccy --build-lock is answered by the Go front, $SCRIPT_DIR/claude-yolo; run it without CCY_LEGACY."
+if [ "$1" = "--build-lock" ] || [ "$1" = "--read-launch-config" ]; then
+    print_error "ccy $1 is answered by the Go front, $SCRIPT_DIR/claude-yolo; run it without CCY_LEGACY."
     exit 1
 fi
 
@@ -528,39 +528,26 @@ PROJECT_NAME=$(get_project_name)
 # Function to load last launch configuration for current project
 # Returns 0 if valid config loaded, 1 if no config or invalid
 load_launch_config() {
-    local ccy_root="$1"
-    local config_file="$ccy_root/.last-launch.conf"
+    local config_file="$1/.last-launch.conf" saved key value
+    [[ -f "$config_file" ]] || return 1  # No config, use interactive
 
-    # Check if config exists
-    if [[ ! -f "$config_file" ]]; then
-        return 1  # No config, use interactive
-    fi
-
-    # Source config. `source=/dev/null` states a fact rather than silencing a
-    # check: .last-launch.conf is user runtime state written at launch, not a
-    # file in this repo, so there is nothing for shellcheck to follow. The
-    # failure IS handled — the `||` branch below reports and resets it. What the file does
-    # not set must not come from the environment, so the keys are cleared first.
+    # The Go front reads the file strictly (F16) and hands back KEY<TAB>value lines, never
+    # code to run. A file it cannot read is said, with its cause, and kept: this launch asks
+    # again, and a headless one is refused for want of saved choices. What the file does not
+    # set must not come from the environment, so the keys are cleared first. An empty file
+    # gives one empty line, which ends the loop.
     unset SAVED_CONFIG_VERSION SAVED_CCY_VERSION SAVED_CCY_HASH LAST_TOKEN LAST_SSH_KEYS LAST_NETWORK LAST_TEAMS LAST_LAUNCH_DATE
-    # shellcheck source=/dev/null
-    source "$config_file" 2>/dev/null || {
-        echo "Warning: Config file corrupted, reconfiguring..." >&2
-        rm -f "$config_file"
-        return 1
-    }
+    saved=$("$SCRIPT_DIR/claude-yolo" --read-launch-config "$config_file") ||
+        { echo "The saved launch configuration was not read (above); it is kept. Reconfiguring..." >&2; return 1; }
+    while IFS=$'\t' read -r key value && [[ -n "$key" ]]; do printf -v "$key" '%s' "$value"; done <<<"$saved"
 
     # The format decides whether the saved choices can be read, not the ccy version that
     # wrote them. A file with no format line was not written by ccy and is not trusted.
     if [[ "${SAVED_CONFIG_VERSION:-none}" != "$CONFIG_VERSION" ]]; then
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-        echo "⚠️  Saved launch configuration is in another format" >&2
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-        echo "Saved format:  ${SAVED_CONFIG_VERSION:-none}" >&2
-        echo "This ccy reads format ${CONFIG_VERSION}" >&2
-        echo "" >&2
-        echo "Reconfiguring with interactive prompts..." >&2
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-        echo "" >&2
+        local rule="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        printf '%s\n' "$rule" "⚠️  Saved launch configuration is in another format" "$rule" \
+            "Saved format:  ${SAVED_CONFIG_VERSION:-none}" "This ccy reads format ${CONFIG_VERSION}" "" \
+            "Reconfiguring with interactive prompts..." "$rule" "" >&2
         rm -f "$config_file"
         return 1
     fi
