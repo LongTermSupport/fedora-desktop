@@ -106,12 +106,12 @@ func (s *session) notSorted(path string) {
 func (s *session) file(ctx context.Context, path, name string) error {
 	c := s.c
 	ts := s.stamp()
-	v := completeness(ctx, c.env.Runner, c.onPath, path)
+	v, why := completeness(ctx, c.env.Runner, c.onPath, path)
 	if stopping(ctx) {
 		s.notSorted(path)
 		return nil
 	}
-	if !s.screen(v, path, name, ts) {
+	if !s.screen(v, why, path, name, ts) {
 		return nil
 	}
 	sorted, outcome := s.sortOne(ctx, path)
@@ -137,8 +137,9 @@ func (s *session) file(ctx context.Context, path, name string) error {
 	return nil
 }
 
-// screen is the completeness gate of one arrival (E61): false keeps it out of the library.
-func (s *session) screen(v verdict, path, name, ts string) bool {
+// screen is the completeness gate of one arrival (E61): false keeps it out of the library. why
+// is the reason a check that should have judged the file could not.
+func (s *session) screen(v verdict, why error, path, name, ts string) bool {
 	c := s.c
 	switch v {
 	case truncated:
@@ -149,6 +150,10 @@ func (s *session) screen(v verdict, path, name, ts string) bool {
 		return false
 	case unverifiable:
 		o := c.out
+		if why != nil {
+			o.f("  [%s%s%s] %sunverified%s  %s  (the completeness check failed: %v)\n", o.c, ts, o.n, o.y, o.n, name, why)
+			break
+		}
 		o.f("  [%s%s%s] %sunverified%s  %s  (no completeness check for this type)\n", o.c, ts, o.n, o.y, o.n, name)
 	case complete:
 	}
@@ -255,7 +260,7 @@ func (s *session) unshipped(sorted string) {
 // interrupted copy never sits in the cache under the real name (E63).
 func (s *session) copyIntoMount(ctx context.Context, sorted string) error {
 	if _, err := s.c.env.Runner.Run(ctx, execx.Cmd{Name: findmntBin, Args: []string{"-T", s.mount, "-t", "fuse.rclone", "--noheadings"}}); err != nil {
-		return fmt.Errorf("%s is no longer served by an rclone mount", s.mount)
+		return fmt.Errorf("%s is no longer served by an rclone mount: %w", s.mount, err)
 	}
 	destDir := strings.TrimSuffix(s.mount, "/") + "/" + filepath.Dir(s.c.rel(sorted))
 	name := filepath.Base(sorted)

@@ -97,7 +97,7 @@ func (c *cli) prune(ctx context.Context) error {
 	removed := 0
 	for _, f := range found {
 		if err := c.asRoot(ctx, "rm", "-f", f); err != nil {
-			c.err.f("  %sfailed%s  %s\n", c.err.r, c.err.n, c.rel(f))
+			c.err.f("  %sfailed%s  %s  (%v)\n", c.err.r, c.err.n, c.rel(f), howEnded(err))
 			continue
 		}
 		removed++
