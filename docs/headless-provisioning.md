@@ -172,10 +172,14 @@ A headless run never hangs and never half-provisions silently:
 - Any missing required value or unmet precondition aborts in **preflight**, before any
   provisioning action, with a message naming the exact fix.
 - Any failure **during** provisioning (token rejected, SSH key load, vault mismatch,
-  main playbook failure, a requested optional play missing or failing) aborts with a
+  main playbook failure, a requested optional play missing) aborts with a
   **big red banner** naming the step, the concrete reason, and a debug pointer — then
   exits non-zero. It never reports success on failure and never continues past a
   main-playbook failure.
+- A requested optional play that **fails** does not stop the others (run.bash 1.36.0 and
+  later): the remaining optional plays still run, a summary at the end names every play
+  that failed and every play that installed, and the run exits 1. A play ended by a signal
+  or Ctrl-C stops the run at once.
 
 ## See also
 

@@ -60,7 +60,7 @@ Use these Unicode icons in plan documents:
 
 - [00229-stt-capture-raw-pcm](00229-stt-capture-raw-pcm/) - In Progress. Dictation pasted "so so so": pipewire 1.6.10's `pw-record` writes an AU container to stdout and the server read it as raw PCM. Under Defence Before Fix: `--raw` everywhere, a container header fails the dictation, and a semgrep rule against a stdout capture without `--raw`.
 
-- [00228-consumer-install-without-github](00228-consumer-install-without-github/) - In Progress (built; VM acceptance open). `./run.bash --consumer` hands over to a Go `consumer-install`: no GitHub account, the public repo over HTTPS, and only the plays whose `audience` key is `all`; attended only, headless refused
+- [00228-consumer-install-without-github](00228-consumer-install-without-github/) - In Progress (built and VM-accepted, 20 of 20 at be1611132; closing out). `./run.bash --consumer` hands over to a Go `consumer-install`: no GitHub account, the public repo over HTTPS, and only the plays whose `audience` key is `all`; attended only, headless refused
 
 - [00227-ccy-sessions-cold-migrate-to-another-machine](00227-ccy-sessions-cold-migrate-to-another-machine/) - Not Started (owner Decisions 1-14 open). ccy sessions and whole agent teams moved cold to another laptop by Go send and receive verbs that refuse while any member runs, host members resumed by recorded id and LXC members by `ccy --continue`
 

@@ -434,6 +434,9 @@ were lost, per mode: `CLAUDE/Plan/00148-stt-unlimited-dictation-loop-and-buffer/
 | **Ctrl+Insert** | Record with corporate processing | 🤖 Claude corporate mode    |
 | **Alt+Insert**  | Record with natural processing   | 💬 Claude natural mode      |
 
+Ctrl+Insert and Alt+Insert are not bound on a consumer install (see
+[Claude Code Post-Processing](#claude-code-post-processing)).
+
 ### What Insert Does
 
 There is only ever one recording. Every press does something you can see: a press that
@@ -643,6 +646,10 @@ emptying it) and re-running the play stops the timer.
 ---
 
 ## Claude Code Post-Processing
+
+On a consumer install (`./run.bash --consumer`) post-processing is not offered: Ctrl+Insert,
+Alt+Insert, the panel's Post-Process items, Create Article and the Claude settings are
+hidden, and plain dictation (Insert) works as below.
 
 ### How It Works
 
