@@ -858,8 +858,10 @@ today; rewriting them is out of scope.
   `CCY_LEGACY=1 ccy` with the same flag, as the play-claude-yolo.yml meta-deploy entry of
   Task 4.5 asked. Host, 2026-10-23 (`$NIHwpSi3rTN-Z2LSvujaLWtueWfi_dZedKS4rkYtB9M`):
   `--version`, `--help`, `--list-tokens` and `--token-usage` byte-identical to `CCY_LEGACY=1`
-  (`--token-usage --json` differs only in `generated_at`); left: `--prevent` and
-  `--export-token NAME`.
+  (`--token-usage --json` differs only in `generated_at`). Host, 2026-10-30: `--prevent`
+  byte-identical (output, exit 0 and the files written, in a fresh `git init`; outside a git
+  root both refuse the same way), and `--export-token` with a placeholder token file
+  byte-identical both with a future expiry (exit 0) and an expired one (exit 1).
   - [x] ✅ qa-reviewer part: it ran again over the work since 7205384c3 and found three
     defects, all fixed on `plan/00191-review-fixes`: the `.j2` line Task 4.5 owed in
     CLAUDE/QA.md, Success Criterion 2 unticked though qa-all covers it, and

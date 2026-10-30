@@ -305,7 +305,7 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   three speech-to-text checks (PLANNED 20). Red, then green. Awaiting the VM run
   (meta-deploy.list).
 
-- [ ] 🔄 **Task 6.7 VM run**: The host runs `./CLAUDE/Plan/meta-deploy.bash`; the consumer
+- [x] ✅ **Task 6.7 VM run**: The host runs `./CLAUDE/Plan/meta-deploy.bash`; the consumer
   scenario passes 20 of 20 with speech-to-text installed. The ftp-camera prompt that blocked it
   is gone (Plan 00192 Task 3.16). The run at c378092ce passed 15 of 20 on the consumer guest:
   pip's RealtimeSTT install failed with Errno 122 (Disk quota exceeded) while staging the torch
@@ -331,7 +331,8 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
     the time on every run. Only its presence is read, so it is now written once
     (`force: false`).
 
-  Queued again.
+  PASSED at be1611132 (host, 2026-10-30, META_RC=0): desktop-consumer-install 20 of 20,
+  desktop-fresh-install 16 of 16, server-fast-provision 13 of 13.
 
 - [x] ✅ **Task 6.6**: The developer path's optional runs, as Task 2.6 did for the consumer.
   Decided (2026-10-28, part C item 5 of the unblocking list): on the developer path, optional

@@ -38,6 +38,11 @@
 # since the last run, so no image rebuild:
 playbooks/imports/play-claude-yolo.yml
 
+# Plan 00192 Task 3.16 check H6: play-ftp-camera a second time, unattended. The first run
+# (2026-10-30) generated and saved the hotspot password; this one must ask nothing and leave
+# the vault block in localhost.yml unchanged, with no password in the output:
+playbooks/imports/optional/common/play-ftp-camera.yml
+
 # Plan 00235 Task 4.7d: the old-range triage again, then the DRY RUN of the decisions file the
 # host agent wrote with the owner (untracked/plan-00235/old-range-decisions.tsv: remove 33
 # images and 8 empty volumes; re-own 4 images, 2 orphan layers and the postgres volume). It
