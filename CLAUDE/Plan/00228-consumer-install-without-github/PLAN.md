@@ -308,10 +308,11 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   play-speech-to-text.yml: the install stages in `~/.cache/pip-tmp` on disk. The run at
   667809725 failed the same 5 checks with Errno 28 (No space left on device): the staging
   worked, and the guest's 20 GiB disk itself filled. pip no longer also keeps the 3 GB of
-  wheels in its cache (`--no-cache-dir`); whether that alone is enough is unknown, since the
-  run does not record the guest's free space. The owner decides what else (owner decisions
-  A6: torch without the CUDA wheels on a machine with no NVIDIA GPU, or larger lab disks).
-  Queued again.
+  wheels in its cache (`--no-cache-dir`). The host measured the kept overlay read-only: an
+  18.4 GiB root with 2.8 GiB available at shutdown, the pip cache 3.0 GiB, and the partial
+  site-packages 5.7 GiB (nvidia 3.0, torch 1.1, triton 1.0). Without the cache, the peak
+  should fit by about 1 to 1.5 GiB, which is thin. Torch without the CUDA wheels on a machine
+  with no NVIDIA GPU, or larger lab disks, is the owner's choice. Queued again.
 - [x] ✅ **Task 6.6**: The developer path's optional runs, as Task 2.6 did for the consumer.
   Decided (2026-10-28, part C item 5 of the unblocking list): on the developer path, optional
   plays go on after one fails, a summary naming every failed and installed play is printed at
