@@ -32,3 +32,9 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Plan 00228 Task 6.7 VM run: acceptance.bash again (desktop-consumer-install,
+# desktop-fresh-install and server-fast-provision, each on a throwaway guest at the pushed
+# HEAD). The consumer guest failed last time on a full /tmp quota while installing
+# speech-to-text; the play now stages pip's downloads on disk. Long: about 1.5 h of VMs.
+00228-consumer-install-without-github/acceptance.bash
