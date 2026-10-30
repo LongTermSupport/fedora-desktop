@@ -1,7 +1,7 @@
 # Plan 00239: ccy project image rebuilds cheap
 
-**Status**: Not Started (research done; the owner's questions open; the host measurement is
-the first work)
+**Status**: Not Started (research done; the owner's questions settled at their defaults; the
+host measurement is the first work)
 **Created**: 2026-10-29
 **Owner**: joseph
 **Priority**: Medium
@@ -63,6 +63,11 @@ rebuild.
 - Plan 00216 (image build lock): every build here, the refresh timer's included, takes it.
 
 ## Owner questions
+
+**Settled 2026-10-30 at the defaults below.** The owner ("push hard, break stuff - move
+forwards", and "the full rebuild does make ccy updates expensive") wants this built, not held on
+questions; each default stands until the owner overturns it. New tooling here (the refresh
+timer's checker, the inputs comparison) is Go, per the project rule and Plan 00209 direction 4.
 
 - **Q1. Refresh cadence.** Default: maximum age **7 days** for every cached layer (base, project
   and builder caches, enforced with `--cache-ttl=168h` on every ccy build), a **daily**
