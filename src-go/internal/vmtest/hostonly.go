@@ -154,7 +154,7 @@ func (c *cli) scrub(ctx context.Context, l *lab, cr credentials, runDir, transcr
 			{front, "verify", artefact, cr.tokenFile, cr.ppFile},
 		} {
 			if _, err := c.env.Runner.Run(ctx, execx.Cmd{Name: "bash", Args: argv, Stdout: c.env.Stderr, Stderr: c.env.Stderr}); err != nil {
-				return ctxErr(ctx, failf("a supplied secret survived redaction in %s; the run's artefacts are NOT safe to share (they remain under %s)", artefact, runDir))
+				return ctxErr(ctx, failf("a supplied secret survived redaction in %s (%s: %v); the run's artefacts are NOT safe to share (they remain under %s)", artefact, argv[1], err, runDir))
 			}
 		}
 	}

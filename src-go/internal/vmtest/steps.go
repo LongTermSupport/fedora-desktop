@@ -176,7 +176,7 @@ func (r *running) waitRunExit(ctx context.Context) (bool, error) {
 			out, err := r.g.output(ctx, "cat "+guestRunState+"/run.log")
 			r.c.p.Print(r.transcript, out)
 			if err != nil {
-				r.c.logf("could not read the run log from the guest")
+				r.c.logf("could not read the run log from the guest: %v", err)
 			}
 			r.note(fmt.Sprintf("ERROR: the session runner did not finish run.bash within %ds\n", int(provisionLimit.Seconds())))
 			return false, nil
@@ -331,13 +331,17 @@ func (r *running) waitSession(ctx context.Context, also, when string) error {
 		if err := r.g.mustBeUp(ctx, "the autologin session"); err != nil {
 			return err
 		}
-		if out, err := r.g.merged(ctx, probe); err == nil && seat0RE.MatchString(out) {
+		out, last := r.g.merged(ctx, probe)
+		if last == nil && seat0RE.MatchString(out) {
 			break
 		}
 		if err := r.c.env.Sleep(ctx, poll); err != nil {
 			return ctxErr(ctx, err)
 		}
 		if r.c.env.Now().Sub(start) >= rebootLimit {
+			if last != nil {
+				return failf("no autologin session on seat0 within %ds%s (stage: boot): %v", int(rebootLimit.Seconds()), when, last)
+			}
 			return failf("no autologin session on seat0 within %ds%s (stage: boot)", int(rebootLimit.Seconds()), when)
 		}
 	}
@@ -376,7 +380,7 @@ func (r *running) evidence(ctx context.Context) {
 	}
 	shot := filepath.Join(r.dir, "screenshot.png")
 	if err := r.c.virshShow(ctx, "screenshot", r.g.domain, shot); err != nil {
-		r.c.logf("screenshot failed (recorded as absent)")
+		r.c.logf("screenshot failed (recorded as absent): %v", err)
 		return
 	}
 	r.c.p.Print(r.transcript, "VMTEST-EVIDENCE screenshot=runs/"+r.id+"/screenshot.png (evidence only: proves the compositor produced a frame, not that the frame is correct)\n")
@@ -390,7 +394,7 @@ func (r *running) capture(ctx context.Context, remote, file, absent string) stri
 		r.c.logf("could not save %s: %v", file, werr)
 	}
 	if err != nil {
-		r.c.logf("%s", absent)
+		r.c.logf("%s: %v", absent, err)
 		return ""
 	}
 	return out

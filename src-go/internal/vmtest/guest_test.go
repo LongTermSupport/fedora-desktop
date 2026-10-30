@@ -71,7 +71,7 @@ func TestE23StoppedGuestIsNamedAtOnce(t *testing.T) {
 	k := newKit(t)
 	k.fake.On([]string{"virsh"}, execx.Result{ExitCode: 1})
 	err := testGuest(k).waitSSH(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "cannot read the state of guest vmtest-stub while waiting for SSH") {
+	if err == nil || !strings.Contains(err.Error(), "cannot read the state of guest vmtest-stub while waiting for SSH: virsh exited 1") {
 		t.Fatalf("got %v", err)
 	}
 }
@@ -82,10 +82,11 @@ func TestE24SSHWaitIsBoundedByTheClock(t *testing.T) {
 	k.fake.On([]string{"virsh", "-c", libvirtURI, "domstate"}, execx.Result{Stdout: []byte("running\n")})
 	k.fake.OnFunc([]string{"ssh"}, func(execx.Cmd) (execx.Result, error) {
 		k.now = k.now.Add(5 * time.Second) // each attempt spends its ConnectTimeout
-		return execx.Result{ExitCode: 255}, nil
+		return execx.Result{Stderr: []byte("ssh: connect to host 127.0.0.1 port 2222: Connection refused\n"), ExitCode: 255}, nil
 	})
 	err := testGuest(k).waitSSH(context.Background())
-	if err == nil || err.Error() != "guest did not answer SSH within 600s (VMTEST_SSH_WAIT_TIMEOUT); see /stub/build/console.log" {
+	// The last try's cause is carried, its stderr kept out of the terminal.
+	if err == nil || err.Error() != "guest did not answer SSH within 600s (VMTEST_SSH_WAIT_TIMEOUT): ssh exited 255: ssh: connect to host 127.0.0.1 port 2222: Connection refused; see /stub/build/console.log" {
 		t.Fatalf("got %v", err)
 	}
 	if n := len(k.slept); n != 60 {

@@ -144,7 +144,7 @@ func TestE15FastBaseBuild(t *testing.T) {
 		t.Fatal("the record or the build directory is wrong")
 	}
 	order := []string{
-		"virsh -c qemu:///session dominfo vmtest-build-server-fast-44",
+		"virsh -c qemu:///session list --all --name",
 		"cp --reflink=auto " + k.path("images/"+imageName) + " " + k.path("bases/server-fast-44.build/disk.qcow2"),
 		"qemu-img resize -q " + k.path("bases/server-fast-44.build/disk.qcow2") + " 20G",
 		"--cloud-init clouduser-ssh-key=" + k.path(sshKeyFile) + ".pub,disable=on --graphics none --serial file,path=" + k.path("bases/server-fast-44.build/console.log") + " --noautoconsole",
@@ -225,6 +225,15 @@ func TestE15BuildRefusals(t *testing.T) {
 	k.wantErr("ERROR: a domain named vmtest-build-server-fast-44 already exists; a previous build did not clean up. Inspect it, then: virsh -c qemu:///session undefine --nvram vmtest-build-server-fast-44")
 	if k.read("bases/server-fast-44.build/console.log") != "the last attempt" || k.count("undefine") != 0 {
 		t.Fatal("a refused build touched the previous one")
+	}
+
+	// libvirt unreachable is a failure with its cause, never "no such domain".
+	k = buildKit(t)
+	k.fake.On([]string{"virsh", "-c", libvirtURI, "list"}, execx.Result{Stderr: []byte("error: failed to connect to the hypervisor\n"), ExitCode: 1})
+	k.wantCode(k.run("build-base", "server-fast"), term.ExitFailure)
+	k.wantErr("ERROR: virsh -c qemu:///session list failed: virsh exited 1: error: failed to connect to the hypervisor\n")
+	if k.count("virt-install") != 0 || k.count("cp --reflink") != 0 {
+		t.Fatal("a build ran without knowing whether its domain exists")
 	}
 
 	k = buildKit(t)
@@ -356,7 +365,7 @@ func TestE19InstallerFailures(t *testing.T) {
 	k = buildKit(t)
 	k.fake.On([]string{"blkid"}, execx.Result{Stdout: []byte("\n")})
 	k.wantCode(k.run("build-base", "server-full"), term.ExitFailure)
-	k.wantErr("ERROR: could not read the volume label of " + netinst)
+	k.wantErr("ERROR: could not read the volume label of " + netinst + ": it has none")
 	if k.count("--location") != 0 {
 		t.Fatal("installed without a stage-2 label")
 	}

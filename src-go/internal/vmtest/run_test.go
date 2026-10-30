@@ -121,7 +121,7 @@ func TestE46VerdictAndJudge(t *testing.T) {
 	k = runKit(t, "pass")
 	k.fake.On(append(helperArgv("refresh"), "certify"), execx.Result{ExitCode: 2})
 	k.wantCode(k.run("run", "server-fast-provision"), term.ExitFailure)
-	k.wantErr("ERROR: could not apply the run's refresh outcome to " + k.path("bases/server-fast-44/base.json"))
+	k.wantErr("ERROR: could not apply the run's refresh outcome to " + k.path("bases/server-fast-44/base.json") + ": python3 exited 2\n")
 }
 
 // E28-E33: every refusal comes before anything boots.
@@ -333,7 +333,7 @@ func TestE44HostOnlyRun(t *testing.T) {
 		return execx.Result{}, nil
 	})
 	k.wantCode(k.run("run", hostOnlyID, "--github-account", "throwaway-lab-user", "--github-token-file", token, "--github-ssh-passphrase-file", pp), term.ExitFailure)
-	k.wantErr("ERROR: a supplied secret survived redaction in " + k.path("runs/"+id) + "/transcript.log; the run's artefacts are NOT safe to share (they remain under " + k.path("runs/"+id) + ")")
+	k.wantErr("ERROR: a supplied secret survived redaction in " + k.path("runs/"+id) + "/transcript.log (verify: bash exited 1); the run's artefacts are NOT safe to share (they remain under " + k.path("runs/"+id) + ")")
 }
 
 // E45: the redaction replaces the transcript's inode; the run's transcript is reopened on the

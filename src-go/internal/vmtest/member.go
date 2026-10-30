@@ -93,7 +93,7 @@ func (c *cli) domainListed(ctx context.Context, domain string) (bool, error) {
 func (c *cli) listDomains(ctx context.Context) (map[string]bool, error) {
 	res, err := c.env.Runner.Run(ctx, execx.Cmd{Name: virshBin, Args: []string{"-c", libvirtURI, "list", "--all", flagName}})
 	if err != nil {
-		return nil, ctxErr(ctx, failf("virsh -c %s list failed", libvirtURI))
+		return nil, ctxErr(ctx, failf("virsh -c %s list failed: %v", libvirtURI, err))
 	}
 	out := map[string]bool{}
 	for line := range strings.SplitSeq(string(res.Stdout), "\n") {
@@ -113,7 +113,7 @@ func (c *cli) removeListedDomain(ctx context.Context, domain string) error {
 	}
 	state, err := c.domstate(ctx, domain)
 	if err != nil {
-		return failf("cannot read the state of %s", domain)
+		return failf("cannot read the state of %s: %v", domain, err)
 	}
 	if state != stateShutOff {
 		if err := c.virshShow(ctx, "destroy", domain); err != nil {
