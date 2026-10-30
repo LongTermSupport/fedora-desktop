@@ -92,7 +92,7 @@ milestone that acts on it.
 | TID          | a team has a stable id (at most 22 characters) fixed at creation; its name is display only; `server_name` and handles carry the id and survive a rename | accepted with gate A (Task 0.5): built on; to the owner in the coordinator's digest                                                                                                                                |
 | INT3         | a v1 name over 22 characters migrates under a short id declared with the move, and stays its display name                                               | defaulted; to the coordinator (not among the Task 0.5 answers)                                                                                                                                                     |
 | VISIBLE      | OD-A10, BD9, BD15, BD16, DC4, DC16, DC17, DC18, DC19, DC21, OD-D6, INT4, INT5, INT7, and DC8                                                            | accepted (Task 0.5); DC17 with its go-deps allowlist rows and govulncheck clean; DC8 comes back to the coordinator if H-C5 or H-C15 fails; DC16's and DC19's stated cost is INT6's, below                          |
-| IRREVERSIBLE | OD-A7, DC1, DC5, DC15, OD-D1 (`teamchat`), OD-D5, and TID above                                                                                         | confirmed by the owner 2026-10-30 (gate A met), on direction 6's condition: Task 0.6 checks none of them prevents a remote homeserver or members on other machines                                            |
+| IRREVERSIBLE | OD-A7, DC1, DC5, DC15, OD-D1 (`teamchat`), OD-D5, and TID above                                                                                         | confirmed by the owner 2026-10-30 (gate A met), on direction 6's condition: Task 0.6 checks none of them prevents a remote homeserver or members on other machines                                                 |
 | INT6         | owner-uid processes holding a pool seat's password have power over that account (DC16, DC19)                                                            | the owner chose the default 2026-10-30 (gate B met): owner-uid processes may hold a pool seat's password; [DESIGN-v2.md 7.1](DESIGN-v2.md#71-int6s-narrower-alternative-a-pool-seat-with-no-password) is not built |
 | others       | OD-A1-A6, OD-A8, OD-A9, OD-A11, BD1-BD8, BD10-BD14, BD17, BD18, DC2, DC3, DC6, DC7, DC9-DC14, DC20, OD-D2-D4, OD-D7, INT1, INT2                         | defaulted, not flagged                                                                                                                                                                                             |
 
@@ -127,11 +127,14 @@ its first caller.
 
 - [x] ✅ **Task 0.1**: Research v1 (`RESEARCH-*.md`); [DESIGN.md](DESIGN.md), reviewed by Fable and
   reworked once (`subagent-reports/261019-*`); M0's bookkeeping (`subagent-reports/261021-m0-*`).
+
 - [x] ✅ **Task 0.2**: The frame ([DESIGN-v2-FRAME.md](DESIGN-v2-FRAME.md)) and the four area
   designs A-D, each reviewed adversarially (`subagent-reports/261021-n0-*`).
+
 - [x] ✅ **Task 0.3**: The integration: [DESIGN-v2.md](DESIGN-v2.md), the chapters edited at their
   seams (section 3), 17 contradictions settled (section 5), the team id and INT3; DESIGN.md marked
   superseded (`subagent-reports/261021-n0-integration.md`).
+
 - [x] ✅ **Task 0.4**: The N0 review: the four integrated adversarial reviews (1 blocker, 37 majors,
   FIX-FIRST), the four-theme fix pass (`subagent-reports/261021-n0-merge.md`), verification in two
   scopes (`261021-n0-verify-ab.md`, `261021-n0-verify-cd.md`; 10 new majors), round 2
@@ -139,9 +142,11 @@ its first caller.
   (`261021-n0-qa-reviewer.md`), round 3 (`261021-n0-r3-fix.md`) and the narrow check, verdict MERGE
   (`261021-n0-r3-check.md`); its two launch-line minors are fixed and its third is carried to N1
   (Task 1.7).
+
 - [x] ✅ **Task 0.5**: The coordinator's answers on the flagged decisions, 2026-10-21, recorded in
   the State column of [DESIGN-v2.md section 7](DESIGN-v2.md#7-the-owner-decisions) and in
   Decisions, above:
+
   - **Accepted:** OD-A10, BD9, BD15, BD16, DC4, DC16, DC17 (`godbus/dbus/v5` and
     `go.yaml.in/yaml/v3`, with go-deps allowlist rows; govulncheck must stay clean), DC18, DC19,
     DC21, OD-D6, INT4, INT5, INT7, and DC8 (if H-C5 or H-C15 fails, it comes back to the
@@ -173,6 +178,18 @@ its first caller.
   and no-TLS, the host-held pool bundle and seat store, `site`, the migration's remote members)
   that assumes the server and its members share one host, say whether it blocks direction 6 or
   only limits the first build, and change the design where it blocks.
+
+  - [x] ✅ The check (`subagent-reports/261030-task-0.6-remote-homeserver.md`): **none of the
+    irreversible choices blocks direction 6.** The team id, `server_name` (settable per team,
+    never resolved through DNS with federation off), handles and roster carry no machine.
+    `<site>` is an owner-chosen label. What assumes one host (R3's no-TLS loopback, firewalld
+    `allow_from`, bundle issue by local sudo, the board's local status files, liveness from
+    local seat locks) only limits the first build.
+  - [ ] ⬜ Its four cheap design changes, into DESIGN-v2.md before N1. Team ids unique across
+    every homeserver host the owner runs, not one `host_vars` file. Where a member's `site`
+    comes from, one per machine. Plain HTTP only inside a mesh tunnel, with an optional TLS
+    field reserved in bundle v1, so a cloud host needs no second bundle version. SSH named as
+    the later channel for issuing a seat to a remote machine.
 
 ### Phase 1: N1, foundations
 
