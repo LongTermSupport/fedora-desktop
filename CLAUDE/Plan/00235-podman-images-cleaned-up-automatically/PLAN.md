@@ -249,7 +249,14 @@ the plans cite kept.
     `play-podman.yml` runs the first prune and its repair before the timer is started: a due
     timer fired the service at once, the play's start returned without waiting, and the
     repair's busy guard failed on the running prune. Report:
-    `subagent-reports/261030-prune-gone-and-timer-race.md`
+    `subagent-reports/261030-prune-gone-and-timer-race.md`. Verified on the host at b1f27b22e
+    (2026-10-30): the play started the first prune and waited for it, then the timer; the
+    prune succeeded (the service is not failed) and the timer is on. In the same run,
+    play-claude-yolo's image build and ccy's self-prune, live now that the store-clean marker
+    exists, removed 14 project images no container used (3 built by an older ccy, 11 from
+    before ccy labelled its images), each logged with its reason. Nothing in use went, and the
+    cost is none beyond the rebuild each would make anyway: a project image is rebuilt when its
+    base changes (`claude-yolo`, "Base image updated"), and the base had just been rebuilt.
 
 - [x] ✅ **Task 4.8**: `tasks/podman-store-ownership-probe.yml`, imported by play-podman.yml after
   the repair and before the timer: as root, `find -xdev -ignore_readdir_race -quit` looks in the

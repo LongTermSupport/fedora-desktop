@@ -32,15 +32,3 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-
-# CCY 3.104.7, no image rebuild: Plan 00191 Task 4.10 unit 2. The launch's token check now
-# asks the API (one small request, as --token-usage makes); a check that could not run stops
-# the launch with its cause and keeps the token, and only a 401 or 403 goes to recovery:
-playbooks/imports/play-claude-yolo.yml
-
-# Plan 00235 Task 4.7f: the old-range part is done and the store is clean. The first prune
-# failed on a tag podman had already removed with the image's other tag, and the play's own
-# start raced the timer's. Every container-images removal now treats an item already gone as
-# done, and the first prune runs before the timer is enabled. No prune has succeeded yet, so
-# this run starts the first prune again and waits for it, then the timer:
-playbooks/imports/play-podman.yml
