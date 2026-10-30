@@ -361,7 +361,7 @@ take_over(name):  rc 0 -> exit 0 ; rc 2 -> DETACHED_FROM += name; stderr "The li
 `ccy_tmux_take_over(name)`: `list-clients` (gone -> `ERROR: '<name>' has ended; there is nothing to take over.` return 2; error -> return 1).
 If clients: `words = client_words(clients, now)`; `tmux -L ccy detach-client -s =<name>` (stderr merged);
 success -> stderr `Detached '<name>' from <words>; the session keeps running.`; failure -> `detach_failed`,
-stderr `The detach from <words> failed (<out>); checking whether '<name>' is free anyway.`. Then loop:
+stderr `The detach from <words> failed (<tmux's error: exit and out>); checking whether '<name>' is free anyway.`. Then loop:
 `list-clients`; gone -> `ERROR: '<name>' ended while it was being taken over; nothing was attached.` return 2;
 error -> return 1; empty -> break; non-empty and `detach_failed` -> `ERROR: could not detach '<name>' from <words>: <out>` return 1;
 `waited >= WAIT_TENTHS` -> `ERROR: '<name>' was told to leave <words>, but it is still open there after <WAIT_TENTHS/10> s. Nothing was attached; the session keeps running.` return 1;
@@ -391,7 +391,7 @@ which every caller treats as "Esc" (so the picker **exits 0**): see 9.1.
 
 `session_containers()` (L203-217): `tmux -L ccy list-panes -a -F '#{session_name} #{pane_pid}'` (no server
 text -> empty panes; other failure -> `ERROR: tmux list-panes failed: <text>`, return 1), `ps -ww -eo pid=,ppid=,args=`
-(failure -> `ERROR: the process table could not be read, so no session can be matched to its container: <text>`, return 1;
+(failure -> `ERROR: the process table could not be read, so no session can be matched to its container: <ps's error: exit and text>`, return 1;
 **note the wording differs from the detail probe's**), then `ccy_session_containers` (2.4 step 3).
 `set_route(dir)`: if the project has a container route: `ROUTE_CMD = [engine, exec, container, /workspace/.claude/hooks-daemon/bin/hooks-daemon]`, root `/workspace`, via text ` (in container <container>)`;
 else `ROUTE_CMD = [<dir>/.claude/hooks-daemon/bin/hooks-daemon]`, root `<dir>`, via empty. No `-i`/`-t`/`-w`/env on `exec` (R L130-142 fake accepts `exec <container> <cli> <args...>`).
@@ -422,7 +422,7 @@ Fills `PROJECTS` (distinct session directories in first-appearance order) and th
 - no projects: stderr `No CCY or cc sessions need warning; nothing to signal.`, prints `0` on stdout, return 0.
 - `cli_args = signal <kind> [--minutes N] --all-sessions`; per project in order:
   dry-run -> stderr `would signal <kind>[ --minutes N] to <dir><via>`; else run `<ROUTE_CMD> signal <kind> [--minutes N] --all-sessions --project-root <route root>` (argv order is asserted: R L344, L480);
-  failure -> `ERROR: signalling <kind> to <dir><via> failed.`; for a **warning** return 1 at once (no count printed); for `reboot-cancelled` remember and carry on;
+  failure -> `ERROR: signalling <kind> to <dir><via> failed (exit <n>).` (a run that could not start: its error); for a **warning** return 1 at once (no count printed); for `reboot-cancelled` remember and carry on;
   success -> stderr `signalled <kind>[ (N min)] to <dir><via>`.
 - after the loop, a remembered failure -> return 1; else print the project count on stdout and return 0.
 - `signal_projects` = `check_projects || return 1`, then `deliver_signal`.

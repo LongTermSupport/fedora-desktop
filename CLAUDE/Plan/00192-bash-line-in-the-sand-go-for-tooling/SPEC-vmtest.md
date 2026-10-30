@@ -141,11 +141,11 @@ The tests cite these numbers.
     `-z <file>` when a local copy exists. A non-empty `.partial` replaces the file
     (`downloaded <file> (<n> bytes)`). An empty one is removed and keeps the current copy
     (`<file> is current (not modified upstream)`). If there is no copy at all, that is a failure.
-    A failed curl removes the `.partial` and fails with `download failed: <url>`;
+    A failed curl removes the `.partial` and fails with `download failed: <url>: <curl's error>`;
   - download `Fedora-<v>-<l>-x86_64-CHECKSUM` from the same directory of the URL in the same way;
   - verify it with `gpg2` against `RPM-GPG-KEY-fedora-<V>-primary`, imported into a private
     0700 home that is removed afterwards. A failed import or verify prints gpg's output and
-    fails. A verify failure says `GPG signature verification FAILED for <checksum> — refusing the artefact`;
+    fails. A verify failure says `GPG signature verification FAILED for <checksum> (gpg2 exited <n>) — refusing the artefact`, and a failed import `could not import <key> (gpg2 exited <n>)`;
   - read the one `SHA256 (<file>) = <64 hex>` line. If it is missing, the run fails. If it
     differs from the probe's sha, the run fails with `releases.json (<a>) and <checksum> (<b>) disagree about <file>`;
   - hash the downloaded file. A mismatch is `SHA-256 MISMATCH for <file>: expected <e>, got <a>`.
@@ -189,7 +189,7 @@ The tests cite these numbers.
   first `Base URL` must both be present. A desktop gets the session runner installed at
   `/usr/local/bin/vmtest-session-provision.bash` (root, 0755). `guest-cleanup.bash` must print
   `VMTEST-GUEST-CLEANUP-DONE` on a line of its own, or the build fails with
-  `guest cleanup did not complete`. Then a poweroff is scheduled with `systemd-run`, the command
+  `guest cleanup did not complete` (a cleanup that could not be run adds `: <ssh's error>`). Then a poweroff is scheduled with `systemd-run`, the command
   waits up to 300s for `shut off` (E25), and the domain is undefined (`--nvram`).
 - E21. The disk becomes `bases/<name>/base.qcow2`, and a desktop's passphrase moves beside it.
   The command hashes the disk and reads its size and mtime. `refresh_state` is `complete` when
@@ -205,11 +205,11 @@ The tests cite these numbers.
 - E23. `domstate` of the domain reads `shut off` or `crashed`: the guest has stopped, and the
   failure is `guest <domain> is <state> while waiting for <what>; see <dir>/console.log`. A
   failed `domstate` is
-  `cannot read the state of guest <domain> while waiting for <what>`.
+  `cannot read the state of guest <domain> while waiting for <what>: <virsh's error>`.
 - E24. The wait for SSH: `==> waiting for SSH on 127.0.0.1:<n> (up to <s>s)`. Each try first
   checks that the guest is up (E23), then runs `ssh ... true`. The wait sleeps 5s between tries
   and ends by the clock after `<s>` seconds with
-  `guest did not answer SSH within <s>s (VMTEST_SSH_WAIT_TIMEOUT); see <dir>/console.log`. Success is
+  `guest did not answer SSH within <s>s (VMTEST_SSH_WAIT_TIMEOUT): <the last try's error>; see <dir>/console.log`. Success is
   `==> guest answered SSH after ~<n>s`. `<s>` is `VMTEST_SSH_WAIT_TIMEOUT`, default 600, a
   positive whole number of seconds up to 86400, read when the lab is loaded (E7), so a bad value
   fails as `VMTEST_SSH_WAIT_TIMEOUT must be a positive number of seconds up to 86400, got '<v>'`
@@ -356,7 +356,7 @@ The tests cite these numbers.
   judged: `redact` for the token and for the passphrase, then `verify` (D2). A missing scrubber
   front or library fails the run, naming `play-vm-test-lab.yml`. A failed redact or verify fails
   the run with
-  `a supplied secret survived redaction in <file>; the run's artefacts are NOT safe to share (they remain under <dir>)`.
+  `a supplied secret survived redaction in <file> (<redact|verify>: <error>); the run's artefacts are NOT safe to share (they remain under <dir>)`.
   The transcript must exist. A missing `console.log` is logged and skipped.
 
 - E46. The follower is stopped, then the domain is destroyed and undefined. `judge_run` writes

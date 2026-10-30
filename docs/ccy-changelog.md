@@ -27,6 +27,18 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.104.3 — container 2.79.16
+
+The image is unchanged, so there is no rebuild.
+
+- **`ccy --help` says why it could not ask the engine.** The help read every failure of
+  `<engine> image inspect` as "Container image not built yet", so an engine that could not run
+  at all (not installed, killed) was reported as a missing image. An engine that ran and said no
+  still gets the build hint; one that could not run is named with its error. When `claude --help`
+  fails in the image without a word, the note now says how it failed:
+  `no output (claude --help in claude-yolo:latest: podman exited 1)`. Held by the Go gate's rule
+  `project_command_failure_dropped`.
+
 ## 3.104.2 — container 2.79.16
 
 - 3.104.0 and 3.104.1 (below) joined with 3.103.2's image, whose pingbus reads a long sync

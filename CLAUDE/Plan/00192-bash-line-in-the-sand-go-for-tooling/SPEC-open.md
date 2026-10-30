@@ -144,7 +144,9 @@ against risk:
   are two rows), and a last row `Cancel — open nothing`. The header names the keys
   (`Enter open   Esc or q cancel`). Leaving it is `open: cancelled — nothing opened.`, exit 130.
 - E18. Without fzf the chooser is a numbered menu on stderr: the same heading, then
-  `  N) <label>` per candidate, then `Choice [1-N, q to cancel]: `, read from `/dev/tty`. A
+  `  N) <label>` per candidate, then `Choice [1-N, q to cancel]: `, read from `/dev/tty`. The heading's width is `tput cols`,
+  80 when tput runs and cannot say; a tput that could not run is
+  `open: could not read the terminal's width: <reason>`, exit 1, before the menu. A
   number in range chooses. `q`, `Q`, `quit` and end of input cancel (exit 130, as E17).
   Anything else is `  Not one of the options — enter a number between 1 and N, or q to cancel.`
   and the prompt again, at most 3 times; then `open: giving up after 3 attempts — nothing opened.`, exit 1.

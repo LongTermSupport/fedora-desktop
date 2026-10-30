@@ -818,8 +818,12 @@ today; rewriting them is out of scope.
   `project_command_failure_dropped` (src-go/qa/rules, wrappers through facts), committed red
   (e47fc3a04), widened after the independent search (010158bcd); 107 instances in the two
   modules. Origin fixed (CCY 3.104.1): the cause is the entry's fourth line and in the reason,
-  a 000 entry is never fresh, Go and the bash menu alike. Left: the other instances, the rule
-  green and catalogued, the conformance review and report.
+  a 000 entry is never fresh, Go and the bash menu alike. Swept 2026-10-30 in five batches
+  (subagent-reports: the 261030-dbf-cfd-N reports): every instance fixed, none excluded, the
+  rule unnarrowed; probes whose failure is the answer ask `execx.ExitedNonZero` (a program that
+  ran said no), and any other failure is reported. vmtest's run.exit wait no longer reads a lost
+  guest as "not yet" (red first). Catalogued in CLAUDE/GoProjectRules.md. CCY 3.104.3. Left:
+  full QA green with the rule blocking, the conformance review and the report.
 
 ### Phase 5: Review
 

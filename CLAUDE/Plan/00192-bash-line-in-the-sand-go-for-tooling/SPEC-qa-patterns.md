@@ -37,7 +37,7 @@ change (section 4, B33), besides its own per-file semgrep check.
 ### The tools and the proof the rules work (exit 2, no report)
 
 - P4. semgrep must run (`semgrep --version` exits 0), else
-  `ERROR: semgrep not found. Install with: pipx install semgrep`.
+  `ERROR: semgrep not found: run ./playbooks/imports/play-python.yml (it installs the pinned semgrep; do not install it by hand) (<cause>)`, the cause being the start error, or the exit code and stderr.
 - P5. The rules file and the fixture must both exist and be regular files, else exit 2 naming
   the missing one. Then `semgrep --test --config <rules> <fixture> --metrics=off` must exit 0;
   otherwise `ERROR: semgrep rule self-tests failed (see .semgrep/bash-conventions.bash)` followed

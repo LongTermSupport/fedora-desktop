@@ -758,6 +758,9 @@ reason); K = kept for parity; the owner's decision, if any, is in section 15.
 29. **F. the lxc freeze note promises a lease renewal every thaw makes** (`FREEZE_FREEZE_NOTE`
     above): since Task 3.5 a container with no `nmcli` is thawed with no renewal, so the note now
     says the lease is renewed where NetworkManager runs inside. Host report of 26-10-26.
+30. **F. a refused sudo is said without why** (`LF`'s two `die "sudo was refused, ..."`): the
+    port's `Load` and `BeforeAct` dropped `sudo.Ready`'s error. The message's second line is
+    now that error in parentheses. Plan 00191 Task 4.9 (`project_command_failure_dropped`).
 
 ---
 

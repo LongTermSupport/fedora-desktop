@@ -33,20 +33,21 @@ and the per-rule pages are not written; this catalogue stands in for them.
 
 ## The rules
 
-| Rule                        | Defect class                                                                                                                                    | Found in                                                                                   |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `project_seam_exec`         | a process started outside the runner, so no fake sees it                                                                                        | `teams`: `syscall.Exec` in the launcher hand-over                                          |
-| `project_seam_commands`     | a program run outside the package that owns it, or a command the rule cannot judge (run-time name, hidden wrapper argv, shell `-c`)             | `sessions`: `systemctl reboot`; `teams`: the take-down heading via `gum style`             |
-| `project_tmux_targets`      | a tmux `-t` target in the wrong form for its command (fedora-desktop#69)                                                                        | the bash library, before the port                                                          |
-| `project_testclock`         | wall-clock reads in tests (date-dependent tests failed in the hour after midnight)                                                              | `transcript` and `sessprobe` tests: 23 `time.Now()` fixtures                               |
-| `project_waitdelay`         | a function that sets `exec.Cmd.WaitDelay` and never names `exec.ErrWaitDelay`, so a finished command's output is dropped                        | `qa/internal/proc`: bug B25 of the qa-all port                                             |
-| `project_package_tests`     | a package with no `_test.go` file, whose code the module-wide coverage floor can hide behind the rest of the module                             | the old Go gate's every-package-has-tests check, kept when go-qa-ci replaced it            |
-| `project_homeabbrev`        | a hand-rolled `~` home abbreviation (a bare prefix replace turned `/home/<user>X` into `~X`)                                                    | `teams` tests: `strings.Replace(..., "~", 1)` twice                                        |
-| `project_hidden_bindings`   | an action reachable only by a key, with no visible, named choice for it (also in shell fzf and Python Textual: `qa-hidden-bindings.bash`)       | `teams` picker: Ctrl-A/X/O on Running sessions; `ccy-sessions`: Ctrl-T/X/N                 |
-| `project_refusal_kind`      | a declare.py refusal recovered by its type and never by its kind, so a refusal of the host_vars file is asked again as if the answer were wrong | `teams lxc-add`: "entries 5 and 6 both declare" asked three times (Plan 00201)             |
-| `project_realtime_bound`    | a bound on real time that a test can shorten, which then races the step the test asserts; a test that passes when a real timer fires            | teamchat `host/lxc`: 1 of 4 probes reached the fake hang before a 20 ms bound (Plan 00209) |
-| `project_esc_joined`        | a screen that loses an Esc typed just before another key, which arrives as that key with Alt (also in shell fzf: `qa-hidden-bindings.bash`)     | `teams` row menu: Esc then Down left the menu open and moved its cursor (Plan 00177)       |
-| `project_duration_overflow` | a `time.Duration` built from a number with no bound that keeps it inside int64 nanoseconds, so a large input comes out negative                 | `vmtest prune-runs --older-than 200000` pruned every failed run (Plan 00192 Task 3.10)     |
+| Rule                              | Defect class                                                                                                                                    | Found in                                                                                                 |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `project_seam_exec`               | a process started outside the runner, so no fake sees it                                                                                        | `teams`: `syscall.Exec` in the launcher hand-over                                                        |
+| `project_seam_commands`           | a program run outside the package that owns it, or a command the rule cannot judge (run-time name, hidden wrapper argv, shell `-c`)             | `sessions`: `systemctl reboot`; `teams`: the take-down heading via `gum style`                           |
+| `project_tmux_targets`            | a tmux `-t` target in the wrong form for its command (fedora-desktop#69)                                                                        | the bash library, before the port                                                                        |
+| `project_testclock`               | wall-clock reads in tests (date-dependent tests failed in the hour after midnight)                                                              | `transcript` and `sessprobe` tests: 23 `time.Now()` fixtures                                             |
+| `project_waitdelay`               | a function that sets `exec.Cmd.WaitDelay` and never names `exec.ErrWaitDelay`, so a finished command's output is dropped                        | `qa/internal/proc`: bug B25 of the qa-all port                                                           |
+| `project_package_tests`           | a package with no `_test.go` file, whose code the module-wide coverage floor can hide behind the rest of the module                             | the old Go gate's every-package-has-tests check, kept when go-qa-ci replaced it                          |
+| `project_homeabbrev`              | a hand-rolled `~` home abbreviation (a bare prefix replace turned `/home/<user>X` into `~X`)                                                    | `teams` tests: `strings.Replace(..., "~", 1)` twice                                                      |
+| `project_hidden_bindings`         | an action reachable only by a key, with no visible, named choice for it (also in shell fzf and Python Textual: `qa-hidden-bindings.bash`)       | `teams` picker: Ctrl-A/X/O on Running sessions; `ccy-sessions`: Ctrl-T/X/N                               |
+| `project_refusal_kind`            | a declare.py refusal recovered by its type and never by its kind, so a refusal of the host_vars file is asked again as if the answer were wrong | `teams lxc-add`: "entries 5 and 6 both declare" asked three times (Plan 00201)                           |
+| `project_realtime_bound`          | a bound on real time that a test can shorten, which then races the step the test asserts; a test that passes when a real timer fires            | teamchat `host/lxc`: 1 of 4 probes reached the fake hang before a 20 ms bound (Plan 00209)               |
+| `project_esc_joined`              | a screen that loses an Esc typed just before another key, which arrives as that key with Alt (also in shell fzf: `qa-hidden-bindings.bash`)     | `teams` row menu: Esc then Down left the menu open and moved its cursor (Plan 00177)                     |
+| `project_duration_overflow`       | a `time.Duration` built from a number with no bound that keeps it inside int64 nanoseconds, so a large input comes out negative                 | `vmtest prune-runs --older-than 200000` pruned every failed run (Plan 00192 Task 3.10)                   |
+| `project_command_failure_dropped` | a command's failure only tested, never carried, so the person sees a guessed cause                                                              | `ccy --token-usage`: any curl failure was "could not reach the API" for 15 minutes (Plan 00191 Task 4.9) |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -694,7 +695,49 @@ package (a usage error or a failure naming the largest value taken), or build th
   computed value needs data flow across functions; `time.ParseDuration` refuses an overflow
   itself.
 
-## Defect classes that cannot be a rule
+### project_command_failure_dropped
+
+**What it is about.** The error of a command run through the seam is the cause of its failure:
+an exit code and stderr (`execx.ExitError`), a start or stdin-feed failure, a refusal. Code that
+only asks `err != nil` or `errors.Is(err, sentinel)` and then reports a fixed guess has thrown
+the cause away, and the guess can be false.
+
+**Why it exists.** Plan 00191 Task 4.9, the owner's incident of 2026-10-29: `ccy --token-usage`
+recorded every curl failure as status 000 with no cause, showed "could not reach the API" for
+all five tokens, and cached it for 15 minutes, while the network was fine.
+
+**What it flags**, outside the `_test.go` files and the seam packages themselves: a call of a
+function or method of `internal/execx` or `qa/internal/proc` that takes a `Cmd` (and, through
+facts, any function that returns such a call's error, so a wrapper is judged as the seam is)
+whose error is only tested before the variable is next assigned. Carrying is any other use:
+returning it, passing it to a call (`fmt.Errorf`, `errors.Join`, `errors.As`, a logger,
+`execx.ExitedNonZero`), calling a method on it, or storing it. A run whose call is a statement,
+or whose error goes to the blank identifier, carries nothing.
+
+**How to fix a violation.** Put the error itself, or what `errors.As` finds in it (the exit code,
+stderr), in the message or record the caller sees, or return it. A probe whose failure is its
+answer asks `execx.ExitedNonZero(err)`: a program that ran and exited non-zero is the answer, and
+any other error (it could not start, was missing, was killed) is reported with its cause, so a
+missing tool is never a silent default.
+
+- Red, fixture: `testdata/src/fix/internal/badfailure` (`badfailure.go`: the originating curl
+  read and the tested-only forms; `wrapped.go`: a wrapper that returns the seam's error;
+  `carried.go`: each way of carrying, clean), over `fix/internal/execx` and
+  `fix/internal/wrapper`; committed red (e47fc3a04) and widened to wrappers after the
+  independent search (010158bcd).
+- Red, real tree: 107 findings over both modules, 3 more surfaced as the sweep turned helpers
+  into wrappers. The independent search, made before the rule, found 15 present and about 25
+  borderline Go instances; the rule was widened to wrappers to reach them (010158bcd).
+- Green: every finding fixed, none excluded and the rule unnarrowed (Plan 00191's five sweep
+  batches); the origin fixed in CCY 3.104.1, with a test that reproduces it.
+- Not caught: an error carried somewhere it is never shown (stored and dropped), or carried and
+  then contradicted by a guessed message beside it; a cause read from `Result.ExitCode` alone; an
+  error passed to a call that only inspects it, such as `execx.ExitedNonZero`, whose other branch
+  must still report the cause (review holds that).
+- **The next wider rule, not built:** any error, not only a command's, that is tested and then
+  replaced by a fixed message. Not built because most such errors are sentinels compared on
+  purpose (`errors.Is(err, fs.ErrNotExist)`), and telling a dropped cause from a decided
+  branch needs the meaning of each sentinel.
 
 ## Defect classes that cannot be a rule
 

@@ -63,8 +63,9 @@ owner:
   blank line, `Notable directories:` and one line per directory, and, when `podman` is
   installed, a blank line, `Podman storage:` and `podman system df`'s output.
 - E4. The filesystem lines are `duf --only local`'s output when `duf` is installed and succeeds;
-  otherwise `df -h -x tmpfs -x devtmpfs -x efivarfs -x overlay --output=target,size,used,avail,pcent`'s; if that fails, `df -h`'s. If all fail: `  (filesystem usage unavailable)`, the
-  last reason on stderr.
+  otherwise `df -h -x tmpfs -x devtmpfs -x efivarfs -x overlay --output=target,size,used,avail,pcent`'s; if that fails, `df -h`'s. If all fail: `  (filesystem usage unavailable)`, and on stderr
+  `reclaim: filesystem usage: duf: <err>; filtered df: <err>; df -h: <err>` (duf's clause
+  only when it is installed).
 - E5. The journal line is `journalctl --disk-usage`'s output; `journal: journalctl not present`
   when it is not installed; `journal: usage unavailable` when it fails, its reason on stderr.
 - E6. The notable directories are `~/.cache`, `~/.local/share/Trash`, `/var/log` and
@@ -172,10 +173,10 @@ owner:
   then the claude-yolo project images (`localhost/claude-yolo:<project>`) among them, each
   rebuilt on that project's next launch, listed largest first as E7a lists, and
   `  and <n> other tagged image(s).`, then `  Also remove all <n> unused podman image(s), tagged ones included (podman image prune -af)?`; yes runs it (`  Unused podman images removed.`, or
-  `  podman image prune -a reported an error.` and a failed action), no is
+  `  podman image prune -a reported an error (<reason>).` and a failed action), no is
   `  Skipped podman image prune -af.`, as no to the first question is its `Skipped` line. No tagged image unused is
   `  No other podman image is unused: nothing more to remove.` and no question; an image list
-  that cannot be read is `  Removing every unused image is not offered: podman could not list its images (<reason>).`. A `podman system df` that fails is `  Cannot query podman — skipping podman prune. Reason:` and its output, and when that output names `stale temp dir`, the
+  that cannot be read is `  Removing every unused image is not offered: podman could not list its images (<reason>).`. A `podman system df` that fails is `  Cannot query podman — skipping podman prune. Reason:` and its output (its error, exit code included, when it printed nothing), and when that output names `stale temp dir`, the
   hint to repair the store on the host with
   `ansible-playbook CLAUDE/Plan/00062-disk-reclaim-tui/podman-store-repair.yml`; this is not a
   failed action (nothing was run). A `podman system df` refused `permission denied` is first said
@@ -189,7 +190,7 @@ owner:
   see all of its storage, and a stopped container may be what still holds that volume. Only
   image prunes are offered, which neither read nor remove a volume: first
   `  Prune the <n> dangling (<none>) podman image(s) no container uses (podman image prune -f)?` (`  No dangling podman image to prune.` and no question when there is none); when <k> dangling images are used by a container, which the prune keeps, `  <k> dangling podman image(s) are used by a container and are kept by the prune.` is said first, so the report's count and the question's differ by exactly <k>;
-  yes runs it (`  Dangling podman images pruned.`, or `  podman image prune reported an error.`
+  yes runs it (`  Dangling podman images pruned.`, or `  podman image prune reported an error (<reason>).`
   and a failed action, with no second question); no is `  Skipped podman image prune -f.`.
   Then E22's question of every unused image, from the list just shown (less the dangling images
   just pruned). When `podman images` failed too,
@@ -200,10 +201,10 @@ owner:
   `  Also remove all unused docker images (docker image prune -af)?` (no is
   `  Skipped docker image prune -af.`), both run as the user whose
   `docker system df` answered (B4); a `docker system df` that fails is
-  `  docker is installed but not usable (daemon down, or not in the docker group) — skipping.`.
+  `  docker is installed but not usable (daemon down, or not in the docker group) — skipping (<reason>).`.
 - E23. **Flatpak unused runtimes**: without `flatpak`, `  flatpak is not installed.`. Else
   `flatpak uninstall --unused --assumeno` (its output shown; a non-zero exit adds
-  `  (nothing unused, or preview unavailable)`), then `  Remove unused flatpak runtimes?`; yes
+  `  (nothing unused, or preview unavailable: <reason>)`), then `  Remove unused flatpak runtimes?`; yes
   runs `flatpak uninstall --unused -y`.
 - E24. **Clear ~/.cache**: `~/.cache` as a symbolic link is refused (B13):
   `  ~/.cache is a symbolic link (to <target>); reclaim does not clear through a link.` and
@@ -221,7 +222,7 @@ owner:
   before that (B2), and root is asked for only after the yes to the command that needs it:
   every preview runs as the user (B12).
 - E26. **Empty trash**: with `trash-empty` installed, `trash-list` (its output shown; a
-  non-zero exit adds `  (trash empty or unavailable)`), `  Empty the trash now?`, yes runs
+  non-zero exit adds `  (trash empty or unavailable: <reason>)`), `  Empty the trash now?`, yes runs
   `trash-empty -f`. Without it: `~/.local/share/Trash`, or its `files` or `info` directory, as
   a symbolic link is refused as in E24 (B13); no `~/.local/share/Trash` is
   `  No trash directory.`; else its size (E6's figure, `(at least)` and du's stderr when du

@@ -191,7 +191,7 @@ Globals reset: TEAMS (ordered list), PORT_OF, URL_OF, SERVER_OF, LOADED.
    URL_OF (unless `-`).
    Note: a present team with no port yields PORT_OF `-`; the WHERE column then says `port -`.
 3. `systemctl list-units --all --plain --no-legend --type=service 'agent-bus-hs@*'`; failure ->
-   `ERROR: systemctl could not list the agent-bus homeserver units.` return 1. For each line,
+   `ERROR: systemctl could not list the agent-bus homeserver units: <systemctl's error>` return 1. For each line,
    first field matching `agent-bus-hs@*.service`: team = the middle part; LOADED[team]=1; if not
    yet seen, appended to TEAMS.
 4. Every `<APPLIED_DIR>/*.json` (glob order = sorted): team = basename without `.json`; appended if
@@ -413,7 +413,7 @@ Shown this once and stored nowhere. The team's Element profile has the homeserve
 ```
 
 (`printf '  %-11s %s\n'`.) Then only if WAYLAND_DISPLAY is set: wl-copy missing -> `ERROR: wl-copy is not installed, so the password cannot be put on the clipboard; copy it from above. playbooks/imports/play-claude-yolo.yml installs wl-clipboard.`; else `ccy_tmux_confirm "Copy the password?" "Put <name>'s new password on the clipboard, to paste into Element. A clipboard manager may keep a copy." "copy the password" yes` (cursor on Yes); yes -> password on **stdin** of `wl-copy`
-(never argv; TC L803): ok `The password is on the clipboard.`, fail `ERROR: wl-copy failed (above), so the password is not on the clipboard; copy it from above.`
+(never argv; TC L803): ok `The password is on the clipboard.`, fail `ERROR: wl-copy failed (<wl-copy's error>), so the password is not on the clipboard; copy it from above.`
 
 #### 2.11.4 Ctrl-R: `toggle_restore <i>` (L1704-1714)
 

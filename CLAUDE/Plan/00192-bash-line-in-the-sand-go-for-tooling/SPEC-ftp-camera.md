@@ -72,7 +72,7 @@ The tests cite these numbers.
   from the environment; an empty value is the default; any other value prints
   `ERROR: <VAR> must be <kind>, got '<value>'` and exits 2.
 - E7. The upload directory is the home directory of the `camera` account
-  (`getent passwd camera`, field 6). Not found: `ERROR: 'camera' user not found — run play-ftp-camera.yml first`, exit 1. Help and usage errors do not need it.
+  (`getent passwd camera`, field 6). Not found (getent exit 2, or no home field): `ERROR: 'camera' user not found — run play-ftp-camera.yml first`, exit 1; any other getent failure: `ERROR: could not look up the 'camera' user: <reason>`, exit 1. Help and usage errors do not need it.
 - E8. With no arguments at all, the launcher runs: gum if on PATH, else fzf, else a three-line
   note on stderr and the default FTP-server mode. Step 1 offers the eight modes (the first word
   of the chosen line is the mode; `default` adds no flag, any other adds `--<word>`). For
@@ -118,7 +118,7 @@ The tests cite these numbers.
   or space separated, paired by position up to the shorter list); a strip that ends past the
   file size is proof of truncation.
 - E16. Failing that proof, `exiftool -validate -warning -error -a -s3 <file>` (both streams):
-  a non-zero exit cannot be verified; output matching `truncat`, `premature`, `unexpected end`
+  a non-zero exit cannot be verified, and the reason (both exiftool runs' failures) is kept; output matching `truncat`, `premature`, `unexpected end`
   or `missing .*end of` (case-insensitive) is truncated; anything else is complete.
 
 ### The sort pass (`--sort`, and the end of a default session)
@@ -129,7 +129,7 @@ The tests cite these numbers.
 - E18. It considers the regular files directly in the upload directory whose extension
   (case-insensitive) is jpg, jpeg, arw, mp4 or mov, in name order. Anything else, and anything
   in a subdirectory, is not touched.
-- E19. A truncated file prints `  partial  <name>  (truncated at <bytes> bytes — left in place)` on stderr and is left where it is. A file that cannot be verified is sorted.
+- E19. A truncated file prints `  partial  <name>  (truncated at <bytes> bytes — left in place)` on stderr and is left where it is. A file that cannot be verified is sorted. A file whose completeness check failed prints `  note: <name> could not be checked for completeness: <reason>` on stderr and is sorted as unverifiable.
 - E20. The capture date is the first non-blank line of
   `exiftool -s3 -d %Y/%m/%d -DateTimeOriginal -CreateDate <file>` for a photo (jpg, jpeg, arw),
   or `... -CreateDate -MediaCreateDate <file>` for a video (mp4, mov); exiftool's exit status is
@@ -159,9 +159,11 @@ The tests cite these numbers.
   or `/video` is refused with the six-line error that names the parent to use instead; `rclone`
   is on PATH (`ERROR: rclone not found — run play-rclone.yml first`).
 - E24. The mount of the remote: `findmnt -n -o TARGET -t fuse.rclone` lists rclone mounts (none,
-  or findmnt failing: `ERROR: No rclone mount found for remote '<name>'` and the two lines
-  naming the unit); for each, in order, `findmnt -n -o SOURCE <target>` (a target whose source
-  cannot be read is passed over); the first whose source starts with `<name>:` is the mount,
+  findmnt exit 1: `ERROR: No rclone mount found for remote '<name>'` and the two lines
+  naming the unit, then `  could not read the source of <target>: <reason>` for each target
+  passed over; findmnt failing otherwise: `ERROR: could not list the rclone mounts: <reason>`);
+  for each, in order, `findmnt -n -o SOURCE <target>` (a target whose source cannot be read is
+  passed over, and said); the first whose source starts with `<name>:` is the mount,
   where `<name>` is the remote up to its first `:`. The local path is the target, joined with
   the remote's path (after the first `:`) less the mount source's path as a prefix and less a
   leading `/`.
@@ -184,8 +186,10 @@ The tests cite these numbers.
 
 - E29. After the remote prerequisites (E23) and an existing upload directory, prints the source
   and destination, then runs `rclone copy <upload> <remote> --progress --transfers 4 --checkers 8 --update` on the terminal. Its failure is `ERROR: rclone copy failed: ...`, exit 1. Success
-  prints `Push complete.`, the retained-copy lines, and, when the mount resolves (E24, its
-  errors not shown), the `rclone-cache-warm <mount path>` hint. Exit 0.
+  prints `Push complete.`, the retained-copy lines, and, when the mount resolves (E24), the
+  `rclone-cache-warm <mount path>` hint; no mount, or a findmnt that ran and failed, is no hint
+  and no word, and a findmnt that could not run is `WARNING: no mount hint: <E24's error>`.
+  Exit 0.
 
 ### --copy-preflight
 
@@ -200,7 +204,7 @@ The tests cite these numbers.
 - E31. The preflight (E30) with its stdout discarded, then the header (source, destination and
   the count of regular files under the upload directory), then `core/stats-reset` (a refusal is
   the two-line NOTE on stderr, with rclone's stderr, and the copy goes on), then
-  `cp -r <upload>/. <dest>/` (failure: `ERROR: Failed to copy files to mount`, exit 1) and
+  `cp -r <upload>/. <dest>/` (failure: `ERROR: Failed to copy files to mount: <reason>`, exit 1) and
   `<n> files copied to mount.`.
 - E32. After three seconds, it polls `vfs/stats` and `core/stats` every five seconds with no
   time limit. A call that fails ends the run: `ERROR: rclone RC at <addr> stopped answering:`
@@ -213,7 +217,7 @@ The tests cite these numbers.
   (E65), the rate since the previous poll (whole bytes per second over whole seconds; 0 when no
   time passed or the bytes went down), and the ETA (`—` when null or 0).
 - E34. Then `rclone check <upload> <remote> --one-way` (both streams captured): success prints
-  the verified lines and exits 0; failure prints `Verification failed:`, rclone's output, and
+  the verified lines and exits 0; failure prints `Verification failed: <how rclone ended>` (its exit code), rclone's output, and
   the `--push` hint on stderr, exit 1.
 - E35. An interrupt (INT or TERM) while waiting ends the run with exit 130.
 
@@ -230,7 +234,7 @@ The tests cite these numbers.
 - E39. It asks `Delete these files? [y/N] ` on stderr when stdin is a terminal, and reads one
   line. Only `y` or `Y` deletes; anything else, or end of input (which prints a blank line on
   stderr), prints `Aborted — no files removed.` and exits 0.
-- E40. Each orphan is removed as root (`rm -f`); a failure prints `  failed  <path>` on stderr
+- E40. Each orphan is removed as root (`rm -f`); a failure prints `  failed  <path>  (<how the removal ended>)` on stderr
   and the rest go on. Then the empty-directory sweep (E22's find), and
   `Prune complete: <removed> of <n> files removed (<size> freed)`. Exit 0.
 
@@ -247,7 +251,8 @@ The tests cite these numbers.
   `nmcli -t -f DEVICE,TYPE device` (none: error). AP support: `nmcli -g WIFI-PROPERTIES.AP device show <dev>` containing `yes`, else `no`; when that does not answer and `iw` is on PATH, a line
   `Supported interface modes` in `iw list` followed within twelve lines by the word `AP` is yes,
   else no. Yes prints the capability line; no is the hardware error; unknown prints the
-  three-line note and goes on. Then the single-radio note (three lines). The profile must be a
+  three-line note, then the error of each program that failed (one per line, indented two
+  spaces), and goes on. Then the single-radio note (three lines). The profile must be a
   whole line of `nmcli -t -f NAME connection show` (else the error naming the play,
   which makes the profile and its password, E67; it no longer sends the person to set the
   password by hand). Already active (a whole line of `... --active`): the yellow
@@ -256,15 +261,25 @@ The tests cite these numbers.
   the session owns it.
 - E45. Hotspot detection (every session): when `nmcli` is on PATH, the first active connection
   whose `ipv4.method` is `shared` (a connection whose method cannot be read prints
-  `WARNING: could not read ipv4.method for '<name>': <output>` and is passed over); its device
+  `WARNING: could not read ipv4.method for '<name>': <reason>` and is passed over); its device
   (`GENERAL.DEVICES`), the device's first IPv4 address (`ip -4 addr show dev <dev>`) and its
-  SSID. Any of the first three missing: no hotspot.
+  SSID. Any of the first three missing: no hotspot. The active list or the address read failing
+  is no hotspot too, said as
+  `WARNING: could not list the active connections, so no hotspot is used: <reason>` or
+  `WARNING: could not read the address of '<dev>', so no hotspot is used: <reason>`. A field
+  nmcli ran and refused (a wired shared connection has no SSID) is empty, silently; a field
+  nmcli could not run to read is `WARNING: could not read <field> of '<name>': <reason>`, and
+  empty.
 - E46. WiFi context: when `iw` is on PATH and a WiFi device exists, `iw dev <dev> link` gives the
   frequency (MHz, whole) and signal (dBm); below 3000 MHz is 2.4 GHz, below 5926 is 5, else 6.
-  Nothing here is an error.
+  Nothing here is an error: a probe that ran and failed is unknown; one that could not run
+  (missing, killed) is unknown with `WARNING: could not list the WiFi devices: <reason>` or
+  `WARNING: could not read the WiFi link of '<dev>': <reason>`.
 - E47. The address advertised: the hotspot's when one is active; otherwise the device named after
-  `dev` on the first line of `ip -4 route show default` (none: the three-line error), and that
-  device's first IPv4 address (none: `ERROR: <dev> has no IPv4 address`).
+  `dev` on the first line of `ip -4 route show default` (none: the three-line error; `ip` failing:
+  `ERROR: could not read the default route: <reason>`), and that device's first IPv4 address
+  (none: `ERROR: <dev> has no IPv4 address`; `ip` failing:
+  `ERROR: could not read the IPv4 address of <dev>: <reason>`).
 - E48. Then `Starting camera FTP server...` and, as root: copy `/etc/vsftpd/vsftpd.conf` to
   `/run/vsftpd-camera.conf`; append `pasv_address=<ip>`; with `--debug-ftp`, append
   `log_ftp_protocol=YES` and print the six-line tracing note naming
@@ -331,8 +346,9 @@ The tests cite these numbers.
   the uploads left unsorted by the interrupt (E66); truncated with its three lines; with
   `--async-copy`, copied and copy errors, the sorted files that did not reach the mount,
   the `--push` line, and `rclone-tail --once <remote name>` when it is on PATH, whose failure
-  prints that the status could not be read); in default mode the sort pass (E17-E22), whose
-  failure prints `note: the sort pass did not complete — continuing with teardown.` on stderr
+  prints `  could not read upload status: <reason>`); in default mode the sort pass (E17-E22),
+  whose failure prints `note: the sort pass did not complete — continuing with teardown.` (with
+  `: <reason>` after `complete` when the pass had not already printed it) on stderr
   and does not change the exit.
 
 ### Weak link
@@ -351,7 +367,8 @@ The tests cite these numbers.
 - E60. A file that is no longer there (the camera's retry already moved it) is a quiet no-op.
 - E61. A truncated file prints `  [<ts>] partial  <name>  (truncated at <bytes> bytes — NOT sorted; camera will retry)` on stderr, counts as truncated, and raises the advisory for
   `<name> arrived truncated — the data connection dropped mid-transfer`. An unverifiable file
-  prints `  [<ts>] unverified  <name>  (no completeness check for this type)` and goes on.
+  prints `  [<ts>] unverified  <name>  (no completeness check for this type)`, or
+  `(the completeness check failed: <reason>)` when exiftool failed, and goes on.
 - E62. Sorting one file (E20, E21 as root): unsupported type `skip ... (unsupported type, left in place)`, no date `skip ... (no EXIF date, left in place)`, both counted skipped; a failed
   move (including one refused for a different file of the same name, E21) `fail ... (sort error, left in place)` on stderr, counted as a sort error; an identical file already
   there `  [<ts>] dup  <name>  (already in the library — left in place)`, counted skipped; moved
@@ -393,8 +410,8 @@ The tests cite these numbers.
   password before vsftpd starts: `nmcli -s -g 802-11-wireless-security.psk connection show <name>`
   as the user first (NetworkManager gives the secret to a caller polkit allows, which an active
   local session usually is); an empty answer or a failure is asked again as root (E44's sudo).
-  Root's read failing is `ERROR: could not read the Wi-Fi password of hotspot '<name>': <reason>`,
-  and the session tears down (E41). The camera settings then begin
+  Root's read failing is `ERROR: could not read the Wi-Fi password of hotspot '<name>': <reason>`
+  (then `(as the user: <reason>)` when the user's read failed too), and the session tears down (E41). The camera settings then begin
   `    Wi-Fi:       <ssid>   (join this network on the camera first)` and
   `    Wi-Fi pass:  <password>` (stdout only); a profile with no password says
   `(none: profile '<name>' has no Wi-Fi password)`. No hotspot, or a shared connection with no

@@ -144,7 +144,7 @@ Python and are run from the directory the binary is in.
 - W14. Without a server: the language is `--language`, else `$WHISPER_LANGUAGE` if set (even
   empty), else `<bin dir>/wsi-setting language` (`system` means `$LANG`, default
   `en_GB.UTF-8`, up to its first `_`); a failing setting reader is
-  `Cannot read the language setting (<path> failed; reason above)`, exit 1. The model is what
+  `Cannot read the language setting (<error>; reason above)`, exit 1. The model is what
   `<bin dir>/wsi-resolve-model --mode batch --language <lang> <$WHISPER_MODEL or auto>` prints;
   its stderr is a debug line; its exit 3 is the error text after the last
   `wsi-resolve-model: ` in its stderr (exit 1); another failure is
@@ -322,8 +322,8 @@ Python and are run from the directory the binary is in.
 - M12. The exiftool command: `exiftool -config <cfg> -overwrite_original -EXIF:Artist=<a> -EXIF:Copyright=<c> -IPTC:By-line=<a> -IPTC:CopyrightNotice=<c> -XMP-dc:Creator=<a> -XMP-dc:Rights=<c> -XMP-xmpRights:Marked=True -XMP-xmpRights:UsageTerms=<summary> -XMP-xmpRights:WebStatement=<url> -XMP-wm:Applied=True -XMP-wm:AppliedAt=<UTC YYYY:MM:DD HH:MM:SSZ> -XMP-wm:AppliedBy=watermark/0.1.0 <output>`.
 - M13. `--dry-run` prints `# magick:`, the magick command, `# exiftool:`, the exiftool
   command (each shell-quoted on one line) and exits 0, after every check above.
-- M14. Otherwise magick runs (failure: `magick failed (visible watermark)`, exit 4), then
-  exiftool (failure: `exiftool failed (metadata write)`, the unmarked output removed, exit 5);
+- M14. Otherwise magick runs (failure: `magick failed (visible watermark): <error>`, exit 4), then
+  exiftool (failure: `exiftool failed (metadata write): <error>`, the unmarked output removed, exit 5);
   both tools' output goes to stderr. `-v` logs each step. Success: the absolute output path on
   stdout, exit 0.
 

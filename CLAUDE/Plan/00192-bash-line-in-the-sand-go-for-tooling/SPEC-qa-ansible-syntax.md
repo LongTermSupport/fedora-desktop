@@ -34,7 +34,7 @@ call this gate.
 
 ### What the machine must supply (checked first, fail fast)
 
-- S4. `ansible-playbook --version` must run and exit 0, else `ERROR: ansible-playbook not installed` saying that `run.bash` installs it (pipx), exit 2.
+- S4. `ansible-playbook --version` must run and exit 0, else `ERROR: ansible-playbook not installed` saying that `run.bash` installs it (pipx), with the start error or the exit code and stderr, exit 2.
 - S5. `ansible.cfg` under the root must exist, else exit 2 naming it. It is pinned as
   `ANSIBLE_CONFIG` (absolute) for every engine run and the engine runs with the root as its
   working directory, so the verdict depends on the root alone, never on where the gate was
