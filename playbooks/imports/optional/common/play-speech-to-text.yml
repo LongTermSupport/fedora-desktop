@@ -301,9 +301,22 @@
     # pre-built wheel automatically — no scipy pin, no scipy-openblas32, no pkg-config
     # wrapper, no gcc-gfortran needed.  Verified: https://status.fedoralovespython.org/wheels_py314/
 
+    # pip stages its downloads (torch and its CUDA wheels, about 3 GB) in TMPDIR. /tmp is a tmpfs
+    # with a per-user quota, which a machine with little RAM exceeds (Errno 122), so they are
+    # staged on disk instead.
+    - name: Create the Disk Staging Directory for pip Downloads
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.cache/pip-tmp"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0700'
+
     - name: Install RealtimeSTT for Streaming Mode (WARNING - CAN TAKE MANY MINUTES ON FIRST RUN)
       become: true
       become_user: "{{ user_login }}"
+      environment:
+        TMPDIR: "/home/{{ user_login }}/.cache/pip-tmp"
       ansible.builtin.pip:
         name:
           - RealtimeSTT==1.0.0

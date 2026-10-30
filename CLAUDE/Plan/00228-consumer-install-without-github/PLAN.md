@@ -299,10 +299,13 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   label (a pick it lacks ends the run as a fail; the re-run answers Enter), and the checker's
   three speech-to-text checks (PLANNED 20). Red, then green. Awaiting the VM run
   (meta-deploy.list).
-- [ ] ⏸️ **Task 6.7 VM run**: The host runs `./CLAUDE/Plan/meta-deploy.bash`; the consumer
-  scenario passes 20 of 20 with speech-to-text installed. **Blocked on the owner (2026-10-28):**
-  the run at dcc5721c8 waits, ahead of this entry, at play-ftp-camera's prompt for the camera
-  hotspot Wi-Fi password, which only the owner may answer (questions room Q9).
+- [ ] 🔄 **Task 6.7 VM run**: The host runs `./CLAUDE/Plan/meta-deploy.bash`; the consumer
+  scenario passes 20 of 20 with speech-to-text installed. The ftp-camera prompt that blocked it
+  is gone (Plan 00192 Task 3.16). The run at c378092ce passed 15 of 20 on the consumer guest:
+  pip's RealtimeSTT install failed with Errno 122 (Disk quota exceeded) while staging the torch
+  and CUDA wheels (about 3 GB) in TMPDIR, which is /tmp, a tmpfs with a per-user quota; the other
+  four failures follow from it, and the other two scenarios passed. Fixed in
+  play-speech-to-text.yml: the install stages in `~/.cache/pip-tmp` on disk. Queued again.
 - [x] ✅ **Task 6.6**: The developer path's optional runs, as Task 2.6 did for the consumer.
   Decided (2026-10-28, part C item 5 of the unblocking list): on the developer path, optional
   plays go on after one fails, a summary naming every failed and installed play is printed at
