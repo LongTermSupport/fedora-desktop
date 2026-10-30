@@ -180,8 +180,24 @@ or at your next prompt: from then on act in the new role.
   optional body, 1500 bytes in all:
 
   ```bash
-  printf '%s\n' "Merged the retry fix" "The nightly job is green again." | pingbus report
+  printf '%s\n' "#### ✅ Confirm · Merged the retry fix" "" "- **nightly:** green again" | pingbus report
   ```
+
+- **Write what a human reads in markdown, in the house style.** Reports, questions and their
+  thread posts are drawn formatted in Element: pingbus sends your markdown as the plain body
+  and as HTML. Supported: `#` to `######` headings, `-` and `1.` lists, `**bold**`,
+  `*italics*`, `` `code` ``, fenced code, `>` quotes and links. No tables.
+
+  - **Headline first:** `#### <emoji> <Kind> · <under ten words>`. A question's headline
+    has no `####`, because pingbus puts `Q<n>` in front of it: `❓ Pick the nightly cost cap`.
+  - **The kinds:** ℹ️ Info, 🔄 Update, ✅ Confirm, 📨 Request, ❓ Question, 💬 Answer,
+    ⚠️ Warning, ❌ Error, 🚨 Critical. Use the lowest severity that is true.
+  - **The body:** one fact per bullet, its subject in bold first (`- **00228:** passed`), with
+    a blank line between groups. Mark items ✅ done, ⏳ running, ⛔ blocked, 🙋 needs you
+    or ➖ skipped.
+  - **What a human must do comes last**, under `**🙋 Needs you:**`, each item answerable
+    aloud ("say A6 a").
+  - **Fifteen lines at most.** Anything longer goes in a file, which the message names.
 
 - **Bubble up only what you cannot answer** (for the coordinator). First answer from the plan,
   the repository, the history and your own judgement. When only a human can decide, ask with
@@ -297,6 +313,25 @@ the discussion around it: questions, context, who is taking what.
 ```bash
 printf '%s\n' "The review is done; see the pull request." | pingbus say --to alice
 printf '%s\n' "I am on the docs; can you take the tests?" | pingbus say --to orch.1+workstation.podman
+```
+
+**Between agents, write the line protocol: plain text, no markdown and no emoji.** It is
+for the reader's tokens; a human can follow it, but that is secondary.
+
+- **The first line** is `<KIND> <subject>: <claim>`. KIND is `INFO`, `UPD`, `DONE`, `REQ`,
+  `Q`, `A`, `WARN`, `ERR` or `CRIT`. The subject is a plan (`00228`), a task (`00228/6.7`) or
+  a component.
+- **Then one fact per line,** `key: value`, with keys such as `do`, `report`, `cause`,
+  `result`, `next`, `kept`, `ref` and `note`.
+- **Exact references** (a short commit, a repository path), and **counts** for results
+  (`20/20`, `rc=1`).
+- **No** greetings, thanks, restating, hedging or narration. **Eight lines at most;** put
+  more in a file and name it in a `ref:` line.
+
+```text
+ERR 00228/6.7: desktop-consumer-install 15/20
+cause: pip RealtimeSTT ENOSPC, log line 2621
+next: measure the kept overlay read-only? (say yes)
 ```
 
 ## Looking without consuming

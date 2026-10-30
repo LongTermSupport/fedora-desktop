@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00241-agent-bus-message-style](00241-agent-bus-message-style/) - In Progress (the style is drafted; the owner's review is pending). Agents' messages read well in Element: agents write markdown, and pingbus sends it as Matrix HTML beside the plain body, in one style (STYLE.md) with a fixed headline emoji per kind of message. Two deploys: the receivers accept the formatted shape first, then the senders send it.
+
 - [00240-team-sessions-report-tooling-issues-to-fedora-desktop](00240-team-sessions-report-tooling-issues-to-fedora-desktop/) - Not Started (the owner's questions Q1-Q3 open). Sessions running fedora-desktop tooling in other repositories (ccy, LXC, other members) learn where the tooling comes from and report a defect in it cleanly: a skill shipped in the pingbus plugin every team member loads, and a Go generator with a fixed field set, as the hooks daemon's issue-report does.
 
 - [00238-runaway-process-alert](00238-runaway-process-alert/) - Not Started (research plan; Mozilla's docs read; host tests and the owner's questions Q1-Q7 open). Which Firefox tab is burning CPU or memory, from outside the UI: a control port is rejected for the daily browser, a privileged extension hangs on whether Fedora's build requires signing; proposed a Go user service that alerts on any runaway process and names a Firefox tab process as such, never killing anything, plus Firefox's built-ins and an optional cap on its app scope.

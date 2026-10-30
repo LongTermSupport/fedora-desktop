@@ -17,6 +17,7 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
+from helpers.pingbus import markdown
 from helpers.pingbus import protocol as p
 
 SN = "team-a.agent-bus.internal"
@@ -164,9 +165,11 @@ class JoinRulesTest(unittest.TestCase):
 
 class ReportTest(unittest.TestCase):
     def test_a_report_is_a_quiet_notice(self):
-        content = p.build_report("Merged the fix\nPR 12 is in.")
-        self.assertEqual(content, {"msgtype": "m.notice", "body": "Merged the fix\nPR 12 is in.",
-                                   "m.mentions": {}, p.REPORT_KEY: {"v": 1}})
+        content = p.build_report("Merged the fix\nPR **12** is in.")
+        self.assertEqual(content, {"msgtype": "m.notice", "body": "Merged the fix\nPR **12** is in.",
+                                   "m.mentions": {}, p.REPORT_KEY: {"v": 1},
+                                   "format": "org.matrix.custom.html",
+                                   "formatted_body": "<p>Merged the fix<br>PR <strong>12</strong> is in.</p>"})
         p.check_report_content(content)
 
     def test_caps_are_exact_to_the_byte(self):
@@ -190,7 +193,11 @@ class ReportTest(unittest.TestCase):
         for name, bad in {"mentions": {**good, "m.mentions": {"user_ids": [ALICE]}},
                           "msgtype": {**good, "msgtype": "m.text"},
                           "version": {**good, p.REPORT_KEY: {"v": 2}},
-                          "extra": {**good, "x": 1}}.items():
+                          "extra": {**good, "x": 1},
+                          "other format": {**good, "format": "text/markdown"},
+                          "html not the body's": {**good, "formatted_body": "<p>other</p>"},
+                          "html alone": {k: v for k, v in good.items() if k != "format"},
+                          "format alone": {k: v for k, v in good.items() if k != "formatted_body"}}.items():
             with self.subTest(name), self.assertRaises(p.Refusal):
                 p.check_report_content(bad)
 
@@ -249,6 +256,16 @@ class QuestionContentTest(unittest.TestCase):
         self.assertTrue(content["body"].startswith("Q3 Pick the cost limit\n"))
         self.assertEqual(content["m.mentions"], {"user_ids": [ALICE, BOB]})
         self.assertEqual(content[p.QUESTION_KEY], {"v": 1, "n": 3, "asked_by": [WORKER], "re": [eid(9)]})
+
+    def test_a_person_reads_it_formatted(self):
+        """Plan 00241: the markdown body, and the HTML Element draws."""
+        question = p.build_question(3, QUESTION_TEXT, [ALICE], [], [])
+        post = p.build_thread_post(eid(1), "**Need** a number", [ALICE], ask=True)
+        for content in (question, post):
+            with self.subTest(content["body"]):
+                self.assertEqual(content["format"], "org.matrix.custom.html")
+                self.assertEqual(content["formatted_body"], markdown.to_html(content["body"]))
+        self.assertIn("<strong>Need</strong>", post["formatted_body"])
 
     def test_a_question_event_parses_back(self):
         content = p.build_question(3, QUESTION_TEXT, [ALICE], [], [])

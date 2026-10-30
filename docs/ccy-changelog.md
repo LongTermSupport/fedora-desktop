@@ -27,6 +27,16 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.104.4 — container 2.79.17
+
+- **Reports and questions are drawn formatted in Element** (Plan 00241). pingbus sends the
+  markdown of `report`, `ask-human` and the thread posts both as the plain body and as the
+  HTML Element renders: headings, lists, bold, italics, code, quotes and links. Messages
+  between agents (`say`) stay plain.
+- **The pingbus skill gives the house style:** a headline with one of nine kinds and its
+  emoji for a human, and a terse line protocol between agents.
+- The image changes because the member kit (the pingbus zipapp and its plugin) is in it.
+
 ## 3.104.3 — container 2.79.16
 
 The image is unchanged, so there is no rebuild.

@@ -24,6 +24,8 @@ import re
 import unicodedata
 from collections.abc import Container, Iterable, Mapping, Sequence
 
+from helpers.pingbus import markdown
+
 PROTOCOL_VERSION = 1
 #: The team room's version: the homeserver's default and what `bootstrap` creates and checks.
 ROOM_VERSION = "12"
@@ -48,6 +50,8 @@ MSGTYPE_PING = "m.notice"
 MSGTYPE_HUMAN = "m.text"
 MSGTYPE_TEXT = "m.notice"
 RENDER_TAG = "[agent-bus]"
+#: What a message a person reads adds to its plain body: the HTML Element draws (Plan 00241).
+FORMATTED_KEYS = frozenset({"format", "formatted_body"})
 
 ROLE_COORDINATOR = "coordinator"
 ROLE_WORKER = "worker"
@@ -1378,16 +1382,22 @@ def check_thread_text(text: str, *, closing: bool) -> None:
 
 
 def build_report(text: str) -> dict:
-    """A report: a notice with no mentions, so Element never notifies it (SPEC §7)."""
-    return {"msgtype": MSGTYPE_TEXT, "body": text, "m.mentions": {}, REPORT_KEY: {"v": PROTOCOL_VERSION}}
+    """A report: a notice with no mentions, so Element never notifies it (SPEC §7), its
+    markdown drawn as HTML (Plan 00241)."""
+    return markdown.formatted({"msgtype": MSGTYPE_TEXT, "body": text, "m.mentions": {},
+                               REPORT_KEY: {"v": PROTOCOL_VERSION}})
 
 
 def check_report_content(content: object) -> None:
-    """Raise `Refusal("schema")` unless `content` is exactly a report's shape."""
-    if (not isinstance(content, dict) or set(content) != {"msgtype", "body", "m.mentions", REPORT_KEY}
+    """Raise `Refusal("schema")` unless `content` is exactly a report's shape: its HTML, when
+    it has any, is its body's."""
+    keys = {"msgtype", "body", "m.mentions", REPORT_KEY}
+    if (not isinstance(content, dict) or set(content) - FORMATTED_KEYS != keys
             or content["msgtype"] != MSGTYPE_TEXT or content["m.mentions"] != {}
             or _canonical(content[REPORT_KEY]) != _canonical({"v": PROTOCOL_VERSION})
             or not isinstance(content["body"], str)):
+        raise Refusal("schema")
+    if FORMATTED_KEYS & set(content) and content != markdown.formatted(content):
         raise Refusal("schema")
 
 
@@ -1442,8 +1452,10 @@ def build_question(n: int, text: str, humans: Iterable[str], asked_by: Sequence[
                    re: Sequence[str]) -> dict:
     """A question as a thread root: `m.text` mentioning every human, so Element notifies,
     its headline numbered `Q<n>`, and whom to answer (SPEC §8.2)."""
-    return {"msgtype": MSGTYPE_HUMAN, "body": f"Q{n} {text}", "m.mentions": {"user_ids": sorted(humans)},
-            QUESTION_KEY: {"v": PROTOCOL_VERSION, "n": n, "asked_by": list(asked_by), "re": list(re)}}
+    return markdown.formatted({"msgtype": MSGTYPE_HUMAN, "body": f"Q{n} {text}",
+                               "m.mentions": {"user_ids": sorted(humans)},
+                               QUESTION_KEY: {"v": PROTOCOL_VERSION, "n": n, "asked_by": list(asked_by),
+                                              "re": list(re)}})
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1505,7 +1517,7 @@ def build_thread_post(root: str | None, text: str, humans: Iterable[str], *, ask
                                    "m.in_reply_to": {"event_id": re or root}}
     if close is not None:
         content[QUESTION_STATE_KEY] = {"v": PROTOCOL_VERSION, "n": close, "state": STATE_CLOSED}
-    return content
+    return markdown.formatted(content)
 
 
 def _closes(content: Mapping[str, object]) -> int | None:
