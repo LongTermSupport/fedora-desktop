@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00242-consumer-install-follow-ups](00242-consumer-install-follow-ups/) - Not Started. What Plan 00228's consumer install decided on but did not build: the "Update fedora-desktop" launcher, a route from a consumer box to a developer one, run.bash as a thin Go wrapper, the mixed plays gated, a consumer `--changed` in Go, the kickstart choice, and the final review's open findings (the re-run's unchecked speech-to-text play, play-rclone's developer closing message).
+
 - [00241-agent-bus-message-style](00241-agent-bus-message-style/) - In Progress (the style is drafted; the owner's review is pending). Agents' messages read well in Element: agents write markdown, and pingbus sends it as Matrix HTML beside the plain body, in one style (STYLE.md) with a fixed headline emoji per kind of message. Two deploys: the receivers accept the formatted shape first, then the senders send it.
 
 - [00240-team-sessions-report-tooling-issues-to-fedora-desktop](00240-team-sessions-report-tooling-issues-to-fedora-desktop/) - Not Started (the owner's questions Q1-Q3 open). Sessions running fedora-desktop tooling in other repositories (ccy, LXC, other members) learn where the tooling comes from and report a defect in it cleanly: a skill shipped in the pingbus plugin every team member loads, and a Go generator with a fixed field set, as the hooks daemon's issue-report does.
@@ -59,8 +61,6 @@ Use these Unicode icons in plan documents:
 - [00230-optional-plays-fail-fast-ask-for-missing-settings-friendly-errors](00230-optional-plays-fail-fast-ask-for-missing-settings-friendly-errors/) - In Progress. The optional plays failed late on a missing setting, hid failures behind `no_log` and ran `ansible-vault` outside the checkout. Under Defence Before Fix: five `qa-ansible` rules, a shared ask-and-vault-save task file, and every instance fixed.
 
 - [00229-stt-capture-raw-pcm](00229-stt-capture-raw-pcm/) - In Progress. Dictation pasted "so so so": pipewire 1.6.10's `pw-record` writes an AU container to stdout and the server read it as raw PCM. Under Defence Before Fix: `--raw` everywhere, a container header fails the dictation, and a semgrep rule against a stdout capture without `--raw`.
-
-- [00228-consumer-install-without-github](00228-consumer-install-without-github/) - In Progress (built; VM acceptance open). `./run.bash --consumer` hands over to a Go `consumer-install`: no GitHub account, the public repo over HTTPS, and only the plays whose `audience` key is `all`; attended only, headless refused
 
 - [00227-ccy-sessions-cold-migrate-to-another-machine](00227-ccy-sessions-cold-migrate-to-another-machine/) - Not Started (owner Decisions 1-14 open). ccy sessions and whole agent teams moved cold to another laptop by Go send and receive verbs that refuse while any member runs, host members resumed by recorded id and LXC members by `ccy --continue`
 
@@ -330,6 +330,8 @@ Use these Unicode icons in plan documents:
 
 ## Completed Plans
 
+- [00228-consumer-install-without-github](Completed/00228-consumer-install-without-github/) - `./run.bash --consumer` sets fedora-desktop up for someone who does not write code: no GitHub account, the public repo over HTTPS, and only the plays whose `audience` key is `all`, through a Go `consumer-install` that run.bash hands over to; attended only, headless and the server profile refused. VM-accepted (consumer 20 of 20, fresh 16 of 16, server-fast 13 of 13 at be1611132). The launcher, the route to a developer box and Tasks 6.1-6.4 moved to Plan 00242.
+
 - [00198-gnome-text-editor-opens-a-new-window-on-the-current-workspace](Completed/00198-gnome-text-editor-opens-a-new-window-on-the-current-workspace/) - Opening a file from Nautilus opened it as a tab in GNOME Text Editor's existing window and switched workspace, because the editor is D-Bus activated. `play-gnome-shell.yml` writes a per-user desktop file with D-Bus activation off and `--new-window`, regenerated from the system file on every run. Deployed and accepted; the owner confirmed each file opens where they are.
 
 - [00080-ccy-session-network-isolation](Completed/00080-ccy-session-network-isolation/) - Superseded by Plan 00232, never built. It decided on a network per ccy session. Plan 00232's default policy refuses the shared bridge's own subnet instead, so sessions cannot reach each other and `ccy --connect` keeps working.
@@ -387,10 +389,6 @@ Use these Unicode icons in plan documents:
 - [00076-bash-gate-coverage-hole-nonexecutable-scripts](Completed/00076-bash-gate-coverage-hole-nonexecutable-scripts/) - `qa-all.bash` reported 125 bash files OK against 152 in the repo: the other 27 were never opened, having neither a shell extension nor an execute bit, and hid 34 gating findings. Discovery now keys on the shebang, with a coverage assertion behind it. Task 4.5, found while closing and outside every success criterion, became Plan 00129.
 
 - [00125-ci-qa-gate-red-and-machine-dependent](Completed/00125-ci-qa-gate-red-and-machine-dependent/) - The `QA` workflow had been red for three weeks and `qa-all.bash` answered differently per machine; the docs gate now asks trackedness rather than existence, and a failing gate no longer aborts the suite.
-
-- [00120-ccy-gpu-device-optional-on-headless-hosts](Completed/00120-ccy-gpu-device-optional-on-headless-hosts/) - ccy handed every container `--device /dev/dri` unconditionally, and on a host with no GPU (a headless server, a serial-console VM) podman aborted the session with `stat /dev/dri: no such file or directory`, exit 125; the flags are now a pure function of whether the node exists (ccy 3.56.0, PR #43).
-
-- [00068-ccy-ci-runner-variant](Completed/00068-ccy-ci-runner-variant/) - Specifies what `ccy` owes a headless CI runner: the fail-fast contract at every prompt site, a per-event tool surface asserted at startup, and compose/networking kept as capability minus negotiation. No code here — Plan 00113 implements it.
 
 **Older completed plans** — everything beyond the most recent 30 — are in
 [Completed/README.md](Completed/README.md), moved there verbatim. The retention window

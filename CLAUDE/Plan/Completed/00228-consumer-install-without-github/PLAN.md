@@ -1,6 +1,6 @@
 # Plan 00228: consumer install without GitHub
 
-**Status**: In Progress (Phases 1-5 done and VM-accepted; Phase 6 is later work: Tasks 6.5 and 6.6 are decided, 2026-10-28, and wait to be built)
+**Status**: Complete (2026-10-30). Phases 1-6 built and VM-accepted, the 20-check consumer run at be1611132; Tasks 6.1-6.4 and the unbuilt Decisions 5 and 6(a) moved to [Plan 00242](../../00242-consumer-install-follow-ups/PLAN.md).
 **Created**: 2026-10-26
 **Owner**: joseph
 **Priority**: Medium
@@ -54,20 +54,20 @@ full list of GitHub touchpoints and the play-by-play classification, is in
 
 Related plans, linked rather than duplicated:
 
-- [Completed/00082-run-bash-github-accounts-none](../Completed/00082-run-bash-github-accounts-none/)
+- [Completed/00082-run-bash-github-accounts-none](../00082-run-bash-github-accounts-none/)
   built the headless no-GitHub path this plan generalises to attended runs.
-- [00063-headless-run-bash-server-cloud-provisioning](../00063-headless-run-bash-server-cloud-provisioning/)
+- [00063-headless-run-bash-server-cloud-provisioning](../../00063-headless-run-bash-server-cloud-provisioning/)
   owns headless mode; the consumer audience adds one knob to its input contract.
-- [00061-headless-server-provisioning](../00061-headless-server-provisioning/) owns the
+- [00061-headless-server-provisioning](../../00061-headless-server-provisioning/) owns the
   `scope` guard and `provisioning_profile`; the audience guard copies its shape.
-- [00119-headless-github-ssh-443-input](../00119-headless-github-ssh-443-input/) is
+- [00119-headless-github-ssh-443-input](../../00119-headless-github-ssh-443-input/) is
   GitHub SSH routing, which a consumer never uses; the only contact is that
   `RUN_BASH_GITHUB_SSH_443=1` is refused for a consumer, as it already is for `none`.
-- [00137-unattended-server-self-update](../00137-unattended-server-self-update/) and
-  [00214-update-all-changed-plays](../00214-update-all-changed-plays/) own the update
+- [00137-unattended-server-self-update](../../00137-unattended-server-self-update/) and
+  [00214-update-all-changed-plays](../../00214-update-all-changed-plays/) own the update
   machinery; this plan only makes `run.bash` re-runs and `run.bash --changed` work on an
   HTTPS consumer checkout (Decision 5).
-- [00182-run-bash-private-plays-and-config-clone](../00182-run-bash-private-plays-and-config-clone/)
+- [00182-run-bash-private-plays-and-config-clone](../../00182-run-bash-private-plays-and-config-clone/)
   assumes a private config repo; the consumer path must leave its hooks untouched.
 
 Constraints the design must meet (detail in the research doc, section 3): `run.bash` is on
@@ -264,19 +264,41 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
 - [x] ✅ **Task 4.2**: Linked from `README.md` (its own Quick Start subsection), and the
   install audience named in `docs/playbooks.md` beside the provisioning profile.
 
+### Phase 5: Review
+
+- [x] ✅ **Task 5.1**: `./scripts/qa-all.bash` passes (at acfcb6814, the tree the VM run
+  accepted).
+- [x] ✅ **Task 5.2**: `qa-reviewer` over the full plan diff; every BLOCK and
+  FIX-BEFORE-MERGE finding resolved. Final review:
+  [subagent-reports/261027-final-qa-review.md](subagent-reports/261027-final-qa-review.md)
+  (FIX-BEFORE-MERGE, no BLOCK). Fixed: the docs (the password asked once; ccc and podman
+  are on a consumer box), the server profile refused (Task 2.8), the Podman claim here and
+  in the guest checker (whose podman check now also sees a pip `--user` podman-compose), the
+  empty vault file (Task 2.9), Task 6.5's safe part. The VM scenarios are re-run for the
+  changed installer preflight and checker (Task 3.2's queue entry). Re-run at 04ed5ad39:
+  COVERAGE 3 of 3, ACCEPTED (consumer 17 of 17, fresh 16 of 16, server 13 of 13).
+- [x] ✅ **Task 5.3**: `qa-reviewer` over the whole delivered work after Phase 6:
+  [subagent-reports/261030-qa-reviewer-final.md](subagent-reports/261030-qa-reviewer-final.md)
+  (FIX-BEFORE-MERGE, no BLOCK). Fixed here: this plan's status, success criteria and
+  delivery list, the index row, the phase order, the headless docs' optional-play failure
+  (run.bash 1.36.0), the speech-to-text consumer notes. Decisions 5 and 6(a), Tasks 6.1-6.4,
+  the consumer re-run's unchecked speech-to-text play, play-rclone's developer closing
+  message and the run.bash:1296 repeated URL (run.bash needs a version bump on any change)
+  go to [Plan 00242](../../00242-consumer-install-follow-ups/PLAN.md).
+
 ### Phase 6: Later
 
-- [ ] ⬜ **Task 6.1**: run.bash fully becomes a thin wrapper over Go, as its own plan: a
+- [x] ✅ **Task 6.1**: moved to [Plan 00242](../../00242-consumer-install-follow-ups/PLAN.md) Task 2.1. Was: run.bash fully becomes a thin wrapper over Go, as its own plan: a
   fresh box has no Go and no checkout until the bash bootstrap has run, so that plan owns
   the bootstrap's shape.
 
-- [ ] ⬜ **Task 6.2**: Gate the developer parts of mixed plays on a consumer box: linger
+- [x] ✅ **Task 6.2**: moved to [Plan 00242](../../00242-consumer-install-follow-ups/PLAN.md) Task 2.2. Was: Gate the developer parts of mixed plays on a consumer box: linger
   (`play-systemd-user-tweaks.yml`) and any developer-only GNOME extension.
 
-- [ ] ⬜ **Task 6.3**: A consumer `--changed` path in Go (today `--changed` on a consumer
+- [x] ✅ **Task 6.3**: moved to [Plan 00242](../../00242-consumer-install-follow-ups/PLAN.md) Task 2.3. Was: A consumer `--changed` path in Go (today `--changed` on a consumer
   box runs run.bash's own play runner, which offers no GitHub issue there).
 
-- [ ] ⬜ **Task 6.4**: A consumer choice in the kickstart (`fedora-install/ks.cfg`).
+- [x] ✅ **Task 6.4**: moved to [Plan 00242](../../00242-consumer-install-follow-ups/PLAN.md) Task 2.4. Was: A consumer choice in the kickstart (`fedora-install/ks.cfg`).
 
 - [x] ✅ **Task 6.5**: Speech-to-text on a consumer box: no Claude post-processing, and its
   menu items hidden there (the owner's decision, 2026-10-28; revisit only if a real consumer
@@ -349,19 +371,6 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   `--rerun` cases went red, then green; a play ended by a signal or Ctrl-C (exit 99) stops the
   run at once.
 
-### Phase 5: Review
-
-- [x] ✅ **Task 5.1**: `./scripts/qa-all.bash` passes (at acfcb6814, the tree the VM run
-  accepted).
-- [x] ✅ **Task 5.2**: `qa-reviewer` over the full plan diff; every BLOCK and
-  FIX-BEFORE-MERGE finding resolved. Final review:
-  [subagent-reports/261027-final-qa-review.md](subagent-reports/261027-final-qa-review.md)
-  (FIX-BEFORE-MERGE, no BLOCK). Fixed: the docs (the password asked once; ccc and podman
-  are on a consumer box), the server profile refused (Task 2.8), the Podman claim here and
-  in the guest checker (whose podman check now also sees a pip `--user` podman-compose), the
-  empty vault file (Task 2.9), Task 6.5's safe part. The VM scenarios are re-run for the
-  changed installer preflight and checker (Task 3.2's queue entry). Re-run at 04ed5ad39:
-  COVERAGE 3 of 3, ACCEPTED (consumer 17 of 17, fresh 16 of 16, server 13 of 13).
 
 ## Technical Decisions
 
@@ -419,7 +428,8 @@ account prompt; (b) `run.bash` prompts for and creates an account.
 (b) extend Plan 00137's signed self-update timer to consumer desktops; (c) only Fedora's own
 updates after install.
 **Default**: (a) in this plan, with a desktop launcher entry named "Update fedora-desktop";
-(b) is a follow-up raised against Plan 00137.
+(b) is a follow-up raised against Plan 00137. The re-run is built; the launcher is not, and
+moved to [Plan 00242](../../00242-consumer-install-follow-ups/PLAN.md) Task 1.1.
 
 ### Decision 6: Changing audience later
 
@@ -427,7 +437,10 @@ updates after install.
 which then runs the GitHub steps and moves origin to SSH; (b) refused. Developer to
 consumer: (c) refused; (d) supported with uninstalls.
 **Default**: (a) and (c): upgrading adds; downgrading would need every developer play to
-learn to remove itself, which is out of scope.
+learn to remove itself, which is out of scope. (c) is built (`--consumer` refuses on a
+developer box). (a) is not: no developer flag exists, and every plain run on a consumer box
+hands over to the consumer install; it moved to
+[Plan 00242](../../00242-consumer-install-follow-ups/PLAN.md) Task 1.2.
 
 ### Decision 7: Backing up a consumer's `localhost.yml`
 
@@ -455,14 +468,16 @@ record; (b) a Go command from the start for resolution and contradiction checks.
 ## Success Criteria
 
 - [x] `desktop-consumer-install` passes in the VM lab with no GitHub credential present
-  (17 of 17 at acfcb6814; a re-run for its 20 checks is pending; its paths through a password sudo and a chosen optional app are
-  proved by unit tests only, Task 3.1).
+  (17 of 17 at acfcb6814; the 20-check run passed at be1611132: consumer 20 of 20, fresh 16
+  of 16, server-fast 13 of 13; its path through a password sudo is proved by unit tests only,
+  Task 3.1).
 - [x] `desktop-fresh-install` and `server-fast-provision` still pass (at acfcb6814).
 - [x] A consumer re-run keeps origin on HTTPS and changes nothing on a converged box
   (`rerun-changed-nothing`, at acfcb6814).
 - [x] Every play declares `audience`, enforced by a QA gate.
 - [x] The consumer docs page exists and is linked from the README.
-- [ ] `./scripts/qa-all.bash` passes and `qa-reviewer` has no open BLOCK finding.
+- [x] `./scripts/qa-all.bash` passes (Task 5.1, at acfcb6814; the full run before
+  the close-out's push covers Phase 6) and `qa-reviewer` has no open BLOCK finding (Task 5.3).
 
 ## Risks & Mitigations
 
@@ -479,4 +494,15 @@ record; (b) a Go command from the start for resolution and contradiction checks.
      "when" — do not add dates). The blow-by-blow activity log lives in
      JOURNAL/00228-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
-- Plan filed.
+- Plan filed: f7c1e167b.
+- Phase 1, every play declares its install audience: e6982dc18.
+- Phase 2, `./run.bash --consumer` hands over to a Go `consumer-install`: bf31eca1f,
+  4e09b40a8 (review round 1), 514a3bd83 (Task 2.6), 3577ede59 (Task 2.7).
+- Phase 3, the consumer VM scenario: e8fdaae19, 5bdebc43b (Task 3.3), de6623df5; accepted
+  3 of 3 at acfcb6814 (1f03b8275).
+- Phase 4, the docs: c65421e1d, 5bdfcc892.
+- Phase 5, the final review's fixes: deb484eac, 1be0ed4ac; re-proved 3 of 3 at 04ed5ad39
+  (cad6b5053).
+- Phase 6: 0be9e9a48 (Task 6.6, run.bash 1.36.0), 7564bbf31 (Task 6.5), a979ba001 and
+  efb0801b8 (Task 6.7), 667809725, 50f6019ee, eca1621dd and be1611132 (the VM run's fixes);
+  passed at be1611132 (784e4dace).

@@ -107,8 +107,8 @@ server it stops before changing anything.
 - **Claude is included, safely.** "Claude" in the app grid (or `ccc` in a terminal) opens
   Claude Code in a sealed container that works only in the `~/CCC` folder; you sign in
   once the first time. It needs no GitHub account. The speech-to-text app's Claude
-  rewrite items (Ctrl+Insert and the panel's Corporate and Natural items) are not part of
-  this install and say so if used; plain dictation (Insert) works.
+  rewrite items (Ctrl+Insert, Alt+Insert and the panel's post-processing items) are not
+  part of this install and are hidden; plain dictation (Insert) works.
 - **Left out:** programming languages and tools, the developer container tools (ccy,
   podman-compose and the Docker-compatible socket), Slack and the other developer plays.
   Each ends itself straight away on this kind of install. One exception: Go is installed,
@@ -129,7 +129,7 @@ server it stops before changing anything.
   anywhere else.
 
 On a computer already set up as a developer install, `--consumer` refuses before it changes
-anything; the design is in [Plan 00228](../CLAUDE/Plan/00228-consumer-install-without-github/PLAN.md).
+anything; the design is in [Plan 00228](../CLAUDE/Plan/Completed/00228-consumer-install-without-github/PLAN.md).
 
 ## Manual Installation
 

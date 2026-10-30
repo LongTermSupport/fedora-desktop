@@ -14,6 +14,10 @@ Newest first, continuing from [../README.md](../README.md#completed-plans).
      were read as an unrecognised section while their folders were plainly completed —
      sixteen advisories saying so. -->
 
+- [00120-ccy-gpu-device-optional-on-headless-hosts](00120-ccy-gpu-device-optional-on-headless-hosts/) - ccy handed every container `--device /dev/dri` unconditionally, and on a host with no GPU (a headless server, a serial-console VM) podman aborted the session with `stat /dev/dri: no such file or directory`, exit 125; the flags are now a pure function of whether the node exists (ccy 3.56.0, PR #43).
+
+- [00068-ccy-ci-runner-variant](00068-ccy-ci-runner-variant/) - Specifies what `ccy` owes a headless CI runner: the fail-fast contract at every prompt site, a per-event tool surface asserted at startup, and compose/networking kept as capability minus negotiation. No code here — Plan 00113 implements it.
+
 - [00110-vm-lifecycle-acceptance-testing](00110-vm-lifecycle-acceptance-testing/) - Full fresh-install lifecycle acceptance testing against VMs for both the server and desktop profiles, off a reused base snapshot kept current by a TTL policy, triggerable from a CCY container through a closed-verb host-action bridge; its first desktop run found the extensions defect Plan 00112 carries.
 
 - [00111-terminal-death-takes-all-ccy-sessions](00111-terminal-death-takes-all-ccy-sessions/) - A Wayland protocol error killed Ptyxis and took every in-flight CCY session with it (not OOM); `ccy` and `cc` now run inside a tmux server under `systemd --user`, one attach per session, with `ccy-sessions` and the `ccy` re-attach offer to get back in. CCY 3.53.3.
