@@ -120,6 +120,10 @@
 //     configuration strictly and hands it back one KEY<TAB>value line per key; a file that
 //     cannot be read or is malformed is exit 1, its path and cause on stderr, and is never
 //     changed. Answered under CCY_LEGACY too: the bash asks it.
+//   - F17. `--check-token ENGINE IMAGE` (checktoken.go) asks the API, from inside the image,
+//     whether it accepts the token in CLAUDE_CODE_OAUTH_TOKEN: exit 0 accepted, 3 refused (the
+//     one case for token recovery), 1 a check that could not be made, its cause on stderr and
+//     never read as an invalid token. Answered under CCY_LEGACY too: the bash asks it.
 //
 // Intended divergences from the bash, where it only replicated incidental behaviour that the
 // goldens (C locale, UTC, a pinned clock) do not exercise; each goes when the bash retires:
@@ -301,6 +305,9 @@ func (f Front) Run(ctx context.Context) term.ExitCode {
 func (f Front) ownFlag(ctx context.Context) (term.ExitCode, bool) {
 	if len(f.Args) > 0 && f.Args[0] == launchConfigFlag {
 		return f.launchConfig(), true
+	}
+	if len(f.Args) > 0 && f.Args[0] == checkTokenFlag {
+		return f.checkToken(ctx), true
 	}
 	if len(f.Args) == 0 || f.legacy() {
 		return term.ExitOK, false

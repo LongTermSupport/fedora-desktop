@@ -288,6 +288,48 @@ else
 fi
 
 echo ""
+echo "=== validate_token: a check that could not run is never an invalid token ==="
+# validate_token asks the real Go front (--check-token, ccylaunch F17), built here, which runs
+# the check through a fake podman on PATH answering as the case says. The launcher reads 3
+# alone as a refused token (recovery); any other failure is a check that did not happen.
+export CHECK_DIR="$WORK/check"
+mkdir -p "$CHECK_DIR/bin"
+if ! front_build=$(cd "$REPO_ROOT/src-go" && go build -trimpath -buildvcs=false -o "$CHECK_DIR/claude-yolo" ./cmd/claude-yolo 2>&1); then
+    echo "  FAIL  the Go front did not build: $front_build"
+    FAILED=$((FAILED + 1))
+fi
+cat >"$CHECK_DIR/bin/podman" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >"$CHECK_DIR/argv"
+printf '%s' "${CLAUDE_CODE_OAUTH_TOKEN:-}" >"$CHECK_DIR/env-token"
+printf '%s' "$CHECK_STDOUT"
+[ -z "$CHECK_STDERR" ] || printf '%s\n' "$CHECK_STDERR" >&2
+exit "$CHECK_EXIT"
+EOF
+chmod +x "$CHECK_DIR/bin/podman"
+CHECK_TOKEN="placeholder_not-a-real-token"
+# check_case <desc> <want-rc> <stderr-word> <podman stdout> <podman stderr> <podman exit>
+check_case() {
+    local desc="$1" want="$2" word="$3" rc=0 err
+    err=$(CHECK_STDOUT="$4" CHECK_STDERR="$5" CHECK_EXIT="$6" \
+        PATH="$CHECK_DIR/bin:$PATH" SCRIPT_DIR="$CHECK_DIR" CONTAINER_ENGINE=podman \
+        validate_token "$CHECK_TOKEN" claude-yolo:latest 2>&1 >/dev/null) || rc=$?
+    if [ "$rc" = "$want" ] && [[ "$err" == *"$word"* ]] && ! grep -qF "$CHECK_TOKEN" "$CHECK_DIR/argv" &&
+        [ "$(cat "$CHECK_DIR/env-token")" = "$CHECK_TOKEN" ]; then
+        echo "  PASS  $desc (rc=$rc)"
+        PASSED=$((PASSED + 1))
+    else
+        echo "  FAIL  $desc: rc=$rc (want $want), stderr '$err' (want '$word'), token by name only"
+        FAILED=$((FAILED + 1))
+    fi
+}
+check_case "a token the API accepts is 0" 0 "" "200" "" 0
+check_case "a token the API refuses is 3, the recovery case" 3 "refused the token" "401" "" 0
+check_case "an unreachable API is 1 with its cause, not a refusal" 1 "Could not resolve host" "" "curl: (6) Could not resolve host: api.anthropic.com" 6
+check_case "a missing image is 1, said so" 1 "is not built" "" "Error: claude-yolo:latest: image not known" 125
+check_case "an engine failure is 1 with the engine's words" 1 "cannot connect" "" "Error: cannot connect to Podman" 125
+
+echo ""
 echo "=== expiry-stamp boundary: 'expires today' counts as expired ==="
 # is_token_valid's own contract, asserted directly because the host-mode branch
 # above depends on it. A token stamped today is NOT valid, which is how a whole

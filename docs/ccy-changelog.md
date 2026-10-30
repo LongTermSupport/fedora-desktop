@@ -27,6 +27,21 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.104.7 — container 2.79.17
+
+The image is unchanged, so there is no rebuild.
+
+- **A token check that could not run is said, never read as an invalid token.** The check
+  ran `claude --version` in the image, which never asks the API, and read any failure as
+  "token invalid", so a podman failure, a missing image or a network fault sent you to token
+  recovery. It is now the Go front's `--check-token`: from inside the image (the token by
+  name only, the image never pulled) it sends the usage reader's one small API request.
+  Accepted (HTTP 200 or 429) goes on; refused (401 or 403) is the only case for token
+  recovery; anything else (the engine, the image, the network, an API fault) stops the launch
+  with its cause and keeps the token, since nothing is known about it and the session would
+  need the same engine, image and API. A new token whose check fails is still not saved, and
+  the message now points at the cause above it instead of saying it does not authenticate.
+
 ## 3.104.6 — container 2.79.17
 
 The image is unchanged, so there is no rebuild.

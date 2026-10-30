@@ -353,3 +353,47 @@ func TestHelpQuestions(t *testing.T) {
 		t.Fatalf("zero Engine ClaudeHelp = %v", err)
 	}
 }
+
+func TestRunWithSecretHandsTheSecretByNameAndNeverPulls(t *testing.T) {
+	ctx := context.Background()
+	token := "placeholder-value"
+	secret, err := execx.NewSecret("CLAUDE_CODE_OAUTH_TOKEN", token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, f := engineOn(t, Podman)
+	f.On([]string{"podman", "run"}, execx.Result{Stdout: []byte("200")})
+	res, err := e.RunWithSecret(ctx, "claude-yolo:latest", secret, "sh", "-c", "script")
+	if err != nil || string(res.Stdout) != "200" {
+		t.Fatalf("RunWithSecret = %q, %v", res.Stdout, err)
+	}
+	c := f.Calls()[0]
+	want := []string{
+		"run", "--rm", "--pull=never", "-e", "CLAUDE_CODE_OAUTH_TOKEN", "--entrypoint", "sh",
+		"claude-yolo:latest", "-c", "script",
+	}
+	if !slices.Equal(c.Args, want) {
+		t.Fatalf("ran %q, want %q", c.Args, want)
+	}
+	if len(c.Secrets) != 1 || !c.Secrets[0].Is(token) || c.Secrets[0].Name() != "CLAUDE_CODE_OAUTH_TOKEN" {
+		t.Fatalf("secrets %v: the token goes by name in the child's environment", c.Secrets)
+	}
+	if _, err = e.RunWithSecret(ctx, "img", secret, "sh", "-c", token); !errors.Is(err, execx.ErrSecretInArgv) {
+		t.Fatalf("a secret in argv = %v, want ErrSecretInArgv", err)
+	}
+
+	f.On([]string{"podman", "run"}, execx.Result{ExitCode: 125, Stderr: []byte("Error: claude-yolo:latest: image not known\n")})
+	if _, err = e.RunWithSecret(ctx, "claude-yolo:latest", secret, "sh"); !errors.Is(err, ErrNoImage) {
+		t.Fatalf("a missing image = %v, want ErrNoImage", err)
+	}
+	// The container's own exit (here 1, with the same words) is not the engine's missing image.
+	f.On([]string{"podman", "run"}, execx.Result{ExitCode: 1, Stderr: []byte("image not known")})
+	if _, err = e.RunWithSecret(ctx, "claude-yolo:latest", secret, "sh"); err == nil || errors.Is(err, ErrNoImage) {
+		t.Fatalf("the container's exit 1 = %v, want an exit error that is not ErrNoImage", err)
+	}
+
+	var zero Engine
+	if _, err = zero.RunWithSecret(ctx, "x", secret, "sh"); !errors.Is(err, ErrUnknownKind) {
+		t.Fatalf("zero Engine RunWithSecret = %v", err)
+	}
+}

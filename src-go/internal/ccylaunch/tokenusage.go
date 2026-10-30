@@ -33,9 +33,11 @@ const (
 	usageFeedBefore = `header = "Authorization: Bearer `
 	usageFeedAfter  = "\"\n"
 	usageScaleFrac  = "fraction"
-	curlHeader      = "--header"
-	jsonNull        = "null"
-	tempPrefix      = "tmp."
+	// defaultUsageEndpoint is the API the usage reader and the token check ask.
+	defaultUsageEndpoint = "https://api.anthropic.com/v1/messages"
+	curlHeader           = "--header"
+	jsonNull             = "null"
+	tempPrefix           = "tmp."
 	// maxTempTries bounds the search for a temporary name that does not hold the token
 	// (readToken has refused a token the fixed part of every name holds).
 	maxTempTries  = 64
@@ -144,7 +146,7 @@ func (f Front) usageSettings() (usageSettings, string) {
 		return def
 	}
 	s := usageSettings{
-		endpoint: or("CCY_USAGE_ENDPOINT", "https://api.anthropic.com/v1/messages"),
+		endpoint: or("CCY_USAGE_ENDPOINT", defaultUsageEndpoint),
 		model:    or("CCY_USAGE_MODEL", "claude-haiku-4-5-20251001"),
 		timeout:  or("CCY_USAGE_TIMEOUT", "20"),
 		connect:  or("CCY_USAGE_CONNECT_TIMEOUT", "5"),
@@ -417,9 +419,14 @@ func tempStart(dir string) string {
 	return dir + "/" + tempPrefix
 }
 
+// usageRequest is the smallest request the API answers with the token's verdict and usage.
+func usageRequest(model string) string {
+	return `{"model":"` + model + `","max_tokens":1,"messages":[{"role":"user","content":"."}]}`
+}
+
 // curlArgs is curl's argv: the settings, the header and body files, and never the token.
 func (r *usageReport) curlArgs(hdr, body string) []string {
-	data := `{"model":"` + r.s.model + `","max_tokens":1,"messages":[{"role":"user","content":"."}]}`
+	data := usageRequest(r.s.model)
 	return []string{
 		"--config", "-", "--silent", "--show-error", "--request", "POST",
 		curlHeader, "content-type: application/json",

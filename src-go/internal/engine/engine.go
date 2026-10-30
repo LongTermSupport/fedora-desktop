@@ -37,6 +37,10 @@
 //     help reads as "not built yet" as the bash launcher did, since it only says how to build
 //     the image (an engine that could not run is said with its error); and claude --help run in
 //     the image (ClaudeHelp), its output merged.
+//   - E11. A run in the image given a secret (RunWithSecret, ccy's token check): the secret by
+//     name only (`-e NAME`, an execx.Secret, so a command whose argv holds it is refused), the
+//     image never pulled (`--pull=never`), and a missing image (the engine's exit 125 with its
+//     "no such image" wording) told apart from every other failure, the container's included.
 package engine
 
 import (
@@ -149,6 +153,27 @@ func (e Engine) ClaudeHelp(ctx context.Context, image string) (string, error) {
 		return out, fmt.Errorf("claude --help in %s: %w", image, err)
 	}
 	return out, nil
+}
+
+// engineFailed is the exit code podman and docker give a run they could not start, a missing
+// image among them; the container's own exit codes are passed through as they are.
+const engineFailed = 125
+
+// RunWithSecret is `run --rm --pull=never -e NAME --entrypoint ENTRY IMAGE ARGS...`, its output
+// captured (E11): the secret reaches the container by its name only, never in argv, and the
+// image is never pulled, so an image the engine does not have is ErrNoImage. Any other failure
+// is returned as it is: the engine's own (exit 125, or no engine started) or the container's.
+func (e Engine) RunWithSecret(ctx context.Context, image string, secret execx.Secret, entrypoint string, args ...string) (execx.Result, error) {
+	if err := e.known(); err != nil {
+		return execx.Result{}, err
+	}
+	c := e.cmd(append([]string{"run", "--rm", "--pull=never", "-e", secret.Name(), "--entrypoint", entrypoint, image}, args...)...)
+	c.Secrets = []execx.Secret{secret}
+	res, err := e.runner.Run(ctx, c)
+	if exit, ok := errors.AsType[*execx.ExitError](err); ok && exit != nil && exit.Code == engineFailed && missingImage(res.Stderr) {
+		return res, fmt.Errorf("%s: %w", image, ErrNoImage)
+	}
+	return res, err
 }
 
 // ContainerQuery is a `ps`: every container (All) or the running ones, narrowed by the
