@@ -198,7 +198,7 @@ func (c *cli) baseRecord(ctx context.Context, l *lab, p *probe, baseJSON string)
 		args:   append(c.gateArgs(l, p, baseJSON, fast, zeroSHA256), "--record-only"),
 	})
 	if err != nil {
-		return nil, ctxErr(ctx, failf("could not read %s", baseJSON))
+		return nil, ctxErr(ctx, failf("could not read %s: %v", baseJSON, err))
 	}
 	line, ok := oneLine(string(res.Stdout), "VMTEST-BASE-RECORD")
 	if !ok {

@@ -92,7 +92,7 @@ func TestE14FetchRefusals(t *testing.T) {
 	k := fetchKit(t)
 	delete(k.served, imageURL)
 	k.wantCode(k.run("fetch", "server-fast"), term.ExitFailure)
-	k.wantErr("ERROR: download failed: " + imageURL)
+	k.wantErr("ERROR: download failed: " + imageURL + ": curl exited 22")
 	if k.exists("images/" + imageName + ".partial") {
 		t.Fatal("the partial download was kept")
 	}
@@ -111,13 +111,13 @@ func TestE14FetchRefusals(t *testing.T) {
 	})
 	k.wantCode(k.run("fetch", "server-fast"), term.ExitFailure)
 	k.wantErr("gpg: BAD signature\n")
-	k.wantErr("ERROR: GPG signature verification FAILED for " + checksumName + " — refusing the artefact")
+	k.wantErr("ERROR: GPG signature verification FAILED for " + checksumName + " (gpg2 exited 1) — refusing the artefact\n")
 
 	k = fetchKit(t)
 	k.fake.On([]string{"gpg2"}, execx.Result{Stderr: []byte("gpg: no valid OpenPGP data found\n"), ExitCode: 2})
 	k.wantCode(k.run("fetch", "server-fast"), term.ExitFailure)
 	k.wantErr("gpg: no valid OpenPGP data found\n")
-	k.wantErr("ERROR: could not import " + k.gpg + "/RPM-GPG-KEY-fedora-44-primary")
+	k.wantErr("ERROR: could not import " + k.gpg + "/RPM-GPG-KEY-fedora-44-primary (gpg2 exited 2)\n")
 
 	k = fetchKit(t)
 	if err := os.Remove(k.gpg + "/RPM-GPG-KEY-fedora-44-primary"); err != nil {

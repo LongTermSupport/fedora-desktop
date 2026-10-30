@@ -39,11 +39,6 @@ func (k *kit) withLibvirt() *libvirt {
 			return execx.Result{Stdout: []byte(strings.Join(lv.domains, "\n") + "\n")}, nil
 		case "domstate":
 			return execx.Result{Stdout: []byte(lv.state + "\n")}, nil
-		case "dominfo":
-			if slices.Contains(lv.domains, args[1]) {
-				return execx.Result{}, nil
-			}
-			return execx.Result{ExitCode: 1}, nil
 		case "undefine":
 			lv.domains = slices.DeleteFunc(lv.domains, func(d string) bool { return d == args[len(args)-1] })
 		}
@@ -132,9 +127,9 @@ func TestE59MemberDown(t *testing.T) {
 	}
 
 	k = newKit(t)
-	k.fake.On([]string{"virsh"}, execx.Result{ExitCode: 1})
+	k.fake.On([]string{"virsh"}, execx.Result{Stderr: []byte("error: failed to connect to the hypervisor\n"), ExitCode: 1})
 	k.wantCode(k.run("member-down", "m0"), term.ExitFailure)
-	k.wantErr("ERROR: virsh -c qemu:///session list failed")
+	k.wantErr("ERROR: virsh -c qemu:///session list failed: virsh exited 1: error: failed to connect to the hypervisor\n")
 	if k.out.Len() != 0 {
 		t.Fatal("a failed list was reported as a member removed")
 	}
@@ -268,7 +263,7 @@ func TestE24SSHWaitIsSettable(t *testing.T) {
 	})
 	k.wantCode(k.run("member-up", "m1", "server-fast"), term.ExitFailure)
 	k.wantErr("==> waiting for SSH on 127.0.0.1:40123 (up to 900s)")
-	k.wantErr("ERROR: guest did not answer SSH within 900s (VMTEST_SSH_WAIT_TIMEOUT); see " + k.path("members/m1/console.log"))
+	k.wantErr("ERROR: guest did not answer SSH within 900s (VMTEST_SSH_WAIT_TIMEOUT): ssh exited 255; see " + k.path("members/m1/console.log"))
 	if n := len(k.slept); n != 90 {
 		t.Fatalf("slept %d times; 10s a try fills 900s in 90", n)
 	}

@@ -110,7 +110,7 @@ func (c *cli) resolveCommit(ctx context.Context, l *lab, given string) (string, 
 	}
 	tip, err := c.git.RemoteBranchTip(ctx, l.repoURL, l.branch)
 	if err != nil {
-		return "", ctxErr(ctx, failf("could not read the tip of %s from %s", l.branch, l.repoURL))
+		return "", ctxErr(ctx, failf("could not read the tip of %s from %s: %v", l.branch, l.repoURL, err))
 	}
 	return tip, nil
 }
@@ -389,7 +389,7 @@ func (r *running) judge(ctx context.Context, v verdict, probeRev string) error {
 	// §4.4a: the run was the refresh probe; a passing run can certify the base current.
 	res, err := c.helper(ctx, helperCall{module: "refresh", args: []string{"certify", "--response", response, flagBaseJSON, baseJSON}})
 	if err != nil {
-		return ctxErr(ctx, failf("could not apply the run's refresh outcome to %s", baseJSON))
+		return ctxErr(ctx, failf("could not apply the run's refresh outcome to %s: %v", baseJSON, err))
 	}
 	certified := strings.TrimSpace(string(res.Stdout))
 	c.logf("%s", certified)

@@ -361,6 +361,6 @@ func TestE43DesktopEvidence(t *testing.T) {
 	if transcriptOf(t, r) != "" {
 		t.Fatalf("transcript %q", transcriptOf(t, r))
 	}
-	k.wantErr("==> no session.env in the guest")
-	k.wantErr("==> screenshot failed (recorded as absent)")
+	k.wantErr("==> no session.env in the guest: in the guest, cat /var/lib/vmtest/session.env: ssh exited 255")
+	k.wantErr("==> screenshot failed (recorded as absent): virsh exited 1")
 }
