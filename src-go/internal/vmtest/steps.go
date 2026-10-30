@@ -3,6 +3,7 @@ package vmtest
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -165,7 +166,11 @@ func (r *running) waitRunExit(ctx context.Context) (bool, error) {
 		if err := r.g.mustBeUp(ctx, "run.bash in the session"); err != nil {
 			return false, err
 		}
-		if r.g.succeeds(ctx, "test -r "+guestRunState+"/run.exit") {
+		done, err := r.g.readable(ctx, guestRunState+"/run.exit")
+		if err != nil {
+			return false, err
+		}
+		if done {
 			return true, nil
 		}
 		if err := r.c.env.Sleep(ctx, sessionPoll); err != nil {
@@ -400,12 +405,22 @@ func (r *running) capture(ctx context.Context, remote, file, absent string) stri
 	return out
 }
 
-// succeeds reports whether remote exits 0 in the guest; its output is dropped, as a probe's is.
-func (g *guest) succeeds(ctx context.Context, remote string) bool {
-	cmd := g.sshCmd(remote)
-	cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
+// readable is whether path is readable in the guest (`test -r`). Only test's own no, exit 1,
+// is false: any other failure (ssh's 255, a killed run) is returned, so a lost connection is
+// not read as "not yet".
+func (g *guest) readable(ctx context.Context, path string) (bool, error) {
+	cmd := g.sshCmd("test -r " + path)
+	cmd.Stdout = io.Discard
 	_, err := g.c.env.Runner.Run(ctx, cmd)
-	return err == nil
+	var exit *execx.ExitError
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.As(err, &exit) && exit.Code == 1:
+		return false, nil
+	default:
+		return false, fmt.Errorf("could not ask the guest whether %s exists: %w", path, ctxErr(ctx, err))
+	}
 }
 
 // merged is remote's stdout and stderr together, as the session probe reads them.

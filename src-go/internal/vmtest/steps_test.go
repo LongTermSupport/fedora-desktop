@@ -330,6 +330,20 @@ func TestE37SessionProvisionFailures(t *testing.T) {
 		t.Fatalf("transcript %q", transcriptOf(t, r))
 	}
 	k.wantErr("==> still provisioning in the session after 300s")
+
+	// Only test's own "no" (exit 1) means not yet: ssh failing (exit 255) is not a run that
+	// is still going, so the wait ends at once with the cause.
+	k = stepKit(t, func(remote string) execx.Result {
+		if remote == "test -r /var/lib/vmtest/run.exit" {
+			return execx.Result{ExitCode: 255, Stderr: []byte("Connection refused")}
+		}
+		return execx.Result{}
+	})
+	r = newRunning(t, k, profileDesktop)
+	rc, err = r.provision(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "exited 255") || !strings.Contains(err.Error(), "Connection refused") {
+		t.Fatalf("an ssh failure read as not yet: %d %v", rc, err)
+	}
 }
 
 // E43: a desktop's evidence.
