@@ -269,11 +269,15 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
 - [ ] ⬜ **Task 6.1**: run.bash fully becomes a thin wrapper over Go, as its own plan: a
   fresh box has no Go and no checkout until the bash bootstrap has run, so that plan owns
   the bootstrap's shape.
+
 - [ ] ⬜ **Task 6.2**: Gate the developer parts of mixed plays on a consumer box: linger
   (`play-systemd-user-tweaks.yml`) and any developer-only GNOME extension.
+
 - [ ] ⬜ **Task 6.3**: A consumer `--changed` path in Go (today `--changed` on a consumer
   box runs run.bash's own play runner, which offers no GitHub issue there).
+
 - [ ] ⬜ **Task 6.4**: A consumer choice in the kickstart (`fedora-install/ks.cfg`).
+
 - [x] ✅ **Task 6.5**: Speech-to-text on a consumer box: no Claude post-processing, and its
   menu items hidden there (the owner's decision, 2026-10-28; revisit only if a real consumer
   asks). `play-speech-to-text.yml` is `audience: all`, so the consumer menu offers it, and
@@ -290,6 +294,7 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   `post-processing-offered`, true only when `install_audience` is `developer`, and the panel
   hides Ctrl+Insert, Alt+Insert, the Post-Process items, Create Article and the Claude Settings
   group when it is false; the Node test went red, then green.
+
 - [x] ✅ **Task 6.7**: The consumer VM scenario installs speech-to-text and checks that plain
   dictation is set up and that the post-processing items are absent (split from 6.5). Not
   cheap: the attendant answers the app menu with a fixed Enter, and the manifest allows no
@@ -299,6 +304,7 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   label (a pick it lacks ends the run as a fail; the re-run answers Enter), and the checker's
   three speech-to-text checks (PLANNED 20). Red, then green. Awaiting the VM run
   (meta-deploy.list).
+
 - [ ] 🔄 **Task 6.7 VM run**: The host runs `./CLAUDE/Plan/meta-deploy.bash`; the consumer
   scenario passes 20 of 20 with speech-to-text installed. The ftp-camera prompt that blocked it
   is gone (Plan 00192 Task 3.16). The run at c378092ce passed 15 of 20 on the consumer guest:
@@ -312,7 +318,21 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   18.4 GiB root with 2.8 GiB available at shutdown, the pip cache 3.0 GiB, and the partial
   site-packages 5.7 GiB (nvidia 3.0, torch 1.1, triton 1.0). Without the cache, the peak
   should fit by about 1 to 1.5 GiB, which is thin. Torch without the CUDA wheels on a machine
-  with no NVIDIA GPU, or larger lab disks, is the owner's choice. Queued again.
+  with no NVIDIA GPU, or larger lab disks, is the owner's choice. The run at 50f6019ee
+  passed 18 of 20 on the consumer guest, with RealtimeSTT installed, and the other two
+  scenarios passed. Two failures were left, both fixed:
+
+  - **stt-extension-active** (INITIALIZED, not enabled). The play asked the running shell
+    (`gnome-extensions enable`). With no session, it printed "will be enabled on next GNOME
+    session start" and went on, and nothing made that true. It now declares the
+    extension in `enabled-extensions` through `helpers.gnome.apply_enabled_extensions`, as
+    the panel play does. The running shell's reload is kept, for when the files change.
+  - **rerun-changed-nothing** (changed=2). play-podman's store-clean mark was rewritten with
+    the time on every run. Only its presence is read, so it is now written once
+    (`force: false`).
+
+  Queued again.
+
 - [x] ✅ **Task 6.6**: The developer path's optional runs, as Task 2.6 did for the consumer.
   Decided (2026-10-28, part C item 5 of the unblocking list): on the developer path, optional
   plays go on after one fails, a summary naming every failed and installed play is printed at

@@ -184,10 +184,13 @@
         group: "{{ user_login }}"
         mode: "0750"
 
+    # Only the mark's presence is read, so it is written once and records when the store was
+    # first found clean; rewriting the time on every run made each re-run report a change.
     - name: Mark the Store Clean for container-images
       ansible.builtin.copy:
         content: "{{ now(utc=true).strftime('%Y-%m-%dT%H:%M:%SZ') }}\n"
         dest: "{{ container_images_store_clean }}"
+        force: false
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: "0644"

@@ -894,48 +894,53 @@
       changed_when: false
       failed_when: false  # FAIL-FAST-OK: probe — extension may not be enabled yet
 
-    # Reloaded only when its files changed, or enabled when it is not: a reload on every run
-    # makes the panel flicker and reports a change that did not happen.
-    - name: Note Whether The Extension Needs Loading
+    # Declared state, never only a request to the running shell: `gnome-extensions enable`
+    # needs a shell, so a run with none (a consumer install, a run over SSH) enabled nothing,
+    # and the extension stayed INITIALIZED after the next login (Plan 00228's VM run). The
+    # gsettings key is read at session start and watched live, and the helper re-reads it to
+    # prove the write took (the panel play does the same, Plan 00110).
+    - name: Declare The Speech-to-Text Extension Enabled
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -m
+          - helpers.gnome.apply_enabled_extensions
+          - --extensions-dir
+          - "/home/{{ user_login }}/.local/share/gnome-shell/extensions"
+          - "--uuid={{ extension_name }}"
+        chdir: "{{ root_dir }}"   # repo root on sys.path so the helpers package imports
+      register: extension_declared
+      changed_when: "'GNOME-EXT-ENABLED-CHANGED' in extension_declared.stdout"
+
+    # A live shell that had it loaded keeps the old code until it is reloaded, so it is
+    # reloaded when its files changed; only then, since a reload makes the panel flicker.
+    - name: Note Whether A Running Shell Needs The Extension Reloaded
       ansible.builtin.set_fact:
-        extension_files_changed: "{{ extension_copy.changed or schema_copy.changed or schema_override.changed }}"
-        extension_needs_enable: "{{ extension_enabled.rc != 0 or extension_copy.changed or schema_copy.changed or schema_override.changed }}"
+        extension_reload: "{{ extension_enabled.rc == 0 and (extension_copy.changed or schema_copy.changed or schema_override.changed) }}"
 
     - name: Disable Extension (to force reload)
       become: true
       become_user: "{{ user_login }}"
       ansible.builtin.command:
         cmd: gnome-extensions disable {{ extension_name }}
-      when: extension_enabled.rc == 0 and extension_files_changed
-      register: disable_result
-      changed_when: disable_result.rc == 0
-      failed_when: false  # FAIL-FAST-OK: disable may fail if GNOME session is unavailable
+      when: extension_reload | bool
+      changed_when: true
 
     # PAUSE-OK: a fixed 2 s wait for the extension to unload; asks nothing
     - name: Wait for Extension to Unload
       ansible.builtin.pause:
         seconds: 2
-      when: extension_enabled.rc == 0 and extension_files_changed
+      when: extension_reload | bool
 
-    - name: Enable Extension
+    - name: Enable Extension Again in the Running Shell
       become: true
       become_user: "{{ user_login }}"
       ansible.builtin.command:
         cmd: gnome-extensions enable {{ extension_name }}
-      when: extension_needs_enable
-      register: enable_result
-      changed_when: enable_result.rc == 0
-      failed_when: false  # FAIL-FAST-OK: enable may fail if GNOME session is unavailable
-
-    - name: Extension Reload Complete
-      ansible.builtin.debug:
-        msg: "✓ Speech-to-Text extension reloaded successfully"
-      when: extension_needs_enable and enable_result.rc == 0
-
-    - name: Extension Enable Deferred
-      ansible.builtin.debug:
-        msg: "⚠ Extension will be enabled on next GNOME session start (no active session detected)"
-      when: extension_needs_enable and enable_result.rc != 0
+      when: extension_reload | bool
+      changed_when: true
 
   handlers:
     # Stop the warm streaming server so the next dictation cold-starts it with the updated
