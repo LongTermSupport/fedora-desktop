@@ -15,7 +15,7 @@ in `localhost.yml` as `install_audience: consumer` and honoured by `run.bash`, e
 optional-play menu and later runs.
 
 It closed with work it decided on but did not build, and with findings from its final review
-([261030-qa-reviewer-final.md](../00228-consumer-install-without-github/subagent-reports/261030-qa-reviewer-final.md))
+([261030-qa-reviewer-final.md](../Completed/00228-consumer-install-without-github/subagent-reports/261030-qa-reviewer-final.md))
 that it did not fix. This plan holds them. Each task names where in Plan 00228 it comes from.
 
 ## Goals

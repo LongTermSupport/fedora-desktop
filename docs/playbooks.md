@@ -119,7 +119,7 @@ Self-Guard"). On a server, GUI-only plays end via their guard and a handful of
 Each play declares `audience: all | developer` beside `scope`; a `developer` play ends
 itself straight away on a consumer box, naming why, and the optional-play menu offers a
 consumer only the `all` plays. The design is in
-[Plan 00228](../CLAUDE/Plan/00228-consumer-install-without-github/PLAN.md).
+[Plan 00228](../CLAUDE/Plan/Completed/00228-consumer-install-without-github/PLAN.md).
 
 ## Core Playbooks (Automatically Run)
 

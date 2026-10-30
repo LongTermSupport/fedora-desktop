@@ -1,6 +1,6 @@
 # Plan 00228: consumer install without GitHub
 
-**Status**: In Progress (Phases 1-6 built and VM-accepted, the 20-check consumer run at be1611132; Tasks 6.1-6.4 and the unbuilt Decisions 5 and 6(a) go to a follow-up plan)
+**Status**: Complete (2026-10-30). Phases 1-6 built and VM-accepted, the 20-check consumer run at be1611132; Tasks 6.1-6.4 and the unbuilt Decisions 5 and 6(a) moved to [Plan 00242](../../00242-consumer-install-follow-ups/PLAN.md).
 **Created**: 2026-10-26
 **Owner**: joseph
 **Priority**: Medium
@@ -54,20 +54,20 @@ full list of GitHub touchpoints and the play-by-play classification, is in
 
 Related plans, linked rather than duplicated:
 
-- [Completed/00082-run-bash-github-accounts-none](../Completed/00082-run-bash-github-accounts-none/)
+- [Completed/00082-run-bash-github-accounts-none](../00082-run-bash-github-accounts-none/)
   built the headless no-GitHub path this plan generalises to attended runs.
-- [00063-headless-run-bash-server-cloud-provisioning](../00063-headless-run-bash-server-cloud-provisioning/)
+- [00063-headless-run-bash-server-cloud-provisioning](../../00063-headless-run-bash-server-cloud-provisioning/)
   owns headless mode; the consumer audience adds one knob to its input contract.
-- [00061-headless-server-provisioning](../00061-headless-server-provisioning/) owns the
+- [00061-headless-server-provisioning](../../00061-headless-server-provisioning/) owns the
   `scope` guard and `provisioning_profile`; the audience guard copies its shape.
-- [00119-headless-github-ssh-443-input](../00119-headless-github-ssh-443-input/) is
+- [00119-headless-github-ssh-443-input](../../00119-headless-github-ssh-443-input/) is
   GitHub SSH routing, which a consumer never uses; the only contact is that
   `RUN_BASH_GITHUB_SSH_443=1` is refused for a consumer, as it already is for `none`.
-- [00137-unattended-server-self-update](../00137-unattended-server-self-update/) and
-  [00214-update-all-changed-plays](../00214-update-all-changed-plays/) own the update
+- [00137-unattended-server-self-update](../../00137-unattended-server-self-update/) and
+  [00214-update-all-changed-plays](../../00214-update-all-changed-plays/) own the update
   machinery; this plan only makes `run.bash` re-runs and `run.bash --changed` work on an
   HTTPS consumer checkout (Decision 5).
-- [00182-run-bash-private-plays-and-config-clone](../00182-run-bash-private-plays-and-config-clone/)
+- [00182-run-bash-private-plays-and-config-clone](../../00182-run-bash-private-plays-and-config-clone/)
   assumes a private config repo; the consumer path must leave its hooks untouched.
 
 Constraints the design must meet (detail in the research doc, section 3): `run.bash` is on
@@ -284,21 +284,21 @@ is untouched apart from the hand-off lines. Headless consumer runs are refused, 
   (run.bash 1.36.0), the speech-to-text consumer notes. Decisions 5 and 6(a), Tasks 6.1-6.4,
   the consumer re-run's unchecked speech-to-text play, play-rclone's developer closing
   message and the run.bash:1296 repeated URL (run.bash needs a version bump on any change)
-  go to [Plan 00242](../00242-consumer-install-follow-ups/PLAN.md).
+  go to [Plan 00242](../../00242-consumer-install-follow-ups/PLAN.md).
 
 ### Phase 6: Later
 
-- [x] ✅ **Task 6.1**: moved to [Plan 00242](../00242-consumer-install-follow-ups/PLAN.md) Task 2.1. Was: run.bash fully becomes a thin wrapper over Go, as its own plan: a
+- [x] ✅ **Task 6.1**: moved to [Plan 00242](../../00242-consumer-install-follow-ups/PLAN.md) Task 2.1. Was: run.bash fully becomes a thin wrapper over Go, as its own plan: a
   fresh box has no Go and no checkout until the bash bootstrap has run, so that plan owns
   the bootstrap's shape.
 
-- [x] ✅ **Task 6.2**: moved to [Plan 00242](../00242-consumer-install-follow-ups/PLAN.md) Task 2.2. Was: Gate the developer parts of mixed plays on a consumer box: linger
+- [x] ✅ **Task 6.2**: moved to [Plan 00242](../../00242-consumer-install-follow-ups/PLAN.md) Task 2.2. Was: Gate the developer parts of mixed plays on a consumer box: linger
   (`play-systemd-user-tweaks.yml`) and any developer-only GNOME extension.
 
-- [x] ✅ **Task 6.3**: moved to [Plan 00242](../00242-consumer-install-follow-ups/PLAN.md) Task 2.3. Was: A consumer `--changed` path in Go (today `--changed` on a consumer
+- [x] ✅ **Task 6.3**: moved to [Plan 00242](../../00242-consumer-install-follow-ups/PLAN.md) Task 2.3. Was: A consumer `--changed` path in Go (today `--changed` on a consumer
   box runs run.bash's own play runner, which offers no GitHub issue there).
 
-- [x] ✅ **Task 6.4**: moved to [Plan 00242](../00242-consumer-install-follow-ups/PLAN.md) Task 2.4. Was: A consumer choice in the kickstart (`fedora-install/ks.cfg`).
+- [x] ✅ **Task 6.4**: moved to [Plan 00242](../../00242-consumer-install-follow-ups/PLAN.md) Task 2.4. Was: A consumer choice in the kickstart (`fedora-install/ks.cfg`).
 
 - [x] ✅ **Task 6.5**: Speech-to-text on a consumer box: no Claude post-processing, and its
   menu items hidden there (the owner's decision, 2026-10-28; revisit only if a real consumer
@@ -429,7 +429,7 @@ account prompt; (b) `run.bash` prompts for and creates an account.
 updates after install.
 **Default**: (a) in this plan, with a desktop launcher entry named "Update fedora-desktop";
 (b) is a follow-up raised against Plan 00137. The re-run is built; the launcher is not, and
-moved to [Plan 00242](../00242-consumer-install-follow-ups/PLAN.md) Task 1.1.
+moved to [Plan 00242](../../00242-consumer-install-follow-ups/PLAN.md) Task 1.1.
 
 ### Decision 6: Changing audience later
 
@@ -440,7 +440,7 @@ consumer: (c) refused; (d) supported with uninstalls.
 learn to remove itself, which is out of scope. (c) is built (`--consumer` refuses on a
 developer box). (a) is not: no developer flag exists, and every plain run on a consumer box
 hands over to the consumer install; it moved to
-[Plan 00242](../00242-consumer-install-follow-ups/PLAN.md) Task 1.2.
+[Plan 00242](../../00242-consumer-install-follow-ups/PLAN.md) Task 1.2.
 
 ### Decision 7: Backing up a consumer's `localhost.yml`
 

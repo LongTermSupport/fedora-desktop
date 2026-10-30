@@ -129,7 +129,7 @@ server it stops before changing anything.
   anywhere else.
 
 On a computer already set up as a developer install, `--consumer` refuses before it changes
-anything; the design is in [Plan 00228](../CLAUDE/Plan/00228-consumer-install-without-github/PLAN.md).
+anything; the design is in [Plan 00228](../CLAUDE/Plan/Completed/00228-consumer-install-without-github/PLAN.md).
 
 ## Manual Installation
 
