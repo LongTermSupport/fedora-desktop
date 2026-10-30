@@ -832,6 +832,22 @@ today; rewriting them is out of scope.
   that port (with Plan 00209's Go-first work), and the report's other two referrals, the bash
   class without a rule and the wider any-error rule.
 
+- [ ] ⬜ **Task 4.10**: Port the ccy launch path to Go (the owner's A7a, 2026-10-30), so the
+  DBF report's 8 bash instances arrive defended by `project_command_failure_dropped`. The Go
+  front answers only the token flags today; the launch flow itself is bash
+  (`files/var/local/claude-yolo/claude-yolo` and its `lib/`). One unit per commit, each moving
+  a step into `internal/ccylaunch` behind the front, with its test first and the bash removed,
+  so the bash-limits allowlist entries only shrink. Order, by harm:
+
+  1. B8: the saved launch configuration. Read it in Go, strictly. A file that cannot be read
+     is reported with its cause and kept, never deleted on a guess.
+  2. B2: `validate_token`. An engine failure is reported as one, not as "token invalid".
+  3. B3, B5: the network check and the Claude version probes. Each carries its cause.
+  4. B6, B7, B9: network removal, container stops and listings (`lib/docker-health.bash`).
+     An engine failure is said, not read as "may still have containers", "may already be
+     stopped" or "no containers found".
+  5. B4: `entrypoint.sh`'s GitHub meta fetch, in the image (a container version bump).
+
 ### Phase 5: Review
 
 - [ ] ⬜ **Task 5.1**: qa-reviewer over the whole plan (a worker; it ran once, 7205384c3, and

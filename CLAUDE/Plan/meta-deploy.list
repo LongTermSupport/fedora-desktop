@@ -33,24 +33,13 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plan 00241: reports and questions are drawn formatted in Element (headings, bullets, bold).
-# CCY 3.104.4 with container 2.79.17, so the ccy image is rebuilt; running sessions keep
-# their image until they restart. The same play rebuilds ccy-teams for Plan 00177 Task 14.1: no
-# shortcut keys, every action a line of the menu Enter opens:
+# Plan 00177 Task 14.1: ccy-teams has no shortcut keys; every action is a line of the menu
+# Enter opens on a row. play-claude-yolo builds ccy-teams; CCY and the image are unchanged
+# since the last run, so no image rebuild:
 playbooks/imports/play-claude-yolo.yml
-# The agent-bus member kit on the host, the same pingbus change:
-playbooks/imports/play-agent-bus.yml
-# Plan 00192 Task 3.17: vmtest prune-runs removes a run domain whose run ended without its
-# teardown. Before the acceptance below, which runs vmtest:
-playbooks/imports/optional/common/play-vm-test-lab.yml
-# Plan 00228: the speech-to-text extension is declared enabled in GNOME's settings, so it is
-# enabled at the next login when the play runs with no session:
-playbooks/imports/optional/common/play-speech-to-text.yml
 
-# Plan 00228 Task 6.7 VM run: acceptance.bash again (desktop-consumer-install,
-# desktop-fresh-install and server-fast-provision, each on a throwaway guest at the pushed
-# HEAD). The last run passed all but two consumer checks, the speech-to-text extension
-# and a re-run that reported changes; both are fixed (play-podman's store-clean mark is
-# tested here in the guest; on this host play-podman is still held by Plan 00235 Q6).
-# Long: about 1.5 h of VMs.
-00228-consumer-install-without-github/acceptance.bash
+# Plan 00235 Task 4.7d: the old-range triage again, then the DRY RUN of the decisions file the
+# host agent wrote with the owner (untracked/plan-00235/old-range-decisions.tsv: remove 33
+# images and 8 empty volumes; re-own 4 images, 2 orphan layers and the postgres volume). It
+# changes nothing; the host agent reads it, and old-range-apply.bash is queued after its OK.
+00235-podman-images-cleaned-up-automatically/old-range.bash
