@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00240-team-sessions-report-tooling-issues-to-fedora-desktop](00240-team-sessions-report-tooling-issues-to-fedora-desktop/) - Not Started (the owner's questions Q1-Q3 open). Sessions running fedora-desktop tooling in other repositories (ccy, LXC, other members) learn where the tooling comes from and report a defect in it cleanly: a skill shipped in the pingbus plugin every team member loads, and a Go generator with a fixed field set, as the hooks daemon's issue-report does.
+
 - [00238-runaway-process-alert](00238-runaway-process-alert/) - Not Started (research plan; Mozilla's docs read; host tests and the owner's questions Q1-Q7 open). Which Firefox tab is burning CPU or memory, from outside the UI: a control port is rejected for the daily browser, a privileged extension hangs on whether Fedora's build requires signing; proposed a Go user service that alerts on any runaway process and names a Firefox tab process as such, never killing anything, plus Firefox's built-ins and an optional cap on its app scope.
 
 - [00237-qa-runs-one-at-a-time](00237-qa-runs-one-at-a-time/) - In Progress. QA never runs in parallel: qa-all, qa-changed and the Go gate run alone take one flock(2) lock in the git common directory, shared by every worktree, CCY container and the host; a second run waits naming the holder (`--no-wait` fails at once), a nested run inherits the lock, and the whole QA process tree runs at nice 19, ionice idle.
