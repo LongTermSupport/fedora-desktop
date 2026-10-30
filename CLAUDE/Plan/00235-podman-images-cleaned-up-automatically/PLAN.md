@@ -223,6 +223,16 @@ the plans cite kept.
   - [ ] ⬜ **4.7d**: on the host: the host agent runs `old-range.bash` through meta-deploy, reads
     the report, copies the proposal to `untracked/plan-00235/old-range-decisions.tsv` and decides
     each ask, runs `old-range.bash` again for the dry run, then `old-range-apply.bash`
+  - [x] ✅ **4.7e** (FIX, host run of 4.7d at 9bd2a6528): re-own did everything; remove took 28
+    images and 8 volumes, but 5 images failed "image not known", untagged parents podman had
+    removed with an image earlier in the run, so remove exited 1 and the play stopped before the
+    Task 4.8 probe. Now (O11, O15) a decided item the store does not have is done, not a failure:
+    remove asks podman's `exists` (`engine.StoreHas`) before each removal ("already gone") and
+    after a failed one ("removed with an earlier item", logged), never its error text; `plan`
+    names a decided remove podman lacks, and a decided reown still present with no old-range
+    file, as done, so a rerun of the same decisions plans nothing and passes. A reown podman
+    lacks, a leave that is no item, and a remove still present stay refused. Report:
+    `subagent-reports/261030-old-range-remove-gone.md`
 
 - [x] ✅ **Task 4.8**: `tasks/podman-store-ownership-probe.yml`, imported by play-podman.yml after
   the repair and before the timer: as root, `find -xdev -ignore_readdir_race -quit` looks in the

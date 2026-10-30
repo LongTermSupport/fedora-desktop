@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -199,31 +200,59 @@ func (a App) podmanView(ctx context.Context) (podmanView, error) {
 }
 
 // userItems is the items of root's scan, judged as the store's user with the old range given.
-func (a App) userItems(ctx context.Context, sub, scanPath string, old Range) (Scan, []item, error) {
+func (a App) userItems(ctx context.Context, sub, scanPath string, old Range) (Scan, records, []item, error) {
+	var rec records
 	if err := a.notRoot(sub); err != nil {
-		return Scan{}, nil, err
+		return Scan{}, rec, nil, err
 	}
 	scan, err := readScan(scanPath)
 	if err != nil {
-		return scan, nil, err
+		return scan, rec, nil, err
 	}
 	if err = a.asUser(scan.Owners.UID); err != nil {
-		return scan, nil, err
+		return scan, rec, nil, err
 	}
-	rec, err := readRecords(scan.Store)
-	if err != nil {
-		return scan, nil, err
+	if rec, err = readRecords(scan.Store); err != nil {
+		return scan, rec, nil, err
 	}
 	pv, err := a.podmanView(ctx)
 	if err != nil {
-		return scan, nil, err
+		return scan, rec, nil, err
 	}
-	return scan, triage(scan, rec, pv, old), nil
+	return scan, rec, triage(scan, rec, pv, old), nil
+}
+
+// presentNow is O11's question for each decided key that is no item now: does the store still
+// have it. podman answers for an image, a container and a volume, c/storage's records for a
+// layer, and the store's own directory for a path.
+func (a App) presentNow(ctx context.Context, scan Scan, rec records, keys []itemKey) (map[itemKey]bool, error) {
+	present := map[itemKey]bool{}
+	eng, err := engine.New(engine.Podman, a.Env.Runner)
+	if err != nil {
+		return present, err
+	}
+	for _, k := range keys {
+		switch k.kind {
+		case kindLayer:
+			_, present[k] = rec.parent[k.key]
+		case kindPath:
+			_, statErr := os.Lstat(filepath.Join(scan.Store, filepath.Clean("/"+k.key)))
+			if statErr != nil && !errors.Is(statErr, fs.ErrNotExist) {
+				return present, fmt.Errorf("cannot tell whether the store still has %s: %w", k.key, statErr)
+			}
+			present[k] = statErr == nil
+		default:
+			if present[k], err = eng.StoreHas(ctx, k.kind, k.key); err != nil {
+				return present, err
+			}
+		}
+	}
+	return present, nil
 }
 
 // triageCmd is `old-range triage` (O14): the report on stdout, the proposal to proposed.
 func (a App) triageCmd(ctx context.Context, scanPath string, old Range, proposed string) error {
-	scan, items, err := a.userItems(ctx, "triage", scanPath, old)
+	scan, _, items, err := a.userItems(ctx, "triage", scanPath, old)
 	if err != nil {
 		return err
 	}
@@ -252,11 +281,15 @@ func (a App) planCmd(ctx context.Context, scanPath, decisionsPath string) error 
 	if err != nil {
 		return err
 	}
-	scan, items, err := a.userItems(ctx, "plan", scanPath, d.old)
+	scan, rec, items, err := a.userItems(ctx, "plan", scanPath, d.old)
 	if err != nil {
 		return err
 	}
-	p, err := makePlan(scan, items, d)
+	present, err := a.presentNow(ctx, scan, rec, notItems(items, d))
+	if err != nil {
+		return err
+	}
+	p, err := makePlan(scan, items, d, present)
 	if err != nil {
 		return fmt.Errorf("the decisions are refused, nothing is planned:\n%w", err)
 	}

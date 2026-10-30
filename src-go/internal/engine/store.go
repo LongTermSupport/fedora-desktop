@@ -6,8 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
 
 // store.go is what the container-images command (Plan 00235) asks of the engine's store: its
@@ -256,6 +259,45 @@ func (e Engine) RemoveImage(ctx context.Context, ref string) error {
 		return fmt.Errorf("remove image %s: %w", ref, err)
 	}
 	return nil
+}
+
+// storeHasArgs is podman's exists question for each kind it answers for; a container another
+// tool made counts.
+var storeHasArgs = map[string][]string{
+	KindImage:     {KindImage, exists},
+	KindVolume:    {KindVolume, exists},
+	KindContainer: {KindContainer, exists, "--external"},
+}
+
+// The kinds StoreHas answers for, as podman names its object verbs.
+const (
+	KindImage     = "image"
+	KindVolume    = "volume"
+	KindContainer = "container"
+	exists        = "exists"
+)
+
+// StoreHas is podman's own `KIND exists KEY`: exit 0 is there, exit 1 is gone, and any other
+// end is podman failing, so an error, never a gone.
+func (e Engine) StoreHas(ctx context.Context, kind, key string) (bool, error) {
+	if err := e.known(); err != nil {
+		return false, err
+	}
+	if e.kind != Podman {
+		return false, fmt.Errorf("whether there is a %s of %s: %w", kind, e.kind, ErrPodmanOnly)
+	}
+	args, ok := storeHasArgs[kind]
+	if !ok {
+		return false, fmt.Errorf("podman has no exists question for a %s", kind)
+	}
+	_, err := e.run(ctx, append(slices.Clone(args), key)...)
+	if exit, isExit := errors.AsType[*execx.ExitError](err); isExit && exit != nil && exit.Code == 1 {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("ask podman whether there is a %s %s: %w", kind, key, err)
+	}
+	return true, nil
 }
 
 // RemoveExternalContainer removes a container another tool made: podman removes one it did not

@@ -27,6 +27,15 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.104.6 — container 2.79.17
+
+The image is unchanged, so there is no rebuild.
+
+- **The shared container-engine adapter can ask podman whether it has an image, volume or
+  container** (`podman ... exists`; Plan 00235). `container-images` uses it so an old-range
+  removal of something already gone is done, not a failure. The launcher's behaviour is
+  unchanged.
+
 ## 3.104.5 — container 2.79.17
 
 The image is unchanged, so there is no rebuild.

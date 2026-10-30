@@ -43,7 +43,118 @@ func removeWorld(t *testing.T) (*userWorld, string) {
 	w.fake.On([]string{"podman", "rm"}, execx.Result{})
 	w.fake.On([]string{"podman", "image", "rm"}, execx.Result{})
 	w.fake.On([]string{"podman", "volume", "rm"}, execx.Result{})
+	for _, kind := range []string{"image", "volume", "container"} {
+		w.fake.On([]string{"podman", kind, "exists"}, execx.Result{})
+	}
 	return w, w.writePlan(removePlan(w.store))
+}
+
+// gone is podman's answer that it has no such thing: `exists` ends 1.
+var gone = execx.Result{ExitCode: 1}
+
+// O15: an item podman no longer has when the run looks is already gone: named, not removed,
+// not logged, and no failure; the rest still go.
+func TestRemoveNamesWhatIsAlreadyGone(t *testing.T) {
+	w, plan := removeWorld(t)
+	w.fake.On([]string{"podman", "image", "exists", "BASE"}, gone)
+	if code := w.run("remove", "--plan", plan, "--yes"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, w.err.String())
+	}
+	if got, want := w.removals(), []string{"podman rm --force B1", "podman image rm CHILD", "podman volume rm e"}; !slices.Equal(got, want) {
+		t.Fatalf("removals %v, want %v", got, want)
+	}
+	if !strings.Contains(w.out.String(), "already gone: image docker.io/library/x:1") || strings.Contains(w.removalLog(), "\tBASE\t") {
+		t.Fatalf("output %q, log %q", w.out.String(), w.removalLog())
+	}
+}
+
+// O15, the host run of Task 4.7d: podman removed an untagged parent with the image built on
+// it, so the parent's own removal fails. podman, asked again, no longer has it: the removal is
+// done, named so and logged, and the run passes.
+func TestRemoveTakesAnItemAnEarlierRemovalTook(t *testing.T) {
+	w, plan := removeWorld(t)
+	removed := false
+	w.fake.OnFunc([]string{"podman", "image", "rm", "CHILD"}, func(execx.Cmd) (execx.Result, error) {
+		removed = true
+		return execx.Result{}, nil
+	})
+	w.fake.On([]string{"podman", "image", "rm", "BASE"}, execx.Result{ExitCode: 1, Stderr: []byte("Error: BASE: image not known\n")})
+	w.fake.OnFunc([]string{"podman", "image", "exists", "BASE"}, func(execx.Cmd) (execx.Result, error) {
+		if removed {
+			return gone, nil
+		}
+		return execx.Result{}, nil
+	})
+	if code := w.run("remove", "--plan", plan, "--yes"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, w.err.String())
+	}
+	if !strings.Contains(w.out.String(), "removed with an earlier item: image docker.io/library/x:1") {
+		t.Errorf("output:\n%s", w.out.String())
+	}
+	if !strings.Contains(w.removalLog(), "\timage\tdocker.io/library/x:1\tBASE\t") {
+		t.Errorf("no BASE in the log:\n%s", w.removalLog())
+	}
+}
+
+// O15: a failed removal of what podman still has stands: named, not logged, the run fails.
+func TestRemoveFailureOfWhatIsStillThereStands(t *testing.T) {
+	w, plan := removeWorld(t)
+	w.fake.On([]string{"podman", "image", "rm", "BASE"}, execx.Result{ExitCode: 2, Stderr: []byte("Error: image is in use\n")})
+	if code := w.run("remove", "--plan", plan, "--yes"); code != term.ExitFailure {
+		t.Fatalf("exit %d", code)
+	}
+	if !strings.Contains(w.err.String(), "could not remove image docker.io/library/x:1") || strings.Contains(w.removalLog(), "\tBASE\t") {
+		t.Fatalf("stderr %q, log %q", w.err.String(), w.removalLog())
+	}
+}
+
+// O15: a podman that cannot say whether it has an item stops the run before any removal, and
+// after a failed removal it leaves the failure standing.
+func TestRemoveStopsWhenPodmanCannotSayWhatItHas(t *testing.T) {
+	w, plan := removeWorld(t)
+	w.fake.On([]string{"podman", "image", "exists", "BASE"}, execx.Result{ExitCode: 125})
+	if code := w.run("remove", "--plan", plan, "--yes"); code != term.ExitFailure || len(w.removals()) != 0 {
+		t.Errorf("before: exit %d, removals %v", code, w.removals())
+	}
+	w, plan = removeWorld(t)
+	asked := 0
+	w.fake.OnFunc([]string{"podman", "image", "exists", "BASE"}, func(execx.Cmd) (execx.Result, error) {
+		asked++
+		if asked > 1 {
+			return execx.Result{ExitCode: 125}, nil
+		}
+		return execx.Result{}, nil
+	})
+	w.fake.On([]string{"podman", "image", "rm", "BASE"}, execx.Result{ExitCode: 1})
+	if code := w.run("remove", "--plan", plan, "--yes"); code != term.ExitFailure || !strings.Contains(w.err.String(), "could not remove image docker.io/library/x:1") {
+		t.Errorf("after: exit %d, stderr %q", code, w.err.String())
+	}
+}
+
+// O15: the rerun after every removal went: each item is named already gone, nothing is
+// removed or logged, and the run passes, the dry run too.
+func TestRemoveRerunWhereEverythingIsGonePasses(t *testing.T) {
+	for _, args := range [][]string{{"--yes"}, {}} {
+		w, plan := removeWorld(t)
+		w.fake.On([]string{"podman", "ps", "--all", "--external", "--format", "json"}, execx.Result{Stdout: []byte(`[]`)})
+		for _, kind := range []string{"image", "volume", "container"} {
+			w.fake.On([]string{"podman", kind, "exists"}, gone)
+		}
+		if code := w.run(append([]string{"remove", "--plan", plan}, args...)...); code != term.ExitOK {
+			t.Fatalf("%v: exit %d: %s", args, code, w.err.String())
+		}
+		if got := w.removals(); len(got) != 0 {
+			t.Errorf("%v: removed %v", args, got)
+		}
+		for _, want := range []string{"already gone: container builder", "already gone: image CHILD", "already gone: image docker.io/library/x:1", "already gone: volume e"} {
+			if !strings.Contains(w.out.String(), want) {
+				t.Errorf("%v: no %q in:\n%s", args, want, w.out.String())
+			}
+		}
+		if log := w.removalLog(); log != "" {
+			t.Errorf("%v: logged:\n%s", args, log)
+		}
+	}
 }
 
 func (w *userWorld) writePlan(p Plan) string {

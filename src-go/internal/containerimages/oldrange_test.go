@@ -257,6 +257,75 @@ func TestPlanPrintsThePlanOfTheDecisions(t *testing.T) {
 	}
 }
 
+// rerunWorld is newUserWorld after its decisions were carried out: I1 and e removed, I2 and v
+// re-owned, so root's fresh scan finds no old-range file.
+func rerunWorld(t *testing.T) *userWorld {
+	t.Helper()
+	w := newUserWorld(t)
+	writeFile(t, filepath.Join(w.store, "overlay-layers", "layers.json"), `[{"id":"L2"},{"id":"CL","parent":"L2"}]`)
+	writeFile(t, filepath.Join(w.store, "overlay-images", "images.json"), `[{"id":"I2","layer":"L2"}]`)
+	w.writeScan(Scan{Store: w.store, User: "user", Owners: owners(), Dirs: []StoreDir{}})
+	w.fake.On([]string{"podman", "volume", "ls", "--format", "json"}, execx.Result{Stdout: []byte(`[{"Name":"v"}]`)})
+	w.fake.On([]string{"podman", "image", "exists", "I2"}, execx.Result{})
+	w.fake.On([]string{"podman", "volume", "exists", "v"}, execx.Result{})
+	w.fake.On([]string{"podman", "image", "exists", "I1"}, execx.Result{ExitCode: 1})
+	w.fake.On([]string{"podman", "volume", "exists", "e"}, execx.Result{ExitCode: 1})
+	return w
+}
+
+// O11: a rerun of the same decisions over a store they were carried out on plans nothing: what
+// was decided remove and podman no longer has is already gone, what was decided reown and is
+// still there with no old-range file is already re-owned; each is named, and remove passes.
+func TestPlanRerunOfCarriedOutDecisionsPasses(t *testing.T) {
+	w := rerunWorld(t)
+	if code := w.run("plan", "--scan", w.scanPath, "--decisions", w.file("d.tsv", safeDecisions)); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, w.err.String())
+	}
+	var p Plan
+	if err := json.Unmarshal(w.out.Bytes(), &p); err != nil {
+		t.Fatalf("not a plan: %v\n%s", err, w.out.String())
+	}
+	if len(p.Reown) != 0 || len(p.Remove) != 0 || len(p.RootRemove) != 0 {
+		t.Fatalf("a rerun planned work: %+v", p)
+	}
+	want := []string{"already gone: image I1", "already re-owned: image I2", "already gone: volume e", "already re-owned: volume v"}
+	if !slices.Equal(p.Done, want) {
+		t.Fatalf("done %v, want %v", p.Done, want)
+	}
+	plan := w.file("plan.json", w.out.String())
+	if code := w.run("remove", "--plan", plan, "--yes"); code != term.ExitOK {
+		t.Fatalf("remove: exit %d: %s", code, w.err.String())
+	}
+	for _, line := range want {
+		if !strings.Contains(w.out.String(), line) {
+			t.Errorf("remove does not say %q:\n%s", line, w.out.String())
+		}
+	}
+}
+
+// O11: a decided item that is not an item now is refused unless it is done: a reown podman
+// no longer has, a remove podman still has, a leave, a reown or remove podman cannot be asked.
+func TestPlanRefusesADecidedItemThatIsNotDone(t *testing.T) {
+	for name, spoil := range map[string]func(w *userWorld){
+		"a reown gone":         func(w *userWorld) { w.fake.On([]string{"podman", "volume", "exists", "v"}, execx.Result{ExitCode: 1}) },
+		"a remove still there": func(w *userWorld) { w.fake.On([]string{"podman", "image", "exists", "I1"}, execx.Result{}) },
+		"podman unasked": func(w *userWorld) {
+			w.fake.On([]string{"podman", "image", "exists", "I1"}, execx.Result{ExitCode: 125})
+		},
+	} {
+		w := rerunWorld(t)
+		spoil(w)
+		if code := w.run("plan", "--scan", w.scanPath, "--decisions", w.file("d.tsv", safeDecisions)); code != term.ExitFailure || w.out.Len() != 0 {
+			t.Errorf("%s: exit %d, out %q", name, code, w.out.String())
+		}
+	}
+	w := rerunWorld(t)
+	text := strings.Replace(safeDecisions, "reown image I2", "leave image I2", 1)
+	if code := w.run("plan", "--scan", w.scanPath, "--decisions", w.file("d.tsv", text)); code != term.ExitFailure {
+		t.Errorf("a leave not an item now: exit %d", code)
+	}
+}
+
 func TestPlanRefusesUnsafeDecisions(t *testing.T) {
 	for name, text := range map[string]string{
 		"remove a used image": strings.Replace(safeDecisions, "reown image I2", "remove image I2", 1),
