@@ -124,6 +124,14 @@
 //     whether it accepts the token in CLAUDE_CODE_OAUTH_TOKEN: exit 0 accepted, 3 refused (the
 //     one case for token recovery), 1 a check that could not be made, its cause on stderr and
 //     never read as an invalid token. Answered under CCY_LEGACY too: the bash asks it.
+//   - F18. `--check-network ENGINE NETWORK` (netcheck.go) runs the launcher's network probe:
+//     exit 0 the internet reached, 4 the probe ran and reached nothing (wget's words on
+//     stderr), 1 the probe could not be run (the engine's or the pull's cause), never read as
+//     the network's fault. Answered under CCY_LEGACY too: the bash asks it.
+//   - F19. `--claude-versions ENGINE IMAGE` (netcheck.go) prints "INSTALLED LATEST", the
+//     Claude Code version in the image and the npm registry's latest; exit 1 with the cause
+//     (the image's run, the registry's reach or answer) when either could not be read. Answered
+//     under CCY_LEGACY too: the bash asks it.
 //
 // Intended divergences from the bash, where it only replicated incidental behaviour that the
 // goldens (C locale, UTC, a pinned clock) do not exercise; each goes when the bash retires:
@@ -308,6 +316,12 @@ func (f Front) ownFlag(ctx context.Context) (term.ExitCode, bool) {
 	}
 	if len(f.Args) > 0 && f.Args[0] == checkTokenFlag {
 		return f.checkToken(ctx), true
+	}
+	if len(f.Args) > 0 && f.Args[0] == checkNetworkFlag {
+		return f.checkNetwork(ctx), true
+	}
+	if len(f.Args) > 0 && f.Args[0] == claudeVersionsFlag {
+		return f.claudeVersions(ctx), true
 	}
 	if len(f.Args) == 0 || f.legacy() {
 		return term.ExitOK, false

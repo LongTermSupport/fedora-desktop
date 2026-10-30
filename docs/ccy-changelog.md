@@ -27,6 +27,23 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.104.8 — container 2.79.17
+
+The image is unchanged, so there is no rebuild.
+
+- **The network check says what failed.** It read any failed `alpine wget` run as "no
+  internet access", so a podman failure or an `alpine` pull that failed showed the
+  network-debugging guide for a network that was never tested. It is now the Go front's
+  `--check-network`: a probe that ran and reached nothing shows the guide as before, now
+  with wget's own words above it (a name that would not resolve, a timeout); a probe the
+  engine could not run (the engine, the pull, the image) stops the launch with that cause
+  and no guide.
+- **The daily update check says why it was skipped.** When the image's Claude Code version
+  or the npm registry's latest could not be read it said "offline?" and dropped the cause.
+  It is now the Go front's `--claude-versions`, which names which one failed and why (the
+  image's run and its words, the registry not reached, or its error answer). The launch
+  still goes on and the check is still skipped for the day.
+
 ## 3.104.7 — container 2.79.17
 
 The image is unchanged, so there is no rebuild.

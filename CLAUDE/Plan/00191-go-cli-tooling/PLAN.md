@@ -849,7 +849,12 @@ today; rewriting them is out of scope.
      run through `engine.RunWithSecret`, E11) asks the API from the image, since the old
      `claude --version` never asked it: 0 accepted, 3 refused (recovery), 1 not checked, which
      stops the launch with its cause (`subagent-reports/261030-task-4.10-unit2-validate-token.md`).
-  3. B3, B5: the network check and the Claude version probes. Each carries its cause.
+  3. ✅ B3, B5: the network check and the Claude version probes. Each carries its cause.
+     Built (CCY 3.104.8): the front's `--check-network ENGINE NETWORK` (F18: 0 reached, 4
+     the network reached nothing with wget's words, 1 the probe could not run, which stops
+     the launch without the network guide) and `--claude-versions ENGINE IMAGE` (F19:
+     "INSTALLED LATEST", or exit 1 naming the image's or the registry's cause), both in
+     `netcheck.go` over `engine` E12 (`subagent-reports/261030-task-4.10-unit3-network-version.md`).
   4. B6, B7, B9: network removal, container stops and listings (`lib/docker-health.bash`).
      An engine failure is said, not read as "may still have containers", "may already be
      stopped" or "no containers found".

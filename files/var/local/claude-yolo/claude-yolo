@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.104.7"  # Container 2.79.17: a token check that could not run is said, never read as an invalid token. See docs/ccy-changelog.md.
+CCY_VERSION="3.104.8"  # Container 2.79.17: the network check and the version probes say what failed. See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -171,7 +171,8 @@ if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
     printf 'ccy version %s\nHash: %s\n' "$CCY_VERSION" "$CCY_HASH"
     exit 0
 fi
-if [ "$1" = "--build-lock" ] || [ "$1" = "--read-launch-config" ] || [ "$1" = "--check-token" ]; then
+if [ "$1" = "--build-lock" ] || [ "$1" = "--read-launch-config" ] || [ "$1" = "--check-token" ] ||
+    [ "$1" = "--check-network" ] || [ "$1" = "--claude-versions" ]; then
     print_error "ccy $1 is answered by the Go front, $SCRIPT_DIR/claude-yolo; run it without CCY_LEGACY."
     exit 1
 fi
@@ -1877,37 +1878,18 @@ auto_update_claude_code() {
     echo "Checking for Claude Code updates (daily, image: $image_name)..."
     mkdir -p "$cache_dir"
 
-    # Bundled version in THIS image. `claude --version` → "X.Y.Z (Claude Code)".
-    #
-    # The `|| echo "unknown"` this replaces never fired. There is no `pipefail`
-    # here, so the pipeline's status is `head`'s — and `head -1` succeeds on
-    # empty input. A container that would not start therefore produced an EMPTY
-    # version, not "unknown", which walked straight past the offline guard below:
-    # two empty versions compare equal and printed "✓ Claude Code is up to date
-    # ()", and one empty version started an in-place npm update against a version
-    # nothing had read. Capture the command's own status, then require a value.
-    local container_version="" version_probe
-    if version_probe=$(container_cmd run --rm --entrypoint claude "$image_name" --version 2>&1); then
-        container_version=$(printf '%s\n' "$version_probe" | grep -oP '\d+\.\d+\.\d+' | head -1)
-    fi
-    [ -n "$container_version" ] || container_version="unknown"
-
-    # Latest published version (npm registry API, no npm CLI required).
-    local latest_version="" registry_probe
-    if registry_probe=$(timeout 5 curl -fsSL "https://registry.npmjs.org/@anthropic-ai/claude-code/latest" 2>&1); then
-        latest_version=$(printf '%s\n' "$registry_probe" | grep -oP '"version":\s*"\K[^"]+' | head -1)
-    fi
-    [ -n "$latest_version" ] || latest_version="unknown"
-
-    # Could not determine a version (offline / registry hiccup). Stamp so we do
-    # not re-probe every launch today, and proceed on the existing image.
+    # The image's version and the registry's latest, from the Go front, which says on
+    # stderr which could not be read and why. Stamp so we do not re-probe every launch
+    # today, and proceed on the existing image.
     # FAIL-FAST-OK: optional launch-time convenience — auto-update must never
-    # block starting Claude when the network is down.
-    if [ "$container_version" = "unknown" ] || [ "$latest_version" = "unknown" ]; then
-        echo "⚠ Could not determine Claude Code version (offline?) — skipping update check for today" >&2
+    # block starting Claude; the cause has been said.
+    local versions container_version latest_version
+    if ! versions=$("$SCRIPT_DIR/claude-yolo" --claude-versions "$CONTAINER_ENGINE" "$image_name"); then
+        echo "⚠ Skipping the Claude Code update check for today: the versions could not be read (above)" >&2
         touch "$cache_file"
         return 0
     fi
+    read -r container_version latest_version <<<"$versions"
 
     # Already current → NOOP. Refresh the daily stamp and move on.
     if [ "$container_version" = "$latest_version" ]; then
@@ -3333,11 +3315,16 @@ if [[ -n "${CCY_SKIP_NETWORK_PREFLIGHT:-}" ]]; then
 elif [[ -n "$SELECTED_NETWORK" ]] && [[ "$NO_NETWORK_MODE" != true ]]; then
     echo "Verifying network '$SELECTED_NETWORK' has internet access..."
 
-    # Test with google.com (simpler, more reliable than api.anthropic.com which needs proper TLS)
-    if container_cmd run --rm --network "$SELECTED_NETWORK" alpine wget -q -O- --timeout=10 http://google.com >/dev/null 2>&1; then
+    # The Go front's probe: 0 reached, 4 the network reached nothing, else it could not be run.
+    if "$SCRIPT_DIR/claude-yolo" --check-network "$CONTAINER_ENGINE" "$SELECTED_NETWORK"; then
         echo "✓ Network '$SELECTED_NETWORK' has internet access"
         echo ""
     else
+        network_rc=$?
+        if [ "$network_rc" -ne 4 ]; then
+            print_error "The network check could not be run (above), so nothing is known about '$SELECTED_NETWORK'."
+            exit 1
+        fi
         echo ""
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo "❌ NETWORK ERROR: '$SELECTED_NETWORK' has no internet access"
