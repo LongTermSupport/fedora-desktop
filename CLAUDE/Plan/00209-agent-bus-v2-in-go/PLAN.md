@@ -37,6 +37,13 @@ team has moved, and that is raised with the owner then.
    (2026-10-30). This answers OD-CUTOVER: every team moves by one step, which the plays run, and
    v1 is then retired. Direction 3's "already running teams must keep working" now means the
    plays carry each team across, not that v1 and v2 run side by side.
+6. Where v2 is going (2026-10-30, answering gate A): "what we've built so far, which only works on
+   local host, is not the intended end result": one homeserver per team, which "might be hosted
+   locally ... on another server ... somewhere in the cloud", and agents "spread across multiple
+   machines, possibly in multiple different networks", reaching it over "some kind of vpn or mesh
+   network"; "not the intention that the home server would be on the internet but some kind of
+   private networking is implied". The irreversible choices stand "as long as all of these points
+   are not locking us into things that are going to prevent that going forwards" (Task 0.6).
 
 Clarified with direction 3: **v2 is a separate system.** None of its wire, files, locks, CLI or
 process model has to stay compatible with v1, so there is no compatibility contract and no parity
@@ -78,16 +85,16 @@ Every decision is in [DESIGN-v2.md section 7](DESIGN-v2.md#7-the-owner-decisions
 coordinator hears of each one flagged there (IRREVERSIBLE, CONTRADICTS or VISIBLE) before the
 milestone that acts on it.
 
-| ID           | Decision                                                                                                                                                | State                                                                                                                                                                                                                                                          |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D4           | no relay mode in v2; specified on v2 when the plugin API ships                                                                                          | accepted by the coordinator                                                                                                                                                                                                                                    |
-| D15          | a keeper (`teamchat run`) and a link (DESIGN.md called it the worker) in every member, the resident cost measured (B 2.14)                              | accepted by the coordinator                                                                                                                                                                                                                                    |
-| TID          | a team has a stable id (at most 22 characters) fixed at creation; its name is display only; `server_name` and handles carry the id and survive a rename | accepted with gate A (Task 0.5): built on; to the owner in the coordinator's digest                                                                                                                                                                            |
-| INT3         | a v1 name over 22 characters migrates under a short id declared with the move, and stays its display name                                               | defaulted; to the coordinator (not among the Task 0.5 answers)                                                                                                                                                                                                 |
-| VISIBLE      | OD-A10, BD9, BD15, BD16, DC4, DC16, DC17, DC18, DC19, DC21, OD-D6, INT4, INT5, INT7, and DC8                                                            | accepted (Task 0.5); DC17 with its go-deps allowlist rows and govulncheck clean; DC8 comes back to the coordinator if H-C5 or H-C15 fails; DC16's and DC19's stated cost is INT6's, below                                                                      |
-| IRREVERSIBLE | OD-A7, DC1, DC5, DC15, OD-D1 (`teamchat`), OD-D5, and TID above                                                                                         | accepted with gate A (Task 0.5): N1-N4 build on them; no host install that writes an owner-visible name or path, and no migration of any team, until the owner confirms                                                                                        |
-| INT6         | owner-uid processes holding a pool seat's password have power over that account (DC16, DC19)                                                            | owner only, with gate B (Task 0.5): built as defaulted; the first deploy that gives any process a pool seat's password waits for the owner, who may choose [DESIGN-v2.md 7.1](DESIGN-v2.md#71-int6s-narrower-alternative-a-pool-seat-with-no-password) instead |
-| others       | OD-A1-A6, OD-A8, OD-A9, OD-A11, BD1-BD8, BD10-BD14, BD17, BD18, DC2, DC3, DC6, DC7, DC9-DC14, DC20, OD-D2-D4, OD-D7, INT1, INT2                         | defaulted, not flagged                                                                                                                                                                                                                                         |
+| ID           | Decision                                                                                                                                                | State                                                                                                                                                                                                              |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| D4           | no relay mode in v2; specified on v2 when the plugin API ships                                                                                          | accepted by the coordinator                                                                                                                                                                                        |
+| D15          | a keeper (`teamchat run`) and a link (DESIGN.md called it the worker) in every member, the resident cost measured (B 2.14)                              | accepted by the coordinator                                                                                                                                                                                        |
+| TID          | a team has a stable id (at most 22 characters) fixed at creation; its name is display only; `server_name` and handles carry the id and survive a rename | accepted with gate A (Task 0.5): built on; to the owner in the coordinator's digest                                                                                                                                |
+| INT3         | a v1 name over 22 characters migrates under a short id declared with the move, and stays its display name                                               | defaulted; to the coordinator (not among the Task 0.5 answers)                                                                                                                                                     |
+| VISIBLE      | OD-A10, BD9, BD15, BD16, DC4, DC16, DC17, DC18, DC19, DC21, OD-D6, INT4, INT5, INT7, and DC8                                                            | accepted (Task 0.5); DC17 with its go-deps allowlist rows and govulncheck clean; DC8 comes back to the coordinator if H-C5 or H-C15 fails; DC16's and DC19's stated cost is INT6's, below                          |
+| IRREVERSIBLE | OD-A7, DC1, DC5, DC15, OD-D1 (`teamchat`), OD-D5, and TID above                                                                                         | confirmed by the owner 2026-10-30 (gate A met), on direction 6's condition: Task 0.6 checks none of them prevents a remote homeserver or members on other machines                                            |
+| INT6         | owner-uid processes holding a pool seat's password have power over that account (DC16, DC19)                                                            | the owner chose the default 2026-10-30 (gate B met): owner-uid processes may hold a pool seat's password; [DESIGN-v2.md 7.1](DESIGN-v2.md#71-int6s-narrower-alternative-a-pool-seat-with-no-password) is not built |
+| others       | OD-A1-A6, OD-A8, OD-A9, OD-A11, BD1-BD8, BD10-BD14, BD17, BD18, DC2, DC3, DC6, DC7, DC9-DC14, DC20, OD-D2-D4, OD-D7, INT1, INT2                         | defaulted, not flagged                                                                                                                                                                                             |
 
 DESIGN.md's D1-D20 belonged to the in-place design and are superseded with it.
 
@@ -157,6 +164,15 @@ its first caller.
     `cc` members carry the gate too. The narrower alternative the
     owner may choose instead, a pool that keeps no password, is
     [DESIGN-v2.md section 7.1](DESIGN-v2.md#71-int6s-narrower-alternative-a-pool-seat-with-no-password).
+
+- [ ] 🔄 **Task 0.6**: The owner's gate A and gate B answers (2026-10-30): A2 default (INT6
+  as built), A3 confirmed, on direction 6's condition. Check the design against direction 6
+  before N1 builds on it: a team's homeserver on this host, on another machine or in the cloud,
+  reached over a private network (VPN or mesh), with members on several machines and networks.
+  List each choice in DESIGN-v2.md (the IRREVERSIBLE ones first, then R3's loopback-plus-listen
+  and no-TLS, the host-held pool bundle and seat store, `site`, the migration's remote members)
+  that assumes the server and its members share one host, say whether it blocks direction 6 or
+  only limits the first build, and change the design where it blocks.
 
 ### Phase 1: N1, foundations
 

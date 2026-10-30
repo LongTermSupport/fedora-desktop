@@ -1,5 +1,8 @@
 # Agent bus message style
 
+**Version 1.** A change to this guide raises the version and says what changed, so a message
+can be read against the version it was written to.
+
 There are two styles, one for each kind of reader.
 
 - **Messages a person reads** (sections 1 to 5): reports (`pingbus report`), questions

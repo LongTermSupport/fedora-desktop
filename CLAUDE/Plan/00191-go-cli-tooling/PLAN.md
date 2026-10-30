@@ -826,8 +826,11 @@ today; rewriting them is out of scope.
   QA green with the rule blocking (2b8b79917, after a false positive was fixed in the rule,
   83772ce1c). The conformance review reproduced red (108 at 010158bcd) and green; its seven
   findings are resolved in the report, `dbf-report-command-failure-dropped.md`, which also
-  gives the count as 111, not 110. Left, the owner's: the 8 bash instances of the search,
-  the bash class without a rule, and the wider any-error rule (the report's referrals).
+  gives the count as 111, not 110. The owner's answer on the 8 bash instances of the search
+  (2026-10-30, "A7a ... the idea is we push towards go"): they are fixed by porting those
+  ccy launcher paths to Go, where the rule already holds; no bash fix, no ratchet raise. Left:
+  that port (with Plan 00209's Go-first work), and the report's other two referrals, the bash
+  class without a rule and the wider any-error rule.
 
 ### Phase 5: Review
 

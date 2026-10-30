@@ -34,6 +34,20 @@ machine is asked for separately. Full rule: [AgentNotes.md](CLAUDE/AgentNotes.md
 - ❌ "Skip and warn" pattern — NEVER use `debug` to warn and continue
 - ✅ Probe-then-fail pattern — `failed_when: false` is OK when registered result is explicitly checked
 
+### Defence Before Fix — HARD RULE
+
+**A defect is fixed as a class, never as one instance.** Before the fix: name the class and
+its hazard, write a detector rule for it, prove the rule red on the defect, sweep the whole
+repository and fix every instance it finds, make the rule blocking in QA, and only then fix
+the original. Leaving a known instance unfixed, suppressing or narrowing a rule is the
+owner's decision, never the agent's. Use the `defence-before-fix:dbf` skill, which carries
+the method.
+
+- **Go:** an analyzer in `src-go/qa/rules`; catalogue and red/green proof in
+  [GoProjectRules.md](CLAUDE/GoProjectRules.md).
+- **Bash, YAML, Python:** a semgrep rule in `.semgrep/` with its fixture, or the language's
+  own linter. A class no detector can express is said so, then fixed conventionally.
+
 ### Tooling Is Go — Bash Only for Very Small Helpers — HARD RULE
 
 **Line in the sand: no more tooling is written in bash.** New tools, and any bash that grows

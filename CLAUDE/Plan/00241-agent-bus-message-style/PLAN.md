@@ -46,9 +46,11 @@ deploy is enough. Agent text (`validate_text_content`, which is exact) does not 
 
 ### Phase 1: The style
 
-- [ ] 🔄 **Task 1.1**: STYLE.md. For people: the headline grammar, the nine kinds and
+- [x] ✅ **Task 1.1**: STYLE.md. For people: the headline grammar, the nine kinds and
   their emoji, the item markers, the body rules, the length limit and an example. Between
-  agents: the line protocol (section 6). The owner's review is pending.
+  agents: the line protocol (section 6). The owner, 2026-10-30: "let's launch with it and we
+  can always fine tune it later ... keeping it open ended so we can version it". Launched as
+  version 1; a change to it bumps the version and says what changed.
 
 ### Phase 2: Senders convert
 
