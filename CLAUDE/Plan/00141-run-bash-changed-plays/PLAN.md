@@ -114,6 +114,13 @@ One stray untracked file under `CLAUDE/Plan/`, which no play reads, made every r
   `ledger.recorded_dirty_paths`; it was red on `repo.is_dirty` and two reads in `judge`.
   Records written before the change keep their old meaning until each play runs again.
   Design: [DESIGN-play-ledger.md](../00109-desktop-drift-detection-and-fedora-desktop-panel/DESIGN-play-ledger.md).
+- [x] ✅ **Task 5.2**: A play's helper inputs are the modules it runs, not their packages.
+  The gnome plays were stale on a change to the ledger's code, through
+  `helpers/gnome/check_panel_contract.py`, a QA module beside the one they run. Defence
+  Before Fix: rule play-helper-input-unreachable (`CLAUDE/QA.md`), red on ten plays.
+- [x] ✅ **Task 5.3**: A clean collection removes the last handoff file, which named a play
+  already run as stale. No static detector separates the class from an ordinary
+  conditional write, so it is fixed conventionally, with regression tests.
 
 ## Success Criteria
 

@@ -20,7 +20,9 @@ execute, and requires the helper Python files the mapper counts as inputs to be 
 - the closure follows, in each module reached, every `import` and `from ... import` anywhere in
   the module (a function-level import runs too), absolute or relative, and every `helpers.x.y`
   named in a string that is not a docstring (`[sys.executable, "-m", "helpers.vmtest.bridge_run"]`
-  runs that module as a child).
+  runs that module as a child), and every checkout path under `helpers/` such a string is
+  (`helpers/pingbus/bundle.py` packages `"helpers/pingbus"` and `"helpers/agent_bus"` whole
+  into the zipapp a play deploys, so every module in them is deployed by that play).
 
 A file counted that the closure does not reach is a finding (the play is judged stale for code
 it cannot run); a file the closure reaches that is not counted is a finding too (a dropped input,
@@ -53,6 +55,8 @@ _ROOTED_HELPER = re.compile(
     r"(?:\{\{\s*root_dir\s*\}\}|CONFIG_FILE'\s*\)\s*\|\s*dirname\s*\}\})/(helpers/[A-Za-z0-9_./-]*)"
     r"|\broot_dir\s*[~+]\s*['\"]/(helpers/[A-Za-z0-9_./-]*)"
 )
+#: A string that IS a checkout path under helpers/, as a module names one it packages.
+_HELPER_LITERAL = re.compile(r"^(helpers/[A-Za-z0-9_./-]+)$")
 
 
 def _modules_under(repo_root: str, rel_dir: str) -> set[str]:
@@ -116,6 +120,7 @@ def imported(repo_root: str, rel: str) -> set[str]:
         tree = ast.parse(handle.read(), filename=rel)
     package = rel[: -len(".py")].replace("/", ".").rsplit(".", 1)[0]
     names: set[str] = set()
+    paths: set[str] = set()
     skip = _docstrings(tree)
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -129,10 +134,13 @@ def imported(repo_root: str, rel: str) -> set[str]:
                 names.add(f"{base}.{alias.name}" if alias.name != "*" else base)
         elif isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in skip:
             names.update(_DOTTED.findall(node.value))
+            paths.update(_HELPER_LITERAL.findall(node.value))
     found: set[str] = set()
     for name in names:
         if name.split(".")[0] == "helpers":
             found |= _dotted_modules(repo_root, name)
+    for path in paths:
+        found |= _path_modules(repo_root, path)
     return found
 
 

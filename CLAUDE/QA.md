@@ -1791,10 +1791,10 @@ Never reword the play to hide the reference: the play still reads the path.
 ### play-program-read-dropped
 
 **What it is.** A checkout file read by a program a host play runs that the play's inputs drop.
-`play-input-dropped` reads the play text; this rule reads the programs. In every helper package
+`play-input-dropped` reads the play text; this rule reads the programs. In every helper module
 that is an input of a play, a path built from `__file__` and literal segments, or a quoted literal
-naming an existing checkout path outside the package (a path with a `/`, or a dot-file of the
-root), must be an input. In every bash file that is an exact input, a `source` of a file beside
+naming an existing checkout path (a path with a `/`, or a dot-file of the root), in the module's
+own package or not, must be an input. In every bash file that is an exact input, a `source` of a file beside
 the script must be an input, and a `run_go_tool` / `run_go_command` (`scripts/lib/go-tool.bash`)
 must be one of the play's Go builds, whose packages' literals naming checkout paths must be
 inputs too. Not judged: a bare climb from `__file__` to a directory (`--repo-root`'s default),
@@ -1814,6 +1814,30 @@ UNRESOLVED. A literal that is not a read of the checkout (named in a message, re
 directory, or read again by the program on every run, so no rerun is owed) goes in
 `NOT_PLAY_INPUTS` under its module, with the reason. The table is in the mapper rather than the
 modules because some modules are baked into the ccy image, where an edit costs a version bump.
+
+### play-helper-input-unreachable
+
+**What it is.** A host play whose helper Python inputs are not exactly the helper modules it
+runs. The rule computes, with its own code (`ast`), the modules a play can execute: the modules
+its YAML files name as `helpers.<pkg>.<module>` or as a rooted `{{ root_dir }}/helpers/...` path
+(a directory is every module in it), then, transitively, every `import` and `from ... import`
+anywhere in each module (relative ones too), every `helpers.x.y` and every `helpers/...` checkout
+path a non-docstring string in it names (a child's `-m` argv, a directory a module packages). A
+helper file `helpers/self_update/affected_plays.play_inputs` counts that this does not reach is a
+finding, and so is one it reaches that is not counted. Not judged: a helper a deployed file runs
+later, live from the checkout (a systemd unit, a bash tool): it reads the checkout each time it
+runs, so no rerun is owed. Run by `tests/helpers/self_update/test_helper_reach_rule.py` (in
+`qa-helper-tests.bash`), which proves the rule against its fixtures first.
+
+**Why it exists.** The mapper counted the whole package of any module a play ran, and then every
+package any module of that package imported. `helpers/gnome/check_panel_contract.py`, a QA gate no
+play runs, imports the play ledger, so a change to the ledger's own code made
+play-gnome-shell-extensions, play-fedora-desktop-panel and play-displaylink stale, though they run
+only `helpers.gnome` modules that import none of it (Plan 00141). Ten plays carried the widening.
+Found and defended under Defence Before Fix.
+
+**How to fix a finding.** Teach the mapper the form: follow what the module runs, never its
+package whole, and count a way of running a module the rule reaches that the mapper missed.
 
 ---
 
