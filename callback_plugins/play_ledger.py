@@ -47,7 +47,7 @@ DOCUMENTATION = """
     short_description: Record each play run to the host play-run ledger
     description:
       - Appends one record per play to $XDG_STATE_HOME/fedora-desktop/play-ledger/runs.jsonl,
-        capturing the repo commit, whether the tree was dirty, the play file's hash as
+        capturing the repo commit, which paths of the tree were dirty, the play file's hash as
         executed, the outcome and the task-level changed count.
       - Records nothing for --check, --syntax-check or any --list-* run, none of which
         apply anything to the host.
@@ -135,7 +135,7 @@ class CallbackModule(CallbackBase):
         if self._collector is None and not self._broken:
             self._collector = collector.RunCollector(
                 commit=repo.head_commit(_REPO_ROOT),
-                dirty=repo.is_dirty(_REPO_ROOT),
+                dirty=repo.dirty_state(_REPO_ROOT),
                 hash_play=repo.sha256_file,
                 repo_root=_REPO_ROOT,
             )

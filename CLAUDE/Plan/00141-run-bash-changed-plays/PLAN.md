@@ -100,6 +100,21 @@ clicked. Instead one row opens a menu of the plays, where a person picks.
   `20261002-094803`, `failed=0` (`changed=0`: already in place); the logout and the row
   itself remain.
 
+### Phase 5: a dirty run is judged per input
+
+One stray untracked file under `CLAUDE/Plan/`, which no play reads, made every run record
+`dirty: true`, and every such play read stale whatever commit it ran at.
+
+- [x] ✅ **Task 5.1**: Each run records `dirty_paths` (modified, staged or untracked, at most
+  50\) and `dirty_paths_truncated`; `judge` stales a play for dirtiness only when a dirty path
+  is among its inputs or is the group_vars file, or when the record cannot name them all (cut,
+  unreadable, or written before the fields existed). The reason names the dirty inputs.
+  Defence Before Fix: `tests/helpers/play_ledger/test_dirty_judged_per_input.py` fails a
+  `git status` collapsed to one boolean and any read of a record's `dirty` outside
+  `ledger.recorded_dirty_paths`; it was red on `repo.is_dirty` and two reads in `judge`.
+  Records written before the change keep their old meaning until each play runs again.
+  Design: [DESIGN-play-ledger.md](../00109-desktop-drift-detection-and-fedora-desktop-panel/DESIGN-play-ledger.md).
+
 ## Success Criteria
 
 - [x] After a commit that changes only a file a play deploys, `--changed` runs that play.

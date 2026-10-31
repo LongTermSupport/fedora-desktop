@@ -57,35 +57,82 @@ class TestHeadCommit(unittest.TestCase):
             repo.head_commit("/repo", run=run)
 
 
-class TestIsDirty(unittest.TestCase):
+class TestDirtyState(unittest.TestCase):
     def test_empty_porcelain_output_is_clean(self) -> None:
         run = mock.Mock(return_value=_completed(""))
-        self.assertIs(repo.is_dirty("/repo", run=run), False)
+        state = repo.dirty_state("/repo", run=run)
+        self.assertEqual(state, repo.DirtyState(paths=(), truncated=False))
+        self.assertIs(state.dirty, False)
 
-    def test_whitespace_only_output_is_clean(self) -> None:
-        run = mock.Mock(return_value=_completed("\n  \n"))
-        self.assertIs(repo.is_dirty("/repo", run=run), False)
-
-    def test_any_porcelain_line_is_dirty(self) -> None:
-        run = mock.Mock(return_value=_completed(" M playbooks/imports/play-x.yml\n"))
-        self.assertIs(repo.is_dirty("/repo", run=run), True)
+    def test_each_modified_staged_or_untracked_path_is_named_sorted(self) -> None:
+        """Which paths, not whether: a play is stale only for a dirty path among its inputs."""
+        run = mock.Mock(return_value=_completed(
+            "?? CLAUDE/Plan/stray\0 M playbooks/imports/play-x.yml\0A  files/new.conf\0"))
+        state = repo.dirty_state("/repo", run=run)
+        self.assertEqual(state.paths, ("CLAUDE/Plan/stray", "files/new.conf", "playbooks/imports/play-x.yml"))
+        self.assertIs(state.truncated, False)
+        self.assertIs(state.dirty, True)
 
     def test_untracked_files_count_as_dirty(self) -> None:
         """An untracked play IS the case play_sha256 exists to catch."""
-        run = mock.Mock(return_value=_completed("?? playbooks/imports/play-new.yml\n"))
-        self.assertIs(repo.is_dirty("/repo", run=run), True)
+        run = mock.Mock(return_value=_completed("?? playbooks/imports/play-new.yml\0"))
+        self.assertEqual(repo.dirty_state("/repo", run=run).paths, ("playbooks/imports/play-new.yml",))
 
-    def test_returns_a_real_bool_not_a_truthy_string(self) -> None:
-        """build_record rejects a non-bool, and it is right to."""
-        run = mock.Mock(return_value=_completed(" M a\n"))
-        self.assertIsInstance(repo.is_dirty("/repo", run=run), bool)
+    def test_a_path_with_spaces_is_kept_whole(self) -> None:
+        run = mock.Mock(return_value=_completed(" M files/a b.conf\0"))
+        self.assertEqual(repo.dirty_state("/repo", run=run).paths, ("files/a b.conf",))
 
-    def test_asks_git_about_the_repo_root(self) -> None:
+    def test_more_paths_than_the_limit_are_cut_and_flagged(self) -> None:
+        """A cut list cannot clear any play, so the record says it was cut."""
+        run = mock.Mock(return_value=_completed("".join(f"?? f{n}\0" for n in range(5))))
+        state = repo.dirty_state("/repo", run=run, limit=3)
+        self.assertEqual(state.paths, ("f0", "f1", "f2"))
+        self.assertIs(state.truncated, True)
+        self.assertIs(state.dirty, True)
+
+    def test_an_entry_it_cannot_read_raises(self) -> None:
+        run = mock.Mock(return_value=_completed("garbage\0"))
+        with self.assertRaises(ValueError):
+            repo.dirty_state("/repo", run=run)
+
+    def test_asks_git_about_the_repo_root_for_every_untracked_file_without_renames(self) -> None:
+        """Without renames each entry is one path; with every untracked file, never a folder."""
         run = mock.Mock(return_value=_completed(""))
-        repo.is_dirty("/repo", run=run)
+        repo.dirty_state("/repo", run=run)
         argv = run.call_args.args[0]
         self.assertEqual(argv[:3], ["git", "-C", "/repo"])
-        self.assertIn("--porcelain", argv)
+        for flag in ("--porcelain=v1", "-z", "--no-renames", "--untracked-files=all"):
+            self.assertIn(flag, argv)
+        self.assertIs(run.call_args.kwargs["check"], True)
+
+    def test_against_real_git_each_file_is_named_never_its_folder(self) -> None:
+        env = {key: value for key, value in os.environ.items()
+               if key not in ("GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS")}
+        env |= {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+
+        def git(root: str, *args: str) -> None:
+            subprocess.run(["git", "-C", root, *args], check=True, capture_output=True, env=env)
+
+        def run(argv, **kwargs):
+            return subprocess.run(argv, env=env, **kwargs)
+
+        with tempfile.TemporaryDirectory() as root:
+            git(root, "init", "-q")
+            for name in ("kept.yml", "moved.yml"):
+                with open(os.path.join(root, name), "w", encoding="utf-8") as handle:
+                    handle.write("a\n")
+            git(root, "add", ".")
+            git(root, "-c", "user.email=t@example.com", "-c", "user.name=t", "-c", "commit.gpgsign=false",
+                "commit", "-q", "-m", "first")
+            self.assertEqual(repo.dirty_state(root, run=run), repo.DirtyState((), False))
+            with open(os.path.join(root, "kept.yml"), "a", encoding="utf-8") as handle:
+                handle.write("b\n")
+            git(root, "mv", "moved.yml", "renamed.yml")
+            os.makedirs(os.path.join(root, "CLAUDE", "Plan", "stray"))
+            with open(os.path.join(root, "CLAUDE", "Plan", "stray", "a b"), "w", encoding="utf-8") as handle:
+                handle.write("x")
+            self.assertEqual(repo.dirty_state(root, run=run).paths,
+                             ("CLAUDE/Plan/stray/a b", "kept.yml", "moved.yml", "renamed.yml"))
 
 
 class TestSha256File(unittest.TestCase):

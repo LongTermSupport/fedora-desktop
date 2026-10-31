@@ -182,7 +182,7 @@ def coverage_sentence(judgement: changed_plays.Judgement) -> str:
     sentence = (
         f"{judged_count} {'play' if judged_count == 1 else 'plays'} under playbooks/imports/ "
         "judged as run.bash --changed judges them: their own file and every checkout path "
-        "they deploy, their last run's outcome, and whether that run was from a dirty checkout"
+        "they deploy, their last run's outcome, and whether that run had one of them uncommitted"
     )
     unresolved = len(judgement.unresolved)
     if unresolved:

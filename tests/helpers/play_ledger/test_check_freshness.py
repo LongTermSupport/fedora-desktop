@@ -51,12 +51,13 @@ def _judgement(states: dict[str, str] | None = None, *, gone: tuple[str, ...] = 
                changed: dict[str, list[str]] | None = None, dirty: frozenset[str] = frozenset(),
                took_over: dict[str, list[str]] | None = None,
                not_judged: tuple[str, ...] = (),
-               changed_go: dict[str, dict[str, frozenset[str]]] | None = None) -> changed_plays.Judgement:
+               changed_go: dict[str, dict[str, frozenset[str]]] | None = None,
+               dirty_inputs: dict[str, list[str]] | None = None) -> changed_plays.Judgement:
     states = states or {}
     return changed_plays.Judgement(
         order=tuple(states) + gone, states=states, gone=gone, unresolved=unresolved or {},
         changed_inputs=changed or {}, dirty=dirty, took_over=took_over or {},
-        not_judged=not_judged, changed_go=changed_go or {},
+        not_judged=not_judged, changed_go=changed_go or {}, dirty_inputs=dirty_inputs or {},
     )
 
 
@@ -173,7 +174,17 @@ class TestFindings(unittest.TestCase):
             _seed(base, [A])
             _, out, _ = _run(base, _judgement({A: changed_plays.STATE_STALE}, dirty=frozenset({A})))
             self.assertEqual(out, f"{A} — changed since it was run here\n"
-                                  "    it last ran from a checkout with uncommitted changes\n")
+                                  "    it last ran from a checkout with uncommitted changes, "
+                                  "and the ledger does not name them all\n")
+
+    def test_a_dirty_run_names_the_uncommitted_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [A])
+            judgement = _judgement({A: changed_plays.STATE_STALE}, dirty=frozenset({A}),
+                                   dirty_inputs={A: ["files/a.conf"]})
+            _, out, _ = _run(base, judgement)
+            self.assertEqual(out, f"{A} — changed since it was run here\n"
+                                  "    it last ran with uncommitted changes to its inputs: files/a.conf\n")
 
     def test_a_failed_last_run_is_a_finding_of_its_own_kind(self) -> None:
         with tempfile.TemporaryDirectory() as base:
@@ -734,7 +745,9 @@ class TestAgreesWithRunBashChanged(unittest.TestCase):
                 with open(os.path.join(root, play), "rb") as handle:
                     digest = hashlib.sha256(handle.read()).hexdigest()
                 store.append_record(base, ledger.build_record(
-                    play=play, name=name, commit=first, dirty=name == "dirty",
+                    # Every run had a stray uncommitted file no play reads; only "dirty" had its own.
+                    play=play, name=name, commit=first, dirty=True,
+                    dirty_paths=["CLAUDE/Plan/stray", play] if name == "dirty" else ["CLAUDE/Plan/stray"],
                     play_sha256=digest, outcome="failed" if name == "failed" else "ok",
                     changed=0, started=STAMP, finished=STAMP,
                 ))

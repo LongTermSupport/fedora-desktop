@@ -18,7 +18,7 @@ import os
 from collections.abc import Callable
 from typing import Any, NamedTuple
 
-from helpers.play_ledger import ledger
+from helpers.play_ledger import ledger, repo
 
 
 class ResolvedPlay(NamedTuple):
@@ -47,7 +47,7 @@ class RunCollector:
         self,
         *,
         commit: str,
-        dirty: bool,
+        dirty: repo.DirtyState,
         hash_play: Callable[[str], str],
         repo_root: str,
     ) -> None:
@@ -120,7 +120,9 @@ class RunCollector:
                 play=play["relative"],
                 name=play["name"],
                 commit=self._commit,
-                dirty=self._dirty,
+                dirty=self._dirty.dirty,
+                dirty_paths=self._dirty.paths,
+                dirty_paths_truncated=self._dirty.truncated,
                 play_sha256=self._hash_play(play["absolute"]),
                 outcome=play["outcome"],
                 changed=play["changed"],

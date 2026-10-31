@@ -2,13 +2,15 @@
 
 A play has to run again when any of its inputs changed between the commit it last ran
 from and the working tree, when that last run did not succeed, or when it ran from a
-checkout with uncommitted changes. Its inputs are its own file and every checkout path it
+checkout with one of its inputs uncommitted. Its inputs are its own file and every checkout path it
 deploys, as `helpers/self_update/affected_plays.py` reads them from the play text. The
 group_vars file every play loads is judged a variable at a time instead: a play has to run
 again when a variable of it that changed is one the play's input files name
 (`helpers/play_ledger/group_vars.py` gives the rule). A
-dirty run is run again because what it deployed may be an edit since reverted, which no
-diff can show.
+run with an input uncommitted is run again because what it deployed may be an edit since
+reverted, which no diff can show. Which paths were uncommitted is recorded per run, so a
+stray file no play reads stales nothing; a record that cannot name them all (one from before
+they were kept, or a list cut at its limit) stales the play.
 
 Run it:
 
@@ -89,7 +91,9 @@ class Judgement:
 
     `order` is every play in `states` or `gone`, in the order a catch-up runs them.
     `changed_inputs` holds, for a stale play, the changed checkout paths among its inputs
-    (none when it is stale only because it ran dirty, which `dirty` says). `took_over`
+    (none when it is stale only because it ran dirty, which `dirty` says). `dirty` is the
+    plays whose last run had an input uncommitted: `dirty_inputs` names those inputs, and a
+    play in `dirty` but not there ran from a record that cannot name them all. `took_over`
     names, for a successor that has to run, the removed plays it takes over. `not_judged`
     is every ledgered play outside `playbooks/imports/`, which no catch-up runs.
     `changed_go` holds, for a stale play, the Go packages among its changed inputs, each
@@ -107,6 +111,7 @@ class Judgement:
     not_judged: tuple[str, ...]
     changed_go: dict[str, dict[str, frozenset[str]]] = field(default_factory=dict)
     changed_vars: dict[str, list[str]] = field(default_factory=dict)
+    dirty_inputs: dict[str, list[str]] = field(default_factory=dict)
 
     @property
     def runs(self) -> list[str]:
@@ -201,6 +206,8 @@ def judge(
     changed_go: dict[str, dict[str, frozenset[str]]] = {}
     changed_vars: dict[str, list[str]] = {}
     vars_since: dict[str, set[str]] = {}
+    dirty: set[str] = set()
+    dirty_inputs: dict[str, list[str]] = {}
     for play in host_plays:
         record = latest[play]
         commit = record["commit"]
@@ -228,7 +235,15 @@ def judge(
         changed = [path for path in diffs[commit] if affected_plays.affects(inputs, path)]
         if read:
             changed_vars[play] = read
-        if record["dirty"] or changed or read:
+        dirty_paths = ledger.recorded_dirty_paths(record)
+        if dirty_paths is None:
+            dirty.add(play)
+        else:
+            touched = [path for path in dirty_paths if _reads(inputs, path)]
+            if touched:
+                dirty.add(play)
+                dirty_inputs[play] = touched
+        if play in dirty or changed or read:
             states[play] = STATE_STALE
             changed_inputs[play] = changed
             go = affected_plays.go_changes(inputs, changed)
@@ -260,12 +275,23 @@ def judge(
         gone=tuple(gone),
         unresolved=unresolved,
         changed_inputs=changed_inputs,
-        dirty=frozenset(play for play in states if latest.get(play, {}).get("dirty")),
+        dirty=frozenset(dirty),
         took_over=took_over,
         not_judged=tuple(sorted(play for play in latest if not play.startswith(prefix))),
         changed_go=changed_go,
         changed_vars=changed_vars,
+        dirty_inputs=dirty_inputs,
     )
+
+
+def _reads(inputs: affected_plays.Inputs, path: str) -> bool:
+    """Whether an uncommitted `path` at a play's last run could have changed what it deployed.
+
+    The same inputs a committed change is judged against, and the group_vars file every play
+    loads: which of its variables an uncommitted edit touched is not recorded, so it counts
+    for every play.
+    """
+    return path == group_vars.GROUP_VARS or affected_plays.affects(inputs, path)
 
 
 def _shown(items: list[str], noun: str = "") -> str:
@@ -298,8 +324,12 @@ def reasons(judgement: Judgement, play: str) -> list[str]:
     variables = judgement.changed_vars.get(play, [])
     if variables:
         lines.append(f"changed variables of {group_vars.GROUP_VARS}: {_shown(variables, 'variable')}")
-    if play in judgement.dirty:
-        lines.append("it last ran from a checkout with uncommitted changes")
+    if play in judgement.dirty_inputs:
+        lines.append(f"it last ran with uncommitted changes to its inputs: "
+                     f"{_shown(judgement.dirty_inputs[play])}")
+    elif play in judgement.dirty:
+        lines.append("it last ran from a checkout with uncommitted changes, "
+                     "and the ledger does not name them all")
     return lines
 
 
