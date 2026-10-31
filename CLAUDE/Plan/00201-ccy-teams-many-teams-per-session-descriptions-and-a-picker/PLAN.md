@@ -353,6 +353,16 @@ a repository is no longer offered for a checkout of it. Report:
      play on a chooser team leaves its `ActiveEnterTimestamp` unchanged.
      Report: [subagent-reports/261027-host-run-fe89.md](subagent-reports/261027-host-run-fe89.md).
 
+- [x] ✅ **Task 2.32**: decision A12 ("default both to No"): ccy-teams' offers to start or open
+  something start on No (branch `fix/a12-confirm-default-no`, CCY 3.104.12). Tests first, red
+  before the fix. Seven: after create, the sign-in, "Open <team> in Element now?" and "Start a
+  ccy session in ... as a member of ...?"; the sign-in after an apply; "Open <team> in Element
+  now?" after a new password; the picker's "Start a ccy session in ...?" (both forms) and
+  "Update them now?". The class cannot be a rule (GoProjectRules.md "cannot be a rule": an offer
+  versus the step chosen is meaning); swept by reading, the questions left on Yes are listed
+  there. SPEC S-B15 and ACCEPTANCE step 2 say No. Host: `play-claude-yolo.yml` (queued in
+  `meta-deploy.list`).
+
 ## Success Criteria
 
 Proven by the host run of ACCEPTANCE-owner.md at F44 d247e4b2f (Task 2.7), and again at F44

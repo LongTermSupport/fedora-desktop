@@ -8,8 +8,8 @@ Do these in order, once. Each step names what you should see.
    pingbus plugin 1.2.3, Tuwunel 1.9.4, ccy-teams with the sign-in fixes); those deploys also
    applied every team. The deploy queue is empty, so do not run `meta-deploy.bash`.
 2. **Look at the teams.** In a terminal, `cd ~` first, then `ccy-teams`. Run it from your home
-   folder: inside a checkout it may offer to start a session there (default Yes), or to create
-   a team for it (default No). Every team row should read **up** and **up to date**. If it opens
+   folder: inside a checkout it may offer to start a session there, or to create
+   a team for it (both default No). Every team row should read **up** and **up to date**. If it opens
    with "Not as declared: ..." and "Update them now (play-agent-bus.yml)?", answer Yes. If it
    says "Team ... has no description.", choose "Describe <team> now" and write one line, or
    "Not now (ask again next time)" (Esc is the same); only "Never ask about <team>" stops it

@@ -32,3 +32,7 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Rebuilds and installs ccy-teams (CCY 3.104.12): its offers to sign in, open Element, start a
+# ccy session or update the teams now start on No. The image is unchanged, so no rebuild.
+playbooks/imports/play-claude-yolo.yml
