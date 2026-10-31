@@ -870,9 +870,18 @@ today; rewriting them is out of scope.
      accept-new, a declared fallback (`subagent-reports/261030-task-4.10-unit5-entrypoint.md`).
 
   All 8 instances are fixed; 7 now run in Go behind the rule, and B4 stays bash because it
-  runs in the image (a departure from A7a, put to the owner). Left: the host run of CCY
-  3.104.9 and 3.104.10 (one play-claude-yolo), and the owner's next normal launch, which
-  exercises units 1-4 for real.
+  runs in the image (a departure from A7a, put to the owner). Deployed on the host at
+  8a6396691 (2026-10-31: `ccy --version` 3.104.10, image 2.79.18).
+
+  6. ⬜ The qa-reviewer pass over units 1-5 (2026-10-31) found what is left: the play puts
+     the new bash in place before it builds the Go front it needs; `docs/ccy.md` lists two
+     front flags and still offers `claude-yolo.bash` without the front; the cleanup's option
+     b still says "could not be stopped (continuing)" and goes on (B7's class); and
+     `create_token` discards a new token when the check could not run (B2's class); with
+     three nits (`network inspect 2>&1`, a failed inspect read as "not a zombie", no test of
+     `--remove-network` exit 5).
+
+  Left: unit 6, then the owner's next normal launch, which exercises units 1-4 for real.
 
 ### Phase 5: Review
 

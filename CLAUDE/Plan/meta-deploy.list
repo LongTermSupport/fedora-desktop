@@ -32,14 +32,3 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-
-# CCY 3.104.9 (Plan 00191 Task 4.10 unit 4; 3.104.8 is already deployed): the container menus,
-# `ccy --top`, the stale-container cleanup and the Docker-network cleanup ask the Go front to
-# list containers, stop them and remove networks. A container or network that is already
-# gone says so; any other failure is shown with the engine's own words and stops the launch
-# (or `ccy --top`) instead of "may already be stopped", "may still have containers" or "no
-# containers found". CCY 3.104.10 (Task 4.10 unit 5, container 2.79.18) changes the image:
-# the entrypoint's GitHub host-key fetch now says what failed (DNS, connection, HTTP status,
-# a malformed answer) instead of "offline?". It rebuilds the ccy base image, so project
-# images rebuild at their next launch:
-playbooks/imports/play-claude-yolo.yml
