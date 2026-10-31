@@ -608,10 +608,13 @@ stt --short ~/mnt/<drive>/<recordings folder>  # only the accidental taps, a pat
 
 A path is a recording folder (a folder of audio parts plus the phone app's `manifest.json`),
 an audio file, or a folder of those. A recording is sent only once its manifest says
-`COMPLETE` and every part has synced with its recorded size and MD5, and an audio file with
+`COMPLETE`, or `INTERRUPTED` (stopped early, by a flat battery or a crash), and every part has
+synced with its recorded size and MD5. While it says `RECORDING` or `UPLOADING` it waits; any
+other state is a failure that names it. An audio file with
 no manifest once it has gone a minute unchanged; one shorter than
 `--min-seconds` (default 3) is skipped as an accidental recording. The sidecar has YAML front
-matter (source, length, language, model, and the audio it was made from: each part's size and
+matter (source, the manifest's `recording_state`, so an `INTERRUPTED` transcript says its end
+may be missing, length, language, model, and the audio it was made from: each part's size and
 MD5) and the text in paragraphs, each opened by its time. When a recording's audio no longer
 matches its sidecar (replaced or re-synced), `stt --list` shows it as `stale` and `stt`
 transcribes it again over the old sidecar; a folder is checked against its manifest without
@@ -629,7 +632,7 @@ stt_watch_folders:
 ```
 
 Nothing is sent early. A recording with a `manifest.json` waits until the manifest says
-`COMPLETE` and every part has synced, and a part whose size or MD5 is not the manifest's is a
+`COMPLETE` or `INTERRUPTED` and every part has synced, and a part whose size or MD5 is not the manifest's is a
 failure. An audio file with no manifest is sent once it has gone a minute unchanged, so a
 file still being copied in is left for a later run. Any folder can be watched. For an rclone
 mount, name the folder inside the mount, never the mountpoint (the play refuses one listed in

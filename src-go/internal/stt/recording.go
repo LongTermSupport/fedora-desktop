@@ -20,8 +20,16 @@ const (
 	sidecarSuffix = ".stt.md"
 	// frontMatter is how every sidecar stt writes begins (render).
 	frontMatter = "---\n"
-	complete    = "COMPLETE"
 )
+
+// manifestStates is every state the phone app's manifest can carry, each final (transcribed)
+// or not yet (waiting). A state not listed is a failure, never quietly one or the other.
+var manifestStates = map[string]bool{
+	"COMPLETE":    true,
+	"INTERRUPTED": true, // stopped early (flat battery, crash): the end may be missing
+	"RECORDING":   false,
+	"UPLOADING":   false,
+}
 
 var audioExtensions = []string{".ogg", ".opus", ".oga", ".m4a", ".mp3", ".wav", ".flac", ".webm", ".aac"}
 
@@ -37,6 +45,8 @@ type recording struct {
 	audio []audioPart
 	// stale is set by state when the sidecar's fingerprint does not match the audio (S19).
 	stale bool
+	// recordingState is the manifest's final state, filled by state; empty for a loose file.
+	recordingState string
 }
 
 // audioPart is one part of a recording as its sidecar records it (S19): from the manifest for
@@ -224,9 +234,14 @@ func (r *recording) readiness(c check) (state, string) {
 		return stateCorrupt, reason
 	}
 	r.audio = m.fingerprint()
-	if *m.State != complete {
+	final, known := manifestStates[*m.State]
+	switch {
+	case !known:
+		return stateCorrupt, "the manifest's state " + *m.State + " is not one stt knows"
+	case !final:
 		return stateWaiting, "the manifest says " + *m.State
 	}
+	r.recordingState = *m.State
 	if length := m.millis(); length < c.minMillis {
 		return stateShort, fmt.Sprintf("%.1f s", float64(length)/1000)
 	}

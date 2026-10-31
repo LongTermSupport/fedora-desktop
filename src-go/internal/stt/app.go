@@ -13,18 +13,19 @@
 //     returned and the count of segments already read, so the text is neither repeated nor
 //     another recording's. The sidecar is written beside the recording, atomically; its path
 //     is the line on stdout.
-//   - S2. The sidecar is YAML front matter (source, parts, duration, language, model,
-//     transcribed) and the text in paragraphs, a new one after a pause of 3 s or more, each
-//     opened by its time: `**[00:04:12]**`.
+//   - S2. The sidecar is YAML front matter (source, recording_state for a folder, parts,
+//     duration, language, model, transcribed) and the text in paragraphs, a new one after a
+//     pause of 3 s or more, each opened by its time: `**[00:04:12]**`.
 //   - S3. No speech is a sidecar saying so, so the recording is not sent again.
 //   - S4. A recording whose sidecar opens with stt's front matter is done and is not sent; a
 //     sidecar that is empty or does not (cut short, emptied, someone else's file) is a
 //     failure, never quietly done.
-//   - S5. A manifest whose state is not COMPLETE, or a part not there yet, is waiting: a line
-//     on stderr, not a failure.
+//   - S5. A manifest's state is final, COMPLETE or INTERRUPTED (stopped early: the end may be
+//     missing), and transcribed, its state written as `recording_state`; or not yet, RECORDING
+//     or UPLOADING, and waiting, as is a part not there yet: a line on stderr, not a failure.
 //   - S6. A part whose size or MD5 is not the manifest's is a failure.
 //   - S7. A manifest that does not parse, names no parts, names a part by a path, or lacks a
-//     checksum or a state, is a failure naming the manifest.
+//     checksum or a state, is a failure naming the manifest; so is a state not named in S5.
 //   - S8. A loose audio file (.ogg .opus .oga .m4a .mp3 .wav .flac .webm .aac) is a recording of
 //     one part; its sidecar is its name plus .stt.md. Other files, and folders with no
 //     manifest, are not recordings.
@@ -42,7 +43,7 @@
 //     runs; -h/--help the usage.
 //   - S16. The last stderr line counts the run: `transcribed N, already done N, waiting N`,
 //     and `, too short N (...)` when there are any.
-//   - S17. A complete recording whose manifest length (recordedMillis, else the parts'
+//   - S17. A final recording whose manifest length (recordedMillis, else the parts'
 //     durations) is under --min-seconds (default 3; accidental taps) is short: nothing is
 //     sent and no sidecar is written. --short prints only those paths, a line each, so they
 //     can be reviewed and removed. A loose audio file has no manifest length and is never short.

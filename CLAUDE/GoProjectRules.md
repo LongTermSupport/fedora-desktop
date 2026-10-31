@@ -798,6 +798,20 @@ guessing; the catalogue claims no more than the code does.
   says `ccy-teams apply <team>` is the way on; `add-repo` of a repository the team trusts is
   UNCHANGED; `drop-limit` and `admin.py add_member` are not adds of the same entry.
 
+- **A state machine that accepts one final state and silently waits on the others** (issue
+  #107): `stt` transcribed a recording only when its manifest said `COMPLETE`, and any other
+  state, `INTERRUPTED` (a recording stopped early) among them, was "waiting" for ever. Which
+  values of a state are final, and what "waiting" is, are facts about one producer's states and
+  one program's result type, not a shape: an analyzer could flag `x != "CONST"` before a return,
+  and would then flag every ordinary guard while missing a `switch` that lists one final case
+  and defaults to the wait. What holds it: `internal/stt`'s `manifestStates`, which names every
+  state as final or not and makes any other one a failure (S5, S7), and its tests of each
+  (`TestAnInterruptedRecordingIsTranscribedAndSaysSo`,
+  `TestARecordingStillBeingRecordedOrUploadedWaits`, `TestAnUnknownManifestStateIsAFailure`).
+  The sweep read `internal/stt` for other final-state checks: the server poll in `transcribe`
+  already names `running`, `done` and `failed` and fails on any other answer; the part and
+  loose-file waits are on presence and age, not on a state.
+
 - **A menu line offered as if it ran, where the screen it came from says it cannot** (Plan
   00177): outside a project folder the `ccy-teams` board said "Ctrl-N unavailable: ~ is not a
   project folder", and every team, person and member menu still offered "Start a ccy session in

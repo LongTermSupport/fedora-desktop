@@ -328,6 +328,7 @@ func TestTheSidecarHoldsFrontMatterAndTimedParagraphs(t *testing.T) {
 	wantCode(t, w.run(w.root), term.ExitOK, w)
 	want := `---
 source: "dictation-1"
+recording_state: "COMPLETE"
 parts: 2
 duration: "00:00:12"
 language: "en"
@@ -509,6 +510,56 @@ func TestARecordingNotYetCompleteWaits(t *testing.T) {
 	}
 }
 
+// S5. A recording the phone stopped early (a flat battery, a crash) is final too: it is
+// transcribed, and its sidecar says INTERRUPTED, so a reader knows the end may be missing.
+func TestAnInterruptedRecordingIsTranscribedAndSaysSo(t *testing.T) {
+	w := newWorld(t)
+	rec := w.recording("dictation-1", "INTERRUPTED", "aaa", "bbb")
+	wantCode(t, w.run(w.root), term.ExitOK, w)
+	if len(w.starts()) != 1 {
+		t.Fatalf("FILE_STARTs: %d, want 1", len(w.starts()))
+	}
+	if got := w.read(rec + ".stt.md"); !strings.Contains(got, "\nrecording_state: \"INTERRUPTED\"\n") {
+		t.Fatalf("sidecar does not carry the state:\n%s", got)
+	}
+}
+
+// S5. Only the two final states are transcribed: one still being recorded or uploaded waits.
+func TestARecordingStillBeingRecordedOrUploadedWaits(t *testing.T) {
+	for _, st := range []string{"RECORDING", "UPLOADING"} {
+		t.Run(st, func(t *testing.T) {
+			w := newWorld(t)
+			rec := w.recording("dictation-1", st, "aaa")
+			wantCode(t, w.run(w.root), term.ExitOK, w)
+			if len(w.starts()) != 0 || exists(rec+".stt.md") {
+				t.Fatal("a recording not yet final was transcribed")
+			}
+			if !strings.Contains(w.stderr.String(), "stt: waiting: "+rec+" (the manifest says "+st+")") {
+				t.Fatalf("stderr:\n%s", w.stderr.String())
+			}
+		})
+	}
+}
+
+// S7. A state stt does not know is neither final nor waiting: a failure naming it, never a
+// recording quietly left for ever or sent half made.
+func TestAnUnknownManifestStateIsAFailure(t *testing.T) {
+	w := newWorld(t)
+	rec := w.recording("dictation-1", "PAUSED", "aaa")
+	wantCode(t, w.run(w.root), term.ExitFailure, w)
+	if !strings.Contains(w.stderr.String(), "stt: "+rec+": the manifest's state PAUSED is not one stt knows") {
+		t.Fatalf("stderr:\n%s", w.stderr.String())
+	}
+	if len(w.starts()) != 0 || exists(rec+".stt.md") {
+		t.Fatal("a recording in an unknown state was transcribed")
+	}
+	w.stdout.Reset()
+	wantCode(t, w.run("--list", w.root), term.ExitOK, w)
+	if !strings.HasPrefix(w.stdout.String(), "corrupt\t"+rec+"\t") {
+		t.Fatalf("--list: %q", w.stdout.String())
+	}
+}
+
 // S6. A part whose checksum or size is not the manifest's is a corrupt recording: a failure.
 func TestACorruptPartIsAFailure(t *testing.T) {
 	for name, damage := range map[string]string{"checksum": "xyz", "size": "aaaa"} {
@@ -562,8 +613,12 @@ func TestALooseAudioFileIsARecordingOfOnePart(t *testing.T) {
 	if len(starts) != 1 || w.pathsOf(starts[0])[0] != memo {
 		t.Fatalf("FILE_STARTs: %v", starts)
 	}
-	if !strings.Contains(w.read(memo+".stt.md"), "parts: 1\n") {
+	sidecar := w.read(memo + ".stt.md")
+	if !strings.Contains(sidecar, "parts: 1\n") {
 		t.Fatal("the loose file's sidecar is missing")
+	}
+	if strings.Contains(sidecar, "recording_state") {
+		t.Fatalf("a loose file has no manifest state, but its sidecar names one:\n%s", sidecar)
 	}
 }
 

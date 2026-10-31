@@ -20,11 +20,14 @@ const (
 func render(r recording, done reply, segments []segment, now time.Time) string {
 	var b strings.Builder
 	b.WriteString(frontMatter)
+	fmt.Fprintf(&b, "source: %s\n", yamlScalar(filepath.Base(r.path)))
+	if r.recordingState != "" {
+		fmt.Fprintf(&b, "recording_state: %s\n", yamlScalar(r.recordingState))
+	}
 	for _, field := range []struct {
 		key   string
 		value any
 	}{
-		{"source", filepath.Base(r.path)},
 		{"parts", len(r.parts)},
 		{"duration", clock(done.Duration)},
 		{languageKey, done.Language},
