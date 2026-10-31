@@ -46,19 +46,29 @@ class ParsePasteTargetTest(unittest.TestCase):
     def test_a_gui_app(self):
         self.assertEqual(
             wsi_stream.parse_paste_target("('org.gnome.TextEditor', false, true, true, false)\n"),
-            ("org.gnome.TextEditor", False, True, True, False))
+            ("org.gnome.TextEditor", False, True, True, False, False))
 
     def test_a_terminal_not_yet_focused(self):
-        self.assertEqual(wsi_stream.parse_paste_target("('kitty', true, false, false, false)"),
-                         ("kitty", True, False, False, False))
+        self.assertEqual(wsi_stream.parse_paste_target("('kitty', true, false, false, false, false)"),
+                         ("kitty", True, False, False, False, False))
 
     def test_a_closed_window(self):
-        self.assertEqual(wsi_stream.parse_paste_target("('', false, false, false, true)"),
-                         ("", False, False, False, True))
+        self.assertEqual(wsi_stream.parse_paste_target("('', false, false, false, true, false)"),
+                         ("", False, False, False, True, False))
+
+    def test_another_ptyxis_tab_showing(self):
+        """Issue #106: a panel that watches a terminal's tabs adds tab_changed."""
+        self.assertEqual(
+            wsi_stream.parse_paste_target("('org.gnome.Ptyxis', true, false, true, false, true)"),
+            ("org.gnome.Ptyxis", True, False, True, False, True))
+
+    def test_a_panel_that_does_not_watch_tabs_never_says_the_tab_changed(self):
+        self.assertEqual(wsi_stream.parse_paste_target("('kitty', true, false, false, false)"),
+                         ("kitty", True, False, False, False, False))
 
     def test_a_panel_that_does_not_pin_answers_for_the_focused_window(self):
         self.assertEqual(wsi_stream.parse_paste_target("('kitty', true, false)"),
-                         ("kitty", True, False, True, False))
+                         ("kitty", True, False, True, False, False))
 
     def test_anything_else_is_no_answer(self):
         for reply in ("", "('kitty', true)", "(true, false, false)", "Error: no such method",
@@ -159,6 +169,17 @@ class PasteTargetNowTest(unittest.TestCase):
         settle_polls = round(wsi_stream.PASTE_FOCUS_SETTLE_SECONDS / wsi_stream.PASTE_FOCUS_POLL_SECONDS)
         self.assertEqual(self.ask(unfocused, focused, for_enter=True), (True, False, True))
         self.assertEqual(self.asked, 2 + settle_polls)
+
+    def test_another_ptyxis_tab_showing_is_not_pasted_into(self):
+        """Issue #106: nothing is pasted, and the panel is not asked again."""
+        with self.assertRaises(wsi_stream.PasteTargetUnavailable) as raised:
+            self.ask(completed("('org.gnome.Ptyxis', true, false, true, false, true)"))
+        self.assertIn("tab", str(raised.exception))
+        self.assertEqual(self.asked, 1)
+
+    def test_before_the_enter_another_ptyxis_tab_takes_no_enter(self):
+        with self.assertRaises(wsi_stream.PasteTargetUnavailable):
+            self.ask(completed("('org.gnome.Ptyxis', true, false, false, false, true)"), for_enter=True)
 
     def test_before_the_enter_a_closed_window_takes_no_enter(self):
         with self.assertRaises(wsi_stream.PasteTargetUnavailable) as raised:

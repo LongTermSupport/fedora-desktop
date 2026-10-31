@@ -156,6 +156,33 @@ func TestW31NothingIsPressedForAClosedOrUnfocusedWindow(t *testing.T) {
 	k.wantStderr("Nothing was pasted: the window this dictation started in would not take focus back")
 }
 
+// Issue #106: the panel says another Ptyxis tab is showing than at Insert; the text stays
+// on the clipboard and nothing is pressed, before the paste or before its Enter.
+func TestW31NothingIsPressedIntoAnotherTab(t *testing.T) {
+	const otherTab = "('org.gnome.Ptyxis', true, false, true, false, true)"
+	const sameTab = "('org.gnome.Ptyxis', true, false, true, false, false)"
+	k, code := paste(t, []string{otherTab}, "--paste-with-shift", "1")
+	if code != 1 || k.keys() != "" || k.asked != 1 || k.copied["wl-copy"] != "Hello world" {
+		t.Fatalf("exit %d keys %q asked %d copied %q", code, k.keys(), k.asked, k.copied)
+	}
+	if n := k.notes(); n[len(n)-1] != "'Nothing was pasted: the terminal tab this dictation started in is no longer the one showing. The text is on the clipboard: Ctrl+V.'|'dialog-error'|0" {
+		t.Fatalf("notes %q", n)
+	}
+
+	k, code = paste(t, []string{sameTab}, "--paste-with-shift", "0")
+	if code != 0 || k.keys() != ctrlShiftV+" | "+enterKey {
+		t.Fatalf("the same tab: exit %d keys %q", code, k.keys())
+	}
+
+	unfocusedTab := "('org.gnome.Ptyxis', true, false, false, false, false)"
+	retaken := append([]string{unfocusedTab}, repeat(sameTab, 6)...)
+	k, code = paste(t, append(retaken, otherTab), "--paste-with-shift", "1")
+	if code != 1 || k.keys() != ctrlShiftV {
+		t.Fatalf("another tab before the Enter: exit %d keys %q", code, k.keys())
+	}
+	k.wantStderr("[ERROR] The text was pasted but not sent: the terminal tab this dictation started in is no longer the one showing")
+}
+
 func TestW29TheLegacyPasteIsPrimaryAndShiftInsert(t *testing.T) {
 	k, code := paste(t, []string{editor})
 	if code != 0 || k.keys() != shiftIns+" | "+enterKey || k.asked != 0 || k.copied["wl-copy -p"] != "Hello world" {
