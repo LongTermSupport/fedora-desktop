@@ -32,14 +32,3 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-
-# CCY 3.104.12 and 3.104.13 (container 2.79.19, one image rebuild; project images rebuild at
-# their next launch). Issue #117: ccy-sessions (and the other ccy Go commands, which share the
-# screen reading) judge a restored session's input box by what it shows, so a visually empty
-# box is set going, and a box left alone as typed has its raw line printed. Plan 00201 A12:
-# ccy-teams' offers to sign in, open Element, start a ccy session or update the teams start on
-# No. Issue #116: the image's pingbus shows a watcher that keeps exiting in pingbus status and
-# the session start, stops on a failure a restart cannot fix, and reaps its finished child:
-playbooks/imports/play-claude-yolo.yml
-# Reinstall the agent-bus member kit with the same pingbus, for host and LXC members (issue #116).
-playbooks/imports/play-agent-bus.yml
