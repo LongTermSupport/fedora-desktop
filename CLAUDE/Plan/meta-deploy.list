@@ -33,7 +33,10 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Every play the ledger lists as stale (about 24): most only because a stray untracked file
-# (removed 2026-10-31) marked every run since 2026-10-28 dirty, the rest because their inputs
-# really changed. One clean run of each clears the owner's "this machine needs attention" list:
+# Every play the ledger lists as stale (about 24), in playbook-main order. Most are stale only
+# because a stray untracked file (removed 2026-10-31) marked every run since 2026-10-28 dirty;
+# one clean run of each clears the owner's "this machine needs attention" list. Among them,
+# for real changes: play-claude-yolo, CCY 3.104.14 (container 2.79.20, one image rebuild;
+# project images rebuild at their next launch): the playbook paths ccy prints for GitHub keys
+# and podman-compose are corrected (issue #109); and play-basic-configs installs btop (#109):
 changed-plays

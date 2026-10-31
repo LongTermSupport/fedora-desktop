@@ -197,7 +197,7 @@ else
     echo "     ccy --ssh-key ~/.ssh/github_<alias>"
     echo ""
     echo "     Set up github_ keys with:"
-    echo "     ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml"
+    echo "     ansible-playbook playbooks/imports/play-github-cli-multi.yml"
     echo ""
     echo "  2. Use existing SSH key:"
     echo "     ccy --ssh-key ~/.ssh/id_ed25519"

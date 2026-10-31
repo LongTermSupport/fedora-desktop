@@ -58,7 +58,7 @@ When creating a new playbook file, ALWAYS:
 Then make it executable:
 
 ```bash
-chmod +x playbooks/path/to/new-playbook.yml
+chmod +x playbooks/<path>/<new-playbook>.yml
 ```
 
 ### Automated Script

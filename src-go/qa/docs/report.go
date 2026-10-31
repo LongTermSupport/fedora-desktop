@@ -93,7 +93,7 @@ func (g *gate) finish(population []string, tracked trackedPaths, findings []find
 	files := fmt.Sprintf("%d files (%d tracked)", len(population), tracked.trackedCount(population))
 	counts := fmt.Sprintf("VENDORED: %d verified, %d unverifiable (repo absent), %d broken", vendored.OK, vendored.Unverifiable, len(vendored.Broken))
 	if len(findings) == 0 {
-		fmt.Fprintf(&g.stdout, "✓ docs: %s OK (links, anchors, playbook catalogue, topic index, gate inventory) — %s\n", files, counts)
+		fmt.Fprintf(&g.stdout, "✓ docs: %s OK (links, anchors, playbook catalogue, playbook paths, topic index, gate inventory) — %s\n", files, counts)
 		return ExitOK, nil
 	}
 	fmt.Fprintf(&g.stdout, "✗ docs: %d finding(s) across %s — %s\n", len(findings), files, counts)

@@ -137,7 +137,7 @@ The main playbook configures these essentials without any interaction:
 **System Foundations**
 
 - Optimized DNF configuration (10 parallel downloads)
-- Essential packages (vim, wget, htop, bash-completion, ripgrep)
+- Essential packages (vim, wget, htop, btop, bash-completion, ripgrep)
 - Microsoft fonts for document compatibility
 - RPM Fusion repositories (free and non-free)
 
