@@ -52,14 +52,26 @@ def _retired_history(root: str, commit: str, play: str) -> bool:
     return play in INPUTS
 
 
-def _seed(base: str, runs: list[tuple[str, str, str]], *, dirty: frozenset[str] = frozenset()) -> None:
-    """runs: (play, commit, outcome). A play named in `dirty` ran from a dirty checkout."""
+def _seed(base: str, runs: list[tuple[str, str, str]], *, dirty: frozenset[str] = frozenset(),
+          dirty_paths: dict[str, list[str]] | None = None, truncated: frozenset[str] = frozenset(),
+          legacy: frozenset[str] = frozenset()) -> None:
+    """runs: (play, commit, outcome). A play named in `dirty` ran with its own file uncommitted;
+    `dirty_paths` gives a play's run the paths that were uncommitted instead. A play in
+    `truncated` ran with more uncommitted paths than were kept; one in `legacy` has a record
+    from before the paths were kept: `dirty: true` and nothing else."""
     store.ensure_ledger(base, commit=COMMIT_A, at=STAMP)
+    named = {play: [play] for play in dirty} | (dirty_paths or {})
     for play, commit, outcome in runs:
-        store.append_record(base, ledger.build_record(
-            play=play, name=play, commit=commit, dirty=play in dirty, play_sha256=SHA,
+        paths = named.get(play, [])
+        record = ledger.build_record(
+            play=play, name=play, commit=commit, dirty=bool(paths) or play in truncated,
+            dirty_paths=paths, dirty_paths_truncated=play in truncated, play_sha256=SHA,
             outcome=outcome, changed=0, started=STAMP, finished=STAMP,
-        ))
+        )
+        if play in legacy:
+            record = {key: value for key, value in record.items()
+                      if key not in ("dirty_paths", "dirty_paths_truncated")} | {"dirty": True}
+        store.append_record(base, record)
 
 
 INPUTS = {
@@ -199,6 +211,45 @@ class TestWhatRuns(_Case):
             _seed(base, [(YOLO, COMMIT_A, "ok"), (BASIC, COMMIT_A, "ok")], dirty=frozenset({YOLO}))
             _, out, _ = self._run(base, changed={})
             self.assertEqual(out, f"RUN {YOLO}\n")
+
+    def test_an_uncommitted_file_no_play_reads_stales_nothing(self) -> None:
+        """The defect of 2026-10-31: one stray file under CLAUDE/Plan/ staled every play."""
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [(YOLO, COMMIT_A, "ok"), (BASIC, COMMIT_A, "ok")],
+                  dirty_paths={YOLO: ["CLAUDE/Plan/stray"], BASIC: ["CLAUDE/Plan/stray"]})
+            code, out, _ = self._run(base, changed={})
+            self.assertEqual((code, out), (changed_plays.EXIT_OK, ""))
+
+    def test_an_uncommitted_input_stales_only_the_play_that_reads_it(self) -> None:
+        deployed = "files/var/local/claude-yolo/lib/x.bash"
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [(YOLO, COMMIT_A, "ok"), (BASIC, COMMIT_A, "ok")],
+                  dirty_paths={YOLO: ["CLAUDE/Plan/stray", deployed], BASIC: ["CLAUDE/Plan/stray", deployed]})
+            _, out, err = self._run(base, changed={})
+            self.assertEqual(out, f"RUN {YOLO}\n")
+            self.assertIn(f"changed-plays: {YOLO}: it last ran with uncommitted changes to its inputs: "
+                          f"{deployed}\n", err)
+            self.assertNotIn("CLAUDE/Plan/stray", err)
+
+    def test_an_uncommitted_group_vars_file_stales_every_play(self) -> None:
+        """Every play loads it, and which variable the edit touched is not recorded."""
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [(YOLO, COMMIT_A, "ok"), (BASIC, COMMIT_A, "ok")],
+                  dirty_paths={YOLO: [GROUP_VARS], BASIC: [GROUP_VARS]})
+            _, out, _ = self._run(base, changed={})
+            self.assertEqual(out, f"RUN {BASIC}\nRUN {YOLO}\n")
+
+    def test_a_record_that_cannot_name_every_dirty_path_stales_the_play(self) -> None:
+        """A record from before the paths were kept, or a cut list: today's meaning, stale."""
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [(YOLO, COMMIT_A, "ok"), (BASIC, COMMIT_A, "ok")],
+                  dirty_paths={YOLO: ["CLAUDE/Plan/stray"]}, truncated=frozenset({YOLO}),
+                  legacy=frozenset({BASIC}))
+            _, out, err = self._run(base, changed={})
+            self.assertEqual(out, f"RUN {BASIC}\nRUN {YOLO}\n")
+            for play in (BASIC, YOLO):
+                self.assertIn(f"changed-plays: {play}: it last ran from a checkout with uncommitted "
+                              "changes, and the ledger does not name them all\n", err)
 
 
 class TestReasons(_Case):

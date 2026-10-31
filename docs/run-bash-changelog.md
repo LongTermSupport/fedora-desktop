@@ -15,6 +15,13 @@ the index, not the record.
 
 ---
 
+## 1.36.1 — the dirty-checkout warning says only a play reading the change is offered again (Plan 00141)
+
+A play run now records which paths were uncommitted, and `--changed` offers a play again only
+when one of them is its own input (or the list was cut, or the record predates the list). The
+warning before `--changed` and `--rerun` says so, instead of promising every play is offered
+again.
+
 ## 1.36.0 — a failed optional play no longer ends the developer run (Plan 00228 Task 6.6)
 
 The headless `RUN_BASH_OPTIONAL_PLAYBOOKS` list, the attended menu (a number, A, W and B), the

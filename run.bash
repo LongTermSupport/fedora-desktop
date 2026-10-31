@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.36.0"
+RUN_BASH_VERSION="1.36.1"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -2039,9 +2039,9 @@ play_batch_preflight(){
   fi
 }
 
-# play_batch_warn_dirty <flag> — a run from a dirty checkout is recorded as dirty, and the
-# helper offers a dirty run again because no diff can show what it deployed. Say so now,
-# not on the next run.
+# play_batch_warn_dirty <flag> — a run records the checkout's uncommitted paths, and the
+# helper offers a play again when one of them was its input, because no diff can show what
+# it deployed. Say so now, not on the next run.
 play_batch_warn_dirty(){
   local _flag="$1" _dirty
   if ! _dirty="$(git -C "$_play_repo" status --porcelain)"; then
@@ -2049,7 +2049,7 @@ play_batch_warn_dirty(){
       "fix the checkout, then run ./run.bash ${_flag} again"
   fi
   if [[ -n "$_dirty" ]]; then
-    warning "The checkout has uncommitted changes. These plays will be recorded as run from a dirty checkout, and --changed will offer them again until they run from a clean one."
+    warning "The checkout has uncommitted changes. A play that reads one of them will be recorded as run with it uncommitted, and --changed will offer them again until they run with it committed."
   fi
 }
 

@@ -64,9 +64,11 @@ own file or a file it includes, templates, copies or runs (`helpers/play_ledger/
 has the full rule). Before the
 list, it says why each play runs, one line each: the changed paths, the changed Go
 packages by package with the commands built from them, such as
-`src-go/internal/ui (built into podfreeze)`, and the changed variables it reads. It also runs again when its last run failed, or when that run
-came from a checkout with uncommitted changes, so while the checkout stays dirty it
-offers the same plays each time, and it warns about this before it asks. A removed play
+`src-go/internal/ui (built into podfreeze)`, and the changed variables it reads. It also runs again when its last run failed, or when one of
+its inputs (or the group_vars file) was uncommitted during that run: each run records which
+paths were uncommitted, so a stray file no play reads makes no play run again. A record
+that cannot name them all (one from before they were recorded, or more than 50) counts as
+any input. It warns about this before it asks. A removed play
 that has a successor in `helpers/play_ledger/retired-plays.json` runs that successor
 instead. It also names any play it cannot judge (one holding a reference it cannot
 follow), and any other play that is no longer in the checkout. It runs neither.
