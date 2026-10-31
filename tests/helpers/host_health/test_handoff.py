@@ -117,6 +117,36 @@ class TestWrite(unittest.TestCase):
             self.assertEqual(os.stat(path).st_mode & 0o077, 0)
 
 
+class TestClear(unittest.TestCase):
+    """A clean collection removes the last one's handoff (Plan 00141).
+
+    The handoff is written only when there is something to diagnose, so without this a
+    host that was fixed keeps the file describing the break, collected before the fix
+    and still offered as the current state.
+    """
+
+    def test_the_written_file_is_removed(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            path = handoff.write(base, findings=FINDINGS, kernel="7.2.4", at=NOW)
+            handoff.clear(base)
+            self.assertFalse(os.path.exists(path))
+
+    def test_no_file_and_no_directory_are_both_already_clear(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            handoff.clear(base)
+            handoff.clear(os.path.join(base, "never-made"))
+            with open(os.path.join(base, "a-file"), "w", encoding="utf-8") as handle:
+                handle.write("not a directory")
+            handoff.clear(os.path.join(base, "a-file"))
+
+    def test_any_other_failure_raises(self) -> None:
+        """A file that could not be removed is still there and still believed."""
+        with tempfile.TemporaryDirectory() as base:
+            os.makedirs(os.path.join(base, handoff.FILE_NAME))
+            with self.assertRaises(OSError):
+                handoff.clear(base)
+
+
 class TestTheOffer(unittest.TestCase):
     def test_the_offer_names_the_file_and_the_command(self) -> None:
         line = handoff.offer("/somewhere/findings.md")

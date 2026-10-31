@@ -190,7 +190,8 @@ def publish(
     checked — this plan's own defect, moved into the file format. `ok` is a result.
 
     (The handoff file is the opposite case and correctly conditional: it exists to be
-    handed to Claude Code, and a healthy host has nothing to diagnose.)
+    handed to Claude Code, and a healthy host has nothing to diagnose, so a clean run
+    removes the last one rather than writing it.)
 
     `handoff` is the path of that file when one was written, `""` otherwise. It is
     passed in rather than derived here, because only the caller knows whether the write
@@ -242,6 +243,10 @@ def record_host_state(
     they are different kinds of thing — the handoff is part of the report the user is
     reading, and the document is machinery.
 
+    A collection that writes no handoff removes the previous one, and a removal that
+    fails is reported like a failed write: the old file would otherwise describe an
+    earlier run, collected before whatever fixed it, as the current state.
+
     Returns the handoff path, or `""` when there are no findings or the write failed.
     """
     handoff_path = ""
@@ -254,6 +259,11 @@ def record_host_state(
             )
         except Exception as error:
             out(f"the handoff file could not be written: {error}\n")
+    if not handoff_path:
+        try:
+            handoff.clear(ledger_base)
+        except Exception as error:
+            out(f"the previous handoff file could not be removed: {error}\n")
 
     # Unconditional: a clean host must be distinguishable from one nothing has checked.
     try:
