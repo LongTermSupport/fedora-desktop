@@ -21,8 +21,8 @@
 //     sidecar that is empty or does not (cut short, emptied, someone else's file) is a
 //     failure, never quietly done.
 //   - S5. A manifest's state is final, COMPLETE or INTERRUPTED (stopped early: the end may be
-//     missing), and transcribed, its state written as `recording_state`; or not yet, RECORDING
-//     or UPLOADING, and waiting, as is a part not there yet: a line on stderr, not a failure.
+//     missing), and transcribed, its state written as `recording_state`; or not yet, ACTIVE,
+//     and waiting, as is a part not there yet: a line on stderr, not a failure.
 //   - S6. A part whose size or MD5 is not the manifest's is a failure.
 //   - S7. A manifest that does not parse, names no parts, names a part by a path, or lacks a
 //     checksum or a state, is a failure naming the manifest; so is a state not named in S5.

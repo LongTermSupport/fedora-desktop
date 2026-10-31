@@ -491,7 +491,7 @@ func TestPartsGoInManifestOrder(t *testing.T) {
 // a failure.
 func TestARecordingNotYetCompleteWaits(t *testing.T) {
 	w := newWorld(t)
-	w.recording("dictation-1", "RECORDING", "aaa")
+	w.recording("dictation-1", "ACTIVE", "aaa")
 	rec := w.recording("dictation-2", "COMPLETE", "aaa", "bbb")
 	if err := os.Remove(rec + "/dictation-2-002.ogg"); err != nil {
 		t.Fatal(err)
@@ -501,7 +501,7 @@ func TestARecordingNotYetCompleteWaits(t *testing.T) {
 		t.Fatal("an incomplete recording was transcribed")
 	}
 	for _, want := range []string{
-		"stt: waiting: " + w.root + "/dictation-1 (the manifest says RECORDING)",
+		"stt: waiting: " + w.root + "/dictation-1 (the manifest says ACTIVE)",
 		"stt: waiting: " + rec + " (part 2, dictation-2-002.ogg, has not synced yet)",
 	} {
 		if !strings.Contains(w.stderr.String(), want) {
@@ -526,7 +526,7 @@ func TestAnInterruptedRecordingIsTranscribedAndSaysSo(t *testing.T) {
 
 // S5. Only the two final states are transcribed: one still being recorded or uploaded waits.
 func TestARecordingStillBeingRecordedOrUploadedWaits(t *testing.T) {
-	for _, st := range []string{"RECORDING", "UPLOADING"} {
+	for _, st := range []string{"ACTIVE"} {
 		t.Run(st, func(t *testing.T) {
 			w := newWorld(t)
 			rec := w.recording("dictation-1", st, "aaa")
@@ -767,9 +767,9 @@ func TestListShowsEachRecordingAndRunsNothing(t *testing.T) {
 	doneRec := w.recording("dictation-1", "COMPLETE", "aaa")
 	w.write("dictation-1.stt.md", earlierSidecar)
 	pending := w.recording("dictation-2", "COMPLETE", "bbb")
-	waiting := w.recording("dictation-3", "RECORDING", "ccc")
+	waiting := w.recording("dictation-3", "ACTIVE", "ccc")
 	wantCode(t, w.run("--list", w.root), term.ExitOK, w)
-	want := "done\t" + doneRec + "\npending\t" + pending + "\nwaiting\t" + waiting + "\tthe manifest says RECORDING\n"
+	want := "done\t" + doneRec + "\npending\t" + pending + "\nwaiting\t" + waiting + "\tthe manifest says ACTIVE\n"
 	if got := w.stdout.String(); got != want {
 		t.Fatalf("--list:\n%s\nwant:\n%s", got, want)
 	}
@@ -862,7 +862,7 @@ func TestTheSummary(t *testing.T) {
 	w.recording("dictation-1", "COMPLETE", "aaa")
 	w.write("dictation-1.stt.md", earlierSidecar)
 	w.recording("dictation-2", "COMPLETE", "bbb")
-	w.recording("dictation-3", "RECORDING", "ccc")
+	w.recording("dictation-3", "ACTIVE", "ccc")
 	wantCode(t, w.run(w.root), term.ExitOK, w)
 	if !strings.Contains(w.stderr.String(), "stt: transcribed 1, already done 1, waiting 1\n") {
 		t.Fatalf("stderr:\n%s", w.stderr.String())

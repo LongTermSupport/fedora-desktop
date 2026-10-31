@@ -22,13 +22,15 @@ const (
 	frontMatter = "---\n"
 )
 
-// manifestStates is every state the phone app's manifest can carry, each final (transcribed)
-// or not yet (waiting). A state not listed is a failure, never quietly one or the other.
+// manifestStates is every state the phone app's manifest can carry (its SessionState enum:
+// ACTIVE, COMPLETE, INTERRUPTED), each final (transcribed) or not yet (waiting). The app
+// uploads manifest.json only once the session has stopped, so ACTIVE should never arrive; it
+// still means "being recorded", so it waits. A state not listed is a failure, never quietly
+// one or the other.
 var manifestStates = map[string]bool{
 	"COMPLETE":    true,
 	"INTERRUPTED": true, // stopped early (flat battery, crash): the end may be missing
-	"RECORDING":   false,
-	"UPLOADING":   false,
+	"ACTIVE":      false,
 }
 
 var audioExtensions = []string{".ogg", ".opus", ".oga", ".m4a", ".mp3", ".wav", ".flac", ".webm", ".aac"}

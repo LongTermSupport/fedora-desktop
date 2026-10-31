@@ -609,7 +609,8 @@ stt --short ~/mnt/<drive>/<recordings folder>  # only the accidental taps, a pat
 A path is a recording folder (a folder of audio parts plus the phone app's `manifest.json`),
 an audio file, or a folder of those. A recording is sent only once its manifest says
 `COMPLETE`, or `INTERRUPTED` (stopped early, by a flat battery or a crash), and every part has
-synced with its recorded size and MD5. While it says `RECORDING` or `UPLOADING` it waits; any
+synced with its recorded size and MD5. While it says `ACTIVE` it waits (the app uploads the
+manifest only once recording has stopped, so this should not happen); any
 other state is a failure that names it. An audio file with
 no manifest once it has gone a minute unchanged; one shorter than
 `--min-seconds` (default 3) is skipped as an accidental recording. The sidecar has YAML front
