@@ -499,6 +499,20 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   `prune-runs --yes` printed `VMTEST-PRUNE-ORPHAN 20261029T145952Z-server-fast-provision removed vmtest-run-20261029T145952Z-server-fast-provision` (destroyed, then undefined), and
   its overlay went with the run's; 43.3 GiB freed from 5 runs.
 
+- [ ] 🔄 **Task 3.18**: FOLLOW-UP of issue #106 (owner sheet A13, decided by review: option
+  1): speech-to-text sent the Enter, or the save (Ctrl+S), after the paste without asking
+  the panel again unless focus had been given back during the dictation, so a focus or tab
+  change in the 0.3 s wait sent it to another window. Class: a synthetic keystroke sent to
+  whatever has focus without re-checking the target it was meant for. Now both `wsi`
+  (`internal/wsi/paste.go`, SPEC W33) and `wsi-stream` ask the panel again before every
+  Enter or save, keeping the 1 s wait only after a retake; a changed target is refused with
+  `The text was pasted but not sent: <why>`. Red then green in both suites. Sweep:
+  `clean-paste` (the user's own shortcut into the focused window, no pinned target) and the
+  tmux `send-keys` calls (an explicit pane target) are not in the class. No analyzer: the
+  rule is an ordering across functions (a press preceded by a fresh panel answer) that
+  neither `go/analysis` nor semgrep can state without naming these two flows; the W33 tests
+  hold it. Left: the host run (`changed-plays` in `meta-deploy.list`).
+
 ### Phase 4: Review
 
 - [x] ✅ **Task 4.1**: Fable adversarial review of the rule, gate, rules and rewrites; findings

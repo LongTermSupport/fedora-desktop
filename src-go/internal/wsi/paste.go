@@ -326,14 +326,21 @@ func (r *run) readSelection(ctx context.Context, selection string) (string, stri
 	return stdout.String(), ""
 }
 
-// beforeEnter is W33's wait, and the second question after a retake.
+// beforeEnter is W33: the wait, then the panel asked again before any Enter or save, since
+// focus can move during the wait after any paste. A retake can be undone by whatever took
+// focus during the dictation, so it is given longer to show. Without --paste-with-shift
+// no window was pinned at Insert, so there is nothing to ask about.
 func (r *run) beforeEnter(ctx context.Context) error {
-	if !r.refocused || r.o.skipEnter {
+	keyDue := !r.o.skipEnter || r.saveAfter
+	if !r.refocused || !keyDue {
 		r.env.Sleep(enterDelay)
+	} else {
+		r.log.info("Waiting 1.0 s before the Enter: focus was given back for this paste")
+		r.env.Sleep(enterDelayAfterRetake)
+	}
+	if !keyDue || r.o.pasteWithShift == "" {
 		return nil
 	}
-	r.log.info("Waiting 1.0 s before the Enter: focus was given back for this paste")
-	r.env.Sleep(enterDelayAfterRetake)
 	r.askPanel(ctx, true)
 	if r.target == targetReady {
 		return nil

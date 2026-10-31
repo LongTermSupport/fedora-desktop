@@ -865,19 +865,23 @@ def auto_paste(text, skip_enter=False, paste_with_shift=True):
             else:
                 press(env, KEY_CTRL, KEY_V)  # every other app
                 log("Paste simulated via Ctrl+V")
-            if refocused and not skip_enter:
+            key_due = not skip_enter or save_after
+            if refocused and key_due:
+                # A retake can be undone by whatever took focus during the dictation, so
+                # it is given longer to show before the panel is asked again (Plan 00164)
                 log(f"Waiting {PASTE_ENTER_DELAY_AFTER_REFOCUS_SECONDS} s before the Enter: "
                     f"focus was given back for this paste")
                 time.sleep(PASTE_ENTER_DELAY_AFTER_REFOCUS_SECONDS)
-                # Focus can move away again after the retake (Plan 00164): asked again, the
-                # panel gives it back once more, or there is no window to send the Enter to
+            else:
+                # Longer delay for longer text
+                time.sleep(min(0.3 + len(text) * 0.002, 1.0))
+            if key_due:
+                # Focus can move during the wait after any paste: asked again, the panel
+                # gives it back, or there is no window to send the Enter or the save to
                 try:
                     paste_target_now(with_shift, for_enter=True)
                 except PasteTargetUnavailable as e:
                     raise EnterNotSent(str(e)) from e
-            else:
-                # Longer delay for longer text
-                time.sleep(min(0.3 + len(text) * 0.002, 1.0))
 
         if not skip_enter:
             press(env, KEY_ENTER)
