@@ -37,5 +37,6 @@
 # libraries and the bash launcher that ask it questions, so a failed build leaves ccy working.
 # The cross-engine Docker cleanup (both options) stops with the engine's words when a
 # listing, stop or prune fails, instead of going on; a new token whose check could not run is
-# kept, not thrown away; the orphan scan says when an inspect failed. The image is unchanged:
+# kept, not thrown away; the orphan scan says when an inspect failed. No image file changed,
+# but any CCY bump rebuilds the ccy base image, so project images rebuild at their next launch:
 playbooks/imports/play-claude-yolo.yml
