@@ -490,6 +490,7 @@ func (c *Collector) addTeamRows(s *Snapshot, team string, seats []seatAt, r read
 	if err != nil {
 		where += ", " + err.Error()
 	}
+	s.LXC[team] = lxc
 	s.Rows = append(s.Rows, Row{
 		Team: team, Member: s.aboutTeam(team), Kind: KindTeam, State: state, Applied: s.StatusWord(team),
 		Session: "-", Restore: "-", Where: where, Handle: "-", Dir: "-",

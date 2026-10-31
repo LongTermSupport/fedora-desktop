@@ -1,6 +1,7 @@
 // Package board is the table of teams, seats and people ccy-teams shows: one pass over the
 // machine (systemd, tmux, the session registry, the declaration, agent-bus) read into a
-// Snapshot of rows, and the --list flow that prints it. It owns what a row says and how it is
+// Snapshot of rows, and the --list flow that prints it and the --graph flow that draws it as a
+// Mermaid flowchart. It owns what a row says and how it is
 // painted; what to do about a row is the picker's.
 package board
 
@@ -27,6 +28,13 @@ const (
 	KindCcy   Kind = "ccy"
 	KindHuman Kind = "human"
 )
+
+// kindLxc is the KIND of an LXC container's agent, one of the type words a member is listed
+// with; untyped, so it is not a fourth case every switch on Kind must take.
+const kindLxc = "lxc"
+
+// wordParked is the STATE of a member that is parked.
+const wordParked = "parked"
 
 // Kind is a row's KIND. A member that is not run by ccy (lxc, docker, vm, host) carries the
 // type word it was listed with.
@@ -248,7 +256,7 @@ func (t Table) line(cells [columns]string, dress func(i int, padded string) stri
 // wordColour is the colour a status word is shown in, or "" for none.
 func wordColour(word string) string {
 	switch {
-	case isOneOf(word, "free", "invited", "no", "parked", "deferred", "never signed in"), strings.HasSuffix(word, "(stopped)"):
+	case isOneOf(word, "free", "invited", "no", wordParked, "deferred", "never signed in"), strings.HasSuffix(word, "(stopped)"):
 		return cYellow
 	case isOneOf(word, "up", "active", "held", "in room", "yes"), strings.HasSuffix(word, " signed in"):
 		return cGreen

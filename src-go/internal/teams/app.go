@@ -2,7 +2,7 @@
 // It parses the command line, checks that CCY is installed here and hands the subcommand to the
 // package that owns it:
 //
-//	board   the table of teams, seats and people, and --list
+//	board   the table of teams, seats and people, --list, and --graph (the same as a Mermaid flowchart)
 //	picker  the interactive list (no argument), with the seats, login and create flows it calls
 //	ops     apply, remove, backup and restore
 //	create  the create wizard
@@ -174,7 +174,7 @@ func (a *App) run(ctx context.Context, args []string) term.ExitCode {
 	switch sub {
 	case "", "create", "lxc-add", "apply", "remove", "backup", "restore", "shutdown", subRestart, subWindDown, "for-checkout", "record-seats",
 		"choose-seat", "describe-seats", subChooseTeams, subInternal, subSession:
-	case "-l", "--list":
+	case "-l", "--list", subGraph:
 		if len(args) > 1 {
 			return a.usageError(fmt.Sprintf("'%s' takes no further arguments.", sub))
 		}
@@ -223,11 +223,22 @@ func (a *App) dispatch(ctx context.Context, sub string, rest []string) term.Exit
 		return a.Choose.Seat(ctx, rest)
 	case "describe-seats":
 		return a.Choose.Describe(ctx, rest)
-	case "-l", "--list":
-		return a.Board.List(ctx)
+	case "-l", "--list", subGraph:
+		return a.printBoard(ctx, sub)
 	default:
 		return a.Picker.Run(ctx)
 	}
+}
+
+// subGraph is `ccy-teams --graph`: the --list pass drawn as a Mermaid flowchart.
+const subGraph = "--graph"
+
+// printBoard is the two printouts of the board: the table (--list) or the flowchart (--graph).
+func (a *App) printBoard(ctx context.Context, sub string) term.ExitCode {
+	if sub == subGraph {
+		return a.Board.Graph(ctx)
+	}
+	return a.Board.List(ctx)
 }
 
 // subRestart is `ccy-teams restart`, subWindDown `ccy-teams wind-down`.

@@ -61,9 +61,10 @@ func TestHelpPrintsTheUsageToStdout(t *testing.T) {
 
 func TestUsageErrors(t *testing.T) {
 	cases := map[string][]string{
-		"ccy-teams: unknown option '--nope'. See ccy-teams --help.\n":             {"--nope"},
-		"ccy-teams: '--list' takes no further arguments. See ccy-teams --help.\n": {"--list", "x"},
-		"ccy-teams: '-l' takes no further arguments. See ccy-teams --help.\n":     {"-l", "x"},
+		"ccy-teams: unknown option '--nope'. See ccy-teams --help.\n":              {"--nope"},
+		"ccy-teams: '--list' takes no further arguments. See ccy-teams --help.\n":  {"--list", "x"},
+		"ccy-teams: '-l' takes no further arguments. See ccy-teams --help.\n":      {"-l", "x"},
+		"ccy-teams: '--graph' takes no further arguments. See ccy-teams --help.\n": {"--graph", "x"},
 	}
 	for want, args := range cases {
 		h := newHarness(t)
@@ -110,6 +111,23 @@ func TestDispatchListIsTheBoard(t *testing.T) {
 	}
 	if !strings.HasPrefix(h.Out.String(), "TEAM ") || !strings.Contains(h.Out.String(), "up to date") {
 		t.Fatalf("stdout %q", h.Out.String())
+	}
+}
+
+func TestDispatchGraphIsTheBoardAsAFlowchart(t *testing.T) {
+	h := world(t)
+	if code := h.app.Run([]string{"--graph"}); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if !strings.HasPrefix(h.Out.String(), "flowchart TB\n") || !strings.Contains(h.Out.String(), "applied: up to date") {
+		t.Fatalf("stdout %q", h.Out.String())
+	}
+}
+
+func TestHelpNamesTheGraph(t *testing.T) {
+	h := newHarness(t)
+	if code := h.app.Run([]string{"--help"}); code != term.ExitOK || !strings.Contains(h.Out.String(), "ccy-teams --graph") {
+		t.Fatalf("exit %d, usage %q", code, h.Out.String())
 	}
 }
 

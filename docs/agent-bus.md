@@ -220,6 +220,25 @@ the members needs root: `play-agent-bus.yml` installs a sudoers rule for exactly
 read-only `agent-bus` commands involved, so no password is asked. Until it has run, the
 picker says why before sudo asks.
 
+`ccy-teams --graph` draws the same as a Mermaid `flowchart` on stdout, for any Mermaid
+renderer (a GitHub comment, a Markdown preview). Each team is a subgraph with what it is
+for, its homeserver and its people; each member shows its kind, seat, role, checkout and
+live state: online, offline, or unknown with why (a member of another machine, or a joined
+LXC member, whose container is read as root). LXC members sit inside their container's
+subgraph, and the coordinator has an edge to each worker. It fails as `--list` does. A
+team with a coordinator and one worker, abridged:
+
+```mermaid
+flowchart TB
+  subgraph t0_team_a["team team-a: what the team is for<br/>homeserver up, applied: up to date<br/>port 6167"]
+    direction TB
+    t0_h0["person person-a<br/>in room, 1 signed in"]
+    t0_m0["repo.dev+local.podman (coordinator)<br/>kind ccy, seat dev, role coordinator<br/>checkout ~/repo<br/>online: session ccy-repo running<br/>membership active"]:::online
+    t0_m1["repo.1+local.podman<br/>kind ccy, seat 1, role worker<br/>checkout ~/repo<br/>offline: seat free, no session<br/>membership active"]:::offline
+    t0_m0 -->|dispatches to| t0_m1
+  end
+```
+
 Underneath, three commands do the work, and `ccy-teams` calls them:
 
 | Command             | Where it runs                               | What it does                                                           |
