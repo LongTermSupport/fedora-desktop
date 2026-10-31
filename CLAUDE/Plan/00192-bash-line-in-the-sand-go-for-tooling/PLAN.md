@@ -3,12 +3,12 @@
 **Status**: In Progress. Every QA script is ported or retired (`qa-go.bash` by Plan 00191
 Task 3.3; the Go gate is go-qa-ci through `scripts/qa-go-qa.bash`). Every port of Task 3.3 is merged
 except the `ccy` launcher, whose phases 3 to 5 are deferred by Plan 00191 D4/D10. Tasks 4.1
-and 4.2 are done. Left for workers: the follow-ups of 2026-10-28 (Tasks 3.11 to 3.15: the
-plays that read a changed group_vars variable, an upstream issue on the secret-file guard, and
-three vmtest follow-ups from H4). Left for the host agent: the
-`changed-plays` run queued in `meta-deploy.list` and its check (the next vmtest-nightly
-timer run evicts overlays and keeps every run directory, which also settles vmtest H5); the host checks
-of the merged ports still open (gh-account-setup H3, a full `run.bash`); vmtest H3 and H4,
+and 4.2 are done, and so are the follow-ups (Tasks 3.11 to 3.15, 3.17, 3.18); nothing is left
+for workers (2026-10-31). The ports not yet made are deferred or parked by decision: P1, the
+ccy launcher (Plan 00191 D4/D10); P2, agent-bus-install (Task 3.2); P4, shrinking run.bash
+(it needs a decision on how Go reaches a fresh host); P9, kept in bash. Left for the host
+agent: the host check of the merged ports that is still open (gh-account-setup H3, a full
+`run.bash`). Already done on the host: vmtest H3 and H4,
 gh-account-setup H4, ssh-with-key H2 and H4's guest part and the read-only `ssh -G` check for
 ssh-with-key H5 are done on the host (2026-10-28). Task 3.2's root run is on hold until Plan
 00209 Task 2.5 (see the task). Left for the owner: only what needs the owner in person, namely open H5's Ctrl-C
