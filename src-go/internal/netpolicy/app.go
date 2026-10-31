@@ -198,7 +198,13 @@ func (a App) launch(ctx context.Context, l launch) term.ExitCode {
 	}
 	a.say(fmt.Sprintf("✓ Network policy held in %s's own network namespace: the private ranges and this host refused; %d allowed range(s), %d port rule(s). Owner's list: %s\n",
 		l.name, len(p.Allow4)+len(p.Allow6), len(p.Ports), hostFile))
-	return a.foreground(execx.Cmd{Name: podman, Args: []string{"start", "--attach", "--interactive", l.name}})
+	return a.foreground(execx.Cmd{Name: podman, Args: AttachArgs(l.name)})
+}
+
+// AttachArgs is the podman command line (after the program) a held session runs in the
+// foreground: what ccy-sessions finds in a session's process tree as its container's client.
+func AttachArgs(name string) []string {
+	return []string{"start", "--attach", "--interactive", name}
 }
 
 // allowList is the owner's list (N3): the host file, then the host shell's setting.

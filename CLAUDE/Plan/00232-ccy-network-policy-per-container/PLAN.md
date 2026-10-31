@@ -204,6 +204,16 @@ DESIGN.md section 7 is the shape, as section 10 settles it. In order, each test 
   first. If Claude Code holds the session open for its inbox socket, a headless seated session
   is ended by the launcher or the driver, and that is documented; if the watcher does, it is
   fixed to end with the session. Not a gate on the policy: the acceptance removes them
+- [x] ✅ **Task 3.7**: Follow-up regression of Tasks 3.3/3.4: `ccy-sessions --list` showed every
+  ccy session as "no container" (CPU 0%), because `sessprobe` knew only `<engine> run --name`
+  and every launch is now `ccy-network-policy launch --name X ... -- <engine> run ...` with a
+  `podman start --attach --interactive X` child. It now reads both shapes (and the
+  `start NAME` positional name past start's flags); the policy's attach argv is one function
+  (`netpolicy.AttachArgs`). Guard: `TestSessionsFindEveryRecordedLaunch` in
+  `internal/ccylaunch/difftest` feeds every recorded launch in the launcher's goldens to
+  `SessionContainers` and to `lib/docker-health.bash`'s zombie pgrep pattern, red on the old
+  recogniser (26 of 26 launches missed). Deployed by `play-claude-yolo` (the queued
+  `changed-plays` entry)
 
 ## Dependencies
 
