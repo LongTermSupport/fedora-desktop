@@ -53,9 +53,9 @@ DOCUMENTATION = """
         apply anything to the host.
       - Records nothing for a play outside the repo root, such as a private play run from a
         linked worktree, and prints one LEDGER-PLAY-NOT-TRACKED line to stderr naming it.
-      - After the records are written, asks host-health-collect.service to run again so the
-        Fedora Desktop panel stops describing the host as it was before the run. A failure
-        to ask prints HEALTH-REFRESH-FAILED to stderr and never fails the run.
+      - After the records are written, restarts host-health-collect.service and waits for
+        it, so the status document describes the run by the time the run ends. A failure
+        to collect prints HEALTH-REFRESH-FAILED to stderr and never fails the run.
       - On any write failure, writes a BROKEN sentinel and prints LEDGER-WRITE-FAILED to
         stderr rather than raising, because Ansible discards exceptions raised in a callback.
     requirements:

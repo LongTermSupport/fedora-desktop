@@ -1061,7 +1061,9 @@ below):
   day powered off must not read as a stale host, but a collector that has stopped must be
   reported well inside the fortnight
 - **After every play run the ledger records**, on both profiles, the play-ledger callback restarts the
-  collector, so fixing a finding clears it without waiting for the timer. If that restart
+  collector and waits for it, so fixing a finding clears it without waiting for the timer,
+  and the run ends with the document describing it (the first shell after a
+  `run.bash --changed` batch reads its last play as run). If that collection fails or
   cannot be requested, the run prints a `HEALTH-REFRESH-FAILED` line: the play itself
   succeeded, but the panel may show the old result until the next scheduled collection
 
