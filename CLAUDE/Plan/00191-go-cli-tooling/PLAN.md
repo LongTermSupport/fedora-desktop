@@ -797,8 +797,8 @@ today; rewriting them is out of scope.
   with `ESC[K` (`Front.alarm`, usable.go); on stderr as before, and unchanged in a pipe. The
   chooser's `--mark` line is left as it is: it is captured into the chooser's row, not printed
   before it. Test first (`TestUsableUsedUpBannerOnlyOnATerminal`, `TestUsableMarkIsNeverABanner`).
-  CCY 3.103.1 on merge with Plan 00235's 3.103.0 (front sources; no bash change). Left: `play-claude-yolo.yml` on the host, and
-  the owner seeing the banner on a used-up token.
+  CCY 3.103.1 on merge with Plan 00235's 3.103.0 (front sources; no bash change). Deployed
+  (the host is on 3.104.11). Left: the owner seeing the banner on a used-up token.
 
 - [ ] 🔄 **Task 4.8**: The owner's request (2026-10-29): `ccy --token-usage` printed a table
   where the token menu draws coloured bars; it should draw the bars. Asked whether to keep the
@@ -808,8 +808,8 @@ today; rewriting them is out of scope.
   is answered (another bash version, a name or HOME outside ASCII, an undated file, listed as
   unavailable) or refused with exit 1 naming it. The bash report is deleted (lib 2.0.0). The 7
   front-answered token-usage difftest scenarios are retired for expectation tests, and
-  `test-ccy-token-usage-command.bash` drives the built front (102 checks). CCY 3.104.0. Left:
-  `play-claude-yolo.yml` on the host, and the owner seeing the bars.
+  `test-ccy-token-usage-command.bash` drives the built front (102 checks). CCY 3.104.0.
+  Deployed (the host is on 3.104.11). Left: the owner seeing the bars.
 
 - [ ] 🔄 **Task 4.9**: Defence Before Fix for the owner's incident (2026-10-29 ~12:57, triaged
   by seat 2): every token showed "could not reach the API" for 15 minutes after one failed read.
@@ -828,9 +828,9 @@ today; rewriting them is out of scope.
   findings are resolved in the report, `dbf-report-command-failure-dropped.md`, which also
   gives the count as 111, not 110. The owner's answer on the 8 bash instances of the search
   (2026-10-30, "A7a ... the idea is we push towards go"): they are fixed by porting those
-  ccy launcher paths to Go, where the rule already holds; no bash fix, no ratchet raise. Left:
-  that port (with Plan 00209's Go-first work), and the report's other two referrals, the bash
-  class without a rule and the wider any-error rule.
+  ccy launcher paths to Go, where the rule already holds; no bash fix, no ratchet raise. That
+  port is Task 4.10, deployed. Left: the report's other two referrals to the owner, the bash
+  class without a rule and the wider any-error rule (A11 on the owner's sheet).
 
 - [ ] 🔄 **Task 4.10**: Port the ccy launch path to Go (the owner's A7a, 2026-10-30), so the
   DBF report's 8 bash instances arrive defended by `project_command_failure_dropped`. The Go
@@ -888,8 +888,8 @@ today; rewriting them is out of scope.
      closed input; the zombie scan fails with the engine's words when a still-listed
      container's inspect failed (`subagent-reports/261031-task-4.10-unit6-review-fixes.md`).
 
-  Left: the host run of 3.104.11, then the owner's next normal launch, which exercises units
-  1-4 and 6 for real.
+  Deployed on the host at 7ebb2b9f9 (2026-10-31: `ccy --version` 3.104.11). Left: the
+  owner's next normal launch, which exercises units 1-4 and 6 for real.
 
 ### Phase 5: Review
 
