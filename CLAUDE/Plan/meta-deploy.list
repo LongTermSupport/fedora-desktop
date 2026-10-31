@@ -33,14 +33,9 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Every play the ledger lists as stale (about 24), in playbook-main order. Most are stale only
-# because a stray untracked file (removed 2026-10-31) marked every run since 2026-10-28 dirty;
-# one clean run of each clears the owner's "this machine needs attention" list. Among them,
-# for real changes: play-claude-yolo, CCY 3.104.14 and 3.104.15 (container 2.79.20, one image
-# rebuild; project images rebuild at their next launch): the playbook paths ccy prints are
-# corrected (issue #109); and ccy-sessions writes every session the boot's restore could not
-# start into the restore manifest, so verify-restore reports it NOT-STARTED and fails, and
-# gains `restore --check`, which the self-update cycle asks before it warns of a reboot (issue
-# #108; the cycle's own code arrives through its deploy clone, not a play). And
-# play-basic-configs installs btop (#109):
+# Every play changed since it last ran here, in playbook-main order. Expected: play-speech-to-text
+# only. It installs the stt command, which now transcribes an INTERRUPTED recording and says so
+# in the transcript (issue #107), and the speech-to-text extension, which no longer pastes into
+# a different Ptyxis tab: when the tab changed, the text stays on the clipboard and a
+# notification says so (issue #106). The extension change loads at the owner's next log-in:
 changed-plays
