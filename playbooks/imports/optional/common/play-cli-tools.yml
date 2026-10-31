@@ -11,7 +11,7 @@
 #   open                 tag open-command         open anything, desktop or over SSH
 #   convert              tag convert-command      a file into other formats (md -> docx)
 #   reclaim              tag disk-reclaim         disk-usage report and guarded cleanups
-#   mpv                  tag mpv                  play audio and video from a terminal
+#   mpv                  tag mpv                  media player, the desktop's default for video
 #   compress/uncompress  tag compression-helpers  archive wrappers over a pinned ouch
 #   imgpaste             tag imgpaste             image -> self-decoding block for an agent
 #
@@ -192,6 +192,51 @@
       tags:
         - packages
         - mpv
+
+    # Fedora's mpv decodes in software by default, too slow for 4K HEVC. The config turns
+    # on hardware decoding and a deep network cache (the file says why each line is there).
+    # HEVC itself comes from libavcodec-freeworld, which play-rpm-fusion.yml installs with
+    # the multimedia group.
+    - name: Create the mpv config directory (desktop only)
+      become: false
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.config/mpv"
+        state: directory
+        mode: "0755"
+      when: provisioning_profile != 'server'
+      tags: mpv
+
+    - name: Deploy mpv.conf tuned for 4K remux playback (desktop only)
+      become: false
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.config/mpv/mpv.conf"
+        dest: "/home/{{ user_login }}/.config/mpv/mpv.conf"
+        mode: "0644"
+      when: provisioning_profile != 'server'
+      tags: mpv
+
+    # mpv as the default video player, so `open`, Nautilus and xdg-open all play video with
+    # the config above, not with GNOME's player. Same declarative mimeapps.list key as
+    # play-md-viewer.yml: every other default is left as it is.
+    - name: Make mpv the Default for {{ item }} (desktop only)
+      become: false
+      community.general.ini_file:
+        path: "/home/{{ user_login }}/.config/mimeapps.list"
+        section: Default Applications
+        option: "{{ item }}"
+        value: mpv.desktop
+        no_extra_spaces: true
+        create: true
+        mode: "0644"
+      loop:
+        - video/x-matroska
+        - video/mp4
+        - video/webm
+        - video/quicktime
+        - video/x-msvideo
+        - video/mp2t
+      when: provisioning_profile != 'server'
+      tags: mpv
 
     # ── compress / uncompress ────────────────────────────────────────────────────
     - name: Preflight - assert ncompress is not installed (conflicts with our compress/uncompress)
