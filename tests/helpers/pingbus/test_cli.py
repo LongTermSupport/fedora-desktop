@@ -29,10 +29,11 @@ import threading
 import time
 import unittest
 import urllib.parse
+from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.pingbus import cli, forge, hooks, inbox, limits, protocol
+from helpers.pingbus import cli, forge, hooks, inbox, limits, protocol, syncer
 from tests.helpers.pingbus import fake_client_api
 
 TEAM_A, SN_A = "team-a", "team-a.agent-bus.internal"
@@ -885,6 +886,32 @@ class RecvTest(BusCase):
             code, out, _ = self.run_cli("recv")
         self.assertEqual(code, cli.EXIT_OK)
         self.assertEqual([line[2] for line in self.lines(out, "HUMAN")], [TEAM_B])
+
+    def broken_sync(self):
+        def fail(engine, timeout_ms=0):
+            raise inbox.StateError("the sync position cannot be used")
+        return mock.patch.object(syncer.Syncer, "sync_once", fail)
+
+    def test_a_sync_that_fails_still_delivers_what_the_inbox_holds_and_says_how_to_recover(self):
+        """Issue #116: a member whose sync fails still gets what was stored, and is told
+        where the room's own record is."""
+        self.joined()
+        event = self.a.human("stored before the sync broke")
+        member = cli.config.load_active(self.env)[0]
+        cli._seat(member, self.env, self.runtime(), io.StringIO()).syncer.sync_once(0)
+        with self.broken_sync():
+            code, out, err = self.run_cli("recv")
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual([line[3] for line in self.lines(out, "HUMAN")], [event])
+        self.assertIn("the sync position cannot be used", err)
+        self.assertIn(f"pingbus history --team {TEAM_A}", err)
+
+    def test_a_sync_that_fails_with_nothing_stored_exits_with_its_code(self):
+        self.joined()
+        with self.broken_sync():
+            code, out, err = self.run_cli("recv")
+        self.assertEqual((code, out), (cli.EXIT_CONFIG, ""))
+        self.assertIn(f"pingbus history --team {TEAM_A}", err)
 
     def test_human_text_false_drops_human_messages(self):
         self.a.write_bundle(human_text=False)

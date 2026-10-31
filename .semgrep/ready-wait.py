@@ -2,6 +2,7 @@
 # `ok:` a line that must stay silent.
 import asyncio
 import subprocess
+import sys
 import time
 
 
@@ -61,6 +62,51 @@ async def start_async(cmd, ready):
     while not ready():
         await asyncio.sleep(0.1)
     return proc
+
+
+def supervise_logged_only(rt, argv, environ, err, backoff, final):
+    # The originating instance in pingbus's `_supervise` (issue #116): the exit reaches
+    # watch.log only, so a failure no restart can fix loops every 60 s for good.
+    # ruleid: restart-loop-hides-its-exits
+    while True:
+        code = rt.run_child(argv, environ)
+        if code in final:
+            return code
+        err.write(f"the watcher exited (exit {code}): starting it again\n")
+        rt.sleep(backoff.next())
+
+
+def restart_for_ever(cmd):
+    # ruleid: restart-loop-hides-its-exits
+    while True:
+        code = subprocess.run(cmd, check=False).returncode
+        print(f"exited {code}", file=sys.stderr)
+        time.sleep(5)
+
+
+def supervise_recorded(rt, argv, environ, err, backoff, _record_child_exit):
+    # ok: restart-loop-hides-its-exits
+    while True:
+        code = rt.run_child(argv, environ)
+        if _record_child_exit(code):
+            err.write("a restart cannot change it: the supervisor exits\n")
+            return code
+        rt.sleep(backoff.next())
+
+
+def supervise_recorded_without_a_way_out(rt, argv, environ, backoff, record_exit):
+    # ruleid: restart-loop-hides-its-exits
+    while True:
+        code = rt.run_child(argv, environ)
+        record_exit(code)
+        rt.sleep(backoff.next())
+
+
+def run_once(cmd):
+    # ok: restart-loop-hides-its-exits
+    code = subprocess.run(cmd, check=False).returncode
+    time.sleep(1)
+    return code
 
 
 async def start_async_checked(cmd, ready):

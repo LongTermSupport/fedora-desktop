@@ -35,7 +35,7 @@ from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.pingbus import cli, envelope, hooks, inbox, inject, membership, notify, protocol, relay, seat
+from helpers.pingbus import cli, envelope, hooks, inbox, inject, membership, notify, protocol, relay, seat, watcherstate
 
 TEAM, SN = "team-a", "team-a.agent-bus.internal"
 TEAM_B, SN_B = "team-b", "team-b.agent-bus.internal"
@@ -1336,6 +1336,54 @@ class WatcherRestartTest(HookCase):
         env = {k: v for k, v in self.env.items() if k not in (notify.SOCKET_ENV, notify.TOKEN_ENV)}
         self.hook("prompt", {"hook_event_name": "UserPromptSubmit"}, env=env)
         self.assertEqual(self.spawned, [])
+
+    def test_a_watcher_stopped_for_good_is_said_not_restarted(self):
+        """Issue #116: a failure a restart cannot fix is not retried at every prompt either."""
+        watcherstate.record_stop(self.state.path, "homeserver: forbidden", int(self.now * 1000))
+        self.assertIn(hooks.TEMPLATES["watcher_stopped"], self.context(self.prompt()))
+        result = self.stop()
+        self.assertEqual(result["reason"], hooks.TEMPLATES["watcher_stopped"])
+        self.assertEqual(self.spawned, [])
+
+    def test_a_watcher_that_spawns_and_exits_is_reaped(self):
+        """Issue #116: the seat keeper, which lives as long as the session, starts the
+        supervisor too; one that exits must not stay a defunct `[pingbus]` under it."""
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        exe = bindir / "pingbus"
+        exe.write_text("#!/bin/sh\nexit 75\n", encoding="ascii")
+        exe.chmod(0o755)
+        proc = hooks.spawn_watcher(dict(self.env, PATH=f"{bindir}:/usr/bin:/bin"), self.tmp / "watch.log")
+        give_up = time.monotonic() + 10
+        while proc.returncode is None:
+            self.assertLess(time.monotonic(), give_up, "the exited supervisor was never reaped")
+            time.sleep(0.02)
+        self.assertEqual(proc.returncode, 75)
+        with self.assertRaises(ChildProcessError):
+            os.waitpid(proc.pid, os.WNOHANG)
+
+
+class WatcherRecordNoticeTest(HookCase):
+    """Issue #116: the SessionStart context names a team whose watcher keeps exiting, or
+    stopped for good, from its record (`watcherstate`), as `pingbus status` does."""
+
+    def start(self) -> dict:
+        return self.hook("session-start", {"hook_event_name": "SessionStart", "source": "startup"})
+
+    def test_a_failing_watcher_is_named_with_its_restarts(self):
+        ms = int(self.now * 1000)
+        watcherstate.record_exit(self.state.path, "exit 7: homeserver unreachable", ms)
+        watcherstate.record_exit(self.state.path, "exit 7: homeserver unreachable", ms)
+        self.assertIn(hooks.TEMPLATES["watcher_failing"].format(team=TEAM, restarts=2),
+                      self.context(self.start()).splitlines())
+
+    def test_a_stopped_watcher_is_named(self):
+        watcherstate.record_stop(self.state.path, "homeserver: forbidden", int(self.now * 1000))
+        self.assertIn(hooks.fill("watcher_stopped_team", team=TEAM), self.context(self.start()).splitlines())
+
+    def test_a_working_watcher_is_not_mentioned(self):
+        self.assertNotIn("keeps exiting", self.context(self.start()))
+        self.assertNotIn("cannot fix", self.context(self.start()))
 
 
 class NoWakerTest(HookCase):
