@@ -67,7 +67,7 @@ func (l look) expectedWhy() string {
 	case lookAttached:
 		return whyAttached
 	case lookTyped:
-		return whyTyped
+		return whyTyped + "; its box line reads " + l.detail
 	case lookReady, lookUnreadable, lookDead, lookNotDrawn, lookBusy:
 	}
 	return ""
@@ -404,7 +404,8 @@ func (g *goingRun) lookAt(ctx context.Context, name, prefix string, attached int
 	case screen.Busy:
 		return look{kind: lookBusy}
 	case screen.Typed:
-		return look{kind: lookTyped}
+		// The box line as the pane holds it, escapes made visible: the evidence for the verdict.
+		return look{kind: lookTyped, detail: strconv.Quote(screen.InputLine(pane))}
 	case screen.NotDrawn:
 	}
 	return look{kind: lookNotDrawn}
