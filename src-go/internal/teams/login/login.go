@@ -313,9 +313,10 @@ func (l *Login) offerSignIn(ctx context.Context, snap *board.Snapshot, team, nam
 }
 
 // askSignIn asks, then sets the password. Leaving the question (Ctrl-C) is a no, said without
-// "nothing was changed": the apply ran. It says whether a password was set.
+// "nothing was changed": the apply ran. It says whether a password was set. No is the default
+// (decision A12).
 func (l *Login) askSignIn(ctx context.Context, snap *board.Snapshot, team, name string) (bool, error) {
-	yes, err := l.Kit.Gum.Confirm(ctx, flow.Here(team, name, "Sign in").About(name+" in team "+team+" · just added"), "Sign "+name+" in to Element now? A password is set and shown here once.", true)
+	yes, err := l.Kit.Gum.Confirm(ctx, flow.Here(team, name, "Sign in").About(name+" in team "+team+" · just added"), "Sign "+name+" in to Element now? A password is set and shown here once.", false)
 	if errors.Is(err, ui.ErrCancelled) || (err == nil && !yes) {
 		return false, nil
 	}
@@ -351,10 +352,10 @@ func (l *Login) passwordFor(ctx context.Context, snap *board.Snapshot, row board
 }
 
 // offerElement asks whether to open the team in Element now, setting its profile up first when
-// it has none.
+// it has none. The cursor starts on Exit (decision A12).
 func (l *Login) offerElement(ctx context.Context, team string) error {
 	yes, err := l.Kit.Confirm(ctx, flow.Here(team, "Open in Element").About("team "+team),
-		"Open "+team+" in Element now? Element opens in a window of its own; ccy-teams stays here.", "open "+team+" in Element", true)
+		"Open "+team+" in Element now? Element opens in a window of its own; ccy-teams stays here.", "open "+team+" in Element", false)
 	if err != nil || !yes {
 		return err
 	}

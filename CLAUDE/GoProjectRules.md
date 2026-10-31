@@ -830,6 +830,30 @@ guessing; the catalogue claims no more than the code does.
   every refusal kept. What holds it: the flows' tests of each decline (`lxcadd`, `create`, `ops`)
   and the exit-code line of `ccy-teams --help`.
 
+- **An offer that starts or opens something, defaulting to Yes** (Plan 00201 decision A12):
+  after `ccy-teams create`, "Sign <person> in to Element now?", "Open <team> in Element now?"
+  and "Start a ccy session in <checkout> as a member of <team>?" started on Yes, so a stray
+  Enter set a password, opened Element or replaced the terminal with ccy. The sweep of every
+  `Confirm`, `AskYes` and `askYes` in `src-go` found the same in the sign-in offer after an
+  apply (`login`), "Open <team> in Element now?" after a new password (`login`), and the
+  picker's "Start a ccy session in <checkout>?" and "Update them now (play-agent-bus.yml)?"
+  (`picker`). Each now starts on No, as `ccy-sessions`' "Start ccy in ...?" and the picker's
+  "Create a team for ... now?" already did. Read and left on Yes: the review question of the
+  command the person ran (`create`'s "Create team", `lxc-add`'s "Add" and "Apply"), settings'
+  "Save and apply" with nothing removed, the Element profile set up on the way to an Open the
+  person chose, the new password (no sessions to end) and its "Copy the password?" in the
+  sign-in the person chose, and take-down's "Back <team> up first?" and "Take <sessions> off <team> first?",
+  whose Yes is the safe way through the take-down chosen. Outside `ccy-teams` the yes/no
+  questions of `reclaim`, `nord`, `setup-rclone` and the ccy build lock already start on No;
+  `cc-project-dir`'s "Start cc in the fedora-desktop checkout instead? [Y/n]" (where to start
+  the cc the person ran) and `ccc`'s "Try signing in again? [Y/n]" (the sign-in the person ran)
+  are the step chosen, and stay. Whether a question is an offer of
+  something further or the step the person came to take is meaning, not a shape: a rule on a
+  constant `true` default would flag the safe "Back up first?" and need an excuse for every
+  review question, and the call cannot see what a Yes goes on to start. What holds it: each
+  offer's test pins `--default=false` or the picker's `--bind=start:last` (`create`, `login`,
+  `picker`), and `ui.Picker.Confirm`'s doc (Exit unless a harmless step the person came to take).
+
 - **A terminal left echoing between two screens** (Plan 00177): fzf, gum and Bubble Tea take the
   terminal raw and give back the mode they found; between two screens (the board collecting the
   machine after Esc from a row's menu) the line discipline echoed typed-ahead arrows as `^[[B` on

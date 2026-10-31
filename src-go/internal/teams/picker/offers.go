@@ -333,7 +333,8 @@ func (p *Picker) offerUpdate(ctx context.Context) error {
 		return err
 	}
 	p.Kit.Term.Say("Not as declared: " + strings.Join(behind, " ") + ".")
-	yes, err := p.Kit.AskYes(ctx, flow.Here("Update").About("not as declared: "+strings.Join(behind, " ")), "Update them now (play-agent-bus.yml)?", true)
+	// No by default (decision A12): an offer nobody came for, whose Yes runs a play.
+	yes, err := p.Kit.AskYes(ctx, flow.Here("Update").About("not as declared: "+strings.Join(behind, " ")), "Update them now (play-agent-bus.yml)?", false)
 	if err != nil || !yes {
 		return err
 	}
@@ -415,12 +416,13 @@ func (p *Picker) offerCreateHere(ctx context.Context, repo, top string) error {
 }
 
 // offerStart offers a bare `ccy --teams` in top, which lists the teams and lets the person choose
-// (adding this repository to a team's scope when the team does not cover it).
+// (adding this repository to a team's scope when the team does not cover it). No is the
+// default (decision A12).
 func (p *Picker) offerStart(ctx context.Context, top, repo, question string) error {
 	if err := p.Kit.NeedGum(); err != nil {
 		return err
 	}
-	yes, err := p.Kit.AskYes(ctx, flow.Here("New session").About("in "+p.Kit.Abbrev(top)+" · "+repo), question, true)
+	yes, err := p.Kit.AskYes(ctx, flow.Here("New session").About("in "+p.Kit.Abbrev(top)+" · "+repo), question, false)
 	if err != nil || !yes {
 		return err
 	}

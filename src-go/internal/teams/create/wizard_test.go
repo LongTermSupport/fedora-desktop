@@ -503,9 +503,9 @@ func TestWizardInACheckoutAcceptsEveryDefault(t *testing.T) {
 	wzContain(t, "banner", strings.Join(lines, "\n"),
 		"gum style --bold --border rounded --padding 0 1 New agent team",
 		"gum confirm --default=true Create team proj? (saved to ~/fd/localhost.yml, then installed: sudo asks for your password)",
-		"gum confirm --default=true Sign owner in to Element now? A password is set and shown here once.",
-		"gum confirm --default=true Open proj in Element now?",
-		"gum confirm --default=true Start a ccy session in ~/proj as a member of proj?")
+		"gum confirm --default=false Sign owner in to Element now? A password is set and shown here once.",
+		"gum confirm --default=false Open proj in Element now?",
+		"gum confirm --default=false Start a ccy session in ~/proj as a member of proj?")
 	e := h.err()
 	wzContain(t, "summary", h.boxes(),
 		"Team proj", "Works on  only example-org/proj, on any branch", "People    owner",
@@ -541,7 +541,7 @@ func TestWizardInAContainersCheckoutOffersNoSessionThere(t *testing.T) {
 	h.fake.On([]string{"git", "rev-parse", "--show-toplevel"}, wzOK(top+"\n"))
 	h.happyAnswers()
 	wzCode(t, h.invoke(), 0, h)
-	if len(h.execd) != 0 || h.run.called("gum confirm --default=true Start a ccy session") {
+	if len(h.execd) != 0 || h.run.called("gum confirm --default=false Start a ccy session") {
 		t.Errorf("a session was offered or started: %v", h.execd)
 	}
 	wzContain(t, "stderr", h.err(), top+" is LXC container box's checkout", "ccy-teams lxc-add")
@@ -560,7 +560,7 @@ func TestWizardForTheChooserReturnsTheTeamAndStartsNothing(t *testing.T) {
 	if len(h.applied) != 1 || !slices.Equal(h.applied[0], []string{"proj"}) {
 		t.Errorf("applied %v", h.applied)
 	}
-	if len(h.execd) != 0 || h.run.called("gum confirm --default=true Start a ccy session") {
+	if len(h.execd) != 0 || h.run.called("gum confirm --default=false Start a ccy session") {
 		t.Errorf("a session was offered or started: %v", h.execd)
 	}
 	if h.stdout.Len() != 0 {
@@ -605,10 +605,10 @@ func TestWizardRunsItsStepsInTheDocumentedOrder(t *testing.T) {
 		"gum confirm --default=true Create team",
 		"env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare create --file " + wzHostVars + " --team proj --human owner --repo example-org/proj --description Builds the example site",
 		"env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare element",
-		"gum confirm --default=true Sign owner in",
-		"gum confirm --default=true Open proj",
+		"gum confirm --default=false Sign owner in",
+		"gum confirm --default=false Open proj",
 		// the next steps and the teams covering the checkout are read in-process, no process
-		"gum confirm --default=true Start a ccy session",
+		"gum confirm --default=false Start a ccy session",
 	}
 	last := -1
 	for _, prefix := range order {
@@ -637,7 +637,7 @@ func TestWizardOutsideACheckoutOffersTheOwnerFirstAndNoDefaults(t *testing.T) {
 		"gum choose --header Trust --selected "+scopeOwner+" "+scopeOwner+" "+scopeRepos)
 	wzContain(t, "owner input", h.run.matching("gum input")[0],
 		"--header GitHub owner (organisation or user) --placeholder e.g. example-org --value  --width 0")
-	if h.run.called("gum confirm --default=true Start a ccy session") {
+	if h.run.called("gum confirm --default=false Start a ccy session") {
 		t.Error("a session was offered outside a checkout")
 	}
 	// the owner is looked up, lower-cased, and the scope says so in words
@@ -1347,7 +1347,7 @@ func TestNoSessionIsOfferedOutsideACheckout(t *testing.T) {
 	h.run.queue("git rev-parse", wzOK("true\n"), wzNotARepo()) // here: a work tree; offer: not one
 	h.run.queues["gum confirm"] = []execx.Result{wzOK(""), wzExit(1), wzExit(1)}
 	wzCode(t, h.invoke(), 0, h)
-	if h.run.called("gum confirm --default=true Start a ccy session") || len(h.execd) != 0 {
+	if h.run.called("gum confirm --default=false Start a ccy session") || len(h.execd) != 0 {
 		t.Error("offered")
 	}
 }
@@ -1359,7 +1359,7 @@ func TestNoSessionIsOfferedForATeamThatDoesNotCoverTheCheckout(t *testing.T) {
 	h.createWrites = "  - team: proj\n    port: 6169\n    repos:\n      - repo: other/tool\n"
 	h.run.queues["gum confirm"] = []execx.Result{wzOK(""), wzExit(1), wzExit(1)}
 	wzCode(t, h.invoke(), 0, h)
-	if h.run.called("gum confirm --default=true Start a ccy session") {
+	if h.run.called("gum confirm --default=false Start a ccy session") {
 		t.Error("offered")
 	}
 }

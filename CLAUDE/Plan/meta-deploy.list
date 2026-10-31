@@ -33,7 +33,10 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Issue #117: rebuilds and installs ccy-sessions (and the other ccy Go commands, which share
-# the screen reading), so set-going judges a restored session's input box by what it shows:
-# a visually empty box is set going, and a box left alone as typed has its raw line printed.
+# CCY 3.104.12. Issue #117: rebuilds and installs ccy-sessions (and the other ccy Go commands,
+# which share the screen reading), so set-going judges a restored session's input box by what
+# it shows: a visually empty box is set going, and a box left alone as typed has its raw line
+# printed. Plan 00201 A12: ccy-teams' offers to sign in, open Element, start a ccy session or
+# update the teams now start on No. No image file changed, but a CCY bump rebuilds the ccy
+# base image, so project images rebuild at their next launch:
 playbooks/imports/play-claude-yolo.yml

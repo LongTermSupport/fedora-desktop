@@ -42,8 +42,8 @@ func TestPasswordRowSetsAPasswordAndShowsTheLoginOnce(t *testing.T) {
 		t.Fatalf("someone with no sessions is asked nothing but whether to open Element: %q", h.Script.FzfArgs)
 	}
 	h.Script.HeadingAt(0, "Teams › alpha › Open in Element\nteam alpha")
-	if slices.Contains(h.Script.FzfArgs[0], "--bind=start:last") {
-		t.Fatal("opening Element defaults to Yes")
+	if !slices.Contains(h.Script.FzfArgs[0], "--bind=start:last") {
+		t.Fatal("opening Element must start on Exit (decision A12): an offer that opens something defaults to No")
 	}
 }
 

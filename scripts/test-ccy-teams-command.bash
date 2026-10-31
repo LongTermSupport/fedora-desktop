@@ -1252,8 +1252,8 @@ check_has "  and says Element is set up" "a profile for the team, set up on this
 check_has "  the next steps are numbered, ending with how to bring in agents" "ccy --teams proj" "$out"
 check_lacks "  never meta-deploy" "meta-deploy" "$out"
 check_lacks "  nor an edit of localhost.yml" "localhost.yml" "$(grep -v 'saved to\|kept at' <<<"$out")"
-check_has "  sign-in is offered straight after" "gum confirm --default=true Sign owner in to Element now?" "$(cat "$LOG")"
-check_has "  then Element opened" "gum confirm --default=true Open proj in Element now?" "$(cat "$LOG")"
+check_has "  sign-in is offered straight after, default No (decision A12)" "gum confirm --default=false Sign owner in to Element now?" "$(cat "$LOG")"
+check_has "  then Element opened, default No" "gum confirm --default=false Open proj in Element now?" "$(cat "$LOG")"
 check "  declined, no password is set" "no" "$(logged 'human password')"
 check "  in a checkout of the team, a session is offered, and started in it with no seat" "yes" \
     "$(logged 'launcher --teams proj (in proj)')"

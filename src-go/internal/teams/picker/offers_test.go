@@ -383,7 +383,8 @@ func TestOfferUpdateListsTeamsInOrderAndDeclinedDoesNothing(t *testing.T) {
 	if !strings.Contains(h.ErrOut.String(), "Not as declared: beta (not built).\n") || h.plays() != 0 {
 		t.Fatalf("stderr %q, plays %d", h.ErrOut.String(), h.plays())
 	}
-	if want := "gum confirm --default=true Update them now (play-agent-bus.yml)?"; h.Script.GumLog[0] != want {
+	// Decision A12: an offer the person did not come for starts on No; Yes runs a play.
+	if want := "gum confirm --default=false Update them now (play-agent-bus.yml)?"; h.Script.GumLog[0] != want {
 		t.Fatalf("gum %q", h.Script.GumLog)
 	}
 }
@@ -454,7 +455,7 @@ func TestOfferJoinHereAsksForTeamsThatCoverTheCheckout(t *testing.T) {
 		t.Fatalf("starting the session ends the picker: %v", err)
 	}
 	// S-B15: one question for the checkout, and ccy --teams (bare) shows the teams
-	want := "gum confirm --default=true Start a ccy session in " + h.Checkout() + "?"
+	want := "gum confirm --default=false Start a ccy session in " + h.Checkout() + "?"
 	if len(h.Script.GumLog) != 1 || h.Script.GumLog[0] != want {
 		t.Fatalf("gum %q", h.Script.GumLog)
 	}
@@ -485,7 +486,7 @@ func TestOfferJoinHereWithNoTeamForTheRepositoryOffersToCreateOne(t *testing.T) 
 		t.Fatalf("gum %q", h.Script.GumLog)
 	}
 	// S-B15: when no team covers the checkout, a session can still be started and choose its teams
-	if want := "gum confirm --default=true Start a ccy session in " + h.Checkout() + " (choose its teams)?"; len(h.Script.GumLog) != 2 || h.Script.GumLog[1] != want {
+	if want := "gum confirm --default=false Start a ccy session in " + h.Checkout() + " (choose its teams)?"; len(h.Script.GumLog) != 2 || h.Script.GumLog[1] != want {
 		t.Fatalf("gum %q", h.Script.GumLog)
 	}
 	if len(h.Execs) != 0 {

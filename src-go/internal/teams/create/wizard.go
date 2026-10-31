@@ -1068,10 +1068,11 @@ func withoutOffered(steps string) string {
 	return kept.String()
 }
 
-// afterCreate is, straight after create, each person's sign-in and then Element opened.
+// afterCreate is, straight after create, each person's sign-in and then Element opened. Each is
+// an offer that starts something, so it starts on No (decision A12).
 func (c *Wizard) afterCreate(ctx context.Context, o createOpts) error {
 	for _, human := range nonEmpty(o.humans) {
-		yes, err := c.askYes(ctx, flow.Here(o.team, human, "Sign in").About(human+" in team "+o.team+" · just created"), "Sign "+human+" in to Element now? A password is set and shown here once.", true)
+		yes, err := c.askYes(ctx, flow.Here(o.team, human, "Sign in").About(human+" in team "+o.team+" · just created"), "Sign "+human+" in to Element now? A password is set and shown here once.", false)
 		if err != nil {
 			return err
 		}
@@ -1081,7 +1082,7 @@ func (c *Wizard) afterCreate(ctx context.Context, o createOpts) error {
 			}
 		}
 	}
-	yes, err := c.askYes(ctx, flow.Here(o.team, "Open in Element").About("team "+o.team+" · just created"), "Open "+o.team+" in Element now?", true)
+	yes, err := c.askYes(ctx, flow.Here(o.team, "Open in Element").About("team "+o.team+" · just created"), "Open "+o.team+" in Element now?", false)
 	if err != nil || !yes {
 		return err
 	}
@@ -1111,7 +1112,8 @@ func (c *Wizard) askYes(ctx context.Context, h ui.Heading, question string, defa
 }
 
 // offerJoin, in a checkout of the team's repositories, offers to start a ccy session there
-// as a member (ccy --teams <team>, no seat, so ccy chooses one and says it).
+// as a member (ccy --teams <team>, no seat, so ccy chooses one and says it). No is the
+// default (decision A12).
 func (c *Wizard) offerJoin(ctx context.Context, team, here string) error {
 	if here == "" {
 		return nil
@@ -1135,7 +1137,7 @@ func (c *Wizard) offerJoin(ctx context.Context, team, here string) error {
 	}
 	top := checkout.Top
 	shown := term.AbbrevHome(top, c.Home)
-	yes, err := c.askYes(ctx, flow.Here(team, "New session").About("team "+team+" · in "+shown), "Start a ccy session in "+shown+" as a member of "+team+"?", true)
+	yes, err := c.askYes(ctx, flow.Here(team, "New session").About("team "+team+" · in "+shown), "Start a ccy session in "+shown+" as a member of "+team+"?", false)
 	if err != nil || !yes {
 		return err
 	}

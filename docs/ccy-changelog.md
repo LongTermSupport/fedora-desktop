@@ -27,6 +27,25 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.104.12 — container 2.79.18
+
+No image file changed, but the version bump rebuilds the ccy base image, so project images
+rebuild at their next launch.
+
+- **ccy-sessions judges a restored session's input box by what it shows** (issue #117). A box
+  that looked empty but held a non-SGR escape, or a placeholder under the cursor, was read as
+  typed, so set-going left the session alone and `verify-restore` exited 1 for ever. A box
+  left alone as typed now has its raw line printed, escapes made visible.
+
+- **ccy-teams' offers to start or open something default to No.** After `ccy-teams create`,
+  "Sign <person> in to Element now?", "Open <team> in Element now?" and "Start a ccy session
+  in <checkout> as a member of <team>?" started on Yes, so a stray Enter set a password, opened
+  Element or started ccy. These, the sign-in offer after an apply, "Open <team> in Element
+  now?" after a new password, and the picker's "Start a ccy session in <checkout>?" and
+  "Update them now (play-agent-bus.yml)?" now start on No, as "Create a team for ... now?"
+  already did. The review question of the command you ran ("Create team", lxc-add's "Add")
+  still starts on Yes.
+
 ## 3.104.11 — container 2.79.18
 
 The image is unchanged, so there is no rebuild.
