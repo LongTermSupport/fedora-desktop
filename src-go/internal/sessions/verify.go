@@ -47,8 +47,10 @@ func parseVerify(args []string) (time.Duration, string) {
 
 // verifyRestore checks every session this boot's restore brought up, one line each on stdout:
 // "<name> OK", "<name> STARTING", "<name> SETTING-GOING", "<name> NOT-SET-GOING <why>",
-// "<name> WAITING-AT-PROMPT <which>" or "<name> DEAD <why>". Exit 0 only if all are OK. --wait
-// polls until the restore has settled, or the time is up.
+// "<name> WAITING-AT-PROMPT <which>", "<name> DEAD <why>" or "<name> NOT-STARTED <why>" (a
+// recorded session the restore could not start). Exit 0 only if all are OK. --wait polls until
+// the restore has settled, or the time is up. An empty manifest is a restore that had no record
+// to start; one whose every record failed holds a NOT-STARTED entry for each.
 func (a *App) verifyRestore(ctx context.Context, args []string) term.ExitCode {
 	wait, problem := parseVerify(args)
 	if problem != "" {
@@ -85,6 +87,9 @@ func (a *App) verifyRestore(ctx context.Context, args []string) term.ExitCode {
 	a.out(strings.Join(states, "\n") + "\n")
 	if !allOK(states) {
 		a.sayf("Not every restored session is running and past its prompts; attach with ccy-sessions to answer or look.\n")
+		if slices.ContainsFunc(states, func(s string) bool { return strings.Contains(s, " "+string(restore.StateNotStarted)+" ") }) {
+			a.sayf("A session NOT-STARTED was never started by this boot's restore; journalctl --user -u ccy-sessions-restore -b --no-pager | cat says why, and its record is kept.\n")
+		}
 		return term.ExitFailure
 	}
 	return term.ExitOK
@@ -233,7 +238,7 @@ func (a *App) runningContainers(ctx context.Context, engines []string) (map[stri
 func (a *App) tookInput(e restore.Entry, at int64) (restore.Took, error) {
 	switch e.Going {
 	case restore.GoingCompacting, restore.GoingCompact, restore.GoingContinue:
-	case restore.GoingNone, restore.GoingPending, restore.GoingUntouched, restore.GoingKeep:
+	case restore.GoingNone, restore.GoingPending, restore.GoingUntouched, restore.GoingNotStarted, restore.GoingKeep:
 		return restore.TookNA, nil
 	}
 	took, err := a.Transcripts.TookInputSince(e.Transcript, at)

@@ -27,6 +27,25 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.104.15 — container 2.79.20
+
+No image file changed since 3.104.14.
+
+- **A session the restore cannot start is reported, not dropped** (issue #108). A record the
+  boot's restore could not start (no conversation recorded, its directory gone, an unreadable
+  record, a start that failed) is written into the restore manifest as `not-started`, so
+  `ccy-sessions verify-restore` prints `<name> NOT-STARTED <why>` and exits 1. A restore where
+  every record failed wrote an empty manifest, which verify read as "nothing to verify" and
+  passed. set-going leaves such a session alone.
+- **`ccy-sessions restore --check`** judges every record the next boot would restore, live
+  sessions included, by the restore's own rules, and starts nothing: `<name> RESTORABLE` or
+  `<name> UNRESTORABLE <why>`, exit 1 if any cannot be restored. With restore off it has
+  nothing to judge. The unattended self-update cycle runs it after its plays and before any
+  warning; on exit 1 it reboots nothing, records and announces `unrestorable-sessions` (exit
+  26), and asks again at its next run.
+- A restore resumes each record by its recorded conversation id only; a record cannot ask for
+  a fresh start. Documented in docs/ccy.md "Sessions Survive a Reboot".
+
 ## 3.104.14 — container 2.79.20
 
 - **The playbook paths ccy prints are the ones the repository has** (issue #109). The hints

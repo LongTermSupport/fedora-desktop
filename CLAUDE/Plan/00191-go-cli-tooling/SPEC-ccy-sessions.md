@@ -486,6 +486,15 @@ Behaviour:
 5. Not dry-run: `_ccy_restore_manifest_merge <entries>` under the manifest lock (6.2); failure -> failures++.
 6. No files seen -> stderr `ccy session registry: nothing to restore (no records in <regdir>).` and exit status = (failures == 0). Else stderr `ccy session restore: <started> started, <failures> failed.`, status (failures == 0). Returns as soon as the sessions exist (it is a `Type=oneshot` that default.target waits for).
 
+Departure (fedora-desktop#108, Plan 00135 Phase 12): every failure in step 4 (an unreadable
+record, under its file's name; no recorded conversation; its directory gone; arguments that
+cannot be worked out; a start that failed) is also a manifest entry `going=not-started`,
+`detail=` `record-unreadable`, `no-conversation`, `directory-gone`, `arguments-unworkable` or
+`start-failed`, so verify-restore reports it. `restore --check` judges the same records by the
+same rules, live ones included, starts nothing and writes nothing: stdout `<name> RESTORABLE` or
+`<name> UNRESTORABLE <why>`, exit 1 when any is unrestorable or the registry cannot be read, exit
+0 with a note when the user's restore unit is not enabled.
+
 `ccy_registry_restore_args` (SR L629-680; golden cases RG L373-402, L653-805), pure: `--compose start` for outcome `started`/`running`, `--compose skip` for `declined` (ccy only; unknown outcome is an error); `--supervise` appended (before the first `--` if any) for ccy unless the recorded args hold `--supervise`/`--no-supervise` before `--`; `--continue` appended after everything unless the args hold `--continue`, `-c`, `--resume` or `-r`. For prefix `cc`, only `--continue`.
 `ccy_registry_resume_id` (SR L980-1011) and `ccy_registry_supervised` (SR L1017-1032): pure, golden RG L926-937. The record's `launcher` is run as given (e.g. `/var/local/claude-yolo/claude-yolo`).
 
@@ -565,7 +574,7 @@ decision in Plan 00135.
 
 1. `ccy_restore_manifest_read` failure -> exit 1 (`ERROR: no session restore has been recorded (<path> does not exist).` R L947-948).
 2. `boot` mismatch -> `ERROR: the last session restore ran in an earlier boot, so it says nothing about this one; nothing restored these sessions since this machine started.`, exit 1 (R L953).
-3. No entries -> stderr `This boot's restore brought up no sessions; nothing to verify.`, exit 0, stdout empty (R L957-958).
+3. No entries -> stderr `This boot's restore brought up no sessions; nothing to verify.`, exit 0, stdout empty (R L957-958). An entry `going=not-started` is `NOT-STARTED <detail>` whatever runs under its name, and the exit is 1 (fedora-desktop#108).
 4. Loop with `deadline = SECONDS + WAIT`: `states = restore_states` (failure -> exit 1); break if no line lacks the suffix ` OK` or `SECONDS >= deadline`; break if `states == previous` **and** no line ends in ` STARTING` or ` SETTING-GOING`; `previous = states`; `sleep POLL`.
 5. Print `states` on stdout (one `<name> <STATE>[ <detail>]` per manifest entry, manifest order). Any line not ending ` OK` -> stderr `Not every restored session is running and past its prompts; attach with ccy-sessions to answer or look.`, exit 1. Else 0.
 

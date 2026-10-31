@@ -957,6 +957,27 @@ bash they replaced and in the Go during review; each instance is in the audit re
   `ClaudeState`), whose tests run each escape shape both empty and with typed text after it;
   and set-going prints a typed box line `%q`-quoted, so the next misreading arrives with its
   evidence.
+- **A failure dropped from the record a later verdict reads, so the verdict reports success**
+  (fedora-desktop#108: `ccy-sessions restore` counted a record it could not start as a failure
+  but left it out of the restore manifest, so a boot where every record failed wrote an empty
+  manifest, `verify-restore` said "nothing to verify" and exited 0, and the self-update cycle
+  announced the deploy as done). Which record a later verdict reads, and which branch of a
+  loop is a failure that verdict must see, are facts about two programs and a file between
+  them, not a shape in one function's syntax tree: a rule against "a counter bumped without an
+  append" would flag every deliberate skip (`marked no-restore`, an opencode session) and miss
+  a failure counted nowhere. What holds it: every refusal of the restore is one call,
+  `restoreRun.notStarted`, which counts it and writes it into the manifest as `not-started`;
+  `restore.Judge` reports that as `NOT-STARTED` before anything else; and the tests run the
+  restore and then `verify-restore` over the same state
+  (`TestARestoreWhereEveryRecordFailsIsReportedByVerify`). The sweep read `internal/sessions`
+  and `internal/restore` and the cycle (`helpers/self_update/cycle.py`): the four refusals in
+  `restoreRun.record` and the unreadable records were the instances, all fixed; set-going
+  records every session it leaves alone (`untouched`, which verify reports `NOT-SET-GOING`),
+  verify turns a probe it cannot make into a failure, never a state, and the cycle records each
+  outcome before it announces it. One case is left as designed: a second restore in the same
+  boot that starts nothing at all (its passphrase file unusable, the live list unreadable, the
+  manifest unwritable) fails its unit and leaves the first restore's manifest, which still
+  names every session that should be up.
 - **A fake that answers what the real program does not** (reclaim's fake answered any unscripted
   command, M-2; nvidia-status's fake returned the deadline where `execx.OS` returns the kill,
   F2; nord's fake cancelled a context where a terminal delivers SIGINT, F2; ssh-copy-id's check

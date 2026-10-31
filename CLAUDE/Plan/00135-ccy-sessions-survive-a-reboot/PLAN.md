@@ -243,6 +243,36 @@ trains the owner to ignore it.
   desktop session waiting at its passphrase, `systemctl --user status ccy-sessions-set-going --no-pager | cat` shows it succeeded, and its journal names the
   session as left alone, as expected.
 
+### Phase 12: fedora-desktop#108, a restore that fails says so, and the cycle holds the reboot
+
+A self-update cycle installed a restore that resumes only by a recorded conversation id
+(Plan 00203 Decision 10), then rebooted into it with every live session launched before
+that hook existed. All six records failed, the restore wrote an empty manifest,
+`verify-restore` said "nothing to verify" and passed, and the cycle announced the deploy.
+
+Owner decisions (a Fable review at the owner's direction, 2026-10-31), on the issue's four
+asks: (1) keep refusing a record with no `conversation.json`: Plan 00203 Decision 10
+stands, with no opt-in and no new start command; (2) the self-update cycle holds the reboot,
+and says so, when any record cannot be restored; (3) failures are loud through
+`verify-restore`; (4) resuming by the recorded id is intended: document it, no record field.
+
+- [x] ✅ **Task 12.1**: A record the restore cannot start is a manifest entry
+  `going=not-started` with why (`no-conversation`, `directory-gone`, `record-unreadable`,
+  `arguments-unworkable`, `start-failed`); `verify-restore` prints `<name> NOT-STARTED <why>`
+  and exits 1; set-going leaves it; a second restore that finds it running writes it `none`.
+  The bash manifest reader accepts the word.
+- [x] ✅ **Task 12.2**: `ccy-sessions restore --check` judges every record, live ones included,
+  by the restore's own `planRestore`, and starts nothing; exit 1 names each unrestorable one.
+  With restore off it has nothing to judge.
+- [x] ✅ **Task 12.3**: The self-update cycle asks it after the plays and before any warning; on
+  exit 1, outcome `unrestorable-sessions` (exit 26, announced), no reboot, still owed.
+- [x] ✅ **Task 12.4**: docs/ccy.md, the changelog, CCY 3.104.15; Defence Before Fix: the class
+  cannot be a rule, listed in GoProjectRules.md with its sweep. Report:
+  [261031-issue108-restore-says-what-failed-opus.md](subagent-reports/261031-issue108-restore-says-what-failed-opus.md).
+- [ ] 🧑 **Task 12.5**: HOST: after meta-deploy's `play-claude-yolo.yml`, `ccy-sessions restore --check`
+  on the server lists every record, and a cycle with a session that has no recorded
+  conversation ends `unrestorable-sessions` with a Slack alert and no reboot.
+
 ## Dependencies
 
 - `claude-code-hooks-daemon` ≥ 3.65.0 for `hooks-daemon signal` (their #39, closed).

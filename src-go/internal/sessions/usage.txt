@@ -50,6 +50,15 @@ Usage:
                                                   reboot with nobody to authenticate
   ccy-sessions restore [--dry-run]                start every session recorded as running
                                                   at the last shutdown (the boot unit)
+  ccy-sessions restore --check                    start nothing: judge every record the next
+                                                  boot's restore would start, live sessions
+                                                  included, one line each on stdout:
+                                                  "<name> RESTORABLE" or
+                                                  "<name> UNRESTORABLE <why>"; exit 1 if any
+                                                  cannot be restored. With restore off there
+                                                  is nothing to judge (exit 0). The
+                                                  self-update cycle asks this before it warns
+                                                  of a reboot, and holds the reboot on exit 1
   ccy-sessions set-going                          once each session this boot's restore
                                                   started has drawn Claude's prompt, type
                                                   its first input: /compact when its
@@ -61,8 +70,10 @@ Usage:
                                                   "<name> OK", "<name> STARTING",
                                                   "<name> SETTING-GOING",
                                                   "<name> NOT-SET-GOING <why>",
-                                                  "<name> WAITING-AT-PROMPT <which>" or
-                                                  "<name> DEAD <why>"; exit 0 only if all
+                                                  "<name> WAITING-AT-PROMPT <which>",
+                                                  "<name> DEAD <why>" or
+                                                  "<name> NOT-STARTED <why>" (a record the
+                                                  restore could not start); exit 0 only if all
                                                   are OK. --wait polls until the restore
                                                   has settled (nothing STARTING or
                                                   SETTING-GOING, and the same answer twice
@@ -90,7 +101,11 @@ recorded (conversation.json beside its seat report), never with --continue, whic
 the newest conversation in a folder several sessions share. A session with none recorded
 (ccy --no-bus, a cc without --teams or --bus, or one whose hook never ran) is not started:
 it is named as a failure with how to bring it back by hand (ccy --resume in its folder, whose
-picker lists the conversations), and its record is kept.
+picker lists the conversations), and its record is kept. A record is always resumed: one whose
+launch did not continue a conversation is resumed on the one it recorded, never started fresh.
+Every record the restore could not start (no conversation, its folder gone, an unreadable
+record, a start that failed) is in this boot's restore manifest, so verify-restore reports it
+as NOT-STARTED and fails.
 
 A restore answers only the prompts that have one safe answer (Quick Launch, the two
 running-container menus, and the others docs/ccy.md lists) and the compose question,

@@ -241,9 +241,19 @@ func TestARecordWhoseDirectoryIsGoneFailsThatSessionOnly(t *testing.T) {
 	contains(t, "gone", h.stderr(), "ERROR: cannot restore ccy-b: its directory no longer exists: "+gone+
 		" (the record is kept at "+file+"; remove it if the project is gone).",
 		"restored ccy-c in "+a+".", "ccy session restore: 1 started, 1 failed.")
-	if m := manifestOf(t, h); len(m.Entries) != 1 || m.Entries[0].Name != "ccy-c" {
-		t.Fatalf("%+v", m)
+	// fedora-desktop#108: the failure is in the manifest, so verify-restore reports it.
+	if got := goingOf(manifestOf(t, h)); !slices.Equal(got, []string{"ccy-b not-started directory-gone", "ccy-c pending "}) {
+		t.Fatalf("%q", got)
 	}
+}
+
+// goingOf is each manifest entry as "<name> <going> <detail>".
+func goingOf(m restore.Manifest) []string {
+	out := make([]string, 0, len(m.Entries))
+	for _, e := range m.Entries {
+		out = append(out, e.Name+" "+string(e.Going)+" "+e.Detail)
+	}
+	return out
 }
 
 // Plan 00203 C6, Decision 10: a session is resumed by its recorded conversation or not at all.
@@ -272,9 +282,32 @@ func TestASessionWithNoRecordedConversationIsNotRestored(t *testing.T) {
 			t.Fatalf("the record is kept: %v", err)
 		}
 	}
-	if m := manifestOf(t, h); len(m.Entries) != 1 || m.Entries[0].Name != "ccy-ok" {
-		t.Fatalf("%+v", m)
+	want := []string{"ccy-nobus not-started no-conversation", "ccy-none not-started no-conversation", "ccy-ok pending "}
+	if got := goingOf(manifestOf(t, h)); !slices.Equal(got, want) {
+		t.Fatalf("%q", got)
 	}
+}
+
+// fedora-desktop#108: every record failing is not an empty restore. The manifest names each
+// session that did not start, and verify-restore reports them and exits 1; it never says
+// "nothing to verify" for them.
+func TestARestoreWhereEveryRecordFailsIsReportedByVerify(t *testing.T) {
+	h := newHarness(t)
+	restoreHost(h)
+	a := realDir(t, h, "a")
+	recordOnly(t, h, registry.Record{Name: "ccy-a", Dir: a, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true})
+	recordOnly(t, h, registry.Record{Name: "ccy-b", Dir: a, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true})
+	exitCodeIs(t, h.run("restore"), 1, h)
+	contains(t, "totals", h.stderr(), "ccy session restore: 0 started, 2 failed.")
+	h.out.Reset()
+	h.errOut.Reset()
+	h.tmuxOut("list-panes", "")
+	h.fake.On([]string{"ps"}, execx.Result{})
+	exitCodeIs(t, h.run("verify-restore"), 1, h)
+	if h.stdout() != "ccy-a NOT-STARTED no-conversation\nccy-b NOT-STARTED no-conversation\n" {
+		t.Fatalf("stdout %q, stderr %q", h.stdout(), h.stderr())
+	}
+	lacks(t, "verify", h.stderr(), "nothing to verify")
 }
 
 func TestAnUnreadableRecordCountsAsAFailureAndTheRestGoOn(t *testing.T) {
@@ -296,6 +329,10 @@ func TestAnUnreadableRecordCountsAsAFailureAndTheRestGoOn(t *testing.T) {
 	}
 	exitCodeIs(t, h.run("restore"), 1, h)
 	contains(t, "bad record", h.stderr(), "session record "+bad, "restored ccy-a in "+a+".", "ccy session restore: 1 started, 1 failed.")
+	// It has no name to read, so its file's name stands for it.
+	if got := goingOf(manifestOf(t, h)); !slices.Equal(got, []string{"ccy-bad not-started record-unreadable", "ccy-a pending "}) {
+		t.Fatalf("%q", got)
+	}
 }
 
 func TestARecordWhoseArgumentsCannotBeWorkedOutIsAFailure(t *testing.T) {
@@ -413,7 +450,7 @@ func TestNothingIsRestoredOnTopOfALiveSetThatCannotBeRead(t *testing.T) {
 	}
 }
 
-func TestASessionThatCannotBeStartedIsAFailureAndIsLeftOutOfTheManifest(t *testing.T) {
+func TestASessionThatCannotBeStartedIsAFailureAndIsNotStartedInTheManifest(t *testing.T) {
 	h := newHarness(t)
 	restoreHost(h)
 	a := realDir(t, h, "a")
@@ -422,8 +459,8 @@ func TestASessionThatCannotBeStartedIsAFailureAndIsLeftOutOfTheManifest(t *testi
 	exitCodeIs(t, h.run("restore"), 1, h)
 	contains(t, "start failure", h.stderr(), "Failed to start scope", "ERROR: could not start ccy-a in "+a+" (the record is kept at "+file+").",
 		"ccy session restore: 0 started, 1 failed.")
-	if m := manifestOf(t, h); len(m.Entries) != 0 {
-		t.Fatalf("%+v", m)
+	if got := goingOf(manifestOf(t, h)); !slices.Equal(got, []string{"ccy-a not-started start-failed"}) {
+		t.Fatalf("%q", got)
 	}
 }
 
@@ -457,6 +494,97 @@ func TestAnUnreadableEarlierManifestIsReplacedWithANote(t *testing.T) {
 	}
 }
 
+// fedora-desktop#108 Ask 2: `restore --check` judges every record the next boot's restore would
+// start, live sessions included (they are what a reboot takes down), by the same rules as the
+// restore, and starts nothing. One line each on stdout; exit 1 naming each one that cannot be
+// restored.
+func TestRestoreCheckJudgesEveryRecordLiveOnesIncluded(t *testing.T) {
+	h := newHarness(t)
+	restoreHost(h)
+	restoreOn(h, true)
+	a := realDir(t, h, "a")
+	gone := filepath.Join(h.root, "gone")
+	record(t, h, registry.Record{Name: "ccy-ok", Dir: a, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true})
+	none := recordOnly(t, h, registry.Record{Name: "ccy-live", Dir: a, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true})
+	record(t, h, registry.Record{Name: "ccy-gone", Dir: gone, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true})
+	record(t, h, registry.Record{Name: "ccy-n", Dir: a, Launcher: "/launch/ccy", Prefix: "ccy", Restore: false})
+	record(t, h, registry.Record{Name: "ccy-o", Dir: a, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true, Args: []string{"--opencode"}})
+	regdir, err := registry.Dir(h.app.Getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(regdir, "ccy-bad"), []byte("garbage\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.sessions("ccy-live 0 " + a)
+	exitCodeIs(t, h.run("restore", "--check"), 1, h)
+	want := "ccy-bad UNRESTORABLE record-unreadable\nccy-gone UNRESTORABLE directory-gone\n" +
+		"ccy-live UNRESTORABLE no-conversation\nccy-ok RESTORABLE\n"
+	if h.stdout() != want {
+		t.Fatalf("stdout %q", h.stdout())
+	}
+	contains(t, "why", h.stderr(), "skip ccy-n: marked no-restore.", "skip ccy-o: an opencode session is not restored",
+		"ERROR: ccy-live cannot be restored: ccy-live: no conversation is recorded", "(the record is kept at "+none+").",
+		"ERROR: 3 recorded session(s) could not be restored after a reboot: ccy-bad, ccy-gone, ccy-live.")
+	if len(startedSessions(h)) != 0 || h.count("tmux") != 0 {
+		t.Fatalf("a check starts nothing and asks tmux nothing: %v", h.ran())
+	}
+	if _, statErr := os.Stat(restore.NewStore(regdir, "").Path); statErr == nil {
+		t.Fatal("a check writes no manifest")
+	}
+}
+
+func TestRestoreCheckPassesWhenEveryRecordCanBeRestored(t *testing.T) {
+	h := newHarness(t)
+	restoreHost(h)
+	restoreOn(h, true)
+	record(t, h, registry.Record{Name: "ccy-ok", Dir: realDir(t, h, "a"), Launcher: "/launch/ccy", Prefix: "ccy", Restore: true})
+	exitCodeIs(t, h.run("restore", "--check"), 0, h)
+	if h.stdout() != "ccy-ok RESTORABLE\n" {
+		t.Fatalf("stdout %q", h.stdout())
+	}
+	contains(t, "summary", h.stderr(), "every recorded session can be restored after a reboot (1).")
+
+	h = newHarness(t)
+	restoreHost(h)
+	restoreOn(h, true)
+	exitCodeIs(t, h.run("restore", "--check"), 0, h)
+	contains(t, "no registry", h.stderr(), "nothing to restore")
+}
+
+// With the restore off, the next boot restores nothing, so no record can hold anything up.
+func TestRestoreCheckWithTheRestoreOffHasNothingToJudge(t *testing.T) {
+	h := newHarness(t)
+	restoreHost(h)
+	recordOnly(t, h, registry.Record{Name: "ccy-x", Dir: realDir(t, h, "a"), Launcher: "/launch/ccy", Prefix: "ccy", Restore: true})
+	exitCodeIs(t, h.run("restore", "--check"), 0, h)
+	if h.stdout() != "" {
+		t.Fatalf("stdout %q", h.stdout())
+	}
+	contains(t, "off", h.stderr(), "session restore is off for this user (ccy-sessions-restore.service is not enabled), so the next boot restores no session; nothing to check.")
+}
+
+func TestRestoreCheckRefusesARegistryThatCannotBeListed(t *testing.T) {
+	h := newHarness(t)
+	restoreHost(h)
+	restoreOn(h, true)
+	regdir, err := registry.Dir(h.app.Getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.MkdirAll(filepath.Dir(regdir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(regdir, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	exitCodeIs(t, h.run("restore", "--check"), 1, h)
+	contains(t, "unlistable", h.stderr(), "is not a readable directory")
+	h.env["CCY_STATE_DIR"] = "relative"
+	exitCodeIs(t, h.run("restore", "--check"), 1, h)
+	contains(t, "relative", h.stderr(), "is not an absolute path")
+}
+
 func TestRestoreUsageMistakes(t *testing.T) {
 	cases := []struct {
 		args []string
@@ -466,6 +594,7 @@ func TestRestoreUsageMistakes(t *testing.T) {
 		// Spec bug 9.12: an empty word is a usage error here, not a late failure in a library.
 		{[]string{"restore", ""}, "unknown restore option ''."},
 		{[]string{"restore", "--dry-run", "x"}, "unexpected argument 'x'."},
+		{[]string{"restore", "--check", "--dry-run"}, "unexpected argument '--dry-run'."},
 	}
 	for _, c := range cases {
 		h := newHarness(t)

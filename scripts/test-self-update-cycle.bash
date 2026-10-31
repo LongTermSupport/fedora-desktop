@@ -162,6 +162,7 @@ ccy-sessions)
     echo "ccy-sessions $*" >>"$FAKE_LOG"
     case "$1" in
     verify-restore) exit "${FAKE_VERIFY_RC:-0}" ;;
+    restore) exit "${FAKE_CHECK_RC:-0}" ;;
     *) exit "${FAKE_NOTIFY_RC:-0}" ;;
     esac
     ;;
@@ -523,8 +524,9 @@ check "a dry run records nothing" "no" "$(has "$STATE/last-result")"
 
 cycle run
 check "the first cycle exits 0" "0" "$RC"
-check "the first cycle runs the play with both passwords and the lock held, warns, then reboots" \
+check "the first cycle runs the play with both passwords and the lock held, checks the restore, warns, then reboots" \
     "$PLAYED
+ccy-sessions restore --check
 ccy-sessions notify going-down --minutes 1
 systemctl reboot" "$(calls)"
 check "the play is pinned to the system ansible, with facts in memory and the system collections" \
@@ -545,9 +547,17 @@ check "the published copy carries no scratch path" "no" "$(says "$SCRATCH" "$PUB
 check "root's imports left no bytecode in the clone" "" "$(find "$CLONE" -name '__pycache__' -print)"
 check "and git sees no file in it beyond the signed commit" "" "$(git -C "$CLONE" ls-files --others)"
 
+FAKE_CHECK_RC=1 cycle run
+check "a session that cannot be restored holds the reboot (26)" "26" "$RC"
+check "and nobody is warned" "ccy-sessions restore --check" "$(calls)"
+check "and it is recorded" "unrestorable-sessions" "$(result_key outcome)"
+check "and alerted" "yes" "$(says 'ALERT unrestorable-sessions' "$ERR")"
+check "and the reboot stays owed" "$BOOT_ID" "$(state_key owed-verify boot)"
+
 cycle run
 check "a cycle in the boot that still owes its reboot asks again" "0" "$RC"
-check "and only warns and reboots" "ccy-sessions notify going-down --minutes 1
+check "and only checks, warns and reboots" "ccy-sessions restore --check
+ccy-sessions notify going-down --minutes 1
 systemctl reboot" "$(calls)"
 
 write_owed "an-earlier-boot"
@@ -623,13 +633,15 @@ FAKE_NOTIFY_RC=1 cycle run
 check "a session that cannot be warned exits 22" "22" "$RC"
 check "the failed play is retried with fresh passwords, then the reboot is abandoned" \
     "$PLAYED
+ccy-sessions restore --check
 ccy-sessions notify going-down --minutes 1" "$(calls)"
 check "an unwarnable session is recorded" "unwarnable" "$(result_key outcome)"
 check "the reboot stays owed" "$PLAY_CHANGE" "$(state_key owed-verify new)"
 
 FAKE_REBOOT_RC=1 cycle run
 check "a refused reboot exits 24" "24" "$RC"
-check "a refused reboot withdraws the warning" "ccy-sessions notify going-down --minutes 1
+check "a refused reboot withdraws the warning" "ccy-sessions restore --check
+ccy-sessions notify going-down --minutes 1
 systemctl reboot
 ccy-sessions notify reboot-cancelled" "$(calls)"
 check "a refused reboot is recorded" "reboot-failed" "$(result_key outcome)"
@@ -811,6 +823,7 @@ TIP_ABOVE="$(release_commit "signed work after the release")"
 cycle run
 check "the first cycle on a tagged branch exits 0" "0" "$RC"
 check "and runs the play, warns, then reboots" "$PLAYED
+ccy-sessions restore --check
 ccy-sessions notify going-down --minutes 1
 systemctl reboot" "$(calls)"
 check "the clone is on the release, not on the signed tip above it" "$RELEASE_ONE" "$(git -C "$CLONE" rev-parse HEAD)"

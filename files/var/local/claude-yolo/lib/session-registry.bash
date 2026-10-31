@@ -634,8 +634,9 @@ ccy_registry_trampoline() {
 #   going        none (found already running: a person started it, nothing is typed into
 #                it), pending (restored, not yet decided), compacting (no supervisor:
 #                /compact typed at `at`, `continue` to follow once it ends), compact or
-#                continue (the last thing typed, at `at`, epoch seconds), or untouched (left
-#                alone, `detail` says why)
+#                continue (the last thing typed, at `at`, epoch seconds), untouched (left
+#                alone, `detail` says why), or not-started (a record the restore could not
+#                start, `detail` says why; only the Go verdict judges it, fedora-desktop#108)
 #   detail       the context size in tokens, or the reason it was left alone
 #   transcript   the conversation's file, which verify-restore reads to see the input taken
 # Every write holds CCY_RESTORE_MANIFEST_LOCK (ccy_restore_manifest_locked), so a second
@@ -828,9 +829,9 @@ ccy_restore_manifest_read() {
             ;;
         going)
             case "$value" in
-            none | pending | compacting | compact | continue | untouched) RM_GOING+=("$value") ;;
+            none | pending | compacting | compact | continue | untouched | not-started) RM_GOING+=("$value") ;;
             *)
-                print_error "the restore manifest $path has going=$value, which is none of none, pending, compacting, compact, continue or untouched, and is not read."
+                print_error "the restore manifest $path has going=$value, which is none of none, pending, compacting, compact, continue, untouched or not-started, and is not read."
                 return 1
                 ;;
             esac

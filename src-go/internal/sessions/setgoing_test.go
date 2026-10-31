@@ -211,6 +211,19 @@ func TestSetGoingTypesEachRestoredSessionItsFirstInput(t *testing.T) {
 	contains(t, "second run", h.stderr(), "No session this boot's restore started is waiting to be set going.")
 }
 
+// fedora-desktop#108: a session the restore could not start has nothing to set going; its
+// entry is left as it is, for verify-restore to report.
+func TestSetGoingSkipsASessionTheRestoreCouldNotStart(t *testing.T) {
+	h := goingHost(t)
+	never := restore.Entry{Name: "ccy-x", Prefix: "ccy", Dir: "/srv/x", Going: restore.GoingNotStarted, Detail: "no-conversation"}
+	writeEntries(t, h, never)
+	exitCodeIs(t, h.run("set-going"), 0, h)
+	contains(t, "nothing to do", h.stderr(), "No session this boot's restore started is waiting to be set going.")
+	if got := entryNamed(t, h, "ccy-x"); got != never {
+		t.Fatalf("entry changed: %+v", got)
+	}
+}
+
 func TestSetGoingTakesNoArguments(t *testing.T) {
 	h := goingHost(t)
 	exitCodeIs(t, h.run("set-going", "now"), 64, h)

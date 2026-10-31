@@ -22,30 +22,159 @@ const unlockFileEnv = "CCY_RESTORE_SSH_PASSPHRASE_FILE"
 // unlockFileFix is what to do about a passphrase file that cannot be used.
 const unlockFileFix = "Re-run play-claude-yolo.yml on this server (it writes the file from github_ssh_passphrase in host_vars)."
 
-// parseRestore reads the arguments after `restore`: nothing, or --dry-run.
-func parseRestore(args []string) (bool, string) {
+// flagCheck is `restore --check`: judge every record, start nothing.
+const flagCheck = "--check"
+
+// The words a record that cannot be restored is reported by: the manifest's detail for a
+// not-started entry, and what `restore --check` prints after UNRESTORABLE.
+const (
+	whyDirectoryGone      = "directory-gone"
+	whyNoConversation     = "no-conversation"
+	whyArgumentsUnknown   = "arguments-unworkable"
+	whyStartFailed        = "start-failed"
+	whyRecordUnreadable   = "record-unreadable"
+	checkLineRestorable   = " RESTORABLE"
+	checkLineUnrestorable = " UNRESTORABLE "
+)
+
+// parseRestore reads the arguments after `restore`: nothing, --dry-run or --check.
+func parseRestore(args []string) (string, string) {
 	if len(args) == 0 {
-		return false, ""
+		return "", ""
 	}
-	if args[0] != flagDryRun {
-		return false, fmt.Sprintf("unknown restore option '%s'.", args[0])
+	if args[0] != flagDryRun && args[0] != flagCheck {
+		return "", fmt.Sprintf("unknown restore option '%s'.", args[0])
 	}
 	if len(args) > 1 {
-		return false, fmt.Sprintf("unexpected argument '%s'.", args[1])
+		return "", fmt.Sprintf("unexpected argument '%s'.", args[1])
 	}
-	return true, ""
+	return args[0], ""
 }
 
-// runRestore starts every recorded session that is not running.
+// runRestore starts every recorded session that is not running, or with --check judges them.
 func (a *App) runRestore(ctx context.Context, args []string) term.ExitCode {
-	dryRun, problem := parseRestore(args)
+	mode, problem := parseRestore(args)
 	if problem != "" {
 		return a.usageError(problem)
 	}
-	if err := a.restoreSessions(ctx, dryRun); err != nil {
+	if mode == flagCheck {
+		return a.checkRestore()
+	}
+	if err := a.restoreSessions(ctx, mode == flagDryRun); err != nil {
 		return a.failed(err)
 	}
 	return term.ExitOK
+}
+
+// restorePlan is how one record would be started, or why it cannot be: why is a word from the
+// list above, empty when it can, and sentence says the same to a person.
+type restorePlan struct {
+	id, why, sentence string
+	args              []string
+}
+
+// planRestore decides whether a record can be restored, by the rules the restore starts it by:
+// its directory is there, its own conversation is recorded (Plan 00203 C6, Decision 10: by its
+// recorded id, or not at all; --continue would take the newest in a folder several sessions
+// share), and its arguments can be worked out. `restore` and `restore --check` both ask this, so
+// the check cannot pass a record the restore would refuse.
+func (a *App) planRestore(rec registry.Record, file string) restorePlan {
+	if info, statErr := os.Stat(rec.Dir); statErr != nil || !info.IsDir() {
+		return restorePlan{why: whyDirectoryGone, sentence: "its directory no longer exists: " + rec.Dir +
+			" (the record is kept at " + file + "; remove it if the project is gone)."}
+	}
+	id, err := conversation.For(rec, conversation.ClaudeHome(a.Getenv))
+	if err != nil {
+		return restorePlan{why: whyNoConversation, sentence: err.Error() + " (the record is kept at " + file + ")."}
+	}
+	args, err := registry.ResumeArgs(rec.Compose, rec.Prefix, rec.Args, id)
+	if err != nil {
+		return restorePlan{why: whyArgumentsUnknown, sentence: "the arguments to restore it with could not be worked out: " +
+			err.Error() + " (the record is kept at " + file + ")."}
+	}
+	return restorePlan{id: id, args: args}
+}
+
+// restoreEnabled says whether this user's restore unit is enabled (the wants-symlink the play
+// manages). A link that points at nothing pulls in nothing at boot, so it counts as off.
+func (a *App) restoreEnabled() bool {
+	_, err := os.Stat(a.Getenv("HOME") + "/.config/systemd/user/default.target.wants/ccy-sessions-restore.service")
+	return err == nil
+}
+
+// checkRestore judges every record the next boot's restore would start, live sessions included
+// (a reboot takes them down too), and starts nothing: "<name> RESTORABLE" or
+// "<name> UNRESTORABLE <why>" on stdout, each refusal's sentence on stderr. Exit 1 if any record
+// cannot be restored or the registry cannot be read. With the restore off, the next boot restores
+// nothing, so there is nothing to judge. The self-update cycle asks this before it warns anyone of
+// a reboot (fedora-desktop#108).
+func (a *App) checkRestore() term.ExitCode {
+	if !a.restoreEnabled() {
+		a.sayf("session restore is off for this user (ccy-sessions-restore.service is not enabled), so the next boot restores no session; nothing to check.\n")
+		return term.ExitOK
+	}
+	regdir, err := registry.Dir(a.Getenv)
+	if err != nil {
+		a.failErr(err)
+		return term.ExitFailure
+	}
+	absent, err := a.registryListable(regdir)
+	if err != nil {
+		return term.ExitFailure
+	}
+	if absent {
+		a.sayf("ccy session registry: nothing to restore (%s does not exist).\n", regdir)
+		return term.ExitOK
+	}
+	reading, err := registry.New(regdir).ReadAll()
+	if err != nil {
+		a.failErr(err)
+		return term.ExitFailure
+	}
+	var lines strings.Builder
+	var refused []string
+	restorable := 0
+	for _, p := range reading.Problems {
+		a.failErr(p.Err)
+		name := filepath.Base(p.File)
+		lines.WriteString(name + checkLineUnrestorable + whyRecordUnreadable + "\n")
+		refused = append(refused, name)
+	}
+	for _, rec := range reading.Records {
+		if !a.restoreTries(rec) {
+			continue
+		}
+		plan := a.planRestore(rec, filepath.Join(regdir, rec.Name))
+		if plan.why != "" {
+			a.fail(rec.Name + " cannot be restored: " + plan.sentence)
+			lines.WriteString(rec.Name + checkLineUnrestorable + plan.why + "\n")
+			refused = append(refused, rec.Name)
+			continue
+		}
+		lines.WriteString(rec.Name + checkLineRestorable + "\n")
+		restorable++
+	}
+	a.out(lines.String())
+	if len(refused) > 0 {
+		a.fail(fmt.Sprintf("%d recorded session(s) could not be restored after a reboot: %s.", len(refused), strings.Join(refused, ", ")))
+		return term.ExitFailure
+	}
+	a.sayf("every recorded session can be restored after a reboot (%d).\n", restorable)
+	return term.ExitOK
+}
+
+// restoreTries says whether the restore would try to start the record, and says why not when
+// it would not: marked no-restore, or an opencode session.
+func (a *App) restoreTries(rec registry.Record) bool {
+	if !rec.Restore {
+		a.sayf("skip %s: marked no-restore.\n", rec.Name)
+		return false
+	}
+	if registry.Opencode(rec.Prefix, rec.Args) {
+		a.sayf("skip %s: an opencode session is not restored (Plan 00215); start it again with ccy --opencode.\n", rec.Name)
+		return false
+	}
+	return true
 }
 
 // restoreRun is one restore in progress.
@@ -163,10 +292,11 @@ func (r *restoreRun) result() error {
 // restoreAll restores each record in file-name order and reports the totals.
 func (r *restoreRun) restoreAll(ctx context.Context, reading registry.Reading, manifest *restore.Store) error {
 	a := r.app
-	// An unreadable record is a failure, and the reader's reason is shown.
+	// An unreadable record is a failure, and the reader's reason is shown. It has no name to
+	// read, so its file's name stands for it in the manifest.
 	for _, p := range reading.Problems {
 		a.failErr(p.Err)
-		r.failures++
+		r.notStarted(restore.Entry{Name: filepath.Base(p.File)}, whyRecordUnreadable)
 	}
 	for _, rec := range reading.Records {
 		r.record(ctx, rec)
@@ -180,16 +310,20 @@ func (r *restoreRun) restoreAll(ctx context.Context, reading registry.Reading, m
 	return r.result()
 }
 
+// notStarted counts a session the restore could not start and puts it in the manifest as
+// not-started with why, so that verify-restore reports it: left out, an all-failed restore would
+// write an empty manifest, which verify-restore reads as nothing to verify (fedora-desktop#108).
+func (r *restoreRun) notStarted(entry restore.Entry, why string) {
+	r.failures++
+	entry.Going, entry.Detail = restore.GoingNotStarted, why
+	r.entries = append(r.entries, entry)
+}
+
 // record restores one session from its record.
 func (r *restoreRun) record(ctx context.Context, rec registry.Record) {
 	a := r.app
 	file := filepath.Join(r.regdir, rec.Name)
-	if !rec.Restore {
-		a.sayf("skip %s: marked no-restore.\n", rec.Name)
-		return
-	}
-	if registry.Opencode(rec.Prefix, rec.Args) {
-		a.sayf("skip %s: an opencode session is not restored (Plan 00215); start it again with ccy --opencode.\n", rec.Name)
+	if !a.restoreTries(rec) {
 		return
 	}
 	entry := restore.Entry{
@@ -208,27 +342,14 @@ func (r *restoreRun) record(ctx context.Context, rec registry.Record) {
 		r.entries = append(r.entries, entry)
 		return
 	}
-	if info, statErr := os.Stat(rec.Dir); statErr != nil || !info.IsDir() {
-		a.fail("cannot restore " + rec.Name + ": its directory no longer exists: " + rec.Dir +
-			" (the record is kept at " + file + "; remove it if the project is gone).")
-		r.failures++
+	plan := a.planRestore(rec, file)
+	if plan.why != "" {
+		a.fail("cannot restore " + rec.Name + ": " + plan.sentence)
+		r.notStarted(entry, plan.why)
 		return
 	}
-	// Plan 00203 C6, Decision 10: the session's own conversation by its recorded id, or not at
-	// all; --continue would take the newest in a folder several sessions share.
-	id, err := conversation.For(rec, conversation.ClaudeHome(a.Getenv))
-	if err != nil {
-		a.fail("cannot restore " + rec.Name + ": " + err.Error() + " (the record is kept at " + file + ").")
-		r.failures++
-		return
-	}
-	args, err := registry.ResumeArgs(rec.Compose, rec.Prefix, rec.Args, id)
-	if err != nil {
-		a.fail("could not work out the arguments to restore " + rec.Name + " with (the record is kept at " + file + ").")
-		r.failures++
-		return
-	}
-	entry.Resume = id
+	args := plan.args
+	entry.Resume = plan.id
 	if r.dryRun {
 		a.sayf("would start %s in %s: %s %s\n", rec.Name, rec.Dir, rec.Launcher, strings.Join(args, " "))
 		return
@@ -239,10 +360,10 @@ func (r *restoreRun) record(ctx context.Context, rec registry.Record) {
 	}
 	command = append(append(command, rec.Launcher), args...)
 	spec := tmuxccy.StartSpec{Name: rec.Name, Dir: rec.Dir, Command: command, RecordPath: file, Prefix: rec.Prefix}
-	if err = a.Tmux.StartDetached(ctx, spec); err != nil {
+	if err := a.Tmux.StartDetached(ctx, spec); err != nil {
 		a.failErr(err)
 		a.fail("could not start " + rec.Name + " in " + rec.Dir + " (the record is kept at " + file + ").")
-		r.failures++
+		r.notStarted(entry, whyStartFailed)
 		return
 	}
 	a.sayf("restored %s in %s.\n", rec.Name, rec.Dir)

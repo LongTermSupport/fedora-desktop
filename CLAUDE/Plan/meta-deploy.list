@@ -36,7 +36,11 @@
 # Every play the ledger lists as stale (about 24), in playbook-main order. Most are stale only
 # because a stray untracked file (removed 2026-10-31) marked every run since 2026-10-28 dirty;
 # one clean run of each clears the owner's "this machine needs attention" list. Among them,
-# for real changes: play-claude-yolo, CCY 3.104.14 (container 2.79.20, one image rebuild;
-# project images rebuild at their next launch): the playbook paths ccy prints for GitHub keys
-# and podman-compose are corrected (issue #109); and play-basic-configs installs btop (#109):
+# for real changes: play-claude-yolo, CCY 3.104.14 and 3.104.15 (container 2.79.20, one image
+# rebuild; project images rebuild at their next launch): the playbook paths ccy prints are
+# corrected (issue #109); and ccy-sessions writes every session the boot's restore could not
+# start into the restore manifest, so verify-restore reports it NOT-STARTED and fails, and
+# gains `restore --check`, which the self-update cycle asks before it warns of a reboot (issue
+# #108; the cycle's own code arrives through its deploy clone, not a play). And
+# play-basic-configs installs btop (#109):
 changed-plays

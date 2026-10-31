@@ -293,6 +293,22 @@ session that ended before its first prompt. The restore names it as a failure an
 record; bring it back with `ccy --resume` in its folder, whose picker lists the
 conversations.
 
+**A record resumes by its recorded id only.** A restore always appends `--resume <id>`, so
+a session launched without `--continue` (a fresh start) comes back on the conversation it
+recorded, not fresh; a record cannot ask for a fresh start. This is intended (fedora-desktop#108).
+
+**A record that cannot be restored is said, never dropped.** Each one the restore could not
+start (no conversation recorded, its directory gone, an unreadable record, a start that
+failed) is written into the boot's manifest as not started, so `verify-restore` reports it
+`NOT-STARTED <why>` and exits 1, even when no session came back at all.
+`ccy-sessions restore --check` judges every record the next boot would restore, live
+sessions included, and starts nothing: `<name> RESTORABLE` or `<name> UNRESTORABLE <why>`,
+exit 1 if any cannot be restored. The unattended self-update cycle runs it after its plays
+and before it warns anyone: on exit 1 it reboots nothing, records and announces
+`unrestorable-sessions` (Slack, when configured), and asks again at its next run, with the
+reboot still owed. A session started before the restore recorded conversations has to be
+restarted (or ended) before the machine reboots.
+
 What is replayed is the launch command line **minus the one-shot arguments**: `--rebuild`,
 `--prompt "text"` and a bare opening instruction, `--connect`, `--disconnect`, `--debug`, `--ssh-agent`
 (the agent socket is a different path after a reboot) and the like. Settings such as
@@ -419,8 +435,10 @@ If the restore wrote no manifest for the boot, set-going says so and fails rathe
 
 Check with `ccy-sessions verify-restore [--wait SECONDS]`. It reads the manifest the boot's
 restore wrote (`~/.local/state/ccy/last-restore`) and prints one line per session: `OK`,
-`STARTING`, `SETTING-GOING`, `NOT-SET-GOING <reason>`, `WAITING-AT-PROMPT <prompt>` or
-`DEAD <reason>`. A session at Claude Code's conversation picker (a restore of a `--resume`
+`STARTING`, `SETTING-GOING`, `NOT-SET-GOING <reason>`, `WAITING-AT-PROMPT <prompt>`,
+`DEAD <reason>` or `NOT-STARTED <reason>` (a record the restore could not start:
+`no-conversation`, `directory-gone`, `record-unreadable`, `arguments-unworkable`,
+`start-failed`). A session at Claude Code's conversation picker (a restore of a `--resume`
 launch) is `WAITING-AT-PROMPT thread-picker`. `NOT-SET-GOING` is a session left alone, or one whose transcript shows no
 input within two minutes of the keys being typed (`compact-not-started`,
 `continue-not-started`). It exits non-zero unless every session is `OK`. `--wait` polls
@@ -433,6 +451,7 @@ twice running. It also stops when the time runs out.
 | Session with that name already running    | Skips it and says so                                                                                                              |
 | Launched with `--no-restore`              | Skips it: the record says so                                                                                                      |
 | Record's directory has since been deleted | Fails loudly, keeps the record for you, carries on with the others; the unit ends `failed`                                        |
+| No conversation recorded for the session  | The same; `verify-restore` reports it `NOT-STARTED no-conversation`                                                               |
 | Live session list cannot be read          | Starts nothing — restoring blind could double every session                                                                       |
 | Registry path is not a readable directory | Fails: an unreadable registry is not "nothing to restore"                                                                         |
 | Server's SSH passphrase file is unusable  | Starts nothing: every `ccy` session would stop at its passphrase prompt; the unit ends `failed`                                   |
@@ -1830,8 +1849,7 @@ set-up), and `--token-usage` reads the usage cache the token menu reads, the tok
 curl on its stdin. It also answers the questions the bash launcher and its libraries ask it,
 under `CCY_LEGACY` too, which are not for typing at a prompt: `--read-launch-config FILE`
 (the saved launch configuration), `--check-token ENGINE IMAGE` (whether the API accepts a
-token: refused, or the check could not be made, with its cause), `--check-network ENGINE
-NETWORK` (the network probe), `--claude-versions ENGINE IMAGE` (the Claude Code versions in
+token: refused, or the check could not be made, with its cause), `--check-network ENGINE NETWORK` (the network probe), `--claude-versions ENGINE IMAGE` (the Claude Code versions in
 the image and on npm), and `--list-containers`, `--stop-containers` and `--remove-network`
 (the container listings, stops and network removals, each saying what failed in the engine's
 words). The package doc of `src-go/internal/ccylaunch` defines each (F16 to F22). It runs the bash launcher,
