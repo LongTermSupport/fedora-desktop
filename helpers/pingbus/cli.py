@@ -44,7 +44,7 @@ from typing import BinaryIO, TextIO
 
 from helpers.agent_bus import registry
 from helpers.pingbus import (config, envelope, forge, hooks, inbox, inject, limits, matrix, membership, notify,
-                             protocol, relay, sentlog, syncer)
+                             protocol, relay, sentlog, syncer, watcherstate)
 from helpers.pingbus import seat as seating
 from helpers.pingbus import statusline
 
@@ -1526,12 +1526,20 @@ def _spool_lock(environ: Mapping[str, str]) -> relay.Spool:
     return relay.Spool(config.resolve_home(environ))
 
 
+#: What `recv` says after a sync that failed for a reason a retry would meet again (issue #116).
+RECV_NOT_SYNCED = ("not synced: delivering what the inbox already holds; `pingbus history --team {team}` "
+                   "reads the room itself, and `pingbus status` shows the watcher's state")
+
+
 def _recv_team(member: config.Member, environ: Mapping[str, str], rt: Runtime,
-               out: TextIO, err: TextIO) -> tuple[int, int]:
+               out: TextIO, err: TextIO) -> tuple[int, int, int | None]:
     """One team's `recv`: sync once when the lock is free, then deliver; one DROPPED line
-    for the sync's and the re-fetch's drops together. (lines, drops)"""
+    for the sync's and the re-fetch's drops together. A sync that fails other than for a
+    homeserver that does not answer is said with how to recover, and what the inbox already
+    holds is delivered all the same (issue #116). (lines, drops, the failed sync's exit code)"""
     seat = _seat(member, environ, rt, err, reads=True)
     drops: collections.Counter[str] = collections.Counter()
+    sync_failed: int | None = None
     try:
         lock = inbox.acquire_lock(seat.state, "recv", sleep=rt.sleep)
     except inbox.Busy as busy:
@@ -1540,14 +1548,38 @@ def _recv_team(member: config.Member, environ: Mapping[str, str], rt: Runtime,
         record = load_cached_record(member)
     else:
         with lock:
-            batch = seat.syncer.sync_once(0)
-        record = seat.syncer.record
-        drops.update(batch.drops)
+            try:
+                batch = seat.syncer.sync_once(0)
+            except FAILURES as exc:
+                if not _inbox_still_readable(exc):
+                    raise
+                try:
+                    record = load_cached_record(member)
+                except protocol.Untrusted:
+                    raise exc from None
+                sync_failed, message = failure(exc)
+                err.write(f"{PROG}: team {member.team}: {message}: "
+                          f"{RECV_NOT_SYNCED.format(team=member.team)}\n")
+                batch = None
+        if batch is not None:
+            record = seat.syncer.record
+            drops.update(batch.drops)
     printed, refetched = _deliver(seat, record, rt, out, err, _spool_lock(environ))
     drops.update(refetched)
     if drops:
         emit(dropped_line(drops), out, err)
-    return printed, sum(drops.values())
+    return printed, sum(drops.values()), sync_failed
+
+
+def _inbox_still_readable(exc: Exception) -> bool:
+    """Whether a failed sync leaves the inbox deliverable: not when the room is not trusted,
+    the lock is taken, the homeserver does not answer or refuses the token, for the re-fetch
+    of every item would fail the same way."""
+    if isinstance(exc, (protocol.Untrusted, inbox.Busy)):
+        return False
+    if isinstance(exc, matrix.MatrixError):
+        return not exc.transient and exc.exit_code != EXIT_AUTH
+    return True
 
 
 def cmd_recv(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
@@ -1559,13 +1591,15 @@ def cmd_recv(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
     first_failure: int | None = None
     for member in config.load_active(environ, team=args.team):
         try:
-            lines, drops = _recv_team(member, environ, rt, out, err)
+            lines, drops, sync_failed = _recv_team(member, environ, rt, out, err)
         except FAILURES as exc:
             code, message = failure(exc)
             err.write(f"{PROG}: team {member.team}: {message}\n")
             if first_failure is None:
                 first_failure = code
             continue
+        if first_failure is None:
+            first_failure = sync_failed
         printed += lines
         dropped += drops
     if printed:
@@ -1805,6 +1839,23 @@ def _mark_down(home: pathlib.Path | None, team: str, down: bool, err: TextIO) ->
                   f"{'written' if down else 'removed'}: {_describe(exc)}\n")
 
 
+def _clear_watcher_record(seat: _Seat, err: TextIO) -> None:
+    """The team synced, so its watcher works: `status` stops naming it failing (issue #116)."""
+    try:
+        watcherstate.clear(seat.state.path)
+    except OSError as exc:
+        err.write(f"{PROG}: team {seat.member.team}: the watcher record was not removed: {_describe(exc)}\n")
+
+
+def _record_stop(member: config.Member, cause: str, now_ms: int, err: TextIO) -> None:
+    """Record that nothing will restart this team's watcher, for `status` and the supervisor;
+    one stderr line when it cannot be written."""
+    try:
+        watcherstate.record_stop(member.state_dir, cause, now_ms)
+    except OSError as exc:
+        err.write(f"{PROG}: team {member.team}: the watcher record was not written: {_describe(exc)}\n")
+
+
 def _watch_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting, err: TextIO,
                 stop: threading.Event | None = None, home: pathlib.Path | None = None) -> None:
     """One team's watcher thread: a first sync, then long-poll until stopped, waking the
@@ -1823,6 +1874,7 @@ def _watch_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting, e
     timeout_ms = 0
     outage: str | None = None
     marked = False
+    synced = False
     try:
         while not waiting.stop.is_set() and not stop.is_set():
             try:
@@ -1830,6 +1882,9 @@ def _watch_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting, e
                 timeout_ms = rt.long_poll_ms
                 if _discarded(seat, stop, batch):
                     return
+                if not synced:
+                    _clear_watcher_record(seat, err)
+                    synced = True
                 if batch.drops:
                     waiting.drops.put((team, batch.drops))
                 now = rt.clock_ms()
@@ -2185,10 +2240,54 @@ def _session_watch_lock(environ: Mapping[str, str], path: str, err: TextIO) -> i
         return None
 
 
+def _exit_cause(code: int) -> str:
+    """A supervised watcher's exit as one line: its signal, or its §14 code and meaning."""
+    if code < 0:
+        try:
+            return f"killed by signal {signal.Signals(-code).name}"
+        except ValueError:
+            return f"killed by signal {-code}"
+    meaning = "an uncaught exception, in watch.log" if code == 1 else EXIT_CODES.get(code, "unassigned")
+    return f"exit {code}: {meaning}"
+
+
+def _record_child_exit(environ: Mapping[str, str], code: int, started_ms: int, final: bool,
+                       rt: Runtime, err: TextIO) -> bool:
+    """Record a supervised watcher's exit for each active team (issue #116): a team the
+    child stopped itself (a permanent failure, `_permanent`) keeps its record; the others
+    are `stopped` after a final exit, else `failing` with their restart count. True when
+    every team is stopped: a restart cannot change what the watcher met."""
+    try:
+        members = config.load_active(environ)
+    except (config.ConfigError, config.UsageError) as exc:
+        err.write(f"{PROG}: the watcher's exit is not recorded: its teams cannot be read: {exc}\n")
+        return False
+    now, cause, stopped = rt.clock_ms(), _exit_cause(code), 0
+    for member in members:
+        try:
+            record = watcherstate.read(member.state_dir)
+        except inbox.StateError:
+            record = None  # the supervisor's own file: the write below replaces it
+        if record is not None and record.state == watcherstate.STOPPED and record.at_ms >= started_ms:
+            stopped += 1
+            continue
+        if final:
+            _record_stop(member, cause, now, err)
+            stopped += 1
+            continue
+        try:
+            watcherstate.record_exit(member.state_dir, cause, now)
+        except OSError as exc:
+            err.write(f"{PROG}: team {member.team}: the watcher record was not written: {_describe(exc)}\n")
+    return bool(members) and stopped == len(members)
+
+
 def _supervise(environ: Mapping[str, str], path: str, lock: inbox.Lock, rt: Runtime, err: TextIO) -> int:
     """Run `watch --child` until the session's socket goes, starting it again after any
-    other exit with a backoff, except a final one (SPEC-inject E26). The child inherits the
-    session's watch lock, so a supervisor killed on its own leaves its watcher counted."""
+    other exit with a backoff, except a final one, or one where the child stopped every team
+    for a failure a restart cannot change (SPEC-inject E26, issue #116). Each exit is recorded
+    beside each team's state for `status` (`watcherstate`). The child inherits the session's
+    watch lock, so a supervisor killed on its own leaves its watcher counted."""
     try:
         argv = [*hooks.watch_argv(environ), "--child"]
     except FileNotFoundError as exc:
@@ -2196,7 +2295,7 @@ def _supervise(environ: Mapping[str, str], path: str, lock: inbox.Lock, rt: Runt
     lock.set_inheritable()
     backoff = _Backoff(rt.supervise_retry_s, rt.supervise_retry_max_s)
     while True:
-        started = rt.monotonic()
+        started, started_ms = rt.monotonic(), rt.clock_ms()
         code = rt.run_child(argv, environ)
         if not notify.socket_present(path):
             err.write(f"{PROG}: the session socket is gone: the supervisor exits\n")
@@ -2205,9 +2304,15 @@ def _supervise(environ: Mapping[str, str], path: str, lock: inbox.Lock, rt: Runt
             err.write(f"{PROG}: {WATCHER_ENDED} (the session is on no team, or its socket refuses "
                       "connections): the supervisor exits\n")
             return EXIT_OK
-        if code in SUPERVISE_FINAL:
+        final = code in SUPERVISE_FINAL
+        every_team_stopped = _record_child_exit(environ, code, started_ms, final, rt, err)
+        if final:
             err.write(f"{PROG}: {WATCHER_REFUSED} (exit {code}), which a restart cannot change: "
                       "the supervisor exits\n")
+            return code
+        if every_team_stopped:
+            err.write(f"{PROG}: {WATCHER_REFUSED} on every team (exit {code}), which a restart cannot "
+                      "change: the supervisor exits; `pingbus status` names each team's cause\n")
             return code
         if rt.monotonic() - started >= rt.supervise_retry_max_s:
             backoff.reset()
@@ -2351,6 +2456,9 @@ def _watch(members: Sequence[config.Member], path: str, token: str, relaying: bo
                     raise exc
                 code, message = failure(exc)
                 err.write(f"{PROG}: team {team}: {message}: this team is {TEAM_NOT_WATCHED}\n")
+                for seat in seats:
+                    if seat.member.team == team:
+                        _record_stop(seat.member, message, rt.clock_ms(), err)
                 first_failure = first_failure or code
                 following.failed.add(team)
                 seats = [seat for seat in seats if seat.member.team != team]
@@ -2608,6 +2716,7 @@ def relay_state(environ: Mapping[str, str]) -> str:
 def _status_team(member: config.Member, now_ms: int, relay_field: str, out: TextIO) -> None:
     state = inbox.TeamState.for_member(member)
     wake = WAKE_NAMES.get(inbox.probe_lock(state) or "", "none")
+    watcher = watcherstate.read(state.path)
     members, statuses = state.room_view()
     overdue, dropped = _overdue(state, member, now_ms), state.drop_count()
     try:
@@ -2632,6 +2741,9 @@ def _status_team(member: config.Member, now_ms: int, relay_field: str, out: Text
     about = state.about() if record is not None else None
     if about is not None:
         out.write(format_line("ABOUT", _team(member.team), json.dumps(about, ensure_ascii=True)) + "\n")
+    if watcher is not None:
+        out.write(report_line("WATCHER", member.team, watcher.state, f"restarts={watcher.restarts}",
+                              f"since={watcher.since_ms}", f"at={watcher.at_ms}", watcher.cause) + "\n")
     if record is None:
         reason = state.untrusted_reason()
         if reason is not None:

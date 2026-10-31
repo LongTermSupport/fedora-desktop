@@ -32,3 +32,9 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Rebuild the ccy image with the new pingbus zipapp (issue #116: a watcher that keeps
+# exiting is shown by pingbus status and the session start; CCY 3.104.13, container 2.79.19).
+playbooks/imports/play-claude-yolo.yml
+# Reinstall the agent-bus member kit with the same pingbus, for host and LXC members (issue #116).
+playbooks/imports/play-agent-bus.yml

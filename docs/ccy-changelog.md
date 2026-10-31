@@ -27,6 +27,18 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.104.13 — container 2.79.19
+
+- **A pingbus watcher that keeps exiting is said, not only logged** (issue #116). Its
+  supervisor records each exit beside the team's state (`watcher.json`): `pingbus status`
+  prints a `WATCHER` line with the cause and the restart count, and the session start names
+  the team. A team the watcher stopped for a failure a restart cannot fix is recorded
+  `stopped`; once every team is, the supervisor exits instead of restarting it every 60 s,
+  and the hooks name it instead of starting it again. A supervisor the seat keeper started
+  is reaped when it exits, so no defunct `[pingbus]` stays behind. `pingbus recv` whose sync
+  fails still delivers what the inbox holds and names `pingbus history`. The image changes:
+  the pingbus zipapp, built from helpers/pingbus.
+
 ## 3.104.11 — container 2.79.18
 
 The image is unchanged, so there is no rebuild.
