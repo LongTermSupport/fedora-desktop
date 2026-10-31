@@ -197,6 +197,8 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     `BUILD_RC=0`); `vmtest run desktop-fresh-install` at `77d68ab96` on it: the LUKS unlock
     answered by the harness, `run.bash` headless to completion, the reboot into the session,
     16 of 16 checks, `VMTEST-BASE-CERTIFIED desktop-44`, verdict pass.
+    So vmtest's H1-H5 and H7 (`prune-runs`, Task 3.17) have passed; left: H6, which needs a
+    throwaway GitHub account only the owner can make.
   - `open` (P6): done, `go-port/open` and `go-port/open-2` both merged into F44 and deployed
     (`8c2de08c`); its host checks H1, H4 and H5 are the host agent's (terminal steps through
     tmux), H2 and H3 the owner's (the desktop), not queued in `meta-deploy.list`. Spec
@@ -491,8 +493,7 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   the overlay as for any run. A domain whose lock is held stays live, and so does a listed run
   from before the lock. SPEC-vmtest E66; red (fe3f985f6: the dry run named no orphan, and a
   failed removal passed), then green. On the host after play-vm-test-lab (2026-10-30):
-  `prune-runs --yes` printed `VMTEST-PRUNE-ORPHAN 20261029T145952Z-server-fast-provision
-  removed vmtest-run-20261029T145952Z-server-fast-provision` (destroyed, then undefined), and
+  `prune-runs --yes` printed `VMTEST-PRUNE-ORPHAN 20261029T145952Z-server-fast-provision removed vmtest-run-20261029T145952Z-server-fast-provision` (destroyed, then undefined), and
   its overlay went with the run's; 43.3 GiB freed from 5 runs.
 
 ### Phase 4: Review
