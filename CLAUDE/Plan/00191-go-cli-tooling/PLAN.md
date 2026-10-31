@@ -811,7 +811,7 @@ today; rewriting them is out of scope.
   `test-ccy-token-usage-command.bash` drives the built front (102 checks). CCY 3.104.0.
   Deployed (the host is on 3.104.11). Left: the owner seeing the bars.
 
-- [ ] 🔄 **Task 4.9**: Defence Before Fix for the owner's incident (2026-10-29 ~12:57, triaged
+- [x] ✅ **Task 4.9**: Defence Before Fix for the owner's incident (2026-10-29 ~12:57, triaged
   by seat 2): every token showed "could not reach the API" for 15 minutes after one failed read.
   `ask()` kept only whether curl's run failed (status 000, no cause) and the entry was cached
   for the TTL. Class: a command's failure only tested, never carried. Rule
@@ -829,8 +829,11 @@ today; rewriting them is out of scope.
   gives the count as 111, not 110. The owner's answer on the 8 bash instances of the search
   (2026-10-30, "A7a ... the idea is we push towards go"): they are fixed by porting those
   ccy launcher paths to Go, where the rule already holds; no bash fix, no ratchet raise. That
-  port is Task 4.10, deployed. Left: the report's other two referrals to the owner, the bash
-  class without a rule and the wider any-error rule (A11 on the owner's sheet).
+  port is Task 4.10, deployed. The report's other two referrals (A11), decided 2026-10-31 by
+  a Fable review at the owner's direction ("use fable sub agent to try to pick clear
+  winners"): accept, both stay unbuilt. The bash class goes with the bash, which is being
+  retired to Go where the rule holds; the any-error rule cannot tell a dropped cause from a
+  deliberate sentinel branch.
 
 - [ ] 🔄 **Task 4.10**: Port the ccy launch path to Go (the owner's A7a, 2026-10-30), so the
   DBF report's 8 bash instances arrive defended by `project_command_failure_dropped`. The Go
@@ -870,7 +873,8 @@ today; rewriting them is out of scope.
      accept-new, a declared fallback (`subagent-reports/261030-task-4.10-unit5-entrypoint.md`).
 
   All 8 instances are fixed; 7 now run in Go behind the rule, and B4 stays bash because it
-  runs in the image (a departure from A7a, put to the owner). Deployed on the host at
+  runs in the image (a departure from A7a; the Fable review of 2026-10-31 kept it in bash: a
+  one-fetch Go binary is YAGNI, and A7a is served by porting the entrypoint whole, later). Deployed on the host at
   8a6396691 (2026-10-31: `ccy --version` 3.104.10, image 2.79.18).
 
   6. ✅ The qa-reviewer pass over units 1-5 (2026-10-31) found what was left: the play put
