@@ -31,10 +31,10 @@ This is a hard rule with NO exceptions.
 vim extensions/my-extension/script.sh
 
 # 2. Update playbook to deploy
-vim playbooks/imports/optional/common/play-my-feature.yml
+vim playbooks/imports/optional/common/play-<my-feature>.yml
 
 # 3. Deploy via Ansible
-./playbooks/imports/optional/common/play-my-feature.yml
+./playbooks/imports/optional/common/play-<my-feature>.yml
 
 # 4. Test the deployed result
 ~/.local/bin/script.sh --test
@@ -51,6 +51,7 @@ vim playbooks/imports/optional/common/play-my-feature.yml
 ## Correct Ansible Patterns
 
 **Always use Ansible modules:**
+
 - `copy`, `template` — for file deployment
 - `package`, `dnf` — for installations
 - `service`, `systemd` — for service management
@@ -58,6 +59,7 @@ vim playbooks/imports/optional/common/play-my-feature.yml
 - `get_url` — for downloads
 
 **Ensure idempotency:**
+
 - Playbooks must be safe to run multiple times
 - Use `creates` parameter for shell commands that should run once
 - Use declarative state (`state: present`, `state: started`)
@@ -76,6 +78,7 @@ vim playbooks/imports/optional/common/play-my-feature.yml
 ```
 
 **Test playbook changes:**
+
 - Verify with `--check` or `--diff` flags before applying
 
 ## For Package Availability Checks

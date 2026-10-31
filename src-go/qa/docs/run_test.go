@@ -287,7 +287,7 @@ func TestD14ARepositoryThatTracksNothingIsExitTwoNotAVerdict(t *testing.T) {
 func TestD22TheCleanLineIsExact(t *testing.T) {
 	w := newWorld(t, nil)
 	got := w.check()
-	want := "✓ docs: 5 files (5 tracked) OK (links, anchors, playbook catalogue, topic index, gate inventory) — VENDORED: 0 verified, 0 unverifiable (repo absent), 0 broken\n"
+	want := "✓ docs: 5 files (5 tracked) OK (links, anchors, playbook catalogue, playbook paths, topic index, gate inventory) — VENDORED: 0 verified, 0 unverifiable (repo absent), 0 broken\n"
 	if got.stdout != want {
 		t.Fatalf("stdout\n got  %q\n want %q", got.stdout, want)
 	}

@@ -1051,7 +1051,7 @@ _do_compose_start() {
             echo ""
             echo "Install with:"
             echo "  pip install podman-compose"
-            echo "  # Or: ansible-playbook playbooks/imports/optional/common/play-podman.yml"
+            echo "  # Or: ansible-playbook playbooks/imports/play-podman.yml"
             echo ""
             echo "Then run: podman-compose up -d"
             echo "────────────────────────────────────────────────────────────────────────────────"

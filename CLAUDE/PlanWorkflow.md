@@ -472,7 +472,7 @@ code it tracks.
 
 - **Plan + code in one commit** (preferred when both change together):
   ```bash
-  git add CLAUDE/Plan/00049-full-repo-audit/PLAN.md playbooks/imports/play-docker.yml
+  git add CLAUDE/Plan/00049-full-repo-audit/PLAN.md playbooks/imports/optional/common/play-docker.yml
   git commit -m "Plan 00049: make Docker rootful and core"
   ```
 - **Plan-only commit** (encouraged for new plans, research, decision notes, status

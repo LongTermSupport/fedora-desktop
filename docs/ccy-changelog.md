@@ -27,6 +27,13 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.104.13 — container 2.79.19
+
+- **The playbook paths ccy prints are the ones the repository has** (issue #109). The hints
+  to set up GitHub keys and to install podman-compose put `play-github-cli-multi.yml` and
+  `play-podman.yml` under `optional/common/`; both plays live in `playbooks/imports/`. `entrypoint.sh` prints one of them, so the image
+  rebuilds.
+
 ## 3.104.12 — container 2.79.18
 
 No image file changed, but the version bump rebuilds the ccy base image, so project images

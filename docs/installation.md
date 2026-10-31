@@ -229,7 +229,7 @@ The main playbook installs and configures:
 **System Setup**
 
 - Preflight sanity checks (Fedora version validation)
-- Basic packages (vim, wget, htop, bash-completion, ripgrep, etc.)
+- Basic packages (vim, wget, htop, btop, bash-completion, ripgrep, etc.)
 - DNF optimization (10 parallel downloads, fastest mirror)
 - Passwordless sudo for your user
 - RPM Fusion repositories
@@ -280,13 +280,10 @@ cd ~/Projects/fedora-desktop
 
 # Distrobox
 ./playbooks/imports/optional/common/play-distrobox.yml
-
-# Python development (pyenv + multiple Python versions)
-./playbooks/imports/optional/common/play-python.yml
-
-# VS Code
-./playbooks/imports/optional/common/play-vscode.yml
 ```
+
+The Python development environment (pyenv and its Python versions, `play-python.yml`) and
+VS Code (`play-vscode.yml`) are not optional: the main playbook installs both.
 
 ## Verifying Installation
 

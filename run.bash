@@ -999,7 +999,7 @@ Options:
                        ansible-playbook (e.g. -vvv, --check). With --headless
                        it runs unattended (see --help-run-headless). Every
                        play's shebang calls this, so
-                       ./playbooks/imports/play-x.yml is the same thing.
+                       ./playbooks/imports/play-<name>.yml is the same thing.
                        One play at a time per host: a second run while one is
                        going exits 75 and names the holder.
   --headless           Force unattended mode (no prompts); config from RUN_BASH_* env
@@ -1177,8 +1177,8 @@ CLOUD-INIT (Fedora Cloud) — fetch secrets OUT-OF-BAND, never in write_files
   a commit SHA (not HEAD) when fetching it, and inspect before running.
 
 ONE PLAY, UNATTENDED (maintenance, e.g. a timer)
-       RUN_BASH_HEADLESS=1 ./playbooks/imports/play-x.yml [ansible-playbook args…]
-       ./run.bash --headless playbooks/imports/play-x.yml [ansible-playbook args…]
+       RUN_BASH_HEADLESS=1 ./playbooks/imports/play-<name>.yml [ansible-playbook args…]
+       ./run.bash --headless playbooks/imports/play-<name>.yml [ansible-playbook args…]
   Runs that one play from this checkout and exits with its status. None of the
   provisioning contract above applies: no RUN_BASH_* identity, GitHub or vault input,
   no self-update, no dnf, no main playbook. It needs only a sudo credential that works
@@ -1193,7 +1193,7 @@ ONE PLAY, UNATTENDED (maintenance, e.g. a timer)
   and the inherited descriptor (helpers/play_lock/lock.py).
 
 ONE PLAY IN A BATCH
-       RUN_BASH_OFFER_ISSUE=0 ./playbooks/imports/play-x.yml
+       RUN_BASH_OFFER_ISSUE=0 ./playbooks/imports/play-<name>.yml
   An attended play that fails offers to file a GitHub issue. RUN_BASH_OFFER_ISSUE=0
   leaves the offer out and still exits with the play's status, so a batch (meta-deploy)
   goes on to its next unit instead of waiting at the question.
@@ -3976,8 +3976,6 @@ echo -e "${CYAN}${BOLD}Optional next steps${NC} (run after reboot):"
 echo -e "  ${ARROW} Optional setup scripts (rclone cloud storage, etc.):"
 echo -e "    ${BOLD}cd ~/Projects/fedora-desktop${NC}"
 echo -e "    ${BOLD}./scripts/setup.bash${NC}"
-echo -e "  ${ARROW} Python development environment (pyenv + pyenv versions):"
-echo -e "    ${BOLD}./playbooks/imports/optional/common/play-python.yml${NC}"
 echo
 
 # Mark setup complete so the GNOME autostart doesn't re-fire after reboot

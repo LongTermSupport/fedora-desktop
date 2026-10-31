@@ -9,7 +9,7 @@ The container's gh needs a token. Either:
                             export GH_TOKEN=…   then re-run ccy
 
 For multi-account setup with github_ SSH keys, run:
-  ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml
+  ansible-playbook playbooks/imports/play-github-cli-multi.yml
 === stderr
 ✓ Writing .claude/ccy/ccy.env.local.dist (version 3); commit it
 [0;31mERROR:[0m No GitHub token: gh is not logged in and GH_TOKEN is not exported

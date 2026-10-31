@@ -96,6 +96,7 @@
           - wget
           - bash-completion
           - htop
+          - btop
           - python3-libdnf5
           - multitail
           - figlet

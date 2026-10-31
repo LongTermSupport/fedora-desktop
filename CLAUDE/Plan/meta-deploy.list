@@ -38,5 +38,9 @@
 # it shows: a visually empty box is set going, and a box left alone as typed has its raw line
 # printed. Plan 00201 A12: ccy-teams' offers to sign in, open Element, start a ccy session or
 # update the teams now start on No. No image file changed, but a CCY bump rebuilds the ccy
-# base image, so project images rebuild at their next launch:
+# base image, so project images rebuild at their next launch. CCY 3.104.13, container 2.79.19
+# (issue #109): the playbook paths ccy prints for GitHub keys and podman-compose are corrected:
 playbooks/imports/play-claude-yolo.yml
+
+# Issue #109: installs btop (an htop-like process viewer) with the other basic packages:
+playbooks/imports/play-basic-configs.yml

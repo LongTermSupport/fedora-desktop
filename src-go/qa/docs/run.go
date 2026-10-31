@@ -61,7 +61,8 @@ const usageText = `usage: qa-docs [--root DIR] [--scripts DIR]
 
 Checks the core documents: every relative link target exists and is tracked, every #anchor matches
 a heading, every playbook playbooks/playbook-main.yml imports is named in docs/playbooks.md and
-docs/architecture.md, every topic file directly under CLAUDE/ is in CLAUDE.md, and every gate in
+docs/architecture.md, every playbooks/...yml path written in those documents, run.bash,
+scripts/ (test suites aside) and files/ is a tracked playbook, every topic file directly under CLAUDE/ is in CLAUDE.md, and every gate in
 scripts/qa-gates.tsv has a row in CLAUDE/QA.md (and the reverse). CLAUDE/Plan is out of scope.
 
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
@@ -191,7 +192,11 @@ func (g *gate) run() (ExitCode, error) {
 	if err != nil {
 		return ExitCannotRun, err
 	}
-	findings = append(append(append(findings, catalogue...), topics...), inventory...)
+	plays, err := g.checkPlayPaths(population, tracked)
+	if err != nil {
+		return ExitCannotRun, err
+	}
+	findings = append(append(append(append(findings, catalogue...), topics...), inventory...), plays...)
 	return g.finish(population, tracked, findings, vendored)
 }
 

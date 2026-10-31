@@ -115,7 +115,7 @@ func runIn(t *testing.T, root string) outcome {
 // D2, D22: the real git and file system judge a clean tree.
 func TestRealCleanTreePasses(t *testing.T) {
 	got := runIn(t, repo(t, nil))
-	want := "✓ docs: 4 files (4 tracked) OK (links, anchors, playbook catalogue, topic index, gate inventory) — VENDORED: 0 verified, 0 unverifiable (repo absent), 0 broken\n"
+	want := "✓ docs: 4 files (4 tracked) OK (links, anchors, playbook catalogue, playbook paths, topic index, gate inventory) — VENDORED: 0 verified, 0 unverifiable (repo absent), 0 broken\n"
 	if got.code != docs.ExitOK || got.stdout != want || got.stderr != "" {
 		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", got.code, got.stdout, got.stderr)
 	}
