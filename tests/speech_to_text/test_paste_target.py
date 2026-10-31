@@ -258,9 +258,21 @@ class AutoPasteKeysTest(unittest.TestCase):
         self.assertEqual(self.wait_before_enter(), wsi_stream.PASTE_ENTER_DELAY_AFTER_REFOCUS_SECONDS)
         self.assertGreater(wsi_stream.PASTE_ENTER_DELAY_AFTER_REFOCUS_SECONDS, 0.3 + len("hello") * 0.002)
 
-    def test_a_window_that_kept_focus_is_not_asked_again_before_the_enter(self):
-        self.paste((True, False, False))
-        self.assertEqual(self.asks, [False])
+    def test_a_window_that_kept_focus_is_asked_again_before_the_enter(self):
+        """Owner sheet A13: focus can move during the wait after any paste, not only after
+        a retake, so the panel is asked again before every Enter."""
+        self.assertEqual(self.paste((True, False, False)), [(CTRL, SHIFT, V), (ENTER,)])
+        self.assertEqual(self.asks, [False, True])
+        enter = self.timeline.index((ENTER,))
+        self.assertEqual(self.timeline[enter - 1], "asked")
+        self.assertAlmostEqual(self.wait_before_enter(), 0.3 + len("hello") * 0.002)
+
+    def test_a_window_that_kept_focus_then_closed_takes_no_enter(self):
+        closed = wsi_stream.PasteTargetUnavailable("the window this dictation started in was closed")
+        with mock.patch.object(wsi_stream, "paste_target_now", self.target((False, True, False), closed)), \
+                self.assertRaises(wsi_stream.EnterNotSent):
+            wsi_stream.auto_paste("hello")
+        self.assertEqual(self.pressed, [(CTRL, V)])
 
     def test_after_a_retake_the_panel_is_asked_again_just_before_the_enter(self):
         """Plan 00164 (H2): focus can move away again after the paste. The panel is asked
@@ -271,8 +283,12 @@ class AutoPasteKeysTest(unittest.TestCase):
         self.assertEqual(self.timeline[enter - 2:enter],
                          [wsi_stream.PASTE_ENTER_DELAY_AFTER_REFOCUS_SECONDS, "asked"])
 
-    def test_a_retake_with_no_enter_due_asks_once(self):
+    def test_a_save_with_no_enter_due_is_asked_for_too(self):
         self.assertEqual(self.paste((False, True, True), skip_enter=True), [(CTRL, V), (CTRL, S)])
+        self.assertEqual(self.asks, [False, True])
+
+    def test_no_key_due_after_the_paste_asks_once(self):
+        self.assertEqual(self.paste((False, False, True), skip_enter=True), [(CTRL, V)])
         self.assertEqual(self.asks, [False])
 
     def test_a_window_closed_after_the_paste_takes_no_enter_and_no_save(self):

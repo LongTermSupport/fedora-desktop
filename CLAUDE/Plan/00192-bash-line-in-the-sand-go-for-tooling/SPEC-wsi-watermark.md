@@ -255,14 +255,17 @@ Python and are run from the directory the binary is in.
   `29:1 42:1 47:1 47:0 42:0 29:0` (Ctrl+Shift+V), or without `--paste-with-shift`
   `42:1 110:1 110:0 42:0` (Shift+Insert), with `YDOTOOL_SOCKET` set to the socket. A failure
   is `ydotool <keys> simulation failed (exit code: <n>)` (W9), exit 1.
-- W33. Before the Enter: a refocused paste with an Enter to send waits 1.0 s (log
-  `Waiting 1.0 s before the Enter: focus was given back for this paste`) and asks the panel
-  again as in W30 (only the target is judged; the keys stay; a panel that cannot answer sends
-  the Enter); a target that is now closed or unfocused is
+- W33. Before the Enter: with an Enter or a save to send, a refocused paste waits 1.0 s (log
+  `Waiting 1.0 s before the Enter: focus was given back for this paste`), any other 0.3 s.
+  Then, with `--paste-with-shift` (a window pinned at Insert) and an Enter or a save to send,
+  the panel is asked again as in W30, whatever happened before the paste (owner sheet A13:
+  focus can move during the wait after any paste, and the key would go to whatever has it).
+  Only the target is judged; the keys stay; a panel that cannot answer sends the key. A
+  target that is now closed, unfocused or another tab is
   `The text was pasted but not sent: <why>` (W9) and a notification that stays
-  `The text was pasted but not sent: <why>. No Enter was pressed.`, exit 1. Otherwise the wait
-  is 0.3 s. Then, unless `--no-auto-enter`, `ydotool key 28:1 28:0`; a failure is a problem
-  (W9) and the paste stands.
+  `The text was pasted but not sent: <why>. No Enter was pressed.`, exit 1, and neither the
+  Enter nor the save is pressed. Then, unless `--no-auto-enter`, `ydotool key 28:1 28:0`; a
+  failure is a problem (W9) and the paste stands.
 - W34. Then, when the panel asked for a save, `ydotool key 29:1 31:1 31:0 29:0` (log
   `Save simulated via Ctrl+S`); a failure is the problem
   `The text was pasted but the save (Ctrl+S) failed (exit code: <n>)`.

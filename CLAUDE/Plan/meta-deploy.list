@@ -32,3 +32,8 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Speech-to-text (Plan 00192 Task 3.18, owner sheet A13): expected to run
+# play-speech-to-text.yml, which rebuilds the wsi binary and deploys wsi-stream, both of
+# which now ask the panel again before every Enter or save instead of only after a retake.
+changed-plays
