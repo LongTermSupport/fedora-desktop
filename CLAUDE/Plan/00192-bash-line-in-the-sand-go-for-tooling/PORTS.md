@@ -455,7 +455,8 @@ a Bash command whose text holds the name of nmcli's VPN secrets setting as one t
 a protected glob; no file is involved), so the code joins the name from its parts, with a
 one-line comment saying so and a test pinning the parts. Decided 2026-10-28 (part C item 9 of
 the unblocking list the owner answered "all recommended"): the workaround stays, the guard is
-not weakened locally, and an upstream issue is filed (PLAN.md Task 3.12). Host run: `changed-plays` at `b9fdc8adb` picked nothing, because the play ran on the
+not weakened locally, and an upstream issue is filed (PLAN.md Task 3.12): hooks-daemon
+#145, a feature request, 2026-10-31. Host run: `changed-plays` at `b9fdc8adb` picked nothing, because the play ran on the
 host only before its play ledger was cleared, so `--changed` cannot see it
 (`$pmo505uje_JUY88QP54JD_65CQfD2oK_Vr-OfYdbwvM`), so it was run by name instead, and ran
 at `037892368` (H1-H3 PASS; PLAN.md Task 3.3 has the host results). Before that run its firewalld step was made to ask first

@@ -449,9 +449,12 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   rather than none (today) or every play. Tests first: a change to one variable makes stale the
   plays that read it and no other; a variable no play reads makes none stale.
 
-- [ ] ⏸️ **Task 3.12**: **Blocked on the owner (questions room Q8):** the deny is deliberate
-  upstream (`secret_file_guard.py`, documented as an accepted cost), so there is no defect to
-  file; a feature request, or closing the task, is the owner's call.
+- [x] ✅ **Task 3.12**: Filed upstream as a feature request,
+  [claude-code-hooks-daemon#145](https://github.com/Edmonds-Commerce-Limited/claude-code-hooks-daemon/issues/145)
+  (2026-10-31, body from `hooks-daemon issue-report`). Decided "file" by a Fable review at the
+  owner's direction (questions room Q8). The deny is deliberate upstream
+  (`secret_file_guard.py`, documented as an accepted cost), so it is a feature request, not a
+  defect.
   FOLLOW-UP (part C item 9 of the unblocking list, decided 2026-10-28): the
   hooks-daemon secret-file guard denies a Write or a Bash command whose text holds nmcli's VPN
   secrets setting name as one token, though no file is involved ([PORTS.md](PORTS.md), nord).
