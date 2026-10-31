@@ -832,7 +832,7 @@ today; rewriting them is out of scope.
   that port (with Plan 00209's Go-first work), and the report's other two referrals, the bash
   class without a rule and the wider any-error rule.
 
-- [ ] ⬜ **Task 4.10**: Port the ccy launch path to Go (the owner's A7a, 2026-10-30), so the
+- [ ] 🔄 **Task 4.10**: Port the ccy launch path to Go (the owner's A7a, 2026-10-30), so the
   DBF report's 8 bash instances arrive defended by `project_command_failure_dropped`. The Go
   front answers only the token flags today; the launch flow itself is bash
   (`files/var/local/claude-yolo/claude-yolo` and its `lib/`). One unit per commit, each moving
@@ -868,6 +868,11 @@ today; rewriting them is out of scope.
      3.104.10, container 2.79.18): `curl -fsS` and `jq -e`, so the warning carries curl's
      cause (DNS, connection, HTTP status) or "malformed answer"; the start still goes on with
      accept-new, a declared fallback (`subagent-reports/261030-task-4.10-unit5-entrypoint.md`).
+
+  All 8 instances are fixed; 7 now run in Go behind the rule, and B4 stays bash because it
+  runs in the image (a departure from A7a, put to the owner). Left: the host run of CCY
+  3.104.9 and 3.104.10 (one play-claude-yolo), and the owner's next normal launch, which
+  exercises units 1-4 for real.
 
 ### Phase 5: Review
 
