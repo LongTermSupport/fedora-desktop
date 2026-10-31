@@ -499,7 +499,7 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   `prune-runs --yes` printed `VMTEST-PRUNE-ORPHAN 20261029T145952Z-server-fast-provision removed vmtest-run-20261029T145952Z-server-fast-provision` (destroyed, then undefined), and
   its overlay went with the run's; 43.3 GiB freed from 5 runs.
 
-- [ ] 🔄 **Task 3.18**: FOLLOW-UP of issue #106 (owner sheet A13, decided by review: option
+- [x] ✅ **Task 3.18**: FOLLOW-UP of issue #106 (owner sheet A13, decided by review: option
   1): speech-to-text sent the Enter, or the save (Ctrl+S), after the paste without asking
   the panel again unless focus had been given back during the dictation, so a focus or tab
   change in the 0.3 s wait sent it to another window. Class: a synthetic keystroke sent to
@@ -511,7 +511,8 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   tmux `send-keys` calls (an explicit pane target) are not in the class. No analyzer: the
   rule is an ordering across functions (a press preceded by a fresh panel answer) that
   neither `go/analysis` nor semgrep can state without naming these two flows; the W33 tests
-  hold it. Left: the host run (`changed-plays` in `meta-deploy.list`).
+  hold it. Deployed 2026-10-31 at ac7383246 (play-speech-to-text, the only play the judge
+  picked); the owner sees it at the next dictation that ends in "send" or "save".
 
 ### Phase 4: Review
 
