@@ -110,10 +110,12 @@ non-technical person can follow the blue MOK Manager screens after the reboot.
   waits for the worker before driving the list
 - [x] ✅ **Task 2.5**: Tests first: the status line is in the normal text colour (`$text`, was
   `$text-muted`), and its GPU part is bold
-- [ ] ⬜ **Task 2.6**: on the host (meta-deploy): `changed-plays` picks up
+- [ ] 🔄 **Task 2.6**: on the host (meta-deploy): `changed-plays` picks up
   play-speech-to-text.yml, then `acceptance.bash` (its `screen` leg now sees the checking line
   first); then the owner opens Manage Whisper Models... and sees the checking message at once
-  and a readable GPU line
+  and a readable GPU line. Host half passed: play-speech-to-text and this plan's acceptance
+  at c378092ce (2026-10-30, `$12STku_FsmBt0mrik6T1BG8UzYQ5hhuFtIQixmMF-zE`), the play again
+  at be1611132. Left: the owner's look, after their next log-in.
 
 ### Phase 3: Review
 
