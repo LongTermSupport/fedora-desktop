@@ -221,7 +221,9 @@ Python and are run from the directory the binary is in.
   is `Unknown window manager for clipboard: <type>` (W9), exit 1. The ydotool socket missing
   now is `ydotool socket disappeared before paste` (W9), exit 1.
 - W30. The panel's answer: `gdbus call --session --dest org.gnome.Shell --object-path /org/fedoradesktop/SpeechToText/Panel --method org.fedoradesktop.SpeechToText.Panel.PasteKey`,
-  answered within 2 s, stdout `('<wm_class>', <with_shift>, <save_after>[, <focused>, <gone>])`.
+  answered within 2 s, stdout `('<wm_class>', <with_shift>, <save_after>[, <focused>, <gone>[, <tab_changed>]])`.
+  `tab_changed` (issue #106): the pinned Ptyxis window shows another tab than at Insert, so
+  the target is `other-tab` at once, before the paste or before its Enter.
   No answer, a failure or another shape: the key chosen at Insert, no save, and the log line
   `WARN: The panel did not say how to paste into the focused window (<why>); using the key chosen at Insert` (`<why>` is `no answer within 2 s` or the failure). `gone`: the target is
   closed. Focused, or a three-field answer: the key is Ctrl+Shift+V when `with_shift`, the
@@ -230,11 +232,12 @@ Python and are run from the directory the binary is in.
   back, so it is asked again every 0.1 s, up to 20 more times (then the target is
   `unfocused`), and once it is focused again it must stay focused for 5 more answers before the
   paste (any loss starts the settle again); the paste is then marked refocused.
-- W31. A target that is closed or would not take focus back: nothing is pressed;
-  `Nothing was pasted: <why>` (W9) and a notification that stays
+- W31. A target that is closed, would not take focus back or shows another tab: nothing is
+  pressed; `Nothing was pasted: <why>` (W9) and a notification that stays
   `Nothing was pasted: <why>. The text is on the clipboard: Ctrl+V.`, exit 1; `<why>` is
-  `the window this dictation started in was closed` or
-  `the window this dictation started in would not take focus back`.
+  `the window this dictation started in was closed`,
+  `the window this dictation started in would not take focus back` or
+  `the terminal tab this dictation started in is no longer the one showing`.
 - W32. The auto-paste copy and the read-back share a 3 s deadline (a copy still running at it
   is W27's failure). The selection is read back (`wl-paste -n` / `wl-paste -n -p`,
   `xsel -ob` / `xsel -op`) every 0.05 s, at most 60 times, until it holds the text (one

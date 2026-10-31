@@ -55,10 +55,12 @@ DBUS_INTERFACE = "org.fedoradesktop.SpeechToText"
 # it needs and whether to save after the paste
 PANEL_DBUS_PATH = "/org/fedoradesktop/SpeechToText/Panel"
 PANEL_DBUS_INTERFACE = "org.fedoradesktop.SpeechToText.Panel"
-# (wm_class, with_shift, save_after, focused, gone); a panel that does not pin the window
-# (one loaded before Task 9.10, until the next login) answers the first three only
+# (wm_class, with_shift, save_after, focused, gone, tab_changed); a panel that does not pin
+# the window (one loaded before Task 9.10, until the next login) answers the first three
+# only, and one that does not watch a terminal's tabs (before issue #106) the first five
 PASTE_TARGET_REPLY = re.compile(
-    r"^\('((?:[^'\\]|\\.)*)', (true|false), (true|false)(?:, (true|false), (true|false))?\)$")
+    r"^\('((?:[^'\\]|\\.)*)', (true|false), (true|false)"
+    r"(?:, (true|false), (true|false)(?:, (true|false))?)?\)$")
 # How long a paste waits for the panel to give the pinned window focus back, asking again
 # at each poll (the asking is what re-activates it)
 PASTE_FOCUS_WAIT_SECONDS = 2.0
@@ -656,14 +658,16 @@ def copy_to_clipboard(text, use_clipboard=False):
 
 
 def parse_paste_target(reply):
-    """(wm_class, with_shift, save_after, focused, gone) from the panel's PasteKey reply,
-    or None. A three-field reply is a panel that does not pin: focused, never gone."""
+    """(wm_class, with_shift, save_after, focused, gone, tab_changed) from the panel's
+    PasteKey reply, or None. A three-field reply is a panel that does not pin: focused,
+    never gone; a reply without tab_changed never says another tab is showing."""
     match = PASTE_TARGET_REPLY.match(reply.strip())
     if match is None:
         return None
     pinning = match[4] is not None
     return (match[1], match[2] == "true", match[3] == "true",
-            match[4] == "true" if pinning else True, match[5] == "true" if pinning else False)
+            match[4] == "true" if pinning else True, match[5] == "true" if pinning else False,
+            match[6] == "true")
 
 
 class PasteTargetUnavailable(Exception):
@@ -698,7 +702,8 @@ def paste_target_now(fallback_with_shift, for_enter=False):
     focus back and this asks again, every PASTE_FOCUS_POLL_SECONDS for up to
     PASTE_FOCUS_WAIT_SECONDS, then until the window has kept focus for
     PASTE_FOCUS_SETTLE_SECONDS; refocused says so, and the Enter waits longer. Raises
-    PasteTargetUnavailable if the window was closed or never got focus back. A panel that
+    PasteTargetUnavailable if the window was closed, never got focus back, or shows another
+    terminal tab than at Insert (issue #106). A panel that
     cannot answer (one loaded before PasteKey existed, until the next login) leaves the
     key chosen at Insert, which is said in the log, and no save. for_enter: asked again
     just before the Enter that follows a paste after a retake, and logged as such.
@@ -716,9 +721,12 @@ def paste_target_now(fallback_with_shift, for_enter=False):
                 log(f"The panel did not say how to paste into the focused window ({why}); "
                     f"using the key chosen at Insert", "WARN")
             return fallback_with_shift, False, unfocused > 0
-        wm_class, with_shift, save_after, focused, gone = target
+        wm_class, with_shift, save_after, focused, gone, tab_changed = target
         if gone:
             raise PasteTargetUnavailable("the window this dictation started in was closed")
+        if tab_changed:
+            raise PasteTargetUnavailable(
+                "the terminal tab this dictation started in is no longer the one showing")
         if focused and (unfocused == 0 or settled == settle_polls):
             if for_enter:
                 log(f"{wm_class!r} still has focus before the Enter" if unfocused == 0

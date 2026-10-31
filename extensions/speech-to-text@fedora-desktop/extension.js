@@ -35,7 +35,8 @@ const DBUS_INTERFACE = 'org.fedoradesktop.SpeechToText';
 
 // The panel's own object, which the recorders call (on org.gnome.Shell) before each
 // paste. focused false: the pinned window was given focus back, ask again; gone true:
-// it was closed, paste nothing.
+// it was closed, paste nothing; tab_changed true: another Ptyxis tab is showing, paste
+// nothing.
 const PANEL_DBUS_PATH = '/org/fedoradesktop/SpeechToText/Panel';
 const PANEL_DBUS_XML = `
 <node>
@@ -46,6 +47,7 @@ const PANEL_DBUS_XML = `
       <arg type="b" direction="out" name="save_after"/>
       <arg type="b" direction="out" name="focused"/>
       <arg type="b" direction="out" name="gone"/>
+      <arg type="b" direction="out" name="tab_changed"/>
     </method>
   </interface>
 </node>`;
@@ -1210,15 +1212,17 @@ export default class SpeechToTextExtension extends Extension {
     _exportPanelDBus() {
         this._panelDBus = Gio.DBusExportedObject.wrapJSObject(PANEL_DBUS_XML, {
             PasteKey: () => {
-                const { window, focused, gone } = this._pasteTarget.answer(global.display.focus_window);
+                const { window, focused, gone, tabChanged } = this._pasteTarget.answer(global.display.focus_window);
                 if (gone) {
                     this._log('The window this dictation started in was closed: nothing is pasted');
-                    return ['', false, false, false, true];
+                    return ['', false, false, false, true, false];
                 }
                 const { wmClass, withShift, saveAfter } = this._pasteTargetFor(window);
-                if (!focused)
+                if (tabChanged)
+                    this._log(`"${wmClass}" shows another tab than at Insert ("${window.get_title()}"): nothing is pasted`);
+                else if (!focused)
                     this._log(`"${wmClass}" lost focus during the dictation; giving it focus back`);
-                return [wmClass, withShift, saveAfter, focused, false];
+                return [wmClass, withShift, saveAfter, focused, false, tabChanged];
             },
         });
         this._panelDBus.export(Gio.DBus.session, PANEL_DBUS_PATH);
