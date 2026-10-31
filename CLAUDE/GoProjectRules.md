@@ -922,6 +922,17 @@ bash they replaced and in the Go during review; each instance is in the audit re
   and a desktop ID matched at any depth, open B15 and B3; a package asked by its old name,
   nvidia-status B1). What a field is, is meaning. What holds it: parsers that split the fields
   the program prints, and tests of the near-miss names (`nvidia_drm`, two profiles of one name).
+- **A terminal screen judged by its bytes, not by what it shows** (fedora-desktop#117:
+  `screen.inputLineEmpty` read any non-SGR escape, or a placeholder whose first character
+  carries the inverse-video cursor, as typed text, so a visually empty box was left alone as
+  `input-box-not-empty` and `verify-restore` failed for ever). Whether a byte draws something
+  is a fact about the terminal, not a shape in the syntax tree; and the placeholder test must
+  read the raw bytes, so a rule against byte tests on a capture would forbid the fix. What holds
+  it: one reader of captures, `internal/screen` (every `CapturePane(…, true)` caller, in
+  `sessions`, `teams/shutdown` and `teams/winddown`, reads it only through `Plain` and
+  `ClaudeState`), whose tests run each escape shape both empty and with typed text after it;
+  and set-going prints a typed box line `%q`-quoted, so the next misreading arrives with its
+  evidence.
 - **A fake that answers what the real program does not** (reclaim's fake answered any unscripted
   command, M-2; nvidia-status's fake returned the deadline where `execx.OS` returns the kill,
   F2; nord's fake cancelled a context where a terminal delivers SIGINT, F2; ssh-copy-id's check

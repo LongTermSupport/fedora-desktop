@@ -48,8 +48,22 @@ func TestClaudeStateDrawnBusyTypedNotDrawn(t *testing.T) {
 		{"box whose first rule has no closing rule then a second box", lines(rule, "❯ a", "text", rule, "❯ ", rule), Typed},
 		{"lone NBSP and space before dim", lines(rule, "  ", rule), NotDrawn},
 		{"malformed escape in the box line is typed", lines(rule, "❯ \x1bX", rule), Typed},
-		{"non-SGR escape is typed", lines(rule, "❯ \x1b[2J", rule), Typed},
+		{"a non-SGR escape alone is not text", lines(rule, "❯ \x1b[2J", rule), Ready},
+		{"erase to end of line alone is not text", lines(rule, "❯ \x1b[K", rule), Ready},
+		{"cursor visibility and shape are not text", lines(rule, "❯\u00a0\x1b[?25h\x1b[2 q ", rule), Ready},
+		{"an OSC sequence is not text", lines(rule, "❯ \x1b]8;;https://example.com\x1b\\\x1b]8;;\x07", rule), Ready},
+		{"placeholder under an inverse-video cursor", lines(rule, "\x1b[39m❯ \x1b[7mT\x1b[27m\x1b[2mry \"fix typecheck errors\"\x1b[22m", rule), Ready},
+		{"placeholder under a cursor set with dim off", lines(rule, "❯ \x1b[0;7mT\x1b[0m\x1b[2mry \"refactor\"\x1b[0m", rule), Ready},
 		{"colon parameters are not a dim", lines(rule, "❯ \x1b[38:2:1m", rule), Ready},
+		{"typed then erase to end of line", lines(rule, "❯ half a thought\x1b[K", rule), Typed},
+		{"typed after a non-SGR escape", lines(rule, "❯ \x1b[K\x1b[?25lhalf a thought", rule), Typed},
+		{"typed after an OSC sequence", lines(rule, "❯ \x1b]8;;\x07half a thought", rule), Typed},
+		{"typed with the cursor after it", lines(rule, "❯ half a thought\x1b[7m \x1b[27m", rule), Typed},
+		{"typed with the cursor on its first character", lines(rule, "❯ \x1b[7mh\x1b[27malf a thought", rule), Typed},
+		{"one typed character under the cursor", lines(rule, "❯ \x1b[7mh\x1b[27m", rule), Typed},
+		{"typed in a colour whose RGB holds a 2", lines(rule, "❯ \x1b[38;2;1;2;3mhalf a thought", rule), Typed},
+		{"typed in a 256-colour 2", lines(rule, "❯ \x1b[38;5;2mhalf a thought", rule), Typed},
+		{"typed after a dim that was turned off", lines(rule, "❯ \x1b[2m\x1b[22mhalf a thought", rule), Typed},
 	}
 	for _, c := range cases {
 		if got := ClaudeState(c.screen); got != c.want {
@@ -75,11 +89,28 @@ func TestInputLineEmptyEdgeCases(t *testing.T) {
 		{"❯ \x1b[39mtext", false},
 		{"❯ \x1b[", false},
 		{"❯ \x1b[2", false},
+		{"❯ \x1b[K", true},
+		{"❯ \x1b[0m", true},
+		{"❯ \x1b[mtext", false},
+		{"❯ \x1b[2;0mtext", false},
+		{"❯ \x1b[7m\x1b[2m \x1b[27mplaceholder", true},
 	}
 	for _, c := range cases {
 		if got := inputLineEmpty(c.raw); got != c.want {
 			t.Errorf("%q: got %v, want %v", c.raw, got, c.want)
 		}
+	}
+}
+
+// InputLine gives the raw box line, escapes and all, so that a box judged typed can be shown
+// as it was.
+func TestInputLineIsTheRawBoxLine(t *testing.T) {
+	box := "❯ \x1b[39mhalf\x1b[K"
+	if got := InputLine(lines("● hi", "❯ quoted", rule, box, rule)); got != box {
+		t.Fatalf("got %q", got)
+	}
+	if got := InputLine(lines(rule, "❯ ")); got != "" {
+		t.Fatalf("an unframed arrow is not the box: got %q", got)
 	}
 }
 

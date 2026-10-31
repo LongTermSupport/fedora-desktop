@@ -253,7 +253,8 @@ func TestSetGoingLeavesABusyOrAttachedOrTypedOrUndrawnSessionAlone(t *testing.T)
 		exit     term.ExitCode
 	}{
 		{"attached", promptScreen, 1, "left ccy-a alone, as expected: attached; " + whyAttached, 0},
-		{"typed", rule + "\n❯ half a thought\n" + rule + "\n", 0, "left ccy-a alone, as expected: input-box-not-empty; " + whyTyped, 0},
+		{"typed", rule + "\n❯ half a thought\n" + rule + "\n", 0, "left ccy-a alone, as expected: input-box-not-empty; " + whyTyped + `; its box line reads "❯ half a thought"`, 0},
+		{"typed, escapes shown", rule + "\n❯ \x1b[39mhalf\x1b[K\n" + rule + "\n", 0, "left ccy-a alone, as expected: input-box-not-empty; " + whyTyped + `; its box line reads "❯ \x1b[39mhalf\x1b[K"`, 0},
 		{"not drawn", "Building image...\n", 0, "left ccy-a untouched: prompt-not-drawn-after-0s", 1},
 	}
 	for _, c := range cases {
@@ -713,7 +714,7 @@ func TestAfterACompactionWhatTheScreenShowsDecidesWhatHappens(t *testing.T) {
 	}{
 		{"busy", "✻ Thinking… (3s · esc to interrupt)\n" + promptScreen, 0, "cc-c is already working after its compaction; nothing more typed.", restore.GoingCompact, 0},
 		{"attached", promptScreen, 1, "left cc-c alone, as expected: attached-after-compaction; " + whyAttached + "\n", restore.GoingUntouched, 0},
-		{"typed", rule + "\n❯ half\n" + rule + "\n", 0, "left cc-c alone, as expected: typed-after-compaction; " + whyTyped + "\n", restore.GoingUntouched, 0},
+		{"typed", rule + "\n❯ half\n" + rule + "\n", 0, "left cc-c alone, as expected: typed-after-compaction; " + whyTyped + `; its box line reads "❯ half"` + "\n", restore.GoingUntouched, 0},
 		{"dead", "cc exited with status 1. Press Enter to close this session.\n", 0, "left cc-c untouched: launcher-exited-after-compaction\n", restore.GoingUntouched, 1},
 		{"waiting", "Select token\n", 0, "left cc-c alone, as expected: token-select-after-compaction; " + whyWaitingAfterCompaction + "\n", restore.GoingUntouched, 0},
 	}

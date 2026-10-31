@@ -7,6 +7,7 @@ package screen
 import (
 	"regexp"
 	"strings"
+	"unicode/utf8"
 )
 
 // EndedText is the line a failed session's window is held on (the trampoline prints it), which
@@ -129,17 +130,22 @@ func AtBackgroundWorkExit(pane string) (bool, bool) {
 	return shown, exitFocused
 }
 
-var csi = regexp.MustCompile(`\x1b\[[0-9;:?]*[A-Za-z]`)
+// escapeSeq is a control sequence that draws nothing: a CSI (ECMA-48 parameter, intermediate
+// and final bytes, so `\x1b[2 q` and `\x1b[>4m` too) or an OSC ended by BEL or ST.
+var escapeSeq = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)`)
+
+// leadingEscape is escapeSeq at the start of a string.
+var leadingEscape = regexp.MustCompile(`^(?:` + escapeSeq.String() + `)`)
 
 // sgr is a leading Select Graphic Rendition sequence, with its parameters captured.
 var sgr = regexp.MustCompile(`^\x1b\[([0-9;:]*)m`)
 
-// Plain is the screen with its CSI escape sequences removed. tmux capture-pane -e writes
-// attributes into the text; everything but the input box's placeholder test reads the plain
-// text. Removal repeats until none is left.
+// Plain is the screen with its CSI and OSC sequences removed: what it shows. tmux capture-pane
+// -e writes attributes into the text; everything but the input box's placeholder test reads
+// the plain text. Removal repeats until none is left.
 func Plain(s string) string {
 	for {
-		next := csi.ReplaceAllString(s, "")
+		next := escapeSeq.ReplaceAllString(s, "")
 		if next == s {
 			return s
 		}
@@ -160,6 +166,31 @@ const interrupt = "esc to interrupt"
 // interrupt" in the four nearest non-blank lines above the box; the conversation can quote the
 // phrase, so only the status area counts.
 func ClaudeState(screen string) State {
+	rawLines, plain, i := inputBox(screen)
+	switch {
+	case i < 0:
+		return NotDrawn
+	case busyAbove(plain, i):
+		return Busy
+	case inputLineEmpty(rawLines[i]):
+		return Ready
+	}
+	return Typed
+}
+
+// InputLine is the input box line as the pane holds it, escapes and all (empty when no framed
+// box is drawn): the evidence behind a Typed verdict.
+func InputLine(screen string) string {
+	rawLines, _, i := inputBox(screen)
+	if i < 0 {
+		return ""
+	}
+	return rawLines[i]
+}
+
+// inputBox splits the screen into its raw and plain lines and finds the framed box line in
+// them: -1 when there is none.
+func inputBox(screen string) ([]string, []string, int) {
 	screen = strings.TrimRight(screen, "\n")
 	rawLines := strings.Split(screen, "\n")
 	plain := strings.Split(Plain(screen), "\n")
@@ -168,19 +199,12 @@ func ClaudeState(screen string) State {
 			continue
 		}
 		for j := i + 1; j < len(plain); j++ {
-			if !strings.HasPrefix(plain[j], rulePrefix) {
-				continue
+			if strings.HasPrefix(plain[j], rulePrefix) {
+				return rawLines, plain, i
 			}
-			if busyAbove(plain, i) {
-				return Busy
-			}
-			if inputLineEmpty(rawLines[i]) {
-				return Ready
-			}
-			return Typed
 		}
 	}
-	return NotDrawn
+	return rawLines, plain, -1
 }
 
 // busyAbove looks at the four nearest non-blank lines above the rule that frames line i.
@@ -198,31 +222,82 @@ func busyAbove(plain []string, i int) bool {
 	return false
 }
 
-// inputLineEmpty says whether the input box line holds no typed text. Claude draws the arrow,
-// a (no-break) space and, when the box is empty, a placeholder in dim (SGR 2); typed text has
-// no dim on it.
+// blank is what an empty box shows after the arrow: spaces and no-break spaces.
+const blank = "  "
+
+// inputLineEmpty says whether the input box line holds no typed text, by what it shows. Nothing
+// visible after the arrow is empty, whatever escapes the line carries. Otherwise Claude's
+// placeholder is dim (SGR 2) from its first character, or from its second when the cursor
+// (inverse video, SGR 7) sits on the first; typed text has no dim on it. An escape that cannot
+// be read is shown as text, so it is typed: nothing is typed over what cannot be judged.
 func inputLineEmpty(raw string) bool {
-	rest := raw
-	if parts := strings.SplitN(raw, "❯", 2); len(parts) == 2 {
-		rest = parts[1]
+	_, rest, found := strings.Cut(raw, "❯")
+	if !found {
+		rest = raw
 	}
+	if strings.Trim(Plain(rest), blank) == "" {
+		return true
+	}
+	var a attrs
+	seen := 0
 	for rest != "" {
-		switch {
-		case strings.HasPrefix(rest, " "), strings.HasPrefix(rest, " "):
-			rest = strings.TrimPrefix(rest, " ")
-			rest = strings.TrimPrefix(rest, " ")
-		case strings.HasPrefix(rest, "\x1b"):
-			m := sgr.FindStringSubmatch(rest)
-			if m == nil {
-				return false
-			}
-			if strings.Contains(";"+m[1]+";", ";2;") {
-				return true
-			}
+		if m := sgr.FindStringSubmatch(rest); m != nil {
+			a.apply(m[1])
 			rest = rest[len(m[0]):]
-		default:
-			return false
+			continue
+		}
+		if m := leadingEscape.FindString(rest); m != "" {
+			rest = rest[len(m):]
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(rest)
+		rest = rest[size:]
+		if strings.ContainsRune(blank, r) {
+			continue
+		}
+		seen++
+		if a.dim || seen > 1 || !a.inverse {
+			return a.dim
 		}
 	}
-	return true
+	return false
+}
+
+// attrs is the SGR state the placeholder test reads: dim and inverse video.
+type attrs struct{ dim, inverse bool }
+
+// apply sets the state an SGR's parameters leave. An extended colour's own numbers (38;5;n,
+// 38;2;r;g;b and the 48 and 58 forms) are skipped, so a colour component of 2 is not a dim.
+func (a *attrs) apply(params string) {
+	ps := strings.Split(params, ";")
+	for i := 0; i < len(ps); i++ {
+		switch ps[i] {
+		case "", "0":
+			*a = attrs{}
+		case "2":
+			a.dim = true
+		case "22":
+			a.dim = false
+		case "7":
+			a.inverse = true
+		case "27":
+			a.inverse = false
+		case "38", "48", "58":
+			i += extendedColourArgs(ps[i+1:])
+		}
+	}
+}
+
+// extendedColourArgs is how many parameters after 38, 48 or 58 belong to the colour.
+func extendedColourArgs(rest []string) int {
+	if len(rest) == 0 {
+		return 0
+	}
+	switch rest[0] {
+	case "5":
+		return 2
+	case "2":
+		return 4
+	}
+	return 0
 }
