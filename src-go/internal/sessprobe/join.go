@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -74,31 +75,86 @@ type engineClient struct {
 	engine, container string
 }
 
-// clientOf reads the engine and container from one command line. --name is not an engine-only
-// flag, so the command itself has to be the engine; the container is the value of the first
-// --name or --name= after it.
+// networkPolicy is the program the ccy launcher starts every container through:
+// `ccy-network-policy launch --name X --image I -- <engine> run ...`, which creates the
+// container and then attaches to it with `podman start --attach --interactive X`.
+const networkPolicy = "ccy-network-policy"
+
+// clientOf reads the engine and container from one command line: the network policy's launch,
+// an engine's `start NAME`, or any other engine command with --name. --name is not an
+// engine-only flag, so the command itself has to be one of these.
 func clientOf(args string) (engineClient, bool) {
 	fields := strings.Fields(args)
 	if len(fields) == 0 {
 		return engineClient{}, false
 	}
-	engine := path.Base(fields[0])
+	switch engine := path.Base(fields[0]); {
+	case engine == networkPolicy:
+		return policyLaunchOf(fields[1:])
+	case engine != podmanEngine && engine != dockerEngine:
+		return engineClient{}, false
+	case len(fields) > 1 && fields[1] == "start":
+		container, ok := startedName(fields[2:])
+		return engineClient{engine, container}, ok
+	default:
+		container, ok := nameFlag(fields[1:])
+		return engineClient{engine, container}, ok
+	}
+}
+
+// nameFlag is the value of the first --name or --name= in fields.
+func nameFlag(fields []string) (string, bool) {
+	for i, f := range fields {
+		switch {
+		case strings.HasPrefix(f, "--name="):
+			container := strings.TrimPrefix(f, "--name=")
+			return container, container != ""
+		case f == "--name":
+			if i+1 >= len(fields) || strings.HasPrefix(fields[i+1], "-") {
+				return "", false
+			}
+			return fields[i+1], true
+		}
+	}
+	return "", false
+}
+
+// policyLaunchOf reads `launch --name X --image I -- <engine> ...`: the container is the
+// launch's --name, the engine the program after the separator.
+func policyLaunchOf(fields []string) (engineClient, bool) {
+	if len(fields) == 0 || fields[0] != "launch" {
+		return engineClient{}, false
+	}
+	sep := slices.Index(fields, "--")
+	if sep < 0 || sep+1 >= len(fields) {
+		return engineClient{}, false
+	}
+	engine := path.Base(fields[sep+1])
 	if engine != podmanEngine && engine != dockerEngine {
 		return engineClient{}, false
 	}
-	for i := 1; i < len(fields); i++ {
+	container, ok := nameFlag(fields[1:sep])
+	return engineClient{engine, container}, ok
+}
+
+// startedName is the first container `start` names, past its flags and their values (the
+// flags of podman's and docker's start that take the next word as their value are
+// --detach-keys, --checkpoint and --checkpoint-dir). --all, --latest and --filter name no one
+// container.
+func startedName(fields []string) (string, bool) {
+	for i := 0; i < len(fields); i++ {
+		f := fields[i]
 		switch {
-		case strings.HasPrefix(fields[i], "--name="):
-			container := strings.TrimPrefix(fields[i], "--name=")
-			return engineClient{engine, container}, container != ""
-		case fields[i] == "--name":
-			if i+1 >= len(fields) {
-				return engineClient{}, false
-			}
-			return engineClient{engine, fields[i+1]}, true
+		case f == "--all" || f == "-l" || f == "--latest" || f == "--filter" || f == "-f" || strings.HasPrefix(f, "--filter="):
+			return "", false
+		case f == "--detach-keys" || f == "--checkpoint" || f == "--checkpoint-dir":
+			i++
+		case strings.HasPrefix(f, "-"):
+		default:
+			return f, true
 		}
 	}
-	return engineClient{}, false
+	return "", false
 }
 
 // climb walks from pid up the parent table until it reaches a pid in targets, giving up after

@@ -56,6 +56,12 @@ type rig struct {
 
 func newRig(t *testing.T, panes []tmuxccy.Pane) *rig {
 	t.Helper()
+	return newRigOver(t, panes, psTable())
+}
+
+// newRigOver is newRig over another process table.
+func newRigOver(t *testing.T, panes []tmuxccy.Pane, table string) *rig {
+	t.Helper()
 	root := t.TempDir()
 	for _, pid := range []int{100, 110, 700, 701, 400, 410} {
 		writeStat(t, root, pid, statLine(pid, 0, 0, 500))
@@ -71,8 +77,33 @@ func newRig(t *testing.T, panes []tmuxccy.Pane) *rig {
 		},
 		Sleep: func(d time.Duration) { g.slept = append(g.slept, d) },
 	}
-	g.fake.On(strings.Fields(psArgs), ok(psTable()))
+	g.fake.On(strings.Fields(psArgs), ok(table))
 	return g
+}
+
+// A session launched through the network policy has a podman client that never says
+// `run --name`; its container's network, labels and CPU are still its own.
+func TestDetailRowsThroughTheNetworkPolicy(t *testing.T) {
+	table := `1 0 systemd
+100 1 bash -c trampoline
+105 100 /bin/bash /var/local/claude-yolo/claude-yolo.bash --continue
+110 105 ccy-network-policy launch --name a_yolo --image claude-yolo:a -- podman run -it --rm --name a_yolo --label ccy=true img claude
+111 110 podman start --attach --interactive a_yolo
+650 1 conmon
+700 650 /entrypoint.sh
+701 700 claude`
+	g := newRigOver(t, []tmuxccy.Pane{{Session: "ccy-a", PID: 100}}, table)
+	onExact(g.fake, []string{"podman", "ps", "--filter", "label=ccy=true", "--format", sessprobe.DetailFormat}, ok("a_yolo|[net1]|work|key_0\n"))
+	onExact(g.fake, []string{"podman", "inspect", "--format", sessprobe.PIDFormat, "a_yolo"}, ok("a_yolo 700\n"))
+	g.busy(t)
+	got, err := g.probe.Detail(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []sessprobe.Detail{{Session: "ccy-a", Network: "net1", Token: "work", Keys: "key_0", CPU: "50%"}}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
 }
 
 // statLine is a /proc/<pid>/stat line: the CPU ticks the process has used and when it started.
