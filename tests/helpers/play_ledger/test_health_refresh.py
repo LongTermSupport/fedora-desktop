@@ -7,6 +7,7 @@ module under test and the subprocess is injected.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import unittest
@@ -16,6 +17,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 from helpers.play_ledger import health_refresh
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..", "..")
+UNIT = os.path.join(REPO_ROOT, "files", "home", ".config", "systemd", "user",
+                    "host-health-collect.service.j2")
+#: Where a systemctl call that queues a job and walks away would hide.
+TREES = ("helpers/play_ledger", "helpers/host_health", "callback_plugins")
 PLAYBOOK = os.path.join(
     REPO_ROOT,
     "playbooks", "imports", "optional", "common", "play-host-health-login-report.yml",
@@ -32,9 +37,11 @@ class _Runner:
     def __init__(self, *answers: object) -> None:
         self.answers = list(answers)
         self.calls: list[list[str]] = []
+        self.timeouts: list[object] = []
 
     def __call__(self, argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
         self.calls.append(argv)
+        self.timeouts.append(kwargs.get("timeout"))
         assert kwargs.get("check") is False
         assert kwargs.get("timeout")
         answer = self.answers.pop(0)
@@ -45,13 +52,29 @@ class _Runner:
 
 
 class TestRequest(unittest.TestCase):
-    def test_an_installed_unit_is_restarted_without_blocking(self) -> None:
+    def test_an_installed_unit_is_restarted_and_waited_for(self) -> None:
+        # Waited for, so a run ends only once the document describes its own records: the
+        # shell a batch hands back reads it at once, and a collection that fails is
+        # reported here instead of leaving the old document standing unannounced.
         runner = _Runner(_done(stdout="loaded\n"), _done())
         self.assertIsNone(health_refresh.request(runner))
         self.assertEqual(
             runner.calls[1],
-            ["systemctl", "--user", "restart", "--no-block", health_refresh.COLLECT_UNIT],
+            ["systemctl", "--user", "restart", health_refresh.COLLECT_UNIT],
         )
+
+    def test_the_wait_outlasts_the_collection_the_unit_allows(self) -> None:
+        runner = _Runner(_done(stdout="loaded\n"), _done())
+        health_refresh.request(runner)
+        self.assertGreater(runner.timeouts[1], _unit_start_timeout())
+
+    def test_a_collection_that_fails_is_reported(self) -> None:
+        runner = _Runner(_done(stdout="loaded\n"), _done(
+            returncode=1, stderr="Job for host-health-collect.service failed because the "
+            "control process exited with error code.\n"))
+        line = health_refresh.request(runner)
+        self.assertIn(health_refresh.FAILURE_MARKER, line or "")
+        self.assertIn("control process exited", line or "")
 
     def test_restart_not_start_so_a_run_already_in_flight_is_redone(self) -> None:
         # A collector the timer started before the ledger write has read the old ledger;
@@ -97,6 +120,34 @@ class TestRequest(unittest.TestCase):
     def test_the_report_is_one_line(self) -> None:
         line = health_refresh.request(_Runner(_done(returncode=1, stderr="a\nb\n")))
         self.assertNotIn("\n", line or "")
+
+
+def _unit_start_timeout() -> int:
+    with open(UNIT, encoding="utf-8") as handle:
+        found = re.search(r"^TimeoutStartSec=(\d+)$", handle.read(), re.MULTILINE)
+    assert found, f"{UNIT} states no TimeoutStartSec in seconds"
+    return int(found.group(1))
+
+
+class TestNoFireAndForgetRefresh(unittest.TestCase):
+    """Guard for the class 'a refresh that returns before the work it asks for is done':
+    the caller's run ends while a reader still sees the old state, and a failure of that
+    work is reported to nobody. No systemctl call in the ledger or health code queues a
+    job and walks away."""
+
+    def test_no_systemctl_call_there_passes_no_block(self) -> None:
+        found = []
+        for tree in TREES:
+            for dirpath, _dirs, files in os.walk(os.path.join(REPO_ROOT, tree)):
+                for name in sorted(files):
+                    if not name.endswith(".py"):
+                        continue
+                    path = os.path.join(dirpath, name)
+                    with open(path, encoding="utf-8") as handle:
+                        for number, line in enumerate(handle, start=1):
+                            if re.search(r"""["']--no-block["']""", line):
+                                found.append(f"{os.path.relpath(path, REPO_ROOT)}:{number}")
+        self.assertEqual(found, [])
 
 
 class TestUnitNameMatchesThePlaybook(unittest.TestCase):

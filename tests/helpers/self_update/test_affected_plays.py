@@ -426,6 +426,69 @@ class TestUnresolved(FixtureCase):
         self.assertIn("tasks/inc.yml", found[0])
 
 
+class TestQuotedValueWithComment(FixtureCase):
+    """A quoted scalar with a comment after it is read without its quotes, as YAML reads it."""
+
+    def test_unquote_strips_the_quotes_before_a_trailing_comment(self) -> None:
+        self.assertEqual(ap._unquote('"{{ root_dir }}/vars/x.yml"   # why'), "{{ root_dir }}/vars/x.yml")
+        self.assertEqual(ap._unquote("'a/b'  # c"), "a/b")
+        self.assertEqual(ap._unquote('"a # b"  # c'), "a # b")
+        self.assertEqual(ap._unquote("plain/value  # c"), "plain/value")
+
+    def test_a_commented_rooted_vars_file_is_an_input_not_unresolved(self) -> None:
+        self.fx.file("vars/x.yml", "x: 1\n")
+        play = self.fx.play("playbooks/imports/play-a.yml", f"""
+            - hosts: desktop
+              vars_files:
+                - "{ROOT}/vars/x.yml"   # x
+        """)
+        inputs = ap.play_inputs(self.fx.root, play)
+        self.assertIn("vars/x.yml", inputs.exact)
+        self.assertEqual(inputs.unresolved, [])
+
+
+class TestHostOnlyPaths(FixtureCase):
+    """A path built from a variable a walked file sets to an inventory variable with an
+    absolute default (`{{ key | default('/home/...') }}`) is a host path, never a checkout
+    file, so it is no input and not UNRESOLVED. When the checkout sets that inventory
+    variable anywhere the walker can see, the path is not known to be a host path."""
+
+    VARS = """\
+        key_path: "{{ host_key | default('/home/' + user_login + '/.ssh/id') }}"
+    """
+
+    def _play(self) -> str:
+        """The vars file is read after the use, so the answer cannot depend on line order."""
+        return self.fx.play("playbooks/imports/play-a.yml", f"""
+            - hosts: desktop
+              tasks:
+                - ansible.builtin.slurp:
+                    src: "{{{{ key_path }}}}.pub"
+            - hosts: desktop
+              vars_files:
+                - "{ROOT}/vars/signing.yml"
+        """)
+
+    def test_a_host_only_path_is_not_reported_wherever_its_vars_file_is_read(self) -> None:
+        self.fx.file("vars/signing.yml", self.VARS)
+        inputs = ap.play_inputs(self.fx.root, self._play())
+        self.assertEqual(inputs.unresolved, [])
+        self.assertIn("vars/signing.yml", inputs.exact)
+
+    def test_an_inventory_variable_the_checkout_sets_stays_unresolved(self) -> None:
+        self.fx.file("vars/signing.yml", self.VARS + "host_key: \"{{ root_dir }}/keys/id\"\n")
+        self.assertEqual(len(ap.play_inputs(self.fx.root, self._play()).unresolved), 1)
+
+    def test_an_inventory_variable_group_vars_sets_stays_unresolved(self) -> None:
+        self.fx.file("vars/signing.yml", self.VARS)
+        self.fx.file(ap.INVENTORY_GROUP_VARS, "host_key: keys/id\n")
+        self.assertEqual(len(ap.play_inputs(self.fx.root, self._play()).unresolved), 1)
+
+    def test_a_relative_default_stays_unresolved(self) -> None:
+        self.fx.file("vars/signing.yml", "key_path: \"{{ host_key | default('keys/id') }}\"\n")
+        self.assertEqual(len(ap.play_inputs(self.fx.root, self._play()).unresolved), 1)
+
+
 class TestJoinedReferences(FixtureCase):
     """`root_dir ~ '/x'` and `root_dir + '/x'` are checkout references too (Plan 00192 3.6)."""
 
@@ -1054,6 +1117,28 @@ class TestRealRepo(unittest.TestCase):
             self.assertIn("playbooks/imports/play-python.yml", report.run + report.skipped, path)
         inputs = ap.play_inputs(REPO_ROOT, "playbooks/imports/play-python.yml")
         self.assertEqual(ap.go_changes(inputs, ["src-go/qa/toolchain/pins.go"]), {"src-go/qa/toolchain": {"qa-toolchain"}})
+
+    def test_the_signing_plays_have_nothing_unresolved(self) -> None:
+        """vars/git-signing.yml is read through a commented, quoted vars_files item, and
+        git_signing_key_path is a host path (host_vars' git_signing_key, or ~/.ssh/id)."""
+        for play in ("playbooks/imports/play-git-configure-and-tools.yml",
+                     "playbooks/imports/play-github-cli-multi.yml"):
+            inputs = ap.play_inputs(REPO_ROOT, play)
+            self.assertEqual(inputs.unresolved, [], play)
+            self.assertIn("vars/git-signing.yml", inputs.exact, play)
+
+    def test_no_unresolved_value_is_still_quoted_or_a_followed_reference(self) -> None:
+        """Guard for the class 'a scalar is classified with YAML syntax still on it': a
+        value the reader left quoted, or a rooted path the rooted scan already made an
+        input, is never a reference it could not follow."""
+        for play in ap.candidate_plays(REPO_ROOT):
+            inputs = ap.play_inputs(REPO_ROOT, play)
+            for entry in inputs.unresolved:
+                value = entry.split(": ", 1)[1]
+                self.assertFalse(value.startswith(("'", '"')), entry)
+                rooted = ap._ROOTED.match(value)
+                if rooted and not rooted.group(2):
+                    self.assertNotIn(rooted.group(1), inputs.exact, entry)
 
     def test_every_import_play_parses(self) -> None:
         """Parsing never crashes on a real play. The per-play unresolved counts are what

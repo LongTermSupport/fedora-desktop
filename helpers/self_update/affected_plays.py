@@ -46,8 +46,12 @@ with regexes over the play text. The idioms recognised are the ones this repo us
 
 **A reference it cannot follow is reported, never dropped.** A `src:`, `file:`,
 `include_*` or `vars_files` value that is not rooted, not a host path or URL, not a loop
-`item`, not a variable the file defines as rooted or as a host path, and not a registered
-result, is UNRESOLVED. So is a join with no literal path (`root_dir ~ '/' ~ var`), a Go
+`item`, not a variable the file defines as rooted or as a host path, not a host-only
+variable, and not a registered result, is UNRESOLVED. A host-only variable is one every
+walked file sets to an inventory variable falling back to an absolute path
+(`{{ git_signing_key | default('/home/' + user_login + '/.ssh/id') }}`) that no walked file
+and not the inventory's group_vars sets: only host_vars, outside the checkout, can, so the
+path is never a checkout file and no checkout change can change it. So is a join with no literal path (`root_dir ~ '/' ~ var`), a Go
 module built with no `go_command_name`, a name no walked file sets, a command the module
 does not have, and a `__file__` form, a sourced file or a run Go command a program names
 that cannot be read. The rule play-input-dropped (CLAUDE/QA.md,
@@ -80,6 +84,8 @@ from typing import TextIO
 #: retired-plays.json: vars/ is Ansible's YAML, which this stdlib-only helper cannot parse.
 ALLOWLIST_PATH = "helpers/self_update/unattended-plays.json"
 CANDIDATE_DIR = "playbooks/imports"
+#: The inventory's one checkout vars file; host_vars beside it is not in the checkout.
+INVENTORY_GROUP_VARS = "environment/localhost/group_vars/desktop.yml"
 #: Per helper module, the checkout-looking literals it names that no play running it depends
 #: on, each with why. Kept in data beside this module, not in the modules (some are baked into
 #: the ccy image, where an edit costs a version bump) nor in this file (whose literals it scans).
@@ -160,6 +166,8 @@ _PATH_VALUE = re.compile(r"^[A-Za-z0-9_.@+\-/]+$")
 _LIST_VAR = re.compile(r"^\{\{\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*\}\}$")
 _MAPPING_LINE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*(.*)$")
 _DASH = re.compile(r"^(\s*)-(?:\s+(.*))?$")
+#: A value that is an inventory variable falling back to an absolute host path.
+_HOST_DEFAULT = re.compile(r"""^\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\|\s*default\(\s*(['"])/""")
 
 
 def _indent(line: str) -> int:
@@ -307,9 +315,14 @@ def _non_comment_lines(text: str) -> list[tuple[int, str]]:
 
 
 def _unquote(value: str) -> str:
+    """A scalar as YAML reads it: a quoted one up to its closing quote, a comment after it
+    dropped; a plain one up to its comment."""
     value = value.strip()
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-        return value[1:-1]
+    if value[:1] in ("'", '"'):
+        end = value.find(value[0], 1)
+        rest = value[end + 1:].strip() if end > 0 else None
+        if rest is not None and (not rest or rest.startswith("#")):
+            return value[1:end]
     return value.split(" #", 1)[0].strip()
 
 
@@ -349,6 +362,9 @@ class _Walker:
         self._go_import_cache: dict[str, set[str]] = {}
         #: Templated rooted references, resolved once every file is walked: (file, line, literal, tail, shown).
         self._templated: list[tuple[str, int, str, str, str]] = []
+        #: References headed by a variable no file in their context defines, judged once
+        #: every file is walked: (where, variable, value).
+        self._headed: list[tuple[str, str, str]] = []
 
     def _is_dir(self, rel: str) -> bool:
         return os.path.isdir(os.path.join(self.root, rel))
@@ -659,6 +675,38 @@ class _Walker:
                     values.append(_literal(found.group(1)))
         return values or None
 
+    def finish_headed(self) -> None:
+        """Each reference headed by a variable its context does not define: a host path when
+        every walked file that sets the variable sets it to a host-only one, else UNRESOLVED."""
+        for where, name, value in self._headed:
+            if not self._is_host_path_var(name):
+                self.inputs.unresolved.append(f"{where}: {value}")
+
+    def _settings(self, name: str, texts: list[str]) -> list[str]:
+        setting = re.compile(rf"^\s*(?:-\s+)?{re.escape(name)}\s*:\s*(.*)$")
+        return [_unquote(found.group(1)) for text in texts for _line_no, line in _non_comment_lines(text)
+                if (found := setting.match(line))]
+
+    def _is_host_path_var(self, name: str) -> bool:
+        """Whether a walked file sets `name`, and only ever to an inventory variable falling
+        back to an absolute path (`{{ key | default('/home/' ...) }}`), where neither a
+        walked file nor the inventory's group_vars sets that inventory variable. It is then
+        set only by host_vars, which is not in the checkout, or is the host path: either way
+        no checkout change can change the file it names."""
+        values = self._settings(name, list(self._texts.values()))
+        if not values:
+            return False
+        group_vars_path = os.path.join(self.root, INVENTORY_GROUP_VARS)
+        checkout = list(self._texts.values())
+        if os.path.isfile(group_vars_path):
+            with open(group_vars_path, encoding="utf-8") as handle:
+                checkout.append(handle.read())
+        for value in values:
+            host = _HOST_DEFAULT.match(value)
+            if host is None or self._settings(host.group(1), checkout):
+                return False
+        return True
+
     def _is_go_module(self, rel: str) -> bool:
         return self._is_file(posixpath.join(rel, "go.mod"))
 
@@ -792,7 +840,7 @@ class _Walker:
             name = head.group(1)
             if name == "item" or name in _defined_vars(context) or name in _REGISTER.findall(context):
                 return
-            self.inputs.unresolved.append(f"{where}: {value}")
+            self._headed.append((where, name, value))
             return
         if "{{" in value:
             self.inputs.unresolved.append(f"{where}: {value}")
@@ -843,6 +891,7 @@ def play_inputs(repo_root: str, play: str) -> Inputs:
     walker = _Walker(repo_root)
     walker.walk_yaml(play, context="")
     walker.finish_templates()
+    walker.finish_headed()
     walker.finish_go()
     return walker.inputs
 

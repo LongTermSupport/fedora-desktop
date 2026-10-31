@@ -37,6 +37,10 @@ FAILURE_MARKER = "HEALTH-REFRESH-FAILED"
 #: playbook run.
 _TIMEOUT_SECONDS = 10
 
+#: The wait for the collection itself: longer than the unit's `TimeoutStartSec=120`, by
+#: the stop of a collection the restart ends first. A test pins it above the unit's.
+_COLLECT_TIMEOUT_SECONDS = 180
+
 Runner = Callable[..., subprocess.CompletedProcess]
 
 
@@ -48,17 +52,17 @@ def _failure(detail: str) -> str:
     )
 
 
-def _systemctl(run: Runner, *args: str) -> subprocess.CompletedProcess | str:
+def _systemctl(
+    run: Runner, *args: str, timeout: int = _TIMEOUT_SECONDS
+) -> subprocess.CompletedProcess | str:
     """One `systemctl --user` call; the completed process, or the failure line."""
     argv = ["systemctl", "--user", *args]
     try:
-        completed = run(
-            argv, capture_output=True, text=True, check=False, timeout=_TIMEOUT_SECONDS
-        )
+        completed = run(argv, capture_output=True, text=True, check=False, timeout=timeout)
     except FileNotFoundError:
         return _failure("systemctl: command not found")
     except subprocess.TimeoutExpired:
-        return _failure(f"systemctl: no answer after {_TIMEOUT_SECONDS}s")
+        return _failure(f"systemctl: no answer after {timeout}s")
     except OSError as error:
         return _failure(f"systemctl: {error}")
     if completed.returncode != 0:
@@ -68,11 +72,20 @@ def _systemctl(run: Runner, *args: str) -> subprocess.CompletedProcess | str:
 
 
 def request(run: Runner = subprocess.run) -> str | None:
-    """Restart the collector without waiting for it; the failure line, or None.
+    """Restart the collector and wait for it to finish; the failure line, or None.
 
-    `restart`, not `start`: a collection the timer began before the ledger write has
-    already read the old ledger, and `start` on a running unit does nothing — the
-    document would keep the pre-run answer for another interval.
+    `restart`, not `start`: a collection begun before the ledger write (by the timer, or
+    by the previous play of a batch) has already read the old ledger, and `start` on a
+    running unit does nothing — the document would keep the pre-run answer for another
+    interval. `restart` ends it and collects again, after the records.
+
+    Waited for, never `--no-block`. Queued and left, the run returned before its own
+    collection had written anything: the shell `run.bash --changed` handed back read the
+    document collected while the batch's last play was still running, and listed that
+    play as stale. Nor was a collection that then failed reported to anyone, so that
+    document stood until the next timer run. Waiting costs a collection per playbook run;
+    it buys a document that describes the run by the time the run ends, or a line here
+    saying it does not.
 
     A host that never deployed the unit is skipped silently. The report is an optional
     play, and with no unit there is no document this run could have left stale.
@@ -82,5 +95,5 @@ def request(run: Runner = subprocess.run) -> str | None:
         return probed
     if probed.stdout.strip() == "not-found":
         return None
-    restarted = _systemctl(run, "restart", "--no-block", COLLECT_UNIT)
+    restarted = _systemctl(run, "restart", COLLECT_UNIT, timeout=_COLLECT_TIMEOUT_SECONDS)
     return restarted if isinstance(restarted, str) else None

@@ -31,9 +31,9 @@ import re
 import subprocess
 from collections.abc import Iterable, Mapping
 
-from helpers.self_update.affected_plays import Inputs
+from helpers.self_update.affected_plays import INVENTORY_GROUP_VARS, Inputs
 
-GROUP_VARS = "environment/localhost/group_vars/desktop.yml"
+GROUP_VARS = INVENTORY_GROUP_VARS
 
 _KEY = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*:(?:\s|$)")
 _DOCUMENT_MARKER = re.compile(r"^(?:---|\.\.\.)\s*$")
