@@ -41,7 +41,7 @@ IN_PROGRESS_OUTCOMES = frozenset({"rebooting"})
 #: A cycle that stopped short. Each is alerted by the cycle and reported by the reader.
 FAILED_OUTCOMES = frozenset({
     "refused", "config-invalid", "play-failed", "unwarnable", "cancelled",
-    "reboot-failed", "verify-failed",
+    "reboot-failed", "verify-failed", "unrestorable-sessions",
 })
 
 _MODE = 0o640

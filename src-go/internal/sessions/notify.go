@@ -3,7 +3,6 @@ package sessions
 import (
 	"context"
 	"fmt"
-	"os"
 	"regexp"
 	"strconv"
 
@@ -29,12 +28,10 @@ func minutesOrUsage(value, flag string) (int, string) {
 }
 
 // goingDownKind is the warning kind that tells this user's sessions the truth about what
-// follows: reboot-warning when their restore unit is enabled (the wants-symlink the play
-// manages), shutdown-warning when it is not. A link that points at nothing pulls in nothing at
-// boot, so it counts as off.
+// follows: reboot-warning when their restore unit is enabled (restoreEnabled), shutdown-warning
+// when it is not.
 func (a *App) goingDownKind() string {
-	wants := a.Getenv("HOME") + "/.config/systemd/user/default.target.wants/ccy-sessions-restore.service"
-	if _, err := os.Stat(wants); err == nil {
+	if a.restoreEnabled() {
 		return "reboot-warning"
 	}
 	return "shutdown-warning"

@@ -309,7 +309,7 @@ func (g *goingRun) pass(ctx context.Context, work []string, live map[string]bool
 			err = g.setOne(ctx, name, live[name], attached[name])
 		case restore.GoingCompacting:
 			err = g.continueAfterCompaction(ctx, name, live[name], attached[name])
-		case restore.GoingNone, restore.GoingCompact, restore.GoingContinue, restore.GoingUntouched, restore.GoingKeep:
+		case restore.GoingNone, restore.GoingCompact, restore.GoingContinue, restore.GoingUntouched, restore.GoingNotStarted, restore.GoingKeep:
 		}
 		if err != nil {
 			return err
@@ -391,7 +391,7 @@ func (g *goingRun) lookAt(ctx context.Context, name, prefix string, attached int
 		return look{kind: lookDead, detail: verdict.Detail}
 	case restore.StateWaitingAtPrompt:
 		return look{kind: lookWaiting, detail: verdict.Detail}
-	case restore.StateOK, restore.StateStarting, restore.StateSettingGoing, restore.StateNotSetGoing:
+	case restore.StateOK, restore.StateStarting, restore.StateSettingGoing, restore.StateNotSetGoing, restore.StateNotStarted:
 		// The pane is neither dead nor at a prompt; what it is doing is read below.
 	}
 	// A person attached is at the keyboard: whatever they are doing, nothing is typed over it.
@@ -421,7 +421,7 @@ func (g *goingRun) conversationOwner(file, name string) string {
 		switch e.Going {
 		case restore.GoingCompacting, restore.GoingCompact, restore.GoingContinue:
 			return e.Name
-		case restore.GoingNone, restore.GoingPending, restore.GoingUntouched, restore.GoingKeep:
+		case restore.GoingNone, restore.GoingPending, restore.GoingUntouched, restore.GoingNotStarted, restore.GoingKeep:
 		}
 	}
 	return ""

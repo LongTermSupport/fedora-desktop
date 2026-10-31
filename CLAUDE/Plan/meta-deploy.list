@@ -33,8 +33,11 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# CCY 3.104.12 and 3.104.13 (container 2.79.19, one image rebuild; project images rebuild at
-# their next launch). Issue #117: ccy-sessions (and the other ccy Go commands, which share the
+# CCY 3.104.12, 3.104.13 and 3.104.15 (container 2.79.19, one image rebuild; project images
+# rebuild at their next launch). Issue #108 (3.104.15): ccy-sessions writes every session the
+# boot's restore could not start into the restore manifest, so verify-restore reports it
+# NOT-STARTED and fails, and gains `restore --check`, which the self-update cycle asks before it
+# warns of a reboot (the cycle's own code arrives through its deploy clone, not a play). Issue #117: ccy-sessions (and the other ccy Go commands, which share the
 # screen reading) judge a restored session's input box by what it shows, so a visually empty
 # box is set going, and a box left alone as typed has its raw line printed. Plan 00201 A12:
 # ccy-teams' offers to sign in, open Element, start a ccy session or update the teams start on

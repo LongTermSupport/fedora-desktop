@@ -132,7 +132,7 @@ func (s *Shutdown) step(ctx context.Context, j *job, live map[string]bool) {
 		}
 		s.hardStop(ctx, j, "it was at the launcher's "+verdict.Detail+" question, so claude was not running; its tmux session was killed")
 		return
-	case restore.StateOK, restore.StateStarting, restore.StateSettingGoing, restore.StateNotSetGoing:
+	case restore.StateOK, restore.StateStarting, restore.StateSettingGoing, restore.StateNotSetGoing, restore.StateNotStarted:
 	}
 	err = s.answerBackgroundWork(ctx, j, pane)
 	if err == nil {

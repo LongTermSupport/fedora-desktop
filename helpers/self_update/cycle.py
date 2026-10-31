@@ -19,8 +19,10 @@ system ansible-core and its collections are root-owned, and that the user's PATH
 exactly that ansible (D5). Run each play as the user, with the become and vault passwords
 on descriptors (see `password_pipe`) and no code search path in the user's home (see
 `play_environment`), stopping at the first failure, with no reboot (D8). When every play has succeeded, record the commit as
-deployed and the post-boot check as owed. Only then warn the sessions, count down, warn
-again at one minute, and reboot. A warning that cannot be delivered, an interrupted
+deployed and the post-boot check as owed. Then ask `ccy-sessions restore --check` (the
+just-deployed one) whether every recorded session can be restored after the reboot; when one
+cannot, hold the reboot, announce it, and leave it owed (fedora-desktop#108). Only then warn
+the sessions, count down, warn again at one minute, and reboot. A warning that cannot be delivered, an interrupted
 countdown or a refused reboot withdraws the warning, and the reboot stays owed: the next
 cycle retries it, with nothing new to run.
 
@@ -70,6 +72,8 @@ EXIT_VERIFY_FAILED = 23
 EXIT_REBOOT_FAILED = 24
 #: The restored sessions passed, but the verify unit's failed state could not be cleared.
 EXIT_RESET_FAILED = 25
+#: A recorded session could not be restored after the reboot, so the reboot is held.
+EXIT_UNRESTORABLE = 26
 EXIT_USAGE = 64
 EXIT_CONFIG = 70
 EXIT_LOCKED = 75
@@ -301,6 +305,7 @@ class Host(Protocol):
     def run_play(self, play: str) -> int: ...
     def notify(self, args: list[str]) -> int: ...
     def verify_restore(self, wait_seconds: int) -> int: ...
+    def check_restore(self) -> int: ...
     def reset_failed(self, unit: str) -> int: ...
     def reboot(self) -> int: ...
     def boot_id(self) -> str: ...
@@ -457,6 +462,14 @@ def _warn_and_reboot(
         return _finish(state, host, stdout, stderr, code=EXIT_UNWARNABLE, phase="warn", outcome="unwarnable",
                        old=old, new=new, tag=tag, plays=plays, detail=detail, announce=True)
 
+    # Nobody is warned of a reboot that would bring a session back as NOT-STARTED; the
+    # check's own lines, in the journal, name each one and why.
+    if host.check_restore() != 0:
+        return _finish(state, host, stdout, stderr, code=EXIT_UNRESTORABLE, phase="warn",
+                       outcome="unrestorable-sessions", old=old, new=new, tag=tag, plays=plays,
+                       detail="a recorded session could not be restored after a reboot (ccy-sessions restore "
+                              "--check names it in the journal); no reboot, retried next cycle",
+                       announce=True)
     if host.notify(["going-down", "--minutes", str(minutes)]) != 0:
         return unwarnable("a session could not be warned; no reboot, retried next cycle")
     state.write_result({"at": host.now(), "phase": "warn", "outcome": "rebooting", "old": old, "new": new,
@@ -827,6 +840,9 @@ class RealHost:
 
     def verify_restore(self, wait_seconds: int) -> int:
         return self._ccy_sessions(["verify-restore", "--wait", str(wait_seconds)])
+
+    def check_restore(self) -> int:
+        return self._ccy_sessions(["restore", "--check"])
 
     def reset_failed(self, unit: str) -> int:
         return subprocess.run(["systemctl", "reset-failed", unit], stdin=subprocess.DEVNULL, check=False).returncode

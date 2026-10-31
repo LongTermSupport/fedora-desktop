@@ -222,7 +222,7 @@ func (w *WindDown) step(ctx context.Context, j *job, live map[string]bool) {
 	case restore.StateDead, restore.StateWaitingAtPrompt:
 		j.fail(j.after("claude is not running in it (" + verdict.Detail + ")"))
 		return
-	case restore.StateOK, restore.StateStarting, restore.StateSettingGoing, restore.StateNotSetGoing:
+	case restore.StateOK, restore.StateStarting, restore.StateSettingGoing, restore.StateNotSetGoing, restore.StateNotStarted:
 	}
 	if err := w.act(ctx, j, screen.ClaudeState(pane)); err != nil {
 		j.fail(j.after(err.Error()))

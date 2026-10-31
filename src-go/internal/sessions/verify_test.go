@@ -107,6 +107,24 @@ func TestVerifyRestoreNamesEachSessionByItsState(t *testing.T) {
 	contains(t, "why", h.stderr(), "Not every restored session is running and past its prompts; attach with ccy-sessions to answer or look.")
 }
 
+// fedora-desktop#108: a boot whose restore started nothing, every record having failed, is not
+// "nothing to verify". Each session it could not start is NOT-STARTED with why, the exit is 1, and
+// fedora-desktop-self-update verify reads that as a failed restore.
+func TestVerifyRestoreReportsEachSessionTheRestoreCouldNotStart(t *testing.T) {
+	h := verifyHost(t)
+	never := func(name, why string) restore.Entry {
+		return restore.Entry{Name: name, Prefix: "ccy", Dir: "/srv/a", Going: restore.GoingNotStarted, Detail: why}
+	}
+	writeEntries(t, h, never("ccy-a", "no-conversation"), never("ccy-b", "directory-gone"))
+	h.sessions()
+	report, code := verifyReport(h, "--wait", "5")
+	if code != 1 || report != "ccy-a NOT-STARTED no-conversation|ccy-b NOT-STARTED directory-gone" {
+		t.Fatalf("%d %q", code, report)
+	}
+	lacks(t, "not nothing", h.stderr(), "nothing to verify")
+	contains(t, "why", h.stderr(), "A session NOT-STARTED was never started by this boot's restore; journalctl --user -u ccy-sessions-restore -b --no-pager | cat says why, and its record is kept.")
+}
+
 // fedora-desktop#86: a session restored with --resume is at Claude Code's conversation
 // picker, its container up and claude running. It is not restored, and the non-zero exit is
 // what fedora-desktop-self-update verify reads as a failed restore.
