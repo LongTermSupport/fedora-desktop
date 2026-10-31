@@ -863,7 +863,11 @@ today; rewriting them is out of scope.
      "already gone" only when the store no longer has it, else the engine's words; a failed
      listing or stop fails the launch or `ccy --top`
      (`subagent-reports/261030-task-4.10-unit4-engine-housekeeping.md`).
-  5. B4: `entrypoint.sh`'s GitHub meta fetch, in the image (a container version bump).
+  5. ✅ B4: `entrypoint.sh`'s GitHub meta fetch, in the image (a container version bump).
+     Fixed in the entrypoint, not ported: the image carries no Go binary of ours. Built (CCY
+     3.104.10, container 2.79.18): `curl -fsS` and `jq -e`, so the warning carries curl's
+     cause (DNS, connection, HTTP status) or "malformed answer"; the start still goes on with
+     accept-new, a declared fallback (`subagent-reports/261030-task-4.10-unit5-entrypoint.md`).
 
 ### Phase 5: Review
 

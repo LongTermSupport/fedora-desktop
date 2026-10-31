@@ -38,5 +38,8 @@
 # list containers, stop them and remove networks. A container or network that is already
 # gone says so; any other failure is shown with the engine's own words and stops the launch
 # (or `ccy --top`) instead of "may already be stopped", "may still have containers" or "no
-# containers found". It rebuilds the ccy base image, so project images rebuild at their next launch:
+# containers found". CCY 3.104.10 (Task 4.10 unit 5, container 2.79.18) changes the image:
+# the entrypoint's GitHub host-key fetch now says what failed (DNS, connection, HTTP status,
+# a malformed answer) instead of "offline?". It rebuilds the ccy base image, so project
+# images rebuild at their next launch:
 playbooks/imports/play-claude-yolo.yml

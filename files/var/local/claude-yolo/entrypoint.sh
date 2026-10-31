@@ -228,13 +228,17 @@ if [ "${GITHUB_SSH_443:-0}" = "1" ]; then
     echo "✓ GitHub SSH routed over ssh.github.com:443 (--github-443)"
 fi
 
-github_meta=$(curl -sL --max-time 5 https://api.github.com/meta 2>/dev/null) || github_meta=""
-github_ssh_keys=""
-if [ -n "$github_meta" ]; then
-    github_ssh_keys=$(echo "$github_meta" | jq -r '.ssh_keys | .[]' 2>/dev/null) || github_ssh_keys=""
+# >>> GITHUB-HOST-KEYS
+# curl -fS turns an HTTP error status into a failure and prints its own cause (DNS,
+# connection, timeout, status), which the warning below carries; jq -e rejects an answer
+# with no keys. Either way the keys stay empty and the cause is in github_keys_failure.
+if ! github_meta=$(curl -fsSL --max-time 5 https://api.github.com/meta 2>&1); then
+    github_keys_failure="$github_meta"
+elif ! github_ssh_keys=$(jq -er '.ssh_keys | .[]' <<< "$github_meta" 2>&1); then
+    github_keys_failure="malformed answer from api.github.com/meta (${github_ssh_keys:-no ssh_keys})"
 fi
 
-if [ -n "$github_ssh_keys" ]; then
+if [ -z "${github_keys_failure:-}" ]; then
     # Pin the fetched keys. In 443 mode also pin them under [ssh.github.com]:443 —
     # the known_hosts lookup key SSH uses once HostName/Port are rewritten — so the
     # first push does not hang on an interactive host-key prompt. The same applies
@@ -259,9 +263,10 @@ if [ -n "$github_ssh_keys" ]; then
     chmod 600 ~/.ssh/known_hosts
     echo "✓ GitHub SSH host keys pinned in known_hosts"
 else
-    echo "⚠ Could not fetch GitHub SSH host keys (offline?) — using StrictHostKeyChecking=accept-new for git/ssh" >&2
+    echo "⚠ Could not fetch GitHub SSH host keys: $github_keys_failure — using StrictHostKeyChecking=accept-new for git/ssh" >&2
     github_ssh_directives+=("    StrictHostKeyChecking accept-new")
 fi
+# <<< GITHUB-HOST-KEYS
 
 # Write the github.com config stanza if any directives were collected (the 443
 # endpoint rewrite, the offline accept-new fallback, and/or the IdentityFile lines

@@ -27,6 +27,17 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.104.10 — container 2.79.18
+
+The image is rebuilt: `entrypoint.sh` changes.
+
+- **The GitHub host-key fetch says what failed.** At start the entrypoint fetches GitHub's
+  SSH host keys from `api.github.com/meta`; any failure was reported as "(offline?)". The
+  warning now carries the cause: curl's own message for a DNS, connection or timeout
+  failure or an HTTP error status (a rate-limit 403 included), or "malformed answer" with
+  jq's words when the answer holds no keys. The start still goes on, with
+  `StrictHostKeyChecking=accept-new` for GitHub, as before.
+
 ## 3.104.9 — container 2.79.17
 
 The image is unchanged, so there is no rebuild.
