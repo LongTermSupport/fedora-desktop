@@ -107,6 +107,14 @@ a repository is no longer offered for a checkout of it. Report:
   and says, on a test human in a private tmux) is the host agent's. The top-bar menu and the
   copy with Clipboard Indicator off are the owner's: they need a look at the owner's desktop,
   which the owner does not allow agents to screenshot, and they change its live clipboard.
+  Text half PASS on the host 2026-10-31 (`$cAliy4G0eBAgaT2zeWaPXVZtBBNSfD6Ze6LwuUuhahU`), on
+  the throwaway chooser201a's test human: with Clipboard Indicator on, no copy is offered,
+  the line says why, and the password is shown to type, once. The test human had never
+  signed in, so the line was "Sign in: set a password", not New password, which only a
+  signed-in human has; so New password itself is the owner's too (A4c). Two notes from it:
+  the sign-in block said "Homeserver unknown (not declared)" though the team row read up
+  (cause not established: chooser201a may no longer be in the host_vars); and the "Open in Element
+  now?" question that follows has Yes as its default.
 
   - [x] ✅ Step 08's consent No/Yes, PASSED on the host through `meta-deploy.bash` at
     c378092ce (2026-10-30: N1, Y1, Y2 and C1, the consent record and cc's token record put
