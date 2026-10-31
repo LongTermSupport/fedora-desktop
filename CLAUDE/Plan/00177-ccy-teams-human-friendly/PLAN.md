@@ -428,8 +428,20 @@ are Phase 12. [Full text](DONE-phases.md#phase-11-findings-of-the-host-run-of-26
   `scripts/test-ccy-teams-command.bash` now refuses a key fzf would not hand back. Deployed by
   `play-claude-yolo.yml`. Report:
   [subagent-reports/261030-no-shortcut-keys.md](subagent-reports/261030-no-shortcut-keys.md).
-  Deployed at 784e4dace (2026-10-30): on the host the footer reads "↑↓ choose  Enter lists
-  what can be done to the row  Esc or q quit", and Enter on a team row opens its menu.
+  Deployed at 784e4dace (2026-10-30): on the host the footer reads "↑↓ choose Enter lists
+  what can be done to the row Esc or q quit", and Enter on a team row opens its menu.
+
+### Phase 15: The teams as a graph (issue #111, step 1)
+
+- [x] ✅ **Task 15.1**: `ccy-teams --graph` prints the `--list` pass as a Mermaid `flowchart`:
+  each team a subgraph (description, homeserver, people), each member's kind, seat, role,
+  checkout and live state (online, offline, or unknown with why), LXC members inside their
+  container, the coordinator's edges to its workers; it fails as `--list` does. A pure
+  formatter (`board.Mermaid`) with a golden test; usage, help and `docs/agent-bus.md`.
+  Red then green in the journal.
+- [ ] ⬜ **Task 15.2**: Host check, once `changed-plays` has rebuilt ccy-teams
+  (`play-claude-yolo.yml`): `ccy-teams --graph` on the host renders in a Mermaid viewer, every
+  member of `ccy-teams --list` is in it, and its exit code matches `--list`'s.
 
 ## Success Criteria
 

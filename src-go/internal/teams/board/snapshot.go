@@ -62,7 +62,11 @@ type Snapshot struct {
 	Seats     *discover.Index
 	Checkouts []string
 
-	Members        map[string]agentbus.Roster
+	Members map[string]agentbus.Roster
+	// LXC is each team's LXC member record (lxcrecord.Read): which container, user and checkout
+	// each LXC member is, and what the last apply found of it. A team with none, or whose record
+	// could not be read (its row's WHERE says why), has an empty one.
+	LXC            map[string]lxcrecord.Record
 	MembersUnknown map[string]string // team -> why its members are not shown
 	SignedIn       map[string]string // "<team>|<person>" -> their Element sessions in words
 	Sessions       map[string]int    // same key -> how many, for the people whose count could be read
@@ -82,7 +86,7 @@ func NewSnapshot() *Snapshot {
 		DescriptionState: map[string]declare.DescriptionState{},
 		Loaded:           map[string]bool{}, Active: map[string]string{}, Status: map[string]declare.Status{},
 		Live: map[string]int{}, SeatSession: map[string]string{}, SeatRestore: map[string]bool{}, Seats: discover.New(),
-		Members: map[string]agentbus.Roster{}, MembersUnknown: map[string]string{}, SignedIn: map[string]string{},
+		Members: map[string]agentbus.Roster{}, LXC: map[string]lxcrecord.Record{}, MembersUnknown: map[string]string{}, SignedIn: map[string]string{},
 		Sessions: map[string]int{},
 	}
 }
@@ -244,7 +248,7 @@ func (s *Snapshot) addMemberRows(c *Collector, team string, seats []seatAt, lxc 
 	for _, m := range roster.Members {
 		activity[m.Handle] = "active"
 		if m.Parked {
-			activity[m.Handle] = "parked"
+			activity[m.Handle] = wordParked
 		}
 	}
 	unknown := declare.WordUnknown
@@ -300,7 +304,7 @@ func (s *Snapshot) addListedRows(team string, roster agentbus.Roster, activity m
 	for _, item := range lxc.HeldBack() {
 		if item.Status == lxcrecord.StatusDeferred && !shown[item.Handle] {
 			s.Rows = append(s.Rows, Row{
-				Team: team, Member: item.Label(), Kind: "lxc", State: lxcrecord.StatusDeferred,
+				Team: team, Member: item.Label(), Kind: kindLxc, State: lxcrecord.StatusDeferred,
 				Applied: "-", Session: "-", Restore: "-", Where: item.Words(), Handle: "-", Dir: "-",
 			})
 		}

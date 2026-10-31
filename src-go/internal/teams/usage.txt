@@ -81,6 +81,12 @@ Usage:
   ccy-teams                        the picker (needs a terminal)
   ccy-teams -l|--list              print the same table, with a heading, and exit
                                    (colour only on a terminal, and never with NO_COLOR)
+  ccy-teams --graph                print the same as a Mermaid flowchart on stdout: each team
+                                   a subgraph (what it is for, its homeserver, its people),
+                                   each member's kind, seat, role, checkout and live state
+                                   (online, offline, or unknown with why; never left out),
+                                   LXC members inside their container, and the coordinator's
+                                   edges to its workers. It fails as --list does
   ccy-teams create [--org ORG | --repo OWNER/REPO...] [--team T] [--human NAME]...
                    [--allow-from CIDR]... [--description TEXT] [--yes]
                                    add a team to agent_bus_teams in the host_vars, with
