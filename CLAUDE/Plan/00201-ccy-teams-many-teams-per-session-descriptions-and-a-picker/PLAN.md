@@ -103,7 +103,10 @@ a repository is no longer offered for a checkout of it. Report:
   pass; the consent No/Yes is the owner's (`~/.config/pingbus/element-accepted` is outside the
   repository). Step 05's doc text `👥 A,B` is out of date (the line names each seat): Task 2.29.
   Host, 27-10-27 at F44 fe894347c, on chooser-teams-up's teams: 01-04, 10, 12 and 13 PASS
-  (Tasks 2.28 and 2.29). Left: check 11 (Task 2.12), on a test human.
+  (Tasks 2.28 and 2.29). Left: check 11 (Task 2.12). Its text half (what ccy-teams offers
+  and says, on a test human in a private tmux) is the host agent's. The top-bar menu and the
+  copy with Clipboard Indicator off are the owner's: they need a look at the owner's desktop,
+  which the owner does not allow agents to screenshot, and they change its live clipboard.
 
   - [x] ✅ Step 08's consent No/Yes, PASSED on the host through `meta-deploy.bash` at
     c378092ce (2026-10-30: N1, Y1, Y2 and C1, the consent record and cc's token record put
