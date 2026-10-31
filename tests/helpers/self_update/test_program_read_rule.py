@@ -11,10 +11,11 @@ sources `scripts/lib/go-tool.bash` and builds and runs `src-go/qa/cmd/qa-toolcha
 
 The rule reads the programs' source, with its own patterns, not the mapper's. A finding is:
 
-- in a helper package that is an input of a play (`helpers/<pkg>/`), a non-comment line with a
-  path built from `__file__` and literal segments (`Path(__file__).parents[2] / "vars" / "x"`),
-  or a quoted literal that names an existing checkout path outside the package (a path with a
-  `/`, or a dot-file of the root such as `.qa-versions`), when the path is not an input. A
+- in a helper module that is an input of a play, a non-comment line with a path built from
+  `__file__` and literal segments (`Path(__file__).parents[2] / "vars" / "x"`), or a quoted
+  literal that names an existing checkout path (a path with a `/`, or a dot-file of the root
+  such as `.qa-versions`), inside the module's own package or not, when the path is not an
+  input: a play's inputs are the modules it runs, not their packages (Plan 00141). A
   literal `affected_plays.NOT_PLAY_INPUTS` lists for its module is not judged: it is named in a
   message, read again on every run, or relative to another directory. A bare climb to a directory (`--repo-root`'s default, a
   `sys.path` entry) is not judged: what a program reads under a root it is handed is decided
@@ -52,7 +53,6 @@ from helpers.self_update import affected_plays as ap
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 RULE_ID = "play-program-read-dropped"
 
-_HELPER_PREFIX = re.compile(r"^helpers/([a-z_][a-z0-9_]*)/$")
 _PY_LITERAL = re.compile(r"""(['"])([A-Za-z0-9_.@+\-/]+)\1""")
 #: Text in quotes or backticks, where `__file__` is prose or a pattern, not the module's path.
 _TEXT_SPAN = re.compile(r"""(["'`])(?:(?!\1).)*\1""")
@@ -116,38 +116,41 @@ def _file_path(rel: str, line: str) -> str | None:
     return posixpath.normpath(posixpath.join(base, *segments)) if base or segments else None
 
 
+def _helper_modules(repo_root: str, inputs: ap.Inputs) -> list[str]:
+    """Every helper module that is an input of the play, counted as a file or under a prefix."""
+    found = []
+    for dirpath, _dirs, files in os.walk(os.path.join(repo_root, "helpers")):
+        for name in files:
+            rel = os.path.relpath(os.path.join(dirpath, name), repo_root)
+            if name.endswith(".py") and ap.affects(inputs, rel):
+                found.append(rel)
+    return sorted(found)
+
+
 def _python_findings(repo_root: str, inputs: ap.Inputs, not_inputs: dict[str, dict[str, str]]) -> list[str]:
     findings = []
-    for prefix in sorted(inputs.prefixes):
-        package = _HELPER_PREFIX.match(prefix)
-        if not package or not os.path.isdir(os.path.join(repo_root, prefix)):
-            continue
-        for dirpath, _dirs, files in os.walk(os.path.join(repo_root, prefix)):
-            for name in sorted(files):
-                if not name.endswith(".py"):
+    for rel in _helper_modules(repo_root, inputs):
+        text = _read(repo_root, rel)
+        exempt = not_inputs.get(rel, {})
+        for number, line in enumerate(text.splitlines(), start=1):
+            if line.lstrip().startswith("#"):
+                continue
+            where = f"{rel}:{number}:"
+            if "__file__" in _TEXT_SPAN.sub("", line):
+                if not _PY_LITERAL.search(line) and "/" not in line.split("__file__", 1)[1]:
                     continue
-                rel = os.path.relpath(os.path.join(dirpath, name), repo_root)
-                text = _read(repo_root, rel)
-                exempt = not_inputs.get(rel, {})
-                for number, line in enumerate(text.splitlines(), start=1):
-                    if line.lstrip().startswith("#"):
-                        continue
-                    where = f"{rel}:{number}:"
-                    if "__file__" in _TEXT_SPAN.sub("", line):
-                        if not _PY_LITERAL.search(line) and "/" not in line.split("__file__", 1)[1]:
-                            continue
-                        path = _file_path(rel, line)
-                        if path is None or (not path.startswith(prefix) and not _accounted(inputs, path)):
-                            if not _named(inputs, where):
-                                findings.append(f"{where} {line.strip()}")
-                        continue
-                    for match in _PY_LITERAL.finditer(line):
-                        literal = match.group(2)
-                        path = _checkout_path(repo_root, literal)
-                        if path is None or literal in exempt or (path + "/").startswith(prefix):
-                            continue
-                        if not _accounted(inputs, path):
-                            findings.append(f"{where} {literal}")
+                path = _file_path(rel, line)
+                if path is None or not _accounted(inputs, path):
+                    if not _named(inputs, where):
+                        findings.append(f"{where} {line.strip()}")
+                continue
+            for match in _PY_LITERAL.finditer(line):
+                literal = match.group(2)
+                path = _checkout_path(repo_root, literal)
+                if path is None or literal in exempt:
+                    continue
+                if not _accounted(inputs, path):
+                    findings.append(f"{where} {literal}")
     return findings
 
 
@@ -255,7 +258,17 @@ class TestRuleFires(unittest.TestCase):
         self._scopes_helper()
         self.assertEqual(dropped_reads(self.root, ap.Inputs(prefixes={"helpers/other/"})), [])
 
-    def test_bare_climbs_and_paths_inside_the_package_are_not_judged(self) -> None:
+    def test_a_read_inside_the_package_the_inputs_lack_is_a_finding(self) -> None:
+        """The package is not an input whole, so a file read beside the module must be one."""
+        self._file("helpers/tool/data.json")
+        self._file("helpers/tool/cli.py", 'import pathlib\n\nDATA = pathlib.Path(__file__).parent / "data.json"\n')
+        found = dropped_reads(self.root, ap.Inputs(exact={"helpers/tool/cli.py"}))
+        self.assertEqual(len(found), 1)
+        self.assertIn("helpers/tool/cli.py:3:", found[0])
+        inputs = ap.Inputs(exact={"helpers/tool/cli.py", "helpers/tool/data.json"})
+        self.assertEqual(dropped_reads(self.root, inputs), [])
+
+    def test_bare_climbs_and_paths_the_inputs_cover_are_not_judged(self) -> None:
         self._file("helpers/tool/data.json")
         self._file("helpers/tool/cli.py", """
             import os

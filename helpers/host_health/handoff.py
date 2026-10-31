@@ -124,6 +124,21 @@ def write(
     return path
 
 
+def clear(base: str) -> None:
+    """Remove the prompt file a previous collection wrote, when one is there.
+
+    `write` runs only when there is something to diagnose, so a collection that found
+    nothing, or whose write failed, must call this: otherwise the last broken run's file
+    stays, offered as the current state of a machine that has moved on. No file, or no
+    directory to hold one, is already clear; any other failure raises, because the file
+    is then still there.
+    """
+    try:
+        os.remove(os.path.join(base, FILE_NAME))
+    except (FileNotFoundError, NotADirectoryError):
+        return
+
+
 def command(path: str) -> str:
     """The command that opens the handoff. A string — it never launches anything."""
     return f"{COMMAND} '{path}'"

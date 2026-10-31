@@ -31,8 +31,13 @@ with regexes over the play text. The idioms recognised are the ones this repo us
   files, vars files, imported plays). So an `include_tasks` of a task file makes that
   file's own `src:` paths inputs of the play.
 - `import_playbook: <relative>`, relative to the importing file.
-- `helpers.<pkg>` where `helpers/<pkg>/` exists (`python3 -m helpers.<pkg>.x` in an
-  argv): the whole package, plus every `helpers.<other>` package its modules import.
+- `helpers.<pkg>.<module>` (`python3 -m helpers.<pkg>.x` in an argv), or a rooted path to a
+  helper module: that module, plus every helper module it can run, transitively (its
+  imports anywhere in it, relative ones, and a `helpers.x.y` a non-docstring string names, as
+  a child's `-m` argv). Not its package whole: a module beside it that nothing it runs
+  imports does not change what the play does (rule play-helper-input-unreachable,
+  `tests/helpers/self_update/test_helper_reach_rule.py`). A name or path that stops at a
+  directory is every module in it.
 - What the programs a play runs read from the checkout (rule play-program-read-dropped,
   `tests/helpers/self_update/test_program_read_rule.py`). In a helper package: a path built
   from `__file__` and literal segments (`Path(__file__).parents[2] / "vars" / "x.yml"`, or
@@ -71,6 +76,7 @@ play has a reference that could not be followed; 2 no answer (bad allowlist, git
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
 import posixpath
@@ -130,9 +136,7 @@ _KEY = re.compile(
     r"(src|file|include_tasks|import_tasks|include_vars|import_playbook|vars_files)\s*:\s*(.*)$"
 )
 _LIST_ITEM = re.compile(r"^(\s*)-\s+(.*)$")
-_HELPER_TOKEN = re.compile(r"\bhelpers\.([a-z_][a-z0-9_]*)")
-_PY_IMPORT = re.compile(r"^\s*(?:from|import)\s+helpers\.([a-z_][a-z0-9_]*)", re.MULTILINE)
-_PY_FROM_HELPERS = re.compile(r"^\s*from\s+helpers\s+import\s+\(?([^)\n]+)", re.MULTILINE)
+_HELPER_TOKEN = re.compile(r"(?<![\w.])helpers(?:\.[A-Za-z_][A-Za-z0-9_]*)+")
 _TEMPLATE_HEAD = re.compile(r"^\{\{\s*([A-Za-z_][A-Za-z0-9_]*)")
 _URL = re.compile(r"^[a-z][a-z0-9+.-]*://")
 _REGISTER = re.compile(r"^\s*register:\s*([A-Za-z_][A-Za-z0-9_]*)\s*$", re.MULTILINE)
@@ -336,6 +340,34 @@ def _safe_relpath(candidate: str) -> str | None:
     return normal
 
 
+def _module_runs(rel: str, source: str) -> list[str]:
+    """The dotted names a helper module can run: every `import` and `from ... import`
+    anywhere in it (one in a function runs when the function does), a relative one resolved
+    against its package, and a `helpers.x.y` named in a string that is not a docstring (a
+    child's `[sys.executable, "-m", "helpers.x.y"]`). Read with `ast`, not a regex: an
+    import list in parentheses spans lines, and the names in it are modules."""
+    tree = ast.parse(source, filename=rel)
+    package = rel[: -len(".py")].split("/")[:-1]
+    docstrings = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            first = node.body[0] if node.body else None
+            if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant):
+                docstrings.add(id(first.value))
+    names: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            base = node.module.split(".") if node.module else []
+            if node.level:
+                base = package[: len(package) - (node.level - 1)] + base
+            names.extend(".".join(base + ([] if alias.name == "*" else [alias.name])) for alias in node.names)
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings:
+            names.extend(_HELPER_TOKEN.findall(node.value))
+    return [name for name in names if name.startswith("helpers.")]
+
+
 def _defined_vars(text: str) -> set[str]:
     """Names the file defines as a rooted path, a host path or a URL: their values are
     already inputs through the rooted scan, or are not checkout files at all."""
@@ -354,7 +386,7 @@ class _Walker:
         self.root = repo_root
         self.inputs = Inputs()
         self._seen_files: set[str] = set()
-        self._seen_packages: set[str] = set()
+        self._seen_modules: set[str] = set()
         self._texts: dict[str, str] = {}
         self._module_refs: list[tuple[str, str]] = []
         self._go_names: list[tuple[str, str]] = []
@@ -460,23 +492,23 @@ class _Walker:
                     if rel is not None:
                         self._add_read(rel)
 
-    def _python_reads(self, rel_file: str, source: str, package_dir: str) -> None:
-        """The checkout paths a helper module names outside its package: a path built from
-        `__file__` and literal segments, or a literal path. A bare climb from `__file__` (a
-        `--repo-root` default) is the root a program is handed, not a read; a `__file__` form
-        not recognised is UNRESOLVED; a literal NOT_PLAY_INPUTS lists for the module is not a read
-        a play depends on."""
+    def _python_reads(self, rel_file: str, source: str) -> None:
+        """The checkout paths a helper module names: a path built from `__file__` and literal
+        segments, or a literal path, inside its own package or not (the package is not an
+        input whole). A bare climb from `__file__` (a `--repo-root` default) is the root a
+        program is handed, not a read; a `__file__` form not recognised is UNRESOLVED; a
+        literal NOT_PLAY_INPUTS lists for the module is not a read a play depends on."""
         exempt = NOT_PLAY_INPUTS.get(rel_file, {})
         for line_no, line in _non_comment_lines(source):
             if "__file__" in _QUOTED_SPAN.sub("", line):
-                self._file_read(f"{rel_file}:{line_no}", rel_file, line, package_dir)
+                self._file_read(f"{rel_file}:{line_no}", rel_file, line)
                 continue
             for _quote, literal in _PY_PATH_LITERAL.findall(line):
                 rel = self._checkout_literal(literal)
-                if rel is not None and literal not in exempt and not (rel + "/").startswith(package_dir):
+                if rel is not None and literal not in exempt:
                     self._add_read(rel)
 
-    def _file_read(self, where: str, rel_file: str, line: str, package_dir: str) -> None:
+    def _file_read(self, where: str, rel_file: str, line: str) -> None:
         climbed = _PATH_CLIMB.search(line)
         if climbed:
             levels = len(climbed.group(1).split(".parent")) - 1 if climbed.group(1) else int(climbed.group(2)) + 1
@@ -494,36 +526,54 @@ class _Walker:
         for _ in range(levels):
             base = posixpath.dirname(base)
         rel = _safe_relpath(posixpath.join(base, *segments))
-        if rel is not None and (rel + "/").startswith(package_dir):
-            return
         if rel is None or not (self._is_file(rel) or self._is_dir(rel)):
             self.inputs.unresolved.append(f"{where}: {line.strip()}")
         else:
             self._add_read(rel)
 
     def _maybe_helper_path(self, rel: str) -> None:
-        parts = rel.split("/")
-        if len(parts) >= 2 and parts[0] == "helpers" and parts[1]:
-            self._add_package(parts[1])
-
-    def _add_package(self, package: str) -> None:
-        if package in self._seen_packages or not self._is_dir(f"helpers/{package}"):
+        """A checkout path under helpers/: a module brings what it runs, a directory every
+        module in it. Any other file there is data, already an input as itself."""
+        if not rel.startswith("helpers/"):
             return
-        self._seen_packages.add(package)
-        self.inputs.prefixes.add(f"helpers/{package}/")
-        for dirpath, _dirs, files in os.walk(os.path.join(self.root, "helpers", package)):
+        if rel.endswith(".py") and self._is_file(rel):
+            self._add_module(rel)
+        elif self._is_dir(rel):
+            self._add_tree(rel)
+
+    def _add_dotted(self, dotted: str) -> None:
+        """A `helpers.<pkg>.<module>` name: the longest prefix that is a module, or a
+        directory whole (a name that stops at a package reaches all of it)."""
+        parts = dotted.split(".")
+        for end in range(len(parts), 1, -1):
+            rel = "/".join(parts[:end])
+            if self._is_file(rel + ".py"):
+                self._add_module(rel + ".py")
+                return
+            if self._is_dir(rel):
+                self._add_tree(rel)
+                return
+
+    def _add_tree(self, rel_dir: str) -> None:
+        self.inputs.prefixes.add(rel_dir.rstrip("/") + "/")
+        for dirpath, _dirs, files in os.walk(os.path.join(self.root, rel_dir)):
             for name in sorted(files):
-                if not name.endswith(".py"):
-                    continue
-                path = os.path.join(dirpath, name)
-                with open(path, encoding="utf-8") as handle:
-                    source = handle.read()
-                self._python_reads(os.path.relpath(path, self.root), source, f"helpers/{package}/")
-                for imported in _PY_IMPORT.findall(source):
-                    self._add_package(imported)
-                for group in _PY_FROM_HELPERS.findall(source):
-                    for imported in re.findall(r"[a-z_][a-z0-9_]*", group):
-                        self._add_package(imported)
+                if name.endswith(".py"):
+                    self._add_module(os.path.relpath(os.path.join(dirpath, name), self.root))
+
+    def _add_module(self, rel: str) -> None:
+        """A helper module the play runs: itself, what it reads, and every helper module it
+        can run in turn (`_module_runs`). Its package is not an input whole: a module beside
+        it that it never imports does not change what the play does."""
+        if rel in self._seen_modules:
+            return
+        self._seen_modules.add(rel)
+        self.inputs.exact.add(rel)
+        with open(os.path.join(self.root, rel), encoding="utf-8") as handle:
+            source = handle.read()
+        self._python_reads(rel, source)
+        for dotted in _module_runs(rel, source):
+            self._add_dotted(dotted)
 
     def _rooted(self, rel_file: str, line_no: int, line: str) -> None:
         where = f"{rel_file}:{line_no}"
@@ -867,8 +917,8 @@ class _Walker:
         for line_no, line in _non_comment_lines(text):
             self._rooted(rel_file, line_no, line)
             self._go_line(rel_file, line_no, line)
-            for package in _HELPER_TOKEN.findall(line):
-                self._add_package(package)
+            for dotted in _HELPER_TOKEN.findall(line):
+                self._add_dotted(dotted)
             if list_key is not None:
                 item = _LIST_ITEM.match(line)
                 if item and len(item.group(1)) > list_key[1]:

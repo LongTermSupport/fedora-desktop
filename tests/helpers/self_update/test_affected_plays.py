@@ -180,7 +180,7 @@ class TestInputs(FixtureCase):
         self.assertIn("playbooks/imports/play-b.yml", inputs.exact)
         self.assertIn("files/x", inputs.exact)
 
-    def test_a_helper_module_brings_its_whole_package_and_its_imports(self) -> None:
+    def test_a_helper_module_brings_itself_and_what_it_imports(self) -> None:
         self.fx.file("helpers/alpha/cli.py", "from helpers.beta import core\n")
         self.fx.file("helpers/beta/core.py", "X = 1\n")
         play = self.fx.play("playbooks/imports/play-a.yml", """
@@ -195,6 +195,89 @@ class TestInputs(FixtureCase):
         inputs = ap.play_inputs(self.fx.root, play)
         self.assertTrue(ap.affects(inputs, "helpers/alpha/cli.py"))
         self.assertTrue(ap.affects(inputs, "helpers/beta/core.py"))
+
+    def test_a_sibling_module_the_run_module_never_imports_is_not_an_input(self) -> None:
+        """Plan 00141: play-gnome-shell-extensions runs helpers.gnome.apply_enabled_extensions,
+        and was judged stale when the play ledger changed, because a QA module beside it,
+        check_panel_contract.py, imports the ledger. Nothing the play runs imports either."""
+        self.fx.file("helpers/gnome/apply.py", "from helpers.gnome import bus\n")
+        self.fx.file("helpers/gnome/bus.py", "X = 1\n")
+        self.fx.file("helpers/gnome/contract.py", "from helpers.ledger import store\n")
+        self.fx.file("helpers/ledger/store.py", "X = 1\n")
+        play = self.fx.play("playbooks/imports/play-a.yml", """
+            - hosts: desktop
+              tasks:
+                - ansible.builtin.command:
+                    argv: [python3, -m, helpers.gnome.apply]
+        """)
+        inputs = ap.play_inputs(self.fx.root, play)
+        self.assertTrue(ap.affects(inputs, "helpers/gnome/apply.py"))
+        self.assertTrue(ap.affects(inputs, "helpers/gnome/bus.py"))
+        self.assertFalse(ap.affects(inputs, "helpers/gnome/contract.py"))
+        self.assertFalse(ap.affects(inputs, "helpers/ledger/store.py"))
+
+    def test_imports_anywhere_relative_ones_and_child_runs_are_followed(self) -> None:
+        """A function-level import runs when the function does, and a module a helper starts
+        as a child (`[sys.executable, "-m", "helpers.x.y"]`) runs too. A name in a docstring
+        does not run."""
+        self.fx.file("helpers/tool/cli.py", '''
+            """Mentions helpers.tool.prose only."""
+            import sys
+
+
+            def main():
+                from . import near
+                from helpers.other import (
+                    far,
+                )
+                return [sys.executable, "-m", "helpers.tool.child"]
+        ''')
+        for name in ("near", "child", "prose"):
+            self.fx.file(f"helpers/tool/{name}.py", "X = 1\n")
+        self.fx.file("helpers/other/far.py", "X = 1\n")
+        play = self.fx.play("playbooks/imports/play-a.yml", "- command: python3 -m helpers.tool.cli\n")
+        inputs = ap.play_inputs(self.fx.root, play)
+        for rel in ("helpers/tool/near.py", "helpers/tool/child.py", "helpers/other/far.py"):
+            self.assertTrue(ap.affects(inputs, rel), rel)
+        self.assertFalse(ap.affects(inputs, "helpers/tool/prose.py"))
+
+    def test_a_copied_helper_file_brings_its_imports_and_not_its_package(self) -> None:
+        self.fx.file("helpers/rec/recovery.py", "from helpers.rec import core\n")
+        self.fx.file("helpers/rec/core.py", "X = 1\n")
+        self.fx.file("helpers/rec/unrelated.py", "X = 1\n")
+        play = self.fx.play("playbooks/imports/play-a.yml", f"""
+            - ansible.builtin.copy:
+                src: "{ROOT}/helpers/rec/recovery.py"
+        """)
+        inputs = ap.play_inputs(self.fx.root, play)
+        self.assertTrue(ap.affects(inputs, "helpers/rec/core.py"))
+        self.assertFalse(ap.affects(inputs, "helpers/rec/unrelated.py"))
+
+    def test_a_copied_helper_directory_is_an_input_whole(self) -> None:
+        self.fx.file("helpers/rec/one.py", "from helpers.dep import x\n")
+        self.fx.file("helpers/dep/x.py", "X = 1\n")
+        play = self.fx.play("playbooks/imports/play-a.yml", f"""
+            - ansible.builtin.copy:
+                src: "{ROOT}/helpers/rec/"
+        """)
+        inputs = ap.play_inputs(self.fx.root, play)
+        self.assertTrue(ap.affects(inputs, "helpers/rec/later.json"))
+        self.assertTrue(ap.affects(inputs, "helpers/dep/x.py"))
+
+    def test_a_data_file_a_run_module_reads_beside_itself_is_an_input(self) -> None:
+        """Modules, not packages, are inputs, so what a module reads inside its own package
+        is counted as a read."""
+        self.fx.file("helpers/tool/data.json", "{}\n")
+        self.fx.file("helpers/tool/other.json", "{}\n")
+        self.fx.file("helpers/tool/cli.py", """
+            import os
+
+            DATA = os.path.join(os.path.dirname(os.path.realpath(__file__)), "data.json")
+        """)
+        play = self.fx.play("playbooks/imports/play-a.yml", "- command: python3 -m helpers.tool.cli\n")
+        inputs = ap.play_inputs(self.fx.root, play)
+        self.assertTrue(ap.affects(inputs, "helpers/tool/data.json"))
+        self.assertFalse(ap.affects(inputs, "helpers/tool/other.json"))
 
     def test_a_dotted_word_that_is_not_a_helper_package_is_ignored(self) -> None:
         play = self.fx.play("playbooks/imports/play-a.yml", """
@@ -733,6 +816,8 @@ class TestHelperReads(FixtureCase):
         self.fx.file("helpers/tool/cli.py", """
             import os
 
+            from helpers.tool import two
+
             DEFAULT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
                 os.path.realpath(__file__)))), "vars", "required.yml")
         """)
@@ -742,6 +827,9 @@ class TestHelperReads(FixtureCase):
         self.assertTrue(ap.affects(inputs, "vars/anything.yml"))
 
     def test_a_bare_climb_is_no_input_and_no_unresolved(self) -> None:
+        """The module itself and the file it reads beside itself are inputs; the climbs to
+        a directory are not."""
+        self.fx.file("helpers/tool/data.json", "{}\n")
         self.fx.file("helpers/tool/cli.py", """
             import os
             import pathlib
@@ -752,7 +840,9 @@ class TestHelperReads(FixtureCase):
         """)
         inputs = self._play_running("helpers.tool.cli")
         self.assertEqual(inputs.unresolved, [])
-        self.assertEqual(inputs.exact, {"playbooks/imports/play-a.yml"})
+        self.assertEqual(
+            inputs.exact, {"playbooks/imports/play-a.yml", "helpers/tool/cli.py", "helpers/tool/data.json"}
+        )
 
     def test_file_in_prose_or_a_pattern_is_not_a_read(self) -> None:
         self.fx.file("helpers/tool/cli.py", """
@@ -1064,6 +1154,24 @@ class TestRealRepo(unittest.TestCase):
     def test_a_docs_only_change_runs_and_skips_nothing(self) -> None:
         report = ap.decide(REPO_ROOT, ["docs/ccy.md", "CLAUDE/Plan/README.md"])
         self.assertEqual((report.run, report.skipped), ([], []))
+
+    def test_the_ledgers_own_code_does_not_make_the_gnome_plays_stale(self) -> None:
+        """Plan 00141: these three run only helpers.gnome modules that import no ledger code,
+        and were judged stale by a change to the ledger's code."""
+        ledger_code = [
+            "helpers/play_ledger/group_vars.py",
+            "helpers/play_ledger/health_refresh.py",
+            "helpers/self_update/affected_plays.py",
+        ]
+        for play in (
+            "playbooks/imports/play-gnome-shell-extensions.yml",
+            "playbooks/imports/optional/common/play-fedora-desktop-panel.yml",
+            "playbooks/imports/optional/hardware-specific/play-displaylink.yml",
+        ):
+            inputs = ap.play_inputs(REPO_ROOT, play)
+            with self.subTest(play=play):
+                self.assertTrue(ap.affects(inputs, "helpers/gnome/apply_enabled_extensions.py"))
+                self.assertEqual([path for path in ledger_code if ap.affects(inputs, path)], [])
 
     def test_the_seeded_allowlist_is_the_claude_play(self) -> None:
         self.assertEqual(ap.load_allowlist(REPO_ROOT), [CLAUDE_PLAY])
