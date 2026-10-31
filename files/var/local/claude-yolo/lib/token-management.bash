@@ -730,7 +730,7 @@ create_token() {
     local gh_token="$2"
     local image_name="$3"
     local tool_name="${4:-ccy}"
-    local preset_name="$5"
+    local preset_name="$5" check_rc
 
     # BSH-05: callers and select_token read this to know whether a token was
     # actually created (so they can continue to launch or exit cleanly) versus
@@ -749,19 +749,10 @@ create_token() {
         return 1
     fi
 
-    echo ""
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo "Create New Long-Lived Token for YOLO Mode"
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
-    echo "This will create a long-lived OAuth token (sk-ant-oat01-...) for $tool_name."
-    echo "These tokens are designed for container/CI-CD usage and last much longer"
-    echo "than regular OAuth tokens."
-    echo ""
-    echo "Requirements:"
-    echo "  • Active Claude Pro or Max subscription"
-    echo "  • Authentication will happen in a clean container"
-    echo ""
+    printf '\n%s\n%s\n%s\n\n' "════════════════════════════════════════════════════════════════════════════════" "Create New Long-Lived Token for YOLO Mode" "════════════════════════════════════════════════════════════════════════════════"
+    printf '%s\n' "This will create a long-lived OAuth token (sk-ant-oat01-...) for $tool_name." \
+        "These tokens are designed for container/CI-CD usage and last much longer" "than regular OAuth tokens." "" \
+        "Requirements:" "  • Active Claude Pro or Max subscription" "  • Authentication will happen in a clean container" ""
 
     # Prompt for token name (or use preset)
     if [ -n "$preset_name" ]; then
@@ -819,16 +810,9 @@ create_token() {
     # Create temporary output file for token
     tmp_output=$(mktemp "${TMPDIR:-/tmp}/${tool_name}-token-setup-XXXXXX")
 
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
-    echo "Launching Claude Code container for token setup..."
-    echo ""
-    echo "INSTRUCTIONS:"
-    echo "  1. The container will run 'claude setup-token'"
-    echo "  2. Follow the authentication flow (CLI → Browser → CLI)"
-    echo "  3. Copy the token when it's displayed (starts with sk-ant-oat01-)"
-    echo "  4. The process will save it automatically"
-    echo ""
+    printf '%s\n' "════════════════════════════════════════════════════════════════════════════════" "" "Launching Claude Code container for token setup..." "" "INSTRUCTIONS:" \
+        "  1. The container will run 'claude setup-token'" "  2. Follow the authentication flow (CLI → Browser → CLI)" \
+        "  3. Copy the token when it's displayed (starts with sk-ant-oat01-)" "  4. The process will save it automatically" ""
     read -rp "$CCY_PROMPT_TOKEN_SETUP " _unused
     echo ""
 
@@ -863,8 +847,16 @@ create_token() {
         if [ -n "$token" ]; then
             printf '\nValidating token...\n'
 
-            if validate_token "$token" "$image_name"; then
-                echo "✓ Token validated successfully"
+            # Only the API's refusal (3) discards the new token. A check that could not run
+            # keeps it, as a launch does: nothing is known against it.
+            check_rc=0
+            validate_token "$token" "$image_name" || check_rc=$?
+            if [ "$check_rc" -ne 3 ]; then
+                if [ "$check_rc" -eq 0 ]; then
+                    echo "✓ Token validated successfully"
+                else
+                    print_error "The new token could not be checked (the cause is above); it is saved unchecked."
+                fi
                 echo ""
 
                 # Save token to file
@@ -885,7 +877,7 @@ create_token() {
                 echo "════════════════════════════════════════════════════════════════════════════"
             else
                 echo ""
-                print_error "The new token was not saved: its check failed, for the reason above. Please try creating the token again."
+                print_error "The new token was not saved: the API refused it. Please try creating the token again."
                 rm -f "$tmp_output"
                 return 1
             fi
@@ -896,25 +888,20 @@ create_token() {
             echo "Or just run '$tool_name' and select it from the menu."
             echo ""
         else
-            echo ""
-            echo "════════════════════════════════════════════════════════════════════════════"
-            echo "⚠  WARNING: Could not extract token from output"
-            echo "════════════════════════════════════════════════════════════════════════════"
-            echo ""
-            echo "The setup-token command ran, but we couldn't automatically extract the token."
-            echo ""
+            printf '\n%s\n%s\n%s\n\n%s\n\n' "════════════════════════════════════════════════════════════════════════════" "⚠  WARNING: Could not extract token from output" "════════════════════════════════════════════════════════════════════════════" \
+                "The setup-token command ran, but we couldn't automatically extract the token."
 
             # Token paste loop with validation and retry
             while true; do
                 echo "Please manually paste the token (starts with sk-ant-oat01-):"
-                read -r -p "Token: " manual_token
+                read -r -p "Token: " manual_token || [ -n "$manual_token" ] || { echo ""; print_error "No token: the input closed."; rm -f "$tmp_output"; return 1; }
 
                 # Basic validation: format check
                 if [ -z "$manual_token" ]; then
                     echo ""
                     print_error "Token cannot be empty"
                     echo ""
-                    read -r -p "Try again? (Y/n): " retry
+                    read -r -p "Try again? (Y/n): " retry || retry=n
                     if [ "$retry" = "n" ] || [ "$retry" = "N" ]; then
                         echo "Cancelled."
                         rm -f "$tmp_output"
@@ -929,7 +916,7 @@ create_token() {
                     print_error "Invalid token format"
                     echo "Token must start with 'sk-ant-oat01-'"
                     echo ""
-                    read -r -p "Try again? (Y/n): " retry
+                    read -r -p "Try again? (Y/n): " retry || retry=n
                     if [ "$retry" = "n" ] || [ "$retry" = "N" ]; then
                         echo "Cancelled."
                         rm -f "$tmp_output"
@@ -947,7 +934,7 @@ create_token() {
                     echo "Length: $token_bytes bytes (expected: 90-120 bytes)"
                     echo "Token appears truncated or has extra characters."
                     echo ""
-                    read -r -p "Try again? (Y/n): " retry
+                    read -r -p "Try again? (Y/n): " retry || retry=n
                     if [ "$retry" = "n" ] || [ "$retry" = "N" ]; then
                         echo "Cancelled."
                         rm -f "$tmp_output"
@@ -960,8 +947,14 @@ create_token() {
                 # API validation: Test against Claude API
                 printf '\nValidating token against Claude API...\n'
 
-                if validate_token "$manual_token" "$image_name"; then
-                    echo "✓ Token validated successfully"
+                check_rc=0
+                validate_token "$manual_token" "$image_name" || check_rc=$?
+                if [ "$check_rc" -ne 3 ]; then
+                    if [ "$check_rc" -eq 0 ]; then
+                        echo "✓ Token validated successfully"
+                    else
+                        print_error "The token could not be checked (the cause is above); it is saved unchecked."
+                    fi
                     echo ""
 
                     # Save token to file
@@ -981,9 +974,9 @@ create_token() {
                     break
                 else
                     echo ""
-                    print_error "The token was not saved: its check failed, for the reason above."
+                    print_error "The token was not saved: the API refused it."
                     echo ""
-                    read -r -p "Try again? (Y/n): " retry
+                    read -r -p "Try again? (Y/n): " retry || retry=n
                     if [ "$retry" = "n" ] || [ "$retry" = "N" ]; then
                         echo ""
                         echo "Cancelled. Please verify the token and try again."
@@ -1015,15 +1008,10 @@ create_token() {
             echo ""
             echo "Try rebuilding: $tool_name --rebuild"
         else
-            echo "Claude setup-token command failed (exit code: $docker_exit_code)"
-            echo ""
-            echo "This usually indicates:"
-            echo "  • Authentication flow was cancelled or failed"
-            echo "  • No active Claude Pro/Max subscription"
-            echo "  • Network connectivity issues"
-            echo "  • Browser authentication not completed"
-            echo ""
-            echo "Please try again and ensure you complete the full OAuth flow."
+            printf '%s\n' "Claude setup-token command failed (exit code: $docker_exit_code)" "" "This usually indicates:" \
+                "  • Authentication flow was cancelled or failed" "  • No active Claude Pro/Max subscription" \
+                "  • Network connectivity issues" "  • Browser authentication not completed" "" \
+                "Please try again and ensure you complete the full OAuth flow."
         fi
 
         echo ""

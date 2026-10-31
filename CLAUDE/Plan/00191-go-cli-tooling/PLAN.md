@@ -873,15 +873,23 @@ today; rewriting them is out of scope.
   runs in the image (a departure from A7a, put to the owner). Deployed on the host at
   8a6396691 (2026-10-31: `ccy --version` 3.104.10, image 2.79.18).
 
-  6. ⬜ The qa-reviewer pass over units 1-5 (2026-10-31) found what is left: the play puts
-     the new bash in place before it builds the Go front it needs; `docs/ccy.md` lists two
-     front flags and still offers `claude-yolo.bash` without the front; the cleanup's option
-     b still says "could not be stopped (continuing)" and goes on (B7's class); and
-     `create_token` discards a new token when the check could not run (B2's class); with
+  6. ✅ The qa-reviewer pass over units 1-5 (2026-10-31) found what was left: the play put
+     the new bash in place before it built the Go front it needs; `docs/ccy.md` listed two
+     front flags and still offered `claude-yolo.bash` without the front; the cleanup's option
+     b still said "could not be stopped (continuing)" and went on (B7's class); and
+     `create_token` discarded a new token when the check could not run (B2's class); with
      three nits (`network inspect 2>&1`, a failed inspect read as "not a zombie", no test of
-     `--remove-network` exit 5).
+     `--remove-network` exit 5). Built (CCY 3.104.11): the play reads `CCY_VERSION`
+     (`tasks/ccy-version.yml`) and builds the front before the image tasks' libs and the bash;
+     the docs list F16-F22 and drop the bash-only fallback; both cleanup options are
+     `lib/docker-network-cleanup.bash` over F20-F22, tested against a fake docker (exit 5, a
+     failed stop, list, removal and prune, an engine warning); `create_token` keeps a token
+     whose check could not run and discards only a refusal, and its paste prompt ends on a
+     closed input; the zombie scan fails with the engine's words when a still-listed
+     container's inspect failed (`subagent-reports/261031-task-4.10-unit6-review-fixes.md`).
 
-  Left: unit 6, then the owner's next normal launch, which exercises units 1-4 for real.
+  Left: the host run of 3.104.11, then the owner's next normal launch, which exercises units
+  1-4 and 6 for real.
 
 ### Phase 5: Review
 

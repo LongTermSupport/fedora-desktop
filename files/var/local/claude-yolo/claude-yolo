@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.104.10"  # Container 2.79.18: the image's GitHub host-key fetch says what failed. See docs/ccy-changelog.md.
+CCY_VERSION="3.104.11"  # Container 2.79.18: the cross-engine cleanup and the zombie scan stop on a failure. See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -70,6 +70,8 @@ source "$SCRIPT_DIR/lib/network-management.bash"
 source "$SCRIPT_DIR/lib/dockerfile-custom.bash"
 # shellcheck source=lib/docker-health.bash
 source "$SCRIPT_DIR/lib/docker-health.bash"
+# shellcheck source=lib/docker-network-cleanup.bash
+source "$SCRIPT_DIR/lib/docker-network-cleanup.bash"
 # shellcheck source=lib/session-registry.bash
 source "$SCRIPT_DIR/lib/session-registry.bash"
 # shellcheck source=lib/restart-request.bash
@@ -1731,10 +1733,13 @@ if [ "$TOKEN_VALIDATION_FAILED" = true ]; then
                     exit 1
                 fi
 
-                if ! validate_token "$CLAUDE_OAUTH_TOKEN" "$IMAGE_NAME"; then
-                    print_error "The selected token failed its check, for the reason above. Check your tokens or create one with: ccy --create-token"
-                    exit 1
-                fi
+                check_rc=0
+                validate_token "$CLAUDE_OAUTH_TOKEN" "$IMAGE_NAME" || check_rc=$?
+                case "$check_rc" in
+                0) ;;
+                3) print_error "The API refused the selected token too. Check your tokens or create one with: ccy --create-token"; exit 1 ;;
+                *) print_error "The selected token was not checked (above); it is kept. Fix the cause and launch again."; exit 1 ;;
+                esac
 
                 echo "✓ Selected token validated successfully"
                 echo ""
@@ -2776,32 +2781,11 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
 
                         case "$prune_choice" in
                             a|A)
-                                echo "Stopping containers and removing project networks..."
-                                # Stop containers on these networks first
-                                for net in "${DOCKER_NETWORKS[@]}"; do
-                                    # The containers attached to this network; an inspect that
-                                    # failed stops the cleanup with its words.
-                                    containers=$(docker network inspect "$net" --format '{{range .Containers}}{{.Name}} {{end}}' 2>&1) ||
-                                        { print_error "Could not inspect $net, so its containers were not stopped: $containers"; exit 1; }
-                                    if [[ -n "$containers" ]]; then
-                                        echo "  Stopping containers on $net: $containers"
-                                        read -ra _ctrs <<< "$containers"
-                                        "$SCRIPT_DIR/claude-yolo" --stop-containers docker "${_ctrs[@]}" || exit 1
-                                    fi
-                                    # The front says why a removal failed; one already gone (5) goes on.
-                                    echo "  Removing network: $net"
-                                    "$SCRIPT_DIR/claude-yolo" --remove-network docker "$net" || [ $? -eq 5 ] || exit 1
-                                done
+                                ccy_docker_network_cleanup project "${DOCKER_NETWORKS[@]}" || exit 1
                                 break
                                 ;;
                             b|B)
-                                echo "Stopping all Docker containers..."
-                                if ! docker ps -q | xargs -r docker stop >/dev/null 2>/dev/null; then
-                                    echo "  ⚠ Some containers could not be stopped (continuing)"
-                                fi
-                                echo "Pruning all unused Docker networks..."
-                                docker network prune -f
-                                echo "✓ Docker networks pruned"
+                                ccy_docker_network_cleanup all || exit 1
                                 break
                                 ;;
                             *)

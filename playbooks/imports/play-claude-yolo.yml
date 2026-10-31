@@ -135,6 +135,38 @@
         - ccy_restore_ssh_unlock | bool
         - github_ssh_passphrase is not defined
 
+    # The Go front of the ccy launcher goes in before the libs (in the image tasks below) and
+    # the bash launcher that ask it questions (F16-F22), so a failed build leaves the installed
+    # front, bash and libs unchanged and working together. The front carries CCY_VERSION from
+    # -ldflags and refuses --version and --help when it differs from the bash launcher's, so
+    # it is built with the version read from the file the bash copy below installs.
+    - name: Read the Launcher's CCY_VERSION for the Go Front
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/ccy-version.yml"
+
+    - name: Create the ccy Launcher Directory
+      become: true
+      ansible.builtin.file:
+        path: /var/local/claude-yolo
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      tags:
+        - scripts
+        - launchers
+
+    - name: Build and Install the Go Front of the ccy Launcher
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: claude-yolo
+        go_command_dest: /var/local/claude-yolo/claude-yolo
+        go_command_mode: "0755"
+        go_command_ldflags: "-X main.Version={{ ccy_version }}"
+        go_command_owner: root
+      tags:
+        - scripts
+        - launchers
+
     - name: Stage and Build the Claude YOLO Container Image
       ansible.builtin.import_tasks: "{{ root_dir }}/tasks/claude-yolo-image.yml"
 
@@ -194,10 +226,13 @@
     # front (src-go/cmd/claude-yolo) at /var/local/claude-yolo/claude-yolo, which the ccy alias
     # runs, and the bash launcher beside it as claude-yolo.bash. The bash names the front, not
     # its own $0, in every session record and every re-run (restores, restarts, the Dockerfile
-    # modes), so nothing replayed later skips the front. The front answers --version, --help, --list-tokens, --token-usage, --prevent and --export-token NAME and execs the bash for every
-    # other run; CCY_LEGACY=1 sends every run to the bash (docs/ccy.md). The bash goes in first,
-    # so the claude-yolo already there keeps working until the front replaces it; a failed
-    # build stops the play before that.
+    # modes), so nothing replayed later skips the front. The front answers --version, --help,
+    # --list-tokens, --token-usage, --prevent and --export-token NAME itself and execs the bash
+    # for every other run; CCY_LEGACY=1 sends those to the bash (docs/ccy.md). The bash and the
+    # libs it sources ask the front the questions only it answers (F16-F22: the saved launch
+    # configuration, the token and network checks, the container listings, stops and network
+    # removal), so the front is built and installed above, before them: a failed build stops
+    # the play with the installed pair unchanged.
     - name: Copy the Bash Launcher Beside the Go Front
       become: true
       ansible.builtin.copy:
@@ -206,21 +241,6 @@
         owner: root
         group: root
         mode: "0755"
-      tags:
-        - scripts
-        - launchers
-
-    # The front carries CCY_VERSION from -ldflags and refuses --version and --help when it
-    # differs from the bash launcher's, so the build uses the ccy_version that
-    # tasks/claude-yolo-image.yml read from the same file the copy above installs.
-    - name: Build and Install the Go Front of the ccy Launcher
-      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
-      vars:
-        go_command_name: claude-yolo
-        go_command_dest: /var/local/claude-yolo/claude-yolo
-        go_command_mode: "0755"
-        go_command_ldflags: "-X main.Version={{ ccy_version }}"
-        go_command_owner: root
       tags:
         - scripts
         - launchers

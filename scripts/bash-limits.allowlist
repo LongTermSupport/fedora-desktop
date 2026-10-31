@@ -47,11 +47,11 @@ files/usr/local/sbin/fedora-desktop-self-update	94	2	99	-
 files/var/local/claude-code/cc	182	2	196	-
 files/var/local/claude-code/cc-teams.bash	87	7	159	-
 files/var/local/claude-yolo/agent-browser-session-guard	123	2	113	data
-files/var/local/claude-yolo/claude-yolo	2742	12	2665	-
+files/var/local/claude-yolo/claude-yolo	2729	12	2647	-
 files/var/local/claude-yolo/entrypoint.sh	440	5	437	data
 files/var/local/claude-yolo/lib/common-pure.bash	324	15	318	-
 files/var/local/claude-yolo/lib/common.bash	697	21	720	assoc
-files/var/local/claude-yolo/lib/docker-health.bash	394	8	450	-
+files/var/local/claude-yolo/lib/docker-health.bash	384	8	445	-
 files/var/local/claude-yolo/lib/dockerfile-custom.bash	595	4	231	-
 files/var/local/claude-yolo/lib/network-management.bash	956	30	1115	assoc
 files/var/local/claude-yolo/lib/restart-request.bash	318	8	316	data
@@ -59,7 +59,7 @@ files/var/local/claude-yolo/lib/session-lifecycle.bash	185	8	223	-
 files/var/local/claude-yolo/lib/session-registry.bash	865	36	871	data
 files/var/local/claude-yolo/lib/ssh-handling.bash	1398	40	1695	-
 files/var/local/claude-yolo/lib/tmux-session.bash	315	19	372	ui
-files/var/local/claude-yolo/lib/token-management.bash	1031	27	1084	-
+files/var/local/claude-yolo/lib/token-management.bash	1017	27	1080	-
 files/var/local/colours	65	16	65	-
 files/var/local/docker-in-lxc	668	20	526	-
 files/var/local/ps1-prompt	76	6	78	-

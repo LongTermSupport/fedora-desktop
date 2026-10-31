@@ -1827,7 +1827,14 @@ is a Go program that answers `--version`, `--help`, `--list-tokens` (on its own)
 `--build-lock` (the bash refuses both, so `CCY_LEGACY` cannot run them) itself. The first
 three print the bash launcher's output (for the last two, after the same `.claude/ccy/`
 set-up), and `--token-usage` reads the usage cache the token menu reads, the token fed to
-curl on its stdin. It runs the bash launcher,
+curl on its stdin. It also answers the questions the bash launcher and its libraries ask it,
+under `CCY_LEGACY` too, which are not for typing at a prompt: `--read-launch-config FILE`
+(the saved launch configuration), `--check-token ENGINE IMAGE` (whether the API accepts a
+token: refused, or the check could not be made, with its cause), `--check-network ENGINE
+NETWORK` (the network probe), `--claude-versions ENGINE IMAGE` (the Claude Code versions in
+the image and on npm), and `--list-containers`, `--stop-containers` and `--remove-network`
+(the container listings, stops and network removals, each saying what failed in the engine's
+words). The package doc of `src-go/internal/ccylaunch` defines each (F16 to F22). It runs the bash launcher,
 installed beside it as `claude-yolo.bash`, for everything else, with the same arguments and
 environment plus `CCY_LAUNCHER_FRONT`, its own path. The bash launcher reads that once, takes
 it only if it is the `claude-yolo` beside it, and unsets it before it starts tmux, the engine
@@ -1847,14 +1854,11 @@ difference (D1 to D11).
 If the Go program misbehaves, run any `ccy` command with **`CCY_LEGACY=1`** (for example
 `CCY_LEGACY=1 ccy --version`, or `export CCY_LEGACY=1` in your shell) and every run goes
 straight to the bash launcher. If `claude-yolo.bash` is missing, `ccy` stops with an error
-naming its path rather than doing nothing. `CCY_LEGACY` is read by the Go program, so if the
-Go program itself will not start, run `/var/local/claude-yolo/claude-yolo.bash` directly, with
-the same arguments. Started that way, with no `CCY_LAUNCHER_FRONT`, the bash names itself: the
-tmux pane, the session record, a restart and the custom-Dockerfile modes all run
-`claude-yolo.bash`, never the Go program. A session started earlier through the Go program
-still has a record naming it, so restoring that session needs the Go program to start. Going back to a bash-only install is running
-`play-claude-yolo.yml` from a checkout before this change: it copies the bash launcher over
-`claude-yolo` again.
+naming its path rather than doing nothing. `CCY_LEGACY` is read by the Go program, and the
+bash launcher needs the Go program beside it for those questions, so there is no running
+`claude-yolo.bash` without it: if the Go program itself will not start, re-run
+`play-claude-yolo.yml`, which builds and installs it before the bash launcher and its
+libraries, so a build that fails leaves the installed pair as it was.
 
 ### Claude Code auto-update
 

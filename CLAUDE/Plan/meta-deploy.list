@@ -32,3 +32,10 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# CCY 3.104.11 (Plan 00191 Task 4.10 unit 6): the play builds the ccy Go front before the
+# libraries and the bash launcher that ask it questions, so a failed build leaves ccy working.
+# The cross-engine Docker cleanup (both options) stops with the engine's words when a
+# listing, stop or prune fails, instead of going on; a new token whose check could not run is
+# kept, not thrown away; the orphan scan says when an inspect failed. The image is unchanged:
+playbooks/imports/play-claude-yolo.yml

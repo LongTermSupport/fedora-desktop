@@ -555,14 +555,13 @@ read -r FIXED_NAME <<'EOF'
 EOF
 # The uses of the front's own name re-run nothing: each asks the front beside the bash one
 # question only it answers: the saved launch configuration (ccylaunch F16), the network
-# check (F18), the Claude Code versions (F19), and the cross-engine cleanup's container stop
-# and network removal (F21, F22).
-FRONT_QUESTIONS=(-e "$FIXED_NAME --read-launch-config " -e "$FIXED_NAME --check-network " -e "$FIXED_NAME --claude-versions "
-    -e "$FIXED_NAME --stop-containers " -e "$FIXED_NAME --remove-network ")
+# check (F18) and the Claude Code versions (F19). The cross-engine cleanup's listings, stops
+# and removals (F20-F22) are asked from lib/docker-network-cleanup.bash.
+FRONT_QUESTIONS=(-e "$FIXED_NAME --read-launch-config " -e "$FIXED_NAME --check-network " -e "$FIXED_NAME --claude-versions ")
 check "the launcher gives both modes, and the restart, the launch's own program; no fixed name" "2 1 0" \
     "$(grep -cF -- "$FRONT_ARG" "$LAUNCHER") $(grep -cF -- "$RELAUNCH" "$LAUNCHER") \
 $(grep -F -- "$FIXED_NAME" "$LAUNCHER" | grep -cvF "${FRONT_QUESTIONS[@]}")"
-check "  the front is named only for its five questions, once each" "5" \
+check "  the front is named only for its three questions, once each" "3" \
     "$(grep -cF "${FRONT_QUESTIONS[@]}" "$LAUNCHER")"
 cat >"$SCRATCH/show-token" <<'EOF'
 #!/usr/bin/env bash

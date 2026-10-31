@@ -330,6 +330,51 @@ check_case "a missing image is 1, said so" 1 "is not built" "" "Error: claude-yo
 check_case "an engine failure is 1 with the engine's words" 1 "cannot connect" "" "Error: cannot connect to Podman" 125
 
 echo ""
+echo "=== create_token: only a refused token is discarded ==="
+# create_token's setup-token run is container_cmd, stubbed here to print what setup-token
+# would (SETUP_OUT); its check is the real front through the fake podman above. A check that
+# could not run (1) keeps the new token, saying why; only the API's refusal (3) discards it.
+# Run under a hard timeout: the paste loop reads stdin, and a read at its end must end it.
+NEW_TOKEN="sk-ant-oat01-$(printf 'x%.0s' $(seq 90))"
+# create_case <desc> <want-rc> <want-saved yes|no> <output-word> <setup out> <stdin> <podman stdout> <podman stderr> <podman exit>
+create_case() {
+    local desc="$1" want="$2" saved="$3" word="$4" rc=0 out got_saved=no dir="$WORK/create.$RANDOM"
+    mkdir -p "$dir"
+    out=$(printf '%s' "$6" | SETUP_OUT="$5" CHECK_STDOUT="$7" CHECK_STDERR="$8" CHECK_EXIT="$9" \
+        PATH="$CHECK_DIR/bin:$PATH" SCRIPT_DIR="$CHECK_DIR" CONTAINER_ENGINE=podman timeout 20 bash -c "
+        set -uo pipefail
+        source '$PURE_LIB'
+        source '$TOKEN_LIB'
+        container_cmd() { printf '%s\n' \"\$SETUP_OUT\"; }
+        create_token '$dir' placeholder-gh claude-yolo:latest ccy work
+    " 2>&1) || rc=$?
+    if compgen -G "$dir/work.*.token" >/dev/null && grep -qxF "$NEW_TOKEN" "$dir"/work.*.token; then
+        got_saved=yes
+    fi
+    if [ "$rc" = "$want" ] && [ "$got_saved" = "$saved" ] && [[ "$out" == *"$word"* ]]; then
+        echo "  PASS  $desc (rc=$rc, saved=$got_saved)"
+        PASSED=$((PASSED + 1))
+    else
+        echo "  FAIL  $desc: rc=$rc (want $want), saved=$got_saved (want $saved), output lacks '$word'"
+        FAILED=$((FAILED + 1))
+    fi
+}
+create_case "setup-token's token, accepted: saved" 0 yes "Token created successfully" "$NEW_TOKEN" "" "200" "" 0
+create_case "setup-token's token, refused (3): discarded" 1 no "the API refused it" "$NEW_TOKEN" "" "401" "" 0
+create_case "setup-token's token, check not run (1): kept, with the cause" 0 yes "Could not resolve host" \
+    "$NEW_TOKEN" "" "" "curl: (6) Could not resolve host: api.anthropic.com" 6
+create_case "  and says it was not checked" 0 yes "could not be checked" \
+    "$NEW_TOKEN" "" "" "Error: cannot connect to Podman" 125
+create_case "a pasted token, check not run (1): kept, with the cause" 0 yes "cannot connect" \
+    "no token here" $'\n'"$NEW_TOKEN" "" "Error: cannot connect to Podman" 125
+create_case "a pasted token, refused (3), then n: discarded" 1 no "the API refused it" \
+    "no token here" $'\n'"$NEW_TOKEN"$'\nn\n' "401" "" 0
+create_case "a pasted token, refused (3), then the input closes: ends, never loops" 1 no "the API refused it" \
+    "no token here" $'\n'"$NEW_TOKEN"$'\n' "401" "" 0
+create_case "no token pasted before the input closes: ends, never loops" 1 no "the input closed" \
+    "no token here" $'\n' "200" "" 0
+
+echo ""
 echo "=== expiry-stamp boundary: 'expires today' counts as expired ==="
 # is_token_valid's own contract, asserted directly because the host-mode branch
 # above depends on it. A token stamped today is NOT valid, which is how a whole

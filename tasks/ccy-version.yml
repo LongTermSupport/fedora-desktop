@@ -1,0 +1,28 @@
+---
+# The CCY_VERSION of the launcher this checkout installs, as the fact ccy_version. Imported by
+# tasks/claude-yolo-image.yml, whose build labels :latest with it (ccy-version, as every ccy
+# build labels its image) and whose self-prune removes the project images an older ccy built
+# (container-images stale, Plan 00235 Q7), and by play-claude-yolo.yml, which builds the
+# launcher's Go front with it before anything that asks the front is installed. Needs root_dir.
+# The group is one backslash: a >- scalar keeps it and {{ }} hands it to the filter as written
+# (CLAUDE/QA.md, regex-backref-escape).
+- name: Read CCY_VERSION From the Launcher
+  ansible.builtin.set_fact:
+    ccy_version: >-
+      {{ lookup('ansible.builtin.file', root_dir ~ '/files/var/local/claude-yolo/claude-yolo')
+      | regex_search('^CCY_VERSION="([0-9][0-9.]*)"', '\1', multiline=True)
+      | default([], true) | first | default('') }}
+  tags:
+    - scripts
+    - launchers
+
+- name: Assert CCY_VERSION Was Read
+  ansible.builtin.assert:
+    that:
+      - ccy_version is match('^[0-9][0-9.]*$')
+    fail_msg: >-
+      No CCY_VERSION="x.y.z" line was found in files/var/local/claude-yolo/claude-yolo; neither
+      the image's label nor the launcher's Go front can be made without it.
+  tags:
+    - scripts
+    - launchers

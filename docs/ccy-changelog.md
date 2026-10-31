@@ -27,6 +27,29 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.104.11 — container 2.79.18
+
+The image is unchanged, so there is no rebuild.
+
+- **The cross-engine cleanup's option b stops on a failed stop.** "Remove ALL unused Docker
+  networks" stopped every Docker container with `docker stop`, discarding its words, and on
+  a failure said "Some containers could not be stopped (continuing)" and pruned anyway. Both
+  options are now `lib/docker-network-cleanup.bash`: the Go front lists and stops the
+  containers ("✗" with the engine's words), and a listing, stop or prune that failed stops
+  the launch. Option a lists a network's containers with `--list-containers` too, so an
+  engine warning is no longer read as a container name.
+- **A new token is discarded only when the API refuses it.** `--create-token` (and a renew)
+  threw the new OAuth token away whenever its check failed, even when the check could not
+  run (the engine, the image, the network). It is now kept, saying it was not checked and
+  why; only the API's refusal discards it. The paste prompt ends when its input closes,
+  instead of asking again for ever.
+- **The orphan scan says when an inspect failed.** A container whose inspect failed was read
+  as "not orphaned". When the container is still listed, the scan now stops with the
+  engine's words; one that exited in between is skipped, as before.
+- **The play builds the Go front first.** `play-claude-yolo.yml` builds and installs the Go
+  front before the libraries and the bash launcher that ask it questions, so a failed build
+  leaves the installed launcher working.
+
 ## 3.104.10 — container 2.79.18
 
 The image is rebuilt: `entrypoint.sh` changes.
@@ -55,8 +78,9 @@ The image is unchanged, so there is no rebuild.
 - **The Docker-network cleanup says why a removal failed.** Option 1 of the cross-engine
   mismatch said "Could not remove (may still have containers)" for any failure and went
   on. It is now `--remove-network`: a network already gone goes on, any other failure stops
-  with the engine's words. A container stop or a network inspect that failed there also
-  stops, instead of "(continuing)" into a removal that could not work.
+  with the engine's words. In its option a, a container stop or a network inspect that
+  failed there also stops, instead of "(continuing)" into a removal that could not work;
+  option b's stop still went on until 3.104.11.
 
 ## 3.104.8 — container 2.79.17
 

@@ -32,17 +32,26 @@ find_zombie_containers() {
     if [ -z "$containers" ]; then
         return 0  # No containers found
     fi
+    local inspect_err
+    inspect_err=$(mktemp) || return 1
 
     while IFS= read -r container_name; do
         [ -z "$container_name" ] && continue
 
         # Check if this container was started with -it (TTY mode)
-        local has_tty
-        # A container can exit between the `ps` above and this inspect — a real
-        # race, and the reason for the explicit fallback: a bare capture would
-        # abort mid-loop under errexit and SILENTLY TRUNCATE the zombie list,
-        # losing every container after the one that vanished.
-        has_tty=$(container_cmd inspect --format '{{.Config.Tty}}' "$container_name" 2>/dev/null) || has_tty=""
+        local has_tty still why
+        # A container can exit between the `ps` above and this inspect, so an inspect that
+        # failed asks the listing again: a container gone from it is that race, skipped; one
+        # still listed is the engine failing, and the scan fails with the engine's words
+        # (kept apart from the answer, so a warning is never read as one).
+        if ! has_tty=$(container_cmd inspect --format '{{.Config.Tty}}' "$container_name" 2>"$inspect_err"); then
+            why=$(<"$inspect_err")
+            still=$("$SCRIPT_DIR/claude-yolo" --list-containers "$CONTAINER_ENGINE" "name=${container_name}") || { rm -f "$inspect_err"; return 1; }
+            grep -qxF -- "$container_name" <<<"$still" || continue
+            print_error "Container $container_name could not be inspected: $why"
+            rm -f "$inspect_err"
+            return 1
+        fi
 
         if [ "$has_tty" = "true" ]; then
             # Check if there's a container run process still attached
@@ -53,6 +62,7 @@ find_zombie_containers() {
             fi
         fi
     done <<< "$containers"
+    rm -f "$inspect_err"
 
     printf '%s\n' "${zombies[@]}"
 }
@@ -119,19 +129,11 @@ get_container_uptime() {
 show_zombie_container_tui() {
     local zombies=("$@")
 
-    echo ""
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo "⚠️  Orphaned Containers Detected"
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
-    echo "Found ${#zombies[@]} container(s) running without an attached terminal."
-    echo "These containers are consuming resources but have no active session."
-    echo ""
-    echo "This typically happens when:"
-    echo "  • The terminal running ccy was closed"
-    echo "  • The SSH connection was lost"
-    echo "  • The parent process was killed"
-    echo ""
+    local rule="════════════════════════════════════════════════════════════════════════════════"
+    printf '\n%s\n%s\n%s\n\n' "$rule" "⚠️  Orphaned Containers Detected" "$rule"
+    printf '%s\n' "Found ${#zombies[@]} container(s) running without an attached terminal." \
+        "These containers are consuming resources but have no active session." "" "This typically happens when:" \
+        "  • The terminal running ccy was closed" "  • The SSH connection was lost" "  • The parent process was killed" ""
 
     # Build table header
     printf "%-4s %-30s %-10s %-20s %-10s\n" "#" "CONTAINER" "CPU" "MEMORY" "UPTIME"
@@ -152,15 +154,9 @@ show_zombie_container_tui() {
         i=$((i + 1))
     done
 
-    echo ""
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
-    echo "Options:"
-    echo "  [a] Stop ALL orphaned containers (recommended)"
-    echo "  [s] Select specific containers to stop"
-    echo "  [i] Ignore and continue (containers will keep running)"
-    echo "  [q] Quit without starting new session"
-    echo ""
+    printf '\n%s\n\n%s\n' "$rule" "Options:"
+    printf '%s\n' "  [a] Stop ALL orphaned containers (recommended)" "  [s] Select specific containers to stop" \
+        "  [i] Ignore and continue (containers will keep running)" "  [q] Quit without starting new session" ""
 
     local attempts=0
     while true; do
@@ -378,15 +374,9 @@ show_container_top() {
         i=$((i + 1))
     done
 
-    echo ""
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
-    echo "Actions:"
-    echo "  [number]  Stop specific container (e.g., '1' or '1 2 3')"
-    echo "  [a]       Stop ALL containers"
-    echo "  [r]       Refresh stats"
-    echo "  [q]       Quit"
-    echo ""
+    printf '\n%s\n\n%s\n' "════════════════════════════════════════════════════════════════════════════════" "Actions:"
+    printf '%s\n' "  [number]  Stop specific container (e.g., '1' or '1 2 3')" "  [a]       Stop ALL containers" \
+        "  [r]       Refresh stats" "  [q]       Quit" ""
 
     while true; do
         read -rp "Action: " action
