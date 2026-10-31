@@ -893,7 +893,7 @@ today; rewriting them is out of scope.
 
 ### Phase 5: Review
 
-- [ ] ⬜ **Task 5.1**: qa-reviewer over the whole plan (a worker; it ran once, 7205384c3, and
+- [x] ✅ **Task 5.1**: qa-reviewer over the whole plan (a worker; it ran once, 7205384c3, and
   runs again over the work since); the host test. The ccy-teams half already has the owner's
   verdict (Success Criteria). The rest is the host agent's: from a terminal on the host,
   `ccy --version`, `--help`, `--list-tokens`, `--token-usage`, `--prevent` and
@@ -909,6 +909,8 @@ today; rewriting them is out of scope.
     defects, all fixed on `plan/00191-review-fixes`: the `.j2` line Task 4.5 owed in
     CLAUDE/QA.md, Success Criterion 2 unticked though qa-all covers it, and
     `hook-path-resolved-against-cwd` in the speech-to-text gate (moved, Task 4.6).
+  - [x] ✅ Task 4.10, the work since: a qa-reviewer pass over units 1-5 (2026-10-31) found
+    four defects and three nits, all fixed as Task 4.10 unit 6.
 
 ## Success Criteria
 
