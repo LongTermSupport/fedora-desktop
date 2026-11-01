@@ -13,6 +13,7 @@ Stdlib only. Run by scripts/test-wsi-stop-grace.bash.
 
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import tempfile
@@ -231,8 +232,12 @@ class ClaudeProcessTest(unittest.TestCase):
         self.chooser(seconds=3)
         result = self.run_script(budget=2)
         self.assertEqual((result.returncode, result.stdout), (1, ""))
-        self.assertRegex(result.stderr, r"choosing the token took [3-9] s of the 2 s this run has; "
-                         r"claude was not run")
+        # No upper bound on the time taken: a stalled or loaded machine stretches the 3 s
+        # chooser, and only "at least the 3 s it slept" is a fact of the code.
+        took = re.search(r"choosing the token took (\d+) s of the 2 s this run has; "
+                         r"claude was not run", result.stderr)
+        self.assertIsNotNone(took, result.stderr)
+        self.assertGreaterEqual(int(took.group(1)), 3, result.stderr)
         self.assertFalse((self.home / "claude-saw-token").exists())
 
 
