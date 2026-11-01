@@ -157,7 +157,10 @@ run_ccy() {
     shift
     : >"$CALLS"
     RC=0
-    OUT=$(cd "$NOT_A_REPO" && env HOME="$home" PATH="$STUB_BIN:$PATH" TZ=UTC \
+    # env -i: the front hands a run to the bash launcher on what it cannot model, an exported
+    # bash function among them (Fedora exports `which`), so the case gets no environment but
+    # its own and passes on any machine, not only a clean one.
+    OUT=$(cd "$NOT_A_REPO" && env -i HOME="$home" PATH="$STUB_BIN:$PATH" TZ=UTC \
         CCY_CONTAINER_ENGINE=podman "${envs[@]}" "$FRONT" "$@" </dev/null 2>"$WORK/stderr") || RC=$?
     ERR=$(cat "$WORK/stderr")
 }
@@ -348,7 +351,7 @@ check "CCY_TOKEN_USAGE=0: no request" "0" "$(curl_calls)"
 NOCURL_BIN="$WORK/nocurl-bin"
 mkdir -p "$NOCURL_BIN"
 RC=0
-OUT=$(cd "$NOT_A_REPO" && env HOME="$MIXED" PATH="$NOCURL_BIN" TZ=UTC "$FRONT" --token-usage --json \
+OUT=$(cd "$NOT_A_REPO" && env -i HOME="$MIXED" PATH="$NOCURL_BIN" TZ=UTC "$FRONT" --token-usage --json \
     </dev/null 2>"$WORK/stderr") || RC=$?
 FLAT=$(flatten <<<"$OUT")
 check "no curl: exit 1" "1" "$RC"

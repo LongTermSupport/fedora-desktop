@@ -219,12 +219,12 @@ exit 3
 STUB
 chmod +x "$WORK/bin/ccy-token-usable"
 
-# usable_case <description> <path-prefix> <mode> <attended: yes|no> <stdin> <want-rc> <env> <want-text>...
+# usable_case <description> <PATH> <mode> <attended: yes|no> <stdin> <want-rc> <env> <want-text>...
 usable_case() {
-    local desc="$1" prefix="$2" mode="$3" attended="$4" input="$5" wantRc="$6" env="$7" rc=0 out="" want
+    local desc="$1" path="$2" mode="$3" attended="$4" input="$5" wantRc="$6" env="$7" rc=0 out="" want
     shift 7
     : >"$WORK/calls"
-    out="$(printf '%s' "$input" | env STUB_CALLS="$WORK/calls" "$env" PATH="$prefix$PATH" timeout 10 bash -c "
+    out="$(printf '%s' "$input" | env STUB_CALLS="$WORK/calls" "$env" PATH="$path" timeout 10 bash -c "
         set -uo pipefail
         : \"\${GH_TOKEN:=}\" \"\${IMAGE_NAME:=}\"
         source '$PURE_LIB'
@@ -250,21 +250,24 @@ usable_case() {
     PASSED=$((PASSED + 1))
 }
 
-STUB_BIN="$WORK/bin:"
-usable_case "used up -> refused, marked, another chosen" "$STUB_BIN" container yes $'1\n2\n' 0 STUB_USED_UP=alpha \
+STUB_PATH="$WORK/bin:$PATH"
+# Not installed: the distribution's directories only, where no play installs ccy-token-usable;
+# the caller's PATH would reach the copy play-claude-yolo.yml installs in ~/.local/bin.
+NO_USABLE_PATH="/usr/bin:/bin"
+usable_case "used up -> refused, marked, another chosen" "$STUB_PATH" container yes $'1\n2\n' 0 STUB_USED_UP=alpha \
     "✗ No usage left on token alpha: STUB-WINDOW" "alpha   expires" "✗ no usage left: STUB-WINDOW" \
     "Selected token: beta" "SELECTED=$WORK/two-valid/beta.$NEXT_YEAR.token" "--mark -- $WORK/two-valid/alpha"
-usable_case "usage left -> chosen at once" "$STUB_BIN" container yes $'1\n' 0 STUB_USED_UP=none \
+usable_case "usage left -> chosen at once" "$STUB_PATH" container yes $'1\n' 0 STUB_USED_UP=none \
     "Selected token: alpha" "-- $WORK/two-valid/alpha.$NEXT_YEAR.token"
-usable_case "only used-up picks -> bounded, gives up" "$STUB_BIN" container yes $'1\n1\n1\n1\n' 2 STUB_USED_UP=alpha \
+usable_case "only used-up picks -> bounded, gives up" "$STUB_PATH" container yes $'1\n1\n1\n1\n' 2 STUB_USED_UP=alpha \
     "Giving up after 3 invalid selections"
-usable_case "used up, nobody to choose -> stops" "$STUB_BIN" container no $'1\n' 1 STUB_USED_UP=alpha \
+usable_case "used up, nobody to choose -> stops" "$STUB_PATH" container no $'1\n' 1 STUB_USED_UP=alpha \
     "Nobody is here to choose another token"
-usable_case "check fails -> stops, naming it" "$STUB_BIN" container yes $'1\n' 1 STUB_EXIT=2 \
+usable_case "check fails -> stops, naming it" "$STUB_PATH" container yes $'1\n' 1 STUB_EXIT=2 \
     "ccy-token-usable failed (exit 2)"
-usable_case "check not installed -> stops, naming the play" "" container yes $'1\n' 1 STUB_USED_UP=none \
+usable_case "check not installed -> stops, naming the play" "$NO_USABLE_PATH" container yes $'1\n' 1 STUB_USED_UP=none \
     "ccy-token-usable is not installed" "run play-claude-yolo.yml"
-usable_case "host mode (cc) never asks it" "$STUB_BIN" host yes $'1\n' 0 STUB_EXIT=2 \
+usable_case "host mode (cc) never asks it" "$STUB_PATH" host yes $'1\n' 0 STUB_EXIT=2 \
     "Selected token: alpha"
 if [ -s "$WORK/calls" ]; then
     echo "  FAIL  host mode ran ccy-token-usable: $(cat "$WORK/calls")"
