@@ -30,6 +30,7 @@ var addedAfterPort = []struct{ name, reason string }{
 	{"ccy-image-build-lock", "Plan 00216: one ccy image build at a time, raced for real against a fake podman, and ccy --build-lock"},
 	{"ccy-network-version-probes", "Plan 00191 Task 4.10: ccy's network check and Claude Code version probes say what failed, through the real Go front"},
 	{"plan-tests", "the active plan folders' own Python tests, which the helper-tests gate never read, each folder run from itself"},
+	{"arch-pinned-artefact", "Plan 00243, Defence Before Fix: no download, package or image fixed to one CPU architecture beyond the ratchet scripts/arch-pin.allowlist"},
 	{"lxc-attach-file-stream", "Plan 00211, Defence Before Fix: no command reaching lxc-attach has a standard stream on a file, which lxc-attach hands to root"},
 	{"ccy-agent-choice", "Plan 00215: ccy --opencode runs opencode instead of Claude Code, its provider key handed by name to the container run only, and its own suite proves it"},
 	{"colour-emoji-fallback", "Plan 00185: the colour emoji fallback play-fonts.yml deploys, run through fontconfig against fixture fonts"},

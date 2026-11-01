@@ -231,6 +231,8 @@ var semgrepReaders = map[string]string{
 	".semgrep/hook-handlers.yml":       "check:hook-handler-rules",
 	".semgrep/hook-handlers.py":        "check:hook-handler-rules",
 	".semgrep/lxc-attach-streams.bash": "check:lxc-attach-streams",
+	".semgrep/arch-pin.yml":            "scripts/qa-arch-pin.bash",
+	".semgrep/arch-pin.fixture":        "scripts/qa-arch-pin.bash",
 }
 
 func TestEverySemgrepFileRoutesToTheGateThatReadsIt(t *testing.T) {

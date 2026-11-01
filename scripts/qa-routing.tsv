@@ -203,7 +203,7 @@ also	files/etc/sudoers.d/*,files/usr/local/sbin/*	ansible-patterns	-
 # with no check and no cover: the patterns row above, or the suite that names the file in
 # scripts/qa-gates.tsv (selected by name), covers it.
 first	.semgrep/bash-conventions.yml,.semgrep/bash-conventions.bash	-	-
-first	.semgrep/gh-scopes.*,.semgrep/ready-wait.*,.semgrep/speech-to-text.*,.semgrep/hook-handlers.*,.semgrep/lxc-attach-streams.bash	-	-
+first	.semgrep/gh-scopes.*,.semgrep/ready-wait.*,.semgrep/speech-to-text.*,.semgrep/hook-handlers.*,.semgrep/lxc-attach-streams.bash,.semgrep/arch-pin.*	-	-
 # Any other .semgrep/ file is read by nothing: it ends here uncovered, never called covered.
 first	.semgrep/*	-	-
 first	*.md	docs	covered

@@ -121,7 +121,7 @@ func (g *gate) scan(ctx context.Context, files []string) (semgrepReport, error) 
 }
 
 // judge refuses a pass over files the analyser did not read, then reports what it found.
-func (g *gate) judge(files []string, excl excludes, rep semgrepReport) (ExitCode, error) {
+func (g *gate) judge(files []string, excl semgrepreport.Excludes, rep semgrepReport) (ExitCode, error) {
 	if len(rep.Errors) > 0 {
 		lines := make([]string, 0, len(rep.Errors))
 		for _, e := range rep.Errors {
@@ -140,7 +140,7 @@ func (g *gate) judge(files []string, excl excludes, rep semgrepReport) (ExitCode
 	}
 	var lost []string
 	for _, f := range files {
-		if !seen[f] && !excl.matches(f) {
+		if !seen[f] && !excl.Matches(f) {
 			lost = append(lost, f)
 		}
 	}
