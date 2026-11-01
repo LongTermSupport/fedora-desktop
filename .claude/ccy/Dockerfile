@@ -100,12 +100,27 @@ COPY .qa-versions /tmp/.qa-versions
 #
 # One RUN, so /tmp/.qa-versions is still present for both halves and is removed
 # exactly once, at the end.
+#
+# Every download in this file is chosen by the image's architecture (dpkg --print-architecture),
+# mapped to each upstream's own spelling, and checked against one pinned sha256 per
+# architecture (the release API's digest for that asset); any other architecture fails the
+# build naming the tool. The shellcheck checksums belong to the SHELLCHECK pin in
+# /.qa-versions: bump them with it.
+ARG SHELLCHECK_SHA256_AMD64=8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
+ARG SHELLCHECK_SHA256_ARM64=12b331c1d2db6b9eb13cfca64306b1b157a86eb69db83023e261eaa7e7c14588
 RUN set -eux; \
     . /tmp/.qa-versions; \
     pipx install "ruff==${RUFF}"; \
     pipx install "semgrep==${SEMGREP}"; \
+    arch="$(dpkg --print-architecture)"; \
+    case "${arch}" in \
+        amd64) sc_arch=x86_64; sc_sha="${SHELLCHECK_SHA256_AMD64}" ;; \
+        arm64) sc_arch=aarch64; sc_sha="${SHELLCHECK_SHA256_ARM64}" ;; \
+        *) echo "shellcheck: no build pinned for ${arch}" >&2; exit 1 ;; \
+    esac; \
     curl -fsSL -o /tmp/shellcheck.tar.xz \
-        "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK}/shellcheck-v${SHELLCHECK}.linux.x86_64.tar.xz"; \
+        "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK}/shellcheck-v${SHELLCHECK}.linux.${sc_arch}.tar.xz"; \
+    echo "${sc_sha}  /tmp/shellcheck.tar.xz" | sha256sum -c -; \
     tar -xJf /tmp/shellcheck.tar.xz -C /tmp; \
     install -m 0755 "/tmp/shellcheck-v${SHELLCHECK}/shellcheck" /usr/local/bin/shellcheck; \
     rm -rf /tmp/shellcheck.tar.xz "/tmp/shellcheck-v${SHELLCHECK}"; \
@@ -122,16 +137,37 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && rm -rf /var/lib/apt/lists/*
 
 # Install yq (YAML processor) - used extensively in playbooks
-# Pinned to a specific release; update by bumping the version and rebuilding.
-RUN wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.53.3/yq_linux_amd64 \
-    && chmod +x /usr/local/bin/yq
+# Pinned to a specific release; bump the version and both checksums together. yq names its
+# builds as dpkg does (amd64, arm64).
+ARG YQ_VERSION=4.53.3
+ARG YQ_SHA256_AMD64=fa52a4e758c63d38299163fbdd1edfb4c4963247918bf9c1c5d31d84789eded4
+ARG YQ_SHA256_ARM64=578648e463a11c1b6db6010cbf41eafed6bee79466fcffa1bb446672cf7945ea
+RUN arch="$(dpkg --print-architecture)" \
+    && case "${arch}" in \
+        amd64) yq_sha="${YQ_SHA256_AMD64}" ;; \
+        arm64) yq_sha="${YQ_SHA256_ARM64}" ;; \
+        *) echo "yq: no build pinned for ${arch}" >&2; exit 1 ;; \
+    esac \
+    && wget -qO /tmp/yq "https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_linux_${arch}" \
+    && echo "${yq_sha}  /tmp/yq" | sha256sum -c - \
+    && install -m 0755 /tmp/yq /usr/local/bin/yq \
+    && rm -f /tmp/yq
 
 # Install gitleaks (secret scanner) - lets us reproduce the CI "gitleaks secret
 # scan" job locally with `gitleaks dir .` before pushing. Pinned to the SAME
 # version the QA workflow (.github/workflows/qa.yml) installs so local and CI
 # results match exactly; bump both together.
 ARG GITLEAKS_VERSION=8.30.1
-RUN wget -qO /tmp/gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+ARG GITLEAKS_SHA256_AMD64=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+ARG GITLEAKS_SHA256_ARM64=e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080
+RUN arch="$(dpkg --print-architecture)" \
+    && case "${arch}" in \
+        amd64) gl_arch=x64; gl_sha="${GITLEAKS_SHA256_AMD64}" ;; \
+        arm64) gl_arch=arm64; gl_sha="${GITLEAKS_SHA256_ARM64}" ;; \
+        *) echo "gitleaks: no build pinned for ${arch}" >&2; exit 1 ;; \
+    esac \
+    && wget -qO /tmp/gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_${gl_arch}.tar.gz" \
+    && echo "${gl_sha}  /tmp/gitleaks.tgz" | sha256sum -c - \
     && tar -xzf /tmp/gitleaks.tgz -C /usr/local/bin gitleaks \
     && rm /tmp/gitleaks.tgz \
     && chmod +x /usr/local/bin/gitleaks
@@ -142,10 +178,17 @@ RUN wget -qO /tmp/gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/do
 # play-claude-yolo.yml installs on the host: the flags tested here are the flags run there.
 # Bump it with the host's version.
 ARG GUM_VERSION=0.17.0
-ARG GUM_SHA256=69ee169bd6387331928864e94d47ed01ef649fbfe875baed1bbf27b5377a6fdb
-RUN wget -qO /tmp/gum.tgz "https://github.com/charmbracelet/gum/releases/download/v${GUM_VERSION}/gum_${GUM_VERSION}_Linux_x86_64.tar.gz" \
-    && echo "${GUM_SHA256}  /tmp/gum.tgz" | sha256sum -c - \
-    && tar -xzf /tmp/gum.tgz -C /usr/local/bin --strip-components=1 "gum_${GUM_VERSION}_Linux_x86_64/gum" \
+ARG GUM_SHA256_AMD64=69ee169bd6387331928864e94d47ed01ef649fbfe875baed1bbf27b5377a6fdb
+ARG GUM_SHA256_ARM64=b0b9ed95cbf7c8b7073f17b9591811f5c001e33c7cfd066ca83ce8a07c576f9c
+RUN arch="$(dpkg --print-architecture)" \
+    && case "${arch}" in \
+        amd64) gum_arch=x86_64; gum_sha="${GUM_SHA256_AMD64}" ;; \
+        arm64) gum_arch=arm64; gum_sha="${GUM_SHA256_ARM64}" ;; \
+        *) echo "gum: no build pinned for ${arch}" >&2; exit 1 ;; \
+    esac \
+    && wget -qO /tmp/gum.tgz "https://github.com/charmbracelet/gum/releases/download/v${GUM_VERSION}/gum_${GUM_VERSION}_Linux_${gum_arch}.tar.gz" \
+    && echo "${gum_sha}  /tmp/gum.tgz" | sha256sum -c - \
+    && tar -xzf /tmp/gum.tgz -C /usr/local/bin --strip-components=1 "gum_${GUM_VERSION}_Linux_${gum_arch}/gum" \
     && rm /tmp/gum.tgz \
     && chmod 755 /usr/local/bin/gum
 
@@ -154,26 +197,42 @@ RUN wget -qO /tmp/gum.tgz "https://github.com/charmbracelet/gum/releases/downloa
 # play-claude-yolo.yml builds the tools with on the host. Bump it with the host's version.
 # golangci-lint is a QA tool, so its version lives in /.qa-versions like the others.
 ARG GO_VERSION=1.26.10
-ARG GO_SHA256=ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5
-RUN wget -qO /tmp/go.tgz "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" \
-    && echo "${GO_SHA256}  /tmp/go.tgz" | sha256sum -c - \
+ARG GO_SHA256_AMD64=ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5
+ARG GO_SHA256_ARM64=3f4227ce7b206a513e794f1393adb473a07b46e94d18bd15d1c684bbb7319797
+RUN arch="$(dpkg --print-architecture)" \
+    && case "${arch}" in \
+        amd64) go_sha="${GO_SHA256_AMD64}" ;; \
+        arm64) go_sha="${GO_SHA256_ARM64}" ;; \
+        *) echo "go: no build pinned for ${arch}" >&2; exit 1 ;; \
+    esac \
+    && wget -qO /tmp/go.tgz "https://go.dev/dl/go${GO_VERSION}.linux-${arch}.tar.gz" \
+    && echo "${go_sha}  /tmp/go.tgz" | sha256sum -c - \
     && tar -C /usr/local -xzf /tmp/go.tgz \
     && rm /tmp/go.tgz \
     && ln -s /usr/local/go/bin/go /usr/local/bin/go \
     && ln -s /usr/local/go/bin/gofmt /usr/local/bin/gofmt
 # GOTOOLCHAIN=local: go.mod's toolchain line must never make go download another one.
 ENV GOTOOLCHAIN=local
+# The golangci-lint checksums belong to the GOLANGCI_LINT pin in /.qa-versions: bump them with it.
+ARG GOLANGCI_LINT_SHA256_AMD64=ab90aeb7b066f92a33415b638a50fe5344bbb75a0d32ad30cc248d88f81032ab
+ARG GOLANGCI_LINT_SHA256_ARM64=ee7ec5f3453d15ddf106fae5a4d6c71737712348a979d1fe9cd52ec7ea299bae
 COPY .qa-versions /tmp/.qa-versions
 RUN set -eux; \
     . /tmp/.qa-versions; \
-    wget -qO /tmp/gl.tgz "https://github.com/golangci/golangci-lint/releases/download/v${GOLANGCI_LINT}/golangci-lint-${GOLANGCI_LINT}-linux-amd64.tar.gz"; \
-    wget -qO /tmp/gl.sums "https://github.com/golangci/golangci-lint/releases/download/v${GOLANGCI_LINT}/golangci-lint-${GOLANGCI_LINT}-checksums.txt"; \
-    cd /tmp && grep " golangci-lint-${GOLANGCI_LINT}-linux-amd64.tar.gz\$" gl.sums | awk '{print $1"  gl.tgz"}' | sha256sum -c -; \
-    tar -xzf /tmp/gl.tgz -C /usr/local/bin --strip-components=1 "golangci-lint-${GOLANGCI_LINT}-linux-amd64/golangci-lint"; \
-    rm -f /tmp/gl.tgz /tmp/gl.sums /tmp/.qa-versions; \
+    arch="$(dpkg --print-architecture)"; \
+    case "${arch}" in \
+        amd64) gl_sha="${GOLANGCI_LINT_SHA256_AMD64}" ;; \
+        arm64) gl_sha="${GOLANGCI_LINT_SHA256_ARM64}" ;; \
+        *) echo "golangci-lint: no build pinned for ${arch}" >&2; exit 1 ;; \
+    esac; \
+    gl_name="golangci-lint-${GOLANGCI_LINT}-linux-${arch}"; \
+    wget -qO /tmp/gl.tgz "https://github.com/golangci/golangci-lint/releases/download/v${GOLANGCI_LINT}/${gl_name}.tar.gz"; \
+    echo "${gl_sha}  /tmp/gl.tgz" | sha256sum -c -; \
+    tar -xzf /tmp/gl.tgz -C /usr/local/bin --strip-components=1 "${gl_name}/golangci-lint"; \
+    rm -f /tmp/gl.tgz /tmp/.qa-versions; \
     golangci-lint version
 
-# Install ImageMagick 7 (Debian 12 ships only IM6).
+# Install ImageMagick 7 at the upstream release (Debian's is an older 7.1.1).
 # Production target is Fedora 43 which ships IM7 natively; this is for
 # prototyping recipes against the same major version the script will call.
 # AppImage is extracted (no FUSE in the container); a thin wrapper at
@@ -181,10 +240,26 @@ RUN set -eux; \
 # LD_LIBRARY_PATH and MAGICK_CONFIGURE_PATH.
 # Pinned to a GitHub release AppImage (the old unversioned
 # imagemagick.org/archive/binaries/magick URL was removed upstream and now
-# 404s). Bump IMAGEMAGICK_VERSION to update; see the releases list at
+# 404s). Bump IMAGEMAGICK_VERSION and its checksum together; see the releases list at
 # https://github.com/ImageMagick/ImageMagick/releases
+#
+# ImageMagick publishes no Linux arm64 build (its arm64 assets are Windows only). On arm64 the
+# base image's Debian package is used instead: node:lts-slim is Debian 13, whose imagemagick is
+# IM7 (7.1.1) with `magick`, and this layer fails the build unless that magick reports 7.
 ARG IMAGEMAGICK_VERSION=7.1.2-26
-RUN wget -qO /tmp/magick.AppImage "https://github.com/ImageMagick/ImageMagick/releases/download/${IMAGEMAGICK_VERSION}/ImageMagick-${IMAGEMAGICK_VERSION}-gcc-x86_64.AppImage" \
+ARG IMAGEMAGICK_SHA256_AMD64=6366d353b81871929a653ad81158e805f3611d1be7836f2490b6afc38b64c92f
+RUN arch="$(dpkg --print-architecture)" \
+    && case "${arch}" in \
+        amd64) im_asset="ImageMagick-${IMAGEMAGICK_VERSION}-gcc-x86_64.AppImage" ;; \
+        arm64) im_asset="" ;; \
+        *) echo "ImageMagick 7: no build for ${arch}" >&2; exit 1 ;; \
+    esac \
+    && if [ -z "${im_asset}" ]; then \
+        magick -version | grep -q '^Version: ImageMagick 7\.' \
+        || { echo "ImageMagick 7: no AppImage for ${arch}, and the distribution's magick is not IM7" >&2; exit 1; }; \
+    else \
+    wget -qO /tmp/magick.AppImage "https://github.com/ImageMagick/ImageMagick/releases/download/${IMAGEMAGICK_VERSION}/${im_asset}" \
+    && echo "${IMAGEMAGICK_SHA256_AMD64}  /tmp/magick.AppImage" | sha256sum -c - \
     && chmod +x /tmp/magick.AppImage \
     && cd /opt \
     && /tmp/magick.AppImage --appimage-extract > /dev/null \
@@ -196,7 +271,8 @@ RUN wget -qO /tmp/magick.AppImage "https://github.com/ImageMagick/ImageMagick/re
         'export MAGICK_CONFIGURE_PATH="/opt/imagemagick7/usr/etc/ImageMagick-7:/opt/imagemagick7/usr/share/ImageMagick-7"' \
         'exec /opt/imagemagick7/usr/bin/magick "$@"' \
         > /usr/local/bin/magick \
-    && chmod 755 /usr/local/bin/magick \
+    && chmod 755 /usr/local/bin/magick; \
+    fi \
     && magick --version | head -n1
 
 # Install Ansible collections required by the project.

@@ -97,6 +97,9 @@ header documents the fields (`playbook`, `var`, `github`, `tag_prefix`, `note`,
 `installed`); `./scripts/qa-version-pins.bash` validates it.
 
 The manifest holds playbook pins only. The ccy base image pins its release binaries as
-`ARG <NAME>_VERSION` / `ARG <NAME>_SHA256` pairs in `files/var/local/claude-yolo/Dockerfile`
-(Lightpanda, opencode), which the script does not report: check those by hand, bump the
-pair together, and bump the container version with them (CLAUDE/ContainerRules.md).
+`ARG <NAME>_VERSION` with one `ARG <NAME>_SHA256_AMD64` / `_ARM64` per architecture in
+`files/var/local/claude-yolo/Dockerfile` (yq, Lightpanda, opencode), and the project image
+`.claude/ccy/Dockerfile` does the same (shellcheck, yq, gitleaks, gum, Go, ImageMagick); the
+script reports neither: check those by hand, bump the version and every architecture's
+checksum together, and bump the container version with the base image's
+(CLAUDE/ContainerRules.md).

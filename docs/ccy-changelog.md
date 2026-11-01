@@ -27,6 +27,22 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.104.16 — container 2.79.21
+
+The image builds on arm64 (aarch64) as well as x86_64 (Plan 00243, issues #119, #120).
+
+- **Every download is chosen by the image's architecture** (`dpkg --print-architecture`), with
+  one pinned sha256 per architecture and a build failure naming the component on any other:
+  Lightpanda, opencode, and yq, which is now pinned to 4.53.3 and checksummed where it used to
+  be "latest" with no check. Their build arguments are `<NAME>_SHA256_AMD64` and
+  `<NAME>_SHA256_ARM64`.
+- **PHPantom LSP** is built for the build's own musl target (`$(uname -m)-unknown-linux-musl`).
+- **Chromium on arm64 is Debian's `chromium`.** Chrome for Testing publishes no linux-arm64
+  build and `agent-browser install` refuses linux aarch64, so arm64 installs the distribution
+  package and agent-browser's config names `/usr/bin/chromium` as its `executablePath`. x86_64
+  keeps Chrome for Testing.
+- Nothing changes on x86_64 but the yq pin and its checksum.
+
 ## 3.104.15 — container 2.79.20
 
 No image file changed since 3.104.14.

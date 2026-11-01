@@ -65,7 +65,8 @@ it, and arm64 support is a standing requirement from then on: the architecture r
 - [ ] ⬜ **Task 2.1**: Fix every instance from `SWEEP.md`, in batches by area, tests first.
   Add a `changed-plays` entry to the deploy queue for the x86_64 host, which must keep
   working.
-  - [ ] 🔄 **Task 2.1a**: The two ccy images (SWEEP.md section A; issues 119, 120, 121).
+  - [x] ✅ **Task 2.1a**: The two ccy images (SWEEP.md section A; issues 119, 120, 121).
+    Edited and gated; the arm64 build itself is proved by lts-infra (Task 3.1).
   - [ ] ⬜ **Task 2.1b**: The ratchet's files (SWEEP.md section B) and the implicit ones
     (section C).
 
