@@ -153,7 +153,9 @@ echo
 echo "== git collection (scratch repository) =="
 
 REPO="$SCRATCH/repo"
-mkdir -p "$REPO"
+# The checks run isolated from the machine, which reads the commands the repository installs
+# from files/home/.local/bin; a repository without it is refused. Empty, git does not see it.
+mkdir -p "$REPO/files/home/.local/bin"
 git_s() { git -C "$REPO" -c user.name=t -c user.email=t@example.com -c commit.gpgsign=false "$@"; }
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 git_s init -q
