@@ -15,6 +15,14 @@ the index, not the record.
 
 ---
 
+## 1.36.2 — headless `--changed --yes` runs its plays like one play (Plan 00214 Task 4.3d)
+
+Run headless (an agent shell has no terminal, so a set `RUN_BASH_*` turns it on),
+`--changed --yes` and `--optional-only` now need only the sudo credential an unattended play
+needs, not the first-install input. A sudo password reaches every play of the batch.
+Headless `--rerun`, and `--changed` without `--yes`, are refused before anything runs and
+name `--changed --yes`.
+
 ## 1.36.1 — the dirty-checkout warning says only a play reading the change is offered again (Plan 00141)
 
 A play run now records which paths were uncommitted, and `--changed` offers a play again only

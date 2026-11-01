@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.36.1"
+RUN_BASH_VERSION="1.36.2"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -460,14 +460,15 @@ hl_sudo_credential() {
   fi
 }
 
-# headless_play_preflight — the preflight for ONE play run unattended (`--headless
-# <play>.yml`, Plan 00137 T2.1). A single play needs none of the provisioning contract: no
-# identity, no GitHub, no vault secret (the checkout already holds its vault password file,
-# as it does for an interactive single play), and none of the first-install steps. It needs
-# exactly one thing, a sudo credential that works without a prompt, so that is all this
-# checks. RUN_BASH_SUDO_PASSWORD_FILE may name /dev/fd/N: a root caller that opened a
-# root-only password file hands it over as an inherited descriptor, and the bytes are read
-# once, here, into the same 0600 temp copy the full headless run uses.
+# headless_play_preflight — the preflight for plays run unattended on a provisioned box:
+# one play (`--headless <play>.yml`, Plan 00137 T2.1), `--changed --yes` or
+# `--optional-only`. They need none of the provisioning contract: no identity, no GitHub,
+# no vault secret (the checkout already holds its vault password file, as it does for an
+# interactive play), and none of the first-install steps. They need exactly one thing, a
+# sudo credential that works without a prompt, so that is all this checks. One play takes
+# a sudo password on a pipe; a batch goes through the shared runner, which needs the 0600
+# password file. RUN_BASH_SUDO_PASSWORD_FILE may name /dev/fd/N: a root caller that opened
+# a root-only password file hands it over as an inherited descriptor, read once, here.
 headless_play_preflight() {
   if [[ "$(whoami)" == "root" ]]; then
     headless_fail "An unattended play is executing as root." \
@@ -476,7 +477,7 @@ headless_play_preflight() {
   hl_resolve_secret SUDO_PASSWORD HL_SUDO_PASSWORD
   unset RUN_BASH_VAULT_PASSWORD RUN_BASH_GITHUB_TOKEN RUN_BASH_GITHUB_SSH_PASSPHRASE \
     RUN_BASH_SUDO_PASSWORD
-  hl_sudo_credential single-play
+  hl_sudo_credential "${PLAY_PATH:+single-play}"
   echo -e "${GREEN}${CHECK} Unattended play preflight OK${NC} — sudo=${HL_SUDO_CRED}" >&2
 }
 
@@ -1192,6 +1193,10 @@ ONE PLAY, UNATTENDED (maintenance, e.g. a timer)
   75. A caller holding the lock itself passes it down with FEDORA_DESKTOP_PLAY_LOCK_FD
   and the inherited descriptor (helpers/play_lock/lock.py).
 
+CHANGED PLAYS, UNATTENDED (meta-deploy)   ./run.bash --changed --yes
+  Every changed play, needing only the sudo credential above (as does --optional-only).
+  Headless, --changed needs --yes, as nobody can answer it; --rerun is a menu: refused.
+
 ONE PLAY IN A BATCH
        RUN_BASH_OFFER_ISSUE=0 ./playbooks/imports/play-<name>.yml
   An attended play that fails offers to file a GitHub issue. RUN_BASH_OFFER_ISSUE=0
@@ -1302,14 +1307,17 @@ fi
 # as the interactive path — every interactive point below has a headless branch that
 # uses the resolved HL_*/RUN_BASH_* values, and the shared prompt helpers hard-fail
 # LOUD (hl_abort) if a headless run ever reaches an un-neutralised prompt.
-# A single play run headless is an UNATTENDED PLAY, not a provisioning run: it gets the
-# sudo-only preflight and none of the provisioning contract. (The mode's other exclusions
-# live at the dispatch block below: the `error` helper fatal() needs is not defined yet here.)
+# Plays run headless on a provisioned box (one play, --changed --yes, --optional-only) are
+# UNATTENDED PLAYS, not a provisioning run: they get the sudo-only preflight and none of
+# the provisioning contract. --rerun and an unanswered --changed ask, so they are refused.
+# (Other exclusions live at the dispatch blocks below: fatal() is not defined yet here.)
 if [[ -n "${RUN_BASH_ANSIBLE_PLAYBOOK:-}" && ! (-n "$PLAY_PATH" && "$HEADLESS" == "true") ]]; then
   echo "RUN_BASH_ANSIBLE_PLAYBOOK applies only to an unattended single play (--headless <play>.yml); unset it." >&2
   exit 1
+elif [[ "$HEADLESS" == "true" && ("$RERUN_PLAYS" == "true" || ("$CHANGED_PLAYS" == "true" && "$ASSUME_YES" != "true")) ]]; then
+  headless_fail "--rerun and --changed ask which plays to run, and an unattended run cannot answer." "Run ./run.bash --changed --yes: it runs every changed play without asking."
 fi
-if [[ -n "$PLAY_PATH" && "$HEADLESS" == "true" ]]; then
+if [[ (-n "$PLAY_PATH" || "$CHANGED_PLAYS" == "true" || "$OPTIONAL_ONLY" == "true") && "$HEADLESS" == "true" ]]; then
   headless_play_preflight
 elif [[ "$HEADLESS" == "true" ]]; then
   headless_preflight
@@ -1337,8 +1345,7 @@ if [[ "${OPTIONAL_ONLY:-}" == "true" ]]; then
 fi
 
 ## Assertions
-if [[ "$(whoami)" == "root" ]];
-then
+if [[ "$(whoami)" == "root" ]]; then
   echo -e "\n${RED}${BOLD}${CROSS} ERROR${NC}"
   echo -e "${RED}Please do not run this as root${NC}\n"
   echo -e "Simply run as your normal user\n"
@@ -2022,10 +2029,6 @@ play_batch_preflight(){
   if [[ -n "$PLAY_PATH" || "$OPTIONAL_ONLY" == "true" ]]; then
     fatal "${_flag#--} plays" "${_flag} takes no playbook path and no --optional-only" \
       "run ./run.bash ${_flag} on its own"
-  fi
-  if [[ "$HEADLESS" == "true" ]]; then
-    fatal "${_flag#--} plays" "${_flag} asks before it runs anything, so it cannot run unattended" \
-      "run it from a terminal; on a server the self-update timer is the unattended path"
   fi
   if [[ -z "${BASH_SOURCE[0]:-}" || ! -f "${BASH_SOURCE[0]}" ]]; then
     fatal "${_flag#--} plays" "run.bash is being streamed, not run from a checkout" \
