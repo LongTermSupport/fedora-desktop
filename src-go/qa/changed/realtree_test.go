@@ -295,7 +295,7 @@ func checkSemgrepRoute(t *testing.T, root, rel, reader string) {
 	t.Helper()
 	{
 		s := &session{
-			env:     Env{Runner: &scriptedRunner{replies: map[string]proc.Result{}}, Stderr: &strings.Builder{}, Stdout: &strings.Builder{}},
+			env:     Env{Getenv: noEnv, Runner: &scriptedRunner{replies: map[string]proc.Result{}}, Stderr: &strings.Builder{}, Stdout: &strings.Builder{}},
 			root:    root,
 			scripts: filepath.Join(root, "scripts"),
 			opts:    options{base: "HEAD"},
@@ -349,7 +349,7 @@ func TestEveryRealPinnedFileRunsTheVersionPinsCheck(t *testing.T) {
 		t.Fatalf("found only %d inputs; the manifest read matched nothing: %v", len(inputs), inputs)
 	}
 	s := &session{
-		env:     Env{Runner: &scriptedRunner{replies: map[string]proc.Result{}}, Stderr: &strings.Builder{}, Stdout: &strings.Builder{}},
+		env:     Env{Getenv: noEnv, Runner: &scriptedRunner{replies: map[string]proc.Result{}}, Stderr: &strings.Builder{}, Stdout: &strings.Builder{}},
 		root:    root,
 		scripts: filepath.Join(root, "scripts"),
 		opts:    options{base: "HEAD"},
@@ -385,7 +385,7 @@ func TestEveryRealDocsGateInputRunsTheDocsCheck(t *testing.T) {
 		t.Fatal("found no document under docs/: the tree walk matched nothing")
 	}
 	s := &session{
-		env:     Env{Runner: &scriptedRunner{replies: map[string]proc.Result{}}, Stderr: &strings.Builder{}, Stdout: &strings.Builder{}},
+		env:     Env{Getenv: noEnv, Runner: &scriptedRunner{replies: map[string]proc.Result{}}, Stderr: &strings.Builder{}, Stdout: &strings.Builder{}},
 		root:    root,
 		scripts: filepath.Join(root, "scripts"),
 		opts:    options{base: "HEAD"},
@@ -423,7 +423,7 @@ func TestEveryRealActivePlanScriptRunsThePlanScriptLoggingCheck(t *testing.T) {
 		t.Fatalf("found only %d inputs; the tree walk matched nothing: %v", len(inputs), inputs)
 	}
 	s := &session{
-		env:     Env{Runner: &scriptedRunner{replies: map[string]proc.Result{}}, Stderr: &strings.Builder{}, Stdout: &strings.Builder{}},
+		env:     Env{Getenv: noEnv, Runner: &scriptedRunner{replies: map[string]proc.Result{}}, Stderr: &strings.Builder{}, Stdout: &strings.Builder{}},
 		root:    root,
 		scripts: filepath.Join(root, "scripts"),
 		opts:    options{base: "HEAD"},

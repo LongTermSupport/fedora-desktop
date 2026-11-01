@@ -442,9 +442,32 @@ func (s *session) cleanup() {
 	s.temps = nil
 }
 
-// runCmd starts a command through the process seam, naming the program when it cannot start.
+// isolation is the run's gates.Isolation, built on first use, its PATH stand-ins in a scratch
+// directory that cleanup removes.
+func (s *session) isolation() (gates.Isolation, error) {
+	if s.iso != nil {
+		return *s.iso, nil
+	}
+	scratch, err := s.tempDir()
+	if err != nil {
+		return gates.Isolation{}, err
+	}
+	iso, err := gates.NewIsolation(s.root, s.scripts, s.env.Getenv("PATH"), scratch)
+	if err != nil {
+		return gates.Isolation{}, fmt.Errorf("cannot isolate the checks from this machine: %w", err)
+	}
+	s.iso = &iso
+	return iso, nil
+}
+
+// runCmd starts a command through the process seam, in gates.Isolation (suite-env-isolated),
+// naming the program when it cannot start.
 func (s *session) runCmd(ctx context.Context, cmd proc.Cmd) (proc.Result, error) {
-	res, err := s.env.Runner.Run(ctx, cmd)
+	iso, err := s.isolation()
+	if err != nil {
+		return proc.Result{}, err
+	}
+	res, err := s.env.Runner.Run(ctx, iso.Apply(cmd))
 	if err != nil {
 		return proc.Result{}, fmt.Errorf("cannot run %s: %w", cmd.Argv[0], err)
 	}
