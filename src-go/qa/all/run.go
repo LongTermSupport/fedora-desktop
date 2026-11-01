@@ -33,6 +33,7 @@ type session struct {
 	reports      []namedReport
 	temps        []string
 	writeErr     error
+	iso          *gates.Isolation
 }
 
 // Main is the qa-all command: it returns the exit status. Diagnostics go to env.Stderr, the
@@ -247,7 +248,7 @@ func (s *session) tempFile() (string, error) {
 
 func (s *session) cleanup() {
 	for _, path := range s.temps {
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := os.RemoveAll(path); err != nil {
 			s.errf("qa-all: cannot remove %s: %v\n", path, err)
 		}
 	}

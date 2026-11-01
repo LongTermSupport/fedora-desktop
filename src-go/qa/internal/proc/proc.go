@@ -12,6 +12,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"slices"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -26,6 +28,9 @@ type Cmd struct {
 	Dir string
 	// Env is extra KEY=value entries added to the caller's environment.
 	Env []string
+	// Drop, when set, removes each inherited entry whose key it answers true for, before Env
+	// is added.
+	Drop func(key string) bool
 	// Stdin, when set, is what the command reads on its standard input.
 	Stdin io.Reader
 	// Merge sends stderr into Stdout, in the order the command wrote them.
@@ -67,8 +72,8 @@ func (OS) Run(ctx context.Context, c Cmd) (Result, error) {
 	cmd := exec.CommandContext(ctx, c.Argv[0], c.Argv[1:]...)
 	cmd.Dir = c.Dir
 	cmd.Stdin = c.Stdin
-	if len(c.Env) > 0 {
-		cmd.Env = append(os.Environ(), c.Env...)
+	if len(c.Env) > 0 || c.Drop != nil {
+		cmd.Env = append(inherited(c.Drop), c.Env...)
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
@@ -94,6 +99,17 @@ func (OS) Run(ctx context.Context, c Cmd) (Result, error) {
 		runErr = nil
 	}
 	return res.finish(ctx, runErr, c.Argv[0])
+}
+
+// inherited is the caller's environment less the entries drop names.
+func inherited(drop func(string) bool) []string {
+	env := os.Environ()
+	if drop == nil {
+		return env
+	}
+	return slices.DeleteFunc(env, func(kv string) bool {
+		return drop(strings.SplitN(kv, "=", 2)[0])
+	})
 }
 
 // streamOr is the writer a stream goes to: the caller's when given, else the capture buffer.

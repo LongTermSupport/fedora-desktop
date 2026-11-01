@@ -895,6 +895,16 @@ today; rewriting them is out of scope.
   Deployed on the host at 7ebb2b9f9 (2026-10-31: `ccy --version` 3.104.11). Left: the
   owner's next normal launch, which exercises units 1-4 and 6 for real.
 
+- [x] ✅ **Task 4.11**: Three ccy suites passed in the container and failed in the host's
+  `qa-all`. The host's environment leaked into them: `ccy-session-registry` sorted under
+  `en_GB.UTF-8`, `ccy-token-mode`'s "not installed" case found the installed
+  `ccy-token-usable`, and in `ccy-token-usage-command` Fedora's exported `which` made the front
+  hand `--help` to bash. Defence Before Fix: `suite-env-isolated` (CLAUDE/QA.md). Every
+  `qa-all` and `qa-changed` command now runs in `gates.Isolation`, which sets `C.UTF-8`, drops
+  exported functions and `BASH_ENV`, and hides from PATH the commands this repository ships. The
+  guard is `TestSuiteEnvIsolated*`. The three suites now pin their own environment as well.
+  Left: the host agent's next `qa-all`.
+
 ### Phase 5: Review
 
 - [x] ✅ **Task 5.1**: qa-reviewer over the whole plan (a worker; it ran once, 7205384c3, and

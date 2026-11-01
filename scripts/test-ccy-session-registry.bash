@@ -162,14 +162,16 @@ echo "=== every launcher flag has a replay decision ==="
 # DERIVED from the launcher's two parse sites, never listed here: the argument loop's
 # `"$arg" = "--flag"` tests and the `"$1" = ...` checks before it (--help, --version and
 # their short forms). Each pattern starts after the `$`, which an ERE reads as an anchor.
+# LC_ALL=C at each sort: the expected lists are byte order, and en_GB.UTF-8 ignores the
+# hyphens and puts -oc before --opencode.
 LAUNCHER="$REPO_ROOT/files/var/local/claude-yolo/claude-yolo"
-mapfile -t loop_flags < <(grep -oE 'arg" ==? "--[a-z0-9-]+' "$LAUNCHER" | grep -oE -- '--[a-z0-9-]+' | sort -u)
-mapfile -t positional_flags < <(grep -oE '1" ==? "-[a-z0-9-]+' "$LAUNCHER" | grep -oE -- '-[a-z0-9-]+$' | sort -u)
+mapfile -t loop_flags < <(grep -oE 'arg" ==? "--[a-z0-9-]+' "$LAUNCHER" | grep -oE -- '--[a-z0-9-]+' | LC_ALL=C sort -u)
+mapfile -t positional_flags < <(grep -oE '1" ==? "-[a-z0-9-]+' "$LAUNCHER" | grep -oE -- '-[a-z0-9-]+$' | LC_ALL=C sort -u)
 # The parse's last branch hands every other word to lib/agent-choice.bash, whose `case` takes
 # --opencode and -oc (Plan 00215): its patterns are the third parse site.
-mapfile -t choice_flags < <(grep -oE '^    -[^)]+\)' "$REPO_ROOT/files/var/local/claude-yolo/lib/agent-choice.bash" | grep -oE -- '-{1,2}[a-z][a-z0-9-]*' | sort -u)
+mapfile -t choice_flags < <(grep -oE '^    -[^)]+\)' "$REPO_ROOT/files/var/local/claude-yolo/lib/agent-choice.bash" | grep -oE -- '-{1,2}[a-z][a-z0-9-]*' | LC_ALL=C sort -u)
 check "the agent choice's flags were found" "--opencode -oc" "${choice_flags[*]}"
-mapfile -t parsed_flags < <(printf '%s\n' "${loop_flags[@]}" "${positional_flags[@]}" "${choice_flags[@]}" | sort -u)
+mapfile -t parsed_flags < <(printf '%s\n' "${loop_flags[@]}" "${positional_flags[@]}" "${choice_flags[@]}" | LC_ALL=C sort -u)
 # A parse site that stopped matching would shrink the population and still pass, so each
 # bucket is floored and printed.
 printf '  COVERAGE: %s flags from the argument loop, %s from the positional checks\n' \

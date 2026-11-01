@@ -136,7 +136,7 @@ func newTestSession(t *testing.T, runner proc.Runner) *session {
 	if err := os.MkdirAll(scripts, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	return &session{env: Env{Runner: runner}, root: root, scripts: scripts}
+	return &session{env: Env{Getenv: noEnv, Runner: runner}, root: root, scripts: scripts}
 }
 
 func TestPerFileChecksRunEachFileAndFailIfAnyDoes(t *testing.T) {
@@ -188,7 +188,7 @@ func TestToolChecksPassTheirFilesOnOneCommandLine(t *testing.T) {
 		if c.Argv[0] == "shellcheck" && !slices.Contains(c.Env, "SHELLCHECK_OPTS=") {
 			t.Fatalf("shellcheck must not read options from the environment: %v", c.Env)
 		}
-		if c.Argv[0] == "python3" && !reflect.DeepEqual(c.Env, []string{"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1"}) {
+		if c.Argv[0] == "python3" && !reflect.DeepEqual(ownEnv(c.Env), []string{"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1"}) {
 			t.Fatalf("unit tests must not read the git configuration: %v", c.Env)
 		}
 	}
@@ -355,7 +355,7 @@ func TestAnsibleSyntaxTriesEveryPlaybookAndNamesTheFailures(t *testing.T) {
 		t.Fatalf("every playbook is tried: %v", runner.argv())
 	}
 	for _, c := range runner.calls {
-		if !reflect.DeepEqual(c.Env, []string{"ANSIBLE_CONFIG=" + filepath.Join(s.root, "ansible.cfg")}) {
+		if !reflect.DeepEqual(ownEnv(c.Env), []string{"ANSIBLE_CONFIG=" + filepath.Join(s.root, "ansible.cfg")}) {
 			t.Fatalf("env: %v", c.Env)
 		}
 	}
@@ -380,7 +380,7 @@ func TestGatesRunTheirScriptFromTheScriptsDirectory(t *testing.T) {
 		}
 	}
 	for _, i := range []int{3, 4, 6} {
-		env := runner.calls[i].Env
+		env := ownEnv(runner.calls[i].Env)
 		if len(env) != 1 || !strings.HasPrefix(env[0], "QA_JSON_OUT=") {
 			t.Fatalf("the JSON-report gates need QA_JSON_OUT: %v", env)
 		}
@@ -567,7 +567,7 @@ func TestTheDocsCheckIsAWholeGateNeedingGoAndRunsItsWrapper(t *testing.T) {
 	if len(runner.calls) != 1 || runner.calls[0].Argv[0] != "bash" || runner.calls[0].Argv[1] != filepath.Join(s.scripts, "qa-docs.bash") {
 		t.Fatalf("calls: %+v", runner.calls)
 	}
-	if env := runner.calls[0].Env; len(env) != 1 || !strings.HasPrefix(env[0], "QA_JSON_OUT=") {
+	if env := ownEnv(runner.calls[0].Env); len(env) != 1 || !strings.HasPrefix(env[0], "QA_JSON_OUT=") {
 		t.Fatalf("the docs gate writes a report: %v", env)
 	}
 }

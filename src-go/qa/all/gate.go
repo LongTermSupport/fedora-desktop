@@ -14,7 +14,13 @@ import (
 // exec runs a command through the process seam under the per-gate time limit. The result of a
 // command killed at the limit has TimedOut set; one killed because the run was interrupted does
 // not, and the caller finds that out from the context.
+// Every command runs in gates.Isolation (suite-env-isolated).
 func (s *session) exec(ctx context.Context, cmd proc.Cmd) (proc.Result, error) {
+	iso, err := s.isolation()
+	if err != nil {
+		return proc.Result{}, err
+	}
+	cmd = iso.Apply(cmd)
 	if s.timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, s.timeout)
@@ -25,6 +31,25 @@ func (s *session) exec(ctx context.Context, cmd proc.Cmd) (proc.Result, error) {
 		return proc.Result{}, fmt.Errorf("cannot run %s: %w", cmd.Argv[0], err)
 	}
 	return res, nil
+}
+
+// isolation is the run's gates.Isolation, built on first use: its PATH stand-ins live in a
+// scratch directory that cleanup removes.
+func (s *session) isolation() (gates.Isolation, error) {
+	if s.iso != nil {
+		return *s.iso, nil
+	}
+	scratch, err := os.MkdirTemp("", "qa-all-")
+	if err != nil {
+		return gates.Isolation{}, fmt.Errorf("cannot make a scratch directory: %w", err)
+	}
+	s.temps = append(s.temps, scratch)
+	iso, err := gates.NewIsolation(s.root, s.scripts, s.env.Getenv("PATH"), scratch)
+	if err != nil {
+		return gates.Isolation{}, fmt.Errorf("cannot isolate the gates from this machine: %w", err)
+	}
+	s.iso = &iso
+	return iso, nil
 }
 
 // leftoverReason is what a gate that exited cleanly but left a process holding its output open
