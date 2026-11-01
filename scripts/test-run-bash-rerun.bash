@@ -268,6 +268,8 @@ run_rerun '1\n' -- --rerun --optional-only
 check "with --optional-only: refused" "1" "$rc"
 run_rerun '1\n' -- --rerun --headless
 check "headless: refused (it asks before running anything)" "1" "$rc"
+check "naming --changed --yes as the unattended form" "yes" "$(yes_if grep -q -- '--changed --yes' <<<"$out")"
+check "and before the provisioning preflight asks for its input" "no" "$(yes_if grep -q 'RUN_BASH_USER_EMAIL' <<<"$out")"
 run_rerun '1\n' -- --rerun --changed
 check "with --changed: refused" "1" "$rc"
 check "none of those ran anything" "" "$(plays_run)"

@@ -120,6 +120,15 @@ one definition, read by both.
   `EXIT_FINDINGS` (read from the helper, never a copy), fails on any other status, and fails
   on 0 when a play is to run. `test_check_changed_plays.py`, red first, drives the leg over a
   stand-in checkout. Report `subagent-reports/261022-report-leg-findings-exit.md`.
+- [x] ✅ **Task 4.3d**: The host meta-deploy run refused `./run.bash --changed --yes` from
+  an agent shell: no TTY plus a `RUN_BASH_*` made it headless, and headless `--changed` got
+  the first-install preflight ("RUN_BASH_USER_EMAIL is required"). Class: an unattended run
+  of installed plays held to the first-install contract. No static detector expresses a
+  mode-to-preflight dispatch, so the defence is the mode matrix in
+  `scripts/test-run-bash-changed.bash` and `-rerun.bash`, red first. Headless `--changed --yes` and `--optional-only` (a second instance, found by the sweep) now take the
+  unattended-play preflight, a batch gets the sudo password file the shared runner reads;
+  headless `--rerun` and `--changed` without `--yes` are refused naming `--changed --yes`.
+  run.bash 1.36.2.
 - [ ] ⬜ **Task 4.4**: The owner runs meta-deploy: the acceptance passes on the host, then
   the `changed-plays` entry runs every changed play.
 
