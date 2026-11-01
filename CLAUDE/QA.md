@@ -1839,6 +1839,45 @@ Found and defended under Defence Before Fix.
 **How to fix a finding.** Teach the mapper the form: follow what the module runs, never its
 package whole, and count a way of running a module the rule reaches that the mapper missed.
 
+### suite-env-isolated
+
+**What it is.** Every command `qa-all` and `qa-changed` start (each row of
+`scripts/qa-gates.tsv`, each check and suite) runs in `gates.Isolation`
+(`src-go/qa/gates/isolation.go`). It sets the locale to `C.UTF-8` (`LC_ALL`), and drops the
+machine's `LANG`, `LANGUAGE` and `LC_*`. It drops every exported bash function
+(`BASH_FUNC_*`), `BASH_ENV` and `ENV`. It also replaces each PATH directory that holds a command
+this repository ships with a stand-in that holds everything else in that directory. The
+shipped commands are the rows of `scripts/go-binary-suites.tsv` and the files of
+`files/home/.local/bin`. A suite therefore finds the checkout's copy it put on PATH itself, or
+nothing, and never a copy a play installed. The distribution's own directories (`/usr/bin`,
+`/bin`, `/usr/sbin`, `/sbin`) are kept, because no play installs a shipped command there.
+`HOME` is kept, because the suites give the program under test a scratch `HOME`, and go and
+semgrep keep their caches in the real one. The guard is a test of each runner over the real
+table or a run world, on a machine with an installed `ccy-token-usable` on PATH:
+`TestSuiteEnvIsolated*` in `src-go/qa/all` and `src-go/qa/changed`. Its findings start with
+`suite-env-isolated:`, and it is part of the `go` gate.
+
+**Why it exists.** Three suites passed in the container and failed on the owner's desktop,
+from that machine's environment alone:
+
+- `ccy-session-registry` used `sort` under `en_GB.UTF-8`, which puts `-oc` before `--opencode`.
+- `ccy-token-mode`'s "not installed" case found the `ccy-token-usable` installed in
+  `~/.local/bin`.
+- In `ccy-token-usage-command`, Fedora's exported `which` function made the ccy front hand
+  `--help` to the bash launcher (F-spec: an exported function is a run it cannot model).
+
+The verdict was a property of the machine, not of the code. A static rule over the suites could
+see an unpinned `sort`, but it could not see which PATH directory a lookup reaches or what
+exported function a child inherits. The runner is the one place all three dimensions can be
+fixed and checked. Found and defended under Defence Before Fix.
+
+**How to fix a finding.** Run the command through the session's seam: `exec` in `qa/all`,
+`runCmd` in `qa/changed`. Both apply the isolation, so never build a `proc.Cmd` that bypasses
+them. A suite that needs a program finds it on a PATH it builds itself: its own stub directory
+first, or a scratch directory for a program it needs to be absent. It never relies on the
+caller's PATH lacking that program. A suite that compares sorted output to a fixed string pins
+`LC_ALL=C` at the `sort`, because the suite is also run by hand.
+
 ---
 
 ## Changing a Gate

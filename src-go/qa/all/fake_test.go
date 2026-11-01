@@ -42,6 +42,7 @@ type fakeRunner struct {
 	replies map[string]reply
 	log     []string
 	dirs    []string
+	cmds    []proc.Cmd
 }
 
 func newFakeRunner(t *testing.T) *fakeRunner {
@@ -80,6 +81,7 @@ func (f *fakeRunner) Run(_ context.Context, c proc.Cmd) (proc.Result, error) {
 	key := keyOf(c.Argv)
 	f.log = append(f.log, key)
 	f.dirs = append(f.dirs, c.Dir)
+	f.cmds = append(f.cmds, c)
 	stage, helper := envOf(c.Env, "QA_JSON_OUT"), argAfter(c.Argv, "--counts-file")
 	r, ok := f.replies[key]
 	if !ok && stage == "" && helper == "" {

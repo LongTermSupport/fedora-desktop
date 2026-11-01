@@ -25,6 +25,23 @@ func TestOSRunsACommandAndSplitsTheStreams(t *testing.T) {
 	}
 }
 
+func TestOSDropsTheInheritedKeysAskedForThenAddsEnv(t *testing.T) {
+	t.Setenv("QA_PROC_DROPPED", "inherited")
+	t.Setenv("QA_PROC_KEPT", "inherited")
+	t.Setenv("QA_PROC_REPLACED", "inherited")
+	res, err := OS{}.Run(context.Background(), Cmd{
+		Argv: []string{"sh", "-c", `echo "${QA_PROC_DROPPED-unset} ${QA_PROC_KEPT-unset} ${QA_PROC_REPLACED-unset}"`},
+		Drop: func(key string) bool { return key == "QA_PROC_DROPPED" || key == "QA_PROC_REPLACED" },
+		Env:  []string{"QA_PROC_REPLACED=set"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Stdout != "unset inherited set\n" {
+		t.Fatalf("got %q, want the dropped key gone, the kept one inherited and Env added", res.Stdout)
+	}
+}
+
 func TestOSFeedsTheCommandItsStandardInput(t *testing.T) {
 	res, err := OS{}.Run(context.Background(), Cmd{
 		Argv:  []string{"cat"},
