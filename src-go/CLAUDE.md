@@ -426,6 +426,14 @@ Go owns scope (what git would publish, handed by name), the rule self-test again
 the refusal to pass over a file semgrep did not read (the rule's own `paths.exclude` globs say
 which are not expected). `SPEC-qa-gh-scopes.md` (G1-G16) is the specification.
 
+`qa/archpin` + `qa/cmd/qa-arch-pin` (same nested module) are `scripts/qa-arch-pin.bash`, the
+`arch-pinned-artefact` gate (Plan 00243, Defence Before Fix): semgrep stays the engine and
+`.semgrep/arch-pin.yml` the data; the Go owns scope (what git would publish minus the rule's own
+`paths.exclude` globs, read by `qa/internal/semgrepreport`, handed by name), the self-test
+against its fixture, the refusal to pass over a file semgrep did not read, and the ratchet
+`scripts/arch-pin.allowlist` (a file may only lose findings). Its package doc is the
+specification.
+
 `qa/planscriptlogging` + `qa/cmd/qa-plan-script-logging` (same nested module) are
 `scripts/qa-plan-script-logging.bash`, the Plan 00130 gate: the script only builds and runs the
 command. It walks the active plan folders on disk (an ignored `logs/` directory must be seen, so

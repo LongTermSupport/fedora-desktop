@@ -1,0 +1,34 @@
+# Ratchet allowlist for arch-pinned-artefact (scripts/qa-arch-pin.bash, src-go/qa/archpin; the rule
+# is .semgrep/arch-pin.yml, its documentation CLAUDE/QA.md "arch-pinned-artefact").
+#
+# Each row is a file holding references fixed to one CPU architecture that were known when the
+# rule landed (Plan 00243, the arm64 sweep: SWEEP.md in that plan has every line, whether an
+# aarch64 build exists, and the fix). Rows:
+#
+#   <path> TAB <findings> TAB <what they are; aarch64 availability>
+#
+# A record may only be lowered: the gate fails when a file has more findings than its record (a
+# new instance), fewer (lower the number), none or the file is gone (delete the row). Never add a
+# row: select the artefact by architecture instead. The list is a baseline the owner is asked to
+# accept until the sweep is fixed; when it is empty the rule blocks with no exception.
+.github/workflows/qa.yml	4	CI shellcheck, golangci-lint, gitleaks for the x86_64 ubuntu runner; arm64 builds exist
+fedora-install/build-iso.bash	2	usage text naming x86_64 Fedora ISOs; aarch64 ISOs exist
+fedora-install/setup-netinstall-boot.bash	4	netinstall/Workstation ISO paths and names; aarch64 ISOs exist under the same layout
+files/opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt	3	go and AWS CLI examples for project Dockerfiles; arm64/aarch64 builds exist
+files/usr/local/bin/manage-kernel-versions.py	4	kernel NEVRA suffix .x86_64 in dnf versionlock; use the running arch
+files/var/local/docker-in-lxc	1	lxc download template -a amd64; Fedora arm64 images exist
+helpers/gnome/check_panel_contract.py	1	sample kernel string used to enumerate status keys (data, installs nothing)
+helpers/vmtest/freshness_gate.py	1	VM lab guest arch; aarch64 Fedora Cloud images exist
+helpers/vmtest/probe_upstream.py	1	VM lab guest arch; aarch64 Fedora Cloud images exist
+playbooks/imports/optional/common/play-cli-tools.yml	1	ouch musl target; aarch64 build exists
+playbooks/imports/optional/common/play-network-tools.yml	1	Ookla speedtest tarball; aarch64 build exists
+playbooks/imports/optional/common/play-photography.yml	2	RapidRAW rpm and ART AppImage; aarch64 builds exist
+playbooks/imports/optional/common/play-qobuz.yml	2	hifi.rs tarball; aarch64 build exists
+playbooks/imports/optional/hardware-specific/play-displaylink.yml	2	DisplayLink/evdi rpm; aarch64 rpm exists
+playbooks/imports/optional/hardware-specific/play-nvidia.yml	5	CUDA repo and cuDNN wheel; NVIDIA publishes no CUDA toolkit for Fedora aarch64
+playbooks/imports/play-AB-dnf-upgrade.yml	1	kmod rpm name pattern .x86_64; use the running arch
+playbooks/imports/play-basic-configs.yml	1	yq latest amd64 with no checksum; arm64 build exists
+playbooks/imports/play-browsers.yml	1	Google Chrome rpm repo baseurl; the stable aarch64 repo exists
+playbooks/imports/play-markless.yml	3	markless tarball; aarch64 build exists
+playbooks/imports/play-python.yml	3	QA shellcheck and golangci-lint for the host; aarch64/arm64 builds exist
+src-go/internal/vmtest/fetch.go	1	VM lab guest arch; aarch64 Fedora Cloud images exist

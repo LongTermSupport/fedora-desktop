@@ -50,17 +50,24 @@ it, and arm64 support is a standing requirement from then on: the architecture r
 
 ### Phase 1: sweep and defence
 
-- [ ] ⬜ **Task 1.1**: The sweep. Every architecture assumption in playbooks, tasks, vars,
+- [x] ✅ **Task 1.1**: The sweep. Every architecture assumption in playbooks, tasks, vars,
   files, scripts, src-go, helpers, the ccy image and the docs is listed in
-  `SWEEP.md` with what it is, whether an aarch64 build exists, and the fix or alternative.
-- [ ] ⬜ **Task 1.2**: The detector rule for a hardcoded architecture (semgrep, or a Go
-  analyzer for src-go), proved red on the sweep's instances and made blocking.
+  [SWEEP.md](SWEEP.md) with what it is, whether an aarch64 build exists, and the fix or alternative.
+- [ ] 🔄 **Task 1.2**: The detector rule for a hardcoded architecture (semgrep, or a Go
+  analyzer for src-go), proved red on the sweep's instances and made blocking. The rule
+  `arch-pinned-artefact` (`.semgrep/arch-pin.yml`, gate `scripts/qa-arch-pin.bash`) is in
+  qa-all, proved red on both ccy Dockerfiles; the remaining instances are the ratchet
+  `scripts/arch-pin.allowlist`, a baseline for the owner to accept. Plain blocking once the
+  allowlist is empty.
 
 ### Phase 2: fixes
 
 - [ ] ⬜ **Task 2.1**: Fix every instance from `SWEEP.md`, in batches by area, tests first.
   Add a `changed-plays` entry to the deploy queue for the x86_64 host, which must keep
   working.
+  - [ ] 🔄 **Task 2.1a**: The two ccy images (SWEEP.md section A; issues 119, 120, 121).
+  - [ ] ⬜ **Task 2.1b**: The ratchet's files (SWEEP.md section B) and the implicit ones
+    (section C).
 
 ### Phase 3: the test loop with lts-infra
 
