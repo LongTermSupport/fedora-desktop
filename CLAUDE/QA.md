@@ -1584,7 +1584,7 @@ Plan 00211 Task 2.9 narrows it (an entry giving `host`, `seat` and `repo` is dec
 or host runs on: a release asset URL, a target triple, an RPM arch, a repo baseurl, a platform
 key such as Chrome for Testing's `linux64`, an `lxc-create -a amd64`. The literal is allowed only
 where it is the selection: a case arm label (`amd64)`), a map key (`x86_64:`), a line that
-tests the architecture (`ansible_architecture`, `uname -m`, `dpkg --print-architecture`,
+tests the architecture (`ansible_facts['architecture']`, `uname -m`, `dpkg --print-architecture`,
 `TARGETARCH`, `GOARCH`, `platform.machine()`), or a line whose code names the ARM build beside
 it (`aarch64`, `arm64`). Comment lines and trailing comments (a `#` or `//` after a space) are
 prose, and an ARM name in a trailing comment hides nothing: `curl .../tool-x86_64.tgz # arm64 later` is reported. The rule is `.semgrep/arch-pin.yml`, proven against
@@ -1614,7 +1614,9 @@ case "$(dpkg --print-architecture)" in
 esac
 ```
 
-In a play, a map keyed by `ansible_architecture` (an unknown key fails the task) or a `when:` on
+In a play, a map keyed by `ansible_facts['architecture']` (never the deprecated
+`ansible_architecture`, which the ansible-patterns gate rejects; an unknown key fails the task,
+and an `assert` naming the missing build says why) or a `when:` on
 it. Each upstream spells the architecture its own way (`amd64`/`arm64`, `x86_64`/`aarch64`,
 `x64`), so map the name, never substitute one into the other. Where no build exists for an
 architecture, use the alternative (a distribution package) or fail on that architecture with a
