@@ -27,6 +27,25 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.104.17 — container 2.79.21
+
+The image's pingbus and its skill change, so the image is rebuilt once.
+
+- **Agents write to the humans in the side rooms, never in the main room.** Once a team has
+  its reports and questions rooms, `pingbus say` and `pingbus send` refuse a human among the
+  addressees (exit 4), naming the way that works: for the coordinator `ask-human` and
+  `thread Q<n>` in the questions room, for a worker `--to-coordinator` and `report`. The
+  coordinator's `say --all` names the agents only, and the `REPLY` command of a human's
+  main-room message points the same way. Teams without the side rooms work as before.
+- **A human's reply under an agent's main-room message reaches that agent.** Element's
+  "Reply in thread" carries no mention, so it reached no one. pingbus now asks the
+  homeserver who sent the message it answers, and delivers it to that agent, also under
+  messages sent before this release; one under another agent's message is that agent's and
+  is no longer logged as unheard.
+- **Reports are read-only status, posted at each checkpoint.** The skill and the message
+  style ask for a short FYI report at each milestone, merge, queued deploy or finished phase,
+  and move "Needs you" to the questions room.
+
 ## 3.104.16 — container 2.79.20
 
 The image is unchanged, so there is no rebuild.

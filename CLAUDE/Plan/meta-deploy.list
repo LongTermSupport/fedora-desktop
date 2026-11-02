@@ -33,8 +33,12 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Every changed play; expected: play-claude-yolo.yml, which rebuilds and installs ccy-teams
-# (CCY 3.104.16): a copied password is cleared from the clipboard once pasted if it is still
-# there, and the sign-in block names what a team lacks for its homeserver address. The image
-# is unchanged, so no rebuild.
+# Every changed play; expected: play-agent-bus.yml, which puts the new pingbus into the member
+# kit (host and LXC members), and play-claude-yolo.yml, which rebuilds and installs ccy-teams
+# (CCY 3.104.16: a copied password is cleared from the clipboard once pasted if it is still
+# there, and the sign-in block names what a team lacks for its homeserver address) and
+# rebuilds the ccy image once (CCY 3.104.17, container 2.79.21, Plan 00211 Task 2.14):
+# pingbus refuses an agent's message to a human in the main room once the side rooms exist,
+# a human's thread reply under an agent's message reaches that agent, and the skill asks for
+# checkpoint reports. Sessions pick the new pingbus up when restarted.
 changed-plays

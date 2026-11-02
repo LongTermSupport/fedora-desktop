@@ -272,6 +272,21 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
   its streams: reuse and a new question, red first; another rate limit, rejected either way. Defence:
   `lxc-attach-file-stream` (`scripts/qa-lxc-attach-streams.bash`, CLAUDE/QA.md), one instance
   in the repository. Reports `subagent-reports/261023-lxc-attach-stderr-*`.
+- [ ] 🔄 **Task 2.14** (done in code; left: the host's `changed-plays` run, queued in
+  meta-deploy, and a session restart): the owner's report: agents wrote to the owner where
+  the owner cannot usefully answer, in the main room, where a human's thread reply reached no
+  one, and in reports. Class: an agent's message to a human sent where the human cannot answer
+  it; the detector is pingbus's send check. Once the side room of the sender's role exists
+  (questions for a coordinator, reports for a worker), `say` and `send` refuse a human
+  (`target`, exit 4) naming `ask-human`/`thread Q<n>` or `--to-coordinator`/`report`,
+  `say --all` names agents only, and a main-room `HUMAN` line's `REPLY` points the same way.
+  A human's reply or thread reply under an agent's main-room message is delivered to that
+  agent (the root's sender read from the homeserver, recorded as the inbox item's
+  `answers`), including under messages sent before the fix. Reports stay unchecked: read-only
+  status by guidance only (the owner's decision), with "Needs you" moved to questions in the
+  skill, STYLE.md v2 and the docs. Tests first (`test_cli_human_routing`,
+  `TestHumanAnswerUnderAnAgentsMessage`). CCY 3.104.17, container 2.79.21. Report
+  `subagent-reports/261102-human-routing.md`.
 
 ### Phase 3: the owner's view (Go)
 
