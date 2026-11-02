@@ -32,7 +32,3 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-
-# Rebuild ccy-teams with --graph (Plan 00177 Task 15.1): expected to pick up play-claude-yolo.yml,
-# whose Go build of src-go/cmd/ccy-teams changed.
-changed-plays

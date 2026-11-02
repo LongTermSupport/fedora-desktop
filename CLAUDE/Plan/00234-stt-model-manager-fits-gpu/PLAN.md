@@ -115,7 +115,9 @@ non-technical person can follow the blue MOK Manager screens after the reboot.
   first); then the owner opens Manage Whisper Models... and sees the checking message at once
   and a readable GPU line. Host half passed: play-speech-to-text and this plan's acceptance
   at c378092ce (2026-10-30, `$12STku_FsmBt0mrik6T1BG8UzYQ5hhuFtIQixmMF-zE`), the play again
-  at be1611132. Left: the owner's look, after their next log-in.
+  at be1611132; at 80c7a524f (2026-11-02) the deployed `wsi-model-manager` and all 11
+  extension files are identical to the checkout. Left: the owner's look, after their next
+  log-in (owner sheet A4d).
 
 ### Phase 3: Review
 
