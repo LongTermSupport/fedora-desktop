@@ -50,7 +50,7 @@ func (w *world) touch(rel, first string) {
 func (w *world) session() *session {
 	w.t.Helper()
 	s := &session{
-		env:     Env{Getenv: noEnv, Runner: w.runner, Stderr: &strings.Builder{}, Stdout: &strings.Builder{}},
+		env:     Env{Getenv: noEnv, Umask: keepUmask, Runner: w.runner, Stderr: &strings.Builder{}, Stdout: &strings.Builder{}},
 		root:    w.root,
 		scripts: filepath.Join(w.root, "scripts"),
 		opts:    options{base: "HEAD"},

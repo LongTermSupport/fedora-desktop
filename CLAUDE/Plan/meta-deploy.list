@@ -33,10 +33,10 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Every changed play; expected: play-agent-bus.yml, whose agent-bus list now prints a LIVE line
-# per member (listening, stale or -, from its status in the team room), and play-claude-yolo.yml,
-# which rebuilds and installs ccy-teams (CCY 3.104.17): a member's STATE is that liveness, never
-# "active" from its park state; with 3.104.16's changes if not yet run (a copied password is
-# cleared from the clipboard once pasted if still there; the sign-in block names what a team
-# lacks for its homeserver address). The image is unchanged, so no rebuild.
+# Every changed play; expected: play-python.yml, which now installs python3.13 (the Go parity
+# tests of src-go/internal/bus/pycompat and seat run it by name; without it the host's qa-all
+# fails the go gate, naming python3.13); play-agent-bus.yml, whose agent-bus list now prints a
+# LIVE line per member (listening, stale or -, from its status in the team room); and
+# play-claude-yolo.yml, which rebuilds the image (container 2.79.21) and installs ccy-teams
+# (CCY 3.104.17): a member's STATE is that liveness, never "active" from its park state.
 changed-plays
