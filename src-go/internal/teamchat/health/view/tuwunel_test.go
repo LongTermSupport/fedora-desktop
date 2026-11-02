@@ -54,7 +54,7 @@ func TestTuwunelSeatWatch(t *testing.T) {
 	defer cancel()
 	a, anon, password := realServer(ctx, t)
 	roster := apply.NewRosterFile(alphaID(t))
-	roster.Members[coord] = apply.Member{State: apply.MemberActive, Kind: "podman", HumanText: true, Cred: "password"}
+	roster.Members[coord] = apply.Member{State: apply.MemberEnrolled, Kind: "podman", HumanText: true, Cred: "password"}
 	roster.Coordinator = coord
 	watch := func() []string {
 		t.Helper()

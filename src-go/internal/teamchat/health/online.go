@@ -203,7 +203,7 @@ func (t *Tick) moveOn(ctx context.Context, team paths.TeamID, m status.Member, e
 	if entry.Run == "" || entry.Posted {
 		return entry, found
 	}
-	if m.State != apply.MemberActive {
+	if m.State != apply.MemberEnrolled {
 		entry.Posted = true
 		return entry, true
 	}

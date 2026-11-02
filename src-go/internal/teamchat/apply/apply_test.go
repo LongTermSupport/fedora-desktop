@@ -218,7 +218,7 @@ func parseState(t *testing.T, raw []json.RawMessage) []proto.StateEvent {
 }
 
 func active() Member {
-	return Member{State: MemberActive, Kind: "podman", HumanText: true, Cred: credPassword}
+	return Member{State: MemberEnrolled, Kind: "podman", HumanText: true, Cred: credPassword}
 }
 
 func TestANewTeam(t *testing.T) {
@@ -239,7 +239,7 @@ func TestANewTeam(t *testing.T) {
 		t.Fatalf("files %+v %+v", s.roster, s.rooms)
 	}
 	alice := s.roster.Humans["alice"]
-	if alice.State != HumanActive || alice.RevokedSeq == 0 || alice.SinceMS != fixedNow().UnixMilli() {
+	if alice.State != HumanEnrolled || alice.RevokedSeq == 0 || alice.SinceMS != fixedNow().UnixMilli() {
 		t.Fatalf("alice %+v", alice)
 	}
 	w.plainAccounts(t, "alice", "bob")
@@ -404,7 +404,7 @@ func TestAnExistingAccountIsAdoptedWithALine(t *testing.T) {
 	if !slices.Equal(res.Changed[:2], []string{"human alice adopted", "human bob created"}) {
 		t.Fatalf("changed %v", res.Changed)
 	}
-	if h := w.file(t).roster.Humans["alice"]; h.State != HumanActive {
+	if h := w.file(t).roster.Humans["alice"]; h.State != HumanEnrolled {
 		t.Fatalf("alice %+v", h)
 	}
 }
@@ -472,7 +472,7 @@ func TestAFailureKeepsWhatChangedBeforeIt(t *testing.T) {
 		t.Fatalf("changed %v", res.Changed)
 	}
 	s := w.file(t)
-	if s.roster.Humans["alice"].State != HumanActive || s.rooms.Main == "" || s.roster.Rev != 1 {
+	if s.roster.Humans["alice"].State != HumanEnrolled || s.rooms.Main == "" || s.roster.Rev != 1 {
 		t.Fatalf("files after the failure %+v %+v", s.roster, s.rooms)
 	}
 	again := w.run(t, in)
@@ -497,9 +497,9 @@ func TestDeriveRoster(t *testing.T) {
 	team := input(t, teamDoc()).Team
 	f := NewRosterFile(alphaID())
 	f.Rev, f.RestoreEpoch, f.Coordinator = 4, 2, coord
-	f.Humans["alice"] = Human{State: HumanActive}
+	f.Humans["alice"] = Human{State: HumanEnrolled}
 	f.Humans["bob"] = Human{State: HumanRemoved}
-	f.Humans["carol"] = Human{State: HumanActive}
+	f.Humans["carol"] = Human{State: HumanEnrolled}
 	parked := active()
 	parked.State = MemberParked
 	f.Members[coord] = parked

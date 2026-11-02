@@ -391,7 +391,7 @@ func (f *fakeRoster) Join(_ context.Context, team paths.TeamID, j Join) (Joined,
 	if f.roster[team] == nil {
 		f.roster[team] = map[string]string{}
 	}
-	f.roster[team][handle] = apply.MemberActive
+	f.roster[team][handle] = apply.MemberEnrolled
 	f.note("join " + handle)
 	return Joined{Handle: handle, Bundle: []byte(`{"bundle":"` + handle + `"}`)}, nil
 }
@@ -402,7 +402,7 @@ func (f *fakeRoster) Park(_ context.Context, team paths.TeamID, handle string) e
 	if f.parkErr != nil {
 		return f.parkErr
 	}
-	if f.roster[team][handle] != apply.MemberActive {
+	if f.roster[team][handle] != apply.MemberEnrolled {
 		return fmt.Errorf("member.park refused: %s is %q, not active", handle, f.roster[team][handle])
 	}
 	f.parks = append(f.parks, team.String()+" "+handle)

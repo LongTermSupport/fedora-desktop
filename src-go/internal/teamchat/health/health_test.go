@@ -253,10 +253,10 @@ func newWorld(t *testing.T, names ...string) *world {
 		prober: &prober{},
 		viewer: &viewer{view: View{
 			Members: []status.Member{
-				{Handle: podman, Kind: "podman", Role: "coordinator", State: "active", Rooms: map[string]string{"main": "join"}},
-				{Handle: lxcA, Kind: status.KindLXC, Role: "worker", State: "active", Rooms: map[string]string{"main": "join"}},
+				{Handle: podman, Kind: "podman", Role: "coordinator", State: "enrolled", Rooms: map[string]string{"main": "join"}},
+				{Handle: lxcA, Kind: status.KindLXC, Role: "worker", State: "enrolled", Rooms: map[string]string{"main": "join"}},
 			},
-			Humans: []status.Human{{Name: "ann", State: "active", Rooms: map[string]string{"main": "join"}, Devices: 1}},
+			Humans: []status.Human{{Name: "ann", State: "enrolled", Rooms: map[string]string{"main": "join"}, Devices: 1}},
 		}},
 		backups:   &backups{state: BackupState{Newest: &status.Newest{ID: 3, TimeMS: t0.Add(-time.Hour).UnixMilli()}, LastRun: status.RunOK}},
 		space:     &space{free: 100 << 30, total: 200 << 30},
@@ -979,7 +979,7 @@ func TestATeamsGuestProbesRunTogether(t *testing.T) {
 	w.viewer.view.Members = w.viewer.view.Members[:1]
 	w.guests.together, w.guests.need = make(chan struct{}), len(handles)
 	for _, h := range handles {
-		w.viewer.view.Members = append(w.viewer.view.Members, status.Member{Handle: h, Kind: status.KindLXC, Role: "worker", State: "active", Rooms: map[string]string{"main": "join"}})
+		w.viewer.view.Members = append(w.viewer.view.Members, status.Member{Handle: h, Kind: status.KindLXC, Role: "worker", State: "enrolled", Rooms: map[string]string{"main": "join"}})
 		w.guests.probes[h] = GuestProbe{Held: true, Record: lockRecord(runA, false)}
 	}
 	w.run(t)
@@ -1000,7 +1000,7 @@ func TestATeamsHangingGuestProbesEndTogether(t *testing.T) {
 	w.guests.together, w.guests.need = make(chan struct{}), len(handles)
 	w.guests.err = fmt.Errorf("the probe: %w", context.DeadlineExceeded)
 	for _, h := range handles {
-		w.viewer.view.Members = append(w.viewer.view.Members, status.Member{Handle: h, Kind: status.KindLXC, Role: "worker", State: "active", Rooms: map[string]string{"main": "join"}})
+		w.viewer.view.Members = append(w.viewer.view.Members, status.Member{Handle: h, Kind: status.KindLXC, Role: "worker", State: "enrolled", Rooms: map[string]string{"main": "join"}})
 	}
 	if out := w.run(t); out[0].Result != ResultWritten {
 		t.Fatalf("outcome %+v", out[0])

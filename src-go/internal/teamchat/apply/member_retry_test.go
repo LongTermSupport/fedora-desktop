@@ -355,7 +355,7 @@ func TestReturnAndReissueRetriedLeaveOneCredential(t *testing.T) {
 			if res.Credential == nil || !w.signsIn(t, third, res.Credential.Secret) || w.signsIn(t, third, before) {
 				t.Fatalf("the retry's credential %+v; the one before the crash still signs in: %t", res.Credential, w.signsIn(t, third, before))
 			}
-			if f := w.file(t).roster; f.Pending != nil || f.Members[third].State != MemberActive {
+			if f := w.file(t).roster; f.Pending != nil || f.Members[third].State != MemberEnrolled {
 				t.Fatalf("roster %+v", f)
 			}
 		})

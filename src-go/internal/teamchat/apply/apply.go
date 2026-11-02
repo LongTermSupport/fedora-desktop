@@ -206,7 +206,7 @@ func (r *run) checkRoles(context.Context) error {
 	return nil
 }
 
-// humans gives each declared human an active account (AP7), every account read and judged
+// humans gives each declared human an enrolled account (AP7), every account read and judged
 // before the first change, and marks each human no longer declared removed.
 func (r *run) humans(ctx context.Context) error {
 	accounts := map[string]*matrix.Account{}
@@ -228,7 +228,7 @@ func (r *run) humans(ctx context.Context) error {
 	}
 	f := &r.files.roster
 	for _, name := range slices.Sorted(maps.Keys(f.Humans)) {
-		if h := f.Humans[name]; h.State == HumanActive && !slices.Contains(r.team.Humans, name) {
+		if h := f.Humans[name]; h.State == HumanEnrolled && !slices.Contains(r.team.Humans, name) {
 			h.State, h.SinceMS = HumanRemoved, r.now()
 			f.Humans[name] = h
 			if err := r.save(StepHumans); err != nil {
@@ -250,7 +250,7 @@ func (r *run) human(ctx context.Context, name string, acct *matrix.Account) erro
 		if _, err := r.d.Admin.CreateAccount(ctx, id, rand.Text(), ""); err != nil {
 			return failed(StepHumans, err)
 		}
-		f.Humans[name] = Human{State: HumanActive, SinceMS: r.now(), RevokedSeq: f.Seq + 1}
+		f.Humans[name] = Human{State: HumanEnrolled, SinceMS: r.now(), RevokedSeq: f.Seq + 1}
 		r.note("human " + name + " created")
 	case acct.Locked || (known && h.State == HumanRemoved):
 		if acct.Locked {
@@ -258,11 +258,11 @@ func (r *run) human(ctx context.Context, name string, acct *matrix.Account) erro
 				return failed(StepHumans, err)
 			}
 		}
-		h.State, h.SinceMS = HumanActive, r.now()
+		h.State, h.SinceMS = HumanEnrolled, r.now()
 		f.Humans[name] = h
 		r.note("human " + name + " unlocked")
 	case !known:
-		f.Humans[name] = Human{State: HumanActive, SinceMS: r.now()}
+		f.Humans[name] = Human{State: HumanEnrolled, SinceMS: r.now()}
 		r.note("human " + name + " adopted")
 	default:
 		return nil
@@ -323,7 +323,7 @@ func (r *run) roles(ctx context.Context) error {
 	want := r.team.Coordinator
 	eligible := func(h string) bool {
 		m, ok := f.Members[h]
-		return ok && (m.State == MemberActive || m.State == MemberParked)
+		return ok && (m.State == MemberEnrolled || m.State == MemberParked)
 	}
 	if cur := f.Coordinator; cur != "" && (cur != want || !eligible(cur)) {
 		f.Coordinator = ""
@@ -418,8 +418,8 @@ func (rec recorder) Record(purpose, roomID string) error {
 // placeholderRoom is a room ID of A's grammar, for validating a roster before its rooms exist.
 func placeholderRoom(c string) string { return "!" + strings.Repeat(c, 43) }
 
-// DeriveRoster is A's roster from the roster file and the applied team (AP4): the active
-// declared humans, every active or parked member, A's default limits. It is validated by A's
+// DeriveRoster is A's roster from the roster file and the applied team (AP4): the enrolled
+// declared humans, every enrolled or parked member, A's default limits. It is validated by A's
 // rules, with placeholder rooms, before the rooms step uses it.
 func DeriveRoster(f RosterFile, team declare.Team) (proto.Roster, error) {
 	server := team.ServerName
@@ -428,12 +428,12 @@ func DeriveRoster(f RosterFile, team declare.Team) (proto.Roster, error) {
 		Members: map[string]proto.RosterMember{}, Forge: team.Trust, Limits: proto.DefaultLimits(),
 	}
 	for _, name := range team.Humans {
-		if h, ok := f.Humans[name]; ok && h.State == HumanActive {
+		if h, ok := f.Humans[name]; ok && h.State == HumanEnrolled {
 			r.Humans = append(r.Humans, proto.UserID(name, server))
 		}
 	}
 	for handle, m := range f.Members {
-		if m.State != MemberActive && m.State != MemberParked {
+		if m.State != MemberEnrolled && m.State != MemberParked {
 			continue
 		}
 		role := proto.RoleWorker

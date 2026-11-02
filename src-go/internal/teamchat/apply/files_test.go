@@ -21,9 +21,9 @@ func alphaID() paths.TeamID {
 // fullRoster is a roster file using every key.
 const fullRoster = `{"v":1,"team":"alpha","seq":41,"rev":12,"restore_epoch":3,` +
 	`"counters":{"myrepo+desk.podman":3},` +
-	`"members":{"myrepo.1+desk.podman":{"state":"active","kind":"podman","human_text":true,"since_ms":5,"cred":"password","cred_seq":39,"cred_ms":6,"needs":null},` +
+	`"members":{"myrepo.1+desk.podman":{"state":"enrolled","kind":"podman","human_text":true,"since_ms":5,"cred":"password","cred_seq":39,"cred_ms":6,"needs":null},` +
 	`"myrepo.2+desk.podman":{"state":"claimed","kind":"podman","human_text":false,"since_ms":7,"cred":null,"cred_seq":0,"cred_ms":0,"needs":"reissue"}},` +
-	`"humans":{"alice":{"state":"active","since_ms":1,"revoked_seq":17,"needs":null},"bob":{"state":"removed","since_ms":2,"revoked_seq":3,"needs":"password"}},` +
+	`"humans":{"alice":{"state":"enrolled","since_ms":1,"revoked_seq":17,"needs":null},"bob":{"state":"removed","since_ms":2,"revoked_seq":3,"needs":"password"}},` +
 	`"coordinator":"myrepo.1+desk.podman","coordinator_wanted":null,` +
 	`"pending":{"op":"member.add","step":"account","since_ms":9,"handle":"myrepo.2+desk.podman"}}`
 
@@ -51,7 +51,9 @@ func TestRosterFileRefuses(t *testing.T) {
 		"unknown key":       strings.Replace(fullRoster, `"seq":41`, `"seq":41,"x":1`, 1),
 		"repeated key":      strings.Replace(fullRoster, `"seq":41`, `"seq":41,"seq":42`, 1),
 		"negative seq":      strings.Replace(fullRoster, `"seq":41`, `"seq":-1`, 1),
-		"member state":      strings.Replace(fullRoster, `"state":"active","kind"`, `"state":"gone","kind"`, 1),
+		"member state":      strings.Replace(fullRoster, `"state":"enrolled","kind"`, `"state":"gone","kind"`, 1),
+		"member liveness":   strings.Replace(fullRoster, `"state":"enrolled","kind"`, `"state":"active","kind"`, 1),
+		"human liveness":    strings.Replace(fullRoster, `"alice":{"state":"enrolled"`, `"alice":{"state":"active"`, 1),
 		"member handle":     strings.Replace(fullRoster, `"myrepo.1+desk.podman":{`, `"myrepo+desk.podman":{`, 1),
 		"member kind":       strings.Replace(fullRoster, `"kind":"podman"`, `"kind":""`, 1),
 		"member cred":       strings.Replace(fullRoster, `"cred":"password"`, `"cred":"key"`, 1),
@@ -139,7 +141,7 @@ func TestStoreFiles(t *testing.T) {
 	if s.roster.Seq != 0 || s.rooms != (proto.RoomIDs{}) {
 		t.Fatalf("no files: %+v %+v", s.roster, s.rooms)
 	}
-	s.roster.Humans["alice"] = Human{State: HumanActive}
+	s.roster.Humans["alice"] = Human{State: HumanEnrolled}
 	if err := s.saveRoster(); err != nil || s.roster.Seq != 1 {
 		t.Fatalf("save: seq %d, %v", s.roster.Seq, err)
 	}
@@ -152,7 +154,7 @@ func TestStoreFiles(t *testing.T) {
 	}
 	again := &store{team: alpha, rosterPath: s.rosterPath, roomsPath: s.roomsPath}
 	if err := again.load(); err != nil || again.roster.Seq != 2 || again.rooms.Main != s.rooms.Main ||
-		again.roster.Humans["alice"].State != HumanActive {
+		again.roster.Humans["alice"].State != HumanEnrolled {
 		t.Fatalf("reloaded %+v %+v, %v", again.roster, again.rooms, err)
 	}
 }

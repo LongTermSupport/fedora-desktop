@@ -29,9 +29,9 @@ func mustTeam(s string) paths.TeamID {
 const example = `{"v":1,"team":"alpha","name":"Alpha","origin":"v2","set":null,"migration":null,"seq":812,` +
 	`"written_ms":1800000000000,"expires_ms":1800000300000,` +
 	`"homeserver":{"unit":"active","since_ms":1799999000000,"nrestarts":0,"probe":"ok"},` +
-	`"members":[{"handle":"web.1+desk.podman","kind":"podman","role":"coordinator","state":"active","rooms":{"main":"join","reports":"join","questions":"join"}},` +
-	`{"handle":"web.2+box.lxc","kind":"lxc","role":"worker","state":"active","online":true,"rooms":{"main":"join","reports":"join"}}],` +
-	`"humans":[{"name":"ann","state":"active","rooms":{"main":"join","reports":"invite"},"devices":2,"last_seen_ms":1799999999000}],` +
+	`"members":[{"handle":"web.1+desk.podman","kind":"podman","role":"coordinator","state":"enrolled","rooms":{"main":"join","reports":"join","questions":"join"}},` +
+	`{"handle":"web.2+box.lxc","kind":"lxc","role":"worker","state":"enrolled","online":true,"rooms":{"main":"join","reports":"join"}}],` +
+	`"humans":[{"name":"ann","state":"enrolled","rooms":{"main":"join","reports":"invite"},"devices":2,"last_seen_ms":1799999999000}],` +
 	`"backup":{"newest":{"id":7,"time_ms":1799990000000},"last_run":"ok"},` +
 	`"disk":{"free_bytes":123456789,"free_pct":42},"restore":null,` +
 	`"problems":[{"what":"a problem","fix":"ccy-teams apply alpha"}],` +
@@ -81,10 +81,12 @@ func TestDecodeRefuses(t *testing.T) {
 		"membership":           strings.Replace(example, `"reports":"invite"`, `"reports":"joined"`, 1),
 		"purpose":              strings.Replace(example, `"reports":"invite"`, `"lobby":"invite"`, 1),
 		"last run":             strings.Replace(example, `"last_run":"ok"`, `"last_run":"great"`, 1),
-		"online on podman":     strings.Replace(example, `"role":"coordinator","state":"active",`, `"role":"coordinator","state":"active","online":true,`, 1),
+		"online on podman":     strings.Replace(example, `"role":"coordinator","state":"enrolled",`, `"role":"coordinator","state":"enrolled","online":true,`, 1),
 		"kind":                 strings.Replace(example, `"kind":"podman"`, `"kind":"Podman"`, 1),
 		"role":                 strings.Replace(example, `"role":"worker"`, `"role":"boss"`, 1),
-		"member state":         strings.Replace(example, `"handle":"web.1+desk.podman","kind":"podman","role":"coordinator","state":"active"`, `"handle":"web.1+desk.podman","kind":"podman","role":"coordinator","state":"gone"`, 1),
+		"member state":         strings.Replace(example, `"handle":"web.1+desk.podman","kind":"podman","role":"coordinator","state":"enrolled"`, `"handle":"web.1+desk.podman","kind":"podman","role":"coordinator","state":"gone"`, 1),
+		"member liveness":      strings.Replace(example, `"role":"coordinator","state":"enrolled"`, `"role":"coordinator","state":"active"`, 1),
+		"human liveness":       strings.Replace(example, `"name":"ann","state":"enrolled"`, `"name":"ann","state":"active"`, 1),
 		"problem line":         strings.Replace(example, `"what":"a problem"`, `"what":"a\nproblem"`, 1),
 		"empty fix":            strings.Replace(example, `"fix":"ccy-teams apply alpha"`, `"fix":""`, 1),
 		"event line":           strings.Replace(example, `"what":"restarted after three missed probes"`, `"what":"x y"`, 1),

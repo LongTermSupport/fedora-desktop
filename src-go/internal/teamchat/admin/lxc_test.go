@@ -443,7 +443,7 @@ func TestLXCRosterAddsAMember(t *testing.T) {
 		t.Fatalf("bundle %s: %v", got.Bundle, jerr)
 	}
 	states, err := r.Members(t.Context(), alpha(t))
-	if err != nil || states[got.Handle] != apply.MemberActive || len(states) != 1 {
+	if err != nil || states[got.Handle] != apply.MemberEnrolled || len(states) != 1 {
 		t.Fatalf("members = %v, %v", states, err)
 	}
 }

@@ -1069,7 +1069,7 @@ var joinVerb = map[string]string{
 
 // joinOf is the join a seat needs, chosen by the roster's state of its handle, the recorded one
 // or else the derived one (C 3.9.2 step 03): none, or a pending add, is an add of the entry's
-// seat; parked or lost returns; active is reissued unless the record holds it placed; a retired
+// seat; parked or lost returns; enrolled is reissued unless the record holds it placed; a retired
 // handle is refused by name.
 func joinOf(m *member, roster map[string]string) (Join, bool, error) {
 	handle := cmp.Or(m.handle, m.want)
@@ -1079,9 +1079,9 @@ func joinOf(m *member, roster map[string]string) (Join, bool, error) {
 		return Join{Op: apply.OpMemberAdd, Prefix: m.prefix, Seat: m.decl.Seat, HumanText: m.decl.HumanText}, true, nil
 	case state == apply.MemberParked, state == apply.MemberLost:
 		return Join{Op: apply.OpMemberReturn, Handle: handle}, true, nil
-	case state == apply.MemberActive && (m.handle == "" || m.needsReissue()):
+	case state == apply.MemberEnrolled && (m.handle == "" || m.needsReissue()):
 		return Join{Op: apply.OpMemberReissue, Handle: handle}, true, nil
-	case state == apply.MemberActive:
+	case state == apply.MemberEnrolled:
 		return Join{}, false, nil
 	case state == apply.MemberRetired:
 		return Join{}, false, fmt.Errorf("%w: seat %d of %s is retired; give the entry another seat", guestfacts.ErrRefused, m.decl.Seat, m.prefix)
