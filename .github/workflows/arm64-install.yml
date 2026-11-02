@@ -66,7 +66,6 @@ jobs:
           truncate -s 1G "$RUNNER_TEMP/boot.img"
           boot_dev="$(sudo losetup --find --show "$RUNNER_TEMP/boot.img")"
           sudo mkfs.ext4 -q "$boot_dev"
-          echo "BOOT_DEV=${boot_dev}" >> "$GITHUB_ENV"
           sudo podman run --detach --name "$CONTAINER" --systemd=always --privileged \
             --hostname arm64-ci \
             --volume "$GITHUB_WORKSPACE:/src:ro" \
@@ -93,7 +92,7 @@ jobs:
             cp -a /boot/. /mnt/boot-copy/
             umount /mnt/boot-copy
             mount "$1" /boot
-            findmnt /boot' sh "$BOOT_DEV"
+            findmnt /boot' sh "$boot_dev"
 
       # Throwaway values made for this run only: nothing real is used and nothing is kept.
       # They reach the container on stdin, never in argv.
