@@ -31,6 +31,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -69,21 +70,8 @@ type Clock interface {
 	Sleep(ctx context.Context, d time.Duration) error
 }
 
-type systemClock struct{}
-
-// SystemClock is the real clock.
-func SystemClock() Clock { return systemClock{} }
-
-func (systemClock) Sleep(ctx context.Context, d time.Duration) error {
-	timer := time.NewTimer(d)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
-}
+// SystemClock is the real clock: clock.System, the one home of teamchat's real timers.
+func SystemClock() Clock { return clock.System() }
 
 // Timers is how a try's time limit is armed, a seam of its own beside the Clock (the 429 wait):
 // AfterFunc calls f once d has passed, unless stop, called first, says it stopped it.
@@ -91,14 +79,8 @@ type Timers interface {
 	AfterFunc(d time.Duration, f func()) (stop func() bool)
 }
 
-type systemTimers struct{}
-
-// SystemTimers are the real timers, time.AfterFunc.
-func SystemTimers() Timers { return systemTimers{} }
-
-func (systemTimers) AfterFunc(d time.Duration, f func()) func() bool {
-	return time.AfterFunc(d, f).Stop
-}
+// SystemTimers are the real timers: clock.System's AfterFunc.
+func SystemTimers() Timers { return clock.System() }
 
 // Config is what a client is built from.
 type Config struct {
@@ -149,15 +131,15 @@ func newClient(cfg Config, base, agent string, limit time.Duration) (*Client, er
 		}
 		agent = cfg.UserAgent
 	}
-	clock := cfg.Clock
-	if clock == nil {
-		clock = SystemClock()
+	clk := cfg.Clock
+	if clk == nil {
+		clk = SystemClock()
 	}
 	timers := cfg.Timers
 	if timers == nil {
 		timers = SystemTimers()
 	}
-	c := &Client{base: base, http: newHTTPClient(), clock: clock, timers: timers, agent: agent, limit: limit}
+	c := &Client{base: base, http: newHTTPClient(), clock: clk, timers: timers, agent: agent, limit: limit}
 	if cfg.Token == "" {
 		return c, nil
 	}

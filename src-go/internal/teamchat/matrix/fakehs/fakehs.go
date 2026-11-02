@@ -31,6 +31,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 )
 
 //go:embed static/*.json
@@ -82,13 +84,8 @@ type Options struct {
 	// Quirks are Tuwunel's behaviours beyond the specification.
 	Quirks Quirks
 	// Hold is a held sync's timeout: the channel fires when it has passed, and stop ends it
-	// early. nil is time.NewTimer.
+	// early. nil is clock.System's Hold, a real timer.
 	Hold func(d time.Duration) (<-chan time.Time, func() bool)
-}
-
-func realHold(d time.Duration) (<-chan time.Time, func() bool) {
-	t := time.NewTimer(d)
-	return t.C, t.Stop
 }
 
 // Quirks are Tuwunel's departures from the Matrix specification, each a switch (SPEC M40).
@@ -227,7 +224,7 @@ func New(opts Options) *Server {
 	}
 	hold := opts.Hold
 	if hold == nil {
-		hold = realHold
+		hold = clock.System().Hold
 	}
 	s := &Server{
 		name:          opts.ServerName,

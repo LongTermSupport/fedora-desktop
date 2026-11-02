@@ -680,6 +680,12 @@ process or real I/O that no test shortens so that it races a step (their tests f
 and report the timeout, leave the production constant, or shorten it only where its passing is
 the outcome asserted).
 
+**teamchat's real timers have one home** (Plan 00209 Task 8.1): `internal/teamchat/clock`,
+whose `System` is the real side of the `clock.Clock` seam that teamchat's tests replace whole
+with `clock.Fake`. Its `system.Sleep`, `system.AfterFunc` and `system.Hold` are teamchat's only
+`realClocks` rows. Any other teamchat package hands its real wait to `clock.System()` (as
+`lock`, `teamlock`, `admin/wire`, `matrix` and `fakehs` do) and gets no row of its own.
+
 **Narrowings, each with its sentence.** A bound whose length is a constant cannot be shortened
 by a test, so it is not judged. In the `select` that ends the body of a bare `for {}` (no
 condition, init or post), a timer case that is empty or a bare `continue` is the poll's gap:

@@ -2,7 +2,8 @@
 // deadline, backoff and request deadline_ms (B 2.4.4), CLOCK_MONOTONIC only to read a suspend
 // as boot minus mono (SY12), and the wall clock only for what is compared with a server's
 // origin_server_ts. Its waits (Sleep, AfterFunc, Hold) run on the runtime's timers, which do
-// not advance while the machine is suspended.
+// not advance while the machine is suspended. System is the one home of teamchat's real
+// timers: every other package's real Sleep, AfterFunc and Hold is System's.
 //
 // Clock meets lock.Clock and matrix.Clock structurally, so this package imports neither; its
 // AfterFunc and Hold have the shapes of matrix.Timers and fakehs's Hold, which the sync engine's
