@@ -196,6 +196,11 @@ guard — green here, red in CI. **When adding a suite, add a row to
 belt-and-braces.** `scripts/test-ccy-ssh-probe.bash` is deliberately not a gate:
 it needs a real host and a `gh` token, so it is a host diagnostic.
 
+**Merge F44 into a branch before pushing it.** CI's first job, "contains the default branch",
+fails a pushed branch in seconds when `origin/F44` is not an ancestor of it, and `qa-all.bash`
+waits on that job: the full suite never runs on a tree missing fixes already on F44, where it
+would only fail on them. Pull requests, tags and F44 itself pass straight through.
+
 ### The same command does not reach the same verdict everywhere
 
 `qa-all.bash` is the authority, but some stages read what the *machine* supplies rather
