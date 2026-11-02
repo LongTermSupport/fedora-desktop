@@ -64,6 +64,11 @@ it, and arm64 support is a standing requirement from then on: the architecture r
   Add a `changed-plays` entry to the deploy queue for the x86_64 host, which must keep
   working. All four batches are on `F44-arm` at 9a05de5e3 (full QA green). The
   `changed-plays` entry goes in with the merge into `F44`, since the host runs `F44`.
+- [x] ✅ **Task 2.2**: A CI lane on real aarch64 before the test bed: `.github/workflows/arm64-install.yml`
+  runs the headless server-profile `run.bash` on GitHub's `ubuntu-24.04-arm` runner, in a
+  Fedora 44 container with systemd as PID 1. Green on `F44-arm` with no architecture fault;
+  every failure it met was the container's and was fixed in the workflow, not the plays. The
+  desktop profile, optional plays, a reboot and a real boot loader stay for Task 3.1.
 
 ### Phase 3: the test loop with lts-infra
 
