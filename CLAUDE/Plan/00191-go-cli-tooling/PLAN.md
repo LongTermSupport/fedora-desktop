@@ -926,7 +926,9 @@ today; rewriting them is out of scope.
   broke a helper test's `sleep` named `claude`, and whose non-root uid exposed a wrong
   expectation in `containerimages`' scan test. Report: `subagent-reports/261102-ci-green.md`.
   Left: CI green on the branch; the owner's decision on the Go v1 readers against Fedora 44's
-  python 3.14.
+  python 3.14; and which 3.13 patch the oracle is: CI's 3.13.17 words one truncated `\u`
+  escape otherwise than the image's 3.13.5, which the Go matches, and 3.13.5 cannot be set
+  up on ubuntu-26.04 (report addendum).
 
 ### Phase 5: Review
 

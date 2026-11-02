@@ -107,3 +107,26 @@ host's full QA would have failed pycompat on every run, however the machine was 
   `changed-plays` entry for it; the host agent runs `./CLAUDE/Plan/meta-deploy.bash`.
 - Other tests that run `python3` (declare, playlock, the helpers) were not found to depend on
   the version and are unchanged.
+
+### CI at 244a24d5b (run 41438845818): one difference left, a decision
+
+CI found `python3.13` (setup-python's CPython 3.13.17) and accepted it as 3.13
+(`PYCOMPARED 198 cases with python3.13 3.13`). Everything else in `qa-all` passed (seat's
+v1 parity run among them), and so did gitleaks. One case of `TestPythonLoads` failed:
+
+```text
+json.loads("é): python JSONDecodeError: Unterminated string starting at: line 1 column 1 (char 0), Go <nil> Invalid \uXXXX escape: line 1 column 3 (char 2)
+```
+
+The Go gives the message of 3.13.5, the python3 of the ccy image (Debian 13's). 3.13.17 words
+a truncated `\u` escape at the end of the input differently. So the oracle is a patch release,
+not a minor version:
+
+- CI's `ubuntu-latest` is ubuntu-26.04, and actions/python-versions builds 3.13.5 only for
+  22.04 and 24.04, so `python-version: "3.13.5"` cannot be set up on it.
+- Fedora's `python3.13` package is a later 3.13 patch than Debian's, so the host would fail
+  the same case.
+
+Which python the Go reproduces (the image's 3.13.5, the newest 3.13, or both, with this
+message per patch release) is the coordinator's and the owner's decision. It is not changed
+here.
