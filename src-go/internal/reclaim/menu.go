@@ -56,9 +56,8 @@ func (r *run) menu(ctx context.Context) term.ExitCode {
 	r.tty = newLineReader(tty)
 	r.header(ctx)
 	code, done := r.loop(ctx)
-	r.tty.stop()
-	if cerr := tty.Close(); cerr != nil {
-		r.failf("close the terminal: %v", cerr)
+	if cerr := r.tty.close(); cerr != nil {
+		r.failf("%v", cerr)
 		return term.ExitFailure
 	}
 	if done {

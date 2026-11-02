@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -72,10 +73,20 @@ const (
 	msgStdin     exits.Template = "guest check reads one object on stdin: v 1, team, base_url and plain_http_hosts, nothing else"
 	msgOtherTeam exits.Template = "guest check's stdin names a team that is not --team {}"
 	msgProgram   exits.Template = "{} is not an executable file on the session's PATH (~/.local/bin, /usr/local/bin, /usr/bin, /bin) for guest user {}"
-	msgGh        exits.Template = "gh auth status --hostname github.com failed as guest user {}: log gh in, and check the guest reaches GitHub"
+	msgGh        exits.Template = "gh auth status --hostname github.com {} as guest user {}: log gh in, and check the guest reaches GitHub"
 	msgKernel    exits.Template = "the guest's kernel gives guest user {} no usable {}; a member session needs pidfd and inotify"
 	msgURL       exits.Template = "team {}'s base_url is not a member URL its plain_http_hosts allow"
 	msgReach     exits.Template = "the homeserver of team {} did not answer /_matrix/client/versions within 3 s from the guest"
+)
+
+// The causes msgGh gives, none quoting gh's output (it names the account).
+const (
+	causeGhBound  exits.Template = "did not end within 30 s"
+	causeGhSignal exits.Template = "was ended by {}"
+	causeGhExit   exits.Template = "exited {}"
+	causeGhHeld   exits.Template = "ended, but a process it started still held its output"
+	causeGhErrno  exits.Template = "could not be run ({})"
+	causeGhNotRun exits.Template = "could not be run"
 )
 
 // facts are guest check's stdin (n3-D6): how the team's homeserver is reached.
@@ -111,7 +122,7 @@ func (c Checker) check(ctx context.Context, id *Identity, team paths.TeamID, std
 		found[p.name] = path
 	}
 	if err := c.ghLoggedIn(ctx, found["gh"], unitPath, id.Root.Path()); err != nil {
-		return exits.New(exits.CodeGh, &team, msgGh, name)
+		return exits.New(exits.CodeGh, &team, msgGh, ghCause(err), name)
 	}
 	if err := c.Kernel.Pidfd(); err != nil {
 		return exits.New(exits.CodeKernel, &team, msgKernel, name, exits.Words("pidfd"))
@@ -136,20 +147,48 @@ func lookPath(unitPath, name string) (string, bool) {
 	return "", false
 }
 
+// errGhBound is the cause of a gh auth status that ghTimeout ended.
+var errGhBound = errors.New("gh auth status did not end within its bound")
+
 // ghLoggedIn runs gh auth status as the session would: at the path found, with the unit's
-// PATH and the home, its output kept off the op's own streams (it names the account).
+// PATH and the home, its output kept off the op's own streams (it names the account). A run
+// its bound or ctx ended carries that cause beside the run's own error.
 func (c Checker) ghLoggedIn(ctx context.Context, gh, unitPath, home string) error {
-	ctx, cancel := context.WithTimeout(ctx, ghTimeout)
+	bounded, cancel := context.WithTimeoutCause(ctx, ghTimeout, errGhBound)
 	defer cancel()
-	_, err := c.Run.Run(ctx, execx.Cmd{
+	_, err := c.Run.Run(bounded, execx.Cmd{
 		Name: gh,
 		Args: []string{"auth", "status", "--hostname", "github.com"},
 		Env:  []string{"PATH=" + unitPath, "HOME=" + home},
 	})
-	if err != nil {
-		return fmt.Errorf("gh auth status: %w", err)
+	switch {
+	case err == nil:
+		return nil
+	case bounded.Err() != nil:
+		return fmt.Errorf("gh auth status: %w: %w", context.Cause(bounded), err)
 	}
-	return nil
+	return fmt.Errorf("gh auth status: %w", err)
+}
+
+// ghCause is why gh auth status failed, for msgGh: its bound, the signal or exit status it
+// ended with, or why it could not be run.
+func ghCause(err error) exits.Fill {
+	if errors.Is(err, errGhBound) {
+		return exits.Format(causeGhBound)
+	}
+	if exit, ok := errors.AsType[*execx.ExitError](err); ok {
+		if exit.Signal != 0 {
+			return exits.Format(causeGhSignal, exits.Name(unix.SignalName(exit.Signal)))
+		}
+		return exits.Format(causeGhExit, exits.Count(int64(exit.Code)))
+	}
+	if errors.Is(err, exec.ErrWaitDelay) {
+		return exits.Format(causeGhHeld)
+	}
+	if errno, ok := errors.AsType[unix.Errno](err); ok {
+		return exits.Format(causeGhErrno, exits.Name(unix.ErrnoName(errno)))
+	}
+	return exits.Format(causeGhNotRun)
 }
 
 func reach(ctx context.Context, f facts, team paths.TeamID) error {

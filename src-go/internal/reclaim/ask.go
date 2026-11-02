@@ -19,10 +19,13 @@ var errCancelled = errors.New("cancelled")
 
 // lineReader reads the terminal one line at a time on a goroutine of its own, so a wait for a
 // line ends when the run's context does. A read a cancel abandoned is never answered: the run
-// ends.
+// ends, and close ends that read.
 type lineReader struct {
+	tty     io.ReadCloser
 	want    chan struct{}
 	replies chan lineRead
+	// read is closed when the reader of the terminal has ended, which close waits for.
+	read    chan struct{}
 	pending bool
 	// ended is the read that ended the input, answered again to every later wait.
 	ended *lineRead
@@ -33,19 +36,24 @@ type lineRead struct {
 	err  error
 }
 
-func newLineReader(in io.Reader) *lineReader {
-	l := &lineReader{want: make(chan struct{}), replies: make(chan lineRead, 1)}
-	go func() {
-		r := bufio.NewReader(in)
-		for range l.want {
-			line, err := r.ReadString('\n')
-			l.replies <- lineRead{line: line, err: err}
-			if err != nil {
-				return
-			}
-		}
-	}()
+// newLineReader reads tty, which it owns: close closes it.
+func newLineReader(tty io.ReadCloser) *lineReader {
+	l := &lineReader{tty: tty, want: make(chan struct{}), replies: make(chan lineRead, 1), read: make(chan struct{})}
+	go readLines(bufio.NewReader(tty), l.want, l.replies, l.read)
 	return l
+}
+
+// readLines reads one line of r for each request on want and replies with it, until a read
+// fails (the end of input included) or want is closed; then it closes read.
+func readLines(r *bufio.Reader, want <-chan struct{}, replies chan<- lineRead, read chan<- struct{}) {
+	defer close(read)
+	for range want {
+		line, err := r.ReadString('\n')
+		replies <- lineRead{line: line, err: err}
+		if err != nil {
+			return
+		}
+	}
 }
 
 // next is the next read of the terminal, or errCancelled when ctx ends first.
@@ -69,8 +77,18 @@ func (l *lineReader) next(ctx context.Context) (lineRead, error) {
 	}
 }
 
-// stop ends the reading goroutine once its current read returns.
-func (l *lineReader) stop() { close(l.want) }
+// close ends the reader and waits for it. The terminal is closed first: that ends a read a cancel
+// left waiting (a terminal opened with os.Open is read through Go's poller), which nothing else
+// would end before the next key.
+func (l *lineReader) close() error {
+	close(l.want)
+	err := l.tty.Close()
+	<-l.read
+	if err != nil {
+		return fmt.Errorf("close the terminal: %w", err)
+	}
+	return nil
+}
 
 // readLine is one line typed at the terminal, trimmed; end of input, even after part of a
 // line, is io.EOF; the end of ctx is errCancelled.

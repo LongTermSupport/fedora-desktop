@@ -62,8 +62,9 @@ type world struct {
 	// cancelledUnder are the lines of the commands whose own context ended while they ran, so
 	// that execx.OS would have signalled them instead of waiting for them.
 	cancelledUnder []string
-	// ttyIn, when set, is the terminal instead of the lines typed.
-	ttyIn io.Reader
+	// ttyIn, when set, is the terminal instead of the lines typed; its Close ends a read waiting
+	// on it, as a terminal's does.
+	ttyIn io.ReadCloser
 	// removeAll, when set, is the removal the clears use.
 	removeAll func(string) error
 	// owners is the uid owning each path the run asks of; any other path cannot be read.
@@ -262,7 +263,7 @@ func (w *world) envFor() Env {
 				return nil, errors.New("no tty")
 			}
 			if w.ttyIn != nil {
-				return io.NopCloser(w.ttyIn), nil
+				return w.ttyIn, nil
 			}
 			return io.NopCloser(strings.NewReader(w.tty)), nil
 		},

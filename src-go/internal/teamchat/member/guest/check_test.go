@@ -2,10 +2,13 @@ package guest
 
 import (
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -275,22 +278,57 @@ func TestCheckRunsTheFirstGhOnThePath(t *testing.T) {
 	}
 }
 
+// gh not logged in is 78 gh, and the message says why gh failed (its exit status, the signal
+// that ended it, or why it could not be run) without quoting gh, whose output names the account.
 func TestCheckNeedsGhLoggedIn(t *testing.T) {
 	gh := func(w *guestWorld) []string { return []string{filepath.Join(w.system[1], "gh")} }
-	t.Run("refused", func(t *testing.T) {
-		w := newGuestWorld(t)
-		w.run.On(gh(w), execx.Result{ExitCode: 1, Stderr: []byte("You are not logged into any GitHub hosts\n")})
-		err := w.check(t, w.stdin())
-		wantCode(t, err, 78, exits.CodeGh)
-		if strings.Contains(err.Error(), "logged into") {
-			t.Errorf("message quotes gh: %s", err)
+	for name, c := range map[string]struct {
+		answer func(execx.Cmd) (execx.Result, error)
+		cause  string
+	}{
+		"refused": {func(execx.Cmd) (execx.Result, error) {
+			return execx.Result{ExitCode: 1, Stderr: []byte("You are not logged into any GitHub hosts\n")}, nil
+		}, "exited 1"},
+		"killed": {func(c execx.Cmd) (execx.Result, error) {
+			return execx.Result{}, &execx.ExitError{Name: c.Name, Code: -1, Signal: syscall.SIGKILL, Stderr: "You are not logged into any GitHub hosts"}
+		}, "was ended by SIGKILL"},
+		"not started": {func(execx.Cmd) (execx.Result, error) {
+			return execx.Result{}, errors.New("exec format error")
+		}, "could not be run"},
+		"not started, the kernel's reason": {func(c execx.Cmd) (execx.Result, error) {
+			return execx.Result{}, fmt.Errorf("run gh: %w", &os.PathError{Op: "fork/exec", Path: c.Name, Err: syscall.ENOEXEC})
+		}, "could not be run (ENOEXEC)"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newGuestWorld(t)
+			w.run.OnFunc(gh(w), c.answer)
+			err := w.check(t, w.stdin())
+			wantCode(t, err, 78, exits.CodeGh)
+			if want := "gh auth status --hostname github.com " + c.cause + " as guest user agent:"; !strings.Contains(err.Error(), want) {
+				t.Errorf("message %q, want %q in it", err, want)
+			}
+			if strings.Contains(err.Error(), "logged into") {
+				t.Errorf("message quotes gh: %s", err)
+			}
+		})
+	}
+}
+
+// A gh past its bound is said to be one, in the words of ghTimeout; a gh that ended with a
+// process of its own still holding its output is not said to have failed to run.
+func TestGhCause(t *testing.T) {
+	if ghTimeout != 30*time.Second {
+		t.Errorf("gh is bound to %v, its cause says 30 s", ghTimeout)
+	}
+	for want, err := range map[string]error{
+		"did not end within 30 s": fmt.Errorf("gh auth status: %w: %w", errGhBound,
+			&execx.ExitError{Name: "gh", Code: -1, Signal: syscall.SIGTERM}),
+		"ended, but a process it started still held its output": fmt.Errorf("run gh: %w", exec.ErrWaitDelay),
+	} {
+		if got := exits.New(exits.CodeGh, nil, "{}", ghCause(err)).Message; got != want {
+			t.Errorf("%v: cause %q, want %q", err, got, want)
 		}
-	})
-	t.Run("not started", func(t *testing.T) {
-		w := newGuestWorld(t)
-		w.run.OnFunc(gh(w), func(execx.Cmd) (execx.Result, error) { return execx.Result{}, errors.New("exec format error") })
-		wantCode(t, w.check(t, w.stdin()), 78, exits.CodeGh)
-	})
+	}
 }
 
 func TestCheckNeedsTheKernel(t *testing.T) {
