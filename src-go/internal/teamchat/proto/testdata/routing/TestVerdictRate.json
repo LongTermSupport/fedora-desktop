@@ -1,0 +1,29 @@
+[
+  {
+    "name": "human flooded",
+    "receiver": "@myrepo.2+desk.podman:myteam.teamchat.internal",
+    "room": "main",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@alice:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.text\",\"body\":\"please stop\",\"m.mentions\":{\"user_ids\":[\"@myrepo.2+desk.podman:myteam.teamchat.internal\"]}}}",
+    "outcome": "drop",
+    "reason": "rate",
+    "floodBefore": 60
+  },
+  {
+    "name": "the 60th",
+    "receiver": "@myrepo.1+desk.podman:myteam.teamchat.internal",
+    "room": "main",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@myrepo.2+desk.podman:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.text\",\"body\":\"x\",\"teamchat.text\":{\"v\":1,\"to\":[\"@myrepo.1+desk.podman:myteam.teamchat.internal\"],\"text\":\"hello\"}}}",
+    "outcome": "deliver",
+    "kind": "PEER",
+    "floodBefore": 59
+  },
+  {
+    "name": "the 61st",
+    "receiver": "@myrepo.1+desk.podman:myteam.teamchat.internal",
+    "room": "main",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@myrepo.2+desk.podman:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.text\",\"body\":\"x\",\"teamchat.text\":{\"v\":1,\"to\":[\"@myrepo.1+desk.podman:myteam.teamchat.internal\"],\"text\":\"hello\"}}}",
+    "outcome": "drop",
+    "reason": "rate",
+    "floodBefore": 60
+  }
+]

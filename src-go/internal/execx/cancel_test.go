@@ -15,20 +15,23 @@ func TestOSRunCancelSendsTheCommandsInterruptWhenSet(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	pr, pw := io.Pipe()
+	read := make(chan error, 1)
 	go func() {
 		buf := make([]byte, len("ready\n"))
 		if _, err := io.ReadFull(pr, buf); err == nil {
 			cancel()
 		}
-		if _, err := io.Copy(io.Discard, pr); err != nil {
-			return
-		}
+		_, err := io.Copy(io.Discard, pr)
+		read <- err
 	}()
 	var out bytes.Buffer
 	script := `trap 'echo interrupted; exit 0' INT; trap 'echo terminated; exit 0' TERM; echo ready; while :; do sleep 0.05; done`
 	_, err := OS{}.Run(ctx, Cmd{Name: "sh", Args: []string{"-c", script}, Stdout: io.MultiWriter(&out, pw), Interrupt: syscall.SIGINT})
 	if cerr := pw.Close(); cerr != nil {
 		t.Fatal(cerr)
+	}
+	if rerr := <-read; rerr != nil {
+		t.Fatal(rerr)
 	}
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("want context.Canceled, got %v", err)

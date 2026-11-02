@@ -687,6 +687,36 @@ Follows 3.99.14.11. The image changes, so the next launch rebuilds it once.
   because of it. That list is now checked with the Matrix spec's room-ID grammar, so garbage
   is still refused, and the rooms that cannot be the bus's are set aside by name. The bus's
   own rooms stay version 12 only.
+## 3.99.14.15 — container 2.78.14
+
+Follows 3.99.14.14 and 3.99.14.13, made on two Plan 00209 branches and now merged. The image
+is unchanged, so there is no rebuild.
+
+- **`execx` holds both changes**: the test-only `UserNamespace` field (3.99.14.13) and the
+  `SignalContext` stop that waits for its listener (3.99.14.14). ccy's behaviour is unchanged.
+
+## 3.99.14.14 — container 2.78.14
+
+Follows 3.99.14.12 on its branch. The image is unchanged, so there is no rebuild.
+
+- **`execx.SignalContext`'s stop waits for its signal listener to end**, so no goroutine
+  outlives it (Plan 00209). Nothing in the launcher calls it; its behaviour is unchanged.
+
+## 3.99.14.13 — container 2.78.14
+
+Follows 3.99.14.12. The image is unchanged, so there is no rebuild.
+
+- **`execx` gains a test-only `UserNamespace` field** (Plan 00209), which runs a child as root of
+  its own user and mount namespace for a real-kernel mount test. The Go front builds from
+  `execx` but never sets it, so ccy's behaviour is unchanged.
+
+## 3.99.14.12 — container 2.78.14
+
+Follows 3.99.14.11. The image is unchanged, so there is no rebuild.
+
+- **`execx` gains `Start`**, a child started beside its parent and waited for later (the
+  teamchat keeper's link and session, Plan 00209). The launcher does not call it; its
+  behaviour is unchanged.
 
 ## 3.99.14.11 — container 2.78.14
 

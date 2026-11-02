@@ -1,0 +1,51 @@
+package lxc
+
+import (
+	"testing"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestroot"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+)
+
+func TestLineString(t *testing.T) {
+	l := Line{
+		Kind: Deferred, Team: mustTeam(t, "t1"), User: agent1(t), Container: mustBox(t, "c1"),
+		Checkout: checkout, Seat: 1, Key: keyOf(t, "t1"), Why: "seat held",
+	}
+	if got := l.String(); got != "DEFERRED\tt1\tagent1@c1/repo-1-"+keyOf(t, "t1").String()+"\tseat held" {
+		t.Fatalf("line %q", got)
+	}
+}
+
+// Pinned's scoped view reads the same root, and stays a Root that can be scoped again.
+func TestPinnedScopedReadsTheSameRoot(t *testing.T) {
+	r, err := guestroot.OpenDir(newGuest(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scoped := Pinned(r).Scoped(&guestroot.Memo{}).Scoped(&guestroot.Memo{})
+	if data, err := readGuest(scoped, guestGroup); err != nil || len(data) == 0 {
+		t.Fatalf("%q %v", data, err)
+	}
+	if err := scoped.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSummary(t *testing.T) {
+	r := report([]Line{{Kind: Changed}, {Kind: Changed}, {Kind: Skipped}})
+	if r.Summary != "2 changed, 1 skipped, 0 deferred" {
+		t.Fatalf("summary %q", r.Summary)
+	}
+}
+
+func TestOfflineErrorNamesTheContainer(t *testing.T) {
+	e := &OfflineError{Container: mustBox(t, "c2"), Why: whyMissing}
+	if e.Error() != "lxc: container c2 is offline (offline: container missing); start it with lxc-start -n c2" {
+		t.Fatalf("%q", e.Error())
+	}
+	var zero paths.ContainerName
+	if (&OfflineError{Container: zero}).Error() == "" {
+		t.Fatal("empty")
+	}
+}

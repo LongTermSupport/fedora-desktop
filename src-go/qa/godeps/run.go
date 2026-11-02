@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/emit"
@@ -180,6 +181,10 @@ func deps(root string, env Env, out, errOut *emit.Emitter) ExitCode {
 		errOut.Line("ERROR: " + err.Error())
 		return ExitCannotRun
 	}
+	if err := keepoutFindings(root, env, &v); err != nil {
+		errOut.Line("ERROR: " + err.Error())
+		return ExitCannotRun
+	}
 	report := func(heading string, items []string) {
 		errOut.Line(heading)
 		for _, f := range items {
@@ -196,8 +201,8 @@ func deps(root string, env Env, out, errOut *emit.Emitter) ExitCode {
 	if len(v.unjudged) > 0 {
 		return ExitCannotRun
 	}
-	out.Line(fmt.Sprintf("GO-DEPS-OK %d module(s) allowlisted (%d at a pseudo-version, %d replaced); go.sum verified, tidy, vendor/ in sync (%d files)",
-		v.modules, v.pseudo, v.replaced, files))
+	out.Line(fmt.Sprintf("GO-DEPS-OK %d module(s) allowlisted (%d at a pseudo-version, %d replaced), %d keepout(s) held; go.sum verified, tidy, vendor/ in sync (%d files)",
+		v.modules, v.pseudo, v.replaced, len(v.keepouts), files))
 	return ExitOK
 }
 
@@ -251,6 +256,25 @@ func syncFindings(root string, env Env, v *verdict) (int, error) {
 		err = fmt.Errorf("cannot remove the scratch directory: %w", rmErr)
 	}
 	return files, err
+}
+
+// keepoutFindings runs go list -deps over each keepout row's package and adds a finding when
+// any package it builds from, directly or through another, is in the kept-out module (GD1).
+func keepoutFindings(root string, env Env, v *verdict) error {
+	for _, r := range v.keepouts {
+		res, err := goRun(env, filepath.Join(root, srcGoDir), "go", "list", "-deps", "-f", "{{with .Module}}{{.Path}}{{end}}", r.pkg)
+		if err != nil {
+			return err
+		}
+		if res.Code != 0 {
+			v.failed("go list -deps "+r.pkg, "go list failed over "+r.pkg+", so the build is broken", res.Stdout)
+			continue
+		}
+		if slices.Contains(strings.Split(res.Stdout, "\n"), r.module) {
+			v.findings = append(v.findings, fmt.Sprintf("%s depends on %s, which %s:%d keeps out of it: %s", r.pkg, r.module, allowlistFile, r.line, r.reason))
+		}
+	}
+	return nil
 }
 
 // vendorFindings has go mod vendor write the tree go.mod and go.sum describe into written, adds

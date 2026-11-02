@@ -29,6 +29,18 @@ func TestSeamCommandsDynamicNames(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), newSeamCommands(allow, nil), "fix/internal/dynamic")
 }
 
+// lxccmd is the second owner of lxc-ls, lxc-info and lxc-attach. A dynamicNames row lets its
+// function hand a run-time inner program to lxc-attach; without the row the finding stays, and a
+// wrapper that is not inner is not excused by it.
+func TestSeamCommandsInnerDynamic(t *testing.T) {
+	allow := []allowance{
+		{pkg: "internal/teamchat/host/lxc/lxccmd", fn: "LXC.Guest", reason: "the host-written kit binary"},
+		{pkg: "internal/teamchat/host/lxc/lxccmd", fn: "LXC.Inside", reason: "the host-written kit binary"},
+		{pkg: "internal/teamchat/host/lxc/lxccmd", fn: "LXC.Env", reason: "the host-written kit binary"},
+	}
+	analysistest.Run(t, analysistest.TestData(), newSeamCommands(allow, nil), "fix/internal/teamchat/host/lxc/lxccmd")
+}
+
 // A shellStrings row excuses its function's shell string and nothing else: the neighbour is
 // flagged, and an owned program in the excused function still is.
 func TestSeamCommandsShellStrings(t *testing.T) {
@@ -65,6 +77,20 @@ func TestSelfErasingClipboard(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), SelfErasingClipboard, "fix/qa/rules", "fix/internal/badclip")
 }
 
+func TestFakeClockCount(t *testing.T) {
+	allow := []allowance{{pkg: "internal/countallowed", fn: "TestNothingWaits", reason: "claims nothing at all is armed"}}
+	analysistest.Run(t, analysistest.TestData(), newFakeClockCount(allow), "fix/internal/fakeclock", "fix/internal/othertimers",
+		"fix/internal/badcount", "fix/internal/countallowed")
+}
+
+func TestGoroutineEnd(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), GoroutineEnd, "fix/internal/badgo", "fix/internal/checkedgo")
+}
+
+func TestLeakcheckOnce(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), LeakcheckOnce, "fix/internal/twicecheck")
+}
+
 func TestWaitDelay(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), WaitDelay, "fix/internal/badwait")
 }
@@ -92,8 +118,8 @@ func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 14 {
-		t.Fatalf("want 14 rules, got %d", got)
+	if got := len(All()); got != 21 {
+		t.Fatalf("want 21 rules, got %d", got)
 	}
 }
 
@@ -141,4 +167,8 @@ func TestOwnedBy(t *testing.T) {
 			t.Errorf("ownedBy(%q, %q) = %v, want %v", c.pkg, c.owner, got, c.want)
 		}
 	}
+}
+
+func TestRawConnProbe(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), RawConnProbe, "fix/internal/badraw")
 }

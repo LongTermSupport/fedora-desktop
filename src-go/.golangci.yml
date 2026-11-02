@@ -117,6 +117,16 @@ linters:
       - path: internal/playlock/playlock_test\.go
         linters: [gosec]
         text: "G302"
+      # The guest-root tests build fixtures with modes such as 0755, 0775 and 0757, because
+      # those modes are what the reads and writes must check or refuse.
+      - path: internal/teamchat/host/lxc/guestroot/.*_test\.go
+        linters: [gosec]
+        text: "G301|G302|G306"
+      # The lxc phase tests build fixture guest trees with the modes a real guest has, read
+      # back the files the phases wrote by fixture path, and name fixture seat handles.
+      - path: internal/teamchat/host/lxc/[a-z_]+_test\.go
+        linters: [gosec]
+        text: "G101|G301|G302|G304|G306"
       # The QA module cannot import execx (it is a separate module), so its process runner is
       # its own one process seam, for the same reason.
       - path: qa/internal/proc/proc\.go
@@ -299,7 +309,99 @@ linters:
       - path: internal/consumer/(app|plays)\.go
         linters: [gosec]
         text: "G304"
+      # Synapse's shared-secret registration MAC is HMAC-SHA1 by protocol (the admin API's
+      # register endpoint): the admin client computes it, and the fake homeserver and its replay
+      # check it. The hash is the server's, not a choice made here.
+      - path: internal/teamchat/matrix/(admin|fakehs/admin|fakehs/replay_test)\.go
+        linters: [gosec]
+        text: "G401|G505"
+      # The host's state files are opened by the path their caller names (a paths function of a
+      # parsed team id), never following a link and refusing anything but a regular file.
+      - path: internal/teamchat/state/state\.go
+        linters: [gosec]
+        text: "G304"
+      # The team lock is opened by the path its caller names (paths.TeamLock of a parsed team
+      # id), never following a link; its tests read back the holder line it wrote.
+      - path: internal/teamchat/teamlock/teamlock(_test)?\.go
+        linters: [gosec]
+        text: "G304"
+      # The host_vars file is the one the owner's checkout names; ccy-teams reads it to show and
+      # edit the owner's own declarations.
+      - path: internal/teamchat/declare/hostvars/hostvars\.go
+        linters: [gosec]
+        text: "G304"
+      # The seat store refuses a directory others can enter and a record others can read (Plan
+      # 00209 SPEC-n2c.md SW1, SW2); its tests build those states, and read back by computed path
+      # what the store wrote under a temporary directory.
+      - path: internal/teamchat/seat/.*_test\.go
+        linters: [gosec]
+        text: "G301|G302|G304|G306"
+      # A member's own files refuse a directory or file others can write or enter, and a lock
+      # file of any mode but 0600 (SPEC-n3 TB4, GU1); their tests build those states, and read
+      # back by computed path what was written under a temporary directory.
+      - path: internal/teamchat/member/.*_test\.go
+        linters: [gosec]
+        text: "G301|G302|G304|G306"
+      # The Element profiles refuse a consent others can read and put back a profile directory
+      # others can enter (SPEC-n2e.md EL3, EL4); their tests build those states, and read back
+      # what was written under a temporary home.
+      - path: internal/teamchat/element/.*_test\.go
+        linters: [gosec]
+        text: "G302|G304"
+      # The kit refuses a directory others can write; its tests build one, and read back by
+      # computed path what the kit wrote under a temporary directory.
+      - path: internal/teamchat/member/kit/.*_test\.go
+        linters: [gosec]
+        text: "G302|G304"
   settings:
+    tagliatelle:
+      case:
+        overrides:
+          # The Matrix client-server API is snake_case (access_token, next_batch,
+          # lazy_load_members): the client and its fake homeserver name every key as the wire does,
+          # and are still held to one case.
+          - pkg: internal/teamchat/matrix
+            rules:
+              json: snake
+          - pkg: internal/teamchat/matrix/fakehs
+            rules:
+              json: snake
+          # C 3.7.2's records (seat.json, held.json, released.json) are snake_case files, as the
+          # Matrix keys inside them are.
+          - pkg: internal/teamchat/seat
+            rules:
+              json: snake
+          # C 3.11.3's status record and 3.11.2's lxc-online.json are snake_case host files, as
+          # every teamchat record is.
+          - pkg: internal/teamchat/status
+            rules:
+              json: snake
+          - pkg: internal/teamchat/health
+            rules:
+              json: snake
+          # B 2.2.2's member records are snake_case JSON Lines, as every teamchat record is.
+          - pkg: internal/teamchat/member/records
+            rules:
+              json: snake
+          # B 2.3's member files (the store, the session files, the seat lock record, the
+          # desired membership) are snake_case, as every teamchat record is.
+          - pkg: internal/teamchat/member/state
+            rules:
+              json: snake
+          # B 2.4.4's link socket request (deadline_ms) and the control messages are snake_case,
+          # as every teamchat record is.
+          - pkg: internal/teamchat/member/wire
+            rules:
+              json: snake
+          # C 3.9.3's LXC record (since_ms) is a snake_case host file, as every teamchat record is.
+          - pkg: internal/teamchat/host/lxc/lxcstate
+            rules:
+              json: snake
+          # The GitHub REST API is snake_case (full_name, default_branch, author_association):
+          # the forge checker names every key it reads as the wire does.
+          - pkg: internal/teamchat/member/forge
+            rules:
+              json: snake
     cyclop:
       max-complexity: 15
     funlen:

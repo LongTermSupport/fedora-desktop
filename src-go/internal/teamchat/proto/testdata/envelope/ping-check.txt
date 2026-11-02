@@ -1,0 +1,17 @@
+teamchat delivery 3f9c2a71: 1 message on myteam (0 from humans, 0 from agents, 1 pings, 0 notices, 0 timeouts): teamchat.probe+desk.host (PING)
+<<teamchat 3f9c2a71 1/1>>
+kind: PING (a reachability check from the owner's acceptance probe)
+from: teamchat.probe+desk.host
+role: probe
+team: myteam
+to: this session, as myrepo.3+desk.lxc
+sent: 2026-10-21T13:02:11Z
+id: $ccccccccccccccccccccccccccccccccccccccccccc
+re: -
+verb: check
+ref: -
+trust: -
+branch: -
+authority: the owner's check that this team reaches you. Answer with teamchat reply '$ccccccccccccccccccccccccccccccccccccccccccc' --verb ack and do nothing else.
+reply: teamchat reply '$ccccccccccccccccccccccccccccccccccccccccccc' --verb <VERB>
+<<end teamchat 3f9c2a71 1/1>>

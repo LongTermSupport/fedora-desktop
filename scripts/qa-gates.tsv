@@ -42,6 +42,7 @@ stage	ansible-syntax	scripts/qa-ansible-syntax.bash	ERROR: ansible-syntax gate c
 stage	js	scripts/qa-js.bash	ERROR: js gate could not produce a result (a required tool is missing or the tool failed: see the ERROR line above).
 stage	docs	scripts/qa-docs.bash	ERROR: docs gate could not produce a result (an empty scope, an unread or unparsed file, a broken discovery, or the tool failed: see the ERROR line above).
 # Hard gates that are not report stages.
+gate	teamchat-keeps-off-v1	scripts/qa-teamchat-separate.bash	a file v2 of the agent-team bus (teamchat) owns holds a v1 name, or an allowlist row is stale	detail:[0-9]+ v2 file[(]s[)] hold no v1 name
 gate	nokill-containerwatch	scripts/qa-nokill-containerwatch.bash	rejected a process-termination call site in the container-watch watchdog	detail:[0-9]+ container-watch file[(]s[)] clean
 drift	deployed-drift	scripts/qa-deployed-drift.bash	repo-owned scripts differ from their deployed copies
 helpers	helper-tests	scripts/qa-helper-tests.bash	the helper unit suite failed

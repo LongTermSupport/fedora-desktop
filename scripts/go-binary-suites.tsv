@@ -44,3 +44,5 @@ ssh-with-key	qa-go
 scp-with-key	qa-go
 ssh-copy-id-with-key	qa-go
 container-images	scripts/test-ccy-image-build-lock.bash
+teamchat-admin	qa-go
+teamchat	qa-go
