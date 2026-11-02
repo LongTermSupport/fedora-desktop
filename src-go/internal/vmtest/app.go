@@ -15,6 +15,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -52,6 +53,8 @@ type Env struct {
 	GPGKeyDir string
 	// TempDir is where the probe's private temporary file goes; empty is the system default.
 	TempDir string
+	// GOARCH is the host's architecture as Go names it; the lab's guests are this architecture.
+	GOARCH string
 }
 
 // NewEnv is the production environment on the process's own streams.
@@ -70,6 +73,7 @@ func NewEnv() Env {
 		HostMiB:   hostMiB,
 		Random:    rand.Reader,
 		GPGKeyDir: DefaultGPGKeyDir,
+		GOARCH:    runtime.GOARCH,
 	}
 }
 

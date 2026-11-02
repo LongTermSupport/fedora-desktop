@@ -15,20 +15,3 @@
 # instead. The list is a baseline the owner is asked to accept until the sweep is fixed; when it
 # is empty the rule blocks with no exception.
 # format: 2
-.github/workflows/qa.yml	"https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK}/shellcheck-v${SHELLCHECK}.linux.x86_64.tar.xz"	CI shellcheck, golangci-lint, gitleaks for the x86_64 ubuntu runner; arm64 builds exist
-.github/workflows/qa.yml	GL="golangci-lint-${GOLANGCI_LINT}-linux-amd64.tar.gz"	CI shellcheck, golangci-lint, gitleaks for the x86_64 ubuntu runner; arm64 builds exist
-.github/workflows/qa.yml	sudo install -m 0755 "/tmp/golangci-lint/golangci-lint-${GOLANGCI_LINT}-linux-amd64/golangci-lint" /usr/local/bin/golangci-lint	CI shellcheck, golangci-lint, gitleaks for the x86_64 ubuntu runner; arm64 builds exist
-.github/workflows/qa.yml	curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${VER}/gitleaks_${VER}_linux_x64.tar.gz" -o /tmp/gitleaks.tgz	CI shellcheck, golangci-lint, gitleaks for the x86_64 ubuntu runner; arm64 builds exist
-fedora-install/build-iso.bash	echo " sudo bash $0 ~/Downloads/Fedora-Everything-netinst-x86_64-44-1.7.iso"	usage text naming x86_64 Fedora ISOs; aarch64 ISOs exist
-fedora-install/build-iso.bash	echo " sudo bash $0 ~/Downloads/Fedora-Workstation-Live-44-1.7.x86_64.iso custom.iso"	usage text naming x86_64 Fedora ISOs; aarch64 ISOs exist
-fedora-install/setup-netinstall-boot.bash	NETINSTALL_PREFIX="Fedora-Everything-netinst-x86_64"	netinstall/Workstation ISO paths and names; aarch64 ISOs exist under the same layout
-fedora-install/setup-netinstall-boot.bash	local dir_url="${BASE_URL}/${version}/Everything/x86_64/iso/"	netinstall/Workstation ISO paths and names; aarch64 ISOs exist under the same layout
-fedora-install/setup-netinstall-boot.bash	local dir_url="${BASE_URL}/${version}/Workstation/x86_64/iso/"	netinstall/Workstation ISO paths and names; aarch64 ISOs exist under the same layout
-fedora-install/setup-netinstall-boot.bash	| grep -oP "${WORKSTATION_PREFIX}-${version}-[0-9.]+\.x86_64\.iso" \	netinstall/Workstation ISO paths and names; aarch64 ISOs exist under the same layout
-files/opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt	RUN wget -qO- https://go.dev/dl/go1.21.5.linux-amd64.tar.gz | \	go and AWS CLI examples for project Dockerfiles; arm64/aarch64 builds exist
-files/opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt	RUN wget -qO- https://go.dev/dl/go1.21.5.linux-amd64.tar.gz | \	go and AWS CLI examples for project Dockerfiles; arm64/aarch64 builds exist
-files/opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt	RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \	go and AWS CLI examples for project Dockerfiles; arm64/aarch64 builds exist
-files/var/local/docker-in-lxc	if ! sudo lxc-create -n "$name" -t download -- -d fedora -r "$FEDORA_VERSION" -a amd64; then	lxc download template -a amd64; Fedora arm64 images exist
-helpers/vmtest/freshness_gate.py	ARCH = "x86_64"	VM lab guest arch; aarch64 Fedora Cloud images exist
-helpers/vmtest/probe_upstream.py	ARCH = "x86_64"	VM lab guest arch; aarch64 Fedora Cloud images exist
-src-go/internal/vmtest/fetch.go	const arch = "x86_64"	VM lab guest arch; aarch64 Fedora Cloud images exist

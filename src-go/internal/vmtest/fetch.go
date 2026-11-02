@@ -11,8 +11,6 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
 
-const arch = "x86_64"
-
 var sha256Hex = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 func (c *cli) cmdFetch(ctx context.Context, args []string) (err error) {
@@ -56,11 +54,15 @@ func (c *cli) fetch(ctx context.Context, l *lab, b baseFacts, p *probe) ([]artef
 // fetchArtefact downloads one artefact and proves it against the signed CHECKSUM beside it.
 // The CHECKSUM's name is structured (variant, compose label, arch), so no listing is scraped.
 func (c *cli) fetchArtefact(ctx context.Context, l *lab, a artefact) error {
+	arch, archErr := c.guestArch()
+	if archErr != nil {
+		return archErr
+	}
 	dest := l.at(imagesDir, a.File)
 	if err := c.download(ctx, a.URL, dest); err != nil {
 		return err
 	}
-	checksumName := "Fedora-" + a.Variant + "-" + a.Label + "-" + arch + "-CHECKSUM"
+	checksumName := "Fedora-" + a.Variant + "-" + a.Label + "-" + arch.Fedora + "-CHECKSUM"
 	dir := a.URL[:strings.LastIndex(a.URL, "/")]
 	checksumFile := l.at(imagesDir, checksumName)
 	if err := c.download(ctx, dir+"/"+checksumName, checksumFile); err != nil {
