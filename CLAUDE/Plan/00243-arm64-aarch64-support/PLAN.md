@@ -50,17 +50,20 @@ it, and arm64 support is a standing requirement from then on: the architecture r
 
 ### Phase 1: sweep and defence
 
-- [ ] ⬜ **Task 1.1**: The sweep. Every architecture assumption in playbooks, tasks, vars,
+- [x] ✅ **Task 1.1**: The sweep. Every architecture assumption in playbooks, tasks, vars,
   files, scripts, src-go, helpers, the ccy image and the docs is listed in
   `SWEEP.md` with what it is, whether an aarch64 build exists, and the fix or alternative.
-- [ ] ⬜ **Task 1.2**: The detector rule for a hardcoded architecture (semgrep, or a Go
+  `SWEEP.md` is on `F44-arm`.
+- [x] ✅ **Task 1.2**: The detector rule for a hardcoded architecture (semgrep, or a Go
   analyzer for src-go), proved red on the sweep's instances and made blocking.
+  `arch-pinned-artefact` on `F44-arm`; its allowlist is empty, so it blocks every instance.
 
 ### Phase 2: fixes
 
-- [ ] ⬜ **Task 2.1**: Fix every instance from `SWEEP.md`, in batches by area, tests first.
+- [x] ✅ **Task 2.1**: Fix every instance from `SWEEP.md`, in batches by area, tests first.
   Add a `changed-plays` entry to the deploy queue for the x86_64 host, which must keep
-  working.
+  working. All four batches are on `F44-arm` at 9a05de5e3 (full QA green). The
+  `changed-plays` entry goes in with the merge into `F44`, since the host runs `F44`.
 
 ### Phase 3: the test loop with lts-infra
 
@@ -72,7 +75,7 @@ it, and arm64 support is a standing requirement from then on: the architecture r
 - [ ] An unattended `run.bash` completes on the clean aarch64 test bed, proven from the
   snapshot by lts-infra.
 - [ ] The same run still passes on the x86_64 desktop host.
-- [ ] The architecture rule blocks in QA.
+- [ ] The architecture rule blocks in QA (it does on `F44-arm`; ticked when merged into `F44`).
 
 ## Delivery & Milestones
 
