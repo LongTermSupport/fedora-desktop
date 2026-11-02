@@ -14,19 +14,34 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import importlib
 import json
 import pathlib
 import secrets
 import signal
 import socket
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
+
+def _checkout_module(name: str) -> object:
+    """A module of the checkout this plan folder is in: the first directory above holding ansible.cfg."""
+    here = pathlib.Path(__file__).resolve().parent
+    for candidate in here.parents:
+        if (candidate / "ansible.cfg").is_file():
+            if str(candidate) not in sys.path:
+                sys.path.insert(0, str(candidate))
+            return importlib.import_module(name)
+    raise ImportError(f"no ansible.cfg above {here}: not inside a fedora-desktop checkout")
+
+
 LIB_DIR = pathlib.Path("/usr/local/lib/agent-bus")
-PIN_FILE = "files/usr/local/share/agent-bus/tuwunel.pin"
+#: The pin file the agent-bus play installs from: the product's own path, read, never copied.
+PIN_FILE: str = _checkout_module("helpers.agent_bus.declare").PIN_FILE
 INSTALL_PLAY = "playbooks/imports/play-agent-bus.yml"
 SERVER_NAME = "hca.invalid"
 CLIENT = "/_matrix/client/v3"
