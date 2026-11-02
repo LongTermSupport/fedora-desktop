@@ -57,9 +57,16 @@ jobs:
           CMD ["/sbin/init"]
           CONTAINERFILE
 
+      # An installed box keeps /boot on a block device, and grub2-editenv refuses a grubenv it
+      # cannot place on one (an overlay root is not), so /boot is an ext4 loop device made
+      # before the container starts, so that the privileged container sees it in /dev.
       - name: Start the container
         run: |
           set -euo pipefail
+          truncate -s 1G "$RUNNER_TEMP/boot.img"
+          boot_dev="$(sudo losetup --find --show "$RUNNER_TEMP/boot.img")"
+          sudo mkfs.ext4 -q "$boot_dev"
+          echo "BOOT_DEV=${boot_dev}" >> "$GITHUB_ENV"
           sudo podman run --detach --name "$CONTAINER" --systemd=always --privileged \
             --hostname arm64-ci \
             --volume "$GITHUB_WORKSPACE:/src:ro" \
@@ -79,6 +86,14 @@ jobs:
           arch="$(sudo podman exec "$CONTAINER" uname -m)"
           echo "container architecture: ${arch}"
           [ "$arch" = aarch64 ] || { echo "this lane must run on aarch64, got ${arch}" >&2; exit 1; }
+          sudo podman exec "$CONTAINER" sh -c '
+            set -eu
+            mkdir /mnt/boot-copy
+            mount "$1" /mnt/boot-copy
+            cp -a /boot/. /mnt/boot-copy/
+            umount /mnt/boot-copy
+            mount "$1" /boot
+            findmnt /boot' sh "$BOOT_DEV"
 
       # Throwaway values made for this run only: nothing real is used and nothing is kept.
       # They reach the container on stdin, never in argv.
