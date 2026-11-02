@@ -79,6 +79,13 @@
       ansible.builtin.dnf:
         name: python3-pytest
 
+    # src-go/internal/bus/pycompat reproduces the python of the CCY image, 3.13, and its
+    # parity tests run python3.13 by name: Fedora 44's python3 is 3.14, which differs.
+    - name: Install python3.13 for the Go parity tests that compare against it
+      become: true
+      ansible.builtin.dnf:
+        name: python3.13
+
     # The QA toolchain is pinned, unlike the development tools below, because
     # scripts/qa-toolchain.bash ASSERTS these versions: a gate's verdict is a
     # property of the binary that produced it, so a host running different

@@ -83,3 +83,27 @@ did not.
 - Two classes found here are not umask: an assertion that runs only on some machines (uid), and
   a test that relies on a tool's argv[0] behaviour. Each was fixed as its single instance; no
   detector was written for them.
+
+## Addendum: the oracle is python3.13 by name (branch `fix/ci-green-py313`)
+
+The fix above checked the version of `python3`. On a Fedora 44 host `python3` is 3.14, so the
+host's full QA would have failed pycompat on every run, however the machine was set up.
+
+- **The oracle is `python3.13`, never `python3`** (`oracleCommand` in
+  `src-go/internal/bus/pycompat/oracle_test.go`). The version check stays: a `python3.13` that
+  reports another version fails with both named (`python3.13 is python 3.14, and parity is
+  proven against python 3.13, the ccy image's`). A missing `python3.13` fails naming it and
+  why (`python3.13 is not on PATH: the Go reproduces python 3.13, the ccy image's python ...`).
+  Nothing skips. Tests first, red as a build failure, then green:
+  `TestOracleIsPython313ByName` (a PATH holding only a fake `python3` that says 3.14) and
+  `TestOracleNamedPython313ReportingAnotherVersion` (a fake `python3.13` that says 3.14).
+- **seat's v1 parity run** (`TestParityWithV1`), the other test found to differ under 3.14
+  (nesting depth), also runs `python3.13` by name.
+- **CI**: `actions/setup-python` with `python-version: "3.13"` installs a CPython whose `bin/`
+  holds `python3.13` beside `python3` and `python`, and puts it first on PATH. The workflow
+  comment says so.
+- **Host (IaC)**: `playbooks/imports/play-python.yml` installs Fedora's `python3.13` package
+  beside the QA toolchain's other packages. `CLAUDE/Plan/meta-deploy.list` gains a
+  `changed-plays` entry for it; the host agent runs `./CLAUDE/Plan/meta-deploy.bash`.
+- Other tests that run `python3` (declare, playlock, the helpers) were not found to depend on
+  the version and are unchanged.

@@ -2,12 +2,15 @@ package pycompat
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
-	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
@@ -163,47 +166,77 @@ func fromCPs(rs []rune) string {
 	return string(b)
 }
 
-// runOracle runs the real python3 once over a batch. A missing python3 fails the test: the
-// parity proof cannot be skipped.
-func runOracle(t *testing.T, reqs []pyReq) []pyResult {
-	t.Helper()
+// oracleCommand is the oracle by name, never python3: on a Fedora 44 host python3 is 3.14.
+// The host's python play installs python3.13; CI's setup-python 3.13 puts it on PATH.
+const oracleCommand = "python3.13"
+
+// askOracle runs the real python3.13 once over a batch. A missing python3.13 is an error
+// naming it: the parity proof cannot be skipped.
+func askOracle(ctx context.Context, reqs []pyReq) ([]pyResult, error) {
 	batch := make([][]any, 0, len(reqs))
 	for _, r := range reqs {
 		batch = append(batch, []any{r.op, r.args})
 	}
 	in, err := json.Marshal(batch)
 	if err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
-	res, err := execx.OS{}.Run(t.Context(), execx.Cmd{
-		Name: "python3", Args: []string{"-I", "-c", oracleScript}, Stdin: bytes.NewReader(in),
+	res, err := execx.OS{}.Run(ctx, execx.Cmd{
+		Name: oracleCommand, Args: []string{"-I", "-c", oracleScript}, Stdin: bytes.NewReader(in),
 	})
+	if execx.IsNotInstalled(err) {
+		return nil, fmt.Errorf("%s is not on PATH: the Go reproduces python 3.13, the ccy image's python, and is proven against it only (the host's python play installs it)", oracleCommand)
+	}
 	if err != nil {
-		t.Fatalf("python3: %v", err)
+		return nil, fmt.Errorf("%s: %w", oracleCommand, err)
 	}
 	var out []pyResult
 	if err := json.Unmarshal(res.Stdout, &out); err != nil {
-		t.Fatalf("python3 answer: %v", err)
+		return nil, fmt.Errorf("%s answer: %w", oracleCommand, err)
 	}
 	if len(out) != len(reqs) {
-		t.Fatalf("python3 answered %d of %d requests", len(out), len(reqs))
+		return nil, fmt.Errorf("%s answered %d of %d requests", oracleCommand, len(out), len(reqs))
+	}
+	return out, nil
+}
+
+// runOracle is askOracle failing the test on an error.
+func runOracle(t *testing.T, reqs []pyReq) []pyResult {
+	t.Helper()
+	out, err := askOracle(t.Context(), reqs)
+	if err != nil {
+		t.Fatal(err)
 	}
 	return out
 }
 
-// oracleVersion is the python3 whose answers this package reproduces: 3.13, the ccy image's.
+// askOracleVersion is the (major, minor) python3.13 reports.
+func askOracleVersion(ctx context.Context) ([2]int, error) {
+	var v [2]int
+	out, err := askOracle(ctx, []pyReq{{op: "version", args: []any{}}})
+	if err != nil {
+		return v, err
+	}
+	if out[0].failed() {
+		return v, fmt.Errorf("%s version: %s", oracleCommand, pyErrText(out[0]))
+	}
+	err = json.Unmarshal(out[0].OK, &v)
+	return v, err
+}
+
+// oracleVersion is the python whose answers this package reproduces: 3.13, the ccy image's.
 // 3.12 words a trailing comma otherwise and writes an IPv4-mapped address as hex; 3.14 (Fedora
 // 44) has other messages for `in` and a bad escape, newer Unicode tables, and nests deeper. A
 // different oracle is not a parity failure, and is not compared case by case.
 var oracleVersion = [2]int{3, 13}
 
-// oracleUnsupported is the reason a python3 of version v cannot be the oracle, or nil.
+// oracleUnsupported is the reason an oracle reporting version v cannot be the oracle, or nil.
 func oracleUnsupported(v [2]int) error {
 	if v == oracleVersion {
 		return nil
 	}
-	return fmt.Errorf("the oracle is python3 %d.%d, and parity is proven against python3 %d.%d; run the tests with python3 %d.%d first on PATH",
-		v[0], v[1], oracleVersion[0], oracleVersion[1], oracleVersion[0], oracleVersion[1])
+	return fmt.Errorf("%s is python %d.%d, and parity is proven against python %d.%d, the ccy image's",
+		oracleCommand, v[0], v[1], oracleVersion[0], oracleVersion[1])
 }
 
 // python is runOracle with the count logged, so `go test -v` shows how many cases each
@@ -215,7 +248,7 @@ func python(t *testing.T, reqs []pyReq) []pyResult {
 		t.Fatal(err)
 	}
 	out := runOracle(t, reqs)
-	t.Logf("PYCOMPARED %d cases with python3 %d.%d", len(reqs), v[0], v[1])
+	t.Logf("PYCOMPARED %d cases with %s %d.%d", len(reqs), oracleCommand, v[0], v[1])
 	return out
 }
 
@@ -225,19 +258,14 @@ var (
 	errVersionMM error
 )
 
-// pythonVersion is the (major, minor) of the python3 the oracle runs.
+// pythonVersion is the (major, minor) of the oracle, asked once per test binary.
 func pythonVersion(t *testing.T) [2]int {
 	t.Helper()
 	versionOnce.Do(func() {
-		out := runOracle(t, []pyReq{{op: "version", args: []any{}}})
-		if out[0].failed() {
-			errVersionMM = strconv.ErrSyntax
-			return
-		}
-		errVersionMM = json.Unmarshal(out[0].OK, &versionMM)
+		versionMM, errVersionMM = askOracleVersion(t.Context())
 	})
 	if errVersionMM != nil {
-		t.Fatalf("python3 version: %v", errVersionMM)
+		t.Fatalf("%s version: %v", oracleCommand, errVersionMM)
 	}
 	return versionMM
 }
@@ -299,12 +327,64 @@ func TestOracleVersion(t *testing.T) {
 		if err == nil {
 			t.Fatalf("python3 %d.%d accepted as the oracle", v[0], v[1])
 		}
-		want := fmt.Sprintf("the oracle is python3 %d.%d, and parity is proven against python3 3.13", v[0], v[1])
+		want := fmt.Sprintf("python3.13 is python %d.%d, and parity is proven against python 3.13", v[0], v[1])
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("python3 %d.%d refused as %q, want it to say %q", v[0], v[1], err, want)
 		}
 	}
 	if err := oracleUnsupported([2]int{3, 13}); err != nil {
 		t.Errorf("python3 3.13 refused: %v", err)
+	}
+}
+
+// fakePythons is a PATH holding only the named fake pythons, each answering the version
+// request as python 3.14 does.
+func fakePythons(t *testing.T, names ...string) {
+	t.Helper()
+	dir := t.TempDir()
+	for _, name := range names {
+		script := "#!/bin/sh\necho '[{\"ok\": [3, 14]}]'\n"
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(script), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := syscall.Chmod(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", dir)
+}
+
+// TestOracleIsPython313ByName: the oracle is python3.13 by name, never python3, which is
+// 3.14 on a Fedora 44 host. With only that python3 on PATH, the oracle is missing, and the
+// failure names python3.13 and why it is the one.
+func TestOracleIsPython313ByName(t *testing.T) {
+	fakePythons(t, "python3")
+	_, err := askOracleVersion(t.Context())
+	if err == nil {
+		t.Fatal("a PATH with only python3 3.14 gave an oracle version")
+	}
+	for _, want := range []string{"python3.13 is not on PATH", "the ccy image's python"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("missing python3.13 reported as %q, want it to say %q", err, want)
+		}
+	}
+}
+
+// TestOracleNamedPython313ReportingAnotherVersion: a python3.13 that is not 3.13 is refused
+// with both versions named.
+func TestOracleNamedPython313ReportingAnotherVersion(t *testing.T) {
+	fakePythons(t, "python3", "python3.13")
+	v, err := askOracleVersion(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = oracleUnsupported(v)
+	if err == nil {
+		t.Fatal("a python3.13 reporting 3.14 accepted as the oracle")
+	}
+	want := "python3.13 is python 3.14, and parity is proven against python 3.13"
+	if !strings.Contains(err.Error(), want) {
+		t.Errorf("refused as %q, want it to say %q", err, want)
 	}
 }

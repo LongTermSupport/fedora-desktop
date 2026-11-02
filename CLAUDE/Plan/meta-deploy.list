@@ -32,3 +32,9 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# The changed plays, which include play-python.yml: it now installs python3.13, which the Go
+# parity tests of src-go/internal/bus/pycompat and seat run by name (the CCY image's python,
+# which the Go reproduces; Fedora 44's python3 is 3.14). Without it the host's qa-all fails
+# the go gate, naming python3.13.
+changed-plays
