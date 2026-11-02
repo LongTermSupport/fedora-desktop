@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix/tuwunelhs"
 )
 
@@ -260,38 +261,41 @@ func presenceCycle(ctx context.Context, t *testing.T, member, observer *Client, 
 }
 
 // presenceTimers polls the presence of a member that has stopped syncing until it is offline,
-// and checks it went through unavailable and took no longer than the timers allow. A ticker
-// drops ticks it cannot deliver, so the ticks counted times their period is at most the time
-// that passed: enough of them prove offline came no sooner than the timers allow.
+// and checks it went through unavailable, no later than the timers allow (a real bound that
+// fails the test when it runs out) and no sooner than they could fire: the time offline took
+// is read on CLOCK_BOOTTIME, as the wiring tests read theirs.
 func presenceTimers(ctx context.Context, t *testing.T, observer *Client, uid string) {
 	t.Helper()
-	const period = 250 * time.Millisecond
+	clk := clock.System()
+	from := clk.Boot()
 	limit := time.Duration(presenceIdleS+presenceOfflineS+10) * time.Second
 	over := time.NewTimer(limit)
 	defer over.Stop()
 	soonest := time.Duration(presenceIdleS+presenceOfflineS-1) * time.Second
 	seen := []string{"online"}
-	tick := time.NewTicker(period)
+	tick := time.NewTicker(250 * time.Millisecond)
 	defer tick.Stop()
-	ticks := 0
-	for seen[len(seen)-1] != "offline" {
+	for {
+		if now := presenceOf(ctx, t, observer, uid); now != seen[len(seen)-1] {
+			seen = append(seen, now)
+		}
+		if seen[len(seen)-1] == "offline" {
+			break
+		}
 		select {
 		case <-ctx.Done():
 			t.Fatalf("presence timers: %v after %v", ctx.Err(), seen)
 		case <-over.C:
 			t.Fatalf("presence %v, want offline within %v", seen, limit)
 		case <-tick.C:
-			ticks++
-		}
-		if now := presenceOf(ctx, t, observer, uid); now != seen[len(seen)-1] {
-			seen = append(seen, now)
 		}
 	}
+	took := clk.Boot() - from
 	if !slices.Equal(seen, []string{"online", "unavailable", "offline"}) {
 		t.Fatalf("presence went %v, want online, unavailable, offline", seen)
 	}
-	if time.Duration(ticks)*period < soonest {
-		t.Fatalf("offline after %d ticks of %v, before the timers (%d s and %d s) could fire", ticks, period, presenceIdleS, presenceOfflineS)
+	if took < soonest {
+		t.Fatalf("offline after %v, before the timers (%d s and %d s) could fire", took, presenceIdleS, presenceOfflineS)
 	}
 }
 
