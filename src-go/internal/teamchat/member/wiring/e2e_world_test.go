@@ -359,14 +359,18 @@ func eventually(t *testing.T, cond func() bool, what func() string) {
 	within(t, settle, cond, what)
 }
 
-// within is eventually with its own bound.
+// within is eventually with its own bound: it returns only once cond holds, and the bound
+// running out first fails the test.
 func within(t *testing.T, limit time.Duration, cond func() bool, what func() string) {
 	t.Helper()
 	tick := time.NewTicker(20 * time.Millisecond)
 	defer tick.Stop()
 	bound := time.NewTimer(limit)
 	defer bound.Stop()
-	for !cond() {
+	for {
+		if cond() {
+			return
+		}
 		select {
 		case <-tick.C:
 		case <-bound.C:
