@@ -1,0 +1,116 @@
+name: arm64 install
+
+# The real unattended install (run.bash headless, server profile) on real aarch64 silicon,
+# in a Fedora container with systemd as PID 1 on GitHub's arm64 runner (Plan 00243). It
+# catches an x86-only download, a package Fedora does not build for aarch64, or a hardcoded
+# x86 path, which QA's arch-pinned-artefact rule cannot always see.
+#
+# A container has no kernel modules, no boot loader of its own, no GDM and no real hardware,
+# so a play that fails only for that is a limit of this lane, not of the play: the plays are
+# never taught to skip inside a container. The run is long, so it is not on every branch.
+
+on:
+  push:
+    branches: ["F44-arm", "arm/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: arm64-install-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  install:
+    name: run.bash headless (server) on aarch64
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 240
+    env:
+      CONTAINER: fedora-arm64-install
+      CI_USER: ci
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install podman
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends podman
+          sudo podman version
+
+      # The base image carries no init; systemd is PID 1 so that hostnamectl, systemctl and
+      # the plays' services behave as on an installed box. The CI user gets ordinary password
+      # sudo through wheel, as the server profile expects (it never grants NOPASSWD).
+      - name: Build the Fedora image with systemd
+        run: |
+          set -euo pipefail
+          sudo podman build --tag fedora-desktop-arm64-install -f - . <<'CONTAINERFILE'
+          FROM registry.fedoraproject.org/fedora:44
+          RUN dnf -y install systemd sudo passwd shadow-utils util-linux procps-ng hostname \
+           && dnf clean all
+          RUN useradd --create-home --groups wheel ci
+          CMD ["/sbin/init"]
+          CONTAINERFILE
+
+      - name: Start the container
+        run: |
+          set -euo pipefail
+          sudo podman run --detach --name "$CONTAINER" --systemd=always --privileged \
+            --hostname arm64-ci \
+            --volume "$GITHUB_WORKSPACE:/src:ro" \
+            fedora-desktop-arm64-install
+          state=""
+          for _ in $(seq 1 60); do
+            state="$(sudo podman exec "$CONTAINER" systemctl is-system-running 2>&1)" && break
+            case "$state" in running|degraded) break ;; esac
+            sleep 2
+          done
+          echo "systemd state: ${state}"
+          case "$state" in
+            running) ;;
+            degraded) sudo podman exec "$CONTAINER" systemctl --no-pager --failed ;;
+            *) echo "systemd did not come up in the container (state: ${state})" >&2; exit 1 ;;
+          esac
+          arch="$(sudo podman exec "$CONTAINER" uname -m)"
+          echo "container architecture: ${arch}"
+          [ "$arch" = aarch64 ] || { echo "this lane must run on aarch64, got ${arch}" >&2; exit 1; }
+
+      # Throwaway values made for this run only: nothing real is used and nothing is kept.
+      # They reach the container on stdin, never in argv.
+      - name: Provide throwaway sudo and vault passwords
+        run: |
+          set -euo pipefail
+          sudo_pw="$(openssl rand -hex 24)"
+          vault_pw="$(openssl rand -hex 24)"
+          printf '%s:%s\n' "$CI_USER" "$sudo_pw" | sudo podman exec -i "$CONTAINER" chpasswd
+          sudo podman exec "$CONTAINER" install -d -m 0700 -o "$CI_USER" -g "$CI_USER" /run/ci-secrets
+          printf '%s' "$sudo_pw" | sudo podman exec -i --user "$CI_USER" "$CONTAINER" \
+            sh -c 'umask 077 && cat > /run/ci-secrets/sudo-pass'
+          printf '%s' "$vault_pw" | sudo podman exec -i --user "$CI_USER" "$CONTAINER" \
+            sh -c 'umask 077 && cat > /run/ci-secrets/vault-pass'
+          sudo podman exec --user "$CI_USER" "$CONTAINER" \
+            install -m 0755 /src/run.bash "/home/${CI_USER}/run.bash"
+
+      # run.bash clones fedora-desktop over HTTPS itself (the GitHub-less headless path) and
+      # pins the clone to the commit under test, so what runs is this push's tree.
+      - name: Run the unattended install
+        env:
+          GIT_REF: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          sudo podman exec --user "$CI_USER" --workdir "/home/${CI_USER}" "$CONTAINER" \
+            env HOME="/home/${CI_USER}" \
+              RUN_BASH_HEADLESS=1 \
+              RUN_BASH_USER_EMAIL=ci@example.com \
+              RUN_BASH_USER_NAME="arm64 CI" \
+              RUN_BASH_HOSTNAME=arm64-ci.example.com \
+              RUN_BASH_GITHUB_ACCOUNTS=none \
+              RUN_BASH_CONFIG_SOURCE=none \
+              RUN_BASH_OPTIONAL_PLAYBOOKS=none \
+              RUN_BASH_PROVISIONING_PROFILE=server \
+              RUN_BASH_GIT_REF="$GIT_REF" \
+              RUN_BASH_VAULT_PASSWORD_FILE=/run/ci-secrets/vault-pass \
+              RUN_BASH_SUDO_PASSWORD_FILE=/run/ci-secrets/sudo-pass \
+              "/home/${CI_USER}/run.bash" < /dev/null
