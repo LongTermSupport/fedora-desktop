@@ -60,7 +60,9 @@ jobs:
 
       # An installed box keeps /boot on a block device, and grub2-editenv refuses a grubenv it
       # cannot place on one (an overlay root is not), so /boot is an ext4 loop device made
-      # before the container starts, so that the privileged container sees it in /dev.
+      # before the container starts, so that the privileged container sees it in /dev. An
+      # installed box also has the module tree of the kernel it runs, which here is the
+      # runner's, so the plays' modprobe tasks get that tree, read-only.
       - name: Start the container
         run: |
           set -euo pipefail
@@ -70,6 +72,7 @@ jobs:
           sudo podman run --detach --name "$CONTAINER" --systemd=always --privileged \
             --hostname arm64-ci \
             --volume "$GITHUB_WORKSPACE:/src:ro" \
+            --volume "/lib/modules/$(uname -r):/usr/lib/modules/$(uname -r):ro" \
             fedora-desktop-arm64-install
           state=""
           for _ in $(seq 1 60); do
