@@ -632,7 +632,7 @@ reset() {
     rm -rf "$STATE/panes"
     mkdir -p "$STATE/panes"
     touch "$STATE/active/agent-bus-hs@alpha.service"
-    printf 'HUMAN\towner\tjoin\nMEMBER\tproj.1+local.podman\tworker\tjoin\tactive\nMEMBER\tproj.2+local.podman\tworker\tjoin\tparked\nMEMBER\tproj.box+role.lxc\tworker\tjoin\tactive\n' \
+    printf 'HUMAN\towner\tjoin\nMEMBER\tproj.1+local.podman\tworker\tjoin\tactive\nLIVE\tproj.1+local.podman\tlistening\nMEMBER\tproj.2+local.podman\tworker\tjoin\tparked\nLIVE\tproj.2+local.podman\tstale\nMEMBER\tproj.box+role.lxc\tworker\tjoin\tactive\nLIVE\tproj.box+role.lxc\tstale\n' \
         >"$STATE/members/alpha"
     "$SCRATCH/free-seats"
     rm -rf "$SEATS"
@@ -706,7 +706,7 @@ check_has "  on its declared port" "port 6167" "$alpha"
 check_has "  applied as declared (D65)" "up to date" "$alpha"
 check_has "  with what the team is for in the MEMBER column, whole when piped" "Builds the example site" "$alpha"
 seat="$(grep -E '^alpha +proj\.1\+local\.podman +ccy' <<<"$out")"
-check_has "seat 1 is an active ccy seat, shown by its whole handle" "active" "$seat"
+check_has "seat 1 is a ccy seat listening on the bus, shown by its whole handle" "listening" "$seat"
 check_has "  held by ccy-proj" "ccy-proj" "$seat"
 check_has "  which is restored after a reboot" " yes " "$seat"
 check_has "  in its checkout" "$CHECKOUT" "$seat"
@@ -714,7 +714,7 @@ check_has "a free seat says free" "free" "$(grep -E '^alpha +proj\.dev\+local\.p
 check_has "a ccy member whose checkout is not known is listed by handle, parked" "parked" \
     "$(grep -E '^alpha +proj\.2\+local\.podman +ccy' <<<"$out")"
 check "  and seat 1's handle is listed once" "1" "$(grep -c 'proj\.1+local\.podman' <<<"$out")"
-check_has "the LXC member" "active" "$(grep -E '^alpha +proj\.box\+role\.lxc +lxc' <<<"$out")"
+check_has "the LXC member, not parked but its status lapsed, is stale, not active" "stale" "$(grep -E '^alpha +proj\.box\+role\.lxc +lxc' <<<"$out")"
 human="$(grep -E '^alpha +owner +human' <<<"$out")"
 check_has "the person, in the room in words" "in room" "$human"
 check_has "  never signed in to Element (no device)" "never signed in" "$human"
@@ -761,7 +761,7 @@ check_has "  and so is the team row's" "members: need sudo" "$(grep -E '^alpha +
 reset
 rm -f "$STATE/sudo-cached"
 out="$(cd "$OUTSIDE" && TEST_SUDO_RULE=1 "$TOOL" --list 2>"$SCRATCH/err")"
-check_has "with the sudoers rule and no credential, the members are read" "active" \
+check_has "with the sudoers rule and no credential, the members are read" "listening" \
     "$(grep -E '^alpha +proj\.1\+local\.podman +ccy' <<<"$out")"
 check_lacks "  with nothing said about sudo" "sudo" "$(cat "$SCRATCH/err")"
 
@@ -825,7 +825,7 @@ check "no credential: sudo asks, once the reason is given" "yes" "$(logged 'sudo
 check_has "  the reason comes first" "done as root" "$out"
 check_has "  with what installs the rule that removes the need" "play-agent-bus.yml" "$out"
 check "  and with the password, the picker shows the members" "rc=0" "$(rc_of "$out")"
-check_has "    seat 1 active" "active" "$(grep -E '^alpha +proj\.1\+local\.podman +ccy' "$TEST_FZF_ROWS")"
+check_has "    seat 1 listening" "listening" "$(grep -E '^alpha +proj\.1\+local\.podman +ccy' "$TEST_FZF_ROWS")"
 check "  and the credential is dropped as ccy-teams ends (an agent may start here next)" "sudo -k" \
     "$(grep '^sudo ' "$TEST_LOG" | awk 'END { print }')"
 check "    so none is left cached" "no" "$([ -e "$STATE/sudo-cached" ] && echo yes || echo no)"
@@ -843,7 +843,7 @@ reset
 rm -f "$STATE/sudo-cached"
 out="$(TEST_SUDO_RULE=1 run_picker "$OUTSIDE" "|ABORT")"
 check "the sudoers rule installed: no password is asked" "no" "$(logged 'sudo -v')"
-check_has "  and the members are shown" "active" "$(grep -E '^alpha +proj\.1\+local\.podman +ccy' "$TEST_FZF_ROWS")"
+check_has "  and the members are shown" "listening" "$(grep -E '^alpha +proj\.1\+local\.podman +ccy' "$TEST_FZF_ROWS")"
 check_has "  and whether the person is signed in, through the rule's second command" "never signed in" \
     "$(grep -E '^alpha +owner +human' "$TEST_FZF_ROWS")"
 check "  which ccy-teams called as the rule names it" "yes" \

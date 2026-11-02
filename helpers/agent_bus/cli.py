@@ -312,7 +312,8 @@ def build_parser(stdout: BinaryIO) -> argparse.ArgumentParser:
     role.add_argument("--role", required=True, choices=registry.ROLES)
     rotate = team_command("rotate-token", cmd_rotate_token, "log a member out; a new token to --out")
     rotate.add_argument("handle", metavar="HANDLE")
-    team_command("list", cmd_list, "members, roles and room membership; no tokens")
+    team_command("list", cmd_list, "members, roles, room membership, parked or not, and whether each is "
+                 "listening now (LIVE); no tokens")
     team_command("check-rooms", cmd_check_rooms,
                  "the side rooms' drift and membership, read-only; a PROBLEM line each, exit 1 on any; "
                  "an OFFLINE line for each coordinator not running, which passes")

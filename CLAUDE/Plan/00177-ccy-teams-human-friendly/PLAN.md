@@ -446,6 +446,18 @@ are Phase 12. [Full text](DONE-phases.md#phase-11-findings-of-the-host-run-of-26
   are nodes of `--graph` (0 missing; 6 teams, 13 subgraphs balanced). Left: the render, since
   the host has no Mermaid parser.
 
+- [x] ✅ **Task 15.3**: The owner (2026-11-02): the list showed members green and "active"
+  whose sessions were not running, while `pingbus status` called them stale. "active" was the
+  registry's park state (not parked), read by `agent-bus list`, never liveness. Built under
+  Defence Before Fix: the rule `project_liveness_word` (red, then every finding fixed);
+  `agent-bus list` prints a `LIVE` line per member (its `agent_bus.status`, judged as
+  `pingbus status` judges it); `--list`, the picker and `--graph` show listening, stale, not
+  listening, parked, or unknown with why. CCY 3.104.17. Report:
+  [subagent-reports/261102-active-state.md](subagent-reports/261102-active-state.md).
+- [ ] 🔄 **Task 15.4**: Host check, once `changed-plays` has run `play-agent-bus.yml` and
+  `play-claude-yolo.yml`: `ccy-teams --list` calls a member whose `pingbus status` is stale
+  "stale" and a running one "listening", and `--graph` draws the same.
+
 ## Success Criteria
 
 - [ ] On the host, `ccy-teams` with no teams offers to create one, and a refused or cancelled
