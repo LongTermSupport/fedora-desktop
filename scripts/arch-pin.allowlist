@@ -1,34 +1,61 @@
 # Ratchet allowlist for arch-pinned-artefact (scripts/qa-arch-pin.bash, src-go/qa/archpin; the rule
 # is .semgrep/arch-pin.yml, its documentation CLAUDE/QA.md "arch-pinned-artefact").
 #
-# Each row is a file holding references fixed to one CPU architecture that were known when the
-# rule landed (Plan 00243, the arm64 sweep: SWEEP.md in that plan has every line, whether an
-# aarch64 build exists, and the fix). Rows:
+# Each row is one reference fixed to one CPU architecture that was known when the rule landed
+# (Plan 00243, the arm64 sweep: SWEEP.md in that plan has every line, whether an aarch64 build
+# exists, and the fix). A row names its finding by the file and the text of the line, its
+# whitespace collapsed to single spaces, never by the line number, which moves. Rows:
 #
-#   <path> TAB <findings> TAB <what they are; aarch64 availability>
+#   <path> TAB <the line's text> TAB <what it is; aarch64 availability>
 #
-# A record may only be lowered: the gate fails when a file has more findings than its record (a
-# new instance), fewer (lower the number), none or the file is gone (delete the row). Never add a
-# row: select the artefact by architecture instead. The list is a baseline the owner is asked to
-# accept until the sweep is fixed; when it is empty the rule blocks with no exception.
-.github/workflows/qa.yml	4	CI shellcheck, golangci-lint, gitleaks for the x86_64 ubuntu runner; arm64 builds exist
-fedora-install/build-iso.bash	2	usage text naming x86_64 Fedora ISOs; aarch64 ISOs exist
-fedora-install/setup-netinstall-boot.bash	4	netinstall/Workstation ISO paths and names; aarch64 ISOs exist under the same layout
-files/opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt	3	go and AWS CLI examples for project Dockerfiles; arm64/aarch64 builds exist
-files/usr/local/bin/manage-kernel-versions.py	4	kernel NEVRA suffix .x86_64 in dnf versionlock; use the running arch
-files/var/local/docker-in-lxc	1	lxc download template -a amd64; Fedora arm64 images exist
-helpers/gnome/check_panel_contract.py	1	sample kernel string used to enumerate status keys (data, installs nothing)
-helpers/vmtest/freshness_gate.py	1	VM lab guest arch; aarch64 Fedora Cloud images exist
-helpers/vmtest/probe_upstream.py	1	VM lab guest arch; aarch64 Fedora Cloud images exist
-playbooks/imports/optional/common/play-cli-tools.yml	1	ouch musl target; aarch64 build exists
-playbooks/imports/optional/common/play-network-tools.yml	1	Ookla speedtest tarball; aarch64 build exists
-playbooks/imports/optional/common/play-photography.yml	2	RapidRAW rpm and ART AppImage; aarch64 builds exist
-playbooks/imports/optional/common/play-qobuz.yml	2	hifi.rs tarball; aarch64 build exists
-playbooks/imports/optional/hardware-specific/play-displaylink.yml	2	DisplayLink/evdi rpm; aarch64 rpm exists
-playbooks/imports/optional/hardware-specific/play-nvidia.yml	5	CUDA repo and cuDNN wheel; NVIDIA publishes no CUDA toolkit for Fedora aarch64
-playbooks/imports/play-AB-dnf-upgrade.yml	1	kmod rpm name pattern .x86_64; use the running arch
-playbooks/imports/play-basic-configs.yml	1	yq latest amd64 with no checksum; arm64 build exists
-playbooks/imports/play-browsers.yml	1	Google Chrome rpm repo baseurl; the stable aarch64 repo exists
-playbooks/imports/play-markless.yml	3	markless tarball; aarch64 build exists
-playbooks/imports/play-python.yml	3	QA shellcheck and golangci-lint for the host; aarch64/arm64 builds exist
-src-go/internal/vmtest/fetch.go	1	VM lab guest arch; aarch64 Fedora Cloud images exist
+# Rows may only be deleted: the gate fails on a finding no row names (a new instance, however
+# many were fixed beside it), on a row whose finding is gone (fixed, or its line edited: delete
+# the row), and on a row the base does not have (the copy at the merge-base with the default
+# branch, or QA_BASH_LIMITS_BASE). Never add a row: select the artefact by architecture
+# instead. The list is a baseline the owner is asked to accept until the sweep is fixed; when it
+# is empty the rule blocks with no exception.
+# format: 2
+.github/workflows/qa.yml	"https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK}/shellcheck-v${SHELLCHECK}.linux.x86_64.tar.xz"	CI shellcheck, golangci-lint, gitleaks for the x86_64 ubuntu runner; arm64 builds exist
+.github/workflows/qa.yml	GL="golangci-lint-${GOLANGCI_LINT}-linux-amd64.tar.gz"	CI shellcheck, golangci-lint, gitleaks for the x86_64 ubuntu runner; arm64 builds exist
+.github/workflows/qa.yml	sudo install -m 0755 "/tmp/golangci-lint/golangci-lint-${GOLANGCI_LINT}-linux-amd64/golangci-lint" /usr/local/bin/golangci-lint	CI shellcheck, golangci-lint, gitleaks for the x86_64 ubuntu runner; arm64 builds exist
+.github/workflows/qa.yml	curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${VER}/gitleaks_${VER}_linux_x64.tar.gz" -o /tmp/gitleaks.tgz	CI shellcheck, golangci-lint, gitleaks for the x86_64 ubuntu runner; arm64 builds exist
+fedora-install/build-iso.bash	echo " sudo bash $0 ~/Downloads/Fedora-Everything-netinst-x86_64-44-1.7.iso"	usage text naming x86_64 Fedora ISOs; aarch64 ISOs exist
+fedora-install/build-iso.bash	echo " sudo bash $0 ~/Downloads/Fedora-Workstation-Live-44-1.7.x86_64.iso custom.iso"	usage text naming x86_64 Fedora ISOs; aarch64 ISOs exist
+fedora-install/setup-netinstall-boot.bash	NETINSTALL_PREFIX="Fedora-Everything-netinst-x86_64"	netinstall/Workstation ISO paths and names; aarch64 ISOs exist under the same layout
+fedora-install/setup-netinstall-boot.bash	local dir_url="${BASE_URL}/${version}/Everything/x86_64/iso/"	netinstall/Workstation ISO paths and names; aarch64 ISOs exist under the same layout
+fedora-install/setup-netinstall-boot.bash	local dir_url="${BASE_URL}/${version}/Workstation/x86_64/iso/"	netinstall/Workstation ISO paths and names; aarch64 ISOs exist under the same layout
+fedora-install/setup-netinstall-boot.bash	| grep -oP "${WORKSTATION_PREFIX}-${version}-[0-9.]+\.x86_64\.iso" \	netinstall/Workstation ISO paths and names; aarch64 ISOs exist under the same layout
+files/opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt	RUN wget -qO- https://go.dev/dl/go1.21.5.linux-amd64.tar.gz | \	go and AWS CLI examples for project Dockerfiles; arm64/aarch64 builds exist
+files/opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt	RUN wget -qO- https://go.dev/dl/go1.21.5.linux-amd64.tar.gz | \	go and AWS CLI examples for project Dockerfiles; arm64/aarch64 builds exist
+files/opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt	RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \	go and AWS CLI examples for project Dockerfiles; arm64/aarch64 builds exist
+files/usr/local/bin/manage-kernel-versions.py	Expected format: X.Y.Z-RELEASE (e.g., 6.17.5-200.fc42.x86_64)	kernel NEVRA suffix .x86_64 in dnf versionlock; use the running arch
+files/usr/local/bin/manage-kernel-versions.py	version_str = stdout.strip().replace(".x86_64", "")	kernel NEVRA suffix .x86_64 in dnf versionlock; use the running arch
+files/usr/local/bin/manage-kernel-versions.py	["dnf", "versionlock", "add", f"kernel-0:{kernel.full_version}.x86_64"],	kernel NEVRA suffix .x86_64 in dnf versionlock; use the running arch
+files/usr/local/bin/manage-kernel-versions.py	["dnf", "versionlock", "delete", f"kernel-0:{kernel.full_version}.x86_64"],	kernel NEVRA suffix .x86_64 in dnf versionlock; use the running arch
+files/var/local/docker-in-lxc	if ! sudo lxc-create -n "$name" -t download -- -d fedora -r "$FEDORA_VERSION" -a amd64; then	lxc download template -a amd64; Fedora arm64 images exist
+helpers/gnome/check_panel_contract.py	kernel="7.2.4-200.fc44.x86_64",	sample kernel string used to enumerate status keys (data, installs nothing)
+helpers/vmtest/freshness_gate.py	ARCH = "x86_64"	VM lab guest arch; aarch64 Fedora Cloud images exist
+helpers/vmtest/probe_upstream.py	ARCH = "x86_64"	VM lab guest arch; aarch64 Fedora Cloud images exist
+playbooks/imports/optional/common/play-cli-tools.yml	ouchArch: "x86_64-unknown-linux-musl"	ouch musl target; aarch64 build exists
+playbooks/imports/optional/common/play-network-tools.yml	ooklaSpeedtestUrl: "https://install.speedtest.net/app/cli/ookla-speedtest-{{ ooklaSpeedtestVersion }}-linux-x86_64.tgz"	Ookla speedtest tarball; aarch64 build exists
+playbooks/imports/optional/common/play-photography.yml	rapidraw_rpm: "03_RapidRAW_v{{ rapidraw_version }}_ubuntu-22.04_x86_64.rpm"	RapidRAW rpm and ART AppImage; aarch64 builds exist
+playbooks/imports/optional/common/play-photography.yml	art_appimage: "ART-{{ art_version }}-x86_64.AppImage"	RapidRAW rpm and ART AppImage; aarch64 builds exist
+playbooks/imports/optional/common/play-qobuz.yml	hifiRsUrl: "https://github.com/iamdb/hifi.rs/releases/download/v{{ hifiRsVersionFinal }}/hifi-rs-x86_64-unknown-linux-gnu.tar.gz"	hifi.rs tarball; aarch64 build exists
+playbooks/imports/optional/common/play-qobuz.yml	tar -xf hifi-rs-x86_64-unknown-linux-gnu.tar.gz	hifi.rs tarball; aarch64 build exists
+playbooks/imports/optional/hardware-specific/play-displaylink.yml	fedora-{{ fedora_version }}-displaylink-<evdi>-<release>.github_evdi.x86_64.rpm	DisplayLink/evdi rpm; aarch64 rpm exists
+playbooks/imports/optional/hardware-specific/play-displaylink.yml	name: "https://github.com/displaylink-rpm/displaylink-rpm/releases/download/{{ displaylink_version }}/fedora-{{ fedora_version }}-displaylink-{{ evdi_version }}-{{ evdi_rpm_release }}.github_evdi.x86_64.rpm"	DisplayLink/evdi rpm; aarch64 rpm exists
+playbooks/imports/optional/hardware-specific/play-nvidia.yml	cuda_gpgkey_url: "https://developer.download.nvidia.com/compute/cuda/repos/fedora{{ fedora_version }}/x86_64/73CD9B30.pub"	CUDA repo and cuDNN wheel; NVIDIA publishes no CUDA toolkit for Fedora aarch64
+playbooks/imports/optional/hardware-specific/play-nvidia.yml	cudnn_wheel_url: "https://files.pythonhosted.org/packages/57/96/ce2cb84b5e8bb94dd55f554e3454b91e9ecd6708aa27d4a7b12f287613bc/nvidia_cudnn_cu13-9.22.0.52-py3-none-manylinux_2_27_x86_64.whl"	CUDA repo and cuDNN wheel; NVIDIA publishes no CUDA toolkit for Fedora aarch64
+playbooks/imports/optional/hardware-specific/play-nvidia.yml	name: "cuda-fedora{{ fedora_version }}-x86_64"	CUDA repo and cuDNN wheel; NVIDIA publishes no CUDA toolkit for Fedora aarch64
+playbooks/imports/optional/hardware-specific/play-nvidia.yml	description: "NVIDIA CUDA Fedora {{ fedora_version }} x86_64"	CUDA repo and cuDNN wheel; NVIDIA publishes no CUDA toolkit for Fedora aarch64
+playbooks/imports/optional/hardware-specific/play-nvidia.yml	baseurl: "https://developer.download.nvidia.com/compute/cuda/repos/fedora{{ fedora_version }}/x86_64"	CUDA repo and cuDNN wheel; NVIDIA publishes no CUDA toolkit for Fedora aarch64
+playbooks/imports/play-AB-dnf-upgrade.yml	rpm -qa "kmod-*-${v}.x86_64" 2>/dev/null	kmod rpm name pattern .x86_64; use the running arch
+playbooks/imports/play-basic-configs.yml	wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 && chmod 0755 /usr/bin/yq	yq latest amd64 with no checksum; arm64 build exists
+playbooks/imports/play-browsers.yml	baseurl: https://dl.google.com/linux/chrome/rpm/stable/x86_64	Google Chrome rpm repo baseurl; the stable aarch64 repo exists
+playbooks/imports/play-markless.yml	marklessUrl: "https://github.com/jvanderberg/markless/releases/download/v{{ marklessVersion }}/markless-x86_64-unknown-linux-gnu.tar.gz"	markless tarball; aarch64 build exists
+playbooks/imports/play-markless.yml	echo "{{ marklessSha256 }} markless-x86_64-unknown-linux-gnu.tar.gz" | sha256sum -c -	markless tarball; aarch64 build exists
+playbooks/imports/play-markless.yml	tar -xzf markless-x86_64-unknown-linux-gnu.tar.gz	markless tarball; aarch64 build exists
+playbooks/imports/play-python.yml	golangci_lint_archive: "golangci-lint-{{ qa_versions.GOLANGCI_LINT }}-linux-amd64.tar.gz"	QA shellcheck and golangci-lint for the host; aarch64/arm64 builds exist
+playbooks/imports/play-python.yml	src: "https://github.com/koalaman/shellcheck/releases/download/v{{ qa_versions.SHELLCHECK }}/shellcheck-v{{ qa_versions.SHELLCHECK }}.linux.x86_64.tar.xz"	QA shellcheck and golangci-lint for the host; aarch64/arm64 builds exist
+playbooks/imports/play-python.yml	- "golangci-lint-{{ qa_versions.GOLANGCI_LINT }}-linux-amd64/golangci-lint"	QA shellcheck and golangci-lint for the host; aarch64/arm64 builds exist
+src-go/internal/vmtest/fetch.go	const arch = "x86_64"	VM lab guest arch; aarch64 Fedora Cloud images exist

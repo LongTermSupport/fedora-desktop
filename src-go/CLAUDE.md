@@ -431,7 +431,8 @@ which are not expected). `SPEC-qa-gh-scopes.md` (G1-G16) is the specification.
 `.semgrep/arch-pin.yml` the data; the Go owns scope (what git would publish minus the rule's own
 `paths.exclude` globs, read by `qa/internal/semgrepreport`, handed by name), the self-test
 against its fixture, the refusal to pass over a file semgrep did not read, and the ratchet
-`scripts/arch-pin.allowlist` (a file may only lose findings). Its package doc is the
+`scripts/arch-pin.allowlist` (one row per finding, by its line's text; rows may only be deleted,
+checked against the list's copy at the base commit). Its package doc is the
 specification.
 
 `qa/planscriptlogging` + `qa/cmd/qa-plan-script-logging` (same nested module) are

@@ -53,13 +53,17 @@ func (g *gate) readRule() (semgrepreport.Excludes, error) {
 	return semgrepreport.ParseExcludes(ruleFile, rule)
 }
 
-// readAllowlist reads the ratchet.
+// readAllowlist reads the ratchet, which must be in the current format.
 func (g *gate) readAllowlist() (allowlist, error) {
 	text, err := g.readFile(allowlistFile)
 	if err != nil {
-		return nil, err
+		return allowlist{}, err
 	}
-	return parseAllowlist(text)
+	list, err := parseAllowlist(text)
+	if err == nil && list.format != allowlistFormat {
+		err = fmt.Errorf("%s is format %d: write it as `%s%d` with one row per finding (path TAB finding TAB note)", allowlistFile, list.format, formatPrefix, allowlistFormat)
+	}
+	return list, err
 }
 
 // proveRule runs the rule against its annotated fixture. A rule edited into matching nothing is
@@ -116,8 +120,8 @@ func (g *gate) handOver(ctx context.Context, excl semgrepreport.Excludes) ([]str
 
 // scan hands the files to semgrep by name, never as a directory (a directory scan applies
 // semgrep's default ignore list), refuses a report over files it did not read, and returns the
-// distinct finding lines of each file.
-func (g *gate) scan(ctx context.Context, files []string) (map[string][]int, error) {
+// findings of each file: each distinct line, with its text read from the file.
+func (g *gate) scan(ctx context.Context, files []string) (map[string][]finding, error) {
 	argv := append([]string{"semgrep", "--config", g.path(ruleFile), "--json", "--quiet", "--metrics=off", semgrepreport.TimeoutFlag, "--max-target-bytes=0"}, files...)
 	res, err := g.runTool(ctx, semgrepBound, argv...)
 	if err != nil {
@@ -133,15 +137,101 @@ func (g *gate) scan(ctx context.Context, files []string) (map[string][]int, erro
 	if err := rep.Judge("published", files); err != nil {
 		return nil, err
 	}
-	found := map[string][]int{}
+	lines := map[string][]int{}
 	for _, r := range rep.Results {
 		p := semgrepreport.Tidy(r.Path)
-		if !slices.Contains(found[p], r.Start.Line) {
-			found[p] = append(found[p], r.Start.Line)
+		if !slices.Contains(lines[p], r.Start.Line) {
+			lines[p] = append(lines[p], r.Start.Line)
 		}
 	}
-	for p := range found {
-		slices.Sort(found[p])
+	found := map[string][]finding{}
+	for p, ls := range lines {
+		slices.Sort(ls)
+		text, err := g.readFile(p)
+		if err != nil {
+			return nil, err
+		}
+		all := strings.Split(text, "\n")
+		for _, l := range ls {
+			if l < 1 || l > len(all) {
+				return nil, fmt.Errorf("semgrep reported %s:%d, and the file has %d line(s)", p, l, len(all))
+			}
+			found[p] = append(found[p], finding{text: identity(all[l-1]), line: l})
+		}
 	}
 	return found, nil
+}
+
+// baseVariable names the commit the allowlist is compared with when the caller sets it: the
+// variable the bash-limits and shellcheck-directive ratchets read, which CI sets (the head
+// before a push to the default branch).
+const baseVariable = "QA_BASH_LIMITS_BASE"
+
+// git runs git from the root and returns its stdout; a non-zero status is an error.
+func (g *gate) git(ctx context.Context, args ...string) (string, error) {
+	res, err := g.runTool(ctx, gitBound, append([]string{"git"}, args...)...)
+	if err != nil {
+		return "", err
+	}
+	if res.Code != 0 {
+		return "", fmt.Errorf("git %s exited %d: %s", strings.Join(args, " "), res.Code, strings.TrimSpace(res.Stderr))
+	}
+	return res.Stdout, nil
+}
+
+// baseRef is the commit the allowlist is compared with: QA_BASH_LIMITS_BASE when set, else the
+// merge-base of HEAD and origin's default branch, so commits not pushed yet are compared too.
+func (g *gate) baseRef(ctx context.Context) (string, error) {
+	if g.env.Getenv != nil {
+		if set := strings.TrimSpace(g.env.Getenv(baseVariable)); set != "" {
+			return set, nil
+		}
+	}
+	head, err := g.git(ctx, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD")
+	if err != nil {
+		return "", fmt.Errorf("no base to compare %s with: origin's default branch is not known here (run: git remote set-head origin --auto, or set %s): %w", allowlistFile, baseVariable, err)
+	}
+	base, err := g.git(ctx, "merge-base", "HEAD", strings.TrimSpace(head))
+	if err != nil {
+		return "", fmt.Errorf("no base to compare %s with: %w", allowlistFile, err)
+	}
+	return strings.TrimSpace(base), nil
+}
+
+// baseAllowlist is the allowlist the current one may only shrink from, and the commit it was
+// read at: the copy at the base, or, for a base from before the gate landed (it has none), the
+// first copy committed on HEAD's history, the baseline accepted with the rule. A base that does
+// not resolve, or a list never committed, is an error: nothing could tell a new row from an old.
+func (g *gate) baseAllowlist(ctx context.Context) (allowlist, string, error) {
+	ref, err := g.baseRef(ctx)
+	if err != nil {
+		return allowlist{}, "", err
+	}
+	if _, verifyErr := g.git(ctx, "rev-parse", "--verify", "--quiet", ref+"^{commit}"); verifyErr != nil {
+		return allowlist{}, "", fmt.Errorf("the base %q does not resolve to a commit: %w", ref, verifyErr)
+	}
+	listed, err := g.git(ctx, "ls-tree", "--name-only", ref, "--", allowlistFile)
+	if err != nil {
+		return allowlist{}, "", err
+	}
+	if strings.TrimSpace(listed) == "" {
+		added, logErr := g.git(ctx, "log", "--diff-filter=A", "--format=%H", "HEAD", "--", allowlistFile)
+		if logErr != nil {
+			return allowlist{}, "", logErr
+		}
+		commits := strings.Fields(added)
+		if len(commits) == 0 {
+			return allowlist{}, "", fmt.Errorf("the base %s has no %s and HEAD's history never committed one: commit the list before the gate can hold it", ref, allowlistFile)
+		}
+		ref = commits[len(commits)-1]
+	}
+	text, err := g.git(ctx, "show", ref+":"+allowlistFile)
+	if err != nil {
+		return allowlist{}, "", err
+	}
+	list, err := parseAllowlist(text)
+	if err != nil {
+		return allowlist{}, "", fmt.Errorf("%s at %s: %w", allowlistFile, ref, err)
+	}
+	return list, ref, nil
 }

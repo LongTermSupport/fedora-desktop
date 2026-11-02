@@ -8,9 +8,15 @@
 // semgrep is the engine (the rule is data); this package owns what is scanned (every regular file
 // git would publish, minus the rule's own paths.exclude globs, handed by name), the proof the rule
 // still matches its fixture, the refusal to pass over a file semgrep did not read, and the
-// ratchet: a file not on the allowlist may have no finding; a listed file must have exactly its
-// record (more is a new instance, fewer means the record is lowered, none or a file gone means
-// the row is deleted).
+// ratchet. The allowlist (`# format: 2`) has one row per known finding, named by its file and the
+// text of its line with whitespace collapsed, never by the line number, which moves with every
+// edit above it. A file not on the allowlist may have no finding; a listed file must have exactly
+// the findings its rows name (a finding no row names fails however many were fixed beside it; a
+// row naming a finding that is gone, fixed or its line edited, is deleted). And the list only
+// shrinks: it is compared with its copy at the base (QA_BASH_LIMITS_BASE, which CI sets, else
+// the merge-base of HEAD and origin's default branch; for a base from before the gate landed,
+// the first copy committed on HEAD's history), and a row the base does not have fails (a
+// format 1 base, which held a count per file, is held per file to its count).
 //
 // Exit: 0 clean, 1 a finding or a rule that fails its fixture, 2 the run could not complete.
 package archpin
@@ -60,6 +66,8 @@ type Env struct {
 	Cwd string
 	// Runner starts git and semgrep.
 	Runner proc.Runner
+	// Getenv reads QA_BASH_LIMITS_BASE, the base the allowlist is compared with; nil reads none.
+	Getenv func(string) string
 }
 
 const usageText = `usage: qa-arch-pin [--root DIR] [--scripts DIR]
@@ -156,7 +164,11 @@ func (g *gate) run(ctx context.Context) (ExitCode, error) {
 	if err != nil {
 		return ExitCannotRun, err
 	}
-	return g.verdict(list, found, files), nil
+	base, ref, err := g.baseAllowlist(ctx)
+	if err != nil {
+		return ExitCannotRun, err
+	}
+	return g.verdict(list, found, files, againstBase(base, list, ref)), nil
 }
 
 // The three bounds a process runs under; each is a constant, so no test can shorten one.
