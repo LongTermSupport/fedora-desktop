@@ -106,7 +106,8 @@ func (w *WindDown) takeTurn(ctx context.Context, j *job, state screen.State, now
 	if err := w.typeLine(ctx, j, compactText, phaseCompact); err != nil {
 		return err
 	}
-	j.compactAt, j.sawBusy, j.quietBy, j.boundaryBy = at, false, time.Time{}, time.Time{}
+	j.compactAt, j.boundaryBy = at, time.Time{}
+	j.quiet.Reset()
 	return nil
 }
 
@@ -178,24 +179,10 @@ func (w *WindDown) compacting(ctx context.Context, j *job, state screen.State, n
 	return nil
 }
 
-// idleAgain is whether the session is idle and empty again after the phase's line: idle after a
-// busy look, or idle for the settle bound when no busy look was caught.
+// idleAgain is whether the session is idle and empty again after the phase's line: sessclose's
+// pane wait, the one copy of it.
 func (w *WindDown) idleAgain(j *job, state screen.State, now time.Time) bool {
-	switch state {
-	case screen.Ready:
-		if j.sawBusy {
-			return true
-		}
-		if j.quietBy.IsZero() {
-			j.quietBy = now.Add(w.Waits.Settle)
-		}
-		return !now.Before(j.quietBy)
-	case screen.Busy:
-		j.sawBusy = true
-	case screen.Typed, screen.NotDrawn:
-	}
-	j.quietBy = time.Time{}
-	return false
+	return j.quiet.Idle(state, now, w.Waits.Settle)
 }
 
 // windowEnded is a session the window ran out on: reported, not a failure, and not interrupted

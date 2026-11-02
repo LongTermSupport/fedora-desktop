@@ -299,6 +299,7 @@ var realClocks = []allowance{
 	{pkg: "internal/teams/restart", fn: newFn, reason: "the real side of Restart.Sleep; its tests replace Sleep, and the picker's never reach a wait"},
 	{pkg: "internal/teams/shutdown", fn: newFn, reason: "the real side of Shutdown.Sleep; its tests replace Sleep, and the picker's never reach a wait"},
 	{pkg: "internal/teams/winddown", fn: newFn, reason: "the real side of WindDown.Sleep; its tests replace Sleep, and the picker's never reach a wait"},
+	{pkg: "internal/sessclose", fn: newFn, reason: "the real side of Closer.Sleep; its tests and every caller's replace Sleep (shutdown, ccy-sessions and the ccy front set their own clock), and the picker's never reach a wait"},
 	{pkg: "internal/teams/hot", fn: newFn, reason: "the real side of Hot.Sleep; its tests replace Sleep"},
 }
 

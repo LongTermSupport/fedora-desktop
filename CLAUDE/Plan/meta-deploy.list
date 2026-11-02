@@ -35,6 +35,8 @@
 
 # Every changed play; expected: play-claude-yolo.yml, which rebuilds and installs ccy-teams
 # (CCY 3.104.16): a copied password is cleared from the clipboard once pasted if it is still
-# there, and the sign-in block names what a team lacks for its homeserver address. The image
-# is unchanged, so no rebuild.
+# there, and the sign-in block names what a team lacks for its homeserver address; and (CCY
+# 3.105.0) the ccy front, ccy-teams and ccy-sessions with compact then exit on close: ccy-teams
+# shutdown compacts each session before its /exit, ccy --stop SESSION is new, and a
+# ccy-sessions row gains Close it. The image is unchanged, so no rebuild.
 changed-plays

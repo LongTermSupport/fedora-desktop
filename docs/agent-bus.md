@@ -165,10 +165,17 @@ answering or compacting at its end is named, never interrupted. Nothing is ended
 **Shut down a team's sessions** (the team stays up). `ccy-teams shutdown <team>` (or Enter on
 the team, then **Shut down every session of `<team>`**) lists the team's sessions on this host
 and the members it cannot reach, asks (default No; `--yes` where there is no terminal), then
-types `/exit` into each session's tmux pane, as you would (Escape first if it is busy). When
-Claude Code answers "Background work is running", it chooses **Exit and stop tasks**. A
-session still running after 60 s is stopped as ccy-sessions' End stops it; each seat must then
-be free. Each member is reported: exited cleanly, stopped, failed, not shut down (an LXC
+closes each session as you would: `/compact` typed into its tmux pane (Escape first if it is
+busy), and once its transcript records the compaction, `/exit`. Compacting at close, while the
+prompt cache is warm, costs a cache read of the conversation; the next resume then starts from
+the summary instead of writing the whole conversation to the cache again. A session with
+nothing to compact since its last compaction gets `/exit` alone, and so does every session
+with `--no-compact`. A compaction not complete within 600 s fails that session, which is left
+running and named (attach it with `ccy-sessions`); it is never killed. When Claude Code
+answers "Background work is running", it chooses **Exit and stop tasks**. A session still
+running 60 s after `/exit` is stopped as ccy-sessions' End stops it; each seat must then be
+free. The same close is `ccy --stop SESSION...` and a session's **Close it** in
+`ccy-sessions`: one package, `src-go/internal/sessclose`. Each member is reported: exited cleanly, stopped, failed, not shut down (an LXC
 agent, a session on another machine, a `cc --teams <team>` session whose record lacks its seat:
 end those where they run), or "no session running, nothing to shut down" (a free seat whose
 session has ended already; it never fails the run). A session with unsent text in its input box, or whose screen cannot

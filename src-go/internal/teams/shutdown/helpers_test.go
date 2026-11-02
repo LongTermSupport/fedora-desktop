@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessclose"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
@@ -68,6 +70,10 @@ type machine struct {
 	now      time.Time
 	sleeps   []time.Duration
 	sessions []*session
+	// compact gives the sessions a conversation to compact; compactedAt is when a typed
+	// /compact completed (Unix seconds), 0 before.
+	compact     bool
+	compactedAt int64
 }
 
 func newMachine(t *testing.T) *machine {
@@ -77,6 +83,15 @@ func newMachine(t *testing.T) *machine {
 	m.fakeTmux()
 	m.build()
 	return m
+}
+
+// CompactedLast is the fake transcripts': nothing to compact unless a test asks for a
+// compaction (compact).
+func (m *machine) CompactedLast(string) (bool, error) { return !m.compact, nil }
+
+// CompactedSince is whether the fake session's /compact has completed.
+func (m *machine) CompactedSince(_ string, since int64) (bool, error) {
+	return m.compactedAt != 0 && m.compactedAt >= since, nil
 }
 
 // build makes the Shutdown over the host as it now is, on the fake clock, with the checkout
@@ -91,6 +106,11 @@ func (m *machine) build() {
 		m.sleeps = append(m.sleeps, d)
 		m.now = m.now.Add(d)
 	}
+	closer := sessclose.New(h.Tmux, h.Registry, h.Getenv)
+	closer.Now, closer.Sleep = m.s.Now, m.s.Sleep
+	closer.Transcripts = m
+	closer.Transcript = func(rec registry.Record) (string, error) { return "/t/" + rec.Name + ".jsonl", nil }
+	m.s.Closer = closer
 }
 
 // interactive puts the machine on a terminal with scripted fzf answers.
@@ -192,6 +212,11 @@ func (m *machine) enter(s *session) {
 	}
 	if s.typed == "" && s.pane == paneBackgroundWork {
 		s.typed = "/exit"
+	}
+	if strings.HasPrefix(s.typed, "/compact ") {
+		// The fake compaction completes at once: its boundary is in the transcript.
+		s.typed, m.compactedAt = "", m.now.Unix()
+		return
 	}
 	if s.typed != "/exit" {
 		return

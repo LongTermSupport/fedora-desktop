@@ -126,6 +126,15 @@ members, their `systemctl stop` and the `ccy-teams-hold.conf` drop-in (`Restart=
 before the `/exit`, which a play-agent-bus apply honours). A change here is checked against
 both.
 
+- **SD9a** (Plan 00191 Task 4.12, amending SD10) The close is `internal/sessclose`, where
+  SD10-SD13 now live, shared with `ccy --stop` and ccy-sessions' Close. By default each session
+  is compacted before its `/exit`: at a ready box `/compact <close instruction>` is typed the
+  way SD10 types `/exit`, and `/exit` follows once the transcript records a compact_boundary
+  after it (a session that records no conversation: its pane busy, then ready again). A
+  session with nothing to compact since its last compaction gets `/exit` at once. A compaction
+  not complete within 600 s, a ready pane with no boundary within 30 s, or a transcript that
+  cannot be read **fails** the session, which is left running and never stopped. With
+  `--no-compact`, SD10 as written below.
 - **SD10** Each session's pane is read (`capture-pane`, `screen.ClaudeState`), all sessions in
   one pass, then again every poll (1 s) until each is done:
   - **ready** (claude's prompt, input box empty): `/exit` is typed (`send-keys -l /exit`), then

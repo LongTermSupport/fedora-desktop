@@ -22,10 +22,10 @@ No startup-compaction code was written, so nothing of it had to be removed.
 transcripts under this container's `~/.claude/projects`, read-only, numbers only. A turn's usage
 is counted once per message id; sub-agent transcripts and sidechain entries are left out.
 
-| turn                                  | n      | input (median) | cache_creation (median / max) | cache_read (median / max) |
-| ------------------------------------- | ------ | -------------- | ----------------------------- | ------------------------- |
-| cold: more than 1 h after the last    | 19     | 2              | 78,307 / 374,791              | 13,036 / 282,815          |
-| warm: less than 60 s after the last   | 16,036 | 2              | 851 / 299,725                 | 245,122 / 526,539         |
+| turn                                | n      | input (median) | cache_creation (median / max) | cache_read (median / max) |
+| ----------------------------------- | ------ | -------------- | ----------------------------- | ------------------------- |
+| cold: more than 1 h after the last  | 19     | 2              | 78,307 / 374,791              | 13,036 / 282,815          |
+| warm: less than 60 s after the last | 16,036 | 2              | 851 / 299,725                 | 245,122 / 526,539         |
 
 - A cold turn reads only the system prompt (~12,000-17,000 tokens) from the cache and writes the
   whole conversation to it again: 15 of the 19 cold turns wrote 36,000-375,000 tokens. Two
@@ -77,11 +77,8 @@ transcript ends in a compact_boundary followed only by the `/exit` entries.
 `internal/sessclose` (package doc C1-Cn as the spec), built on `tmuxccy` and `sessprobe`, no tmux
 argv of its own:
 
-- `Closer{Tmux *tmuxccy.Tmux, Registry func() (*registry.Store, error), Transcripts (CompactedLast,
-  CompactedSince), ClaudeHome string, Now, Sleep, Waits}`; `Waits{Submit, Poll, Prompt, Compact,
-  Exit}` with Compact bounded at 10 min (the longest measured compaction took 254 s).
-- `Close(ctx, []Target{Name, NoCompact}) []Result{Outcome (exited, stopped, failed), Note,
-  Compacted}`: the per-session loop.
+- `Closer{Tmux *tmuxccy.Tmux, Registry func() (*registry.Store, error), Transcripts (CompactedLast, CompactedSince), ClaudeHome string, Now, Sleep, Waits}`; `Waits{Submit, Poll, Prompt, Compact, Exit}` with Compact bounded at 10 min (the longest measured compaction took 254 s).
+- `Close(ctx, []Target{Name, NoCompact}) []Result{Outcome (exited, stopped, failed), Note, Compacted}`: the per-session loop.
 - Moves from `internal/teams/shutdown/stop.go`, which holds the whole Escape-then-type and
   wait-for-exit logic (SD10-SD13): `job`, `stopAll`, `liveSessions`, `step`, `act`, `typeExit`,
   `answerBackgroundWork`, `timedOut`, `ended`, `closeWindow`, `hardStop`. `checkSeats`,
@@ -114,6 +111,43 @@ argv of its own:
   ccy-teams and ccy-sessions usage texts, docs/ccy.md, docs/ccy-changelog.md, the CCY version
   bump (F44 is at 3.104.16; ccy-teams and ccy-sessions are built by play-claude-yolo.yml), and a
   `changed-plays` entry for play-claude-yolo.yml in CLAUDE/Plan/meta-deploy.list.
+
+## Built on `feat/ccy-compact-close` (test first)
+
+- `src-go/internal/sessclose`: `Closer.Close(ctx, []Target{Name, NoCompact}) []Result{Name, Outcome, Note, Compacted}`, `Live`, `Limits`, `Seconds`, `Quiet`; the `Closing` interface is
+  the seam every caller holds. C1-C10 in its package doc, each with a test over a scripted tmux
+  (`execx.Fake`), a real registry in a temporary directory, fake transcripts and a clock that
+  moves only when it sleeps. Waits: Submit 200 ms, Poll 1 s, Prompt 30 s, Compact 600 s,
+  Settle 30 s, Exit 60 s.
+- The compact phase: no record or a launch without the bus reads the pane (busy then ready, or
+  ready for Settle); otherwise `conversation.Transcript`, `CompactedLast` true goes straight to
+  `/exit` with no note; `/compact <close instruction>` typed at a ready box (Escape once on a
+  busy one, unsent text never typed over), one more Enter if it stays in the box (failed if
+  still there after Settle), done at `CompactedSince(file, typedAt)`. Failed, the session left
+  running and never killed: the 600 s bound, a ready pane with no boundary within 30 s, a
+  transcript or record that cannot be read (named with `--no-compact` as the way out). Then
+  shutdown's old `/exit` logic, moved unchanged (background-work answer, closed window, hard
+  stop with the record removed).
+- `internal/teams/shutdown/stop.go` keeps only the seats (SD14); `job` wraps a sessclose
+  result. `--no-compact` added; the preview and help say compact then exit. One deliberate
+  wording change: unsent text now says "close it again" (the text is shared by three callers).
+  SPEC-shutdown.md gains SD9a.
+- `winddown` uses `sessclose.Quiet` for its idle-again wait (`idleAgain` is now one line), so
+  that wait exists once.
+- `ccy --stop SESSION... [--no-compact]`, F23 (`internal/ccylaunch/stop.go`): every name
+  checked on the tmux server first, so a wrong one closes nothing (exit 1); 64 for no name or
+  another option; only CCY_LEGACY hands it over, and the bash refuses it. The help line was
+  paid for in the bash heredoc by merging the two `--token-usage` example lines into one, so
+  the launcher's code-line count is unchanged.
+- `ccy-sessions`: a row's menu gains "Close it: /compact, then /exit (...)" and "Close it
+  without compacting: /exit only", each behind a default-No question; End (Ctrl-X) stays.
+- Help and usage texts, `docs/ccy.md`, `docs/agent-bus.md`, `docs/ccy-changelog.md`, CCY
+  3.105.0 (container unchanged), the `changed-plays` description in `meta-deploy.list`.
+
+Still duplicated: set-going's ready-then-type loop (`internal/sessions/setgoing.go`). Not proven
+here: a real Claude Code session taking `/compact` then `/exit` at close. The host check:
+`ccy --stop <session>` (or `ccy-teams shutdown <team>`) on a live session, then its transcript
+ends in a compact_boundary followed only by the `/exit` entries.
 
 ## Process note
 

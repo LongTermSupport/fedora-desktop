@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.104.16"  # Container 2.79.20: ccy-teams clears a copied password from the clipboard once it is pasted, if it is still there. See docs/ccy-changelog.md.
+CCY_VERSION="3.105.0"  # Container 2.79.20: closing a session compacts it first, then /exit (ccy --stop, ccy-teams shutdown, ccy-sessions Close). See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -175,7 +175,7 @@ if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
 fi
 if [[ "$1" = "--build-lock" || "$1" = "--read-launch-config" || "$1" = "--check-token" ||
     "$1" = "--check-network" || "$1" = "--claude-versions" || "$1" = "--list-containers" ||
-    "$1" = "--stop-containers" || "$1" = "--remove-network" ]]; then
+    "$1" = "--stop-containers" || "$1" = "--remove-network" || "$1" = "--stop" ]]; then
     print_error "ccy $1 is answered by the Go front, $SCRIPT_DIR/claude-yolo; run it without CCY_LEGACY."
     exit 1
 fi
@@ -272,6 +272,7 @@ Options:
   --no-restore           Do not bring this session back after a reboot on a machine
                          that restores sessions (ccy-sessions restore; docs/ccy.md)
   --top                  Container manager: list/stop all CCY containers
+  --stop SESSION...      Close sessions as a person would: /compact, then /exit (--no-compact: /exit only)
   --build-lock           Show the image build in progress (a launch waits for another's build
                          of the same image), and stop one that has hung, after asking
   --prevent              Disable CCY for this project folder (writes 'never' to .claude/ccy/allowed-hostnames)
@@ -313,8 +314,7 @@ Examples:
   ccy --update-token=personal   # Renew an existing token (e.g. after invalidation)
   ccy --token personal          # Use "personal" token
   ccy --list-tokens             # List available tokens
-  ccy --token-usage             # Usage limits of every token, as bars
-  ccy --token-usage --json      # The same, as one JSON document
+  ccy --token-usage [--json]    # Usage limits of every token, as bars or one JSON document
   ccy --export-token             # Interactive multi-token export
   ccy --export-token personal    # Export specific token
 

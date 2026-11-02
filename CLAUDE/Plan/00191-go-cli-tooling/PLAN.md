@@ -923,9 +923,14 @@ today; rewriting them is out of scope.
   command, and a close action on a `ccy-sessions` row; `--no-compact` is the close path's only
   escape hatch. Built: `transcript.CompactedLast` (nothing to compact: the last context-recording
   entry is a compact_boundary, or no turn was taken) and `conversation.Transcript` (a session's
-  own transcript, which winddown now calls instead of its copy), each test first. Left: the
-  package, its three callers, help, docs and the CCY version bump; the design and what moves are
-  in the report.
+  own transcript, which winddown now calls instead of its copy), each test first; then
+  `internal/sessclose` (C1-C10 in its package doc), which ccy-teams shutdown's stop logic moved
+  into and whose pane wait (`Quiet`) winddown now uses, and its three callers, each with a test
+  through a fake Closer: `ccy-teams shutdown <team> [--no-compact]`, `ccy --stop SESSION... [--no-compact]` (the Go front's own flag, F23) and a `ccy-sessions` row's **Close it** and
+  **Close it without compacting**; help, `docs/ccy.md`, `docs/agent-bus.md`, the changelog,
+  CCY 3.105.0. Left: the host check, `ccy-teams shutdown <team>` (or `ccy --stop <session>`)
+  on a live session, then its transcript ends in a compact_boundary followed only by the
+  `/exit` entries; and later, set-going's own ready-then-type loop onto sessclose.
 
 ### Phase 5: Review
 

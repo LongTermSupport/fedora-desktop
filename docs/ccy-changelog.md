@@ -17,6 +17,24 @@ Two version numbers move independently — see
 
 ---
 
+## 3.105.0 — container 2.79.20
+
+- **Closing a session compacts it first, then exits** (Plan 00191 Task 4.12). A compaction at
+  close reads the conversation from a warm prompt cache; the next resume then writes only the
+  summary to the cache instead of the whole conversation. `/compact` is typed into the
+  session's tmux pane, its completion is read from the transcript (a `compact_boundary` after
+  the time it was typed; a session that records no conversation is read from its pane), then
+  `/exit`. A session with nothing to compact since its last compaction goes straight to
+  `/exit`. A compaction not complete within 600 s, or a transcript that cannot be read, fails
+  the close loudly, names the session and leaves it running; it is never killed.
+  `--no-compact` sends `/exit` alone.
+- Three callers, one package (`src-go/internal/sessclose`, which ccy-teams shutdown's stop logic
+  moved into): `ccy-teams shutdown <team>` (compacting is now the default), the new
+  `ccy --stop SESSION... [--no-compact]` (the Go front's own flag), and **Close it** /
+  **Close it without compacting** on a `ccy-sessions` row, beside End (Ctrl-X), which still
+  kills.
+- `ccy-teams wind-down` waits for a pane to be idle again with the same code.
+
 ## Host cc — compacts at ccy's auto-compact window
 
 Host `cc` has no version number of its own; this entry is not a CCY release.
