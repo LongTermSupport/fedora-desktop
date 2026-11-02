@@ -32,10 +32,3 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-
-# The agent-bus play, named because changed-plays does not see it: the agent-bus zipapp is
-# built from helpers/agent_bus by agent-bus-install, a dependency the change detector does not
-# follow (being fixed). It installs the zipapp whose agent-bus list prints a LIVE line per
-# member (listening, stale or -, from its status in the team room), which ccy-teams 3.104.17
-# (already deployed) reads as each member's STATE.
-playbooks/imports/play-agent-bus.yml
