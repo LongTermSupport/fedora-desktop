@@ -12,37 +12,33 @@
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     audience: all   # all | developer — see CLAUDE/AnsibleStyle.md
-    # hifi-rs configuration
-    # Set to "latest" for automatic version detection or specify version like "0.3.8"
-    hifiRsVersion: "latest"
+    # hifi-rs, pinned by version and checksum; vars/version-pins.yml names this var. One
+    # build per architecture, keyed as Fedora names it. The release publishes no digests, so
+    # each sha256 is computed from the download; bump them with the version.
+    # @see https://github.com/iamdb/hifi.rs/releases
+    hifiRsVersion: "0.3.8"
+    hifiRsBuilds:
+      x86_64: {asset: hifi-rs-x86_64-unknown-linux-gnu.tar.gz, sha256: f75915ce262c5fff6fa0b136e9026922eba40c61f3e670bea384b807f8c4881a}
+      aarch64: {asset: hifi-rs-aarch64-unknown-linux-gnu.tar.gz, sha256: 6c4ae3b2ad1a66b4d56884ceaa1790e98db24fce9c29c6119110c3a8f7751aed}
+    hifiRsBuild: "{{ hifiRsBuilds[ansible_facts['architecture']] }}"
+    hifiRsUrl: "https://github.com/iamdb/hifi.rs/releases/download/v{{ hifiRsVersion }}/{{ hifiRsBuild.asset }}"
     hifiRsPath: "/home/{{ user_login }}/.local/bin/hifi-rs"
 
     # Anchored MPRIS-identity regexes for players that scrobble themselves, so
     # Rescrobbled configuration for Last.fm scrobbling
-    # Check https://github.com/InputUsername/rescrobbled/releases for updates
+    # Check https://github.com/InputUsername/rescrobbled/releases for updates. Every release
+    # has one asset, an x86-64 binary: there is no build for any other architecture.
     rescrobbledVersion: 0.10.0
     rescrobbledUrl: "https://github.com/InputUsername/rescrobbled/releases/download/v{{ rescrobbledVersion }}/rescrobbled"
     rescrobbledPath: "/home/{{ user_login }}/.local/bin/rescrobbled"
+    rescrobbled_has_build: "{{ ansible_facts['architecture'] == 'x86_64' }}"
   tasks:
-    # Version detection for hifi-rs
-    - name: Get latest hifi-rs version
-      ansible.builtin.shell: |
-        set -euo pipefail
-        curl -s https://api.github.com/repos/iamdb/hifi.rs/releases/latest |
-        jq -r '.tag_name' | sed 's/^v//'
-      args:
-        executable: /bin/bash
-      register: hifiRsLatestVersion
-      when: hifiRsVersion == "latest"
-      changed_when: false
-
-    - name: Set hifi-rs version
-      ansible.builtin.set_fact:
-        hifiRsVersionFinal: "{{ hifiRsLatestVersion.stdout if hifiRsVersion == 'latest' else hifiRsVersion }}"
-
-    - name: Set hifi-rs URL
-      ansible.builtin.set_fact:
-        hifiRsUrl: "https://github.com/iamdb/hifi.rs/releases/download/v{{ hifiRsVersionFinal }}/hifi-rs-x86_64-unknown-linux-gnu.tar.gz"
+    - name: Fail on an architecture with no pinned hifi-rs build
+      ansible.builtin.assert:
+        that: ansible_facts['architecture'] in hifiRsBuilds
+        fail_msg: "hifi-rs: no build pinned for {{ ansible_facts['architecture'] }} (pinned: {{ hifiRsBuilds | list | join(', ') }})"
+      tags:
+        - hifi-rs
 
     # Prints one marker line on stdout as its payload (UNCHANGED / INSTALLED) so
     # changed_when reflects what the script actually did; the human-readable
@@ -52,7 +48,7 @@
         set -exuo pipefail
         if [[ -f {{ hifiRsPath }} ]]; then
           installedVersion="$(hifi-rs --version | grep -Po '[0-9.]+')"
-          desiredVersion="{{ hifiRsVersionFinal }}"
+          desiredVersion="{{ hifiRsVersion }}"
           if  [[ "$installedVersion" == "$desiredVersion" ]]; then
             echo "installed version $installedVersion is the same as the desired version $desiredVersion" >&2
             echo "HIFIRS_UNCHANGED"
@@ -62,7 +58,8 @@
         cd /home/{{ user_login }}/Downloads
         rm -rf hifi-rs*
         wget "{{ hifiRsUrl }}"
-        tar -xf hifi-rs-x86_64-unknown-linux-gnu.tar.gz
+        echo "{{ hifiRsBuild.sha256 }}  {{ hifiRsBuild.asset }}" | sha256sum -c - >&2
+        tar -xf "{{ hifiRsBuild.asset }}"
         mv -f hifi-rs "{{ hifiRsPath }}"
         echo "HIFIRS_INSTALLED"
       args:
@@ -82,45 +79,49 @@
 
     # Last.fm scrobbling is optional: not everyone uses Last.fm. An empty API key at the
     # prompt skips the scrobbling setup for this run and the rest of the play carries on;
-    # nothing is saved, so the next run asks again.
-    - name: Ask for the Last.fm API key when it is missing (optional)
-      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ask-and-save-secret.yml"
-      vars:
-        secret_name: lastfm_api_key
-        secret_label: Last.fm API key
-        secret_explain: |2
+    # nothing is saved, so the next run asks again. rescrobbled ships an x86-64 binary
+    # only, so on any other architecture nothing is asked and scrobbling is skipped by name.
+    - name: Last.fm scrobbling (rescrobbled has no aarch64 build, skipped there)
+      when: rescrobbled_has_build | bool
+      block:
+        - name: Ask for the Last.fm API key when it is missing (optional)
+          ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ask-and-save-secret.yml"
+          vars:
+            secret_name: lastfm_api_key
+            secret_label: Last.fm API key
+            secret_explain: |2
 
-          LAST.FM SCROBBLING (optional)
+              LAST.FM SCROBBLING (optional)
 
-          Rescrobbled sends what you play to Last.fm. It needs a Last.fm API key
-          and its shared secret:
+              Rescrobbled sends what you play to Last.fm. It needs a Last.fm API key
+              and its shared secret:
 
-          1. Go to https://www.last.fm/api/account/create
-          2. Create an API application (any name and description)
-          3. Copy the API key, and next the shared secret
+              1. Go to https://www.last.fm/api/account/create
+              2. Create an API application (any name and description)
+              3. Copy the API key, and next the shared secret
 
-          Do not use Last.fm, or not now? Leave the key empty and press ENTER:
-          this run skips scrobbling, and the next run asks again.
-        secret_confirm: false
-        secret_optional: true
-      when: lastfm_api_key is not defined
+              Do not use Last.fm, or not now? Leave the key empty and press ENTER:
+              this run skips scrobbling, and the next run asks again.
+            secret_confirm: false
+            secret_optional: true
+          when: lastfm_api_key is not defined
 
-    - name: Ask for the Last.fm shared secret when it is missing
-      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ask-and-save-secret.yml"
-      vars:
-        secret_name: lastfm_api_secret
-        secret_label: Last.fm shared secret
-        secret_explain: >-
-          The shared secret shown next to your Last.fm API key, at
-          https://www.last.fm/api/accounts. Rescrobbled needs both to scrobble.
-        secret_confirm: false
-      when:
-        - lastfm_api_key is defined
-        - lastfm_api_secret is not defined
+        - name: Ask for the Last.fm shared secret when it is missing
+          ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ask-and-save-secret.yml"
+          vars:
+            secret_name: lastfm_api_secret
+            secret_label: Last.fm shared secret
+            secret_explain: >-
+              The shared secret shown next to your Last.fm API key, at
+              https://www.last.fm/api/accounts. Rescrobbled needs both to scrobble.
+            secret_confirm: false
+          when:
+            - lastfm_api_key is defined
+            - lastfm_api_secret is not defined
 
     - name: Decide whether this run sets up scrobbling
       ansible.builtin.set_fact:
-        qobuz_scrobble: "{{ lastfm_api_key is defined and lastfm_api_secret is defined }}"
+        qobuz_scrobble: "{{ (rescrobbled_has_build | bool) and lastfm_api_key is defined and lastfm_api_secret is defined }}"
 
     - name: Last.fm scrobbling with rescrobbled
       when: qobuz_scrobble | bool
@@ -411,8 +412,8 @@
           - Qobuz Apps Installation Complete!
           - ============================================
           - ""
-          - ✓ hifi-rs {{ hifiRsVersionFinal }} installed (CLI player)
-          - "{{ ('✓ rescrobbled ' ~ rescrobbledVersion ~ ' installed and running') if (qobuz_scrobble | bool) else '- Last.fm scrobbling skipped this run (no API details given; the next run asks again)' }}"
+          - ✓ hifi-rs {{ hifiRsVersion }} installed (CLI player)
+          - "{{ ('✓ rescrobbled ' ~ rescrobbledVersion ~ ' installed and running') if (qobuz_scrobble | bool) else ('- Last.fm scrobbling skipped this run (no API details given; the next run asks again)' if rescrobbled_has_build else '- Last.fm scrobbling skipped: rescrobbled has no ' ~ ansible_facts['architecture'] ~ ' build') }}"
           - ""
           - "Usage:"
           - play <qobuz_url>     - Play a Qobuz URL with hifi-rs

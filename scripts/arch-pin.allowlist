@@ -31,17 +31,4 @@ files/opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt	RUN curl "https://awscli.amazo
 files/var/local/docker-in-lxc	if ! sudo lxc-create -n "$name" -t download -- -d fedora -r "$FEDORA_VERSION" -a amd64; then	lxc download template -a amd64; Fedora arm64 images exist
 helpers/vmtest/freshness_gate.py	ARCH = "x86_64"	VM lab guest arch; aarch64 Fedora Cloud images exist
 helpers/vmtest/probe_upstream.py	ARCH = "x86_64"	VM lab guest arch; aarch64 Fedora Cloud images exist
-playbooks/imports/optional/common/play-cli-tools.yml	ouchArch: "x86_64-unknown-linux-musl"	ouch musl target; aarch64 build exists
-playbooks/imports/optional/common/play-network-tools.yml	ooklaSpeedtestUrl: "https://install.speedtest.net/app/cli/ookla-speedtest-{{ ooklaSpeedtestVersion }}-linux-x86_64.tgz"	Ookla speedtest tarball; aarch64 build exists
-playbooks/imports/optional/common/play-photography.yml	rapidraw_rpm: "03_RapidRAW_v{{ rapidraw_version }}_ubuntu-22.04_x86_64.rpm"	RapidRAW rpm and ART AppImage; aarch64 builds exist
-playbooks/imports/optional/common/play-photography.yml	art_appimage: "ART-{{ art_version }}-x86_64.AppImage"	RapidRAW rpm and ART AppImage; aarch64 builds exist
-playbooks/imports/optional/common/play-qobuz.yml	hifiRsUrl: "https://github.com/iamdb/hifi.rs/releases/download/v{{ hifiRsVersionFinal }}/hifi-rs-x86_64-unknown-linux-gnu.tar.gz"	hifi.rs tarball; aarch64 build exists
-playbooks/imports/optional/common/play-qobuz.yml	tar -xf hifi-rs-x86_64-unknown-linux-gnu.tar.gz	hifi.rs tarball; aarch64 build exists
-playbooks/imports/optional/hardware-specific/play-displaylink.yml	fedora-{{ fedora_version }}-displaylink-<evdi>-<release>.github_evdi.x86_64.rpm	DisplayLink/evdi rpm; aarch64 rpm exists
-playbooks/imports/optional/hardware-specific/play-displaylink.yml	name: "https://github.com/displaylink-rpm/displaylink-rpm/releases/download/{{ displaylink_version }}/fedora-{{ fedora_version }}-displaylink-{{ evdi_version }}-{{ evdi_rpm_release }}.github_evdi.x86_64.rpm"	DisplayLink/evdi rpm; aarch64 rpm exists
-playbooks/imports/optional/hardware-specific/play-nvidia.yml	cuda_gpgkey_url: "https://developer.download.nvidia.com/compute/cuda/repos/fedora{{ fedora_version }}/x86_64/73CD9B30.pub"	CUDA repo and cuDNN wheel; NVIDIA publishes no CUDA toolkit for Fedora aarch64
-playbooks/imports/optional/hardware-specific/play-nvidia.yml	cudnn_wheel_url: "https://files.pythonhosted.org/packages/57/96/ce2cb84b5e8bb94dd55f554e3454b91e9ecd6708aa27d4a7b12f287613bc/nvidia_cudnn_cu13-9.22.0.52-py3-none-manylinux_2_27_x86_64.whl"	CUDA repo and cuDNN wheel; NVIDIA publishes no CUDA toolkit for Fedora aarch64
-playbooks/imports/optional/hardware-specific/play-nvidia.yml	name: "cuda-fedora{{ fedora_version }}-x86_64"	CUDA repo and cuDNN wheel; NVIDIA publishes no CUDA toolkit for Fedora aarch64
-playbooks/imports/optional/hardware-specific/play-nvidia.yml	description: "NVIDIA CUDA Fedora {{ fedora_version }} x86_64"	CUDA repo and cuDNN wheel; NVIDIA publishes no CUDA toolkit for Fedora aarch64
-playbooks/imports/optional/hardware-specific/play-nvidia.yml	baseurl: "https://developer.download.nvidia.com/compute/cuda/repos/fedora{{ fedora_version }}/x86_64"	CUDA repo and cuDNN wheel; NVIDIA publishes no CUDA toolkit for Fedora aarch64
 src-go/internal/vmtest/fetch.go	const arch = "x86_64"	VM lab guest arch; aarch64 Fedora Cloud images exist

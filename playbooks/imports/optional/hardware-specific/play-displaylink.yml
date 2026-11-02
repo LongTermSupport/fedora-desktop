@@ -36,6 +36,13 @@
       ansible.builtin.meta: end_play
       when: (scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')
 
+    # displaylink-rpm publishes the rpm installed below for x86_64 and aarch64, named by the
+    # rpm arch. Checked first, before the MOK password is asked for.
+    - name: Fail on an architecture displaylink-rpm publishes no rpm for
+      ansible.builtin.assert:
+        that: ansible_facts['architecture'] in ['x86_64', 'aarch64']
+        fail_msg: "DisplayLink: displaylink-rpm publishes no {{ ansible_facts['architecture'] }} rpm (x86_64 and aarch64 only)"
+
     # Secure Boot needs a MOK password before anything is installed: the signed driver
     # cannot load until its key is enrolled with it at the next boot. Asked here, first,
     # when Secure Boot is on and none is set, and saved vault-encrypted to localhost.yml.
@@ -103,8 +110,8 @@
              - Edit: playbooks/imports/optional/hardware-specific/play-displaylink.yml
              - Update 'displaylink_version' variable to: {{ latest_version }}
              - Update 'evdi_version' and 'evdi_rpm_release' to match the release's
-               fedora-{{ fedora_version }}-displaylink-<evdi>-<release>.github_evdi.x86_64.rpm
-               asset (the download URL is built from these three variables)
+               fedora-{{ fedora_version }}-displaylink-<evdi>-<release>.github_evdi.{{ ansible_facts['architecture'] }}.rpm
+               asset (the download URL is built from these three variables and the arch)
 
           2. Check the latest release at:
              https://github.com/displaylink-rpm/displaylink-rpm/releases/latest
@@ -141,7 +148,7 @@
 
     - name: Install DisplayLink RPM
       ansible.builtin.dnf:
-        name: "https://github.com/displaylink-rpm/displaylink-rpm/releases/download/{{ displaylink_version }}/fedora-{{ fedora_version }}-displaylink-{{ evdi_version }}-{{ evdi_rpm_release }}.github_evdi.x86_64.rpm"
+        name: "https://github.com/displaylink-rpm/displaylink-rpm/releases/download/{{ displaylink_version }}/fedora-{{ fedora_version }}-displaylink-{{ evdi_version }}-{{ evdi_rpm_release }}.github_evdi.{{ ansible_facts['architecture'] }}.rpm"
         disable_gpg_check: true
       register: displaylink_install
 

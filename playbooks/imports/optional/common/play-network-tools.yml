@@ -13,16 +13,25 @@
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
     # Ookla's Speedtest CLI is not packaged; the tarball is pinned by version and checksum.
-    # Update deliberately; vars/version-pins.yml names this var.
+    # Update deliberately; vars/version-pins.yml names this var. Ookla names its tarballs by
+    # Fedora's architecture names; the sha256 per architecture (Ookla publishes none, so each
+    # is computed from the download) changes with every bump.
     # @see https://www.speedtest.net/apps/cli
     ooklaSpeedtestVersion: "1.2.0"
-    ooklaSpeedtestSha256: "5690596c54ff9bed63fa3732f818a05dbc2db19ad36ed68f21ca5f64d5cfeeb7"
+    ooklaSpeedtestSha256s:
+      x86_64: 5690596c54ff9bed63fa3732f818a05dbc2db19ad36ed68f21ca5f64d5cfeeb7
+      aarch64: 3953d231da3783e2bf8904b6dd72767c5c6e533e163d3742fd0437affa431bd3
     ooklaSpeedtestDir: "/opt/ookla-speedtest-{{ ooklaSpeedtestVersion }}"
-    ooklaSpeedtestUrl: "https://install.speedtest.net/app/cli/ookla-speedtest-{{ ooklaSpeedtestVersion }}-linux-x86_64.tgz"
+    ooklaSpeedtestUrl: "https://install.speedtest.net/app/cli/ookla-speedtest-{{ ooklaSpeedtestVersion }}-linux-{{ ansible_facts['architecture'] }}.tgz"
   tasks:
     - name: Audience guard — end play on a consumer install
       ansible.builtin.meta: end_play
       when: install_audience != 'developer'
+
+    - name: Fail on an architecture with no pinned Ookla Speedtest build
+      ansible.builtin.assert:
+        that: ansible_facts['architecture'] in ooklaSpeedtestSha256s
+        fail_msg: "Ookla Speedtest: no build pinned for {{ ansible_facts['architecture'] }} (pinned: {{ ooklaSpeedtestSha256s | list | join(', ') }})"
 
     # ── Packages ───────────────────────────────────────────────────────────────
 
@@ -54,7 +63,7 @@
       ansible.builtin.get_url:
         url: "{{ ooklaSpeedtestUrl }}"
         dest: "{{ ooklaSpeedtestDir }}/ookla-speedtest.tgz"
-        checksum: "sha256:{{ ooklaSpeedtestSha256 }}"
+        checksum: "sha256:{{ ooklaSpeedtestSha256s[ansible_facts['architecture']] }}"
         owner: root
         group: root
         mode: "0644"

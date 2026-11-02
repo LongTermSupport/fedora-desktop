@@ -47,18 +47,20 @@ For each pin the user agrees to update:
 2. **Update any adjacent checksum — this is the easy thing to miss.** Several of
    these playbooks pin a `sha256`/checksum next to the version and the download
    will FAIL verification if you bump the version but not the hash. Known
-   checksum-pinning plays: `play-markless.yml`, `play-photography.yml`
-   (RapidRAW, ART), `play-cli-tools.yml` (`ouchSha256`, the release API's
-   `digest` for the `ouchArch` asset), `play-network-tools.yml`
-   (`ooklaSpeedtestSha256`), and the agent team bus's
-   `files/usr/local/share/agent-bus/tuwunel.pin` (one sha256 per architecture,
-   from the release API's per-asset `digest`). Grep the same file for `sha256`/`checksum`/
+   checksum-pinning plays, each with one sha256 per architecture (x86_64 and
+   aarch64, bumped together): `play-markless.yml`, `play-photography.yml`
+   (`rapidraw_builds`, `art_sha256s`), `play-cli-tools.yml` (`ouchBuilds`, the
+   release API's `digest` per asset), `play-network-tools.yml`
+   (`ooklaSpeedtestSha256s`, computed: Ookla publishes none), `play-qobuz.yml`
+   (`hifiRsBuilds`, computed: the release has no digests), `play-nvidia.yml`
+   (`cudnn_wheels`, PyPI's digests), and the agent team bus's
+   `files/usr/local/share/agent-bus/tuwunel.pin` (from the release API's
+   per-asset `digest`). Grep the same file for `sha256`/`checksum`/
    `digest` and fetch the new release's published hash (or compute it from the
    asset) before proceeding.
 
-3. **Confirm the release asset filename still matches.** Vars like
-   `rapidraw_rpm: "03_RapidRAW_v{{ rapidraw_version }}_ubuntu-22.04_x86_64.rpm"`
-   embed a filename pattern that upstream sometimes changes between releases.
+3. **Confirm the release asset filename still matches.** Maps like
+   `rapidraw_builds` embed a filename pattern per architecture that upstream sometimes changes between releases.
    Check the new release's actual asset names on GitHub and update the pattern if
    it changed, otherwise the `get_url`/download 404s.
 

@@ -77,6 +77,10 @@ it, and arm64 support is a standing requirement from then on: the architecture r
       NEVRAs by the running arch; JetBrains `linuxARM64`; Slack and intel-media-driver,
       which have no aarch64 build, skipped by name there. The rule now accepts the
       non-deprecated `ansible_facts['architecture']` as the selection.
+    - [x] ✅ **Task 2.1b-2**: The optional plays: ouch, Ookla, RapidRAW, ART, hifi-rs (now
+      pinned with a digest) and DisplayLink by arch, each with a digest per arch; CUDA,
+      rescrobbled, VirtualBox and IPU6, which have no aarch64 build, skipped by name there
+      (CUDA fails if asked for by name); Element needs nothing.
 
 ### Phase 3: the test loop with lts-infra
 
