@@ -1,6 +1,6 @@
 # Plan 00209: agent bus v2 in go
 
-**Status**: In Progress (the plan of record for v2, `teamchat`, a separate system beside v1; N0's
+**Status**: In Progress (landing v2 on F44 is Phase 8, the owner's call of 2026-11-02; the plan of record for v2, `teamchat`, a separate system beside v1; N0's
 design is integrated in [DESIGN-v2.md](DESIGN-v2.md), reviewed and fixed in three rounds, with its last check open; a dedicated build
 session does the work to [BUILD-BRIEF.md](BUILD-BRIEF.md))
 **Created**: 2026-10-19
@@ -315,6 +315,41 @@ its first caller.
   live: a ccy seat's stopped session and a stopped LXC container both read `offline`, from the
   live state, not the last apply's record. Not done in v1 because Task 7.1's acceptance compares
   `ccy-teams --list` bytes with the build before stage 1; v2's board follows the owner's rule.
+
+### Phase 8: landing v2 on F44
+
+The owner (2026-11-02): "yes we should push v2 and get it done", the minimum v2 with
+cross-network membership (direction 7). `spike/v2-merge-up` (f5023d692) is
+`feat/bus-v2-n3e` merged onto F44. It builds and vets. Its CI run found the items below, from
+largest to smallest. Each is fixed on that branch under Defence Before Fix. F44 is merged in
+before every push, and GitHub CI is the gate.
+
+- [ ] ⬜ **Task 8.1**: The 29 project-rule findings:
+  - 13 `project_duration_overflow`, in the teamchat member/client, nolink, forge, link/server,
+    engine/proof, engine/timeout, matrix/client and fakehs/sync;
+  - 10 `project_realtime_bound`, 3 of them in `teamchat/clock`, which is the injected clock.
+    Decide whether that package is the one allowed home, and record the decision in
+    GoProjectRules.md;
+  - 5 `project_goroutine_end` in F44 code: `ccc/guard.go` (2), `rclonetail/app.go`,
+    `reclaim/ask.go` and the `ui/pathinput` test;
+  - 1 `project_command_failure_dropped`, in `member/guest/check.go`.
+- [ ] ⬜ **Task 8.2**: The six gosec exclusions v2 added to `.golangci.yml` have no exception in
+  the project record. Record each one, or fix the code it covers.
+- [ ] ⬜ **Task 8.3**: gofmt: name the files with a local go-qa run, then format them.
+- [ ] ⬜ **Task 8.4**: Two helper tests:
+  - `agent_bus_lxc/test_derive`: on the CI runner, the claude process it finds has an empty
+    start time;
+  - `plan_acceptance/test_cited_constant_copy_rule`: one finding in this plan's folder.
+- [ ] ⬜ **Task 8.5**: 12 gitleaks findings, all fake keys in test fixtures. Allowlist them the
+  way F44 allowlisted its own, never by weakening the scan.
+- [ ] ⬜ **Task 8.6**: In the merge, CLAUDE/QA.md, CLAUDE/GoProjectRules.md, src-go/CLAUDE.md and
+  Plans 00194 and 00209 took F44's side of each conflicting hunk. Put back the v2 lines that
+  were lost, merging them by meaning (`git diff F44...feat/bus-v2-n3e` on those files shows
+  them).
+- [ ] ⬜ **Task 8.7**: With CI green, open a pull request to F44, assign it to the owner, and run
+  `qa-reviewer` over it. Only the owner merges it.
+- [ ] ⬜ **Task 8.8**: After the merge: the cross-network membership of direction 7 (team CIDRs,
+  TLS with the team CA pinned, seat issue over ssh), so a member on another machine can join.
 
 ## Success Criteria
 
