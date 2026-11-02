@@ -381,6 +381,10 @@ type clockAllowance = allowance
 // No test reads the wall clock: a real sleep is shown by a timer that fires first.
 var clockAllowances = []clockAllowance{}
 
+// teamchatClockPkg is teamchat's clock, the one home of teamchat's real timers: every other
+// teamchat package's real Sleep, AfterFunc and Hold is its System's.
+const teamchatClockPkg = "internal/teamchat/clock"
+
 // realClocks are the real side of a clock seam: each is handed its duration by a caller whose
 // tests replace the seam whole, so no test shortens the real one. fn is "func" or "Type.method".
 var realClocks = []allowance{
@@ -400,6 +404,9 @@ var realClocks = []allowance{
 	{pkg: "internal/teams/shutdown", fn: newFn, reason: "the real side of Shutdown.Sleep; its tests replace Sleep, and the picker's never reach a wait"},
 	{pkg: "internal/teams/winddown", fn: newFn, reason: "the real side of WindDown.Sleep; its tests replace Sleep, and the picker's never reach a wait"},
 	{pkg: "internal/teams/hot", fn: newFn, reason: "the real side of Hot.Sleep; its tests replace Sleep"},
+	{pkg: teamchatClockPkg, fn: "system.Sleep", reason: "the real side of clock.Clock's Sleep, teamchat's one real wait (lock, teamlock, admin/wire and matrix hand theirs to it); the tests that wait on a bound replace the clock whole with clock.Fake, and the ones that keep System assert only that a sleep ends and that a cancelled context ends it"},
+	{pkg: teamchatClockPkg, fn: "system.AfterFunc", reason: "the real side of clock.Clock's AfterFunc, the timer of every teamchat time limit (matrix.SystemTimers is it); the tests that reach a limit replace the clock or matrix's Timers whole, and the ones that keep System assert only that a timer fires and that stop disarms one"},
+	{pkg: teamchatClockPkg, fn: "system.Hold", reason: "the real side of clock.Clock's Hold, guestroot's call bound and fakehs's held-sync timeout; the tests that reach a hold's end replace it with clock.Fake's, and the ones that keep System assert only that a hold fires and that stop ends it, or hold a sync that an event ends first"},
 }
 
 // processBounds bound a real child process or real I/O. No test shortens one so that it races

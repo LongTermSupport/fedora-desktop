@@ -20,6 +20,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
@@ -64,15 +65,9 @@ type systemClock struct{}
 
 func (systemClock) Now() time.Time { return time.Now() }
 
+// Sleep is clock.System's, the one home of teamchat's real timers.
 func (systemClock) Sleep(ctx context.Context, d time.Duration) error {
-	timer := time.NewTimer(d)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
+	return clock.System().Sleep(ctx, d)
 }
 
 // Lock is a held team lock.

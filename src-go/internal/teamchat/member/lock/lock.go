@@ -27,6 +27,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/homefs"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
@@ -59,21 +60,8 @@ type Clock interface {
 	Sleep(ctx context.Context, d time.Duration) error
 }
 
-// SystemClock sleeps for real.
-func SystemClock() Clock { return systemClock{} }
-
-type systemClock struct{}
-
-func (systemClock) Sleep(ctx context.Context, d time.Duration) error {
-	timer := time.NewTimer(d)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
-}
+// SystemClock sleeps for real: clock.System, the one home of teamchat's real timers.
+func SystemClock() Clock { return clock.System() }
 
 // held is one held description, closed once.
 type held struct {
