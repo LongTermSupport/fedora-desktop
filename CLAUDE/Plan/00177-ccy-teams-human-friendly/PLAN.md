@@ -439,9 +439,12 @@ are Phase 12. [Full text](DONE-phases.md#phase-11-findings-of-the-host-run-of-26
   container, the coordinator's edges to its workers; it fails as `--list` does. A pure
   formatter (`board.Mermaid`) with a golden test; usage, help and `docs/agent-bus.md`.
   Red then green in the journal.
-- [ ] ⬜ **Task 15.2**: Host check, once `changed-plays` has rebuilt ccy-teams
+- [ ] 🔄 **Task 15.2**: Host check, once `changed-plays` has rebuilt ccy-teams
   (`play-claude-yolo.yml`): `ccy-teams --graph` on the host renders in a Mermaid viewer, every
-  member of `ccy-teams --list` is in it, and its exit code matches `--list`'s.
+  member of `ccy-teams --list` is in it, and its exit code matches `--list`'s. Host agent,
+  2026-11-02, after the deploy at 80c7a524f: both exit 0; all 31 distinct members of `--list`
+  are nodes of `--graph` (0 missing; 6 teams, 13 subgraphs balanced). Left: the render, since
+  the host has no Mermaid parser.
 
 ## Success Criteria
 

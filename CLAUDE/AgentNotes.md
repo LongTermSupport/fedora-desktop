@@ -121,6 +121,14 @@ entry below), is, at every commit, exactly what needs running **now**:
   it runs the host side and reports back. Ask the owner only where no host agent is on the
   team, or for what only the owner can give (a browser authorisation, a login, a look at the
   screen), naming it. Ask whenever the list holds something.
+- **The host agent does triage and deployment only, never dev work.** Owner: "you are not
+  supposed to be doing dev work, only triage+deployment". Send it meta-deploy runs, host
+  checks and read-only probes. Code, tests, branches and pull requests, in any repository,
+  go to a container worker, even when the defect only shows on the host.
+- **Dispatch a worker as a background subagent with `isolation: "worktree"`, never as a
+  named in-process teammate.** A teammate runs inside the coordinator's own session, so when
+  it moves into its worktree the coordinator moves with it, and the worktree guards then
+  refuse the coordinator's git and edits everywhere else, including the main checkout.
 - **Meta-deploy runs plan scripts, never a tool's routine job.** Owner: "meta deploy is
   only a convenience for running plan level deploy/triage scripts". Downloading models,
   rebuilding VM bases or cleaning disk is the owner running the deployed tool
