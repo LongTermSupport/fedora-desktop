@@ -1803,7 +1803,8 @@ naming an existing checkout path (a path with a `/`, or a dot-file of the root),
 own package or not, must be an input. In every bash file that is an exact input, a `source` of a file beside
 the script must be an input, and a `run_go_tool` / `run_go_command` (`scripts/lib/go-tool.bash`)
 must be one of the play's Go builds, whose packages' literals naming checkout paths must be
-inputs too. Not judged: a bare climb from `__file__` to a directory (`--repo-root`'s default),
+inputs too. In a bash file the play runs (named on a line of its YAML that is not a `src:`), a
+helper module it runs with `python3 -m` must be an input. Not judged: a bare climb from `__file__` to a directory (`--repo-root`'s default),
 a source of a host path or a runtime variable, the literals of a Go command a play installs
 (it reads the checkout, if at all, live when it runs), and a literal listed for its module in
 `helpers/self_update/affected_plays.NOT_PLAY_INPUTS`. Run by `tests/helpers/self_update/test_program_read_rule.py` (in
@@ -1813,7 +1814,10 @@ a source of a host path or a runtime variable, the literals of a Go command a pl
 through `__file__`, so `play-github-cli-multi.yml` never ran again when the required scopes
 changed; `scripts/qa-toolchain.bash`, run by `play-python.yml`, builds and runs a Go tool that
 reads `src-go/go.mod`, and neither the library it sources nor the tool was an input (Plan 00192
-Task 3.7). Found and defended under Defence Before Fix.
+Task 3.7). `play-agent-bus.yml` runs `agent-bus-install`, which builds the agent-bus zipapp from
+`helpers/agent_bus` with `python3 -m helpers.pingbus.bundle`, so a change to the bus's code never
+made the play changed and the host kept the old zipapp (Plan 00177). Found and defended under
+Defence Before Fix.
 
 **How to fix a finding.** Teach the mapper the form, so it counts the read or reports it
 UNRESOLVED. A literal that is not a read of the checkout (named in a message, relative to another
@@ -1826,7 +1830,8 @@ modules because some modules are baked into the ccy image, where an edit costs a
 **What it is.** A host play whose helper Python inputs are not exactly the helper modules it
 runs. The rule computes, with its own code (`ast`), the modules a play can execute: the modules
 its YAML files name as `helpers.<pkg>.<module>` or as a rooted `{{ root_dir }}/helpers/...` path
-(a directory is every module in it), then, transitively, every `import` and `from ... import`
+(a directory is every module in it), and the modules a bash script the play runs (a rooted path
+off a `src:` line) runs with `python3 -m`, then, transitively, every `import` and `from ... import`
 anywhere in each module (relative ones too), every `helpers.x.y` and every `helpers/...` checkout
 path a non-docstring string in it names (a child's `-m` argv, a directory a module packages). A
 helper file `helpers/self_update/affected_plays.play_inputs` counts that this does not reach is a

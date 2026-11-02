@@ -14,6 +14,7 @@
   },
   "helpers/self_update/affected_plays.py": {
     "playbooks/imports": "CANDIDATE_DIR, read again on every run",
+    "helpers/": "a prefix a path is tested against, not a read",
     "src-go/qa": "a module _GO_RUNNERS builds a script's command from, not read here",
     "environment/localhost/group_vars/desktop.yml": "INVENTORY_GROUP_VARS, read again on every run (group_vars.GROUP_VARS is this)"
   }
