@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -324,10 +325,10 @@ func TestCollectBuildsTheRows(t *testing.T) {
 	shown := term.AbbrevHome(checkout, h.c.Home)
 	want := []Row{
 		{Team: "alpha", Member: "(no description)", Kind: KindTeam, State: "up", Applied: "up to date", Session: "-", Restore: "-", Where: "port 6167", Handle: "-", Dir: "-"},
-		{Team: "alpha", Member: "1", Kind: "ccy", State: "active", Applied: "-", Session: "ccy-proj", Record: "ccy-proj", Restore: "yes", Where: shown, Handle: "proj.1+local.podman", Dir: checkout, Role: "dev", Held: true},
+		{Team: "alpha", Member: "1", Kind: "ccy", State: "listening", Applied: "-", Session: "ccy-proj", Record: "ccy-proj", Restore: "yes", Where: shown, Handle: "proj.1+local.podman", Dir: checkout, Role: "dev", Held: true, Live: agentbus.LiveListening},
 		{Team: "alpha", Member: "dev", Kind: "ccy", State: "unknown", Applied: "-", Session: "free", Restore: "-", Where: shown, Handle: "proj.dev+local.podman", Dir: checkout},
-		{Team: "alpha", Member: "proj.2+local.podman", Kind: "ccy", State: "parked", Applied: "-", Session: "-", Restore: "-", Where: "dev", Handle: "proj.2+local.podman", Dir: "-", Role: "dev"},
-		{Team: "alpha", Member: "proj.box+role.lxc", Kind: "lxc", State: "active", Applied: "-", Session: "-", Restore: "-", Where: "ops", Handle: "proj.box+role.lxc", Dir: "-", Role: "ops"},
+		{Team: "alpha", Member: "proj.2+local.podman", Kind: "ccy", State: "parked", Applied: "-", Session: "-", Restore: "-", Where: "dev", Handle: "proj.2+local.podman", Dir: "-", Role: "dev", Live: agentbus.LiveStale},
+		{Team: "alpha", Member: "proj.box+role.lxc", Kind: "lxc", State: "not listening", Applied: "-", Session: "-", Restore: "-", Where: "ops", Handle: "proj.box+role.lxc", Dir: "-", Role: "ops", Live: agentbus.LiveNoStatus},
 		{Team: "alpha", Member: "owner", Kind: "human", State: "in room", Applied: "-", Session: "never signed in", Restore: "-", Where: "Element; Enter for choices", Handle: "-", Dir: "-"},
 		{Team: "alpha", Member: "guest", Kind: "human", State: "invited", Applied: "-", Session: "2 signed in", Restore: "-", Where: "Element; Enter for choices", Handle: "-", Dir: "-"},
 		{Team: "alpha", Member: "ghost", Kind: "human", State: "not in room", Applied: "-", Session: "1 signed in", Restore: "-", Where: "Element; Enter for choices", Handle: "-", Dir: "-"},
@@ -337,6 +338,38 @@ func TestCollectBuildsTheRows(t *testing.T) {
 			t.Logf("got  %+v", s.Rows[i])
 		}
 		t.Fatalf("rows differ from the %d expected", len(want))
+	}
+}
+
+// STATE is whether a member's session is listening on the bus now, from its LIVE line (the
+// agent_bus.status pingbus status reads), never from the registry's park word: a member that is
+// not parked and whose session stopped is stale, not active. An agent-bus older than LIVE lines
+// leaves it unknown, and the team row says why.
+func TestCollectShowsLivenessFromTheBusAndUnknownWithWhy(t *testing.T) {
+	h := populated(t)
+	h.On(teamtest.SudoBus+"list alpha", "HUMAN\towner\tjoin\n"+
+		"MEMBER\tproj.1+local.podman\tdev\tjoin\tactive\nLIVE\tproj.1+local.podman\tstale\n", 0)
+	s, err := h.c.Collect(t.Context())
+	if err != nil {
+		t.Fatalf("%v: %s", err, h.ErrOut.String())
+	}
+	if row := s.Rows[1]; row.State != "stale" || row.Live != agentbus.LiveStale {
+		t.Fatalf("a member not parked whose status lapsed: %+v", row)
+	}
+	if strings.Contains(s.Rows[0].Where, "liveness") {
+		t.Fatalf("every member was reported: %q", s.Rows[0].Where)
+	}
+
+	h.On(teamtest.SudoBus+"list alpha", "HUMAN\towner\tjoin\nMEMBER\tproj.1+local.podman\tdev\tjoin\tactive\n", 0)
+	s, err = h.c.Collect(t.Context())
+	if err != nil {
+		t.Fatalf("%v: %s", err, h.ErrOut.String())
+	}
+	if row := s.Rows[1]; row.State != "unknown" || row.Live != agentbus.LiveUnreported {
+		t.Fatalf("a member with no LIVE line: %+v", row)
+	}
+	if want := ", liveness unknown: agent-bus list reports none (the agent-bus play updates it)"; !strings.HasSuffix(s.Rows[0].Where, want) {
+		t.Fatalf("team row %q, want it to end %q", s.Rows[0].Where, want)
 	}
 }
 

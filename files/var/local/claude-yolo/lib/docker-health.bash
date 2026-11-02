@@ -358,12 +358,13 @@ show_container_top() {
 
         # Check if zombie (no container run process attached)
         local status="active"
-        local has_tty
+        local has_tty=""
         # Same race as find_zombie_containers(), but this one is NOT in a
         # subshell — it renders the `ccy --top` table directly. A bare capture
         # here killed the whole table the first time a container exited while it
-        # was being listed. With the fallback the row simply reads "active".
-        has_tty=$(container_cmd inspect --format '{{.Config.Tty}}' "$container" 2>/dev/null) || has_tty=""
+        # was being listed. A container that cannot be inspected is not known to
+        # run, so its row reads "unknown", never "active".
+        has_tty=$(container_cmd inspect --format '{{.Config.Tty}}' "$container" 2>/dev/null) || status="unknown"
         if [ "$has_tty" = "true" ]; then
             if ! pgrep -f "${CONTAINER_ENGINE} run.*--name[= ]${container}( |$)" >/dev/null 2>&1; then
                 status="orphan?"

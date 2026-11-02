@@ -38,12 +38,38 @@ const (
 	legacyCoordinator = "orchestrator"
 )
 
-// Member is a MEMBER line: an agent account of the team.
+// The registry's park words on a MEMBER line. WordNotParked is printed "active" by agent-bus
+// list, and means only that the member is not parked: it says nothing of whether it runs.
+const (
+	WordNotParked = "active"
+	WordParked    = "parked"
+)
+
+// Liveness is whether a member's session is listening on the bus now: its LIVE line, which
+// `agent-bus list` judges from the member's agent_bus.status in the team room as `pingbus status`
+// does (a status whose lease runs past now is listening; a lapsed one is stale). It is the one
+// liveness source of a member; the MEMBER line's park state says nothing about it.
+type Liveness string
+
+const (
+	// LiveUnreported is a member with no LIVE line: the agent-bus wrapper is older than LIVE lines.
+	LiveUnreported Liveness = ""
+	// LiveListening is a member whose status lease runs past now: a session of it is listening.
+	LiveListening Liveness = "listening"
+	// LiveStale is a member whose last status lease has ended: no session of it is listening.
+	LiveStale Liveness = "stale"
+	// LiveNoStatus is a member with no status in the room ("-"): no session of it has listened.
+	LiveNoStatus Liveness = "-"
+)
+
+// Member is a MEMBER line, an agent account of the team, with what its LIVE line said.
 type Member struct {
 	Handle     string
 	Role       string
 	Membership string
-	Parked     bool
+	// Parked is the registry's park state (MEMBER's "parked"; "active" is only not parked).
+	Parked bool
+	Live   Liveness
 }
 
 // Kind is the handle's type word (podman, lxc, docker, vm, host), with podman shown as ccy.
@@ -155,15 +181,42 @@ func ParseRoster(out string) (Roster, error) {
 			m.Role = RoleCoordinator
 		}
 		switch f[4] {
-		case "parked":
+		case WordParked:
 			m.Parked = true
-		case "active":
+		case WordNotParked:
 		default:
 			return r, fmt.Errorf("MEMBER %s: activity %q is neither active nor parked", f[1], f[4])
 		}
 		r.Members = append(r.Members, m)
 	}
-	return r, nil
+	return r, readLiveness(out, r.Members)
+}
+
+// readLiveness sets each member's Live from the LIVE lines of out: one at most per member, for a
+// member a MEMBER line named, in a word it knows.
+func readLiveness(out string, members []Member) error {
+	lines, err := marker.Fields(out, "LIVE", 3)
+	if err != nil {
+		return err
+	}
+	for _, f := range lines {
+		i := slices.IndexFunc(members, func(m Member) bool { return m.Handle == f[1] })
+		switch {
+		case i < 0:
+			return fmt.Errorf("LIVE %s: no MEMBER line names it", f[1])
+		case members[i].Live != LiveUnreported:
+			return fmt.Errorf("LIVE %s: said twice", f[1])
+		}
+		switch live := Liveness(f[2]); live {
+		case LiveListening, LiveStale, LiveNoStatus:
+			members[i].Live = live
+		case LiveUnreported:
+			return fmt.Errorf("LIVE %s: the liveness is empty", f[1])
+		default:
+			return fmt.Errorf("LIVE %s: %q is neither listening, stale nor -", f[1], f[2])
+		}
+	}
+	return nil
 }
 
 // ParseDevices reads the DEVICE lines of out.

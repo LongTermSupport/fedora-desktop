@@ -45,6 +45,7 @@ func run(args []string) int {
 		NewToken: newToken,
 		Cwd:      cwd,
 		Lock:     qalock.OSTaker("qa-all", os.Stderr),
+		Umask:    syscall.Umask,
 	}
 	return int(all.Main(ctx, args, env))
 }

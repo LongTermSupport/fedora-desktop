@@ -29,17 +29,18 @@ func (c *Collector) Graph(ctx context.Context) term.ExitCode {
 	return verdict(s)
 }
 
-// The live states a member is drawn in, each a Mermaid class.
+// The live states a member is drawn in, each a Mermaid class: listening on the bus (its LIVE
+// line), offline (stale, no status, parked, deferred), or unknown with why.
 const (
-	stateOnline  = "online"
-	stateOffline = "offline"
-	stateUnknown = "unknown"
+	stateListening = string(agentbus.LiveListening)
+	stateOffline   = "offline"
+	stateUnknown   = "unknown"
 )
 
 // classDefs colour the live states.
-const classDefs = "  classDef online fill:#dff5e1,stroke:#2e7d32,color:#000\n" +
-	"  classDef offline fill:#eeeeee,stroke:#757575,color:#000\n" +
-	"  classDef unknown fill:#fff3c4,stroke:#b8860b,color:#000\n"
+const classDefs = "  classDef " + stateListening + " fill:#dff5e1,stroke:#2e7d32,color:#000\n" +
+	"  classDef " + stateOffline + " fill:#eeeeee,stroke:#757575,color:#000\n" +
+	"  classDef " + stateUnknown + " fill:#fff3c4,stroke:#b8860b,color:#000\n"
 
 // Mermaid is the snapshot as a Mermaid flowchart: each team a subgraph titled with what it is
 // for and its homeserver, holding its people and its members; each member's kind, seat, role,
@@ -139,8 +140,11 @@ func (g *teamGraph) node(depth int, r Row, item *lxcrecord.Item) string {
 		where = "checkout " + r.Where
 	}
 	state, why := stateOf(g.s, r, item)
-	g.line(depth, id+label(name, "kind "+r.kindWord()+", seat "+g.seatOf(r)+", role "+g.roleOf(r), where,
-		state+": "+why, "membership "+r.State)+":::"+state)
+	lines := []string{name, "kind " + r.kindWord() + ", seat " + g.seatOf(r) + ", role " + g.roleOf(r), where, state + ": " + why}
+	if r.Kind == KindCcy && r.Dir != "-" && r.Dir != "" {
+		lines = append(lines, "session "+r.Session)
+	}
+	g.line(depth, id+label(lines...)+":::"+state)
 	return id
 }
 
@@ -208,38 +212,38 @@ func (g *teamGraph) roleOf(r Row) string {
 	return "-"
 }
 
-// stateOf is a member's live state and why. A seat of this host is online while its session runs
-// or a live process holds it, else offline. A parked member is offline. An LXC member is judged by
-// what the last apply recorded of its container; a joined one is unknown, since whether its
-// container runs is read as root. A member of any other machine is unknown.
+// stateOf is a member's live state and why, as --list's STATE says it: listening while its status
+// on the bus runs past now (its LIVE line, what pingbus status reads), offline once that has lapsed
+// or with none, and offline when parked or deferred. Whatever its kind or machine, a member is
+// judged the same way; one agent-bus list did not report is unknown, with why.
 func stateOf(s *Snapshot, r Row, item *lxcrecord.Item) (string, string) {
-	if r.Kind == KindCcy && r.Dir != "-" && r.Dir != "" {
-		_, live := s.Live[r.Record]
-		switch {
-		case r.Record != "" && live:
-			return stateOnline, "session " + r.Record + " running"
-		case r.Record != "":
-			return stateOffline, "session " + r.Record + " stopped"
-		case r.Held:
-			return stateOnline, "seat held by a running process"
-		}
-		return stateOffline, "seat free, no session"
-	}
-	if r.State == wordParked {
-		return stateOffline, wordParked
-	}
-	if r.Kind != kindLxc {
-		return stateUnknown, "runs elsewhere, not read from this host"
-	}
 	switch {
-	case item == nil:
-		return stateUnknown, "no LXC member record names it"
-	case item.Status == lxcrecord.StatusStopped:
-		return stateOffline, "container " + item.Container + " stopped at the last apply"
-	case item.Status == lxcrecord.StatusJoined:
-		return stateUnknown, "container " + item.Container + " is read as root, which --graph never asks for"
+	case r.State == wordParked:
+		return stateOffline, wordParked
+	case r.State == lxcrecord.StatusDeferred && item != nil:
+		return stateOffline, item.Words()
+	case r.State == lxcrecord.StatusDeferred:
+		return stateOffline, lxcrecord.StatusDeferred
 	}
-	return stateOffline, item.Words()
+	switch r.Live {
+	case agentbus.LiveListening:
+		return stateListening, "a session of it is listening on the bus"
+	case agentbus.LiveStale:
+		return stateOffline, "its status on the bus has lapsed (stale)"
+	case agentbus.LiveNoStatus:
+		return stateOffline, "no status on the bus: no session of it has listened"
+	case agentbus.LiveUnreported:
+	}
+	switch why := s.MembersUnknown[r.Team]; {
+	case why != "":
+		return stateUnknown, "members: " + why
+	case r.Handle == "" || r.Handle == "-":
+		return stateUnknown, "no member yet"
+	}
+	if _, listed := s.Members[r.Team].Member(r.Handle); !listed {
+		return stateUnknown, "agent-bus list names no member " + r.Handle
+	}
+	return stateUnknown, "agent-bus list reports no liveness (the agent-bus play updates it)"
 }
 
 // escapes are the characters a quoted Mermaid label would read as syntax, as Mermaid's entity

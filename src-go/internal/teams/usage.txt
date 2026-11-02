@@ -84,7 +84,8 @@ Usage:
   ccy-teams --graph                print the same as a Mermaid flowchart on stdout: each team
                                    a subgraph (what it is for, its homeserver, its people),
                                    each member's kind, seat, role, checkout and live state
-                                   (online, offline, or unknown with why; never left out),
+                                   (listening on the bus, offline: stale, no status, parked
+                                   or deferred, or unknown with why; never left out),
                                    LXC members inside their container, and the coordinator's
                                    edges to its workers. It fails as --list does
   ccy-teams create [--org ORG | --repo OWNER/REPO...] [--team T] [--human NAME]...

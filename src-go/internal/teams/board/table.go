@@ -56,6 +56,9 @@ type Row struct {
 	Role string
 	// Held is a seat that a live process holds, whichever session it is.
 	Held bool
+	// Live is whether the member's session is listening on the bus now (its LIVE line), the one
+	// source of a member's STATE besides parked; unreported for a row that is not a listed member.
+	Live agentbus.Liveness
 }
 
 // The columns, in order; a column's index is its place in headings and in Row.cells.
@@ -256,9 +259,10 @@ func (t Table) line(cells [columns]string, dress func(i int, padded string) stri
 // wordColour is the colour a status word is shown in, or "" for none.
 func wordColour(word string) string {
 	switch {
-	case isOneOf(word, "free", "invited", "no", wordParked, "deferred", "never signed in"), strings.HasSuffix(word, "(stopped)"):
+	case isOneOf(word, "free", "invited", "no", wordParked, "deferred", "never signed in", string(agentbus.LiveStale), wordNotListening),
+		strings.HasSuffix(word, "(stopped)"):
 		return cYellow
-	case isOneOf(word, "up", "active", "held", "in room", "yes"), strings.HasSuffix(word, " signed in"):
+	case isOneOf(word, "up", string(agentbus.LiveListening), "held", "in room", "yes"), strings.HasSuffix(word, " signed in"):
 		return cGreen
 	case strings.HasPrefix(word, "out of date"), word == declare.WordNotBuilt:
 		return cYellow

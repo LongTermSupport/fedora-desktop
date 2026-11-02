@@ -125,6 +125,9 @@ entry below), is, at every commit, exactly what needs running **now**:
   supposed to be doing dev work, only triage+deployment". Send it meta-deploy runs, host
   checks and read-only probes. Code, tests, branches and pull requests, in any repository,
   go to a container worker, even when the defect only shows on the host.
+- **The agent bus v1 is feature-frozen: bug fixes only.** Owner, 2026-11-02: "v1 should feature
+  freeze apart from bug fix". New bus features, cross-network membership included, go into v2
+  (Plan 00209, direction 7). A v1 change that is not a bug fix is refused.
 - **Dispatch a worker as a background subagent with `isolation: "worktree"`, never as a
   named in-process teammate.** A teammate runs inside the coordinator's own session, so when
   it moves into its worktree the coordinator moves with it, and the worktree guards then

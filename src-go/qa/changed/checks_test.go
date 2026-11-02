@@ -24,10 +24,21 @@ type scriptedRunner struct {
 	semgrepReport bool
 	// vcs sends the version-control commands no reply matches to the real program.
 	vcs bool
+	// mask is the process's umask as the run left it, and masks the one each call ran under.
+	mask  int
+	masks []int
 }
+
+// machineUmask is the umask of the machine a fake run starts on: a GitHub runner's, not
+// gates.SuiteUmask.
+const machineUmask = 0o022
+
+// keepUmask is an Env.Umask that changes nothing, for a test that does not judge the umask.
+func keepUmask(int) int { return machineUmask }
 
 func (r *scriptedRunner) Run(ctx context.Context, c proc.Cmd) (proc.Result, error) {
 	r.calls = append(r.calls, c)
+	r.masks = append(r.masks, r.mask)
 	if r.semgrepReport && c.Argv[0] == "semgrep" {
 		if err := os.WriteFile(c.Argv[slices.Index(c.Argv, "--json-output")+1], []byte(`{"results":[]}`), 0o600); err != nil {
 			panic(err)
@@ -46,6 +57,13 @@ func (r *scriptedRunner) Run(ctx context.Context, c proc.Cmd) (proc.Result, erro
 		return proc.OS{}.Run(ctx, c)
 	}
 	return proc.Result{}, nil
+}
+
+// setUmask is Env.Umask over the fake: the process umask the next calls inherit.
+func (r *scriptedRunner) setUmask(mask int) int {
+	old := r.mask
+	r.mask = mask
+	return old
 }
 
 func lookupCheck(id string) checkDef {
@@ -137,7 +155,7 @@ func newTestSession(t *testing.T, runner proc.Runner) *session {
 	if err := os.MkdirAll(scripts, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	return &session{env: Env{Getenv: noEnv, Runner: runner}, root: root, scripts: scripts}
+	return &session{env: Env{Getenv: noEnv, Umask: keepUmask, Runner: runner}, root: root, scripts: scripts}
 }
 
 func TestPerFileChecksRunEachFileAndFailIfAnyDoes(t *testing.T) {

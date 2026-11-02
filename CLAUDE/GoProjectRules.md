@@ -49,6 +49,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_duration_overflow`       | a `time.Duration` built from a number with no bound that keeps it inside int64 nanoseconds, so a large input comes out negative                 | `vmtest prune-runs --older-than 200000` pruned every failed run (Plan 00192 Task 3.10)                   |
 | `project_command_failure_dropped` | a command's failure only tested, never carried, so the person sees a guessed cause                                                              | `ccy --token-usage`: any curl failure was "could not reach the API" for 15 minutes (Plan 00191 Task 4.9) |
 | `project_self_erasing_clipboard` | a secret kept short-lived by a clipboard meant to erase itself after a paste, or text promising it (also in shell: `bash-self-erasing-clipboard`) | `teams` login: `wl-copy --paste-once`, and "for one paste" (Plan 00201 Task 2.12) |
+| `project_liveness_word` | a status word read as running ("active", "online", "listening", "alive") spelled where no live source decides it | `teams` board: every member not parked shown green "active" (Plan 00177) |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -978,6 +979,56 @@ model (`offerCopy`, `SettleClipboard`).
 because it needs a gate of its own (command, wrapper, `qa-gates.tsv`, routing and QA.md rows):
 the markdown instances exist and were fixed, so leaving that half undefended is the owner's
 decision, referred with this remediation.
+
+### project_liveness_word
+
+**What it is about.** A state a person reads as "this runs now" ("active", "online",
+"listening", "alive") that is decided by something that does not know whether it runs: a
+registry entry, a configured seat, a record that the thing exists.
+
+**Why it exists.** Plan 00177, the owner's report (2026-11-02): `ccy-teams`' list showed members
+green and "active" whose sessions had stopped, while `pingbus status` called the same members
+stale. The word came from `agent-bus list`'s park field (`active` means only not parked), so
+every member never parked looked alive for ever.
+
+**What it flags**, outside `internal/agentbus` (the bus's `LIVE` words and the registry's park
+words it parses), `internal/systemd` (a unit's ActiveState) and `qa/rules`, in files that are
+not tests: a string literal that is one of those words, in any case and with any surrounding
+space. A struct tag and an import path are not flagged. A word another program prints, spelled
+only to read it, is excused by a row of `livenessAllowances` (in `livenessword.go`) with its
+reason: the phone app's `ACTIVE` manifest state in `internal/stt`, and the fake machine's
+`systemctl is-active` answer in `internal/teams/teamtest`.
+
+**How to fix a violation.** Take the word from the owner that read it from a live source
+(`agentbus.LiveListening` and the other `Liveness` values, from the member's `LIVE` line, which
+`agent-bus list` judges from the member's `agent_bus.status` exactly as `pingbus status` does),
+or name the state for what its source says (`agentbus.WordNotParked`, parked). Show what could
+not be read as unknown, with why.
+
+- Red, fixture: `testdata/src/fix/internal/badlive` (`bad.go`: the original map of states, a
+  constant, a switch case with surrounding space, an upper-case word and a raw string, all
+  flagged; `good.go`: a struct tag, words that claim nothing, a word inside a sentence and the
+  owner's constant, clean; `bad_test.go`: a test, clean), the owners `fix/internal/agentbus` and
+  `fix/internal/systemd`, the allowance `fix/internal/stt` (its excused word clean, another
+  flagged) and `fix/qa/rules`.
+- Red, real tree (the defence commit, through the driver as `go vet -vettool`, both tag sets;
+  none in the `qa` module): 6 findings: `teams/board/snapshot.go` (the original),
+  `teams/board/table.go` (its green colour), `teams/board/graph.go` (`online`, decided by tmux
+  for a seat and guessed for every other member), `teams/lxcadd/adder.go` (the park word written
+  for declare.py), `stt/recording.go` and `teams/teamtest/world.go` (another program's word,
+  excused with their reasons).
+- Green: the board and the graph show the member's `LIVE` liveness (listening, stale, not
+  listening), parked as parked, and unknown with the reason on the team row; the park word is
+  `agentbus.WordNotParked`.
+- Not caught: the claim in other words ("up" or "running" for a member), a word inside a longer
+  text, one assembled at run time, a wrong source inside an owner package, and the same claim in
+  Python, shell or markdown (`agent-bus list` still prints the park word `active`, documented as
+  meaning only not parked; a rename of that wire word is referred to the owner).
+
+**The next wider rule, not built:** "up" and "running" as well. Both are spelled throughout the
+module for things a live source does decide (a homeserver unit up, a tmux session running, a
+container running), so the rule would flag correct code by the dozen and need an allowance per
+use: wider than the hazard.
 
 ## Defect classes that cannot be a rule
 

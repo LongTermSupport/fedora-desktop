@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# randfile [DIR] - print the path of one file in DIR (default: the current directory), chosen
+# at random. Regular files only, not hidden ones, not recursive. The path is the payload on
+# stdout, so it composes: open "$(randfile)", open "$(randfile ~/Pictures)".
+set -euo pipefail
+
+usage='usage: randfile [DIR]   print one random file in DIR (default: the current directory)'
+
+case "${1:-}" in
+    -h | --help)
+        echo "$usage"
+        exit 0
+        ;;
+    -*)
+        echo "randfile: unknown option: $1" >&2
+        echo "$usage" >&2
+        exit 64
+        ;;
+esac
+if (($# > 1)); then
+    echo "$usage" >&2
+    exit 64
+fi
+
+dir="${1:-.}"
+if [[ ! -d "$dir" ]]; then
+    echo "randfile: not a directory: $dir" >&2
+    exit 1
+fi
+
+pick="$(find "$dir" -mindepth 1 -maxdepth 1 -type f ! -name '.*' -print0 | shuf -z -n 1 | tr -d '\0')"
+if [[ -z "$pick" ]]; then
+    echo "randfile: no files in $dir" >&2
+    exit 1
+fi
+printf '%s\n' "$pick"

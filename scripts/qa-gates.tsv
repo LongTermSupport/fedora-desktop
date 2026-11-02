@@ -134,6 +134,7 @@ gate	bash-history-search	scripts/test-bash-history-search.bash	bash history sear
 gate	bash-history-session	scripts/test-bash-history-session.bash	bash history session unit tests failed	count
 gate	terminal-modes	scripts/test-terminal-modes.bash	terminal modes prompt hook unit tests failed	count
 gate	fedora-desktop-health	scripts/test-fedora-desktop-health.bash	fedora-desktop-health command unit tests failed	count
+gate	randfile	scripts/test-randfile.bash	randfile command unit tests failed	count
 gate	failfast-pattern-tests	scripts/test-qa-ansible-failfast.bash	fail-fast directive pattern unit tests failed	count
 gate	docs-exit-codes	scripts/test-qa-docs-exit-codes.bash	docs gate exit-code contract failed	count
 gate	qa-changed-mapping	scripts/test-qa-changed.bash	qa-changed file-to-check mapping tests failed	count

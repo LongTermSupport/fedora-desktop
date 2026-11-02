@@ -25,21 +25,51 @@ concurrency:
   cancel-in-progress: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
 
 jobs:
+  # A branch pushed without the default branch's tip would spend the full suite on a tree that
+  # lacks fixes already there, and fail on them. This job fails such a push in seconds instead,
+  # and qa-all waits on it. A pull request is checked out merged onto its base, and a tag or the
+  # default branch itself has nothing to lack, so they pass straight through.
+  base:
+    name: contains the default branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Require the default branch's tip
+        if: github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name != github.event.repository.default_branch
+        env:
+          DEFAULT: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          tip=$(git rev-parse --short "origin/$DEFAULT")
+          if ! git merge-base --is-ancestor "origin/$DEFAULT" HEAD; then
+            echo "::error::this branch lacks origin/$DEFAULT at $tip: merge $DEFAULT into it and push again; the full suite does not run on a stale base"
+            exit 1
+          fi
+          echo "contains origin/$DEFAULT at $tip"
+
   qa-all:
     # No gate count in this name. It said "(8 gates)" while qa-all.bash ran
     # thirteen, because a number here is a second place to state a fact that
     # lives in one place already — and nothing checks it. qa-all.bash prints its
     # own gates, one pass line each.
     name: qa-all.bash
+    needs: base
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # The python of the ccy image, 3.13, which src-go/internal/bus/pycompat reproduces and is
+      # proven against: its tests run python3.13 by name (this action puts it on PATH) and
+      # refuse one that reports any other version.
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.13"
 
       - name: Set up Node
         uses: actions/setup-node@v4

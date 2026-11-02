@@ -57,6 +57,10 @@ _ROOTED_HELPER = re.compile(
 )
 #: A string that IS a checkout path under helpers/, as a module names one it packages.
 _HELPER_LITERAL = re.compile(r"^(helpers/[A-Za-z0-9_./-]+)$")
+#: Any rooted checkout file a YAML line names, and the `src:` lines that only copy one.
+_ROOTED_FILE = re.compile(r"\{\{\s*root_dir\s*\}\}/([A-Za-z0-9_./-]+)")
+_SRC = re.compile(r"^\s*(?:-\s+)?src:")
+_BASH_HELPER = re.compile(r"\s-m\s+(helpers(?:\.[A-Za-z_][A-Za-z0-9_]*)+)")
 
 
 def _modules_under(repo_root: str, rel_dir: str) -> set[str]:
@@ -101,6 +105,27 @@ def entries(repo_root: str, yaml_files: set[str]) -> set[str]:
                 found |= _dotted_modules(repo_root, dotted)
             for match in _ROOTED_HELPER.finditer(line):
                 found |= _path_modules(repo_root, match.group(1) or match.group(2))
+            if not _SRC.match(line):
+                for match in _ROOTED_FILE.finditer(line):
+                    found |= _script_runs(repo_root, match.group(1))
+    return found
+
+
+def _script_runs(repo_root: str, rel: str) -> set[str]:
+    """The helper modules a bash script the play runs (named off a `src:` line) runs with
+    `python3 -m`: agent-bus-install builds the zipapp with helpers.pingbus.bundle."""
+    path = os.path.join(repo_root, rel)
+    if not os.path.isfile(path):
+        return set()
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        text = handle.read()
+    if not (rel.endswith((".bash", ".sh")) or re.match(r"#!\s*(?:/\S*/)?(?:env\s+)?(?:bash|sh)\b", text)):
+        return set()
+    found: set[str] = set()
+    for line in text.splitlines():
+        if not line.lstrip().startswith("#"):
+            for dotted in _BASH_HELPER.findall(line):
+                found |= _dotted_modules(repo_root, dotted)
     return found
 
 
