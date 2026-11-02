@@ -40,9 +40,10 @@ jobs:
           sudo apt-get install -y --no-install-recommends podman
           sudo podman version
 
-      # The base image is not an installed box, so the lane makes it look like one: systemd as
-      # PID 1, so that hostnamectl, systemctl and the plays' services behave as installed, and
-      # the kernel package every installed Fedora carries (the dnf upgrade play reads it). The
+      # The base image is not an installed box, so the lane makes it look like one: the core
+      # package group a minimal install carries, systemd as PID 1, so that hostnamectl,
+      # systemctl and the plays' services behave as installed, and the kernel package every
+      # installed Fedora carries (the dnf upgrade play reads it). The
       # CI user gets ordinary password sudo through wheel, as the server profile expects (it
       # never grants NOPASSWD).
       - name: Build the Fedora image with systemd
@@ -50,8 +51,8 @@ jobs:
           set -euo pipefail
           sudo podman build --tag fedora-desktop-arm64-install -f - . <<'CONTAINERFILE'
           FROM registry.fedoraproject.org/fedora:44
-          RUN dnf -y install systemd sudo passwd shadow-utils util-linux procps-ng hostname \
-              kernel-core \
+          RUN dnf -y group install core \
+           && dnf -y install systemd kernel-core \
            && dnf clean all
           RUN useradd --create-home --groups wheel ci
           CMD ["/sbin/init"]
@@ -148,3 +149,12 @@ jobs:
               RUN_BASH_VAULT_PASSWORD_FILE=/run/ci-secrets/vault-pass \
               RUN_BASH_SUDO_PASSWORD_FILE=/run/ci-secrets/sudo-pass \
               "/home/${CI_USER}/run.bash" < /dev/null
+
+      # The install step has already failed the job; this only shows why a service did not
+      # come up, which the play's own output cannot.
+      - name: Show the container's failed units and journal
+        if: failure()
+        run: |
+          set -euo pipefail
+          sudo podman exec "$CONTAINER" systemctl --no-pager --failed
+          sudo podman exec "$CONTAINER" journalctl --no-pager --boot --lines=400
