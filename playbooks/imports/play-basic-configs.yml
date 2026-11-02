@@ -17,6 +17,10 @@
         owner: root
       - home: "/home/{{ user_login }}"
         owner: "{{ user_login }}"
+    yq_version_pin: "4.54.1"
+    yq_builds:
+      x86_64: {asset: yq_linux_amd64, sha256: 8e34fc298390875de416e6a4afcb8cabeceb25d9aa8506c1a2f9353cf702ea5f}
+      aarch64: {asset: yq_linux_arm64, sha256: 189088da0c6429ec5178dfaab1a114805f6cab0b61b165ab236efedf1d57a71b}
   tasks:
     # Priority 0: PS1_Colour given as an extra-var. run.bash passes RUN_BASH_PS1_COLOUR this way
     # on a headless run, where nobody can answer the prompt below; an extra-var outranks every
@@ -554,18 +558,30 @@
         group: "{{ user_login }}"
         mode: "0755"
 
-    - name: Install YQ
-      become: true
-      ansible.builtin.shell: |
-        set -euo pipefail
-        wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 && chmod 0755 /usr/bin/yq
-      args:
-        executable: /bin/bash
-        creates: /usr/bin/yq
+    # yq names its builds amd64/arm64; the map is keyed by the arch as Fedora names it. The
+    # version and both digests are the ones the ccy images pin (.claude/ccy/Dockerfile,
+    # files/var/local/claude-yolo/Dockerfile): bump all three places together.
+    - name: Fail on an architecture with no pinned yq build
+      ansible.builtin.assert:
+        that: ansible_facts['architecture'] in yq_builds
+        fail_msg: "yq: no build pinned for {{ ansible_facts['architecture'] }} (pinned: {{ yq_builds | list | join(', ') }})"
       tags: yq
 
-    # Every user runs yq. An install made under a restrictive umask left it root-only, and the
-    # creates: guard above never runs the install again (CLAUDE/QA.md#root-umask).
+    # get_url compares the digest with the file already at the path, so a host carrying another
+    # yq, or a truncated download, is replaced by the pinned build on the next run.
+    - name: Install YQ
+      become: true
+      ansible.builtin.get_url:
+        url: "https://github.com/mikefarah/yq/releases/download/v{{ yq_version_pin }}/{{ yq_builds[ansible_facts['architecture']].asset }}"
+        dest: /usr/bin/yq
+        checksum: "sha256:{{ yq_builds[ansible_facts['architecture']].sha256 }}"
+        owner: root
+        group: root
+        mode: "0755"
+      tags: yq
+
+    # Every user runs yq. An install made under a restrictive umask left it root-only, and a
+    # matching digest never runs the install again (CLAUDE/QA.md#root-umask).
     - name: Make yq runnable by every user
       become: true
       ansible.builtin.file:
@@ -591,17 +607,10 @@
 
     # The pinned `lts.vault-scripts` role needs yq **v4** — `dumpSecretsInFiles` and
     # `rekeyVaultFile` use v4 syntax, and its `assertYqInstalled` refuses anything
-    # else. The task above cannot guarantee that on its own, in two ways that both
-    # end with the host looking provisioned:
-    #
-    # `creates:` skips the download whenever /usr/bin/yq exists, so a host carrying
-    # v3 from an older run keeps v3 for ever. And a `wget` that dies partway leaves
-    # a truncated file at that path, which `creates:` then skips on every future
-    # run — a failed install that never retries.
-    #
-    # Asserted here so both surface at provision time, naming the fix, instead of
-    # inside a vault script at the moment someone needs a secret. `yq --version` is
-    # also the probe for the truncated case: a broken binary cannot answer it.
+    # else. The pinned digest above already replaces any other yq at that path, so this
+    # holds the outcome rather than the action: a yq that is on PATH but cannot answer,
+    # or answers as something else, surfaces at provision time, naming the fix, instead
+    # of inside a vault script at the moment someone needs a secret.
     #
     # `check_mode: false` because this reads and changes nothing. Without it the
     # command module is skipped under `--check` and still registers `stdout=''`, which
@@ -620,9 +629,8 @@
 
     # v4 OR NEWER, matching the role's own `assertYqInstalled`, which extracts the
     # major and rejects `< 4`. Pinning to exactly v4 would be stricter than the thing
-    # this assert exists to protect, and the install above fetches `latest` — so the
-    # day yq v5 ships, a stricter check here would fail provisioning on a host whose
-    # vault scripts would have run perfectly.
+    # this assert exists to protect: the day the pin moves to yq v5, a stricter check
+    # here would fail provisioning on a host whose vault scripts would run perfectly.
     #
     # The regex is the role's: mikefarah v3 prints `yq version 3.4.1`, v4 prints
     # `... version v4.53.3`, and the unrelated python (kislyuk) yq prints `yq 3.2.3`,

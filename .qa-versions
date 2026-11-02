@@ -28,8 +28,9 @@
 # playbooks/imports/play-python.yml on the host, and rebuild the CCY image
 # (`ccy --rebuild`) or every container keeps asserting the old value and fails.
 # SHELLCHECK and GOLANGCI_LINT also have one sha256 per architecture pinned in
-# .claude/ccy/Dockerfile (SHELLCHECK_SHA256_AMD64/ARM64, GOLANGCI_LINT_SHA256_AMD64/ARM64):
-# bump those with the version, or the image build fails its checksum check.
+# .claude/ccy/Dockerfile (SHELLCHECK_SHA256_AMD64/ARM64, GOLANGCI_LINT_SHA256_AMD64/ARM64) and
+# in playbooks/imports/play-python.yml (shellcheck_builds, golangci_lint_builds): bump those
+# with the version, or the image build and the play fail their checksum checks.
 
 RUFF=0.16.8
 SEMGREP=1.177.0

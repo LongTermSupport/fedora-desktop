@@ -24,12 +24,35 @@
       {{ dict(lookup('ansible.builtin.file', root_dir ~ '/.qa-versions').splitlines()
               | select('match', '^[A-Z_]+=')
               | map('split', '=', 1)) }}
-    golangci_lint_archive: "golangci-lint-{{ qa_versions.GOLANGCI_LINT }}-linux-amd64.tar.gz"
+    # The static QA binaries, one build per architecture keyed as Fedora names it; each upstream
+    # spells the arch its own way. The versions are .qa-versions; the digests are those of that
+    # version, the same ones .claude/ccy/Dockerfile pins, so a version bump fails the checksum
+    # here until both digests beside it are bumped too.
+    shellcheck_builds:
+      x86_64: {arch: x86_64, sha256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198}
+      aarch64: {arch: aarch64, sha256: 12b331c1d2db6b9eb13cfca64306b1b157a86eb69db83023e261eaa7e7c14588}
+    golangci_lint_builds:
+      x86_64: {arch: amd64, sha256: ab90aeb7b066f92a33415b638a50fe5344bbb75a0d32ad30cc248d88f81032ab}
+      aarch64: {arch: arm64, sha256: ee7ec5f3453d15ddf106fae5a4d6c71737712348a979d1fe9cd52ec7ea299bae}
+    shellcheck_build: "{{ shellcheck_builds[ansible_facts['architecture']] }}"
+    shellcheck_archive: "shellcheck-v{{ qa_versions.SHELLCHECK }}.linux.{{ shellcheck_build.arch }}.tar.xz"
+    golangci_lint_build: "{{ golangci_lint_builds[ansible_facts['architecture']] }}"
+    golangci_lint_dir: "golangci-lint-{{ qa_versions.GOLANGCI_LINT }}-linux-{{ golangci_lint_build.arch }}"
+    golangci_lint_archive: "{{ golangci_lint_dir }}.tar.gz"
     golangci_lint_release: "https://github.com/golangci/golangci-lint/releases/download/v{{ qa_versions.GOLANGCI_LINT }}"
   tasks:
     - name: Audience guard — end play on a consumer install
       ansible.builtin.meta: end_play
       when: install_audience != 'developer'
+
+    - name: Fail on an architecture with no pinned shellcheck or golangci-lint build
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['architecture'] in shellcheck_builds
+          - ansible_facts['architecture'] in golangci_lint_builds
+        fail_msg: >-
+          shellcheck and golangci-lint: no build pinned for {{ ansible_facts['architecture'] }}
+          (pinned: {{ shellcheck_builds | list | intersect(golangci_lint_builds | list) | join(', ') }})
 
     - name: Ensure pipx Installed, Pyenv dependencies, and dependencies required by various python packages
       become: true
@@ -162,10 +185,20 @@
       changed_when: false
       failed_when: false # FAIL-FAST-OK: probe — absence is the normal first-run state
 
+    - name: Download shellcheck at the pinned version
+      ansible.builtin.get_url:
+        url: "https://github.com/koalaman/shellcheck/releases/download/v{{ qa_versions.SHELLCHECK }}/{{ shellcheck_archive }}"
+        dest: "/tmp/{{ shellcheck_archive }}"
+        checksum: "sha256:{{ shellcheck_build.sha256 }}"
+        mode: "0644"
+      when: >-
+        shellcheck_installed.rc != 0
+        or ('version: ' ~ qa_versions.SHELLCHECK) not in shellcheck_installed.stdout
+
     - name: Install shellcheck at the pinned version
       become: true
       ansible.builtin.unarchive:
-        src: "https://github.com/koalaman/shellcheck/releases/download/v{{ qa_versions.SHELLCHECK }}/shellcheck-v{{ qa_versions.SHELLCHECK }}.linux.x86_64.tar.xz"
+        src: "/tmp/{{ shellcheck_archive }}"
         remote_src: true
         dest: /usr/local/bin
         include:
@@ -179,6 +212,11 @@
         shellcheck_installed.rc != 0
         or ('version: ' ~ qa_versions.SHELLCHECK) not in shellcheck_installed.stdout
 
+    - name: Remove the shellcheck download
+      ansible.builtin.file:
+        path: "/tmp/{{ shellcheck_archive }}"
+        state: absent
+
     # golangci-lint (the Go edit lint) is a static Go binary too, at the same pin the CCY image and CI
     # install. The Go toolchain itself and the gcc `go test -race` links against come from
     # the play-golang.yml imported above and the dnf list at the top of this play.
@@ -189,13 +227,13 @@
       changed_when: false
       failed_when: false # FAIL-FAST-OK: probe — absence is the normal first-run state
 
-    # The checksum is read from the release's own checksums file and verified by get_url,
-    # so a tampered or truncated download fails before anything is unpacked.
+    # The pinned digest is verified by get_url, so a tampered or truncated download fails
+    # before anything is unpacked.
     - name: Download golangci-lint at the pinned version
       ansible.builtin.get_url:
         url: "{{ golangci_lint_release }}/{{ golangci_lint_archive }}"
         dest: "/tmp/{{ golangci_lint_archive }}"
-        checksum: "sha256:{{ golangci_lint_release }}/golangci-lint-{{ qa_versions.GOLANGCI_LINT }}-checksums.txt"
+        checksum: "sha256:{{ golangci_lint_build.sha256 }}"
         mode: "0644"
       when: >-
         golangci_lint_installed.rc != 0
@@ -208,7 +246,7 @@
         remote_src: true
         dest: /usr/local/bin
         include:
-          - "golangci-lint-{{ qa_versions.GOLANGCI_LINT }}-linux-amd64/golangci-lint"
+          - "{{ golangci_lint_dir }}/golangci-lint"
         extra_opts:
           - --strip-components=1
         owner: root
