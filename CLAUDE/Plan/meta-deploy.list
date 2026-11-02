@@ -32,8 +32,3 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-
-# The CLI tools play, named because an optional play the host may never have run is not a
-# changed play: it installs the new randfile command (one random file of a directory, for
-# open "$(randfile)") into ~/.local/bin, and re-checks open, convert and reclaim.
-playbooks/imports/optional/common/play-cli-tools.yml
