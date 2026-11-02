@@ -59,6 +59,9 @@ it, and arm64 support is a standing requirement from then on: the architecture r
   qa-all, proved red on both ccy Dockerfiles; the remaining instances are the ratchet
   `scripts/arch-pin.allowlist`, a baseline for the owner to accept. Plain blocking once the
   allowlist is empty.
+  - [ ] 🔄 **Task 1.2a**: The qa-reviewer's fixes to the gate: every QA script executable
+    (held by a Go test), the ratchet comparing findings and the merge-base, qa-changed
+    routing, the pin docs, the narrowed ARM exclusion, the yq pin.
 
 ### Phase 2: fixes
 
