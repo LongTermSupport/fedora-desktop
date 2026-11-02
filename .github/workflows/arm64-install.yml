@@ -48,7 +48,9 @@ jobs:
       # systemctl and the plays' services behave as installed, and the kernel package every
       # installed Fedora carries (the dnf upgrade play reads it). The
       # CI user gets ordinary password sudo through wheel, as the server profile expects (it
-      # never grants NOPASSWD).
+      # never grants NOPASSWD). Fedora gives newuidmap and newgidmap their privilege as file
+      # capabilities, which the image layers did not carry to rootless podman inside the
+      # container, so they are setuid here, as the shadow-utils of other distributions ship.
       - name: Build the Fedora image with systemd
         run: |
           set -euo pipefail
@@ -57,6 +59,8 @@ jobs:
           RUN dnf -y group install core \
            && dnf -y install systemd kernel-core \
            && dnf clean all
+          RUN getcap /usr/bin/newuidmap /usr/bin/newgidmap \
+           && chmod u+s /usr/bin/newuidmap /usr/bin/newgidmap
           RUN useradd --create-home --groups wheel ci
           CMD ["/sbin/init"]
           CONTAINERFILE
@@ -163,4 +167,5 @@ jobs:
         run: |
           set -euo pipefail
           sudo podman exec "$CONTAINER" systemctl --no-pager --failed
+          sudo podman exec "$CONTAINER" sh -c 'getcap /usr/bin/newuidmap; ls -l /usr/bin/newuidmap; cat /etc/subuid; grep -E "NoNewPrivs|CapBnd" /proc/self/status'
           sudo podman exec "$CONTAINER" journalctl --no-pager --boot --lines=400
