@@ -81,7 +81,7 @@ func (m *machine) interactive(fzf ...string) *teamtest.Console {
 
 // noLxc makes alpha's roster hold only seat 1 and the parked seat 2.
 func (m *machine) noLxc() {
-	m.On(teamtest.SudoBus+"list alpha", strings.Replace(teamtest.BusList, "MEMBER\tproj.box+role.lxc\tops\tjoin\tactive\n", "", 1), 0)
+	m.On(teamtest.SudoBus+"list alpha", strings.Replace(teamtest.BusList, teamtest.BoxMember, "", 1), 0)
 }
 
 // withDev adds a second member on seat dev, run by s, recorded with --teams dev@alpha.

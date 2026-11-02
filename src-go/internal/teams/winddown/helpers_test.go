@@ -172,12 +172,12 @@ func (m *machine) interactive(fzf ...string) *teamtest.Console {
 
 // noLxc makes alpha's roster hold only the ccy members.
 func (m *machine) noLxc() {
-	m.On(teamtest.SudoBus+"list alpha", strings.Replace(teamtest.BusList, "MEMBER\tproj.box+role.lxc\tops\tjoin\tactive\n", "", 1), 0)
+	m.On(teamtest.SudoBus+"list alpha", strings.Replace(teamtest.BusList, teamtest.BoxMember, "", 1), 0)
 }
 
 // coordinator makes proj.1 alpha's coordinator, with no LXC member.
 func (m *machine) coordinator() {
-	list := strings.Replace(teamtest.BusList, "MEMBER\tproj.box+role.lxc\tops\tjoin\tactive\n", "", 1)
+	list := strings.Replace(teamtest.BusList, teamtest.BoxMember, "", 1)
 	m.On(teamtest.SudoBus+"list alpha", strings.Replace(list, "proj.1+local.podman\tdev", "proj.1+local.podman\tcoordinator", 1), 0)
 }
 

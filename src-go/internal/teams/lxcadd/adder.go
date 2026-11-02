@@ -436,9 +436,9 @@ func (a *Adder) teamRoster(ctx context.Context, team string) (agentbus.Roster, e
 	}
 	parts := make([]string, 0, len(roster.Members))
 	for _, m := range roster.Members {
-		state := "active"
+		state := agentbus.WordNotParked
 		if m.Parked {
-			state = "parked"
+			state = agentbus.WordParked
 		}
 		parts = append(parts, m.Handle+"="+state)
 	}

@@ -1217,18 +1217,34 @@ def rotate_token(team: Team, transport: Transport, handle: str) -> bytes:
     return _tar({config.TOKEN_FILE: api.mint(user_id).encode()})
 
 
-def list_members(team: Team, transport: Transport) -> list[str]:
-    """`HUMAN <name> <membership>` and `MEMBER <handle> <role> <membership> active|parked`,
-    then `ROOM <user ID> <purpose> <membership>` for each account in each side room (Plan
-    00211 SPEC §5.5); no tokens."""
+def _liveness(api: _Api, room: str, team: Team, handle: str, role: str, now_ms: int) -> str:
+    """`listening` while the member's `agent_bus.status` in the team room runs past `now_ms`,
+    `stale` once it has lapsed, `-` with none: the judgement `pingbus status` makes."""
+    user_id = team.user_id(handle)
+    ctx = protocol.Context(server_name=team.server_name, humans=frozenset(team.humans()),
+                           roles={user_id: role}, repos={}, path_prefixes=())
+    until = protocol.read_status(api.state(room, protocol.EVENT_STATUS, user_id, event=True), ctx)
+    if until is None:
+        return "-"
+    return protocol.STATUS_LISTENING if until > now_ms else "stale"
+
+
+def list_members(team: Team, transport: Transport, *, now_ms: int | None = None) -> list[str]:
+    """`HUMAN <name> <membership>`, and for each member `MEMBER <handle> <role> <membership>
+    active|parked` (the registry's park state: active is only not parked, never running) and
+    `LIVE <handle> listening|stale|-` (whether a session of it is listening now, judged as
+    `pingbus status` judges it; `now_ms` is the clock), then `ROOM <user ID> <purpose> <membership>` for each
+    account in each side room (Plan 00211 SPEC §5.5); no tokens."""
     api = _session(team, transport)
     room = _room_id(team)
     lines = [f"HUMAN\t{name}\t{api.membership(room, team.user_id(name)) or '-'}"
              for name in sorted(team.file.humans)]
     reg = registry.load_registry(team.registry_path, team.name)
-    lines += [f"MEMBER\t{handle}\t{role}\t{api.membership(room, team.user_id(handle)) or '-'}"
-              f"\t{'parked' if reg.is_parked(handle) else 'active'}"
-              for handle, role in sorted(reg.members.items())]
+    now = int(time.time() * 1000) if now_ms is None else now_ms
+    for handle, role in sorted(reg.members.items()):
+        lines.append(f"MEMBER\t{handle}\t{role}\t{api.membership(room, team.user_id(handle)) or '-'}"
+                     f"\t{'parked' if reg.is_parked(handle) else 'active'}")
+        lines.append(f"LIVE\t{handle}\t{_liveness(api, room, team, handle, role, now)}")
     accounts = [*team.humans(), *(team.user_id(handle) for handle in sorted(reg.members))]
     for purpose, side in _side_rooms(team).items():
         members = api.members(side)

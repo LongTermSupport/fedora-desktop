@@ -32,8 +32,12 @@ const (
 		"HUMAN\tguest\tinvite\n" +
 		"HUMAN\tghost\t-\n" +
 		"MEMBER\tproj.1+local.podman\tdev\tjoin\tactive\n" +
+		"LIVE\tproj.1+local.podman\tlistening\n" +
 		"MEMBER\tproj.2+local.podman\tdev\tjoin\tparked\n" +
-		"MEMBER\tproj.box+role.lxc\tops\tjoin\tactive\n"
+		"LIVE\tproj.2+local.podman\tstale\n" +
+		BoxMember
+	// BoxMember is the LXC member's MEMBER and LIVE lines of BusList, which a test removes whole.
+	BoxMember = "MEMBER\tproj.box+role.lxc\tops\tjoin\tactive\nLIVE\tproj.box+role.lxc\t-\n"
 	// HostVarsAlpha is a host_vars declaring team alpha present on port 6167 at the bus address
 	// 192.0.2.10, with no description: declared, it reads as alpha.agent-bus.internal at
 	// http://192.0.2.10:6167.

@@ -32,3 +32,9 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Every changed play; expected: play-agent-bus.yml, whose agent-bus list now prints a LIVE
+# line per member (listening, stale or -, from its status in the team room); and
+# play-claude-yolo.yml, which rebuilds the image (container 2.79.21) and installs ccy-teams
+# (CCY 3.104.17): a member's STATE is that liveness, never "active" from its park state.
+changed-plays

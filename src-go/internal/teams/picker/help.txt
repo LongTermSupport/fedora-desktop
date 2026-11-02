@@ -11,7 +11,15 @@ APPLIED, whether it runs what the host_vars declare:
 Under it, its members and people:
   ccy      a seat of a ccy checkout: the session in it, and RESTORE, whether that
            session is started again after a reboot (yes or no)
-  lxc ...  another member: active, or parked (its token revoked)
+  lxc ...  another member: an LXC container's, or another machine's
+A member's STATE is whether a session of it is listening on the bus now, read from its status
+in the team room as pingbus status reads it, each time the list is drawn:
+  listening      its status runs past now: a session of it is listening
+  stale          its status has lapsed: the session that listened has stopped
+  not listening  no status: no session of it has listened
+  parked         its token revoked; a parked member does not run
+  unknown        not read: need sudo, the homeserver is down, or agent-bus is older than
+                 these states (the team row says which; play-agent-bus.yml updates it)
   human    a person in the team room: in room, invited or not in room, and how
            many Element sessions they are signed in with
 Every member is shown by its whole handle, <repo>.<seat>+<host>.<type>, and nothing in the
