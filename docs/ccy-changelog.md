@@ -17,7 +17,13 @@ Two version numbers move independently — see
 
 ---
 
-## 3.105.0 — container 2.79.20
+## 3.105.1 — container 2.79.21
+
+- **Compact-then-exit together with the listening state** (Plan 00191, Plan 00177): 3.105.0 and
+  3.104.17 in one build; ccy-teams shows each member as listening and closes a session by
+  compacting it first.
+
+## 3.105.0 — container 2.79.21
 
 - **Closing a session compacts it first, then exits** (Plan 00191 Task 4.12). A compaction at
   close reads the conversation from a warm prompt cache; the next resume then writes only the
@@ -44,6 +50,22 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   only near the whole window. claude is now started through `cc-claude` (Go, beside `cc`) on
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
+
+## 3.104.17 — container 2.79.20
+
+The image is unchanged, so there is no rebuild.
+
+- **ccy-teams shows whether a member is running, from the bus.** A member's STATE was
+  "active", in green, for every member that was not parked: that came from the team
+  registry's park state, so members whose sessions had stopped hours before looked alive
+  while `pingbus status` called them stale. STATE is now the member's own status in the team
+  room, read as `pingbus status` reads it, each time the list is drawn: `listening`, `stale`
+  (its status lapsed), `not listening` (none), `parked`, or `unknown` with the reason on the
+  team row. `--graph` draws the same (listening, offline, unknown with why), for members of
+  every kind and machine. `agent-bus list` gains a `LIVE` line per member, so
+  `play-agent-bus.yml` must run too; until it has, ccy-teams says the liveness is unknown.
+  A new project rule, `project_liveness_word`, keeps liveness words to the code that reads
+  liveness.
 
 ## 3.104.16 — container 2.79.20
 

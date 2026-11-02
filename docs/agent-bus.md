@@ -213,8 +213,14 @@ addresses are in every member's credentials. Spec: Plan 00201 `SPEC-many-teams.m
 
 `ccy-teams` lists each team (its homeserver up, down or not installed yet, its port, and
 APPLIED: up to date, out of date, not built, or decide), then its members. They are ccy seats, each with the session holding it and whether it is
-restored after a reboot; LXC and other members, active or parked; and the people, in the
-room or not and how many Element sessions they are signed in with. Enter on any row opens a
+restored after a reboot; LXC and other members; and the people, in the room or not and how
+many Element sessions they are signed in with. A member's STATE is whether a session of it is
+listening on the bus now, read each time the list is drawn from the member's `agent_bus.status`
+in the team room, as `pingbus status` reads it (`agent-bus list <team>`'s `LIVE` line): `listening`
+while that status runs past now, `stale` once it has lapsed, `not listening` with none,
+`parked` for a parked member, and `unknown` when it could not be read (the team row says why:
+sudo, a homeserver that is down, or an `agent-bus` older than `LIVE` lines, which
+`play-agent-bus.yml` updates). Not being parked is not liveness, and is never shown as such. Enter on any row opens a
 menu of what can be done to it, in words, and that menu is the only way to an action: there
 are no shortcut keys. Its lines include starting a session, updating every team out of date
 (on a team row), turning a seat's restore off (after a yes/no) or on, removing a seat,
@@ -232,8 +238,8 @@ picker says why before sudo asks.
 `ccy-teams --graph` draws the same as a Mermaid `flowchart` on stdout, for any Mermaid
 renderer (a GitHub comment, a Markdown preview). Each team is a subgraph with what it is
 for, its homeserver and its people; each member shows its kind, seat, role, checkout and
-live state: online, offline, or unknown with why (a member of another machine, or a joined
-LXC member, whose container is read as root). LXC members sit inside their container's
+live state, the same as `--list`'s STATE: listening, offline (stale, no status, parked or
+deferred), or unknown with why. LXC members sit inside their container's
 subgraph, and the coordinator has an edge to each worker. It fails as `--list` does. A
 team with a coordinator and one worker, abridged:
 
@@ -242,8 +248,8 @@ flowchart TB
   subgraph t0_team_a["team team-a: what the team is for<br/>homeserver up, applied: up to date<br/>port 6167"]
     direction TB
     t0_h0["person person-a<br/>in room, 1 signed in"]
-    t0_m0["repo.dev+local.podman (coordinator)<br/>kind ccy, seat dev, role coordinator<br/>checkout ~/repo<br/>online: session ccy-repo running<br/>membership active"]:::online
-    t0_m1["repo.1+local.podman<br/>kind ccy, seat 1, role worker<br/>checkout ~/repo<br/>offline: seat free, no session<br/>membership active"]:::offline
+    t0_m0["repo.dev+local.podman (coordinator)<br/>kind ccy, seat dev, role coordinator<br/>checkout ~/repo<br/>listening: a session of it is listening on the bus<br/>session ccy-repo"]:::listening
+    t0_m1["repo.1+local.podman<br/>kind ccy, seat 1, role worker<br/>checkout ~/repo<br/>offline: its status on the bus has lapsed (stale)<br/>session free"]:::offline
     t0_m0 -->|dispatches to| t0_m1
   end
 ```
@@ -666,8 +672,10 @@ stopped or failed.
 **Running the team.** On the homeserver host:
 
 - `sudo agent-bus list <team>` shows the members, their roles, room membership and whether
-  each is active or parked (no tokens), then a `ROOM` line per account for each of the
-  reports and questions rooms.
+  each is parked (`parked`) or not (`active`, which says nothing of whether it runs), each
+  followed by a `LIVE` line: `listening`, `stale` or `-`, its `agent_bus.status` in the team
+  room judged as `pingbus status` judges it (no tokens); then a `ROOM` line per account for
+  each of the reports and questions rooms.
 - `sudo agent-bus check-rooms <team>` reads the reports and questions rooms and prints a
   `PROBLEM` line for each fault, with its repair: a room missing or changed, a human not in
   one, a worker in questions, a coordinator that left a room, and a coordinator whose session

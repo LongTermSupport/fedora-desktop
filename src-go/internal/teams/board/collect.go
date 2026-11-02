@@ -491,6 +491,9 @@ func (c *Collector) addTeamRows(s *Snapshot, team string, seats []seatAt, r read
 		where += ", " + err.Error()
 	}
 	s.LXC[team] = lxc
+	if s.livenessUnreported(team) {
+		where += ", " + unreportedLiveness
+	}
 	s.Rows = append(s.Rows, Row{
 		Team: team, Member: s.aboutTeam(team), Kind: KindTeam, State: state, Applied: s.StatusWord(team),
 		Session: "-", Restore: "-", Where: where, Handle: "-", Dir: "-",
@@ -536,7 +539,7 @@ func restoreWord(s *Snapshot, key string) string {
 
 // seatRow is a ccy seat's row: its session and RESTORE when a registry record names it, else
 // the seat's own state.
-func (c *Collector) seatRow(s *Snapshot, team string, sa seatAt, activity map[string]string, unknown string) Row {
+func (c *Collector) seatRow(s *Snapshot, team string, sa seatAt, members map[string]agentbus.Member, unknown string) Row {
 	key := sa.dir + "|" + sa.seat.Seat + "@" + team
 	record, restore := s.SeatSession[key], restoreWord(s, key)
 	session := record
@@ -548,13 +551,13 @@ func (c *Collector) seatRow(s *Snapshot, team string, sa seatAt, activity map[st
 	} else if _, live := s.Live[record]; !live {
 		session += "(stopped)"
 	}
-	state := activity[sa.seat.Handle]
-	if state == "" {
-		state = unknown
+	state, live := unknown, agentbus.LiveUnreported
+	if m, ok := members[sa.seat.Handle]; ok {
+		state, live = memberState(m), m.Live
 	}
 	return Row{
 		Team: team, Member: sa.seat.Seat, Kind: KindCcy, State: state, Applied: "-", Session: session, Record: record,
 		Restore: restore, Where: term.AbbrevHome(sa.dir, c.Home), Handle: sa.seat.Handle, Dir: sa.dir,
-		Role: s.RoleOf(team, sa.seat.Handle), Held: sa.seat.Held,
+		Role: s.RoleOf(team, sa.seat.Handle), Held: sa.seat.Held, Live: live,
 	}
 }

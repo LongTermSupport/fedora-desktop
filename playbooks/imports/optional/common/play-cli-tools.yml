@@ -9,6 +9,7 @@
 #
 # Tools (run one alone with --tags <tag>):
 #   open                 tag open-command         open anything, desktop or over SSH
+#   randfile             tag randfile             one random file of a directory (open "$(randfile)")
 #   convert              tag convert-command      a file into other formats (md -> docx)
 #   reclaim              tag disk-reclaim         disk-usage report and guarded cleanups
 #   mpv                  tag mpv                  media player, the desktop's default for video
@@ -117,6 +118,18 @@
         go_command_dest: "{{ user_bin_dir }}/open"
         go_command_mode: "0755"
       tags: open-command
+
+    # ── randfile ─────────────────────────────────────────────────────────────────
+    # One random file of a directory on stdout, so it composes with open: open "$(randfile)".
+    # Plain bash (find and shuf, both in the base system).
+    - name: Deploy randfile
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/randfile"
+        dest: "{{ user_bin_dir }}/randfile"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      tags: randfile
 
     # ── convert ──────────────────────────────────────────────────────────────────
     # convert (src-go/cmd/convert, Plan 00210) owns a table of conversions and calls a proven
@@ -373,6 +386,7 @@
           - "CLI Tools installed"
           - "============================================"
           - "  open FILE          - default app, or a chooser (open --help for -a -d -l -t)"
+          - "  randfile [DIR]     - print one random file of DIR (default .): open \"$(randfile)\""
           - "  convert FILE --to docx - write FILE.docx beside a Markdown file (convert FILE lists formats)"
           - "  reclaim             - interactive disk cleanup menu (reclaim report: non-interactive)"
           - "  mpv FILE            - play an audio or video file in the terminal (desktops only)"

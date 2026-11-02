@@ -910,6 +910,9 @@ CLI Tools — the one home for small command-line utilities (rule:
   delegates to (`xdg-utils`, `perl-File-MimeInfo`, `fzf`, `chafa`, `w3m`,
   `poppler-utils`, `bsdtar`, `jq`, `tree` and others). Fedora ships no `/usr/bin/open`,
   so nothing is masked
+- **`randfile [DIR]`** prints one random file of DIR (the current directory by default):
+  regular files only, not hidden ones, not in subdirectories. It composes with `open`:
+  `open "$(randfile)"`, `open "$(randfile ~/Pictures)"`. Plain bash
 - **`convert FILE --to FORMAT[,FORMAT...]`** writes FILE in each format beside it
   (`convert notes.md --to docx` makes `notes.docx`); `convert FILE` lists what FILE can
   become. It calls a proven converter for each pair and converts nothing itself: Markdown
@@ -929,7 +932,7 @@ CLI Tools — the one home for small command-line utilities (rule:
   any supported archive into `./NAME/`. The play refuses to run while the `ncompress`
   package is installed, because its legacy `/usr/bin/compress` would shadow the wrappers
 
-Run one tool alone with `--tags imgpaste`, `open-command`, `convert-command`,
+Run one tool alone with `--tags imgpaste`, `open-command`, `randfile`, `convert-command`,
 `disk-reclaim`, `mpv` or `compression-helpers`. The play is `scope: general` and in the `server-recommended` bundle.
 
 #### play-cloudflare-dns.yml

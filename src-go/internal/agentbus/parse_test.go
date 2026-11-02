@@ -119,11 +119,37 @@ func TestRosterMemberFindsAHandle(t *testing.T) {
 	}
 }
 
+// A LIVE line is whether the member's session is listening on the bus now (the agent_bus.status
+// `pingbus status` reads); the MEMBER line's "active" is only "not parked". A wrapper from before
+// LIVE lines prints none, which is unreported, never listening.
+func TestParseRosterReadsLiveness(t *testing.T) {
+	out := "MEMBER\ta.1+h.podman\tworker\tjoin\tactive\n" +
+		"MEMBER\ta.2+h.podman\tworker\tjoin\tactive\n" +
+		"MEMBER\ta.3+h.podman\tworker\tjoin\tactive\n" +
+		"MEMBER\ta.4+h.podman\tworker\tjoin\tactive\n" +
+		"LIVE\ta.1+h.podman\tlistening\nLIVE\ta.2+h.podman\tstale\nLIVE\ta.3+h.podman\t-\n"
+	got, err := ParseRoster(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Liveness{LiveListening, LiveStale, LiveNoStatus, LiveUnreported}
+	for i, m := range got.Members {
+		if m.Live != want[i] {
+			t.Fatalf("%s is %q, want %q", m.Handle, m.Live, want[i])
+		}
+	}
+}
+
 func TestParseRosterRejectsMalformedLines(t *testing.T) {
 	for _, line := range []string{
 		"HUMAN\towner",
 		"MEMBER\th\tworker\tjoin",
 		"MEMBER\th\tworker\tjoin\tasleep",
+		"MEMBER\th\tworker\tjoin\tactive\nLIVE\th\tawake",
+		"MEMBER\th\tworker\tjoin\tactive\nLIVE\th",
+		"MEMBER\th\tworker\tjoin\tactive\nLIVE\th\t",
+		"MEMBER\th\tworker\tjoin\tactive\nLIVE\tother\tlistening",
+		"MEMBER\th\tworker\tjoin\tactive\nLIVE\th\tlistening\nLIVE\th\tstale",
 	} {
 		if _, err := ParseRoster(line + "\n"); err == nil {
 			t.Fatalf("accepted %q", line)
