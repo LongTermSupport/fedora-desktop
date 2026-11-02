@@ -563,7 +563,9 @@ before every push, and GitHub CI is the gate.
     GoProjectRules.md;
   - 5 `project_goroutine_end` in F44 code: `ccc/guard.go` (2), `rclonetail/app.go`,
     `reclaim/ask.go` and the `ui/pathinput` test;
-  - 1 `project_command_failure_dropped`, in `member/guest/check.go`.
+  - 1 `project_command_failure_dropped`, in `member/guest/check.go`;
+  - 9 `project_liveness_word`, from F44's new rule (the roster state was renamed `enrolled`;
+    the two Matrix presence "online" sites wait for the owner).
 - [ ] 🔄 **Task 8.2** (waits for the owner: the record's ratchet is the owner's signature): The six gosec exclusions v2 added to `.golangci.yml` have no exception in
   the project record. Record each one, or fix the code it covers.
 - [x] ✅ **Task 8.3**: gofmt: name the files with a local go-qa run, then format them.
@@ -571,7 +573,7 @@ before every push, and GitHub CI is the gate.
   - `agent_bus_lxc/test_derive`: on the CI runner, the claude process it finds has an empty
     start time;
   - `plan_acceptance/test_cited_constant_copy_rule`: one finding in this plan's folder.
-- [x] ✅ **Task 8.5**: 12 gitleaks findings, all fake keys in test fixtures. Allowlist them the
+- [x] ✅ **Task 8.5**: 13 gitleaks findings (12 when the plan was written), all fake keys in test fixtures. Allowlist them the
   way F44 allowlisted its own, never by weakening the scan.
 - [x] ✅ **Task 8.6**: In the merge, CLAUDE/QA.md, CLAUDE/GoProjectRules.md, src-go/CLAUDE.md and
   Plans 00194 and 00209 took F44's side of each conflicting hunk. Put back the v2 lines that
