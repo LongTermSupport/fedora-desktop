@@ -85,7 +85,7 @@ def tables():
 
 def run(op, a):
     if op == 'version':
-        return list(sys.version_info[:2])
+        return list(sys.version_info[:3])
     if op == 'loads':
         return enc(json.loads(S(a[0])))
     if op == 'loads_nodup':
@@ -210,9 +210,12 @@ func runOracle(t *testing.T, reqs []pyReq) []pyResult {
 	return out
 }
 
-// askOracleVersion is the (major, minor) python3.13 reports.
-func askOracleVersion(ctx context.Context) ([2]int, error) {
-	var v [2]int
+// pyRelease is a python's (major, minor, patch).
+type pyRelease [3]int
+
+// askOracleVersion is the release python3.13 reports.
+func askOracleVersion(ctx context.Context) (pyRelease, error) {
+	var v pyRelease
 	out, err := askOracle(ctx, []pyReq{{op: "version", args: []any{}}})
 	if err != nil {
 		return v, err
@@ -230,9 +233,16 @@ func askOracleVersion(ctx context.Context) ([2]int, error) {
 // different oracle is not a parity failure, and is not compared case by case.
 var oracleVersion = [2]int{3, 13}
 
+// reproducedPatch is the 3.13 patch release whose error wording the Go reproduces: 3.13.5,
+// the ccy image's (Debian 13). Other 3.13 releases word some errors otherwise (3.13.17 a `\u`
+// escape cut off by the end of the input). Nothing reads the wording, so any 3.13 is the
+// oracle for accept against reject and for the decoded value; the message is compared only on
+// this release (compareResultOn).
+const reproducedPatch = 5
+
 // oracleUnsupported is the reason an oracle reporting version v cannot be the oracle, or nil.
-func oracleUnsupported(v [2]int) error {
-	if v == oracleVersion {
+func oracleUnsupported(v pyRelease) error {
+	if [2]int{v[0], v[1]} == oracleVersion {
 		return nil
 	}
 	return fmt.Errorf("%s is python %d.%d, and parity is proven against python %d.%d, the ccy image's",
@@ -248,18 +258,18 @@ func python(t *testing.T, reqs []pyReq) []pyResult {
 		t.Fatal(err)
 	}
 	out := runOracle(t, reqs)
-	t.Logf("PYCOMPARED %d cases with %s %d.%d", len(reqs), oracleCommand, v[0], v[1])
+	t.Logf("PYCOMPARED %d cases with %s %d.%d.%d", len(reqs), oracleCommand, v[0], v[1], v[2])
 	return out
 }
 
 var (
 	versionOnce  sync.Once
-	versionMM    [2]int
+	versionMM    pyRelease
 	errVersionMM error
 )
 
-// pythonVersion is the (major, minor) of the oracle, asked once per test binary.
-func pythonVersion(t *testing.T) [2]int {
+// pythonVersion is the release of the oracle, asked once per test binary.
+func pythonVersion(t *testing.T) pyRelease {
 	t.Helper()
 	versionOnce.Do(func() {
 		versionMM, errVersionMM = askOracleVersion(t.Context())
@@ -302,27 +312,109 @@ func enc(v Value) any {
 // sameJSON reports whether a Go-built answer and python's raw JSON are the same data.
 func sameJSON(t *testing.T, a any, b json.RawMessage) bool {
 	t.Helper()
-	ab, err := json.Marshal(a)
+	same, err := sameJSONErr(a, b)
 	if err != nil {
 		t.Fatal(err)
 	}
+	return same
+}
+
+// sameJSONErr is sameJSON returning what stopped the comparison.
+func sameJSONErr(a any, b json.RawMessage) (bool, error) {
+	ab, err := json.Marshal(a)
+	if err != nil {
+		return false, err
+	}
 	var x, y any
 	if err := json.Unmarshal(ab, &x); err != nil {
-		t.Fatal(err)
+		return false, err
 	}
 	if err := json.Unmarshal(b, &y); err != nil {
-		t.Fatal(err)
+		return false, err
 	}
-	return reflect.DeepEqual(x, y)
+	return reflect.DeepEqual(x, y), nil
 }
 
 // pyErrText is python's exception as "Class: message", for failure output.
 func pyErrText(r pyResult) string { return r.Err + ": " + string(r.Msg) }
 
+// recordingJudge is a judge that keeps what compareResultOn reported.
+type recordingJudge struct{ errs, logs []string }
+
+func (*recordingJudge) Helper() {}
+
+func (r *recordingJudge) Errorf(format string, args ...any) {
+	r.errs = append(r.errs, fmt.Sprintf(format, args...))
+}
+
+func (r *recordingJudge) Logf(format string, args ...any) {
+	r.logs = append(r.logs, fmt.Sprintf(format, args...))
+}
+
+// pyRejects is python's answer raising class with message msg.
+func pyRejects(class ErrorClass, msg string) pyResult {
+	return pyResult{Err: string(class), Msg: cps(msg)}
+}
+
+// goUnterminated is the Go's refusal of an unterminated string, a JSONDecodeError.
+func goUnterminated(t *testing.T) error {
+	t.Helper()
+	_, err := Loads(`"abc`, LoadOptions{})
+	if err == nil {
+		t.Fatal(`Loads("abc) accepted`)
+	}
+	return err
+}
+
+// TestMessageDifferenceOnAnotherPatchIsLogged: both reject with the same class, and only the
+// wording differs. On a 3.13 other than the reproduced 3.13.5 that passes and is logged naming
+// both releases; on 3.13.5 it fails.
+func TestMessageDifferenceOnAnotherPatchIsLogged(t *testing.T) {
+	py := pyRejects(ClassJSONDecodeError, "Some other wording: line 1 column 1 (char 0)")
+	var j recordingJudge
+	compareResultOn(&j, pyRelease{3, 13, 17}, "case", nil, goUnterminated(t), py)
+	if len(j.errs) != 0 {
+		t.Errorf("a message difference on 3.13.17 failed: %q", j.errs)
+	}
+	if len(j.logs) != 1 || !strings.Contains(j.logs[0], "3.13.17") || !strings.Contains(j.logs[0], "3.13.5") {
+		t.Errorf("a message difference on 3.13.17 logged as %q, want one line naming 3.13.17 and 3.13.5", j.logs)
+	}
+	j = recordingJudge{}
+	compareResultOn(&j, pyRelease{3, 13, 5}, "case", nil, goUnterminated(t), py)
+	if len(j.errs) != 1 {
+		t.Errorf("a message difference on the reproduced 3.13.5 reported %q, want one failure", j.errs)
+	}
+}
+
+// TestAcceptRejectDifferenceFailsOnEvery313: on any 3.13 patch, accepting what python rejects,
+// rejecting what it accepts, another exception class, or another value is a failure.
+func TestAcceptRejectDifferenceFailsOnEvery313(t *testing.T) {
+	accepted := pyResult{OK: []byte(`["N"]`)}
+	cases := map[string]struct {
+		got any
+		err error
+		py  pyResult
+	}{
+		"python rejects, Go accepts": {[]any{"N"}, nil, pyRejects(ClassJSONDecodeError, "Expecting value: line 1 column 1 (char 0)")},
+		"python accepts, Go rejects": {nil, goUnterminated(t), accepted},
+		"another class":              {nil, goUnterminated(t), pyRejects(ClassValueError, "duplicate key")},
+		"another value":              {[]any{"B", true}, nil, accepted},
+	}
+	for _, rel := range []pyRelease{{3, 13, 0}, {3, 13, 5}, {3, 13, 17}} {
+		for name, c := range cases {
+			var j recordingJudge
+			compareResultOn(&j, rel, name, c.got, c.err, c.py)
+			if len(j.errs) != 1 {
+				t.Errorf("%s on %d.%d.%d reported %q, want one failure", name, rel[0], rel[1], rel[2], j.errs)
+			}
+		}
+	}
+}
+
 // TestOracleVersion: a python3 other than 3.13 is refused with the version it is and the one
 // it must be, not compared case by case; 3.13 at any patch level is the oracle.
 func TestOracleVersion(t *testing.T) {
-	for _, v := range [][2]int{{3, 12}, {3, 14}, {2, 7}, {4, 13}} {
+	for _, v := range []pyRelease{{3, 12, 0}, {3, 14, 0}, {2, 7, 18}, {4, 13, 5}} {
 		err := oracleUnsupported(v)
 		if err == nil {
 			t.Fatalf("python3 %d.%d accepted as the oracle", v[0], v[1])
@@ -332,8 +424,10 @@ func TestOracleVersion(t *testing.T) {
 			t.Errorf("python3 %d.%d refused as %q, want it to say %q", v[0], v[1], err, want)
 		}
 	}
-	if err := oracleUnsupported([2]int{3, 13}); err != nil {
-		t.Errorf("python3 3.13 refused: %v", err)
+	for _, v := range []pyRelease{{3, 13, 0}, {3, 13, reproducedPatch}, {3, 13, 17}} {
+		if err := oracleUnsupported(v); err != nil {
+			t.Errorf("python3 %d.%d.%d refused: %v", v[0], v[1], v[2], err)
+		}
 	}
 }
 
@@ -343,7 +437,7 @@ func fakePythons(t *testing.T, names ...string) {
 	t.Helper()
 	dir := t.TempDir()
 	for _, name := range names {
-		script := "#!/bin/sh\necho '[{\"ok\": [3, 14]}]'\n"
+		script := "#!/bin/sh\necho '[{\"ok\": [3, 14, 0]}]'\n"
 		path := filepath.Join(dir, name)
 		if err := os.WriteFile(path, []byte(script), 0o600); err != nil {
 			t.Fatal(err)

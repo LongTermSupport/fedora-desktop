@@ -130,3 +130,29 @@ not a minor version:
 Which python the Go reproduces (the image's 3.13.5, the newest 3.13, or both, with this
 message per patch release) is the coordinator's and the owner's decision. It is not changed
 here.
+
+## Addendum: the coordinator's decision, applied (branch `fix/ci-green-py313b`)
+
+Nothing reads Python's exact error wording, so v1's readers must agree with Python on accept
+against reject and on the decoded value, not on the words.
+
+- **Always on, any python3.13**: what Python rejects the Go rejects with the same exception
+  class (seat names the class in its refusal), and what Python accepts decodes to the same
+  value. A difference fails.
+- **The message and its position** are compared only when the oracle is the reproduced
+  release, 3.13.5 (`reproducedPatch`, beside `oracleVersion` in
+  `src-go/internal/bus/pycompat/oracle_test.go`). On any other 3.13 a different message is
+  logged with `t.Logf` naming both releases, never failed and never silently skipped. The
+  oracle now reports its patch release (`pyRelease`), and `PYCOMPARED` lines name it.
+- **Where**: `compareResult` (`value_test.go`), now `compareResultOn` over a small `judge`
+  interface, is the only place the pycompat oracle tests compare a message: loads, raw decode,
+  dumps and the value ops all go through it. The IP, text, repr and Unicode-table tests
+  compare accept against reject and values only. seat's `TestParityWithV1` compares v1's
+  stderr, but v1's refusal names only the exception class (`notJSON` in `seat/member.go`),
+  never Python's message, so it needs no change.
+- **Tests first** (red as a build failure, `compareResultOn` undefined, then green):
+  `TestMessageDifferenceOnAnotherPatchIsLogged` (a wording difference on 3.13.17 passes with
+  one log line naming 3.13.17 and 3.13.5, and fails on 3.13.5) and
+  `TestAcceptRejectDifferenceFailsOnEvery313` (accepting what Python rejects, rejecting what
+  it accepts, another class, or another value fails on 3.13.0, 3.13.5 and 3.13.17).
+- Locally against python3.13 3.13.5 every pycompat oracle test passes with messages compared.
