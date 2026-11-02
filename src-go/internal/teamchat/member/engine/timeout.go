@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"math"
 	"slices"
 	"time"
 
@@ -32,8 +33,22 @@ func (e *Engine) arm() {
 	if !owed {
 		return
 	}
-	wait := time.Duration(max(at-e.cfg.Clock.WallMS(), 0)) * time.Millisecond
-	e.timer = e.cfg.Clock.AfterFunc(wait, e.fire)
+	e.timer = e.cfg.Clock.AfterFunc(timeoutWait(at, e.cfg.Clock.WallMS()), e.fire)
+}
+
+// maxWaitMS is the longest wait the TIMEOUT timer is armed for: the most whole milliseconds a
+// time.Duration holds. A store's due_ms runs to the year 9999 (proto.MaxSentMs), past it.
+const maxWaitMS = math.MaxInt64 / int64(time.Millisecond)
+
+// timeoutWait is the wait from wall time now to wall time at: none for a time passed, and
+// maxWaitMS for one further off, the timer re-arming if it fires before at as for a clock
+// stepped back.
+func timeoutWait(at, now int64) time.Duration {
+	ms := max(at-now, 0)
+	if ms > maxWaitMS {
+		return time.Duration(maxWaitMS) * time.Millisecond
+	}
+	return time.Duration(ms) * time.Millisecond
 }
 
 // nextTimeout is the wall time the earliest owed TIMEOUT falls due: a ping's first moment past

@@ -187,6 +187,28 @@ func TestSD4_11ARefusedTimeoutWriteRetriesEverySixtySeconds(t *testing.T) {
 	}
 }
 
+// The TIMEOUT timer waits from the wall time now to the due, none for a due passed, and at most
+// what a Duration holds: a store's due_ms runs to the year 9999 (proto.MaxSentMs), and a wait
+// past maxWaitMS is held there, never wrapped to a wait that fires at once.
+func TestTheTimeoutWaitIsHeldAtWhatADurationHolds(t *testing.T) {
+	longest := time.Duration(maxWaitMS) * time.Millisecond
+	for _, c := range []struct {
+		at   int64
+		want time.Duration
+	}{
+		{startWall - 1, 0},
+		{startWall, 0},
+		{startWall + 1500, 1500 * time.Millisecond},
+		{startWall + maxWaitMS, longest},
+		{startWall + maxWaitMS + 1, longest},
+		{proto.MaxSentMs + timeoutGraceMS + 1, longest},
+	} {
+		if got := timeoutWait(c.at, startWall); got != c.want {
+			t.Errorf("due %d: wait %v, want %v", c.at, got, c.want)
+		}
+	}
+}
+
 // The grace the timer arms for is the one proto.TimeoutDue counts.
 func TestTheTimersGraceIsProtosTimeoutDue(t *testing.T) {
 	if proto.TimeoutDue(0, timeoutGraceMS) || !proto.TimeoutDue(0, timeoutGraceMS+1) {

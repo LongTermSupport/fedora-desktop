@@ -214,6 +214,21 @@ func TestSyncRefusals(t *testing.T) {
 	}
 }
 
+// A sync timeout up to the most milliseconds a Duration holds is taken; one past it is not
+// modelled: what Tuwunel does with one was not recorded, and as a Duration it would wrap.
+func TestASyncTimeoutPastADurationIsUnmodelled(t *testing.T) {
+	tm := newTeam(t)
+	sync := "/_matrix/client/v3/sync"
+	tm.ok(tm.call(tm.agent, "GET", sync, url.Values{"timeout": {"9223372036854"}}, nil))
+	if err := tm.s.CheckModelled(); err != nil {
+		t.Fatal(err)
+	}
+	got := tm.call(tm.agent, "GET", sync, url.Values{"timeout": {"9223372036855"}}, nil)
+	if got.status != 500 || tm.s.CheckModelled() == nil {
+		t.Fatalf("a timeout past a Duration answered %d %v", got.status, got.obj)
+	}
+}
+
 func TestAFilterNamesItsRooms(t *testing.T) {
 	tm := newTeam(t)
 	got := tm.sync(tm.agent, "", syncFilter(t, []string{"!other"}, 10, false), 0)

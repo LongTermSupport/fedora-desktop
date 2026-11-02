@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 	"maps"
+	"math"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -319,11 +320,11 @@ func (e *Engine) lastGrowth() (time.Duration, bool) {
 // dueAt is when entry a is missing: missingCap after its write, or quietAfter after the later of
 // its stop and the last growth, whichever comes first.
 func (e *Engine) dueAt(a state.Awaiting) time.Duration {
-	due := time.Duration(a.AtMS)*time.Millisecond + missingCap
+	due := bootTime(a.AtMS) + missingCap
 	if a.StopMS == nil {
 		return due
 	}
-	quiet := time.Duration(*a.StopMS) * time.Millisecond
+	quiet := bootTime(*a.StopMS)
 	if grew, ok := e.lastGrowth(); ok && grew > quiet {
 		quiet = grew
 	}
@@ -331,7 +332,21 @@ func (e *Engine) dueAt(a state.Awaiting) time.Duration {
 }
 
 func expiresAt(m state.Missed) time.Duration {
-	return time.Duration(m.AtMS)*time.Millisecond + lateFindFor
+	return bootTime(m.AtMS) + lateFindFor
+}
+
+// maxBootMS is the latest boot-clock time the proof counts from: past it, the time in
+// nanoseconds with lateFindFor (the longest clock added to it) could leave a time.Duration. A
+// store's times are refused only past the year 9999 (proto.MaxSentMs).
+const maxBootMS = (math.MaxInt64 - int64(lateFindFor)) / int64(time.Millisecond)
+
+// bootTime is a store's boot-clock time ms as a Duration. One past maxBootMS is no time this
+// run's boot clock reaches, and counts as the clock's start, so what waits on it falls due.
+func bootTime(ms int64) time.Duration {
+	if ms > maxBootMS {
+		return 0
+	}
+	return time.Duration(ms) * time.Millisecond
 }
 
 // roundSettled is what one team's round settles.

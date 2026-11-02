@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/duration"
 )
 
 // inviteStateTypes is the stripped state an invitee sees (Tuwunel's room_invite_state, as H4
@@ -88,20 +90,18 @@ func (s *Server) sync(r *request, _ []string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	timeoutMS := 0
-	if raw, ok := queryValue(r, "timeout"); ok {
-		if timeoutMS, err = strconv.Atoi(raw); err != nil || timeoutMS < 0 {
-			return nil, invalidParam("timeout must be a non-negative integer")
-		}
+	timeout, err := syncTimeout(r)
+	if err != nil {
+		return nil, err
 	}
 	if err := s.syncPresence(r); err != nil {
 		return nil, err
 	}
-	waits := since >= 0 && timeoutMS > 0
+	waits := since >= 0 && timeout > 0
 	var timedOut <-chan time.Time
 	if waits {
 		var stop func() bool
-		timedOut, stop = s.hold(time.Duration(timeoutMS) * time.Millisecond)
+		timedOut, stop = s.hold(timeout)
 		defer stop()
 	}
 	for {
@@ -122,6 +122,24 @@ func (s *Server) sync(r *request, _ []string) (any, error) {
 			return s.syncOnce(r, since, flt), nil
 		}
 	}
+}
+
+// syncTimeout is a sync's timeout query, 0 when it has none. One past what a Duration holds in
+// milliseconds is unmodelled: what Tuwunel does with it was not recorded.
+func syncTimeout(r *request) (time.Duration, error) {
+	raw, ok := queryValue(r, "timeout")
+	if !ok {
+		return 0, nil
+	}
+	ms, err := strconv.Atoi(raw)
+	if err != nil || ms < 0 {
+		return 0, invalidParam("timeout must be a non-negative integer")
+	}
+	timeout, err := duration.Times(ms, time.Millisecond)
+	if err != nil {
+		return 0, unmodelled("a sync timeout of %d ms, past what a Duration holds", ms)
+	}
+	return timeout, nil
 }
 
 func (s *Server) syncOnce(r *request, since int, flt filterSpec) map[string]any {

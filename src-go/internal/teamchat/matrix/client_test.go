@@ -549,6 +549,7 @@ func TestRateLimitWaits(t *testing.T) {
 		{"fraction ms", nil, `{"retry_after_ms":1.5}`, 5 * time.Second},
 		{"not json", nil, `slow down`, 5 * time.Second},
 		{"exactly 60 s", http.Header{"Retry-After": {"60"}}, ``, 60 * time.Second},
+		{"exactly 60 s in ms", nil, `{"retry_after_ms":60000}`, 60 * time.Second},
 		{"zero", http.Header{"Retry-After": {"0"}}, ``, 0},
 	}
 	for _, tc := range cases {
@@ -580,12 +581,17 @@ func TestRateLimitGivesUp(t *testing.T) {
 			t.Errorf("a %s s wait was slept or retried", wait)
 		}
 	}
-	inject(srv, http.MethodGet, whoamiPath, http.StatusTooManyRequests, `{"retry_after_ms":99999999999999}`)
-	_, err := m.Whoami(t.Context())
-	wantErr(t, err, ErrRateLimited, "")
+	for _, ms := range []string{"60001", "99999999999999", "9223372036854775807"} {
+		inject(srv, http.MethodGet, whoamiPath, http.StatusTooManyRequests, `{"retry_after_ms":`+ms+`}`)
+		_, err := m.Whoami(t.Context())
+		wantErr(t, err, ErrRateLimited, "")
+		if len(m.clk.waits()) != 0 {
+			t.Errorf("a %s ms wait was slept", ms)
+		}
+	}
 	srv.Inject(fakehs.Fault{Method: http.MethodGet, Path: whoamiPath, Status: http.StatusTooManyRequests, Times: 3})
 	before := len(srv.Requests())
-	_, err = m.Whoami(t.Context())
+	_, err := m.Whoami(t.Context())
 	wantErr(t, err, ErrRateLimited, "rate limited")
 	if got := len(srv.Requests()) - before; got != 3 || len(m.clk.waits()) != 2 {
 		t.Errorf("tries %d waits %v, want 3 tries and 2 waits", got, m.clk.waits())

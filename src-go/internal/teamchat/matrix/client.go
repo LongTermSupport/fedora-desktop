@@ -517,7 +517,7 @@ func rateWait(ans *answer) time.Duration {
 	}
 	if json.Unmarshal(ans.body, &body) == nil && digits(string(body.RetryAfterMS)) {
 		ms, err := strconv.ParseInt(string(body.RetryAfterMS), 10, 64)
-		if err != nil || ms > maxRateWait.Milliseconds() {
+		if err != nil || ms > int64(maxRateWait/time.Millisecond) {
 			return over
 		}
 		return time.Duration(ms) * time.Millisecond
