@@ -57,12 +57,14 @@ var (
 	memberships = []string{"join", "invite", "leave", "ban", "knock"}
 	purposes    = []string{proto.PurposeMain, proto.PurposeReports, proto.PurposeQuestions}
 	roles       = []string{proto.RoleCoordinator, proto.RoleWorker, proto.RoleProbe}
-	memberState = []string{wordActive, "parked", "retired", "lost", "claimed"}
-	humanState  = []string{wordActive, "removed"}
+	memberState = []string{rosterActive, "parked", "retired", "lost", "claimed"}
+	humanState  = []string{rosterActive, "removed"}
 	kindRe      = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 )
 
-const wordActive = "active"
+// rosterActive is the roster's state word (C 3.6.1, n2b-D7), copied into the record, of a member
+// or human in none of the other states: a registry state, which says nothing of a running session.
+const rosterActive = "active"
 
 // KindLXC is the member kind whose entry carries online.
 const KindLXC = "lxc"
