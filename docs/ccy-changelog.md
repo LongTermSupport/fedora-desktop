@@ -27,6 +27,13 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.104.17 — container 2.79.22
+
+- **yq is pinned to 4.54.1 in both images** (Plan 00243). 3.104.16 pinned 4.53.3, a step back
+  on x86_64 from the 4.54.1 that "latest" fetched. 4.54.1 publishes an amd64 and an arm64
+  asset with a digest; each is checked against its pinned sha256. The project image's yq
+  moves from 4.53.3 to 4.54.1 too.
+
 ## 3.104.16 — container 2.79.21
 
 The image builds on arm64 (aarch64) as well as x86_64 (Plan 00243, issues #119, #120).
@@ -41,7 +48,8 @@ The image builds on arm64 (aarch64) as well as x86_64 (Plan 00243, issues #119, 
   build and `agent-browser install` refuses linux aarch64, so arm64 installs the distribution
   package and agent-browser's config names `/usr/bin/chromium` as its `executablePath`. x86_64
   keeps Chrome for Testing.
-- Nothing changes on x86_64 but the yq pin and its checksum.
+- Nothing changes on x86_64 but the yq pin and its checksum. The pin, 4.53.3, is older than
+  the 4.54.1 that "latest" fetched on x86_64; 3.104.17 corrects it.
 
 ## 3.104.15 — container 2.79.20
 
