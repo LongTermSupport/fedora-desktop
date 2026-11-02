@@ -132,8 +132,9 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   sudo at the run), whose check 2.0d restarts a throwaway team's homeserver under the idle
   session, waits for the watcher's "syncs again" and posts as the test human. Host, 27-10-26
   at f9073ce05: PASS.
-- [ ] ❌ **Task 2.0e**: Folded into Plan 00209 Task 3.1 (the Go SessionEnd hook), built there
-  once hooks-daemon #127 ships. (Was: A scheduled restart posts nothing (Fable's review of
+- [ ] ❌ **Task 2.0e**: Specified in Plan 00209 Task 3.1 (SPEC-n3 RS1-RS3), built in Task 3.2
+  and turned on with Task 4.2; the switch is CMD's exit 75 alone, so hooks-daemon #127 no
+  longer gates it. (Was: A scheduled restart posts nothing (Fable's review of
   `fix/goodbye-ctrl-c`, 3b). Today a lifecycle restart (maximum age, or the relaunch after a
   first join) posts `left the team: session ended (exit)` and the session re-joins seconds
   later, which a coordinator may act on. The gap: at SessionEnd nothing says "restart". The
@@ -161,7 +162,8 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   `pingbus status`, with no delivery. Report:
   [261019-ignored-human-visible-opus.md](subagent-reports/261019-ignored-human-visible-opus.md).
   Host, 27-10-26 at f9073ce05: PASS (a typed `@room` reaches no agent; `ignored=` counts it).
-- [ ] ❌ **Task 2.0g**: Folded into Plan 00209 Task 7.2 (6b); decided in its receive spec.
+- [ ] ❌ **Task 2.0g**: Folded into Plan 00209's N3 (Task 3.1); decided in SPEC-n3 UH1: `empty`
+  counts as unheard at every member.
   (Was: Follow-up to 2.0f (Fable review finding 3): an addressed reply whose
   body is only the quote fallback is ignored as `empty` at the addressee, and every other
   member sees a mention naming an agent, so no one logs it although it reached no agent.

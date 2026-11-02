@@ -43,6 +43,12 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_package_tests`           | a package with no `_test.go` file, whose code the module-wide coverage floor can hide behind the rest of the module                             | the old Go gate's every-package-has-tests check, kept when go-qa-ci replaced it                          |
 | `project_homeabbrev`              | a hand-rolled `~` home abbreviation (a bare prefix replace turned `/home/<user>X` into `~X`)                                                    | `teams` tests: `strings.Replace(..., "~", 1)` twice                                                      |
 | `project_hidden_bindings`         | an action reachable only by a key, with no visible, named choice for it (also in shell fzf and Python Textual: `qa-hidden-bindings.bash`)       | `teams` picker: Ctrl-A/X/O on Running sessions; `ccy-sessions`: Ctrl-T/X/N                               |
+| `project_lifecycle_turn`     | a member's lifecycle notice decided from a read of main and posted outside the team's turn, so another post of the run can come between                | teamchat `ends`: `back` posted after the run's own `disconnected` (Plan 00209)             |
+| `project_keeper_log_barrier` | a keeper test reading keeper.log past the harness's turn-aware reader, so a wait on a line releases before its turn has done the rest                  | teamchat `keeper`: `TestOwedNotice` saw the seat held after its line (Plan 00209)          |
+| `project_fakeclock_count`    | a test that judges a fake clock's timers by the number armed, which a timer it did not mean changes: a wait advances too early, an assertion lies      | `link` tests: `TestAnOpBeforeThePIDIsNotAnswered` hung; `engine` TIMEOUT tests at a merge  |
+| `project_goroutine_end`      | a goroutine that signals no end, so no owner can wait for it, and a stop missed on one path leaks it for the life of the process                       | `link`: `go l.read()`, about 145 control readers left blocked in one test binary           |
+| `project_rawconn_probe`      | a RawConn readiness callback that answers without testing its descriptor, so readiness the poller saw and Read reset is missed and the wait never ends | `link`: the pidfd watch never saw a keeper that died before the watch first ran            |
+| `project_leakcheck_once`     | a second `leakcheck.Check` on one test, which judges before the cleanups registered between the two run and reports a world they stop as a leak        | `engine`: `TestLiveNeedsEveryFact`'s second world reported the first's transcript watcher  |
 | `project_refusal_kind`            | a declare.py refusal recovered by its type and never by its kind, so a refusal of the host_vars file is asked again as if the answer were wrong | `teams lxc-add`: "entries 5 and 6 both declare" asked three times (Plan 00201)                           |
 | `project_realtime_bound`          | a bound on real time that a test can shorten, which then races the step the test asserts; a test that passes when a real timer fires            | teamchat `host/lxc`: 1 of 4 probes reached the fake hang before a 20 ms bound (Plan 00209)               |
 | `project_esc_joined`              | a screen that loses an Esc typed just before another key, which arrives as that key with Alt (also in shell fzf: `qa-hidden-bindings.bash`)     | `teams` row menu: Esc then Down left the menu open and moved its cursor (Plan 00177)                     |
@@ -50,6 +56,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_command_failure_dropped` | a command's failure only tested, never carried, so the person sees a guessed cause                                                              | `ccy --token-usage`: any curl failure was "could not reach the API" for 15 minutes (Plan 00191 Task 4.9) |
 | `project_self_erasing_clipboard` | a secret kept short-lived by a clipboard meant to erase itself after a paste, or text promising it (also in shell: `bash-self-erasing-clipboard`) | `teams` login: `wl-copy --paste-once`, and "for one paste" (Plan 00201 Task 2.12) |
 | `project_liveness_word` | a status word read as running ("active", "online", "listening", "alive") spelled where no live source decides it | `teams` board: every member not parked shown green "active" (Plan 00177) |
+| `project_agent_branch`       | a teamchat branch on the run's launch value outside the agent seam, so a second agent program is a refactor of every comparison and not an adapter     | teamchat `keeper` and `link`: the launch comparisons the agent seam replaced (Plan 00209)  |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -1029,6 +1036,170 @@ not be read as unknown, with why.
 module for things a live source does decide (a homeserver unit up, a tmux session running, a
 container running), so the rule would flag correct code by the dozen and need an allowance per
 use: wider than the hazard.
+### project_lifecycle_turn
+
+In teamchat's ends package (`internal/teamchat/member/ends`), a use of `notice.LatestOwn`,
+`notice.Disconnected` or `notice.Client`'s `Messages` or `Send` (so `team.Notices`' too) that is
+not inside a function argument of the package's `turn` method, or of a package function that
+reaches one outside a turn. A run's lifecycle notices are posted from several goroutines (back
+from the team's goroutine at the run's start, the end from the link's finish, a leave from a
+removal), and back is decided from what main says: read outside the turn, the decision can be
+overtaken. `(*ends).turn(ctx, team, fn)` runs one lifecycle step per team at a time, and an end
+or a leave refuses a back still to come. A helper is judged where it is used; a function literal
+started by `go` or handed to a method named `Go` is outside the turn even when written inside it.
+
+- Red, fixture: `testdata/src/fix/internal/teamchat/member/ends` (`bad.go`: the original
+  `Back`, a read and a post outside the turn, an end through a helper, `notice.Disconnected`;
+  `evade.go`: an import alias, a method value of `Send` and of a helper, a goroutine and a
+  `WaitGroup.Go` started inside the turn, a direct `Messages`, a chain of helpers; `good.go`:
+  the read and post inside one turn, a helper called only from turns, `RoomState`, clean). The
+  notice package and a host-side caller beside it carry no finding.
+- Red, real tree: seven uses in `ends.go`, in `Back` (the race: `TestE2ECmdKilled` and
+  `TestE2EKeeperKilled` saw `back` after the run's own `disconnected` under load), `End`,
+  `Close` and `Leave`.
+- Green: each of the four runs its reads and posts inside `turn`.
+- Not caught: that `turn` serialises per team and refuses a back after an end (the ends tests
+  hold that), a read or post through another package's function other than the named ones.
+
+**The next wider rule, not built:** every read-then-post of a lifecycle notice anywhere in
+teamchat ordered against the member's other posts. Not built because the only other posters
+(the host's `notice.Disconnected` callers in `admin` and `member/client`) run in other
+processes, where no in-process turn can order them; they are made safe by the run's
+transaction id (`tc-disc-<run>`), which is a different defence for a different hazard.
+
+### project_keeper_log_barrier
+
+In the `_test.go` files of teamchat's keeper (`internal/teamchat/member/keeper`), a use of
+`paths.Run`'s `KeeperLog` outside the harness functions the `keeperLogReaders` table names
+(`world.keeperLog`, the one reader; `world.turned`, the turn-end copy; `world.runs`, existence
+only; `logTap.StartTicks`, the launch goldens' tap, opened while the run is made and read only
+once the keeper has ended, since the end removes the run). The class is a test barrier released
+partway through the work it waits for. A loop turn
+may log a line and then do more: the owed notice's timer logs "not posted in time" and only
+then lets the seat go, and `fail` logs "the link failed" before it closes the seat locks. A
+test that waited for the line by reading the file saw it mid-turn and found the seat still held
+(`TestOwedNotice` under load). The defence has two halves:
+
+- The harness guard. The keeper calls `Config.turned` at the end of the launch steps and of
+  each loop turn. The field is unexported, so only the package's own tests set it. The harness
+  keeps keeper.log as that call left it, and `w.keeperLog` reads that copy while the loop runs.
+  It reads the file before the loop, while the launch steps run in order, and after the keeper
+  ends. `w.logged`, `w.log` and `w.logOf` all read through it, so a line shows only after its
+  whole turn has run.
+- The rule, which keeps every read on that reader.
+
+Proof:
+
+- Red, fixture: `testdata/src/fix/internal/teamchat/member/keeper`. It flags the originating
+  barrier that polled the file, a direct read, a method value, a method expression and a
+  goroutine. It leaves clean the allowed readers, the keeper's own code and `link.log`. Another
+  package's tests (`member/elsewhere`) are not judged.
+- Red, real tree: five uses in the keeper harness (`log`, `logOf`, `seen`, `runDir`) and in
+  `keeper_test.go`'s wait for the run.
+- Red, harness: `TestLoggedWaitsForTheTurnThatWroteTheLine` evaluates the barrier from inside
+  the ready turn, which logs "the link is ready" and then starts CMD. It failed every run
+  against the file-reading barrier.
+- Green: every read goes through `w.keeperLog`, and both `TestOwedNotice` and
+  `TestLinkRestartsWithBackoff` pass with a pause planted after their lines.
+
+Not caught: a barrier on another observable a turn writes before it is done. keeper.json is
+written mid-turn too, but its readers wait on the fake clock or the link's messages first.
+
+**The next wider rule, not built:** the same guarantee for every reader of keeper.log, by
+writing the log one turn at a time. That would cover the end-to-end `wiring` tests, which read
+a real keeper's log and see no turn. Not built because a turn that crashes would lose its lines,
+including those before a `busfailpoints` crash or a panic. Those tests poll the effect they
+assert rather than a line. The other teamchat harnesses already wait for the end of a unit of
+work: engine `until` runs on its state goroutine, link has `settled` and `await`, and teamsync
+has `poll`.
+### project_agent_branch
+
+**What it is about.** A teamchat run launches an agent program, Claude Code or a plain command,
+and its launch value says which. The agent seam (`internal/teamchat/member/agent`, SPEC-n3 6.1)
+is the one place that branches on it: `agent.For` gives the run's `Adapter`, whose
+`Capabilities` the link asks (delivery, whether a SessionStart is awaited) and whose `Preparer`
+the keeper asks (what follows CMD). A second agent (opencode, Plan 00215) is then its constant,
+its case in `For`, its adapter and one entry in `state.Launches`, not a change to every
+comparison.
+
+**Why it exists.** Before the seam the keeper (`prepare.go`, `loop.go`, `seats.go`) and the link
+(`link.go`) compared the launch value wherever their behaviour differed by agent, so a new agent
+meant finding and changing each of them.
+
+**What it flags**, in the non-test files of `internal/teamchat`, `cmd/teamchat` and
+`cmd/teamchat-admin` and below, outside package `agent` and the `agentBranches` table of
+`src-go/qa/rules/table.go` (the two commands hold no launch value today, so they are green; they
+are in scope so that one cannot begin to branch there):
+
+- a use (a `types.Info` use, so an unqualified one in the declaring package counts; a
+  declaration is not one) of `state.LaunchClaude`, `state.LaunchPlain`, `state.Launches`,
+  `cli.LaunchClaude`, `cli.LaunchPlain`, `agent.Claude` or `agent.Plain`;
+- an `==` or `!=`, a `switch` tag or a map key type whose type is `agent.Agent` (through any
+  alias, so `cli.Mode` too);
+- an `==` or `!=`, a call, an index expression, or a `switch` tag and its cases, whose operands
+  hold both a launch operand and a launch constant. The operand is the field
+  `wire.Launch.Launch` or `state.SessionPID.Launch` (also reached through an embedded struct)
+  or a conversion to a string of an `agent.Agent`, directly or as an argument of a call that is
+  an operand, through any depth of calls (`strings.ToLower(l.Launch)`). The constant is a
+  constant expression whose value is `"claude"` or `"plain"`, or a list split on `,`, `|` or
+  `;` with one as a word (`"plain,x"`); among a call's arguments and as an index's map, a
+  composite literal holding one counts too (`strings.EqualFold(l.Launch, "plain")`,
+  `slices.Contains([]string{"claude", "plain"}, l.Launch)`,
+  `map[string]bool{"plain": true}[l.Launch]`).
+
+The rows, each with its reason: state's package-level declarations (the one list),
+`SessionPID.check` and wire's `Launch.check` (the two checks of a value read from a file or a
+frame), and cli's package-level declarations (its names for the values), `ParseLaunch`
+(`--resume-recorded` refused on plain) and `Launch.fromFlags` (the spelling). CL2's argument
+rule, `Launch.checkClaudeCmd`, compares no launch value and has no row.
+
+**How to fix a violation.** Ask the run's `agent.Adapter`: the keeper keeps the one it resolves
+at the start of `prepare`, the link the `Capabilities` it resolves in `build`. Behaviour that
+differs by agent is a field of `Capabilities` or work of a `Preparer`.
+
+- Red, fixture: `testdata/src/fix/internal/teamchat/member/launchuse` (`bad.go`: the keeper's
+  session.pid value, plain early return and relaunch flag, and the link's delivery; `evade.go`:
+  a local copy of a constant, a named string constant, the operands reversed and parenthesised,
+  a switch on the field, a contains over `state.Launches` or a literal list, `string(a) ==`, a
+  switch on an `Agent` and on its string, a map keyed by one, the owner's constants, another
+  `Agent` compared, an embedded field; `widened.go`: `strings.EqualFold`, `Contains` over a
+  one-string list, `HasSuffix` and `HasPrefix` with a full value, a map literal indexed by the
+  field, a switch on `strings.ToLower` of it, a comparison through `TrimSpace`, a call over a
+  call, and the two declared gaps below unflagged; `good.go`: the adapter asked, the value spelled and
+  resolved, another field compared with the same strings, Claude Code's argument found by its
+  name, clean; `bad_test.go`, clean), beside stand-ins of `agent` (the owner, clean), `state`,
+  `wire` and `cli` (each row clean and a function beside it flagged), and
+  `fix/internal/elsewhereagent` (outside teamchat, clean), and `fix/cmd/teamchat` and
+  `fix/cmd/teamchat-admin` (the commands, each comparison flagged). The test runs the real
+  `agentBranches` table. Before the widening the new forms and both commands were missed, every
+  one (Plan 00209 `subagent-reports/261023-n3e-seam-widen.md`).
+- Red, real tree, at the rule's own commit `822931505` (untagged, `busfailpoints` and `tuwunel` alike): twelve
+  findings, every site of SPEC-n3 AS1a: `keeper/prepare.go:439-441` and `:458`,
+  `keeper/loop.go:288-290`, `:482` and `:539`, `keeper/seats.go:122`, and `link/link.go:268` and
+  `:423`. The widened rule gives the same twelve over the tree before the move (`8d2496eba`),
+  untagged and with `busfailpoints`, and is green over the tree after it and over the two
+  commands, with no finding on CL2's `filepath.Base(a) == "claude"`.
+- Green: the keeper writes `string(Mode)` to session.pid and the launch frame, and asks its
+  adapter's `Preparer` for what follows CMD and its `Capabilities` for `launch_failed` and
+  `needs_relaunch`; the link takes its delivery and its first SessionStart from the
+  `Capabilities`; session.pid's and the launch frame's checks read `state.Launches`. The launch
+  goldens (`keeper/launch_golden_test.go`) pass unchanged.
+- Not caught: a value that reaches the field through a function's result (`isPlain(l.Launch)`
+  with a bare literal inside `isPlain`) is caught only when that function names a constant; a
+  copy of the field held in a variable and then compared; a list or map of launch values held
+  in a variable other than `state.Launches`; a part of a launch value
+  (`strings.HasPrefix(l.Launch, "pla")`); a launch value inside a sentence, which is not a list
+  (`"launch is not claude or plain"`).
+
+**The next wider rule, not built:** either of two. One follows a copy of the field through
+dataflow (`x := l.Launch` and later `x == "plain"`, or the field handed to a helper that
+compares it): that is an SSA pass over every function in teamchat, for a shape the independent
+search found nowhere, and the seam leaves only plain copies of the value (`string(Mode)` into
+session.pid and the frame). The other flags every comparison of any string field with a
+literal in teamchat: it would report every `Kind`, `Inbound` and `Desired` check, so the
+`agentBranches` table would become a list of unrelated exceptions and stop saying where the
+agent is branched on.
+
 
 ## Defect classes that cannot be a rule
 
@@ -1304,6 +1475,31 @@ bash they replaced and in the Go during review; each instance is in the audit re
   `Bavail` in `Frsize` units, vmtest F7). A rule is possible (any `Statfs_t.Bsize` in a product)
   and would guard one function: `freeOf` is the module's only free-space reading, and
   `TestFreeOfCountsFragments` (Bsize 4096, Frsize 1024) holds it.
+- **A test that reads state a live goroutine of the code under test may still change** (Plan
+  00209 n3e: `TestBeginRunReturnsAnEarlierRunsEntries` read the store after `BeginRun` woke a
+  delivery loop able to hand the items out; three more in `wiring` and `keeper`, where the test
+  waited on a log line or a client's exit that comes before the effect it then read). Whether
+  the read races depends on what is live at that moment (session facts told, a roster verified,
+  items deliverable, a timer handed to another goroutine), which no syntax tree shows: every
+  shape a rule could match also matches the many reads that are ordered. What holds it instead:
+  a test waits on the effect itself (`until`, `eventually`, a failpoint hook that parks the loop
+  while the test reads), never on a signal the code gives before the effect; and the race only
+  shows under load, so a suspect test is run shuffled, `-cpu 1,2,4`, many times, beside a loop
+  of other tests.
+- **A fake that announces an event before it has done what the event stands for** (Plan 00209
+  n3e: `fakeinbox` recorded a refused auth frame, which wakes `Await`, before its deferred
+  `drop` closed the connection, so `inbox`'s `TestAWrongTokenIsRetryAndNothingIsWritten` could
+  write into a connection still open; it also woke `Await` before `OnAccepted` handed the frame
+  on, and the keeper harness's fake child and pidfd sent a SIGKILL to the test before they
+  exited). Which action an announcement stands for is a fact of the fake's contract, not a shape
+  in the syntax tree: the action may be a defer, a callback or the next statement, and the same
+  shapes order an announcement after its action everywhere else. What holds it instead: each
+  fake announces last (`fakeinbox`'s `serve` records a delivery's last frame after the close,
+  `record` hands on before it wakes `Await`; the keeper fakes exit before they send the
+  signal), and its own tests pin the order: `TestTheLastFrameIsRecordedOnceTheConnectionIsClosed`
+  (the connection's `Close` reads the frames), `TestAFrameIsHandedOnBeforeItIsRecorded` and
+  `TestAFakeSIGKILLExitsBeforeItIsSeen`. A new fake's announcement is placed after its action
+  and tested the same way.
 
 Classes the bundled linters already hold, each seen firing on a minimal case in the audit: an
 error or status thrown away (the bash's `|| true`, unchecked process substitutions and

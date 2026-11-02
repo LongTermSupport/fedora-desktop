@@ -7,6 +7,8 @@ session does the work to [BUILD-BRIEF.md](BUILD-BRIEF.md))
 **Owner**: joseph
 **Priority**: High
 
+<!-- MUST_EXCEED_PLAN_SIZE_BECAUSE: this is the plan of record for the whole of v2 (eight phases, the owner's directions and the decision table), still open in Phases 2, 3 and 8; its detail already lives in the DESIGN-v2*, SPEC-* and RESEARCH-* documents beside it, and splitting the live task tree mid-build would hide the open task states. Raised as a question for the owner in the Phase 8 pull request. -->
+
 ## Overview
 
 The agent team bus (v1) is Python (the admin tool, `pingbus`, the LXC helper, `declare.py`,
@@ -103,10 +105,11 @@ milestone that acts on it.
 | D4           | no relay mode in v2; specified on v2 when the plugin API ships                                                                                          | accepted by the coordinator                                                                                                                                                                                        |
 | D15          | a keeper (`teamchat run`) and a link (DESIGN.md called it the worker) in every member, the resident cost measured (B 2.14)                              | accepted by the coordinator                                                                                                                                                                                        |
 | TID          | a team has a stable id (at most 22 characters) fixed at creation; its name is display only; `server_name` and handles carry the id and survive a rename | accepted with gate A (Task 0.5): built on; to the owner in the coordinator's digest                                                                                                                                |
-| INT3         | a v1 name over 22 characters migrates under a short id declared with the move, and stays its display name                                               | defaulted; to the coordinator (not among the Task 0.5 answers)                                                                                                                                                     |
+| INT3         | a v1 name over 22 characters, or one of A 2.2's reserved ids, migrates under a short id declared with the move, and stays its display name              | defaulted; to the coordinator (not among the Task 0.5 answers)                                                                                                                                                     |
 | VISIBLE      | OD-A10, BD9, BD15, BD16, DC4, DC16, DC17, DC18, DC19, DC21, OD-D6, INT4, INT5, INT7, and DC8                                                            | accepted (Task 0.5); DC17 with its go-deps allowlist rows and govulncheck clean; DC8 comes back to the coordinator if H-C5 or H-C15 fails; DC16's and DC19's stated cost is INT6's, below                          |
 | IRREVERSIBLE | OD-A7, DC1, DC5, DC15, OD-D1 (`teamchat`), OD-D5, and TID above                                                                                         | confirmed by the owner 2026-10-30 (gate A met), on direction 6's condition: Task 0.6 checks none of them prevents a remote homeserver or members on other machines                                                 |
 | INT6         | owner-uid processes holding a pool seat's password have power over that account (DC16, DC19)                                                            | the owner chose the default 2026-10-30 (gate B met): owner-uid processes may hold a pool seat's password; [DESIGN-v2.md 7.1](DESIGN-v2.md#71-int6s-narrower-alternative-a-pool-seat-with-no-password) is not built |
+| n2f-D12      | the admin token goes to whatever holds the team's loopback port: only `team apply` checks the holder ([SPEC-n2f.md](SPEC-n2f.md) section 11)            | owner only, before the first install (gate A): accepted as residual in the inert code; the alternative is the admin client over a unix socket only the server and `teamchat-ctl` reach, which removes the race     |
 | others       | OD-A1-A6, OD-A8, OD-A9, OD-A11, BD1-BD8, BD10-BD14, BD17, BD18, DC2, DC3, DC6, DC7, DC9-DC14, DC20, OD-D2-D4, OD-D7, INT1, INT2                         | defaulted, not flagged                                                                                                                                                                                             |
 
 DESIGN.md's D1-D20 belonged to the in-place design and are superseded with it.
@@ -435,6 +438,7 @@ its first caller.
     health 91.9; `cmd/teamchat` 50.0 (its `main` only). Three Opus review rounds
     (`subagent-reports/261022-n3a-review*.md`): FIX-FIRST, FIX-FIRST, MERGE. Report and the
     design-text fixes it proposes: `subagent-reports/261022-n3a.md`.
+
   - **n3c built** on `feat/bus-v2-n3c` and merged into `feat/bus-v2-n3` (SPEC-n3 section 4,
     decisions n3c-D1 to n3c-D24, W-D1 to W-D3): the keeper (`run`), the link, receiving, the
     client verbs (`wait`, `status`, `ledger`), the ends (EN1-EN4), the failpoints and the
@@ -568,7 +572,7 @@ before every push, and GitHub CI is the gate.
   - `plan_acceptance/test_cited_constant_copy_rule`: one finding in this plan's folder.
 - [ ] ⬜ **Task 8.5**: 12 gitleaks findings, all fake keys in test fixtures. Allowlist them the
   way F44 allowlisted its own, never by weakening the scan.
-- [ ] ⬜ **Task 8.6**: In the merge, CLAUDE/QA.md, CLAUDE/GoProjectRules.md, src-go/CLAUDE.md and
+- [x] ✅ **Task 8.6**: In the merge, CLAUDE/QA.md, CLAUDE/GoProjectRules.md, src-go/CLAUDE.md and
   Plans 00194 and 00209 took F44's side of each conflicting hunk. Put back the v2 lines that
   were lost, merging them by meaning (`git diff F44...feat/bus-v2-n3e` on those files shows
   them).
