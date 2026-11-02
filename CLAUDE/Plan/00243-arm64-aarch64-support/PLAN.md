@@ -81,6 +81,10 @@ it, and arm64 support is a standing requirement from then on: the architecture r
       pinned with a digest) and DisplayLink by arch, each with a digest per arch; CUDA,
       rescrobbled, VirtualBox and IPU6, which have no aarch64 build, skipped by name there
       (CUDA fails if asked for by name); Element needs nothing.
+    - [x] ✅ **Task 2.1b-3**: The rest of section B: CI's shellcheck, golangci-lint and gitleaks
+      by `uname -m` with a sha256 each; the netinstall ISOs and build-iso usage; the ccy
+      custom-Dockerfile examples (ccy 3.104.18); docker-in-lxc's LXC arch; the VM lab's guest
+      arch, serial console and UEFI firmware. The ratchet allowlist is empty.
 
 ### Phase 3: the test loop with lts-infra
 

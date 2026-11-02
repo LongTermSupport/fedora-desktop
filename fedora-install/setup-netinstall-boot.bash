@@ -32,8 +32,10 @@ GRUB_ENTRY="/etc/grub.d/40_fedora_netinstall"
 BASE_URL="https://download.fedoraproject.org/pub/fedora/linux/releases"
 FDINST_LABEL="FDINST"
 FDINST_MOUNT="/mnt/fedora-install"
-NETINSTALL_PREFIX="Fedora-Everything-netinst-x86_64"
-WORKSTATION_PREFIX="Fedora-Workstation-Live"
+# Fedora publishes x86_64 and aarch64 ISOs under the same layout; an architecture with none
+# fails at discovery, naming the directory it looked in.
+ARCH="$(uname -m)"
+NETINSTALL_PREFIX="Fedora-Everything-netinst-${ARCH}"
 # 4 GiB partition — holds netinstall.iso (~1.1GB) + squashfs.img (~2GB) = ~3.1GB
 # Workstation ISO is downloaded to /tmp (root fs) during extraction, not to FDINST
 SHRINK_SIZE_GIB=4
@@ -618,7 +620,7 @@ unmount_fdinst() {
 
 discover_netinstall_url() {
     local version="$1"
-    local dir_url="${BASE_URL}/${version}/Everything/x86_64/iso/"
+    local dir_url="${BASE_URL}/${version}/Everything/${ARCH}/iso/"
 
     echo "Discovering netinstall ISO for Fedora ${version}..." >&2
 
@@ -637,14 +639,14 @@ discover_netinstall_url() {
 
 discover_workstation_url() {
     local version="$1"
-    local dir_url="${BASE_URL}/${version}/Workstation/x86_64/iso/"
+    local dir_url="${BASE_URL}/${version}/Workstation/${ARCH}/iso/"
 
     echo "Discovering Workstation Live ISO for Fedora ${version}..." >&2
 
     local filename
-    # Workstation Live naming: Fedora-Workstation-Live-43-1.6.x86_64.iso
+    # Workstation Live naming: Fedora-Workstation-Live-<version>-<compose>.<arch>.iso
     filename=$(curl -sfL --max-time 30 "$dir_url" 2>/dev/null \
-        | grep -oP "${WORKSTATION_PREFIX}-${version}-[0-9.]+\.x86_64\.iso" \
+        | grep -oP "Fedora-Workstation-Live-${version}-[0-9.]+\.${ARCH}\.iso" \
         | head -1)
 
     if [[ -z "$filename" ]]; then
@@ -1144,8 +1146,7 @@ GRUBEOF
         die "Setup verification failed with ${errors} error(s). Do not reboot — fix above issues first."
     fi
 
-    echo ""
-    echo "=== Setup complete ==="
+    printf '\n%s\n' "=== Setup complete ==="
     echo "Fedora ${target_version} install boot entry is ready."
     echo ""
     echo "FDINST partition (${fdinst_dev}):"

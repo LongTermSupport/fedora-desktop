@@ -49,6 +49,8 @@ type kit struct {
 	// hostMiB is the host's memory, and hostErr what reading it fails with.
 	hostMiB int
 	hostErr error
+	// goarch is the host's architecture as Go names it; the lab's guests are this architecture.
+	goarch string
 }
 
 // stubBuild replaces build-base with a recorder, for the commands that call it.
@@ -82,6 +84,7 @@ func newKit(t *testing.T) *kit {
 		port:     40123,
 		free:     1 << 50,
 		hostMiB:  1 << 16,
+		goarch:   "amd64",
 		bases:    map[string]string{},
 		scens:    map[string]string{},
 	}
@@ -245,6 +248,7 @@ func (k *kit) environment() Env {
 		HostMiB:   func() (int, error) { return k.hostMiB, k.hostErr },
 		Random:    zeroReader{},
 		GPGKeyDir: k.gpg,
+		GOARCH:    k.goarch,
 		TempDir:   k.t.TempDir(),
 	}
 }

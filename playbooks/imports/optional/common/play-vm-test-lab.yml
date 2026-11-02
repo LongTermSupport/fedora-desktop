@@ -29,6 +29,12 @@
     audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
     vm_test_lab_dir: "/home/{{ user_login }}/.local/share/vmtest"
     vm_test_spool_dir: "{{ root_dir }}/untracked/vmtest-bridge"
+    # The guests are the host's architecture (vmtest names it), booted UEFI by KVM; this is the
+    # firmware package virt-install picks from for each. qemu-kvm brings the host's own
+    # qemu-system-x86 or qemu-system-aarch64.
+    vm_test_uefi_firmware:
+      x86_64: edk2-ovmf
+      aarch64: edk2-aarch64
     # Bridge policy (DESIGN.md §6.4 step 9): MODE_<verb>=auto|deny. refresh-base
     # ships allowed: a base past its freshness TTL refuses every run until it is
     # rebuilt, and the agent that hit the refusal is the one placed to ask for the
@@ -56,6 +62,11 @@
     - name: Audience guard — end play on a consumer install
       ansible.builtin.meta: end_play
       when: install_audience != 'developer'
+
+    - name: Fail on an architecture the lab has no guest for
+      ansible.builtin.assert:
+        that: ansible_facts['architecture'] in vm_test_uefi_firmware
+        fail_msg: "VM lab: no guest for {{ ansible_facts['architecture'] }} (x86_64 and aarch64 only)"
 
     # =========================================================================
     # Preflight: KVM must be usable by the user, or nothing below is worth doing
@@ -91,7 +102,7 @@
           - virt-install
           - qemu-kvm
           - qemu-img
-          - edk2-ovmf
+          - "{{ vm_test_uefi_firmware[ansible_facts['architecture']] }}"
           - guestfs-tools
           - virtiofsd
           - cloud-utils

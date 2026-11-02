@@ -378,15 +378,16 @@ create_container() {
     local name="$1"
     local project_dir="$PWD"
 
-    echo ""
-    echo "═══════════════════════════════════════════════════════════"
-    echo "  Creating LXC Container for Docker Project"
-    echo "═══════════════════════════════════════════════════════════"
-    echo ""
-    echo "Container: $name"
-    echo "Project: $project_dir"
-    echo "Fedora: $FEDORA_VERSION"
-    echo ""
+    printf '\n%s\n  Creating LXC Container for Docker Project\n%s\n\nContainer: %s\nProject: %s\nFedora: %s\n\n' \
+        "═══════════════════════════════════════════════════════════" "═══════════════════════════════════════════════════════════" "$name" "$project_dir" "$FEDORA_VERSION"
+
+    # The download template names architectures as Debian does.
+    local lxc_arch
+    case "$(uname -m)" in
+        x86_64) lxc_arch=amd64 ;;
+        aarch64) lxc_arch=arm64 ;;
+        *) error "No Fedora LXC image is published for this architecture: $(uname -m)" ;;
+    esac
 
     # Check if container already exists
     if container_exists "$name"; then
@@ -398,7 +399,7 @@ create_container() {
 
     # Create container
     info "Creating Fedora $FEDORA_VERSION LXC container..."
-    if ! sudo lxc-create -n "$name" -t download -- -d fedora -r "$FEDORA_VERSION" -a amd64; then
+    if ! sudo lxc-create -n "$name" -t download -- -d fedora -r "$FEDORA_VERSION" -a "$lxc_arch"; then
         error "Failed to create LXC container" \
               "Check LXC logs: sudo journalctl -u lxc -n 50"
     fi

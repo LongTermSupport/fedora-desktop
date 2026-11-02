@@ -51,13 +51,33 @@ class TestRender(unittest.TestCase):
         with self.assertRaises(render_kickstart.RenderError):
             render_kickstart.render(TEMPLATE, {"TREE_URL": "x\nrootpw --plaintext pwned", "SSH_PUBKEY": "y", "FEDORA_VERSION": "44"})
 
-    def test_the_real_server_template_renders_with_its_three_facts(self):
+    def test_the_real_server_template_renders_with_its_four_facts(self):
         template = (REPO_ROOT / "fedora-install" / "ks-vm-server.cfg").read_text(encoding="utf-8")
-        out = render_kickstart.render(template, {"TREE_URL": "https://example.com/os/", "SSH_PUBKEY": "ssh-ed25519 AAAA lab", "FEDORA_VERSION": "44"})
+        out = render_kickstart.render(
+            template,
+            {"TREE_URL": "https://example.com/os/", "SSH_PUBKEY": "ssh-ed25519 AAAA lab", "FEDORA_VERSION": "44", "SERIAL_CONSOLE": "ttyAMA0"},
+        )
         self.assertNotIn("@", out.replace("@^", ""))  # only the `@^environment` group syntax remains
         self.assertIn("sshkey --username=fedora", out)
         self.assertIn("url --url=https://example.com/os/", out)
+        self.assertIn('bootloader --append="console=ttyAMA0,115200n8"', out)
         self.assertIn("poweroff", out)
+
+    def test_the_real_desktop_template_puts_the_kernel_on_the_named_serial_console(self):
+        # The LUKS prompt is driven over the serial line, so the kernel's console must be the
+        # guest architecture's serial device (ttyS0 on x86_64, ttyAMA0 on aarch64).
+        template = (REPO_ROOT / "fedora-install" / "ks-vm-desktop.cfg").read_text(encoding="utf-8")
+        out = render_kickstart.render(
+            template,
+            {
+                "SSH_PUBKEY": "ssh-ed25519 AAAA lab",
+                "FEDORA_VERSION": "44",
+                "SERIAL_CONSOLE": "ttyAMA0",
+                "LUKS_PASSPHRASE": "pass",
+                "USER_PASSWORD_CRYPT": "crypt",
+            },
+        )
+        self.assertIn('bootloader --append="console=ttyAMA0,115200n8 plymouth.enable=0"', out)
 
 
 class TestExecutor(unittest.TestCase):

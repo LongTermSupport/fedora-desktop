@@ -27,6 +27,13 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.104.18 — container 2.79.23
+
+- **The custom-Dockerfile examples pick their builds by architecture** (Plan 00243). The go and
+  AWS CLI examples in `/opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt` name the archive by
+  `dpkg --print-architecture` (go: `amd64`, `arm64`) and `uname -m` (AWS CLI: `x86_64`,
+  `aarch64`), so a project Dockerfile copied from them builds on an arm64 image too.
+
 ## 3.104.17 — container 2.79.22
 
 - **yq is pinned to 4.54.1 in both images** (Plan 00243). 3.104.16 pinned 4.53.3, a step back
