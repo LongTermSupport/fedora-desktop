@@ -52,6 +52,10 @@ tuwunel_sha256_x86_64: 78628e6d13deda9e4832aeb93f2d10332e3c4e70a8815b45e6ef77340
 # ok: arch-pinned-artefact
     when: ansible_architecture == "x86_64"
 # ok: arch-pinned-artefact
+    when: ansible_facts['architecture'] == 'x86_64'
+# ok: arch-pinned-artefact
+    when: ansible_facts.architecture == "x86_64"
+# ok: arch-pinned-artefact
     url: "https://example.com/tool-{{ 'x86_64' if ansible_architecture == 'x86_64' else 'aarch64' }}.tar.gz"
 # ok: arch-pinned-artefact
     for key in tuwunel_version tuwunel_sha256_x86_64 tuwunel_sha256_aarch64; do

@@ -70,8 +70,13 @@ it, and arm64 support is a standing requirement from then on: the architecture r
   working.
   - [x] ✅ **Task 2.1a**: The two ccy images (SWEEP.md section A; issues 119, 120, 121).
     Edited and gated; the arm64 build itself is proved by lts-infra (Task 3.1).
-  - [ ] ⬜ **Task 2.1b**: The ratchet's files (SWEEP.md section B) and the implicit ones
+  - [ ] 🔄 **Task 2.1b**: The ratchet's files (SWEEP.md section B) and the implicit ones
     (section C).
+    - [x] ✅ **Task 2.1b-1**: What `playbook-main.yml` reaches: yq, markless, host shellcheck
+      and golangci-lint by an arch-keyed map with a digest each; Chrome repo, kmod and kernel
+      NEVRAs by the running arch; JetBrains `linuxARM64`; Slack and intel-media-driver,
+      which have no aarch64 build, skipped by name there. The rule now accepts the
+      non-deprecated `ansible_facts['architecture']` as the selection.
 
 ### Phase 3: the test loop with lts-infra
 
