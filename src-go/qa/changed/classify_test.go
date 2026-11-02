@@ -277,6 +277,37 @@ func TestThePatternsGateRunsWhenItsRulesFixtureOrToolChange(t *testing.T) {
 	}
 }
 
+// The arch-pin gate runs whole for a change to any file kind it guards (a Dockerfile, a play,
+// task or vars file, a files/ script, a CI workflow, code), and for its own rule, fixture,
+// allowlist (which it covers), wrapper and Go source; not for prose.
+func TestTheArchPinGateRunsForTheFilesItGuards(t *testing.T) {
+	w := newWorld(t)
+	for _, f := range []string{
+		"files/var/local/claude-yolo/Dockerfile", ".claude/ccy/Dockerfile", "playbooks/imports/play-x.yml", "tasks/x.yml",
+		"vars/x.yml", "files/home/.local/bin/tool", ".github/workflows/qa.yml", "fedora-install/build-iso.bash",
+		"helpers/vmtest/freshness_gate.py", "src-go/internal/vmtest/fetch.go",
+		".semgrep/arch-pin.yml", ".semgrep/arch-pin.fixture", "scripts/arch-pin.allowlist",
+		"scripts/qa-arch-pin.bash", "src-go/qa/archpin/ratchet.go", "src-go/qa/cmd/qa-arch-pin/main.go",
+	} {
+		w.touch(f, "#!/usr/bin/bash")
+		if p := w.classify([]string{f}); !p.has("arch-pin") {
+			t.Errorf("%s does not run arch-pin: %v", f, keys(p))
+		}
+	}
+	for _, f := range []string{".semgrep/arch-pin.yml", ".semgrep/arch-pin.fixture", "scripts/arch-pin.allowlist"} {
+		if p := w.classify([]string{f}); len(p.uncovered) != 0 {
+			t.Errorf("%s is the gate's own data and covered by it: uncovered %v", f, p.uncovered)
+		}
+	}
+	w.touch("docs/x.md", "# x")
+	if p := w.classify([]string{"docs/x.md"}); p.has("arch-pin") {
+		t.Errorf("prose runs arch-pin: %v", keys(p))
+	}
+	if p := w.classify(nil, "playbooks/imports/gone.yml"); !p.has("arch-pin") {
+		t.Errorf("a deleted play must run the gate (its rows must leave the list): %v", keys(p))
+	}
+}
+
 func TestTheShellGateRunsWhenItsToolDiscoveryWrapperOrTableChange(t *testing.T) {
 	w := newWorld(t)
 	for _, f := range []string{"src-go/qa/bash/run.go", "src-go/qa/cmd/qa-bash/main.go", "src-go/qa/discovery/list.go"} {
