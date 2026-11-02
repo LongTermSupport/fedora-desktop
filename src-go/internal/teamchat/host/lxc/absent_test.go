@@ -208,9 +208,9 @@ func TestAbsentHeldByOp75IsDeferred(t *testing.T) {
 	hasLine(t, r, lineOf(t, "DEFERRED", "c1", "seat still held; token revoked"))
 }
 
-// Only an active handle is parked: one the roster has parked, lost or retired already (a crash
+// Only an enrolled handle is parked: one the roster has parked, lost or retired already (a crash
 // after the park, a return answered retired) leaves without a park, and the seat still goes.
-func TestAbsentParksOnlyAnActiveHandle(t *testing.T) {
+func TestAbsentParksOnlyAnEnrolledHandle(t *testing.T) {
 	for _, state := range []string{apply.MemberParked, apply.MemberLost, apply.MemberRetired, ""} {
 		w := leaving(t)
 		if state == "" {

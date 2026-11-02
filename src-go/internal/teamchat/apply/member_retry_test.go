@@ -211,7 +211,7 @@ func TestAClaimWhoseAccountIsDeactivatedIsDropped(t *testing.T) {
 	if err := w.admin.SetDeactivated(t.Context(), user(third), true); err != nil {
 		t.Fatal(err)
 	}
-	w.addMember(t, other, active())
+	w.addMember(t, other, enrolled())
 	res := w.member(t, team, MemberRequest{Op: OpMemberSet, Handle: other, HumanText: false})
 	f := w.file(t).roster
 	if f.Members[third].State != MemberRetired || f.Pending != nil || !slices.Contains(res.Changed, "member "+third+" retired") {
@@ -278,7 +278,7 @@ func TestARetirementThatCannotBeSavedFails(t *testing.T) {
 	if err := w.admin.SetDeactivated(t.Context(), user(third), true); err != nil {
 		t.Fatal(err)
 	}
-	w.addMember(t, other, active())
+	w.addMember(t, other, enrolled())
 	s := &sabotage{Admin: w.admin, roster: filepath.Join(w.dir, "roster.json"), id: user(third)}
 	_, err := RunMember(t.Context(), w.memberDeps(s), team, MemberRequest{Op: OpMemberSet, Handle: other, HumanText: true})
 	if e, ok := errors.AsType[*Error](err); !ok || e.Drift || errors.Is(err, ErrRetired) {
@@ -307,7 +307,7 @@ func TestARetiredReturnTakesItsTokenCopy(t *testing.T) {
 	if err := w.admin.SetDeactivated(t.Context(), user(third), true); err != nil {
 		t.Fatal(err)
 	}
-	w.addMember(t, other, active())
+	w.addMember(t, other, enrolled())
 	w.member(t, team, MemberRequest{Op: OpMemberSet, Handle: other, HumanText: false})
 	if m := w.file(t).roster.Members[third]; m.State != MemberRetired || m.Cred != "" {
 		t.Fatalf("member %+v", m)
@@ -324,7 +324,7 @@ func TestARollForwardFailureNamesThePendingOp(t *testing.T) {
 	if _, err := RunMember(t.Context(), w.memberDeps(&crashing{Admin: w.admin, method: "Invite", n: 1}), team, add(3, credPassword)); !errors.Is(err, errCrash) {
 		t.Fatalf("err = %v", err)
 	}
-	w.addMember(t, other, active())
+	w.addMember(t, other, enrolled())
 	_, err := RunMember(t.Context(), w.memberDeps(&crashing{Admin: w.admin, method: "Invite", n: 1}), team, MemberRequest{Op: OpMemberSet, Handle: other, HumanText: false})
 	if e, ok := errors.AsType[*Error](err); !ok || e.Op != OpMemberAdd || e.Step != StepRooms {
 		t.Fatalf("err = %v", err)
@@ -379,7 +379,7 @@ func TestARevokeRecordsNoCredential(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 	issued = w.file(t).roster.Members[third].CredSeq
-	w.addMember(t, other, active())
+	w.addMember(t, other, enrolled())
 	w.member(t, team, MemberRequest{Op: OpMemberSet, Handle: other, HumanText: false})
 	if m := w.file(t).roster.Members[third]; m.Cred != "" || m.Needs != needsReissue || m.CredSeq <= issued {
 		t.Fatalf("revoked %+v", m)

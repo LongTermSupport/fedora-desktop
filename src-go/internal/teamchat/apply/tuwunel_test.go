@@ -78,8 +78,8 @@ func TestTuwunelApply(t *testing.T) {
 	w.plainAccounts(t, "alice", "bob")
 	w.unchanged(t, in, "the second run")
 
-	w.addMember(t, coord, active())
-	w.addMember(t, other, active())
+	w.addMember(t, coord, enrolled())
+	w.addMember(t, other, enrolled())
 	promoted := w.run(t, in)
 	if !slices.Equal(promoted.Roles, []RoleChange{{coord, RolePromoted}}) {
 		t.Fatalf("promotion: changed %v, roles %v", promoted.Changed, promoted.Roles)

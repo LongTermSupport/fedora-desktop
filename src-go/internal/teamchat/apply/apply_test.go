@@ -217,7 +217,7 @@ func parseState(t *testing.T, raw []json.RawMessage) []proto.StateEvent {
 	return out
 }
 
-func active() Member {
+func enrolled() Member {
 	return Member{State: MemberEnrolled, Kind: "podman", HumanText: true, Cred: credPassword}
 }
 
@@ -272,8 +272,8 @@ func TestASecondRunChangesNothing(t *testing.T) {
 func TestAWantedCoordinatorIsPromotedOnceAMember(t *testing.T) {
 	w := newWorld(t)
 	w.applied(t, teamDoc())
-	w.addMember(t, coord, active())
-	w.addMember(t, other, active())
+	w.addMember(t, coord, enrolled())
+	w.addMember(t, other, enrolled())
 	res := w.applied(t, teamDoc())
 	if !slices.Contains(res.Changed, "role "+coord+" promoted") || !slices.Equal(res.Roles, []RoleChange{{coord, RolePromoted}}) {
 		t.Fatalf("changed %v, roles %v", res.Changed, res.Roles)
@@ -292,8 +292,8 @@ func TestAWantedCoordinatorIsPromotedOnceAMember(t *testing.T) {
 func TestACoordinatorChangeDemotesFirst(t *testing.T) {
 	w := newWorld(t)
 	w.applied(t, teamDoc())
-	w.addMember(t, coord, active())
-	w.addMember(t, other, active())
+	w.addMember(t, coord, enrolled())
+	w.addMember(t, other, enrolled())
 	w.applied(t, teamDoc())
 	doc := teamDoc()
 	docTeam(doc)["coordinator"] = other
@@ -428,13 +428,13 @@ func TestRefusalsBeforeAnyChange(t *testing.T) {
 		}},
 		"a retired coordinator": {StepRoles, func(t *testing.T, w *world) {
 			t.Helper()
-			m := active()
+			m := enrolled()
 			m.State = MemberRetired
 			w.addMember(t, coord, m)
 		}},
 		"a coordinator without human text": {StepRoles, func(t *testing.T, w *world) {
 			t.Helper()
-			m := active()
+			m := enrolled()
 			m.HumanText = false
 			w.addMember(t, coord, m)
 		}},
@@ -500,12 +500,12 @@ func TestDeriveRoster(t *testing.T) {
 	f.Humans["alice"] = Human{State: HumanEnrolled}
 	f.Humans["bob"] = Human{State: HumanRemoved}
 	f.Humans["carol"] = Human{State: HumanEnrolled}
-	parked := active()
+	parked := enrolled()
 	parked.State = MemberParked
 	f.Members[coord] = parked
-	f.Members[other] = active()
+	f.Members[other] = enrolled()
 	for i, s := range []string{MemberRetired, MemberLost, MemberClaimed} {
-		m := active()
+		m := enrolled()
 		m.State = s
 		f.Members["gone."+string(rune('1'+i))+"+desk.podman"] = m
 	}

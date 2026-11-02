@@ -695,9 +695,10 @@ the outcome asserted).
 
 **teamchat's real timers have one home** (Plan 00209 Task 8.1): `internal/teamchat/clock`,
 whose `System` is the real side of the `clock.Clock` seam that teamchat's tests replace whole
-with `clock.Fake`. Its `system.Sleep`, `system.AfterFunc` and `system.Hold` are teamchat's only
-`realClocks` rows. Any other teamchat package hands its real wait to `clock.System()` (as
-`lock`, `teamlock`, `admin/wire`, `matrix` and `fakehs` do) and gets no row of its own.
+with `clock.Fake`. Any other teamchat package hands its real wait to `clock.System()` (as
+`lock`, `teamlock`, `admin/wire`, `matrix` and `fakehs` do). Whether `system.Sleep`,
+`system.AfterFunc` and `system.Hold` there get `realClocks` rows is the owner's decision and is
+open: until it is made, the rule reports those three sites.
 
 **Narrowings, each with its sentence.** A bound whose length is a constant cannot be shortened
 by a test, so it is not judged. In the `select` that ends the body of a bare `for {}` (no

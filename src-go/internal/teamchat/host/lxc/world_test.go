@@ -403,7 +403,7 @@ func (f *fakeRoster) Park(_ context.Context, team paths.TeamID, handle string) e
 		return f.parkErr
 	}
 	if f.roster[team][handle] != apply.MemberEnrolled {
-		return fmt.Errorf("member.park refused: %s is %q, not active", handle, f.roster[team][handle])
+		return fmt.Errorf("member.park refused: %s is %q, not enrolled", handle, f.roster[team][handle])
 	}
 	f.parks = append(f.parks, team.String()+" "+handle)
 	f.roster[team][handle] = apply.MemberParked

@@ -554,13 +554,18 @@ cross-network membership (direction 7). `spike/v2-merge-up` (f5023d692) is
 largest to smallest. Each is fixed on that branch under Defence Before Fix. F44 is merged in
 before every push, and GitHub CI is the gate.
 
-- [ ] 🔄 **Task 8.1** (fixed on `spike/v2-merge-up`; the two Matrix presence
-  findings of `project_liveness_word` wait for the owner): The 29 project-rule findings:
-  - 13 `project_duration_overflow`, in the teamchat member/client, nolink, forge, link/server,
+- [ ] 🔄 **Task 8.1** (fixed on `spike/v2-merge-up`, except what waits for the owner: the two
+  Matrix presence findings of `project_liveness_word`, and the three `teamchat/clock` sites of
+  `project_realtime_bound`, whose `realClocks` rows are a narrowing of the rule): The 40
+  project-rule findings the tree had (the 29 the plan listed, with 14 duration and 11 realtime
+  ones where it counted 13 and 10, and F44's new liveness rule's 9):
+  - 14 `project_duration_overflow`, in the teamchat member/client, nolink, forge, link/server,
     engine/proof, engine/timeout, matrix/client and fakehs/sync;
-  - 10 `project_realtime_bound`, 3 of them in `teamchat/clock`, which is the injected clock.
-    Decide whether that package is the one allowed home, and record the decision in
-    GoProjectRules.md;
+  - 11 `project_realtime_bound` (9 in production code, 2 in tests), 3 of them in
+    `teamchat/clock`, which is the injected clock. Proposed: that package is the one allowed
+    home of teamchat's real timers (the other copies now hand their wait to it), with three
+    `realClocks` rows; adding them is the owner's decision (GoProjectRules.md records it as
+    open);
   - 5 `project_goroutine_end` in F44 code: `ccc/guard.go` (2), `rclonetail/app.go`,
     `reclaim/ask.go` and the `ui/pathinput` test;
   - 1 `project_command_failure_dropped`, in `member/guest/check.go`;

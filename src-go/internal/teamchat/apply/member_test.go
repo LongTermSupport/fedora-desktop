@@ -215,7 +215,7 @@ func TestMemberRefusals(t *testing.T) {
 	w := newWorld(t)
 	team := w.team(t)
 	for handle, state := range map[string]string{"myrepo.1+desk.podman": MemberEnrolled, "myrepo.2+desk.podman": MemberParked, "myrepo.4+desk.podman": MemberLost, "myrepo.5+desk.podman": MemberRetired} {
-		m := active()
+		m := enrolled()
 		m.State = state
 		w.addMember(t, handle, m)
 	}
@@ -271,7 +271,7 @@ func TestMemberLifecycle(t *testing.T) {
 	}
 	w.reissueParkReturn(t, team)
 	w.retireThird(t, team, main)
-	w.addMember(t, other, active())
+	w.addMember(t, other, enrolled())
 	mark := w.mark()
 	if res := w.member(t, team, on(OpMemberSet, other)); len(res.Changed) != 0 || len(w.writes(mark)) != 0 {
 		t.Fatalf("a set that changes nothing: %v %v", res.Changed, w.writes(mark))
@@ -522,7 +522,7 @@ func countPrefixed(lines []string, prefix string) int {
 	return n
 }
 
-// TestAnotherVerbRollsAPendingAddForward: a later verb on the team completes the add to active
+// TestAnotherVerbRollsAPendingAddForward: a later verb on the team completes the add to enrolled
 // with its credential revoked, answers none, and marks the member for a reissue.
 func TestAnotherVerbRollsAPendingAddForward(t *testing.T) {
 	for _, c := range []crash{{"ResetPassword", 1, true, StepCredential}, {"Invite", 1, false, StepRooms}} {
@@ -534,7 +534,7 @@ func TestAnotherVerbRollsAPendingAddForward(t *testing.T) {
 				t.Fatalf("err = %v", err)
 			}
 			issued := bad.passwords[len(bad.passwords)-1]
-			w.addMember(t, other, active())
+			w.addMember(t, other, enrolled())
 			res := w.member(t, team, MemberRequest{Op: OpMemberSet, Handle: other, HumanText: false})
 			if res.Credential != nil || res.Handle != other {
 				t.Fatalf("result %+v", res)
@@ -571,7 +571,7 @@ func TestParkAndRetireRollForward(t *testing.T) {
 			w := newWorld(t)
 			team := w.team(t)
 			w.member(t, team, add(3, credPassword))
-			w.addMember(t, other, active())
+			w.addMember(t, other, enrolled())
 			bad := &crashing{Admin: w.admin, method: c.method, n: c.n, landed: c.landed}
 			_, err := RunMember(t.Context(), w.memberDeps(bad), team, on(c.op, third))
 			if e, ok := errors.AsType[*Error](err); !ok || e.Step != c.step {
