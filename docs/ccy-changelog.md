@@ -43,6 +43,10 @@ The image is unchanged, so there is no rebuild.
   earlier entries' "serves one paste" no longer holds. New project rules,
   `project_self_erasing_clipboard` (Go) and `bash-self-erasing-clipboard` (semgrep), keep
   the claim and the flag out.
+- **The sign-in block says what a team lacks for its homeserver address.** It said
+  "Homeserver unknown (not declared)" and then that the Element profile had the homeserver.
+  It now names the gap (the team not declared present, no port, or no listen address and no
+  `agent_bus_address`) and says to set it in the host_vars and run `ccy-teams apply <team>`.
 
 ## 3.104.15 — container 2.79.20
 

@@ -142,16 +142,42 @@ func TestIssuePasswordAsksNothingAndShowsTheLogin(t *testing.T) {
 	}
 }
 
-func TestPasswordLoginOfATeamWithNoAddressSaysSo(t *testing.T) {
-	h := newRig(t)
-	snap := h.pass(t)
-	delete(snap.URL, "alpha")
-	delete(snap.Server, "alpha")
-	h.l.showLogin(snap, "alpha", "owner", "pw")
-	for _, want := range []string{"Homeserver  unknown (not declared)\n", "@owner:alpha.agent-bus.internal\n"} {
-		if !strings.Contains(h.ErrOut.String(), want) {
-			t.Fatalf("stderr %q lacks %q", h.ErrOut.String(), want)
-		}
+// A sign-in block whose homeserver address is not known names what the team lacks and where it
+// is set, and never claims the Element profile has the homeserver.
+func TestPasswordLoginOfATeamWithNoAddressSaysWhatIsMissing(t *testing.T) {
+	cases := map[string]struct {
+		port, want string
+	}{
+		"not declared":       {port: "", want: "Homeserver  unknown: alpha is not declared present in the host_vars\n"},
+		"no port":            {port: "-", want: "Homeserver  unknown: alpha declares no port in the host_vars\n"},
+		"no listen, no addr": {port: "6167", want: "Homeserver  unknown: alpha has no listen address and agent_bus_address is not set in the host_vars\n"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			h := newRig(t)
+			snap := h.pass(t)
+			delete(snap.URL, "alpha")
+			delete(snap.Server, "alpha")
+			if c.port == "" {
+				delete(snap.Port, "alpha")
+			} else {
+				snap.Port["alpha"] = c.port
+			}
+			h.l.showLogin(snap, "alpha", "owner", "pw")
+			out := h.ErrOut.String()
+			for _, want := range []string{
+				c.want, "@owner:alpha.agent-bus.internal\n",
+				"Shown this once and stored nowhere. Without the homeserver's address the team's Element profile cannot have it: " +
+					"set it in the host_vars, then run ccy-teams apply alpha.\n",
+			} {
+				if !strings.Contains(out, want) {
+					t.Fatalf("stderr %q lacks %q", out, want)
+				}
+			}
+			if strings.Contains(out, "has the homeserver set already") || strings.Contains(out, "not declared)") {
+				t.Fatalf("stderr %q", out)
+			}
+		})
 	}
 }
 

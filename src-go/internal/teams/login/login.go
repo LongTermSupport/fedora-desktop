@@ -447,9 +447,9 @@ func (l *Login) setUpElement(ctx context.Context, team string) (flow.Result, err
 // showLogin prints what to sign in to Element with, to the terminal only: it is shown once and
 // kept nowhere.
 func (l *Login) showLogin(snap *board.Snapshot, team, name, password string) {
-	url := snap.URL[team]
+	url, known := snap.URL[team], true
 	if url == "" {
-		url = "unknown (not declared)"
+		url, known = "unknown: "+missingAddress(snap, team), false
 	}
 	server := snap.Server[team]
 	if server == "" {
@@ -465,11 +465,28 @@ func (l *Login) showLogin(snap *board.Snapshot, team, name, password string) {
 	l.Kit.Out.Print(l.Kit.Stderr, fmt.Sprintf("  %-11s %s\n", "Username", name))
 	l.Kit.Out.Print(l.Kit.Stderr, fmt.Sprintf("  %-11s %s\n", "Matrix ID", "@"+name+":"+server))
 	l.Kit.Out.Print(l.Kit.Stderr, fmt.Sprintf("  %-11s %s\n", "Password", shown))
-	l.Kit.Tell("Shown this once and stored nowhere. The team's Element profile has the homeserver set already.")
+	if known {
+		l.Kit.Tell("Shown this once and stored nowhere. The team's Element profile has the homeserver set already.")
+	} else {
+		l.Kit.Tell("Shown this once and stored nowhere. Without the homeserver's address the team's Element profile cannot have it: " +
+			"set it in the host_vars, then run ccy-teams apply " + team + ".")
+	}
 	// The homeserver keeps no record of a lockout a tool could read (Plan 00203 gap 10).
 	l.Kit.Tell("A few sign-ins in a row, or a few wrong passwords, and Element says \"Too many login attempts " +
 		"for this account\": wait, it clears by itself within minutes and retrying does not lengthen it " +
 		"(agent-bus health status gives the exact limits).")
+}
+
+// missingAddress is what the declaration lacks for team's homeserver address: the team itself,
+// its port, or a host (its listen address, else agent_bus_address).
+func missingAddress(snap *board.Snapshot, team string) string {
+	switch port, declared := snap.Port[team]; {
+	case !declared:
+		return team + " is not declared present in the host_vars"
+	case port == "-":
+		return team + " declares no port in the host_vars"
+	}
+	return team + " has no listen address and agent_bus_address is not set in the host_vars"
 }
 
 // offerCopy, in a Wayland session, offers to put the password on the clipboard. It goes to

@@ -155,7 +155,10 @@ a repository is no longer offered for a checkout of it. Report:
   findings fixed. The copy is plain `wl-copy`; once Element has been offered, ccy-teams waits
   for Enter (at most 45 s), reads the clipboard back with `wl-paste` and runs `wl-copy --clear`
   only if it still holds the password, saying which; a failed read or clear says the password
-  may still be there. Left: check 11 again on the host (cleared, left alone,
+  may still be there. The sign-in block's "Homeserver unknown (not declared)" (the 2026-10-31
+  note) is a defect, fixed test first in its own commit: it names what the team lacks (not
+  declared present, no port, or no listen address and no `agent_bus_address`) and no longer
+  says the Element profile has the homeserver. Left: check 11 again on the host (cleared, left alone,
   and whether GNOME still serves the password after `wl-copy --clear`). Report:
   `subagent-reports/261102-clipboard-paste-once.md`.
   Plan 00209 carries this as an expectation ("Requirements carried from other plans").
