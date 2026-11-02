@@ -25,6 +25,9 @@ The rule reads the programs' source, with its own patterns, not the mapper's. A 
   (`$SCRIPT_DIR/...`, `$(dirname "${BASH_SOURCE[0]}")/...`, `${BASH_SOURCE[0]%/*}/...`) that is
   not an input, or a `run_go_tool <name>` / `run_go_command <name>` (scripts/lib/go-tool.bash)
   whose command the inputs do not build;
+- in a bash file the play runs (named on a line of its YAML that is not a `src:`), a helper
+  module it runs with `python3 -m` that is not an input (agent-bus-install runs
+  helpers.pingbus.bundle, which packages helpers/agent_bus into the zipapp the play deploys);
 - in a Go package of a command such a script builds and runs, a string literal that names an
   existing checkout path, in the same sense, that is not an input.
 
@@ -67,6 +70,9 @@ _BASH_SOURCE = re.compile(
 )
 _BASH_GO = re.compile(r"\brun_go_(tool|command)\s+([A-Za-z0-9_-]+)")
 _GO_MODULE_OF = {"tool": "src-go/qa", "command": "src-go"}
+#: A helper module a script runs: `python3 [flags] -m helpers.<pkg>[.<module>]`.
+_BASH_HELPER = re.compile(r"\s-m\s+(helpers(?:\.[A-Za-z_][A-Za-z0-9_]*)+)")
+_SRC = re.compile(r"^\s*(?:-\s+)?src:")
 _GO_LITERAL = re.compile(r'"((?:[^"\\\n]|\\.)*)"')
 
 
@@ -184,6 +190,7 @@ def _go_findings(repo_root: str, inputs: ap.Inputs, name: str, where: str) -> li
 
 def _bash_findings(repo_root: str, inputs: ap.Inputs) -> list[str]:
     findings = []
+    run = _run_scripts(repo_root, inputs)
     for rel in sorted(path for path in inputs.exact if _is_bash(repo_root, path)):
         for number, line in enumerate(_read(repo_root, rel).splitlines(), start=1):
             if line.lstrip().startswith("#"):
@@ -201,7 +208,26 @@ def _bash_findings(repo_root: str, inputs: ap.Inputs) -> list[str]:
                         findings.append(f"{where} {line.strip()}")
                     continue
                 findings.extend(_go_findings(repo_root, inputs, name, where))
+            if rel not in run:
+                continue
+            for dotted in _BASH_HELPER.findall(line):
+                module = dotted.replace(".", "/")
+                if not (_accounted(inputs, module + ".py") or _accounted(inputs, module)):
+                    findings.append(f"{where} runs {dotted}")
     return findings
+
+
+def _run_scripts(repo_root: str, inputs: ap.Inputs) -> set[str]:
+    """The scripts the play runs as it runs: named on a line of its YAML that is not a `src:`
+    (a copy or template, whose helpers run later, live from the checkout, owing no rerun)."""
+    run = set()
+    yaml_files = [p for p in inputs.exact if p.endswith((".yml", ".yaml")) and os.path.isfile(os.path.join(repo_root, p))]
+    for rel in yaml_files:
+        for line in _read(repo_root, rel).splitlines():
+            if line.lstrip().startswith("#") or _SRC.match(line):
+                continue
+            run.update(path for path in inputs.exact if path in line and _is_bash(repo_root, path))
+    return run
 
 
 def dropped_reads(
@@ -354,6 +380,23 @@ class TestRuleFires(unittest.TestCase):
         self.assertEqual(found, ["scripts/qa-x.bash:2: qa-x reads src-go/go.mod (src-go/qa/x/pins.go)"])
         built["exact"] = {script, "src-go/go.mod"}
         self.assertEqual(dropped_reads(self.root, ap.Inputs(**built)), [])
+
+    def test_a_helper_module_the_script_runs_must_be_an_input(self) -> None:
+        """The agent-bus-install shape: the script runs `python3 -m helpers.<pkg>.<module>`, so
+        the module, and what it reads, deploys with the play."""
+        self._file("helpers/bus/bundle.py", 'PACKAGES = ("helpers/bus",)\n')
+        script = self._file("files/sbin/install", "#!/bin/bash\npython3 -B -m helpers.bus.bundle --out x\n")
+        play = self._file("playbooks/p.yml", '- command:\n    argv: ["{{ root_dir }}/files/sbin/install"]\n')
+        found = dropped_reads(self.root, ap.Inputs(exact={play, script}))
+        self.assertEqual(found, ["files/sbin/install:2: runs helpers.bus.bundle"])
+        covered = ap.Inputs(exact={play, script, "helpers/bus/bundle.py"}, prefixes={"helpers/bus/"})
+        self.assertEqual(dropped_reads(self.root, covered), [])
+
+    def test_a_helper_a_copied_script_runs_later_is_not_judged(self) -> None:
+        """A deployed tool runs its helper live from the checkout, so the play owes no rerun."""
+        script = self._file("files/bin/tool", "#!/bin/bash\npython3 -m helpers.bus.report\n")
+        play = self._file("playbooks/p.yml", '- copy:\n    src: "{{ root_dir }}/files/bin/tool"\n')
+        self.assertEqual(dropped_reads(self.root, ap.Inputs(exact={play, script})), [])
 
     def test_the_message_carries_the_rule_id(self) -> None:
         self.assertIn(f"[{RULE_ID}]", _message("p", ["f:1: x"]))

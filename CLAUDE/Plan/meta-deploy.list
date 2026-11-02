@@ -35,7 +35,6 @@
 
 # Every changed play; expected: play-claude-yolo.yml (CCY 3.105.1): the ccy front, ccy-teams
 # and ccy-sessions with compact then exit on close: ccy-teams shutdown compacts each session
-# before its /exit, ccy --stop SESSION is new, and a ccy-sessions row gains Close it. If the
-# agent-bus LIVE-line deploy has not run yet, play-agent-bus.yml too, and the image rebuild
-# for container 2.79.21.
+# before its /exit, ccy --stop SESSION is new, and a ccy-sessions row gains Close it; and the
+# image rebuild for container 2.79.21.
 changed-plays
