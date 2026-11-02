@@ -40,6 +40,10 @@ type Env struct {
 	Cwd string
 	// Lock takes the QA lock for the checks (qalock.OSTaker); a run without one is refused.
 	Lock qalock.Taker
+	// Umask sets the process's file mode creation mask and answers the old one
+	// (syscall.Umask). Every command starts under gates.SuiteUmask; a run without one is
+	// refused.
+	Umask func(mask int) (old int)
 }
 
 const usageText = `usage: qa-changed [--base REF] [--plan] [--files FILE...] [--no-wait]

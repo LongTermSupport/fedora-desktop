@@ -1851,7 +1851,11 @@ shipped commands are the rows of `scripts/go-binary-suites.tsv` and the files of
 `files/home/.local/bin`. A suite therefore finds the checkout's copy it put on PATH itself, or
 nothing, and never a copy a play installed. The distribution's own directories (`/usr/bin`,
 `/bin`, `/usr/sbin`, `/sbin`) are kept, because no play installs a shipped command there.
-`HOME` is kept, because the suites give the program under test a scratch `HOME`, and go and
+Every command runs under the umask `077` (`gates.SuiteUmask`), the CCY container's and a host
+`cc` session's, under which the suites were written and recorded, whatever umask started the
+run: a umask is the process's, so each runner sets its own before its first
+command (`Env.Umask`, `syscall.Umask` in its `main`; a run without one is refused) and every
+command inherits it. `HOME` is kept, because the suites give the program under test a scratch `HOME`, and go and
 semgrep keep their caches in the real one. The guard is a test of each runner over the real
 table or a run world, on a machine with an installed `ccy-token-usable` on PATH:
 `TestSuiteEnvIsolated*` in `src-go/qa/all` and `src-go/qa/changed`. Its findings start with
@@ -1870,6 +1874,13 @@ The verdict was a property of the machine, not of the code. A static rule over t
 see an unpinned `sort`, but it could not see which PATH directory a lookup reaches or what
 exported function a child inherits. The runner is the one place all three dimensions can be
 fixed and checked. Found and defended under Defence Before Fix.
+
+The umask was the fourth dimension. The ccy launcher's differential goldens record the mode of
+every file the launcher creates, which its umask decides. They were recorded in a CCY container
+(umask `077`), so the GitHub runner (`022`) failed `TestFrontParity` in every scenario. The
+goldens stay as recorded: the runner pins the umask they were recorded under, and the suite
+pins it itself as well (`TestMain` in `src-go/internal/ccylaunch/difftest`), so a direct
+`go test` agrees with QA.
 
 **How to fix a finding.** Run the command through the session's seam: `exec` in `qa/all`,
 `runCmd` in `qa/changed`. Both apply the isolation, so never build a `proc.Cmd` that bypasses

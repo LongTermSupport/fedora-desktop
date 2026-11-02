@@ -1,9 +1,6 @@
 package pycompat
 
-import (
-	"strings"
-	"testing"
-)
+import "testing"
 
 var ipCases = []string{
 	"192.0.2.1", "0.0.0.0", "255.255.255.255", "256.1.1.1", "01.2.3.4", "1.2.3", "1.2.3.4.5", "1.2.3.04",
@@ -22,18 +19,14 @@ var ipCases = []string{
 	"::ffff:1.2.3.4%x", "::FFFF:255.255.255.255",
 }
 
-// isMapped is an answer python 3.13 and later writes dotted (B-S5), 3.11 as hex groups.
-func isMapped(s string) bool { return strings.HasPrefix(s, "::ffff:") && strings.Contains(s, ".") }
-
+// TestPythonIPAddress compares every case, IPv4-mapped ones included: the oracle is 3.13
+// (oracleVersion), which writes them dotted as B-S5 does.
 func TestPythonIPAddress(t *testing.T) {
 	reqs := make([]pyReq, 0, len(ipCases))
 	for _, c := range ipCases {
 		reqs = append(reqs, pyReq{"ip", []any{cps(c)}})
 	}
 	out := python(t, reqs)
-	v := pythonVersion(t)
-	dotted := v[0] > 3 || v[1] >= 13
-	mapped := 0
 	for i, c := range ipCases {
 		got, ok := IPAddress(c)
 		if out[i].failed() {
@@ -46,19 +39,10 @@ func TestPythonIPAddress(t *testing.T) {
 			t.Errorf("ip_address(%q): python %s, Go refused", c, out[i].OK)
 			continue
 		}
-		if isMapped(got) && !dotted {
-			mapped++
-			continue
-		}
 		if !sameJSON(t, got, out[i].OK) {
 			t.Errorf("str(ip_address(%q)) = %q, python %s", c, got, out[i].OK)
 		}
 	}
-	if !dotted && mapped == 0 {
-		t.Fatal("no IPv4-mapped case was set aside: the cases lost their mapped addresses")
-	}
-	t.Logf("%d IPv4-mapped answers set aside (python %d.%d writes them as hex); TestIPv4MappedIsDotted holds them",
-		mapped, v[0], v[1])
 }
 
 // TestIPv4MappedIsDotted is B-S5: the host's python (3.13 and later) writes them dotted.

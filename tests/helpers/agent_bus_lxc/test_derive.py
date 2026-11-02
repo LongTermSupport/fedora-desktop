@@ -410,11 +410,12 @@ class SessionsScriptTest(RunningContainer):
 
     def test_a_claude_process_of_the_user_is_found_with_when_it_started(self) -> None:
         import time
+        # A process whose argv[0] is claude: this test's own python under that name. Not sleep:
+        # a multi-call coreutils (uutils, Ubuntu 26.04) picks its tool by argv[0] and exits.
         claude = self.bin / "claude"
-        claude.symlink_to(pathlib.Path(subprocess.run(["which", "sleep"], capture_output=True, text=True,
-                                                      check=True).stdout.strip()))
+        claude.symlink_to(pathlib.Path(sys.executable).resolve())
         before = time.time()
-        session = subprocess.Popen([str(claude), "301"])
+        session = subprocess.Popen([str(claude), "-I", "-c", "import time; time.sleep(301)"])
         try:
             run = self.sessions()
         finally:

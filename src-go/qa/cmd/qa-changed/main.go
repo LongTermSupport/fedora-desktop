@@ -45,6 +45,7 @@ func run(args []string) int {
 		LookPath: lookPath,
 		Cwd:      cwd,
 		Lock:     qalock.OSTaker("qa-changed", os.Stderr),
+		Umask:    syscall.Umask,
 	}
 	return int(changed.Main(ctx, args, env))
 }

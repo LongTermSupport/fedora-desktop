@@ -12,10 +12,10 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/fzfbind"
 )
 
-// esckeyPkg is the package that tells a Bubble Tea key press that is an Esc joined to the next
+// joinedPkg is the package that tells a Bubble Tea key press that is an Esc joined to the next
 // key, and joinedFn its function.
 const (
-	esckeyPkg = "internal/ui/esckey"
+	joinedPkg = "internal/ui/esckey"
 	joinedFn  = "Joined"
 )
 
@@ -194,5 +194,5 @@ func bindsEsc(pass *analysis.Pass, call *ast.CallExpr) bool {
 // callsJoined is whether call is esckey.Joined.
 func callsJoined(pass *analysis.Pass, call *ast.CallExpr) bool {
 	fn := calledFunc(pass, call)
-	return fn != nil && fn.Pkg() != nil && ownedBy(fn.Pkg().Path(), esckeyPkg) && isPkgFunc(fn, fn.Pkg().Path(), joinedFn)
+	return fn != nil && fn.Pkg() != nil && ownedBy(fn.Pkg().Path(), joinedPkg) && isPkgFunc(fn, fn.Pkg().Path(), joinedFn)
 }

@@ -195,6 +195,7 @@ func replay(t *testing.T, defaults map[string]stubReply, sc goldenScenario) gold
 		Cwd:      w.root,
 		NewToken: func() string { return "qa-all-1-2" },
 		Lock:     freeLock,
+		Umask:    keepUmask,
 	}
 	// The bash ignored its arguments (bug B1), so the same ones are handed to the Go as they were.
 	code := Main(context.Background(), append([]string{"--root", w.root}, sc.Args...), env)

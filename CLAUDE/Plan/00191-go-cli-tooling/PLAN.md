@@ -905,7 +905,7 @@ today; rewriting them is out of scope.
   guard is `TestSuiteEnvIsolated*`. The three suites now pin their own environment as well.
   Left: the host agent's next `qa-all`.
 
-- [ ] 🔄 **Task 4.12**: Compact then exit on close. The owner's request (2026-11-02) began as a
+- [ ] 🔄 **Task 4.13**: Compact then exit on close. The owner's request (2026-11-02) began as a
   `/compact` typed when `ccy --continue` starts. Measured, a compaction of a cold conversation
   pays the same uncached read its first turn would, so the owner dropped the startup compaction
   and asked for the cheap moment instead: at close, while the cache is warm. From this
@@ -931,6 +931,31 @@ today; rewriting them is out of scope.
   CCY 3.105.0. Left: the host check, `ccy-teams shutdown <team>` (or `ccy --stop <session>`)
   on a live session, then its transcript ends in a compact_boundary followed only by the
   `/exit` entries; and later, set-going's own ready-then-type loop onto sessclose.
+
+- [ ] 🔄 **Task 4.12**: The GitHub QA workflow went red on F44 while local `qa-all` passed:
+  the runner differs from the container. Defence Before Fix for the umask, which Task 4.11's
+  isolation missed: `suite-env-isolated` now also runs every `qa-all` and `qa-changed` command
+  under umask 077 (`gates.SuiteUmask`; the runner sets its own process umask through
+  `Env.Umask` before its first command, and refuses a run without one). The guards are
+  the `TestSuiteEnvIsolated*Umask*` tests in `qa/all` and `qa/changed`, red first (on a
+  machine at 022). The ccy launcher's goldens, recorded under the container's 077, are
+  unchanged; the difftest pins 077 itself and passes from a 022 shell. Sweep: every suite is
+  green under 077 (every container `qa-all`); under 022 (the CI run, a full `qa-all`, and both
+  Go modules locally) only the difftest depended on the umask. The other causes:
+  gitleaks' generic-api-key read two names as secrets (renamed); CI's Python was 3.12, and
+  pycompat reproduces 3.13 (3.14 differs too), so CI sets up 3.13, and the oracle (and seat's
+  v1 parity run) is `python3.13` by name, never `python3` (Fedora 44's is 3.14): a missing
+  `python3.13` fails naming it and why, and one reporting another version fails naming both;
+  `play-python.yml` installs Fedora's `python3.13` on the host (meta-deploy `changed-plays`);
+  the difftest outlasts go test's default package limit on the
+  4-vCPU runner under `-race` (it is CPU-bound), so the Go gate passes `-timeout=30m` through
+  `GOFLAGS` (`qa-go-qa.bash`); the runner image is Ubuntu 26.04, whose multi-call coreutils
+  broke a helper test's `sleep` named `claude`, and whose non-root uid exposed a wrong
+  expectation in `containerimages`' scan test. Report: `subagent-reports/261102-ci-green.md`.
+  Left: CI green on the branch; the owner's decision on the Go v1 readers against Fedora 44's
+  python 3.14; and which 3.13 patch the oracle is: CI's 3.13.17 words one truncated `\u`
+  escape otherwise than the image's 3.13.5, which the Go matches, and 3.13.5 cannot be set
+  up on ubuntu-26.04 (report addendum).
 
 ### Phase 5: Review
 

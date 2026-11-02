@@ -44,6 +44,19 @@ team has moved, and that is raised with the owner then.
    network"; "not the intention that the home server would be on the internet but some kind of
    private networking is implied". The irreversible choices stand "as long as all of these points
    are not locking us into things that are going to prevent that going forwards" (Task 0.6).
+7. **v1 is feature-frozen; cross-network membership is v2 only** (2026-11-02): "It goes in v2 and
+   lets get v2 done - carrying two versions is nuts"; "if we have v2 imminent then v1 should
+   feature freeze apart from bug fix". No v1 feature work starts, the remote-seat items
+   included; a v1 change is a bug fix or nothing. On networks: "pingbus should not invent its
+   own wireguard overlay ... it should simply support working across multiple routable ip
+   ranges - how they are routed is not its concern", and "the team should have explicit configs
+   for networks it allows team members to be on expressed as normal CIDR". So v2 has no overlay
+   (Plan 00220's overlay is dropped from the bus): a team declares its member networks as a
+   list of CIDRs, the one source for its listen addresses, `allow_from`, the unit's IP filter,
+   the firewall rules and the seat URL check; a seat is keyed on the homeserver URL; transport
+   is TLS with the team's own CA pinned in the bundle (plain HTTP only on loopback); a remote
+   seat's token is issued over ssh; and a seat handle never carries a real hostname. These
+   replace Task 0.6's "plain HTTP only inside a mesh tunnel".
 
 Clarified with direction 3: **v2 is a separate system.** None of its wire, files, locks, CLI or
 process model has to stay compatible with v1, so there is no compatibility contract and no parity
