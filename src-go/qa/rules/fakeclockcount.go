@@ -169,7 +169,6 @@ func hasAdvance(t types.Type) bool {
 	return false
 }
 
-
 func isContext(t types.Type) bool {
 	return isNamed(t, "context", "Context")
 }

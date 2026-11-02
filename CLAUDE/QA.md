@@ -1901,6 +1901,27 @@ first, or a scratch directory for a program it needs to be absent. It never reli
 caller's PATH lacking that program. A suite that compares sorted output to a fixed string pins
 `LC_ALL=C` at the `sort`, because the suite is also run by hand.
 
+### gitleaks-config-not-as-written
+
+**What it is.** A place in `.gitleaks.toml` that gitleaks, at the version the CI workflow
+installs, does not apply as written: a key it does not read (it drops one without a word, keys
+matched without regard to case), or a global allowlist (no `targetRules`) that pairs `paths`
+with `regexes` or `stopwords` under `condition = "AND"`, whose files `gitleaks dir` skips whole
+before any rule runs. Run by `tests/helpers/gitleaks_config/test_config_as_written_rule.py` (in
+`qa-helper-tests.bash`), which proves the rule against its fixture first and fails when the
+workflow's gitleaks version moves off the one its schema was read from.
+
+**Why it exists.** The containerwatch allowlist said `matchCondition = "AND"` and promised
+that another secret in the same file would still be reported. gitleaks reads `condition`, so the
+entry was an OR; and as a global allowlist, its path made `gitleaks dir` skip the whole file
+anyway. A planted token in that file went unreported. Found and defended under Defence Before
+Fix when the agent-bus v2 merge added its own fixture allowlists.
+
+**How to fix a finding.** Spell the key as gitleaks reads it (`condition`, `regexTarget`,
+`stopwords`, `targetRules`), and name the rule an allowlist answers in `targetRules`, so its
+condition is applied to each finding. Prove the entry with a planted value in a scratch copy of
+the tree: a different value in an allowlisted file must still be reported.
+
 ---
 
 ## Changing a Gate
