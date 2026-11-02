@@ -584,7 +584,8 @@ before every push, and GitHub CI is the gate.
   Plans 00194 and 00209 took F44's side of each conflicting hunk. Put back the v2 lines that
   were lost, merging them by meaning (`git diff origin/F44...origin/feat/bus-v2-n3e` on those files shows
   them).
-- [ ] ⬜ **Task 8.7**: With CI green, open a pull request to F44, assign it to the owner, and run
+- [ ] 🔄 **Task 8.7** (pull request 124 is open as a draft, reviewed by `qa-reviewer`, its findings fixed; CI
+  waits on the owner's decisions listed in it): With CI green, open a pull request to F44, assign it to the owner, and run
   `qa-reviewer` over it. Only the owner merges it.
 - [ ] ⬜ **Task 8.8**: After the merge: the cross-network membership of direction 7 (team CIDRs,
   TLS with the team CA pinned, seat issue over ssh), so a member on another machine can join.
