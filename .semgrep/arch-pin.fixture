@@ -26,6 +26,10 @@ RUN rustup target add x86_64-unknown-linux-musl
 const arch = "x86_64"
 # ruleid: arch-pinned-artefact
     golangci_lint_archive: "golangci-lint-{{ v }}-linux-x86-64.tar.gz"
+# ruleid: arch-pinned-artefact
+curl https://x/tool-x86_64.tar.gz # arm64 later
+# ruleid: arch-pinned-artefact
+	url := "https://x/tool-amd64.tgz" // arm64 later
 
 # --- the literal is the selection: not reported ---
 
@@ -58,6 +62,10 @@ tuwunel_sha256_x86_64: 78628e6d13deda9e4832aeb93f2d10332e3c4e70a8815b45e6ef77340
 # The pre-built binary is x86_64 only, which is why this layer selects by architecture.
 # ok: arch-pinned-artefact
     // GOARCH=amd64 is the CI runner's
+# ok: arch-pinned-artefact
+CCY_VERSION="3.1"  # the image builds on arm64 as well as x86_64
+# ok: arch-pinned-artefact
+        *) echo "tool: no build for ${arch} (amd64 and arm64 only)" >&2; exit 1 ;; \
 # ok: arch-pinned-artefact
 RUN apt-get install -y libx64tools mx64 xx86_64y
 # ok: arch-pinned-artefact

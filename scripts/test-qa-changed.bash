@@ -249,6 +249,18 @@ plan="$(plan_for CLAUDE/QA.md)"
 expect_lacks "bash-limits: untouched by markdown" "$plan" "check bash-limits"
 
 echo
+echo "== the files the arch-pin rule guards -> the arch-pin gate =="
+for changed in files/var/local/claude-yolo/Dockerfile .claude/ccy/Dockerfile playbooks/imports/play-python.yml tasks/build-go-command.yml vars/fedora-version.yml files/var/local/docker-in-lxc .github/workflows/qa.yml scripts/arch-pin.allowlist .semgrep/arch-pin.yml src-go/qa/archpin/ratchet.go; do
+    plan="$(plan_for "$changed")"
+    expect_has "arch-pin: $changed runs the gate" "$plan" "check arch-pin"
+done
+plan="$(plan_for scripts/arch-pin.allowlist)"
+expect_lacks "arch-pin: the allowlist is covered" "$plan" "not covered by qa-changed: scripts/arch-pin.allowlist"
+expect_lacks "arch-pin: the gate script is not also picked as a suite" "$plan" "suite scripts/qa-arch-pin.bash"
+plan="$(plan_for CLAUDE/QA.md)"
+expect_lacks "arch-pin: untouched by markdown" "$plan" "check arch-pin"
+
+echo
 echo "== src-go -> the ccy-teams command suite =="
 plan="$(plan_for src-go/internal/teams/app.go)"
 expect_has "teams: the package picks the suite" "$plan" "suite scripts/test-ccy-teams-command.bash: builds from src-go/internal/teams/app.go"

@@ -26,5 +26,5 @@ func run(args []string) int {
 		fmt.Fprintf(os.Stderr, "ERROR: working directory: %v\n", err)
 		return int(archpin.ExitCannotRun)
 	}
-	return int(archpin.Main(args, archpin.Env{Stdout: os.Stdout, Stderr: os.Stderr, Cwd: cwd, Runner: proc.OS{}}))
+	return int(archpin.Main(args, archpin.Env{Stdout: os.Stdout, Stderr: os.Stderr, Cwd: cwd, Runner: proc.OS{}, Getenv: os.Getenv}))
 }

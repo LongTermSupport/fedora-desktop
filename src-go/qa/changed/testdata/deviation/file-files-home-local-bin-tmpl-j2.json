@@ -1,0 +1,6 @@
+{
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck bash-limits\ncheck arch-pin\n⚠ not covered by qa-changed: files/home/.local/bin/tmpl.j2\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

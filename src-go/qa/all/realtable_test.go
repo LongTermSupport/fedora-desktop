@@ -3,6 +3,7 @@ package all
 import (
 	"context"
 	"flag"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -158,6 +159,35 @@ func TestQaBashPointsAtTheReportPathTheRunnerWrites(t *testing.T) {
 	}
 	if strings.Contains(text, "QA_JSON_OUT_MERGED") {
 		t.Error("QA_JSON_OUT_MERGED is set by nothing; qa-bash must not read it")
+	}
+}
+
+// Every script the real table runs, and every scripts/qa-*.bash, is executable: qa-all runs them
+// through bash, so only a person running ./scripts/<name> meets a lost executable bit (exit 126).
+func TestEveryQAScriptIsExecutable(t *testing.T) {
+	_, gs := realTable(t)
+	scripts := map[string]bool{}
+	for _, g := range gs {
+		if _, ok := g.Script(); ok {
+			scripts[g.Argv[0]] = true
+		}
+	}
+	wrappers, err := filepath.Glob(filepath.Join("..", "..", "..", "scripts", "qa-*.bash"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range wrappers {
+		scripts["scripts/"+filepath.Base(p)] = true
+	}
+	for _, rel := range slices.Sorted(maps.Keys(scripts)) {
+		info, err := os.Stat(filepath.Join("..", "..", "..", filepath.FromSlash(rel)))
+		if err != nil {
+			t.Errorf("%s: %v", rel, err)
+			continue
+		}
+		if info.Mode().Perm()&0o111 == 0 {
+			t.Errorf("%s is not executable: git update-index --chmod=+x %s", rel, rel)
+		}
 	}
 }
 

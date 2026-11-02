@@ -38,7 +38,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.79.21"
+LABEL claude-yolo-version="2.79.22"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 # NOTE: the claude-yolo-dockerfile-hash LABEL is set at the END of the final `full` stage
 # (PERF-02) so a Dockerfile edit — which changes DOCKERFILE_HASH — only invalidates that
@@ -147,9 +147,9 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
 # builds as dpkg does: amd64, arm64) and checked against the sha256 GitHub publishes for it, one
 # pin per architecture; an architecture with no pin fails the build. Bump the version and both
 # checksums together.
-ARG YQ_VERSION="4.53.3"
-ARG YQ_SHA256_AMD64="fa52a4e758c63d38299163fbdd1edfb4c4963247918bf9c1c5d31d84789eded4"
-ARG YQ_SHA256_ARM64="578648e463a11c1b6db6010cbf41eafed6bee79466fcffa1bb446672cf7945ea"
+ARG YQ_VERSION="4.54.1"
+ARG YQ_SHA256_AMD64="8e34fc298390875de416e6a4afcb8cabeceb25d9aa8506c1a2f9353cf702ea5f"
+ARG YQ_SHA256_ARM64="189088da0c6429ec5178dfaab1a114805f6cab0b61b165ab236efedf1d57a71b"
 RUN arch="$(dpkg --print-architecture)" \
     && case "${arch}" in \
         amd64) yq_sha="${YQ_SHA256_AMD64}" ;; \

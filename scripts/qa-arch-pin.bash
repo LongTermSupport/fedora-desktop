@@ -2,7 +2,8 @@
 # qa-arch-pin.bash — the rule arch-pinned-artefact (Plan 00243, Defence Before Fix): no download,
 # package or image reference fixed to one CPU architecture. The rule is .semgrep/arch-pin.yml,
 # proven against .semgrep/arch-pin.fixture on every run; the instances known when it landed are
-# the ratchet scripts/arch-pin.allowlist, where a file may only lose findings. How to fix a
+# the ratchet scripts/arch-pin.allowlist, one row per finding, which may only lose rows (it is
+# compared with its copy at QA_BASH_LIMITS_BASE, else the merge-base). How to fix a
 # finding: CLAUDE/QA.md under the identifier.
 #
 # The tool is Go (src-go/qa/archpin, command src-go/qa/cmd/qa-arch-pin); semgrep stays the engine.

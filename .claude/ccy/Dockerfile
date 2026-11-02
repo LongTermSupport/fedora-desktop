@@ -139,9 +139,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # Install yq (YAML processor) - used extensively in playbooks
 # Pinned to a specific release; bump the version and both checksums together. yq names its
 # builds as dpkg does (amd64, arm64).
-ARG YQ_VERSION=4.53.3
-ARG YQ_SHA256_AMD64=fa52a4e758c63d38299163fbdd1edfb4c4963247918bf9c1c5d31d84789eded4
-ARG YQ_SHA256_ARM64=578648e463a11c1b6db6010cbf41eafed6bee79466fcffa1bb446672cf7945ea
+ARG YQ_VERSION=4.54.1
+ARG YQ_SHA256_AMD64=8e34fc298390875de416e6a4afcb8cabeceb25d9aa8506c1a2f9353cf702ea5f
+ARG YQ_SHA256_ARM64=189088da0c6429ec5178dfaab1a114805f6cab0b61b165ab236efedf1d57a71b
 RUN arch="$(dpkg --print-architecture)" \
     && case "${arch}" in \
         amd64) yq_sha="${YQ_SHA256_AMD64}" ;; \

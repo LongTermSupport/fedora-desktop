@@ -53,8 +53,20 @@ func realRun(t *testing.T, allowlist string, files map[string]string) (archpin.E
 			t.Fatal(wrErr)
 		}
 	}
+	for _, argv := range [][]string{{"git", "add", "-A"}, {"git", "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "x"}} {
+		res, err = proc.OS{}.Run(context.Background(), proc.Cmd{Argv: argv, Dir: root})
+		if err != nil || res.Code != 0 {
+			t.Fatalf("%v: %v %+v", argv, err, res)
+		}
+	}
+	base := func(key string) string {
+		if key == "QA_BASH_LIMITS_BASE" {
+			return "HEAD"
+		}
+		return ""
+	}
 	var stdout, stderr bytes.Buffer
-	code := archpin.Main([]string{"--root", root}, archpin.Env{Stdout: &stdout, Stderr: &stderr, Cwd: root, Runner: proc.OS{}})
+	code := archpin.Main([]string{"--root", root}, archpin.Env{Stdout: &stdout, Stderr: &stderr, Cwd: root, Runner: proc.OS{}, Getenv: base})
 	return code, stdout.String(), stderr.String()
 }
 
@@ -73,11 +85,11 @@ func TestTheRealEngineHoldsTheRatchet(t *testing.T) {
 			"docs/x.md":    pinned,
 		}
 	}
-	code, stdout, stderr := realRun(t, "# ratchet\n", files())
+	code, stdout, stderr := realRun(t, "# ratchet\n# format: 2\n", files())
 	if code != archpin.ExitFailed || !strings.Contains(stdout, "b/Dockerfile:2  arch-pinned-artefact") || strings.Contains(stdout, "a/Dockerfile") || strings.Contains(stdout, "docs/x.md") || !strings.Contains(stdout, "passed: 1 failed: 1") {
 		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 	}
-	code, stdout, stderr = realRun(t, "b/Dockerfile\t1\tyq: arm64 build exists\n", files())
+	code, stdout, stderr = realRun(t, "# format: 2\nb/Dockerfile\t"+strings.TrimSpace(pinned)+"\tyq: arm64 build exists\n", files())
 	if code != archpin.ExitOK || !strings.Contains(stdout, "1 known instance(s) in 1 file(s)") || !strings.Contains(stdout, "passed: 2 failed: 0") {
 		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 	}

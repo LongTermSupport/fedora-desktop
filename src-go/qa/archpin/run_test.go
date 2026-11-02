@@ -138,10 +138,10 @@ func TestANewInstanceFailsAndIsNamedByLine(t *testing.T) {
 	}
 }
 
-func TestKnownInstancesAtTheirRecordPassAndAreCounted(t *testing.T) {
+func TestKnownInstancesNamedByTheirTextPassAndAreCounted(t *testing.T) {
 	w := newWorld(t, map[string]string{
-		"b/Dockerfile":  "x\ny\n",
-		allowlistFile:   "# ratchet\nb/Dockerfile\t2\tyq: arm64 build exists\n",
+		"b/Dockerfile":  "RUN  get\tx86_64\ny amd64\n",
+		allowlistFile:   "# ratchet\n" + v2 + "b/Dockerfile\tRUN get x86_64\tyq: arm64 build exists\nb/Dockerfile\ty amd64\tnote\n",
 		"c/clean.bash":  "echo\n",
 		"docs/other.md": "x86_64\n",
 	})
@@ -151,13 +151,68 @@ func TestKnownInstancesAtTheirRecordPassAndAreCounted(t *testing.T) {
 	wantIn(t, "stdout", got.stdout, "2 known instance(s) in 1 file(s)", "passed: 3 failed: 0")
 }
 
-func TestARatchetBreachFailsTheGate(t *testing.T) {
+// One pin fixed and another added beside it keeps the count; the gate still fails.
+func TestAFixedPinDoesNotPayForANewOne(t *testing.T) {
 	w := newWorld(t, map[string]string{
-		"b/Dockerfile": "x\ny\n",
-		allowlistFile:  "b/Dockerfile\t2\tnote\n",
+		"b/Dockerfile": "new amd64\n",
+		allowlistFile:  v2 + "b/Dockerfile\told x86_64\tnote\n",
 	})
 	w.run.hits = []hit{{"b/Dockerfile", 1}}
 	got := w.main()
 	wantExit(t, got, ExitFailed)
-	wantIn(t, "stdout", got.stdout, "lower its record from 2 to 1", "passed: 1 failed: 1")
+	wantIn(t, "stdout", got.stdout, "b/Dockerfile:1  arch-pinned-artefact", "1 finding(s) that no row of", "line 2 names a finding the file no longer has", "passed: 1 failed: 1")
+}
+
+func TestARowAddedSinceTheMergeBaseFails(t *testing.T) {
+	list := v2 + "b/Dockerfile\tx amd64\tnote\n"
+	w := newWorld(t, map[string]string{"b/Dockerfile": "x amd64\n", allowlistFile: list})
+	w.run.atRef["base0"] = v2
+	w.run.hits = []hit{{"b/Dockerfile", 1}}
+	got := w.main()
+	wantExit(t, got, ExitFailed)
+	wantIn(t, "stdout", got.stdout, "line 2 is a row base0 does not have", "passed: 1 failed: 1")
+	if !slices.Equal(w.run.gitCalls, []string{"ls-files", "symbolic-ref", "merge-base", "rev-parse", "ls-tree", "show"}) {
+		t.Fatalf("git calls %v", w.run.gitCalls)
+	}
+}
+
+// QA_BASH_LIMITS_BASE, the base CI sets for every ratchet, is used as it is: no merge-base.
+func TestTheBaseVariableNamesTheBase(t *testing.T) {
+	w := newWorld(t, nil)
+	w.env = map[string]string{"QA_BASH_LIMITS_BASE": "prev0"}
+	w.run.originHead = ""
+	w.run.atRef = map[string]string{"prev0": "b\t1\tnote\n"}
+	wantExit(t, w.main(), ExitOK)
+	if slices.Contains(w.run.gitCalls, "merge-base") {
+		t.Fatalf("git calls %v", w.run.gitCalls)
+	}
+}
+
+// A base from before the gate landed has no allowlist: the list is held to the first copy
+// committed on HEAD's history, the baseline accepted with the rule.
+func TestABaseWithoutTheAllowlistComparesWithItsFirstCommittedCopy(t *testing.T) {
+	w := newWorld(t, map[string]string{"b/Dockerfile": "x amd64\ny amd64\n", allowlistFile: v2 + "b/Dockerfile\tx amd64\tn\nb/Dockerfile\ty amd64\tn\n"})
+	w.run.atRef = map[string]string{"first0": "b/Dockerfile\t1\tnote\n"}
+	w.run.added = []string{"later0", "first0"}
+	w.run.hits = []hit{{"b/Dockerfile", 1}, {"b/Dockerfile", 2}}
+	got := w.main()
+	wantExit(t, got, ExitFailed)
+	wantIn(t, "stdout", got.stdout, "2 row(s) on "+allowlistFile+", above the 1 at first0")
+}
+
+func TestNoBaseToCompareWithIsExitTwo(t *testing.T) {
+	for name, set := range map[string]func(*world){
+		"no origin HEAD":       func(w *world) { w.run.originHead = "" },
+		"a base that is not":   func(w *world) { w.env = map[string]string{"QA_BASH_LIMITS_BASE": "nope"} },
+		"never committed":      func(w *world) { w.run.atRef = map[string]string{} },
+		"a broken base list":   func(w *world) { w.run.atRef["base0"] = "a\tx\n" },
+		"a format 1 list here": func(w *world) { w.write(allowlistFile, "a.txt\t1\tnote\n") },
+	} {
+		w := newWorld(t, nil)
+		set(w)
+		got := w.main()
+		if got.code != ExitCannotRun || !strings.Contains(got.stderr, "ERROR:") {
+			t.Errorf("%s: exit %d\nstdout: %s\nstderr: %s", name, got.code, got.stdout, got.stderr)
+		}
+	}
 }
