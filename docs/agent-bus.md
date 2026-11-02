@@ -209,7 +209,7 @@ APPLIED: up to date, out of date, not built, or decide), then its members. They 
 restored after a reboot; LXC and other members; and the people, in the room or not and how
 many Element sessions they are signed in with. A member's STATE is whether a session of it is
 listening on the bus now, read each time the list is drawn from the member's `agent_bus.status`
-in the team room, as `pingbus status` reads it (`agent-bus list`'s `LIVE` line): `listening`
+in the team room, as `pingbus status` reads it (`agent-bus list <team>`'s `LIVE` line): `listening`
 while that status runs past now, `stale` once it has lapsed, `not listening` with none,
 `parked` for a parked member, and `unknown` when it could not be read (the team row says why:
 sudo, a homeserver that is down, or an `agent-bus` older than `LIVE` lines, which
