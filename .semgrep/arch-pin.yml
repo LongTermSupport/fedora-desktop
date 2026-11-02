@@ -30,8 +30,14 @@ rules:
       - pattern-not-regex: '(?m)^[ \t]*\(?["'']?[A-Za-z0-9_-]*(?:x86_64|x86-64|amd64|x64|aarch64|arm64)["'']?(?:[ \t]*\|[ \t]*["'']?[A-Za-z0-9_-]+["'']?)*\)[^\n]*'
       # A map keyed by architecture: `x86_64: ...`, `"amd64": ...`, `tool_sha256_x86_64: ...`.
       - pattern-not-regex: '(?m)^[ \t]*-?[ \t]*["'']?[A-Za-z0-9_-]*(?:x86_64|x86-64|amd64|x64|aarch64|arm64)["'']?[ \t]*:[^\n]*'
-      # A line that tests the architecture, or names an ARM build beside the x86 one.
-      - pattern-not-regex: '(?m)^[^\n]*(?:ansible_architecture|ansible_machine|uname -m|print-architecture|TARGETARCH|GOARCH|platform\.machine|aarch64|arm64)[^\n]*'
+      # A line that tests the architecture.
+      - pattern-not-regex: '(?m)^[^\n]*(?:ansible_architecture|ansible_machine|uname -m|print-architecture|TARGETARCH|GOARCH|platform\.machine)[^\n]*'
+      # A line whose code names an ARM build beside the x86 one (both keys of a list, a message
+      # naming both). Only the code counts: a trailing comment ends the code (a # or // after a
+      # space), so `# arm64 later` beside a pinned URL is a promise and hides nothing.
+      - pattern-not-regex: '(?m)^(?:[^#/\n]|(?<!\s)#|/(?!/)|(?<!\s)//)*(?:aarch64|arm64)[^\n]*'
+      # A trailing comment is prose, as a comment line is.
+      - pattern-not-regex: '(?<=\s)(?:#|//)[^\n]*'
     paths:
       exclude:
         # This rule, its fixture and its ratchet.

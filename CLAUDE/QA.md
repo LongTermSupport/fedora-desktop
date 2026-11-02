@@ -1583,10 +1583,11 @@ Plan 00211 Task 2.9 narrows it (an entry giving `host`, `seat` and `repo` is dec
 (`x86_64`, `x86-64`, `amd64`, `x64`, `linux64`) with no selection by the architecture the build
 or host runs on: a release asset URL, a target triple, an RPM arch, a repo baseurl, a platform
 key such as Chrome for Testing's `linux64`, an `lxc-create -a amd64`. The literal is allowed only
-where it is the selection: a case arm label (`amd64)`), a map key (`x86_64:`), or a line that
-tests the architecture or names the ARM build beside it (`ansible_architecture`, `uname -m`,
-`dpkg --print-architecture`, `TARGETARCH`, `GOARCH`, `platform.machine()`, `aarch64`, `arm64`).
-Comment lines are prose. The rule is `.semgrep/arch-pin.yml`, proven against
+where it is the selection: a case arm label (`amd64)`), a map key (`x86_64:`), a line that
+tests the architecture (`ansible_architecture`, `uname -m`, `dpkg --print-architecture`,
+`TARGETARCH`, `GOARCH`, `platform.machine()`), or a line whose code names the ARM build beside
+it (`aarch64`, `arm64`). Comment lines and trailing comments (a `#` or `//` after a space) are
+prose, and an ARM name in a trailing comment hides nothing: `curl .../tool-x86_64.tgz # arm64 later` is reported. The rule is `.semgrep/arch-pin.yml`, proven against
 `.semgrep/arch-pin.fixture`; run by `qa-arch-pin.bash` over every file git would publish but
 documents, plans, tests, test data and vendored trees.
 
