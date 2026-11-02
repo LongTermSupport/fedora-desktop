@@ -236,3 +236,35 @@ some_cmd || grep -q 'needle' file
 
 # ok: pipe-into-grep-q-under-pipefail
 some_cmd | grep -q 'needle'  # FAIL-FAST-OK: a one-line producer cannot be killed
+
+# --- bash-self-erasing-clipboard ---
+
+# ruleid: bash-self-erasing-clipboard
+printf '%s' "$pw" | wl-copy --paste-once
+
+# ruleid: bash-self-erasing-clipboard
+printf '%s' "$pw" | wl-copy -o
+
+# ruleid: bash-self-erasing-clipboard
+printf '%s' "$pw" | xclip -selection clipboard -loops 1
+
+# ruleid: bash-self-erasing-clipboard
+echo "The password is on the clipboard for one paste." >&2
+
+# ruleid: bash-self-erasing-clipboard
+check "served once" "yes" "$(logged 'wl-copy --paste-once')"
+
+# ruleid: bash-self-erasing-clipboard
+# after that it is gone from the clipboard
+
+# ok: bash-self-erasing-clipboard
+printf '%s' "$pw" | wl-copy
+
+# ok: bash-self-erasing-clipboard
+wl-copy --clear
+
+# ok: bash-self-erasing-clipboard
+wl-copy --type text/plain < "$file" && curl -o out "$url"
+
+# ok: bash-self-erasing-clipboard
+echo "The transcript is typed in one paste at stop." >&2

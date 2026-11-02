@@ -29,7 +29,10 @@ var execOwnerNames = strings.Join(execOwners, " or ")
 
 // homeOwners may abbreviate the home directory: the term package, and the rules package, whose
 // own source has to name the "~" it forbids everywhere else.
-var homeOwners = []string{"internal/term", "qa/rules"}
+var homeOwners = []string{"internal/term", rulesPkg}
+
+// rulesPkg is this package, whose own source names what several rules forbid.
+const rulesPkg = "qa/rules"
 
 const (
 	sessprobePkg = "internal/sessprobe"
@@ -259,7 +262,7 @@ var shellStrings = []allowance{
 // bindingSubjects are not judged by project_hidden_bindings: the rules package and the
 // shell gate of the same rule name the fzf flags as the text they look for and build no fzf
 // argv (neither starts fzf).
-var bindingSubjects = []string{"qa/rules", "qa/hiddenbindings"}
+var bindingSubjects = []string{rulesPkg, "qa/hiddenbindings"}
 
 // expectBuilders are the only functions that may build fzf's --expect: the keys fzf hands
 // back for the caller to act on. Each takes its keys from ui.Action values, whose Label ui
@@ -349,7 +352,7 @@ func perPass(run func(*analysis.Pass)) func(*analysis.Pass) (any, error) {
 
 // All is every rule, in the order the driver registers them.
 func All() []*analysis.Analyzer {
-	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay, HiddenBindings, PackageTests, RefusalKind, RealTimeBound, EscJoined, DurationOverflow, CommandFailureDropped}
+	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay, HiddenBindings, PackageTests, RefusalKind, RealTimeBound, EscJoined, DurationOverflow, CommandFailureDropped, SelfErasingClipboard}
 }
 
 // ownedBy is whether the package path (the test variants of it included) is owner, matched
