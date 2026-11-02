@@ -928,6 +928,10 @@ missing tool is never a silent default.
   borderline Go instances; the rule was widened to wrappers to reach them (010158bcd).
 - Green: every finding fixed, none excluded and the rule unnarrowed (Plan 00191's five sweep
   batches); the origin fixed in CCY 3.104.1, with a test that reproduces it.
+- Red again, the merge of v2 onto F44 (Plan 00209 Task 8.1): 1 finding, `guest check`'s gh
+  login check; green with gh's cause in the message (its exit status, the signal that ended
+  it, its 30 s bound, or the errno that kept it from running), gh's output still unquoted (it
+  names the account).
 - Not caught: an error carried somewhere it is never shown (stored and dropped), or carried and
   then contradicted by a guessed message beside it; a cause read from `Result.ExitCode` alone; an
   error passed to a call that only inspects it, such as `execx.ExitedNonZero`, whose other branch
