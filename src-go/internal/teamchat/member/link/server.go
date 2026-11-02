@@ -225,11 +225,12 @@ func (s *server) handle(base context.Context, c *net.UnixConn) {
 		s.refuse(c, w, wire.Done{Error: exits.New(exits.CodeRuntime, nil, msgKit)})
 		return
 	}
-	left := time.Duration(req.DeadlineMS)*time.Millisecond - s.clock.Boot()
+	deadline := req.DeadlineAt()
+	left := deadline - s.clock.Boot()
 	if left <= 0 {
 		return
 	}
-	ctx, cancel := context.WithCancel(clock.WithBound(base, time.Duration(req.DeadlineMS)*time.Millisecond))
+	ctx, cancel := context.WithCancel(clock.WithBound(base, deadline))
 	stopDeadline := s.clock.AfterFunc(left, cancel)
 	defer s.serve(cancel)()
 	if s.hook != nil && isHookOp(req.Op) {

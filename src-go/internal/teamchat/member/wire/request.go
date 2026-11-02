@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"math"
 	"regexp"
 	"time"
 
@@ -86,6 +87,15 @@ type Request struct {
 	Stdin *string         `json:"stdin"`
 }
 
+// maxDeadlineMS is the latest deadline_ms a request may name: the most whole milliseconds a
+// time.Duration holds, so the deadline is a boot-clock Duration on both ends of the socket.
+const maxDeadlineMS = math.MaxInt64 / int64(time.Millisecond)
+
+// DeadlineAt is the request's deadline on the boot clock (CLOCK_BOOTTIME).
+func (r Request) DeadlineAt() time.Duration {
+	return time.Duration(r.DeadlineMS) * time.Millisecond
+}
+
 const (
 	msgSize   exits.Template = "the request is larger than 64 KiB"
 	msgSchema exits.Template = "the request is not a link request: {}"
@@ -115,7 +125,8 @@ func DecodeRequest(line []byte) (Request, error) {
 		return Request{}, exits.New(exits.CodeVerb, nil, msgOp)
 	case !validDigest(r.Kit):
 		return Request{}, refuseRequest("kit is not a source digest")
-	case r.DeadlineMS <= 0:
+	}
+	if r.DeadlineMS <= 0 || r.DeadlineMS > maxDeadlineMS {
 		return Request{}, refuseRequest("deadline is not a time")
 	}
 	if args, ok := v.Get("args"); !ok || args.Kind() != proto.KindObject {

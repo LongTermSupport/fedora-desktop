@@ -77,6 +77,11 @@ func TestDownError(t *testing.T) {
 	}{
 		{Down{State: DownRestarting, NextMS: (boot0 + 4200*time.Millisecond).Milliseconds()}, exits.CodeNoLink, "next try in 5 s", ""},
 		{Down{State: DownRestarting, NextMS: (boot0 - time.Second).Milliseconds()}, exits.CodeNoLink, "next try in 0 s", ""},
+		// The latest restart time it counts down to, and one millisecond past it, where the time
+		// in nanoseconds with the second that rounds it up could leave a Duration: a restart it
+		// cannot time.
+		{Down{State: DownRestarting, NextMS: maxNextMS}, exits.CodeNoLink, "next try in 9223368436 s", ""},
+		{Down{State: DownRestarting, NextMS: maxNextMS + 1}, exits.CodeNoLink, "is starting or restarting", "next try"},
 		{Down{State: DownStarting}, exits.CodeNoLink, "is starting or restarting", "next try"},
 		{Down{State: DownFailed, Kind: state.KindCCY, Session: "work-1"}, exits.CodeLinkFailed, "`ccy-teams restart work-1`", ""},
 		{Down{State: DownFailed, Kind: state.KindLXC, Session: "work-1"}, exits.CodeLinkFailed, "`ccy-teams restart work-1`", ""},

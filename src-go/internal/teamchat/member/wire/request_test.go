@@ -112,13 +112,15 @@ func TestARequestIsRefusedByTheStrictRules(t *testing.T) {
 		"unknown op":       {build(map[string]string{"op": `"nope"`}, ""), exits.CodeVerb},
 		"kit not a digest": {build(map[string]string{"kit": `"abc"`}, ""), exits.CodeSchema},
 		"deadline zero":    {build(map[string]string{"deadline_ms": `0`}, ""), exits.CodeSchema},
-		"args not object":  {build(map[string]string{"args": `[]`}, ""), exits.CodeSchema},
-		"args null":        {build(map[string]string{"args": `null`}, ""), exits.CodeSchema},
-		"stdin a number":   {build(map[string]string{"stdin": `1`}, ""), exits.CodeSchema},
-		"a key missing":    {build(nil, "stdin"), exits.CodeSchema},
-		"an unknown key":   {build(map[string]string{"extra": `1`}, ""), exits.CodeSchema},
-		"a key in a case":  {build(map[string]string{"Op": `"recv"`}, "op"), exits.CodeSchema},
-		"a float":          {build(map[string]string{"deadline_ms": `1.5`}, ""), exits.CodeSchema},
+		// One millisecond past the latest a time.Duration holds: as a Duration it would wrap.
+		"deadline too late": {build(map[string]string{"deadline_ms": `9223372036855`}, ""), exits.CodeSchema},
+		"args not object":   {build(map[string]string{"args": `[]`}, ""), exits.CodeSchema},
+		"args null":         {build(map[string]string{"args": `null`}, ""), exits.CodeSchema},
+		"stdin a number":    {build(map[string]string{"stdin": `1`}, ""), exits.CodeSchema},
+		"a key missing":     {build(nil, "stdin"), exits.CodeSchema},
+		"an unknown key":    {build(map[string]string{"extra": `1`}, ""), exits.CodeSchema},
+		"a key in a case":   {build(map[string]string{"Op": `"recv"`}, "op"), exits.CodeSchema},
+		"a float":           {build(map[string]string{"deadline_ms": `1.5`}, ""), exits.CodeSchema},
 	} {
 		_, err := DecodeRequest(c.line)
 		if err == nil {
@@ -130,6 +132,19 @@ func TestARequestIsRefusedByTheStrictRules(t *testing.T) {
 		}
 		if strings.Contains(err.Error(), "nope") {
 			t.Errorf("%s: the refusal quotes the request", name)
+		}
+	}
+}
+
+// A request's deadline is its boot-clock time as a Duration, up to the latest a Duration holds.
+func TestTheDeadlineIsABootClockDuration(t *testing.T) {
+	for _, ms := range []int64{1, 1_760_000_030_000, 9_223_372_036_854} {
+		line, err := (Request{V: 1, Op: OpRecv, Kit: kit, DeadlineMS: ms, Args: json.RawMessage(`{}`)}).Encode()
+		check(t, err)
+		r, err := DecodeRequest(line)
+		check(t, err)
+		if got := r.DeadlineAt(); got != time.Duration(ms)*time.Millisecond || got <= 0 {
+			t.Errorf("deadline_ms %d: %v", ms, got)
 		}
 	}
 }
