@@ -554,7 +554,8 @@ cross-network membership (direction 7). `spike/v2-merge-up` (f5023d692) is
 largest to smallest. Each is fixed on that branch under Defence Before Fix. F44 is merged in
 before every push, and GitHub CI is the gate.
 
-- [ ] ⬜ **Task 8.1**: The 29 project-rule findings:
+- [ ] 🔄 **Task 8.1** (fixed on `spike/v2-merge-up`; the two Matrix presence
+  findings of `project_liveness_word` wait for the owner): The 29 project-rule findings:
   - 13 `project_duration_overflow`, in the teamchat member/client, nolink, forge, link/server,
     engine/proof, engine/timeout, matrix/client and fakehs/sync;
   - 10 `project_realtime_bound`, 3 of them in `teamchat/clock`, which is the injected clock.
@@ -563,14 +564,14 @@ before every push, and GitHub CI is the gate.
   - 5 `project_goroutine_end` in F44 code: `ccc/guard.go` (2), `rclonetail/app.go`,
     `reclaim/ask.go` and the `ui/pathinput` test;
   - 1 `project_command_failure_dropped`, in `member/guest/check.go`.
-- [ ] ⬜ **Task 8.2**: The six gosec exclusions v2 added to `.golangci.yml` have no exception in
+- [ ] 🔄 **Task 8.2** (waits for the owner: the record's ratchet is the owner's signature): The six gosec exclusions v2 added to `.golangci.yml` have no exception in
   the project record. Record each one, or fix the code it covers.
-- [ ] ⬜ **Task 8.3**: gofmt: name the files with a local go-qa run, then format them.
-- [ ] ⬜ **Task 8.4**: Two helper tests:
+- [x] ✅ **Task 8.3**: gofmt: name the files with a local go-qa run, then format them.
+- [x] ✅ **Task 8.4**: Two helper tests:
   - `agent_bus_lxc/test_derive`: on the CI runner, the claude process it finds has an empty
     start time;
   - `plan_acceptance/test_cited_constant_copy_rule`: one finding in this plan's folder.
-- [ ] ⬜ **Task 8.5**: 12 gitleaks findings, all fake keys in test fixtures. Allowlist them the
+- [x] ✅ **Task 8.5**: 12 gitleaks findings, all fake keys in test fixtures. Allowlist them the
   way F44 allowlisted its own, never by weakening the scan.
 - [x] ✅ **Task 8.6**: In the merge, CLAUDE/QA.md, CLAUDE/GoProjectRules.md, src-go/CLAUDE.md and
   Plans 00194 and 00209 took F44's side of each conflicting hunk. Put back the v2 lines that
