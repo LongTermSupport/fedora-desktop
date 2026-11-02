@@ -43,12 +43,15 @@
     audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
     user_bin_dir: "/home/{{ user_login }}/.local/bin"
     # Pin ouch by version and checksum. Update deliberately; vars/version-pins.yml names
-    # this var. The sha256 is the release asset's published digest for ouchArch and must
-    # change with every bump, or the download fails verification.
+    # this var. One static musl build per architecture, keyed as Fedora names it; each
+    # sha256 is that release asset's published digest and must change with every bump.
     # @see https://github.com/ouch-org/ouch/releases
     ouchVersion: "0.8.1"
-    ouchSha256: "866884b08ea69fbab80bd79162df408519068a8fa232c2055038a1e561ad8f4c"
-    ouchArch: "x86_64-unknown-linux-musl"
+    ouchBuilds:
+      x86_64: {triple: x86_64-unknown-linux-musl, sha256: 866884b08ea69fbab80bd79162df408519068a8fa232c2055038a1e561ad8f4c}
+      aarch64: {triple: aarch64-unknown-linux-musl, sha256: 9caf888aa6944887084b917c7872d16a439a82f6ca1754c89816cda5dc957546}
+    ouchArch: "{{ ouchBuilds[ansible_facts['architecture']].triple }}"
+    ouchSha256: "{{ ouchBuilds[ansible_facts['architecture']].sha256 }}"
     ouchDir: "/opt/ouch-{{ ouchVersion }}"
     ouchBin: "/usr/local/bin/ouch"
     ouchUrl: "https://github.com/ouch-org/ouch/releases/download/{{ ouchVersion }}/ouch-{{ ouchArch }}.tar.gz"
@@ -255,6 +258,12 @@
 
           Remove it first: sudo dnf remove ncompress
       when: ncompress_check.rc == 0
+      tags: compression-helpers
+
+    - name: Fail on an architecture with no pinned ouch build
+      ansible.builtin.assert:
+        that: ansible_facts['architecture'] in ouchBuilds
+        fail_msg: "ouch: no build pinned for {{ ansible_facts['architecture'] }} (pinned: {{ ouchBuilds | list | join(', ') }})"
       tags: compression-helpers
 
     - name: Create versioned ouch directory

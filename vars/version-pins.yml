@@ -57,6 +57,15 @@ version_pins:
         resolved; declared rather than omitted so the gap is counted, not invisible.
 
   - playbook: playbooks/imports/optional/common/play-qobuz.yml
+    var: hifiRsVersion
+    github: iamdb/hifi.rs
+    installed:
+      kind: untracked
+      why: >-
+        The play reads `hifi-rs --version` at install time and reinstalls on a mismatch, so
+        the installed version is the pin; a host-side resolver would repeat that check.
+
+  - playbook: playbooks/imports/optional/common/play-qobuz.yml
     var: rescrobbledVersion
     github: InputUsername/rescrobbled
     installed:
