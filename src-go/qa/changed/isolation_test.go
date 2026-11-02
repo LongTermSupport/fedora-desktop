@@ -1,6 +1,7 @@
 package changed
 
 import (
+	"context"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -67,5 +68,41 @@ func checkIsolated(t *testing.T, key string, c proc.Cmd, installed string) {
 	}
 	if path, ok := lastEnv(c.Env, "PATH"); !ok || strings.HasPrefix(path, installed+":") {
 		t.Errorf("suite-env-isolated: %s can reach an installed ccy-token-usable (PATH %q)", key, path)
+	}
+}
+
+// suite-env-isolated: every command qa-changed starts runs under gates.SuiteUmask, whatever
+// umask the machine started the run with.
+func TestSuiteEnvIsolatedEveryCommandRunsUnderTheSuiteUmask(t *testing.T) {
+	w := newRunWorld(t)
+	w.changeKept()
+	if code := w.main(); code != ExitOK {
+		t.Fatalf("exit %d, stderr %q", code, w.errOut.String())
+	}
+	if len(w.runner.masks) == 0 {
+		t.Fatal("no command ran")
+	}
+	for i, mask := range w.runner.masks {
+		if mask != gates.SuiteUmask {
+			t.Errorf("suite-env-isolated: %s runs under the machine's umask %04o, not %04o", strings.Join(w.runner.calls[i].Argv, " "), mask, gates.SuiteUmask)
+		}
+	}
+}
+
+// A command with no way to set its umask cannot isolate its checks: it runs none of them.
+func TestSuiteEnvIsolatedNoUmaskControlRunsNoCheck(t *testing.T) {
+	w := newRunWorld(t)
+	w.changeKept()
+	env := Env{Getenv: noEnv, Stdout: &w.out, Stderr: &w.errOut, Runner: w.runner, LookPath: func(string) error { return nil }, Cwd: w.root, Lock: freeLock}
+	if code := Main(context.Background(), []string{"--scripts", w.scripts, "--root", w.root}, env); code != ExitCannotRun {
+		t.Fatalf("exit %d, want %d, stderr %q", code, ExitCannotRun, w.errOut.String())
+	}
+	for _, c := range w.runner.calls {
+		if c.Argv[0] != "git" {
+			t.Errorf("ran %q with no umask control", c.Argv)
+		}
+	}
+	if !strings.Contains(w.errOut.String(), "no umask control is wired into this command") {
+		t.Fatalf("stderr does not name the missing umask control: %q", w.errOut.String())
 	}
 }

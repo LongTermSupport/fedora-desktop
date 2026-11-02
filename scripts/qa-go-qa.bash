@@ -33,5 +33,9 @@ fi
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=lib/go-tool.bash
 source "$SCRIPT_DIR/lib/go-tool.bash"
+# go test stops a package at 10 minutes. The ccy launcher's difftest is CPU-bound and takes 11
+# on a 4-vCPU CI runner under -race; go-qa passes no -timeout, so it comes from GOFLAGS, which
+# the other go commands ignore.
+export GOFLAGS="${GOFLAGS:+$GOFLAGS }-timeout=30m"
 run_go_tool qa-lock "${LOCK_ARGS[@]}" --name qa-go-qa --root "$ROOT" -- \
     go -C "$ROOT/src-go/qa" tool go-qa --root "$ROOT/src-go" run --no-fix "$@"

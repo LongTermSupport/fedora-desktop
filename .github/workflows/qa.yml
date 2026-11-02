@@ -36,10 +36,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # The python of the ccy image, 3.13, which src-go/internal/bus/pycompat reproduces and is
+      # proven against: its tests run python3.13 by name (this action puts it on PATH) and
+      # refuse one that reports any other version.
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.13"
 
       - name: Set up Node
         uses: actions/setup-node@v4
