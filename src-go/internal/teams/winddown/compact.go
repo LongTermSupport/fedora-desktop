@@ -4,13 +4,11 @@ import (
 	"context"
 	"errors"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/screen"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/transcript"
 )
 
 // compactText is what a wound-down session is compacted with (WC2): /compact's own argument,
@@ -67,16 +65,7 @@ func (w *WindDown) transcriptOf(store *registry.Store, name string) (string, err
 	if err != nil {
 		return "", errors.New("its session record could not be read: " + err.Error())
 	}
-	home := conversation.ClaudeHome(w.Getenv)
-	id, err := conversation.For(rec, home)
-	if err != nil {
-		return "", errors.New(strings.TrimPrefix(err.Error(), rec.Name+": "))
-	}
-	dir, err := transcript.Dir(rec.Prefix, rec.Dir, home)
-	if err != nil {
-		return "", err
-	}
-	return transcript.For(dir, id)
+	return conversation.Transcript(rec, conversation.ClaudeHome(w.Getenv))
 }
 
 // compactStep is one look at a session whose wind-down went in (WC2 to WC4a).

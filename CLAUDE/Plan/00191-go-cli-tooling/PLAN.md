@@ -905,6 +905,28 @@ today; rewriting them is out of scope.
   guard is `TestSuiteEnvIsolated*`. The three suites now pin their own environment as well.
   Left: the host agent's next `qa-all`.
 
+- [ ] 🔄 **Task 4.12**: Compact then exit on close. The owner's request (2026-11-02) began as a
+  `/compact` typed when `ccy --continue` starts. Measured, a compaction of a cold conversation
+  pays the same uncached read its first turn would, so the owner dropped the startup compaction
+  and asked for the cheap moment instead: at close, while the cache is warm. From this
+  container's transcripts (numbers only, `subagent-reports/261102-continue-compacts.md`): a first
+  turn more than an hour after the last re-writes the context to the cache (cache_creation median
+  78,307, max 374,791) and reads only the system prompt (~13,000) from it; a warm turn reads it
+  (cache_read median 245,122, cache_creation median 851). 71 compactions took ~400,000-530,000
+  tokens down to ~9,000-22,000 in ~40-125 s; a compaction's own API usage is recorded nowhere in
+  the transcript. The design: `/compact` typed into the session's pane with tmux send-keys once
+  its prompt is ready, its end waited for by a real signal (the transcript's compact_boundary, or
+  the pane busy then ready again where the transcript is unknown), bounded, then `/exit`; a
+  compaction that does not complete is a loud failure and the session is left running. One
+  neutral package, `internal/sessclose` beside `tmuxccy` and `sessprobe` with no tmux calls of its
+  own, holds it, and three callers use it: `ccy-teams shutdown` (its default), a ccy stop
+  command, and a close action on a `ccy-sessions` row; `--no-compact` is the close path's only
+  escape hatch. Built: `transcript.CompactedLast` (nothing to compact: the last context-recording
+  entry is a compact_boundary, or no turn was taken) and `conversation.Transcript` (a session's
+  own transcript, which winddown now calls instead of its copy), each test first. Left: the
+  package, its three callers, help, docs and the CCY version bump; the design and what moves are
+  in the report.
+
 ### Phase 5: Review
 
 - [x] ✅ **Task 5.1**: qa-reviewer over the whole plan (a worker; it ran once, 7205384c3, and

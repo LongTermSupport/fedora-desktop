@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/discover"
@@ -49,6 +50,21 @@ func ClaudeHome(getenv func(string) string) string {
 		return dir
 	}
 	return getenv("HOME") + "/.claude"
+}
+
+// Transcript is the file of the conversation the session of rec is in (For's id, in the
+// session's transcript directory), never the newest in a folder several sessions share. Its
+// error does not name the session: the caller's line already does.
+func Transcript(rec registry.Record, claudeHome string) (string, error) {
+	id, err := For(rec, claudeHome)
+	if err != nil {
+		return "", errors.New(strings.TrimPrefix(err.Error(), rec.Name+": "))
+	}
+	dir, err := transcript.Dir(rec.Prefix, rec.Dir, claudeHome)
+	if err != nil {
+		return "", err
+	}
+	return transcript.For(dir, id)
 }
 
 // For is the conversation id the session of rec is to resume: the hook's record, refused
