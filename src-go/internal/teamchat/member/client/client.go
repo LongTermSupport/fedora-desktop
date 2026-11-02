@@ -109,17 +109,17 @@ func request(e cli.Env, inv cli.Invocation, op string, clk clock.Clock) (wire.Re
 			return wire.Request{}, 0, err
 		}
 	case wire.OpWait:
-		s, err := count(inv, "timeout", waitDefaultS, waitMaxS, msgTimeout)
-		if err != nil {
-			return wire.Request{}, 0, err
+		s, ok := count(inv, "timeout", waitDefaultS)
+		if !ok || s > waitMaxS {
+			return wire.Request{}, 0, exits.New(exits.CodeUsage, inv.Team, msgTimeout)
 		}
 		timeout, args = time.Duration(s)*time.Second, wire.WaitArgs{Team: inv.Team, TimeoutS: s}
 	case wire.OpVerify:
 		args = wire.VerifyArgs{Team: inv.Team, ID: inv.Args[0]}
 	case wire.OpHistory:
-		limit, err := count(inv, "limit", historyDefault, historyMax, msgLimit)
-		if err != nil {
-			return wire.Request{}, 0, err
+		limit, ok := count(inv, "limit", historyDefault)
+		if !ok || limit > historyMax {
+			return wire.Request{}, 0, exits.New(exits.CodeUsage, inv.Team, msgLimit)
 		}
 		room, given := inv.Flag("room")
 		if !given {
@@ -139,17 +139,18 @@ func request(e cli.Env, inv cli.Invocation, op string, clk clock.Clock) (wire.Re
 	return req, timeout, nil
 }
 
-// count is a whole-number flag from 1 to most, def when it is not given.
-func count(inv cli.Invocation, flag string, def, most int64, msg exits.Template) (int64, error) {
+// count is a whole-number flag of 1 or more, def when it is not given; false when it is given
+// and is not one. Each caller refuses it above its own most, beside the use that needs the bound.
+func count(inv cli.Invocation, flag string, def int64) (int64, bool) {
 	s, given := inv.Flag(flag)
 	if !given {
-		return def, nil
+		return def, true
 	}
 	n, err := strconv.ParseInt(s, 10, 64)
-	if err != nil || n < 1 || n > most {
-		return 0, exits.New(exits.CodeUsage, inv.Team, msg)
+	if err != nil || n < 1 {
+		return 0, false
 	}
-	return n, nil
+	return n, true
 }
 
 // Runtime is the run directory TEAMCHAT_RUNTIME names: a ccy session's, or the home member's
@@ -204,7 +205,7 @@ type outcome struct {
 // serve sends req until a link answers it; wait retries a missing link until its deadline, and
 // is timed-out there (n3c-D7): a request sent past it would be discarded unanswered.
 func (c conn) serve(req wire.Request, wait time.Duration) term.ExitCode {
-	deadline := time.Duration(req.DeadlineMS) * time.Millisecond
+	deadline := req.DeadlineAt()
 	delay := retryFirst
 	for {
 		o := c.once(req, deadline)

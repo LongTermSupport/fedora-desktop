@@ -682,12 +682,21 @@ func rateLimited(a answer) bool {
 // rateWait is Retry-After in seconds, else the reset time on the wall clock, else 5 s.
 func (c *Checker) rateWait(h http.Header) time.Duration {
 	if n, ok := headerSeconds(h, "Retry-After"); ok {
-		return time.Duration(n) * time.Second
+		return headerWait(n * 1000)
 	}
 	if n, ok := headerSeconds(h, "X-Ratelimit-Reset"); ok {
-		return max(0, time.Duration(n*1000-c.clock.WallMS())*time.Millisecond)
+		return headerWait(n*1000 - c.clock.WallMS())
 	}
 	return defaultRateWait
+}
+
+// headerWait is a rate header's wait of ms milliseconds: none below 0, and maxHeaderSeconds at
+// most, which a wall clock before 1970 would otherwise pass.
+func headerWait(ms int64) time.Duration {
+	if ms > maxHeaderSeconds*1000 {
+		return maxHeaderSeconds * time.Second
+	}
+	return max(0, time.Duration(ms)*time.Millisecond)
 }
 
 func headerSeconds(h http.Header, name string) (int64, bool) {

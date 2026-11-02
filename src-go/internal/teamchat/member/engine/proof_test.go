@@ -818,3 +818,28 @@ func TestARefusedTranscriptIsLoggedOnce(t *testing.T) {
 		t.Fatalf("%d refusal lines: %s", n, pw.log.String())
 	}
 }
+
+// A store's boot-clock time runs to the year 9999 (proto.MaxSentMs), past what a Duration holds
+// with the proof's clocks added: one past maxBootMS is the boot clock's start, so its entry falls
+// due and its missed entry expires, never a wrapped time.
+func TestABootTimePastWhatTheProofCountsIsTheBootClocksStart(t *testing.T) {
+	if got := bootTime(maxBootMS); got != time.Duration(maxBootMS)*time.Millisecond || got+lateFindFor < got {
+		t.Fatalf("the latest boot time: %v", got)
+	}
+	e := &Engine{}
+	for _, ms := range []int64{maxBootMS + 1, proto.MaxSentMs} {
+		if got := bootTime(ms); got != 0 {
+			t.Errorf("boot time %d ms: %v", ms, got)
+		}
+		stop := ms
+		if got := e.dueAt(state.Awaiting{AtMS: ms}); got != missingCap {
+			t.Errorf("an entry written at %d ms is due at %v", ms, got)
+		}
+		if got := e.dueAt(state.Awaiting{AtMS: ms, StopMS: &stop}); got != quietAfter {
+			t.Errorf("an entry stopped at %d ms is due at %v", ms, got)
+		}
+		if got := expiresAt(state.Missed{AtMS: ms}); got != lateFindFor {
+			t.Errorf("a missed entry of %d ms expires at %v", ms, got)
+		}
+	}
+}

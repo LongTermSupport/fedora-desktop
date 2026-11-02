@@ -1,6 +1,7 @@
 package client
 
 import (
+	"math"
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
@@ -68,11 +69,20 @@ func ReadDown(run paths.Run) Down {
 	return d
 }
 
+// maxNextMS is the latest restart time Error counts the seconds down to: past it, the time in
+// nanoseconds with the second that rounds it up could leave a time.Duration. keeper.json's
+// next_ms has no upper bound of its own.
+const maxNextMS = (math.MaxInt64 - int64(time.Second)) / int64(time.Millisecond)
+
 // Error is the verbs' exit 69 for d at boot (CLOCK_BOOTTIME): no-link while restarting (with
-// the whole seconds left) or starting, link-failed with the kind's recovery otherwise.
+// the whole seconds left, or as starting when its time is past maxNextMS) or starting,
+// link-failed with the kind's recovery otherwise.
 func (d Down) Error(team *paths.TeamID, boot time.Duration) *exits.Error {
 	switch d.State {
 	case DownRestarting:
+		if d.NextMS > maxNextMS {
+			return exits.New(exits.CodeNoLink, team, msgStarting)
+		}
 		left := time.Duration(d.NextMS)*time.Millisecond - boot
 		secs := max(0, (left+time.Second-time.Millisecond)/time.Second)
 		return exits.New(exits.CodeNoLink, team, msgRestarting, exits.Count(int64(secs)))

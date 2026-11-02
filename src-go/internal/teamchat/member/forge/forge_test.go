@@ -864,6 +864,24 @@ func TestSD5_7LongWaitNotSlept(t *testing.T) {
 	}
 }
 
+// A rate header's number is held at maxHeaderSeconds before it becomes a wait, so the largest a
+// header can name is a wait over 60 s, never one wrapped to a negative wait that is slept at once.
+func TestSD5_7AHugeRateHeaderIsAWaitNotSlept(t *testing.T) {
+	for _, h := range []string{"Retry-After", "X-Ratelimit-Reset"} {
+		t.Run(h, func(t *testing.T) {
+			r := newRig(t)
+			r.gh.route(tool, func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set(h, "9223372036854775807")
+				w.WriteHeader(http.StatusTooManyRequests)
+			})
+			r.expect(t, need(t, commitRef("acme/tool", sha), orgForge(), ""), orgForge(), proto.ReasonForgeRate)
+			if got := r.clk.waits(); len(got) != 0 {
+				t.Fatalf("slept %v for a header of the largest number", got)
+			}
+		})
+	}
+}
+
 func TestSD5_7SleepEndedByContext(t *testing.T) {
 	r := newRig(t)
 	ctx, cancel := context.WithCancel(context.Background())
