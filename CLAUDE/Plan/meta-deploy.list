@@ -33,8 +33,9 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Every changed play; expected: play-agent-bus.yml, whose agent-bus list now prints a LIVE
-# line per member (listening, stale or -, from its status in the team room); and
-# play-claude-yolo.yml, which rebuilds the image (container 2.79.21) and installs ccy-teams
-# (CCY 3.104.17): a member's STATE is that liveness, never "active" from its park state.
-changed-plays
+# The agent-bus play, named because changed-plays does not see it: the agent-bus zipapp is
+# built from helpers/agent_bus by agent-bus-install, a dependency the change detector does not
+# follow (being fixed). It installs the zipapp whose agent-bus list prints a LIVE line per
+# member (listening, stale or -, from its status in the team room), which ccy-teams 3.104.17
+# (already deployed) reads as each member's STATE.
+playbooks/imports/play-agent-bus.yml
