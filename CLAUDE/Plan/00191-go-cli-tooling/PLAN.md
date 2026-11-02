@@ -915,12 +915,15 @@ today; rewriting them is out of scope.
   unchanged; the difftest pins 077 itself and passes from a 022 shell. Sweep: every suite is
   green under 077 (every container `qa-all`); under 022 (the CI run, a full `qa-all`, and both
   Go modules locally) only the difftest depended on the umask. The other causes:
-  gitleaks' generic-api-key read two names as secrets (renamed); CI's Python was 3.12, and the
-  pycompat oracle now refuses an oracle older than 3.13 with that reason, CI using 3.14 (the
-  Fedora 44 python); the runner image is Ubuntu 26.04, whose multi-call coreutils broke a
-  helper test's `sleep` named `claude`, and whose non-root uid exposed a wrong expectation in
-  `containerimages`' scan test. Report: `subagent-reports/261102-ci-green.md`. Left: CI green
-  on the branch.
+  gitleaks' generic-api-key read two names as secrets (renamed); CI's Python was 3.12, and
+  pycompat reproduces 3.13 (3.14 differs too), so CI sets up 3.13 and the oracle refuses any
+  other version with that reason; the difftest outlasts go test's default package limit on the
+  4-vCPU runner under `-race` (it is CPU-bound), so the Go gate passes `-timeout=30m` through
+  `GOFLAGS` (`qa-go-qa.bash`); the runner image is Ubuntu 26.04, whose multi-call coreutils
+  broke a helper test's `sleep` named `claude`, and whose non-root uid exposed a wrong
+  expectation in `containerimages`' scan test. Report: `subagent-reports/261102-ci-green.md`.
+  Left: CI green on the branch; the owner's decision on the Go v1 readers against Fedora 44's
+  python 3.14.
 
 ### Phase 5: Review
 

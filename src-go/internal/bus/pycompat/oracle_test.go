@@ -191,26 +191,27 @@ func runOracle(t *testing.T, reqs []pyReq) []pyResult {
 	return out
 }
 
-// oldestOracle is the oldest python3 whose answers this package reproduces: pingbus runs on
-// 3.13 (the ccy image) and 3.14 (Fedora 44), and 3.13 changed what 3.12 says of a trailing
-// comma and writes an IPv4-mapped address dotted. An older oracle is not a parity failure.
-var oldestOracle = [2]int{3, 13}
+// oracleVersion is the python3 whose answers this package reproduces: 3.13, the ccy image's.
+// 3.12 words a trailing comma otherwise and writes an IPv4-mapped address as hex; 3.14 (Fedora
+// 44) has other messages for `in` and a bad escape, newer Unicode tables, and nests deeper. A
+// different oracle is not a parity failure, and is not compared case by case.
+var oracleVersion = [2]int{3, 13}
 
-// oracleTooOld is the reason a python3 of version v cannot be the oracle, or nil.
-func oracleTooOld(v [2]int) error {
-	if v[0] > oldestOracle[0] || (v[0] == oldestOracle[0] && v[1] >= oldestOracle[1]) {
+// oracleUnsupported is the reason a python3 of version v cannot be the oracle, or nil.
+func oracleUnsupported(v [2]int) error {
+	if v == oracleVersion {
 		return nil
 	}
-	return fmt.Errorf("the oracle is python3 %d.%d, and parity is defined against %d.%d or later (the pythons pingbus runs on); run the tests with a newer python3",
-		v[0], v[1], oldestOracle[0], oldestOracle[1])
+	return fmt.Errorf("the oracle is python3 %d.%d, and parity is proven against python3 %d.%d; run the tests with python3 %d.%d first on PATH",
+		v[0], v[1], oracleVersion[0], oracleVersion[1], oracleVersion[0], oracleVersion[1])
 }
 
 // python is runOracle with the count logged, so `go test -v` shows how many cases each
-// parity test compared. An oracle older than oldestOracle fails the test with that reason.
+// parity test compared. An oracle other than oracleVersion fails the test with that reason.
 func python(t *testing.T, reqs []pyReq) []pyResult {
 	t.Helper()
 	v := pythonVersion(t)
-	if err := oracleTooOld(v); err != nil {
+	if err := oracleUnsupported(v); err != nil {
 		t.Fatal(err)
 	}
 	out := runOracle(t, reqs)
@@ -290,22 +291,20 @@ func sameJSON(t *testing.T, a any, b json.RawMessage) bool {
 // pyErrText is python's exception as "Class: message", for failure output.
 func pyErrText(r pyResult) string { return r.Err + ": " + string(r.Msg) }
 
-// TestOracleTooOld: a python3 older than 3.13 is refused with the version it is and the one
-// it must be, not compared case by case; 3.13 and every later release are accepted.
-func TestOracleTooOld(t *testing.T) {
-	for _, v := range [][2]int{{3, 12}, {3, 11}, {2, 7}} {
-		err := oracleTooOld(v)
+// TestOracleVersion: a python3 other than 3.13 is refused with the version it is and the one
+// it must be, not compared case by case; 3.13 at any patch level is the oracle.
+func TestOracleVersion(t *testing.T) {
+	for _, v := range [][2]int{{3, 12}, {3, 14}, {2, 7}, {4, 13}} {
+		err := oracleUnsupported(v)
 		if err == nil {
 			t.Fatalf("python3 %d.%d accepted as the oracle", v[0], v[1])
 		}
-		want := fmt.Sprintf("python3 %d.%d, and parity is defined against 3.13 or later", v[0], v[1])
+		want := fmt.Sprintf("the oracle is python3 %d.%d, and parity is proven against python3 3.13", v[0], v[1])
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("python3 %d.%d refused as %q, want it to say %q", v[0], v[1], err, want)
 		}
 	}
-	for _, v := range [][2]int{{3, 13}, {3, 14}, {3, 20}, {4, 0}} {
-		if err := oracleTooOld(v); err != nil {
-			t.Errorf("python3 %d.%d refused: %v", v[0], v[1], err)
-		}
+	if err := oracleUnsupported([2]int{3, 13}); err != nil {
+		t.Errorf("python3 3.13 refused: %v", err)
 	}
 }

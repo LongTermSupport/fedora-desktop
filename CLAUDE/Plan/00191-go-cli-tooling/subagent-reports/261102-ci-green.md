@@ -12,6 +12,7 @@ Branch `fix/ci-green`, from F44 at 977a206f1. The failing run was a `qa-all` on 
 | `go`: difftest        | `TestFrontParity`, `TestFrontAnswersItself`, every scenario | goldens recorded under umask 077 (a CCY container); the runner has 022                                             |
 | `go`: containerimages | `TestScanPrintsTheStoreTheOwnersAndTheDirectories`          | its assertion runs only under a non-root uid outside the fixture's ranges; the expectation was wrong               |
 | `helper-tests`        | `agent_bus_lxc.test_derive` SessionsScriptTest              | Ubuntu 26.04's coreutils is multi-call (uutils): `sleep` symlinked as `claude` picks its tool by argv[0] and exits |
+| `go`: difftest (time) | `panic: test timed out after 10m0s`, in both runs           | CPU-bound: 658s measured locally on 4 cores under `-race`; go-qa passes no `-timeout`                              |
 
 The colour lines in the difftest failures are not a separate cause: the front's allowed colour
 difference (`colourAllowance`) applies only when the rest of the golden matches, and the modes
@@ -23,11 +24,18 @@ did not.
    (`src-go/internal/consumer/app_test.go`), `esckeyPkg` became `joinedPkg`
    (`src-go/qa/rules/escjoined.go`). No allowlist entry or inline suppression. Local
    `gitleaks dir .` (8.30.1, CI's version): 2 leaks before, none after.
-2. **Python**: CI sets up 3.14, the Fedora 44 python (`.github/workflows/qa.yml`). Nothing else
-   pins 3.12 (`ruff.toml` has no target-version; `.qa-versions` pins no Python; the toolchain
-   test checks only the Go floor). The oracle now refuses a python3 older than 3.13 with that
-   reason (`oracleTooOld`, `TestOracleTooOld`), instead of a page of diffs; proven with a fake
-   python3 that says 3.12 (`the oracle is python3 3.12, and parity is defined against 3.13 or later ...`). The IP test's 3.11/3.12 branch could no longer run and was removed.
+2. **Python**: pycompat reproduces python 3.13, the ccy image's. The first CI iteration set up
+   3.14 (Fedora 44's) and showed 3.14 differs as well: the `in` TypeError and bad-escape
+   messages, the Unicode tables, and the nesting depth (`seat`'s TestParityWithV1). So CI sets
+   up 3.13, and the oracle refuses any version but 3.13 with that reason (`oracleUnsupported`,
+   `TestOracleVersion`, red first), instead of a page of diffs; proven with a fake python3 that
+   says 3.12. Nothing else pins a Python (`ruff.toml`, `.qa-versions`, the toolchain test). The
+   IP test's pre-3.13 branch could no longer run and was removed. **For the owner**: the Go v1
+   readers do not match the host's python 3.14, and a go test run with 3.14 first on PATH is
+   refused.
+2a. **difftest timeout**: the Go gate passes `-timeout=30m` through `GOFLAGS`
+   (`scripts/qa-go-qa.bash`); go build, vet and list ignore it (checked). The same limit holds
+   locally and in CI.
 3. **Umask, under Defence Before Fix.** Class: a QA verdict that depends on the umask of the
    machine running it (a dimension of `suite-env-isolated`, Task 4.11). Hazard: a suite that
    records or compares modes of created files passes on one machine and fails on another, with

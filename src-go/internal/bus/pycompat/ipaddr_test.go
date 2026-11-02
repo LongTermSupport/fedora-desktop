@@ -19,8 +19,8 @@ var ipCases = []string{
 	"::ffff:1.2.3.4%x", "::FFFF:255.255.255.255",
 }
 
-// TestPythonIPAddress compares every case, IPv4-mapped ones included: the oracle is 3.13 or
-// later (oldestOracle), which writes them dotted as B-S5 does.
+// TestPythonIPAddress compares every case, IPv4-mapped ones included: the oracle is 3.13
+// (oracleVersion), which writes them dotted as B-S5 does.
 func TestPythonIPAddress(t *testing.T) {
 	reqs := make([]pyReq, 0, len(ipCases))
 	for _, c := range ipCases {
