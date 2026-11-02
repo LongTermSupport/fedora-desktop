@@ -278,3 +278,41 @@ rules:
     metadata:
       category: correctness
       confidence: HIGH
+
+  # Rule: no secret kept short-lived by a clipboard meant to erase itself
+  # (Defence Before Fix; CLAUDE/GoProjectRules.md "project_self_erasing_clipboard"
+  # is the same class in Go, with its proof).
+  #
+  # WRONG: printf '%s' "$pw" | wl-copy --paste-once   (or -o, or xclip -loops 1)
+  # WRONG: echo "The password is on the clipboard for one paste"
+  # RIGHT: copy plainly, say it is on the clipboard, and once it is pasted (or a
+  #        bounded wait ends) clear the clipboard only if it still holds it.
+  #
+  # On GNOME the desktop reads a new selection at once and goes on serving its own
+  # copy after wl-copy has exited: the secret stays pasteable until the next copy
+  # while the person was told it was gone. Comments count: a comment promising one
+  # paste is the same false claim.
+  - id: bash-self-erasing-clipboard
+    pattern-either:
+      - pattern-regex: '\bwl-copy\b[^\n|;&]*?[ \t](?:--paste-once|-[A-Za-z]*o[A-Za-z]*)\b'
+      - pattern-regex: '\bxclip\b[^\n|;&]*?[ \t]-loops[ \t]+[1-9]'
+      - pattern-regex: '(?i)paste[- ]once|\b(?:for|to|serves?|after)\s+(?:one|a\s+single|the\s+first)\s+paste\b|\bthe\s+one\s+paste\b|\bgone\s+from\s+the\s+clipboard\b|\bgone\s+after\s+(?:one|a\s+single|the\s+first)\s+paste\b'
+    message: >
+      bash-self-erasing-clipboard: a secret kept short-lived by a clipboard meant
+      to erase itself after one paste, or text promising it. GNOME keeps serving
+      the selection after wl-copy exits. Copy plainly, then clear only while the
+      clipboard still holds the secret. See CLAUDE/GoProjectRules.md
+      "project_self_erasing_clipboard".
+    paths:
+      include:
+        - 'files/**'
+        - 'scripts/**'
+        - 'helpers/**'
+        - 'extensions/**'
+        - 'fedora-install/**'
+        - 'CLAUDE/Plan/**'
+    languages: [bash]
+    severity: ERROR
+    metadata:
+      category: security
+      confidence: HIGH

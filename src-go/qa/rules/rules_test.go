@@ -61,6 +61,10 @@ func TestHomeAbbrev(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), HomeAbbrev, "fix/internal/term", "fix/qa/rules", "fix/internal/badhome")
 }
 
+func TestSelfErasingClipboard(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), SelfErasingClipboard, "fix/qa/rules", "fix/internal/badclip")
+}
+
 func TestWaitDelay(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), WaitDelay, "fix/internal/badwait")
 }
@@ -88,8 +92,8 @@ func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 13 {
-		t.Fatalf("want 13 rules, got %d", got)
+	if got := len(All()); got != 14 {
+		t.Fatalf("want 14 rules, got %d", got)
 	}
 }
 

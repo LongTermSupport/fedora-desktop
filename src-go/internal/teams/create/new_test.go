@@ -60,3 +60,10 @@ func TestTheWizardsApplyTeamsRunsThePlayForThoseTeams(t *testing.T) {
 		t.Fatal("the play was not run")
 	}
 }
+
+func TestTheWizardSettlesACopiedPasswordThroughLogin(t *testing.T) {
+	_, c := built(t)
+	if c.SettleClipboard == nil {
+		t.Fatal("the wizard settles no copied password")
+	}
+}

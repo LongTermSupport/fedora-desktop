@@ -32,3 +32,9 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Every changed play; expected: play-claude-yolo.yml, which rebuilds and installs ccy-teams
+# (CCY 3.104.16): a copied password is cleared from the clipboard once pasted if it is still
+# there, and the sign-in block names what a team lacks for its homeserver address. The image
+# is unchanged, so no rebuild.
+changed-plays

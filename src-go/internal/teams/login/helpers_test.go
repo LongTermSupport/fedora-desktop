@@ -2,6 +2,7 @@ package login
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
@@ -59,6 +60,26 @@ func (h rig) passwordable() {
 // withoutClipboardHistory is a GNOME Shell whose enabled extensions keep no clipboard history.
 func (h rig) withoutClipboardHistory() {
 	h.On("gsettings get org.gnome.shell enabled-extensions", "['blur-my-shell@aunetx']\n", 0)
+}
+
+// copiable is a Wayland GNOME Shell with no clipboard history, whose wl-copy takes the
+// password and whose clipboard, read back afterwards, holds holds.
+func (h rig) copiable(holds string) {
+	h.Env["WAYLAND_DISPLAY"] = "wayland-test"
+	h.withoutClipboardHistory()
+	h.On("wl-copy", "", 0)
+	h.On("wl-paste", holds, 0)
+	h.On("wl-copy --clear", "", 0)
+}
+
+// callIndex is the index of the first recorded call whose line starts with prefix, or -1.
+func (h rig) callIndex(prefix string) int {
+	for i, c := range h.Fake.Calls() {
+		if strings.HasPrefix(c.Line(), prefix) {
+			return i
+		}
+	}
+	return -1
 }
 
 func (h rig) elementLauncher() string {

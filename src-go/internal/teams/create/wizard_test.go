@@ -232,6 +232,8 @@ type wzHarness struct {
 	pwdErr  error
 	element []string
 	elemErr error
+	// settled is, at each clipboard settle, how many passwords and Element launches came first.
+	settled []string
 	execd   [][]string
 	execErr error
 	// address is the bus address the host_vars declares ("" for none); others is agent_bus_teams
@@ -367,6 +369,9 @@ func newWzHarness(t *testing.T) *wzHarness {
 		NewPassword: func(_ context.Context, team, human string) error {
 			h.pwd = append(h.pwd, team+"/"+human)
 			return h.pwdErr
+		},
+		SettleClipboard: func(context.Context) {
+			h.settled = append(h.settled, fmt.Sprintf("%d/%d", len(h.pwd), len(h.element)))
 		},
 		LaunchElement: func(_ context.Context, team string) error {
 			h.element = append(h.element, team)
@@ -1283,6 +1288,10 @@ func TestAcceptingTheSignInAndElementOffersRunThem(t *testing.T) {
 	if !slices.Equal(h.element, []string{"proj"}) {
 		t.Errorf("element %v", h.element)
 	}
+	// A copied password waits on the clipboard until Element is open to paste it into.
+	if !slices.Equal(h.settled, []string{"1/1"}) {
+		t.Errorf("settled %v: once, after the password and Element", h.settled)
+	}
 	if len(h.execd) != 0 {
 		t.Error("a session was started after a no")
 	}
@@ -1312,6 +1321,9 @@ func TestACancelInsideAnOfferCancelsTheRun(t *testing.T) {
 	h.run.queue("gum confirm", wzOK(""), wzOK(""))
 	wzCode(t, h.invoke(), 130, h)
 	wzContain(t, "stderr", h.err(), "Cancelled; nothing was changed.")
+	if !slices.Equal(h.settled, []string{"1/0"}) {
+		t.Errorf("settled %v: a cancelled run still clears a copied password", h.settled)
+	}
 }
 
 func TestTheNextStepsDoNotRepeatTheOffersJustMade(t *testing.T) {
