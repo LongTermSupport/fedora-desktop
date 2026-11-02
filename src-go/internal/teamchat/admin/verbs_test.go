@@ -356,7 +356,7 @@ func TestACrashIsRolledForwardByAnotherVerb(t *testing.T) {
 		state  string
 		notice string
 	}{
-		{"add", addArgs("3", "password"), crashing{method: "Invite", n: 1}, apply.MemberActive, "added"},
+		{"add", addArgs("3", "password"), crashing{method: "Invite", n: 1}, apply.MemberEnrolled, "added"},
 		{"park", on("park"), crashing{method: "ResetPassword", n: 1}, apply.MemberParked, "parked"},
 		{"retire", on("retire"), crashing{method: "SetDeactivated", n: 1, landed: true}, apply.MemberRetired, "removed"},
 		{"retire notice", on("retire"), crashing{method: "Send", n: 1}, apply.MemberRetired, "removed"},

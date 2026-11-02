@@ -31,14 +31,14 @@ in-process over the real codecs; `member` verbs for the probe handle (D's `migra
 
 - **MO2. The steps**, each idempotent:
 
-  | Op        | From               | Steps                                                                                                 | To        |
-  | --------- | ------------------ | ----------------------------------------------------------------------------------------------------- | --------- |
-  | `add`     | none               | `claim` (state `claimed`, counter raised); `account`; `credential`; `rooms`; `notice` `added`; `role` | `active`  |
-  | `return`  | `parked`, `lost`   | `account` (`lost` only: created); `credential`; `rooms`; `notice` `added`; `role`                     | `active`  |
-  | `reissue` | `active`           | `credential`                                                                                          | `active`  |
-  | `park`    | `active`           | `revoke`; `rooms`; `notice` `parked`                                                                  | `parked`  |
-  | `retire`  | `active`, `parked` | `rooms` (kicked everywhere); `deactivate`; `notice` `removed`                                         | `retired` |
-  | `set`     | `active`, `parked` | `rooms` (`human_text` changed)                                                                        | same      |
+  | Op        | From                 | Steps                                                                                                 | To         |
+  | --------- | -------------------- | ----------------------------------------------------------------------------------------------------- | ---------- |
+  | `add`     | none                 | `claim` (state `claimed`, counter raised); `account`; `credential`; `rooms`; `notice` `added`; `role` | `enrolled` |
+  | `return`  | `parked`, `lost`     | `account` (`lost` only: created); `credential`; `rooms`; `notice` `added`; `role`                     | `enrolled` |
+  | `reissue` | `enrolled`           | `credential`                                                                                          | `enrolled` |
+  | `park`    | `enrolled`           | `revoke`; `rooms`; `notice` `parked`                                                                  | `parked`   |
+  | `retire`  | `enrolled`, `parked` | `rooms` (kicked everywhere); `deactivate`; `notice` `removed`                                         | `retired`  |
+  | `set`     | `enrolled`, `parked` | `rooms` (`human_text` changed)                                                                        | same       |
 
   `account` creates the account with a random password that is not kept when there is none; one
   that exists deactivated is refused (70). `credential` is C 3.6.3's issue: `password` resets
@@ -53,7 +53,7 @@ in-process over the real codecs; `member` verbs for the probe handle (D's `migra
   ends it this way in its roll-forward says so in `notes` and runs as asked (n2d-D17). `role`
   promotes the member when it is `coordinator_wanted` (MO6).
 
-- **MO3. Refusals before any change** (70): `add` of a handle that is `active` (the seat is
+- **MO3. Refusals before any change** (70): `add` of a handle that is `enrolled` (the seat is
   taken, perhaps just now by another checkout; choose again; `reissue` only for a bundle this
   checkout lost), `parked` or `lost` (naming `return`), or `retired` (never returns); a verb on a
   handle in no state it takes; the probe handle; `--kind` other than the prefix's type; `retire`
@@ -80,7 +80,7 @@ in-process over the real codecs; `member` verbs for the probe handle (D's `migra
     names its seat, so it is the same verb for its handle (n2d-D15 as SPEC-n3 n3b-D2 leaves it,
     with no `--seat next`); a `set` asked
     again with the other value completes the first and then runs as asked;
-  - any other verb completes a pending `add`, `return` or `reissue` to `active` with its
+  - any other verb completes a pending `add`, `return` or `reissue` to `enrolled` with its
     credential revoked, answers no credential and sets `needs` to `reissue`;
   - a pending `park`, `retire`, `set` or `role.apply` is completed as it was asked;
   - a pending `team.apply` (a room create or the rooms step, n2b-D8) is completed by the rooms
@@ -97,7 +97,7 @@ in-process over the real codecs; `member` verbs for the probe handle (D's `migra
 
 - **MO7. The admin's notices (A 7.4)**, in the main room, composed by `proto.Composer.Notice` as
   the admin over the roster just written: `added` (role), `parked`, `removed`, `role` (the new
-  role). `to` is the active humans and the non-parked coordinator, never the subject. The body is
+  role). `to` is the `enrolled` humans and the non-parked coordinator, never the subject. The body is
   one fixed sentence per event (n2d-D5). The transaction ID is `tc` and 32 hex digits of a
   SHA-256 over the op, the handle, `since_ms` and the step, so a re-post after a lost answer or a
   crash is stored once (M22). None is posted for the probe.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
 )
@@ -98,8 +99,8 @@ func notActive(unit string, state UnitState) status.Problem {
 	return status.Problem{What: "the homeserver unit is " + state.Active, Fix: "systemctl status " + unit}
 }
 
-// unitActive is the ActiveState of a running unit.
-const unitActive = "active"
+// unitActive is the ActiveState of a started unit, systemd's word.
+const unitActive = systemd.ActiveStateActive
 
 // unitState is the unit's state; read is false when systemd could not say, which the record
 // shows as a problem rather than failing the team's tick.

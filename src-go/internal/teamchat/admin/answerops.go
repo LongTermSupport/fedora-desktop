@@ -6,6 +6,7 @@ import (
 	"maps"
 	"slices"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/health"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
@@ -83,7 +84,7 @@ func validView(v health.View) error {
 	}
 	rec := status.Record{
 		V: 1, Team: team, Name: "view", Origin: status.OriginV2, ExpiresMS: status.Lifetime.Milliseconds(),
-		Homeserver: status.Homeserver{Unit: "active", Probe: status.ProbeOK}, Backup: status.Backup{LastRun: status.RunNone},
+		Homeserver: status.Homeserver{Unit: systemd.ActiveStateActive, Probe: status.ProbeOK}, Backup: status.Backup{LastRun: status.RunNone},
 		Members: members, Humans: v.Humans, Problems: v.Problems,
 	}
 	if _, err := rec.Encode(); err != nil {

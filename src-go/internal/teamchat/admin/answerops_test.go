@@ -15,18 +15,18 @@ func sampleView() *health.View {
 	rooms := map[string]string{"main": "join", "reports": "invite"}
 	return &health.View{
 		Members: []status.Member{
-			{Handle: sampleHandle, Kind: "podman", Role: "worker", State: "active", Rooms: rooms},
+			{Handle: sampleHandle, Kind: "podman", Role: "worker", State: "enrolled", Rooms: rooms},
 			{Handle: "myrepo.4+desk.lxc", Kind: status.KindLXC, Role: "coordinator", State: "parked", Rooms: map[string]string{}},
 		},
-		Humans:   []status.Human{{Name: "alice", State: "active", Rooms: rooms, Devices: 2, LastSeenMS: 7}},
+		Humans:   []status.Human{{Name: "alice", State: "enrolled", Rooms: rooms, Devices: 2, LastSeenMS: 7}},
 		Problems: []status.Problem{{What: "the main room drifted", Fix: "ccy-teams apply alpha"}},
 	}
 }
 
 const sampleViewWire = `"view":{"members":[` +
-	`{"handle":"` + sampleHandle + `","kind":"podman","role":"worker","state":"active","rooms":{"main":"join","reports":"invite"}},` +
+	`{"handle":"` + sampleHandle + `","kind":"podman","role":"worker","state":"enrolled","rooms":{"main":"join","reports":"invite"}},` +
 	`{"handle":"myrepo.4+desk.lxc","kind":"lxc","role":"coordinator","state":"parked","rooms":{}}],` +
-	`"humans":[{"name":"alice","state":"active","rooms":{"main":"join","reports":"invite"},"devices":2,"last_seen_ms":7}],` +
+	`"humans":[{"name":"alice","state":"enrolled","rooms":{"main":"join","reports":"invite"},"devices":2,"last_seen_ms":7}],` +
 	`"problems":[{"what":"the main room drifted","fix":"ccy-teams apply alpha"}]}`
 
 // TestAnswerCarriesAViewANoticeAndTheMainRoom is CO1, CO2 and BU1 on the wire.
@@ -46,7 +46,7 @@ func TestAnswerCarriesAViewANoticeAndTheMainRoom(t *testing.T) {
 				Problems: []status.Problem{{What: "a member's own", Fix: "ccy-teams restart " + sampleHandle, Member: sampleHandle}},
 			}},
 			`{"v":1,"ok":true,"changed":[],"view":{"members":[` +
-				`{"handle":"` + sampleHandle + `","kind":"podman","role":"worker","state":"active","rooms":{"main":"join","reports":"invite"}}],` +
+				`{"handle":"` + sampleHandle + `","kind":"podman","role":"worker","state":"enrolled","rooms":{"main":"join","reports":"invite"}}],` +
 				`"humans":[],"problems":[{"what":"a member's own","fix":"ccy-teams restart ` + sampleHandle + `","member":"` + sampleHandle + `"}]}}`,
 		},
 		"posted":     {Answer{OK: true, Notice: &health.Notice{Posted: true}}, `{"v":1,"ok":true,"changed":[],"notice":{"posted":true,"why":""}}`},
@@ -117,7 +117,7 @@ func TestEncodeAnswerRefusesABadViewOrNotice(t *testing.T) {
 // values, and nothing a failure or another field cannot carry.
 func TestDecodeAnswerReadsAViewStrictly(t *testing.T) {
 	ok := `{"v":1,"ok":true,"changed":[],`
-	member := `{"handle":"` + sampleHandle + `","kind":"podman","role":"worker","state":"active","rooms":{}}`
+	member := `{"handle":"` + sampleHandle + `","kind":"podman","role":"worker","state":"enrolled","rooms":{}}`
 	view := func(members, humans, problems string) string {
 		return ok + `"view":{"members":[` + members + `],"humans":[` + humans + `],"problems":[` + problems + `]}}`
 	}
@@ -129,15 +129,15 @@ func TestDecodeAnswerReadsAViewStrictly(t *testing.T) {
 		"view missing key":      ok + `"view":{"members":[],"humans":[]}}`,
 		"view not an object":    ok + `"view":[]}`,
 		"members not an array":  ok + `"view":{"members":{},"humans":[],"problems":[]}}`,
-		"member online":         view(`{"handle":"`+sampleHandle+`","kind":"podman","role":"worker","state":"active","rooms":{},"online":true}`, "", ""),
-		"member key case":       view(`{"Handle":"`+sampleHandle+`","kind":"podman","role":"worker","state":"active","rooms":{}}`, "", ""),
-		"member missing rooms":  view(`{"handle":"`+sampleHandle+`","kind":"podman","role":"worker","state":"active"}`, "", ""),
+		"member online":         view(`{"handle":"`+sampleHandle+`","kind":"podman","role":"worker","state":"enrolled","rooms":{},"online":true}`, "", ""),
+		"member key case":       view(`{"Handle":"`+sampleHandle+`","kind":"podman","role":"worker","state":"enrolled","rooms":{}}`, "", ""),
+		"member missing rooms":  view(`{"handle":"`+sampleHandle+`","kind":"podman","role":"worker","state":"enrolled"}`, "", ""),
 		"member not an object":  view(`"`+sampleHandle+`"`, "", ""),
-		"member rooms a list":   view(`{"handle":"`+sampleHandle+`","kind":"podman","role":"worker","state":"active","rooms":[]}`, "", ""),
-		"member membership":     view(`{"handle":"`+sampleHandle+`","kind":"podman","role":"worker","state":"active","rooms":{"main":"joined"}}`, "", ""),
-		"member room value":     view(`{"handle":"`+sampleHandle+`","kind":"podman","role":"worker","state":"active","rooms":{"main":1}}`, "", ""),
-		"human extra key":       view(member, `{"name":"alice","state":"active","rooms":{},"devices":0,"last_seen_ms":0,"x":1}`, ""),
-		"human devices string":  view(member, `{"name":"alice","state":"active","rooms":{},"devices":"0","last_seen_ms":0}`, ""),
+		"member rooms a list":   view(`{"handle":"`+sampleHandle+`","kind":"podman","role":"worker","state":"enrolled","rooms":[]}`, "", ""),
+		"member membership":     view(`{"handle":"`+sampleHandle+`","kind":"podman","role":"worker","state":"enrolled","rooms":{"main":"joined"}}`, "", ""),
+		"member room value":     view(`{"handle":"`+sampleHandle+`","kind":"podman","role":"worker","state":"enrolled","rooms":{"main":1}}`, "", ""),
+		"human extra key":       view(member, `{"name":"alice","state":"enrolled","rooms":{},"devices":0,"last_seen_ms":0,"x":1}`, ""),
+		"human devices string":  view(member, `{"name":"alice","state":"enrolled","rooms":{},"devices":"0","last_seen_ms":0}`, ""),
 		"problem extra key":     view(member, "", `{"what":"a","fix":"b","x":"c"}`),
 		"problem member none":   view(member, "", `{"what":"a","fix":"b","member":"myrepo.9+desk.lxc"}`),
 		"problem member empty":  view(member, "", `{"what":"a","fix":"b","member":""}`),

@@ -152,7 +152,7 @@ func (w *world) checkAdded(t *testing.T) {
 	t.Helper()
 	f := w.file(t).roster
 	m := f.Members[third]
-	if m.State != MemberActive || m.Cred != credPassword || m.CredSeq == 0 || m.Needs != "" || f.Counters[prefix] != 3 || f.Pending != nil {
+	if m.State != MemberEnrolled || m.Cred != credPassword || m.CredSeq == 0 || m.Needs != "" || f.Counters[prefix] != 3 || f.Pending != nil {
 		t.Fatalf("roster file %+v", f)
 	}
 	if got := w.notices(t); !slices.Equal(got, []string{"added " + third + ":worker"}) {
@@ -214,7 +214,7 @@ func refusedAt(t *testing.T, name string, err error, step, text string) {
 func TestMemberRefusals(t *testing.T) {
 	w := newWorld(t)
 	team := w.team(t)
-	for handle, state := range map[string]string{"myrepo.1+desk.podman": MemberActive, "myrepo.2+desk.podman": MemberParked, "myrepo.4+desk.podman": MemberLost, "myrepo.5+desk.podman": MemberRetired} {
+	for handle, state := range map[string]string{"myrepo.1+desk.podman": MemberEnrolled, "myrepo.2+desk.podman": MemberParked, "myrepo.4+desk.podman": MemberLost, "myrepo.5+desk.podman": MemberRetired} {
 		m := active()
 		m.State = state
 		w.addMember(t, handle, m)
@@ -225,7 +225,7 @@ func TestMemberRefusals(t *testing.T) {
 		req  MemberRequest
 		text string
 	}{
-		{"add active", add(1, credPassword), "is taken"},
+		{"add enrolled", add(1, credPassword), "is taken"},
 		{"add parked", add(2, credPassword), "member return"},
 		{"add lost", add(4, credPassword), "member return"},
 		{"add retired", add(5, credPassword), "never return"},
@@ -234,7 +234,7 @@ func TestMemberRefusals(t *testing.T) {
 		{"prefix", MemberRequest{Op: OpMemberAdd, Prefix: "no prefix", Seat: 3, Kind: "podman", Credential: credPassword}, "prefix"},
 		{"probe", on(OpMemberPark, proto.ProbeHandle("desk").String()), "probe"},
 		{"park parked", on(OpMemberPark, "myrepo.2+desk.podman"), "parked"},
-		{"return active", on(OpMemberReturn, "myrepo.1+desk.podman"), "active"},
+		{"return enrolled", on(OpMemberReturn, "myrepo.1+desk.podman"), "enrolled"},
 		{"reissue parked", on(OpMemberReissue, "myrepo.2+desk.podman"), "parked"},
 		{"retire retired", on(OpMemberRetire, "myrepo.5+desk.podman"), "retired"},
 		{"retire the declared coordinator", on(OpMemberRetire, coord), "coordinator"},
@@ -289,7 +289,7 @@ func (w *world) reissueParkReturn(t *testing.T, team declare.Team) {
 		t.Fatalf("park %+v", parked)
 	}
 	back := w.member(t, team, on(OpMemberReturn, third))
-	if back.Credential == nil || !w.signsIn(t, third, back.Credential.Secret) || w.file(t).roster.Members[third].State != MemberActive {
+	if back.Credential == nil || !w.signsIn(t, third, back.Credential.Secret) || w.file(t).roster.Members[third].State != MemberEnrolled {
 		t.Fatalf("return %+v", back)
 	}
 }
@@ -346,7 +346,7 @@ func TestAWantedCoordinatorWithoutHumanTextIsANote(t *testing.T) {
 	if res.Credential == nil || len(res.Notes) != 1 || !strings.Contains(res.Notes[0], "human text") {
 		t.Fatalf("result %+v", res)
 	}
-	if f := w.file(t).roster; f.Coordinator != "" || f.CoordinatorWanted != coord || f.Members[coord].State != MemberActive {
+	if f := w.file(t).roster; f.Coordinator != "" || f.CoordinatorWanted != coord || f.Members[coord].State != MemberEnrolled {
 		t.Fatalf("roster %+v", f)
 	}
 }
@@ -501,7 +501,7 @@ func addRollsForward(t *testing.T, c crash) {
 		t.Fatalf("the retry's credential %+v", res.Credential)
 	}
 	f := w.file(t).roster
-	if f.Pending != nil || f.Members[res.Handle].State != MemberActive || f.Members[res.Handle].Needs != "" {
+	if f.Pending != nil || f.Members[res.Handle].State != MemberEnrolled || f.Members[res.Handle].Needs != "" {
 		t.Fatalf("roster %+v", f)
 	}
 	if n := countPrefixed(w.notices(t), "added "); n != 1 {
@@ -540,7 +540,7 @@ func TestAnotherVerbRollsAPendingAddForward(t *testing.T) {
 				t.Fatalf("result %+v", res)
 			}
 			f := w.file(t).roster
-			if m := f.Members[third]; m.State != MemberActive || m.Needs != needsReissue || f.Pending != nil || f.Members[other].HumanText {
+			if m := f.Members[third]; m.State != MemberEnrolled || m.Needs != needsReissue || f.Pending != nil || f.Members[other].HumanText {
 				t.Fatalf("roster %+v", f)
 			}
 			if w.signsIn(t, third, issued) {

@@ -762,9 +762,9 @@ decoded strictly (unknown or duplicate keys refused, sizes capped, exit 78 namin
   "restore_epoch": 0,
   "counters": {"<repo>+<site>.<type>": 3},
   "members": {
-    "<handle>": {"state": "active", "kind": "podman", "human_text": true, "since_ms": 0, "cred": "password", "cred_seq": 39, "cred_ms": 0, "needs": null}
+    "<handle>": {"state": "enrolled", "kind": "podman", "human_text": true, "since_ms": 0, "cred": "password", "cred_seq": 39, "cred_ms": 0, "needs": null}
   },
-  "humans": {"<name>": {"state": "active", "since_ms": 0, "revoked_seq": 17, "needs": null}},
+  "humans": {"<name>": {"state": "enrolled", "since_ms": 0, "revoked_seq": 17, "needs": null}},
   "coordinator": "<handle>",
   "coordinator_wanted": null,
   "pending": null
@@ -789,9 +789,12 @@ decoded strictly (unknown or duplicate keys refused, sizes capped, exit 78 namin
   accept (a roll-forward that revoked without printing a bundle, 3.6.3, or a restore, 3.12.2). The
   board names `member reissue` for it; `reissue` clears it. A human's `needs` is `null` or
   `"password"` (set by a restore; `human password` clears it).
-- `state` of a member: `active`, `parked`, `retired`, `lost` (its account is gone after a restore,
-  3.12.2), or the intent states below. A `retired` member stays in the roster for ever, so its
-  handle can never be issued again without asking the homeserver (C18).
+- `state` of a member: `enrolled`, `parked`, `retired`, `lost` (its account is gone after a restore,
+  3.12.2), or the intent states below. `enrolled` is a member in none of the other states: its
+  account and credential are issued and it is not parked, retired, lost or claimed. It is a
+  registry state and says nothing of whether a session runs. A human's `state` is `enrolled` (not
+  removed) or `removed`. A `retired` member stays in the roster for ever, so its handle can never
+  be issued again without asking the homeserver (C18).
 - `counters` never go down, even when an account creation fails (R9).
 - `coordinator` is the role last applied; the truth is the declaration (3.8, DC6).
   `coordinator_wanted` is a declared coordinator whose handle is not yet in the roster, or is
@@ -867,13 +870,13 @@ which rewrites the roster event and the membership of each room, the questions r
 included), posts the admin's notice for the change (below), refreshes the status record, and
 answers one JSON document on stdout. Verbs and their state machine:
 
-| Verb                                                                                  | From state         | Steps (each recorded in `pending` before it runs)                                                                                                  | To state  |
-| ------------------------------------------------------------------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
-| `member add --prefix P --seat S --kind K --human-text B --credential password\|token` | (none)             | claim the handle in the roster (counter raised); create the account; issue the credential; converge the rooms (invite per A's specs); post `added` | `active`  |
-| `member return --handle H --credential password\|token`                               | `parked`, `lost`   | revoke (password reset with device logout), or for `lost` create the account; issue the credential; converge the rooms; post `added`               | `active`  |
-| `member reissue --handle H --credential password\|token`                              | `active`           | revoke; issue the credential (the lost-bundle recovery, C21)                                                                                       | `active`  |
-| `member park --handle H`                                                              | `active`           | revoke; mark; converge the rooms; post `parked`                                                                                                    | `parked`  |
-| `member retire --handle H`                                                            | `active`, `parked` | mark; converge the rooms (kick from every room); deactivate; post `removed`                                                                        | `retired` |
+| Verb                                                                                  | From state           | Steps (each recorded in `pending` before it runs)                                                                                                  | To state   |
+| ------------------------------------------------------------------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| `member add --prefix P --seat S --kind K --human-text B --credential password\|token` | (none)               | claim the handle in the roster (counter raised); create the account; issue the credential; converge the rooms (invite per A's specs); post `added` | `enrolled` |
+| `member return --handle H --credential password\|token`                               | `parked`, `lost`     | revoke (password reset with device logout), or for `lost` create the account; issue the credential; converge the rooms; post `added`               | `enrolled` |
+| `member reissue --handle H --credential password\|token`                              | `enrolled`           | revoke; issue the credential (the lost-bundle recovery, C21)                                                                                       | `enrolled` |
+| `member park --handle H`                                                              | `enrolled`           | revoke; mark; converge the rooms; post `parked`                                                                                                    | `parked`   |
+| `member retire --handle H`                                                            | `enrolled`, `parked` | mark; converge the rooms (kick from every room); deactivate; post `removed`                                                                        | `retired`  |
 
 **The credential** (decision DC16). A seat's bundle carries one of two credentials, chosen by the
 caller:
@@ -899,13 +902,13 @@ any time (C23).
   transaction id derived from the operation (`pending`'s handle and `since_ms`), so a re-post is
   stored once (M22). The same verb asked again for the same handle (the caller retrying)
   completes it and prints the bundle, issuing after a revoke. Any other verb completes a pending
-  `add`, `return` or `reissue` to `active` with its credential revoked and prints no bundle, and
+  `add`, `return` or `reissue` to `enrolled` with its credential revoked and prints no bundle, and
   sets its `needs` to `reissue` (3.6.1), which the board shows. So a credential is printed only to
   a caller that asked for that handle, and v1's two gaps close: a failed account creation that
   rolled the member back but kept the counter, and an interrupted mint that left a valid token
   nobody held.
-- `add` refuses a handle that is `active`, `parked` (naming `return`), `lost` (naming `return`) or
-  `retired` (never returns). For `active` the message says the seat number is taken, perhaps just
+- `add` refuses a handle that is `enrolled`, `parked` (naming `return`), `lost` (naming `return`) or
+  `retired` (never returns). For `enrolled` the message says the seat number is taken, perhaps just
   now by another checkout of the same repository, and to choose again; it names `reissue` only for
   a bundle this checkout has lost. ccy-teams, on that refusal for a seat it chose itself, chooses
   again from the fresh status record, at most three times (seat numbers are counted per prefix
@@ -957,7 +960,7 @@ writes host_vars under the play lock, approves that one change (`team approve --
 
 The demotion completes before the promotion starts, across every member kind (C17). "Apply it
 fully" is the rooms step of 3.6.2 run for the team from the changed roster: the roster event,
-the questions room's membership and its open or closed form (open while an active coordinator is
+the questions room's membership and its open or closed form (open while an `enrolled` coordinator is
 joined, closed otherwise, A §4.3), and the re-invite of a coordinator that left the questions
 room. Each demotion and each promotion then posts the admin's `role` notice (A §7.4). A
 coordinator whose roster entry says `human_text: false` is refused where A's rules say so, at the
@@ -970,7 +973,7 @@ exists (C30), and `role apply` handles it as follows:
 
 - A demotion is never deferred. If the old coordinator is not the declared one, it is demoted
   now, whether or not the new one exists, so C17 holds at every instant.
-- A declared coordinator that is an `active` or `parked` handle is promoted now.
+- A declared coordinator that is an `enrolled` or `parked` handle is promoted now.
 - A declared coordinator that is not in the roster, or is `lost` (3.12.2), is recorded as
   `coordinator_wanted` (3.6.1),
   and the status record shows it as team state (its `coordinator_wanted`, 3.11.3), not as a
@@ -1204,7 +1207,7 @@ allocation lock):
    names a session that is over, which is released first (below). A `held/` with no complete
    `held.json` is a take that died before step 2 finished: it is moved to quarantine, and its
    token, if one was written, dies at this take's device logout (step 3). The handle's state,
-   from the status record's roster, decides what follows: `active` with no `needs` goes on;
+   from the status record's roster, decides what follows: `enrolled` with no `needs` goes on;
    `parked` or `lost` goes to `member return` and `needs: reissue` to `member reissue` (each a
    placement, above, and asking the owner's password); `retired` is refused and its pool
    directory moved to quarantine.
@@ -1276,7 +1279,7 @@ never queues behind a draining keeper; the lock is taken only for steps 2 and 5.
    held it, B 2.5) or `held/notice.json` already records the run it names.
    Its outcome decides the next step:
    - posted, or a goodbye found: go on;
-   - not due, or not possible for good: the handle is not `active` in the status record's roster
+   - not due, or not possible for good: the handle is not `enrolled` in the status record's roster
      (parked, retired, lost, or with `needs: reissue`), the homeserver answers `M_UNKNOWN_TOKEN`
      or `M_FORBIDDEN`, the team is declared absent, or its homeserver is not installed. The
      reason is recorded as `held/notice.json` (`{"v": 1, "claim": "<claim id>", "run": "<run id>", "posted": false, "why": "<reason>"}`, one record per run, so a later run's end in the same claim is still judged), the board shows "notice not posted: <why>", and the
@@ -1383,8 +1386,8 @@ session records and the status record's roster:
 - The prefix a seat number is counted under names the handle's repo, site and type
   (`<repo>+<site>.<type>`, the form `member add --prefix` takes); the seat number is given
   separately (`--seat`) or counted. A §2.3 owns the grammar, and A's formatter joins the two.
-- The offered seat is the lowest number that is free in this checkout and held by no active member
-  of the same prefix; a parked handle's number is offered for its return first.
+- The offered seat is the lowest number that is free in this checkout and held by no `enrolled`
+  member of the same prefix; a parked handle's number is offered for its return first.
 - An LXC member's prefix is derived from its guest checkout at its first join only; after that
   the LXC record's handle is kept, and a checkout whose origin now derives another prefix is
   refused by name (3.9.2 step 03).
@@ -1800,7 +1803,7 @@ any group but the agent user's own, and refuses to run as uid 0.
       seat to take a new handle"), so a guest's files never make a new account. The seat number
       is the entry's (`member add --seat <seat>`). The roster's state of the handle, read here
       before any change, chooses step 06's verb: no member, or a pending `add` of it, is `add`
-      (which completes the pending one, SPEC-n2d MO5); `parked` or `lost` is `return`; `active`
+      (which completes the pending one, SPEC-n2d MO5); `parked` or `lost` is `return`; `enrolled`
       is `reissue`, also when no record entry holds it (a crash between a join and the
       record write that follows it, step 10, or a record restored older than the roster: the
       handle carries the LXC kind and no other entry derives it, so it is this entry's); and
@@ -1886,7 +1889,7 @@ any group but the agent user's own, and refuses to run as uid 0.
     as soon as that team's step 06 joins return, before step 07, with each joined entry's
     handle (status `deferred` until its later steps complete, then `joined`, or `offline` when
     deferred mid-phase). An entry whose steps a failed phase did not reach keeps the status it
-    had. `active` with no record entry (step 03's `reissue`) is then left only to a record
+    had. `enrolled` with no record entry (step 03's `reissue`) is then left only to a record
     restored older than the roster, or a crash between a join and that write; the next
     apply's `reissue` then records it.
 
@@ -2197,7 +2200,7 @@ Step 3 also probes each LXC member's seat lock (3.9.2) for its `online` entry.
    account's devices and whether it is deactivated, by the same admin read; and the drift of
    every room against A's specs (3.6.2), each drift with its repair (`ccy-teams apply <team>`).
    A member account with a device other than its seat's own, or deactivated while the roster
-   says `active` or `parked`, is a problem (DC16's stated cost): the fix for a device is the hot
+   says `enrolled` or `parked`, is a problem (DC16's stated cost): the fix for a device is the hot
    reissue (`ccy-teams reissue <handle>`, 3.7.3), which logs out every device; for a deactivated
    account it is `member retire` and a new member, after the declaration names another
    coordinator if it was the coordinator (3.6.3: `retire` refuses the declared coordinator).
@@ -2220,7 +2223,7 @@ Step 3 also probes each LXC member's seat lock (3.9.2) for its `online` entry.
    id read from the lock file's content (B's seat lock grammar, checked; anything else counts as
    no run id), `since_ms`, and whether a notice was posted for that run. When a handle that was
    held at the last tick is now free, or its container has stopped, and the handle is still
-   `active` in the roster, the tick asks the child for `member.disconnected` with the handle and
+   `enrolled` in the roster, the tick asks the child for `member.disconnected` with the handle and
    the run id this record holds from the last tick, read while that run held the lock: the ended
    run's id, never one read from the lock file now, which a new run may already name. A run whose
    free lock file still names it with `launch_failed_ms` (B 2.5) is not asked for: it never reached
@@ -2254,11 +2257,11 @@ restore, so the board sees a change at once:
   "expires_ms": 0,
   "homeserver": {"unit": "active", "since_ms": 0, "nrestarts": 0, "probe": "ok"},
   "members": [
-    {"handle": "<handle>", "kind": "podman", "role": "coordinator", "state": "active", "rooms": {"main": "join", "reports": "join", "questions": "join"}},
-    {"handle": "<handle>", "kind": "lxc", "role": "worker", "state": "active", "online": true, "rooms": {"main": "join", "reports": "join"}}
+    {"handle": "<handle>", "kind": "podman", "role": "coordinator", "state": "enrolled", "rooms": {"main": "join", "reports": "join", "questions": "join"}},
+    {"handle": "<handle>", "kind": "lxc", "role": "worker", "state": "enrolled", "online": true, "rooms": {"main": "join", "reports": "join"}}
   ],
   "humans": [
-    {"name": "<name>", "state": "active", "rooms": {"main": "join", "reports": "invite"}, "devices": 2, "last_seen_ms": 0}
+    {"name": "<name>", "state": "enrolled", "rooms": {"main": "join", "reports": "invite"}, "devices": 2, "last_seen_ms": 0}
   ],
   "backup": {"newest": {"id": 7, "time_ms": 0}, "last_run": "ok"},
   "disk": {"free_bytes": 0, "free_pct": 0},
@@ -2276,6 +2279,8 @@ restore, so the board sees a change at once:
   `{"phase": "<phase>", "accepted": <acceptance result>}` or null (D §3.9, §5.3). Both are
   written by D's `migrate` verbs. They are copies and never decide: the set record
   `/var/lib/teamchat-status/sets/<set-id>.json` does.
+- A member's or human's `state` is the roster's (3.6.1): `enrolled` means not parked, retired,
+  lost, claimed or removed, and says nothing of whether a session runs.
 - `online` is present on LXC member entries only: the tick's probe of the member's seat lock
   (3.11.2), up to about 70 s old. An entry whose disconnected notice could not be posted carries
   it as a problem, and one whose last run's lock file records a launch failure carries
@@ -2425,7 +2430,7 @@ no revoked credential is ever served.
     on its loopback and applies the merged roster's revocations to it: every handle `retired` is
     kicked from every room and deactivated; every handle `parked` and every member with
     `needs: reissue` is revoked (password reset with device logout), which includes every
-    `active` pool seat (below); every human whose credential
+    `enrolled` pool seat (below); every human whose credential
     changed after `N` (below) is revoked the same way and set to `needs: password`; every human
     `locked` is locked. It then writes the roster event (3.6.1) with `rev` above the live roster's
     `rev` and `restore_epoch` as the merged roster sets them (below: the epoch one above the live
@@ -2545,10 +2550,10 @@ So the current roster stays the truth for handles, and the database is brought t
 - "After the backup" is decided by the roster's own counter, never by a clock (operations 18): a
   credential write is after `N` when its `seq` (`cred_seq` of a member, `revoked_seq` of a human,
   3.6.1) is above the backup roster's `seq`. A backward clock step cannot move a write before `N`.
-- A handle `active` in both whose `cred_seq` is after `N` holds a credential the restored database
+- A handle `enrolled` in both whose `cred_seq` is after `N` holds a credential the restored database
   never issued, and the database holds the older one that a reissue had revoked: it gets
   `needs: reissue`, and step 5 revokes the older one before anything else can use it.
-- Every handle `active` with `cred` `password` (a pool seat, 3.6.1) gets `needs: reissue`, whatever
+- Every handle `enrolled` with `cred` `password` (a pool seat, 3.6.1) gets `needs: reissue`, whatever
   its `cred_seq`. A take's login is not a roster write, so the restored database holds the token
   that was live at `N`: the logout of a session released after `N` would be undone, and K13 would
   reopen. Step 5 revokes it with every other device of that account. Every token issued since `N`
@@ -2642,7 +2647,7 @@ backup and restore verbs, parsing the one JSON answer each prints.
 | rooms engine                    | against `fakehs` with A's specs: create, adopt after a crash between create and record, more than one candidate refused, kicks before state before invites, a removed human gone from every room before power levels change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | locks                           | two real processes per lock; the holder line; bounded waits; the health tick never waiting; every writer of `status.json` (each change verb, `human devices`, apply, backup, restore) interleaved with a tick, and the record never going backwards                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `team apply` and `remove`       | a fake systemd D-Bus connection; `execx.Fake` for `firewall-cmd` (exit 0, 1 and any other code), `nmcli`, `ip`; `/proc/net/tcp{,6}` fixtures; the restart set and the reload set each changed alone; a first apply that fails after the first start, then a run with a different `server_name`, refused; an `os.Root` tree in `t.TempDir()`; Plan 00192's sweeps (every external call failing in turn must fail the verb with a message; every working directory replaced by a file)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| backups and restore             | the tar parser shared by write and validate, against hostile tars (links, devices, `..`, setuid, extra members, oversize); the merged roster compared by `seq` (counters never fall, a handle retired after the backup stays retired, one added after it is `lost`, one reissued after it needs `reissue` and its older credential is refused after the restore, a human whose password was reset after it has the old password refused, a clock stepped backwards between the backup and a reissue changing nothing); a pending roster and a backup older than the carry refused, the latter accepted with `--accept-carry-loss`; the control swap done only by the child; a restore after a port change and after a pin bump that dropped a config key, both succeeding with the current config; the pre-restore backup `M` named in the answer and restorable; a restore of the oldest backup with the keep count full, failed after `M`, leaving `staged` with `N` still restorable by `--resume`; a fault injected at each of steps 3-10 and a kill after each, then `--resume` or `--discard`, ending with the team serving its old database or the secured restored one, never an empty or unsecured one, with no leftover the next restore refuses, and every other verb refused meanwhile; a start attempted while the block exists failing its assertion; the lost-event export counted; the roster event's `restore_epoch` changed; every `active` pool seat given `needs: reissue` and its token from `N` refused on the restored database (a session released after `N` included), and ccy-teams' follow-up hot reissue leaving each held session with a working `token` while a failed one stays `needs: reissue`; the staging config bound to loopback only, and the staging and secure units' rendered properties carrying `SocketBindAllow=tcp:<port>` and the loopback `IPAddressAllow=`                                                                                                                             |
+| backups and restore             | the tar parser shared by write and validate, against hostile tars (links, devices, `..`, setuid, extra members, oversize); the merged roster compared by `seq` (counters never fall, a handle retired after the backup stays retired, one added after it is `lost`, one reissued after it needs `reissue` and its older credential is refused after the restore, a human whose password was reset after it has the old password refused, a clock stepped backwards between the backup and a reissue changing nothing); a pending roster and a backup older than the carry refused, the latter accepted with `--accept-carry-loss`; the control swap done only by the child; a restore after a port change and after a pin bump that dropped a config key, both succeeding with the current config; the pre-restore backup `M` named in the answer and restorable; a restore of the oldest backup with the keep count full, failed after `M`, leaving `staged` with `N` still restorable by `--resume`; a fault injected at each of steps 3-10 and a kill after each, then `--resume` or `--discard`, ending with the team serving its old database or the secured restored one, never an empty or unsecured one, with no leftover the next restore refuses, and every other verb refused meanwhile; a start attempted while the block exists failing its assertion; the lost-event export counted; the roster event's `restore_epoch` changed; every `enrolled` pool seat given `needs: reissue` and its token from `N` refused on the restored database (a session released after `N` included), and ccy-teams' follow-up hot reissue leaving each held session with a working `token` while a failed one stays `needs: reissue`; the staging config bound to loopback only, and the staging and secure units' rendered properties carrying `SocketBindAllow=tcp:<port>` and the loopback `IPAddressAllow=`                                                                                                                           |
 | seats                           | take into a session directory where a destination is already planted (a directory, a symlink, a FIFO), a planted non-empty directory, a foreign owner, and a race that swaps the new directory for a link; each take logs the seat's device out and then logs in with its device id, and every earlier token, one whose release never ran included, is refused afterwards (against `fakehs`, which keeps a device's earlier tokens across a second login and ends them all at one logout, as Tuwunel does, H-C13); a login refused for a reset password stops the take naming `reissue`; `held/` with `O_EXCL`, and an incomplete `held/` quarantined by the next take; `claim` and `released_ms` in the session copy and never in the pool's `seat.json`; release moves to quarantine and never into the pool, the pool record byte-identical after a session rewrote its copy; the release's logout, its token refused afterwards, and a transient logout failure keeping `held/`; a release whose notice fails transiently keeps `held/` and the retry posts once; a notice refused for good (handle parked, retired or lost, `M_UNKNOWN_TOKEN`, team absent) is recorded and the release completes; a crashed container's seats announced at once and kept held, and the later release not posting again; a seat lock path made a symlink to an owner file, a FIFO or a device, refused by the probe; a placement into an existing seat by `RENAME_EXCHANGE`, the old record quarantined; a hot reissue of a held seat (new `password`, new `held/token`, the session's `token` replaced by rename over a planted link without following it, the old token refused) and its fallback to a release when the session directory fails its check; the owner's seat sweep announcing a restorable session's seat once with its lock free, keeping it held, and releasing a session that is over; a leave that times out re-run by the board; the launcher's mount refusal for `~/.local`, `~/.local/state` and a `$XDG_STATE_HOME` path |
 | approval gate                   | `declare check` with each security field changed alone, and a new team, printing its `SECURITY` line and failing; `team apply` refusing the same with 70 when step 2 is skipped; `team approve` writing `approved.json`, after which both pass; a non-security field changed passing without approval; an LXC member entry added or changed, refused by `declare check` and `lxc apply` until approved; `team approve --only <field>` refusing with 70 when another gated field also differs, and when the named list holds an entry other than the one change passed (a human or LXC member planted beside the owner's `--add`); `element apply` given a declaration with a URL refusing it, and writing the approved `url`; the roster event rendered from `team.json` while a different `trust` sits in host_vars, and no member, role or human verb accepting a declaration                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | LXC membership and absent phase | `guest membership` writing the agent's own desired file, the host copy's `generation` raised; the absent phase parking the member first (its token refused before the desired file is rewritten), then waiting for the seat to come free (60 s, the L3 probe) before `guest remove`; an agent that rewrites its own desired file to keep the seat: the token is already dead, the member reads and posts nothing more, the phase reports `DEFERRED` with the holder's run id and retries steps 2-5 at the next apply; the rendered LXC unit's `ExecStart` parsed by `run`'s own argument parser; the health tick's LXC disconnected posting once per run, not posting for a member parked under the team lock or one whose `left` is in the room, and retrying after a transient failure; `lxc-online.json` written inside the health unit's `ReadWritePaths`; a member account with an extra device, and one deactivated, each reported as a problem with its fix                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |

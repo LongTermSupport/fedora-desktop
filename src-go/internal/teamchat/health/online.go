@@ -11,6 +11,7 @@ import (
 	"slices"
 	"sync"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
 	memberstate "github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
@@ -167,9 +168,6 @@ func (t *Tick) online(ctx context.Context, team paths.TeamID, f *facts) ([]statu
 	return members, problems, nil
 }
 
-// memberActive is the roster state of a member whose end is announced.
-const memberActive = "active"
-
 // held is a held lock's entry: the run its record names (none for a record that does not decode
 // by B's grammar), since now when the run is new.
 func (t *Tick) held(entry onlineEntry, lock memberstate.LockRecord, lockErr error) onlineEntry {
@@ -205,7 +203,7 @@ func (t *Tick) moveOn(ctx context.Context, team paths.TeamID, m status.Member, e
 	if entry.Run == "" || entry.Posted {
 		return entry, found
 	}
-	if m.State != memberActive {
+	if m.State != apply.MemberEnrolled {
 		entry.Posted = true
 		return entry, true
 	}

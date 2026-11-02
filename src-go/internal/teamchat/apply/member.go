@@ -65,10 +65,10 @@ var opSteps = map[string][]string{
 // fromStates are the states each verb takes a member in (MO2).
 var fromStates = map[string][]string{
 	OpMemberReturn:  {MemberParked, MemberLost},
-	OpMemberReissue: {MemberActive},
-	OpMemberPark:    {MemberActive},
-	OpMemberRetire:  {MemberActive, MemberParked},
-	OpMemberSet:     {MemberActive, MemberParked},
+	OpMemberReissue: {MemberEnrolled},
+	OpMemberPark:    {MemberEnrolled},
+	OpMemberRetire:  {MemberEnrolled, MemberParked},
+	OpMemberSet:     {MemberEnrolled, MemberParked},
 }
 
 // MemberRequest is one member verb: the handle, or for `add` the prefix, the seat (a number
@@ -315,8 +315,8 @@ func (r *run) refuseState(req MemberRequest, h string) error {
 
 func refusedAdd(h, state string) error {
 	switch state {
-	case MemberActive:
-		return refusedf("member %s is active: the seat number is taken, perhaps just now by another checkout of the same repository; choose again (member reissue only for a bundle this checkout lost)", h)
+	case MemberEnrolled:
+		return refusedf("member %s is enrolled: the seat number is taken, perhaps just now by another checkout of the same repository; choose again (member reissue only for a bundle this checkout lost)", h)
 	case MemberParked, MemberLost:
 		return refusedf("member %s is %s: bring it back with member return", h, state)
 	case MemberRetired:
@@ -511,7 +511,7 @@ func (r *run) credential(ctx context.Context, p *Pending, kind string) error {
 	if err := r.d.Admin.ResetPassword(ctx, r.userID(p.Handle), password); err != nil {
 		return failed(StepCredential, err)
 	}
-	m.State = MemberActive
+	m.State = MemberEnrolled
 	if kind == "" {
 		m.Needs = needsReissue
 		f.Members[p.Handle] = r.revoked(m)

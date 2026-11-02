@@ -130,7 +130,7 @@ func (r *run) leaveTeam(ctx context.Context, team paths.TeamID, leavers []*membe
 	return nil
 }
 
-// parks is step 1 for the team's leavers: each handle the roster has active parked (the child
+// parks is step 1 for the team's leavers: each handle the roster has enrolled parked (the child
 // parks no other; parked, lost and retired are parked already). A left entry is never parked
 // again: its handle may have joined elsewhere since. Each park is recorded left at once, so a
 // crash after it cannot leave the entry over a parked handle. A seat whose park, or its record,
@@ -152,7 +152,7 @@ func (r *run) parks(ctx context.Context, team paths.TeamID, leavers []*member) [
 	}
 	var parked []*member
 	for _, m := range parkable {
-		if roster[m.handle] != apply.MemberActive {
+		if roster[m.handle] != apply.MemberEnrolled {
 			continue
 		}
 		if err := r.d.Roster.Park(ctx, team, m.handle); err != nil {

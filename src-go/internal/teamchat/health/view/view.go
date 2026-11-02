@@ -2,7 +2,7 @@
 // DESIGN-v2-C-host.md 3.11.2 step 3, DC16), as the `teamchat-ctl` child makes it: read-only, as
 // the admin, from `team.json`, the roster file and `rooms.json`. It gives each member's and
 // human's membership of each room, the humans' devices, the pool-password watch over every
-// active or parked member's account, the drift of every room (the rooms engine run against a
+// enrolled or parked member's account, the drift of every room (the rooms engine run against a
 // client that writes nothing), the questions room item by item, and a `pending` operation, each
 // a problem with its fix. A problem never carries an error's text, and room state a member can
 // write only ever skips an entry.
@@ -236,11 +236,11 @@ func signIns(devices []matrix.Device) (int64, int64) {
 	return int64(len(devices)), last
 }
 
-// watch is the pool-password watch (VW3, DC16) over every active or parked member.
+// watch is the pool-password watch (VW3, DC16) over every enrolled or parked member.
 func (r *reader) watch(ctx context.Context) error {
 	f := r.in.Roster
 	for _, handle := range slices.Sorted(maps.Keys(f.Members)) {
-		if s := f.Members[handle].State; s != apply.MemberActive && s != apply.MemberParked {
+		if s := f.Members[handle].State; s != apply.MemberEnrolled && s != apply.MemberParked {
 			continue
 		}
 		if err := r.account(ctx, handle); err != nil {
@@ -371,7 +371,7 @@ func (r *reader) questions(ctx context.Context) error {
 	}
 	f := r.in.Roster
 	c, ok := f.Members[f.Coordinator]
-	open := ok && c.State == apply.MemberActive
+	open := ok && c.State == apply.MemberEnrolled
 	// An invite not yet accepted is a coordinator whose session has not run since its promotion:
 	// the coordinator's own problem, never the team's (FRAME, offline members never block).
 	switch s := r.roomsOf(f.Coordinator)[proto.PurposeQuestions]; {

@@ -130,8 +130,8 @@ func newWorld(t *testing.T) *world {
 		t.Fatalf("first apply: %v", err)
 	}
 	w.editRoster(t, func(f *apply.RosterFile) {
-		f.Members[coord] = apply.Member{State: apply.MemberActive, Kind: "podman", HumanText: true, Cred: "password"}
-		f.Members[worker] = apply.Member{State: apply.MemberActive, Kind: "podman", HumanText: true, Cred: "password"}
+		f.Members[coord] = apply.Member{State: apply.MemberEnrolled, Kind: "podman", HumanText: true, Cred: "password"}
+		f.Members[worker] = apply.Member{State: apply.MemberEnrolled, Kind: "podman", HumanText: true, Cred: "password"}
 	})
 	res, err := apply.Run(t.Context(), deps, in)
 	if err != nil {
@@ -248,15 +248,15 @@ func TestAConvergedTeamHasNoProblem(t *testing.T) {
 	v := w.read(t)
 	wantProblems(t, v)
 	want := []status.Member{
-		{Handle: coord, Kind: "podman", Role: proto.RoleCoordinator, State: apply.MemberActive, Rooms: map[string]string{"main": "join", "reports": "join", "questions": "join"}},
-		{Handle: worker, Kind: "podman", Role: proto.RoleWorker, State: apply.MemberActive, Rooms: map[string]string{"main": "join", "reports": "join"}},
+		{Handle: coord, Kind: "podman", Role: proto.RoleCoordinator, State: apply.MemberEnrolled, Rooms: map[string]string{"main": "join", "reports": "join", "questions": "join"}},
+		{Handle: worker, Kind: "podman", Role: proto.RoleWorker, State: apply.MemberEnrolled, Rooms: map[string]string{"main": "join", "reports": "join"}},
 	}
 	wantMembers(t, v.Members, want)
 	if len(v.Humans) != 2 || v.Humans[0].Name != "alice" || v.Humans[1].Name != "bob" {
 		t.Fatalf("humans %+v", v.Humans)
 	}
 	alice, bob := v.Humans[0], v.Humans[1]
-	if alice.Devices != 1 || bob.Devices != 0 || alice.State != apply.HumanActive {
+	if alice.Devices != 1 || bob.Devices != 0 || alice.State != apply.HumanEnrolled {
 		t.Fatalf("devices: alice %+v, bob %+v", alice, bob)
 	}
 	if alice.Rooms["main"] != "invite" || alice.Rooms["questions"] != "invite" {
@@ -348,7 +348,7 @@ func TestAMissingRoomIsAProblem(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := apply.NewRosterFile(alphaID(t))
-	f.Humans["alice"] = apply.Human{State: apply.HumanActive}
+	f.Humans["alice"] = apply.Human{State: apply.HumanEnrolled}
 	v, err := Read(t.Context(), a, Input{Team: team, Roster: f})
 	if err != nil {
 		t.Fatalf("Read: %v", err)

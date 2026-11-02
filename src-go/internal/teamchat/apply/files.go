@@ -22,20 +22,22 @@ const fileVersion = 1
 // fileMode is both files' mode: the control user's alone.
 const fileMode = 0o600
 
-// The member states of C 3.6.1. MemberClaimed is the intent state: a handle `member add` has
-// claimed whose account is not made yet (n2b-D12).
+// The member states of C 3.6.1. MemberEnrolled is a member in none of the others: its account and
+// credential issued, not parked, retired, lost or claimed; a registry state, which says nothing
+// of whether a session runs. MemberClaimed is the intent state: a handle `member add` has claimed
+// whose account is not made yet (n2b-D12).
 const (
-	MemberActive  = "active"
-	MemberParked  = "parked"
-	MemberRetired = "retired"
-	MemberLost    = "lost"
-	MemberClaimed = "claimed"
+	MemberEnrolled = "enrolled"
+	MemberParked   = "parked"
+	MemberRetired  = "retired"
+	MemberLost     = "lost"
+	MemberClaimed  = "claimed"
 )
 
-// The human states (n2b-D7).
+// The human states (n2b-D7): HumanEnrolled is a human that is not removed.
 const (
-	HumanActive  = "active"
-	HumanRemoved = "removed"
+	HumanEnrolled = "enrolled"
+	HumanRemoved  = "removed"
 )
 
 const keySince = "since_ms"
@@ -303,7 +305,7 @@ var memberKeys = []string{"state", "kind", "human_text", keySince, "cred", "cred
 func (r *reader) member(v proto.Value, path string) Member {
 	m := r.object(v, path, memberKeys)
 	return Member{
-		State:     r.str(m["state"], path+".state", false, oneOf(MemberActive, MemberParked, MemberRetired, MemberLost, MemberClaimed)),
+		State:     r.str(m["state"], path+".state", false, oneOf(MemberEnrolled, MemberParked, MemberRetired, MemberLost, MemberClaimed)),
 		Kind:      r.str(m["kind"], path+".kind", false, kindRe.MatchString),
 		HumanText: r.boolean(m["human_text"], path+".human_text"),
 		SinceMS:   r.integer(m["since_ms"], path+".since_ms"),
@@ -317,7 +319,7 @@ func (r *reader) member(v proto.Value, path string) Member {
 func (r *reader) human(v proto.Value, path string) Human {
 	m := r.object(v, path, []string{"state", keySince, "revoked_seq", "needs"})
 	return Human{
-		State:      r.str(m["state"], path+".state", false, oneOf(HumanActive, HumanRemoved)),
+		State:      r.str(m["state"], path+".state", false, oneOf(HumanEnrolled, HumanRemoved)),
 		SinceMS:    r.integer(m["since_ms"], path+".since_ms"),
 		RevokedSeq: r.integer(m["revoked_seq"], path+".revoked_seq"),
 		Needs:      r.str(m["needs"], path+".needs", true, oneOf(needsPass)),

@@ -92,7 +92,7 @@ and `element`, `desired.json` (C 3.7.5; the sweep asks it through a seam), and c
   strict, per LXC handle: `held`, `run`, `since_ms`, `posted`, n2e-D6). For each LXC handle, the
   `Guests` seam probes its seat lock (held, free with the lock file's record, or stopped). A
   held lock with a valid run id records that run and, when the run changed, `since_ms` now and
-  `posted` false. When a handle held at the last tick is now free or stopped, is `active` in the
+  `posted` false. When a handle held at the last tick is now free or stopped, is `enrolled` in the
   roster and its free lock file does not record `launch_failed_ms` for that run, the tick asks
   the `Announcer` seam (`member.disconnected` in the child) with the handle, the run id this
   record held from the last tick, and its `since_ms`; never a run id read now. Posted, or not
@@ -110,7 +110,7 @@ Read-only, as the admin, from the roster file and `rooms.json`:
 - **VW1. Memberships.** Each member's and each human's membership of each room, read from the
   room's state.
 - **VW2. Humans.** Each human's device count and newest `last_seen_ts`.
-- **VW3. The pool-password watch (DC16).** For each member whose state is `active` or `parked`:
+- **VW3. The pool-password watch (DC16).** For each member whose state is `enrolled` or `parked`:
   a device other than `TCSEAT` is the problem "<handle> has a device that is not its seat's"
   (fix: `ccy-teams reissue <handle>`); a deactivated account is the problem "<handle> is
   deactivated" (fix: `teamchat-admin member retire` and a new member; first name another

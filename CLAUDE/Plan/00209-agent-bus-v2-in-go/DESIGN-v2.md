@@ -440,7 +440,7 @@ Under either shape, the rest of C 3.7 changes as follows:
   login: it writes the answer's token as `held/token.new` and renames it over `held/token`.
   Steps 3 and 4 as now. The holder's old token died inside the call, at the password reset with
   device logout (C 3.6.3).
-- **After a restore (C 3.12.2):** the merge rule that gives every `active` handle with `cred`
+- **After a restore (C 3.12.2):** the merge rule that gives every `enrolled` handle with `cred`
   `password` a `needs: reissue` applies to `cred` `pool_token` too: the restored database holds
   the token live at the backup, and under (d2) a logout since then would be undone. The recovery
   runs `member reissue --credential pool_token` for each such handle with a pool record on this host,

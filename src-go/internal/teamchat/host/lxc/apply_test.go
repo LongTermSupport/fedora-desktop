@@ -533,7 +533,7 @@ func TestRosterStatesChooseTheJoin(t *testing.T) {
 		t.Fatalf("a retired handle was not refused: %v", err)
 	}
 	w = placed(t)
-	w.roster.roster[mustTeam(t, "t1")][firstHandle] = apply.MemberActive
+	w.roster.roster[mustTeam(t, "t1")][firstHandle] = apply.MemberEnrolled
 	if _, err := w.apply(PhasePresent); err != nil || len(w.roster.joins) != 0 {
 		t.Fatalf("an active joined seat was joined again: %v %v", w.roster.joins, err)
 	}

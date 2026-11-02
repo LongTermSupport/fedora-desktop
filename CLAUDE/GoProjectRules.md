@@ -975,8 +975,7 @@ model (`offerCopy`, `SettleClipboard`).
   `-loops 0` and "one paste at stop", clean) and `fix/qa/rules` (the owner, clean); the shell
   half against its section of `.semgrep/bash-conventions.bash`, proven on every run of the gate.
 - Red, real tree (`d4f2a2da3`, through `./scripts/qa-changed.bash`): 13 Go findings in
-  `internal/teams/login` (`login.go` 7, `password_test.go` 6; the same with `-tags
-  ccyteamstest,difftest`, none in the `qa` module) and 2 shell lines in
+  `internal/teams/login` (`login.go` 7, `password_test.go` 6; the same with `-tags ccyteamstest,difftest`, none in the `qa` module) and 2 shell lines in
   `scripts/test-ccy-teams-command.bash`.
 - Green: every finding fixed (the copy is plain, `SettleClipboard` compares and clears, the
   texts and tests say so); the Clipboard Indicator refusal now says the extension keeps the
@@ -1015,8 +1014,10 @@ reason: the phone app's `ACTIVE` manifest state in `internal/stt`, and the fake 
 **How to fix a violation.** Take the word from the owner that read it from a live source
 (`agentbus.LiveListening` and the other `Liveness` values, from the member's `LIVE` line, which
 `agent-bus list` judges from the member's `agent_bus.status` exactly as `pingbus status` does),
-or name the state for what its source says (`agentbus.WordNotParked`, parked). Show what could
-not be read as unknown, with why.
+or name the state for what its source says (`agentbus.WordNotParked`, parked). A unit's
+ActiveState read elsewhere (teamchat reads it over D-Bus) is compared with
+`systemd.ActiveStateActive`, systemd's word in its owner. Show what could not be read as
+unknown, with why.
 
 - Red, fixture: `testdata/src/fix/internal/badlive` (`bad.go`: the original map of states, a
   constant, a switch case with surrounding space, an upper-case word and a raw string, all
