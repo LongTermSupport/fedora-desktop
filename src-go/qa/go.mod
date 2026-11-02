@@ -3,7 +3,7 @@ module github.com/LongTermSupport/fedora-desktop/src-go/qa
 go 1.26.10
 
 require (
-	github.com/LongTermSupport/go-qa-ci v0.0.0-20261019185407-ccf4c1751f05
+	github.com/LongTermSupport/go-qa-ci v0.0.0-20261102074547-015052d92059
 	github.com/yuin/goldmark v1.8.6
 	go.yaml.in/yaml/v3 v3.0.5
 	golang.org/x/mod v0.42.0
