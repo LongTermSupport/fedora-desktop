@@ -39,6 +39,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends podman
           sudo podman version
+          # Ubuntu's AppArmor refuses unprivileged user namespaces to unprofiled programs, and
+          # the plays run rootless podman as the CI user inside the container, as Fedora allows.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
       # The base image is not an installed box, so the lane makes it look like one: the core
       # package group a minimal install carries, systemd as PID 1, so that hostnamectl,
