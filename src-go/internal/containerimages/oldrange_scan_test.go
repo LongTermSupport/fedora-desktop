@@ -3,6 +3,7 @@ package containerimages
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -139,7 +140,9 @@ func scanApp(t *testing.T) (App, *bytes.Buffer, *bytes.Buffer, string) {
 func TestScanPrintsTheStoreTheOwnersAndTheDirectories(t *testing.T) {
 	a, out, errOut, store := scanApp(t)
 	// The test's own files are foreign to joe, whose uid is 1000 and range 524288+65536,
-	// unless the test runs as one of those.
+	// unless the test runs as one of those (root, in a CCY container, never is). Then every
+	// path the test made is old-range: overlay itself (its own store directory, O2) and the
+	// three under overlay/L1.
 	if code := a.Run(t.Context(), []string{"old-range", "scan", "--user", "joe"}); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
@@ -151,8 +154,15 @@ func TestScanPrintsTheStoreTheOwnersAndTheDirectories(t *testing.T) {
 		t.Fatalf("scan header = %+v", s)
 	}
 	uid := int64(os.Getuid())
-	if owners().foreignUID(uid) && (len(s.Dirs) != 1 || s.Dirs[0].Key != "overlay/L1") {
-		t.Fatalf("dirs = %+v", s.Dirs)
+	if !owners().foreignUID(uid) {
+		return
+	}
+	var got []string
+	for _, d := range s.Dirs {
+		got = append(got, fmt.Sprintf("%s %d", d.Key, d.Paths))
+	}
+	if want := []string{"overlay 1", "overlay/L1 3"}; !slices.Equal(got, want) {
+		t.Fatalf("dirs = %+v, want the keys and path counts %q", s.Dirs, want)
 	}
 }
 

@@ -185,8 +185,9 @@ func replay(t *testing.T, world map[string]string, sc goldenScenario) goldenReco
 			}
 			return nil
 		},
-		Cwd:  root,
-		Lock: freeLock,
+		Cwd:   root,
+		Lock:  freeLock,
+		Umask: keepUmask,
 	}
 	args := make([]string, 0, 2+len(sc.Args))
 	args = append(args, "--scripts", filepath.Join(root, "scripts"))

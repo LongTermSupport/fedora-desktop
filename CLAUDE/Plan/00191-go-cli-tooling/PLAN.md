@@ -905,6 +905,23 @@ today; rewriting them is out of scope.
   guard is `TestSuiteEnvIsolated*`. The three suites now pin their own environment as well.
   Left: the host agent's next `qa-all`.
 
+- [ ] 🔄 **Task 4.12**: The GitHub QA workflow went red on F44 while local `qa-all` passed:
+  the runner differs from the container. Defence Before Fix for the umask, which Task 4.11's
+  isolation missed: `suite-env-isolated` now also runs every `qa-all` and `qa-changed` command
+  under umask 077 (`gates.SuiteUmask`; the runner sets its own process umask through
+  `Env.Umask` before its first command, and refuses a run without one). The guards are
+  the `TestSuiteEnvIsolated*Umask*` tests in `qa/all` and `qa/changed`, red first (on a
+  machine at 022). The ccy launcher's goldens, recorded under the container's 077, are
+  unchanged; the difftest pins 077 itself and passes from a 022 shell. Sweep: every suite is
+  green under 077 (every container `qa-all`); under 022 (the CI run, a full `qa-all`, and both
+  Go modules locally) only the difftest depended on the umask. The other causes:
+  gitleaks' generic-api-key read two names as secrets (renamed); CI's Python was 3.12, and the
+  pycompat oracle now refuses an oracle older than 3.13 with that reason, CI using 3.14 (the
+  Fedora 44 python); the runner image is Ubuntu 26.04, whose multi-call coreutils broke a
+  helper test's `sleep` named `claude`, and whose non-root uid exposed a wrong expectation in
+  `containerimages`' scan test. Report: `subagent-reports/261102-ci-green.md`. Left: CI green
+  on the branch.
+
 ### Phase 5: Review
 
 - [x] ✅ **Task 5.1**: qa-reviewer over the whole plan (a worker; it ran once, 7205384c3, and

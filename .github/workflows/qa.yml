@@ -36,10 +36,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # The python3 of the target, Fedora 44. Tests compare Go against the machine's python3
+      # (src-go/internal/bus/pycompat, which refuses one older than 3.13), so CI's must be one
+      # the code runs on.
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14"
 
       - name: Set up Node
         uses: actions/setup-node@v4

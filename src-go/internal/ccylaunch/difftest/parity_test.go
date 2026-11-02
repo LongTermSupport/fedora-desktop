@@ -53,6 +53,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccylaunch"
@@ -77,8 +78,16 @@ func TestMain(m *testing.M) {
 		}
 		os.Exit(code)
 	}
+	// The goldens record the modes of what the launcher creates, which its umask decides: the
+	// scenarios run under the one they were recorded under (sandboxUmask), as they run under
+	// their own HOME, whatever umask started the test (suite-env-isolated in CLAUDE/QA.md).
+	syscall.Umask(sandboxUmask)
 	os.Exit(m.Run())
 }
+
+// sandboxUmask is the umask the goldens were recorded under, owner-only; the same as
+// gates.SuiteUmask, which every QA command runs under.
+const sandboxUmask = 0o077
 
 func goldenPath(name string) string {
 	return filepath.Join("testdata", "golden", name+".txt")

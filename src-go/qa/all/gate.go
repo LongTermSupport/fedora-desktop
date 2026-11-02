@@ -44,6 +44,8 @@ func (s *session) isolation() (gates.Isolation, error) {
 		return gates.Isolation{}, fmt.Errorf("cannot make a scratch directory: %w", err)
 	}
 	s.temps = append(s.temps, scratch)
+	// Set once for the process, before its first command: every command inherits it.
+	s.env.Umask(gates.SuiteUmask)
 	iso, err := gates.NewIsolation(s.root, s.scripts, s.env.Getenv("PATH"), scratch)
 	if err != nil {
 		return gates.Isolation{}, fmt.Errorf("cannot isolate the gates from this machine: %w", err)

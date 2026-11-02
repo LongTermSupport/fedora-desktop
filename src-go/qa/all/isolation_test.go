@@ -69,3 +69,39 @@ func TestSuiteEnvIsolatedEveryRowOfTheRealTableRunsIsolated(t *testing.T) {
 		}
 	}
 }
+
+// keepUmask is an Env.Umask that changes nothing, for a test that does not judge the umask.
+func keepUmask(int) int { return machineUmask }
+
+// suite-env-isolated: every row of the real table runs under gates.SuiteUmask, whatever umask
+// the machine started the run with, so the modes a suite sees created are not the machine's.
+func TestSuiteEnvIsolatedEveryRowRunsUnderTheSuiteUmask(t *testing.T) {
+	w := newRealWorld(t)
+	if code := w.main(context.Background()); code != ExitOK {
+		t.Fatalf("exit %d\nstderr:\n%s", code, w.errOut.String())
+	}
+	if len(w.runner.masks) != len(tableOrder(t)) {
+		t.Fatalf("ran %d commands, want one per row", len(w.runner.masks))
+	}
+	for i, mask := range w.runner.masks {
+		if mask != gates.SuiteUmask {
+			t.Errorf("suite-env-isolated: %s runs under the machine's umask %04o, not %04o", w.runner.log[i], mask, gates.SuiteUmask)
+		}
+	}
+}
+
+// A command with no way to set its umask cannot isolate its gates: it runs none of them.
+func TestSuiteEnvIsolatedNoUmaskControlRunsNothing(t *testing.T) {
+	w := newRealWorld(t)
+	env := w.env0()
+	env.Umask = nil
+	if code := Main(context.Background(), []string{"--root", w.root}, env); code != ExitCannotRun {
+		t.Fatalf("exit %d, want %d\nstderr:\n%s", code, ExitCannotRun, w.errOut.String())
+	}
+	if len(w.runner.log) != 0 {
+		t.Fatalf("ran %v with no umask control", w.runner.log)
+	}
+	if !strings.Contains(w.errOut.String(), "no umask control is wired into this command") {
+		t.Fatalf("stderr does not name the missing umask control:\n%s", w.errOut.String())
+	}
+}

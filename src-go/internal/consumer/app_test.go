@@ -21,9 +21,9 @@ import (
 )
 
 const (
-	// password is the login password the tests type; become is how a play line shows the file
+	// loginTyped is the login password the tests type; become is how a play line shows the file
 	// that hands it to Ansible (its random path normalised by foregrounds).
-	password    = "s3cr3t-placeholder"
+	loginTyped  = "s3cr3t-placeholder"
 	become      = " --become-password-file PWFILE"
 	vaultName   = "vault.txt"
 	pipxListOut = `{"venvs":{"ansible":{"metadata":{"injected_packages":{"jmespath":{}}}}}}`
@@ -66,7 +66,7 @@ type world struct {
 func newWorld(t *testing.T) *world {
 	t.Helper()
 	root := t.TempDir()
-	w := &world{t: t, root: root, home: t.TempDir(), runtime: t.TempDir(), typed: password + "\n", fake: &execx.Fake{}, uid: 1000, terminal: true, gecos: "Una \"U\" User"}
+	w := &world{t: t, root: root, home: t.TempDir(), runtime: t.TempDir(), typed: loginTyped + "\n", fake: &execx.Fake{}, uid: 1000, terminal: true, gecos: "Una \"U\" User"}
 	w.osRelease = filepath.Join(root, "os-release")
 	writeFile(t, w.osRelease, "NAME=\"Fedora Linux\"\nVERSION_ID=44\n")
 	writeFile(t, filepath.Join(root, versionPath), "---\nfedora_version: 44\n")
@@ -141,11 +141,11 @@ func (w *world) wantNoPasswordLeft() {
 func (w *world) wantPasswordNowhere() {
 	w.t.Helper()
 	for _, c := range append(w.fake.Calls(), w.fake.Foregrounds()...) {
-		if strings.Contains(c.Line()+strings.Join(c.Env, " "), password) {
+		if strings.Contains(c.Line()+strings.Join(c.Env, " "), loginTyped) {
 			w.t.Errorf("the password is in %s", c.Line())
 		}
 	}
-	if strings.Contains(w.stderr.String()+w.stdout.String(), password) {
+	if strings.Contains(w.stderr.String()+w.stdout.String(), loginTyped) {
 		w.t.Error("the password was printed")
 	}
 }
@@ -525,7 +525,7 @@ func TestThePasswordIsAskedOnceForTheMainPlayAndEveryOptionalOne(t *testing.T) {
 			t.Errorf("a play was not handed the password file: %s", line)
 		}
 	}
-	want := slices.Repeat([]string{password + " -rw------- -rwx------ true"}, 4)
+	want := slices.Repeat([]string{loginTyped + " -rw------- -rwx------ true"}, 4)
 	if !slices.Equal(w.handed, want) {
 		t.Fatalf("the plays found %q, want %q", w.handed, want)
 	}
@@ -536,19 +536,19 @@ func TestThePasswordIsAskedOnceForTheMainPlayAndEveryOptionalOne(t *testing.T) {
 func TestAWrongPasswordIsAskedAgain(t *testing.T) {
 	w := newWorld(t)
 	w.fake.OnFunc([]string{"sudo", "-k", "-S"}, func(c execx.Cmd) (execx.Result, error) {
-		if c.Feed == nil || !c.Feed.Secret.Is(password) {
+		if c.Feed == nil || !c.Feed.Secret.Is(loginTyped) {
 			return execx.Result{ExitCode: 1, Stderr: []byte("Sorry, try again.\nsudo: 1 incorrect password attempt\n")}, nil
 		}
 		return execx.Result{}, nil
 	})
-	w.typed = "wrong\n\n" + password + "\n"
+	w.typed = "wrong\n\n" + loginTyped + "\n"
 	w.answers = "1\n"
 	w.wantCode(w.run(), term.ExitOK)
 	if w.echoOff != 3 || w.echoBack != 3 || w.checks() != 2 {
 		t.Fatalf("asked %d times (echo back %d), checked %d times", w.echoOff, w.echoBack, w.checks())
 	}
 	w.wantErr("sudo did not accept that password", "type your password")
-	if want := slices.Repeat([]string{password + " -rw------- -rwx------ true"}, 2); !slices.Equal(w.handed, want) {
+	if want := slices.Repeat([]string{loginTyped + " -rw------- -rwx------ true"}, 2); !slices.Equal(w.handed, want) {
 		t.Fatalf("the plays found %q, want %q", w.handed, want)
 	}
 	w.wantPasswordNowhere()

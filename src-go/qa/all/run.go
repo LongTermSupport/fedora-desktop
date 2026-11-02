@@ -138,6 +138,9 @@ func reportPath(getenv func(string) string) string {
 }
 
 func newSession(env Env, opts options) (*session, error) {
+	if env.Umask == nil {
+		return nil, errors.New("no umask control is wired into this command")
+	}
 	root, scripts := resolvePaths(opts, env.Cwd)
 	if info, err := os.Stat(root); err != nil || !info.IsDir() {
 		return nil, fmt.Errorf("root %s is not a directory", root)
