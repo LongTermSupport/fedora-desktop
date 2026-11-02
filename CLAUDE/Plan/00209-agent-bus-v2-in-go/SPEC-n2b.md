@@ -179,9 +179,10 @@ reports each role change for the caller to post).
   `v`, `team`, `seq`, `rev`, `restore_epoch`, `counters`, `members`, `humans`, `coordinator`,
   `coordinator_wanted`, `pending`, decoded strictly (exact keys, no repeats, capped at 1 MiB;
   a member: `state`, `kind`, `human_text`, `since_ms`, `cred`, `cred_seq`, `cred_ms`, `needs`; a
-  human: `state` (`active` or `removed`), `since_ms`, `revoked_seq`, `needs`; `pending`: `op`,
+  human: `state` (`enrolled` or `removed`), `since_ms`, `revoked_seq`, `needs`; `pending`: `op`,
   `step`, `since_ms`, and `handle` only for a member operation). A missing file is a new team's
-  empty roster at `seq` 0.
+  empty roster at `seq` 0. `enrolled` is a member or human in none of the other states (not
+  parked, retired, lost, claimed or removed): a registry state, never a claim that a session runs.
 - **AP2. Every write of the roster file raises `seq` by one** and never lowers it; a run that
   changes nothing writes nothing.
 - **AP3. The rooms record** `ctl/<team>/rooms.json` (`paths.RoomsFile`) is
@@ -191,8 +192,8 @@ reports each role change for the caller to post).
   writes the ID into the rooms record and clears the step back to `rooms`.
 - **AP4. The roster event is derived, never edited** (C 3.6.1): `apply.DeriveRoster(file, team)`
   is A's roster from the roster file and the applied `team.json`: `team`, `name`, `rev` the
-  file's, `restore_epoch`, `humans` the declared humans' user IDs (only `active` ones of the
-  file), `members` every `active` or `parked` member (parked true), its role `coordinator` for
+  file's, `restore_epoch`, `humans` the declared humans' user IDs (only `enrolled` ones of the
+  file), `members` every `enrolled` or `parked` member (parked true), its role `coordinator` for
   the file's `coordinator` and `worker` otherwise, its `human_text`, `forge` the declaration's
   `trust`, and A's default limits. A `retired`, `lost` or intent-state member is not in it.
   `proto.Roster.Validate` must accept the result before the rooms step runs.
@@ -203,9 +204,9 @@ reports each role change for the caller to post).
 - **AP6. One server admin** (3.6.2 step 2): `ServerAdmins` must be exactly `@admin:<server>`,
   else refused (70) naming the others.
 - **AP7. Humans** (step 3): each declared human with no account gets one, created with a random
-  password that is not kept and no `admin` key (`CreateAccount`), and enters the file `active`
+  password that is not kept and no `admin` key (`CreateAccount`), and enters the file `enrolled`
   with `revoked_seq` the write's `seq` (`human <name> created`). A declared human whose account
-  is locked, or who is `removed` in the file, is unlocked and made `active` (DC9, `human <name> unlocked`). An account that exists but is an admin or deactivated is refused (70). A human in
+  is locked, or who is `removed` in the file, is unlocked and made `enrolled` (DC9, `human <name> unlocked`). An account that exists but is an admin or deactivated is refused (70). A human in
   the file but no longer declared becomes `removed` in the file before the rooms step (so the
   roster event drops it and the rooms engine kicks it from every room, C15), and is locked
   after it (`human <name> locked`).
@@ -215,7 +216,7 @@ reports each role change for the caller to post).
   the file is refused (70, C18); one whose `human_text` is false is refused (70, A's rule, S11
   4.5). Then, when the declared coordinator differs from the file's: the old one is demoted
   (the file's `coordinator` cleared) and the rooms converged; only then is the new one promoted
-  (`active` or `parked`) and the rooms converged again (C17), `role <handle> demoted` and
+  (`enrolled` or `parked`) and the rooms converged again (C17), `role <handle> demoted` and
   `role <handle> promoted`. A declared coordinator not in the file, or `lost`, is recorded as
   `coordinator_wanted` and the team runs with none (DC6). No coordinator declared clears both.
 - **AP10. Idempotent.** A second run over an applied team makes no write call, no roster write
@@ -233,16 +234,16 @@ reports each role change for the caller to post).
 
 ## 7. Decisions where the design is silent
 
-| ID      | Decision                                                                                                                                                  |
-| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| n2b-D1  | `trust` is A's `forge` section exactly (`kind` required, no `forge_api`): C 3.8 says its example keys are v1's and the shape is A's.                      |
-| n2b-D2  | The gated `url` is the resolved one, so the default URL's inputs (`teamchat_address`, `port`) are gated through it; `port` alone is not gated.            |
-| n2b-D3  | A list field is compared and approved as a set of entries: a reorder is no change, and each entry is one SECURITY line and one `--add` or `--remove`.     |
-| n2b-D4  | An absent team is not compared: removal narrows access. Its `approved.json` is left to `team remove` (not built).                                         |
-| n2b-D5  | The one-team input carries that team's LXC entries and the address, so `team apply` can compare every gated field DC18 names, LXC members included.       |
-| n2b-D6  | A coordinator whose `human_text` is false, or who is retired, is refused before any change, rather than demoting first and then failing.                  |
-| n2b-D7  | A human's file state is `active` or `removed`; `removed` is locked on the server. The roster event carries only `active` declared humans.                 |
-| n2b-D8  | `pending` during apply is `team.apply` with the step; room creates are its `create <purpose>` steps (the engine's intent). Apply clears it at the end.    |
-| n2b-D9  | The admin's `role` notice is not posted here; apply answers each role change and the verb that posts notices (later slice) posts it.                      |
-| n2b-D10 | `keepout` is a new row kind of the go-deps gate (Plan 00204's), so the DC17 rule lives in the gate the design names rather than in a test of one package. |
-| n2b-D11 | The declaration error never echoes the value (A 2.2's rule for the roster), so the play may print it as it is.                                            |
+| ID      | Decision                                                                                                                                                    |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| n2b-D1  | `trust` is A's `forge` section exactly (`kind` required, no `forge_api`): C 3.8 says its example keys are v1's and the shape is A's.                        |
+| n2b-D2  | The gated `url` is the resolved one, so the default URL's inputs (`teamchat_address`, `port`) are gated through it; `port` alone is not gated.              |
+| n2b-D3  | A list field is compared and approved as a set of entries: a reorder is no change, and each entry is one SECURITY line and one `--add` or `--remove`.       |
+| n2b-D4  | An absent team is not compared: removal narrows access. Its `approved.json` is left to `team remove` (not built).                                           |
+| n2b-D5  | The one-team input carries that team's LXC entries and the address, so `team apply` can compare every gated field DC18 names, LXC members included.         |
+| n2b-D6  | A coordinator whose `human_text` is false, or who is retired, is refused before any change, rather than demoting first and then failing.                    |
+| n2b-D7  | A human's file state is `enrolled` (not removed) or `removed`; `removed` is locked on the server. The roster event carries only `enrolled` declared humans. |
+| n2b-D8  | `pending` during apply is `team.apply` with the step; room creates are its `create <purpose>` steps (the engine's intent). Apply clears it at the end.      |
+| n2b-D9  | The admin's `role` notice is not posted here; apply answers each role change and the verb that posts notices (later slice) posts it.                        |
+| n2b-D10 | `keepout` is a new row kind of the go-deps gate (Plan 00204's), so the DC17 rule lives in the gate the design names rather than in a test of one package.   |
+| n2b-D11 | The declaration error never echoes the value (A 2.2's rule for the roster), so the play may print it as it is.                                              |

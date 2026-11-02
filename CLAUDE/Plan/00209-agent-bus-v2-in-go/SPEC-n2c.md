@@ -100,7 +100,7 @@ is the health tick's record, not the seat store's.
 
 - **ST1. Step 1.** The pool seat must have a complete record (its credential file and
   `seat.json`) and no `<seat>.new-*` leftover (named, offering `member reissue`). The handle's
-  state decides: `active` goes on; `parked` or `lost` is `ErrReturn`; `needs: reissue` is
+  state decides: `enrolled` goes on; `parked` or `lost` is `ErrReturn`; `needs: reissue` is
   `ErrReissue`; `retired` is `ErrRetired`, its pool directory moved to
   `released/pool/.../<seat>-<claim>/` under a fresh claim id, with its credential unlinked. A `held/` whose
   `held.json` is missing or incomplete is moved to quarantine (a take that died before step 2
