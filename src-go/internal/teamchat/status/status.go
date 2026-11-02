@@ -18,6 +18,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
@@ -52,7 +53,7 @@ const (
 )
 
 var (
-	unitStates  = []string{wordActive, "reloading", "inactive", "failed", "activating", "deactivating", "maintenance", "refreshing"}
+	unitStates  = []string{systemd.ActiveStateActive, "reloading", "inactive", "failed", "activating", "deactivating", "maintenance", "refreshing"}
 	memberships = []string{"join", "invite", "leave", "ban", "knock"}
 	purposes    = []string{proto.PurposeMain, proto.PurposeReports, proto.PurposeQuestions}
 	roles       = []string{proto.RoleCoordinator, proto.RoleWorker, proto.RoleProbe}

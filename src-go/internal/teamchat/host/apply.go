@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
@@ -79,8 +80,8 @@ type UnitState struct {
 	Enabled bool
 }
 
-// active is systemd's ActiveState of a running unit.
-const active = "active"
+// active is the ActiveState of a started unit, systemd's word.
+const active = systemd.ActiveStateActive
 
 // Systemd is the unit manager.
 type Systemd interface {
