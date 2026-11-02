@@ -146,9 +146,18 @@ a repository is no longer offered for a checkout of it. Report:
   the nonce. N5: the pre-swap backup also runs on a rendered config change
   (`helpers/agent_bus/config_restart.py`). Deployed at F44 c3391ba9; left: check 11, the host agent's on a test
   human (a password reset logs out only that human's Element sessions): Ctrl-P with Clipboard
-  Indicator on and off (`gnome-extensions disable`/`enable`), the top-bar menu by screenshot,
-  and `wl-paste` showing a second paste is empty. Report:
-  `subagent-reports/261015-final-review-fixes.md`.
+  Indicator on and off (`gnome-extensions disable`/`enable`), the top-bar menu by screenshot.
+  Report: `subagent-reports/261015-final-review-fixes.md`.
+  Host, 2026-11-02, Clipboard Indicator off: `wl-copy --paste-once` exits within 1.5 s with no
+  paste (GNOME reads the selection and keeps serving its copy), and pastes 1 to 3 all gave the
+  password. Fixed under Defence Before Fix, branch `fix/teams-clipboard-clear-2`, CCY 3.104.16:
+  rules `project_self_erasing_clipboard` (Go) and `bash-self-erasing-clipboard` (semgrep), 15
+  findings fixed. The copy is plain `wl-copy`; once Element has been offered, ccy-teams waits
+  for Enter (at most 45 s), reads the clipboard back with `wl-paste` and runs `wl-copy --clear`
+  only if it still holds the password, saying which; a failed read or clear says the password
+  may still be there. Left: check 11 again on the host (cleared, left alone,
+  and whether GNOME still serves the password after `wl-copy --clear`). Report:
+  `subagent-reports/261102-clipboard-paste-once.md`.
   Plan 00209 carries this as an expectation ("Requirements carried from other plans").
 
 - [x] ✅ **Task 2.13**: the Morning start dry run's ccy-teams defects. [Full text](DONE-tasks.md).

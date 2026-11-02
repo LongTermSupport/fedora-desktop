@@ -27,6 +27,23 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.104.16 — container 2.79.20
+
+The image is unchanged, so there is no rebuild.
+
+- **ccy-teams clears a copied password from the clipboard, and no longer promises one
+  paste.** The copy used `wl-copy --paste-once` and said the password was gone after one
+  paste; on GNOME the desktop reads a new selection at once and goes on serving its copy, so
+  the password stayed pasteable until the next copy. The copy is now plain `wl-copy`. Once
+  Element has been offered, ccy-teams asks you to press Enter when you have pasted the
+  password (at most 45 seconds), reads the clipboard back and clears it only if it still
+  holds the password; what you copied since is left alone. A read or clear that fails says
+  the password may still be on the clipboard. GNOME or a clipboard history may still keep a
+  copy after the clear. With Clipboard Indicator on, no copy is offered, as before. The
+  earlier entries' "serves one paste" no longer holds. New project rules,
+  `project_self_erasing_clipboard` (Go) and `bash-self-erasing-clipboard` (semgrep), keep
+  the claim and the flag out.
+
 ## 3.104.15 — container 2.79.20
 
 No image file changed since 3.104.14.

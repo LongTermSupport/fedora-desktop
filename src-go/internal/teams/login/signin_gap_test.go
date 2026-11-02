@@ -30,6 +30,21 @@ func TestSignInGapOffersAPasswordToAPersonWithNoSessions(t *testing.T) {
 	}
 }
 
+// A password copied during the sign-in after an apply is cleared before SignInGap returns.
+func TestSignInGapClearsACopiedPassword(t *testing.T) {
+	h := newRig(t)
+	h.passwordable()
+	h.copiable("a-new-password")
+	h.Script.Gum = []string{"YES"}
+	h.Script.Fzf = []string{"|YES"}
+	if err := h.l.SignInGap(t.Context(), []string{"alpha"}, true); err != nil {
+		t.Fatal(err)
+	}
+	if !h.Fake.Called("wl-copy --clear") || !strings.Contains(h.ErrOut.String(), clearedLine) {
+		t.Fatalf("calls %v stderr %q", h.Fake.Calls(), h.ErrOut.String())
+	}
+}
+
 func TestSignInGapDeclinedSaysHowToSignInLater(t *testing.T) {
 	h := newRig(t)
 	h.Script.Gum = []string{"NO"}

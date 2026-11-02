@@ -154,8 +154,7 @@ func TestElementAfterAFirstPasswordNeverSaysCopyIt(t *testing.T) {
 			h.Script.Fzf = []string{"|YES"}
 		},
 		"Clipboard Indicator off, copied": func(h rig) {
-			h.withoutClipboardHistory()
-			h.On("wl-copy", "", 0)
+			h.copiable("a-new-password")
 			h.Script.Fzf = []string{"|YES", "|YES"}
 		},
 		"Clipboard Indicator off, not copied": func(h rig) {
@@ -170,6 +169,7 @@ func TestElementAfterAFirstPasswordNeverSaysCopyIt(t *testing.T) {
 				return "/usr/bin/" + name, nil
 			}
 			h.On("wl-copy", "", 0)
+			h.On("wl-paste", "a-new-password", 0)
 			h.Script.Fzf = []string{"|YES", "|YES"}
 		},
 	}
@@ -190,6 +190,29 @@ func TestElementAfterAFirstPasswordNeverSaysCopyIt(t *testing.T) {
 				t.Fatalf("stderr %q", out)
 			}
 		})
+	}
+}
+
+// A copied first password stays on the clipboard until Element is open to paste it into: the
+// wait for the paste, and the clear, come after Element starts.
+func TestElementOpensBeforeTheCopiedPasswordIsCleared(t *testing.T) {
+	h := newRig(t)
+	h.withElementProfile(t)
+	h.On(teamtest.SudoBus+"human devices alpha owner", "", 0)
+	h.passwordable()
+	h.copiable("a-new-password")
+	h.Script.Fzf = []string{"|YES", "|YES"}
+	snap := h.pass(t)
+	if _, err := h.l.OpenElement(context.Background(), snap, "alpha"); err != nil {
+		t.Fatalf("%v", err)
+	}
+	launched, read, cleared := h.callIndex("systemd-run"), h.callIndex("wl-paste"), h.callIndex("wl-copy --clear")
+	if launched < 0 || read < launched || cleared < read {
+		t.Fatalf("calls %v: Element starts, then the clipboard is read back and cleared", h.Fake.Calls())
+	}
+	out := h.ErrOut.String()
+	if strings.Index(out, "Element is starting") > strings.Index(out, pasteNow) {
+		t.Fatalf("stderr %q: the paste is asked for once Element is starting", out)
 	}
 }
 

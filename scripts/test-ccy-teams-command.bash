@@ -313,7 +313,22 @@ if [ -n "${TEST_WLCOPY_FAIL:-}" ]; then
     echo "wl-copy: failed to connect to a Wayland server" >&2
     exit 1
 fi
+if [ "${1:-}" = "--clear" ]; then
+    : >"$TEST_STATE/clipboard"
+    exit 0
+fi
 cat >"$TEST_STATE/clipboard"
+cp "$TEST_STATE/clipboard" "$TEST_STATE/copied"
+EOF
+# wl-paste: the fake clipboard; TEST_CLIPBOARD_NOW stands for something the person copied since.
+cat >"$BIN/wl-paste" <<'EOF'
+#!/usr/bin/env bash
+printf 'wl-paste %s\n' "$*" >>"$TEST_LOG"
+if [ -n "${TEST_CLIPBOARD_NOW:-}" ]; then
+    printf '%s' "$TEST_CLIPBOARD_NOW"
+    exit 0
+fi
+cat "$TEST_STATE/clipboard"
 EOF
 # gsettings: GNOME Shell's enabled extensions, without Clipboard Indicator unless the test says.
 cat >"$BIN/gsettings" <<'EOF'
@@ -610,7 +625,7 @@ reset() {
     : >"$TEST_FZF_RAW"
     printf '0\n' >"$STATE/fzf-calls"
     touch "$STATE/sudo-cached"
-    rm -f "$STATE/clipboard"
+    rm -f "$STATE/clipboard" "$STATE/copied"
     printf 'agent-bus-hs@alpha.service loaded active running x\nagent-bus-hs@extra.service loaded inactive dead x\n' \
         >"$STATE/units"
     rm -f "$STATE/active/"* "$STATE/devices/"* "$STATE/typed-"*
@@ -1024,14 +1039,19 @@ check "  no sets none" "no" "$(logged 'human password')"
 reset
 out="$(WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "|owner" "|Sign in" "|YES" "|EXIT" "|ABORT")"
 check "Sign in offers the clipboard where wl-copy can reach it" "a-new-password" \
-    "$(cat "$STATE/clipboard" 2>&1)"
+    "$(cat "$STATE/copied" 2>&1)"
 check_lacks "  the password never reaches wl-copy's arguments" "a-new-password" "$(grep -F 'wl-copy' "$LOG")"
-check "  and served to one paste only" "yes" "$(logged 'wl-copy --paste-once')"
+check "  read back after the Enter" "yes" "$(logged 'wl-paste --no-newline')"
+check "  and cleared, as it still held the password" "" "$(cat "$STATE/clipboard" 2>&1)"
 check "    with no timer that could wipe a later copy" "no" "$(logged 'systemd-run --user --quiet --collect --on-active')"
-check_has "    which the person is told" "for one paste; after that it is gone from the clipboard" "$out"
+check_has "    which the person is told" "The password was cleared from the clipboard." "$out"
 copy_call="$(awk '/Copy the password\?/ { on = 1 } on { print } on && /--bind=q:abort/ { exit }' "$TEST_FZF_RAW")"
 check_has "  the copy question is asked" "Yes, copy the password" "$(cat "$TEST_FZF_RAW")"
 check_lacks "  with Yes, not Exit, as the default" "start:last" "$copy_call"
+reset
+out="$(TEST_CLIPBOARD_NOW="a link copied since" WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "|owner" "|Sign in" "|YES" "|EXIT" "|ABORT")"
+check "a clipboard holding something copied since is not cleared" "no" "$(logged 'wl-copy --clear')"
+check_has "  and the person is told it was left" "so it was left as it is" "$out"
 reset
 out="$(TEST_ENABLED_EXTENSIONS="['clipboard-indicator@tudmotu.com']" WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "|owner" "|Sign in" "|EXIT" "|ABORT")"
 check "with Clipboard Indicator on, the clipboard is not offered" "no" "$(logged 'wl-copy')"

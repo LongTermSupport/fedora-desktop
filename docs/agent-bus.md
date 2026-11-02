@@ -57,8 +57,10 @@ launch does not start.
    `ccy-teams`, press Enter on your name under the team: a menu lists what you can do, in
    words. Until you have signed in, the first choice is "Sign in: set a password (shown
    once)"; it shows the password with the homeserver and username, offers it to the
-   clipboard (for one paste, then gone; not while Clipboard Indicator is on, see
-   [Limits](#limits)), and then offers to open Element. Once you are signed in, the first choice is
+   clipboard (not while Clipboard Indicator is on, see [Limits](#limits)), and then offers to
+   open Element. A copied password stays on the clipboard until you press Enter once you have
+   pasted it (or 45 seconds pass); `ccy-teams` then clears the clipboard if it still holds the
+   password, and leaves it alone if you have copied something else since. Once you are signed in, the first choice is
    "Open `<team>` in Element", and a new password is a separate choice that says how many of
    your Element sessions it signs out, and asks first
    ([The human's account](#the-humans-account)). Element starts apart from `ccy-teams`,
@@ -950,11 +952,20 @@ These are known and documented rather than engineered around:
 - An agent on a machine where it can `sudo` without a password reaches the root of trust.
 - A human's Matrix session in a browser cannot be detected beside a bare-host agent.
 - Matrix offers no second factor here.
-- `ccy-teams` offers a new password to the clipboard (`wl-copy --paste-once`) only when the
-  Clipboard Indicator extension is off: that extension reads every new selection, which uses
-  up the one paste, and keeps the password in its history (it honours no password-manager
-  hint). With it on, or when GNOME Shell's enabled extensions cannot be read, `ccy-teams`
-  says why and the password is typed from the screen. Its settings are left as they are.
+- A password copied by `ccy-teams` is on the clipboard until it is cleared, and pasteable
+  everywhere until then. No clipboard erases itself after one paste: GNOME reads a new
+  selection at once and goes on serving its own copy after `wl-copy` exits. So `ccy-teams`
+  copies plainly (`wl-copy`, the password on stdin), waits for Enter once you have pasted it
+  (at most 45 seconds), reads the clipboard back (`wl-paste`) and runs `wl-copy --clear` only
+  if it still holds the password; what you copied since is left alone, and a read or clear
+  that fails is reported as the password possibly still being there. The primary selection is
+  never set. GNOME, or any clipboard history, may still keep a copy after the clear; copy
+  something else if in doubt.
+- `ccy-teams` offers the clipboard only when the Clipboard Indicator extension is off: that
+  extension keeps every new selection in its history, past any clear (it honours no
+  password-manager hint). With it on, or when GNOME Shell's enabled extensions cannot be read,
+  `ccy-teams` says why and the password is typed from the screen. Its settings are left as
+  they are.
 - The homeserver limits only password sign-in (per account: three wrong passwords, then one
   every five minutes, so any bus member can lock a human out of signing in on a new device
   this way; existing sessions stay) and enforces no password strength, so change a human's password only

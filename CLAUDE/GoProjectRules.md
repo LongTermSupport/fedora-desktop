@@ -48,6 +48,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_esc_joined`              | a screen that loses an Esc typed just before another key, which arrives as that key with Alt (also in shell fzf: `qa-hidden-bindings.bash`)     | `teams` row menu: Esc then Down left the menu open and moved its cursor (Plan 00177)                     |
 | `project_duration_overflow`       | a `time.Duration` built from a number with no bound that keeps it inside int64 nanoseconds, so a large input comes out negative                 | `vmtest prune-runs --older-than 200000` pruned every failed run (Plan 00192 Task 3.10)                   |
 | `project_command_failure_dropped` | a command's failure only tested, never carried, so the person sees a guessed cause                                                              | `ccy --token-usage`: any curl failure was "could not reach the API" for 15 minutes (Plan 00191 Task 4.9) |
+| `project_self_erasing_clipboard` | a secret kept short-lived by a clipboard meant to erase itself after a paste, or text promising it (also in shell: `bash-self-erasing-clipboard`) | `teams` login: `wl-copy --paste-once`, and "for one paste" (Plan 00201 Task 2.12) |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -739,6 +740,62 @@ missing tool is never a silent default.
   replaced by a fixed message. Not built because most such errors are sentinels compared on
   purpose (`errors.Is(err, fs.ErrNotExist)`), and telling a dropped cause from a decided
   branch needs the meaning of each sentinel.
+
+### project_self_erasing_clipboard
+
+**What it is about.** A secret put on the clipboard is pasteable by anything until it is
+replaced or cleared. A clipboard told to erase itself after one paste (`wl-copy --paste-once`,
+`-o`, `xclip -loops N`) does not keep that promise on GNOME: the desktop reads a new selection
+at once and goes on serving its own copy after wl-copy has exited.
+
+**Why it exists.** Plan 00201 Task 2.12, the host agent's finding (2026-11-02, mutter 50.6, no
+clipboard extension and no clipboard process running): `wl-copy --paste-once X` exited within
+1.5 s with no paste by any client, and `wl-paste` went on returning X; pastes 1, 2 and 3 all
+gave the password. ccy-teams' new-password copy used the flag and told the person the password
+was "on the clipboard for one paste; after that it is gone from the clipboard".
+
+**What it flags**, outside `qa/rules` and in test files too: a literal with a constant `Name`
+and an `Args` list (an `execx.Cmd`) running wl-copy with `--paste-once` or a short-flag word
+holding `o` (`-o`, `-no`), or xclip with `-loops N` for N other than 0; and any string literal
+or comment group (read as one text, so a claim wrapped over two lines is still read) saying
+`paste-once`, "for/to/serve(s)/after one (a single, the first) paste", "the one paste", "gone
+from the clipboard" or "gone after one paste". The shell half is `bash-self-erasing-clipboard`
+in `.semgrep/bash-conventions.yml` (the `qa-patterns` gate, the same regexes over every
+published shell script under `files/`, `scripts/`, `helpers/`, `extensions/`,
+`fedora-install/` and `CLAUDE/Plan/`, comments included).
+
+**How to fix a violation.** Copy without the flag and say plainly that the secret is on the
+clipboard. Once the person has pasted it (Enter), or a bounded wait ends, read the clipboard
+back without putting the secret in any argv, and clear it (`wl-copy --clear`) only if it still
+holds the secret; leave it alone if something else was copied since, and report a read or a
+clear that fails as the secret possibly still being there. Do not promise more than the clear
+does: GNOME or a clipboard history may still keep a copy. ccy-teams' `login.Login` is the
+model (`offerCopy`, `SettleClipboard`).
+
+- Red, fixture: `testdata/src/fix/internal/badclip` (`bad.go`: the original Cmd, `-o`, `-no`
+  under a path, `xclip -loops 1`, a constant claim, four phrasings in a slice, a claim in a
+  comment and one wrapped over two lines, all flagged; `bad_test.go`: a test pinning the flag,
+  flagged; `good.go`: plain wl-copy, wl-paste, `--clear`, `--type`, curl's `-o`, xclip
+  `-loops 0` and "one paste at stop", clean) and `fix/qa/rules` (the owner, clean); the shell
+  half against its section of `.semgrep/bash-conventions.bash`, proven on every run of the gate.
+- Red, real tree (`d4f2a2da3`, through `./scripts/qa-changed.bash`): 13 Go findings in
+  `internal/teams/login` (`login.go` 7, `password_test.go` 6; the same with `-tags
+  ccyteamstest,difftest`, none in the `qa` module) and 2 shell lines in
+  `scripts/test-ccy-teams-command.bash`.
+- Green: every finding fixed (the copy is plain, `SettleClipboard` compares and clears, the
+  texts and tests say so); the Clipboard Indicator refusal now says the extension keeps the
+  password in its history past any clear, which is why no copy is offered with it on.
+- Not caught: a flag built at run time or spread from a variable; the claim worded otherwise
+  ("vanishes once pasted", "a second paste is empty"); prose in markdown, Python and
+  JavaScript (no instance in Python or JavaScript; the markdown instances in
+  `docs/agent-bus.md` and Plan 00201's ACCEPTANCE-owner.md and PLAN.md were found by the
+  independent search and fixed by hand).
+
+**The next wider rule, not built:** the same claim in every published file, markdown included
+(a `generic` semgrep rule over what git would publish, as `gh-scope-outside-ssot` is). Not built
+because it needs a gate of its own (command, wrapper, `qa-gates.tsv`, routing and QA.md rows):
+the markdown instances exist and were fixed, so leaving that half undefended is the owner's
+decision, referred with this remediation.
 
 ## Defect classes that cannot be a rule
 

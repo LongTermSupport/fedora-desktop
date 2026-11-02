@@ -130,11 +130,13 @@ team covers, whose own status line is a hooks daemon's.
     this last and keep the new password). In `ccy-teams`, Enter on your row under A, then New
     password, answer Yes.
     With the Clipboard Indicator extension on (this repo's default), no copy is offered: one
-    line says the extension would use up the paste and keep the password, and the password is
-    typed from the screen; its menu in the top bar must not list the password. Then, in the
-    Extensions app, switch Clipboard Indicator off, Enter on your row then New password again and answer "Yes, copy the
-    password": paste it into Element's sign-in (Ctrl-V) and sign in; a second Ctrl-V anywhere
-    pastes nothing. Switch Clipboard Indicator back on.
+    line says the extension keeps the password in its history, and the password is typed from
+    the screen; its menu in the top bar must not list the password. Then, in the Extensions
+    app, switch Clipboard Indicator off, Enter on your row then New password again and answer
+    "Yes, copy the password": paste it into Element's sign-in (Ctrl-V) and sign in, then press
+    Enter in `ccy-teams`. It says the password was cleared, and a Ctrl-V anywhere pastes
+    nothing. Once more, but copy some other text before the Enter: it says the clipboard was
+    left as it is, and Ctrl-V pastes that text. Switch Clipboard Indicator back on.
 12. Shut a team's sessions down (Task 2.14, [SPEC-shutdown.md](SPEC-shutdown.md)). Use a
     throwaway team, or a real one whose sessions may end now, with a ccy session in a seat (two
     is better: leave one idle and one working on a long task). Keep one attached in a
