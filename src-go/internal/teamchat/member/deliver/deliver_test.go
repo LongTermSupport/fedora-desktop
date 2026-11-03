@@ -15,6 +15,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
 )
 
 var update = flag.Bool("update", false, "rewrite testdata/ from the Go cases")
@@ -123,9 +124,9 @@ func pin(t *testing.T, name, got string) {
 		}
 		return
 	}
-	want, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("%v (go test -update writes it)", err)
+	want, found := testfiles.Find(t, "testdata", name+".txt")
+	if !found {
+		t.Fatalf("%s is missing (go test -update writes it)", path)
 	}
 	if !bytes.Equal([]byte(got+"\n"), want) {
 		t.Errorf("%s differs (go test -update rewrites it):\n got %s\nwant %s", path, got, want)

@@ -206,6 +206,21 @@ func TestReadFile(t *testing.T) {
 	}
 }
 
+// A checkout may keep its host_vars file as a link to a file elsewhere; the link is followed.
+func TestReadFileFollowsALinkOutOfItsDirectory(t *testing.T) {
+	elsewhere := filepath.Join(t.TempDir(), "kept.yml")
+	if err := os.WriteFile(elsewhere, []byte(valid), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "box.yml")
+	if err := os.Symlink(elsewhere, link); err != nil {
+		t.Fatal(err)
+	}
+	if d, err := ReadFile(link); err != nil || len(d.Teams) != 2 {
+		t.Fatalf("a link to a file in another directory: %+v, %v", d, err)
+	}
+}
+
 func TestReadFileRefuses(t *testing.T) {
 	dir := t.TempDir()
 	big := filepath.Join(dir, "big.yml")

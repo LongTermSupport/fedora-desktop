@@ -12,6 +12,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/reexec"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
 )
 
 // otherUID owns the files planted as another user's.
@@ -85,11 +86,10 @@ func writeFile(t *testing.T, path, data string) {
 	check(t, os.WriteFile(path, []byte(data), 0o600))
 }
 
-func readFile(t *testing.T, path string) string {
+// readFile is the text of path, which is under root.
+func readFile(t *testing.T, root, path string) string {
 	t.Helper()
-	data, err := os.ReadFile(path)
-	check(t, err)
-	return string(data)
+	return string(testfiles.Read(t, root, path))
 }
 
 func giveAway(t *testing.T, path string) {
@@ -209,7 +209,7 @@ func TestCreateNamesTheModeAndNeverOverwrites(t *testing.T) {
 	r, root := newRoot(t)
 	withUmask(t, 0o777)
 	check(t, r.Create(root+"/f", []byte("one"), 0o640))
-	if got := readFile(t, root+"/f"); got != "one" || mode(t, root+"/f").Perm() != 0o640 {
+	if got := readFile(t, root, root+"/f"); got != "one" || mode(t, root+"/f").Perm() != 0o640 {
 		t.Errorf("created %q %v", got, mode(t, root+"/f"))
 	}
 	if err := r.Create(root+"/f", []byte("two"), 0o600); !errors.Is(err, fs.ErrExist) {
@@ -245,7 +245,7 @@ func TestReplaceIsATempFileRenamedOverTheOld(t *testing.T) {
 	withUmask(t, 0o777)
 	writeFile(t, root+"/f", "old")
 	check(t, r.Replace(root+"/f", []byte("new"), 0o600))
-	if got := readFile(t, root+"/f"); got != "new" || mode(t, root+"/f").Perm() != 0o600 {
+	if got := readFile(t, root, root+"/f"); got != "new" || mode(t, root+"/f").Perm() != 0o600 {
 		t.Errorf("replaced %q %v", got, mode(t, root+"/f"))
 	}
 	entries, err := os.ReadDir(root)
@@ -254,18 +254,19 @@ func TestReplaceIsATempFileRenamedOverTheOld(t *testing.T) {
 	}
 	writeFile(t, root+"/.g.new", "leftover")
 	check(t, r.Replace(root+"/g", []byte("fresh"), 0o644))
-	if got := readFile(t, root+"/g"); got != "fresh" || mode(t, root+"/g").Perm() != 0o644 {
+	if got := readFile(t, root, root+"/g"); got != "fresh" || mode(t, root+"/g").Perm() != 0o644 {
 		t.Errorf("replaced %q %v", got, mode(t, root+"/g"))
 	}
 }
 
 func TestReplaceNeverFollowsALinkOrLandsOnADirectory(t *testing.T) {
 	r, root := newRoot(t)
-	target := t.TempDir() + "/target"
+	elsewhere := t.TempDir()
+	target := elsewhere + "/target"
 	writeFile(t, target, "theirs")
 	check(t, os.Symlink(target, root+"/link"))
 	check(t, r.Replace(root+"/link", []byte("mine"), 0o600))
-	if got := readFile(t, target); got != "theirs" || !mode(t, root+"/link").IsRegular() {
+	if got := readFile(t, elsewhere, target); got != "theirs" || !mode(t, root+"/link").IsRegular() {
 		t.Errorf("the link was followed: target %q, link %v", got, mode(t, root+"/link"))
 	}
 	mkdir(t, root+"/dir", 0o700)
@@ -401,7 +402,7 @@ func TestSubOpensADirectoryBelowAsARootOfItsOwn(t *testing.T) {
 	check(t, os.Rename(root+"/a/b", root+"/a/moved"))
 	// What is done through the sub root follows the directory, not its old name.
 	check(t, sub.Create(root+"/a/b/g", []byte("y"), 0o600))
-	if got := readFile(t, root+"/a/moved/g"); got != "y" {
+	if got := readFile(t, root, root+"/a/moved/g"); got != "y" {
 		t.Errorf("got %q", got)
 	}
 	if _, err = r.Sub(root+"/missing", Private); !errors.Is(err, fs.ErrNotExist) {
@@ -443,7 +444,7 @@ func TestEntriesUnlinkRenameAndRemoveTree(t *testing.T) {
 		t.Errorf("rename over an existing name: %v", err)
 	}
 	check(t, r.Rename(root+"/d/a", root+"/d/c"))
-	if got := readFile(t, root+"/d/c"); got != "a" {
+	if got := readFile(t, root, root+"/d/c"); got != "a" {
 		t.Errorf("renamed %q", got)
 	}
 	check(t, r.RemoveTree(root+"/d"))
@@ -466,22 +467,20 @@ func TestSameFile(t *testing.T) {
 	writeFile(t, root+"/b", "x")
 	check(t, os.Symlink("a", root+"/link"))
 	mkdir(t, root+"/dir", 0o700)
-	a, err := os.Open(root + "/a")
-	check(t, err)
+	a := testfiles.Open(t, root, "a")
 	t.Cleanup(func() { check(t, a.Close()) })
 	check(t, r.SameFile(root+"/a", a))
 	for _, path := range []string{root + "/b", root + "/link", root + "/dir"} {
-		if err = r.SameFile(path, a); !errors.Is(err, ErrConfig) {
+		if err := r.SameFile(path, a); !errors.Is(err, ErrConfig) {
 			t.Errorf("%s: %v", path, err)
 		}
 	}
-	if err = r.SameFile(root+"/none", a); !errors.Is(err, fs.ErrNotExist) {
+	if err := r.SameFile(root+"/none", a); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("nothing there: %v", err)
 	}
-	dir, err := os.Open(root + "/dir")
-	check(t, err)
+	dir := testfiles.Open(t, root, "dir")
 	check(t, dir.Close())
-	if err = r.SameFile(root+"/a", dir); err == nil {
+	if err := r.SameFile(root+"/a", dir); err == nil {
 		t.Error("a closed file was the same")
 	}
 }

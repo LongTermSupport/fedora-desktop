@@ -14,6 +14,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
 )
 
 // t0 is the fake clock's start: a fixed instant, never the wall clock.
@@ -76,7 +77,7 @@ func TestTakeWritesTheHolderLineAndReleaseClearsIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "team-ops.lock")
-	if got, want := string(readFile(t, path)), holderLine("team.apply", t0.UnixMilli())+"\n"; got != want {
+	if got, want := string(testfiles.Read(t, dir, path)), holderLine("team.apply", t0.UnixMilli())+"\n"; got != want {
 		t.Errorf("holder line %q, want %q", got, want)
 	}
 	info, err := os.Stat(path)
@@ -92,7 +93,7 @@ func TestTakeWritesTheHolderLineAndReleaseClearsIt(t *testing.T) {
 	if err := l.Release(); err != nil {
 		t.Fatal(err)
 	}
-	if data := readFile(t, path); len(data) != 0 {
+	if data := testfiles.Read(t, dir, path); len(data) != 0 {
 		t.Errorf("a released lock still holds %q", data)
 	}
 }
@@ -169,7 +170,7 @@ func TestTakeWaitsForTheHolder(t *testing.T) {
 	if len(clock.slept) != 3 {
 		t.Errorf("slept %d times, want 3", len(clock.slept))
 	}
-	data := readFile(t, filepath.Join(dir, "team-ops.lock"))
+	data := testfiles.Read(t, dir, "team-ops.lock")
 	if want := holderLine("team.apply", clock.now.UnixMilli()) + "\n"; string(data) != want {
 		t.Errorf("holder %q, want %q", data, want)
 	}
@@ -312,7 +313,7 @@ func TestTakeReplacesAStaleLongerLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer releaseOrFail(t, l)
-	if got, want := string(readFile(t, path)), holderLine("team.apply", t0.UnixMilli())+"\n"; got != want {
+	if got, want := string(testfiles.Read(t, dir, path)), holderLine("team.apply", t0.UnixMilli())+"\n"; got != want {
 		t.Errorf("holder line %q, want %q", got, want)
 	}
 }
@@ -397,15 +398,6 @@ func TestSystemClockSleepEndsWithTheContext(t *testing.T) {
 	if SystemClock().Now().IsZero() {
 		t.Error("the system clock has no time")
 	}
-}
-
-func readFile(t *testing.T, path string) []byte {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Clean(path))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return data
 }
 
 func releaseOrFail(t *testing.T, l *Lock) {

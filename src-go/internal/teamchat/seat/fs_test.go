@@ -42,7 +42,7 @@ func TestCreateAndReplace(t *testing.T) {
 	if err := d.create(root+"/a/b/f", []byte("one")); err != nil {
 		t.Fatal(err)
 	}
-	if got := readFile(t, root+"/a/b/f"); got != "one" || mode(t, root+"/a/b/f").Perm() != 0o600 {
+	if got := readFile(t, root, root+"/a/b/f"); got != "one" || mode(t, root+"/a/b/f").Perm() != 0o600 {
 		t.Errorf("created %q %v", got, mode(t, root+"/a/b/f"))
 	}
 	if err := d.create(root+"/a/b/f", []byte("two")); !errors.Is(err, os.ErrExist) {
@@ -51,14 +51,14 @@ func TestCreateAndReplace(t *testing.T) {
 	if err := d.replace(root+"/a/b/f", []byte("two")); err != nil {
 		t.Fatal(err)
 	}
-	if got := readFile(t, root+"/a/b/f"); got != "two" || exists(t, root+"/a/b/f.new") {
+	if got := readFile(t, root, root+"/a/b/f"); got != "two" || exists(t, root+"/a/b/f.new") {
 		t.Errorf("replaced %q", got)
 	}
 	writeFile(t, root+"/a/b/g.new", "leftover")
 	if err := d.replace(root+"/a/b/g", []byte("three")); err != nil {
 		t.Fatalf("replace over a leftover .new: %v", err)
 	}
-	if got := readFile(t, root+"/a/b/g"); got != "three" {
+	if got := readFile(t, root, root+"/a/b/g"); got != "three" {
 		t.Errorf("replaced %q", got)
 	}
 	if err := d.create(t.TempDir()+"/x", nil); err == nil {
@@ -214,13 +214,13 @@ func TestRenameModes(t *testing.T) {
 	if err := d.rename(root+"/a", root+"/b", unix.RENAME_EXCHANGE); err != nil {
 		t.Fatal(err)
 	}
-	if readFile(t, root+"/a/f") != "b" || readFile(t, root+"/b/f") != "a" {
+	if readFile(t, root, root+"/a/f") != "b" || readFile(t, root, root+"/b/f") != "a" {
 		t.Errorf("exchange did not swap")
 	}
 	if err := d.rename(root+"/a", root+"/new/deep", unix.RENAME_NOREPLACE); err != nil {
 		t.Fatalf("rename into a directory it makes: %v", err)
 	}
-	if readFile(t, root+"/new/deep/f") != "b" {
+	if readFile(t, root, root+"/new/deep/f") != "b" {
 		t.Errorf("moved content")
 	}
 }
@@ -294,7 +294,7 @@ func TestSubFollowsItsDirectory(t *testing.T) {
 	if got, err := sub.read(root+"/a/f", 10); err != nil || string(got) != "one" {
 		t.Errorf("read %q, %v", got, err)
 	}
-	if err := sub.create(root+"/a/g", []byte("two")); err != nil || readFile(t, root+"/moved/g") != "two" {
+	if err := sub.create(root+"/a/g", []byte("two")); err != nil || readFile(t, root, root+"/moved/g") != "two" {
 		t.Errorf("create: %v", err)
 	}
 }

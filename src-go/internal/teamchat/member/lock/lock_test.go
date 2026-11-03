@@ -15,6 +15,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/homefs"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/reexec"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
 )
 
 var helpers = reexec.Helpers{
@@ -344,12 +345,11 @@ func TestAdoptSeatRefusesADescriptionOfAnotherFile(t *testing.T) {
 	for name, path := range map[string]string{"another file": stray, "another seat's lock": other.Lock(), "keeper.lock": w.run.KeeperLock()} {
 		t.Run(name, func(t *testing.T) {
 			touch(t, path)
-			f, err := os.OpenFile(path, os.O_RDWR, 0)
-			check(t, err)
-			if _, err = AdoptSeat(w.root, f, w.seat); !errors.Is(err, homefs.ErrConfig) {
+			f := testfiles.OpenFile(t, w.root.Path(), path, os.O_RDWR, 0)
+			if _, err := AdoptSeat(w.root, f, w.seat); !errors.Is(err, homefs.ErrConfig) {
 				t.Fatalf("got %v", err)
 			}
-			if err = f.Close(); !errors.Is(err, os.ErrClosed) {
+			if err := f.Close(); !errors.Is(err, os.ErrClosed) {
 				t.Errorf("a refused description is closed: %v", err)
 			}
 		})

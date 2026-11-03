@@ -16,6 +16,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix/fakehs"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
 )
 
 // testPassword and otherPassword are random for each run (gate B: only random test keys).
@@ -257,10 +258,7 @@ func (w *world) tryTake(session string, state HandleState) (Taken, error) {
 func (w *world) keep(session, content string) func() {
 	w.t.Helper()
 	path := w.sessionSeat(session).Lock()
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
-	if err != nil {
-		w.t.Fatal(err)
-	}
+	f := testfiles.OpenFile(w.t, w.home, path, os.O_RDWR|os.O_CREATE, 0o600)
 	if _, err := f.WriteString(content); err != nil {
 		w.t.Fatal(err)
 	}
