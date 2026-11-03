@@ -668,6 +668,17 @@ func memberBase(raw string, hasCA bool) (string, error) {
 	return out.String(), nil
 }
 
+// CanonicalMemberBase is raw in the one normal form two bundles' base URLs are compared in (Plan
+// 00244 X9): memberBase's, judged with the CA the scheme needs (https has one, http none), so a URL
+// no bundle could carry is refused.
+func CanonicalMemberBase(raw string) (string, error) {
+	u, err := parseBase(raw)
+	if err != nil {
+		return "", err
+	}
+	return memberBase(raw, u.Scheme == schemeHTTPS)
+}
+
 // parseBase is the base URL's shape: printable ASCII, scheme http or https, a host and a valid
 // port, and nothing else.
 func parseBase(raw string) (*url.URL, error) {
