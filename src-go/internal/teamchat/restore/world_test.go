@@ -93,7 +93,7 @@ func newWorld(t *testing.T) *world {
 		fail: map[string]error{}, hooks: map[string]func(){}, unloadAfter: 2,
 	}
 	in, err := declare.DecodeInput([]byte(`{"team":{"team":"ops","state":"present","port":8448,"description":"d",` +
-		`"listen":["192.0.2.10"],"allow_from":["192.0.2.0/24"],"humans":["alice"],"trust":{"kind":"github",` +
+		`"networks":["192.0.2.0/24"],"humans":["alice"],"trust":{"kind":"github",` +
 		`"org":"example-org","repos":[{"repo":"example-org/thing","branches":["main"]}]}},"lxc_members":[],"address":"192.0.2.10"}`))
 	if err != nil {
 		t.Fatal(err)

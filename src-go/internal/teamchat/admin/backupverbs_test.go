@@ -276,8 +276,8 @@ func TestBackupAllGoesOnPastADownTeam(t *testing.T) {
 	}
 }
 
-const betaTeamJSON = `{"v":1,"team":"beta","name":"Beta","server_name":"beta.teamchat.internal","port":8449,` +
-	`"description":"The other team.","listen":["192.0.2.10"],"allow_from":["192.0.2.0/24"],` +
+const betaTeamJSON = `{"v":2,"team":"beta","name":"Beta","server_name":"beta.teamchat.internal","port":8449,` +
+	`"description":"The other team.","networks":["192.0.2.0/24"],` +
 	`"url":"http://192.0.2.10:8449","humans":["alice"],"coordinator":"myrepo.1+desk.podman",` +
 	`"trust":{"kind":"github","org":"example-org","repos":[{"repo":"example-org/thing","branches":["main"]}]}}`
 
