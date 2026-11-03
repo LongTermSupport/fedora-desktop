@@ -1,4 +1,4 @@
-// Package leakcheck is a stub of internal/teamchat/leakcheck: Tests wraps a TestMain's run,
+// Package leakcheck is a stub of internal/leakcheck: Tests wraps a TestMain's run,
 // and Check judges one test.
 package leakcheck
 

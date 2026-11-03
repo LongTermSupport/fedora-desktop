@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/leakcheck"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/leakcheck"
 )
 
 func TestMain(m *testing.M) { os.Exit(leakcheck.Tests(m).Run()) }
