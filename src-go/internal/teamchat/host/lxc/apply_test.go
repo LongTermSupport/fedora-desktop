@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -321,6 +322,51 @@ func TestRunningWrongFactsFailThatMemberAlone(t *testing.T) {
 				t.Fatal("a refused member was recorded")
 			}
 		})
+	}
+}
+
+// X5: the guest's address is judged against the team's effective networks, the set the unit's
+// filter and the firewall use (the declared networks, the bus address and, while the team has a
+// present LXC member, the bridge's subnet), never against the declared list alone.
+func TestGuestOnTheBridgeIsInsideTheEffectiveNetworks(t *testing.T) {
+	w := newWorld(t)
+	w.addBox("c1")
+	w.networks = nil // no declared network covers agentAddr; the bridge subnet (allowNet) does
+	w.declare([]string{"t1"}, w.member("t1", "c1"))
+	r, err := w.apply(PhasePresent)
+	if err != nil {
+		t.Fatalf("a guest on the bridge was refused: %v", err)
+	}
+	hasLine(t, r, lineOf(t, "CHANGED", "c1", "joined as ")+firstHandle)
+}
+
+func TestGuestOutsideTheEffectiveNetworksIsRefused(t *testing.T) {
+	w := newWorld(t)
+	w.addBox("c1")
+	w.networks = []string{"203.0.113.0/24"}
+	w.bridge = netip.MustParsePrefix("198.51.100.0/24")
+	w.declare([]string{"t1"}, w.member("t1", "c1"))
+	_, err := w.apply(PhasePresent)
+	herr, ok := errors.AsType[*host.Error](err)
+	if !ok || !herr.Drift || !strings.Contains(err.Error(), "inside the team's effective networks") {
+		t.Fatalf("err %v", err)
+	}
+	if _, found := w.record().Find(mustBox(t, "c1"), checkout, 1); found {
+		t.Fatal("a refused member was recorded")
+	}
+}
+
+func TestBridgeSubnetFailureFailsTheMember(t *testing.T) {
+	w := newWorld(t)
+	w.addBox("c1")
+	w.bridgeErr = errors.New("the bridge lxcbr0 does not exist")
+	w.declare([]string{"t1"}, w.member("t1", "c1"))
+	_, err := w.apply(PhasePresent)
+	if err == nil || !strings.Contains(err.Error(), "the bridge lxcbr0 does not exist") {
+		t.Fatalf("err %v", err)
+	}
+	if _, found := w.record().Find(mustBox(t, "c1"), checkout, 1); found {
+		t.Fatal("a member whose networks could not be known was recorded")
 	}
 }
 

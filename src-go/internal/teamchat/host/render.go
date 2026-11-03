@@ -25,10 +25,10 @@ type Pin struct {
 	CacheCapacityModifier string
 }
 
-// loopbackListen is the address every homeserver binds besides its team's listen addresses.
+// loopbackListen is the address every homeserver binds besides the team's derived listen addresses.
 const loopbackListen = "127.0.0.1"
 
-// loopbackAllow is what every drop-in allows besides the listen addresses and allow_from.
+// loopbackAllow is what every drop-in allows besides the listen addresses and the effective networks.
 var loopbackAllow = []string{"127.0.0.1/32", "::1/128"}
 
 // The digest set members (C 3.5.2 step 3).
@@ -51,16 +51,17 @@ func (d digests) sameRestart(o digests) bool { return maps.Equal(d.Restart, o.Re
 
 func (d digests) sameReload(o digests) bool { return maps.Equal(d.Reload, o.Reload) }
 
-// renderSpec is what one render reads: the team, its allow_from with the bridge added, the
-// device unit of each interface carrying a listen address, the registration key, the pin and
-// the installed base unit's text.
+// renderSpec is what one render reads: the team, the listen addresses and effective networks
+// derived at apply time (X3, X4), the device unit of each interface carrying a listen address,
+// the registration key, the pin and the installed base unit's text.
 type renderSpec struct {
-	team      declare.Team
-	allowFrom []string
-	devices   []string
-	regKey    string
-	pin       Pin
-	baseUnit  []byte
+	team     declare.Team
+	listen   []netip.Addr
+	networks []netip.Prefix
+	devices  []string
+	regKey   string
+	pin      Pin
+	baseUnit []byte
 }
 
 // rendered is a team's files in memory and their digest sets.
@@ -84,7 +85,7 @@ func render(s renderSpec) (rendered, error) {
 	}
 	d := dropInSpec{
 		team: s.team.ID, version: s.pin.Version, memoryHigh: s.pin.MemoryHigh, port: s.team.Port,
-		listen: s.team.Listen, allowFrom: s.allowFrom, devices: s.devices,
+		listen: s.listen, networks: s.networks, devices: s.devices,
 	}
 	config := renderConfig(s)
 	r := rendered{config: config, dropIn: d.text(), teamFile: s.team.Canonical()}
@@ -134,9 +135,9 @@ func renderConfig(s renderSpec) []byte {
 	t := s.team
 	q := strconv.Quote
 	listen := []string{q(loopbackListen)}
-	for _, a := range t.Listen {
-		if a != loopbackListen {
-			listen = append(listen, q(a))
+	for _, a := range s.listen {
+		if a.String() != loopbackListen {
+			listen = append(listen, q(a.String()))
 		}
 	}
 	keys := [][2]string{
@@ -198,8 +199,8 @@ type dropInSpec struct {
 	version    paths.ServerVersion
 	memoryHigh string
 	port       int
-	listen     []string
-	allowFrom  []string
+	listen     []netip.Addr
+	networks   []netip.Prefix
 	devices    []string
 }
 
@@ -217,17 +218,15 @@ func (d dropInSpec) memory() string { return "MemoryHigh=" + d.memoryHigh + "\n"
 
 func (d dropInSpec) ipAllow() string {
 	allow := slices.Clone(loopbackAllow)
-	add := func(p string) {
-		if !slices.Contains(allow, p) {
-			allow = append(allow, p)
+	add := func(p netip.Prefix) {
+		if !slices.Contains(allow, p.String()) {
+			allow = append(allow, p.String())
 		}
 	}
 	for _, a := range d.listen {
-		if addr, err := netip.ParseAddr(a); err == nil {
-			add(netip.PrefixFrom(addr, addr.BitLen()).String())
-		}
+		add(netip.PrefixFrom(a, a.BitLen()))
 	}
-	for _, p := range d.allowFrom {
+	for _, p := range d.networks {
 		add(p)
 	}
 	return "IPAddressAllow=" + strings.Join(allow, " ") + "\n"

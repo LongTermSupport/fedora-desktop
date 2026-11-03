@@ -289,7 +289,8 @@ the unit's `teamchat run` exits 1 (CL2), so a running session is not asserted be
   `.claude/ccy/ccy.env.local` (owned by the uid of one of the agent users whose entries name
   that checkout in this container, n3b-D2; test: two users' seats on one checkout), 64 KiB
   each; the handle (TB2.3); the
-  source address against `allow_from` on a host bridge; a migration-origin team's v1 holdback
+  source address against the team's effective networks (C 3.2.5) on a host bridge; a
+  migration-origin team's v1 holdback
   through D's adapter (a seam until N6), which the seam hands TB1's opener, never the bare root
   fd (a test plants a FIFO at the v1 env-file path). `tmux` on the guest `PATH` is looked for in
   each entry by TB1: `ELOOP` or not a regular file at one entry is "not here", the next is tried,

@@ -25,7 +25,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptrace"
 	"regexp"
@@ -37,6 +36,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
@@ -135,14 +135,7 @@ func New(cfg Config) *Checker {
 
 func newHTTPClient() *http.Client {
 	return &http.Client{
-		Transport: &http.Transport{
-			Proxy:                  nil,
-			DialContext:            (&net.Dialer{Timeout: requestLimit}).DialContext,
-			TLSHandshakeTimeout:    requestLimit,
-			MaxResponseHeaderBytes: maxHeaderBytes,
-			IdleConnTimeout:        time.Minute,
-			ForceAttemptHTTP2:      true,
-		},
+		Transport: matrix.PublicTransport(requestLimit, maxHeaderBytes),
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			switch {
 			case req.URL.Scheme != via[0].URL.Scheme || req.URL.Host != via[0].URL.Host:

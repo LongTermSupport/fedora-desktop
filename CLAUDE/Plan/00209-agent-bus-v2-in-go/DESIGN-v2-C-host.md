@@ -18,7 +18,7 @@ the host_vars keys `teamchat_*` (section 3.8). The only placeholders left are va
 | `<server_name>` | the team's Matrix server name, `<team>.teamchat.internal` by default                      |
 | `<port>`        | a team's homeserver port, declared per team in `teamchat_teams[].port`; there is no range |
 | `<owner group>` | the desktop user's primary group, recorded by the play in `/etc/teamchat/owner-group`     |
-| `<iface>`       | the interface that carries a team's `listen` address (often `teamchat0`)                  |
+| `<iface>`       | an interface that carries a team's derived listen address (often `teamchat0`)             |
 | `<bus_ip>`      | the v2 bus address, the value of `teamchat_address`                                       |
 
 Source keys used in the "from" column and in the text: `R<n>` = `DESIGN.md` section 2; `H 7.nn` =
@@ -49,11 +49,11 @@ fixes in section 6.
 | ID  | Requirement                                                                                                                                                                                                                                                                       | From                   |
 | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
 | C1  | One private homeserver per team: federation off, registration closed, encryption off, room creation by the team's admin account only, every room invite-only or restricted as area A's layout says.                                                                               | R1                     |
-| C2  | A team's homeserver listens on loopback and on each declared `listen` address only, on one port. Inbound traffic is admitted only from `allow_from` CIDRs, by both the firewall and the unit's IP filter. The live LXC bridge subnet is admitted automatically.                   | R3, H 7.21, H 7.36     |
+| C2  | A team's homeserver listens on loopback and on each derived listen address only, on one port. Inbound traffic is admitted only from the team's effective networks (3.2.5), by both the firewall and the unit's IP filter.                                                         | R3, H 7.21, H 7.36     |
 | C3  | A team's id and its `server_name` never change once the team exists; a change is refused by name before anything is touched. A changed id is a removal and a new team.                                                                                                            | R4, H 7.08             |
 | C44 | A team can be renamed: its display name and description change, and nothing else does.                                                                                                                                                                                            | 00201 Task 2.16; new   |
 | C45 | Every ccy-teams flow the owner uses for a v1 team (create, add and remove members and humans, roles, hot add and remove, sign-in, backup, restore, LXC add) exists for a v2 team, with the same steps from the owner's side; its wording changes only where a v2 rule changes it. | R36                    |
-| C46 | A change to a team's security fields (`humans`, `coordinator`, `allow_from`, `listen`, `url`, `trust`, the team's LXC members) or a new team is applied only after the owner approved it with the password; a declaration edit alone changes nothing (DC18).                      | new (security 2)       |
+| C46 | A change to a team's security fields (`humans`, `coordinator`, `networks`, `url`, `trust`, the team's LXC members) or a new team is applied only after the owner approved it with the password; a declaration edit alone changes nothing (DC18).                                  | new (security 2)       |
 | C47 | A restore keeps every member's sync correct (no member skips an event because its sync position is ahead of the restored database) and reports every event it loses, exported and counted.                                                                                        | new (operations 3)     |
 | C4  | Each homeserver runs under its own kernel identity: no homeserver can read another team's files, its own team's admin credential, or any host secret it does not need.                                                                                                            | R5 (strengthened), new |
 | C5  | Hardened units: no resolver, no D-Bus, no home, private devices and PIDs, strict system protection, `Type=notify` with a watchdog, `Restart=always` with no start limit, dependency on each listen interface.                                                                     | R5, H 7.22, H 7.23     |
@@ -311,7 +311,7 @@ Wants=sys-subsystem-net-devices-<iface>.device
 [Service]
 ExecStart=/usr/local/lib/teamchat/server/tuwunel-<version>
 MemoryHigh=<from H-C1>
-IPAddressAllow=127.0.0.1/32 ::1/128 <each listen /32 or /128> <each allow_from>
+IPAddressAllow=127.0.0.1/32 ::1/128 <each listen /32 or /128> <each effective network>
 SocketBindAllow=tcp:<port>
 ```
 
@@ -396,34 +396,57 @@ one for 1.9.4); a pin bump that drops or renames a key fails the test before the
   v2 cannot collide with a v1 team that is stopped), or that is listening now and is not this
   team's own `teamchat-server@<team>`. `team apply`, which sees one team, checks again at its
   step 2 against the ports other v2 teams' `units.json` record and against the live listeners.
-- Listen addresses: loopback plus each declared `listen` address, each of which must be on exactly
-  one interface. After start, the bound address set is asserted equal to that list before
-  bootstrap (H 7.21). Both this check and the port checks above read `/proc/net/tcp` and
-  `/proc/net/tcp6` in-process (state `LISTEN`, address and port decoded from the fixed hex
-  columns); no `ss` and no text from another program is parsed.
+- Effective networks: the networks a team's homeserver is reached from. A team declares
+  `networks` (`teamchat_teams[].networks`, 0 to 32 CIDRs in canonical masked form, a gated field,
+  DC18); the effective set is those, the bus address (`teamchat_address`, when declared) as a host
+  prefix, and the live LXC bridge subnet while the team has an LXC member that is present, each
+  once, sorted. `declare` makes the
+  set (`Input.EffectiveNetworks`), and the listen addresses, the unit's IP filter, the firewall
+  rules and the LXC guest source check (R48, 3.9) all read it and never the declared list.
+- Listen addresses are derived at `team apply` step 2, never declared: for each effective network,
+  the interface whose route covers it (the route table, as the firewall's zone lookup reads it;
+  a host prefix of an address the host holds is routed by the interface that holds it), and
+  from that interface an address of the network's family, the lowest one inside the network
+  or else the lowest the interface has (an IPv6 link-local address is never chosen; for the bus
+  address and the bridge, which the host holds itself, only an address inside the network). The set
+  is deduplicated and sorted, and each address must be on exactly one interface. A network no route
+  covers is refused with its CIDR, and so is a declared network that only the default route
+  covers: the homeserver is not for the internet, so the owner adds a route (a VPN, a static
+  route). The bus address and the bridge may route over the default route. After start, the bound
+  address set is asserted equal to loopback plus that set before bootstrap (H 7.21). Both this
+  check and the port checks above read `/proc/net/tcp` and `/proc/net/tcp6` in-process (state
+  `LISTEN`, address and port decoded from the fixed hex columns); no `ss` and no text from another
+  program is parsed.
+- The team's `url` host, when it is an IP literal, must be one of the derived listen addresses,
+  or step 2 refuses it; a DNS name is accepted and is the owner's to point at the host.
 - v2 has its own bus address interface `teamchat0` (a NetworkManager dummy connection with one
   address), so retiring v1's interface later cannot break a v2 team. Its address comes from the
   declaration (`teamchat_address`).
-- Firewall: per-team firewalld rich rules, one per `allow_from` CIDR, in the zone of the interface
-  that routes that CIDR (the default zone if none). The rule set is recorded in
+- Firewall: per-team firewalld rich rules, one per effective network, in the zone of the interface
+  that routes that network (the default zone if none). The rule set is recorded in
   `root/<team>/firewall.json` before any firewall change, and only recorded rules are ever removed
   (H 7.11). Rules are tested for presence with `firewall-cmd --query-rich-rule` by exit status,
   never by reading text (I-B12): 0 is present, 1 is absent, and any other code fails the verb
   with the code named. The permanent configuration (`--permanent`) and the runtime are queried
   separately, and each is converged on its own. Decision DC12 holds the D-Bus alternative.
-- The live LXC bridge subnet is added at render time, computed in-process from the bridge
-  interface, as v1's `bridge.py` did (R3), but only to the `allow_from` of a team that declares
-  an LXC member (3.8). A team with no LXC member is not reachable from the bridge at all.
-- `allow_from` is not a boundary between teams on one host (security 14). Every ccy container
-  reaches the bus address as host-local traffic, and every guest on the bridge reaches each team
-  that admits the bridge, a guest that is a member of no team included. Between teams on one
-  host, the boundary is the member's token and, for humans, their password with the homeserver's
-  login rate limits; `allow_from` keeps out other machines, not other teams. Risk K16; area A's
-  threat table (A 6.9) states the same.
+- The live LXC bridge subnet is an effective network, computed in-process from the bridge
+  interface, as v1's `bridge.py` did (R3), but only for a team that has an LXC member that is
+  present (3.8). A team with no LXC member is not reachable from the bridge at all. As an
+  effective network it is served like any other: the team also listens on the bridge's address,
+  and gets that interface's device unit.
+- The effective networks are not a boundary between teams on one host (security 14). Every ccy
+  container reaches the bus address as host-local traffic, and every guest on the bridge reaches
+  each team that admits the bridge, a guest that is a member of no team included. Between teams
+  on one host, the boundary is the member's token and, for humans, their password with the
+  homeserver's login rate limits; the networks keep out other machines, not other teams. Risk
+  K16; area A's threat table (A 6.9) states the same.
 - No TLS, as in v1 (R3): every member URL is plain HTTP to an IP literal on loopback, the bus
-  interface or the bridge, never routed off the machine, and M14 refuses `http://` to anything not
-  listed in the bundle's `plain_http_hosts` (3.7.2). Traffic between local processes is visible
-  only to root and to the processes' own owners, who can read the tokens anyway.
+  interface, the bridge or a declared network, and M14 refuses `http://` to anything not listed in
+  the bundle's `plain_http_hosts` (3.7.2). Traffic between local processes is visible only to root
+  and to the processes' own owners, who can read the tokens anyway. Traffic over a declared
+  network beyond the machine is plain until the TLS of
+  [SPEC-cross-network.md](../00244-agent-bus-v2-landing-and-cross-network/SPEC-cross-network.md)
+  section 3 is built.
 
 ### 3.3 The host program
 
@@ -634,7 +657,7 @@ still up (operations 22).
 
 **Security policy approval (decision DC18, security 2).** `host_vars` is a file every ccy session on
 the repository can write, so a declaration edit alone must not change who can reach a team or
-act in it. The security fields are each team's `humans`, `coordinator`, `allow_from`, `listen`,
+act in it. The security fields are each team's `humans`, `coordinator`, `networks`,
 `url` and `trust`, the team's existence itself, and the team's LXC members (each
 `teamchat_lxc_members` entry's team, container, checkout, seat, user and `human_text`: an entry
 creates an account and places a token, and its checkout and seat name the member, 3.9.1). `teamchat-admin team approve --team T` (root, password sudo, the
@@ -642,7 +665,9 @@ declaration on stdin) writes them to `/var/lib/teamchat-status/teams/<team>/appr
 (0640 root:`<owner group>`) after `ccy-teams approve <team>` has shown the owner the whole
 difference. Step 2 compares against that file (a team with none differs in its existence);
 `team apply` and `lxc apply` compare again as root and refuse with 70 on any difference, so a play
-that skipped step 2 still cannot apply an unapproved field.
+that skipped step 2 still cannot apply an unapproved field. `approved.json` and `team.json` are
+`v` 2, which holds `networks` where `v` 1 held `listen` and `allow_from` (v2 of the bus is not
+deployed, so nothing migrates); a `v` 1 file is refused, naming its version.
 
 Nothing else reads a security field from its input. The roster event, which carries `humans`,
 `coordinator` and `trust`, is rendered only from `root/<team>/team.json`, the declaration the last
@@ -675,7 +700,9 @@ declaration check uses. Steps, each failing the verb with the step named:
 02. Refusals before any change: a `server_name` different from `root/<team>/server-name` (C3); a
     port another v2 team's `units.json` records, or that is listening and is not this team's own
     `teamchat-server@<team>` (the declared collisions, v1's included, are `declare check`'s, 3.2.5,
-    D §3.8); a `listen` address on no interface or on more than one; a wildcard `listen`.
+    D §3.8); the effective networks (3.2.5): a network no route covers, or a declared network only
+    the default route covers, named by its CIDR; a listen address on more than one interface; a
+    `url` whose IP-literal host is no derived listen address.
 03. Render in memory: `config.toml`, the drop-in, the canonical `team.json`. Compare with what is
     installed. `units.json` keeps two digest sets. The restart set is the base unit text, the
     drop-in's `ExecStart=` (the Tuwunel version) and the config: a change there needs a restart.
@@ -704,7 +731,7 @@ declaration check uses. Steps, each failing the verb with the step named:
 08. Wait ready: the unit must be `active` and `/_tuwunel/server_version` must answer, within 60 s.
     An inactive or failed unit fails at once with the journal tail printed only as explanation; the
     verdict is the unit state, never a journal scan (H 7.13).
-09. Assert the bound address set is exactly loopback plus `listen` (H 7.21).
+09. Assert the bound address set is exactly loopback plus the derived listen addresses (H 7.21).
 10. Bootstrap in the `teamchat-ctl` child (3.6.2).
 11. Write `team.json` and `units.json`, then the stamp `/var/lib/teamchat-status/teams/<team>/stamp.json` last,
     so a stamp always means fully applied (H 6). Then refresh the status record (3.11). The first
@@ -1484,8 +1511,9 @@ assumptions on B.
 #### 3.7.6 Seats on another machine (Plan 00220), not built in N3 to N6
 
 Plan 00220 joins machines over a WireGuard overlay. The hub runs on the homeserver's host,
-each peer is a `/32` in `allow_from`, and the overlay address is a second `listen` address,
-never `teamchat_address`. Its v1 phases need no bus code. A ccy seat on a machine that does
+each peer is a `/32` in the team's `networks`, and the overlay address is a second listen
+address, derived from the overlay interface that routes the peers (3.2.5), never `teamchat_address`.
+Its v1 phases need no bus code. A ccy seat on a machine that does
 not run the team's homeserver is v2-only, and v2 owes it four things, recorded here so that
 the seat take is built to take them later:
 
@@ -1509,7 +1537,7 @@ the seat take is built to take them later:
    interface, the bridge or a declared overlay address is refused unless the owner
    approves it. 3.2's "never routed off the machine" then reads "never routed off the
    machine except inside the declared overlay, which WireGuard encrypts". Allowing overlay
-   peers widens K16: `allow_from` then admits named other machines, and the token stays the
+   peers widens K16: `networks` then admits named other machines, and the token stays the
    boundary between teams.
 
 None of these changes v2's network model or adds TLS.
@@ -1540,8 +1568,7 @@ teamchat_teams:
     port: <port>                        # declared per team; there is no range (D §3.8)
     server_name: <server_name>          # optional; default <team>.teamchat.internal; never changes
     description: "<what the team is for>"   # 1-120 characters
-    listen: ["<bus_ip>"]
-    allow_from: ["<cidr>"]
+    networks: ["<cidr>"]                # 0-32 canonical CIDRs; the listen addresses are derived from them (3.2.5)
     url: http://<bus_ip>:<port>         # optional; the members' base URL; default from teamchat_address
     humans: ["<name>"]                  # 1-16
     coordinator: <handle>               # optional; at most one per team
@@ -1711,7 +1738,7 @@ two write mechanisms, one per kind of path, and no path is written by both:
 | `python3 -I -c` as the agent user (bundle, `pingbus config check`)                            | `teamchat guest <op>` as the agent user (B 2.13), through `lxc-attach -u <uid> -g <gid> --clear-env` with `HOME`, `USER`, `LOGNAME` and `PATH` set, reading typed JSON on stdin                                            |
 | the env file naming the user's teams, written as root                                         | a desired membership per seat, `~/.config/teamchat/lxc/<key>/membership/desired.json`, written by `guest membership` as the agent user (3.9.2 step 8)                                                                      |
 | `getent passwd` inside the guest                                                              | the guest's `/etc/passwd` read from the host side, size-capped                                                                                                                                                             |
-| the source-address check by a UDP connect inside the guest                                    | the guest's addresses from `lxc-info -iH` and its link from the container config, checked against `allow_from` on the host                                                                                                 |
+| the source-address check by a UDP connect inside the guest                                    | the guest's addresses from `lxc-info -iH` and its link from the container config, checked against the effective networks on the host                                                                                       |
 | a kit copied file by file into one directory, replaced in place                               | the kit written as `/usr/local/lib/teamchat/kit/<digest>/` from the host side and a `current` link swapped atomically; a digest kept while any live session names it (C33, 3.9.2 step 4)                                   |
 | Python 3.11 or later required in every guest                                                  | one static `teamchat`; the guest needs no interpreter and no library                                                                                                                                                       |
 
@@ -1816,8 +1843,9 @@ any group but the agent user's own, and refuses to run as uid 0.
       `retired` is refused by name ("seat N of <prefix> is retired; give the entry another
       seat"). Both are wrong declarations, a running container's wrong facts (n3b-D1), so they
       fail the phase like every refusal here, also when the container has just started;
-    - check the source address: one of the guest's addresses inside the team's `allow_from` (which
-      includes the live bridge subnet), on a link that is a host bridge;
+    - check the source address: one of the guest's addresses inside the team's effective networks
+      (3.2.5: the declared networks, the bus address and the live bridge subnet), the same set
+      the unit's IP filter and the firewall use, on a link that is a host bridge;
     - for a team whose `origin` is `migration` (D §3.9), whether the guest still runs this member on
       v1: the guest's v1 session unit enabled, or v1's env file naming the team, read through area
       D's adapter (`migrate/v1`'s `ReadGuestV1Session`, D §5.5, D 6.3) from the same root fd. Either holds the member back as
@@ -2415,7 +2443,7 @@ no revoked credential is ever served.
     binary the team's drop-in names, with `LoadCredential=` from `root/<team>/config.restore.toml`
     (0600): the team's current config with two keys changed, `database_path` is `db.restore-<N>`
     and the listen addresses are `127.0.0.1` and `::1` only, on the team's port, since the team's
-    `listen` addresses do not exist in the new namespace. The base unit carries
+    derived listen addresses do not exist in the new namespace. The base unit carries
     `IPAddressDeny=any` and `SocketBindDeny=any` and the team's allow lines live in its drop-in,
     which a transient unit does not get, so the staging unit is given its own:
     `SocketBindAllow=tcp:<port>` and `IPAddressAllow=127.0.0.1/32 ::1/128` (the BPF address
@@ -2669,7 +2697,7 @@ two host timers and the owner's seat timer are enabled only while at least one v
 | Scope            | Resident                                                                                                                          | Units, ports, other                                                                                                                                                                                                                                                                                    |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | v2 with no teams | nothing                                                                                                                           | unit files installed but nothing enabled; no timer runs; no port; no firewall rule                                                                                                                                                                                                                     |
-| per team         | one Tuwunel, 100-135 MB RSS as measured in the 00161 spike (to be re-measured, and reduced if the cache modifier allows, H-C1)    | one service and its drop-in; one TCP port on loopback and each `listen` address; one firewall rule set; no timer of its own; one `teamchat-ctl` child per tick                                                                                                                                         |
+| per team         | one Tuwunel, 100-135 MB RSS as measured in the 00161 spike (to be re-measured, and reduced if the cache modifier allows, H-C1)    | one service and its drop-in; one TCP port on loopback and each derived listen address; one firewall rule set; no timer of its own; one `teamchat-ctl` child per tick                                                                                                                                   |
 | host, with teams | nothing                                                                                                                           | two timers, enabled only while a team is present: one oneshot a minute, one a day. Each minute: one `teamchat-admin` process, plus one `teamchat-ctl` child per team; and the owner's seat timer: one ccy-teams oneshot a minute, as the owner, reading the pool and posting only a due notice (3.7.5) |
 | per member       | the homeserver's memory for the member's long-poll sync and its share of the caches (inside the team's Tuwunel, measured by H-C1) | the pool record and a session copy; the member's keeper and link are area B's cost and are measured there                                                                                                                                                                                              |
 | per human        | the same, while the human's Element is open                                                                                       | an account on the team's homeserver                                                                                                                                                                                                                                                                    |
@@ -2709,7 +2737,7 @@ on v2.
 | DC15 | What travels between sessions on a seat                | (a) only the host-held bundle in the pool travels; a session's member state is archived to quarantine on release; (b) member state travels too, after a whole-tree check (regular files and directories only, owner-owned, no links)                                                                                                                                                                                                                       | (a): no byte a container wrote reaches another session, so a hostile session cannot plant content (an inbox entry, a cursor, a config) in the next one; B resumes from the server's state instead (3.7.1, C41)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | DC16 | What a pool seat keeps across sessions                 | (a) a token, reused by each session; (b) a reissue on every take; (c') a password, a take that logs the seat's fixed device out and then logs in with it, a logout per release; (d) the owner's alternative under INT6: tokens only, no password kept (DESIGN-v2.md 7.1)                                                                                                                                                                                   | (c'): no owner password per session start, a released session's token is dead at release, and a token whose release never ran is dead at the next take, since on Tuwunel 1.9.4 a second login keeps the device's earlier tokens and one logout ends them all (H-C13, 3.7.3 take step 3); `released_ms` bounds a store-less start. The cost, stated: a process running as the owner on the host can read the password and so change it, deactivate the account or log in another device; the health tick reports a foreign device or a deactivated account within a minute, the hot reissue clears a device or a changed password; no Tuwunel 1.9.4 config key refuses a member's password change or self-deactivation (H-C13) |
 | DC17 | systemd and YAML mechanisms                            | (a) add `github.com/godbus/dbus/v5` and `go.yaml.in/yaml/v3` to the production module `src-go/go.mod`, with Plan 00204 allowlist rows; D-Bus for host systemd (unit properties, `KillUnit` main SIGUSR2, `ListUnitsByPatterns`) and the guest's private socket (peer-to-peer dial and auth, no `Hello`); (b) `systemctl show -p` key=value blocks and `systemctl kill --kill-whom=main` through `execx`, judged by exit status, and DC13 falls back to (b) | (a): typed properties instead of parsed text on the per-minute and per-open paths, no `systemctl` process per call, and the only way to reach a guest's systemd without running a guest program; both modules are pure Go and widely used. A go-deps rule keeps the YAML module out of `teamchat-admin`, and root caps every D-Bus message it reads (3.8)                                                                                                                                                                                                                                                                                                                                                                     |
-| DC18 | Approving a team's security fields                     | (a) `declare check` and `team apply` compare `humans`, `coordinator`, `allow_from`, `listen`, `url`, `trust`, the team's LXC members and the team's existence with a root-written `approved.json`, which only `team approve` (password sudo) writes; (b) the play prints changed fields and applies them                                                                                                                                                   | (a): a declaration edit by any session on the repository cannot change who reaches or acts in a team without the owner's password. The gated fields include the team's LXC members, checked by `lxc apply` too; the roster event is rendered only from the applied `team.json`, and no member, role or human verb takes a declaration; ccy-teams' own flows approve only the field they changed (`team approve --only <field>` with the change itself, refused if any other gated field or any other entry of that field differs); Element profiles take the approved `url`, never a URL from the declaration (3.10), in their sudo session (3.5.1)                                                                           |
+| DC18 | Approving a team's security fields                     | (a) `declare check` and `team apply` compare `humans`, `coordinator`, `networks`, `url`, `trust`, the team's LXC members and the team's existence with a root-written `approved.json`, which only `team approve` (password sudo) writes; (b) the play prints changed fields and applies them                                                                                                                                                               | (a): a declaration edit by any session on the repository cannot change who reaches or acts in a team without the owner's password. The gated fields include the team's LXC members, checked by `lxc apply` too; the roster event is rendered only from the applied `team.json`, and no member, role or human verb takes a declaration; ccy-teams' own flows approve only the field they changed (`team approve --only <field>` with the change itself, refused if any other gated field or any other entry of that field differs); Element profiles take the approved `url`, never a URL from the declaration (3.10), in their sudo session (3.5.1)                                                                           |
 | DC19 | Who places a seat into a session                       | (a) the owner's uid, as built: the pool and `control/` are owner files, kept from containers by the mounts; (b) the pool and `control/` under a uid no owner process holds, placement by a password-sudo verb; (c) the owner's alternative under INT6: (a) with DC16 (d), so no owner process holds a seat's password (DESIGN-v2.md 7.1)                                                                                                                   | (a): (b) costs a password per take, which is what DC16 (c') avoids. The owner's password guards the admin's changes to accounts, roles, humans, backups and restores; seat-to-session placement is guarded by the owner uid and the mounts only, and so is a pool seat's own password, which lets an owner process change that one account (DC16's stated cost; C10, K12)                                                                                                                                                                                                                                                                                                                                                     |
 | DC20 | Removing a leaked secret from a room                   | (a) one admin verb, `redact --reason secret`, by password sudo; members' and humans' redaction stays closed; (b) no redaction at all                                                                                                                                                                                                                                                                                                                       | (a): a human's pasted secret can be removed from the live database, and the answer names the backups that still hold it (3.6.5)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | DC21 | Announcing a ccy or host session that never comes back | (a) the owner's `teamchat-seats.timer`, a ccy-teams oneshot a minute running the board's background seat pass headless; (b) the launcher at `podman` exit, else the next board open, with the claims of B 2.11, BD9 and C43 narrowed to that                                                                                                                                                                                                               | (a): B's BD9 guarantee ("within about one tick") and C43 hold for every kind, at the cost of one owner process a minute while a team is present; the health tick cannot do it (root, `ProtectHome`, C24). It runs while the owner's user manager runs, so after a reboot it announces from the owner's first login (3.7.5)                                                                                                                                                                                                                                                                                                                                                                                                    |
@@ -2733,7 +2761,7 @@ on v2.
 | K13 | A session that held a seat and was hostile keeps a copy of its token after release: it could go on reading the seat's traffic, and move the seat's `teamchat.floor` resume marker forward so the next holder's store-less start silently skips what came in between                                                                                                                                                                                                  | closed by DC16 (c'): the release logs the token out, and the next take logs the seat's device out before its own login, which ends every token of the device, so a token whose release never ran (a crash) lives at most until that release or the seat's next take, and one minted by a take that died before `held/token` was never written anywhere and dies at the next take (H-C13: a second login alone would keep either). `released_ms` bounds the start whatever the marker says. A restore cannot bring a released token back: it revokes every pool seat's token from the backup in the staged copy and reissues (3.12.2), and it keeps every account's room account data as the backup holds it, so the marker can only move back (B 6 C13) |
 | K14 | The health unit holds `CAP_SYS_PTRACE`: a bug in it could open `/proc/<pid>/root` or `/proc/<pid>/mem` of any process                                                                                                                                                                                                                                                                                                                                                | the capability is in that unit only; `ptrace`, `process_vm_readv` and `process_vm_writev` are filtered; the tick opens fixed paths below a guest root fd only; H-C10 runs inside the sandbox (3.11.1)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | K15 | A privileged guest shares the host's kernel uids, so a guest agent user with the desktop user's uid, or uid 0, would be the same kernel identity as a host process                                                                                                                                                                                                                                                                                                   | `lxc apply` refuses a member user whose guest uid is 0 or the desktop user's uid (3.9.1)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| K16 | `allow_from` is not a boundary between teams on one host: every ccy container and every guest on the bridge of a team that admits it reaches that team's homeserver                                                                                                                                                                                                                                                                                                  | stated (3.2.5): the token, and a human's password with the login rate limits, are the boundary; the bridge subnet is added only for teams with an LXC member                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| K16 | The effective networks are not a boundary between teams on one host: every ccy container and every guest on the bridge of a team that admits it reaches that team's homeserver                                                                                                                                                                                                                                                                                       | stated (3.2.5): the token, and a human's password with the login rate limits, are the boundary; the bridge subnet is added only for teams with an LXC member                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 ## 6. What v2 drops from v1, and what is new
 
@@ -2750,7 +2778,7 @@ on v2.
 | seats inside the checkout, the `git check-ignore` proof, the seat `README`                                                   | the seat store (DC5); `teamchat` explains a seat on request                                                                                                                                                                                                                               |
 | undo on a failed member change                                                                                               | roll forward from `pending` (C20)                                                                                                                                                                                                                                                         |
 | a seat's token kept and reused by every session that takes the seat                                                          | a password in the pool, a device logout and a login per take, and a logout per release (DC16)                                                                                                                                                                                             |
-| the live bridge subnet in every team's `allow_from`                                                                          | only in the `allow_from` of a team that declares an LXC member (3.2.5)                                                                                                                                                                                                                    |
+| the live bridge subnet in every team's `allow_from`                                                                          | an effective network only of a team that has a present LXC member (3.2.5)                                                                                                                                                                                                                 |
 | `rotate-token`                                                                                                               | `reissue`, which revokes before it mints                                                                                                                                                                                                                                                  |
 | `set-role` as a write of its own, and the LXC entry's `role`                                                                 | the declared `coordinator` and `role apply` (DC6)                                                                                                                                                                                                                                         |
 | `removed_humans`                                                                                                             | lock and unlock (DC9)                                                                                                                                                                                                                                                                     |
@@ -2815,7 +2843,7 @@ Each assumption below is settled in [DESIGN-v2.md](DESIGN-v2.md) section 3, the 
     `rev` (3.6.1).
 09. A 4.2 and A 12.2 allow the admin, and only the admin, to redact one event, with the reason
     `secret` (3.6.5, DC20).
-10. A 6.9's threat table states that `allow_from` is not a boundary between teams on one host,
+10. A 6.9's threat table states that a team's networks are not a boundary between teams on one host,
     and that the token and the login rate limits are (3.2.5, K16).
 
 **Area B (member).**
