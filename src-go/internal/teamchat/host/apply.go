@@ -119,12 +119,24 @@ type Listener struct {
 	Unit string
 }
 
-// Network is the host's interfaces, its listening sockets (read from /proc/net/tcp and tcp6)
-// and the live LXC bridge's subnet.
+// Route is the interface that routes a network (SPEC-cross-network X3) and whether it does so by
+// the default route, the route of prefix length 0.
+type Route struct {
+	Interface string
+	Default   bool
+}
+
+// Network is the host's interfaces, its listening sockets (read from /proc/net/tcp and tcp6),
+// the live LXC bridge's subnet, and which interface routes a network.
 type Network interface {
 	Interfaces() ([]Interface, error)
 	Listeners() ([]Listener, error)
 	Bridge() (netip.Prefix, error)
+	// Route is the interface that routes network: the one that holds it when it is a host
+	// prefix of the host's own address, else the best route of the main table (the longest
+	// prefix, then the lowest metric), read as Firewall.Zone reads it. found is false when no
+	// route covers the network.
+	Route(network netip.Prefix) (Route, bool, error)
 }
 
 // Readiness is the probe of a homeserver's `/_tuwunel/server_version` on loopback.
