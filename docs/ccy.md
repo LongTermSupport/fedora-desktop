@@ -191,7 +191,12 @@ CPU used by everything it runs, container and host side, over a one-second sampl
 is one whole core (so the list takes a second to appear). `ccy-sessions --list` (or `-l`) prints the same
 table with a heading on stdout and exits, opening nothing and needing no terminal.
 Arrow keys choose, and Enter on a session lists what can be done to it: attach it here,
-take it over (Ctrl-T) or end it (Ctrl-X, which asks first). A row of its own starts a new
+take it over (Ctrl-T), close it (`/compact`, then `/exit`, as you would type them: it ends
+cleanly and its next resume starts from the summary; or without compacting, `/exit` only), or
+end it (Ctrl-X, which kills it and everything in it). Each asks first. `ccy --stop SESSION...
+[--no-compact]` is the same close from the command line, and `ccy-teams shutdown` closes a
+team's sessions the same way. A compaction not complete within 600 s fails the close and
+leaves the session running, named. A row of its own starts a new
 `ccy` session in the current directory (Ctrl-N), and the last row is always Exit (Esc or
 `q` do the same). Each key is a shortcut, printed beside the line it chooses. Every yes/no
 question is the same picker, starting on Exit so Enter alone is the safe answer. A session
