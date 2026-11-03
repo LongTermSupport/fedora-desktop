@@ -1,6 +1,6 @@
 // Command claude-yolo is the ccy launcher's Go front (Plan 00191 Task 4.5): installed at
 // /var/local/claude-yolo/claude-yolo, it answers --version, --help, --list-tokens,
-// --token-usage, --prevent, --export-token NAME and --build-lock itself and hands every other run to the bash launcher beside it, claude-yolo.bash (internal/ccylaunch).
+// --token-usage, --prevent, --export-token NAME, --build-lock and --stop SESSION itself and hands every other run to the bash launcher beside it, claude-yolo.bash (internal/ccylaunch).
 package main
 
 import (
