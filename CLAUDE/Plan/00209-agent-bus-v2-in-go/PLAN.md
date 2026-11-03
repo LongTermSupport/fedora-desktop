@@ -1,13 +1,11 @@
 # Plan 00209: agent bus v2 in go
 
-**Status**: In Progress (landing v2 on F44 is Phase 8, the owner's call of 2026-11-02; the plan of record for v2, `teamchat`, a separate system beside v1; N0's
+**Status**: In Progress (landing on F44 is Plan 00244; the plan of record for v2, `teamchat`, a separate system beside v1; N0's
 design is integrated in [DESIGN-v2.md](DESIGN-v2.md), reviewed and fixed in three rounds, with its last check open; a dedicated build
 session does the work to [BUILD-BRIEF.md](BUILD-BRIEF.md))
 **Created**: 2026-10-19
 **Owner**: joseph
 **Priority**: High
-
-<!-- MUST_EXCEED_PLAN_SIZE_BECAUSE: this is the plan of record for the whole of v2 (eight phases, the owner's directions and the decision table), still open in Phases 2, 3 and 8; its detail already lives in the DESIGN-v2*, SPEC-* and RESEARCH-* documents beside it, and splitting the live task tree mid-build would hide the open task states. Raised as a question for the owner in the Phase 8 pull request. -->
 
 ## Overview
 
@@ -529,7 +527,11 @@ its first caller.
   choice (P5); then teams one at a time at the owner's pace. **Gate A** (Task 0.5): no team is
   migrated, the pilot included, until the owner has confirmed OD-A7, DC1, DC5, DC15, OD-D1, OD-D5
   and TID; the VM-lab scenarios do not wait.
-- [ ] ⬜ **Task 6.3**: When no team is v1-live, raise v1's retirement with the owner (its own plan).
+- [ ] ⬜ **Task 6.3**: When no team is v1-live, raise v1's retirement with the owner (its own
+  plan). That plan also collapses the second owners v2's landing accepted (the owner's decision of
+  2026-11-03, Plan 00244 Task 8.1): `lxccmd` beside the v1 owner of `lxc-ls`, `lxc-info` and
+  `lxc-attach`, `teamchat/units` beside the v1 owner of `systemctl`, and the `dynamicNames` row
+  for a run-time program inside a wrapper, so that each program has one owner again.
 
 ### Phase 7: v1 while it runs
 
@@ -548,47 +550,9 @@ its first caller.
 
 ### Phase 8: landing v2 on F44
 
-The owner (2026-11-02): "yes we should push v2 and get it done", the minimum v2 with
-cross-network membership (direction 7). `spike/v2-merge-up` (f5023d692) is
-`feat/bus-v2-n3e` merged onto F44. It builds and vets. Its CI run found the items below, from
-largest to smallest. Each is fixed on that branch under Defence Before Fix. F44 is merged in
-before every push, and GitHub CI is the gate.
-
-- [ ] 🔄 **Task 8.1** (fixed on `spike/v2-merge-up`, except what waits for the owner: the two
-  Matrix presence findings of `project_liveness_word`, and the three `teamchat/clock` sites of
-  `project_realtime_bound`, whose `realClocks` rows are a narrowing of the rule): The 40
-  project-rule findings the tree had (the 29 the plan listed, with 14 duration and 11 realtime
-  ones where it counted 13 and 10, and F44's new liveness rule's 9):
-  - 14 `project_duration_overflow`, in the teamchat member/client, nolink, forge, link/server,
-    engine/proof, engine/timeout, matrix/client and fakehs/sync;
-  - 11 `project_realtime_bound` (9 in production code, 2 in tests), 3 of them in
-    `teamchat/clock`, which is the injected clock. Proposed: that package is the one allowed
-    home of teamchat's real timers (the other copies now hand their wait to it), with three
-    `realClocks` rows; adding them is the owner's decision (GoProjectRules.md records it as
-    open);
-  - 5 `project_goroutine_end` in F44 code: `ccc/guard.go` (2), `rclonetail/app.go`,
-    `reclaim/ask.go` and the `ui/pathinput` test;
-  - 1 `project_command_failure_dropped`, in `member/guest/check.go`;
-  - 9 `project_liveness_word`, from F44's new rule (the roster state was renamed `enrolled`;
-    the two Matrix presence "online" sites wait for the owner).
-- [ ] 🔄 **Task 8.2** (waits for the owner: the record's ratchet is the owner's signature): The six gosec exclusions v2 added to `.golangci.yml` have no exception in
-  the project record. Record each one, or fix the code it covers.
-- [x] ✅ **Task 8.3**: gofmt: name the files with a local go-qa run, then format them.
-- [x] ✅ **Task 8.4**: Two helper tests:
-  - `agent_bus_lxc/test_derive`: on the CI runner, the claude process it finds has an empty
-    start time;
-  - `plan_acceptance/test_cited_constant_copy_rule`: one finding in this plan's folder.
-- [x] ✅ **Task 8.5**: 13 gitleaks findings (12 when the plan was written), all fake keys in test fixtures. Allowlist them the
-  way F44 allowlisted its own, never by weakening the scan.
-- [x] ✅ **Task 8.6**: In the merge, CLAUDE/QA.md, CLAUDE/GoProjectRules.md, src-go/CLAUDE.md and
-  Plans 00194 and 00209 took F44's side of each conflicting hunk. Put back the v2 lines that
-  were lost, merging them by meaning (`git diff origin/F44...origin/feat/bus-v2-n3e` on those files shows
-  them).
-- [ ] 🔄 **Task 8.7** (pull request 124 is open as a draft, reviewed by `qa-reviewer`, its findings fixed; CI
-  waits on the owner's decisions listed in it): With CI green, open a pull request to F44, assign it to the owner, and run
-  `qa-reviewer` over it. Only the owner merges it.
-- [ ] ⬜ **Task 8.8**: After the merge: the cross-network membership of direction 7 (team CIDRs,
-  TLS with the team CA pinned, seat issue over ssh), so a member on another machine can join.
+Moved to [Plan 00244](../00244-agent-bus-v2-landing-and-cross-network/PLAN.md) on the owner's
+decision of 2026-11-03, with its task numbers: the landing of `spike/v2-merge-up` on F44 (Tasks
+8.1 to 8.7, pull request 124) and the cross-network membership of direction 7 (Task 8.8).
 
 ## Success Criteria
 

@@ -1,0 +1,100 @@
+# Plan 00244: agent bus v2 landing and cross network
+
+**Status**: In Progress (split out of Plan 00209 Phase 8 on the repository owner's decision of 2026-11-03; Plan 00209 stays the plan of record for v2's design and build, this plan is the landing of `teamchat` on F44 and the cross-network membership that follows it)
+**Created**: 2026-11-03
+**Owner**: joseph
+**Priority**: High
+
+## Overview
+
+Plan 00209 designed and built v2 of the agent bus, `teamchat`, a separate system in Go beside
+v1. The owner (2026-11-02): "yes we should push v2 and get it done", the minimum v2 with
+cross-network membership (Plan 00209 direction 7). `spike/v2-merge-up` is `feat/bus-v2-n3e`
+merged onto F44; its pull request (124) carries Tasks 8.1 to 8.7. Task 8.8 then makes a member on
+another machine able to join.
+
+The task numbers are Plan 00209's Phase 8 numbers, kept so that every reference to "Task 8.x"
+(the pull request, the journal, GoProjectRules.md) still resolves. The design, the specs and the
+decisions stay in Plan 00209's folder; this plan links them and does not copy them.
+
+## Goals
+
+- v2 is on F44 with CI green: the project rules, the suppression record, gofmt, the helper
+  tests, gitleaks and the Go tests (Tasks 8.1 to 8.7).
+- A team declares the networks its members may be on, and a member on another machine joins
+  over TLS with the team's CA pinned (Task 8.8).
+
+## Non-Goals
+
+- v2's design, its other milestones and v1's retirement: Plan 00209.
+- An overlay network: the bus supports several routable ranges and does not route them (Plan
+  00209 direction 7). Plan 00220's overlay is not part of the bus.
+- Any v1 feature work: v1 is feature-frozen.
+
+## Tasks
+
+### Phase 8: landing v2 on F44
+
+The owner (2026-11-02): "yes we should push v2 and get it done", the minimum v2 with
+cross-network membership. `spike/v2-merge-up` is `feat/bus-v2-n3e` merged onto F44. Its CI run
+found the items below, largest to smallest. Each is fixed on that branch under Defence Before
+Fix. F44 is merged in before every push, and GitHub CI is the gate.
+
+- [ ] 🔄 **Task 8.1**: The 40 project-rule findings the tree had (the 29 the first plan listed,
+  with 14 duration and 11 realtime ones where it counted 13 and 10, and F44's new liveness
+  rule's 9):
+  - 14 `project_duration_overflow`, in the teamchat member/client, nolink, forge, link/server,
+    engine/proof, engine/timeout, matrix/client and fakehs/sync: fixed;
+  - 11 `project_realtime_bound`: 8 fixed by handing the real waits to `clock.System()`; the 3
+    sites in `teamchat/clock` are the package's `realClocks` rows, the owner's decision of
+    2026-11-03 (`internal/teamchat/clock` is teamchat's one home for real timers);
+  - 5 `project_goroutine_end` in F44 code (`ccc/guard.go` (2), `rclonetail/app.go`,
+    `reclaim/ask.go`, the `ui/pathinput` test) and 1 `project_command_failure_dropped`
+    (`member/guest/check.go`): fixed;
+  - 9 `project_liveness_word`: the roster state is renamed `enrolled` (confirmed by the owner);
+    the 2 Matrix presence `online` sites are allowance rows in `livenessAllowances` for
+    `internal/teamchat/matrix` and its `fakehs`, the Matrix specification's value (SPEC-matrix
+    M50 and M51), the owner's decision of 2026-11-03.
+- [ ] 🔄 **Task 8.2**: The gosec exclusions v2 added to `.golangci.yml` had no exception in the
+  project record. The owner's decision of 2026-11-03: record G401 and G505 (Synapse's
+  registration MAC) and the test-file G301, G302 and G306 exclusions in `qa/record.toml`,
+  raising the ratchet ceiling by exactly what they need and citing the decision in each entry;
+  fix every G304 site in code (the host state, team lock and host_vars files, and the test
+  exclusions') and, with them, the lxc tests' G101; where one cannot be fixed, stop and say why
+  in the pull request, never record it. The ten tagliatelle `case.overrides` are one rule, v2's
+  own JSON formats and the Matrix wire are `snake_case`, stated once above them in
+  `.golangci.yml`.
+- [x] ✅ **Task 8.3**: gofmt: name the files with a local go-qa run, then format them.
+- [x] ✅ **Task 8.4**: Two helper tests:
+  - `agent_bus_lxc/test_derive`: on the CI runner, the claude process it finds has an empty
+    start time;
+  - `plan_acceptance/test_cited_constant_copy_rule`: one finding in Plan 00209's folder.
+- [x] ✅ **Task 8.5**: 13 gitleaks findings (12 when the plan was written), all fake keys in test
+  fixtures. Allowlist them the way F44 allowlisted its own, never by weakening the scan.
+- [x] ✅ **Task 8.6**: In the merge, CLAUDE/QA.md, CLAUDE/GoProjectRules.md, src-go/CLAUDE.md and
+  Plans 00194 and 00209 took F44's side of each conflicting hunk. The v2 lines that were lost are
+  back, merged by meaning.
+- [ ] 🔄 **Task 8.7**: Pull request 124 (to F44, assigned to the owner's account, reviewed by
+  `qa-reviewer`, its findings fixed). CI green, then ready for review. Only the owner merges it.
+- [ ] ⬜ **Task 8.8**: Cross-network membership, direction 7 of Plan 00209, started on a branch
+  cut from the head of pull request 124 without waiting for its merge (the owner wants
+  cross-network teams as soon as possible): a team declares the networks its members may be on
+  as a list of CIDRs, the one source for its listen addresses, `allow_from`, the unit's IP
+  filter, the firewall rules and the seat URL check; a seat is keyed on the homeserver URL;
+  transport is TLS with the team's own CA pinned in the member bundle (plain HTTP only on
+  loopback); a remote seat's token is issued over ssh; and a seat handle never carries a real
+  hostname. These replace Plan 00209 Task 0.6's "plain HTTP only inside a mesh tunnel".
+
+## Success Criteria
+
+- [ ] Pull request 124 is merged by the owner with CI green, the Go tests run by CI.
+- [ ] The decision cited in each new `qa/record.toml` entry is the owner's of 2026-11-03.
+- [ ] A member on a second machine joins a team over TLS, its token issued over ssh, and a
+  connection from a network the team did not declare is refused (Task 8.8).
+
+## Delivery & Milestones
+
+Git is the source of truth for when; the activity log is in JOURNAL/.
+
+- Pull request 124: `spike/v2-merge-up` to F44 (Tasks 8.1 to 8.7).
+- Task 8.8: its own branch and pull request, cut from the head of pull request 124.
