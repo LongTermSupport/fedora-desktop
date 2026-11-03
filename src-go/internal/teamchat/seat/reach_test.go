@@ -23,7 +23,8 @@ func TestOnlyACreatedSeatReachesItsHomeserver(t *testing.T) {
 	if len(asked) != 1 || asked[0].BaseURL != w.bundle().BaseURL || asked[0].Team != w.seat.Team {
 		t.Fatalf("a new seat asked %+v, want its bundle once", asked)
 	}
-	if err := w.place(otherPassword); err != nil {
+	// The account on the homeserver still has testPassword, so the reissue places it again.
+	if err := w.place(testPassword); err != nil {
 		t.Fatal(err)
 	}
 	w.take("s1")

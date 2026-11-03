@@ -249,6 +249,10 @@ func TestTheFirstTakeRecordsAPoolSeatThatHasNoRecord(t *testing.T) {
 	if got, want := w.record(), fmt.Sprintf(recordFmt, w.hs.URL()); got != want {
 		t.Errorf("checkout.json = %s, want %s", got, want)
 	}
+	// A placement claims a seat that is not held, so the session lets it go first.
+	if err := w.release("s1", true); err != nil {
+		t.Fatal(err)
+	}
 	w.reopen(func(c *Config) { c.Reach = &reacher{} })
 	if _, err := w.fill(w.seat, bundleOf(t, "ops", otherBase, string(mustCA(t, "team-a").CertPEM()))); !errors.Is(err, ErrHomeserverClash) {
 		t.Errorf("a placement on another homeserver after the take: %v", err)

@@ -39,7 +39,9 @@ func (Password) Kind() Kind { return KindPassword }
 
 // Mint logs in as TCSEAT, logs out with the token it answered, which ends every earlier token
 // of the device on a server that keeps them (H-C13), and logs in again, answering that token
-// (SC2). A first login refused M_FORBIDDEN is ErrReissue.
+// (SC2). A first login refused M_FORBIDDEN, or answered with an authentication refusal (401, as
+// a locked account answers), is ErrReissue: the seat's account is not as the pool made it (Plan
+// 00246 X11).
 func (p Password) Mint(ctx context.Context, b Bundle, pool Secret) (Secret, error) {
 	c, err := p.client(b, signedOut)
 	if err != nil {
@@ -48,7 +50,7 @@ func (p Password) Mint(ctx context.Context, b Bundle, pool Secret) (Secret, erro
 	defer c.Close()
 	login := b.Handle().String()
 	first, err := c.LoginDevice(ctx, login, pool.Reveal(), paths.SeatDevice)
-	if e, failed := errors.AsType[*matrix.Error](err); failed && e.Errcode == "M_FORBIDDEN" {
+	if refusedLogin(err) {
 		return Secret{}, fmt.Errorf("%w: %s refused its pool password, which was reset outside this pool", ErrReissue, b.UserID)
 	}
 	if err != nil {
@@ -62,6 +64,16 @@ func (p Password) Mint(ctx context.Context, b Bundle, pool Secret) (Secret, erro
 		return Secret{}, fmt.Errorf("seat: signing in again as %s: %w", b.UserID, err)
 	}
 	return ParseSecret(kept.AccessToken.Reveal())
+}
+
+// refusedLogin is a login the homeserver refused as the account's: M_FORBIDDEN, or an answer
+// classed as an authentication refusal.
+func refusedLogin(err error) bool {
+	if errors.Is(err, matrix.ErrAuthRefused) {
+		return true
+	}
+	e, failed := errors.AsType[*matrix.Error](err)
+	return failed && e.Errcode == "M_FORBIDDEN"
 }
 
 // Retire logs the held token out; a token already dead (M_UNKNOWN_TOKEN) is done (SC3).
