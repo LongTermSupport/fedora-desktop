@@ -12,12 +12,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
-	"strings"
 
 	"go.yaml.in/yaml/v3"
 
@@ -26,7 +22,11 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
 
-// maxFile is the largest host_vars file read (HV3).
+// maxFile is the largest host_vars file read (HV3). The package reads bytes and opens no file:
+// a caller that does must open the caller's own whole path, follow a link out of its directory
+// (a checkout may keep host_vars as a link) and refuse a host_vars directory, which no root can
+// bound, so the opening comes with the first caller (the repository owner's decision 3 on pull
+// request 124 leaves such a G304 to be decided there).
 const maxFile = 1 << 20
 
 // v2Keys are the top-level keys read (DR1); every other key is ignored, whatever it holds.
@@ -206,50 +206,4 @@ func scalar(n *yaml.Node, path string) (proto.Value, error) {
 		return proto.Value{}, fail(path, "is a plain value YAML reads as other than a string, an integer, true or false; quote it")
 	}
 	return proto.Str(n.Value), nil
-}
-
-// ReadFile reads a host_vars file (HV3). A host_vars directory, at the path or beside it as
-// `<host>/`, is refused by name: Ansible merges every file in one, and ccy-teams could not know
-// which to edit.
-func ReadFile(path string) (declare.Declaration, error) {
-	if dir, ok := strings.CutSuffix(path, ".yml"); ok {
-		if info, err := os.Stat(dir); err == nil && info.IsDir() {
-			return declare.Declaration{}, fmt.Errorf("%s is a host_vars directory; the declarations must be in %s alone", dir, path)
-		}
-	}
-	dir, name := filepath.Split(path)
-	f, err := os.DirFS(filepath.Clean(dir)).Open(name)
-	if err != nil {
-		return declare.Declaration{}, fmt.Errorf("cannot open %s: %w", path, err)
-	}
-	data, err := readCapped(f, path)
-	if closeErr := f.Close(); err == nil && closeErr != nil {
-		err = fmt.Errorf("cannot close %s: %w", path, closeErr)
-	}
-	if err != nil {
-		return declare.Declaration{}, err
-	}
-	d, err := Read(data)
-	if err != nil {
-		return declare.Declaration{}, fmt.Errorf("%s: %w", path, err)
-	}
-	return d, nil
-}
-
-func readCapped(f fs.File, path string) ([]byte, error) {
-	info, err := f.Stat()
-	if err != nil {
-		return nil, fmt.Errorf("cannot stat %s: %w", path, err)
-	}
-	if info.IsDir() {
-		return nil, fmt.Errorf("%s is a directory; the declarations must be in one host_vars file", path)
-	}
-	data, err := io.ReadAll(io.LimitReader(f, maxFile+1))
-	if err != nil {
-		return nil, fmt.Errorf("cannot read %s: %w", path, err)
-	}
-	if len(data) > maxFile {
-		return nil, fmt.Errorf("%s is over %d bytes", path, maxFile)
-	}
-	return data, nil
 }

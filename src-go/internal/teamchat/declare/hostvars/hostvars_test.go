@@ -2,9 +2,6 @@ package hostvars
 
 import (
 	"errors"
-	"io/fs"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -180,61 +177,9 @@ func TestReadRefusesAFileThatIsNotOneMapping(t *testing.T) {
 	}
 }
 
-func TestReadFile(t *testing.T) {
-	dir := t.TempDir()
-	file := filepath.Join(dir, "box.yml")
-	if err := os.WriteFile(file, []byte(valid), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if d, err := ReadFile(file); err != nil || len(d.Teams) != 2 {
-		t.Fatalf("ReadFile: %+v, %v", d, err)
-	}
-	if _, err := ReadFile(filepath.Join(dir, "none.yml")); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("a missing file: %v", err)
-	}
-	if err := os.Mkdir(filepath.Join(dir, "box"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ReadFile(file); err == nil || !strings.Contains(err.Error(), "directory") {
-		t.Fatalf("a host_vars directory beside the file: %v", err)
-	}
-	if err := os.Mkdir(filepath.Join(dir, "other.yml"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ReadFile(filepath.Join(dir, "other.yml")); err == nil || !strings.Contains(err.Error(), "directory") {
-		t.Fatalf("a directory at the path: %v", err)
-	}
-}
-
-// A checkout may keep its host_vars file as a link to a file elsewhere; the link is followed.
-func TestReadFileFollowsALinkOutOfItsDirectory(t *testing.T) {
-	elsewhere := filepath.Join(t.TempDir(), "kept.yml")
-	if err := os.WriteFile(elsewhere, []byte(valid), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	link := filepath.Join(t.TempDir(), "box.yml")
-	if err := os.Symlink(elsewhere, link); err != nil {
-		t.Fatal(err)
-	}
-	if d, err := ReadFile(link); err != nil || len(d.Teams) != 2 {
-		t.Fatalf("a link to a file in another directory: %+v, %v", d, err)
-	}
-}
-
-func TestReadFileRefuses(t *testing.T) {
-	dir := t.TempDir()
-	big := filepath.Join(dir, "big.yml")
-	if err := os.WriteFile(big, []byte("a: '"+strings.Repeat("x", maxFile)+"'\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ReadFile(big); err == nil {
-		t.Fatal("an oversized file was read")
-	}
-	bad := filepath.Join(dir, "bad.yml")
-	if err := os.WriteFile(bad, []byte("teamchat_teams: 1\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ReadFile(bad); err == nil || !strings.Contains(err.Error(), bad) {
-		t.Fatalf("a refused file is not named: %v", err)
+// Read refuses more than maxFile bytes whatever opened them.
+func TestReadRefusesAnOversizedDocument(t *testing.T) {
+	if _, err := Read([]byte("a: '" + strings.Repeat("x", maxFile) + "'\n")); err == nil {
+		t.Fatal("an oversized document was read")
 	}
 }
