@@ -1,0 +1,37 @@
+# Data for scripts/qa-untracked-audit.bash (Plan 00245). Loaded strictly: an unknown key, an empty
+# asset list or a non-positive floor is exit 2.
+
+# A file or work tree younger than this is never reported.
+ageHours: 24
+
+# Directories directly under untracked/ that a tool owns; the audit does not walk them.
+stores:
+  - repos # private reference clones
+  - worktrees
+  - plan-runs # unscrubbed plan run logs
+  - clones
+  - facts
+
+# Directories the hooks daemon owns (hooks-daemon issue 155 covers them): old files are a warning.
+daemonStores:
+  - agent-reports
+  - issue-reports
+
+# A work product: an old file with one of these extensions is a finding whatever its name, because
+# a message body still on disk after a day was never consumed.
+assetExtensions: [.md, .patch, .diff]
+
+# True scratch (path.Match against the base name): consumed message and body files, captures.
+scratchShapes:
+  - "*-msg.txt"
+  - "msg-*"
+  - "body-*"
+  - "commit-*"
+  - "journal-*"
+  - "*-fields.json"
+  - "fields-*.json"
+  - "*.log"
+  - "*.out"
+
+# Local branches being worked right now, exempt from the unpushed-commits check.
+activeBranches: []
