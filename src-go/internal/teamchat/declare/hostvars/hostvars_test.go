@@ -27,9 +27,9 @@ teamchat_teams:
     state: present
     port: 8448
     description: "The team that builds the thing."
-    listen: [192.0.2.10]
-    allow_from:
+    networks:
       - 192.0.2.0/24
+      - 198.51.100.7/32
     humans: [alice, 'bob']
     coordinator: myrepo.1+desk.podman
     trust:
@@ -61,7 +61,7 @@ func TestReadValid(t *testing.T) {
 		t.Fatalf("decoded %+v", d)
 	}
 	a := d.Teams[0]
-	if a.Port != 8448 || a.Humans[1] != "bob" || a.Listen[0] != "192.0.2.10" || a.URL != "http://192.0.2.10:8448" ||
+	if a.Port != 8448 || a.Humans[1] != "bob" || len(a.Networks) != 2 || a.Networks[1] != "198.51.100.7/32" || a.URL != "http://192.0.2.10:8448" ||
 		a.Trust.Repos[0].Branches[0] != "main" {
 		t.Fatalf("team %+v", a)
 	}

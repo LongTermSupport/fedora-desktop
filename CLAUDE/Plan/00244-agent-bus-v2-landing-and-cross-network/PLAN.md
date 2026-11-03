@@ -85,9 +85,12 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   `project_realtime_bound`, which F44's module-wide rule replaced.
 - [ ] 🔄 **Task 8.7**: Pull request 124 (to F44, assigned to the owner's account, reviewed by
   `qa-reviewer`, its findings fixed). CI green, then ready for review. Only the owner merges it.
-- [ ] ⬜ **Task 8.8**: Cross-network membership, direction 7 of Plan 00209, started on a branch
-  cut from the head of pull request 124 without waiting for its merge (the owner wants
-  cross-network teams as soon as possible): a team declares the networks its members may be on
+- [ ] 🔄 **Task 8.8** (branch `spike/v2-cross-network`; the spec is
+  [SPEC-cross-network.md](SPEC-cross-network.md), the code it starts from is mapped in
+  [RESEARCH-cross-network-code-map.md](RESEARCH-cross-network-code-map.md)): Cross-network
+  membership, direction 7 of Plan 00209, started on a branch cut from the head of pull request
+  124 without waiting for its merge (the owner wants cross-network teams as soon as possible): a
+  team declares the networks its members may be on
   as a list of CIDRs, the one source for its listen addresses, `allow_from`, the unit's IP
   filter, the firewall rules and the seat URL check; a seat is keyed on the homeserver URL;
   transport is TLS with the team's own CA pinned in the member bundle (plain HTTP only on

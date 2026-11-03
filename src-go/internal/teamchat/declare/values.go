@@ -10,12 +10,11 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
 
-// The list bounds of DR3 and DR4.
+// The list bounds of DR3 and DR4, and X1's networks.
 const (
-	maxHumans    = 16
-	maxListen    = 8
-	maxAllowFrom = 32
-	maxDNSName   = 253
+	maxHumans   = 16
+	maxNetworks = 32
+	maxDNSName  = 253
 )
 
 var (
@@ -123,12 +122,9 @@ func (n node) humans() ([]string, error) {
 	return n.strings(1, maxHumans, proto.ValidHumanName, "is not a valid human name, or is reserved")
 }
 
-func (n node) listen() ([]string, error) {
-	return n.strings(1, maxListen, validAddress, "is not an IP address in canonical form, or is unspecified")
-}
-
-func (n node) allowFrom() ([]string, error) {
-	return n.strings(0, maxAllowFrom, validPrefix, "is not a CIDR prefix in canonical masked form")
+// networks reads n as X1's networks: 0 to 32 CIDRs, each in canonical masked form.
+func (n node) networks() ([]string, error) {
+	return n.strings(0, maxNetworks, validPrefix, "is not a CIDR prefix in canonical masked form")
 }
 
 func (n node) url() (string, error) {
