@@ -112,10 +112,11 @@ User-specific includes in `~/.bashrc-includes/`:
   The directory each command ran in is kept in `~/.local/state/bash/context`, which is
   private to the user like the history file. A command removed from history with
   `history -d` stays in that file until it is edited out.
-- `nohist.bash` (desktop user only): `nohist 'command line'` or `nohist command args` runs the
-  command in the current shell (so `cd` and `export` stay) and leaves no trace of it in history
-  or in the Ctrl+R search. The exit status is the command's. This works because
-  `HISTIGNORE` holds `nohist` and `nohist *`, as it does `histclean` and `histclean *`.
+- `nohist=1` prefix (every account, set by `HISTIGNORE` in the history block): a command line
+  that starts with `nohist=1`, in any case (`NOHIST=1`, `NoHIst=1`), is never kept in history or
+  in the Ctrl+R search: `nohist=1 some command` or `nohist=1; some command`. The prefix must be
+  the very first thing on the line: a leading space, or a misspelling such as `nohist=0`, and
+  the line is recorded. Ctrl+R shows a one-line reminder of this and of `histclean`.
 - `histclean` (desktop user only, installed in `~/.local/bin`): `histclean 'text'` lists every
   history and Ctrl+R entry whose command contains the text (a fixed substring; `-e` makes it
   a Go regular expression), numbered, and asks `Remove N entries? [y/N]` once. Only on `y`

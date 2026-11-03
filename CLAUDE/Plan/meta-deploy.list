@@ -37,6 +37,6 @@
 # its Flatpak install now verifies the installed ID, so it re-runs.
 playbooks/imports/optional/common/play-matrix-clients.yml
 
-# Basic configs: builds and installs the histclean command, deploys the nohist function and the
-# HISTIGNORE entries that keep both typed lines out of history (Plan 00246).
+# Basic configs: builds and installs the histclean command, and deploys the HISTIGNORE entries (the nohist=1 prefix, histclean) and the Ctrl+R
+# picker header (Plan 00246).
 playbooks/imports/play-basic-configs.yml
