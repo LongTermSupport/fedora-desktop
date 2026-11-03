@@ -1,6 +1,7 @@
 package seat
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -66,7 +67,7 @@ func (c *Claim) Abandon() error {
 // RENAME_NOREPLACE when the seat has no record, else by RENAME_EXCHANGE, the old record moved
 // to quarantine with its credential unlinked (SP2). An answer that is not this seat's pool
 // record, or not this store's credential, is refused before any write.
-func (c *Claim) Fill(is Issued) error {
+func (c *Claim) Fill(_ context.Context, is Issued) error {
 	s := c.store
 	if !s.holds(c.alloc) {
 		return ErrNotLocked

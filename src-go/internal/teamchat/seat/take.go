@@ -40,6 +40,7 @@ const (
 	StateLost
 	StateNeedsReissue
 	StateRetired
+	StateNoRoster
 )
 
 // Take asks for one pool seat for one session.
