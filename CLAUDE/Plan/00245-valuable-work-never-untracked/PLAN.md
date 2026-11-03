@@ -62,8 +62,11 @@ Edmonds-Commerce-Limited/claude-code-hooks-daemon#152.
   ([report](subagent-reports/261103-untracked-audit.md)). Not done: blocking. It is red on the
   pile, so it waits in the "red until swept" section of `CLAUDE/QA.md`; its row in
   `scripts/qa-gates.tsv` is added when Task 2.2 empties the pile. L4 to L6 remain.
-- [ ] ⬜ **Task 2.2**: Move every VALUABLE-UNTRACKED item to its tracked home (anonymised
-  where needed), then delete the untracked copy.
+- [ ] 🔄 **Task 2.2**: Move every VALUABLE-UNTRACKED item to its tracked home (anonymised
+  where needed), then delete the untracked copy. Second sweep filed 163 files, guarded; the
+  owner's list of what stays is in
+  [the report](subagent-reports/261103-untracked-sweep-2.md). Deleting the untracked copies
+  waits for the owner.
 
 ### Phase 3: the private-name guard
 
