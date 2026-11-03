@@ -560,8 +560,8 @@ its first caller.
 ### Phase 8: landing v2 on F44
 
 Moved to [Plan 00246](../00246-agent-bus-v2-landing-and-cross-network/PLAN.md) on the owner's
-decision of 2026-11-03, with its task numbers: the landing of `spike/v2-merge-up` on F44 (Tasks
-8.1 to 8.7, pull request 124) and the cross-network membership of direction 7 (Task 8.8).
+decision of 2026-11-03, with its task numbers: the landing of `spike/v2-merge-up` (Tasks 8.1 to
+8.7 and 8.9, pull request 124) and cross-network membership of direction 7 (Task 8.8).
 
 ## Success Criteria
 
