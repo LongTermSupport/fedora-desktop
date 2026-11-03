@@ -79,8 +79,10 @@ this public repository. The terms are learned from the agent bus and the machine
   tree REV           every file of a commit
   -h, --help         this text
 
-In a ccy container a list that cannot be built is exit 2, never a skip. Elsewhere, with no agent
-bus and no list, the scan says so and passes. Exit codes: 0 clean, 1 findings, 2 cannot judge.
+In a ccy container a list that cannot be built is exit 2, never a skip. A session on no team
+(pingbus status exits 78) has no team names to learn and judges against the machine's names; the
+list is unbuilt only when no name at all was learned. Elsewhere, with no agent bus and no list,
+the scan says so and passes. Exit codes: 0 clean, 1 findings, 2 cannot judge.
 `
 
 // Main runs the command and returns the exit status.
@@ -183,15 +185,26 @@ func (a app) matcher(errOut *emit.Emitter) (*Matcher, ExitCode, bool) {
 	return m, ExitOK, true
 }
 
+// busNoTeamExit is the status `pingbus status` exits with in a session that is on no team: an
+// ordinary state, since a session need not be launched on one, and it has no team or member name
+// to report.
+const busNoTeamExit = 78
+
 // busStatus is the agent bus's status report. A client that cannot be started is "not found"; one
-// that runs and fails is an error, since a half-known list would read as a pass.
+// that answers "no team" has nothing to report, which is an empty status; one that runs and fails
+// otherwise is an error, since a half-known list would read as a pass. A session with no team
+// still learns the machine's host names, and matcher refuses a container that learns no names.
 func (a app) busStatus() (string, bool, error) {
 	res, err := a.run(proc.Cmd{Argv: []string{"pingbus", "status"}, Dir: a.env.Cwd})
 	if err == nil {
-		if res.Code != 0 {
+		switch res.Code {
+		case 0:
+			return res.Stdout, true, nil
+		case busNoTeamExit:
+			return "", true, nil
+		default:
 			return "", true, fmt.Errorf("pingbus status exited %d", res.Code)
 		}
-		return res.Stdout, true, nil
 	}
 	return "", false, nil
 }
