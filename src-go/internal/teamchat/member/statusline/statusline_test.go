@@ -24,6 +24,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -156,10 +157,7 @@ func (w *world) write(path, content string) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		w.t.Fatal(err)
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
-		w.t.Fatal(err)
-	}
+	f := testfiles.OpenFile(w.t, w.base, path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	_, werr := f.WriteString(content)
 	if err := errors.Join(werr, f.Close()); err != nil {
 		w.t.Fatal(err)

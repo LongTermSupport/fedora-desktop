@@ -119,7 +119,7 @@ func TestALeaveOfAHoldingWithNoCopyLeavesAnotherSeatsCopy(t *testing.T) {
 	w.seed()
 	seatB := w.seedSeatB(t)
 	w.diedBeforeCopy(w.seat)
-	tokenA := readFile(t, w.pool().HeldToken())
+	tokenA := w.readFile(w.pool().HeldToken())
 	w.sleep(time.Second)
 	takenB, err := w.takeSeat(seatB, "s1")
 	if err != nil {
@@ -282,7 +282,7 @@ func TestSinceOrdersTheHoldingsOfASessionStrictly(t *testing.T) {
 // heldOf is seat's held.json.
 func (w *world) heldOf(seat Seat) HeldRecord {
 	w.t.Helper()
-	rec, err := decodeHeldRecord([]byte(readFile(w.t, w.poolOf(seat).HeldRecord())))
+	rec, err := decodeHeldRecord([]byte(w.readFile(w.poolOf(seat).HeldRecord())))
 	if err != nil {
 		w.t.Fatal(err)
 	}
@@ -341,7 +341,7 @@ func TestAStrangePoolNameStopsTheRelease(t *testing.T) {
 	w := newWorld(t)
 	w.seed()
 	w.take("s1")
-	token := readFile(t, w.pool().HeldToken())
+	token := w.readFile(w.pool().HeldToken())
 	stray := w.store.store.PoolTeam(w.key, w.seat.Team) + "/NOT A SEAT"
 	writeFile(t, stray, "")
 	if err := w.release("s1", true); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), stray) {

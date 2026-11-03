@@ -130,7 +130,7 @@ func TestTuwunelTakeAndRelease(t *testing.T) {
 	if hs.alive(ctx, stale) {
 		t.Error("the earlier holder's token survived the take")
 	}
-	token := readFile(t, taken.Dir+"/token")
+	token := readFile(t, home, taken.Dir+"/token")
 	if !hs.alive(ctx, token) {
 		t.Fatal("the take's token is not live")
 	}

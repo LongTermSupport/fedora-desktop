@@ -264,6 +264,46 @@ func TestReadOwnedTarget(t *testing.T) {
 	}
 }
 
+// A path that names no file (it ends in a separator) is the directory itself, which is refused
+// to read, and a write to it fails and leaves no temporary file.
+func TestPathWithNoFileName(t *testing.T) {
+	dir := t.TempDir()
+	if _, _, err := ReadFile(dir+"/", 8); err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		t.Fatalf("a directory path with a separator: %v", err)
+	}
+	if err := WriteFile(dir+"/", []byte("x"), 0o600, -1); err == nil {
+		t.Fatal("a write to a path with no file name succeeded")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("a failed write left %d entries", len(entries))
+	}
+}
+
+// A directory the reader may search but not list still gives up its files, as it did when the
+// whole path was opened at once.
+func TestReadFileInASearchOnlyDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "search")
+	if err := os.Mkdir(dir, 0o300); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, "file")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := errors.Join(os.Remove(file), os.Remove(dir)); err != nil {
+			t.Error(err)
+		}
+	})
+	if got, found, err := ReadFile(file, 8); err != nil || !found || string(got) != "x" {
+		t.Fatalf("a file in a search-only directory: %q %v %v", got, found, err)
+	}
+}
+
 func TestReadFileOpenFailure(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "file")
 	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {

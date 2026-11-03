@@ -26,7 +26,7 @@ func TestKeepGuestToken(t *testing.T) {
 		if err := KeepGuestToken(base, team, seat, mustSecret(t, token)); err != nil {
 			t.Fatal(err)
 		}
-		if readFile(t, copyPath) != token || mode(t, copyPath).Perm() != 0o600 {
+		if readFile(t, base, copyPath) != token || mode(t, copyPath).Perm() != 0o600 {
 			t.Errorf("the kept copy %v", mode(t, copyPath))
 		}
 	}

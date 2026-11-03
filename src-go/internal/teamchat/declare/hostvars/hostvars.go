@@ -12,7 +12,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -215,7 +217,8 @@ func ReadFile(path string) (declare.Declaration, error) {
 			return declare.Declaration{}, fmt.Errorf("%s is a host_vars directory; the declarations must be in %s alone", dir, path)
 		}
 	}
-	f, err := os.Open(path)
+	dir, name := filepath.Split(path)
+	f, err := os.DirFS(filepath.Clean(dir)).Open(name)
 	if err != nil {
 		return declare.Declaration{}, fmt.Errorf("cannot open %s: %w", path, err)
 	}
@@ -233,7 +236,7 @@ func ReadFile(path string) (declare.Declaration, error) {
 	return d, nil
 }
 
-func readCapped(f *os.File, path string) ([]byte, error) {
+func readCapped(f fs.File, path string) ([]byte, error) {
 	info, err := f.Stat()
 	if err != nil {
 		return nil, fmt.Errorf("cannot stat %s: %w", path, err)

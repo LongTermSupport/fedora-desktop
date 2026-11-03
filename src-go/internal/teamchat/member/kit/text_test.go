@@ -19,6 +19,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
 )
 
 // maxSkill bounds the skill: it is loaded into every member's context (B 2.12, kept short).
@@ -258,7 +259,8 @@ func parses(t *testing.T, where string, args []string) {
 func agentTexts(t *testing.T) map[string]string {
 	t.Helper()
 	texts := map[string]string{"proto.FrameText": proto.FrameText}
-	corpus, err := filepath.Glob("../../proto/testdata/envelope/*.txt")
+	const corpusDir = "../../proto/testdata/envelope"
+	corpus, err := filepath.Glob(corpusDir + "/*.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,11 +268,7 @@ func agentTexts(t *testing.T) map[string]string {
 		t.Fatalf("the corpus: %d files", len(corpus))
 	}
 	for _, path := range corpus {
-		data, readErr := os.ReadFile(path)
-		if readErr != nil {
-			t.Fatal(readErr)
-		}
-		texts[filepath.Base(path)] = string(data)
+		texts[filepath.Base(path)] = string(testfiles.Read(t, corpusDir, filepath.Base(path)))
 	}
 	for i, s := range hooktext.All() {
 		texts["hooktext.All "+strconv.Itoa(i)] = s

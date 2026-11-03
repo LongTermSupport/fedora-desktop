@@ -33,10 +33,10 @@ func TestPlaceANewSeat(t *testing.T) {
 	if err := w.place(testPassword); err != nil {
 		t.Fatal(err)
 	}
-	if readFile(t, w.pool().Password()) != testPassword || mode(t, w.pool().Password()).Perm() != 0o600 {
+	if w.readFile(w.pool().Password()) != testPassword || mode(t, w.pool().Password()).Perm() != 0o600 {
 		t.Errorf("the pool password")
 	}
-	b, err := DecodeBundle([]byte(readFile(t, w.pool().Bundle())))
+	b, err := DecodeBundle([]byte(w.readFile(w.pool().Bundle())))
 	if err != nil || encode(t, b) != encode(t, w.bundle()) {
 		t.Errorf("the pool seat.json %+v, %v", b, err)
 	}
@@ -59,7 +59,7 @@ func TestPlaceOverAnExistingSeat(t *testing.T) {
 	if err := w.place(otherPassword); err != nil {
 		t.Fatal(err)
 	}
-	if readFile(t, w.pool().Password()) != otherPassword {
+	if w.readFile(w.pool().Password()) != otherPassword {
 		t.Errorf("the new password is not in place")
 	}
 	moved := quarantined(t, w)
@@ -81,7 +81,7 @@ func TestPlaceCarriesTheLastRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := w.take("s1")
-	held, err := DecodeHeldBundle([]byte(readFile(t, got.Dir+"/seat.json")))
+	held, err := DecodeHeldBundle([]byte(w.readFile(got.Dir + "/seat.json")))
 	if err != nil || held.ReleasedMS == nil || *held.ReleasedMS != 77 {
 		t.Errorf("released_ms after a placement: %+v, %v", held, err)
 	}
@@ -92,7 +92,7 @@ func TestPlaceCarriesTheLastRelease(t *testing.T) {
 	if err := w.place(testPassword); !errors.Is(err, ErrInvalid) {
 		t.Errorf("a broken released.json: %v", err)
 	}
-	if readFile(t, w.pool().ReleasedRecord()) != "{" {
+	if w.readFile(w.pool().ReleasedRecord()) != "{" {
 		t.Errorf("the refused placement changed the record")
 	}
 	if err := os.Remove(w.pool().ReleasedRecord()); err != nil {

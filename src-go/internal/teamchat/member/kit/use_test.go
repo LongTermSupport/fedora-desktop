@@ -23,6 +23,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/wire"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/reexec"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
 )
 
 // The kit's binary in these tests is this test binary: run as the helper below, it is the
@@ -67,14 +68,7 @@ func newUsedKit(t *testing.T) *usedKit {
 	if err != nil {
 		t.Fatal(err)
 	}
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	bin, err := os.Open(self)
-	if err != nil {
-		t.Fatal(err)
-	}
+	bin := testfiles.Executable(t)
 	if err = errors.Join(kit.Assemble(dir, k, bin), bin.Close()); err != nil {
 		t.Fatal(err)
 	}
@@ -104,10 +98,7 @@ func (u *usedKit) makeRun() {
 // command is the command a kit file names under key in its JSON, read from the file.
 func (u *usedKit) command(file string, keys ...string) string {
 	u.t.Helper()
-	data, err := os.ReadFile(file)
-	if err != nil {
-		u.t.Fatal(err)
-	}
+	data := testfiles.Read(u.t, u.kit.String(), file)
 	var v any
 	if err := json.Unmarshal(data, &v); err != nil {
 		u.t.Fatal(err)

@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
 )
 
 func hostKit(t *testing.T) paths.Kit {
@@ -33,15 +34,12 @@ func emptyDir(t *testing.T) string {
 	return dir
 }
 
-func readJSON(t *testing.T, path string) map[string]any {
+// readJSON is the JSON object in name, a file of the kit assembled in dir.
+func readJSON(t *testing.T, dir, name string) map[string]any {
 	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
 	var v map[string]any
-	if err := json.Unmarshal(data, &v); err != nil {
-		t.Fatalf("%s: %v", path, err)
+	if err := json.Unmarshal(testfiles.Read(t, dir, name), &v); err != nil {
+		t.Fatalf("%s: %v", name, err)
 	}
 	return v
 }
@@ -96,9 +94,8 @@ func TestAssembleBuildsTheKit(t *testing.T) {
 			t.Errorf("%s: %v, want %v", p, got[p], mode)
 		}
 	}
-	data, err := os.ReadFile(filepath.Join(into, "bin/teamchat"))
-	if err != nil || !bytes.Equal(data, binary) {
-		t.Errorf("binary %q %v", data, err)
+	if data := testfiles.Read(t, into, "bin/teamchat"); !bytes.Equal(data, binary) {
+		t.Errorf("binary %q", data)
 	}
 }
 
@@ -109,9 +106,8 @@ func TestAssembleWritesTheSkill(t *testing.T) {
 	if err := Assemble(into, kit, strings.NewReader("bin")); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(filepath.Join(into, "plugin/teamchat/skills/teamchat/SKILL.md"))
-	if err != nil || !bytes.Equal(data, skill) {
-		t.Errorf("the skill is not the embedded one: %v", err)
+	if data := testfiles.Read(t, into, "plugin/teamchat/skills/teamchat/SKILL.md"); !bytes.Equal(data, skill) {
+		t.Error("the skill is not the embedded one")
 	}
 	if strings.TrimPrefix(Skill(kit), kit.PluginDir()+"/") != "skills/teamchat/SKILL.md" {
 		t.Errorf("skill path %s", Skill(kit))
@@ -129,7 +125,7 @@ func TestTheHooksAreTheFourEventsByAbsolutePath(t *testing.T) {
 	if err := Assemble(into, kit, strings.NewReader("bin")); err != nil {
 		t.Fatal(err)
 	}
-	doc := readJSON(t, filepath.Join(into, "plugin/teamchat/hooks/hooks.json"))
+	doc := readJSON(t, into, "plugin/teamchat/hooks/hooks.json")
 	if len(doc) != 1 {
 		t.Errorf("keys %v", doc)
 	}
@@ -153,7 +149,7 @@ func TestTheHooksAreTheFourEventsByAbsolutePath(t *testing.T) {
 			t.Errorf("%s: %s", event, got)
 		}
 	}
-	plugin := readJSON(t, filepath.Join(into, "plugin/teamchat/.claude-plugin/plugin.json"))
+	plugin := readJSON(t, into, "plugin/teamchat/.claude-plugin/plugin.json")
 	if plugin["name"] != paths.PluginName || len(plugin) != 2 {
 		t.Errorf("plugin.json %v", plugin)
 	}
@@ -166,7 +162,7 @@ func TestTheSettingsAreTheStatusLineOnly(t *testing.T) {
 	if err := Assemble(into, kit, strings.NewReader("bin")); err != nil {
 		t.Fatal(err)
 	}
-	doc := readJSON(t, filepath.Join(into, "settings.json"))
+	doc := readJSON(t, into, "settings.json")
 	line, ok := doc["statusLine"].(map[string]any)
 	if len(doc) != 1 || !ok {
 		t.Fatalf("settings %v", doc)
@@ -179,10 +175,7 @@ func TestTheSettingsAreTheStatusLineOnly(t *testing.T) {
 		t.Errorf("status line %v", line)
 	}
 	for _, path := range []string{"settings.json", "plugin/teamchat/hooks/hooks.json"} {
-		data, err := os.ReadFile(filepath.Join(into, path))
-		if err != nil {
-			t.Fatal(err)
-		}
+		data := testfiles.Read(t, into, path)
 		for _, banned := range []string{"crossSessionInbound", "timeout", "env", "SESSIONEND"} {
 			if strings.Contains(string(data), banned) {
 				t.Errorf("%s holds %s", path, banned)

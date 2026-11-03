@@ -14,6 +14,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
 )
 
 var testNow = time.UnixMilli(1_800_000_000_000)
@@ -126,13 +127,10 @@ func (s *setup) changed() []string {
 	return out
 }
 
-func read(t *testing.T, path string) string {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(data)
+// read is the text of path, which is under the home.
+func (s *setup) read(path string) string {
+	s.t.Helper()
+	return string(testfiles.Read(s.t, s.home, path))
 }
 
 func perm(t *testing.T, path string) os.FileMode {
@@ -193,16 +191,16 @@ func TestApplyWritesTheProfiles(t *testing.T) {
 	if perm(t, s.profile("ops")) != 0o700 || perm(t, want[0]) != 0o600 || perm(t, want[1]) != 0o600 || perm(t, want[2]) != 0o644 {
 		t.Errorf("modes %v %v %v %v", perm(t, s.profile("ops")), perm(t, want[0]), perm(t, want[1]), perm(t, want[2]))
 	}
-	if got := read(t, want[1]); got != "{\n  \"spellCheckerEnabled\": false\n}\n" {
+	if got := s.read(want[1]); got != "{\n  \"spellCheckerEnabled\": false\n}\n" {
 		t.Errorf("electron-config.json %q", got)
 	}
 	wantLauncher := "[Desktop Entry]\nType=Application\nName=Operations team (teamchat)\n" +
 		"Comment=Watch and command the ops agent team\nExec=flatpak run im.riot.Riot --profile teamchat-ops\n" +
 		"Icon=im.riot.Riot\nTerminal=false\nCategories=Network;InstantMessaging;\n"
-	if got := read(t, want[2]); got != wantLauncher {
+	if got := s.read(want[2]); got != wantLauncher {
 		t.Errorf("launcher %q", got)
 	}
-	if got := read(t, want[5]); !strings.Contains(got, "\nName=web team (teamchat)\n") {
+	if got := s.read(want[5]); !strings.Contains(got, "\nName=web team (teamchat)\n") {
 		t.Errorf("a team with no name in its record: %q", got)
 	}
 	if err := s.apply(`[{"team":"ops"},{"team":"web"}]`); err != nil || s.stdout.Len() != 0 {
@@ -218,7 +216,7 @@ func TestConfigKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	var cfg map[string]any
-	if err := json.Unmarshal([]byte(read(t, s.profile("web")+"/config.json")), &cfg); err != nil {
+	if err := json.Unmarshal([]byte(s.read(s.profile("web")+"/config.json")), &cfg); err != nil {
 		t.Fatal(err)
 	}
 	server := paths.ServerName(mustTeam(t, "web"))
@@ -255,7 +253,7 @@ func TestConfigKeys(t *testing.T) {
 	if string(got) != string(wantJSON) {
 		t.Errorf("config.json\n got %s\nwant %s", got, wantJSON)
 	}
-	if text := read(t, s.profile("ops")+"/config.json"); !strings.HasSuffix(text, "}\n") || !strings.Contains(text, "\n  \"jitsi\": {\n    \"preferred_domain\": \"192.0.2.10\"") {
+	if text := s.read(s.profile("ops") + "/config.json"); !strings.HasSuffix(text, "}\n") || !strings.Contains(text, "\n  \"jitsi\": {\n    \"preferred_domain\": \"192.0.2.10\"") {
 		t.Errorf("ops config.json %q", text)
 	}
 }
@@ -278,7 +276,7 @@ func TestApplyOnlyOnChange(t *testing.T) {
 	if got := s.changed(); !slices.Equal(got, []string{s.profile("ops") + "/config.json"}) {
 		t.Errorf("a changed url: %v", got)
 	}
-	if read(t, seed) != `{"spellCheckerEnabled":true}` {
+	if s.read(seed) != `{"spellCheckerEnabled":true}` {
 		t.Errorf("the user's spell checker choice was overwritten")
 	}
 	s.env.Names = names{byTeam: map[string]string{"ops": "Ops Desk"}}
@@ -291,7 +289,7 @@ func TestApplyOnlyOnChange(t *testing.T) {
 	if got := s.changed(); !slices.Equal(got, []string{s.profile("ops"), s.launcher("ops")}) {
 		t.Errorf("a changed name and mode: %v", got)
 	}
-	if perm(t, s.profile("ops")) != 0o700 || !strings.Contains(read(t, s.launcher("ops")), "\nName=Ops Desk team (teamchat)\n") {
+	if perm(t, s.profile("ops")) != 0o700 || !strings.Contains(s.read(s.launcher("ops")), "\nName=Ops Desk team (teamchat)\n") {
 		t.Errorf("not put back")
 	}
 	if err := os.Chmod(s.launcher("ops"), 0o600); err != nil {
@@ -309,7 +307,7 @@ func TestLauncherEscapesTheName(t *testing.T) {
 	if err := s.apply(`[{"team":"ops"}]`); err != nil {
 		t.Fatal(err)
 	}
-	if got := read(t, s.launcher("ops")); !strings.Contains(got, "\nName=A\\\\nB team (teamchat)\n") {
+	if got := s.read(s.launcher("ops")); !strings.Contains(got, "\nName=A\\\\nB team (teamchat)\n") {
 		t.Errorf("launcher %q", got)
 	}
 }
@@ -492,7 +490,7 @@ func TestWriteConsent(t *testing.T) {
 		t.Errorf("modes %v %v", perm(t, path), perm(t, filepath.Dir(path)))
 	}
 	want := `{"v":1,"accepted_ms":1800000000000,"text":` + quote(t, ConsentText) + "}\n"
-	if got := read(t, path); got != want {
+	if got := s.read(path); got != want {
 		t.Errorf("record %q", got)
 	}
 	if err := s.check(`[{"team":"ops"}]`); err != nil || s.stderr.Len() != 0 || exists(t, s.profile("ops")) {
