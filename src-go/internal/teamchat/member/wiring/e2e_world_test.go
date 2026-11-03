@@ -25,6 +25,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/rooms"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
 )
 
 const (
@@ -194,16 +195,12 @@ func (w *world) member(local, seatName, tag string) *world {
 	return &m
 }
 
-// copySelf copies the test binary to path, executable.
+// copySelf copies the test binary to path, a full path under the world's directory, executable.
 func (w *world) copySelf(path string) {
 	w.t.Helper()
-	self, err := os.Executable()
-	check(w.t, err)
-	in, err := os.Open(self)
-	check(w.t, err)
+	in := testfiles.Executable(w.t)
 	defer func() { check(w.t, in.Close()) }()
-	out, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o700)
-	check(w.t, err)
+	out := testfiles.OpenFile(w.t, w.dir, path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o700)
 	if _, err := io.Copy(out, in); err != nil {
 		w.t.Fatal(errors.Join(err, out.Close()))
 	}
@@ -517,7 +514,7 @@ func (s *session) log(name string) string {
 		}
 		dir = runs[0]
 	}
-	data, err := os.ReadFile(filepath.Join(dir, name))
+	data, err := testfiles.Try(dir, name)
 	if err != nil {
 		return err.Error()
 	}

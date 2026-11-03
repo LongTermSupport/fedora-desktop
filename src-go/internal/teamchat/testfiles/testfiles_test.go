@@ -74,6 +74,24 @@ func TestFindIsFalseForNoFile(t *testing.T) {
 	}
 }
 
+// Try never ends the test: a diagnostic that reports a file hands back why it cannot be read, and
+// a name that leaves the directory is such a reason.
+func TestTryAnswersWithTheReason(t *testing.T) {
+	w := newWorld(t)
+	if data, err := Try(w.dir, "file"); err != nil || string(data) != "inside" {
+		t.Errorf("a file: %q %v", data, err)
+	}
+	if _, err := Try(w.dir, "none"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a missing file: %v", err)
+	}
+	if data, err := Try(w.dir, "outlink"); err == nil {
+		t.Errorf("a link that leads out: %q", data)
+	}
+	if data, err := Try(filepath.Join(w.dir, "none"), "file"); err == nil {
+		t.Errorf("a missing directory: %q", data)
+	}
+}
+
 func TestOpenAndOpenFile(t *testing.T) {
 	w := newWorld(t)
 	f := Open(t, w.dir, "file")

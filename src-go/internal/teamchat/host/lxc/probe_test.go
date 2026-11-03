@@ -15,6 +15,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxccmd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxcstate"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
 )
 
 var _ health.Guests = Guests{}
@@ -162,8 +163,9 @@ func TestProbeEntryKeyedPerSeat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeTree(t, b.dir, map[string]string{l.Seat(mustTeam(t, "t1")).Lock()[1:]: lockRecord})
-	holdFile(t, filepath.Join(b.dir, l.Seat(mustTeam(t, "t1")).Lock()))
+	lock := l.Seat(mustTeam(t, "t1")).Lock()[1:]
+	writeTree(t, b.dir, map[string]string{lock: lockRecord})
+	holdFile(t, b.dir, lock)
 	rec := w.record()
 	for _, e := range rec.Members {
 		got, err := w.probe(e.Handle)
@@ -176,13 +178,10 @@ func TestProbeEntryKeyedPerSeat(t *testing.T) {
 	}
 }
 
-// holdFile holds p LOCK_EX until the test ends.
-func holdFile(t *testing.T, p string) {
+// holdFile holds name beneath dir LOCK_EX until the test ends.
+func holdFile(t *testing.T, dir, name string) {
 	t.Helper()
-	f, err := os.Open(p)
-	if err != nil {
-		t.Fatal(err)
-	}
+	f := testfiles.Open(t, dir, name)
 	t.Cleanup(func() {
 		if err := f.Close(); err != nil {
 			t.Error(err)
@@ -202,8 +201,8 @@ func TestProbeGuestUserGoneIsFree(t *testing.T) {
 	} {
 		w := placed(t)
 		holdSeat(t, w.lxc.boxes["c1"], lockRecord)
-		writeTree(t, w.lxc.boxes["c1"].dir, map[string]string{"etc/passwd.new": passwd})
-		if err := os.Rename(filepath.Join(w.lxc.boxes["c1"].dir, "etc/passwd.new"), filepath.Join(w.lxc.boxes["c1"].dir, "etc/passwd")); err != nil {
+		writeTree(t, w.lxc.boxes["c1"].dir, map[string]string{guestUsersFile + ".new": passwd})
+		if err := os.Rename(filepath.Join(w.lxc.boxes["c1"].dir, guestUsersFile+".new"), filepath.Join(w.lxc.boxes["c1"].dir, guestUsersFile)); err != nil {
 			t.Fatal(err)
 		}
 		wantProbe(t, w, health.GuestProbe{})
@@ -212,7 +211,7 @@ func TestProbeGuestUserGoneIsFree(t *testing.T) {
 
 func TestProbeGuestWithNoPasswdIsFree(t *testing.T) {
 	w := placed(t)
-	if err := os.Remove(filepath.Join(w.lxc.boxes["c1"].dir, "etc/passwd")); err != nil {
+	if err := os.Remove(filepath.Join(w.lxc.boxes["c1"].dir, guestUsersFile)); err != nil {
 		t.Fatal(err)
 	}
 	wantProbe(t, w, health.GuestProbe{})

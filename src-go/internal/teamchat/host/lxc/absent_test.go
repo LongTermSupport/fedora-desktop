@@ -2,8 +2,6 @@ package lxc
 
 import (
 	"errors"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -15,6 +13,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxccmd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxcstate"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
 )
 
 // leaving is a placed world whose entry now says absent.
@@ -41,12 +40,9 @@ func seatLock(t *testing.T, team string) string {
 // holdSeat plants the seat lock with record and holds it LOCK_EX until the test ends.
 func holdSeat(t *testing.T, b *box, record string) func() {
 	t.Helper()
-	p := filepath.Join(b.dir, seatLock(t, "t1"))
-	writeTree(t, b.dir, map[string]string{seatLock(t, "t1")[1:]: record})
-	f, err := os.Open(p)
-	if err != nil {
-		t.Fatal(err)
-	}
+	lock := seatLock(t, "t1")[1:]
+	writeTree(t, b.dir, map[string]string{lock: record})
+	f := testfiles.Open(t, b.dir, lock)
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
 		t.Fatal(err)
 	}
