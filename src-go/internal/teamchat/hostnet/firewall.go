@@ -160,18 +160,27 @@ type route struct {
 	metric uint64
 }
 
-// route is the interface of the best route covering addr: the longest prefix, then the lowest
-// metric; the first of equals wins.
+// route is the interface of the best route covering addr.
 func (f Firewall) route(addr netip.Addr) (string, bool, error) {
+	best, found, err := lookupRoute(f.Proc, addr)
+	if err != nil || !found {
+		return "", false, err
+	}
+	return best.dev, true, nil
+}
+
+// lookupRoute is the best usable route of proc's tables covering addr: the longest prefix, then
+// the lowest metric; the first of equals wins.
+func lookupRoute(proc string, addr netip.Addr) (route, bool, error) {
 	var routes []route
 	var err error
 	if addr.Is4() {
-		routes, err = readRoutes(f.Proc+"/net/route", true, parseRoute4)
+		routes, err = readRoutes(proc+"/net/route", true, parseRoute4)
 	} else {
-		routes, err = readRoutes(f.Proc+"/net/ipv6_route", false, parseRoute6)
+		routes, err = readRoutes(proc+"/net/ipv6_route", false, parseRoute6)
 	}
 	if err != nil {
-		return "", false, err
+		return route{}, false, err
 	}
 	var best *route
 	for i := range routes {
@@ -185,9 +194,9 @@ func (f Firewall) route(addr netip.Addr) (string, bool, error) {
 		}
 	}
 	if best == nil {
-		return "", false, nil
+		return route{}, false, nil
 	}
-	return best.dev, true, nil
+	return *best, true, nil
 }
 
 // readRoutes is a route table's usable routes; a host without IPv6 has no ipv6_route, which is

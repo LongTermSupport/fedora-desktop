@@ -16,6 +16,7 @@ import (
 	"io"
 	"io/fs"
 	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -119,12 +120,24 @@ type Listener struct {
 	Unit string
 }
 
-// Network is the host's interfaces, its listening sockets (read from /proc/net/tcp and tcp6)
-// and the live LXC bridge's subnet.
+// Route is the interface that routes a network (SPEC-cross-network X3) and whether it does so by
+// the default route, the route of prefix length 0.
+type Route struct {
+	Interface string
+	Default   bool
+}
+
+// Network is the host's interfaces, its listening sockets (read from /proc/net/tcp and tcp6),
+// the live LXC bridge's subnet, and which interface routes a network.
 type Network interface {
 	Interfaces() ([]Interface, error)
 	Listeners() ([]Listener, error)
 	Bridge() (netip.Prefix, error)
+	// Route is the interface that routes network: the one that holds it when it is a host
+	// prefix of the host's own address, else the best route of the main table (the longest
+	// prefix, then the lowest metric), read as Firewall.Zone reads it. found is false when no
+	// route covers the network.
+	Route(network netip.Prefix) (Route, bool, error)
 }
 
 // Readiness is the probe of a homeserver's `/_tuwunel/server_version` on loopback.
@@ -219,7 +232,11 @@ type applying struct {
 	changed []string
 
 	first, stamped bool
-	ifaces         map[string]string
+	// networks, listen and ifaces are what deriveNetworks made (X3): the effective networks, the
+	// listen addresses and the interface carrying each.
+	networks       []netip.Prefix
+	listen         []netip.Addr
+	ifaces         map[netip.Addr]string
 	regKey         string
 	r              rendered
 	answer         answer
@@ -230,9 +247,8 @@ type applying struct {
 	// records this render's digests, since units.json is written after a reload succeeded; how
 	// the drop-in's bytes compare says nothing of it, as a reload can fail or a crash come after
 	// the write.
-	loaded    bool
-	teamFile  []byte
-	allowFrom []string
+	loaded   bool
+	teamFile []byte
 }
 
 // Apply is `team apply`'s steps 1 to 11 for one decoded input (C 3.5.2); step 10 is
@@ -292,39 +308,95 @@ func (a *applying) refusals(_ context.Context) error {
 	if err := declare.Hold(approved, a.in); err != nil {
 		return &Error{Verb: verbApply, Step: StepRefusals, Drift: true, Err: err}
 	}
-	if err := a.listenInterfaces(); err != nil {
+	if err := a.deriveNetworks(); err != nil {
 		return err
 	}
 	return a.port()
 }
 
-// listenInterfaces holds each listen address to exactly one interface, and none a wildcard.
-func (a *applying) listenInterfaces() error {
+// deriveNetworks is the one place the effective networks and the listen addresses are made
+// (X3): everything the config, the filter, the firewall and units.json hold of them comes from
+// a.networks and a.listen, never from the declared list. A network no interface routes, one only
+// the default route covers (unless it is the host's own), and a url the host would not answer
+// on are refused.
+func (a *applying) deriveNetworks() error {
 	ifaces, err := a.d.Network.Interfaces()
 	if err != nil {
 		return a.fail(StepRefusals, err)
 	}
-	a.ifaces = map[string]string{}
-	for _, listen := range a.in.Team.Listen {
-		addr, err := netip.ParseAddr(listen)
-		if err != nil || addr.IsUnspecified() {
-			return a.refuse("listen address %s is a wildcard or not an address", listen)
+	effective, err := a.in.EffectiveNetworks(a.d.Network.Bridge)
+	if err != nil {
+		return a.fail(StepRefusals, err)
+	}
+	a.networks, a.listen, a.ifaces = effective.All, nil, map[netip.Addr]string{}
+	for _, network := range effective.All {
+		addr, err := a.serve(network, slices.Contains(effective.Own, network), ifaces)
+		if err != nil {
+			return err
 		}
-		var on []string
-		for _, i := range ifaces {
-			if slices.Contains(i.Addrs, addr) {
-				on = append(on, i.Name)
-			}
+		if !slices.Contains(a.listen, addr) {
+			a.listen = append(a.listen, addr)
 		}
-		switch {
-		case len(on) == 0:
-			return a.refuse("listen address %s is on no interface", listen)
-		case len(on) > 1:
-			return a.refuse("listen address %s is on more than one interface: %s", listen, strings.Join(on, ", "))
-		case !validInterface(on[0]):
-			return a.fail(StepRefusals, fmt.Errorf("interface %q of %s has no device unit name", on[0], listen))
+	}
+	slices.SortFunc(a.listen, netip.Addr.Compare)
+	return a.urlHost()
+}
+
+// serve is the listen address that serves network: that of the interface which routes it, held
+// to exactly one interface.
+func (a *applying) serve(network netip.Prefix, own bool, ifaces []Interface) (netip.Addr, error) {
+	route, found, err := a.d.Network.Route(network)
+	switch {
+	case err != nil:
+		return netip.Addr{}, a.fail(StepRefusals, err)
+	case !found:
+		return netip.Addr{}, a.refuse("network %s: no route covers it", network)
+	case route.Default && !own:
+		return netip.Addr{}, a.refuse("network %s: only the default route covers it; add a route (a VPN, a static route) "+
+			"so the homeserver is not reached by the default interface", network)
+	case !validInterface(route.Interface):
+		return netip.Addr{}, a.fail(StepRefusals, fmt.Errorf("interface %q of %s has no device unit name", route.Interface, network))
+	}
+	i := slices.IndexFunc(ifaces, func(i Interface) bool { return i.Name == route.Interface })
+	if i < 0 {
+		return netip.Addr{}, a.refuse("network %s: its route names interface %s, which the host does not have", network, route.Interface)
+	}
+	addr, err := listenAddress(network, own, ifaces[i])
+	if err != nil {
+		return netip.Addr{}, a.refuse("network %s: %w", network, err)
+	}
+	var on []string
+	for _, other := range ifaces {
+		if slices.Contains(other.Addrs, addr) {
+			on = append(on, other.Name)
 		}
-		a.ifaces[listen] = on[0]
+	}
+	if len(on) > 1 {
+		return netip.Addr{}, a.refuse("listen address %s is on more than one interface: %s", addr, strings.Join(on, ", "))
+	}
+	a.ifaces[addr] = route.Interface
+	return addr, nil
+}
+
+// listenText is the listen addresses as units.json and the address check write them.
+func (a *applying) listenText() []string {
+	out := make([]string, 0, len(a.listen))
+	for _, l := range a.listen {
+		out = append(out, l.String())
+	}
+	return out
+}
+
+// urlHost holds the team's url to X6: an IP literal must be one of the listen addresses, a DNS
+// name is the owner's to point at the host.
+func (a *applying) urlHost() error {
+	u, err := url.Parse(a.in.Team.URL)
+	if err != nil {
+		return a.fail(StepRefusals, err)
+	}
+	host, parseErr := netip.ParseAddr(u.Hostname())
+	if parseErr == nil && !slices.Contains(a.listen, host) {
+		return a.refuse("url host %s is not a listen address of this host (%v)", host, a.listen)
 	}
 	return nil
 }
@@ -395,20 +467,18 @@ func (a *applying) render(_ context.Context) error {
 	if err != nil {
 		return a.fail(StepRender, err)
 	}
-	if err = a.readInstalled(); err == nil {
-		err = a.allowed()
-	}
-	if err != nil {
+	if err = a.readInstalled(); err != nil {
 		return a.fail(StepRender, err)
 	}
 	var devices []string
-	for _, listen := range a.in.Team.Listen {
+	for _, listen := range a.listen {
 		if unit := deviceUnit(a.ifaces[listen]); !slices.Contains(devices, unit) {
 			devices = append(devices, unit)
 		}
 	}
 	a.r, err = render(renderSpec{
-		team: a.in.Team, allowFrom: a.allowFrom, devices: devices, regKey: a.regKey, pin: a.d.Pin, baseUnit: base,
+		team: a.in.Team, listen: a.listen, networks: a.networks, devices: devices, regKey: a.regKey, pin: a.d.Pin,
+		baseUnit: base,
 	})
 	if err != nil {
 		return a.fail(StepRender, err)
@@ -453,22 +523,6 @@ func (a *applying) readInstalled() error {
 	}
 	a.teamFile, _, err = state.ReadFile(a.path(paths.TeamDeclaration(a.team)), fileMax)
 	return err
-}
-
-// allowed is allow_from, with the live LXC bridge's subnet for a team with an LXC member.
-func (a *applying) allowed() error {
-	a.allowFrom = slices.Clone(a.in.Team.AllowFrom)
-	if !slices.ContainsFunc(a.in.LXC, func(m declare.LXCMember) bool { return m.State == declare.StatePresent }) {
-		return nil
-	}
-	bridge, err := a.d.Network.Bridge()
-	if err != nil {
-		return err
-	}
-	if s := bridge.Masked().String(); !slices.Contains(a.allowFrom, s) {
-		a.allowFrom = append(a.allowFrom, s)
-	}
-	return nil
 }
 
 // files is step 4, on a first apply only: the team's directories, the config with its new
@@ -552,14 +606,10 @@ func readRules(record string, team paths.TeamID) ([]Rule, bool, error) {
 	return rules, true, nil
 }
 
-// wantedRules is one rule per allow_from source, in the zone that routes it.
+// wantedRules is one rule per effective network, in the zone that routes it (X4).
 func (a *applying) wantedRules(ctx context.Context) ([]Rule, error) {
-	wanted := make([]Rule, 0, len(a.allowFrom))
-	for _, s := range a.allowFrom {
-		source, err := netip.ParsePrefix(s)
-		if err != nil {
-			return nil, err
-		}
+	wanted := make([]Rule, 0, len(a.networks))
+	for _, source := range a.networks {
 		zone, err := a.d.Firewall.Zone(ctx, source)
 		if err != nil {
 			return nil, err
@@ -650,14 +700,8 @@ func (a *applying) startForBackup(ctx context.Context) error {
 	port := a.in.Team.Port
 	if a.units != nil {
 		port = a.units.port
-		old := dropInSpec{
-			team: a.team, version: a.units.version, memoryHigh: a.d.Pin.MemoryHigh, port: a.units.port, listen: a.units.listen,
-		}
-		if !a.haveDropIn || !strings.Contains(string(a.dropIn), old.execStart()) {
-			if err := a.writeDropIn(old.text()); err != nil {
-				return err
-			}
-			a.note("drop-in written for the backup, tuwunel " + a.units.version.String())
+		if err := a.recordedDropIn(); err != nil {
+			return err
 		}
 	}
 	if err := a.reload(ctx); err != nil {
@@ -668,6 +712,26 @@ func (a *applying) startForBackup(ctx context.Context) error {
 	}
 	a.note("unit started for the backup")
 	return a.ready(ctx, port)
+}
+
+// recordedDropIn writes the drop-in of the version and listen set units.json records, unless the
+// one on disk already runs that version.
+func (a *applying) recordedDropIn() error {
+	recorded, err := parseAddrs(a.units.listen)
+	if err != nil {
+		return err
+	}
+	old := dropInSpec{
+		team: a.team, version: a.units.version, memoryHigh: a.d.Pin.MemoryHigh, port: a.units.port, listen: recorded,
+	}
+	if a.haveDropIn && strings.Contains(string(a.dropIn), old.execStart()) {
+		return nil
+	}
+	if err := a.writeDropIn(old.text()); err != nil {
+		return err
+	}
+	a.note("drop-in written for the backup, tuwunel " + a.units.version.String())
+	return nil
 }
 
 func (a *applying) writeDropIn(text []byte) error {
@@ -795,7 +859,7 @@ func (a *applying) addresses(_ context.Context) error {
 		return a.fail(StepAddresses, err)
 	}
 	want := []string{loopbackListen}
-	for _, l := range a.in.Team.Listen {
+	for _, l := range a.listenText() {
 		if !slices.Contains(want, l) {
 			want = append(want, l)
 		}
@@ -839,7 +903,7 @@ func (a *applying) writeRecords() error {
 	if err := a.writeIfChanged(paths.TeamDeclaration(a.team), a.teamFile, a.r.teamFile, 0o600, "team.json written"); err != nil {
 		return err
 	}
-	u := unitsRecord{digests: a.r.digests, version: a.d.Pin.Version, port: a.in.Team.Port, listen: a.in.Team.Listen}
+	u := unitsRecord{digests: a.r.digests, version: a.d.Pin.Version, port: a.in.Team.Port, listen: a.listenText()}
 	var was []byte
 	if a.units != nil {
 		was = a.units.encode(a.team)

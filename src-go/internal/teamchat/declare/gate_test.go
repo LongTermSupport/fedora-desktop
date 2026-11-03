@@ -127,6 +127,7 @@ func TestCompareUngatedAndReorderedIsNoDifference(t *testing.T) {
 	doc := inputDoc()
 	team := docTeam(doc)
 	team["humans"] = []any{"bob", "alice"}
+	team["networks"] = []any{"192.0.2.0/24"}
 	team["name"] = "Alpha"
 	team["description"] = "Another description."
 	lxc := obj(arr(doc["lxc_members"])[0])
@@ -162,12 +163,16 @@ func compareCases() []compareCase {
 			"coordinator removed", func(d map[string]any) { delete(docTeam(d), "coordinator") },
 			[]Difference{{"coordinator", "myrepo.1+desk.podman", "-"}},
 		},
-		{"allow_from added", func(d map[string]any) {
-			docTeam(d)["allow_from"] = []any{"192.0.2.0/24", "198.51.100.0/24"}
-		}, []Difference{{"allow_from", "-", "198.51.100.0/24"}}},
+		{"network added", func(d map[string]any) {
+			docTeam(d)["networks"] = []any{"192.0.2.0/24", "198.51.100.0/24"}
+		}, []Difference{{"networks", "-", "198.51.100.0/24"}}},
 		{
-			"listen moved", func(d map[string]any) { docTeam(d)["listen"] = []any{"192.0.2.11"} },
-			[]Difference{{"listen", "192.0.2.10", "-"}, {"listen", "-", "192.0.2.11"}},
+			"network replaced", func(d map[string]any) { docTeam(d)["networks"] = []any{"198.51.100.0/24"} },
+			[]Difference{{"networks", "192.0.2.0/24", "-"}, {"networks", "-", "198.51.100.0/24"}},
+		},
+		{
+			"networks emptied", func(d map[string]any) { docTeam(d)["networks"] = []any{} },
+			[]Difference{{"networks", "192.0.2.0/24", "-"}},
 		},
 		{
 			"address moves the default url", func(d map[string]any) { d["address"] = "192.0.2.99" },
@@ -199,9 +204,11 @@ func compareCases() []compareCase {
 		{"in AG1 order", func(d map[string]any) {
 			d["lxc_members"] = []any{}
 			docTeam(d)["humans"] = []any{"alice"}
+			docTeam(d)["networks"] = []any{}
 			docTeam(d)["url"] = "https://chat.example.com"
 		}, []Difference{
 			{"humans", "bob", "-"},
+			{"networks", "192.0.2.0/24", "-"},
 			{"url", "http://192.0.2.10:8448", "https://chat.example.com"},
 			{"lxc_members", box1, "-"},
 		}},
@@ -300,12 +307,12 @@ func approveCases() []approveCase {
 			"remove a human", func(d map[string]any) { docTeam(d)["humans"] = []any{"alice"} },
 			Change{"humans", OpRemove, "bob"},
 		},
-		{"add a prefix", func(d map[string]any) {
-			docTeam(d)["allow_from"] = []any{"192.0.2.0/24", "198.51.100.0/24"}
-		}, Change{"allow_from", OpAdd, "198.51.100.0/24"}},
+		{"add a network", func(d map[string]any) {
+			docTeam(d)["networks"] = []any{"192.0.2.0/24", "198.51.100.0/24"}
+		}, Change{"networks", OpAdd, "198.51.100.0/24"}},
 		{
-			"remove a listen address", func(d map[string]any) { docTeam(d)["listen"] = []any{"192.0.2.10"} },
-			Change{"listen", OpAdd, "192.0.2.10"},
+			"remove a network", func(d map[string]any) { docTeam(d)["networks"] = []any{"192.0.2.0/24"} },
+			Change{"networks", OpRemove, "198.51.100.0/24"},
 		},
 		{
 			"set the coordinator", func(d map[string]any) { docTeam(d)["coordinator"] = "other.2+desk.podman" },
@@ -352,9 +359,8 @@ func TestApproveOneChange(t *testing.T) {
 	for _, c := range approveCases() {
 		t.Run(c.name, func(t *testing.T) {
 			before := inputDoc()
-			if c.name == "remove a listen address" {
-				docTeam(before)["listen"] = []any{"192.0.2.10", "192.0.2.11"}
-				c.change = Change{"listen", OpRemove, "192.0.2.11"}
+			if c.name == "remove a network" {
+				docTeam(before)["networks"] = []any{"192.0.2.0/24", "198.51.100.0/24"}
 			}
 			approved := approvedOf(t, before)
 			after := inputDoc()
@@ -419,8 +425,13 @@ func approveRefusals(whole string) []struct {
 		{"add what is there", true, Change{"humans", OpAdd, "bob"}},
 		{"remove what is not", true, Change{"humans", OpRemove, "carol"}},
 		{"a bad human", true, Change{"humans", OpAdd, "admin"}},
-		{"a bad prefix", true, Change{"allow_from", OpAdd, "192.0.2.1/24"}},
-		{"a bad address", true, Change{"listen", OpAdd, "0.0.0.0"}},
+		{"a bad prefix", true, Change{"networks", OpAdd, "192.0.2.1/24"}},
+		{"a bare address", true, Change{"networks", OpAdd, "192.0.2.1"}},
+		{"networks by set", true, Change{"networks", OpSet, "198.51.100.0/24"}},
+		{"network added twice", true, Change{"networks", OpAdd, "192.0.2.0/24"}},
+		{"network not there to remove", true, Change{"networks", OpRemove, "198.51.100.0/24"}},
+		{"allow_from is not a field", true, Change{"allow_from", OpAdd, "198.51.100.0/24"}},
+		{"listen is not a field", true, Change{"listen", OpAdd, "192.0.2.10"}},
 		{"coordinator by add", true, Change{"coordinator", OpAdd, "other.2+desk.podman"}},
 		{"coordinator unchanged", true, Change{"coordinator", OpSet, "myrepo.1+desk.podman"}},
 		{"coordinator bad handle", true, Change{"coordinator", OpSet, "alice"}},
@@ -466,8 +477,12 @@ func TestApprovedFileRoundTrip(t *testing.T) {
 	delete(docTeam(doc), "coordinator")
 	g := readInput(t, doc).Gated()
 	raw := EncodeApproved(alpha, g)
-	if !strings.Contains(string(raw), `"coordinator":null`) || !strings.HasPrefix(string(raw), `{"v":1,"team":"alpha","approved":{"humans":`) {
+	if !strings.Contains(string(raw), `"coordinator":null`) || !strings.HasPrefix(string(raw), `{"v":2,"team":"alpha","approved":{"humans":`) {
 		t.Fatalf("encoded %s", raw)
+	}
+	if !strings.Contains(string(raw), `"networks":["192.0.2.0/24"]`) || strings.Contains(string(raw), `"listen"`) ||
+		strings.Contains(string(raw), `"allow_from"`) {
+		t.Fatalf("approved.json holds the wrong network keys: %s", raw)
 	}
 	back, err := DecodeApproved(raw, alpha)
 	if err != nil {
@@ -488,8 +503,11 @@ func TestDecodeApprovedRefuses(t *testing.T) {
 	good := string(EncodeApproved(alpha, readInput(t, inputDoc()).Gated()))
 	cases := map[string]string{
 		"another team":   strings.Replace(good, `"team":"alpha"`, `"team":"beta"`, 1),
-		"version":        strings.Replace(good, `"v":1`, `"v":2`, 1),
-		"unknown key":    strings.Replace(good, `"v":1`, `"v":1,"x":1`, 1),
+		"version":        strings.Replace(good, `"v":2`, `"v":3`, 1),
+		"unknown key":    strings.Replace(good, `"v":2`, `"v":2,"x":1`, 1),
+		"allow_from":     strings.Replace(good, `"networks":["192.0.2.0/24"]`, `"allow_from":["192.0.2.0/24"]`, 1),
+		"listen too":     strings.Replace(good, `"networks":["192.0.2.0/24"]`, `"networks":["192.0.2.0/24"],"listen":["192.0.2.10"]`, 1),
+		"bare network":   strings.Replace(good, `"networks":["192.0.2.0/24"]`, `"networks":["192.0.2.1"]`, 1),
 		"bad human":      strings.Replace(good, `"bob"`, `"admin"`, 1),
 		"repeated human": strings.Replace(good, `"bob"`, `"alice"`, 1),
 		"lxc key":        strings.Replace(good, `"human_text":true`, `"human_text":true,"site":"desk"`, 1),
@@ -500,7 +518,7 @@ func TestDecodeApprovedRefuses(t *testing.T) {
 			`"lxc_members":[`+lxcJSON(`"agent"`, "true")+`,`+lxcJSON(`"agent2"`, "false")+`]`, 1),
 		"lxc user":    strings.Replace(good, `"user":"agent"`, `"user":"Agent"`, 1),
 		"not json":    "{",
-		"over cap":    `{"v":1,"pad":"` + strings.Repeat("x", maxApproved) + `"}`,
+		"over cap":    `{"v":2,"pad":"` + strings.Repeat("x", maxApproved) + `"}`,
 		"team number": strings.Replace(good, `"team":"alpha"`, `"team":7`, 1),
 	}
 	for name, raw := range cases {
@@ -510,6 +528,20 @@ func TestDecodeApprovedRefuses(t *testing.T) {
 		if _, err := DecodeApproved([]byte(raw), alpha); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
+	}
+}
+
+// X1: an approved.json of version 1 (listen and allow_from) is refused with its version named,
+// before its keys are judged.
+func TestDecodeApprovedRefusesVersion1ByName(t *testing.T) {
+	alpha := mustTeam("alpha")
+	v1 := `{"v":1,"team":"alpha","approved":{"humans":["alice","bob"],"coordinator":null,` +
+		`"allow_from":["192.0.2.0/24"],"listen":["192.0.2.10"],"url":"http://192.0.2.10:8448",` +
+		`"trust":{"kind":"github","org":"example-org","repos":[]},"lxc_members":[]}}`
+	_, err := DecodeApproved([]byte(v1), alpha)
+	wantField(t, err, "approved.json.v", "")
+	if err == nil || !strings.Contains(err.Error(), "version 1") {
+		t.Fatalf("the refusal does not name the version: %v", err)
 	}
 }
 

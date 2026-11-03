@@ -377,18 +377,18 @@ func TestParseConfig(t *testing.T) {
 
 func TestSource(t *testing.T) {
 	addrs := []netip.Addr{netip.MustParseAddr("fe80::1"), netip.MustParseAddr("198.51.100.7")}
-	allow := []string{"192.0.2.0/24", "198.51.100.0/24"}
-	if err := Source(addrs, allow, "lxcbr0", "lxcbr0"); err != nil {
+	networks := []netip.Prefix{netip.MustParsePrefix("192.0.2.0/24"), netip.MustParsePrefix("198.51.100.0/24")}
+	if err := Source(addrs, networks, "lxcbr0", "lxcbr0"); err != nil {
 		t.Fatal(err)
 	}
 	mapped := []netip.Addr{netip.MustParseAddr("::ffff:198.51.100.7")}
-	if err := Source(mapped, allow, "lxcbr0", "lxcbr0"); err != nil {
+	if err := Source(mapped, networks, "lxcbr0", "lxcbr0"); err != nil {
 		t.Fatalf("a v4-mapped address: %v", err)
 	}
-	refused(t, "other link", Source(addrs, allow, "virbr0", "lxcbr0"), "bridge")
-	refused(t, "outside", Source(addrs, []string{"192.0.2.0/24"}, "lxcbr0", "lxcbr0"), "allow_from")
-	refused(t, "no address", Source(nil, allow, "lxcbr0", "lxcbr0"), "no address")
-	refused(t, "bad prefix", Source(addrs, []string{"198.51.100.0/33"}, "lxcbr0", "lxcbr0"), "allow_from")
+	refused(t, "other link", Source(addrs, networks, "virbr0", "lxcbr0"), "bridge")
+	refused(t, "outside", Source(addrs, networks[:1], "lxcbr0", "lxcbr0"), "inside the team's effective networks")
+	refused(t, "no networks", Source(addrs, nil, "lxcbr0", "lxcbr0"), "inside the team's effective networks")
+	refused(t, "no address", Source(nil, networks, "lxcbr0", "lxcbr0"), "no address")
 }
 
 func TestStartTicks(t *testing.T) {
