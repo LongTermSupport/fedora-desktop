@@ -167,6 +167,22 @@ func TestForNeedsTheRecordedIDsTranscriptNotTheNewest(t *testing.T) {
 	mustFail(t, rec, "/nonexistent", id)
 }
 
+// Transcript is the recorded conversation's own file, and fails as For fails.
+func TestTranscriptIsTheRecordedConversationsFile(t *testing.T) {
+	rec := ccyCase(t, "--teams", "1@alpha")
+	got, err := Transcript(rec, "/nonexistent")
+	want := filepath.Join(rec.Dir, ".claude/ccy/projects/-workspace", id+".jsonl")
+	if err != nil || got != want {
+		t.Fatalf("Transcript = %q, %v; want %q", got, err, want)
+	}
+	if err := os.Remove(want); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Transcript(rec, "/nonexistent"); err == nil || strings.Contains(err.Error(), rec.Name+": ") {
+		t.Fatalf("a missing transcript gave %v, want an error without the session's name in front", err)
+	}
+}
+
 func TestClaudeHome(t *testing.T) {
 	env := map[string]string{"HOME": "/home/u"}
 	if got := ClaudeHome(func(k string) string { return env[k] }); got != "/home/u/.claude" {

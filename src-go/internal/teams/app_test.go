@@ -281,7 +281,7 @@ func TestUsageTextNamesTheLauncherSubcommandsAndTheCoordinator(t *testing.T) {
 	h := newHarness(t)
 	h.app.Run([]string{"--help"})
 	wants := []string{
-		"choose-seat", "describe-seats", "coordinator", "ccy-teams shutdown <team> [--yes]", "ccy-teams restart <team> [--yes]",
+		"choose-seat", "describe-seats", "coordinator", "ccy-teams shutdown <team> [--yes] [--no-compact]", "ccy-teams restart <team> [--yes]",
 		"ccy-teams wind-down <team> [--yes]",
 		"ccy-teams internal membership-init <session> <checkout> <seats>",
 		"ccy-teams internal restart-args <session>", "ccy-teams session list",

@@ -17,17 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## Host cc — compacts at ccy's auto-compact window
-
-Host `cc` has no version number of its own; this entry is not a CCY release.
-
-- **`cc` sessions compact at 600,000 tokens, as `ccy` sessions do.** `cc` ran bare `claude`
-  with no `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, so on a 1M-context model a session compacted
-  only near the whole window. claude is now started through `cc-claude` (Go, beside `cc`) on
-  the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
-  already exported, then becomes claude. `play-claude-yolo.yml` builds it.
-
-## 3.105.0 — container 2.79.21
+## 3.106.0 — container 2.79.22
 
 The image is unchanged, so there is no rebuild.
 
@@ -44,6 +34,64 @@ The image is unchanged, so there is no rebuild.
   the new `LAST_TEAM_ROLES` line of `.last-launch.conf` (the format version is unchanged: a
   file without it is read). Nothing of the bus is touched: the seat and role are read the
   way `ccy-teams choose-seat` reads them. Addresses #125.
+
+## 3.105.2 — container 2.79.22
+
+- **3.105.1 together with 3.104.18** (Plan 00191, Plan 00211): compact then exit on close, the
+  listening state, and the side-rooms routing in one build.
+
+## 3.105.1 — container 2.79.21
+
+- **Compact-then-exit together with the listening state** (Plan 00191, Plan 00177): 3.105.0 and
+  3.104.17 in one build; ccy-teams shows each member as listening and closes a session by
+  compacting it first.
+
+## 3.105.0 — container 2.79.21
+
+- **Closing a session compacts it first, then exits** (Plan 00191 Task 4.12). A compaction at
+  close reads the conversation from a warm prompt cache; the next resume then writes only the
+  summary to the cache instead of the whole conversation. `/compact` is typed into the
+  session's tmux pane, its completion is read from the transcript (a `compact_boundary` after
+  the time it was typed; a session that records no conversation is read from its pane), then
+  `/exit`. A session with nothing to compact since its last compaction goes straight to
+  `/exit`. A compaction not complete within 600 s, or a transcript that cannot be read, fails
+  the close loudly, names the session and leaves it running; it is never killed.
+  `--no-compact` sends `/exit` alone.
+- Three callers, one package (`src-go/internal/sessclose`, which ccy-teams shutdown's stop logic
+  moved into): `ccy-teams shutdown <team>` (compacting is now the default), the new
+  `ccy --stop SESSION... [--no-compact]` (the Go front's own flag), and **Close it** /
+  **Close it without compacting** on a `ccy-sessions` row, beside End (Ctrl-X), which still
+  kills.
+- `ccy-teams wind-down` waits for a pane to be idle again with the same code.
+
+## Host cc — compacts at ccy's auto-compact window
+
+Host `cc` has no version number of its own; this entry is not a CCY release.
+
+- **`cc` sessions compact at 600,000 tokens, as `ccy` sessions do.** `cc` ran bare `claude`
+  with no `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, so on a 1M-context model a session compacted
+  only near the whole window. claude is now started through `cc-claude` (Go, beside `cc`) on
+  the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
+  already exported, then becomes claude. `play-claude-yolo.yml` builds it.
+
+## 3.104.18 — container 2.79.22
+
+The image's pingbus and its skill change, so the image is rebuilt once.
+
+- **Agents write to the humans in the side rooms, never in the main room.** Once a team has
+  its reports and questions rooms, `pingbus say` and `pingbus send` refuse a human among the
+  addressees (exit 4), naming the way that works: for the coordinator `ask-human` and
+  `thread Q<n>` in the questions room, for a worker `--to-coordinator` and `report`. The
+  coordinator's `say --all` names the agents only, and the `REPLY` command of a human's
+  main-room message points the same way. Teams without the side rooms work as before.
+- **A human's reply under an agent's main-room message reaches that agent.** Element's
+  "Reply in thread" carries no mention, so it reached no one. pingbus now asks the
+  homeserver who sent the message it answers, and delivers it to that agent, also under
+  messages sent before this release; one under another agent's message is that agent's and
+  is no longer logged as unheard.
+- **Reports are read-only status, posted at each checkpoint.** The skill and the message
+  style ask for a short FYI report at each milestone, merge, queued deploy or finished phase,
+  and move "Needs you" to the questions room.
 
 ## 3.104.17 — container 2.79.20
 

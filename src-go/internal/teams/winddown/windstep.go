@@ -9,6 +9,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/compactfloor"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/restore"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/screen"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessclose"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
 )
 
@@ -83,10 +84,8 @@ type job struct {
 	wound       bool
 	compacted   bool
 	compactNote string
-	// sawBusy is a busy look since the phase began; quietBy, once set, is when an idle box never
-	// seen busy counts as idle again.
-	sawBusy bool
-	quietBy time.Time
+	// quiet is whether the box is idle again since the phase began (sessclose's pane wait).
+	quiet sessclose.Quiet
 	// turnBy bounds the wait, once given the turn, for an idle, empty box to type /compact into;
 	// passes is how often the turn passed on for want of one (WC4). boundaryBy bounds the wait
 	// for a host session's compact_boundary once its pane is idle again (WC3).
@@ -115,7 +114,10 @@ func (j *job) after(note string) string {
 }
 
 // enter moves the job to a phase that waits for the session to be idle again.
-func (j *job) enter(p phase) { j.phase, j.sawBusy, j.quietBy = p, false, time.Time{} }
+func (j *job) enter(p phase) {
+	j.phase = p
+	j.quiet.Reset()
+}
 
 // windAll reads every pane, then again every poll, until each job is done or failed (W6): the
 // jobs are watched together, so a slow session does not hold the others up.
@@ -273,7 +275,7 @@ func (w *WindDown) act(ctx context.Context, j *job, state screen.State) error {
 		case screen.Ready, screen.Busy:
 			j.wound = true
 			j.enter(phaseAnswer)
-			j.sawBusy = state == screen.Busy
+			j.quiet.Saw(state)
 		case screen.Typed:
 			return w.reenter(ctx, j, now, j.after("the wind-down stayed in its input box after a second Enter"))
 		case screen.NotDrawn:

@@ -22,7 +22,7 @@ import dataclasses
 import json
 import re
 import unicodedata
-from collections.abc import Container, Iterable, Mapping, Sequence
+from collections.abc import Callable, Container, Iterable, Mapping, Sequence
 
 from helpers.pingbus import markdown
 
@@ -417,6 +417,9 @@ class HumanMessage:
     #: In the questions room, the event this edit revises; None for a message that is not
     #: an edit (Plan 00211 SPEC §6).
     revises: str | None = None
+    #: In the main room, this agent's message that a reply naming no one answers, which is why
+    #: it was delivered (`reply_root`); None for a message that mentions this agent.
+    answers: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -848,11 +851,39 @@ def _addressed(content: Mapping[str, object], self_user_id: str) -> bool:
     return isinstance(users, list) and self_user_id in users
 
 
+def reply_root(content: Mapping[str, object]) -> str | None:
+    """The event a human's message answers: its thread's root, else the event it replies to;
+    None for neither. A thread reply's `m.in_reply_to` is only its fallback, so the root wins."""
+    relates = content.get("m.relates_to")
+    if not isinstance(relates, dict):
+        return None
+    if relates.get("rel_type") == "m.thread":
+        root = relates.get("event_id")
+    elif relates.get("rel_type") is None and isinstance(relates.get("m.in_reply_to"), dict):
+        root = relates["m.in_reply_to"].get("event_id")
+    else:
+        return None
+    return root if is_event_id(root) else None
+
+
+def _no_sender(event_id: str) -> None:
+    """`validate_event`'s default `sender_of`: no event's sender is known."""
+    return None
+
+
+def own_message(event_id: str | None, self_user_id: str) -> Callable[[str], object]:
+    """A `sender_of` that knows one event, `event_id`, as this member's own (None: none):
+    what an inbox item's `answers` recorded when the syncer asked the homeserver."""
+    return lambda asked: self_user_id if event_id is not None and asked == event_id else None
+
+
 def _human_outcome(
     content: Mapping[str, object], event_id: str, sender: str, ts: int, self_user_id: str,
-    human_text: bool,
+    human_text: bool, sender_of: Callable[[str], object] = _no_sender,
 ) -> Outcome:
-    """Spec §9 human path, steps 04h-09h (10h `stale` and 11h `rate` are the caller's)."""
+    """Spec §9 human path, steps 04h-09h (10h `stale` and 11h `rate` are the caller's). A
+    message that mentions no one is still this agent's when it answers this agent's own message
+    (`reply_root`, its sender from `sender_of`): Element's thread reply carries no mention."""
     if not human_text:
         return Outcome(DROP, "sender")
     if content.get("msgtype") != MSGTYPE_HUMAN:
@@ -867,13 +898,16 @@ def _human_outcome(
         return Outcome(DROP, "schema")
     if len(body.encode("utf-8")) > MAX_HUMAN_BODY_BYTES:
         return Outcome(DROP, "size")
+    answers = None
     if not _addressed(content, self_user_id):
-        return Outcome(IGNORE, IGNORE_NOT_ADDRESSED)
+        answers = reply_root(content)
+        if answers is None or sender_of(answers) != self_user_id:
+            return Outcome(IGNORE, IGNORE_NOT_ADDRESSED)
     if relates is not None and "m.in_reply_to" in relates:
         body = strip_reply_fallback(body)
         if body == "":
             return Outcome(IGNORE, "empty")
-    return Outcome(ACCEPT, human=HumanMessage(event_id, sender, ts, body))
+    return Outcome(ACCEPT, human=HumanMessage(event_id, sender, ts, body, answers=answers))
 
 
 def _names(content: Mapping[str, object], self_user_id: str) -> bool:
@@ -951,10 +985,13 @@ def validate_event(
     seen: Container[str] = frozenset(),
     human_text: bool = True,
     room: str = ROOM_MAIN,
+    sender_of: Callable[[str], object] = _no_sender,
 ) -> Outcome:
     """The offline receive steps of spec §9 for one timeline event of `room`.
 
-    `seen` holds event IDs already processed; `human_text` is the bundle's flag. An event
+    `seen` holds event IDs already processed; `human_text` is the bundle's flag; `sender_of`
+    gives the sender of a main-room event a human's message answers (`_human_outcome`), and
+    is asked only for a message that mentions no one but answers an event. An event
     that is not `m.room.message` is ignored before anything else of it is read: only
     messages are pings or human text. In the questions room every human message is for the
     coordinator, edits included, and nothing else is received (`_questions_outcome`).
@@ -985,7 +1022,7 @@ def validate_event(
     if cls is None:
         return Outcome(DROP, "sender")
     if cls == SENDER_HUMAN:
-        return _human_outcome(content, event_id, sender, ts, self_user_id, human_text)
+        return _human_outcome(content, event_id, sender, ts, self_user_id, human_text, sender_of)
     if TEXT_KEY in content:
         # Beside a ping it is neither, and the sender is at fault.
         if PING_KEY in content:
@@ -1003,21 +1040,29 @@ def validate_event(
         copy_of=_copy_of(ping.to, self_user_id, ctx)))
 
 
-def reached_no_agent(event: object, ctx: Context, outcome: Outcome) -> bool:
+def _role_agent(user: object, ctx: Context) -> bool:
+    return isinstance(user, str) and user in ctx.roles and is_agent_user_id(user, ctx.server_name)
+
+
+def reached_no_agent(event: object, ctx: Context, outcome: Outcome,
+                     sender_of: Callable[[str], object] = _no_sender) -> bool:
     """Spec §9 "Unheard": whether `outcome` (`validate_event`'s for `event`) is a team
-    human's message ignored as not addressed whose mentions name no agent holding a role,
-    so no agent of the team receives it. A message for another agent is that agent's."""
+    human's message ignored as not addressed whose mentions name no agent holding a role, and
+    that answers no such agent's message (`sender_of`, as `validate_event`), so no agent of the
+    team receives it. A message for another agent is that agent's."""
     if outcome.kind != IGNORE or outcome.reason != IGNORE_NOT_ADDRESSED or not isinstance(event, dict):
         return False
     content = event.get("content")
     if sender_class(event.get("sender"), ctx) != SENDER_HUMAN or not isinstance(content, dict):
         return False
+    root = reply_root(content)
+    if root is not None and _role_agent(sender_of(root), ctx):
+        return False
     mentions = content.get("m.mentions")
     users = mentions.get("user_ids") if isinstance(mentions, dict) else None
     if not isinstance(users, list):
         return True
-    return not any(isinstance(user, str) and user in ctx.roles and is_agent_user_id(user, ctx.server_name)
-                   for user in users)
+    return not any(_role_agent(user, ctx) for user in users)
 
 
 def _list_of(value: object, low: int, high: int) -> list:
