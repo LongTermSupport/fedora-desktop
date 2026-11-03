@@ -15,7 +15,10 @@ another machine able to join.
 
 The task numbers are Plan 00209's Phase 8 numbers, kept so that every reference to "Task 8.x"
 (the pull request, the journal, GoProjectRules.md) still resolves. The design, the specs and the
-decisions stay in Plan 00209's folder; this plan links them and does not copy them.
+decisions stay in Plan 00209's folder; this plan links them and does not copy them: the
+[plan of record](../00209-agent-bus-v2-in-go/PLAN.md) (direction 7 is Task 8.8's source), the
+[design](../00209-agent-bus-v2-in-go/DESIGN-v2.md) and the
+[Matrix spec](../00209-agent-bus-v2-in-go/SPEC-matrix.md) (M50 and M51).
 
 ## Goals
 
@@ -55,6 +58,11 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
     the 2 Matrix presence `online` sites are allowance rows in `livenessAllowances` for
     `internal/teamchat/matrix` and its `fakehs`, the Matrix specification's value (SPEC-matrix
     M50 and M51), the owner's decision of 2026-11-03.
+  - The second owners the v2 merge brought into `project_seam_commands` are accepted for now
+    (the owner's decision 5 on pull request 124): `lxccmd` beside the v1 owner of `lxc-ls`,
+    `lxc-info` and `lxc-attach`, `teamchat/units` beside the v1 owner of `systemctl`, and a
+    `dynamicNames` row for a run-time program inside a wrapper. Plan 00209 Task 6.3 collapses
+    them to one owner each when v1 is retired.
 - [ ] 🔄 **Task 8.2**: The gosec exclusions v2 added to `.golangci.yml` had no exception in the
   project record. The owner's decision of 2026-11-03: record G401 and G505 (Synapse's
   registration MAC) and the test-file G301, G302 and G306 exclusions in `qa/record.toml`,

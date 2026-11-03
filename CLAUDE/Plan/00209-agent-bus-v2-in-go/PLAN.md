@@ -528,10 +528,10 @@ its first caller.
   migrated, the pilot included, until the owner has confirmed OD-A7, DC1, DC5, DC15, OD-D1, OD-D5
   and TID; the VM-lab scenarios do not wait.
 - [ ] ⬜ **Task 6.3**: When no team is v1-live, raise v1's retirement with the owner (its own
-  plan). That plan also collapses the second owners v2's landing accepted (the owner's decision of
-  2026-11-03, Plan 00244 Task 8.1): `lxccmd` beside the v1 owner of `lxc-ls`, `lxc-info` and
+  plan). That plan also collapses the second owners v2's landing accepted (decision 5 on pull
+  request 124, Plan 00244 Task 8.1): `lxccmd` beside the v1 owner of `lxc-ls`, `lxc-info` and
   `lxc-attach`, `teamchat/units` beside the v1 owner of `systemctl`, and the `dynamicNames` row
-  for a run-time program inside a wrapper, so that each program has one owner again.
+  for a run-time program inside a wrapper, so each program has one owner again.
 
 ### Phase 7: v1 while it runs
 
