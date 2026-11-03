@@ -56,7 +56,12 @@ Edmonds-Commerce-Limited/claude-code-hooks-daemon#152.
 
 ### Phase 2: defend and sweep
 
-- [ ] ⬜ **Task 2.1**: Build the in-repo defence the design recommends, red then green, blocking.
+- [ ] 🔄 **Task 2.1**: Build the in-repo defence the design recommends, red then green, blocking.
+  Done: the detector (L2 files, L3 unpushed work), `scripts/qa-untracked-audit.bash`, proven red
+  by fixtures and a mutation, run on the real checkout
+  ([report](subagent-reports/261103-untracked-audit.md)). Not done: blocking. It is red on the
+  pile, so it waits in the "red until swept" section of `CLAUDE/QA.md`; its row in
+  `scripts/qa-gates.tsv` is added when Task 2.2 empties the pile. L4 to L6 remain.
 - [ ] ⬜ **Task 2.2**: Move every VALUABLE-UNTRACKED item to its tracked home (anonymised
   where needed), then delete the untracked copy.
 

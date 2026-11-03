@@ -406,6 +406,14 @@ The name list `v1-names.txt` and the allowlist `allowed.tsv` are its data; the e
 command package. `internal/teamchat/paths`, the one source of every v2 name, reads the same list
 in its own test.
 
+`qa/untrackedaudit` + `qa/cmd/qa-untracked-audit` (same nested module) are
+`scripts/qa-untracked-audit.bash` (Plan 00245, Defence Before Fix): old non-scratch files in
+`untracked/`, unpushed branches, old dirty work trees and stashes. The data is
+`scripts/untracked-policy.yml`; the tree is read through `fs.FS`, git through `qa/internal/proc`
+and the clock is injected, so the unit tests use a fake tree and a fake git. It is local only (CI
+has no `untracked/`) and waits on its sweep before it joins `scripts/qa-gates.tsv`
+([QA.md](../CLAUDE/QA.md)).
+
 `qa/ansiblepause` + `qa/cmd/qa-ansible-pause` (same nested module) are
 `scripts/qa-ansible-pause.bash`, the rule pause-without-register: the script only builds and runs
 the command. A line scan (the annotation is a comment, which a YAML load drops) over the `yaml`
