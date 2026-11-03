@@ -38,5 +38,13 @@
 playbooks/imports/optional/common/play-matrix-clients.yml
 
 # Basic configs: builds and installs the histclean command, and deploys the HISTIGNORE entries (the nohist=1 prefix, histclean) and the Ctrl+R
-# picker header (Plan 00246).
+# picker footer (Plan 00246); it also installs the pinned upstream fzf, which the footer needs.
 playbooks/imports/play-basic-configs.yml
+
+# fzf from its upstream release (pinned, checksum-verified; the Fedora package is removed):
+# basic-configs (Ctrl+R search), cli-tools (open chooser), claude-yolo (ccy pickers, and the
+# image rebuild for container 2.79.23), podfreeze and lxcfreeze (freeze menus).
+playbooks/imports/play-claude-yolo.yml
+playbooks/imports/optional/common/play-cli-tools.yml
+playbooks/imports/optional/common/play-podfreeze.yml
+playbooks/imports/optional/common/play-lxcfreeze.yml

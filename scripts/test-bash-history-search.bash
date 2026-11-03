@@ -284,8 +284,8 @@ check "Esc leaves the typed line and cursor alone" \
 # The typed line can be half a secret (`export TOKEN=...`). fzf's argv is readable by every
 # local user through /proc; its environment is not, so the query must travel there.
 check "what was typed reaches fzf through its environment" "1" "$(grep -cx 'ENV:typed' "$WORK_DIR/stub-args")"
-check "the picker's header names both helpers" "1" \
-    "$(grep -c -E '^ARG:--header=nohist=1 .+histclean' "$WORK_DIR/stub-args")"
+check "the picker's footer names both helpers" "1" \
+    "$(grep -c -E '^ARG:--footer=nohist=1 .+histclean' "$WORK_DIR/stub-args")"
 check "what was typed appears in none of fzf's arguments" "0" "$(grep -c '^ARG:.*typed' "$WORK_DIR/stub-args")"
 # Without this bind the environment variable is set and never read: the query would
 # silently stop working while both checks above stayed green.

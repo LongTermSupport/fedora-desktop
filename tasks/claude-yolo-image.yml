@@ -47,6 +47,18 @@
     - scripts
     - entrypoint
 
+- name: Copy the fzf Release Pin into Docker Build Context
+  become: true
+  ansible.builtin.copy:
+    src: "{{ root_dir }}/vars/fzf-pin.yml"
+    dest: /opt/claude-yolo/fzf-pin.yml
+    owner: root
+    group: root
+    mode: "0644"
+  tags:
+    - scripts
+    - dockerfile
+
 - name: Copy Browser Mode Stub into Docker Build Context
   become: true
   ansible.builtin.copy:

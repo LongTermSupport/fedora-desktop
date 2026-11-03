@@ -37,6 +37,22 @@ history never moves the history number, so the Ctrl+R recorder skips it too.
 - [x] ✅ **Task 1.2**: the `nohist=1` HISTIGNORE prefix and the picker header; interactive-bash test.
 - [x] ✅ **Task 1.3**: deploy in `play-basic-configs.yml`; docs; `meta-deploy.list`.
 
+### Phase 2: fzf from its upstream release
+
+The Ctrl+R picker and every other fzf caller run the pinned upstream release, not the older
+distribution package.
+
+- [x] ✅ **Task 2.1**: `vars/fzf-pin.yml` (version and per-architecture sha256, checked against the
+  release's published checksum file) and `tasks/install-fzf.yml` (checksum-verified download to
+  `/opt/fzf-<version>`, link at `/usr/local/bin/fzf`, the Fedora package removed, version asserted).
+- [x] ✅ **Task 2.2**: the four plays that named the package use it; the ccy Dockerfile installs the
+  same pinned release from the same file (copied into the build context); container 2.79.23, CCY 3.108.1.
+- [x] ✅ **Task 2.3**: the Ctrl+R hint moves from `--header` to `--footer`; the test follows.
+- [x] ✅ **Task 2.4**: fzf options audited against the upstream changelog from 0.60 to 0.74.5; the
+  only change needed is the gutter, now a visible bar that `gutter:-1` no longer hides, so the two
+  house-style pickers pass `--gutter=' '`.
+- [x] ✅ **Task 2.5**: pin tracked in `vars/version-pins.yml`; host runs queued in `meta-deploy.list`.
+
 ## Success Criteria
 
 - [x] The tests prove the typed lines never reach history or context in a real interactive bash.

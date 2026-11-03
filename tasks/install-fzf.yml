@@ -1,0 +1,85 @@
+---
+# Install fzf from the upstream junegunn/fzf release, pinned in vars/fzf-pin.yml.
+#
+# Import this wherever a play needs fzf instead of naming the Fedora package:
+#   - name: Install fzf
+#     ansible.builtin.import_tasks: "{{ root_dir }}/tasks/install-fzf.yml"
+#
+# WHY NOT THE FEDORA PACKAGE. It trails upstream by many releases, and the pickers and the
+# Ctrl+R search use options newer fzf added (--footer, 0.63).
+#
+# WHERE IT GOES. /opt/fzf-<version>/fzf with a symlink at /usr/local/bin/fzf, the layout the
+# ouch install uses. /usr/local/bin precedes /usr/bin on the login PATH and on sudo's
+# secure_path, so this one wins.
+#
+# ONE FZF ONLY. The Fedora package is removed rather than left behind: two fzfs on a host
+# means the answer to "which one runs" depends on whose PATH asks, and a later `dnf update` of
+# the old one would be a second version to reason about. Nothing in the distribution requires
+# fzf, so the removal pulls nothing else out; dnf would refuse otherwise (the task fails).
+#
+# FAIL FAST. get_url verifies the sha256 and fails on a mismatch; the version is asserted after.
+
+- name: Load the fzf release pin
+  ansible.builtin.include_vars:
+    file: "{{ root_dir }}/vars/fzf-pin.yml"
+
+- name: Work out which fzf release asset this machine takes
+  ansible.builtin.set_fact:
+    fzf_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_facts['architecture']] }}"
+
+- name: Remove the Fedora fzf package (the pinned release below replaces it)
+  ansible.builtin.dnf:
+    name: fzf
+    state: absent
+  become: true
+  tags:
+    - packages
+
+- name: Create the versioned fzf directory
+  ansible.builtin.file:
+    path: "/opt/fzf-{{ fzf_version }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Download the fzf release tarball (checksum-verified)
+  ansible.builtin.get_url:
+    url: "https://github.com/junegunn/fzf/releases/download/v{{ fzf_version }}/fzf-{{ fzf_version }}-linux_{{ fzf_arch }}.tar.gz"
+    dest: "/opt/fzf-{{ fzf_version }}/fzf-{{ fzf_arch }}.tar.gz"
+    checksum: "sha256:{{ lookup('ansible.builtin.vars', 'fzf_sha256_' ~ fzf_arch) }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+
+- name: Extract the fzf binary
+  ansible.builtin.unarchive:
+    src: "/opt/fzf-{{ fzf_version }}/fzf-{{ fzf_arch }}.tar.gz"
+    dest: "/opt/fzf-{{ fzf_version }}"
+    remote_src: true
+    creates: "/opt/fzf-{{ fzf_version }}/fzf"
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Link fzf into /usr/local/bin
+  ansible.builtin.file:
+    src: "/opt/fzf-{{ fzf_version }}/fzf"
+    dest: /usr/local/bin/fzf
+    state: link
+    force: true
+  become: true
+
+- name: Read the version of the fzf that now runs
+  ansible.builtin.command: /usr/local/bin/fzf --version
+  register: fzf_installed_version
+  changed_when: false
+
+- name: Assert fzf is the pinned version
+  ansible.builtin.assert:
+    that:
+      - fzf_installed_version.stdout.split()[0] == fzf_version
+    fail_msg: "fzf reports '{{ fzf_installed_version.stdout }}', expected {{ fzf_version }}"
