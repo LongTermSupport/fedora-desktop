@@ -4,6 +4,17 @@
 // and the approval gate of DC18 over a team's security fields (`approved.json`, the comparison
 // and the approve logic). It reads JSON only: the host_vars YAML reader is
 // declare/hostvars, which `teamchat-admin` never imports (DC17).
+//
+// A handle's site is declared and read from nothing else (SPEC-cross-network X25): the machine's
+// teamchat_site (default local), which an LXC entry that names none takes, or the entry's own
+// site. No code reads a hostname into a handle, and machinehost.go is the one file of teamchat
+// that reads the machine's hostname at all (project_hostname_read, X27), so that CheckSites can
+// refuse a declared site that spells it, a dot-label of it or a DNS label of a team's url host
+// (X26). That refusal is best effort: a machine is known by names the code cannot see.
+//
+// A handle that already embeds a hostname is a permanent identity (X28): nothing here renames
+// it, and CheckSites judges a site declared from now on. The owner retires and reissues such a
+// handle if it is wanted gone.
 package declare
 
 import (
@@ -39,10 +50,18 @@ const (
 	keyColour                                  = "colour"
 )
 
+// HostVarSite is the machine's site, the host_vars key beside paths' HostVar names (paths is
+// another slice's file; the name moves there with them).
+const HostVarSite = "teamchat_site"
+
 // Declaration is the v2 keys of host_vars.
 type Declaration struct {
 	// Address is teamchat_address, empty when undeclared.
 	Address string
+	// Site is teamchat_site, empty when undeclared (a handle is then made with the default,
+	// local): the one site of a machine's members, which an LXC entry that names none takes.
+	// It is the only source of a handle's site besides an entry's own (SPEC-cross-network X25).
+	Site    string
 	Teams   []Team
 	LXC     []LXCMember
 	Element []ElementTeam
@@ -113,7 +132,7 @@ func parse(raw []byte) (proto.Value, error) {
 // FromValue reads a declaration from an already parsed value, the YAML reader's way in.
 func FromValue(v proto.Value) (Declaration, error) {
 	root := node{v: v}
-	f, err := root.object(nil, paths.HostVarAddress, paths.HostVarTeams, paths.HostVarLXCMembers, paths.HostVarElementTeams)
+	f, err := root.object(nil, paths.HostVarAddress, HostVarSite, paths.HostVarTeams, paths.HostVarLXCMembers, paths.HostVarElementTeams)
 	if err != nil {
 		if root.v.Kind() != proto.KindObject {
 			return Declaration{}, &FieldError{Field: "the declaration", Problem: "is not an object"}
@@ -126,11 +145,21 @@ func FromValue(v proto.Value) (Declaration, error) {
 			return Declaration{}, err
 		}
 	}
+	if f.has(HostVarSite) {
+		if d.Site, err = f.at(HostVarSite).checked(validSite, "is not a site label in its normal form"); err != nil {
+			return Declaration{}, err
+		}
+	}
 	if d.Teams, err = readTeams(f, paths.HostVarTeams, d.Address); err != nil {
 		return Declaration{}, err
 	}
 	if d.LXC, err = readLXC(f, paths.HostVarLXCMembers, d.presentTeams()); err != nil {
 		return Declaration{}, err
+	}
+	for i := range d.LXC {
+		if d.LXC[i].Site == "" {
+			d.LXC[i].Site = d.Site
+		}
 	}
 	if d.Element, err = readElement(f, d.presentTeams()); err != nil {
 		return Declaration{}, err

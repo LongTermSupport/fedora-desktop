@@ -31,7 +31,7 @@ const maxFile = 1 << 20
 
 // v2Keys are the top-level keys read (DR1); every other key is ignored, whatever it holds.
 var v2Keys = map[string]bool{
-	paths.HostVarAddress: true, paths.HostVarTeams: true, paths.HostVarLXCMembers: true, paths.HostVarElementTeams: true,
+	paths.HostVarAddress: true, declare.HostVarSite: true, paths.HostVarTeams: true, paths.HostVarLXCMembers: true, paths.HostVarElementTeams: true,
 }
 
 const (
