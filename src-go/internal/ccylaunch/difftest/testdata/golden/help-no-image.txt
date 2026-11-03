@@ -89,6 +89,7 @@ Options:
   --no-restore           Do not bring this session back after a reboot on a machine
                          that restores sessions (ccy-sessions restore; docs/ccy.md)
   --top                  Container manager: list/stop all CCY containers
+  --stop SESSION...      Close sessions as a person would: /compact, then /exit (--no-compact: /exit only)
   --build-lock           Show the image build in progress (a launch waits for another's build
                          of the same image), and stop one that has hung, after asking
   --prevent              Disable CCY for this project folder (writes 'never' to .claude/ccy/allowed-hostnames)
@@ -130,8 +131,7 @@ Examples:
   ccy --update-token=personal   # Renew an existing token (e.g. after invalidation)
   ccy --token personal          # Use "personal" token
   ccy --list-tokens             # List available tokens
-  ccy --token-usage             # Usage limits of every token, as bars
-  ccy --token-usage --json      # The same, as one JSON document
+  ccy --token-usage [--json]    # Usage limits of every token, as bars or one JSON document
   ccy --export-token             # Interactive multi-token export
   ccy --export-token personal    # Export specific token
 

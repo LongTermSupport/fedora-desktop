@@ -33,12 +33,10 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Every changed play; expected: play-agent-bus.yml, which puts the new pingbus into the member
-# kit (host and LXC members), and play-claude-yolo.yml, which installs the launcher and
-# rebuilds the ccy image once (CCY 3.104.18, container 2.79.22, Plan 00211 Task 2.14):
-# pingbus refuses an agent's message to a human in the main room once the side rooms exist,
-# a human's thread reply under an agent's message reaches that agent, and the skill asks for
-# checkpoint reports. Sessions pick the new pingbus up when restarted.
+# Every changed play; expected: play-claude-yolo.yml (CCY 3.105.2, container 2.79.22 already
+# built): ccy-teams and ccy-sessions with compact then exit on close (ccy-teams shutdown
+# compacts each session before its /exit, ccy --stop SESSION is new, a ccy-sessions row gains
+# Close it), and ccy-teams shows who is listening.
 changed-plays
 
 # Installs the Nheko Matrix client from Flathub (Plan 00244 Task 3.1). A new optional play, so
