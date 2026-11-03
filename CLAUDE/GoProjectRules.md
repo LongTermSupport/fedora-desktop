@@ -57,6 +57,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_self_erasing_clipboard`  | a secret kept short-lived by a clipboard meant to erase itself after a paste, or text promising it (also in shell: `bash-self-erasing-clipboard`)      | `teams` login: `wl-copy --paste-once`, and "for one paste" (Plan 00201 Task 2.12)                        |
 | `project_liveness_word`           | a status word read as running ("active", "online", "listening", "alive") spelled where no live source decides it                                       | `teams` board: every member not parked shown green "active" (Plan 00177)                                 |
 | `project_agent_branch`            | a teamchat branch on the run's launch value outside the agent seam, so a second agent program is a refactor of every comparison and not an adapter     | teamchat `keeper` and `link`: the launch comparisons the agent seam replaced (Plan 00209)                |
+| `project_transport_home`          | a teamchat `http.Transport` or `tls.Config` built outside package matrix, so a second place decides whom a client trusts and which name it verifies    | teamchat `hostnet` probe and `forge`: each built its own transport (Plan 00244 Task 8.8)                 |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -1226,6 +1227,60 @@ session.pid and the frame). The other flags every comparison of any string field
 literal in teamchat: it would report every `Kind`, `Inbound` and `Desired` check, so the
 `agentBranches` table would become a list of unrelated exceptions and stop saying where the
 agent is branched on.
+
+### project_transport_home
+
+**What it is about.** Whom a client trusts, which TLS versions it speaks and which name it
+verifies are decided where the `http.Transport` and the `tls.Config` are made. A team's members
+reach their homeserver over TLS with the team's own CA pinned as the only root (Plan 00244
+SPEC-cross-network X16): `matrix.NewMember` builds that transport. A second place in teamchat
+that makes a transport or a TLS configuration is a second place that can trust the system's
+roots, accept a lower version or skip a name check for a connection to a homeserver, and no
+review of the pinned path would see it.
+
+**Why it exists.** SPEC X19: before the first TLS client two packages already built their own
+transport (the readiness probe and the forge client), and nothing stopped a third from being
+written with a bare `tls.Config`. The rule keeps the building in one reviewed package.
+
+**What it flags**, in the non-test files of `internal/teamchat`, `cmd/teamchat` and
+`cmd/teamchat-admin` and below, outside package `matrix` and package `pki` (the certificate
+package; the terminator of X18 will add its own package to the owners when it exists):
+
+- a composite literal of `http.Transport` or `tls.Config`, by value or by pointer, through an
+  alias, nested or with its type elided in a slice literal;
+- `new(http.Transport)` and `new(tls.Config)`;
+- a variable declared with either type by value (`var t http.Transport`);
+- a `Clone` of either (`http.DefaultTransport.(*http.Transport).Clone()`, `cfg.Clone()`).
+
+A package below `matrix` (the fake homeserver, `fakehs`) is not `matrix`: it takes the
+`*tls.Config` it serves with from its caller, and a test builds one. Test files are not judged.
+There is no allowance table.
+
+**How to fix a violation.** Ask `matrix` for the client or the transport: `matrix.NewMember` for
+a homeserver, `matrix.LoopbackClient` for a probe of the homeserver's own loopback listener,
+`matrix.PublicTransport` for a public https service that is not a homeserver. A case they do not
+cover is a constructor added to `matrix`.
+
+- Red, fixture: `testdata/transporthome/src/fix/internal/teamchat/badtls` (`bad.go`: a transport
+  literal by pointer and by value, `new`, a `var`, an alias, a `Clone` of the default transport,
+  a `tls.Config` literal, `new`, a `var`, a `Clone`, a slice literal with the type elided, a
+  literal in a struct field; `good.go`: a configuration only passed on or read, a listener given
+  one, a pool, a key pair, a nil pointer, clean; `bad_test.go`, clean), beside `matrix` and `pki`
+  stand-ins (the owners, clean), `matrix/below` (a package under matrix: one clean use, one
+  flagged), `outsidetls` (outside teamchat, clean) and `cmd/teamchat` and `cmd/teamchat-admin`
+  (the commands, flagged). The root is its own, because the owner is a package path and the
+  shared root's `matrix` and command packages carry other rules' expectations. With the analyzer
+  reporting nothing the test failed on every flagged line (14 missed diagnostics) and passed once
+  the rule was written.
+- Red, real tree, at the rule's own commit (untagged, `busfailpoints` and `tuwunel` alike): two
+  findings, `hostnet/probe.go:69` (the loopback readiness and health probe's client) and
+  `member/forge/forge.go:138` (the forge client's transport). Both now ask `matrix`
+  (`matrix.LoopbackClient`, `matrix.PublicTransport`).
+- Green: the tree after the fix, untagged and with each tag, with no finding; the probe's and
+  the forge's own tests pass unchanged.
+- Not caught: an `http.Client` with no `Transport`, `http.DefaultClient`, `http.Get` and its
+  siblings (each uses the default transport, which trusts the system's roots); a transport built
+  by a function of a package this rule does not judge; `reflect.New`.
 
 ## Defect classes that cannot be a rule
 
