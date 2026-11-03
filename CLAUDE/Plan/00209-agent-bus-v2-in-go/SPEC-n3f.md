@@ -33,7 +33,7 @@ where each seam is: `base` is in that tree; `n3d` and `n3e` are added by `feat/b
 | the flood windows           | `proto` (`limits.go`, `send.go`)                                                | base      | `Window{Times}` with `Count`, `Admit`, `Prune`; `Admit` refuses the report window as `ReasonRate` with the detail `report_per_hour`. Gains G6                                                                             |
 | the envelope                | `proto` (`envelope.go`)                                                         | base      | `Entry.Questions`, `Entry.Question`, `Entry.Revises`, the reminder entry, filled by n3f; DV2's renderer is n3e's                                                                                                          |
 | the team goroutine          | `member/teamsync` (`session.go`)                                                | base      | `handle` judges the answer's invites before main's trust, against the roster held before the answer (G3); `take`'s `proto.Index` case is a no-op; every pending item is `proto.PurposeMain` (G3)                          |
-| the read verbs' errors      | `member/teamsync` (`verbs.go`)                                                  | base      | `verbErr` maps `matrix.ErrRateLimited` to 14 `server-rate`; the file is `ln6.go` on `feat/bus-v2-n3d`                                                                                                                     |
+| the read verbs' errors      | `member/teamsync` (`verbs.go`)                                                  | base      | `verbErr` maps `matrix.ErrRateLimited` to 14 `server-rate`                                                                                                                                                                |
 | the sends                   | `member/engine` (`send.go`, `sender.go`, `outbox.go`, `reply.go`, `timeout.go`) | n3d       | SD3, the team's sender, n3d-D2's queue and n3d-D27's refusal at post; SD1's `reply` and its room from the ledger; SD4's timer                                                                                             |
 | the store                   | `member/state` (`store.go`)                                                     | base, n3d | `outbox.sending` and `outbox.gate` exist in the base (caps 64 and 64); n3d sets them to 32 and 96, adds the sending entry's `type`, `content`, `tried`, `ping`, and `last_sent`, and rounds `MaxStore` (n3d-D1). Gains G2 |
 | the roster cache            | `member/state` (`rostercache.go`)                                               | n3d       | sends composed before the first verification (n3d-D3)                                                                                                                                                                     |
@@ -90,7 +90,7 @@ where each seam is: `base` is in that tree; `n3d` and `n3e` are added by `feat/b
   names.
 - **G4. `records`**: `Question` gains `headline`, `re`, `asked_ms`, `remind_after_s`,
   `unanswered_more` and `redacted`; its `id` changes type from `string` to a nullable string
-  (`records.go:193`), and `id` and `asked_ms` are null for a queued question; `Human.Question`
+  (`records.go:221`), and `id` and `asked_ms` are null for a queued question; `Human.Question`
   changes type from `*int64` to a nullable string (`"Q4"`, `"none"`, null) and `Human` gains
   `headline`; `Room` gains `uncounted` (QX3); a new `unattached` kind (section 6).
 - **G5. The filter**: the coordinator form needs the questions room ready (QS3), not only the
@@ -491,7 +491,7 @@ admin redaction makes it rebuilt (QX7).
     encoder writes no code point in more than 6 bytes (`<` for `<`; a 4-byte code point is
     not escaped). The `Question:` section is kept as its SHA-256, 66 bytes in hex with quotes,
     never as text (G1.4): kept as text it would be up to 8000 bytes, escaped up to 6 times that,
-    and 64 of them alone would pass 3 MiB.
+    and the 192 the caps keep (64 open, 128 closed) alone would pass 3 MiB.
     - A question: 15 bytes of braces and commas, 131 of keys, and the values `n` 19, `id` 46,
       the thread's latest event 46, `headline` 722, the hash 66, `asked_by` 2 + 16 x 130 + 15 =
       2097, `re` 2 + 16 x 46 + 15 = 753, `asked_ms` 19, `remind_after_s` 19, `closed` 5, the
