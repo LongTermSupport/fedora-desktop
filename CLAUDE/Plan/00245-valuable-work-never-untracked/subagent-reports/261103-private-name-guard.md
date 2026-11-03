@@ -72,3 +72,18 @@ knows them.
    owner's.
 7. The list holds other projects' names from the bus; hosts that commit outside a container get
    the list only where `pingbus` or a stored list exists (otherwise `SKIPPED`).
+
+## Finish (owner decisions of 2026-11-03)
+
+- The public product name a play file is named after: added to `.claude/public-token-allowlist.yml`
+  (132 hits gone; the guard drops it from its stored list on the next run).
+- Journals: 70 lines in 18 append-only journal and fixture files redacted in place with the
+  placeholders the current files use; nothing else in them changed. The status-line helper fixture
+  (2 hits) redacted too; CCY 3.109.0, container 2.79.23, changelog entry.
+- History: not rewritten.
+- origin/F44 merged. Whole-tree scan of the result: 0 findings.
+- Gate `private-names` (`scripts/qa-private-names.bash tree HEAD`) is a row in `scripts/qa-gates.tsv`,
+  with its QA.md row, its captured wording and its `addedgates_test.go` entry; the "waiting" entry is
+  removed from QA.md. In a CCY container a list that cannot be built is exit 2; with no agent bus and
+  no list (CI) it prints SKIPPED and passes, and the gate's reader accepts either line.
+- ansible-syntax in qa-changed fails in a work tree (no vault password file); not touched.

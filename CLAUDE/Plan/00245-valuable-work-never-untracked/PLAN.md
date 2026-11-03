@@ -85,8 +85,9 @@ install-specific identifiers reaching a commit because no detector knows them.
   current files replaced by placeholders, 202 findings left for the owner (journals, a product
   name that is also a play file name, one CCY-image helper)
   ([report](subagent-reports/261103-private-name-guard.md)).
-- [ ] Task 3.5: the tree sweep joins `scripts/qa-gates.tsv` once the pile is empty (owner
-  decisions pending: see the report).
+- [x] Task 3.5: the owner decided the left-overs (product name allowed, journals redacted in
+  place, history left); the whole-tree scan reports 0 findings and joins `scripts/qa-gates.tsv`
+  as the `private-names` gate ([report](subagent-reports/261103-private-name-guard.md)).
 
 ## Success Criteria
 

@@ -33,6 +33,7 @@ var addedAfterPort = []struct{ name, reason string }{
 	{"lxc-attach-file-stream", "Plan 00211, Defence Before Fix: no command reaching lxc-attach has a standard stream on a file, which lxc-attach hands to root"},
 	{"ccy-agent-choice", "Plan 00215: ccy --opencode runs opencode instead of Claude Code, its provider key handed by name to the container run only, and its own suite proves it"},
 	{"colour-emoji-fallback", "Plan 00185: the colour emoji fallback play-fonts.yml deploys, run through fontconfig against fixture fonts"},
+	{"private-names", "Plan 00245 Phase 3: no tracked file names an install (team, seat, container, host or client project); a ccy container fails rather than skip, CI without a term list says SKIPPED"},
 	{"randfile", "the owner's randfile command, which prints a random file from a directory, and its own suite proves it"},
 }
 
