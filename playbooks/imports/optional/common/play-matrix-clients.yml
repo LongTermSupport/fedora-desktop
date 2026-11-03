@@ -41,8 +41,6 @@
         state: present
 
     - name: Install Nheko
-      become: true
-      community.general.flatpak:
-        name: io.github.NhekoReborn.Nheko
-        remote: flathub
-        state: present
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/flatpak-install.yml"
+      vars:
+        flatpak_app_id: im.nheko.Nheko

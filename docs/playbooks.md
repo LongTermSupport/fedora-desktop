@@ -1435,7 +1435,7 @@ Photography tools:
 
 Matrix desktop clients, independent of the agent team bus:
 
-- Installs Nheko (Flathub `io.github.NhekoReborn.Nheko`), a plain install with no profiles
+- Installs Nheko (Flathub `im.nheko.Nheko`), a plain install with no profiles
 - Element is still installed by `play-agent-bus-element.yml` (Plan 00244 tracks moving it here)
 
 #### play-qobuz.yml

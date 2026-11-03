@@ -38,11 +38,9 @@
         flatpakrepo_url: https://flathub.org/repo/flathub.flatpakrepo
         state: present
     - name: Install Slack
-      become: true
-      community.general.flatpak:
-        name: com.slack.Slack
-        remote: flathub
-        state: present
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/flatpak-install.yml"
+      vars:
+        flatpak_app_id: com.slack.Slack
 
     # The Flathub manifest grants the sandbox only xdg-download. A file dragged from
     # Nautilus arrives as a host path; outside Downloads the sandbox cannot open it and
