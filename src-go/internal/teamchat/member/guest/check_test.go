@@ -349,9 +349,20 @@ func TestCheckReachesTheHomeserver(t *testing.T) {
 	if reachTimeout != 3*time.Second {
 		t.Errorf("reach waits %v, B says 3 s", reachTimeout)
 	}
-	t.Run("a URL the hosts do not allow", func(t *testing.T) {
+	t.Run("a plain http URL that is not loopback, even listed", func(t *testing.T) {
 		w := newGuestWorld(t)
-		wantCode(t, w.check(t, strings.Replace(w.stdin(), `["127.0.0.1"]`, `[]`, 1)), 78, exits.CodeReach)
+		err := w.check(t, strings.ReplaceAll(w.stdin(), "127.0.0.1", "192.0.2.10"))
+		wantCode(t, err, 78, exits.CodeReach)
+		// Refused before any request, not a connection that failed: nothing listens there.
+		if e, ok := errors.AsType[*exits.Error](err); !ok || !strings.Contains(e.Message, "base_url is not a member URL") {
+			t.Errorf("err = %v, want the member URL rule's refusal", err)
+		}
+	})
+	t.Run("a loopback URL needs no list", func(t *testing.T) {
+		w := newGuestWorld(t)
+		if err := w.check(t, strings.Replace(w.stdin(), `["127.0.0.1"]`, `[]`, 1)); err != nil {
+			t.Fatal(err)
+		}
 	})
 	t.Run("asks versions without a token", func(t *testing.T) {
 		w := newGuestWorld(t)

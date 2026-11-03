@@ -159,22 +159,41 @@ func TestTokenGrammar(t *testing.T) {
 }
 
 func TestMemberBaseURL(t *testing.T) {
-	plain := []string{loopback, "::1", "198.51.100.1"}
-	good := map[string]string{
-		"http://127.0.0.1:8008":      "http://127.0.0.1:8008",
-		"http://[::1]:8008":          "http://[::1]:8008",
-		"https://Matrix.Example.ORG": "https://matrix.example.org",
-		"https://192.0.2.7:8448":     "https://192.0.2.7:8448",
-		"HTTPS://example.org":        "https://example.org",
+	// X12, X16, X17: plain http is for a loopback IP literal and carries no CA; https carries one.
+	for hasCA, good := range map[bool]map[string]string{
+		false: {
+			"http://127.0.0.1:8008": "http://127.0.0.1:8008",
+			"http://[::1]:8008":     "http://[::1]:8008",
+			"http://127.0.0.2:8008": "http://127.0.0.2:8008",
+			"HTTP://127.0.0.1":      "http://127.0.0.1",
+		},
+		true: {
+			"https://Matrix.Example.ORG": "https://matrix.example.org",
+			"https://192.0.2.7:8448":     "https://192.0.2.7:8448",
+			"https://[2001:db8::1]:8448": "https://[2001:db8::1]:8448",
+			"HTTPS://example.org":        "https://example.org",
+		},
+	} {
+		for raw, want := range good {
+			got, err := memberBase(raw, hasCA)
+			if err != nil || got != want {
+				t.Errorf("memberBase(%q, %v) = %q, %v; want %q", raw, hasCA, got, err, want)
+			}
+		}
 	}
-	for raw, want := range good {
-		got, err := memberBase(raw, plain)
-		if err != nil || got != want {
-			t.Errorf("memberBase(%q) = %q, %v; want %q", raw, got, err, want)
+	for hasCA, refused := range map[bool][]string{
+		false: {"https://example.org", "https://192.0.2.7:8448", "https://127.0.0.1:8448", "https://[::1]:8448"},
+		true:  {"http://127.0.0.1:8008", "http://[::1]:8008", "http://127.0.0.2:8008"},
+	} {
+		for _, raw := range refused {
+			if got, err := memberBase(raw, hasCA); err == nil {
+				t.Errorf("memberBase(%q, %v) = %q, want a refusal", raw, hasCA, got)
+			}
 		}
 	}
 	bad := []string{
-		"", "ftp://example.org", "http://example.org", "http://192.0.2.7", "https://example.org/",
+		"", "ftp://example.org", "http://example.org", "http://192.0.2.7", "http://localhost:8008",
+		"http://198.51.100.1:8008", "http://[2001:db8::1]:8008", "https://example.org/",
 		"https://example.org/_matrix", "https://example.org?x=1", "https://example.org#f",
 		"https://u:p@example.org", "https://example.org:0", "https://example.org:65536",
 		"https://example.org:080", "https://example.org:", "https://", "https://exa mple.org",
@@ -183,8 +202,10 @@ func TestMemberBaseURL(t *testing.T) {
 		"https://éxample.org", "https://[::1", "mailto:someone",
 	}
 	for _, raw := range bad {
-		if got, err := memberBase(raw, plain); err == nil {
-			t.Errorf("memberBase(%q) = %q, want a refusal", raw, got)
+		for _, hasCA := range []bool{false, true} {
+			if got, err := memberBase(raw, hasCA); err == nil {
+				t.Errorf("memberBase(%q, %v) = %q, want a refusal", raw, hasCA, got)
+			}
 		}
 	}
 }
@@ -210,9 +231,6 @@ func TestAdminBaseURL(t *testing.T) {
 	}
 	if _, err := NewAdmin(Config{BaseURL: "http://127.0.0.1:0"}); err == nil {
 		t.Error("admin port 0 accepted")
-	}
-	if _, err := NewMember(Config{BaseURL: "http://127.0.0.1:8008", Token: "t"}); err == nil {
-		t.Error("plain http member without PlainHTTPHosts accepted")
 	}
 }
 

@@ -125,7 +125,8 @@ func TestBundleRefusals(t *testing.T) {
 		"admin not the admin":   reshape(t, doc, "admin_id", `"@root:`+server+`"`),
 		"room not a room":       reshape(t, doc, "main_room", `"#main:x"`),
 		"http to a name":        reshape(t, doc, "base_url", `"http://example.org:8448"`),
-		"http not listed":       reshape(t, doc, "plain_http_hosts", `[]`),
+		"http to a listed ip":   reshape(t, string(reshape(t, doc, "base_url", `"http://192.0.2.10:8448"`)), "plain_http_hosts", `["192.0.2.10"]`),
+		"https with no CA":      reshape(t, doc, "base_url", `"https://chat.example.org:8448"`),
 		"device not the seat's": reshape(t, doc, "device_id", `"OTHER"`),
 		"issued negative":       reshape(t, doc, "issued_ms", `-1`),
 		"issuer not a digest":   reshape(t, doc, "issuer", `"current"`),
@@ -143,6 +144,18 @@ func TestBundleRefusals(t *testing.T) {
 		if _, err := DecodeBundle(data); err == nil {
 			t.Errorf("%s: decoded", name)
 		}
+	}
+}
+
+// A loopback http base_url needs no plain_http_hosts entry: the client reaches plain http only at
+// a loopback literal, listed or not (Plan 00244 X12).
+func TestBundleLoopbackNeedsNoList(t *testing.T) {
+	good, err := testBundle(t).Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeBundle(reshape(t, string(good), "plain_http_hosts", `[]`)); err != nil {
+		t.Errorf("a loopback base_url with no plain_http_hosts: %v", err)
 	}
 }
 
