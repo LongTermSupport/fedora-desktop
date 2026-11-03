@@ -72,7 +72,7 @@ show the prompt. Ctrl+W is ruled out: with the tray icon on, it only hides the w
 ### Phase 3: Matrix clients get their own play
 
 - [x] ✅ **Task 3.1**: `playbooks/imports/optional/common/play-matrix-clients.yml` installs
-  Nheko from Flathub (`io.github.NhekoReborn.Nheko`, plain install), decoupled from the
+  Nheko from Flathub (`im.nheko.Nheko`, plain install), decoupled from the
   agent bus. Queued in `CLAUDE/Plan/meta-deploy.list`.
 - [ ] ⬜ **Task 3.2**: TODO, bring Element across: its Flatpak install moves from
   `play-agent-bus-element.yml` into `play-matrix-clients.yml`, and the agent-bus play keeps

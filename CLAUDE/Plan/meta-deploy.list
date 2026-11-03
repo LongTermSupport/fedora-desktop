@@ -32,3 +32,7 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Matrix clients: the play declared a stale Flathub ID for Nheko (now im.nheko.Nheko), and
+# its Flatpak install now verifies the installed ID, so it re-runs.
+playbooks/imports/optional/common/play-matrix-clients.yml
