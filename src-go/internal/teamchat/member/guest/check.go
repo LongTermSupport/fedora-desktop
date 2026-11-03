@@ -65,17 +65,21 @@ const (
 	// one.
 	reachToken = "unused"
 
-	keyV              = "v"
-	keyTeam           = "team"
-	keyBaseURL        = "base_url"
-	keyPlainHTTPHosts = "plain_http_hosts"
+	// factsVersion is the stdin's v: 2 replaced plain_http_hosts by tls_ca (Plan 00244 X15), as
+	// seat.json's v 2 did.
+	factsVersion = 2
 
-	msgStdin     exits.Template = "guest check reads one object on stdin: v 1, team, base_url and plain_http_hosts, nothing else"
+	keyV       = "v"
+	keyTeam    = "team"
+	keyBaseURL = "base_url"
+	keyTLSCA   = "tls_ca"
+
+	msgStdin     exits.Template = "guest check reads one object on stdin: v 2, team, base_url and tls_ca, nothing else"
 	msgOtherTeam exits.Template = "guest check's stdin names a team that is not --team {}"
 	msgProgram   exits.Template = "{} is not an executable file on the session's PATH (~/.local/bin, /usr/local/bin, /usr/bin, /bin) for guest user {}"
 	msgGh        exits.Template = "gh auth status --hostname github.com {} as guest user {}: log gh in, and check the guest reaches GitHub"
 	msgKernel    exits.Template = "the guest's kernel gives guest user {} no usable {}; a member session needs pidfd and inotify"
-	msgURL       exits.Template = "team {}'s base_url is not a member URL its plain_http_hosts allow"
+	msgURL       exits.Template = "team {}'s base_url is not a member URL its tls_ca allows"
 	msgReach     exits.Template = "the homeserver of team {} did not answer /_matrix/client/versions within 3 s from the guest"
 )
 
@@ -89,10 +93,11 @@ const (
 	causeGhNotRun exits.Template = "could not be run"
 )
 
-// facts are guest check's stdin (n3-D6): how the team's homeserver is reached.
+// facts are guest check's stdin (n3-D6): how the team's homeserver is reached, its URL and the
+// team CA certificate in PEM that an https URL is pinned to (empty for a loopback http one).
 type facts struct {
 	baseURL string
-	hosts   []string
+	caPEM   string
 }
 
 // Check is `guest check --user U --team T` (GU2): the caller is U (GU1); the reach facts on
@@ -192,7 +197,7 @@ func ghCause(err error) exits.Fill {
 }
 
 func reach(ctx context.Context, f facts, team paths.TeamID) error {
-	client, err := matrix.NewMember(matrix.Config{BaseURL: f.baseURL, PlainHTTPHosts: f.hosts, Token: reachToken})
+	client, err := matrix.NewMember(matrix.Config{BaseURL: f.baseURL, CAPEM: f.caPEM, Token: reachToken})
 	if err != nil {
 		return exits.New(exits.CodeReach, &team, msgURL, exits.Team(team))
 	}
@@ -205,8 +210,8 @@ func reach(ctx context.Context, f facts, team paths.TeamID) error {
 	return nil
 }
 
-// readFacts decodes stdin strictly: exactly the four keys, v 1, team equal to --team, a string
-// base_url and a list of strings; a refusal quotes nothing of it.
+// readFacts decodes stdin strictly: exactly the four keys, v 2, team equal to --team, a string
+// base_url and a string tls_ca; a refusal quotes nothing of it.
 func readFacts(stdin io.Reader, team paths.TeamID) (facts, error) {
 	refused := exits.New(exits.CodeUsage, &team, msgStdin)
 	data, err := io.ReadAll(io.LimitReader(stdin, stdinCap+1))
@@ -220,17 +225,11 @@ func readFacts(stdin io.Reader, team paths.TeamID) (facts, error) {
 	ver, okV := member(v, keyV, proto.KindInt)
 	t, okTeam := member(v, keyTeam, proto.KindString)
 	base, okBase := member(v, keyBaseURL, proto.KindString)
-	hosts, okHosts := member(v, keyPlainHTTPHosts, proto.KindArray)
-	if !okV || ver.Int() != 1 || !okTeam || !okBase || !okHosts {
+	ca, okCA := member(v, keyTLSCA, proto.KindString)
+	if !okV || ver.Int() != factsVersion || !okTeam || !okBase || !okCA {
 		return facts{}, refused
 	}
-	f := facts{baseURL: base.Str(), hosts: []string{}}
-	for _, h := range hosts.Items() {
-		if h.Kind() != proto.KindString {
-			return facts{}, refused
-		}
-		f.hosts = append(f.hosts, h.Str())
-	}
+	f := facts{baseURL: base.Str(), caPEM: ca.Str()}
 	if named, err := paths.ParseTeamID(t.Str()); err != nil || named != team {
 		return facts{}, exits.New(exits.CodeUsage, &team, msgOtherTeam, exits.Team(team))
 	}

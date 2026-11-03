@@ -92,14 +92,9 @@ func SystemTimers() Timers { return clock.System() }
 type Config struct {
 	// BaseURL is the homeserver: scheme, host and port, nothing after.
 	BaseURL string
-	// PlainHTTPHosts is what the seat bundle's plain_http_hosts used to widen plain http to. It
-	// widens nothing now: a member client reaches plain http only at a loopback IP literal, listed
-	// or not (Plan 00244 X12). It stays until the bundle drops the field; an admin client refuses
-	// any.
-	PlainHTTPHosts []string
 	// CAPEM is the team's CA certificate in PEM, the one certificate a member client trusts for an
-	// https URL (X16). An https URL needs it and a plain http URL refuses it; an admin client takes
-	// none.
+	// https URL (X16). An https URL needs it and a plain http URL, which is for a loopback IP
+	// literal only (X12), refuses it; an admin client takes none.
 	CAPEM string
 	// Wall is the clock a certificate's validity is judged by; nil is the system clock.
 	Wall WallClock

@@ -45,7 +45,9 @@ func reach(e cli.Env, inv cli.Invocation, d hsDeps) term.ExitCode {
 	if err != nil {
 		return exits.Write(e.Stderr, err)
 	}
-	client, err := matrix.NewMember(matrix.Config{BaseURL: b.BaseURL, PlainHTTPHosts: b.PlainHTTPHosts, Token: reachToken, Clock: d.wait})
+	cfg := b.MemberConfig(reachToken)
+	cfg.Clock = d.wait
+	client, err := matrix.NewMember(cfg)
 	if err != nil {
 		return exits.Write(e.Stderr, exits.New(exits.CodeBundle, &team, msgReachURL, exits.Team(team)))
 	}

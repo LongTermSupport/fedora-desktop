@@ -272,7 +272,7 @@ func (w *world) open(_ context.Context, team paths.TeamID, port int, regKey stri
 
 // member is a member client of alpha's homeserver with token.
 func (w *world) member(token string) (*matrix.Client, error) {
-	c, err := matrix.NewMember(matrix.Config{BaseURL: w.srv.URL(), PlainHTTPHosts: []string{"127.0.0.1"}, Token: token, Clock: w})
+	c, err := matrix.NewMember(matrix.Config{BaseURL: w.srv.URL(), Token: token, Clock: w})
 	if err == nil {
 		w.t.Cleanup(c.Close)
 	}

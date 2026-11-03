@@ -1,13 +1,18 @@
 package client
 
 import (
+	"crypto/tls"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix/fakehs"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/cli"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/pki"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -56,6 +61,69 @@ func TestReach(t *testing.T) {
 		if r.Path != "/_matrix/client/versions" {
 			t.Errorf("reach asked %s %s", r.Method, r.Path)
 		}
+	}
+}
+
+// tlsHS is fakehs behind a leaf of ca for 127.0.0.1. The certificates are made on the real clock,
+// since the member client under test reads the system's.
+func tlsHS(t *testing.T, ca pki.CA) *fakehs.Server {
+	t.Helper()
+	leaf, err := (pki.Maker{Clock: clock.System()}).NewLeaf(ca, pki.Names{IPs: []netip.Addr{netip.MustParseAddr("127.0.0.1")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pair, err := tls.X509KeyPair(leaf.CertPEM(), leaf.KeyPEM())
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := fakehs.New(fakehs.Options{ServerName: hsServer, Quirks: fakehs.TuwunelQuirks()})
+	if err := srv.StartTLS(&tls.Config{Certificates: []tls.Certificate{pair}, MinVersion: tls.VersionTLS13}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := srv.Close(); err != nil {
+			t.Errorf("close: %v", err)
+		}
+	})
+	return srv
+}
+
+func newCA(t *testing.T, name string) pki.CA {
+	t.Helper()
+	ca, err := (pki.Maker{Clock: clock.System()}).NewCA(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ca
+}
+
+// placeTLSSeat writes alpha's seat.json for an https homeserver at base, pinned to ca.
+func (w *world) placeTLSSeat(base string, ca pki.CA) {
+	w.t.Helper()
+	b := bundleFor(w.t, base, deadRoom)
+	b.TLSCA = string(ca.CertPEM())
+	writeSeat(w.t, filepath.Join(w.seats(), hsTeam), b, "")
+}
+
+// X15, X16: reach connects to an https homeserver with the CA in seat.json, and with no other.
+func TestReachOverTLSUsesTheSeatsCA(t *testing.T) {
+	ca, other := newCA(t, "team-a"), newCA(t, "team-b")
+	srv := tlsHS(t, ca)
+	w := newWorld(t)
+	w.placeTLSSeat(srv.URL(), ca)
+	if code := w.reach(hsTeam); code != term.ExitOK || w.stderr.Len() != 0 {
+		t.Fatalf("exit %d, stderr %q", code, w.stderr.String())
+	}
+	if n := len(srv.Requests()); n != 1 {
+		t.Errorf("the homeserver saw %d requests, want 1", n)
+	}
+	wrong := newWorld(t)
+	wrong.placeTLSSeat(srv.URL(), other)
+	if code := wrong.reach(hsTeam); code != 20 {
+		t.Fatalf("with another team's CA: exit %d, want 20; stderr %q", code, wrong.stderr.String())
+	}
+	if n := len(srv.Requests()); n != 1 {
+		t.Errorf("a request reached the homeserver past a CA that does not sign it: %d requests", n)
 	}
 }
 

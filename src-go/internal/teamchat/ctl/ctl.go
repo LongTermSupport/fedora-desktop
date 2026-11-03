@@ -121,7 +121,7 @@ func Open(ctx context.Context, cfg Config, team paths.TeamID, port int, regKey s
 			Now:        cfg.Now,
 		},
 		Member: func(token string) (*matrix.Client, error) {
-			return matrix.NewMember(matrix.Config{BaseURL: base, PlainHTTPHosts: []string{loopback}, Token: token})
+			return matrix.NewMember(matrix.Config{BaseURL: base, Token: token})
 		},
 	}, nil
 }

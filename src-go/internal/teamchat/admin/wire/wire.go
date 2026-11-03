@@ -34,6 +34,10 @@ const Bridge = "lxcbr0"
 // ErrBackupNotBuilt is step 6's backup until C 3.12 is built (n2f-D6).
 var ErrBackupNotBuilt = errors.New("backups are not built yet (C 3.12)")
 
+// ErrTeamCANotMade is the team CA until the host's files that keep it are wired (Plan 00244 S7a):
+// an https team's bundle and reach facts need that CA, so they fail with this.
+var ErrTeamCANotMade = errors.New("the team CA is not made yet")
+
 // New is the production wiring for a build of digest: Env.Wire of `teamchat-admin`'s main.
 func New(digest string) func() (*admin.System, error) {
 	return func() (*admin.System, error) { return production().system(digest) }
@@ -101,7 +105,8 @@ func (m machine) system(digest string) (*admin.System, error) {
 			Backup: func(context.Context, *teamlock.Lock) error { return ErrBackupNotBuilt },
 		},
 		Child:      child,
-		Bundles:    admin.SeatBundles{Clock: clock.Now, Digest: d},
+		Bundles:    admin.SeatBundles{Clock: clock.Now, Digest: d, CA: teamCANotMade},
+		TeamCA:     teamCANotMade,
 		OwnerGroup: ownerGroup,
 		Open:       ctl.Config{Root: root}.Opener(),
 		Pin:        m.readPin,
@@ -111,6 +116,9 @@ func (m machine) system(digest string) (*admin.System, error) {
 		LXC:        sync.OnceValues(func() (*lxc.Deps, error) { return m.lxcDeps(clock, ownerGroup) }),
 	}, nil
 }
+
+// teamCANotMade is admin.TeamCA until slice S7a reads the CA from the files the host keeps.
+func teamCANotMade(paths.TeamID) (string, error) { return "", ErrTeamCANotMade }
 
 func (m machine) ctlIDs() (admin.User, error) {
 	u, found, err := m.lookupUser(paths.CtlUser)

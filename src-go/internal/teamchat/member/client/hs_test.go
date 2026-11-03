@@ -111,7 +111,7 @@ func (h *hs) mint(t *testing.T, user string) string {
 
 func (h *hs) member(t *testing.T, token string) *matrix.Client {
 	t.Helper()
-	c, err := matrix.NewMember(matrix.Config{BaseURL: h.srv.URL(), PlainHTTPHosts: []string{"127.0.0.1"}, Token: token, Clock: noWait{}})
+	c, err := matrix.NewMember(matrix.Config{BaseURL: h.srv.URL(), Token: token, Clock: noWait{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,8 +158,8 @@ func bundleFor(t *testing.T, base, main string) seat.Bundle {
 		t.Fatal(err)
 	}
 	return seat.Bundle{
-		V: 1, Team: team, ServerName: hsServer, UserID: hsUser(hsWorker), AdminID: proto.AdminID(hsServer),
-		MainRoom: main, BaseURL: base, PlainHTTPHosts: []string{"127.0.0.1"},
+		V: seat.BundleVersion, Team: team, ServerName: hsServer, UserID: hsUser(hsWorker), AdminID: proto.AdminID(hsServer),
+		MainRoom: main, BaseURL: base,
 		DeviceID: paths.SeatDevice, IssuedMS: 1_700_000_000_000, Issuer: issuer,
 	}
 }

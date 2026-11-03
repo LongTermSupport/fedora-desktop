@@ -123,7 +123,9 @@ func seatNotice(inv cli.Invocation, wait matrix.Clock) (notice.Notice, *matrix.C
 		return notice.Notice{}, nil, exits.New(exits.CodeBundle, &pair.Team, msgUserID, exits.Name(dir))
 	}
 	token := pair.Token.Reveal()
-	client, err := matrix.NewMember(matrix.Config{BaseURL: b.BaseURL, PlainHTTPHosts: b.PlainHTTPHosts, Token: token, Clock: wait})
+	cfg := b.MemberConfig(token)
+	cfg.Clock = wait
+	client, err := matrix.NewMember(cfg)
 	if err != nil {
 		return notice.Notice{}, nil, exits.New(exits.CodeBundle, &pair.Team, msgHomeserver, exits.Name(dir))
 	}

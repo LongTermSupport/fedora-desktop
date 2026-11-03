@@ -46,8 +46,8 @@ func poolBundle(t *testing.T, tm paths.TeamID, n int) seat.Bundle {
 	check(t, err)
 	server := paths.ServerName(tm)
 	return seat.Bundle{
-		V: 1, Team: tm, ServerName: server, UserID: userID(tm, n), AdminID: "@admin:" + server,
-		MainRoom: room, BaseURL: "http://127.0.0.1:8448", PlainHTTPHosts: []string{"127.0.0.1"},
+		V: seat.BundleVersion, Team: tm, ServerName: server, UserID: userID(tm, n), AdminID: "@admin:" + server,
+		MainRoom: room, BaseURL: "http://127.0.0.1:8448",
 		DeviceID: paths.SeatDevice, IssuedMS: 1_700_000_000_000, Issuer: issuer,
 	}
 }

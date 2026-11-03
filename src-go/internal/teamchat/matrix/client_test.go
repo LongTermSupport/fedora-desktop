@@ -77,7 +77,7 @@ func newServer(t *testing.T) *fakehs.Server {
 func newMember(t *testing.T, base, token string) member {
 	t.Helper()
 	clk := &fakeClock{}
-	c, err := NewMember(Config{BaseURL: base, PlainHTTPHosts: []string{loopback}, Token: token, Clock: clk})
+	c, err := NewMember(Config{BaseURL: base, Token: token, Clock: clk})
 	if err != nil {
 		t.Fatalf("NewMember: %v", err)
 	}
@@ -145,7 +145,7 @@ func blockingServer(t *testing.T) (*httptest.Server, <-chan struct{}) {
 func TestTokenGrammar(t *testing.T) {
 	srv := newServer(t)
 	for _, tok := range []string{"", "a b", "tok\n", "tok\x7f", "café", strings.Repeat("t", 4097)} {
-		if _, err := NewMember(Config{BaseURL: srv.URL(), PlainHTTPHosts: []string{loopback}, Token: tok}); err == nil {
+		if _, err := NewMember(Config{BaseURL: srv.URL(), Token: tok}); err == nil {
 			t.Errorf("token %q accepted", tok)
 		}
 	}
@@ -226,9 +226,6 @@ func TestAdminBaseURL(t *testing.T) {
 			t.Errorf("adminBase(%q) accepted", raw)
 		}
 	}
-	if _, err := NewAdmin(Config{BaseURL: "http://127.0.0.1:8008", PlainHTTPHosts: []string{loopback}}); err == nil {
-		t.Error("admin config with PlainHTTPHosts accepted")
-	}
 	if _, err := NewAdmin(Config{BaseURL: "http://127.0.0.1:0"}); err == nil {
 		t.Error("admin port 0 accepted")
 	}
@@ -266,7 +263,7 @@ func TestRequestHeaders(t *testing.T) {
 
 func TestUserAgentOverride(t *testing.T) {
 	srv := newServer(t)
-	c, err := NewMember(Config{BaseURL: srv.URL(), PlainHTTPHosts: []string{loopback}, Token: "t", UserAgent: "bus-member/2"})
+	c, err := NewMember(Config{BaseURL: srv.URL(), Token: "t", UserAgent: "bus-member/2"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +274,7 @@ func TestUserAgentOverride(t *testing.T) {
 	if got := lastRequest(t, srv).Header.Get("User-Agent"); got != "bus-member/2" {
 		t.Errorf("User-Agent = %q", got)
 	}
-	if _, err := NewMember(Config{BaseURL: srv.URL(), PlainHTTPHosts: []string{loopback}, Token: "t", UserAgent: "bad\nagent"}); err == nil {
+	if _, err := NewMember(Config{BaseURL: srv.URL(), Token: "t", UserAgent: "bad\nagent"}); err == nil {
 		t.Error("a User-Agent with a newline accepted")
 	}
 }
@@ -695,7 +692,7 @@ func TestCloseLeavesNoGoroutine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := NewMember(Config{BaseURL: srv.URL(), PlainHTTPHosts: []string{loopback}, Token: token})
+	c, err := NewMember(Config{BaseURL: srv.URL(), Token: token})
 	if err != nil {
 		t.Fatal(err)
 	}
