@@ -131,6 +131,14 @@ type pinned struct {
 	pidfd int
 	pid   int
 	proc  string
+	// hostRoot is the host uid and gid that are the guest's root account: 0 and 0 for a running
+	// guest, and the owner of the directory for a fixture root, whose files nobody can give to
+	// uid 0 without being root. A file of hostRoot's is the guest's root's (Info.UID 0), and a
+	// writer chowns what it makes to it.
+	hostRoot ids
+	// owner, when set, says whose a guest path is over what the file system says: a fixture's
+	// way to have a file another guest user's, which a test cannot chown to without being root.
+	owner OwnerOf
 	// hold arms each call's bound: the clock's Hold.
 	hold func(d time.Duration) (<-chan time.Time, func() bool)
 
@@ -140,7 +148,15 @@ type pinned struct {
 	lateErr  error
 }
 
-// Info is a guest inode by fstat.
+// ids is a uid and a gid.
+type ids struct{ uid, gid int }
+
+// OwnerOf says whose a guest path is: the guest uid and true, or false to leave the owner as
+// the file system has it.
+type OwnerOf func(guestPath string) (uid uint32, ok bool)
+
+// Info is a guest inode by fstat. UID and GID are the guest's: 0 for what the guest's root
+// owns.
 type Info struct {
 	Mode     fs.FileMode
 	UID, GID uint32
@@ -200,10 +216,17 @@ func (p Pinner) pinWith(ctx context.Context, s sys, pid func(context.Context) (i
 }
 
 // OpenDir is a Root over a plain directory, with no init: the fixture trees' constructor (PID
-// 0, Alive always nil). It is for tests, P4's included.
-func OpenDir(dir string) (*Root, error) { return openDirWith(linuxSys{}, dir) }
+// 0, Alive always nil). It is for tests, P4's included. The directory's owner plays the
+// guest's root, so a tree built by an unprivileged user is a root-owned guest.
+func OpenDir(dir string) (*Root, error) { return openDirWith(linuxSys{}, dir, nil) }
 
-func openDirWith(s sys, dir string) (*Root, error) {
+// OpenDirOwning is OpenDir with owner saying whose a guest path is, over the file system's
+// answer: a test cannot make a file another guest user's with chown without being root.
+func OpenDirOwning(dir string, owner OwnerOf) (*Root, error) {
+	return openDirWith(linuxSys{}, dir, owner)
+}
+
+func openDirWith(s sys, dir string, owner OwnerOf) (*Root, error) {
 	if !filepath.IsAbs(dir) || filepath.Clean(dir) != dir {
 		return nil, fmt.Errorf("guestroot: %q is not an absolute, clean path", dir)
 	}
@@ -211,13 +234,14 @@ func openDirWith(s sys, dir string) (*Root, error) {
 	if err != nil {
 		return nil, fmt.Errorf("guestroot: %s: %w", dir, err)
 	}
-	r := &Root{pinned: &pinned{sys: s, fd: fd, pidfd: -1, hold: clock.System().Hold}}
-	info, err := r.statFD(fd, dir)
-	if err == nil && !info.Mode.IsDir() {
-		err = fmt.Errorf("%w: %s is %s", ErrRefused, dir, kind(info.Mode))
-	}
+	r := &Root{pinned: &pinned{sys: s, fd: fd, pidfd: -1, owner: owner, hold: clock.System().Hold}}
+	st, err := r.rawStat(fd, dir)
 	if err != nil {
 		return nil, errors.Join(err, r.Close())
+	}
+	r.hostRoot = ids{uid: int(st.Uid), gid: int(st.Gid)}
+	if info := r.infoOf(st, dir); !info.Mode.IsDir() {
+		return nil, errors.Join(fmt.Errorf("%w: %s is %s", ErrRefused, dir, kind(info.Mode)), r.Close())
 	}
 	return r, nil
 }
@@ -322,11 +346,38 @@ func (r *Root) closeFD(fd int, path string) error {
 }
 
 func (r *Root) statFD(fd int, path string) (Info, error) {
+	st, err := r.rawStat(fd, path)
+	if err != nil {
+		return Info{}, err
+	}
+	return r.infoOf(st, path), nil
+}
+
+// rawStat is fd's status as the file system gives it.
+func (r *Root) rawStat(fd int, path string) (unix.Stat_t, error) {
 	var st unix.Stat_t
 	if err := r.sys.fstat(fd, &st); err != nil {
-		return Info{}, fmt.Errorf("guestroot: %s: %w", path, err)
+		return st, fmt.Errorf("guestroot: %s: %w", path, err)
 	}
-	return Info{Mode: fileMode(st.Mode), UID: st.Uid, GID: st.Gid, Dev: st.Dev, Ino: st.Ino, Size: st.Size}, nil
+	return st, nil
+}
+
+// infoOf is st as the guest sees it: what hostRoot owns is root's, and a fixture's owner
+// function has the last word on the owner of a path.
+func (r *Root) infoOf(st unix.Stat_t, path string) Info {
+	info := Info{Mode: fileMode(st.Mode), UID: st.Uid, GID: st.Gid, Dev: st.Dev, Ino: st.Ino, Size: st.Size}
+	if int(st.Uid) == r.hostRoot.uid {
+		info.UID = 0
+	}
+	if int(st.Gid) == r.hostRoot.gid {
+		info.GID = 0
+	}
+	if r.owner != nil {
+		if uid, ok := r.owner(path); ok {
+			info.UID = uid
+		}
+	}
+	return info
 }
 
 // fileMode is a stat mode as an fs.FileMode.

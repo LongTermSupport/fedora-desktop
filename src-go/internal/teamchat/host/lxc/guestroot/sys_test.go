@@ -50,6 +50,8 @@ type recorder struct {
 	inStall chan struct{}
 	// closes, when set, is sent each descriptor closed.
 	closes chan int
+	// chowns are the owners fchown was asked for, in order.
+	chowns []ids
 }
 
 func newRecorder() *recorder {
@@ -227,6 +229,9 @@ func (r *recorder) fchown(fd, uid, gid int) error {
 	if err := r.step(call{op: "fchown"}); err != nil {
 		return err
 	}
+	r.mu.Lock()
+	r.chowns = append(r.chowns, ids{uid: uid, gid: gid})
+	r.mu.Unlock()
 	return r.real.fchown(fd, uid, gid)
 }
 
@@ -339,16 +344,28 @@ func (s interruptingSys) openat2(dirfd int, path string, how *unix.OpenHow) (int
 	return s.sys.openat2(dirfd, path, how)
 }
 
-// tree is a fixture guest root in a temporary directory.
+// tree is a fixture guest root in a temporary directory. The directory's owner plays the guest's
+// root, so the tree is root-owned whoever runs the test; owned says which guest paths are
+// another guest user's instead, which a test cannot make so with chown unless it is root.
 type tree struct {
-	t   *testing.T
-	dir string
+	t     *testing.T
+	dir   string
+	owned map[string]uint32
 }
 
 func newTree(t *testing.T) tree {
 	t.Helper()
-	return tree{t: t, dir: t.TempDir()}
+	return tree{t: t, dir: t.TempDir(), owned: map[string]uint32{}}
 }
+
+// owner is the tree's OwnerOf: the uid a guest path was given by disown.
+func (g tree) owner(guestPath string) (uint32, bool) {
+	uid, ok := g.owned[guestPath]
+	return uid, ok
+}
+
+// disown makes the guest path another guest user's: root's tree reports uid as its owner.
+func (g tree) disown(guestPath string, uid uint32) { g.owned[guestPath] = uid }
 
 // host is the host path of a guest path.
 func (g tree) host(p string) string { return filepath.Join(g.dir, p) }
@@ -415,7 +432,7 @@ func (g tree) link(p, target string) {
 // root opens the tree through rec.
 func (g tree) root(rec *recorder) *Root {
 	g.t.Helper()
-	r, err := openDirWith(rec, g.dir)
+	r, err := openDirWith(rec, g.dir, g.owner)
 	if err != nil {
 		g.t.Fatal(err)
 	}
@@ -483,7 +500,7 @@ func TestOpenDirClosesOnAFailedCheck(t *testing.T) {
 	g := newTree(t)
 	rec := newRecorder()
 	rec.failOp, rec.failErr = "fstat", unix.EIO
-	if _, err := openDirWith(rec, g.dir); !errors.Is(err, unix.EIO) {
+	if _, err := openDirWith(rec, g.dir, nil); !errors.Is(err, unix.EIO) {
 		t.Fatalf("got %v", err)
 	}
 	if l := rec.leaked(); len(l) != 0 {

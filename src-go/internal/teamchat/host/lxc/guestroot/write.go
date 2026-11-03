@@ -237,9 +237,9 @@ func (w *Writer) makeDir(parent int, name, full string) (int, error) {
 	return fd, nil
 }
 
-// own makes fd root's with mode.
+// own makes fd root's with mode: the host's uid and gid that are the guest's root.
 func (w *Writer) own(fd int, full string, mode fs.FileMode) error {
-	if err := w.r.sys.fchown(fd, 0, 0); err != nil {
+	if err := w.r.sys.fchown(fd, w.r.hostRoot.uid, w.r.hostRoot.gid); err != nil {
 		return fmt.Errorf("guestroot: chown %s: %w", full, err)
 	}
 	if err := w.r.sys.fchmod(fd, uint32(mode.Perm())); err != nil {

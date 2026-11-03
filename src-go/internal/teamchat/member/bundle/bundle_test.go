@@ -65,7 +65,21 @@ type world struct {
 	root   *homefs.Root
 	layout paths.Layout
 	seat   paths.Seat
+	// others are the paths the root takes as another user's, which a test cannot make so with
+	// chown unless it is root.
+	others map[string]bool
 }
+
+// owner is the root's Owner: the caller's, but for a path given away.
+func (w *world) owner(full string) int {
+	if w.others[full] {
+		return os.Geteuid() + 1
+	}
+	return homefs.Caller(full)
+}
+
+// giveAway makes the root take path as another user's.
+func (w *world) giveAway(path string) { w.others[path] = true }
 
 func newWorld(t *testing.T) *world {
 	t.Helper()
@@ -75,10 +89,12 @@ func newWorld(t *testing.T) *world {
 	check(t, os.MkdirAll(s.Dir(), 0o700))
 	check(t, os.Chmod(l.State(), 0o700))
 	check(t, os.Chmod(s.Dir(), 0o700))
-	root, err := homefs.Open(l.State(), homefs.Private)
+	w := &world{t: t, layout: l, seat: s, others: map[string]bool{}}
+	root, err := homefs.OpenFor(l.State(), homefs.Private, w.owner)
 	check(t, err)
 	t.Cleanup(func() { check(t, root.Close()) })
-	return &world{t: t, root: root, layout: l, seat: s}
+	w.root = root
+	return w
 }
 
 func (w *world) write(path string, data []byte) {
@@ -214,7 +230,7 @@ func TestReadPairRefusals(t *testing.T) {
 		"a user_id the store was not written for": func(w *world) { w.store(userID(ops, 2)) },
 		"a token readable by others":              func(w *world) { check(t, os.Chmod(w.seat.Token(), 0o644)) },
 		"a token 0400":                            func(w *world) { check(t, os.Chmod(w.seat.Token(), 0o400)) },
-		"a token of another uid":                  func(w *world) { check(t, os.Lchown(w.seat.Token(), 4242, -1)) },
+		"a token of another uid":                  func(w *world) { w.giveAway(w.seat.Token()) },
 		"a token of two lines":                    func(w *world) { w.write(w.seat.Token(), []byte(testToken+"\n"+testToken)) },
 		"an empty token":                          func(w *world) { w.write(w.seat.Token(), nil) },
 		"a token over its cap":                    func(w *world) { w.write(w.seat.Token(), []byte(strings.Repeat("a", seat.MaxSecret+1))) },
@@ -224,7 +240,7 @@ func TestReadPairRefusals(t *testing.T) {
 			check(t, os.Symlink("real", w.seat.Token()))
 		},
 		"an undecodable seat.json":        func(w *world) { w.write(w.seat.Bundle(), []byte(`{"v":1}`)) },
-		"a seat.json of another uid":      func(w *world) { check(t, os.Lchown(w.seat.Bundle(), 4242, -1)) },
+		"a seat.json of another uid":      func(w *world) { w.giveAway(w.seat.Bundle()) },
 		"a seat.json over its cap":        func(w *world) { w.write(w.seat.Bundle(), []byte(strings.Repeat(" ", seat.MaxBundle+1))) },
 		"a seat directory open to others": func(w *world) { check(t, os.Chmod(w.seat.Dir(), 0o755)) },
 	} {

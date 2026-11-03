@@ -1,0 +1,48 @@
+#!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
+---
+# Matrix desktop clients. Matrix is its own service, used by the agent team bus and free to
+# serve other things, so its client installs live here and not in the agent-bus plays.
+# Flatpak is already installed by default, we just need to add to it.
+#
+# Nheko is installed from Flathub like the other desktop apps (play-comms.yml): the Flathub
+# build tracks upstream releases ahead of the Fedora RPM and runs the same way on Wayland.
+- hosts: desktop
+  name: Matrix clients
+  become: false
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
+  tasks:
+    - name: Scope guard — assert provisioning_profile is recognised
+      ansible.builtin.assert:
+        that:
+          - provisioning_profile in ['desktop', 'server']
+        fail_msg: |
+          provisioning_profile={{ provisioning_profile }} is not recognised.
+          Valid values: desktop, server.
+          Auto-detected from `systemctl get-default`
+          (see environment/localhost/group_vars/desktop.yml) or overridden
+          via -e provisioning_profile=desktop|server.
+
+    - name: Scope guard — end play if provisioning_profile does not match declared scope
+      ansible.builtin.meta: end_play
+      when: (scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')
+
+    - name: Audience guard — end play on a consumer install
+      ansible.builtin.meta: end_play
+      when: install_audience != 'developer'
+
+    - name: Enable Flathub remote
+      become: true
+      community.general.flatpak_remote:
+        name: flathub
+        flatpakrepo_url: https://flathub.org/repo/flathub.flatpakrepo
+        state: present
+
+    - name: Install Nheko
+      become: true
+      community.general.flatpak:
+        name: io.github.NhekoReborn.Nheko
+        remote: flathub
+        state: present

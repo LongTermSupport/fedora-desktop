@@ -86,6 +86,10 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   `project_realtime_bound`, which F44's module-wide rule replaced.
 - [ ] 🔄 **Task 8.7**: Pull request 124 (to F44, assigned to the owner's account, reviewed by
   `qa-reviewer`, its findings fixed). CI green, then ready for review. Only the owner merges it.
+  The first CI run of the Go tests found tests that pass only as root; they are fixed as a class
+  (`project_test_chown`, the owner seams in `homefs`, `proof` and `guestroot`, `mkdirAt` under a
+  strict umask), and the JOURNAL says how. Still open: the CI run on the fix, the older tests that
+  skip when not root, and the owner's choice of an unprivileged gate.
 - [ ] 🔄 **Task 8.9**: The finished v2 work the branch lacked, which the owner asked for on pull
   request 124: `feat/bus-v2-n2` (the reviewed backup and restore work), `feat/bus-v2-n3e` (11
   newer commits) and `feat/bus-v2-n3f` (the side-rooms spec) merged into `spike/v2-merge-up`,

@@ -114,12 +114,19 @@ func TestPackageTests(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), PackageTests, "fix/internal/notests", "fix/internal/withtests", "fix/internal/externaltests")
 }
 
+// A test that gives a file to another user fails for an unprivileged user: the fixture has each
+// way of writing the call, and the clean forms (the caller's own uid, -1, a branch or a skip on
+// the user being root) beside them.
+func TestTestChown(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), TestChown, "fix/internal/badchown", "fix/internal/guardedchown")
+}
+
 func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 24 {
-		t.Fatalf("want 24 rules, got %d", got)
+	if got := len(All()); got != 25 {
+		t.Fatalf("want 25 rules, got %d", got)
 	}
 }
 

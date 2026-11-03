@@ -161,7 +161,10 @@ func TestStoreWriterRefusesAStoreNotTheCallers(t *testing.T) {
 	t.Cleanup(func() { check(t, l.Close()) })
 	sw := newWriter(t, w, l)
 	check(t, sw.Write(sampleStore(t)))
-	check(t, os.Lchown(w.seat.Store(), 4242, -1))
+	if _, err := sw.Load(); err != nil {
+		t.Fatalf("Load of the caller's own store = %v", err)
+	}
+	w.giveAway(w.seat.Store())
 	if _, err := sw.Load(); !errors.Is(err, homefs.ErrConfig) {
 		t.Fatalf("Load of another uid's store = %v, want ErrConfig", err)
 	}

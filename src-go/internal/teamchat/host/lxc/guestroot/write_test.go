@@ -31,6 +31,10 @@ func modeOf(t *testing.T, p string) (fs.FileMode, uint32) {
 	return fi.Mode(), st.Uid
 }
 
+// guestRoots is whether the host uid is the one a fixture tree's guest root has: the owner of
+// the tree's directory, which is the user running the test (0 for root).
+func guestRoots(uid uint32) bool { return int(uid) == os.Geteuid() }
+
 func names(t *testing.T, dir string) []string {
 	t.Helper()
 	es, err := os.ReadDir(dir)
@@ -54,8 +58,8 @@ func TestMkdirAll(t *testing.T) {
 		t.Fatalf("%v %v", changed, err)
 	}
 	for _, p := range []string{"/usr/local", "/usr/local/lib", "/usr/local/lib/teamchat", kitParent} {
-		if m, uid := modeOf(t, g.host(p)); m != fs.ModeDir|0o755 || uid != 0 {
-			t.Errorf("%s: %v uid %d", p, m, uid)
+		if m, uid := modeOf(t, g.host(p)); m != fs.ModeDir|0o755 || !guestRoots(uid) {
+			t.Errorf("%s: %v uid %d, not the guest root's host uid", p, m, uid)
 		}
 	}
 	if changed, err := w.MkdirAll(kitParent); err != nil || changed {
@@ -71,6 +75,56 @@ func TestMkdirAll(t *testing.T) {
 	}
 	if len(rec.badOpens) != 0 {
 		t.Errorf("%v", rec.badOpens)
+	}
+}
+
+// What a writer makes is chowned to the host uid and gid that are the guest's root: for a pinned
+// guest 0 and 0, for a fixture root the owner of its directory, who plays root. Either way the
+// writer's own check finds what it made root's.
+func TestWriterChownsWhatItMakesToTheGuestRoot(t *testing.T) {
+	g := newTree(t)
+	g.mkdir("/usr")
+	rec := newRecorder()
+	r := g.root(rec)
+	if want := (ids{uid: os.Geteuid(), gid: os.Getegid()}); r.hostRoot != want {
+		t.Fatalf("a fixture root's guest root is %+v, want the directory's owner %+v", r.hostRoot, want)
+	}
+	w := r.Writer()
+	if _, err := w.MkdirAll(kitParent); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.WriteFile(kitParent, "f", []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.chowns) == 0 {
+		t.Fatal("nothing was chowned")
+	}
+	for _, c := range rec.chowns {
+		if c != r.hostRoot {
+			t.Errorf("chowned to %+v, want the guest root's %+v", c, r.hostRoot)
+		}
+	}
+	if _, err := w.WriteFile(kitParent, "f", []byte("y"), 0o644); err != nil {
+		t.Fatalf("a rewrite of what the writer made: %v", err)
+	}
+}
+
+// The guest's root is root's whoever owns the fixture directory; a path a test disowns is the
+// uid it names, and its group is still root's.
+func TestAFixtureRootReportsItsOwnerAsGuestRoot(t *testing.T) {
+	g := newTree(t)
+	g.file("/f", "x", 0o644)
+	g.file("/g", "x", 0o644)
+	g.disown("/g", 1000)
+	r := g.root(newRecorder())
+	for path, uid := range map[string]uint32{"/f": 0, "/g": 1000} {
+		info, err := r.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.UID != uid || info.GID != 0 {
+			t.Errorf("%s is uid %d gid %d, want uid %d gid 0", path, info.UID, info.GID, uid)
+		}
 	}
 }
 
@@ -94,9 +148,7 @@ func TestWriterRefusesAnUnsafeDirectoryOnThePath(t *testing.T) {
 		}, "/usr"},
 		{"not root's", func(g tree) {
 			g.mkdir("/usr/local")
-			if err := os.Chown(g.host("/usr/local"), 1000, 1000); err != nil {
-				g.t.Skipf("cannot chown: %v", err)
-			}
+			g.disown("/usr/local", 1000)
 		}, "/usr/local"},
 		{"a link", func(g tree) {
 			g.mkdir("/opt/local")
@@ -139,7 +191,7 @@ func TestWriterRefusesABindMount(t *testing.T) {
 // a write below the root of Args[0] succeeds, and once Args[1] is bind-mounted on its
 // /usr/local, a write through that mount is refused as a crossed mount (EXDEV).
 func bindMount(h *reexec.Helper) int {
-	r, err := openDirWith(linuxSys{}, h.Args[0])
+	r, err := openDirWith(linuxSys{}, h.Args[0], nil)
 	if err != nil {
 		return failed("open the root", err)
 	}
@@ -179,8 +231,8 @@ func TestWriteFile(t *testing.T) {
 	if err != nil || !changed {
 		t.Fatalf("%v %v", changed, err)
 	}
-	if m, uid := modeOf(t, g.host(dir+"/"+name)); m != 0o640 || uid != 0 {
-		t.Errorf("mode %v uid %d", m, uid)
+	if m, uid := modeOf(t, g.host(dir+"/"+name)); m != 0o640 || !guestRoots(uid) {
+		t.Errorf("mode %v uid %d, not the guest root's host uid", m, uid)
 	}
 	creates := len(rec.callsOf("renameat2"))
 	if again, werr := w.WriteFile(dir, name, []byte("one"), 0o640); werr != nil || again {
@@ -248,8 +300,8 @@ func checkKitModes(t *testing.T, g tree, dir string) {
 	for p, want := range map[string]fs.FileMode{
 		"": fs.ModeDir | 0o755, "/bin": fs.ModeDir | 0o755, "/bin/teamchat": 0o755, "/settings.json": 0o644,
 	} {
-		if m, uid := modeOf(t, g.host(dir+p)); m != want || uid != 0 {
-			t.Errorf("%s: %v uid %d", dir+p, m, uid)
+		if m, uid := modeOf(t, g.host(dir+p)); m != want || !guestRoots(uid) {
+			t.Errorf("%s: %v uid %d, not the guest root's host uid", dir+p, m, uid)
 		}
 	}
 }

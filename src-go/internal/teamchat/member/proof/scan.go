@@ -26,6 +26,8 @@ import (
 	"strconv"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/homefs"
 )
 
 // ErrRefused is a transcript that is not as a proof may be read from, or a call that cannot
@@ -63,6 +65,12 @@ type Result struct {
 // 0 (Reset). A needle is found only when its last byte lies past from.Offset, so what an
 // earlier scan reported is not reported again. A missing file is fs.ErrNotExist.
 func Scan(path string, from Mark, nonces []string, maxRead int64) (Result, error) {
+	return scanAs(path, from, nonces, maxRead, homefs.Caller)
+}
+
+// scanAs is Scan taking owner as the owner of the file and its directory: the caller's in
+// production, and another's in a test that cannot give a file away without being root.
+func scanAs(path string, from Mark, nonces []string, maxRead int64, owner homefs.Owner) (Result, error) {
 	needles, overlap, err := needlesOf(nonces)
 	switch {
 	case err != nil:
@@ -74,7 +82,7 @@ func Scan(path string, from Mark, nonces []string, maxRead int64) (Result, error
 	case !filepath.IsAbs(path) || filepath.Clean(path) != path:
 		return Result{}, fmt.Errorf("%w: %s is not an absolute, clean path", ErrRefused, path)
 	}
-	f, st, err := open(path)
+	f, st, err := open(path, owner)
 	if err != nil {
 		return Result{}, err
 	}
@@ -163,13 +171,13 @@ func checkNonce(nonce string) error {
 
 // open opens path's directory and then path by O_PATH, checks each, and reopens the file for
 // reading.
-func open(path string) (*os.File, *unix.Stat_t, error) {
+func open(path string, owner homefs.Owner) (*os.File, *unix.Stat_t, error) {
 	dir := filepath.Dir(path)
 	dirFD, err := openPath(unix.AT_FDCWD, dir)
 	if err != nil {
 		return nil, nil, err
 	}
-	f, st, err := openIn(dirFD, dir, path)
+	f, st, err := openIn(dirFD, dir, path, owner)
 	if err = errors.Join(err, unix.Close(dirFD)); err != nil {
 		if f != nil {
 			err = errors.Join(err, f.Close())
@@ -179,15 +187,15 @@ func open(path string) (*os.File, *unix.Stat_t, error) {
 	return f, st, nil
 }
 
-func openIn(dirFD int, dir, path string) (*os.File, *unix.Stat_t, error) {
-	if _, err := judge(dirFD, dir, unix.S_IFDIR); err != nil {
+func openIn(dirFD int, dir, path string, owner homefs.Owner) (*os.File, *unix.Stat_t, error) {
+	if _, err := judge(dirFD, dir, unix.S_IFDIR, owner); err != nil {
 		return nil, nil, err
 	}
 	fd, err := openPath(dirFD, filepath.Base(path))
 	if err != nil {
 		return nil, nil, fmt.Errorf("proof: %s: %w", path, errors.Unwrap(err))
 	}
-	st, err := judge(fd, path, unix.S_IFREG)
+	st, err := judge(fd, path, unix.S_IFREG, owner)
 	if err != nil {
 		return nil, nil, errors.Join(err, unix.Close(fd))
 	}
@@ -211,9 +219,9 @@ func openPath(dirFD int, name string) (int, error) {
 	return fd, nil
 }
 
-// judge is fd's status when it is of the type want, the caller's, and not writable by its
-// group or others; anything else is ErrRefused naming what it is.
-func judge(fd int, path string, want uint32) (*unix.Stat_t, error) {
+// judge is fd's status when it is of the type want, owner's (the caller's), and not writable by
+// its group or others; anything else is ErrRefused naming what it is.
+func judge(fd int, path string, want uint32, owner homefs.Owner) (*unix.Stat_t, error) {
 	var st unix.Stat_t
 	if err := unix.Fstat(fd, &st); err != nil {
 		return nil, fmt.Errorf("proof: %s: %w", path, err)
@@ -221,7 +229,7 @@ func judge(fd int, path string, want uint32) (*unix.Stat_t, error) {
 	if kind := st.Mode & unix.S_IFMT; kind != want {
 		return nil, fmt.Errorf("%w: %s is %s", ErrRefused, path, typeName(kind, want))
 	}
-	if int(st.Uid) != os.Geteuid() {
+	if int(st.Uid) != owner(path) {
 		return nil, fmt.Errorf("%w: %s is not this user's", ErrRefused, path)
 	}
 	if st.Mode&sharedWrite != 0 {

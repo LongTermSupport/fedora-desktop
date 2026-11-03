@@ -446,9 +446,7 @@ func TestDialSocket(t *testing.T) {
 	}
 
 	t.Run("a socket not root's", func(t *testing.T) {
-		if err := os.Lchown(g.host(socketPath), 1000, 1000); err != nil {
-			t.Skipf("cannot chown the socket: %v", err)
-		}
+		g.disown(socketPath, 1000)
 		before := len(rec.callsOf("dial"))
 		if _, err := r.DialSocket(t.Context(), socketPath); !errors.Is(err, ErrRefused) {
 			t.Fatalf("got %v", err)

@@ -59,6 +59,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_agent_branch`            | a teamchat branch on the run's launch value outside the agent seam, so a second agent program is a refactor of every comparison and not an adapter     | teamchat `keeper` and `link`: the launch comparisons the agent seam replaced (Plan 00209)                |
 | `project_transport_home`          | a teamchat `http.Transport` or `tls.Config` built outside package matrix, so a second place decides whom a client trusts and which name it verifies    | teamchat `hostnet` probe and `forge`: each built its own transport (Plan 00246 Task 8.8)                 |
 | `project_hostname_read`           | a teamchat read of the machine's hostname or of an address's name, so a hostname can reach a handle's site, which is permanent once issued             | teamchat `guestfacts`: the guest's `HOOKS_DAEMON_HOSTNAME` read into a site (Plan 00246 Task 8.8, X25)   |
+| `project_test_chown`              | a test that gives a file to another user, which needs root: it passes in an agent container and fails for CI's unprivileged user                       | the first CI run of the Go tests: `homefs`, `proof`, `bundle`, `state`, `host/lxc` (Plan 00246)          |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -1334,10 +1335,79 @@ reads it where a handle is made.
   read through the `hostname` program, `/etc/hostname`, `/proc/sys/kernel/hostname` or the
   environment; reflection.
 
+### project_test_chown
+
+**What it is about.** A test that wants "a file another user owns" makes one with `os.Lchown` or
+`os.Chown`. Giving a file away needs CAP_CHOWN. Every agent container runs as root, so the call
+succeeds there; CI runs the Go tests as an unprivileged user, and it fails as
+`lchown ...: operation not permitted`. Nothing run in an agent container can see it.
+
+**Why it exists.** The first CI run of the Go tests failed in six packages of `internal/teamchat`;
+five of them held this (`member/homefs` 8 tests, `member/proof`, `member/bundle`, `member/state`
+and one in `host/lxc`). The older tests of the repository avoid the failure by `t.Skip` when not
+root, which never runs them in CI.
+
+**What it flags**, in `_test.go` files: a call of `os.Chown`, `os.Lchown`, `(*os.File).Chown`,
+`syscall.Chown`, `Lchown` or `Fchown`, or `unix.Chown`, `Lchown`, `Fchown` or `Fchownat`, whose
+uid or gid is not the caller's: the constant `-1`, or a call of `os.Geteuid`, `os.Getuid`,
+`os.Getegid` or `os.Getgid`, is the caller's; anything else is another user's. A helper that
+calls it is judged on its own.
+
+**Not flagged**, each because it says what it needs: a call inside an `if` that tests the user is
+root (`os.Geteuid() == 0`); a call in a function with an `if` testing `os.Geteuid() != 0` whose
+body calls `Skip`, `Skipf` or `SkipNow` (and the else of that `if`); a call that is the init of
+an `if` whose body skips. Those tests run nowhere CI runs, which is the other half of the hazard
+and the owner's to decide: the PR 124 question is whether they stay skipped, CI runs as root, or
+a gate runs the Go tests as an unprivileged user. A chown in a non-test file is production code.
+
+**How to fix a violation.** Make the code under test take the owner it expects through a seam (a
+parameter, defaulting to the caller's effective uid), and let the test expect an owner the file
+does not have, with a positive twin that expects the real one. The same comparison then runs
+unprivileged.
+
+- Red, fixture: `testdata/src/fix/internal/badchown` (each call listed above with another user's
+  uid or gid, the caller's uid with another gid, a helper, a fatal on the error) and
+  `guardedchown` (the caller's own ids, `-1`, the root branch, the skip, the skip on the error,
+  `os.Chmod`, and production code: all clean). Mutation checked: reporting off makes all 14 `want`
+  lines red; each of the three guards removed makes `guardedchown` red.
+- Red, real tree: 8 findings, in `member/bundle` (2), `host/lxc/seats_test.go` (2),
+  `member/homefs` (1, the `giveAway` helper), `member/proof` (2) and `member/state` (1); the same 8
+  with `busfailpoints`, `tuwunel`, `ccyteamstest` and `difftest`, and none in the nested `qa`
+  module.
+- Green: `homefs.OpenFor` takes an `Owner` (the caller's effective uid by default, `Open`), and
+  `bundle`, `state` and `homefs` tests say "another user's" by an `Owner` that names the path;
+  `proof` judges its file and its directory each by an `Owner` (`scanAs`); the `host/lxc` tests
+  say it through `guestroot.OpenDirOwning`. Every one has a positive twin that expects the real
+  owner, and each check was mutated (dropped) and went red on the intended test. The same
+  packages pass as uid 65534.
+- Not caught: a chown through another API (`exec` of `chown`, which `project_seam_commands`
+  owns), an owner changed in a non-test helper, or a uid held in a variable (`uid := 4242` is
+  flagged; `uid := -1` is too, since only the literal constant and the `os` calls are known to be
+  the caller's).
+
 ## Defect classes that cannot be a rule
 
 A class is listed here, with what holds it instead, when no analyzer can judge it without
 guessing; the catalogue claims no more than the code does.
+
+- **A test or a code path that works only because root is not subject to permission checks**
+  (found by the first CI run of the Go tests, all of it invisible in an agent container, which
+  runs as root). Three forms. A fixture that assumes the tree it builds is root-owned: the guest
+  root of the LXC host (`host/lxc/guestroot`) refuses a tree whose owner is not uid 0, and the
+  `host/lxc` tests build a guest under `t.TempDir()`, which for an unprivileged user is the
+  user's, so the walk refused it (`guestroot: refused: / is not root's`), every test that
+  applied a kit failed, and one test then waited on a socket nothing connected to until the 30
+  minute `go test` timeout. A directory a test makes under a umask of 0777 (`homefs`): its mode
+  is 0, which only root can look into, so the test's own `t.TempDir()` could not be read, and
+  `homefs.Mkdir` opened a directory it had just made for reading before it set its mode, which
+  failed for a user with a umask that takes the owner's read bit off (it now holds it by
+  `O_PATH`). A chown to another user is `project_test_chown`'s, not this one's. The assumption
+  is in what the fixture or the call does not say, so no syntax tree shows it. What holds it:
+  the code takes the owner it expects as a value (the guest root's host uid and gid, 0 and 0 in
+  production and the fixture directory's owner in a fixture; `homefs.Owner`, the caller's
+  effective uid in production), the tests give it their own, and CI's unprivileged user is the
+  detector. Whether the agent containers also get a gate that runs the Go tests as an
+  unprivileged user is the owner's question on PR 124.
 
 - **A readiness probe read as a verdict on something it does not test** (the `sudo -n -v` probe,
   fixed in `internal/sudo`: a failing `-n -v` was read as "a password is needed", but `-v` fails

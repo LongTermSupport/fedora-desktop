@@ -12,11 +12,20 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/homefs"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
 )
 
-// otherUID owns the files and directories planted as another user's.
-const otherUID = 4242
+// ownedByAnother is an Owner that gives the paths named to a uid the caller is not, and every
+// other path to the caller: it makes a file another user's without chown, which needs root.
+func ownedByAnother(paths ...string) homefs.Owner {
+	return func(full string) int {
+		if slices.Contains(paths, full) {
+			return os.Geteuid() + 1
+		}
+		return homefs.Caller(full)
+	}
+}
 
 const (
 	nonceA = "0a1b2c3d"
@@ -252,18 +261,10 @@ func TestScanRefusesWhatIsNotTheCallersRegularFile(t *testing.T) {
 			check(t, err)
 			check(t, errors.Join(unix.Bind(fd, &unix.SockaddrUnix{Name: path}), unix.Close(fd)))
 		}, "not a regular file"},
-		"another user's file": {func(t *testing.T, path string) {
-			t.Helper()
-			check(t, os.Lchown(path, otherUID, -1))
-		}, "not this user's"},
 		"a file others can write": {func(t *testing.T, path string) {
 			t.Helper()
 			check(t, os.Chmod(path, 0o602))
 		}, "writable by its group or others"},
-		"a directory another user owns": {func(t *testing.T, path string) {
-			t.Helper()
-			check(t, os.Lchown(filepath.Dir(path), otherUID, -1))
-		}, "not this user's"},
 		"a directory its group can write": {func(t *testing.T, path string) {
 			t.Helper()
 			check(t, os.Chmod(filepath.Dir(path), 0o770))
@@ -281,6 +282,26 @@ func TestScanRefusesWhatIsNotTheCallersRegularFile(t *testing.T) {
 			_, err := Scan(path, Mark{}, []string{nonceA}, big)
 			if !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), tc.says) {
 				t.Fatalf("err = %v, want ErrRefused saying %q", err, tc.says)
+			}
+		})
+	}
+}
+
+// TestScanJudgesTheFileAndItsDirectoryOnTheirOwnOwners gives one of the two to another user at
+// a time, by the Owner the scan is asked with (a test cannot chown without being root), and
+// holds that the refusal names that one; the same transcript under the real owner scans.
+func TestScanJudgesTheFileAndItsDirectoryOnTheirOwnOwners(t *testing.T) {
+	path := transcript(t, idleLine("teamchat delivery "+nonceA+": x"))
+	dir := filepath.Dir(path)
+	for name, given := range map[string]string{"another user's file": path, "a directory another user owns": dir} {
+		t.Run(name, func(t *testing.T) {
+			_, err := scanAs(path, Mark{}, []string{nonceA}, big, ownedByAnother(given))
+			if !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), given+" is not this user's") {
+				t.Fatalf("err = %v, want ErrRefused saying %s is not this user's", err, given)
+			}
+			got, err := scanAs(path, Mark{}, []string{nonceA}, big, homefs.Caller)
+			if err != nil || !slices.Equal(got.Found, []string{nonceA}) {
+				t.Fatalf("under the real owner: %+v, %v", got, err)
 			}
 		})
 	}
