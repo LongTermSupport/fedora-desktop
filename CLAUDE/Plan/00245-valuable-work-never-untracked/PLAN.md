@@ -81,8 +81,9 @@ install-specific identifiers reaching a commit because no detector knows them.
   `pre-push` scans the message and added lines of every commit being pushed. In a CCY container a
   list that cannot be built is exit 2, never a skip.
 - [x] Task 3.3: red proof. Run over the leaking commit, the rule reports 60 findings in 24 files.
-- [ ] Task 3.4: sweep `origin/F44` (329 findings at the first run), fix the instances within an
-  agent's authority, report the rest to the owner
+- [x] Task 3.4: sweep of the default branch (329 findings in 98 files): 133 occurrences in 53
+  current files replaced by placeholders, 202 findings left for the owner (journals, a product
+  name that is also a play file name, one CCY-image helper)
   ([report](subagent-reports/261103-private-name-guard.md)).
 - [ ] Task 3.5: the tree sweep joins `scripts/qa-gates.tsv` once the pile is empty (owner
   decisions pending: see the report).
