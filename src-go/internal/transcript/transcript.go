@@ -211,6 +211,11 @@ func contextOf(e entry) (float64, bool, error) {
 	return 0, false, nil
 }
 
+// CompactedLast reports whether nothing has grown the conversation since its last compaction:
+// its last main-thread entry recording a context size is a compact_boundary, or no entry records
+// one (no turn was taken). Such a conversation has nothing to compact at close.
+func CompactedLast(path string) (bool, error) { return NewCache().CompactedLast(path) }
+
 // TookInputSince reports whether the conversation took input at or after the Unix time since.
 // Input that is submitted is written to the transcript as a main-thread user entry the moment
 // it is taken (a typed /compact, its expansion, or `continue`); a line left sitting in the

@@ -137,6 +137,14 @@
 //     exit 1 with its cause, never "no containers"; a stop or removal that failed is "already
 //     gone" (F22: exit 5) only when the engine's store no longer has the object, else exit 1
 //     with the engine's words. Answered under CCY_LEGACY too: the bash asks them.
+//   - F23. `--stop SESSION... [--no-compact]` (stop.go, Plan 00191 Task 4.12) closes each named
+//     session on ccy's tmux server as a person would, through sessclose: /compact, its
+//     completion waited for, then /exit (only /exit with --no-compact). Every name is checked
+//     against the server first, so one that is not there closes nothing (exit 1); no name or
+//     another option is exit 64. One line per session on stderr; exit 0 only when every one
+//     exited or was stopped, 1 when any failed (a compaction that did not complete leaves its
+//     session running). It is the front's own flag: only CCY_LEGACY hands it over (and the
+//     bash refuses it).
 //
 // Intended divergences from the bash, where it only replicated incidental behaviour that the
 // goldens (C locale, UTC, a pinned clock) do not exercise; each goes when the bash retires:
@@ -196,6 +204,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/engine"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessclose"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -261,8 +270,11 @@ type Front struct {
 	ProcRoot string
 	// Signal sends a signal to a process (F14); syscall.Kill when nil.
 	Signal func(pid int, sig syscall.Signal) error
-	// Pause waits between looks at a lock being let go (F14); time.Sleep when nil.
+	// Pause waits between looks at a lock being let go (F14) and at a session being closed
+	// (F23); time.Sleep when nil.
 	Pause func(time.Duration)
+	// Closer closes the sessions --stop names (F23); sessclose over Runner when nil.
+	Closer sessclose.Closing
 }
 
 // launcher is what the front read of the bash launcher beside it.
@@ -333,6 +345,8 @@ func (f Front) ownFlag(ctx context.Context) (term.ExitCode, bool) {
 		return f.buildLock(ctx), true
 	case usageFlag:
 		return f.tokenUsage(ctx), true
+	case stopFlag:
+		return f.stopSessions(ctx), true
 	}
 	return term.ExitOK, false
 }

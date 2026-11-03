@@ -17,6 +17,44 @@ Two version numbers move independently — see
 
 ---
 
+## 3.107.1 — container 2.79.22 (unchanged)
+
+Launcher only; the image is not rebuilt.
+
+- **Every ccy session starts claude with
+  `CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS=1`.** It removes the critical-path `rm`
+  prompt that bypassPermissions mode still shows. The container is the isolation boundary, so
+  ccy sets it always; host `cc` has no such boundary and does not set it (a test pins both).
+
+## 3.105.2 — container 2.79.22
+
+- **3.105.1 together with 3.104.18** (Plan 00191, Plan 00211): compact then exit on close, the
+  listening state, and the side-rooms routing in one build.
+
+## 3.105.1 — container 2.79.21
+
+- **Compact-then-exit together with the listening state** (Plan 00191, Plan 00177): 3.105.0 and
+  3.104.17 in one build; ccy-teams shows each member as listening and closes a session by
+  compacting it first.
+
+## 3.105.0 — container 2.79.21
+
+- **Closing a session compacts it first, then exits** (Plan 00191 Task 4.12). A compaction at
+  close reads the conversation from a warm prompt cache; the next resume then writes only the
+  summary to the cache instead of the whole conversation. `/compact` is typed into the
+  session's tmux pane, its completion is read from the transcript (a `compact_boundary` after
+  the time it was typed; a session that records no conversation is read from its pane), then
+  `/exit`. A session with nothing to compact since its last compaction goes straight to
+  `/exit`. A compaction not complete within 600 s, or a transcript that cannot be read, fails
+  the close loudly, names the session and leaves it running; it is never killed.
+  `--no-compact` sends `/exit` alone.
+- Three callers, one package (`src-go/internal/sessclose`, which ccy-teams shutdown's stop logic
+  moved into): `ccy-teams shutdown <team>` (compacting is now the default), the new
+  `ccy --stop SESSION... [--no-compact]` (the Go front's own flag), and **Close it** /
+  **Close it without compacting** on a `ccy-sessions` row, beside End (Ctrl-X), which still
+  kills.
+- `ccy-teams wind-down` waits for a pane to be idle again with the same code.
+
 ## Host cc — compacts at ccy's auto-compact window
 
 Host `cc` has no version number of its own; this entry is not a CCY release.

@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.104.18"  # Container 2.79.22: agents write to the humans in the side rooms, never the main room, and a human's thread reply reaches the agent. See docs/ccy-changelog.md.
+CCY_VERSION="3.107.1"  # Container 2.79.22: every ccy session starts claude with CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS=1; host cc does not. See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -175,7 +175,7 @@ if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
 fi
 if [[ "$1" = "--build-lock" || "$1" = "--read-launch-config" || "$1" = "--check-token" ||
     "$1" = "--check-network" || "$1" = "--claude-versions" || "$1" = "--list-containers" ||
-    "$1" = "--stop-containers" || "$1" = "--remove-network" ]]; then
+    "$1" = "--stop-containers" || "$1" = "--remove-network" || "$1" = "--stop" ]]; then
     print_error "ccy $1 is answered by the Go front, $SCRIPT_DIR/claude-yolo; run it without CCY_LEGACY."
     exit 1
 fi
@@ -272,6 +272,7 @@ Options:
   --no-restore           Do not bring this session back after a reboot on a machine
                          that restores sessions (ccy-sessions restore; docs/ccy.md)
   --top                  Container manager: list/stop all CCY containers
+  --stop SESSION...      Close sessions as a person would: /compact, then /exit (--no-compact: /exit only)
   --build-lock           Show the image build in progress (a launch waits for another's build
                          of the same image), and stop one that has hung, after asking
   --prevent              Disable CCY for this project folder (writes 'never' to .claude/ccy/allowed-hostnames)
@@ -313,8 +314,7 @@ Examples:
   ccy --update-token=personal   # Renew an existing token (e.g. after invalidation)
   ccy --token personal          # Use "personal" token
   ccy --list-tokens             # List available tokens
-  ccy --token-usage             # Usage limits of every token, as bars
-  ccy --token-usage --json      # The same, as one JSON document
+  ccy --token-usage [--json]    # Usage limits of every token, as bars or one JSON document
   ccy --export-token             # Interactive multi-token export
   ccy --export-token personal    # Export specific token
 
@@ -3802,6 +3802,11 @@ ccy_lifecycle_finalize || exit 1
 # an `export` line in a project's .claude/ccy/ccy.env, which the entrypoint sources after
 # this environment is in place. See docs/ccy.md.
 #
+# CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS=1 removes the critical-path `rm` prompt
+# that bypassPermissions mode still shows. Always set, and for ccy only: the container is the
+# isolation boundary. Host cc has no such boundary and never sets it (cc-claude, pinned by a
+# test). A container `-e` reaches claude through the entrypoint's exec, so no image change.
+#
 # `set -e` would turn the container's exit status into this script's before the restart
 # check below could look at it, so capture it. Any status other than 75 is passed straight
 # through, as it always was.
@@ -3851,7 +3856,7 @@ CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_OAUTH_TOKEN" GH_TOKEN="$GH_TOKEN" ccy_agent_con
     -e "CCY_LIFECYCLE_DEADLINE_EPOCH=${CCY_LIFECYCLE_DEADLINE_EPOCH:-}" \
     -e "CCY_LIFECYCLE_WARN_MINUTES=${CCY_LIFECYCLE_WARN_MINUTES:-}" \
     -e "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-1}" \
-    -e "CLAUDE_CODE_AUTO_COMPACT_WINDOW=${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-600000}" \
+    -e "CLAUDE_CODE_AUTO_COMPACT_WINDOW=${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-600000}" -e "CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS=1" \
     -e "MAX_THINKING_TOKENS=${MAX_THINKING_TOKENS:-}" \
     -e "TERM=${TERM:-xterm}" \
     -e "COLORTERM=${COLORTERM:-truecolor}" \

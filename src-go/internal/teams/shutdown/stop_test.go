@@ -1,11 +1,74 @@
 package shutdown
 
 import (
+	"context"
 	"slices"
+	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessclose"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
+
+// recordingCloser stands in for sessclose: it records what it was asked to close and answers.
+type recordingCloser struct {
+	asked  []sessclose.Target
+	answer sessclose.Result
+}
+
+func (r *recordingCloser) Close(_ context.Context, targets []sessclose.Target) []sessclose.Result {
+	r.asked = append(r.asked, targets...)
+	out := make([]sessclose.Result, len(targets))
+	for i, t := range targets {
+		out[i] = r.answer
+		out[i].Name = t.Name
+	}
+	return out
+}
+
+func (r *recordingCloser) Limits() sessclose.Waits { return sessclose.DefaultWaits }
+
+// SD10 (Plan 00191 Task 4.12): shutdown closes its sessions through sessclose, compacting by
+// default and not with --no-compact, and reports what sessclose says.
+func TestShutdownClosesThroughSessclose(t *testing.T) {
+	for _, tc := range []struct {
+		args      []string
+		noCompact bool
+		preview   string
+	}{
+		{[]string{"alpha", "--yes"}, false, "Each session is compacted (/compact, as if typed) and then sent /exit"},
+		{[]string{"alpha", "--yes", "--no-compact"}, true, "Each session is sent /exit, as if typed, without compacting; One"},
+	} {
+		m := newMachine(t)
+		m.noLxc()
+		fake := &recordingCloser{answer: sessclose.Result{Outcome: sessclose.Failed, Note: "its /compact did not complete within 600 s"}}
+		m.s.Closer = fake
+		if got := m.run(tc.args...); got != term.ExitFailure {
+			t.Fatalf("%q: exit %d", tc.args, got)
+		}
+		if want := []sessclose.Target{{Name: "ccy-proj", NoCompact: tc.noCompact}}; !slices.Equal(fake.asked, want) {
+			t.Fatalf("%q: asked %+v", tc.args, fake.asked)
+		}
+		if len(m.typedInto("ccy-proj")) != 0 {
+			t.Fatalf("%q: shutdown typed itself", tc.args)
+		}
+		m.errHas(t, tc.preview, "ccy-proj: failed: its /compact did not complete within 600 s", "alpha: 0 exited cleanly, 0 stopped, 1 failed.")
+	}
+}
+
+// SD10: by default a session with a conversation to compact gets /compact, then /exit.
+func TestASessionIsCompactedBeforeItsExit(t *testing.T) {
+	m := newMachine(t)
+	m.noLxc()
+	m.compact = true
+	if got := m.run("alpha", "--yes"); got != term.ExitOK {
+		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
+	}
+	if typed := m.typedInto("ccy-proj"); len(typed) != 2 || !strings.HasPrefix(typed[0], "/compact ") || typed[1] != "/exit" {
+		t.Fatalf("typed %q", typed)
+	}
+	m.errHas(t, "ccy-proj: exited cleanly; compacted first; seat 1@alpha released")
+}
 
 // SD10: a busy session is interrupted once, then sent /exit when its prompt is back.
 func TestABusySessionIsInterruptedFirst(t *testing.T) {
@@ -32,7 +95,7 @@ func TestUnsentTextIsLeftAlone(t *testing.T) {
 	if len(m.typedInto("ccy-proj")) != 0 || m.killed() || m.sessions[0].enters != 0 {
 		t.Fatal("the session was touched")
 	}
-	m.errHas(t, "ccy-proj: failed: its input box holds unsent text; attach it (ccy-sessions), send or clear it, and run shutdown again",
+	m.errHas(t, "ccy-proj: failed: its input box holds unsent text; attach it (ccy-sessions), send or clear it, and close it again",
 		"alpha: 0 exited cleanly, 0 stopped, 1 failed.")
 }
 
