@@ -238,7 +238,8 @@ timer, unit and record names differ.
 **Why a separate interface `teamchat0`, not v1's `agentbus0`.** v2 could bind its ports on v1's
 address. That would make v2 depend on a v1 object that v1's retirement removes, and v1's play owns
 that NetworkManager connection. A second dummy interface costs no resident process. The LXC bridge
-subnet is added to v2's `allow_from` by v2's play, as v1 does it for v1 (INV 7).
+subnet is an effective network of a v2 team that has a present LXC member (C 3.2.5), as v1 adds
+it to v1's `allow_from` (INV 7).
 
 `teamchat0` begins with `team`, like libteam's `teamd`, `teamdctl` and the `team0` devices of
 NetworkManager's `team` connection type. It is accepted: the connection's type is `dummy`, so no
