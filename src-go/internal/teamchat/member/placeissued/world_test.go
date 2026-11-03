@@ -100,6 +100,8 @@ type world struct {
 	key   paths.CheckoutKey
 	team  paths.TeamID
 	name  paths.SeatName
+	// unhold lets go of the allocation lock holdLock took, once; nil when none is held.
+	unhold func()
 }
 
 func newWorld(t *testing.T) *world {
@@ -251,11 +253,12 @@ func (w *world) holdLock() {
 		w.t.Fatal(err)
 	}
 	f := testfiles.OpenFile(w.t, w.dir, w.lockPath(), os.O_RDWR|os.O_CREATE, 0o600)
-	w.t.Cleanup(func() {
+	w.unhold = sync.OnceFunc(func() {
 		if err := f.Close(); err != nil {
 			w.t.Error(err)
 		}
 	})
+	w.t.Cleanup(w.unhold)
 	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		w.t.Fatal(err)
 	}
@@ -331,6 +334,9 @@ func (w *world) refuses(doc []byte, want refusalWant) string {
 	}
 	if left := w.leftovers(); len(left) != 0 {
 		w.t.Errorf("the refusal left %v", left)
+	}
+	if w.unhold != nil {
+		w.unhold() // the other run's hold, which this test made, ends before the lock is judged
 	}
 	w.lockIsFree()
 	return stderr
