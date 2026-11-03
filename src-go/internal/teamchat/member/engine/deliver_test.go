@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/leakcheck"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/failpoint"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/leakcheck"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/inbox"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/records"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"

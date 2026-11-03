@@ -12,7 +12,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/leakcheck"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/leakcheck"
 )
 
 func TestStripSuspendDropsOnlyTheSuspendByte(t *testing.T) {

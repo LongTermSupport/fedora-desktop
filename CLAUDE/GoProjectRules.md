@@ -364,7 +364,7 @@ a stop missed on one path leaks it for the life of the process with what it hold
   test's writer awaited.
 - Not caught: an end signalled and never awaited, or awaited on only some of the owner's paths;
   `time.AfterFunc` and `context.AfterFunc` callbacks. The run-time half answers for the
-  goroutines the tests run: `internal/teamchat/leakcheck` (`Tests` in a TestMain, `Check` in a
+  goroutines the tests run: `internal/leakcheck` (`Tests` in a TestMain, `Check` in a
   test) fails a test or a binary that leaves a goroutine running.
 - Next wider rule, not built: every goroutine's end awaited on every path of its owner. Which
   function owns a goroutine, and whether each of its paths reaches the wait, is a question of

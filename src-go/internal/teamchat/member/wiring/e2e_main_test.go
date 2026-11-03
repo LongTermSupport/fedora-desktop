@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/leakcheck"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/leakcheck"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/cli"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )

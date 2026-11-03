@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/leakcheck"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/leakcheck"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/engine"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
