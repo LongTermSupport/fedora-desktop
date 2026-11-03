@@ -696,9 +696,10 @@ the outcome asserted).
 **teamchat's real timers have one home** (Plan 00209 Task 8.1): `internal/teamchat/clock`,
 whose `System` is the real side of the `clock.Clock` seam that teamchat's tests replace whole
 with `clock.Fake`. Any other teamchat package hands its real wait to `clock.System()` (as
-`lock`, `teamlock`, `admin/wire`, `matrix` and `fakehs` do). Whether `system.Sleep`,
-`system.AfterFunc` and `system.Hold` there get `realClocks` rows is the owner's decision and is
-open: until it is made, the rule reports those three sites.
+`lock`, `teamlock`, `admin/wire`, `matrix` and `fakehs` do). `system.Sleep`,
+`system.AfterFunc` and `system.Hold` there are the package's `realClocks` rows, on the
+repository owner's decision (pull request 124): this package is teamchat's one home for real
+timers, so a real timer made anywhere else in teamchat is still reported.
 
 **Narrowings, each with its sentence.** A bound whose length is a constant cannot be shortened
 by a test, so it is not judged. In the `select` that ends the body of a bare `for {}` (no
@@ -1019,8 +1020,11 @@ words it parses), `internal/systemd` (a unit's ActiveState) and `qa/rules`, in f
 not tests: a string literal that is one of those words, in any case and with any surrounding
 space. A struct tag and an import path are not flagged. A word another program prints, spelled
 only to read it, is excused by a row of `livenessAllowances` (in `livenessword.go`) with its
-reason: the phone app's `ACTIVE` manifest state in `internal/stt`, and the fake machine's
-`systemctl is-active` answer in `internal/teams/teamtest`.
+reason: the phone app's `ACTIVE` manifest state in `internal/stt`, the fake machine's
+`systemctl is-active` answer in `internal/teams/teamtest`, and the Matrix specification's
+presence value `online` in `internal/teamchat/matrix` (which accepts it) and its `fakehs`
+(which returns it as Tuwunel does): SPEC-matrix M50 and M51, the repository owner's decision on
+pull request 124, not a liveness claim of ours.
 
 **How to fix a violation.** Take the word from the owner that read it from a live source
 (`agentbus.LiveListening` and the other `Liveness` values, from the member's `LIVE` line, which
@@ -1034,8 +1038,11 @@ unknown, with why.
   constant, a switch case with surrounding space, an upper-case word and a raw string, all
   flagged; `good.go`: a struct tag, words that claim nothing, a word inside a sentence and the
   owner's constant, clean; `bad_test.go`: a test, clean), the owners `fix/internal/agentbus` and
-  `fix/internal/systemd`, the allowance `fix/internal/stt` (its excused word clean, another
-  flagged) and `fix/qa/rules`.
+  `fix/internal/systemd`, the allowances `fix/internal/stt` (its excused word clean, another
+  flagged), `fix/internal/teamchat/matrix` and `fix/internal/teamchat/matrix/fakehs` (the
+  presence value clean, another word flagged; red before the rows were added) with
+  `fix/internal/teamchat/status` (the presence value flagged in a package the rows do not
+  reach), and `fix/qa/rules`.
 - Red, real tree (the defence commit, through the driver as `go vet -vettool`, both tag sets;
   none in the `qa` module): 6 findings: `teams/board/snapshot.go` (the original),
   `teams/board/table.go` (its green colour), `teams/board/graph.go` (`online`, decided by tmux
