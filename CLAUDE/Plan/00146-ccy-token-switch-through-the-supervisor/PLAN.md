@@ -8,6 +8,13 @@ to file the upstream request in Task 1.1)
 
 ## Overview
 
+> **Prior-art verdict** ([RESEARCH-hot-swap-prior-art.md](RESEARCH-hot-swap-prior-art.md)): a
+> running Claude Code cannot take a new OAuth token (`apiKeyHelper` rejects `setup-token`
+> tokens). A local forwarding proxy behind `ANTHROPIC_BASE_URL`, which attaches the current
+> token from a file it re-reads, swaps with no restart and covers **both ccy and host `cc`**;
+> community tools use it. It is unverified here, so Phase 0 spikes it first. The supervisor
+> respawn below becomes the fallback. Scope widens to `cc` if the spike passes.
+
 When a ccy session's Claude account hits its rate limit, the only way to move it to another
 account today is to end the session and relaunch with a different token. Claude Code reads
 `CLAUDE_CODE_OAUTH_TOKEN` once and keeps it, and a container's environment is fixed at
@@ -50,7 +57,18 @@ owner correction at its top). Upstream request text:
 
 ## Tasks
 
-### Phase 1: Owner decisions
+### Phase 0: Spike the forwarder (decides the rest)
+
+- [ ] ⬜ **Task 0.1**: In a throwaway container, run a minimal forwarder, start `claude` with
+  `ANTHROPIC_BASE_URL` at it and a placeholder `CLAUDE_CODE_OAUTH_TOKEN`, make a request, swap
+  the token file mid-session, and confirm the next request bills the other account (rate-limit
+  headers) and no token reaches argv, logs or env. Answer the four open questions in
+  section 3 of the research. Record the outcome in the JOURNAL.
+- [ ] ⬜ **Task 0.2**: Owner decision on the result: forwarder (then Phases 2 to 4 are replaced
+  by a forwarder plan for ccy and cc; tasks 1.2, 1.3, 2.x, 4.x and 5.1 are moot because no
+  real token is in any environment) or the supervisor respawn (Phases 1 to 4 stand).
+
+### Phase 1: Owner decisions (apply only if the spike fails)
 
 - [ ] 🔄 **Task 1.1**: Owner decision: file the upstream request. Decided by the owner, but
   in a different shape: ask upstream for a **generic supervisor plugin API**, so the
