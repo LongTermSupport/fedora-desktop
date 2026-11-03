@@ -17,6 +17,12 @@ Two version numbers move independently — see
 
 ---
 
+## 3.109.0 — container 2.79.23
+
+The image is rebuilt: the status-line helper baked into it carries a placeholder in place of an install-specific name in its fixture constant. No behaviour changes.
+
+---
+
 ## 3.108.0 — container 2.79.22
 
 The image is unchanged, so there is no rebuild.
