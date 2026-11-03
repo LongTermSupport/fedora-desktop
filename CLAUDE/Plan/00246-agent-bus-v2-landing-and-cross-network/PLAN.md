@@ -88,15 +88,17 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   `qa-reviewer`, its findings fixed). CI green, then ready for review. Only the owner merges it.
   The first CI run of the Go tests found tests that pass only as root; they are fixed as a class
   (`project_test_chown`, the owner seams in `homefs`, `proof` and `guestroot`, `mkdirAt` under a
-  strict umask), and the JOURNAL says how. Still open: the CI run on the fix, the older tests that
-  skip when not root, and the owner's choice of an unprivileged gate.
+  strict umask), and the JOURNAL says how. A fourth cause, a bind-mount test the runner denies, is
+  a skip at the `reexec` seam. CI is green and the pull request is ready for review. Still open,
+  the owner's: whether CI allows the mount or accepts the skip, the older tests that skip when not
+  root, and an unprivileged gate; and the `qa-reviewer` pass, owed once the agent limit resets.
 - [ ] 🔄 **Task 8.9**: The finished v2 work the branch lacked, which the owner asked for on pull
   request 124: `feat/bus-v2-n2` (the reviewed backup and restore work), `feat/bus-v2-n3e` (11
   newer commits) and `feat/bus-v2-n3f` (the side-rooms spec) merged into `spike/v2-merge-up`,
   conflicts resolved by meaning, every gate re-run. Merged; the three branches are contained, and
   are deleted, locally and on GitHub, once F44 holds them (the remote delete is refused until
   then).
-- [ ] ⬜ **Task 8.8**: Cross-network membership, direction 7 of Plan 00209, started on a branch
+- [ ] 🔄 **Task 8.8**: Cross-network membership (draft pull request 128, stacked on 124), direction 7 of Plan 00209, started on a branch
   cut from the head of pull request 124 without waiting for its merge (the owner wants
   cross-network teams as soon as possible): a team declares the networks its members may be on
   as a list of CIDRs, the one source for its listen addresses, `allow_from`, the unit's IP
