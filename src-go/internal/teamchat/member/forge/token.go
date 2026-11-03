@@ -99,6 +99,9 @@ func (l *Login) Token(ctx context.Context) (Token, error) {
 	if read == nil {
 		read = &ghRead{done: make(chan struct{})}
 		l.reading = read
+		// Left running by design when every caller has gone, for the next caller to take: it
+		// lives at most ghLimit on the login's clock, whose cancel ends gh, and then ends
+		// (TestAnAbandonedGhRunEndsAtItsOwnBound).
 		go l.read(context.WithoutCancel(ctx), read)
 	}
 	l.mu.Unlock()

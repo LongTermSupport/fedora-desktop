@@ -14,6 +14,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestroot"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxccmd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxcstate"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/leakcheck"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
 )
@@ -225,6 +226,8 @@ type faultyRoot struct {
 	entered          chan struct{}
 	release          chan struct{}
 	closed           *int
+	// closing, when set, is closed by Close.
+	closing chan struct{}
 }
 
 func (r faultyRoot) ReadFile(p string, limit int64) ([]byte, guestroot.Info, bool, error) {
@@ -248,6 +251,9 @@ func (r faultyRoot) ProbeLock(p string) (bool, []byte, error) {
 func (r faultyRoot) Close() error {
 	if r.closed != nil {
 		*r.closed++
+	}
+	if r.closing != nil {
+		close(r.closing)
 	}
 	return r.Root.Close()
 }
@@ -412,6 +418,38 @@ func TestProbesThatHangEndAtTheirOwnBound(t *testing.T) {
 			w.boot.Advance(gap - time.Nanosecond)
 		}
 	}
+}
+
+// A probe past its bound leaves its goroutine in the guest call it hangs in, holding the pinned
+// root, and the goroutine ends once that call returns: it closes the root and makes no other
+// call, so it lives at most the guest calls it has left, each within guestroot's own bound.
+func TestAProbePastItsBoundEndsWithItsGuestCall(t *testing.T) {
+	leakcheck.Check(t)
+	w := placed(t)
+	entered, release, closing := make(chan struct{}, 1), make(chan struct{}), make(chan struct{})
+	g := w.faulty(func(r Root) Root {
+		return faultyRoot{Root: r, entered: entered, release: release, closing: closing}
+	})
+	errc := make(chan error, 1)
+	go func() {
+		_, err := g.Probe(context.Background(), mustTeam(t, "t1"), firstHandle)
+		errc <- err
+	}()
+	<-entered
+	if err := w.boot.AwaitDue(t.Context(), ProbeBound); err != nil {
+		t.Fatal(err)
+	}
+	w.boot.Advance(ProbeBound)
+	if err := <-errc; !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("a probe past its bound: %v", err)
+	}
+	select {
+	case <-closing:
+		t.Fatal("the root was closed while its probe's guest call still hung")
+	default:
+	}
+	close(release)
+	<-closing
 }
 
 func TestProbesThatHangEndAtTheBound(t *testing.T) {

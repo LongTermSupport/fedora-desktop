@@ -303,12 +303,16 @@ func (e *Engine) SetSession(ctx context.Context, f SessionFacts) error {
 	})
 }
 
-// poke wakes the delivery loop's idle wait; pokes while it works are one.
-func (e *Engine) poke() {
+// poke wakes the delivery loop's idle wait; pokes while it works are one. It is the poke's
+// number, which settled reaches once a whole pass has run since.
+func (e *Engine) poke() int64 {
+	// Counted before the send, so the loop that takes this kick reads at least n.
+	n := e.pokes.Add(1)
 	select {
 	case e.kick <- struct{}{}:
 	default:
 	}
+	return n
 }
 
 // failed is a delivery's or notice's failed write, on the state goroutine: the stall starts at

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -174,24 +175,48 @@ type link struct {
 	ln   *net.UnixListener
 	reqs chan wire.Request
 	acks chan string
+	// quit closes at the test's cleanup, which then closes conn, the connection being answered
+	// (mu guards both), so the server ends whatever the test left unread or unclosed.
+	quit chan struct{}
+	mu   sync.Mutex
+	conn *net.UnixConn
 }
 
 // listen serves link.sock: each connection's request is decoded and passed on, answered with
-// lines, then any ack read is passed on; close is a close before done.
+// lines, then any ack read is passed on; close is a close before done. The test's cleanup
+// waits for the server to end.
 func (w *world) listen(lines ...string) *link {
 	w.t.Helper()
 	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: w.run.LinkSock(), Net: "unix"})
 	if err != nil {
 		w.t.Fatal(err)
 	}
-	l := &link{ln: ln, reqs: make(chan wire.Request, 8), acks: make(chan string, 8)}
+	l := &link{ln: ln, reqs: make(chan wire.Request, 8), acks: make(chan string, 8), quit: make(chan struct{})}
+	var serving sync.WaitGroup
 	w.t.Cleanup(func() {
-		if err := ln.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+		l.mu.Lock()
+		close(l.quit)
+		c := l.conn
+		l.mu.Unlock()
+		var err error
+		if c != nil {
+			err = closeOnce(c)
+		}
+		if err = errors.Join(err, closeOnce(ln)); err != nil {
 			w.t.Error(err)
 		}
+		serving.Wait()
 	})
-	go l.serve(lines)
+	serving.Go(func() { l.serve(lines) })
 	return l
+}
+
+// closeOnce closes c, which the cleanup or the server may have closed already.
+func closeOnce(c io.Closer) error {
+	if err := c.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+		return err
+	}
+	return nil
 }
 
 func (l *link) serve(lines []string) {
@@ -200,13 +225,43 @@ func (l *link) serve(lines []string) {
 		if err != nil {
 			return
 		}
+		if !l.hold(c) {
+			if err := closeOnce(c); err != nil {
+				panic(err)
+			}
+			return
+		}
 		l.answer(c, lines)
+	}
+}
+
+// hold makes c the connection the cleanup closes, false once the cleanup has begun.
+func (l *link) hold(c *net.UnixConn) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	select {
+	case <-l.quit:
+		return false
+	default:
+		l.conn = c
+		return true
+	}
+}
+
+// pass hands v to a test's reader on ch, or gives up once the cleanup has begun.
+func pass[T any](l *link, ch chan<- T, v T) {
+	select {
+	case ch <- v:
+	case <-l.quit:
 	}
 }
 
 func (l *link) answer(c *net.UnixConn, lines []string) {
 	defer func() {
-		if err := c.Close(); err != nil {
+		l.mu.Lock()
+		l.conn = nil
+		l.mu.Unlock()
+		if err := closeOnce(c); err != nil {
 			panic(err)
 		}
 	}()
@@ -219,7 +274,7 @@ func (l *link) answer(c *net.UnixConn, lines []string) {
 	if err != nil {
 		panic(err)
 	}
-	l.reqs <- req
+	pass(l, l.reqs, req)
 	done := false
 	for _, s := range lines {
 		if _, werr := c.Write([]byte(s + "\n")); werr != nil {
@@ -232,14 +287,14 @@ func (l *link) answer(c *net.UnixConn, lines []string) {
 	}
 	ack, err := r.ReadBytes('\n')
 	if err != nil {
-		l.acks <- ""
+		pass(l, l.acks, "")
 		return
 	}
 	a, err := wire.DecodeAck(ack[:len(ack)-1])
 	if err != nil {
 		panic(err)
 	}
-	l.acks <- a.Ack
+	pass(l, l.acks, a.Ack)
 }
 
 func (l *link) request(t *testing.T) wire.Request {
