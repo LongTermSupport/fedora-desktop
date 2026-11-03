@@ -1120,7 +1120,13 @@ check_has "  after showing the session" "ccy-proj   seat 1 (proj.1+local.podman)
 check "  and types nothing" "no" "$(logged 'send-keys')"
 reset
 "$TOOL" shutdown alpha --yes </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
-check "shutdown --yes fails while a member is out of reach (the LXC agent)" "1" "$?"
+check "shutdown compacts first: with no recorded conversation the session fails" "1" "$?"
+check "  and nothing is typed into it" "no" "$(logged 'send-keys')"
+check "  nor is it killed" "no" "$(logged 'kill-session')"
+check_has "  naming --no-compact as the way to end it" "close it with --no-compact" "$(cat "$SCRATCH/err")"
+reset
+"$TOOL" shutdown alpha --yes --no-compact </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
+check "shutdown --yes --no-compact fails while a member is out of reach (the LXC agent)" "1" "$?"
 check "  having typed /exit into the session's pane" "yes" "$(logged 'tmux send-keys -t =ccy-proj: -l /exit')"
 check "  then Enter" "yes" "$(logged 'tmux send-keys -t =ccy-proj: Enter')"
 check "  and not killed it, since it ended" "no" "$(logged 'kill-session')"
@@ -1131,7 +1137,7 @@ check "  sending nothing on the bus" "no no" "$(logged 'agent-bus send') $(logge
 check "  stdout stays empty" "" "$(cat "$SCRATCH/out")"
 reset
 printf '%s\n' "──────────────" "❯ half a thought" "──────────────" >"$STATE/panes/ccy-proj"
-"$TOOL" shutdown alpha --yes </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
+"$TOOL" shutdown alpha --yes --no-compact </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
 check "unsent text in the input box fails the session" "1" "$?"
 check "  and nothing is typed over it" "no" "$(logged 'send-keys')"
 check "  nor is it killed" "no" "$(logged 'kill-session')"

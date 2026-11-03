@@ -123,6 +123,37 @@ func TestContextTokens(t *testing.T) {
 	}
 }
 
+// A conversation needs compacting at close unless nothing has grown it since its last
+// compaction: its last context-recording entry is a compact_boundary, or it records none.
+func TestCompactedLast(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "t.jsonl")
+	boundary := `{"type":"system","subtype":"compact_boundary","compactMetadata":{"trigger":"manual","preTokens":432810,"postTokens":11753}}` + "\n"
+	sidechain := `{"type":"assistant","isSidechain":true,"message":{"model":"m","usage":{"input_tokens":9,"cache_read_input_tokens":40000}}}` + "\n"
+	exit := `{"type":"user","timestamp":"2026-10-08T10:09:00.000Z","message":{"content":"<command-name>/exit</command-name>"}}` + "\n"
+	for _, c := range []struct {
+		name, body string
+		want       bool
+	}{
+		{"turns, never compacted", sample + "\n", false},
+		{"compacted, then nothing", sample + "\n" + boundary, true},
+		{"compacted, then a sub-agent and a typed line", sample + "\n" + boundary + sidechain + exit, true},
+		{"compacted, then a turn", boundary + sample + "\n", false},
+		{"no turn at all", exit, true},
+	} {
+		write(t, f, c.body, fixedMtime)
+		if got, err := CompactedLast(f); err != nil || got != c.want {
+			t.Errorf("%s: got %v, %v; want %v", c.name, got, err, c.want)
+		}
+	}
+	write(t, f, `{"type":"assistant","message":{"model":"m","usage":{"input_tokens":"two"}}}`+"\n", fixedMtime)
+	if _, err := CompactedLast(f); err == nil {
+		t.Error("an unreadable count was not an error")
+	}
+	if _, err := CompactedLast(filepath.Join(t.TempDir(), "gone.jsonl")); err == nil {
+		t.Error("a missing transcript was not an error")
+	}
+}
+
 func TestContextTokensFailures(t *testing.T) {
 	d := t.TempDir()
 	none := filepath.Join(d, "none.jsonl")

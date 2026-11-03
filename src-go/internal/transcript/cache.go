@@ -68,11 +68,13 @@ type fileState struct {
 
 // summary is everything a question needs from the lines read so far.
 type summary struct {
-	last       float64
-	found      bool
-	contextErr error
-	input      stamps
-	compaction stamps
+	last  float64
+	found bool
+	// lastBoundary is whether the last entry recording a context size is a compact_boundary.
+	lastBoundary bool
+	contextErr   error
+	input        stamps
+	compaction   stamps
 }
 
 // stamps is the latest dated entry of one kind, or why one could not be dated. The first
@@ -117,6 +119,7 @@ func (s *summary) addLine(line []byte) {
 			s.contextErr = err
 		case ok:
 			s.last, s.found = size, true
+			s.lastBoundary = e.Type.Value == typeSystem
 		}
 	}
 	if e.Type.Value == typeUser && !bool(e.IsMeta) {
@@ -177,6 +180,19 @@ func (c *Cache) ContextTokens(path string) (int64, error) {
 		return 0, fmt.Errorf("the transcript %s records no context size", path)
 	}
 	return int64(s.last), nil
+}
+
+// CompactedLast is the package function of that name, answered from what the Cache already
+// holds of the file.
+func (c *Cache) CompactedLast(path string) (bool, error) {
+	s, err := c.view(path)
+	if err != nil {
+		return false, err
+	}
+	if s.contextErr != nil {
+		return false, fmt.Errorf("the transcript %s could not be read: %w", path, s.contextErr)
+	}
+	return !s.found || s.lastBoundary, nil
 }
 
 // TookInputSince is the package function of that name, answered from what the Cache already

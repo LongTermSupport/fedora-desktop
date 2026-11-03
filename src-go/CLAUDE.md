@@ -84,7 +84,8 @@ bash originals are gone (`scripts/gh-account-setup.bash`, `scripts/setup-rclone.
   (the command runner every external call goes through, and its recording `Fake`), `term`
   (exit codes, error printing), `ui` (gum and fzf prompts), `sudo`, `systemd`, `tmuxccy`,
   `gitx`, `registry`, `agentbus`, `declare`, `marker`, `screen`, `transcript`, `restore`,
-  `sessprobe`, `fsx` (atomic file writes), `ccyenv` (is CCY installed, is this a container),
+  `sessprobe`, `sessclose` (a session closed as a person would: `/compact`, its end waited
+  for, then `/exit`; ccy-teams shutdown, `ccy --stop` and ccy-sessions' Close; C1-C10), `fsx` (atomic file writes), `ccyenv` (is CCY installed, is this a container),
   `ghlogin` (gh's github.com logins, and each one's own token as GH_TOKEN, so a call acts as one
   login without `gh auth switch`),
   `duration` (`duration.Times`, a Duration times a number that refuses a product past int64,
