@@ -2,8 +2,8 @@
 // DESIGN-v2-C-host.md 3.2.2-3.2.5, 3.5.2, 3.5.3; SPEC-n2d.md section 4, HS1-HS15): the team
 // lock taken through teamlock, the refusals before any change, the in-memory render of a
 // team's homeserver config, unit drop-in and `team.json` with the five-way answer, the first
-// apply's files, the firewall, the backup, the unit, readiness, the bound addresses, and the
-// records written last. Every host effect (systemd, firewalld, the network, the readiness
+// apply's files, the team's CA and homeserver certificate (tls.go), the firewall, the backup, the
+// unit, readiness, the bound addresses, and the records written last. Every host effect (systemd, firewalld, the network, the readiness
 // probe, the backup, the status record, bootstrap) is a seam in Deps; the files are written
 // under Deps.Root.
 package host
@@ -42,13 +42,16 @@ type Clock interface {
 
 // The steps a failure names (C 3.5.2, 3.5.3). StepRefusals is step 2 and StepRender step 3;
 // StepFiles is step 4's first-apply files, and in `team remove` the drop-in and stamp it
-// deletes; StepInstalled is `team remove` asking whether the team is installed at all.
+// deletes; StepTLS is the team's CA and leaf certificate (SPEC-cross-network X13, X14), made
+// after step 4's files and before the firewall; StepInstalled is `team remove` asking whether
+// the team is installed at all.
 const (
 	StepLock      = "lock"
 	StepInstalled = "installed"
 	StepRefusals  = "refusals"
 	StepRender    = "render"
 	StepFiles     = "files"
+	StepTLS       = "tls"
 	StepFirewall  = "firewall"
 	StepBackup    = "backup"
 	StepUnit      = "unit"
@@ -281,7 +284,7 @@ func (a *applying) path(p string) string { return a.d.Root + p }
 
 func (a *applying) run(ctx context.Context) error {
 	for _, step := range []func(context.Context) error{
-		a.refusals, a.render, a.files, a.firewall, a.backup, a.start, a.waitReady, a.addresses,
+		a.refusals, a.render, a.files, a.tls, a.firewall, a.backup, a.start, a.waitReady, a.addresses,
 		a.bootstrap, a.records,
 	} {
 		if err := step(ctx); err != nil {

@@ -84,7 +84,8 @@ func TestFirstApply(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"files created", "firewall added public 192.0.2.0/24 tcp:8448", "firewall added public 192.0.2.10/32 tcp:8448",
+		"files created", "ca made", "leaf made",
+		"firewall added public 192.0.2.0/24 tcp:8448", "firewall added public 192.0.2.10/32 tcp:8448",
 		"drop-in written",
 		"unit started", "unit enabled", "human alice created", "team.json written", "units.json written",
 		"stamp written",
