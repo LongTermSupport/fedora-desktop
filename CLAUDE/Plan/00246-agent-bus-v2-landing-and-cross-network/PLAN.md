@@ -110,12 +110,13 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   The owner's decision 10 on pull request 124 asks for a detector for "a fake process made by
   running a tool under another name", once this task has started: it is issue 126.
   State: S1 to S6, S7a, S8, S9 (`teamchat seat place-issued`) and S10 are built and committed on
-  the branch. S7b is built in two parts: the terminator (package `tlsterm`), its verb
-  `teamchat tls` and the project rule `project_transport_home` with the terminator as its third
-  owner are committed; the unit `teamchat-tls@` (its drop-in with the IP filter, the socket bind
-  and the leaf as credentials, the homeserver bound to loopback only, and apply, serve and
-  remove) remains, with S11 (Element trusting the CA, the docs page, the acceptance of X29 and
-  X30).
+  the branch. S7b is built: the terminator (package `tlsterm`), its verb `teamchat tls`, the
+  project rule `project_transport_home` with the terminator as its third owner, and the unit
+  `teamchat-tls@` (its drop-in with the IP filter, the socket bind and the leaf as credentials;
+  the homeserver bound to loopback only; apply, serve and remove for the second unit, X18a to
+  X18c). The health tick reads the terminator unit's state and records a problem when it is not
+  active; a probe through the terminator is not built (X18c). Remaining: S11 (Element trusting
+  the CA, the docs page, the acceptance of X29 and X30).
 
 ## Success Criteria
 

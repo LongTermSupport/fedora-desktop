@@ -95,7 +95,7 @@ func prefixes(s ...string) []netip.Prefix {
 
 const wantConfig = `# Rendered by teamchat-admin team apply for team ops; do not edit.
 server_name = "ops.teamchat.internal"
-address = ["127.0.0.1", "192.0.2.10"]
+address = ["127.0.0.1"]
 port = 8448
 database_path = "/var/lib/teamchat/ops/db"
 database_backup_path = "/var/lib/teamchat/ops/backups"
@@ -136,15 +136,13 @@ per_second = 0.006
 burst_count = 10
 `
 
+// wantDropIn is the homeserver's drop-in: it binds loopback alone (X18), so its filter allows
+// loopback alone and it waits for no device; the terminator's drop-in carries the networks.
 const wantDropIn = `# Rendered by teamchat-admin team apply for team ops; do not edit.
-[Unit]
-After=sys-subsystem-net-devices-eth0.device
-Wants=sys-subsystem-net-devices-eth0.device
-
 [Service]
 ExecStart=/usr/local/lib/teamchat/server/tuwunel-1.9.4
 MemoryHigh=512M
-IPAddressAllow=127.0.0.1/32 ::1/128 192.0.2.10/32 192.0.2.0/24
+IPAddressAllow=127.0.0.1/32 ::1/128
 SocketBindAllow=tcp:8448
 `
 
@@ -200,24 +198,22 @@ func TestConfigKeysAreThePinnedTuwunels(t *testing.T) {
 	}
 }
 
-// HS4: listen holding loopback binds it once, and allows it once; no device leaves [Unit] empty.
+// HS4: a terminator with no listen address and no device allows loopback once and leaves [Unit]
+// empty.
 func TestRenderDeduplicatesLoopback(t *testing.T) {
 	doc := teamDoc()
 	s := spec(t, input(t, doc))
-	s.listen, s.networks, s.devices = addrs("127.0.0.1"), nil, nil
+	s.listen, s.networks, s.devices = nil, nil, nil
 	r, err := render(s)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(r.config), "address = [\"127.0.0.1\"]\n") {
-		t.Errorf("config:\n%s", r.config)
-	}
-	if !strings.Contains(string(r.dropIn), "[Unit]\n\n[Service]") || !strings.Contains(string(r.dropIn), "IPAddressAllow=127.0.0.1/32 ::1/128\n") {
-		t.Errorf("drop-in:\n%s", r.dropIn)
+	if !strings.Contains(string(r.tlsDropIn), "[Unit]\n\n[Service]") || !strings.Contains(string(r.tlsDropIn), "IPAddressAllow=127.0.0.1/32 ::1/128\n") {
+		t.Errorf("terminator drop-in:\n%s", r.tlsDropIn)
 	}
 }
 
-// HS4: an IPv6 listen address is allowed as a /128.
+// HS4: an IPv6 listen address is allowed as a /128, and given to the terminator as it is.
 func TestRenderIPv6Listen(t *testing.T) {
 	doc := teamDoc()
 	s := spec(t, input(t, doc))
@@ -226,13 +222,14 @@ func TestRenderIPv6Listen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(r.dropIn), " 2001:db8::1/128 ") {
-		t.Errorf("drop-in:\n%s", r.dropIn)
+	if !strings.Contains(string(r.tlsDropIn), " 2001:db8::1/128 ") || !strings.Contains(string(r.tlsDropIn), " --listen 2001:db8::1\n") {
+		t.Errorf("terminator drop-in:\n%s", r.tlsDropIn)
 	}
 }
 
 // HS5: the restart set is the base unit, ExecStart and the config; the reload set is the
-// cgroup lines and [Unit]; each changes only with what it covers.
+// cgroup lines; each changes only with what it covers. The networks, the listen addresses and the
+// devices are the terminator's (X4, X18), so none of them is in either set.
 func TestDigestSets(t *testing.T) {
 	in := input(t, teamDoc())
 	base, err := render(spec(t, in))
@@ -248,9 +245,9 @@ func TestDigestSets(t *testing.T) {
 		"key":       {func(s *renderSpec) { s.regKey = strings.Repeat("f", 128) }, true, false},
 		"cache":     {func(s *renderSpec) { s.pin.CacheCapacityModifier = "1" }, true, false},
 		"memory":    {func(s *renderSpec) { s.pin.MemoryHigh = "1G" }, false, true},
-		"networks":  {func(s *renderSpec) { s.networks = prefixes("198.51.100.0/24") }, false, true},
-		"listen":    {func(s *renderSpec) { s.listen = addrs("192.0.2.10", "198.51.100.1") }, true, true},
-		"devices":   {func(s *renderSpec) { s.devices = []string{deviceUnit("eth1")} }, false, true},
+		"networks":  {func(s *renderSpec) { s.networks = prefixes("198.51.100.0/24") }, false, false},
+		"listen":    {func(s *renderSpec) { s.listen = addrs("192.0.2.10", "198.51.100.1") }, false, false},
+		"devices":   {func(s *renderSpec) { s.devices = []string{deviceUnit("eth1")} }, false, false},
 		"name":      {func(s *renderSpec) { s.team.Name = "Ops team" }, false, false},
 	} {
 		s := spec(t, in)

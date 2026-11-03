@@ -89,6 +89,8 @@ type world struct {
 	approved map[string]*declare.Gated
 	cur      declare.Input
 	version  string
+	// memory is the pin's memory ceiling when a test changes it, a reload-set change.
+	memory   string
 	boot     func(Bootstrap) []string
 	boots    []Bootstrap
 	backups  int
@@ -131,6 +133,7 @@ func newWorld(t *testing.T) *world {
 		}
 	}
 	w.write(paths.ServerUnitTemplateFile, "[Unit]\nDescription=v2 team homeserver %i\n")
+	w.write(paths.TLSUnitTemplateFile, "[Unit]\nDescription=v2 team TLS terminator %i\n")
 	w.sd = &fakeSystemd{w: w, units: map[string]*UnitState{}}
 	w.fw = &fakeFirewall{w: w, present: map[bool]map[string]bool{true: {}, false: {}}, zone: "public"}
 	w.net = &fakeNetwork{w: w, ifaces: []Interface{
@@ -204,6 +207,9 @@ func (w *world) deps() Deps {
 	if w.version != "" {
 		p.Version = mustVersion(w.t, w.version)
 	}
+	if w.memory != "" {
+		p.MemoryHigh = w.memory
+	}
 	return Deps{
 		Root: w.root, LockDir: w.at(paths.AdminRunDir), LockWait: PlayWait, Clock: w.clock,
 		Rand: w.rand, Pin: p, Software: "d1g3st",
@@ -240,6 +246,8 @@ type fakeSystemd struct {
 	journal         string
 	activating      int
 	loaded, running string
+	// started and stopped are the units each Start or Restart, and each Stop, named, in order.
+	started, stopped []string
 }
 
 func (s *fakeSystemd) DaemonReload(context.Context) error {
@@ -259,6 +267,7 @@ func (s *fakeSystemd) Start(_ context.Context, unit string) error {
 	if err := s.w.call("start"); err != nil {
 		return err
 	}
+	s.started = append(s.started, unit)
 	s.running = s.loaded
 	s.unit(unit).Active = "active"
 	if s.startTo != "" {
@@ -271,6 +280,7 @@ func (s *fakeSystemd) Restart(_ context.Context, unit string) error {
 	if err := s.w.call("restart"); err != nil {
 		return err
 	}
+	s.started = append(s.started, unit)
 	s.running = s.loaded
 	s.unit(unit).Active = "active"
 	return nil
@@ -280,6 +290,7 @@ func (s *fakeSystemd) Stop(_ context.Context, unit string) error {
 	if err := s.w.call("stop"); err != nil {
 		return err
 	}
+	s.stopped = append(s.stopped, unit)
 	s.unit(unit).Active = "inactive"
 	return nil
 }
@@ -377,8 +388,10 @@ type fakeNetwork struct {
 	ifaces []Interface
 	extra  []Listener
 	bound  []Listener
-	bridge netip.Prefix
-	routes []fakeRoute
+	// boundTLS is what the terminator's unit binds when a test sets it.
+	boundTLS []Listener
+	bridge   netip.Prefix
+	routes   []fakeRoute
 }
 
 // Route answers as the production adapter does: the interface that holds a host prefix, else
@@ -417,6 +430,14 @@ func (n *fakeNetwork) Listeners() ([]Listener, error) {
 			out = append(out, n.bindings(unit)...)
 		}
 	}
+	tls := paths.TLSUnit(n.w.cur.ID())
+	if st := n.w.sd.units[tls]; st != nil && st.Active == "active" {
+		if n.boundTLS != nil {
+			out = append(out, n.boundTLS...)
+		} else {
+			out = append(out, n.terminated(tls)...)
+		}
+	}
 	return out, n.w.call("listeners")
 }
 
@@ -425,6 +446,19 @@ func listener(addr string, port int, unit string) Listener {
 }
 
 func (n *fakeNetwork) Bridge() (netip.Prefix, error) { return n.bridge, n.w.call("bridge") }
+
+var execListen = regexp.MustCompile(`--listen (\S+)`)
+
+// terminated are what the terminator's unit binds: every --listen address of its installed
+// drop-in's ExecStart, on the team's port, as the verb binds them.
+func (n *fakeNetwork) terminated(unit string) []Listener {
+	found := execListen.FindAllSubmatch(readFile(n.w.t, n.w.at(paths.TLSDropInFile(n.w.cur.ID()))), -1)
+	out := make([]Listener, 0, len(found))
+	for _, m := range found {
+		out = append(out, listener(string(m[1]), n.w.cur.Team.Port, unit))
+	}
+	return out
+}
 
 var configAddress = regexp.MustCompile(`(?m)^address = \[(.*)\]$`)
 

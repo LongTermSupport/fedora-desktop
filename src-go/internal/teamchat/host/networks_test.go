@@ -49,8 +49,8 @@ func TestListenAddress(t *testing.T) {
 
 // snapshot is every file and rule the effective networks of a team decide (X4).
 type snapshot struct {
-	config, dropIn, firewall string
-	units                    []string
+	config, dropIn, tlsDropIn, firewall string
+	units                               []string
 }
 
 func snapshotOf(t *testing.T, w *world) snapshot {
@@ -63,7 +63,7 @@ func snapshotOf(t *testing.T, w *world) snapshot {
 	}
 	return snapshot{
 		config: w.read(paths.ServerConfig(team)), dropIn: w.read(paths.ServerDropInFile(team)),
-		firewall: w.read(paths.FirewallRecord(team)), units: units.listen,
+		tlsDropIn: w.read(paths.TLSDropInFile(team)), firewall: w.read(paths.FirewallRecord(team)), units: units.listen,
 	}
 }
 
@@ -88,7 +88,8 @@ func applyFresh(t *testing.T, edit func(doc map[string]any)) snapshot {
 
 // same is whether o holds exactly the files and rules s does.
 func (s snapshot) same(o snapshot) bool {
-	return s.config == o.config && s.dropIn == o.dropIn && s.firewall == o.firewall && slices.Equal(s.units, o.units)
+	return s.config == o.config && s.dropIn == o.dropIn && s.tlsDropIn == o.tlsDropIn && s.firewall == o.firewall &&
+		slices.Equal(s.units, o.units)
 }
 
 // baseSnapshot is the sample team's files in a host with a second interface, applied once.
@@ -127,9 +128,9 @@ func lineWith(t *testing.T, text, prefix string) string {
 	return found[0]
 }
 
-// X4: the config's listen address, the drop-in's filter and device lines, the firewall rules and
+// X4: the terminator's drop-in (its listen, device and filter lines), the firewall rules and
 // units.json's listen set are a function of the effective networks alone: no other field of the
-// declaration changes any of them.
+// declaration changes any of them, and none of them is in the homeserver's config or drop-in.
 func TestNetworksAloneDecideTheListenFilterAndRules(t *testing.T) {
 	base := baseSnapshot(t)
 	for name, edit := range map[string]func(map[string]any){
@@ -161,32 +162,30 @@ func TestOrderAndRepeatsOfTheEffectiveNetworksChangeNothing(t *testing.T) {
 	}
 }
 
-// X4: one more network changes the config's address line, the drop-in's device and filter lines,
-// the rule set and units.json's listen set, and nothing else.
+// X4: one more network changes the terminator's listen, device and filter lines, the rule set and
+// units.json's listen set, and nothing else: not the homeserver's config or drop-in.
 func TestASecondNetworkChangesOnlyWhatItShould(t *testing.T) {
 	base := baseSnapshot(t)
 	got := applyFresh(t, func(d map[string]any) { docTeam(d)["networks"] = []any{"192.0.2.0/24", "203.0.113.0/24"} })
-	if !slices.Equal(linesWithout(got.config, "address = "), linesWithout(base.config, "address = ")) {
-		t.Errorf("more than the address line of the config changed:\n%s", got.config)
+	if got.config != base.config || got.dropIn != base.dropIn {
+		t.Errorf("the homeserver's files follow the networks:\n%s\n%s", got.config, got.dropIn)
 	}
-	if line := lineWith(t, got.config, "address = "); line != `address = ["127.0.0.1", "192.0.2.10", "203.0.113.9"]` {
-		t.Errorf("config: %s", line)
-	}
-	skip := []string{"After=", "Wants=", "IPAddressAllow="}
-	if !slices.Equal(linesWithout(got.dropIn, skip...), linesWithout(base.dropIn, skip...)) {
-		t.Errorf("more than the device and filter lines of the drop-in changed:\n%s", got.dropIn)
+	skip := []string{"After=", "Wants=", "ExecStart=", "IPAddressAllow="}
+	if !slices.Equal(linesWithout(got.tlsDropIn, skip...), linesWithout(base.tlsDropIn, skip...)) {
+		t.Errorf("more than the device, listen and filter lines of the terminator's drop-in changed:\n%s", got.tlsDropIn)
 	}
 	devices := deviceUnit("eth0") + " " + deviceUnit("eth1")
 	for prefix, want := range map[string]string{
 		"After=":          "After=" + devices,
 		"Wants=":          "Wants=" + devices,
+		"ExecStart=":      "ExecStart=/usr/local/bin/teamchat tls --team ops --port 8448 --listen 192.0.2.10 --listen 203.0.113.9",
 		"IPAddressAllow=": "IPAddressAllow=127.0.0.1/32 ::1/128 192.0.2.10/32 203.0.113.9/32 192.0.2.0/24 203.0.113.0/24",
 	} {
-		if line := lineWith(t, got.dropIn, prefix); line != want {
-			t.Errorf("drop-in: %s, want %s", line, want)
+		if line := lineWith(t, got.tlsDropIn, prefix); line != want {
+			t.Errorf("terminator drop-in: %s, want %s", line, want)
 		}
 	}
-	if line := lineWith(t, got.dropIn, "SocketBindAllow="); line != "SocketBindAllow=tcp:8448" {
+	if line := lineWith(t, got.tlsDropIn, "SocketBindAllow="); line != "SocketBindAllow=tcp:8448" {
 		t.Errorf("the socket bind depends on more than the port: %s", line)
 	}
 	wantRules := `[{"zone":"public","source":"192.0.2.0/24","port":8448},{"zone":"public","source":"192.0.2.10/32","port":8448},{"zone":"public","source":"203.0.113.0/24","port":8448}]`
@@ -226,25 +225,25 @@ func TestListenAddressesAreDerivedFromTheNetworks(t *testing.T) {
 	for name, c := range map[string]struct {
 		setup    func(w *world)
 		networks []any
-		listen   string
+		listen   []string
 		devices  []string
 	}{
 		"two networks on one interface give one address": {
 			setup:    func(*world) {},
 			networks: []any{"192.0.2.0/24", "203.0.113.0/24"},
-			listen:   `["127.0.0.1", "192.0.2.10"]`,
+			listen:   []string{"192.0.2.10"},
 			devices:  []string{"eth0"},
 		},
 		"two networks on two interfaces give both, sorted": {
 			setup:    withSecondNIC,
 			networks: []any{"203.0.113.0/24", "192.0.2.0/24"},
-			listen:   `["127.0.0.1", "192.0.2.10", "203.0.113.9"]`,
+			listen:   []string{"192.0.2.10", "203.0.113.9"},
 			devices:  []string{"eth0", "eth1"},
 		},
 		"an interface with several addresses gives the one inside": {
 			setup:    func(w *world) { w.net.ifaces[1].Addrs = addrs("192.0.2.10", "203.0.113.20") },
 			networks: []any{"203.0.113.0/24"},
-			listen:   `["127.0.0.1", "192.0.2.10", "203.0.113.20"]`,
+			listen:   []string{"192.0.2.10", "203.0.113.20"},
 			devices:  []string{"eth0"},
 		},
 		"an IPv6 network gives an IPv6 address": {
@@ -253,7 +252,7 @@ func TestListenAddressesAreDerivedFromTheNetworks(t *testing.T) {
 				w.net.routes = append(w.net.routes, fakeRoute{netip.MustParsePrefix("2001:db8::/32"), "eth0"})
 			},
 			networks: []any{"192.0.2.0/24", "2001:db8::/32"},
-			listen:   `["127.0.0.1", "192.0.2.10", "2001:db8::10"]`,
+			listen:   []string{"192.0.2.10", "2001:db8::10"},
 			devices:  []string{"eth0"},
 		},
 	} {
@@ -266,15 +265,20 @@ func TestListenAddressesAreDerivedFromTheNetworks(t *testing.T) {
 				t.Fatal(err)
 			}
 			team := ops(t)
-			if got := lineWith(t, w.read(paths.ServerConfig(team)), "address = "); got != "address = "+c.listen {
-				t.Errorf("config: %s", got)
+			if got := lineWith(t, w.read(paths.ServerConfig(team)), "address = "); got != `address = ["127.0.0.1"]` {
+				t.Errorf("the homeserver is not loopback alone: %s", got)
 			}
 			var devices []string
 			for _, d := range c.devices {
 				devices = append(devices, deviceUnit(d))
 			}
-			if got := lineWith(t, w.read(paths.ServerDropInFile(team)), "After="); got != "After="+strings.Join(devices, " ") {
-				t.Errorf("drop-in: %s", got)
+			tls := w.read(paths.TLSDropInFile(team))
+			if got := lineWith(t, tls, "After="); got != "After="+strings.Join(devices, " ") {
+				t.Errorf("terminator drop-in: %s", got)
+			}
+			want := "ExecStart=/usr/local/bin/teamchat tls --team ops --port 8448 --listen " + strings.Join(c.listen, " --listen ")
+			if got := lineWith(t, tls, "ExecStart="); got != want {
+				t.Errorf("terminator drop-in: %s, want %s", got, want)
 			}
 		})
 	}
@@ -347,7 +351,7 @@ func TestOwnNetworkOnTheDefaultRouteIsAccepted(t *testing.T) {
 	if _, err := w.apply(approved(w, doc)); err != nil {
 		t.Fatalf("the bridge on the default route: %v", err)
 	}
-	if got := lineWith(t, w.read(paths.ServerConfig(ops(t))), "address = "); got != `address = ["127.0.0.1", "192.0.2.10", "198.51.100.1"]` {
-		t.Errorf("config: %s", got)
+	if got := lineWith(t, w.read(paths.TLSDropInFile(ops(t))), "ExecStart="); !strings.HasSuffix(got, " --listen 192.0.2.10 --listen 198.51.100.1") {
+		t.Errorf("terminator drop-in: %s", got)
 	}
 }

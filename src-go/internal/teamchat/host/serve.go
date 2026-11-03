@@ -10,9 +10,10 @@ import (
 
 // Serve is C 3.5.2 steps 7 and 8 for a team already applied (SPEC-n2g SM3), under a lock the
 // caller holds: a daemon-reload, a start when the unit is not active, then the wait for it
-// ready and the check of its bound addresses on the port and listen set units.json records. It
-// never renders and writes nothing. The reload is unconditional: what systemd has loaded
-// cannot be read from the files, and a reload of unchanged units changes nothing.
+// ready and the check of its bound addresses on the port (loopback alone), then the same for the
+// team's TLS terminator on the listen set units.json records (X18). It never renders and writes
+// nothing. The reload is unconditional: what systemd has loaded cannot be read from the files,
+// and a reload of unchanged units changes nothing.
 func Serve(ctx context.Context, d Deps, team paths.TeamID) error {
 	unit := paths.ServerUnit(team)
 	fail := func(step string, err error) error { return &Error{Verb: verbServe, Step: step, Err: err} }
@@ -26,8 +27,21 @@ func Serve(ctx context.Context, d Deps, team paths.TeamID) error {
 	if err := ready(ctx, d, unit, units.port); err != nil {
 		return fail(StepReady, err)
 	}
-	if err := boundAs(d, unit, units.port, units.listen); err != nil {
+	if err := boundAs(d, unit, units.port, []string{loopbackListen}); err != nil {
 		return fail(StepAddresses, err)
+	}
+	return serveTerminator(ctx, d, team, units)
+}
+
+// serveTerminator starts the team's TLS terminator, after its homeserver, and holds its bound
+// addresses to the listen set units.json records (X18).
+func serveTerminator(ctx context.Context, d Deps, team paths.TeamID, units unitsRecord) error {
+	unit := paths.TLSUnit(team)
+	if err := startIfStopped(ctx, d, unit); err != nil {
+		return &Error{Verb: verbServe, Step: StepTerminator, Err: err}
+	}
+	if err := awaitBound(ctx, d, unit, units.port, units.listen); err != nil {
+		return &Error{Verb: verbServe, Step: StepTerminator, Err: err}
 	}
 	return nil
 }
@@ -56,6 +70,11 @@ func startUnit(ctx context.Context, d Deps, unit string) error {
 	if err := d.Systemd.DaemonReload(ctx); err != nil {
 		return err
 	}
+	return startIfStopped(ctx, d, unit)
+}
+
+// startIfStopped starts the unit unless it is active.
+func startIfStopped(ctx context.Context, d Deps, unit string) error {
 	st, err := d.Systemd.State(ctx, unit)
 	if err != nil || st.Active == active {
 		return err

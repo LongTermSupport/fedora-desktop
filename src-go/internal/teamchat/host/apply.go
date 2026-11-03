@@ -59,10 +59,12 @@ const (
 	StepUnit      = "unit"
 	StepReady     = "ready"
 	StepAddresses = "addresses"
-	StepBootstrap = "bootstrap"
-	StepRecords   = "records"
-	StepStatus    = "status"
-	StepPurge     = "purge"
+	// StepTerminator is the team's TLS terminator unit (X18), after the homeserver's addresses.
+	StepTerminator = "terminator"
+	StepBootstrap  = "bootstrap"
+	StepRecords    = "records"
+	StepStatus     = "status"
+	StepPurge      = "purge"
 )
 
 // The verbs an Error names.
@@ -235,6 +237,7 @@ type applying struct {
 	in      declare.Input
 	team    paths.TeamID
 	unit    string
+	tlsUnit string
 	lock    *teamlock.Lock
 	changed []string
 
@@ -249,7 +252,11 @@ type applying struct {
 	answer         answer
 	units          *unitsRecord
 	config, dropIn []byte
-	haveDropIn     bool
+	// tlsDropIn is the terminator's installed drop-in, and leafMade whether this apply made the
+	// leaf, which the running terminator has not read.
+	tlsDropIn  []byte
+	leafMade   bool
+	haveDropIn bool
 	// loaded is whether systemd has the units on disk loaded. It starts true only when units.json
 	// records this render's digests, since units.json is written after a reload succeeded; how
 	// the drop-in's bytes compare says nothing of it, as a reload can fail or a crash come after
@@ -261,7 +268,7 @@ type applying struct {
 // Apply is `team apply`'s steps 1 to 11 for one decoded input (C 3.5.2); step 10 is
 // Deps.Bootstrap. It answers the CHANGED lines, those before a failure included.
 func Apply(ctx context.Context, d Deps, in declare.Input) ([]string, error) {
-	a := &applying{d: d, in: in, team: in.ID(), unit: paths.ServerUnit(in.ID())}
+	a := &applying{d: d, in: in, team: in.ID(), unit: paths.ServerUnit(in.ID()), tlsUnit: paths.TLSUnit(in.ID())}
 	lock, err := teamlock.Take(ctx, d.LockDir, a.team, "team.apply", d.LockWait, d.Clock, d.Guard)
 	if err != nil {
 		return nil, a.fail(StepLock, err)
@@ -289,7 +296,7 @@ func (a *applying) path(p string) string { return a.d.Root + p }
 func (a *applying) run(ctx context.Context) error {
 	for _, step := range []func(context.Context) error{
 		a.refusals, a.render, a.files, a.tls, a.firewall, a.backup, a.start, a.waitReady, a.addresses,
-		a.bootstrap, a.records,
+		a.terminate, a.bootstrap, a.records,
 	} {
 		if err := step(ctx); err != nil {
 			return err
@@ -424,7 +431,7 @@ func (a *applying) port() error {
 		return a.fail(StepRefusals, err)
 	}
 	for _, l := range listeners {
-		if int(l.Addr.Port()) == port && l.Unit != a.unit {
+		if int(l.Addr.Port()) == port && l.Unit != a.unit && l.Unit != a.tlsUnit {
 			holder := l.Unit
 			if holder == "" {
 				holder = "a process of no unit"
@@ -471,6 +478,9 @@ func (a *applying) render(_ context.Context) error {
 	if err == nil && !found {
 		err = fmt.Errorf("the base unit %s is not installed", paths.ServerUnitTemplateFile)
 	}
+	if err == nil {
+		err = tlsBaseInstalled(a.d.Root)
+	}
 	if err != nil {
 		return a.fail(StepRender, err)
 	}
@@ -515,6 +525,9 @@ func (a *applying) readInstalled() error {
 		a.regKey = hex.EncodeToString(key)
 	}
 	if a.dropIn, a.haveDropIn, err = state.ReadFile(a.path(paths.ServerDropInFile(a.team)), fileMax); err != nil {
+		return err
+	}
+	if a.tlsDropIn, _, err = state.ReadFile(a.path(paths.TLSDropInFile(a.team)), fileMax); err != nil {
 		return err
 	}
 	raw, found, err := state.ReadFile(a.path(paths.UnitsRecord(a.team)), fileMax)
@@ -724,13 +737,7 @@ func (a *applying) startForBackup(ctx context.Context) error {
 // recordedDropIn writes the drop-in of the version and listen set units.json records, unless the
 // one on disk already runs that version.
 func (a *applying) recordedDropIn() error {
-	recorded, err := parseAddrs(a.units.listen)
-	if err != nil {
-		return err
-	}
-	old := dropInSpec{
-		team: a.team, version: a.units.version, memoryHigh: a.d.Pin.MemoryHigh, port: a.units.port, listen: recorded,
-	}
+	old := dropInSpec{team: a.team, version: a.units.version, memoryHigh: a.d.Pin.MemoryHigh, port: a.units.port}
 	if a.haveDropIn && strings.Contains(string(a.dropIn), old.execStart()) {
 		return nil
 	}
@@ -831,6 +838,11 @@ func (a *applying) waitReady(ctx context.Context) error {
 func (a *applying) ready(ctx context.Context, port int) error { return ready(ctx, a.d, a.unit, port) }
 
 func ready(ctx context.Context, d Deps, unit string, port int) error {
+	return waitUnit(ctx, d, unit, func(ctx context.Context) error { return d.Ready.ServerVersion(ctx, port) })
+}
+
+// waitUnit is that wait for any unit: active, and probe answering nil.
+func waitUnit(ctx context.Context, d Deps, unit string, probe func(context.Context) error) error {
 	start := d.Clock.Now()
 	var last error
 	for {
@@ -840,7 +852,7 @@ func ready(ctx context.Context, d Deps, unit string, port int) error {
 		}
 		switch st.Active {
 		case active:
-			if last = d.Ready.ServerVersion(ctx, port); last == nil {
+			if last = probe(ctx); last == nil {
 				return nil
 			}
 		case "activating", "reloading":
@@ -861,26 +873,21 @@ func ready(ctx context.Context, d Deps, unit string, port int) error {
 	}
 }
 
-// addresses is step 9: the bound address set is loopback and listen exactly (H 7.21).
+// addresses is step 9: the homeserver's bound address set is loopback exactly (H 7.21, X18).
 func (a *applying) addresses(_ context.Context) error {
-	if err := boundAs(a.d, a.unit, a.in.Team.Port, a.listenText()); err != nil {
+	if err := boundAs(a.d, a.unit, a.in.Team.Port, []string{loopbackListen}); err != nil {
 		return a.fail(StepAddresses, err)
 	}
 	return nil
 }
 
-// boundAs holds the unit's bound addresses on port to loopback and listen exactly.
-func boundAs(d Deps, unit string, port int, listen []string) error {
+// boundAs holds the unit's bound addresses on port to want exactly.
+func boundAs(d Deps, unit string, port int, want []string) error {
 	listeners, err := d.Network.Listeners()
 	if err != nil {
 		return err
 	}
-	want := []string{loopbackListen}
-	for _, l := range listen {
-		if !slices.Contains(want, l) {
-			want = append(want, l)
-		}
-	}
+	want = slices.Clone(want)
 	var got []string
 	for _, l := range listeners {
 		if l.Unit == unit && int(l.Addr.Port()) == port && !slices.Contains(got, l.Addr.Addr().String()) {

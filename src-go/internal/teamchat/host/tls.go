@@ -149,6 +149,7 @@ func (a *applying) ensureLeaf(m pki.Maker, ca pki.CA, want pki.Names) error {
 	if err = state.WriteFile(a.path(paths.LeafCertFile(a.team)), leaf.CertPEM(), certMode, -1); err != nil {
 		return err
 	}
+	a.leafMade = true
 	a.note(line)
 	return nil
 }

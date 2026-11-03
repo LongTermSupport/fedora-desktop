@@ -94,7 +94,7 @@ func check(kind string, grammar *regexp.Regexp, s string) (string, error) {
 // team membership's runtime directory /run/teamchat/membership, the ccy session's membership
 // mount. The package's test derives the list from the fixed names and holds it complete.
 var reservedTeamIDs = []string{
-	"admin", "backup", "ctl", "fence", "health", "install", "membership", "seats", "server", "status",
+	"admin", "backup", "ctl", "fence", "health", "install", "membership", "seats", "server", "status", "tls",
 }
 
 // ParseTeamID checks a team id against A 2.2's grammar and refuses a reserved one.

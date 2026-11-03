@@ -47,6 +47,8 @@ func zeroDerivations() map[string]func() string {
 		"ServerUnitDropIn":       func() string { return ServerUnitDropIn(team) },
 		"ServerRuntimeDirectory": func() string { return ServerRuntimeDirectory(team) },
 		"FenceUnit":              func() string { return FenceUnit(team) },
+		"TLSUnit":                func() string { return TLSUnit(team) },
+		"TLSUnitDropIn":          func() string { return TLSUnitDropIn(team) },
 		"FenceTable":             func() string { return FenceTable(team) },
 		"SessionUnit":            func() string { return SessionUnit(team, "/srv/checkouts/thing", 1) },
 		"GuestRuntimeDir":        func() string { return GuestRuntimeDir(SeatKey{}) },

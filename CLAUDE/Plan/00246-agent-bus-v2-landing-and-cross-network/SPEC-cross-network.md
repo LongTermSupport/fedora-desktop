@@ -92,6 +92,39 @@ install are listed last, under "Owner questions".
   terminator unit has the IP filter and the socket bind of X4; the leaf and its key reach it as
   credentials; it holds no CA key. (Chosen because the repo does not say what Tuwunel's TLS
   keys accept; see the owner questions.)
+- **X18a** The terminator's unit is a base unit `teamchat-tls@.service`, installed with the other
+  base units by the host play (Plan 00209 DESIGN C 3.2.3, step 07; no play installs any unit yet),
+  and a per-team drop-in `teamchat-tls@<team>.service.d/team.conf` that `team apply` renders. The
+  base unit has no `ExecStart=` and no `User=`: `DynamicUser=yes` alone gives the terminator its
+  own uid, which is not the homeserver's (the homeserver fixes its name so a restore's transient
+  unit shares its uid; the terminator has no state to share and must not be able to read the
+  homeserver's). It is ordered `After=` and `Wants=` `teamchat-server@%i.service`, and is not
+  bound to it, so a backup that stops the homeserver does not take the listeners down. It restarts
+  always; it has the homeserver's hardening lines, `RestrictAddressFamilies=AF_INET AF_INET6` (no
+  resolver, no `AF_UNIX`), `IPAddressDeny=any`, `SocketBindDeny=any`, and a descriptor limit above
+  twice `tlsterm.DefaultMaxConns`.
+- **X18b** The drop-in holds everything that is a function of the effective networks (X4): the
+  device units of the interfaces carrying a listen address (`After=`, `Wants=`), `ExecStart=`
+  naming `teamchat tls` with the team, the port and each listen address, a `LoadCredential=` for
+  `leaf.crt` and for `leaf.key` (never the CA's key), `IPAddressAllow=` (loopback, each listen
+  address as a host prefix and each effective network) and `SocketBindAllow=tcp:<port>`. The
+  homeserver's own drop-in and config no longer change when a network does: the config binds
+  `127.0.0.1` alone, its filter allows loopback alone and it waits for no device; units.json's
+  digest sets lose the device-unit digest with them.
+- **X18c** `team apply` starts the terminator after the homeserver is ready and its bound
+  addresses are loopback exactly, restarts it when its drop-in changed or its leaf was made again
+  (a unit reads its credentials only at its start), enables it, and holds its bound addresses on
+  the port to the listen set exactly. `serve` starts it after the homeserver and makes the same
+  check from units.json's listen set; `team remove` stops and disables it before the homeserver
+  and deletes its drop-in with the homeserver's. The team id `tls` is reserved, as `fence` is: it
+  would make a derived name equal a fixed one. A stopped terminator cuts every member off while
+  the homeserver reads as healthy on loopback, so the health tick reads the terminator unit's
+  state each tick and puts a problem on the team's record when it is not active ("the TLS
+  terminator unit is inactive: no member can reach the homeserver") or cannot be read; it
+  restarts nothing, because the unit restarts always and one that is not active was stopped or
+  failed past its start limit, and it judges none while a restore is recorded (HB3). Not built: a
+  probe through the terminator (a TLS request to a listen address with the team CA), which
+  would also catch a unit that is active and not answering.
 - **X19** A transport or TLS configuration under `teamchat/` is built only in `matrix` and the
   terminator; a project rule holds it (Defence Before Fix), with a red fixture.
 - **X20** Element Desktop's profile trusts the team CA: decided by a recorded check of what

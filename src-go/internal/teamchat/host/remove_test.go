@@ -44,8 +44,9 @@ func TestRemoveNotInstalled(t *testing.T) {
 	}
 }
 
-// HS14: remove stops and disables the unit, removes the recorded rules in both configurations,
-// the drop-in and the stamp, and hands the status record to its writer; the team's data stays.
+// HS14, X18: remove stops and disables the terminator, then the homeserver, removes the recorded
+// rules in both configurations, both drop-ins and the stamp, and hands the status record to its
+// writer; the team's data stays.
 func TestRemove(t *testing.T) {
 	w := applied(t)
 	w.status.removeLine = "status record removed"
@@ -55,14 +56,16 @@ func TestRemove(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"unit stopped", "unit disabled", "firewall removed public 192.0.2.0/24 tcp:8448",
-		"firewall removed public 192.0.2.10/32 tcp:8448", "drop-in removed", "stamp removed", "status record removed",
+		"tls unit stopped", "tls unit disabled", "unit stopped", "unit disabled",
+		"firewall removed public 192.0.2.0/24 tcp:8448", "firewall removed public 192.0.2.10/32 tcp:8448",
+		"tls drop-in removed", "drop-in removed", "stamp removed", "status record removed",
 	}
 	if !slices.Equal(lines, want) {
 		t.Errorf("lines %q\nwant %q", lines, want)
 	}
 	for _, p := range []string{
-		paths.ServerDropInFile(team), filepath.Dir(paths.ServerDropInFile(team)), paths.FirewallRecord(team), paths.StampFile(team),
+		paths.ServerDropInFile(team), filepath.Dir(paths.ServerDropInFile(team)), paths.TLSDropInFile(team),
+		filepath.Dir(paths.TLSDropInFile(team)), paths.FirewallRecord(team), paths.StampFile(team),
 	} {
 		if w.exists(p) {
 			t.Errorf("%s is still there", p)
@@ -91,12 +94,14 @@ func TestRemove(t *testing.T) {
 	}
 }
 
-// HS14: a unit already stopped and disabled is left alone.
+// HS14: a unit already stopped and disabled is left alone, the terminator's as the homeserver's.
 func TestRemoveStoppedUnit(t *testing.T) {
 	w := applied(t)
 	*w.sd.unit(paths.ServerUnit(ops(t))) = UnitState{Active: "inactive"}
+	*w.sd.unit(paths.TLSUnit(ops(t))) = UnitState{Active: "inactive"}
 	lines, err := remove(t, w, false)
-	if err != nil || slices.Contains(lines, "unit stopped") || slices.Contains(lines, "unit disabled") {
+	if err != nil || slices.Contains(lines, "unit stopped") || slices.Contains(lines, "unit disabled") ||
+		slices.Contains(lines, "tls unit stopped") || slices.Contains(lines, "tls unit disabled") {
 		t.Errorf("lines %q, err %v", lines, err)
 	}
 	if w.called("stop") || w.called("disable") {
@@ -199,7 +204,7 @@ func TestRemoveEachFailureStopsWhatFollows(t *testing.T) {
 			if e.Step != step || e.Drift || !errors.Is(err, errFault) || !strings.Contains(err.Error(), "team remove, step "+step+": ") {
 				t.Fatalf("got %v, want step %s", err, step)
 			}
-			if fault == "disable" && !slices.Equal(lines, []string{"unit stopped"}) {
+			if fault == "disable" && !slices.Equal(lines, []string{"tls unit stopped"}) {
 				t.Errorf("lines before the failure %q", lines)
 			}
 			stopped := map[string]bool{

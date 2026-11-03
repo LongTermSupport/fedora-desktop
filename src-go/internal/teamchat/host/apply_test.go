@@ -87,8 +87,8 @@ func TestFirstApply(t *testing.T) {
 		"files created", "ca made", "leaf made",
 		"firewall added public 192.0.2.0/24 tcp:8448", "firewall added public 192.0.2.10/32 tcp:8448",
 		"drop-in written",
-		"unit started", "unit enabled", "human alice created", "team.json written", "units.json written",
-		"stamp written",
+		"unit started", "unit enabled", "tls drop-in written", "tls unit started", "tls unit enabled",
+		"human alice created", "team.json written", "units.json written", "stamp written",
 	}
 	if !slices.Equal(lines, want) {
 		t.Errorf("lines %q\nwant %q", lines, want)
@@ -358,10 +358,13 @@ func TestApplyBusy(t *testing.T) {
 	}
 }
 
-// HS10: the bound address set must be loopback and listen exactly.
+// HS10, X18: the homeserver's bound address set must be loopback exactly; the terminator's is
+// the listen set (TestTheBoundAddressesOfBothUnitsAreAsserted).
 func TestBoundAddressesAreAsserted(t *testing.T) {
 	w := newWorld(t)
-	w.net.bound = []Listener{listener("127.0.0.1", 8448, paths.ServerUnit(ops(t)))}
+	w.net.bound = []Listener{
+		listener("127.0.0.1", 8448, paths.ServerUnit(ops(t))), listener("192.0.2.10", 8448, paths.ServerUnit(ops(t))),
+	}
 	_, err := w.apply(approved(w, teamDoc()))
 	if e := stepOf(t, err); e.Step != StepAddresses || e.Drift || !strings.Contains(err.Error(), "192.0.2.10") {
 		t.Fatalf("got %v", err)
@@ -477,26 +480,28 @@ func TestFailedBackupStopsTheApply(t *testing.T) {
 	}
 }
 
-// HS5, HS7: a changed network is a firewall change and a reload, never a restart.
-func TestReloadSetOnly(t *testing.T) {
+// HS5, HS7, X4: a changed network is a firewall change and a restart of the terminator, which has
+// to listen where the networks are, and never the homeserver's restart, backup or rewrite.
+func TestAChangedNetworkIsTheFirewallAndTheTerminatorAlone(t *testing.T) {
 	w := applied(t)
 	doc := teamDoc()
 	docTeam(doc)["networks"] = []any{"203.0.113.0/24"}
 	in := approved(w, doc)
 	makeDatabase(t, w)
+	was := len(w.sd.started)
 	lines, err := w.apply(in)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []string{
 		"firewall added public 203.0.113.0/24 tcp:8448", "firewall removed public 192.0.2.0/24 tcp:8448",
-		"drop-in written", "team.json written", "units.json written", "stamp written",
+		"tls drop-in written", "tls unit restarted", "team.json written", "stamp written",
 	}
 	if !slices.Equal(lines, want) {
 		t.Errorf("lines %q\nwant %q", lines, want)
 	}
-	if w.called("restart") || w.called("start") || w.backups != 0 || !w.called("daemon-reload") {
-		t.Errorf("a reload-set change: %q", w.log)
+	if got := w.sd.started[was:]; !slices.Equal(got, []string{paths.TLSUnit(ops(t))}) || w.backups != 0 || !w.called("daemon-reload") {
+		t.Errorf("a network change: started %q, log %q", got, w.log)
 	}
 }
 
@@ -593,14 +598,15 @@ func TestLXCMemberAdmitsTheBridge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(lines, "firewall added public 198.51.100.0/24 tcp:8448") || !strings.Contains(w.read(paths.ServerDropInFile(ops(t))), " 198.51.100.0/24\n") {
+	if !slices.Contains(lines, "firewall added public 198.51.100.0/24 tcp:8448") || !strings.Contains(w.read(paths.TLSDropInFile(ops(t))), " 198.51.100.0/24\n") {
 		t.Errorf("lines %q", lines)
 	}
-	if got := w.read(paths.ServerConfig(ops(t))); !strings.Contains(got, `address = ["127.0.0.1", "192.0.2.10", "198.51.100.1"]`) {
-		t.Errorf("config:\n%s", got)
+	if got := w.read(paths.ServerConfig(ops(t))); !strings.Contains(got, `address = ["127.0.0.1"]`) {
+		t.Errorf("the homeserver is not loopback alone:\n%s", got)
 	}
-	if got := w.read(paths.ServerDropInFile(ops(t))); !strings.Contains(got, "After="+deviceUnit("eth0")+" "+deviceUnit("lxcbr0")+"\n") {
-		t.Errorf("drop-in:\n%s", got)
+	if got := w.read(paths.TLSDropInFile(ops(t))); !strings.Contains(got, "After="+deviceUnit("eth0")+" "+deviceUnit("lxcbr0")+"\n") ||
+		!strings.Contains(got, " --listen 192.0.2.10 --listen 198.51.100.1\n") {
+		t.Errorf("terminator drop-in:\n%s", got)
 	}
 	w = newWorld(t)
 	w.faults["bridge"] = errFault

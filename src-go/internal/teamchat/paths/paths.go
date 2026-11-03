@@ -106,6 +106,7 @@ const (
 const (
 	ServerUnitTemplate   = Product + "-server@.service"
 	FenceUnitTemplate    = Product + "-fence@.service"
+	TLSUnitTemplate      = Product + "-tls@.service"
 	ServerStateDirectory = Product + "/%i"
 	HealthService        = Product + "-health.service"
 	HealthTimer          = Product + "-health.timer"
@@ -157,6 +158,13 @@ func ServerRuntimeDirectory(t TeamID) string { return Product + "/" + t.text() }
 
 // FenceUnit is the team's migration fence unit (D 3.5).
 func FenceUnit(t TeamID) string { return Product + "-fence@" + t.text() + ".service" }
+
+// TLSUnit is the team's TLS terminator unit, which accepts TLS on the team's listen addresses and
+// relays to the homeserver on loopback (Plan 00246 SPEC-cross-network X18).
+func TLSUnit(t TeamID) string { return Product + "-tls@" + t.text() + ".service" }
+
+// TLSUnitDropIn is the drop-in directory of the team's terminator unit.
+func TLSUnitDropIn(t TeamID) string { return TLSUnit(t) + ".d" }
 
 // FenceTable is the name of the team's nftables fence table, in family inet.
 func FenceTable(t TeamID) string { return Product + "_fence_" + t.text() }

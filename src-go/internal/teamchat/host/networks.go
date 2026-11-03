@@ -6,19 +6,6 @@ import (
 	"slices"
 )
 
-// parseAddrs is the addresses units.json records as text.
-func parseAddrs(list []string) ([]netip.Addr, error) {
-	out := make([]netip.Addr, 0, len(list))
-	for _, s := range list {
-		a, err := netip.ParseAddr(s)
-		if err != nil {
-			return nil, fmt.Errorf("units.json: listen address %q: %w", s, err)
-		}
-		out = append(out, a)
-	}
-	return out, nil
-}
-
 // listenAddress is the address of iface that serves network (SPEC-cross-network X3): of the
 // network's family, never an IPv6 link-local one (it needs a zone to be bound); the lowest
 // inside the network if the interface has one, else the lowest it has. An own network (the

@@ -157,6 +157,9 @@ func bareWorld(t *testing.T) *world {
 	if err := os.WriteFile(w.root+paths.ServerUnitTemplateFile, []byte("[Unit]\nDescription=v2 team homeserver %i\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(w.root+paths.TLSUnitTemplateFile, []byte("[Unit]\nDescription=v2 team TLS terminator %i\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(w.root+osRelease, []byte("NAME=Fedora Linux\nID=fedora\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -211,15 +214,15 @@ func (w *world) Interfaces() ([]host.Interface, error) {
 	}, nil
 }
 
-// Listeners are alpha's loopback and listen address while its unit is active.
+// Listeners are alpha's homeserver on loopback while its unit is active, and its terminator on
+// its listen address while that unit is.
 func (w *world) Listeners() ([]host.Listener, error) {
-	unit := paths.ServerUnit(alpha(w.t))
-	if u := w.units[unit]; u == nil || u.Active != "active" {
-		return nil, nil
-	}
 	var out []host.Listener
-	for _, a := range []string{"127.0.0.1", "192.0.2.10"} {
-		out = append(out, host.Listener{Addr: netip.MustParseAddrPort(net.JoinHostPort(a, strconv.Itoa(8448))), Unit: unit})
+	for _, bound := range [][2]string{{paths.ServerUnit(alpha(w.t)), "127.0.0.1"}, {paths.TLSUnit(alpha(w.t)), "192.0.2.10"}} {
+		unit, addr := bound[0], bound[1]
+		if u := w.units[unit]; u != nil && u.Active == "active" {
+			out = append(out, host.Listener{Addr: netip.MustParseAddrPort(net.JoinHostPort(addr, strconv.Itoa(8448))), Unit: unit})
+		}
 	}
 	return out, nil
 }
