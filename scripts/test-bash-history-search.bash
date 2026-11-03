@@ -204,6 +204,60 @@ check "every record carries an epoch" "7" \
     "$(tr '\0' '\n' <"$state/context" | awk -F'\t' '$1 ~ /^[0-9]+$/ && length($1) >= 10' | wc -l)"
 check "the context file is private to the user" "600" "$(stat -c %a "$state/context")"
 
+# ── nohist and histclean: the typed line is kept out of history and of the recorder ────
+# The real HISTIGNORE line of the profile.d file is fed to the interactive shell, so the test
+# fails if the patterns there stop covering the two helpers. histclean is a stub: the real
+# one is a Go binary, tested in src-go.
+echo "== nohist"
+NOHIST="$REPO_ROOT/files/home/bashrc-includes/nohist.bash"
+PROFILE="$REPO_ROOT/files/etc/profile.d/zz_lts-fedora-desktop.bash"
+ignore_line="$(grep -m1 '^export HISTIGNORE=' "$PROFILE")"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$WORK_DIR/bin/histclean"
+chmod +x "$WORK_DIR/bin/histclean"
+nohist_home="$WORK_DIR/nohist-home"
+nohist_state="$nohist_home/.local/state/bash"
+mkdir -p "$nohist_state" "$WORK_DIR/N"
+nohist_script="$(cat <<EOF
+HISTFILE=$nohist_state/history; HISTCONTROL=ignoredups; HISTTIMEFORMAT='%F %T  '
+$ignore_line
+source $INCLUDE
+source $NOHIST
+echo shown-control
+nohist 'export NOHIST_X=one; cd $WORK_DIR/N; echo hidden-string'
+printf 'PROBE-STATE:%s:%s\n' "${dollar}NOHIST_X" "${dollar}PWD"
+nohist echo hidden-words 'with  two spaces'
+nohist 'false'
+printf 'PROBE-RC-STRING:%s\n' "${dollar}?"
+nohist false
+printf 'PROBE-RC-WORDS:%s\n' "${dollar}?"
+nohist
+printf 'PROBE-RC-NONE:%s\n' "${dollar}?"
+histclean hidden-pattern
+nohist
+histclean
+echo shown-after
+history
+EOF
+)"
+nohist_out="$(run_shell "$nohist_home" "$WORK_DIR/start" "$nohist_script")"
+check "nohist runs the string in the current shell: export and cd stay" "PROBE-STATE:one:$WORK_DIR/N" \
+    "$(printf '%s\n' "$nohist_out" | grep '^PROBE-STATE:')"
+check "nohist hands back the exit status of a command string" "PROBE-RC-STRING:1" \
+    "$(printf '%s\n' "$nohist_out" | grep '^PROBE-RC-STRING:')"
+check "nohist hands back the exit status of a command with arguments" "PROBE-RC-WORDS:1" \
+    "$(printf '%s\n' "$nohist_out" | grep '^PROBE-RC-WORDS:')"
+check "nohist with nothing to run is a usage error" "PROBE-RC-NONE:2" \
+    "$(printf '%s\n' "$nohist_out" | grep '^PROBE-RC-NONE:')"
+check "nohist keeps argument boundaries" "1" \
+    "$(printf '%s\n' "$nohist_out" | grep -c '^hidden-words with  two spaces$')"
+check "the shell's own history holds the visible commands (the control)" "2" \
+    "$(printf '%s\n' "$nohist_out" | grep -c -E '^ *[0-9]+  [0-9-]+ [0-9:]+  echo shown-(control|after)$')"
+check "no nohist or histclean line, and nothing they carry, is in the shell's history" "0" \
+    "$(printf '%s\n' "$nohist_out" | grep -v -E 'HISTIGNORE|source ' | grep -c -E '^ *[0-9]+  .*(nohist( |$)|histclean|hidden-)')"
+check "nor in the history file" "0" "$(grep -v -E 'HISTIGNORE|source ' "$nohist_state/history" | grep -c -E 'nohist( |$)|histclean|hidden-')"
+check "nor in the Ctrl+R context file; the visible commands are" "0:1" \
+    "$(tr '\0' '\n' <"$nohist_state/context" | grep -v -E 'HISTIGNORE|source ' | grep -c -E 'nohist( |$)|histclean|hidden-'):$(tr '\0' '\n' <"$nohist_state/context" | grep -c 'echo shown-control')"
+
 # ── the Ctrl+R function, against a stub fzf ──────────────────────────────────────────
 # The stub records its arguments and answers with the first candidate it was handed, or
 # exits 130 as fzf does on Esc.

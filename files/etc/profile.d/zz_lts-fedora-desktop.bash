@@ -33,7 +33,9 @@ shopt -s histappend cmdhist lithist histverify
 HISTCONTROL=ignoredups
 export HISTFILESIZE=-1
 export HISTSIZE=-1
-export HISTIGNORE="ls:[bf]g:exit"
+# nohist and histclean: the typed line holds the very text to hide or remove, so it is never
+# kept (nohist.bash, histclean).
+export HISTIGNORE="ls:[bf]g:exit:nohist:nohist *:histclean:histclean *"
 HISTTIMEFORMAT='%F %T  '
 if [[ -O "${HOME}/.local/state/bash" ]]; then
     HISTFILE="${HOME}/.local/state/bash/history"

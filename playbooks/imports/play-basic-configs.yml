@@ -309,6 +309,14 @@
         group: "{{ user_login }}"
         mode: "0644"
 
+    - name: Deploy the nohist function (a command run with no history)
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/bashrc-includes/nohist.bash"
+        dest: "/home/{{ user_login }}/.bashrc-includes/nohist.bash"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
+
     # The desktop user only: that is the shell a dropped SSH session falls back to. A root
     # shell gets the same clean-up from the user prompt it returns to.
     - name: Deploy the prompt hook that switches stray terminal modes off
@@ -514,6 +522,15 @@
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: "0755"
+
+    # histclean removes matching entries from the history and Ctrl+R context files of the
+    # desktop user (Plan 00246); nohist.bash below is its counterpart.
+    - name: Build and Install the histclean Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: histclean
+        go_command_dest: "/home/{{ user_login }}/.local/bin/histclean"
+        go_command_mode: "0755"
 
     # The three with-key commands are Go binaries (src-go/cmd/*-with-key, Plan 00192), built
     # and installed at their old paths by the shared build-go-command.yml.
