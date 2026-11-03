@@ -182,7 +182,7 @@ func TestRefusalsNameWhatWasWrong(t *testing.T) {
 	}{
 		{[]string{"--team", "alpha", "recv"}, "flags follow the verb"},
 		{[]string{"nonsense"}, "no verb nonsense"},
-		{[]string{"seat"}, "seat takes one of: disconnected, set-aside"},
+		{[]string{"seat"}, "seat takes one of: disconnected, set-aside, place-issued"},
 		{[]string{"recv", "--colour"}, "teamchat recv has no flag --colour"},
 		{[]string{"recv", "--team=alpha"}, "--team VALUE, not --team=VALUE"},
 		{[]string{"say"}, "exactly one of --to, --to-coordinator"},

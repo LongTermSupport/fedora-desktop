@@ -38,6 +38,7 @@ var runs = map[string]RunFunc{
 	verbMembership:  runMembership,
 	verbGuestRemove: runGuestRemove,
 	verbSetAside:    runSetAside,
+	verbPlaceIssued: runPlaceIssued,
 }
 
 // outside are the verbs built outside this package, which cmd/teamchat passes in Env.Verbs.

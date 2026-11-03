@@ -8,6 +8,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -195,6 +196,7 @@ func (w *world) holding(secret string) []string {
 			out = append(out, path)
 		}
 	}
+	slices.Sort(out)
 	return out
 }
 

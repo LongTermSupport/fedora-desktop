@@ -129,6 +129,7 @@ const (
 	verbMembership  = "guest membership"
 	verbGuestRemove = "guest remove"
 	verbSetAside    = "seat set-aside"
+	verbPlaceIssued = "seat place-issued"
 )
 
 // The flags the code names.
@@ -224,6 +225,11 @@ var table = []Verb{
 		Does:  "posts a seat's disconnected notice once, from a host-held bundle",
 	},
 	{Name: verbSetAside, Flags: []Flag{required(teamFlag), {Name: "state", Value: valueDir, check: checkDir}}, Does: "renames a seat's store.json aside under the seat lock"},
+	{
+		Name:  verbPlaceIssued,
+		Flags: []Flag{{Name: "checkout", Value: valueDir, Required: true, check: checkDir}},
+		Does:  "places the issued seat on stdin in this user's seat pool for the checkout",
+	},
 	{Name: verbGuestCheck, Flags: []Flag{userFlag, required(teamFlag)}, Does: "checks an LXC guest's user can run a member session; stdin the team's reach facts"},
 	{Name: verbPlaceBundle, Flags: []Flag{userFlag, keyFlag}, Does: "places the seat bundle on stdin as the keyed seat in the user's home"},
 	{Name: verbMembership, Flags: []Flag{userFlag, keyFlag}, Does: "writes the desired membership on stdin as the keyed seat's desired.json"},
