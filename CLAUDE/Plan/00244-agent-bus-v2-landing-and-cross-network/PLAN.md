@@ -93,6 +93,8 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   transport is TLS with the team's own CA pinned in the member bundle (plain HTTP only on
   loopback); a remote seat's token is issued over ssh; and a seat handle never carries a real
   hostname. These replace Plan 00209 Task 0.6's "plain HTTP only inside a mesh tunnel".
+  The owner's decision 10 on pull request 124 asks for a detector for "a fake process made by
+  running a tool under another name", once this task has started: it is issue 126.
 
 ## Success Criteria
 
