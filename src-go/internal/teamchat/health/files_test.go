@@ -18,7 +18,6 @@ import (
 // Interface checks: the adapters are the seams the wiring hands on.
 var (
 	_ Teams       = Stamps{}
-	_ Backups     = NoBackups{}
 	_ host.Status = StatusFiles{}
 )
 
@@ -189,7 +188,7 @@ func statusWorld(t *testing.T) (*world, StatusFiles) {
 	}
 	tick, err := New(Config{
 		Clock: w.clock, Teams: Stamps{Root: root}, Units: w.units, Prober: w.prober, Viewer: w.viewer,
-		Backups: w.backups, Space: w.space, Guests: w.guests, Announcer: w.announcer, Locks: w.locks,
+		Backups: w.backups, Restores: w.restores, Space: w.space, Guests: w.guests, Announcer: w.announcer, Locks: w.locks,
 		StatusPath:    func(team paths.TeamID) string { return root + paths.StatusFile(team) },
 		LXCOnlinePath: func(team paths.TeamID) string { return root + paths.LXCOnlineFile(team) },
 		GID:           -1,
@@ -204,7 +203,7 @@ func statusWorld(t *testing.T) (*world, StatusFiles) {
 func TestStatusFilesRefresh(t *testing.T) {
 	w, s := statusWorld(t)
 	for _, first := range []bool{true, false} {
-		if err := s.Refresh(context.Background(), id(t, "alpha"), first); err != nil {
+		if err := s.Refresh(context.Background(), id(t, "alpha"), first, nil); err != nil {
 			t.Fatalf("Refresh(first %v): %v", first, err)
 		}
 	}
@@ -212,7 +211,7 @@ func TestStatusFilesRefresh(t *testing.T) {
 	if err != nil || !found || rec.Seq != 2 || rec.Origin != status.OriginV2 || rec.Name != "Alpha" {
 		t.Fatalf("record %+v, %v, %v", rec, found, err)
 	}
-	if err := s.Refresh(context.Background(), id(t, "beta"), true); err == nil {
+	if err := s.Refresh(context.Background(), id(t, "beta"), true, nil); err == nil {
 		t.Fatal("an unstamped team was refreshed")
 	}
 }
@@ -221,7 +220,7 @@ func TestStatusFilesRefresh(t *testing.T) {
 func TestStatusFilesRemove(t *testing.T) {
 	w, s := statusWorld(t)
 	team := id(t, "alpha")
-	if err := s.Refresh(context.Background(), team, true); err != nil {
+	if err := s.Refresh(context.Background(), team, true, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(w.dir + paths.LXCOnlineFile(team)); err != nil {
@@ -246,7 +245,7 @@ func TestStatusFilesRemoveRefuses(t *testing.T) {
 	w, s := statusWorld(t)
 	team := id(t, "alpha")
 	writeAt(t, filepath.Join(w.dir, paths.MigrationDir(team), "state.json"), `{}`)
-	if err := s.Refresh(context.Background(), team, true); err != nil {
+	if err := s.Refresh(context.Background(), team, true, nil); err != nil {
 		t.Fatal(err)
 	}
 	line, err := s.Remove(context.Background(), team)
@@ -273,16 +272,19 @@ func TestStatusFilesRemoveFailsOnAFileItCannotDelete(t *testing.T) {
 	}
 }
 
+// noBackups is a Backups with no backup and the last run none, as a team just applied has.
+type noBackups struct{}
+
+func (noBackups) State(context.Context, paths.TeamID) (BackupState, error) {
+	return BackupState{LastRun: status.RunNone}, nil
+}
+
 // HR4: no backup and a last run of none, so the record says the backup has not run.
-func TestNoBackups(t *testing.T) {
-	state, err := NoBackups{}.State(context.Background(), id(t, "alpha"))
-	if err != nil || state.Newest != nil || state.LastRun != status.RunNone {
-		t.Fatalf("State = %+v, %v", state, err)
-	}
+func TestNoBackupRunIsRecorded(t *testing.T) {
 	w := newWorld(t, "alpha")
 	tick, err := New(Config{
 		Clock: w.clock, Teams: w.teams, Units: w.units, Prober: w.prober, Viewer: w.viewer,
-		Backups: NoBackups{}, Space: w.space, Guests: w.guests, Announcer: w.announcer, Locks: w.locks,
+		Backups: noBackups{}, Restores: w.restores, Space: w.space, Guests: w.guests, Announcer: w.announcer, Locks: w.locks,
 		StatusPath:    func(team paths.TeamID) string { return filepath.Join(w.dir, team.String(), "status.json") },
 		LXCOnlinePath: func(team paths.TeamID) string { return filepath.Join(w.dir, team.String(), "lxc-online.json") },
 		GID:           -1,
@@ -305,7 +307,7 @@ func TestTickRecordsAFailingGuestProbe(t *testing.T) {
 	w := newWorld(t, "alpha")
 	tick, err := New(Config{
 		Clock: w.clock, Teams: w.teams, Units: w.units, Prober: w.prober, Viewer: w.viewer,
-		Backups: w.backups, Space: w.space, Guests: failingGuests{}, Announcer: w.announcer, Locks: w.locks,
+		Backups: w.backups, Restores: w.restores, Space: w.space, Guests: failingGuests{}, Announcer: w.announcer, Locks: w.locks,
 		StatusPath:    func(team paths.TeamID) string { return filepath.Join(w.dir, team.String(), "status.json") },
 		LXCOnlinePath: func(team paths.TeamID) string { return filepath.Join(w.dir, team.String(), "lxc-online.json") },
 		GID:           -1,

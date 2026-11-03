@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/leakcheck"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/forge"
 )
@@ -145,6 +146,38 @@ func (g *hungGh) count() int {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.runs
+}
+
+// A gh run its only caller gave up on is left running, and lives exactly its own 10 s bound:
+// armed until then, and ended by it, with nothing left running after.
+func TestAnAbandonedGhRunEndsAtItsOwnBound(t *testing.T) {
+	leakcheck.Check(t)
+	gh := &hungGh{started: make(chan struct{}, 1)}
+	clk := clock.NewFake(time.Hour, wall0)
+	l := forge.NewLogin(gh, clk)
+	ctx, cancel := context.WithCancel(context.Background())
+	first := make(chan error, 1)
+	go func() {
+		_, err := l.Token(ctx)
+		first <- err
+	}()
+	<-gh.started
+	cancel()
+	if err := <-first; !errors.Is(err, context.Canceled) {
+		t.Fatalf("the caller that gave up: %v, want its context's error", err)
+	}
+	// The bound is armed before gh starts, so it stands now.
+	if ok, err := clk.Armed(10 * time.Second); err != nil || !ok {
+		t.Fatalf("the abandoned run's bound at its start: armed %v, %v", ok, err)
+	}
+	clk.Advance(10*time.Second - time.Nanosecond)
+	if ok, err := clk.Armed(time.Nanosecond); err != nil || !ok {
+		t.Fatalf("the abandoned run's bound before 10 s: armed %v, %v", ok, err)
+	}
+	clk.Advance(time.Nanosecond)
+	if _, err := l.Token(context.Background()); !errors.Is(err, forge.ErrLogin) || gh.count() != 1 {
+		t.Fatalf("after the bound: %v after %d runs; want the run's ErrLogin and no second run", err, gh.count())
+	}
 }
 
 // SD5-4 (n3d-D31): gh runs under its own 10 s bound; a caller whose context ends is released at

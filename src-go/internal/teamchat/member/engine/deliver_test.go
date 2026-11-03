@@ -232,10 +232,12 @@ func (dw *dworld) short(due, d time.Duration) {
 	dw.clk.Advance(d)
 }
 
-// idleAfter waits for the delivery loop to go idle more than n times.
-func (dw *dworld) idleAfter(n int64) {
+// settle pokes the delivery loop and waits until it has run a whole pass since, so whatever
+// the test did before is handled; an idle seen before the poke cannot end the wait.
+func (dw *dworld) settle() {
 	dw.t.Helper()
-	for dw.e.idles.Load() <= n {
+	n := dw.e.poke()
+	for dw.e.settled.Load() < n {
 		if dw.t.Context().Err() != nil {
 			dw.t.Fatal("the loop never went idle")
 		}
@@ -325,11 +327,9 @@ func TestNoDeliveryBeforeTheFacts(t *testing.T) {
 	a := tid(t, "alpha")
 	dw.live(a)
 	dw.persist(a, humanItem(a, 1, startWall, "hello"))
-	// Two pokes made while the loop works are one, so only one more idle is certain.
-	dw.idleAfter(0)
-	idles := dw.e.idles.Load()
+	dw.settle()
 	check(t, dw.e.SetSession(t.Context(), SessionFacts{Socket: testSocket, Token: testToken}))
-	dw.idleAfter(idles)
+	dw.settle()
 	if n := dw.dial.dialCount(); n != 0 {
 		t.Fatalf("%d dials before the transcript", n)
 	}
@@ -354,7 +354,7 @@ func TestNeverToAWaitSession(t *testing.T) {
 	if n := dw.dial.dialCount(); n != 0 {
 		t.Fatalf("%d dials to a wait session", n)
 	}
-	if dw.e.idles.Load() != 0 {
+	if dw.e.settled.Load() != 0 {
 		t.Fatal("a wait session runs the delivery loop")
 	}
 }
@@ -374,9 +374,8 @@ func TestAGoneSocketStopsDelivery(t *testing.T) {
 	if dw.e.Live() {
 		t.Fatal("live after the socket went")
 	}
-	idles := dw.e.idles.Load()
 	dw.persist(a, humanItem(a, 2, startWall+1, "two"))
-	dw.idleAfter(idles)
+	dw.settle()
 	if n := dw.dial.dialCount(); n != 1 {
 		t.Fatalf("%d dials to a gone socket", n)
 	}
@@ -556,7 +555,12 @@ func TestAPartWrittenUserLineStaysUnknown(t *testing.T) {
 	dw.dial.then(dialStep{write: fmt.Errorf("%w: 10 of 400 bytes", inbox.ErrPartial)})
 	dw.facts(false)
 	dw.next()
-	dw.idleAfter(0)
+	// The awaiting entry is written unknown before the line goes, so the store is read only
+	// once the cut has been handled, by the cut's own arm (it changes nothing in the store).
+	dw.until(func() bool { return strings.Contains(dw.log.String(), "delivery to team alpha:") })
+	if l := dw.log.String(); !strings.Contains(l, "its proof settles it") {
+		t.Fatalf("a cut user line handled as another outcome: %s", l)
+	}
 	s := dw.store(a)
 	if len(s.Awaiting) != 1 || s.Awaiting[0].Written != state.WrittenUnknown || len(s.Ledger) != 0 || s.Pending[0].Handed == nil {
 		t.Fatalf("after a cut user line: %+v", s)
@@ -782,7 +786,7 @@ func TestAFailedAgentSlotIsDropped(t *testing.T) {
 	dw.persist(a, bad)
 	dw.facts(false)
 	dw.until(func() bool { return len(dw.e.teams[a].store.Pending) == 0 })
-	dw.idleAfter(0)
+	dw.settle()
 	if n := dw.dial.dialCount(); n != 0 {
 		t.Fatalf("%d dials for a delivery with nothing to show", n)
 	}
@@ -1037,7 +1041,7 @@ func TestARecvBetweenAuthAndTheEntryWins(t *testing.T) {
 	if <-ack == "" {
 		t.Fatal("the recv handed nothing")
 	}
-	dw.idleAfter(0)
+	dw.settle()
 	if n := dw.dial.writeCount(); n != 0 {
 		t.Fatalf("%d user lines written for items a recv took", n)
 	}

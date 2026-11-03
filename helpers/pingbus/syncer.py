@@ -312,9 +312,23 @@ class Syncer:
         self._fresh_questions = False
         #: Messages a gap past `GAP_MAX_PAGES` left unread, counted into the next batch.
         self._gap_drops = 0
+        #: The senders `sender_of` has read, by event ID.
+        self._senders: dict[str, str | None] = {}
 
     def _say(self, text: str) -> None:
         self._log(f"team {self.member.team}: {text}")
+
+    def sender_of(self, event_id: str) -> str | None:
+        """Who sent a team-room event a human's message answers (`protocol.reply_root`), asked
+        of the homeserver once per event; None for one it does not serve this member."""
+        if event_id not in self._senders:
+            try:
+                event = self.client.get_event(self.member.room, event_id)
+            except (matrix.NotFound, matrix.Forbidden):
+                event = None
+            sender = event.get("sender") if isinstance(event, dict) else None
+            self._senders[event_id] = sender if isinstance(sender, str) else None
+        return self._senders[event_id]
 
     # ── room trust ───────────────────────────────────────────────────────────────────────
 
@@ -811,7 +825,7 @@ class Syncer:
             self._gap_drops = 0
         for room, event in [(protocol.ROOM_MAIN, e) for e in events] + [(protocol.PURPOSE_QUESTIONS, e) for e in questions]:
             outcome = protocol.validate_event(event, ctx, member.user_id, seen, human_text=member.human_text,
-                                              room=room)
+                                              room=room, sender_of=self.sender_of)
             if outcome.kind == protocol.IGNORE and outcome.reason == "type":
                 continue
             event_id = event.get("event_id") if isinstance(event, dict) else None
@@ -827,9 +841,12 @@ class Syncer:
                 sender = event.get("sender") if isinstance(event, dict) else None
                 self.state.log_drop(member.team, event_id, sender, outcome.reason, now)
                 drops[outcome.reason] += 1
+            elif outcome.kind == protocol.ACCEPT and room == protocol.ROOM_MAIN:
+                own = None if outcome.human is None else outcome.human.answers
+                accepted.append(event if own is None else {**event, inbox.ANSWERS_KEY: own})
             elif outcome.kind == protocol.ACCEPT:
-                (accepted if room == protocol.ROOM_MAIN else asked).append(event)
-            elif room == protocol.ROOM_MAIN and protocol.reached_no_agent(event, ctx, outcome):
+                asked.append(event)
+            elif room == protocol.ROOM_MAIN and protocol.reached_no_agent(event, ctx, outcome, self.sender_of):
                 self.state.log_ignored(member.team, event_id, event.get("sender"), outcome.reason, now)
         if asked:
             index = self._question_index_or_none()
@@ -959,7 +976,8 @@ class Syncer:
         member = self.member
         if isinstance(event, dict) and event.get("sender") == member.user_id:
             return self._own_item(event, record, ctx)
-        outcome = protocol.validate_event(event, ctx, member.user_id, seen, human_text=member.human_text)
+        outcome = protocol.validate_event(event, ctx, member.user_id, seen, human_text=member.human_text,
+                                          sender_of=self.sender_of)
         if outcome.kind == protocol.IGNORE:
             return None, None
         seen.add(event["event_id"])

@@ -396,6 +396,15 @@ type session struct {
 	agent   int
 	runtime string
 	ended   chan execx.ExitStatus
+	// outputs are the read ends of the process's stdout and stderr, each with its reader.
+	outputs []output
+}
+
+// output is one read end of a process's output, and its reader's end: done closes once the
+// reader has stopped reading.
+type output struct {
+	r    *os.File
+	done chan struct{}
 }
 
 // lines is a process's output, kept by line.
@@ -447,8 +456,14 @@ func (w *world) start(flags ...string) *session {
 	})
 	check(w.t, errors.Join(err, inR.Close(), outW.Close(), errW.Close()))
 	s.keeper = k
-	go s.out.read(outR)
-	go s.errOut.read(errR)
+	for r, into := range map[*os.File]*lines{outR: s.out, errR: s.errOut} {
+		o := output{r: r, done: make(chan struct{})}
+		s.outputs = append(s.outputs, o)
+		go func() {
+			defer close(o.done)
+			into.read(r)
+		}()
+	}
 	go func() {
 		st, werr := k.Wait()
 		if werr != nil {
@@ -610,6 +625,7 @@ func (s *session) wait() {
 // keeper by SIGKILL, then a wait for each link the keeper started, which ends by itself. A
 // session whose CMD never started has no pid for it: a kill of pid 0 is the test's own group.
 func (s *session) cleanup() {
+	defer s.endOutputs()
 	if s.agent > 0 {
 		if err := syscall.Kill(s.agent, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
 			s.w.t.Error(err)
@@ -619,13 +635,45 @@ func (s *session) cleanup() {
 		if err := s.keeper.Signal(syscall.SIGKILL); err != nil {
 			s.w.t.Error(err)
 		}
-		<-s.ended
+		st := <-s.ended
+		s.ended <- st
 	}
 	if err := s.stdin.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
 		s.w.t.Error(err)
 	}
 	for _, pid := range s.links() {
 		eventually(s.w.t, func() bool { return gone(pid) }, s.describe)
+	}
+	// The agent shares the keeper's stdout, so the readers reach its end once it is gone too.
+	if s.agent > 0 {
+		eventually(s.w.t, func() bool { return gone(s.agent) }, s.describe)
+	}
+	eventually(s.w.t, s.outputsRead, s.describe)
+}
+
+// outputsRead is whether every output reader has read to the end.
+func (s *session) outputsRead() bool {
+	for _, o := range s.outputs {
+		select {
+		case <-o.done:
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// endOutputs closes the output's read ends and waits for their readers, which a close ends if
+// a writer is still running (a cleanup that failed before every process was gone). It may run
+// twice, as a test's own cleanup may run before the session's.
+func (s *session) endOutputs() {
+	for _, o := range s.outputs {
+		if err := o.r.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+			s.w.t.Error(err)
+		}
+	}
+	for _, o := range s.outputs {
+		<-o.done
 	}
 }
 

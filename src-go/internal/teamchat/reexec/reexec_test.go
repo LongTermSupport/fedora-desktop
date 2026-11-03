@@ -15,6 +15,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/leakcheck"
 )
 
 var helpers = Helpers{
@@ -78,7 +79,9 @@ var helpers = Helpers{
 	},
 }
 
-func TestMain(m *testing.M) { os.Exit(Main(m, helpers)) }
+// The leak check holds that every Start's run of its helper has ended once its test has, on
+// each path a test takes: ready, ended early, a first line that is not ready, released, killed.
+func TestMain(m *testing.M) { os.Exit(Main(leakcheck.Tests(m), helpers)) }
 
 func TestStartRunsTheHelperAsASecondProcess(t *testing.T) {
 	p := Start(t, "hold")

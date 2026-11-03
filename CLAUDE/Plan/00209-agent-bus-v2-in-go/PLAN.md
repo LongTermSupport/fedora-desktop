@@ -1,6 +1,6 @@
 # Plan 00209: agent bus v2 in go
 
-**Status**: In Progress (landing on F44 is Plan 00244; the plan of record for v2, `teamchat`, a separate system beside v1; N0's
+**Status**: In Progress (landing on F44 is Plan 00246; the plan of record for v2, `teamchat`, a separate system beside v1; N0's
 design is integrated in [DESIGN-v2.md](DESIGN-v2.md), reviewed and fixed in three rounds, with its last check open; a dedicated build
 session does the work to [BUILD-BRIEF.md](BUILD-BRIEF.md))
 **Created**: 2026-10-19
@@ -364,6 +364,15 @@ its first caller.
   (`TestTuwunelSeatWatch`), and each passed (`subagent-reports/261022-n2-qafix.md`).
   The team lock is one package, `teamchat/teamlock` (TL1), used by host, admin and health
   (`subagent-reports/261022-n2-lock.md`).
+  Slice n2g (`feat/bus-v2-n2g`, `SPEC-n2g.md`, report `subagent-reports/261022-n2g.md`) covers
+  C 3.12 as inert code: backups (`backup`: BT, BK, BV, HB1), the restore engine (`restore`:
+  RG, RM, RS, RO, RE, the renames), the child's restore ops and the secure unit's child
+  (`admin`: RC, RU), the `backup`, `backups` and `restore` verbs, and their wiring (`admin/wire`).
+  RT1-RT4 pass against the pinned Tuwunel 1.9.4 (`-tags tuwunel`). An Opus review went
+  FIX-FIRST, then MERGE in round 2 (`261022-n2g-review.md`, `-review-2.md`). `backup --all`
+  goes on past a team that is down. Not done: `restore` stays refused in production
+  (`restore.ErrUnproven`, n2g-D8, until H-C5 and H-C15); the units, timers and install (gate A,
+  Task 2.5); the review's nits 5-11.
 
   **Six N2 packages had no caller; slice n2f gives four of them one** (by import:
   `go list -deps ./cmd/teamchat-admin`). A Go package merges to F44 with its first caller
@@ -529,7 +538,7 @@ its first caller.
   and TID; the VM-lab scenarios do not wait.
 - [ ] ⬜ **Task 6.3**: When no team is v1-live, raise v1's retirement with the owner (its own
   plan). That plan also collapses the second owners v2's landing accepted (decision 5 on pull
-  request 124, Plan 00244 Task 8.1): `lxccmd` beside the v1 owner of `lxc-ls`, `lxc-info` and
+  request 124, Plan 00246 Task 8.1): `lxccmd` beside the v1 owner of `lxc-ls`, `lxc-info` and
   `lxc-attach`, `teamchat/units` beside the v1 owner of `systemctl`, and the `dynamicNames` row
   for a run-time program inside a wrapper, so each program has one owner again.
 
@@ -550,7 +559,7 @@ its first caller.
 
 ### Phase 8: landing v2 on F44
 
-Moved to [Plan 00244](../00244-agent-bus-v2-landing-and-cross-network/PLAN.md) on the owner's
+Moved to [Plan 00246](../00246-agent-bus-v2-landing-and-cross-network/PLAN.md) on the owner's
 decision of 2026-11-03, with its task numbers: the landing of `spike/v2-merge-up` on F44 (Tasks
 8.1 to 8.7, pull request 124) and the cross-network membership of direction 7 (Task 8.8).
 

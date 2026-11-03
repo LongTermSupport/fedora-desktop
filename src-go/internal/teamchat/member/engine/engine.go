@@ -124,11 +124,15 @@ type Engine struct {
 	logLost int
 
 	// kick pokes the delivery loop; members carries SendMembership's notices into it; hit is
-	// hitPoint; idles counts the loop's idle waits.
+	// hitPoint. pokes numbers the pokes made; taken (the delivery loop's alone) is pokes as the
+	// loop last woke to one, and settled is taken as the loop last went idle, so settled at
+	// or past a poke's number means a whole pass has run since that poke.
 	kick    chan struct{}
 	members chan memberReq
 	hit     func(point)
-	idles   atomic.Int64
+	pokes   atomic.Int64
+	settled atomic.Int64
+	taken   int64
 
 	// Everything below is the state goroutine's alone.
 	teams   map[paths.TeamID]*held

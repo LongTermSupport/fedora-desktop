@@ -91,6 +91,7 @@ func zeroDerivations() map[string]func() string {
 	maps.Copy(derivations, hostZeroDerivations())
 	maps.Copy(derivations, memberZeroDerivations())
 	maps.Copy(derivations, lxcZeroDerivations())
+	maps.Copy(derivations, restoreZeroDerivations())
 	return derivations
 }
 

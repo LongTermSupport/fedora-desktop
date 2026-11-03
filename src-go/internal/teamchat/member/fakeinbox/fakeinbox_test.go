@@ -80,6 +80,16 @@ func send(t *testing.T, b *fakeinbox.Inbox, lines ...string) {
 	}
 }
 
+// settled waits until the fake has recorded n frames. A delivery that ends in a refusal records
+// that frame after the fake has closed the connection, so send's read to EOF does not wait for
+// it: a test that expects a refusal awaits it, as the keeper and link tests do.
+func settled(t *testing.T, b *fakeinbox.Inbox, n int) {
+	t.Helper()
+	if err := b.Await(t.Context(), n); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func last(t *testing.T, b *fakeinbox.Inbox) fakeinbox.Frame {
 	t.Helper()
 	frames := b.Frames()
@@ -106,6 +116,7 @@ func TestADeliveryIsRecordedAndHandedOn(t *testing.T) {
 func TestAWrongTokenIsRefusedAndTheConnectionClosed(t *testing.T) {
 	r := start(t, fakeinbox.Options{})
 	send(t, r.b, `{"type":"auth","token":"other"}`+"\n", user("never"))
+	settled(t, r.b, 1)
 	frames := r.b.Frames()
 	if len(frames) != 1 || !frames[0].Auth || frames[0].Accepted || frames[0].Reason != "auth" || frames[0].Content != "" {
 		t.Fatalf("frames %+v, want one refused auth frame", frames)
@@ -126,23 +137,29 @@ func TestAFrameIsHandedOnBeforeItIsRecorded(t *testing.T) {
 }
 
 func TestFramingRefusals(t *testing.T) {
-	cases := map[string][]string{
-		"auth not JSON":        {"nope\n"},
-		"auth of another type": {`{"type":"user","token":"fake-token"}` + "\n"},
-		"auth unknown field":   {`{"type":"auth","token":"fake-token","x":1}` + "\n"},
-		"auth trailing data":   {`{"type":"auth","token":"fake-token"} {}` + "\n"},
-		"user not ASCII":       {auth, `{"type":"user","message":{"role":"user","content":"caf` + "é" + `"}}` + "\n"},
-		"user wrong role":      {auth, `{"type":"user","message":{"role":"assistant","content":"x"}}` + "\n"},
-		"user wrong type":      {auth, `{"type":"auth","message":{"role":"user","content":"x"}}` + "\n"},
-		"user line cut":        {auth, `{"type":"user","message":{"role":"us`},
-		"a line after":         {auth, user("x"), user("y")},
+	// frames is what the delivery leaves: the auth frame if it was accepted, the user frame if it
+	// got that far, and the refusal.
+	cases := map[string]struct {
+		frames int
+		lines  []string
+	}{
+		"auth not JSON":        {1, []string{"nope\n"}},
+		"auth of another type": {1, []string{`{"type":"user","token":"fake-token"}` + "\n"}},
+		"auth unknown field":   {1, []string{`{"type":"auth","token":"fake-token","x":1}` + "\n"}},
+		"auth trailing data":   {1, []string{`{"type":"auth","token":"fake-token"} {}` + "\n"}},
+		"user not ASCII":       {2, []string{auth, `{"type":"user","message":{"role":"user","content":"caf` + "é" + `"}}` + "\n"}},
+		"user wrong role":      {2, []string{auth, `{"type":"user","message":{"role":"assistant","content":"x"}}` + "\n"}},
+		"user wrong type":      {2, []string{auth, `{"type":"auth","message":{"role":"user","content":"x"}}` + "\n"}},
+		"user line cut":        {2, []string{auth, `{"type":"user","message":{"role":"us`}},
+		"a line after":         {3, []string{auth, user("x"), user("y")}},
 	}
-	for name, lines := range cases {
+	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			r := start(t, fakeinbox.Options{})
 			accepted := 0
 			r.b.OnAccepted(func(fakeinbox.Frame) { accepted++ })
-			send(t, r.b, lines...)
+			send(t, r.b, tc.lines...)
+			settled(t, r.b, tc.frames)
 			if f := last(t, r.b); f.Accepted || f.Reason != "framing" {
 				t.Fatalf("frames %+v, want a framing refusal last", r.b.Frames())
 			}

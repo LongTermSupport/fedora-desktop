@@ -185,8 +185,18 @@ var dynamicNames = []allowance{
 	},
 	{
 		pkg:    "internal/teamchat/matrix/tuwunelhs",
-		fn:     "Start",
+		fn:     "StartWith",
 		reason: "the Tuwunel homeserver binary the environment names (BinEnv), run for the real-homeserver tests; never an owned program",
+	},
+	{
+		pkg:    "internal/teamchat/admin",
+		fn:     "UnitChild.Ask",
+		reason: "/usr/bin/systemd-run of the restore's secure unit (it refuses any other argv[0]), argv from restore.SecureArgv (SPEC-n2g RU2); the program inside is teamchat-admin itself, a run-time path",
+	},
+	{
+		pkg:    "internal/teamchat/restore",
+		fn:     "unitCommand",
+		reason: "/usr/bin/systemd-run of the restore's staging or secure unit, argv from StagingArgv or SecureArgv (SPEC-n2g RU1, RU2); the program inside is the Tuwunel units.json names or teamchat-admin itself, both run-time paths",
 	},
 	{
 		pkg:    "internal/wsi",

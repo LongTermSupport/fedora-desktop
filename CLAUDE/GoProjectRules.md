@@ -1632,7 +1632,22 @@ bash they replaced and in the Go during review; each instance is in the audit re
   signal), and its own tests pin the order: `TestTheLastFrameIsRecordedOnceTheConnectionIsClosed`
   (the connection's `Close` reads the frames), `TestAFrameIsHandedOnBeforeItIsRecorded` and
   `TestAFakeSIGKILLExitsBeforeItIsSeen`. A new fake's announcement is placed after its action
-  and tested the same way.
+  and tested the same way. The other half is the reader: a test that has seen only the action
+  (a read to EOF after the fake closed) has not seen the announcement, so it awaits the
+  announcement before it reads (`fakeinbox`'s own refusal tests read the frames straight after
+  `send` and failed in 32 of 900 stressed runs until they awaited with `settled`; run under
+  `-cpu 1,2,4`, 300 times, the old form fails and the new one does not). No rule: every shape
+  that reads after a close also matches the many reads that are ordered.
+- **A fake that does not keep the contract of the interface it stands for** (Plan 00209 n2/n3e
+  merge: `units.Conn` says the connection closes the signal channel it was given when it is
+  closed, and n3e made `session.close` wait for `dispatch`, which that close ends; n2's
+  `busConn` in `admin/wire` ignored `Signal` and its `Close` did nothing, so the first refused
+  `StopUnit` hung the test binary for its whole 20 minutes). The contract is prose on the
+  interface, so no syntax tree says which method must do what, and the fake that breaks it
+  compiles. What holds it instead: each fake of `units.Conn` does what the interface comment
+  says (`units`' `fakeConn` records the channel and closes it once; `busConn` now does the
+  same), and a test of a new fake runs the Manager's failure path against it, under
+  `-timeout` short enough to show a hang in seconds.
 
 Classes the bundled linters already hold, each seen firing on a minimal case in the audit: an
 error or status thrown away (the bash's `|| true`, unchecked process substitutions and

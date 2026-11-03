@@ -1,0 +1,25 @@
+# Fact-check 2, Plan 00245 (diff-only)
+
+| #   | Claim                                                                                                                                       | Verdict           | Evidence                                                                                            |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | --------------------------------------------------------------------------------------------------- |
+| 1   | scratch top level: 3,354 files, 1,093 over 4 KiB, 440 md                                                                                    | VERIFIED (drift)  | now 3,360 / 1,092 / 442; 22 entries in scratch newer than 10:30 today, so the tree is still growing |
+| 2   | 47,130 files recursively, 6,157 md                                                                                                          | VERIFIED (drift)  | now 47,138 / 6,159                                                                                  |
+| 3   | 96 registered worktrees                                                                                                                     | VERIFIED          | `git worktree list` gives 97 lines including the main checkout                                      |
+| 4   | Task 1.2 DESIGN-defence.md has nine layers                                                                                                  | VERIFIED          | section 4 table L1..L9                                                                              |
+| 5   | Layer and recommendation sections exist                                                                                                     | VERIFIED          | sections 4 and 5 present                                                                            |
+| 6   | `src-go/internal/bus/proto/` and `tests/fixtures/agent-bus-protocol/` absent on F44                                                         | VERIFIED          | both `ls` fail                                                                                      |
+| 7   | `bus-v2-n3e-seam.patch` is 0 bytes                                                                                                          | VERIFIED          | `ls -la`                                                                                            |
+| 8   | owner sheets, branch-triage 28 KB, old-range tsv 11 KB, performance-audit PLAN 9.7 KB, skill report 16 KB, SPEC-n3 sizes, 00161-units 32 KB | VERIFIED          | sizes match; owner-decisions 14 KB, owner-unblock 6 KB                                              |
+| 9   | Dates of those files                                                                                                                        | VERIFIED          | mtimes match (Nov 2, Oct 28, Nov 3, Oct 30, Oct 21, Sep 2, Oct 23, Oct 6)                           |
+| 10  | wip-rescue holds 58 files (36 + 22)                                                                                                         | VERIFIED (drift)  | 60 now; new files written after 10:00 today                                                         |
+| 11  | agent-reports/auto: 72 replies over 2.5 KB                                                                                                  | REFUTED (count)   | 90 files over 2560 bytes now (501 files in auto)                                                    |
+| 12  | 310 compaction summaries in auto/                                                                                                           | UNVERIFIABLE-HERE | no classification test run; 501 files total                                                         |
+| 13  | about 80 `scratch-qaall*` logs at top level                                                                                                 | REFUTED (count)   | 55 matching names in untracked/                                                                     |
+| 14  | 22 issue-reports bodies                                                                                                                     | VERIFIED (drift)  | 23 entries                                                                                          |
+| 15  | Plans 00209, 00235 exist                                                                                                                    | VERIFIED          | folders listed                                                                                      |
+| 16  | Published/valuable/unknown counts, hash-match tests, dirty worktrees 12                                                                     | UNVERIFIABLE-HERE | method-based estimates, not re-run                                                                  |
+
+## REFUTED
+
+1. Claim 11: 72 should be about 90 (count has moved).
+2. Claim 13: about 80 should be 55.

@@ -119,8 +119,13 @@ func newServerWorldAs(t *testing.T, uid int) *serverWorld {
 		t.Fatalf("link.sock is %v", info.Mode())
 	}
 	w.srv = newServer(ln, w.eng, w.clk, uid, kit, w.log)
-	go w.srv.run(context.Background())
-	t.Cleanup(func() { check(t, w.srv.close()) })
+	var accepting sync.WaitGroup
+	accepting.Go(func() { w.srv.run(context.Background()) })
+	t.Cleanup(func() {
+		err := w.srv.close()
+		accepting.Wait()
+		check(t, err)
+	})
 	return w
 }
 

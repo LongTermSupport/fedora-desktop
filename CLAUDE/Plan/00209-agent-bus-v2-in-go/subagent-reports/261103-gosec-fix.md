@@ -2,7 +2,7 @@
 
 Status: part 1 of 2. The first builder stopped at its context budget with the work below
 committed. The rows marked LEFT and the "Left to do" list were finished in part 2, whose report
-is `CLAUDE/Plan/00244-agent-bus-v2-landing-and-cross-network/subagent-reports/261103-gosec-fix-2.md`
+is `CLAUDE/Plan/00246-agent-bus-v2-landing-and-cross-network/subagent-reports/261103-gosec-fix-2.md`
 (with the final commands and results, and the sites that are quiet without being bounded).
 
 The owner's decision on pull request 124: fix every G304 site in code, do not record it; if one

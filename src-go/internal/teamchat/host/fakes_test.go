@@ -93,6 +93,8 @@ type world struct {
 	boots    []Bootstrap
 	backups  int
 	onBackup func()
+	guarded  []paths.TeamID
+	guardErr error
 	// rand is the randomness every apply of this host draws on: the registration key's 64 bytes,
 	// then an endless stream that never repeats, so each key and serial number a later step makes
 	// is its own.
@@ -207,6 +209,10 @@ func (w *world) deps() Deps {
 		Rand: w.rand, Pin: p, Software: "d1g3st",
 		CtlUID: os.Getuid(), CtlGID: os.Getgid(), Approvals: w, Systemd: w.sd, Firewall: w.fw,
 		Network: w.net, Ready: w.ready, Status: w.status,
+		Guard: func(team paths.TeamID) error {
+			w.guarded = append(w.guarded, team)
+			return w.guardErr
+		},
 		Backup: func(_ context.Context, held *teamlock.Lock) error {
 			if held == nil {
 				w.t.Error("the backup was not given the held lock")
@@ -456,10 +462,12 @@ type fakeStatus struct {
 	w          *world
 	refreshed  []bool
 	removeLine string
+	events     []string
 }
 
-func (s *fakeStatus) Refresh(_ context.Context, _ paths.TeamID, first bool) error {
+func (s *fakeStatus) Refresh(_ context.Context, _ paths.TeamID, first bool, events []string) error {
 	s.refreshed = append(s.refreshed, first)
+	s.events = append(s.events, events...)
 	return s.w.call("status.refresh")
 }
 

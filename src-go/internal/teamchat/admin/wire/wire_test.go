@@ -3,6 +3,7 @@ package wire
 import (
 	"context"
 	"errors"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestroot"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/units"
 )
 
@@ -29,6 +31,8 @@ type fakeMachine struct {
 	pinErr                     error
 	noCtl                      bool
 	kitOwner                   int
+	proven                     bool
+	conn                       units.Conn
 	n                          counts
 }
 
@@ -48,8 +52,12 @@ func (f *fakeMachine) machine() machine {
 		runner:     &execx.Fake{}, kernel: guestroot.LinuxKernel{}, kitOwner: f.kitOwner,
 		dial: func(context.Context) (units.Conn, error) {
 			f.n.dials++
+			if f.conn != nil {
+				return f.conn, nil
+			}
 			return nil, errors.New("no bus here")
 		},
+		restoreProven: f.proven,
 	}
 }
 
@@ -73,6 +81,14 @@ func nilFields(v reflect.Value, skip ...string) []string {
 		}
 	}
 	return out
+}
+
+// RW2, n2g-D8: production refuses the restore engine until H-C5 and H-C15 pass.
+func TestRestoreIsUnproven(t *testing.T) {
+	sys := build(t, &fakeMachine{root: t.TempDir()})
+	if engine, err := sys.Restore(); engine != nil || !errors.Is(err, restore.ErrUnproven) {
+		t.Fatalf("Restore = %v, %v", engine, err)
+	}
 }
 
 // WR2: every seam is set, and building the System reads nothing: no bus, no account, no group,
@@ -134,7 +150,7 @@ func TestNoOwnerGroupFailsTheTickAndTheStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := sys.Host.Status.Refresh(t.Context(), team, false); err == nil || !strings.Contains(err.Error(), "no owner-group file") {
+	if err := sys.Host.Status.Refresh(t.Context(), team, false, nil); err == nil || !strings.Contains(err.Error(), "no owner-group file") {
 		t.Fatalf("Status.Refresh with no owner group = %v", err)
 	}
 	if _, err := sys.Host.Status.Remove(t.Context(), team); err == nil || !strings.Contains(err.Error(), "no owner-group file") {
@@ -155,7 +171,7 @@ func TestStatusIsTheTicks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := sys.Host.Status.Refresh(t.Context(), team, true); err == nil || !strings.Contains(err.Error(), "alpha has no stamp") {
+	if err := sys.Host.Status.Refresh(t.Context(), team, true, nil); err == nil || !strings.Contains(err.Error(), "alpha has no stamp") {
 		t.Fatalf("Refresh of an unstamped team = %v", err)
 	}
 	if line, err := sys.Host.Status.Remove(t.Context(), team); err != nil || line != "" {
@@ -163,15 +179,7 @@ func TestStatusIsTheTicks(t *testing.T) {
 	}
 }
 
-// WR2, n2f-D6: a backup is refused until C 3.12 is built.
-func TestBackupIsRefused(t *testing.T) {
-	sys := build(t, &fakeMachine{root: t.TempDir()})
-	if err := sys.Host.Backup(t.Context(), nil); err == nil || err.Error() != "backups are not built yet (C 3.12)" {
-		t.Fatalf("Backup = %v", err)
-	}
-}
-
-// Plan 00244 S6: the team CA is read from the files the host keeps, which slice S7a wires; until
+// Plan 00246 S6: the team CA is read from the files the host keeps, which slice S7a wires; until
 // then the System's provider and the one the bundles carry both say the CA is not made yet, so an
 // https team issues nothing instead of a bundle without its CA.
 func TestTeamCAIsNotMadeYet(t *testing.T) {
@@ -218,5 +226,27 @@ func TestSystemClock(t *testing.T) {
 	cancel()
 	if err := c.Sleep(ctx, 1<<40); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Sleep after cancel = %v", err)
+	}
+}
+
+// RG3: the host steps and the member verbs are guarded by the restore record under the root.
+func TestTheGuardIsTheRestoreRecordUnderTheRoot(t *testing.T) {
+	f := &fakeMachine{root: t.TempDir()}
+	sys := build(t, f)
+	team, err := paths.ParseTeamID("ops")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sys.Host.Guard(team); err != nil {
+		t.Fatalf("Guard with no record = %v", err)
+	}
+	if err := os.MkdirAll(f.root+paths.AdminState(team), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(f.root+paths.RestoreRecord(team), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := sys.Host.Guard(team); !errors.Is(err, restore.ErrPending) {
+		t.Fatalf("Guard with a record = %v, want restore.ErrPending", err)
 	}
 }

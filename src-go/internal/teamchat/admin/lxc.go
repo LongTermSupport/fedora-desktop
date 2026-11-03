@@ -186,7 +186,9 @@ func lxcDeps(e Env, sys *System) (lxc.Deps, term.ExitCode) {
 	}
 	out := *d
 	out.Roster = lxcRoster{sys: sys}
-	out.Refresh = func(ctx context.Context, team paths.TeamID) error { return sys.Host.Status.Refresh(ctx, team, false) }
+	out.Refresh = func(ctx context.Context, team paths.TeamID) error {
+		return sys.Host.Status.Refresh(ctx, team, false, nil)
+	}
 	return out, term.ExitOK
 }
 

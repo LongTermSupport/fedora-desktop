@@ -93,9 +93,12 @@ reports each role change for the caller to post).
   case, `True`, `FALSE`, `null`, `~`, an empty value, a leading zero, `0x`, `0o`, `0b`, a
   sexagesimal number, a float, `.inf`, `.nan`, a timestamp, `<<`, `=`). A quoted scalar is
   always a string; a plain decimal integer is an integer.
-- **HV3.** `hostvars.ReadFile(path)` reads `host_vars/<host>.yml` (at most 1 MiB) and refuses a
-  directory by name, since ccy-teams could not know which file of a `host_vars/<host>/`
-  directory to edit.
+- **HV3.** `hostvars.Read(data)` reads the bytes of `host_vars/<host>.yml` (at most 1 MiB). The
+  file reader is not built until its first caller, ccy-teams, exists: it opens the caller's own
+  whole path, follows a link out of its directory (a checkout may keep host_vars as a link), and
+  refuses a directory by name, since ccy-teams could not know which file of a
+  `host_vars/<host>/` directory to edit. No root can bound such an open, so its gosec G304 is the
+  owner's to decide when it is built (decision 3 on pull request 124).
 - **HV4.** The writer (byte splicing, C 3.8) is ccy-teams' and is not in this slice.
 
 ## 3. YAML stays out of `teamchat-admin` (DC17, security 13)
