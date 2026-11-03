@@ -261,7 +261,7 @@ are not ccy sessions.
 
 ### Talking to agents from Element
 
-**Only a message that mentions an agent reaches it.** Type `@`, then **pick the agent from
+**Only a message that mentions an agent, or replies under its message, reaches it.** Type `@`, then **pick the agent from
 the list Element offers** (it is named by its handle, like `myrepo.1+local.podman`). A name
 typed out in full but not picked from the list is plain text: it mentions nobody, and no agent
 receives the message. `@room` reaches every agent of the team, and costs each one a turn;
@@ -281,9 +281,14 @@ as plain text mentions nobody, so no agent receives it.
 - **Edits are ignored in the main room.** An agent never sees an edited version there; write a
   new message instead. (The questions room below is the exception.)
   Element's Reply is fine (the quoted part is removed before the agent reads it).
-- **Answers are replies.** An agent answers with its `reply:` command, which makes the answer
-  an Element reply to your message, so two answers to two questions stay apart. It appears
-  under the agent's name, starting `[agent-bus] text -> ` and the people it is addressed to.
+- **Agents answer you in the side rooms, not here.** Once a team has its reports and
+  questions rooms, no agent writes to a human in the main room: pingbus refuses it. A
+  coordinator answers your main-room message in the questions room, and a worker passes its
+  answer to the coordinator. Before the side rooms exist, an agent answers with its `reply:`
+  command, an Element reply to your message starting `[agent-bus] text -> `.
+- **A reply under an agent's message reaches that agent.** Your Element reply, or "Reply in
+  thread", under a message an agent sent in the main room is delivered to that agent with no
+  mention needed.
 - **Long messages are cut.** An agent sees about 2,000 characters of one message (fewer with
   many non-Latin characters or emoji) and is told where to read the rest.
 - **In the agent's terminal** your message shows under Claude Code's label "Another Claude
@@ -295,18 +300,20 @@ as plain text mentions nobody, so no agent receives it.
 Besides its main room, each team has two quieter rooms, which the agent-bus play creates and
 invites you to (Plan 00211):
 
-- **`<team> · reports`** is for you to read. Agents post there what you would want to know: a
-  milestone, a merge, a deploy queued, a decision taken for you, a risk. Reports never notify,
-  nobody is woken by one, and you cannot post there (the composer is disabled).
-- **`<team> · questions`** is between you and the coordinator. Workers ask the coordinator in
-  the main room; the coordinator answers what it can and asks you only what it cannot, one
-  self-contained question per message, numbered `Q1`, `Q2` and so on. Each question notifies
-  you. **Answer with "Reply in thread"** on the question. Every message you post in this room
-  reaches the coordinator, mention or not, and an edit reaches it as a correction. Reactions
-  are switched off here: answer in words.
+- **`<team> · reports`** is read-only status. Agents post a short report at each checkpoint:
+  a milestone, a merge, a deploy queued, a phase done, something blocked. A report is pure
+  FYI and never asks you anything. Reports never notify, nobody is woken by one, and you
+  cannot post there (the composer is disabled).
+- **`<team> · questions`** is the two-way channel between you and the coordinator: anything
+  that needs you is asked here. Workers ask the coordinator in the main room; the coordinator
+  answers what it can and asks you only what it cannot, one self-contained question per
+  message, numbered `Q1`, `Q2` and so on. Each question notifies you. **Answer with "Reply in
+  thread"** on the question, or start a topic of your own. Every message you post in this
+  room reaches the coordinator, mention or not, and an edit reaches it as a correction.
+  Reactions are switched off here: answer in words.
 
-You can mute the main room and follow only these two. A reply you post in the main room
-without a mention reaches no agent, so answer questions in the questions room. The protocol
+You can mute the main room and follow only these two. In the main room a message reaches an
+agent only when it mentions the agent or replies under that agent's own message. The protocol
 is in [agent-bus-protocol.md §8](agent-bus-protocol.md#8-the-team-room-record-status-power-levels).
 
 ## Teams
@@ -340,7 +347,8 @@ Each agent in a team is a **member**: one agent seat, named by a handle such as
 runs). Each member is a `coordinator` or a `worker`, which decides the verbs it may send. A team
 has at most one **coordinator**, the agent its owner nominates to take requests ("get this
 done") and dispatch them to workers; workers may address it with `--to-coordinator`, and
-it is copied automatically, marked as a copy, on everything a worker sends to a human. A
+until the team has its side rooms (when workers stop writing to humans in the main room), it
+is copied automatically, marked as a copy, on everything a worker sends to a human. A
 team file or registry that still says `orchestrator` reads as `coordinator`. Humans can
 still message any worker directly. An agent can be in several teams, with one bundle (its settings and access token) per
 team.
@@ -941,8 +949,9 @@ These are known and documented rather than engineered around:
   other agents: `pingbus` delivers each human message only to the agents it mentions (all of them for `@room`), but
   the account receives them all. Human text is trusted input, so this is a privacy limit
   between teammates, not a way to inject instructions.
-- An agent can write free text under its own handle to the humans and agents it names
-  (`pingbus say --to <name>[,<name>…]`, never `@room`). `pingbus` refuses text that looks
+- An agent can write free text under its own handle to the agents it names, and to the
+  humans it names until the team has its side rooms (`pingbus say --to <name>[,<name>…]`,
+  never `@room`). `pingbus` refuses text that looks
   like a secret; a named agent receives it as a `PEER` line, information from a colleague
   that carries no authority, and `pingbus` never delivers it to an agent it does not name
   (the account still receives the whole room, as with human text). So one agent's

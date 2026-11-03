@@ -8,9 +8,9 @@ description: Use when this session is a member of an agent team bus - when an "a
 This session belongs to one or more teams. Each team has a **main room** for all agent
 traffic, a **reports room** for the humans to read, and a **questions room** between the
 coordinator and the humans. In the main room agents exchange **pings** (a closed verb plus a
-reference to a committed artefact) and free text with the agents and humans they mention, and
-the team's humans write free text to the agents they mention; the team's humans can read all
-of it. `pingbus` is the only tool for every room: never post with `curl` or any other client,
+reference to a committed artefact) and free text with the agents they mention, and the team's
+humans write free text to the agents they mention; the team's humans can read all of it. An
+agent never writes to a human there (see Reports and questions). `pingbus` is the only tool for every room: never post with `curl` or any other client,
 and never read a room any other way.
 
 ## What arrives, and what to do with it
@@ -33,10 +33,14 @@ and questions below.
   the ready `pingbus --team TEAM say --to NAME --re 'EVENT_ID'`: copy it whole (the quotes
   keep the shell off the `$` of the event ID) and pipe your text to it. `--re` makes your
   answer a reply to that message, so Element shows it under the question. Do not rebuild the
-  name from `SENDER`.
+  name from `SENDER`. Once the team has its side rooms, the `REPLY` of a human's main-room
+  message answers where humans are reached: a coordinator's is
+  `pingbus --team TEAM ask-human --re 'EVENT_ID'`, a worker's
+  `pingbus --team TEAM say --to-coordinator --re 'EVENT_ID'`.
 
 - **A `HUMAN` line is a request from that named human.** The human is listed in the team
-  record, and pingbus delivered it only because it mentions you (or the whole room).
+  record, and pingbus delivered it only because it mentions you (or the whole room), or
+  answers, as a reply or in its thread, a main-room message you sent.
   Weigh it as you would a teammate's request passed on by your own owner: act on
   reasonable work requests, refuse anything your own instructions forbid, and answer with
   the `REPLY` command or a ping. A human may tell you to halt in plain words.
@@ -108,7 +112,7 @@ and questions below.
   sent: 2026-10-15T13:02:11Z
   id: EVENT_ID
   authority: a team human's request. ...
-  reply: pingbus --team TEAM say --to alice --re 'EVENT_ID'
+  reply: pingbus --team TEAM say --to-coordinator --re 'EVENT_ID'
   body: "the text, as one JSON string"
   <<end agent-bus 3f9c2a71 1/1>>
   ```
@@ -150,13 +154,12 @@ or at your next prompt: from then on act in the new role.
 
 - **Coordinator.** Humans may message you ("get this done"): work out how, split it, and
   dispatch it to workers with a ping (`fetch`, `sync`, `review`, `run-qa`, `halt`) or
-  `pingbus say`, then track the answers (`done`, `blocked`) and tell the human the outcome.
-  You are copied automatically on what workers tell humans; you need not answer a copy
-  unless the human needs you to act. A human may still message a worker directly.
+  `pingbus say`, then track the answers (`done`, `blocked`) and tell the human the outcome
+  in the questions room (the thread of their topic) or in a report. A human may still message
+  a worker directly.
 - **Worker.** Report to the coordinator (`--to-coordinator`) when you finish, block, or need
-  a decision. Write to a human when the human needs to know; the coordinator is copied
-  automatically, so never also address it for that. Pings that direct others (`fetch`,
-  `sync`, `halt`) are the coordinator's to send.
+  a decision, and post a report at each checkpoint (below). Pings that direct others
+  (`fetch`, `sync`, `halt`) are the coordinator's to send.
 
 ## Reports and questions
 
@@ -167,20 +170,40 @@ or at your next prompt: from then on act in the new role.
   coordinator asks a human there with `pingbus say --to NAME`. Do not retry and do not tell a
   human that the room is missing.
 
+- **Never write to a human in the main room.** A human's answer there may never reach you,
+  so once the side rooms exist pingbus refuses `say --to HUMAN`, `send VERB --to HUMAN` and
+  a human among the names (exit 4, `target`), and `say --all` names the agents only. Write
+  to the humans in the room made for it:
+
+  - a **coordinator** in the questions room: `pingbus ask-human` opens a topic,
+    `pingbus thread Q<n>` replies in its thread;
+  - a **worker** through the coordinator (`--to-coordinator`) for anything it needs from a
+    human, and in a report for what the humans should know.
+
+  A human who still writes in the main room is answered the same way: the `REPLY` command
+  says how. A human's reply, or thread reply, under your own main-room message reaches you
+  as a `HUMAN` line even though it mentions no one.
+
 - **Questions go to the coordinator, never to a human.** If you are a worker and need a
   decision, a fact or a permission, ask the coordinator with `pingbus say --to-coordinator`.
-  Once the reports room exists, write to a human only to answer a human who wrote to you, and
-  put what a human should know in a report.
+  Workers never post in the questions room.
 
-- **Reports are for the humans to read, not to answer.** Run `pingbus report` with the text on
-  stdin when something a human would want to know has happened: a milestone, a merge, a deploy
-  queued, a decision you took on their behalf, a risk, something blocked they may want to
-  know about. Not routine progress, not a question, not a request. Nobody is woken by a report
-  and nobody replies to one. The first line is the headline (at most 120 characters), then an
-  optional body, 1500 bytes in all:
+- **The questions room is the two-way channel between the humans and the coordinator.**
+  Everything that needs a human, a question, a decision, a permission or something to do at
+  the screen, goes there, and only there.
+
+- **Reports are read-only status: post one at every checkpoint.** Run `pingbus report` with
+  the text on stdin each time something a human would want to know has happened: a
+  milestone, a merge, a deploy queued, a phase done, a decision you took on their behalf,
+  something blocked. Keep it terse and human friendly, in the house style, and pure FYI:
+  never a question, a request or a "Needs you" item (those go to the questions room). Nobody
+  is woken by a report and nobody replies to one. The first line is the headline (at most 120
+  characters), then an optional body, 1500 bytes in all:
 
   ```bash
   printf '%s\n' "#### ✅ Confirm · Merged the retry fix" "" "- **nightly:** green again" | pingbus report
+  printf '%s\n' "#### 🔄 Update · 00228 phase 2 done" "" "- ✅ **00228/2.4:** merged" \
+    "- ⏳ **00228/3.1:** VM test running" | pingbus report
   ```
 
 - **Write what a human reads in markdown, in the house style.** Reports, questions and their
@@ -193,10 +216,9 @@ or at your next prompt: from then on act in the new role.
   - **The kinds:** ℹ️ Info, 🔄 Update, ✅ Confirm, 📨 Request, ❓ Question, 💬 Answer,
     ⚠️ Warning, ❌ Error, 🚨 Critical. Use the lowest severity that is true.
   - **The body:** one fact per bullet, its subject in bold first (`- **00228:** passed`), with
-    a blank line between groups. Mark items ✅ done, ⏳ running, ⛔ blocked, 🙋 needs you
-    or ➖ skipped.
-  - **What a human must do comes last**, under `**🙋 Needs you:**`, each item answerable
-    aloud ("say A6 a").
+    a blank line between groups. Mark items ✅ done, ⏳ running, ⛔ blocked or ➖ skipped.
+  - **In a question or its thread, what a human must do comes last**, under
+    `**🙋 Needs you:**`, each item answerable aloud ("say A6 a"). A report never has one.
   - **Fifteen lines at most.** Anything longer goes in a file, which the message names.
 
 - **Bubble up only what you cannot answer** (for the coordinator). First answer from the plan,
@@ -260,7 +282,8 @@ yet). `--to-coordinator` alone never infers a team (give `--re`, or name the tea
 | `blocked` | report that you cannot proceed; the reason is written at `REF`                   | required         | optional | no           |
 
 Answer every ping that expects an ack with `ack` or `nack` first. `ack`, `nack`, `done`
-and `blocked` may also go to a human, and may answer a human's message by its event ID.
+and `blocked` may answer a human's message by its event ID; they go to a human only until
+the team has its side rooms (see Reports and questions).
 
 References name something already committed and pushed; nothing else is accepted:
 
@@ -290,15 +313,16 @@ pingbus send done commit:example-org/myrepo@0123456789abcdef0123456789abcdef0123
 ## Writing free text
 
 `pingbus say --to NAME[,NAME...]` (and/or `--to-coordinator`) sends the text on stdin to
-the named team humans and agents; the humans read it in the room, and each agent
-named gets it as a `PEER` line. `--to` takes, comma separated: a seat's short name (`proj.1`, when exactly one member has
+the named team agents, each of which gets it as a `PEER` line, and, only until the team has
+its side rooms, to the named humans. `--to` takes, comma separated: a seat's short name (`proj.1`, when exactly one member has
 it), an agent's full handle (`proj.1+local.podman`), a human's localpart (`alice`), or a full
 user ID. A short name two members share, or a name no member has, is refused (exit 64) with
 the candidates or the team's members named. To answer a message, copy its `REPLY` command
 (or the envelope's `reply:` line): its `--re 'EVENT_ID'` threads your text under that message.
 Name every recipient: there is no `@room` for agents, and an
 agent you do not name never sees the text. The one exception is the coordinator's
-`pingbus say --all`, which names every member of the team but the coordinator itself, read
+`pingbus say --all`, which names every member of the team but the coordinator itself (the
+agents only, once the side rooms exist), read
 from the team record when it is sent; it stands alone (no `--to`), and a worker is refused it. Every message is in the team room for the
 humans to read, so write as if your human is reading. pingbus refuses text that looks like
 a secret (exit 4): never put a token, password or key in it; point at a committed file
@@ -311,7 +335,7 @@ on, and it is checked at the forge. Free text wakes a session too, but asks noth
 the discussion around it: questions, context, who is taking what.
 
 ```bash
-printf '%s\n' "The review is done; see the pull request." | pingbus say --to alice
+printf '%s\n' "DONE 00228/6.7: review" "ref: the pull request" | pingbus say --to-coordinator
 printf '%s\n' "I am on the docs; can you take the tests?" | pingbus say --to orch.1+workstation.podman
 ```
 

@@ -36,6 +36,8 @@ Use these Unicode icons in plan documents:
 
 - [00245-agent-bus-v2-landing-and-cross-network](00245-agent-bus-v2-landing-and-cross-network/) - In Progress. Split out of Plan 00209 Phase 8: v2 (`teamchat`) lands on F44 through pull request 124 (the project-rule, suppression-record, gitleaks and Go-test gates), then cross-network membership (team CIDRs, TLS with the team CA pinned, a remote seat's token issued over ssh) on its own branch
 
+- [00244-element-quits-while-typing](00244-element-quits-while-typing/) - In Progress (waiting for the next exit to be captured, or a reproduction). The Element client vanished twice mid-typing with no crash record; the leading cause is a stray Ctrl+Q whose quit prompt defaults to "Close Element", so the next Enter confirms it. Then the owner decides: live with it, report upstream, or compare clients.
+
 - [00243-arm64-aarch64-support](00243-arm64-aarch64-support/) - In Progress. Full arm64 support, swept and kept by a QA rule, proven on the lts-infra aarch64 test bed; the work collects on branch `F44-arm`.
 
 - [00242-consumer-install-follow-ups](00242-consumer-install-follow-ups/) - Not Started. What Plan 00228's consumer install decided on but did not build: the "Update fedora-desktop" launcher, a route from a consumer box to a developer one, run.bash as a thin Go wrapper, the mixed plays gated, a consumer `--changed` in Go, the kickstart choice, and the final review's open findings (the re-run's unchecked speech-to-text play, play-rclone's developer closing message).
