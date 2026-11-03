@@ -6,6 +6,7 @@ This directory contains git hooks that prevent accidental commits of sensitive i
 
 - **pre-commit**: Scans staged files for sensitive patterns (API keys, tokens, private emails, etc.)
 - **commit-msg**: Validates commit messages for sensitive information
+- **pre-push**: Scans every commit being pushed (message and added lines) for install-specific names: agent teams, seats, containers, hosts and client projects (below)
 - **lib/secret-scan.bash**: Sourced by *both* hooks — per-token whitelist filtering and the private-identifier denylist built from the gitignored `localhost.yml`
 
 The library exists because the two hooks had drifted: only `pre-commit` ran the
@@ -18,6 +19,33 @@ Both hooks abort if the library is missing rather than continuing with fewer
 checks, and `playbooks/imports/play-git-hooks-security.yml` verifies it is
 present. Denylist matches are always reported by their **source field name** —
 the private value itself is never printed.
+
+## Install-specific names (pre-commit and pre-push)
+
+The localhost.yml denylist cannot know a team name, a seat handle or a container name: the file is
+absent in a ccy container, where agents commit, and never held them. `scripts/qa-private-names.bash`
+(Go: `src-go/qa/privatenames`) learns them from what the session can read: `pingbus status` (teams
+and member handles, with each handle's project name) and the machine's host names. They go to
+`<git dir>/private-terms` (mode 0600). The git directory is never tracked, so no `git add` can
+commit the list, and every work tree of the checkout shares it. Each run re-learns and keeps the
+terms of teams that left the bus.
+
+- `pre-commit` runs `qa-private-names.bash staged`: the added lines and added paths of the staged
+  change.
+- `pre-push` runs `qa-private-names.bash push`: for each ref, the commits the remote lacks, their
+  messages and their added lines. It catches what `--no-verify` or another clone let through.
+- **In a ccy container** (the checkout is under `/workspace`) a list that cannot be built (no
+  `pingbus`, a failing `pingbus status`, an unreadable or damaged list) is exit 2: the hook fails,
+  never skips. Elsewhere, with no agent bus and no list, the scan says `SKIPPED` and passes.
+- **Matching** is case-insensitive and on word boundaries (a hyphen, dot or slash is a boundary;
+  a letter, digit or underscore is not).
+- **Short or generic terms cannot block everything**: a term under six characters is dropped; a
+  term whose every word is generic (`dev`, `infra`, `desktop`, `test`, ...) is dropped; a name's
+  first word is indexed alone only when it is long and not generic; tokens in
+  `.claude/public-token-allowlist.yml` and this repository's own name are never terms.
+- Findings name the place and the source, with the term's number in the list (`#N` is the list
+  line), never the term; a path that holds a term is printed with it masked. For triage,
+  `PRIVATE_NAMES_CONTEXT=1` adds each line, masked.
 
 ## Installation
 

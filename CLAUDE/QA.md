@@ -191,6 +191,14 @@ after the sweep, and this section is where the wait is recorded.
   stores are a warning count), a local branch with commits no remote holds, a linked work tree
   with old uncommitted changes, any stash. It waits on Plan 00245 Task 2.2, the sweep of
   `untracked/` and of the local branches and work trees.
+- The private-name guard (`scripts/qa-private-names.bash tree HEAD`; Plan 00245 Phase 3; Go in
+  `src-go/qa/privatenames`) guards install-specific names (agent teams, seats, containers, hosts,
+  client projects) in the tracked tree. Its hooks are already blocking for new work (`pre-commit`
+  on the added lines, `pre-push` on every commit pushed: [SecurityRules.md](SecurityRules.md),
+  [scripts/git-hooks/README.md](../scripts/git-hooks/README.md)); only the whole-tree sweep waits,
+  on the owner's decisions about the findings the first sweep left (Plan 00245 Task 3.5). With no
+  agent bus and no term list (CI) it says `SKIPPED` and passes; in a CCY container it fails
+  rather than skip.
 
 **Local only:** a clean checkout has no `untracked/` and no work in progress, so CI cannot run
 this gate; it would also be a no-op there. `--policy FILE` reads the policy from another file,

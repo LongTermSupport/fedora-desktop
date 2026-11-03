@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Pre-push hook: no commit being pushed may carry an install-specific name (team, seat, container,
+# host, client project) in its message or its added lines. The pre-commit hook judges the staged
+# change only where the hook ran; this judges what reaches the remote, whoever committed it and
+# however (--no-verify, another clone). Args and stdin are git's: REMOTE URL, then one
+# "LOCALREF LOCALID REMOTEREF REMOTEID" line per ref. Plan 00245 Phase 3.
+set -euo pipefail
+
+exec "$(dirname "${BASH_SOURCE[0]}")/../qa-private-names.bash" push "$@"
