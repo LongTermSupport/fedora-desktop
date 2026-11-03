@@ -19,7 +19,7 @@ suppression = true
 # signs as repository-owner, the name the ratchet and any human entry must carry. qa/record.toml
 # holds one entry per configuration exception of .golangci.yml and one for the generated header of
 # widthtable.go, so max_total is that count, and an entry a Claude Opus model wrote is medium trust
-# (30-day review) with room for the whole record.
+# (30-day review); the one a Sonnet model wrote is low trust (below).
 # history_base is the default branch, which this repository names after the Fedora release.
 [record]
 deciders = ["repository-owner"]
