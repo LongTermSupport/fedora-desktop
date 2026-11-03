@@ -51,6 +51,18 @@ func TestAGoodSavedConfigIsHandedBackOneKeyALine(t *testing.T) {
 	}
 }
 
+// The roles the launch summary remembers per team are a key of the file; a file written before
+// it existed has none, and is still read.
+func TestTheRememberedTeamRolesAreAKeyOfTheFile(t *testing.T) {
+	r := configRun(t, configPath(t, new(strings.Replace(savedConfig, "LAST_LAUNCH_DATE", "LAST_TEAM_ROLES=\"team-a=coordinator,team-b=worker\"\nLAST_LAUNCH_DATE", 1))))
+	if code := r.start(t); code != term.ExitOK {
+		t.Fatalf("exit %d, stderr %q", code, r.stderr)
+	}
+	if want := "LAST_TEAMS\tdev1@team-a,qa2@team-b\nLAST_TEAM_ROLES\tteam-a=coordinator,team-b=worker\nLAST_LAUNCH_DATE\t"; !strings.Contains(r.stdout.String(), want) {
+		t.Fatalf("stdout %q", r.stdout.String())
+	}
+}
+
 func TestAFileOfFewerKeysIsReadAsItIs(t *testing.T) {
 	// Which keys a format needs is the launcher's decision; the reader hands back what is there.
 	r := configRun(t, configPath(t, new("SAVED_CONFIG_VERSION=3\n")))

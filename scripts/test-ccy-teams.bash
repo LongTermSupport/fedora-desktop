@@ -672,6 +672,7 @@ quick() {
         TEAMS_GIVEN="${QUICK_TEAMS_GIVEN:-false}" TEAMS_LIST="${QUICK_TEAMS_LIST:-}" CCY_SEATS="" CCY_ORIG_ARGS=(--orig)
         CCY_SESSION_NAME="${QUICK_SESSION-ccy-proj-1}" NO_BUS_MODE="${QUICK_NO_BUS:-false}"
         [ "${2:-}" = --no-ssh ] && NO_SSH_MODE=true
+        . "$LIB_DIR/launch-summary.bash"
         . "$0" >"$QUICK_OUT"
         printf "%s|%s" "$TEAMS_LIST" "${CCY_ORIG_ARGS[*]}" >"$TEAMS_END"
         printf "%s" "${quick_kept_team:-}" >"$TEAMS_KEPT"
@@ -682,6 +683,7 @@ quick() {
         2>"$work/quick.err")
     printf ' rc=%s prompt=%s' "$?" "$(if [ -s "$PROMPT_LOG" ]; then echo yes; else echo no; fi)"
 }
+export LIB_DIR
 export PROMPT_LOG="$work/prompt.log"
 # What the block printed on stdout: a headless session's stdout is its output (StderrHygiene).
 export QUICK_OUT="$work/quick.out"
@@ -744,6 +746,48 @@ check "  it says how to launch instead" "yes" "$(has "--token" "$work/quick.err"
 : >"$PROMPT_LOG"
 check "headless with a launch-choice flag: the block is not entered" \
     "token= keys= no_ssh=true net= no_net=false rc=0 prompt=no" "$(quick true --no-ssh)"
+
+echo "=== Quick Launch summary: the loop around ccy-teams launch-summary (Go draws the screen) ==="
+
+# summary_run <given> <replies...>: ccy_launch_summary with ccy-teams answering each call with the
+# next reply (a file of TEAMS/ROLES/ASK lines), and the token and key questions stubbed. Prints
+# the choices it leaves and the arguments of every call.
+summary_run() {
+    local given="$1" dir="$work/summary-replies" i=0 reply
+    shift
+    rm -rf "$dir" "$work/summary-calls"
+    mkdir -p "$dir"
+    for reply in "$@"; do i=$((i + 1)); printf '%b' "$reply" >"$dir/$i.txt"; done
+    SUMMARY_DIR="$dir" SUMMARY_CALLS="$work/summary-calls" TEAMS_GIVEN="$given" bash -c '
+        . "$LIB_DIR/launch-summary.bash"
+        ccy-teams() { set -- "$SUMMARY_DIR"/*.txt "$@"; [ -e "$1" ] || return 9; echo "$*" >>"$SUMMARY_CALLS"; cat "$1"; rm -f "$1"; }
+        select_token() { SELECTED_TOKEN=/t/new.2030-01-01.token; }
+        discover_and_select_ssh_keys() { SSH_KEYS=(/keys/id_b); }
+        NO_BUS_MODE=false TOKEN_DIR=/t LAST_TOKEN=old LAST_SSH_KEYS=/keys/id_a LAST_NETWORK=net
+        quick_team=1@a quick_roles=a=worker
+        ccy_launch_summary
+        printf "token=%s keys=%s net=%s team=%s roles=%s" "$LAST_TOKEN" "$LAST_SSH_KEYS" "$LAST_NETWORK" "$quick_team" "$quick_roles"'
+}
+check "summary: accepting it keeps every default and takes its teams and roles" \
+    "token=old keys=/keys/id_a net=net team=2@a roles=a=coordinator" \
+    "$(summary_run false 'TEAMS\t2@a\nROLES\ta=coordinator\nASK\tnone\n')"
+check "summary: a token line asks the token question and shows the summary again" \
+    "token=new keys=/keys/id_a net=net team=2@a roles=a=coordinator" \
+    "$(summary_run false 'TEAMS\t1@a\nROLES\ta=worker\nASK\ttoken\n' 'TEAMS\t2@a\nROLES\ta=coordinator\nASK\tnone\n')"
+check "summary: a key line asks the key question and shows the summary again" \
+    "token=old keys=/keys/id_b net=net team=1@a roles=a=worker" \
+    "$(summary_run false 'TEAMS\t1@a\nROLES\ta=worker\nASK\tssh\n' 'TEAMS\t1@a\nROLES\ta=worker\nASK\tnone\n')"
+check "summary: a network line clears the network, asked at its own step of the launch" \
+    "token=old keys=/keys/id_a net= team=1@a roles=a=worker" \
+    "$(summary_run false 'TEAMS\t1@a\nROLES\ta=worker\nASK\tnetwork\n')"
+check "summary: with --teams given the teams are skipped and left as they were" \
+    "token=old keys=/keys/id_a net=net team=1@a roles=a=worker" \
+    "$(summary_run true 'TEAMS\t\nROLES\t\nASK\tnone\n')"
+check "  and the call says so" "yes" "$(grep -q -- '--skip-teams' "$work/summary-calls" && echo yes || echo no)"
+check "  the saved defaults are the call's arguments" "yes" \
+    "$(grep -q -- '--type=podman --token=old --ssh=/keys/id_a --network=net --teams=1@a --roles=a=worker' "$work/summary-calls" && echo yes || echo no)"
+check "summary: leaving it (nothing printed) ends the launch quietly" "rc=0" \
+    "rc=$(summary_run false '' >/dev/null; echo $?)"
 
 echo "=== Quick Launch remembers the team ==="
 

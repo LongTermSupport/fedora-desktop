@@ -1,0 +1,95 @@
+branch hygiene: 49 open work branches, cap 10 (53 remote branches)
+== OVER-CAP ==
+49 open work branches, cap 10
+  feature/ccy-token-expiry-colours: last commit 180 days ago
+  task/run-bash-github-accounts-none: last commit 70 days ago
+  skip-docker-env: last commit 63 days ago
+  worktree-ccy-reboot-restore: last commit 47 days ago
+  worker/433-unowned-decisions: last commit 33 days ago
+  feature/ccy-hooks-daemon-plugin: last commit 30 days ago
+  fix/ccy-lifecycle-daemon-launcher: last commit 28 days ago
+  wf-f0f65b6e-87f-2-30211d13: last commit 27 days ago
+  wf-f0f65b6e-87f-3-061c2adc: last commit 27 days ago
+  wf-f0f65b6e-87f-1-be409213: last commit 27 days ago
+  agent-ae87230b6e5b05508-967f0e77: last commit 21 days ago
+  feat/ccy-teams-hot-add: last commit 19 days ago
+  go-port/agent-bus-install: last commit 19 days ago
+  review/seat-broker-design: last commit 19 days ago
+  design/seat-broker: last commit 19 days ago
+  go-qa-ci/adopt: last commit 19 days ago
+  agent-aaca6016aa207ce9a-bc47ccb5: last commit 19 days ago
+  research/bus-stack: last commit 18 days ago
+  review/lxc-checkout-typed: last commit 17 days ago
+  review/teams-full-handles: last commit 17 days ago
+  review/teams-wait-play-lock: last commit 17 days ago
+  review/teams-member-roles: last commit 15 days ago
+  review/lxc-checkout-typed-rereview: last commit 15 days ago
+  review/teams-full-handles-rereview: last commit 15 days ago
+  review/lxc-checkout-typed-final: last commit 15 days ago
+  feat/pingbus-compact-before-wake: last commit 15 days ago
+  review/pingbus-compact-before-wake: last commit 15 days ago
+  feat/agent-bus-v2-design-2: last commit 12 days ago
+  chore/go-toolchain-1.26.10: last commit 12 days ago
+  feat/bus-v2-n2: last commit 11 days ago
+  feat/bus-v2-n3f: last commit 11 days ago
+  feat/bus-v2-n3: last commit 11 days ago
+  agent-a5fca4182e2e660bb-c4b651cd: last commit 11 days ago
+  agent-a3328ca97499a43af-62acbc8f: last commit 11 days ago
+  feat/bus-v2-remote-seats-note: last commit 11 days ago
+  agent-a5ee80f767118a918-a448e021: last commit 11 days ago
+  feat/bus-v2-n3e-seam: last commit 11 days ago
+  plan-team-liaison-role: last commit 10 days ago
+  agent-ad49d4886a70d25db-01b66214: last commit 10 days ago
+  agent-a8c69aa67110156ce-c48195fd: last commit 10 days ago
+  agent-a81014c63f66ee6f8-c4d3bbe2: last commit 10 days ago
+  feat/bus-v2-n3e: last commit 8 days ago
+  arm/ci-arm64-install: last commit 1 days ago
+  feat/ccy-continue-compact: last commit 0 days ago
+  research/v2-scope: last commit 0 days ago
+  ci/base-red-proof: last commit 0 days ago
+  feat/ccy-launch-summary: last commit 0 days ago
+  spike/v2-merge-up: last commit 0 days ago
+  feat/ccy-compact-close: last commit 0 days ago
+== DORMANT-FAIL ==
+feature/ccy-token-expiry-colours: no commit for 180 days
+task/run-bash-github-accounts-none: no commit for 70 days
+skip-docker-env: no commit for 63 days
+worktree-ccy-reboot-restore: no commit for 47 days
+worker/433-unowned-decisions: no commit for 33 days
+feature/ccy-hooks-daemon-plugin: no commit for 30 days
+fix/ccy-lifecycle-daemon-launcher: no commit for 28 days
+wf-f0f65b6e-87f-2-30211d13: no commit for 27 days
+wf-f0f65b6e-87f-3-061c2adc: no commit for 27 days
+wf-f0f65b6e-87f-1-be409213: no commit for 27 days
+agent-ae87230b6e5b05508-967f0e77: no commit for 21 days
+feat/ccy-teams-hot-add: no commit for 19 days
+go-port/agent-bus-install: no commit for 19 days
+review/seat-broker-design: no commit for 19 days
+design/seat-broker: no commit for 19 days
+go-qa-ci/adopt: no commit for 19 days
+agent-aaca6016aa207ce9a-bc47ccb5: no commit for 19 days
+research/bus-stack: no commit for 18 days
+review/lxc-checkout-typed: no commit for 17 days
+review/teams-full-handles: no commit for 17 days
+review/teams-wait-play-lock: no commit for 17 days
+review/teams-member-roles: no commit for 15 days
+review/lxc-checkout-typed-rereview: no commit for 15 days
+review/teams-full-handles-rereview: no commit for 15 days
+review/lxc-checkout-typed-final: no commit for 15 days
+feat/pingbus-compact-before-wake: no commit for 15 days
+review/pingbus-compact-before-wake: no commit for 15 days
+feat/agent-bus-v2-design-2: no commit for 12 days
+chore/go-toolchain-1.26.10: no commit for 12 days
+feat/bus-v2-n2: no commit for 11 days
+feat/bus-v2-n3f: no commit for 11 days
+feat/bus-v2-n3: no commit for 11 days
+agent-a5fca4182e2e660bb-c4b651cd: no commit for 11 days
+agent-a3328ca97499a43af-62acbc8f: no commit for 11 days
+feat/bus-v2-remote-seats-note: no commit for 11 days
+agent-a5ee80f767118a918-a448e021: no commit for 11 days
+feat/bus-v2-n3e-seam: no commit for 11 days
+plan-team-liaison-role: no commit for 10 days
+agent-ad49d4886a70d25db-01b66214: no commit for 10 days
+agent-a8c69aa67110156ce-c48195fd: no commit for 10 days
+agent-a81014c63f66ee6f8-c4d3bbe2: no commit for 10 days
+feat/bus-v2-n3e: no commit for 8 days

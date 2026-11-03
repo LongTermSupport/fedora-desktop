@@ -1431,6 +1431,13 @@ Photography tools:
 - Enforces darktable 5.6.0+ (native Sony A7V support); pulls it from Fedora's `updates-testing` repo only while the stable repo is still behind
 - Removes any locally built darktable (release tag `.ai`), the retired `darktable-ai` nightly, and the mock chroots and package used to build it
 
+#### play-matrix-clients.yml
+
+Matrix desktop clients, independent of the agent team bus:
+
+- Installs Nheko (Flathub `io.github.NhekoReborn.Nheko`), a plain install with no profiles
+- Element is still installed by `play-agent-bus-element.yml` (Plan 00244 tracks moving it here)
+
 #### play-qobuz.yml
 
 Qobuz apps — gapless HD audio streaming from Qobuz:

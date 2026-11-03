@@ -36,7 +36,7 @@ const (
 // launchConfigKeys are the keys the launcher writes.
 var launchConfigKeys = []string{
 	formatKey, "SAVED_CCY_VERSION", "SAVED_CCY_HASH", "LAST_TOKEN", "LAST_SSH_KEYS",
-	"LAST_NETWORK", "LAST_TEAMS", "LAST_LAUNCH_DATE",
+	"LAST_NETWORK", "LAST_TEAMS", "LAST_TEAM_ROLES", "LAST_LAUNCH_DATE",
 }
 
 var (

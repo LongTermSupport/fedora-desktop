@@ -402,10 +402,13 @@ echo "=== the launcher: no question is read where nobody can answer it ==="
 # only inside another question's own loop, after a person has answered that one: network-prune
 # (engine-conflict), token-replace (token-recovery) and network-pick (network-connect).
 # --debug's reads are not $CCY_PROMPT_ ones and run only when a person asked for the chooser.
+# The Quick Launch question is guarded by ccy_quick_mode (lib/launch-summary.bash), which holds
+# the nobody-to-ask, restore and headless decisions and sets quick_unasked, the question's guard.
 # guard_gaps <file> — the line numbers of the questions with no guard of their own.
 guard_gaps() {
     awk '
         /(^|[[:space:]])(el)?if (ccy_nobody_to_ask|ccy_launch_unattended)/ { guarded = 1 }
+        /^[[:space:]]*ccy_quick_mode$/ { guarded = 1 }
         /read -rp? *"\$\{?CCY_PROMPT_(NETWORK_PRUNE|TOKEN_REPLACE|NETWORK_PICK)/ { next }
         /read -rp? *"\$\{?CCY_PROMPT_/ { if (!guarded) printf "%s ", NR; guarded = 0 }
     ' "$1"

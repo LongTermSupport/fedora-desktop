@@ -38,3 +38,7 @@
 # compacts each session before its /exit, ccy --stop SESSION is new, a ccy-sessions row gains
 # Close it), and ccy-teams shows who is listening.
 changed-plays
+
+# Installs the Nheko Matrix client from Flathub (Plan 00244 Task 3.1). A new optional play, so
+# changed-plays does not pick it up; it needs sudo for the system-wide Flatpak install.
+playbooks/imports/optional/common/play-matrix-clients.yml
