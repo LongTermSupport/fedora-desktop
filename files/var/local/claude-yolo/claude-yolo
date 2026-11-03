@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.104.17"  # Container 2.79.21: ccy-teams shows whether each member is listening on the bus, never "active" from its park state. See docs/ccy-changelog.md.
+CCY_VERSION="3.104.18"  # Container 2.79.22: agents write to the humans in the side rooms, never the main room, and a human's thread reply reaches the agent. See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -98,7 +98,7 @@ source "$SCRIPT_DIR/lib/agent-choice.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.79.21"
+REQUIRED_CONTAINER_VERSION="2.79.22"
 
 set -e
 

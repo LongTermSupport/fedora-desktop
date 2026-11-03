@@ -132,23 +132,26 @@ TEMPLATES = {
     "record_failed": ("agent-bus: this session's teams could not be recorded for the status line, which "
                       "shows `👥 no record` in red until they are. Tell the human; the reason is in "
                       "the SessionStart hook's stderr."),
-    "role_coordinator": ("agent-bus: in team {team} you are the coordinator. Workers report to you and copy you "
-                         "on what they tell humans; when a human asks you to get something done, work out "
-                         "how and dispatch it to the workers, then track it."),
+    "role_coordinator": ("agent-bus: in team {team} you are the coordinator. Workers report to you; when a "
+                         "human asks you to get something done, work out how and dispatch it to the workers, "
+                         "then track it."),
     "role_worker": ("agent-bus: in team {team} you are a worker; the coordinator is {handle}. Report to it "
-                    "(`--to-coordinator` on `pingbus send` and `say`); it is copied on what you tell humans. "
-                    "Ask the coordinator, never a human, when you need a decision."),
+                    "(`--to-coordinator` on `pingbus send` and `say`). Ask the coordinator, never a human, "
+                    "when you need a decision."),
     "role_worker_many": ("agent-bus: in team {team} you are a worker; the coordinators are {handles}. Report to "
-                         "them (`--to-coordinator` on `pingbus send` and `say` names all of them); they are "
-                         "copied on what you tell humans. Ask the coordinator, never a human, when you need a "
-                         "decision."),
+                         "them (`--to-coordinator` on `pingbus send` and `say` names all of them). Ask the "
+                         "coordinator, never a human, when you need a decision."),
     "role_worker_alone": "agent-bus: in team {team} you are a worker; the team has no coordinator.",
     # Said only once this member has joined the side room each names (SPEC §10.2): before the
     # rooms exist the team works in the main room as before.
-    "role_questions": ("agent-bus: in team {team}, questions only a human can answer go to the questions room "
-                       "with `pingbus ask-human`; every human message there is delivered to you. Run "
+    "role_questions": ("agent-bus: in team {team}, the questions room is your two-way channel with the humans: "
+                       "`pingbus ask-human` opens a topic, `pingbus thread Q<n>` replies in one, and every "
+                       "human message there is delivered to you. Never write to a human in the main room. Run "
                        "`pingbus questions` now and pass on any answer not yet passed on."),
-    "role_reports": "agent-bus: in team {team}, report what the humans should know with `pingbus report`.",
+    "role_reports": ("agent-bus: in team {team}, post a short `pingbus report` at each checkpoint (a milestone, "
+                     "a merge, a deploy queued, a phase done, something blocked): pure FYI the humans read and "
+                     "never answer. Anything needing a human goes to the questions room, through the "
+                     "coordinator; never write to a human in the main room."),
     "questions_refused": ("agent-bus: in team {team} you cannot join the questions room: "
                           + inbox.REASON_NO_HUMAN_TEXT + "."),
     "no_socket": ("agent-bus: this session has no inbox socket. To be woken, run `pingbus wait` "

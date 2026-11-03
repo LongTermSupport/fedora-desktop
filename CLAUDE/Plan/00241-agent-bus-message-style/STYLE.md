@@ -1,12 +1,18 @@
 # Agent bus message style
 
-**Version 1.** A change to this guide raises the version and says what changed, so a message
-can be read against the version it was written to.
+**Version 2.** A change to this guide raises the version and says what changed, so a message
+can be read against the version it was written to. Version 2: a report is read-only status,
+posted at each checkpoint, and never has a "Needs you" part, which belongs to a question
+(section 3); no agent writes to a person in the main room.
 
 There are two styles, one for each kind of reader.
 
 - **Messages a person reads** (sections 1 to 5): reports (`pingbus report`), questions
-  (`pingbus ask-human`) and the posts in their threads. Agents write markdown, and pingbus
+  (`pingbus ask-human`) and the posts in their threads. A report is pure FYI: post a short
+  one at each checkpoint (a milestone, a merge, a deploy queued, a phase done, something
+  blocked), and never ask in it. Anything a person must answer or do goes to the questions
+  room, which is the two-way channel between the people and the coordinator. No agent writes
+  to a person in the main room. Agents write markdown, and pingbus
   sends it as the plain `body` (the markdown itself, readable as it stands) plus the HTML
   Element draws (`format: org.matrix.custom.html`, `formatted_body`).
 - **Messages between agents** (section 6): `pingbus say` to another member. Plain text in
@@ -42,7 +48,7 @@ error, and an error someone is already fixing is not critical.
 - One bullet per fact, with its subject in bold first: `- **00228:** the VM test passed.`
 - A blank line between groups. No paragraph longer than three lines.
 - Status inside a list uses these markers: ✅ done, ⏳ running or waiting, ⛔ blocked,
-  🙋 needs you, ➖ skipped.
+  ➖ skipped, and, in a question only, 🙋 needs you.
 - A `> blockquote` holds what someone else said: a question being answered, an error
   message, a log line.
 - `code` for a command, a path, a commit or a plan task. Use a code block only for a
@@ -51,7 +57,11 @@ error, and an error someone is already fixing is not critical.
   `*italics*` sparingly, for a term being defined.
 - No tables. They wrap badly on a phone, and the plain `body` shows them as pipes.
 
-## 3. What needs a person comes last
+## 3. In a question, what needs a person comes last
+
+A report never needs a person: it has no "Needs you" part. What a person must answer or do
+is a question in the questions room (`pingbus ask-human`, or a post in a question's thread),
+and there it comes last:
 
 ```
 **🙋 Needs you:**
@@ -72,7 +82,9 @@ rewrites a `.md` file when it is written, before pingbus reads it: grouped bulle
 one loose list with a blank line between every item, so Element shows them spaced apart and
 the grouping is lost.
 
-## 5. An example
+## 5. Examples
+
+A checkpoint report, pure FYI:
 
 ```
 #### 🔄 Update · 00228 VM test running again
@@ -80,9 +92,19 @@ the grouping is lost.
 - ✅ **00191:** the DBF rule blocks; 111 places fixed; review passed
 - ✅ **00192:** vmtest clears a cut run's leftover domain
 - ⏳ **00228:** consumer VM test, now without pip's cache (about 1.5 h)
+```
+
+A question about the same work, in the questions room (pingbus puts `Q<n>` in front of its
+headline):
+
+```
+❓ Question · Port 8 bash places to Go?
+
+Context: the DBF sweep found 8 bash places with the same bug.
+Question: port them to Go, or fix them in bash?
 
 **🙋 Needs you:**
-- **A7:** 8 bash places with the same bug. Port them to Go, or fix them in bash? Say "A7 a" or "A7 b".
+- **A7:** say "A7 a" (port to Go) or "A7 b" (fix in bash).
 ```
 
 ## 6. Between agents: the line protocol
