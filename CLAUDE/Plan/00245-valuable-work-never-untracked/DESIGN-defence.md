@@ -42,8 +42,8 @@ work or a store of assets.
 - Every guard checks whether a write is *safe*; none checks whether it is *kept*. An
   ignored path is the one place no content check, no review and no push gate looks.
 
-The evidence that steering matters: `untracked/scratch/` holds over 3,500 files, about
-1,100 of them over 4 KiB, 440 of them markdown; plus 96 registered worktrees.
+The evidence that steering matters: `untracked/scratch/` holds 3,354 files at its top level
+(1,093 over 4 KiB, 440 markdown), and 47,130 counting subdirectories (6,157 markdown); plus 96 registered worktrees.
 
 ## 2. What tells scratch from an asset
 
