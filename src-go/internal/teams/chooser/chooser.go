@@ -64,7 +64,9 @@ type Chooser struct {
 	// Payload receives the one value the launcher captures.
 	Payload io.Writer
 
-	Seat   SeatFunc
+	Seat SeatFunc
+	// Probe reads a remembered seat for the launch summary.
+	Probe  ProbeFunc
 	Create CreateFunc
 	Apply  ApplyFunc
 	Locked LockFunc

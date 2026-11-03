@@ -94,7 +94,7 @@ func NewApp(cfg config.Config) *App { return Wire(host.New(cfg)) }
 // captures (choose-teams) is given a host that prints everything else on stderr, so a play's
 // output cannot reach the value.
 func NewAppFor(cfg config.Config, args []string) *App {
-	if len(args) > 0 && args[0] == subChooseTeams {
+	if len(args) > 0 && (args[0] == subChooseTeams || args[0] == subLaunchSummary) {
 		return Wire(host.NewDiverted(cfg))
 	}
 	return NewApp(cfg)
@@ -102,6 +102,15 @@ func NewAppFor(cfg config.Config, args []string) *App {
 
 // subChooseTeams is the subcommand whose stdout is its payload.
 const subChooseTeams = "choose-teams"
+
+// subLaunchSummary is the launch summary, whose stdout is its payload too.
+const subLaunchSummary = "launch-summary"
+
+// subChooseSeat is the launcher's seat and role question.
+const subChooseSeat = "choose-seat"
+
+// subDescribeSeats names a launch's seats with their roles.
+const subDescribeSeats = "describe-seats"
 
 // Wire builds the flows over h, after h has built every adapter it was not given.
 func Wire(h *host.Host) *App {
@@ -126,9 +135,11 @@ func Wire(h *host.Host) *App {
 	session := hot.New(h, kit, s.Roles)
 	o.SessionsIn, o.TakeOut = session.SessionsIn, session.TakeOut
 	list.Session = session
+	chosen := chooser.New(h, pick.PickSeat, c.RunForChooser, o.ApplyTeams, o.Locked)
+	chosen.Probe = pick.Probe
 	return &App{
 		Host: h, Board: b, Ops: o, Login: l, Seats: s, Create: c, Lxc: x, Find: find.New(h), Choose: pick,
-		Chooser: chooser.New(h, pick.PickSeat, c.RunForChooser, o.ApplyTeams, o.Locked),
+		Chooser: chosen,
 		Picker:  list, Shutdown: down, Restart: again, WindDown: calm, Membership: membership.New(h), ContainerName: containername.New(h), Session: session,
 		Interrupted: func(ctx context.Context) (context.Context, context.CancelFunc) {
 			return signal.NotifyContext(ctx, os.Interrupt)
@@ -173,7 +184,7 @@ func (a *App) run(ctx context.Context, args []string) term.ExitCode {
 	}
 	switch sub {
 	case "", "create", "lxc-add", "apply", "remove", "backup", "restore", "shutdown", subRestart, subWindDown, "for-checkout", "record-seats",
-		"choose-seat", "describe-seats", subChooseTeams, subInternal, subSession:
+		subChooseSeat, subDescribeSeats, subChooseTeams, subLaunchSummary, subInternal, subSession:
 	case "-l", "--list", subGraph:
 		if len(args) > 1 {
 			return a.usageError(fmt.Sprintf("'%s' takes no further arguments.", sub))
@@ -217,17 +228,27 @@ func (a *App) dispatch(ctx context.Context, sub string, rest []string) term.Exit
 		return a.Find.Run(ctx, rest)
 	case "record-seats":
 		return a.Find.RecordSeats(ctx, rest)
-	case subChooseTeams:
-		return a.Chooser.Run(ctx, rest)
-	case "choose-seat":
-		return a.Choose.Seat(ctx, rest)
-	case "describe-seats":
-		return a.Choose.Describe(ctx, rest)
+	case subChooseTeams, subLaunchSummary, subChooseSeat, subDescribeSeats:
+		return a.launchQuestions(ctx, sub, rest)
 	case "-l", "--list", subGraph:
 		return a.printBoard(ctx, sub)
 	default:
 		return a.Picker.Run(ctx)
 	}
+}
+
+// launchQuestions is the commands the launcher asks of a person through: the summary, the team
+// chooser, and the seat chooser and describer.
+func (a *App) launchQuestions(ctx context.Context, sub string, rest []string) term.ExitCode {
+	switch sub {
+	case subLaunchSummary:
+		return a.Chooser.Summary(ctx, rest)
+	case subChooseSeat:
+		return a.Choose.Seat(ctx, rest)
+	case subDescribeSeats:
+		return a.Choose.Describe(ctx, rest)
+	}
+	return a.Chooser.Run(ctx, rest)
 }
 
 // subGraph is `ccy-teams --graph`: the --list pass drawn as a Mermaid flowchart.

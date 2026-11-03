@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.107.1"  # Container 2.79.22: every ccy session starts claude with CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS=1; host cc does not. See docs/ccy-changelog.md.
+CCY_VERSION="3.108.0"  # Container 2.79.22: Quick Launch is one summary of the token, SSH key, network and each team's seat and role; every session starts claude with the YOLO variable, host cc does not. See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -30,7 +30,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # from lib/ (see CCY_HASH), because a hand-written list of what the program
 # consists of is a list that goes stale — this one omitted common-pure.bash,
 # which common.bash sources, for two months.
-CCY_LIBS=(token-handoff common host-paths token-management token-usable ssh-handling network-management dockerfile-custom docker-health session-registry restart-request session-lifecycle tmux-session agent-bus-membership agent-bus-seats image-build-lock image-build-prune image-build network-policy agent-choice)
+CCY_LIBS=(token-handoff common host-paths token-management token-usable ssh-handling network-management dockerfile-custom docker-health session-registry restart-request session-lifecycle tmux-session agent-bus-membership agent-bus-seats image-build-lock image-build-prune image-build network-policy agent-choice launch-summary)
 
 # First, before anything that can end this launch: a GitHub token handed on by the launch
 # that started this one is taken, and its file deleted, at once; and the Go front's path, when
@@ -92,6 +92,8 @@ source "$SCRIPT_DIR/lib/image-build.bash"
 source "$SCRIPT_DIR/lib/network-policy.bash"
 # shellcheck source=lib/agent-choice.bash
 source "$SCRIPT_DIR/lib/agent-choice.bash"
+# shellcheck source=lib/launch-summary.bash
+source "$SCRIPT_DIR/lib/launch-summary.bash"
 
 # IMPORTANT: When modifying the Dockerfile, ALWAYS increment REQUIRED_CONTAINER_VERSION!
 # This ensures users automatically rebuild when critical container changes are made.
@@ -540,7 +542,7 @@ load_launch_config() {
     # again, and a headless one is refused for want of saved choices. What the file does not
     # set must not come from the environment, so the keys are cleared first. An empty file
     # gives one empty line, which ends the loop.
-    unset SAVED_CONFIG_VERSION SAVED_CCY_VERSION SAVED_CCY_HASH LAST_TOKEN LAST_SSH_KEYS LAST_NETWORK LAST_TEAMS LAST_LAUNCH_DATE
+    unset SAVED_CONFIG_VERSION SAVED_CCY_VERSION SAVED_CCY_HASH LAST_TOKEN LAST_SSH_KEYS LAST_NETWORK LAST_TEAMS LAST_TEAM_ROLES LAST_LAUNCH_DATE
     saved=$("$SCRIPT_DIR/claude-yolo" --read-launch-config "$config_file") ||
         { echo "The saved launch configuration was not read (above); it is kept. Reconfiguring..." >&2; return 1; }
     while IFS=$'\t' read -r key value && [[ -n "$key" ]]; do printf -v "$key" '%s' "$value"; done <<<"$saved"
@@ -632,7 +634,7 @@ HEADLESS_MODE=false
 SUPERVISE_MODE=false
 NO_SUPERVISE_MODE=false
 # A saved team a Quick Launch with no bus kit leaves alone, written back for the next launch.
-NO_BUS_MODE=false quick_kept_team=""
+NO_BUS_MODE=false quick_kept_team="" quick_roles="" quick_summary=false
 PROMPT_TEXT=""
 NEXT_IS_MAX_AGE=false
 NEXT_IS_RUN_FOR=false
@@ -1244,23 +1246,18 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
         echo "  Token:   ${LAST_TOKEN:-none}${last_token_label}"
         echo "  SSH Key: ${LAST_SSH_KEYS:-none}"
         echo "  Network: ${LAST_NETWORK:-none}"
-        # A restore takes the saved configuration without asking: it is the one the person
-        # last chose in this project, and the only evidence of what they want. So does a
-        # headless launch, whose stdin is the session's own input. Unasked (end of input
-        # included), the saved team is not taken: only --teams or a person's yes joins one
-        # (Plan 00161 M2.9).
-        quick_unasked="" quick_team="$LAST_TEAMS"
-        if [ "$SESSION_RESTORE" = true ]; then quick_unasked="Session restore" quick_team=""
-        elif [ "$HEADLESS_MODE" = true ]; then quick_unasked="Headless launch" quick_team=""
-        elif ccy_nobody_to_ask; then quick_unasked="No terminal to ask on" quick_team=""
-        elif [ "$NO_BUS_MODE" = true ]; then quick_team="" quick_kept_team="$LAST_TEAMS" # --no-bus/--opencode: on no team, the saved one kept
-        fi
-        ccy-teams describe-seats --prefix "  Team:    " "${TEAMS_LIST:-$quick_team}"
+        ccy_quick_mode
+        [ "$quick_summary" = true ] || ccy-teams describe-seats --prefix "  Team:    " "${TEAMS_LIST:-$quick_team}"
         echo ""
 
         while true; do
-            [ -n "$quick_unasked" ] || read -rp "$CCY_PROMPT_QUICK_LAUNCH " use_config ||
-                quick_unasked="No answer (end of input)"
+            if [ "$quick_summary" = true ]; then
+                ccy_launch_summary
+                use_config=y
+            else
+                [ -n "$quick_unasked" ] || read -rp "$CCY_PROMPT_QUICK_LAUNCH " use_config ||
+                    quick_unasked="No answer (end of input)"
+            fi
             if [ -n "$quick_unasked" ]; then
                 echo "$quick_unasked: using the previous configuration${LAST_TEAMS:+" but not its team (only --teams joins one)"}."
                 use_config=unasked
@@ -1287,20 +1284,7 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
                         CCY_ORIG_ARGS+=(--teams "$CCY_SEATS")
                         [ -z "$CCY_SESSION_NAME" ] || ccy-teams record-seats "$CCY_SESSION_NAME" "$CCY_SEATS" || exit 1
                     fi
-                    # Headless, an empty saved choice is that choice (no key; no project
-                    # network, so the default one, as the launch that saved it had), never the
-                    # picker or the network detection it would otherwise fall through to; a
-                    # saved launch with no token cannot be replayed. Not --no-network: a session
-                    # on pasta can join no network later (ccy --connect).
-                    if [ "$HEADLESS_MODE" = true ]; then
-                        if [[ -z "$LAST_TOKEN" ]]; then
-                            print_error "Headless launch: the saved Quick Launch choices name no token, and a headless launch never asks for one."
-                            echo "  Launch with --token NAME (and --ssh-key, --ssh-agent or --no-ssh)." >&2
-                            exit 1
-                        fi
-                        [[ -n "$LAST_SSH_KEYS" ]] || NO_SSH_MODE=true
-                        [[ -n "$LAST_NETWORK" ]] || CCY_NO_PROJECT_NETWORK=true
-                    fi
+                    ccy_quick_mode headless
                     break
                     ;;
                 N|n|No|no)
@@ -3386,6 +3370,9 @@ if [[ -n "$SELECTED_TOKEN" ]]; then
 fi
 
 # Save configuration for next launch (the seats are the canonical --teams list, or empty)
+# The remembered roles are those of the teams the summary showed; any other team list forgets them.
+quick_saved_list="${CCY_SEATS:-${quick_kept_team:-}}"
+[ -n "$quick_saved_list" ] && [ "$quick_saved_list" = "${quick_team:-${quick_kept_team:-}}" ] || quick_roles=""
 cat > .claude/ccy/.last-launch.conf <<EOF
 # CCY Launch Configuration
 # Config Version: ${CONFIG_VERSION}
@@ -3399,6 +3386,7 @@ LAST_TOKEN="${TOKEN_NAME_FOR_CONFIG}"
 LAST_SSH_KEYS="${SSH_KEYS[*]}"
 LAST_NETWORK="${AUTO_CONNECT_NETWORK}"
 LAST_TEAMS="${CCY_SEATS:-${quick_kept_team:-}}"
+LAST_TEAM_ROLES="${quick_roles}"
 LAST_LAUNCH_DATE="$(date '+%Y-%m-%d')"
 EOF
 chmod 600 .claude/ccy/.last-launch.conf
