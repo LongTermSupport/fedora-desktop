@@ -17,17 +17,26 @@ Two version numbers move independently — see
 
 ---
 
-## 3.105.3 — container 2.79.22
+## 3.107.2 — container 2.79.22
 
 The image is unchanged, so there is no rebuild.
 
 - **The shared `execx` and `ui` adapters carry the agent bus v2 merge.** This release lands
   the v2 agent bus (teamchat, Plan 00209) onto the mainline; the launcher itself behaves as
-  3.105.2 does. What changed in `execx` for it: `Start`, a child started beside its parent and
+  3.107.1 does. What changed in `execx` for it: `Start`, a child started beside its parent and
   waited for later (the teamchat keeper's link and session); a test-only `UserNamespace` field,
   which runs a child as root of its own user and mount namespace for a real-kernel mount test;
   and `SignalContext`'s stop waits for its signal listener to end, so no goroutine outlives it.
   Nothing in the launcher calls any of them.
+
+## 3.107.1 — container 2.79.22 (unchanged)
+
+Launcher only; the image is not rebuilt.
+
+- **Every ccy session starts claude with
+  `CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS=1`.** It removes the critical-path `rm`
+  prompt that bypassPermissions mode still shows. The container is the isolation boundary, so
+  ccy sets it always; host `cc` has no such boundary and does not set it (a test pins both).
 
 ## 3.105.2 — container 2.79.22
 

@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.105.3"  # Container 2.79.22: the shared execx and ui adapters carry the agent bus v2 merge (Plan 00209 spike), on top of compact-then-exit on close. See docs/ccy-changelog.md.
+CCY_VERSION="3.107.2"  # Container 2.79.22: the shared execx and ui adapters carry the agent bus v2 merge (Plan 00209 spike), on top of the YOLO variable. See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -3802,6 +3802,11 @@ ccy_lifecycle_finalize || exit 1
 # an `export` line in a project's .claude/ccy/ccy.env, which the entrypoint sources after
 # this environment is in place. See docs/ccy.md.
 #
+# CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS=1 removes the critical-path `rm` prompt
+# that bypassPermissions mode still shows. Always set, and for ccy only: the container is the
+# isolation boundary. Host cc has no such boundary and never sets it (cc-claude, pinned by a
+# test). A container `-e` reaches claude through the entrypoint's exec, so no image change.
+#
 # `set -e` would turn the container's exit status into this script's before the restart
 # check below could look at it, so capture it. Any status other than 75 is passed straight
 # through, as it always was.
@@ -3851,7 +3856,7 @@ CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_OAUTH_TOKEN" GH_TOKEN="$GH_TOKEN" ccy_agent_con
     -e "CCY_LIFECYCLE_DEADLINE_EPOCH=${CCY_LIFECYCLE_DEADLINE_EPOCH:-}" \
     -e "CCY_LIFECYCLE_WARN_MINUTES=${CCY_LIFECYCLE_WARN_MINUTES:-}" \
     -e "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-1}" \
-    -e "CLAUDE_CODE_AUTO_COMPACT_WINDOW=${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-600000}" \
+    -e "CLAUDE_CODE_AUTO_COMPACT_WINDOW=${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-600000}" -e "CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS=1" \
     -e "MAX_THINKING_TOKENS=${MAX_THINKING_TOKENS:-}" \
     -e "TERM=${TERM:-xterm}" \
     -e "COLORTERM=${COLORTERM:-truecolor}" \
