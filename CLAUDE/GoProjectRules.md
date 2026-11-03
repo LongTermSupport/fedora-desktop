@@ -58,6 +58,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_liveness_word`           | a status word read as running ("active", "online", "listening", "alive") spelled where no live source decides it                                       | `teams` board: every member not parked shown green "active" (Plan 00177)                                 |
 | `project_agent_branch`            | a teamchat branch on the run's launch value outside the agent seam, so a second agent program is a refactor of every comparison and not an adapter     | teamchat `keeper` and `link`: the launch comparisons the agent seam replaced (Plan 00209)                |
 | `project_transport_home`          | a teamchat `http.Transport` or `tls.Config` built outside package matrix, so a second place decides whom a client trusts and which name it verifies    | teamchat `hostnet` probe and `forge`: each built its own transport (Plan 00244 Task 8.8)                 |
+| `project_hostname_read`           | a teamchat read of the machine's hostname or of an address's name, so a hostname can reach a handle's site, which is permanent once issued             | teamchat `guestfacts`: the guest's `HOOKS_DAEMON_HOSTNAME` read into a site (Plan 00244 Task 8.8, X25)   |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -1281,6 +1282,57 @@ cover is a constructor added to `matrix`.
 - Not caught: an `http.Client` with no `Transport`, `http.DefaultClient`, `http.Get` and its
   siblings (each uses the default transport, which trusts the system's roots); a transport built
   by a function of a package this rule does not judge; `reflect.New`.
+
+### project_hostname_read
+
+**What it is about.** A handle is `<repo>.<seat>+<site>.<type>` and is permanent once issued
+(Plan 00244 SPEC-cross-network X28): it is in every roster, mention and log of the team, and a
+hostname in it cannot be taken back. The site is declared per machine (`teamchat_site`, default
+`local`) and no other source feeds a handle (X25). A teamchat function that reads the machine's
+hostname, or the name an address resolves to, is a function that can put a real hostname in a
+handle, however sound its first caller is.
+
+**Why it exists.** SPEC X27, and the code map's Item 5: `guestfacts.Prefix` read
+`HOOKS_DAEMON_HOSTNAME` into a site, and normalising it hid nothing (`member-machine-1` stays
+`member-machine-1`). The tree read the hostname nowhere else; the rule keeps it that way.
+
+**What it flags**, in `internal/teamchat`, `cmd/teamchat` and `cmd/teamchat-admin` and below,
+tests included, every use of:
+
+- `os.Hostname`;
+- `net.LookupAddr`, and a resolver's `LookupAddr` (`net.DefaultResolver.LookupAddr`, a
+  `*net.Resolver` of its own);
+
+as a call or as a value (a function value, a package-level seam), through any import name.
+
+**The one exemption**, part of this rule's own definition and not a row of any allowance table:
+the file `internal/teamchat/declare/machinehost.go`, which reads the hostname once so the
+declaration reader can refuse a site that spells it (X26). It is matched as a whole path: another
+file of package `declare`, and a file of that name in another package, are judged. A test gets
+the hostname through the seam (an injected `func() (string, error)`), as a fake.
+
+**How to fix a violation.** Declare the site (`teamchat_site`). A function that must compare
+against the hostname takes it from `declare.MachineHostname`, handed in as the seam, and never
+reads it where a handle is made.
+
+- Red, fixture: `testdata/hostnameread/src/fix/internal/teamchat/badhost` (`bad.go`: a call, a
+  function value, a package-level seam, `net.LookupAddr`, the default resolver's and a resolver
+  of its own; `alias.go`: an import under another name; `bad_test.go`: a test; `good.go`: the
+  environment, a forward lookup, a parse and two names of the package's own, clean), beside
+  `declare` (the exempt file, clean, and a sibling file, flagged), `other` (a file of the
+  exempt file's name in another package, flagged), `outsidehost` (outside teamchat, clean) and
+  `cmd/teamchat` and `cmd/teamchat-admin` (flagged). The root is its own, because the exemption is
+  a file path. With the analyzer reporting nothing the test failed on every flagged line (19
+  missed diagnostics, the package with a test file being judged twice) and passed once the rule
+  was written.
+- Red, real tree: no instance. The rule found nothing to fix, untagged, with `busfailpoints` and
+  with `tuwunel`, over `./internal/teamchat/...` (and the two commands untagged); the defect it
+  stands for, the environment-file read, is not an `os.Hostname` call and is fixed in the same
+  slice, with a test that no non-test file of teamchat names `HOOKS_DAEMON_HOSTNAME`.
+- Green: the tree after the slice, with no finding, untagged and with each tag.
+- Not caught: `net.LookupHost` and `net.LookupIP` of a name that came from a handle; a hostname
+  read through the `hostname` program, `/etc/hostname`, `/proc/sys/kernel/hostname` or the
+  environment; reflection.
 
 ## Defect classes that cannot be a rule
 
