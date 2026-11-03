@@ -264,6 +264,12 @@ handlers:
     gitignore_safety_checker: {enabled: true, priority: 54}       # Warn when .claude/ paths not gitignored
     suggest_status_line: {enabled: true, priority: 55}            # Suggest status line setup
     version_check: {enabled: true, priority: 55}                  # Check for daemon updates
+    branch_count_advisor:                                         # The owner's WIP cap: 10 open work branches
+      enabled: true
+      priority: 56
+      options:
+        max_open_branches: 10
+        behind_main_threshold: 50
     git_upstream_checker:                                         # Keep the branch in sync with upstream
       enabled: true
       priority: 56
