@@ -5,7 +5,9 @@ ccy and cc run each interactive session inside tmux on CCY's own server (see
 docs/ccy.md "Sessions Survive the Terminal"), so a session outlives the terminal that
 showed it. This is the way back: the same picker ccy and cc show themselves, over every
 session at once. Arrow keys move; Enter on a session lists what can be done to it:
-attach it here, take it over (Ctrl-T), end it (Ctrl-X). A row of its own starts a new ccy
+attach it here, take it over (Ctrl-T), close it (/compact, then /exit once the
+compaction is in its transcript, or /exit alone; ccy --stop does the same), end it
+(Ctrl-X: killed, with everything running in it). A row of its own starts a new ccy
 session in the current project folder (Ctrl-N; by running ccy the normal way). Each key is
 a shortcut printed beside the line it chooses. Esc or q leaves.
 

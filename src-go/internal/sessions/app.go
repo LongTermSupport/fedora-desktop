@@ -23,6 +23,8 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/hostcheckout"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessclose"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessprobe"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
@@ -158,6 +160,8 @@ type App struct {
 	Probe     *sessprobe.Probe
 	// Transcripts reads only what each polled transcript gained since the last look.
 	Transcripts *transcript.Cache
+	// Closer closes a session from its menu: /compact, then /exit (sessclose).
+	Closer sessclose.Closing
 
 	// Now is the clock. Pause waits d, or until a signal arrives on sig, and reports whether
 	// it was interrupted. Signals starts listening for INT and TERM and returns the channel
@@ -279,6 +283,12 @@ func (a *App) wire() {
 	}
 	if a.Transcripts == nil {
 		a.Transcripts = transcript.NewCache()
+	}
+	if a.Closer == nil {
+		c := sessclose.New(a.Tmux, func() (*registry.Store, error) { return registry.Locate(a.Getenv) }, a.Getenv)
+		c.Transcripts, c.Now = a.Transcripts, a.Now
+		c.Sleep = func(d time.Duration) { a.Pause(d, nil) }
+		a.Closer = c
 	}
 }
 
