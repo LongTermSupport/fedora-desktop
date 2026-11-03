@@ -33,10 +33,8 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Every changed play; expected: play-claude-yolo.yml (CCY 3.105.2): ccy-teams and
-# ccy-sessions with compact then exit on close (ccy-teams shutdown compacts each session
-# before its /exit, ccy --stop SESSION is new, a ccy-sessions row gains Close it). If the
-# routing deploy has not run yet, also play-agent-bus.yml and the image rebuild for
-# container 2.79.22 (Plan 00211 Task 2.14): agents write to humans in the side rooms, a
-# human's thread reply reaches the agent. Sessions pick the new pingbus up when restarted.
+# Every changed play; expected: play-claude-yolo.yml (CCY 3.105.2, container 2.79.22 already
+# built): ccy-teams and ccy-sessions with compact then exit on close (ccy-teams shutdown
+# compacts each session before its /exit, ccy --stop SESSION is new, a ccy-sessions row gains
+# Close it), and ccy-teams shows who is listening.
 changed-plays
