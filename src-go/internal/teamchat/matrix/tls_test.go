@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -286,8 +287,7 @@ func TestPlainHTTPIsForALoopbackLiteralOnly(t *testing.T) {
 		"http://198.51.100.1:8008", "http://[2001:db8::1]:8008", "http://203.0.113.9", "http://localhost:8008", "http://hs.example.org",
 	}
 	for _, base := range refused {
-		listed := Config{BaseURL: base, PlainHTTPHosts: []string{"198.51.100.1", "2001:db8::1", "203.0.113.9", "localhost"}, Token: "t"}
-		_, err := NewMember(listed)
+		_, err := NewMember(Config{BaseURL: base, Token: "t"})
 		wantErr(t, err, ErrInvalid, "plain http is only for a loopback IP literal (127.0.0.0/8 or ::1)")
 		withCA := Config{BaseURL: base, CAPEM: string(ca.CertPEM()), Token: "t"}
 		if _, err := NewMember(withCA); err == nil {
@@ -301,6 +301,14 @@ func TestPlainHTTPIsForALoopbackLiteralOnly(t *testing.T) {
 			continue
 		}
 		c.Close()
+	}
+}
+
+// X12: nothing in a Config widens plain http: plain_http_hosts is gone from the bundle, so the
+// only plain http left is a loopback literal.
+func TestNoConfigFieldWidensPlainHTTP(t *testing.T) {
+	if _, has := reflect.TypeFor[Config]().FieldByName("PlainHTTPHosts"); has {
+		t.Error("matrix.Config still has PlainHTTPHosts")
 	}
 }
 

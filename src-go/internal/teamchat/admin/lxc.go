@@ -13,6 +13,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -238,18 +239,19 @@ func (r lxcRoster) Park(ctx context.Context, team paths.TeamID, handle string) e
 	return err
 }
 
-// Reach is guest check's stdin from the applied team.json: its URL and plain-HTTP hosts.
+// Reach is guest check's stdin from the applied team.json: its URL and the team CA certificate
+// that URL is pinned to (X15).
 func (r lxcRoster) Reach(_ context.Context, team paths.TeamID) ([]byte, error) {
 	decl, _, err := readTeamFile(r.sys.Host.Root, team)
 	if err != nil {
 		return nil, err
 	}
-	plain, err := plainHTTPHosts(decl.URL)
+	caPEM, err := teamCAPEM(r.sys.TeamCA, decl)
 	if err != nil {
 		return nil, err
 	}
 	return proto.Obj(
-		proto.M("v", proto.Int(1)), proto.M("team", proto.Str(team.String())),
-		proto.M("base_url", proto.Str(decl.URL)), proto.M("plain_http_hosts", lineArray(plain)),
+		proto.M("v", proto.Int(seat.BundleVersion)), proto.M("team", proto.Str(team.String())),
+		proto.M("base_url", proto.Str(decl.URL)), proto.M("tls_ca", proto.Str(caPEM)),
 	).Compact(), nil
 }

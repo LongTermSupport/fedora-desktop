@@ -94,7 +94,7 @@ func (h *homeserver) bundle() Bundle { return bundleAt(h.t, h.hs.URL()) }
 // member is a client holding token on the server.
 func (h *homeserver) member(token string) *matrix.Client {
 	h.t.Helper()
-	c, err := matrix.NewMember(matrix.Config{BaseURL: h.hs.URL(), PlainHTTPHosts: []string{loopback}, Token: token, Clock: h.clock})
+	c, err := matrix.NewMember(matrix.Config{BaseURL: h.hs.URL(), Token: token, Clock: h.clock})
 	if err != nil {
 		h.t.Fatal(err)
 	}

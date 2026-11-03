@@ -86,7 +86,9 @@ func (p Password) logout(ctx context.Context, b Bundle, token string) error {
 }
 
 func (p Password) client(b Bundle, token string) (*matrix.Client, error) {
-	c, err := matrix.NewMember(matrix.Config{BaseURL: b.BaseURL, PlainHTTPHosts: b.PlainHTTPHosts, Token: token, Clock: p.Clock})
+	cfg := b.MemberConfig(token)
+	cfg.Clock = p.Clock
+	c, err := matrix.NewMember(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("seat: the member client for %s: %w", b.UserID, err)
 	}

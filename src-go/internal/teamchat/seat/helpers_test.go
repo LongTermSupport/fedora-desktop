@@ -67,9 +67,8 @@ func bundleAt(t *testing.T, base string) Bundle {
 	team := mustTeam(t)
 	server := paths.ServerName(team)
 	return Bundle{
-		V: 1, Team: team, ServerName: server, UserID: "@" + testHandle + ":" + server,
-		AdminID: "@admin:" + server, MainRoom: testRoom, BaseURL: base,
-		PlainHTTPHosts: []string{loopback}, DeviceID: paths.SeatDevice, IssuedMS: testIssuedMS,
+		V: BundleVersion, Team: team, ServerName: server, UserID: "@" + testHandle + ":" + server,
+		AdminID: "@admin:" + server, MainRoom: testRoom, BaseURL: base, DeviceID: paths.SeatDevice, IssuedMS: testIssuedMS,
 		Issuer: mustDigest(t),
 	}
 }

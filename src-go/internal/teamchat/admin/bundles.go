@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/netip"
 	"net/url"
 	"time"
 
@@ -20,7 +19,12 @@ import (
 type SeatBundles struct {
 	Clock  func() time.Time
 	Digest paths.Digest
+	CA     TeamCA
 }
+
+// TeamCA gives a team's CA certificate in PEM: a function of the host's files, which the seat
+// side does not read (Plan 00244 X13, X15).
+type TeamCA func(team paths.TeamID) (string, error)
 
 // Bundle implements Bundles. No error quotes the credential's secret.
 func (s SeatBundles) Bundle(_ context.Context, team declare.Team, handle, mainRoom string, c apply.Credential) (proto.Value, error) {
@@ -32,14 +36,14 @@ func (s SeatBundles) Bundle(_ context.Context, team declare.Team, handle, mainRo
 	if err != nil {
 		return proto.Value{}, errors.New("the credential is not one seat.json can carry")
 	}
-	plain, err := plainHTTPHosts(team.URL)
+	caPEM, err := teamCAPEM(s.CA, team)
 	if err != nil {
 		return proto.Value{}, err
 	}
 	issued := seat.Issued{
 		Seat: seat.Bundle{
-			V: 1, Team: team.ID, ServerName: team.ServerName, UserID: proto.UserID(handle, team.ServerName),
-			AdminID: proto.AdminID(team.ServerName), MainRoom: mainRoom, BaseURL: team.URL, PlainHTTPHosts: plain,
+			V: seat.BundleVersion, Team: team.ID, ServerName: team.ServerName, UserID: proto.UserID(handle, team.ServerName),
+			AdminID: proto.AdminID(team.ServerName), MainRoom: mainRoom, BaseURL: team.URL, TLSCA: caPEM,
 			DeviceID: paths.SeatDevice, IssuedMS: s.Clock().UnixMilli(), Issuer: s.Digest,
 		},
 		Kind: kind, Secret: secret,
@@ -51,6 +55,27 @@ func (s SeatBundles) Bundle(_ context.Context, team declare.Team, handle, mainRo
 	return proto.Parse(raw)
 }
 
+// teamCAPEM is the CA certificate a bundle or a reach fact for team carries: the provider's for
+// an https URL, and none for plain http, which the member client refuses except at a loopback
+// literal, where there is nothing to pin (X12, X15).
+func teamCAPEM(ca TeamCA, team declare.Team) (string, error) {
+	u, err := url.Parse(team.URL)
+	if err != nil {
+		return "", fmt.Errorf("the team's base URL: %w", err)
+	}
+	if u.Scheme != "https" {
+		return "", nil
+	}
+	if ca == nil {
+		return "", errors.New("the team CA has no provider")
+	}
+	pem, err := ca(team.ID)
+	if err != nil {
+		return "", fmt.Errorf("the CA of team %s: %w", team.ID, err)
+	}
+	return pem, nil
+}
+
 func seatKind(kind string) (seat.Kind, error) {
 	switch kind {
 	case apply.CredPassword:
@@ -59,17 +84,4 @@ func seatKind(kind string) (seat.Kind, error) {
 		return seat.KindToken, nil
 	}
 	return "", fmt.Errorf("the credential kind %q is not password or token", kind)
-}
-
-// plainHTTPHosts is the base URL's host when it is an IP literal, else none.
-func plainHTTPHosts(base string) ([]string, error) {
-	u, err := url.Parse(base)
-	if err != nil {
-		return nil, fmt.Errorf("the team's base URL: %w", err)
-	}
-	host := u.Hostname()
-	if addr, perr := netip.ParseAddr(host); perr == nil && addr.IsValid() {
-		return []string{host}, nil
-	}
-	return []string{}, nil
 }

@@ -23,7 +23,8 @@ import (
 
 // System is what the verbs reach beyond the process, each a seam (CV3-CV5): the host's
 // (host.Deps; Bootstrap and LockWait are the verb's, and Pin, CtlUID and CtlGID team apply's
-// from Pin and CtlIDs), the child, the seat side's bundles, the owner group, the health tick
+// from Pin and CtlIDs), the child, the seat side's bundles, the team CA certificate the reach
+// facts carry (the bundles are given the same), the owner group, the health tick
 // and the account database's homes; for the child, its Opener. A seam that reads a host file
 // reads it when a verb calls it, so a verb fails only on what it needs (n2f-W1). LXC is the
 // `lxc apply` and `lxc restart` seams; the verbs give it the Roster and Refresh themselves.
@@ -31,6 +32,7 @@ type System struct {
 	Host       host.Deps
 	Child      Child
 	Bundles    Bundles
+	TeamCA     TeamCA
 	OwnerGroup func() (int, error)
 	Open       Opener
 	Pin        func() (host.Pin, error)

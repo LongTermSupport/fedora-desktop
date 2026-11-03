@@ -86,7 +86,7 @@ func (hs tuwunel) signedIn(ctx context.Context, t *testing.T, admin *Admin, uid 
 	if err != nil || len(devices) == 0 {
 		t.Fatalf("Devices %s = %+v, %v; want the minted token's device", uid, devices, err)
 	}
-	c, err := NewMember(Config{BaseURL: hs.Base, PlainHTTPHosts: []string{loopback}, Token: token.Reveal()})
+	c, err := NewMember(Config{BaseURL: hs.Base, Token: token.Reveal()})
 	if err != nil {
 		t.Fatalf("NewMember %s: %v", uid, err)
 	}
@@ -376,7 +376,7 @@ func seatCycle(ctx context.Context, t *testing.T, hs tuwunel, admin *Admin, invi
 	if err := inviter.Invite(ctx, room, seatID); err != nil {
 		t.Fatalf("Invite: %v", err)
 	}
-	anon, err := NewMember(Config{BaseURL: hs.Base, PlainHTTPHosts: []string{loopback}, Token: "unused"})
+	anon, err := NewMember(Config{BaseURL: hs.Base, Token: "unused"})
 	if err != nil {
 		t.Fatalf("NewMember: %v", err)
 	}

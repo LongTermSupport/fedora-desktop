@@ -101,7 +101,7 @@ func (w *guestWorld) checker() Checker {
 }
 
 func (w *guestWorld) stdin() string {
-	return `{"v":1,"team":"alpha","base_url":"` + w.srv.URL() + `","plain_http_hosts":["127.0.0.1"]}`
+	return `{"v":2,"team":"alpha","base_url":"` + w.srv.URL() + `","tls_ca":""}`
 }
 
 func alpha(t *testing.T) paths.TeamID {
@@ -180,18 +180,21 @@ func TestCheckRefusesTheCallerFirst(t *testing.T) {
 // The stdin contract (n3-D6): one strict object, its team --team; any miss is 64 usage.
 func TestCheckRefusesItsStdin(t *testing.T) {
 	cases := map[string]string{
-		"not json":      `{"v":1`,
+		"not json":      `{"v":2`,
 		"not an object": `[1]`,
-		"extra key":     `{"v":1,"team":"alpha","base_url":"http://127.0.0.1:1","plain_http_hosts":[],"x":1}`,
-		"missing key":   `{"v":1,"team":"alpha","base_url":"http://127.0.0.1:1"}`,
-		"twin key":      `{"v":1,"team":"alpha","team":"alpha","base_url":"http://127.0.0.1:1","plain_http_hosts":[]}`,
-		"v 2":           `{"v":2,"team":"alpha","base_url":"http://127.0.0.1:1","plain_http_hosts":[]}`,
-		"another team":  `{"v":1,"team":"beta","base_url":"http://127.0.0.1:1","plain_http_hosts":[]}`,
-		"bad team":      `{"v":1,"team":"Alpha!","base_url":"http://127.0.0.1:1","plain_http_hosts":[]}`,
-		"url a number":  `{"v":1,"team":"alpha","base_url":1,"plain_http_hosts":[]}`,
-		"hosts a str":   `{"v":1,"team":"alpha","base_url":"http://127.0.0.1:1","plain_http_hosts":"127.0.0.1"}`,
-		"host a number": `{"v":1,"team":"alpha","base_url":"http://127.0.0.1:1","plain_http_hosts":[1]}`,
-		"oversized":     `{"v":1,"team":"alpha","base_url":"http://127.0.0.1:1","plain_http_hosts":["` + strings.Repeat("1", stdinCap) + `"]}`,
+		"extra key":     `{"v":2,"team":"alpha","base_url":"http://127.0.0.1:1","tls_ca":"","x":1}`,
+		"missing key":   `{"v":2,"team":"alpha","base_url":"http://127.0.0.1:1"}`,
+		"twin key":      `{"v":2,"team":"alpha","team":"alpha","base_url":"http://127.0.0.1:1","tls_ca":""}`,
+		"v 1":           `{"v":1,"team":"alpha","base_url":"http://127.0.0.1:1","plain_http_hosts":[]}`,
+		"v 1 with a CA": `{"v":1,"team":"alpha","base_url":"http://127.0.0.1:1","tls_ca":""}`,
+		"v 3":           `{"v":3,"team":"alpha","base_url":"http://127.0.0.1:1","tls_ca":""}`,
+		"another team":  `{"v":2,"team":"beta","base_url":"http://127.0.0.1:1","tls_ca":""}`,
+		"bad team":      `{"v":2,"team":"Alpha!","base_url":"http://127.0.0.1:1","tls_ca":""}`,
+		"url a number":  `{"v":2,"team":"alpha","base_url":1,"tls_ca":""}`,
+		"ca a list":     `{"v":2,"team":"alpha","base_url":"http://127.0.0.1:1","tls_ca":["x"]}`,
+		"ca a number":   `{"v":2,"team":"alpha","base_url":"http://127.0.0.1:1","tls_ca":1}`,
+		"the old key":   `{"v":2,"team":"alpha","base_url":"http://127.0.0.1:1","plain_http_hosts":[]}`,
+		"oversized":     `{"v":2,"team":"alpha","base_url":"http://127.0.0.1:1","tls_ca":"` + strings.Repeat("1", stdinCap) + `"}`,
 	}
 	for name, stdin := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -349,7 +352,7 @@ func TestCheckReachesTheHomeserver(t *testing.T) {
 	if reachTimeout != 3*time.Second {
 		t.Errorf("reach waits %v, B says 3 s", reachTimeout)
 	}
-	t.Run("a plain http URL that is not loopback, even listed", func(t *testing.T) {
+	t.Run("a plain http URL that is not loopback", func(t *testing.T) {
 		w := newGuestWorld(t)
 		err := w.check(t, strings.ReplaceAll(w.stdin(), "127.0.0.1", "192.0.2.10"))
 		wantCode(t, err, 78, exits.CodeReach)
@@ -358,9 +361,9 @@ func TestCheckReachesTheHomeserver(t *testing.T) {
 			t.Errorf("err = %v, want the member URL rule's refusal", err)
 		}
 	})
-	t.Run("a loopback URL needs no list", func(t *testing.T) {
+	t.Run("a loopback URL needs no CA", func(t *testing.T) {
 		w := newGuestWorld(t)
-		if err := w.check(t, strings.Replace(w.stdin(), `["127.0.0.1"]`, `[]`, 1)); err != nil {
+		if err := w.check(t, w.stdin()); err != nil {
 			t.Fatal(err)
 		}
 	})
