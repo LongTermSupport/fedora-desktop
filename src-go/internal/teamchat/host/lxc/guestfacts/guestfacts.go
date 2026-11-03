@@ -263,31 +263,24 @@ func ParseConfig(kv map[string]string) (Config, error) {
 
 const guestSource = "the guest's address"
 
-// Source checks that one of the guest's addresses is inside a prefix of the team's
-// allow_from, on a link that is the host bridge.
-func Source(addrs []netip.Addr, allowFrom []string, link, bridge string) error {
+// Source checks that one of the guest's addresses is inside one of the team's effective
+// networks (declare.Input.EffectiveNetworks, the set the unit's filter and the firewall use),
+// on a link that is the host bridge.
+func Source(addrs []netip.Addr, networks []netip.Prefix, link, bridge string) error {
 	if link != bridge {
 		return refuse(guestSource, "the container's link is not the host bridge %s", bridge)
 	}
 	if len(addrs) == 0 {
 		return refuse(guestSource, "the container has no address")
 	}
-	prefixes := make([]netip.Prefix, 0, len(allowFrom))
-	for _, s := range allowFrom {
-		p, err := netip.ParsePrefix(s)
-		if err != nil {
-			return refuse(guestSource, "the team's allow_from holds a prefix that does not parse")
-		}
-		prefixes = append(prefixes, p)
-	}
 	for _, a := range addrs {
-		for _, p := range prefixes {
+		for _, p := range networks {
 			if p.Contains(a.Unmap()) {
 				return nil
 			}
 		}
 	}
-	return refuse(guestSource, "no address of the container is inside the team's allow_from")
+	return refuse(guestSource, "no address of the container is inside the team's effective networks")
 }
 
 const procStat = "a /proc stat"

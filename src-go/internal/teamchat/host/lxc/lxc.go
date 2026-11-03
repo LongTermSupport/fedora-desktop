@@ -191,6 +191,7 @@ type Deps struct {
 	HostUIDs  map[int]bool                                       // every uid of the host's passwd (n3-D29)
 	OwnerGID  int                                                // the LXC record's group
 	Bridge    string                                             // wire.Bridge
+	BridgeNet func() (netip.Prefix, error)                       // the bridge's subnet, asked while a team has a present member (X5)
 	Refresh   func(ctx context.Context, team paths.TeamID) error // the status record, after a change
 }
 

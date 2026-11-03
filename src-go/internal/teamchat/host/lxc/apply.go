@@ -202,6 +202,7 @@ type run struct {
 	d       Deps
 	req     Request
 	teams   []declare.Team
+	inputs  map[paths.TeamID]declare.Input // each acted team's input, whose effective networks the source check judges
 	origins map[paths.TeamID]string
 	records map[paths.TeamID]lxcstate.Record
 	members []*member
@@ -240,7 +241,8 @@ func validate(ctx context.Context, d Deps, req Request) (*run, error) {
 		return nil, fmt.Errorf("lxc apply: phase %q is not absent or present", req.Phase)
 	}
 	r := &run{
-		d: d, req: req, origins: map[paths.TeamID]string{}, records: map[paths.TeamID]lxcstate.Record{},
+		d: d, req: req, inputs: map[paths.TeamID]declare.Input{}, origins: map[paths.TeamID]string{},
+		records: map[paths.TeamID]lxcstate.Record{},
 		changed: map[paths.TeamID]bool{}, reach: map[paths.TeamID][]byte{}, checked: map[checkKey]error{},
 	}
 	inputs := req.Decl.Inputs()
@@ -306,6 +308,7 @@ func (r *run) team(ctx context.Context, in declare.Input, targets map[Target]boo
 		return err
 	}
 	r.teams = append(r.teams, in.Team)
+	r.inputs[id] = in
 	r.origins[id] = origin
 	for _, m := range in.LXC {
 		c, err := paths.ParseContainerName(m.Container)
@@ -769,11 +772,15 @@ func (r *run) facts(g *guestBox, m *member, passwd []byte, addrs []netip.Addr) e
 		if !ok {
 			return fmt.Errorf("%w: the record's handle is not a handle", guestfacts.ErrRefused)
 		}
-		if err := guestfacts.SameMember(derived, h); err != nil {
+		if err = guestfacts.SameMember(derived, h); err != nil {
 			return err
 		}
 	}
-	return guestfacts.Source(addrs, m.team.Networks, g.cfg.Link, r.d.Bridge)
+	effective, err := r.inputs[m.team.ID].EffectiveNetworks(r.d.BridgeNet)
+	if err != nil {
+		return fmt.Errorf("the team's effective networks: %w", err)
+	}
+	return guestfacts.Source(addrs, effective.All, g.cfg.Link, r.d.Bridge)
 }
 
 // checkout is the checkout's .git/config and ccy.env.local, read once per container through
