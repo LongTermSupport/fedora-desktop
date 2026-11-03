@@ -31,7 +31,7 @@ const (
 const (
 	keyTeam, keyName, keyState, keyPurge       = "team", "name", "state", "purge"
 	keyPort, keyServerName, keyDescription     = "port", "server_name", "description"
-	keyListen, keyAllowFrom, keyURL            = "listen", "allow_from", "url"
+	keyNetworks, keyURL                        = "networks", "url"
 	keyHumans, keyCoordinator, keyTrust        = "humans", "coordinator", "trust"
 	keyContainer, keyUser, keyCheckout         = "container", "user", "checkout"
 	keySite, keySeat, keyHumanText, keyService = "site", "seat", "human_text", "service"
@@ -58,8 +58,10 @@ type Team struct {
 	Port        int
 	ServerName  string
 	Description string
-	Listen      []string
-	AllowFrom   []string
+	// Networks are the CIDRs the team's members may connect from (SPEC-cross-network X1), in
+	// canonical masked form. The addresses the homeserver listens on are derived from them at
+	// apply time and are not declared.
+	Networks []string
 	// URL is the members' base URL: the declared one, or http://<address>:<port> (DR3).
 	URL         string
 	Humans      []string
@@ -182,7 +184,7 @@ func readTeams(f fields, key, address string) ([]Team, error) {
 }
 
 var teamOptional = []string{
-	keyName, keyPurge, keyPort, keyServerName, keyDescription, keyListen, keyAllowFrom, keyURL,
+	keyName, keyPurge, keyPort, keyServerName, keyDescription, keyNetworks, keyURL,
 	keyHumans, keyCoordinator, keyTrust, keyColour,
 }
 
@@ -206,7 +208,7 @@ func readTeam(n node, address string) (Team, error) {
 		return Team{}, f.at(keyPurge).fail("is allowed only with state absent")
 	}
 	if t.State == StatePresent {
-		for _, k := range []string{keyPort, keyDescription, keyListen, keyAllowFrom, keyHumans, keyTrust} {
+		for _, k := range []string{keyPort, keyDescription, keyNetworks, keyHumans, keyTrust} {
 			if !f.has(k) {
 				return Team{}, f.at(k).fail("is required for a present team")
 			}
@@ -258,8 +260,7 @@ func readValues(t *Team, f fields, address string) error {
 			t.Description, err = n.checked(proto.ValidDescription, "is not 1-120 characters, trimmed, free of control characters")
 			return err
 		}},
-		{keyListen, func(n node) error { t.Listen, err = n.listen(); return err }},
-		{keyAllowFrom, func(n node) error { t.AllowFrom, err = n.allowFrom(); return err }},
+		{keyNetworks, func(n node) error { t.Networks, err = n.networks(); return err }},
 		{keyURL, func(n node) error { t.URL, err = n.url(); return err }},
 		{keyHumans, func(n node) error { t.Humans, err = n.humans(); return err }},
 		{keyCoordinator, func(n node) error { t.Coordinator, err = n.coordinator(); return err }},
