@@ -285,8 +285,8 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
   `answers`), including under messages sent before the fix. Reports stay unchecked: read-only
   status by guidance only (the owner's decision), with "Needs you" moved to questions in the
   skill, STYLE.md v2 and the docs. Tests first (`test_cli_human_routing`,
-  `TestHumanAnswerUnderAnAgentsMessage`). CCY 3.104.17, container 2.79.21. Report
-  `subagent-reports/261102-human-routing.md`.
+  `TestHumanAnswerUnderAnAgentsMessage`). CCY 3.104.18, container 2.79.22 (merged above F44).
+  Reports `subagent-reports/261102-human-routing.md`, `261103-human-routing-finish.md`.
 
 ### Phase 3: the owner's view (Go)
 
