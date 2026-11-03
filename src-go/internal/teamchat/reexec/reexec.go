@@ -42,6 +42,13 @@ const (
 	unknownHelper = 125
 )
 
+// ExitSkip is the exit code of a helper that found its environment unable to do the one thing it
+// is for: a kernel that allows a user namespace but no mount in it, as an AppArmor-restricted CI
+// runner does. StartInUserNamespace then skips the test and shows what the helper said on stderr,
+// as it does for a kernel that allows no user namespace at all. Only this exit is a skip; any
+// other end before ready is a failure.
+const ExitSkip = 77
+
 // Helpers maps a helper's name to its body, which returns the child's exit code.
 type Helpers map[string]func(h *Helper) int
 
@@ -141,12 +148,16 @@ func StartFiles(tb testing.TB, files []*os.File, name string, args ...string) *P
 
 // StartInUserNamespace is Start with the helper as root of a new user namespace, with a mount
 // namespace of its own (execx.Cmd.UserNamespace): for a test of what only a real mount shows,
-// made without privilege on the host. A kernel that allows no such namespace skips the test.
+// made without privilege on the host. A kernel that allows no such namespace skips the test, and
+// so does a helper that ends with ExitSkip, having found the namespace unable to do its work.
 func StartInUserNamespace(tb testing.TB, name string, args ...string) *Process {
 	tb.Helper()
 	p, err := start(name, args, nil, true)
 	if errors.Is(err, unix.EPERM) || errors.Is(err, unix.ENOSPC) {
 		tb.Skipf("no unprivileged user namespace here: %v", err)
+	}
+	if said, skip := skippedBy(err); skip {
+		tb.Skipf("the user namespace here cannot do what helper %q is for: %s", name, strings.TrimSpace(said))
 	}
 	if err != nil {
 		tb.Fatal(err)
@@ -267,12 +278,33 @@ func closeAll(files []*os.File) error {
 	return err
 }
 
-// endedEarly is a helper's end before its ready line, wrapping the error it could not start with.
-func endedEarly(name string, end *exitInfo) error {
-	if end.err != nil {
-		return fmt.Errorf("reexec: helper %q ended before it was ready: %w; stderr: %s", name, end.err, end.stderr)
+// endedEarlyError is a helper's end before its ready line: it wraps the error the helper could not
+// start with, and keeps how it ended, so a caller can tell a skip from a failure.
+type endedEarlyError struct {
+	name string
+	end  *exitInfo
+}
+
+func (e *endedEarlyError) Error() string {
+	if e.end.err != nil {
+		return fmt.Sprintf("reexec: helper %q ended before it was ready: %v; stderr: %s", e.name, e.end.err, e.end.stderr)
 	}
-	return fmt.Errorf("reexec: helper %q ended before it was ready: %s", name, describe(end))
+	return fmt.Sprintf("reexec: helper %q ended before it was ready: %s", e.name, describe(e.end))
+}
+
+func (e *endedEarlyError) Unwrap() error { return e.end.err }
+
+// endedEarly is a helper's end before its ready line, wrapping the error it could not start with.
+func endedEarly(name string, end *exitInfo) error { return &endedEarlyError{name: name, end: end} }
+
+// skippedBy is what a helper said on stderr, and true, when err is the helper's own exit with
+// ExitSkip before its ready line: not a signal and not a failure to run.
+func skippedBy(err error) (string, bool) {
+	e, ok := errors.AsType[*endedEarlyError](err)
+	if !ok || e.end.err != nil || e.end.signal != 0 || e.end.code != ExitSkip {
+		return "", false
+	}
+	return e.end.stderr, true
 }
 
 // childOf is nil when pid is a child of this process, the only process a helper's Kill may

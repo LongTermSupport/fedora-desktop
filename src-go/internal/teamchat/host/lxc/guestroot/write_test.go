@@ -199,6 +199,11 @@ func bindMount(h *reexec.Helper) int {
 		return failed("a write that crosses no mount", err)
 	}
 	if err := unix.Mount(h.Args[1], filepath.Join(h.Args[0], "usr/local"), "", unix.MS_BIND, ""); err != nil {
+		if errors.Is(err, unix.EACCES) || errors.Is(err, unix.EPERM) {
+			// A kernel policy that gives a user namespace no mount (an AppArmor-restricted CI
+			// runner) is an environment that cannot show what this test shows, not a defect.
+			return skipped("bind-mount", err)
+		}
 		return failed("bind-mount", err)
 	}
 	if _, err := r.Writer().MkdirAll(kitParent); !errors.Is(err, ErrRefused) || !errors.Is(err, unix.EXDEV) {
@@ -211,6 +216,15 @@ func bindMount(h *reexec.Helper) int {
 		return failed("ready", err)
 	}
 	return 0
+}
+
+// skipped tells the parent, on the child's stderr, which step the environment refused and why, and
+// returns the exit that makes the parent's test a skip.
+func skipped(step string, err error) int {
+	if _, werr := fmt.Fprintf(os.Stderr, "%s: %v\n", step, err); werr != nil {
+		return 3
+	}
+	return reexec.ExitSkip
 }
 
 // failed tells the parent, on the child's stderr, which step failed and why.

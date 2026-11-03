@@ -178,6 +178,25 @@ JSON to merge. Any one of them fails the run, and the gates after it still run:
 | `qa-go-vuln.bash`                           | `govulncheck`, pinned by the `tool` directive of `src-go/qa/go.mod` (nothing installed system-wide; `go tool govulncheck`), finds no known vulnerability that `src-go`'s code reaches; the package load reads `src-go/vendor/`, so the scan is of what the binaries are built from. Status 3 (a reachable vulnerability) is exit 1; any other failure, a vulnerability database it could not fetch included, is exit 2, never a pass. **It needs `vuln.go.dev` on every run**: govulncheck keeps no database cache, so an offline `qa-all` reds this gate with exit 2 and the fetch error. Same package as `qa-go-deps`; `qa-changed` runs it whole as `go-vuln` when `go.mod`, `go.sum`, `vendor/`, the qa module's `go.mod` or the tool changes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `qa-plan-script-logging.bash`               | no active plan script (`CLAUDE/Plan/NNNNN-*/`, by `.bash`/`.sh` name or shell shebang) redirects a bare `exec` into an output process substitution (`exec > >(tee …)`, judged on the `mvdan.cc/sh` syntax tree), and no plan folder keeps a local `logs/` dir (Plan 00130). The tool is Go (`src-go/qa/planscriptlogging`, spec `SPEC-qa-plan-script-logging.md`); it exits 2 for a script that does not parse, an unreadable file or no script found, and `qa-changed` runs it whole as the `plan-script-logging` check when a plan script changes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 
+### Gates waiting on a sweep (red until swept)
+
+A gate for a defect class whose instances already exist is built detector-first, proven red,
+and left **out of `scripts/qa-gates.tsv`** until its sweep has emptied the pile; wiring it in
+while red would fail every `qa-all.bash`. Adding its row to `scripts/qa-gates.tsv` is the step
+after the sweep, and this section is where the wait is recorded.
+
+- The untracked-work audit (`scripts/qa-untracked-audit.bash`; Plan 00245; Go in
+  `src-go/qa/untrackedaudit`, data in `scripts/untracked-policy.yml`) guards work kept only
+  where git does not carry it: a file in `untracked/` older than 24 hours that is not a scratch
+  shape or is a `.md`, `.patch` or `.diff` (the registered stores are skipped, the daemon's own
+  stores are a warning count), a local branch with commits no remote holds, a linked work tree
+  with old uncommitted changes, any stash. It waits on Plan 00245 Task 2.2, the sweep of
+  `untracked/` and of the local branches and work trees.
+
+**Local only:** a clean checkout has no `untracked/` and no work in progress, so CI cannot run
+this gate; it would also be a no-op there. `--policy FILE` reads the policy from another file,
+for a checkout that does not carry it yet.
+
 `qa-helper-tests.bash` and `check_extension_compat` were **documented here as gates and
 not run by `qa-all.bash`** until Plan 00081. Following this document's own "ALWAYS and
 ONLY use `qa-all.bash`" rule, a `helpers/` change earned `✓ QA passed` with its unit

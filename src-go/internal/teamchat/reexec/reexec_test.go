@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -35,6 +36,13 @@ var helpers = Helpers{
 		return 0
 	},
 	"early": func(*Helper) int { return 3 },
+	// skips finds its environment unable to do what it is for, and says so.
+	"skips": func(*Helper) int {
+		if _, err := fmt.Fprintln(os.Stderr, "no mount here"); err != nil {
+			return 2
+		}
+		return ExitSkip
+	},
 	"garbled": func(h *Helper) int {
 		if _, err := io.WriteString(h.out, "hello\n"); err != nil {
 			return 2
@@ -110,6 +118,68 @@ func TestStartInUserNamespaceRunsTheHelperAsItsRoot(t *testing.T) {
 		t.Fatalf("pid %d, this process %d", p.Pid, os.Getpid())
 	}
 	p.Release()
+}
+
+// skipRecorder is a test whose Skipf is recorded and ends the goroutine it is called in, as
+// testing's does.
+type skipRecorder struct {
+	testing.TB
+
+	skipped string
+}
+
+func (r *skipRecorder) Helper() {}
+
+func (r *skipRecorder) Skipf(format string, args ...any) {
+	r.skipped = fmt.Sprintf(format, args...)
+	runtime.Goexit()
+}
+
+// A helper that finds its environment unable to do what it is for (a kernel that allows a user
+// namespace but no mount in it, as an AppArmor-restricted CI runner does) ends its test as a
+// skip that shows what the helper said, as a kernel with no user namespace does.
+func TestAHelperThatCannotDoItsWorkHereSkipsItsTest(t *testing.T) {
+	rec := &skipRecorder{TB: t}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		StartInUserNamespace(rec, "skips")
+		rec.skipped = "the helper was started"
+	}()
+	<-done
+	if strings.Contains(rec.skipped, "no unprivileged user namespace") {
+		t.Skip(rec.skipped)
+	}
+	if !strings.Contains(rec.skipped, "no mount here") || strings.Contains(rec.skipped, "started") {
+		t.Errorf("the test was ended with %q", rec.skipped)
+	}
+}
+
+// Only a helper's own exit ExitSkip is a skip: any other code, a signal and a failure to run
+// are a failure, so a helper that is broken is never taken for an environment that is limited.
+func TestOnlyTheSkipExitIsASkip(t *testing.T) {
+	for name, c := range map[string]struct {
+		end  *exitInfo
+		want bool
+	}{
+		"the skip exit":     {&exitInfo{code: ExitSkip, stderr: "no mount here"}, true},
+		"another exit":      {&exitInfo{code: 3}, false},
+		"the unknown exit":  {&exitInfo{code: unknownHelper}, false},
+		"a signal":          {&exitInfo{code: ExitSkip, signal: syscall.SIGKILL}, false},
+		"a failure to run":  {&exitInfo{code: ExitSkip, err: syscall.EPERM}, false},
+		"no exit code kept": {&exitInfo{}, false},
+	} {
+		said, got := skippedBy(endedEarly("h", c.end))
+		if got != c.want || (got && said != "no mount here") {
+			t.Errorf("%s: skip %v saying %q, want %v", name, got, said, c.want)
+		}
+	}
+	if _, got := skippedBy(errors.New("something else")); got {
+		t.Error("an error that is not an end is a skip")
+	}
+	if _, got := skippedBy(nil); got {
+		t.Error("no error is a skip")
+	}
 }
 
 // A helper that could not start keeps the reason it could not, so a caller can tell a refused
