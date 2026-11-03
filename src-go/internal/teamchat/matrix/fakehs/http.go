@@ -1,6 +1,7 @@
 package fakehs
 
 import (
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -29,8 +30,10 @@ type Request struct {
 }
 
 type webState struct {
-	mu       sync.Mutex
-	addr     string
+	mu   sync.Mutex
+	addr string
+	// tlsCfg is the configuration StartTLS was given; nil for a plain Start.
+	tlsCfg   *tls.Config
 	srv      *http.Server
 	done     chan error
 	closing  bool
@@ -40,7 +43,20 @@ type webState struct {
 
 // Start serves the server over HTTP on 127.0.0.1: at a free port the first time, and at the
 // same address after Stop.
-func (s *Server) Start() error {
+func (s *Server) Start() error { return s.serve(nil) }
+
+// StartTLS is Start with the listener wrapped in cfg, so the server speaks https and URL says so.
+// The configuration comes from the caller, who decides the certificate, the versions and the
+// ciphers the server offers; this package builds none. A Restart keeps it.
+func (s *Server) StartTLS(cfg *tls.Config) error {
+	if cfg == nil {
+		return errors.New("fakehs: StartTLS needs a TLS configuration")
+	}
+	return s.serve(cfg)
+}
+
+// serve listens, wrapped in cfg when it is not nil, and serves.
+func (s *Server) serve(cfg *tls.Config) error {
 	w := &s.web
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -51,11 +67,16 @@ func (s *Server) Start() error {
 	if addr == "" {
 		addr = "127.0.0.1:0"
 	}
-	ln, err := net.Listen("tcp", addr)
+	tcp, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("fakehs: listen: %w", err)
 	}
-	w.addr = ln.Addr().String()
+	ln := tcp
+	if cfg != nil {
+		ln = tls.NewListener(tcp, cfg)
+	}
+	w.addr = tcp.Addr().String()
+	w.tlsCfg = cfg
 	w.srv = &http.Server{Handler: http.HandlerFunc(s.serveHTTP), ReadHeaderTimeout: readHeaderTimeout}
 	w.done = make(chan error, 1)
 	w.closing = false
@@ -69,10 +90,13 @@ func (s *Server) Start() error {
 	return nil
 }
 
-// URL is the base URL Start serves at.
+// URL is the base URL Start or StartTLS serves at.
 func (s *Server) URL() string {
 	s.web.mu.Lock()
 	defer s.web.mu.Unlock()
+	if s.web.tlsCfg != nil {
+		return "https://" + s.web.addr
+	}
 	return "http://" + s.web.addr
 }
 
@@ -106,7 +130,10 @@ func (s *Server) Restart() error {
 		return err
 	}
 	s.resetLoginFailures()
-	return s.Start()
+	s.web.mu.Lock()
+	cfg := s.web.tlsCfg
+	s.web.mu.Unlock()
+	return s.serve(cfg)
 }
 
 // Close stops the server; it is Stop, for a test's cleanup.
