@@ -46,7 +46,9 @@ with regexes over the play text. The idioms recognised are the ones this repo us
   for that module. A bare climb (a `--repo-root` default) is not a read. In a bash file that
   is an input: the file it sources beside itself, and the Go command it builds and runs from
   the checkout (`run_go_tool` / `run_go_command` of scripts/lib/go-tool.bash), whose packages
-  are inputs and whose non-test sources' literals naming checkout paths are too. A path read
+  are inputs and whose non-test sources' literals naming checkout paths are too; and, in a
+  script the play runs (named off a `src:` line), a helper module it runs with `python3 -m`
+  (agent-bus-install's helpers.pingbus.bundle, which packages helper code into a zipapp). A path read
   this way is an input as content: a YAML file read is not walked as a play.
 
 **A reference it cannot follow is reported, never dropped.** A `src:`, `file:`,
@@ -161,6 +163,10 @@ _BASH_SOURCE = re.compile(
 #: The functions of scripts/lib/go-tool.bash and the module each builds `cmd/<name>` of.
 _GO_RUNNERS = {"run_go_tool": "src-go/qa", "run_go_command": "src-go"}
 _BASH_GO_RUN = re.compile(r"\b(" + "|".join(_GO_RUNNERS) + r")\s+([A-Za-z0-9_-]+)")
+#: A YAML line naming the file a copy or template task deploys.
+_SRC_LINE = re.compile(r"^\s*(?:-\s+)?src:")
+#: A helper module a script runs: `python3 [flags] -m helpers.<pkg>[.<module>]`.
+_BASH_HELPER_RUN = re.compile(r"\s-m\s+(helpers(?:\.[A-Za-z_][A-Za-z0-9_]*)+)")
 _GO_STRING = re.compile(r'"((?:[^"\\\n]|\\.)*)"')
 #: A templated tail: one template, then the literal rest of the path, then no more template.
 _TAIL = re.compile(
@@ -397,6 +403,8 @@ class _Walker:
         #: References headed by a variable no file in their context defines, judged once
         #: every file is walked: (where, variable, value).
         self._headed: list[tuple[str, str, str]] = []
+        #: Whether the YAML line being walked is a `src:` line (a file the play copies).
+        self._copying = True
 
     def _is_dir(self, rel: str) -> bool:
         return os.path.isdir(os.path.join(self.root, rel))
@@ -412,7 +420,7 @@ class _Walker:
             if rel.endswith((".yml", ".yaml")) and self._is_file(rel):
                 self.walk_yaml(rel, context="")
             elif self._is_bash(rel):
-                self._walk_bash(rel)
+                self._walk_bash(rel, runs=not self._copying)
         self._maybe_helper_path(rel)
 
     def _add_read(self, rel: str) -> None:
@@ -450,9 +458,12 @@ class _Walker:
         except UnicodeDecodeError:
             return False
 
-    def _walk_bash(self, rel_file: str) -> None:
+    def _walk_bash(self, rel_file: str, *, runs: bool = False) -> None:
         """A bash file's library beside it, and the Go command it builds and runs from the
-        checkout (scripts/lib/go-tool.bash) with the checkout files that command names."""
+        checkout (scripts/lib/go-tool.bash) with the checkout files that command names. When
+        the play runs the script (`runs`), a helper module it runs with `python3 -m` too:
+        agent-bus-install builds the agent-bus zipapp with helpers.pingbus.bundle. A script the
+        play only copies runs its helpers later, live from the checkout, which owes no rerun."""
         with open(os.path.join(self.root, rel_file), encoding="utf-8") as handle:
             text = handle.read()
         for line_no, line in _non_comment_lines(text):
@@ -465,6 +476,9 @@ class _Walker:
                     self.inputs.unresolved.append(f"{rel_file}:{line_no}: {line.strip()}")
             for runner, name in _BASH_GO_RUN.findall(line):
                 self._script_go_command(f"{rel_file}:{line_no}", _GO_RUNNERS[runner], name)
+            if runs:
+                for dotted in _BASH_HELPER_RUN.findall(line):
+                    self._add_dotted(dotted)
 
     def _script_go_command(self, where: str, module: str, name: str) -> None:
         """A Go command a script builds and runs as the play runs: its packages, and the
@@ -611,6 +625,8 @@ class _Walker:
     def finish_templates(self) -> None:
         """Each templated rooted reference: the paths the play text fills it in with, or its
         literal prefix when it cannot say. A resolved path may walk a file with more."""
+        # A templated path is a copy loop's file; a script the play runs is named in full.
+        self._copying = True
         while self._templated:
             rel_file, line_no, literal, tail, shown = self._templated.pop(0)
             paths = self._filled_in(rel_file, line_no, literal, tail)
@@ -914,7 +930,11 @@ class _Walker:
         self._texts[rel_file] = text
         context = context + "\n" + text
         list_key: tuple[str, int] | None = None
+        copying_outer = self._copying
         for line_no, line in _non_comment_lines(text):
+            # A path on a `src:` line is a file the play copies; anywhere else (an argv, a
+            # variable an argv uses) a script there is one the play runs.
+            self._copying = bool(_SRC_LINE.match(line))
             self._rooted(rel_file, line_no, line)
             self._go_line(rel_file, line_no, line)
             for dotted in _HELPER_TOKEN.findall(line):
@@ -934,6 +954,7 @@ class _Walker:
                 list_key = (key, len(indent))
                 continue
             self._classify(rel_file, line_no, key, value, context)
+        self._copying = copying_outer
 
 
 def play_inputs(repo_root: str, play: str) -> Inputs:

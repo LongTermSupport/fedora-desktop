@@ -83,6 +83,9 @@ func resolvePaths(opts options, getenv func(string) string, cwd string) (string,
 }
 
 func newSession(env Env, opts options) (*session, error) {
+	if env.Umask == nil {
+		return nil, errors.New("no umask control is wired into this command")
+	}
 	root, scripts := resolvePaths(opts, env.Getenv, env.Cwd)
 	if info, err := os.Stat(root); err != nil || !info.IsDir() {
 		return nil, fmt.Errorf("root %s is not a directory", root)
@@ -452,6 +455,8 @@ func (s *session) isolation() (gates.Isolation, error) {
 	if err != nil {
 		return gates.Isolation{}, err
 	}
+	// Set once for the process, before its first command: every command inherits it.
+	s.env.Umask(gates.SuiteUmask)
 	iso, err := gates.NewIsolation(s.root, s.scripts, s.env.Getenv("PATH"), scratch)
 	if err != nil {
 		return gates.Isolation{}, fmt.Errorf("cannot isolate the checks from this machine: %w", err)

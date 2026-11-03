@@ -652,6 +652,7 @@ class MemberCommandsTest(AdminTestCase):
         self.assertEqual(lines, [
             "HUMAN\talice\tinvite",
             f"MEMBER\t{self.handle}\tworker\tinvite\tactive",
+            f"LIVE\t{self.handle}\t-",
             f"ROOM\t{ALICE}\treports\tinvite",
             f"ROOM\t{self.user_id}\treports\t-",
         ])

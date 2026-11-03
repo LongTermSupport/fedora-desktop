@@ -50,6 +50,7 @@ const (
 	reclaimPkg   = "internal/reclaim"
 	nordPkg      = "internal/nord"
 	netpolicyPkg = "internal/netpolicy"
+	systemdPkg   = "internal/systemd"
 )
 
 // The functions and the reason the realtime-bound tables repeat.
@@ -73,8 +74,8 @@ var commandOwners = map[string][]string{
 	"tmux":         {"internal/tmuxccy"},
 	"gum":          {"internal/ui"},
 	"fzf":          {"internal/ui"},
-	"systemctl":    {"internal/systemd"},
-	"busctl":       {"internal/systemd", "internal/wsimedia"},
+	"systemctl":    {systemdPkg},
+	"busctl":       {systemdPkg, "internal/wsimedia"},
 	"git":          {"internal/gitx"},
 	"ps":           {sessprobePkg},
 	"podman":       {sessprobePkg, podfreezePkg, reclaimPkg, "internal/ccc", netpolicyPkg},
@@ -352,7 +353,7 @@ func perPass(run func(*analysis.Pass)) func(*analysis.Pass) (any, error) {
 
 // All is every rule, in the order the driver registers them.
 func All() []*analysis.Analyzer {
-	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay, HiddenBindings, PackageTests, RefusalKind, RealTimeBound, EscJoined, DurationOverflow, CommandFailureDropped, SelfErasingClipboard}
+	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay, HiddenBindings, PackageTests, RefusalKind, RealTimeBound, EscJoined, DurationOverflow, CommandFailureDropped, SelfErasingClipboard, LivenessWord}
 }
 
 // ownedBy is whether the package path (the test variants of it included) is owner, matched

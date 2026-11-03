@@ -17,6 +17,12 @@ import (
 // en_GB.UTF-8 sorts "-oc" before "--opencode".
 const SuiteLocale = "C.UTF-8"
 
+// SuiteUmask is the file mode creation mask every row of the table runs under: owner-only (077),
+// the umask of the CCY container and of a host `cc` session, where every suite was written and
+// its recordings made. A CI runner and a plain login run under 022, so a suite comparing the
+// modes of what a program created would otherwise judge the machine.
+const SuiteUmask = 0o077
+
 // osBinDirs are the distribution's own program directories. This repository installs none of
 // its commands there, so a same-named program in one (ImageMagick's convert) is not a copy of
 // one of them and stays reachable.
@@ -29,7 +35,10 @@ var osBinDirs = []string{"/usr/bin", "/bin", "/usr/sbin", "/sbin"}
 //   - no exported bash function (Fedora exports `which`), BASH_ENV or ENV reaches a suite;
 //   - a PATH directory holding a command this repository ships (ShippedCommands) is replaced by
 //     a stand-in holding everything else in it, so a suite finds the checkout's copy it put on
-//     PATH itself, or nothing: never one a play installed on this machine.
+//     PATH itself, or nothing: never one a play installed on this machine;
+//   - the umask is SuiteUmask. A umask belongs to the process, not to a command's environment,
+//     so the runner sets it once for itself before its first command (its Env.Umask), and
+//     every command inherits it.
 //
 // HOME is left alone: the suites give the program under test a scratch HOME themselves, and the
 // tools they run (go, semgrep) keep their caches in the real one.

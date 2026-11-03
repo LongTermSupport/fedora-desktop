@@ -165,6 +165,7 @@ JSON to merge. Any one of them fails the run, and the gates after it still run:
 | `test-bash-history-session.bash`            | with the Ctrl+R search bound, up-arrow offers only the current terminal's commands while each is still appended once to the shared file, including a session whose prompt hook was replaced and which ends by `exit`; without it (no fzf), the whole file is loaded for stock Ctrl+R. Real interactive shells, rc-file started, run as a normal user (Plan 00138)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `test-terminal-modes.bash`                  | the prompt hook that switches stray terminal modes off, on a real pseudo-terminal: the exact sequence at the prompt, nothing on a pipe or for `TERM=dumb`, nothing that clears or swaps the screen, `$?` unchanged for later prompt hooks, added once when sourced twice, bracketed paste re-enabled by readline afterwards                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `test-fedora-desktop-health.bash`           | the on-demand report command: a sentence on a clean host, `--hold` released by Enter or EOF, a missing checkout named without a traceback (Plan 00136)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `test-randfile.bash`                        | `randfile`: one random regular, non-hidden top-level file of a directory (the current one by default) on stdout; an empty or missing directory and a usage error fail with nothing on stdout, so `open "$(randfile)"` never opens a wrong path                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `test-qa-ansible-failfast.bash`             | the fail-fast directive pattern, through the built Go `qa-ansible` tool over one-line fixture trees (quoted values included)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `test-qa-changed.bash`                      | `qa-changed.bash`'s file-to-check mapping through its `--plan` mode, its git collection (modified, untracked, ignored, deleted, `--base`) in a scratch repository, and its command line and exit codes; `QA_CHANGED_BIN=<binary>` runs the same cases against a built binary                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `test-qa-docs-exit-codes.bash`              | `qa-docs.bash`'s three exit codes, driven against fixture trees — a crash must never read as clean                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
@@ -194,6 +195,11 @@ guard — green here, red in CI. **When adding a suite, add a row to
 `scripts/qa-gates.tsv` first; CI runs `qa-all.bash`, so a separate CI step is a divergence, not a
 belt-and-braces.** `scripts/test-ccy-ssh-probe.bash` is deliberately not a gate:
 it needs a real host and a `gh` token, so it is a host diagnostic.
+
+**Merge F44 into a branch before pushing it.** CI's first job, "contains the default branch",
+fails a pushed branch in seconds when `origin/F44` is not an ancestor of it, and `qa-all.bash`
+waits on that job: the full suite never runs on a tree missing fixes already on F44, where it
+would only fail on them. Pull requests, tags and F44 itself pass straight through.
 
 ### The same command does not reach the same verdict everywhere
 
@@ -1797,7 +1803,8 @@ naming an existing checkout path (a path with a `/`, or a dot-file of the root),
 own package or not, must be an input. In every bash file that is an exact input, a `source` of a file beside
 the script must be an input, and a `run_go_tool` / `run_go_command` (`scripts/lib/go-tool.bash`)
 must be one of the play's Go builds, whose packages' literals naming checkout paths must be
-inputs too. Not judged: a bare climb from `__file__` to a directory (`--repo-root`'s default),
+inputs too. In a bash file the play runs (named on a line of its YAML that is not a `src:`), a
+helper module it runs with `python3 -m` must be an input. Not judged: a bare climb from `__file__` to a directory (`--repo-root`'s default),
 a source of a host path or a runtime variable, the literals of a Go command a play installs
 (it reads the checkout, if at all, live when it runs), and a literal listed for its module in
 `helpers/self_update/affected_plays.NOT_PLAY_INPUTS`. Run by `tests/helpers/self_update/test_program_read_rule.py` (in
@@ -1807,7 +1814,10 @@ a source of a host path or a runtime variable, the literals of a Go command a pl
 through `__file__`, so `play-github-cli-multi.yml` never ran again when the required scopes
 changed; `scripts/qa-toolchain.bash`, run by `play-python.yml`, builds and runs a Go tool that
 reads `src-go/go.mod`, and neither the library it sources nor the tool was an input (Plan 00192
-Task 3.7). Found and defended under Defence Before Fix.
+Task 3.7). `play-agent-bus.yml` runs `agent-bus-install`, which builds the agent-bus zipapp from
+`helpers/agent_bus` with `python3 -m helpers.pingbus.bundle`, so a change to the bus's code never
+made the play changed and the host kept the old zipapp (Plan 00177). Found and defended under
+Defence Before Fix.
 
 **How to fix a finding.** Teach the mapper the form, so it counts the read or reports it
 UNRESOLVED. A literal that is not a read of the checkout (named in a message, relative to another
@@ -1820,7 +1830,8 @@ modules because some modules are baked into the ccy image, where an edit costs a
 **What it is.** A host play whose helper Python inputs are not exactly the helper modules it
 runs. The rule computes, with its own code (`ast`), the modules a play can execute: the modules
 its YAML files name as `helpers.<pkg>.<module>` or as a rooted `{{ root_dir }}/helpers/...` path
-(a directory is every module in it), then, transitively, every `import` and `from ... import`
+(a directory is every module in it), and the modules a bash script the play runs (a rooted path
+off a `src:` line) runs with `python3 -m`, then, transitively, every `import` and `from ... import`
 anywhere in each module (relative ones too), every `helpers.x.y` and every `helpers/...` checkout
 path a non-docstring string in it names (a child's `-m` argv, a directory a module packages). A
 helper file `helpers/self_update/affected_plays.play_inputs` counts that this does not reach is a
@@ -1851,7 +1862,11 @@ shipped commands are the rows of `scripts/go-binary-suites.tsv` and the files of
 `files/home/.local/bin`. A suite therefore finds the checkout's copy it put on PATH itself, or
 nothing, and never a copy a play installed. The distribution's own directories (`/usr/bin`,
 `/bin`, `/usr/sbin`, `/sbin`) are kept, because no play installs a shipped command there.
-`HOME` is kept, because the suites give the program under test a scratch `HOME`, and go and
+Every command runs under the umask `077` (`gates.SuiteUmask`), the CCY container's and a host
+`cc` session's, under which the suites were written and recorded, whatever umask started the
+run: a umask is the process's, so each runner sets its own before its first
+command (`Env.Umask`, `syscall.Umask` in its `main`; a run without one is refused) and every
+command inherits it. `HOME` is kept, because the suites give the program under test a scratch `HOME`, and go and
 semgrep keep their caches in the real one. The guard is a test of each runner over the real
 table or a run world, on a machine with an installed `ccy-token-usable` on PATH:
 `TestSuiteEnvIsolated*` in `src-go/qa/all` and `src-go/qa/changed`. Its findings start with
@@ -1870,6 +1885,13 @@ The verdict was a property of the machine, not of the code. A static rule over t
 see an unpinned `sort`, but it could not see which PATH directory a lookup reaches or what
 exported function a child inherits. The runner is the one place all three dimensions can be
 fixed and checked. Found and defended under Defence Before Fix.
+
+The umask was the fourth dimension. The ccy launcher's differential goldens record the mode of
+every file the launcher creates, which its umask decides. They were recorded in a CCY container
+(umask `077`), so the GitHub runner (`022`) failed `TestFrontParity` in every scenario. The
+goldens stay as recorded: the runner pins the umask they were recorded under, and the suite
+pins it itself as well (`TestMain` in `src-go/internal/ccylaunch/difftest`), so a direct
+`go test` agrees with QA.
 
 **How to fix a finding.** Run the command through the session's seam: `exec` in `qa/all`,
 `runCmd` in `qa/changed`. Both apply the isolation, so never build a `proc.Cmd` that bypasses

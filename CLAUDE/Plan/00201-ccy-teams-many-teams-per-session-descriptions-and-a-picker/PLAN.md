@@ -103,10 +103,9 @@ a repository is no longer offered for a checkout of it. Report:
   pass; the consent No/Yes is the owner's (`~/.config/pingbus/element-accepted` is outside the
   repository). Step 05's doc text `👥 A,B` is out of date (the line names each seat): Task 2.29.
   Host, 27-10-27 at F44 fe894347c, on chooser-teams-up's teams: 01-04, 10, 12 and 13 PASS
-  (Tasks 2.28 and 2.29). Left: check 11 (Task 2.12). Its text half (what ccy-teams offers
-  and says, on a test human in a private tmux) is the host agent's. The top-bar menu and the
-  copy with Clipboard Indicator off are the owner's: they need a look at the owner's desktop,
-  which the owner does not allow agents to screenshot, and they change its live clipboard.
+  (Tasks 2.28 and 2.29). Check 11 (Task 2.12) passed on the host on 2026-11-02 and the owner
+  closed it; the top-bar menu by screenshot was not taken (the owner does not allow agents to
+  screenshot the desktop).
   Text half PASS on the host 2026-10-31 (`$cAliy4G0eBAgaT2zeWaPXVZtBBNSfD6Ze6LwuUuhahU`), on
   the throwaway chooser201a's test human: with Clipboard Indicator on, no copy is offered,
   the line says why, and the password is shown to type, once. The test human had never
@@ -137,7 +136,7 @@ a repository is no longer offered for a checkout of it. Report:
 
 - [x] ✅ **Task 2.11**: the client-side security audit findings (CCY 3.98.10); carried by Plan 00209. [Full text](DONE-tasks.md).
 
-- [ ] 🔄 **Task 2.12**: the final release security review's findings
+- [x] ✅ **Task 2.12**: the final release security review's findings
   (`subagent-reports/261015-final-release-security-fable.md`), branch `fix/teams-final-review`,
   CCY 3.98.11 / container 2.66 / plugin 1.2.3. S1: no clipboard offer while Clipboard Indicator
   is on (it honours no password hint), said in one line; Limits and the owner's check 11. N1:
@@ -158,9 +157,13 @@ a repository is no longer offered for a checkout of it. Report:
   may still be there. The sign-in block's "Homeserver unknown (not declared)" (the 2026-10-31
   note) is a defect, fixed test first in its own commit: it names what the team lacks (not
   declared present, no port, or no listen address and no `agent_bus_address`) and no longer
-  says the Element profile has the homeserver. Left: check 11 again on the host (cleared, left alone,
-  and whether GNOME still serves the password after `wl-copy --clear`). Report:
-  `subagent-reports/261102-clipboard-paste-once.md`.
+  says the Element profile has the homeserver. Report:
+  `subagent-reports/261102-clipboard-paste-once.md`. Host re-check at F44 b83158ca8 (deploy
+  rc=0, 2026-11-02): with the indicator off, paste once and Enter leave the clipboard at 0 bytes,
+  and ccy-teams says it was cleared and that GNOME or a clipboard history may keep a copy; the
+  homeserver line names what the team lacks. The "left alone" variant was not run: the owner
+  judged the clipboard checks have had enough attention, and closed check 11 on this result.
+  Noted, not chased: an Enter about 2 s after "Yes, copy" was dropped; a later one worked.
   Plan 00209 carries this as an expectation ("Requirements carried from other plans").
 
 - [x] ✅ **Task 2.13**: the Morning start dry run's ccy-teams defects. [Full text](DONE-tasks.md).

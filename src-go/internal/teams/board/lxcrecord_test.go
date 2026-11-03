@@ -59,7 +59,7 @@ func TestAJoinedMemberWhoseContainerWasStoppedSaysSo(t *testing.T) {
 	h := populated(t)
 	writeLxcRecord(t, h, lxcRecordAlpha)
 	row := onlyRowOf(t, collectRows(t, h), "proj.box+role.lxc")
-	if row.State != "active" || row.Where != "ops, container stopped at the last apply" {
+	if row.State != "not listening" || row.Where != "ops, container stopped at the last apply" {
 		t.Fatalf("row %+v", row)
 	}
 }

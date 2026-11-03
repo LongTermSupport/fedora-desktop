@@ -134,7 +134,7 @@ func TestAPlanOrANothingChangedRunTakesNoLock(t *testing.T) {
 func TestARunWithNoLockWiredIsRefused(t *testing.T) {
 	w := newRunWorld(t)
 	w.changeKept()
-	env := Env{Getenv: func(string) string { return "" }, Stdout: &w.out, Stderr: &w.errOut, Runner: w.runner, LookPath: func(string) error { return nil }}
+	env := Env{Getenv: func(string) string { return "" }, Stdout: &w.out, Stderr: &w.errOut, Runner: w.runner, LookPath: func(string) error { return nil }, Umask: keepUmask}
 	if code := Main(context.Background(), []string{"--scripts", w.scripts, "--root", w.root}, env); code != ExitCannotRun {
 		t.Fatalf("exit %d", code)
 	}

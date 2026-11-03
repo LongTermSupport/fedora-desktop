@@ -14,8 +14,8 @@ var ansi = regexp.MustCompile("\x1b\\[[0-9;]*m")
 func TestWordColour(t *testing.T) {
 	cases := map[string]string{
 		"free": cYellow, "invited": cYellow, "no": cYellow, "parked": cYellow,
-		"never signed in": cYellow, "alpha-1(stopped)": cYellow,
-		"up": cGreen, "active": cGreen, "held": cGreen, "in room": cGreen, "yes": cGreen, "2 signed in": cGreen,
+		"never signed in": cYellow, "alpha-1(stopped)": cYellow, "stale": cYellow, "not listening": cYellow,
+		"up": cGreen, "listening": cGreen, "active": "", "held": cGreen, "in room": cGreen, "yes": cGreen, "2 signed in": cGreen,
 		"out of date": cYellow, "out of date: config": cYellow, "not built": cYellow,
 		"up to date":      cGreen,
 		"down (inactive)": cRed, "not installed": cRed, "not in room": cRed, "unknown": cRed,
@@ -35,7 +35,7 @@ func sample() []Row {
 	return []Row{
 		{Team: "alpha", Member: "Builds the site", Kind: KindTeam, State: "up", Applied: "up to date", Session: "-", Restore: "-", Where: "port 6167", Handle: "-", Dir: "-"},
 		{
-			Team: "alpha", Member: "1", Kind: KindCcy, State: "active", Applied: "-", Session: "ccy-proj", Restore: "yes", Where: "~/proj",
+			Team: "alpha", Member: "1", Kind: KindCcy, State: "listening", Applied: "-", Session: "ccy-proj", Restore: "yes", Where: "~/proj",
 			Handle: "a-rather-long-repository-name.1+build-host.podman", Dir: "/proj", Role: "coordinator",
 		},
 		{
