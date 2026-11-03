@@ -1,8 +1,9 @@
 # Task 8.2: the G304 and G101 exclusions fixed in code
 
-Status: PARTIAL. The first builder stopped at its context budget with the work below committed
-(see `git log` on the branch). What is left is listed under "Left to do"; the final commands and
-results are filled in when it is done.
+Status: part 1 of 2. The first builder stopped at its context budget with the work below
+committed. The rows marked LEFT and the "Left to do" list were finished in part 2, whose report
+is `CLAUDE/Plan/00244-agent-bus-v2-landing-and-cross-network/subagent-reports/261103-gosec-fix-2.md`
+(with the final commands and results, and the sites that are quiet without being bounded).
 
 The owner's decision on pull request 124: fix every G304 site in code, do not record it; if one
 cannot be fixed, say why in the pull request. The same was applied to the one G101 exclusion on

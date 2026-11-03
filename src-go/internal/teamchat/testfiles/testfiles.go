@@ -4,7 +4,7 @@
 // that leads out) is refused instead of opened. A test holds the full path of what it made more
 // often than a relative name, so a name may also be a full path under the directory.
 //
-// The helpers end the test on a failure. They hand back an open file for the caller to close:
+// The helpers end the test on a failure, except Try. They hand back an open file for the caller to close:
 // the caller already says when, and some tests hand the file to code that closes it.
 package testfiles
 
@@ -38,6 +38,10 @@ func Find(tb testing.TB, dir, name string) ([]byte, bool) {
 	}
 	return data, true
 }
+
+// Try is Read, except that it never ends the test: for a diagnostic that reports a file, or why
+// it cannot be read.
+func Try(dir, name string) ([]byte, error) { return readIn(dir, name) }
 
 // Open is name beneath dir, open for reading.
 func Open(tb testing.TB, dir, name string) *os.File {

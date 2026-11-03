@@ -197,7 +197,7 @@ func TestAbsentGuestStepFailures(t *testing.T) {
 
 func TestAbsentWrongUIDFailsTheMember(t *testing.T) {
 	w := leaving(t)
-	writeTree(t, w.lxc.boxes["c1"].dir, map[string]string{"etc/passwd": "root:x:0:0:root:/root:/bin/bash\nagent1:x:1000:1000::/srv/agent1:/bin/bash\n"})
+	writeTree(t, w.lxc.boxes["c1"].dir, map[string]string{guestUsersFile: "root:x:0:0:root:/root:/bin/bash\nagent1:x:1000:1000::/srv/agent1:/bin/bash\n"})
 	_, err := w.apply(PhaseAbsent)
 	failedAt(t, err, "reads")
 }
@@ -205,7 +205,7 @@ func TestAbsentWrongUIDFailsTheMember(t *testing.T) {
 func TestAbsentDeletedUserIsCleanedUp(t *testing.T) {
 	w := leaving(t)
 	b := w.lxc.boxes["c1"]
-	writeTree(t, b.dir, map[string]string{"etc/passwd": "root:x:0:0:root:/root:/bin/bash\n"})
+	writeTree(t, b.dir, map[string]string{guestUsersFile: "root:x:0:0:root:/root:/bin/bash\n"})
 	if _, err := w.apply(PhaseAbsent); err != nil {
 		t.Fatal(err)
 	}

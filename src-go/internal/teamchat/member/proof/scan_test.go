@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
 )
 
 // otherUID owns the files and directories planted as another user's.
@@ -40,11 +42,11 @@ func transcript(t *testing.T, content string) string {
 	return path
 }
 
+// appendTo appends content to a file the test made in a directory of its own.
 func appendTo(t *testing.T, path, content string) {
 	t.Helper()
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
-	check(t, err)
-	_, err = f.WriteString(content)
+	f := testfiles.OpenFile(t, filepath.Dir(path), filepath.Base(path), os.O_WRONLY|os.O_APPEND, 0)
+	_, err := f.WriteString(content)
 	check(t, errors.Join(err, f.Close()))
 }
 
